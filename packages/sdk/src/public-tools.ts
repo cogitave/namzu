@@ -55,8 +55,10 @@ export {
 	findCommandShell,
 	findCommandShellForDialect,
 	hostCommandShell,
+	describeSpawnFailure,
 	hostShellSpawn,
 	installedCommandShellForDialect,
+	spawnHostShell,
 	withoutBashStartup,
 } from './tools/command-shell.js'
 export { ReadFileTool } from './tools/builtins/read-file.js'

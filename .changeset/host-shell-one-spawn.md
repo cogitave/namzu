@@ -1,0 +1,5 @@
+---
+'@namzu/sdk': minor
+---
+
+On Windows, `bash` with `run_in_background` now runs the command: before, the job registry spawned `/bin/sh`, which does not exist there, so every background job ended within milliseconds with no output and no explanation. Background jobs, foreground `bash` calls and plugin shell hooks now share one spawn (`spawnHostShell`, newly exported). A command that cannot be started is reported as "Could not start the command: <reason>" (and as `failed to start` by `job` and `wait_for_job`, with an `error` field) rather than as a plain exit, and Windows console output is decoded in its OEM code page instead of garbled as UTF-8. On Windows the command now runs under UTF-8 (an outer `cmd` sets code page 65001 and starts the real one with the command in the environment), so letters the OEM page lacks, such as `ğ` and `ş`, are no longer flattened to `g` and `s`, and a missing working directory is reported as such. Nothing to change on upgrade; `BackgroundJob`, `BackgroundJobOutput` and the job tool results gain an optional `error`.

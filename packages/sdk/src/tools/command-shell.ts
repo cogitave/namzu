@@ -34,7 +34,8 @@
  * `NAMZU_BASH_SHELL=/bin/sh` restores the old shell exactly.
  */
 
-import { constants, accessSync } from 'node:fs'
+import { type ChildProcess, type SpawnOptions, spawn as nodeSpawn } from 'node:child_process'
+import { constants, accessSync, existsSync } from 'node:fs'
 import { delimiter, isAbsolute, join } from 'node:path'
 
 import type { ShellDialect } from '../types/tool/index.js'
@@ -180,6 +181,123 @@ export function hostShellSpawn(
 	if (shell.path === undefined) return { file: undefined, args: [command], env }
 	if (shell.dialect !== 'bash') return { file: shell.path, args: ['-c', command], env }
 	return { file: shell.path, args: ['-c', command], env: withoutBashStartup(env) }
+}
+
+/** Why a command could not be started, in the words a model or operator reads. */
+export function describeSpawnFailure(error: unknown, cwd?: string): string {
+	// Node reports a missing working directory as ENOENT on the shell's own
+	// path ("spawn C:\Windows\system32\cmd.exe ENOENT"), which sends the reader
+	// looking for a missing shell. Say what is actually missing.
+	if (
+		cwd !== undefined &&
+		(error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT' &&
+		!existsSync(cwd)
+	) {
+		return `Could not start the command: the working directory does not exist: ${cwd}`
+	}
+	const detail = error instanceof Error ? error.message : String(error)
+	return `Could not start the command: ${detail}`
+}
+
+/** Environment variable that carries the command line into the inner cmd. */
+const WINDOWS_COMMAND_VARIABLE = 'NAMZU_HOST_COMMAND'
+const WINDOWS_SHELL_VARIABLE = 'NAMZU_HOST_COMSPEC'
+
+/**
+ * The spawn for one command line under cmd on Windows: the outer cmd's file,
+ * its arguments and the environment that carries the command.
+ *
+ * A bare `cmd /d /s /c <command>` converts the command line to the console's
+ * OEM code page before it runs anything, so letters that page lacks arrive
+ * as their nearest ASCII look-alike (g-breve as `g`, s-cedilla as `s` on
+ * CP850) and are gone before the command writes a byte. `chcp` inside the
+ * same line is too late: the line is already converted. So the outer cmd
+ * only switches the console to UTF-8 and starts a second cmd, and the
+ * command travels in the environment, which is Unicode and never converted.
+ * The outer cmd reads it with delayed expansion (`!NAME!`), which happens
+ * after its line is parsed, so quotes, `&`, `|` and `>` in the command are
+ * inert there and reach the second cmd as the line it was given: quoting,
+ * `%` and redirection mean what they meant before, and its exit code is the
+ * command's. Neither cmd is looked up on PATH, so a `cmd.exe` in the
+ * working directory is never picked up.
+ */
+function windowsCmdSpawn(
+	command: string,
+	env: NodeJS.ProcessEnv,
+): {
+	readonly file: string
+	readonly args: readonly string[]
+	readonly env: NodeJS.ProcessEnv
+} {
+	const lookup = (name: string): string | undefined => {
+		const key = Object.keys(env).find((k) => k.toLowerCase() === name.toLowerCase())
+		return key === undefined ? undefined : env[key]
+	}
+	const comspec =
+		lookup('ComSpec') ??
+		`${lookup('SystemRoot') ?? process.env.SystemRoot ?? 'C:\\Windows'}\\System32\\cmd.exe`
+	return {
+		file: comspec,
+		// Passed verbatim: Node must not re-quote the line, whose outer quotes
+		// `/s` strips.
+		args: [
+			'/d',
+			'/v:on',
+			'/s',
+			'/c',
+			`"chcp 65001>nul & "!${WINDOWS_SHELL_VARIABLE}!" /d /s /c "!${WINDOWS_COMMAND_VARIABLE}!""`,
+		],
+		env: { ...env, [WINDOWS_SHELL_VARIABLE]: comspec, [WINDOWS_COMMAND_VARIABLE]: command },
+	}
+}
+
+/**
+ * Start one command on the host, in the shell {@link hostCommandShell} chose.
+ *
+ * The ONE place that knows what Windows needs: with no shell path (cmd), Node
+ * itself must run the line (`cmd.exe /d /s /c`, see `windowsCmdSpawn`);
+ * everywhere else it is `<shell> -c <command>`. The foreground `bash` tool,
+ * the background job registry and plugin hooks all spawn through here, so
+ * they cannot diverge: the registry once spawned `/bin/sh` on Windows while
+ * the foreground tool did not, and every background job died at once with no
+ * message.
+ *
+ * - On Windows the line runs under UTF-8 (see `windowsCmdSpawn`).
+ * - `detached` (own process group, for `killTree`) is POSIX only; on Windows
+ *   it opens a new console window instead.
+ * - `windowsHide` keeps a GUI host from flashing a console per command.
+ */
+export function spawnHostShell(
+	command: string,
+	options: {
+		readonly cwd: string
+		readonly env: NodeJS.ProcessEnv
+		readonly stdio?: SpawnOptions['stdio']
+		/** Default: true off Windows. */
+		readonly detached?: boolean
+		readonly shell?: CommandShell
+		/** For tests: the platform the options are shaped for. */
+		readonly platform?: NodeJS.Platform
+		/** For tests: the spawn that runs it. */
+		readonly spawnImpl?: typeof nodeSpawn
+	},
+): ChildProcess {
+	const spawnFn = options.spawnImpl ?? nodeSpawn
+	const resolved = hostShellSpawn(command, options.env, options.shell)
+	const common: SpawnOptions = {
+		cwd: options.cwd,
+		env: resolved.env,
+		detached: options.detached ?? (options.platform ?? process.platform) !== 'win32',
+		windowsHide: true,
+		...(options.stdio === undefined ? {} : { stdio: options.stdio }),
+	}
+	if (resolved.file !== undefined) return spawnFn(resolved.file, [...resolved.args], common)
+	const windows = windowsCmdSpawn(command, resolved.env)
+	return spawnFn(windows.file, [...windows.args], {
+		...common,
+		env: windows.env,
+		windowsVerbatimArguments: true,
+	})
 }
 
 export function withoutBashStartup<T extends Readonly<Record<string, string | undefined>>>(

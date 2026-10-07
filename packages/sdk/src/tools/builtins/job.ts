@@ -113,7 +113,9 @@ export const JobTool = defineTool({
 			const status =
 				read.status === 'running'
 					? 'still running'
-					: `${read.status}${read.exitCode === undefined ? '' : ` with code ${read.exitCode}`}`
+					: read.error !== undefined
+						? `failed to start: ${read.error}`
+						: `${read.status}${read.exitCode === undefined ? '' : ` with code ${read.exitCode}`}`
 
 			return {
 				success: true,
@@ -124,6 +126,7 @@ export const JobTool = defineTool({
 					nextOffset: read.nextOffset,
 					droppedBytes: read.droppedBytes,
 					...(read.exitCode === undefined ? {} : { exitCode: read.exitCode }),
+					...(read.error === undefined ? {} : { error: read.error }),
 				},
 			}
 		} catch (err) {

@@ -2,6 +2,7 @@
 
 ## 2026-10-07
 
+- **Update** [Background jobs](cli/background-jobs.md#a-job-that-cannot-start) and the [bash tool](sdk/bash-tool.md) now start host commands through one shared `spawnHostShell`, so a background job on Windows runs in cmd exactly as a foreground command does instead of dying at once with no output; a job that cannot start reports why, and Windows console output is decoded in its code page. Windows commands now run under UTF-8 (the command travels in the environment to an inner cmd), so `echo çğıöşü` keeps every letter, and a missing working directory is named in the failure message.
 - **Update** [Desktop file panel](cli/desktop.md#files-beside-a-conversation): files hidden by ignore rules are no longer readable or linkable by exact path, the project index is bounded inside one folder, Program Files editor installs are found, and the panel's tabs, filter and separator expose keyboard and screen-reader semantics
 - **Update** The [Desktop](cli/desktop.md) host gains `namzu/conversations/archived` and `namzu/conversations/unarchive`, listing a project's archived conversations and restoring one under folder trust and the same ownership check as the other conversation methods.
 - **Update** The [Desktop](cli/desktop.md) effort slider's filled track is now a WebGL2 ordered-dither surface in the accent ramp, with shimmer, sparkles and a bloom that grow with the level, and the CSS fill as fallback.

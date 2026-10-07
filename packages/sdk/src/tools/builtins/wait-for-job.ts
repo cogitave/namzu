@@ -176,9 +176,11 @@ export const WaitForJobTool = defineTool({
 						: []),
 				]
 				const status =
-					outcome.exitCode === undefined
-						? outcome.status
-						: `${outcome.status} with code ${outcome.exitCode}`
+					outcome.error !== undefined
+						? `failed to start: ${outcome.error}`
+						: outcome.exitCode === undefined
+							? outcome.status
+							: `${outcome.status} with code ${outcome.exitCode}`
 				const reason =
 					outcome.kind === 'matched'
 						? `Output marker observed on ${outcome.matchedStream}. This is output evidence, not a health check or completion claim.`
@@ -204,6 +206,7 @@ export const WaitForJobTool = defineTool({
 						...(outcome.kind === 'timeout' ? { timedOut: outcome.cause } : {}),
 						...(outcome.kind === 'aborted' ? { abandoned: true } : {}),
 						...(outcome.exitCode === undefined ? {} : { exitCode: outcome.exitCode }),
+						...(outcome.error === undefined ? {} : { error: outcome.error }),
 					},
 				}
 			} catch (err) {
@@ -281,9 +284,11 @@ export const WaitForJobTool = defineTool({
 		}
 
 		const status =
-			outcome.exitCode === undefined
-				? outcome.status
-				: `${outcome.status} with code ${outcome.exitCode}`
+			outcome.error !== undefined
+				? `failed to start: ${outcome.error}`
+				: outcome.exitCode === undefined
+					? outcome.status
+					: `${outcome.status} with code ${outcome.exitCode}`
 
 		return {
 			success: true,
@@ -295,6 +300,7 @@ export const WaitForJobTool = defineTool({
 				droppedBytes: outcome.droppedBytes,
 				omittedOutputBytes: outcome.omittedOutputBytes,
 				...(outcome.exitCode === undefined ? {} : { exitCode: outcome.exitCode }),
+				...(outcome.error === undefined ? {} : { error: outcome.error }),
 			},
 		}
 	},

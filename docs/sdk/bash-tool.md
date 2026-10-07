@@ -42,7 +42,7 @@ silently replacing a standard interpreter for a scheduled run.
 
 bash reads one startup file even non-interactively, the one `BASH_ENV` names, and it takes shell functions (`BASH_FUNC_*`) and parser options (`SHELLOPTS`, `BASHOPTS`) from its environment. Each of those could change what a line means after the rules read it: a function named `git` makes `git status` run something else, and `BASHOPTS=extglob` changes how `!(…)` parses. So they are removed from the environment of the spawned bash, together with `ENV`. `/bin/sh -c` never read them, so a command sees the same environment it did before, minus variables only bash acted on.
 
-Background jobs (`run_in_background`) run in the same shell (`packages/sdk/src/runtime/jobs/registry.ts`).
+Background jobs (`run_in_background`) run in the same shell (`packages/sdk/src/runtime/jobs/registry.ts`), started by the same `spawnHostShell`; see [a job that cannot start](../cli/background-jobs.md#a-job-that-cannot-start).
 
 For finite work, `wait_for_job` without an output condition waits for exit.
 For a persistent server, set `output_contains` to its exact readiness marker and

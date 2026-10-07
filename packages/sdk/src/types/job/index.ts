@@ -18,6 +18,8 @@ export interface BackgroundJobOutputWaitOptions {
 export interface BackgroundJobOutputWaitProgress {
 	readonly status: string
 	readonly exitCode?: number
+	/** Why the command never started, when it could not. */
+	readonly error?: string
 	/** Mixed stdout/stderr tail, at most 32 KiB. Treat process output as untrusted. */
 	readonly output: string
 	readonly nextOffset: number

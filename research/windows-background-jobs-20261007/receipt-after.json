@@ -1,0 +1,201 @@
+{
+  "label": "after",
+  "sdkIndex": "C:\\Users\\Arda\\AppData\\Local\\Temp\\namzu-bgjob-trial-12964\\sdk-new\\dist\\index.js",
+  "node": "v22.20.0",
+  "cases": {
+    "1-ping6": {
+      "command": "ping -n 6 127.0.0.1",
+      "startedStatus": "running",
+      "awaitStarted": {},
+      "elapsedMs": 5111,
+      "status": "exited",
+      "exitCode": 0,
+      "firstOutputMs": 298,
+      "output": "\r\nPinging 127.0.0.1 with 32 bytes of data:\r\nReply from 127.0.0.1: bytes=32 time<1ms TTL=128\r\nReply from 127.0.0.1: bytes=32 time<1ms TTL=128\r\nReply from 127.0.0.1: bytes=32 time<1ms TTL=128\r\nReply from 127.0.0.1: bytes=32 time<1ms TTL=128\r\nReply from 127.0.0.1: bytes=32 time<1ms TTL=128\r\nReply from 127.0.0.1: bytes=32 time<1ms TTL=128\r\n\r\nPing statistics for 127.0.0.1:\r\n    Packets: Sent = 6, Received = 6, Lost = 0 (0% loss),\r\nApproximate round trip times in milli-seconds:\r\n    Minimum = 0ms, Maximum = 0ms, Average = 0ms\r\n",
+      "chunkTimes": [
+        298,
+        1328,
+        2121,
+        3165,
+        4221,
+        5111
+      ]
+    },
+    "2-forloop": {
+      "command": "for /l %i in (1,1,5) do @(echo Adim %i/5 tamamlandi & ping -n 3 127.0.0.1 >nul)",
+      "startedStatus": "running",
+      "awaitStarted": {},
+      "elapsedMs": 10174,
+      "status": "exited",
+      "exitCode": 0,
+      "firstOutputMs": 272,
+      "output": "Adim 1/5 tamamlandi \r\nAdim 2/5 tamamlandi \r\nAdim 3/5 tamamlandi \r\nAdim 4/5 tamamlandi \r\nAdim 5/5 tamamlandi \r\n",
+      "chunkTimes": [
+        272,
+        2324,
+        4110,
+        6173,
+        8263
+      ]
+    },
+    "3-redirect": {
+      "command": "cmd /c \"for /l %i in (1,1,3) do @(echo Adim %i/3 & ping -n 2 127.0.0.1 >nul)\" > bg-demo.txt 2>&1",
+      "startedStatus": "running",
+      "awaitStarted": {},
+      "elapsedMs": 3101,
+      "status": "exited",
+      "exitCode": 0,
+      "firstOutputMs": null,
+      "output": "",
+      "chunkTimes": [],
+      "fileExists": true,
+      "fileContent": "Adim 1/3 \r\nAdim 2/3 \r\nAdim 3/3 \r\n"
+    },
+    "4-powershell": {
+      "command": "powershell -NoProfile -Command \"foreach($i in 1..3){Write-Output ('tick '+$i); Start-Sleep -Seconds 1}\"",
+      "startedStatus": "running",
+      "awaitStarted": {},
+      "elapsedMs": 3241,
+      "status": "exited",
+      "exitCode": 0,
+      "firstOutputMs": 259,
+      "output": "tick 1\r\ntick 2\r\ntick 3\r\n",
+      "chunkTimes": [
+        259,
+        1269,
+        2292
+      ]
+    },
+    "5-kill": {
+      "command": "ping -n 60 127.0.0.1",
+      "startedStatus": "running",
+      "awaitStarted": {},
+      "pingsBefore": 1,
+      "statusAt3s": "running",
+      "pingsRunning": 1,
+      "pingsAfter": 0,
+      "elapsedMs": 5081,
+      "status": "killed",
+      "exitCode": 1,
+      "firstOutputMs": 3307,
+      "output": "\r\nPinging 127.0.0.1 with 32 bytes of data:\r\nReply from 127.0.0.1: bytes=32 time<1ms TTL=128\r\nReply from 127.0.0.1: bytes=32 time<1ms TTL=128\r\nReply from 127.0.0.1: bytes=32 time<1ms TTL=128\r\nReply from 127.0.0.1: bytes=32 time<1ms TTL=128\r\n",
+      "chunkTimes": [
+        3307
+      ]
+    },
+    "6-nonexistent": {
+      "command": "definitely-not-a-real-exe-xyz --flag",
+      "startedStatus": "running",
+      "awaitStarted": {},
+      "elapsedMs": 39,
+      "status": "exited",
+      "exitCode": 1,
+      "firstOutputMs": 39,
+      "output": "'definitely-not-a-real-exe-xyz' is not recognized as an internal or external command,\r\noperable program or batch file.\r\n",
+      "chunkTimes": [
+        39
+      ]
+    },
+    "6b-baddir": {
+      "command": "echo hi",
+      "startedStatus": "running",
+      "awaitStarted": {
+        "error": "Could not start the command: the working directory does not exist: C:\\Users\\Arda\\AppData\\Local\\Temp\\namzu-bgjob-trial-12964\\out2\\after-6b-baddir\\nope"
+      },
+      "elapsedMs": 1,
+      "status": "exited",
+      "error": "Could not start the command: the working directory does not exist: C:\\Users\\Arda\\AppData\\Local\\Temp\\namzu-bgjob-trial-12964\\out2\\after-6b-baddir\\nope",
+      "firstOutputMs": 1,
+      "output": "Could not start the command: the working directory does not exist: C:\\Users\\Arda\\AppData\\Local\\Temp\\namzu-bgjob-trial-12964\\out2\\after-6b-baddir\\nope\n",
+      "chunkTimes": [
+        1
+      ]
+    },
+    "7-turkish": {
+      "command": "echo çğıöşü",
+      "startedStatus": "running",
+      "awaitStarted": {},
+      "elapsedMs": 43,
+      "status": "exited",
+      "exitCode": 0,
+      "firstOutputMs": 43,
+      "output": "çğıöşü\r\n",
+      "outputHexNonAscii": "c3a7c49fc4b1c3b6c59fc3bc0d0a",
+      "chunkTimes": [
+        43
+      ]
+    },
+    "8-quoting": {
+      "command": "echo \"a & b\" & echo 100%% !x! ^& done",
+      "startedStatus": "running",
+      "awaitStarted": {},
+      "elapsedMs": 43,
+      "status": "exited",
+      "exitCode": 0,
+      "firstOutputMs": 43,
+      "output": "\"a & b\" \r\n100%% !x! & done\r\n",
+      "chunkTimes": [
+        43
+      ],
+      "direct": {
+        "out": "\"a & b\" \r\n100%% !x! & done\r\n",
+        "code": 0
+      },
+      "sameAsDirect": true
+    },
+    "9-exitcode": {
+      "command": "echo before & exit /b 7",
+      "startedStatus": "running",
+      "awaitStarted": {},
+      "elapsedMs": 42,
+      "status": "exited",
+      "exitCode": 7,
+      "firstOutputMs": 42,
+      "output": "before \r\n",
+      "chunkTimes": [
+        42
+      ],
+      "direct": {
+        "out": "before \r\n",
+        "code": 7
+      },
+      "sameAsDirect": true
+    },
+    "10-pipe": {
+      "command": "echo hello | findstr /c:\"hel\" & echo \"q|r\" > q.txt & type q.txt",
+      "startedStatus": "running",
+      "awaitStarted": {},
+      "elapsedMs": 68,
+      "status": "exited",
+      "exitCode": 0,
+      "firstOutputMs": 68,
+      "output": "hello \r\n\"q|r\"  \r\n",
+      "chunkTimes": [
+        68
+      ],
+      "direct": {
+        "out": "hello \r\n\"q|r\"  \r\n",
+        "code": 0
+      },
+      "sameAsDirect": true
+    },
+    "11-env-percent": {
+      "command": "echo %COMSPEC% %NOPE% %CD%",
+      "startedStatus": "running",
+      "awaitStarted": {},
+      "elapsedMs": 45,
+      "status": "exited",
+      "exitCode": 0,
+      "firstOutputMs": 45,
+      "output": "C:\\Windows\\system32\\cmd.exe %NOPE% C:\\Users\\Arda\\AppData\\Local\\Temp\\namzu-bgjob-trial-12964\\out2\\after-11-env-percent\r\n",
+      "chunkTimes": [
+        45
+      ],
+      "direct": {
+        "out": "C:\\Windows\\system32\\cmd.exe %NOPE% C:\\Users\\Arda\\AppData\\Local\\Temp\\namzu-bgjob-trial-12964\\out2\\after-11-env-percent\r\n",
+        "code": 0
+      },
+      "sameAsDirect": true
+    }
+  }
+}

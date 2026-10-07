@@ -14,6 +14,14 @@ generated: { by: human:bahadirarda, at: 2026-09-02T00:00:00Z }
 
 The model passes `run_in_background: true` to `bash` for work that legitimately outlasts a tool call: a dev server, a watcher, a long build. The call returns the job's id at once and the turn goes on. The `job` tool reads a job's output (`action: read`, with the previous call's `next_offset` to see only what is new), lists them, or stops one. To find out whether a job has finished, use `wait_for_job` (below) rather than calling `job` with `action: read` in a loop — `job`'s own description says so.
 
+# A job that cannot start
+
+A job and a foreground `bash` call start through the same function, `spawnHostShell` (`packages/sdk/src/tools/command-shell.ts`), so they cannot disagree about the shell. On Windows that is `cmd.exe /d /s /c` run under UTF-8: an outer cmd switches the console to code page 65001 and starts the real cmd, with the command carried in the environment so that letters the OEM page lacks (`ğ`, `ş` on CP850) are not flattened to `g` and `s` before the command runs; quoting, `%`, `&`, `|`, redirection and the exit code behave as in a plain `cmd /c`. `windowsHide` is set and no `detached` (that flag opens a console window there); elsewhere it is `<shell> -c`, in its own process group.
+
+When the process cannot be created at all (no such shell, a missing working directory, which is named as such rather than as a missing `cmd.exe`), `bash` with `run_in_background` answers with an error that begins "Could not start the command:" instead of "Started background job". Should a job's start fail later, the registry records `error` on it and writes the same sentence to the job's stderr, `job read` and `wait_for_job` report the status as `failed to start: <reason>`, and no `exitCode` is invented. Output a Windows console wrote in its OEM code page (850, 857 and so on) is decoded in that page; output that is valid UTF-8 stays UTF-8.
+
+On Windows a command's descendants that detach from the shell are not tracked after the shell exits; `taskkill /T` stops the tree while it is still linked.
+
 # Watching and managing shells in the TUI
 
 While a shell job runs, a line below the composer footer shows the number of running shells and points to `/jobs`. The line stays visible after the model's reply and updates when a job starts or ends, including during a turn. It does not take the Down key from the delegated-agent panel.

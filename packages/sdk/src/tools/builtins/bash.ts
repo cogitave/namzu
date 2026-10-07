@@ -1,5 +1,3 @@
-import { spawn } from 'node:child_process'
-import { StringDecoder } from 'node:string_decoder'
 import { z } from 'zod'
 import { SANDBOX_KILL_GRACE_MS } from '../../constants/sandbox/index.js'
 import { DANGEROUS_PATTERNS } from '../../constants/tools/index.js'
@@ -9,12 +7,14 @@ import { readPositiveIntEnv } from '../../utils/env.js'
 import {
 	type CommandShell,
 	bashToolDialect,
-	hostShellSpawn,
+	describeSpawnFailure,
 	sandboxShellSpawn,
+	spawnHostShell,
 	withoutBashStartup,
 } from '../command-shell.js'
 import { defineTool } from '../defineTool.js'
 import { scrubInheritedEnv } from '../env-scrub.js'
+import { createHostOutputDecoder } from '../host-output.js'
 import { jsonStringEscapes } from './json-string-hint.js'
 
 // Namzu owns its own bash timeout knob — `NAMZU_BASH_TIMEOUT_MS` — and
@@ -164,29 +164,23 @@ export function execHostShell(
 		// bash where the host has it, `/bin/sh` where it does not; the
 		// permission rules read the line in the matching dialect. See
 		// `../command-shell.ts`.
-		const shell = hostShellSpawn(command, options.env, options.shell)
-		const spawnOptions = {
+		const child = spawnHostShell(command, {
 			cwd: options.cwd,
-			env: shell.env,
-			// killTree's negative PID must never target the caller's own group.
-			detached: process.platform !== 'win32',
-		}
-		const child =
-			shell.file === undefined
-				? spawn(command, { ...spawnOptions, shell: true })
-				: spawn(shell.file, [...shell.args], spawnOptions)
+			env: options.env,
+			...(options.shell === undefined ? {} : { shell: options.shell }),
+		})
 		const captures = {
 			stdout: {
 				chunks: [] as Buffer[],
 				bytes: 0,
 				truncated: false,
-				decoder: new StringDecoder('utf8'),
+				decoder: createHostOutputDecoder(),
 			},
 			stderr: {
 				chunks: [] as Buffer[],
 				bytes: 0,
 				truncated: false,
-				decoder: new StringDecoder('utf8'),
+				decoder: createHostOutputDecoder(),
 			},
 		}
 		let cause: 'caller' | 'timeout' | 'maxBuffer' | undefined
@@ -235,8 +229,18 @@ export function execHostShell(
 		const onStderr = (chunk: Buffer) => capture('stderr', chunk)
 		child.stdout?.on('data', onStdout)
 		child.stderr?.on('data', onStderr)
+		let spawned = false
+		child.once('spawn', () => {
+			spawned = true
+		})
 		child.once('error', (error: NodeJS.ErrnoException) => {
-			failure ??= error
+			// Same words as a background job that cannot start.
+			failure ??= spawned
+				? error
+				: Object.assign(
+						new Error(describeSpawnFailure(error, options.cwd), { cause: error }),
+						error.code === undefined ? {} : { code: error.code },
+					)
 		})
 		child.once('close', (code, signal) => {
 			closed = true
@@ -257,8 +261,10 @@ export function execHostShell(
 			const decodeCapture = (stream: 'stdout' | 'stderr') => {
 				const state = captures[stream]
 				const bytes = Buffer.concat(state.chunks, state.bytes)
-				// Do not flush an incomplete UTF-8 character cut by our byte cap.
-				return state.truncated ? new StringDecoder('utf8').write(bytes) : bytes.toString('utf8')
+				// Do not flush an incomplete character cut by our byte cap.
+				const decoder = createHostOutputDecoder()
+				const text = decoder.write(bytes)
+				return state.truncated ? text : text + decoder.end()
 			}
 			const stdout = decodeCapture('stdout')
 			const stderr = decodeCapture('stderr')
@@ -411,6 +417,19 @@ export const BashTool = defineTool({
 					command: input.command,
 					workingDirectory: context.workingDirectory,
 				})
+				// `start` returns before the process exists, and a spawn that
+				// fails (no such shell, bad directory) reports a tick later.
+				// Wait for that one event so "Started" is never said of a job
+				// that could not start. No timer: it settles on spawn or error.
+				const startup = await context.backgroundJobs.awaitStarted?.(job.id)
+				if (startup?.error !== undefined) {
+					return {
+						success: false,
+						output: '',
+						error: `${startup.error} (job ${job.id} did not run).`,
+						data: { jobId: job.id, background: true, startFailed: true },
+					}
+				}
 				return {
 					success: true,
 					output: `Started background job ${job.id}. For finite work, await completion with wait_for_job: {"id":"${job.id}"}. For a persistent server, observe its literal readiness marker with wait_for_job: {"id":"${job.id}","output_contains":"<expected marker>","output_stream":"stdout"}; this leaves it running and does not prove health. Use job with action "read" for incremental output.`,

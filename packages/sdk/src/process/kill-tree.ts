@@ -1,6 +1,12 @@
 import { execFileSync } from 'node:child_process'
 import type { spawn } from 'node:child_process'
 
+/** The system's own taskkill, so a PATH entry cannot stand in for it. */
+function taskkillPath(): string {
+	const root = process.env.SystemRoot ?? process.env.windir
+	return root ? `${root}\\System32\\taskkill.exe` : 'taskkill'
+}
+
 /**
  * Signal a spawned child AND everything it forked.
  *
@@ -40,7 +46,10 @@ export function killTree(child: ReturnType<typeof spawn>, signal: NodeJS.Signals
 	if (!child.pid) return
 	try {
 		if (process.platform === 'win32') {
-			execFileSync('taskkill', ['/pid', String(child.pid), '/t', '/f'], { stdio: 'ignore' })
+			execFileSync(taskkillPath(), ['/pid', String(child.pid), '/t', '/f'], {
+				stdio: 'ignore',
+				windowsHide: true,
+			})
 		} else {
 			process.kill(-child.pid, signal)
 		}

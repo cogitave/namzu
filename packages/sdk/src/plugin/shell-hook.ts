@@ -58,8 +58,9 @@
  * and does not block: one that could not answer in time has not answered no.
  */
 
-import { spawn } from 'node:child_process'
+import type { spawn } from 'node:child_process'
 
+import { spawnHostShell } from '../tools/command-shell.js'
 import type { PluginId } from '../types/ids/index.js'
 import type {
 	PluginCompactionInfo,
@@ -211,7 +212,7 @@ export function runShellHook(
 	return new Promise((resolve) => {
 		let child: ReturnType<typeof spawn>
 		try {
-			child = spawn('sh', ['-c', entry.command], {
+			child = spawnHostShell(entry.command, {
 				cwd: input.cwd,
 				env: {
 					...inherited,
@@ -229,6 +230,11 @@ export function runShellHook(
 				// the stdout pipe, and the outcome cannot settle until it exits on
 				// its own — the hook's deadline becomes the grandchild's.
 				detached: process.platform !== 'win32',
+				// A hook has always run under `sh`, whatever shell the `bash` tool
+				// chose. Windows has no `sh`, so there the host's own shell runs it.
+				...(process.platform === 'win32'
+					? {}
+					: { shell: { path: 'sh', dialect: 'sh', source: 'sh' } as const }),
 			})
 		} catch (error) {
 			resolve({

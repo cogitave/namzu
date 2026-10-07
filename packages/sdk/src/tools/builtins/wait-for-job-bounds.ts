@@ -52,6 +52,8 @@ export type JobWaitOutcome =
 			readonly kind: 'exited'
 			readonly status: string
 			readonly exitCode?: number
+			/** Why the command never started, when it could not. */
+			readonly error?: string
 	  } & JobWaitProgress)
 	| ({
 			readonly kind: 'timeout'
@@ -142,6 +144,7 @@ export async function waitForJobWithBounds(
 				kind: 'exited',
 				status: job.status,
 				...(job.exitCode === undefined ? {} : { exitCode: job.exitCode }),
+				...(job.error === undefined ? {} : { error: job.error }),
 				output,
 				nextOffset: cursor,
 				droppedBytes,

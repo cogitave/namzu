@@ -118,7 +118,13 @@ export interface BackgroundJobRegistryRef {
 		id: string
 		status: string
 	}
-	get(id: string): { id: string; status: string; exitCode?: number }
+	get(id: string): { id: string; status: string; exitCode?: number; error?: string }
+	/**
+	 * Resolves once the process exists or failed to start (`error` says why).
+	 * Optional: a host that cannot tell may omit it, and `bash` then replies
+	 * without waiting.
+	 */
+	awaitStarted?(id: string): Promise<{ readonly error?: string }>
 	read(
 		id: string,
 		opts?: { fromOffset?: number },
@@ -128,6 +134,7 @@ export interface BackgroundJobRegistryRef {
 		droppedBytes: number
 		status: string
 		exitCode?: number
+		error?: string
 	}
 	kill(id: string): Promise<{ id: string; status: string }>
 	list(): readonly { id: string; command: string; status: string }[]
@@ -145,6 +152,7 @@ export interface BackgroundJobRegistryRef {
 		id: string
 		status: string
 		exitCode?: number
+		error?: string
 	}>
 	/** Observe a bounded literal output condition. Does not express exit-wait intent. */
 	waitForOutput?(

@@ -1,9 +1,10 @@
-import { spawn } from 'node:child_process'
+import type { spawn } from 'node:child_process'
 
 import { SANDBOX_KILL_GRACE_MS } from '../../constants/sandbox/index.js'
 import { killTree } from '../../process/kill-tree.js'
-import { hostShellSpawn } from '../../tools/command-shell.js'
+import { describeSpawnFailure, spawnHostShell } from '../../tools/command-shell.js'
 import { scrubInheritedEnv } from '../../tools/env-scrub.js'
+import { createHostOutputDecoder } from '../../tools/host-output.js'
 import type {
 	BackgroundJobOutputWaitOptions,
 	BackgroundJobOutputWaitResult,
@@ -44,6 +45,13 @@ export interface BackgroundJob {
 	readonly exitedAt?: number
 	readonly exitCode?: number
 	readonly signal?: string
+	/**
+	 * Why the command never started, in words for the model: set when the
+	 * process could not be spawned at all (missing shell, bad working
+	 * directory). Such a job has no `exitCode`; it is not a command that
+	 * ran and returned a status.
+	 */
+	readonly error?: string
 	/** Stopping the owned tree failed; the job remains owned and counted as live. */
 	readonly recoveryRequired?: boolean
 	/** Safe registry diagnostic for an unconfirmed stop; excludes transport secrets. */
@@ -65,6 +73,8 @@ export interface BackgroundJobOutput {
 	readonly droppedBytes: number
 	readonly status: BackgroundJobStatus
 	readonly exitCode?: number
+	/** Set when the command could not be started; see {@link BackgroundJob.error}. */
+	readonly error?: string
 }
 
 /** A job's process, when something other than the registry starts it. */
@@ -184,6 +194,8 @@ interface JobEntry {
 	outputChunks: OutputChunk[]
 	outputObservers: Set<(chunk?: OutputChunk) => void>
 	exit: Promise<void>
+	/** Settles once the process exists or failed to; `error` says which. */
+	started: Promise<{ readonly error?: string }>
 }
 
 /** Whether any process of the group led by `pid` is still alive. */
@@ -299,32 +311,40 @@ export class BackgroundJobRegistry {
 		// started it, which makes the leak longer-lived, not smaller.
 		const inherited = scrubInheritedEnv()
 
-		// The same shell as a foreground `bash` call, so the permission
-		// rules' reading of the line holds for the job too.
-		const shell = hostShellSpawn(params.command, { ...inherited.env, ...params.env })
+		// The same spawn as a foreground `bash` call, so the permission
+		// rules' reading of the line holds for the job too, and so the two
+		// cannot disagree about how a shell is started on a given platform.
 		const started = params.spawn
 			? params.spawn()
 			: {
-					child: spawn(
-						shell.file ?? '/bin/sh',
-						shell.file === undefined ? ['-c', params.command] : [...shell.args],
-						{
-							cwd: params.workingDirectory,
-							env: shell.env,
-							// Leader of its own process group, which is what `killTree` needs
-							// to reach the command and everything it forks rather than only the
-							// wrapping shell. See `process/kill-tree.ts`.
-							detached: process.platform !== 'win32',
-							stdio: ['ignore', 'pipe', 'pipe'],
-						},
-					),
+					child: spawnHostShell(params.command, {
+						cwd: params.workingDirectory,
+						env: { ...inherited.env, ...params.env },
+						// `detached` makes the child the leader of its own process group
+						// off Windows, which is what `killTree` needs to reach the command
+						// and everything it forks rather than only the wrapping shell. See
+						// `process/kill-tree.ts`.
+						stdio: ['ignore', 'pipe', 'pipe'],
+					}),
 				}
 		const child = started.child
 		// Started, not adopted: this process stays the parent for the job's
 		// whole life. `unref` would let Node exit with the job still running,
 		// which is the orphan this registry exists to prevent.
-		child.stdout?.setEncoding('utf8')
-		child.stderr?.setEncoding('utf8')
+		// Raw bytes, decoded here: a Windows console writes its OEM code page.
+		// A process a sandbox started runs a Linux guest, so it is UTF-8.
+		const decoders = {
+			stdout: createHostOutputDecoder(params.spawn ? { platform: 'linux' } : {}),
+			stderr: createHostOutputDecoder(params.spawn ? { platform: 'linux' } : {}),
+		}
+		let startError: string | undefined
+		let settleStarted!: () => void
+		const startedPromise = new Promise<{ readonly error?: string }>((resolve) => {
+			settleStarted = () => resolve(startError === undefined ? {} : { error: startError })
+		})
+		// A process the host's own spawner started is the host's to vouch for:
+		// it may be remote, and need not emit `spawn` at all.
+		if (params.spawn || child.pid !== undefined) settleStarted()
 
 		let finalizeEntry!: (code: number | null, signal: NodeJS.Signals | null) => void
 		const entry: JobEntry = {
@@ -342,6 +362,7 @@ export class BackgroundJobRegistry {
 			produced: 0,
 			outputChunks: [],
 			outputObservers: new Set(),
+			started: startedPromise,
 			exit: new Promise<void>((resolve) => {
 				let spawned = child.pid !== undefined
 				let failedToSpawn = false
@@ -366,14 +387,28 @@ export class BackgroundJobRegistry {
 				finalizeEntry = finalize
 				child.once('spawn', () => {
 					spawned = true
+					settleStarted()
 				})
-				child.on('error', () => {
+				child.on('error', (error) => {
 					// A failed spawn emits both `error` and `close`. Waiting for
 					// `close` also covers errors on an already-running process
 					// (such as a failed kill) without announcing a false exit.
-					if (!spawned) failedToSpawn = true
+					if (spawned) return
+					failedToSpawn = true
+					startError ??= describeSpawnFailure(error, params.workingDirectory)
+					settleStarted()
 				})
 				child.once('close', (code, signal) => {
+					for (const stream of ['stdout', 'stderr'] as const) {
+						const rest = decoders[stream].end()
+						if (rest) append(rest, stream)
+					}
+					if (failedToSpawn && startError !== undefined) {
+						// In the output too, so a caller that only reads output (or
+						// redirects it, as a model does) still learns why it is empty.
+						append(`${startError}\n`, 'stderr')
+						entry.record = { ...entry.record, error: startError }
+					}
 					// The job is the process GROUP, not the shell. A command that
 					// backgrounds its real work (`server &`) exits the shell at
 					// once and leaves the server as the group's survivor; calling
@@ -435,11 +470,26 @@ export class BackgroundJobRegistry {
 			// outside retention: an active observer must not miss a fast producer.
 			for (const observer of entry.outputObservers) observer(chunk)
 		}
-		child.stdout?.on('data', (text: string) => append(text, 'stdout'))
-		child.stderr?.on('data', (text: string) => append(text, 'stderr'))
+		const onData = (stream: 'stdout' | 'stderr') => (data: Buffer | string) => {
+			const text = typeof data === 'string' ? data : decoders[stream].write(data)
+			if (text) append(text, stream)
+		}
+		child.stdout?.on('data', onData('stdout'))
+		child.stderr?.on('data', onData('stderr'))
 
 		this.jobs.set(id, entry)
 		return entry.record
+	}
+
+	/**
+	 * Resolves once the job's process exists, or once it could not be
+	 * created (`error` then says why). Lets a caller report a start that
+	 * failed in the same reply that would otherwise say "started".
+	 */
+	awaitStarted(id: string): Promise<{ readonly error?: string }> {
+		const entry = this.jobs.get(id)
+		if (!entry) throw new UnknownBackgroundJobError({ id })
+		return entry.started
 	}
 
 	/** The record, or throw for an id this registry does not know. */
@@ -579,6 +629,7 @@ export class BackgroundJobRegistry {
 		const progress = () => ({
 			status: entry.record.status,
 			...(entry.record.exitCode === undefined ? {} : { exitCode: entry.record.exitCode }),
+			...(entry.record.error === undefined ? {} : { error: entry.record.error }),
 			output,
 			nextOffset: cursor,
 			droppedBytes,
@@ -683,6 +734,7 @@ export class BackgroundJobRegistry {
 			droppedBytes: Math.max(0, effective - from) + Math.max(0, aligned - skip),
 			status: entry.record.status,
 			...(entry.record.exitCode === undefined ? {} : { exitCode: entry.record.exitCode }),
+			...(entry.record.error === undefined ? {} : { error: entry.record.error }),
 		}
 	}
 
@@ -805,6 +857,10 @@ export function bindOwner(
 			})
 		},
 		get: (id: string) => mine(id),
+		awaitStarted: (id: string) => {
+			mine(id)
+			return registry.awaitStarted(id)
+		},
 		read: (id: string, opts?: { fromOffset?: number }) => {
 			mine(id)
 			return registry.read(id, opts ?? {})
