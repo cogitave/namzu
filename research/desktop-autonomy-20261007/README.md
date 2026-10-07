@@ -78,6 +78,43 @@ Desktop admission timestamps. Missing legacy presentation is explicitly absent;
 raw tool inputs, structured spill bodies, opaque reasoning and signatures are not
 re-presented or hydrated. The projection restores no permission or retry authority.
 
+### Bounded previews and keyboard behavior
+
+Live message image previews have a separate 16 MiB encoded-data / 256-reference
+budget in main. Every retained message copy is charged, including retry copies;
+retirement removes only display bytes and retains name/type/size metadata.
+Admitted provider files, unsent drafts, queued prompts and replay are unchanged.
+Revisioned ID-only retirement reaches cached inactive owners and replays over held
+history responses. This bounds message display copies, not total heap/RSS or
+browser-decoded surfaces. Per-window send failures are isolated and reported;
+all main projection retirement is committed before a transport can fail.
+
+The model picker now handles Escape from its contained controls after selection;
+the nested effort portal still closes first. The [keyboard proof](artifacts/model-picker-escape-browser-proof.json)
+uses an actual isolated Chromium renderer and confirms return focus.
+The attachment renderer proof first found lost focus when an open image dialog
+retired; its original receipt preserves that defect. The dialog keeps a stable
+root and returns focus to the named unavailable-preview row. Normal close retains
+its original trigger, and closing other previews does not take focus.
+The [six-check keyboard receipt](artifacts/attachment-preview-renderer-keyboard-browser-proof-20261007.json)
+uses the actual App in two isolated renderer pages, including held-history replay,
+inactive cached-owner retirement and a visible keyboard focus outline. Those pages
+are not a native multiwindow transport proof; the registry tests separately cover
+a failed window send followed by healthy-window delivery.
+
+### Claude content-block lifetimes
+
+Claude's [documented streaming order](https://code.claude.com/docs/en/agent-sdk/streaming-output)
+emits completed content blocks separately under the same message ID. A block
+receipt no longer completes the message. The real message boundary owns completion;
+only authoritative tool inputs start a tool record, once, and matched results
+complete it. Old snapshots, block starts and message starts cannot steal the active
+block/message; terminal and older-operation events are fenced.
+UUID-bearing blocks without partial stream events also remain separate. A later
+native message can close an earlier group only when that group already reported
+an explicit stop reason. Malformed content cannot create a phantom message or
+prematurely complete a previous one.
+
 ## Verification
 
 The [browser receipt](artifacts/desktop-reading-browser-proof.json) and its
@@ -107,12 +144,60 @@ Integrated workspace typecheck and lint passed; lint retains 35 SDK and 12 CLI
 warnings. The first complete workspace run stopped on one existing Sandbox local shell/Git
 clone regression at the default five-second Vitest limit (6.679 seconds). Its
 51-test file passed independently; the operation/assertions stay unchanged with
-a documented per-test 30-second Vitest timeout. The final full run is pending;
-the first failure is retained and is not relabelled as a pass.
-CLI and Desktop builds passed. Native prepare passed against the current owned
-Windows window, checking idle conversations and the installed package graph;
-it is a preflight, not evidence that new bytes have been activated. Existing
-6 October real engine tests are prior evidence, not new provider calls in this work.
+a documented per-test 30-second Vitest timeout. The [final first-slice workspace receipt](artifacts/workspace-gates-first-slice.json)
+records 20,017 passed and 116 skipped tests across 21 package summaries, plus
+successful typecheck and lint. The first failure remains a failure; the suite
+uses Vitest's own documented timeout, without a speed race.
+The base gates are not the complete CI/release matrix.
+
+The [final combined-slice receipt](artifacts/workspace-gates-final-second-slice.json)
+records a source-frozen workspace build, typecheck, lint, test and OKF run:
+20,044 passed and 116 skipped tests across 21 package summaries, including 799
+Desktop and 5,230 CLI tests. The 21 changed production/doc/changeset files keep
+the same hashes throughout the run. Existing lint warnings remain in SDK (35),
+CLI (12) and the unchanged Zen provider (1). An earlier passing intermediate run
+included source updates while it ran and is not used as final-source evidence.
+
+The [native activation summary](artifacts/native-recorded-work-activation-summary.json)
+records a successful first-slice Windows restart and fresh byte verification.
+One earlier apply was rejected before any copy because Pal computer state was
+unavailable. The successful guard proves the exact inert notice and physically
+stopped selected Podman machine; it never starts or stops that machine.
+All protected state digests match and four previously verified journal files
+remain byte exact. That four-file observation is not an audit of all account data.
+The launcher pin was tightened after activation and checked in the fresh verifier.
+
+The [new native engine comparison](artifacts/native-human-harness-comparison.json)
+uses one identical English, read-only fixture prompt per engine: Zen
+`space-bunny-free`, Codex `gpt-5.6-luna`, and Claude `haiku`. All three finish,
+select the expected route and return the fixture facts without changing its file.
+Warm model-menu reopening issues zero repeated catalogue reads in all three.
+Modes are selected in drafts and reset to Ask first before inference; this is not
+proof of write/destructive/Full access enforcement. Claude offers no effort
+control in this fixture; the other two save the offered low effort.
+
+The comparison did not pass all tool-receipt checks: Claude performs its Read
+but Desktop drops it. The [scoped native journal evidence](artifacts/native-claude-owned-read-evidence.json)
+checks only the derived private fixture directory, its one regular native journal
+and a matched successful Read of the owned note. Thinking, text and Read share
+one native message ID. No raw journal, account path, identifier or model reasoning
+is copied into this repository. The normalization fix is verified separately;
+the original failed private receipts are retained. The fixture closes normally
+and the original app stays alive. An earlier test-only debugger-detach callback
+caused a fixture diagnostic, which was dismissed on that exact owned window;
+the helper now captures the Inspector module before scheduling it.
+
+The [compiled journal replay](artifacts/claude-native-journal-replay-proof.json)
+uses those same verified native blocks, with zero provider requests or tool
+execution. The old compiled module drops both the Read start and result; the fixed
+module emits one start and one matching successful result. The Read file's
+physical identity matches the owned fixture. An
+[initial replay failure](artifacts/claude-native-journal-replay-initial-failure.json)
+exposed a second case: recorded blocks without partial stream boundaries still
+completed too early. That failure is retained and the corrected case has a
+regression test. The journal itself omits partial stream events; a terminal frame
+comes from the separately confirmed end_turn and adds no tool evidence. This is
+recorded-block verification, not another live provider run after the fix.
 
 ## Remaining architectural opportunities
 
@@ -124,8 +209,5 @@ it is a preflight, not evidence that new bytes have been activated. Existing
   presenter seam must select, whitelist and bound the post-screen/post-hook view
   once before append. Reopening must never execute a current presenter over an
   old raw tool input. This first slice uses the existing recorded presentations.
-- Live prompt projection can retain attachment preview base64 after successful
-  consumption, beyond the active 24 MiB attachment quota. Bound a display-preview
-  cache separately from admitted model bytes and SDK replay before changing it.
 - Full conversation search needs a scope-admitted human/assistant index. The
   existing evidence FTS index is not a full user-message search contract.

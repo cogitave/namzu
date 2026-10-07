@@ -1,0 +1,26 @@
+{
+  "schema": "namzu.native-claude-owned-read-evidence.v1",
+  "passed": true,
+  "scope": "Only the derived private fixture chat directory and its single native Claude journal.",
+  "nativeJournalSha256": "9335474ec1622d1323241a69a5dd2b47c7aad83a7ebb1937589f6dea35062e77",
+  "fixtureReadCompleted": true,
+  "readPathMatchesOwnedFixture": true,
+  "sameAssistantMessageEarlierBlocks": [
+    "thinking",
+    "text"
+  ],
+  "nativeContentKinds": [
+    "thinking",
+    "text",
+    "tool_use",
+    "tool_result",
+    "thinking",
+    "text"
+  ],
+  "desktopCompletedToolRows": 0,
+  "desktopPublicToolCallEvents": 0,
+  "desktopEnded": true,
+  "desktopRouteMatches": true,
+  "additionalModelRequests": 0,
+  "limitation": "This observes the installed pre-fix Claude normalization; it does not verify new source bytes or policy for writes."
+}

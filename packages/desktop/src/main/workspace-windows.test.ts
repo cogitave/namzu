@@ -496,6 +496,32 @@ describe('registered privileged windows', () => {
 		expect(dead.webContents.send).not.toHaveBeenCalled()
 		expect(() => registry.register('live', window())).toThrow('already registered')
 	})
+	it('keeps ordered prompt and retirement delivery when another window disappears during send', () => {
+		const registry = new WorkspaceWindowRegistry<ReturnType<typeof window>>()
+		const disappearing = window()
+		const healthy = window()
+		const error = new Error('Window closed during delivery')
+		disappearing.webContents.send.mockImplementation(() => {
+			throw error
+		})
+		registry.register('disappearing', disappearing)
+		registry.register('healthy', healthy)
+		const failed = vi.fn()
+		const prompt = { kind: 'prompt', sessionId: 'owner', revision: 1 }
+		const retirement = {
+			kind: 'attachment-previews-evicted',
+			sessionId: 'owner',
+			attachmentIds: ['image'],
+			revision: 2,
+		}
+		registry.fanout(prompt, failed)
+		registry.fanout(retirement, failed)
+		expect(healthy.webContents.send.mock.calls).toEqual([
+			['namzu:event', prompt],
+			['namzu:event', retirement],
+		])
+		expect(failed.mock.calls).toEqual([[error], [error]])
+	})
 })
 
 describe('restored native window bounds', () => {

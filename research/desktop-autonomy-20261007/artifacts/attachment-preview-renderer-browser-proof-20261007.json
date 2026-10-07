@@ -1,0 +1,27 @@
+{
+  "passed": true,
+  "realReactRenderer": true,
+  "isolatedPages": 2,
+  "nativeActions": 0,
+  "providerRequests": 0,
+  "checks": [
+    "Held stale history replays a revisioned eviction into the real App transcript",
+    "An open image dialog retires to the connected, named attachment fallback with focus",
+    "An inactive ordinary owner loses only its cached image preview; metadata remains on revisit",
+    "Closing a still available image returns focus to its preview button",
+    "Retiring a closed image in an inactive owner does not steal composer focus"
+  ],
+  "limitations": [
+    "Synthetic Vite preview API and attachment events; no native IPC or device file read.",
+    "The two pages are independent renderer fixtures, not an Electron multiwindow fanout proof."
+  ],
+  "dialogRetirementFocus": {
+    "tag": "LI",
+    "insideFallback": true,
+    "name": "fixture-b.png: Preview unavailable"
+  },
+  "inactiveOpenReads": [
+    "sample-thread-1",
+    "sample-thread-2"
+  ]
+}

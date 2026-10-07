@@ -42,6 +42,7 @@ import type {
 	ProviderView,
 } from '../shared/protocol.js'
 import { readTaskUpdate, readTasks } from '../shared/task-protocol.js'
+import { AttachmentPreviewBudget } from './attachment-preview-budget.js'
 import {
 	type AdmittedAttachment,
 	MAX_ATTACHMENT_COUNT,
@@ -221,6 +222,7 @@ export class Operator {
 		{ draft: string; draftSettings?: DraftSettings }
 	>()
 	private readonly attachmentFiles = new Map<string, OwnedAttachment>()
+	private readonly attachmentPreviews = new AttachmentPreviewBudget()
 	private readonly changingPlugins = new Set<string>()
 	private readonly backgroundWork: BackgroundWorkStatusTracker
 	private readonly desktopStore?: DesktopConversationStore
@@ -592,7 +594,10 @@ export class Operator {
 			this.palRecords.delete(id)
 			for (const sessionId of scope.sessionIds) this.backgroundWork.invalidate(sessionId)
 			for (const projectId of scope.projectIds) this.projects.delete(projectId)
-			for (const sessionId of scope.sessionIds) this.conversations.delete(sessionId)
+			for (const sessionId of scope.sessionIds) {
+				this.conversations.delete(sessionId)
+				this.attachmentPreviews.forget(sessionId)
+			}
 			const retiredOwners = new Set(scope.sessionIds)
 			for (const ownerId of this.projectDrafts.keys()) {
 				const owner = projectDraftOwner(ownerId)
@@ -1048,7 +1053,24 @@ export class Operator {
 								))))
 				)
 					this.persistDesktop(true)
+				const retirements: DesktopEvent[] = []
+				if (versioned.kind === 'prompt') {
+					for (const eviction of this.attachmentPreviews.admit(id, versioned.attachments ?? [])) {
+						const retired = this.conversations.get(eviction.sessionId)
+						if (!retired) continue
+						const retirement = {
+							kind: 'attachment-previews-evicted' as const,
+							...eviction,
+							revision: retired.projection.revision + 1,
+						}
+						retired.projection = applyEvent(retired.projection, retirement)
+						retirements.push(retirement)
+					}
+				}
+				// Commit all display retirements before a renderer transport can fail.
+				// Healthy clients still receive the prompt before its ordered retirements.
 				this.publish(versioned)
+				for (const retirement of retirements) this.publish(retirement)
 				return
 			}
 		}
@@ -1416,6 +1438,7 @@ export class Operator {
 			this.pendingConversationRemovals.delete(sessionId)
 			this.backgroundWork.invalidate(sessionId)
 			this.conversations.delete(sessionId)
+			this.attachmentPreviews.forget(sessionId)
 			for (const [attachmentId, file] of this.attachmentFiles)
 				if (file.ownerId === sessionId) this.attachmentFiles.delete(attachmentId)
 			project.conversationCatalogue?.delete(sessionId)
@@ -1618,12 +1641,14 @@ export class Operator {
 		const existing = this.conversations.get(sessionId)
 		if (existing && existing.view.projectId !== projectId)
 			throw new Error('This conversation belongs to another project.')
-		if (existing && this.projects.get(projectId)?.view.status === 'error')
+		if (existing && this.projects.get(projectId)?.view.status === 'error') {
+			this.attachmentPreviews.touch(sessionId)
 			return {
 				messages: existing.projection.messages,
 				partial: existing.projection.partial ?? false,
 				thread: existing.projection,
 			}
+		}
 		const project = this.project(projectId)
 		if (!existing) {
 			const assertCurrent = this.metadataRead(project)
@@ -1661,6 +1686,7 @@ export class Operator {
 		}
 		await this.restoreConversationHistory(existing)
 		this.assertConversationAvailable(sessionId)
+		this.attachmentPreviews.touch(sessionId)
 		this.trackBackgroundWork(sessionId)
 		// An unsent tab already owns its local draft and projection. Display it
 		// immediately; readiness and metadata restore the exact engine/model
@@ -1700,6 +1726,13 @@ export class Operator {
 				session.running
 			)
 				throw new Error('This conversation changed while opening. Open it again.')
+			const attachmentIds = this.attachmentPreviews.forget(session.view.id)
+			if (attachmentIds.length)
+				this.emit({
+					kind: 'attachment-previews-evicted',
+					sessionId: session.view.id,
+					attachmentIds,
+				})
 			session.projection = {
 				...restoreHistoryWork(session.projection, history.messages, history.work),
 				partial: history.partial,
@@ -3028,6 +3061,7 @@ export class Operator {
 		this.projects.clear()
 		this.conversations.clear()
 		this.attachmentFiles.clear()
+		this.attachmentPreviews.clear()
 		this.projectDrafts.clear()
 	}
 }

@@ -1473,6 +1473,20 @@ retains at most 24 MiB of attachment data across active messages, queues and
 drafts. Native paths stay in main; file names, safe previews and bounded metadata
 are the renderer's view.
 
+Copied image previews in live message histories have a separate, profile-wide
+budget of 16 MiB of encoded data URLs and 256 retained message references. Each
+message copy counts, including repeated attempts with the same file. Reading an
+owned projection promotes its retained previews; oldest references are retired
+when either bound is exceeded. Retirement removes only the copied preview and
+keeps the message, file name, media type and size. The image row says Preview
+unavailable and offers no invented reload action. Revisioned retirement reaches
+cached inactive conversations and other windows, and is replayed over an older
+in-flight history response. A window that closes during delivery does not block
+retirement in the remaining windows. Admitted provider bytes, chooser/draft files, queued
+files, retry files and SDK durable history remain unchanged. This bounds encoded
+message previews, not total process memory, in-flight IPC copies or decoded image
+surfaces.
+
 Files belong to their captured project or conversation. Changing folders during
 a chooser cannot redirect its result. The first Send moves its draft files and
 choices into the created conversation, including a failed route-selection retry.

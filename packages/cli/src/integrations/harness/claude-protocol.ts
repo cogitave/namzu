@@ -128,10 +128,15 @@ type Block = {
 	input?: HarnessJson
 	partialJson: string
 	completed: boolean
+	authoritative?: boolean
+	reasoningCompleted?: boolean
 }
 type NativeMessage = {
 	id: string
 	blocks: Map<number, Block>
+	snapshotBlocks: Map<string, number>
+	streamed: boolean
+	activeBlock?: number
 	completed: boolean
 	stopReason?: MessageStopReason
 }
@@ -156,6 +161,7 @@ export class ClaudeTurnProjection {
 	private currentMessage: NativeMessage | undefined
 	private latestItem: string | undefined
 	private authenticationFailed = false
+	private finished = false
 
 	constructor(
 		readonly turn: HarnessNativeTurn,
@@ -169,7 +175,24 @@ export class ClaudeTurnProjection {
 		if (this.priorItems.has(id)) return undefined
 		let message = this.messages.get(id)
 		if (!message) {
-			message = { id, blocks: new Map(), completed: false }
+			// Without partial events, a distinct next native message confirms the
+			// previous UUID block group ended. Its explicit reason stays authoritative.
+			for (const previous of this.messages.values()) {
+				if (
+					!previous.completed &&
+					!previous.streamed &&
+					previous.snapshotBlocks.size > 0 &&
+					previous.stopReason
+				)
+					this.complete(previous, this.text(previous), previous.stopReason)
+			}
+			message = {
+				id,
+				blocks: new Map(),
+				snapshotBlocks: new Map(),
+				streamed: false,
+				completed: false,
+			}
 			this.messages.set(id, message)
 			this.event({ ...this.turn, kind: 'message-started', nativeItemId: id })
 		}
@@ -207,9 +230,31 @@ export class ClaudeTurnProjection {
 			stopReason,
 		})
 	}
+	private text(message: NativeMessage): string {
+		const text = [...message.blocks.entries()]
+			.sort(([left], [right]) => left - right)
+			.filter(([, block]) => block.type === 'text')
+			.map(([, block]) => block.text)
+			.join('')
+		if (text.length > 1_000_000) throw new Error('The native message is too large.')
+		return text
+	}
+	private reasoning(message: NativeMessage, index: number, block: Block): void {
+		if (block.reasoningCompleted) return
+		block.reasoningCompleted = true
+		this.event({
+			...this.turn,
+			kind: 'reasoning',
+			nativeItemId: message.id,
+			blockId: `${message.id}:${index}`,
+			status: 'completed',
+			...(block.text ? { text: block.text } : {}),
+		})
+	}
 
 	consume(frame: Record<string, unknown>): readonly HarnessEvent[] {
 		this.events.length = 0
+		if (this.finished) return []
 		if (frame.type === 'stream_event') this.stream(claudeRecord(frame.event))
 		else if (frame.type === 'assistant') this.assistant(frame)
 		else if (frame.type === 'user') this.results(frame)
@@ -220,13 +265,29 @@ export class ClaudeTurnProjection {
 		if (!event) return
 		if (event.type === 'message_start') {
 			const id = claudeString(claudeRecord(event.message)?.id)
-			this.currentMessage = id ? this.message(id) : undefined
+			const message = id ? this.message(id) : undefined
+			if (!message || message.completed || message.streamed) return
+			message.streamed = true
+			this.currentMessage = message
 			return
 		}
 		const message = this.currentMessage
 		if (!message || message.completed) return
 		if (event.type === 'message_delta') {
-			message.stopReason = messageReason(claudeRecord(event.delta)?.stop_reason)
+			const reason = messageReason(claudeRecord(event.delta)?.stop_reason)
+			if (reason) message.stopReason = reason
+			return
+		}
+		if (event.type === 'message_stop') {
+			const hasTool = [...message.blocks.values()].some((block) =>
+				['tool_use', 'server_tool_use', 'mcp_tool_use'].includes(block.type),
+			)
+			this.complete(
+				message,
+				this.text(message),
+				message.stopReason ?? (hasTool ? 'tool_use' : 'end_turn'),
+			)
+			this.currentMessage = undefined
 			return
 		}
 		const index = event.index
@@ -234,6 +295,8 @@ export class ClaudeTurnProjection {
 		if (event.type === 'content_block_start') {
 			const raw = claudeRecord(event.content_block)
 			if (!raw) return
+			if (message.blocks.has(index as number)) return
+			message.activeBlock = index as number
 			const type = String(raw.type)
 			const block: Block = {
 				type,
@@ -271,6 +334,7 @@ export class ClaudeTurnProjection {
 		const block = message.blocks.get(index as number)
 		if (!block || block.completed) return
 		if (event.type === 'content_block_delta') {
+			if (block.authoritative) return
 			const delta = claudeRecord(event.delta)
 			if (block.type === 'text' && delta?.type === 'text_delta' && typeof delta.text === 'string') {
 				block.text += delta.text
@@ -302,17 +366,9 @@ export class ClaudeTurnProjection {
 				throw new Error('The native message is too large.')
 		} else if (event.type === 'content_block_stop') {
 			block.completed = true
-			if (block.type === 'thinking')
-				this.event({
-					...this.turn,
-					kind: 'reasoning',
-					nativeItemId: message.id,
-					blockId: `${message.id}:${index}`,
-					status: 'completed',
-					...(block.text ? { text: block.text } : {}),
-				})
-			// Full assistant snapshots supply authoritative tool inputs. Permission
-			// callbacks can arrive separately before that snapshot.
+			if (block.type === 'thinking') this.reasoning(message, index as number, block)
+			// Completed AssistantMessage blocks supply authoritative tool inputs.
+			// Permission callbacks can arrive separately before that block.
 		}
 	}
 	private assistant(frame: Record<string, unknown>): void {
@@ -321,41 +377,61 @@ export class ClaudeTurnProjection {
 		if (typeof frame.error === 'string' && frame.error.length > 0) return
 		const raw = claudeRecord(frame.message)
 		const id = claudeString(raw?.id)
-		if (!id || !raw) return
+		if (!id || !raw || !Array.isArray(raw.content)) return
 		const message = this.message(id)
-		if (!message || message.completed || !Array.isArray(raw.content)) return
-		let text = ''
+		if (!message || message.completed) return
+		const snapshotId = claudeString(frame.uuid)
 		for (const [index, value] of raw.content.entries()) {
-			const block = claudeRecord(value)
-			if (!block) continue
-			if (block.type === 'text' && typeof block.text === 'string') text += block.text
-			else if (block.type === 'thinking' && typeof block.thinking === 'string')
-				this.event({
-					...this.turn,
-					kind: 'reasoning',
-					nativeItemId: id,
-					blockId: `${id}:${index}`,
-					status: 'completed',
-					text: block.thinking,
-				})
-			else if (['tool_use', 'server_tool_use', 'mcp_tool_use'].includes(String(block.type)))
-				this.tool({
-					type: String(block.type),
-					text: '',
-					partialJson: '',
-					completed: true,
-					id: claudeString(block.id),
-					name: claudeString(block.name),
-					input: claudeJson(block.input ?? {}),
-				})
+			const rawBlock = claudeRecord(value)
+			if (!rawBlock) continue
+			const type = String(rawBlock.type)
+			if (!['text', 'thinking', 'tool_use', 'server_tool_use', 'mcp_tool_use'].includes(type))
+				continue // Replay signatures and redacted blocks remain outside public output.
+			// Claude emits each completed content block as a separate AssistantMessage
+			// sharing message.id, immediately before that block's content_block_stop.
+			const blockIndex =
+				raw.content.length === 1
+					? ((snapshotId ? message.snapshotBlocks.get(snapshotId) : undefined) ??
+						(message.streamed ? message.activeBlock : undefined) ??
+						(!snapshotId && messageReason(raw.stop_reason) ? 0 : message.blocks.size))
+					: index
+			if (blockIndex > 10_000 || message.snapshotBlocks.size > 10_000)
+				throw new Error('The native message is too large.')
+			if (snapshotId && raw.content.length === 1) message.snapshotBlocks.set(snapshotId, blockIndex)
+			const prior = message.blocks.get(blockIndex)
+			if (prior?.authoritative) continue
+			const block: Block = {
+				type,
+				text:
+					type === 'text' && typeof rawBlock.text === 'string'
+						? rawBlock.text
+						: type === 'thinking' && typeof rawBlock.thinking === 'string'
+							? rawBlock.thinking
+							: '',
+				partialJson: '',
+				completed: prior?.completed ?? false,
+				authoritative: true,
+				...(prior?.reasoningCompleted ? { reasoningCompleted: true } : {}),
+			}
+			if (block.text.length > 1_000_000) throw new Error('The native message is too large.')
+			if (['tool_use', 'server_tool_use', 'mcp_tool_use'].includes(type)) {
+				block.id = claudeString(rawBlock.id)
+				block.name = claudeString(rawBlock.name)
+				block.input = claudeJson(rawBlock.input ?? {})
+				this.tool(block)
+			}
+			message.blocks.set(blockIndex, block)
+			if (type === 'thinking') this.reasoning(message, blockIndex, block)
 		}
-		if (text.length > 1_000_000) throw new Error('The native message is too large.')
-		const hasTool = raw.content.some((value) =>
-			['tool_use', 'server_tool_use', 'mcp_tool_use'].includes(String(claudeRecord(value)?.type)),
-		)
-		const reason =
-			messageReason(raw.stop_reason) ?? message.stopReason ?? (hasTool ? 'tool_use' : 'end_turn')
-		this.complete(message, text, reason)
+		this.text(message)
+		const reason = messageReason(raw.stop_reason)
+		if (reason) message.stopReason = reason
+		// A completed block is not a completed message. The partial stream's
+		// message_stop owns completion. UUID-bearing AssistantMessages can still be
+		// separate blocks when each repeats stop_reason and partial events are absent.
+		// Legacy UUID-less explicit full snapshots retain their completion boundary.
+		if (!message.streamed && !snapshotId && reason)
+			this.complete(message, this.text(message), reason)
 	}
 	private results(frame: Record<string, unknown>): void {
 		const content = claudeRecord(frame.message)?.content
@@ -389,6 +465,7 @@ export class ClaudeTurnProjection {
 		}
 	}
 	private finish(frame: Record<string, unknown>): void {
+		this.finished = true
 		const cancelled =
 			frame.terminal_reason === 'aborted_tools' ||
 			frame.terminal_reason === 'aborted_streaming' ||
@@ -399,12 +476,14 @@ export class ClaudeTurnProjection {
 			if (!message.completed)
 				this.complete(
 					message,
-					[...message.blocks.values()]
-						.filter((block) => block.type === 'text')
-						.map((block) => block.text)
-						.join(''),
-					cancelled || failed ? 'cancelled' : 'end_turn',
+					this.text(message),
+					cancelled || failed ? 'cancelled' : (message.stopReason ?? 'end_turn'),
 				)
+		}
+		// Terminal flushing can complete an earlier block-only message after a
+		// later legacy full snapshot. Preserve authored order for final identity.
+		for (const message of this.messages.values()) {
+			if (message.completed) this.latestItem = message.id
 		}
 		for (const [id, tool] of this.tools) {
 			if (!tool.completed)

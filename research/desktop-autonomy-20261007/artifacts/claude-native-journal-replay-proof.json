@@ -1,0 +1,25 @@
+{
+  "schema": "namzu.claude-native-journal-replay.v1",
+  "passed": true,
+  "providerRequests": 0,
+  "nativeActions": 0,
+  "toolExecutionActions": 0,
+  "journalSha256": "9335474ec1622d1323241a69a5dd2b47c7aad83a7ebb1937589f6dea35062e77",
+  "oldModuleSha256": "75895f0072b4d66a37243fd39f54cc06501e59dfa863fd35d89519a28c257794",
+  "fixedModuleSha256": "2758eca11bc83eadd29d6386b10bf05c8a86153337d81bc2d2c8f8e6569e5e16",
+  "before": {
+    "toolStarts": 0,
+    "toolCompletions": 0
+  },
+  "after": {
+    "toolStarts": 1,
+    "toolCompletions": 1,
+    "matchedSuccessfulRead": true,
+    "readFilePhysicalIdentityMatches": true
+  },
+  "limitations": [
+    "The actual owned native journal contains completed content blocks, not every partial stream event.",
+    "One terminal frame is synthesized from the separately confirmed end_turn; it adds no tool evidence.",
+    "This verifies the compiled normalizer against actual recorded blocks, not a new live provider request or write permission policy."
+  ]
+}

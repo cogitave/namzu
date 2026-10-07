@@ -585,10 +585,19 @@ export class WorkspaceWindowRegistry<
 		if (!entry) throw new Error('This window cannot control Namzu.')
 		return { id: entry[0], window: entry[1] }
 	}
-	fanout(event: unknown): void {
-		for (const [, window] of this.windows)
-			if (!window.isDestroyed() && !window.webContents.isDestroyed())
-				window.webContents.send('namzu:event', event)
+	fanout(event: unknown, failed?: (error: unknown) => void): void {
+		for (const [, window] of this.windows) {
+			try {
+				if (!window.isDestroyed() && !window.webContents.isDestroyed())
+					window.webContents.send('namzu:event', event)
+			} catch (error) {
+				try {
+					failed?.(error)
+				} catch {
+					/* A failed diagnostics sink cannot block the remaining windows. */
+				}
+			}
+		}
 	}
 }
 

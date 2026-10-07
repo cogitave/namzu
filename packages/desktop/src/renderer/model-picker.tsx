@@ -163,7 +163,20 @@ export function ModelPicker({
 				className="model-picker-popup"
 				positionerClassName={positionerClassName}
 			>
-				<div className="model-picker-body">
+				<div
+					className="model-picker-body"
+					onKeyDownCapture={(event) => {
+						// A model change moves the nested effort popover to another radio row.
+						// Keep Escape reliable for the outer popup when focus stays on that row.
+						// Escape from the effort portal still closes that child first.
+						if (
+							event.key === 'Escape' &&
+							!event.nativeEvent.isComposing &&
+							event.currentTarget.contains(event.target as Node)
+						)
+							setOpen(false)
+					}}
+				>
 					<ModelBrowser
 						key={`${projectId}:${sessionId ?? ''}`}
 						providers={providers}

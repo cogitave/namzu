@@ -26,6 +26,7 @@ import type {
 	ProjectView,
 	ProviderView,
 } from '../shared/protocol.js'
+import { applyCachedAttachmentPreviewEviction } from './attachment-preview-events.js'
 import { ChangedFilesCard } from './changed-files-card.js'
 import { ChangesPanel } from './changes-panel.js'
 import { ChatErrorBanner } from './chat-error-banner.js'
@@ -1124,6 +1125,17 @@ export function App({
 				if (owner) palCatalogueActivity.current.changed(owner)
 			}
 			const read = snapshotRead.current
+			if (read?.sessionId === id && read.generation === navigation.current && !read.overflow) {
+				read.characters += JSON.stringify(event).length
+				if (read.characters > 8 * 1024 * 1024 || read.events.length >= 10_000) {
+					read.overflow = true
+					read.events.length = 0
+				} else read.events.push(event)
+			}
+			if (event.kind === 'attachment-previews-evicted') {
+				setThreads((all) => applyCachedAttachmentPreviewEviction(all, event))
+				return
+			}
 			if (
 				!context.current.group.tabs.includes(id) &&
 				read?.sessionId !== id &&
@@ -1135,13 +1147,6 @@ export function App({
 						[id]: { ...(all[id] ?? emptyThread()), running: event.running },
 					}))
 				return
-			}
-			if (read?.sessionId === id && read.generation === navigation.current && !read.overflow) {
-				read.characters += JSON.stringify(event).length
-				if (read.characters > 8 * 1024 * 1024 || read.events.length >= 10_000) {
-					read.overflow = true
-					read.events.length = 0
-				} else read.events.push(event)
 			}
 			setThreads((all) => ({
 				...all,

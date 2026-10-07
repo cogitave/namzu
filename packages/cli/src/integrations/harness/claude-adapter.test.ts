@@ -7,6 +7,7 @@ import {
 	type HarnessPrompt,
 	type HarnessReviewRequest,
 	InMemorySessionLog,
+	type SessionEvent,
 	createHarnessSession,
 	generateProjectId,
 	generateSessionId,
@@ -151,6 +152,86 @@ function partialMessage(session: string, id: string, text: string): Record<strin
 		},
 	].map((event) => ({ type: 'stream_event', session_id: session, event }))
 }
+/** Official per-block flow: each AssistantMessage precedes its content_block_stop. */
+function completedBlockFlow(session: string, id = 'block-message'): Record<string, unknown>[] {
+	const stream = (event: Record<string, unknown>) => ({
+		type: 'stream_event',
+		session_id: session,
+		event,
+	})
+	const block = (uuid: string, content: Record<string, unknown>) => ({
+		type: 'assistant',
+		session_id: session,
+		uuid,
+		message: { id, stop_reason: null, content: [content] },
+	})
+	return [
+		stream({ type: 'message_start', message: { id } }),
+		stream({
+			type: 'content_block_start',
+			index: 0,
+			content_block: { type: 'thinking', thinking: '' },
+		}),
+		stream({
+			type: 'content_block_delta',
+			index: 0,
+			delta: { type: 'thinking_delta', thinking: 'Public thought' },
+		}),
+		block('thinking-snapshot', {
+			type: 'thinking',
+			thinking: 'Public thought',
+			signature: 'SYNTHETIC_PRIVATE_SIGNATURE',
+		}),
+		stream({ type: 'content_block_stop', index: 0 }),
+		stream({ type: 'content_block_start', index: 1, content_block: { type: 'text', text: '' } }),
+		stream({
+			type: 'content_block_delta',
+			index: 1,
+			delta: { type: 'text_delta', text: 'Reading ' },
+		}),
+		block('text-snapshot', { type: 'text', text: 'Reading fixture.' }),
+		stream({ type: 'content_block_stop', index: 1 }),
+		stream({
+			type: 'content_block_start',
+			index: 2,
+			content_block: { type: 'tool_use', id: 'read-block', name: 'Read', input: {} },
+		}),
+		stream({
+			type: 'content_block_delta',
+			index: 2,
+			delta: { type: 'input_json_delta', partial_json: '{"file_path":"partial-only"}' },
+		}),
+		block('tool-snapshot', {
+			type: 'tool_use',
+			id: 'read-block',
+			name: 'Read',
+			input: { file_path: '/fixture/note.txt' },
+		}),
+		stream({ type: 'content_block_stop', index: 2 }),
+		stream({ type: 'message_delta', delta: { stop_reason: 'tool_use' } }),
+		stream({ type: 'message_stop' }),
+		{
+			type: 'user',
+			session_id: session,
+			message: {
+				content: [{ type: 'tool_result', tool_use_id: 'read-block', content: 'Fixture facts' }],
+			},
+		},
+	]
+}
+/** Recorded native blocks may all repeat stop_reason even without partial events. */
+function completedBlockSnapshots(session: string): Record<string, unknown>[] {
+	return completedBlockFlow(session)
+		.filter((frame) => frame.type === 'assistant' || frame.type === 'user')
+		.map((frame) =>
+			frame.type === 'assistant'
+				? {
+						...frame,
+						message: { ...(frame.message as Record<string, unknown>), stop_reason: 'tool_use' },
+					}
+				: frame,
+		)
+}
 function request(session: string, id = 'request-1', input = { command: 'echo fixture' }) {
 	return {
 		type: 'control_request',
@@ -166,6 +247,75 @@ function review(): HarnessReviewRequest {
 }
 
 describe('native engine unfinished message settlement', () => {
+	it.each([
+		{ subtype: 'error_during_execution', status: 'failed', mode: 'partial' },
+		{ subtype: 'error_interrupted', status: 'cancelled', mode: 'partial' },
+		{ subtype: 'error_during_execution', status: 'failed', mode: 'block-only' },
+		{ subtype: 'error_interrupted', status: 'cancelled', mode: 'block-only' },
+	])(
+		'does not deliver completed $mode content blocks before an unfinished $status message settles',
+		({ subtype, status, mode }) => {
+			const turn = {
+				nativeSessionId: 'block-session',
+				nativeTurnId: 'block-operation',
+				turnIdSource: 'operation' as const,
+			}
+			const projection = new ClaudeTurnProjection(turn, new Set())
+			const frames =
+				mode === 'partial'
+					? completedBlockFlow(turn.nativeSessionId).slice(0, 9)
+					: completedBlockSnapshots(turn.nativeSessionId).slice(0, 2)
+			const before = frames.flatMap((frame) => projection.consume(frame))
+			expect(before.filter((event) => event.kind === 'message-completed')).toEqual([])
+			const terminal = projection.consume(
+				result(turn.nativeSessionId, 'failed-block-result', {
+					is_error: true,
+					subtype,
+				}),
+			)
+			expect(terminal.filter((event) => event.kind === 'message-completed')).toEqual([
+				{
+					...turn,
+					kind: 'message-completed',
+					nativeItemId: 'block-message',
+					content: 'Reading fixture.',
+					stopReason: 'cancelled',
+				},
+			])
+			expect(terminal.find((event) => event.kind === 'turn-completed')).toMatchObject({ status })
+			// A terminal projection cannot acquire fresh messages or tools from transport tails.
+			for (const frame of completedBlockFlow(turn.nativeSessionId, 'late-message'))
+				expect(projection.consume(frame)).toEqual([])
+		},
+	)
+	it('keeps an explicitly finished block group when a distinct streamed message later fails', () => {
+		const turn = {
+			nativeSessionId: 'boundary-session',
+			nativeTurnId: 'boundary-operation',
+			turnIdSource: 'operation' as const,
+		}
+		const projection = new ClaudeTurnProjection(turn, new Set())
+		for (const frame of completedBlockSnapshots(turn.nativeSessionId)) projection.consume(frame)
+		const next = partialMessage(turn.nativeSessionId, 'next-partial', 'Unfinished answer')
+		const boundary = projection.consume(next[0]!)
+		expect(boundary.filter((event) => event.kind === 'message-completed')).toMatchObject([
+			{ nativeItemId: 'block-message', content: 'Reading fixture.', stopReason: 'tool_use' },
+		])
+		for (const frame of next.slice(1)) projection.consume(frame)
+		const terminal = projection.consume(
+			result(turn.nativeSessionId, 'boundary-result', {
+				is_error: true,
+				subtype: 'error_during_execution',
+			}),
+		)
+		expect(terminal.filter((event) => event.kind === 'message-completed')).toMatchObject([
+			{ nativeItemId: 'next-partial', content: 'Unfinished answer', stopReason: 'cancelled' },
+		])
+		expect(terminal.find((event) => event.kind === 'turn-completed')).toMatchObject({
+			status: 'failed',
+		})
+	})
+
 	it.each([
 		{
 			label: 'successful',
@@ -598,6 +748,8 @@ describe('native engine stream projection', () => {
 		})
 		await fixture.emit(assistant(session, 'message-a', 'same complete text'))
 		await fixture.emit(assistant(session, 'message-a', 'same complete text'))
+		await stream({ type: 'message_delta', delta: { stop_reason: 'end_turn' } })
+		await stream({ type: 'message_stop' })
 		await fixture.emit(assistant(session, 'message-b', 'same complete text'))
 		await fixture.emit(result(session))
 		expect(events.filter((event) => event.kind === 'message-started')).toHaveLength(2)
@@ -623,6 +775,240 @@ describe('native engine stream projection', () => {
 		expect(events.filter((event) => event.kind === 'turn-completed')).toHaveLength(1)
 		await fixture.emit(result(session, 'result-2'))
 		await connection.close()
+	})
+	it('retains a Read block after same-message thinking and text until the real message stop', async () => {
+		const connection = await open()
+		try {
+			const turn = await connection.dispatch(prompt())
+			await fixture.emit(assistant(turn.nativeSessionId, 'earlier-message', 'Earlier update'))
+			const frames = completedBlockFlow(turn.nativeSessionId)
+			for (const frame of frames) {
+				await fixture.emit(frame)
+				const nativeEvent = frame.event as Record<string, unknown> | undefined
+				if (nativeEvent?.type === 'content_block_stop' && nativeEvent.index === 1)
+					await fixture.emit({
+						type: 'stream_event',
+						session_id: turn.nativeSessionId,
+						event: { type: 'message_start', message: { id: 'earlier-message' } },
+					})
+				if (nativeEvent?.type === 'content_block_start' && nativeEvent.index === 2) {
+					// An old stream start cannot steal the new block's active index either.
+					await fixture.emit(
+						frames.find((item) => {
+							const event = item.event as Record<string, unknown> | undefined
+							return event?.type === 'content_block_start' && event.index === 1
+						})!,
+					)
+					// Replayed old blocks retain their own UUID/index while a new block is active.
+					await fixture.emit(frames.find((item) => item.uuid === 'thinking-snapshot')!)
+					await fixture.emit(frames.find((item) => item.uuid === 'text-snapshot')!)
+				}
+				if (frame.type === 'assistant') await fixture.emit(frame)
+				if (frame.type === 'assistant')
+					expect(
+						events.some(
+							(event) =>
+								event.kind === 'message-completed' && event.nativeItemId === 'block-message',
+						),
+					).toBe(false)
+			}
+			expect(events.filter((event) => event.kind === 'tool-started')).toEqual([
+				{
+					...turn,
+					kind: 'tool-started',
+					nativeItemId: 'read-block',
+					name: 'Read',
+					input: { file_path: '/fixture/note.txt' },
+				},
+			])
+			expect(events.filter((event) => event.kind === 'tool-completed')).toEqual([
+				{
+					...turn,
+					kind: 'tool-completed',
+					nativeItemId: 'read-block',
+					name: 'Read',
+					result: 'Fixture facts',
+					status: 'completed',
+				},
+			])
+			expect(
+				events.filter((event) => event.kind === 'reasoning' && event.status === 'completed'),
+			).toEqual([
+				{
+					...turn,
+					kind: 'reasoning',
+					nativeItemId: 'block-message',
+					blockId: 'block-message:0',
+					status: 'completed',
+					text: 'Public thought',
+				},
+			])
+			expect(events.filter((event) => event.kind === 'message-completed')).toEqual([
+				{
+					...turn,
+					kind: 'message-completed',
+					nativeItemId: 'earlier-message',
+					content: 'Earlier update',
+					stopReason: 'end_turn',
+				},
+				{
+					...turn,
+					kind: 'message-completed',
+					nativeItemId: 'block-message',
+					content: 'Reading fixture.',
+					stopReason: 'tool_use',
+				},
+			])
+			expect(JSON.stringify(events)).not.toContain('SYNTHETIC_PRIVATE')
+			expect(JSON.stringify(events)).not.toContain('partial-only')
+			const count = events.length
+			for (const frame of frames.filter(
+				(frame) => frame.type === 'assistant' || frame.type === 'user',
+			))
+				await fixture.emit(frame)
+			expect(events).toHaveLength(count)
+			await fixture.emit(assistant(turn.nativeSessionId, 'actual-final', 'Final facts'))
+			await fixture.emit(result(turn.nativeSessionId, 'block-result', { result: 'Final facts' }))
+			const countAfterTerminal = events.length
+			for (const frame of frames) await fixture.emit(frame)
+			expect(events).toHaveLength(countAfterTerminal)
+			const next = await connection.dispatch(prompt('next-block-operation'))
+			for (const frame of frames) await fixture.emit(frame)
+			expect(events.filter((event) => event.kind === 'tool-started')).toHaveLength(1)
+			expect(events.filter((event) => event.kind === 'message-completed')).toHaveLength(3)
+			await fixture.emit(assistant(next.nativeSessionId, 'next-final', 'New facts'))
+			await fixture.emit(result(next.nativeSessionId, 'next-block-result', { result: 'New facts' }))
+			expect(events.filter((event) => event.kind === 'turn-completed')).toHaveLength(2)
+		} finally {
+			await connection.close()
+		}
+	})
+	it('retains separate text blocks and the actual message-level reason across later usage deltas', () => {
+		const turn = {
+			nativeSessionId: 'multi-text-session',
+			nativeTurnId: 'multi-text-operation',
+			turnIdSource: 'operation' as const,
+		}
+		const projection = new ClaudeTurnProjection(turn, new Set())
+		const stream = (event: Record<string, unknown>) =>
+			projection.consume({ type: 'stream_event', session_id: turn.nativeSessionId, event })
+		stream({ type: 'message_start', message: { id: 'multi-text' } })
+		for (const index of [0, 1]) {
+			stream({ type: 'content_block_start', index, content_block: { type: 'text', text: '' } })
+			const block = {
+				...assistant(turn.nativeSessionId, 'multi-text', 'same'),
+				uuid: `text-block-${index}`,
+				message: { id: 'multi-text', stop_reason: null, content: [{ type: 'text', text: 'same' }] },
+			}
+			expect(projection.consume(block)).toEqual([])
+			expect(projection.consume(block)).toEqual([])
+			stream({ type: 'content_block_stop', index })
+		}
+		stream({ type: 'message_delta', delta: { stop_reason: 'max_tokens' } })
+		stream({ type: 'message_delta', delta: {}, usage: { output_tokens: 42 } })
+		expect(stream({ type: 'message_stop' })).toEqual([
+			{
+				...turn,
+				kind: 'message-completed',
+				nativeItemId: 'multi-text',
+				content: 'samesame',
+				stopReason: 'max_tokens',
+			},
+		])
+	})
+	it.each(['legacy-full', 'uuid-block'] as const)(
+		'merges separate UUID block receipts before a %s answer when each repeats stop_reason without partial events',
+		(mode) => {
+			const turn = {
+				nativeSessionId: 'snapshot-session',
+				nativeTurnId: 'snapshot-operation',
+				turnIdSource: 'operation' as const,
+			}
+			const projection = new ClaudeTurnProjection(turn, new Set())
+			const snapshots = completedBlockSnapshots(turn.nativeSessionId)
+			const observed = snapshots.flatMap((frame) => [
+				...projection.consume(frame),
+				...projection.consume(frame),
+			])
+			expect(observed.filter((event) => event.kind === 'message-completed')).toEqual([])
+			expect(observed.filter((event) => event.kind === 'tool-started')).toEqual([
+				{
+					...turn,
+					kind: 'tool-started',
+					nativeItemId: 'read-block',
+					name: 'Read',
+					input: { file_path: '/fixture/note.txt' },
+				},
+			])
+			expect(observed.filter((event) => event.kind === 'tool-completed')).toMatchObject([
+				{ nativeItemId: 'read-block', name: 'Read', status: 'completed', result: 'Fixture facts' },
+			])
+			const final = {
+				...assistant(turn.nativeSessionId, 'snapshot-final', 'Final facts'),
+				...(mode === 'uuid-block' ? { uuid: 'final-block-snapshot' } : {}),
+			}
+			const finalEvents = projection.consume(final)
+			expect(finalEvents.filter((event) => event.kind === 'message-completed')).toHaveLength(
+				mode === 'uuid-block' ? 1 : 2,
+			)
+			const terminal = projection.consume(
+				result(turn.nativeSessionId, 'snapshot-result', { result: 'Final facts' }),
+			)
+			expect(
+				[...finalEvents, ...terminal].filter((event) => event.kind === 'message-completed'),
+			).toMatchObject([
+				{ nativeItemId: 'block-message', content: 'Reading fixture.', stopReason: 'tool_use' },
+				{ nativeItemId: 'snapshot-final', content: 'Final facts', stopReason: 'end_turn' },
+			])
+			expect(terminal.find((event) => event.kind === 'turn-completed')).toMatchObject({
+				status: 'completed',
+				finalItemId: 'snapshot-final',
+			})
+			for (const frame of [...snapshots, final]) expect(projection.consume(frame)).toEqual([])
+			expect(JSON.stringify([...observed, ...terminal])).not.toContain('SYNTHETIC_PRIVATE')
+		},
+	)
+	it('rejects malformed assistant content before it closes a prior block group or starts a phantom message', () => {
+		const turn = {
+			nativeSessionId: 'malformed-session',
+			nativeTurnId: 'malformed-operation',
+			turnIdSource: 'operation' as const,
+		}
+		const projection = new ClaudeTurnProjection(turn, new Set())
+		const snapshots = completedBlockSnapshots(turn.nativeSessionId)
+		for (const frame of snapshots.slice(0, 2)) projection.consume(frame)
+		for (const content of [
+			undefined,
+			null,
+			'not an array',
+			{ type: 'text', text: 'invalid container' },
+		]) {
+			expect(
+				projection.consume({
+					type: 'assistant',
+					session_id: turn.nativeSessionId,
+					uuid: 'malformed-snapshot',
+					message: {
+						id: 'malformed-new-message',
+						stop_reason: 'end_turn',
+						...(content === undefined ? {} : { content }),
+					},
+				}),
+			).toEqual([])
+		}
+		const observed = snapshots.slice(2).flatMap((frame) => projection.consume(frame))
+		expect(observed.filter((event) => event.kind === 'tool-started')).toMatchObject([
+			{ nativeItemId: 'read-block', name: 'Read', input: { file_path: '/fixture/note.txt' } },
+		])
+		expect(observed.filter((event) => event.kind === 'tool-completed')).toMatchObject([
+			{ nativeItemId: 'read-block', name: 'Read', status: 'completed' },
+		])
+		expect(observed.filter((event) => event.kind === 'message-completed')).toEqual([])
+		const terminal = projection.consume(result(turn.nativeSessionId, 'malformed-result'))
+		expect(terminal.filter((event) => event.kind === 'message-completed')).toMatchObject([
+			{ nativeItemId: 'block-message', content: 'Reading fixture.', stopReason: 'tool_use' },
+		])
+		expect([...projection.messages.keys()]).toEqual(['block-message'])
 	})
 	it('records public thinking lifecycle without signatures or redacted replay material', async () => {
 		const connection = await open()
@@ -818,6 +1204,83 @@ describe('native engine stream projection', () => {
 })
 
 describe('native engine live permissions and cancellation', () => {
+	it.each(['partial', 'block-only'] as const)(
+		'journals one observed Read from the same-message %s block sequence through the SDK',
+		async (mode) => {
+			const sessionId = generateSessionId()
+			const log = new InMemorySessionLog({ sessionId })
+			const published: SessionEvent[] = []
+			const session = createHarnessSession({
+				scope: {
+					sessionId,
+					tenantId: generateTenantId(),
+					projectId: generateProjectId(),
+					topicId: generateTopicId(),
+					cwd,
+				},
+				sessionLog: log,
+				adapter: adapter(),
+				assertAdmission: async () => undefined,
+				onEvent: (event) => {
+					published.push(event)
+				},
+				onReview: () => {
+					throw new Error('Observed Read blocks must not create guessed permission callbacks.')
+				},
+			})
+			const dispatched = deferred<string>()
+			fixture.writeHook = async (frame) => {
+				if (frame.type === 'user') dispatched.resolve(frame.session_id as string)
+			}
+			const pending = session.run({
+				prompt: 'Read the fixture',
+				model: 'sonnet',
+				permissionMode: 'prompt',
+			})
+			try {
+				const nativeSessionId = await dispatched.promise
+				const frames =
+					mode === 'partial'
+						? completedBlockFlow(nativeSessionId)
+						: completedBlockSnapshots(nativeSessionId)
+				for (const frame of frames) {
+					await fixture.emit(frame)
+					if (frame.type === 'assistant') await fixture.emit(frame)
+				}
+				await fixture.emit(assistant(nativeSessionId, 'read-final', 'Final facts'))
+				await fixture.emit(result(nativeSessionId, 'read-result', { result: 'Final facts' }))
+				expect(await pending).toMatchObject({ status: 'completed' })
+				const records = (await log.readAll()).entries.map((entry) => entry.record)
+				const executions = records.filter((record) => record.type === 'tool_executing')
+				const completions = records.filter((record) => record.type === 'tool_completed')
+				expect(executions).toMatchObject([
+					{ toolName: 'claude:Read', input: { file_path: '/fixture/note.txt' } },
+				])
+				expect(completions).toMatchObject([
+					{ toolName: 'claude:Read', result: 'Fixture facts', isError: false },
+				])
+				expect(completions[0]?.toolUseId).toBe(executions[0]?.toolUseId)
+				expect(published.filter((event) => event.type === 'tool_executing')).toHaveLength(1)
+				expect(published.filter((event) => event.type === 'tool_completed')).toHaveLength(1)
+				expect(records.filter((record) => record.type === 'message_completed')).toEqual(
+					expect.arrayContaining(
+						[
+							{ content: 'Reading fixture.', stopReason: 'tool_use' },
+							{ content: 'Final facts', stopReason: 'end_turn' },
+						].map((record) => expect.objectContaining(record)),
+					),
+				)
+				expect(
+					(await session.history()).filter((message) => message.role === 'assistant'),
+				).toMatchObject([{ content: 'Reading fixture.' }, { content: 'Final facts' }])
+				expect(JSON.stringify(records)).not.toContain('SYNTHETIC_PRIVATE')
+				expect(JSON.stringify(records)).not.toContain('partial-only')
+			} finally {
+				await session.close()
+				await pending.catch(() => undefined)
+			}
+		},
+	)
 	it('journals actual adapter reviews, tools and result-only identity through the SDK boundary', async () => {
 		const sessionId = generateSessionId()
 		const log = new InMemorySessionLog({ sessionId })

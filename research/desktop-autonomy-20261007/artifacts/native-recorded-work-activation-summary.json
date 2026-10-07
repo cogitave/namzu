@@ -1,0 +1,78 @@
+{
+  "schema": "namzu.native-recorded-work-activation-summary.v1",
+  "sourceCommit": "0f3df20a5",
+  "operations": [
+    {
+      "operation": "rejected preflight",
+      "passed": false,
+      "phase": "preflight",
+      "modelRequests": 0,
+      "computerActions": 0,
+      "packageInstalls": 0,
+      "privateReceiptSha256": "b45630a2d63be56ed4da4fbb7a7c50f3098c902193ad9e1e819c5c5e0edf5650",
+      "cliModuleCopies": 0,
+      "sdkCopies": 0,
+      "physicalStoppedMachineObservations": 0,
+      "sourceBytesMatch": false
+    },
+    {
+      "operation": "activation",
+      "passed": true,
+      "phase": "complete",
+      "modelRequests": 0,
+      "computerActions": 0,
+      "packageInstalls": 0,
+      "privateReceiptSha256": "e907642d4beb3927046442023f4bcdf6c68c790bbbdfedbee22f607ca757f6a3",
+      "cliModuleCopies": 1,
+      "sdkCopies": 0,
+      "physicalStoppedMachineObservations": 3,
+      "sourceBytesMatch": true,
+      "protectedDigestsEqual": true,
+      "checks": [
+        "applied 1 changed CLI and 0 changed SDK module(s) after graceful close; reviewed 7 CLI and 1 SDK module(s)",
+        "staged complete built desktop and retained old dist as backup",
+        "fresh desktop main/preload/renderer",
+        "original tab order and active conversation restored",
+        "messages, drafts, model/settings, files, tasks, profiles and computers preserved",
+        "launch and dependency graph unchanged"
+      ]
+    },
+    {
+      "operation": "fresh read-only verification",
+      "passed": true,
+      "phase": "preflight",
+      "modelRequests": 0,
+      "computerActions": 0,
+      "packageInstalls": 0,
+      "privateReceiptSha256": "4e2d6795412254ce2f04e9f275293004c1892a2a477b3fb854244bc7a2391b26",
+      "cliModuleCopies": 0,
+      "sdkCopies": 0,
+      "physicalStoppedMachineObservations": 1,
+      "sourceBytesMatch": true,
+      "protectedDigestsEqual": true,
+      "inheritedActivationChecks": [
+        "applied 1 changed CLI and 0 changed SDK module(s) after graceful close; reviewed 7 CLI and 1 SDK module(s)",
+        "staged complete built desktop and retained old dist as backup",
+        "fresh desktop main/preload/renderer",
+        "original tab order and active conversation restored",
+        "messages, drafts, model/settings, files, tasks, profiles and computers preserved",
+        "launch and dependency graph unchanged"
+      ],
+      "currentVerificationChecks": [
+        "fresh exact main/preload/renderer bytes",
+        "original tab order, authored message bodies, drafts, files, selected model/settings, tasks, profiles and computers preserved"
+      ]
+    }
+  ],
+  "fourPreviouslyVerifiedJournals": {
+    "checkedFiles": 4,
+    "allBytesUnchanged": true,
+    "privateReceiptSha256": "b2eadd10d9ea83279484b3b02036d4f8dbb4f0127f339879df180d16daf82b1b"
+  },
+  "limitations": [
+    "The first apply was rejected before any files were copied because computer metadata was unavailable.",
+    "The successful apply used a narrow exact unavailable notice plus physical stopped selected Podman machine checks; it performed no VM/computer start or stop.",
+    "The launcher pin and native probe cwd were tightened after apply v2; the fresh current verification includes that pin.",
+    "Journal preservation covers only the four previously verified files, not every account file."
+  ]
+}

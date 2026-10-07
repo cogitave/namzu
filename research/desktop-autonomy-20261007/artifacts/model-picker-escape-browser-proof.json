@@ -1,0 +1,13 @@
+{
+  "passed": true,
+  "realBrowserKeyboard": true,
+  "isolation": "Vite preview with fixture-only models",
+  "nativeActions": 0,
+  "providerRequests": 0,
+  "checks": [
+    "Escape closes outer popup after changing the selected model with effort available",
+    "First Escape closes only the nested effort popup",
+    "Second Escape closes the outer popup and returns focus",
+    "Plain Escape remains functional"
+  ]
+}

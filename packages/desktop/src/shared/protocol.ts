@@ -269,6 +269,8 @@ export type DesktopEvent = (
 	| { kind: 'task'; sessionId: string; task: AcpTask; deleted?: true }
 	| { kind: 'tasks'; sessionId: string; tasks?: AcpTask[]; notice?: string }
 	| { kind: 'permission-cleared'; sessionId: string; requestId?: string }
+	/** Display-only retirement; admitted, queued and retry file bytes are unchanged. */
+	| { kind: 'attachment-previews-evicted'; sessionId: string; attachmentIds: string[] }
 	| ({ kind: 'retry-status'; sessionId: string } & DesktopRetryStatus)
 	| { kind: 'retry'; sessionId: string; turnId: string }
 	| {

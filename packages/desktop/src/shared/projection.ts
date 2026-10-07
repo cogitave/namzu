@@ -280,6 +280,24 @@ export function applyEvent(previous: ThreadState, event: DesktopEvent): ThreadSt
 	if (event.kind === 'connection' || event.kind === 'background-work-status') return previous
 	if (event.revision !== undefined && event.revision <= previous.revision) return previous
 	let thread = event.revision === undefined ? previous : { ...previous, revision: event.revision }
+	if (event.kind === 'attachment-previews-evicted') {
+		const ids = new Set(event.attachmentIds)
+		let changed = false
+		const messages = thread.messages.map((message) => {
+			if (!message.attachments?.some((file) => ids.has(file.id) && file.preview !== undefined))
+				return message
+			changed = true
+			return {
+				...message,
+				attachments: message.attachments.map((file) => {
+					if (!ids.has(file.id) || file.preview === undefined) return file
+					const { preview: _preview, ...metadata } = file
+					return metadata
+				}),
+			}
+		})
+		return changed ? { ...thread, messages } : thread
+	}
 	if (event.kind === 'tasks')
 		return { ...thread, tasks: event.tasks ?? thread.tasks, tasksNotice: event.notice }
 	if (event.kind === 'task') {

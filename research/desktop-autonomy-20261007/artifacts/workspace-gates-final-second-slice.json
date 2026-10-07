@@ -1,0 +1,149 @@
+{
+  "schema": "namzu.desktop-autonomy.workspace-gates.v2",
+  "sourceBaseCommit": "0f3df20a5",
+  "passed": true,
+  "command": "pnpm -r build && pnpm typecheck && pnpm lint && pnpm test && pnpm docs:check",
+  "exitCode": 0,
+  "sourceSnapshot": {
+    "files": 21,
+    "sha256": "3acd383d7b4f7ebedf9fcfdb772ba0c54ed8c1e1503b45423c798f2d64d51fd7",
+    "allHashesUnchangedAfterGates": true
+  },
+  "packages": [
+    {
+      "package": "packages/files",
+      "passed": 48,
+      "skipped": 11
+    },
+    {
+      "package": "packages/sdk",
+      "passed": 10461,
+      "skipped": 0
+    },
+    {
+      "package": "packages/computer-use",
+      "passed": 165,
+      "skipped": 0
+    },
+    {
+      "package": "packages/browser",
+      "passed": 133,
+      "skipped": 42
+    },
+    {
+      "package": "packages/desktop",
+      "passed": 799,
+      "skipped": 0
+    },
+    {
+      "package": "packages/ag-ui",
+      "passed": 189,
+      "skipped": 0
+    },
+    {
+      "package": "packages/live",
+      "passed": 25,
+      "skipped": 0
+    },
+    {
+      "package": "packages/lsp",
+      "passed": 27,
+      "skipped": 0
+    },
+    {
+      "package": "packages/providers/anthropic",
+      "passed": 259,
+      "skipped": 44
+    },
+    {
+      "package": "packages/providers/bedrock",
+      "passed": 127,
+      "skipped": 0
+    },
+    {
+      "package": "packages/providers/deepseek",
+      "passed": 44,
+      "skipped": 0
+    },
+    {
+      "package": "packages/providers/google",
+      "passed": 29,
+      "skipped": 0
+    },
+    {
+      "package": "packages/providers/lmstudio",
+      "passed": 29,
+      "skipped": 0
+    },
+    {
+      "package": "packages/providers/http",
+      "passed": 83,
+      "skipped": 10
+    },
+    {
+      "package": "packages/providers/ollama",
+      "passed": 36,
+      "skipped": 0
+    },
+    {
+      "package": "packages/providers/openrouter",
+      "passed": 80,
+      "skipped": 0
+    },
+    {
+      "package": "packages/providers/zen",
+      "passed": 261,
+      "skipped": 0
+    },
+    {
+      "package": "packages/providers/openai",
+      "passed": 129,
+      "skipped": 0
+    },
+    {
+      "package": "packages/telemetry",
+      "passed": 33,
+      "skipped": 0
+    },
+    {
+      "package": "packages/sandbox",
+      "passed": 1857,
+      "skipped": 3
+    },
+    {
+      "package": "packages/cli",
+      "passed": 5230,
+      "skipped": 6
+    }
+  ],
+  "totalPassed": 20044,
+  "totalSkipped": 116,
+  "lintWarnings": [
+    {
+      "package": "packages/sdk",
+      "warnings": 35
+    },
+    {
+      "package": "packages/providers/zen",
+      "warnings": 1
+    },
+    {
+      "package": "packages/cli",
+      "warnings": 12
+    }
+  ],
+  "docs": {
+    "passed": true,
+    "pages": 143,
+    "gateTests": 4
+  },
+  "log": {
+    "file": "namzu-desktop-autonomy-workspace-gates-20261007-final-second.log",
+    "sha256": "98327f89cc626fbd808886f48dc8a50330fa5f43aedfe00a1210b7e204fdf7d0"
+  },
+  "limitations": [
+    "This final run began after production source freeze; an earlier passing intermediate run is not used as final-source proof.",
+    "These are workspace build/typecheck/lint/unit and integration tests plus the OKF gate, not the entire CI/release matrix.",
+    "Existing SDK, CLI and Zen lint warnings are retained; the warning source files are unchanged by this slice."
+  ]
+}

@@ -1,0 +1,160 @@
+{
+  "schema": "namzu.native-human-harness-comparison.v1",
+  "nativeWindows": true,
+  "totalActualModelRequests": 3,
+  "additionalReplayModelRequests": 0,
+  "sharedReadOnlyEnglishPrompt": true,
+  "sameOwnedFixtureFacts": true,
+  "engines": [
+    {
+      "engine": "namzu",
+      "model": "space-bunny-free",
+      "catalogueRows": 8,
+      "draftModesSelected": [
+        "prompt",
+        "auto",
+        "plan"
+      ],
+      "warmCatalogue": {
+        "reopens": 2,
+        "repeatedCatalogueRequests": 0,
+        "rows": 8
+      },
+      "effort": {
+        "offered": true,
+        "selected": "low",
+        "levels": 5
+      },
+      "turns": [
+        {
+          "stopReason": "end_turn",
+          "error": false,
+          "factsMatch": true,
+          "routeMatches": true,
+          "fixtureBytesUnchanged": true,
+          "completedToolRows": 2,
+          "visiblePhaseLabels": [
+            "Working",
+            "Thinking"
+          ],
+          "publicEventCounts": {
+            "prompt": 1,
+            "state": 2,
+            "agent_thought": 2,
+            "agent_thought_chunk": 3,
+            "agent_message": 3,
+            "tool_call": 4,
+            "background-work-status": 2,
+            "agent_message_chunk": 10,
+            "turn_ended": 1,
+            "permission-cleared": 1,
+            "tasks": 1
+          },
+          "approvedExactFixtureReads": 0
+        }
+      ],
+      "toolReceiptOutcome": "all-attempted-live-answers-observed"
+    },
+    {
+      "engine": "codex-cli",
+      "model": "gpt-5.6-luna",
+      "catalogueRows": 4,
+      "draftModesSelected": [
+        "prompt",
+        "auto",
+        "plan"
+      ],
+      "warmCatalogue": {
+        "reopens": 2,
+        "repeatedCatalogueRequests": 0,
+        "rows": 4
+      },
+      "effort": {
+        "offered": true,
+        "selected": "low",
+        "levels": 5
+      },
+      "turns": [
+        {
+          "stopReason": "end_turn",
+          "error": false,
+          "factsMatch": true,
+          "routeMatches": true,
+          "fixtureBytesUnchanged": true,
+          "completedToolRows": 1,
+          "visiblePhaseLabels": [
+            "Working",
+            "Thinking",
+            "Waiting for your decision"
+          ],
+          "publicEventCounts": {
+            "prompt": 1,
+            "state": 2,
+            "agent_thought": 4,
+            "agent_message_chunk": 45,
+            "agent_message": 2,
+            "tool_call": 2,
+            "permission": 1,
+            "permission-cleared": 2,
+            "turn_ended": 1
+          },
+          "approvedExactFixtureReads": 1
+        }
+      ],
+      "toolReceiptOutcome": "all-attempted-live-answers-observed"
+    },
+    {
+      "engine": "claude-code",
+      "model": "haiku",
+      "catalogueRows": 11,
+      "draftModesSelected": [
+        "prompt",
+        "plan"
+      ],
+      "warmCatalogue": {
+        "reopens": 2,
+        "repeatedCatalogueRequests": 0,
+        "rows": 11
+      },
+      "effort": {
+        "offered": false
+      },
+      "turns": [
+        {
+          "stopReason": "end_turn",
+          "error": false,
+          "factsMatch": true,
+          "routeMatches": true,
+          "fixtureBytesUnchanged": true,
+          "completedToolRows": 0,
+          "visiblePhaseLabels": [
+            "Working",
+            "Thinking"
+          ],
+          "publicEventCounts": {
+            "prompt": 1,
+            "state": 2,
+            "agent_thought": 4,
+            "agent_message": 3,
+            "turn_ended": 1,
+            "permission-cleared": 1
+          },
+          "approvedExactFixtureReads": 0
+        }
+      ],
+      "toolReceiptOutcome": "inconclusive"
+    }
+  ],
+  "nativeClaudeReadProvedSeparately": true,
+  "desktopClaudeToolReceiptPassed": false,
+  "privateResumeReceiptSha256": "434062a43cebe43d51bcec623412c42dcfc1ca399166807c3ebd24913f05e9ff",
+  "privateCleanupReceiptSha256": "85ea24afcb4bd12c40cc7da3e1538e3c2940c0cd57ef3fa296bb72f9db7825da",
+  "ownedFixtureClosed": true,
+  "originalProcessStillAlive": true,
+  "limitations": [
+    "Pre-fix native bundle: Claude completed the owned Read but its Desktop tool event was dropped. This is an observed defect, not a passed receipt test.",
+    "Model menu trigger-click closure was used because the pre-fix Escape defect was observed.",
+    "Draft mode selection and one exact read approval do not prove write/destructive or Full access policy enforcement.",
+    "Native cleanup required dismissing one fixture-only diagnostic caused by an earlier debugger-detach callback; the corrected callback captures the Inspector module before scheduling. No primary app action or process-tree termination."
+  ]
+}

@@ -192,7 +192,7 @@ const operator = new Operator(
 				diagnostics.record('ipc_failed', { operation: 'workspaceAction', error })
 			}
 		}
-		windows.fanout(event)
+		windows.fanout(event, (error) => diagnostics.record('renderer_failed', { error }))
 	},
 	app.getPath('userData'),
 	diagnostics,

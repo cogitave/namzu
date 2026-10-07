@@ -124,6 +124,22 @@ snapshot identity. Full messages replace partial text; two messages with the
 same text keep separate identities. Public thinking text can be shown, while
 signature and redacted replay blocks are omitted.
 
+Claude's [documented streaming flow](https://code.claude.com/docs/en/agent-sdk/streaming-output#message-flow)
+emits each completed content block as a separate assistant frame sharing the
+same native message ID. The adapter merges those blocks using their stream
+indices and native block UUIDs. It completes a streamed message at
+`message_stop`, with its actual message-level stop reason. UUID-bearing block
+receipts remain separate even when partial events are absent and every block
+repeats the stop reason; the terminal result then closes remaining messages.
+Without partial events, a distinct next native message also confirms completion
+of an earlier block group that already reported an explicit stop reason.
+Legacy UUID-less explicit full snapshots retain their completion boundary.
+An earlier thinking or text block cannot discard a
+later observed tool call. The completed tool block supplies its authoritative
+input; partial input chunks and permission callbacks do not establish execution.
+Matching tool-result frames settle that receipt once. Duplicate blocks and
+completed or older-operation replays cannot create another tool receipt.
+
 When a failed or interrupted result closes an unfinished streamed message,
 the message lifecycle uses `stopReason: 'cancelled'` and retains its partial
 text. A failed turn still reports `status: 'failed'` with its existing error;

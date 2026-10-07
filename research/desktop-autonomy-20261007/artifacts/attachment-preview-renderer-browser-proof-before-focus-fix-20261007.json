@@ -1,0 +1,27 @@
+{
+  "passed": true,
+  "realReactRenderer": true,
+  "isolatedPages": 2,
+  "nativeActions": 0,
+  "providerRequests": 0,
+  "checks": [
+    "Held stale history replays a revisioned eviction into the real App transcript",
+    "An inactive ordinary owner loses only its cached image preview; metadata remains on revisit",
+    "Retiring an open image dialog unmounts it and leaves a named metadata fallback"
+  ],
+  "limitations": [
+    "Synthetic Vite preview API and attachment events; no native IPC or device file read.",
+    "The two pages are independent renderer fixtures, not an Electron multiwindow fanout proof."
+  ],
+  "inactiveOpenReads": [
+    "sample-thread-1",
+    "sample-thread-2"
+  ],
+  "dialogRetirementFocus": {
+    "tag": "BODY",
+    "insideHiddenDialog": false,
+    "insideFallback": false
+  },
+  "focusRestorationPassed": false,
+  "knownDefect": "When an open image preview retires, focus falls to BODY instead of the stable attachment fallback."
+}

@@ -1,0 +1,128 @@
+{
+  "schema": "namzu.desktop-autonomy.workspace-gates.v1",
+  "sourceCommit": "0f3df20a5",
+  "passed": true,
+  "command": "pnpm typecheck && pnpm lint && pnpm test",
+  "exitCode": 0,
+  "packages": [
+    {
+      "package": "packages/files",
+      "passed": 48,
+      "skipped": 11
+    },
+    {
+      "package": "packages/sdk",
+      "passed": 10461,
+      "skipped": 0
+    },
+    {
+      "package": "packages/computer-use",
+      "passed": 165,
+      "skipped": 0
+    },
+    {
+      "package": "packages/browser",
+      "passed": 133,
+      "skipped": 42
+    },
+    {
+      "package": "packages/ag-ui",
+      "passed": 189,
+      "skipped": 0
+    },
+    {
+      "package": "packages/desktop",
+      "passed": 784,
+      "skipped": 0
+    },
+    {
+      "package": "packages/live",
+      "passed": 25,
+      "skipped": 0
+    },
+    {
+      "package": "packages/lsp",
+      "passed": 27,
+      "skipped": 0
+    },
+    {
+      "package": "packages/providers/anthropic",
+      "passed": 259,
+      "skipped": 44
+    },
+    {
+      "package": "packages/providers/bedrock",
+      "passed": 127,
+      "skipped": 0
+    },
+    {
+      "package": "packages/providers/deepseek",
+      "passed": 44,
+      "skipped": 0
+    },
+    {
+      "package": "packages/providers/google",
+      "passed": 29,
+      "skipped": 0
+    },
+    {
+      "package": "packages/providers/http",
+      "passed": 83,
+      "skipped": 10
+    },
+    {
+      "package": "packages/providers/lmstudio",
+      "passed": 29,
+      "skipped": 0
+    },
+    {
+      "package": "packages/providers/ollama",
+      "passed": 36,
+      "skipped": 0
+    },
+    {
+      "package": "packages/providers/openrouter",
+      "passed": 80,
+      "skipped": 0
+    },
+    {
+      "package": "packages/providers/zen",
+      "passed": 261,
+      "skipped": 0
+    },
+    {
+      "package": "packages/providers/openai",
+      "passed": 129,
+      "skipped": 0
+    },
+    {
+      "package": "packages/telemetry",
+      "passed": 33,
+      "skipped": 0
+    },
+    {
+      "package": "packages/sandbox",
+      "passed": 1857,
+      "skipped": 3
+    },
+    {
+      "package": "packages/cli",
+      "passed": 5218,
+      "skipped": 6
+    }
+  ],
+  "testTotals": {
+    "passed": 20017,
+    "skipped": 116
+  },
+  "lintWarnings": {
+    "sdk": 35,
+    "cli": 12
+  },
+  "privateFullLogSha256": "4052788a018244a98feae849af4d15025dd0d4aee5ce8e792a698f09d6a54a8e",
+  "limitations": [
+    "Base workspace gates only; not the full CI/release matrix.",
+    "The prior full run failed at the original Sandbox five-second test limit and remains a failure.",
+    "Subsequent source work requires new scoped verification."
+  ]
+}

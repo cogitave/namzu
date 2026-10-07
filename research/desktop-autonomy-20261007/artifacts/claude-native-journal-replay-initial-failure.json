@@ -1,0 +1,14 @@
+{
+  "schema": "namzu.claude-native-journal-replay.initial-failure.v1",
+  "passed": false,
+  "providerRequests": 0,
+  "nativeActions": 0,
+  "toolExecutionActions": 0,
+  "failure": "The fixed compiled normalizer still emitted zero Read starts from authoritative UUID block receipts without partial stream boundaries.",
+  "expectedToolStarts": 1,
+  "observedToolStarts": 0,
+  "oldModuleSha256": "75895f0072b4d66a37243fd39f54cc06501e59dfa863fd35d89519a28c257794",
+  "intermediateModuleSha256": "81b8ab44bba81c9a1c78441d34a2ebdfab6144b06c22bf77a01b6b8c5f623a1c",
+  "sourceChangeRequired": true,
+  "explanation": "Recorded thinking, text and Read blocks share message.id and each carries stop_reason tool_use. UUID block receipts must retain their own indexes and must not close a message early."
+}
