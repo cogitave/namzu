@@ -454,6 +454,10 @@ export function applyEvent(previous: ThreadState, event: DesktopEvent): ThreadSt
 		return {
 			...thread,
 			running: event.running,
+			// A settled turn has nothing left to confirm; pending/unknown stay visible.
+			liveInputs: event.running
+				? thread.liveInputs
+				: thread.liveInputs.filter((item) => item.status !== 'delivered'),
 			liveInputSupported: event.liveInputSupported === true,
 			activeToolIds: event.running ? thread.activeToolIds : [],
 			activeReasoningId: event.running ? thread.activeReasoningId : undefined,
@@ -645,4 +649,11 @@ export function applyEvent(previous: ThreadState, event: DesktopEvent): ThreadSt
 				}
 			: {}),
 	}
+}
+
+/** Queued messages only drain after a clean `end_turn`; after a stop or error they wait. */
+export function queueParked(
+	thread: Pick<ThreadState, 'running' | 'queuedItems' | 'stopReason'>,
+): boolean {
+	return !thread.running && thread.queuedItems.length > 0 && thread.stopReason !== 'end_turn'
 }

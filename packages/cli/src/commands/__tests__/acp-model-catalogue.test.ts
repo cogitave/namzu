@@ -88,7 +88,7 @@ it('filters credential-required Zen models and an inaccessible saved pin from an
 	)
 	try {
 		expect(await runtime.models('zen')).toEqual({
-			models: [{ id: 'space-bunny-free', label: 'Space Bunny Free', note: '(Namzu default)' }],
+			models: [{ id: 'space-bunny-free', label: 'Space Bunny Free', default: true }],
 			notice:
 				'The selected model is not in this catalogue. Choose a listed model or another provider.',
 		})

@@ -178,7 +178,7 @@
 	--surface-raised: #303030;
 	--popover: #242424;
 	--foreground: #f5f5f5;
-	--muted-foreground: #818181;
+	--muted-foreground: #979797;
 	--border: rgb(255 255 255 / 6%);
 	--input: rgb(255 255 255 / 8%);
 	--ring: #5fff5f;
@@ -187,10 +187,10 @@
 	--secondary: #111111;
 	--secondary-foreground: #f5f5f5;
 	--muted: #111111;
-	--muted-foreground: #818181;
-	--placeholder: #818181;
-	--secondary-label: #818181;
-	--icon-muted: #818181;
+	--muted-foreground: #979797;
+	--placeholder: #979797;
+	--secondary-label: #979797;
+	--icon-muted: #979797;
 	--error: #fb414a;
 	--error-foreground: #ff6467;
 	--error-surface: #301214;

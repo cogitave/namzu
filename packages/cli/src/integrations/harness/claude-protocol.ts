@@ -93,17 +93,26 @@ export function claudeLaunchArgs(input: {
 	return args
 }
 
-export function claudeModels(payload: unknown): readonly HarnessModel[] {
+export function claudeModels(
+	payload: unknown,
+): readonly (HarnessModel & { readonly default?: true })[] {
 	const rows = claudeRecord(payload)?.models
 	if (!Array.isArray(rows) || rows.length > 4096)
 		throw new Error('The native engine did not return a supported model catalogue.')
-	const models: HarnessModel[] = []
+	const models: (HarnessModel & { default?: true })[] = []
+	const resolvedById = new Map<string, string | undefined>()
+	let defaultResolved: string | undefined
 	const seen = new Set<string>()
 	for (const raw of rows) {
 		const row = claudeRecord(raw)
 		if (!row || row.disabled === true) continue
 		const value = claudeString(row.value)
-		if (!value || value === 'default' || value.startsWith('cc-update-required')) continue
+		if (value === 'default') {
+			// Not selectable itself, but it names which model the engine recommends.
+			defaultResolved ??= claudeString(row.resolvedModel)
+			continue
+		}
+		if (!value || value.startsWith('cc-update-required')) continue
 		const resolved = claudeString(row.resolvedModel)
 		const id =
 			value.startsWith('claude-') || !/\d/.test(value)
@@ -113,9 +122,16 @@ export function claudeModels(payload: unknown): readonly HarnessModel[] {
 					: `claude-${value}`
 		if (/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(id) || seen.has(id)) continue
 		seen.add(id)
+		resolvedById.set(id, resolved)
 		const label = claudeString(row.displayName) ?? id
 		// Effort is launch-only in this slice; do not offer an unsupported turn control.
 		models.push(Object.freeze({ id, label }))
+	}
+	if (defaultResolved) {
+		const index = models.findIndex(
+			(model) => resolvedById.get(model.id) === defaultResolved || model.id === defaultResolved,
+		)
+		if (index >= 0) models[index] = Object.freeze({ ...models[index]!, default: true as const })
 	}
 	return Object.freeze(models)
 }

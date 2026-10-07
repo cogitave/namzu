@@ -27,11 +27,39 @@ describe('Codex external protocol projection', () => {
 		).toEqual([
 			{
 				id: 'native-default',
+				default: true,
 				label: 'native-default',
 				effortLevels: ['high'],
 				defaultEffort: 'high',
 			},
 			{ id: 'native-model', label: 'Native model', effortLevels: [], defaultEffort: undefined },
+		])
+	})
+	it('writes display names the way the Codex app does and flags the default row', () => {
+		const labels: [string, string][] = [
+			['GPT-5.6-Sol', 'GPT-5.6 Sol'],
+			['GPT-6.1-Sol', 'GPT-6.1 Sol'],
+			['GPT-6-Astra', 'GPT-6 Astra'],
+			['GPT-5.6 Sol', 'GPT-5.6 Sol'],
+			['gpt-5.5', 'gpt-5.5'],
+			['GPT-5.6-Codex-Max', 'GPT-5.6-Codex-Max'],
+			['o3-mini', 'o3 mini'],
+			['Native model', 'Native model'],
+		]
+		const rows = parseCodexModels(
+			labels.map(([displayName], index) => ({
+				model: `m${index}`,
+				displayName,
+				...(index === 2 ? { isDefault: true } : {}),
+			})),
+		)
+		expect(rows.map((row) => row.label)).toEqual([
+			'GPT-6 Astra',
+			...labels.filter((_, index) => index !== 2).map(([, label]) => label),
+		])
+		expect(rows.map((row) => row.id)).toEqual(['m2', 'm0', 'm1', 'm3', 'm4', 'm5', 'm6', 'm7'])
+		expect(rows.filter((row) => 'default' in row)).toEqual([
+			expect.objectContaining({ id: 'm2', default: true }),
 		])
 	})
 	it('keeps Ask first and planning read-only, with explicit workspace editing/full access', () => {

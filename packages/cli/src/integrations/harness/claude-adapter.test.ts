@@ -553,6 +553,28 @@ describe('native engine model discovery', () => {
 			claudeModels({ models: [{ value: 'sonnet', supportedEffortLevels: ['high'] }] }),
 		).toEqual([{ id: 'sonnet', label: 'sonnet' }])
 	})
+	it('marks the row the engine default resolves to, without listing the default row', () => {
+		const rows = [
+			{ value: 'default', displayName: 'Default (recommended)', resolvedModel: 'claude-opus-5' },
+			{ value: 'sonnet', displayName: 'Sonnet', resolvedModel: 'claude-sonnet-5' },
+			{ value: 'opus', displayName: 'Opus', resolvedModel: 'claude-opus-5' },
+			{ value: 'opus-5', displayName: 'Opus 5', resolvedModel: 'claude-opus-5' },
+		]
+		expect(claudeModels({ models: rows })).toEqual([
+			{ id: 'sonnet', label: 'Sonnet' },
+			{ id: 'opus', label: 'Opus', default: true },
+			{ id: 'claude-opus-5', label: 'Opus 5' },
+		])
+		expect(
+			claudeModels({
+				models: [{ value: 'default', resolvedModel: 'claude-gone-1' }, ...rows.slice(1)],
+			}),
+		).toEqual([
+			{ id: 'sonnet', label: 'Sonnet' },
+			{ id: 'opus', label: 'Opus' },
+			{ id: 'claude-opus-5', label: 'Opus 5' },
+		])
+	})
 	it('aborts a control operation, removes the listener and confirms isolated shutdown', async () => {
 		fixture.controlReply = false
 		const controller = new AbortController()

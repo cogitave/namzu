@@ -11,6 +11,7 @@ import type {
 } from '../shared/protocol.js'
 import { AttachmentList } from './attachment-list.js'
 import { ComposerApproval } from './composer-approval.js'
+import { PARKED_QUEUE_COPY, UNSUPPORTED_ATTACHMENTS_HINT, decidePaste } from './composer-input.js'
 import {
 	type ComposerPlugin,
 	type ComposerPluginInventory,
@@ -64,6 +65,7 @@ export function Composer({
 	sending,
 	queued,
 	queuedItems,
+	queueParked = false,
 	editingQueued,
 	onSend,
 	onQueue,
@@ -128,6 +130,8 @@ export function Composer({
 	sending: boolean
 	queued: string[]
 	queuedItems: QueuedMessageView[]
+	/** Queued messages wait because the last turn stopped or failed. */
+	queueParked?: boolean
 	editingQueued: boolean
 	onSend: () => void
 	onQueue?: () => void
@@ -179,6 +183,11 @@ export function Composer({
 		draftDisabled ||
 		!connected ||
 		!attachmentsSupported
+	// Removal stays possible on engines that cannot take attachments, so a draft is never stranded.
+	const removeDisabled = sending || attachmentsBusy || editingQueued || draftDisabled || !connected
+	const attachmentsStranded = attachments.length > 0 && !attachmentsSupported
+	const hasDraft = draft.length > 0 || attachments.length > 0
+	const [pasteNotice, setPasteNotice] = useState<string>()
 	const modelControl = (
 		<ModelPicker
 			projectId={projectId}
@@ -266,6 +275,10 @@ export function Composer({
 			</PopoverPopup>
 		</Popover>
 	)
+	// A settled turn has nothing in flight; only unconfirmed receipts are worth showing.
+	const shownLiveInputs = running
+		? liveInputs
+		: liveInputs.filter((item) => item.status !== 'delivered')
 	const overlay = useRef<HTMLDivElement>(null)
 	const previous = useRef<{ top: number; empty: boolean } | null>(null)
 	useLayoutEffect(() => {
@@ -339,17 +352,17 @@ export function Composer({
 							</h1>
 						</div>
 					)}
-					{liveInputs.length > 0 && (
+					{shownLiveInputs.length > 0 && (
 						<div className="queue px-3 pb-2 text-xs text-muted-foreground" aria-live="polite">
 							{[
-								liveInputs.some((item) => item.status === 'unknown')
+								shownLiveInputs.some((item) => item.status === 'unknown')
 									? 'Delivery unconfirmed'
 									: undefined,
-								liveInputs.filter((item) => item.status === 'pending').length
-									? `${liveInputs.filter((item) => item.status === 'pending').length} sending to this turn`
+								shownLiveInputs.filter((item) => item.status === 'pending').length
+									? `${shownLiveInputs.filter((item) => item.status === 'pending').length} sending to this turn`
 									: undefined,
-								liveInputs.filter((item) => item.status === 'delivered').length
-									? `${liveInputs.filter((item) => item.status === 'delivered').length} delivered`
+								shownLiveInputs.filter((item) => item.status === 'delivered').length
+									? `${shownLiveInputs.filter((item) => item.status === 'delivered').length} delivered`
 									: undefined,
 							]
 								.filter(Boolean)
@@ -364,7 +377,7 @@ export function Composer({
 									render={<Button variant="ghost-muted" size="xs" />}
 									aria-label="Show queued messages"
 								>
-									{queued.length} queued
+									{queued.length} {queueParked ? 'paused' : 'queued'}
 									<ChevronDownIcon className="size-3" />
 								</PopoverTrigger>
 								<PopoverPopup
@@ -377,7 +390,9 @@ export function Composer({
 								>
 									<h2 className="text-sm font-medium">Next turns</h2>
 									<p className="mt-1 text-xs text-muted-foreground">
-										These messages start in order after the current turn finishes.
+										{queueParked
+											? PARKED_QUEUE_COPY
+											: 'These messages start in order after the current turn finishes.'}
 									</p>
 									<ol className="mt-3 space-y-2">
 										{queuedItems.map((item, index) => (
@@ -399,8 +414,8 @@ export function Composer({
 														variant="ghost-muted"
 														size="xs"
 														aria-label={`Edit queued message ${index + 1}`}
-														disabled={draftDisabled || draft.length > 0 || editingQueued}
-														title={draft.length > 0 ? 'Send or clear your draft first' : undefined}
+														disabled={draftDisabled || hasDraft || editingQueued}
+														title={hasDraft ? 'Send or clear your draft first' : undefined}
 														onClick={() => onEditQueued(item.id)}
 													>
 														Edit
@@ -418,7 +433,7 @@ export function Composer({
 											</li>
 										))}
 									</ol>
-									{draft.length > 0 && (
+									{hasDraft && (
 										<p className="mt-2 text-xs text-muted-foreground">
 											Send or clear your draft before editing a queued message.
 										</p>
@@ -432,8 +447,8 @@ export function Composer({
 							<Button
 								variant="ghost-muted"
 								size="xs"
-								disabled={draftDisabled || draft.length > 0 || editingQueued}
-								title={draft.length > 0 ? 'Send or clear your draft first' : undefined}
+								disabled={draftDisabled || hasDraft || editingQueued}
+								title={hasDraft ? 'Send or clear your draft first' : undefined}
 								onClick={() => onEditQueued()}
 							>
 								Edit latest
@@ -520,10 +535,21 @@ export function Composer({
 										<div className="pb-3">
 											<AttachmentList
 												attachments={attachments}
-												disabled={importDisabled}
+												disabled={removeDisabled}
+												fallbackFocus={inputRef}
 												onRemove={onRemoveAttachment}
 											/>
 										</div>
+									)}
+									{attachmentsStranded && (
+										<output className="block pb-2 text-xs text-muted-foreground">
+											{UNSUPPORTED_ATTACHMENTS_HINT}
+										</output>
+									)}
+									{pasteNotice && (
+										<output className="block pb-2 text-xs text-muted-foreground">
+											{pasteNotice}
+										</output>
 									)}
 									{attachmentsBusy && (
 										<output className="pb-2 text-xs text-muted-foreground">Adding files…</output>
@@ -543,12 +569,27 @@ export function Composer({
 										maxLength={50000}
 										disabled={editingQueued || draftDisabled}
 										placeholder={compact ? 'Send a message' : 'Ask Namzu anything'}
-										onChange={(event) => onDraftChange(event.target.value)}
+										onChange={(event) => {
+											setPasteNotice(undefined)
+											onDraftChange(event.target.value)
+										}}
 										onPaste={(event) => {
 											const files = Array.from(event.clipboardData.files)
-											if (files.length === 0) return
+											const decision = decidePaste({
+												text: event.clipboardData.getData('text/plain'),
+												fileCount: files.length,
+												importDisabled,
+												attachmentsSupported,
+											})
+											if (decision.action === 'default') {
+												setPasteNotice(undefined)
+												return
+											}
 											event.preventDefault()
-											if (!importDisabled) onAddFiles(files)
+											if (decision.action === 'import') {
+												setPasteNotice(undefined)
+												onAddFiles(files)
+											} else setPasteNotice(decision.notice)
 										}}
 										onKeyDown={(event) => {
 											if (
@@ -557,7 +598,7 @@ export function Composer({
 												!event.nativeEvent.isComposing
 											) {
 												event.preventDefault()
-												onSend()
+												if (!attachmentsStranded) onSend()
 											}
 										}}
 									/>
@@ -588,7 +629,10 @@ export function Composer({
 												size="xs"
 												aria-label="Queue for next turn"
 												disabled={
-													sending || draftDisabled || (!draft.trim() && attachments.length === 0)
+													sending ||
+													draftDisabled ||
+													attachmentsStranded ||
+													(!draft.trim() && attachments.length === 0)
 												}
 												onClick={onQueue}
 											>
@@ -637,9 +681,15 @@ export function Composer({
 																!choice.provider ||
 																sending ||
 																attachmentsBusy ||
+																attachmentsStranded ||
 																!connected
 															}
-															onClick={onSend}
+															onClick={(event) => {
+																// Sending disables the button, which would drop focus to the page.
+																const hadFocus = document.activeElement === event.currentTarget
+																onSend()
+																if (hadFocus) requestAnimationFrame(() => inputRef.current?.focus())
+															}}
 														/>
 													}
 												>

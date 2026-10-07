@@ -492,6 +492,21 @@ it('reserves an engine selection before awaited metadata and rejects overlapping
 	expect(f.dependencies.adapter).toHaveBeenCalledWith('codex-cli')
 })
 
+it('passes the engine default flag through the models handler and omits it elsewhere', async () => {
+	const f = await fixture()
+	await f.runtime.selectHarness(f.sessionId, 'codex-cli')
+	f.dependencies.models.mockImplementationOnce(async () => [
+		{ id: 'actual-model', label: 'Actual model', default: true } as HarnessModel,
+		{ id: 'other-model', label: 'Other model' },
+	])
+	const view = await f.runtime.models('codex-cli', f.sessionId)
+	expect(view.models).toEqual([
+		{ id: 'actual-model', label: 'Actual model', default: true },
+		{ id: 'other-model', label: 'Other model' },
+	])
+	expect('default' in view.models[1]!).toBe(false)
+})
+
 it('keeps a model selection exclusive while it awaits refreshed engine metadata', async () => {
 	const f = await fixture()
 	await f.runtime.selectHarness(f.sessionId, 'codex-cli')

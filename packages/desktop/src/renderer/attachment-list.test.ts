@@ -2,7 +2,7 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, it, vi } from 'vitest'
 import type { AttachmentView } from '../shared/protocol.js'
-import { AttachmentList } from './attachment-list.js'
+import { AttachmentList, neighbourAfterRemoval } from './attachment-list.js'
 
 const image: AttachmentView = {
 	id: 'image',
@@ -58,4 +58,13 @@ it('keeps text file metadata unchanged and renders an empty attachment list as n
 	expect(html).not.toContain('<img')
 	expect(html).not.toContain('tabindex="-1"')
 	expect(markup([])).toBe('')
+})
+
+it('picks the next chip, else the previous, else nothing to hand focus to', () => {
+	const items = [{ id: 'a' }, { id: 'b' }, { id: 'c' }]
+	expect(neighbourAfterRemoval(items, 'a')).toBe('b')
+	expect(neighbourAfterRemoval(items, 'b')).toBe('c')
+	expect(neighbourAfterRemoval(items, 'c')).toBe('b')
+	expect(neighbourAfterRemoval([{ id: 'a' }], 'a')).toBeUndefined()
+	expect(neighbourAfterRemoval(items, 'missing')).toBeUndefined()
 })

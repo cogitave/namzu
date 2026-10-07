@@ -77,7 +77,8 @@ it('filters inaccessible and malformed identities, retaining honest free and ima
 			{
 				id: 'free',
 				label: 'Free model',
-				note: '(Namzu default · image input)',
+				note: '(image input)',
+				default: true,
 			},
 		],
 		notice: null,

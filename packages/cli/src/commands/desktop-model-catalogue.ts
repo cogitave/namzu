@@ -7,7 +7,7 @@ export function desktopModelCatalogue(
 	currentModel: string | undefined,
 	allowModel: (id: string) => boolean,
 ): {
-	models: { id: string; label: string; note?: string }[]
+	models: { id: string; label: string; note?: string; default?: true }[]
 	notice: string | null
 } {
 	if (listing.kind !== 'ok') {
@@ -24,7 +24,7 @@ export function desktopModelCatalogue(
 		return { models: [], notice }
 	}
 	const seen = new Set<string>()
-	const models: { id: string; label: string; note?: string }[] = []
+	const models: { id: string; label: string; note?: string; default?: true }[] = []
 	for (const model of listing.models) {
 		if (
 			!model.id ||
@@ -36,7 +36,6 @@ export function desktopModelCatalogue(
 			continue
 		seen.add(model.id)
 		const notes: string[] = []
-		if (model.id === defaultModel) notes.push('Namzu default')
 		if (model.inputModalities?.includes('image')) notes.push('image input')
 		if (model.inputPrice === 0 && model.outputPrice === 0 && !/\bfree\b/i.test(model.name))
 			notes.push('free')
@@ -44,6 +43,7 @@ export function desktopModelCatalogue(
 			id: model.id,
 			label: (model.name || model.id).slice(0, 400),
 			...(notes.length ? { note: `(${notes.join(' · ')})` } : {}),
+			...(model.id === defaultModel ? { default: true as const } : {}),
 		})
 	}
 	const selectedUnavailable = currentModel !== undefined && !seen.has(currentModel)

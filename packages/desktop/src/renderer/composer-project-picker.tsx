@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import type { ProjectView } from '../shared/protocol.js'
 import { ComposerControl, ComposerControlChevron } from './composer-control.js'
 import { CheckIcon, FolderIcon, SearchIcon, XIcon } from './icons.js'
+import { commitsOnKey, committableProject } from './picker-commit.js'
 import { Button } from './ui/button.js'
 import { Input } from './ui/input.js'
 import { Popover, PopoverPopup, PopoverTrigger } from './ui/popover.js'
@@ -71,7 +72,7 @@ export function ComposerProjectPicker({
 		)
 	}
 	const select = (id: string) => {
-		const project = choices.find((item) => item.id === id)
+		const project = committableProject(choices, id)
 		if (!project) return
 		setOpen(false)
 		setQuery('')
@@ -110,7 +111,8 @@ export function ComposerProjectPicker({
 				</div>
 				<RadioGroup
 					value={projectId}
-					onValueChange={select}
+					// Arrow keys only move focus; a choice is committed by click, Enter or Space (a native click).
+					onValueChange={() => {}}
 					aria-label="Available projects"
 					className="composer-project-list"
 				>
@@ -129,7 +131,7 @@ export function ComposerProjectPicker({
 								select(project.id)
 							}}
 							onKeyDown={(event) => {
-								if (event.key === 'Enter') {
+								if (commitsOnKey(event.key)) {
 									event.preventDefault()
 									select(project.id)
 								}

@@ -594,7 +594,7 @@ pre {
 	border-radius: 0;
 }
 .composer-input textarea::placeholder {
-	color: color-mix(in srgb, var(--placeholder) 75%, transparent);
+	color: var(--placeholder);
 }
 .composer-input textarea:focus {
 	outline: none;

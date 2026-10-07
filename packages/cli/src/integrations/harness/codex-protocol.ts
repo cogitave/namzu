@@ -28,7 +28,15 @@ const efforts: readonly ReasoningEffort[] = [
 	'ultra',
 ]
 
-export function parseCodexModels(rows: unknown): HarnessModel[] {
+/** A catalogue row may also say it is the engine's own recommended default. */
+export type HarnessCatalogueModel = HarnessModel & { readonly default?: true }
+
+/** The Codex app writes "GPT-5.6 Sol" where its server says "GPT-5.6-Sol". */
+export function codexModelLabel(name: string): string {
+	return name.replace(/^(.*\d)-([A-Za-z][A-Za-z0-9]*)$/, '$1 $2')
+}
+
+export function parseCodexModels(rows: unknown): HarnessCatalogueModel[] {
 	if (!Array.isArray(rows)) throw new Error('Codex returned an invalid model catalogue.')
 	const seen = new Set<string>()
 	return [...rows]
@@ -50,8 +58,15 @@ export function parseCodexModels(rows: unknown): HarnessModel[] {
 			const defaultEffort = offered.includes(row.defaultReasoningEffort as ReasoningEffort)
 				? (row.defaultReasoningEffort as ReasoningEffort)
 				: undefined
+			const displayName = codexString(row.displayName)
 			return [
-				{ id, label: codexString(row.displayName) ?? id, effortLevels: offered, defaultEffort },
+				{
+					id,
+					label: displayName ? codexModelLabel(displayName) : id,
+					effortLevels: offered,
+					defaultEffort,
+					...(row.isDefault === true ? { default: true as const } : {}),
+				},
 			]
 		})
 }

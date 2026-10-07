@@ -7,6 +7,7 @@ import { CheckIcon, LoaderCircleIcon, ProviderIcons } from './icons.js'
 import { Popover, PopoverPopup, PopoverTrigger } from './ui/popover.js'
 import { Wordmark } from './wordmark.js'
 import './harness-picker.css'
+import { commitsOnKey } from './picker-commit.js'
 
 export function HarnessMark({ engine }: { engine: HarnessView['selected'] }) {
 	if (engine === 'namzu')
@@ -17,6 +18,16 @@ export function HarnessMark({ engine }: { engine: HarnessView['selected'] }) {
 		)
 	const Icon = ProviderIcons.get(engine === 'codex-cli' ? 'openai' : 'anthropic')
 	return Icon ? <Icon aria-hidden="true" className="size-4" /> : null
+}
+
+/** The engine a row may commit, or undefined when it is unavailable or the picker is locked. */
+export function committableEngine(
+	view: HarnessView | undefined,
+	value: string,
+	locked: { busy: boolean; disabled: boolean },
+): HarnessView['selected'] | undefined {
+	if (locked.busy || locked.disabled) return undefined
+	return view?.engines.find((engine) => engine.id === value && engine.available)?.id
 }
 
 export function HarnessPicker({
@@ -37,6 +48,12 @@ export function HarnessPicker({
 	const label =
 		view?.engines.find((engine) => engine.id === selected)?.label ??
 		{ namzu: 'Namzu', 'codex-cli': 'Codex CLI', 'claude-code': 'Claude Code' }[selected]
+	const commit = (value: string) => {
+		const engine = committableEngine(view, value, { busy, disabled })
+		if (!engine) return
+		setOpen(false)
+		onSelect(engine)
+	}
 	return (
 		<Popover open={open} onOpenChange={setOpen}>
 			<PopoverTrigger
@@ -61,16 +78,8 @@ export function HarnessPicker({
 					className="harness-picker-list"
 					aria-label="Available engines"
 					value={selected}
-					onValueChange={(value) => {
-						if (
-							!view?.engines.some((engine) => engine.id === value && engine.available) ||
-							busy ||
-							disabled
-						)
-							return
-						setOpen(false)
-						onSelect(value as HarnessView['selected'])
-					}}
+					// Arrow keys only move focus; a choice is committed by click, Enter or Space (a native click).
+					onValueChange={() => {}}
 				>
 					{(view?.engines ?? [{ id: 'namzu' as const, label: 'Namzu', available: true }]).map(
 						(engine) => (
@@ -78,7 +87,19 @@ export function HarnessPicker({
 								key={engine.id}
 								value={engine.id}
 								disabled={!engine.available}
+								nativeButton
+								render={<button type="button" />}
 								className="harness-picker-row"
+								onClick={(event) => {
+									event.preventDefault()
+									commit(engine.id)
+								}}
+								onKeyDown={(event) => {
+									if (commitsOnKey(event.key)) {
+										event.preventDefault()
+										commit(engine.id)
+									}
+								}}
 							>
 								<HarnessMark engine={engine.id} />
 								{engine.id === 'namzu' ? (

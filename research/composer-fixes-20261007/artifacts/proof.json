@@ -1,0 +1,51 @@
+{
+ "capturedAt": "2026-10-07T13:16:37.977Z",
+ "pageErrors": [],
+ "checks": [
+  {
+   "name": "paste keeps text when the clipboard also has an image",
+   "ok": true,
+   "detail": {
+    "value": "Pasted table text"
+   }
+  },
+  {
+   "name": "image-only paste attaches files",
+   "ok": true,
+   "detail": {
+    "count": 2
+   }
+  },
+  {
+   "name": "focus moves to a remaining remove button (2 left)",
+   "ok": true,
+   "detail": {
+    "tag": "BUTTON",
+    "label": "Remove image.png"
+   }
+  },
+  {
+   "name": "focus returns to the composer after the last chip",
+   "ok": true,
+   "detail": {
+    "tag": "TEXTAREA",
+    "label": "Message Namzu"
+   }
+  },
+  {
+   "name": "focus returns to the textarea after a button send",
+   "ok": true,
+   "detail": {
+    "tag": "TEXTAREA",
+    "label": "Message Namzu",
+    "value": "Focus check message",
+    "log": [
+     "focusout:Message Namzu",
+     "focusin:Send message",
+     "focusout:Send message",
+     "focusin:Message Namzu"
+    ]
+   }
+  }
+ ]
+}

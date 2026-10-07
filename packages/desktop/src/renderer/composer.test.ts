@@ -1,6 +1,7 @@
 import { type ComponentProps, createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, it, vi } from 'vitest'
+import type { QueuedMessageView } from '../shared/protocol.js'
 import { Composer } from './composer.js'
 
 // Materialize portal content for these rendering/admission assertions. Native tests
@@ -251,15 +252,13 @@ it('keeps restored work readable without admitting queue or turn mutations durin
 	}
 	const pending = render({ ...work, draftDisabled: true })
 	expect(pending).toContain('Retained queued request')
-	for (const label of [
-		'Edit queued message 1',
-		'Remove queued message 1',
-		'Stop turn',
-		'Remove notes.txt',
-	]) {
+	for (const label of ['Remove queued message 1', 'Stop turn', 'Remove notes.txt']) {
 		expect(button(pending, label)).toMatch(/\bdisabled=/)
 		expect(button(render(work), label)).not.toMatch(/\bdisabled=/)
 	}
+	// The attached file is itself a draft, so editing a queued message waits for it.
+	expect(button(pending, 'Edit queued message 1')).toMatch(/\bdisabled=/)
+	expect(button(render(work), 'Edit queued message 1')).toMatch(/\bdisabled=/)
 })
 
 it('keeps real context above the normal editor and permissions beside Plus below it', () => {
@@ -490,4 +489,64 @@ it('retains confirmed native engine and permission semantics without optional en
 		settings: { permissionMode: 'prompt' },
 	})
 	expect(nativeEngine).toContain('title="Claude Code"')
+})
+
+const file = {
+	id: 'file',
+	name: 'Notes.txt',
+	kind: 'text' as const,
+	size: 10,
+	mediaType: 'text/plain',
+}
+const queuedItem = { id: 'q1', prompt: 'Later' } as QueuedMessageView
+
+it('treats an attachment-only draft as a draft when editing a queued message', () => {
+	const html = render({
+		draft: '',
+		attachments: [file],
+		queued: ['Later'],
+		queuedItems: [queuedItem],
+	})
+	expect(button(html, 'Edit queued message 1')).toMatch(/\bdisabled=/)
+	expect(html).toContain('Send or clear your draft before editing a queued message.')
+	const free = render({ draft: '', queued: ['Later'], queuedItems: [queuedItem] })
+	expect(button(free, 'Edit queued message 1')).not.toMatch(/\bdisabled=/)
+})
+
+it('hides delivered live inputs once the turn is no longer running', () => {
+	const liveInputs = [
+		{ id: 'a', prompt: 'x', status: 'delivered' as const },
+		{ id: 'b', prompt: 'y', status: 'unknown' as const },
+	]
+	expect(render({ running: true, liveInputs })).toContain('1 delivered')
+	const settled = render({ running: false, liveInputs })
+	expect(settled).not.toContain('delivered')
+	expect(settled).toContain('Delivery unconfirmed')
+	expect(
+		render({ running: false, liveInputs: [liveInputs[0] as (typeof liveInputs)[0]] }),
+	).not.toContain('delivered')
+})
+
+it('keeps attachments removable but blocks Send on an engine without attachments', () => {
+	const html = render({
+		connected: true,
+		attachments: [file],
+		attachmentsSupported: false,
+	})
+	expect(html).toContain('Remove attachments to send with this engine.')
+	expect(button(html, 'Send message')).toMatch(/\bdisabled=/)
+	expect(button(html, 'Remove Notes.txt')).not.toMatch(/\bdisabled=/)
+	const supported = render({ connected: true, attachments: [file] })
+	expect(supported).not.toContain('Remove attachments to send')
+	expect(button(supported, 'Send message')).not.toMatch(/\bdisabled=/)
+})
+
+it('says parked queued messages are paused', () => {
+	const props = { queued: ['Later'], queuedItems: [queuedItem] }
+	const parked = render({ ...props, queueParked: true })
+	expect(parked).toContain('1 paused')
+	expect(parked).toContain('Paused — these start after your next message finishes.')
+	const normal = render(props)
+	expect(normal).toContain('1 queued')
+	expect(normal).not.toContain('Paused')
 })

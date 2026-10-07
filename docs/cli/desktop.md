@@ -517,6 +517,8 @@ recovery reason and offers Retry stop; only confirmed termination removes that
 control. Model status belongs to both the project and selected conversation,
 so a delayed landing-page response cannot replace a pinned conversation route.
 
+A model list row may carry an optional `default: true` naming that engine's or provider's own recommended model; the picker shows it as "Default" and its note no longer repeats it. Codex rows are labelled as the Codex app labels them ("GPT-5.6 Sol"); ids are unchanged.
+
 The native host uses a metadata-only registry connection for saved definitions
 and model catalogues. Execution, captures and computer lifecycle requests go
 through the Pal's own validated control-directory connection. A new session is
@@ -580,6 +582,9 @@ The app opens in its dark appearance. The bottom Profile menu offers light,
 system and dark appearance; the local choice survives window reload. The
 two-row wordmark and phosphor-green accents match the operator CLI. Menu,
 panel and message transitions respect the system reduced-motion preference.
+In the project and engine pickers the arrow keys only move the highlight; Enter,
+Space or a click chooses and closes. Dark-theme muted text, placeholders, control
+labels and muted icons use `#979797`, at least 4.5:1 on every dark surface.
 The 32px integrated title bar keeps the operating system’s caption controls and
 resize frame. Back and Forward revisit the window’s admitted project and
 conversation views, with no prompt replay; the adjacent panel control toggles
@@ -658,6 +663,19 @@ motion; merely focusing the editor does not change its layout. Pal conversations
 the compact, always-docked composer described above; its plus popup keeps model,
 permission, attachment and plugin controls accessible. Effort opens from the
 selected model's row inside the model picker.
+
+Pasting keeps text: when the clipboard carries text, the text is inserted and any
+accompanying image rendering is ignored. Files alone are attached when attaching is
+allowed; otherwise the composer says "Files can't be attached here." or, for an
+engine without attachment support, "This engine doesn't take attachments yet."
+Attached files stay removable on such an engine, but Send is disabled with "Remove
+attachments to send with this engine." Removing a chip moves focus to the next chip,
+else the previous one, else the editor, and a button-initiated Send returns focus to
+the editor. An attachment-only draft counts as a draft: Edit on a queued message
+waits until it is sent or removed. The "delivered" strip for live input disappears
+once the turn settles (pending and unconfirmed receipts stay), and queued messages
+left behind by a stopped or failed turn are labelled "paused" because they only start
+after the next message finishes.
 The Background work, Changes and conversation context controls appear in the
 workspace header only after a conversation exists. Returning to a blank project
 also closes the conversation detail pane.

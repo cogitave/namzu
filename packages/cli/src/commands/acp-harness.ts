@@ -5,7 +5,6 @@ import { isAbsolute, join } from 'node:path'
 import {
 	type AcpAgentGateway,
 	type HarnessAdapter,
-	type HarnessModel,
 	type HarnessSession,
 	type SessionEvent,
 	asSessionId,
@@ -19,6 +18,7 @@ import {
 	createCodexHarnessAdapter,
 	discoverCodexHarnessModels,
 } from '../integrations/harness/codex-adapter.js'
+import type { HarnessCatalogueModel } from '../integrations/harness/codex-protocol.js'
 import { resolveHarnessExecutable } from '../integrations/harness/native-executable.js'
 import {
 	type CliSessionScope,
@@ -51,7 +51,7 @@ export interface CliHarnessView {
 }
 export interface CliHarnessDependencies {
 	adapter(engine: ExternalEngine): Promise<HarnessAdapter>
-	models(engine: ExternalEngine, cwd: string): Promise<readonly HarnessModel[]>
+	models(engine: ExternalEngine, cwd: string): Promise<readonly HarnessCatalogueModel[]>
 	installed(engine: ExternalEngine): Promise<boolean>
 	openSessions?: typeof openSessions
 	decideTrust?: typeof decideHeadlessTrust
@@ -122,7 +122,7 @@ export function withCliHarnesses(
 		}
 	>()
 	const reserving = new Set<string>()
-	const catalogues = new Map<string, Promise<readonly HarnessModel[]>>()
+	const catalogues = new Map<string, Promise<readonly HarnessCatalogueModel[]>>()
 	let closed = false
 	const trusted = (requested = directory, stateRoot?: string) => {
 		if (closed) throw new Error('The connection is closed.')
@@ -505,9 +505,10 @@ export function withCliHarnesses(
 			if (!id || (await selectionFor(id, cwd))?.engine !== provider)
 				throw new Error('Select this engine in the conversation first.')
 			return {
-				models: (await modelsFor(provider, cwd, true)).map(({ id, label }) => ({
-					id,
-					label,
+				models: (await modelsFor(provider, cwd, true)).map((model) => ({
+					id: model.id,
+					label: model.label,
+					...(model.default ? { default: true as const } : {}),
 				})),
 				notice: null,
 			}

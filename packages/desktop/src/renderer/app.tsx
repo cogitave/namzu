@@ -7,6 +7,7 @@ import {
 	type ThreadState,
 	applyEvent,
 	emptyThread,
+	queueParked,
 	restoreMessages,
 	threadPhase,
 } from '../shared/projection.js'
@@ -2857,7 +2858,7 @@ export function App({
 		async (itemId?: string) => {
 			const target = sessionId
 			if (loading || restoringTabs || !target || editingQueue.current.has(target)) return
-			if ((draftsRef.current[target] ?? '').length > 0)
+			if ((draftsRef.current[target] ?? '').length > 0 || attached.get(target).length > 0)
 				throw new Error('Send or clear your current draft before editing a queued message.')
 			editingQueue.current.add(target)
 			setQueueEditing((all) => ({ ...all, [target]: true }))
@@ -2889,6 +2890,7 @@ export function App({
 			loading,
 			restoringTabs,
 			attached.reload,
+			attached.get,
 			savedSettings.get,
 			savedSettings.save,
 			api,
@@ -3985,6 +3987,7 @@ export function App({
 								sending={sending[draftOwner] ?? false}
 								queued={thread.queued}
 								queuedItems={thread.queuedItems}
+								queueParked={queueParked(thread)}
 								editingQueued={queueEditing[sessionId] ?? false}
 								onSend={() => void act(send)}
 								onQueue={() => void act(() => send('queue'))}

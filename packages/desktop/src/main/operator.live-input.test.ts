@@ -81,7 +81,8 @@ it('delivers text to the active Namzu turn once without starting another prompt'
 	owner.approve(session.id, pending.id, true)
 	await settled
 	thread = (await owner.openConversation(project.id, session.id)).thread
-	expect(thread?.liveInputs).toMatchObject([{ status: 'delivered' }])
+	// A settled turn keeps the delivered message in the transcript but not as a receipt.
+	expect(thread?.liveInputs).toEqual([])
 	expect(
 		thread?.messages.filter((message) => message.role === 'user').map((message) => message.text),
 	).toEqual(['Original request', 'Please answer me while the task works'])

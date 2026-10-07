@@ -167,7 +167,8 @@ export interface ProviderView {
 	selected: { id: string; model?: string } | null
 }
 export interface ModelCatalogueView {
-	models: { id: string; label: string; note?: string }[]
+	/** `default` marks this engine's own recommended default model. */
+	models: { id: string; label: string; note?: string; default?: true }[]
 	notice: string | null
 }
 export interface PalView {
