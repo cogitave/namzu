@@ -1,0 +1,70 @@
+{
+  "label": "before",
+  "origin": "http://127.0.0.1:38109/preview",
+  "turns": 300,
+  "loadMs": 6432,
+  "errors": [],
+  "geometry": {
+    "scrollHeight": 182913,
+    "clientHeight": 816,
+    "scrollTop": 182097
+  },
+  "scrollThroughHistoryFrameMs": {
+    "n": 612,
+    "mean": 17.2,
+    "p50": 16.7,
+    "p95": 16.7,
+    "max": 333.4
+  },
+  "jumpToLatestGap": 0,
+  "anchors": {
+    "scrollIntoView": {
+      "top": 481,
+      "viewport": 900,
+      "inView": true
+    },
+    "findInPage": {
+      "found": true,
+      "selected": "Turn 220: what changed",
+      "inView": false
+    }
+  },
+  "stream": {
+    "paragraphs": 12,
+    "deltas": 788,
+    "wallMs": 80083,
+    "timeToRenderPerDeltaMs": {
+      "n": 788,
+      "mean": 177.35,
+      "p50": 162.7,
+      "p95": 319.5,
+      "max": 501.6
+    },
+    "frameMs": {
+      "n": 756,
+      "mean": 105.77,
+      "p50": 99.9,
+      "p95": 266.7,
+      "max": 450,
+      "over33": 559,
+      "over100": 354
+    },
+    "longTasks": {
+      "count": 418,
+      "totalMs": 70079,
+      "maxMs": 435
+    },
+    "cdp": {
+      "TaskDuration": 79660,
+      "ScriptDuration": 75023,
+      "LayoutDuration": 395,
+      "RecalcStyleDuration": 624
+    },
+    "followGapDuringStream": {
+      "max": 6208,
+      "last": 6208,
+      "samples": 287
+    }
+  },
+  "finalFollowGap": 6179
+}

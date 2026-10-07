@@ -219,3 +219,14 @@
 .transcript-date-separator:first-child {
 	margin-top: 24px;
 }
+
+/* A finished turn away from the end is not drawn while it is off screen. The remembered size
+   (`auto`) keeps the scrollbar steady once a turn has been seen; 400px stands in until then.
+   Find-in-page, selection, focus and scrollIntoView still reach into it, because the contents
+   stay in the document. Turns near the end are never deferred, so following the end is exact. */
+.normal-transcript .transcript-turn[data-transcript-deferred] {
+	content-visibility: auto;
+	contain-intrinsic-block-size: auto 400px;
+	/* Painting is contained too: let a focus ring at the turn's edge show. */
+	overflow-clip-margin: 8px;
+}

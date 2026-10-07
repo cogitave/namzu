@@ -1,0 +1,14 @@
+INCLUSIVE (src only)
+    377 ms  Button renderer/ui/button.tsx:47
+    131 ms  (anon) renderer/sidebar.tsx:289
+    125 ms  update renderer/sidebar-motion.ts:112
+    122 ms  (anon) renderer/sidebar-motion.ts:114
+     82 ms  Transcript renderer/transcript.baseline.tsx:275
+     56 ms  cn renderer/lib/utils.ts:8
+     56 ms  CopyButton renderer/copy-button.tsx:56
+     49 ms  Message renderer/message.baseline.tsx:178
+     41 ms  MessageContent renderer/message.baseline.tsx:251
+     40 ms  transcriptTurns renderer/transcript-layout.ts:21
+     37 ms  (anon) renderer/transcript-layout.ts:28
+     34 ms  TooltipPopup renderer/ui/tooltip.tsx:12
+     31 ms  Entry renderer/transcript.baseline.tsx:15

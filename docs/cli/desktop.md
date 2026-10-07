@@ -1433,6 +1433,30 @@ Pal separation. It performs no native, model or computer action.
 Cancellation, pause, refusal and error end the live phase without claiming a
 successful answer. The exact runtime reason preserves Paused even when its ACP
 stop category is `cancelled`. When preparation returns without a streamed end,
+### Streaming a long reply
+
+A streamed reply is drawn in pieces. Its text is cut at blank lines outside code, and each
+finished piece keeps its parsed tree while only the last one is parsed again. A text with a
+link or footnote definition, an HTML block, indented code that a list follows, or a bare CR
+line ending is never cut. A reply that is still streaming changes what is drawn at most every
+50 ms; a settled reply shows its text at once. A turn that is not being written is not drawn
+again for a streamed delta, and a finished turn away from the end uses
+`content-visibility: auto`, so find, selection and `scrollIntoView` still reach it. The two
+newest turns are never skipped. No virtualisation is used.
+
+The transcript follows the end while a reply grows. A scroll the code makes itself is not read
+as the reader leaving the end. Opening a disclosure stops following while it grows and follows
+again only if the reader is still at the end. Each conversation remembers its scroll position and
+whether it was at the end.
+
+In a real Chromium with 300 settled turns above a 788-delta reply, production React went from 323
+long tasks (19.8 s) to 2 (0.6 s), main-thread time per delta from 34 ms to 6 ms, and the largest
+gap to the end while streaming from 4,915 px to 161 px. The method, both React modes, anchor checks
+and the work that remains outside the transcript are in
+[the streaming measurements](../../research/transcript-streaming-20261007/README.md).
+The preview's `/preview?stress=300` flag adds the long conversation and a timer-driven streamed
+reply for repeating them.
+
 the native host admits the prompt response as the missing end once. A streamed
 end followed by its response does not create a second completion. Pending
 reviews are cleared; authored queued messages remain available after a stopped

@@ -1,0 +1,53 @@
+{
+  "label": "md-throttle",
+  "origin": "http://127.0.0.1:5173/preview",
+  "turns": 300,
+  "loadMs": 4979,
+  "errors": [],
+  "geometry": {
+    "scrollHeight": 182953,
+    "clientHeight": 816,
+    "scrollTop": 182137
+  },
+  "scrollThroughHistoryFrameMs": {
+    "n": 612,
+    "mean": 17.2,
+    "p50": 16.7,
+    "p95": 16.8,
+    "max": 233.3
+  },
+  "jumpToLatestGap": 0,
+  "stream": {
+    "paragraphs": 12,
+    "deltas": 788,
+    "wallMs": 91142,
+    "timeToRenderPerDeltaMs": {
+      "n": 788,
+      "mean": 339.9,
+      "p50": 325.7,
+      "p95": 574.4,
+      "max": 714.6
+    },
+    "frameMs": {
+      "n": 736,
+      "mean": 123.64,
+      "p50": 116.6,
+      "p95": 300,
+      "max": 416.7,
+      "over33": 586,
+      "over100": 374
+    },
+    "longTasks": {
+      "count": 451,
+      "totalMs": 82084,
+      "maxMs": 410
+    },
+    "cdp": {
+      "TaskDuration": 90791,
+      "ScriptDuration": 87641,
+      "LayoutDuration": 289,
+      "RecalcStyleDuration": 221
+    }
+  },
+  "finalFollowGap": 6179
+}

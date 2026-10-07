@@ -1,6 +1,10 @@
 import { useCallback, useLayoutEffect, useRef, useState } from 'react'
-
-const latestThreshold = 48
+import {
+	createAutoScrollMark,
+	disclosureSettleMs,
+	followAfterDisclosure,
+	latestThreshold,
+} from './scroll-follow.js'
 
 /** Keep reading position independent of streaming; follow only after reaching the end. */
 export function useTranscriptScroll(
@@ -26,19 +30,35 @@ export function useTranscriptScroll(
 		let current = true
 		let frame: number | undefined
 		let explicitJump = false
+		let disclosure: ReturnType<typeof setTimeout> | undefined
+		let disclosureWasFollowing = false
+		let disclosureMoved = false
+		let disclosureTrigger: Element | null = null
+		const auto = createAutoScrollMark()
 		const bottom = () => Math.max(0, node.scrollHeight - node.clientHeight)
+		// Every scroll the code makes is marked, so its event is not read as the reader leaving the end.
+		const pin = () => {
+			const top = bottom()
+			auto.mark(top)
+			node.scrollTop = top
+		}
 		const update = () => {
 			if (!current) return
 			setAway(bottom() - node.scrollTop > latestThreshold)
 		}
 		const onScroll = () => {
 			if (!current) return
+			if (auto.consume(node.scrollTop)) {
+				update()
+				return
+			}
 			const atLatest = bottom() - node.scrollTop <= latestThreshold
 			if (atLatest) explicitJump = false
 			follow.current = atLatest || explicitJump
 			update()
 		}
 		const cancelJump = () => {
+			if (disclosure !== undefined) disclosureMoved = true
 			explicitJump = false
 			follow.current = false
 		}
@@ -46,6 +66,7 @@ export function useTranscriptScroll(
 			if (explicitJump || event.deltaY < 0) cancelJump()
 		}
 		const onTouch = () => {
+			if (disclosure !== undefined) disclosureMoved = true
 			if (explicitJump) cancelJump()
 		}
 		const onKey = (event: KeyboardEvent) => {
@@ -54,16 +75,49 @@ export function useTranscriptScroll(
 		const onScrollEnd = () => {
 			if (!current || !explicitJump) return
 			explicitJump = false
-			if (follow.current) node.scrollTop = bottom()
+			if (follow.current) pin()
 			update()
+		}
+		// Opening a disclosure grows the page under the reader. Stop following while it grows, then
+		// follow again only if the reader is still at the end.
+		const onDisclosure = (event: Event) => {
+			const trigger =
+				event.target instanceof Element ? event.target.closest('[aria-expanded]') : null
+			if (!trigger || !node.contains(trigger) || trigger.getAttribute('aria-expanded') !== 'false')
+				return
+			if (event instanceof KeyboardEvent && event.key !== 'Enter' && event.key !== ' ') return
+			// A second click inside the window keeps the first one's answer.
+			if (disclosure === undefined) {
+				disclosureWasFollowing = follow.current
+				disclosureMoved = false
+			}
+			disclosureTrigger = trigger
+			follow.current = false
+			if (disclosure !== undefined) clearTimeout(disclosure)
+			disclosure = setTimeout(() => {
+				disclosure = undefined
+				if (!current) return
+				if (
+					followAfterDisclosure(bottom() - node.scrollTop, {
+						wasFollowing: disclosureWasFollowing,
+						moved: disclosureMoved,
+						// The trigger names its panel only once open, so look it up when the panel has grown.
+						panelHeight: document
+							.getElementById(disclosureTrigger?.getAttribute('aria-controls') ?? '')
+							?.getBoundingClientRect().height,
+						viewportHeight: node.clientHeight,
+					})
+				)
+					follow.current = true
+				schedule()
+			}, disclosureSettleMs)
 		}
 		const schedule = () => {
 			if (frame !== undefined) return
 			frame = requestAnimationFrame(() => {
 				frame = undefined
 				if (!current) return
-				if (follow.current && !explicitJump && Math.abs(node.scrollTop - bottom()) > 0.5)
-					node.scrollTop = bottom()
+				if (follow.current && !explicitJump && Math.abs(node.scrollTop - bottom()) > 0.5) pin()
 				update()
 			})
 		}
@@ -75,6 +129,8 @@ export function useTranscriptScroll(
 		node.addEventListener('wheel', onWheel, { passive: true })
 		node.addEventListener('touchstart', onTouch, { passive: true })
 		node.addEventListener('keydown', onKey)
+		node.addEventListener('click', onDisclosure, true)
+		node.addEventListener('keydown', onDisclosure, true)
 		const toLatest = () => {
 			if (!current) return
 			const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -95,6 +151,9 @@ export function useTranscriptScroll(
 			node.removeEventListener('wheel', onWheel)
 			node.removeEventListener('touchstart', onTouch)
 			node.removeEventListener('keydown', onKey)
+			node.removeEventListener('click', onDisclosure, true)
+			node.removeEventListener('keydown', onDisclosure, true)
+			if (disclosure !== undefined) clearTimeout(disclosure)
 			if (jump.current === toLatest) jump.current = undefined
 		}
 	}, [node, owner, follow])

@@ -1,5 +1,6 @@
 /* Adapted UI component. License and provenance: packages/desktop/THIRD-PARTY-NOTICES.txt. */
 import {
+	type ComponentProps,
 	type ComponentPropsWithoutRef,
 	type HTMLAttributes,
 	type ReactNode,
@@ -9,7 +10,7 @@ import {
 	useMemo,
 	useState,
 } from 'react'
-import Markdown from 'react-markdown'
+import Markdown, { type Components } from 'react-markdown'
 import remarkFrontmatter from 'remark-frontmatter'
 import remarkGfm from 'remark-gfm'
 import type { ChatMessage } from '../shared/protocol.js'
@@ -22,7 +23,9 @@ import {
 import { codeRef, linkRef } from './file-panel/project-refs.js'
 import { cn } from './lib/utils.js'
 import { LinkPreviewCard } from './link-preview-card.js'
+import { markdownBlockSources } from './markdown-blocks.js'
 import { COPY_CODE_PROPERTY, markdownCodeCopy, remarkCodeCopy } from './markdown-code-copy.js'
+import { useThrottledText } from './throttled-text.js'
 import './message-footer.css'
 import {
 	PreviewCard,
@@ -262,11 +265,13 @@ export const MarkdownContent = memo(function MarkdownContent({
 	document,
 }: { text: string; settled?: boolean; document?: DocumentOptions }) {
 	const [handle] = useState(() => PreviewCardCreateHandle<LinkPreviewPayload>())
-	const refs = useResolvedRefs(text, settled && !document)
+	// A reply that is still streaming is shown at most every 50 ms; a settled one at once.
+	const shown = useThrottledText(text, !settled && !document)
+	const refs = useResolvedRefs(shown, settled && !document)
 	return (
 		<LinkPreviewContext.Provider value={handle}>
 			<ResolvedRefsContext.Provider value={refs}>
-				<MarkdownBody text={text} document={document} />
+				<MarkdownBody text={shown} document={document} />
 			</ResolvedRefsContext.Provider>
 			<LinkPreviews handle={handle} />
 		</LinkPreviewContext.Provider>
@@ -295,10 +300,75 @@ function LinkPreviews({ handle }: { handle: LinkPreviewHandle }) {
 	)
 }
 
-const MarkdownBody = memo(function MarkdownBody({
+// One component map for every block of a reply (T3 Code's ChatMarkdown keeps its map stable the
+// same way), so a settled block's memo is never broken by a fresh object.
+const markdownComponents: Components = {
+	// Remote media stays inert; web links require the owned main bridge.
+	a: ({ node: _node, href, children }) => <MessageLink href={href}>{children}</MessageLink>,
+	pre: MarkdownPre,
+	code: MarkdownCode,
+	img: ({ alt }) => <span className="notice">{alt || 'Image'}</span>,
+	table: ({ children }) => (
+		<section
+			className="table-scroll"
+			aria-label="Table"
+			// biome-ignore lint/a11y/noNoninteractiveTabindex: A horizontal table region needs keyboard focus for scrolling.
+			tabIndex={0}
+		>
+			<table>{children}</table>
+		</section>
+	),
+}
+
+function documentComponents(document: DocumentOptions): Components {
+	return {
+		...markdownComponents,
+		a: ({ node: _node, href, children }) =>
+			document.link(href, children) ?? <MessageLink href={href}>{children}</MessageLink>,
+		// Only a document view may show an image, and only one the project itself holds.
+		img: ({ alt, src }) => document.image(typeof src === 'string' ? src : undefined, alt),
+	}
+}
+
+type RemarkPlugins = NonNullable<ComponentProps<typeof Markdown>['remarkPlugins']>
+
+const MarkdownBlock = memo(function MarkdownBlock({
 	text,
 	document,
 }: { text: string; document?: DocumentOptions }) {
+	const plugins = useMemo(
+		(): RemarkPlugins => [
+			remarkGfm,
+			...(document ? [remarkFrontmatter] : []),
+			[remarkCodeCopy, { source: text }],
+		],
+		[text, document],
+	)
+	const components = useMemo(
+		() => (document ? documentComponents(document) : markdownComponents),
+		[document],
+	)
+	return (
+		<Markdown remarkPlugins={plugins} skipHtml components={components}>
+			{text}
+		</Markdown>
+	)
+})
+
+/**
+ * A streaming reply is cut at blank lines outside code: a settled block keeps its parsed tree and
+ * only the tail is parsed again. A document is parsed whole, because front matter and its
+ * relative links belong to the file, not to a block.
+ */
+export const MarkdownBody = memo(function MarkdownBody({
+	text,
+	document,
+	split = true,
+}: { text: string; document?: DocumentOptions; split?: boolean }) {
+	const blocks = useMemo(
+		() => (document || !split ? [text] : markdownBlockSources(text)),
+		[text, document, split],
+	)
 	return (
 		<div
 			className={cn(
@@ -306,40 +376,10 @@ const MarkdownBody = memo(function MarkdownBody({
 				document && 'document-markdown',
 			)}
 		>
-			<Markdown
-				remarkPlugins={[
-					remarkGfm,
-					...(document ? [remarkFrontmatter] : []),
-					[remarkCodeCopy, { source: text }],
-				]}
-				skipHtml
-				components={{
-					// Remote media stays inert; web links require the owned main bridge.
-					a: ({ node: _node, href, children }) =>
-						document?.link(href, children) ?? <MessageLink href={href}>{children}</MessageLink>,
-					pre: MarkdownPre,
-					code: MarkdownCode,
-					// Only a document view may show an image, and only one the project itself holds.
-					img: ({ alt, src }) =>
-						document ? (
-							document.image(typeof src === 'string' ? src : undefined, alt)
-						) : (
-							<span className="notice">{alt || 'Image'}</span>
-						),
-					table: ({ children }) => (
-						<section
-							className="table-scroll"
-							aria-label="Table"
-							// biome-ignore lint/a11y/noNoninteractiveTabindex: A horizontal table region needs keyboard focus for scrolling.
-							tabIndex={0}
-						>
-							<table>{children}</table>
-						</section>
-					),
-				}}
-			>
-				{text}
-			</Markdown>
+			{blocks.map((block, index) => (
+				// biome-ignore lint/suspicious/noArrayIndexKey: A block's identity is its position; only the tail grows.
+				<MarkdownBlock key={index} text={block} document={document} />
+			))}
 		</div>
 	)
 })

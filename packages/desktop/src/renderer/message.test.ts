@@ -206,6 +206,7 @@ describe('message presentation', () => {
 
 describe('settled Markdown reconciliation', () => {
 	it('parses only the streaming body while settled message text is unchanged', () => {
+		vi.useFakeTimers()
 		const mounted = mountedMessage()
 		const body = (live: string) =>
 			createElement(
@@ -215,10 +216,19 @@ describe('settled Markdown reconciliation', () => {
 				createElement(MessageContent, { key: 'second', markdown: true, text: '**Second** result' }),
 				createElement(MessageContent, { key: 'live', markdown: true, text: live }),
 			)
+		const later = (ms: number) => act(() => vi.advanceTimersByTime(ms))
 		try {
 			mounted.render(body('Streaming'))
 			mounted.render(body('Streaming the'))
+			// A change inside the 50 ms interval is held, so nothing is parsed for it yet.
+			expect(parsed.mock.calls.map(([text]) => text)).toEqual([
+				'**First** result',
+				'**Second** result',
+				'Streaming',
+			])
+			later(50)
 			mounted.render(body('Streaming the answer'))
+			later(50)
 			expect(parsed.mock.calls.map(([text]) => text)).toEqual([
 				'**First** result',
 				'**Second** result',
@@ -229,12 +239,71 @@ describe('settled Markdown reconciliation', () => {
 			expect(mounted.container.textContent).toBe('First resultSecond resultStreaming the answer')
 		} finally {
 			mounted.unmount()
+			vi.useRealTimers()
+		}
+	})
+	it('parses a burst of deltas once, for the newest text', () => {
+		vi.useFakeTimers()
+		const mounted = mountedMessage()
+		const live = (text: string) => createElement(MessageContent, { markdown: true, text })
+		try {
+			mounted.render(live('a'))
+			for (const text of ['ab', 'abc', 'abcd']) mounted.render(live(text))
+			act(() => vi.advanceTimersByTime(50))
+			expect(parsed.mock.calls.map(([text]) => text)).toEqual(['a', 'abcd'])
+		} finally {
+			mounted.unmount()
+			vi.useRealTimers()
+		}
+	})
+	it('shows the final text of a reply at once when it settles', () => {
+		vi.useFakeTimers()
+		const mounted = mountedMessage()
+		const reply = (text: string, settled: boolean) =>
+			createElement(MessageContent, { markdown: true, text, settled })
+		try {
+			mounted.render(reply('Almost', false))
+			mounted.render(reply('Almost done.', true))
+			expect(mounted.container.textContent).toBe('Almost done.')
+			expect(vi.getTimerCount()).toBe(0)
+		} finally {
+			mounted.unmount()
+			vi.useRealTimers()
+		}
+	})
+	it('keeps the parsed blocks of a growing reply and parses only its last block again', () => {
+		vi.useFakeTimers()
+		const mounted = mountedMessage()
+		const live = (text: string) => createElement(MessageContent, { markdown: true, text })
+		try {
+			mounted.render(live('**One**\n\nTwo and'))
+			act(() => vi.advanceTimersByTime(50))
+			mounted.render(live('**One**\n\nTwo and three'))
+			act(() => vi.advanceTimersByTime(50))
+			mounted.render(live('**One**\n\nTwo and three\n\nFour'))
+			act(() => vi.advanceTimersByTime(50))
+			expect(parsed.mock.calls.map(([text]) => text)).toEqual([
+				'**One**',
+				'Two and',
+				'Two and three',
+				'Four',
+			])
+			expect(mounted.container.textContent).toBe('OneTwo and threeFour')
+		} finally {
+			mounted.unmount()
+			vi.useRealTimers()
 		}
 	})
 	it('keeps wrapper/theme attributes and text mode updates live around an unchanged parsed body', () => {
 		const mounted = mountedMessage()
 		const body = (text: string, markdown: boolean, theme: string) =>
-			createElement(MessageContent, { markdown, text, className: `theme-${theme}`, title: theme })
+			createElement(MessageContent, {
+				markdown,
+				text,
+				settled: true,
+				className: `theme-${theme}`,
+				title: theme,
+			})
 		try {
 			mounted.render(body('**Result**', true, 'light'))
 			mounted.render(body('**Result**', true, 'dark'))

@@ -1,0 +1,16 @@
+INCLUSIVE (src only)
+    102 ms  turnGroupPropsEqual renderer/transcript.tsx:327
+     96 ms  Transcript renderer/transcript.tsx:333
+     71 ms  Button renderer/ui/button.tsx:47
+     50 ms  turnInputsUnchanged renderer/transcript-memo.ts:38
+     44 ms  transcriptTurns renderer/transcript-layout.ts:21
+     37 ms  (anon) renderer/transcript-layout.ts:28
+     36 ms  (anon) renderer/transcript.tsx:394
+     34 ms  (anon) renderer/transcript.tsx:330
+     29 ms  (anon) renderer/sidebar.tsx:289
+     28 ms  entriesOf renderer/transcript-memo.ts:30
+     28 ms  renderedEqual renderer/rendered-equal.ts:18
+     26 ms  update renderer/sidebar-motion.ts:112
+     22 ms  max renderer/app.tsx:3815
+     22 ms  PanelResizeHandle renderer/file-panel/panel-tabs.tsx:238
+     17 ms  App renderer/app.tsx:87

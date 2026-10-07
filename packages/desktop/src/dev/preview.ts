@@ -37,6 +37,7 @@ import {
 	sampleFileIndex,
 } from './preview-files.js'
 
+import { createStressStream, stressConversationId, stressMessages } from './preview-stress.js'
 // This separate development entry never substitutes for the native preload API.
 if (!import.meta.env.DEV || window.namzu)
 	throw new Error('The design preview is available only in a development browser.')
@@ -112,6 +113,27 @@ const messages = new Map<string, ChatMessage[]>(
 	]),
 )
 // The first sample conversation carries attachments, saved file edits and a pinned-looking history,
+// /preview?stress=300 adds a long conversation and window.namzuPreviewStress.start() streams a long
+// reply into it on a timer, so the transcript can be measured in a real browser.
+const stressTurns = Number(new URLSearchParams(location.search).get('stress'))
+if (Number.isInteger(stressTurns) && stressTurns > 0) {
+	const view: ConversationView = {
+		id: stressConversationId,
+		projectId: 'sample-app',
+		title: `Long conversation (${stressTurns} turns)`,
+		updatedAt: sampleDate,
+	}
+	conversations.unshift(view)
+	const saved = stressMessages(stressTurns)
+	messages.set(view.id, saved)
+	;(window as unknown as { namzuPreviewStress: unknown }).namzuPreviewStress = createStressStream(
+		view,
+		(event) => {
+			for (const listener of listeners) listener(event)
+		},
+		saved,
+	)
+}
 // so the details popover has sources, line totals and a diff drawer to show. Its three saved turns
 // edited one file, three files, and nothing; they sit on two days with a long gap on the second.
 const at = (day: number, hour: number, minute: number) => ({
@@ -459,8 +481,16 @@ const workspace: WorkspaceView = {
 				root: {
 					kind: 'group',
 					id: 'preview-home',
-					tabs: ['sample-thread-1', 'sample-thread-2'],
-					activeTabId: 'sample-thread-1',
+					tabs: [
+						...(conversations.some((item) => item.id === stressConversationId)
+							? [stressConversationId]
+							: []),
+						'sample-thread-1',
+						'sample-thread-2',
+					],
+					activeTabId: conversations.some((item) => item.id === stressConversationId)
+						? stressConversationId
+						: 'sample-thread-1',
 				},
 			},
 		],

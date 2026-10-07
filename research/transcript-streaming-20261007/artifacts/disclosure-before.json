@@ -1,0 +1,22 @@
+{
+  "before": {
+    "top": 1687,
+    "gap": 0,
+    "expanded": [
+      "false",
+      "false",
+      "false"
+    ]
+  },
+  "after": {
+    "top": 1795,
+    "gap": 0,
+    "expanded": [
+      "false",
+      "false",
+      "true"
+    ]
+  },
+  "opened": true,
+  "errors": []
+}
