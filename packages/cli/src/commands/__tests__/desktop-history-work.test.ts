@@ -593,3 +593,154 @@ it('does not regroup retained work across a visible user whose reused identity i
 		await f.close()
 	}
 })
+
+async function stoppedReply(
+	f: Awaited<ReturnType<typeof fixture>>,
+	turnId: TurnId,
+	text: string | undefined,
+	phase: 'commentary' | 'final_answer' = 'final_answer',
+) {
+	const messageId = generateMessageId()
+	const started = await f.log.append(f.lease, {
+		type: 'message_started',
+		turnId,
+		iteration: 1,
+		messageId,
+	})
+	await f.log.append(f.lease, {
+		type: 'message_completed',
+		turnId,
+		iteration: 1,
+		messageId,
+		stopReason: 'cancelled',
+		...(text === undefined
+			? {}
+			: { content: text, textParts: [{ id: 'part-1', phase, text }] as never }),
+	})
+	return { messageId, startedAt: Date.parse(started.record.ts) }
+}
+
+it('restores a stopped partial reply after its prompt with the stopped marker and journal clock, but never an empty one', async () => {
+	const f = await fixture()
+	try {
+		const first = await begin(f.log, f.lease, 'First prompt')
+		const stopped = await stoppedReply(f, first.turnId, 'Partial words')
+		await finish(f.log, f.lease, first.turnId, 'cancelled')
+		const second = await begin(f.log, f.lease, 'Second prompt')
+		await stoppedReply(f, second.turnId, undefined)
+		await finish(f.log, f.lease, second.turnId, 'cancelled')
+		const result = await f.history()
+		expect(result.messages.map((row) => [row.role, row.text])).toEqual([
+			['user', 'First prompt'],
+			['assistant', 'Partial words'],
+			['user', 'Second prompt'],
+		])
+		expect(result.messages[1]).toEqual({
+			messageId: stopped.messageId,
+			role: 'assistant',
+			text: 'Partial words',
+			phase: 'final_answer',
+			time: { at: stopped.startedAt, source: 'journal' },
+			stopReason: 'cancelled',
+		})
+		expect(result.messages[0]).not.toHaveProperty('stopReason')
+	} finally {
+		await f.close()
+	}
+})
+
+it('keeps work aligned across a stopped turn with tools followed by a normal turn', async () => {
+	const f = await fixture()
+	try {
+		const first = await begin(f.log, f.lease, 'First prompt')
+		const toolUseId = generateMessageId()
+		await f.log.append(f.lease, {
+			type: 'tool_executing',
+			turnId: first.turnId,
+			toolUseId,
+			toolName: 'edit',
+			input: {},
+		})
+		await f.log.append(f.lease, {
+			type: 'tool_completed',
+			turnId: first.turnId,
+			toolUseId,
+			toolName: 'edit',
+			result: 'ok',
+			isError: false,
+			presentation: { kind: 'diff', before: 'a', after: 'b' },
+		})
+		const commentaryId = await answer(f.log, f.lease, first.turnId, 'Looking.')
+		await stoppedReply(f, first.turnId, 'Cut off here')
+		await finish(f.log, f.lease, first.turnId, 'cancelled')
+		const second = await begin(f.log, f.lease, 'Second prompt')
+		const answerId = await answer(f.log, f.lease, second.turnId, 'Done.')
+		await finish(f.log, f.lease, second.turnId)
+		const result = await f.history()
+		expect(result.messages.map((row) => row.text)).toEqual([
+			'First prompt',
+			'Looking.',
+			'Cut off here',
+			'Second prompt',
+			'Done.',
+		])
+		expect(result.work?.messages).toMatchObject([
+			{ index: 0, messageId: first.userMessageId, turnId: first.turnId },
+			{ index: 1, messageId: commentaryId, turnId: first.turnId },
+			{ index: 3, messageId: second.userMessageId, turnId: second.turnId },
+			{ index: 4, messageId: answerId, turnId: second.turnId },
+		])
+		expect(result.work?.turns).toMatchObject([
+			{ turnId: first.turnId, status: 'cancelled' },
+			{ turnId: second.turnId, status: 'completed' },
+		])
+		expect(result.work?.tools).toMatchObject([{ turnId: first.turnId, toolUseId }])
+	} finally {
+		await f.close()
+	}
+})
+
+it('does not duplicate a committed reply or restore one that a later replacement superseded', async () => {
+	const f = await fixture()
+	try {
+		const committed = await begin(f.log, f.lease, 'Committed prompt')
+		const messageId = generateMessageId()
+		await f.log.append(f.lease, {
+			type: 'message_started',
+			turnId: committed.turnId,
+			iteration: 1,
+			messageId,
+		})
+		await answer(f.log, f.lease, committed.turnId, 'Committed text', messageId)
+		await f.log.append(f.lease, {
+			type: 'message_completed',
+			turnId: committed.turnId,
+			iteration: 1,
+			messageId,
+			stopReason: 'cancelled',
+			content: 'Committed text',
+		})
+		await finish(f.log, f.lease, committed.turnId, 'cancelled')
+		const replaced = await begin(f.log, f.lease, 'Replaced prompt')
+		const stopped = await stoppedReply(f, replaced.turnId, 'Original partial')
+		await finish(f.log, f.lease, replaced.turnId, 'cancelled')
+		const before = await f.history()
+		expect(before.messages.map((row) => row.text)).toEqual([
+			'Committed prompt',
+			'Committed text',
+			'Replaced prompt',
+			'Original partial',
+		])
+		await f.log.append(f.lease, {
+			type: 'message_replaced',
+			targetMessageId: stopped.messageId,
+			content: createAssistantMessage('Replacement'),
+			reason: 'review',
+		})
+		const after = await f.history()
+		expect(after.messages.map((row) => row.text)).not.toContain('Original partial')
+		expect(after.messages.filter((row) => row.text === 'Committed text')).toHaveLength(1)
+	} finally {
+		await f.close()
+	}
+})

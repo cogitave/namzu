@@ -1197,7 +1197,12 @@ a trailing answer; grouping never moves text across a later tool or reasoning ev
 Message and text-part identities preserve distinct responses. Providers without
 phase metadata retain their admitted order without invented commentary labels.
 An authoritative completion replaces its streamed partial text, including an
-explicit empty result that withdraws rejected output.
+explicit empty result that withdraws rejected output. A reply the operator
+stopped mid-answer is not committed by the runtime, so ordinary cold history
+restores its saved text from the journal's cancelled completion as a display-only
+row marked `stopReason: 'cancelled'`, placed after the last row of its turn and
+timed from the message's recorded start. A stopped reply with no text, one already
+committed, or one later replaced adds no row, and Pal history is unchanged.
 
 Public commentary and admitted readable reasoning appear as ordinary foreground
 text inside work details, without visible internal phase labels. Their admitted

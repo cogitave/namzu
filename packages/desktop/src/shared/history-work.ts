@@ -132,10 +132,17 @@ function publicView(value: unknown): ToolCallView | undefined {
  */
 export function restoreHistoryWork(
 	thread: ThreadState,
-	messages: ChatMessage[],
+	rows: ChatMessage[],
 	work?: HistoryWorkSnapshot,
 ): ThreadState {
 	if (thread.running) return thread
+	// A stopped partial reply is the same completed, cancelled message the live projection keeps.
+	const messages = rows.map((message): ChatMessage => {
+		const { stopReason, ...rest } = message
+		return stopReason === 'cancelled' && message.role === 'assistant'
+			? { ...rest, status: 'completed', stopReason }
+			: rest
+	})
 	const restored = restoreMessages(thread, messages)
 	if (
 		!work ||

@@ -743,6 +743,55 @@ it('keeps the Pal history filter unchanged while ordinary phase metadata is avai
 	}
 })
 
+it('keeps an uncommitted stopped reply out of Pal history', async () => {
+	const pal = createPal({ name: 'Stopped reply fixture' })
+	const owner = runtime()
+	const sessionId = generateSessionId()
+	await claimPalConversation(pal.workspace, pal.id, sessionId)
+	const state = await openSessions(pal.workspace)
+	const log = sessionStorage.openConversationLog(state, sessionId)
+	const lease = await log.claim({ holder: 'test:pal-stopped', ttlMs: 30_000 })
+	if (!lease) throw new Error('fixture could not lease the Pal journal')
+	try {
+		const turnId = generateTurnId()
+		const userMessageId = generateMessageId()
+		await log.beginTurn(lease, {
+			turnId,
+			userMessageId,
+			config: { model: 'fixture', tokenBudget: 100_000, timeoutMs: 30_000 },
+		})
+		await log.append(lease, {
+			type: 'message',
+			turnId,
+			messageId: userMessageId,
+			role: 'user',
+			kind: 'prompt',
+			content: createUserMessage('Stop me'),
+		})
+		const messageId = generateMessageId()
+		await log.append(lease, { type: 'message_started', turnId, iteration: 1, messageId })
+		await log.append(lease, {
+			type: 'message_completed',
+			turnId,
+			iteration: 1,
+			messageId,
+			content: 'Stopped partial.',
+			stopReason: 'cancelled',
+		})
+	} finally {
+		await log.release(lease)
+	}
+	try {
+		const history = await createDesktopHostExtensions(owner, pal.workspace)[
+			'namzu/conversations/history'
+		]({ sessionId })
+		expect(history.messages.map((row: { text: string }) => row.text)).toEqual(['Stop me'])
+	} finally {
+		closeSessions(state)
+		await owner.close()
+	}
+})
+
 it('restores completed Pal replies but omits only unchanged, journal-proven cancelled partials', async () => {
 	const pal = createPal({ name: 'Interrupted reply fixture' })
 	const owner = runtime()

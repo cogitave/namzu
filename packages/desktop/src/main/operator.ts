@@ -1753,7 +1753,7 @@ export class Operator {
 			this.conversations.set(sessionId, record)
 			this.persistDesktop()
 			this.trackBackgroundWork(sessionId)
-			return { ...history, thread: record.projection }
+			return { ...history, messages: record.projection.messages, thread: record.projection }
 		}
 		await this.restoreConversationHistory(existing)
 		this.assertConversationAvailable(sessionId)

@@ -311,3 +311,56 @@ it('lets a genuine resumed call replace its saved receipt rather than duplicatin
 	})
 	expect(thread.tools['2:same']?.historicalStatus).toBeUndefined()
 })
+
+it('restores a stopped partial reply as the same completed, cancelled message the live view keeps', () => {
+	const rows: ChatMessage[] = [
+		{ role: 'user', text: 'Write it.', messageId: 'u1' },
+		{
+			role: 'assistant',
+			text: 'Partial words',
+			messageId: 'm1',
+			phase: 'final_answer',
+			time: { at: 5, source: 'journal' },
+			stopReason: 'cancelled',
+		},
+		{ role: 'user', text: 'Again.', messageId: 'u2' },
+		{ role: 'assistant', text: 'Done.', messageId: 'a2' },
+	]
+	const work: HistoryWorkSnapshot = {
+		v: 1,
+		partial: false,
+		messages: [
+			{ index: 0, messageId: 'u1', turnId: 't1', order: 2 },
+			{ index: 2, messageId: 'u2', turnId: 't2', order: 11 },
+			{ index: 3, messageId: 'a2', turnId: 't2', order: 13 },
+		],
+		turns: [
+			{ turnId: 't1', userMessageId: 'u1', order: 1, status: 'cancelled', reason: 'cancelled' },
+			{ turnId: 't2', userMessageId: 'u2', order: 10, status: 'completed', reason: 'end_turn' },
+		],
+		tools: [],
+	}
+	for (const snapshot of [undefined, work]) {
+		const thread = restoreHistoryWork(emptyThread(), rows, snapshot)
+		expect(thread.messages[1]).toEqual({
+			role: 'assistant',
+			text: 'Partial words',
+			messageId: 'm1',
+			phase: 'final_answer',
+			time: { at: 5, source: 'journal' },
+			status: 'completed',
+			stopReason: 'cancelled',
+		})
+		expect(thread.messages[0]).not.toHaveProperty('stopReason')
+		expect(thread.messages[3]).not.toHaveProperty('status')
+	}
+	const restored = restoreHistoryWork(emptyThread(), rows, work)
+	expect(restored.timeline.filter((entry) => entry.kind === 'message').map((e) => e.turn)).toEqual([
+		1, 1, 2, 2,
+	])
+	// A user row can never claim to be a stopped reply.
+	expect(
+		restoreHistoryWork(emptyThread(), [{ role: 'user', text: 'x', stopReason: 'cancelled' }])
+			.messages[0],
+	).toEqual({ role: 'user', text: 'x' })
+})

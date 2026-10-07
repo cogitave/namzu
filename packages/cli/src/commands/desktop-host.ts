@@ -162,6 +162,110 @@ function cancelledPalReplies(records: readonly SessionRecord[]): ReadonlyMap<str
 	return cancelled
 }
 
+interface CancelledReply {
+	messageId: string
+	turnId: string
+	startSeq: number
+	seq: number
+	content: string
+	phase?: 'commentary' | 'final_answer'
+	time?: { at: number; source: 'journal' }
+}
+
+/**
+ * Ordinary conversations: the partial answer of a stopped turn lives only on its
+ * `message_completed` record (the SDK commits no `message` for it). Same guards as
+ * `cancelledPalReplies`: one start in the same turn before the completion, no committed
+ * message, no later replacement. `turnOf`/`seqOf` locate committed rows by turn and seq.
+ */
+function cancelledAssistantReplies(records: readonly SessionRecord[]) {
+	const committed = new Map<string, { turnId: string; seq: number; ambiguous: boolean }>()
+	const starts = new Map<string, { turnId: string; seq: number; ts: string; ambiguous: boolean }>()
+	const completions = new Map<
+		string,
+		{
+			turnId: string
+			seq: number
+			stopReason: string
+			content?: string
+			phase?: 'commentary' | 'final_answer'
+			ambiguous: boolean
+		}
+	>()
+	const replacements = new Map<string, number>()
+	const promptTurns = new Map<string, string>()
+	for (const record of records) {
+		if (record.type === 'message') {
+			const previous = committed.get(record.messageId)
+			committed.set(record.messageId, {
+				turnId: previous?.turnId ?? record.turnId,
+				seq: previous?.seq ?? record.seq,
+				ambiguous: Boolean(previous && (previous.ambiguous || previous.turnId !== record.turnId)),
+			})
+		} else if (record.type === 'turn_started') {
+			promptTurns.set(record.userMessageId, record.turnId)
+		} else if (record.type === 'message_started') {
+			const previous = starts.get(record.messageId)
+			starts.set(record.messageId, {
+				turnId: previous?.turnId ?? record.turnId,
+				seq: previous?.seq ?? record.seq,
+				ts: previous?.ts ?? record.ts,
+				ambiguous: Boolean(previous && (previous.ambiguous || previous.turnId !== record.turnId)),
+			})
+		} else if (record.type === 'message_completed') {
+			const previous = completions.get(record.messageId)
+			const phase = record.textParts?.at(-1)?.phase
+			completions.set(record.messageId, {
+				turnId: record.turnId,
+				seq: record.seq,
+				stopReason: record.stopReason,
+				...(record.content === undefined ? {} : { content: record.content }),
+				...(phase === 'commentary' || phase === 'final_answer' ? { phase } : {}),
+				ambiguous: Boolean(previous && (previous.ambiguous || previous.turnId !== record.turnId)),
+			})
+		} else if (record.type === 'message_replaced') {
+			replacements.set(record.targetMessageId, record.seq)
+		}
+	}
+	const replies: CancelledReply[] = []
+	for (const [id, completion] of completions) {
+		const start = starts.get(id)
+		if (
+			completion.stopReason !== 'cancelled' ||
+			completion.ambiguous ||
+			typeof completion.content !== 'string' ||
+			!completion.content.trim() ||
+			!historyId(id) ||
+			committed.has(id) ||
+			!start ||
+			start.ambiguous ||
+			start.turnId !== completion.turnId ||
+			start.seq >= completion.seq ||
+			(replacements.get(id) ?? 0) > completion.seq
+		)
+			continue
+		const at = Date.parse(start.ts)
+		replies.push({
+			messageId: id,
+			turnId: completion.turnId,
+			startSeq: start.seq,
+			seq: completion.seq,
+			content: completion.content,
+			...(completion.phase ? { phase: completion.phase } : {}),
+			...(Number.isFinite(at) && at >= 0 ? { time: { at, source: 'journal' as const } } : {}),
+		})
+	}
+	replies.sort((a, b) => a.seq - b.seq)
+	const turnOf = (messageId: string | undefined) => {
+		if (!messageId) return undefined
+		const message = committed.get(messageId)
+		return message && !message.ambiguous ? message.turnId : promptTurns.get(messageId)
+	}
+	const seqOf = (messageId: string | undefined) =>
+		messageId ? committed.get(messageId)?.seq : undefined
+	return { replies, turnOf, seqOf }
+}
+
 // Additive display-only history wire. Keep this closed shape aligned with Desktop
 // shared/history-work.ts; it carries no execution, permission or recovery authority.
 interface HistoryTurnView {
@@ -921,6 +1025,9 @@ export function createDesktopHostExtensions(
 					content: string | null
 					phase?: 'commentary' | 'final_answer'
 					time?: { at: number; source: 'journal' }
+					stopReason?: 'cancelled'
+					turnId?: string
+					seq?: number
 				}>((message) => {
 					if (message.role === 'assistant') {
 						if (!ownedPal) {
@@ -969,6 +1076,33 @@ export function createDesktopHostExtensions(
 							]
 						: []
 				})
+				if (!ownedPal) {
+					// Display-only: a stopped partial reply has no committed message to fold.
+					const stopped = cancelledAssistantReplies(snapshot.records)
+					for (const reply of stopped.replies) {
+						let at = -1
+						for (let index = 0; index < shown.length; index++)
+							if (
+								(shown[index]?.turnId ?? stopped.turnOf(shown[index]?.messageId)) === reply.turnId
+							)
+								at = index
+						if (at < 0)
+							for (let index = 0; index < shown.length; index++) {
+								const seq = shown[index]?.seq ?? stopped.seqOf(shown[index]?.messageId)
+								if (seq !== undefined && seq < reply.startSeq) at = index
+							}
+						shown.splice(at + 1, 0, {
+							messageId: reply.messageId,
+							role: 'assistant',
+							content: reply.content,
+							...(reply.phase ? { phase: reply.phase } : {}),
+							...(reply.time ? { time: reply.time } : {}),
+							stopReason: 'cancelled',
+							turnId: reply.turnId,
+							seq: reply.startSeq,
+						})
+					}
+				}
 				const retained: { messageId?: string; role: 'user' | 'assistant' }[] = []
 				let remaining = 200_000
 				let partial = false
@@ -978,6 +1112,7 @@ export function createDesktopHostExtensions(
 					text: string
 					phase?: 'commentary' | 'final_answer'
 					time?: { at: number; source: 'journal' }
+					stopReason?: 'cancelled'
 				}[] = []
 				for (const message of shown.slice(-200).reverse()) {
 					if (remaining <= 0) break
@@ -992,6 +1127,7 @@ export function createDesktopHostExtensions(
 						text: value,
 						...(message.phase ? { phase: message.phase } : {}),
 						...(message.time ? { time: message.time } : {}),
+						...(message.stopReason ? { stopReason: message.stopReason } : {}),
 					})
 				}
 				return {
