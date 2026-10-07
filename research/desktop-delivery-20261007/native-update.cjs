@@ -16,6 +16,9 @@
 // <snapshot dir>/desktop-modules/ (from snapshot-modules.mjs) carries the npm packages the Desktop main
 //   process imports; the check compares them with app/node_modules and plans adds, --apply stages and
 //   swaps them with the dists, and a failed load (dead process, no page in time, "Error" window) is rolled back.
+// --offline      with --check or --apply only, for a closed app: refuses while the configured electron or a node
+//                 running the configured CLI exists; skips pid, CDP, state, close, launch and probes; keeps the
+//                 rest (modules, dependency equality, pack filtering, staged swap with rollback); never starts the app.
 // Writes: a private snapshot inside the Development directory (drafts included) and a
 // public receipt (counts, hashes, PIDs, booleans, file paths) under ./artifacts.
 const assert = require('node:assert/strict');
@@ -34,14 +37,16 @@ const modes = [...['--check', '--apply', '--probe-only'].filter(m => process.arg
 assert.equal(modes.length, 1, 'Select exactly one of --check, --apply, --probe-only, --verify-after=');
 const mode = modes[0].startsWith('--verify-after=') ? 'verify-after' : modes[0].slice(2);
 const verifyFrom = mode === 'verify-after' ? path.join(root, path.basename(modes[0].slice('--verify-after='.length))) : null;
-for (const arg of process.argv.slice(2)) assert(modes.includes(arg) || arg.startsWith('--source=') || arg.startsWith('--meta='), `Unknown option ${arg}`);
+const offline = process.argv.includes('--offline');
+assert(!offline || mode === 'check' || mode === 'apply', '--offline is valid with --check or --apply only');
+for (const arg of process.argv.slice(2)) assert(modes.includes(arg) || arg === '--offline' || arg.startsWith('--source=') || arg.startsWith('--meta='), `Unknown option ${arg}`);
 assert(argValue('source'), '--source=<snapshot dir> is required');
 const snapshot = path.resolve(argValue('source'));
 const metaDir = path.resolve(argValue('meta') ?? path.join(__dirname, 'snapshot-meta'));
 const runtimePackages = path.join(root, 'runtime', 'packages');
 // Package directories are resolved by name below; p0 (cli) is fixed by launch.json.
 const stamp = new Date().toISOString().replaceAll(/[-:.]/g, '');
-const label = 'delivery';
+const label = offline ? 'delivery-offline' : 'delivery';
 const portFile = path.join(process.env.APPDATA, 'Namzu', 'DevToolsActivePort');
 const pidFile = path.join(root, 'desktop.pid');
 const artifacts = path.join(__dirname, 'artifacts');
@@ -177,7 +182,7 @@ function ownedProcesses() {
 const readPid = () => Number(fs.readFileSync(pidFile, 'utf8').trim());
 const port = () => Number(fs.readFileSync(portFile, 'utf8').split(/\r?\n/)[0]);
 
-const receipt = { passed: false, mode, at: new Date().toISOString(), phase: 'preflight', nativeWindows: true,
+const receipt = { passed: false, mode: offline ? `offline-${mode}` : mode, at: new Date().toISOString(), phase: 'preflight', nativeWindows: true,
   packageInstalls: 0, modelRequests: 0, computerActions: 0, uiInteractions: 0, checks: [], observations: [] };
 let browser, page;
 const { chromium } = require(path.join(root, 'runtime/packages/p39'));
@@ -492,6 +497,12 @@ async function probe() {
       receipt.runtimeModules = planModules();
       receipt.checks.push(`desktop runtime modules planned: ${receipt.runtimeModules.required.map(m => `${m.action} ${m.name}@${m.version}`).join(', ') || 'none required'}`);
     }
+    if (offline) {
+      // The app must be closed: no configured electron and no node running the configured CLI.
+      receipt.ownedProcesses = ownedProcesses();
+      assert(receipt.ownedProcesses.length === 0, `Refused: the app or its runtime is running (${receipt.ownedProcesses.map(p => `${p.kind} ${p.pid}`).join(', ')}); use the normal mode, without --offline`);
+      receipt.checks.push('offline: no configured electron and no node running the configured CLI');
+    } else {
     beforePid = readPid();
     assert(Number.isInteger(beforePid) && beforePid > 0, 'Refused: desktop.pid is invalid');
     const exe = processPath(beforePid);
@@ -503,6 +514,7 @@ async function probe() {
     receipt.phase = 'attach';
     await attach();
     receipt.checks.push('attached over CDP to the exact page');
+    }
     if (mode === 'probe-only') {
       receipt.afterPid = beforePid;
       assert(installedEqualsSource(), 'Installed dist differs from source');
@@ -520,6 +532,7 @@ async function probe() {
       await verifyAfter(before);
       return;
     }
+    if (!offline) {
     receipt.phase = 'state';
     before = await readState();
     const priv = { stamp, beforePid, state: before };
@@ -528,6 +541,7 @@ async function probe() {
     receipt.before = summarize(before);
     receipt.terminalAlertsBefore = before.dom.terminalAlerts.length;
     receipt.checks.push('live state read: idle, no dialogs, composer matches saved draft');
+    }
 
     receipt.phase = 'plan';
     changedItems = items.filter(i => receipt.packages[i.key].differs);
@@ -555,6 +569,12 @@ async function probe() {
       assert.equal(manifestHash(manifest(m.stage)), manifestHash(manifest(m.source)), `Staged module ${m.name} differs from the snapshot`);
     }
     receipt.checks.push('staged copies match source manifests');
+    if (offline) {
+      // Re-check right before the swap: the app must still be closed.
+      const running = ownedProcesses();
+      assert(running.length === 0, `Refused: the app started during staging (${running.map(p => `${p.kind} ${p.pid}`).join(', ')}); nothing was swapped`);
+      receipt.checks.push('offline: still no owned process immediately before the swap');
+    } else {
     // The copy takes a while and the app stays in use: compare against the state
     // read right before the close, not the one read before staging.
     before = await readState();
@@ -573,6 +593,7 @@ async function probe() {
       await sleep(500);
     }
     receipt.checks.push('desktop and every runtime child process gone');
+    }
     receipt.phase = 'swap';
     const done = []; // { kind: 'dist'|'module', item|mod, backedUp, staged, scopeCreated }
     try {
@@ -601,12 +622,27 @@ async function probe() {
           if (rec.backedUp) fs.renameSync(rec.item.backup, rec.item.target);
         } catch (e) { rollbackErrors.push(`${rec.kind === 'module' ? rec.mod.name : rec.item.key}: ${String(e.message).slice(0, 100)}`); }
       }
-      cp.spawnSync(process.execPath, [path.join(root, 'launch.cjs')], { encoding: 'utf8', windowsHide: true });
+      if (!offline) cp.spawnSync(process.execPath, [path.join(root, 'launch.cjs')], { encoding: 'utf8', windowsHide: true });
       receipt.rolledBack = true;
       receipt.rollbackErrors = rollbackErrors;
       throw error;
     }
     receipt.checks.push('dists and runtime modules swapped; previous dists retained as backups');
+    if (offline) {
+      receipt.phase = 'verify';
+      assert(installedEqualsSource(), 'Installed dist differs from source');
+      receipt.checks.push('installed desktop, cli and sdk dist manifests equal source');
+      for (const m of receipt.runtimeModules.required) {
+        const f = path.join(moduleDir(nodeModules, m.name), 'package.json');
+        assert(fs.existsSync(f) && readJson(f).version === m.version, `Installed module ${m.name} is not at ${m.version}`);
+      }
+      receipt.checks.push('every planned runtime module is present at its version');
+      receipt.appStarted = false;
+      receipt.note = 'The app was not started; the next launch picks up the new build.';
+      receipt.phase = 'complete';
+      receipt.passed = true;
+      return;
+    }
     receipt.phase = 'startup';
     const oldStamp = fs.existsSync(portFile) ? fs.statSync(portFile).mtimeMs : 0;
     const launchedAt = Date.now();
@@ -679,7 +715,7 @@ async function probe() {
     }
   } finally {
     await disconnect();
-    const file = path.join(artifacts, `${mode}-${stamp}.json`);
+    const file = path.join(artifacts, `${receipt.mode}-${stamp}.json`);
     const body = JSON.stringify(receipt, null, 2) + '\n';
     try { fs.writeFileSync(file, body, { flag: 'wx' }); receipt.publicReceipt = file; } catch (e) { process.stderr.write(`receipt write failed: ${e.message}\n`); }
     process.stdout.write(body);

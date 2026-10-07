@@ -61,6 +61,17 @@ Failure (delivery of d203b7fe6): the new `dist/main/project-files.js` imported `
 - Rollback on a failed load: if the new process dies, no CDP page at `config.url` appears within 90 s, or a window/page is titled "Error", the updater captures the last 40 lines of `desktop.stderr.log` into a private file (`delivery-startup-failure-private-<stamp>.json`, never the public receipt), kills the tree (`taskkill /pid <pid> /T /F`), restores every dist and removes the added modules (renamed to `*-failed*`), relaunches the old app and waits for its page. The receipt records `rolledBackAfterStartup`, `startupFailureReason` (one line), `killedFailedProcess` and `previousAppRestored`.
 - Only `--check` has been run for this change; the apply and rollback paths are untested.
 
+### Offline mode
+
+`--check --offline` and `--apply --offline` deliver while the app is closed (the other modes need a running app). `--offline` is valid with `--check` and `--apply` only.
+
+- Refuses if the configured electron executable or a node process running the configured CLI exists (the same owned-process inventory); the message says to use the normal mode. The inventory is repeated right before the swap.
+- Skips everything that needs a live app: `desktop.pid` and executable check, CDP attach, state read, private snapshots, close, launch, startup wait, verify-after and the network probe.
+- Keeps everything else: source validation, the desktop runtime-module plan (adds dependency-free modules, refuses version drift), CLI/SDK dependency equality against `snapshot-meta` (`COMMIT` must equal the snapshot `HEAD`), pack-skip filtering, manifest-verified staging, the rename swap with joint rollback (no relaunch).
+- After `--apply --offline` it checks that installed manifests equal the source for every dist and that each planned module is present at its version, then records `appStarted: false`. The next launch picks up the new build; the startup-failure rollback does not exist offline, so run `--verify-after`/`--probe-only` after that launch.
+- Public receipt: `artifacts/offline-check-<stamp>.json` or `offline-apply-<stamp>.json` (`mode` is `offline-check`/`offline-apply`); no private data is written. `offline-swap.cjs` remains the Desktop-dist-only fallback.
+- Only `--check --offline` has been run; the offline apply path is untested.
+
 ## Delivery of d203b7fe6 (2026-10-07)
 
 1. An SDK-only apply (cf6f31ce8) was refused at preflight because the owner was typing; nothing changed.
@@ -72,3 +83,7 @@ Failure (delivery of d203b7fe6): the new `dist/main/project-files.js` imported `
 ## Delivery of c1f9ef9fd while the app was closed (2026-10-07)
 
 The owner had closed the app (all CLI connections ended with exit 0 at 17:27:51 UTC; no crash). `native-update.cjs` needs a running app for its state preflight, so `offline-swap.cjs` swapped the Desktop dist directly: it refuses if any electron process of the configured executable runs, requires every desktop runtime module at the build's version (`ws`, `yaml`, `ignore` were already present), stages and manifest-checks the copy, then renames (previous dist kept as `dist-before-offline-20261007T174338322Z`). Installed manifest equals the build; CLI and SDK untouched. The app was not started, since the owner had closed it.
+
+## Offline delivery of 892bf0d3a (2026-10-07)
+
+The app was still closed. `--check --offline` then `--apply --offline` replaced Desktop and `@namzu/cli` (SDK equal, untouched; modules `ws`, `yaml`, `ignore` kept), re-checked that no owned process had started before the swap, and confirmed installed manifests equal the snapshot. The app was not started; the next launch picks up the per-reply Undo, the @pierre/diffs 1.5.2 Changes view and the tab-strip fix. Offline mode has no startup check, so the first launch should be followed by `--probe-only`.

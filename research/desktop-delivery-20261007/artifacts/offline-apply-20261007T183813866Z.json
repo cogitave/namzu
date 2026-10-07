@@ -1,0 +1,258 @@
+{
+  "passed": true,
+  "mode": "offline-apply",
+  "at": "2026-10-07T18:38:13.868Z",
+  "phase": "complete",
+  "nativeWindows": true,
+  "packageInstalls": 0,
+  "modelRequests": 0,
+  "computerActions": 0,
+  "uiInteractions": 0,
+  "checks": [
+    "source dists have all required entries",
+    "desktop runtime modules planned: keep ignore@7.0.12, keep ws@8.21.3, keep yaml@2.9.1",
+    "offline: no configured electron and no node running the configured CLI",
+    "installed package.json dependencies equal the snapshot commit",
+    "installed dists differ from source; plan computed",
+    "staged copies match source manifests",
+    "offline: still no owned process immediately before the swap",
+    "dists and runtime modules swapped; previous dists retained as backups",
+    "installed desktop, cli and sdk dist manifests equal source",
+    "every planned runtime module is present at its version"
+  ],
+  "observations": [],
+  "launchConfigSha256": "0cea7da46af9d9bc24915a559f8a58f7f3d1973a4eef3963acb3ebaa562dc742",
+  "snapshotCommit": "892bf0d3a",
+  "packages": {
+    "desktop": {
+      "name": "@namzu/desktop",
+      "installedFiles": 804,
+      "sourceFiles": 818,
+      "installedManifestSha256": "c6a05dcd9a429d63611dbf24cb9c70f37b4b3c699d5d7d45c2c5c3bf86434c9a",
+      "sourceManifestSha256": "55e268c7b95c6b9f11853eefeb055a4a66baf379254693160f2aa2df691935a1",
+      "changedCount": 26,
+      "addedCount": 16,
+      "removedCount": 2,
+      "changed": [
+        "THIRD-PARTY-NOTICES.txt",
+        "dev/preview-changes.d.ts.map",
+        "dev/preview-changes.js",
+        "dev/preview-changes.js.map",
+        "main/diagnostics.d.ts.map",
+        "main/diagnostics.js",
+        "main/diagnostics.js.map",
+        "main/index.js",
+        "main/index.js.map",
+        "main/operator.d.ts",
+        "main/operator.d.ts.map",
+        "main/operator.js",
+        "main/operator.js.map",
+        "main/rpc-client.d.ts",
+        "main/rpc-client.d.ts.map",
+        "main/rpc-client.js",
+        "main/rpc-client.js.map",
+        "preload.cjs",
+        "preload.cjs.map",
+        "renderer/index.html",
+        "shared/projection.d.ts",
+        "shared/projection.d.ts.map",
+        "shared/projection.js",
+        "shared/projection.js.map",
+        "shared/protocol.d.ts",
+        "shared/protocol.d.ts.map"
+      ],
+      "added": [
+        "licenses/files-pierre-diffs-Apache-2.0.txt",
+        "licenses/files-pierre-diffs-dependencies.txt",
+        "main/operator-undo.test.d.ts",
+        "main/operator-undo.test.d.ts.map",
+        "main/operator-undo.test.js",
+        "main/operator-undo.test.js.map",
+        "renderer/assets/index-CGXdvRM_.js",
+        "renderer/assets/index-DMSzZAeO.css",
+        "shared/undo-protocol.d.ts",
+        "shared/undo-protocol.d.ts.map",
+        "shared/undo-protocol.js",
+        "shared/undo-protocol.js.map",
+        "shared/undo-protocol.test.d.ts",
+        "shared/undo-protocol.test.d.ts.map",
+        "shared/undo-protocol.test.js",
+        "shared/undo-protocol.test.js.map"
+      ],
+      "removed": [
+        "renderer/assets/index-BiJoYwxh.css",
+        "renderer/assets/index-Dte2wspD.js"
+      ],
+      "classification": {
+        "runtime": [
+          "THIRD-PARTY-NOTICES.txt",
+          "dev/preview-changes.js",
+          "licenses/files-pierre-diffs-Apache-2.0.txt",
+          "licenses/files-pierre-diffs-dependencies.txt",
+          "main/diagnostics.js",
+          "main/index.js",
+          "main/operator-undo.test.js",
+          "main/operator.js",
+          "main/rpc-client.js",
+          "preload.cjs",
+          "renderer/assets/index-BiJoYwxh.css",
+          "renderer/assets/index-CGXdvRM_.js",
+          "renderer/assets/index-DMSzZAeO.css",
+          "renderer/assets/index-Dte2wspD.js",
+          "renderer/index.html",
+          "shared/projection.js",
+          "shared/undo-protocol.js",
+          "shared/undo-protocol.test.js"
+        ],
+        "noise": [
+          "dev/preview-changes.d.ts.map",
+          "dev/preview-changes.js.map",
+          "main/diagnostics.d.ts.map",
+          "main/diagnostics.js.map",
+          "main/index.js.map",
+          "main/operator-undo.test.d.ts",
+          "main/operator-undo.test.d.ts.map",
+          "main/operator-undo.test.js.map",
+          "main/operator.d.ts",
+          "main/operator.d.ts.map",
+          "main/operator.js.map",
+          "main/rpc-client.d.ts",
+          "main/rpc-client.d.ts.map",
+          "main/rpc-client.js.map",
+          "preload.cjs.map",
+          "shared/projection.d.ts",
+          "shared/projection.d.ts.map",
+          "shared/projection.js.map",
+          "shared/protocol.d.ts",
+          "shared/protocol.d.ts.map",
+          "shared/undo-protocol.d.ts",
+          "shared/undo-protocol.d.ts.map",
+          "shared/undo-protocol.js.map",
+          "shared/undo-protocol.test.d.ts",
+          "shared/undo-protocol.test.d.ts.map",
+          "shared/undo-protocol.test.js.map"
+        ]
+      },
+      "differs": true
+    },
+    "cli": {
+      "name": "@namzu/cli",
+      "installedFiles": 399,
+      "sourceFiles": 401,
+      "installedManifestSha256": "9aed220070efc82c299df176c863346b7f1dfbbdbf9e9e17d33ef0d43dd529ec",
+      "sourceManifestSha256": "09f7bfe0865599a0a4084d4bd356cf0ae5f6ad89f60c6db4bf42d39d12f8c70f",
+      "changedCount": 6,
+      "addedCount": 2,
+      "removedCount": 0,
+      "changed": [
+        "checkpoints/store.js",
+        "checkpoints/wrap.js",
+        "commands/acp.js",
+        "commands/desktop-host.js",
+        "tui/App.js",
+        "tui/agent.js"
+      ],
+      "added": [
+        "checkpoints/manifest.js",
+        "checkpoints/undo-plan.js"
+      ],
+      "removed": [],
+      "classification": {
+        "runtime": [
+          "checkpoints/manifest.js",
+          "checkpoints/store.js",
+          "checkpoints/undo-plan.js",
+          "checkpoints/wrap.js",
+          "commands/acp.js",
+          "commands/desktop-host.js",
+          "tui/App.js",
+          "tui/agent.js"
+        ],
+        "noise": []
+      },
+      "differs": true,
+      "dependencies": {
+        "installedVersion": "35.0.0",
+        "snapshotVersion": "35.0.0",
+        "equal": true,
+        "fields": {
+          "dependencies": true,
+          "optionalDependencies": true,
+          "peerDependencies": true
+        },
+        "differing": [],
+        "dependenciesSha256": "f1810624efcd75dedcee67d3fef3b16216ecbc2856f6b2b07723ce97a82997f5"
+      }
+    },
+    "sdk": {
+      "name": "@namzu/sdk",
+      "installedFiles": 934,
+      "sourceFiles": 934,
+      "installedManifestSha256": "dc8c394bd5a23c67c8cc42611dcc54a2be9350e847b4924360db1059f5e91890",
+      "sourceManifestSha256": "dc8c394bd5a23c67c8cc42611dcc54a2be9350e847b4924360db1059f5e91890",
+      "changedCount": 0,
+      "addedCount": 0,
+      "removedCount": 0,
+      "changed": [],
+      "added": [],
+      "removed": [],
+      "classification": {
+        "runtime": [],
+        "noise": []
+      },
+      "differs": false,
+      "dependencies": {
+        "installedVersion": "49.0.0",
+        "snapshotVersion": "49.0.0",
+        "equal": true,
+        "fields": {
+          "dependencies": true,
+          "optionalDependencies": true,
+          "peerDependencies": true
+        },
+        "differing": [],
+        "dependenciesSha256": "a01d041c3bb4a5d015552ecd02b062116ec242e17b162a62c657c45a8697e099"
+      }
+    }
+  },
+  "runtimeModules": {
+    "manifestPresent": true,
+    "required": [
+      {
+        "name": "ignore",
+        "version": "7.0.12",
+        "action": "keep"
+      },
+      {
+        "name": "ws",
+        "version": "8.21.3",
+        "action": "keep"
+      },
+      {
+        "name": "yaml",
+        "version": "2.9.1",
+        "action": "keep"
+      }
+    ]
+  },
+  "ownedProcesses": [],
+  "dependenciesEqual": true,
+  "plan": {
+    "replace": [
+      "desktop",
+      "cli"
+    ],
+    "stage": [
+      "dist-stage-20261007T183813866Z",
+      "dist-stage-20261007T183813866Z"
+    ],
+    "backup": [
+      "dist-before-delivery-offline-20261007T183813866Z",
+      "dist-before-delivery-offline-20261007T183813866Z"
+    ],
+    "addModules": [],
+    "moduleStage": []
+  },
+  "appStarted": false,
+  "note": "The app was not started; the next launch picks up the new build."
+}
