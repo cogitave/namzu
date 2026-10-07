@@ -43,6 +43,7 @@ import { electronLinkPreviewNetwork } from './link-preview-electron.js'
 import { createLinkPreviewService } from './link-preview.js'
 import { LocalSpeechRouting } from './local-speech-routing.js'
 import { LocalSpeechService } from './local-speech.js'
+import { OpenIn, systemOpenInHost } from './open-in.js'
 import { Operator } from './operator.js'
 import { PalStreamProxy } from './pal-stream-proxy.js'
 import { projectDraftOwner } from './project-draft-owner.js'
@@ -254,6 +255,12 @@ const operator = new Operator(
 	app.getPath('userData'),
 	diagnostics,
 	streamProxy,
+	new OpenIn(
+		systemOpenInHost({
+			showItemInFolder: (path) => shell.showItemInFolder(path),
+			openPath: (path) => shell.openPath(path),
+		}),
+	),
 )
 function saveProjects(): void {
 	const file = join(app.getPath('userData'), 'projects.json')
@@ -346,6 +353,7 @@ function register(): void {
 		'trustProject',
 		'newConversation',
 		'forkConversation',
+		'restoreConversation',
 	])
 	const registerHandler = (
 		name: string,
@@ -576,6 +584,22 @@ function register(): void {
 	handle('forkConversation', (id: string) => operator.forkConversation(id))
 	handle('conversationMarkdown', (id: string) => operator.conversationMarkdown(id))
 	handle('projectGit', (id: string) => operator.projectGit(id))
+	handle('listProjectDirectory', (id: string, dir: string) =>
+		operator.listProjectDirectory(id, dir),
+	)
+	handle('projectFileIndex', (id: string) => operator.projectFileIndex(id))
+	handle('readProjectFile', (id: string, path: string) => operator.readProjectFile(id, path))
+	handle('resolveProjectLinks', (id: string, refs: string[]) =>
+		operator.resolveProjectLinks(id, refs),
+	)
+	handle(
+		'openProjectPath',
+		(id: string, path: string, target: 'editor' | 'file-manager' | 'terminal', line?: number) =>
+			operator.openProjectPath(id, path, target, line),
+	)
+	handle('projectEditors', () => operator.projectEditors())
+	handle('archivedConversations', (id: string) => operator.archivedConversations(id))
+	handle('restoreConversation', (sessionId: string) => operator.restoreConversation(sessionId))
 	handle('openPal', (id: string) => operator.openPal(id))
 	handle('palComputer', (id: string) => operator.palComputer(id))
 	handle('startPalComputer', (id: string) => operator.startPalComputer(id))

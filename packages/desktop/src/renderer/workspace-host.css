@@ -39,7 +39,8 @@
 	}
 	.workspace.jobs-open > .jobs-panel {
 		width: min(100%, 380px);
-		z-index: 15;
+		/* Above the composer (z 20), which would otherwise cover the bottom of an open file. */
+		z-index: 30;
 		box-shadow: -12px 0 30px rgb(0 0 0 / 18%);
 	}
 	.workspace[data-page="computer"][data-computer-chat="split"] {

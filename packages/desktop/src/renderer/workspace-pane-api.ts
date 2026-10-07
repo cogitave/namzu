@@ -50,6 +50,14 @@ export function createWorkspacePaneApi(
 		forkConversation,
 		conversationMarkdown,
 		projectGit,
+		listProjectDirectory,
+		projectFileIndex,
+		readProjectFile,
+		resolveProjectLinks,
+		openProjectPath,
+		projectEditors,
+		archivedConversations,
+		restoreConversation,
 		sendCurrent,
 		localSpeechConfigure,
 		localSpeechInstall,
@@ -350,6 +358,34 @@ export function createWorkspacePaneApi(
 			? { conversationMarkdown: (id) => invoke(() => conversationMarkdown(id), []) }
 			: {}),
 		...(projectGit ? { projectGit: (id) => invoke(() => projectGit(id), []) } : {}),
+		...(listProjectDirectory
+			? { listProjectDirectory: (id, dir) => invoke(() => listProjectDirectory(id, dir), []) }
+			: {}),
+		...(projectFileIndex
+			? { projectFileIndex: (id) => invoke(() => projectFileIndex(id), []) }
+			: {}),
+		...(readProjectFile
+			? { readProjectFile: (id, path) => invoke(() => readProjectFile(id, path), []) }
+			: {}),
+		...(resolveProjectLinks
+			? { resolveProjectLinks: (id, refs) => invoke(() => resolveProjectLinks(id, refs), []) }
+			: {}),
+		...(openProjectPath
+			? {
+					openProjectPath: (id, path, target, line) =>
+						invoke(() => openProjectPath(id, path, target, line), []),
+				}
+			: {}),
+		...(projectEditors ? { projectEditors: () => invoke(() => projectEditors(), []) } : {}),
+		...(archivedConversations
+			? { archivedConversations: (id) => invoke(() => archivedConversations(id), []) }
+			: {}),
+		...(restoreConversation
+			? {
+					restoreConversation: (sessionId) =>
+						invoke(() => restoreConversation(sessionId), [], { global: true }),
+				}
+			: {}),
 		startPalComputer: (id) => invoke(() => base.startPalComputer(id), [], { global: true }),
 		stopPalComputer: (id) => invoke(() => base.stopPalComputer(id), [], { global: true }),
 		openProject: () => invoke(() => base.openProject(), [], { global: true }),

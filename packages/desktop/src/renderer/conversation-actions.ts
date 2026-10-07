@@ -10,6 +10,10 @@ export type ConversationActionId =
 	| 'copy-markdown'
 	| 'copy-id'
 	| 'copy-path'
+	| 'open-in'
+	| 'open-editor'
+	| 'open-file-manager'
+	| 'open-terminal'
 	| 'move-right'
 	| 'move-window'
 	| 'archive'
@@ -25,6 +29,10 @@ export type ConversationIconId =
 	| 'markdown'
 	| 'id'
 	| 'path'
+	| 'open-in'
+	| 'editor'
+	| 'folder-open'
+	| 'terminal'
 	| 'move-right'
 	| 'move-window'
 	| 'archive'
@@ -50,6 +58,8 @@ export interface ConversationActionCapabilities {
 	archive: boolean
 	moveRight: boolean
 	moveWindow: boolean
+	/** The host can open a project folder in an editor, the file manager or a terminal. */
+	openIn?: boolean
 }
 
 export interface ConversationActionInput {
@@ -62,6 +72,8 @@ export interface ConversationActionInput {
 	hasMessages: boolean
 	hasReply: boolean
 	hasProjectPath: boolean
+	/** Name of the editor the host opens a folder in; absent when none was found. */
+	editorLabel?: string
 	/** A pane that holds a single conversation cannot give one of them a split. */
 	canMoveRight: boolean
 	can: ConversationActionCapabilities
@@ -141,6 +153,16 @@ export function conversationActionGroups(
 				children.push({ id: 'copy-path', label: 'Project path', icon: 'path' })
 			groups.push([{ id: 'copy', label: 'Copy', icon: 'copy', children }])
 		}
+	}
+	if (!input.isPal && input.hasProjectPath && input.can.openIn) {
+		const children: ConversationActionEntry[] = []
+		if (input.editorLabel)
+			children.push({ id: 'open-editor', label: input.editorLabel, icon: 'editor' })
+		children.push(
+			{ id: 'open-file-manager', label: 'Show in folder', icon: 'folder-open' },
+			{ id: 'open-terminal', label: 'Open terminal here', icon: 'terminal' },
+		)
+		groups.push([{ id: 'open-in', label: 'Open in', icon: 'open-in', children }])
 	}
 	const move: ConversationActionEntry[] = []
 	if (input.can.moveRight)

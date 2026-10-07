@@ -5,6 +5,7 @@ import { type ChangeTotals, formatLineCount } from './changes-totals.js'
 import type { ConversationSource } from './conversation-actions.js'
 import { copyPlainText } from './copy-button.js'
 import {
+	ArchiveIcon,
 	FileDiffIcon,
 	FileTextIcon,
 	FolderIcon,
@@ -64,6 +65,8 @@ export interface ConversationDetailsProps {
 	onOpenChanges: () => void
 	onOpenWork: () => void
 	onAttach: () => void
+	/** Opens the project's archived conversations; absent when the host cannot list them. */
+	onOpenArchived?: () => void
 }
 
 /** The single home of a conversation's project, changes, repository, background work and sources. */
@@ -80,6 +83,7 @@ export function ConversationDetailsPopover({
 	onOpenChanges,
 	onOpenWork,
 	onAttach,
+	onOpenArchived,
 }: ConversationDetailsProps) {
 	const [showAll, setShowAll] = useState(false)
 	const [copied, setCopied] = useState<'' | 'done' | 'failed'>('')
@@ -157,6 +161,18 @@ export function ConversationDetailsPopover({
 												<FolderIcon aria-hidden="true" />
 												<span className="conversation-actions-label">Copy path</span>
 											</Menu.Item>
+											{onOpenArchived && (
+												<Menu.Item
+													className="conversation-actions-item"
+													onClick={() => {
+														onOpenChange(false)
+														onOpenArchived()
+													}}
+												>
+													<ArchiveIcon aria-hidden="true" />
+													<span className="conversation-actions-label">Archived conversations</span>
+												</Menu.Item>
+											)}
 										</Menu.Popup>
 									</Menu.Positioner>
 								</Menu.Portal>

@@ -17,7 +17,7 @@ const discovery = (id, kind, result) => {
 const releaseDiscoveries = () => {
 	for (const { id, result } of delayedDiscoveries.splice(0)) reply(id, result)
 }
-const methods = ['namzu/harnesses/list', 'namzu/harnesses/select', 'namzu/project/status', 'namzu/project/trust', 'namzu/conversations/list', 'namzu/conversations/history', 'namzu/providers/status', 'namzu/providers/models', 'namzu/providers/select', 'namzu/jobs/list', 'namzu/jobs/read', 'namzu/jobs/stop', ...(process.env.FIXTURE_LIVE_INPUT ? ['namzu/conversations/input/status', 'namzu/conversations/input'] : []), 'namzu/conversations/rename', 'namzu/conversations/fork', 'namzu/conversations/markdown', 'namzu/project/git']
+const methods = ['namzu/harnesses/list', 'namzu/harnesses/select', 'namzu/project/status', 'namzu/project/trust', 'namzu/conversations/list', 'namzu/conversations/history', 'namzu/providers/status', 'namzu/providers/models', 'namzu/providers/select', 'namzu/jobs/list', 'namzu/jobs/read', 'namzu/jobs/stop', ...(process.env.FIXTURE_LIVE_INPUT ? ['namzu/conversations/input/status', 'namzu/conversations/input'] : []), 'namzu/conversations/rename', 'namzu/conversations/fork', 'namzu/conversations/markdown', 'namzu/project/git', 'namzu/conversations/archived', 'namzu/conversations/unarchive']
 const lines = createInterface({ input: process.stdin })
 lines.on('close', () => process.exit(0))
 lines.on('line', (line) => {
@@ -61,6 +61,8 @@ lines.on('line', (line) => {
 	else if (method === 'namzu/conversations/list') reply(id, process.env.FIXTURE_LIST_ROWS ? JSON.parse(process.env.FIXTURE_LIST_ROWS) : [])
 	else if (method === 'namzu/conversations/rename') reply(id, { title: params.title || 'Derived title' })
 	else if (method === 'namzu/conversations/fork') reply(id, { id: `fork-${randomUUID()}`, title: 'Forked conversation (fork)' })
+	else if (method === 'namzu/conversations/archived') reply(id, process.env.FIXTURE_ARCHIVED_ROWS ? JSON.parse(process.env.FIXTURE_ARCHIVED_ROWS) : [])
+	else if (method === 'namzu/conversations/unarchive') reply(id, { id: params.sessionId, title: 'Restored title', updatedAt: '2026-10-05T00:00:00.000Z' })
 	else if (method === 'namzu/conversations/markdown') reply(id, { markdown: '# Exported', truncated: false })
 	else if (method === 'namzu/project/git') reply(id, process.env.FIXTURE_NO_GIT ? null : { branch: 'main', subject: 'Initial commit' })
 	else if (method === 'namzu/conversations/history') {

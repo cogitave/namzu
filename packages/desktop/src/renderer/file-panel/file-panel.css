@@ -1,0 +1,591 @@
+/* The side panel: tab strip, resize edge, and the file view with its tree column. */
+.jobs-panel {
+	/* The handle sits on the panel's left border. */
+	min-width: 0;
+}
+.panel-resize-handle {
+	position: absolute;
+	inset: 0 auto 0 -3px;
+	z-index: 2;
+	width: 7px;
+	cursor: col-resize;
+	touch-action: none;
+}
+.panel-resize-handle::after {
+	content: "";
+	position: absolute;
+	inset: 0 3px;
+	background: transparent;
+	transition: background-color 120ms;
+}
+.panel-resize-handle:hover::after,
+.panel-resize-handle:focus-visible::after,
+.panel-resize-handle:active::after {
+	background: var(--ring);
+}
+.panel-resize-handle:focus-visible {
+	outline: none;
+}
+@container workspace (max-width: 879px) {
+	.panel-resize-handle {
+		display: none;
+	}
+}
+
+.section-heading.panel-heading {
+	padding: 0 8px 0 12px;
+	gap: 4px;
+}
+.panel-tab-strip {
+	display: flex;
+	flex: 1;
+	align-items: center;
+	gap: 2px;
+	min-width: 0;
+}
+/* Only the tabs scroll; the "+" stays within reach. */
+.panel-tab-scroll {
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	min-width: 0;
+	overflow-x: auto;
+	scrollbar-width: none;
+}
+.panel-tab-scroll::-webkit-scrollbar {
+	display: none;
+}
+.panel-tab-scroll > * {
+	flex: none;
+}
+/* Open files give up width before the strip has to scroll. */
+.panel-tab-scroll > .panel-file-tab {
+	flex: 0 1 160px;
+	min-width: 72px;
+}
+.panel-tab-strip > [role="tab"][data-active] {
+	background: var(--accent);
+	color: var(--foreground);
+}
+.panel-file-tab {
+	display: inline-flex;
+	flex: none;
+	align-items: center;
+	max-width: 200px;
+	height: 28px;
+	border-radius: 8px;
+	color: var(--muted-foreground);
+	font-size: 12px;
+}
+.panel-file-tab:hover,
+.panel-file-tab[data-active] {
+	background: var(--accent);
+	color: var(--foreground);
+}
+.panel-file-tab-name {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	min-width: 0;
+	height: 100%;
+	padding: 0 4px 0 8px;
+	border-radius: 8px;
+}
+.panel-file-tab-name svg,
+.panel-file-tab-close svg {
+	flex: none;
+	width: 14px;
+	height: 14px;
+}
+.panel-file-tab-name span {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.panel-file-tab-close {
+	display: grid;
+	place-items: center;
+	width: 20px;
+	height: 20px;
+	margin-right: 4px;
+	border-radius: 5px;
+	opacity: 0.55;
+}
+.panel-file-tab:hover .panel-file-tab-close,
+.panel-file-tab[data-active] .panel-file-tab-close,
+.panel-file-tab-close:focus-visible {
+	opacity: 1;
+}
+.panel-file-tab-close:hover {
+	background: var(--secondary);
+}
+.panel-file-tab-name:focus-visible,
+.panel-file-tab-close:focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: -2px;
+}
+
+.file-panel {
+	container-type: inline-size;
+	container-name: file-panel;
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	min-height: 0;
+	position: relative;
+}
+.file-toolbar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	flex: none;
+	padding: 8px 12px;
+}
+.file-toolbar-hint {
+	color: var(--muted-foreground);
+	font-size: 13px;
+}
+.file-toolbar-actions {
+	display: flex;
+	flex: none;
+	align-items: center;
+	gap: 4px;
+}
+.file-breadcrumb {
+	display: flex;
+	flex: 0 1 auto;
+	align-items: center;
+	min-width: 0;
+	height: 30px;
+	padding: 0 6px;
+	border-radius: 999px;
+	background: var(--secondary);
+	font-size: 13px;
+	overflow: hidden;
+}
+.file-crumb-item {
+	display: inline-flex;
+	flex: 0 1 auto;
+	align-items: center;
+	min-width: 0;
+}
+.file-crumb-gap {
+	display: none;
+	color: var(--muted-foreground);
+}
+.file-crumb-item svg {
+	flex: none;
+	width: 12px;
+	height: 12px;
+	color: var(--muted-foreground);
+}
+.file-crumb {
+	flex: 0 1 auto;
+	min-width: 0;
+	max-width: 12ch;
+	padding: 2px 6px;
+	border-radius: 999px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--muted-foreground);
+}
+.file-crumb:hover {
+	color: var(--foreground);
+}
+.file-crumb:focus-visible {
+	outline: 2px solid var(--ring);
+}
+.file-crumb-current {
+	flex: 0 1 auto;
+	/* The file name is what the person came for; folders give way first. */
+	min-width: min(12ch, 100%);
+	padding: 2px 6px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-weight: 600;
+}
+.file-source-toggle[aria-pressed="true"] {
+	background: var(--accent);
+	color: var(--foreground);
+}
+.open-in {
+	display: inline-flex;
+	align-items: center;
+	border: 1px solid var(--border);
+	border-radius: 999px;
+	overflow: hidden;
+}
+.open-in-main {
+	border-radius: 0;
+	gap: 6px;
+}
+.open-in-more {
+	border-radius: 0;
+	width: 22px;
+}
+
+.file-panel-body {
+	position: relative;
+	display: flex;
+	flex: 1;
+	min-height: 0;
+}
+.file-panel-main {
+	flex: 1;
+	min-width: 0;
+	overflow: auto;
+	scrollbar-gutter: stable;
+}
+.file-view-note {
+	display: grid;
+	justify-items: center;
+	gap: 10px;
+	padding: 40px 24px;
+	color: var(--muted-foreground);
+	font-size: 13px;
+	text-align: center;
+}
+.file-view-note p {
+	margin: 0;
+}
+
+/* Document */
+.file-document {
+	position: relative;
+	max-width: 52rem;
+	margin: 0 auto;
+	padding: 4px 24px 40px;
+}
+.file-document-copy {
+	position: absolute;
+	top: 0;
+	right: 14px;
+}
+.file-document-copy-row {
+	display: flex;
+	justify-content: flex-end;
+	padding: 0 12px 4px;
+}
+.file-metadata {
+	margin: 0 0 20px;
+	padding: 10px 12px;
+	border-radius: 10px;
+	background: var(--secondary);
+	font-family: var(--font-mono);
+	font-size: 12px;
+	line-height: 1.5;
+}
+.file-metadata h3 {
+	margin: 0 0 8px;
+	font-family: var(--font-sans);
+	font-size: 12px;
+	font-weight: 600;
+}
+.file-metadata dl {
+	display: grid;
+	grid-template-columns: fit-content(30%) minmax(0, 1fr);
+	gap: 4px 12px;
+	margin: 0;
+	max-height: 20rem;
+	overflow: auto;
+	/* Shadows that appear only while there is more to scroll to. */
+	background: linear-gradient(var(--secondary) 30%, transparent) center top,
+		linear-gradient(transparent, var(--secondary) 70%) center bottom,
+		radial-gradient(farthest-side at 50% 0, rgb(0 0 0 / 18%), transparent) center top,
+		radial-gradient(farthest-side at 50% 100%, rgb(0 0 0 / 18%), transparent) center bottom;
+	background-repeat: no-repeat;
+	background-size: 100% 24px, 100% 24px, 100% 8px, 100% 8px;
+	background-attachment: local, local, scroll, scroll;
+}
+.file-metadata div {
+	display: contents;
+}
+.file-metadata dt {
+	color: var(--muted-foreground);
+	/* Keys rarely run long; breaking one mid-word reads as a different key. */
+	overflow-wrap: normal;
+	word-break: keep-all;
+}
+.file-metadata dd {
+	margin: 0;
+	overflow-wrap: anywhere;
+	white-space: pre-wrap;
+}
+.document-markdown {
+	font-size: 14px;
+	line-height: 1.65;
+}
+.document-markdown h1,
+.document-markdown h2,
+.document-markdown h3 {
+	margin-top: 1.6em;
+	margin-bottom: 0.5em;
+}
+.document-markdown > h1:first-child {
+	margin-top: 0.4em;
+}
+.document-markdown table {
+	font-size: 13px;
+}
+.document-image {
+	display: block;
+	max-width: 100%;
+	height: auto;
+	margin: 0.75em 0;
+	border-radius: 8px;
+}
+.document-file-link {
+	color: var(--primary);
+	text-decoration: underline;
+	text-underline-offset: 3px;
+	cursor: pointer;
+}
+.document-file-link:focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: 2px;
+	border-radius: 3px;
+}
+.document-inert-link {
+	color: var(--foreground);
+}
+
+/* Source and images */
+.file-source {
+	min-width: 0;
+}
+.file-source[data-virtual] {
+	height: 100%;
+}
+.file-code-view {
+	display: block;
+	height: calc(100% - 28px);
+	min-height: 320px;
+	overflow: auto;
+}
+.file-image {
+	display: grid;
+	place-items: center;
+	min-height: 100%;
+	padding: 24px;
+}
+.file-image img {
+	max-width: 100%;
+	max-height: 100%;
+	object-fit: contain;
+	border-radius: 8px;
+	background: conic-gradient(
+			var(--secondary) 25%,
+			transparent 0 50%,
+			var(--secondary) 0 75%,
+			transparent 0
+		)
+		0 0 / 16px 16px;
+}
+
+/* Tree column */
+.file-tree-column {
+	display: flex;
+	flex: none;
+	flex-direction: column;
+	width: clamp(180px, 38%, 300px);
+	min-height: 0;
+	padding: 0 8px 8px 0;
+}
+.file-panel:not([data-wide]) .file-tree-column {
+	position: absolute;
+	inset: 0 0 0 auto;
+	z-index: 3;
+	width: min(300px, 86%);
+	padding: 8px;
+	border-left: 1px solid var(--border);
+	background: var(--background);
+	box-shadow: -12px 0 30px rgb(0 0 0 / 18%);
+}
+.file-tree-filter {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	flex: none;
+	height: 32px;
+	margin-bottom: 6px;
+	padding: 0 10px;
+	border: 1px solid var(--border);
+	border-radius: 10px;
+	color: var(--muted-foreground);
+}
+.file-tree-filter:focus-within {
+	border-color: var(--ring);
+}
+.file-tree-filter svg {
+	flex: none;
+	width: 14px;
+	height: 14px;
+}
+.file-tree-filter input {
+	flex: 1;
+	min-width: 0;
+	border: 0;
+	outline: 0;
+	background: transparent;
+	color: var(--foreground);
+	font-size: 13px;
+}
+.file-tree-host {
+	display: flex;
+	flex: 1;
+	min-height: 0;
+}
+.file-tree-host[hidden] {
+	display: none;
+}
+.file-tree-scroll {
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+	overflow: auto;
+}
+.file-tree {
+	position: relative;
+	width: 100%;
+	outline: none;
+}
+.file-tree-results {
+	flex: 1;
+	min-height: 0;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+	overflow: auto;
+}
+.file-tree-row {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	width: 100%;
+	height: 28px;
+	padding: 0 8px;
+	border-radius: 8px;
+	color: var(--foreground);
+	font-size: 13px;
+	text-align: left;
+	cursor: pointer;
+}
+.file-tree-row:hover {
+	background: var(--accent);
+}
+.file-tree-row[data-active],
+.file-tree-row[data-selected] {
+	background: var(--accent);
+}
+.file-tree-row[data-focused]:focus-visible,
+.file-tree-row:focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: -2px;
+}
+.file-tree-chevron {
+	flex: none;
+	width: 12px;
+	height: 12px;
+	color: var(--muted-foreground);
+	transition: transform 120ms;
+}
+.file-tree-chevron[data-open] {
+	transform: rotate(90deg);
+}
+.file-tree-file-icon {
+	flex: none;
+	width: 14px;
+	height: 14px;
+	color: var(--muted-foreground);
+}
+.file-tree-badge {
+	flex: none;
+	width: 20px;
+	color: var(--muted-foreground);
+	font-size: 10px;
+	font-weight: 700;
+	letter-spacing: -0.02em;
+}
+.file-tree-name {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.file-tree-name mark {
+	background: transparent;
+	color: var(--primary);
+	font-weight: 700;
+}
+.file-tree-dir {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--muted-foreground);
+	font-size: 11px;
+	direction: rtl;
+	text-align: left;
+}
+.file-tree-empty,
+.file-tree-note {
+	margin: 0;
+	padding: 8px;
+	color: var(--muted-foreground);
+	font-size: 12px;
+}
+
+/* A reply's file link */
+.message-file-link {
+	display: inline-flex;
+	align-items: baseline;
+	gap: 4px;
+	padding: 0;
+	color: var(--primary);
+	cursor: pointer;
+	text-align: left;
+}
+.message-file-link svg {
+	flex: none;
+	width: 0.9em;
+	height: 0.9em;
+	align-self: center;
+}
+.message-file-link:hover span {
+	text-decoration: underline;
+	text-underline-offset: 3px;
+}
+.message-file-link:focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: 2px;
+	border-radius: 3px;
+}
+
+/* Held edge: the document column follows the pointer without easing. */
+.workspace[data-panel-resizing] > * {
+	transition: none !important;
+}
+.workspace[data-panel-resizing] {
+	user-select: none;
+	cursor: col-resize;
+}
+
+/* A narrow panel: the breadcrumb takes a row of its own and drops its middle folders. */
+@container file-panel (max-width: 420px) {
+	.file-toolbar {
+		flex-wrap: wrap;
+	}
+	.file-breadcrumb {
+		flex: 1 1 100%;
+	}
+	.file-crumb-item[data-middle] {
+		display: none;
+	}
+	.file-crumb-gap {
+		display: inline;
+	}
+}

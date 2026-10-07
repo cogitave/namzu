@@ -25,6 +25,12 @@ import {
 	resizeWorkspaceSplit,
 	workspaceGroups,
 } from '../shared/workspace-layout.js'
+import {
+	listSampleDirectory,
+	readSampleFile,
+	resolveSampleLinks,
+	sampleFileIndex,
+} from './preview-files.js'
 
 // This separate development entry never substitutes for the native preload API.
 if (!import.meta.env.DEV || window.namzu)
@@ -70,6 +76,21 @@ const conversations: ConversationView[] = titles.map(([projectId, title], index)
 	title,
 	updatedAt: sampleDate,
 }))
+// Archived conversations are kept apart; restoring one moves it back into the catalogue.
+const archived: ConversationView[] = [
+	{
+		id: 'sample-archived-1',
+		projectId: 'sample-app',
+		title: 'Sketch the onboarding flow',
+		updatedAt: '2026-09-18T12:00:00.000Z',
+	},
+	{
+		id: 'sample-archived-2',
+		projectId: 'sample-app',
+		title: 'Audit colour contrast',
+		updatedAt: '2026-09-30T08:30:00.000Z',
+	},
+]
 const messages = new Map<string, ChatMessage[]>(
 	conversations.map((conversation) => [
 		conversation.id,
@@ -152,7 +173,7 @@ if (sampleThread1)
 		},
 		{
 			role: 'assistant',
-			text: 'Done. The rail, the token file and the header now share one focus ring and hover tint.',
+			text: 'Done. The rail, the token file and the header now share one focus ring and hover tint.\n\nThe rules are written up in [the design system](docs/2026-07-28-design-system.md). The rail styles are in `src/rail.css:3`, the header is `src/components/header.tsx`, and `docs/not-written-yet.md` does not exist, so it stays plain text.',
 			time: at(6, 9, 41),
 		},
 		{
@@ -657,8 +678,40 @@ const api: DesktopApi = {
 				commitLayout(
 					closeWorkspaceTab(workspace.layout, { windowId, groupId: group.id, tabId: id }),
 				)
+		archived.push(view)
 		for (const listener of listeners) listener(event)
 		return { sessionId: id, removed: true, archived: true }
+	},
+	listProjectDirectory: async (projectId, dir) => {
+		project(projectId)
+		return listSampleDirectory(projectId, dir)
+	},
+	projectFileIndex: async (projectId) => {
+		project(projectId)
+		return sampleFileIndex(projectId)
+	},
+	readProjectFile: async (projectId, path) => {
+		project(projectId)
+		return readSampleFile(projectId, path)
+	},
+	resolveProjectLinks: async (projectId, refs) => {
+		project(projectId)
+		return resolveSampleLinks(projectId, refs)
+	},
+	openProjectPath: async () => nativeOnly('Opening a file in another program'),
+	projectEditors: async () => [{ id: 'vscode', label: 'VS Code' }],
+	archivedConversations: async (projectId) => {
+		project(projectId)
+		return clone(archived.filter((view) => view.projectId === projectId))
+	},
+	restoreConversation: async (id) => {
+		const view = archived.find((item) => item.id === id)
+		if (!view) throw new Error('That conversation is not archived.')
+		archived.splice(archived.indexOf(view), 1)
+		conversations.unshift(view)
+		if (!messages.has(id))
+			messages.set(id, [{ role: 'user', text: `Let’s pick up ${view.title.toLowerCase()}.` }])
+		return announceUpdate(view)
 	},
 	readyConversation: async (projectId, id) => {
 		project(projectId)

@@ -148,3 +148,27 @@ BSD license texts are retained alongside those license files.
 7. ws — MIT
 Package: ws@8.21.3, https://github.com/websockets/ws/tree/8.21.3
 Used by the native loopback viewer proxy. Full license: licenses/pal-ws-MIT.txt.
+
+8. ignore 7.0.12 — MIT
+Package: https://github.com/kaelzhang/node-ignore
+Used by the file panel to hide gitignored paths. Full license: licenses/files-ignore-MIT.txt.
+
+9. yaml 2.9.1 — ISC
+Package: https://github.com/eemeli/yaml
+Used by the file panel to parse Markdown frontmatter. Full license: licenses/files-yaml-ISC.txt.
+
+10. Headless Tree 1.7.0 (@headless-tree/core, @headless-tree/react) — MIT
+Package: https://github.com/lukasbach/headless-tree
+Used by the file panel tree. Full license: licenses/files-headless-tree-MIT.txt.
+
+11. TanStack Virtual 3.14.13 (@tanstack/react-virtual) — MIT
+Package: https://github.com/TanStack/virtual
+Used by the file panel to virtualise long lists. Full license: licenses/files-tanstack-react-virtual-MIT.txt.
+
+12. fuzzysort 4.0.2 — MIT
+Package: https://github.com/farzher/fuzzysort
+Used by the file panel quick filter. Full license: licenses/files-fuzzysort-MIT.txt.
+
+13. remark-frontmatter 5.0.0 — MIT
+Package: https://github.com/remarkjs/remark-frontmatter
+Used to hide the frontmatter block in rendered Markdown. Full license: licenses/files-remark-frontmatter-MIT.txt.

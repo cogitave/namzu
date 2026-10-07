@@ -56,6 +56,10 @@ export class RuntimeClient extends EventEmitter {
 	supportsConversationActions(): boolean {
 		return this.conversationActions
 	}
+	private archivedConversations = false
+	supportsArchivedConversations(): boolean {
+		return this.archivedConversations
+	}
 	private projectGit = false
 	supportsProjectGit(): boolean {
 		return this.projectGit
@@ -188,6 +192,10 @@ export class RuntimeClient extends EventEmitter {
 			'namzu/conversations/rename',
 			'namzu/conversations/fork',
 			'namzu/conversations/markdown',
+		].every((method) => result.extensions?.includes(method))
+		this.archivedConversations = [
+			'namzu/conversations/archived',
+			'namzu/conversations/unarchive',
 		].every((method) => result.extensions?.includes(method))
 		this.projectGit = result.extensions?.includes('namzu/project/git') === true
 		this.turnRetry = ['namzu/sessions/retry-status', 'namzu/sessions/retry'].every((method) =>

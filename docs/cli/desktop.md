@@ -1480,6 +1480,18 @@ the held read settles. The earlier [renderer proof](../../research/desktop-auton
 checks follow-scroll, ordinary background indicators, narrow light layouts and
 the separate Pal chat, without model requests or computer actions.
 
+## Files beside a conversation
+
+The conversation's right panel is resizable (320 px up to 70% of the pane, width kept per pane) and holds the Changes and Activity tabs, one tab per open file and a "+" that opens quick open. Open files persist per conversation. A file opens as a Markdown document (its YAML front matter as a Metadata table, "View source" for the raw text), as highlighted source, as an image, or as a plain note with "Open in" when it is binary or larger than 2 MiB (images: 4 MiB). A filter box searches the project by fuzzy match; below it a lazy folder tree shows the project. When a turn settles, the open file and the tree read the disk again.
+
+Replies turn paths and `code` spans that name a real project file into links that open the file at its line. Nothing becomes a link in a chat without a project or in a Pal conversation, and a reference that does not resolve stays plain text.
+
+Every file call is confined to the folder of a trusted, ordinary project that the main process looked up by id; the renderer never supplies a root. These calls read the folder directly, so they do not need the project's Namzu connection. A path is refused when it is absolute, has a `..` segment, a control character, a drive letter, a UNC or `~` prefix, names `.git`, or resolves through a link that leaves the folder. Errors are plain sentences without paths.
+
+The same visibility rules apply to listing, searching, reading and linking. `.git`, `node_modules` and anything matched by `.gitignore` files (root to the folder) or `.git/info/exclude` is neither listed, indexed, linked nor readable by exact path, so a secrets file the project keeps out of version control cannot be fetched by naming it. A link inside the project that points at such a file is judged by where it lands. Reads open the file without following a final link and without blocking on a named pipe, and check after opening that the path still resolves to the opened file; a folder swapped for a link in the instant between the check and the open can still not be ruled out, because Node has no `openat`-style descent.
+
+The project index is a bounded walk (50,000 paths, depth 24, a 3 s budget checked inside each folder too) cached for 30 s, and it reports `truncated` when a cap was hit. "Open in" finds VS Code and Cursor in the per-user install folder, under Program Files and on `PATH`, and starts the first one found with separate arguments and no shell.
+
 ## Operator flow
 
 Open a folder. If it is not already trusted by Namzu, the app shows its exact
@@ -1892,6 +1904,8 @@ ACP methods and are not automatically installed in embedded SDK servers.
 | `namzu/conversations/list` | none | up to 100 recent project conversations |
 | `namzu/conversations/history` | `sessionId` | bounded text messages, text `partial`, and optional ordinary `work` v1 display snapshot |
 | `namzu/conversations/archive` | exact `sessionId` | strict captured-project archive; `{sessionId, archived: true}` only for a confirmed archived journal, or `{sessionId, archived: false, missing: true}` for confirmed absence |
+| `namzu/conversations/archived` | `{}` | the project's archived conversations, newest first, as rows shaped like `namzu/conversations/list`; empty in a Pal workspace; requires folder trust |
+| `namzu/conversations/unarchive` | exact `sessionId` | restores one owned archived conversation (a single log append, no idle-writer gate) and returns its list row; rejects an unowned, unarchived or Pal conversation; requires folder trust |
 | `namzu/conversations/rename` | exact `sessionId`, `title` (at most 200 characters) | `{title}`; names the conversation, and an empty title restores the title derived from its first message |
 | `namzu/conversations/fork` | exact `sessionId` | `{id, title}` of a new owned copy; refused while a turn is open, for a Pal workspace, or when the conversation has no messages |
 | `namzu/conversations/markdown` | exact `sessionId` | `{markdown, truncated}`; the strict transcript export, cut at 4 MiB of UTF-8 on a character boundary with `truncated: true` |

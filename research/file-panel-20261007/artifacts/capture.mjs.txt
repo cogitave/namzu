@@ -1,0 +1,65 @@
+import { chromium } from '/home/arda/workspaces/@cogitave/cogitave/namzu/packages/desktop/node_modules/@playwright/test/index.mjs'
+const out = '/home/arda/workspaces/@cogitave/cogitave/namzu/research/file-panel-20261007/artifacts'
+const browser = await chromium.launch()
+const logs = []
+async function open(w, h, scheme) {
+	const page = await browser.newPage({ viewport: { width: w, height: h }, colorScheme: scheme })
+	page.on('pageerror', (e) => logs.push('PAGEERROR: ' + e.message))
+	await page.goto('http://127.0.0.1:5173/preview')
+	await page.waitForTimeout(1200)
+	const nav = page.getByRole('button', { name: /Refine navigation/ }).first()
+	if (!(await nav.isVisible())) { await page.keyboard.press('Control+b'); await page.waitForTimeout(500) }
+	await nav.click(); await page.keyboard.press('Control+b').catch(() => {})
+	await page.waitForTimeout(1200)
+	return page
+}
+async function quick(page, name) {
+	await page.getByRole('tab', { name: 'Open a file' }).click()
+	await page.waitForTimeout(300)
+	await page.keyboard.type(name)
+	await page.waitForTimeout(800)
+	await page.keyboard.press('Enter')
+	await page.waitForTimeout(1000)
+}
+// 1 wide dark: markdown with metadata
+let page = await open(1500, 900, 'dark')
+await page.locator('.message-file-link').first().evaluate((e) => e.click())
+await page.waitForTimeout(1500)
+await page.screenshot({ path: `${out}/01-wide-dark-markdown.png` })
+// 2 many tabs: active tab in view, query cleared
+for (const n of ['diagram.png', 'build.log', 'tokens.json', 'header.tsx', 'sidebar.css', 'rail.css', 'notes.md', 'long.ts', 'package.json']) await quick(page, n)
+const strip = await page.evaluate(() => { const e = document.querySelector('.panel-tab-scroll'); const a = document.querySelector('.panel-file-tab[data-active]'); const r = a.getBoundingClientRect(), s = e.getBoundingClientRect(); return { sw: e.scrollWidth, cw: e.clientWidth, sl: e.scrollLeft, activeVisible: r.left >= s.left - 1 && r.right <= s.right + 1 } })
+console.log('strip', JSON.stringify(strip))
+console.log('filter value after open:', JSON.stringify(await page.locator('input[aria-label="Filter files"]').inputValue()))
+await page.screenshot({ path: `${out}/02-many-tabs-dark.png` })
+// roving keys
+await page.locator('.panel-tab-strip [role=tab][aria-selected=true]').first().focus()
+await page.keyboard.press('ArrowLeft'); await page.waitForTimeout(400)
+console.log('after ArrowLeft active:', await page.locator('.panel-file-tab[data-active]').innerText().catch(() => 'none'))
+console.log('separator', await page.locator('[role=separator]').first().evaluate((e) => [e.getAttribute('aria-valuenow'), e.getAttribute('aria-valuemin'), e.getAttribute('aria-valuemax')].join('/')))
+await page.close()
+// 3 narrow light overlay
+page = await open(899, 800, 'light')
+await page.locator('.message-file-link').first().evaluate((e) => e.click())
+await page.waitForTimeout(1500)
+await page.screenshot({ path: `${out}/03-overlay-899-light.png` })
+console.log('composer vs panel z', await page.evaluate(() => { const p = document.querySelector('.jobs-panel'); return getComputedStyle(p).zIndex }))
+await page.close()
+// 4 narrowest panel
+page = await open(760, 800, 'light')
+await page.locator('.message-file-link').first().evaluate((e) => e.click())
+await page.waitForTimeout(1500)
+await page.screenshot({ path: `${out}/04-narrow-760-light.png` })
+console.log('crumb', await page.locator('.file-breadcrumb').innerText())
+await page.close()
+// 5 filter + a11y
+page = await open(1500, 900, 'dark')
+await page.locator('.message-file-link').first().evaluate((e) => e.click())
+await page.waitForTimeout(1200)
+await page.getByRole('tab', { name: 'Open a file' }).click()
+await page.keyboard.type('css'); await page.waitForTimeout(800)
+await page.keyboard.press('ArrowDown')
+console.log('activedescendant', await page.locator('input[aria-label="Filter files"]').getAttribute('aria-activedescendant'))
+await page.screenshot({ path: `${out}/05-filter-dark.png` })
+console.log(logs.join('\n'))
+await browser.close()

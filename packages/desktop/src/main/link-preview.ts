@@ -283,7 +283,7 @@ function startsWith(bytes: Uint8Array, offset: number, text: number[]): boolean 
 
 const ascii = (text: string): number[] => [...text].map((char) => char.charCodeAt(0))
 
-function sniffImage(bytes: Uint8Array, kind: LinkPreviewImageKind): string | undefined {
+export function sniffImage(bytes: Uint8Array, kind: LinkPreviewImageKind): string | undefined {
 	if (startsWith(bytes, 0, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) return 'image/png'
 	if (startsWith(bytes, 0, [0xff, 0xd8, 0xff])) return 'image/jpeg'
 	if (startsWith(bytes, 0, ascii('GIF87a')) || startsWith(bytes, 0, ascii('GIF89a')))

@@ -26,7 +26,13 @@ function Totals({ added, removed }: { added: number; removed: number }) {
 export function TurnChangesCard({
 	changes,
 	onOpen,
-}: { changes: TurnChanges; onOpen: (receiptIds: string[]) => void }) {
+	onOpenFile,
+}: {
+	changes: TurnChanges
+	onOpen: (receiptIds: string[]) => void
+	/** Shows the file itself, not its diff; absent where the project's files are not available. */
+	onOpenFile?: (path: string) => void
+}) {
 	const [expanded, setExpanded] = useState(false)
 	const [only] = changes.files.length === 1 ? changes.files : []
 	return (
@@ -65,6 +71,17 @@ export function TurnChangesCard({
 					</button>
 				)}
 				<Totals added={changes.added} removed={changes.removed} />
+				{only && onOpenFile && (
+					<Button
+						type="button"
+						size="xs"
+						variant="ghost-muted"
+						className="turn-changes-open"
+						onClick={() => onOpenFile(only.path)}
+					>
+						Open file
+					</Button>
+				)}
 				<Button
 					type="button"
 					size="xs"
@@ -78,7 +95,7 @@ export function TurnChangesCard({
 			{!only && expanded && (
 				<ul className="turn-changes-files">
 					{changes.files.map((file, index) => (
-						<li key={`${index}:${file.path}`}>
+						<li key={`${index}:${file.path}`} className="turn-changes-row">
 							<button
 								type="button"
 								className="turn-changes-file"
@@ -88,6 +105,18 @@ export function TurnChangesCard({
 								<span className="turn-changes-file-name">{file.name}</span>
 								<Totals added={file.added} removed={file.removed} />
 							</button>
+							{onOpenFile && (
+								<Button
+									type="button"
+									size="xs"
+									variant="ghost-muted"
+									className="turn-changes-open"
+									aria-label={`Open ${file.name}`}
+									onClick={() => onOpenFile(file.path)}
+								>
+									Open file
+								</Button>
+							)}
 						</li>
 					))}
 				</ul>

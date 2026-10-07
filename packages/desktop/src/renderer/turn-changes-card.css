@@ -84,12 +84,18 @@
 	padding: 0 6px 6px;
 	list-style: none;
 }
+.turn-changes-row {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+}
 .turn-changes-file {
 	display: flex;
+	flex: 1;
+	min-width: 0;
 	align-items: center;
 	justify-content: space-between;
 	gap: 12px;
-	width: 100%;
 	padding: 6px 6px;
 	border-radius: 8px;
 	text-align: left;

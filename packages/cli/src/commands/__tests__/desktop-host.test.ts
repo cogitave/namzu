@@ -1634,6 +1634,74 @@ it('archives owned settled history idempotently while preserving strict messages
 	}
 })
 
+it('lists archived conversations and restores one back into the ordinary list', async () => {
+	const owner = runtime()
+	const host = createDesktopHostExtensions(owner, cwd)
+	await expect(host['namzu/conversations/archived']({})).rejects.toThrow('Trust this folder')
+	await expect(
+		host['namzu/conversations/unarchive']({ sessionId: generateSessionId() }),
+	).rejects.toThrow('Trust this folder')
+	host['namzu/project/trust']({ confirmed: true, cwd })
+	const { state, sessionId } = await seeded()
+	try {
+		expect(await host['namzu/conversations/archived']({})).toEqual([])
+		await expect(host['namzu/conversations/unarchive']({ sessionId })).rejects.toThrow(
+			'not archived',
+		)
+		await host['namzu/conversations/archive']({ sessionId })
+		const archived = await host['namzu/conversations/archived']({})
+		expect(archived).toHaveLength(1)
+		expect(archived[0]).toMatchObject({ id: sessionId })
+		expect(await host['namzu/conversations/list']()).toEqual([])
+		const restored = await host['namzu/conversations/unarchive']({ sessionId })
+		expect(restored).toMatchObject({ id: sessionId })
+		expect(await host['namzu/conversations/archived']({})).toEqual([])
+		expect(await host['namzu/conversations/list']()).toHaveLength(1)
+		await expect(host['namzu/conversations/unarchive']({ sessionId })).rejects.toThrow(
+			'not archived',
+		)
+		await expect(
+			host['namzu/conversations/unarchive']({ sessionId: generateSessionId() }),
+		).rejects.toThrow('does not belong')
+		await expect(host['namzu/conversations/unarchive']({ sessionId, purge: true })).rejects.toThrow(
+			'Invalid',
+		)
+		await expect(host['namzu/conversations/archived']({ extra: 1 })).rejects.toThrow('Invalid')
+	} finally {
+		closeSessions(state)
+		await owner.close()
+	}
+})
+
+it('lists no archived conversations and refuses a restore in a Pal workspace', async () => {
+	const pal = createPal({ name: 'Archive boundary fixture' })
+	const owner = runtime()
+	const sessionId = generateSessionId()
+	await claimPalConversation(pal.workspace, pal.id, sessionId)
+	const host = createDesktopHostExtensions(owner, pal.workspace)
+	host['namzu/project/trust']({ confirmed: true, cwd: pal.workspace })
+	try {
+		expect(await host['namzu/conversations/archived']({})).toEqual([])
+		await expect(host['namzu/conversations/unarchive']({ sessionId })).rejects.toThrow('Pal')
+	} finally {
+		await owner.close()
+	}
+})
+
+it('refuses to restore a conversation whose log has no session header', async () => {
+	const owner = runtime()
+	const host = createDesktopHostExtensions(owner, cwd)
+	host['namzu/project/trust']({ confirmed: true, cwd })
+	const state = await openSessions(cwd)
+	const sessionId = generateSessionId()
+	try {
+		await expect(host['namzu/conversations/unarchive']({ sessionId })).rejects.toThrow()
+	} finally {
+		closeSessions(state)
+		await owner.close()
+	}
+})
+
 it('archives settled native history by releasing only its owning SDK harness writer', async () => {
 	const base = runtime()
 	const close = vi.fn(async () => ({ stopped: true as const }))

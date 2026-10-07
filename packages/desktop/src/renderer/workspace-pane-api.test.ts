@@ -150,6 +150,44 @@ describe('pane write admission', () => {
 		expect(projectGit).toHaveBeenCalledTimes(1)
 	})
 
+	it('routes the project file calls through the same admission as the header calls', async () => {
+		const listProjectDirectory = vi
+			.fn<NonNullable<DesktopApi['listProjectDirectory']>>()
+			.mockResolvedValue([])
+		const readProjectFile = vi
+			.fn<NonNullable<DesktopApi['readProjectFile']>>()
+			.mockResolvedValue({ path: 'a', size: 0, kind: 'text', text: '' })
+		const openProjectPath = vi
+			.fn<NonNullable<DesktopApi['openProjectPath']>>()
+			.mockResolvedValue(undefined)
+		const restoreConversation = vi
+			.fn<NonNullable<DesktopApi['restoreConversation']>>()
+			.mockResolvedValue({ id: 'a', title: 'A', projectId: 'p', updatedAt: '' })
+		let blocked = false
+		let writable = true
+		const controller = createWorkspacePaneApi(
+			bridge({ listProjectDirectory, readProjectFile, openProjectPath, restoreConversation }),
+			{ owns: () => false, blocked: () => blocked, allowGlobalMutations: () => writable },
+		)
+		const reads = () => [
+			controller.api.listProjectDirectory?.('p', ''),
+			controller.api.readProjectFile?.('p', 'a'),
+			controller.api.openProjectPath?.('p', 'a', 'editor', 3),
+		]
+		await expect(Promise.all(reads())).resolves.toBeDefined()
+		expect(openProjectPath).toHaveBeenCalledWith('p', 'a', 'editor', 3)
+		writable = false
+		await expect(controller.api.restoreConversation?.('a')).rejects.toThrow('read-only')
+		writable = true
+		blocked = true
+		for (const call of reads()) await expect(call).rejects.toThrow('moving')
+		blocked = false
+		controller.invalidate()
+		for (const call of reads()) await expect(call).rejects.toThrow('closed')
+		expect(listProjectDirectory).toHaveBeenCalledTimes(1)
+		expect(restoreConversation).not.toHaveBeenCalled()
+	})
+
 	it('drains an admitted draft before its removal and includes both writes in transfer flush', async () => {
 		const entered = deferred<void>()
 		const saved = deferred<void>()

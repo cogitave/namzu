@@ -16,6 +16,7 @@ import {
 	conversationActionGroups,
 	shortcutLabel,
 } from './conversation-actions.js'
+import { CodeIcon, ExternalLinkIcon } from './file-panel/file-icons.js'
 import {
 	AppWindowIcon,
 	ArchiveIcon,
@@ -24,6 +25,7 @@ import {
 	CopyIcon,
 	FileTextIcon,
 	FolderIcon,
+	FolderOpenIcon,
 	GitForkIcon,
 	HashIcon,
 	type IconComponent,
@@ -32,6 +34,7 @@ import {
 	PinOffIcon,
 	SideChatIcon,
 	SplitRightIcon,
+	TerminalIcon,
 } from './icons.js'
 import './conversation-actions-menu.css'
 
@@ -46,6 +49,10 @@ const ICONS: Record<ConversationIconId, IconComponent> = {
 	markdown: FileTextIcon,
 	id: HashIcon,
 	path: FolderIcon,
+	'open-in': ExternalLinkIcon,
+	editor: CodeIcon,
+	'folder-open': FolderOpenIcon,
+	terminal: TerminalIcon,
 	'move-right': SplitRightIcon,
 	'move-window': AppWindowIcon,
 	archive: ArchiveIcon,

@@ -18,12 +18,14 @@ import {
 	closeSessions,
 	displayTitleOf,
 	forkConversation,
+	listArchived,
 	listRecent,
 	loadConversationSnapshot,
 	openSessionScope,
 	openSessions,
 	readConversationFacts,
 	setTitle,
+	unarchiveConversation,
 } from '../integrations/sessions/store.js'
 import { conversationMarkdown } from '../integrations/sessions/transcript-export.js'
 import { resolveNamzuHome } from '../integrations/state/home.js'
@@ -765,6 +767,23 @@ export function createDesktopHostExtensions(
 			closeSessions(state)
 		}
 	}
+	const conversationRows = (
+		state: Awaited<ReturnType<typeof openSessions>>,
+		rows: Awaited<ReturnType<typeof listRecent>>,
+	) =>
+		Promise.all(
+			rows.map(async (row) => {
+				const engine = (await readConversationFacts(state, row.id))?.started.harness?.engineId
+				return {
+					...row,
+					...(engine === 'codex'
+						? { harness: 'codex-cli' }
+						: engine === 'claude'
+							? { harness: 'claude-code' }
+							: {}),
+				}
+			}),
+		)
 	const withReadScope = async <T>(run: (state: CliSessionScope) => Promise<T>): Promise<T> => {
 		const root = resolveNamzuHome()
 		if (!isTrustedAtStateRoot(cwd, root))
@@ -1003,20 +1022,46 @@ export function createDesktopHostExtensions(
 			withState(async (state) => {
 				const currentPal = pal()
 				if (currentPal) return listPalConversations(cwd, currentPal.id)
-				return Promise.all(
-					(await listRecent(state, 100)).map(async (row) => {
-						const engine = (await readConversationFacts(state, row.id))?.started.harness?.engineId
-						return {
-							...row,
-							...(engine === 'codex'
-								? { harness: 'codex-cli' }
-								: engine === 'claude'
-									? { harness: 'claude-code' }
-									: {}),
-						}
-					}),
-				)
+				return conversationRows(state, await listRecent(state, 100))
 			}),
+		'namzu/conversations/archived': async (params: Record<string, unknown> = {}) => {
+			if (
+				!params ||
+				typeof params !== 'object' ||
+				Array.isArray(params) ||
+				Object.keys(params).length > 0
+			)
+				throw new Error('Invalid archived conversations request.')
+			return withState(async (state) => {
+				// A Pal's conversations are catalogued by the Pal, not by project archive.
+				if (pal()) return []
+				return conversationRows(state, await listArchived(state, 100))
+			})
+		},
+		'namzu/conversations/unarchive': async (params: Record<string, unknown>) => {
+			if (
+				!params ||
+				typeof params !== 'object' ||
+				Array.isArray(params) ||
+				Object.keys(params).some((key) => key !== 'sessionId')
+			)
+				throw new Error('Invalid conversation restore request.')
+			return withState(async (state) => {
+				if (pal()) throw new Error('A Pal conversation cannot be restored here.')
+				const id = asSessionId(await ownedSessionIn(params, state))
+				const facts = await readConversationFacts(state, id)
+				if (!facts) throw new Error('This conversation has no verified session header.')
+				if (!facts.archived) throw new Error('This conversation is not archived.')
+				if (!isTrusted(cwd)) throw new Error('Trust this folder before opening its conversations.')
+				await unarchiveConversation(state, id)
+				const row = (await listRecent(state, 100)).find((entry) => entry.id === id)
+				if (!row)
+					throw new Error(
+						'The conversation was restored but is not in the recent list yet; refresh the list.',
+					)
+				return (await conversationRows(state, [row]))[0]
+			})
+		},
 		'namzu/conversations/history': async (params: Record<string, unknown>) => {
 			return withReadScope(async (state) => {
 				const id = await ownedSessionIn(params, state)

@@ -1,5 +1,13 @@
 import { ArrowDown, MessageSquare, Minus } from 'lucide-react'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import {
+	type CSSProperties,
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+} from 'react'
 import { createPortal, flushSync } from 'react-dom'
 import {
 	type BackgroundWorkStatus,
@@ -30,6 +38,7 @@ import type {
 	ProjectView,
 	ProviderView,
 } from '../shared/protocol.js'
+import { ArchivedConversationsDialog } from './archived-conversations-dialog.js'
 import { applyCachedAttachmentPreviewEviction } from './attachment-preview-events.js'
 import { ChangesPanel } from './changes-panel.js'
 import { type ChangeTotals, changeTotals } from './changes-totals.js'
@@ -68,16 +77,34 @@ import {
 } from './conversation-tabs.js'
 import { ConversationTasks, TasksProgress } from './conversation-tasks.js'
 import { copyPlainText } from './copy-button.js'
+import { FilePanelBody } from './file-panel/file-panel.js'
+import {
+	type FileTabsState,
+	MIN_PANEL_WIDTH,
+	activateFileTab,
+	browseFileTabs,
+	clampPanelWidth,
+	closeFileTab,
+	emptyFileTabs,
+	leaveFileTabs,
+	openFileTab,
+	readFileTabs,
+	readPanelWidth,
+	writeFileTabs,
+	writePanelWidth,
+} from './file-panel/file-tabs.js'
+import { useEditors } from './file-panel/open-in.js'
+import { PanelResizeHandle, PanelTabStrip, type PanelView } from './file-panel/panel-tabs.js'
+import { ProjectFilesContext } from './file-panel/project-files.js'
+import { createLinkCache } from './file-panel/project-refs.js'
 import {
 	ArrowUpIcon,
-	FileDiffIcon,
 	FolderIcon,
 	MoreHorizontalIcon,
 	PanelLeftIcon,
 	PlusIcon,
 	SquareIcon,
 	SquarePenIcon,
-	TerminalIcon,
 	XIcon,
 } from './icons.js'
 import { JobRow } from './job-row.js'
@@ -605,6 +632,7 @@ export function App({
 	const detailsTrigger = useRef<HTMLButtonElement>(null)
 	const [detailsPopoverOpen, setDetailsPopoverOpen] = useState(false)
 	const [renamingConversation, setRenamingConversation] = useState<ConversationView>()
+	const [archivedProject, setArchivedProject] = useState<string>()
 	const renameTrigger = useRef<HTMLElement | null>(null)
 	const [notice, setNotice] = useState('')
 	const noticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
@@ -641,6 +669,95 @@ export function App({
 	const pal = pals.find((item) => item.id === project?.palId)
 	const palConversation = Boolean(project?.palId || conversation?.palId)
 	const detailsOpen = jobsOpen && !palConversation
+	// Files belong to a trusted, ready project the person opened; never a chat or a Pal's workspace.
+	const filesEnabled = Boolean(
+		project?.trusted &&
+			project.status === 'ready' &&
+			!project.isChat &&
+			!project.palId &&
+			!palConversation &&
+			api.readProjectFile &&
+			api.listProjectDirectory,
+	)
+	const [fileTabsState, setFileTabsState] = useState<{ sessionId: string; tabs: FileTabsState }>({
+		sessionId: '',
+		tabs: emptyFileTabs,
+	})
+	// Open files are remembered per conversation, so a switch loads that conversation's tabs.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: only a conversation switch reloads them.
+	useEffect(() => {
+		setFileTabsState((value) =>
+			value.sessionId === sessionId
+				? value
+				: { sessionId, tabs: sessionId ? readFileTabs(localStorage, sessionId) : emptyFileTabs },
+		)
+	}, [sessionId])
+	const fileTabs = fileTabsState.sessionId === sessionId ? fileTabsState.tabs : emptyFileTabs
+	const updateFileTabs = useCallback(
+		(change: (state: FileTabsState) => FileTabsState) =>
+			setFileTabsState((value) => {
+				const base = value.sessionId === sessionId ? value.tabs : emptyFileTabs
+				const tabs = change(base)
+				if (sessionId && tabs !== base) writeFileTabs(localStorage, sessionId, tabs)
+				return { sessionId, tabs }
+			}),
+		[sessionId],
+	)
+	const panelView: PanelView =
+		filesEnabled && fileTabs.browsing
+			? 'browse'
+			: filesEnabled && fileTabs.active
+				? 'file'
+				: panelTab
+	/** Changes and Activity leave file view without closing any file. */
+	const showPanelTab = useCallback(
+		(tab: 'jobs' | 'changes') => {
+			updateFileTabs(leaveFileTabs)
+			setPanelTab(tab)
+		},
+		[updateFileTabs],
+	)
+	const openProjectFile = useCallback(
+		(path: string, line?: number) => {
+			updateFileTabs((state) => openFileTab(state, path, line))
+			setJobsOpen(true)
+		},
+		[updateFileTabs],
+	)
+	const editors = useEditors(api, filesEnabled)
+	const linkCache = useMemo(
+		() =>
+			createLinkCache((id, refs) =>
+				api.resolveProjectLinks ? api.resolveProjectLinks(id, refs) : Promise.resolve([]),
+			),
+		[api],
+	)
+	// Keyed on the id: any other change to the project must not make every reply look its links up again.
+	const filesProjectId = project?.id
+	const projectFiles = useMemo(
+		() =>
+			filesEnabled && filesProjectId && api.resolveProjectLinks
+				? {
+						resolve: (refs: readonly string[]) => linkCache.resolve(filesProjectId, refs),
+						open: openProjectFile,
+					}
+				: null,
+		[filesEnabled, filesProjectId, api, linkCache, openProjectFile],
+	)
+	// The panel keeps the width a person dragged it to, per pane.
+	const [panelWidth, setPanelWidth] = useState<number | undefined>(() =>
+		readPanelWidth(localStorage, group.id),
+	)
+	const [panelResizing, setPanelResizing] = useState(false)
+	const panelAside = useRef<HTMLElement>(null)
+	const [panelPx, setPanelPx] = useState(0)
+	useEffect(() => {
+		const node = panelAside.current
+		if (!node || typeof ResizeObserver === 'undefined') return
+		const watch = new ResizeObserver(([entry]) => entry && setPanelPx(entry.contentRect.width))
+		watch.observe(node)
+		return () => watch.disconnect()
+	}, [])
 	useLayoutEffect(() => {
 		const pending = pendingPresentationScroll.current
 		if (
@@ -795,6 +912,13 @@ export function App({
 			? project.id
 			: undefined
 	const turnRunning = thread.running
+	// A settled turn may have written files; the open file and the tree read the disk again.
+	const [filesRefresh, setFilesRefresh] = useState(0)
+	const wasRunning = useRef(false)
+	useEffect(() => {
+		if (wasRunning.current && !turnRunning) setFilesRefresh((value) => value + 1)
+		wasRunning.current = turnRunning
+	}, [turnRunning])
 	// Read when the popover opens, and again if a turn ends while it is open. The host caches briefly.
 	useEffect(() => {
 		void turnRunning
@@ -1433,7 +1557,7 @@ export function App({
 			palConversation ||
 			historyPending ||
 			restoringTabs ||
-			!((detailsOpen && panelTab === 'jobs') || detailsPopoverOpen)
+			!((detailsOpen && panelView === 'jobs') || detailsPopoverOpen)
 		) {
 			setJobs([])
 			setJobsSessionId('')
@@ -1485,7 +1609,7 @@ export function App({
 		historyPending,
 		restoringTabs,
 		detailsOpen,
-		panelTab,
+		panelView,
 		detailsPopoverOpen,
 	])
 	const palTasksVisible = Boolean(
@@ -1500,7 +1624,7 @@ export function App({
 			!api?.refreshTasks ||
 			historyPending ||
 			restoringTabs ||
-			(!palTasksVisible && (!detailsOpen || panelTab !== 'jobs'))
+			(!palTasksVisible && (!detailsOpen || panelView !== 'jobs'))
 		)
 			return
 		let current = true
@@ -1510,7 +1634,7 @@ export function App({
 		return () => {
 			current = false
 		}
-	}, [sessionId, detailsOpen, panelTab, palTasksVisible, api, historyPending, restoringTabs])
+	}, [sessionId, detailsOpen, panelView, palTasksVisible, api, historyPending, restoringTabs])
 	useEffect(() => {
 		if (
 			!pal &&
@@ -2270,6 +2394,7 @@ export function App({
 			hasMessages: state.messages.length > 0,
 			hasReply: lastReplyText(state.messages) !== undefined,
 			hasProjectPath: Boolean(owner && !owner.isChat && !owner.palId && owner.path),
+			editorLabel: editors[0]?.label,
 			canMoveRight: group.tabs.length > 1,
 			can: {
 				rename: Boolean(api.renameConversation),
@@ -2280,8 +2405,18 @@ export function App({
 				archive: Boolean(api.removeConversation),
 				moveRight: true,
 				moveWindow: true,
+				openIn: Boolean(api.openProjectPath),
 			},
 		}
+	}
+	// An edit card names the path the tool wrote; the host maps it to the project's own path.
+	const openChangedFile = (path: string) => {
+		if (!projectFiles) return
+		void projectFiles.resolve([path]).then((found) => {
+			const hit = found.get(path)
+			if (hit) projectFiles.open(hit.path, hit.line)
+			else announce('That file is not in this project.')
+		})
 	}
 	const copyToClipboard = async (text: string, done: string) => {
 		await copyPlainText(text)
@@ -2355,6 +2490,16 @@ export function App({
 			case 'copy-path': {
 				const owner = projects.find((item) => item.id === view.projectId)
 				if (owner?.path) void act(() => copyToClipboard(owner.path, 'Project path copied.'))
+				return
+			}
+			case 'open-editor':
+			case 'open-file-manager':
+			case 'open-terminal': {
+				if (!api.openProjectPath) return
+				const target =
+					id === 'open-editor' ? 'editor' : id === 'open-file-manager' ? 'file-manager' : 'terminal'
+				// The empty path is the project folder itself.
+				void act(() => api.openProjectPath?.(view.projectId, '', target) ?? Promise.resolve())
 				return
 			}
 			case 'move-right':
@@ -3573,6 +3718,23 @@ export function App({
 								}}
 							/>
 						)}
+						{archivedProject && api.archivedConversations && (
+							<ArchivedConversationsDialog
+								key={`archived:${archivedProject}`}
+								api={api}
+								projectId={archivedProject}
+								projectName={
+									projects.find((item) => item.id === archivedProject)?.name ?? 'Project'
+								}
+								onClose={() => setArchivedProject(undefined)}
+								returnFocus={() => detailsTrigger.current ?? input.current}
+								onRestored={(view) => {
+									// A conversation archived earlier in this window is blocked from upserts.
+									removedConversations.current.delete(view.id)
+									upsertConversation(view)
+								}}
+							/>
+						)}
 						{removingConversation && (
 							<ConfirmRemovalDialog
 								key={`remove-conversation:${removingConversation.id}`}
@@ -3728,6 +3890,14 @@ export function App({
 				data-pane-id={group.id}
 				data-moving={frozen}
 				className={`workspace ${detailsOpen ? 'jobs-open' : ''}`}
+				data-panel-resizing={panelResizing || undefined}
+				style={
+					panelWidth !== undefined || panelView === 'file' || panelView === 'browse'
+						? ({
+								'--panel-width': `clamp(${MIN_PANEL_WIDTH}px, ${panelWidth ?? 600}px, 70%)`,
+							} as CSSProperties)
+						: undefined
+				}
 				data-pal-workspace={palWorkspace}
 				data-computer-chat={computerPage ? chatMotion.renderedLayout : undefined}
 				data-chat-minimized={computerPage && floatingChatMinimized}
@@ -3806,14 +3976,19 @@ export function App({
 								onOpenChanges={() => {
 									setDetailsPopoverOpen(false)
 									setChangesFilter(undefined)
-									setPanelTab('changes')
+									showPanelTab('changes')
 									setJobsOpen(true)
 								}}
 								onOpenWork={() => {
 									setDetailsPopoverOpen(false)
-									setPanelTab('jobs')
+									showPanelTab('jobs')
 									setJobsOpen(true)
 								}}
+								onOpenArchived={
+									project && !project.isChat && api.archivedConversations
+										? () => setArchivedProject(project.id)
+										: undefined
+								}
 								onAttach={() => {
 									setDetailsPopoverOpen(false)
 									void act(attached.pick)
@@ -4105,7 +4280,7 @@ export function App({
 											)}
 										/>
 									) : (
-										<>
+										<ProjectFilesContext.Provider value={projectFiles}>
 											<Transcript
 												key={sessionId || 'blank'}
 												thread={thread}
@@ -4120,9 +4295,10 @@ export function App({
 												}
 												onOpenTurnChanges={(receiptIds) => {
 													setChangesFilter(receiptIds)
-													setPanelTab('changes')
+													showPanelTab('changes')
 													setJobsOpen(true)
 												}}
+												onOpenChangedFile={projectFiles ? openChangedFile : undefined}
 												renderMessageAction={(message, key) => (
 													<MessageActions text={message.text}>
 														<LocalSpeechReadAloud
@@ -4133,13 +4309,13 @@ export function App({
 													</MessageActions>
 												)}
 											/>
-										</>
+										</ProjectFilesContext.Provider>
 									)}
 									{!palConversation && (
 										<TasksProgress
 											thread={thread}
 											onOpen={() => {
-												setPanelTab('jobs')
+												showPanelTab('jobs')
 												setJobsOpen(true)
 											}}
 										/>
@@ -4293,110 +4469,165 @@ export function App({
 				)}
 				{!palConversation && (
 					<aside
+						ref={panelAside}
 						className="jobs-panel"
 						data-open={jobsOpen}
 						inert={!jobsOpen}
 						aria-hidden={!jobsOpen}
-						aria-label={panelTab === 'jobs' ? 'Activity' : 'Changes'}
+						aria-label={
+							panelView === 'jobs'
+								? 'Activity'
+								: panelView === 'changes'
+									? 'Changes'
+									: 'Project files'
+						}
 					>
-						<div className="section-heading">
-							<div className="flex items-center gap-1">
-								<Button
-									size="xs"
-									variant="ghost-muted"
-									aria-pressed={panelTab === 'changes'}
-									onClick={() => {
-										setChangesFilter(undefined)
-										setPanelTab('changes')
-									}}
-								>
-									<FileDiffIcon className="size-3.5" />
-									Changes
-								</Button>
-								<Button
-									size="xs"
-									variant="ghost-muted"
-									aria-pressed={panelTab === 'jobs'}
-									onClick={() => setPanelTab('jobs')}
-								>
-									<TerminalIcon className="size-3.5" />
-									Activity
-								</Button>
-							</div>
+						<PanelResizeHandle
+							now={panelPx || panelWidth || MIN_PANEL_WIDTH}
+							min={MIN_PANEL_WIDTH}
+							max={() => (paneRoot.current?.getBoundingClientRect().width ?? 0) * 0.7}
+							width={() => panelAside.current?.getBoundingClientRect().width ?? MIN_PANEL_WIDTH}
+							onDragging={setPanelResizing}
+							onResize={(width) =>
+								setPanelWidth(
+									clampPanelWidth(width, paneRoot.current?.getBoundingClientRect().width ?? 0),
+								)
+							}
+							onCommit={(width) =>
+								writePanelWidth(
+									localStorage,
+									group.id,
+									clampPanelWidth(width, paneRoot.current?.getBoundingClientRect().width ?? 0),
+								)
+							}
+						/>
+						<div className="section-heading panel-heading">
+							<PanelTabStrip
+								panelId="side-panel-body"
+								view={panelView}
+								files={fileTabs}
+								canBrowse={filesEnabled}
+								onChanges={() => {
+									setChangesFilter(undefined)
+									showPanelTab('changes')
+								}}
+								onJobs={() => showPanelTab('jobs')}
+								onFile={(path) => updateFileTabs((state) => activateFileTab(state, path))}
+								onCloseFile={(path) => updateFileTabs((state) => closeFileTab(state, path))}
+								onBrowse={() => updateFileTabs(browseFileTabs)}
+							/>
 							<Button
 								type="button"
 								variant="ghost-muted"
 								size="icon-sm"
 								className="icon-button"
-								aria-label={panelTab === 'jobs' ? 'Close activity' : 'Close changes'}
+								aria-label={
+									panelView === 'jobs'
+										? 'Close activity'
+										: panelView === 'changes'
+											? 'Close changes'
+											: 'Close files'
+								}
 								onClick={closeDetails}
 							>
 								<Icon name="close" />
 							</Button>
 						</div>
-						{panelTab === 'changes' ? (
-							<ChangesPanel
-								tools={thread.tools}
-								receiptIds={changesFilter}
-								onShowAll={() => setChangesFilter(undefined)}
-								dark={
-									appearance === 'dark' ||
-									(appearance === 'system' &&
-										window.matchMedia('(prefers-color-scheme: dark)').matches)
-								}
-							/>
-						) : (
-							<div className="panel-scroll">
-								<ConversationTasks thread={thread} />
-								<section className="background-processes" aria-label="Background processes">
-									<div className="background-processes-heading">
-										<h3>Background processes</h3>
-										{!jobsError && !jobsLoading && jobsSessionId === sessionId && (
-											<kbd
-												aria-label={`${visibleJobs.filter((job) => job.status === 'running').length} running`}
-											>
-												{visibleJobs.filter((job) => job.status === 'running').length}
-											</kbd>
-										)}
-									</div>
-									{jobsError ? (
-										<p role="alert" className="jobs-error">
-											{jobsError}
-										</p>
-									) : jobsLoading || jobsSessionId !== sessionId ? (
-										<p className="quiet">Loading background work…</p>
-									) : visibleJobs.length === 0 ? (
-										<p className="quiet">No background processes in this conversation.</p>
-									) : (
-										[...visibleJobs]
-											.sort(
-												(a, b) => Number(b.status === 'running') - Number(a.status === 'running'),
-											)
-											.map((job) => {
-												const owner = sessionId
-												const generation = navigation.current
-												const refresh = refreshJobs.current
-												return (
-													<JobRow
-														key={`${owner}:${generation}:${job.id}:${job.startedAt}`}
-														job={job}
-														disabled={frozen}
-														onRead={() =>
-															runJobAction(owner, generation, () => api.readJob(owner, job.id))
-														}
-														onStop={() =>
-															runJobAction(owner, generation, async () => {
-																await api.stopJob(owner, job.id)
-																await refresh?.()
-															})
-														}
-													/>
+						{/* The body is a tab panel; contents keeps the aside's own layout. */}
+						<div
+							id="side-panel-body"
+							role="tabpanel"
+							aria-label={
+								panelView === 'jobs'
+									? 'Activity'
+									: panelView === 'changes'
+										? 'Changes'
+										: 'Project files'
+							}
+							style={{ display: 'contents' }}
+						>
+							{(panelView === 'file' || panelView === 'browse') && project ? (
+								<FilePanelBody
+									api={api}
+									projectId={project.id}
+									projectName={project.name}
+									files={fileTabs}
+									editors={editors}
+									dark={
+										appearance === 'dark' ||
+										(appearance === 'system' &&
+											window.matchMedia('(prefers-color-scheme: dark)').matches)
+									}
+									wide={panelPx >= 560}
+									browsing={panelView === 'browse'}
+									onOpenPath={openProjectFile}
+									onNotice={announce}
+									refreshToken={filesRefresh}
+								/>
+							) : panelView === 'changes' ? (
+								<ChangesPanel
+									tools={thread.tools}
+									receiptIds={changesFilter}
+									onShowAll={() => setChangesFilter(undefined)}
+									dark={
+										appearance === 'dark' ||
+										(appearance === 'system' &&
+											window.matchMedia('(prefers-color-scheme: dark)').matches)
+									}
+								/>
+							) : (
+								<div className="panel-scroll">
+									<ConversationTasks thread={thread} />
+									<section className="background-processes" aria-label="Background processes">
+										<div className="background-processes-heading">
+											<h3>Background processes</h3>
+											{!jobsError && !jobsLoading && jobsSessionId === sessionId && (
+												<kbd
+													aria-label={`${visibleJobs.filter((job) => job.status === 'running').length} running`}
+												>
+													{visibleJobs.filter((job) => job.status === 'running').length}
+												</kbd>
+											)}
+										</div>
+										{jobsError ? (
+											<p role="alert" className="jobs-error">
+												{jobsError}
+											</p>
+										) : jobsLoading || jobsSessionId !== sessionId ? (
+											<p className="quiet">Loading background work…</p>
+										) : visibleJobs.length === 0 ? (
+											<p className="quiet">No background processes in this conversation.</p>
+										) : (
+											[...visibleJobs]
+												.sort(
+													(a, b) => Number(b.status === 'running') - Number(a.status === 'running'),
 												)
-											})
-									)}
-								</section>
-							</div>
-						)}
+												.map((job) => {
+													const owner = sessionId
+													const generation = navigation.current
+													const refresh = refreshJobs.current
+													return (
+														<JobRow
+															key={`${owner}:${generation}:${job.id}:${job.startedAt}`}
+															job={job}
+															disabled={frozen}
+															onRead={() =>
+																runJobAction(owner, generation, () => api.readJob(owner, job.id))
+															}
+															onStop={() =>
+																runJobAction(owner, generation, async () => {
+																	await api.stopJob(owner, job.id)
+																	await refresh?.()
+																})
+															}
+														/>
+													)
+												})
+										)}
+									</section>
+								</div>
+							)}
+						</div>
 					</aside>
 				)}
 				<output className="conversation-action-toast" aria-live="polite">

@@ -67,6 +67,10 @@ function Entry({
 		) : null
 	}
 	const message = thread.messages[entry.index]
+	// A reply is settled once it stops streaming; only then are its file references looked up.
+	const settled =
+		message?.status !== 'pending' &&
+		(!thread.running || entry.turn !== thread.turn || !!thread.turns[entry.turn]?.stopReason)
 	return message?.text.trim() || message?.attachments?.length ? (
 		<Message
 			from={message.role}
@@ -86,7 +90,11 @@ function Entry({
 			) : null}
 			{/* A message of attachments alone has no bubble. */}
 			{(message.text.trim() || message.role !== 'user') && (
-				<MessageContent text={message.text} markdown={message.role === 'assistant'} />
+				<MessageContent
+					text={message.text}
+					markdown={message.role === 'assistant'}
+					settled={settled && message.role === 'assistant'}
+				/>
 			)}
 			{message.role !== 'user' && message.attachments && (
 				<div className="mt-2">
@@ -96,8 +104,7 @@ function Entry({
 			<MessageFooter time={message.time} focusable>
 				{message.role === 'assistant' &&
 					message.text.trim() &&
-					message.status !== 'pending' &&
-					(!thread.running || entry.turn !== thread.turn || thread.turns[entry.turn]?.stopReason) &&
+					settled &&
 					renderMessageAction?.(message, entryKey(entry))}
 			</MessageFooter>
 		</Message>
@@ -356,6 +363,7 @@ export function Transcript({
 	workDisclosures,
 	onWorkDisclosureChange,
 	onOpenTurnChanges,
+	onOpenChangedFile,
 	dateSeparators = true,
 }: {
 	thread: ThreadState
@@ -365,6 +373,8 @@ export function Transcript({
 	onWorkDisclosureChange?: (key: string, open: boolean) => void
 	/** Receipt ids of the edits one reply made; without it no per-reply edit card shows. */
 	onOpenTurnChanges?: (receiptIds: string[]) => void
+	/** Shows an edited file in the side panel; absent when the project's files are not available. */
+	onOpenChangedFile?: (path: string) => void
 	dateSeparators?: boolean
 }) {
 	const ref = useRef<HTMLDivElement>(null)
@@ -458,7 +468,11 @@ export function Transcript({
 					{onOpenTurnChanges &&
 						changes.has(group.turn) &&
 						!(thread.running && thread.stopReason === undefined && thread.turn === group.turn) && (
-							<TurnChangesCard changes={changes.get(group.turn)} onOpen={onOpenTurnChanges} />
+							<TurnChangesCard
+								changes={changes.get(group.turn)}
+								onOpen={onOpenTurnChanges}
+								onOpenFile={onOpenChangedFile}
+							/>
 						)}
 				</div>
 			))}

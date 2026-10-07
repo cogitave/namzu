@@ -327,11 +327,57 @@ export type DesktopEvent = (
 			archived: boolean
 	  }
 ) & { readonly revision?: number; readonly at?: number }
+/** One entry of a project directory listing. */
+export interface ProjectFileEntry {
+	name: string
+	/** Project-relative, '/' separated. */
+	path: string
+	kind: 'file' | 'directory'
+}
+export interface ProjectFileContent {
+	path: string
+	size: number
+	kind: 'text' | 'image' | 'binary' | 'too-large'
+	/** Text up to 2 MiB, strict UTF-8. */
+	text?: string
+	/** Sniffed raster image up to 4 MiB as a data: URL. */
+	image?: string
+	/** Markdown only, parsed with yaml in main. */
+	frontmatter?: { key: string; value: string }[]
+	/** Markdown body without the frontmatter block. */
+	markdown?: string
+}
+export interface ProjectLinkResolution {
+	ref: string
+	path?: string
+	line?: number
+}
 export interface DesktopApi {
 	/** Open a user-selected HTTP(S) source in the system browser. */
 	openExternal?(url: string): Promise<void>
 	/** Explicit plain-text copy; bounded to 4 MiB UTF-8 and never truncated. */
 	copyText?(text: string): Promise<void>
+	/** One directory of a project, ignored paths hidden; `dir` '' is the root. */
+	listProjectDirectory?(projectId: string, dir: string): Promise<ProjectFileEntry[]>
+	/** Every project path for quick open; `truncated` when a cap was hit. */
+	projectFileIndex?(projectId: string): Promise<{ paths: string[]; truncated: boolean }>
+	/** A project file as text, image or a size/binary verdict. */
+	readProjectFile?(projectId: string, path: string): Promise<ProjectFileContent>
+	/** Which reply references name real project files, and at which line. */
+	resolveProjectLinks?(projectId: string, refs: string[]): Promise<ProjectLinkResolution[]>
+	/** Open a project path in an editor, the file manager or a terminal. */
+	openProjectPath?(
+		projectId: string,
+		path: string,
+		target: 'editor' | 'file-manager' | 'terminal',
+		line?: number,
+	): Promise<void>
+	/** Editors found on this machine. */
+	projectEditors?(): Promise<{ id: 'vscode' | 'cursor'; label: string }[]>
+	/** Archived conversations of a project. */
+	archivedConversations?(projectId: string): Promise<ConversationView[]>
+	/** Bring an archived conversation back into the catalogue. */
+	restoreConversation?(sessionId: string): Promise<ConversationView>
 	/**
 	 * The head of a public HTTPS page a reader is looking at. `null` means no
 	 * details for this link — refused, not HTML, unreachable or too slow — and

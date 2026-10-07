@@ -200,3 +200,34 @@ it('renames and pins a catalogue-only conversation by adopting it, and the pin s
 			?.view,
 	).toMatchObject({ title: 'Renamed from sidebar', pinned: true })
 })
+
+it('lists archived conversations and restores one into the catalogue, store and events', async () => {
+	const archived = [{ id: 'old', title: 'Old chat', updatedAt: '2026-10-01T00:00:00.000Z' }]
+	const { owner, project, events, root, requests } = await setup({
+		FIXTURE_ARCHIVED_ROWS: JSON.stringify(archived),
+	})
+	const listed = await owner.archivedConversations(project.id)
+	expect(listed).toEqual([{ ...archived[0], projectId: project.id }])
+	await expect(owner.restoreConversation('never-listed')).rejects.toThrow('archived list')
+	const restored = await owner.restoreConversation('old')
+	expect(restored).toMatchObject({ id: 'old', title: 'Restored title', projectId: project.id })
+	expect(
+		(await requests()).find((call) => call.method === 'namzu/conversations/unarchive')?.params,
+	).toEqual({ sessionId: 'old' })
+	expect(events).toContainEqual(
+		expect.objectContaining({ kind: 'conversation-updated', sessionId: 'old', view: restored }),
+	)
+	expect(
+		new DesktopConversationStore(root).read()?.conversations.find((i) => i.view.id === 'old')?.view
+			.title,
+	).toBe('Restored title')
+	// Restoring twice needs a fresh listing.
+	await expect(owner.restoreConversation('old')).rejects.toThrow('archived list')
+})
+
+it('refuses an invalid archived row from the host', async () => {
+	const { owner, project } = await setup({
+		FIXTURE_ARCHIVED_ROWS: JSON.stringify([{ id: 'x', title: 3 }]),
+	})
+	await expect(owner.archivedConversations(project.id)).rejects.toThrow('invalid')
+})

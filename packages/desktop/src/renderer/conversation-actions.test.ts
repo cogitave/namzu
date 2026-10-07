@@ -121,6 +121,23 @@ describe('the actions matrix', () => {
 		expect(find(input({ hasReply: false }), 'copy-reply')?.reason).toBeDefined()
 		expect(find(input({ hasMessages: false }), 'copy-markdown')?.reason).toBeDefined()
 	})
+	it('offers Open in only with a project folder and a host that can open it', () => {
+		const openIn = { ...can, openIn: true }
+		expect(ids(input())).not.toContain('open-in')
+		expect(ids(input({ can: openIn, hasProjectPath: false }))).not.toContain('open-in')
+		expect(ids(input({ can: openIn, isPal: true }))).not.toContain('open-in')
+		expect(ids(input({ can: openIn }))).toEqual(
+			expect.arrayContaining(['open-in', 'open-file-manager', 'open-terminal']),
+		)
+		expect(ids(input({ can: openIn }))).not.toContain('open-editor')
+	})
+	it('names the editor the host will use', () => {
+		const result = find(
+			input({ can: { ...can, openIn: true }, editorLabel: 'VS Code' }),
+			'open-editor',
+		)
+		expect(result?.label).toBe('VS Code')
+	})
 })
 
 function key(

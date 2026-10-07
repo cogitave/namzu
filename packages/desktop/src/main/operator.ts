@@ -38,7 +38,10 @@ import type {
 	PalView,
 	PermissionView,
 	PluginInventoryView,
+	ProjectFileContent,
+	ProjectFileEntry,
 	ProjectGitView,
+	ProjectLinkResolution,
 	ProjectView,
 	ProviderView,
 } from '../shared/protocol.js'
@@ -58,9 +61,11 @@ import {
 } from './desktop-conversation-store.js'
 import type { DesktopDiagnosticSink } from './diagnostics.js'
 import { isNormalChatWorkspace, normalChatWorkspace } from './normal-chat-workspace.js'
+import type { OpenIn, OpenTarget } from './open-in.js'
 import { PalCommunicationManager } from './pal-communication.js'
 import type { PalStreamProxy } from './pal-stream-proxy.js'
 import { projectDraftOwner } from './project-draft-owner.js'
+import { ProjectFiles, confineProjectPath, resolveProjectLinks } from './project-files.js'
 import { RuntimeClient, type RuntimeCommand } from './rpc-client.js'
 import { SupersededConversationSettingsError } from './superseded-settings.js'
 
@@ -281,6 +286,9 @@ export class Operator {
 	private readonly archivingConversations = new Set<string>()
 	private readonly pendingConversationRemovals = new Set<string>()
 	private readonly removedConversations = new Map<string, boolean>()
+	private readonly projectFiles = new ProjectFiles()
+	/** Archived rows last shown per project, so a restore knows which project owns the id. */
+	private readonly archivedOwners = new Map<string, string>()
 	private readonly projects = new Map<string, Project>()
 	private readonly projectStarting = new Map<string, Promise<ProjectView>>()
 	private readonly conversations = new Map<string, Conversation>()
@@ -300,6 +308,7 @@ export class Operator {
 		private readonly registryDirectory?: string,
 		private readonly diagnostics?: DesktopDiagnosticSink,
 		private readonly streamProxy?: Pick<PalStreamProxy, 'onClosed' | 'open' | 'close'>,
+		private readonly openIn?: Pick<OpenIn, 'editors' | 'open'>,
 	) {
 		this.backgroundWork = new BackgroundWorkStatusTracker((event) => this.publish(event))
 		this.communication = new PalCommunicationManager(
@@ -1596,6 +1605,12 @@ export class Operator {
 			throw new Error(`This engine’s conversation cannot ${action} from Namzu.`)
 		return session
 	}
+	private archivedClient(project: Project): RuntimeClient {
+		if (!project.view.trusted) throw new Error('Trust this folder first.')
+		if (!project.client.supportsArchivedConversations())
+			throw new Error('Update Namzu to a version that lists archived conversations.')
+		return project.client
+	}
 	private conversationActionsClient(project: Project): RuntimeClient {
 		if (!project.view.trusted) throw new Error('Trust this folder first.')
 		if (!project.client.supportsConversationActions())
@@ -1735,6 +1750,130 @@ export class Operator {
 		const checkedSubject = text(subject, 500)
 		if (checkedBranch === undefined || checkedSubject === undefined) return null
 		return { branch: checkedBranch, subject: checkedSubject }
+	}
+	/**
+	 * The folder every file call is confined to. It comes from the operator's own record of a
+	 * trusted, ordinary project, never from the renderer. It does not need the project's Namzu
+	 * connection: these calls read the folder directly, so they work while it reconnects.
+	 */
+	private async projectRoots(projectId: unknown): Promise<string[]> {
+		const project = this.project(projectId)
+		if (!project.view.trusted) throw new Error('Trust this folder first.')
+		if (project.view.isChat || project.view.palId)
+			throw new Error('Files are only available in a project folder.')
+		let real: string
+		try {
+			real = await realpath(project.view.path)
+		} catch {
+			throw new Error('This project folder is not available.')
+		}
+		return [real, ...(project.view.path === real ? [] : [project.view.path])]
+	}
+	async listProjectDirectory(projectId: string, dir: string): Promise<ProjectFileEntry[]> {
+		return this.projectFiles.list((await this.projectRoots(projectId))[0] as string, dir)
+	}
+	async projectFileIndex(projectId: string): Promise<{ paths: string[]; truncated: boolean }> {
+		return this.projectFiles.index((await this.projectRoots(projectId))[0] as string)
+	}
+	async readProjectFile(projectId: string, path: string): Promise<ProjectFileContent> {
+		return this.projectFiles.read((await this.projectRoots(projectId))[0] as string, path)
+	}
+	async resolveProjectLinks(projectId: string, refs: string[]): Promise<ProjectLinkResolution[]> {
+		return resolveProjectLinks(await this.projectRoots(projectId), refs)
+	}
+	async openProjectPath(
+		projectId: string,
+		path: string,
+		target: OpenTarget,
+		line?: number,
+	): Promise<void> {
+		if (!this.openIn) throw new Error('Opening files is not available here.')
+		if (target !== 'editor' && target !== 'file-manager' && target !== 'terminal')
+			throw new Error('That way of opening is not supported.')
+		const confined = await confineProjectPath(
+			(await this.projectRoots(projectId))[0] as string,
+			path,
+		)
+		const kind = (await stat(confined.absolute)).isDirectory() ? 'directory' : 'file'
+		await this.openIn.open(confined.absolute, kind, target, line)
+	}
+	async projectEditors(): Promise<{ id: 'vscode' | 'cursor'; label: string }[]> {
+		return ((await this.openIn?.editors()) ?? []).map(({ id, label }) => ({ id, label }))
+	}
+	async archivedConversations(projectId: string): Promise<ConversationView[]> {
+		const project = this.project(projectId)
+		if (!project.view.trusted) throw new Error('Trust this folder first.')
+		if (project.view.palId) return []
+		const client = this.archivedClient(project)
+		const rows = (await client.request('namzu/conversations/archived', {})) as unknown
+		if (!Array.isArray(rows)) throw new Error('Namzu returned an invalid archived list.')
+		if (this.projects.get(projectId) !== project || project.client !== client)
+			throw new Error('This project’s connection changed while reading archived conversations.')
+		const views: ConversationView[] = []
+		for (const row of rows as { id?: unknown; title?: unknown; updatedAt?: unknown }[]) {
+			if (
+				typeof row?.id !== 'string' ||
+				!row.id.trim() ||
+				row.id.length > 400 ||
+				typeof row.title !== 'string' ||
+				row.title.length > 4000 ||
+				typeof row.updatedAt !== 'string'
+			)
+				throw new Error('Namzu returned an invalid archived list.')
+			views.push({ id: row.id, title: row.title, updatedAt: row.updatedAt, projectId })
+			this.archivedOwners.set(row.id, projectId)
+		}
+		return views
+	}
+	async restoreConversation(sessionId: string): Promise<ConversationView> {
+		if (typeof sessionId !== 'string' || !sessionId.trim() || sessionId.length > 400)
+			throw new Error('Invalid conversation.')
+		const projectId = this.archivedOwners.get(sessionId)
+		if (!projectId) throw new Error('Open the archived list first.')
+		const project = this.project(projectId)
+		const client = this.archivedClient(project)
+		const row = (await client.request('namzu/conversations/unarchive', { sessionId })) as {
+			id?: unknown
+			title?: unknown
+			updatedAt?: unknown
+		}
+		if (
+			row?.id !== sessionId ||
+			typeof row.title !== 'string' ||
+			row.title.length > 4000 ||
+			typeof row.updatedAt !== 'string'
+		)
+			throw new Error('Namzu returned an invalid restored conversation.')
+		if (this.closing) throw new Error('Namzu is closing.')
+		if (this.projects.get(projectId) !== project || project.client !== client)
+			throw new Error('This project’s connection changed while restoring the conversation.')
+		this.archivedOwners.delete(sessionId)
+		this.removedConversations.delete(sessionId)
+		const view: ConversationView = {
+			id: sessionId,
+			title: row.title,
+			projectId,
+			updatedAt: row.updatedAt,
+		}
+		if (!this.conversations.has(sessionId))
+			this.conversations.set(sessionId, {
+				view,
+				runtimeSessionId: sessionId,
+				hasPrompted: true,
+				// History is read from the journal when the conversation is first opened.
+				needsLoad: true,
+				needsHistory: true,
+				client,
+				running: false,
+				queue: [],
+				draft: '',
+				projection: emptyThread(),
+				permissions: new Map(),
+			})
+		project.conversationCatalogue?.set(sessionId, { ...view })
+		this.persistDesktop()
+		this.emit({ kind: 'conversation-updated', sessionId, view })
+		return { ...view }
 	}
 	async newConversation(projectId: string): Promise<ConversationView> {
 		const project = this.project(projectId)

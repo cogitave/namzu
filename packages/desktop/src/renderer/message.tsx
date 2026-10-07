@@ -10,9 +10,16 @@ import {
 	useState,
 } from 'react'
 import Markdown from 'react-markdown'
+import remarkFrontmatter from 'remark-frontmatter'
 import remarkGfm from 'remark-gfm'
 import type { ChatMessage } from '../shared/protocol.js'
 import { CopyButton } from './copy-button.js'
+import {
+	ProjectFileLink,
+	ResolvedRefsContext,
+	useResolvedRefs,
+} from './file-panel/project-files.js'
+import { codeRef, linkRef } from './file-panel/project-refs.js'
 import { cn } from './lib/utils.js'
 import { LinkPreviewCard } from './link-preview-card.js'
 import { COPY_CODE_PROPERTY, markdownCodeCopy, remarkCodeCopy } from './markdown-code-copy.js'
@@ -59,11 +66,15 @@ function plainText(children: ReactNode): string {
 function MessageLink({ children, href }: { children?: ReactNode; href?: string }) {
 	const [failed, setFailed] = useState(false)
 	const handle = useContext(LinkPreviewContext)
+	const refs = useContext(ResolvedRefsContext)
 	const url = externalWebUrl(href)
 	const payload = useMemo(
 		() => (url ? { url, text: plainText(children) } : undefined),
 		[url, children],
 	)
+	// A reply's local link renders as a file link only once the host has said it names a real file.
+	const local = url ? undefined : refs.get(linkRef(href) ?? '')
+	if (local) return <ProjectFileLink hit={local}>{children}</ProjectFileLink>
 	if (!url || typeof window === 'undefined' || !window.namzu?.openExternal)
 		return (
 			<span className="message-link" title={href}>
@@ -137,7 +148,15 @@ function MarkdownCode({
 	[COPY_CODE_PROPERTY]?: string
 }) {
 	const block = useContext(CodeBlockContext)
+	const refs = useContext(ResolvedRefsContext)
 	const text = typeof children === 'string' ? children : undefined
+	const local = !block && text ? refs.get(codeRef(text) ?? '') : undefined
+	if (local)
+		return (
+			<code {...props}>
+				<ProjectFileLink hit={local}>{children}</ProjectFileLink>
+			</code>
+		)
 	const url = !block && text && /^https?:\/\/\S+$/.test(text) ? externalWebUrl(text) : undefined
 	return <code {...props}>{url ? <MessageLink href={url}>{text}</MessageLink> : children}</code>
 }
@@ -228,13 +247,27 @@ export function Message({
 	)
 }
 
+/** How a document view in the side panel treats links and images that name project files. */
+export interface DocumentOptions {
+	link(href: string | undefined, children: ReactNode): ReactNode | undefined
+	image(src: string | undefined, alt: string | undefined): ReactNode
+}
+
 // Streaming updates change the live body, while settled bodies retain their
 // parsed tree. Wrapper attributes and inherited theme styling remain live.
-const MarkdownContent = memo(function MarkdownContent({ text }: { text: string }) {
+// Only a settled reply asks the host which of its links name project files.
+export const MarkdownContent = memo(function MarkdownContent({
+	text,
+	settled = false,
+	document,
+}: { text: string; settled?: boolean; document?: DocumentOptions }) {
 	const [handle] = useState(() => PreviewCardCreateHandle<LinkPreviewPayload>())
+	const refs = useResolvedRefs(text, settled && !document)
 	return (
 		<LinkPreviewContext.Provider value={handle}>
-			<MarkdownBody text={text} />
+			<ResolvedRefsContext.Provider value={refs}>
+				<MarkdownBody text={text} document={document} />
+			</ResolvedRefsContext.Provider>
 			<LinkPreviews handle={handle} />
 		</LinkPreviewContext.Provider>
 	)
@@ -262,18 +295,37 @@ function LinkPreviews({ handle }: { handle: LinkPreviewHandle }) {
 	)
 }
 
-const MarkdownBody = memo(function MarkdownBody({ text }: { text: string }) {
+const MarkdownBody = memo(function MarkdownBody({
+	text,
+	document,
+}: { text: string; document?: DocumentOptions }) {
 	return (
-		<div className="message-text chat-markdown w-full min-w-0 text-sm leading-relaxed text-foreground [overflow-wrap:anywhere] [word-break:break-word]">
+		<div
+			className={cn(
+				'message-text chat-markdown w-full min-w-0 text-sm leading-relaxed text-foreground [overflow-wrap:anywhere] [word-break:break-word]',
+				document && 'document-markdown',
+			)}
+		>
 			<Markdown
-				remarkPlugins={[remarkGfm, [remarkCodeCopy, { source: text }]]}
+				remarkPlugins={[
+					remarkGfm,
+					...(document ? [remarkFrontmatter] : []),
+					[remarkCodeCopy, { source: text }],
+				]}
 				skipHtml
 				components={{
 					// Remote media stays inert; web links require the owned main bridge.
-					a: MessageLink,
+					a: ({ node: _node, href, children }) =>
+						document?.link(href, children) ?? <MessageLink href={href}>{children}</MessageLink>,
 					pre: MarkdownPre,
 					code: MarkdownCode,
-					img: ({ alt }) => <span className="notice">{alt || 'Image'}</span>,
+					// Only a document view may show an image, and only one the project itself holds.
+					img: ({ alt, src }) =>
+						document ? (
+							document.image(typeof src === 'string' ? src : undefined, alt)
+						) : (
+							<span className="notice">{alt || 'Image'}</span>
+						),
 					table: ({ children }) => (
 						<section
 							className="table-scroll"
@@ -297,8 +349,14 @@ export function MessageContent({
 	className,
 	text,
 	markdown,
+	settled,
 	...props
-}: HTMLAttributes<HTMLDivElement> & { text?: string; markdown?: boolean }) {
+}: HTMLAttributes<HTMLDivElement> & {
+	text?: string
+	markdown?: boolean
+	/** The reply has finished streaming, so its file references may be looked up. */
+	settled?: boolean
+}) {
 	return (
 		<div
 			className={cn(
@@ -309,7 +367,7 @@ export function MessageContent({
 			{...props}
 		>
 			{markdown && text !== undefined ? (
-				<MarkdownContent text={text} />
+				<MarkdownContent text={text} settled={settled} />
 			) : text !== undefined ? (
 				<div className="message-text whitespace-pre-wrap text-sm leading-relaxed [overflow-wrap:anywhere]">
 					{text}
