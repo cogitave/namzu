@@ -73,6 +73,7 @@
 }
 /* Padding keeps the thumb inside the pill at both ends while its centre sits on the stops. */
 .composer-effort-control {
+	position: relative;
 	display: flex;
 	align-items: center;
 	height: 28px;
@@ -133,8 +134,44 @@
 	height: 22px;
 	border-radius: 50%;
 	background: #fff;
-	box-shadow: 0 1px 3px rgb(0 0 0 / 28%), 0 0 0 1px rgb(0 0 0 / 6%);
+	box-shadow: 0 1px 3px rgb(0 0 0 / 28%), 0 0 0 1.5px rgb(0 0 0 / 38%);
 	transition: inset-inline-start 120ms var(--motion-ease), transform 120ms var(--motion-ease);
+}
+/* The shader surface covers the control (track plus its padding) and never takes the pointer. */
+.composer-effort-shader {
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	left: -14px;
+	width: calc(100% + 28px);
+	height: 100%;
+	pointer-events: none;
+}
+/* The shader fades in as the CSS fill fades out, so the swap is never a pop. */
+.composer-effort-shader canvas {
+	image-rendering: pixelated;
+	animation: composer-effort-shader-in 180ms var(--motion-ease) both;
+}
+@keyframes composer-effort-shader-in {
+	from {
+		opacity: 0;
+	}
+}
+.composer-effort-fill {
+	transition: width 120ms var(--motion-ease), opacity 180ms var(--motion-ease);
+}
+.composer-effort-fill::before {
+	transition: opacity 180ms var(--motion-ease);
+}
+.composer-effort-panel[data-shader="on"] .composer-effort-fill,
+.composer-effort-panel[data-shader="on"] .composer-effort-fill::before {
+	opacity: 0;
+}
+/* The passed stop dots keep a dark edge so they read over bright and dark cells alike. */
+.composer-effort-panel[data-shader="on"] .composer-effort-stop[data-passed] {
+	background: #fff;
+	opacity: 0.9;
+	box-shadow: 0 0 0 1px rgb(0 0 0 / 35%);
 }
 /* No level in force: nothing is filled and the thumb reads as unset. */
 .composer-effort-panel[data-unset] .composer-effort-fill {
@@ -181,8 +218,12 @@
 @media (prefers-reduced-motion: reduce) {
 	.composer-effort-model,
 	.composer-effort-fill,
+	.composer-effort-fill::before,
 	.composer-effort-thumb {
 		transition: none;
+	}
+	.composer-effort-shader canvas {
+		animation: none;
 	}
 	.composer-effort-spinner {
 		animation: none;

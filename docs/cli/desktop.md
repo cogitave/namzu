@@ -666,6 +666,8 @@ the compact, always-docked composer described above; its plus popup keeps model,
 permission, attachment and plugin controls accessible. The model control opens the
 effort panel when the model offers a choice of effort, and the model list otherwise.
 
+The filled effort track is a WebGL2 ordered-dither surface in the accent ramp (deep green to teal to accent to mint) with drifting shimmer, rising sparkles and a thumb bloom that all grow with the level; without WebGL2, or after a lost context it is the plain CSS fill, and under reduced motion it draws one static frame.
+
 Pasting keeps text: when the clipboard carries text, the text is inserted and any
 accompanying image rendering is ignored. Files alone are attached when attaching is
 allowed; otherwise the composer says "Files can't be attached here." or, for an

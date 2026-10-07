@@ -1,7 +1,8 @@
 import { Slider } from '@base-ui/react/slider'
 import type { ReasoningEffort } from '@namzu/sdk'
 import { ChevronRight, RotateCcw } from 'lucide-react'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { EffortShader } from './effort-shader/effort-shader.js'
 import { LoaderCircleIcon } from './icons.js'
 import { effortLabel } from './model-choice.js'
 import { Button } from './ui/button.js'
@@ -40,6 +41,8 @@ export function ComposerEffortPanel({
 	onUnavailable: () => void
 }) {
 	const slider = useRef<HTMLDivElement>(null)
+	// The CSS fill stays until the shader's first frame lands, and returns if WebGL is lost.
+	const [shaderReady, setShaderReady] = useState(false)
 	const unavailable = !loading && levels.length < 2
 	useEffect(() => {
 		if (unavailable) onUnavailable()
@@ -60,7 +63,12 @@ export function ComposerEffortPanel({
 	const label = value ? effortLabel(value) : 'Model default'
 	const atDefault = !defaultValue || value === defaultValue
 	return (
-		<div className="composer-effort-panel" data-scope={scope} data-unset={!value || undefined}>
+		<div
+			className="composer-effort-panel"
+			data-scope={scope}
+			data-unset={!value || undefined}
+			data-shader={shaderReady ? 'on' : undefined}
+		>
 			<div className="composer-effort-header">
 				<Button
 					variant="ghost-muted"
@@ -106,6 +114,12 @@ export function ComposerEffortPanel({
 						<Slider.Control className="composer-effort-control">
 							<Slider.Track className="composer-effort-track">
 								<Slider.Indicator className="composer-effort-fill" />
+								<EffortShader
+									progress={index / Math.max(1, levels.length - 1)}
+									level={index / Math.max(1, levels.length - 1)}
+									visible={Boolean(value)}
+									onReady={setShaderReady}
+								/>
 								<span className="composer-effort-stops" aria-hidden="true">
 									{levels.map((level, stop) => (
 										<i
