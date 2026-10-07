@@ -3,6 +3,7 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { type ThreadState, applyEvent, emptyThread } from '../shared/projection.js'
+import type { ChatMessage } from '../shared/protocol.js'
 import { Transcript } from './transcript.js'
 
 function started(at = 53000): ThreadState {
@@ -55,6 +56,74 @@ afterEach(() => {
 })
 
 describe('single live transcript status', () => {
+	it('shows two earlier-message lookups once in the work rail and a distinct hosted web search', () => {
+		let thread = started()
+		for (const [id, query] of [
+			['lookup-a', 'web_search'],
+			['lookup-b', 'flexprice'],
+		] as const) {
+			thread = update(thread, {
+				kind: 'tool_call',
+				toolCallId: id,
+				title: 'search_conversation',
+				status: 'pending',
+				view: { kind: 'generic', label: query },
+			})
+			thread = update(thread, {
+				kind: 'tool_call',
+				toolCallId: id,
+				title: 'search_conversation',
+				status: 'completed',
+				view: { kind: 'terminal', output: '' },
+			})
+		}
+		thread = update(thread, {
+			kind: 'tool_call',
+			toolCallId: 'provider-hosted-web-search:2:provider-id',
+			title: 'Web search',
+			status: 'completed',
+			view: { kind: 'generic', label: 'Web search: H100 price · 10 sources' },
+		})
+		const live = render(thread)
+		expect(live).toContain('Checked earlier messages')
+		expect(live).toContain('Searched the web')
+		expect(live).not.toContain('Actions completed')
+		thread = update(thread, { kind: 'turn_ended', stopReason: 'end_turn' }, 100000)
+		thread = applyEvent(thread, {
+			kind: 'state',
+			sessionId: 'session',
+			running: false,
+			queued: [],
+		})
+		expect(phaseLabels(render(thread))).toEqual(['Worked for 47s'])
+	})
+
+	it('offers message actions for settled assistant rows only', () => {
+		const action = vi.fn((_message: ChatMessage, _key: string) =>
+			createElement('button', { type: 'button' }, 'Listen'),
+		)
+		const draw = (thread: ThreadState) =>
+			renderToStaticMarkup(createElement(Transcript, { thread, renderMessageAction: action }))
+		const pending = update(started(), {
+			kind: 'agent_message_chunk',
+			messageId: 'answer',
+			text: 'Draft answer',
+		})
+		expect(draw(pending)).not.toContain('Listen')
+		expect(action).not.toHaveBeenCalled()
+		const completed = update(pending, {
+			kind: 'agent_message',
+			status: 'completed',
+			messageId: 'answer',
+			content: 'Draft answer',
+			stopReason: 'end_turn',
+		})
+		expect(draw(completed)).not.toContain('Listen')
+		const settled = update(completed, { kind: 'turn_ended', stopReason: 'end_turn' }, 100000)
+		expect(draw(settled)).toContain('Listen')
+		expect(action).toHaveBeenCalledOnce()
+		expect(action.mock.calls[0]?.[0].role).toBe('assistant')
+	})
 	it('renders steering after prior commentary and action within the same turn', () => {
 		let thread = started()
 		thread = update(thread, {
@@ -105,11 +174,12 @@ describe('single live transcript status', () => {
 		const thread = pendingCommand()
 		const before = structuredClone(thread)
 		const html = render(thread)
-		expect(phaseLabels(html)).toEqual(['Work details', 'Working'])
+		expect(phaseLabels(html)).toEqual(['Working', 'Working'])
 		expect(html.match(/<output\b[^>]*aria-live="polite"/g)).toHaveLength(1)
-		expect(html).toContain('aria-label="Work details"')
+		expect(html).toContain('aria-label="Working · 47s"')
 		expect(html).toContain('aria-expanded="true"')
-		expect(html).toContain('class="working-elapsed" aria-hidden="true">47s</span>')
+		expect(html).toContain('class="turn-activity-elapsed">47s</span>')
+		expect(html).toContain('transcript-status-only')
 		expect(html).toContain('Running pwd')
 		expect(thread).toEqual(before)
 	})
@@ -127,7 +197,7 @@ describe('single live transcript status', () => {
 			blockId: 'thought',
 		})
 		const html = render(thread)
-		expect(phaseLabels(html)).toEqual(['Work details', 'Thinking'])
+		expect(phaseLabels(html)).toEqual(['Thinking', 'Thinking'])
 		expect(html).toContain('Inspecting the workspace')
 		expect(html).toContain('Comparing the public results')
 		expect(html).toContain('data-transcript-phase="thinking"')
@@ -140,7 +210,7 @@ describe('single live transcript status', () => {
 			request: { id: 'approval', sessionId: 'session', projectId: 'project', calls: [] },
 		})
 		const html = render(thread)
-		expect(phaseLabels(html)).toEqual(['Work details', 'Waiting for your decision'])
+		expect(phaseLabels(html)).toEqual(['Waiting for your decision', 'Waiting for your decision'])
 		expect(html).toContain('data-transcript-phase="waiting"')
 		expect(html).toContain('Running pwd')
 		expect(html.match(/<output\b[^>]*aria-live="polite"/g)).toHaveLength(1)
@@ -188,7 +258,7 @@ describe('single live transcript status', () => {
 		})
 		thread = pendingCommand(thread)
 		const html = render(thread)
-		expect(phaseLabels(html)).toEqual(['Worked for 5s', 'Work details', 'Working'])
+		expect(phaseLabels(html)).toEqual(['Worked for 5s', 'Working', 'Working'])
 		expect(html).toContain('data-activity-turn="1"')
 		expect(html).toContain('data-activity-turn="2"')
 		expect(html.match(/<output\b[^>]*aria-live="polite"/g)).toHaveLength(1)

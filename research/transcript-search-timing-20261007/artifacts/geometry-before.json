@@ -1,0 +1,29 @@
+{
+  "passed": false,
+  "realDesktopRenderer": true,
+  "actualSdkJournalFixture": true,
+  "sourceAcpMapping": true,
+  "nativeActions": 0,
+  "providerRequests": 0,
+  "actualUserConversationRead": false,
+  "checks": [],
+  "measurements": [
+    {
+      "scenario": "wide-dark",
+      "triggerHeight": 32,
+      "triggerFont": "14px",
+      "triggerLineHeight": "21px",
+      "triggerGap": "8px",
+      "rowHeight": 32,
+      "railPadding": "16px",
+      "rowCount": 2,
+      "nestedToolGroups": 0,
+      "horizontalOverflow": false
+    }
+  ],
+  "screenshots": [],
+  "pageErrors": [],
+  "limits": [
+    "Synthetic conversation only; no native application or provider prompt. Reference checks use supplied WAI DOM measurements, not a pixel-parity claim."
+  ]
+}

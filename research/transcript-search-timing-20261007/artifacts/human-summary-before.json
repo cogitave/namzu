@@ -1,0 +1,73 @@
+{
+  "passed": false,
+  "realDesktopRenderer": true,
+  "actualSdkJournalFixture": true,
+  "sourceAcpMapping": true,
+  "nativeActions": 0,
+  "providerRequests": 0,
+  "actualUserConversationRead": false,
+  "checks": [],
+  "measurements": [
+    {
+      "scenario": "wide-dark",
+      "primaryRows": [
+        {
+          "label": "Searched the web",
+          "status": [
+            {
+              "text": "Completed",
+              "clip": "rect(0px, 0px, 0px, 0px)",
+              "opacity": "1"
+            }
+          ],
+          "clockOpacity": [
+            "0"
+          ],
+          "visibleDuration": false
+        },
+        {
+          "label": "Ran Read gpu-rates.txt",
+          "status": [
+            {
+              "text": "Completed",
+              "clip": "auto",
+              "opacity": "1"
+            }
+          ],
+          "clockOpacity": [
+            "0"
+          ],
+          "visibleDuration": false
+        },
+        {
+          "label": "Ran Check saved results",
+          "status": [
+            {
+              "text": "Completed",
+              "clip": "auto",
+              "opacity": "1"
+            }
+          ],
+          "clockOpacity": [
+            "0"
+          ],
+          "visibleDuration": false
+        },
+        {
+          "label": "Checked earlier messages",
+          "status": [],
+          "clockOpacity": [],
+          "visibleDuration": false
+        }
+      ]
+    }
+  ],
+  "referenceDifferences": [],
+  "screenshots": [
+    "primary-summary-wide-dark.png"
+  ],
+  "pageErrors": [],
+  "limits": [
+    "Synthetic conversation only; no native application or provider prompt. Reference checks use supplied WAI DOM measurements, not a pixel-parity claim."
+  ]
+}

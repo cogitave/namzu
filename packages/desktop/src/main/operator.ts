@@ -1097,11 +1097,9 @@ export class Operator {
 			if (session) {
 				const versioned = {
 					...event,
-					...((event.kind === 'prompt' ||
-						(event.kind === 'update' && event.update.kind === 'turn_ended')) &&
-					event.at === undefined
-						? { at: Date.now() }
-						: {}),
+					// This is the host's observation time. Provider events have no
+					// source clock on the ACP wire; never imply they do.
+					...(event.at === undefined ? { at: Date.now() } : {}),
 					revision: session.projection.revision + 1,
 				}
 				session.projection = applyEvent(session.projection, versioned)

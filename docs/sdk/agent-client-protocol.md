@@ -99,9 +99,13 @@ send also settles its wait instead of leaving consent pending forever. A deliver
 failure does not undo work that already ran; durable session history remains the
 source for what the runtime actually completed.
 
-Retry, fallback, hosted-tool and compaction events remain outside this update
-vocabulary. No raw session event, system prompt or discarded compaction body is
-forwarded as a generic payload.
+Provider-hosted web search and fetch activity uses existing `tool_call` updates,
+with `provider-hosted-web-search:`-qualified IDs and the provider's pending/completed/failed state.
+Only reported query/URL and result count enter the bounded display caption. This
+is a provider execution receipt; it does not request local execution or approval.
+Retry, fallback and compaction events remain outside this update vocabulary. No
+raw session event, system prompt or discarded compaction body is forwarded as a
+generic payload.
 
 ## Negotiated planning notifications
 

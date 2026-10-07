@@ -29,6 +29,7 @@ const EVENTS = {
 	cli_transport_failed: 'Desktop CLI transport failed',
 	cli_closed: 'Desktop CLI connection closed',
 	computer_stream_failed: 'Desktop live computer connection failed',
+	local_speech_failed: 'Desktop local speech failed',
 	renderer_failed: 'Desktop renderer reported an error',
 	renderer_load_failed: 'Desktop renderer could not load',
 	renderer_process_gone: 'Desktop renderer process ended',
@@ -76,6 +77,13 @@ const OS_CODES = new Set([
 	'ERR_MODULE_NOT_FOUND',
 ])
 const OPERATIONS = new Set([
+	'openExternal',
+	'localSpeechState',
+	'localSpeechConfigure',
+	'localSpeechInstall',
+	'localSpeechSpeak',
+	'localSpeechCancel',
+	'localSpeechAcknowledge',
 	'workspace',
 	'workspaceAction',
 	'workspaceReady',

@@ -31,6 +31,7 @@ export function createWorkspacePaneApi(
 	const pending = new Set<Pending>()
 	const ownerWrites = new Map<string, Promise<unknown>>()
 	const outcomes = new Map<string, WriteOutcome>()
+	const speechRequests = new Map<string, string | undefined>()
 	const {
 		selectHarness,
 		openChat,
@@ -45,6 +46,12 @@ export function createWorkspacePaneApi(
 		deletePal,
 		removeConversation,
 		sendCurrent,
+		localSpeechConfigure,
+		localSpeechInstall,
+		localSpeechSpeak,
+		localSpeechCancel,
+		localSpeechAcknowledge,
+		onLocalSpeechEvent,
 	} = base
 	const assertLifetime = (admittedGeneration = generation) => {
 		if (invalidated || generation !== admittedGeneration)
@@ -134,6 +141,92 @@ export function createWorkspacePaneApi(
 	// its non-configurable methods would violate JavaScript's Proxy invariants.
 	const api: DesktopApi = {
 		...base,
+		...(localSpeechConfigure
+			? {
+					localSpeechConfigure: (settings) => {
+						const snapshot = structuredClone(settings)
+						return invoke(() => localSpeechConfigure(snapshot), [], {
+							global: true,
+							serializeOwner: 'local-speech',
+							persistentKey: 'local-speech',
+						})
+					},
+				}
+			: {}),
+		...(localSpeechInstall
+			? {
+					localSpeechInstall: () => {
+						try {
+							assertAdmission([], true)
+						} catch (error) {
+							return Promise.reject(error)
+						}
+						const admittedGeneration = generation
+						// An application-owned download does not delay a conversation transfer or draft flush.
+						return localSpeechInstall().then((state) => {
+							assertLifetime(admittedGeneration)
+							return state
+						})
+					},
+				}
+			: {}),
+		...(localSpeechSpeak
+			? {
+					localSpeechSpeak: (input) => {
+						const snapshot = structuredClone(input)
+						const owners = snapshot.sessionId === undefined ? [] : [snapshot.sessionId]
+						return invoke(
+							async (assertCurrent) => {
+								if (speechRequests.has(snapshot.requestId))
+									throw new Error('This speech request is already in use.')
+								speechRequests.set(snapshot.requestId, snapshot.sessionId)
+								try {
+									const result = await localSpeechSpeak(snapshot)
+									assertCurrent()
+									assertOwners(owners)
+									return result
+								} catch (error) {
+									void localSpeechCancel?.(snapshot.requestId).catch(() => {})
+									speechRequests.delete(snapshot.requestId)
+									throw error
+								}
+							},
+							owners,
+							{ global: snapshot.sessionId === undefined },
+						)
+					},
+				}
+			: {}),
+		...(localSpeechCancel
+			? {
+					localSpeechCancel: (requestId) => {
+						if (!speechRequests.has(requestId)) return Promise.resolve()
+						speechRequests.delete(requestId)
+						// Cleanup remains allowed after this requester loses its conversation lease.
+						return localSpeechCancel(requestId)
+					},
+				}
+			: {}),
+		...(localSpeechAcknowledge
+			? {
+					localSpeechAcknowledge: (requestId, sequence) => {
+						if (!speechRequests.has(requestId)) return Promise.resolve()
+						const owner = speechRequests.get(requestId)
+						return invoke(() => localSpeechAcknowledge(requestId, sequence), owner ? [owner] : [])
+					},
+				}
+			: {}),
+		...(onLocalSpeechEvent
+			? {
+					onLocalSpeechEvent: (listener) =>
+						onLocalSpeechEvent((event) => {
+							if (event.type !== 'state' && !speechRequests.has(event.requestId)) return
+							if (event.type === 'end' || event.type === 'error')
+								speechRequests.delete(event.requestId)
+							listener(event)
+						}),
+				}
+			: {}),
 		...(updatePalPermission
 			? {
 					updatePalPermission: (owner, palId, change) => {
@@ -297,6 +390,9 @@ export function createWorkspacePaneApi(
 		invalidate() {
 			invalidated = true
 			generation++
+			for (const requestId of speechRequests.keys())
+				void localSpeechCancel?.(requestId).catch(() => {})
+			speechRequests.clear()
 		},
 		activate() {
 			invalidated = false

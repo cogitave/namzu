@@ -73,6 +73,51 @@ function storedAssistantPhase(
 	return phase && selected.every((part) => part.phase === phase) ? phase : undefined
 }
 
+/** First recorded public-message boundary, bound to the folded message identity. */
+function recordedMessageTimes(records: readonly SessionRecord[]) {
+	const starts = new Map<string, { turnId: string; seq: number; at: number; ambiguous: boolean }>()
+	const messages = new Map<
+		string,
+		{ turnId: string; role: 'user' | 'assistant'; seq: number; at: number; ambiguous: boolean }
+	>()
+	for (const record of records) {
+		if (record.type !== 'message_started' && record.type !== 'message') continue
+		const at = Date.parse(record.ts)
+		if (!Number.isFinite(at) || at < 0) continue
+		if (record.type === 'message_started') {
+			const previous = starts.get(record.messageId)
+			starts.set(record.messageId, {
+				turnId: record.turnId,
+				seq: previous?.seq ?? record.seq,
+				at: previous?.at ?? at,
+				ambiguous: Boolean(previous && (previous.ambiguous || previous.turnId !== record.turnId)),
+			})
+		} else if (record.role === 'user' || record.role === 'assistant') {
+			const previous = messages.get(record.messageId)
+			messages.set(record.messageId, {
+				turnId: record.turnId,
+				role: record.role,
+				seq: previous?.seq ?? record.seq,
+				at: previous?.at ?? at,
+				ambiguous: Boolean(previous),
+			})
+		}
+	}
+	return (messageId: string | undefined, role: 'user' | 'assistant') => {
+		if (!historyId(messageId)) return undefined
+		const message = messages.get(messageId)
+		if (!message || message.ambiguous || message.role !== role) return undefined
+		const start = starts.get(messageId)
+		return {
+			at:
+				start && !start.ambiguous && start.turnId === message.turnId && start.seq <= message.seq
+					? start.at
+					: message.at,
+			source: 'journal' as const,
+		}
+	}
+}
+
 /** Only a durable completion for this exact, unchanged Pal reply can hide it. */
 function cancelledPalReplies(records: readonly SessionRecord[]): ReadonlyMap<string, string> {
 	const messages = new Map<string, { turnId: string; seq: number; ambiguous: boolean }>()
@@ -126,6 +171,8 @@ interface HistoryTurnView {
 	status: 'completed' | 'failed' | 'cancelled' | 'paused' | 'interrupted'
 	reason?: string
 	durationMs?: number
+	startedAt?: number
+	endedAt?: number
 }
 interface HistoryToolView {
 	turnId: string
@@ -136,6 +183,9 @@ interface HistoryToolView {
 	presentation?: ToolCallView
 	durationMs?: number
 	detailUnavailable?: true
+	hosted?: true
+	startedAt?: number
+	endedAt?: number
 }
 const historyReasons = new Set([
 	'end_turn',
@@ -155,11 +205,64 @@ const historyReasons = new Set([
 ])
 const historyCount = (value: unknown): value is number =>
 	typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+const recordedAt = (record: SessionRecord): number | undefined => {
+	const at = Date.parse(record.ts)
+	return Number.isFinite(at) && at >= 0 ? at : undefined
+}
 const historyId = (value: unknown): value is string =>
 	typeof value === 'string' &&
 	value.length > 0 &&
 	Buffer.byteLength(value) <= 512 &&
 	[...value].every((char) => char.charCodeAt(0) >= 32)
+
+interface HostedHistoryActivity {
+	id: string
+	status: 'running' | 'completed' | 'failed'
+	query?: string
+	url?: string
+	results?: number
+}
+
+function hostedHistoryActivity(value: unknown): HostedHistoryActivity | undefined {
+	if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+	const data = value as Record<string, unknown>
+	if (
+		data.name !== 'web_search' ||
+		!historyId(data.id) ||
+		typeof data.status !== 'string' ||
+		!['running', 'completed', 'failed'].includes(data.status) ||
+		(data.query !== undefined &&
+			(typeof data.query !== 'string' || Buffer.byteLength(data.query) > 4096)) ||
+		(data.url !== undefined &&
+			(typeof data.url !== 'string' || Buffer.byteLength(data.url) > 4096)) ||
+		(data.results !== undefined && !historyCount(data.results))
+	)
+		return undefined
+	return {
+		id: data.id,
+		status: data.status as HostedHistoryActivity['status'],
+		...(typeof data.query === 'string' ? { query: data.query } : {}),
+		...(typeof data.url === 'string' ? { url: data.url } : {}),
+		...(typeof data.results === 'number' ? { results: data.results } : {}),
+	}
+}
+
+function hostedHistoryView(activity: HostedHistoryActivity): ToolCallView {
+	const page = Boolean(activity.url && !activity.query)
+	const title = page ? 'Web fetch' : 'Web search'
+	const target = (page ? activity.url : activity.query)?.replace(/\s+/g, ' ').trim()
+	return {
+		kind: 'generic',
+		label: `${title}${target ? `: ${target.slice(0, 200)}` : ''}${
+			activity.status === 'failed'
+				? ' failed'
+				: !page && activity.results !== undefined
+					? ` · ${activity.results} ${activity.results === 1 ? 'source' : 'sources'}`
+					: ''
+		}`,
+		presentation: 'activity',
+	}
+}
 
 /** A recorded public view is distinct from raw arguments and selected tool output. */
 function historyPresentation(value: unknown): ToolCallView | undefined {
@@ -228,6 +331,7 @@ function historyWork(
 				order: record.seq,
 				status: 'interrupted',
 				reason: 'interrupted',
+				...(recordedAt(record) === undefined ? {} : { startedAt: recordedAt(record) }),
 			})
 		} else if (record.type === 'message_started' && retainedIds.has(record.messageId)) {
 			const previous = starts.get(record.messageId)
@@ -265,6 +369,7 @@ function historyWork(
 				turn.status = 'failed'
 				turn.reason = 'error'
 				turn.durationMs = record.settlement.durationMs
+				turn.endedAt = recordedAt(record)
 			} else if (record.type === 'turn_completed') {
 				turn.status = record.settlement.status === 'cancelled' ? 'cancelled' : 'completed'
 				turn.reason =
@@ -274,6 +379,7 @@ function historyWork(
 							? record.stopReason
 							: undefined
 				turn.durationMs = record.settlement.durationMs
+				turn.endedAt = recordedAt(record)
 			}
 		}
 	}
@@ -336,30 +442,41 @@ function historyWork(
 	let partial = false
 	// Select only a bounded set of latest identities before collecting their boundaries.
 	const wanted = new Set<string>()
+	const hostedWanted = new Set<string>()
 	for (let index = records.length - 1; index >= 0; index--) {
 		const record = records[index]
 		if (!record) continue
-		if (
-			(record.type !== 'tool_executing' && record.type !== 'tool_completed') ||
-			!accepted.has(record.turnId)
-		)
-			continue
-		if (!historyId(record.toolUseId)) {
-			partial = true
-			continue
-		}
-		const key = JSON.stringify([record.turnId, record.toolUseId])
-		if (wanted.has(key)) continue
-		if (wanted.size >= 100) {
+		if (typeof record.turnId !== 'string' || !accepted.has(record.turnId)) continue
+		let key: string
+		let selected: Set<string>
+		if (record.type === 'tool_executing' || record.type === 'tool_completed') {
+			if (!historyId(record.toolUseId)) {
+				partial = true
+				continue
+			}
+			key = JSON.stringify([record.turnId, record.toolUseId])
+			selected = wanted
+		} else if (record.type === 'hosted_tool') {
+			const hosted = hostedHistoryActivity(record.tool)
+			if (!hosted || !historyCount(record.iteration)) {
+				partial = true
+				continue
+			}
+			key = JSON.stringify([record.turnId, record.iteration, hosted.id])
+			selected = hostedWanted
+		} else continue
+		if (selected.has(key)) continue
+		if (wanted.size + hostedWanted.size >= 100) {
 			partial = true
 			break
 		}
-		wanted.add(key)
+		selected.add(key)
 	}
 	const calls = new Map<
 		string,
 		{
 			firstOrder: number
+			startedAt?: number
 			name: string
 			ambiguous: boolean
 			latest: Extract<SessionRecord, { type: 'tool_executing' | 'tool_completed' }>
@@ -372,6 +489,8 @@ function historyWork(
 		const previous = calls.get(key)
 		calls.set(key, {
 			firstOrder: previous?.firstOrder ?? record.seq,
+			startedAt:
+				previous?.startedAt ?? (record.type === 'tool_executing' ? recordedAt(record) : undefined),
 			name: record.toolName,
 			ambiguous: Boolean(previous && (previous.ambiguous || previous.name !== record.toolName)),
 			latest: record,
@@ -427,8 +546,82 @@ function historyWork(
 			status,
 			...(presentation ? { presentation } : { detailUnavailable: true as const }),
 			...(durationMs === undefined ? {} : { durationMs }),
+			...(call.startedAt === undefined ? {} : { startedAt: call.startedAt }),
+			...(latest.type !== 'tool_completed' || recordedAt(latest) === undefined
+				? {}
+				: { endedAt: recordedAt(latest) }),
 		})
 	}
+	const hostedCalls = new Map<
+		string,
+		{
+			turnId: string
+			firstOrder: number
+			toolUseId: string
+			activity: HostedHistoryActivity
+			startedAt?: number
+			endedAt?: number
+			ambiguous: boolean
+		}
+	>()
+	for (const record of records) {
+		if (record.type !== 'hosted_tool' || !accepted.has(record.turnId)) continue
+		const hosted = hostedHistoryActivity(record.tool)
+		if (!hosted || !historyCount(record.iteration)) continue
+		const key = JSON.stringify([record.turnId, record.iteration, hosted.id])
+		if (!hostedWanted.has(key)) continue
+		const previous = hostedCalls.get(key)
+		hostedCalls.set(key, {
+			turnId: record.turnId,
+			firstOrder: previous?.firstOrder ?? record.seq,
+			toolUseId: `provider-hosted-web-search:${record.iteration}:${hosted.id}`,
+			activity: {
+				...hosted,
+				...(hosted.query === undefined && previous?.activity.query
+					? { query: previous.activity.query }
+					: {}),
+				...(hosted.url === undefined && previous?.activity.url
+					? { url: previous.activity.url }
+					: {}),
+			},
+			startedAt:
+				previous?.startedAt ?? (hosted.status === 'running' ? recordedAt(record) : undefined),
+			endedAt: hosted.status === 'running' ? previous?.endedAt : recordedAt(record),
+			ambiguous: Boolean(
+				previous &&
+					(previous.ambiguous || (previous.endedAt !== undefined && hosted.status === 'running')),
+			),
+		})
+	}
+	for (const call of hostedCalls.values()) {
+		const turn = turns.get(call.turnId)
+		if (
+			call.ambiguous ||
+			!turn ||
+			call.firstOrder <= turn.order ||
+			compacted.some((record) => call.firstOrder <= record.replacesSeqRange[1]) ||
+			tools.some((tool) => tool.turnId === call.turnId && tool.toolUseId === call.toolUseId)
+		) {
+			partial = true
+			continue
+		}
+		const activity = call.activity
+		const status = activity.status === 'running' ? 'interrupted' : activity.status
+		tools.push({
+			turnId: call.turnId,
+			toolUseId: call.toolUseId,
+			name: activity.url && !activity.query ? 'Web fetch' : 'Web search',
+			order: call.firstOrder,
+			status,
+			hosted: true,
+			...(status === 'interrupted'
+				? { detailUnavailable: true as const }
+				: { presentation: hostedHistoryView(activity) }),
+			...(call.startedAt === undefined ? {} : { startedAt: call.startedAt }),
+			...(call.endedAt === undefined ? {} : { endedAt: call.endedAt }),
+		})
+	}
+	tools.sort((a, b) => a.order - b.order)
 	return {
 		v: 1 as const,
 		partial,
@@ -721,11 +914,13 @@ export function createDesktopHostExtensions(
 				const snapshot = await loadConversationSnapshot(state, asSessionId(id))
 				const messages = snapshot.messages
 				const cancelled = ownedPal ? cancelledPalReplies(snapshot.records) : undefined
+				const messageTime = recordedMessageTimes(snapshot.records)
 				const shown = messages.flatMap<{
 					messageId?: string
 					role: 'user' | 'assistant'
 					content: string | null
 					phase?: 'commentary' | 'final_answer'
+					time?: { at: number; source: 'journal' }
 				}>((message) => {
 					if (message.role === 'assistant') {
 						if (!ownedPal) {
@@ -738,26 +933,51 @@ export function createDesktopHostExtensions(
 									role: message.role,
 									content: message.content,
 									...(phase ? { phase } : {}),
+									...(messageTime(message.id, message.role)
+										? { time: messageTime(message.id, message.role) }
+										: {}),
 								},
 							]
 						}
 						if (message.id && cancelled?.get(message.id) === message.content) return []
 						const content = palPublicAssistantText(message)
-						return content === undefined ? [] : [{ role: message.role, content }]
+						return content === undefined
+							? []
+							: [
+									{
+										messageId: message.id,
+										role: message.role,
+										content,
+										...(messageTime(message.id, message.role)
+											? { time: messageTime(message.id, message.role) }
+											: {}),
+									},
+								]
 					}
 					return message.role === 'user' &&
 						(!message.source ||
 							(message.source.type === 'runtime-context' && message.source.kind === 'steering'))
-						? [{ messageId: message.id, role: message.role, content: message.content }]
+						? [
+								{
+									messageId: message.id,
+									role: message.role,
+									content: message.content,
+									...(messageTime(message.id, message.role)
+										? { time: messageTime(message.id, message.role) }
+										: {}),
+								},
+							]
 						: []
 				})
 				const retained: { messageId?: string; role: 'user' | 'assistant' }[] = []
 				let remaining = 200_000
 				let partial = false
 				const rows: {
+					messageId?: string
 					role: 'user' | 'assistant'
 					text: string
 					phase?: 'commentary' | 'final_answer'
+					time?: { at: number; source: 'journal' }
 				}[] = []
 				for (const message of shown.slice(-200).reverse()) {
 					if (remaining <= 0) break
@@ -767,9 +987,11 @@ export function createDesktopHostExtensions(
 					remaining -= value.length
 					retained.unshift({ messageId: message.messageId, role: message.role })
 					rows.unshift({
+						...(historyId(message.messageId) ? { messageId: message.messageId } : {}),
 						role: message.role as 'user' | 'assistant',
 						text: value,
 						...(message.phase ? { phase: message.phase } : {}),
+						...(message.time ? { time: message.time } : {}),
 					})
 				}
 				return {

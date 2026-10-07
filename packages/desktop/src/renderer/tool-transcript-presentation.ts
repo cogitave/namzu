@@ -14,6 +14,8 @@ export interface ToolTranscriptPresentation {
 	label: string
 	state: ToolTranscriptState
 	statusLabel: string
+	quietCompleted?: true
+	callDetail?: ToolCallView
 	detailView?: ToolCallView
 }
 
@@ -93,6 +95,47 @@ function diffLabel(path: string, state: ToolTranscriptState): string {
 	return `${prefix[state]} ${path}`
 }
 
+function observedActionLabel(
+	tool: ProjectedToolCall,
+	state: ToolTranscriptState,
+): string | undefined {
+	const hosted = tool.toolCallId.startsWith('provider-hosted-web-search:')
+	const search = hosted && tool.title === 'Web search'
+	const fetch = hosted && tool.title === 'Web fetch'
+	const earlier = tool.title === 'search_conversation'
+	if (!search && !fetch && !earlier) return undefined
+	const names = earlier
+		? {
+				waiting: 'Waiting to check earlier messages',
+				running: 'Checking earlier messages',
+				completed: 'Checked earlier messages',
+				failed: 'Could not check earlier messages',
+				cancelled: 'Stopped checking earlier messages',
+				interrupted: 'Earlier message lookup interrupted',
+				skipped: 'Skipped earlier message lookup',
+			}
+		: search
+			? {
+					waiting: 'Waiting to search the web',
+					running: 'Searching the web',
+					completed: 'Searched the web',
+					failed: 'Web search failed',
+					cancelled: 'Web search cancelled',
+					interrupted: 'Web search interrupted',
+					skipped: 'Web search skipped',
+				}
+			: {
+					waiting: 'Waiting to fetch a page',
+					running: 'Fetching a page',
+					completed: 'Fetched a page',
+					failed: 'Page fetch failed',
+					cancelled: 'Page fetch cancelled',
+					interrupted: 'Page fetch interrupted',
+					skipped: 'Page fetch skipped',
+				}
+	return names[state]
+}
+
 /** Present only admitted tool metadata; never infer outcomes from result text. */
 export function toolTranscriptPresentation(
 	thread: ThreadState,
@@ -106,7 +149,11 @@ export function toolTranscriptPresentation(
 	const title = nonBlank(tool.title)
 	let label = callCaption || caption(view) || title || 'Tool action'
 	let detailView: ToolCallView | undefined = view
-	if (view.kind === 'terminal') {
+	const observed = observedActionLabel(tool, state)
+	if (observed) {
+		label = observed
+		if (view.kind === 'generic' && !view.label.trim()) detailView = undefined
+	} else if (view.kind === 'terminal') {
 		const command =
 			nonBlank(view.command) ||
 			(tool.callView?.kind === 'terminal' ? nonBlank(tool.callView.command) : undefined)
@@ -124,5 +171,14 @@ export function toolTranscriptPresentation(
 		)
 			detailView = undefined
 	}
-	return { label, state, statusLabel: statusLabels[state], ...(detailView ? { detailView } : {}) }
+	return {
+		label,
+		state,
+		statusLabel: statusLabels[state],
+		...(observed && state === 'completed' ? { quietCompleted: true as const } : {}),
+		...(observed && tool.callView?.kind === 'generic' && tool.callView.label.trim()
+			? { callDetail: tool.callView }
+			: {}),
+		...(detailView ? { detailView } : {}),
+	}
 }

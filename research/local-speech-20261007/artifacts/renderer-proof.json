@@ -1,0 +1,22 @@
+{
+  "passed": true,
+  "realDesktopRenderer": true,
+  "realWebAudio": true,
+  "syntheticSpeechApi": true,
+  "nativeActions": 0,
+  "modelRequests": 0,
+  "installations": 0,
+  "checks": [
+    "wide-dark: actual settings popup fits; Turkish picker keyboard dismissal works; unknown resources remain unknown; explicit synthetic install; real Web Audio source-end acknowledgement; fixed preview cancels",
+    "Actual settled assistant message read aloud, closed-settings error visibility, and owner-switch cancellation",
+    "Actual sibling split panes retain unique speech-language label identities",
+    "narrow-light: actual settings popup fits; Turkish picker keyboard dismissal works; unknown resources remain unknown; explicit synthetic install; real Web Audio source-end acknowledgement; fixed preview cancels",
+    "small-dark: actual settings popup fits; Turkish picker keyboard dismissal works; unknown resources remain unknown; explicit synthetic install; real Web Audio source-end acknowledgement; fixed preview cancels"
+  ],
+  "screenshots": [
+    "voice-settings-wide-dark.png",
+    "voice-settings-narrow-light.png",
+    "voice-settings-small-dark.png"
+  ],
+  "pageErrors": []
+}

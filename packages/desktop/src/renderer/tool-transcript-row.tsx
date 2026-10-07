@@ -1,5 +1,6 @@
 import type { ThreadState } from '../shared/projection.js'
-import { ChevronRightIcon, FileDiffIcon, TerminalIcon, WrenchIcon } from './icons.js'
+import { ChevronRightIcon, FileDiffIcon, SearchIcon, TerminalIcon, WrenchIcon } from './icons.js'
+import { MessageTime } from './message.js'
 import { toolTranscriptPresentation } from './tool-transcript-presentation.js'
 import { ToolView } from './tool-view.js'
 import { elapsedLabel } from './transcript-layout.js'
@@ -18,23 +19,40 @@ export function ToolTranscriptRow({
 	const tool = thread.tools[id]
 	const presentation = toolTranscriptPresentation(thread, id)
 	if (!tool || !presentation) return null
-	const { label, state, statusLabel, detailView } = presentation
+	const { label, state, statusLabel, detailView, callDetail, quietCompleted } = presentation
 	const Icon =
-		tool.view.kind === 'terminal'
-			? TerminalIcon
-			: tool.view.kind === 'diff'
-				? FileDiffIcon
-				: WrenchIcon
+		tool.title === 'search_conversation' ||
+		(tool.toolCallId.startsWith('provider-hosted-web-search:') &&
+			(tool.title === 'Web search' || tool.title === 'Web fetch'))
+			? SearchIcon
+			: tool.view.kind === 'terminal'
+				? TerminalIcon
+				: tool.view.kind === 'diff'
+					? FileDiffIcon
+					: WrenchIcon
 	const active = state === 'running' || state === 'waiting'
-	const expandable = Boolean(detailView || tool.progress)
+	const expandable = Boolean(callDetail || detailView || tool.progress)
+	const duration =
+		tool.durationMs !== undefined && Number.isFinite(tool.durationMs) && tool.durationMs >= 0
+			? tool.durationMs < 1000
+				? `${tool.durationMs} ms`
+				: elapsedLabel(tool.durationMs)
+			: undefined
 	const contents = (
 		<>
 			<Icon className="tool-icon" aria-hidden="true" />
 			<span className="tool-label">{label}</span>
-			<span className="tool-status">{statusLabel}</span>
-			{tool.durationMs !== undefined && (
-				<span className="tool-duration" aria-label={`Duration: ${elapsedLabel(tool.durationMs)}`}>
-					{elapsedLabel(tool.durationMs)}
+			<span className={quietCompleted ? 'tool-status transcript-visually-hidden' : 'tool-status'}>
+				{statusLabel}
+			</span>
+			<MessageTime time={tool.startedTime ?? tool.endedTime} />
+			{duration && (
+				<span
+					className="tool-duration"
+					aria-label={`Duration: ${tool.durationMs} ms`}
+					title={`Duration: ${tool.durationMs} ms`}
+				>
+					{duration}
 				</span>
 			)}
 			{expandable && <ChevronRightIcon className="disclosure-chevron" aria-hidden="true" />}
@@ -59,6 +77,7 @@ export function ToolTranscriptRow({
 				{contents}
 			</CollapsibleTrigger>
 			<CollapsiblePanel>
+				{callDetail && <ToolView view={callDetail} state={state} />}
 				{detailView && <ToolView view={detailView} state={state} />}
 				{tool.progress && (
 					<output className="tool-progress">

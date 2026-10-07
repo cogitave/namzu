@@ -189,6 +189,28 @@ it('does not label failed or interrupted command groups as completed work', () =
 	expect(toolGroupLabel([tool, tool], false)).toBe('Ran commands')
 })
 
+it('groups only proved earlier-message checks under a plain label', () => {
+	const lookup = {
+		kind: 'tool_call' as const,
+		toolCallId: 'query',
+		title: 'search_conversation',
+		status: 'completed' as const,
+		view: { kind: 'terminal' as const, output: '' },
+	}
+	expect(toolGroupLabel([lookup, lookup], false, ['completed', 'completed'])).toBe(
+		'Checked earlier messages',
+	)
+	expect(toolGroupLabel([lookup, lookup], true, ['completed', 'running'])).toBe(
+		'Checking earlier messages',
+	)
+	expect(toolGroupLabel([lookup, lookup], true, ['completed', 'waiting'])).toBe(
+		'Waiting to check earlier messages',
+	)
+	expect(toolGroupLabel([lookup, lookup], false, ['completed', 'failed'])).toBe(
+		'Some earlier-message checks did not finish',
+	)
+})
+
 it('classifies actual stop metadata without promising unsupported recovery or blaming the user', () => {
 	expect(terminalNotice('stop_condition')).toBeUndefined()
 	for (const reason of ['cancelled', 'canceled', 'aborted'])

@@ -35,7 +35,10 @@ import {
 	workspaceGroups,
 } from '../shared/workspace-layout.js'
 import { DesktopDiagnostics, observeDesktopIpc, observeRendererConsole } from './diagnostics.js'
+import { externalSourceUrl } from './external-url.js'
 import { humanComputer } from './host-computer.js'
+import { LocalSpeechRouting } from './local-speech-routing.js'
+import { LocalSpeechService } from './local-speech.js'
 import { Operator } from './operator.js'
 import { PalStreamProxy } from './pal-stream-proxy.js'
 import { projectDraftOwner } from './project-draft-owner.js'
@@ -137,10 +140,49 @@ const workspace = new WorkspaceWindows(
 const transferTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const closeTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const allowNativeClose = new Set<string>()
+const localSpeech = new LocalSpeechService({
+	directory: join(app.getPath('userData'), 'local-speech'),
+	// Chromium uses the native trust store and proxy policy; never disable TLS verification.
+	fetch: (input, init) => net.fetch(input instanceof URL ? input.href : input, init),
+})
+const localSpeechRouting = new LocalSpeechRouting(localSpeech, {
+	assertOwner: (windowId, sessionId) => {
+		const window = windows.entries().find(([id]) => id === windowId)?.[1]
+		if (!window || window.isDestroyed()) throw new Error('This speech window has closed.')
+		workspace.assertWindowWritable(windowId)
+		if (workspace.view(windowId).closingWindow) throw new Error('This speech window is closing.')
+		if (sessionId !== undefined) workspace.assertOwner(windowId, sessionId)
+	},
+	deliver: (windowId, event) => {
+		const window = windows.entries().find(([id]) => id === windowId)?.[1]
+		if (window && !window.isDestroyed()) window.webContents.send('namzu:local-speech-event', event)
+	},
+})
+let observedSpeechFailure: string | undefined
+function observeSpeechFailure(message: string | undefined, operation: string): void {
+	// Compare private fixed failure messages for deduplication; never write their text or audio.
+	if (message && observedSpeechFailure !== message)
+		diagnostics.record('local_speech_failed', { operation })
+	observedSpeechFailure = message
+}
+localSpeech.subscribe((event) => {
+	if (event.type === 'state') {
+		observeSpeechFailure(
+			event.state.error,
+			event.state.installation === 'failed' ? 'localSpeechInstall' : 'localSpeechState',
+		)
+		for (const [, window] of windows.entries())
+			if (!window.isDestroyed()) window.webContents.send('namzu:local-speech-event', event)
+	} else {
+		if (event.type === 'error') observeSpeechFailure(event.message, 'localSpeechSpeak')
+		localSpeechRouting.event(event)
+	}
+})
 function discardAbortedWindows(): void {
 	const current = new Set(workspace.snapshot().windows.map((item) => item.id))
 	for (const [id, window] of windows.entries())
 		if (!current.has(id)) {
+			localSpeechRouting.cancelWindow(id)
 			windows.remove(id)
 			if (!window.isDestroyed()) window.destroy()
 		}
@@ -267,6 +309,8 @@ function register(): void {
 		['stopJob', 0],
 	])
 	const globalWrites = new Set([
+		'localSpeechConfigure',
+		'localSpeechInstall',
 		'createPal',
 		'updatePal',
 		'deletePal',
@@ -394,6 +438,21 @@ function register(): void {
 		return view
 	})
 	handle('diagnostics', () => diagnostics.view())
+	handle('openExternal', (url: unknown) => shell.openExternal(externalSourceUrl(url)))
+	handle('localSpeechState', async () => {
+		const state = await localSpeech.state()
+		observeSpeechFailure(state.error, 'localSpeechState')
+		return state
+	})
+	handle('localSpeechConfigure', (settings: Parameters<LocalSpeechService['configure']>[0]) =>
+		localSpeech.configure(settings),
+	)
+	handle('localSpeechInstall', () => localSpeech.install())
+	registerHandler('localSpeechSpeak', ({ id }, args) => localSpeechRouting.speak(id, args[0]))
+	registerHandler('localSpeechCancel', ({ id }, args) => localSpeechRouting.cancel(id, args[0]))
+	registerHandler('localSpeechAcknowledge', ({ id }, args) =>
+		localSpeechRouting.acknowledge(id, args[0], args[1]),
+	)
 	handleWindow('setComputerKeyboardCapture', ({ window }, enabled: boolean) => {
 		if (typeof enabled !== 'boolean') throw new Error('Invalid computer keyboard focus.')
 		window.webContents.setIgnoreMenuShortcuts(enabled)
@@ -727,6 +786,7 @@ async function createWindow(
 	})
 	window.webContents.on('will-attach-webview', (event) => event.preventDefault())
 	const abortTransfers = () => {
+		localSpeechRouting.cancelWindow(windowId)
 		workspace.abortTransfers(windowId)
 		discardAbortedWindows()
 	}
@@ -752,6 +812,10 @@ async function createWindow(
 		observeRendererConsole(diagnostics, details),
 	)
 	window.webContents.on('did-start-loading', () => window.webContents.setIgnoreMenuShortcuts(false))
+	window.webContents.on('did-start-navigation', (details) => {
+		// A new document cannot acknowledge the old document's queued audio.
+		if (details.isMainFrame && !details.isSameDocument) localSpeechRouting.cancelWindow(windowId)
+	})
 	window.once('ready-to-show', () => window.show())
 	const saveBounds = () => {
 		if (!window.isDestroyed() && !window.isMinimized() && !window.isMaximized())
@@ -783,6 +847,7 @@ async function createWindow(
 		closeTimers.set(windowId, timer)
 	})
 	window.on('closed', () => {
+		localSpeechRouting.cancelWindow(windowId)
 		windows.remove(windowId)
 		const timer = closeTimers.get(windowId)
 		if (timer) clearTimeout(timer)
@@ -815,8 +880,7 @@ app.on('before-quit', (event) => {
 	event.preventDefault()
 	if (quitting) return
 	quitting = true
-	void operator
-		.close()
+	void Promise.all([operator.close(), localSpeech.dispose()])
 		.then(async () => {
 			await streamProxy.shutdown()
 			stopped = true

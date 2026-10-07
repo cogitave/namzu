@@ -1,0 +1,41 @@
+{
+  "passed": true,
+  "platform": "win32",
+  "at": "2026-10-07T08:08:22.239Z",
+  "device": "cpu",
+  "text": "Merhaba! Ben Namzu. Türkçe seslendirme bu cihazda çalışıyor.",
+  "modelRevision": "7a6ba1ad216bb2f1da9863f80ac8770a6a807632",
+  "sourceRevision": "129e39c7d9feb56de9c6830e94a630f04fc8aa03",
+  "installation": {
+    "installMs": 7.3097000000000065,
+    "operations": 0,
+    "runtimeDownloadBytes": 159434971,
+    "diskBytes": 933877163,
+    "note": "This inference run reused the existing approved installation; installMs is verification of that installation, not a download benchmark. Initial successful installation took about 51.16 seconds."
+  },
+  "inference": {
+    "reason": "completed",
+    "frames": 90,
+    "maxPcmBytes": 9600,
+    "audioSeconds": 17.57,
+    "firstAudioMs": 3815.7293,
+    "totalMs": 5340.8132
+  },
+  "resources": {
+    "modelDownloadBytes": 34389147,
+    "runtimeDownloadBytes": 159434971,
+    "diskBytes": 933877163,
+    "ramBytes": 419803136,
+    "cpuPercent": 253.4975974135116,
+    "vramBytes": null,
+    "firstAudioMs": 3757.4425,
+    "measuredAt": "2026-10-07T08:08:22.238Z"
+  },
+  "limitations": [
+    "PCM drained to a file, not real speaker playback.",
+    "No subjective Turkish pronunciation rating.",
+    "First-audio timing includes a cold worker.",
+    "Initial worker lacked explicit Python UTF-8 mode; Windows cp1252 corrupted Turkish input. See native-unicode-pipe-proof.json and native-cpu-proof-corrected.json. Retained as diagnostic evidence; not final speech quality proof."
+  ],
+  "superseded": true
+}

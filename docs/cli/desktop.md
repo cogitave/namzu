@@ -13,6 +13,56 @@ The private `@namzu/desktop` application is a native operator preview. It uses
 providers, tools, MCP servers, plugins, policy and the kernel; the app does not
 import CLI code or create a second agent execution loop.
 
+## Local Turkish speech
+
+The composer's **Voice** control offers Turkish playback through EMA Lightning
+1.0.1 on this device. **Speech language** selects the synthesis language; it does
+not change the model's chat language. This engine supplies one Turkish voice and
+runs on CPU. Microphone transcription and automatic voice conversation are not
+implemented by this feature.
+
+Speech is disabled initially. **Download voice** explicitly installs an isolated
+Python environment below the profile's `local-speech/` directory; Python
+3.11–3.14 must already be available. Nothing is downloaded or loaded by opening
+the application or changing a preference. The model is pinned to Hugging Face
+revision `7a6ba1ad216bb2f1da9863f80ac8770a6a807632`; both weights and the EMA wheel
+are SHA-256 verified. The CPU runtime uses pinned Torch/NumPy/normalizer versions,
+and weights load with restricted `weights_only=True`. Desktop uses Chromium's
+native certificate/proxy policy for the download. An unsuccessful install rolls
+back only its own new runtime directory after its owned process has closed.
+
+**Preview voice** plays a fixed Turkish sample even while the preference is
+disabled. Enabling voice adds **Read aloud** to settled assistant replies;
+playback starts only when clicked. Replies are limited to 8,000 characters. A
+separate Python worker sends mono 24 kHz signed 16-bit PCM in at most 200 ms
+frames. No more than two frames await actual WebAudio playback acknowledgement.
+Changing conversations, retiring a pane, moving its window ownership, document
+reload, Stop or closing the application cancels the exact request and fences late
+audio. Each stream belongs to the requesting window; audio is not broadcast to
+other windows. Isolated Python explicitly uses UTF-8 so native Windows pipes
+preserve Turkish text independently of the system locale. Global voice
+installation does not delay conversation transfers or draft flushes.
+
+The resource card separates the 34,389,147-byte model download from the Python
+runtime and installed disk size. Worker resident memory, CPU use and first-audio
+latency appear only after measurement; unavailable values say **Not measured**.
+GPU memory is inapplicable to this CPU implementation. CPU percentage refers to
+one core, so multithreaded work may exceed 100%. Measurements exclude Desktop
+itself and are not an estimate for another device. **Free memory when idle**
+unloads the model after five minutes; disabling that option retains it until
+explicit cancellation or application shutdown. Reloading after an unload adds
+latency to the next playback.
+
+The [isolated renderer receipt](../../research/local-speech-20261007/artifacts/renderer-proof.json)
+checks actual popovers, WebAudio playback acknowledgement, split-pane label
+identity, owner cancellation and error visibility with synthetic PCM. Actual EMA
+installation/inference and native application activation are separate checks.
+The [native playback receipt](../../research/local-speech-20261007/artifacts/native-renderer-preview.json)
+records real EMA PCM and WebAudio completion without changing the disabled voice
+preference or speaking authored user messages. The
+[verification notes](../../research/local-speech-20261007/README.md) separate initial
+installation, corrected UTF-8 inference, and observed device resource use.
+
 ## Run from source
 
 Install and build the workspace, then launch with the checkout's built CLI:
@@ -1231,6 +1281,44 @@ can display an explicitly recorded runtime duration, with a tooltip identifying
 it as saved work time. This is distinct from the native host admission clock;
 the desktop does not invent historical start/end timestamps or reconstruct
 reasoning bodies. Legacy history with no saved timing keeps it absent.
+
+Message and work-row timestamps now preserve their source. Live updates retain
+the native host's first observed time and actual observed settlement; cold
+history uses validated journal timestamps attached to the same message/turn/tool
+identity. Bounded history rows retain a journal message ID only when that ID
+passes validation; older rows without a known ID remain readable. The clock
+tooltip distinguishes **Observed by Namzu** from **Recorded
+in conversation**. Reopening or switching tabs does not replace these values
+with the current time. Missing legacy clocks remain absent. Timeline order still
+follows admitted event/journal order rather than sorting by potentially adjusted
+wall clocks.
+
+Provider-hosted web searches/fetches appear as named work steps. Saved history
+restores their actual terminal receipt and reported query/result count, including
+conversations written before Desktop displayed those events. A missing terminal
+receipt stays interrupted. Provider result counts do not supply result titles or
+URLs. Assistant citations open only validated HTTP(S) links through main's
+authenticated system-browser bridge, after a user click; remote message media
+and privileged renderer navigation remain blocked. A sole HTTP(S) source URL in
+inline code remains styled as code and opens through the same bridge. URLs in
+fenced code, commands and unsafe schemes remain inert.
+
+Work details use one turn disclosure and a compact rail of steps. Exact
+`search_conversation` actions say **Checked earlier messages**; their query
+strings are available in the explicit detail rather than being mistaken for
+tool names. Qualified provider-hosted search receipts say **Searched the web**.
+Routine completion labels and exact row clocks stay visually quiet; hover and
+keyboard focus reveal time and duration without replacing their recorded
+values. Failed and waiting states remain visible. The turn summary continues to
+distinguish actual live Thinking/Working from settled work.
+
+Design evidence comes from inspected WAI seeded UI and the public
+[Beautiful UI](https://www.beautifului.dev/) Thinking, Tool Chips and Sources
+examples, plus [AI Elements](https://elements.ai-sdk.dev/components/chain-of-thought)
+and [shadcn Item](https://ui.shadcn.com/docs/components/item). These are component
+and layout comparisons, not proof of execution or a claim of pixel parity.
+The [research and renderer checks](../../research/transcript-search-timing-20261007/README.md)
+record inspected states, actual source-derived fixtures and supported window sizes.
 
 Streaming follows the latest message only while the reader is at the bottom.
 Reading older output preserves its position as new messages arrive. A small,

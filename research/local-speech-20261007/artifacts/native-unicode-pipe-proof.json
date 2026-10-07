@@ -1,0 +1,16 @@
+{
+  "passed": true,
+  "platform": "win32",
+  "at": "2026-10-07T08:25:56.565Z",
+  "fixedSampleOnly": true,
+  "original": {
+    "encoding": "cp1252",
+    "text": "Merhaba! Ben Namzu. TÃ¼rkÃ§e seslendirme bu cihazda Ã§alÄ±ÅŸÄ±yor."
+  },
+  "corrected": {
+    "encoding": "utf-8",
+    "text": "Merhaba! Ben Namzu. Türkçe seslendirme bu cihazda çalışıyor."
+  },
+  "originalPreservedUnicode": false,
+  "correctedPreservedUnicode": true
+}

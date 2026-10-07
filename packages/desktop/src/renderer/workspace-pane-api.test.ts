@@ -17,6 +17,47 @@ function deferred<T>() {
 const bridge = (methods: Partial<DesktopApi>): DesktopApi => methods as DesktopApi
 
 describe('pane write admission', () => {
+	it('keeps app-owned voice downloads out of conversation flushes and fences stale completion', async () => {
+		const download = deferred<Awaited<ReturnType<NonNullable<DesktopApi['localSpeechInstall']>>>>()
+		const localSpeechInstall = vi.fn(() => download.promise)
+		const controller = createWorkspacePaneApi(bridge({ localSpeechInstall }), {
+			owns: () => true,
+			blocked: () => false,
+		})
+		const installation = controller.api.localSpeechInstall!()
+		await controller.flush()
+		controller.invalidate()
+		download.resolve({} as Awaited<ReturnType<NonNullable<DesktopApi['localSpeechInstall']>>>)
+		await expect(installation).rejects.toThrow('closed')
+		expect(localSpeechInstall).toHaveBeenCalledOnce()
+	})
+	it('cancels only this pane voice during invalidation and refuses a foreign conversation', async () => {
+		const localSpeechSpeak = vi.fn(async (input) => ({ requestId: input.requestId }))
+		const localSpeechCancel = vi.fn(async () => {})
+		const controller = createWorkspacePaneApi(bridge({ localSpeechSpeak, localSpeechCancel }), {
+			owns: (owner) => owner === 'mine',
+			blocked: () => false,
+		})
+		await expect(
+			controller.api.localSpeechSpeak!({
+				requestId: 'foreign',
+				sessionId: 'other',
+				text: 'Hello',
+				language: 'tr',
+			}),
+		).rejects.toThrow('another pane')
+		await controller.api.localSpeechSpeak!({
+			requestId: 'mine-voice',
+			sessionId: 'mine',
+			text: 'Merhaba',
+			language: 'tr',
+		})
+		controller.invalidate()
+		expect(localSpeechCancel).toHaveBeenCalledWith('mine-voice')
+		expect(localSpeechCancel).toHaveBeenCalledTimes(1)
+		await controller.api.localSpeechCancel!('unknown-voice')
+		expect(localSpeechCancel).toHaveBeenCalledTimes(1)
+	})
 	it('wraps optional deletion/removal as authenticated global mutations even for an inactive Recent', async () => {
 		const deletePal = vi
 			.fn<NonNullable<DesktopApi['deletePal']>>()

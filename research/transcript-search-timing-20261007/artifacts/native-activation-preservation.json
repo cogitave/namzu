@@ -1,0 +1,121 @@
+{
+  "passed": true,
+  "records": [
+    {
+      "passed": true,
+      "nativeWindows": true,
+      "at": "2026-10-07T08:31:44.909Z",
+      "packageInstalls": 0,
+      "sdkCopies": 1,
+      "cliModuleCopies": 1,
+      "modelRequests": 0,
+      "computerActions": 0,
+      "sourceFiles": 730,
+      "sourceManifestSha256": "f404c3b5ced830eeebab3c4dc90e15f18a87040f9c78e56a0c77a2a73f5af93b",
+      "launchConfigSha256": "0cea7da46af9d9bc24915a559f8a58f7f3d1973a4eef3963acb3ebaa562dc742",
+      "launcherSha256": "ca9aafb2a9f00a335bc2c53fe24dcd07ec8c2cda9033e55a743280cfb0e16509",
+      "desktopPackageSha256": "7c6aeb23b754fa256b46bf2b7caafb61fffd03ba0cb5478ab79f6973c864c4f9",
+      "phase": "complete",
+      "checks": [
+        "applied 1 changed CLI and 1 changed SDK module(s) after graceful close; reviewed 7 CLI and 2 SDK module(s)",
+        "staged complete built desktop and retained old dist as backup",
+        "fresh desktop main/preload/renderer",
+        "original tab order and active conversation restored",
+        "messages, drafts, model/settings, files, tasks, profiles and computers preserved",
+        "launch and dependency graph unchanged"
+      ],
+      "beforePid": 39636,
+      "afterPid": 31156,
+      "before": {
+        "groups": "b3a694a35f10ce088679dd4cd6ba77c57764797cd33ed9867f8489bb7942c34d",
+        "catalogues": "a92c3baa3873d9702c72d026749fd84fd6f79852b81da2918debecd819bb6850",
+        "profiles": "b2aedecc6991fa7b99ef1783bb0ed61bd2a80d8239e15d1901521d254072b3d7",
+        "computers": "b09ea1417ab1123fab7f0d3bc86251af0302468681b8f84b236b4c123824eb20",
+        "projects": "2f5af3c8210644d12a05c7b073f3f957a89a8186e8e2d974be115e7dd4fbcf91",
+        "presentation": "8d4a7f16316fdecc4bf697e2bffdcf4d4f94c954a3f8dfcde44943840a104def",
+        "sessions": "103ece237cf2ad8dc78b76323fadb52ce4296c3ed6eea1bd2bfdbc1c8c2f5ec3"
+      },
+      "after": {
+        "groups": "b3a694a35f10ce088679dd4cd6ba77c57764797cd33ed9867f8489bb7942c34d",
+        "catalogues": "a92c3baa3873d9702c72d026749fd84fd6f79852b81da2918debecd819bb6850",
+        "profiles": "b2aedecc6991fa7b99ef1783bb0ed61bd2a80d8239e15d1901521d254072b3d7",
+        "computers": "b09ea1417ab1123fab7f0d3bc86251af0302468681b8f84b236b4c123824eb20",
+        "projects": "2f5af3c8210644d12a05c7b073f3f957a89a8186e8e2d974be115e7dd4fbcf91",
+        "presentation": "8d4a7f16316fdecc4bf697e2bffdcf4d4f94c954a3f8dfcde44943840a104def",
+        "sessions": "103ece237cf2ad8dc78b76323fadb52ce4296c3ed6eea1bd2bfdbc1c8c2f5ec3"
+      },
+      "dependencyLinks": 225,
+      "sdkUsers": 11,
+      "cliDependencyGraphSha256": "a81fdca7a7bc96c4cf3fd85956ccc0fff08748f019705b49c093f499b7e8764c",
+      "sdkDependencyGraphSha256": "f225bf056f6807d92ec336dd875499f639a46a9989f86434adc7181c641d7790",
+      "packageGraphManifestSha256": "4718aee7db9074891527ad308afb2a7da61a78c9e0edd86d78a901e56949f57c",
+      "packageGraphSha256": "960245d5bde908186f6ba39df824692384b9c771c87f6a37abf4b75620ad049b",
+      "ownedProcessesConfirmedClosed": true,
+      "journalClocksValidated": true,
+      "sourceBytesMatch": true,
+      "durableJournalCount": 1,
+      "durableJournalBytesPreserved": true
+    },
+    {
+      "passed": true,
+      "nativeWindows": true,
+      "at": "2026-10-07T08:52:03.243Z",
+      "packageInstalls": 0,
+      "sdkCopies": 0,
+      "cliModuleCopies": 0,
+      "modelRequests": 0,
+      "computerActions": 0,
+      "sourceFiles": 730,
+      "sourceManifestSha256": "a02e5f79a049a24f86b0a462d898085f3833b79b1ac81f510ebc86bd423f62dc",
+      "launchConfigSha256": "0cea7da46af9d9bc24915a559f8a58f7f3d1973a4eef3963acb3ebaa562dc742",
+      "launcherSha256": "ca9aafb2a9f00a335bc2c53fe24dcd07ec8c2cda9033e55a743280cfb0e16509",
+      "desktopPackageSha256": "7c6aeb23b754fa256b46bf2b7caafb61fffd03ba0cb5478ab79f6973c864c4f9",
+      "phase": "complete",
+      "checks": [
+        "applied 0 changed CLI and 0 changed SDK module(s) after graceful close; reviewed 7 CLI and 2 SDK module(s)",
+        "staged complete built desktop and retained old dist as backup",
+        "fresh desktop main/preload/renderer",
+        "original tab order and active conversation restored",
+        "messages, drafts, model/settings, files, tasks, profiles and computers preserved",
+        "launch and dependency graph unchanged"
+      ],
+      "beforePid": 31156,
+      "afterPid": 43224,
+      "before": {
+        "groups": "b3a694a35f10ce088679dd4cd6ba77c57764797cd33ed9867f8489bb7942c34d",
+        "catalogues": "fe0710bdd6cba1d8e76152b22d04df617b552825756ad14abd1c169ea48950ac",
+        "profiles": "b2aedecc6991fa7b99ef1783bb0ed61bd2a80d8239e15d1901521d254072b3d7",
+        "computers": "b09ea1417ab1123fab7f0d3bc86251af0302468681b8f84b236b4c123824eb20",
+        "projects": "2f5af3c8210644d12a05c7b073f3f957a89a8186e8e2d974be115e7dd4fbcf91",
+        "presentation": "8d4a7f16316fdecc4bf697e2bffdcf4d4f94c954a3f8dfcde44943840a104def",
+        "sessions": "579b6b55aeb14925ab52456105d3b2a1a48f31f69be32e9c5b4ee3920a544f68"
+      },
+      "after": {
+        "groups": "b3a694a35f10ce088679dd4cd6ba77c57764797cd33ed9867f8489bb7942c34d",
+        "catalogues": "fe0710bdd6cba1d8e76152b22d04df617b552825756ad14abd1c169ea48950ac",
+        "profiles": "b2aedecc6991fa7b99ef1783bb0ed61bd2a80d8239e15d1901521d254072b3d7",
+        "computers": "b09ea1417ab1123fab7f0d3bc86251af0302468681b8f84b236b4c123824eb20",
+        "projects": "2f5af3c8210644d12a05c7b073f3f957a89a8186e8e2d974be115e7dd4fbcf91",
+        "presentation": "8d4a7f16316fdecc4bf697e2bffdcf4d4f94c954a3f8dfcde44943840a104def",
+        "sessions": "579b6b55aeb14925ab52456105d3b2a1a48f31f69be32e9c5b4ee3920a544f68"
+      },
+      "dependencyLinks": 225,
+      "sdkUsers": 11,
+      "cliDependencyGraphSha256": "a81fdca7a7bc96c4cf3fd85956ccc0fff08748f019705b49c093f499b7e8764c",
+      "sdkDependencyGraphSha256": "f225bf056f6807d92ec336dd875499f639a46a9989f86434adc7181c641d7790",
+      "packageGraphManifestSha256": "4718aee7db9074891527ad308afb2a7da61a78c9e0edd86d78a901e56949f57c",
+      "packageGraphSha256": "960245d5bde908186f6ba39df824692384b9c771c87f6a37abf4b75620ad049b",
+      "ownedProcessesConfirmedClosed": true,
+      "journalClocksValidated": true,
+      "sourceBytesMatch": true,
+      "durableJournalCount": 1,
+      "durableJournalBytesPreserved": true,
+      "voicePreferencesAndInstallationPreserved": true
+    }
+  ],
+  "limits": [
+    "Digests and aggregate checks only; no private profile, conversation body, draft, path, or journal identifiers published.",
+    "Dependency graph remains unchanged; this is local native activation, not packaging or release validation.",
+    "The first activation updated one CLI history module and one SDK ACP mapping module. The later refresh updated Desktop only."
+  ]
+}

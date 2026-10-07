@@ -1,0 +1,198 @@
+.local-speech-positioner,
+.local-speech-popup {
+	width: min(328px, calc(100vw - 24px));
+	max-width: var(--available-width);
+}
+.local-speech-settings {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	padding: 12px;
+	font-size: 12px;
+	line-height: 1.5;
+}
+.local-speech-heading,
+.local-speech-field,
+.local-speech-toggle,
+.local-speech-engine {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	min-width: 0;
+}
+.local-speech-heading {
+	gap: 8px;
+}
+.local-speech-heading h2 {
+	margin: 0;
+	font-size: 14px;
+	font-weight: 500;
+}
+.local-speech-help,
+.local-speech-notice {
+	margin: 0;
+	color: var(--muted-foreground);
+	font-size: 12px;
+	line-height: 1.5;
+}
+.local-speech-help {
+	margin-top: -6px;
+}
+.local-speech-badge {
+	flex: none;
+	padding: 2px 6px;
+	border-radius: 5px;
+	background: color-mix(in srgb, var(--foreground) 6%, transparent);
+	color: var(--muted-foreground);
+	font-size: 10px;
+	line-height: 16px;
+	white-space: nowrap;
+}
+.local-speech-toggle {
+	cursor: pointer;
+}
+.local-speech-toggle input {
+	flex: none;
+	width: 14px;
+	height: 14px;
+	accent-color: var(--primary);
+	cursor: inherit;
+}
+.local-speech-toggle input:focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: 3px;
+}
+.local-speech-toggle:has(input:disabled) {
+	cursor: default;
+	opacity: 0.65;
+}
+.local-speech-field [data-slot="select-trigger"] {
+	flex: 1;
+	width: auto;
+	min-width: 126px;
+}
+.local-speech-field > span {
+	flex: none;
+}
+.local-speech-engine {
+	padding-top: 10px;
+	border-top: 1px solid var(--border);
+}
+.local-speech-engine > div {
+	display: flex;
+	flex-direction: column;
+	gap: 1px;
+}
+.local-speech-engine strong {
+	font-size: 12px;
+	font-weight: 500;
+}
+.local-speech-engine > div > span {
+	color: var(--muted-foreground);
+	font-size: 11px;
+}
+.local-speech-resources {
+	padding: 10px;
+	border: 1px solid var(--border);
+	border-radius: 9px;
+	background: color-mix(in srgb, var(--foreground) 3%, transparent);
+}
+.local-speech-resources header {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	margin-bottom: 8px;
+	font-weight: 500;
+}
+.local-speech-resources header svg {
+	width: 13px;
+	height: 13px;
+	color: var(--muted-foreground);
+}
+.local-speech-resources dl {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	margin: 0;
+}
+.local-speech-resources dl > div {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 12px;
+}
+.local-speech-resources dt {
+	color: var(--muted-foreground);
+	font-size: 11px;
+}
+.local-speech-resources dd {
+	flex: none;
+	margin: 0;
+	font-size: 11px;
+	font-variant-numeric: tabular-nums;
+}
+.local-speech-resources p {
+	margin: 8px 0 0;
+	color: var(--muted-foreground);
+	font-size: 10px;
+	line-height: 1.5;
+}
+.local-speech-resource-details {
+	margin-top: 6px;
+}
+.local-speech-details-trigger {
+	display: inline-flex;
+	align-items: center;
+	gap: 3px;
+	padding: 0;
+	border: 0;
+	background: transparent;
+	color: var(--muted-foreground);
+	font: inherit;
+	font-size: 10px;
+}
+.local-speech-details-trigger svg {
+	width: 11px;
+	height: 11px;
+	transition: rotate 120ms var(--motion-ease);
+}
+.local-speech-details-trigger[data-panel-open] svg {
+	rotate: 180deg;
+}
+.local-speech-details-trigger:focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: 3px;
+}
+.local-speech-resource-details [data-slot="collapsible-panel"] dl {
+	padding-top: 6px;
+}
+.local-speech-memory span {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+.local-speech-memory small {
+	color: var(--muted-foreground);
+	font-size: 10px;
+}
+.local-speech-actions {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+.local-speech-error {
+	color: var(--destructive);
+	overflow-wrap: anywhere;
+}
+.local-speech-read-aloud {
+	transition: color 120ms var(--motion-ease), background-color 120ms var(--motion-ease);
+}
+@media (prefers-reduced-motion: reduce) {
+	.local-speech-read-aloud {
+		transition: none;
+	}
+	.local-speech-details-trigger svg {
+		transition: none;
+	}
+}

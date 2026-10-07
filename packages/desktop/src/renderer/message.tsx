@@ -1,8 +1,138 @@
 /* Adapted UI component. License and provenance: packages/desktop/THIRD-PARTY-NOTICES.txt. */
-import { type HTMLAttributes, memo } from 'react'
+import {
+	type ComponentPropsWithoutRef,
+	type HTMLAttributes,
+	type ReactNode,
+	createContext,
+	memo,
+	useContext,
+	useState,
+} from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import type { ChatMessage } from '../shared/protocol.js'
 import { cn } from './lib/utils.js'
+
+function externalWebUrl(value: string | undefined): string | undefined {
+	if (!value || value.length > 8192) return undefined
+	for (let index = 0; index < value.length; index++) {
+		const code = value.charCodeAt(index)
+		if (code < 32 || code === 127) return undefined
+	}
+	try {
+		const url = new URL(value)
+		if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password)
+			return undefined
+		return url.href
+	} catch {
+		return undefined
+	}
+}
+
+function MessageLink({ children, href }: { children?: ReactNode; href?: string }) {
+	const [failed, setFailed] = useState(false)
+	const url = externalWebUrl(href)
+	if (!url || typeof window === 'undefined' || !window.namzu?.openExternal)
+		return (
+			<span className="message-link" title={href}>
+				{children}
+			</span>
+		)
+	return (
+		<>
+			<a
+				className="message-link"
+				href={url}
+				target="_blank"
+				rel="noopener noreferrer"
+				onClick={(event) => {
+					event.preventDefault()
+					void window.namzu.openExternal?.(url).catch(() => setFailed(true))
+				}}
+			>
+				{children}
+			</a>
+			{failed && (
+				<span className="notice" role="alert">
+					Could not open link.
+				</span>
+			)}
+		</>
+	)
+}
+
+const CodeBlockContext = createContext(false)
+
+function MarkdownPre({
+	node: _node,
+	children,
+	...props
+}: ComponentPropsWithoutRef<'pre'> & { node?: unknown }) {
+	return (
+		<CodeBlockContext.Provider value={true}>
+			<pre {...props}>{children}</pre>
+		</CodeBlockContext.Provider>
+	)
+}
+
+function MarkdownCode({
+	node: _node,
+	children,
+	...props
+}: ComponentPropsWithoutRef<'code'> & { node?: unknown }) {
+	const block = useContext(CodeBlockContext)
+	const text = typeof children === 'string' ? children : undefined
+	const url = !block && text && /^https?:\/\/\S+$/.test(text) ? externalWebUrl(text) : undefined
+	return <code {...props}>{url ? <MessageLink href={url}>{text}</MessageLink> : children}</code>
+}
+
+/** A known clock only; source stays explicit in its full-date tooltip. */
+const messageClock = new Intl.DateTimeFormat(undefined, {
+	hour: '2-digit',
+	minute: '2-digit',
+	second: '2-digit',
+	hour12: false,
+})
+const messageFullTime = new Intl.DateTimeFormat(undefined, {
+	dateStyle: 'medium',
+	timeStyle: 'medium',
+})
+
+export function MessageTime({
+	time,
+	focusable = false,
+}: { time?: ChatMessage['time']; focusable?: boolean }) {
+	const [expanded, setExpanded] = useState(false)
+	if (!time || !Number.isFinite(time.at) || time.at < 0 || time.at > 8_640_000_000_000_000)
+		return null
+	const date = new Date(time.at)
+	const label = messageClock.format(date)
+	const full = messageFullTime.format(date)
+	const description = `${time.source === 'journal' ? 'Recorded in conversation' : 'Observed by Namzu'}: ${full}`
+	if (focusable)
+		return (
+			<button
+				type="button"
+				className="message-time"
+				aria-label={description}
+				aria-pressed={expanded}
+				title={description}
+				onClick={() => setExpanded((value) => !value)}
+			>
+				<time dateTime={date.toISOString()}>{expanded ? full : label}</time>
+			</button>
+		)
+	return (
+		<time
+			className="message-time"
+			dateTime={date.toISOString()}
+			aria-label={description}
+			title={description}
+		>
+			{label}
+		</time>
+	)
+}
 
 export function Message({
 	className,
@@ -33,12 +163,10 @@ const MarkdownContent = memo(function MarkdownContent({ text }: { text: string }
 				remarkPlugins={[remarkGfm]}
 				skipHtml
 				components={{
-					// These messages cannot load remote media or start navigation.
-					a: ({ children, href }) => (
-						<span className="message-link" title={href}>
-							{children}
-						</span>
-					),
+					// Remote media stays inert; web links require the owned main bridge.
+					a: MessageLink,
+					pre: MarkdownPre,
+					code: MarkdownCode,
 					img: ({ alt }) => <span className="notice">{alt || 'Image'}</span>,
 					table: ({ children }) => (
 						<div className="table-scroll">

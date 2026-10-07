@@ -90,6 +90,56 @@ it('restores ordered receipts and actual steering ownership without fabricating 
 	expect(restored.reasoning).toEqual({})
 })
 
+it('restores only journal-proven hosted search activity and its recorded boundaries', () => {
+	const work = snapshot()
+	work.tools = [
+		{
+			turnId: 't1',
+			toolUseId: 'provider-hosted-web-search:0:search',
+			name: 'Web search',
+			order: 4,
+			status: 'completed',
+			hosted: true,
+			startedAt: 1_700_000_000_000,
+			endedAt: 1_700_000_002_000,
+			presentation: {
+				kind: 'generic',
+				label: 'Web search: H100 hourly price · 9 sources',
+				presentation: 'activity',
+			},
+		},
+	]
+	work.turns[0]!.startedAt = 1_700_000_000_000
+	work.turns[0]!.endedAt = 1_700_000_005_000
+	const restored = restoreHistoryWork(emptyThread(), messages, work)
+	const hosted = restored.tools['1:provider-hosted-web-search:0:search']
+	expect(hosted?.view).toEqual(work.tools[0]?.presentation)
+	expect(hosted?.startedTime).toEqual({ at: 1_700_000_000_000, source: 'journal' })
+	expect(hosted?.endedTime).toEqual({ at: 1_700_000_002_000, source: 'journal' })
+	expect(restored.turns[1]).toMatchObject({
+		startedTime: { at: 1_700_000_000_000, source: 'journal' },
+		endedTime: { at: 1_700_000_005_000, source: 'journal' },
+	})
+	expect(
+		toolTranscriptPresentation(restored, '1:provider-hosted-web-search:0:search'),
+	).toMatchObject({
+		label: 'Searched the web',
+		state: 'completed',
+		detailView: { kind: 'generic', label: 'Web search: H100 hourly price · 9 sources' },
+	})
+	work.tools[0] = {
+		...work.tools[0]!,
+		status: 'interrupted',
+		presentation: undefined,
+		endedAt: undefined,
+	}
+	const interrupted = restoreHistoryWork(emptyThread(), messages, work)
+	expect(
+		toolTranscriptPresentation(interrupted, '1:provider-hosted-web-search:0:search'),
+	).toMatchObject({ label: 'Web search interrupted', state: 'interrupted' })
+	expect(JSON.stringify(interrupted.tools)).not.toContain('9 sources')
+})
+
 it('preserves a live projection and preserves the text-only legacy fallback', () => {
 	const thread = {
 		...emptyThread(),

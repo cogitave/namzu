@@ -17,6 +17,21 @@ export function toolGroupLabel(
 	active: boolean,
 	states?: ToolTranscriptState[],
 ): string {
+	if (tools.length && tools.every((tool) => tool.title === 'search_conversation')) {
+		if (
+			states?.some(
+				(state) =>
+					state === 'failed' ||
+					state === 'cancelled' ||
+					state === 'interrupted' ||
+					state === 'skipped',
+			)
+		)
+			return 'Some earlier-message checks did not finish'
+		if (states?.some((state) => state === 'waiting')) return 'Waiting to check earlier messages'
+		if (active) return 'Checking earlier messages'
+		return 'Checked earlier messages'
+	}
 	const commands = tools.some(
 		(tool) =>
 			(tool.view.kind === 'terminal' && tool.view.command?.trim()) ||

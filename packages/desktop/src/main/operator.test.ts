@@ -230,7 +230,8 @@ it('retains the exact paused reason from a response without misreporting a compl
 		reason: 'paused',
 	})
 	expect(first?.error).toBeUndefined()
-	expect(first?.messages).toEqual([{ role: 'user', text: 'Pause turn with fixture' }])
+	expect(first?.messages).toMatchObject([{ role: 'user', text: 'Pause turn with fixture' }])
+	expect(first?.messages[0]?.time).toEqual({ at: clock, source: 'host' })
 	expect((await owner.openConversation(project.id, session.id)).thread?.turns).toEqual(first?.turns)
 })
 
@@ -358,7 +359,7 @@ it('keeps drafts available during connection failure and restores them after rec
 	expect(await owner.listConversations(project.id)).toContainEqual(
 		expect.objectContaining({ id: session.id }),
 	)
-	expect((await owner.openConversation(project.id, session.id)).messages).toEqual([
+	expect((await owner.openConversation(project.id, session.id)).messages).toMatchObject([
 		{ role: 'user', text: 'Break connection' },
 	])
 	expect(await owner.providers(project.id, session.id)).toEqual({
@@ -399,10 +400,9 @@ it('keeps an unsent conversation usable after reconnect without loading missing 
 	const ended = wait((event) => event.kind === 'state' && !event.running)
 	owner.approve(unsent.id, request.id, true)
 	await ended
-	expect((await owner.openConversation(project.id, unsent.id)).messages).toContainEqual({
-		role: 'assistant',
-		text: 'Approved answer',
-	})
+	expect((await owner.openConversation(project.id, unsent.id)).messages).toContainEqual(
+		expect.objectContaining({ role: 'assistant', text: 'Approved answer' }),
+	)
 })
 
 it('keeps attachment-only and settings-only draft conversations listed and usable after reconnect', async () => {

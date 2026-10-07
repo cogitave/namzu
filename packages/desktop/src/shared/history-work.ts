@@ -23,6 +23,8 @@ export interface HistoryTurn {
 	reason?: string
 	/** Recorded runtime duration; not the desktop host's admission clock. */
 	durationMs?: number
+	startedAt?: number
+	endedAt?: number
 }
 export interface HistoryTool {
 	turnId: string
@@ -33,6 +35,9 @@ export interface HistoryTool {
 	presentation?: ToolCallView
 	durationMs?: number
 	detailUnavailable?: true
+	hosted?: true
+	startedAt?: number
+	endedAt?: number
 }
 export interface HistoryWorkSnapshot {
 	v: 1
@@ -69,6 +74,10 @@ const id = (value: unknown): value is string =>
 	[...value].every((char) => char.charCodeAt(0) >= 32)
 const count = (value: unknown): value is number =>
 	typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+const journalTime = (value: unknown) =>
+	count(value) && value <= 8_640_000_000_000_000
+		? { at: value, source: 'journal' as const }
+		: undefined
 const record = (value: unknown): value is Record<string, unknown> =>
 	Boolean(value && typeof value === 'object' && !Array.isArray(value))
 
@@ -247,7 +256,8 @@ export function restoreHistoryWork(
 			!tool.name.trim() ||
 			bytes(tool.name) > 512 ||
 			!count(tool.order) ||
-			!['completed', 'failed', 'cancelled', 'interrupted', 'skipped'].includes(tool.status)
+			!['completed', 'failed', 'cancelled', 'interrupted', 'skipped'].includes(tool.status) ||
+			(tool.hosted !== undefined && tool.hosted !== true)
 		)
 			continue
 		const turn = numbered.get(tool.turnId)
@@ -271,7 +281,13 @@ export function restoreHistoryWork(
 		if (!view)
 			view = {
 				kind: 'generic',
-				label: `${tool.status === 'skipped' ? 'Skipped action' : 'Saved action'}\nDetails were not recorded.`,
+				label: `${
+					tool.hosted && (tool.name === 'Web search' || tool.name === 'Web fetch')
+						? tool.name
+						: tool.status === 'skipped'
+							? 'Skipped action'
+							: 'Saved action'
+				}\nDetails were not recorded.`,
 				presentation: 'activity',
 				...(tool.status === 'cancelled' ? { outcome: 'cancelled' } : {}),
 			}
@@ -288,6 +304,8 @@ export function restoreHistoryWork(
 						: 'completed',
 			view,
 			...(count(tool.durationMs) ? { durationMs: tool.durationMs } : {}),
+			...(journalTime(tool.startedAt) ? { startedTime: journalTime(tool.startedAt) } : {}),
+			...(journalTime(tool.endedAt) ? { endedTime: journalTime(tool.endedAt) } : {}),
 		}
 		const own = [...anchors.values()]
 			.filter((anchor) => anchor.turnId === tool.turnId)
@@ -324,6 +342,8 @@ export function restoreHistoryWork(
 			turnId,
 			...(reason ? { stopReason: reason, reason } : {}),
 			...(count(saved.durationMs) ? { recordedDurationMs: saved.durationMs } : {}),
+			...(journalTime(saved.startedAt) ? { startedTime: journalTime(saved.startedAt) } : {}),
+			...(journalTime(saved.endedAt) ? { endedTime: journalTime(saved.endedAt) } : {}),
 		}
 	}
 	const last = turnStates[currentTurn]

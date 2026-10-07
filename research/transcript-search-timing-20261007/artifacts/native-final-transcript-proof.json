@@ -1,0 +1,35 @@
+{
+  "passed": true,
+  "at": "2026-10-07T08:54:26.914Z",
+  "platform": "win32",
+  "nativePid": 43224,
+  "providerRequests": 0,
+  "authoredPrompts": 0,
+  "sourceLinks": {
+    "count": 8,
+    "inlineCodeCount": 0,
+    "protocols": [
+      "https:"
+    ],
+    "mainBridgePresent": true,
+    "externalBrowserOpened": false
+  },
+  "messageClocks": {
+    "count": 9,
+    "source": "journal"
+  },
+  "webSearch": {
+    "state": "completed",
+    "source": "journal",
+    "startedAt": "2026-10-07T08:37:20.953Z",
+    "humanSummary": "Searched the web",
+    "quietClocks": true,
+    "quietRoutineCompletion": true,
+    "duplicateActionHeader": false
+  },
+  "limits": [
+    "UI uses existing private conversation; message bodies are not published.",
+    "Native source URLs are ordinary Markdown links; sole inline-code URL handling is separately proven with the actual renderer fixture.",
+    "Actual external browser launch is covered by validation/bridge tests, not an unsolicited native link click."
+  ]
+}

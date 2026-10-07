@@ -3,7 +3,7 @@ import { flushSync } from 'react-dom'
 import { createRoot } from 'react-dom/client'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { MessageContent } from './message.js'
+import { MessageContent, MessageTime } from './message.js'
 
 const parsed = vi.hoisted(() => vi.fn<(text: string) => void>())
 vi.mock('react-markdown', async (original) => {
@@ -121,6 +121,77 @@ describe('message presentation', () => {
 		expect(html).not.toContain('<img')
 		expect(html).not.toContain('src=')
 		expect(html).not.toContain('href=')
+	})
+	it('offers only credential-free HTTP(S) sources through the owned external bridge', () => {
+		vi.stubGlobal('window', { namzu: { openExternal: vi.fn() } })
+		const html = renderToStaticMarkup(
+			createElement(MessageContent, {
+				markdown: true,
+				text: '[Source](https://example.test/report) [Unsafe](javascript:alert(1)) [Credentials](https://user:secret@example.test/)',
+			}),
+		)
+		expect(html).toContain('href="https://example.test/report"')
+		expect(html).not.toContain('href="javascript:')
+		expect(html).not.toContain('href="https://user:secret@')
+		expect(html.match(/<a\b/g)).toHaveLength(1)
+	})
+	it('links only a sole safe inline-code URL, preserving code blocks and command text', () => {
+		vi.stubGlobal('window', { namzu: { openExternal: vi.fn() } })
+		const html = renderToStaticMarkup(
+			createElement(MessageContent, {
+				markdown: true,
+				text: [
+					'`https://example.test/report`',
+					'`https://user:secret@example.test/private`',
+					'`file:///tmp/report`',
+					'`curl https://example.test/command`',
+					'`https://bad host/report`',
+					'',
+					'```text',
+					'https://example.test/code-block',
+					'```',
+					'',
+					'    https://example.test/indented-block',
+				].join('\n'),
+			}),
+		)
+		expect(html).toContain('<code><a class="message-link" href="https://example.test/report"')
+		expect(html.match(/<a\b/g)).toHaveLength(1)
+		expect(html).toContain('<pre><code')
+		expect(html).toContain('https://example.test/code-block')
+		expect(html).toContain('https://example.test/indented-block')
+		expect(html).not.toContain('href="https://example.test/code-block"')
+		expect(html).not.toContain('href="https://example.test/indented-block"')
+	})
+	it('keeps inline-code URLs inert without an external-opening bridge', () => {
+		vi.stubGlobal('window', { namzu: {} })
+		const html = renderToStaticMarkup(
+			createElement(MessageContent, { markdown: true, text: '`https://example.test/report`' }),
+		)
+		expect(html).toContain('<code><span class="message-link"')
+		expect(html).not.toContain('<a ')
+	})
+	it('labels only known timestamps with an exact machine-readable instant', () => {
+		const saved = renderToStaticMarkup(
+			createElement(MessageTime, { time: { at: 1_700_000_000_000, source: 'journal' } }),
+		)
+		expect(saved).toContain('dateTime="2023-11-14T22:13:20.000Z"')
+		expect(saved).toContain('Recorded in conversation')
+		const focusable = renderToStaticMarkup(
+			createElement(MessageTime, {
+				time: { at: 1_700_000_000_000, source: 'journal' },
+				focusable: true,
+			}),
+		)
+		expect(focusable).toContain('<button')
+		expect(focusable).toContain('aria-pressed="false"')
+		expect(focusable).toContain('<time dateTime="2023-11-14T22:13:20.000Z"')
+		expect(renderToStaticMarkup(createElement(MessageTime, {}))).toBe('')
+		expect(
+			renderToStaticMarkup(
+				createElement(MessageTime, { time: { at: Number.NaN, source: 'host' } }),
+			),
+		).toBe('')
 	})
 	it('keeps user-authored Markdown and HTML literal', () => {
 		const html = renderToStaticMarkup(

@@ -35,6 +35,17 @@
 	background: var(--message-surface);
 	color: var(--message-foreground);
 }
+.pal-chat-message .message-time {
+	padding-inline: 14px;
+}
+.pal-chat-message a.message-link {
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+.pal-chat-message a.message-link:focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: 2px;
+}
 .pal-chat-bubble .message-text {
 	line-height: 1.5;
 }

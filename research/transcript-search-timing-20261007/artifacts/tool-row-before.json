@@ -1,0 +1,407 @@
+{
+  "passed": true,
+  "realDesktopRenderer": true,
+  "actualSdkJournalFixture": true,
+  "sourceAcpMapping": true,
+  "nativeActions": 0,
+  "providerRequests": 0,
+  "actualUserConversationRead": false,
+  "checks": [
+    "wide-dark: journal clocks persist across navigation/close/reopen; legacy clocks stay absent; flat WAI work rail/disclosure metrics and keyboard interaction; source bridge once without renderer navigation; hostile links inert; hosted Web search pending/completed; live first-observation clock retained through terminal settlement",
+    "narrow-light: journal clocks persist across navigation/close/reopen; legacy clocks stay absent; flat WAI work rail/disclosure metrics and keyboard interaction; source bridge once without renderer navigation; hostile links inert; hosted Web search pending/completed; live first-observation clock retained through terminal settlement",
+    "minimum-dark: journal clocks persist across navigation/close/reopen; legacy clocks stay absent; flat WAI work rail/disclosure metrics and keyboard interaction; source bridge once without renderer navigation; hostile links inert; hosted Web search pending/completed; live first-observation clock retained through terminal settlement"
+  ],
+  "measurements": [
+    {
+      "scenario": "wide-dark",
+      "triggerHeight": 32,
+      "triggerFont": "14px",
+      "triggerLineHeight": "20px",
+      "triggerGap": "8px",
+      "rowHeight": 32,
+      "railPadding": "16px",
+      "railMargin": "7px",
+      "railBorder": "1px",
+      "rowCount": 2,
+      "nestedToolGroups": 0,
+      "horizontalOverflow": false,
+      "toolRows": [
+        {
+          "right": 1044,
+          "width": 736,
+          "children": [
+            {
+              "className": "tool-icon",
+              "right": 322,
+              "width": 14,
+              "minWidth": "auto",
+              "flexShrink": "0"
+            },
+            {
+              "className": "tool-label",
+              "right": 680.8125,
+              "width": 352.8125,
+              "minWidth": "0px",
+              "flexShrink": "1"
+            },
+            {
+              "className": "tool-status",
+              "right": 997.640625,
+              "width": 53.578125,
+              "minWidth": "auto",
+              "flexShrink": "0"
+            },
+            {
+              "className": "message-time",
+              "right": 1044,
+              "width": 40.359375,
+              "minWidth": "auto",
+              "flexShrink": "1"
+            }
+          ]
+        },
+        {
+          "right": 1044,
+          "width": 736,
+          "children": [
+            {
+              "className": "tool-icon",
+              "right": 322,
+              "width": 14,
+              "minWidth": "auto",
+              "flexShrink": "0"
+            },
+            {
+              "className": "tool-label",
+              "right": 469.09375,
+              "width": 141.09375,
+              "minWidth": "0px",
+              "flexShrink": "1"
+            },
+            {
+              "className": "tool-status",
+              "right": 961.03125,
+              "width": 53.578125,
+              "minWidth": "auto",
+              "flexShrink": "0"
+            },
+            {
+              "className": "message-time",
+              "right": 1007.390625,
+              "width": 40.359375,
+              "minWidth": "auto",
+              "flexShrink": "1"
+            },
+            {
+              "className": "tool-duration",
+              "right": 1024,
+              "width": 10.609375,
+              "minWidth": "auto",
+              "flexShrink": "0"
+            },
+            {
+              "className": "disclosure-chevron",
+              "right": 1044,
+              "width": 14,
+              "minWidth": "auto",
+              "flexShrink": "0"
+            }
+          ]
+        }
+      ],
+      "transcriptBounds": {
+        "left": 280,
+        "right": 1048,
+        "width": 768
+      },
+      "viewportWidth": 1280,
+      "ancestorWidths": [
+        {
+          "selector": ".workspace-canvas",
+          "width": 1232,
+          "minWidth": "0px"
+        },
+        {
+          "selector": ".workspace",
+          "width": 1232,
+          "minWidth": "0px"
+        },
+        {
+          "selector": ".chat-stage",
+          "width": 1232,
+          "minWidth": "0px"
+        },
+        {
+          "selector": ".transcript",
+          "width": 1232,
+          "minWidth": "auto"
+        }
+      ],
+      "viewportClipped": false
+    },
+    {
+      "scenario": "narrow-light",
+      "triggerHeight": 32,
+      "triggerFont": "14px",
+      "triggerLineHeight": "20px",
+      "triggerGap": "8px",
+      "rowHeight": 32,
+      "railPadding": "16px",
+      "railMargin": "7px",
+      "railBorder": "1px",
+      "rowCount": 2,
+      "nestedToolGroups": 0,
+      "horizontalOverflow": false,
+      "toolRows": [
+        {
+          "right": 610,
+          "width": 508,
+          "children": [
+            {
+              "className": "tool-icon",
+              "right": 116,
+              "width": 14,
+              "minWidth": "auto",
+              "flexShrink": "0"
+            },
+            {
+              "className": "tool-label",
+              "right": 474.8125,
+              "width": 352.8125,
+              "minWidth": "0px",
+              "flexShrink": "1"
+            },
+            {
+              "className": "tool-status",
+              "right": 563.640625,
+              "width": 53.578125,
+              "minWidth": "auto",
+              "flexShrink": "0"
+            },
+            {
+              "className": "message-time",
+              "right": 610,
+              "width": 40.359375,
+              "minWidth": "auto",
+              "flexShrink": "1"
+            }
+          ]
+        },
+        {
+          "right": 610,
+          "width": 508,
+          "children": [
+            {
+              "className": "tool-icon",
+              "right": 116,
+              "width": 14,
+              "minWidth": "auto",
+              "flexShrink": "0"
+            },
+            {
+              "className": "tool-label",
+              "right": 263.09375,
+              "width": 141.09375,
+              "minWidth": "0px",
+              "flexShrink": "1"
+            },
+            {
+              "className": "tool-status",
+              "right": 527.03125,
+              "width": 53.578125,
+              "minWidth": "auto",
+              "flexShrink": "0"
+            },
+            {
+              "className": "message-time",
+              "right": 573.390625,
+              "width": 40.359375,
+              "minWidth": "auto",
+              "flexShrink": "1"
+            },
+            {
+              "className": "tool-duration",
+              "right": 590,
+              "width": 10.609375,
+              "minWidth": "auto",
+              "flexShrink": "0"
+            },
+            {
+              "className": "disclosure-chevron",
+              "right": 610,
+              "width": 14,
+              "minWidth": "auto",
+              "flexShrink": "0"
+            }
+          ]
+        }
+      ],
+      "transcriptBounds": {
+        "left": 74,
+        "right": 614,
+        "width": 540
+      },
+      "viewportWidth": 640,
+      "ancestorWidths": [
+        {
+          "selector": ".workspace-canvas",
+          "width": 592,
+          "minWidth": "0px"
+        },
+        {
+          "selector": ".workspace",
+          "width": 592,
+          "minWidth": "0px"
+        },
+        {
+          "selector": ".chat-stage",
+          "width": 592,
+          "minWidth": "0px"
+        },
+        {
+          "selector": ".transcript",
+          "width": 592,
+          "minWidth": "auto"
+        }
+      ],
+      "viewportClipped": false
+    },
+    {
+      "scenario": "minimum-dark",
+      "triggerHeight": 32,
+      "triggerFont": "14px",
+      "triggerLineHeight": "20px",
+      "triggerGap": "8px",
+      "rowHeight": 32,
+      "railPadding": "16px",
+      "railMargin": "7px",
+      "railBorder": "1px",
+      "rowCount": 2,
+      "nestedToolGroups": 0,
+      "horizontalOverflow": false,
+      "toolRows": [
+        {
+          "right": 572.75,
+          "width": 478.75,
+          "children": [
+            {
+              "className": "tool-icon",
+              "right": 108,
+              "width": 14,
+              "minWidth": "auto",
+              "flexShrink": "0"
+            },
+            {
+              "className": "tool-label",
+              "right": 466.8125,
+              "width": 352.8125,
+              "minWidth": "0px",
+              "flexShrink": "1"
+            },
+            {
+              "className": "tool-status",
+              "right": 526.390625,
+              "width": 53.578125,
+              "minWidth": "auto",
+              "flexShrink": "0"
+            },
+            {
+              "className": "message-time",
+              "right": 572.75,
+              "width": 40.359375,
+              "minWidth": "auto",
+              "flexShrink": "1"
+            }
+          ]
+        },
+        {
+          "right": 538,
+          "width": 444,
+          "children": [
+            {
+              "className": "tool-icon",
+              "right": 108,
+              "width": 14,
+              "minWidth": "auto",
+              "flexShrink": "0"
+            },
+            {
+              "className": "tool-label",
+              "right": 255.09375,
+              "width": 141.09375,
+              "minWidth": "0px",
+              "flexShrink": "1"
+            },
+            {
+              "className": "tool-status",
+              "right": 455.03125,
+              "width": 53.578125,
+              "minWidth": "auto",
+              "flexShrink": "0"
+            },
+            {
+              "className": "message-time",
+              "right": 501.390625,
+              "width": 40.359375,
+              "minWidth": "auto",
+              "flexShrink": "1"
+            },
+            {
+              "className": "tool-duration",
+              "right": 518,
+              "width": 10.609375,
+              "minWidth": "auto",
+              "flexShrink": "0"
+            },
+            {
+              "className": "disclosure-chevron",
+              "right": 538,
+              "width": 14,
+              "minWidth": "auto",
+              "flexShrink": "0"
+            }
+          ]
+        }
+      ],
+      "transcriptBounds": {
+        "left": 66,
+        "right": 542,
+        "width": 476
+      },
+      "viewportWidth": 560,
+      "ancestorWidths": [
+        {
+          "selector": ".workspace-canvas",
+          "width": 512,
+          "minWidth": "0px"
+        },
+        {
+          "selector": ".workspace",
+          "width": 512,
+          "minWidth": "0px"
+        },
+        {
+          "selector": ".chat-stage",
+          "width": 512,
+          "minWidth": "0px"
+        },
+        {
+          "selector": ".transcript",
+          "width": 512,
+          "minWidth": "auto"
+        }
+      ],
+      "viewportClipped": false
+    }
+  ],
+  "referenceDifferences": [],
+  "screenshots": [
+    "transcript-wide-dark.png",
+    "transcript-narrow-light.png",
+    "transcript-minimum-dark.png"
+  ],
+  "pageErrors": [],
+  "limits": [
+    "Synthetic conversation only; no native application or provider prompt. Reference checks use supplied WAI DOM measurements, not a pixel-parity claim."
+  ]
+}

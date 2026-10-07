@@ -1,0 +1,172 @@
+{
+  "passed": false,
+  "realDesktopRenderer": true,
+  "actualSdkJournalFixture": true,
+  "sourceAcpMapping": true,
+  "nativeActions": 0,
+  "providerRequests": 0,
+  "actualUserConversationRead": false,
+  "checks": [
+    "wide-dark: journal clocks persist across navigation/close/reopen; legacy clocks stay absent; flat WAI work rail/disclosure metrics and keyboard interaction; source bridge once without renderer navigation; hostile links inert; hosted Web search pending/completed; live first-observation clock retained through terminal settlement",
+    "narrow-light: journal clocks persist across navigation/close/reopen; legacy clocks stay absent; flat WAI work rail/disclosure metrics and keyboard interaction; source bridge once without renderer navigation; hostile links inert; hosted Web search pending/completed; live first-observation clock retained through terminal settlement",
+    "small-dark: journal clocks persist across navigation/close/reopen; legacy clocks stay absent; flat WAI work rail/disclosure metrics and keyboard interaction; source bridge once without renderer navigation; hostile links inert; hosted Web search pending/completed; live first-observation clock retained through terminal settlement"
+  ],
+  "measurements": [
+    {
+      "scenario": "wide-dark",
+      "triggerHeight": 32,
+      "triggerFont": "14px",
+      "triggerLineHeight": "20px",
+      "triggerGap": "8px",
+      "rowHeight": 32,
+      "railPadding": "16px",
+      "rowCount": 2,
+      "nestedToolGroups": 0,
+      "horizontalOverflow": false,
+      "transcriptBounds": {
+        "left": 280,
+        "right": 1048,
+        "width": 768
+      },
+      "viewportWidth": 1280,
+      "ancestorWidths": [
+        {
+          "selector": ".workspace-shell",
+          "minWidth": null
+        },
+        {
+          "selector": ".workspace-canvas",
+          "width": 1232,
+          "minWidth": "0px"
+        },
+        {
+          "selector": ".workspace",
+          "width": 1232,
+          "minWidth": "0px"
+        },
+        {
+          "selector": ".chat-stage",
+          "width": 1232,
+          "minWidth": "0px"
+        },
+        {
+          "selector": ".transcript",
+          "width": 1232,
+          "minWidth": "auto"
+        }
+      ],
+      "viewportClipped": false
+    },
+    {
+      "scenario": "narrow-light",
+      "triggerHeight": 32,
+      "triggerFont": "14px",
+      "triggerLineHeight": "20px",
+      "triggerGap": "8px",
+      "rowHeight": 32,
+      "railPadding": "16px",
+      "rowCount": 2,
+      "nestedToolGroups": 0,
+      "horizontalOverflow": false,
+      "transcriptBounds": {
+        "left": 74,
+        "right": 614,
+        "width": 540
+      },
+      "viewportWidth": 640,
+      "ancestorWidths": [
+        {
+          "selector": ".workspace-shell",
+          "minWidth": null
+        },
+        {
+          "selector": ".workspace-canvas",
+          "width": 592,
+          "minWidth": "0px"
+        },
+        {
+          "selector": ".workspace",
+          "width": 592,
+          "minWidth": "0px"
+        },
+        {
+          "selector": ".chat-stage",
+          "width": 592,
+          "minWidth": "0px"
+        },
+        {
+          "selector": ".transcript",
+          "width": 592,
+          "minWidth": "auto"
+        }
+      ],
+      "viewportClipped": false
+    },
+    {
+      "scenario": "small-dark",
+      "triggerHeight": 32,
+      "triggerFont": "14px",
+      "triggerLineHeight": "20px",
+      "triggerGap": "8px",
+      "rowHeight": 32,
+      "railPadding": "16px",
+      "rowCount": 2,
+      "nestedToolGroups": 0,
+      "horizontalOverflow": false,
+      "transcriptBounds": {
+        "left": 50,
+        "right": 394,
+        "width": 344
+      },
+      "viewportWidth": 390,
+      "ancestorWidths": [
+        {
+          "selector": ".workspace-shell",
+          "minWidth": null
+        },
+        {
+          "selector": ".workspace-canvas",
+          "width": 342,
+          "minWidth": "0px"
+        },
+        {
+          "selector": ".workspace",
+          "width": 380,
+          "minWidth": "0px"
+        },
+        {
+          "selector": ".chat-stage",
+          "width": 380,
+          "minWidth": "0px"
+        },
+        {
+          "selector": ".transcript",
+          "width": 380,
+          "minWidth": "auto"
+        }
+      ],
+      "viewportClipped": true
+    }
+  ],
+  "referenceDifferences": [
+    {
+      "scenario": "small-dark",
+      "property": "transcript viewport fit",
+      "actual": {
+        "left": 50,
+        "right": 394,
+        "width": 344
+      },
+      "expected": "within 0..390px"
+    }
+  ],
+  "screenshots": [
+    "transcript-wide-dark.png",
+    "transcript-narrow-light.png",
+    "transcript-small-dark.png"
+  ],
+  "pageErrors": [],
+  "limits": [
+    "Synthetic conversation only; no native application or provider prompt. Reference checks use supplied WAI DOM measurements, not a pixel-parity claim."
+  ]
+}

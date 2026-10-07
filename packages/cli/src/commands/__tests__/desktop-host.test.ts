@@ -63,6 +63,9 @@ import { providerPaused } from './support/provider-paused.js'
 
 let root: string
 let cwd: string
+const withoutJournalMetadata = <T extends { time?: unknown; messageId?: string }>(
+	rows: readonly T[],
+) => rows.map(({ time: _time, messageId: _messageId, ...row }) => row)
 beforeEach(() => {
 	root = mkdtempSync(join(tmpdir(), 'namzu-desktop-host-'))
 	cwd = join(root, 'project')
@@ -558,12 +561,16 @@ it('reads fresh journal history without opening the installation index, while li
 	const indexed = vi.spyOn(sdk, 'openSessionIndex')
 	const opened = vi.spyOn(sessionStorage, 'openSessionScope')
 	try {
-		expect((await host['namzu/conversations/history']({ sessionId })).messages).toContainEqual({
+		expect(
+			withoutJournalMetadata((await host['namzu/conversations/history']({ sessionId })).messages),
+		).toContainEqual({
 			role: 'user',
 			text: 'Stored request',
 		})
 		await recordTurn(state, sessionId, [createUserMessage('Newer durable message')])
-		expect((await host['namzu/conversations/history']({ sessionId })).messages.at(-1)).toEqual({
+		expect(
+			(await host['namzu/conversations/history']({ sessionId })).messages.at(-1),
+		).toMatchObject({
 			role: 'user',
 			text: 'Newer durable message',
 		})
@@ -724,13 +731,12 @@ it('keeps the Pal history filter unchanged while ordinary phase metadata is avai
 				],
 			},
 		])
-		expect(await host['namzu/conversations/history']({ sessionId })).toEqual({
-			messages: [
-				{ role: 'user', text: 'Report the result.' },
-				{ role: 'assistant', text: 'Public result.' },
-			],
-			partial: false,
-		})
+		const history = await host['namzu/conversations/history']({ sessionId })
+		expect(withoutJournalMetadata(history.messages)).toEqual([
+			{ role: 'user', text: 'Report the result.' },
+			{ role: 'assistant', text: 'Public result.' },
+		])
+		expect(history.partial).toBe(false)
 	} finally {
 		closeSessions(state)
 		await owner.close()
@@ -873,20 +879,19 @@ it('restores completed Pal replies but omits only unchanged, journal-proven canc
 			'Legacy partial.',
 		])
 		const fresh = createDesktopHostExtensions(owner, pal.workspace)
-		expect(await fresh['namzu/conversations/history']({ sessionId })).toEqual({
-			messages: [
-				{ role: 'user', text: 'First task' },
-				{ role: 'assistant', text: 'Completed before interruption.' },
-				{ role: 'user', text: 'Second task' },
-				{ role: 'assistant', text: 'Completed before failure.' },
-				{ role: 'user', text: 'Failed partial task' },
-				{ role: 'user', text: 'Third task' },
-				{ role: 'assistant', text: 'Revised delivered answer.' },
-				{ role: 'user', text: 'Legacy task' },
-				{ role: 'assistant', text: 'Legacy partial.' },
-			],
-			partial: false,
-		})
+		const history = await fresh['namzu/conversations/history']({ sessionId })
+		expect(withoutJournalMetadata(history.messages)).toEqual([
+			{ role: 'user', text: 'First task' },
+			{ role: 'assistant', text: 'Completed before interruption.' },
+			{ role: 'user', text: 'Second task' },
+			{ role: 'assistant', text: 'Completed before failure.' },
+			{ role: 'user', text: 'Failed partial task' },
+			{ role: 'user', text: 'Third task' },
+			{ role: 'assistant', text: 'Revised delivered answer.' },
+			{ role: 'user', text: 'Legacy task' },
+			{ role: 'assistant', text: 'Legacy partial.' },
+		])
+		expect(history.partial).toBe(false)
 	} finally {
 		closeSessions(state)
 		await owner.close()
@@ -1334,7 +1339,7 @@ it('restores Pal delivered replies from the admitted home while retaining privat
 				return selected
 			})
 		const projection = await host['namzu/conversations/history']({ sessionId })
-		expect(projection.messages).toEqual([
+		expect(withoutJournalMetadata(projection.messages)).toEqual([
 			{ role: 'user', text: 'Prepare the result' },
 			{ role: 'assistant', text: 'Your requested result is ready.' },
 		])
@@ -1342,6 +1347,15 @@ it('restores Pal delivered replies from the admitted home while retaining privat
 		expect(opened).toHaveBeenCalledTimes(1)
 		vi.stubEnv('NAMZU_HOME', state.root)
 		const original = await loadConversation(state, sessionId)
+		expect(projection.messages.map((message) => message.messageId)).toEqual([
+			original.find(
+				(message) => message.role === 'user' && message.content === 'Prepare the result',
+			)?.id,
+			original.find(
+				(message) =>
+					message.role === 'assistant' && message.content === 'Your requested result is ready.',
+			)?.id,
+		])
 		expect(
 			original.some(
 				(message) =>
@@ -1551,7 +1565,9 @@ it('archives owned settled history idempotently while preserving strict messages
 		expect(await host['namzu/conversations/archive']({ sessionId })).toEqual(response)
 		expect(await host['namzu/conversations/archive']({ sessionId })).toEqual(response)
 		expect(await host['namzu/conversations/list']()).toEqual([])
-		expect((await host['namzu/conversations/history']({ sessionId })).messages).toEqual([
+		expect(
+			withoutJournalMetadata((await host['namzu/conversations/history']({ sessionId })).messages),
+		).toEqual([
 			{ role: 'user', text: 'Stored request' },
 			{ role: 'assistant', text: 'Stored answer' },
 		])
@@ -1659,7 +1675,9 @@ it('archives settled native history by releasing only its owning SDK harness wri
 		expect(close).toHaveBeenCalledOnce()
 		expect(readFileSync(file, 'utf8').startsWith(before)).toBe(true)
 		expect((await sessionStorage.readConversationFacts(state, sessionId))?.archived).toBe(true)
-		expect((await host['namzu/conversations/history']({ sessionId })).messages).toEqual([
+		expect(
+			withoutJournalMetadata((await host['namzu/conversations/history']({ sessionId })).messages),
+		).toEqual([
 			{ role: 'user', text: 'Native archived request' },
 			{ role: 'assistant', text: 'Preserved native answer' },
 		])
@@ -1700,7 +1718,9 @@ it('archives a claimed Pal through its original strict path without invoking nat
 		})
 		expect((await sessionStorage.readConversationFacts(state, sessionId))?.archived).toBe(true)
 		expect(readFileSync(file, 'utf8').startsWith(before)).toBe(true)
-		expect((await host['namzu/conversations/history']({ sessionId })).messages).toEqual([
+		expect(
+			withoutJournalMetadata((await host['namzu/conversations/history']({ sessionId })).messages),
+		).toEqual([
 			{ role: 'user', text: 'Retain this Pal conversation' },
 			{ role: 'assistant', text: 'The conversation will stay in history.' },
 		])

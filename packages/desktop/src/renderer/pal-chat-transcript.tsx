@@ -1,7 +1,8 @@
+import type { ReactNode } from 'react'
 import { type ThreadState, threadPhase } from '../shared/projection.js'
 import type { ChatMessage } from '../shared/protocol.js'
 import { AttachmentList } from './attachment-list.js'
-import { Message, MessageContent } from './message.js'
+import { Message, MessageContent, MessageTime } from './message.js'
 import { terminalNotice, transcriptTurns } from './transcript-layout.js'
 import './pal-chat-transcript.css'
 
@@ -69,10 +70,12 @@ export function PalChatTranscript({
 	thread,
 	name,
 	intro,
+	renderMessageAction,
 }: {
 	thread: ThreadState
 	name: string
 	intro?: { id: string; text: string }
+	renderMessageAction?: (message: ChatMessage, key: string) => ReactNode
 }) {
 	const status = palChatStatus(thread)
 	const notice = !thread.running
@@ -112,6 +115,20 @@ export function PalChatTranscript({
 							<AttachmentList attachments={message.attachments} />
 						</div>
 					)}
+					<MessageTime time={message.time} />
+					{message.role === 'assistant' &&
+						(!thread.running ||
+							thread.timeline.some(
+								(entry) =>
+									entry.kind === 'message' &&
+									entry.index === index &&
+									(entry.turn !== thread.turn ||
+										thread.turns[entry.turn]?.stopReason !== undefined),
+							)) &&
+						renderMessageAction?.(
+							message,
+							`${index}:${message.messageId ?? ''}:${message.textPartId ?? ''}`,
+						)}
 				</Message>
 			))}
 			{status && (

@@ -151,6 +151,8 @@ export interface HarnessView {
 	}[]
 }
 export interface ChatMessage {
+	/** First host observation or durable journal time; absent when timing is unknown. */
+	time?: { at: number; source: 'host' | 'journal' }
 	role: 'user' | 'assistant'
 	text: string
 	messageId?: string
@@ -316,6 +318,21 @@ export type DesktopEvent = (
 	  }
 ) & { readonly revision?: number; readonly at?: number }
 export interface DesktopApi {
+	/** Open a user-selected HTTP(S) source in the system browser. */
+	openExternal?(url: string): Promise<void>
+	localSpeechState?(): Promise<import('./local-speech-protocol.js').LocalSpeechState>
+	localSpeechConfigure?(
+		settings: Partial<import('./local-speech-protocol.js').LocalSpeechSettings>,
+	): Promise<import('./local-speech-protocol.js').LocalSpeechState>
+	localSpeechInstall?(): Promise<import('./local-speech-protocol.js').LocalSpeechState>
+	localSpeechSpeak?(
+		input: import('./local-speech-protocol.js').LocalSpeechSpeakInput,
+	): Promise<{ requestId: string }>
+	localSpeechCancel?(requestId: string): Promise<void>
+	localSpeechAcknowledge?(requestId: string, sequence: number): Promise<void>
+	onLocalSpeechEvent?(
+		listener: (event: import('./local-speech-protocol.js').LocalSpeechEvent) => void,
+	): () => void
 	workspace?(): Promise<WorkspaceView>
 	workspaceAction?(action: WorkspaceAction): Promise<WorkspaceView>
 	workspaceReady?(transferId: string): Promise<WorkspaceView>

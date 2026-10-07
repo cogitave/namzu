@@ -1,8 +1,9 @@
-import { Fragment, useEffect, useRef, useState } from 'react'
+import { Fragment, type ReactNode, useEffect, useRef, useState } from 'react'
 import { type ThreadState, type TimelineEntry, threadPhase } from '../shared/projection.js'
+import type { ChatMessage } from '../shared/protocol.js'
 import { AttachmentList } from './attachment-list.js'
-import { ChevronRightIcon, FileDiffIcon, TerminalIcon } from './icons.js'
-import { Message, MessageContent } from './message.js'
+import { ChevronRightIcon, SearchIcon } from './icons.js'
+import { Message, MessageContent, MessageTime } from './message.js'
 import { toolTranscriptPresentation } from './tool-transcript-presentation.js'
 import { ToolTranscriptRow } from './tool-transcript-row.js'
 import {
@@ -25,7 +26,13 @@ function Entry({
 	entry,
 	thread,
 	onToolOpenChange,
-}: { entry: TimelineEntry; thread: ThreadState; onToolOpenChange?: (open: boolean) => void }) {
+	renderMessageAction,
+}: {
+	entry: TimelineEntry
+	thread: ThreadState
+	onToolOpenChange?: (open: boolean) => void
+	renderMessageAction?: (message: ChatMessage, key: string) => ReactNode
+}) {
 	if (entry.kind === 'tool') {
 		const tool = thread.tools[entry.id]
 		return tool ? (
@@ -50,6 +57,7 @@ function Entry({
 			>
 				<span className="transcript-content-label">Reasoning</span>
 				<MessageContent text={thought.text} markdown />
+				<MessageTime time={thought.startedTime ?? thought.endedTime} focusable />
 			</div>
 		) : null
 	}
@@ -69,6 +77,12 @@ function Entry({
 					<AttachmentList attachments={message.attachments} />
 				</div>
 			)}
+			<MessageTime time={message.time} focusable />
+			{message.role === 'assistant' &&
+				message.text.trim() &&
+				message.status !== 'pending' &&
+				(!thread.running || entry.turn !== thread.turn || thread.turns[entry.turn]?.stopReason) &&
+				renderMessageAction?.(message, entryKey(entry))}
 		</Message>
 	) : null
 }
@@ -98,7 +112,6 @@ function ToolGroup({ entries, thread }: { entries: TimelineEntry[]; thread: Thre
 		return presentation ? [presentation.state] : []
 	})
 	const active = states.some((state) => state === 'running' || state === 'waiting')
-	const Icon = tools.some((tool) => tool.view.kind === 'diff') ? FileDiffIcon : TerminalIcon
 	return (
 		<Collapsible
 			className={`tool ${multiple ? 'tool-group' : ''} ${active ? 'active' : ''}`}
@@ -107,7 +120,7 @@ function ToolGroup({ entries, thread }: { entries: TimelineEntry[]; thread: Thre
 		>
 			{multiple && (
 				<CollapsibleTrigger className="tool-trigger">
-					<Icon className="tool-icon" aria-hidden="true" />
+					<SearchIcon className="tool-icon" aria-hidden="true" />
 					<span className="tool-label">{toolGroupLabel(tools, active, states)}</span>
 					<ChevronRightIcon className="disclosure-chevron" aria-hidden="true" />
 				</CollapsibleTrigger>
@@ -134,19 +147,27 @@ function ToolGroup({ entries, thread }: { entries: TimelineEntry[]; thread: Thre
 	)
 }
 
-function ActivityEntries({ entries, thread }: { entries: TimelineEntry[]; thread: ThreadState }) {
+function ActivityEntries({
+	entries,
+	thread,
+	renderMessageAction,
+}: {
+	entries: TimelineEntry[]
+	thread: ThreadState
+	renderMessageAction?: (message: ChatMessage, key: string) => ReactNode
+}) {
 	const groups: TimelineEntry[][] = []
 	for (const entry of entries) {
 		const last = groups.at(-1)
-		const knownTool =
+		const earlierLookup =
 			entry.kind === 'tool' &&
 			Boolean(thread.tools[entry.id]) &&
-			thread.tools[entry.id]?.view.kind !== 'generic'
+			thread.tools[entry.id]?.title === 'search_conversation'
 		const previous = last?.at(-1)
 		if (
-			knownTool &&
+			earlierLookup &&
 			previous?.kind === 'tool' &&
-			thread.tools[previous.id]?.view.kind !== 'generic'
+			thread.tools[previous.id]?.title === 'search_conversation'
 		)
 			last?.push(entry)
 		else groups.push([entry])
@@ -157,7 +178,12 @@ function ActivityEntries({ entries, thread }: { entries: TimelineEntry[]; thread
 		return first.kind === 'tool' ? (
 			<ToolGroup key={entryKey(first)} entries={group} thread={thread} />
 		) : (
-			<Entry key={entryKey(first)} entry={first} thread={thread} />
+			<Entry
+				key={entryKey(first)}
+				entry={first}
+				thread={thread}
+				renderMessageAction={renderMessageAction}
+			/>
 		)
 	})
 }
@@ -176,10 +202,26 @@ function TurnActivity({
 	turn,
 	entries,
 	animate,
-}: { thread: ThreadState; turn: number; entries: TimelineEntry[]; animate: boolean }) {
+	renderMessageAction,
+	now,
+}: {
+	thread: ThreadState
+	turn: number
+	entries: TimelineEntry[]
+	animate: boolean
+	renderMessageAction?: (message: ChatMessage, key: string) => ReactNode
+	now: number
+}) {
 	const live = thread.running && thread.stopReason === undefined && thread.turn === turn
 	const [chosenOpen, setChosenOpen] = useState<boolean>()
-	const label = live ? 'Work details' : turnActivityLabel(thread, turn)
+	const label = live ? (livePhaseLabel(thread) ?? 'Working') : turnActivityLabel(thread, turn)
+	const start = live ? thread.turns[turn]?.startedAt : undefined
+	const elapsed = start === undefined ? undefined : elapsedLabel(now - start)
+	const savedTime =
+		thread.turns[turn]?.startedTime ??
+		(thread.turns[turn]?.startedAt === undefined
+			? undefined
+			: { at: thread.turns[turn].startedAt, source: 'host' as const })
 	const savedDuration =
 		!live &&
 		thread.turns[turn]?.recordedDurationMs !== undefined &&
@@ -193,23 +235,39 @@ function TurnActivity({
 		>
 			<CollapsibleTrigger
 				className="activity-trigger"
-				aria-label={label}
+				aria-label={elapsed ? `${label} · ${elapsed}` : label}
 				title={savedDuration ? 'Time reported for this saved work' : undefined}
 				data-duration-source={savedDuration ? 'recorded-runtime' : undefined}
 			>
 				<PhaseLabel label={label} animate={animate} />
+				{elapsed && <span className="turn-activity-elapsed">{elapsed}</span>}
+				{!live && <MessageTime time={savedTime} />}
 				<ChevronRightIcon className="disclosure-chevron" aria-hidden="true" />
 			</CollapsibleTrigger>
 			<CollapsiblePanel>
 				<div className="activity-entries">
-					<ActivityEntries entries={entries} thread={thread} />
+					<ActivityEntries
+						entries={entries}
+						thread={thread}
+						renderMessageAction={renderMessageAction}
+					/>
 				</div>
 			</CollapsiblePanel>
 		</Collapsible>
 	)
 }
 
-function LiveStatus({ thread, animate }: { thread: ThreadState; animate: boolean }) {
+function LiveStatus({
+	thread,
+	animate,
+	now,
+	visuallyHidden,
+}: {
+	thread: ThreadState
+	animate: boolean
+	now: number
+	visuallyHidden: boolean
+}) {
 	const phase = threadPhase(thread)
 	const label = livePhaseLabel(thread)
 	const retained = useRef(label)
@@ -218,18 +276,11 @@ function LiveStatus({ thread, animate }: { thread: ThreadState; animate: boolean
 	useEffect(() => {
 		if (label) retained.current = label
 	}, [label])
-	const [now, setNow] = useState(Date.now)
 	const start = thread.turns[thread.turn]?.startedAt
-	useEffect(() => {
-		if (!thread.running || start === undefined) return
-		setNow(Date.now())
-		const timer = window.setInterval(() => setNow(Date.now()), 1000)
-		return () => window.clearInterval(timer)
-	}, [thread.running, start])
 	return (
 		<output
 			ref={ref}
-			className={`working ${phase === 'waiting' ? 'waiting' : ''}`}
+			className={`working ${phase === 'waiting' ? 'waiting' : ''}${visuallyHidden ? ' transcript-status-only' : ''}`}
 			aria-live={label ? 'polite' : 'off'}
 			aria-label={label}
 			aria-hidden={!label}
@@ -239,7 +290,7 @@ function LiveStatus({ thread, animate }: { thread: ThreadState; animate: boolean
 			<span className="working-label transcript-phase-label" aria-hidden="true">
 				<span className="transcript-phase-text">{label ?? retained.current}</span>
 			</span>
-			{start !== undefined && (
+			{start !== undefined && !visuallyHidden && (
 				<span className="working-elapsed" aria-hidden="true">
 					{elapsedLabel(now - start)}
 				</span>
@@ -251,18 +302,39 @@ function LiveStatus({ thread, animate }: { thread: ThreadState; animate: boolean
 export function Transcript({
 	thread,
 	animate = false,
-}: { thread: ThreadState; animate?: boolean }) {
+	renderMessageAction,
+}: {
+	thread: ThreadState
+	animate?: boolean
+	renderMessageAction?: (message: ChatMessage, key: string) => ReactNode
+}) {
 	const ref = useRef<HTMLDivElement>(null)
 	useTranscriptEntryMotion(ref, thread, animate)
 	const notice = !thread.running
 		? terminalNotice(thread.turns[thread.turn]?.reason ?? thread.stopReason)
 		: undefined
+	const groups = transcriptTurns(thread)
+	const visuallyHidden =
+		thread.running &&
+		groups.some(
+			(group) =>
+				group.turn === thread.turn &&
+				group.segments.some((segment) => hasPublicActivity(segment.activity, thread)),
+		)
+	const [now, setNow] = useState(Date.now)
+	const start = thread.turns[thread.turn]?.startedAt
+	useEffect(() => {
+		if (!thread.running || thread.stopReason !== undefined || start === undefined) return
+		setNow(Date.now())
+		const timer = window.setInterval(() => setNow(Date.now()), 1000)
+		return () => window.clearInterval(timer)
+	}, [thread.running, thread.stopReason, start])
 	return (
 		<div className="normal-transcript" ref={ref}>
 			{thread.historyWorkPartial && (
 				<p className="notice">Some saved work details are unavailable.</p>
 			)}
-			{transcriptTurns(thread).map((group) => (
+			{groups.map((group) => (
 				<div className="transcript-turn" key={group.turn} data-transcript-turn={group.turn}>
 					{group.segments.map((segment, index) => (
 						<Fragment
@@ -277,7 +349,12 @@ export function Transcript({
 							}
 						>
 							{segment.user.map((entry) => (
-								<Entry key={entryKey(entry)} entry={entry} thread={thread} />
+								<Entry
+									key={entryKey(entry)}
+									entry={entry}
+									thread={thread}
+									renderMessageAction={renderMessageAction}
+								/>
 							))}
 							{hasPublicActivity(segment.activity, thread) && (
 								<TurnActivity
@@ -285,16 +362,23 @@ export function Transcript({
 									turn={group.turn}
 									entries={segment.activity}
 									animate={animate}
+									renderMessageAction={renderMessageAction}
+									now={now}
 								/>
 							)}
 							{segment.answer.map((entry) => (
-								<Entry key={entryKey(entry)} entry={entry} thread={thread} />
+								<Entry
+									key={entryKey(entry)}
+									entry={entry}
+									thread={thread}
+									renderMessageAction={renderMessageAction}
+								/>
 							))}
 						</Fragment>
 					))}
 				</div>
 			))}
-			<LiveStatus thread={thread} animate={animate} />
+			<LiveStatus thread={thread} animate={animate} now={now} visuallyHidden={visuallyHidden} />
 			{notice && <p className="notice">{notice}</p>}
 		</div>
 	)

@@ -174,6 +174,39 @@ export function toAcpSessionUpdate(
 					}),
 			}
 
+		case 'hosted_tool': {
+			// This is provider-executed activity, not a local tool request. Reuse
+			// the peer's existing display-only tool row without exposing a raw
+			// provider item or asking the host to execute or approve anything.
+			const page = Boolean(event.tool.url && !event.tool.query)
+			const title = page ? 'Web fetch' : 'Web search'
+			const target = (page ? event.tool.url : event.tool.query)?.replace(/\s+/g, ' ').trim()
+			const label =
+				event.tool.status === 'running'
+					? ''
+					: `${title}${target ? `: ${target.slice(0, 200)}` : ''}${
+							event.tool.status === 'failed'
+								? ' failed'
+								: !page &&
+										Number.isSafeInteger(event.tool.results) &&
+										(event.tool.results ?? -1) >= 0
+									? ` · ${event.tool.results} ${event.tool.results === 1 ? 'source' : 'sources'}`
+									: ''
+						}`
+			return {
+				kind: 'tool_call',
+				toolCallId: `provider-hosted-web-search:${event.iteration}:${event.tool.id}`,
+				title,
+				status:
+					event.tool.status === 'running'
+						? 'pending'
+						: event.tool.status === 'completed'
+							? 'completed'
+							: 'failed',
+				view: { kind: 'generic', label, presentation: 'activity' },
+			}
+		}
+
 		case 'turn_completed':
 			return {
 				kind: 'turn_ended',

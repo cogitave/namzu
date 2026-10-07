@@ -117,6 +117,68 @@ describe('what this protocol has a word for', () => {
 		expect(failed).toMatchObject({ status: 'failed' })
 	})
 
+	it('shows provider-hosted web activity without turning it into a local tool request', () => {
+		const hosted = (tool: {
+			id: string
+			name: 'web_search'
+			status: 'running' | 'completed' | 'failed'
+			query?: string
+			url?: string
+			results?: number
+		}) =>
+			toAcpSessionUpdate(
+				{ type: 'hosted_tool', sessionId: SID, turnId: TID, iteration: 0, tool },
+				presenter,
+			)
+		const running = hosted({ id: 'hosted-search', name: 'web_search', status: 'running' })
+		expect(running).toEqual({
+			kind: 'tool_call',
+			toolCallId: 'provider-hosted-web-search:0:hosted-search',
+			title: 'Web search',
+			status: 'pending',
+			view: { kind: 'generic', label: '', presentation: 'activity' },
+		})
+		expect(
+			hosted({
+				id: 'hosted-search',
+				name: 'web_search',
+				status: 'completed',
+				query: '  agent\n  runtime  ',
+				results: 2,
+			}),
+		).toEqual({
+			...running,
+			status: 'completed',
+			view: {
+				kind: 'generic',
+				label: 'Web search: agent runtime · 2 sources',
+				presentation: 'activity',
+			},
+		})
+		expect(
+			hosted({
+				id: 'hosted-page',
+				name: 'web_search',
+				status: 'failed',
+				url: 'https://example.test/page',
+			}),
+		).toEqual({
+			kind: 'tool_call',
+			toolCallId: 'provider-hosted-web-search:0:hosted-page',
+			title: 'Web fetch',
+			status: 'failed',
+			view: {
+				kind: 'generic',
+				label: 'Web fetch: https://example.test/page failed',
+				presentation: 'activity',
+			},
+		})
+		expect(hosted({ id: 'hosted-empty', name: 'web_search', status: 'completed' })).toHaveProperty(
+			'view.label',
+			'Web search',
+		)
+	})
+
 	it('preserves a completed custom tool diff already presented with the real input and result', () => {
 		const presentation = {
 			kind: 'diff' as const,

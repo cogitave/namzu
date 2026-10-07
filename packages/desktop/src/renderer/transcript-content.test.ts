@@ -141,7 +141,10 @@ describe('truthful action receipts in normal and Pal views', () => {
 			expect(html).toContain('No output yet.')
 			expect(html).not.toContain('Ran check-failed')
 		}
-		expect(render(thread)).toContain('Commands · 1 waiting for approval, 1 running, 1 failed')
+		const normal = render(thread)
+		expect(normal.match(/data-tool-call-id=/g)).toHaveLength(3)
+		expect(normal).not.toContain('Commands · 1 waiting for approval, 1 running, 1 failed')
+		expect(normal).not.toContain('Actions completed')
 	})
 
 	it('retains cancelled and hidden success captions without empty disclosures or false failures', () => {

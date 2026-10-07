@@ -243,7 +243,7 @@ it('explicitly resumes the original turn while retaining draft, attachments and 
 		stopReason: 'end_turn',
 		queued: ['Keep authored follow-up'],
 	})
-	expect(restored?.messages).toEqual([
+	expect(restored?.messages).toMatchObject([
 		{ role: 'user', text: 'Wait for pause' },
 		expect.objectContaining({ role: 'assistant', text: 'Continued original turn' }),
 	])

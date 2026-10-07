@@ -1,0 +1,238 @@
+{
+  "schema": "namzu.transcript-browser-fixtures.v1",
+  "fixtureSource": "Real DiskSessionLog records and current CLI history projection, isolated task-owned synthetic conversation.",
+  "actualUserConversationRead": false,
+  "nativeActions": 0,
+  "providerRequests": 0,
+  "journalClock": {
+    "user": "2026-10-07T08:42:29.496Z",
+    "answer": "2026-10-07T08:42:29.504Z",
+    "searchStarted": "2026-10-07T08:42:29.497Z",
+    "searchEnded": "2026-10-07T08:42:29.498Z"
+  },
+  "coldHistory": {
+    "messages": [
+      {
+        "messageId": "01a11587-46f5-703a-8a2d-10873ca0940b",
+        "role": "user",
+        "text": "Find RunPod H100 hourly prices and keep the source links.",
+        "time": {
+          "at": 1791362549496,
+          "source": "journal"
+        }
+      },
+      {
+        "messageId": "01a11587-4700-72ec-b99a-777f6f2cfd89",
+        "role": "assistant",
+        "text": "The search returned 9 sources. Check [RunPod pricing](https://www.runpod.io/pricing) and [RunPod docs](https://docs.runpod.io/).\n\nInline source: `https://docs.runpod.io/serverless/overview`.\n\nUnsafe links stay inert: [Local file](file:///etc/passwd), [Script](javascript:alert%281%29), [Credentials](https://user:password@example.invalid/).\n\nInert code: `file:///etc/passwd`, `javascript:alert(1)`, `https://user:password@example.invalid/`, `curl https://example.invalid/api`.\n\n```text\nhttps://www.runpod.io/console\n```",
+        "time": {
+          "at": 1791362549504,
+          "source": "journal"
+        }
+      }
+    ],
+    "partial": false,
+    "work": {
+      "v": 1,
+      "partial": false,
+      "messages": [
+        {
+          "index": 0,
+          "messageId": "01a11587-46f5-703a-8a2d-10873ca0940b",
+          "turnId": "01a11587-46f5-703a-8a2d-1086d3c67a9e",
+          "order": 3
+        },
+        {
+          "index": 1,
+          "messageId": "01a11587-4700-72ec-b99a-777f6f2cfd89",
+          "turnId": "01a11587-46f5-703a-8a2d-1086d3c67a9e",
+          "order": 14
+        }
+      ],
+      "turns": [
+        {
+          "turnId": "01a11587-46f5-703a-8a2d-1086d3c67a9e",
+          "userMessageId": "01a11587-46f5-703a-8a2d-10873ca0940b",
+          "order": 2,
+          "status": "completed",
+          "reason": "end_turn",
+          "startedAt": 1791362549493,
+          "durationMs": 4321,
+          "endedAt": 1791362549505
+        }
+      ],
+      "tools": [
+        {
+          "turnId": "01a11587-46f5-703a-8a2d-1086d3c67a9e",
+          "toolUseId": "provider-hosted-web-search:0:provider-search-fixture",
+          "name": "Web search",
+          "order": 4,
+          "status": "completed",
+          "hosted": true,
+          "presentation": {
+            "kind": "generic",
+            "label": "Web search: RunPod H100 GPU hourly pricing · 9 sources",
+            "presentation": "activity"
+          },
+          "startedAt": 1791362549497,
+          "endedAt": 1791362549498
+        },
+        {
+          "turnId": "01a11587-46f5-703a-8a2d-1086d3c67a9e",
+          "toolUseId": "01a11587-46fa-736b-8092-550443239db4",
+          "name": "read",
+          "order": 6,
+          "status": "completed",
+          "presentation": {
+            "kind": "terminal",
+            "output": "Recorded fixture rate: review the primary source before acting.",
+            "command": "Read gpu-rates.txt"
+          },
+          "durationMs": 123,
+          "startedAt": 1791362549498,
+          "endedAt": 1791362549499
+        },
+        {
+          "turnId": "01a11587-46f5-703a-8a2d-1086d3c67a9e",
+          "toolUseId": "01a11587-46fb-7253-8575-1fa75a50f91e",
+          "name": "bash",
+          "order": 8,
+          "status": "completed",
+          "presentation": {
+            "kind": "terminal",
+            "output": "Recorded checks passed.",
+            "command": "Check saved results"
+          },
+          "durationMs": 876,
+          "startedAt": 1791362549500,
+          "endedAt": 1791362549500
+        },
+        {
+          "turnId": "01a11587-46f5-703a-8a2d-1086d3c67a9e",
+          "toolUseId": "01a11587-46fd-702c-965e-61777abc64a1",
+          "name": "search_conversation",
+          "order": 10,
+          "status": "completed",
+          "presentation": {
+            "kind": "terminal",
+            "output": "{\"matches\":[{\"text\":\"Synthetic earlier web_search observation.\",\"recordKind\":\"assistant_message\"}],\"incomplete\":false,\"unavailable\":0,\"query\":\"web_search\"}"
+          },
+          "durationMs": 321,
+          "startedAt": 1791362549502,
+          "endedAt": 1791362549502
+        },
+        {
+          "turnId": "01a11587-46f5-703a-8a2d-1086d3c67a9e",
+          "toolUseId": "01a11587-46ff-72f8-8876-4e80dd694dad",
+          "name": "search_conversation",
+          "order": 12,
+          "status": "completed",
+          "presentation": {
+            "kind": "terminal",
+            "output": "{\"matches\":[{\"text\":\"Synthetic earlier flexprice observation.\",\"recordKind\":\"assistant_message\"}],\"incomplete\":false,\"unavailable\":0,\"query\":\"flexprice\"}"
+          },
+          "durationMs": 654,
+          "startedAt": 1791362549503,
+          "endedAt": 1791362549504
+        }
+      ]
+    }
+  },
+  "legacyHistory": {
+    "messages": [
+      {
+        "role": "user",
+        "text": "An older conversation has no recorded clock."
+      },
+      {
+        "role": "assistant",
+        "text": "Keep its clock unknown."
+      }
+    ],
+    "partial": false
+  },
+  "livePending": {
+    "kind": "tool_call",
+    "toolCallId": "provider-hosted-web-search:0:provider-search-fixture",
+    "title": "Web search",
+    "status": "pending",
+    "view": {
+      "kind": "generic",
+      "label": "",
+      "presentation": "activity"
+    }
+  },
+  "liveCompleted": {
+    "kind": "tool_call",
+    "toolCallId": "provider-hosted-web-search:0:provider-search-fixture",
+    "title": "Web search",
+    "status": "completed",
+    "view": {
+      "kind": "generic",
+      "label": "Web search: RunPod H100 GPU hourly pricing · 9 sources",
+      "presentation": "activity"
+    }
+  },
+  "technicalReceipts": [
+    {
+      "toolUseId": "01a11587-46fd-702c-965e-61777abc64a1",
+      "name": "search_conversation",
+      "query": "web_search",
+      "durationMs": 321,
+      "receipt": "{\"matches\":[{\"text\":\"Synthetic earlier web_search observation.\",\"recordKind\":\"assistant_message\"}],\"incomplete\":false,\"unavailable\":0,\"query\":\"web_search\"}",
+      "startedAt": "2026-10-07T08:42:29.502Z",
+      "endedAt": "2026-10-07T08:42:29.502Z",
+      "pendingUpdate": {
+        "kind": "tool_call",
+        "toolCallId": "01a11587-46fd-702c-965e-61777abc64a1",
+        "title": "search_conversation",
+        "status": "pending",
+        "view": {
+          "kind": "generic",
+          "label": "web_search"
+        }
+      },
+      "completedUpdate": {
+        "kind": "tool_call",
+        "toolCallId": "01a11587-46fd-702c-965e-61777abc64a1",
+        "title": "search_conversation",
+        "status": "completed",
+        "durationMs": 321,
+        "view": {
+          "kind": "terminal",
+          "output": "{\"matches\":[{\"text\":\"Synthetic earlier web_search observation.\",\"recordKind\":\"assistant_message\"}],\"incomplete\":false,\"unavailable\":0,\"query\":\"web_search\"}"
+        }
+      }
+    },
+    {
+      "toolUseId": "01a11587-46ff-72f8-8876-4e80dd694dad",
+      "name": "search_conversation",
+      "query": "flexprice",
+      "durationMs": 654,
+      "receipt": "{\"matches\":[{\"text\":\"Synthetic earlier flexprice observation.\",\"recordKind\":\"assistant_message\"}],\"incomplete\":false,\"unavailable\":0,\"query\":\"flexprice\"}",
+      "startedAt": "2026-10-07T08:42:29.503Z",
+      "endedAt": "2026-10-07T08:42:29.504Z",
+      "pendingUpdate": {
+        "kind": "tool_call",
+        "toolCallId": "01a11587-46ff-72f8-8876-4e80dd694dad",
+        "title": "search_conversation",
+        "status": "pending",
+        "view": {
+          "kind": "generic",
+          "label": "flexprice"
+        }
+      },
+      "completedUpdate": {
+        "kind": "tool_call",
+        "toolCallId": "01a11587-46ff-72f8-8876-4e80dd694dad",
+        "title": "search_conversation",
+        "status": "completed",
+        "durationMs": 654,
+        "view": {
+          "kind": "terminal",
+          "output": "{\"matches\":[{\"text\":\"Synthetic earlier flexprice observation.\",\"recordKind\":\"assistant_message\"}],\"incomplete\":false,\"unavailable\":0,\"query\":\"flexprice\"}"
+        }
+      }
+    }
+  ]
+}

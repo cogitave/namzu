@@ -71,6 +71,9 @@ it('keeps ordinary background status in A while B is selected, then revokes it o
 	const status = wait(
 		(event) => event.kind === 'background-work-status' && event.sessionId === a.id,
 	)
+	const settled = wait(
+		(event) => event.kind === 'state' && event.sessionId === a.id && !event.running,
+	)
 	owner.send(a.id, 'First request')
 	const review = await permission
 	if (review.kind !== 'permission') throw new Error('Missing fixture review')
@@ -81,6 +84,8 @@ it('keeps ordinary background status in A while B is selected, then revokes it o
 	expect(JSON.stringify(observed)).not.toContain('PRIVATE COMMAND')
 	await owner.openConversation(project.id, b.id)
 	expect(owner.backgroundWorkStatuses()[a.id]).toMatchObject({ state: 'known', runningCount: 1 })
+	// Background status can arrive before retry/task reconciliation releases this turn's admission.
+	await settled
 	const unavailable = wait(
 		(event) =>
 			event.kind === 'background-work-status' &&

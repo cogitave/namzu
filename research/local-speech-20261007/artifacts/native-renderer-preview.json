@@ -1,0 +1,40 @@
+{
+  "passed": true,
+  "at": "2026-10-07T08:33:17.328Z",
+  "platform": "win32",
+  "nativePid": 31156,
+  "fixedSampleOnly": true,
+  "providerRequests": 0,
+  "realWebAudio": true,
+  "audio": {
+    "frames": 19,
+    "endedSources": 19,
+    "audioSeconds": 3.44,
+    "firstAudioMs": 4489.20000000298,
+    "elapsedMs": 7970.5
+  },
+  "resources": {
+    "modelDownloadBytes": 34389147,
+    "runtimeDownloadBytes": 159434971,
+    "diskBytes": 933877163,
+    "ramBytes": 338419712,
+    "cpuPercent": 11.886707693870289,
+    "vramBytes": null,
+    "firstAudioMs": 4100.759300000005,
+    "measuredAt": "2026-10-07T08:33:17.003Z"
+  },
+  "preferencesPreserved": true,
+  "messageBodyDigest": "67cc70b6709421cd86f319accf5dd76d09d2512cbbbc834a08f2890b68a72f99",
+  "messagesDraftModelPreserved": true,
+  "transcript": {
+    "messageClocks": 5,
+    "clockSource": "journal",
+    "webSearchState": "completed",
+    "actualSearchClock": "2026-10-07T07:51:16.374Z",
+    "externalLinks": 0
+  },
+  "limitations": [
+    "Real audio nodes ended; speaker audibility and subjective Turkish pronunciation were not rated.",
+    "The fixed sample is task-owned; actual user messages were not spoken or published."
+  ]
+}

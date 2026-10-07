@@ -1,0 +1,34 @@
+{
+  "passed": true,
+  "normalizedFixedSample": "merhaba! ben namzu. türkçe seslendirme bu cihazda çalışıyor.",
+  "originalChars": 60,
+  "normalizedChars": 60,
+  "plan": [
+    {
+      "letters": 60,
+      "frames": 86,
+      "seconds": 3.44,
+      "pause": 0
+    }
+  ],
+  "rates": {
+    "24000": {
+      "samples": 82560,
+      "seconds": 3.44,
+      "chunks": 3,
+      "firstAudioMs": 80.53300000028685,
+      "peak": 0.4491538405418396
+    },
+    "48000": {
+      "samples": 165120,
+      "seconds": 3.44,
+      "chunks": 2,
+      "firstAudioMs": 134.97349999670405,
+      "peak": 0.45165199041366577
+    }
+  },
+  "rateCountsAgree": true,
+  "platform": "win32",
+  "at": "2026-10-07T08:24:27.909Z",
+  "providerRequests": 0
+}

@@ -61,6 +61,7 @@ import {
 	XIcon,
 } from './icons.js'
 import { JobRow } from './job-row.js'
+import { LocalSpeechReadAloud, LocalSpeechSettings } from './local-speech-settings.js'
 import { invalidateModelCatalogueDisplayCache } from './model-catalogue-display-cache.js'
 import { resolveComposerModelChoice } from './model-choice.js'
 import { NavigationRail } from './navigation-rail.js'
@@ -86,6 +87,7 @@ import { Button } from './ui/button.js'
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from './ui/empty.js'
 import { useAttachments } from './use-attachments.js'
 import { useDraftSettings } from './use-draft-settings.js'
+import { useLocalSpeech } from './use-local-speech.js'
 import { useTranscriptScroll } from './use-transcript-scroll.js'
 import { WindowTitlebar } from './window-titlebar.js'
 import { Wordmark } from './wordmark.js'
@@ -573,6 +575,7 @@ export function App({
 	const transcriptScroll = useTranscriptScroll(sessionId, transcript, follow)
 	const project = projects.find((item) => item.id === projectId)
 	const conversation = conversations.find((item) => item.id === sessionId)
+	const speech = useLocalSpeech(api, sessionId || undefined)
 	const historyPending = historyDisplay?.sessionId === sessionId && !!historyDisplay.pending
 	const thread = historyPending ? emptyThread() : (threads[sessionId] ?? emptyThread())
 	const pal = pals.find((item) => item.id === project?.palId)
@@ -3668,6 +3671,9 @@ export function App({
 											thread={thread}
 											name={pal.name}
 											intro={conversation?.palGreeting}
+											renderMessageAction={(message, key) => (
+												<LocalSpeechReadAloud speech={speech} messageId={key} text={message.text} />
+											)}
 										/>
 									) : (
 										<>
@@ -3675,6 +3681,13 @@ export function App({
 												key={sessionId || 'blank'}
 												thread={thread}
 												animate={!historyPending && !restoringTabs}
+												renderMessageAction={(message, key) => (
+													<LocalSpeechReadAloud
+														speech={speech}
+														messageId={key}
+														text={message.text}
+													/>
+												)}
 											/>
 											<ChangedFilesCard
 												tools={thread.tools}
@@ -3735,6 +3748,7 @@ export function App({
 								</Button>
 							)}
 							<Composer
+								speechControl={<LocalSpeechSettings speech={speech} />}
 								variant={pal ? 'pal' : 'default'}
 								pluginsSupported={!pal}
 								toolsAvailable={palCanWork}
@@ -3829,6 +3843,11 @@ export function App({
 								onEditQueued={(itemId) => void act(() => editQueued(itemId))}
 								onRemoveQueued={(itemId) => void act(() => api.removeQueued(sessionId, itemId))}
 							/>
+							{speech.error && (
+								<p className="inline-error" role="alert">
+									{speech.error}
+								</p>
+							)}
 						</div>
 					</div>
 				)}

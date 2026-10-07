@@ -1,0 +1,1679 @@
+{
+  "passed": true,
+  "realDesktopRenderer": true,
+  "actualSdkJournalFixture": true,
+  "sourceAcpMapping": true,
+  "nativeActions": 0,
+  "providerRequests": 0,
+  "actualUserConversationRead": false,
+  "checks": [
+    "wide-dark: journal clocks persist across navigation/close/reopen; legacy clocks stay absent; WAI rail/disclosure metrics and keyboard interaction; primary summaries have human phrases, quiet completion/timing, no raw query/tool names or Actions completed; actual queries/results remain in explicit details; Markdown and sole inline-code source bridges each once without renderer navigation; fenced URL/command/hostile links inert; hosted Web search pending/completed; completed header never Thinking; live first-observation clock retained through terminal settlement",
+    "narrow-light: journal clocks persist across navigation/close/reopen; legacy clocks stay absent; WAI rail/disclosure metrics and keyboard interaction; primary summaries have human phrases, quiet completion/timing, no raw query/tool names or Actions completed; actual queries/results remain in explicit details; Markdown and sole inline-code source bridges each once without renderer navigation; fenced URL/command/hostile links inert; hosted Web search pending/completed; completed header never Thinking; live first-observation clock retained through terminal settlement",
+    "minimum-dark: journal clocks persist across navigation/close/reopen; legacy clocks stay absent; WAI rail/disclosure metrics and keyboard interaction; primary summaries have human phrases, quiet completion/timing, no raw query/tool names or Actions completed; actual queries/results remain in explicit details; Markdown and sole inline-code source bridges each once without renderer navigation; fenced URL/command/hostile links inert; hosted Web search pending/completed; completed header never Thinking; live first-observation clock retained through terminal settlement"
+  ],
+  "measurements": [
+    {
+      "scenario": "wide-dark",
+      "primaryRows": [
+        {
+          "label": "Searched the web",
+          "top": 222.75,
+          "height": 32,
+          "status": [
+            {
+              "text": "Completed",
+              "clip": "rect(0px, 0px, 0px, 0px)",
+              "opacity": "1"
+            }
+          ],
+          "clockOpacity": [
+            "0"
+          ],
+          "visibleDuration": false
+        },
+        {
+          "label": "Ran Read gpu-rates.txt",
+          "top": 254.75,
+          "height": 32,
+          "status": [
+            {
+              "text": "Completed",
+              "clip": "rect(0px, 0px, 0px, 0px)",
+              "opacity": "1"
+            }
+          ],
+          "clockOpacity": [
+            "0"
+          ],
+          "visibleDuration": false
+        },
+        {
+          "label": "Ran Check saved results",
+          "top": 286.75,
+          "height": 32,
+          "status": [
+            {
+              "text": "Completed",
+              "clip": "rect(0px, 0px, 0px, 0px)",
+              "opacity": "1"
+            }
+          ],
+          "clockOpacity": [
+            "0"
+          ],
+          "visibleDuration": false
+        },
+        {
+          "label": "Checked earlier messages",
+          "top": 318.75,
+          "height": 32,
+          "status": [],
+          "clockOpacity": [],
+          "visibleDuration": false
+        }
+      ],
+      "rowIntervals": [
+        32,
+        32,
+        32
+      ]
+    },
+    {
+      "scenario": "wide-dark",
+      "expandedHeight": 140,
+      "collapsedHeight": 0,
+      "hoverMeasurements": [
+        {
+          "name": "completed search",
+          "before": {
+            "trigger": {
+              "x": 308,
+              "y": 222.75,
+              "width": 736,
+              "height": 32
+            },
+            "chevron": {
+              "x": 1030,
+              "y": 231.75,
+              "width": 14,
+              "height": 14
+            },
+            "pointerTarget": "svg",
+            "pointerButtonLabel": "Searched the web"
+          },
+          "hovered": {
+            "trigger": {
+              "x": 308,
+              "y": 222.75,
+              "width": 736,
+              "height": 32
+            },
+            "chevron": {
+              "x": 1030,
+              "y": 231.75,
+              "width": 14,
+              "height": 14
+            },
+            "pointerTarget": "svg",
+            "pointerButtonLabel": "Searched the web"
+          },
+          "overClock": {
+            "trigger": {
+              "x": 308,
+              "y": 222.75,
+              "width": 736,
+              "height": 32
+            },
+            "chevron": {
+              "x": 1030,
+              "y": 231.75,
+              "width": 14,
+              "height": 14
+            },
+            "pointerTarget": "svg",
+            "pointerButtonLabel": "Searched the web"
+          }
+        },
+        {
+          "name": "settled work header",
+          "before": {
+            "trigger": {
+              "x": 284,
+              "y": 186.75,
+              "width": 760,
+              "height": 32
+            },
+            "chevron": {
+              "x": 1030,
+              "y": 195.75,
+              "width": 14,
+              "height": 14
+            },
+            "pointerTarget": "svg",
+            "pointerButtonLabel": "Worked for 4s"
+          },
+          "hovered": {
+            "trigger": {
+              "x": 284,
+              "y": 186.75,
+              "width": 760,
+              "height": 32
+            },
+            "chevron": {
+              "x": 1030,
+              "y": 195.75,
+              "width": 14,
+              "height": 14
+            },
+            "pointerTarget": "svg",
+            "pointerButtonLabel": "Worked for 4s"
+          },
+          "overClock": {
+            "trigger": {
+              "x": 284,
+              "y": 186.75,
+              "width": 760,
+              "height": 32
+            },
+            "chevron": {
+              "x": 1030,
+              "y": 195.75,
+              "width": 14,
+              "height": 14
+            },
+            "pointerTarget": "svg",
+            "pointerButtonLabel": "Worked for 4s"
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "wide-dark",
+      "revealedTiming": [
+        {
+          "query": "web_search",
+          "time": "2026-10-07T08:42:29.502Z",
+          "duration": "321 ms",
+          "description": "Duration: 321 ms"
+        },
+        {
+          "query": "flexprice",
+          "time": "2026-10-07T08:42:29.503Z",
+          "duration": "654 ms",
+          "description": "Duration: 654 ms"
+        }
+      ]
+    },
+    {
+      "scenario": "wide-dark",
+      "triggerHeight": 32,
+      "triggerFont": "14px",
+      "triggerLineHeight": "20px",
+      "triggerGap": "8px",
+      "rowHeight": 32,
+      "railPadding": "16px",
+      "railMargin": "7px",
+      "railBorder": "1px",
+      "rowCount": 5,
+      "nestedToolGroups": 1,
+      "horizontalOverflow": false,
+      "toolRows": [
+        {
+          "right": 1044,
+          "width": 736,
+          "parents": [
+            {
+              "className": "tool completed",
+              "right": 1044,
+              "width": 736,
+              "minWidth": "0px",
+              "display": "block"
+            },
+            {
+              "className": "tool-list",
+              "right": 1044,
+              "width": 736,
+              "minWidth": "0px",
+              "display": "grid"
+            }
+          ],
+          "children": [
+            {
+              "className": "tool-icon",
+              "right": 322,
+              "width": 14,
+              "minWidth": "auto",
+              "flexShrink": "0"
+            },
+            {
+              "className": "tool-label",
+              "right": 438.03125,
+              "width": 110.03125,
+              "minWidth": "0px",
+              "flexShrink": "1"
+            },
+            {
+              "className": "tool-status transcript-visually-hidden",
+              "right": 308,
+              "width": 1,
+              "minWidth": "0px",
+              "flexShrink": "0"
+            },
+            {
+              "className": "message-time",
+              "right": 444.03125,
+              "width": 0,
+              "minWidth": "auto",
+              "flexShrink": "1"
+            },
+            {
+              "className": "disclosure-chevron",
+              "right": 1044,
+              "width": 14,
+              "minWidth": "auto",
+              "flexShrink": "0"
+            }
+          ]
+        },
+        {
+          "right": 1044,
+          "width": 736,
+          "parents": [
+            {
+              "className": "tool completed",
+              "right": 1044,
+              "width": 736,
+              "minWidth": "0px",
+              "display": "block"
+            },
+            {
+              "className": "tool-list",
+              "right": 1044,
+              "width": 736,
+              "minWidth": "0px",
+              "display": "grid"
+            }
+          ],
+          "children": [
+            {
+              "className": "tool-icon",
+              "right": 322,
+              "width": 14,
+              "minWidth": "auto",
+              "flexShrink": "0"
+            },
+            {
+              "className": "tool-label",
+              "right": 469.09375,
+              "width": 141.09375,
+              "minWidth": "0px",
+              "flexShrink": "1"
+            },
+            {
+              "className": "tool-status",
+              "right": 308,
+              "width": 1,
+              "minWidth": "0px",
+              "flexShrink": "0"
+            },
+            {
+              "className": "message-time",
+              "right": 475.09375,
+              "width": 0,
+              "minWidth": "auto",
+              "flexShrink": "1"
+            },
+            {
+              "className": "tool-duration",
+              "right": 481.09375,
+              "width": 0,
+              "minWidth": "auto",
+              "flexShrink": "0"
+            },
+            {
+              "className": "disclosure-chevron",
+              "right": 1044,
+              "width": 14,
+              "minWidth": "auto",
+              "flexShrink": "0"
+            }
+          ]
+        },
+        {
+          "right": 1044,
+          "width": 736,
+          "parents": [
+            {
+              "className": "tool completed",
+              "right": 1044,
+              "width": 736,
+              "minWidth": "0px",
+              "display": "block"
+            },
+            {
+              "className": "tool-list",
+              "right": 1044,
+              "width": 736,
+              "minWidth": "0px",
+              "display": "grid"
+            }
+          ],
+          "children": [
+            {
+              "className": "tool-icon",
+              "right": 322,
+              "width": 14,
+              "minWidth": "auto",
+              "flexShrink": "0"
+            },
+            {
+              "className": "tool-label",
+              "right": 475.734375,
+              "width": 147.734375,
+              "minWidth": "0px",
+              "flexShrink": "1"
+            },
+            {
+              "className": "tool-status",
+              "right": 308,
+              "width": 1,
+              "minWidth": "0px",
+              "flexShrink": "0"
+            },
+            {
+              "className": "message-time",
+              "right": 481.734375,
+              "width": 0,
+              "minWidth": "auto",
+              "flexShrink": "1"
+            },
+            {
+              "className": "tool-duration",
+              "right": 487.734375,
+              "width": 0,
+              "minWidth": "auto",
+              "flexShrink": "0"
+            },
+            {
+              "className": "disclosure-chevron",
+              "right": 1044,
+              "width": 14,
+              "minWidth": "auto",
+              "flexShrink": "0"
+            }
+          ]
+        },
+        {
+          "right": 0,
+          "width": 0,
+          "parents": [
+            {
+              "className": "tool completed",
+              "right": 0,
+              "width": 0,
+              "minWidth": "0px",
+              "display": "block"
+            },
+            {
+              "className": "tool-list",
+              "right": 0,
+              "width": 0,
+              "minWidth": "0px",
+              "display": "grid"
+            }
+          ],
+          "children": [
+            {
+              "className": "tool-icon",
+              "right": 0,
+              "width": 0,
+              "minWidth": "0px",
+              "flexShrink": "0"
+            },
+            {
+              "className": "tool-label",
+              "right": 0,
+              "width": 0,
+              "minWidth": "0px",
+              "flexShrink": "1"
+            },
+            {
+              "className": "tool-status transcript-visually-hidden",
+              "right": 0,
+              "width": 0,
+              "minWidth": "0px",
+              "flexShrink": "0"
+            },
+            {
+              "className": "message-time",
+              "right": 0,
+              "width": 0,
+              "minWidth": "0px",
+              "flexShrink": "1"
+            },
+            {
+              "className": "tool-duration",
+              "right": 0,
+              "width": 0,
+              "minWidth": "0px",
+              "flexShrink": "0"
+            },
+            {
+              "className": "disclosure-chevron",
+              "right": 0,
+              "width": 0,
+              "minWidth": "0px",
+              "flexShrink": "0"
+            }
+          ]
+        },
+        {
+          "right": 0,
+          "width": 0,
+          "parents": [
+            {
+              "className": "tool completed",
+              "right": 0,
+              "width": 0,
+              "minWidth": "0px",
+              "display": "block"
+            },
+            {
+              "className": "tool-list",
+              "right": 0,
+              "width": 0,
+              "minWidth": "0px",
+              "display": "grid"
+            }
+          ],
+          "children": [
+            {
+              "className": "tool-icon",
+              "right": 0,
+              "width": 0,
+              "minWidth": "0px",
+              "flexShrink": "0"
+            },
+            {
+              "className": "tool-label",
+              "right": 0,
+              "width": 0,
+              "minWidth": "0px",
+              "flexShrink": "1"
+            },
+            {
+              "className": "tool-status transcript-visually-hidden",
+              "right": 0,
+              "width": 0,
+              "minWidth": "0px",
+              "flexShrink": "0"
+            },
+            {
+              "className": "message-time",
+              "right": 0,
+              "width": 0,
+              "minWidth": "0px",
+              "flexShrink": "1"
+            },
+            {
+              "className": "tool-duration",
+              "right": 0,
+              "width": 0,
+              "minWidth": "0px",
+              "flexShrink": "0"
+            },
+            {
+              "className": "disclosure-chevron",
+              "right": 0,
+              "width": 0,
+              "minWidth": "0px",
+              "flexShrink": "0"
+            }
+          ]
+        }
+      ],
+      "transcriptBounds": {
+        "left": 280,
+        "right": 1048,
+        "width": 768
+      },
+      "viewportWidth": 1280,
+      "ancestorWidths": [
+        {
+          "selector": ".workspace-canvas",
+          "width": 1232,
+          "minWidth": "0px"
+        },
+        {
+          "selector": ".workspace",
+          "width": 1232,
+          "minWidth": "0px"
+        },
+        {
+          "selector": ".chat-stage",
+          "width": 1232,
+          "minWidth": "0px"
+        },
+        {
+          "selector": ".transcript",
+          "width": 1232,
+          "minWidth": "auto"
+        }
+      ],
+      "viewportClipped": false
+    },
+    {
+      "scenario": "narrow-light",
+      "primaryRows": [
+        {
+          "label": "Searched the web",
+          "top": 121.75,
+          "height": 32,
+          "status": [
+            {
+              "text": "Completed",
+              "clip": "rect(0px, 0px, 0px, 0px)",
+              "opacity": "1"
+            }
+          ],
+          "clockOpacity": [
+            "0"
+          ],
+          "visibleDuration": false
+        },
+        {
+          "label": "Ran Read gpu-rates.txt",
+          "top": 153.75,
+          "height": 32,
+          "status": [
+            {
+              "text": "Completed",
+              "clip": "rect(0px, 0px, 0px, 0px)",
+              "opacity": "1"
+            }
+          ],
+          "clockOpacity": [
+            "0"
+          ],
+          "visibleDuration": false
+        },
+        {
+          "label": "Ran Check saved results",
+          "top": 185.75,
+          "height": 32,
+          "status": [
+            {
+              "text": "Completed",
+              "clip": "rect(0px, 0px, 0px, 0px)",
+              "opacity": "1"
+            }
+          ],
+          "clockOpacity": [
+            "0"
+          ],
+          "visibleDuration": false
+        },
+        {
+          "label": "Checked earlier messages",
+          "top": 217.75,
+          "height": 32,
+          "status": [],
+          "clockOpacity": [],
+          "visibleDuration": false
+        }
+      ],
+      "rowIntervals": [
+        32,
+        32,
+        32
+      ]
+    },
+    {
+      "scenario": "narrow-light",
+      "expandedHeight": 140,
+      "collapsedHeight": 0,
+      "hoverMeasurements": [
+        {
+          "name": "completed search",
+          "before": {
+            "trigger": {
+              "x": 102,
+              "y": 121.75,
+              "width": 508,
+              "height": 32
+            },
+            "chevron": {
+              "x": 596,
+              "y": 130.75,
+              "width": 14,
+              "height": 14
+            },
+            "pointerTarget": "svg",
+            "pointerButtonLabel": "Searched the web"
+          },
+          "hovered": {
+            "trigger": {
+              "x": 102,
+              "y": 121.75,
+              "width": 508,
+              "height": 32
+            },
+            "chevron": {
+              "x": 596,
+              "y": 130.75,
+              "width": 14,
+              "height": 14
+            },
+            "pointerTarget": "svg",
+            "pointerButtonLabel": "Searched the web"
+          },
+          "overClock": {
+            "trigger": {
+              "x": 102,
+              "y": 121.75,
+              "width": 508,
+              "height": 32
+            },
+            "chevron": {
+              "x": 596,
+              "y": 130.75,
+              "width": 14,
+              "height": 14
+            },
+            "pointerTarget": "svg",
+            "pointerButtonLabel": "Searched the web"
+          }
+        },
+        {
+          "name": "settled work header",
+          "before": {
+            "trigger": {
+              "x": 78,
+              "y": 85.75,
+              "width": 532,
+              "height": 32
+            },
+            "chevron": {
+              "x": 596,
+              "y": 94.75,
+              "width": 14,
+              "height": 14
+            },
+            "pointerTarget": "svg",
+            "pointerButtonLabel": "Worked for 4s"
+          },
+          "hovered": {
+            "trigger": {
+              "x": 78,
+              "y": 85.75,
+              "width": 532,
+              "height": 32
+            },
+            "chevron": {
+              "x": 596,
+              "y": 94.75,
+              "width": 14,
+              "height": 14
+            },
+            "pointerTarget": "svg",
+            "pointerButtonLabel": "Worked for 4s"
+          },
+          "overClock": {
+            "trigger": {
+              "x": 78,
+              "y": 85.75,
+              "width": 532,
+              "height": 32
+            },
+            "chevron": {
+              "x": 596,
+              "y": 94.75,
+              "width": 14,
+              "height": 14
+            },
+            "pointerTarget": "svg",
+            "pointerButtonLabel": "Worked for 4s"
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "narrow-light",
+      "revealedTiming": [
+        {
+          "query": "web_search",
+          "time": "2026-10-07T08:42:29.502Z",
+          "duration": "321 ms",
+          "description": "Duration: 321 ms"
+        },
+        {
+          "query": "flexprice",
+          "time": "2026-10-07T08:42:29.503Z",
+          "duration": "654 ms",
+          "description": "Duration: 654 ms"
+        }
+      ]
+    },
+    {
+      "scenario": "narrow-light",
+      "triggerHeight": 32,
+      "triggerFont": "14px",
+      "triggerLineHeight": "20px",
+      "triggerGap": "8px",
+      "rowHeight": 32,
+      "railPadding": "16px",
+      "railMargin": "7px",
+      "railBorder": "1px",
+      "rowCount": 5,
+      "nestedToolGroups": 1,
+      "horizontalOverflow": false,
+      "toolRows": [
+        {
+          "right": 610,
+          "width": 508,
+          "parents": [
+            {
+              "className": "tool completed",
+              "right": 610,
+              "width": 508,
+              "minWidth": "0px",
+              "display": "block"
+            },
+            {
+              "className": "tool-list",
+              "right": 610,
+              "width": 508,
+              "minWidth": "0px",
+              "display": "grid"
+            }
+          ],
+          "children": [
+            {
+              "className": "tool-icon",
+              "right": 116,
+              "width": 14,
+              "minWidth": "auto",
+              "flexShrink": "0"
+            },
+            {
+              "className": "tool-label",
+              "right": 232.03125,
+              "width": 110.03125,
+              "minWidth": "0px",
+              "flexShrink": "1"
+            },
+            {
+              "className": "tool-status transcript-visually-hidden",
+              "right": 102,
+              "width": 1,
+              "minWidth": "0px",
+              "flexShrink": "0"
+            },
+            {
+              "className": "message-time",
+              "right": 238.03125,
+              "width": 0,
+              "minWidth": "auto",
+              "flexShrink": "1"
+            },
+            {
+              "className": "disclosure-chevron",
+              "right": 610,
+              "width": 14,
+              "minWidth": "auto",
+              "flexShrink": "0"
+            }
+          ]
+        },
+        {
+          "right": 610,
+          "width": 508,
+          "parents": [
+            {
+              "className": "tool completed",
+              "right": 610,
+              "width": 508,
+              "minWidth": "0px",
+              "display": "block"
+            },
+            {
+              "className": "tool-list",
+              "right": 610,
+              "width": 508,
+              "minWidth": "0px",
+              "display": "grid"
+            }
+          ],
+          "children": [
+            {
+              "className": "tool-icon",
+              "right": 116,
+              "width": 14,
+              "minWidth": "auto",
+              "flexShrink": "0"
+            },
+            {
+              "className": "tool-label",
+              "right": 263.09375,
+              "width": 141.09375,
+              "minWidth": "0px",
+              "flexShrink": "1"
+            },
+            {
+              "className": "tool-status",
+              "right": 102,
+              "width": 1,
+              "minWidth": "0px",
+              "flexShrink": "0"
+            },
+            {
+              "className": "message-time",
+              "right": 269.09375,
+              "width": 0,
+              "minWidth": "auto",
+              "flexShrink": "1"
+            },
+            {
+              "className": "tool-duration",
+              "right": 275.09375,
+              "width": 0,
+              "minWidth": "auto",
+              "flexShrink": "0"
+            },
+            {
+              "className": "disclosure-chevron",
+              "right": 610,
+              "width": 14,
+              "minWidth": "auto",
+              "flexShrink": "0"
+            }
+          ]
+        },
+        {
+          "right": 610,
+          "width": 508,
+          "parents": [
+            {
+              "className": "tool completed",
+              "right": 610,
+              "width": 508,
+              "minWidth": "0px",
+              "display": "block"
+            },
+            {
+              "className": "tool-list",
+              "right": 610,
+              "width": 508,
+              "minWidth": "0px",
+              "display": "grid"
+            }
+          ],
+          "children": [
+            {
+              "className": "tool-icon",
+              "right": 116,
+              "width": 14,
+              "minWidth": "auto",
+              "flexShrink": "0"
+            },
+            {
+              "className": "tool-label",
+              "right": 269.734375,
+              "width": 147.734375,
+              "minWidth": "0px",
+              "flexShrink": "1"
+            },
+            {
+              "className": "tool-status",
+              "right": 102,
+              "width": 1,
+              "minWidth": "0px",
+              "flexShrink": "0"
+            },
+            {
+              "className": "message-time",
+              "right": 275.734375,
+              "width": 0,
+              "minWidth": "auto",
+              "flexShrink": "1"
+            },
+            {
+              "className": "tool-duration",
+              "right": 281.734375,
+              "width": 0,
+              "minWidth": "auto",
+              "flexShrink": "0"
+            },
+            {
+              "className": "disclosure-chevron",
+              "right": 610,
+              "width": 14,
+              "minWidth": "auto",
+              "flexShrink": "0"
+            }
+          ]
+        },
+        {
+          "right": 0,
+          "width": 0,
+          "parents": [
+            {
+              "className": "tool completed",
+              "right": 0,
+              "width": 0,
+              "minWidth": "0px",
+              "display": "block"
+            },
+            {
+              "className": "tool-list",
+              "right": 0,
+              "width": 0,
+              "minWidth": "0px",
+              "display": "grid"
+            }
+          ],
+          "children": [
+            {
+              "className": "tool-icon",
+              "right": 0,
+              "width": 0,
+              "minWidth": "0px",
+              "flexShrink": "0"
+            },
+            {
+              "className": "tool-label",
+              "right": 0,
+              "width": 0,
+              "minWidth": "0px",
+              "flexShrink": "1"
+            },
+            {
+              "className": "tool-status transcript-visually-hidden",
+              "right": 0,
+              "width": 0,
+              "minWidth": "0px",
+              "flexShrink": "0"
+            },
+            {
+              "className": "message-time",
+              "right": 0,
+              "width": 0,
+              "minWidth": "0px",
+              "flexShrink": "1"
+            },
+            {
+              "className": "tool-duration",
+              "right": 0,
+              "width": 0,
+              "minWidth": "0px",
+              "flexShrink": "0"
+            },
+            {
+              "className": "disclosure-chevron",
+              "right": 0,
+              "width": 0,
+              "minWidth": "0px",
+              "flexShrink": "0"
+            }
+          ]
+        },
+        {
+          "right": 0,
+          "width": 0,
+          "parents": [
+            {
+              "className": "tool completed",
+              "right": 0,
+              "width": 0,
+              "minWidth": "0px",
+              "display": "block"
+            },
+            {
+              "className": "tool-list",
+              "right": 0,
+              "width": 0,
+              "minWidth": "0px",
+              "display": "grid"
+            }
+          ],
+          "children": [
+            {
+              "className": "tool-icon",
+              "right": 0,
+              "width": 0,
+              "minWidth": "0px",
+              "flexShrink": "0"
+            },
+            {
+              "className": "tool-label",
+              "right": 0,
+              "width": 0,
+              "minWidth": "0px",
+              "flexShrink": "1"
+            },
+            {
+              "className": "tool-status transcript-visually-hidden",
+              "right": 0,
+              "width": 0,
+              "minWidth": "0px",
+              "flexShrink": "0"
+            },
+            {
+              "className": "message-time",
+              "right": 0,
+              "width": 0,
+              "minWidth": "0px",
+              "flexShrink": "1"
+            },
+            {
+              "className": "tool-duration",
+              "right": 0,
+              "width": 0,
+              "minWidth": "0px",
+              "flexShrink": "0"
+            },
+            {
+              "className": "disclosure-chevron",
+              "right": 0,
+              "width": 0,
+              "minWidth": "0px",
+              "flexShrink": "0"
+            }
+          ]
+        }
+      ],
+      "transcriptBounds": {
+        "left": 74,
+        "right": 614,
+        "width": 540
+      },
+      "viewportWidth": 640,
+      "ancestorWidths": [
+        {
+          "selector": ".workspace-canvas",
+          "width": 592,
+          "minWidth": "0px"
+        },
+        {
+          "selector": ".workspace",
+          "width": 592,
+          "minWidth": "0px"
+        },
+        {
+          "selector": ".chat-stage",
+          "width": 592,
+          "minWidth": "0px"
+        },
+        {
+          "selector": ".transcript",
+          "width": 592,
+          "minWidth": "auto"
+        }
+      ],
+      "viewportClipped": false
+    },
+    {
+      "scenario": "minimum-dark",
+      "primaryRows": [
+        {
+          "label": "Searched the web",
+          "top": 245.5,
+          "height": 32,
+          "status": [
+            {
+              "text": "Completed",
+              "clip": "rect(0px, 0px, 0px, 0px)",
+              "opacity": "1"
+            }
+          ],
+          "clockOpacity": [
+            "0"
+          ],
+          "visibleDuration": false
+        },
+        {
+          "label": "Ran Read gpu-rates.txt",
+          "top": 277.5,
+          "height": 32,
+          "status": [
+            {
+              "text": "Completed",
+              "clip": "rect(0px, 0px, 0px, 0px)",
+              "opacity": "1"
+            }
+          ],
+          "clockOpacity": [
+            "0"
+          ],
+          "visibleDuration": false
+        },
+        {
+          "label": "Ran Check saved results",
+          "top": 309.5,
+          "height": 32,
+          "status": [
+            {
+              "text": "Completed",
+              "clip": "rect(0px, 0px, 0px, 0px)",
+              "opacity": "1"
+            }
+          ],
+          "clockOpacity": [
+            "0"
+          ],
+          "visibleDuration": false
+        },
+        {
+          "label": "Checked earlier messages",
+          "top": 341.5,
+          "height": 32,
+          "status": [],
+          "clockOpacity": [],
+          "visibleDuration": false
+        }
+      ],
+      "rowIntervals": [
+        32,
+        32,
+        32
+      ]
+    },
+    {
+      "scenario": "minimum-dark",
+      "expandedHeight": 140,
+      "collapsedHeight": 0,
+      "hoverMeasurements": [
+        {
+          "name": "completed search",
+          "before": {
+            "trigger": {
+              "x": 94,
+              "y": 245.5,
+              "width": 444,
+              "height": 32
+            },
+            "chevron": {
+              "x": 524,
+              "y": 254.5,
+              "width": 14,
+              "height": 14
+            },
+            "pointerTarget": "svg",
+            "pointerButtonLabel": "Searched the web"
+          },
+          "hovered": {
+            "trigger": {
+              "x": 94,
+              "y": 245.5,
+              "width": 444,
+              "height": 32
+            },
+            "chevron": {
+              "x": 524,
+              "y": 254.5,
+              "width": 14,
+              "height": 14
+            },
+            "pointerTarget": "svg",
+            "pointerButtonLabel": "Searched the web"
+          },
+          "overClock": {
+            "trigger": {
+              "x": 94,
+              "y": 245.5,
+              "width": 444,
+              "height": 32
+            },
+            "chevron": {
+              "x": 524,
+              "y": 254.5,
+              "width": 14,
+              "height": 14
+            },
+            "pointerTarget": "svg",
+            "pointerButtonLabel": "Searched the web"
+          }
+        },
+        {
+          "name": "settled work header",
+          "before": {
+            "trigger": {
+              "x": 70,
+              "y": 209.5,
+              "width": 468,
+              "height": 32
+            },
+            "chevron": {
+              "x": 524,
+              "y": 218.5,
+              "width": 14,
+              "height": 14
+            },
+            "pointerTarget": "svg",
+            "pointerButtonLabel": "Worked for 4s"
+          },
+          "hovered": {
+            "trigger": {
+              "x": 70,
+              "y": 209.5,
+              "width": 468,
+              "height": 32
+            },
+            "chevron": {
+              "x": 524,
+              "y": 218.5,
+              "width": 14,
+              "height": 14
+            },
+            "pointerTarget": "svg",
+            "pointerButtonLabel": "Worked for 4s"
+          },
+          "overClock": {
+            "trigger": {
+              "x": 70,
+              "y": 209.5,
+              "width": 468,
+              "height": 32
+            },
+            "chevron": {
+              "x": 524,
+              "y": 218.5,
+              "width": 14,
+              "height": 14
+            },
+            "pointerTarget": "svg",
+            "pointerButtonLabel": "Worked for 4s"
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "minimum-dark",
+      "revealedTiming": [
+        {
+          "query": "web_search",
+          "time": "2026-10-07T08:42:29.502Z",
+          "duration": "321 ms",
+          "description": "Duration: 321 ms"
+        },
+        {
+          "query": "flexprice",
+          "time": "2026-10-07T08:42:29.503Z",
+          "duration": "654 ms",
+          "description": "Duration: 654 ms"
+        }
+      ]
+    },
+    {
+      "scenario": "minimum-dark",
+      "triggerHeight": 32,
+      "triggerFont": "14px",
+      "triggerLineHeight": "20px",
+      "triggerGap": "8px",
+      "rowHeight": 32,
+      "railPadding": "16px",
+      "railMargin": "7px",
+      "railBorder": "1px",
+      "rowCount": 5,
+      "nestedToolGroups": 1,
+      "horizontalOverflow": false,
+      "toolRows": [
+        {
+          "right": 538,
+          "width": 444,
+          "parents": [
+            {
+              "className": "tool completed",
+              "right": 538,
+              "width": 444,
+              "minWidth": "0px",
+              "display": "block"
+            },
+            {
+              "className": "tool-list",
+              "right": 538,
+              "width": 444,
+              "minWidth": "0px",
+              "display": "grid"
+            }
+          ],
+          "children": [
+            {
+              "className": "tool-icon",
+              "right": 108,
+              "width": 14,
+              "minWidth": "auto",
+              "flexShrink": "0"
+            },
+            {
+              "className": "tool-label",
+              "right": 224.03125,
+              "width": 110.03125,
+              "minWidth": "0px",
+              "flexShrink": "1"
+            },
+            {
+              "className": "tool-status transcript-visually-hidden",
+              "right": 94,
+              "width": 1,
+              "minWidth": "0px",
+              "flexShrink": "0"
+            },
+            {
+              "className": "message-time",
+              "right": 230.03125,
+              "width": 0,
+              "minWidth": "auto",
+              "flexShrink": "1"
+            },
+            {
+              "className": "disclosure-chevron",
+              "right": 538,
+              "width": 14,
+              "minWidth": "auto",
+              "flexShrink": "0"
+            }
+          ]
+        },
+        {
+          "right": 538,
+          "width": 444,
+          "parents": [
+            {
+              "className": "tool completed",
+              "right": 538,
+              "width": 444,
+              "minWidth": "0px",
+              "display": "block"
+            },
+            {
+              "className": "tool-list",
+              "right": 538,
+              "width": 444,
+              "minWidth": "0px",
+              "display": "grid"
+            }
+          ],
+          "children": [
+            {
+              "className": "tool-icon",
+              "right": 108,
+              "width": 14,
+              "minWidth": "auto",
+              "flexShrink": "0"
+            },
+            {
+              "className": "tool-label",
+              "right": 255.09375,
+              "width": 141.09375,
+              "minWidth": "0px",
+              "flexShrink": "1"
+            },
+            {
+              "className": "tool-status",
+              "right": 94,
+              "width": 1,
+              "minWidth": "0px",
+              "flexShrink": "0"
+            },
+            {
+              "className": "message-time",
+              "right": 261.09375,
+              "width": 0,
+              "minWidth": "auto",
+              "flexShrink": "1"
+            },
+            {
+              "className": "tool-duration",
+              "right": 267.09375,
+              "width": 0,
+              "minWidth": "auto",
+              "flexShrink": "0"
+            },
+            {
+              "className": "disclosure-chevron",
+              "right": 538,
+              "width": 14,
+              "minWidth": "auto",
+              "flexShrink": "0"
+            }
+          ]
+        },
+        {
+          "right": 538,
+          "width": 444,
+          "parents": [
+            {
+              "className": "tool completed",
+              "right": 538,
+              "width": 444,
+              "minWidth": "0px",
+              "display": "block"
+            },
+            {
+              "className": "tool-list",
+              "right": 538,
+              "width": 444,
+              "minWidth": "0px",
+              "display": "grid"
+            }
+          ],
+          "children": [
+            {
+              "className": "tool-icon",
+              "right": 108,
+              "width": 14,
+              "minWidth": "auto",
+              "flexShrink": "0"
+            },
+            {
+              "className": "tool-label",
+              "right": 261.734375,
+              "width": 147.734375,
+              "minWidth": "0px",
+              "flexShrink": "1"
+            },
+            {
+              "className": "tool-status",
+              "right": 94,
+              "width": 1,
+              "minWidth": "0px",
+              "flexShrink": "0"
+            },
+            {
+              "className": "message-time",
+              "right": 267.734375,
+              "width": 0,
+              "minWidth": "auto",
+              "flexShrink": "1"
+            },
+            {
+              "className": "tool-duration",
+              "right": 273.734375,
+              "width": 0,
+              "minWidth": "auto",
+              "flexShrink": "0"
+            },
+            {
+              "className": "disclosure-chevron",
+              "right": 538,
+              "width": 14,
+              "minWidth": "auto",
+              "flexShrink": "0"
+            }
+          ]
+        },
+        {
+          "right": 0,
+          "width": 0,
+          "parents": [
+            {
+              "className": "tool completed",
+              "right": 0,
+              "width": 0,
+              "minWidth": "0px",
+              "display": "block"
+            },
+            {
+              "className": "tool-list",
+              "right": 0,
+              "width": 0,
+              "minWidth": "0px",
+              "display": "grid"
+            }
+          ],
+          "children": [
+            {
+              "className": "tool-icon",
+              "right": 0,
+              "width": 0,
+              "minWidth": "0px",
+              "flexShrink": "0"
+            },
+            {
+              "className": "tool-label",
+              "right": 0,
+              "width": 0,
+              "minWidth": "0px",
+              "flexShrink": "1"
+            },
+            {
+              "className": "tool-status transcript-visually-hidden",
+              "right": 0,
+              "width": 0,
+              "minWidth": "0px",
+              "flexShrink": "0"
+            },
+            {
+              "className": "message-time",
+              "right": 0,
+              "width": 0,
+              "minWidth": "0px",
+              "flexShrink": "1"
+            },
+            {
+              "className": "tool-duration",
+              "right": 0,
+              "width": 0,
+              "minWidth": "0px",
+              "flexShrink": "0"
+            },
+            {
+              "className": "disclosure-chevron",
+              "right": 0,
+              "width": 0,
+              "minWidth": "0px",
+              "flexShrink": "0"
+            }
+          ]
+        },
+        {
+          "right": 0,
+          "width": 0,
+          "parents": [
+            {
+              "className": "tool completed",
+              "right": 0,
+              "width": 0,
+              "minWidth": "0px",
+              "display": "block"
+            },
+            {
+              "className": "tool-list",
+              "right": 0,
+              "width": 0,
+              "minWidth": "0px",
+              "display": "grid"
+            }
+          ],
+          "children": [
+            {
+              "className": "tool-icon",
+              "right": 0,
+              "width": 0,
+              "minWidth": "0px",
+              "flexShrink": "0"
+            },
+            {
+              "className": "tool-label",
+              "right": 0,
+              "width": 0,
+              "minWidth": "0px",
+              "flexShrink": "1"
+            },
+            {
+              "className": "tool-status transcript-visually-hidden",
+              "right": 0,
+              "width": 0,
+              "minWidth": "0px",
+              "flexShrink": "0"
+            },
+            {
+              "className": "message-time",
+              "right": 0,
+              "width": 0,
+              "minWidth": "0px",
+              "flexShrink": "1"
+            },
+            {
+              "className": "tool-duration",
+              "right": 0,
+              "width": 0,
+              "minWidth": "0px",
+              "flexShrink": "0"
+            },
+            {
+              "className": "disclosure-chevron",
+              "right": 0,
+              "width": 0,
+              "minWidth": "0px",
+              "flexShrink": "0"
+            }
+          ]
+        }
+      ],
+      "transcriptBounds": {
+        "left": 66,
+        "right": 542,
+        "width": 476
+      },
+      "viewportWidth": 560,
+      "ancestorWidths": [
+        {
+          "selector": ".workspace-canvas",
+          "width": 512,
+          "minWidth": "0px"
+        },
+        {
+          "selector": ".workspace",
+          "width": 512,
+          "minWidth": "0px"
+        },
+        {
+          "selector": ".chat-stage",
+          "width": 512,
+          "minWidth": "0px"
+        },
+        {
+          "selector": ".transcript",
+          "width": 512,
+          "minWidth": "auto"
+        }
+      ],
+      "viewportClipped": false
+    }
+  ],
+  "referenceDifferences": [],
+  "screenshots": [
+    "primary-summary-wide-dark.png",
+    "transcript-wide-dark.png",
+    "primary-summary-narrow-light.png",
+    "transcript-narrow-light.png",
+    "primary-summary-minimum-dark.png",
+    "transcript-minimum-dark.png"
+  ],
+  "pageErrors": [],
+  "limits": [
+    "Synthetic conversation only; no native application or provider prompt. Reference checks use supplied WAI DOM measurements, not a pixel-parity claim."
+  ]
+}

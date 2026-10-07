@@ -1,0 +1,227 @@
+{
+  "at": "2026-10-07T08:04:42.421Z",
+  "viewport": {
+    "width": 1280,
+    "height": 900
+  },
+  "theme": "dark",
+  "source": "/home/arda/workspaces/@cogitave/cogitave-labs/wai",
+  "mockReference": true,
+  "measurements": {
+    "row": {
+      "text": "Worked for 10s · 3 steps",
+      "bounds": {
+        "x": 399.5,
+        "y": 147.375,
+        "width": 208,
+        "height": 32
+      },
+      "font": "\"Geist Variable\", sans-serif",
+      "size": "14px",
+      "lineHeight": "20px",
+      "color": "oklch(0.72 0.01 85)",
+      "gap": "8px"
+    },
+    "parent": {
+      "text": "Worked for 10s · 3 steps\nThinking\nThe request is about noise-cancelling headphones.\n\nPlan\n\nUnderstand the request\nDone\nSearch the web\nDone\nRun the num",
+      "bounds": {
+        "x": 403.5,
+        "y": 147.375,
+        "width": 720,
+        "height": 368
+      },
+      "font": "\"Geist Variable\", sans-serif",
+      "size": "16px",
+      "lineHeight": "24px",
+      "color": "oklch(0.965 0.005 85)",
+      "gap": "normal"
+    },
+    "steps": [
+      {
+        "text": "Thinking\nThe request is about noise-cancelling headphones.",
+        "bounds": {
+          "x": 427.5,
+          "y": 185.375,
+          "width": 696,
+          "height": 32
+        },
+        "font": "\"Geist Variable\", sans-serif",
+        "size": "16px",
+        "lineHeight": "24px",
+        "color": "oklch(0.965 0.005 85)",
+        "gap": "normal"
+      },
+      {
+        "text": "Plan\n\nUnderstand the request\nDone\nSearch the web\nDone\nRun the numbers\nDone\nWrite the answer\nDone",
+        "bounds": {
+          "x": 427.5,
+          "y": 221.375,
+          "width": 696,
+          "height": 130
+        },
+        "font": "\"Geist Variable\", sans-serif",
+        "size": "16px",
+        "lineHeight": "24px",
+        "color": "oklch(0.965 0.005 85)",
+        "gap": "normal"
+      },
+      {
+        "text": "Understand the request\nDone",
+        "bounds": {
+          "x": 427.5,
+          "y": 239.375,
+          "width": 696,
+          "height": 28
+        },
+        "font": "\"Geist Variable\", sans-serif",
+        "size": "14px",
+        "lineHeight": "20px",
+        "color": "oklch(0.72 0.01 85)",
+        "gap": "8px"
+      },
+      {
+        "text": "Search the web\nDone",
+        "bounds": {
+          "x": 427.5,
+          "y": 267.375,
+          "width": 696,
+          "height": 28
+        },
+        "font": "\"Geist Variable\", sans-serif",
+        "size": "14px",
+        "lineHeight": "20px",
+        "color": "oklch(0.72 0.01 85)",
+        "gap": "8px"
+      },
+      {
+        "text": "Run the numbers\nDone",
+        "bounds": {
+          "x": 427.5,
+          "y": 295.375,
+          "width": 696,
+          "height": 28
+        },
+        "font": "\"Geist Variable\", sans-serif",
+        "size": "14px",
+        "lineHeight": "20px",
+        "color": "oklch(0.72 0.01 85)",
+        "gap": "8px"
+      },
+      {
+        "text": "Write the answer\nDone",
+        "bounds": {
+          "x": 427.5,
+          "y": 323.375,
+          "width": 696,
+          "height": 28
+        },
+        "font": "\"Geist Variable\", sans-serif",
+        "size": "14px",
+        "lineHeight": "20px",
+        "color": "oklch(0.72 0.01 85)",
+        "gap": "8px"
+      },
+      {
+        "text": "Searched the web for “noise-cancelling headphones overview”",
+        "bounds": {
+          "x": 427.5,
+          "y": 355.375,
+          "width": 696,
+          "height": 32
+        },
+        "font": "\"Geist Variable\", sans-serif",
+        "size": "16px",
+        "lineHeight": "24px",
+        "color": "oklch(0.965 0.005 85)",
+        "gap": "normal"
+      },
+      {
+        "text": "Searched the web for “noise-cancelling headphones latest data”",
+        "bounds": {
+          "x": 427.5,
+          "y": 391.375,
+          "width": 696,
+          "height": 32
+        },
+        "font": "\"Geist Variable\", sans-serif",
+        "size": "16px",
+        "lineHeight": "24px",
+        "color": "oklch(0.965 0.005 85)",
+        "gap": "normal"
+      },
+      {
+        "text": "Ran python code",
+        "bounds": {
+          "x": 427.5,
+          "y": 427.375,
+          "width": 696,
+          "height": 32
+        },
+        "font": "\"Geist Variable\", sans-serif",
+        "size": "16px",
+        "lineHeight": "24px",
+        "color": "oklch(0.965 0.005 85)",
+        "gap": "normal"
+      },
+      {
+        "text": "Sources\n\narxiv.org\n1\nN\nnature.com\n2\nstatista.com\n3",
+        "bounds": {
+          "x": 427.5,
+          "y": 463.375,
+          "width": 696,
+          "height": 46
+        },
+        "font": "\"Geist Variable\", sans-serif",
+        "size": "16px",
+        "lineHeight": "24px",
+        "color": "oklch(0.965 0.005 85)",
+        "gap": "normal"
+      },
+      {
+        "text": "arxiv.org\n1",
+        "bounds": {
+          "x": 427.5,
+          "y": 485.375,
+          "width": 95,
+          "height": 24
+        },
+        "font": "\"Geist Variable\", sans-serif",
+        "size": "16px",
+        "lineHeight": "24px",
+        "color": "oklch(0.965 0.005 85)",
+        "gap": "normal"
+      },
+      {
+        "text": "N\nnature.com\n2",
+        "bounds": {
+          "x": 528.5,
+          "y": 485.375,
+          "width": 113,
+          "height": 24
+        },
+        "font": "\"Geist Variable\", sans-serif",
+        "size": "16px",
+        "lineHeight": "24px",
+        "color": "oklch(0.965 0.005 85)",
+        "gap": "normal"
+      },
+      {
+        "text": "statista.com\n3",
+        "bounds": {
+          "x": 647.5,
+          "y": 485.375,
+          "width": 119,
+          "height": 24
+        },
+        "font": "\"Geist Variable\", sans-serif",
+        "size": "16px",
+        "lineHeight": "24px",
+        "color": "oklch(0.965 0.005 85)",
+        "gap": "normal"
+      }
+    ]
+  },
+  "limitations": [
+    "UI-only reference with seeded data. No agent execution or backend semantics established."
+  ]
+}

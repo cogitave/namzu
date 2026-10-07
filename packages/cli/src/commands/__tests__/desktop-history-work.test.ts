@@ -28,6 +28,9 @@ import { createDesktopHostExtensions } from '../desktop-host.js'
 
 let root: string
 let cwd: string
+const withoutJournalMetadata = <T extends { time?: unknown; messageId?: string }>(
+	rows: readonly T[],
+) => rows.map(({ time: _time, messageId: _messageId, ...row }) => row)
 beforeEach(() => {
 	root = mkdtempSync(join(tmpdir(), 'namzu-history-work-'))
 	cwd = join(root, 'project')
@@ -187,7 +190,7 @@ it('returns only recorded public views and anchored durable work from one strict
 		const indexed = vi.spyOn(sdk, 'openSessionIndex')
 		const presenters = vi.spyOn(sdk, 'createToolPresenter')
 		const result = await f.history()
-		expect(result.messages).toEqual([
+		expect(withoutJournalMetadata(result.messages)).toEqual([
 			{ role: 'user', text: 'Review file.' },
 			{ role: 'user', text: 'Also check.' },
 			{ role: 'assistant', text: 'Ready.' },
@@ -215,6 +218,103 @@ it('returns only recorded public views and anchored durable work from one strict
 		expect(loaded).toHaveBeenCalledTimes(1)
 		expect(indexed).not.toHaveBeenCalled()
 		expect(presenters).not.toHaveBeenCalled()
+	} finally {
+		await f.close()
+	}
+})
+
+it('restores provider-hosted search rows and exact journal clocks without inventing source links', async () => {
+	const f = await fixture()
+	try {
+		const { turnId, userMessageId } = await begin(f.log, f.lease, 'Find H100 prices.')
+		const running = await f.log.append(f.lease, {
+			type: 'hosted_tool',
+			turnId,
+			iteration: 0,
+			tool: { id: 'same-hosted-id', name: 'web_search', status: 'running' },
+		})
+		const completed = await f.log.append(f.lease, {
+			type: 'hosted_tool',
+			turnId,
+			iteration: 0,
+			tool: {
+				id: 'same-hosted-id',
+				name: 'web_search',
+				status: 'completed',
+				query: 'H100 hourly price',
+				results: 9,
+				privateProviderPayload: 'DO_NOT_PROJECT',
+			} as never,
+		})
+		await f.log.append(f.lease, {
+			type: 'hosted_tool',
+			turnId,
+			iteration: 1,
+			tool: { id: 'same-hosted-id', name: 'web_search', status: 'failed' },
+		})
+		const answerId = await answer(f.log, f.lease, turnId, 'Public answer.')
+		await finish(f.log, f.lease, turnId)
+		const snapshot = await storage.loadConversationSnapshot(f.state, f.sessionId)
+		const userRecord = snapshot.records.find(
+			(record) => record.type === 'message' && record.messageId === userMessageId,
+		)
+		const answerRecord = snapshot.records.find(
+			(record) => record.type === 'message' && record.messageId === answerId,
+		)
+		const result = await f.history()
+		expect(withoutJournalMetadata(result.messages)).toEqual([
+			{ role: 'user', text: 'Find H100 prices.' },
+			{ role: 'assistant', text: 'Public answer.' },
+		])
+		expect(result.messages.map((message) => message.time?.source)).toEqual(['journal', 'journal'])
+		expect(result.messages[0]?.time?.at).toBe(Date.parse(userRecord?.ts ?? ''))
+		expect(result.messages[1]?.time?.at).toBe(Date.parse(answerRecord?.ts ?? ''))
+		expect(result.messages.map((message) => message.messageId)).toEqual([userMessageId, answerId])
+		expect(result.work?.tools).toMatchObject([
+			{
+				toolUseId: 'provider-hosted-web-search:0:same-hosted-id',
+				name: 'Web search',
+				status: 'completed',
+				hosted: true,
+				startedAt: Date.parse(running.record.ts),
+				endedAt: Date.parse(completed.record.ts),
+				presentation: {
+					kind: 'generic',
+					label: 'Web search: H100 hourly price · 9 sources',
+				},
+			},
+			{
+				toolUseId: 'provider-hosted-web-search:1:same-hosted-id',
+				status: 'failed',
+				hosted: true,
+				presentation: { kind: 'generic', label: 'Web search failed' },
+			},
+		])
+		expect(JSON.stringify(result)).not.toContain('DO_NOT_PROJECT')
+		expect(JSON.stringify(result)).not.toContain('https://')
+		expect((await f.history()).messages.map((message) => message.time)).toEqual(
+			result.messages.map((message) => message.time),
+		)
+	} finally {
+		await f.close()
+	}
+})
+
+it('does not publish a malformed hosted status as a completed web search', async () => {
+	const f = await fixture()
+	try {
+		const { turnId } = await begin(f.log, f.lease)
+		await f.log.append(f.lease, {
+			type: 'hosted_tool',
+			turnId,
+			iteration: 0,
+			tool: { id: 'invalid-status', name: 'web_search', status: ['completed'] } as never,
+		})
+		await answer(f.log, f.lease, turnId)
+		await finish(f.log, f.lease, turnId)
+		const result = await f.history()
+		expect(result.work?.tools).toEqual([])
+		expect(result.work?.partial).toBe(true)
 	} finally {
 		await f.close()
 	}
@@ -316,7 +416,10 @@ it('keeps folded replacements and compaction authoritative without resurrecting 
 			tokensAfter: 50,
 		})
 		const result = await f.history()
-		expect(result.messages).toContainEqual({ role: 'assistant', text: 'Saved summary.' })
+		expect(withoutJournalMetadata(result.messages)).toContainEqual({
+			role: 'assistant',
+			text: 'Saved summary.',
+		})
 		expect(result.messages.at(-1)?.text).toBe('Corrected answer.')
 		expect(result.work?.tools).toEqual([])
 		expect(result.work?.messages.every((row) => row.messageId !== 'fixture-compaction')).toBe(true)
@@ -479,7 +582,7 @@ it('does not regroup retained work across a visible user whose reused identity i
 		})
 		await finish(f.log, f.lease, turnId)
 		const result = await f.history()
-		expect(result.messages).toEqual([
+		expect(withoutJournalMetadata(result.messages)).toEqual([
 			{ role: 'user', text: 'Prompt A' },
 			{ role: 'user', text: 'Prompt B' },
 			{ role: 'assistant', text: 'Answer A' },

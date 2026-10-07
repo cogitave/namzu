@@ -1,7 +1,21 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type { LocalSpeechEvent } from './shared/local-speech-protocol.js'
 import type { DesktopApi, DesktopEvent } from './shared/protocol.js'
 const invoke = (name: string, ...args: unknown[]) => ipcRenderer.invoke(`namzu:${name}`, ...args)
 const api: DesktopApi = {
+	openExternal: (url) => invoke('openExternal', url),
+	localSpeechState: () => invoke('localSpeechState'),
+	localSpeechConfigure: (settings) => invoke('localSpeechConfigure', settings),
+	localSpeechInstall: () => invoke('localSpeechInstall'),
+	localSpeechSpeak: (input) => invoke('localSpeechSpeak', input),
+	localSpeechCancel: (requestId) => invoke('localSpeechCancel', requestId),
+	localSpeechAcknowledge: (requestId, sequence) =>
+		invoke('localSpeechAcknowledge', requestId, sequence),
+	onLocalSpeechEvent: (listener) => {
+		const handler = (_event: unknown, data: LocalSpeechEvent) => listener(data)
+		ipcRenderer.on('namzu:local-speech-event', handler)
+		return () => ipcRenderer.removeListener('namzu:local-speech-event', handler)
+	},
 	workspace: () => invoke('workspace'),
 	workspaceAction: (action) => invoke('workspaceAction', action),
 	workspaceReady: (transferId) => invoke('workspaceReady', transferId),

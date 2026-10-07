@@ -10,6 +10,137 @@
 	/* Stored history and tab selection are immediate. Live entries use their admission effects. */
 	animation: none;
 }
+.message-time {
+	display: inline-block;
+	font-size: 11px;
+	line-height: 1.5;
+	font-variant-numeric: tabular-nums;
+	color: var(--muted-foreground);
+}
+.normal-transcript .message .message-time {
+	margin-top: 0;
+}
+.normal-transcript .reasoning .message-time {
+	margin-top: 0;
+}
+.normal-transcript .message-time {
+	max-width: 0;
+	max-height: 0;
+	opacity: 0;
+	overflow: hidden;
+	white-space: nowrap;
+}
+.normal-transcript .tool-duration {
+	max-width: 0;
+	max-height: 0;
+	opacity: 0;
+	overflow: hidden;
+	white-space: nowrap;
+}
+.normal-transcript .tool:hover .tool-duration,
+.normal-transcript .tool:focus-within .tool-duration {
+	max-width: 10ch;
+	max-height: 2em;
+	opacity: 1;
+}
+.normal-transcript .transcript-visually-hidden,
+.normal-transcript .tool.completed .tool-status {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0, 0, 0, 0);
+	white-space: nowrap;
+	border: 0;
+}
+.normal-transcript .tool.completed .tool-trigger > .disclosure-chevron {
+	margin-left: auto;
+}
+.normal-transcript button.message-time {
+	border: 0;
+	background: none;
+	padding: 0;
+	font: inherit;
+	font-size: 11px;
+	color: var(--muted-foreground);
+	cursor: help;
+}
+.normal-transcript .message:hover .message-time,
+.normal-transcript .message:focus-within .message-time,
+.normal-transcript .reasoning:hover .message-time,
+.normal-transcript .reasoning:focus-within .message-time,
+.normal-transcript .tool:hover .message-time,
+.normal-transcript .tool:focus-within .message-time,
+.normal-transcript .activity-trigger:hover .message-time,
+.normal-transcript .activity-trigger:focus-within .message-time,
+.normal-transcript .message-time:focus-visible {
+	max-width: 10ch;
+	max-height: 2em;
+	opacity: 1;
+}
+.normal-transcript .message-time:focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: 2px;
+}
+.normal-transcript .message-time[aria-pressed="true"] {
+	max-width: 32ch;
+	max-height: 2em;
+	opacity: 1;
+}
+.normal-transcript .activity-trigger {
+	min-height: 32px;
+	line-height: 20px;
+	gap: 8px;
+	padding-block: 4px;
+	border-bottom: 0;
+}
+.normal-transcript .activity-entries {
+	margin-left: 7px;
+	padding: 4px 0 8px 16px;
+	border-left: 1px solid var(--border);
+}
+.normal-transcript .activity-entries .tool-trigger {
+	min-height: 32px;
+}
+.normal-transcript .tool-list {
+	padding-bottom: 0;
+}
+.normal-transcript .tool-group {
+	margin-bottom: 0;
+}
+.normal-transcript .tool-list > .tool {
+	min-width: 0;
+}
+.normal-transcript .turn-activity-elapsed {
+	margin-left: auto;
+	font-size: 11px;
+	font-variant-numeric: tabular-nums;
+	color: var(--muted-foreground);
+}
+.normal-transcript .activity-trigger .message-time {
+	margin-left: auto;
+}
+.normal-transcript .transcript-status-only {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0, 0, 0, 0);
+	white-space: nowrap;
+	border: 0;
+}
+.normal-transcript a.message-link {
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+.normal-transcript a.message-link:focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: 2px;
+}
 .normal-transcript .transcript-phase-label {
 	display: inline-grid;
 	min-width: 0;

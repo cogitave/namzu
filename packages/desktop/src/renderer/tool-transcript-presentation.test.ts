@@ -67,6 +67,59 @@ it('does not admit a historical display marker from a live ACP action update', (
 })
 
 describe('authored tool content', () => {
+	it('names an actual conversation lookup without pretending its query was a web search', () => {
+		const pending = start(
+			{ kind: 'generic', label: 'web_search', presentation: 'activity' },
+			'search_conversation',
+		)
+		const completed = result(
+			pending,
+			{ kind: 'terminal', output: 'Matching prior messages' },
+			'completed',
+			'search_conversation',
+		)
+		expect(toolTranscriptPresentation(completed, key)).toMatchObject({
+			label: 'Checked earlier messages',
+			state: 'completed',
+			quietCompleted: true,
+			callDetail: { kind: 'generic', label: 'web_search' },
+			detailView: { kind: 'terminal', output: 'Matching prior messages' },
+		})
+		expect(toolTranscriptPresentation(pending, key)?.label).toBe('Checking earlier messages')
+		expect(
+			toolTranscriptPresentation(
+				result(pending, { kind: 'terminal', output: '' }, 'failed', 'search_conversation'),
+				key,
+			)?.label,
+		).toBe('Could not check earlier messages')
+		const actualOtherTool = result(
+			start({ kind: 'generic', label: 'web_search' }, 'other_tool'),
+			{ kind: 'generic', label: 'web_search' },
+			'completed',
+			'other_tool',
+		)
+		expect(toolTranscriptPresentation(actualOtherTool, key)?.label).toBe('web_search')
+	})
+
+	it('keeps provider-hosted search state separate from local earlier-message checks', () => {
+		const thread = result(
+			start({ kind: 'generic', label: '' }, 'Web search'),
+			{ kind: 'generic', label: 'Web search: H100 price · 10 sources' },
+			'completed',
+			'Web search',
+		)
+		thread.tools[key] = {
+			...thread.tools[key]!,
+			toolCallId: 'provider-hosted-web-search:2:actual-provider-id',
+		}
+		expect(toolTranscriptPresentation(thread, key)).toMatchObject({
+			label: 'Searched the web',
+			state: 'completed',
+			quietCompleted: true,
+			detailView: { kind: 'generic', label: 'Web search: H100 price · 10 sources' },
+		})
+	})
+
 	it('preserves a task action caption when success adds no receipt, without deleting the tool or mutating state', () => {
 		const thread = result(
 			start({ kind: 'generic', label: 'Add task · Verify output', presentation: 'activity' }),

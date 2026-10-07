@@ -1,4 +1,4 @@
-import { type RefObject, useLayoutEffect, useRef, useState } from 'react'
+import { type ReactNode, type RefObject, useLayoutEffect, useRef, useState } from 'react'
 import type {
 	AttachmentView,
 	ComposerModelSettings,
@@ -101,7 +101,9 @@ export function Composer({
 	pluginsLoading,
 	onOpenPlugins,
 	onSetPluginEnabled,
+	speechControl,
 }: {
+	speechControl?: ReactNode
 	inputRef: RefObject<HTMLTextAreaElement | null>
 	variant?: 'default' | 'pal'
 	draft: string
@@ -594,6 +596,7 @@ export function Composer({
 											</Button>
 										)}
 										{!compact && <div className="composer-selected-model">{modelControl}</div>}
+										{speechControl}
 										{running && (
 											<Tooltip>
 												<TooltipTrigger

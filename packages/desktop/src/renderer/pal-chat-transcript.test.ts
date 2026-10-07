@@ -1,9 +1,9 @@
 import type { AcpSessionUpdate } from '@namzu/sdk'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { type ThreadState, applyEvent, emptyThread, restoreMessages } from '../shared/projection.js'
-import type { AttachmentView } from '../shared/protocol.js'
+import type { AttachmentView, ChatMessage } from '../shared/protocol.js'
 import { PalChatTranscript, palChatRows, palChatStatus } from './pal-chat-transcript.js'
 
 const file: AttachmentView = {
@@ -43,6 +43,32 @@ function freeze<T>(value: T): T {
 }
 
 describe('delivered Pal chat rows', () => {
+	it('offers the message action only after the current turn settles', () => {
+		const delivered = update(started(), {
+			kind: 'agent_message',
+			status: 'completed',
+			content: 'Delivered answer',
+			messageId: 'answer',
+			stopReason: 'end_turn',
+		})
+		const action = vi.fn((_message: ChatMessage, _key: string) =>
+			createElement('button', { type: 'button' }, 'Listen'),
+		)
+		const draw = (thread: ThreadState) =>
+			renderToStaticMarkup(
+				createElement(PalChatTranscript, {
+					thread,
+					name: 'Kiro',
+					renderMessageAction: action,
+				}),
+			)
+		expect(draw(delivered)).not.toContain('Listen')
+		expect(action).not.toHaveBeenCalled()
+		const settled = update(delivered, { kind: 'turn_ended', stopReason: 'end_turn' })
+		expect(draw(settled)).toContain('Listen')
+		expect(action).toHaveBeenCalledOnce()
+		expect(action.mock.calls[0]?.[0]).toMatchObject({ role: 'assistant', text: 'Delivered answer' })
+	})
 	it('keeps a streamed answer private until an authoritative complete message arrives', () => {
 		const streaming = update(started(), {
 			kind: 'agent_message_chunk',
