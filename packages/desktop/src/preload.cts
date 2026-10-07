@@ -5,6 +5,8 @@ const invoke = (name: string, ...args: unknown[]) => ipcRenderer.invoke(`namzu:$
 const api: DesktopApi = {
 	openExternal: (url) => invoke('openExternal', url),
 	copyText: (text) => invoke('copyText', text),
+	linkPreview: (url) => invoke('linkPreview', url),
+	linkPreviewImage: (url, kind) => invoke('linkPreviewImage', url, kind),
 	localSpeechState: () => invoke('localSpeechState'),
 	localSpeechConfigure: (settings) => invoke('localSpeechConfigure', settings),
 	localSpeechInstall: () => invoke('localSpeechInstall'),

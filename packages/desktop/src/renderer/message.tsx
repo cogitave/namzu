@@ -6,6 +6,7 @@ import {
 	createContext,
 	memo,
 	useContext,
+	useMemo,
 	useState,
 } from 'react'
 import Markdown from 'react-markdown'
@@ -13,8 +14,15 @@ import remarkGfm from 'remark-gfm'
 import type { ChatMessage } from '../shared/protocol.js'
 import { CopyButton } from './copy-button.js'
 import { cn } from './lib/utils.js'
+import { LinkPreviewCard } from './link-preview-card.js'
 import { COPY_CODE_PROPERTY, markdownCodeCopy, remarkCodeCopy } from './markdown-code-copy.js'
 import './message-footer.css'
+import {
+	PreviewCard,
+	PreviewCardCreateHandle,
+	PreviewCardPopup,
+	PreviewCardTrigger,
+} from './ui/preview-card.js'
 
 function externalWebUrl(value: string | undefined): string | undefined {
 	if (!value || value.length > 8192) return undefined
@@ -32,29 +40,61 @@ function externalWebUrl(value: string | undefined): string | undefined {
 	}
 }
 
+interface LinkPreviewPayload {
+	url: string
+	text: string
+}
+type LinkPreviewHandle = ReturnType<typeof PreviewCardCreateHandle<LinkPreviewPayload>>
+
+// One card per rendered message: its links share this handle, so opening a
+// card re-renders the card alone and never the parsed Markdown.
+const LinkPreviewContext = createContext<LinkPreviewHandle | null>(null)
+
+function plainText(children: ReactNode): string {
+	if (typeof children === 'string' || typeof children === 'number') return String(children)
+	if (Array.isArray(children)) return children.map(plainText).join('')
+	return ''
+}
+
 function MessageLink({ children, href }: { children?: ReactNode; href?: string }) {
 	const [failed, setFailed] = useState(false)
+	const handle = useContext(LinkPreviewContext)
 	const url = externalWebUrl(href)
+	const payload = useMemo(
+		() => (url ? { url, text: plainText(children) } : undefined),
+		[url, children],
+	)
 	if (!url || typeof window === 'undefined' || !window.namzu?.openExternal)
 		return (
 			<span className="message-link" title={href}>
 				{children}
 			</span>
 		)
+	const anchorProps = {
+		className: 'message-link',
+		href: url,
+		target: '_blank',
+		rel: 'noopener noreferrer',
+		onClick: (event: { preventDefault(): void }) => {
+			event.preventDefault()
+			void window.namzu.openExternal?.(url).catch(() => setFailed(true))
+		},
+	}
 	return (
 		<>
-			<a
-				className="message-link"
-				href={url}
-				target="_blank"
-				rel="noopener noreferrer"
-				onClick={(event) => {
-					event.preventDefault()
-					void window.namzu.openExternal?.(url).catch(() => setFailed(true))
-				}}
-			>
-				{children}
-			</a>
+			{handle && payload ? (
+				<PreviewCardTrigger
+					{...anchorProps}
+					closeDelay={150}
+					delay={500}
+					handle={handle}
+					payload={payload}
+				>
+					{children}
+				</PreviewCardTrigger>
+			) : (
+				<a {...anchorProps}>{children}</a>
+			)}
 			{failed && (
 				<span className="notice" role="alert">
 					Could not open link.
@@ -191,6 +231,38 @@ export function Message({
 // Streaming updates change the live body, while settled bodies retain their
 // parsed tree. Wrapper attributes and inherited theme styling remain live.
 const MarkdownContent = memo(function MarkdownContent({ text }: { text: string }) {
+	const [handle] = useState(() => PreviewCardCreateHandle<LinkPreviewPayload>())
+	return (
+		<LinkPreviewContext.Provider value={handle}>
+			<MarkdownBody text={text} />
+			<LinkPreviews handle={handle} />
+		</LinkPreviewContext.Provider>
+	)
+})
+
+/** Opening a card changes only this subtree. */
+function LinkPreviews({ handle }: { handle: LinkPreviewHandle }) {
+	return (
+		<PreviewCard handle={handle}>
+			{({ payload }) =>
+				payload && (
+					<PreviewCardPopup>
+						<LinkPreviewCard
+							text={payload.text}
+							url={payload.url}
+							onOpen={(url) => {
+								handle.close()
+								void window.namzu?.openExternal?.(url).catch(() => {})
+							}}
+						/>
+					</PreviewCardPopup>
+				)
+			}
+		</PreviewCard>
+	)
+}
+
+const MarkdownBody = memo(function MarkdownBody({ text }: { text: string }) {
 	return (
 		<div className="message-text chat-markdown w-full min-w-0 text-sm leading-relaxed text-foreground [overflow-wrap:anywhere] [word-break:break-word]">
 			<Markdown

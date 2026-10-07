@@ -715,6 +715,21 @@ Assistant replies render headings, lists, fenced code and tables. User messages
 stay literal. Raw HTML cannot execute and remote images do not load. A user click
 opens validated HTTP(S) assistant links, including a sole safe inline-code URL,
 through the main process's system-browser bridge; other schemes remain inert.
+Hovering such a link for half a second, or focusing it from the keyboard, opens
+a link card: site icon and name, page title, short description, the page's share
+image and the destination address. Nothing is requested before that. The main
+process then reads the page head from its own in-memory session, without cookies
+or credentials, only for `https:` links on the default port whose host resolves
+exclusively to public addresses (private, loopback, link-local, carrier-grade NAT,
+documentation and other special-purpose ranges are refused, at every redirect
+too). It reads at most 512 KiB up to `</head>`, with four redirects and an
+8 second deadline; the renderer parses that head in an inert document. Pictures
+are fetched the same way, capped at 2 MiB (256 KiB for icons) and shown only when
+their bytes are PNG, JPEG, GIF, WebP, AVIF or, for icons, ICO; vector images are
+never loaded. Every refusal or failure leaves a card with the address alone and
+no error text, and no address or page text reaches diagnostics. Results are kept
+in memory for 15 minutes (2 minutes for a page that gave nothing). Under reduced
+motion the card appears without movement.
 Tool output remains a separate tool view. Settled answers have a compact
 **Copy reply** action alongside optional read-aloud; commentary, reasoning and
 tool details do not receive the answer toolbar. In ordinary and Pal chat, the

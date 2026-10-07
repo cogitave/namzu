@@ -66,7 +66,7 @@ const messages = new Map<string, ChatMessage[]>(
 			},
 			{
 				role: 'assistant',
-				text: '**Sample conversation**\n\nThis content is here to review the interface.\n\n- Navigate between projects and conversations.\n- Try the model picker, message settings and appearance.\n- Draft a follow-up without contacting a model.',
+				text: '**Sample conversation**\n\nThis content is here to review the interface.\n\n- Navigate between projects and conversations.\n- Try the model picker, message settings and appearance.\n- Draft a follow-up without contacting a model.\n\nSources to hover: [A rich page](https://example.test/rich), [A page with no details](https://example.test/plain), [A slow page](https://example.test/slow), and a bare address `https://example.test/rich`.',
 			},
 		],
 	]),
@@ -342,6 +342,37 @@ const api: DesktopApi = {
 	saveDraftSettings: async (id, value) => {
 		owner(id)
 		settings.set(id, clone(value))
+	},
+	openExternal: async () => {},
+	linkPreview: async (url) => {
+		const page = new URL(url)
+		if (page.pathname === '/plain') return null
+		if (page.pathname === '/slow') await new Promise((resolve) => setTimeout(resolve, 1500))
+		return {
+			url,
+			head: `<html><head><title>Fallback title</title>
+<meta property="og:title" content="A calm way to read the web">
+<meta property="og:description" content="Sample details for the link card: a short summary of the page, long enough to show how a few lines of description are clamped inside the card.">
+<meta property="og:site_name" content="Example Journal">
+<meta property="og:image" content="https://example.test/share.png">
+<link rel="icon" sizes="32x32" href="/icon.png"></head>`,
+		}
+	},
+	linkPreviewImage: async (_url, kind) => {
+		const canvas = document.createElement('canvas')
+		const [width, height] = kind === 'image' ? [1200, 630] : [32, 32]
+		canvas.width = width
+		canvas.height = height
+		const context = canvas.getContext('2d')
+		if (!context) return null
+		const gradient = context.createLinearGradient(0, 0, width, height)
+		gradient.addColorStop(0, kind === 'image' ? '#c7d2fe' : '#6366f1')
+		gradient.addColorStop(1, kind === 'image' ? '#fbcfe8' : '#ec4899')
+		context.fillStyle = gradient
+		if (kind === 'icon') context.roundRect(0, 0, width, height, 8)
+		else context.rect(0, 0, width, height)
+		context.fill()
+		return canvas.toDataURL('image/png')
 	},
 	cancel: async () => nativeOnly('Stopping model work'),
 	takeQueued: async () => nativeOnly('Editing real queued work'),

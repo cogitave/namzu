@@ -39,6 +39,8 @@ import { ClipboardTextWriter } from './clipboard-text.js'
 import { DesktopDiagnostics, observeDesktopIpc, observeRendererConsole } from './diagnostics.js'
 import { externalSourceUrl } from './external-url.js'
 import { humanComputer } from './host-computer.js'
+import { electronLinkPreviewNetwork } from './link-preview-electron.js'
+import { createLinkPreviewService } from './link-preview.js'
 import { LocalSpeechRouting } from './local-speech-routing.js'
 import { LocalSpeechService } from './local-speech.js'
 import { Operator } from './operator.js'
@@ -270,6 +272,10 @@ function saveProjects(): void {
 function register(): void {
 	let sequence = 0
 	const clipboardWriter = new ClipboardTextWriter((text) => clipboard.writeText(text))
+	// In-memory partition (no `persist:`): isolated from the app's cookies and cache.
+	const linkPreview = createLinkPreviewService({
+		network: electronLinkPreviewNetwork(session.fromPartition('namzu-link-preview')),
+	})
 	const conversationReads = new Map<
 		string,
 		{ projectId: string; promise: ReturnType<Operator['openConversation']> }
@@ -445,6 +451,9 @@ function register(): void {
 	// registerHandler authenticates the exact owned main frame before this
 	// narrow write-only capability; no browser permission or read API is added.
 	handle('copyText', (text: unknown) => clipboardWriter.copy(text))
+	// Both resolve null for every refusal or failure, so nothing reaches diagnostics.
+	handle('linkPreview', (url: unknown) => linkPreview.page(url))
+	handle('linkPreviewImage', (url: unknown, kind: unknown) => linkPreview.image(url, kind))
 	handle('localSpeechState', async () => {
 		const state = await localSpeech.state()
 		observeSpeechFailure(state.error, 'localSpeechState')

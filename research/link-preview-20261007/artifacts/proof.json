@@ -1,0 +1,118 @@
+{
+  "capturedAt": "2026-10-07T11:49:06.801Z",
+  "conditions": [
+    {
+      "name": "wide-dark",
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      }
+    },
+    {
+      "name": "narrow-light",
+      "viewport": {
+        "width": 560,
+        "height": 720
+      }
+    }
+  ],
+  "pageErrors": [],
+  "consoleErrors": [],
+  "externalRequests": [],
+  "checks": {
+    "rich": {
+      "text": "Example Journal\nA calm way to read the web\nA short summary of the page, long enough to show how several lines of description are clamped inside the card without pushing anything around.\nrich.example.test/guide/getting-started",
+      "box": {
+        "x": 494,
+        "y": 316,
+        "width": 322,
+        "height": 321.28125
+      },
+      "imageAspect": 1.910091400858049
+    },
+    "cache": {
+      "linkPreviewCalls": 1,
+      "imageCalls": 2
+    },
+    "null": {
+      "text": "plain.example.test\na page with no details\nplain.example.test/notes",
+      "box": {
+        "x": 641,
+        "y": 666,
+        "width": 322,
+        "height": 89.25
+      }
+    },
+    "slow": {
+      "loadingBox": {
+        "x": 810,
+        "y": 346,
+        "width": 322,
+        "height": 290.78125
+      },
+      "skeletons": 3,
+      "readyBox": {
+        "x": 810,
+        "y": 316,
+        "width": 322,
+        "height": 321.28125
+      }
+    },
+    "keyboard": {
+      "focusedHref": "https://rich.example.test/guide/getting-started/",
+      "opened": true,
+      "escapeClosed": true,
+      "focusKept": true
+    },
+    "layout": {
+      "before": {
+        "scrollTop": 616,
+        "scrollHeight": 1432,
+        "box": [
+          280,
+          -355.25,
+          768,
+          1083.71875
+        ]
+      },
+      "during": {
+        "scrollTop": 616,
+        "scrollHeight": 1432,
+        "box": [
+          280,
+          -355.25,
+          768,
+          1083.71875
+        ]
+      },
+      "after": {
+        "scrollTop": 616,
+        "scrollHeight": 1432,
+        "box": [
+          280,
+          -355.25,
+          768,
+          1083.71875
+        ]
+      }
+    },
+    "narrow": {
+      "box": {
+        "x": 39,
+        "y": 110,
+        "width": 322,
+        "height": 321.28125
+      }
+    },
+    "reducedMotion": {
+      "property": "none",
+      "duration": "0s"
+    },
+    "normalMotion": {
+      "property": "opacity, transform",
+      "duration": "0.15s"
+    },
+    "startingStateReducedMotion": "Under reduce the transform/scale classes at data-starting-style/ending-style are reset (motion-reduce: variants), so only opacity animates."
+  },
+  "passed": true
+}

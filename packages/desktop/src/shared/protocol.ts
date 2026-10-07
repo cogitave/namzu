@@ -322,6 +322,17 @@ export interface DesktopApi {
 	openExternal?(url: string): Promise<void>
 	/** Explicit plain-text copy; bounded to 4 MiB UTF-8 and never truncated. */
 	copyText?(text: string): Promise<void>
+	/**
+	 * The head of a public HTTPS page a reader is looking at. `null` means no
+	 * details for this link — refused, not HTML, unreachable or too slow — and
+	 * never carries a reason, so no page text or address reaches diagnostics.
+	 */
+	linkPreview?(url: string): Promise<import('./link-preview-protocol.js').LinkPreviewPage | null>
+	/** A sniffed raster image as a `data:` URL, or `null`. */
+	linkPreviewImage?(
+		url: string,
+		kind: import('./link-preview-protocol.js').LinkPreviewImageKind,
+	): Promise<string | null>
 	localSpeechState?(): Promise<import('./local-speech-protocol.js').LocalSpeechState>
 	localSpeechConfigure?(
 		settings: Partial<import('./local-speech-protocol.js').LocalSpeechSettings>,

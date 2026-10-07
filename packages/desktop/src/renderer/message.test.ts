@@ -155,7 +155,9 @@ describe('message presentation', () => {
 				].join('\n'),
 			}),
 		)
-		expect(html).toContain('<code><a class="message-link" href="https://example.test/report"')
+		expect(html).toMatch(
+			/<code><a [^>]*href="https:\/\/example\.test\/report"[^>]*class="message-link"/,
+		)
 		expect(html.match(/<a\b/g)).toHaveLength(1)
 		expect(html).toContain('<pre><code')
 		expect(html).toContain('https://example.test/code-block')

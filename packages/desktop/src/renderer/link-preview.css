@@ -1,0 +1,9 @@
+/* One calm reveal when a link card's details arrive. */
+.link-preview-fade {
+	animation: link-preview-fade 120ms ease-out;
+}
+@keyframes link-preview-fade {
+	from {
+		opacity: 0;
+	}
+}
