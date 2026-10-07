@@ -90,7 +90,69 @@ requests. It checks current-turn Send, admission versus delivery, explicit Queue
 and the old-runtime path in a short viewport with reduced motion. It is not a
 real-provider delivery claim.
 
-Primary-app activation is separate from source/build verification. The observed
-user conversation retains two queued authored messages after cancellation. The
-activation helper preserves the existing active-work/queued-input refusal; it
-does not discard or automatically replay those messages to permit a restart.
+The [source verification receipt](artifacts/source-verification.json) records
+the completed typecheck, lint, workspace tests, CLI/Desktop builds and docs gate.
+The workspace run passed 20,063 tests with 116 skipped. A later final Desktop
+run passed all 808 tests across 87 files, including the last transcript-order
+regressions; the earlier workspace run's Desktop count is retained separately.
+
+Primary-app activation is separate from source/build verification. After
+cancellation the user conversation retained two queued authored messages. Their
+exact IDs, text and permission modes were saved privately before asking the user.
+The user explicitly approved preserving that backup, removing those two queue
+entries and reopening the updated app. The [queue-removal
+receipt](artifacts/user-approved-queue-clear-v2.json) confirms a fresh exact match,
+two removals, unchanged 23-message history, draft and settings, and zero automatic
+replay/model requests. The original backup remains private and byte exact. The
+activation helper retains its existing active-work/queued-input refusal.
+
+### Native activation and continued activity
+
+The [Windows activation](artifacts/live-input-native-activation.json) closed the
+old primary, retained its Desktop build backup, applied the complete built
+Desktop and exactly three reviewed CLI modules, and opened a fresh primary. A
+later read-only payload check verified all applied bytes, unchanged SDK and
+unrelated CLI files, and the same 225 dependency links and 11 SDK consumers.
+Neither activation nor inspection requested a model turn or computer action.
+
+The original startup guard remains **failed**: the captured editor/draft equality
+check failed while conversation activity continued. A later strict snapshot
+comparison also failed because tabs had been added and reordered. Those results
+and full snapshots remain private and immutable; the guards were not weakened
+or relabelled as successful.
+
+The [offline reconciliation](artifacts/live-input-captured-snapshot-reconciliation.json)
+verifies all 23 original target message bodies as an exact prefix, its draft,
+settings, files and work, and four other unchanged original conversations,
+including a separate unsent draft. Codex's old draft became exactly its first
+user message, followed by two assistant messages. All original tabs remain
+present among the ten observed tabs; current focus and the current editor were
+preserved. One additional target assistant message surfaced after restore. This
+snapshot does not establish its origin, model generation or child completion.
+It is not either queued backup prompt. No automatic replay was requested.
+
+The [native diagnostics metadata](artifacts/live-input-native-diagnostics.json)
+contains zero error-severity rows for the inspected interval. Its six notices
+report the explicitly stopped Podman machine during read-only computer status
+checks. The captured renderer has no visible dialogs or alerts and exposes the
+new `sendCurrent` preload API. These are bounded integrity and UI checks, not a
+claim that every state remained unchanged while the application was in use.
+
+## Isolated comparison cleanup
+
+The comparison used our separate test profile, rather than the user's primary
+profile or Pal computer. The [preflight](artifacts/owned-test-cleanup-preflight.json)
+passed, but closing its diagnostic server and window initially
+[failed](artifacts/owned-test-first-normal-close-failed.json) to establish process
+exit. That unsuccessful result remains recorded;
+the unfinished child was not declared completed. The exact finished diagnostic
+controllers were then retired after checking process creation times, source
+paths, private receipts and ownership. This deliberately retires our test and
+may terminate its Windows child job; it is not a graceful-child-completion claim.
+The first controller-retirement attempts made no action after failed validation.
+
+After the clients detached, a second normal window-close request was accepted.
+The [final read-only observation](artifacts/owned-test-retirement-observation-v3.json)
+confirms the isolated fixture exited and the primary remained alive. No user
+queue, model, primary process or computer action was involved in that cleanup.
+The separate approved queue removal above is the only authored-input action.

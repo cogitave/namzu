@@ -1,0 +1,34 @@
+{
+  "schema": "namzu.desktop-live-input-native-activation.v1",
+  "at": "2026-10-07T06:53:59.608Z",
+  "sourceCommit": "33f9109406786eed291876d3a7c042aeb0091c2e",
+  "nativeWindows": true,
+  "appliedDesktop": true,
+  "cliModuleCopies": 3,
+  "sdkCopies": 0,
+  "oldOwnedProcessesConfirmedClosed": true,
+  "beforePid": 31916,
+  "capturedFreshPid": 39636,
+  "originalActivationGuardPassed": false,
+  "originalActivationGuardPhase": "startup",
+  "originalActivationReceiptSha256": "4489fbb03e8e0d328f8254859e1c7a7b9c83bc9ab316b22987329a6bd4e0efd6",
+  "originalErrorCheck": "Visible composer and saved draft equality during startup capture",
+  "readOnlyPayloadChecksPassed": true,
+  "readOnlyPayload": {
+    "changedCliModules": [
+      "commands/acp.js",
+      "commands/desktop-host.js",
+      "commands/acp-harness.js"
+    ],
+    "sdkCopies": 0,
+    "dependencyLinks": 225,
+    "sdkUsers": 11
+  },
+  "fullOriginalStateUnchangedClaimed": false,
+  "modelRequestsByActivation": 0,
+  "computerActionsByActivation": 0,
+  "packageInstalls": 0,
+  "physicalStoppedMachineObservations": 2,
+  "originalDistBackupRetained": "dist-before-removal-20261007T065353310Z",
+  "limitedAuthoredStateEvidence": "live-input-captured-snapshot-reconciliation.json"
+}

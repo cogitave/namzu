@@ -1,0 +1,75 @@
+{
+  "schema": "namzu.desktop-live-input-captured-snapshot-reconciliation.v1",
+  "at": "2026-10-07T07:03:17.080Z",
+  "scope": "Offline reconciliation of the exact captured snapshot; no new native inspection or application actions.",
+  "limitedChecksPassed": true,
+  "originalActivationPassed": false,
+  "originalReadonlyVerifierPassed": false,
+  "originalGuardReclassifiedAsPassed": false,
+  "completeProtectedStateUnchangedClaimed": false,
+  "evidenceSha256": {
+    "activation": "4489fbb03e8e0d328f8254859e1c7a7b9c83bc9ab316b22987329a6bd4e0efd6",
+    "before": "119244c996967aa0bdf2f2c6b723d267577a4846244269daf5c062a816e59b7d",
+    "readonlyReceipt": "cb0372a67a9b6e32f5153c1a64e24e36884654fc08f52cc0d648332fc5544e4c",
+    "snapshot": "bea0f3929d6e1183e88d8985298748ec1ac7fdbaa11d67ecb6e9ed80ee23ece6",
+    "backup": "fd335c87a534f6b3c8fbd940bcb34e450f3fd6de593f4aa834a94af4f6d1c89d"
+  },
+  "payload": {
+    "evidence": "Previously completed read-only payload checks before snapshot capture",
+    "changedCliModules": 3,
+    "changedSdkModules": 0,
+    "dependencyLinks": 225,
+    "sdkUsers": 11
+  },
+  "preservedAuthoredState": {
+    "originalTargetMessageBodiesPreservedAsExactPrefix": 23,
+    "targetDraftSettingsAttachmentsJobsTasksPreserved": true,
+    "otherOriginalConversationsUnchanged": 4,
+    "separateUnsentDraftCharactersPreserved": 49,
+    "targetQueueEmpty": true,
+    "exactTwoMessageBackupPreserved": true
+  },
+  "observedCodexActivity": {
+    "exactPreexistingDraftMatchesFirstUserMessage": true,
+    "preexistingDraftCharacters": 186,
+    "newUserMessages": 1,
+    "assistantMessages": 2,
+    "currentDraftEmpty": true
+  },
+  "unattributedTargetActivity": {
+    "appendedAssistantMessages": 1,
+    "appendedAssistantCharacters": 376,
+    "newUserMessages": 0,
+    "appendedTextEqualsEitherBackedUpPrompt": false,
+    "cause": "Unknown from this captured snapshot; neither generation nor delivery source is attributed."
+  },
+  "observedTabActivity": {
+    "originalTabsStillPresent": 6,
+    "capturedOpenTabs": 10,
+    "additionalOpenTabs": 4,
+    "originalOrderChanged": true,
+    "focusChanged": false
+  },
+  "capturedUi": {
+    "sendCurrentAvailable": true,
+    "focusedEditorMatchesLatestSavedDraft": true,
+    "visibleDialogs": 0,
+    "visibleAlerts": 0
+  },
+  "diagnosticOperationCounters": {
+    "originalActivationModelRequests": 0,
+    "readonlyVerifierModelRequests": 0,
+    "readonlyVerifierApplicationActions": 0,
+    "reconciliationApplicationActions": 0,
+    "reconciliationNativeRequests": 0
+  },
+  "automaticReplayRequestedByTheseOperations": false,
+  "applicationModelRequestsDuringIntervalAttributed": false,
+  "childCompletionClaimed": false,
+  "nativeProviderChildOverlapClaimed": false,
+  "messageNormalization": [
+    "messageId",
+    "status",
+    "stopReason"
+  ]
+}

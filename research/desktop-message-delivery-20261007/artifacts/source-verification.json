@@ -1,0 +1,224 @@
+{
+  "schema": "namzu.desktop-live-input-source-verification.v1",
+  "recordedAt": "2026-10-07T06:55:01.590076Z",
+  "sourceCommit": "33f9109406786eed291876d3a7c042aeb0091c2e",
+  "scope": "Source checks, builds, deterministic regressions and a real browser renderer using a synthetic Desktop API.",
+  "passed": true,
+  "broadGatesRerunForThisReceipt": false,
+  "gates": {
+    "typecheck": {
+      "command": "pnpm typecheck",
+      "evidence": {
+        "path": "/tmp/namzu-live-input-typecheck-final-20261007.log",
+        "sha256": "1fd1daa5199f1ee633b707050352a0d89d4765d14a4266401906f9d22374e0de",
+        "exitCode": 0,
+        "exitCodeEvidence": "Previously completed root tool execution; exit status is not encoded in the redirected log."
+      }
+    },
+    "lint": {
+      "command": "pnpm lint",
+      "evidence": {
+        "path": "/tmp/namzu-live-input-lint-final-20261007.log",
+        "sha256": "3adb8899c5f660b7805b10f1e4026eb656b26f404e6062294f3c51b74b32ae1a",
+        "exitCode": 0,
+        "exitCodeEvidence": "Previously completed root tool execution; exit status is not encoded in the redirected log."
+      },
+      "preexistingWarnings": {
+        "sdk": 35,
+        "cli": 12,
+        "zen": 1
+      },
+      "warningsAreFailures": false
+    },
+    "workspaceTests": {
+      "command": "pnpm test",
+      "evidence": {
+        "path": "/tmp/namzu-live-input-test-20261007.log",
+        "sha256": "9d26d45feacc5cfcc499970e876df880e8b8338fc49829f5a1d9d453933ce707",
+        "exitCode": 0,
+        "exitCodeEvidence": "Previously completed root tool execution; exit status is not encoded in the redirected log."
+      },
+      "reportingPackages": 21,
+      "passed": 20063,
+      "skipped": 116,
+      "packageCounts": [
+        {
+          "packagePath": "packages/files",
+          "passed": 48,
+          "skipped": 11
+        },
+        {
+          "packagePath": "packages/sdk",
+          "passed": 10461,
+          "skipped": 0
+        },
+        {
+          "packagePath": "packages/computer-use",
+          "passed": 165,
+          "skipped": 0
+        },
+        {
+          "packagePath": "packages/browser",
+          "passed": 133,
+          "skipped": 42
+        },
+        {
+          "packagePath": "packages/ag-ui",
+          "passed": 189,
+          "skipped": 0
+        },
+        {
+          "packagePath": "packages/desktop",
+          "passed": 806,
+          "skipped": 0
+        },
+        {
+          "packagePath": "packages/live",
+          "passed": 25,
+          "skipped": 0
+        },
+        {
+          "packagePath": "packages/lsp",
+          "passed": 27,
+          "skipped": 0
+        },
+        {
+          "packagePath": "packages/providers/anthropic",
+          "passed": 259,
+          "skipped": 44
+        },
+        {
+          "packagePath": "packages/providers/bedrock",
+          "passed": 127,
+          "skipped": 0
+        },
+        {
+          "packagePath": "packages/providers/google",
+          "passed": 29,
+          "skipped": 0
+        },
+        {
+          "packagePath": "packages/providers/deepseek",
+          "passed": 44,
+          "skipped": 0
+        },
+        {
+          "packagePath": "packages/providers/http",
+          "passed": 83,
+          "skipped": 10
+        },
+        {
+          "packagePath": "packages/providers/lmstudio",
+          "passed": 29,
+          "skipped": 0
+        },
+        {
+          "packagePath": "packages/providers/ollama",
+          "passed": 36,
+          "skipped": 0
+        },
+        {
+          "packagePath": "packages/providers/openrouter",
+          "passed": 80,
+          "skipped": 0
+        },
+        {
+          "packagePath": "packages/providers/zen",
+          "passed": 261,
+          "skipped": 0
+        },
+        {
+          "packagePath": "packages/providers/openai",
+          "passed": 129,
+          "skipped": 0
+        },
+        {
+          "packagePath": "packages/telemetry",
+          "passed": 33,
+          "skipped": 0
+        },
+        {
+          "packagePath": "packages/sandbox",
+          "passed": 1857,
+          "skipped": 3
+        },
+        {
+          "packagePath": "packages/cli",
+          "passed": 5242,
+          "skipped": 6
+        }
+      ],
+      "desktopCountInThisRun": 806,
+      "desktopCountSupersededBySeparateFinalRun": true
+    },
+    "finalDesktopTests": {
+      "command": "pnpm --filter @namzu/desktop test",
+      "passed": 808,
+      "testFilesPassed": 87,
+      "exitCode": 0,
+      "evidence": {
+        "kind": "Previously completed final Desktop agent run, verified by root",
+        "agent": "/root/adversarial_design_review",
+        "savedLogPath": null
+      },
+      "relationToWorkspaceRun": "A separate final run after two transcript ordering and SSR regression cases; does not change the recorded workspace-run total."
+    },
+    "cliBuild": {
+      "command": "pnpm --filter @namzu/cli build",
+      "evidence": {
+        "path": "/tmp/namzu-live-input-cli-build-20261007.log",
+        "sha256": "50c7d4810ab66bed0da9287689bffeb1216d39cabaf292c026fe7306d46d63df",
+        "exitCode": 0,
+        "exitCodeEvidence": "Previously completed root tool execution; exit status is not encoded in the redirected log."
+      }
+    },
+    "desktopBuild": {
+      "command": "pnpm --filter @namzu/desktop build",
+      "evidence": {
+        "path": "/tmp/namzu-live-input-desktop-build-final-20261007.log",
+        "sha256": "e3c6d136c4274b9bdb76c1abf98d52906b08aaf98b7e160aac14c61082c06262",
+        "exitCode": 0,
+        "exitCodeEvidence": "Previously completed root tool execution; exit status is not encoded in the redirected log."
+      },
+      "nonfatalWarnings": "Existing bundled Base UI module-level use-client directive notices."
+    },
+    "docs": {
+      "command": "pnpm docs:check",
+      "evidence": {
+        "path": "/tmp/namzu-live-input-docs-20261007.log",
+        "sha256": "bac883bcb20265f3bc3eafc81482405818345e310fd97c1707d6e247b64af759",
+        "exitCode": 0,
+        "exitCodeEvidence": "Previously completed root tool execution; exit status is not encoded in the redirected log."
+      },
+      "checkerTestsPassed": 4,
+      "checkerTestsFailed": 0,
+      "okfPagesChecked": 144
+    },
+    "renderer": {
+      "command": "Final root synthetic renderer browser proof",
+      "exitCode": 0,
+      "evidence": {
+        "path": "research/desktop-message-delivery-20261007/artifacts/live-input-renderer-browser-proof.json",
+        "sha256": "c998f4ac865cb2405709bdfa91f22e5d3de0443c3af5ac83e6137253a8d6c52e"
+      },
+      "realRenderer": true,
+      "syntheticApi": true,
+      "checksPassed": 4,
+      "checks": [
+        "Supported ordinary Namzu busy send uses current turn, keeps queue empty and clears the accepted draft",
+        "Delivery confirmation appears separately from acceptance and renders one user row",
+        "Explicit Queue action bypasses current-turn input",
+        "Unsupported runtime retains the next-turn queue path in reduced-motion short viewport"
+      ],
+      "pageErrors": [],
+      "nativeActions": 0,
+      "modelRequests": 0
+    }
+  },
+  "limitations": [
+    "The workspace test log contains 806 Desktop tests; the final separate Desktop result is 808 across 87 files. These are different executions and are not combined into a new workspace total.",
+    "The final Desktop count is from the completed agent/root verification, not a retained standalone log inspected when assembling this receipt.",
+    "This receipt makes no claim about native application activation or overlapping background-child message delivery on Claude Code or Codex CLI.",
+    "Full additional pre-push CI and publication gates are outside this receipt; no push was performed."
+  ]
+}

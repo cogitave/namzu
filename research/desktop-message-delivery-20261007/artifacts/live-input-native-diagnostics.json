@@ -1,0 +1,43 @@
+{
+  "schema": "namzu.desktop-live-input-native-diagnostics.v1",
+  "at": "2026-10-07T07:04:10.386010+00:00",
+  "intervalStart": "2026-10-07T06:53:59.608Z",
+  "available": true,
+  "metadataOnly": true,
+  "rows": 25,
+  "events": [
+    {
+      "severity": "warn",
+      "event": "namzu.desktop.cli_notice",
+      "count": 6
+    },
+    {
+      "severity": "info",
+      "event": "namzu.desktop.cli_closed",
+      "count": 6
+    },
+    {
+      "severity": "info",
+      "event": "namzu.desktop.started",
+      "count": 1
+    },
+    {
+      "severity": "info",
+      "event": "namzu.desktop.cli_started",
+      "count": 6
+    },
+    {
+      "severity": "info",
+      "event": "namzu.desktop.cli_stderr",
+      "count": 6
+    }
+  ],
+  "severityErrorRows": 0,
+  "cliNoticeClassification": {
+    "operation": "namzu/pals/computer/status",
+    "reason": "podman-machine-stopped",
+    "count": 6
+  },
+  "newApplicationActions": 0,
+  "modelRequestsAttributed": false
+}

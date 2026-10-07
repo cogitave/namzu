@@ -1,0 +1,8 @@
+{
+  "schema": "namzu.owned-read-only-test-retirement.v2",
+  "actionPerformed": false,
+  "ownedControllerTerminations": 0,
+  "refusal": "Native invocation refused before script evaluation. Used a checked file entry for the subsequent v3 attempt.",
+  "primaryActions": 0,
+  "userQueueActions": 0
+}

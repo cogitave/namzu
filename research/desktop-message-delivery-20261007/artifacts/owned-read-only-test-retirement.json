@@ -1,0 +1,8 @@
+{
+  "schema": "namzu.owned-read-only-test-retirement.v1",
+  "actionPerformed": false,
+  "ownedControllerTerminations": 0,
+  "refusal": "Expected direct parent was an intermediate launcher; exact full lineage is required before any retirement.",
+  "primaryActions": 0,
+  "userQueueActions": 0
+}
