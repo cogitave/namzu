@@ -140,6 +140,13 @@ export interface ConversationView {
 	harness?: 'namzu' | 'codex-cli' | 'claude-code'
 	/** Host-authored prelude from the durable claim's original profile revision. */
 	palGreeting?: { id: string; text: string }
+	/** Desktop-local: pinned conversations lead their lists. */
+	pinned?: true
+}
+/** Repository facts for a trusted project; `branch` is null on a detached head. */
+export interface ProjectGitView {
+	branch: string | null
+	subject: string | null
 }
 export interface HarnessView {
 	selected: 'namzu' | 'codex-cli' | 'claude-code'
@@ -312,6 +319,7 @@ export type DesktopEvent = (
 			projectIds: string[]
 			sessionIds: string[]
 	  }
+	| { kind: 'conversation-updated'; sessionId: string; view: ConversationView }
 	| {
 			kind: 'conversation-removed'
 			sessionId: string
@@ -416,6 +424,16 @@ export interface DesktopApi {
 	}>
 	/** Refresh tasks/retry state after history is visible, before admitting actions. */
 	readyConversation?(projectId: string, sessionId: string): Promise<void>
+	/** Durable title for a Namzu conversation; an empty title restores the automatic one. */
+	renameConversation?(sessionId: string, title: string): Promise<ConversationView>
+	/** Desktop-local pin; pinned conversations lead their project list and Recents. */
+	setConversationPinned?(sessionId: string, pinned: boolean): Promise<ConversationView>
+	/** Copies a Namzu conversation's history into a new conversation in the same project. */
+	forkConversation?(sessionId: string): Promise<ConversationView>
+	/** The conversation as Markdown, bounded to 4 MiB UTF-8. */
+	conversationMarkdown?(sessionId: string): Promise<{ markdown: string; truncated: boolean }>
+	/** Branch and last commit subject, or null when not a repository, untrusted or unavailable. */
+	projectGit?(projectId: string): Promise<ProjectGitView | null>
 	/** Remove a conversation from active lists; its durable journal remains readable. */
 	removeConversation?(
 		sessionId: string,
