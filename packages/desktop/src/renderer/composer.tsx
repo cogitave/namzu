@@ -196,6 +196,7 @@ export function Composer({
 			providers={providers}
 			choice={choice}
 			onChange={onChoiceChange}
+			catalogueEnabled={modelSelectionReady && !harnessBusy}
 			disabled={running || sending || !modelSelectionReady || harnessBusy}
 			settings={capabilities}
 			effort={settings.effort}

@@ -731,6 +731,17 @@ it('retains bounded draft settings in the main owner across navigation and disco
 	expect(() =>
 		owner.saveDraftSettings(session.id, { options: { attachmentIds: ['foreign'] } } as never),
 	).toThrow('Invalid draft message settings')
+	// The Default preset is the only one a model choice may carry.
+	owner.saveDraftSettings(session.id, {
+		choice: { provider: 'fixture', model: 'chosen', preset: 'default' },
+	})
+	expect(owner.draftSettings(session.id).choice?.preset).toBe('default')
+	expect(() =>
+		owner.saveDraftSettings(session.id, {
+			choice: { provider: 'fixture', model: 'chosen', preset: 'fastest' } as never,
+		}),
+	).toThrow('Invalid draft model preset')
+	owner.saveDraftSettings(session.id, owner.draftSettings(landing))
 	expect(() => owner.draftSettings('project:unknown')).toThrow('Unknown project')
 	const closed = wait((event) => event.kind === 'connection' && event.project.status === 'error')
 	owner.send(session.id, 'Break connection')

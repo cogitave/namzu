@@ -137,6 +137,18 @@ describe('durable desktop conversation schema', () => {
 		expect(parsed?.conversations[0]?.draftSettings?.choice?.model).toBe('model')
 		expect(parsed?.attachments[0]?.view.name).toBe('notes.txt')
 	})
+	it('keeps the default-model preset and refuses any other value', () => {
+		const original = snapshot()
+		original.conversations[0]!.draftSettings!.choice = {
+			provider: 'fixture',
+			model: 'model',
+			label: 'Model',
+			preset: 'default',
+		}
+		expect(parseDesktopConversationSnapshot(original)).toEqual(original)
+		original.conversations[0]!.draftSettings!.choice!.preset = 'latest' as never
+		expect(parseDesktopConversationSnapshot(original)).toBeNull()
+	})
 	it.each([
 		(input: DesktopConversationSnapshot) => ({ ...input, version: 2 }),
 		(input: DesktopConversationSnapshot) => ({

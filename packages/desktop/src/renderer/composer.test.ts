@@ -61,28 +61,30 @@ function render(overrides: Partial<ComponentProps<typeof Composer>> = {}): strin
 }
 
 function button(html: string, label: string): string {
-	const tag = html.match(new RegExp(`<button\\b[^>]*aria-label="${label}"[^>]*>`))?.[0]
+	// The permission chip's name carries the current mode, so it is matched by prefix.
+	const name = label === 'Permissions' ? 'Permissions: [^"]*' : label
+	const tag = html.match(new RegExp(`<button\\b[^>]*aria-label="${name}"[^>]*>`))?.[0]
 	if (!tag) throw new Error(`Missing ${label} button`)
 	return tag
 }
 
 it('allows Pal model browsing before computer admission while Send remains disabled', () => {
 	const html = render({ modelSelectionReady: true })
-	expect(button(html, 'Select model')).not.toMatch(/\bdisabled(?:=|\s|>)/)
+	expect(button(html, 'Model: space-bunny-free')).not.toMatch(/\bdisabled(?:=|\s|>)/)
 	expect(button(html, 'Send message')).toMatch(/\bdisabled=/)
 })
 
 it('blocks model selection before its own catalogue context is ready', () => {
-	expect(button(render({ connected: true, modelSelectionReady: false }), 'Select model')).toMatch(
-		/\bdisabled=/,
-	)
+	expect(
+		button(render({ connected: true, modelSelectionReady: false }), 'Model: space-bunny-free'),
+	).toMatch(/\bdisabled=/)
 })
 
 it('keeps model selection blocked during active work and sending', () => {
 	for (const work of [{ running: true }, { sending: true }]) {
-		expect(button(render({ modelSelectionReady: true, ...work }), 'Select model')).toMatch(
-			/\bdisabled=/,
-		)
+		expect(
+			button(render({ modelSelectionReady: true, ...work }), 'Model: space-bunny-free'),
+		).toMatch(/\bdisabled=/)
 	}
 })
 
@@ -91,12 +93,14 @@ it('keeps an empty provider collection disabled even with catalogue readiness', 
 		modelSelectionReady: true,
 		providers: { available: [], selected: null },
 	})
-	expect(button(html, 'Select model')).toMatch(/\bdisabled=/)
+	expect(button(html, 'Model: space-bunny-free')).toMatch(/\bdisabled=/)
 })
 
 it('preserves ordinary composer readiness when no separate catalogue guard is supplied', () => {
-	expect(button(render(), 'Select model')).toMatch(/\bdisabled=/)
-	expect(button(render({ connected: true }), 'Select model')).not.toMatch(/\bdisabled(?:=|\s|>)/)
+	expect(button(render(), 'Model: space-bunny-free')).toMatch(/\bdisabled=/)
+	expect(button(render({ connected: true }), 'Model: space-bunny-free')).not.toMatch(
+		/\bdisabled(?:=|\s|>)/,
+	)
 })
 
 it('docks the slim Pal composer with one authored textarea and preserves the standard composer', () => {
@@ -123,15 +127,18 @@ it('docks the slim Pal composer with one authored textarea and preserves the sta
 it('keeps the Pal Plus menu and actual model available while computer execution is offline', () => {
 	const html = render({ variant: 'pal', modelSelectionReady: true })
 	expect(button(html, 'Attachments and message settings')).not.toMatch(/\bdisabled=/)
-	expect(button(html, 'Select model')).not.toMatch(/\bdisabled=/)
-	expect(html.match(/aria-label="Select model"/g)).toHaveLength(1)
+	expect(button(html, 'Model: space-bunny-free')).not.toMatch(/\bdisabled=/)
+	expect(html.match(/aria-label="Model: /g)).toHaveLength(1)
 	expect(button(html, 'Attach files')).toMatch(/\bdisabled=/)
-	expect(button(html, 'Tool permissions')).toMatch(/\bdisabled=/)
+	expect(button(html, 'Permissions')).toMatch(/\bdisabled=/)
 	expect(button(html, 'Plugins')).toMatch(/\bdisabled=/)
 	expect(button(html, 'Send message')).toMatch(/\bdisabled=/)
 	for (const work of [{ running: true }, { sending: true }])
 		expect(
-			button(render({ variant: 'pal', modelSelectionReady: true, ...work }), 'Select model'),
+			button(
+				render({ variant: 'pal', modelSelectionReady: true, ...work }),
+				'Model: space-bunny-free',
+			),
 		).toMatch(/\bdisabled=/)
 })
 
@@ -143,9 +150,9 @@ it('admits Pal chat and model attachments without granting unavailable guest too
 		toolsAvailable: false,
 		pluginsSupported: false,
 	})
-	for (const label of ['Send message', 'Attach files', 'Select model'])
+	for (const label of ['Send message', 'Attach files', 'Model: space-bunny-free'])
 		expect(button(html, label)).not.toMatch(/\bdisabled=/)
-	expect(button(html, 'Tool permissions')).toMatch(/\bdisabled=/)
+	expect(button(html, 'Permissions')).toMatch(/\bdisabled=/)
 	expect(html).not.toContain('aria-label="Plugins"')
 	const standard = render({ connected: true })
 	expect(button(standard, 'Plugins')).not.toMatch(/\bdisabled=/)
@@ -155,7 +162,7 @@ it('admits Pal chat and model attachments without granting unavailable guest too
 		toolsAvailable: true,
 		pluginsSupported: false,
 	})
-	expect(button(online, 'Tool permissions')).not.toMatch(/\bdisabled=/)
+	expect(button(online, 'Permissions')).not.toMatch(/\bdisabled=/)
 })
 
 it('keeps approval details readable but disables action decisions when guest authority is absent', () => {
@@ -276,8 +283,8 @@ it('keeps real context above the normal editor and permissions beside Plus below
 	const editor = html.indexOf('<textarea')
 	const footer = html.indexOf('data-chat-composer-footer')
 	const plus = html.indexOf('aria-label="Attachments and message settings"', footer)
-	const permission = html.indexOf('aria-label="Tool permissions"', footer)
-	const model = html.indexOf('aria-label="Select model"', footer)
+	const permission = html.indexOf('aria-label="Permissions: ', footer)
+	const model = html.indexOf('aria-label="Model: Claude Sonnet 4.5"', footer)
 	const submit = html.indexOf('aria-label="Send message"', footer)
 	expect(context).toBeGreaterThan(0)
 	expect(context).toBeLessThan(editor)
@@ -288,15 +295,15 @@ it('keeps real context above the normal editor and permissions beside Plus below
 	expect(plus).toBeLessThan(permission)
 	expect(permission).toBeLessThan(model)
 	expect(model).toBeLessThan(submit)
-	expect(html.match(/aria-label="Tool permissions"/g)).toHaveLength(1)
-	expect(html.match(/aria-label="Select model"/g)).toHaveLength(1)
+	expect(html.match(/aria-label="Permissions: /g)).toHaveLength(1)
+	expect(html.match(/aria-label="Model: /g)).toHaveLength(1)
 	expect(html.match(/<textarea\b/g)).toHaveLength(1)
 	const trigger = html.slice(model, html.indexOf('</button>', model))
-	expect(trigger.indexOf('data-selected-model-icon="anthropic"')).toBeGreaterThan(0)
-	expect(trigger.indexOf('data-selected-model-icon="anthropic"')).toBeLessThan(
-		trigger.indexOf('<span class="truncate">Claude Sonnet 4.5'),
+	// The trigger is text only: the model name, with no provider glyph.
+	expect(trigger).toContain(
+		'<span class="model-picker-trigger-model truncate">Claude Sonnet 4.5</span>',
 	)
-	expect(html.match(/data-selected-model-icon=/g)).toHaveLength(1)
+	expect(html).not.toContain('data-selected-model-icon')
 })
 
 it('shows the wordmark once and only offers installed conversation engines', () => {
@@ -367,10 +374,9 @@ it('retains functional normal attachment, plugin, effort, queue and approval con
 		],
 	})
 	expect(button(html, 'Attach files')).not.toMatch(/\bdisabled=/)
-	expect(button(html, 'Reasoning effort')).toMatch(/\bdisabled=/)
-	expect(button(html, 'Tool permissions')).not.toMatch(/\bdisabled=/)
+	expect(button(html, 'Permissions')).not.toMatch(/\bdisabled=/)
 	expect(button(html, 'Plugins')).not.toMatch(/\bdisabled=/)
-	expect(button(html, 'Select model')).toMatch(/\bdisabled=/)
+	expect(button(html, 'Model: space-bunny-free, effort: High')).toMatch(/\bdisabled=/)
 	expect(button(html, 'Remove notes.txt')).not.toMatch(/\bdisabled=/)
 	expect(button(html, 'Remove queued message 1')).not.toMatch(/\bdisabled=/)
 	expect(html).toContain('aria-label="Tool approval"')
@@ -379,13 +385,13 @@ it('retains functional normal attachment, plugin, effort, queue and approval con
 	expect(button(html, 'Stop turn')).not.toMatch(/\bdisabled=/)
 	expect(button(html, 'Queue message')).not.toMatch(/\bdisabled=/)
 	const offline = render()
-	for (const label of ['Attach files', 'Tool permissions', 'Plugins', 'Send message'])
+	for (const label of ['Attach files', 'Permissions', 'Plugins', 'Send message'])
 		expect(button(offline, label)).toMatch(/\bdisabled=/)
 	const idle = render({
 		connected: true,
 		capabilities: { effortLevels: ['low', 'high'], effortDefault: 'low' },
 	})
-	expect(button(idle, 'Reasoning effort')).not.toMatch(/\bdisabled=/)
+	expect(button(idle, 'Model: space-bunny-free, effort: Low')).not.toMatch(/\bdisabled=/)
 	const tools = idle.slice(
 		idle.indexOf('<div aria-label="Attachments and message settings">'),
 		idle.indexOf('<div aria-label="Model picker">'),
@@ -454,7 +460,7 @@ it('offers only actual ordinary projects with current selection and connection/t
 	expect(html).not.toContain('Private Pal workspace')
 	expect(html).not.toContain('/owned/private')
 	expect(html).not.toContain('Private transport detail')
-	expect(html).toContain('data-selected-model-icon="remote"')
+	expect(html).not.toContain('data-selected-model-icon')
 })
 
 it('retains the folder handler without a supplied project navigation contract', () => {

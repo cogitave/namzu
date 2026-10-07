@@ -70,6 +70,10 @@ function string(value: unknown, maximum: number, nonempty = true): string {
 		throw new Error('Invalid saved desktop conversation string.')
 	return value
 }
+function preset(value: unknown): 'default' {
+	if (value !== 'default') throw new Error('Invalid saved model preset.')
+	return value
+}
 function id(value: unknown): string {
 	const result = string(value, 1024)
 	if (
@@ -89,11 +93,12 @@ function settings(input: unknown): DraftSettings {
 	const value = record(input, ['choice', 'options'])
 	const result: DraftSettings = {}
 	if (value.choice !== undefined) {
-		const choice = record(value.choice, ['provider', 'model', 'label'])
+		const choice = record(value.choice, ['provider', 'model', 'label', 'preset'])
 		result.choice = {
 			provider: string(choice.provider, 400),
 			model: string(choice.model, 400),
 			...(choice.label === undefined ? {} : { label: string(choice.label, 400, false) }),
+			...(choice.preset === undefined ? {} : { preset: preset(choice.preset) }),
 		}
 	}
 	if (value.options !== undefined) {

@@ -1,0 +1,17 @@
+codex slider thumb x per frame after ArrowRight: 846 -> 888 -> 911 -> 920 -> 924 -> 926
+codex popup width effort 300 list 300 (same); list height 364
+codex model list scroll 318 client 318 (no scrolling)
+codex height per frame, list to effort: 362 -> 261 -> 197 -> 163 -> 146 -> 138 -> 134 -> 132
+codex permission rows: Ask firstStarts read-only and asks before commands or file changes. | Edit automaticallyEdits files in this project on its own; asks before commands. No internet. | Full accessWorks anywhere on this computer and online without asking. | Read onlyReads files; changes nothing.
+codex full access chip: Permissions: Full access colour rgb(255, 185, 0)
+claude slider thumb x per frame after ArrowRight: 886 -> 1004 -> 1006 -> 1007
+claude popup width effort 300 list 300 (same); list height 194
+claude model list scroll 148 client 148 (no scrolling)
+claude height per frame, list to effort: 192 -> 166 -> 149 -> 140 -> 136 -> 133 -> 132
+claude permission rows: Ask firstAsks before editing files or running commands. | Plan onlyReads and plans; changes nothing.
+namzu slider thumb x per frame after ArrowRight: 920 -> 999 -> 1041 -> 1060 -> 1067 -> 1070 -> 1071
+namzu popup width effort 360 list 360 (same); list height 326
+namzu model list scroll 148 client 148 (no scrolling)
+namzu height per frame, list to effort: 324 -> 240 -> 186 -> 158 -> 143 -> 137 -> 134 -> 132
+namzu permission rows: Ask firstAsks before changing files or running commands. | Edit automaticallyEdits files on its own and asks before commands. | Full accessUses tools without asking, except what your rules block. | Plan onlyReads and plans; changes nothing.
+codex light full access chip colour rgb(187, 77, 0)

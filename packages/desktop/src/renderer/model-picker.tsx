@@ -2,9 +2,10 @@ import { Radio } from '@base-ui/react/radio'
 import { RadioGroup } from '@base-ui/react/radio-group'
 import { Tabs } from '@base-ui/react/tabs'
 import type { ReasoningEffort } from '@namzu/sdk'
+import { ChevronLeft } from 'lucide-react'
 import {
+	type CSSProperties,
 	type KeyboardEvent,
-	type ReactNode,
 	useCallback,
 	useEffect,
 	useLayoutEffect,
@@ -14,7 +15,7 @@ import {
 } from 'react'
 import type { ComposerModelSettings, ModelCatalogueView, ProviderView } from '../shared/protocol.js'
 import { ComposerControl, ComposerControlChevron } from './composer-control.js'
-import { ComposerEffort } from './composer-settings.js'
+import { ComposerEffortPanel } from './composer-effort-panel.js'
 import {
 	CheckIcon,
 	CloudIcon,
@@ -29,18 +30,22 @@ import {
 	ModelCatalogueDisplayCache,
 	modelCatalogueDisplayCacheForApi,
 } from './model-catalogue-display-cache.js'
-import { SelectedModelIcon } from './selected-model-icon.js'
+import {
+	type ModelChoice,
+	defaultModelRow,
+	effortLabel,
+	followCatalogue,
+	modelDisplayLabel,
+	resolveEffort,
+} from './model-choice.js'
+import { commitsOnKey } from './picker-commit.js'
 import { Button } from './ui/button.js'
 import { Input } from './ui/input.js'
 import { Popover, PopoverPopup, PopoverTrigger } from './ui/popover.js'
 import { Tooltip, TooltipPopup, TooltipTrigger } from './ui/tooltip.js'
 import './model-picker.css'
 
-export interface ModelChoice {
-	provider: string
-	model: string
-	label?: string
-}
+export type { ModelChoice }
 type Provider = ProviderView['available'][number]
 type Catalogue = {
 	loading: boolean
@@ -48,6 +53,8 @@ type Catalogue = {
 	error?: string
 	scopeKey?: string
 }
+type View = 'effort' | 'models'
+const DEFAULT_KEY = 'default'
 
 function ProviderMark({ provider }: { provider: Provider }) {
 	const Icon =
@@ -74,6 +81,7 @@ export function ModelPicker({
 	sessionId,
 	loadCatalogue,
 	catalogueHarnessScope,
+	catalogueEnabled = true,
 	positionerClassName,
 	settings,
 	effort,
@@ -88,12 +96,21 @@ export function ModelPicker({
 	loadCatalogue?: (provider: string) => Promise<ModelCatalogueView>
 	/** The authoritative engine identity, independent of selected model. */
 	catalogueHarnessScope?: string
+	/** The trigger reads the current catalogue as soon as this is true, even while the menu is closed. */
+	catalogueEnabled?: boolean
 	positionerClassName?: string
+	/** Null while this model's settings load; undefined when the picker offers no effort. */
 	settings?: ComposerModelSettings | null
 	effort?: ReasoningEffort
 	onEffortChange?: (effort: ReasoningEffort | undefined) => void
 }) {
 	const [open, setOpen] = useState(false)
+	const [view, setView] = useState<View>('models')
+	// The model list opened from the effort panel returns there once a model is chosen.
+	const [fromEffort, setFromEffort] = useState(false)
+	// A model picked from the effort panel is saved asynchronously; the panel waits for it so it
+	// never shows the previous model's name or levels.
+	const [awaiting, setAwaiting] = useState<ModelChoice | null>(null)
 	const localCache = useRef<{
 		loader?: typeof loadCatalogue
 		cache: ModelCatalogueDisplayCache
@@ -105,30 +122,39 @@ export function ModelPicker({
 			? modelCatalogueDisplayCacheForApi(window.namzu)
 			: localCache.current.cache
 	const provider = providers.available.find((item) => item.id === choice.provider)
-	const model = choice.label || choice.model || provider?.defaultModel || 'Select model'
+	const modelId = choice.model || provider?.defaultModel || ''
+	const rows = useChoiceCatalogue({
+		displayCache,
+		provider,
+		providers,
+		projectId,
+		sessionId,
+		loadCatalogue,
+		harnessScope: catalogueHarnessScope,
+		enabled: catalogueEnabled,
+	})
+	const label = modelId ? modelDisplayLabel({ model: modelId, label: choice.label }, rows) : ''
+	const shownEffort = onEffortChange ? resolveEffort(settings, effort) : undefined
+	const effortChoices = shownEffort?.levels.length ?? 0
 	useEffect(() => {
 		if (disabled) setOpen(false)
 	}, [disabled])
+	// A choice that follows the engine's default, or whose saved label went stale, is brought up to
+	// date once the catalogue is known. Each correction is sent once, however often it re-renders.
+	const corrected = useRef('')
+	useEffect(() => {
+		if (disabled) return
+		const next = followCatalogue({ ...choice, model: modelId }, rows, provider?.defaultModel)
+		if (!next) {
+			corrected.current = ''
+			return
+		}
+		const key = JSON.stringify(next)
+		if (corrected.current === key) return
+		corrected.current = key
+		onChange(next)
+	}, [disabled, choice, modelId, rows, provider?.defaultModel, onChange])
 	const scope = `${projectId}:${sessionId ?? ''}`
-	const effortScope = JSON.stringify([
-		projectId,
-		sessionId,
-		choice.provider,
-		choice.model || provider?.defaultModel || '',
-	])
-	const showEffort = Boolean(onEffortChange && (settings?.effortLevels?.length || effort))
-	const effortControl =
-		showEffort && onEffortChange ? (
-			<ComposerEffort
-				scope={effortScope}
-				effortLevels={settings?.effortLevels}
-				effortDefault={settings?.effortDefault}
-				effort={effort}
-				disabled={disabled}
-				onChange={onEffortChange}
-				positionerClassName={positionerClassName}
-			/>
-		) : null
 	const previousScope = useRef(scope)
 	useEffect(() => {
 		if (previousScope.current !== scope) {
@@ -136,22 +162,52 @@ export function ModelPicker({
 			setOpen(false)
 		}
 	}, [scope])
+	const accessibleName = label
+		? `Model: ${label}${shownEffort?.value ? `, effort: ${effortLabel(shownEffort.value)}` : ''}`
+		: 'Select model'
+	const choose = (next: ModelChoice) => {
+		if (disabled) return
+		onChange(next)
+		if (fromEffort) {
+			setFromEffort(false)
+			setAwaiting(next)
+		} else setOpen(false)
+	}
+	useEffect(() => {
+		if (awaiting && choice.provider === awaiting.provider && choice.model === awaiting.model) {
+			setAwaiting(null)
+			setView('effort')
+		}
+	}, [awaiting, choice.provider, choice.model])
+	const { resize, measured, resizeStyle } = useAnimatedHeight(open)
+	const closeUnavailable = useCallback(() => setOpen(false), [])
 	return (
-		<Popover open={open && previousScope.current === scope && !disabled} onOpenChange={setOpen}>
+		<Popover
+			open={open && previousScope.current === scope && !disabled}
+			onOpenChange={(next) => {
+				if (next) {
+					setFromEffort(false)
+					setAwaiting(null)
+					setView(effortChoices >= 2 ? 'effort' : 'models')
+				}
+				setOpen(next)
+			}}
+		>
 			<PopoverTrigger
 				render={
 					<ComposerControl
 						className="model-picker-trigger"
 						disabled={disabled || providers.available.length === 0}
-						aria-label="Select model"
+						aria-label={accessibleName}
 					/>
 				}
 			>
-				<SelectedModelIcon
-					model={choice.model || provider?.defaultModel || ''}
-					provider={choice.provider}
-				/>
-				<span className="truncate">{model}</span>
+				<span className="model-picker-trigger-model truncate">{label || 'Select model'}</span>
+				{shownEffort?.value && (
+					<span className="model-picker-trigger-effort" aria-hidden="true">
+						{effortLabel(shownEffort.value)}
+					</span>
+				)}
 				<ComposerControlChevron />
 			</PopoverTrigger>
 			<PopoverPopup
@@ -159,45 +215,142 @@ export function ModelPicker({
 				align="end"
 				sideOffset={8}
 				padding="none"
-				aria-label="Model picker"
+				aria-label={view === 'effort' ? 'Reasoning effort' : 'Model picker'}
 				className="model-picker-popup"
+				data-view={view}
+				data-wide={providers.available.length > 1 || undefined}
 				positionerClassName={positionerClassName}
 			>
-				<div
-					className="model-picker-body"
-					onKeyDownCapture={(event) => {
-						// A model change moves the nested effort popover to another radio row.
-						// Keep Escape reliable for the outer popup when focus stays on that row.
-						// Escape from the effort portal still closes that child first.
-						if (
-							event.key === 'Escape' &&
-							!event.nativeEvent.isComposing &&
-							event.currentTarget.contains(event.target as Node)
-						)
-							setOpen(false)
-					}}
-				>
-					<ModelBrowser
-						key={`${projectId}:${sessionId ?? ''}`}
-						providers={providers}
-						choice={choice}
-						projectId={projectId}
-						sessionId={sessionId}
-						loadCatalogue={loadCatalogue}
-						catalogueHarnessScope={catalogueHarnessScope}
-						displayCache={displayCache}
-						effortControl={effortControl}
-						settingsNotice={settings?.notice}
-						onChoose={(next, close) => {
-							if (disabled) return
-							onChange(next)
-							if (close && !onEffortChange) setOpen(false)
-						}}
-					/>
+				<div className="model-picker-resize" ref={resize} style={resizeStyle}>
+					<div className="model-picker-body" ref={measured}>
+						{view === 'effort' && onEffortChange ? (
+							<ComposerEffortPanel
+								scope={JSON.stringify([projectId, sessionId, choice.provider, modelId])}
+								modelLabel={label}
+								levels={shownEffort?.levels ?? []}
+								value={shownEffort?.value}
+								defaultValue={settings?.effortDefault}
+								loading={settings === null}
+								disabled={disabled}
+								onChange={onEffortChange}
+								onShowModels={() => {
+									setFromEffort(true)
+									setView('models')
+								}}
+								onUnavailable={closeUnavailable}
+							/>
+						) : (
+							<ModelBrowser
+								key={`${projectId}:${sessionId ?? ''}`}
+								providers={providers}
+								choice={choice}
+								projectId={projectId}
+								sessionId={sessionId}
+								loadCatalogue={loadCatalogue}
+								catalogueHarnessScope={catalogueHarnessScope}
+								displayCache={displayCache}
+								settingsNotice={settings?.notice}
+								onBack={
+									fromEffort
+										? () => {
+												setFromEffort(false)
+												setView('effort')
+											}
+										: undefined
+								}
+								onChoose={choose}
+							/>
+						)}
+					</div>
 				</div>
 			</PopoverPopup>
 		</Popover>
 	)
+}
+
+/**
+ * Swapping the popover between the effort panel and the model list changes its height; the
+ * wrapper follows the content's measured height so the change eases instead of jumping. The first
+ * measurement sets the height without a transition.
+ */
+function useAnimatedHeight(open: boolean) {
+	const resize = useRef<HTMLDivElement>(null)
+	const [height, setHeight] = useState<number>()
+	const observer = useRef<ResizeObserver>(null)
+	const measured = useCallback((node: HTMLDivElement | null) => {
+		observer.current?.disconnect()
+		observer.current = null
+		if (!node || typeof ResizeObserver === 'undefined') return
+		const next = new ResizeObserver(() => setHeight(node.offsetHeight))
+		next.observe(node)
+		observer.current = next
+		setHeight(node.offsetHeight)
+	}, [])
+	useEffect(() => {
+		if (!open) setHeight(undefined)
+	}, [open])
+	const resizeStyle: CSSProperties | undefined =
+		height === undefined ? undefined : { height: `${height}px` }
+	return { resize, measured, resizeStyle }
+}
+
+type CatalogueRows = ModelCatalogueView['models']
+
+/**
+ * The current provider's catalogue rows, read as soon as selection is ready. The shared display
+ * cache deduplicates the request, so the open menu and every composer reuse one read. The last
+ * rows seen stay in use while the cache re-reads, so the trigger never flickers back to an id.
+ */
+function useChoiceCatalogue({
+	displayCache,
+	provider,
+	providers,
+	projectId,
+	sessionId,
+	loadCatalogue,
+	harnessScope,
+	enabled,
+}: {
+	displayCache: ModelCatalogueDisplayCache
+	provider: Provider | undefined
+	providers: ProviderView
+	projectId: string
+	sessionId?: string
+	loadCatalogue?: (provider: string) => Promise<ModelCatalogueView>
+	harnessScope?: string
+	enabled: boolean
+}): CatalogueRows | undefined {
+	const version = useSyncExternalStore(
+		displayCache.subscribe,
+		displayCache.version,
+		displayCache.version,
+	)
+	const scope = provider
+		? displayCache.scope({
+				projectId,
+				sessionId,
+				provider,
+				available: providers.available,
+				harnessScope,
+			})
+		: undefined
+	const snapshot = scope ? displayCache.peek(scope) : { state: 'idle' as const }
+	const identity = JSON.stringify([projectId, sessionId, harnessScope, provider?.id])
+	const last = useRef<{ identity: string; rows: CatalogueRows }>(null)
+	if (snapshot.state === 'ready') last.current = { identity, rows: snapshot.value.models }
+	const rows = snapshot.state === 'ready' ? snapshot.value.models : undefined
+	useEffect(() => {
+		void version
+		if (!enabled || !provider || !scope || !projectId) return
+		if (displayCache.peek(scope).state !== 'idle') return
+		const read = () =>
+			loadCatalogue
+				? loadCatalogue(provider.id)
+				: window.namzu.models(projectId, provider.id, sessionId)
+		// The shared cache publishes the retryable error; the menu offers the retry.
+		displayCache.load(scope, read).catch(() => {})
+	}, [enabled, provider, scope, projectId, sessionId, loadCatalogue, displayCache, version])
+	return rows ?? (last.current?.identity === identity ? last.current.rows : undefined)
 }
 
 function ModelBrowser({
@@ -209,7 +362,7 @@ function ModelBrowser({
 	loadCatalogue,
 	catalogueHarnessScope,
 	displayCache,
-	effortControl,
+	onBack,
 	settingsNotice,
 }: {
 	providers: ProviderView
@@ -219,8 +372,9 @@ function ModelBrowser({
 	loadCatalogue?: (provider: string) => Promise<ModelCatalogueView>
 	catalogueHarnessScope?: string
 	displayCache: ModelCatalogueDisplayCache
-	onChoose: (choice: ModelChoice, close?: boolean) => void
-	effortControl?: ReactNode
+	onChoose: (choice: ModelChoice) => void
+	/** Present when the list was opened from the effort panel. */
+	onBack?: () => void
 	settingsNotice?: string
 }) {
 	const [providerId, setProviderId] = useState(choice.provider)
@@ -353,6 +507,8 @@ function ModelBrowser({
 	const loading = shownProviders.some(
 		(provider) => !shownCatalogues.get(provider.id) || shownCatalogues.get(provider.id)?.loading,
 	)
+	// A short single-engine list needs no search, refresh or typed ids; they appear with a long list.
+	const showTools = multipleProviders || searching || models.length > 12
 	const errors = shownProviders.filter((provider) => shownCatalogues.get(provider.id)?.error)
 	const retry = (id: string) => {
 		const provider = providers.available.find((provider) => provider.id === id)
@@ -382,6 +538,54 @@ function ModelBrowser({
 		({ provider, rows }) =>
 			provider.id === choice.provider && rows.some((row) => row.id === selectedModel),
 	)
+	const toChoice = (model: (typeof models)[number]): ModelChoice => ({
+		provider: model.provider.id,
+		model: model.id,
+		label: model.label,
+	})
+	// The engine's own recommendation leads the list, but only for the provider on screen.
+	const recommended = searching
+		? undefined
+		: defaultModelRow(shownCatalogues.get(active?.id ?? '')?.value?.models, active?.defaultModel)
+	const followsDefault = !searching && choice.preset === 'default' && choice.provider === active?.id
+	const selectedKey = followsDefault
+		? DEFAULT_KEY
+		: modelKey(
+				choice.provider,
+				choice.model ||
+					providers.available.find((provider) => provider.id === choice.provider)?.defaultModel ||
+					'',
+			)
+	const chooseDefault = () => {
+		if (active && recommended)
+			onChoose({
+				provider: active.id,
+				model: recommended.id,
+				label: recommended.label,
+				preset: 'default',
+			})
+	}
+	// Opening the list puts the keyboard on the checked row, so arrows start from the current model.
+	// The popup reclaims focus when the control that was clicked to get here unmounts, so focus is
+	// placed again once that has settled.
+	const focused = useRef(false)
+	const settled = !loading && filtered.length > 0
+	useEffect(() => {
+		if (focused.current || !settled) return
+		focused.current = true
+		const place = () => {
+			const root = results.current
+			if (!root || root.contains(document.activeElement)) return
+			if (document.activeElement instanceof HTMLInputElement) return
+			;(
+				root.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]') ??
+				root.querySelector<HTMLElement>('[role="radio"]')
+			)?.focus({ preventScroll: true })
+		}
+		place()
+		const frame = requestAnimationFrame(place)
+		return () => cancelAnimationFrame(frame)
+	}, [settled])
 	const lineUp = (
 		<div className="model-lineup">
 			<header className="model-picker-heading">
@@ -408,15 +612,7 @@ function ModelBrowser({
 									}
 								} else if (event.key === 'Enter' && filtered[0]) {
 									event.preventDefault()
-									const next = filtered[0]
-									onChoose(
-										{
-											provider: next.provider.id,
-											model: next.id,
-											label: next.label,
-										},
-										true,
-									)
+									onChoose(toChoice(filtered[0]))
 								}
 							}}
 						/>
@@ -435,59 +631,54 @@ function ModelBrowser({
 				) : (
 					<>
 						<div className="model-picker-heading-copy">
-							<span className="model-picker-title">Select model</span>
-							{multipleProviders && (
+							{onBack && (
+								<button type="button" className="model-picker-back" onClick={onBack}>
+									<ChevronLeft aria-hidden="true" />
+									Effort
+								</button>
+							)}
+							<h2 className="model-picker-title">Choose a model</h2>
+							{multipleProviders && !onBack && (
 								<span className="model-picker-provider-label" title={active?.label}>
 									{active?.label}
 								</span>
 							)}
 						</div>
-						<div className="model-picker-heading-actions">
-							<Button
-								variant="ghost-muted"
-								size="icon-xs"
-								aria-label={`Refresh ${active?.label ?? 'current'} models`}
-								disabled={!active}
-								onClick={() => {
-									if (active) retry(active.id)
-								}}
-							>
-								<RefreshIcon aria-hidden="true" />
-							</Button>
-							<Button
-								variant="ghost-muted"
-								size="icon-xs"
-								aria-label="Search models"
-								title="Search models (/)"
-								onClick={() => setSearching(true)}
-							>
-								<SearchIcon aria-hidden="true" />
-							</Button>
-						</div>
+						{showTools && (
+							<div className="model-picker-heading-actions">
+								<Button
+									variant="ghost-muted"
+									size="icon-xs"
+									aria-label={`Refresh ${active?.label ?? 'current'} models`}
+									disabled={!active}
+									onClick={() => {
+										if (active) retry(active.id)
+									}}
+								>
+									<RefreshIcon aria-hidden="true" />
+								</Button>
+								<Button
+									variant="ghost-muted"
+									size="icon-xs"
+									aria-label="Search models"
+									title="Search models (/)"
+									onClick={() => setSearching(true)}
+								>
+									<SearchIcon aria-hidden="true" />
+								</Button>
+							</div>
+						)}
 					</>
 				)}
 			</header>
 			<div ref={results} className="model-picker-list">
 				<RadioGroup
 					aria-label={searching ? 'Search results' : `${active?.label ?? ''} models`}
-					value={modelKey(
-						choice.provider,
-						choice.model ||
-							providers.available.find((provider) => provider.id === choice.provider)
-								?.defaultModel ||
-							'',
-					)}
-					onValueChange={(value: string) => {
-						const next = filtered.find((model) => modelKey(model.provider.id, model.id) === value)
-						if (next)
-							onChoose({
-								provider: next.provider.id,
-								model: next.id,
-								label: next.label,
-							})
-					}}
+					value={selectedKey}
+					// Arrow keys only move the highlight; a choice is made by click, Enter or Space.
+					onValueChange={() => {}}
 				>
-					{groups.map(({ provider, rows }) => (
+					{groups.map(({ provider, rows }, groupIndex) => (
 						<fieldset
 							key={provider.id}
 							className="model-picker-section"
@@ -496,64 +687,68 @@ function ModelBrowser({
 							{searching && (
 								<legend className="model-picker-section-title">{provider.label}</legend>
 							)}
-							{rows.map((model) => (
-								<div
-									key={modelKey(model.provider.id, model.id)}
-									className="model-picker-row-wrap"
-									data-has-effort={
-										(model.provider.id === choice.provider &&
-											model.id === selectedModel &&
-											Boolean(effortControl)) ||
-										undefined
-									}
-								>
-									<Radio.Root
-										value={modelKey(model.provider.id, model.id)}
-										nativeButton
-										render={<button type="button" />}
-										className="model-picker-row"
-										aria-label={`${model.provider.label} ${model.label}`}
-										onClick={(event) => {
+							{groupIndex === 0 && recommended && (
+								<Radio.Root
+									value={DEFAULT_KEY}
+									nativeButton
+									render={<button type="button" />}
+									className="model-picker-row"
+									aria-label={`Default, recommended: ${recommended.label}`}
+									onClick={(event) => {
+										event.preventDefault()
+										chooseDefault()
+									}}
+									onKeyDown={(event) => {
+										if (commitsOnKey(event.key)) {
 											event.preventDefault()
-											onChoose(
-												{
-													provider: model.provider.id,
-													model: model.id,
-													label: model.label,
-												},
-												true,
-											)
-										}}
-										onKeyDown={(event) => {
-											if (event.key === 'Enter') {
-												event.preventDefault()
-												onChoose(
-													{
-														provider: model.provider.id,
-														model: model.id,
-														label: model.label,
-													},
-													true,
-												)
-											}
-										}}
-									>
-										<span className="model-picker-name">
-											<span title={`${model.label} · ${model.id}`}>{model.label}</span>
-											{model.note && sharedNotes.get(model.provider.id) !== model.note.trim() && (
-												<small>{model.note}</small>
-											)}
-										</span>
-										<span className="model-picker-selection" aria-hidden="true">
-											<Radio.Indicator className="model-picker-checked">
-												<CheckIcon aria-hidden="true" />
-											</Radio.Indicator>
-										</span>
-									</Radio.Root>
-									{model.provider.id === choice.provider &&
-										model.id === selectedModel &&
-										effortControl}
-								</div>
+											chooseDefault()
+										}
+									}}
+								>
+									<span className="model-picker-name">
+										<span>Default</span>
+										<small>Recommended · {recommended.label}</small>
+									</span>
+									<span className="model-picker-selection" aria-hidden="true">
+										<Radio.Indicator className="model-picker-checked">
+											<CheckIcon aria-hidden="true" />
+										</Radio.Indicator>
+									</span>
+								</Radio.Root>
+							)}
+							{rows.map((model) => (
+								<Radio.Root
+									key={modelKey(model.provider.id, model.id)}
+									value={modelKey(model.provider.id, model.id)}
+									nativeButton
+									render={<button type="button" />}
+									className="model-picker-row"
+									aria-label={[model.provider.label, model.label, model.note?.trim()]
+										.filter(Boolean)
+										.join(' ')}
+									onClick={(event) => {
+										event.preventDefault()
+										onChoose(toChoice(model))
+									}}
+									onKeyDown={(event) => {
+										if (commitsOnKey(event.key)) {
+											event.preventDefault()
+											onChoose(toChoice(model))
+										}
+									}}
+								>
+									<span className="model-picker-name">
+										<span title={`${model.label} · ${model.id}`}>{model.label}</span>
+										{model.note && sharedNotes.get(model.provider.id) !== model.note.trim() && (
+											<small>{model.note}</small>
+										)}
+									</span>
+									<span className="model-picker-selection" aria-hidden="true">
+										<Radio.Indicator className="model-picker-checked">
+											<CheckIcon aria-hidden="true" />
+										</Radio.Indicator>
+									</span>
+								</Radio.Root>
 							))}
 						</fieldset>
 					))}
@@ -570,14 +765,18 @@ function ModelBrowser({
 					</output>
 				)}
 			</div>
-			{!searching && !hasSelectedRow && effortControl && (
+			{!searching && !hasSelectedRow && !loading && selectedModel && (
 				<div className="model-picker-current">
 					<span className="model-picker-section-title">Current model</span>
-					<div className="model-picker-current-row model-picker-row-wrap" data-has-effort>
+					<div className="model-picker-current-row">
 						<span className="model-picker-name" title={selectedModel}>
-							<span>{choice.label || selectedModel}</span>
+							<span>
+								{modelDisplayLabel({ model: selectedModel, label: choice.label }, undefined)}
+							</span>
 						</span>
-						{effortControl}
+						<span className="model-picker-selection" aria-hidden="true">
+							<CheckIcon className="model-picker-checked" />
+						</span>
 					</div>
 				</div>
 			)}
@@ -629,14 +828,13 @@ function ModelBrowser({
 					))}
 				</div>
 			)}
-			{active && (
+			{active && showTools && (
 				<div className="model-custom">
 					{custom ? (
 						<form
 							onSubmit={(event) => {
 								event.preventDefault()
-								if (customModel.trim())
-									onChoose({ provider: active.id, model: customModel.trim() }, true)
+								if (customModel.trim()) onChoose({ provider: active.id, model: customModel.trim() })
 							}}
 						>
 							<label htmlFor="custom-model">Model ID · {active.label}</label>
@@ -681,7 +879,7 @@ function ModelBrowser({
 		</div>
 	)
 	const searchShortcut = (event: KeyboardEvent) => {
-		if (event.key === '/' && !(event.target instanceof HTMLInputElement)) {
+		if (showTools && event.key === '/' && !(event.target instanceof HTMLInputElement)) {
 			event.preventDefault()
 			setSearching(true)
 		}

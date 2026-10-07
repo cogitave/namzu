@@ -654,15 +654,17 @@ contexts or opens the native folder chooser; it never adopts a Pal's managed
 workspace. The message box remains expanded. The lower row places attachment,
 plugin and settings access beside the permission control on the left, with the
 selected model and Send or Stop on the right. Only the selected model trigger
-has a model glyph: known model identity wins over its gateway, and an opaque
-route uses a provider or generic local/remote symbol. Model rows stay textual.
+reads as text, with no provider glyph: the model name in normal weight, then the
+effort in muted text (Low, Medium, Extra High, Max). Its accessible name carries both
+("Model: GPT-5.6 Sol, effort: Extra High"); a composer narrower than 420px hides the
+effort word and keeps the name. Model rows stay textual.
 Send shows a busy indicator while the prompt is being admitted. Model popups
 retain their mounted control while focus moves into the menu. The first-message
 transition moves the composer from the centre to the bottom and respects reduced
 motion; merely focusing the editor does not change its layout. Pal conversations use
 the compact, always-docked composer described above; its plus popup keeps model,
-permission, attachment and plugin controls accessible. Effort opens from the
-selected model's row inside the model picker.
+permission, attachment and plugin controls accessible. The model control opens the
+effort panel when the model offers a choice of effort, and the model list otherwise.
 
 Pasting keeps text: when the clipboard carries text, the text is inserted and any
 accompanying image rendering is ignored. Files alone are attached when attaching is
@@ -1522,14 +1524,19 @@ Failed or incomplete restoration keeps the previous navigation for Retry setup
 and disables Send/model controls; deliberate navigation starts a fresh view.
 No model choice or draft text is duplicated in browser storage.
 
-The ordinary Namzu permission menu offers Ask first, Allow tools and Plan.
-Previously saved Allow edits and Preapproved only policies remain visible without
-changing the stored policy. Codex offers Ask first, Full access and Plan; choosing
-Full access requires an explicit confirmation for the captured conversation.
-Its existing conservative Ask first mapping uses native read-only/untrusted
-policy; it is not the current Codex app's workspace-write approval default.
-Full access is computer-wide native access without tool review. Namzu Allow tools
-continues to respect Namzu's configured tool rules and is not labelled Full access.
+The permission chip beside "+" shows an icon and the current mode; Full access uses
+the warning colour in the chip and the menu. It opens a popover titled "When should
+Namzu (or Codex, or Claude Code) check with you?" with one row per mode the engine
+supports: Ask first, Edit automatically (`accept-edits`, Namzu and Codex when the
+engine reports it), Full access (`auto`) and Plan only (titled Read only for Codex).
+Preapproved only (`strict`) appears only when it is the saved mode, and a saved mode
+the engine no longer supports stays visible without changing the stored policy.
+Arrow keys move the highlight; Enter, Space or a click chooses; Escape closes and
+returns focus to the chip. Codex's Ask first mapping uses native read-only/untrusted
+policy; it is not the current Codex app's workspace-write approval default, and
+choosing Codex Full access requires an explicit confirmation for the captured
+conversation. Full access is computer-wide native access without tool review;
+Namzu Full access continues to respect Namzu's configured tool rules.
 The initial `claude-code` adapter offers Ask first and Plan only. The app does not
 offer Codex's automatic safety reviewer. Native engines disable attachments and
 Namzu plugin toggles rather than discarding inputs.
@@ -1577,20 +1584,31 @@ The account catalogue uses the driver's strict listing when available, keeping
 an authentication or network failure distinct from its legacy bundled menu.
 The menu has a provider column when more than one provider is available and
 selectable model rows with their catalogue labels. A single provider uses a
-compact list. The menu opens from the end of the model control, with collision
-handling at the window edges. Provider glyphs stay in their navigation column; model rows
-use their names and selected checkmarks. Repeated provider-wide notes appear
+compact list headed "Choose a model". The effort panel and the list share one width per
+engine (300px, or 360px with a provider column) and the popover eases its height when
+the view changes. A short single-engine list (twelve models or fewer) shows no search,
+refresh or typed-id controls; they appear with a longer list or several providers. The menu opens from the end of the model
+control, with collision handling at the window edges. Provider glyphs stay in their
+navigation column; model rows use their names and selected checkmarks. When the engine
+marks its own recommended model (or, failing that, names a provider default model that is
+in the list), the first row is Default ("Recommended · GPT-6.1 Sol"):
+choosing it saves `preset: 'default'` with the choice, the check sits on Default rather than
+the model row, and the choice follows the engine's default if a later catalogue names
+another. The trigger names a model from the catalogue row for its id, then the saved
+label, then the id, and refreshes a saved label that the catalogue renamed. The
+catalogue is read as soon as the composer is ready, through the shared display cache. Repeated provider-wide notes appear
 once; distinct model notes remain beside their models. Catalogue notices,
 errors and Retry actions have a separate bounded scroll area above the custom
 model action, so scrolling model rows does not hide the feedback.
 Quick search searches model IDs, labels and provider names across the
-configured providers; `/` opens search while the menu has focus. Arrow keys move
-through the model choices, and Escape dismisses the menu and restores focus.
+configured providers; `/` opens search while the menu has focus. Arrow keys move the
+highlight only; Enter, Space or a click chooses. Escape dismisses the menu and
+restores focus.
 Typing in Quick search keeps the search field focused. Arrow Down/Up enters the
-first/last matching row; Enter, clicking or Space chooses a result. The composer
-keeps the model menu open so its selected row can expose effort. Escape dismisses
-it and restores focus to the model control. Profile-only model pickers close
-after selection because they do not edit a conversation's effort.
+first/last matching row; Enter, clicking or Space chooses a result. Choosing a model
+closes the menu, unless the list was opened from the effort panel, in which case it
+returns to that panel. Escape dismisses the menu and restores focus to the model
+control. Profile-only model pickers have no effort panel.
 Catalogue errors use a readable message and a provider-specific Retry action;
 they do not expose raw driver diagnostics or imply that the catalogue is empty.
 Fallback notices also remain visible in global search.
@@ -1623,20 +1641,24 @@ global CLI preferences. Existing fallback and delegation preferences remain in
 force. Reload also restores live messages, pending reviews and queued prompts
 from the main process; it does not restart the running turn.
 
-The selected model row offers reasoning effort only when the actual model has
-known supported choices. Its effort chip opens a small panel beside the row;
-at window widths of 600px or below, the panel opens below the chip. A discrete
-slider contains only that model's supported levels, ordered from lower to higher
-effort, with the actual level named above it. Default restores the model's
-reported default rather than persisting a guessed slider position. Capability
-resolution includes configured fallbacks, and unavailable settings are reported.
-An old unsupported explicit choice has a Reset action. Changing the model clears
-its previous explicit effort rather than silently remapping it. These controls
-capture the model and conversation owner, so a late interaction cannot modify
-another selection.
-The underlying Namzu permission modes remain Ask first (`prompt`), Allow edits
-(`accept-edits`), Allow tools (`auto`), Preapproved only (`strict`) and Plan
-(`plan`). Allow tools remains subject to configured deny rules; Plan refuses
+The effort panel opens from the model control only when the actual model has two or
+more known supported levels. It is a 300px popover above the control: a "Use default
+effort" button on the left (disabled while the effort already equals the model's
+default), the level named in the accent colour with the model's name beneath it as a
+button back to the model list, and a discrete slider (Base UI) with one stop per
+supported level, ordered from lower to higher effort, and "Faster" and "Smarter" beneath.
+Arrow keys move one level, Home and End jump to the ends, and every move is saved at
+once. The slider has focus when the panel opens, and Escape closes it and restores focus
+to the control. The shown effort is the saved one while the model offers it, else the
+model's reported default (muted in the trigger). Capability resolution includes
+configured fallbacks. Changing the model keeps the saved effort when the new model offers
+it and clears it, falling back to that model's default, once the new model's levels are
+known and it does not. A settings read that failed decides nothing: the saved effort is
+kept, and only the turn sent meanwhile leaves it off. These controls capture the model and conversation owner, so a late
+interaction cannot modify another selection.
+The underlying Namzu permission modes remain Ask first (`prompt`), Edit automatically
+(`accept-edits`), Full access (`auto`), Preapproved only (`strict`) and Plan only
+(`plan`). Full access remains subject to configured deny rules; Plan refuses
 changes. Settings are captured with each submitted or queued message and do not
 change the turn already running.
 

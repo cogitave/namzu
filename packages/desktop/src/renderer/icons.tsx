@@ -2,10 +2,13 @@
 import {
 	Clock,
 	Ellipsis,
+	FilePen,
 	FolderClosed,
 	FolderOpen,
 	Folders,
+	Hand,
 	House,
+	ListChecks,
 	type LucideIcon,
 	MessageSquare,
 	MessagesSquare,
@@ -13,8 +16,10 @@ import {
 	Pencil,
 	RefreshCw,
 	Settings,
+	ShieldCheck,
 	SquarePen,
 	Trash2,
+	TriangleAlert,
 	UserRound,
 } from 'lucide-react'
 import type { ComponentType, SVGProps } from 'react'
@@ -220,3 +225,8 @@ export const MoreHorizontalIcon = createOutlineIcon(Ellipsis)
 export const RefreshIcon = createOutlineIcon(RefreshCw)
 export const ConversationIcon = createOutlineIcon(MessageSquare)
 export const UserRoundIcon = createOutlineIcon(UserRound)
+export const HandIcon = createOutlineIcon(Hand)
+export const FilePenIcon = createOutlineIcon(FilePen)
+export const ListChecksIcon = createOutlineIcon(ListChecks)
+export const ShieldCheckIcon = createOutlineIcon(ShieldCheck)
+export const TriangleAlertIcon = createOutlineIcon(TriangleAlert)

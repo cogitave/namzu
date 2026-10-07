@@ -2946,7 +2946,7 @@ export class Operator {
 				!choice ||
 				typeof choice !== 'object' ||
 				Array.isArray(choice) ||
-				Object.keys(choice).some((key) => !['provider', 'model', 'label'].includes(key))
+				Object.keys(choice).some((key) => !['provider', 'model', 'label', 'preset'].includes(key))
 			)
 				throw new Error('Invalid draft model choice.')
 			for (const key of ['provider', 'model'] as const)
@@ -2957,10 +2957,13 @@ export class Operator {
 				(typeof choice.label !== 'string' || choice.label.length > 400)
 			)
 				throw new Error('Invalid draft model label.')
+			if (choice.preset !== undefined && choice.preset !== 'default')
+				throw new Error('Invalid draft model preset.')
 			next.choice = {
 				provider: choice.provider,
 				model: choice.model,
 				...(choice.label !== undefined ? { label: choice.label } : {}),
+				...(choice.preset !== undefined ? { preset: choice.preset } : {}),
 			}
 		}
 		if (value.options !== undefined) {

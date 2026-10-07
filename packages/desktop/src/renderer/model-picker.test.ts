@@ -73,7 +73,9 @@ it('keeps a single native catalogue a plain, checked model list without redundan
 	expect(html).toContain('aria-label="Codex CLI Native selected"')
 	const selected = html.match(/<button[^>]*aria-label="Codex CLI Native selected"[^>]*>/)?.[0]
 	expect(selected).toContain('aria-checked="true"')
-	expect(html).toContain('aria-label="Search models"')
+	// A short single-engine list carries no search, refresh or typed-id controls.
+	expect(html).not.toContain('aria-label="Search models"')
+	expect(html).not.toContain('Use a model ID…')
 	expect(html).not.toContain('Quick search')
 	expect(html).not.toContain('Recommended set of models')
 })
@@ -112,70 +114,156 @@ it('keeps notices, actual model notes and manual IDs available in the compact me
 	expect(html).toContain('Actual catalogue note')
 	expect(html).toContain('Actual catalogue warning')
 	expect(html).toContain('aria-label="Retry Zen models"')
-	expect(html).toContain('Use a model ID…')
-	expect(html).toContain('data-selected-model-icon="remote"')
+	expect(html).not.toContain('data-selected-model-icon')
 })
 
-it('places controlled effort beside the selected radio without nested buttons or profile-only effort', () => {
-	const providers: ProviderView = {
-		available: [{ id: 'codex-cli', label: 'Codex CLI', defaultModel: 'native-first' }],
-		selected: { id: 'codex-cli', model: 'native-first' },
-	}
-	catalogue('codex-cli', [{ id: 'native-first', label: 'Native first' }])
-	const html = render(providers, {
-		settings: { effortLevels: ['low', 'high'], effortDefault: 'low' },
-		effort: 'high',
-		onEffortChange: vi.fn(),
+it('offers search, refresh and typed model ids once a single-engine list grows long', () => {
+	catalogue(
+		'codex-cli',
+		Array.from({ length: 13 }, (_, index) => ({ id: `m-${index}`, label: `Model ${index}` })),
+	)
+	const html = render({
+		available: [{ id: 'codex-cli', label: 'Codex', defaultModel: 'm-0' }],
+		selected: { id: 'codex-cli', model: 'm-1' },
 	})
-	expect(html.indexOf('aria-label="Reasoning effort"')).toBeGreaterThan(0)
-	expect(html.indexOf('aria-label="Reasoning effort"')).toBeGreaterThan(
-		html.indexOf('class="model-provider-single"'),
-	)
-	const selectedRadio = html.match(
-		/<button[^>]*aria-label="Codex CLI Native first"[^>]*>[\s\S]*?<\/button>/,
-	)?.[0]
-	expect(selectedRadio).toContain('aria-checked="true"')
-	expect(selectedRadio).not.toContain('aria-label="Reasoning effort"')
-	expect(html.match(/<button[^>]*aria-label="Reasoning effort"/g)).toHaveLength(1)
-	expect(html).not.toContain('model-picker-controls')
-	expect(render(providers)).not.toContain('aria-label="Reasoning effort"')
-	expect(render(providers, { settings: {}, onEffortChange: vi.fn() })).not.toContain(
-		'aria-label="Reasoning effort"',
-	)
+	expect(html).toContain('aria-label="Search models"')
+	expect(html).toContain('aria-label="Refresh Codex models"')
+	expect(html).toContain('Use a model ID…')
 })
 
-it('retains effort for a real current model ID absent from the catalogue without adding a fake radio option', () => {
-	catalogue('zen', [{ id: 'listed-model', label: 'Listed model' }])
+it('names the Default row for assistive tools with the model it stands for, and keeps notes in model names', () => {
+	catalogue('codex-cli', [
+		{ id: 'gpt-top', label: 'GPT Top', default: true },
+		{ id: 'gpt-other', label: 'GPT Other', note: 'Fast and cheap' },
+	])
+	const html = render({
+		available: [{ id: 'codex-cli', label: 'Codex', defaultModel: 'gpt-top' }],
+		selected: { id: 'codex-cli', model: 'gpt-top' },
+	})
+	expect(html).toContain('aria-label="Default, recommended: GPT Top"')
+	expect(html).toContain('aria-label="Codex GPT Other Fast and cheap"')
+})
+
+it('falls back to the provider default model for the Default row when no row is flagged', () => {
+	catalogue('sample', [
+		{ id: 'sample-a', label: 'Sample A' },
+		{ id: 'sample-b', label: 'Sample B' },
+	])
+	const html = render({
+		available: [{ id: 'sample', label: 'Sample', defaultModel: 'sample-b' }],
+		selected: { id: 'sample', model: 'sample-a' },
+	})
+	expect(html).toContain('Recommended · Sample B')
+})
+
+it('shows the catalogue name and the effort in the trigger, and names both for assistive tools', () => {
+	catalogue('codex-cli', [{ id: 'gpt-x', label: 'GPT X' }])
 	const html = render(
 		{
-			available: [{ id: 'zen', label: 'Zen', defaultModel: 'listed-model' }],
-			selected: { id: 'zen', model: 'actual-custom' },
+			available: [{ id: 'codex-cli', label: 'Codex', defaultModel: 'gpt-x' }],
+			selected: { id: 'codex-cli', model: 'gpt-x' },
 		},
 		{
-			settings: { effortLevels: ['low', 'high'], effortDefault: 'low' },
+			choice: { provider: 'codex-cli', model: 'gpt-x', label: 'Old saved name' },
+			settings: { effortLevels: ['low', 'medium', 'xhigh'], effortDefault: 'medium' },
+			effort: 'xhigh',
 			onEffortChange: vi.fn(),
 		},
 	)
+	const trigger = html.match(
+		/<button[^>]*class="[^"]*model-picker-trigger[^"]*"[^>]*>[\s\S]*?<\/button>/,
+	)?.[0]
+	expect(trigger).toContain('aria-label="Model: Old saved name, effort: Extra High"')
+	expect(trigger).toContain('model-picker-trigger-effort')
+	expect(trigger).not.toContain('data-selected-model-icon')
+})
+
+it('shows the model default effort when none is saved, and no effort when the model offers none', () => {
+	const providers: ProviderView = {
+		available: [{ id: 'codex-cli', label: 'Codex', defaultModel: 'gpt-x' }],
+		selected: { id: 'codex-cli', model: 'gpt-x' },
+	}
+	expect(
+		render(providers, {
+			settings: { effortLevels: ['low', 'medium'], effortDefault: 'medium' },
+			onEffortChange: vi.fn(),
+		}),
+	).toContain('aria-label="Model: gpt-x, effort: Medium"')
+	const none = render(providers, { settings: {}, onEffortChange: vi.fn() })
+	expect(none).toContain('aria-label="Model: gpt-x"')
+	expect(none).not.toContain('model-picker-trigger-effort')
+	// A saved effort the model does not offer is not shown.
+	expect(
+		render(providers, {
+			settings: { effortLevels: ['low', 'medium'], effortDefault: 'medium' },
+			effort: 'max',
+			onEffortChange: vi.fn(),
+		}),
+	).toContain('aria-label="Model: gpt-x, effort: Medium"')
+})
+
+it('leads the list with a Default row naming the engine recommendation, checked only when it is the preset', () => {
+	catalogue('codex-cli', [
+		{ id: 'gpt-top', label: 'GPT Top', default: true },
+		{ id: 'gpt-other', label: 'GPT Other' },
+	])
+	const providers: ProviderView = {
+		available: [{ id: 'codex-cli', label: 'Codex', defaultModel: 'gpt-top' }],
+		selected: { id: 'codex-cli', model: 'gpt-top' },
+	}
+	const row = (html: string, name: string) =>
+		html.match(
+			new RegExp(
+				`<button[^>]*aria-label="${name === 'Default' ? 'Default, recommended: [^"]*' : name}"[^>]*>`,
+			),
+		)?.[0]
+	const preset = render(providers, {
+		choice: { provider: 'codex-cli', model: 'gpt-top', label: 'GPT Top', preset: 'default' },
+	})
+	expect(preset.indexOf('Recommended · GPT Top')).toBeGreaterThan(0)
+	expect(preset.indexOf('aria-label="Default"')).toBeLessThan(
+		preset.indexOf('aria-label="Codex GPT Top"'),
+	)
+	expect(row(preset, 'Default')).toContain('aria-checked="true"')
+	expect(row(preset, 'Codex GPT Top')).toContain('aria-checked="false"')
+	const explicit = render(providers, {
+		choice: { provider: 'codex-cli', model: 'gpt-top', label: 'GPT Top' },
+	})
+	expect(row(explicit, 'Default')).toContain('aria-checked="false"')
+	expect(row(explicit, 'Codex GPT Top')).toContain('aria-checked="true"')
+	expect(explicit).toContain('Choose a model')
+})
+
+it('offers no Default row when the engine marks no default model', () => {
+	catalogue('codex-cli', [{ id: 'gpt-top', label: 'GPT Top' }])
+	const html = render({
+		available: [{ id: 'codex-cli', label: 'Codex', defaultModel: 'unlisted-default' }],
+		selected: { id: 'codex-cli', model: 'gpt-top' },
+	})
+	expect(html).not.toContain('aria-label="Default')
+	expect(html).not.toContain('Recommended')
+})
+
+it('keeps the current model visible when it is not in the list', () => {
+	catalogue('zen', [{ id: 'listed-model', label: 'Listed model' }])
+	const html = render({
+		available: [{ id: 'zen', label: 'Zen', defaultModel: 'unlisted-default' }],
+		selected: { id: 'zen', model: 'actual-custom' },
+	})
 	expect(html).toContain('Current model')
 	expect(html).toContain('actual-custom')
-	expect(html).toContain('aria-label="Reasoning effort"')
 	expect(html).not.toContain('aria-label="Zen actual-custom"')
 	expect(html.match(/role="radio"/g)).toHaveLength(1)
 })
 
-it('keeps unavailable capability feedback inside the model picker and lets an obsolete effort be reset', () => {
+it('keeps capability feedback inside the model list', () => {
 	const html = render(
 		{
 			available: [{ id: 'zen', label: 'Zen', defaultModel: 'actual-model' }],
 			selected: { id: 'zen', model: 'actual-model' },
 		},
-		{
-			settings: { notice: 'Actual model settings unavailable.' },
-			effort: 'max',
-			onEffortChange: vi.fn(),
-		},
+		{ settings: { notice: 'Actual model settings unavailable.' }, onEffortChange: vi.fn() },
 	)
 	expect(html).toContain('Actual model settings unavailable.')
-	expect(html).toContain('aria-label="Reset reasoning effort"')
-	expect(html).not.toContain('aria-label="Reasoning effort"')
+	expect(html).toContain('aria-label="Model: actual-model"')
 })

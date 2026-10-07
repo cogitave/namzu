@@ -1,6 +1,11 @@
 import { type ComponentProps, type ReactElement, type ReactNode, isValidElement } from 'react'
 import { beforeEach, expect, it, vi } from 'vitest'
-import { ComposerPermissions } from './composer-settings.js'
+import {
+	type ComposerPermissionMode,
+	ComposerPermissions,
+	permissionMenuTitle,
+	permissionRows,
+} from './composer-permissions.js'
 
 // Exercise the actual controlled callbacks and renders without substituting a
 // policy reducer. Native checks cover Base UI keyboard, portals and focus.
@@ -32,11 +37,11 @@ vi.mock('react', async (original) => ({
 		hooks.effects.push(effect)
 	},
 }))
-vi.mock('./ui/select.js', () => ({
-	Select: 'select',
-	SelectTrigger: 'trigger',
-	SelectPopup: 'popup',
-	SelectItem: 'option',
+vi.mock('./ui/popover.js', () => ({
+	Popover: 'popover',
+	PopoverTrigger: 'trigger',
+	PopoverPopup: 'popup',
+	PopoverTitle: 'poptitle',
 }))
 vi.mock('./composer-control.js', () => ({ ComposerControl: 'button' }))
 vi.mock('./ui/button.js', () => ({ Button: 'button' }))
@@ -84,8 +89,25 @@ function one(node: ReactNode, type: string): Node {
 	if (!found) throw new Error(`Missing ${type}`)
 	return found
 }
+function rows(node: ReactNode) {
+	return all(node, 'button').filter((entry) => entry.props.role === 'menuitemradio')
+}
 function choose(node: ReactNode, value: string) {
-	;(one(node, 'select').props.onValueChange as (value: string) => void)(value)
+	const row = rows(node).find((entry) => entry.props.children && entryValue(entry) === value)
+	if (!row) return
+	;(row.props.onClick as () => void)()
+}
+function entryValue(entry: Node): string {
+	// The row's label identifies it; map labels back to modes through the engine rows.
+	const label = text(entry.props.children as ReactNode)
+	for (const engine of ['namzu', 'codex-cli', 'claude-code'] as const)
+		for (const row of permissionRows(
+			engine,
+			['prompt', 'accept-edits', 'auto', 'plan', 'strict'],
+			'strict',
+		))
+			if (label.startsWith(row.label)) return row.value
+	return ''
 }
 function confirm(node: ReactNode) {
 	const button = all(node, 'button').find((entry) => entry.props.children === 'Enable full access')
@@ -98,73 +120,82 @@ function text(node: ReactNode): string {
 	return isValidElement<Record<string, unknown>>(node) ? text(node.props.children as ReactNode) : ''
 }
 
-it('offers three Namzu policies, retains configured-rule wording and never changes policy on menu open', () => {
-	const onChange = vi.fn()
-	const view = render({ onChange })
-	expect(all(view, 'option').map((option) => option.props.value)).toEqual([
-		'prompt',
-		'auto',
-		'plan',
-	])
-	expect(text(all(view, 'option'))).toContain('within your configured rules')
-	expect(text(all(view, 'option'))).not.toContain('Approve for me')
-	const openChange = one(view, 'alert-dialog').props.onOpenChange as (open: boolean) => void
-	openChange(true)
-	expect(onChange).not.toHaveBeenCalled()
-	choose(view, 'auto')
-	expect(onChange).toHaveBeenCalledExactlyOnceWith('auto')
-})
+const all5 = ['prompt', 'accept-edits', 'auto', 'plan', 'strict'] as const
 
 it.each([
-	['accept-edits', 'Allow edits'],
-	['strict', 'Preapproved only'],
-] as const)(
-	'preserves the selected legacy %s policy without offering the other legacy mode',
-	(permissionMode, label) => {
-		const onChange = vi.fn()
-		const view = render({
-			permissionMode,
-			onChange,
-			reviewModes: ['prompt', 'auto', 'plan', 'accept-edits', 'strict'],
-		})
-		expect(all(view, 'option').map((option) => option.props.value)).toHaveLength(4)
-		expect(one(view, 'select').props.value).toBe(permissionMode)
-		expect(text(one(view, 'trigger'))).toContain(label)
-		expect(onChange).not.toHaveBeenCalled()
-	},
-)
+	['namzu', ['prompt', 'accept-edits', 'auto', 'plan']],
+	['codex-cli', ['prompt', 'accept-edits', 'auto', 'plan']],
+	['claude-code', ['prompt', 'plan']],
+] as const)('lists only what %s supports, in menu order', (engine, expected) => {
+	const supported: readonly ComposerPermissionMode[] =
+		engine === 'claude-code' ? ['prompt', 'plan'] : all5
+	expect(permissionRows(engine, supported, 'prompt').map((row) => row.value)).toEqual(expected)
+})
 
-it('honors supplied Claude modes and keeps an unsupported saved policy visible without silently changing it', () => {
+it('reaches accept-edits whenever the engine supports it', () => {
+	const view = render({ reviewModes: ['prompt', 'accept-edits', 'auto', 'plan'] })
+	expect(rows(view).map(entryValue)).toContain('accept-edits')
+	// Without explicit reviewModes (what the app passes for Namzu and Codex) it is still offered.
+	expect(rows(render()).map(entryValue)).toContain('accept-edits')
+	expect(rows(render({ engine: 'claude-code' })).map(entryValue)).not.toContain('accept-edits')
+})
+
+it('hides strict unless it is the saved mode, then shows it as preapproved only', () => {
+	expect(permissionRows('namzu', all5, 'prompt').map((row) => row.value)).not.toContain('strict')
+	const saved = permissionRows('namzu', all5, 'strict')
+	expect(saved.at(-1)).toMatchObject({ value: 'strict', label: 'Preapproved only' })
+})
+
+it('titles plan as Read only for Codex and marks only Full access as a warning', () => {
+	const codex = permissionRows('codex-cli', all5, 'prompt')
+	expect(codex.find((row) => row.value === 'plan')?.label).toBe('Read only')
+	expect(permissionRows('namzu', all5, 'prompt').find((row) => row.value === 'plan')?.label).toBe(
+		'Plan only',
+	)
+	expect(codex.filter((row) => row.warning).map((row) => row.value)).toEqual(['auto'])
+})
+
+it('titles the menu with the engine name', () => {
+	expect(permissionMenuTitle('codex-cli')).toBe('When should Codex check with you?')
+	expect(permissionMenuTitle('claude-code')).toBe('When should Claude Code check with you?')
+	expect(permissionMenuTitle('namzu')).toBe('When should Namzu check with you?')
+})
+
+it('names the chip by the current mode and flags Full access', () => {
+	const view = render({ permissionMode: 'auto' })
+	expect(one(view, 'trigger').props['aria-label']).toBe('Permissions: Full access')
+	expect(one(view, 'trigger').props['data-composer-permission']).toBe('auto')
+})
+
+it('marks a saved mode the engine no longer supports and never changes it silently', () => {
 	const onChange = vi.fn()
-	let view = render({ engine: 'claude-code', reviewModes: ['prompt', 'plan'], onChange })
-	expect(all(view, 'option').map((option) => option.props.value)).toEqual(['prompt', 'plan'])
-	choose(view, 'auto')
-	expect(onChange).not.toHaveBeenCalled()
-	view = render({
+	const view = render({
 		engine: 'claude-code',
 		reviewModes: ['prompt', 'plan'],
 		permissionMode: 'strict',
 		onChange,
 	})
-	expect(one(view, 'select').props.value).toBe('strict')
-	expect(
-		all(view, 'option').find((option) => option.props.value === 'strict')?.props.disabled,
-	).toBe(true)
+	expect(rows(view).map(entryValue)).toEqual(['prompt', 'plan', 'strict'])
+	choose(view, 'strict')
 	expect(onChange).not.toHaveBeenCalled()
+})
+
+it('commits a choice by click once and ignores the current mode', () => {
+	const onChange = vi.fn()
+	const view = render({ onChange })
+	choose(view, 'plan')
+	choose(view, 'prompt')
+	expect(onChange).toHaveBeenCalledExactlyOnceWith('plan')
 })
 
 it('requires explicit Codex full-access confirmation, focuses cancellation first, and applies once', () => {
 	const onChange = vi.fn()
 	const props: Partial<Props> = { engine: 'codex-cli', onChange }
 	let view = render(props)
-	expect(text(all(view, 'option'))).toContain('Full access')
-	expect(text(all(view, 'option'))).toContain('across this computer')
-	expect(text(all(view, 'option'))).not.toContain('Allow tools')
 	choose(view, 'auto')
 	expect(onChange).not.toHaveBeenCalled()
 	view = render(props)
 	expect(one(view, 'alert-dialog').props.open).toBe(true)
-	expect(one(view, 'select').props.value).toBe('prompt')
 	expect(text(one(view, 'description'))).toContain('only to this conversation')
 	expect(one(view, 'alert-popup').props.initialFocus).toBe(
 		(one(view, 'close').props.render as Node).props.ref,
@@ -181,19 +212,16 @@ it('dismisses full-access confirmation without policy selection', () => {
 	const onChange = vi.fn()
 	const props: Partial<Props> = { engine: 'codex-cli', onChange }
 	choose(render(props), 'auto')
-	const view = render(props)
-	const cancel = one(view, 'close').props.onClick as () => void
-	cancel()
+	;(one(render(props), 'close').props.onClick as () => void)()
 	expect(one(render(props), 'alert-dialog').props.open).toBe(false)
 	expect(onChange).not.toHaveBeenCalled()
 })
 
-it('restores an already-selected Codex full-access policy without prompting or reselecting it', () => {
+it('does not prompt again for an already-selected Codex full access', () => {
 	const onChange = vi.fn()
 	const view = render({ engine: 'codex-cli', permissionMode: 'auto', onChange })
-	expect(text(one(view, 'trigger'))).toContain('Full access')
-	expect(one(view, 'alert-dialog').props.open).toBe(false)
 	choose(view, 'auto')
+	expect(one(view, 'alert-dialog').props.open).toBe(false)
 	expect(onChange).not.toHaveBeenCalled()
 })
 
@@ -214,10 +242,9 @@ it.each([
 	expect(one(render(props), 'alert-dialog').props.open).toBe(false)
 })
 
-it('refuses disabled and unsupported selection callbacks without opening confirmation', () => {
+it('refuses a disabled selection without opening confirmation', () => {
 	const onChange = vi.fn()
-	const disabled = render({ engine: 'codex-cli', disabled: true, onChange })
-	choose(disabled, 'auto')
+	choose(render({ engine: 'codex-cli', disabled: true, onChange }), 'auto')
 	expect(
 		one(render({ engine: 'codex-cli', disabled: true, onChange }), 'alert-dialog').props.open,
 	).toBe(false)

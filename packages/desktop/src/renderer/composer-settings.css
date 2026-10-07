@@ -1,23 +1,51 @@
 .composer-permission-menu {
-	width: min(280px, var(--available-width));
+	width: min(300px, var(--available-width));
 	max-width: calc(100vw - 16px);
-	padding: 4px;
+}
+.composer-permission-panel {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	width: 100%;
+	padding: 6px;
 	overscroll-behavior: contain;
 }
+.composer-permission-title {
+	padding: 6px 10px 6px;
+	color: var(--muted-foreground);
+	font-size: 12px;
+	font-weight: 500;
+	line-height: 17px;
+}
 .composer-permission-option {
+	display: flex;
+	align-items: flex-start;
+	gap: 10px;
+	width: 100%;
 	min-height: 48px;
 	padding: 7px 10px;
 	border-radius: 8px;
+	color: var(--popover-foreground);
+	text-align: start;
+	outline: none;
+	cursor: pointer;
 	transition: background-color 120ms var(--motion-ease), color 120ms var(--motion-ease);
 }
-.composer-permission-option[data-highlighted] {
+/* Focus is the highlight: arrow keys move it without committing. */
+.composer-permission-option:hover,
+.composer-permission-option:focus-visible {
 	background: color-mix(in srgb, var(--foreground) 9%, var(--popover));
 }
-.composer-permission-option [data-slot="select-item-text"] {
-	display: flex;
-	align-items: flex-start;
-	gap: 8px;
-	min-width: 0;
+.composer-permission-option:disabled {
+	opacity: 0.5;
+	cursor: default;
+}
+.composer-permission-icon {
+	flex: none;
+	width: 16px;
+	height: 16px;
+	margin-top: 1px;
+	color: var(--muted-foreground);
 }
 .composer-permission-copy {
 	display: flex;
@@ -39,6 +67,11 @@
 	white-space: normal;
 	overflow-wrap: anywhere;
 }
+/* Full access reads as a warning; --warning-foreground is AA in both themes. */
+.composer-permission-option[data-warning] .composer-permission-icon,
+.composer-permission-option[data-warning] .composer-permission-label {
+	color: var(--warning-foreground);
+}
 .composer-permission-check {
 	display: grid;
 	place-items: center;
@@ -50,6 +83,14 @@
 .composer-permission-check > svg {
 	width: 14px;
 	height: 14px;
+}
+.composer-permission-control[data-composer-permission],
+.normal-composer-shell .composer-permission-control[data-composer-permission] {
+	color: var(--muted-foreground);
+}
+.composer-permission-control[data-composer-permission="auto"],
+.normal-composer-shell .composer-permission-control[data-composer-permission="auto"] {
+	color: var(--warning-foreground);
 }
 @media (prefers-reduced-motion: reduce) {
 	.composer-permission-option {

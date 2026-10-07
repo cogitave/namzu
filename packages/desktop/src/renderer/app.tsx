@@ -65,7 +65,7 @@ import { JobRow } from './job-row.js'
 import { LocalSpeechReadAloud, LocalSpeechSettings } from './local-speech-settings.js'
 import { MessageActions } from './message-actions.js'
 import { invalidateModelCatalogueDisplayCache } from './model-catalogue-display-cache.js'
-import { resolveComposerModelChoice } from './model-choice.js'
+import { effortToSend, resolveComposerModelChoice, staleEffort } from './model-choice.js'
 import { NavigationRail } from './navigation-rail.js'
 import { normalConversationProject } from './normal-conversation.js'
 import { PalChatTranscript } from './pal-chat-transcript.js'
@@ -929,8 +929,7 @@ export function App({
 					setModelSettings({
 						key: modelSettingsKey,
 						value: {
-							notice:
-								'Model settings could not be loaded. Try selecting the model again, or reset your effort choice.',
+							notice: 'Model settings could not be loaded. Try selecting the model again.',
 						},
 					})
 			})
@@ -948,6 +947,16 @@ export function App({
 		modelSettings,
 		api,
 	])
+	// An effort carried over from another model is cleared once this model's levels are known and
+	// it does not offer that level; the composer then falls back to the model's own default.
+	const effortIsStale = staleEffort(capabilities, settings.effort)
+	// biome-ignore lint/correctness/useExhaustiveDependencies: only a change in staleness may save
+	useEffect(() => {
+		if (!effortIsStale || modelSettingsBusy || !providerReady) return
+		void act(() =>
+			savedSettings.save(draftOwner, { choice, options: { ...settings, effort: undefined } }),
+		)
+	}, [effortIsStale, modelSettingsBusy, providerReady, draftOwner])
 	const updateProject = useCallback(
 		(item: ProjectView) =>
 			setProjects((items) => [...items.filter((row) => row.id !== item.id), item]),
@@ -2923,7 +2932,11 @@ export function App({
 		const owner = draftOwner
 		const prompt = draft
 		const attachmentIds = attached.get(owner).map((file) => file.id)
-		const options = { ...settings, attachmentIds }
+		const options = {
+			...settings,
+			effort: effortToSend(capabilities, settings.effort),
+			attachmentIds,
+		}
 		const originalSettings = savedSettings.get(owner)
 		const route = { ...choice }
 		const generation = navigation.current
@@ -3963,7 +3976,9 @@ export function App({
 									void act(() =>
 										savedSettings.save(draftOwner, {
 											choice: value,
-											options: { ...settings, effort: undefined },
+											// The saved effort stays while the new model offers it; the effect below
+											// clears it once that model's levels are known and it does not.
+											options: settings,
 										}),
 									)
 								}}

@@ -89,7 +89,8 @@ export interface DesktopSendOptions {
 	permissionMode?: ReviewMode
 }
 export interface DraftSettings {
-	choice?: { provider: string; model: string; label?: string }
+	/** `preset: 'default'` follows the engine's own default model as its catalogue changes. */
+	choice?: { provider: string; model: string; label?: string; preset?: 'default' }
 	options?: Omit<DesktopSendOptions, 'attachmentIds'>
 }
 export interface ComposerModelSettings {

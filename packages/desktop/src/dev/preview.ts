@@ -3,10 +3,13 @@
 import { copyTextPayload } from '../shared/clipboard-text.js'
 import type {
 	ChatMessage,
+	ComposerModelSettings,
 	ConversationView,
 	DesktopApi,
 	DesktopEvent,
 	DraftSettings,
+	HarnessView,
+	ModelCatalogueView,
 	PalView,
 	ProjectView,
 	ProviderView,
@@ -96,6 +99,63 @@ const available: ProviderView['available'] = [
 	},
 ]
 let nextConversation = conversations.length + 1
+
+// Engines other than Namzu carry their own provider, catalogue and effort levels, as the real
+// Codex and Claude Code engines do, so the model and effort menus can be tried against each.
+const engines: HarnessView['engines'] = [
+	{ id: 'namzu', label: 'Namzu', available: true },
+	{ id: 'codex-cli', label: 'Codex', available: true },
+	{ id: 'claude-code', label: 'Claude Code', available: true },
+]
+const engineProviders: Record<
+	Exclude<HarnessView['selected'], 'namzu'>,
+	{ provider: ProviderView['available'][number]; models: ModelCatalogueView['models'] }
+> = {
+	'codex-cli': {
+		provider: { id: 'codex-cli', label: 'Codex', defaultModel: 'gpt-6.1-sol' },
+		models: [
+			{ id: 'gpt-6.1-sol', label: 'GPT-6.1 Sol', default: true },
+			{ id: 'gpt-6-astra', label: 'GPT-6 Astra' },
+			{ id: 'gpt-6-sol', label: 'GPT-6 Sol' },
+			{ id: 'gpt-6-luna', label: 'GPT-6 Luna' },
+			{ id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol' },
+			{ id: 'gpt-5.6-terra', label: 'GPT-5.6 Terra' },
+			{ id: 'gpt-5.6-luna', label: 'GPT-5.6 Luna' },
+			{ id: 'gpt-5.5', label: 'GPT-5.5' },
+		],
+	},
+	'claude-code': {
+		provider: { id: 'claude-code', label: 'Claude Code', defaultModel: 'claude-sonnet-5-5' },
+		models: [
+			{ id: 'claude-sonnet-5-5', label: 'Sonnet 5.5', default: true },
+			{ id: 'claude-opus-5-5', label: 'Opus 5.5' },
+			{ id: 'claude-haiku-5', label: 'Haiku 5' },
+		],
+	},
+}
+const engineEffort: Record<string, ComposerModelSettings> = {
+	'gpt-6.1-sol': { effortLevels: ['low', 'medium', 'high', 'xhigh'], effortDefault: 'medium' },
+	'gpt-6-astra': { effortLevels: ['low', 'medium', 'high'], effortDefault: 'medium' },
+	'gpt-6-sol': { effortLevels: ['low', 'medium', 'high'], effortDefault: 'medium' },
+	'gpt-6-luna': { effortLevels: ['low', 'medium', 'high'], effortDefault: 'low' },
+	'gpt-5.6-sol': {
+		effortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+		effortDefault: 'medium',
+	},
+	'gpt-5.6-terra': { effortLevels: ['low', 'medium', 'high'], effortDefault: 'medium' },
+	'gpt-5.6-luna': { effortLevels: ['low', 'medium'], effortDefault: 'low' },
+	'gpt-5.5': {},
+	'claude-sonnet-5-5': { effortLevels: ['low', 'medium', 'high'], effortDefault: 'medium' },
+	'claude-opus-5-5': {
+		effortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+		effortDefault: 'high',
+	},
+	'claude-haiku-5': {},
+}
+const harnesses = new Map<string, HarnessView['selected']>()
+function engineOf(sessionId?: string): HarnessView['selected'] {
+	return (sessionId && harnesses.get(sessionId)) || 'namzu'
+}
 
 function project(id: string): ProjectView {
 	const found = projects.find((item) => item.id === id)
@@ -309,6 +369,16 @@ const api: DesktopApi = {
 		project(projectId)
 		if (id && conversation(id).projectId !== projectId)
 			throw new Error('This sample conversation belongs to another project.')
+		const engine = engineOf(id)
+		if (engine !== 'namzu') {
+			const { provider } = engineProviders[engine]
+			return {
+				available: [clone(provider)],
+				selected: clone(
+					(id && selections.get(id)) || { id: provider.id, model: provider.defaultModel },
+				),
+			}
+		}
 		return {
 			available: clone(available),
 			selected: clone(
@@ -319,8 +389,20 @@ const api: DesktopApi = {
 			),
 		}
 	},
+	harnesses: async (projectId, id) => {
+		project(projectId)
+		return { selected: engineOf(id), locked: false, engines: clone(engines) }
+	},
+	selectHarness: async (id, engine) => {
+		conversation(id)
+		harnesses.set(id, engine)
+		selections.delete(id)
+		return { selected: engine, locked: false, engines: clone(engines) }
+	},
 	models: async (projectId, provider) => {
 		project(projectId)
+		for (const engine of Object.values(engineProviders))
+			if (engine.provider.id === provider) return { models: clone(engine.models), notice: null }
 		if (!available.some((item) => item.id === provider))
 			throw new Error('Choose a sample provider.')
 		return {
@@ -340,8 +422,10 @@ const api: DesktopApi = {
 			notice: 'Sample model catalogue. No provider is connected.',
 		}
 	},
-	modelSettings: async (projectId) => {
+	modelSettings: async (projectId, _provider, model) => {
 		project(projectId)
+		const engine = engineEffort[model]
+		if (engine) return clone(engine)
 		return {
 			effortLevels: ['low', 'medium', 'high'],
 			effortDefault: 'medium',
@@ -402,7 +486,10 @@ const api: DesktopApi = {
 	setPluginEnabled: async () => nativeOnly('Changing runtime plugins'),
 	selectProvider: async (id, provider, model) => {
 		conversation(id)
-		if (!available.some((item) => item.id === provider))
+		if (
+			!available.some((item) => item.id === provider) &&
+			!Object.values(engineProviders).some((engine) => engine.provider.id === provider)
+		)
 			throw new Error('Choose a sample provider.')
 		selections.set(id, { id: provider, ...(model ? { model } : {}) })
 	},
