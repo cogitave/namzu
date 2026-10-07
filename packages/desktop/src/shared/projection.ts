@@ -46,8 +46,17 @@ export interface ThreadState {
 	turn: number
 	turns: Record<number, TurnState>
 	running: boolean
+	liveInputSupported: boolean
 	queued: string[]
 	queuedItems: QueuedMessageView[]
+	/** Accepted current-turn input remains distinct from a started next-turn prompt. */
+	liveInputs: {
+		id: string
+		prompt: string
+		status: 'pending' | 'delivered' | 'unknown'
+		/** Keep a delayed delivery confirmation at its original submission position. */
+		timelineIndex: number
+	}[]
 	error?: string
 	retry?: DesktopTurnRetry
 	retryNotice?: string
@@ -72,8 +81,10 @@ export const emptyThread = (): ThreadState => ({
 	turn: 0,
 	turns: {},
 	running: false,
+	liveInputSupported: false,
 	queued: [],
 	queuedItems: [],
+	liveInputs: [],
 	tools: {},
 	activeToolIds: [],
 	permissions: [],
@@ -90,8 +101,10 @@ export function restoreMessages(thread: ThreadState, messages: ChatMessage[]): T
 	return {
 		...thread,
 		messages,
+		liveInputs: [],
 		timeline,
 		turn,
+		liveInputSupported: false,
 		turns: {},
 		tools: {},
 		activeToolIds: [],
@@ -299,7 +312,11 @@ export function applyEvent(previous: ThreadState, event: DesktopEvent): ThreadSt
 		return changed ? { ...thread, messages } : thread
 	}
 	if (event.kind === 'tasks')
-		return { ...thread, tasks: event.tasks ?? thread.tasks, tasksNotice: event.notice }
+		return {
+			...thread,
+			tasks: event.tasks ?? thread.tasks,
+			tasksNotice: event.notice,
+		}
 	if (event.kind === 'task') {
 		const tasks = thread.tasks.filter((task) => task.taskId !== event.task.taskId)
 		if (event.deleted) return { ...thread, tasks }
@@ -318,7 +335,12 @@ export function applyEvent(previous: ThreadState, event: DesktopEvent): ThreadSt
 				...(event.attachments?.length ? { attachments: event.attachments } : {}),
 			}),
 			turn,
-			turns: { ...thread.turns, [turn]: at === undefined ? {} : { startedAt: at } },
+			liveInputSupported: thread.liveInputSupported,
+			liveInputs: [],
+			turns: {
+				...thread.turns,
+				[turn]: at === undefined ? {} : { startedAt: at },
+			},
 			error: undefined,
 			stopReason: undefined,
 			reason: undefined,
@@ -328,6 +350,40 @@ export function applyEvent(previous: ThreadState, event: DesktopEvent): ThreadSt
 			activeToolIds: [],
 			activeReasoningId: undefined,
 			responding: false,
+		}
+	}
+	if (event.kind === 'live-input') {
+		if (event.status === 'queued')
+			return {
+				...thread,
+				liveInputs: thread.liveInputs.filter((item) => item.id !== event.inputId),
+			}
+		const prior = thread.liveInputs.find((item) => item.id === event.inputId)
+		if (
+			prior?.status === 'delivered' ||
+			(prior?.status === event.status && prior.prompt === event.prompt)
+		)
+			return thread
+		const timelineIndex = prior?.timelineIndex ?? thread.timeline.length
+		const liveInputs = [
+			...thread.liveInputs.filter((item) => item.id !== event.inputId),
+			{ id: event.inputId, prompt: event.prompt, status: event.status, timelineIndex },
+		]
+		if (event.status !== 'delivered' || !prior) return { ...thread, liveInputs }
+		const insertion = Math.min(timelineIndex, thread.timeline.length)
+		return {
+			...thread,
+			messages: [...thread.messages, { role: 'user', text: event.prompt }],
+			timeline: [
+				...thread.timeline.slice(0, insertion),
+				{ kind: 'message', index: thread.messages.length, turn: thread.turn },
+				...thread.timeline.slice(insertion),
+			],
+			liveInputs: liveInputs.map((item) =>
+				item.id !== event.inputId && item.timelineIndex >= insertion
+					? { ...item, timelineIndex: item.timelineIndex + 1 }
+					: item,
+			),
 		}
 	}
 	if (event.kind === 'retry-status')
@@ -365,6 +421,7 @@ export function applyEvent(previous: ThreadState, event: DesktopEvent): ThreadSt
 		return {
 			...thread,
 			running: event.running,
+			liveInputSupported: event.liveInputSupported === true,
 			activeToolIds: event.running ? thread.activeToolIds : [],
 			activeReasoningId: event.running ? thread.activeReasoningId : undefined,
 			responding: event.running && thread.responding,
@@ -408,7 +465,10 @@ export function applyEvent(previous: ThreadState, event: DesktopEvent): ThreadSt
 	if ('turnId' in update && update.turnId && !thread.turns[turn]?.turnId)
 		thread = {
 			...thread,
-			turns: { ...thread.turns, [turn]: { ...thread.turns[turn], turnId: update.turnId } },
+			turns: {
+				...thread.turns,
+				[turn]: { ...thread.turns[turn], turnId: update.turnId },
+			},
 		}
 	if (update.kind === 'agent_message_chunk') {
 		const partId = update.textPart?.id
@@ -523,6 +583,7 @@ export function applyEvent(previous: ThreadState, event: DesktopEvent): ThreadSt
 		...(current
 			? {
 					stopReason: update.stopReason,
+					liveInputSupported: false,
 					reason: update.reason,
 					result: update.result,
 					activeToolIds: [],

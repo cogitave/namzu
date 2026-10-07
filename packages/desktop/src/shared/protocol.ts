@@ -38,7 +38,12 @@ export interface WorkspaceView {
 		sourcePrepared: boolean
 		previewRoot: WorkspaceNode
 	}
-	outgoingTransfer?: { id: string; tabId: string; destinationWindowId: string; prepared: boolean }
+	outgoingTransfer?: {
+		id: string
+		tabId: string
+		destinationWindowId: string
+		prepared: boolean
+	}
 	closingWindow?: { id: string; tabIds: string[] }
 }
 export type WorkspaceAction =
@@ -270,23 +275,45 @@ export type DesktopEvent = (
 	| { kind: 'tasks'; sessionId: string; tasks?: AcpTask[]; notice?: string }
 	| { kind: 'permission-cleared'; sessionId: string; requestId?: string }
 	/** Display-only retirement; admitted, queued and retry file bytes are unchanged. */
-	| { kind: 'attachment-previews-evicted'; sessionId: string; attachmentIds: string[] }
+	| {
+			kind: 'attachment-previews-evicted'
+			sessionId: string
+			attachmentIds: string[]
+	  }
 	| ({ kind: 'retry-status'; sessionId: string } & DesktopRetryStatus)
 	| { kind: 'retry'; sessionId: string; turnId: string }
 	| {
 			kind: 'state'
 			sessionId: string
 			running: boolean
+			liveInputSupported?: boolean
 			queued: string[]
 			queuedItems?: QueuedMessageView[]
 			error?: string
 			/** Actual first-prompt preflight recovery; never overwrites a newer authored edit. */
 			restoredDraft?: string
 	  }
+	| {
+			kind: 'live-input'
+			sessionId: string
+			inputId: string
+			prompt: string
+			status: 'pending' | 'delivered' | 'unknown' | 'queued'
+	  }
 	| { kind: 'connection'; project: ProjectView }
 	| { kind: 'workspace'; view: WorkspaceView }
-	| { kind: 'pal-deleted'; palId: string; projectIds: string[]; sessionIds: string[] }
-	| { kind: 'conversation-removed'; sessionId: string; projectId: string; archived: boolean }
+	| {
+			kind: 'pal-deleted'
+			palId: string
+			projectIds: string[]
+			sessionIds: string[]
+	  }
+	| {
+			kind: 'conversation-removed'
+			sessionId: string
+			projectId: string
+			archived: boolean
+	  }
 ) & { readonly revision?: number; readonly at?: number }
 export interface DesktopApi {
 	workspace?(): Promise<WorkspaceView>
@@ -378,6 +405,12 @@ export interface DesktopApi {
 	removeAttachment(ownerId: string, id: string): Promise<void>
 	moveAttachments(fromOwner: string, toSessionId: string): Promise<AttachmentView[]>
 	send(sessionId: string, prompt: string, options?: DesktopSendOptions): Promise<void>
+	/** Text-only current-turn input when supported; otherwise uses the normal next-turn queue. */
+	sendCurrent?(
+		sessionId: string,
+		prompt: string,
+		options?: DesktopSendOptions,
+	): Promise<'accepted' | 'queued'>
 	retryTurn?(
 		sessionId: string,
 		turnId: string,

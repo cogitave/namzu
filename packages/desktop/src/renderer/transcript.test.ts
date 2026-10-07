@@ -55,6 +55,52 @@ afterEach(() => {
 })
 
 describe('single live transcript status', () => {
+	it('renders steering after prior commentary and action within the same turn', () => {
+		let thread = started()
+		thread = update(thread, {
+			kind: 'agent_message_chunk',
+			text: 'Prior commentary',
+			phase: 'commentary',
+			messageId: 'before',
+		})
+		thread = update(thread, {
+			kind: 'tool_call',
+			toolCallId: 'check',
+			title: 'Check workspace',
+			status: 'completed',
+			view: { kind: 'terminal', command: 'pwd', output: 'workspace' },
+		})
+		thread = applyEvent(thread, {
+			kind: 'live-input',
+			sessionId: 'session',
+			inputId: 'steer',
+			prompt: 'Steer now',
+			status: 'unknown',
+		})
+		thread = update(thread, {
+			kind: 'agent_message_chunk',
+			text: 'Following answer',
+			messageId: 'after',
+		})
+		thread = applyEvent(thread, {
+			kind: 'live-input',
+			sessionId: 'session',
+			inputId: 'steer',
+			prompt: 'Steer now',
+			status: 'delivered',
+		})
+		const html = render(thread)
+		const prior = html.indexOf('Prior commentary')
+		const action = html.indexOf('data-tool-call-id="check"')
+		const steering = html.indexOf('Steer now')
+		const following = html.indexOf('Following answer')
+		expect(prior).toBeGreaterThan(-1)
+		expect(action).toBeGreaterThan(prior)
+		expect(steering).toBeGreaterThan(action)
+		expect(following).toBeGreaterThan(steering)
+		expect(html.match(/Steer now/g)).toHaveLength(1)
+		expect(html.match(/data-transcript-turn="1"/g)).toHaveLength(1)
+	})
 	it('keeps one live phase and actual elapsed time while retaining the current work disclosure', () => {
 		const thread = pendingCommand()
 		const before = structuredClone(thread)

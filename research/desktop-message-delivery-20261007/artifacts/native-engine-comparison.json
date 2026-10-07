@@ -1,0 +1,58 @@
+{
+  "schema": "namzu.native-second-message-comparison-public.v1",
+  "observationAt": "2026-10-07T06:26:14.280Z",
+  "completedObservation": true,
+  "fullBackgroundOverlapComparisonPassed": false,
+  "nativeWindows": true,
+  "isolatedFixture": true,
+  "totalUserUiSubmissions": 3,
+  "primaryActions": 0,
+  "automaticApprovals": 0,
+  "computerActions": 0,
+  "fixturePreserved": true,
+  "privateReceiptSha256": {
+    "first": "f8f70a68d9931715595c26c364f18167aec356ce05eaf6b57cbbb544f738255a",
+    "resume": "8edd7a8749c72fdc14fd95397fae4ab78e8059dd8c55fb68396a06204e2ee9e9"
+  },
+  "engines": [
+    {
+      "engine": "claude-code",
+      "model": "haiku",
+      "outcome": "existing-claude-second-delivered-without-proven-background-overlap",
+      "realUserUiSubmissions": 2,
+      "parentAlreadyTerminalBeforeSecond": true,
+      "backgroundOverlapAtSecondVerified": false,
+      "childStatusBeforeSecond": "unknown",
+      "secondAdmissionObserved": true,
+      "secondAcknowledgementObserved": true,
+      "terminalStopReason": "end_turn",
+      "strictNativeJournal": {
+        "available": true,
+        "recordCount": 32,
+        "postOnlySha256": "0c7a221342bd093d529167e4e5dc28f255d07a98d00fe6713f10d97af0aa503e",
+        "toolNames": [
+          "claude:Agent"
+        ]
+      }
+    },
+    {
+      "engine": "codex-cli",
+      "model": "gpt-5.6-luna",
+      "outcome": "native-background-agent-unavailable",
+      "realUserUiSubmissions": 1,
+      "secondMessageAttempted": false,
+      "strictNativeJournal": {
+        "available": true,
+        "recordCount": 14,
+        "postOnlySha256": "46632f35278eb6b61a0cf1066a5a74a6f7b49b06f5ebd5dc7a0adb5853a80d79",
+        "toolNames": []
+      }
+    }
+  ],
+  "limitations": [
+    "Existing installed Desktop/CLI baseline, not the new live-input implementation.",
+    "Claude parent had already ended before second input. Child overlap at submission not established.",
+    "Codex explicit cheap child model/background primitive was reported unavailable; no expensive fallback or invented child.",
+    "Journal hashes are post-observation receipts, not unchanged-file claims."
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "passed": true,
+  "realRenderer": true,
+  "syntheticApi": true,
+  "nativeActions": 0,
+  "modelRequests": 0,
+  "checks": [
+    "Supported ordinary Namzu busy send uses current turn, keeps queue empty and clears the accepted draft",
+    "Delivery confirmation appears separately from acceptance and renders one user row",
+    "Explicit Queue action bypasses current-turn input",
+    "Unsupported runtime retains the next-turn queue path in reduced-motion short viewport"
+  ],
+  "pageErrors": []
+}

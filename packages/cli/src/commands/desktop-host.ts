@@ -508,7 +508,50 @@ export function createDesktopHostExtensions(
 		return id
 	}
 	const retryStatus = runtime.providerRetryStatus?.bind(runtime)
+	const liveInputStatus = runtime.liveInputStatus?.bind(runtime)
+	const liveInput = runtime.liveInput?.bind(runtime)
+	const liveOwner = async (params: Record<string, unknown>, state: CliSessionScope) => {
+		const id = await ownedSessionIn(params, state)
+		const publishedCwd = publishedSessionCwd?.(id)
+		if (
+			publishedCwd === undefined ||
+			canonicalProjectPath(publishedCwd) !== cwd ||
+			palAtWorkspace(cwd, state.root) ||
+			resolveNamzuHome() !== state.root ||
+			!isTrustedAtStateRoot(cwd, state.root)
+		)
+			throw new Error('Live input requires this connection’s owned ordinary conversation.')
+		return id
+	}
 	return {
+		...(liveInputStatus && liveInput && publishedSessionCwd
+			? {
+					'namzu/conversations/input/status': async (params: Record<string, unknown>) => {
+						if (Object.keys(params).some((key) => !['sessionId', 'scopeId'].includes(key)))
+							throw new Error('Live input status accepts only sessionId and scopeId.')
+						const scopeId = params.scopeId === undefined ? undefined : text(params, 'scopeId')
+						return withReadScope(async (state) =>
+							liveInputStatus(await liveOwner(params, state), scopeId, state),
+						)
+					},
+					'namzu/conversations/input': async (params: Record<string, unknown>) => {
+						if (
+							Object.keys(params).some(
+								(key) => !['sessionId', 'scopeId', 'inputId', 'prompt'].includes(key),
+							)
+						)
+							throw new Error('Live input accepts only sessionId, scopeId, inputId and prompt.')
+						const input = {
+							scopeId: text(params, 'scopeId'),
+							inputId: text(params, 'inputId'),
+							prompt: text(params, 'prompt', 1_000_000),
+						}
+						return withReadScope(async (state) =>
+							liveInput(await liveOwner(params, state), input, state),
+						)
+					},
+				}
+			: {}),
 		...(retryStatus && retrySession
 			? {
 					'namzu/sessions/retry-status': async (params: Record<string, unknown>) =>

@@ -5,6 +5,7 @@ import { appendFileSync, existsSync, readFileSync } from 'node:fs'
 const pending = new Map()
 const harnesses = new Map()
 const sessions = new Set()
+const liveScopes = new Map()
 const models = new Map()
 const delayedDiscoveries = []
 const send = (frame) => process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', ...frame })}\n`)
@@ -16,7 +17,7 @@ const discovery = (id, kind, result) => {
 const releaseDiscoveries = () => {
 	for (const { id, result } of delayedDiscoveries.splice(0)) reply(id, result)
 }
-const methods = ['namzu/harnesses/list', 'namzu/harnesses/select', 'namzu/project/status', 'namzu/project/trust', 'namzu/conversations/list', 'namzu/conversations/history', 'namzu/providers/status', 'namzu/providers/models', 'namzu/providers/select', 'namzu/jobs/list', 'namzu/jobs/read', 'namzu/jobs/stop']
+const methods = ['namzu/harnesses/list', 'namzu/harnesses/select', 'namzu/project/status', 'namzu/project/trust', 'namzu/conversations/list', 'namzu/conversations/history', 'namzu/providers/status', 'namzu/providers/models', 'namzu/providers/select', 'namzu/jobs/list', 'namzu/jobs/read', 'namzu/jobs/stop', ...(process.env.FIXTURE_LIVE_INPUT ? ['namzu/conversations/input/status', 'namzu/conversations/input'] : [])]
 const lines = createInterface({ input: process.stdin })
 lines.on('close', () => process.exit(0))
 lines.on('line', (line) => {
@@ -27,6 +28,12 @@ lines.on('line', (line) => {
 		const prompt = pending.get(id)
 		if (!prompt) return
 		pending.delete(id)
+		const scope = liveScopes.get(prompt.sessionId)
+		if (scope) {
+			if (process.env.FIXTURE_LIVE_INPUT_DELIVERY_FILE && existsSync(process.env.FIXTURE_LIVE_INPUT_DELIVERY_FILE))
+				for (const item of scope.inputs.values()) item.status = 'delivered'
+			scope.available = false
+		}
 		send({ method: 'session/update', params: { sessionId: prompt.sessionId, update: { kind: 'agent_message_chunk', text: frame.result.outcome === 'approve' ? 'Approved answer' : 'Declined answer' } } })
 		send({ method: 'session/update', params: { sessionId: prompt.sessionId, update: { kind: 'turn_ended', stopReason: 'end_turn' } } })
 		reply(prompt.id, { stopReason: 'end_turn' })
@@ -88,6 +95,7 @@ lines.on('line', (line) => {
 	else if (method === 'session/load') { sessions.add(params.sessionId); reply(id, { sessionId: params.sessionId }) }
 	else if (method === 'session/new') { const sessionId = `session-${randomUUID()}`; sessions.add(sessionId); reply(id, { sessionId }) }
 	else if (method === 'session/prompt') {
+		if (process.env.FIXTURE_LIVE_INPUT) liveScopes.set(params.sessionId, { scopeId: randomUUID(), available: true, inputs: new Map() })
 		if (params.prompt === 'Fail turn with fixture') { reply(id, { stopReason: 'error', history: { messages: ['PRIVATE_TURN_HISTORY_FIXTURE'] } }); return }
 		if (params.prompt === 'Reject turn with fixture') { send({ id, error: { code: -32603, message: 'The isolated fixture rejected this prompt.' } }); return }
 		if (params.prompt === 'Pause turn with fixture') { reply(id, { stopReason: 'cancelled', reason: 'paused' }); return }
@@ -100,12 +108,28 @@ lines.on('line', (line) => {
 		pending.set(requestId, { id, sessionId: params.sessionId })
 		send({ id: requestId, method: 'session/request_permission', params: { sessionId: params.sessionId, toolCalls: [{ id: requestId, name: 'fixture-tool', input: { prompt: params.prompt, ...(process.env.FIXTURE_ENFORCE_PROVIDER_BINDING ? { engine: harnesses.get(params.sessionId) ?? 'namzu', model: models.get(params.sessionId) } : {}), ...(params.attachments?.length ? { attachments: params.attachments } : {}) }, isDestructive: false }] } })
 	} else if (method === 'session/cancel') {
+		const scope = liveScopes.get(params.sessionId)
+		if (scope) scope.available = false
 		for (const [requestId, prompt] of pending) {
 			if (prompt.sessionId !== params.sessionId) continue
 			pending.delete(requestId)
 			reply(prompt.id, { stopReason: 'cancelled' })
 		}
 		reply(id, {})
+	} else if (method === 'namzu/conversations/input/status') {
+		const scope = liveScopes.get(params.sessionId)
+		if (params.scopeId && (!scope || params.scopeId !== scope.scopeId)) { send({ id, error: { code: -32602, message: 'Unknown live input scope.' } }); return }
+		if (scope?.inputs.size && process.env.FIXTURE_LIVE_INPUT_MODE_FILE && existsSync(process.env.FIXTURE_LIVE_INPUT_MODE_FILE) && readFileSync(process.env.FIXTURE_LIVE_INPUT_MODE_FILE, 'utf8') === 'lost-ack-and-status') { send({ id, error: { code: -32603, message: 'Status unavailable in isolated fixture.' } }); return }
+		reply(id, scope ? { available: scope.available, scopeId: scope.scopeId, inputs: [...scope.inputs.values()] } : { available: false, inputs: [] })
+	} else if (method === 'namzu/conversations/input') {
+		const scope = liveScopes.get(params.sessionId)
+		if (!scope?.available || scope.scopeId !== params.scopeId) { send({ id, error: { code: -32602, message: 'Live input scope is closed.' } }); return }
+		if (process.env.FIXTURE_LIVE_INPUT_MODE_FILE && existsSync(process.env.FIXTURE_LIVE_INPUT_MODE_FILE) && readFileSync(process.env.FIXTURE_LIVE_INPUT_MODE_FILE, 'utf8') === 'reject-before-admit') { send({ id, error: { code: -32603, message: 'Input refused before admission.' } }); return }
+		const previous = scope.inputs.get(params.inputId)
+		if (previous && previous.prompt !== params.prompt) { send({ id, error: { code: -32602, message: 'Live input ID was reused for different text.' } }); return }
+		if (!previous) scope.inputs.set(params.inputId, { id: params.inputId, prompt: params.prompt, status: 'pending' })
+		if (process.env.FIXTURE_LIVE_INPUT_MODE_FILE && existsSync(process.env.FIXTURE_LIVE_INPUT_MODE_FILE) && readFileSync(process.env.FIXTURE_LIVE_INPUT_MODE_FILE, 'utf8') === 'lost-ack-and-status') { send({ id, error: { code: -32603, message: 'ACK lost in isolated fixture.' } }); return }
+		reply(id, { accepted: true, scopeId: scope.scopeId, inputId: params.inputId })
 	} else if (method === 'test/echo') {
 		const bytes = Buffer.from(`${JSON.stringify({ jsonrpc: '2.0', id, result: 'Türkçe 🧪' })}\n`)
 		const split = bytes.indexOf(Buffer.from('ü')) + 1

@@ -111,7 +111,10 @@ const workspace = new WorkspaceWindows(
 		for (const [id, window] of windows.entries())
 			if (!window.isDestroyed() && currentIds.has(id))
 				try {
-					window.webContents.send('namzu:event', { kind: 'workspace', view: workspace.view(id) })
+					window.webContents.send('namzu:event', {
+						kind: 'workspace',
+						view: workspace.view(id),
+					})
 				} catch (error) {
 					diagnostics.record('renderer_failed', { error })
 				}
@@ -119,9 +122,14 @@ const workspace = new WorkspaceWindows(
 	(layout) => {
 		// Transient transfer preparation changes only the in-memory revision. The saved
 		// source membership stays intact until the destination has acknowledged readiness.
-		const content = JSON.stringify({ version: layout.version, windows: layout.windows })
+		const content = JSON.stringify({
+			version: layout.version,
+			windows: layout.windows,
+		})
 		if (content === savedWorkspaceContent) return
-		writeFileSync(`${workspaceFile}.tmp`, JSON.stringify(layout), { mode: 0o600 })
+		writeFileSync(`${workspaceFile}.tmp`, JSON.stringify(layout), {
+			mode: 0o600,
+		})
 		renameSync(`${workspaceFile}.tmp`, workspaceFile)
 		savedWorkspaceContent = content
 	},
@@ -189,7 +197,10 @@ const operator = new Operator(
 				workspace.retireTabs(event.kind === 'pal-deleted' ? event.sessionIds : [event.sessionId])
 				discardAbortedWindows()
 			} catch (error) {
-				diagnostics.record('ipc_failed', { operation: 'workspaceAction', error })
+				diagnostics.record('ipc_failed', {
+					operation: 'workspaceAction',
+					error,
+				})
 			}
 		}
 		windows.fanout(event, (error) => diagnostics.record('renderer_failed', { error }))
@@ -245,6 +256,7 @@ function register(): void {
 		['removeAttachment', 0],
 		['moveAttachments', 0],
 		['send', 0],
+		['sendCurrent', 0],
 		['retryTurn', 0],
 		['saveDraft', 0],
 		['saveDraftSettings', 0],
@@ -559,7 +571,11 @@ function register(): void {
 				discardAbortedWindows()
 				const current = locateWorkspaceTab(workspace.snapshot(), id)
 				if (current?.windowId === windowId)
-					workspace.action(windowId, { kind: 'close', tabId: id, groupId: current.groupId })
+					workspace.action(windowId, {
+						kind: 'close',
+						tabId: id,
+						groupId: current.groupId,
+					})
 			}
 			throw error
 		}
@@ -642,6 +658,9 @@ function register(): void {
 	)
 	handle('send', (id: string, prompt: string, options?: DesktopSendOptions) =>
 		operator.send(id, prompt, options),
+	)
+	handle('sendCurrent', (id: string, prompt: string, options?: DesktopSendOptions) =>
+		operator.sendCurrent(id, prompt, options),
 	)
 	handle(
 		'retryTurn',

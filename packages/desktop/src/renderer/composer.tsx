@@ -59,11 +59,14 @@ export function Composer({
 	choice,
 	onChoiceChange,
 	running,
+	liveInputSupported = false,
+	liveInputs = [],
 	sending,
 	queued,
 	queuedItems,
 	editingQueued,
 	onSend,
+	onQueue,
 	onStop,
 	onEditQueued,
 	onRemoveQueued,
@@ -114,11 +117,18 @@ export function Composer({
 	choice: ModelChoice
 	onChoiceChange: (choice: ModelChoice) => void
 	running: boolean
+	liveInputSupported?: boolean
+	liveInputs?: readonly {
+		id: string
+		prompt: string
+		status: 'pending' | 'delivered' | 'unknown'
+	}[]
 	sending: boolean
 	queued: string[]
 	queuedItems: QueuedMessageView[]
 	editingQueued: boolean
 	onSend: () => void
+	onQueue?: () => void
 	onStop: () => void
 	onEditQueued: (itemId?: string) => void
 	onRemoveQueued: (itemId: string) => void
@@ -325,6 +335,23 @@ export function Composer({
 							<h1 className="text-center text-2xl font-normal tracking-tight text-foreground sm:text-3xl">
 								What would you like to work on?
 							</h1>
+						</div>
+					)}
+					{liveInputs.length > 0 && (
+						<div className="queue px-3 pb-2 text-xs text-muted-foreground" aria-live="polite">
+							{[
+								liveInputs.some((item) => item.status === 'unknown')
+									? 'Delivery unconfirmed'
+									: undefined,
+								liveInputs.filter((item) => item.status === 'pending').length
+									? `${liveInputs.filter((item) => item.status === 'pending').length} sending to this turn`
+									: undefined,
+								liveInputs.filter((item) => item.status === 'delivered').length
+									? `${liveInputs.filter((item) => item.status === 'delivered').length} delivered`
+									: undefined,
+							]
+								.filter(Boolean)
+								.join(' · ')}
 						</div>
 					)}
 					{queued.length > 0 && (
@@ -553,6 +580,19 @@ export function Composer({
 										</div>
 									)}
 									<div className="pal-composer-send-actions flex shrink-0 flex-nowrap items-center justify-end gap-2">
+										{running && liveInputSupported && onQueue && (
+											<Button
+												variant="ghost-muted"
+												size="xs"
+												aria-label="Queue for next turn"
+												disabled={
+													sending || draftDisabled || (!draft.trim() && attachments.length === 0)
+												}
+												onClick={onQueue}
+											>
+												Queue
+											</Button>
+										)}
 										{!compact && <div className="composer-selected-model">{modelControl}</div>}
 										{running && (
 											<Tooltip>
@@ -580,7 +620,13 @@ export function Composer({
 															type="button"
 															className="relative isolate flex h-9 w-9 items-center justify-center overflow-hidden rounded-full shadow-xs transition-all duration-150 enabled:cursor-pointer enabled:inset-shadow-2xs enabled:inset-shadow-white/16 hover:scale-105 active:inset-shadow-black/8 active:shadow-none disabled:pointer-events-none disabled:opacity-64 disabled:shadow-none disabled:hover:scale-100 sm:h-8 sm:w-8 bg-message-action text-message-action-foreground enabled:shadow-message-action/24 hover:bg-message-action-hover"
 															aria-label={
-																sending ? 'Sending' : running ? 'Queue message' : 'Send message'
+																sending
+																	? 'Sending'
+																	: running && liveInputSupported && attachments.length === 0
+																		? 'Send to current turn'
+																		: running
+																			? 'Queue message'
+																			: 'Send message'
 															}
 															aria-busy={sending}
 															disabled={
@@ -607,7 +653,9 @@ export function Composer({
 													{sending
 														? 'Sending'
 														: running
-															? 'Queue for the next turn'
+															? liveInputSupported && attachments.length === 0
+																? 'Send text to this running turn with its current model and review settings'
+																: 'Queue for the next turn'
 															: 'Send message · Enter'}
 												</TooltipPopup>
 											</Tooltip>

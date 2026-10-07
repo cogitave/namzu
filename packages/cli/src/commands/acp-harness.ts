@@ -372,9 +372,33 @@ export function withCliHarnesses(
 			}
 		},
 	}
+	const liveInputStatus = base.liveInputStatus?.bind(base)
+	const liveInput = base.liveInput?.bind(base)
 	return {
 		...base,
 		gateway,
+		...(liveInputStatus && liveInput
+			? {
+					liveInputStatus: async (id: string, scopeId?: string, scope?: CliSessionScope) => {
+						if (closed) throw new Error('The connection is closed.')
+						if (records.has(id) || selections.has(id) || reserving.has(id)) {
+							if (scopeId !== undefined)
+								throw new Error('This live prompt scope is unavailable in this engine.')
+							return { available: false, inputs: [] }
+						}
+						return liveInputStatus(id, scopeId, scope)
+					},
+					liveInput: async (
+						id: string,
+						input: { scopeId: string; inputId: string; prompt: string },
+						scope?: CliSessionScope,
+					) => {
+						if (closed || records.has(id) || selections.has(id) || reserving.has(id))
+							throw new Error('Live input is unavailable in this engine.')
+						return liveInput(id, input, scope)
+					},
+				}
+			: {}),
 		harnesses: view,
 		withIdleConversationForArchive: async (id, scope, archive) => {
 			const cwd = trusted(directory, scope.root)

@@ -191,6 +191,111 @@ function runtime(overrides: Partial<AcpRuntimeDependencies> = {}) {
 		} as unknown as AcpRuntimeDependencies,
 	)
 }
+
+it('admits live input only for the current published ordinary slot after fresh scoped ownership', async () => {
+	const owner = runtime()
+	const sessionId = generateSessionId()
+	const foreign = generateSessionId()
+	const status = vi
+		.spyOn(owner, 'liveInputStatus')
+		.mockResolvedValue({ available: true, scopeId: 'scope', inputs: [] })
+	const accept = vi
+		.spyOn(owner, 'liveInput')
+		.mockResolvedValue({ accepted: true, scopeId: 'scope', inputId: 'entry' })
+	const host = createDesktopHostExtensions(owner, cwd, (id) => (id === sessionId ? cwd : undefined))
+	host['namzu/project/trust']({ confirmed: true, cwd })
+	const indexed = vi.spyOn(sessionStorage, 'openSessions')
+	try {
+		expect(await host['namzu/conversations/input/status']?.({ sessionId })).toEqual({
+			available: true,
+			scopeId: 'scope',
+			inputs: [],
+		})
+		expect(
+			await host['namzu/conversations/input']?.({
+				sessionId,
+				scopeId: 'scope',
+				inputId: 'entry',
+				prompt: '  Exact operator text  ',
+			}),
+		).toEqual({ accepted: true, scopeId: 'scope', inputId: 'entry' })
+		expect(accept).toHaveBeenCalledWith(
+			sessionId,
+			{
+				scopeId: 'scope',
+				inputId: 'entry',
+				prompt: '  Exact operator text  ',
+			},
+			expect.objectContaining({ root: join(root, 'state') }),
+		)
+		await expect(
+			host['namzu/conversations/input']?.({
+				sessionId: foreign,
+				scopeId: 'scope',
+				inputId: 'entry',
+				prompt: 'Foreign text',
+			}),
+		).rejects.toThrow('does not belong')
+		await expect(
+			host['namzu/conversations/input']?.({
+				sessionId,
+				scopeId: 'scope',
+				inputId: 'entry',
+				prompt: 'Text',
+				options: { permissionMode: 'auto' },
+			}),
+		).rejects.toThrow('accepts only')
+		expect(accept).toHaveBeenCalledTimes(1)
+		expect(status).toHaveBeenCalledTimes(1)
+		expect(indexed).not.toHaveBeenCalled()
+	} finally {
+		await owner.close()
+	}
+})
+
+it.each(['slot', 'home'] as const)(
+	'refuses live input after its %s changes during authorization',
+	async (change) => {
+		const owner = runtime()
+		const sessionId = generateSessionId()
+		const accept = vi
+			.spyOn(owner, 'liveInput')
+			.mockResolvedValue({ accepted: true, scopeId: 'scope', inputId: 'entry' })
+		let published: string | undefined = cwd
+		const host = createDesktopHostExtensions(owner, cwd, (id) =>
+			id === sessionId ? published : undefined,
+		)
+		host['namzu/project/trust']({ confirmed: true, cwd })
+		const actual = sessionStorage.openSessionScope
+		vi.spyOn(sessionStorage, 'openSessionScope').mockImplementation(async (...args) => {
+			const scope = await actual(...args)
+			const read = scope.store.getSession.bind(scope.store)
+			scope.store.getSession = async (...lookup) => {
+				const result = await read(...lookup)
+				if (change === 'slot') published = undefined
+				else {
+					mkdirSync(join(root, 'replacement'))
+					vi.stubEnv('NAMZU_HOME', join(root, 'replacement'))
+				}
+				return result
+			}
+			return scope
+		})
+		try {
+			await expect(
+				host['namzu/conversations/input']?.({
+					sessionId,
+					scopeId: 'scope',
+					inputId: 'entry',
+					prompt: 'Retain me',
+				}),
+			).rejects.toThrow(change === 'slot' ? 'does not belong' : 'owned ordinary')
+			expect(accept).not.toHaveBeenCalled()
+		} finally {
+			await owner.close()
+		}
+	},
+)
 async function seeded(prompt = 'Stored request', id?: ReturnType<typeof generateSessionId>) {
 	const state = await openSessions(cwd)
 	const sessionId = await startConversation(state, id)

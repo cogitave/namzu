@@ -67,9 +67,49 @@ interface PendingMessage {
 	id: string
 	prompt: string
 	files: OwnedAttachment[]
+	/** A status read failed, so this text requires an explicit edit before replay. */
+	uncertainLiveInput?: boolean
 	/** Authored edits and explicit clears fence first-prompt recovery. */
 	draftRevision: number
 	options?: Omit<DesktopSendOptions, 'attachmentIds'>
+}
+interface LiveInputReceipt {
+	id: string
+	prompt: string
+	scopeId: string
+	status: 'pending' | 'delivered'
+	unknown?: boolean
+	predecessors: string[]
+	options?: Omit<DesktopSendOptions, 'attachmentIds'>
+	draftRevision: number
+}
+interface LiveInputStatus {
+	available: boolean
+	scopeId?: string
+	inputs: { id: string; status: 'pending' | 'delivered' }[]
+}
+function readLiveInputStatus(value: unknown): LiveInputStatus {
+	if (!value || typeof value !== 'object' || Array.isArray(value))
+		throw new Error('Namzu returned an invalid live input status.')
+	const row = value as Record<string, unknown>
+	if (
+		typeof row.available !== 'boolean' ||
+		(row.scopeId !== undefined &&
+			(typeof row.scopeId !== 'string' || !row.scopeId || row.scopeId.length > 400)) ||
+		!Array.isArray(row.inputs) ||
+		row.inputs.length > 20 ||
+		row.inputs.some(
+			(item) =>
+				!item ||
+				typeof item !== 'object' ||
+				typeof item.id !== 'string' ||
+				!item.id ||
+				item.id.length > 400 ||
+				!['pending', 'delivered'].includes(item.status),
+		)
+	)
+		throw new Error('Namzu returned an invalid live input status.')
+	return row as unknown as LiveInputStatus
 }
 interface OwnedAttachment extends AdmittedAttachment {
 	ownerId: string
@@ -103,6 +143,19 @@ interface Conversation {
 	executionRevision?: number
 	runSettled?: Promise<void>
 	queue: PendingMessage[]
+	liveInputs?: Map<string, LiveInputReceipt>
+	liveInputCalls?: Set<Promise<unknown>>
+	liveInputRead?: Promise<LiveInputStatus | undefined>
+	liveInputReadOnNextUpdate?: boolean
+	liveInputRetry?: {
+		id: string
+		prompt: string
+		scopeId: string
+		draftRevision: number
+		client: RuntimeClient
+		runtimeId: string
+		executionRevision: number
+	}
 	draft: string
 	draftRevision?: number
 	draftSettings?: DraftSettings
@@ -510,7 +563,9 @@ export class Operator {
 			if (scope && scope.expectedRevision !== expectedRevision)
 				throw new Error('This Pal changed. Refresh it.')
 			if (!scope) {
-				const current = (await registry.request('namzu/pals/get', { id })) as PalView
+				const current = (await registry.request('namzu/pals/get', {
+					id,
+				})) as PalView
 				if (!current || current.id !== id || current.revision !== expectedRevision)
 					throw new Error('This Pal changed. Refresh it before deleting.')
 				this.assertPalDeletionIdle(id, current.workspace)
@@ -521,7 +576,9 @@ export class Operator {
 					throw new Error('Wait for this Pal computer’s control change to finish.')
 				const projects = [...this.projects.values()].filter((item) => item.view.palId === id)
 				const owned = [...this.conversations.values()].filter((item) => item.view.palId === id)
-				const claimed = (await client.request('namzu/pals/conversations/list', { palId: id })) as {
+				const claimed = (await client.request('namzu/pals/conversations/list', {
+					palId: id,
+				})) as {
 					id: string
 				}[]
 				if (!Array.isArray(claimed) || claimed.some((item) => !item || typeof item.id !== 'string'))
@@ -531,7 +588,9 @@ export class Operator {
 					...owned.map((item) => item.runtimeSessionId),
 				])
 				for (const sessionId of runtimeIds) {
-					const jobs = (await client.request('namzu/jobs/list', { sessionId })) as JobView[]
+					const jobs = (await client.request('namzu/jobs/list', {
+						sessionId,
+					})) as JobView[]
 					if (
 						!Array.isArray(jobs) ||
 						jobs.some(
@@ -544,7 +603,9 @@ export class Operator {
 					)
 						throw new Error('Stop this Pal’s background work before deleting it.')
 				}
-				const latest = (await registry.request('namzu/pals/get', { id })) as PalView
+				const latest = (await registry.request('namzu/pals/get', {
+					id,
+				})) as PalView
 				if (
 					!latest ||
 					latest.id !== id ||
@@ -583,7 +644,10 @@ export class Operator {
 				// revision. It never reopens a guest or admits work before confirmation.
 				this.deletingPals.set(id, scope)
 			}
-			const result = (await registry.request('namzu/pals/delete', { id, expectedRevision })) as {
+			const result = (await registry.request('namzu/pals/delete', {
+				id,
+				expectedRevision,
+			})) as {
 				id?: unknown
 				deleted?: unknown
 			}
@@ -1450,7 +1514,12 @@ export class Operator {
 					),
 				}
 			this.persistDesktop(true)
-			this.emit({ kind: 'conversation-removed', sessionId, projectId: view.projectId, archived })
+			this.emit({
+				kind: 'conversation-removed',
+				sessionId,
+				projectId: view.projectId,
+				archived,
+			})
 			return { sessionId, removed: true, archived }
 		} finally {
 			this.archivingConversations.delete(sessionId)
@@ -1660,7 +1729,11 @@ export class Operator {
 			if (!view) throw new Error('This conversation is no longer in this project.')
 			const history = (await project.client.request('namzu/conversations/history', {
 				sessionId,
-			})) as { messages: ChatMessage[]; partial: boolean; work?: HistoryWorkSnapshot }
+			})) as {
+				messages: ChatMessage[]
+				partial: boolean
+				work?: HistoryWorkSnapshot
+			}
 			assertCurrent()
 			this.assertConversationAvailable(sessionId)
 			const record: Conversation = {
@@ -1718,7 +1791,11 @@ export class Operator {
 		const promise = (async () => {
 			const history = (await client.request('namzu/conversations/history', {
 				sessionId: runtimeId,
-			})) as { messages: ChatMessage[]; partial: boolean; work?: HistoryWorkSnapshot }
+			})) as {
+				messages: ChatMessage[]
+				partial: boolean
+				work?: HistoryWorkSnapshot
+			}
 			assertCurrent()
 			if (
 				this.conversations.get(session.view.id) !== session ||
@@ -2185,6 +2262,258 @@ export class Operator {
 			throw new Error('Return this Pal computer’s control before sending a message.')
 		if (this.palRecords.get(palId)?.paused)
 			throw new Error('Resume this Pal before sending a message.')
+	}
+	private async liveInputStatus(
+		session: Conversation,
+		client: RuntimeClient,
+		runtimeId: string,
+		scopeId?: string,
+	): Promise<LiveInputStatus> {
+		const result = await client.request(
+			'namzu/conversations/input/status',
+			{ sessionId: runtimeId, ...(scopeId ? { scopeId } : {}) },
+			8_000,
+		)
+		if (session.client !== client || session.runtimeSessionId !== runtimeId)
+			throw new Error('The conversation connection changed while sending. Your draft is retained.')
+		const status = readLiveInputStatus(result)
+		if (scopeId && status.scopeId !== scopeId)
+			throw new Error('Namzu returned a different live input scope.')
+		return status
+	}
+	private async refreshLiveInputs(session: Conversation): Promise<LiveInputStatus | undefined> {
+		if (!session.liveInputs?.size) return
+		if (session.liveInputRead) return session.liveInputRead
+		const client = session.client
+		const runtimeId = session.runtimeSessionId
+		const revision = session.executionRevision ?? 0
+		const scopeId = [...session.liveInputs.values()][0]?.scopeId
+		if (!scopeId) return undefined
+		const read = (async () => {
+			const status = await this.liveInputStatus(session, client, runtimeId, scopeId)
+			if (
+				this.conversations.get(session.view.id) !== session ||
+				session.executionRevision !== revision
+			)
+				return undefined
+			for (const receipt of session.liveInputs?.values() ?? []) {
+				if (receipt.scopeId !== scopeId || receipt.status === 'delivered') continue
+				const observed = status.inputs.find((item) => item.id === receipt.id)?.status
+				if (!observed) continue
+				if (receipt.unknown) {
+					receipt.unknown = false
+					this.emit({
+						kind: 'live-input',
+						sessionId: session.view.id,
+						inputId: receipt.id,
+						prompt: receipt.prompt,
+						status: 'pending',
+					})
+				}
+				if (observed !== 'delivered') continue
+				receipt.status = 'delivered'
+				if (session.draft === receipt.prompt && session.draftRevision === receipt.draftRevision) {
+					session.draft = ''
+					this.persistDesktop()
+				}
+				this.emit({
+					kind: 'live-input',
+					sessionId: session.view.id,
+					inputId: receipt.id,
+					prompt: receipt.prompt,
+					status: 'delivered',
+				})
+			}
+			return status
+		})()
+		session.liveInputRead = read
+		try {
+			return await read
+		} finally {
+			if (session.liveInputRead === read) session.liveInputRead = undefined
+		}
+	}
+	async sendCurrent(
+		sessionId: string,
+		prompt: string,
+		options?: DesktopSendOptions,
+	): Promise<'accepted' | 'queued'> {
+		const session = this.session(sessionId)
+		if (session.admitting) throw new Error('Wait for this conversation’s admission to finish.')
+		if (this.changingPlugins.has(sessionId))
+			throw new Error('Wait for this conversation’s settings change to finish.')
+		if (
+			options !== undefined &&
+			(!options || typeof options !== 'object' || Array.isArray(options))
+		)
+			throw new Error('Invalid message options.')
+		if (
+			options?.effort !== undefined &&
+			(typeof options.effort !== 'string' ||
+				!['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'].includes(
+					options.effort,
+				))
+		)
+			throw new Error('Invalid reasoning effort.')
+		if (
+			options?.permissionMode !== undefined &&
+			!['prompt', 'accept-edits', 'auto', 'strict', 'plan'].includes(options.permissionMode)
+		)
+			throw new Error('Invalid permission mode.')
+		if (
+			options?.attachmentIds !== undefined &&
+			(!Array.isArray(options.attachmentIds) ||
+				options.attachmentIds.length > MAX_ATTACHMENT_COUNT ||
+				new Set(options.attachmentIds).size !== options.attachmentIds.length)
+		)
+			throw new Error('Invalid attachments.')
+		if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 50_000)
+			throw new Error('Enter a message under 50,000 characters.')
+		if (
+			!session.running ||
+			!!session.projection.stopReason ||
+			session.view.palId ||
+			(session.view.harness && session.view.harness !== 'namzu') ||
+			options?.attachmentIds?.length ||
+			!session.client.supportsLiveInput()
+		) {
+			await this.send(sessionId, prompt, options)
+			return 'queued'
+		}
+		const client = session.client
+		const runtimeId = session.runtimeSessionId
+		const revision = session.executionRevision ?? 0
+		const draftRevision = session.draftRevision ?? 0
+		const assertCurrent = () => {
+			const project = this.project(session.view.projectId)
+			if (
+				this.closing ||
+				this.conversations.get(sessionId) !== session ||
+				!session.running ||
+				!!session.projection.stopReason ||
+				session.client !== client ||
+				session.runtimeSessionId !== runtimeId ||
+				session.executionRevision !== revision ||
+				project.client !== client ||
+				project.view.status !== 'ready' ||
+				!project.view.trusted ||
+				session.view.palId ||
+				(session.view.harness && session.view.harness !== 'namzu')
+			)
+				throw new Error('The running conversation changed. Your draft is retained.')
+		}
+		const operation = (async (): Promise<'accepted' | 'queued'> => {
+			assertCurrent()
+			if (session.queue.length + (session.liveInputs?.size ?? 0) >= 20)
+				throw new Error('The message queue is full.')
+			const predecessors = [
+				...session.queue.map((item) => item.id),
+				...[...(session.liveInputs?.values() ?? [])].map((item) => item.id),
+			]
+			const status = await this.liveInputStatus(session, client, runtimeId)
+			assertCurrent()
+			if (!status.available || !status.scopeId) {
+				await this.send(sessionId, prompt, options)
+				return 'queued'
+			}
+			const scopeId = status.scopeId
+			const previous = session.liveInputRetry
+			const inputId =
+				previous &&
+				previous.client === client &&
+				previous.runtimeId === runtimeId &&
+				previous.executionRevision === revision &&
+				previous.scopeId === scopeId &&
+				previous.draftRevision === draftRevision &&
+				previous.prompt === prompt
+					? previous.id
+					: randomUUID()
+			session.liveInputRetry = {
+				id: inputId,
+				prompt,
+				scopeId,
+				draftRevision,
+				client,
+				runtimeId,
+				executionRevision: revision,
+			}
+			const receipt: LiveInputReceipt = session.liveInputs?.get(inputId) ?? {
+				id: inputId,
+				prompt,
+				scopeId,
+				status: 'pending',
+				unknown: true,
+				predecessors,
+				draftRevision,
+				...(options ? { options: resolveComposerSendOptions(options) } : {}),
+			}
+			if (!session.liveInputs) session.liveInputs = new Map()
+			session.liveInputs.set(inputId, receipt)
+			// Anchor the authored input before dispatch. A provider update can overtake
+			// its ACK or the later delivery-status read.
+			this.emit({ kind: 'live-input', sessionId, inputId, prompt, status: 'unknown' })
+			let acceptedStatus = status.inputs.find((item) => item.id === inputId)?.status
+			try {
+				if (!acceptedStatus) {
+					const reply = (await client.request(
+						'namzu/conversations/input',
+						{ sessionId: runtimeId, scopeId, inputId, prompt },
+						8_000,
+					)) as Record<string, unknown>
+					if (reply?.accepted !== true || reply.scopeId !== scopeId || reply.inputId !== inputId)
+						throw new Error('Namzu did not confirm this live message.')
+					acceptedStatus = 'pending'
+				}
+			} catch (error) {
+				// The exact attempt exists before dispatch. A lost ACK plus a failed
+				// status read must remain visible to settlement as an unknown delivery.
+				try {
+					const known = await this.liveInputStatus(session, client, runtimeId, scopeId)
+					acceptedStatus = known.inputs.find((item) => item.id === inputId)?.status
+				} catch {
+					this.emit({ kind: 'live-input', sessionId, inputId, prompt, status: 'unknown' })
+					throw error
+				}
+				if (!acceptedStatus) {
+					session.liveInputs.delete(inputId)
+					session.liveInputRetry = undefined
+					this.emit({ kind: 'live-input', sessionId, inputId, prompt, status: 'queued' })
+					throw error
+				}
+			}
+			if (
+				this.conversations.get(sessionId) !== session ||
+				session.client !== client ||
+				session.runtimeSessionId !== runtimeId ||
+				session.executionRevision !== revision
+			)
+				throw new Error(
+					'The conversation changed after live input admission. Its delivery is being reconciled.',
+				)
+			receipt.unknown = false
+			receipt.status = acceptedStatus ?? 'pending'
+			session.liveInputRetry = undefined
+			if (session.draft === prompt && session.draftRevision === draftRevision) {
+				session.draft = ''
+				this.persistDesktop()
+			}
+			this.emit({ kind: 'live-input', sessionId, inputId, prompt, status: 'pending' })
+			if (receipt.status === 'delivered') {
+				this.emit({ kind: 'live-input', sessionId, inputId, prompt, status: 'delivered' })
+			} else {
+				session.liveInputReadOnNextUpdate = true
+				// Read again at a model or tool boundary, then at settlement.
+			}
+			return 'accepted'
+		})()
+		if (!session.liveInputCalls) session.liveInputCalls = new Set()
+		const calls = session.liveInputCalls
+		calls.add(operation)
+		try {
+			return await operation
+		} finally {
+			calls.delete(operation)
+		}
 	}
 	send(sessionId: string, prompt: string, options?: DesktopSendOptions): void | Promise<void> {
 		const session = this.session(sessionId)
@@ -2686,6 +3015,12 @@ export class Operator {
 			kind: 'state',
 			sessionId: session.view.id,
 			running: session.running,
+			liveInputSupported:
+				session.running &&
+				!session.projection.stopReason &&
+				!session.view.palId &&
+				(!session.view.harness || session.view.harness === 'namzu') &&
+				session.client.supportsLiveInput(),
 			queued: session.queue.map((item) => item.prompt),
 			queuedItems: session.queue.map((item) => ({
 				id: item.id,
@@ -2699,6 +3034,9 @@ export class Operator {
 	}
 	private startRun(session: Conversation, item: PendingMessage): void {
 		session.executionRevision = (session.executionRevision ?? 0) + 1
+		session.liveInputs = new Map()
+		session.liveInputRetry = undefined
+		session.liveInputReadOnNextUpdate = false
 		const running = this.run(session, item)
 		session.runSettled = running
 		const clear = () => {
@@ -2838,6 +3176,78 @@ export class Operator {
 					file.ownerId = session.view.id
 				}
 			}
+			// Let an admitted current-turn submission finish its exact-scope ACK
+			// reconciliation before deciding whether its text was delivered.
+			await Promise.allSettled([...(session.liveInputCalls ?? [])])
+			let liveStatusUnknown = false
+			let liveRestoredDraft: string | undefined
+			let finalLiveStatus: LiveInputStatus | undefined
+			try {
+				finalLiveStatus = await this.refreshLiveInputs(session)
+			} catch {
+				liveStatusUnknown = true
+			}
+			for (const receipt of session.liveInputs?.values() ?? []) {
+				if (receipt.status === 'delivered') {
+					if (session.draft === receipt.prompt && session.draftRevision === receipt.draftRevision) {
+						session.draft = ''
+						this.persistDesktop()
+					}
+					continue
+				}
+				const observed = finalLiveStatus?.inputs.find((item) => item.id === receipt.id)?.status
+				if (receipt.unknown && !observed && finalLiveStatus) {
+					// Exact retained scope confirms this attempted ID was never admitted.
+					this.emit({
+						kind: 'live-input',
+						sessionId: session.view.id,
+						inputId: receipt.id,
+						prompt: receipt.prompt,
+						status: 'queued',
+					})
+					continue
+				}
+				if (receipt.unknown || !finalLiveStatus || !observed) liveStatusUnknown = true
+				if (
+					(!session.draft || session.draft === receipt.prompt) &&
+					session.draftRevision === receipt.draftRevision
+				) {
+					session.draft = receipt.prompt
+					this.persistDesktop()
+					liveRestoredDraft = receipt.prompt
+					this.emit({
+						kind: 'live-input',
+						sessionId: session.view.id,
+						inputId: receipt.id,
+						prompt: receipt.prompt,
+						status: 'queued',
+					})
+					continue
+				}
+				const predecessors = new Set(receipt.predecessors)
+				let insertAt = 0
+				for (const [index, queued] of session.queue.entries())
+					if (predecessors.has(queued.id)) insertAt = index + 1
+				session.queue.splice(insertAt, 0, {
+					id: receipt.id,
+					prompt: receipt.prompt,
+					files: [],
+					...(receipt.unknown || !finalLiveStatus || !observed ? { uncertainLiveInput: true } : {}),
+					draftRevision: receipt.draftRevision,
+					...(receipt.options ? { options: receipt.options } : {}),
+				})
+				this.emit({
+					kind: 'live-input',
+					sessionId: session.view.id,
+					inputId: receipt.id,
+					prompt: receipt.prompt,
+					status: 'queued',
+				})
+			}
+			// An unreadable status cannot prove non-delivery; retain the authored
+			// queue for review and never start it automatically on this settlement.
+			if (liveStatusUnknown) completed = false
+			session.liveInputs?.clear()
 			const settlement = Symbol('prompt settlement')
 			session.admitting = settlement
 			session.running = false
@@ -2853,10 +3263,13 @@ export class Operator {
 			await this.readTasksSnapshot(session, true)
 			this.state(
 				session,
-				undefined,
-				(session.draftRevision ?? 0) === item.draftRevision && session.draft === restoredDraft
-					? restoredDraft
+				liveStatusUnknown
+					? 'A live message may have been delivered. Check the answer before retrying its retained text.'
 					: undefined,
+				liveRestoredDraft ??
+					((session.draftRevision ?? 0) === item.draftRevision && session.draft === restoredDraft
+						? restoredDraft
+						: undefined),
 			)
 			if (session.admitting === settlement) {
 				// Release and hand off in one synchronous span; new admission cannot
@@ -2867,7 +3280,7 @@ export class Operator {
 					!this.closing &&
 					(!session.view.palId || !this.changingPals.has(session.view.palId))
 				) {
-					const next = session.queue.shift()
+					const next = session.queue[0]?.uncertainLiveInput ? undefined : session.queue.shift()
 					if (next) this.startRun(session, next)
 				}
 			}
@@ -2962,6 +3375,16 @@ export class Operator {
 					sessionId: session.view.id,
 					update: params.update,
 				})
+				if (
+					session.liveInputs?.size &&
+					[...session.liveInputs.values()].some((item) => item.status === 'pending') &&
+					((session.liveInputReadOnNextUpdate && params.update?.kind === 'agent_message_chunk') ||
+						(params.update?.kind === 'tool_call' && params.update.status !== 'pending') ||
+						params.update?.kind === 'turn_ended')
+				) {
+					session.liveInputReadOnNextUpdate = false
+					void this.refreshLiveInputs(session).catch(() => {})
+				}
 				if (
 					(params.update?.kind === 'tool_call' && params.update.status !== 'pending') ||
 					params.update?.kind === 'turn_ended'

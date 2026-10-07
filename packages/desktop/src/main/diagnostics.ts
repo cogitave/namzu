@@ -135,6 +135,7 @@ const OPERATIONS = new Set([
 	'removeAttachment',
 	'moveAttachments',
 	'send',
+	'sendCurrent',
 	'retryTurn',
 	'draft',
 	'saveDraft',
@@ -469,7 +470,12 @@ export async function observeDesktopIpc<T>(
 		if (error instanceof ExpectedRuntimeCloseError) throw error
 		try {
 			if (error instanceof SupersededConversationSettingsError)
-				sink.record('ipc_superseded', { operation, request, error, severity: 'info' })
+				sink.record('ipc_superseded', {
+					operation,
+					request,
+					error,
+					severity: 'info',
+				})
 			else sink.record('ipc_failed', { operation, request, error })
 		} catch {
 			/* Preserve the original operation failure. */

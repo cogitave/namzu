@@ -17,6 +17,7 @@ import {
 	openSessionIndex,
 } from '@namzu/sdk'
 
+import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -273,6 +274,17 @@ function assertRetryComputer(
 
 export interface CliAcpRuntime {
 	readonly gateway: AcpAgentGateway
+	/** Live operator text for this connection's current ordinary Namzu prompt only. */
+	liveInputStatus?(
+		sessionId: string,
+		scopeId?: string,
+		scope?: CliSessionScope,
+	): Promise<CliLiveInputStatus>
+	liveInput?(
+		sessionId: string,
+		input: { scopeId: string; inputId: string; prompt: string },
+		scope?: CliSessionScope,
+	): Promise<{ accepted: true; scopeId: string; inputId: string }>
 	providerStatus(sessionId?: string): Promise<unknown>
 	/** The optional scope is a host-authenticated handoff, never a wire-supplied ownership claim. */
 	providerRetryStatus?(
@@ -320,6 +332,114 @@ export interface CliAcpRuntime {
 	close(): Promise<void>
 }
 
+export interface CliLiveInputStatus {
+	available: boolean
+	scopeId?: string
+	inputs: { id: string; status: 'pending' | 'delivered' }[]
+}
+
+/** A bounded, turn-local mailbox; closing retains receipts, never carries input forward. */
+class LivePromptInbox {
+	readonly scopeId = randomUUID()
+	private readonly entries = new Map<string, { prompt: string; status: 'pending' | 'delivered' }>()
+	private readonly waiters = new Set<{ wake: () => void; close: () => void }>()
+	private chars = 0
+	private open = true
+
+	constructor(
+		readonly record: AcpRuntimeRecord,
+		readonly root: string,
+		private readonly active: () => boolean,
+	) {}
+
+	get available(): boolean {
+		return this.open && this.active()
+	}
+	status(): CliLiveInputStatus {
+		return {
+			available: this.available,
+			scopeId: this.scopeId,
+			inputs: [...this.entries].map(([id, entry]) => ({
+				id,
+				status: entry.status,
+			})),
+		}
+	}
+	accept(input: { scopeId: string; inputId: string; prompt: string }) {
+		if (!this.available || input.scopeId !== this.scopeId)
+			throw new Error('This live prompt is no longer available. Your message was not admitted.')
+		if (
+			typeof input.inputId !== 'string' ||
+			!input.inputId.trim() ||
+			input.inputId.length > 400 ||
+			[...input.inputId].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127) ||
+			typeof input.prompt !== 'string' ||
+			!input.prompt.trim()
+		)
+			throw new Error('Invalid live input.')
+		const previous = this.entries.get(input.inputId)
+		if (previous && previous.prompt !== input.prompt)
+			throw new Error('This live input id already belongs to a different message.')
+		if (!previous) {
+			if (this.entries.size >= 20 || this.chars + input.prompt.length > 1_000_000)
+				throw new Error('The live input mailbox is full. Your message was not admitted.')
+			this.entries.set(input.inputId, {
+				prompt: input.prompt,
+				status: 'pending',
+			})
+			this.chars += input.prompt.length
+			for (const waiter of [...this.waiters]) waiter.wake()
+		}
+		return {
+			accepted: true as const,
+			scopeId: this.scopeId,
+			inputId: input.inputId,
+		}
+	}
+	drain = (): Message[] => {
+		if (!this.available) return []
+		const messages: Message[] = []
+		for (const entry of this.entries.values()) {
+			if (entry.status !== 'pending') continue
+			messages.push(createUserMessage(entry.prompt))
+			entry.status = 'delivered'
+		}
+		return messages
+	}
+	wait = (signal: AbortSignal): Promise<void> => {
+		if (signal.aborted) return Promise.reject(signal.reason)
+		if (!this.available) return Promise.reject(new Error('The live prompt has closed.'))
+		if ([...this.entries.values()].some((entry) => entry.status === 'pending'))
+			return Promise.resolve()
+		return new Promise((resolve, reject) => {
+			const cleanup = () => {
+				this.waiters.delete(waiter)
+				signal.removeEventListener('abort', abort)
+			}
+			const waiter = {
+				wake: () => {
+					cleanup()
+					resolve()
+				},
+				close: () => {
+					cleanup()
+					reject(new Error('The live prompt has closed.'))
+				},
+			}
+			const abort = () => {
+				cleanup()
+				reject(signal.reason)
+			}
+			this.waiters.add(waiter)
+			signal.addEventListener('abort', abort, { once: true })
+		})
+	}
+	close(): void {
+		this.open = false
+		for (const waiter of [...this.waiters]) waiter.close()
+	}
+}
+
 const DEFAULT_RUNTIME_DEPS: AcpRuntimeDependencies = {
 	palBinding: palConversationBinding,
 	palRuntime: getCliPalRuntime,
@@ -344,6 +464,7 @@ export function createCliAcpRuntime(
 	deps: AcpRuntimeDependencies = DEFAULT_RUNTIME_DEPS,
 ): CliAcpRuntime {
 	const records = new Map<string, AcpRuntimeRecord>()
+	const liveInputs = new Map<string, LivePromptInbox>()
 	const constructing = new Map<string, string>()
 	const selections = new Map<string, Preferences>()
 	// Explicit changes belong to the wire conversation, including when a model
@@ -360,6 +481,31 @@ export function createCliAcpRuntime(
 	// at once cannot read each other's record while presenting their own
 	// event.
 	let activeRecord: AcpRuntimeRecord | undefined
+	const assertLiveOwner = (
+		sessionId: string,
+		inbox: LivePromptInbox,
+		scope?: CliSessionScope,
+	): void => {
+		if (closed || records.get(sessionId) !== inbox.record)
+			throw new Error('This live prompt owner is no longer available.')
+		const trust = deps.decideTrust({ cwd: inbox.record.cwd, trustFlag: false })
+		if (!trust.allowed || trust.cwd !== inbox.record.cwd || resolveNamzuHome() !== inbox.root)
+			throw new Error('This live prompt no longer owns the trusted project and application home.')
+		if (scope) {
+			const admitted = inbox.record.conversations
+			if (
+				!admitted ||
+				scope.root !== admitted.root ||
+				scope.projectRoot !== admitted.projectRoot ||
+				scope.projectId !== admitted.projectId ||
+				scope.tenantId !== admitted.tenantId ||
+				scope.topicId !== admitted.topicId ||
+				scope.paths.home !== admitted.paths.home ||
+				scope.paths.slug !== admitted.paths.slug
+			)
+				throw new Error('This live prompt does not belong to the admitted session scope.')
+		}
+	}
 	const presenter: ToolPresenter = {
 		presentCall: (toolName, input) =>
 			activeRecord?.session.presenter.presentCall(toolName, input) ?? {
@@ -659,7 +805,14 @@ export function createCliAcpRuntime(
 			// own span without corrupting this one. `routedEvent`, not
 			// `onEvent`, is what the `finally` below compares against, since
 			// `record.route` never holds `onEvent` itself anymore.
+			let liveInbox: LivePromptInbox | undefined
 			const routedEvent = (event: SessionEvent): void => {
+				if (
+					event.type === 'turn_completed' ||
+					event.type === 'turn_failed' ||
+					event.type === 'turn_paused'
+				)
+					liveInbox?.close()
 				const outer = activeRecord
 				activeRecord = record
 				try {
@@ -708,9 +861,28 @@ export function createCliAcpRuntime(
 					record.session,
 					record.ownedPal ? 'auto' : 'prompt',
 				)
+				if (!record.ownedPal) {
+					liveInputs.get(sessionId)?.close()
+					liveInbox = new LivePromptInbox(
+						record,
+						record.conversations?.root ?? resolveNamzuHome(),
+						() =>
+							!closed &&
+							records.get(sessionId) === record &&
+							record.route === routedEvent &&
+							!signal.aborted &&
+							!selecting.has(sessionId),
+					)
+					liveInputs.set(sessionId, liveInbox)
+				}
 				// Snapshot before admission; a later/current lease is never historical proof.
 				const computer = readyComputerPin(record)
-				const original = { turnId: '', settings, ...(computer ? { computer } : {}) }
+				const original = {
+					turnId: '',
+					settings,
+					...(computer ? { computer } : {}),
+				}
+				const inputInbox = liveInbox
 				for await (const event of record.session.send(messages, {
 					...settings,
 					...(computer
@@ -718,10 +890,21 @@ export function createCliAcpRuntime(
 						: {}),
 					signal,
 					onPermission,
+					...(inputInbox
+						? {
+								inboundMessages: () => {
+									assertLiveOwner(sessionId, inputInbox)
+									return inputInbox.drain()
+								},
+								waitForInbound: inputInbox.wait,
+							}
+						: {}),
 					onConversationMessages: (messages) => {
 						settledHistory = [...messages]
 					},
 				})) {
+					if (event.kind === 'done' || event.kind === 'error' || event.kind === 'paused')
+						liveInbox?.close()
 					if (event.kind === 'done') stopReason = event.stopReason
 					else if (event.kind === 'error' || event.kind === 'paused') {
 						stopReason = signal.aborted ? 'cancelled' : 'error'
@@ -738,6 +921,7 @@ export function createCliAcpRuntime(
 					...(settledHistory === undefined ? {} : { history: settledHistory }),
 				}
 			} finally {
+				liveInbox?.close()
 				if (record.route === routedEvent) record.route = undefined
 			}
 		},
@@ -847,6 +1031,24 @@ export function createCliAcpRuntime(
 	return {
 		gateway,
 		presenter,
+		liveInputStatus: async (sessionId, scopeId, scope) => {
+			if (closed) throw new Error('The connection is closed.')
+			const inbox = liveInputs.get(sessionId)
+			if (!inbox) {
+				if (scopeId !== undefined) throw new Error('This live prompt scope is no longer available.')
+				return { available: false, inputs: [] }
+			}
+			assertLiveOwner(sessionId, inbox, scope)
+			if (scopeId !== undefined && scopeId !== inbox.scopeId)
+				throw new Error('This live prompt scope is no longer available.')
+			return inbox.status()
+		},
+		liveInput: async (sessionId, input, scope) => {
+			const inbox = liveInputs.get(sessionId)
+			if (!inbox) throw new Error('This conversation has no active live prompt.')
+			assertLiveOwner(sessionId, inbox, scope)
+			return inbox.accept(input)
+		},
 		providerRetryStatus: async (sessionId, requestedCwd, authenticatedScope) => {
 			if (closed) throw new Error('The connection is closed.')
 			const root = authenticatedScope?.root ?? resolveNamzuHome()
@@ -1151,6 +1353,8 @@ export function createCliAcpRuntime(
 		},
 		close: async () => {
 			closed = true
+			for (const inbox of liveInputs.values()) inbox.close()
+			liveInputs.clear()
 			pluginOverrides.clear()
 			catalogueController.abort(new Error('The connection is closed.'))
 			const owned = [...records.values()]

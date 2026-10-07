@@ -976,7 +976,10 @@ export function App({
 					event.sessionId,
 					(backgroundWorkVersions.current.get(event.sessionId) ?? 0) + 1,
 				)
-				setBackgroundWork((all) => ({ ...all, [event.sessionId]: event.status }))
+				setBackgroundWork((all) => ({
+					...all,
+					[event.sessionId]: event.status,
+				}))
 				return
 			}
 			if (event.kind === 'pal-deleted') {
@@ -1114,6 +1117,17 @@ export function App({
 					(admission?.started || event.error || event.restoredDraft !== undefined)
 				)
 					draftAdmissions.current.delete(id)
+			}
+			if (event.kind === 'live-input' && event.status === 'delivered') {
+				const admission = draftAdmissions.current.get(id)
+				if (
+					admission?.prompt === event.prompt &&
+					admission.editRevision === (draftEditRevisions.current.get(id) ?? 0) &&
+					draftsRef.current[id] === event.prompt
+				) {
+					draftsRef.current[id] = ''
+					setDrafts((all) => ({ ...all, [id]: '' }))
+				}
 			}
 			if (event.kind === 'prompt' || event.kind === 'update' || event.kind === 'retry') {
 				const rows = catalogueRows.current
@@ -2745,7 +2759,7 @@ export function App({
 			pal,
 		],
 	)
-	const send = async () => {
+	const send = async (delivery: 'current' | 'queue' = 'current') => {
 		if (context.current.frozen) return
 		if (thread.retry || thread.retryNotice || thread.reason === 'paused')
 			throw new Error(
@@ -2826,9 +2840,20 @@ export function App({
 				restored: false,
 				started: false,
 			}
-			if (!thread.running) draftAdmissions.current.set(target, admission)
+			const currentSender = api.sendCurrent
+			const usingCurrent =
+				delivery === 'current' &&
+				thread.running &&
+				thread.liveInputSupported &&
+				attachmentIds.length === 0 &&
+				!palConversation &&
+				!!currentSender
+			if (!thread.running || usingCurrent) draftAdmissions.current.set(target, admission)
 			if (!thread.running) await api.selectProvider(target, route.provider, route.model)
-			await api.send(target, prompt, options)
+			if (usingCurrent && currentSender) {
+				const result = await currentSender(target, prompt, options)
+				if (result === 'queued') draftAdmissions.current.delete(target)
+			} else await api.send(target, prompt, options)
 			submitted = true
 			attached.consume(target, attachmentIds)
 			// A fast failure may settle before this admission reply arrives. Read main's
@@ -3792,11 +3817,14 @@ export function App({
 								onOpenPlugins={() => void loadPlugins()}
 								onSetPluginEnabled={setPluginEnabled}
 								running={thread.running}
+								liveInputSupported={thread.liveInputSupported && !palConversation}
+								liveInputs={thread.liveInputs}
 								sending={sending[draftOwner] ?? false}
 								queued={thread.queued}
 								queuedItems={thread.queuedItems}
 								editingQueued={queueEditing[sessionId] ?? false}
 								onSend={() => void act(send)}
+								onQueue={() => void act(() => send('queue'))}
 								onStop={() => void act(() => api.cancel(sessionId))}
 								onEditQueued={(itemId) => void act(() => editQueued(itemId))}
 								onRemoveQueued={(itemId) => void act(() => api.removeQueued(sessionId, itemId))}

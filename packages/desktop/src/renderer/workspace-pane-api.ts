@@ -1,4 +1,4 @@
-import type { DesktopApi } from '../shared/protocol.js'
+import type { DesktopApi, DesktopSendOptions } from '../shared/protocol.js'
 
 export interface WorkspacePaneApiOptions {
 	owns: (target: string) => boolean
@@ -44,6 +44,7 @@ export function createWorkspacePaneApi(
 		retryTurn,
 		deletePal,
 		removeConversation,
+		sendCurrent,
 	} = base
 	const assertLifetime = (admittedGeneration = generation) => {
 		if (invalidated || generation !== admittedGeneration)
@@ -69,7 +70,11 @@ export function createWorkspacePaneApi(
 	const invoke = <T>(
 		operation: (assertCurrent: () => void) => Promise<T>,
 		owners: readonly string[] = [],
-		settings: { global?: boolean; persistentKey?: string; serializeOwner?: string } = {},
+		settings: {
+			global?: boolean
+			persistentKey?: string
+			serializeOwner?: string
+		} = {},
 	): Promise<T> => {
 		try {
 			assertAdmission(owners, settings.global ?? false)
@@ -93,7 +98,10 @@ export function createWorkspacePaneApi(
 					if (settings.persistentKey) {
 						const last = outcomes.get(settings.persistentKey)
 						if (!last || last.sequence <= admittedSequence)
-							outcomes.set(settings.persistentKey, { sequence: admittedSequence, failed: false })
+							outcomes.set(settings.persistentKey, {
+								sequence: admittedSequence,
+								failed: false,
+							})
 					}
 					return value
 				},
@@ -184,6 +192,12 @@ export function createWorkspacePaneApi(
 		removeAttachment: (owner, id) => invoke(() => base.removeAttachment(owner, id), [owner]),
 		moveAttachments: (from, to) => invoke(() => base.moveAttachments(from, to), [from, to]),
 		send: (owner, prompt, settings) => invoke(() => base.send(owner, prompt, settings), [owner]),
+		...(sendCurrent
+			? {
+					sendCurrent: (owner: string, prompt: string, settings?: DesktopSendOptions) =>
+						invoke(() => sendCurrent(owner, prompt, settings), [owner]),
+				}
+			: {}),
 		cancel: (owner) => invoke(() => base.cancel(owner), [owner]),
 		takeQueued: (owner, itemId) => invoke(() => base.takeQueued(owner, itemId), [owner]),
 		removeQueued: (owner, itemId) => invoke(() => base.removeQueued(owner, itemId), [owner]),
@@ -205,7 +219,10 @@ export function createWorkspacePaneApi(
 		...(removeConversation
 			? {
 					removeConversation: (id) =>
-						invoke(() => removeConversation(id), [], { global: true, serializeOwner: id }),
+						invoke(() => removeConversation(id), [], {
+							global: true,
+							serializeOwner: id,
+						}),
 				}
 			: {}),
 		startPalComputer: (id) => invoke(() => base.startPalComputer(id), [], { global: true }),
@@ -228,13 +245,17 @@ export function createWorkspacePaneApi(
 		...(rebootPalComputer
 			? {
 					rebootPalComputer: (id, computerGeneration) =>
-						invoke(() => rebootPalComputer(id, computerGeneration), [], { global: true }),
+						invoke(() => rebootPalComputer(id, computerGeneration), [], {
+							global: true,
+						}),
 				}
 			: {}),
 		...(takeOverPalComputer
 			? {
 					takeOverPalComputer: (id, computerGeneration) =>
-						invoke(() => takeOverPalComputer(id, computerGeneration), [], { global: true }),
+						invoke(() => takeOverPalComputer(id, computerGeneration), [], {
+							global: true,
+						}),
 				}
 			: {}),
 		...(returnPalComputerControl

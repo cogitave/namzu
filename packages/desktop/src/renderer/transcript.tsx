@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import { type ThreadState, type TimelineEntry, threadPhase } from '../shared/projection.js'
 import { AttachmentList } from './attachment-list.js'
 import { ChevronRightIcon, FileDiffIcon, TerminalIcon } from './icons.js'
@@ -264,19 +264,33 @@ export function Transcript({
 			)}
 			{transcriptTurns(thread).map((group) => (
 				<div className="transcript-turn" key={group.turn} data-transcript-turn={group.turn}>
-					{group.user.map((entry) => (
-						<Entry key={entryKey(entry)} entry={entry} thread={thread} />
-					))}
-					{hasPublicActivity(group.activity, thread) && (
-						<TurnActivity
-							thread={thread}
-							turn={group.turn}
-							entries={group.activity}
-							animate={animate}
-						/>
-					)}
-					{group.answer.map((entry) => (
-						<Entry key={entryKey(entry)} entry={entry} thread={thread} />
+					{group.segments.map((segment, index) => (
+						<Fragment
+							key={
+								segment.user[0]
+									? entryKey(segment.user[0])
+									: segment.activity[0]
+										? entryKey(segment.activity[0])
+										: segment.answer[0]
+											? entryKey(segment.answer[0])
+											: `${group.turn}:${index}`
+							}
+						>
+							{segment.user.map((entry) => (
+								<Entry key={entryKey(entry)} entry={entry} thread={thread} />
+							))}
+							{hasPublicActivity(segment.activity, thread) && (
+								<TurnActivity
+									thread={thread}
+									turn={group.turn}
+									entries={segment.activity}
+									animate={animate}
+								/>
+							)}
+							{segment.answer.map((entry) => (
+								<Entry key={entryKey(entry)} entry={entry} thread={thread} />
+							))}
+						</Fragment>
 					))}
 				</div>
 			))}

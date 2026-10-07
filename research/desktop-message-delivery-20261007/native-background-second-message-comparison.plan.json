@@ -1,0 +1,59 @@
+{
+  "schema": "namzu.native-second-message-comparison-plan.v1",
+  "actualEngines": [
+    "claude-code",
+    "codex-cli"
+  ],
+  "uiBoundary": "Namzu Desktop routes to the actual installed native engines. Desktop queue observations do not establish direct native CLI steering support.",
+  "isolation": "Fresh second Electron userData and NAMZU_HOME; original app receives no actions.",
+  "modelAllowlist": {
+    "claude-code": "Offered Haiku family only, child model haiku",
+    "codex-cli": [
+      "gpt-6.1-luna",
+      "gpt-6-luna",
+      "gpt-5.6-luna"
+    ]
+  },
+  "expensiveFallback": false,
+  "namzuProviderInference": false,
+  "maxRealUserUiSubmissions": 4,
+  "perEngine": [
+    "Start exactly one native background child restricted to one sleep 30 and a completion marker.",
+    "Send one second user message only while an observed child launch and native wait call remain active."
+  ],
+  "nativeChildWork": {
+    "allowedCommand": "sleep 30",
+    "allowedWindowsAlternative": "powershell.exe -NoProfile -NonInteractive -Command \"Start-Sleep -Seconds 30\"",
+    "forbidden": [
+      "file reads/writes",
+      "network commands",
+      "parent shell fallback",
+      "extra children",
+      "model fallback"
+    ]
+  },
+  "permissionMode": "Ask first only. No automatic approval, decline or cancellation; private exact approval requests are reported for root review.",
+  "observationBoundMs": 180000,
+  "boundMeaning": "Expiration is inconclusive external observation, never proof of slow/unsupported delivery or a successful comparison.",
+  "childEvidence": "Strict scoped SDK journal launch/wait input/result receipts; assistant claims alone never prove actual child completion or sleep.",
+  "childModelBoundary": "The child model is explicitly requested and verified from observed native launch arguments. This driver cannot intercept private native subagent inference or prove the requested sleep ran without child receipts.",
+  "pendingOrUnknown": "Preserve owned fixture and driver. Never force-kill or close the primary/process tree.",
+  "cleanup": "Only confirmed idle/known-terminal fixture: corrected Electron module callback; detach Inspector transport; exact CIM lineage normal window close.",
+  "executionRequires": [
+    "--execute",
+    "NAMZU_NATIVE_MESSAGE_DELIVERY_PROOF=1",
+    "native Windows Node",
+    "reviewed pinned launcher and script"
+  ],
+  "pinnedHelper": {
+    "path": "../runtime-desktop-20260930/native-harness-isolated-real-20261006.cjs",
+    "sha256": "ea0a2ebc3b18e69b2e396230a24976d3f78a3bf83041397cb1ef72bb7e70d6e7",
+    "reused": [
+      "isolated app/bootstrap and native lineage checks",
+      "owner/newFixtureChat",
+      "selectEngine/selectModel",
+      "lowest offered effort",
+      "owned normal-close preconditions"
+    ]
+  }
+}

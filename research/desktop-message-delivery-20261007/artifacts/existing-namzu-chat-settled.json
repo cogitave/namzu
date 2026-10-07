@@ -1,0 +1,12 @@
+{
+  "at": "2026-10-07T06:22:41.406Z",
+  "ownerDigest": "3d2315978779fa49db3d2d9fe0d097d945ccec316f63ba6d241344fdd291c771",
+  "running": false,
+  "responding": false,
+  "stopReason": "cancelled",
+  "queuedMessages": 2,
+  "modelRequests": 0,
+  "queueMutations": 0,
+  "finding": "The cancelled parent and owned child settled. The earlier running projection was sampled before child cancellation completed; a prolonged cleanup defect was not established.",
+  "restartBoundary": "Two authored queued messages remain. A native primary restart must preserve them or wait for an explicit operator decision."
+}

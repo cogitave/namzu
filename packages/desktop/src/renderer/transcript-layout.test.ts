@@ -65,6 +65,75 @@ it('keeps commentary, tools and thoughts in admitted order above the answer', ()
 	).toEqual(['Reviewed'])
 })
 
+it('keeps a same-turn live input after prior work and before its following answer', () => {
+	let thread = applyEvent(emptyThread(), {
+		kind: 'prompt',
+		sessionId: 's',
+		prompt: 'Original request',
+	})
+	thread = applyEvent(thread, {
+		kind: 'update',
+		projectId: 'p',
+		sessionId: 's',
+		update: {
+			kind: 'agent_message_chunk',
+			text: 'Prior commentary',
+			phase: 'commentary',
+			messageId: 'before',
+		},
+	})
+	thread = applyEvent(thread, {
+		kind: 'update',
+		projectId: 'p',
+		sessionId: 's',
+		update: {
+			kind: 'tool_call',
+			toolCallId: 'prior-tool',
+			title: 'Check workspace',
+			status: 'completed',
+			view: { kind: 'terminal', command: 'pwd', output: 'workspace' },
+		},
+	})
+	thread = applyEvent(thread, {
+		kind: 'live-input',
+		sessionId: 's',
+		inputId: 'live',
+		prompt: 'Steer now',
+		status: 'unknown',
+	})
+	thread = applyEvent(thread, {
+		kind: 'update',
+		projectId: 'p',
+		sessionId: 's',
+		update: { kind: 'agent_message_chunk', text: 'Following answer', messageId: 'after' },
+	})
+	thread = applyEvent(thread, {
+		kind: 'live-input',
+		sessionId: 's',
+		inputId: 'live',
+		prompt: 'Steer now',
+		status: 'delivered',
+	})
+	const turn = transcriptTurns(thread)[0]
+	expect(
+		turn?.segments.map((segment) => ({
+			user: segment.user.map((entry) =>
+				entry.kind === 'message' ? thread.messages[entry.index]?.text : '',
+			),
+			activity: segment.activity.map((entry) =>
+				entry.kind === 'message' ? thread.messages[entry.index]?.text : entry.kind,
+			),
+			answer: segment.answer.map((entry) =>
+				entry.kind === 'message' ? thread.messages[entry.index]?.text : entry.kind,
+			),
+		})),
+	).toEqual([
+		{ user: ['Original request'], activity: ['Prior commentary', 'tool'], answer: [] },
+		{ user: ['Steer now'], activity: [], answer: ['Following answer'] },
+	])
+	expect(thread.turn).toBe(1)
+})
+
 it('does not move an early final part across later tool events or invent work in text-only restored history', () => {
 	const thread = emptyThread()
 	thread.messages = [

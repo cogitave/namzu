@@ -1,11 +1,15 @@
 import type { ThreadState, TimelineEntry } from '../shared/projection.js'
 import type { ToolTranscriptState } from './tool-transcript-presentation.js'
 
-export interface TranscriptTurn {
-	turn: number
+export interface TranscriptSegment {
 	user: TimelineEntry[]
 	activity: TimelineEntry[]
 	answer: TimelineEntry[]
+}
+export interface TranscriptTurn extends TranscriptSegment {
+	turn: number
+	/** A later user input starts a new visible segment in the same execution turn. */
+	segments: TranscriptSegment[]
 }
 
 export function toolGroupLabel(
@@ -52,34 +56,55 @@ export function transcriptTurns(thread: ThreadState): TranscriptTurn[] {
 		groups.set(entry.turn, entries)
 	}
 	return [...groups].map(([turn, entries]) => {
-		const user = entries.filter(
-			(entry) => entry.kind === 'message' && thread.messages[entry.index]?.role === 'user',
-		)
-		const work = entries.filter((entry) => {
-			if (user.includes(entry)) return false
-			if (entry.kind === 'tool') return Boolean(thread.tools[entry.id])
-			if (entry.kind === 'reasoning') return Boolean(thread.reasoning[entry.id]?.text.trim())
-			const message = thread.messages[entry.index]
-			return Boolean(message?.text.trim() || message?.attachments?.length)
-		})
-		const hasActivity = work.some(
-			(entry) => entry.kind !== 'message' || thread.messages[entry.index]?.phase === 'commentary',
-		)
-		if (!hasActivity) return { turn, user, activity: [], answer: work }
-		// An answer is a suffix: never move it across a later thought/tool event.
-		let split = work.length
-		while (split > 0) {
-			const entry = work[split - 1]
-			if (entry?.kind !== 'message') break
-			const message = thread.messages[entry.index]
-			if (!message || message.role !== 'assistant' || message.phase === 'commentary') break
-			split -= 1
+		const segments: TranscriptSegment[] = []
+		let user: TimelineEntry[] = []
+		let work: TimelineEntry[] = []
+		const append = () => {
+			if (!user.length && !work.length) return
+			const hasActivity = work.some(
+				(entry) => entry.kind !== 'message' || thread.messages[entry.index]?.phase === 'commentary',
+			)
+			if (!hasActivity) {
+				segments.push({ user, activity: [], answer: work })
+			} else {
+				// An answer is a suffix: never move it across a later thought/tool event.
+				let split = work.length
+				while (split > 0) {
+					const entry = work[split - 1]
+					if (entry?.kind !== 'message') break
+					const message = thread.messages[entry.index]
+					if (!message || message.role !== 'assistant' || message.phase === 'commentary') break
+					split -= 1
+				}
+				segments.push({ user, activity: work.slice(0, split), answer: work.slice(split) })
+			}
+			user = []
+			work = []
 		}
+		for (const entry of entries) {
+			if (entry.kind === 'message' && thread.messages[entry.index]?.role === 'user') {
+				if (work.length) append()
+				user.push(entry)
+				continue
+			}
+			if (entry.kind === 'tool') {
+				if (thread.tools[entry.id]) work.push(entry)
+				continue
+			}
+			if (entry.kind === 'reasoning') {
+				if (thread.reasoning[entry.id]?.text.trim()) work.push(entry)
+				continue
+			}
+			const message = thread.messages[entry.index]
+			if (message?.text.trim() || message?.attachments?.length) work.push(entry)
+		}
+		append()
 		return {
 			turn,
-			user,
-			activity: work.slice(0, split),
-			answer: work.slice(split),
+			segments,
+			user: segments.flatMap((segment) => segment.user),
+			activity: segments.flatMap((segment) => segment.activity),
+			answer: segments.flatMap((segment) => segment.answer),
 		}
 	})
 }

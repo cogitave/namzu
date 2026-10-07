@@ -48,6 +48,10 @@ export class RuntimeClient extends EventEmitter {
 	private promptAttachments = false
 	private promptOptions = false
 	private turnRetry = false
+	private liveInput = false
+	supportsLiveInput(): boolean {
+		return this.liveInput
+	}
 	private tasks = false
 	supportsTasks(): boolean {
 		return this.tasks
@@ -88,7 +92,10 @@ export class RuntimeClient extends EventEmitter {
 	}
 	private report(event: DesktopDiagnosticEvent, context: DesktopDiagnosticContext = {}): void {
 		try {
-			this.diagnostics?.record(event, { ...context, connection: this.connection })
+			this.diagnostics?.record(event, {
+				...context,
+				connection: this.connection,
+			})
 		} catch {
 			/* A host diagnostic sink cannot break transport ownership. */
 		}
@@ -101,7 +108,10 @@ export class RuntimeClient extends EventEmitter {
 			const line = this.stderrBuffer.slice(0, newline).trim()
 			this.stderrBuffer = this.stderrBuffer.slice(newline + 1)
 			if (line)
-				this.report('cli_stderr', { bytes: Buffer.byteLength(line), ...desktopStderrDetails(line) })
+				this.report('cli_stderr', {
+					bytes: Buffer.byteLength(line),
+					...desktopStderrDetails(line),
+				})
 			newline = this.stderrBuffer.indexOf('\n')
 		}
 		if (this.stderrBuffer.length > 16_000) {
@@ -116,7 +126,10 @@ export class RuntimeClient extends EventEmitter {
 		const line = this.stderrBuffer.trim()
 		this.stderrBuffer = ''
 		if (line)
-			this.report('cli_stderr', { bytes: Buffer.byteLength(line), ...desktopStderrDetails(line) })
+			this.report('cli_stderr', {
+				bytes: Buffer.byteLength(line),
+				...desktopStderrDetails(line),
+			})
 	}
 	async start(): Promise<void> {
 		if (this.child || this.closed) throw new Error('This connection cannot be started twice.')
@@ -166,6 +179,9 @@ export class RuntimeClient extends EventEmitter {
 		this.turnRetry = ['namzu/sessions/retry-status', 'namzu/sessions/retry'].every((method) =>
 			result.extensions?.includes(method),
 		)
+		this.liveInput = ['namzu/conversations/input/status', 'namzu/conversations/input'].every(
+			(method) => result.extensions?.includes(method),
+		)
 		this.pals = [
 			'namzu/pals/list',
 			'namzu/pals/get',
@@ -202,7 +218,11 @@ export class RuntimeClient extends EventEmitter {
 				? new ExpectedRuntimeCloseError()
 				: new Error('Namzu is not connected.')
 			if (!this.expectedClose)
-				this.report('cli_request_failed', { operation: method, request: id, error })
+				this.report('cli_request_failed', {
+					operation: method,
+					request: id,
+					error,
+				})
 			return Promise.reject(error)
 		}
 		return new Promise((resolve, reject) => {
@@ -213,7 +233,11 @@ export class RuntimeClient extends EventEmitter {
 							const error = new Error(
 								'Namzu did not answer. Stop the operation or reopen this project.',
 							)
-							this.report('cli_request_failed', { operation: method, request: id, error })
+							this.report('cli_request_failed', {
+								operation: method,
+								request: id,
+								error,
+							})
 							reject(error)
 						}, timeoutMs)
 					: undefined
@@ -306,7 +330,12 @@ export class RuntimeClient extends EventEmitter {
 		if (!this.closed && !expected) this.report('cli_transport_failed', { error })
 		const failure = expected ? new ExpectedRuntimeCloseError() : error
 		for (const [request, entry] of this.pending) {
-			if (!expected) this.report('cli_request_failed', { operation: entry.method, request, error })
+			if (!expected)
+				this.report('cli_request_failed', {
+					operation: entry.method,
+					request,
+					error,
+				})
 			clearTimeout(entry.timer)
 			entry.reject(failure)
 		}
@@ -347,7 +376,11 @@ export class RuntimeClient extends EventEmitter {
 						(error) => {
 							if (error && !this.processClosed) {
 								child.off('close', finish)
-								reject(new Error('Could not stop the owned Namzu process tree.', { cause: error }))
+								reject(
+									new Error('Could not stop the owned Namzu process tree.', {
+										cause: error,
+									}),
+								)
 							}
 						},
 					)

@@ -1563,13 +1563,30 @@ these differences rather than claiming identical live projections.
 
 Enter sends; Shift+Enter adds a line. IME composition does not submit. While a
 composition is active, global Escape and other shortcuts do not cancel work or
-open another surface. While a
-turn runs, new messages are queued for its next turn; they are visibly separate
-from started prompts. Open the queued-message count to inspect every pending
+open another surface. During a supported ordinary Namzu turn, text-only Send
+admits the message to that turn's scoped inbox. A waiting delegated-agent call
+can release its wait while the child continues, and the runtime consumes the
+input at a legal conversation boundary. Admission and consumption are separate
+receipts; neither promises a particular response time or cancels the child.
+The composer also offers explicit queueing for the next turn. Native harnesses,
+Pal chats, attachments and older runtimes retain next-turn queueing when live
+input is unavailable. The existing `send` API keeps that behavior; the optional
+`sendCurrent` action requests current-turn delivery. Existing queued messages
+are never silently promoted into live input.
+
+Queued prompts are visibly separate from started prompts. Open the queued-message count to inspect every pending
 message, edit one or remove that exact item. Stop preserves queued text. Edit
 latest (Alt+Up) returns an authored queued prompt to the composer; a non-empty
 draft must be sent or cleared first, so editing cannot discard unrelated text.
 A message that has already started cannot be edited or removed from the queue.
+Current-turn admission captures the exact run, connection, runtime session and
+opaque prompt scope. A stale scope or unsupported payload cannot authorize a
+replacement turn. Acknowledged input is reconciled against consumption receipts
+when the turn settles; unconsumed text returns to its unchanged composer draft,
+or to the next-turn queue when a newer draft needs preservation. An unreadable
+acknowledgement or status retains the text for review. A queued uncertain input
+requires an explicit edit before replay; it never starts automatically. These
+receipts and the queue are connection-local and do not persist across quitting.
 
 Unsent drafts belong to their conversation or to a blank project composer scoped
 to its window and tab group in the main process. A blank project draft survives
@@ -1616,6 +1633,8 @@ ACP methods and are not automatically installed in embedded SDK servers.
 | `namzu/conversations/list` | none | up to 100 recent project conversations |
 | `namzu/conversations/history` | `sessionId` | bounded text messages, text `partial`, and optional ordinary `work` v1 display snapshot |
 | `namzu/conversations/archive` | exact `sessionId` | strict captured-project archive; `{sessionId, archived: true}` only for a confirmed archived journal, or `{sessionId, archived: false, missing: true}` for confirmed absence |
+| `namzu/conversations/input/status` | exact `sessionId`, optional `scopeId` | current or retained closed prompt scope, `available`, and input IDs classified as `pending` or `delivered` |
+| `namzu/conversations/input` | exact `sessionId`, `scopeId`, `inputId`, text `prompt` | idempotent current-turn admission receipt; differing text under the same input ID is refused |
 | `namzu/pals/delete` | exact `id`, `expectedRevision` | `{id, deleted: true}` after exact-revision terminal publication; retained data is not erased |
 | `namzu/providers/status` | optional `sessionId` | safe configured provider metadata and saved default |
 | `namzu/providers/models` | `provider`, optional `sessionId` | configured provider catalogue; `{ models: [{ id, label, note? }], notice }`, with at most 4,096 actual listed rows; unavailable selections and failed lists have explicit notices |

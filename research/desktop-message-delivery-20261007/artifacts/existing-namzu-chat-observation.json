@@ -1,0 +1,50 @@
+{
+  "at": "2026-10-07T06:06:29.270Z",
+  "kind": "read-only existing native ordinary conversation observation",
+  "ownerDigest": "3d2315978779fa49db3d2d9fe0d097d945ccec316f63ba6d241344fdd291c771",
+  "harness": "namzu",
+  "running": true,
+  "responding": false,
+  "queuedMessages": 1,
+  "messageCount": 23,
+  "completedTurns": 9,
+  "inFlightTurns": 1,
+  "tools": [
+    {
+      "title": "Agent",
+      "status": "completed"
+    },
+    {
+      "title": "Agent",
+      "status": "completed"
+    },
+    {
+      "title": "wait_for_task",
+      "status": "completed"
+    }
+  ],
+  "observedControls": [
+    {
+      "label": "Show queued messages",
+      "disabled": false
+    },
+    {
+      "label": "Stop turn",
+      "disabled": false
+    }
+  ],
+  "modelRequests": 0,
+  "computerActions": 0,
+  "queueMutations": 0,
+  "privateContentsCommitted": false,
+  "findings": [
+    "Desktop send admitted authored messages to the next-turn queue while the parent waited for a background child.",
+    "The assistant attributed the absence of delivered input to the user, although the Desktop queue held it.",
+    "The CLI already binds wait_for_task to operator-input wakeup in its TUI; the desktop ACP prompt did not supply that inbox."
+  ],
+  "limits": [
+    "The screenshot records three queued messages at an earlier point; this later observation records one.",
+    "No provider token timing or native child model cost is inferred from this snapshot.",
+    "No current user draft, queue, turn or child was cancelled or edited."
+  ]
+}
