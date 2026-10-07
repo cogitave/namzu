@@ -17,7 +17,7 @@ const discovery = (id, kind, result) => {
 const releaseDiscoveries = () => {
 	for (const { id, result } of delayedDiscoveries.splice(0)) reply(id, result)
 }
-const methods = ['namzu/harnesses/list', 'namzu/harnesses/select', 'namzu/project/status', 'namzu/project/trust', 'namzu/conversations/list', 'namzu/conversations/history', 'namzu/providers/status', 'namzu/providers/models', 'namzu/providers/select', 'namzu/jobs/list', 'namzu/jobs/read', 'namzu/jobs/stop', ...(process.env.FIXTURE_LIVE_INPUT ? ['namzu/conversations/input/status', 'namzu/conversations/input'] : []), 'namzu/conversations/rename', 'namzu/conversations/fork', 'namzu/conversations/markdown', 'namzu/project/git', 'namzu/conversations/archived', 'namzu/conversations/unarchive']
+const methods = ['namzu/harnesses/list', 'namzu/harnesses/select', 'namzu/project/status', 'namzu/project/trust', 'namzu/conversations/list', 'namzu/conversations/history', 'namzu/providers/status', 'namzu/providers/models', 'namzu/providers/select', 'namzu/jobs/list', 'namzu/jobs/read', 'namzu/jobs/stop', ...(process.env.FIXTURE_LIVE_INPUT ? ['namzu/conversations/input/status', 'namzu/conversations/input'] : []), 'namzu/conversations/rename', 'namzu/conversations/fork', 'namzu/conversations/markdown', 'namzu/project/git', ...(process.env.FIXTURE_NO_CHANGES ? [] : ['namzu/project/changes', 'namzu/project/diff']), 'namzu/conversations/archived', 'namzu/conversations/unarchive']
 const lines = createInterface({ input: process.stdin })
 lines.on('close', () => process.exit(0))
 lines.on('line', (line) => {
@@ -65,6 +65,8 @@ lines.on('line', (line) => {
 	else if (method === 'namzu/conversations/unarchive') reply(id, { id: params.sessionId, title: 'Restored title', updatedAt: '2026-10-05T00:00:00.000Z' })
 	else if (method === 'namzu/conversations/markdown') reply(id, { markdown: '# Exported', truncated: false })
 	else if (method === 'namzu/project/git') reply(id, process.env.FIXTURE_NO_GIT ? null : { branch: 'main', subject: 'Initial commit' })
+	else if (method === 'namzu/project/changes') reply(id, process.env.FIXTURE_CHANGES ? JSON.parse(process.env.FIXTURE_CHANGES) : { files: [{ path: 'a.ts', status: 'modified', added: 2, removed: 1 }], truncated: false })
+	else if (method === 'namzu/project/diff') reply(id, process.env.FIXTURE_DIFF ? JSON.parse(process.env.FIXTURE_DIFF) : { before: 'old\n', after: 'new\n', binary: false, truncated: false })
 	else if (method === 'namzu/conversations/history') {
 		if (process.env.FIXTURE_HISTORY_MODE === 'missing') send({ id, error: { code: -32603, message: `Conversation ${params.sessionId} was not found — load conversation history rejected` } })
 		else if (process.env.FIXTURE_HISTORY_MODE === 'foreign') send({ id, error: { code: -32603, message: `Conversation ${params.sessionId} does not belong to this workspace — load conversation history rejected` } })

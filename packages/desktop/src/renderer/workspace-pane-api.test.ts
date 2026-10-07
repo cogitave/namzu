@@ -32,7 +32,9 @@ describe('pane write admission', () => {
 		expect(localSpeechInstall).toHaveBeenCalledOnce()
 	})
 	it('cancels only this pane voice during invalidation and refuses a foreign conversation', async () => {
-		const localSpeechSpeak = vi.fn(async (input) => ({ requestId: input.requestId }))
+		const localSpeechSpeak = vi.fn(async (input) => ({
+			requestId: input.requestId,
+		}))
 		const localSpeechCancel = vi.fn(async () => {})
 		const controller = createWorkspacePaneApi(bridge({ localSpeechSpeak, localSpeechCancel }), {
 			owns: (owner) => owner === 'mine',
@@ -64,7 +66,11 @@ describe('pane write admission', () => {
 			.mockResolvedValue({ id: 'pal', deleted: true })
 		const removeConversation = vi
 			.fn<NonNullable<DesktopApi['removeConversation']>>()
-			.mockResolvedValue({ sessionId: 'inactive', removed: true, archived: false })
+			.mockResolvedValue({
+				sessionId: 'inactive',
+				removed: true,
+				archived: false,
+			})
 		const original = Object.freeze(bridge({ deletePal, removeConversation }))
 		let blocked = false
 		let writable = false
@@ -113,6 +119,15 @@ describe('pane write admission', () => {
 			.fn<NonNullable<DesktopApi['conversationMarkdown']>>()
 			.mockResolvedValue({ markdown: '', truncated: false })
 		const projectGit = vi.fn<NonNullable<DesktopApi['projectGit']>>().mockResolvedValue(null)
+		const projectChanges = vi
+			.fn<NonNullable<DesktopApi['projectChanges']>>()
+			.mockResolvedValue({ files: [], truncated: false })
+		const projectDiff = vi.fn<NonNullable<DesktopApi['projectDiff']>>().mockResolvedValue({
+			before: null,
+			after: 'x',
+			binary: false,
+			truncated: false,
+		})
 		let blocked = false
 		let writable = true
 		const controller = createWorkspacePaneApi(
@@ -122,8 +137,14 @@ describe('pane write admission', () => {
 				forkConversation,
 				conversationMarkdown,
 				projectGit,
+				projectChanges,
+				projectDiff,
 			}),
-			{ owns: () => false, blocked: () => blocked, allowGlobalMutations: () => writable },
+			{
+				owns: () => false,
+				blocked: () => blocked,
+				allowGlobalMutations: () => writable,
+			},
 		)
 		const calls = () => [
 			controller.api.renameConversation?.('a', 'B'),
@@ -131,6 +152,8 @@ describe('pane write admission', () => {
 			controller.api.forkConversation?.('a'),
 			controller.api.conversationMarkdown?.('a'),
 			controller.api.projectGit?.('p'),
+			controller.api.projectChanges?.('p'),
+			controller.api.projectDiff?.('p', 'a.ts'),
 		]
 		await expect(Promise.all(calls())).resolves.toBeDefined()
 		writable = false
@@ -148,6 +171,8 @@ describe('pane write admission', () => {
 		expect(forkConversation).toHaveBeenCalledTimes(1)
 		expect(conversationMarkdown).toHaveBeenCalledTimes(1)
 		expect(projectGit).toHaveBeenCalledTimes(1)
+		expect(projectChanges).toHaveBeenCalledTimes(1)
+		expect(projectDiff).toHaveBeenCalledTimes(1)
 	})
 
 	it('routes the project file calls through the same admission as the header calls', async () => {
@@ -162,12 +187,26 @@ describe('pane write admission', () => {
 			.mockResolvedValue(undefined)
 		const restoreConversation = vi
 			.fn<NonNullable<DesktopApi['restoreConversation']>>()
-			.mockResolvedValue({ id: 'a', title: 'A', projectId: 'p', updatedAt: '' })
+			.mockResolvedValue({
+				id: 'a',
+				title: 'A',
+				projectId: 'p',
+				updatedAt: '',
+			})
 		let blocked = false
 		let writable = true
 		const controller = createWorkspacePaneApi(
-			bridge({ listProjectDirectory, readProjectFile, openProjectPath, restoreConversation }),
-			{ owns: () => false, blocked: () => blocked, allowGlobalMutations: () => writable },
+			bridge({
+				listProjectDirectory,
+				readProjectFile,
+				openProjectPath,
+				restoreConversation,
+			}),
+			{
+				owns: () => false,
+				blocked: () => blocked,
+				allowGlobalMutations: () => writable,
+			},
 		)
 		const reads = () => [
 			controller.api.listProjectDirectory?.('p', ''),
@@ -191,7 +230,11 @@ describe('pane write admission', () => {
 	it('drains an admitted draft before its removal and includes both writes in transfer flush', async () => {
 		const entered = deferred<void>()
 		const saved = deferred<void>()
-		const removed = deferred<{ sessionId: string; removed: true; archived: boolean }>()
+		const removed = deferred<{
+			sessionId: string
+			removed: true
+			archived: boolean
+		}>()
 		const saveDraft = vi.fn<DesktopApi['saveDraft']>().mockImplementation(async () => {
 			entered.resolve()
 			await saved.promise
@@ -232,7 +275,12 @@ describe('pane write admission', () => {
 			owns: (id) => id === 'owned',
 			blocked: () => blocked,
 		})
-		const change = { snapshotId: 'snapshot', peerPalId: 'peer', enabled: true, allowWake: false }
+		const change = {
+			snapshotId: 'snapshot',
+			peerPalId: 'peer',
+			enabled: true,
+			allowWake: false,
+		}
 		await expect(controller.api.updatePalPermission?.('foreign', 'pal', change)).rejects.toThrow(
 			'another pane',
 		)
@@ -391,7 +439,9 @@ describe('pane persistence and transfer flush', () => {
 			blocked: () => blocked,
 		})
 		const first = controller.api.saveDraft('a', 'latest draft')
-		const second = controller.api.saveDraftSettings('a', { options: { effort: 'high' } })
+		const second = controller.api.saveDraftSettings('a', {
+			options: { effort: 'high' },
+		})
 		await firstStarted.promise
 		expect(writes).toEqual(['latest draft'])
 		blocked = true
@@ -579,7 +629,12 @@ describe('pane persistence and transfer flush', () => {
 		await started.promise
 		controller.invalidate()
 		controller.activate()
-		completed.resolve({ id: 'old', projectId: 'p', title: 'Old', updatedAt: '2026-10-04' })
+		completed.resolve({
+			id: 'old',
+			projectId: 'p',
+			title: 'Old',
+			updatedAt: '2026-10-04',
+		})
 		await rejected
 		expect(created).not.toHaveBeenCalled()
 	})

@@ -1,0 +1,291 @@
+/* The Changes tab: one file's diff beside the tree of changed files. */
+.changes-review {
+	container: changes / inline-size;
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	min-height: 0;
+	min-width: 0;
+	--changes-added: #15803d;
+	--changes-removed: var(--error-foreground);
+}
+.dark .changes-review {
+	--changes-added: #4ade80;
+	--changes-removed: #ff8a8a;
+}
+.changes-bar {
+	display: flex;
+	flex: none;
+	align-items: center;
+	gap: 10px;
+	height: 44px;
+	padding: 0 12px;
+	border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+}
+.changes-scope {
+	display: inline-flex;
+	flex: none;
+	align-items: center;
+	gap: 6px;
+	height: 28px;
+	white-space: nowrap;
+	padding: 0 10px;
+	border-radius: 999px;
+	background: var(--accent);
+	color: var(--foreground);
+	font-size: 13px;
+	cursor: pointer;
+}
+.changes-scope svg {
+	width: 12px;
+	height: 12px;
+	opacity: 0.6;
+}
+.changes-scope:focus-visible,
+.changes-icon-button:focus-visible,
+.changes-files-toggle:focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: 1px;
+}
+.changes-totals,
+.changes-diff-counts,
+.changes-tree-counts {
+	display: inline-flex;
+	flex: none;
+	align-items: center;
+	gap: 6px;
+	font-family: var(--font-mono);
+	font-size: 12px;
+	font-variant-numeric: tabular-nums;
+}
+.changes-added {
+	color: var(--changes-added);
+}
+.changes-removed {
+	color: var(--changes-removed);
+}
+.changes-toolbar {
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	margin-inline-start: auto;
+	padding: 2px;
+	border-radius: 999px;
+	background: color-mix(in srgb, var(--accent) 70%, transparent);
+}
+.changes-icon-button {
+	display: inline-grid;
+	flex: none;
+	place-items: center;
+	width: 24px;
+	height: 24px;
+	border-radius: 6px;
+	color: var(--muted-foreground);
+	cursor: pointer;
+}
+.changes-icon-button:hover {
+	background: var(--accent);
+	color: var(--foreground);
+}
+.changes-icon-button svg {
+	width: 14px;
+	height: 14px;
+}
+.changes-body {
+	display: grid;
+	flex: 1;
+	min-height: 0;
+	grid-template-columns: minmax(0, 1fr);
+	grid-template-rows: auto auto minmax(0, 1fr);
+}
+/* Narrow: the files sit above the diff and fold away. */
+.changes-files {
+	grid-row: 1;
+	display: none;
+	flex-direction: column;
+	min-height: 0;
+	max-height: 40vh;
+	padding: 8px;
+	border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+}
+.changes-body[data-files-open="true"] .changes-files {
+	display: flex;
+}
+.changes-files-toggle {
+	grid-row: 2;
+	justify-self: start;
+	margin: 4px 12px;
+	padding: 3px 10px;
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	color: var(--foreground);
+	font-size: 12px;
+	cursor: pointer;
+}
+.changes-files-toggle:hover {
+	background: var(--accent);
+}
+.changes-diff {
+	grid-row: 3;
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	min-width: 0;
+}
+@container changes (min-width: 640px) {
+	.changes-body {
+		grid-template-columns: minmax(0, 1fr) 260px;
+		grid-template-rows: minmax(0, 1fr);
+	}
+	.changes-files {
+		grid-row: 1;
+		grid-column: 2;
+		display: flex;
+		max-height: none;
+		border-bottom: 0;
+		border-inline-start: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+	}
+	.changes-files-toggle {
+		display: none;
+	}
+	.changes-diff {
+		grid-row: 1;
+		grid-column: 1;
+	}
+}
+.changes-filter {
+	display: flex;
+	flex: none;
+	align-items: center;
+	gap: 8px;
+	height: 32px;
+	margin-bottom: 6px;
+	padding: 0 10px;
+	border: 1px solid var(--border);
+	border-radius: 10px;
+	color: var(--muted-foreground);
+}
+.changes-filter:focus-within {
+	border-color: var(--ring);
+}
+.changes-filter svg {
+	flex: none;
+	width: 14px;
+	height: 14px;
+}
+.changes-filter input {
+	flex: 1;
+	min-width: 0;
+	border: 0;
+	outline: 0;
+	background: transparent;
+	color: var(--foreground);
+	font-size: 13px;
+}
+.changes-tree-scroll {
+	flex: 1;
+	min-height: 0;
+	overflow: auto;
+}
+.changes-tree {
+	position: relative;
+	outline: none;
+}
+.changes-tree-row {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding-inline-end: 8px;
+	border-radius: 8px;
+	color: var(--foreground);
+	font-size: 13px;
+	text-align: left;
+	cursor: pointer;
+}
+.changes-tree-row:hover,
+.changes-tree-row[data-active] {
+	background: var(--accent);
+}
+.changes-tree-row[data-focused]:focus-visible,
+.changes-tree-row:focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: -2px;
+}
+.changes-tree-row[data-status="deleted"] .changes-tree-name {
+	color: var(--muted-foreground);
+	text-decoration: line-through;
+}
+.changes-tree-chevron {
+	flex: none;
+	width: 12px;
+	height: 12px;
+	color: var(--muted-foreground);
+	transition: transform 120ms;
+}
+.changes-tree-chevron[data-open] {
+	transform: rotate(90deg);
+}
+.changes-tree-file-icon {
+	flex: none;
+	width: 14px;
+	height: 14px;
+	color: var(--muted-foreground);
+}
+.changes-tree-badge {
+	flex: none;
+	width: 20px;
+	color: var(--muted-foreground);
+	font-size: 10px;
+	font-weight: 700;
+	letter-spacing: -0.02em;
+}
+.changes-tree-name {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.changes-tree-note {
+	color: var(--muted-foreground);
+	font-family: var(--font-sans);
+	font-size: 11px;
+}
+.changes-diff-head {
+	display: flex;
+	flex: none;
+	align-items: center;
+	gap: 8px;
+	height: 36px;
+	padding: 0 10px;
+	border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+	font-size: 12px;
+}
+.changes-diff-path {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	direction: rtl;
+	text-align: left;
+}
+.changes-diff-body {
+	flex: 1;
+	min-height: 0;
+	overflow: auto;
+}
+.changes-message,
+.changes-note {
+	margin: 0;
+	padding: 12px;
+	color: var(--muted-foreground);
+	font-size: 13px;
+}
+.changes-note {
+	padding: 6px 8px;
+	font-size: 12px;
+}
+.changes-empty {
+	padding: 24px 16px;
+}

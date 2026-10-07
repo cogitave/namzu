@@ -3,6 +3,7 @@ import type {
 	ProjectFileEntry,
 	ProjectLinkResolution,
 } from '../shared/protocol.js'
+import { sampleWorkingFiles } from './preview-changes.js'
 
 /** An in-memory project for the design preview: Markdown with frontmatter, source, an image and a large file. */
 type SampleFile =
@@ -124,6 +125,10 @@ const sample: Record<string, SampleFile> = {
 		).join('\n'),
 	},
 }
+
+// Uncommitted files exist on disk too, and the Changes view's Open file reads them.
+for (const [path, text] of Object.entries(sampleWorkingFiles()))
+	if (!(path in sample)) sample[path] = { kind: 'text', text }
 
 const roots: Record<string, Record<string, SampleFile>> = {
 	'sample-app': sample,

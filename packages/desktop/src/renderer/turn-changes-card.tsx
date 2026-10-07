@@ -29,7 +29,7 @@ export function TurnChangesCard({
 	onOpenFile,
 }: {
 	changes: TurnChanges
-	onOpen: (receiptIds: string[]) => void
+	onOpen: (receiptIds: string[], path?: string) => void
 	/** Shows the file itself, not its diff; absent where the project's files are not available. */
 	onOpenFile?: (path: string) => void
 }) {
@@ -100,7 +100,7 @@ export function TurnChangesCard({
 								type="button"
 								className="turn-changes-file"
 								title={file.path}
-								onClick={() => onOpen(file.receiptIds)}
+								onClick={() => onOpen(changes.receiptIds, file.path)}
 							>
 								<span className="turn-changes-file-name">{file.name}</span>
 								<Totals added={file.added} removed={file.removed} />

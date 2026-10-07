@@ -50,6 +50,8 @@ export function createWorkspacePaneApi(
 		forkConversation,
 		conversationMarkdown,
 		projectGit,
+		projectChanges,
+		projectDiff,
 		listProjectDirectory,
 		projectFileIndex,
 		readProjectFile,
@@ -336,7 +338,10 @@ export function createWorkspacePaneApi(
 		...(renameConversation
 			? {
 					renameConversation: (id, title) =>
-						invoke(() => renameConversation(id, title), [], { global: true, serializeOwner: id }),
+						invoke(() => renameConversation(id, title), [], {
+							global: true,
+							serializeOwner: id,
+						}),
 				}
 			: {}),
 		...(setConversationPinned
@@ -351,24 +356,37 @@ export function createWorkspacePaneApi(
 		...(forkConversation
 			? {
 					forkConversation: (id) =>
-						invoke(() => forkConversation(id), [], { global: true, serializeOwner: id }),
+						invoke(() => forkConversation(id), [], {
+							global: true,
+							serializeOwner: id,
+						}),
 				}
 			: {}),
 		...(conversationMarkdown
-			? { conversationMarkdown: (id) => invoke(() => conversationMarkdown(id), []) }
+			? {
+					conversationMarkdown: (id) => invoke(() => conversationMarkdown(id), []),
+				}
 			: {}),
 		...(projectGit ? { projectGit: (id) => invoke(() => projectGit(id), []) } : {}),
+		...(projectChanges ? { projectChanges: (id) => invoke(() => projectChanges(id), []) } : {}),
+		...(projectDiff ? { projectDiff: (id, path) => invoke(() => projectDiff(id, path), []) } : {}),
 		...(listProjectDirectory
-			? { listProjectDirectory: (id, dir) => invoke(() => listProjectDirectory(id, dir), []) }
+			? {
+					listProjectDirectory: (id, dir) => invoke(() => listProjectDirectory(id, dir), []),
+				}
 			: {}),
 		...(projectFileIndex
 			? { projectFileIndex: (id) => invoke(() => projectFileIndex(id), []) }
 			: {}),
 		...(readProjectFile
-			? { readProjectFile: (id, path) => invoke(() => readProjectFile(id, path), []) }
+			? {
+					readProjectFile: (id, path) => invoke(() => readProjectFile(id, path), []),
+				}
 			: {}),
 		...(resolveProjectLinks
-			? { resolveProjectLinks: (id, refs) => invoke(() => resolveProjectLinks(id, refs), []) }
+			? {
+					resolveProjectLinks: (id, refs) => invoke(() => resolveProjectLinks(id, refs), []),
+				}
 			: {}),
 		...(openProjectPath
 			? {
@@ -378,7 +396,9 @@ export function createWorkspacePaneApi(
 			: {}),
 		...(projectEditors ? { projectEditors: () => invoke(() => projectEditors(), []) } : {}),
 		...(archivedConversations
-			? { archivedConversations: (id) => invoke(() => archivedConversations(id), []) }
+			? {
+					archivedConversations: (id) => invoke(() => archivedConversations(id), []),
+				}
 			: {}),
 		...(restoreConversation
 			? {

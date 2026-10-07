@@ -2,6 +2,7 @@
 import {
 	AppWindow,
 	Archive,
+	ChevronsDownUp,
 	Clock,
 	Copy,
 	Ellipsis,
@@ -17,6 +18,7 @@ import {
 	House,
 	Image,
 	ListChecks,
+	ListFilter,
 	type LucideIcon,
 	MessageSquare,
 	MessageSquarePlus,
@@ -235,6 +237,8 @@ export const PuzzleFilledIcon = createIcon(
 
 export const MoreHorizontalIcon = createOutlineIcon(Ellipsis)
 export const RefreshIcon = createOutlineIcon(RefreshCw)
+export const CollapseAllIcon = createOutlineIcon(ChevronsDownUp)
+export const FilterIcon = createOutlineIcon(ListFilter)
 export const ConversationIcon = createOutlineIcon(MessageSquare)
 export const UserRoundIcon = createOutlineIcon(UserRound)
 export const HandIcon = createOutlineIcon(Hand)

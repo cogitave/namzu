@@ -1227,10 +1227,38 @@ totals. Totals count a file once, from its first before to its last after; a fil
 whose edits cancel out is left out, and a reply with nothing left has no card. The
 card appears when the turn settles, groups by the turn each receipt belongs to, and
 works the same for history restored from the journal. View changes (or a file row)
-opens the Changes pane filtered to that reply's receipts, headed "Showing selected
-changes" with Show all to return; the conversation header's Changes button
-and the Changes tab always show everything. There is no Undo yet; it needs durable
-checkpoints. Pal conversations keep their own outputs.
+opens the Changes pane on the Last reply scope for that reply; the conversation
+header's Changes button and the Changes tab open on This conversation. There is no
+Undo yet; it needs durable checkpoints. Pal conversations keep their own outputs.
+
+### Changes review view
+
+The Changes tab shows one file's diff beside the tree of changed files. A scope menu
+at the top left picks what is reviewed, with the line totals of that scope beside it:
+Last reply (the reply the card opened, or the latest one that changed files), This
+conversation (every completed edit merged per path, so a file edited twice is one
+row, from its first before to its last after; an edit receipt carries only the
+changed fragment, a `write` receipt the whole file) and, in a trusted ordinary project
+that is a git repository, Uncommitted changes (the working tree against HEAD, whole
+files, read through [`projectChanges` and `projectDiff`](#working-tree-changes) when
+the scope opens, on the refresh button and when a turn settles). The toolbar has
+split or unified, wrap lines, refresh (uncommitted only), collapse folders and a menu
+that copies the changed paths. Empty scopes say so: "No changes in the last reply.",
+"This conversation hasn’t changed files yet.", "No uncommitted changes." and "This
+project is not a git repository."
+
+At 640 px or wider the panel has two columns, the diff on the left and a 260 px file
+tree on the right; narrower, the tree sits above the diff and folds away behind a
+"Files" button. The tree compresses chains of single-child folders (`.work/sessions`),
+lists folders first, marks Markdown files, shows `+N −M` per file ("new" for an
+untracked file, "binary" for a binary one, a struck-through name for a deleted one,
+and "old → new" in the tooltip of a renamed one) and has a fuzzy "Filter files…"
+box. Arrow keys, Home and End move, Right and Left open and close folders, and Enter
+or a click shows the file. `[` and `]`, or Alt+Up and Alt+Down, step to the previous
+and next file. The diff header shows the path truncated from the left (the full path
+in a tooltip), its `+N −M`, Open file (a file tab), Open in editor and a menu with
+Copy path and Copy diff. A binary or oversized file shows a plain message instead of
+a diff.
 
 A finished turn reads "Worked for 4m 17s" when its duration is known: the host's
 start and end, the journal's recorded duration, or the host start and the last time
@@ -1910,6 +1938,8 @@ ACP methods and are not automatically installed in embedded SDK servers.
 | `namzu/conversations/fork` | exact `sessionId` | `{id, title}` of a new owned copy; refused while a turn is open, for a Pal workspace, or when the conversation has no messages |
 | `namzu/conversations/markdown` | exact `sessionId` | `{markdown, truncated}`; the strict transcript export, cut at 4 MiB of UTF-8 on a character boundary with `truncated: true` |
 | `namzu/project/git` | `{}` | `{branch, subject}` for the host folder, or `null` when untrusted, not a repository, git is missing or slower than 3 s. `branch` is `null` on a detached HEAD, `subject` is the last commit's first line (200 characters). Runs `git -c core.fsmonitor=false --no-optional-locks` with no shell, `GIT_OPTIONAL_LOCKS=0`, a 64 KiB output cap and a 15 s cache per folder |
+| `namzu/project/changes` | `{}` | `{files, truncated}` of the working tree against HEAD, or `null` when untrusted or not a repository (a timeout is an error, never an empty list). Each file is `{path, status, added, removed, oldPath?, binary?}` (a renamed binary file stays `renamed` and carries `binary: true`) with `status` one of `modified`, `added`, `deleted`, `renamed`, `untracked`, `binary`, paths relative to the host folder. At most 2,000 files, then `truncated: true` |
+| `namzu/project/diff` | exact `path` | `{before, after, binary, truncated}`: the file in HEAD and in the working tree, `null` for a side that does not exist, `binary: true` for NUL bytes or invalid UTF-8, `truncated: true` over 2 MiB. Requires folder trust; the path is confined as the file panel's are |
 | `namzu/conversations/input/status` | exact `sessionId`, optional `scopeId` | current or retained closed prompt scope, `available`, and input IDs classified as `pending` or `delivered` |
 | `namzu/conversations/input` | exact `sessionId`, `scopeId`, `inputId`, text `prompt` | idempotent current-turn admission receipt; differing text under the same input ID is refused |
 | `namzu/pals/delete` | exact `id`, `expectedRevision` | `{id, deleted: true}` after exact-revision terminal publication; retained data is not erased |
@@ -1924,6 +1954,12 @@ ACP methods and are not automatically installed in embedded SDK servers.
 | `namzu/jobs/stop` | `sessionId`, `jobId` | stopped job |
 
 The desktop main process wraps these for the renderer. `renameConversation`, `forkConversation` and `conversationMarkdown` need a trusted folder, a host that advertises all three methods (older hosts answer "Update Namzu…"), and an ordinary Namzu-engine conversation; Pal and external-engine conversations get a plain refusal. Rename sets the title on the host, then the in-memory view, the project catalogue and `desktop-conversations.json`, and emits `conversation-updated`. `setConversationPinned` is desktop-local: it stores `pinned: true` on the saved conversation view (the strict validator accepts only `true`, never on a Pal conversation), keeps it across catalogue refreshes and emits `conversation-updated`. `forkConversation` refuses a conversation that is running, queued, awaiting review or never prompted, registers the copy in the same project with the source's draft settings and model choice (its history loads when it is first opened) and returns its view. `projectGit` returns `null` for an untrusted folder, a Pal workspace, an older host or any host error. The window-owner checks match the other session-scoped handlers: the calling window must own the conversation.
+
+### Working-tree changes
+
+`namzu/project/changes` and `namzu/project/diff` back the Changes view's "Uncommitted changes" scope. They run only in a trusted folder and read, never write. Git runs with no shell as `git -c core.fsmonitor=false --no-optional-locks` and `GIT_OPTIONAL_LOCKS=0`, a 10 s timeout and a 1 MiB output cap per call, with `--no-ext-diff --no-textconv`, so repository configuration cannot run a program. The list comes from `diff --numstat -z --find-renames HEAD` (binary files are `-\t-`) and `diff --name-status` for the status letters, with `--relative` so paths are relative to the host folder and changes outside it are left out. In a repository with no commit yet it compares against git's empty tree. Untracked files come from `ls-files --others --exclude-standard -z`: the first 200 are read and counted as added lines (text only, at most 2 MiB each, never through a link); the rest are listed as new with no count.
+
+`namzu/project/diff` validates the path as text first (no absolute path, drive letter, backslash on Windows, control character, `..` or `.git` segment), then resolves links and requires the real file to be inside the folder and not under `.git`, a regular file and at most 2 MiB. The "before" side is `git cat-file blob HEAD:./<path>`, which refuses a directory (a renamed file is read from its old path); the "after" side is the working file, absent for a deleted one. Either side being binary or over the cap returns no text for both. Desktop's `projectChanges` and `projectDiff` need a trusted, ordinary project and a host advertising both methods, check every field of the answer, and return `null` (changes) or refuse with a plain sentence (diff) otherwise.
 
 The additive ordinary history `work` snapshot has `v: 1`, a receipt-completeness
 `partial` flag, and arrays `messages`, `turns`, and `tools`. Message anchors carry

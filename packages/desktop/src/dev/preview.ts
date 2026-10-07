@@ -25,6 +25,7 @@ import {
 	resizeWorkspaceSplit,
 	workspaceGroups,
 } from '../shared/workspace-layout.js'
+import { sampleWorkingDiff, sampleWorkingTree } from './preview-changes.js'
 import {
 	listSampleDirectory,
 	readSampleFile,
@@ -159,7 +160,11 @@ if (sampleThread1)
 			],
 		},
 		{ role: 'assistant', text: 'Reading the notes.', phase: 'commentary' },
-		{ role: 'user', text: 'Then apply the spacing changes.', time: at(5, 10, 8) },
+		{
+			role: 'user',
+			text: 'Then apply the spacing changes.',
+			time: at(5, 10, 8),
+		},
 	)
 // The original sample answer stays where it was, as the end of the first turn.
 const firstAnswer = sampleThread1?.at(-1)
@@ -345,7 +350,10 @@ const engines: HarnessView['engines'] = [
 ]
 const engineProviders: Record<
 	Exclude<HarnessView['selected'], 'namzu'>,
-	{ provider: ProviderView['available'][number]; models: ModelCatalogueView['models'] }
+	{
+		provider: ProviderView['available'][number]
+		models: ModelCatalogueView['models']
+	}
 > = {
 	'codex-cli': {
 		provider: { id: 'codex-cli', label: 'Codex', defaultModel: 'gpt-6.1-sol' },
@@ -361,7 +369,11 @@ const engineProviders: Record<
 		],
 	},
 	'claude-code': {
-		provider: { id: 'claude-code', label: 'Claude Code', defaultModel: 'claude-sonnet-5-5' },
+		provider: {
+			id: 'claude-code',
+			label: 'Claude Code',
+			defaultModel: 'claude-sonnet-5-5',
+		},
 		models: [
 			{ id: 'claude-sonnet-5-5', label: 'Sonnet 5.5', default: true },
 			{ id: 'claude-opus-5-5', label: 'Opus 5.5' },
@@ -370,18 +382,36 @@ const engineProviders: Record<
 	},
 }
 const engineEffort: Record<string, ComposerModelSettings> = {
-	'gpt-6.1-sol': { effortLevels: ['low', 'medium', 'high', 'xhigh'], effortDefault: 'medium' },
-	'gpt-6-astra': { effortLevels: ['low', 'medium', 'high'], effortDefault: 'medium' },
-	'gpt-6-sol': { effortLevels: ['low', 'medium', 'high'], effortDefault: 'medium' },
-	'gpt-6-luna': { effortLevels: ['low', 'medium', 'high'], effortDefault: 'low' },
+	'gpt-6.1-sol': {
+		effortLevels: ['low', 'medium', 'high', 'xhigh'],
+		effortDefault: 'medium',
+	},
+	'gpt-6-astra': {
+		effortLevels: ['low', 'medium', 'high'],
+		effortDefault: 'medium',
+	},
+	'gpt-6-sol': {
+		effortLevels: ['low', 'medium', 'high'],
+		effortDefault: 'medium',
+	},
+	'gpt-6-luna': {
+		effortLevels: ['low', 'medium', 'high'],
+		effortDefault: 'low',
+	},
 	'gpt-5.6-sol': {
 		effortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
 		effortDefault: 'medium',
 	},
-	'gpt-5.6-terra': { effortLevels: ['low', 'medium', 'high'], effortDefault: 'medium' },
+	'gpt-5.6-terra': {
+		effortLevels: ['low', 'medium', 'high'],
+		effortDefault: 'medium',
+	},
 	'gpt-5.6-luna': { effortLevels: ['low', 'medium'], effortDefault: 'low' },
 	'gpt-5.5': {},
-	'claude-sonnet-5-5': { effortLevels: ['low', 'medium', 'high'], effortDefault: 'medium' },
+	'claude-sonnet-5-5': {
+		effortLevels: ['low', 'medium', 'high'],
+		effortDefault: 'medium',
+	},
 	'claude-opus-5-5': {
 		effortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
 		effortDefault: 'high',
@@ -676,7 +706,11 @@ const api: DesktopApi = {
 		for (const group of workspaceGroups(workspace.layout.windows[0]?.root ?? null))
 			if (group.tabs.includes(id))
 				commitLayout(
-					closeWorkspaceTab(workspace.layout, { windowId, groupId: group.id, tabId: id }),
+					closeWorkspaceTab(workspace.layout, {
+						windowId,
+						groupId: group.id,
+						tabId: id,
+					}),
 				)
 		archived.push(view)
 		for (const listener of listeners) listener(event)
@@ -693,6 +727,14 @@ const api: DesktopApi = {
 	readProjectFile: async (projectId, path) => {
 		project(projectId)
 		return readSampleFile(projectId, path)
+	},
+	projectChanges: async (projectId) => {
+		project(projectId)
+		return sampleWorkingTree()
+	},
+	projectDiff: async (projectId, path) => {
+		project(projectId)
+		return sampleWorkingDiff(path)
 	},
 	resolveProjectLinks: async (projectId, refs) => {
 		project(projectId)
@@ -728,7 +770,10 @@ const api: DesktopApi = {
 			return {
 				available: [clone(provider)],
 				selected: clone(
-					(id && selections.get(id)) || { id: provider.id, model: provider.defaultModel },
+					(id && selections.get(id)) || {
+						id: provider.id,
+						model: provider.defaultModel,
+					},
 				),
 			}
 		}
@@ -918,7 +963,12 @@ const api: DesktopApi = {
 		conversation(id)
 		if (id !== 'sample-thread-3') return []
 		return [
-			{ id: 'job-1', command: 'pnpm dev', status: 'running', startedAt: Date.now() - 120_000 },
+			{
+				id: 'job-1',
+				command: 'pnpm dev',
+				status: 'running',
+				startedAt: Date.now() - 120_000,
+			},
 			{
 				id: 'job-2',
 				command: 'pnpm test --watch',

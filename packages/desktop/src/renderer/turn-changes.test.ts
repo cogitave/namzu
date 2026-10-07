@@ -112,7 +112,10 @@ describe('per-reply edit summary', () => {
 		const changes = turnChanges(thread)
 		expect(changes.get(1)).toMatchObject({ added: 3, removed: 0 })
 		expect(changes.get(1)?.files).toHaveLength(1)
-		expect(changes.get(1)?.files[0]).toMatchObject({ name: 'one.css', path: 'src/one.css' })
+		expect(changes.get(1)?.files[0]).toMatchObject({
+			name: 'one.css',
+			path: 'src/one.css',
+		})
 		expect(changes.get(2)).toMatchObject({ added: 3, removed: 1 })
 		expect(changes.get(2)?.files.map((file) => [file.name, file.added, file.removed])).toEqual([
 			['two.css', 0, 1],
@@ -160,22 +163,23 @@ describe('per-reply edit summary', () => {
 		)
 	})
 
-	it('filters the drawer to one reply and returns to all of them', () => {
+	it('shows one reply when opened from it and the whole conversation otherwise', () => {
 		const render = (receiptIds?: string[]) =>
 			renderToStaticMarkup(
 				createElement(ChangesPanel, {
 					tools: thread.tools,
+					timeline: thread.timeline,
 					dark: false,
 					receiptIds,
 					onShowAll: () => {},
 				}),
 			)
 		const filtered = render(['2:c', '2:d'])
-		expect(filtered).toContain('Showing selected changes')
-		expect(filtered).toContain('Show all')
-		expect(filtered).toContain('2 file changes')
+		expect(filtered).toContain('Last reply')
+		expect(filtered).toContain('+3')
+		expect(filtered).toContain('−1')
 		const all = render(undefined)
-		expect(all).not.toContain('Showing selected changes')
-		expect(all).toContain('5 file changes')
+		expect(all).toContain('This conversation')
+		expect(all).toContain('+6')
 	})
 })

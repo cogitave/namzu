@@ -53,6 +53,7 @@ import { createPal, deletePal, getPal, listPals, palAtWorkspace, updatePal } fro
 import { canonicalProjectPath } from '../permissions/canonical-project.js'
 import type { CliHarnessRuntime } from './acp-harness.js'
 import type { CliAcpRuntime } from './acp.js'
+import { createProjectChanges } from './desktop-host-changes.js'
 import { type ProjectGitState, capMarkdown, createProjectGit } from './desktop-host-header.js'
 
 function text(params: Record<string, unknown>, key: string, max = 400): string {
@@ -85,7 +86,13 @@ function recordedMessageTimes(records: readonly SessionRecord[]) {
 	const starts = new Map<string, { turnId: string; seq: number; at: number; ambiguous: boolean }>()
 	const messages = new Map<
 		string,
-		{ turnId: string; role: 'user' | 'assistant'; seq: number; at: number; ambiguous: boolean }
+		{
+			turnId: string
+			role: 'user' | 'assistant'
+			seq: number
+			at: number
+			ambiguous: boolean
+		}
 	>()
 	for (const record of records) {
 		if (record.type !== 'message_started' && record.type !== 'message') continue
@@ -501,7 +508,14 @@ function historyWork(
 			owner.role === row.role &&
 			historyId(row.messageId) &&
 			historyId(owner.turnId)
-			? [{ index, messageId: row.messageId, turnId: owner.turnId, order: owner.order }]
+			? [
+					{
+						index,
+						messageId: row.messageId,
+						turnId: owner.turnId,
+						order: owner.order,
+					},
+				]
 			: []
 	})
 	const selectedTurns = [...turns.values()]
@@ -753,6 +767,7 @@ export function createDesktopHostExtensions(
 		options?: AcpSessionPromptParams['options'],
 	) => Promise<AcpSessionPromptResult>,
 	projectGit: (cwd: string) => Promise<ProjectGitState | null> = createProjectGit(),
+	projectChanges: ReturnType<typeof createProjectChanges> = createProjectChanges(),
 ) {
 	const cwd = canonicalProjectPath(directory)
 	const pal = () => palAtWorkspace(cwd)
@@ -1171,7 +1186,10 @@ export function createDesktopHostExtensions(
 					const value = content.slice(0, Math.min(32_000, remaining))
 					partial ||= value.length < content.length
 					remaining -= value.length
-					retained.unshift({ messageId: message.messageId, role: message.role })
+					retained.unshift({
+						messageId: message.messageId,
+						role: message.role,
+					})
 					rows.unshift({
 						...(historyId(message.messageId) ? { messageId: message.messageId } : {}),
 						role: message.role as 'user' | 'assistant',
@@ -1232,7 +1250,11 @@ export function createDesktopHostExtensions(
 					assertJobsIdle()
 					assertTrust()
 					// Absence is an observation, never an archive or execution admission.
-					return { sessionId: id, archived: false as const, missing: true as const }
+					return {
+						sessionId: id,
+						archived: false as const,
+						missing: true as const,
+					}
 				}
 				await ownedSessionIn({ sessionId: requestedId }, state)
 				if (facts.activeTurn)
@@ -1326,6 +1348,30 @@ export function createDesktopHostExtensions(
 			// Never run git in a folder the person has not trusted: repository config can execute code.
 			if (!isTrusted(cwd)) return null
 			return projectGit(cwd)
+		},
+		'namzu/project/changes': async (params: Record<string, unknown> = {}) => {
+			if (
+				!params ||
+				typeof params !== 'object' ||
+				Array.isArray(params) ||
+				Object.keys(params).length > 0
+			)
+				throw new Error('Invalid project changes request.')
+			// Same rule as project/git: repository config can execute code in an untrusted folder.
+			if (!isTrusted(cwd)) return null
+			return projectChanges.changes(cwd)
+		},
+		'namzu/project/diff': async (params: Record<string, unknown>) => {
+			if (
+				!params ||
+				typeof params !== 'object' ||
+				Array.isArray(params) ||
+				Object.keys(params).some((key) => key !== 'path') ||
+				typeof params.path !== 'string'
+			)
+				throw new Error('Invalid project diff request.')
+			if (!isTrusted(cwd)) throw new Error('Trust this folder before reading its changes.')
+			return projectChanges.diff(cwd, params.path)
 		},
 		'namzu/tasks/list': async (params: Record<string, unknown>) => {
 			return withReadScope(async (state) => {

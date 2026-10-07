@@ -372,7 +372,7 @@ export function Transcript({
 	workDisclosures?: WorkDisclosureChoices
 	onWorkDisclosureChange?: (key: string, open: boolean) => void
 	/** Receipt ids of the edits one reply made; without it no per-reply edit card shows. */
-	onOpenTurnChanges?: (receiptIds: string[]) => void
+	onOpenTurnChanges?: (receiptIds: string[], path?: string) => void
 	/** Shows an edited file in the side panel; absent when the project's files are not available. */
 	onOpenChangedFile?: (path: string) => void
 	dateSeparators?: boolean

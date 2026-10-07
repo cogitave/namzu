@@ -90,7 +90,12 @@ export interface DesktopSendOptions {
 }
 export interface DraftSettings {
 	/** `preset: 'default'` follows the engine's own default model as its catalogue changes. */
-	choice?: { provider: string; model: string; label?: string; preset?: 'default' }
+	choice?: {
+		provider: string
+		model: string
+		label?: string
+		preset?: 'default'
+	}
 	options?: Omit<DesktopSendOptions, 'attachmentIds'>
 }
 export interface ComposerModelSettings {
@@ -327,6 +332,32 @@ export type DesktopEvent = (
 			archived: boolean
 	  }
 ) & { readonly revision?: number; readonly at?: number }
+/** One changed file of a project working tree. */
+export interface ProjectChangeFile {
+	path: string
+	status: 'modified' | 'added' | 'deleted' | 'renamed' | 'untracked' | 'binary'
+	added: number
+	removed: number
+	/** Previous path when `status` is 'renamed'. */
+	oldPath?: string
+	/** Set on a renamed file whose content is not text. */
+	binary?: true
+}
+
+/** The working-tree changes of a project; `truncated` when a cap was hit. */
+export interface ProjectChangesView {
+	files: ProjectChangeFile[]
+	truncated: boolean
+}
+
+/** Both sides of one changed file; a null side means the file is absent there. */
+export interface ProjectDiffView {
+	before: string | null
+	after: string | null
+	binary: boolean
+	truncated: boolean
+}
+
 /** One entry of a project directory listing. */
 export interface ProjectFileEntry {
 	name: string
@@ -363,6 +394,10 @@ export interface DesktopApi {
 	projectFileIndex?(projectId: string): Promise<{ paths: string[]; truncated: boolean }>
 	/** A project file as text, image or a size/binary verdict. */
 	readProjectFile?(projectId: string, path: string): Promise<ProjectFileContent>
+	/** Working-tree changes; null when not a git repository, untrusted or unavailable. */
+	projectChanges?(projectId: string): Promise<ProjectChangesView | null>
+	/** Before and after text of one changed file. */
+	projectDiff?(projectId: string, path: string): Promise<ProjectDiffView>
 	/** Which reply references name real project files, and at which line. */
 	resolveProjectLinks?(projectId: string, refs: string[]): Promise<ProjectLinkResolution[]>
 	/** Open a project path in an editor, the file manager or a terminal. */

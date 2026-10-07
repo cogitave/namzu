@@ -64,6 +64,10 @@ export class RuntimeClient extends EventEmitter {
 	supportsProjectGit(): boolean {
 		return this.projectGit
 	}
+	private projectChanges = false
+	supportsProjectChanges(): boolean {
+		return this.projectChanges
+	}
 	private tasks = false
 	supportsTasks(): boolean {
 		return this.tasks
@@ -198,6 +202,9 @@ export class RuntimeClient extends EventEmitter {
 			'namzu/conversations/unarchive',
 		].every((method) => result.extensions?.includes(method))
 		this.projectGit = result.extensions?.includes('namzu/project/git') === true
+		this.projectChanges = ['namzu/project/changes', 'namzu/project/diff'].every((method) =>
+			result.extensions?.includes(method),
+		)
 		this.turnRetry = ['namzu/sessions/retry-status', 'namzu/sessions/retry'].every((method) =>
 			result.extensions?.includes(method),
 		)

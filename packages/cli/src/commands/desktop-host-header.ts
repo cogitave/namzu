@@ -8,6 +8,13 @@ export interface ProjectGitState {
 
 export type GitRun = (args: readonly string[], cwd: string) => Promise<string>
 
+/** Raw bytes for binary-safe reads. `truncated` when the output cap cut the stream short. */
+export type GitRunBytes = (
+	args: readonly string[],
+	cwd: string,
+	limits: { maxBytes: number; timeoutMs: number },
+) => Promise<{ data: Buffer; truncated: boolean }>
+
 export const GIT_TIMEOUT_MS = 3_000
 export const GIT_OUTPUT_CAP = 64 * 1024
 export const GIT_CACHE_MS = 15_000
@@ -35,6 +42,29 @@ export const runGit: GitRun = (args, cwd) =>
 				windowsHide: true,
 			},
 			(error, stdout) => (error ? reject(error) : resolve(stdout)),
+		)
+	})
+
+export const runGitBytes: GitRunBytes = (args, cwd, limits) =>
+	new Promise((resolve, reject) => {
+		execFile(
+			'git',
+			gitArgs(args),
+			{
+				cwd,
+				timeout: limits.timeoutMs,
+				maxBuffer: limits.maxBytes,
+				encoding: 'buffer',
+				env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },
+				windowsHide: true,
+			},
+			(error, stdout) => {
+				if (!error) return resolve({ data: stdout, truncated: false })
+				// Node kills the child at the cap but still hands over what it read.
+				if ((error as { code?: unknown }).code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER')
+					return resolve({ data: stdout, truncated: true })
+				reject(error)
+			},
 		)
 	})
 

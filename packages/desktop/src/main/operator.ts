@@ -38,6 +38,9 @@ import type {
 	PalView,
 	PermissionView,
 	PluginInventoryView,
+	ProjectChangeFile,
+	ProjectChangesView,
+	ProjectDiffView,
 	ProjectFileContent,
 	ProjectFileEntry,
 	ProjectGitView,
@@ -190,6 +193,50 @@ interface Conversation {
 	restorePending?: boolean
 	permissions: Map<string, string | number>
 }
+const CHANGE_STATUSES = new Set(['modified', 'added', 'deleted', 'renamed', 'untracked', 'binary'])
+
+/** The host's changes answer, checked field by field; null when any part is malformed. */
+export function checkedProjectChanges(value: unknown): ProjectChangesView | null {
+	const raw = value as { files?: unknown; truncated?: unknown } | null
+	if (
+		!raw ||
+		typeof raw !== 'object' ||
+		!Array.isArray(raw.files) ||
+		typeof raw.truncated !== 'boolean'
+	)
+		return null
+	if (raw.files.length > 2_000) return null
+	const pathOk = (path: unknown): path is string =>
+		typeof path === 'string' &&
+		path.length > 0 &&
+		path.length <= 1_024 &&
+		withoutControls(path) === path
+	const count = (n: unknown): n is number =>
+		typeof n === 'number' && Number.isSafeInteger(n) && n >= 0
+	const files: ProjectChangeFile[] = []
+	for (const entry of raw.files as Record<string, unknown>[]) {
+		if (
+			!entry ||
+			typeof entry !== 'object' ||
+			!pathOk(entry.path) ||
+			typeof entry.status !== 'string' ||
+			!CHANGE_STATUSES.has(entry.status) ||
+			!count(entry.added) ||
+			!count(entry.removed) ||
+			(entry.oldPath !== undefined && !pathOk(entry.oldPath))
+		)
+			return null
+		files.push({
+			path: entry.path,
+			status: entry.status as ProjectChangeFile['status'],
+			added: entry.added,
+			removed: entry.removed,
+			...(entry.oldPath === undefined ? {} : { oldPath: entry.oldPath as string }),
+		})
+	}
+	return { files, truncated: raw.truncated }
+}
+
 /** One control-character filter for titles and git strings: C0, DEL and C1. */
 function withoutControls(value: string): string {
 	return Array.from(value)
@@ -1739,7 +1786,10 @@ export class Operator {
 		}
 		if (this.projects.get(projectId) !== project || project.client !== client) return null
 		if (!result || typeof result !== 'object') return null
-		const { branch, subject } = result as { branch?: unknown; subject?: unknown }
+		const { branch, subject } = result as {
+			branch?: unknown
+			subject?: unknown
+		}
 		const text = (value: unknown, maximum: number): string | null | undefined =>
 			value === null
 				? null
@@ -1750,6 +1800,57 @@ export class Operator {
 		const checkedSubject = text(subject, 500)
 		if (checkedBranch === undefined || checkedSubject === undefined) return null
 		return { branch: checkedBranch, subject: checkedSubject }
+	}
+	/** Working-tree changes from the host's git reader; null when there is nothing to review. */
+	async projectChanges(projectId: string): Promise<ProjectChangesView | null> {
+		const project = this.project(projectId)
+		if (
+			!project.view.trusted ||
+			project.view.isChat ||
+			project.view.palId ||
+			!project.client.supportsProjectChanges()
+		)
+			return null
+		const client = project.client
+		const result = await client.request('namzu/project/changes', {})
+		if (this.projects.get(projectId) !== project || project.client !== client) return null
+		if (result === null) return null
+		const view = checkedProjectChanges(result)
+		if (!view) throw new Error('Namzu returned invalid changes.')
+		return view
+	}
+	async projectDiff(projectId: string, path: string): Promise<ProjectDiffView> {
+		if (typeof path !== 'string' || path.length === 0 || path.length > 1_024)
+			throw new Error('That path is not inside this project.')
+		const project = this.project(projectId)
+		if (!project.view.trusted) throw new Error('Trust this folder first.')
+		if (project.view.isChat || project.view.palId)
+			throw new Error('Changes are only available in a project folder.')
+		if (!project.client.supportsProjectChanges())
+			throw new Error('Update Namzu to a version that can show changes.')
+		const client = project.client
+		const result = (await client.request('namzu/project/diff', {
+			path,
+		})) as Record<string, unknown>
+		if (this.projects.get(projectId) !== project || project.client !== client)
+			throw new Error('This project changed while reading the file.')
+		const side = (value: unknown) =>
+			value === null || (typeof value === 'string' && value.length <= 8 * 1024 * 1024)
+		if (
+			!result ||
+			typeof result !== 'object' ||
+			!side(result.before) ||
+			!side(result.after) ||
+			typeof result.binary !== 'boolean' ||
+			typeof result.truncated !== 'boolean'
+		)
+			throw new Error('Namzu returned an invalid file comparison.')
+		return {
+			before: result.before as string | null,
+			after: result.after as string | null,
+			binary: result.binary,
+			truncated: result.truncated,
+		}
 	}
 	/**
 	 * The folder every file call is confined to. It comes from the operator's own record of a
@@ -1798,7 +1899,10 @@ export class Operator {
 		await this.openIn.open(confined.absolute, kind, target, line)
 	}
 	async projectEditors(): Promise<{ id: 'vscode' | 'cursor'; label: string }[]> {
-		return ((await this.openIn?.editors()) ?? []).map(({ id, label }) => ({ id, label }))
+		return ((await this.openIn?.editors()) ?? []).map(({ id, label }) => ({
+			id,
+			label,
+		}))
 	}
 	async archivedConversations(projectId: string): Promise<ConversationView[]> {
 		const project = this.project(projectId)
@@ -1810,7 +1914,11 @@ export class Operator {
 		if (this.projects.get(projectId) !== project || project.client !== client)
 			throw new Error('This project’s connection changed while reading archived conversations.')
 		const views: ConversationView[] = []
-		for (const row of rows as { id?: unknown; title?: unknown; updatedAt?: unknown }[]) {
+		for (const row of rows as {
+			id?: unknown
+			title?: unknown
+			updatedAt?: unknown
+		}[]) {
 			if (
 				typeof row?.id !== 'string' ||
 				!row.id.trim() ||
@@ -1820,7 +1928,12 @@ export class Operator {
 				typeof row.updatedAt !== 'string'
 			)
 				throw new Error('Namzu returned an invalid archived list.')
-			views.push({ id: row.id, title: row.title, updatedAt: row.updatedAt, projectId })
+			views.push({
+				id: row.id,
+				title: row.title,
+				updatedAt: row.updatedAt,
+				projectId,
+			})
 			this.archivedOwners.set(row.id, projectId)
 		}
 		return views
@@ -1832,7 +1945,9 @@ export class Operator {
 		if (!projectId) throw new Error('Open the archived list first.')
 		const project = this.project(projectId)
 		const client = this.archivedClient(project)
-		const row = (await client.request('namzu/conversations/unarchive', { sessionId })) as {
+		const row = (await client.request('namzu/conversations/unarchive', {
+			sessionId,
+		})) as {
 			id?: unknown
 			title?: unknown
 			updatedAt?: unknown
@@ -2105,7 +2220,11 @@ export class Operator {
 			this.conversations.set(sessionId, record)
 			this.persistDesktop()
 			this.trackBackgroundWork(sessionId)
-			return { ...history, messages: record.projection.messages, thread: record.projection }
+			return {
+				...history,
+				messages: record.projection.messages,
+				thread: record.projection,
+			}
 		}
 		await this.restoreConversationHistory(existing)
 		this.assertConversationAvailable(sessionId)
@@ -2801,7 +2920,13 @@ export class Operator {
 			session.liveInputs.set(inputId, receipt)
 			// Anchor the authored input before dispatch. A provider update can overtake
 			// its ACK or the later delivery-status read.
-			this.emit({ kind: 'live-input', sessionId, inputId, prompt, status: 'unknown' })
+			this.emit({
+				kind: 'live-input',
+				sessionId,
+				inputId,
+				prompt,
+				status: 'unknown',
+			})
 			let acceptedStatus = status.inputs.find((item) => item.id === inputId)?.status
 			try {
 				if (!acceptedStatus) {
@@ -2821,13 +2946,25 @@ export class Operator {
 					const known = await this.liveInputStatus(session, client, runtimeId, scopeId)
 					acceptedStatus = known.inputs.find((item) => item.id === inputId)?.status
 				} catch {
-					this.emit({ kind: 'live-input', sessionId, inputId, prompt, status: 'unknown' })
+					this.emit({
+						kind: 'live-input',
+						sessionId,
+						inputId,
+						prompt,
+						status: 'unknown',
+					})
 					throw error
 				}
 				if (!acceptedStatus) {
 					session.liveInputs.delete(inputId)
 					session.liveInputRetry = undefined
-					this.emit({ kind: 'live-input', sessionId, inputId, prompt, status: 'queued' })
+					this.emit({
+						kind: 'live-input',
+						sessionId,
+						inputId,
+						prompt,
+						status: 'queued',
+					})
 					throw error
 				}
 			}
@@ -2847,9 +2984,21 @@ export class Operator {
 				session.draft = ''
 				this.persistDesktop()
 			}
-			this.emit({ kind: 'live-input', sessionId, inputId, prompt, status: 'pending' })
+			this.emit({
+				kind: 'live-input',
+				sessionId,
+				inputId,
+				prompt,
+				status: 'pending',
+			})
 			if (receipt.status === 'delivered') {
-				this.emit({ kind: 'live-input', sessionId, inputId, prompt, status: 'delivered' })
+				this.emit({
+					kind: 'live-input',
+					sessionId,
+					inputId,
+					prompt,
+					status: 'delivered',
+				})
 			} else {
 				session.liveInputReadOnNextUpdate = true
 				// Read again at a model or tool boundary, then at settlement.

@@ -620,12 +620,17 @@ export function App({
 	const [changesFilterState, setChangesFilterState] = useState<{
 		sessionId: string
 		ids: string[]
+		focus?: { path: string }
 	}>()
 	// Tied to its conversation, so a switch never shows another conversation's receipt ids for a frame.
 	const changesFilter =
 		changesFilterState?.sessionId === sessionId ? changesFilterState.ids : undefined
+	// The file a clicked card row names; a fresh object each click, so the same row can be chosen again.
+	const changesFocus =
+		changesFilterState?.sessionId === sessionId ? changesFilterState.focus : undefined
 	const setChangesFilter = useCallback(
-		(ids: string[] | undefined) => setChangesFilterState(ids && { sessionId, ids }),
+		(ids: string[] | undefined, path?: string) =>
+			setChangesFilterState(ids && { sessionId, ids, focus: path ? { path } : undefined }),
 		[sessionId],
 	)
 	// The drawer opens from the details popover, so closing it returns focus to the popover's icon.
@@ -743,6 +748,19 @@ export function App({
 					}
 				: null,
 		[filesEnabled, filesProjectId, api, linkCache, openProjectFile],
+	)
+	// The working tree is read through the host, for a trusted, ready project the person opened.
+	const workingTree = useMemo(
+		() =>
+			filesEnabled && filesProjectId && api.projectChanges && api.projectDiff
+				? {
+						projectId: filesProjectId,
+						changes: () => api.projectChanges?.(filesProjectId) ?? Promise.resolve(null),
+						diff: (path: string) =>
+							api.projectDiff?.(filesProjectId, path) ?? Promise.reject(new Error('Unavailable.')),
+					}
+				: undefined,
+		[filesEnabled, filesProjectId, api],
 	)
 	// The panel keeps the width a person dragged it to, per pane.
 	const [panelWidth, setPanelWidth] = useState<number | undefined>(() =>
@@ -2415,6 +2433,25 @@ export function App({
 		void projectFiles.resolve([path]).then((found) => {
 			const hit = found.get(path)
 			if (hit) projectFiles.open(hit.path, hit.line)
+			else announce('That file is not in this project.')
+		})
+	}
+	// The host already confirmed a working-tree path is inside the folder, so there is no link to look up.
+	const openWorkingTreeFile = (path: string) => projectFiles?.open(path)
+	const openWorkingTreeFileInEditor = (path: string) => {
+		if (!filesProjectId || !api.openProjectPath) return
+		void act(() => api.openProjectPath?.(filesProjectId, path, 'editor') ?? Promise.resolve())
+	}
+	const openChangedFileInEditor = (path: string) => {
+		if (!projectFiles || !api.openProjectPath) return
+		void projectFiles.resolve([path]).then((found) => {
+			const hit = found.get(path)
+			if (hit && filesProjectId)
+				void act(
+					() =>
+						api.openProjectPath?.(filesProjectId, hit.path, 'editor', hit.line) ??
+						Promise.resolve(),
+				)
 			else announce('That file is not in this project.')
 		})
 	}
@@ -4293,8 +4330,8 @@ export function App({
 												onWorkDisclosureChange={(key, open) =>
 													onWorkDisclosureChange(sessionId, key, open)
 												}
-												onOpenTurnChanges={(receiptIds) => {
-													setChangesFilter(receiptIds)
+												onOpenTurnChanges={(receiptIds, path) => {
+													setChangesFilter(receiptIds, path)
 													showPanelTab('changes')
 													setJobsOpen(true)
 												}}
@@ -4567,8 +4604,23 @@ export function App({
 							) : panelView === 'changes' ? (
 								<ChangesPanel
 									tools={thread.tools}
+									timeline={thread.timeline}
 									receiptIds={changesFilter}
+									focus={changesFocus}
 									onShowAll={() => setChangesFilter(undefined)}
+									source={workingTree}
+									refreshToken={filesRefresh}
+									onOpenFile={projectFiles ? openChangedFile : undefined}
+									onOpenInEditor={
+										projectFiles && api.openProjectPath ? openChangedFileInEditor : undefined
+									}
+									onOpenWorkingFile={projectFiles ? openWorkingTreeFile : undefined}
+									onOpenWorkingInEditor={
+										projectFiles && api.openProjectPath ? openWorkingTreeFileInEditor : undefined
+									}
+									onCopy={(text, done) =>
+										void copyToClipboard(text, done).catch(() => announce('Copy is unavailable.'))
+									}
 									dark={
 										appearance === 'dark' ||
 										(appearance === 'system' &&
