@@ -1,11 +1,12 @@
 import { Menu } from '@base-ui/react/menu'
 import { MultiFileDiff } from '@pierre/diffs/react'
-import { type ComponentProps, useMemo } from 'react'
+import { type ComponentProps, useMemo, useState } from 'react'
 import { formatLineCount } from '../changes-totals.js'
 import { DIFF_VIEW_UNSAFE_CSS } from '../diff-theme.js'
 import { CodeIcon, ExternalLinkIcon, FileIcon } from '../file-panel/file-icons.js'
 import { isMarkdownPath } from '../file-panel/project-refs.js'
 import { CopyIcon, MoreHorizontalIcon } from '../icons.js'
+import { gateNotice, richDiffVerdict } from './diff-gate.js'
 import { type ReviewFile, unifiedDiff } from './model.js'
 import { ToolButton } from './tool-button.js'
 
@@ -157,6 +158,29 @@ export function DiffPane({
 		}),
 		[dark, split, wrap, fullContext],
 	)
+	// Which file the person asked to see in full; a different file is gated again.
+	const [forcedPath, setForcedPath] = useState<string | null>(null)
+	const verdict = useMemo(
+		() =>
+			body.state === 'ready' && !body.binary && file.status !== 'binary'
+				? richDiffVerdict({
+						before: body.before,
+						after: body.after,
+						added: file.added,
+						removed: file.removed,
+					})
+				: ({ rich: true } as const),
+		[body, file.added, file.removed, file.status],
+	)
+	const gated = !verdict.rich && forcedPath !== file.path
+	// Only built once the gate trips: parsing a huge file is the cost the gate avoids.
+	const patch = useMemo(
+		() =>
+			gated && body.state === 'ready'
+				? unifiedDiff(file.path, body.before ?? '', body.after ?? '', file.oldPath)
+				: '',
+		[gated, body, file.path, file.oldPath],
+	)
 	return (
 		<section className="changes-diff" aria-label={`Changes to ${file.path}`}>
 			<DiffHeader file={file} body={body} actions={actions} />
@@ -176,16 +200,34 @@ export function DiffPane({
 								This file is too large to show in full; only part of it is compared.
 							</PaneMessage>
 						)}
-						<MultiFileDiff
-							key={file.path}
-							className="diff-code-view"
-							oldFile={{
-								name: file.oldPath ?? file.path,
-								contents: body.before ?? '',
-							}}
-							newFile={{ name: file.path, contents: body.after ?? '' }}
-							options={options}
-						/>
+						{gated && !verdict.rich ? (
+							<>
+								<p className="changes-note changes-gate-note">
+									<span>{gateNotice(verdict)}</span>
+									<button
+										type="button"
+										className="changes-gate-button"
+										onClick={() => setForcedPath(file.path)}
+									>
+										Show full diff anyway
+									</button>
+								</p>
+								<pre className="changes-plain-patch" data-wrap={wrap || undefined}>
+									{patch}
+								</pre>
+							</>
+						) : (
+							<MultiFileDiff
+								key={file.path}
+								className="diff-code-view"
+								oldFile={{
+									name: file.oldPath ?? file.path,
+									contents: body.before ?? '',
+								}}
+								newFile={{ name: file.path, contents: body.after ?? '' }}
+								options={options}
+							/>
+						)}
 					</>
 				)}
 			</div>

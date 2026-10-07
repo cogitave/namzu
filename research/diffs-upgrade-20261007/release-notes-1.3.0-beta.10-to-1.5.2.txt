@@ -1,0 +1,216 @@
+===== diffs-v1.5.2 2026-10-05 
+## What's Changed
+* [diffs] Resolve special filenames nested in a path by @HackAttack in https://github.com/pierrecomputer/pierre/pull/1153
+* diffs: add starlark file extensions by @lf- in https://github.com/pierrecomputer/pierre/pull/1012
+* diffs: add odin file extension by @hyperpuncher in https://github.com/pierrecomputer/pierre/pull/1160
+* [diffs] Handle worker pool errors without console noise: onWorkerError hook, settled requests, silent cancellations by @vjeux in https://github.com/pierrecomputer/pierre/pull/1173
+* [diffs] exclude paddingTop from collapsed item height by @jonatanklosko in https://github.com/pierrecomputer/pierre/pull/1175
+* [edit]: CodeView options fix and programmatic edit fixes by @amadeus in https://github.com/pierrecomputer/pierre/pull/1169
+
+## New Contributors
+* @HackAttack made their first contribution in https://github.com/pierrecomputer/pierre/pull/1153
+* @lf- made their first contribution in https://github.com/pierrecomputer/pierre/pull/1012
+* @hyperpuncher made their first contribution in https://github.com/pierrecomputer/pierre/pull/1160
+* @vjeux made their first contribution in https://github.com/pierrecomputer/pierre/pull/1173
+
+**Full Changelog**: https://github.com/pierrecomputer/pierre/compare/diffs-v1.5.1...diffs-v1.5.2
+===== diffs-v1.5.1 2026-09-25 
+## What's Changed
+* [diffs] new lineDiffType 'word-line' by @amadeus in https://github.com/pierrecomputer/pierre/pull/1156
+
+
+**Full Changelog**: https://github.com/pierrecomputer/pierre/compare/diffs-v1.5.0...diffs-v1.5.1
+===== diffs-v1.5.0 2026-09-24 
+# Migration Guide for v1.5.0
+
+With this update, there are some breaking changes regarding how edit works with partial diffs (`fileDiff.isPartial === true`);
+
+1. Diffs will now throw errors if you attempt to edit a diff that isPartial and has not been supplied any `loadDiffFiles` prop. Before it would fail silently. This applies to all editable components.
+2. **For standalone vanilla JS, wait before attaching the editor.** Keep your existing render call, then change the edit call to:
+
+   ```js
+   renderFromApplicationState();
+
+   let finishEditing;
+   try {
+     if (fileDiffInstance.fileDiff?.isPartial === true) {
+       await fileDiffInstance.prepareForEditing();
+     }
+     finishEditing = editor.edit(fileDiffInstance);
+   } catch (error) {
+     showEditError(error); // Use your app's error UI.
+   }
+   ```
+
+   Check the instance's current `fileDiff.isPartial` value so complete diffs attach synchronously. Preparation rejects if it cannot be loaded.
+
+3. **If React or `CodeView` edits a partial diff, wait for attachment before using the editor.** The full files load first. Put editor-dependent work in `onAttach`; `CodeView.getEditor(itemId)` returns `undefined` until then. Missing `loadDiffFiles` throws when the partial edit item renders.
+
+## What's Changed
+* [diffs] Harden filename parsing in the patch parsing paths by @amadeus in https://github.com/pierrecomputer/pierre/pull/1143
+* fix(diffs): preserve parsed blank-line change positions by @amadeus in https://github.com/pierrecomputer/pierre/pull/1142
+* [diffs] CodeView: Fix annotation anchoring bugs at the bottom of the viewport by @amadeus in https://github.com/pierrecomputer/pierre/pull/1149
+* [diffs] Compare diffs by cache key when finalizing a virtualized render by @jonatanklosko in https://github.com/pierrecomputer/pierre/pull/1151
+* [diffs] CodeView / Edit Improvements by @amadeus in https://github.com/pierrecomputer/pierre/pull/1152
+
+
+**Full Changelog**: https://github.com/pierrecomputer/pierre/compare/diffs-v1.4.3...diffs-v1.5.0
+===== diffs-v1.4.3 2026-09-16 
+## What's Changed
+* fix(diffs): reject mismatched custom language loaders by @amadeus in https://github.com/pierrecomputer/pierre/pull/1123
+* Preserve native ranges when dragging selections upward by @ije in https://github.com/pierrecomputer/pierre/pull/1121
+* [diffs] Fix idle rendering in the simple virtualizer by @amadeus in https://github.com/pierrecomputer/pierre/pull/1128
+* fix(diffs): align the edit caret with user-installed fonts in WebKit by @amadeus in https://github.com/pierrecomputer/pierre/pull/1133
+
+
+**Full Changelog**: https://github.com/pierrecomputer/pierre/compare/diffs-v1.4.2...diffs-v1.4.3
+===== diffs-v1.4.2 2026-09-11 
+(if updating from 1.3, please follow the [migration guide](https://github.com/pierrecomputer/pierre/releases/tag/diffs-v1.4.0))
+
+## What's Changed
+* chore: update the entire app to use typescript 7 by @amadeus in https://github.com/pierrecomputer/pierre/pull/1114
+* [diffs] Ensure both languages are loaded on a diff that renames languages by @amadeus in https://github.com/pierrecomputer/pierre/pull/1122
+
+
+**Full Changelog**: https://github.com/pierrecomputer/pierre/compare/diffs-v1.4.1...diffs-v1.4.2
+===== diffs-v1.4.1 2026-09-05 
+(if updating from 1.3, please follow the [migration guide](https://github.com/pierrecomputer/pierre/releases/tag/diffs-v1.4.0))
+
+## What's Changed
+* [diffs] Virtualization FileDiff Fix by @amadeus in https://github.com/pierrecomputer/pierre/pull/1118
+* [diffs] Misc Fixes for 1.4 Release by @amadeus in https://github.com/pierrecomputer/pierre/pull/1117
+
+
+**Full Changelog**: https://github.com/pierrecomputer/pierre/compare/diffs-v1.4.0...diffs-v1.4.1
+===== diffs-v1.4.0 2026-09-04 
+# Migrating Editing to Pierre Diffs 1.4
+
+Pierre Diffs 1.4 makes editable components responsible for their active edit session. Applications no longer need to mirror every changed file, diff, or annotation back into the component while the user is typing.
+
+Use component `onEditChange` to observe or autosave a draft and component `onEditComplete` as the commit boundary. Return `'accept'` to install the completed file or diff and its final annotations, or `'reject'` to restore the latest external value and annotations.
+
+## API changes
+
+| Before                                 | 1.4                                                            |
+| -------------------------------------- | -------------------------------------------------------------- |
+| `new Editor(options?)`                 | `new Editor('file' \| 'file-diff', options?, editStateKey?)`   |
+| `onChange(file, annotations, event)`   | `onChange(event)`                                              |
+| `EditorChangeEvent<LAnnotation>`       | `EditorChangeEvent<'file' \| 'file-diff', LAnnotation, Caret>` |
+| `editor.getState()` / `setState()`     | `editor.getViewState()` / `setViewState()`                     |
+| `EditorState`                          | `EditorViewState`                                              |
+| Old scroll-only `EditorViewState`      | `EditorViewportState`                                          |
+| `persistState` / `persistStateStorage` | `editStateKey` or application-owned storage                    |
+| `createEditor(options)`                | `createEditor(editorType, options, editStateKey)`              |
+| No editor completion observer          | `EditorOptions.onComplete(event)`                              |
+| `cleanUp(recycle?: boolean)`           | `cleanUp('discard' \| 'recycle' \| 'complete')`                |
+
+The new `EditorChangeEvent` contains `changes`, `file`, `lineAnnotations`, and the attached `editor`. For a diff, `event.file` is the editable new file, not a `FileDiffMetadata` object.
+
+Prefer component-level `onEditChange` and `onEditComplete` callbacks for normal integrations. Their completion return value decides whether to accept or reject. The lower-level `EditorOptions.onChange` and `EditorOptions.onComplete` callbacks are for editor-wide observation. You cannot accept or reject from `EditorOptions.onComplete`. The editor completion observer receives the exact same frozen event before the component callback and still fires whe
+===== diffs-v1.3.6 2026-08-24 
+## What's Changed
+
+* [diffs/edit] fix newline inserts without virtualizer- by @ije in https://github.com/pierrecomputer/pierre/pull/1066
+* [diffs/edit] tokenizer cache optimization by @ije in https://github.com/pierrecomputer/pierre/pull/1070
+* [diffs/edit] Add Alt/Option-drag column and rectangular selections by @ije in https://github.com/pierrecomputer/pierre/pull/1071
+* fix(diffs): ignore keydown during IME composition by @Parassharmaa in https://github.com/pierrecomputer/pierre/pull/1077
+
+**Full Changelog**: https://github.com/pierrecomputer/pierre/compare/diffs-v1.3.5...diffs-v1.3.6
+===== diffs-v1.3.5 2026-08-07 
+## What's Changed
+* [diffs/edit] avoid full retokenization on newline inserts by @ije in https://github.com/pierrecomputer/pierre/pull/1057
+* Update syntax of contrast-color() function on marker popovers, ensure e2e test works by @mdo in https://github.com/pierrecomputer/pierre/pull/1062
+* [diffs/edit] Fix empty-new FileDiff edit by @ije in https://github.com/pierrecomputer/pierre/pull/1063
+
+
+**Full Changelog**: https://github.com/pierrecomputer/pierre/compare/diffs-v1.3.4...diffs-v1.3.5
+===== diffs-v1.3.4 2026-08-07 
+## What's Changed
+* [diffs/edit] fix editor state persisting by @ije in https://github.com/pierrecomputer/pierre/pull/1048
+
+**Full Changelog**: https://github.com/pierrecomputer/pierre/compare/diffs-v1.3.3...diffs-v1.3.4
+===== diffs-v1.3.3 2026-08-05 
+## What's Changed
+* [diffs] Harden CodeView resize handling by @amadeus in https://github.com/pierrecomputer/pierre/pull/1054
+
+
+**Full Changelog**: https://github.com/pierrecomputer/pierre/compare/diffs-v1.3.2...diffs-v1.3.3
+===== diffs-v1.3.2 2026-08-04 
+## What's Changed
+* [diffs/edit] hide selection action when selection is offscreen by @ije in https://github.com/pierrecomputer/pierre/pull/1039
+* [diffs/edit] Add `keymap` editor option by @ije in https://github.com/pierrecomputer/pierre/pull/1040
+* fix(diffs): keep scroll anchor stable when CodeView removes items by @fdarian in https://github.com/pierrecomputer/pierre/pull/1047
+* diffs: add CodeView.removeItem API by @amadeus in https://github.com/pierrecomputer/pierre/pull/1050
+
+## New Contributors
+* @fdarian made their first contribution in https://github.com/pierrecomputer/pierre/pull/1047
+
+**Full Changelog**: https://github.com/pierrecomputer/pierre/compare/diffs-v1.3.1...diffs-v1.3.2
+===== diffs-v1.3.1 2026-08-01 
+## What's Changed
+* [diffs/edit] refactor `onChange` editor option by @ije in https://github.com/pierrecomputer/pierre/pull/1038
+* [diffs/edit] Misc Webkit/Mobile Fixes by @amadeus in https://github.com/pierrecomputer/pierre/pull/1042
+
+**Full Changelog**: https://github.com/pierrecomputer/pierre/compare/diffs-v1.3.0...diffs-v1.3.1
+===== diffs-v1.3.0 2026-08-01 
+# @pierre/diffs v1.3.0
+
+Diffs 1.3 is the **Edit release**. The library that renders your diffs and files can now also edit them: any rendered `File`, `FileDiff`, `MultiFileDiff`, `PatchDiff`, or `CodeView` item can be switched into a real, in-place code editor — same DOM, same syntax highlighting, same virtualization — with find & replace, multiple cursors, markers, undo history, and more. Alongside it, this release adds on-demand loading of full file contents for patch-based diffs, added/deleted-file support in more places, custom header/footer regions for `CodeView`, and a batch of rendering and virtualization bug fixes.
+
+## Highlights
+
+- ✏️ **Edit mode** — turn rendered diffs and files into live editors, in place.
+- 📦 **New entry point** — `@pierre/diffs/edit`, loadable only when editing is required.
+- 🔎 **Partial-diff hydration** — `loadDiffFiles` allows you to fetch full file contents on demand so patch-based diffs can expand their unchanged context.
+- 🧱 **CodeView header & footer regions** — build PR summary cards and approval bars inside the scroller.
+
+## Breaking changes & upgrade notes
+
+Most apps upgrade with no code changes. Read this section if any of the following applies to you.
+
+### 1. Firefox support floor raised to 125+
+
+The new edit feature relies on the browser's `Intl.Segmenter` API (for correct cursor movement across emoji and other multi-part characters), so published builds now target **Firefox 125+** (previously 120+). Chrome 123+, Edge 123+, and Safari 17.5+ floors are unchanged — those versions already support `Intl.Segmenter`.
+
+**Migration:** nothing to do unless you must support Firefox 120–124. Read-only rendering does not use `Intl.Segmenter`, and the edit feature-detects it (so importing the edit never throws), but the compiled output as a whole now assumes the newer baseline.
+
+### 2. A few TypeScript prop types became unions (values unchanged)
+
+To support added-only / deleted-only files, these types changed from `interface` to union types: `MultiFileDiffProps`, the SSR types `PreloadDiffOptions`, `PreloadMultiFileDiffOptions`, `PreloadMultiFileDiffResult`, and the vanilla `FileDiffRenderProps` / `FileDiffHydrationProps`.
+
+Everything that compiled before still compiles — passing both `oldFile` and `newFile` is still valid. The one thing that breaks is extending them as interfaces:
+
+```ts
+// Before
+interface MyProps extends MultiFileDiffProps<MyAnnotation> { ... }
+
+// After — unions can't be ex
+===== diffs-v1.3.0-rc.4 2026-08-01 
+## What's Changed
+* [diffs/edit] More Virtualization Edit Fixes by @amadeus in https://github.com/pierrecomputer/pierre/pull/1035
+
+
+**Full Changelog**: https://github.com/pierrecomputer/pierre/compare/diffs-v1.3.0-rc.3...diffs-v1.3.0-rc.4
+===== diffs-v1.3.0-rc.3 2026-08-01 
+## What's Changed
+* [diffs/edit] Virtualization Edit Bug by @amadeus in https://github.com/pierrecomputer/pierre/pull/1034
+
+
+**Full Changelog**: https://github.com/pierrecomputer/pierre/compare/diffs-v1.3.0-rc.2...diffs-v1.3.0-rc.3
+===== diffs-v1.3.0-rc.2 2026-08-01 
+## What's Changed
+* Improve editor tokenizer performance and benchmarking by @ije in https://github.com/pierrecomputer/pierre/pull/1028
+* fix(diffs/edit): Realign cached rows after line-count edits by @ije in https://github.com/pierrecomputer/pierre/pull/1029
+* [diffs/edit] Fix `resolveSystemThemeType` function of editor tokenizer by @ije in https://github.com/pierrecomputer/pierre/pull/1032
+* Improvements to Edit API by @amadeus in https://github.com/pierrecomputer/pierre/pull/1033
+
+**Full Changelog**: https://github.com/pierrecomputer/pierre/compare/diffs-v1.3.0-rc.1...diffs-v1.3.0-rc.2
+===== diffs-v1.3.0-rc.1 2026-07-27 
+## What's Changed
+* [edit] Edit Focus Polish Improvements by @amadeus in https://github.com/pierrecomputer/pierre/pull/1017
+* fix(diffs): Wrap annotation content in every overflow mode by @necolas in https://github.com/pierrecomputer/pierre/pull/1021
+* [diffs/edit] Reworking Naming Conventions by @amadeus in https://github.com/pierrecomputer/pierre/pull/1023
+
+**Full Changelog**: https://github.com/pierrecomputer/pierre/compare/diffs-v1.3.0-beta.11...diffs-v1.3.0-rc.1
+===== diffs-v1.3.0-beta.11 2026-07-27 
+**Full Changelog**: https://github.com/pierrecomputer/pierre/compare/diffs-v1.3.0-beta.10...diffs-v1.3.0-beta.11

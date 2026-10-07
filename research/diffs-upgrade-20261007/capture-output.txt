@@ -1,0 +1,17 @@
+PASS dark: normal diff is rich 
+PASS dark: rich diff rendered rows 
+PASS dark: 5,000-line diff is gated This diff changes 10,000 lines, so it is shown as a plain patch. | Show full diff anyway
+PASS dark: plain patch is a unified patch 10004 lines
+PASS dark: patch is monospaced ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace
+PASS dark: Show full diff anyway renders the rich view 7521 ms incl. 2 s settle
+INFO dark after choosing the file again the rich view is still on (choice kept for that path)
+PASS dark: source view draws lines 3 lines
+PASS light: normal diff is rich 
+PASS light: rich diff rendered rows 
+PASS light: 5,000-line diff is gated This diff changes 10,000 lines, so it is shown as a plain patch. | Show full diff anyway
+PASS light: plain patch is a unified patch 10004 lines
+PASS light: patch is monospaced ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace
+PASS light: Show full diff anyway renders the rich view 7653 ms incl. 2 s settle
+INFO light after choosing the file again the rich view is still on (choice kept for that path)
+PASS light: source view draws lines 3 lines
+console errors: 0 []

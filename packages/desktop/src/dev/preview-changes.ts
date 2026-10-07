@@ -80,6 +80,12 @@ const entries: Entry[] = [
 		after: null,
 	},
 	{
+		// Past the rich-diff size gate, so the review shows a plain patch first.
+		file: { path: 'src/generated/rate-table.ts', status: 'modified', added: 5000, removed: 5000 },
+		before: `${lines(5000, (index) => `export const rate${index} = ${index * 3}`)}\n`,
+		after: `${lines(5000, (index) => `export const rate${index} = ${index * 7}`)}\n`,
+	},
+	{
 		file: { path: 'assets/logo.png', status: 'binary', added: 0, removed: 0 },
 		before: null,
 		after: null,

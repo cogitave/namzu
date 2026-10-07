@@ -1296,6 +1296,14 @@ elapsed counter. With no public work disclosure, the live status alone can show
 the elapsed time. Steering can create another ordered work segment in the same
 turn; only the latest public segment owns the turn's time and outcome heading,
 and earlier segments say **Earlier work**. Opaque reasoning alone does not
+A diff past 180,000 characters (both sides together) or 1,200 changed lines (added plus removed)
+is not drawn in the rich view, which would freeze the pane on a very large file. The pane
+shows the plain unified patch in a monospaced block instead, under a sentence that names the
+reason and a "Show full diff anyway" button. The button turns the rich view on for that file until another
+file is chosen. The limits and the decision are in `changes-review/diff-gate.ts`. Diffs and file source are
+drawn by `@pierre/diffs` 1.5.2 (exact); the worker pool is not used because a worker needs
+`worker-src` in the renderer's content security policy, which has none.
+
 create an empty disclosure. Settled headings retain **Worked for** the observed
 or recorded duration, Paused, Stopped or Work incomplete as appropriate. The
 summary opens while that turn runs and collapses after settlement unless the

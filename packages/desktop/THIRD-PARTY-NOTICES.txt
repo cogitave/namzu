@@ -172,3 +172,8 @@ Used by the file panel quick filter. Full license: licenses/files-fuzzysort-MIT.
 13. remark-frontmatter 5.0.0 — MIT
 Package: https://github.com/remarkjs/remark-frontmatter
 Used to hide the frontmatter block in rendered Markdown. Full license: licenses/files-remark-frontmatter-MIT.txt.
+
+14. @pierre/diffs 1.5.2 — Apache-2.0
+Package: https://github.com/pierrecomputer/pierre
+Used to draw diffs and file source (with its Apache-2.0 @pierre/theme 2.0.0 and @pierre/theming 1.0.1). Full license: licenses/files-pierre-diffs-Apache-2.0.txt.
+Bundled with it: diff 9.0.0 (BSD-3-Clause), shiki 4.4.3 and @shikijs/transformers 4.4.3 (MIT), hast-util-to-html 9.0.5 (MIT). lru_map 0.4.1 declares MIT in its package.json and ships no license text. License texts of the others: licenses/files-pierre-diffs-dependencies.txt.

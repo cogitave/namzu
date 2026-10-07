@@ -286,6 +286,46 @@
 	padding: 6px 8px;
 	font-size: 12px;
 }
+.changes-gate-note {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px;
+	padding: 8px 12px;
+}
+.changes-gate-button {
+	padding: 2px 8px;
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	background: transparent;
+	color: var(--foreground);
+	font: inherit;
+	cursor: pointer;
+}
+.changes-gate-button:hover {
+	background: var(--accent);
+}
+.changes-gate-button:focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: 1px;
+}
+.changes-plain-patch {
+	margin: 0;
+	padding: 0 12px 12px;
+	background: var(--code-background);
+	color: var(--code-foreground);
+	font-family: var(--font-mono);
+	font-size: 12px;
+	line-height: 1.5;
+	tab-size: 4;
+	overflow-x: auto;
+	white-space: pre;
+}
+.changes-plain-patch[data-wrap] {
+	overflow-x: visible;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
 .changes-empty {
 	padding: 24px 16px;
 }
