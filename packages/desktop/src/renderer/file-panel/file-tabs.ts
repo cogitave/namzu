@@ -1,65 +1,153 @@
-/** Open file tabs and the panel width: view state only, kept per conversation in this window. */
+/** The side panel's tabs and the panel width: view state only, kept per conversation in this window. */
 export const MAX_FILE_TABS = 12
 export const MIN_PANEL_WIDTH = 320
 const MAX_PATH = 1024
-const MAX_STORED = 4096
+const MAX_STORED = 8192
 
-export interface FileTabsState {
-	/** Project-relative, '/' separated. */
-	paths: string[]
-	active?: string
-	/** The "+" tab: quick open with no file chosen yet. */
+/** Changes and Activity are ordinary tabs beside the open files. */
+export type PanelTab = { kind: 'changes' } | { kind: 'activity' } | { kind: 'file'; path: string }
+
+export interface PanelTabsState {
+	/** In display order. */
+	tabs: PanelTab[]
+	/** Undefined when every tab is closed, or while the "+" quick open has no file chosen yet. */
+	active?: PanelTab
+	/** Quick open with no file chosen yet. */
 	browsing: boolean
 	/** Where the active file should scroll to; transient, never stored. */
 	line?: number
 }
-export const emptyFileTabs: FileTabsState = { paths: [], browsing: false }
 
-export function openFileTab(state: FileTabsState, path: string, line?: number): FileTabsState {
-	if (!path || path.length > MAX_PATH) return state
-	let paths = state.paths.includes(path) ? state.paths : [...state.paths, path]
-	// Past the cap the oldest tab that is not this one makes room.
-	while (paths.length > MAX_FILE_TABS) {
-		const drop = paths.find((item) => item !== path)
-		if (drop === undefined) break
-		paths = paths.filter((item) => item !== drop)
+export const changesTab: PanelTab = { kind: 'changes' }
+export const activityTab: PanelTab = { kind: 'activity' }
+export const fileTab = (path: string): PanelTab => ({ kind: 'file', path })
+
+/** What a conversation starts with: both fixed tabs, Activity showing as it always did. */
+export const emptyPanelTabs: PanelTabsState = {
+	tabs: [changesTab, activityTab],
+	active: activityTab,
+	browsing: false,
+}
+
+export function sameTab(a: PanelTab | undefined, b: PanelTab | undefined): boolean {
+	if (!a || !b || a.kind !== b.kind) return false
+	return a.kind !== 'file' || a.path === (b as { path: string }).path
+}
+
+export const tabKey = (tab: PanelTab): string =>
+	tab.kind === 'file' ? `file:${tab.path}` : tab.kind
+export const hasTab = (state: PanelTabsState, tab: PanelTab): boolean =>
+	state.tabs.some((item) => sameTab(item, tab))
+export const filePaths = (state: PanelTabsState): string[] =>
+	state.tabs.flatMap((tab) => (tab.kind === 'file' ? [tab.path] : []))
+export const activeFilePath = (state: PanelTabsState): string | undefined =>
+	state.active?.kind === 'file' ? state.active.path : undefined
+
+/** Adds a missing tab without choosing it: Changes first, Activity after Changes, files last. */
+function withTab(tabs: PanelTab[], tab: PanelTab): PanelTab[] {
+	if (tabs.some((item) => sameTab(item, tab))) return tabs
+	if (tab.kind === 'changes') return [tab, ...tabs]
+	if (tab.kind === 'activity') {
+		const at = tabs.findIndex((item) => item.kind === 'changes')
+		return [...tabs.slice(0, at + 1), tab, ...tabs.slice(at + 1)]
 	}
-	return { paths, active: path, browsing: false, line }
+	return [...tabs, tab]
 }
 
-export function activateFileTab(state: FileTabsState, path: string): FileTabsState {
-	if (!state.paths.includes(path)) return state
-	return { ...state, active: path, browsing: false, line: undefined }
+/** Makes sure the tab exists and shows it. */
+export function ensurePanelTab(state: PanelTabsState, tab: PanelTab): PanelTabsState {
+	if (tab.kind === 'file') return openFileTab(state, tab.path)
+	return { tabs: withTab(state.tabs, tab), active: tab, browsing: false }
 }
 
-export function browseFileTabs(state: FileTabsState): FileTabsState {
+export function openFileTab(state: PanelTabsState, path: string, line?: number): PanelTabsState {
+	if (!path || path.length > MAX_PATH) return state
+	const tab = fileTab(path)
+	let tabs = withTab(state.tabs, tab)
+	// Past the cap the oldest file tab that is not this one makes room.
+	while (filePaths({ ...state, tabs }).length > MAX_FILE_TABS) {
+		const drop = tabs.find((item) => item.kind === 'file' && item.path !== path)
+		if (!drop) break
+		tabs = tabs.filter((item) => item !== drop)
+	}
+	return { tabs, active: tab, browsing: false, line }
+}
+
+export function activatePanelTab(state: PanelTabsState, tab: PanelTab): PanelTabsState {
+	const found = state.tabs.find((item) => sameTab(item, tab))
+	if (!found) return state
+	return { ...state, active: found, browsing: false, line: undefined }
+}
+
+export function browsePanelTabs(state: PanelTabsState): PanelTabsState {
 	return { ...state, browsing: true, line: undefined }
 }
 
-/** Closing the active tab moves to its right neighbour, else its left; none left shows no file. */
-export function closeFileTab(state: FileTabsState, path: string): FileTabsState {
-	const index = state.paths.indexOf(path)
+/** Closing the active tab moves to its right neighbour, else its left; none left shows an empty panel. */
+export function closePanelTab(state: PanelTabsState, tab: PanelTab): PanelTabsState {
+	const index = state.tabs.findIndex((item) => sameTab(item, tab))
 	if (index < 0) return state
-	const paths = state.paths.filter((item) => item !== path)
-	if (state.active !== path) return { ...state, paths }
-	return { paths, active: paths[index] ?? paths[index - 1], browsing: false }
+	const tabs = state.tabs.filter((_, at) => at !== index)
+	if (!sameTab(state.active, tab)) return { ...state, tabs }
+	// The quick open stays up when the tab closed was only waiting behind it.
+	return { tabs, active: tabs[index] ?? tabs[index - 1], browsing: state.browsing }
 }
 
-/** Leaves file view for the Changes or Activity tab without closing any file. */
-export function leaveFileTabs(state: FileTabsState): FileTabsState {
-	if (state.active === undefined && !state.browsing) return state
-	return { ...state, active: undefined, browsing: false, line: undefined }
+/** The tab that should show: the active one, else the first that is left. */
+export function shownTab(
+	state: PanelTabsState,
+	allow: (tab: PanelTab) => boolean,
+): PanelTab | undefined {
+	const visible = state.tabs.filter(allow)
+	return visible.find((tab) => sameTab(tab, state.active)) ?? visible[0]
 }
 
-export function serializeFileTabs(state: FileTabsState): string {
-	return JSON.stringify({ paths: state.paths, active: state.active })
+export function serializePanelTabs(state: PanelTabsState): string {
+	return JSON.stringify({
+		v: 2,
+		tabs: state.tabs.map((tab) =>
+			tab.kind === 'file' ? { kind: 'file', path: tab.path } : { kind: tab.kind },
+		),
+		active: state.active,
+	})
 }
 
-export function parseFileTabs(raw: string | null | undefined): FileTabsState {
-	if (!raw || raw.length > MAX_STORED) return emptyFileTabs
+function parseTab(item: unknown): PanelTab | undefined {
+	if (!item || typeof item !== 'object') return undefined
+	const { kind, path } = item as { kind?: unknown; path?: unknown }
+	if (kind === 'changes' || kind === 'activity') return { kind }
+	if (kind === 'file' && typeof path === 'string' && path.length > 0 && path.length <= MAX_PATH)
+		return fileTab(path)
+	return undefined
+}
+
+/**
+ * Reads a stored record. The first format held only file paths, so it gains Changes and Activity
+ * in front; `legacy` is the tab the panel used to show when no file was active.
+ */
+export function parsePanelTabs(
+	raw: string | null | undefined,
+	legacy: 'changes' | 'activity' = 'activity',
+): PanelTabsState {
+	const fresh = legacy === 'changes' ? { ...emptyPanelTabs, active: changesTab } : emptyPanelTabs
+	if (!raw || raw.length > MAX_STORED) return fresh
 	try {
-		const value = JSON.parse(raw) as { paths?: unknown; active?: unknown }
-		if (!value || !Array.isArray(value.paths)) return emptyFileTabs
+		const value = JSON.parse(raw) as { tabs?: unknown; paths?: unknown; active?: unknown }
+		if (!value || typeof value !== 'object') return fresh
+		if (Array.isArray(value.tabs)) {
+			const tabs: PanelTab[] = []
+			for (const item of value.tabs) {
+				const tab = parseTab(item)
+				if (tab && !tabs.some((existing) => sameTab(existing, tab))) tabs.push(tab)
+			}
+			const files = tabs.filter((tab) => tab.kind === 'file')
+			const capped =
+				files.length > MAX_FILE_TABS ? new Set(files.slice(0, MAX_FILE_TABS)) : undefined
+			const kept = capped ? tabs.filter((tab) => tab.kind !== 'file' || capped.has(tab)) : tabs
+			const parsed = parseTab(value.active)
+			return { tabs: kept, active: kept.find((tab) => sameTab(tab, parsed)), browsing: false }
+		}
+		if (!Array.isArray(value.paths)) return fresh
 		const paths = [
 			...new Set(
 				value.paths.filter(
@@ -68,32 +156,40 @@ export function parseFileTabs(raw: string | null | undefined): FileTabsState {
 				),
 			),
 		].slice(0, MAX_FILE_TABS)
+		const tabs = [changesTab, activityTab, ...paths.map(fileTab)]
 		const active =
-			typeof value.active === 'string' && paths.includes(value.active) ? value.active : undefined
-		return { paths, active, browsing: false }
+			typeof value.active === 'string' && paths.includes(value.active)
+				? fileTab(value.active)
+				: legacy === 'changes'
+					? changesTab
+					: activityTab
+		return { tabs, active, browsing: false }
 	} catch {
-		return emptyFileTabs
+		return fresh
 	}
 }
 
 const tabsKey = (id: string) => `namzu.workspace.files:${id}`
 
-export function readFileTabs(storage: Pick<Storage, 'getItem'>, id: string): FileTabsState {
+export function readPanelTabs(
+	storage: Pick<Storage, 'getItem'>,
+	id: string,
+	legacy?: 'changes' | 'activity',
+): PanelTabsState {
 	try {
-		return parseFileTabs(storage.getItem(tabsKey(id)))
+		return parsePanelTabs(storage.getItem(tabsKey(id)), legacy)
 	} catch {
-		return emptyFileTabs
+		return emptyPanelTabs
 	}
 }
 
-export function writeFileTabs(
-	storage: Pick<Storage, 'setItem' | 'removeItem'>,
+export function writePanelTabs(
+	storage: Pick<Storage, 'setItem'>,
 	id: string,
-	state: FileTabsState,
+	state: PanelTabsState,
 ): void {
 	try {
-		if (state.paths.length === 0) storage.removeItem(tabsKey(id))
-		else storage.setItem(tabsKey(id), serializeFileTabs(state))
+		storage.setItem(tabsKey(id), serializePanelTabs(state))
 	} catch {
 		// Storage can be full or blocked; the tabs then last for this session only.
 	}

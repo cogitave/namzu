@@ -3,7 +3,6 @@ import type { DesktopApi } from '../../shared/protocol.js'
 import { FileTextIcon } from '../icons.js'
 import { Button } from '../ui/button.js'
 import { FolderTreeIcon } from './file-icons.js'
-import type { FileTabsState } from './file-tabs.js'
 import { FileTree, type TreeReveal } from './file-tree.js'
 import { FileBreadcrumb, FileView } from './file-view.js'
 import { type Editor, OpenInButton, type OpenTarget } from './open-in.js'
@@ -15,7 +14,8 @@ export function FilePanelBody({
 	api,
 	projectId,
 	projectName,
-	files,
+	activePath,
+	line,
 	editors,
 	dark,
 	wide,
@@ -29,7 +29,9 @@ export function FilePanelBody({
 	api: DesktopApi
 	projectId: string
 	projectName: string
-	files: FileTabsState
+	/** The open file, and where it should scroll to. */
+	activePath?: string
+	line?: number
 	editors: readonly Editor[]
 	dark: boolean
 	/** Room for the tree beside the document; otherwise it opens over it. */
@@ -38,7 +40,7 @@ export function FilePanelBody({
 	onOpenPath: (path: string, line?: number) => void
 	onNotice: (text: string) => void
 }) {
-	const path = browsing ? undefined : files.active
+	const path = browsing ? undefined : activePath
 	// Until the person chooses, the tree is open when there is room beside the document.
 	const [treeChoice, setTreeChoice] = useState<boolean>()
 	const treeOpen = treeChoice ?? wide
@@ -69,7 +71,7 @@ export function FilePanelBody({
 	const openIn = (target: OpenTarget) => {
 		if (!api.openProjectPath) return
 		if (!path) return
-		api.openProjectPath(projectId, path, target, files.line).catch((failure) => {
+		api.openProjectPath(projectId, path, target, line).catch((failure) => {
 			onNotice(failure instanceof Error ? failure.message : 'This could not be opened.')
 		})
 	}
@@ -124,7 +126,7 @@ export function FilePanelBody({
 							api={api}
 							projectId={projectId}
 							path={path}
-							line={files.line}
+							line={line}
 							showSource={showSource}
 							dark={dark}
 							editorLabel={editor?.label}

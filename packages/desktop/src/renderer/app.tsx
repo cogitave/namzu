@@ -79,18 +79,23 @@ import { ConversationTasks, TasksProgress } from './conversation-tasks.js'
 import { copyPlainText } from './copy-button.js'
 import { FilePanelBody } from './file-panel/file-panel.js'
 import {
-	type FileTabsState,
 	MIN_PANEL_WIDTH,
-	activateFileTab,
-	browseFileTabs,
+	type PanelTab,
+	type PanelTabsState,
+	activatePanelTab,
+	activeFilePath,
+	activityTab,
+	browsePanelTabs,
+	changesTab,
 	clampPanelWidth,
-	closeFileTab,
-	emptyFileTabs,
-	leaveFileTabs,
+	closePanelTab,
+	emptyPanelTabs,
+	ensurePanelTab,
 	openFileTab,
-	readFileTabs,
+	readPanelTabs,
 	readPanelWidth,
-	writeFileTabs,
+	shownTab,
+	writePanelTabs,
 	writePanelWidth,
 } from './file-panel/file-tabs.js'
 import { useEditors } from './file-panel/open-in.js'
@@ -615,7 +620,8 @@ export function App({
 			input.current?.focus({ preventScroll: true })
 	}, [railSection])
 	const [jobsOpen, setJobsOpen] = useState(false)
-	const [panelTab, setPanelTab] = useState<'jobs' | 'changes'>('jobs')
+	// Expanded, the panel takes the whole pane and the conversation is hidden; kept per pane.
+	const [panelExpanded, setPanelExpanded] = useState(false)
 	// One reply's receipts while the drawer shows just that reply; undefined shows everything.
 	const [changesFilterState, setChangesFilterState] = useState<{
 		sessionId: string
@@ -684,50 +690,70 @@ export function App({
 			api.readProjectFile &&
 			api.listProjectDirectory,
 	)
-	const [fileTabsState, setFileTabsState] = useState<{ sessionId: string; tabs: FileTabsState }>({
-		sessionId: '',
-		tabs: emptyFileTabs,
-	})
-	// Open files are remembered per conversation, so a switch loads that conversation's tabs.
+	const [panelTabsState, setPanelTabsState] = useState<{
+		sessionId: string
+		tabs: PanelTabsState
+	}>({ sessionId: '', tabs: emptyPanelTabs })
+	// The tabs are remembered per conversation, so a switch loads that conversation's tabs.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: only a conversation switch reloads them.
 	useEffect(() => {
-		setFileTabsState((value) =>
+		setPanelTabsState((value) =>
 			value.sessionId === sessionId
 				? value
-				: { sessionId, tabs: sessionId ? readFileTabs(localStorage, sessionId) : emptyFileTabs },
+				: {
+						sessionId,
+						tabs: sessionId
+							? readPanelTabs(
+									localStorage,
+									sessionId,
+									// Before tabs, the panel remembered which of the two it showed.
+									readWorkspacePresentation(localStorage, sessionId)?.panelTab === 'changes'
+										? 'changes'
+										: 'activity',
+								)
+							: emptyPanelTabs,
+					},
 		)
 	}, [sessionId])
-	const fileTabs = fileTabsState.sessionId === sessionId ? fileTabsState.tabs : emptyFileTabs
-	const updateFileTabs = useCallback(
-		(change: (state: FileTabsState) => FileTabsState) =>
-			setFileTabsState((value) => {
-				const base = value.sessionId === sessionId ? value.tabs : emptyFileTabs
+	const panelTabs = panelTabsState.sessionId === sessionId ? panelTabsState.tabs : emptyPanelTabs
+	const updatePanelTabs = useCallback(
+		(change: (state: PanelTabsState) => PanelTabsState) =>
+			setPanelTabsState((value) => {
+				const base = value.sessionId === sessionId ? value.tabs : emptyPanelTabs
 				const tabs = change(base)
-				if (sessionId && tabs !== base) writeFileTabs(localStorage, sessionId, tabs)
+				if (sessionId && tabs !== base) writePanelTabs(localStorage, sessionId, tabs)
 				return { sessionId, tabs }
 			}),
 		[sessionId],
 	)
+	// A conversation that cannot show files never lists file tabs, though it keeps them stored.
+	const panelAllows = useCallback(
+		(tab: PanelTab) => filesEnabled || tab.kind !== 'file',
+		[filesEnabled],
+	)
+	const listedTabs = useMemo(
+		() => panelTabs.tabs.filter(panelAllows),
+		[panelTabs.tabs, panelAllows],
+	)
+	const shownPanelTab = shownTab(panelTabs, panelAllows)
 	const panelView: PanelView =
-		filesEnabled && fileTabs.browsing
-			? 'browse'
-			: filesEnabled && fileTabs.active
-				? 'file'
-				: panelTab
-	/** Changes and Activity leave file view without closing any file. */
+		filesEnabled && panelTabs.browsing ? 'browse' : (shownPanelTab?.kind ?? 'empty')
+	const activePath =
+		panelView === 'file' ? activeFilePath({ ...panelTabs, active: shownPanelTab }) : undefined
+	/** Makes sure Changes or Activity is a tab, and shows it. */
 	const showPanelTab = useCallback(
-		(tab: 'jobs' | 'changes') => {
-			updateFileTabs(leaveFileTabs)
-			setPanelTab(tab)
-		},
-		[updateFileTabs],
+		(tab: 'activity' | 'changes') =>
+			updatePanelTabs((state) =>
+				ensurePanelTab(state, tab === 'changes' ? changesTab : activityTab),
+			),
+		[updatePanelTabs],
 	)
 	const openProjectFile = useCallback(
 		(path: string, line?: number) => {
-			updateFileTabs((state) => openFileTab(state, path, line))
+			updatePanelTabs((state) => openFileTab(state, path, line))
 			setJobsOpen(true)
 		},
-		[updateFileTabs],
+		[updatePanelTabs],
 	)
 	const editors = useEditors(api, filesEnabled)
 	const linkCache = useMemo(
@@ -1575,7 +1601,7 @@ export function App({
 			palConversation ||
 			historyPending ||
 			restoringTabs ||
-			!((detailsOpen && panelView === 'jobs') || detailsPopoverOpen)
+			!((detailsOpen && panelView === 'activity') || detailsPopoverOpen)
 		) {
 			setJobs([])
 			setJobsSessionId('')
@@ -1642,7 +1668,7 @@ export function App({
 			!api?.refreshTasks ||
 			historyPending ||
 			restoringTabs ||
-			(!palTasksVisible && (!detailsOpen || panelView !== 'jobs'))
+			(!palTasksVisible && (!detailsOpen || panelView !== 'activity'))
 		)
 			return
 		let current = true
@@ -1995,7 +2021,7 @@ export function App({
 						setPalProfileOpen(presentation.palProfileOpen)
 						setComputerProfileOpen(presentation.computerProfileOpen)
 						setJobsOpen(presentation.jobsOpen)
-						setPanelTab(presentation.panelTab)
+						setPanelExpanded(presentation.panelExpanded ?? false)
 						follow.current = presentation.follow
 						pendingPresentationScroll.current = {
 							generation,
@@ -2005,6 +2031,7 @@ export function App({
 						}
 					} else {
 						setJobsOpen(false)
+						setPanelExpanded(false)
 						follow.current = true
 						pendingPresentationScroll.current = null
 					}
@@ -2867,7 +2894,8 @@ export function App({
 			palProfileOpen,
 			computerProfileOpen,
 			jobsOpen: detailsOpen,
-			panelTab,
+			panelTab: shownPanelTab?.kind === 'changes' ? 'changes' : 'jobs',
+			panelExpanded,
 			follow: position?.follow ?? follow.current,
 			scrollTop: position?.scrollTop ?? transcript.current?.scrollTop ?? 0,
 			workDisclosures,
@@ -2880,7 +2908,8 @@ export function App({
 		palProfileOpen,
 		computerProfileOpen,
 		detailsOpen,
-		panelTab,
+		shownPanelTab?.kind,
+		panelExpanded,
 		palConversation,
 	])
 	writePresentation.current = savePresentation
@@ -3475,6 +3504,8 @@ export function App({
 					showPalChat()
 					return
 				}
+				// An expanded panel is left with its own buttons, not by a key aimed at something else.
+				if (detailsOpen && panelExpanded) return
 				if (sideOpen || detailsOpen) {
 					setSideOpen(false)
 					if (detailsOpen) closeDetails()
@@ -3519,6 +3550,7 @@ export function App({
 	}, [
 		sideOpen,
 		detailsOpen,
+		panelExpanded,
 		sessionId,
 		thread.running,
 		restoringTabs,
@@ -3928,6 +3960,7 @@ export function App({
 				data-moving={frozen}
 				className={`workspace ${detailsOpen ? 'jobs-open' : ''}`}
 				data-panel-resizing={panelResizing || undefined}
+				data-panel-expanded={(detailsOpen && panelExpanded) || undefined}
 				style={
 					panelWidth !== undefined || panelView === 'file' || panelView === 'browse'
 						? ({
@@ -4018,7 +4051,7 @@ export function App({
 								}}
 								onOpenWork={() => {
 									setDetailsPopoverOpen(false)
-									showPanelTab('jobs')
+									showPanelTab('activity')
 									setJobsOpen(true)
 								}}
 								onOpenArchived={
@@ -4352,7 +4385,7 @@ export function App({
 										<TasksProgress
 											thread={thread}
 											onOpen={() => {
-												showPanelTab('jobs')
+												showPanelTab('activity')
 												setJobsOpen(true)
 											}}
 										/>
@@ -4512,11 +4545,13 @@ export function App({
 						inert={!jobsOpen}
 						aria-hidden={!jobsOpen}
 						aria-label={
-							panelView === 'jobs'
+							panelView === 'activity'
 								? 'Activity'
 								: panelView === 'changes'
 									? 'Changes'
-									: 'Project files'
+									: panelView === 'empty'
+										? 'Side panel'
+										: 'Project files'
 						}
 					>
 						<PanelResizeHandle
@@ -4541,45 +4576,39 @@ export function App({
 						<div className="section-heading panel-heading">
 							<PanelTabStrip
 								panelId="side-panel-body"
-								view={panelView}
-								files={fileTabs}
+								tabs={listedTabs}
+								active={shownPanelTab}
+								browsing={panelView === 'browse'}
 								canBrowse={filesEnabled}
-								onChanges={() => {
-									setChangesFilter(undefined)
-									showPanelTab('changes')
+								running={detailsWork.state === 'known' ? detailsWork.running : 0}
+								attention={needsAttention}
+								expanded={panelExpanded}
+								onActivate={(tab) => {
+									if (tab.kind === 'changes') setChangesFilter(undefined)
+									updatePanelTabs((state) => activatePanelTab(state, tab))
 								}}
-								onJobs={() => showPanelTab('jobs')}
-								onFile={(path) => updateFileTabs((state) => activateFileTab(state, path))}
-								onCloseFile={(path) => updateFileTabs((state) => closeFileTab(state, path))}
-								onBrowse={() => updateFileTabs(browseFileTabs)}
+								onClose={(tab) => updatePanelTabs((state) => closePanelTab(state, tab))}
+								onOpenTab={(tab) => {
+									if (tab.kind === 'changes') setChangesFilter(undefined)
+									showPanelTab(tab.kind === 'changes' ? 'changes' : 'activity')
+								}}
+								onBrowse={() => updatePanelTabs(browsePanelTabs)}
+								onToggleExpanded={() => setPanelExpanded((value) => !value)}
+								onHide={closeDetails}
 							/>
-							<Button
-								type="button"
-								variant="ghost-muted"
-								size="icon-sm"
-								className="icon-button"
-								aria-label={
-									panelView === 'jobs'
-										? 'Close activity'
-										: panelView === 'changes'
-											? 'Close changes'
-											: 'Close files'
-								}
-								onClick={closeDetails}
-							>
-								<Icon name="close" />
-							</Button>
 						</div>
 						{/* The body is a tab panel; contents keeps the aside's own layout. */}
 						<div
 							id="side-panel-body"
 							role="tabpanel"
 							aria-label={
-								panelView === 'jobs'
+								panelView === 'activity'
 									? 'Activity'
 									: panelView === 'changes'
 										? 'Changes'
-										: 'Project files'
+										: panelView === 'empty'
+											? 'Side panel'
+											: 'Project files'
 							}
 							style={{ display: 'contents' }}
 						>
@@ -4588,7 +4617,8 @@ export function App({
 									api={api}
 									projectId={project.id}
 									projectName={project.name}
-									files={fileTabs}
+									activePath={activePath}
+									line={panelTabs.line}
 									editors={editors}
 									dark={
 										appearance === 'dark' ||
@@ -4601,6 +4631,41 @@ export function App({
 									onNotice={announce}
 									refreshToken={filesRefresh}
 								/>
+							) : panelView === 'empty' ? (
+								<div className="panel-empty">
+									<p>Nothing is open in this panel.</p>
+									<div className="panel-empty-actions">
+										<Button
+											type="button"
+											size="xs"
+											variant="ghost-muted"
+											onClick={() => {
+												setChangesFilter(undefined)
+												showPanelTab('changes')
+											}}
+										>
+											Changes
+										</Button>
+										<Button
+											type="button"
+											size="xs"
+											variant="ghost-muted"
+											onClick={() => showPanelTab('activity')}
+										>
+											Activity
+										</Button>
+										{filesEnabled && (
+											<Button
+												type="button"
+												size="xs"
+												variant="ghost-muted"
+												onClick={() => updatePanelTabs(browsePanelTabs)}
+											>
+												Open a file
+											</Button>
+										)}
+									</div>
+								</div>
 							) : panelView === 'changes' ? (
 								<ChangesPanel
 									tools={thread.tools}

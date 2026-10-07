@@ -33,17 +33,21 @@
 }
 
 .section-heading.panel-heading {
-	padding: 0 8px 0 12px;
+	padding: 0 8px 0 10px;
 	gap: 4px;
 }
 .panel-tab-strip {
 	display: flex;
 	flex: 1;
 	align-items: center;
-	gap: 2px;
+	gap: 4px;
 	min-width: 0;
 }
-/* Only the tabs scroll; the "+" stays within reach. */
+.panel-tab-list {
+	display: flex;
+	min-width: 0;
+}
+/* Only the tabs scroll; the "+" and the panel buttons stay within reach. */
 .panel-tab-scroll {
 	display: flex;
 	align-items: center;
@@ -51,78 +55,165 @@
 	min-width: 0;
 	overflow-x: auto;
 	scrollbar-width: none;
+	/* A soft edge says there are more tabs out of sight. */
+	mask-image: linear-gradient(
+		to right,
+		transparent 0,
+		#000 8px,
+		#000 calc(100% - 8px),
+		transparent 100%
+	);
 }
 .panel-tab-scroll::-webkit-scrollbar {
 	display: none;
 }
-.panel-tab-scroll > * {
+/* Tabs give up width before the strip has to scroll. */
+.panel-tab-scroll > .panel-tab {
+	flex: 0 1 auto;
+	min-width: 112px;
+}
+/* Changes and Activity keep their whole name; only file tabs give way. */
+.panel-tab-scroll > .panel-tab:not([data-kind="file"]) {
 	flex: none;
 }
-/* Open files give up width before the strip has to scroll. */
-.panel-tab-scroll > .panel-file-tab {
-	flex: 0 1 160px;
-	min-width: 72px;
-}
-.panel-tab-strip > [role="tab"][data-active] {
-	background: var(--accent);
-	color: var(--foreground);
-}
-.panel-file-tab {
+.panel-tab {
+	position: relative;
 	display: inline-flex;
-	flex: none;
 	align-items: center;
-	max-width: 200px;
+	max-width: 220px;
 	height: 28px;
+	/* A transparent border keeps the active tab from shifting its neighbours. */
+	border: 1px solid transparent;
 	border-radius: 8px;
 	color: var(--muted-foreground);
 	font-size: 12px;
 }
-.panel-file-tab:hover,
-.panel-file-tab[data-active] {
+.panel-tab:hover {
 	background: var(--accent);
 	color: var(--foreground);
 }
-.panel-file-tab-name {
+.panel-tab[data-active] {
+	border-color: var(--border);
+	background: var(--card);
+	color: var(--foreground);
+}
+.panel-tab-name {
 	display: inline-flex;
+	flex: 1;
 	align-items: center;
 	gap: 6px;
 	min-width: 0;
 	height: 100%;
-	padding: 0 4px 0 8px;
-	border-radius: 8px;
+	padding: 0 2px 0 8px;
+	border-radius: 7px;
 }
-.panel-file-tab-name svg,
-.panel-file-tab-close svg {
+.panel-tab-name svg,
+.panel-tab-close svg {
 	flex: none;
 	width: 14px;
 	height: 14px;
 }
-.panel-file-tab-name span {
+.panel-tab-name span:not(.panel-tab-badge) {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
-.panel-file-tab-close {
+.panel-tab-badge {
+	flex: none;
+	min-width: 16px;
+	padding: 0 5px;
+	border-radius: 8px;
+	background: var(--secondary);
+	color: var(--secondary-foreground, var(--foreground));
+	font-size: 10px;
+	font-variant-numeric: tabular-nums;
+	line-height: 16px;
+	text-align: center;
+}
+.panel-tab-badge[data-attention] {
+	background: var(--warning-surface, var(--warning));
+	color: var(--warning-foreground);
+}
+.panel-tab-close {
 	display: grid;
+	flex: none;
 	place-items: center;
 	width: 20px;
 	height: 20px;
-	margin-right: 4px;
+	margin-right: 3px;
 	border-radius: 5px;
-	opacity: 0.55;
+	opacity: 0;
 }
-.panel-file-tab:hover .panel-file-tab-close,
-.panel-file-tab[data-active] .panel-file-tab-close,
-.panel-file-tab-close:focus-visible {
+.panel-tab:hover .panel-tab-close,
+.panel-tab[data-active] .panel-tab-close,
+.panel-tab:focus-within .panel-tab-close,
+.panel-tab-close:focus-visible {
 	opacity: 1;
 }
-.panel-file-tab-close:hover {
+/* An inactive tab gives its name the whole width; the x lies over the right end on hover. */
+.panel-tab:not([data-active]) .panel-tab-close {
+	position: absolute;
+	top: 3px;
+	right: 2px;
+	background: var(--accent);
+}
+.panel-tab:not([data-active]) .panel-tab-name {
+	padding-right: 8px;
+}
+.panel-tab-close:hover {
 	background: var(--secondary);
 }
-.panel-file-tab-name:focus-visible,
-.panel-file-tab-close:focus-visible {
+.conversation-actions-popup.panel-add-popup {
+	min-width: 168px;
+	width: max-content;
+}
+.panel-tab-name:focus-visible,
+.panel-tab-close:focus-visible {
 	outline: 2px solid var(--ring);
 	outline-offset: -2px;
+}
+.panel-tab-add[data-active],
+.panel-tab-add[data-popup-open] {
+	background: var(--accent);
+	color: var(--foreground);
+}
+.panel-strip-actions {
+	display: flex;
+	flex: none;
+	align-items: center;
+	gap: 2px;
+	margin-left: auto;
+}
+/* Expanded, the panel takes the pane and the conversation steps aside until it is restored. */
+.workspace.jobs-open[data-panel-expanded] > .jobs-panel {
+	width: 100%;
+	max-width: none;
+	box-shadow: none;
+}
+.workspace.jobs-open[data-panel-expanded] > :is(.topbar, .connection-error, .welcome, .chat-stage) {
+	visibility: hidden;
+}
+.workspace[data-panel-expanded] .panel-resize-handle {
+	display: none;
+}
+
+/* Every tab closed: three quiet ways back in. */
+.panel-empty {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 12px;
+	padding: 24px;
+	color: var(--muted-foreground);
+	font-size: 13px;
+}
+.panel-empty-actions {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: center;
+	gap: 6px;
 }
 
 .file-panel {

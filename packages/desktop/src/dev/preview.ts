@@ -688,7 +688,8 @@ const api: DesktopApi = {
 		'sample-thread-3': {
 			state: 'known',
 			runningCount: 2,
-			needsAttention: false,
+			// /preview?attention shows the warning-colour count on the Activity tab.
+			needsAttention: new URLSearchParams(location.search).has('attention'),
 			checkedAt: Date.now(),
 			expiresAt: Date.now() + 3_600_000,
 		},

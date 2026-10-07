@@ -66,7 +66,10 @@ export interface WorkspacePresentation {
 	palProfileOpen: boolean
 	computerProfileOpen: boolean
 	jobsOpen: boolean
+	/** Which of the two fixed tabs showed last; read only to place them in an older record's tab list. */
 	panelTab: 'jobs' | 'changes'
+	/** The panel fills the pane and the conversation is hidden. */
+	panelExpanded?: boolean
 	follow: boolean
 	scrollTop: number
 	/** Only explicit operator choices; an absent entry retains live/settled defaults. */
@@ -99,6 +102,7 @@ export function readWorkspacePresentation(
 				'jobsOpen',
 				'follow',
 			].every((field) => typeof value[field] === 'boolean') ||
+			(value.panelExpanded !== undefined && typeof value.panelExpanded !== 'boolean') ||
 			typeof value.scrollTop !== 'number' ||
 			!Number.isFinite(value.scrollTop) ||
 			value.scrollTop < 0 ||

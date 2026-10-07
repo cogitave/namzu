@@ -194,3 +194,12 @@ it('propagates a failed write so a transfer cannot acknowledge lost presentation
 		),
 	).toThrow(error)
 })
+
+it('keeps whether the panel is expanded, and reads an older record as not expanded', () => {
+	const cache = storage()
+	writeWorkspacePresentation(cache, 'a', presentation({ panelExpanded: true }))
+	expect(readWorkspacePresentation(cache, 'a')?.panelExpanded).toBe(true)
+	writeWorkspacePresentation(cache, 'b', presentation())
+	expect(readWorkspacePresentation(cache, 'b')?.panelExpanded).toBeUndefined()
+	expect(readRaw({ ...presentation(), panelExpanded: 'yes' })).toBeNull()
+})

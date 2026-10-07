@@ -20,9 +20,11 @@ import {
 	ListChecks,
 	ListFilter,
 	type LucideIcon,
+	Maximize2,
 	MessageSquare,
 	MessageSquarePlus,
 	MessagesSquare,
+	Minimize2,
 	PanelLeft,
 	Pencil,
 	Pin,
@@ -138,6 +140,8 @@ export const SunIcon = createIcon([
 export const MonitorIcon = createIcon([
 	'M4 16H20V5H4V16ZM13 18V20H17V22H7V20H11V18H2.9918C2.44405 18 2 17.5511 2 16.9925V4.00748C2 3.45107 2.45531 3 2.9918 3H21.0082C21.556 3 22 3.44892 22 4.00748V16.9925C22 17.5489 21.5447 18 21.0082 18H13Z',
 ])
+export const Maximize2Icon = createOutlineIcon(Maximize2)
+export const Minimize2Icon = createOutlineIcon(Minimize2)
 export const PanelLeftIcon = createOutlineIcon(PanelLeft)
 export const PanelRightIcon = createIcon([
 	'M21 3C21.5523 3 22 3.44772 22 4V20C22 20.5523 21.5523 21 21 21H3C2.44772 21 2 20.5523 2 20V4C2 3.44772 2.44772 3 3 3H21ZM15 5H4V19H15V5ZM20 5H17V19H20V5Z',
