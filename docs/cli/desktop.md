@@ -1494,17 +1494,6 @@ and the work that remains outside the transcript are in
 The preview's `/preview?stress=300` flag adds the long conversation and a timer-driven streamed
 reply for repeating them.
 
-the native host admits the prompt response as the missing end once. A streamed
-end followed by its response does not create a second completion. Pending
-reviews are cleared; authored queued messages remain available after a stopped
-turn.
-
-A successful configured `stop_condition` does not produce an incomplete-work
-notice. Execution policy refusal is separate from an operator decision;
-unmeasurable cost, answer review and plan review have their own explanations.
-Pause/stop/timeout notices do not promise recovery. Only the authoritative
-recovery controls below decide whether a turn can be retried or resumed.
-
 The [reference observations](../../research/runtime-desktop-20260930/artifacts/transcript-reference-observations-20261006.json)
 record the installed Codex build's verified source labels and motion constants.
 Its live transcript DOM was unavailable without restarting that application,
@@ -1517,6 +1506,17 @@ Pal separation. It performs no native, model or computer action.
 Cancellation, pause, refusal and error end the live phase without claiming a
 successful answer. The exact runtime reason preserves Paused even when its ACP
 stop category is `cancelled`. When preparation returns without a streamed end,
+the native host admits the prompt response as the missing end once. A streamed
+end followed by its response does not create a second completion. Pending
+reviews are cleared; authored queued messages remain available after a stopped
+turn.
+
+A successful configured `stop_condition` does not produce an incomplete-work
+notice. Execution policy refusal is separate from an operator decision;
+unmeasurable cost, answer review and plan review have their own explanations.
+Pause/stop/timeout notices do not promise recovery. Only the authoritative
+recovery controls below decide whether a turn can be retried or resumed.
+
 Checkpointed provider faults retain their failure explanation in the live
 transcript's error alert even when the compatibility stop category is
 `cancelled`. Reopening that conversation while its runtime connection remains

@@ -44,8 +44,8 @@ import {
 	sampleFileIndex,
 } from './preview-files.js'
 import { createStressStream, stressConversationId, stressMessages } from './preview-stress.js'
-// This separate development entry never substitutes for the native preload API.
 
+// This separate development entry never substitutes for the native preload API.
 if (!import.meta.env.DEV || window.namzu)
 	throw new Error('The design preview is available only in a development browser.')
 
@@ -140,7 +140,6 @@ if (Number.isInteger(stressTurns) && stressTurns > 0) {
 		saved,
 	)
 }
-// so the details popover has sources, line totals and a diff drawer to show. Its three saved turns
 // /preview?activity=1 adds saved turns of action rows; /preview?live=1 plays a running turn when that
 // conversation is opened (&hold=edit stops it while the edit is under way).
 const activityParams = new URLSearchParams(location.search)
@@ -157,6 +156,7 @@ if (activityShown || activityLiveShown) {
 	;(window as unknown as { namzuPreviewActivity: unknown }).namzuPreviewActivity = activityLive
 }
 // The first sample conversation carries attachments, saved file edits and a pinned-looking history,
+// so the details popover has sources, line totals and a diff drawer to show. Its three saved turns
 // edited one file, three files, and nothing; they sit on two days with a long gap on the second.
 const at = (day: number, hour: number, minute: number) => ({
 	at: new Date(2026, 9, day, hour, minute).getTime(),
@@ -850,17 +850,6 @@ const api: DesktopApi = {
 		if (conversation(id).projectId !== projectId)
 			throw new Error('This sample conversation belongs to another project.')
 		const saved = clone(messages.get(id) ?? [])
-		return {
-			messages: saved,
-			partial: false,
-			...(id === 'sample-thread-1'
-				? {
-						thread: {
-							...restoreHistoryWork(emptyThread(), saved, sampleWork),
-							undo: Object.fromEntries(
-								[...undoStatuses].map(([turnId, row]) => [turnId, clone(row)]),
-							),
-						},
 		if (id === activityConversationId && activityLive) {
 			if (activityLiveShown)
 				setTimeout(
@@ -875,6 +864,17 @@ const api: DesktopApi = {
 					: undefined,
 			}
 		}
+		return {
+			messages: saved,
+			partial: false,
+			...(id === 'sample-thread-1'
+				? {
+						thread: {
+							...restoreHistoryWork(emptyThread(), saved, sampleWork),
+							undo: Object.fromEntries(
+								[...undoStatuses].map(([turnId, row]) => [turnId, clone(row)]),
+							),
+						},
 					}
 				: {}),
 		}
