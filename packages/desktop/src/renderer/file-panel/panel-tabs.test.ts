@@ -2,7 +2,7 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { activityTab, changesTab, fileTab } from './file-tabs.js'
-import { PanelTabStrip, closesTab, tabLabel } from './panel-tabs.js'
+import { PanelTabStrip, closesTab, overflowEdges, tabLabel } from './panel-tabs.js'
 
 const noop = () => {}
 /** The tab buttons that sit in the tab order. */
@@ -98,5 +98,26 @@ describe('closing a tab from the keyboard', () => {
 		expect(closesTab(key('Delete', { ctrlKey: true }))).toBe(false)
 		expect(closesTab(key('w', { ctrlKey: true, shiftKey: true }))).toBe(false)
 		expect(closesTab(key('ArrowRight'))).toBe(false)
+	})
+})
+
+describe('overflowEdges', () => {
+	const box = (scrollLeft: number, clientWidth: number, scrollWidth: number) =>
+		overflowEdges({ scrollLeft, clientWidth, scrollWidth })
+	it('shows no fade when every tab fits', () => {
+		expect(box(0, 300, 300)).toEqual({ start: false, end: false })
+	})
+	it('fades the end only at the start of an overflowing list', () => {
+		expect(box(0, 300, 500)).toEqual({ start: false, end: true })
+	})
+	it('fades the start only at the far end', () => {
+		expect(box(200, 300, 500)).toEqual({ start: true, end: false })
+	})
+	it('fades both edges in the middle', () => {
+		expect(box(100, 300, 500)).toEqual({ start: true, end: true })
+	})
+	it('ignores sub-pixel differences', () => {
+		expect(box(0.5, 300, 300.8)).toEqual({ start: false, end: false })
+		expect(box(199.6, 300, 500)).toEqual({ start: true, end: false })
 	})
 })

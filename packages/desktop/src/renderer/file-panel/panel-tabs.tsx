@@ -2,6 +2,7 @@ import { Menu } from '@base-ui/react/menu'
 import {
 	type KeyboardEvent,
 	type PointerEvent as ReactPointerEvent,
+	useEffect,
 	useLayoutEffect,
 	useRef,
 } from 'react'
@@ -42,6 +43,34 @@ export function closesTab(event: {
 	if (event.altKey || event.shiftKey) return false
 	if (event.key === 'Delete') return !event.ctrlKey && !event.metaKey
 	return (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'w'
+}
+
+/** Which edges of the tab scroller have more tabs out of sight; a pixel of slack absorbs sub-pixel scroll positions. */
+export function overflowEdges(box: {
+	scrollLeft: number
+	clientWidth: number
+	scrollWidth: number
+}): {
+	start: boolean
+	end: boolean
+} {
+	return {
+		start: box.scrollLeft > 1,
+		end: box.scrollLeft + box.clientWidth < box.scrollWidth - 1,
+	}
+}
+
+/** Writes the edges onto the element, touching the DOM only when one changed. */
+function syncOverflow(element: HTMLElement) {
+	const { start, end } = overflowEdges(element)
+	if ((element.dataset.overflowStart !== undefined) !== start) {
+		if (start) element.dataset.overflowStart = ''
+		else delete element.dataset.overflowStart
+	}
+	if ((element.dataset.overflowEnd !== undefined) !== end) {
+		if (end) element.dataset.overflowEnd = ''
+		else delete element.dataset.overflowEnd
+	}
 }
 
 function TabIcon({ tab }: { tab: PanelTab }) {
@@ -88,6 +117,7 @@ export function PanelTabStrip({
 	onHide: () => void
 }) {
 	const strip = useRef<HTMLDivElement>(null)
+	const scroller = useRef<HTMLDivElement>(null)
 	const refocus = useRef(false)
 	const shown = browsing ? undefined : active
 	const order = tabs.map(tabKey).join('\n')
@@ -106,7 +136,22 @@ export function PanelTabStrip({
 				strip.current?.querySelector<HTMLElement>('.panel-tab-add')
 			target?.focus()
 		}
+		if (scroller.current) syncOverflow(scroller.current)
 	}, [shown && tabKey(shown), order])
+	// The fade shows only on an edge with tabs behind it; scrolling and resizing move that.
+	useEffect(() => {
+		const element = scroller.current
+		if (!element) return
+		const sync = () => syncOverflow(element)
+		element.addEventListener('scroll', sync, { passive: true })
+		const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(sync)
+		observer?.observe(element)
+		sync()
+		return () => {
+			element.removeEventListener('scroll', sync)
+			observer?.disconnect()
+		}
+	}, [])
 	const keys = (event: KeyboardEvent<HTMLDivElement>) => {
 		const target = event.target as HTMLElement
 		if (target.getAttribute('role') !== 'tab') return
@@ -144,7 +189,7 @@ export function PanelTabStrip({
 		<div ref={strip} className="panel-tab-strip">
 			{/* biome-ignore lint/a11y/useSemanticElements: a tab list has no native element. */}
 			<div className="panel-tab-list" role="tablist" aria-label="Side panel" onKeyDown={keys}>
-				<div className="panel-tab-scroll">
+				<div ref={scroller} className="panel-tab-scroll">
 					{tabs.map((tab, index) => {
 						const selected = sameTab(tab, shown)
 						const name = tabLabel(tab)

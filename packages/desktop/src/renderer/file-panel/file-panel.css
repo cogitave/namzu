@@ -55,12 +55,23 @@
 	min-width: 0;
 	overflow-x: auto;
 	scrollbar-width: none;
-	/* A soft edge says there are more tabs out of sight. */
+	/* Room for the first tab's border and the last tab's close button inside the scroller's own box. */
+	padding-inline: 2px;
+	scroll-padding-inline: 2px;
+}
+/* A soft edge says there are more tabs out of sight, only on the side that has them. */
+.panel-tab-scroll[data-overflow-start] {
+	mask-image: linear-gradient(to right, transparent 0, #000 12px);
+}
+.panel-tab-scroll[data-overflow-end] {
+	mask-image: linear-gradient(to right, #000 calc(100% - 12px), transparent 100%);
+}
+.panel-tab-scroll[data-overflow-start][data-overflow-end] {
 	mask-image: linear-gradient(
 		to right,
 		transparent 0,
-		#000 8px,
-		#000 calc(100% - 8px),
+		#000 12px,
+		#000 calc(100% - 12px),
 		transparent 100%
 	);
 }
