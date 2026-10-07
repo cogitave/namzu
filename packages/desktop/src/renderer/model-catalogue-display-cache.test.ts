@@ -194,3 +194,27 @@ it('bounds retained rows and lets a too-large catalogue render without retaining
 	})
 	expect(cache.peek(hugeKey)).toEqual({ state: 'idle' })
 })
+
+it('keeps the last good list for display after it expires or a later read fails, until invalidated', async () => {
+	vi.useFakeTimers()
+	const cache = new ModelCatalogueDisplayCache()
+	const key = scope(cache)
+	expect(cache.lastKnown(key)).toBeUndefined()
+	await cache.load(key, async () => catalogue('First'))
+	vi.setSystemTime(Date.now() + 10 * 60_000)
+	expect(cache.peek(key).state).toBe('idle')
+	expect(cache.lastKnown(key)?.models[0]?.label).toBe('First')
+	await expect(
+		cache.load(
+			key,
+			async () => {
+				throw new Error('offline')
+			},
+			true,
+		),
+	).rejects.toThrow('offline')
+	expect(cache.peek(key).state).toBe('error')
+	expect(cache.lastKnown(key)?.models[0]?.label).toBe('First')
+	cache.invalidate()
+	expect(cache.lastKnown(key)).toBeUndefined()
+})

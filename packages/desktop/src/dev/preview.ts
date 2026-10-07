@@ -1064,6 +1064,22 @@ const api: DesktopApi = {
 			if (engine.provider.id === provider) return { models: clone(engine.models), notice: null }
 		if (!available.some((item) => item.id === provider))
 			throw new Error('Choose a sample provider.')
+		// A design aid: localStorage 'namzu.preview.models' = 'fail' makes the sample catalogue unreadable, 'many' gives it 16 models.
+		try {
+			if (localStorage.getItem('namzu.preview.models') === 'fail') throw new Error('unavailable')
+		} catch (error) {
+			if (error instanceof Error && error.message === 'unavailable') throw error
+		}
+		try {
+			if (localStorage.getItem('namzu.preview.models') === 'many')
+				return {
+					models: Array.from({ length: 16 }, (_, index) => ({
+						id: `sample-${index}`,
+						label: `Sample model ${index + 1}`,
+					})),
+					notice: null,
+				}
+		} catch {}
 		return {
 			models: [
 				{

@@ -54,6 +54,7 @@ export class ModelCatalogueDisplayCache {
 	readonly id = ++nextCacheId
 	private readonly entries = new Map<string, Entry>()
 	private readonly projectEpochs = new Map<string, number>()
+	private readonly known = new Map<string, ModelCatalogueView>()
 	private readonly listeners = new Set<() => void>()
 	private globalEpoch = 0
 	private revision = 0
@@ -97,6 +98,11 @@ export class ModelCatalogueDisplayCache {
 		return { state: entry.state }
 	}
 
+	/** The last list read for this scope, even once it has expired or a later read failed. */
+	lastKnown(scope: ModelCatalogueDisplayScope): ModelCatalogueView | undefined {
+		return this.known.get(scope.key)
+	}
+
 	load(
 		scope: ModelCatalogueDisplayScope,
 		read: () => Promise<ModelCatalogueView>,
@@ -129,6 +135,7 @@ export class ModelCatalogueDisplayCache {
 					this.changed()
 					return { current: true, retained: false, value: copy }
 				}
+				this.remember(scope.key, copy)
 				entry.state = 'ready'
 				entry.value = copy
 				entry.chars = chars
@@ -155,6 +162,7 @@ export class ModelCatalogueDisplayCache {
 	invalidate(projectId?: string): void {
 		if (projectId === undefined) {
 			this.globalEpoch++
+			this.known.clear()
 			this.entries.clear()
 			this.projectEpochs.clear()
 			this.retainedChars = 0
@@ -163,6 +171,7 @@ export class ModelCatalogueDisplayCache {
 		}
 		if (!this.projectEpochs.has(projectId) && this.projectEpochs.size >= MAX_PROJECT_EPOCHS) {
 			this.globalEpoch++
+			this.known.clear()
 			this.projectEpochs.clear()
 			this.entries.clear()
 			this.retainedChars = 0
@@ -170,6 +179,15 @@ export class ModelCatalogueDisplayCache {
 		this.projectEpochs.set(projectId, (this.projectEpochs.get(projectId) ?? 0) + 1)
 		for (const [key, entry] of this.entries) if (entry.projectId === projectId) this.delete(key)
 		this.changed()
+	}
+
+	private remember(key: string, value: ModelCatalogueView): void {
+		this.known.delete(key)
+		this.known.set(key, value)
+		for (const oldest of this.known.keys()) {
+			if (this.known.size <= MAX_ENTRIES) break
+			this.known.delete(oldest)
+		}
 	}
 
 	private delete(key: string): void {

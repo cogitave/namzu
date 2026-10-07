@@ -27,7 +27,6 @@ import {
 	CloudIcon,
 	LoaderCircleIcon,
 	ProviderIcons,
-	RefreshIcon,
 	SearchIcon,
 	ServerIcon,
 	XIcon,
@@ -69,6 +68,7 @@ export type EngineControl = {
 	onSelect: (engine: HarnessView['selected']) => void
 }
 const DEFAULT_KEY = 'default'
+const LOAD_FAILED = "Couldn't load the model list. It will try again next time you open this."
 
 function ProviderMark({ provider }: { provider: Provider }) {
 	const Icon =
@@ -412,7 +412,7 @@ function useChoiceCatalogue({
 			loadCatalogue
 				? loadCatalogue(provider.id)
 				: window.namzu.models(projectId, provider.id, sessionId)
-		// The shared cache publishes the retryable error; the menu offers the retry.
+		// The shared cache publishes the error; the menu retries once per opening.
 		displayCache.load(scope, read).catch(() => {})
 	}, [enabled, provider, scope, projectId, sessionId, loadCatalogue, displayCache, version])
 	return rows ?? (last.current?.identity === identity ? last.current.rows : undefined)
@@ -460,8 +460,8 @@ function ModelBrowser({
 	const [query, setQuery] = useState('')
 	const search = useRef<HTMLInputElement>(null)
 	const results = useRef<HTMLDivElement>(null)
-	const [custom, setCustom] = useState(false)
-	const [customModel, setCustomModel] = useState(choice.model)
+	// A failure left by an earlier opening is re-read once; the next opening starts afresh.
+	const retried = useRef(new Set<string>())
 	const active =
 		providers.available.find((provider) => provider.id === providerId) ?? providers.available[0]
 	const multipleProviders = providers.available.length > 1
@@ -543,6 +543,17 @@ function ModelBrowser({
 		for (const provider of targets) load(provider)
 	}, [active, providers.available, searching, load, cacheVersion])
 	useEffect(() => {
+		void cacheVersion
+		const targets = searching ? providers.available : active ? [active] : []
+		for (const provider of targets) {
+			if (retried.current.has(provider.id)) continue
+			// Only a failure that predates this opening is retried; a read started by this
+			// opening that fails is left alone, so one opening never reads twice in a row.
+			retried.current.add(provider.id)
+			if (displayCache.peek(scopeFor(provider)).state === 'error') load(provider, true)
+		}
+	}, [active, providers.available, searching, load, cacheVersion, displayCache, scopeFor])
+	useEffect(() => {
 		if (searching) search.current?.focus({ preventScroll: true })
 	}, [searching])
 	const shownProviders = searching ? providers.available : active ? [active] : []
@@ -550,9 +561,11 @@ function ModelBrowser({
 		const scope = scopeFor(provider)
 		const snapshot = displayCache.peek(scope)
 		if (snapshot.state === 'ready') return { loading: false, value: snapshot.value }
-		if (snapshot.state === 'loading') return { loading: true }
-		if (snapshot.state === 'error')
-			return { loading: false, error: 'Could not load these models. Try again.' }
+		// The last good list stays on screen while a re-read runs or after one fails.
+		const known = displayCache.lastKnown(scope)
+		if (snapshot.state === 'loading')
+			return known ? { loading: false, value: known } : { loading: true }
+		if (snapshot.state === 'error') return { loading: false, value: known, error: LOAD_FAILED }
 		const local = catalogues[provider.id]
 		return local && (local.scopeKey === undefined || local.scopeKey === scope.key)
 			? local
@@ -575,13 +588,9 @@ function ModelBrowser({
 	const loading = shownProviders.some(
 		(provider) => !shownCatalogues.get(provider.id) || shownCatalogues.get(provider.id)?.loading,
 	)
-	// A short single-engine list needs no search, refresh or typed ids; they appear with a long list.
+	// A short single-engine list needs no search; it appears with a long list.
 	const showTools = multipleProviders || searching || models.length > 12
 	const errors = shownProviders.filter((provider) => shownCatalogues.get(provider.id)?.error)
-	const retry = (id: string) => {
-		const provider = providers.available.find((provider) => provider.id === id)
-		if (provider) load(provider, true)
-	}
 	const notices = shownProviders.flatMap((provider) => {
 		const notice = shownCatalogues.get(provider.id)?.value?.notice
 		return notice ? [{ provider, notice }] : []
@@ -723,28 +732,15 @@ function ModelBrowser({
 									/>
 								)}
 								{showTools && (
-									<>
-										<Button
-											variant="ghost-muted"
-											size="icon-xs"
-											aria-label={`Refresh ${active?.label ?? 'current'} models`}
-											disabled={!active}
-											onClick={() => {
-												if (active) retry(active.id)
-											}}
-										>
-											<RefreshIcon aria-hidden="true" />
-										</Button>
-										<Button
-											variant="ghost-muted"
-											size="icon-xs"
-											aria-label="Search models"
-											title="Search models (/)"
-											onClick={() => setSearching(true)}
-										>
-											<SearchIcon aria-hidden="true" />
-										</Button>
-									</>
+									<Button
+										variant="ghost-muted"
+										size="icon-xs"
+										aria-label="Search models"
+										title="Search models (/)"
+										onClick={() => setSearching(true)}
+									>
+										<SearchIcon aria-hidden="true" />
+									</Button>
 								)}
 							</div>
 						)}
@@ -863,27 +859,13 @@ function ModelBrowser({
 			{(errors.length > 0 || notices.length > 0 || sharedNotes.size > 0 || settingsNotice) && (
 				<div className="model-picker-feedback" aria-label="Model catalogue information">
 					{settingsNotice && <p className="model-picker-settings-notice">{settingsNotice}</p>}
-					{errors.map((provider) => (
-						<div key={provider.id} className="model-picker-status" role="alert">
-							<span>
-								{provider.label}: {shownCatalogues.get(provider.id)?.error}
-							</span>
-							<Button
-								variant="ghost-muted"
-								size="xs"
-								onClick={() => retry(provider.id)}
-								aria-label={`Retry ${provider.label} models`}
-							>
-								Retry
-							</Button>
-						</div>
-					))}
+					{errors.length > 0 && <p className="model-picker-quiet">{LOAD_FAILED}</p>}
 					{shownProviders.map((provider) => {
 						const note = sharedNotes.get(provider.id)
 						if (!note || note === shownCatalogues.get(provider.id)?.value?.notice?.trim())
 							return null
 						return (
-							<p key={provider.id} className="model-picker-shared-note">
+							<p key={provider.id} className="model-picker-shared-note" title={note}>
 								{searching && `${provider.label}: `}
 								{note}
 							</p>
@@ -895,65 +877,8 @@ function ModelBrowser({
 								{searching && `${provider.label}: `}
 								{notice}
 							</span>
-							<Button
-								variant="ghost-muted"
-								size="xs"
-								onClick={() => retry(provider.id)}
-								disabled={shownCatalogues.get(provider.id)?.loading}
-								aria-label={`Retry ${provider.label} models`}
-							>
-								Retry
-							</Button>
 						</div>
 					))}
-				</div>
-			)}
-			{active && showTools && (
-				<div className="model-custom">
-					{custom ? (
-						<form
-							onSubmit={(event) => {
-								event.preventDefault()
-								if (customModel.trim()) onChoose({ provider: active.id, model: customModel.trim() })
-							}}
-						>
-							<label htmlFor="custom-model">Model ID · {active.label}</label>
-							<div>
-								<Input
-									nativeInput
-									id="custom-model"
-									aria-label="Model"
-									value={customModel}
-									onChange={(event) => setCustomModel(event.target.value)}
-									placeholder={active.defaultModel}
-								/>
-								<Button
-									type="submit"
-									variant="ghost-muted"
-									size="xs"
-									disabled={!customModel.trim()}
-									aria-label="Use model"
-								>
-									<CheckIcon />
-								</Button>
-							</div>
-						</form>
-					) : (
-						<Button
-							variant="ghost-muted"
-							size="xs"
-							onClick={() => {
-								setCustomModel(
-									choice.provider === active.id
-										? choice.model || active.defaultModel
-										: active.defaultModel,
-								)
-								setCustom(true)
-							}}
-						>
-							Use a model ID…
-						</Button>
-					)}
 				</div>
 			)}
 		</div>
@@ -978,7 +903,6 @@ function ModelBrowser({
 				setProviderId(String(value))
 				setQuery('')
 				setSearching(false)
-				setCustom(false)
 			}}
 			className="model-provider-tabs"
 			onKeyDown={searchShortcut}

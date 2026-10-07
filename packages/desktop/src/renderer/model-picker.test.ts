@@ -73,7 +73,7 @@ it('keeps a single native catalogue a plain, checked model list without redundan
 	expect(html).toContain('aria-label="Codex CLI Native selected"')
 	const selected = html.match(/<button[^>]*aria-label="Codex CLI Native selected"[^>]*>/)?.[0]
 	expect(selected).toContain('aria-checked="true"')
-	// A short single-engine list carries no search, refresh or typed-id controls.
+	// A short single-engine list carries no search control.
 	expect(html).not.toContain('aria-label="Search models"')
 	expect(html).not.toContain('Use a model ID…')
 	expect(html).not.toContain('Quick search')
@@ -101,7 +101,7 @@ it('retains actual provider navigation and the exact selected provider/model whe
 	)
 })
 
-it('keeps notices, actual model notes and manual IDs available in the compact menu', () => {
+it('keeps notices and actual model notes in the compact menu, with no Retry button', () => {
 	catalogue(
 		'zen',
 		[{ id: 'opaque-free', label: 'Opaque free', note: 'Actual catalogue note' }],
@@ -113,11 +113,11 @@ it('keeps notices, actual model notes and manual IDs available in the compact me
 	})
 	expect(html).toContain('Actual catalogue note')
 	expect(html).toContain('Actual catalogue warning')
-	expect(html).toContain('aria-label="Retry Zen models"')
+	expect(html).not.toContain('Retry')
 	expect(html).not.toContain('data-selected-model-icon')
 })
 
-it('offers search, refresh and typed model ids once a single-engine list grows long', () => {
+it('offers search once a single-engine list grows long, and never refresh or typed model ids', () => {
 	catalogue(
 		'codex-cli',
 		Array.from({ length: 13 }, (_, index) => ({ id: `m-${index}`, label: `Model ${index}` })),
@@ -127,8 +127,9 @@ it('offers search, refresh and typed model ids once a single-engine list grows l
 		selected: { id: 'codex-cli', model: 'm-1' },
 	})
 	expect(html).toContain('aria-label="Search models"')
-	expect(html).toContain('aria-label="Refresh Codex models"')
-	expect(html).toContain('Use a model ID…')
+	expect(html).not.toContain('Refresh')
+	expect(html).not.toContain('Use a model ID')
+	expect(html).not.toContain('Retry')
 })
 
 it('names the Default row for assistive tools with the model it stands for, and keeps notes in model names', () => {
