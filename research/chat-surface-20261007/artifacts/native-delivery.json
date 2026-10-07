@@ -1,0 +1,87 @@
+{
+  "recordedAt": "2026-10-07T11:17:03.190580+00:00",
+  "sourceCommit": "79dcae47",
+  "desktopProcessBefore": 16492,
+  "desktopProcessAfter": 25184,
+  "prepare": {
+    "passed": true,
+    "privateReceiptSha256": "ef0638562ea3b1ab03589cce4da7e71448452e0c96853cf15175a2082f598263",
+    "beforeSnapshotSha256": "0e400d1082948ee6a0916fad70c11924b11f9893c953427906aac5bd686cdaa7"
+  },
+  "activation": {
+    "passed": false,
+    "phase": "verify",
+    "failure": "Protected presentation changed across activation",
+    "privateReceiptSha256": "b81249199dae85b53cc74649fd6aa0a7c607d111c823453efb4594b0385ce7fe",
+    "privateAfterSnapshotSha256": "868df1f377cbd82622635feac8bedcee60b73975abec5164234980b6407a3253",
+    "gracefulCloseConfirmed": true,
+    "retainedBackup": "dist-before-removal-20261007T110342649Z",
+    "changedCliModules": 0,
+    "changedSdkModules": 0,
+    "protectedDigestsEqual": {
+      "groups": true,
+      "catalogues": true,
+      "profiles": true,
+      "computers": true,
+      "projects": true,
+      "presentation": false,
+      "sessions": false
+    },
+    "transcriptScrollTop": {
+      "before": 0,
+      "after": 0
+    },
+    "transcriptScrollRange": {
+      "before": 1218,
+      "after": 1209
+    },
+    "protectedSessionFieldsEqual": {
+      "partial": true,
+      "jobs": true,
+      "draft": true,
+      "settings": true,
+      "attachments": true,
+      "tasks": true,
+      "tasksNotice": true,
+      "retry": true,
+      "retryNotice": true
+    },
+    "classification": "The strict original activation remains FAILED. Content-only evidence does not accept or repair presentation or session digest drift."
+  },
+  "authoredReadonly": {
+    "passed": true,
+    "readOnly": true,
+    "originalApplyPassed": false,
+    "authoredOwners": 4,
+    "authoredMessages": 20,
+    "authoredJournals": 4,
+    "verifiedJournalClocks": 20,
+    "honestlyAbsentClocks": 0,
+    "liveToJournalClocks": 12,
+    "durableIdsAdded": 6,
+    "textPartIdsDropped": 2,
+    "currentLayoutUnchangedDuringRead": true,
+    "desktopFiles": 742,
+    "installedDesktopByteExact": true,
+    "installedCliSdkPayloadByteExact": true,
+    "originalApplyFailedAtProtectedPresentation": true,
+    "originalPresentationDigestsDiffer": true,
+    "originalSessionsDigestsDiffer": true,
+    "helperSha256": "38da21ba1544ddbe0ca37eff42781871192cbed30fa081e9c8d163436117ac67",
+    "scope": "Additive authored content/journal/clock/payload proof only. The original activation remains failed; presentation drift is not accepted or restored.",
+    "privateReceiptSha256": "7422ca1e56298388dc4e1ad61d7024ef77d65b4ecde77b86e8ba5b9e36411218",
+    "modelRequests": 0,
+    "uiActions": 0,
+    "appRestarts": 0
+  },
+  "nativeFooter": {
+    "artifact": "native-current-footer-proof.json",
+    "scope": "Actual current ordinary conversation; opacity and geometry only. No copied/audio body or playback. Temporary DOM reader position restored; automatic-follow preference is unverified."
+  },
+  "limitations": [
+    "The full restart preservation guard failed and remains failed.",
+    "No native Pal navigation or OS clipboard/speech action was performed.",
+    "Native footer observer restored DOM scrollTop only; it did not establish preservation of automatic-follow preference.",
+    "No rich link/source preview card is implemented."
+  ]
+}

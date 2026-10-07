@@ -1,0 +1,17 @@
+{
+  "passed": false,
+  "phase": "guard-compilation-before-native-state-read",
+  "entry": "native-desktop-prepare.cjs --prepare-reviewed",
+  "errorType": "AssertionError",
+  "reason": "The selected receipt.beforePid source seam occurred twice instead of once; compilation refused before the inherited guard could execute.",
+  "actualOccurrences": 2,
+  "expectedOccurrences": 1,
+  "appRestarts": 0,
+  "clipboardWrites": 0,
+  "nativeUiActions": 0,
+  "cliCopies": 0,
+  "sdkCopies": 0,
+  "modelRequests": 0,
+  "privateActivationReceiptWritten": false,
+  "privateActivationSnapshotWritten": false
+}

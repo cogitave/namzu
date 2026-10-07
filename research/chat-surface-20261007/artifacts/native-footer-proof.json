@@ -1,0 +1,13 @@
+{
+  "passed": false,
+  "phase": "existing-pal-footer-selection",
+  "pid": 25184,
+  "reason": "The existing native selected conversation was ordinary rather than Pal, so the first Pal-only observer refused without changing conversation or reader position.",
+  "pointerMoves": 1,
+  "clipboardWrites": 0,
+  "speechActions": 0,
+  "providerRequests": 0,
+  "bodyReads": 0,
+  "ownerNavigationActions": 0,
+  "readerScrollActions": 0
+}
