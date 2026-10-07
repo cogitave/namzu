@@ -35,8 +35,10 @@ describe('a restore', () => {
 		store.beginTurn('change a, create b')
 		expect(await store.snapshot('a.txt')).toBe('recorded')
 		await writeFile(a, 'two')
+		await store.settle(a, { ok: true, first: true })
 		expect(await store.snapshot(b)).toBe('recorded')
 		await writeFile(b, 'new')
+		await store.settle(b, { ok: true, first: true })
 
 		const report = await store.restore(1)
 		expect(await readFile(a, 'utf8')).toBe('one')
@@ -57,9 +59,11 @@ describe('a restore', () => {
 		await writeFile(a, 'v1')
 		expect(await store.snapshot(a)).toBe('already')
 		await writeFile(a, 'v1b')
+		await store.settle(a, { ok: true, first: false })
 		store.beginTurn('turn two')
 		await store.snapshot(a)
 		await writeFile(a, 'v2')
+		await store.settle(a, { ok: true, first: true })
 
 		expect(renderCheckpoints(store.list(), cwd)).toContain(
 			'  1. turn one\n       a.txt\n  2. turn two',
@@ -80,23 +84,24 @@ describe('a restore', () => {
 		await expect(store.restore(1)).rejects.toThrow(/No checkpoint for turn 1/)
 	})
 
-	it('drops its blobs when the session closes', async () => {
+	it('keeps its history when the session is released, and drops it only on dispose', async () => {
 		const a = join(cwd, 'a.txt')
+		const root = join(cwd, '.namzu', 'checkpoints', 'fea5c0c7-1d0f-46cc-9844-c3a8f90afede')
 		await writeFile(a, 'x')
 		store.beginTurn('t')
 		await store.snapshot(a)
-		expect(
-			await exists(join(cwd, '.namzu', 'checkpoints', 'fea5c0c7-1d0f-46cc-9844-c3a8f90afede', '1')),
-		).toBe(true)
-		await store.close()
-		expect(
-			await exists(join(cwd, '.namzu', 'checkpoints', 'fea5c0c7-1d0f-46cc-9844-c3a8f90afede')),
-		).toBe(false)
+		expect(await exists(join(root, 'blobs'))).toBe(true)
+		await store.release()
+		// Closing a session is not the end of its history.
+		expect(await exists(join(root, 'turns'))).toBe(true)
+		expect(await exists(join(root, 'blobs'))).toBe(true)
+		await store.dispose()
+		expect(await exists(root)).toBe(false)
 	})
 })
 
 describe('a store that outlives a conversation switch', () => {
-	it('writes each turn under the conversation it belongs to, and drops them all on close', async () => {
+	it('writes each turn under the conversation it belongs to, and finds it again when that conversation is current', async () => {
 		const home = join(cwd, 'home')
 		let conversation = 'boot'
 		const switching = new FileCheckpointStore(() => join(home, conversation, 'file-history'), cwd)
@@ -108,20 +113,29 @@ describe('a store that outlives a conversation switch', () => {
 		switching.beginTurn('edit after resume')
 		await switching.snapshot(a)
 		await writeFile(a, 'v1')
+		await switching.settle(a, { ok: true, first: true })
 
-		expect(await exists(join(home, 'resumed', 'file-history', '1'))).toBe(true)
+		expect(await exists(join(home, 'resumed', 'file-history', 'turns'))).toBe(true)
 		expect(await exists(join(home, 'boot'))).toBe(false)
 
-		// A later switch neither loses the earlier turn nor moves it.
+		// Another conversation has its own history: nothing of the first one shows in it.
 		conversation = 'another'
+		await switching.open()
+		expect(switching.list()).toEqual([])
+		await expect(switching.restore(1)).rejects.toThrow(/No checkpoint for turn 1/)
+
+		// Back in the conversation the turn belongs to, it is there and restorable.
+		conversation = 'resumed'
+		await switching.open()
+		expect(switching.list().map((t) => t.label)).toEqual(['edit after resume'])
 		await switching.restore(1)
 		expect(await readFile(a, 'utf8')).toBe('v0')
-		expect(await exists(join(home, 'resumed', 'file-history', '1'))).toBe(false)
 
+		conversation = 'another'
 		switching.beginTurn('edit in another')
 		await switching.snapshot(a)
-		await switching.close()
-		expect(await exists(join(home, 'resumed', 'file-history'))).toBe(false)
+		expect(await exists(join(home, 'another', 'file-history', 'turns'))).toBe(true)
+		await switching.dispose()
 		expect(await exists(join(home, 'another', 'file-history'))).toBe(false)
 		expect(await exists(join(home, 'boot'))).toBe(false)
 	})

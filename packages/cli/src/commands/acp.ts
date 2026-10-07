@@ -10,6 +10,7 @@ import {
 	type SessionEvent,
 	type SessionId,
 	type ToolPresenter,
+	asSessionId,
 	createUserMessage,
 	generateSessionId,
 	genericLabel,
@@ -19,9 +20,10 @@ import {
 
 import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { FileCheckpointStore, type TurnUndoStatus, type UndoPreview } from '../checkpoints/store.js'
 import { resolveTrustedProjectContext } from '../config/trusted-project-context.js'
 import { type PluginInventoryView, readPluginInventory } from '../integrations/plugins/inventory.js'
 import { canSelectModel } from '../integrations/providers/access.js'
@@ -198,6 +200,8 @@ type AcpLiveSession = Pick<
 	| 'reasoningEffortDefault'
 	| 'imageAttachmentsSupported'
 	| 'documentAttachmentsSupported'
+	| 'checkpoints'
+	| 'markFilesChanged'
 > & { readonly resumePaused?: AgentSession['resumePaused'] }
 
 export interface AcpRuntimeDependencies {
@@ -272,8 +276,57 @@ function assertRetryComputer(
 		throw new Error(CHANGED_RETRY_COMPUTER)
 }
 
+/** What a client sends to apply an undo; already validated for shape. */
+export interface TurnUndoRequest {
+	readonly turnId: string
+	readonly planToken: string
+	readonly resolutions?: Readonly<Record<string, 'skip' | 'keep_copy'>>
+	readonly alsoUndoLater?: boolean
+}
+
+export interface TurnUndoResult {
+	readonly turnId: string
+	/** `plan-changed` means nothing was written: `replan` is what to show instead. */
+	readonly status: 'applied' | 'undone' | 'partially_undone' | 'plan-changed'
+	readonly files: Readonly<Record<string, string>>
+	/** Later replies undone along with it, by turn id. */
+	readonly later?: Readonly<Record<string, Readonly<Record<string, string>>>>
+	/** Files the operator had changed, saved before being replaced. */
+	readonly copies?: readonly { path: string; sha256: string }[]
+	readonly replan?: UndoPreview
+}
+
+/**
+ * Undo a reply's file changes. Reads and writes the conversation's
+ * `file-history/` and the disk only: a conversation nobody has opened in this
+ * process is undone without building a model session.
+ */
+export interface CliTurnUndo {
+	status(
+		sessionId: string,
+		cwd: string,
+		scope: CliSessionScope,
+		turnIds?: readonly string[],
+	): Promise<{ turns: TurnUndoStatus[] }>
+	preview(
+		sessionId: string,
+		cwd: string,
+		scope: CliSessionScope,
+		turnId: string,
+		options?: { alsoUndoLater?: boolean },
+	): Promise<UndoPreview>
+	undo(
+		sessionId: string,
+		cwd: string,
+		scope: CliSessionScope,
+		request: TurnUndoRequest,
+	): Promise<TurnUndoResult>
+}
+
 export interface CliAcpRuntime {
 	readonly gateway: AcpAgentGateway
+	/** Per-reply file undo; absent on a runtime that keeps no file history. */
+	readonly turnUndo?: CliTurnUndo
 	/** Live operator text for this connection's current ordinary Namzu prompt only. */
 	liveInputStatus?(
 		sessionId: string,
@@ -471,6 +524,14 @@ export function createCliAcpRuntime(
 	// change reconstructs its runtime. Never persist these into startup config.
 	const pluginOverrides = new Map<string, Map<string, boolean>>()
 	const selecting = new Set<string>()
+	// Conversations an undo is writing into right now: no prompt may start under it.
+	const undoing = new Set<string>()
+	// What an undo changed, for the model's next turn in that conversation. Keyed
+	// by session, not record: a conversation undone cold has no record yet.
+	const undoNotes = new Map<string, string[]>()
+	// Cold undo stores of one conversation run one at a time: two stores over one
+	// directory would each sweep and write from a stale picture of the other.
+	const undoTails = new Map<string, Promise<void>>()
 	const catalogueController = new AbortController()
 	const catalogueRequests = new Map<string, ReturnType<typeof describeProviderModels>>()
 	let probePromise: ReturnType<typeof probeAgentSession> | undefined
@@ -585,6 +646,10 @@ export function createCliAcpRuntime(
 		const palBinding = await deps.palBinding?.(cwd, sessionId)
 		if (palBinding?.pal.paused) throw new Error('This Pal is paused.')
 		if (selecting.has(sessionId)) throw new Error('Wait for the model change to finish.')
+		// A cold undo read or write in flight owns the directory; its own store is
+		// released before a live one is opened over it.
+		await undoTails.get(sessionId)
+		if (undoing.has(sessionId)) throw new Error('Wait for the undo to finish.')
 		const existing = records.get(sessionId)
 		if (existing) {
 			if (existing.cwd !== cwd) {
@@ -883,8 +948,11 @@ export function createCliAcpRuntime(
 					...(computer ? { computer } : {}),
 				}
 				const inputInbox = liveInbox
+				const undoNote = undoNotes.get(sessionId)?.join('\n\n')
+				undoNotes.delete(sessionId)
 				for await (const event of record.session.send(messages, {
 					...settings,
+					...(undoNote ? { systemNote: undoNote } : {}),
 					...(computer
 						? { assertExecutionAllowed: () => assertRetryComputer(record, original) }
 						: {}),
@@ -978,9 +1046,12 @@ export function createCliAcpRuntime(
 			try {
 				let stopReason: string | undefined
 				let failureMessage: string | undefined
+				const undoNote = undoNotes.get(sessionId)?.join('\n\n')
+				undoNotes.delete(sessionId)
 				for await (const event of record.session.resumePaused({
 					turnId,
 					checkpointId,
+					...(undoNote ? { systemNote: undoNote } : {}),
 					signal,
 					permissionMode: settings.permissionMode,
 					...(record.ownedPal
@@ -1028,9 +1099,163 @@ export function createCliAcpRuntime(
 		},
 	}
 
+	/**
+	 * The same admission `providerRetryStatus` gives a read: this connection is
+	 * open, the folder is trusted at the scope's own home, and the scope is the
+	 * one this conversation's runtime (if any) was opened under.
+	 */
+	const admitUndo = async (
+		sessionId: string,
+		requestedCwd: string,
+		authenticated: CliSessionScope,
+	) => {
+		if (closed) throw new Error('The connection is closed.')
+		const trust = deps.decideTrust({
+			cwd: requestedCwd,
+			trustFlag: false,
+			trusted: (dir: string) => isTrustedAtStateRoot(dir, authenticated.root),
+		})
+		if (!trust.allowed) throw new Error(trust.message ?? 'Trust this folder first.')
+		const record = records.get(sessionId)
+		if (record && record.cwd !== trust.cwd)
+			throw new Error('This conversation belongs to another project.')
+		if (!isTrustedAtStateRoot(trust.cwd, authenticated.root))
+			throw new Error('Trust this folder first.')
+		const cwd = canonicalProjectPath(trust.cwd)
+		const projectRoot = palAtWorkspace(cwd, authenticated.root) ? cwd : cliProjectRoot(cwd)
+		if (
+			authenticated.projectRoot !== projectRoot ||
+			(record?.conversations &&
+				(authenticated.root !== record.conversations.root ||
+					authenticated.projectId !== record.conversations.projectId ||
+					authenticated.tenantId !== record.conversations.tenantId))
+		)
+			throw new Error('This conversation belongs to another project or application home.')
+		const target = await deps.resolveSession(sessionId)
+		const binding = await deps.palBinding?.(trust.cwd, target.sessionId, authenticated)
+		return { record, cwd: trust.cwd, sessionId: target.sessionId, binding }
+	}
+	/**
+	 * A live conversation's own store when it has one (two stores over one
+	 * directory would each hold a stale picture of the other's writes), else a
+	 * cold one built from the directory alone.
+	 */
+	const withUndoStore = async <T>(
+		admitted: Awaited<ReturnType<typeof admitUndo>>,
+		scope: CliSessionScope,
+		run: (store: FileCheckpointStore) => Promise<T>,
+	): Promise<T> => {
+		const live = admitted.record?.session.checkpoints
+		if (live) {
+			await live.open()
+			return run(live)
+		}
+		const id = admitted.sessionId
+		const prior = undoTails.get(id) ?? Promise.resolve()
+		const turn = prior.then(async () => {
+			// A live session opened since: its store owns the directory now.
+			if (records.has(id) || constructing.has(id))
+				throw new Error('Wait for the conversation to finish opening, then try again.')
+			const cold = new FileCheckpointStore(
+				scope.paths.fileHistory({ sessionId: asSessionId(id) }),
+				admitted.cwd,
+			)
+			try {
+				await cold.open()
+				return await run(cold)
+			} finally {
+				await cold.release()
+			}
+		})
+		const tail = turn.then(
+			() => undefined,
+			() => undefined,
+		)
+		undoTails.set(id, tail)
+		void tail.then(() => {
+			if (undoTails.get(id) === tail) undoTails.delete(id)
+		})
+		return turn
+	}
+	const turnUndo: CliTurnUndo = {
+		status: async (sessionId, requestedCwd, scope, turnIds) => {
+			const admitted = await admitUndo(sessionId, requestedCwd, scope)
+			return withUndoStore(admitted, scope, async (store) => ({
+				turns: await store.undoStatus(turnIds),
+			}))
+		},
+		preview: async (sessionId, requestedCwd, scope, turnId, options) => {
+			const admitted = await admitUndo(sessionId, requestedCwd, scope)
+			return withUndoStore(admitted, scope, (store) =>
+				store.previewUndo(turnId, { alsoUndoLater: options?.alsoUndoLater === true }),
+			)
+		},
+		undo: async (sessionId, requestedCwd, scope, request) => {
+			const admitted = await admitUndo(sessionId, requestedCwd, scope)
+			if (undoing.has(sessionId)) throw new Error('Wait for the undo to finish.')
+			// Claimed before any further await, so no prompt can start under the undo.
+			undoing.add(sessionId)
+			try {
+				// Looked up again: a prompt may have opened the conversation since admission.
+				const current = { ...admitted, record: records.get(sessionId) }
+				const { record, binding } = current
+				if (binding?.pal.paused) throw new Error('This Pal is paused.')
+				if (record?.route || selecting.has(sessionId) || constructing.has(sessionId))
+					throw new Error('Wait for the current reply to finish before undoing.')
+				if (record?.session.jobs?.().some((job) => job.status === 'running'))
+					throw new Error('A background command is still running. Stop it before undoing.')
+				if (binding && (await deps.palRuntime?.())?.busy(binding.pal.id))
+					throw new Error('Wait for this Pal’s current work to settle before undoing.')
+				return await withUndoStore(current, scope, async (store): Promise<TurnUndoResult> => {
+					const outcome = await store.undo(request.turnId, {
+						planToken: request.planToken,
+						...(request.resolutions ? { resolutions: request.resolutions } : {}),
+						...(request.alsoUndoLater ? { alsoUndoLater: true } : {}),
+						by: 'desktop',
+					})
+					if (outcome.kind === 'plan-changed')
+						return {
+							turnId: request.turnId,
+							status: 'plan-changed',
+							files: {},
+							replan: outcome.plan,
+						}
+					if (outcome.changed.length > 0) {
+						// The model's picture of these files is wrong now: refuse its next
+						// edit until it reads them again, and tell it why in plain words.
+						await record?.session.markFilesChanged?.(outcome.changed)
+						const shown = outcome.changed
+							.slice(0, 20)
+							.map((path) => relative(current.cwd, path) || path)
+						const more = outcome.changed.length - shown.length
+						// Two undos before the next prompt: the model hears about both.
+						undoNotes.set(sessionId, [
+							...(undoNotes.get(sessionId) ?? []),
+							[
+								'The operator undid the file changes of an earlier reply. These files were put back or removed outside your tools, so what you remember of them may be stale. Read a file again before you edit it:',
+								...shown.map((path) => `- ${path}`),
+								...(more > 0 ? [`- and ${more} more`] : []),
+							].join('\n'),
+						])
+					}
+					return {
+						turnId: outcome.turnId,
+						status: outcome.status,
+						files: outcome.files,
+						later: outcome.later,
+						copies: outcome.copies,
+					}
+				})
+			} finally {
+				undoing.delete(sessionId)
+			}
+		},
+	}
+
 	return {
 		gateway,
 		presenter,
+		turnUndo,
 		liveInputStatus: async (sessionId, scopeId, scope) => {
 			if (closed) throw new Error('The connection is closed.')
 			const inbox = liveInputs.get(sessionId)

@@ -26,18 +26,70 @@ export function withCheckpoints(tool: ToolDefinition, store: FileCheckpointStore
 		...tool,
 		execute: async (input: unknown, context: ToolContext): Promise<ToolResult> => {
 			const path = pathOf(input)
+			// The journal's turn, so an edit from a resumed stream lands in its own
+			// turn rather than whichever prompt began last.
+			const turnId = context.turnId as string | undefined
+			let covered = false
+			let recorded = false
 			if (path !== undefined) {
-				try {
-					await store.snapshot(path)
-				} catch (err) {
-					// A checkpoint that cannot be taken must not stop the edit;
-					// it is a safety net under the work, not a gate on it.
-					context.log(
-						'warn',
-						`checkpoint skipped for ${path}: ${err instanceof Error ? err.message : String(err)}`,
-					)
+				if (context.sandbox) {
+					// The tool acts on the sandbox's filesystem, where `path` is not the
+					// host path of the same name. Snapshotting it would capture the host
+					// file, and a restore would then write that over, or unlink, a host
+					// file this turn never touched.
+					await store.recordSkip(path, 'sandbox', turnId).catch(() => undefined)
+					context.log('warn', `checkpoint skipped for ${path}: the edit runs in the sandbox`)
+				} else {
+					try {
+						const result = await store.snapshot(path, {
+							turnId,
+							tool: tool.name,
+							toolUseId: context.toolUseId,
+						})
+						recorded = result === 'recorded'
+						covered = recorded || result === 'already'
+						if (result === 'too-large' || result === 'outside') {
+							context.log('warn', `checkpoint skipped for ${path}: ${result}`)
+						}
+					} catch (err) {
+						// A checkpoint that cannot be taken must not stop the edit;
+						// it is a safety net under the work, not a gate on it.
+						await store.recordSkip(path, 'snapshot-failed', turnId).catch(() => undefined)
+						context.log(
+							'warn',
+							`checkpoint skipped for ${path}: ${err instanceof Error ? err.message : String(err)}`,
+						)
+					}
 				}
 			}
+			// Where the file ended up is recorded whatever the call did: a refused
+			// edit that changed nothing takes its entry back, a half-done one keeps it.
+			const settle = async (ok: boolean) => {
+				if (!covered || path === undefined) return
+				await store.settle(path, { ok, first: recorded, turnId }).catch(() => undefined)
+			}
+			let result: ToolResult
+			try {
+				result = await tool.execute(input, context)
+			} catch (err) {
+				await settle(false)
+				throw err
+			}
+			await settle(result.success)
+			return result
+		},
+	}
+}
+
+/** Tools that change files by running something: undo cannot reverse them. */
+export const SHELL_TOOLS: readonly string[] = ['bash', 'job', 'run_code']
+
+/** Note, per turn, that a shell call ran, so the history can say what it does not cover. */
+export function withShellNote(tool: ToolDefinition, store: FileCheckpointStore): ToolDefinition {
+	return {
+		...tool,
+		execute: async (input: unknown, context: ToolContext): Promise<ToolResult> => {
+			await store.noteShell(context.turnId as string | undefined).catch(() => undefined)
 			return tool.execute(input, context)
 		},
 	}

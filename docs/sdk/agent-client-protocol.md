@@ -213,6 +213,7 @@ checkpoint and authority before its runtime resumes it.
 | --- | --- |
 | `namzu/sessions/retry-status` | `{sessionId}` returns `{retry?: {turnId, checkpointId}, notice?: string}`. Truly idle conversations return `{}`; an active turn without a safe Retry has a notice. |
 | `namzu/sessions/retry` | `{sessionId, turnId, checkpointId, options?}` returns `AcpSessionPromptResult` while streaming existing `session/update` notifications. Extra prompt/attachment fields are refused. |
+| `namzu/turns/undo-status`, `namzu/turns/undo-preview`, `namzu/turns/undo` | Per-reply file undo; see [Turn undo](../cli/turn-undo.md#acp-methods). |
 
 The CLI reads the strict project/tenant-owned journal, verifies the referenced
 checkpoint against its recorded hashes, and reads the current original budget

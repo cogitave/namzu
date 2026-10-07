@@ -169,7 +169,12 @@ import {
 	createBrowserControl,
 } from '../browser/control.js'
 import { FileCheckpointStore } from '../checkpoints/store.js'
-import { CHECKPOINTED_TOOLS, withCheckpoints } from '../checkpoints/wrap.js'
+import {
+	CHECKPOINTED_TOOLS,
+	SHELL_TOOLS,
+	withCheckpoints,
+	withShellNote,
+} from '../checkpoints/wrap.js'
 import type {
 	CompactionCliConfig,
 	HooksConfig,
@@ -956,6 +961,12 @@ export interface AgentSession {
 	readonly hooks?: HooksConfig
 	/** Files as they were before each turn's writes; what `/restore` uses. */
 	readonly checkpoints?: FileCheckpointStore
+	/**
+	 * Files were changed behind this session's back (an undo restored or removed
+	 * them): mark what the observation ledger holds for them as behind the disk,
+	 * so the next edit is refused until the model reads the file again.
+	 */
+	markFilesChanged?(paths: readonly string[]): Promise<void>
 	/** The directories besides the working directory the file tools may reach; `/add-dir` adds one. */
 	readonly directories?: SessionDirectories
 	/** Be told when one of this session's jobs ends, whether or not a turn is running. */
@@ -1705,9 +1716,12 @@ function builtinTools(backgroundJobs: boolean): ToolDefinition[] {
  * itself, so its writes are still never checkpointed.
  */
 function withCheckpointsWrap(builtin: Toolset, checkpoints: FileCheckpointStore): Toolset {
-	return mapTools(builtin, (tool) =>
-		CHECKPOINTED_TOOLS.includes(tool.name) ? withCheckpoints(tool, checkpoints) : tool,
-	)
+	return mapTools(builtin, (tool) => {
+		if (CHECKPOINTED_TOOLS.includes(tool.name)) return withCheckpoints(tool, checkpoints)
+		// A shell call changes files the history cannot see; the turn says so.
+		if (SHELL_TOOLS.includes(tool.name)) return withShellNote(tool, checkpoints)
+		return tool
+	})
 }
 
 function buildBaseToolsets(paths: SessionPaths, backgroundJobs: boolean): BaseToolsets {
@@ -2456,6 +2470,12 @@ export async function createAgentSession(
 	// sub-agent's own roster reuses `builtin`/`memory` directly rather than
 	// rebuilding either — see `buildTools` inside the sub-agent runtime
 	// options further down.
+	// Read this conversation's history, settle what a crash left half-done and
+	// apply retention now rather than at the first edit. A failure only means
+	// the first edit does it.
+	void Promise.resolve()
+		.then(() => checkpoints.open())
+		.catch(() => undefined)
 	const toolsets: Toolset[] = [withCheckpointsWrap(builtin, checkpoints), memory]
 	// Once per store, idempotently: a launch that finds nothing to move moves
 	// nothing, and one interrupted halfway is finished by the next. A failure
@@ -3090,7 +3110,7 @@ export async function createAgentSession(
 				computerUseHost?.dispose(),
 				browserControl?.dispose(),
 				jobRegistry?.killOwner(jobOwner),
-				checkpoints.close(),
+				checkpoints.release(),
 			])
 			throw new AggregateError(
 				[
@@ -3439,7 +3459,7 @@ export async function createAgentSession(
 			computerUseHost?.dispose(),
 			browserControl?.dispose(),
 			jobRegistry?.killOwner(jobOwner),
-			checkpoints.close(),
+			checkpoints.release(),
 		])
 		directChildReports.clear()
 		const failures = results
@@ -3919,6 +3939,12 @@ export async function createAgentSession(
 			: {}),
 		...(options.hooks ? { hooks: options.hooks } : {}),
 		checkpoints,
+		markFilesChanged: async (changed) => {
+			const seeded = fileObservations.get(scope.sessionId)
+			if (!seeded) return
+			const tracker = await seeded
+			for (const path of new Set(changed)) tracker.recordDriftObserved?.(path)
+		},
 		directories: sessionDirectories,
 		onJobExit: (listener) =>
 			jobRegistry?.onExit((job) => {
@@ -4411,7 +4437,7 @@ export async function createAgentSession(
 								.filter((s): s is string => Boolean(s))
 								.join('\n\n') || undefined
 						await announceSessionStart()
-						checkpoints.beginTurn(lastUserText(messages))
+						checkpoints.beginTurn(lastUserText(messages), turnId)
 						if (opts?.goalRound) {
 							if (!options.sessionGoals) throw new Error('This session has no durable goal store.')
 							if (

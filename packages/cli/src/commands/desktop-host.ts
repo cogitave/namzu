@@ -68,6 +68,38 @@ function session(params: Record<string, unknown>): string {
 	return value
 }
 
+function undoTurnId(params: Record<string, unknown>): string {
+	const turnId = text(params, 'turnId')
+	if (!isEntityId(turnId, 'turn')) throw new Error('Invalid turn.')
+	return turnId
+}
+function undoTurnIds(value: unknown): string[] {
+	if (!Array.isArray(value) || value.length > 500) throw new Error('Invalid turnIds.')
+	return value.map((id) => {
+		if (typeof id !== 'string' || !isEntityId(id, 'turn')) throw new Error('Invalid turnIds.')
+		return id
+	})
+}
+function undoFlag(params: Record<string, unknown>, key: string): boolean {
+	const value = params[key]
+	if (value !== undefined && typeof value !== 'boolean') throw new Error(`Invalid ${key}.`)
+	return value === true
+}
+/** Per path, skip or keep a copy. A null-prototype map, so a path named `__proto__` is just a path. */
+function undoResolutions(value: unknown): Record<string, 'skip' | 'keep_copy'> {
+	if (typeof value !== 'object' || value === null || Array.isArray(value))
+		throw new Error('Invalid resolutions.')
+	const entries = Object.entries(value)
+	if (entries.length > 10_000) throw new Error('Invalid resolutions.')
+	const out = Object.create(null) as Record<string, 'skip' | 'keep_copy'>
+	for (const [path, choice] of entries) {
+		if (path.length === 0 || path.length > 4096 || (choice !== 'skip' && choice !== 'keep_copy'))
+			throw new Error('Invalid resolutions.')
+		out[path] = choice
+	}
+	return out
+}
+
 /** Preserve only a phase proved by the selected, unchanged public text. */
 function storedAssistantPhase(
 	message: AssistantMessage,
@@ -844,6 +876,7 @@ export function createDesktopHostExtensions(
 			throw new Error('This Pal does not own the current workspace.')
 		return id
 	}
+	const turnUndo = runtime.turnUndo
 	const retryStatus = runtime.providerRetryStatus?.bind(runtime)
 	const liveInputStatus = runtime.liveInputStatus?.bind(runtime)
 	const liveInput = runtime.liveInput?.bind(runtime)
@@ -885,6 +918,60 @@ export function createDesktopHostExtensions(
 						}
 						return withReadScope(async (state) =>
 							liveInput(await liveOwner(params, state), input, state),
+						)
+					},
+				}
+			: {}),
+		...(turnUndo
+			? {
+					// Reads hash nothing the status call does not need; only `undo` writes.
+					'namzu/turns/undo-status': async (params: Record<string, unknown>) => {
+						if (Object.keys(params).some((key) => !['sessionId', 'turnIds'].includes(key)))
+							throw new Error('Undo status accepts only sessionId and turnIds.')
+						const turnIds = params.turnIds === undefined ? undefined : undoTurnIds(params.turnIds)
+						return withReadScope(async (state) =>
+							turnUndo.status(await ownedSessionIn(params, state), cwd, state, turnIds),
+						)
+					},
+					'namzu/turns/undo-preview': async (params: Record<string, unknown>) => {
+						if (
+							Object.keys(params).some(
+								(key) => !['sessionId', 'turnId', 'alsoUndoLater'].includes(key),
+							)
+						)
+							throw new Error('Undo preview accepts only sessionId, turnId and alsoUndoLater.')
+						const turnId = undoTurnId(params)
+						const alsoUndoLater = undoFlag(params, 'alsoUndoLater')
+						return withReadScope(async (state) =>
+							turnUndo.preview(await ownedSessionIn(params, state), cwd, state, turnId, {
+								alsoUndoLater,
+							}),
+						)
+					},
+					'namzu/turns/undo': async (params: Record<string, unknown>) => {
+						if (
+							Object.keys(params).some(
+								(key) =>
+									!['sessionId', 'turnId', 'planToken', 'resolutions', 'alsoUndoLater'].includes(
+										key,
+									),
+							)
+						)
+							throw new Error(
+								'Undo accepts only sessionId, turnId, planToken, resolutions and alsoUndoLater.',
+							)
+						const turnId = undoTurnId(params)
+						const planToken = text(params, 'planToken', 200)
+						const resolutions =
+							params.resolutions === undefined ? undefined : undoResolutions(params.resolutions)
+						const alsoUndoLater = undoFlag(params, 'alsoUndoLater')
+						return withReadScope(async (state) =>
+							turnUndo.undo(await ownedSessionIn(params, state), cwd, state, {
+								turnId,
+								planToken,
+								...(resolutions ? { resolutions } : {}),
+								...(alsoUndoLater ? { alsoUndoLater } : {}),
+							}),
 						)
 					},
 				}

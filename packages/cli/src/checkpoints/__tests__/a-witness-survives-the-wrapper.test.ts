@@ -33,7 +33,7 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
-	await store.close()
+	await store.release()
 	await rm(cwd, { recursive: true, force: true })
 })
 

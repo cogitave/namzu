@@ -320,7 +320,7 @@ import {
 import { selectPrimaryProvider } from './provider-selection.js'
 import { eraseLastChoiceGrapheme } from './terminal-choice-text.js'
 
-import { renderCheckpoints, renderRestore } from '../checkpoints/store.js'
+import { renderCheckpoints, renderRestore, renderRestoreNote } from '../checkpoints/store.js'
 import { expandFileMentions, listMentionableFiles } from './mentions.js'
 import { openInBrowser } from './open-browser.js'
 import {
@@ -5446,8 +5446,10 @@ export function App({
 				pushMessage('system', 'This session keeps no file checkpoints.')
 				return
 			}
+			// A reopened conversation's history is on disk, not yet in memory.
+			await store.open().catch(() => undefined)
 			if (turn === undefined) {
-				pushMessage('system', renderCheckpoints(store.list(), ctxRef.current.cwd))
+				pushMessage('system', renderCheckpoints(store.list(), ctxRef.current.cwd, store.skippedPaths()))
 				return
 			}
 			if (abortRef.current || state !== 'idle' || hasUnsettledTurn()) {
@@ -5463,7 +5465,7 @@ export function App({
 				pushMessage('system', text)
 				// The model's picture of those files is now wrong; it reads
 				// this before its next turn.
-				operatorShellRef.current.push(`/restore ${turn}\n${text}`)
+				operatorShellRef.current.push(renderRestoreNote(report, ctxRef.current.cwd))
 			} catch (err) {
 				pushMessage('system', err instanceof Error ? err.message : String(err))
 			}
