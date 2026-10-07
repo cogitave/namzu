@@ -46,3 +46,7 @@ The snapshot dir holds `desktop-dist`, `cli-dist`, `sdk-dist` and `HEAD`. `--met
 - `--apply` replaced Desktop and `@namzu/cli` (SDK unchanged), relaunched (PID 47620 → 2708, 369 ms) and stopped at the first post-start read because a popover was open: the owner was already using the model control.
 - `--verify-after` against the pre-close snapshot: tabs (4), drafts, messages, providers and preferences equal; one conversation gained an explicit `effort: "low"` that it did not have before the close. Opening and closing the effort panel without input does not save an effort (checked in the preview with and without a model default), so this is recorded as the owner's own change made after the restart, not attributed to the update.
 - `--probe-only` passed: installed Desktop, CLI and SDK manifests equal the snapshot; link previews work in the real main process.
+
+## Delivery of c31cf547 (2026-10-07)
+
+`--apply` passed end to end for the first time: Desktop replaced (CLI and SDK unchanged), PID 2708 → 12520 in 341 ms; tabs, focus, drafts, settings, attachments, providers, messages and preferences equal the pre-close state; installed manifests equal the snapshot; the native link-preview probe passed. Observations only: the transcript scroll range changed (wave 4 adds edit cards and separators) and the active tab's presentation entry was flushed by the graceful close.
