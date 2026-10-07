@@ -103,6 +103,21 @@ describe('run summary labels', () => {
 			),
 		).toBe('Edited a file, ran 2 commands, 2 failed')
 	})
+	it('does not count a declined action as work that happened', () => {
+		const declined = (
+			kind: Parameters<typeof actionRunKind>[0][number]['kind'],
+			subject?: string,
+		) => ({
+			...a(kind, subject),
+			state: 'declined' as const,
+		})
+		expect(actionRunLabel([declined('edit', 'a.ts'), declined('command')], false)).toBe(
+			'Declined 2 actions',
+		)
+		expect(actionRunLabel([a('edit', 'b.ts'), declined('edit', 'a.ts')], false)).toBe(
+			'Edited a file, declined an action',
+		)
+	})
 	it('counts each kind in the order it first appears', () => {
 		expect(actionRunLabel([a('edit', 'a.ts'), a('command'), a('command')], false)).toBe(
 			'Edited a file, ran 2 commands',

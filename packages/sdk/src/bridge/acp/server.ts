@@ -788,11 +788,17 @@ export class ACPServer {
 			case 'approve_all':
 				session.approveAll = true
 				return { kind: 'approve_all' }
-			case 'reject':
+			case 'reject': {
+				// Only a client that says so is reporting a person's No: older clients
+				// send a bare `reject`, which stays exactly what it was.
+				const declined = answer.declined
+				const note = typeof declined?.note === 'string' ? declined.note.trim() : ''
 				return {
 					kind: 'reject',
 					...(answer.feedback ? { feedback: answer.feedback } : {}),
+					...(declined && typeof declined === 'object' ? { declined: note ? { note } : {} } : {}),
 				}
+			}
 			default:
 				// An answer this side cannot read is not an approval. A client that
 				// sent something unrecognised has not said yes, and treating

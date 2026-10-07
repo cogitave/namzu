@@ -4035,7 +4035,18 @@ export class Operator {
 		if (wireId === undefined || !session.running)
 			throw new Error('This approval is no longer pending.')
 		session.permissions.delete(requestId)
-		session.client.answer(wireId, answer)
+		// A No from the window is the person's, so the agent records the call as
+		// declined by them; the refusals this host makes itself do not say so.
+		session.client.answer(
+			wireId,
+			answer.outcome === 'reject'
+				? {
+						outcome: 'reject',
+						...(answer.feedback ? { feedback: answer.feedback } : {}),
+						declined: answer.note ? { note: answer.note } : {},
+					}
+				: answer,
+		)
 		this.emit({ kind: 'permission-cleared', sessionId, requestId })
 	}
 	private onFrame(project: Project, frame: Record<string, unknown>): void {

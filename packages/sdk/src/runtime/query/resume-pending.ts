@@ -18,6 +18,7 @@ import { DECLINED_TOOL_CALL_FEEDBACK } from './declined.js'
 import type {
 	PriorToolResult,
 	PriorToolResults,
+	ToolCallDeclines,
 	ToolCallDenials,
 	ToolExecutionBatch,
 	ToolExecutor,
@@ -66,6 +67,8 @@ export interface PendingResumePlan {
 	readonly response: ChatCompletionResponse
 	/** Per-call refusals derived from the decision. */
 	readonly denials: ToolCallDenials
+	/** The denials a person gave; see {@link ToolCallDeclines}. Absent for every other refusal. */
+	readonly declines?: ToolCallDeclines
 	/** Exact projections and gate decisions persisted with a tool review. */
 	readonly reviewedCalls?: readonly ToolCallSummary[]
 	/** Calls whose raw input the human replaced in the durable decision. */
@@ -145,6 +148,7 @@ export function planPendingResume(
 
 	const denials = derriveDenials(assistant.toolCalls, decision)
 	if (!denials) return null
+	const declines = derriveDeclines(assistant.toolCalls, decision, pending.request.toolCalls)
 
 	return {
 		source: 'decision',
@@ -152,6 +156,7 @@ export function planPendingResume(
 		assistant,
 		response: synthesizeResponse(assistant),
 		denials,
+		...(declines ? { declines } : {}),
 		reviewedCalls: pending.request.toolCalls,
 		modifiedCallIds: modifiedCallIds(decision),
 		...((decision.action === 'approve_tools' || decision.action === 'modify_tools') &&
@@ -517,7 +522,13 @@ export async function applyPendingResume(
 	// The parked assistant message is already in the log: it goes back into
 	// the context under its own record id, never as a second copy.
 	recorder.pushMessage(plan.assistant, assistantMessageId ? { messageId: assistantMessageId } : {})
-	const batch = await executor.executeBatch(plan.response, denials, prior, preparedBatch)
+	const batch = await executor.executeBatch(
+		plan.response,
+		denials,
+		prior,
+		preparedBatch,
+		plan.declines,
+	)
 	for (const msg of batch.messages) {
 		recorder.pushMessage(msg)
 	}
@@ -631,6 +642,30 @@ export async function recoverCompletedCalls(
 		})
 	}
 	return recovered
+}
+
+/** The calls a person refused in `decision`, for the record; `undefined` when none. */
+function derriveDeclines(
+	toolCalls: readonly ToolCall[],
+	decision: HITLResumeDecision,
+	reviewed: readonly ToolCallSummary[] = [],
+): ToolCallDeclines | undefined {
+	// A call the gate refused was never the person's to decline.
+	const gateDenied = new Set(
+		reviewed.filter((call) => call.authorization?.decision === 'deny').map((call) => call.id),
+	)
+	if (decision.action === 'reject_tools' && decision.declined) {
+		const declined = decision.declined
+		const calls = toolCalls.filter((tc) => !gateDenied.has(tc.id))
+		return calls.length > 0 ? new Map(calls.map((tc) => [tc.id, declined])) : undefined
+	}
+	if (decision.action === 'modify_tools') {
+		const denied = decision.modifications.filter(
+			(mod) => mod.action === 'deny' && !gateDenied.has(mod.toolCallId),
+		)
+		if (denied.length > 0) return new Map(denied.map((mod) => [mod.toolCallId, {}]))
+	}
+	return undefined
 }
 
 /**

@@ -268,10 +268,10 @@ export interface PermissionView {
 		preview?: PermissionPreview
 	}[]
 }
-/** Reject carries the person's note to the model; approve carries nothing. */
+/** Reject carries the person's note to the model (`feedback`) and, apart from any wrapper, as they wrote it (`note`) for the record; approve carries nothing. */
 export type PermissionResponse =
 	| { outcome: 'approve'; feedback?: undefined }
-	| { outcome: 'reject'; feedback?: string }
+	| { outcome: 'reject'; feedback?: string; note?: string }
 export type WindowMenu = 'edit' | 'view' | 'window'
 export type WindowAppearance = 'light' | 'dark'
 export interface WindowChrome {

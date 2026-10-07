@@ -10,6 +10,7 @@ export type ToolTranscriptState =
 	| 'cancelled'
 	| 'interrupted'
 	| 'skipped'
+	| 'declined'
 
 /** What an action row is about; picks its icon, its label and what a click does. */
 export type ActionKind = 'command' | 'edit' | 'read' | 'search' | 'web' | 'lookup' | 'other'
@@ -45,6 +46,7 @@ const statusLabels: Record<ToolTranscriptState, string> = {
 	cancelled: 'Cancelled',
 	interrupted: 'Interrupted',
 	skipped: 'Skipped',
+	declined: 'Declined',
 }
 
 function nonBlank(text?: string): string | undefined {
@@ -70,6 +72,8 @@ function toolState(thread: ThreadState, id: string, tool: ProjectedToolCall): To
 	if (tool.historicalStatus === 'skipped') return 'skipped'
 	if (tool.status !== 'pending') {
 		if (tool.view.kind === 'generic' && tool.view.outcome === 'cancelled') return 'cancelled'
+		// A structured field from the review answer, never a reading of the refusal text.
+		if (tool.view.kind === 'generic' && tool.view.declined) return 'declined'
 		return tool.status
 	}
 	const active =
@@ -96,6 +100,7 @@ function commandLabel(state: ToolTranscriptState): string {
 		cancelled: 'Command cancelled',
 		interrupted: 'Command interrupted',
 		skipped: 'Command skipped',
+		declined: 'Declined command',
 	}
 	return labels[state]
 }
@@ -119,6 +124,7 @@ function diffLead(operation: Operation, state: ToolTranscriptState): string {
 		cancelled: 'Cancelled edit of',
 		interrupted: 'Interrupted edit of',
 		skipped: 'Skipped edit of',
+		declined: 'Declined edit to',
 	}
 	return prefix[state]
 }
@@ -132,6 +138,7 @@ function readLead(state: ToolTranscriptState): string {
 		cancelled: 'Cancelled read of',
 		interrupted: 'Interrupted read of',
 		skipped: 'Skipped read of',
+		declined: 'Declined read of',
 	}
 	return prefix[state]
 }
@@ -184,6 +191,7 @@ function searchLead(kind: 'grep' | 'glob', state: ToolTranscriptState): string {
 		cancelled: 'Cancelled search for',
 		interrupted: 'Interrupted search for',
 		skipped: 'Skipped search for',
+		declined: 'Declined search for',
 	}
 	const glob: Record<ToolTranscriptState, string> = {
 		waiting: 'Waiting to list files in',
@@ -193,6 +201,7 @@ function searchLead(kind: 'grep' | 'glob', state: ToolTranscriptState): string {
 		cancelled: 'Cancelled listing files in',
 		interrupted: 'Interrupted listing files in',
 		skipped: 'Skipped listing files in',
+		declined: 'Declined listing files in',
 	}
 	return (kind === 'grep' ? grep : glob)[state]
 }
@@ -215,6 +224,7 @@ function observedActionLabel(
 				cancelled: 'Stopped checking earlier messages',
 				interrupted: 'Earlier message lookup interrupted',
 				skipped: 'Skipped earlier message lookup',
+				declined: 'Declined earlier message lookup',
 			}
 		: search
 			? {
@@ -225,6 +235,7 @@ function observedActionLabel(
 					cancelled: 'Web search cancelled',
 					interrupted: 'Web search interrupted',
 					skipped: 'Web search skipped',
+					declined: 'Web search declined',
 				}
 			: {
 					waiting: 'Waiting to fetch a page',
@@ -234,8 +245,54 @@ function observedActionLabel(
 					cancelled: 'Page fetch cancelled',
 					interrupted: 'Page fetch interrupted',
 					skipped: 'Page fetch skipped',
+					declined: 'Page fetch declined',
 				}
 	return names[state]
+}
+
+const FILE_TOOLS = new Set(['edit', 'write', 'multiedit'])
+const COMMAND_TOOLS = new Set(['bash', 'shell', 'run_command', 'exec'])
+
+/**
+ * A call the person said No to. The recorded view names its target (a path, a
+ * command) and may carry their note; the row says what was declined and shows
+ * the note when it is opened.
+ */
+function declinedPresentation(tool: ProjectedToolCall): ToolTranscriptPresentation {
+	const view = tool.view as Extract<ToolCallView, { kind: 'generic' }>
+	const target = nonBlank(firstLine(view.label))
+	const name = tool.title.toLowerCase()
+	const note = nonBlank(view.declined?.note)
+	let label = `Declined ${tool.title.replace(/[_-]+/g, ' ').trim().toLowerCase() || 'action'}`
+	let kind: ActionKind = 'other'
+	let lead: string | undefined
+	let file: ActionFile | undefined
+	let tooltip: string | undefined
+	if (FILE_TOOLS.has(name) && target) {
+		kind = 'edit'
+		lead = name === 'write' ? 'Declined write to' : 'Declined edit to'
+		file = { name: baseName(target), path: target }
+		label = `${lead} ${file.name}`
+	} else if (name === 'read' && target) {
+		kind = 'read'
+		lead = 'Declined read of'
+		file = { name: baseName(target), path: target }
+		label = `${lead} ${file.name}`
+	} else if (COMMAND_TOOLS.has(name)) {
+		kind = 'command'
+		label = commandLabel('declined')
+		if (target) tooltip = clip(target, 200)
+	}
+	return {
+		label,
+		kind,
+		...(lead ? { lead } : {}),
+		...(file ? { file } : {}),
+		...(tooltip ? { tooltip } : {}),
+		state: 'declined',
+		statusLabel: statusLabels.declined,
+		...(note ? { detailView: { kind: 'generic', label: `You said: ${note}` } as const } : {}),
+	}
 }
 
 /** Present only admitted tool metadata; never infer outcomes from result text. */
@@ -246,6 +303,7 @@ export function toolTranscriptPresentation(
 	const tool = thread.tools[id]
 	if (!tool) return undefined
 	const state = toolState(thread, id, tool)
+	if (state === 'declined') return declinedPresentation(tool)
 	const view = tool.view
 	const callCaption = caption(tool.callView)
 	const title = nonBlank(tool.title)

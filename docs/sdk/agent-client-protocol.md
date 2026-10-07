@@ -127,6 +127,12 @@ description of the file at the time of the request, not as a promise.
 batch, so a client that lets a person say what to do instead should send that text
 there.
 
+A client that is reporting a person's No may add `declined: { note? }` to a
+`reject` answer. `note` is what the person said, without any wrapper the client put
+around it in `feedback`. The agent records the call as declined by them, so a
+reloaded conversation can say so and show the note; a bare `reject` is recorded as
+it always was, as a refusal with no presentation.
+
 ## Negotiated planning notifications
 
 An embedding host can set `AcpServerOptions.supportsTaskNotifications: true`

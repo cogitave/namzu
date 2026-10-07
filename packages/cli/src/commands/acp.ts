@@ -913,6 +913,7 @@ export function createCliAcpRuntime(
 							return {
 								kind: 'reject' as const,
 								...(outcome.feedback ? { feedback: outcome.feedback } : {}),
+								...(outcome.declined ? { declined: outcome.declined } : {}),
 							}
 					}
 				}
@@ -1065,7 +1066,11 @@ export function createCliAcpRuntime(
 						})
 						if (outcome.kind === 'approve_all') return { kind: 'approve-all' }
 						if (outcome.kind === 'approve') return { kind: 'approve' }
-						return { kind: 'reject', ...(outcome.feedback ? { feedback: outcome.feedback } : {}) }
+						return {
+							kind: 'reject',
+							...(outcome.feedback ? { feedback: outcome.feedback } : {}),
+							...(outcome.declined ? { declined: outcome.declined } : {}),
+						}
 					},
 				})) {
 					if (event.kind === 'done') stopReason = event.stopReason

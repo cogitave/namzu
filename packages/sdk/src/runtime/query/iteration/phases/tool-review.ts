@@ -1,12 +1,12 @@
 import type { AuthorizationGate } from '../../../../authorization/index.js'
 import { isTrustedReadOnly } from '../../../../tools/trusted-read-only.js'
 import type { ToolSourceRef } from '../../../../toolsets/types.js'
-import type { ToolCallSummary } from '../../../../types/hitl/index.js'
+import type { ToolCallDeclined, ToolCallSummary } from '../../../../types/hitl/index.js'
 import type { ChatCompletionResponse } from '../../../../types/provider/index.js'
 import type { SessionEvent } from '../../../../types/session/index.js'
 import type { ShellDialect } from '../../../../types/tool/index.js'
 import { DECLINED_TOOL_CALL_FEEDBACK } from '../../declined.js'
-import type { PreparedToolBatch, ToolCallDenials } from '../../executor.js'
+import type { PreparedToolBatch, ToolCallDeclines, ToolCallDenials } from '../../executor.js'
 import {
 	awaitProjectInstructionCallback,
 	replaceProjectInstructionSnapshot,
@@ -162,6 +162,9 @@ export async function* runToolReview(
 		return merged ?? denials
 	}
 
+	/** Set only where a person's No is known, so a policy refusal never lands in it. */
+	let declines: ToolCallDeclines | undefined
+
 	/** Executes the batch, answering every call, and appends the results. */
 	const settleBatch = async (denials?: ToolCallDenials): Promise<void> => {
 		const startedAt = Date.now()
@@ -170,6 +173,7 @@ export async function* runToolReview(
 			withRepeatRefusals(denials),
 			undefined,
 			preparedBatch,
+			declines,
 		)
 		toolMs += Date.now() - startedAt
 		executed = batch.results
@@ -617,6 +621,13 @@ export async function* runToolReview(
 
 			const feedback = reviewDecision.feedback || DECLINED_TOOL_CALL_FEEDBACK
 			const denials = new Map(denyAll(feedback))
+			if (reviewDecision.declined) {
+				const declined: ToolCallDeclined = reviewDecision.declined
+				// A call the gate already refused was never the person's to decline.
+				declines = new Map(
+					toolCalls.filter((tc) => !gateDenied.has(tc.id)).map((tc) => [tc.id, declined]),
+				)
+			}
 			await settleEscalations(denials, undefined)
 			yield* settle(denials)
 			yield* ctx.drainPending()
@@ -634,6 +645,7 @@ export async function* runToolReview(
 			// Gate denials are the floor; per-call human denials add to them.
 			const denials = new Map(gateDenied)
 			const modifiedCallIds = new Set<string>()
+			const humanDenied = new Map<string, ToolCallDeclined>()
 
 			for (const mod of reviewDecision.modifications) {
 				if (mod.action === 'modify' && mod.modifiedInput !== undefined) {
@@ -646,6 +658,8 @@ export async function* runToolReview(
 				}
 				if (mod.action === 'deny' && !denials.has(mod.toolCallId)) {
 					denials.set(mod.toolCallId, DECLINED_TOOL_CALL_FEEDBACK)
+					// A per-call deny is the person's own answer; gate denials above are not.
+					humanDenied.set(mod.toolCallId, {})
 				}
 			}
 
@@ -688,6 +702,7 @@ export async function* runToolReview(
 
 			await settleEscalations(denials, reviewDecision.confirmedEscalations)
 			const everythingDenied = denials.size === toolCalls.length
+			if (humanDenied.size > 0) declines = humanDenied
 			yield* settle(denials)
 			yield* ctx.drainPending()
 			return finish(everythingDenied ? 'rejected' : 'executed')

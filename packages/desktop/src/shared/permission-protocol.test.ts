@@ -70,3 +70,17 @@ it('keeps a well-formed preview and drops a malformed one without losing the cal
 	expect(calls[2]?.preview).toBeUndefined()
 	expect(readPermissionCalls('nope')).toEqual([])
 })
+
+it('keeps the typed note apart from the wrapper the model reads, and bounds both', () => {
+	expect(
+		readPermissionResponse({ outcome: 'reject', feedback: 'The user said: no', note: '  no  ' }),
+	).toEqual({ outcome: 'reject', feedback: 'The user said: no', note: 'no' })
+	expect(readPermissionResponse({ outcome: 'reject', note: '   ' })).toEqual({ outcome: 'reject' })
+	expect(() => readPermissionResponse({ outcome: 'approve', note: 'x' })).toThrow(
+		'Invalid approval',
+	)
+	expect(() => readPermissionResponse({ outcome: 'reject', note: 3 })).toThrow('Invalid approval')
+	expect(() =>
+		readPermissionResponse({ outcome: 'reject', note: 'x'.repeat(PERMISSION_FEEDBACK_MAX + 1) }),
+	).toThrow('under 4,000')
+})

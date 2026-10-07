@@ -793,6 +793,10 @@ pre {
 .tool.failed .tool-icon {
 	color: var(--error-foreground);
 }
+/* The person chose this, so it is neither a failure nor an active step. */
+.tool.declined .tool-label {
+	color: var(--muted-foreground);
+}
 .tool-status {
 	margin-left: auto;
 	flex-shrink: 0;

@@ -1,5 +1,9 @@
 import type { AcpFileChangePreview } from '../../types/acp/index.js'
-import type { HITLResumeDecision, ToolCallSummary } from '../../types/hitl/index.js'
+import type {
+	HITLResumeDecision,
+	ToolCallDeclined,
+	ToolCallSummary,
+} from '../../types/hitl/index.js'
 
 /**
  * A tool batch, on its way to a human sitting in front of an editor.
@@ -29,7 +33,12 @@ export interface AcpPermissionRequest {
 export type AcpPermissionOutcome =
 	| { readonly kind: 'approve' }
 	| { readonly kind: 'approve_all' }
-	| { readonly kind: 'reject'; readonly feedback?: string }
+	| {
+			readonly kind: 'reject'
+			readonly feedback?: string
+			/** The client said so itself: this is the person's No, with their own words as `note`. */
+			readonly declined?: ToolCallDeclined
+	  }
 
 export type AcpPermissionAsker = (request: AcpPermissionRequest) => Promise<AcpPermissionOutcome>
 
@@ -70,6 +79,7 @@ export function toResumeDecision(
 			return {
 				action: 'reject_tools',
 				feedback: outcome.feedback?.trim() || ACP_DEFAULT_REJECTION,
+				...(outcome.declined ? { declined: outcome.declined } : {}),
 			}
 	}
 }

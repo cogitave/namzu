@@ -79,8 +79,9 @@ export function ToolTranscriptRow({
 	const Icon = actionIcon(kind)
 	const active = state === 'running' || state === 'waiting'
 	const expandable = Boolean(callDetail || detailView || tool.progress)
+	// A declined change never happened, so there is no file to open; its note is what the row opens to.
 	const opens =
-		file && (kind === 'edit' || kind === 'read')
+		state !== 'declined' && file && (kind === 'edit' || kind === 'read')
 			? kind === 'edit'
 				? openTarget(actions, file.path) !== undefined
 				: Boolean(actions?.onOpenChangedFile)

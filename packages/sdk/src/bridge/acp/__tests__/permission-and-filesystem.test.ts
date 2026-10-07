@@ -234,6 +234,14 @@ describe('a tool batch that needs a human', () => {
 		})
 	})
 
+	it('carries the person’s No through to the decision, and nothing else does', () => {
+		expect(toResumeDecision({ kind: 'reject', declined: { note: 'keep it' } }, [])).toEqual({
+			action: 'reject_tools',
+			feedback: ACP_DEFAULT_REJECTION,
+			declined: { note: 'keep it' },
+		})
+	})
+
 	it('treats an answer it cannot read as a refusal, never as consent', async () => {
 		const wire = pair()
 		const stop = autoAnswering(wire, {
@@ -773,6 +781,24 @@ describe('the outcomes the wire can carry', () => {
 		// mapper distinguishes them, and an explicit undefined would defeat the
 		// `||` that installs the default sentence the model reads.
 		expect(await outcomeFor({ outcome: 'reject' })).toEqual({ kind: 'reject' })
+	})
+
+	it('records a rejection as the person’s only when the client says so, with their own words', async () => {
+		expect(
+			await outcomeFor({
+				outcome: 'reject',
+				feedback: 'The user declined this change and said: keep it',
+				declined: { note: '  keep it  ' },
+			}),
+		).toEqual({
+			kind: 'reject',
+			feedback: 'The user declined this change and said: keep it',
+			declined: { note: 'keep it' },
+		})
+		expect(await outcomeFor({ outcome: 'reject', declined: {} })).toEqual({
+			kind: 'reject',
+			declined: {},
+		})
 	})
 })
 

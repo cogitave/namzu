@@ -186,7 +186,7 @@ export function ComposerApproval({
 	const reject = () => respond({ outcome: 'reject' })
 	const send = () => {
 		if (!note.trim()) return
-		respond({ outcome: 'reject', feedback: declineFeedback(note) })
+		respond({ outcome: 'reject', feedback: declineFeedback(note), note })
 	}
 	const cancelEdit = () => {
 		returning.current = true

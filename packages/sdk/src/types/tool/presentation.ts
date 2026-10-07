@@ -33,6 +33,14 @@ export type ToolCallView =
 			 * what did not happen ("Cancelled — nothing was saved").
 			 */
 			readonly outcome?: 'cancelled'
+			/**
+			 * For a result: a person answered No to this call at review, so it
+			 * never ran. `label` names what it was about (the file, the command)
+			 * and `note` is what the person said, in their own words and capped
+			 * at 4,000 characters. Set only from the review answer, never read
+			 * out of text; a refusal by policy does not carry it.
+			 */
+			readonly declined?: { readonly note?: string }
 	  }
 	/**
 	 * A change to a document. `path` is optional because not every diff is

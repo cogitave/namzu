@@ -125,6 +125,14 @@ export interface AcpRequestPermissionResult {
 	readonly outcome: 'approve' | 'approve_all' | 'reject'
 	/** Why, for a rejection. Reaches the MODEL, so it is worth writing. */
 	readonly feedback?: string
+	/**
+	 * For a rejection: set by a client that is reporting a person's No, so
+	 * the session record can say the call was declined by them rather than
+	 * refused by policy. `note` is what they said, without any wrapper the
+	 * client put around it in `feedback`, which is for the model. A bare
+	 * `reject` without this is recorded as it always was.
+	 */
+	readonly declined?: { readonly note?: string }
 }
 
 export interface AcpFsReadParams {

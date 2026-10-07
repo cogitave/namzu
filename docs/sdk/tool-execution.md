@@ -267,6 +267,8 @@ When previous state is known, `added`, `removed`, `newlineChanged` and `preview`
 describe the differing region after trimming equal prefix and suffix lines.
 This is a contiguous replacement preview, not a minimal multi-hunk diff.
 A final newline terminates a line; an actual extra blank line is counted.
+A generic result view may carry `declined: { note? }` when a person said No to the call at review, so it never ran. The runtime sets it on the recorded `tool_completed` of a call refused through a review answer that marked itself as the person's (see [Review policy](review-policy.md)); `label` names the call's target (its path or command, taken from the tool's `presentCall`, or the tool name) and `note` is what they said, up to 4,000 characters. A tool does not set it, and a refusal by policy never carries it: such a call keeps no presentation, exactly as before. Hosts that do not know the field draw the call as a failure with its label.
+
 The optional `ToolCallView` diff `label` supplies an operation summary while
 `path` retains the file path. CLI renders completed write receipts as diffs.
 

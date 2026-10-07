@@ -81,6 +81,22 @@ const journalTime = (value: unknown) =>
 const record = (value: unknown): value is Record<string, unknown> =>
 	Boolean(value && typeof value === 'object' && !Array.isArray(value))
 
+// UTF-16 units: the kernel cuts at 4,000 code points, which can be twice that.
+const DECLINED_NOTE_MAX = 4_000
+/** A person's No is a closed object holding at most their note. */
+function declinedShape(value: unknown): boolean {
+	if (value === undefined) return true
+	if (!record(value)) return false
+	return (
+		value.note === undefined ||
+		(typeof value.note === 'string' && value.note.length <= DECLINED_NOTE_MAX * 2)
+	)
+}
+function declinedCopy(value: unknown): { note?: string } {
+	const note = record(value) ? value.note : undefined
+	return typeof note === 'string' && note ? { note } : {}
+}
+
 /** Copy only this closed public view; a journal extension must not leak extra fields. */
 function publicView(value: unknown): ToolCallView | undefined {
 	if (!record(value)) return undefined
@@ -92,7 +108,8 @@ function publicView(value: unknown): ToolCallView | undefined {
 		(value.presentation === undefined || value.presentation === 'activity') &&
 		(value.activity === undefined || value.activity === 'exploration') &&
 		(value.visibility === undefined || value.visibility === 'hidden') &&
-		(value.outcome === undefined || value.outcome === 'cancelled')
+		(value.outcome === undefined || value.outcome === 'cancelled') &&
+		declinedShape(value.declined)
 	) {
 		view = {
 			kind: 'generic',
@@ -101,6 +118,7 @@ function publicView(value: unknown): ToolCallView | undefined {
 			...(value.activity === 'exploration' ? { activity: 'exploration' } : {}),
 			...(value.visibility === 'hidden' ? { visibility: 'hidden' } : {}),
 			...(value.outcome === 'cancelled' ? { outcome: 'cancelled' } : {}),
+			...(value.declined === undefined ? {} : { declined: declinedCopy(value.declined) }),
 		}
 	} else if (
 		value.kind === 'diff' &&
@@ -280,6 +298,7 @@ export function restoreHistoryWork(
 			view = undefined
 		if (tool.status === 'cancelled' && !(view?.kind === 'generic' && view.outcome === 'cancelled'))
 			view = undefined
+		if (view?.kind === 'generic' && view.declined && tool.status !== 'failed') view = undefined
 		if (view) {
 			const size = bytes(JSON.stringify(view))
 			if (viewBytes + size > 128 * 1024) view = undefined

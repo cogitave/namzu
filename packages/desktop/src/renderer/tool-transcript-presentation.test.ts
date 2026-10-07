@@ -319,3 +319,71 @@ describe('actual tool lifecycle', () => {
 		expect(toolTranscriptPresentation(thread, key)?.state).toBe('running')
 	})
 })
+
+describe('a call the person declined', () => {
+	const declined = (title: string, label: string, note?: string) =>
+		result(
+			start({ kind: 'diff', path: '/repo/src/app.css', before: 'a', after: 'b' }, title),
+			{ kind: 'generic', label, declined: note ? { note } : {} },
+			'failed',
+			title,
+		)
+
+	it('reads "Declined edit to app.css" in a state of its own, not as a failure', () => {
+		const row = toolTranscriptPresentation(
+			declined('edit', '/repo/src/app.css', 'Keep the old colour.'),
+			key,
+		)
+		expect(row).toMatchObject({
+			label: 'Declined edit to app.css',
+			lead: 'Declined edit to',
+			kind: 'edit',
+			state: 'declined',
+			statusLabel: 'Declined',
+			file: { name: 'app.css', path: '/repo/src/app.css' },
+		})
+	})
+
+	it('shows what the person said when the row is opened, and nothing to open without a note', () => {
+		const withNote = toolTranscriptPresentation(
+			declined('edit', '/repo/src/app.css', 'Keep the old colour.'),
+			key,
+		)
+		expect(withNote?.detailView).toEqual({
+			kind: 'generic',
+			label: 'You said: Keep the old colour.',
+		})
+		const bare = toolTranscriptPresentation(declined('edit', '/repo/src/app.css'), key)
+		expect(bare?.detailView).toBeUndefined()
+	})
+
+	it('names a declined command and a declined write', () => {
+		expect(
+			toolTranscriptPresentation(declined('bash', 'rm -rf build\nsecond line'), key),
+		).toMatchObject({
+			label: 'Declined command',
+			kind: 'command',
+			tooltip: 'rm -rf build',
+			state: 'declined',
+		})
+		expect(toolTranscriptPresentation(declined('write', 'notes/todo.md'), key)).toMatchObject({
+			label: 'Declined write to todo.md',
+		})
+		expect(toolTranscriptPresentation(declined('fetch_page', 'https://x.test'), key)).toMatchObject(
+			{
+				label: 'Declined fetch page',
+				state: 'declined',
+			},
+		)
+	})
+
+	it('leaves a refusal that carries no declined field as a failure', () => {
+		const refused = result(
+			start({ kind: 'generic', label: 'Edit app.css' }, 'edit'),
+			{ kind: 'generic', label: 'Error: Tool "edit" was not executed. Strict mode.' },
+			'failed',
+			'edit',
+		)
+		expect(toolTranscriptPresentation(refused, key)?.state).toBe('failed')
+	})
+})

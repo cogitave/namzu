@@ -23,7 +23,12 @@
 
 import { isTrustedReadOnly } from '../../tools/trusted-read-only.js'
 import type { ToolManager } from '../../toolsets/manager.js'
-import type { HITLResumeDecision, ResumeHandler, ToolCallSummary } from '../../types/hitl/index.js'
+import type {
+	HITLResumeDecision,
+	ResumeHandler,
+	ToolCallDeclined,
+	ToolCallSummary,
+} from '../../types/hitl/index.js'
 import type { ApprovalPolicy } from '../../types/hitl/policy.js'
 import type { SessionId, TurnId } from '../../types/ids/index.js'
 import { PLAN_MODE_REFUSAL } from '../../types/permission/index.js'
@@ -266,7 +271,17 @@ export type ToolReviewAnswer =
 	| { readonly kind: 'approve' }
 	/** Approve, and stop asking for the rest of the turn. */
 	| { readonly kind: 'approve-all' }
-	| { readonly kind: 'reject'; readonly feedback?: string }
+	| {
+			readonly kind: 'reject'
+			readonly feedback?: string
+			/**
+			 * Set by a host when a person said No, so the refusal is recorded as
+			 * theirs. `feedback` is what the model is told and a host may fill it
+			 * for its own reasons (a closed screen, an interrupted turn), so it
+			 * cannot carry this. `note` is the person's own words.
+			 */
+			readonly declined?: ToolCallDeclined
+	  }
 
 /** How a host asks a person. The one thing the kernel cannot supply. */
 export type ToolReviewPrompt = (request: ToolReviewRequest) => Promise<ToolReviewAnswer>
@@ -400,6 +415,7 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 				return {
 					action: 'reject_tools',
 					feedback: answer.feedback ?? SCREEN_CONSENT_DECLINED_FEEDBACK,
+					...(answer.declined ? { declined: answer.declined } : {}),
 				}
 			}
 			consent.sessions.add(sessionKey)
@@ -471,6 +487,7 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 				return {
 					action: 'reject_tools',
 					feedback: answer.feedback ?? DECLINED_TOOL_CALL_FEEDBACK,
+					...(answer.declined ? { declined: answer.declined } : {}),
 				}
 			}
 			// "Approve all" still latches for the calls that follow; it never
@@ -489,6 +506,7 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 				return {
 					action: 'reject_tools',
 					feedback: answer.feedback ?? DECLINED_TOOL_CALL_FEEDBACK,
+					...(answer.declined ? { declined: answer.declined } : {}),
 				}
 			}
 			// Latches for the ordinary calls that follow, never for the next path.
@@ -508,6 +526,7 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 				return {
 					action: 'reject_tools',
 					feedback: answer.feedback ?? DECLINED_TOOL_CALL_FEEDBACK,
+					...(answer.declined ? { declined: answer.declined } : {}),
 				}
 			}
 			if (answer.kind === 'approve-all') remembered.all = true
@@ -527,6 +546,7 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 				return {
 					action: 'reject_tools',
 					feedback: answer.feedback ?? DECLINED_TOOL_CALL_FEEDBACK,
+					...(answer.declined ? { declined: answer.declined } : {}),
 				}
 			}
 			if (answer.kind === 'approve-all') remembered.all = true
@@ -573,6 +593,7 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 				return {
 					action: 'reject_tools',
 					feedback: answer.feedback ?? DECLINED_TOOL_CALL_FEEDBACK,
+					...(answer.declined ? { declined: answer.declined } : {}),
 				}
 		}
 	}

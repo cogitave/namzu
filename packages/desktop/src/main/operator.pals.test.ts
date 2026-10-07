@@ -753,7 +753,8 @@ it('rejects foreign Pal frames and keeps reused permission wire ids owned by the
 		expect(transport.answers.at(-1)).toEqual({
 			cwd: other.workspace,
 			id: 7,
-			result: { outcome: 'reject' },
+			// A No from the window is the person's, and the agent is told so.
+			result: { outcome: 'reject', declined: {} },
 		})
 	} finally {
 		completeA.resolve()

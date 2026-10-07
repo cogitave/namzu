@@ -365,3 +365,48 @@ it('restores a stopped partial reply as the same completed, cancelled message th
 			.messages[0],
 	).toEqual({ role: 'user', text: 'x' })
 })
+
+it('restores a declined call as the person’s No, with their note, and drops one that claims to have run', () => {
+	const view = (note?: string) => ({
+		kind: 'generic' as const,
+		label: '/repo/src/app.css',
+		declined: note ? { note } : {},
+		opaqueProviderField: 'PRIVATE_OPAQUE',
+	})
+	const work = snapshot()
+	work.tools = [
+		{
+			turnId: 't1',
+			toolUseId: 'declined',
+			name: 'edit',
+			order: 4,
+			status: 'failed',
+			presentation: view('Keep the old colour.'),
+		},
+		{
+			turnId: 't1',
+			toolUseId: 'claimed',
+			name: 'edit',
+			order: 5,
+			status: 'completed',
+			presentation: view('I never ran'),
+		},
+		{
+			turnId: 't1',
+			toolUseId: 'huge',
+			name: 'edit',
+			order: 6,
+			status: 'failed',
+			presentation: view('x'.repeat(8_001)),
+		},
+	]
+	const thread = restoreHistoryWork(emptyThread(), messages, work)
+	expect(toolTranscriptPresentation(thread, '1:declined')).toMatchObject({
+		state: 'declined',
+		label: 'Declined edit to app.css',
+		detailView: { label: 'You said: Keep the old colour.' },
+	})
+	expect(toolTranscriptPresentation(thread, '1:claimed')?.state).not.toBe('declined')
+	expect(toolTranscriptPresentation(thread, '1:huge')?.state).not.toBe('declined')
+	expect(JSON.stringify(thread.tools)).not.toContain('PRIVATE_OPAQUE')
+})

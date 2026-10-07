@@ -20,7 +20,7 @@ import { pathOutsideRoots, toolRoots } from '../../tools/paths.js'
 import type { ToolManager } from '../../toolsets/manager.js'
 import type { ToolSourceRef } from '../../toolsets/types.js'
 import type { ToolResultGuardrailSpec } from '../../types/guardrail/index.js'
-import type { ToolCallEscalation } from '../../types/hitl/index.js'
+import type { ToolCallDeclined, ToolCallEscalation } from '../../types/hitl/index.js'
 import type { SessionId, ToolUseId, TurnId } from '../../types/ids/index.js'
 import type { InvocationState } from '../../types/invocation/index.js'
 import {
@@ -44,6 +44,7 @@ import type {
 	RequestToolPause,
 	ShellDialect,
 	SkillRegistryRef,
+	ToolCallView,
 	ToolContext,
 	ToolDefinition,
 	ToolDispatchOptions,
@@ -535,6 +536,16 @@ export interface ToolExecutionBatch {
  * executed — see {@link ToolExecutor.executeBatch}.
  */
 export type ToolCallDenials = ReadonlyMap<string, string>
+
+/**
+ * The subset of {@link ToolCallDenials} a person refused, keyed by the same
+ * ids. Only the review answer fills it, so a call listed here was declined
+ * by someone and a policy refusal is never in it.
+ */
+export type ToolCallDeclines = ReadonlyMap<string, ToolCallDeclined>
+
+/** A person's note is kept whole up to this many characters. */
+export const DECLINED_NOTE_MAX_CHARS = 4_000
 
 /**
  * Results for calls that already ran, keyed by `toolUseId`.
@@ -1059,6 +1070,7 @@ export class ToolExecutor {
 		denials?: ToolCallDenials,
 		prior?: PriorToolResults,
 		preparedBatch?: PreparedToolBatch,
+		declines?: ToolCallDeclines,
 	): Promise<ToolExecutionBatch> {
 		const toolCalls = response.message.toolCalls
 		if (!toolCalls) {
@@ -1084,9 +1096,9 @@ export class ToolExecutor {
 			if (refusal) {
 				const refused = new Map(denials)
 				for (const call of toolCalls) if (!refused.has(call.id)) refused.set(call.id, refusal)
-				return await this.runBatch(toolCalls, refused, prior, owned)
+				return await this.runBatch(toolCalls, refused, prior, owned, declines)
 			}
-			return await this.runBatch(toolCalls, denials, prior, owned)
+			return await this.runBatch(toolCalls, denials, prior, owned, declines)
 		} finally {
 			// Cleared so a later single execution outside a batch resolves
 			// live rather than inheriting the last batch's sample.
@@ -1099,6 +1111,7 @@ export class ToolExecutor {
 		denials?: ToolCallDenials,
 		prior?: PriorToolResults,
 		preparedBatch?: OwnedPreparedToolBatch,
+		declines?: ToolCallDeclines,
 	): Promise<ToolExecutionBatch> {
 		this.log.debug('Executing tool batch', {
 			[NAMZU.TURN_ID]: this.config.turnId,
@@ -1191,7 +1204,12 @@ export class ToolExecutor {
 				// overlap other calls within a segment, respecting its barriers.
 				schedule(
 					async () => {
-						results[i] = await this.recordDenial(toolCall, denialReason, preparedCall)
+						results[i] = await this.recordDenial(
+							toolCall,
+							denialReason,
+							preparedCall,
+							declines?.get(toolCall.id),
+						)
 					},
 					true,
 					isBarrier,
@@ -2590,6 +2608,7 @@ export class ToolExecutor {
 		toolCall: ToolCall,
 		reason: string,
 		preparedCall?: PreparedDirectCall,
+		declined?: ToolCallDeclined,
 	): Promise<ToolCallOutcome> {
 		const toolName = preparedCall?.toolName ?? toolCall.function.name
 		let input: unknown = preparedCall?.input ?? {}
@@ -2635,10 +2654,53 @@ export class ToolExecutor {
 			toolUseId: toolCall.id,
 			toolName,
 			result: output,
+			// Recorded only for a person's No. Every other refusal keeps the
+			// shape it always had: no presentation at all.
+			...(declined ? { presentation: this.declinedPresentation(toolName, input, declined) } : {}),
 			isError: true,
 		})
 
 		return { toolCallId: toolCall.id, toolName, output, isError: true }
+	}
+
+	/**
+	 * What a host replays for a call the person declined. The label names the
+	 * target of the call (a path, a command) and nothing is inferred from the
+	 * refusal text: the note comes from the review answer.
+	 */
+	private declinedPresentation(
+		toolName: string,
+		input: unknown,
+		declined: ToolCallDeclined,
+	): ToolCallView {
+		let target: string | undefined
+		try {
+			const view = this.config.tools.get(toolName)?.presentCall?.(input)
+			const text =
+				view?.kind === 'generic'
+					? view.label
+					: view?.kind === 'diff'
+						? view.path || view.label
+						: view?.kind === 'terminal'
+							? view.command
+							: undefined
+			target = text
+				?.split(/\r?\n/)
+				.find((line) => line.trim())
+				?.trim()
+				.slice(0, 200)
+		} catch {
+			// A presentation hook must not turn a refusal into a failure.
+		}
+		// Cut by code point so a surrogate pair is never split.
+		const note = Array.from(declined.note?.trim() ?? '')
+			.slice(0, DECLINED_NOTE_MAX_CHARS)
+			.join('')
+		return {
+			kind: 'generic',
+			label: target || toolName,
+			declined: note ? { note } : {},
+		}
 	}
 
 	private recordCancelledBeforeExecution(

@@ -28,7 +28,7 @@ const explore = (label: string): ToolCallView => ({
 type Item =
 	| { say: string }
 	| { answer: string }
-	| { tool: string; name: string; view: ToolCallView }
+	| { tool: string; name: string; view: ToolCallView; status?: 'failed' }
 interface SampleTurn {
 	id: string
 	prompt: string
@@ -126,6 +126,32 @@ const sampleTurns: SampleTurn[] = [
 			{ answer: 'Done.' },
 		],
 	},
+	{
+		// The person said No to a change and to a command; one of them with a note.
+		id: 'a5',
+		prompt: 'Switch the accent colour and clean the build folder.',
+		durationMs: 18000,
+		items: [
+			{ say: 'Changing the accent colour, then removing the build output.' },
+			{
+				tool: 'a5-e',
+				name: 'edit',
+				status: 'failed',
+				view: {
+					kind: 'generic',
+					label: '/sample/app/src/app.css',
+					declined: { note: 'Keep the old colour; the brand one is not final.' },
+				},
+			},
+			{
+				tool: 'a5-c',
+				name: 'bash',
+				status: 'failed',
+				view: { kind: 'generic', label: 'rm -rf build', declined: {} },
+			},
+			{ answer: 'Understood. I left the colour and the build folder alone.' },
+		],
+	},
 ]
 
 export function activityMessages(): ChatMessage[] {
@@ -167,7 +193,7 @@ export function activityWork(): HistoryWorkSnapshot {
 					toolUseId: item.tool,
 					name: item.name,
 					order: order++,
-					status: 'completed',
+					status: item.status ?? 'completed',
 					presentation: item.view,
 				})
 			else

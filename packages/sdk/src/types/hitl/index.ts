@@ -3,6 +3,12 @@ import type { CheckpointId, PlanId, SessionId, TurnId } from '../ids/index.js'
 
 export type { CheckpointId }
 
+/** A person's No to a tool call. See the `declined` field of `reject_tools`. */
+export interface ToolCallDeclined {
+	/** What the person said about it, in their own words. */
+	readonly note?: string
+}
+
 export type HITLResumeDecision =
 	| { action: 'continue' }
 	| { action: 'approve_plan'; feedback?: string }
@@ -56,7 +62,17 @@ export type HITLResumeDecision =
 			/** See the `approve_tools` field of the same name. */
 			confirmedEscalations?: readonly string[]
 	  }
-	| { action: 'reject_tools'; feedback: string }
+	| {
+			action: 'reject_tools'
+			feedback: string
+			/**
+			 * Present only when a person answered No. `feedback` is what the
+			 * MODEL is told and a policy refusal fills it too, so it cannot say
+			 * who refused; this does. `note` is the person's own words, apart
+			 * from any wrapper a host put around them in `feedback`.
+			 */
+			declined?: ToolCallDeclined
+	  }
 	| {
 			action: 'answer_question'
 			selectedOptionIds: string[]

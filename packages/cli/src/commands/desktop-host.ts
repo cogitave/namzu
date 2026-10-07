@@ -414,6 +414,20 @@ function hostedHistoryView(activity: HostedHistoryActivity): ToolCallView {
 	}
 }
 
+// UTF-16 units: the kernel cuts at 4,000 code points, which can be twice that.
+const DECLINED_NOTE_MAX = 4_000
+/** A person's No is a closed object holding at most their note. */
+function declinedShape(value: unknown): boolean {
+	if (value === undefined) return true
+	if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+	const note = (value as Record<string, unknown>).note
+	return note === undefined || (typeof note === 'string' && note.length <= DECLINED_NOTE_MAX * 2)
+}
+function declinedCopy(value: unknown): { note?: string } {
+	const note = (value as { note?: unknown }).note
+	return typeof note === 'string' && note ? { note } : {}
+}
+
 /** A recorded public view is distinct from raw arguments and selected tool output. */
 function historyPresentation(value: unknown): ToolCallView | undefined {
 	if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
@@ -426,7 +440,8 @@ function historyPresentation(value: unknown): ToolCallView | undefined {
 		(data.presentation === undefined || data.presentation === 'activity') &&
 		(data.activity === undefined || data.activity === 'exploration') &&
 		(data.visibility === undefined || data.visibility === 'hidden') &&
-		(data.outcome === undefined || data.outcome === 'cancelled')
+		(data.outcome === undefined || data.outcome === 'cancelled') &&
+		declinedShape(data.declined)
 	) {
 		view = {
 			kind: 'generic',
@@ -435,6 +450,7 @@ function historyPresentation(value: unknown): ToolCallView | undefined {
 			...(data.activity === 'exploration' ? { activity: 'exploration' } : {}),
 			...(data.visibility === 'hidden' ? { visibility: 'hidden' } : {}),
 			...(data.outcome === 'cancelled' ? { outcome: 'cancelled' } : {}),
+			...(data.declined === undefined ? {} : { declined: declinedCopy(data.declined) }),
 		}
 	} else if (
 		data.kind === 'diff' &&
@@ -687,6 +703,9 @@ function historyWork(
 				if (latest.isError) status = 'cancelled'
 				else presentation = undefined
 			}
+			// A declined call never ran: only a failed completion can carry the person's No.
+			if (presentation?.kind === 'generic' && presentation.declined && !latest.isError)
+				presentation = undefined
 			if (presentation) {
 				const size = Buffer.byteLength(JSON.stringify(presentation))
 				if (presentationBytes + size > 128 * 1024) presentation = undefined

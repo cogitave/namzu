@@ -258,6 +258,46 @@ describe('an approval survives a process boundary', () => {
 		expect(JSON.stringify(toolMsg)).toContain('too risky')
 	})
 
+	it('a person’s No collected out-of-band is replayed as theirs, a bare rejection is not', async () => {
+		const completions = async (decision: HITLResumeDecision) => {
+			const h = await harness()
+			const first = new MockLLMProvider({
+				turns: [{ toolCalls: [{ name: 'delete_row', args: { id: 7 } }] }],
+			})
+			const parked = await drainQuery({
+				...baseParams(h, first, pauseOnReview),
+				messages: [createUserMessage('delete row 7')],
+			})
+			const state = await stateOf(h, parked.id)
+			const events: SessionEvent[] = []
+			await drainQuery(
+				{
+					...baseParams(h, new MockLLMProvider({ turns: [{ text: 'ok' }] }), pauseOnReview),
+					messages: [],
+					resumeFromCheckpoint: state?.checkpointId,
+					pendingDecision: decision,
+				},
+				(event) => {
+					events.push(event)
+				},
+			)
+			expect(h.calls).toEqual([])
+			return events.filter((event) => event.type === 'tool_completed')
+		}
+		const [declined] = await completions({
+			action: 'reject_tools',
+			feedback: 'too risky',
+			declined: { note: 'too risky' },
+		})
+		expect(declined).toMatchObject({
+			isError: true,
+			presentation: { kind: 'generic', declined: { note: 'too risky' } },
+		})
+		const [refused] = await completions({ action: 'reject_tools', feedback: 'too risky' })
+		expect(refused).toMatchObject({ isError: true })
+		expect(refused).not.toHaveProperty('presentation')
+	})
+
 	it('ignores a decision whose tool calls no longer match — consent is not transferable', async () => {
 		const h = await harness()
 		const first = new MockLLMProvider({

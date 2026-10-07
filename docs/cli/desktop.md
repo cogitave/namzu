@@ -1967,10 +1967,21 @@ outside the turn's directory, a call the tool would refuse, and for the Codex an
 Claude Code engines, which send none. The renderer API answers with
 `respondPermission(sessionId, requestId, { outcome: 'approve' | 'reject', feedback? })`
 (this replaces `approve`); the main process rejects a note longer than 4,000
-characters and a note on an approval. A declined call's tool result reaches the
-transcript as the model's tool result text. A finished turn's history carries no
-presentation for a failed call, so after a reload the row of a declined call
-reads "details unavailable"; the note itself stays in the model's history.
+characters and a note on an approval. A reject from the window also carries `note`,
+the text as the person typed it (apart from the sentence that wraps it for the
+model in `feedback`), and the main process tells the agent over ACP that the
+person declined (`declined: { note? }`). The kernel records that on the call, so a
+declined call is durable: its row reads "Declined edit to app.css" (or "Declined
+command", "Declined read of x") in the muted state `declined`, with "Declined" as its
+status, and opening the row shows "You said: *note*" when there is one. A row of
+declined calls folds to "Declined 2 actions" rather than counting as edits or
+commands, and its file name does not open the Changes panel, since nothing
+changed. After a reload the same row comes back from history, because the recorded
+presentation names the call's target and holds the note (at most 4,000
+characters). A call a policy refused (strict mode, plan mode, an unattended
+refusal, the authorization gate) is not marked, and its row stays "details
+unavailable" after a reload, as it was; so does a call a TUI user declined, since
+the TUI does not report that yet.
 Follow-up drafting and queuing remain available while a
 review waits. Cancellation aborts its permission wait. Approval IDs belong to
 the conversation that asked; navigation does not redirect an answer to another

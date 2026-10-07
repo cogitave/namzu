@@ -120,7 +120,13 @@ function categoryPhrase(category: RunCategory, count: number, live: boolean): st
 export function actionRunLabel(actions: RunAction[], live: boolean): string {
 	const subjects = new Map<RunCategory, Set<string>>()
 	const counts = new Map<RunCategory, number>()
+	let declined = 0
 	for (const action of actions) {
+		// A declined action did not happen, so it is not counted as an edit or a command.
+		if (action.state === 'declined') {
+			declined += 1
+			continue
+		}
 		const category = action.kind
 		// Files are counted once each; the other kinds count every action.
 		if ((category === 'edit' || category === 'read') && action.subject) {
@@ -132,6 +138,7 @@ export function actionRunLabel(actions: RunAction[], live: boolean): string {
 	}
 	const phrases = [...counts].map(([category, count]) => categoryPhrase(category, count, live))
 	// A folded run must not read as all done when some of it failed.
+	if (declined) phrases.push(declined === 1 ? 'declined an action' : `declined ${declined} actions`)
 	const failed = actions.filter((action) => action.state === 'failed').length
 	if (failed) phrases.push(`${failed} failed`)
 	const text = phrases.join(', ')

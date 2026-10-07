@@ -19,7 +19,9 @@ export function admitToolView(value: unknown): ToolCallView | undefined {
 				(view.presentation === undefined || view.presentation === 'activity') &&
 				(view.activity === undefined || view.activity === 'exploration') &&
 				(view.visibility === undefined || view.visibility === 'hidden') &&
-				(view.outcome === undefined || view.outcome === 'cancelled')
+				(view.outcome === undefined || view.outcome === 'cancelled') &&
+				(view.declined === undefined ||
+					(typeof view.declined === 'object' && view.declined !== null))
 				? (value as ToolCallView)
 				: undefined
 		case 'diff':

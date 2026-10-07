@@ -13,13 +13,26 @@ const record = (value: unknown): value is Record<string, unknown> =>
 export function readPermissionResponse(value: unknown): PermissionResponse {
 	if (!record(value) || (value.outcome !== 'approve' && value.outcome !== 'reject'))
 		throw new Error('Invalid approval.')
-	if (value.feedback === undefined) return { outcome: value.outcome }
-	if (value.outcome !== 'reject' || typeof value.feedback !== 'string')
+	if (value.feedback === undefined && value.note === undefined) return { outcome: value.outcome }
+	if (value.outcome !== 'reject') throw new Error('Invalid approval.')
+	if (
+		(value.feedback !== undefined && typeof value.feedback !== 'string') ||
+		(value.note !== undefined && typeof value.note !== 'string')
+	)
 		throw new Error('Invalid approval.')
-	if (value.feedback.length > PERMISSION_FEEDBACK_MAX)
+	if ((value.feedback?.length ?? 0) > PERMISSION_FEEDBACK_MAX)
 		throw new Error('Keep the note under 4,000 characters.')
-	const feedback = value.feedback.trim()
-	return feedback ? { outcome: 'reject', feedback } : { outcome: 'reject' }
+	// The note is kept apart from the wrapper `feedback` carries, so the record
+	// holds what the person typed; it is bounded on its own.
+	if ((value.note?.length ?? 0) > PERMISSION_FEEDBACK_MAX)
+		throw new Error('Keep the note under 4,000 characters.')
+	const feedback = value.feedback?.trim()
+	const note = value.note?.trim()
+	return {
+		outcome: 'reject',
+		...(feedback ? { feedback } : {}),
+		...(note ? { note } : {}),
+	}
 }
 
 /** The calls of a permission request, with a malformed or oversized preview dropped rather than shown. */
