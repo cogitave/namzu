@@ -1,0 +1,19 @@
+.message-actions {
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	width: fit-content;
+	max-width: 100%;
+	min-height: 24px;
+}
+.message-actions > button,
+.message-copy-button {
+	transition: color 140ms var(--motion-ease), background-color 140ms var(--motion-ease), box-shadow
+		140ms var(--motion-ease);
+}
+@media (prefers-reduced-motion: reduce) {
+	.message-actions > button,
+	.message-copy-button {
+		transition: none;
+	}
+}

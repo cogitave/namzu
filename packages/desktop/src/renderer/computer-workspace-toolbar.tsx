@@ -7,12 +7,12 @@ import {
 	MoreHorizontalIcon,
 	PanelRightIcon,
 	PencilIcon,
-	PlusIcon,
 	RefreshIcon,
 	TrashIcon,
 	XIcon,
 } from './icons.js'
 import { Button } from './ui/button.js'
+import { Tooltip, TooltipPopup, TooltipTrigger } from './ui/tooltip.js'
 import './computer-workspace-toolbar.css'
 
 /** Each Pal pane links its tabs to its own panels; standalone callers retain their IDs. */
@@ -132,7 +132,11 @@ export function ComputerWorkspaceComputerTab({
 	value = 'computer',
 	shared = false,
 	disabled = false,
-}: ComputerWorkspaceToolbarProps & { value?: string; shared?: boolean; disabled?: boolean }) {
+}: ComputerWorkspaceToolbarProps & {
+	value?: string
+	shared?: boolean
+	disabled?: boolean
+}) {
 	const ids = computerWorkspaceIds(idPrefix)
 	return (
 		<div
@@ -191,16 +195,25 @@ export function ComputerWorkspaceControls({
 }: ComputerWorkspaceToolbarProps & { disabled?: boolean }) {
 	return (
 		<div className="computer-workspace-view-controls">
-			<Button
-				variant="ghost-muted"
-				size="icon-sm"
-				aria-label="Open computer tab"
-				className="computer-workspace-tab-add"
-				disabled={disabled || !onOpenComputer || (computerTabOpen && activeTab === 'computer')}
-				onClick={onOpenComputer}
-			>
-				<PlusIcon />
-			</Button>
+			<Tooltip>
+				<TooltipTrigger
+					render={
+						<Button
+							variant="ghost-muted"
+							size="icon-sm"
+							aria-label="Open computer tab"
+							className="computer-workspace-tab-add"
+							disabled={
+								disabled || !onOpenComputer || (computerTabOpen && activeTab === 'computer')
+							}
+							onClick={onOpenComputer}
+						/>
+					}
+				>
+					<MonitorIcon aria-hidden="true" />
+				</TooltipTrigger>
+				<TooltipPopup>Open computer</TooltipPopup>
+			</Tooltip>
 			{computerTabOpen && activeTab === 'computer' && (
 				<div className="computer-workspace-layout-controls">
 					<Button

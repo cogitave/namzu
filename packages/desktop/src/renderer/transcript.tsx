@@ -3,7 +3,7 @@ import { type ThreadState, type TimelineEntry, threadPhase } from '../shared/pro
 import type { ChatMessage } from '../shared/protocol.js'
 import { AttachmentList } from './attachment-list.js'
 import { ChevronRightIcon, SearchIcon } from './icons.js'
-import { Message, MessageContent, MessageTime } from './message.js'
+import { Message, MessageContent, MessageFooter, MessageTime } from './message.js'
 import { toolTranscriptPresentation } from './tool-transcript-presentation.js'
 import { ToolTranscriptRow } from './tool-transcript-row.js'
 import {
@@ -79,12 +79,13 @@ function Entry({
 					<AttachmentList attachments={message.attachments} />
 				</div>
 			)}
-			<MessageTime time={message.time} focusable />
-			{message.role === 'assistant' &&
-				message.text.trim() &&
-				message.status !== 'pending' &&
-				(!thread.running || entry.turn !== thread.turn || thread.turns[entry.turn]?.stopReason) &&
-				renderMessageAction?.(message, entryKey(entry))}
+			<MessageFooter time={message.time} focusable>
+				{message.role === 'assistant' &&
+					message.text.trim() &&
+					message.status !== 'pending' &&
+					(!thread.running || entry.turn !== thread.turn || thread.turns[entry.turn]?.stopReason) &&
+					renderMessageAction?.(message, entryKey(entry))}
+			</MessageFooter>
 		</Message>
 	) : null
 }
@@ -152,11 +153,9 @@ function ToolGroup({ entries, thread }: { entries: TimelineEntry[]; thread: Thre
 function ActivityEntries({
 	entries,
 	thread,
-	renderMessageAction,
 }: {
 	entries: TimelineEntry[]
 	thread: ThreadState
-	renderMessageAction?: (message: ChatMessage, key: string) => ReactNode
 }) {
 	const groups: TimelineEntry[][] = []
 	for (const entry of entries) {
@@ -180,12 +179,7 @@ function ActivityEntries({
 		return first.kind === 'tool' ? (
 			<ToolGroup key={entryKey(first)} entries={group} thread={thread} />
 		) : (
-			<Entry
-				key={entryKey(first)}
-				entry={first}
-				thread={thread}
-				renderMessageAction={renderMessageAction}
-			/>
+			<Entry key={entryKey(first)} entry={first} thread={thread} />
 		)
 	})
 }
@@ -208,7 +202,6 @@ function TurnActivity({
 	workDisclosures,
 	onWorkDisclosureChange,
 	animate,
-	renderMessageAction,
 	now,
 }: {
 	thread: ThreadState
@@ -219,7 +212,6 @@ function TurnActivity({
 	workDisclosures?: WorkDisclosureChoices
 	onWorkDisclosureChange?: (key: string, open: boolean) => void
 	animate: boolean
-	renderMessageAction?: (message: ChatMessage, key: string) => ReactNode
 	now: number
 }) {
 	const live = thread.running && thread.stopReason === undefined && thread.turn === turn
@@ -263,11 +255,7 @@ function TurnActivity({
 			</CollapsibleTrigger>
 			<CollapsiblePanel keepMounted>
 				<div className="activity-entries">
-					<ActivityEntries
-						entries={entries}
-						thread={thread}
-						renderMessageAction={renderMessageAction}
-					/>
+					<ActivityEntries entries={entries} thread={thread} />
 				</div>
 			</CollapsiblePanel>
 		</Collapsible>
@@ -374,12 +362,7 @@ export function Transcript({
 							}
 						>
 							{segment.user.map((entry) => (
-								<Entry
-									key={entryKey(entry)}
-									entry={entry}
-									thread={thread}
-									renderMessageAction={renderMessageAction}
-								/>
+								<Entry key={entryKey(entry)} entry={entry} thread={thread} />
 							))}
 							{hasPublicActivity(segment.activity, thread) && (
 								<TurnActivity
@@ -399,7 +382,6 @@ export function Transcript({
 											.some((later) => hasPublicActivity(later.activity, thread))
 									}
 									animate={animate}
-									renderMessageAction={renderMessageAction}
 									now={now}
 								/>
 							)}

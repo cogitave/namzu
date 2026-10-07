@@ -45,7 +45,11 @@ function pendingCommand(thread = started()): ThreadState {
 		toolCallId: 'command',
 		title: 'Read working directory',
 		status: 'pending',
-		view: { kind: 'terminal', command: 'pwd', output: 'Actual streamed output' },
+		view: {
+			kind: 'terminal',
+			command: 'pwd',
+			output: 'Actual streamed output',
+		},
 	})
 }
 
@@ -124,6 +128,59 @@ describe('single live transcript status', () => {
 		expect(draw(settled)).toContain('Listen')
 		expect(action).toHaveBeenCalledOnce()
 		expect(action.mock.calls[0]?.[0].role).toBe('assistant')
+	})
+	it('keeps reply actions outside commentary, reasoning and tool details', () => {
+		const action = vi.fn((message: ChatMessage) =>
+			createElement('button', { type: 'button' }, `Copy ${message.text}`),
+		)
+		let thread = update(started(), {
+			kind: 'agent_message',
+			messageId: 'progress',
+			status: 'completed',
+			stopReason: 'tool_use',
+			content: 'Checking the source.',
+			textParts: [
+				{
+					id: 'progress-text',
+					phase: 'commentary',
+					text: 'Checking the source.',
+				},
+			],
+		})
+		thread = update(thread, {
+			kind: 'agent_thought_chunk',
+			blockId: 'thought',
+			text: 'Compare the recorded details.',
+		})
+		thread = update(thread, {
+			kind: 'tool_call',
+			toolCallId: 'check',
+			title: 'Read working directory',
+			status: 'completed',
+			view: { kind: 'terminal', command: 'pwd', output: 'workspace' },
+		})
+		thread = update(thread, {
+			kind: 'agent_message',
+			messageId: 'reply',
+			status: 'completed',
+			content: 'The source is ready.',
+			textParts: [
+				{
+					id: 'reply-text',
+					phase: 'final_answer',
+					text: 'The source is ready.',
+				},
+			],
+			stopReason: 'end_turn',
+		})
+		thread = update(thread, { kind: 'turn_ended', stopReason: 'end_turn' }, 100000)
+		const html = renderToStaticMarkup(
+			createElement(Transcript, { thread, renderMessageAction: action }),
+		)
+		expect(action).toHaveBeenCalledOnce()
+		expect(action.mock.calls[0]?.[0].text).toBe('The source is ready.')
+		expect(html).toContain('Copy The source is ready.')
+		expect(html).not.toContain('Copy Checking the source.')
 	})
 	it('renders steering after prior commentary and action within the same turn', () => {
 		let thread = started()
@@ -254,7 +311,12 @@ describe('single live transcript status', () => {
 	it('shows real waiting separately from the timed work header and pending action', () => {
 		const thread = applyEvent(pendingCommand(), {
 			kind: 'permission',
-			request: { id: 'approval', sessionId: 'session', projectId: 'project', calls: [] },
+			request: {
+				id: 'approval',
+				sessionId: 'session',
+				projectId: 'project',
+				calls: [],
+			},
 		})
 		const html = render(thread)
 		expect(phaseLabels(html)).toEqual(['Working', 'Waiting for your decision'])

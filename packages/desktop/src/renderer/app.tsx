@@ -62,6 +62,7 @@ import {
 } from './icons.js'
 import { JobRow } from './job-row.js'
 import { LocalSpeechReadAloud, LocalSpeechSettings } from './local-speech-settings.js'
+import { MessageActions } from './message-actions.js'
 import { invalidateModelCatalogueDisplayCache } from './model-catalogue-display-cache.js'
 import { resolveComposerModelChoice } from './model-choice.js'
 import { NavigationRail } from './navigation-rail.js'
@@ -2466,7 +2467,10 @@ export function App({
 				current.choices[key] === open
 			)
 				return
-			const next = { sessionId: owner, choices: chooseWorkDisclosure(current.choices, key, open) }
+			const next = {
+				sessionId: owner,
+				choices: chooseWorkDisclosure(current.choices, key, open),
+			}
 			if (next.choices === current.choices) return
 			if (pendingPresentationScroll.current?.sessionId === owner)
 				pendingPresentationScroll.current = null
@@ -3801,7 +3805,13 @@ export function App({
 											name={pal.name}
 											intro={conversation?.palGreeting}
 											renderMessageAction={(message, key) => (
-												<LocalSpeechReadAloud speech={speech} messageId={key} text={message.text} />
+												<MessageActions text={message.text}>
+													<LocalSpeechReadAloud
+														speech={speech}
+														messageId={key}
+														text={message.text}
+													/>
+												</MessageActions>
 											)}
 										/>
 									) : (
@@ -3819,11 +3829,13 @@ export function App({
 													onWorkDisclosureChange(sessionId, key, open)
 												}
 												renderMessageAction={(message, key) => (
-													<LocalSpeechReadAloud
-														speech={speech}
-														messageId={key}
-														text={message.text}
-													/>
+													<MessageActions text={message.text}>
+														<LocalSpeechReadAloud
+															speech={speech}
+															messageId={key}
+															text={message.text}
+														/>
+													</MessageActions>
 												)}
 											/>
 											<ChangedFilesCard

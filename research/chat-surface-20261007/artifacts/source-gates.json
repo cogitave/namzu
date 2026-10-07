@@ -1,0 +1,41 @@
+{
+  "scope": "Local source gates; no publication gates or native activation claim",
+  "passed": true,
+  "gates": {
+    "typecheck": {
+      "command": "pnpm typecheck",
+      "exitCode": 0,
+      "logSha256": "1fd1daa5199f1ee633b707050352a0d89d4765d14a4266401906f9d22374e0de"
+    },
+    "lint": {
+      "command": "pnpm lint",
+      "exitCode": 0,
+      "logSha256": "9818eb7c9b60e1e7bf848bd704aec54c21cc1f147e2e55532f983dea8fb681f3",
+      "existingCliWarnings": 12
+    },
+    "workspaceTests": {
+      "command": "pnpm test",
+      "exitCode": 0,
+      "logSha256": "458e9ceb15a99b5b8a5b53dea5c504ff65148017e46c9ea57f0c4c112ee71c94",
+      "passedTests": 20167,
+      "skippedTests": 116
+    },
+    "finalDesktopTests": {
+      "command": "pnpm --filter @namzu/desktop test",
+      "exitCode": 0,
+      "logSha256": "89e6ced61b14d0be57e0f90f9a2fd8bf0ddc5939832f70f5a7a11b76a12b4310",
+      "passedTests": 907,
+      "skippedTests": 0
+    },
+    "desktopBuild": {
+      "command": "pnpm --filter @namzu/desktop build",
+      "exitCode": 0,
+      "logSha256": "a7ae40f0cda102908810b28d32716c0897e1958491a762cc82d3647eab479764"
+    },
+    "docs": {
+      "command": "pnpm docs:check",
+      "exitCode": 0,
+      "logSha256": "debd374757aa3c14b6bd44929f29a084b0888d3c4a173773bc85f654bc4a1e3d"
+    }
+  }
+}

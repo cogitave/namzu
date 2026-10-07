@@ -297,11 +297,15 @@ Approvals remain readable; their decisions require actual current guest authorit
 Once setup saves the profile, the central character disappears. A persistent card on the
 right shows its live 3D character, computer, owned recent conversations and
 current completed change receipts. The pencil beside the character opens
-customization. The card has no menu trigger and reserves its own layout space,
-so it never overlaps the transcript or composer. The Pal chat width sizes the right
-column continuously without a separate technical pane. The card is 240–300px wide, with its own bounded vertical
-scrolling in short windows. Narrower desktop windows do not move it into a
-full-width band above the conversation. A small settings icon beside the Pal's
+customization. At an available chat-stage width of at least 720px, the card
+reserves its own right column without overlapping the transcript or composer.
+It is 240–300px wide, with bounded vertical scrolling in short windows. Below
+720px, the same profile becomes a compact identity and computer-status row above
+the full-width conversation. Its keyboard-accessible trigger opens the existing
+details in an anchored popover; dismissal restores focus, and the full character
+scene mounts only with the visible details. The breakpoint follows the actual
+pane rather than the browser viewport, so split panes use the same behavior.
+A small settings icon beside the Pal's
 name opens its communication settings. Planning tasks appear inside this same
 card, between Computers and Recent activity, as **Progress** milestones with
 reported state icons and a completed-step count whose two numerical values use
@@ -319,18 +323,19 @@ while the profile catalogue loads. Saved Pal view preferences that previously
 opened Activity or Changes restore with those panes closed. The Pal route excludes
 their DOM and layout column even while its profile catalogue loads.
 Recent activity rows are noninteractive summaries; completed file outputs expand
-within the card. Pal views do not poll for background-shell counts that have no
+within the card. Empty activity and output sections are omitted. Pal views do not poll for background-shell counts that have no
 visible consumer. Ordinary conversations retain their Activity
 task list. Pal conversations hide the transcript scrollbar and its reserved
 gutter while retaining wheel and keyboard scrolling through a named focusable
-conversation region. In a very narrow
-split pane, the existing profile toggle gives the conversation the full width.
+conversation region. The existing profile toggle can hide either the full card
+or compact row. The computer-tab control uses a monitor icon and a descriptive
+tooltip, distinct from the neighbouring new-conversation plus.
 Neither empty outputs nor a disconnected computer imply completed work.
 Customizing an existing profile preserves the selected
 conversation. Its default model applies to future conversations.
 
-The [native responsive layout receipt](../../research/runtime-desktop-20260930/artifacts/pal-card-responsive-native-safe-20261005.json)
-checks the reported 706px chat area, both sides of the former 720px breakpoint,
+The earlier [native responsive layout receipt](../../research/runtime-desktop-20260930/artifacts/pal-card-responsive-native-safe-20261005.json)
+records the preceding card design at a 706px chat area, both sides of its former 720px breakpoint,
 Activity open on Sıtkı, a wider window, a short window and the existing profile
 toggle in a 380px pane.
 It preserves the native viewport, profile visibility, messages, drafts, model
@@ -710,7 +715,21 @@ Assistant replies render headings, lists, fenced code and tables. User messages
 stay literal. Raw HTML cannot execute and remote images do not load. A user click
 opens validated HTTP(S) assistant links, including a sole safe inline-code URL,
 through the main process's system-browser bridge; other schemes remain inert.
-Tool output remains a separate tool view.
+Tool output remains a separate tool view. Settled answers have a compact
+**Copy reply** action alongside optional read-aloud; commentary, reasoning and
+tool details do not receive the answer toolbar. In ordinary and Pal chat, the
+known message clock and reply controls share one reserved footer row. They fade
+in together on message hover or keyboard focus without changing the row's size
+or the reader position; touch layouts keep the controls visible. Playback and
+pending, successful or failed copy feedback remain visible until settled.
+Copying uses the original reply
+text, and reports success only after the native write completes. Code blocks
+show their language and a separate **Copy code** control; their parsed code
+payload excludes Markdown fences and the renderer's synthetic trailing newline.
+Copy failure stays retryable without widening the control. The authenticated
+bridge writes bounded plain text only and never reads the system clipboard.
+Wide tables scroll within a focusable message region, including keyboard
+horizontal scrolling, instead of being clipped by the transcript's outer frame.
 Messages and tool rows retain their admitted event order. Repeated provider call
 IDs in later turns have separate receipts; progress updates do not move a row.
 Interface and composer text use the platform sans stack; code uses the platform

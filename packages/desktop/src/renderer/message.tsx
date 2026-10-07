@@ -11,7 +11,10 @@ import {
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { ChatMessage } from '../shared/protocol.js'
+import { CopyButton } from './copy-button.js'
 import { cn } from './lib/utils.js'
+import { COPY_CODE_PROPERTY, markdownCodeCopy, remarkCodeCopy } from './markdown-code-copy.js'
+import './message-footer.css'
 
 function externalWebUrl(value: string | undefined): string | undefined {
 	if (!value || value.length > 8192) return undefined
@@ -64,22 +67,35 @@ function MessageLink({ children, href }: { children?: ReactNode; href?: string }
 const CodeBlockContext = createContext(false)
 
 function MarkdownPre({
-	node: _node,
+	node,
 	children,
 	...props
 }: ComponentPropsWithoutRef<'pre'> & { node?: unknown }) {
+	const code = markdownCodeCopy(node)
 	return (
-		<CodeBlockContext.Provider value={true}>
-			<pre {...props}>{children}</pre>
-		</CodeBlockContext.Provider>
+		<div className="chat-markdown-codeblock">
+			{code && (
+				<div className="chat-markdown-codeblock-header">
+					<span className="chat-markdown-codeblock-language">{code.language || 'Code'}</span>
+					<CopyButton text={code.text} label="Copy code" />
+				</div>
+			)}
+			<CodeBlockContext.Provider value={true}>
+				<pre {...props}>{children}</pre>
+			</CodeBlockContext.Provider>
+		</div>
 	)
 }
 
 function MarkdownCode({
 	node: _node,
 	children,
+	[COPY_CODE_PROPERTY]: _copyText,
 	...props
-}: ComponentPropsWithoutRef<'code'> & { node?: unknown }) {
+}: ComponentPropsWithoutRef<'code'> & {
+	node?: unknown
+	[COPY_CODE_PROPERTY]?: string
+}) {
 	const block = useContext(CodeBlockContext)
 	const text = typeof children === 'string' ? children : undefined
 	const url = !block && text && /^https?:\/\/\S+$/.test(text) ? externalWebUrl(text) : undefined
@@ -98,13 +114,16 @@ const messageFullTime = new Intl.DateTimeFormat(undefined, {
 	timeStyle: 'medium',
 })
 
+function knownMessageTime(time: ChatMessage['time']): boolean {
+	return !!time && Number.isFinite(time.at) && time.at >= 0 && time.at <= 8_640_000_000_000_000
+}
+
 export function MessageTime({
 	time,
 	focusable = false,
 }: { time?: ChatMessage['time']; focusable?: boolean }) {
 	const [expanded, setExpanded] = useState(false)
-	if (!time || !Number.isFinite(time.at) || time.at < 0 || time.at > 8_640_000_000_000_000)
-		return null
+	if (!time || !knownMessageTime(time)) return null
 	const date = new Date(time.at)
 	const label = messageClock.format(date)
 	const full = messageFullTime.format(date)
@@ -134,6 +153,21 @@ export function MessageTime({
 	)
 }
 
+/** Clock and reply controls occupy one stable row before being revealed. */
+export function MessageFooter({
+	time,
+	children,
+	focusable = false,
+}: { time?: ChatMessage['time']; children?: ReactNode; focusable?: boolean }) {
+	if (!knownMessageTime(time) && !children) return null
+	return (
+		<div className="message-footer">
+			<MessageTime time={time} focusable={focusable} />
+			{children}
+		</div>
+	)
+}
+
 export function Message({
 	className,
 	from,
@@ -160,7 +194,7 @@ const MarkdownContent = memo(function MarkdownContent({ text }: { text: string }
 	return (
 		<div className="message-text chat-markdown w-full min-w-0 text-sm leading-relaxed text-foreground [overflow-wrap:anywhere] [word-break:break-word]">
 			<Markdown
-				remarkPlugins={[remarkGfm]}
+				remarkPlugins={[remarkGfm, [remarkCodeCopy, { source: text }]]}
 				skipHtml
 				components={{
 					// Remote media stays inert; web links require the owned main bridge.
@@ -169,9 +203,14 @@ const MarkdownContent = memo(function MarkdownContent({ text }: { text: string }
 					code: MarkdownCode,
 					img: ({ alt }) => <span className="notice">{alt || 'Image'}</span>,
 					table: ({ children }) => (
-						<div className="table-scroll">
+						<section
+							className="table-scroll"
+							aria-label="Table"
+							// biome-ignore lint/a11y/noNoninteractiveTabindex: A horizontal table region needs keyboard focus for scrolling.
+							tabIndex={0}
+						>
 							<table>{children}</table>
-						</div>
+						</section>
 					),
 				}}
 			>

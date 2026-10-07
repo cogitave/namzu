@@ -78,6 +78,7 @@ const OS_CODES = new Set([
 ])
 const OPERATIONS = new Set([
 	'openExternal',
+	'copyText',
 	'localSpeechState',
 	'localSpeechConfigure',
 	'localSpeechInstall',

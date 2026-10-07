@@ -1379,7 +1379,33 @@ pre {
 }
 
 .chat-markdown .chat-markdown-codeblock-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	min-height: 36px;
+	padding: 4px 8px 4px 14px;
+	border-bottom: 1px solid var(--border);
+	background: color-mix(in srgb, var(--foreground) 3%, transparent);
 	color: color-mix(in srgb, var(--contrast-foreground) 72%, transparent);
+}
+.chat-markdown .chat-markdown-codeblock {
+	min-width: 0;
+	max-width: 100%;
+	margin: 0.65rem 0;
+	overflow: hidden;
+	border: 1px solid var(--border);
+	border-radius: 0.75rem;
+	background: var(--muted);
+}
+.chat-markdown .chat-markdown-codeblock-language {
+	min-width: 0;
+	overflow: hidden;
+	font-family: var(--font-mono);
+	font-size: 11px;
+	line-height: 18px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
 .chat-markdown .chat-markdown-codeblock pre {
@@ -1414,11 +1440,25 @@ pre {
 	}
 }
 
-/* Diagnostics-style tables: row separators only, uppercase headers, and a
-   scroll-fade container for horizontal overflow. The root chat-markdown
+/* Keep wide tables inside their message and retain native horizontal reading.
+   The root chat-markdown
    wrapping rules (overflow-wrap: anywhere) would let columns shrink to single
    characters and defeat the overflow — restore word-boundary wrapping so the
    min column width is the longest word. */
+.chat-markdown .table-scroll {
+	min-width: 0;
+	max-width: 100%;
+	overflow-x: auto;
+	overscroll-behavior-x: contain;
+	border: 1px solid var(--border);
+	border-radius: 0.75rem;
+	scrollbar-width: thin;
+	scrollbar-color: color-mix(in srgb, var(--border) 78%, transparent) transparent;
+}
+.chat-markdown .table-scroll:focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: 2px;
+}
 .chat-markdown table {
 	width: 100%;
 	min-width: max-content;
@@ -1443,6 +1483,9 @@ pre {
 
 .chat-markdown tbody td {
 	border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+}
+.chat-markdown tbody tr:last-child td {
+	border-bottom: 0;
 }
 
 /* Collapsed (default): single-line cells truncate so arbitrary chat content

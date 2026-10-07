@@ -320,6 +320,8 @@ export type DesktopEvent = (
 export interface DesktopApi {
 	/** Open a user-selected HTTP(S) source in the system browser. */
 	openExternal?(url: string): Promise<void>
+	/** Explicit plain-text copy; bounded to 4 MiB UTF-8 and never truncated. */
+	copyText?(text: string): Promise<void>
 	localSpeechState?(): Promise<import('./local-speech-protocol.js').LocalSpeechState>
 	localSpeechConfigure?(
 		settings: Partial<import('./local-speech-protocol.js').LocalSpeechSettings>,

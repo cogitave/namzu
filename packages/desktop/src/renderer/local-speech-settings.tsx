@@ -199,7 +199,7 @@ export function LocalSpeechSettings({ speech }: { speech: LocalSpeechControls })
 	return (
 		<Popover>
 			<PopoverTrigger
-				render={<ComposerControl size="xs" />}
+				render={<ComposerControl size="xs" className="local-speech-trigger" />}
 				aria-label="Voice settings"
 				title="Voice settings"
 			>

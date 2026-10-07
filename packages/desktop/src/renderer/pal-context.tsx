@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { type ReactNode, useLayoutEffect, useRef, useState } from 'react'
 import type { ThreadState } from '../shared/projection.js'
 import type { PalScreenView, PalView } from '../shared/protocol.js'
 import { ConversationTasks } from './conversation-tasks.js'
@@ -19,6 +19,7 @@ import { PalCharacter, type PalCharacterAppearance } from './pal-character.js'
 import type { PalRecentAction } from './pal-recent-activity.js'
 import { Button } from './ui/button.js'
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from './ui/collapsible.js'
+import { Popover, PopoverPopup, PopoverTrigger } from './ui/popover.js'
 import './pal-context.css'
 
 export interface PalContextProps {
@@ -80,6 +81,10 @@ const statusLabels: Record<PalContextProps['status'], string> = {
 	offline: 'Unavailable',
 }
 
+function computerStatusLabel(status: PalContextProps['computer']['status']) {
+	return status === 'ready' ? 'Connected' : status === 'connecting' ? 'Connecting…' : 'Offline'
+}
+
 function PalContextBody({
 	pal,
 	status,
@@ -99,12 +104,7 @@ function PalContextBody({
 	stopComputerDisabled,
 }: PalContextProps) {
 	const pauseLabel = `${pal.paused ? 'Resume' : 'Pause'} ${pal.name}`
-	const computerStatus =
-		computer.status === 'ready'
-			? 'Connected'
-			: computer.status === 'connecting'
-				? 'Connecting…'
-				: 'Offline'
+	const computerStatus = computerStatusLabel(computer.status)
 	const computerAction =
 		computer.status !== 'connecting' && onStopComputer
 			? { label: 'Stop computer', onClick: onStopComputer, disabled: stopComputerDisabled }
@@ -243,11 +243,9 @@ function PalContextBody({
 					<ConversationTasks key={pal.id} thread={tasks} palName={pal.name} />
 				</div>
 			)}
-			<section className="pal-context-section" aria-label="Recent activity">
-				<h3>Recent activity</h3>
-				{activity.length === 0 ? (
-					<p className="pal-context-empty">No activity yet</p>
-				) : (
+			{activity.length > 0 && (
+				<section className="pal-context-section" aria-label="Recent activity">
+					<h3>Recent activity</h3>
 					<ul className="pal-context-list">
 						{activity.slice(0, 5).map((item) => {
 							const Icon =
@@ -280,13 +278,11 @@ function PalContextBody({
 							)
 						})}
 					</ul>
-				)}
-			</section>
-			<section className="pal-context-section" aria-label="Outputs">
-				<h3>Outputs</h3>
-				{outputs.length === 0 ? (
-					<p className="pal-context-empty">No outputs yet</p>
-				) : (
+				</section>
+			)}
+			{outputs.length > 0 && (
+				<section className="pal-context-section" aria-label="Outputs">
+					<h3>Outputs</h3>
 					<ul className="pal-context-list">
 						{outputs.slice(0, 5).map((item) => (
 							<li key={item.id}>
@@ -312,16 +308,87 @@ function PalContextBody({
 							</li>
 						))}
 					</ul>
-				)}
-			</section>
+				</section>
+			)}
 		</div>
 	)
 }
 
 export function PalContextCard(props: PalContextProps) {
+	const card = useRef<HTMLElement>(null)
+	const compactTrigger = useRef<HTMLButtonElement>(null)
+	const [compact, setCompact] = useState(false)
+	const [open, setOpen] = useState(false)
+	useLayoutEffect(() => {
+		const stage = card.current?.parentElement
+		if (!stage?.classList.contains('chat-stage')) return
+		const update = () => {
+			const narrow = stage.getBoundingClientRect().width < 720
+			setCompact(narrow)
+			if (!narrow) setOpen(false)
+		}
+		update()
+		const observer = new ResizeObserver(update)
+		observer.observe(stage)
+		return () => observer.disconnect()
+	}, [])
+	const compactBodyProps: PalContextProps = {
+		...props,
+		onCustomize: () => {
+			setOpen(false)
+			props.onCustomize()
+		},
+		onCommunication: props.onCommunication
+			? () => {
+					const trigger = compactTrigger.current
+					if (!trigger) return
+					setOpen(false)
+					props.onCommunication?.(trigger)
+				}
+			: undefined,
+		onOpenComputer: props.onOpenComputer
+			? () => {
+					setOpen(false)
+					props.onOpenComputer?.()
+				}
+			: undefined,
+	}
 	return (
-		<aside className="pal-context-card" aria-label="Pal context">
-			<PalContextBody {...props} />
+		<aside className="pal-context-card" aria-label="Pal context" data-compact={compact} ref={card}>
+			{compact ? (
+				<Popover open={open} onOpenChange={setOpen}>
+					<PopoverTrigger
+						render={
+							<Button
+								ref={compactTrigger}
+								variant="ghost-muted"
+								className="pal-context-compact-trigger"
+							/>
+						}
+						aria-label={`Show ${props.pal.name} details, ${statusLabels[props.status]}, computer ${computerStatusLabel(props.computer.status)}`}
+					>
+						<ConversationIcon aria-hidden="true" />
+						<strong title={props.pal.name}>{props.pal.name}</strong>
+						<span className="pal-context-compact-status">{statusLabels[props.status]}</span>
+						<span className="pal-context-compact-computer">
+							<MonitorIcon aria-hidden="true" />
+							{computerStatusLabel(props.computer.status)}
+						</span>
+						<ChevronRightIcon className="pal-context-compact-chevron" aria-hidden="true" />
+					</PopoverTrigger>
+					<PopoverPopup
+						aria-label={`${props.pal.name} details`}
+						align="start"
+						padding="none"
+						width="md"
+						className="pal-context-popup"
+					>
+						<PalContextBody {...compactBodyProps} />
+					</PopoverPopup>
+				</Popover>
+			) : (
+				<PalContextBody {...props} />
+			)}
 		</aside>
 	)
 }

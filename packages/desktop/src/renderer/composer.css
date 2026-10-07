@@ -216,6 +216,10 @@
 	width: 32px;
 	height: 32px;
 }
+.pal-composer-shell .pal-composer-send-actions button.local-speech-trigger {
+	width: auto;
+	min-width: 32px;
+}
 .pal-composer-tools .pal-composer-attach {
 	justify-content: flex-start;
 	width: 100%;

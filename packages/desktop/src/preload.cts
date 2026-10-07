@@ -4,6 +4,7 @@ import type { DesktopApi, DesktopEvent } from './shared/protocol.js'
 const invoke = (name: string, ...args: unknown[]) => ipcRenderer.invoke(`namzu:${name}`, ...args)
 const api: DesktopApi = {
 	openExternal: (url) => invoke('openExternal', url),
+	copyText: (text) => invoke('copyText', text),
 	localSpeechState: () => invoke('localSpeechState'),
 	localSpeechConfigure: (settings) => invoke('localSpeechConfigure', settings),
 	localSpeechInstall: () => invoke('localSpeechInstall'),

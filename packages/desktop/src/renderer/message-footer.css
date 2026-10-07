@@ -1,0 +1,59 @@
+.message-footer {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	width: fit-content;
+	max-width: 100%;
+	min-width: 0;
+	min-height: 24px;
+	opacity: 0;
+	pointer-events: none;
+	transition: opacity 160ms ease-out;
+}
+.message:is(:hover, :focus-within) > .message-footer,
+.pal-chat-message:is(:hover, :focus-within) > .message-footer,
+.message-footer:has(
+		[aria-pressed="true"],
+		[data-copy-state="pending"],
+		[data-copy-state="copied"],
+		[data-copy-state="error"]
+	) {
+	opacity: 1;
+	pointer-events: auto;
+}
+.normal-transcript .message-footer .message-time,
+.pal-chat-message .message-footer .message-time {
+	flex: 0 1 auto;
+	min-width: 0;
+	max-width: 100%;
+	margin: 0;
+	padding: 0;
+	opacity: 1;
+	transition: none;
+}
+.message-footer .message-time > time {
+	display: block;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.pal-chat-message > .message-footer {
+	padding-inline: 14px;
+}
+/* Reserve the same compact button height used below the UI's sm breakpoint. */
+@media (width < 40rem) {
+	.message-footer {
+		min-height: 28px;
+	}
+}
+@media (hover: none) {
+	.message-footer {
+		opacity: 1;
+		pointer-events: auto;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.message-footer {
+		transition: none;
+	}
+}

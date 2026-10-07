@@ -1,0 +1,1995 @@
+{
+  "capturedAt": "2026-10-07T10:42:06.943Z",
+  "verification": true,
+  "source": [
+    {
+      "path": "app.tsx",
+      "sha256": "e21be6f61c62a6f8259aeb6a520a27fa1b8994f45d95b383084f109a8dfe8b12"
+    },
+    {
+      "path": "composer.tsx",
+      "sha256": "21ed32a7b7f607bda4b175c9d5e0c182bf89e9ccb273d4415d6495261b7819af"
+    },
+    {
+      "path": "composer.css",
+      "sha256": "ff03fc121d7563a3fd009e69fce3378c000a13871fc56ad21ef346c615eba469"
+    },
+    {
+      "path": "composer-surface.tsx",
+      "sha256": "4d0108bdc60c78fb1993b139f5fac0207e8bb24eaf59fce8814d56949629c48a"
+    },
+    {
+      "path": "pal-chat-transcript.tsx",
+      "sha256": "472dbba48f6bbe74c09655f896b62d12214e658dc91e81cec9db5c25cd9a1723"
+    },
+    {
+      "path": "pal-chat-transcript.css",
+      "sha256": "a98c44eb9ca549598332ca6f5248e4e92a896864ed5fd02c5cf1e96060fd179a"
+    },
+    {
+      "path": "pal-context.tsx",
+      "sha256": "7fbc7e83150995ce66c75015e7b0aec32d5d1d8146407145473c02648942c422"
+    },
+    {
+      "path": "pal-context.css",
+      "sha256": "ff7be364f8cac2284095a7c28914f2890c0f24c913f5b5fc45db2c3335b68c14"
+    },
+    {
+      "path": "transcript-motion.css",
+      "sha256": "df4b65b57e95eceeaf32074fb22798b9de1aeaab2f135b5db383684135d99b93"
+    },
+    {
+      "path": "style.css",
+      "sha256": "a1e04c7b9c8b029044d8cdb99d207da583e2bc46e6265bffc18469534547045a"
+    },
+    {
+      "path": "message.tsx",
+      "sha256": "d053a2790975431daadcc3811fa2f90de392e84e21d7c645730b30eb35b2faa3"
+    },
+    {
+      "path": "message-actions.tsx",
+      "sha256": "1011d86ae8a3c37ad7dab8ce302255c4fd9ea147be3ce6d1e5979454ff0ec4c4"
+    },
+    {
+      "path": "message-actions.css",
+      "sha256": "8d89db7defbd9663c9e8a8d023e0b42016389c9a461d2a66c70ef0b9adda754f"
+    },
+    {
+      "path": "copy-button.tsx",
+      "sha256": "9f06b1803ff377dd6b5a3228bc182bfa167a78e8c3cae63da65e77530751bdb3"
+    },
+    {
+      "path": "computer-workspace-toolbar.tsx",
+      "sha256": "e8b4788a46384de768eb2a6ebf6230846ad5fc31586d7d4d87d51ab9aefeb871"
+    }
+  ],
+  "nativeActions": 0,
+  "providerRequests": 0,
+  "userDataReads": 0,
+  "actualComponents": true,
+  "conditions": [
+    {
+      "name": "normal-wide-dark",
+      "pal": false,
+      "appearance": "dark",
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "expanded": true,
+      "metrics": {
+        "viewport": {
+          "width": 1280,
+          "height": 900
+        },
+        "body": {
+          "clientWidth": 1280,
+          "scrollWidth": 1280
+        },
+        "boxes": {
+          ".workspace": [
+            {
+              "rect": {
+                "x": 48,
+                "y": 32,
+                "width": 1232,
+                "height": 868,
+                "right": 1280,
+                "bottom": 900
+              },
+              "clientWidth": 1232,
+              "scrollWidth": 1672,
+              "clientHeight": 868,
+              "scrollHeight": 868,
+              "fontSize": "16px",
+              "lineHeight": "24px",
+              "padding": "0px",
+              "gap": "normal",
+              "overflowX": "clip",
+              "overflowY": "clip",
+              "display": "flex"
+            }
+          ],
+          ".chat-stage": [
+            {
+              "rect": {
+                "x": 48,
+                "y": 84,
+                "width": 1232,
+                "height": 816,
+                "right": 1280,
+                "bottom": 900
+              },
+              "clientWidth": 1232,
+              "scrollWidth": 1232,
+              "clientHeight": 816,
+              "scrollHeight": 816,
+              "fontSize": "16px",
+              "lineHeight": "24px",
+              "padding": "0px",
+              "gap": "normal",
+              "overflowX": "visible",
+              "overflowY": "visible",
+              "display": "flex"
+            }
+          ],
+          ".transcript": [
+            {
+              "rect": {
+                "x": 48,
+                "y": 84,
+                "width": 1232,
+                "height": 816,
+                "right": 1280,
+                "bottom": 900
+              },
+              "clientWidth": 1220,
+              "scrollWidth": 1220,
+              "clientHeight": 816,
+              "scrollHeight": 881,
+              "fontSize": "16px",
+              "lineHeight": "24px",
+              "padding": "20px 20px 172px",
+              "gap": "normal",
+              "overflowX": "hidden",
+              "overflowY": "auto",
+              "display": "block"
+            }
+          ],
+          ".conversation-body": [
+            {
+              "rect": {
+                "x": 280,
+                "y": 39,
+                "width": 768,
+                "height": 689.484375,
+                "right": 1048,
+                "bottom": 728.484375
+              },
+              "clientWidth": 768,
+              "scrollWidth": 768,
+              "clientHeight": 689,
+              "scrollHeight": 689,
+              "fontSize": "16px",
+              "lineHeight": "24px",
+              "padding": "0px",
+              "gap": "normal",
+              "overflowX": "visible",
+              "overflowY": "visible",
+              "display": "block"
+            }
+          ],
+          ".normal-transcript": [
+            {
+              "rect": {
+                "x": 280,
+                "y": 39,
+                "width": 768,
+                "height": 689.484375,
+                "right": 1048,
+                "bottom": 728.484375
+              },
+              "clientWidth": 768,
+              "scrollWidth": 768,
+              "clientHeight": 689,
+              "scrollHeight": 689,
+              "fontSize": "16px",
+              "lineHeight": "24px",
+              "padding": "0px",
+              "gap": "normal",
+              "overflowX": "visible",
+              "overflowY": "visible",
+              "display": "block"
+            }
+          ],
+          ".pal-chat-transcript": [],
+          ".pal-context-card": [],
+          ".normal-composer-shell": [
+            {
+              "rect": {
+                "x": 280,
+                "y": 752,
+                "width": 768,
+                "height": 128,
+                "right": 1048,
+                "bottom": 880
+              },
+              "clientWidth": 768,
+              "scrollWidth": 768,
+              "clientHeight": 128,
+              "scrollHeight": 128,
+              "fontSize": "16px",
+              "lineHeight": "24px",
+              "padding": "0px",
+              "gap": "normal",
+              "overflowX": "visible",
+              "overflowY": "visible",
+              "display": "block"
+            }
+          ],
+          ".pal-composer-shell": [],
+          "textarea": [
+            {
+              "rect": {
+                "x": 289,
+                "y": 801,
+                "width": 742,
+                "height": 32,
+                "right": 1031,
+                "bottom": 833
+              },
+              "clientWidth": 742,
+              "scrollWidth": 742,
+              "clientHeight": 32,
+              "scrollHeight": 32,
+              "fontSize": "14px",
+              "lineHeight": "22.75px",
+              "padding": "4px",
+              "gap": "normal",
+              "overflowX": "auto",
+              "overflowY": "auto",
+              "display": "block"
+            }
+          ],
+          ".composer-context-above": [
+            {
+              "rect": {
+                "x": 293,
+                "y": 752,
+                "width": 742,
+                "height": 54,
+                "right": 1035,
+                "bottom": 806
+              },
+              "clientWidth": 740,
+              "scrollWidth": 740,
+              "clientHeight": 52,
+              "scrollHeight": 52,
+              "fontSize": "16px",
+              "lineHeight": "24px",
+              "padding": "6px 8px 18px",
+              "gap": "8px",
+              "overflowX": "visible",
+              "overflowY": "visible",
+              "display": "flex"
+            }
+          ],
+          ".composer-footer-options": [
+            {
+              "rect": {
+                "x": 291,
+                "y": 839,
+                "width": 117.59375,
+                "height": 28,
+                "right": 408.59375,
+                "bottom": 867
+              },
+              "clientWidth": 118,
+              "scrollWidth": 118,
+              "clientHeight": 28,
+              "scrollHeight": 28,
+              "fontSize": "16px",
+              "lineHeight": "24px",
+              "padding": "0px",
+              "gap": "2px",
+              "overflowX": "visible",
+              "overflowY": "visible",
+              "display": "flex"
+            }
+          ],
+          ".pal-composer-send-actions": [
+            {
+              "rect": {
+                "x": 414.59375,
+                "y": 837,
+                "width": 622.40625,
+                "height": 32,
+                "right": 1037,
+                "bottom": 869
+              },
+              "clientWidth": 622,
+              "scrollWidth": 622,
+              "clientHeight": 32,
+              "scrollHeight": 32,
+              "fontSize": "16px",
+              "lineHeight": "24px",
+              "padding": "0px",
+              "gap": "6px",
+              "overflowX": "visible",
+              "overflowY": "visible",
+              "display": "flex"
+            }
+          ]
+        },
+        "controls": [
+          {
+            "label": "Close tab Refine navigation",
+            "title": null,
+            "disabled": false,
+            "rect": {
+              "x": 259,
+              "y": 45.5,
+              "width": 24,
+              "height": 24,
+              "right": 283,
+              "bottom": 69.5
+            },
+            "fontSize": "14px",
+            "color": "rgb(129, 129, 129)"
+          },
+          {
+            "label": "Close tab Polish empty states",
+            "title": null,
+            "disabled": false,
+            "rect": {
+              "x": 483,
+              "y": 45.5,
+              "width": 24,
+              "height": 24,
+              "right": 507,
+              "bottom": 69.5
+            },
+            "fontSize": "14px",
+            "color": "rgb(129, 129, 129)"
+          },
+          {
+            "label": "Close tab Review message settings",
+            "title": null,
+            "disabled": false,
+            "rect": {
+              "x": 707,
+              "y": 45.5,
+              "width": 24,
+              "height": 24,
+              "right": 731,
+              "bottom": 69.5
+            },
+            "fontSize": "14px",
+            "color": "rgb(129, 129, 129)"
+          },
+          {
+            "label": "Choose project folder",
+            "title": "/sample/app",
+            "disabled": false,
+            "rect": {
+              "x": 302,
+              "y": 759,
+              "width": 100.5625,
+              "height": 28,
+              "right": 402.5625,
+              "bottom": 787
+            },
+            "fontSize": "12px",
+            "color": "rgb(245, 245, 245)"
+          },
+          {
+            "label": "Execution engine",
+            "title": "Namzu",
+            "disabled": true,
+            "rect": {
+              "x": 936.984375,
+              "y": 761,
+              "width": 89.015625,
+              "height": 24,
+              "right": 1026,
+              "bottom": 785
+            },
+            "fontSize": "12px",
+            "color": "rgb(245, 245, 245)"
+          },
+          {
+            "label": "Attachments and message settings",
+            "title": null,
+            "disabled": false,
+            "rect": {
+              "x": 291,
+              "y": 839,
+              "width": 28,
+              "height": 28,
+              "right": 319,
+              "bottom": 867
+            },
+            "fontSize": "14px",
+            "color": "rgb(129, 129, 129)"
+          },
+          {
+            "label": "Tool permissions",
+            "title": "Ask before changes and commands.",
+            "disabled": false,
+            "rect": {
+              "x": 321,
+              "y": 839,
+              "width": 87.59375,
+              "height": 28,
+              "right": 408.59375,
+              "bottom": 867
+            },
+            "fontSize": "13px",
+            "color": "rgb(245, 245, 245)"
+          },
+          {
+            "label": "Select model",
+            "title": null,
+            "disabled": false,
+            "rect": {
+              "x": 820.046875,
+              "y": 839,
+              "width": 146.953125,
+              "height": 28,
+              "right": 967,
+              "bottom": 867
+            },
+            "fontSize": "13px",
+            "color": "rgb(129, 129, 129)"
+          },
+          {
+            "label": "Voice settings",
+            "title": "Voice settings",
+            "disabled": false,
+            "rect": {
+              "x": 973,
+              "y": 841,
+              "width": 26,
+              "height": 24,
+              "right": 999,
+              "bottom": 865
+            },
+            "fontSize": "12px",
+            "color": "rgb(129, 129, 129)"
+          },
+          {
+            "label": "Send message",
+            "title": null,
+            "disabled": true,
+            "rect": {
+              "x": 1005,
+              "y": 837,
+              "width": 32,
+              "height": 32,
+              "right": 1037,
+              "bottom": 869
+            },
+            "fontSize": "16px",
+            "color": "rgb(7, 18, 7)"
+          }
+        ],
+        "messages": [
+          {
+            "role": "user",
+            "rect": {
+              "x": 280,
+              "y": 39,
+              "width": 768,
+              "height": 83.25,
+              "right": 1048,
+              "bottom": 122.25
+            },
+            "bubble": null,
+            "text": [
+              {
+                "rect": {
+                  "x": 597.015625,
+                  "y": 51,
+                  "width": 438.984375,
+                  "height": 22.75,
+                  "right": 1036,
+                  "bottom": 73.75
+                },
+                "fontSize": "14px",
+                "lineHeight": "22.75px",
+                "color": "rgb(245, 245, 245)"
+              }
+            ],
+            "clock": {
+              "x": 1007.640625,
+              "y": 89.75,
+              "width": 40.359375,
+              "height": 16.5,
+              "right": 1048,
+              "bottom": 106.25
+            }
+          },
+          {
+            "role": "assistant",
+            "rect": {
+              "x": 308,
+              "y": 174.25,
+              "width": 736,
+              "height": 43.25,
+              "right": 1044,
+              "bottom": 217.5
+            },
+            "bubble": null,
+            "text": [
+              {
+                "rect": {
+                  "x": 312,
+                  "y": 176.25,
+                  "width": 728,
+                  "height": 22.75,
+                  "right": 1040,
+                  "bottom": 199
+                },
+                "fontSize": "14px",
+                "lineHeight": "22.75px",
+                "color": "rgb(245, 245, 245)"
+              }
+            ],
+            "clock": {
+              "x": 308,
+              "y": 201,
+              "width": 40.359375,
+              "height": 16.5,
+              "right": 348.359375,
+              "bottom": 217.5
+            }
+          },
+          {
+            "role": "assistant",
+            "rect": {
+              "x": 280,
+              "y": 379.5,
+              "width": 768,
+              "height": 348.984375,
+              "right": 1048,
+              "bottom": 728.484375
+            },
+            "bubble": null,
+            "text": [
+              {
+                "rect": {
+                  "x": 284,
+                  "y": 381.5,
+                  "width": 760,
+                  "height": 272.09375,
+                  "right": 1044,
+                  "bottom": 653.59375
+                },
+                "fontSize": "14px",
+                "lineHeight": "22.75px",
+                "color": "rgb(245, 245, 245)"
+              }
+            ],
+            "clock": {
+              "x": 280,
+              "y": 665.984375,
+              "width": 40.359375,
+              "height": 16.5,
+              "right": 320.359375,
+              "bottom": 682.484375
+            }
+          }
+        ],
+        "overflow": [
+          {
+            "tag": "SPAN",
+            "className": "",
+            "rect": {
+              "x": 394.59375,
+              "y": 847,
+              "width": 8,
+              "height": 12,
+              "right": 402.59375,
+              "bottom": 859
+            },
+            "clientWidth": 8,
+            "scrollWidth": 10,
+            "overflowX": "visible"
+          },
+          {
+            "tag": "INPUT",
+            "className": "",
+            "rect": {
+              "x": 279,
+              "y": 791,
+              "width": 1,
+              "height": 1,
+              "right": 280,
+              "bottom": 792
+            },
+            "clientWidth": 1,
+            "scrollWidth": 53,
+            "overflowX": "clip"
+          }
+        ],
+        "historyCalls": [
+          "sample-thread-1"
+        ]
+      },
+      "verification": {
+        "copy": {
+          "codePayload": "const greeting = \"Merhaba, Namzu!\";\r\n\r\nconsole.log(greeting);\r\n",
+          "replyPayloadSha256": "ce2cc0ae6c906cebda6a940275fdcbaf21eba36ba5c1fe1b1b47b28428f52e80",
+          "attempts": 3,
+          "asyncRejectionRetry": true,
+          "successAfterResolution": true,
+          "hoverGeometry": {
+            "row": {
+              "x": 280,
+              "y": 379.5,
+              "width": 768,
+              "height": 348.984375
+            },
+            "actions": {
+              "x": 280,
+              "y": 684.484375,
+              "width": 24,
+              "height": 28
+            },
+            "clock": {
+              "x": 280,
+              "y": 665.984375,
+              "width": 40.359375,
+              "height": 16.5
+            },
+            "parent": {
+              "x": 280,
+              "y": 39,
+              "width": 768,
+              "height": 689.484375
+            },
+            "scrollTop": 65,
+            "scrollHeight": 881
+          }
+        },
+        "table": {
+          "before": {
+            "x": 284,
+            "width": 760,
+            "right": 1044,
+            "parentRight": 1044,
+            "clientWidth": 758,
+            "scrollWidth": 806,
+            "scrollLeft": 0,
+            "documentWidth": 1280,
+            "viewport": 1280,
+            "overflowX": "auto",
+            "role": "region",
+            "label": "Table"
+          },
+          "after": {
+            "x": 284,
+            "width": 760,
+            "right": 1044,
+            "parentRight": 1044,
+            "clientWidth": 758,
+            "scrollWidth": 806,
+            "scrollLeft": 40,
+            "documentWidth": 1280,
+            "viewport": 1280,
+            "overflowX": "auto",
+            "role": "region",
+            "label": "Table"
+          },
+          "scrollEvent": {
+            "trusted": true,
+            "scrollLeft": 40
+          }
+        },
+        "pal": {}
+      },
+      "screenshot": "verified-normal-wide-dark.png",
+      "screenshotSha256": "64ecd14e7f7ebd4f722ad5f80c8a66e5ec4f7a4141d8cb1f6df37c43db2165be"
+    },
+    {
+      "name": "normal-narrow-light",
+      "pal": false,
+      "appearance": "light",
+      "viewport": {
+        "width": 640,
+        "height": 720
+      },
+      "expanded": false,
+      "metrics": {
+        "viewport": {
+          "width": 640,
+          "height": 720
+        },
+        "body": {
+          "clientWidth": 640,
+          "scrollWidth": 640
+        },
+        "boxes": {
+          ".workspace": [
+            {
+              "rect": {
+                "x": 48,
+                "y": 32,
+                "width": 592,
+                "height": 688,
+                "right": 640,
+                "bottom": 720
+              },
+              "clientWidth": 592,
+              "scrollWidth": 1152,
+              "clientHeight": 688,
+              "scrollHeight": 688,
+              "fontSize": "16px",
+              "lineHeight": "24px",
+              "padding": "0px",
+              "gap": "normal",
+              "overflowX": "clip",
+              "overflowY": "clip",
+              "display": "flex"
+            }
+          ],
+          ".chat-stage": [
+            {
+              "rect": {
+                "x": 48,
+                "y": 84,
+                "width": 592,
+                "height": 636,
+                "right": 640,
+                "bottom": 720
+              },
+              "clientWidth": 592,
+              "scrollWidth": 592,
+              "clientHeight": 636,
+              "scrollHeight": 636,
+              "fontSize": "16px",
+              "lineHeight": "24px",
+              "padding": "0px",
+              "gap": "normal",
+              "overflowX": "visible",
+              "overflowY": "visible",
+              "display": "flex"
+            }
+          ],
+          ".transcript": [
+            {
+              "rect": {
+                "x": 48,
+                "y": 84,
+                "width": 592,
+                "height": 636,
+                "right": 640,
+                "bottom": 720
+              },
+              "clientWidth": 580,
+              "scrollWidth": 580,
+              "clientHeight": 636,
+              "scrollHeight": 734,
+              "fontSize": "16px",
+              "lineHeight": "24px",
+              "padding": "20px 20px 216.25px",
+              "gap": "normal",
+              "overflowX": "hidden",
+              "overflowY": "auto",
+              "display": "block"
+            }
+          ],
+          ".conversation-body": [
+            {
+              "rect": {
+                "x": 74,
+                "y": 6,
+                "width": 540,
+                "height": 498.234375,
+                "right": 614,
+                "bottom": 504.234375
+              },
+              "clientWidth": 540,
+              "scrollWidth": 540,
+              "clientHeight": 498,
+              "scrollHeight": 498,
+              "fontSize": "16px",
+              "lineHeight": "24px",
+              "padding": "0px",
+              "gap": "normal",
+              "overflowX": "visible",
+              "overflowY": "visible",
+              "display": "block"
+            }
+          ],
+          ".normal-transcript": [
+            {
+              "rect": {
+                "x": 74,
+                "y": 6,
+                "width": 540,
+                "height": 498.234375,
+                "right": 614,
+                "bottom": 504.234375
+              },
+              "clientWidth": 540,
+              "scrollWidth": 540,
+              "clientHeight": 498,
+              "scrollHeight": 498,
+              "fontSize": "16px",
+              "lineHeight": "24px",
+              "padding": "0px",
+              "gap": "normal",
+              "overflowX": "visible",
+              "overflowY": "visible",
+              "display": "block"
+            }
+          ],
+          ".pal-chat-transcript": [],
+          ".pal-context-card": [],
+          ".normal-composer-shell": [
+            {
+              "rect": {
+                "x": 68,
+                "y": 527.75,
+                "width": 552,
+                "height": 172.25,
+                "right": 620,
+                "bottom": 700
+              },
+              "clientWidth": 552,
+              "scrollWidth": 552,
+              "clientHeight": 172,
+              "scrollHeight": 172,
+              "fontSize": "16px",
+              "lineHeight": "24px",
+              "padding": "0px",
+              "gap": "normal",
+              "overflowX": "visible",
+              "overflowY": "visible",
+              "display": "block"
+            }
+          ],
+          ".pal-composer-shell": [],
+          "textarea": [
+            {
+              "rect": {
+                "x": 77,
+                "y": 576.75,
+                "width": 526,
+                "height": 76.25,
+                "right": 603,
+                "bottom": 653
+              },
+              "clientWidth": 526,
+              "scrollWidth": 526,
+              "clientHeight": 76,
+              "scrollHeight": 76,
+              "fontSize": "14px",
+              "lineHeight": "22.75px",
+              "padding": "4px",
+              "gap": "normal",
+              "overflowX": "auto",
+              "overflowY": "auto",
+              "display": "block"
+            }
+          ],
+          ".composer-context-above": [
+            {
+              "rect": {
+                "x": 81,
+                "y": 527.75,
+                "width": 526,
+                "height": 54,
+                "right": 607,
+                "bottom": 581.75
+              },
+              "clientWidth": 524,
+              "scrollWidth": 524,
+              "clientHeight": 52,
+              "scrollHeight": 52,
+              "fontSize": "16px",
+              "lineHeight": "24px",
+              "padding": "6px 8px 18px",
+              "gap": "8px",
+              "overflowX": "visible",
+              "overflowY": "visible",
+              "display": "flex"
+            }
+          ],
+          ".composer-footer-options": [
+            {
+              "rect": {
+                "x": 79,
+                "y": 659,
+                "width": 117.59375,
+                "height": 28,
+                "right": 196.59375,
+                "bottom": 687
+              },
+              "clientWidth": 118,
+              "scrollWidth": 118,
+              "clientHeight": 28,
+              "scrollHeight": 28,
+              "fontSize": "16px",
+              "lineHeight": "24px",
+              "padding": "0px",
+              "gap": "2px",
+              "overflowX": "visible",
+              "overflowY": "visible",
+              "display": "flex"
+            }
+          ],
+          ".pal-composer-send-actions": [
+            {
+              "rect": {
+                "x": 202.59375,
+                "y": 657,
+                "width": 406.40625,
+                "height": 32,
+                "right": 609,
+                "bottom": 689
+              },
+              "clientWidth": 406,
+              "scrollWidth": 406,
+              "clientHeight": 32,
+              "scrollHeight": 32,
+              "fontSize": "16px",
+              "lineHeight": "24px",
+              "padding": "0px",
+              "gap": "6px",
+              "overflowX": "visible",
+              "overflowY": "visible",
+              "display": "flex"
+            }
+          ]
+        },
+        "controls": [
+          {
+            "label": "Close tab Refine navigation",
+            "title": null,
+            "disabled": false,
+            "rect": {
+              "x": 259,
+              "y": 45.5,
+              "width": 24,
+              "height": 24,
+              "right": 283,
+              "bottom": 69.5
+            },
+            "fontSize": "14px",
+            "color": "rgb(113, 113, 123)"
+          },
+          {
+            "label": "Close tab Polish empty states",
+            "title": null,
+            "disabled": false,
+            "rect": {
+              "x": 483,
+              "y": 45.5,
+              "width": 24,
+              "height": 24,
+              "right": 507,
+              "bottom": 69.5
+            },
+            "fontSize": "14px",
+            "color": "rgb(113, 113, 123)"
+          },
+          {
+            "label": "Close tab Review message settings",
+            "title": null,
+            "disabled": false,
+            "rect": {
+              "x": 707,
+              "y": 45.5,
+              "width": 24,
+              "height": 24,
+              "right": 731,
+              "bottom": 69.5
+            },
+            "fontSize": "14px",
+            "color": "rgb(113, 113, 123)"
+          },
+          {
+            "label": "Choose project folder",
+            "title": "/sample/app",
+            "disabled": false,
+            "rect": {
+              "x": 90,
+              "y": 534.75,
+              "width": 100.5625,
+              "height": 28,
+              "right": 190.5625,
+              "bottom": 562.75
+            },
+            "fontSize": "12px",
+            "color": "rgb(39, 39, 42)"
+          },
+          {
+            "label": "Execution engine",
+            "title": "Namzu",
+            "disabled": true,
+            "rect": {
+              "x": 508.984375,
+              "y": 536.75,
+              "width": 89.015625,
+              "height": 24,
+              "right": 598,
+              "bottom": 560.75
+            },
+            "fontSize": "12px",
+            "color": "rgb(39, 39, 42)"
+          },
+          {
+            "label": "Attachments and message settings",
+            "title": null,
+            "disabled": false,
+            "rect": {
+              "x": 79,
+              "y": 659,
+              "width": 28,
+              "height": 28,
+              "right": 107,
+              "bottom": 687
+            },
+            "fontSize": "14px",
+            "color": "rgb(113, 113, 123)"
+          },
+          {
+            "label": "Tool permissions",
+            "title": "Ask before changes and commands.",
+            "disabled": false,
+            "rect": {
+              "x": 109,
+              "y": 659,
+              "width": 87.59375,
+              "height": 28,
+              "right": 196.59375,
+              "bottom": 687
+            },
+            "fontSize": "13px",
+            "color": "rgb(39, 39, 42)"
+          },
+          {
+            "label": "Select model",
+            "title": null,
+            "disabled": false,
+            "rect": {
+              "x": 392.046875,
+              "y": 659,
+              "width": 146.953125,
+              "height": 28,
+              "right": 539,
+              "bottom": 687
+            },
+            "fontSize": "13px",
+            "color": "rgb(113, 113, 123)"
+          },
+          {
+            "label": "Voice settings",
+            "title": "Voice settings",
+            "disabled": false,
+            "rect": {
+              "x": 545,
+              "y": 661,
+              "width": 26,
+              "height": 24,
+              "right": 571,
+              "bottom": 685
+            },
+            "fontSize": "12px",
+            "color": "rgb(113, 113, 123)"
+          },
+          {
+            "label": "Send message",
+            "title": null,
+            "disabled": false,
+            "rect": {
+              "x": 577,
+              "y": 657,
+              "width": 32,
+              "height": 32,
+              "right": 609,
+              "bottom": 689
+            },
+            "fontSize": "16px",
+            "color": "rgb(255, 255, 255)"
+          }
+        ],
+        "messages": [
+          {
+            "role": "user",
+            "rect": {
+              "x": 74,
+              "y": 6,
+              "width": 540,
+              "height": 106,
+              "right": 614,
+              "bottom": 112
+            },
+            "bubble": null,
+            "text": [
+              {
+                "rect": {
+                  "x": 194,
+                  "y": 18,
+                  "width": 408,
+                  "height": 45.5,
+                  "right": 602,
+                  "bottom": 63.5
+                },
+                "fontSize": "14px",
+                "lineHeight": "22.75px",
+                "color": "rgb(39, 39, 42)"
+              }
+            ],
+            "clock": {
+              "x": 573.640625,
+              "y": 79.5,
+              "width": 40.359375,
+              "height": 16.5,
+              "right": 614,
+              "bottom": 96
+            }
+          },
+          {
+            "role": "assistant",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "width": 0,
+              "height": 0,
+              "right": 0,
+              "bottom": 0
+            },
+            "bubble": null,
+            "text": [
+              {
+                "rect": {
+                  "x": 0,
+                  "y": 0,
+                  "width": 0,
+                  "height": 0,
+                  "right": 0,
+                  "bottom": 0
+                },
+                "fontSize": "14px",
+                "lineHeight": "22.75px",
+                "color": "rgb(39, 39, 42)"
+              }
+            ],
+            "clock": {
+              "x": 0,
+              "y": 0,
+              "width": 0,
+              "height": 0,
+              "right": 0,
+              "bottom": 0
+            }
+          },
+          {
+            "role": "assistant",
+            "rect": {
+              "x": 74,
+              "y": 178,
+              "width": 540,
+              "height": 326.234375,
+              "right": 614,
+              "bottom": 504.234375
+            },
+            "bubble": null,
+            "text": [
+              {
+                "rect": {
+                  "x": 78,
+                  "y": 180,
+                  "width": 532,
+                  "height": 249.34375,
+                  "right": 610,
+                  "bottom": 429.34375
+                },
+                "fontSize": "14px",
+                "lineHeight": "22.75px",
+                "color": "rgb(39, 39, 42)"
+              }
+            ],
+            "clock": {
+              "x": 74,
+              "y": 441.734375,
+              "width": 40.359375,
+              "height": 16.5,
+              "right": 114.359375,
+              "bottom": 458.234375
+            }
+          }
+        ],
+        "overflow": [
+          {
+            "tag": "TABLE",
+            "className": "",
+            "rect": {
+              "x": 39,
+              "y": 214.140625,
+              "width": 805.921875,
+              "height": 71.96875,
+              "right": 844.921875,
+              "bottom": 286.109375
+            },
+            "clientWidth": 806,
+            "scrollWidth": 806,
+            "overflowX": "visible"
+          },
+          {
+            "tag": "THEAD",
+            "className": "",
+            "rect": {
+              "x": 39,
+              "y": 214.140625,
+              "width": 805.921875,
+              "height": 37.59375,
+              "right": 844.921875,
+              "bottom": 251.734375
+            },
+            "clientWidth": 806,
+            "scrollWidth": 806,
+            "overflowX": "visible"
+          },
+          {
+            "tag": "TR",
+            "className": "",
+            "rect": {
+              "x": 39,
+              "y": 214.140625,
+              "width": 805.921875,
+              "height": 37.59375,
+              "right": 844.921875,
+              "bottom": 251.734375
+            },
+            "clientWidth": 806,
+            "scrollWidth": 806,
+            "overflowX": "visible"
+          },
+          {
+            "tag": "TH",
+            "className": "",
+            "rect": {
+              "x": 548.625,
+              "y": 214.140625,
+              "width": 138.46875,
+              "height": 37.59375,
+              "right": 687.09375,
+              "bottom": 251.734375
+            },
+            "clientWidth": 138,
+            "scrollWidth": 138,
+            "overflowX": "visible"
+          },
+          {
+            "tag": "TH",
+            "className": "",
+            "rect": {
+              "x": 687.09375,
+              "y": 214.140625,
+              "width": 157.828125,
+              "height": 37.59375,
+              "right": 844.921875,
+              "bottom": 251.734375
+            },
+            "clientWidth": 158,
+            "scrollWidth": 158,
+            "overflowX": "visible"
+          },
+          {
+            "tag": "TBODY",
+            "className": "",
+            "rect": {
+              "x": 39,
+              "y": 251.734375,
+              "width": 805.921875,
+              "height": 34.375,
+              "right": 844.921875,
+              "bottom": 286.109375
+            },
+            "clientWidth": 806,
+            "scrollWidth": 806,
+            "overflowX": "visible"
+          },
+          {
+            "tag": "TR",
+            "className": "",
+            "rect": {
+              "x": 39,
+              "y": 251.734375,
+              "width": 805.921875,
+              "height": 34.375,
+              "right": 844.921875,
+              "bottom": 286.109375
+            },
+            "clientWidth": 806,
+            "scrollWidth": 806,
+            "overflowX": "visible"
+          },
+          {
+            "tag": "TD",
+            "className": "",
+            "rect": {
+              "x": 548.625,
+              "y": 251.734375,
+              "width": 138.46875,
+              "height": 34.375,
+              "right": 687.09375,
+              "bottom": 286.109375
+            },
+            "clientWidth": 138,
+            "scrollWidth": 138,
+            "overflowX": "visible"
+          },
+          {
+            "tag": "TD",
+            "className": "",
+            "rect": {
+              "x": 687.09375,
+              "y": 251.734375,
+              "width": 157.828125,
+              "height": 34.375,
+              "right": 844.921875,
+              "bottom": 286.109375
+            },
+            "clientWidth": 158,
+            "scrollWidth": 158,
+            "overflowX": "visible"
+          },
+          {
+            "tag": "SPAN",
+            "className": "",
+            "rect": {
+              "x": 182.59375,
+              "y": 667,
+              "width": 8,
+              "height": 12,
+              "right": 190.59375,
+              "bottom": 679
+            },
+            "clientWidth": 8,
+            "scrollWidth": 10,
+            "overflowX": "visible"
+          },
+          {
+            "tag": "INPUT",
+            "className": "",
+            "rect": {
+              "x": 67,
+              "y": 566.75,
+              "width": 1,
+              "height": 1,
+              "right": 68,
+              "bottom": 567.75
+            },
+            "clientWidth": 1,
+            "scrollWidth": 53,
+            "overflowX": "clip"
+          }
+        ],
+        "historyCalls": [
+          "sample-thread-1"
+        ]
+      },
+      "verification": {
+        "copy": {
+          "codePayload": "const greeting = \"Merhaba, Namzu!\";\n\nconsole.log(greeting);",
+          "replyPayloadSha256": "606232c28a8eeee842c4d4231dcc2be76edad93ddf3af16047a261217175464d",
+          "attempts": 3,
+          "asyncRejectionRetry": true,
+          "successAfterResolution": true,
+          "hoverGeometry": {
+            "row": {
+              "x": 74,
+              "y": 178,
+              "width": 540,
+              "height": 326.234375
+            },
+            "actions": {
+              "x": 74,
+              "y": 460.234375,
+              "width": 24,
+              "height": 28
+            },
+            "clock": {
+              "x": 74,
+              "y": 441.734375,
+              "width": 40.359375,
+              "height": 16.5
+            },
+            "parent": {
+              "x": 74,
+              "y": 6,
+              "width": 540,
+              "height": 498.234375
+            },
+            "scrollTop": 98,
+            "scrollHeight": 734
+          }
+        },
+        "table": {
+          "before": {
+            "x": 78,
+            "width": 532,
+            "right": 610,
+            "parentRight": 610,
+            "clientWidth": 530,
+            "scrollWidth": 806,
+            "scrollLeft": 0,
+            "documentWidth": 640,
+            "viewport": 640,
+            "overflowX": "auto",
+            "role": "region",
+            "label": "Table"
+          },
+          "after": {
+            "x": 78,
+            "width": 532,
+            "right": 610,
+            "parentRight": 610,
+            "clientWidth": 530,
+            "scrollWidth": 806,
+            "scrollLeft": 40,
+            "documentWidth": 640,
+            "viewport": 640,
+            "overflowX": "auto",
+            "role": "region",
+            "label": "Table"
+          },
+          "scrollEvent": {
+            "trusted": true,
+            "scrollLeft": 40
+          }
+        },
+        "pal": {}
+      },
+      "screenshot": "verified-normal-narrow-light.png",
+      "screenshotSha256": "02bf10c60accb822a06a077bc90be0f8e0e0f1e971f665158e592ca1dcf5f739"
+    },
+    {
+      "name": "pal-wide-dark",
+      "pal": true,
+      "appearance": "dark",
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "metrics": {
+        "viewport": {
+          "width": 1280,
+          "height": 900
+        },
+        "body": {
+          "clientWidth": 1280,
+          "scrollWidth": 1280
+        },
+        "boxes": {
+          ".workspace": [
+            {
+              "rect": {
+                "x": 48,
+                "y": 32,
+                "width": 1232,
+                "height": 868,
+                "right": 1280,
+                "bottom": 900
+              },
+              "clientWidth": 1232,
+              "scrollWidth": 1232,
+              "clientHeight": 868,
+              "scrollHeight": 868,
+              "fontSize": "16px",
+              "lineHeight": "24px",
+              "padding": "0px",
+              "gap": "normal",
+              "overflowX": "clip",
+              "overflowY": "clip",
+              "display": "flex"
+            }
+          ],
+          ".chat-stage": [
+            {
+              "rect": {
+                "x": 48,
+                "y": 84,
+                "width": 1232,
+                "height": 816,
+                "right": 1280,
+                "bottom": 900
+              },
+              "clientWidth": 1232,
+              "scrollWidth": 1232,
+              "clientHeight": 816,
+              "scrollHeight": 816,
+              "fontSize": "16px",
+              "lineHeight": "24px",
+              "padding": "0px",
+              "gap": "normal",
+              "overflowX": "visible",
+              "overflowY": "visible",
+              "display": "grid"
+            }
+          ],
+          ".transcript": [
+            {
+              "rect": {
+                "x": 48,
+                "y": 84,
+                "width": 908,
+                "height": 816,
+                "right": 956,
+                "bottom": 900
+              },
+              "clientWidth": 908,
+              "scrollWidth": 908,
+              "clientHeight": 816,
+              "scrollHeight": 816,
+              "fontSize": "16px",
+              "lineHeight": "24px",
+              "padding": "20px 20px 88px",
+              "gap": "normal",
+              "overflowX": "hidden",
+              "overflowY": "auto",
+              "display": "block"
+            }
+          ],
+          ".conversation-body": [
+            {
+              "rect": {
+                "x": 118,
+                "y": 104,
+                "width": 768,
+                "height": 535.84375,
+                "right": 886,
+                "bottom": 639.84375
+              },
+              "clientWidth": 768,
+              "scrollWidth": 768,
+              "clientHeight": 536,
+              "scrollHeight": 536,
+              "fontSize": "16px",
+              "lineHeight": "24px",
+              "padding": "0px",
+              "gap": "normal",
+              "overflowX": "visible",
+              "overflowY": "visible",
+              "display": "block"
+            }
+          ],
+          ".normal-transcript": [],
+          ".pal-chat-transcript": [
+            {
+              "rect": {
+                "x": 118,
+                "y": 104,
+                "width": 768,
+                "height": 535.84375,
+                "right": 886,
+                "bottom": 639.84375
+              },
+              "clientWidth": 768,
+              "scrollWidth": 768,
+              "clientHeight": 536,
+              "scrollHeight": 536,
+              "fontSize": "16px",
+              "lineHeight": "24px",
+              "padding": "8px 0px 16px",
+              "gap": "8px",
+              "overflowX": "visible",
+              "overflowY": "visible",
+              "display": "flex"
+            }
+          ],
+          ".pal-context-card": [
+            {
+              "rect": {
+                "x": 964,
+                "y": 100,
+                "width": 300,
+                "height": 268,
+                "right": 1264,
+                "bottom": 368
+              },
+              "clientWidth": 300,
+              "scrollWidth": 300,
+              "clientHeight": 268,
+              "scrollHeight": 268,
+              "fontSize": "16px",
+              "lineHeight": "24px",
+              "padding": "0px",
+              "gap": "normal",
+              "overflowX": "auto",
+              "overflowY": "auto",
+              "display": "block"
+            }
+          ],
+          ".normal-composer-shell": [],
+          ".pal-composer-shell": [
+            {
+              "rect": {
+                "x": 118,
+                "y": 836,
+                "width": 768,
+                "height": 44,
+                "right": 886,
+                "bottom": 880
+              },
+              "clientWidth": 768,
+              "scrollWidth": 768,
+              "clientHeight": 44,
+              "scrollHeight": 44,
+              "fontSize": "16px",
+              "lineHeight": "24px",
+              "padding": "0px",
+              "gap": "normal",
+              "overflowX": "visible",
+              "overflowY": "visible",
+              "display": "block"
+            }
+          ],
+          "textarea": [
+            {
+              "rect": {
+                "x": 164,
+                "y": 842,
+                "width": 638,
+                "height": 32,
+                "right": 802,
+                "bottom": 874
+              },
+              "clientWidth": 638,
+              "scrollWidth": 638,
+              "clientHeight": 32,
+              "scrollHeight": 32,
+              "fontSize": "14px",
+              "lineHeight": "20px",
+              "padding": "6px 0px",
+              "gap": "normal",
+              "overflowX": "auto",
+              "overflowY": "auto",
+              "display": "block"
+            }
+          ],
+          ".composer-context-above": [],
+          ".composer-footer-options": [],
+          ".pal-composer-send-actions": [
+            {
+              "rect": {
+                "x": 808,
+                "y": 842,
+                "width": 70,
+                "height": 32,
+                "right": 878,
+                "bottom": 874
+              },
+              "clientWidth": 70,
+              "scrollWidth": 70,
+              "clientHeight": 32,
+              "scrollHeight": 32,
+              "fontSize": "16px",
+              "lineHeight": "24px",
+              "padding": "0px",
+              "gap": "6px",
+              "overflowX": "visible",
+              "overflowY": "visible",
+              "display": "flex"
+            }
+          ]
+        },
+        "controls": [
+          {
+            "label": "Close tab Refine navigation",
+            "title": null,
+            "disabled": false,
+            "rect": {
+              "x": 259,
+              "y": 45.5,
+              "width": 24,
+              "height": 24,
+              "right": 283,
+              "bottom": 69.5
+            },
+            "fontSize": "14px",
+            "color": "rgb(129, 129, 129)"
+          },
+          {
+            "label": "Actions for Kiro",
+            "title": null,
+            "disabled": false,
+            "rect": {
+              "x": 435,
+              "y": 45.5,
+              "width": 24,
+              "height": 24,
+              "right": 459,
+              "bottom": 69.5
+            },
+            "fontSize": "14px",
+            "color": "rgb(129, 129, 129)"
+          },
+          {
+            "label": "Hide Kiro profile",
+            "title": null,
+            "disabled": false,
+            "rect": {
+              "x": 459,
+              "y": 45.5,
+              "width": 24,
+              "height": 24,
+              "right": 483,
+              "bottom": 69.5
+            },
+            "fontSize": "14px",
+            "color": "rgb(245, 245, 245)"
+          },
+          {
+            "label": "Close tab Kiro",
+            "title": null,
+            "disabled": false,
+            "rect": {
+              "x": 483,
+              "y": 45.5,
+              "width": 24,
+              "height": 24,
+              "right": 507,
+              "bottom": 69.5
+            },
+            "fontSize": "14px",
+            "color": "rgb(129, 129, 129)"
+          },
+          {
+            "label": "Customize Kiro",
+            "title": null,
+            "disabled": false,
+            "rect": {
+              "x": 1031,
+              "y": 179,
+              "width": 24,
+              "height": 24,
+              "right": 1055,
+              "bottom": 203
+            },
+            "fontSize": "14px",
+            "color": "rgb(245, 245, 245)"
+          },
+          {
+            "label": "Pause Kiro",
+            "title": null,
+            "disabled": false,
+            "rect": {
+              "x": 1062,
+              "y": 162,
+              "width": 78.671875,
+              "height": 18,
+              "right": 1140.671875,
+              "bottom": 180
+            },
+            "fontSize": "13px",
+            "color": "rgb(129, 129, 129)"
+          },
+          {
+            "label": "Kiro settings",
+            "title": "Kiro settings",
+            "disabled": false,
+            "rect": {
+              "x": 1220,
+              "y": 122,
+              "width": 28,
+              "height": 28,
+              "right": 1248,
+              "bottom": 150
+            },
+            "fontSize": "14px",
+            "color": "rgb(129, 129, 129)"
+          },
+          {
+            "label": "Open Kiro’s computer",
+            "title": null,
+            "disabled": false,
+            "rect": {
+              "x": 974,
+              "y": 250,
+              "width": 280,
+              "height": 52,
+              "right": 1254,
+              "bottom": 302
+            },
+            "fontSize": "14px",
+            "color": "rgb(245, 245, 245)"
+          },
+          {
+            "label": "Start computer",
+            "title": null,
+            "disabled": false,
+            "rect": {
+              "x": 1006,
+              "y": 275,
+              "width": 85.96875,
+              "height": 20,
+              "right": 1091.96875,
+              "bottom": 295
+            },
+            "fontSize": "13px",
+            "color": "rgb(129, 129, 129)"
+          },
+          {
+            "label": "Attachments and message settings",
+            "title": null,
+            "disabled": false,
+            "rect": {
+              "x": 126,
+              "y": 842,
+              "width": 32,
+              "height": 32,
+              "right": 158,
+              "bottom": 874
+            },
+            "fontSize": "14px",
+            "color": "rgb(129, 129, 129)"
+          },
+          {
+            "label": "Voice settings",
+            "title": "Voice settings",
+            "disabled": false,
+            "rect": {
+              "x": 808,
+              "y": 842,
+              "width": 32,
+              "height": 32,
+              "right": 840,
+              "bottom": 874
+            },
+            "fontSize": "12px",
+            "color": "rgb(129, 129, 129)"
+          },
+          {
+            "label": "Send message",
+            "title": null,
+            "disabled": true,
+            "rect": {
+              "x": 846,
+              "y": 842,
+              "width": 32,
+              "height": 32,
+              "right": 878,
+              "bottom": 874
+            },
+            "fontSize": "16px",
+            "color": "rgb(7, 18, 7)"
+          }
+        ],
+        "messages": [],
+        "overflow": [
+          {
+            "tag": "DIV",
+            "className": "pal-context-avatar",
+            "rect": {
+              "x": 980,
+              "y": 118,
+              "width": 72,
+              "height": 82,
+              "right": 1052,
+              "bottom": 200
+            },
+            "clientWidth": 72,
+            "scrollWidth": 75,
+            "overflowX": "visible"
+          },
+          {
+            "tag": "SECTION",
+            "className": "pal-context-section",
+            "rect": {
+              "x": 980,
+              "y": 222,
+              "width": 268,
+              "height": 126,
+              "right": 1248,
+              "bottom": 348
+            },
+            "clientWidth": 268,
+            "scrollWidth": 274,
+            "overflowX": "visible"
+          }
+        ],
+        "historyCalls": [
+          "sample-thread-7"
+        ]
+      },
+      "verification": {
+        "copy": {
+          "codePayload": "const greeting = \"Merhaba, Namzu!\";\r\n\r\nconsole.log(greeting);\r\n",
+          "replyPayloadSha256": "ce2cc0ae6c906cebda6a940275fdcbaf21eba36ba5c1fe1b1b47b28428f52e80",
+          "attempts": 3,
+          "asyncRejectionRetry": true,
+          "successAfterResolution": true,
+          "hoverGeometry": {
+            "row": {
+              "x": 118,
+              "y": 287,
+              "width": 768,
+              "height": 336.84375
+            },
+            "actions": {
+              "x": 126,
+              "y": 595.84375,
+              "width": 24,
+              "height": 28
+            },
+            "clock": {
+              "x": 118,
+              "y": 573.34375,
+              "width": 68.359375,
+              "height": 16.5
+            },
+            "parent": {
+              "x": 118,
+              "y": 104,
+              "width": 768,
+              "height": 535.84375
+            },
+            "scrollTop": 0,
+            "scrollHeight": 816
+          }
+        },
+        "table": {
+          "before": {
+            "x": 132,
+            "width": 647.828125,
+            "right": 779.828125,
+            "parentRight": 779.828125,
+            "clientWidth": 646,
+            "scrollWidth": 806,
+            "scrollLeft": 0,
+            "documentWidth": 1280,
+            "viewport": 1280,
+            "overflowX": "auto",
+            "role": "region",
+            "label": "Table"
+          },
+          "after": {
+            "x": 132,
+            "width": 647.828125,
+            "right": 779.828125,
+            "parentRight": 779.828125,
+            "clientWidth": 646,
+            "scrollWidth": 806,
+            "scrollLeft": 40,
+            "documentWidth": 1280,
+            "viewport": 1280,
+            "overflowX": "auto",
+            "role": "region",
+            "label": "Table"
+          },
+          "scrollEvent": {
+            "trusted": true,
+            "scrollLeft": 40
+          }
+        },
+        "pal": {
+          "card": {
+            "x": 964,
+            "y": 100,
+            "width": 300,
+            "height": 268
+          }
+        }
+      },
+      "screenshot": "verified-pal-wide-dark.png",
+      "screenshotSha256": "7307571ae372f0f29578175827abec09c71f113abcae82e35f8322f29b5863e6"
+    }
+  ],
+  "pageErrors": [],
+  "checks": [
+    "normal-wide-dark: local keyboard-scrollable table; exact parsed code/literal reply copy with asynchronous rejection and retry; settled-only reply action and fixed hover geometry.",
+    "normal-narrow-light: local keyboard-scrollable table; exact parsed code/literal reply copy with asynchronous rejection and retry; settled-only reply action and fixed hover geometry.",
+    "pal-wide-dark: local keyboard-scrollable table; exact parsed code/literal reply copy with asynchronous rejection and retry; settled-only reply action and fixed hover geometry; responsive Pal context."
+  ],
+  "limits": [
+    "Disposable preview sample catalogue and synthetic messages; no native data, models, or reference-app pixel-parity claim.",
+    "Screenshots show representative states only; this is not a full motion or harness matrix.",
+    "Clipboard writes are synthetic deferred promises; no OS clipboard read/write occurs."
+  ]
+}

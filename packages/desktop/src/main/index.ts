@@ -7,6 +7,7 @@ import {
 	BrowserWindow,
 	Menu,
 	app,
+	clipboard,
 	dialog,
 	ipcMain,
 	nativeTheme,
@@ -34,6 +35,7 @@ import {
 	locateWorkspaceTab,
 	workspaceGroups,
 } from '../shared/workspace-layout.js'
+import { ClipboardTextWriter } from './clipboard-text.js'
 import { DesktopDiagnostics, observeDesktopIpc, observeRendererConsole } from './diagnostics.js'
 import { externalSourceUrl } from './external-url.js'
 import { humanComputer } from './host-computer.js'
@@ -267,6 +269,7 @@ function saveProjects(): void {
 }
 function register(): void {
 	let sequence = 0
+	const clipboardWriter = new ClipboardTextWriter((text) => clipboard.writeText(text))
 	const conversationReads = new Map<
 		string,
 		{ projectId: string; promise: ReturnType<Operator['openConversation']> }
@@ -439,6 +442,9 @@ function register(): void {
 	})
 	handle('diagnostics', () => diagnostics.view())
 	handle('openExternal', (url: unknown) => shell.openExternal(externalSourceUrl(url)))
+	// registerHandler authenticates the exact owned main frame before this
+	// narrow write-only capability; no browser permission or read API is added.
+	handle('copyText', (text: unknown) => clipboardWriter.copy(text))
 	handle('localSpeechState', async () => {
 		const state = await localSpeech.state()
 		observeSpeechFailure(state.error, 'localSpeechState')
