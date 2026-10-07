@@ -1,0 +1,20 @@
+PASS dark: one toast shows 
+PASS dark: viewport is a polite live region 
+PASS dark: three toasts stack 
+PASS dark: hover fans the stack open 
+PASS light: one toast shows 
+PASS light: viewport is a polite live region 
+PASS light: three toasts stack 
+PASS light: hover fans the stack open 
+PASS dark: the action runs once 
+PASS dark: the toast leaves after its action 
+PASS dark: an error is announced assertively 
+PASS dark: toast sits above the composer {"toast":{"x":628,"y":538,"width":360,"height":42},"composer":{"x":336,"y":644,"width":944,"height":156}}
+PASS dark: toast is inside the conversation lane 
+PASS light: the action runs once 
+PASS light: the toast leaves after its action 
+PASS light: an error is announced assertively 
+PASS light: toast sits above the composer {"toast":{"x":628,"y":538,"width":360,"height":42},"composer":{"x":336,"y":644,"width":944,"height":156}}
+PASS light: toast is inside the conversation lane 
+PASS reduced motion removes the transition 0s
+PASS a plain toast leaves by itself 

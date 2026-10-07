@@ -3,6 +3,7 @@ import type {
 	DesktopUndoConflictReason,
 	DesktopUndoFile,
 	DesktopUndoPreview,
+	DesktopUndoResult,
 	DesktopUndoSkipReason,
 } from '../shared/protocol.js'
 
@@ -81,6 +82,29 @@ export function summarize(preview: DesktopUndoPreview, choices: UndoChoices): Un
 		else nothing += 1
 	}
 	return { changing, skipping, nothing }
+}
+
+/** Files an undo changed on disk, counting those of later replies it also undid. */
+export function undoneFileCount(result: DesktopUndoResult): number {
+	const changed = (files: Record<string, string>) =>
+		Object.values(files).filter((value) => value === 'restored' || value === 'removed').length
+	return (
+		changed(result.files) +
+		Object.values(result.later ?? {}).reduce((sum, files) => sum + changed(files), 0)
+	)
+}
+
+/** The words and tone of the toast that reports an undo, so zero files never reads as a success. */
+export function undoNotice(result: DesktopUndoResult): {
+	text: string
+	tone: 'success' | 'warning'
+} {
+	const changed = undoneFileCount(result)
+	const files = `${changed} ${changed === 1 ? 'file' : 'files'}`
+	if (changed === 0) return { text: 'No files were changed.', tone: 'warning' }
+	if (result.status === 'partially_undone')
+		return { text: `Undid ${files}; some were left as they are.`, tone: 'warning' }
+	return { text: `Undid changes to ${files}.`, tone: 'success' }
 }
 
 export function primaryLabel(count: number): string {

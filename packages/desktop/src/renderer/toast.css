@@ -1,0 +1,171 @@
+/* Stacking follows Base UI's documented Toast recipe (MIT): the newest toast sits in front, older ones peek out behind it, and hover or focus fans them open. */
+.toast-viewport {
+	position: absolute;
+	bottom: calc(var(--composer-height, 200px) + 64px);
+	left: 50%;
+	z-index: 30;
+	width: min(360px, calc(100% - 32px));
+	translate: -50% 0;
+	outline: none;
+}
+.toast-root {
+	--gap: 8px;
+	--peek: 8px;
+	--scale: calc(max(0, 1 - (var(--toast-index) * 0.06)));
+	--shrink: calc(1 - var(--scale));
+	--height: var(--toast-frontmost-height, var(--toast-height));
+	--stacked-y: calc(
+		var(--toast-swipe-movement-y) -
+		(var(--toast-index) * var(--peek)) -
+		(var(--shrink) * var(--height))
+	);
+	--fanned-y: calc(
+		var(--toast-offset-y) *
+		-1 +
+		(var(--toast-index) * var(--gap) * -1) +
+		var(--toast-swipe-movement-y)
+	);
+	position: absolute;
+	right: 0;
+	bottom: 0;
+	left: 0;
+	z-index: calc(1000 - var(--toast-index));
+	width: 100%;
+	height: var(--height);
+	border: 1px solid var(--border);
+	border-radius: 12px;
+	background: var(--popover);
+	color: var(--popover-foreground);
+	font-size: 13px;
+	line-height: 18px;
+	box-shadow: 0 8px 24px -8px rgb(0 0 0 / 30%);
+	transform: translateY(var(--stacked-y)) scale(var(--scale));
+	transform-origin: bottom center;
+	transition: transform 300ms var(--motion-ease), opacity 300ms var(--motion-ease), height 150ms
+		var(--motion-ease);
+	user-select: none;
+	cursor: default;
+}
+/* Keeps the pointer inside the toast stack while it crosses the gap between two toasts. */
+.toast-root::after {
+	content: "";
+	position: absolute;
+	top: 100%;
+	left: 0;
+	width: 100%;
+	height: calc(var(--gap) + 1px);
+}
+.toast-root[data-expanded] {
+	height: var(--toast-height);
+	transform: translateY(var(--fanned-y));
+}
+.toast-root[data-starting-style],
+.toast-root[data-ending-style] {
+	opacity: 0;
+	transform: translateY(40%) scale(0.96);
+}
+.toast-root[data-limited] {
+	opacity: 0;
+}
+.toast-root[data-type="error"] {
+	border-color: color-mix(in srgb, var(--error-foreground) 45%, var(--border));
+}
+.toast-root[data-type="warning"] {
+	border-color: color-mix(in srgb, var(--warning-foreground) 45%, var(--border));
+}
+.toast-root[data-type="success"] .toast-title::before,
+.toast-root[data-type="error"] .toast-title::before,
+.toast-root[data-type="warning"] .toast-title::before {
+	display: inline-block;
+}
+.toast-root[data-type="success"] .toast-title::before {
+	background: var(--primary);
+}
+.toast-root[data-type="error"] .toast-title::before {
+	background: var(--error-foreground);
+}
+.toast-root[data-type="warning"] .toast-title::before {
+	background: var(--warning-foreground);
+}
+.toast-content {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	height: 100%;
+	padding: 8px 8px 8px 14px;
+	overflow: hidden;
+	transition: opacity 200ms var(--motion-ease);
+}
+.toast-content[data-behind] {
+	opacity: 0;
+	pointer-events: none;
+}
+.toast-content[data-expanded] {
+	opacity: 1;
+}
+.toast-title {
+	flex: 1;
+	min-width: 0;
+	margin: 0;
+	font-size: 13px;
+	font-weight: 500;
+	overflow-wrap: anywhere;
+}
+/* A small dot says the tone without relying on colour alone: the text always carries the meaning. */
+.toast-title::before {
+	content: "";
+	display: none;
+	width: 6px;
+	height: 6px;
+	margin-right: 8px;
+	border-radius: 50%;
+	vertical-align: 1px;
+}
+.toast-action {
+	flex: none;
+	height: 26px;
+	padding: 0 10px;
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	font-size: 12px;
+	font-weight: 600;
+	cursor: pointer;
+}
+.toast-action:hover {
+	background: var(--accent);
+}
+.toast-close {
+	display: grid;
+	flex: none;
+	place-items: center;
+	width: 24px;
+	height: 24px;
+	padding: 0;
+	border: 0;
+	border-radius: 6px;
+	background: transparent;
+	color: var(--muted-foreground);
+	cursor: pointer;
+}
+.toast-close:hover {
+	background: var(--accent);
+	color: var(--foreground);
+}
+.toast-close svg {
+	width: 14px;
+	height: 14px;
+}
+.toast-action:focus-visible,
+.toast-close:focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: 1px;
+}
+@media (prefers-reduced-motion: reduce) {
+	.toast-root,
+	.toast-content {
+		transition: none;
+	}
+}

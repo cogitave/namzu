@@ -119,6 +119,7 @@ import { invalidateModelCatalogueDisplayCache } from './model-catalogue-display-
 import { effortToSend, resolveComposerModelChoice, staleEffort } from './model-choice.js'
 import { NavigationRail } from './navigation-rail.js'
 import { normalConversationProject } from './normal-conversation.js'
+import { notify } from './notify.js'
 import { PalChatTranscript } from './pal-chat-transcript.js'
 import { PalCommunicationDialog } from './pal-communication-dialog.js'
 import { PalComputerView } from './pal-computer-view.js'
@@ -134,11 +135,13 @@ import { PalCustomizeDialog, PalSidebarSection, PalsPage } from './pals-page.js'
 import { PluginsPage, PluginsSidebar } from './plugins-page.js'
 import { RenameConversationDialog } from './rename-conversation-dialog.js'
 import { type ConversationCollection, Sidebar } from './sidebar.js'
+import { PaneToasts } from './toast.js'
 import { Transcript } from './transcript.js'
 import { TurnRecovery } from './turn-recovery.js'
 import { Button } from './ui/button.js'
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from './ui/empty.js'
 import { UndoDialog } from './undo-dialog.js'
+import { undoNotice } from './undo-model.js'
 import { useAttachments } from './use-attachments.js'
 import { useDraftSettings } from './use-draft-settings.js'
 import { useLocalSpeech } from './use-local-speech.js'
@@ -648,14 +651,7 @@ export function App({
 	const [undoingTurn, setUndoingTurn] = useState<{ sessionId: string; turnId: string }>()
 	const [archivedProject, setArchivedProject] = useState<string>()
 	const renameTrigger = useRef<HTMLElement | null>(null)
-	const [notice, setNotice] = useState('')
-	const noticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
-	useEffect(() => () => clearTimeout(noticeTimer.current), [])
-	const announce = useCallback((text: string) => {
-		setNotice(text)
-		clearTimeout(noticeTimer.current)
-		noticeTimer.current = setTimeout(() => setNotice(''), 2500)
-	}, [])
+	const announce = useCallback((text: string) => void notify(text), [])
 	const [git, setGit] = useState<{ projectId: string; value: ProjectGitView | null }>()
 	const closeDetails = useCallback(() => {
 		setJobsOpen(false)
@@ -2464,7 +2460,7 @@ export function App({
 		void projectFiles.resolve([path]).then((found) => {
 			const hit = found.get(path)
 			if (hit) projectFiles.open(hit.path, hit.line)
-			else announce('That file is not in this project.')
+			else notify('That file is not in this project.', { tone: 'warning' })
 		})
 	}
 	// The host already confirmed a working-tree path is inside the folder, so there is no link to look up.
@@ -2483,12 +2479,12 @@ export function App({
 						api.openProjectPath?.(filesProjectId, hit.path, 'editor', hit.line) ??
 						Promise.resolve(),
 				)
-			else announce('That file is not in this project.')
+			else notify('That file is not in this project.', { tone: 'warning' })
 		})
 	}
 	const copyToClipboard = async (text: string, done: string) => {
 		await copyPlainText(text)
-		announce(done)
+		notify(done, { tone: 'success' })
 	}
 	const runConversationAction = (
 		id: ConversationActionId,
@@ -2507,7 +2503,19 @@ export function App({
 				if (!api.setConversationPinned) return
 				void act(async () => {
 					const next = await api.setConversationPinned?.(view.id, !view.pinned)
-					if (next) upsertConversation(next)
+					if (!next) return
+					upsertConversation(next)
+					notify(next.pinned ? 'Conversation pinned.' : 'Conversation unpinned.', {
+						tone: 'success',
+						action: {
+							label: 'Undo',
+							onClick: () =>
+								void act(async () => {
+									const back = await api.setConversationPinned?.(view.id, !next.pinned)
+									if (back) upsertConversation(back)
+								}),
+						},
+					})
 				})
 				return
 			case 'fork':
@@ -2598,7 +2606,7 @@ export function App({
 			.find((item) => item.id === id)
 		if (!entry) return false
 		if (entry.reason) {
-			announce(entry.reason)
+			notify(entry.reason, { tone: 'warning' })
 			return true
 		}
 		runConversationAction(
@@ -3720,7 +3728,7 @@ export function App({
 		/>
 	)
 	return (
-		<>
+		<PaneToasts focused={focused} pane={paneRoot}>
 			{focused &&
 				shell &&
 				createPortal(
@@ -3798,7 +3806,21 @@ export function App({
 										options,
 									)
 									// The files moved: the open file, the tree and the Changes view read the disk again.
-									if (result.status !== 'plan-changed') setFilesRefresh((value) => value + 1)
+									if (result.status !== 'plan-changed') {
+										setFilesRefresh((value) => value + 1)
+										const summary = undoNotice(result)
+										notify(summary.text, {
+											tone: summary.tone,
+											action: {
+												label: 'Show',
+												onClick: () => {
+													setChangesFilter(undefined)
+													showPanelTab('changes')
+													setJobsOpen(true)
+												},
+											},
+										})
+									}
 									return result
 								}}
 							/>
@@ -3852,6 +3874,23 @@ export function App({
 										const result = await api.removeConversation(removingConversation.id)
 										if (result.sessionId !== removingConversation.id || result.removed !== true)
 											throw new Error('Conversation removal was not confirmed. Try again.')
+										const archivedId = removingConversation.id
+										notify('Conversation archived.', {
+											tone: 'success',
+											action: api.restoreConversation
+												? {
+														label: 'Undo',
+														onClick: () =>
+															void act(async () => {
+																const restored = await api.restoreConversation?.(archivedId)
+																if (!restored) return
+																// An archived conversation is blocked from upserts until it is restored.
+																removedConversations.current.delete(restored.id)
+																upsertConversation(restored)
+															}),
+													}
+												: undefined,
+										})
 									})
 								}
 							/>
@@ -4722,7 +4761,9 @@ export function App({
 										projectFiles && api.openProjectPath ? openWorkingTreeFileInEditor : undefined
 									}
 									onCopy={(text, done) =>
-										void copyToClipboard(text, done).catch(() => announce('Copy is unavailable.'))
+										void copyToClipboard(text, done).catch(() =>
+											notify('Copy is unavailable.', { tone: 'error' }),
+										)
 									}
 									dark={
 										appearance === 'dark' ||
@@ -4785,10 +4826,7 @@ export function App({
 						</div>
 					</aside>
 				)}
-				<output className="conversation-action-toast" aria-live="polite">
-					{notice}
-				</output>
 			</main>
-		</>
+		</PaneToasts>
 	)
 }

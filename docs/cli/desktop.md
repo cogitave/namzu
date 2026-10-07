@@ -701,8 +701,20 @@ Recents with a small pin glyph after the title, and in the conversation's tab. R
 the same project and opens it as a tab in this pane; New side chat does the same
 and then splits it to the right. Copy offers the last reply, the conversation as
 Markdown (refused with a message above 4 MiB), the conversation ID and the project
-path, and confirms with a short "copied" notice. Archive keeps the confirmation
+path, and confirms with a short "copied" toast. Archive keeps the confirmation
 "Archive this conversation?" with Cancel and Archive.
+Every transient message in the window is a toast (Base UI Toast, no extra package),
+sent with `notify(text, { action?, tone?, timeoutMs? })` from `renderer/notify.ts`,
+which any code path can call. The tone is `neutral`, `success`, `warning` or `error`;
+an error is announced assertively and the others politely. A toast lasts 4 seconds, 6
+for a warning, 8 with an action or for an error, and `timeoutMs: 0` keeps it until it is
+dismissed. Up to three show at once as a stack, the newest in front, and hovering or
+focusing the stack fans it open and pauses the timers; reduced motion removes the
+animation. Each pane has its own stack, centred in its conversation lane just above the
+composer (the lane's `--composer-height`), so the side panel stays clear; `notify` goes
+to the pane focused last. Pin and Unpin offer Undo, Archive offers Undo when the host
+can restore the conversation, and an undone reply offers Show, which opens the Changes
+tab.
 Conversation details is a 320px popover. It shows the project name with a "…"
 menu holding Copy path (absent for a conversation without a project), Changes with
 `+added −removed` line totals for this conversation's completed file edits (a path

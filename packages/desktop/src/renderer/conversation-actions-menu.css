@@ -88,23 +88,3 @@
 .conversation-header-button {
 	-webkit-app-region: no-drag;
 }
-.conversation-action-toast {
-	position: absolute;
-	bottom: calc(var(--composer-height, 200px) + 24px);
-	left: 50%;
-	z-index: 20;
-	max-width: calc(100% - 32px);
-	padding: 6px 12px;
-	border: 1px solid var(--border);
-	border-radius: 999px;
-	background: var(--popover);
-	color: var(--popover-foreground);
-	font-size: 12px;
-	line-height: 18px;
-	box-shadow: 0 6px 18px -8px rgb(0 0 0 / 30%);
-	transform: translateX(-50%);
-	pointer-events: none;
-}
-.conversation-action-toast:empty {
-	display: none;
-}
