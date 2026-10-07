@@ -648,8 +648,10 @@ a short crossfade and panel transition; reduced motion disables
 those transitions. Running work, pending reviews and errors remain visible
 in a reserved area on each conversation row.
 An ordinary blank project or conversation centres its composer; the first message docks it with a
-short transition. Its inset upper strip shows the project, local computer and
-actual execution engine. The project menu switches among ordinary project
+short transition. Its inset upper strip shows the project and local computer, and only
+while the conversation is empty (it fades and collapses over 150ms after the first send, and
+never appears while a saved conversation loads); the execution engine is chosen in the model
+popup instead. The project menu switches among ordinary project
 contexts or opens the native folder chooser; it never adopts a Pal's managed
 workspace. The message box remains expanded. The lower row places attachment,
 plugin and settings access beside the permission control on the left, with the
@@ -665,6 +667,15 @@ motion; merely focusing the editor does not change its layout. Pal conversations
 the compact, always-docked composer described above; its plus popup keeps model,
 permission, attachment and plugin controls accessible. The model control opens the
 effort panel when the model offers a choice of effort, and the model list otherwise.
+The effort panel's header is left-aligned: the effort in the accent colour above the model
+link, and a compact engine chip on the right (the engine mark and a chevron, named "Engine:
+<label>"). There is no reset icon: double-clicking the slider returns to the model's default
+effort, the default stop is drawn as a larger dot, and the slider's value text says "(default)"
+there. The engine chip, also in the model list's heading, opens a third view of the same
+popup ("Choose an engine", Back returns to Effort or Models). Its rows show the engine mark,
+a check on the current one, "Not installed" for an unavailable engine and, on a started
+conversation, "Opens in a new tab" for every other engine. When the engine is not Namzu, the
+model trigger shows its small icon before the model name.
 
 The filled effort track is a WebGL2 ordered-dither surface in the accent ramp (deep green to teal to accent to mint) with drifting shimmer, rising sparkles and a thumb bloom that all grow with the level; without WebGL2, or after a lost context it is the plain CSS fill, and under reduced motion it draws one static frame.
 
@@ -1723,8 +1734,8 @@ The kernel loads the full admitted history for the model independently.
 
 Provider and model choices use existing CLI credential discovery. Set up missing
 credentials in Namzu. The desktop receives provider IDs, labels and default
-model names, never keys or token objects. The top composer strip chooses the
-execution engine. Namzu uses its wordmark without a duplicate text label and keeps
+model names, never keys or token objects. The engine view of the model popup chooses the
+execution engine, before and after the first message. Namzu uses its wordmark without a duplicate text label and keeps
 its own provider/tool runtime. `codex-cli` and `claude-code` use the installed native
 engine and its actual model catalogue, surfaced under separate engine IDs. An
 existing conversation keeps its durable engine; choosing another engine opens a

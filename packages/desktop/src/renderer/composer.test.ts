@@ -271,6 +271,7 @@ it('keeps restored work readable without admitting queue or turn mutations durin
 it('keeps real context above the normal editor and permissions beside Plus below it', () => {
 	const html = render({
 		connected: true,
+		empty: true,
 		projectName: 'namzu',
 		computerLabel: 'This computer',
 		choice: {
@@ -319,10 +320,10 @@ it('shows the wordmark once and only offers installed conversation engines', () 
 			],
 		},
 	})
-	expect(html).toContain('aria-label="Execution engine"')
+	// The engine lives in the model popup now; the tray above the box has no chip.
+	expect(html).not.toContain('aria-label="Execution engine"')
+	expect(html).toContain('aria-label="Engine: Namzu"')
 	expect(html).toContain('composer-harness-mark')
-	expect(html).toContain('Codex CLI')
-	expect(html).toContain('Not installed')
 	expect(html).not.toContain('Worktree')
 	expect(html).not.toContain('type="checkbox"')
 	const supplied = render({
@@ -335,7 +336,7 @@ it('shows the wordmark once and only offers installed conversation engines', () 
 		attachmentsSupported: false,
 		reviewModes: ['prompt', 'plan'],
 	})
-	expect(supplied).toContain('Choosing another engine opens a new conversation tab.')
+	expect(supplied).toContain('aria-label="Engine: Claude Code"')
 	expect(button(supplied, 'Attach files')).toMatch(/\bdisabled=/)
 	expect(supplied).not.toContain('composer-harness-mark')
 })
@@ -402,6 +403,7 @@ it('retains functional normal attachment, plugin, effort, queue and approval con
 it('offers only actual ordinary projects with current selection and connection/trust hints', () => {
 	const html = render({
 		connected: true,
+		empty: true,
 		projectId: 'ordinary',
 		projectName: 'namzu',
 		projects: [
@@ -472,7 +474,7 @@ it('retains the folder handler without a supplied project navigation contract', 
 		status: 'ready' as const,
 	}
 	for (const override of [{}, { projects: [project] }, { onSelectProject: () => {} }]) {
-		const html = render(override)
+		const html = render({ ...override, empty: true })
 		expect(html).toContain('aria-label="Choose project folder"')
 		expect(html).not.toContain('aria-label="Project chooser"')
 	}
@@ -485,7 +487,7 @@ it('retains confirmed native engine and permission semantics without optional en
 		permissionScope: 'native-conversation',
 		settings: { permissionMode: 'auto' },
 	})
-	expect(button(codex, 'Execution engine')).toMatch(/\bdisabled=/)
+	expect(button(codex, 'Engine: Codex CLI')).toMatch(/\bdisabled=/)
 	expect(codex).toContain('title="Codex CLI"')
 	expect(codex).toContain('Full access')
 	expect(codex).not.toContain('>Allow tools<')
@@ -555,4 +557,9 @@ it('says parked queued messages are paused', () => {
 	const normal = render(props)
 	expect(normal).toContain('1 queued')
 	expect(normal).not.toContain('Paused')
+})
+
+it('shows the tray only while the conversation is empty', () => {
+	expect(render({ empty: true })).toContain('data-slot="composer-context-strip"')
+	expect(render({ empty: false })).not.toContain('data-slot="composer-context-strip"')
 })

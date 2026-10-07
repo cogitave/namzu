@@ -1,16 +1,40 @@
 import { Slider } from '@base-ui/react/slider'
 import type { ReasoningEffort } from '@namzu/sdk'
-import { ChevronRight, RotateCcw } from 'lucide-react'
+import { ChevronRight } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import type { HarnessView } from '../shared/protocol.js'
 import { EffortShader } from './effort-shader/effort-shader.js'
+import { EngineChip } from './harness-picker.js'
 import { LoaderCircleIcon } from './icons.js'
 import { effortLabel } from './model-choice.js'
-import { Button } from './ui/button.js'
 import './composer-effort-panel.css'
+
+/** The stop that is the model's own default, or -1 when it has none among the offered levels. */
+export function defaultStop(
+	levels: readonly ReasoningEffort[],
+	defaultValue: ReasoningEffort | undefined,
+): number {
+	return defaultValue ? levels.indexOf(defaultValue) : -1
+}
+
+/** What a screen reader hears at a stop; the default stop says so, as the reset icon once did. */
+export function effortValueText(
+	levels: readonly ReasoningEffort[],
+	position: number,
+	defaultValue: ReasoningEffort | undefined,
+	fallback: string,
+): string {
+	const level = levels[position]
+	if (!level) return fallback
+	return position === defaultStop(levels, defaultValue)
+		? `${effortLabel(level)} (default)`
+		: effortLabel(level)
+}
 
 /**
  * The effort popover body: a stop per level the model offers, and a way into the model list.
- * Every move commits at once, like the menus around it.
+ * Every move commits at once, like the menus around it. Double-clicking the slider returns to the
+ * model's default.
  */
 export function ComposerEffortPanel({
 	scope,
@@ -23,6 +47,7 @@ export function ComposerEffortPanel({
 	onChange,
 	onShowModels,
 	onUnavailable,
+	engine,
 }: {
 	/** Identifies the model and conversation the levels belong to. */
 	scope: string
@@ -39,6 +64,13 @@ export function ComposerEffortPanel({
 	onShowModels: () => void
 	/** The model turned out to offer no choice of effort. */
 	onUnavailable: () => void
+	/** The engine in force and the way into the engine view; absent where engines are not offered. */
+	engine?: {
+		id: HarnessView['selected']
+		label: string
+		disabled: boolean
+		onOpen: () => void
+	}
 }) {
 	const slider = useRef<HTMLDivElement>(null)
 	// The CSS fill stays until the shader's first frame lands, and returns if WebGL is lost.
@@ -61,7 +93,7 @@ export function ComposerEffortPanel({
 	}, [loading])
 	const index = value ? Math.max(0, levels.indexOf(value)) : 0
 	const label = value ? effortLabel(value) : 'Model default'
-	const atDefault = !defaultValue || value === defaultValue
+	const defaultIndex = defaultStop(levels, defaultValue)
 	return (
 		<div
 			className="composer-effort-panel"
@@ -70,16 +102,6 @@ export function ComposerEffortPanel({
 			data-shader={shaderReady ? 'on' : undefined}
 		>
 			<div className="composer-effort-header">
-				<Button
-					variant="ghost-muted"
-					size="icon-xs"
-					className="composer-effort-reset"
-					aria-label="Use default effort"
-					disabled={disabled || atDefault}
-					onClick={() => onChange(undefined)}
-				>
-					<RotateCcw aria-hidden="true" />
-				</Button>
 				<div className="composer-effort-title">
 					<output className="composer-effort-value" aria-live="polite">
 						{label}
@@ -90,6 +112,14 @@ export function ComposerEffortPanel({
 						<span className="sr-only">, change model</span>
 					</button>
 				</div>
+				{engine && (
+					<EngineChip
+						engine={engine.id}
+						label={engine.label}
+						disabled={engine.disabled}
+						onClick={engine.onOpen}
+					/>
+				)}
 			</div>
 			{loading ? (
 				<output className="composer-effort-status">
@@ -111,7 +141,18 @@ export function ComposerEffortPanel({
 							if (level && level !== value) onChange(level)
 						}}
 					>
-						<Slider.Control className="composer-effort-control">
+						<Slider.Control
+							className="composer-effort-control"
+							onDoubleClick={() => {
+								if (!disabled) onChange(undefined)
+							}}
+							// Keyboard users have no double-click, so Backspace or Delete resets as well.
+							onKeyDown={(event) => {
+								if (disabled || (event.key !== 'Backspace' && event.key !== 'Delete')) return
+								event.preventDefault()
+								onChange(undefined)
+							}}
+						>
 							<Slider.Track className="composer-effort-track">
 								<Slider.Indicator className="composer-effort-fill" />
 								<EffortShader
@@ -126,6 +167,7 @@ export function ComposerEffortPanel({
 											key={level}
 											className="composer-effort-stop"
 											data-passed={stop <= index || undefined}
+											data-default={stop === defaultIndex || undefined}
 											style={{ left: `${(stop / Math.max(1, levels.length - 1)) * 100}%` }}
 										/>
 									))}
@@ -134,7 +176,7 @@ export function ComposerEffortPanel({
 									className="composer-effort-thumb"
 									aria-label="Effort"
 									getAriaValueText={(_formatted, position) =>
-										levels[position] ? effortLabel(levels[position]) : label
+										effortValueText(levels, position, defaultValue, label)
 									}
 								/>
 							</Slider.Track>

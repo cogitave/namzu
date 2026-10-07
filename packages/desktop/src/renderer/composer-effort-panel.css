@@ -4,27 +4,18 @@
 	padding: 12px;
 }
 .composer-effort-header {
-	position: relative;
 	display: flex;
-	justify-content: center;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 8px;
 	min-height: 36px;
-}
-.composer-effort-reset {
-	position: absolute;
-	top: 0;
-	left: -2px;
-}
-.composer-effort-reset svg {
-	width: 14px;
-	height: 14px;
 }
 .composer-effort-title {
 	display: grid;
-	justify-items: center;
+	justify-items: start;
 	gap: 0;
+	flex: 1 1 0;
 	min-width: 0;
-	max-width: 100%;
-	padding-inline: 28px;
 }
 .composer-effort-value {
 	color: var(--primary);
@@ -39,6 +30,7 @@
 	max-width: 100%;
 	padding: 3px 4px 3px 6px;
 	margin-block: -3px;
+	margin-inline-start: -6px;
 	border: 0;
 	border-radius: 6px;
 	background: transparent;
@@ -169,6 +161,12 @@
 .composer-effort-panel[data-shader="on"] .composer-effort-fill,
 .composer-effort-panel[data-shader="on"] .composer-effort-fill::before {
 	opacity: 0;
+}
+/* The model's own default stop reads a little larger and brighter than its neighbours. */
+.composer-effort-stop[data-default] {
+	width: 5px;
+	height: 5px;
+	opacity: 0.95;
 }
 /* The passed stop dots keep a dark edge so they read over bright and dark cells alike. */
 .composer-effort-panel[data-shader="on"] .composer-effort-stop[data-passed] {

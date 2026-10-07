@@ -25,7 +25,6 @@ import {
 	ComposerSettings,
 } from './composer-settings.js'
 import { ComposerSurface } from './composer-surface.js'
-import { HarnessPicker } from './harness-picker.js'
 import {
 	ArrowUpIcon,
 	ChevronDownIcon,
@@ -40,6 +39,7 @@ import {
 	SquareIcon,
 } from './icons.js'
 import { type ModelChoice, ModelPicker } from './model-picker.js'
+import { usePresence } from './presence.js'
 import { Button } from './ui/button.js'
 import { Popover, PopoverPopup, PopoverTrigger } from './ui/popover.js'
 import { Textarea } from './ui/textarea.js'
@@ -174,6 +174,9 @@ export function Composer({
 }) {
 	const compact = variant === 'pal'
 	const centered = empty && !compact
+	// The tray only helps before the first message. It stays mounted for its short exit.
+	const trayWanted = centered
+	const [trayPresent, trayDone] = usePresence(trayWanted, sessionId)
 	const approvalDisabled = !connected || !toolsAvailable || draftDisabled || harnessBusy
 	const [dragging, setDragging] = useState(false)
 	const dragDepth = useRef(0)
@@ -202,6 +205,17 @@ export function Composer({
 			settings={capabilities}
 			effort={settings.effort}
 			onEffortChange={(effort) => onSettingsChange({ ...settings, effort })}
+			engineControl={
+				compact
+					? undefined
+					: {
+							view: harnessView,
+							selected: permissionEngine,
+							busy: harnessBusy,
+							disabled: !connected || running || sending,
+							onSelect: onHarnessChange ?? (() => {}),
+						}
+			}
 		/>
 	)
 	const settingsControl = (
@@ -458,7 +472,7 @@ export function Composer({
 						</div>
 					)}
 					<ComposerSurface.Shell
-						contextStrip={!compact}
+						contextStrip={trayPresent}
 						contextPlacement="top"
 						className={compact ? 'pal-composer-shell' : 'normal-composer-shell'}
 						onDragEnter={(event) => {
@@ -484,8 +498,12 @@ export function Composer({
 							if (!importDisabled) onAddFiles(Array.from(event.dataTransfer.files))
 						}}
 					>
-						{!compact && (
-							<ComposerSurface.ContextStrip placement="top">
+						{trayPresent && (
+							<ComposerSurface.ContextStrip
+								placement="top"
+								data-leaving={!trayWanted || undefined}
+								onAnimationEnd={trayDone}
+							>
 								<ComposerProjectPicker
 									projectId={projectId}
 									projectName={projectName}
@@ -499,13 +517,6 @@ export function Composer({
 									<MonitorIcon aria-hidden="true" />
 									<span>{computerLabel}</span>
 								</span>
-								<HarnessPicker
-									view={harnessView}
-									selectedEngine={permissionEngine}
-									busy={harnessBusy}
-									disabled={!connected || running || sending}
-									onSelect={onHarnessChange ?? (() => {})}
-								/>
 							</ComposerSurface.ContextStrip>
 						)}
 						{permissions[0] && (

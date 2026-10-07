@@ -13,9 +13,15 @@ import {
 	useState,
 	useSyncExternalStore,
 } from 'react'
-import type { ComposerModelSettings, ModelCatalogueView, ProviderView } from '../shared/protocol.js'
+import type {
+	ComposerModelSettings,
+	HarnessView,
+	ModelCatalogueView,
+	ProviderView,
+} from '../shared/protocol.js'
 import { ComposerControl, ComposerControlChevron } from './composer-control.js'
 import { ComposerEffortPanel } from './composer-effort-panel.js'
+import { EngineChip, EnginePanel, HarnessMark, engineLabel } from './harness-picker.js'
 import {
 	CheckIcon,
 	CloudIcon,
@@ -53,7 +59,15 @@ type Catalogue = {
 	error?: string
 	scopeKey?: string
 }
-type View = 'effort' | 'models'
+type View = 'effort' | 'models' | 'engine'
+/** The engine choice the popup offers, with the state that gates it. */
+export type EngineControl = {
+	view?: HarnessView
+	selected?: HarnessView['selected']
+	busy: boolean
+	disabled: boolean
+	onSelect: (engine: HarnessView['selected']) => void
+}
 const DEFAULT_KEY = 'default'
 
 function ProviderMark({ provider }: { provider: Provider }) {
@@ -86,6 +100,7 @@ export function ModelPicker({
 	settings,
 	effort,
 	onEffortChange,
+	engineControl,
 }: {
 	providers: ProviderView
 	choice: ModelChoice
@@ -103,9 +118,19 @@ export function ModelPicker({
 	settings?: ComposerModelSettings | null
 	effort?: ReasoningEffort
 	onEffortChange?: (effort: ReasoningEffort | undefined) => void
+	/** Absent where engines are not offered, such as the Pal composer. */
+	engineControl?: EngineControl
 }) {
 	const [open, setOpen] = useState(false)
 	const [view, setView] = useState<View>('models')
+	// The view the engine view returns to.
+	const [engineFrom, setEngineFrom] = useState<'effort' | 'models'>('models')
+	const engine = engineControl?.view?.selected ?? engineControl?.selected ?? 'namzu'
+	const engineName = engineLabel(engineControl?.view, engine)
+	const openEngine = (from: 'effort' | 'models') => {
+		setEngineFrom(from)
+		setView('engine')
+	}
 	// The model list opened from the effort panel returns there once a model is chosen.
 	const [fromEffort, setFromEffort] = useState(false)
 	// A model picked from the effort panel is saved asynchronously; the panel waits for it so it
@@ -179,6 +204,15 @@ export function ModelPicker({
 			setView('effort')
 		}
 	}, [awaiting, choice.provider, choice.model])
+	const engineOf = (from: 'effort' | 'models') =>
+		engineControl
+			? {
+					id: engine,
+					label: engineName,
+					disabled: engineControl.disabled || engineControl.busy || !engineControl.view,
+					onOpen: () => openEngine(from),
+				}
+			: undefined
 	const { resize, measured, resizeStyle } = useAnimatedHeight(open)
 	const closeUnavailable = useCallback(() => setOpen(false), [])
 	return (
@@ -202,6 +236,11 @@ export function ModelPicker({
 					/>
 				}
 			>
+				{engine !== 'namzu' && (
+					<span className="model-picker-trigger-engine">
+						<HarnessMark engine={engine} />
+					</span>
+				)}
 				<span className="model-picker-trigger-model truncate">{label || 'Select model'}</span>
 				{shownEffort?.value && (
 					<span className="model-picker-trigger-effort" aria-hidden="true">
@@ -215,7 +254,9 @@ export function ModelPicker({
 				align="end"
 				sideOffset={8}
 				padding="none"
-				aria-label={view === 'effort' ? 'Reasoning effort' : 'Model picker'}
+				aria-label={
+					view === 'effort' ? 'Reasoning effort' : view === 'engine' ? 'Engine' : 'Model picker'
+				}
 				className="model-picker-popup"
 				data-view={view}
 				data-wide={providers.available.length > 1 || undefined}
@@ -226,11 +267,26 @@ export function ModelPicker({
 					ref={resize}
 					style={{
 						...resizeStyle,
-						width: `min(${view === 'effort' && onEffortChange ? 264 : providers.available.length > 1 ? 360 : 300}px, calc(100vw - 16px))`,
+						width: `min(${view === 'engine' || (view === 'effort' && onEffortChange) ? 264 : providers.available.length > 1 ? 360 : 300}px, calc(100vw - 16px))`,
 					}}
 				>
 					<div className="model-picker-body" ref={measured}>
-						{view === 'effort' && onEffortChange ? (
+						{view === 'engine' && engineControl ? (
+							<EnginePanel
+								view={engineControl.view}
+								selectedEngine={engineControl.selected}
+								backLabel={engineFrom === 'effort' ? 'Effort' : 'Models'}
+								busy={engineControl.busy}
+								disabled={engineControl.disabled}
+								onBack={() =>
+									setView(engineFrom === 'effort' && onEffortChange ? 'effort' : 'models')
+								}
+								onSelect={(next) => {
+									setOpen(false)
+									engineControl.onSelect(next)
+								}}
+							/>
+						) : view === 'effort' && onEffortChange ? (
 							<ComposerEffortPanel
 								scope={JSON.stringify([projectId, sessionId, choice.provider, modelId])}
 								modelLabel={label}
@@ -245,6 +301,7 @@ export function ModelPicker({
 									setView('models')
 								}}
 								onUnavailable={closeUnavailable}
+								engine={engineOf('effort')}
 							/>
 						) : (
 							<ModelBrowser
@@ -266,6 +323,7 @@ export function ModelPicker({
 										: undefined
 								}
 								onChoose={choose}
+								engine={engineOf('models')}
 							/>
 						)}
 					</div>
@@ -371,6 +429,7 @@ function ModelBrowser({
 	displayCache,
 	onBack,
 	settingsNotice,
+	engine,
 }: {
 	providers: ProviderView
 	choice: ModelChoice
@@ -383,6 +442,8 @@ function ModelBrowser({
 	/** Present when the list was opened from the effort panel. */
 	onBack?: () => void
 	settingsNotice?: string
+	/** The engine chip for the heading, when engines are offered. */
+	engine?: { id: HarnessView['selected']; label: string; disabled: boolean; onOpen: () => void }
 }) {
 	const [providerId, setProviderId] = useState(choice.provider)
 	const [catalogues, setCatalogues] = useState<Record<string, Catalogue>>({})
@@ -651,28 +712,40 @@ function ModelBrowser({
 								</span>
 							)}
 						</div>
-						{showTools && (
+						{(showTools || engine) && (
 							<div className="model-picker-heading-actions">
-								<Button
-									variant="ghost-muted"
-									size="icon-xs"
-									aria-label={`Refresh ${active?.label ?? 'current'} models`}
-									disabled={!active}
-									onClick={() => {
-										if (active) retry(active.id)
-									}}
-								>
-									<RefreshIcon aria-hidden="true" />
-								</Button>
-								<Button
-									variant="ghost-muted"
-									size="icon-xs"
-									aria-label="Search models"
-									title="Search models (/)"
-									onClick={() => setSearching(true)}
-								>
-									<SearchIcon aria-hidden="true" />
-								</Button>
+								{engine && (
+									<EngineChip
+										engine={engine.id}
+										label={engine.label}
+										disabled={engine.disabled}
+										onClick={engine.onOpen}
+									/>
+								)}
+								{showTools && (
+									<>
+										<Button
+											variant="ghost-muted"
+											size="icon-xs"
+											aria-label={`Refresh ${active?.label ?? 'current'} models`}
+											disabled={!active}
+											onClick={() => {
+												if (active) retry(active.id)
+											}}
+										>
+											<RefreshIcon aria-hidden="true" />
+										</Button>
+										<Button
+											variant="ghost-muted"
+											size="icon-xs"
+											aria-label="Search models"
+											title="Search models (/)"
+											onClick={() => setSearching(true)}
+										>
+											<SearchIcon aria-hidden="true" />
+										</Button>
+									</>
+								)}
 							</div>
 						)}
 					</>

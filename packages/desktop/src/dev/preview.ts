@@ -474,6 +474,10 @@ const engineEffort: Record<string, ComposerModelSettings> = {
 	'claude-haiku-5': {},
 }
 const harnesses = new Map<string, HarnessView['selected']>()
+// A conversation with messages is started, so its engine is locked as in the real host.
+function started(sessionId?: string): boolean {
+	return Boolean(sessionId && (messages.get(sessionId)?.length ?? 0) > 0)
+}
 function engineOf(sessionId?: string): HarnessView['selected'] {
 	return (sessionId && harnesses.get(sessionId)) || 'namzu'
 }
@@ -1046,13 +1050,13 @@ const api: DesktopApi = {
 	},
 	harnesses: async (projectId, id) => {
 		project(projectId)
-		return { selected: engineOf(id), locked: false, engines: clone(engines) }
+		return { selected: engineOf(id), locked: started(id), engines: clone(engines) }
 	},
 	selectHarness: async (id, engine) => {
 		conversation(id)
 		harnesses.set(id, engine)
 		selections.delete(id)
-		return { selected: engine, locked: false, engines: clone(engines) }
+		return { selected: engine, locked: started(id), engines: clone(engines) }
 	},
 	models: async (projectId, provider) => {
 		project(projectId)

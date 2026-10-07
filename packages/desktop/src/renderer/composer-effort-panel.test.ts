@@ -1,7 +1,7 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, it, vi } from 'vitest'
-import { ComposerEffortPanel } from './composer-effort-panel.js'
+import { ComposerEffortPanel, defaultStop, effortValueText } from './composer-effort-panel.js'
 
 function render(overrides: Partial<Parameters<typeof ComposerEffortPanel>[0]> = {}) {
 	return renderToStaticMarkup(
@@ -35,13 +35,35 @@ it('shows the level in force, the model button and one stop per offered level', 
 	expect(html.match(/<input[^>]*type="range"[^>]*>/)?.[0]).toMatch(/max="4"/)
 })
 
-it('offers the reset only while the effort differs from the model default', () => {
-	const reset = (html: string) =>
-		html.match(/<button[^>]*aria-label="Use default effort"[^>]*>/)?.[0] ?? ''
-	expect(reset(render())).not.toContain('disabled=""')
-	expect(reset(render({ value: 'medium' }))).toContain('disabled=""')
-	expect(reset(render({ defaultValue: undefined }))).toContain('disabled=""')
-	expect(reset(render({ disabled: true }))).toContain('disabled=""')
+it('has no reset icon, and marks the default stop instead', () => {
+	const html = render()
+	expect(html).not.toContain('Use default effort')
+	expect(html.match(/data-default/g)).toHaveLength(1)
+	expect(html).toContain('aria-valuetext="Extra High"')
+	expect(render({ defaultValue: undefined })).not.toContain('data-default')
+})
+
+it('left-aligns the title and puts the engine chip on the right', () => {
+	const html = render({
+		engine: { id: 'codex-cli', label: 'Codex CLI', disabled: false, onOpen: vi.fn() },
+	})
+	expect(html).toContain('aria-label="Engine: Codex CLI"')
+	expect(html.indexOf('composer-effort-title')).toBeLessThan(html.indexOf('Engine: Codex CLI'))
+	expect(render()).not.toContain('Engine:')
+})
+
+const levels = ['low', 'medium', 'high'] as const
+it('finds the default stop among the offered levels', () => {
+	expect(defaultStop(levels, 'medium')).toBe(1)
+	expect(defaultStop(levels, undefined)).toBe(-1)
+	expect(defaultStop(levels, 'max')).toBe(-1)
+})
+
+it('says "(default)" only at the default stop', () => {
+	expect(effortValueText(levels, 1, 'medium', 'Model default')).toBe('Medium (default)')
+	expect(effortValueText(levels, 0, 'medium', 'Model default')).toBe('Low')
+	expect(effortValueText(levels, 1, undefined, 'Model default')).toBe('Medium')
+	expect(effortValueText(levels, 5, 'medium', 'Model default')).toBe('Model default')
 })
 
 it('waits for the levels instead of drawing an empty slider', () => {

@@ -1,10 +1,9 @@
 import { Radio } from '@base-ui/react/radio'
 import { RadioGroup } from '@base-ui/react/radio-group'
-import { useState } from 'react'
+import { ChevronDown, ChevronLeft } from 'lucide-react'
+import { useEffect, useRef } from 'react'
 import type { HarnessView } from '../shared/protocol.js'
-import { ComposerControl, ComposerControlChevron } from './composer-control.js'
-import { CheckIcon, LoaderCircleIcon, ProviderIcons } from './icons.js'
-import { Popover, PopoverPopup, PopoverTrigger } from './ui/popover.js'
+import { CheckIcon, ProviderIcons } from './icons.js'
 import { Wordmark } from './wordmark.js'
 import './harness-picker.css'
 import { commitsOnKey } from './picker-commit.js'
@@ -30,59 +29,116 @@ export function committableEngine(
 	return view?.engines.find((engine) => engine.id === value && engine.available)?.id
 }
 
-export function HarnessPicker({
+const ENGINE_LABELS: Record<HarnessView['selected'], string> = {
+	namzu: 'Namzu',
+	'codex-cli': 'Codex CLI',
+	'claude-code': 'Claude Code',
+}
+
+export function engineLabel(
+	view: HarnessView | undefined,
+	engine: HarnessView['selected'],
+): string {
+	return view?.engines.find((item) => item.id === engine)?.label ?? ENGINE_LABELS[engine]
+}
+
+/**
+ * The line under an engine row. A started conversation keeps its engine, so choosing another one
+ * opens a new tab instead of switching this one.
+ */
+export function engineRowNote(
+	view: HarnessView | undefined,
+	engine: HarnessView['engines'][number],
+): 'Not installed' | 'Opens in a new tab' | undefined {
+	if (!engine.available) return 'Not installed'
+	if (view?.locked && engine.id !== view.selected) return 'Opens in a new tab'
+	return undefined
+}
+
+/** The engine mark and a small chevron: the way into the engine view of the model popup. */
+export function EngineChip({
+	engine,
+	label,
+	disabled,
+	onClick,
+}: {
+	engine: HarnessView['selected']
+	label: string
+	disabled: boolean
+	onClick: () => void
+}) {
+	return (
+		<button
+			type="button"
+			className="engine-chip"
+			aria-label={`Engine: ${label}`}
+			title={label}
+			disabled={disabled}
+			onClick={onClick}
+		>
+			<HarnessMark engine={engine} />
+			<ChevronDown aria-hidden="true" />
+		</button>
+	)
+}
+
+/** The engine view of the model popup: choose which engine runs the conversation. */
+export function EnginePanel({
 	view,
 	selectedEngine,
+	backLabel,
 	busy,
 	disabled,
+	onBack,
 	onSelect,
 }: {
 	view?: HarnessView
 	selectedEngine?: HarnessView['selected']
+	/** Where Back leads: the view the engine view was opened from. */
+	backLabel: 'Effort' | 'Models'
 	busy: boolean
 	disabled: boolean
+	onBack: () => void
 	onSelect: (engine: HarnessView['selected']) => void
 }) {
-	const [open, setOpen] = useState(false)
 	const selected = view?.selected ?? selectedEngine ?? 'namzu'
-	const label =
-		view?.engines.find((engine) => engine.id === selected)?.label ??
-		{ namzu: 'Namzu', 'codex-cli': 'Codex CLI', 'claude-code': 'Claude Code' }[selected]
 	const commit = (value: string) => {
 		const engine = committableEngine(view, value, { busy, disabled })
-		if (!engine) return
-		setOpen(false)
-		onSelect(engine)
+		if (engine) onSelect(engine)
 	}
+	const panel = useRef<HTMLDivElement>(null)
+	// Focus lands on the current engine so the arrow keys and Enter work straight away. The popup
+	// reclaims focus once the control that opened this view unmounts, so it is placed again after.
+	useEffect(() => {
+		const row = () =>
+			panel.current?.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]') ?? null
+		row()?.focus({ preventScroll: true })
+		const frame = requestAnimationFrame(() => {
+			const target = row()
+			if (target && document.activeElement !== target) target.focus({ preventScroll: true })
+		})
+		return () => cancelAnimationFrame(frame)
+	}, [])
 	return (
-		<Popover open={open} onOpenChange={setOpen}>
-			<PopoverTrigger
-				render={<ComposerControl size="xs" disabled={disabled || busy || !view} />}
-				className="composer-harness-control"
-				aria-label="Execution engine"
-				title={label}
+		<div className="engine-panel" ref={panel}>
+			<header className="engine-panel-heading">
+				<button type="button" className="engine-panel-back" onClick={onBack}>
+					<ChevronLeft aria-hidden="true" />
+					{backLabel}
+				</button>
+				<h2 className="engine-panel-title">Choose an engine</h2>
+			</header>
+			<RadioGroup
+				className="harness-picker-list"
+				aria-label="Available engines"
+				value={selected}
+				// Arrow keys only move focus; a choice is committed by click, Enter or Space (a native click).
+				onValueChange={() => {}}
 			>
-				<HarnessMark engine={selected} />
-				{selected !== 'namzu' && <span className="truncate">{label}</span>}
-				{busy ? <LoaderCircleIcon className="size-3 animate-spin" /> : <ComposerControlChevron />}
-			</PopoverTrigger>
-			<PopoverPopup
-				side="top"
-				align="end"
-				padding="compact"
-				className="harness-picker-popup"
-				aria-label="Execution engine"
-			>
-				<h2 className="harness-picker-title">Execution engine</h2>
-				<RadioGroup
-					className="harness-picker-list"
-					aria-label="Available engines"
-					value={selected}
-					// Arrow keys only move focus; a choice is committed by click, Enter or Space (a native click).
-					onValueChange={() => {}}
-				>
-					{(view?.engines ?? [{ id: 'namzu' as const, label: 'Namzu', available: true }]).map(
-						(engine) => (
+				{(view?.engines ?? [{ id: 'namzu' as const, label: 'Namzu', available: true }]).map(
+					(engine) => {
+						const note = engineRowNote(view, engine)
+						return (
 							<Radio.Root
 								key={engine.id}
 								value={engine.id}
@@ -102,27 +158,18 @@ export function HarnessPicker({
 								}}
 							>
 								<HarnessMark engine={engine.id} />
-								{engine.id === 'namzu' ? (
-									<span className="sr-only">Namzu</span>
-								) : (
+								<span className="harness-picker-name">
 									<span>{engine.label}</span>
-								)}
-								{!engine.available && (
-									<span className="harness-picker-unavailable">Not installed</span>
-								)}
+									{note && <small>{note}</small>}
+								</span>
 								<span className="harness-picker-selection" aria-hidden="true">
 									{selected === engine.id && <CheckIcon />}
 								</span>
 							</Radio.Root>
-						),
-					)}
-				</RadioGroup>
-				{view?.locked && (
-					<p className="harness-picker-notice">
-						Choosing another engine opens a new conversation tab.
-					</p>
+						)
+					},
 				)}
-			</PopoverPopup>
-		</Popover>
+			</RadioGroup>
+		</div>
 	)
 }

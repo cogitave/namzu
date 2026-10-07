@@ -6,6 +6,15 @@
 	min-width: 0;
 	color: var(--foreground);
 }
+.model-picker-trigger-engine {
+	display: inline-grid;
+	flex: none;
+	place-items: center;
+}
+.model-picker-trigger-engine svg {
+	width: 14px;
+	height: 14px;
+}
 .model-picker-trigger-effort {
 	flex: none;
 	color: var(--muted-foreground);
