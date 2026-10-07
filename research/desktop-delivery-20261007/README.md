@@ -87,3 +87,7 @@ The owner had closed the app (all CLI connections ended with exit 0 at 17:27:51 
 ## Offline delivery of 892bf0d3a (2026-10-07)
 
 The app was still closed. `--check --offline` then `--apply --offline` replaced Desktop and `@namzu/cli` (SDK equal, untouched; modules `ws`, `yaml`, `ignore` kept), re-checked that no owned process had started before the swap, and confirmed installed manifests equal the snapshot. The app was not started; the next launch picks up the per-reply Undo, the @pierre/diffs 1.5.2 Changes view and the tab-strip fix. Offline mode has no startup check, so the first launch should be followed by `--probe-only`.
+
+## Offline delivery of ae59e7db1 (2026-10-07)
+
+The app was closed again. `--check --offline` then `--apply --offline` replaced Desktop, `@namzu/cli` and `@namzu/sdk` (dependencies equal; modules `ws`, `yaml`, `ignore` kept), re-checked that nothing owned had started before the swap, and confirmed the installed manifests equal the snapshot. Not started; the next launch brings the compact effort panel, streaming performance, toasts, one-line action rows, the diff approval card, the engine choice in the model popup, the compact model list and durable "Declined" rows. Run `--probe-only` after the owner's first launch.

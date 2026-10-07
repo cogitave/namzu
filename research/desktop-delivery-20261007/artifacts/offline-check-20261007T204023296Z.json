@@ -1,0 +1,292 @@
+{
+  "passed": true,
+  "mode": "offline-check",
+  "at": "2026-10-07T20:40:23.298Z",
+  "phase": "complete",
+  "nativeWindows": true,
+  "packageInstalls": 0,
+  "modelRequests": 0,
+  "computerActions": 0,
+  "uiInteractions": 0,
+  "checks": [
+    "source dists have all required entries",
+    "desktop runtime modules planned: keep ignore@7.0.12, keep ws@8.21.3, keep yaml@2.9.1",
+    "offline: no configured electron and no node running the configured CLI",
+    "installed package.json dependencies equal the snapshot commit",
+    "installed dists differ from source; plan computed"
+  ],
+  "observations": [],
+  "launchConfigSha256": "0cea7da46af9d9bc24915a559f8a58f7f3d1973a4eef3963acb3ebaa562dc742",
+  "snapshotCommit": "ae59e7db1",
+  "packages": {
+    "desktop": {
+      "name": "@namzu/desktop",
+      "installedFiles": 818,
+      "sourceFiles": 842,
+      "installedManifestSha256": "55e268c7b95c6b9f11853eefeb055a4a66baf379254693160f2aa2df691935a1",
+      "sourceManifestSha256": "3bea736d724a64a4fbefc1b7a605e285455ea072a8c6a1b1cca8c48dec0e4146",
+      "changedCount": 30,
+      "addedCount": 26,
+      "removedCount": 2,
+      "changed": [
+        "main/index.js",
+        "main/index.js.map",
+        "main/operator-retry.test.js",
+        "main/operator-retry.test.js.map",
+        "main/operator.attachment-previews.test.js",
+        "main/operator.attachment-previews.test.js.map",
+        "main/operator.background-work-status.test.js",
+        "main/operator.background-work-status.test.js.map",
+        "main/operator.d.ts",
+        "main/operator.d.ts.map",
+        "main/operator.harness.test.js",
+        "main/operator.harness.test.js.map",
+        "main/operator.js",
+        "main/operator.js.map",
+        "main/operator.live-input.test.js",
+        "main/operator.live-input.test.js.map",
+        "main/operator.pals.test.js",
+        "main/operator.pals.test.js.map",
+        "main/operator.test.js",
+        "main/operator.test.js.map",
+        "preload.cjs",
+        "preload.cjs.map",
+        "renderer/index.html",
+        "shared/history-work.d.ts.map",
+        "shared/history-work.js",
+        "shared/history-work.js.map",
+        "shared/history-work.test.js",
+        "shared/history-work.test.js.map",
+        "shared/protocol.d.ts",
+        "shared/protocol.d.ts.map"
+      ],
+      "added": [
+        "dev/preview-activity.d.ts",
+        "dev/preview-activity.d.ts.map",
+        "dev/preview-activity.js",
+        "dev/preview-activity.js.map",
+        "dev/preview-approval.d.ts",
+        "dev/preview-approval.d.ts.map",
+        "dev/preview-approval.js",
+        "dev/preview-approval.js.map",
+        "dev/preview-stress.d.ts",
+        "dev/preview-stress.d.ts.map",
+        "dev/preview-stress.js",
+        "dev/preview-stress.js.map",
+        "main/operator.permission.test.d.ts",
+        "main/operator.permission.test.d.ts.map",
+        "main/operator.permission.test.js",
+        "main/operator.permission.test.js.map",
+        "renderer/assets/index-CWuhTZYa.css",
+        "renderer/assets/index-DTkCtGCl.js",
+        "shared/permission-protocol.d.ts",
+        "shared/permission-protocol.d.ts.map",
+        "shared/permission-protocol.js",
+        "shared/permission-protocol.js.map",
+        "shared/permission-protocol.test.d.ts",
+        "shared/permission-protocol.test.d.ts.map",
+        "shared/permission-protocol.test.js",
+        "shared/permission-protocol.test.js.map"
+      ],
+      "removed": [
+        "renderer/assets/index-CGXdvRM_.js",
+        "renderer/assets/index-DMSzZAeO.css"
+      ],
+      "classification": {
+        "runtime": [
+          "dev/preview-activity.js",
+          "dev/preview-approval.js",
+          "dev/preview-stress.js",
+          "main/index.js",
+          "main/operator-retry.test.js",
+          "main/operator.attachment-previews.test.js",
+          "main/operator.background-work-status.test.js",
+          "main/operator.harness.test.js",
+          "main/operator.js",
+          "main/operator.live-input.test.js",
+          "main/operator.pals.test.js",
+          "main/operator.permission.test.js",
+          "main/operator.test.js",
+          "preload.cjs",
+          "renderer/assets/index-CGXdvRM_.js",
+          "renderer/assets/index-CWuhTZYa.css",
+          "renderer/assets/index-DMSzZAeO.css",
+          "renderer/assets/index-DTkCtGCl.js",
+          "renderer/index.html",
+          "shared/history-work.js",
+          "shared/history-work.test.js",
+          "shared/permission-protocol.js",
+          "shared/permission-protocol.test.js"
+        ],
+        "noise": [
+          "dev/preview-activity.d.ts",
+          "dev/preview-activity.d.ts.map",
+          "dev/preview-activity.js.map",
+          "dev/preview-approval.d.ts",
+          "dev/preview-approval.d.ts.map",
+          "dev/preview-approval.js.map",
+          "dev/preview-stress.d.ts",
+          "dev/preview-stress.d.ts.map",
+          "dev/preview-stress.js.map",
+          "main/index.js.map",
+          "main/operator-retry.test.js.map",
+          "main/operator.attachment-previews.test.js.map",
+          "main/operator.background-work-status.test.js.map",
+          "main/operator.d.ts",
+          "main/operator.d.ts.map",
+          "main/operator.harness.test.js.map",
+          "main/operator.js.map",
+          "main/operator.live-input.test.js.map",
+          "main/operator.pals.test.js.map",
+          "main/operator.permission.test.d.ts",
+          "main/operator.permission.test.d.ts.map",
+          "main/operator.permission.test.js.map",
+          "main/operator.test.js.map",
+          "preload.cjs.map",
+          "shared/history-work.d.ts.map",
+          "shared/history-work.js.map",
+          "shared/history-work.test.js.map",
+          "shared/permission-protocol.d.ts",
+          "shared/permission-protocol.d.ts.map",
+          "shared/permission-protocol.js.map",
+          "shared/permission-protocol.test.d.ts",
+          "shared/permission-protocol.test.d.ts.map",
+          "shared/permission-protocol.test.js.map",
+          "shared/protocol.d.ts",
+          "shared/protocol.d.ts.map"
+        ]
+      },
+      "differs": true
+    },
+    "cli": {
+      "name": "@namzu/cli",
+      "installedFiles": 401,
+      "sourceFiles": 402,
+      "installedManifestSha256": "09f7bfe0865599a0a4084d4bd356cf0ae5f6ad89f60c6db4bf42d39d12f8c70f",
+      "sourceManifestSha256": "73c121412e48f8a70378ff12f418593e3e886b371adf1720ac794eb2145ec844",
+      "changedCount": 3,
+      "addedCount": 1,
+      "removedCount": 0,
+      "changed": [
+        "commands/acp.js",
+        "commands/desktop-host.js",
+        "tui/tool-presentation.js"
+      ],
+      "added": [
+        "commands/permission-preview.js"
+      ],
+      "removed": [],
+      "classification": {
+        "runtime": [
+          "commands/acp.js",
+          "commands/desktop-host.js",
+          "commands/permission-preview.js",
+          "tui/tool-presentation.js"
+        ],
+        "noise": []
+      },
+      "differs": true,
+      "dependencies": {
+        "installedVersion": "35.0.0",
+        "snapshotVersion": "35.0.0",
+        "equal": true,
+        "fields": {
+          "dependencies": true,
+          "optionalDependencies": true,
+          "peerDependencies": true
+        },
+        "differing": [],
+        "dependenciesSha256": "f1810624efcd75dedcee67d3fef3b16216ecbc2856f6b2b07723ce97a82997f5"
+      }
+    },
+    "sdk": {
+      "name": "@namzu/sdk",
+      "installedFiles": 934,
+      "sourceFiles": 934,
+      "installedManifestSha256": "dc8c394bd5a23c67c8cc42611dcc54a2be9350e847b4924360db1059f5e91890",
+      "sourceManifestSha256": "032a9a3390ec9dda12fb2d22e11c64145b149fe7a8388129b1ab550e6b9390f3",
+      "changedCount": 8,
+      "addedCount": 0,
+      "removedCount": 0,
+      "changed": [
+        "bridge/acp/permission.js",
+        "bridge/acp/server.js",
+        "public-tools.js",
+        "runtime/query/executor.js",
+        "runtime/query/iteration/phases/tool-review.js",
+        "runtime/query/resume-pending.js",
+        "runtime/query/review-policy.js",
+        "tools/builtins/edit.js"
+      ],
+      "added": [],
+      "removed": [],
+      "classification": {
+        "runtime": [
+          "bridge/acp/permission.js",
+          "bridge/acp/server.js",
+          "public-tools.js",
+          "runtime/query/executor.js",
+          "runtime/query/iteration/phases/tool-review.js",
+          "runtime/query/resume-pending.js",
+          "runtime/query/review-policy.js",
+          "tools/builtins/edit.js"
+        ],
+        "noise": []
+      },
+      "differs": true,
+      "dependencies": {
+        "installedVersion": "49.0.0",
+        "snapshotVersion": "49.0.0",
+        "equal": true,
+        "fields": {
+          "dependencies": true,
+          "optionalDependencies": true,
+          "peerDependencies": true
+        },
+        "differing": [],
+        "dependenciesSha256": "a01d041c3bb4a5d015552ecd02b062116ec242e17b162a62c657c45a8697e099"
+      }
+    }
+  },
+  "runtimeModules": {
+    "manifestPresent": true,
+    "required": [
+      {
+        "name": "ignore",
+        "version": "7.0.12",
+        "action": "keep"
+      },
+      {
+        "name": "ws",
+        "version": "8.21.3",
+        "action": "keep"
+      },
+      {
+        "name": "yaml",
+        "version": "2.9.1",
+        "action": "keep"
+      }
+    ]
+  },
+  "ownedProcesses": [],
+  "dependenciesEqual": true,
+  "plan": {
+    "replace": [
+      "desktop",
+      "cli",
+      "sdk"
+    ],
+    "stage": [
+      "dist-stage-20261007T204023296Z",
+      "dist-stage-20261007T204023296Z",
+      "dist-stage-20261007T204023296Z"
+    ],
+    "backup": [
+      "dist-before-delivery-offline-20261007T204023296Z",
+      "dist-before-delivery-offline-20261007T204023296Z",
+      "dist-before-delivery-offline-20261007T204023296Z"
+    ],
+    "addModules": [],
+    "moduleStage": []
+  }
+}
