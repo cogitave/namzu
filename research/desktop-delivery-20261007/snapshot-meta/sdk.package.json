@@ -1,0 +1,98 @@
+{
+	"name": "@namzu/sdk",
+	"version": "49.0.0",
+	"description": "Open-source AI agent SDK with a built-in runtime. Nothing between you and your agents.",
+	"license": "FSL-1.1-MIT",
+	"engines": {
+		"node": ">=20.0.0"
+	},
+	"type": "module",
+	"packageManager": "pnpm@10.33.0",
+	"homepage": "https://github.com/cogitave/namzu#readme",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/cogitave/namzu.git"
+	},
+	"bugs": {
+		"url": "https://github.com/cogitave/namzu/issues"
+	},
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js",
+			"default": "./dist/index.js"
+		},
+		"./testing": {
+			"types": "./dist/testing.d.ts",
+			"import": "./dist/testing.js",
+			"default": "./dist/testing.js"
+		}
+	},
+	"files": [
+		"dist",
+		"!dist/**/*.test.*",
+		"!dist/**/*.proc-test.*",
+		"!dist/**/__tests__",
+		"!dist/**/__fixtures__",
+		"!dist/**/test-setup.*",
+		"src",
+		"!src/**/*.test.*",
+		"!src/**/*.proc-test.*",
+		"!src/**/__tests__",
+		"!src/**/__fixtures__",
+		"!src/**/test-setup.*",
+		"LICENSE.md",
+		"README.md",
+		"CHANGELOG.md"
+	],
+	"sideEffects": [
+		"./dist/provider/mock-register.js"
+	],
+	"publishConfig": {
+		"access": "public",
+		"provenance": true
+	},
+	"scripts": {
+		"build": "tsc --build",
+		"dev": "tsc --build --watch",
+		"lint": "biome check src/",
+		"lint:fix": "biome check --write src/",
+		"format": "biome format --write src/",
+		"test": "node ../../scripts/run-sdk-tests.mjs unit --passWithNoTests",
+		"test:coverage": "node ../../scripts/run-sdk-tests.mjs unit --passWithNoTests --coverage",
+		"typecheck": "tsc --noEmit",
+		"knip": "knip",
+		"knip:production": "knip --production",
+		"prepublishOnly": "pnpm lint && pnpm typecheck && pnpm build",
+		"test:proc": "tsc --build && node ../../scripts/run-sdk-tests.mjs proc"
+	},
+	"peerDependencies": {
+		"@opentelemetry/api": "^1.9.0",
+		"zod": "^3.23.0",
+		"zod-to-json-schema": "^3.23.0"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^1.9.4",
+		"@opentelemetry/api": "^1.9.0",
+		"@types/brace-expansion": "^1.1.2",
+		"@types/node": "^22.19.17",
+		"@vitest/coverage-v8": "^4.1.11",
+		"fast-check": "^4.7.0",
+		"jsonschema": "^1.5.0",
+		"knip": "^6.37.0",
+		"typescript": "^5.5.0",
+		"vitest": "^4.1.11",
+		"zod": "^3.23.0",
+		"zod-to-json-schema": "^3.23.0"
+	},
+	"dependencies": {
+		"@jitl/quickjs-wasmfile-release-sync": "0.32.0",
+		"brace-expansion": "^2.1.4",
+		"fast-png": "^8.0.0",
+		"minimatch": "^9.0.9",
+		"pica": "^10.0.3",
+		"quickjs-emscripten-core": "0.32.0"
+	}
+}
