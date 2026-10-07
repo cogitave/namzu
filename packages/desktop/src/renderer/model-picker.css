@@ -18,19 +18,15 @@
 }
 /* One width per engine for both views, so switching between them only changes the height. */
 .model-picker-popup {
-	width: 300px;
-	max-width: min(300px, var(--available-width), calc(100vw - 24px));
+	width: fit-content;
+	max-width: min(360px, var(--available-width), calc(100vw - 16px));
 	max-height: var(--available-height);
 	border-radius: 16px;
 	background: var(--popover);
 }
-.model-picker-popup[data-wide] {
-	width: 360px;
-	max-width: min(360px, var(--available-width), calc(100vw - 24px));
-}
 .model-picker-resize {
 	overflow: hidden;
-	transition: height 150ms var(--motion-ease);
+	transition: height 150ms var(--motion-ease), width 150ms var(--motion-ease);
 }
 @media (prefers-reduced-motion: reduce) {
 	.model-picker-resize {

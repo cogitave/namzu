@@ -221,7 +221,14 @@ export function ModelPicker({
 				data-wide={providers.available.length > 1 || undefined}
 				positionerClassName={positionerClassName}
 			>
-				<div className="model-picker-resize" ref={resize} style={resizeStyle}>
+				<div
+					className="model-picker-resize"
+					ref={resize}
+					style={{
+						...resizeStyle,
+						width: `min(${view === 'effort' && onEffortChange ? 264 : providers.available.length > 1 ? 360 : 300}px, calc(100vw - 16px))`,
+					}}
+				>
 					<div className="model-picker-body" ref={measured}>
 						{view === 'effort' && onEffortChange ? (
 							<ComposerEffortPanel

@@ -1,18 +1,18 @@
 .composer-effort-panel {
 	display: grid;
-	gap: 10px;
-	padding: 12px 14px 12px;
+	gap: 8px;
+	padding: 12px;
 }
 .composer-effort-header {
 	position: relative;
 	display: flex;
 	justify-content: center;
-	min-height: 40px;
+	min-height: 36px;
 }
 .composer-effort-reset {
 	position: absolute;
 	top: 0;
-	left: -4px;
+	left: -2px;
 }
 .composer-effort-reset svg {
 	width: 14px;
@@ -21,28 +21,29 @@
 .composer-effort-title {
 	display: grid;
 	justify-items: center;
-	gap: 2px;
+	gap: 0;
 	min-width: 0;
 	max-width: 100%;
 	padding-inline: 28px;
 }
 .composer-effort-value {
 	color: var(--primary);
-	font-size: 14px;
+	font-size: 13px;
 	font-weight: 600;
-	line-height: 20px;
+	line-height: 18px;
 }
 .composer-effort-model {
 	display: inline-flex;
 	align-items: center;
 	gap: 2px;
 	max-width: 100%;
-	padding: 1px 4px 1px 6px;
+	padding: 3px 4px 3px 6px;
+	margin-block: -3px;
 	border: 0;
 	border-radius: 6px;
 	background: transparent;
 	color: var(--foreground);
-	font-size: 13px;
+	font-size: 12px;
 	line-height: 18px;
 	cursor: pointer;
 	transition: background-color 150ms var(--motion-ease), color 150ms var(--motion-ease);
@@ -76,9 +77,8 @@
 	position: relative;
 	display: flex;
 	align-items: center;
-	height: 28px;
-	padding-inline: 14px;
-	overflow: hidden;
+	height: 22px;
+	padding-inline: 13px;
 	border-radius: 999px;
 	background: color-mix(in srgb, var(--foreground) 9%, var(--popover));
 	cursor: pointer;
@@ -108,7 +108,8 @@
 	top: 0;
 	right: 100%;
 	bottom: 0;
-	width: 14px;
+	width: 13px;
+	border-radius: 999px 0 0 999px;
 	background: var(--primary);
 }
 .composer-effort-stops {
@@ -117,8 +118,8 @@
 .composer-effort-stop {
 	position: absolute;
 	top: 50%;
-	width: 4px;
-	height: 4px;
+	width: 3px;
+	height: 3px;
 	border-radius: 50%;
 	background: var(--muted-foreground);
 	opacity: 0.55;
@@ -130,8 +131,8 @@
 	opacity: 0.7;
 }
 .composer-effort-thumb {
-	width: 22px;
-	height: 22px;
+	width: 26px;
+	height: 26px;
 	border-radius: 50%;
 	background: #fff;
 	box-shadow: 0 1px 3px rgb(0 0 0 / 28%), 0 0 0 1.5px rgb(0 0 0 / 38%);
@@ -142,9 +143,11 @@
 	position: absolute;
 	top: 0;
 	bottom: 0;
-	left: -14px;
-	width: calc(100% + 28px);
+	left: -13px;
+	width: calc(100% + 26px);
 	height: 100%;
+	border-radius: 999px;
+	overflow: hidden;
 	pointer-events: none;
 }
 /* The shader fades in as the CSS fill fades out, so the swap is never a pop. */
@@ -193,15 +196,15 @@
 	justify-content: space-between;
 	padding-inline: 4px;
 	color: var(--muted-foreground);
-	font-size: 12px;
-	line-height: 18px;
+	font-size: 11px;
+	line-height: 16px;
 }
 .composer-effort-status {
 	display: flex;
 	align-items: center;
 	justify-content: center;
 	gap: 6px;
-	min-height: 52px;
+	min-height: 44px;
 	color: var(--muted-foreground);
 	font-size: 12px;
 }

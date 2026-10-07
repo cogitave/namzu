@@ -135,7 +135,7 @@ const UNIFORMS = [
 	'u_fringe',
 ] as const
 
-const PAD_CSS = 14
+const PAD_CSS = 13
 
 function compile(gl: WebGL2RenderingContext, type: number, src: string) {
 	const shader = gl.createShader(type)
