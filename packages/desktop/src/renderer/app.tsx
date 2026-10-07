@@ -4521,9 +4521,15 @@ export function App({
 								}
 								inputRef={input}
 								permissions={thread.permissions}
-								onApproval={(permission, approved) =>
-									void act(() => api.approve(permission.sessionId, permission.id, approved))
-								}
+								onApproval={async (permission, response) => {
+									// The card stays usable when the answer did not get through.
+									let delivered = false
+									await act(async () => {
+										await api.respondPermission(permission.sessionId, permission.id, response)
+										delivered = true
+									})
+									return delivered
+								}}
 								projectName={project.name}
 								projectId={project.id}
 								sessionId={sessionId || undefined}

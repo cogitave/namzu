@@ -182,7 +182,7 @@ it.each(['codex-cli', 'claude-code'] as const)(
 		const ended = f.wait(
 			(event) => event.kind === 'state' && event.sessionId === session.id && !event.running,
 		)
-		f.owner.approve(session.id, request.request.id, false)
+		f.owner.respondPermission(session.id, request.request.id, { outcome: 'reject' })
 		await ended
 	},
 )
@@ -456,7 +456,7 @@ it.each(['prompt', 'plan', 'accept-edits', 'auto', 'strict'] as const)(
 		const ended = f.wait(
 			(event) => event.kind === 'state' && event.sessionId === session.id && !event.running,
 		)
-		f.owner.approve(session.id, request.request.id, false)
+		f.owner.respondPermission(session.id, request.request.id, { outcome: 'reject' })
 		await ended
 	},
 )

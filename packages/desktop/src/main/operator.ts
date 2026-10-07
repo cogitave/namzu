@@ -15,6 +15,7 @@ import type {
 	PalSubscriptionCreate,
 	PalSubscriptionDisable,
 } from '../shared/pal-communication-protocol.js'
+import { readPermissionCalls, readPermissionResponse } from '../shared/permission-protocol.js'
 import { type ThreadState, applyEvent, emptyThread } from '../shared/projection.js'
 import type {
 	AttachmentInput,
@@ -39,6 +40,7 @@ import type {
 	PalInput,
 	PalScreenView,
 	PalView,
+	PermissionResponse,
 	PermissionView,
 	PluginInventoryView,
 	ProjectChangeFile,
@@ -4025,15 +4027,15 @@ export class Operator {
 		session.queue.splice(index, 1)
 		this.state(session)
 	}
-	approve(sessionId: string, requestId: string, approved: boolean): void {
+	respondPermission(sessionId: string, requestId: string, response: PermissionResponse): void {
 		const session = this.session(sessionId)
 		this.assertPalAdmission(session.view.palId, true)
-		if (typeof approved !== 'boolean') throw new Error('Invalid approval.')
+		const answer = readPermissionResponse(response)
 		const wireId = session.permissions.get(requestId)
 		if (wireId === undefined || !session.running)
 			throw new Error('This approval is no longer pending.')
 		session.permissions.delete(requestId)
-		session.client.answer(wireId, { outcome: approved ? 'approve' : 'reject' })
+		session.client.answer(wireId, answer)
 		this.emit({ kind: 'permission-cleared', sessionId, requestId })
 	}
 	private onFrame(project: Project, frame: Record<string, unknown>): void {
@@ -4114,7 +4116,7 @@ export class Operator {
 				id,
 				sessionId: session.view.id,
 				projectId: project.view.id,
-				calls: params.toolCalls,
+				calls: readPermissionCalls(params.toolCalls),
 			}
 			this.emit({ kind: 'permission', request })
 		} else if (

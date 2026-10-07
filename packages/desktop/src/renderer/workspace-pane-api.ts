@@ -312,8 +312,8 @@ export function createWorkspacePaneApi(
 		cancel: (owner) => invoke(() => base.cancel(owner), [owner]),
 		takeQueued: (owner, itemId) => invoke(() => base.takeQueued(owner, itemId), [owner]),
 		removeQueued: (owner, itemId) => invoke(() => base.removeQueued(owner, itemId), [owner]),
-		approve: (owner, request, approved) =>
-			invoke(() => base.approve(owner, request, approved), [owner]),
+		respondPermission: (owner, request, response) =>
+			invoke(() => base.respondPermission(owner, request, response), [owner]),
 		stopJob: (owner, jobId) => invoke(() => base.stopJob(owner, jobId), [owner]),
 		createPal: (input) => invoke(() => base.createPal(input), [], { global: true }),
 		updatePal: (id, revision, changes) =>

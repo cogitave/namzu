@@ -1,0 +1,33 @@
+NAVIGATED http://127.0.0.1:5173/preview
+PASS focus stays out of the card 
+PASS title 
+PASS full path as tooltip 
+PASS counts shown +5
+−3
+PASS buttons in order |Edit|Reject|Accept
+PASS wrap aria-pressed false 
+PASS wrap aria-pressed true 
+PASS dark contrast AA {"reject":4.569515089654107,"accept":10.027940403907996}
+PASS note field focused 
+PASS footer swapped 
+PASS send disabled when empty 
+PASS escape cancels the field 
+PASS escape sent nothing 
+PASS focus returned to Edit 
+PASS send rejects with the note [{"requestId":"preview-approval-1","response":{"outcome":"reject","feedback":"The user declined this change and said: use a guard clause instead"}}]
+PASS create title 
+PASS no warning on create 
+PASS reject is plain {"requestId":"preview-approval-2","response":{"outcome":"reject"}}
+PASS command title 
+PASS no wrap button on a command 
+PASS warning on destructive 
+PASS ctrl+enter outside the card does not accept 
+PASS ctrl+enter inside the card accepts {"requestId":"preview-approval-3","response":{"outcome":"approve"}}
+PASS no-preview label 
+PASS accept approves 
+PASS other title 
+PASS capped at 280px 280
+PASS show more grows the box 540
+PASS 1 of 2 
+NAVIGATED http://127.0.0.1:5173/preview
+PASS light contrast AA {"reject":6.258533725111654,"accept":6.453955561952516}

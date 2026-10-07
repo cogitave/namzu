@@ -20,6 +20,7 @@ export {
 	isWithin,
 	pathOutsideRoots,
 	resolveWithin,
+	resolveWithinAnyReal,
 	resolveWithinReal,
 	toolRoots,
 } from './tools/paths.js'
@@ -63,7 +64,7 @@ export {
 } from './tools/command-shell.js'
 export { ReadFileTool } from './tools/builtins/read-file.js'
 export { WriteFileTool } from './tools/builtins/write-file.js'
-export { EditTool } from './tools/builtins/edit.js'
+export { EditTool, dryRunEdit } from './tools/builtins/edit.js'
 export {
 	BashTool,
 	type ExecHostShellProgress,

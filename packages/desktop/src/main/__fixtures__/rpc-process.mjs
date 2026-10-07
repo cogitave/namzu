@@ -34,7 +34,7 @@ lines.on('line', (line) => {
 				for (const item of scope.inputs.values()) item.status = 'delivered'
 			scope.available = false
 		}
-		send({ method: 'session/update', params: { sessionId: prompt.sessionId, update: { kind: 'agent_message_chunk', text: frame.result.outcome === 'approve' ? 'Approved answer' : 'Declined answer' } } })
+		send({ method: 'session/update', params: { sessionId: prompt.sessionId, update: { kind: 'agent_message_chunk', text: frame.result.outcome === 'approve' ? 'Approved answer' : frame.result.feedback ? `Declined: ${frame.result.feedback}` : 'Declined answer' } } })
 		send({ method: 'session/update', params: { sessionId: prompt.sessionId, update: { kind: 'turn_ended', stopReason: 'end_turn' } } })
 		reply(prompt.id, { stopReason: 'end_turn' })
 	} else if (method === 'initialize') reply(id, { agentInfo: { name: 'namzu' }, promptAttachments: process.env.FIXTURE_NO_ATTACHMENTS ? undefined : true, promptOptions: process.env.FIXTURE_NO_OPTIONS ? undefined : true, extensions: process.env.FIXTURE_INCOMPATIBLE ? [] : methods })
@@ -114,7 +114,7 @@ lines.on('line', (line) => {
 		if (params.prompt === 'Break connection') { process.exit(0); return }
 		const requestId = `review-${params.sessionId}-${id}`
 		pending.set(requestId, { id, sessionId: params.sessionId })
-		send({ id: requestId, method: 'session/request_permission', params: { sessionId: params.sessionId, toolCalls: [{ id: requestId, name: 'fixture-tool', input: { prompt: params.prompt, ...(process.env.FIXTURE_ENFORCE_PROVIDER_BINDING ? { engine: harnesses.get(params.sessionId) ?? 'namzu', model: models.get(params.sessionId) } : {}), ...(params.attachments?.length ? { attachments: params.attachments } : {}) }, isDestructive: false }] } })
+		send({ id: requestId, method: 'session/request_permission', params: { sessionId: params.sessionId, toolCalls: [{ id: requestId, name: 'fixture-tool', input: { prompt: params.prompt, ...(process.env.FIXTURE_ENFORCE_PROVIDER_BINDING ? { engine: harnesses.get(params.sessionId) ?? 'namzu', model: models.get(params.sessionId) } : {}), ...(params.attachments?.length ? { attachments: params.attachments } : {}) }, isDestructive: false, ...(process.env.FIXTURE_PREVIEW ? { preview: JSON.parse(process.env.FIXTURE_PREVIEW) } : {}) }] } })
 	} else if (method === 'session/cancel') {
 		const scope = liveScopes.get(params.sessionId)
 		if (scope) scope.available = false

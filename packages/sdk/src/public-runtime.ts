@@ -920,6 +920,7 @@ export type {
 	AcpServerOptions,
 } from './bridge/acp/index.js'
 export type {
+	AcpFileChangePreview,
 	AcpFsReadParams,
 	AcpFsReadResult,
 	AcpFsWriteParams,

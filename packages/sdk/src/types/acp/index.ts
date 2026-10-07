@@ -82,6 +82,25 @@ export interface AcpSessionLoadParams {
 	readonly cwd?: string
 }
 
+/**
+ * The file change a pending `edit` or `write` call would make, computed by the
+ * agent with the tool's own apply code against the file as it is now.
+ *
+ * Optional on the wire: an older client ignores it, and an agent that cannot
+ * establish it (a binary or oversized file, a path outside the turn's roots, a
+ * call the tool would refuse) simply omits it.
+ */
+export interface AcpFileChangePreview {
+	/** The absolute path the tool resolves the call's `path` to. */
+	readonly path: string
+	/** The current body, or `null` when the call would create the file. */
+	readonly before: string | null
+	/** The body after the call. */
+	readonly after: string
+	/** True when `before` and `after` were cut to a bounded size. */
+	readonly truncated?: boolean
+}
+
 /** What the agent asks the client before running a tool batch. */
 export interface AcpRequestPermissionParams {
 	readonly sessionId: string
@@ -90,6 +109,8 @@ export interface AcpRequestPermissionParams {
 		readonly name: string
 		readonly input: unknown
 		readonly isDestructive: boolean
+		/** For `edit` and `write` calls, when the agent could compute it. */
+		readonly preview?: AcpFileChangePreview
 	}[]
 }
 

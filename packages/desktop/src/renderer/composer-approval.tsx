@@ -1,8 +1,148 @@
-import type { PermissionView } from '../shared/protocol.js'
+import { MultiFileDiff } from '@pierre/diffs/react'
+import {
+	type KeyboardEvent,
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+} from 'react'
+import type { PermissionResponse, PermissionView } from '../shared/protocol.js'
+import {
+	type ApprovalCardModel,
+	FEEDBACK_NOTE_MAX,
+	buildApprovalCard,
+	declineFeedback,
+} from './approval-card-model.js'
+import { gateNotice, richDiffVerdict } from './changes-review/diff-gate.js'
+import { unifiedDiff } from './changes-review/model.js'
+import { formatLineCount } from './changes-totals.js'
 import { ComposerBanner } from './composer-banner.js'
-/* Adapted compact approval presentation; provenance: THIRD-PARTY-NOTICES.txt. */
-import { ShieldAlertIcon } from './icons.js'
-import { Button } from './ui/button.js'
+import { DIFF_VIEW_UNSAFE_CSS } from './diff-theme.js'
+import { ChevronDownIcon, ShieldAlertIcon, TextWrapIcon } from './icons.js'
+import './composer-approval.css'
+
+/** The document's own theme class: the card sits outside the app's appearance state. */
+const readDark = () =>
+	typeof document !== 'undefined' && document.documentElement.classList.contains('dark')
+
+function useDocumentDark(): boolean {
+	const [dark, setDark] = useState(readDark)
+	useEffect(() => {
+		const observer = new MutationObserver(() => setDark(readDark()))
+		observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
+		return () => observer.disconnect()
+	}, [])
+	return dark
+}
+
+function DiffBox({
+	model,
+	wrap,
+	expanded,
+	onExpand,
+}: {
+	model: ApprovalCardModel
+	wrap: boolean
+	expanded: boolean
+	onExpand: (value: boolean) => void
+}) {
+	const dark = useDocumentDark()
+	const diff = model.diff
+	const scroller = useRef<HTMLDivElement>(null)
+	const content = useRef<HTMLDivElement>(null)
+	const [overflowing, setOverflowing] = useState(false)
+	const options = useMemo(
+		() => ({
+			theme: { light: 'pierre-light', dark: 'pierre-dark' } as const,
+			themeType: dark ? ('dark' as const) : ('light' as const),
+			preferredHighlighter: 'shiki-wasm' as const,
+			diffStyle: 'unified' as const,
+			diffIndicators: 'bars' as const,
+			overflow: wrap ? ('wrap' as const) : ('scroll' as const),
+			hunkSeparators: 'line-info' as const,
+			disableFileHeader: true,
+			unsafeCSS: DIFF_VIEW_UNSAFE_CSS,
+		}),
+		[dark, wrap],
+	)
+	const verdict = useMemo(
+		() =>
+			diff
+				? richDiffVerdict({
+						before: diff.before,
+						after: diff.after,
+						added: model.added ?? 0,
+						removed: model.removed ?? 0,
+					})
+				: ({ rich: true } as const),
+		[diff, model.added, model.removed],
+	)
+	const patch = useMemo(
+		() => (diff && !verdict.rich ? unifiedDiff(diff.path, diff.before, diff.after) : ''),
+		[diff, verdict],
+	)
+	// The diff element draws on the render after it mounts, not on the one that mounts it, and
+	// nothing else re-renders a card that waits for an answer; one extra render makes it draw.
+	const [, redraw] = useState(0)
+	useEffect(() => redraw(1), [])
+	// The body is a custom element, so its height is only known by watching it.
+	useLayoutEffect(() => {
+		const node = content.current
+		if (!node) return
+		const measure = () => setOverflowing(node.scrollHeight > 280 + 1)
+		measure()
+		const observer = new ResizeObserver(measure)
+		observer.observe(node)
+		return () => observer.disconnect()
+	}, [])
+	if (!diff) return null
+	return (
+		<div className="approval-diff">
+			<div
+				ref={scroller}
+				className="approval-diff-scroll"
+				data-expanded={expanded || undefined}
+				// A scrolling box has to take focus so the keyboard can scroll it.
+				// biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable region
+				tabIndex={0}
+				// biome-ignore lint/a11y/useSemanticElements: a section would read as a page landmark
+				role="region"
+				aria-label={`Proposed change to ${model.fileName}`}
+			>
+				<div ref={content}>
+					{verdict.rich ? (
+						<MultiFileDiff
+							className="diff-code-view"
+							oldFile={{ name: diff.path, contents: diff.before }}
+							newFile={{ name: diff.path, contents: diff.after }}
+							options={options}
+						/>
+					) : (
+						<>
+							<p className="approval-note">{gateNotice(verdict)}</p>
+							<pre className="changes-plain-patch" data-wrap={wrap || undefined}>
+								{patch}
+							</pre>
+						</>
+					)}
+				</div>
+			</div>
+			{(overflowing || expanded) && (
+				<button
+					type="button"
+					className="approval-more"
+					aria-expanded={expanded}
+					onClick={() => onExpand(!expanded)}
+				>
+					<ChevronDownIcon aria-hidden="true" data-up={expanded || undefined} />
+					{expanded ? 'Show less' : 'Show more'}
+				</button>
+			)}
+		</div>
+	)
+}
 
 export function ComposerApproval({
 	permission,
@@ -11,92 +151,218 @@ export function ComposerApproval({
 }: {
 	permission: PermissionView
 	count: number
-	onRespond: (permission: PermissionView, approved: boolean) => void
+	onRespond: (permission: PermissionView, response: PermissionResponse) => unknown
 }) {
-	const first = permission.calls[0]
-	const input =
-		first?.input && typeof first.input === 'object'
-			? (first.input as Record<string, unknown>)
-			: undefined
-	const summary =
-		typeof input?.command === 'string'
-			? input.command
-			: typeof input?.path === 'string'
-				? `${first?.name}: ${input.path}`
-				: (first?.name ?? 'Action approval')
+	const model = useMemo(() => buildApprovalCard(permission), [permission])
+	const [wrap, setWrap] = useState(false)
+	const [expanded, setExpanded] = useState(false)
+	const [editing, setEditing] = useState(false)
+	const [note, setNote] = useState('')
+	const editButton = useRef<HTMLButtonElement>(null)
+	const noteField = useRef<HTMLInputElement>(null)
+	const answered = useRef(false)
+	const returning = useRef(false)
+
+	const respond = useCallback(
+		(response: PermissionResponse) => {
+			// One answer per request: a double click must not send a second.
+			if (answered.current) return
+			answered.current = true
+			// A refused or failed answer leaves the request pending, so the card must take another.
+			const release = (delivered: unknown) => {
+				if (delivered === false) answered.current = false
+			}
+			try {
+				const result = onRespond(permission, response)
+				if (result instanceof Promise) result.then(release, () => release(false))
+				else release(result)
+			} catch {
+				release(false)
+			}
+		},
+		[onRespond, permission],
+	)
+	const accept = () => respond({ outcome: 'approve' })
+	const reject = () => respond({ outcome: 'reject' })
+	const send = () => {
+		if (!note.trim()) return
+		respond({ outcome: 'reject', feedback: declineFeedback(note) })
+	}
+	const cancelEdit = () => {
+		returning.current = true
+		setEditing(false)
+		setNote('')
+	}
+	useEffect(() => {
+		if (editing) noteField.current?.focus()
+		// Back to where the person was, not to the composer.
+		else if (returning.current) {
+			returning.current = false
+			editButton.current?.focus()
+		}
+	}, [editing])
+
+	const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+		if (editing) {
+			if (event.key === 'Escape') {
+				event.preventDefault()
+				event.stopPropagation()
+				cancelEdit()
+			}
+			return
+		}
+		// Only while focus is inside the card: the listener lives on it, not on the window.
+		if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+			event.preventDefault()
+			accept()
+		}
+	}
+
+	const hasDiff = Boolean(model.diff)
+	const showDetails = !(model.diff && !model.diff.fragment) || permission.calls.length > 1
+	const showWarning = model.destructive && model.kind !== 'create'
 	return (
 		<ComposerBanner.Dock>
 			<ComposerBanner.Column>
 				<ComposerBanner.Attachment>
-					<section aria-label="Tool approval">
-						<ComposerBanner.Root variant="warning" density="spacious">
-							<ComposerBanner.Row layout="approval">
-								<ComposerBanner.Icon>
-									<ShieldAlertIcon />
-								</ComposerBanner.Icon>
-								<ComposerBanner.Content>
-									<span className="flex min-w-0 flex-1 flex-col items-start gap-1">
-										<span className="flex w-full min-w-0 items-center gap-2 text-[11px] text-muted-foreground">
-											<span className="shrink-0 font-medium text-warning">
-												Your approval is needed
-											</span>
-											{count > 1 && (
-												<span className="ml-auto shrink-0 tabular-nums">1 / {count}</span>
-											)}
+					<section aria-label="Tool approval" onKeyDown={onKeyDown}>
+						<ComposerBanner.Root variant="default" density="spacious">
+							<div className="approval-card" data-kind={model.kind}>
+								<header className="approval-head">
+									<ShieldAlertIcon aria-hidden="true" className="approval-head-icon" />
+									<h3 className="approval-title" title={model.path}>
+										{model.title}
+									</h3>
+									{hasDiff && (model.added || model.removed) ? (
+										<span className="approval-counts">
+											{model.added ? (
+												<span className="changes-added">+{formatLineCount(model.added)}</span>
+											) : null}
+											{model.removed ? (
+												<span className="changes-removed">−{formatLineCount(model.removed)}</span>
+											) : null}
 										</span>
-										<code
-											tabIndex={0}
-											data-approval-detail="complete"
-											className="block max-h-20 w-full min-w-0 overflow-auto whitespace-pre text-xs text-foreground [scrollbar-width:thin] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
-										>
-											{summary}
-										</code>
-									</span>
-								</ComposerBanner.Content>
-								<ComposerBanner.Actions>
-									<Button
-										type="button"
-										variant="outline"
-										size="xs"
-										onClick={() => onRespond(permission, false)}
-									>
-										Decline
-									</Button>
-									<Button type="button" size="xs" onClick={() => onRespond(permission, true)}>
-										Allow once
-									</Button>
-								</ComposerBanner.Actions>
-							</ComposerBanner.Row>
-							<div className="min-w-0 ps-8 pt-2">
-								<details className="approval-details min-w-0 flex-1 text-xs text-muted-foreground">
-									<summary className="w-fit cursor-pointer rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-										Review{' '}
-										{permission.calls.length === 1
-											? 'action details'
-											: `all ${permission.calls.length} actions`}
-										{permission.calls.some((call) => call.isDestructive) &&
-											' · changes or removes data'}
-									</summary>
-									<div className="approval-full-details mt-2 max-h-40 overflow-auto rounded-lg border border-border bg-muted p-2">
-										{permission.calls.map((call) => (
-											<div key={call.id} className="mb-2 last:mb-0">
-												<strong className="font-medium text-foreground">
-													{call.name}
-													{call.isDestructive ? ' · changes or removes data' : ''}
-												</strong>
-												<pre className="mt-1 whitespace-pre-wrap wrap-anywhere">
-													{JSON.stringify(call.input, null, 2)}
-												</pre>
+									) : null}
+									{count > 1 && <span className="approval-count">1 of {count}</span>}
+								</header>
+								{model.previewMissing && (
+									<p className="approval-note">
+										Preview not available
+										{model.diff ? ' — this is the change as the tool described it.' : '.'}
+									</p>
+								)}
+								<DiffBox model={model} wrap={wrap} expanded={expanded} onExpand={setExpanded} />
+								{model.command !== undefined && (
+									// biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable region
+									<pre className="approval-command" tabIndex={0} aria-label="Command">
+										{model.command}
+									</pre>
+								)}
+								{model.kind === 'other' && model.entries.length > 0 && (
+									<dl className="approval-entries">
+										{model.entries.map((entry) => (
+											<div key={entry.label} className="approval-entry">
+												<dt>{entry.label}</dt>
+												<dd>{entry.value}</dd>
 											</div>
 										))}
-									</div>
-								</details>
+									</dl>
+								)}
+								{model.others.length > 0 && (
+									<p className="approval-note">
+										Also in this request: {model.others.join(', ')}. Your answer covers all of them.
+									</p>
+								)}
+								{showWarning && (
+									<p className="approval-warning">This action changes or removes data.</p>
+								)}
+								{showDetails && (
+									<details className="approval-details">
+										<summary>Details</summary>
+										<pre>
+											{JSON.stringify(
+												permission.calls.length === 1
+													? permission.calls[0]?.input
+													: permission.calls.map((call) => call.input),
+												null,
+												2,
+											)}
+										</pre>
+									</details>
+								)}
+								<footer className="approval-footer">
+									{editing ? (
+										<>
+											<input
+												ref={noteField}
+												className="approval-note-field"
+												type="text"
+												value={note}
+												maxLength={FEEDBACK_NOTE_MAX}
+												placeholder="Tell Namzu what to do instead"
+												aria-label="Tell Namzu what to do instead"
+												onChange={(event) => setNote(event.target.value)}
+												onKeyDown={(event) => {
+													if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+														event.preventDefault()
+														send()
+													}
+												}}
+											/>
+											<button
+												type="button"
+												className="approval-button"
+												onClick={send}
+												disabled={!note.trim()}
+											>
+												Send
+											</button>
+											<button type="button" className="approval-button" onClick={cancelEdit}>
+												Cancel
+											</button>
+										</>
+									) : (
+										<>
+											{hasDiff && (
+												<button
+													type="button"
+													className="approval-button approval-icon-button"
+													aria-pressed={wrap}
+													aria-label="Wrap long lines"
+													title="Wrap long lines"
+													onClick={() => setWrap((value) => !value)}
+												>
+													<TextWrapIcon aria-hidden="true" />
+												</button>
+											)}
+											<button
+												ref={editButton}
+												type="button"
+												className="approval-button"
+												onClick={() => setEditing(true)}
+											>
+												Edit
+											</button>
+											<button
+												type="button"
+												className="approval-button"
+												data-tone="reject"
+												onClick={reject}
+											>
+												Reject
+											</button>
+											<button
+												type="button"
+												className="approval-button"
+												data-tone="accept"
+												onClick={accept}
+											>
+												Accept
+											</button>
+										</>
+									)}
+								</footer>
 							</div>
-							<p className="ps-8 pt-1 text-[11px] text-muted-foreground/70">
-								{permission.calls.length > 1
-									? `Applies once to this batch of ${permission.calls.length} actions.`
-									: 'Applies once to this action.'}
-							</p>
 						</ComposerBanner.Root>
 					</section>
 				</ComposerBanner.Attachment>

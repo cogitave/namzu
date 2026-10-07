@@ -78,7 +78,7 @@ it('delivers text to the active Namzu turn once without starting another prompt'
 	const settled = wait(
 		(event) => event.kind === 'state' && event.sessionId === session.id && !event.running,
 	)
-	owner.approve(session.id, pending.id, true)
+	owner.respondPermission(session.id, pending.id, { outcome: 'approve' })
 	await settled
 	thread = (await owner.openConversation(project.id, session.id)).thread
 	// A settled turn keeps the delivered message in the transcript but not as a receipt.
@@ -130,7 +130,7 @@ it('retains uncertain admission after a lost ACK and failed status without repla
 	const settled = wait(
 		(event) => event.kind === 'state' && event.sessionId === session.id && !event.running,
 	)
-	owner.approve(session.id, pending.id, true)
+	owner.respondPermission(session.id, pending.id, { outcome: 'approve' })
 	await settled
 	expect(owner.draft(session.id)).toBe(text)
 	expect((await owner.openConversation(project.id, session.id)).thread?.queued).toEqual([])
@@ -153,7 +153,7 @@ it('holds uncertain text behind an authored edit until the operator explicitly t
 	const firstSettled = wait(
 		(event) => event.kind === 'state' && event.sessionId === session.id && !event.running,
 	)
-	owner.approve(session.id, pending.id, true)
+	owner.respondPermission(session.id, pending.id, { outcome: 'approve' })
 	await firstSettled
 	expect(owner.draft(session.id)).toBe('New authored draft')
 	expect((await owner.openConversation(project.id, session.id)).thread?.queued).toEqual([
@@ -164,7 +164,7 @@ it('holds uncertain text behind an authored edit until the operator explicitly t
 	const secondSettled = wait(
 		(event) => event.kind === 'state' && event.sessionId === session.id && !event.running,
 	)
-	owner.approve(session.id, nextReview.id, true)
+	owner.respondPermission(session.id, nextReview.id, { outcome: 'approve' })
 	await secondSettled
 	expect(
 		recorded.filter((event) => event.kind === 'prompt' && event.sessionId === session.id),
@@ -193,7 +193,7 @@ it('does not retain a false live attempt when the exact scope confirms it was ne
 	const settled = wait(
 		(event) => event.kind === 'state' && event.sessionId === session.id && !event.running,
 	)
-	owner.approve(session.id, pending.id, true)
+	owner.respondPermission(session.id, pending.id, { outcome: 'approve' })
 	await settled
 	expect(owner.draft(session.id)).toBe('Rejected input')
 	expect((await owner.openConversation(project.id, session.id)).thread?.queued).toEqual([])

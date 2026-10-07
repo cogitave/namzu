@@ -723,9 +723,13 @@ it('rejects foreign Pal frames and keeps reused permission wire ids owned by the
 		if (reviewA?.kind !== 'permission' || reviewB?.kind !== 'permission')
 			throw new Error('Missing owned reviews')
 		expect(reviewA.request.id).not.toBe(reviewB.request.id)
-		expect(() => owner.approve(a.id, reviewB.request.id, true)).toThrow('no longer pending')
-		expect(() => owner.approve(b.id, reviewA.request.id, true)).toThrow('no longer pending')
-		owner.approve(a.id, reviewA.request.id, true)
+		expect(() => owner.respondPermission(a.id, reviewB.request.id, { outcome: 'approve' })).toThrow(
+			'no longer pending',
+		)
+		expect(() => owner.respondPermission(b.id, reviewA.request.id, { outcome: 'approve' })).toThrow(
+			'no longer pending',
+		)
+		owner.respondPermission(a.id, reviewA.request.id, { outcome: 'approve' })
 		expect(transport.answers.at(-1)).toEqual({
 			cwd: pal.workspace,
 			id: 7,
@@ -745,7 +749,7 @@ it('rejects foreign Pal frames and keeps reused permission wire ids owned by the
 			],
 			permissions: [{ id: reviewB.request.id }],
 		})
-		owner.approve(b.id, reviewB.request.id, false)
+		owner.respondPermission(b.id, reviewB.request.id, { outcome: 'reject' })
 		expect(transport.answers.at(-1)).toEqual({
 			cwd: other.workspace,
 			id: 7,
@@ -983,9 +987,9 @@ it('fences new work, waits for cancelled foreground completion, stops owned jobs
 	)
 	stopDone.resolve()
 	expect((await takeover).control?.mode).toBe('operator')
-	expect(() => owner.approve(conversation.id, 'guest-review', true)).toThrow(
-		'Return this Pal computer',
-	)
+	expect(() =>
+		owner.respondPermission(conversation.id, 'guest-review', { outcome: 'approve' }),
+	).toThrow('Return this Pal computer')
 	expect(transport.calls.find((call) => call.method === 'namzu/jobs/stop')?.params).toEqual({
 		sessionId: conversation.id,
 		jobId: 'owned-job',
@@ -1056,9 +1060,9 @@ it('clears native control admission fencing only after a confirmed computer stop
 		if (method === 'namzu/pals/computer/stop') return { status: 'stopped' }
 	}
 	await owner.palComputer(pal.id)
-	expect(() => owner.approve(conversation.id, 'guest-review', true)).toThrow(
-		'Return this Pal computer',
-	)
+	expect(() =>
+		owner.respondPermission(conversation.id, 'guest-review', { outcome: 'approve' }),
+	).toThrow('Return this Pal computer')
 	await owner.stopPalComputer(pal.id)
 	expect(() => owner.send(conversation.id, 'Fresh admission')).not.toThrow()
 })
@@ -1075,9 +1079,9 @@ it('admits operator-held conversation text while keeping guest tool approvals fe
 		if (method === 'session/prompt') return { stopReason: 'end_turn' }
 	}
 	await owner.palComputer(pal.id)
-	expect(() => owner.approve(conversation.id, 'guest-review', true)).toThrow(
-		'Return this Pal computer',
-	)
+	expect(() =>
+		owner.respondPermission(conversation.id, 'guest-review', { outcome: 'approve' }),
+	).toThrow('Return this Pal computer')
 	owner.send(conversation.id, 'Just chat with me')
 	await settled.promise
 	expect(transport.calls.filter((call) => call.method === 'session/prompt')).toHaveLength(1)
@@ -1085,9 +1089,9 @@ it('admits operator-held conversation text while keeping guest tool approvals fe
 	expect(transport.calls.some((call) => call.method === 'namzu/pals/computer/return_control')).toBe(
 		false,
 	)
-	expect(() => owner.approve(conversation.id, 'guest-review', true)).toThrow(
-		'Return this Pal computer',
-	)
+	expect(() =>
+		owner.respondPermission(conversation.id, 'guest-review', { outcome: 'approve' }),
+	).toThrow('Return this Pal computer')
 })
 
 it('rejects stale model settings after an owned same-route selection and admits a fresh read', async () => {
@@ -1165,9 +1169,9 @@ it('does not let an earlier Pal status response clear newly confirmed operator a
 	await owner.takeOverPalComputer(pal.id, '1')
 	oldStatusDone.resolve()
 	await stale
-	expect(() => owner.approve(conversation.id, 'guest-review', true)).toThrow(
-		'Return this Pal computer',
-	)
+	expect(() =>
+		owner.respondPermission(conversation.id, 'guest-review', { outcome: 'approve' }),
+	).toThrow('Return this Pal computer')
 })
 
 it('reuses only an owned ready Pal input connection without reloading metadata or conversations', async () => {
@@ -1556,9 +1560,9 @@ it.each(['failed', 'unconfirmed'])(
 		)
 		expect(transport.calls.some((call) => call.method === 'namzu/pals/computer/start')).toBe(false)
 		expect(views.has(view.id)).toBe(true)
-		expect(() => owner.approve(conversation.id, 'guest-review', true)).toThrow(
-			'Return this Pal computer',
-		)
+		expect(() =>
+			owner.respondPermission(conversation.id, 'guest-review', { outcome: 'approve' }),
+		).toThrow('Return this Pal computer')
 	},
 )
 

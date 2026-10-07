@@ -151,6 +151,58 @@ describe('a tool batch that needs a human', () => {
 		expect(decision).toEqual({ action: 'reject_tools', feedback: 'not against production' })
 	})
 
+	it('hands a call preview to the client untouched, so an editor can draw the diff', async () => {
+		const wire = pair()
+		const asked: { method: string; params: unknown }[] = []
+		const stop = autoAnswering(
+			wire,
+			{ [ACP_CLIENT_REQUESTS.REQUEST_PERMISSION]: { outcome: 'approve' } },
+			asked,
+		)
+		const preview = { path: '/work/a.ts', before: 'one\n', after: 'two\n' }
+		let answered: () => void = () => {}
+		const done = new Promise<void>((resolve) => {
+			answered = resolve
+		})
+		const server = new ACPServer({
+			transport: wire.transport,
+			gateway: {
+				prompt: async ({ ask, sessionId }) => {
+					await ask({
+						sessionId,
+						toolCalls: [
+							{
+								id: 'toolu_1',
+								name: 'edit',
+								input: { path: 'a.ts' },
+								isDestructive: false,
+								preview,
+							},
+						],
+					})
+					answered()
+					return { stopReason: 'end_turn' }
+				},
+			},
+			commands: new HostCommandRegistry(),
+			presenter: emptyPresenter(),
+			agentInfo: { name: 'namzu', version: '0.0.0-test' },
+			newSessionId: () => '8940a870-873a-4868-ac8a-17f6cbfe540e',
+		})
+		const sessionId = await open(wire, server)
+		wire.deliver({
+			jsonrpc: '2.0',
+			id: 3,
+			method: 'session/prompt',
+			params: { sessionId, prompt: 'go' },
+		})
+		await done
+		stop()
+		expect(
+			(asked[0]?.params as { toolCalls: { preview?: unknown }[] }).toolCalls[0]?.preview,
+		).toEqual(preview)
+	})
+
 	it('carries the grant keys on approve_all, which ARE the latch', () => {
 		// The bridge's own latch stops it asking the CLIENT again. `remember` is
 		// the other half: it is what stops the KERNEL asking within a turn, and

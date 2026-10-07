@@ -107,6 +107,26 @@ Retry, fallback and compaction events remain outside this update vocabulary. No
 raw session event, system prompt or discarded compaction body is forwarded as a
 generic payload.
 
+## File change previews in permission requests
+
+Each entry of `session/request_permission`'s `toolCalls` may carry an optional
+`preview` (`AcpFileChangePreview`): `{ path, before, after, truncated? }`. `path` is
+the absolute path the tool resolves the call to, `before` is the file's current
+body or `null` when the call would create it, and `after` is the body once the call
+has run. A gateway computes it with the tool's own apply code: `dryRunEdit(content,
+input)`, exported from `@namzu/sdk`, runs the `edit` tool's schema, normalisation
+(single replacement, `replace_all`, `edits[]`, `insertLine`) and apply fold on a
+string and touches no file; `write` previews its `content`. A gateway sends no
+preview for a file it cannot read as text, one larger than it is willing to ship
+(the CLI's limit is 1 MiB), a path outside the turn's roots or a call the tool
+would refuse. The bridge forwards the field untouched, an older client ignores it,
+and an agent that never sets it behaves as before. A client must treat it as a
+description of the file at the time of the request, not as a promise.
+
+`reject`'s `feedback` reaches the model as the tool result of every call in the
+batch, so a client that lets a person say what to do instead should send that text
+there.
+
 ## Negotiated planning notifications
 
 An embedding host can set `AcpServerOptions.supportsTaskNotifications: true`

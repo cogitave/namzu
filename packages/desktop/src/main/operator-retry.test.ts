@@ -85,7 +85,7 @@ it('holds settlement ownership across a deferred status read and atomically star
 		const first = await review
 		if (first.kind !== 'permission') throw new Error('Missing approval')
 		await owner.send(session.id, 'Already authored queued prompt')
-		owner.approve(session.id, first.request.id, true)
+		owner.respondPermission(session.id, first.request.id, { outcome: 'approve' })
 		await entered.promise
 		owner.saveDraft(session.id, 'New prompt during settlement refresh')
 		expect(() => owner.send(session.id, 'New prompt during settlement refresh')).toThrow(
@@ -215,7 +215,7 @@ it('explicitly resumes the original turn while retaining draft, attachments and 
 	if (first.kind !== 'permission') throw new Error('Missing approval')
 	await owner.send(session.id, 'Keep authored follow-up')
 	const stopped = wait(settled)
-	owner.approve(session.id, first.request.id, true)
+	owner.respondPermission(session.id, first.request.id, { outcome: 'approve' })
 	await stopped
 	owner.saveDraft(session.id, 'Keep unsent draft')
 	const files = await owner.addAttachments(session.id, [
@@ -235,7 +235,7 @@ it('explicitly resumes the original turn while retaining draft, attachments and 
 		messages: [{ role: 'user', text: 'Wait for pause' }],
 	})
 	const done = wait(settled)
-	owner.approve(session.id, second.request.id, true)
+	owner.respondPermission(session.id, second.request.id, { outcome: 'approve' })
 	await done
 	const restored = (await owner.openConversation(project.id, session.id)).thread
 	expect(restored).toMatchObject({

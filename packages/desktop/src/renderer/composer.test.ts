@@ -181,7 +181,7 @@ it('keeps approval details readable but disables action decisions when guest aut
 	expect(
 		unavailable.match(/<fieldset\b[^>]*aria-label="Action approval controls"[^>]*>/)?.[0],
 	).toMatch(/\bdisabled=/)
-	for (const detail of ['guest.bash', 'pwd', 'Allow once', 'Decline', 'Review'])
+	for (const detail of ['Run this command?', 'pwd', 'Accept', 'Reject', 'Edit'])
 		expect(unavailable).toContain(detail)
 	expect(button(unavailable, 'Send message')).not.toMatch(/\bdisabled=/)
 	for (const guard of [
@@ -240,7 +240,7 @@ it('retains Pal attachments, queue editing and complete approval while composing
 	expect(button(html, 'Remove queued message 1')).not.toMatch(/\bdisabled=/)
 	expect(html).toContain('aria-label="Tool approval"')
 	expect(html).toContain('pwd')
-	expect(html).toContain('Allow once')
+	expect(html).toContain('Accept')
 	expect(button(html, 'Stop turn')).not.toMatch(/\bdisabled=/)
 	expect(button(html, 'Queue message')).not.toMatch(/\bdisabled=/)
 })
@@ -380,7 +380,7 @@ it('retains functional normal attachment, plugin, effort, queue and approval con
 	expect(button(html, 'Remove notes.txt')).not.toMatch(/\bdisabled=/)
 	expect(button(html, 'Remove queued message 1')).not.toMatch(/\bdisabled=/)
 	expect(html).toContain('aria-label="Tool approval"')
-	expect(html).toContain('Allow once')
+	expect(html).toContain('Accept')
 	expect(html).toContain('data-composer-permission="auto"')
 	expect(button(html, 'Stop turn')).not.toMatch(/\bdisabled=/)
 	expect(button(html, 'Queue message')).not.toMatch(/\bdisabled=/)

@@ -1927,10 +1927,38 @@ loaded states. Enable/Disable operates only on an idle conversation without
 pending reviews or running background jobs. Choices survive that conversation's
 model changes and remain session-local; they do not update startup configuration.
 
-Tools stream their registry-owned presentations. Allow once or decline the exact
-pending batch in the attached composer approval strip. A compact summary and
-batch count remain visible; Review action details exposes every exact input and
-destructive marker. Follow-up drafting and queuing remain available while a
+Tools stream their registry-owned presentations. A pending batch is answered in
+the approval card attached above the composer; it answers the whole batch, and
+"1 of N" shows when several reviews wait. The title names the call: "Edit
+routes.ts?", "Create README.md?", "Delete x.ts?", "Run this command?" or "Allow
+web fetch?", with the full path as a tooltip and `+N −M` line counts for a file
+change. A file change shows an `@pierre/diffs` unified diff (line numbers, the
+theme of the Changes tab, at most 280 px tall with a "Show more" toggle up to 60
+percent of the window; a diff past the Changes tab's size gate falls back to its
+plain patch). A command shows in a monospace box; any other tool shows a readable
+key and value list. Details keeps the exact inputs, and a destructive call keeps
+a warning line. The footer, right-aligned, holds a wrap toggle (only for a diff),
+**Edit**, **Reject** (red text) and **Accept** (green text). Reject sends a plain
+reject. Accept approves. Edit turns the footer into a one-line field, "Tell Namzu
+what to do instead", with Send and Cancel: Send rejects the call and the model
+reads "The user declined this change and said: <your note>" (at most 4,000
+characters in all), and the turn goes on with that instruction. Escape cancels
+the field. Ctrl or Cmd+Enter accepts only while focus is inside the card; nothing
+listens on the window, and the card never takes focus from the composer.
+
+The diff comes from the CLI, which dry-runs the SDK's own `dryRunEdit` (or the
+`write` body) against the file as it is, so what the card shows is what the tool
+will write. There is no preview, and the card says "Preview not available" with
+the change as the call described it, for a file over 1 MiB, a binary file, a path
+outside the turn's directory, a call the tool would refuse, and for the Codex and
+Claude Code engines, which send none. The renderer API answers with
+`respondPermission(sessionId, requestId, { outcome: 'approve' | 'reject', feedback? })`
+(this replaces `approve`); the main process rejects a note longer than 4,000
+characters and a note on an approval. A declined call's tool result reaches the
+transcript as the model's tool result text. A finished turn's history carries no
+presentation for a failed call, so after a reload the row of a declined call
+reads "details unavailable"; the note itself stays in the model's history.
+Follow-up drafting and queuing remain available while a
 review waits. Cancellation aborts its permission wait. Approval IDs belong to
 the conversation that asked; navigation does not redirect an answer to another
 conversation. Background work shows session-owned shells, retained output and a

@@ -64,6 +64,7 @@ import { withCliHarnesses } from './acp-harness.js'
 import { type ProviderRetryStatus, readProviderRetryStatus } from './acp-provider-retry.js'
 import { createDesktopHostExtensions } from './desktop-host.js'
 import { desktopModelCatalogue } from './desktop-model-catalogue.js'
+import { withPreviews } from './permission-preview.js'
 import type { CommandContext, CommandDef } from './types.js'
 
 /** Same read as `cli.ts`'s `--version`: the manifest, never a second copy. */
@@ -901,12 +902,7 @@ export function createCliAcpRuntime(
 				}) => {
 					const outcome = await ask({
 						sessionId,
-						toolCalls: request.toolCalls.map((call) => ({
-							id: call.id,
-							name: call.name,
-							input: call.input,
-							isDestructive: call.isDestructive,
-						})),
+						toolCalls: await withPreviews(request.toolCalls, [record.cwd]),
 					})
 					switch (outcome.kind) {
 						case 'approve':
@@ -1065,12 +1061,7 @@ export function createCliAcpRuntime(
 					onPermission: async (request) => {
 						const outcome = await ask({
 							sessionId,
-							toolCalls: request.toolCalls.map((call) => ({
-								id: call.id,
-								name: call.name,
-								input: call.input,
-								isDestructive: call.isDestructive,
-							})),
+							toolCalls: await withPreviews(request.toolCalls, [record.cwd]),
 						})
 						if (outcome.kind === 'approve_all') return { kind: 'approve-all' }
 						if (outcome.kind === 'approve') return { kind: 'approve' }

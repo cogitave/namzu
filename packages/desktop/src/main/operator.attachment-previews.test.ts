@@ -99,7 +99,7 @@ it('bounds live previews across owners and strips every copy of a retried image 
 	const retryEnded = wait(
 		(event) => event.kind === 'state' && event.sessionId === first.id && !event.running,
 	)
-	owner.approve(first.id, retryRequest.id, true)
+	owner.respondPermission(first.id, retryRequest.id, { outcome: 'approve' })
 	await retryEnded
 
 	for (let index = 0; index < 7; index += 1) {
@@ -115,7 +115,7 @@ it('bounds live previews across owners and strips every copy of a retried image 
 		const ended = wait(
 			(event) => event.kind === 'state' && event.sessionId === sessionId && !event.running,
 		)
-		owner.approve(sessionId, request.id, true)
+		owner.respondPermission(sessionId, request.id, { outcome: 'approve' })
 		await ended
 	}
 	const firstThread = (await owner.openConversation(project.id, first.id)).thread
@@ -164,7 +164,7 @@ it('bounds live previews across owners and strips every copy of a retried image 
 	const moreEnded = wait(
 		(event) => event.kind === 'state' && event.sessionId === second.id && !event.running,
 	)
-	owner.approve(second.id, moreRequest.id, true)
+	owner.respondPermission(second.id, moreRequest.id, { outcome: 'approve' })
 	await moreEnded
 	expect((await owner.openConversation(project.id, first.id)).thread?.queuedItems[0]).toMatchObject(
 		{
@@ -186,7 +186,7 @@ it('bounds live previews across owners and strips every copy of a retried image 
 		attachments: [{ type: 'image', mediaType: 'image/png', data: queuedBytes.toString('base64') }],
 	})
 	const queuedDelivery = permission()
-	owner.approve(first.id, draftRequest.id, true)
+	owner.respondPermission(first.id, draftRequest.id, { outcome: 'approve' })
 	const queuedRequest = await queuedDelivery
 	expect(queuedRequest.calls[0]?.input).toMatchObject({
 		attachments: [{ type: 'image', mediaType: 'image/png', data: queuedBytes.toString('base64') }],
@@ -194,7 +194,7 @@ it('bounds live previews across owners and strips every copy of a retried image 
 	const queuedEnded = wait(
 		(event) => event.kind === 'state' && event.sessionId === first.id && !event.running,
 	)
-	owner.approve(first.id, queuedRequest.id, true)
+	owner.respondPermission(first.id, queuedRequest.id, { outcome: 'approve' })
 	await queuedEnded
 	expect(owner.attachments(first.id)).toEqual([])
 })
@@ -219,7 +219,7 @@ it('commits budget evictions before a renderer publication callback can throw', 
 		const ended = wait(
 			(event) => event.kind === 'state' && event.sessionId === session.id && !event.running,
 		)
-		owner.approve(session.id, request.id, true)
+		owner.respondPermission(session.id, request.id, { outcome: 'approve' })
 		await ended
 	}
 	const failingFiles = owner.addAttachments(session.id, [

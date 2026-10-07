@@ -83,15 +83,17 @@ it('keeps review ownership, queued text and the live projection across UI reatta
 		permissions: [{ id: review.id }],
 		messages: [{ role: 'user', text: 'First request' }],
 	})
-	expect(() => owner.approve(b.id, review.id, true)).toThrow('no longer pending')
+	expect(() => owner.respondPermission(b.id, review.id, { outcome: 'approve' })).toThrow(
+		'no longer pending',
+	)
 	const next = permission()
-	owner.approve(a.id, review.id, true)
+	owner.respondPermission(a.id, review.id, { outcome: 'approve' })
 	const nextReview = await next
 	expect(nextReview.id).not.toBe(review.id)
 	const ended = wait(
 		(event) => event.kind === 'state' && event.sessionId === a.id && !event.running,
 	)
-	owner.approve(a.id, nextReview.id, false)
+	owner.respondPermission(a.id, nextReview.id, { outcome: 'reject' })
 	await ended
 	expect((await owner.openConversation(project.id, a.id)).thread).toMatchObject({
 		running: false,
@@ -104,7 +106,9 @@ it('keeps review ownership, queued text and the live projection across UI reatta
 			{ role: 'assistant', text: 'Declined answer' },
 		],
 	})
-	expect(() => owner.approve(a.id, review.id, true)).toThrow('no longer pending')
+	expect(() => owner.respondPermission(a.id, review.id, { outcome: 'approve' })).toThrow(
+		'no longer pending',
+	)
 })
 it('cancels pending permission without discarding an authored queue', async () => {
 	const { owner, permission, wait } = harness()
@@ -279,7 +283,7 @@ it('keeps a streamed completion once when the prompt response follows, without s
 	const stopped = wait(
 		(event) => event.kind === 'state' && event.sessionId === session.id && !event.running,
 	)
-	owner.approve(session.id, request.id, true)
+	owner.respondPermission(session.id, request.id, { outcome: 'approve' })
 	await stopped
 	expect(turnEndings(recorded, session.id)).toEqual([
 		expect.objectContaining({
@@ -324,7 +328,7 @@ it('reconnects the same project and reattaches its conversation without replayin
 	const request = await review
 	expect(request.calls[0]?.input).toEqual({ prompt: 'Explicit retry' })
 	const ended = wait((event) => event.kind === 'state' && !event.running)
-	owner.approve(a.id, request.id, true)
+	owner.respondPermission(a.id, request.id, { outcome: 'approve' })
 	await ended
 })
 
@@ -398,7 +402,7 @@ it('keeps an unsent conversation usable after reconnect without loading missing 
 	expect(request.sessionId).toBe(unsent.id)
 	expect(request.calls[0]?.input).toEqual({ prompt: 'My unsubmitted request' })
 	const ended = wait((event) => event.kind === 'state' && !event.running)
-	owner.approve(unsent.id, request.id, true)
+	owner.respondPermission(unsent.id, request.id, { outcome: 'approve' })
 	await ended
 	expect((await owner.openConversation(project.id, unsent.id)).messages).toContainEqual(
 		expect.objectContaining({ role: 'assistant', text: 'Approved answer' }),
@@ -446,7 +450,7 @@ it('keeps attachment-only and settings-only draft conversations listed and usabl
 	const fileEnded = wait(
 		(event) => event.kind === 'state' && event.sessionId === fileOnly.id && !event.running,
 	)
-	owner.approve(fileOnly.id, fileRequest.id, true)
+	owner.respondPermission(fileOnly.id, fileRequest.id, { outcome: 'approve' })
 	await fileEnded
 	const settingsReview = permission()
 	owner.send(
@@ -459,7 +463,7 @@ it('keeps attachment-only and settings-only draft conversations listed and usabl
 	const settingsEnded = wait(
 		(event) => event.kind === 'state' && event.sessionId === settingsOnly.id && !event.running,
 	)
-	owner.approve(settingsOnly.id, settingsRequest.id, true)
+	owner.respondPermission(settingsOnly.id, settingsRequest.id, { outcome: 'approve' })
 	await settingsEnded
 })
 

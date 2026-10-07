@@ -4,6 +4,7 @@ import type {
 	ComposerModelSettings,
 	DesktopSendOptions,
 	HarnessView,
+	PermissionResponse,
 	PermissionView,
 	ProjectView,
 	ProviderView,
@@ -156,7 +157,7 @@ export function Composer({
 	onOpenProject: () => void
 	empty: boolean
 	permissions: PermissionView[]
-	onApproval: (permission: PermissionView, approved: boolean) => void
+	onApproval: (permission: PermissionView, response: PermissionResponse) => unknown
 	attachments: AttachmentView[]
 	draftDisabled?: boolean
 	attachmentsBusy: boolean
@@ -517,9 +518,9 @@ export function Composer({
 									key={permissions[0].id}
 									permission={permissions[0]}
 									count={permissions.length}
-									onRespond={(permission, approved) => {
-										if (!approvalDisabled) onApproval(permission, approved)
-									}}
+									onRespond={(permission, response) =>
+										approvalDisabled ? false : onApproval(permission, response)
+									}
 								/>
 							</fieldset>
 						)}

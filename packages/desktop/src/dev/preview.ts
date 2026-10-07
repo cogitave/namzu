@@ -36,6 +36,7 @@ import {
 	activityWork,
 	createActivityLive,
 } from './preview-activity.js'
+import { createApprovalPreview } from './preview-approval.js'
 import { sampleWorkingDiff, sampleWorkingTree } from './preview-changes.js'
 import {
 	listSampleDirectory,
@@ -375,6 +376,12 @@ const drafts = new Map<string, string>()
 const settings = new Map<string, DraftSettings>()
 const selections = new Map<string, ProviderView['selected']>()
 const listeners = new Set<(event: DesktopEvent) => void>()
+// window.namzuPreviewApproval.raise('edit' | 'create' | 'command' | 'none' | 'other' | 'long') shows
+// a scripted permission card; `answers` lists what the card sent back.
+const approvalPreview = createApprovalPreview((event) => {
+	for (const listener of listeners) listener(event)
+})
+;(window as unknown as { namzuPreviewApproval: unknown }).namzuPreviewApproval = approvalPreview
 const available: ProviderView['available'] = [
 	{
 		id: 'anthropic',
@@ -1208,7 +1215,9 @@ const api: DesktopApi = {
 	cancel: async () => nativeOnly('Stopping model work'),
 	takeQueued: async () => nativeOnly('Editing real queued work'),
 	removeQueued: async () => nativeOnly('Removing real queued work'),
-	approve: async () => nativeOnly('Approving a real tool call'),
+	respondPermission: async (sessionId, requestId, response) => {
+		approvalPreview.answer(sessionId, requestId, response)
+	},
 	jobs: async (id) => {
 		conversation(id)
 		if (id !== 'sample-thread-3') return []

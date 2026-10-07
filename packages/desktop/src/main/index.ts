@@ -29,6 +29,7 @@ import type {
 	PalChanges,
 	PalComputerInput,
 	PalInput,
+	PermissionResponse,
 	WorkspaceAction,
 } from '../shared/protocol.js'
 import {
@@ -326,7 +327,7 @@ function register(): void {
 		['cancel', 0],
 		['takeQueued', 0],
 		['removeQueued', 0],
-		['approve', 0],
+		['respondPermission', 0],
 		['stopJob', 0],
 		['renameConversation', 0],
 		['setConversationPinned', 0],
@@ -823,8 +824,8 @@ function register(): void {
 	handle('cancel', (id: string) => operator.cancel(id))
 	handle('takeQueued', (id: string, itemId?: string) => operator.takeQueued(id, itemId))
 	handle('removeQueued', (id: string, itemId: string) => operator.removeQueued(id, itemId))
-	handle('approve', (id: string, request: string, approved: boolean) =>
-		operator.approve(id, request, approved),
+	handle('respondPermission', (id: string, request: string, response: PermissionResponse) =>
+		operator.respondPermission(id, request, response),
 	)
 	handle('jobs', (id: string) => operator.jobs(id))
 	handle('backgroundWorkStatuses', () => operator.backgroundWorkStatuses())

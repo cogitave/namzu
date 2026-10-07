@@ -401,12 +401,12 @@ describe('pane write admission', () => {
 	it('guards both attachment owners and all conversation control mutations', async () => {
 		const moveAttachments = vi.fn<DesktopApi['moveAttachments']>().mockResolvedValue([])
 		const send = vi.fn<DesktopApi['send']>().mockResolvedValue(undefined)
-		const approve = vi.fn<DesktopApi['approve']>().mockResolvedValue(undefined)
+		const respondPermission = vi.fn<DesktopApi['respondPermission']>().mockResolvedValue(undefined)
 		const selectHarness = vi
 			.fn<NonNullable<DesktopApi['selectHarness']>>()
 			.mockResolvedValue({ selected: 'namzu', locked: false, engines: [] })
 		const controller = createWorkspacePaneApi(
-			bridge({ moveAttachments, send, approve, selectHarness }),
+			bridge({ moveAttachments, send, respondPermission, selectHarness }),
 			{
 				owns: (id) => id === 'owned',
 				blocked: () => false,
@@ -416,11 +416,13 @@ describe('pane write admission', () => {
 		await expect(controller.api.moveAttachments('other', 'owned')).rejects.toThrow('another pane')
 		await controller.api.moveAttachments('project:p', 'owned')
 		await expect(controller.api.send('other', 'wrong')).rejects.toThrow('another pane')
-		await expect(controller.api.approve('other', 'request', true)).rejects.toThrow('another pane')
+		await expect(
+			controller.api.respondPermission('other', 'request', { outcome: 'approve' }),
+		).rejects.toThrow('another pane')
 		await expect(controller.api.selectHarness?.('other', 'namzu')).rejects.toThrow('another pane')
 		expect(moveAttachments).toHaveBeenCalledExactlyOnceWith('project:p', 'owned')
 		expect(send).not.toHaveBeenCalled()
-		expect(approve).not.toHaveBeenCalled()
+		expect(respondPermission).not.toHaveBeenCalled()
 		expect(selectHarness).not.toHaveBeenCalled()
 	})
 

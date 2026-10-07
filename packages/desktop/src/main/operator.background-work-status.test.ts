@@ -77,7 +77,7 @@ it('keeps ordinary background status in A while B is selected, then revokes it o
 	owner.send(a.id, 'First request')
 	const review = await permission
 	if (review.kind !== 'permission') throw new Error('Missing fixture review')
-	owner.approve(a.id, review.request.id, true)
+	owner.respondPermission(a.id, review.request.id, { outcome: 'approve' })
 	const observed = await status
 	if (observed.kind !== 'background-work-status') throw new Error('Missing status')
 	expect(observed.status).toMatchObject({ state: 'known', runningCount: 1 })

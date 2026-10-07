@@ -136,6 +136,38 @@ const inputSchema = z
 export type EditInput = z.infer<typeof inputSchema>
 
 /**
+ * What an `edit` call WOULD produce for a file body, without touching any file.
+ *
+ * The same schema, the same normalisation and the same `applyEdit` fold that
+ * `execute` runs, so a host that shows a proposed change before approval is
+ * showing what the tool will do, not a second reading of the arguments. Pure:
+ * the caller supplies the current body (and decides what to do when there is no
+ * file). The no-op refusal is repeated because a call `execute` would refuse
+ * has no change to preview.
+ */
+export function dryRunEdit(
+	content: string,
+	input: unknown,
+): { success: true; content: string } | { success: false; error: string } {
+	const parsed = inputSchema.safeParse(input)
+	if (!parsed.success) {
+		return { success: false, error: parsed.error.issues.map((issue) => issue.message).join('; ') }
+	}
+	const normalized = normalizeEditInput(parsed.data)
+	if (!normalized.success) return normalized
+	if (
+		normalized.operations.some(
+			(operation) =>
+				operation.operation === 'replace' && operation.oldString === operation.newString,
+		)
+	) {
+		return { success: false, error: 'old_string and new_string are identical — no change needed' }
+	}
+	const result = applyEdit(content, normalized.operations)
+	return result.success ? { success: true, content: result.content } : result
+}
+
+/**
  * What a capable provider constrains the model to emit: one shape, closed.
  *
  * The aliases above exist for hosts, not for models. A model offered

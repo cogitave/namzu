@@ -1,3 +1,4 @@
+import type { AcpFileChangePreview } from '../../types/acp/index.js'
 import type { HITLResumeDecision, ToolCallSummary } from '../../types/hitl/index.js'
 
 /**
@@ -10,7 +11,10 @@ import type { HITLResumeDecision, ToolCallSummary } from '../../types/hitl/index
  */
 export interface AcpPermissionRequest {
 	readonly sessionId: string
-	readonly toolCalls: readonly ToolCallSummary[]
+	readonly toolCalls: readonly (ToolCallSummary & {
+		/** Rides to the client untouched; see {@link AcpFileChangePreview}. */
+		readonly preview?: AcpFileChangePreview
+	})[]
 }
 
 /**

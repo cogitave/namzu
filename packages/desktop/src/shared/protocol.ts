@@ -248,12 +248,30 @@ export interface QueuedMessageView {
 	effort?: ReasoningEffort
 	permissionMode?: DesktopSendOptions['permissionMode']
 }
+/** The file change a pending edit or write would make, worked out by the CLI. `before: null` is a new file. */
+export interface PermissionPreview {
+	path: string
+	before: string | null
+	after: string
+	truncated?: boolean
+}
 export interface PermissionView {
 	id: string
 	sessionId: string
 	projectId: string
-	calls: { id: string; name: string; input: unknown; isDestructive: boolean }[]
+	calls: {
+		id: string
+		name: string
+		input: unknown
+		isDestructive: boolean
+		/** Absent for other tools and for engines that send none. */
+		preview?: PermissionPreview
+	}[]
 }
+/** Reject carries the person's note to the model; approve carries nothing. */
+export type PermissionResponse =
+	| { outcome: 'approve'; feedback?: undefined }
+	| { outcome: 'reject'; feedback?: string }
 export type WindowMenu = 'edit' | 'view' | 'window'
 export type WindowAppearance = 'light' | 'dark'
 export interface WindowChrome {
@@ -628,7 +646,11 @@ export interface DesktopApi {
 	cancel(sessionId: string): Promise<void>
 	takeQueued(sessionId: string, itemId?: string): Promise<string | null>
 	removeQueued(sessionId: string, itemId: string): Promise<void>
-	approve(sessionId: string, requestId: string, approved: boolean): Promise<void>
+	respondPermission(
+		sessionId: string,
+		requestId: string,
+		response: PermissionResponse,
+	): Promise<void>
 	jobs(sessionId: string): Promise<JobView[]>
 	/** Metadata for already observed ordinary work; never admission or a job-output read. */
 	backgroundWorkStatuses?(): Promise<Record<string, BackgroundWorkStatus>>

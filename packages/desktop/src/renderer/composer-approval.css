@@ -1,0 +1,231 @@
+/* The edit approval card: a diff box with a right-aligned action row, as in the reference. */
+.approval-card {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	min-width: 0;
+	font-size: 12px;
+	line-height: 1.4;
+}
+.approval-head {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+}
+.approval-head-icon {
+	flex: none;
+	width: 16px;
+	height: 16px;
+	color: var(--warning-foreground);
+}
+.approval-title {
+	min-width: 0;
+	margin: 0;
+	overflow: hidden;
+	color: var(--foreground);
+	font-size: 13px;
+	font-weight: 600;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.approval-counts {
+	display: inline-flex;
+	flex: none;
+	gap: 6px;
+	font-family: var(--font-mono);
+	font-size: 12px;
+	font-variant-numeric: tabular-nums;
+}
+.approval-counts .changes-added {
+	color: var(--update-foreground);
+}
+.approval-counts .changes-removed {
+	color: var(--error-foreground);
+}
+.approval-count {
+	margin-left: auto;
+	flex: none;
+	color: var(--muted-foreground);
+	font-variant-numeric: tabular-nums;
+}
+.approval-note {
+	margin: 0;
+	color: var(--muted-foreground);
+}
+.approval-warning {
+	margin: 0;
+	color: var(--warning-foreground);
+}
+.approval-diff {
+	overflow: hidden;
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	background: var(--code-background);
+}
+.approval-diff-scroll {
+	max-height: 280px;
+	overflow: auto;
+	scrollbar-width: thin;
+}
+.approval-diff-scroll[data-expanded] {
+	max-height: 60vh;
+}
+.approval-diff-scroll:focus-visible,
+.approval-command:focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: -2px;
+}
+.approval-more {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 4px;
+	width: 100%;
+	padding: 4px 8px;
+	border: 0;
+	border-top: 1px solid var(--border);
+	background: transparent;
+	color: var(--muted-foreground);
+	font: inherit;
+	cursor: pointer;
+}
+.approval-more:hover {
+	background: var(--accent);
+	color: var(--foreground);
+}
+.approval-more:focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: -2px;
+}
+.approval-more svg {
+	width: 14px;
+	height: 14px;
+}
+.approval-more svg[data-up] {
+	rotate: 180deg;
+}
+.approval-command {
+	max-height: 140px;
+	margin: 0;
+	padding: 8px 10px;
+	overflow: auto;
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	background: var(--code-background);
+	color: var(--code-foreground);
+	font-family: var(--font-mono);
+	font-size: 12px;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+.approval-entries {
+	display: grid;
+	gap: 4px;
+	margin: 0;
+}
+.approval-entry {
+	display: grid;
+	grid-template-columns: minmax(72px, 28%) minmax(0, 1fr);
+	gap: 8px;
+}
+.approval-entry dt {
+	color: var(--muted-foreground);
+}
+.approval-entry dd {
+	margin: 0;
+	color: var(--foreground);
+	overflow-wrap: anywhere;
+}
+.approval-details {
+	color: var(--muted-foreground);
+}
+.approval-details summary {
+	width: fit-content;
+	cursor: pointer;
+	border-radius: 4px;
+}
+.approval-details summary:focus-visible {
+	outline: 2px solid var(--ring);
+}
+.approval-details pre {
+	max-height: 140px;
+	margin: 6px 0 0;
+	padding: 8px;
+	overflow: auto;
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	background: var(--muted);
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+.approval-footer {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 8px;
+	padding-top: 2px;
+}
+.approval-note-field {
+	flex: 1;
+	min-width: 0;
+	height: 28px;
+	padding: 0 10px;
+	border: 1px solid var(--input);
+	border-radius: 8px;
+	background: transparent;
+	color: var(--foreground);
+	font: inherit;
+}
+.approval-note-field::placeholder {
+	color: var(--placeholder);
+}
+.approval-note-field:focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: 1px;
+}
+.approval-button {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	height: 28px;
+	padding: 0 12px;
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	background: transparent;
+	color: var(--foreground);
+	font: inherit;
+	cursor: pointer;
+	transition: background-color 120ms var(--motion-ease);
+}
+.approval-button:hover:not(:disabled) {
+	background: var(--accent);
+}
+.approval-button:disabled {
+	opacity: 0.5;
+	cursor: default;
+}
+.approval-button:focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: 1px;
+}
+.approval-icon-button {
+	width: 28px;
+	padding: 0;
+	color: var(--muted-foreground);
+}
+.approval-icon-button svg {
+	width: 14px;
+	height: 14px;
+}
+.approval-icon-button[aria-pressed="true"] {
+	background: var(--accent);
+	color: var(--foreground);
+}
+/* Red and green text on the card surface, both themes at 4.5:1 or better. */
+.approval-button[data-tone="reject"] {
+	color: var(--error-foreground);
+}
+.approval-button[data-tone="accept"] {
+	color: var(--update-foreground);
+}
