@@ -1,0 +1,86 @@
+{
+  "schema": "namzu.desktop-autonomy.native-final-activation.v1",
+  "sourceCommit": "642104d378ecef4c687fcb2f8e26fb444c6af146",
+  "passed": true,
+  "modelRequests": 0,
+  "computerActions": 0,
+  "packageInstalls": 0,
+  "changedRuntimeSet": [
+    "cli/integrations/harness/claude-protocol.js"
+  ],
+  "installedClaudeModuleSha256": "2758eca11bc83eadd29d6386b10bf05c8a86153337d81bc2d2c8f8e6569e5e16",
+  "compiledJournalReplayMatchesInstalledModule": true,
+  "operations": [
+    {
+      "operation": "metadata preparation",
+      "passed": true,
+      "phase": "prepared",
+      "privateReceiptSha256": "75b5a7bcc1eaea6f2390a83099e4c12772cf5c60f36bcb003a8c0cefe8e7c6a5",
+      "checks": [
+        "metadata preflight only",
+        "eight reviewed modules; exact reviewed changes: cli/integrations/harness/claude-protocol.js; SDK byte exact",
+        "225 dependency links and 11 users of one SDK root unchanged"
+      ]
+    },
+    {
+      "operation": "activation",
+      "passed": true,
+      "phase": "complete",
+      "cliModuleCopies": 1,
+      "sdkCopies": 0,
+      "physicalStoppedMachineObservations": 3,
+      "sourceBytesMatch": true,
+      "protectedDigestsEqual": true,
+      "privateReceiptSha256": "147199bbffe03093da92d6b48f0ebb3a9e8a5e9c004c010962e44344755652c2",
+      "checks": [
+        "applied 1 changed CLI and 0 changed SDK module(s) after graceful close; reviewed 7 CLI and 1 SDK module(s)",
+        "staged complete built desktop and retained old dist as backup",
+        "fresh desktop main/preload/renderer",
+        "original tab order and active conversation restored",
+        "messages, drafts, model/settings, files, tasks, profiles and computers preserved",
+        "launch and dependency graph unchanged"
+      ]
+    },
+    {
+      "operation": "fresh read-only verification",
+      "passed": true,
+      "phase": "preflight",
+      "cliModuleCopies": 0,
+      "sdkCopies": 0,
+      "physicalStoppedMachineObservations": 1,
+      "sourceBytesMatch": true,
+      "protectedDigestsEqual": true,
+      "privateReceiptSha256": "ccb1fe2b3b8a4b1c6571696e67fc9f08aeafba12bc2726211ff36a9ae6b466b8",
+      "inheritedActivationChecks": [
+        "applied 1 changed CLI and 0 changed SDK module(s) after graceful close; reviewed 7 CLI and 1 SDK module(s)",
+        "staged complete built desktop and retained old dist as backup",
+        "fresh desktop main/preload/renderer",
+        "original tab order and active conversation restored",
+        "messages, drafts, model/settings, files, tasks, profiles and computers preserved",
+        "launch and dependency graph unchanged"
+      ],
+      "currentVerificationChecks": [
+        "fresh exact main/preload/renderer bytes",
+        "original tab order, authored message bodies, drafts, files, selected model/settings, tasks, profiles and computers preserved"
+      ]
+    }
+  ],
+  "currentWindow": {
+    "responding": true,
+    "title": "Namzu",
+    "hasWindow": true,
+    "privateReceiptSha256": "ffc0d98b9cc869558434cc2bddfa99d16538e1bc6f596633c047c141454bd996"
+  },
+  "fourPreviouslyVerifiedJournals": {
+    "checkedFiles": 4,
+    "allBytesUnchanged": true,
+    "privateReceiptSha256": "df18730f7a699ca0f39e849732fa4528450b41479b9962c3787e0b7534306218"
+  },
+  "limitations": [
+    "The stopped-machine exception requires the exact inert unavailable computer metadata and physically stopped selected Podman machine. No computer or VM was started or stopped.",
+    "Protected user-state checks use the reviewed activation guard’s exact semantic digests, with its documented transport/order/scroll normalization.",
+    "The four journal files are previously verified owned files, not an account-wide audit.",
+    "The corrected Claude normalizer is installed byte exactly and checked against the actual recorded native blocks; no additional live model request was sent after correction.",
+    "Provider policy coverage remains the limited read-only fixture comparison; this update does not claim write or destructive permission-policy verification."
+  ]
+}

@@ -199,6 +199,18 @@ regression test. The journal itself omits partial stream events; a terminal fram
 comes from the separately confirmed end_turn and adds no tool evidence. This is
 recorded-block verification, not another live provider run after the fix.
 
+The [final Windows activation](artifacts/native-final-activation-summary.json)
+installs source commit `642104d378ecef4c687fcb2f8e26fb444c6af146` after the frozen
+workspace gates. One reviewed Claude module changes; SDK and the remaining CLI
+payload stay byte exact. Main, preload and renderer match the complete built
+Desktop manifest. A fresh read-only verifier confirms the protected state
+digests and the unchanged launch/dependency graph. The Namzu window exists and
+responds. The same four previously verified journals remain byte exact after
+restart; selected-machine physical checks remain stopped. The installed Claude
+module hash matches the compiled real-journal replay. No model request, package
+install or computer/VM start or stop is part of activation. The two implementation
+commits are `0f3df20a5` and `642104d37`; neither is pushed.
+
 ## Remaining architectural opportunities
 
 - Namzu already has `DeliverableRef` with file/hash/size, message, summary and
