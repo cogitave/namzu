@@ -11,3 +11,9 @@ export function compareConversationRecency(left: ConversationView, right: Conver
 	if (difference !== 0) return difference
 	return left.id < right.id ? -1 : left.id > right.id ? 1 : 0
 }
+
+/** Pinned conversations lead; each side then keeps its recency order. */
+export function compareConversationOrder(left: ConversationView, right: ConversationView) {
+	const pinned = Number(right.pinned === true) - Number(left.pinned === true)
+	return pinned !== 0 ? pinned : compareConversationRecency(left, right)
+}

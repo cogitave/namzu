@@ -7,7 +7,7 @@ import {
 import type { ThreadState } from '../shared/projection.js'
 import type { ConversationView, ProjectView } from '../shared/protocol.js'
 import { BrandDither } from './brand-dither.js'
-import { compareConversationRecency } from './conversation-order.js'
+import { compareConversationOrder } from './conversation-order.js'
 import {
 	ChevronDownIcon,
 	FolderIcon,
@@ -87,7 +87,7 @@ export function Sidebar({
 	const projectById = new Map(projects.map((project) => [project.id, project]))
 	const recent = [...new Map(conversations.map((item) => [item.id, item])).values()]
 		.filter((item) => projectById.has(item.projectId))
-		.sort(compareConversationRecency)
+		.sort(compareConversationOrder)
 		.filter(
 			(item, index) =>
 				index < 10 ||

@@ -38,6 +38,7 @@ import type {
 	PalView,
 	PermissionView,
 	PluginInventoryView,
+	ProjectGitView,
 	ProjectView,
 	ProviderView,
 } from '../shared/protocol.js'
@@ -183,6 +184,19 @@ interface Conversation {
 	}
 	restorePending?: boolean
 	permissions: Map<string, string | number>
+}
+/** One control-character filter for titles and git strings: C0, DEL and C1. */
+function withoutControls(value: string): string {
+	return Array.from(value)
+		.filter((character) => {
+			const code = character.codePointAt(0) as number
+			return code >= 0x20 && code !== 0x7f && !(code >= 0x80 && code < 0xa0)
+		})
+		.join('')
+}
+function withoutPin(view: ConversationView): ConversationView {
+	const { pinned: _pinned, ...rest } = view
+	return rest
 }
 export class Operator {
 	private readonly communication: PalCommunicationManager
@@ -1369,6 +1383,12 @@ export class Operator {
 				title: row.title,
 				updatedAt: row.updatedAt,
 				projectId: id,
+				...(this.runtimeSession(project, row.id)?.view.pinned ||
+				(!this.runtimeSession(project, row.id) &&
+					(project.conversationCatalogue?.get(row.id)?.pinned ||
+						this.savedDesktop?.conversations.find((item) => item.view.id === row.id)?.view.pinned))
+					? { pinned: true as const }
+					: {}),
 				...(row.harness
 					? { harness: row.harness }
 					: this.runtimeSession(project, row.id)?.view.harness
@@ -1522,6 +1542,199 @@ export class Operator {
 		} finally {
 			this.archivingConversations.delete(sessionId)
 		}
+	}
+	/** Re-publishes one conversation's identity after a title, pin or fork change. */
+	private commitConversationView(session: Conversation, project: Project): ConversationView {
+		const view = { ...session.view }
+		const catalogued = project.conversationCatalogue?.get(view.id)
+		if (catalogued) {
+			const { pinned: _pinned, ...rest } = catalogued
+			project.conversationCatalogue?.set(view.id, {
+				...rest,
+				title: view.title,
+				...(view.pinned ? { pinned: true as const } : {}),
+			})
+		}
+		this.persistDesktop()
+		this.emit({ kind: 'conversation-updated', sessionId: view.id, view })
+		return { ...view }
+	}
+	/**
+	 * A sidebar row is catalogue-only until it is opened. Acting on it adopts it with the
+	 * record shape a fork gets (history read lazily), so the change lands in the saved store.
+	 */
+	private adoptCatalogued(sessionId: string): void {
+		if (this.conversations.has(sessionId)) return
+		this.assertConversationAvailable(sessionId)
+		const catalogued = [...this.projects.values()]
+			.flatMap((item) => [...(item.conversationCatalogue?.values() ?? [])])
+			.find((item) => item.id === sessionId)
+		if (!catalogued) return
+		const project = this.project(catalogued.projectId)
+		this.conversations.set(sessionId, {
+			view: { ...catalogued },
+			runtimeSessionId: sessionId,
+			hasPrompted: true,
+			needsLoad: true,
+			needsHistory: true,
+			client: project.client,
+			running: false,
+			queue: [],
+			draft: '',
+			projection: emptyThread(),
+			permissions: new Map(),
+		})
+	}
+	/** Rename, fork and Markdown export exist for Namzu-engine ordinary conversations only. */
+	private namzuConversation(sessionId: unknown, action: string): Conversation {
+		if (typeof sessionId !== 'string' || !sessionId.trim() || sessionId.length > 400)
+			throw new Error('Invalid conversation.')
+		this.adoptCatalogued(sessionId)
+		const session = this.session(sessionId)
+		if (session.view.palId) throw new Error(`A Pal conversation cannot ${action}.`)
+		if (session.view.harness && session.view.harness !== 'namzu')
+			throw new Error(`This engine’s conversation cannot ${action} from Namzu.`)
+		return session
+	}
+	private conversationActionsClient(project: Project): RuntimeClient {
+		if (!project.view.trusted) throw new Error('Trust this folder first.')
+		if (!project.client.supportsConversationActions())
+			throw new Error('Update Namzu to a version that supports this conversation action.')
+		return project.client
+	}
+	async renameConversation(sessionId: string, title: string): Promise<ConversationView> {
+		if (typeof title !== 'string') throw new Error('Invalid conversation title.')
+		const session = this.namzuConversation(sessionId, 'be renamed')
+		const cleaned = withoutControls(title).trim()
+		if (cleaned.length > 200) throw new Error('Use a title of at most 200 characters.')
+		const project = this.project(session.view.projectId)
+		const client = this.conversationActionsClient(project)
+		const runtimeId = session.runtimeSessionId
+		const result = (await client.request('namzu/conversations/rename', {
+			sessionId: runtimeId,
+			title: cleaned,
+		})) as { title?: unknown }
+		if (typeof result?.title !== 'string' || result.title.length > 4000)
+			throw new Error('Namzu returned an invalid conversation title.')
+		this.assertConversationAvailable(sessionId)
+		if (this.conversations.get(sessionId) !== session)
+			throw new Error('This conversation changed while renaming it.')
+		session.view.title = result.title
+		return this.commitConversationView(session, project)
+	}
+	async setConversationPinned(sessionId: string, pinned: boolean): Promise<ConversationView> {
+		if (typeof pinned !== 'boolean') throw new Error('Invalid pin state.')
+		if (typeof sessionId !== 'string' || !sessionId.trim() || sessionId.length > 400)
+			throw new Error('Invalid conversation.')
+		this.adoptCatalogued(sessionId)
+		const session = this.session(sessionId)
+		if (session.view.palId) throw new Error('A Pal conversation cannot be pinned.')
+		const project = this.project(session.view.projectId)
+		if (pinned) session.view.pinned = true
+		else session.view = withoutPin(session.view)
+		return this.commitConversationView(session, project)
+	}
+	async forkConversation(sessionId: string): Promise<ConversationView> {
+		const session = this.namzuConversation(sessionId, 'be forked')
+		if (!session.hasPrompted && !session.needsHistory)
+			throw new Error('Send a message before forking this conversation.')
+		if (
+			session.running ||
+			session.admitting ||
+			session.queue.length ||
+			session.permissions.size ||
+			session.reattaching ||
+			session.selectionPending
+		)
+			throw new Error('Stop this conversation’s active work before forking it.')
+		const project = this.project(session.view.projectId)
+		const client = this.conversationActionsClient(project)
+		const runtimeId = session.runtimeSessionId
+		const result = (await client.request('namzu/conversations/fork', {
+			sessionId: runtimeId,
+		})) as { id?: unknown; title?: unknown }
+		if (
+			typeof result?.id !== 'string' ||
+			!result.id.trim() ||
+			result.id.length > 400 ||
+			result.id.startsWith('project:') ||
+			typeof result.title !== 'string' ||
+			result.title.length > 4000
+		)
+			throw new Error('Namzu returned an invalid forked conversation.')
+		if (this.closing) throw new Error('Namzu is closing.')
+		if (this.projects.get(session.view.projectId) !== project || project.client !== client)
+			throw new Error('This conversation’s connection changed while forking it.')
+		if (this.conversations.has(result.id) || this.removedConversations.has(result.id))
+			throw new Error('Namzu returned a conversation that already exists.')
+		const view: ConversationView = {
+			id: result.id,
+			title: result.title,
+			projectId: session.view.projectId,
+			updatedAt: new Date().toISOString(),
+			...(session.view.harness ? { harness: session.view.harness } : {}),
+		}
+		this.conversations.set(view.id, {
+			view,
+			runtimeSessionId: view.id,
+			hasPrompted: true,
+			// The copy's history is read from its own journal when it is first opened.
+			needsLoad: true,
+			needsHistory: true,
+			client,
+			running: false,
+			queue: [],
+			draft: '',
+			projection: emptyThread(),
+			permissions: new Map(),
+			...(session.draftSettings ? { draftSettings: structuredClone(session.draftSettings) } : {}),
+			...(session.providerSelection ? { providerSelection: { ...session.providerSelection } } : {}),
+		})
+		project.conversationCatalogue?.set(view.id, { ...view })
+		this.persistDesktop()
+		return { ...view }
+	}
+	async conversationMarkdown(sessionId: string): Promise<{ markdown: string; truncated: boolean }> {
+		const session = this.namzuConversation(sessionId, 'be exported')
+		const project = this.project(session.view.projectId)
+		const client = this.conversationActionsClient(project)
+		const result = (await client.request('namzu/conversations/markdown', {
+			sessionId: session.runtimeSessionId,
+		})) as { markdown?: unknown; truncated?: unknown }
+		if (
+			typeof result?.markdown !== 'string' ||
+			typeof result.truncated !== 'boolean' ||
+			result.markdown.length > 8 * 1024 * 1024
+		)
+			throw new Error('Namzu returned an invalid conversation export.')
+		this.assertConversationAvailable(sessionId)
+		return { markdown: result.markdown, truncated: result.truncated }
+	}
+	async projectGit(projectId: string): Promise<ProjectGitView | null> {
+		const project = this.project(projectId)
+		if (!project.view.trusted || project.view.palId || !project.client.supportsProjectGit())
+			return null
+		const client = project.client
+		let result: unknown
+		try {
+			result = await client.request('namzu/project/git', {})
+		} catch {
+			// The row is informational; a failed read must not break the popover.
+			return null
+		}
+		if (this.projects.get(projectId) !== project || project.client !== client) return null
+		if (!result || typeof result !== 'object') return null
+		const { branch, subject } = result as { branch?: unknown; subject?: unknown }
+		const text = (value: unknown, maximum: number): string | null | undefined =>
+			value === null
+				? null
+				: typeof value === 'string'
+					? withoutControls(value).slice(0, maximum) || null
+					: undefined
+		const checkedBranch = text(branch, 255)
+		const checkedSubject = text(subject, 500)
+		if (checkedBranch === undefined || checkedSubject === undefined) return null
+		return { branch: checkedBranch, subject: checkedSubject }
 	}
 	async newConversation(projectId: string): Promise<ConversationView> {
 		const project = this.project(projectId)

@@ -291,6 +291,7 @@ function register(): void {
 		['harnesses', 1],
 		['providers', 1],
 		['readyConversation', 1],
+		['conversationMarkdown', 0],
 		['models', 2],
 		['modelSettings', 3],
 		['plugins', 1],
@@ -316,6 +317,15 @@ function register(): void {
 		['removeQueued', 0],
 		['approve', 0],
 		['stopJob', 0],
+		['renameConversation', 0],
+		['setConversationPinned', 0],
+		['forkConversation', 0],
+	])
+	const catalogueActions = new Set([
+		'renameConversation',
+		'setConversationPinned',
+		'forkConversation',
+		'conversationMarkdown',
 	])
 	const globalWrites = new Set([
 		'localSpeechConfigure',
@@ -335,6 +345,7 @@ function register(): void {
 		'reconnectProject',
 		'trustProject',
 		'newConversation',
+		'forkConversation',
 	])
 	const registerHandler = (
 		name: string,
@@ -363,7 +374,17 @@ function register(): void {
 							writeIndex !== undefined,
 						)
 					}
-					if (owner !== undefined && !(typeof owner === 'string' && owner.startsWith('project:'))) {
+					// A sidebar row has no tab anywhere. Only a tab in another window makes these
+					// actions that window's to take; the operator adopts a tab-less conversation.
+					const catalogueOnly =
+						catalogueActions.has(name) &&
+						typeof owner === 'string' &&
+						!locateWorkspaceTab(workspace.snapshot(), owner)
+					if (
+						owner !== undefined &&
+						!catalogueOnly &&
+						!(typeof owner === 'string' && owner.startsWith('project:'))
+					) {
 						if (writeIndex !== undefined) workspace.assertOwner(context.id, owner)
 						else if (readIndex !== undefined) workspace.assertReadable(context.id, owner)
 					}
@@ -546,6 +567,15 @@ function register(): void {
 	)
 	handle('deletePal', (id: string, revision: number) => operator.deletePal(id, revision))
 	handle('removeConversation', (id: string) => operator.removeConversation(id))
+	handle('renameConversation', (id: string, title: string) =>
+		operator.renameConversation(id, title),
+	)
+	handle('setConversationPinned', (id: string, pinned: boolean) =>
+		operator.setConversationPinned(id, pinned),
+	)
+	handle('forkConversation', (id: string) => operator.forkConversation(id))
+	handle('conversationMarkdown', (id: string) => operator.conversationMarkdown(id))
+	handle('projectGit', (id: string) => operator.projectGit(id))
 	handle('openPal', (id: string) => operator.openPal(id))
 	handle('palComputer', (id: string) => operator.palComputer(id))
 	handle('startPalComputer', (id: string) => operator.startPalComputer(id))

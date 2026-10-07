@@ -98,6 +98,58 @@ describe('pane write admission', () => {
 		expect(removeConversation).toHaveBeenCalledTimes(1)
 	})
 
+	it('guards rename, pin, fork, export and git like removal, and refuses them from a retired pane', async () => {
+		const view = { id: 'a', title: 'A', projectId: 'p', updatedAt: '' }
+		const renameConversation = vi
+			.fn<NonNullable<DesktopApi['renameConversation']>>()
+			.mockResolvedValue(view)
+		const setConversationPinned = vi
+			.fn<NonNullable<DesktopApi['setConversationPinned']>>()
+			.mockResolvedValue(view)
+		const forkConversation = vi
+			.fn<NonNullable<DesktopApi['forkConversation']>>()
+			.mockResolvedValue(view)
+		const conversationMarkdown = vi
+			.fn<NonNullable<DesktopApi['conversationMarkdown']>>()
+			.mockResolvedValue({ markdown: '', truncated: false })
+		const projectGit = vi.fn<NonNullable<DesktopApi['projectGit']>>().mockResolvedValue(null)
+		let blocked = false
+		let writable = true
+		const controller = createWorkspacePaneApi(
+			bridge({
+				renameConversation,
+				setConversationPinned,
+				forkConversation,
+				conversationMarkdown,
+				projectGit,
+			}),
+			{ owns: () => false, blocked: () => blocked, allowGlobalMutations: () => writable },
+		)
+		const calls = () => [
+			controller.api.renameConversation?.('a', 'B'),
+			controller.api.setConversationPinned?.('a', true),
+			controller.api.forkConversation?.('a'),
+			controller.api.conversationMarkdown?.('a'),
+			controller.api.projectGit?.('p'),
+		]
+		await expect(Promise.all(calls())).resolves.toBeDefined()
+		writable = false
+		await expect(controller.api.renameConversation?.('a', 'B')).rejects.toThrow('read-only')
+		await expect(controller.api.setConversationPinned?.('a', true)).rejects.toThrow('read-only')
+		await expect(controller.api.forkConversation?.('a')).rejects.toThrow('read-only')
+		writable = true
+		blocked = true
+		for (const call of calls()) await expect(call).rejects.toThrow('moving')
+		blocked = false
+		controller.invalidate()
+		for (const call of calls()) await expect(call).rejects.toThrow('closed')
+		expect(renameConversation).toHaveBeenCalledTimes(1)
+		expect(setConversationPinned).toHaveBeenCalledTimes(1)
+		expect(forkConversation).toHaveBeenCalledTimes(1)
+		expect(conversationMarkdown).toHaveBeenCalledTimes(1)
+		expect(projectGit).toHaveBeenCalledTimes(1)
+	})
+
 	it('drains an admitted draft before its removal and includes both writes in transfer flush', async () => {
 		const entered = deferred<void>()
 		const saved = deferred<void>()

@@ -813,12 +813,7 @@ async function listConversations(
 		const everything = recordedMessages(facts.records)
 		out.push({
 			id: row.id,
-			title:
-				facts.title !== undefined &&
-				facts.title.length > 0 &&
-				(facts.named || facts.title !== 'Conversation')
-					? facts.title
-					: conversationTitle(everything),
+			title: displayTitleOf(facts),
 			preview: [...everything]
 				.reverse()
 				.find(
@@ -1105,6 +1100,15 @@ export function nextForkName(taken: Record<string, string>, source: string): str
 	// A thousand forks of one conversation is not a case worth a cleverer
 	// answer, and a name that repeats is better than a refusal here.
 	return `${source} (fork)`
+}
+
+/** The title a list row shows for these facts: the stored one, else derived from the first message. */
+export function displayTitleOf(facts: ConversationFacts): string {
+	return facts.title !== undefined &&
+		facts.title.length > 0 &&
+		(facts.named || facts.title !== 'Conversation')
+		? facts.title
+		: conversationTitle(recordedMessages(facts.records))
 }
 
 export function conversationTitle(messages: readonly Message[]): string {

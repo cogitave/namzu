@@ -1,6 +1,8 @@
 /// <reference types="vite/client" />
 
 import { copyTextPayload } from '../shared/clipboard-text.js'
+import { type HistoryWorkSnapshot, restoreHistoryWork } from '../shared/history-work.js'
+import { emptyThread } from '../shared/projection.js'
 import type {
 	ChatMessage,
 	ComposerModelSettings,
@@ -21,6 +23,7 @@ import {
 	moveWorkspaceTab,
 	openWorkspaceTab,
 	resizeWorkspaceSplit,
+	workspaceGroups,
 } from '../shared/workspace-layout.js'
 
 // This separate development entry never substitutes for the native preload API.
@@ -82,6 +85,99 @@ const messages = new Map<string, ChatMessage[]>(
 		],
 	]),
 )
+// The first sample conversation carries attachments, saved file edits and a pinned-looking history,
+// so the details popover has sources, line totals and a diff drawer to show.
+const sampleThread1 = messages.get('sample-thread-1')
+if (sampleThread1)
+	sampleThread1.splice(
+		0,
+		1,
+		{
+			role: 'user',
+			text: 'Let’s work on refining the navigation. Here are my notes and mockups.',
+			attachments: [
+				{
+					id: 'att-1',
+					name: 'navigation-notes.md',
+					kind: 'text',
+					size: 2400,
+					mediaType: 'text/markdown',
+				},
+				{
+					id: 'att-2',
+					name: 'sidebar-mockup.png',
+					kind: 'image',
+					size: 91000,
+					mediaType: 'image/png',
+				},
+				{
+					id: 'att-3',
+					name: 'tokens.json',
+					kind: 'text',
+					size: 1200,
+					mediaType: 'application/json',
+				},
+				{
+					id: 'att-4',
+					name: 'header-reference.png',
+					kind: 'image',
+					size: 64000,
+					mediaType: 'image/png',
+				},
+			],
+		},
+		{ role: 'assistant', text: 'Reading the notes.', phase: 'commentary' },
+		{ role: 'user', text: 'Then apply the spacing changes.' },
+	)
+const sampleWork: HistoryWorkSnapshot = {
+	v: 1,
+	partial: false,
+	messages: [
+		{ index: 0, messageId: 'u1', turnId: 't1', order: 2 },
+		{ index: 1, messageId: 'a0', turnId: 't1', order: 3 },
+		{ index: 2, messageId: 'u2', turnId: 't1', order: 4 },
+		{ index: 3, messageId: 'a1', turnId: 't1', order: 7 },
+	],
+	turns: [
+		{
+			turnId: 't1',
+			userMessageId: 'u1',
+			order: 1,
+			status: 'completed',
+			reason: 'end_turn',
+			durationMs: 4000,
+		},
+	],
+	tools: [
+		{
+			turnId: 't1',
+			toolUseId: 'edit1',
+			name: 'write',
+			order: 5,
+			status: 'completed',
+			presentation: {
+				kind: 'diff',
+				path: 'src/sidebar.css',
+				before: '.row {\n  padding: 4px;\n  gap: 4px;\n}\n',
+				after: '.row {\n  padding: 6px;\n  gap: 6px;\n  border-radius: 8px;\n}\n',
+			},
+		},
+		{
+			turnId: 't1',
+			toolUseId: 'edit2',
+			name: 'write',
+			order: 6,
+			status: 'completed',
+			presentation: {
+				kind: 'diff',
+				path: 'src/sidebar.css',
+				before: '.row {\n  padding: 6px;\n  gap: 6px;\n  border-radius: 8px;\n}\n',
+				after:
+					'.row {\n  padding: 6px;\n  gap: 6px;\n  border-radius: 8px;\n}\n.row:hover {\n  background: var(--accent);\n}\n',
+			},
+		},
+	],
+}
 const drafts = new Map<string, string>()
 const settings = new Map<string, DraftSettings>()
 const selections = new Map<string, ProviderView['selected']>()
@@ -210,6 +306,14 @@ function nativeOnly(action: string): never {
 	throw new Error(
 		`${action} is available in the desktop app. This design preview uses only sample data.`,
 	)
+}
+
+function announceUpdate(view: ConversationView): ConversationView {
+	view.updatedAt = new Date().toISOString()
+	const next = clone(view)
+	for (const listener of listeners)
+		listener({ kind: 'conversation-updated', sessionId: view.id, view: next })
+	return next
 }
 
 const api: DesktopApi = {
@@ -358,7 +462,84 @@ const api: DesktopApi = {
 		project(projectId)
 		if (conversation(id).projectId !== projectId)
 			throw new Error('This sample conversation belongs to another project.')
-		return { messages: clone(messages.get(id) ?? []), partial: false }
+		const saved = clone(messages.get(id) ?? [])
+		return {
+			messages: saved,
+			partial: false,
+			...(id === 'sample-thread-1'
+				? { thread: restoreHistoryWork(emptyThread(), saved, sampleWork) }
+				: {}),
+		}
+	},
+	renameConversation: async (id, title) => {
+		const view = conversation(id)
+		const trimmed = title.trim()
+		view.title = trimmed || titles[Number(id.replace(/\D/g, '')) - 1]?.[1] || 'Sample conversation'
+		return announceUpdate(view)
+	},
+	setConversationPinned: async (id, pinned) => {
+		const view = conversation(id)
+		if (pinned) view.pinned = true
+		else view.pinned = undefined
+		return announceUpdate(view)
+	},
+	forkConversation: async (id) => {
+		const source = conversation(id)
+		const saved = messages.get(id) ?? []
+		if (saved.length === 0) throw new Error('There is nothing to fork yet.')
+		const view: ConversationView = {
+			id: `sample-thread-${nextConversation++}`,
+			projectId: source.projectId,
+			title: `${source.title} (fork)`,
+			updatedAt: new Date().toISOString(),
+		}
+		conversations.unshift(view)
+		messages.set(view.id, clone(saved))
+		return clone(view)
+	},
+	conversationMarkdown: async (id) => {
+		const title = conversation(id).title
+		const body = (messages.get(id) ?? [])
+			.map((message) => `**${message.role === 'user' ? 'You' : 'Namzu'}**\n\n${message.text}`)
+			.join('\n\n')
+		return { markdown: `# ${title}\n\n${body}\n`, truncated: false }
+	},
+	projectGit: async (projectId) => {
+		const found = project(projectId)
+		if (found.id === 'sample-app')
+			return {
+				branch: 'feat/navigation-polish',
+				subject: 'Tighten the sidebar spacing and focus rings',
+			}
+		if (found.id === 'sample-docs') return { branch: null, subject: 'Rewrite the quick start' }
+		return null
+	},
+	backgroundWorkStatuses: async () => ({
+		'sample-thread-3': {
+			state: 'known',
+			runningCount: 2,
+			needsAttention: false,
+			checkedAt: Date.now(),
+			expiresAt: Date.now() + 3_600_000,
+		},
+	}),
+	removeConversation: async (id) => {
+		const view = conversation(id)
+		conversations.splice(conversations.indexOf(view), 1)
+		const event: DesktopEvent = {
+			kind: 'conversation-removed',
+			sessionId: id,
+			projectId: view.projectId,
+			archived: true,
+		}
+		// The real host also leaves every pane that showed it.
+		for (const group of workspaceGroups(workspace.layout.windows[0]?.root ?? null))
+			if (group.tabs.includes(id))
+				commitLayout(
+					closeWorkspaceTab(workspace.layout, { windowId, groupId: group.id, tabId: id }),
+				)
+		for (const listener of listeners) listener(event)
+		return { sessionId: id, removed: true, archived: true }
 	},
 	readyConversation: async (projectId, id) => {
 		project(projectId)
@@ -563,7 +744,16 @@ const api: DesktopApi = {
 	approve: async () => nativeOnly('Approving a real tool call'),
 	jobs: async (id) => {
 		conversation(id)
-		return []
+		if (id !== 'sample-thread-3') return []
+		return [
+			{ id: 'job-1', command: 'pnpm dev', status: 'running', startedAt: Date.now() - 120_000 },
+			{
+				id: 'job-2',
+				command: 'pnpm test --watch',
+				status: 'running',
+				startedAt: Date.now() - 60_000,
+			},
+		]
 	},
 	readJob: async () => nativeOnly('Reading a background process'),
 	stopJob: async () => nativeOnly('Stopping a background process'),

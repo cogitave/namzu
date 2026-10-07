@@ -1,11 +1,6 @@
 import { Menu } from '@base-ui/react/menu'
 import { Tabs } from '@base-ui/react/tabs'
-import {
-	MessageCircle,
-	PanelsTopLeft,
-	SplitSquareHorizontal,
-	SplitSquareVertical,
-} from 'lucide-react'
+import { MessageCircle, SplitSquareVertical } from 'lucide-react'
 import { Fragment, useEffect, useRef } from 'react'
 import {
 	type BackgroundWorkStatus,
@@ -21,13 +16,15 @@ import {
 	type ComputerWorkspaceToolbarProps,
 	computerWorkspaceIds,
 } from './computer-workspace-toolbar.js'
+import { ConversationActionsMenu } from './conversation-actions-menu.js'
+import type { ConversationActionId, ConversationActionInput } from './conversation-actions.js'
 import { HarnessMark } from './harness-picker.js'
 import {
 	LoaderCircleIcon,
 	MoreHorizontalIcon,
+	PinIcon,
 	PlusIcon,
 	TerminalIcon,
-	TrashIcon,
 	XIcon,
 } from './icons.js'
 import { Button } from './ui/button.js'
@@ -65,6 +62,13 @@ export function resolveConversationTabSelection(
 	return { kind: 'conversation', view }
 }
 
+/** What the shared conversation menu needs from the application, per tab. */
+export interface ConversationTabActions {
+	mac: boolean
+	input: (view: ConversationView) => ConversationActionInput
+	run: (id: ConversationActionId, view: ConversationView, trigger: HTMLElement | null) => void
+}
+
 interface ConversationTabProps {
 	view: ConversationView
 	windowId: string
@@ -79,6 +83,7 @@ interface ConversationTabProps {
 	onRemove?: (view: ConversationView, trigger: HTMLElement | null) => void
 	onDetach: (view: ConversationView, bounds?: WorkspaceWindowBounds) => void
 	onSplit?: (view: ConversationView, position: 'right' | 'bottom') => void
+	actions?: ConversationTabActions
 }
 
 function ConversationTab({
@@ -95,6 +100,7 @@ function ConversationTab({
 	onRemove,
 	onDetach,
 	onSplit,
+	actions,
 }: ConversationTabProps) {
 	const label = palName ?? pal?.palName ?? view.title
 	const isPal = !!view.palId || !!pal
@@ -109,7 +115,6 @@ function ConversationTab({
 				: 'Background work needs attention'
 			: undefined
 	const ids = pal ? computerWorkspaceIds(pal.idPrefix) : undefined
-	const trigger = useRef<HTMLButtonElement>(null)
 	const accepted = useRef(false)
 	const drag = useRef<{ cancelled: boolean; allowed: boolean }>({
 		cancelled: false,
@@ -121,6 +126,36 @@ function ConversationTab({
 		if (busy) return
 		accepted.current = true
 		action()
+	}
+	// Without an application binding the menu offers only what the tab's own callbacks can do.
+	const input: ConversationActionInput = actions?.input(view) ?? {
+		view,
+		isPal,
+		running,
+		queued: 0,
+		permissions: 0,
+		backgroundRunning: 0,
+		hasMessages: false,
+		hasReply: false,
+		hasProjectPath: false,
+		canMoveRight: !!onSplit,
+		can: {
+			rename: false,
+			pin: false,
+			fork: false,
+			markdown: false,
+			copy: false,
+			archive: !!onRemove,
+			moveRight: !!onSplit,
+			moveWindow: true,
+		},
+	}
+	const run = (id: ConversationActionId, opener: HTMLElement | null) => {
+		if (busy) return
+		if (actions) return actions.run(id, view, opener)
+		if (id === 'move-right') onSplit?.(view, 'right')
+		else if (id === 'move-window') onDetach(view)
+		else if (id === 'archive') onRemove?.(view, opener)
 	}
 	return (
 		<div
@@ -207,7 +242,7 @@ function ConversationTab({
 				aria-label={
 					isPal
 						? label
-						: `${view.harness === 'codex-cli' ? 'Codex CLI' : view.harness === 'claude-code' ? 'Claude Code' : 'Namzu'}: ${label}`
+						: `${view.harness === 'codex-cli' ? 'Codex CLI' : view.harness === 'claude-code' ? 'Claude Code' : 'Namzu'}: ${label}${view.pinned ? ', pinned' : ''}`
 				}
 			>
 				<span className="conversation-tab-mark" aria-hidden="true">
@@ -221,6 +256,9 @@ function ConversationTab({
 						<HarnessMark engine={view.harness} />
 					)}
 				</span>
+				{view.pinned && (
+					<PinIcon className="conversation-row-pin conversation-tab-pin" aria-hidden="true" />
+				)}
 				<span className="truncate" title={label}>
 					{label}
 				</span>
@@ -236,94 +274,48 @@ function ConversationTab({
 				)}
 			</Tabs.Tab>
 			<div className="conversation-tab-actions">
-				<Menu.Root
-					onOpenChange={(open) => {
-						if (open) accepted.current = false
-					}}
-				>
-					<Menu.Trigger
-						render={
-							<Button
-								ref={trigger}
-								variant="ghost-muted"
-								size="icon-xs"
-								className="conversation-tab-more"
-								aria-label={`Actions for ${label}`}
-								disabled={busy}
-							/>
-						}
-					>
-						<MoreHorizontalIcon />
-					</Menu.Trigger>
-					<Menu.Portal>
-						<Menu.Positioner
-							className="computer-workspace-menu-positioner"
-							align="end"
-							sideOffset={6}
+				<ConversationActionsMenu
+					input={input}
+					mac={actions?.mac ?? false}
+					busy={busy}
+					label={`${label} tab actions`}
+					acceptedRef={accepted}
+					trigger={
+						<Button
+							variant="ghost-muted"
+							size="icon-xs"
+							className="conversation-tab-more"
+							aria-label={`Actions for ${label}`}
+							disabled={busy}
 						>
-							<Menu.Popup
-								className="computer-workspace-menu"
-								aria-label={`${label} tab actions`}
-								finalFocus={() => (accepted.current ? false : (trigger.current ?? true))}
+							<MoreHorizontalIcon />
+						</Button>
+					}
+					leading={
+						pal && (
+							<ComputerWorkspaceMenuItems
+								{...pal}
+								busy={busy || pal.busy}
+								onAccepted={() => {
+									accepted.current = true
+								}}
+							/>
+						)
+					}
+					afterMove={
+						onSplit && (
+							<Menu.Item
+								className="conversation-actions-item"
+								disabled={busy}
+								onClick={() => act(() => onSplit(view, 'bottom'))}
 							>
-								{pal && (
-									<>
-										<ComputerWorkspaceMenuItems
-											{...pal}
-											busy={busy || pal.busy}
-											onAccepted={() => {
-												accepted.current = true
-											}}
-										/>
-										<Menu.Separator className="computer-workspace-menu-separator" />
-									</>
-								)}
-								{onSplit && (
-									<>
-										<Menu.Item
-											className="computer-workspace-menu-item"
-											disabled={busy}
-											onClick={() => act(() => onSplit(view, 'right'))}
-										>
-											<SplitSquareHorizontal aria-hidden="true" />
-											Split right
-										</Menu.Item>
-										<Menu.Item
-											className="computer-workspace-menu-item"
-											disabled={busy}
-											onClick={() => act(() => onSplit(view, 'bottom'))}
-										>
-											<SplitSquareVertical aria-hidden="true" />
-											Split down
-										</Menu.Item>
-										<Menu.Separator className="computer-workspace-menu-separator" />
-									</>
-								)}
-								<Menu.Item
-									className="computer-workspace-menu-item"
-									disabled={busy}
-									onClick={() => act(() => onDetach(view))}
-								>
-									<PanelsTopLeft aria-hidden="true" />
-									Move to new window
-								</Menu.Item>
-								{!isPal && onRemove && (
-									<>
-										<Menu.Separator className="computer-workspace-menu-separator" />
-										<Menu.Item
-											className="computer-workspace-menu-item text-destructive-foreground"
-											disabled={busy || running}
-											onClick={() => act(() => onRemove(view, trigger.current))}
-										>
-											<TrashIcon aria-hidden="true" />
-											Delete conversation
-										</Menu.Item>
-									</>
-								)}
-							</Menu.Popup>
-						</Menu.Positioner>
-					</Menu.Portal>
-				</Menu.Root>
+								<SplitSquareVertical aria-hidden="true" />
+								<span className="conversation-actions-label">Split down</span>
+							</Menu.Item>
+						)
+					}
+					onAction={run}
+				/>
 				{pal && <ComputerWorkspaceProfileToggle {...pal} />}
 				<Button
 					variant="ghost-muted"
@@ -354,6 +346,7 @@ export function ConversationTabs({
 	onNew,
 	onDetach,
 	onSplit,
+	actions,
 	palNames,
 	palWorkspace,
 }: {
@@ -370,6 +363,7 @@ export function ConversationTabs({
 	onNew: () => void
 	onDetach: (view: ConversationView, bounds?: WorkspaceWindowBounds) => void
 	onSplit?: (view: ConversationView, position: 'right' | 'bottom') => void
+	actions?: ConversationTabActions
 	palNames?: Readonly<Record<string, string>>
 	palWorkspace?: ConversationPalWorkspace
 }) {
@@ -406,6 +400,7 @@ export function ConversationTabs({
 							onRemove={onRemove}
 							onDetach={onDetach}
 							onSplit={onSplit}
+							actions={actions}
 						/>
 						{view.id === currentPal?.conversationId && currentPal.computerTabOpen && (
 							<ComputerWorkspaceComputerTab

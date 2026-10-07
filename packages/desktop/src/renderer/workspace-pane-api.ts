@@ -45,6 +45,11 @@ export function createWorkspacePaneApi(
 		retryTurn,
 		deletePal,
 		removeConversation,
+		renameConversation,
+		setConversationPinned,
+		forkConversation,
+		conversationMarkdown,
+		projectGit,
 		sendCurrent,
 		localSpeechConfigure,
 		localSpeechInstall,
@@ -318,6 +323,33 @@ export function createWorkspacePaneApi(
 						}),
 				}
 			: {}),
+		// Sidebar rows have no tab in this pane, so these admit no owner (like removeConversation);
+		// main refuses a conversation whose tab another window holds.
+		...(renameConversation
+			? {
+					renameConversation: (id, title) =>
+						invoke(() => renameConversation(id, title), [], { global: true, serializeOwner: id }),
+				}
+			: {}),
+		...(setConversationPinned
+			? {
+					setConversationPinned: (id, pinned) =>
+						invoke(() => setConversationPinned(id, pinned), [], {
+							global: true,
+							serializeOwner: id,
+						}),
+				}
+			: {}),
+		...(forkConversation
+			? {
+					forkConversation: (id) =>
+						invoke(() => forkConversation(id), [], { global: true, serializeOwner: id }),
+				}
+			: {}),
+		...(conversationMarkdown
+			? { conversationMarkdown: (id) => invoke(() => conversationMarkdown(id), []) }
+			: {}),
+		...(projectGit ? { projectGit: (id) => invoke(() => projectGit(id), []) } : {}),
 		startPalComputer: (id) => invoke(() => base.startPalComputer(id), [], { global: true }),
 		stopPalComputer: (id) => invoke(() => base.stopPalComputer(id), [], { global: true }),
 		openProject: () => invoke(() => base.openProject(), [], { global: true }),

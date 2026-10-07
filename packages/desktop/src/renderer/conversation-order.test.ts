@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest'
 import type { ConversationView } from '../shared/protocol.js'
-import { compareConversationRecency } from './conversation-order.js'
+import { compareConversationOrder, compareConversationRecency } from './conversation-order.js'
 
 const conversations: ConversationView[] = [
 	{ id: 'c', projectId: 'docs', title: 'Notes', updatedAt: '2026-10-01T09:00:00Z' },
@@ -31,4 +31,40 @@ it('moves a conversation for a newer saved timestamp while retaining the remaini
 	expect(orderedIds(refreshed).slice(1)).toEqual(
 		orderedIds(conversations).filter((id) => id !== 'c'),
 	)
+})
+
+it('puts pinned conversations first and keeps recency inside each side', () => {
+	const rows: ConversationView[] = [
+		{ id: 'new', projectId: 'p', title: 'New', updatedAt: '2026-10-03T09:00:00Z' },
+		{
+			id: 'old-pinned',
+			projectId: 'p',
+			title: 'Old',
+			updatedAt: '2026-10-01T09:00:00Z',
+			pinned: true,
+		},
+		{ id: 'mid', projectId: 'p', title: 'Mid', updatedAt: '2026-10-02T09:00:00Z' },
+		{
+			id: 'new-pinned',
+			projectId: 'p',
+			title: 'Pinned',
+			updatedAt: '2026-10-04T09:00:00Z',
+			pinned: true,
+		},
+	]
+	expect([...rows].sort(compareConversationOrder).map((row) => row.id)).toEqual([
+		'new-pinned',
+		'old-pinned',
+		'new',
+		'mid',
+	])
+})
+
+it('unpinning returns a conversation to its recency position', () => {
+	const rows: ConversationView[] = [
+		{ id: 'a', projectId: 'p', title: 'A', updatedAt: '2026-10-03T09:00:00Z' },
+		{ id: 'b', projectId: 'p', title: 'B', updatedAt: '2026-10-01T09:00:00Z', pinned: true },
+	]
+	const unpinned = rows.map(({ pinned: _pinned, ...row }) => row)
+	expect([...unpinned].sort(compareConversationOrder).map((row) => row.id)).toEqual(['a', 'b'])
 })

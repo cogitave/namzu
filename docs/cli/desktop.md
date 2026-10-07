@@ -678,16 +678,44 @@ waits until it is sent or removed. The "delivered" strip for live input disappea
 once the turn settles (pending and unconfirmed receipts stay), and queued messages
 left behind by a stopped or failed turn are labelled "paused" because they only start
 after the next message finishes.
-The Background work, Changes and conversation context controls appear in the
-workspace header only after a conversation exists. Returning to a blank project
-also closes the conversation detail pane.
-A project context card sits beside the conversation when the workspace itself is
-at least 1280px wide. Smaller workspaces expose it through the Project context
-menu. It shows completed change receipts, verified background shells and current
-activity, and opens the existing Changes or Background work detail pane. Pending
-or failed shell reads remain unconfirmed rather than showing a stale count from
-another conversation. Opening a detail pane returns the transcript to the
-available width. Unsupported artifact and child-session inventories are absent.
+The right side of an ordinary conversation's header holds two icon buttons:
+Conversation actions ("…") and Conversation details. Returning to a blank project
+also closes the conversation detail pane. Pal conversations keep their own header.
+The actions menu offers Rename… (Ctrl+Alt+R), Pin or Unpin (Ctrl+Alt+P), New side
+chat (Ctrl+Alt+S), Fork, Copy, Move to right pane, Move to new window and Archive…
+(Ctrl+Shift+A), with Cmd and Option on a Mac. One component draws it for the header
+and for each tab's "…" menu, so the two cannot drift; the tab menu adds Split down.
+Items show only what the conversation's engine supports: Rename, New side chat, Fork
+and Copy as Markdown are for Namzu-engine conversations, Pin and the rest work for
+Codex and Claude Code too, and a Pal tab offers only its move items. An item that
+cannot run is shown dimmed with the reason as its tooltip (a running reply blocks
+Fork and Archive, queued messages, a pending approval and background work block
+Archive, and a pane holding one conversation cannot move it right). Shortcuts match
+the physical key and are ignored for AltGr (which many layouts, Turkish Q among them,
+report as Ctrl+Alt), during IME composition and while a dialog is open.
+Rename opens a dialog prefilled with the title; Enter saves, and an empty name
+restores the automatic title. Pinned conversations lead their project list and
+Recents with a small pin glyph after the title, and in the conversation's tab. Rename, Pin, Fork and Copy as Markdown also work on a sidebar row that has no open tab, because the app adopts the conversation first; only a tab held by another window refuses them. A chord with nothing to do (a Pal conversation, an action the engine lacks) is left to the system; a chord whose action is blocked announces the reason. Fork copies the history into a new conversation in
+the same project and opens it as a tab in this pane; New side chat does the same
+and then splits it to the right. Copy offers the last reply, the conversation as
+Markdown (refused with a message above 4 MiB), the conversation ID and the project
+path, and confirms with a short "copied" notice. Archive keeps the confirmation
+"Archive this conversation?" with Cancel and Archive.
+Conversation details is a 320px popover. It shows the project name with a "…"
+menu holding Copy path (absent for a conversation without a project), Changes with
+`+added −removed` line totals for this conversation's completed file edits (a path
+counts once, from its first before to its last after; "No file changes yet" when
+empty; click opens the Changes pane), the repository row (branch and last commit
+subject, read when the popover opens, hidden when the project is not a repository),
+Background work with "N running", "Needs attention" or "None" (click opens the
+Activity pane), and Sources, the files and images sent in the conversation, newest
+first, three shown with View all and a "+" that opens the attach flow. The icon
+carries a dot while background work runs and a warning-coloured dot when it needs
+attention, with the count in its accessible name. Pending or failed shell reads
+remain unconfirmed rather than showing a stale count from another conversation.
+Opening a detail pane returns the transcript to the available width. Unsupported
+artifact and child-session inventories are absent. No floating card sits beside the
+conversation at any width.
 The sidebar uses one folder glyph per project and plain indented conversation
 titles. Each group initially shows five conversations, keeping the active one
 visible when it lies beyond that limit. Show more reveals additional loaded
@@ -786,9 +814,8 @@ the renderer policy allows that compilation without enabling JavaScript eval.
 Background work uses a separate column when the workspace has at least 880px
 available; narrower workspaces use an overlay without squeezing the
 conversation. The panel and conversation widths animate together, and the
-project-context control remains mounted during the transition. Large-workspace
-context gutters also animate rather than jumping. Closing the panel or pressing
-Escape returns focus to its Background work or Changes control; automatic
+details control remains mounted during the transition. Closing the panel or
+pressing Escape returns focus to the Conversation details button; automatic
 navigation does not move focus back to an old panel. Reduced motion disables
 these transitions. The composer and navigation remain inside the available width.
 
@@ -1453,9 +1480,9 @@ Retrying a disconnected, previously verified Pal reopens its current approved
 profile, retaining its stored workspace spelling and existing project id.
 A deleted profile is refused before a replacement client is started.
 
-Delete conversation is available in ordinary tab menus and the action menu on
-project/Recents rows. A confirmation explains that saved history is archived and
-project files remain. Inactive Recents removal does not open or prepare the model.
+Archive is available in the conversation actions menu, ordinary tab menus and the
+action menu on project/Recents rows. A confirmation says the conversation leaves the
+sidebar and its history stays saved on this computer. Inactive Recents removal does not open or prepare the model.
 Main verifies the selected project and each actual stable/runtime journal alias,
 refuses active/queued/review/background/recovery work and uses the existing scoped
 archive writer lease. For an ordinary native engine, only its matching idle writer
@@ -1833,6 +1860,10 @@ ACP methods and are not automatically installed in embedded SDK servers.
 | `namzu/conversations/list` | none | up to 100 recent project conversations |
 | `namzu/conversations/history` | `sessionId` | bounded text messages, text `partial`, and optional ordinary `work` v1 display snapshot |
 | `namzu/conversations/archive` | exact `sessionId` | strict captured-project archive; `{sessionId, archived: true}` only for a confirmed archived journal, or `{sessionId, archived: false, missing: true}` for confirmed absence |
+| `namzu/conversations/rename` | exact `sessionId`, `title` (at most 200 characters) | `{title}`; names the conversation, and an empty title restores the title derived from its first message |
+| `namzu/conversations/fork` | exact `sessionId` | `{id, title}` of a new owned copy; refused while a turn is open, for a Pal workspace, or when the conversation has no messages |
+| `namzu/conversations/markdown` | exact `sessionId` | `{markdown, truncated}`; the strict transcript export, cut at 4 MiB of UTF-8 on a character boundary with `truncated: true` |
+| `namzu/project/git` | `{}` | `{branch, subject}` for the host folder, or `null` when untrusted, not a repository, git is missing or slower than 3 s. `branch` is `null` on a detached HEAD, `subject` is the last commit's first line (200 characters). Runs `git -c core.fsmonitor=false --no-optional-locks` with no shell, `GIT_OPTIONAL_LOCKS=0`, a 64 KiB output cap and a 15 s cache per folder |
 | `namzu/conversations/input/status` | exact `sessionId`, optional `scopeId` | current or retained closed prompt scope, `available`, and input IDs classified as `pending` or `delivered` |
 | `namzu/conversations/input` | exact `sessionId`, `scopeId`, `inputId`, text `prompt` | idempotent current-turn admission receipt; differing text under the same input ID is refused |
 | `namzu/pals/delete` | exact `id`, `expectedRevision` | `{id, deleted: true}` after exact-revision terminal publication; retained data is not erased |
@@ -1845,6 +1876,8 @@ ACP methods and are not automatically installed in embedded SDK servers.
 | `namzu/jobs/list` | `sessionId` | this session's jobs |
 | `namzu/jobs/read` | `sessionId`, `jobId` | retained chunk, offsets and dropped-byte count |
 | `namzu/jobs/stop` | `sessionId`, `jobId` | stopped job |
+
+The desktop main process wraps these for the renderer. `renameConversation`, `forkConversation` and `conversationMarkdown` need a trusted folder, a host that advertises all three methods (older hosts answer "Update Namzu…"), and an ordinary Namzu-engine conversation; Pal and external-engine conversations get a plain refusal. Rename sets the title on the host, then the in-memory view, the project catalogue and `desktop-conversations.json`, and emits `conversation-updated`. `setConversationPinned` is desktop-local: it stores `pinned: true` on the saved conversation view (the strict validator accepts only `true`, never on a Pal conversation), keeps it across catalogue refreshes and emits `conversation-updated`. `forkConversation` refuses a conversation that is running, queued, awaiting review or never prompted, registers the copy in the same project with the source's draft settings and model choice (its history loads when it is first opened) and returns its view. `projectGit` returns `null` for an untrusted folder, a Pal workspace, an older host or any host error. The window-owner checks match the other session-scoped handlers: the calling window must own the conversation.
 
 The additive ordinary history `work` snapshot has `v: 1`, a receipt-completeness
 `partial` flag, and arrays `messages`, `turns`, and `tools`. Message anchors carry

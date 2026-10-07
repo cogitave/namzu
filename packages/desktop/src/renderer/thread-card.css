@@ -79,3 +79,10 @@
 		animation: none;
 	}
 }
+.conversation-row-pin {
+	width: 12px;
+	height: 12px;
+	flex: none;
+	/* After the title, so a pinned row's label stays aligned with its siblings. */
+	color: var(--sidebar-muted-foreground);
+}

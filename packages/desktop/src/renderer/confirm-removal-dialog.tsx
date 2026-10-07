@@ -7,6 +7,7 @@ export function ConfirmRemovalDialog({
 	title,
 	description,
 	actionLabel,
+	pendingLabel = 'Removing…',
 	onConfirm,
 	onClose,
 	returnFocus,
@@ -14,6 +15,7 @@ export function ConfirmRemovalDialog({
 	title: string
 	description: string
 	actionLabel: string
+	pendingLabel?: string
 	onConfirm: () => Promise<void>
 	onClose: () => void
 	returnFocus: () => HTMLElement | null
@@ -73,7 +75,7 @@ export function ConfirmRemovalDialog({
 								Cancel
 							</Button>
 							<Button variant="destructive" disabled={pending} onClick={() => void confirm()}>
-								{pending ? 'Removing…' : actionLabel}
+								{pending ? pendingLabel : actionLabel}
 							</Button>
 						</div>
 					</AlertDialog.Popup>

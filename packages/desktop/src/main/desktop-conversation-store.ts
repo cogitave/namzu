@@ -144,6 +144,7 @@ function conversation(input: unknown): SavedDesktopConversation {
 		'palId',
 		'harness',
 		'palGreeting',
+		'pinned',
 	])
 	const greeting =
 		view.palGreeting === undefined ? undefined : record(view.palGreeting, ['id', 'text'])
@@ -155,6 +156,8 @@ function conversation(input: unknown): SavedDesktopConversation {
 		!['namzu', 'codex-cli', 'claude-code'].includes(string(view.harness, 30))
 	)
 		throw new Error('Invalid saved conversation harness.')
+	if (view.pinned !== undefined && (view.pinned !== true || view.palId !== undefined))
+		throw new Error('Invalid saved conversation pin.')
 	if (typeof value.hasPrompted !== 'boolean') throw new Error('Invalid saved conversation state.')
 	const result: SavedDesktopConversation = {
 		view: {
@@ -169,6 +172,7 @@ function conversation(input: unknown): SavedDesktopConversation {
 			...(view.harness === undefined
 				? {}
 				: { harness: view.harness as ConversationView['harness'] }),
+			...(view.pinned === true ? { pinned: true as const } : {}),
 		},
 		runtimeSessionId: id(value.runtimeSessionId),
 		hasPrompted: value.hasPrompted,

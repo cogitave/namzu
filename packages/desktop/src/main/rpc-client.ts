@@ -52,6 +52,14 @@ export class RuntimeClient extends EventEmitter {
 	supportsLiveInput(): boolean {
 		return this.liveInput
 	}
+	private conversationActions = false
+	supportsConversationActions(): boolean {
+		return this.conversationActions
+	}
+	private projectGit = false
+	supportsProjectGit(): boolean {
+		return this.projectGit
+	}
 	private tasks = false
 	supportsTasks(): boolean {
 		return this.tasks
@@ -176,6 +184,12 @@ export class RuntimeClient extends EventEmitter {
 		this.palCommunication = PAL_COMMUNICATION_METHODS.every((method) =>
 			result.extensions?.includes(method),
 		)
+		this.conversationActions = [
+			'namzu/conversations/rename',
+			'namzu/conversations/fork',
+			'namzu/conversations/markdown',
+		].every((method) => result.extensions?.includes(method))
+		this.projectGit = result.extensions?.includes('namzu/project/git') === true
 		this.turnRetry = ['namzu/sessions/retry-status', 'namzu/sessions/retry'].every((method) =>
 			result.extensions?.includes(method),
 		)

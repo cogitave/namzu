@@ -1,7 +1,10 @@
 import { ArrowDown, MessageSquare, Minus } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal, flushSync } from 'react-dom'
-import type { BackgroundWorkStatus } from '../shared/background-work-protocol.js'
+import {
+	type BackgroundWorkStatus,
+	freshBackgroundWorkStatus,
+} from '../shared/background-work-protocol.js'
 import { resolveComposerSendOptions } from '../shared/composer-send-options.js'
 import {
 	type ThreadState,
@@ -9,7 +12,6 @@ import {
 	emptyThread,
 	queueParked,
 	restoreMessages,
-	threadPhase,
 } from '../shared/projection.js'
 import type {
 	ComposerModelSettings,
@@ -24,12 +26,14 @@ import type {
 	PalInput,
 	PalScreenView,
 	PalView,
+	ProjectGitView,
 	ProjectView,
 	ProviderView,
 } from '../shared/protocol.js'
 import { applyCachedAttachmentPreviewEviction } from './attachment-preview-events.js'
 import { ChangedFilesCard } from './changed-files-card.js'
 import { ChangesPanel } from './changes-panel.js'
+import { type ChangeTotals, changeTotals } from './changes-totals.js'
 import { ChatErrorBanner } from './chat-error-banner.js'
 import { CommandPalette, type CommandPaletteItem } from './command-palette.js'
 import {
@@ -47,13 +51,29 @@ import { ComputerInputQueue, computerInputOwnerMatches } from './computer-input-
 import { ComputerKeyboardOwners } from './computer-keyboard-owner.js'
 import { computerWorkspaceIds } from './computer-workspace-toolbar.js'
 import { ConfirmRemovalDialog } from './confirm-removal-dialog.js'
-import { compareConversationRecency } from './conversation-order.js'
-import { type ConversationPalWorkspace, ConversationTabs } from './conversation-tabs.js'
+import { ConversationActionsMenu } from './conversation-actions-menu.js'
+import {
+	type ConversationActionId,
+	type ConversationActionInput,
+	conversationActionGroups,
+	conversationShortcut,
+	conversationSources,
+	lastReplyText,
+} from './conversation-actions.js'
+import { ConversationDetailsPopover, type DetailsWork } from './conversation-details-popover.js'
+import { compareConversationOrder, compareConversationRecency } from './conversation-order.js'
+import {
+	type ConversationPalWorkspace,
+	type ConversationTabActions,
+	ConversationTabs,
+} from './conversation-tabs.js'
 import { ConversationTasks, TasksProgress } from './conversation-tasks.js'
+import { copyPlainText } from './copy-button.js'
 import {
 	ArrowUpIcon,
 	FileDiffIcon,
 	FolderIcon,
+	MoreHorizontalIcon,
 	PanelLeftIcon,
 	PlusIcon,
 	SquareIcon,
@@ -81,7 +101,7 @@ import {
 import { palRecentActivity } from './pal-recent-activity.js'
 import { PalCustomizeDialog, PalSidebarSection, PalsPage } from './pals-page.js'
 import { PluginsPage, PluginsSidebar } from './plugins-page.js'
-import { ProjectContextCard, ProjectContextMenu } from './project-context.js'
+import { RenameConversationDialog } from './rename-conversation-dialog.js'
 import { type ConversationCollection, Sidebar } from './sidebar.js'
 import { Transcript } from './transcript.js'
 import { TurnRecovery } from './turn-recovery.js'
@@ -570,13 +590,24 @@ export function App({
 	}, [railSection])
 	const [jobsOpen, setJobsOpen] = useState(false)
 	const [panelTab, setPanelTab] = useState<'jobs' | 'changes'>('jobs')
-	const jobsTrigger = useRef<HTMLButtonElement>(null)
-	const changesTrigger = useRef<HTMLButtonElement>(null)
+	// The drawer opens from the details popover, so closing it returns focus to the popover's icon.
+	const detailsTrigger = useRef<HTMLButtonElement>(null)
+	const [detailsPopoverOpen, setDetailsPopoverOpen] = useState(false)
+	const [renamingConversation, setRenamingConversation] = useState<ConversationView>()
+	const renameTrigger = useRef<HTMLElement | null>(null)
+	const [notice, setNotice] = useState('')
+	const noticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+	useEffect(() => () => clearTimeout(noticeTimer.current), [])
+	const announce = useCallback((text: string) => {
+		setNotice(text)
+		clearTimeout(noticeTimer.current)
+		noticeTimer.current = setTimeout(() => setNotice(''), 2500)
+	}, [])
+	const [git, setGit] = useState<{ projectId: string; value: ProjectGitView | null }>()
 	const closeDetails = useCallback(() => {
 		setJobsOpen(false)
-		const trigger = panelTab === 'jobs' ? jobsTrigger.current : changesTrigger.current
-		trigger?.focus({ preventScroll: true })
-	}, [panelTab])
+		detailsTrigger.current?.focus({ preventScroll: true })
+	}, [])
 	const [jobs, setJobs] = useState<JobView[]>([])
 	const [backgroundWork, setBackgroundWork] = useState<Record<string, BackgroundWorkStatus>>({})
 	const backgroundWorkVersions = useRef(new Map<string, number>())
@@ -709,30 +740,19 @@ export function App({
 	const changes = Object.values(thread.tools).filter(
 		(tool) => tool.status === 'completed' && tool.view.kind === 'diff',
 	).length
-	const contextProps =
-		project && !palConversation
-			? {
-					project,
-					changes,
-					runningShells:
-						jobsSessionId !== sessionId || jobsLoading || jobsError
-							? null
-							: visibleJobs.filter((job) => job.status === 'running').length,
-					jobsUnavailable: jobsSessionId === sessionId && Boolean(jobsError),
-					activeTools: thread.activeToolIds.length,
-					awaitingApproval: thread.permissions.length > 0,
-					running: thread.running,
-					phase: threadPhase(thread),
-					onChanges: () => {
-						setPanelTab('changes')
-						setJobsOpen(true)
-					},
-					onJobs: () => {
-						setPanelTab('jobs')
-						setJobsOpen(true)
-					},
-				}
-			: null
+	const detailsActive = detailsPopoverOpen && !palConversation
+	// Line totals compare whole files, so they are read only while someone is looking.
+	const totals = useMemo<ChangeTotals>(() => {
+		if (!detailsActive) return { added: 0, removed: 0, files: 0 }
+		const receipts = []
+		for (const tool of Object.values(thread.tools))
+			if (tool.status === 'completed' && tool.view.kind === 'diff') receipts.push(tool.view)
+		return changeTotals(receipts)
+	}, [detailsActive, thread.tools])
+	const sources = useMemo(
+		() => (detailsActive ? conversationSources(thread.messages) : []),
+		[detailsActive, thread.messages],
+	)
 	const providerReady = providerOwner === providerKey
 	const activeProviders: ProviderView = providerReady
 		? providers
@@ -742,6 +762,45 @@ export function App({
 		? 'namzu'
 		: (harnessView?.selected ?? conversation?.harness ?? 'namzu')
 	const externalHarness = permissionEngine !== 'namzu'
+	const sessionWork = externalHarness
+		? ({ state: 'unavailable' } as const)
+		: freshBackgroundWorkStatus(backgroundWork[sessionId])
+	const needsAttention = sessionWork.state === 'known' && sessionWork.needsAttention
+	const detailsWork: DetailsWork = externalHarness
+		? { state: 'unavailable' }
+		: jobsSessionId === sessionId && !jobsLoading && !jobsError
+			? {
+					state: 'known',
+					running: visibleJobs.filter((job) => job.status === 'running').length,
+					needsAttention,
+				}
+			: sessionWork.state === 'known'
+				? { state: 'known', running: sessionWork.runningCount, needsAttention }
+				: jobsSessionId === sessionId && jobsError
+					? { state: 'unavailable' }
+					: { state: 'checking' }
+	const gitProjectId =
+		project && !palConversation && !project.isChat && project.trusted && project.status === 'ready'
+			? project.id
+			: undefined
+	const turnRunning = thread.running
+	// Read when the popover opens, and again if a turn ends while it is open. The host caches briefly.
+	useEffect(() => {
+		void turnRunning
+		if (!detailsPopoverOpen || !gitProjectId || !api.projectGit) return
+		let current = true
+		void api.projectGit(gitProjectId).then(
+			(value) => {
+				if (current) setGit({ projectId: gitProjectId, value })
+			},
+			() => {
+				if (current) setGit({ projectId: gitProjectId, value: null })
+			},
+		)
+		return () => {
+			current = false
+		}
+	}, [detailsPopoverOpen, gitProjectId, turnRunning, api])
 	const normalTabs = group.tabs.map(
 		(id): ConversationView =>
 			conversations.find((item) => item.id === id) ?? {
@@ -962,6 +1021,15 @@ export function App({
 			setProjects((items) => [...items.filter((row) => row.id !== item.id), item]),
 		[],
 	)
+	// A refreshed row replaces the old one in place; a copy that is new to this window leads.
+	const upsertConversation = useCallback((view: ConversationView) => {
+		if (removedConversations.current.has(view.id)) return
+		setConversations((all) =>
+			all.some((item) => item.id === view.id)
+				? all.map((item) => (item.id === view.id ? view : item))
+				: [view, ...all],
+		)
+	}, [])
 	const act = useCallback(async (action: () => Promise<unknown>) => {
 		if (context.current.frozen) return
 		harnessChoiceFailure.current = null
@@ -1163,6 +1231,11 @@ export function App({
 				}
 				return
 			}
+			if (event.kind === 'conversation-updated') {
+				// Rename and pin come from any window; tabs, sidebar and recents read this one list.
+				upsertConversation(event.view)
+				return
+			}
 			if (event.kind === 'connection') {
 				const ids = new Set(
 					catalogueRows.current.conversations
@@ -1292,7 +1365,7 @@ export function App({
 					),
 				)
 		})
-	}, [updateProject, attached.reload, api, invalidateComputerInput])
+	}, [updateProject, upsertConversation, attached.reload, api, invalidateComputerInput])
 	useEffect(() => {
 		// Choice settlement resumes metadata admission even for the same active ID.
 		void metadataEpoch
@@ -1349,8 +1422,7 @@ export function App({
 			palConversation ||
 			historyPending ||
 			restoringTabs ||
-			!detailsOpen ||
-			panelTab !== 'jobs'
+			!((detailsOpen && panelTab === 'jobs') || detailsPopoverOpen)
 		) {
 			setJobs([])
 			setJobsSessionId('')
@@ -1395,7 +1467,16 @@ export function App({
 			if (refreshJobs.current === refresh) refreshJobs.current = undefined
 			clearInterval(timer)
 		}
-	}, [sessionId, palConversation, api, historyPending, restoringTabs, detailsOpen, panelTab])
+	}, [
+		sessionId,
+		palConversation,
+		api,
+		historyPending,
+		restoringTabs,
+		detailsOpen,
+		panelTab,
+		detailsPopoverOpen,
+	])
 	const palTasksVisible = Boolean(
 		pal &&
 			(palScreen?.palId === pal.id && palScreen.activeTab === 'computer'
@@ -2158,6 +2239,150 @@ export function App({
 		} finally {
 			operations.current.delete(pending)
 		}
+	}
+	const macPlatform = /Mac/.test(navigator.platform)
+	const conversationActionInput = (view: ConversationView): ConversationActionInput => {
+		const owner = projects.find((item) => item.id === view.projectId)
+		const isPal = Boolean(view.palId || owner?.palId)
+		const state = view.id === sessionId ? thread : (threads[view.id] ?? emptyThread())
+		const work =
+			isPal || (view.harness && view.harness !== 'namzu')
+				? ({ state: 'unavailable' } as const)
+				: freshBackgroundWorkStatus(backgroundWork[view.id])
+		return {
+			view,
+			isPal,
+			running: state.running,
+			queued: state.queued.length,
+			permissions: state.permissions.length,
+			backgroundRunning: work.state === 'known' ? work.runningCount : 0,
+			hasMessages: state.messages.length > 0,
+			hasReply: lastReplyText(state.messages) !== undefined,
+			hasProjectPath: Boolean(owner && !owner.isChat && !owner.palId && owner.path),
+			canMoveRight: group.tabs.length > 1,
+			can: {
+				rename: Boolean(api.renameConversation),
+				pin: Boolean(api.setConversationPinned),
+				fork: Boolean(api.forkConversation),
+				markdown: Boolean(api.conversationMarkdown),
+				copy: Boolean(window.namzu?.copyText),
+				archive: Boolean(api.removeConversation),
+				moveRight: true,
+				moveWindow: true,
+			},
+		}
+	}
+	const copyToClipboard = async (text: string, done: string) => {
+		await copyPlainText(text)
+		announce(done)
+	}
+	const runConversationAction = (
+		id: ConversationActionId,
+		view: ConversationView,
+		trigger: HTMLElement | null,
+	) => {
+		if (context.current.frozen) return
+		const state = view.id === sessionId ? thread : (threads[view.id] ?? emptyThread())
+		switch (id) {
+			case 'rename':
+				if (!api.renameConversation) return
+				renameTrigger.current = trigger
+				setRenamingConversation(view)
+				return
+			case 'pin':
+				if (!api.setConversationPinned) return
+				void act(async () => {
+					const next = await api.setConversationPinned?.(view.id, !view.pinned)
+					if (next) upsertConversation(next)
+				})
+				return
+			case 'fork':
+				if (!api.forkConversation) return
+				void act(async () => {
+					const copy = await api.forkConversation?.(view.id)
+					if (!copy) return
+					upsertConversation(copy)
+					await openConversation(copy)
+				})
+				return
+			case 'side-chat':
+				if (!api.forkConversation) return
+				void act(async () => {
+					const copy = await api.forkConversation?.(view.id)
+					if (!copy) return
+					upsertConversation(copy)
+					// The copy joins this pane first so that it can leave as a split to the right.
+					const groupId = context.current.group.id
+					await onAction({ kind: 'open', tabId: copy.id, groupId })
+					// Opening activates the copy here; bring the source back before the copy leaves,
+					// so the left pane keeps showing the conversation the side chat came from.
+					await onAction({ kind: 'activate', groupId, tabId: view.id })
+					onSplit(groupId, copy.id, 'right')
+				})
+				return
+			case 'copy-reply': {
+				const text = lastReplyText(state.messages)
+				if (text === undefined) return
+				void act(() => copyToClipboard(text, 'Reply copied.'))
+				return
+			}
+			case 'copy-markdown':
+				if (!api.conversationMarkdown) return
+				void act(async () => {
+					const result = await api.conversationMarkdown?.(view.id)
+					if (!result) return
+					if (result.truncated)
+						throw new Error(
+							'This conversation is larger than the 4 MiB copy limit, so nothing was copied.',
+						)
+					await copyToClipboard(result.markdown, 'Conversation copied as Markdown.')
+				})
+				return
+			case 'copy-id':
+				void act(() => copyToClipboard(view.id, 'Conversation ID copied.'))
+				return
+			case 'copy-path': {
+				const owner = projects.find((item) => item.id === view.projectId)
+				if (owner?.path) void act(() => copyToClipboard(owner.path, 'Project path copied.'))
+				return
+			}
+			case 'move-right':
+				if (group.tabs.length > 1) onSplit(group.id, view.id, 'right')
+				return
+			case 'move-window':
+				onDetach(group.id, view.id)
+				return
+			case 'archive':
+				requestConversationRemoval(view, trigger)
+				return
+		}
+	}
+	const tabActions: ConversationTabActions = {
+		mac: macPlatform,
+		input: conversationActionInput,
+		run: runConversationAction,
+	}
+	// The key handler is registered once per state change; it reads the latest runner here.
+	// Returns whether the chord meant something here, so an inert chord stays the browser's.
+	const shortcutRunner = useRef<(id: ConversationActionId) => boolean>(() => false)
+	shortcutRunner.current = (id) => {
+		const view = conversations.find((item) => item.id === sessionId)
+		if (!view || palConversation || loading || restoringTabs || railSection !== null) return false
+		const input = conversationActionInput(view)
+		const entry = conversationActionGroups(input)
+			.flat()
+			.find((item) => item.id === id)
+		if (!entry) return false
+		if (entry.reason) {
+			announce(entry.reason)
+			return true
+		}
+		runConversationAction(
+			id,
+			view,
+			document.activeElement instanceof HTMLElement ? document.activeElement : null,
+		)
+		return true
 	}
 	const openPal = async (value: PalView) => {
 		const remembered = warmPalConversation(
@@ -3064,6 +3289,15 @@ export function App({
 					void act(() => api.cancel(sessionId))
 				return
 			}
+			// Dialogs own the keyboard, and a chord only means an action when it is not AltGr or IME input.
+			const shortcut =
+				sessionId && !renamingConversation && !removingConversation
+					? conversationShortcut(event, macPlatform)
+					: null
+			if (shortcut && shortcutRunner.current(shortcut)) {
+				event.preventDefault()
+				return
+			}
 			if (
 				(event.metaKey || event.ctrlKey) &&
 				!event.altKey &&
@@ -3109,6 +3343,9 @@ export function App({
 		computerPage,
 		showPalChat,
 		api,
+		renamingConversation,
+		removingConversation,
+		macPlatform,
 	])
 	const shortcutModifier = /Mac/.test(navigator.platform) ? 'Cmd' : 'Ctrl'
 	const commandItems: CommandPaletteItem[] = [
@@ -3231,6 +3468,7 @@ export function App({
 			active={group.activeTabId || sessionId}
 			busy={loading || harnessBusy || frozen}
 			onRemove={api.removeConversation ? requestConversationRemoval : undefined}
+			actions={tabActions}
 			palNames={Object.fromEntries(pals.map((item) => [item.id, item.name]))}
 			palWorkspace={palTabs}
 			backgroundWork={backgroundWork}
@@ -3308,12 +3546,29 @@ export function App({
 								}
 							/>
 						)}
+						{renamingConversation && (
+							<RenameConversationDialog
+								key={`rename-conversation:${renamingConversation.id}`}
+								initialTitle={renamingConversation.title}
+								onClose={() => setRenamingConversation(undefined)}
+								returnFocus={() =>
+									renameTrigger.current?.isConnected ? renameTrigger.current : input.current
+								}
+								onSave={async (title) => {
+									if (context.current.frozen)
+										throw new Error('Wait for this conversation to finish moving.')
+									if (!api.renameConversation) throw new Error('Renaming is unavailable.')
+									upsertConversation(await api.renameConversation(renamingConversation.id, title))
+								}}
+							/>
+						)}
 						{removingConversation && (
 							<ConfirmRemovalDialog
 								key={`remove-conversation:${removingConversation.id}`}
-								title="Delete conversation?"
-								description="This will remove this conversation from Namzu’s lists and close its tabs. Saved history is archived, and project files are kept."
-								actionLabel="Delete conversation"
+								title="Archive this conversation?"
+								description="It leaves your sidebar. Its history stays saved on this computer."
+								actionLabel="Archive"
+								pendingLabel="Archiving…"
 								onClose={() => setRemovingConversation(undefined)}
 								returnFocus={removalReturnFocus}
 								onConfirm={() =>
@@ -3387,12 +3642,14 @@ export function App({
 									onOpen={(value) => void act(() => openPal(value))}
 								/>
 							}
-							conversations={conversations.filter(
-								(view) =>
-									view.palId ||
-									view.title !== 'New conversation' ||
-									threads[view.id]?.messages.length,
-							)}
+							conversations={conversations
+								.filter(
+									(view) =>
+										view.palId ||
+										view.title !== 'New conversation' ||
+										threads[view.id]?.messages.length,
+								)
+								.sort(compareConversationOrder)}
 							projectId={palsPage ? '' : projectId}
 							sessionId={palsPage ? '' : sessionId}
 							conversationCollection={conversationCollection}
@@ -3498,49 +3755,59 @@ export function App({
 							</WorkspaceBreadcrumbItem>
 						</WorkspaceBreadcrumb>
 					)}
-					{!palConversation && sessionId && thread.messages.length > 0 && !externalHarness && (
-						<>
-							<Button
-								ref={jobsTrigger}
-								type="button"
-								variant="ghost-muted"
-								size="sm"
-								className="jobs-button"
-								aria-label="Background work"
-								aria-description={
-									jobsSessionId !== sessionId || jobsLoading || jobsError
-										? 'Background work has not been confirmed'
-										: `${visibleJobs.filter((job) => job.status === 'running').length} running shells in this conversation`
+					{!palConversation && sessionId && conversation && (
+						<div className="conversation-header-actions">
+							<ConversationActionsMenu
+								input={conversationActionInput(conversation)}
+								mac={macPlatform}
+								busy={loading || harnessBusy || frozen}
+								label="Conversation actions"
+								trigger={
+									<Button
+										type="button"
+										variant="ghost-muted"
+										size="icon-sm"
+										className="conversation-header-button"
+										aria-label="Conversation actions"
+										title="Conversation actions"
+									>
+										<MoreHorizontalIcon className="size-4" aria-hidden="true" />
+									</Button>
 								}
-								onClick={() => {
-									setPanelTab('jobs')
-									setJobsOpen(panelTab !== 'jobs' || !jobsOpen)
-								}}
-							>
-								<TerminalIcon aria-hidden="true" className="size-4" />
-								<span className="jobs-button-label">Background work</span>
-								{visibleJobs.some((job) => job.status === 'running') && (
-									<span>{visibleJobs.filter((job) => job.status === 'running').length}</span>
-								)}
-							</Button>
-							<Button
-								ref={changesTrigger}
-								type="button"
-								variant="ghost-muted"
-								size="icon-sm"
-								aria-label="Show changes"
-								aria-pressed={jobsOpen && panelTab === 'changes'}
-								onClick={() => {
+								onAction={(id, trigger) => runConversationAction(id, conversation, trigger)}
+							/>
+							<ConversationDetailsPopover
+								open={detailsPopoverOpen}
+								onOpenChange={setDetailsPopoverOpen}
+								triggerRef={detailsTrigger}
+								project={project && !project.isChat ? project : undefined}
+								totals={totals}
+								git={git && git.projectId === gitProjectId ? git.value : null}
+								work={detailsWork}
+								sources={sources}
+								attachReason={
+									externalHarness
+										? 'This engine does not take attachments.'
+										: loading || restoringTabs || frozen
+											? 'Wait for the conversation to finish loading.'
+											: undefined
+								}
+								onOpenChanges={() => {
+									setDetailsPopoverOpen(false)
 									setPanelTab('changes')
-									setJobsOpen(panelTab !== 'changes' || !jobsOpen)
+									setJobsOpen(true)
 								}}
-							>
-								<FileDiffIcon className="size-4" />
-							</Button>
-							{!pal && contextProps && thread.messages.length > 0 && (
-								<ProjectContextMenu {...contextProps} />
-							)}
-						</>
+								onOpenWork={() => {
+									setDetailsPopoverOpen(false)
+									setPanelTab('jobs')
+									setJobsOpen(true)
+								}}
+								onAttach={() => {
+									setDetailsPopoverOpen(false)
+									void act(attached.pick)
+								}}
+							/>
+						</div>
 					)}
 				</WorkspacePageHeader>
 				{computerPage && pal && palContextProps && (
@@ -3738,12 +4005,8 @@ export function App({
 						role={palWorkspace ? 'tabpanel' : undefined}
 						aria-labelledby={palWorkspace ? computerIds.chatTab : undefined}
 						data-empty={!pal && !historyPending && thread.messages.length === 0}
-						data-context-card={!jobsOpen && !pal && thread.messages.length > 0}
 						data-pal-context={Boolean(palContextProps) && !computerPage && palProfileOpen}
 					>
-						{!pal && contextProps && thread.messages.length > 0 && !jobsOpen && (
-							<ProjectContextCard {...contextProps} />
-						)}
 						{palContextProps && !computerPage && palProfileOpen && (
 							<PalContextCard {...palContextProps} />
 						)}
@@ -4121,6 +4384,9 @@ export function App({
 						)}
 					</aside>
 				)}
+				<output className="conversation-action-toast" aria-live="polite">
+					{notice}
+				</output>
 			</main>
 		</>
 	)

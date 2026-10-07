@@ -493,11 +493,6 @@ pre {
 .workspace.jobs-open > :is(.topbar, .connection-error, .welcome, .chat-stage) {
 	width: calc(100% - var(--panel-width));
 }
-@container workspace (min-width: 1280px) {
-	.chat-stage[data-context-card="true"] {
-		--workspace-gutter-end: 336px;
-	}
-}
 .topbar {
 	-webkit-app-region: drag;
 	border-bottom: 1px solid var(--border);

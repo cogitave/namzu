@@ -1,23 +1,35 @@
 /* Adapted icon assets. License and provenance: packages/desktop/THIRD-PARTY-NOTICES.txt. */
 import {
+	AppWindow,
+	Archive,
 	Clock,
+	Copy,
 	Ellipsis,
 	FilePen,
 	FolderClosed,
 	FolderOpen,
 	Folders,
+	GitBranch,
+	GitCommitHorizontal,
+	GitFork,
 	Hand,
+	Hash,
 	House,
+	Image,
 	ListChecks,
 	type LucideIcon,
 	MessageSquare,
+	MessageSquarePlus,
 	MessagesSquare,
 	PanelLeft,
 	Pencil,
+	Pin,
+	PinOff,
 	RefreshCw,
 	Settings,
 	ShieldCheck,
 	SquarePen,
+	SquareSplitHorizontal,
 	Trash2,
 	TriangleAlert,
 	UserRound,
@@ -230,3 +242,15 @@ export const FilePenIcon = createOutlineIcon(FilePen)
 export const ListChecksIcon = createOutlineIcon(ListChecks)
 export const ShieldCheckIcon = createOutlineIcon(ShieldCheck)
 export const TriangleAlertIcon = createOutlineIcon(TriangleAlert)
+export const PinIcon = createOutlineIcon(Pin)
+export const PinOffIcon = createOutlineIcon(PinOff)
+export const CopyIcon = createOutlineIcon(Copy)
+export const ArchiveIcon = createOutlineIcon(Archive)
+export const GitForkIcon = createOutlineIcon(GitFork)
+export const GitBranchIcon = createOutlineIcon(GitBranch)
+export const GitCommitIcon = createOutlineIcon(GitCommitHorizontal)
+export const HashIcon = createOutlineIcon(Hash)
+export const ImageIcon = createOutlineIcon(Image)
+export const AppWindowIcon = createOutlineIcon(AppWindow)
+export const SideChatIcon = createOutlineIcon(MessageSquarePlus)
+export const SplitRightIcon = createOutlineIcon(SquareSplitHorizontal)

@@ -6,13 +6,15 @@ import {
 } from '../shared/background-work-protocol.js'
 import type { ThreadState } from '../shared/projection.js'
 import type { ConversationView, ProjectView } from '../shared/protocol.js'
+import { archiveBlockedReason } from './conversation-actions.js'
 /* Adapted UI component. License and provenance: packages/desktop/THIRD-PARTY-NOTICES.txt. */
 import {
+	ArchiveIcon,
 	LoaderCircleIcon,
 	MoreHorizontalIcon,
+	PinIcon,
 	ShieldQuestionIcon,
 	TerminalIcon,
-	TrashIcon,
 } from './icons.js'
 import { cn } from './lib/utils.js'
 import { Button } from './ui/button.js'
@@ -65,7 +67,16 @@ export function ThreadCard({
 			: thread?.error
 				? 'Needs attention'
 				: undefined
-	const status = [threadStatus, workText].filter(Boolean).join('; ') || undefined
+	const archiveReason = archiveBlockedReason({
+		running: !!thread?.running,
+		queued: thread?.queued.length ?? 0,
+		permissions: thread?.permissions.length ?? 0,
+		backgroundRunning: work.state === 'known' ? work.runningCount : 0,
+	})
+	const status =
+		[conversation.pinned ? 'Pinned' : undefined, threadStatus, workText]
+			.filter(Boolean)
+			.join('; ') || undefined
 	return (
 		<li
 			data-thread-item
@@ -93,6 +104,7 @@ export function ThreadCard({
 				)}
 				<div className="conversation-row" title={`${conversation.title} · ${project.name}`}>
 					<span className="conversation-row-title">{conversation.title}</span>
+					{conversation.pinned && <PinIcon className="conversation-row-pin" aria-hidden="true" />}
 					<span className="conversation-row-state">
 						{workText && work.state === 'known' && (
 							<span
@@ -160,10 +172,11 @@ export function ThreadCard({
 										accepted.current = true
 										onRemove(trigger.current)
 									}}
-									disabled={!!thread?.running || !!thread?.permissions.length}
+									disabled={!!archiveReason}
+									title={archiveReason}
 								>
-									<TrashIcon className="size-4" aria-hidden="true" />
-									<span>Delete conversation</span>
+									<ArchiveIcon className="size-4" aria-hidden="true" />
+									<span>Archive</span>
 								</Menu.Item>
 							</Menu.Popup>
 						</Menu.Positioner>

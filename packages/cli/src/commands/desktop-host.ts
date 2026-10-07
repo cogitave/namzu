@@ -16,12 +16,16 @@ import {
 	type CliSessionScope,
 	archiveConversation,
 	closeSessions,
+	displayTitleOf,
+	forkConversation,
 	listRecent,
 	loadConversationSnapshot,
 	openSessionScope,
 	openSessions,
 	readConversationFacts,
+	setTitle,
 } from '../integrations/sessions/store.js'
+import { conversationMarkdown } from '../integrations/sessions/transcript-export.js'
 import { resolveNamzuHome } from '../integrations/state/home.js'
 import { isTrusted, isTrustedAtStateRoot, trustDir } from '../integrations/trust/store.js'
 import {
@@ -47,6 +51,7 @@ import { createPal, deletePal, getPal, listPals, palAtWorkspace, updatePal } fro
 import { canonicalProjectPath } from '../permissions/canonical-project.js'
 import type { CliHarnessRuntime } from './acp-harness.js'
 import type { CliAcpRuntime } from './acp.js'
+import { type ProjectGitState, capMarkdown, createProjectGit } from './desktop-host-header.js'
 
 function text(params: Record<string, unknown>, key: string, max = 400): string {
 	const value = params[key]
@@ -745,6 +750,7 @@ export function createDesktopHostExtensions(
 		checkpointId: string,
 		options?: AcpSessionPromptParams['options'],
 	) => Promise<AcpSessionPromptResult>,
+	projectGit: (cwd: string) => Promise<ProjectGitState | null> = createProjectGit(),
 ) {
 	const cwd = canonicalProjectPath(directory)
 	const pal = () => palAtWorkspace(cwd)
@@ -1213,6 +1219,68 @@ export function createDesktopHostExtensions(
 			} finally {
 				closeSessions(state)
 			}
+		},
+		'namzu/conversations/rename': async (params: Record<string, unknown>) => {
+			if (
+				!params ||
+				typeof params !== 'object' ||
+				Array.isArray(params) ||
+				Object.keys(params).some((key) => key !== 'sessionId' && key !== 'title') ||
+				typeof params.title !== 'string' ||
+				params.title.length > 200
+			)
+				throw new Error('Invalid conversation rename request.')
+			const title = params.title
+			return withState(async (state) => {
+				const id = asSessionId(await ownedSessionIn(params, state))
+				await setTitle(state, id, title)
+				const facts = await readConversationFacts(state, id)
+				// An empty name restores the title derived from the first message.
+				return { title: facts ? displayTitleOf(facts) : title.trim() }
+			})
+		},
+		'namzu/conversations/fork': async (params: Record<string, unknown>) => {
+			if (
+				!params ||
+				typeof params !== 'object' ||
+				Array.isArray(params) ||
+				Object.keys(params).some((key) => key !== 'sessionId')
+			)
+				throw new Error('Invalid conversation fork request.')
+			return withState(async (state) => {
+				const id = asSessionId(await ownedSessionIn(params, state))
+				if (palAtWorkspace(cwd, state.root)) throw new Error('A Pal conversation cannot be forked.')
+				const facts = await readConversationFacts(state, id)
+				if (facts?.activeTurn)
+					throw new Error('Wait for the current reply to finish before forking this conversation.')
+				const fork = await forkConversation(state, id)
+				return { id: fork.id, title: fork.title }
+			})
+		},
+		'namzu/conversations/markdown': async (params: Record<string, unknown>) => {
+			if (
+				!params ||
+				typeof params !== 'object' ||
+				Array.isArray(params) ||
+				Object.keys(params).some((key) => key !== 'sessionId')
+			)
+				throw new Error('Invalid conversation markdown request.')
+			return withState(async (state) => {
+				const id = asSessionId(await ownedSessionIn(params, state))
+				return capMarkdown((await conversationMarkdown(state, id)).markdown)
+			})
+		},
+		'namzu/project/git': async (params: Record<string, unknown> = {}) => {
+			if (
+				!params ||
+				typeof params !== 'object' ||
+				Array.isArray(params) ||
+				Object.keys(params).length > 0
+			)
+				throw new Error('Invalid project git request.')
+			// Never run git in a folder the person has not trusted: repository config can execute code.
+			if (!isTrusted(cwd)) return null
+			return projectGit(cwd)
 		},
 		'namzu/tasks/list': async (params: Record<string, unknown>) => {
 			return withReadScope(async (state) => {
