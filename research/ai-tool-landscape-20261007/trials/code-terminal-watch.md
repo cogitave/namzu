@@ -1,0 +1,38 @@
+# Terminal, file watching, project search, editor: trial report (2026-10-07)
+
+Trials ran in throwaway dirs under this folder (one npm project per candidate; nothing touched the Namzu repo). Node 24.19, npm 11.17, Linux/WSL2. Windows prebuilds were checked by `npm install --os=win32 --cpu=x64` (files listed, not executed).
+
+## Namzu today (read, not assumed)
+- Desktop deps: no terminal, no watcher, no editor, no ripgrep. File panel is read-only: `@pierre/diffs` `File`/`CodeView` (shiki) for viewing, `@headless-tree` for the tree.
+- `main/project-files.ts` (527 lines): own BFS walker over `readdir`, `ignore` for .gitignore/.git/info/exclude, caps (50k paths, depth 24, 3s budget, 30s index cache), `setImmediate` yields, symlinks not followed, `.git` confined. `file-search.ts` is fuzzysort over that index.
+- Refresh is manual: `filesRefresh` token in `app.tsx` is bumped by the app; there is no `fs.watch`/chokidar anywhere in `packages/desktop/src`. "Open in ... terminal" only shells out to an external terminal (`open-in.ts`).
+- No content search (grep) exists; only filename fuzzy search.
+
+## Results
+| Package | Version | Licence | Last publish | Module | Footprint (own `node_modules`) | Native / postinstall | Smoke result |
+|---|---|---|---|---|---|---|---|
+| @xterm/xterm | 6.0.0 | MIT | 2026-08-30 | `lib/xterm.mjs` + CJS | 9.6M with 4 addons (xterm 4.3M, webgl 2.1M, search 788K, serialize 180K, fit 28K) | none, pure JS | Terminal + fit + serialize + search bundle with esbuild: 400 KB min / 106 KB gzip (webgl excluded). Needs a DOM to render; not executed headless. Framework-agnostic, no React peer (wrap in a `useEffect`). |
+| @lydell/node-pty | 1.2.0-beta.15 | MIT | 2026-08-08 | CJS | 188K + ~1.4 MB per-platform prebuild | No postinstall, no node-gyp: per-platform optionalDependencies with prebuilds (linux-x64/arm64, darwin, win32-x64/arm64); win32 ships conpty.node + OpenConsole.exe + conpty.dll | Spawned `/bin/sh`, got output `hi-from-pty` and exit code 3. Beta tag. Official `node-pty` 1.1.0 is 64 MB unpacked and compiles/needs rebuild for Electron; avoid. |
+| @parcel/watcher | 2.6.0 | MIT | 2026-07-20 | CJS | 1.5M | Native, but prebuilt per platform via optionalDependencies (win32-x64 `watcher.node` 531 KB present, win32-arm64, darwin, linux glibc/musl). No download at install. Deps: detect-libc, is-glob, node-addon-api, picomatch | Subscribe 3 ms; saw `create` and `update` events recursively; `ignore: ['node_modules']` honoured. Uses native recursive watchers (ReadDirectoryChangesW on Windows), one handle per root. Needs asarUnpack in Electron. |
+| chokidar | 5.0.0 | MIT | 2026-05-21 | ESM only | 152K, one dep (readdirp) | none, pure JS (fs.watch based) | Saw `add` and `addDir` after ready. v5 is ESM-only and Node >= 20; fine for our ESM main. Per-directory fs.watch handles, so large trees cost many handles. |
+| @vscode/ripgrep | 1.18.0 | MIT | 2026-06-26 | ESM | 5.6M (28K package + 5.5M binary) | Changed: 1.18 has NO postinstall download; the binary comes from per-platform optionalDependencies (win32-x64 `rg.exe` 5.4 MB present, win32-arm64, ia32, darwin, linux incl. ppc64/s390x/riscv64). Old versions downloaded from GitHub at install; this one does not. | `rgPath` resolves; `rg --version` = ripgrep 15.0.0; `--json -n needle` returned the match. Needs asarUnpack (it is an executable). |
+| codemirror 6 | codemirror 6.0.2, view 6.43.14, state 6.7.6, lang-javascript 6.2.5 | MIT | view published 2026-10-07 | ESM | 4.2M | none, pure JS | basicSetup + javascript bundle: 505 KB min / 170 KB gzip. State creation with the JS language ran under node. No React peer (use a ref + EditorView). |
+| monaco-editor | 0.57.0 | MIT | 2026-09-24 | ESM/AMD | 107M | none, but workers need bundler config | Not run. 107 MB unpacked and web-worker wiring make it wrong for a light editor. @monaco-editor/react 4.7.0 does accept React 19 peers but loads Monaco from a CDN by default (bad offline). |
+
+## Honest comparison
+- **Watching**: Namzu has nothing, so this is an addition, not a replacement. The two candidates are both MIT and ship Windows binaries/JS with no install-time download. `@parcel/watcher` is the right fit for a project root (single native subscription, ignore globs, VS Code uses it) at the price of a native `.node` to asarUnpack on 4-6 targets. chokidar 5 is zero-native and 152K, but opens one fs.watch per directory; on a monorepo with node_modules ignored that is acceptable, on a big tree it is not. The synthesis suggested watching only expanded directories; with chokidar that is natural (`watch(dir, {depth:0})` per expanded folder), with parcel it means subscribing to the root once and filtering.
+- **Search**: our own walker only does filenames. Replacing it with ripgrep (`rg --files` honours .gitignore/.ignore and is much faster) is possible but the walker already carries safety logic (confinement, `.git` blocking, caps, symlink policy) that is tested; ripgrep does not give us that. Content search is a genuinely new capability and is where ripgrep earns its place.
+- **Terminal**: new capability. xterm.js plus node-pty is the standard stack. The cost is real: a native pty per platform (including conpty on Windows), a process-lifetime and security surface (a shell with the user's rights), and sandbox/permission integration. The existing Namzu runtime already runs commands under permissions; an interactive terminal would bypass that policy unless it is scoped.
+- **Editor**: Namzu's file view is read-only and highlighted by @pierre/diffs. CodeMirror 6 at 170 KB gzip is the only reasonable editor; Monaco is not.
+
+## Recommendation
+- **Watcher: ADOPT `@parcel/watcher` 2.6.0** (trial first in main process behind a debounce of ~150 ms, replacing the manual `filesRefresh` bump with `files:changed` IPC events for the active project; keep chokidar as fallback only if asarUnpack/packaging for arm64 proves painful). Evidence: Windows prebuild present, no install download, events verified.
+- **Search: ADOPT `@vscode/ripgrep` 1.18.0 for content search only; KEEP the in-house walker + fuzzysort for filename search.** Integration: main-process `project-search` module spawning `rgPath` with `--json`, paths confined through `confineProjectPath`, results streamed to the renderer; resolve the binary path through `app.asar.unpacked`. Apply the PATH/WSL spawn lesson (do not rely on PATH; pass absolute rgPath).
+- **Terminal: DEFER (trial, not adopt now).** If an Activity/terminal view is wanted, the shape is `@xterm/xterm` 6.0.0 + fit + serialize (scrollback restore) + search, WebGL addon optional, with `@lydell/node-pty` 1.2.0-beta.15 in main, one pty per session over IPC with flow control. Block this on a permission design; a read-only "tool output as ANSI" view needs only xterm without a pty and is the cheaper first step (xterm is pure JS, 106 KB gzip).
+- **Editor: DEFER; if wanted, CodeMirror 6, never Monaco.** Lazy-load it on first edit so the 170 KB gzip stays out of the startup bundle; keep @pierre/diffs for read-only view.
+- **REPLACE: none.**
+
+## Caveats
+- Electron 44 ABI was not exercised: the native modules were only loaded under Node 24. Both @parcel/watcher and node-pty prebuilds are meant to be N-API, but I did not confirm that for these binaries; verify in the real Electron build (`test:native` harness) before adopting.
+- Windows binaries were inventoried, not run. xterm was bundled, not rendered. No timing benchmarks on large trees.
+- Files: /tmp/claude-1000/-home-arda-workspaces--cogitave-cogitave-namzu/0d0f912a-dd18-5fc4-9977-f6f97da58605/scratchpad/landscape/trials/code-terminal-watch/ (run.mjs is the smoke script, bundle/ has the esbuild sizes).
