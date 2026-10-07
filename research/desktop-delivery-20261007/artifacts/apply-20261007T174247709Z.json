@@ -1,0 +1,19 @@
+{
+  "passed": false,
+  "mode": "apply",
+  "at": "2026-10-07T17:42:47.711Z",
+  "phase": "preflight",
+  "nativeWindows": true,
+  "packageInstalls": 0,
+  "modelRequests": 0,
+  "computerActions": 0,
+  "uiInteractions": 0,
+  "checks": [],
+  "observations": [],
+  "launchConfigSha256": "0cea7da46af9d9bc24915a559f8a58f7f3d1973a4eef3963acb3ebaa562dc742",
+  "snapshotCommit": "c1f9ef9fd",
+  "error": {
+    "name": "AssertionError",
+    "message": "Refused: meta package.json files are for another commit + actual - expected + 'c1f9ef9fd' - 'd203b7fe6' "
+  }
+}

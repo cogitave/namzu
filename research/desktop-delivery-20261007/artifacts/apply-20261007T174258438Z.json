@@ -1,0 +1,136 @@
+{
+  "passed": false,
+  "mode": "apply",
+  "at": "2026-10-07T17:42:58.439Z",
+  "phase": "preflight",
+  "nativeWindows": true,
+  "packageInstalls": 0,
+  "modelRequests": 0,
+  "computerActions": 0,
+  "uiInteractions": 0,
+  "checks": [
+    "source dists have all required entries",
+    "desktop runtime modules planned: keep ignore@7.0.12, keep ws@8.21.3, keep yaml@2.9.1"
+  ],
+  "observations": [],
+  "launchConfigSha256": "0cea7da46af9d9bc24915a559f8a58f7f3d1973a4eef3963acb3ebaa562dc742",
+  "snapshotCommit": "c1f9ef9fd",
+  "packages": {
+    "desktop": {
+      "name": "@namzu/desktop",
+      "installedFiles": 804,
+      "sourceFiles": 804,
+      "installedManifestSha256": "f4ef8d86cdcbebfd423fb819a67fbec3e82d02b037ed2a5fadd69e0ff982ffe0",
+      "sourceManifestSha256": "c6a05dcd9a429d63611dbf24cb9c70f37b4b3c699d5d7d45c2c5c3bf86434c9a",
+      "changedCount": 1,
+      "addedCount": 2,
+      "removedCount": 2,
+      "changed": [
+        "renderer/index.html"
+      ],
+      "added": [
+        "renderer/assets/index-BiJoYwxh.css",
+        "renderer/assets/index-Dte2wspD.js"
+      ],
+      "removed": [
+        "renderer/assets/index-C1gasAch.css",
+        "renderer/assets/index-C76Dg0ZD.js"
+      ],
+      "classification": {
+        "runtime": [
+          "renderer/assets/index-BiJoYwxh.css",
+          "renderer/assets/index-C1gasAch.css",
+          "renderer/assets/index-C76Dg0ZD.js",
+          "renderer/assets/index-Dte2wspD.js",
+          "renderer/index.html"
+        ],
+        "noise": []
+      },
+      "differs": true
+    },
+    "cli": {
+      "name": "@namzu/cli",
+      "installedFiles": 399,
+      "sourceFiles": 399,
+      "installedManifestSha256": "9aed220070efc82c299df176c863346b7f1dfbbdbf9e9e17d33ef0d43dd529ec",
+      "sourceManifestSha256": "9aed220070efc82c299df176c863346b7f1dfbbdbf9e9e17d33ef0d43dd529ec",
+      "changedCount": 0,
+      "addedCount": 0,
+      "removedCount": 0,
+      "changed": [],
+      "added": [],
+      "removed": [],
+      "classification": {
+        "runtime": [],
+        "noise": []
+      },
+      "differs": false,
+      "dependencies": {
+        "installedVersion": "35.0.0",
+        "snapshotVersion": "35.0.0",
+        "equal": true,
+        "fields": {
+          "dependencies": true,
+          "optionalDependencies": true,
+          "peerDependencies": true
+        },
+        "differing": [],
+        "dependenciesSha256": "f1810624efcd75dedcee67d3fef3b16216ecbc2856f6b2b07723ce97a82997f5"
+      }
+    },
+    "sdk": {
+      "name": "@namzu/sdk",
+      "installedFiles": 934,
+      "sourceFiles": 934,
+      "installedManifestSha256": "dc8c394bd5a23c67c8cc42611dcc54a2be9350e847b4924360db1059f5e91890",
+      "sourceManifestSha256": "dc8c394bd5a23c67c8cc42611dcc54a2be9350e847b4924360db1059f5e91890",
+      "changedCount": 0,
+      "addedCount": 0,
+      "removedCount": 0,
+      "changed": [],
+      "added": [],
+      "removed": [],
+      "classification": {
+        "runtime": [],
+        "noise": []
+      },
+      "differs": false,
+      "dependencies": {
+        "installedVersion": "49.0.0",
+        "snapshotVersion": "49.0.0",
+        "equal": true,
+        "fields": {
+          "dependencies": true,
+          "optionalDependencies": true,
+          "peerDependencies": true
+        },
+        "differing": [],
+        "dependenciesSha256": "a01d041c3bb4a5d015552ecd02b062116ec242e17b162a62c657c45a8697e099"
+      }
+    }
+  },
+  "runtimeModules": {
+    "manifestPresent": true,
+    "required": [
+      {
+        "name": "ignore",
+        "version": "7.0.12",
+        "action": "keep"
+      },
+      {
+        "name": "ws",
+        "version": "8.21.3",
+        "action": "keep"
+      },
+      {
+        "name": "yaml",
+        "version": "2.9.1",
+        "action": "keep"
+      }
+    ]
+  },
+  "error": {
+    "name": "AssertionError",
+    "message": "Refused: the recorded desktop process does not exist"
+  }
+}

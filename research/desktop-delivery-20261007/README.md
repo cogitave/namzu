@@ -68,3 +68,7 @@ Failure (delivery of d203b7fe6): the new `dist/main/project-files.js` imported `
 3. The updater gained the runtime-module plan and the failed-load rollback described above; `snapshot-modules.mjs` added `ignore@7.0.12` and `yaml@2.9.1` (no dependencies) to the snapshot.
 4. The second full apply passed end to end: modules added, PID 6908 → 38264 in 502 ms, protected state unchanged, manifests equal the snapshot, link-preview probe passed.
 5. A real background job through the installed SDK (Windows node, temp folder): a three-step cmd loop ran 3.1 s with exit 0 and streamed `Adim n/3 çğıöşü`, and a redirect wrote `bg-demo.txt`.
+
+## Delivery of c1f9ef9fd while the app was closed (2026-10-07)
+
+The owner had closed the app (all CLI connections ended with exit 0 at 17:27:51 UTC; no crash). `native-update.cjs` needs a running app for its state preflight, so `offline-swap.cjs` swapped the Desktop dist directly: it refuses if any electron process of the configured executable runs, requires every desktop runtime module at the build's version (`ws`, `yaml`, `ignore` were already present), stages and manifest-checks the copy, then renames (previous dist kept as `dist-before-offline-20261007T174338322Z`). Installed manifest equals the build; CLI and SDK untouched. The app was not started, since the owner had closed it.
