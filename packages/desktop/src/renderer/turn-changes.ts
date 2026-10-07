@@ -1,5 +1,6 @@
 import type { ThreadState } from '../shared/projection.js'
 import { changeTotals } from './changes-totals.js'
+import { type UndoCardView, undoCardView } from './undo-model.js'
 
 export interface TurnChangeFile {
 	/** The name a person recognises; the full path stays available for the tooltip. */
@@ -91,4 +92,20 @@ export function turnChanges(
 		})
 	}
 	return result
+}
+
+/**
+ * Joins a card to the journal turn that made its edits and reads that turn's undo state.
+ * A turn without an id (still streaming, or restored without work) offers no undo.
+ */
+export function turnUndo(
+	thread: Pick<ThreadState, 'turns' | 'undo' | 'running'>,
+	turn: number,
+	onUndoTurn: ((turnId: string) => void) | undefined,
+	kept?: Record<string, number>,
+): { undo?: UndoCardView; onUndo?: () => void } {
+	const turnId = thread.turns[turn]?.turnId
+	if (!onUndoTurn || !turnId) return {}
+	const undo = undoCardView(thread.undo?.[turnId], { busy: thread.running, kept: kept?.[turnId] })
+	return undo ? { undo, onUndo: () => onUndoTurn(turnId) } : {}
 }

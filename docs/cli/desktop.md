@@ -1228,8 +1228,44 @@ whose edits cancel out is left out, and a reply with nothing left has no card. T
 card appears when the turn settles, groups by the turn each receipt belongs to, and
 works the same for history restored from the journal. View changes (or a file row)
 opens the Changes pane on the Last reply scope for that reply; the conversation
-header's Changes button and the Changes tab open on This conversation. There is no
-Undo yet; it needs durable checkpoints. Pal conversations keep their own outputs.
+header's Changes button and the Changes tab open on This conversation. Pal
+conversations keep their own outputs. The card also carries
+[Undo](#undoing-a-reply).
+
+### Undoing a reply
+
+Beside View changes the card offers Undo when the connected CLI advertises
+`namzu/turns/undo-status`, `namzu/turns/undo-preview` and `namzu/turns/undo` (an older CLI
+shows no button) and the reply has a journal turn id. What the card shows is only ever the
+CLI's `undo-status`, read after a conversation's history loads and after every settled reply
+and every undo; it is never kept in component state, so a reopened conversation shows the same
+card. Five states: hidden (still streaming, no turn id, nothing covered), enabled, disabled with
+the reason ("Wait for the current reply", "Undo expired"), undone (a muted chip, "Undone at 10:42"
+when this window saw it happen and plain "Undone" after a reopen, with the line totals dimmed) and
+partial ("Partly undone, 2 files kept", the count read from a fresh plan, which opens the plan again
+to finish the rest).
+
+Undo opens a confirmation dialog built from `namzu/turns/undo-preview`. Each file is a row:
+Restore, Delete (the reply created it) or Conflict with its reason (changed since this reply, a
+later reply changed it too, the saved copy is gone, now a link, now outside the project). A
+conflict is skipped; only a changed-since file offers "Restore anyway, keep my copy", which saves
+the current file before the reply's version goes back. "Also undo later replies" appears when a
+later reply changed the same files and reloads the plan with those replies' rows under their own
+heading. Files the history cannot cover are listed under "Not covered" with the reason. A reply that
+ran shell commands says "This reply also ran shell commands. Undo cannot reverse what they changed."
+and queued messages are named, since they will run after the undo against the restored files. The
+primary button states the count ("Undo 3 files") and is disabled when nothing would change. Focus
+starts on Cancel, Esc cancels, and nothing is written until the button is pressed. If the files or
+the history moved since the preview, the CLI answers `plan-changed` and the dialog shows the new plan
+in place with a notice; it never applies a plan the person did not see. After an undo the dialog
+lists what happened to each file, the open file and the Changes view read the disk again, and the card
+updates from a new status read.
+
+In the main process `undoTurn` mirrors a retry's admission: it refuses while the conversation is
+running, being admitted or changing plugins, takes the prompt-admission slot so no message starts
+under the writes, validates its arguments and the CLI's answer, and releases the slot in `finally`.
+`undoPreview` and `undoStatus` only read. The renderer API is optional (`undoStatus`, `undoPreview`,
+`undoTurn`) and is fenced to the owning pane like the other session actions.
 
 ### Changes review view
 
@@ -1259,6 +1295,14 @@ and next file. The diff header shows the path truncated from the left (the full 
 in a tooltip), its `+N −M`, Open file (a file tab), Open in editor and a menu with
 Copy path and Copy diff. A binary or oversized file shows a plain message instead of
 a diff.
+
+A diff past 180,000 characters (both sides together) or 1,200 changed lines (added plus removed)
+is not drawn in the rich view, which would freeze the pane on a very large file. The pane
+shows the plain unified patch in a monospaced block instead, under a sentence that names the
+reason and a "Show full diff anyway" button. The button turns the rich view on for that file until another
+file is chosen. The limits and the decision are in `changes-review/diff-gate.ts`. Diffs and file source are
+drawn by `@pierre/diffs` 1.5.2 (exact); the worker pool is not used because a worker needs
+`worker-src` in the renderer's content security policy, which has none.
 
 A finished turn reads "Worked for 4m 17s" when its duration is known: the host's
 start and end, the journal's recorded duration, or the host start and the last time
@@ -1296,14 +1340,6 @@ elapsed counter. With no public work disclosure, the live status alone can show
 the elapsed time. Steering can create another ordered work segment in the same
 turn; only the latest public segment owns the turn's time and outcome heading,
 and earlier segments say **Earlier work**. Opaque reasoning alone does not
-A diff past 180,000 characters (both sides together) or 1,200 changed lines (added plus removed)
-is not drawn in the rich view, which would freeze the pane on a very large file. The pane
-shows the plain unified patch in a monospaced block instead, under a sentence that names the
-reason and a "Show full diff anyway" button. The button turns the rich view on for that file until another
-file is chosen. The limits and the decision are in `changes-review/diff-gate.ts`. Diffs and file source are
-drawn by `@pierre/diffs` 1.5.2 (exact); the worker pool is not used because a worker needs
-`worker-src` in the renderer's content security policy, which has none.
-
 create an empty disclosure. Settled headings retain **Worked for** the observed
 or recorded duration, Paused, Stopped or Work incomplete as appropriate. The
 summary opens while that turn runs and collapses after settlement unless the
@@ -1959,6 +1995,7 @@ ACP methods and are not automatically installed in embedded SDK servers.
 | `namzu/providers/settings` | `provider`, `model`, optional `sessionId` | exact supported effort choices/default or a safe notice, without creating a session |
 | `namzu/plugins/list` | optional `sessionId` | bounded installed or live plugin inventory and whether it can be changed |
 | `namzu/plugins/set_enabled` | `sessionId`, `name`, `enabled` | changes one loaded plugin in an idle conversation and returns its inventory |
+| `namzu/turns/undo-status`, `namzu/turns/undo-preview`, `namzu/turns/undo` | see [Turn undo](turn-undo.md#acp-methods) | per-reply file undo, used by [Undoing a reply](#undoing-a-reply) |
 | `namzu/jobs/list` | `sessionId` | this session's jobs |
 | `namzu/jobs/read` | `sessionId`, `jobId` | retained chunk, offsets and dropped-byte count |
 | `namzu/jobs/stop` | `sessionId`, `jobId` | stopped job |

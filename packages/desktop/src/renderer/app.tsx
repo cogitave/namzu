@@ -138,10 +138,12 @@ import { Transcript } from './transcript.js'
 import { TurnRecovery } from './turn-recovery.js'
 import { Button } from './ui/button.js'
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from './ui/empty.js'
+import { UndoDialog } from './undo-dialog.js'
 import { useAttachments } from './use-attachments.js'
 import { useDraftSettings } from './use-draft-settings.js'
 import { useLocalSpeech } from './use-local-speech.js'
 import { useTranscriptScroll } from './use-transcript-scroll.js'
+import { useUndoKept } from './use-undo-kept.js'
 import { WindowTitlebar } from './window-titlebar.js'
 import { Wordmark } from './wordmark.js'
 import {
@@ -643,6 +645,7 @@ export function App({
 	const detailsTrigger = useRef<HTMLButtonElement>(null)
 	const [detailsPopoverOpen, setDetailsPopoverOpen] = useState(false)
 	const [renamingConversation, setRenamingConversation] = useState<ConversationView>()
+	const [undoingTurn, setUndoingTurn] = useState<{ sessionId: string; turnId: string }>()
 	const [archivedProject, setArchivedProject] = useState<string>()
 	const renameTrigger = useRef<HTMLElement | null>(null)
 	const [notice, setNotice] = useState('')
@@ -956,6 +959,7 @@ export function App({
 			? project.id
 			: undefined
 	const turnRunning = thread.running
+	const undoKept = useUndoKept(api.undoPreview, sessionId, thread.undo)
 	// A settled turn may have written files; the open file and the tree read the disk again.
 	const [filesRefresh, setFilesRefresh] = useState(0)
 	const wasRunning = useRef(false)
@@ -3771,6 +3775,34 @@ export function App({
 								}
 							/>
 						)}
+						{undoingTurn && api.undoPreview && api.undoTurn && (
+							<UndoDialog
+								key={`undo:${undoingTurn.sessionId}:${undoingTurn.turnId}`}
+								queued={threads[undoingTurn.sessionId]?.queued.length ?? 0}
+								onClose={() => setUndoingTurn(undefined)}
+								returnFocus={() => input.current}
+								loadPreview={(options) =>
+									(api.undoPreview as NonNullable<typeof api.undoPreview>)(
+										undoingTurn.sessionId,
+										undoingTurn.turnId,
+										options,
+									)
+								}
+								apply={async (planToken, options) => {
+									if (context.current.frozen)
+										throw new Error('Wait for this conversation to finish moving.')
+									const result = await (api.undoTurn as NonNullable<typeof api.undoTurn>)(
+										undoingTurn.sessionId,
+										undoingTurn.turnId,
+										planToken,
+										options,
+									)
+									// The files moved: the open file, the tree and the Changes view read the disk again.
+									if (result.status !== 'plan-changed') setFilesRefresh((value) => value + 1)
+									return result
+								}}
+							/>
+						)}
 						{renamingConversation && (
 							<RenameConversationDialog
 								key={`rename-conversation:${renamingConversation.id}`}
@@ -4369,6 +4401,12 @@ export function App({
 													setJobsOpen(true)
 												}}
 												onOpenChangedFile={projectFiles ? openChangedFile : undefined}
+												onUndoTurn={
+													api.undoPreview && api.undoTurn
+														? (turnId) => setUndoingTurn({ sessionId, turnId })
+														: undefined
+												}
+												undoKept={undoKept}
 												renderMessageAction={(message, key) => (
 													<MessageActions text={message.text}>
 														<LocalSpeechReadAloud

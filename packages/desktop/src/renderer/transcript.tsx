@@ -22,7 +22,7 @@ import {
 	useTranscriptPhaseMotion,
 } from './transcript-motion.js'
 import { TurnChangesCard } from './turn-changes-card.js'
-import { turnChanges } from './turn-changes.js'
+import { turnChanges, turnUndo } from './turn-changes.js'
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from './ui/collapsible.js'
 import { type WorkDisclosureChoices, workDisclosureKey } from './workspace-presentation.js'
 import './transcript-motion.css'
@@ -364,6 +364,8 @@ export function Transcript({
 	onWorkDisclosureChange,
 	onOpenTurnChanges,
 	onOpenChangedFile,
+	onUndoTurn,
+	undoKept,
 	dateSeparators = true,
 }: {
 	thread: ThreadState
@@ -375,6 +377,10 @@ export function Transcript({
 	onOpenTurnChanges?: (receiptIds: string[], path?: string) => void
 	/** Shows an edited file in the side panel; absent when the project's files are not available. */
 	onOpenChangedFile?: (path: string) => void
+	/** Opens the undo dialog for a reply by its journal turn id; absent where the CLI cannot undo. */
+	onUndoTurn?: (turnId: string) => void
+	/** Files a partly undone reply still has to finish, by turn id. */
+	undoKept?: Record<string, number>
 	dateSeparators?: boolean
 }) {
 	const ref = useRef<HTMLDivElement>(null)
@@ -472,6 +478,7 @@ export function Transcript({
 								changes={changes.get(group.turn)}
 								onOpen={onOpenTurnChanges}
 								onOpenFile={onOpenChangedFile}
+								{...turnUndo(thread, group.turn, onUndoTurn, undoKept)}
 							/>
 						)}
 				</div>

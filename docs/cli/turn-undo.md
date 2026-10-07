@@ -71,6 +71,10 @@ None of the three builds a model session: a conversation nobody has opened in th
 
 After a successful undo that wrote or removed files, the open session's observation ledger is told those paths are behind the disk, so the model's next edit of one is refused until it reads the file again, and the next prompt carries a short system note naming the files. The note is held in the CLI process: an undo done while the host then restarts before the next prompt loses the note (the ledger refusal still holds, because the ledger is rebuilt from history against the new disk).
 
+## In Desktop
+
+Desktop's reply card offers Undo from `undo-status` and confirms from `undo-preview`; see [Undoing a reply](desktop.md#undoing-a-reply). It sends only `keep_copy` resolutions (a conflict not named is skipped), passes the plan token it previewed, and shows a `plan-changed` answer's `replan` in place instead of applying it. The time on an undone reply's chip is the Desktop window's own clock at the moment it saw the undo; `undo-status` carries no time, so a reopened conversation shows "Undone" alone.
+
 ## Not covered
 
 Shell commands (`bash`, jobs, `run_code`) change files the history cannot see; a turn that ran one says so. Sub-agent edits, files over 8 MiB, files outside the project and edits made inside a sandbox are recorded as skipped, with the path and the reason. Fork support exists in the store (a fork adopts its parent's manifests up to the fork point and hard-links the bodies) and is not yet wired to the fork commands.

@@ -1,0 +1,32 @@
+PASS dark-1440 turn 1 and 2 offer Undo 
+PASS dark-1440 the reply with no edits has no card 
+PASS dark-1440 focus starts on Cancel, not the destructive button Cancel
+PASS dark-1440 rows mix restore, delete and conflict restore,delete,conflict,conflict,skipped
+PASS dark-1440 shell warning 
+PASS dark-1440 not-covered list 
+PASS dark-1440 conflicts default to Skip 
+PASS dark-1440 primary states the count Undo 2 files
+PASS dark-1440 choosing keep-my-copy adds the file Undo 3 files
+PASS dark-1440 Esc cancels without undoing 
+PASS dark-1440 card reads partial from status 
+PASS dark-1440 undone chip with a time 
+PASS dark-1440 stats are dimmed 0.5
+PASS dark-1440 cold partial 
+PASS dark-1440 cold undone 
+PASS dark-1440 plan-changed refreshes in place 
+PASS light-900 turn 1 and 2 offer Undo 
+PASS light-900 the reply with no edits has no card 
+PASS light-900 focus starts on Cancel, not the destructive button Cancel
+PASS light-900 rows mix restore, delete and conflict restore,delete,conflict,conflict,skipped
+PASS light-900 shell warning 
+PASS light-900 not-covered list 
+PASS light-900 conflicts default to Skip 
+PASS light-900 primary states the count Undo 2 files
+PASS light-900 choosing keep-my-copy adds the file Undo 3 files
+PASS light-900 Esc cancels without undoing 
+PASS light-900 card reads partial from status 
+PASS light-900 undone chip with a time 
+PASS light-900 stats are dimmed 0.5
+PASS light-900 cold partial 
+PASS light-900 cold undone 
+PASS light-900 plan-changed refreshes in place 

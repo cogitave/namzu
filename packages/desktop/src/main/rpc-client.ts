@@ -48,6 +48,7 @@ export class RuntimeClient extends EventEmitter {
 	private promptAttachments = false
 	private promptOptions = false
 	private turnRetry = false
+	private turnUndo = false
 	private liveInput = false
 	supportsLiveInput(): boolean {
 		return this.liveInput
@@ -74,6 +75,9 @@ export class RuntimeClient extends EventEmitter {
 	}
 	supportsTurnRetry(): boolean {
 		return this.turnRetry
+	}
+	supportsTurnUndo(): boolean {
+		return this.turnUndo
 	}
 	supportsPromptOptions(): boolean {
 		return this.promptOptions
@@ -208,6 +212,11 @@ export class RuntimeClient extends EventEmitter {
 		this.turnRetry = ['namzu/sessions/retry-status', 'namzu/sessions/retry'].every((method) =>
 			result.extensions?.includes(method),
 		)
+		this.turnUndo = [
+			'namzu/turns/undo-status',
+			'namzu/turns/undo-preview',
+			'namzu/turns/undo',
+		].every((method) => result.extensions?.includes(method))
 		this.liveInput = ['namzu/conversations/input/status', 'namzu/conversations/input'].every(
 			(method) => result.extensions?.includes(method),
 		)

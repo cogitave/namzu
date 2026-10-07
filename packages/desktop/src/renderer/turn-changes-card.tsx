@@ -1,9 +1,54 @@
+import { Undo2 } from 'lucide-react'
 import { useState } from 'react'
 import { formatLineCount } from './changes-totals.js'
 import { ChevronDownIcon, ChevronRightIcon, FileDiffIcon } from './icons.js'
 import type { TurnChanges } from './turn-changes.js'
 import { Button } from './ui/button.js'
+import { type UndoCardView, partialLabel } from './undo-model.js'
 import './turn-changes-card.css'
+
+function undoneAt(at: number): string {
+	return new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+}
+
+/** The one place a reply's undo state shows: only ever what the CLI's status says. */
+function UndoControl({ view, onUndo }: { view: UndoCardView; onUndo: () => void }) {
+	if (view.kind === 'undone')
+		return (
+			<span className="turn-changes-undone-chip" data-undo-state="undone">
+				{view.at ? `Undone at ${undoneAt(view.at)}` : 'Undone'}
+			</span>
+		)
+	if (view.kind === 'partial')
+		return (
+			<Button
+				type="button"
+				size="xs"
+				variant="outline"
+				className="turn-changes-open"
+				data-undo-state="partial"
+				onClick={onUndo}
+			>
+				{partialLabel(view.kept)}
+			</Button>
+		)
+	const disabled = view.kind === 'disabled'
+	return (
+		<Button
+			type="button"
+			size="xs"
+			variant={disabled ? 'ghost-muted' : 'ghost'}
+			className="turn-changes-open"
+			data-undo-state={disabled ? 'disabled' : 'enabled'}
+			aria-disabled={disabled || undefined}
+			title={disabled ? view.reason : 'Put the files this reply edited back'}
+			onClick={disabled ? undefined : onUndo}
+		>
+			{disabled ? view.reason : 'Undo'}
+			<Undo2 aria-hidden="true" />
+		</Button>
+	)
+}
 
 function Totals({ added, removed }: { added: number; removed: number }) {
 	return (
@@ -27,11 +72,16 @@ export function TurnChangesCard({
 	changes,
 	onOpen,
 	onOpenFile,
+	undo,
+	onUndo,
 }: {
 	changes: TurnChanges
 	onOpen: (receiptIds: string[], path?: string) => void
 	/** Shows the file itself, not its diff; absent where the project's files are not available. */
 	onOpenFile?: (path: string) => void
+	/** Absent hides Undo: still streaming, nothing covered, or an older CLI. */
+	undo?: UndoCardView
+	onUndo?: () => void
 }) {
 	const [expanded, setExpanded] = useState(false)
 	const [only] = changes.files.length === 1 ? changes.files : []
@@ -41,6 +91,7 @@ export function TurnChangesCard({
 			aria-label="Files edited in this reply"
 			data-turn-changes={changes.turn}
 			data-changed-files-state={only ? 'single' : expanded ? 'tree' : 'collapsed'}
+			data-undo={undo?.kind}
 		>
 			<div className="turn-changes-head">
 				{only ? (
@@ -82,6 +133,7 @@ export function TurnChangesCard({
 						Open file
 					</Button>
 				)}
+				{undo && onUndo && <UndoControl view={undo} onUndo={onUndo} />}
 				<Button
 					type="button"
 					size="xs"

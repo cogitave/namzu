@@ -25,6 +25,9 @@ import type {
 	DesktopEvent,
 	DesktopRetryStatus,
 	DesktopSendOptions,
+	DesktopUndoOptions,
+	DesktopUndoPreview,
+	DesktopUndoResult,
 	DraftSettings,
 	HarnessView,
 	JobView,
@@ -49,6 +52,7 @@ import type {
 	ProviderView,
 } from '../shared/protocol.js'
 import { readTaskUpdate, readTasks } from '../shared/task-protocol.js'
+import { readUndoPreview, readUndoResult, readUndoStatus } from '../shared/undo-protocol.js'
 import { AttachmentPreviewBudget } from './attachment-preview-budget.js'
 import {
 	type AdmittedAttachment,
@@ -2220,6 +2224,7 @@ export class Operator {
 			this.conversations.set(sessionId, record)
 			this.persistDesktop()
 			this.trackBackgroundWork(sessionId)
+			await this.refreshUndoQuietly(record)
 			return {
 				...history,
 				messages: record.projection.messages,
@@ -2284,6 +2289,7 @@ export class Operator {
 				partial: history.partial,
 			}
 			session.needsHistory = false
+			await this.refreshUndoQuietly(session)
 		})()
 		const reading = {
 			client,
@@ -3333,6 +3339,196 @@ export class Operator {
 			if (session.admitting === admission) session.admitting = undefined
 		}
 	}
+	/** Undo state is the CLI's to say. A failed or stale read leaves what the card already shows. */
+	private async refreshUndo(session: Conversation, turnIds?: string[]): Promise<void> {
+		const client = session.client
+		const runtimeId = session.runtimeSessionId
+		if (!client.supportsTurnUndo() || !session.hasPrompted) return
+		if (turnIds?.length === 0) return
+		const result = await client.request('namzu/turns/undo-status', {
+			sessionId: runtimeId,
+			...(turnIds ? { turnIds } : {}),
+		})
+		if (
+			this.closing ||
+			this.conversations.get(session.view.id) !== session ||
+			session.client !== client ||
+			session.runtimeSessionId !== runtimeId
+		)
+			return
+		const turns = readUndoStatus(result)
+		if (!turns) throw new Error('Namzu returned an invalid undo status.')
+		this.emit({ kind: 'undo-status', sessionId: session.view.id, turns })
+	}
+	private async refreshUndoQuietly(session: Conversation): Promise<void> {
+		try {
+			await this.refreshUndo(session)
+		} catch (error) {
+			try {
+				this.diagnostics?.record('cli_notice', { operation: 'namzu/turns/undo-status', error })
+			} catch {
+				/* Diagnostics cannot break opening a conversation. */
+			}
+		}
+	}
+	async undoStatus(sessionId: string, turnIds?: string[]): Promise<void> {
+		const session = this.session(sessionId)
+		if (
+			turnIds !== undefined &&
+			(!Array.isArray(turnIds) ||
+				turnIds.length > 500 ||
+				turnIds.some((id) => typeof id !== 'string' || !id || id.length > 200))
+		)
+			throw new Error('Invalid turns.')
+		await this.refreshUndo(session, turnIds)
+	}
+	async undoPreview(
+		sessionId: string,
+		turnId: string,
+		options?: { alsoUndoLater?: boolean },
+	): Promise<DesktopUndoPreview> {
+		const session = this.session(sessionId)
+		if (!session.client.supportsTurnUndo()) throw new Error('Update Namzu to undo a reply.')
+		if (typeof turnId !== 'string' || !turnId || turnId.length > 200)
+			throw new Error('Invalid turn.')
+		if (
+			options !== undefined &&
+			(!options ||
+				typeof options !== 'object' ||
+				Array.isArray(options) ||
+				Object.keys(options).some((key) => key !== 'alsoUndoLater') ||
+				(options.alsoUndoLater !== undefined && typeof options.alsoUndoLater !== 'boolean'))
+		)
+			throw new Error('Invalid undo options.')
+		const client = session.client
+		const runtimeId = session.runtimeSessionId
+		const result = await client.request('namzu/turns/undo-preview', {
+			sessionId: runtimeId,
+			turnId,
+			...(options?.alsoUndoLater ? { alsoUndoLater: true } : {}),
+		})
+		if (
+			this.closing ||
+			this.conversations.get(sessionId) !== session ||
+			session.client !== client ||
+			session.runtimeSessionId !== runtimeId
+		)
+			throw new Error('The connection changed while planning the undo. Try again.')
+		const preview = readUndoPreview(result)
+		if (!preview) throw new Error('Namzu returned an invalid undo plan.')
+		return preview
+	}
+	/**
+	 * Holds the prompt queue the way a retry does: nothing is admitted while the files are being
+	 * written, and nothing starts under it. The CLI refuses again on its own side.
+	 */
+	async undoTurn(
+		sessionId: string,
+		turnId: string,
+		planToken: string,
+		options?: DesktopUndoOptions,
+	): Promise<DesktopUndoResult> {
+		const session = this.session(sessionId)
+		if (session.running || session.admitting || this.changingPlugins.has(sessionId))
+			throw new Error('Wait for this conversation’s active work to finish.')
+		if (!session.client.supportsTurnUndo()) throw new Error('Update Namzu to undo a reply.')
+		this.assertPalAdmission(session.view.palId, true)
+		if (
+			typeof turnId !== 'string' ||
+			!turnId ||
+			turnId.length > 200 ||
+			typeof planToken !== 'string' ||
+			!planToken ||
+			planToken.length > 200
+		)
+			throw new Error('Invalid undo request.')
+		if (
+			options !== undefined &&
+			(!options ||
+				typeof options !== 'object' ||
+				Array.isArray(options) ||
+				Object.keys(options).some((key) => key !== 'resolutions' && key !== 'alsoUndoLater') ||
+				(options.alsoUndoLater !== undefined && typeof options.alsoUndoLater !== 'boolean') ||
+				(options.resolutions !== undefined &&
+					(!options.resolutions ||
+						typeof options.resolutions !== 'object' ||
+						Array.isArray(options.resolutions) ||
+						Object.entries(options.resolutions).some(
+							([path, choice]) => !path || (choice !== 'skip' && choice !== 'keep_copy'),
+						))))
+		)
+			throw new Error('Invalid undo options.')
+		const admission = Symbol('undo admission')
+		const selectionRevision = session.selectionRevision ?? 0
+		session.admitting = admission
+		try {
+			const client = session.client
+			const runtimeId = session.runtimeSessionId
+			const assertCurrent = this.metadataRead(this.project(session.view.projectId), session)
+			if (
+				session.admitting !== admission ||
+				(session.selectionRevision ?? 0) !== selectionRevision ||
+				this.changingPlugins.has(sessionId)
+			)
+				throw new Error('This conversation’s settings changed during undo admission.')
+			const resolutions = options?.resolutions
+				? Object.fromEntries(Object.entries(options.resolutions))
+				: undefined
+			let result: unknown
+			try {
+				result = await client.request('namzu/turns/undo', {
+					sessionId: runtimeId,
+					turnId,
+					planToken,
+					...(resolutions ? { resolutions } : {}),
+					...(options?.alsoUndoLater ? { alsoUndoLater: true } : {}),
+				})
+			} catch (failure) {
+				// A write that failed midway may still have changed files; the card must say so.
+				await this.refreshUndoQuietly(session)
+				throw failure
+			}
+			const undone = readUndoResult(result)
+			if (!undone) throw new Error('Namzu returned an invalid undo result.')
+			// The files changed whether or not the conversation did meanwhile; the status read
+			// below checks the connection itself.
+			try {
+				assertCurrent()
+			} catch {
+				return undone
+			}
+			if (undone.status !== 'plan-changed') {
+				const ids = [undone.turnId, ...Object.keys(undone.later ?? {})]
+				let refreshed = false
+				try {
+					await this.refreshUndo(session)
+					refreshed = true
+				} catch {
+					/* The result still tells the card what happened. */
+				}
+				const at = Date.now()
+				const current = session.projection.undo
+				const stamped = ids.flatMap((id) => {
+					const row = current?.[id]
+					// When the status read failed, the result itself says what became of the reply.
+					const settled =
+						!refreshed && id === undone.turnId && row && row.status !== undone.status
+							? undone.status === 'undone' || undone.status === 'partially_undone'
+								? { ...row, status: undone.status }
+								: undefined
+							: row
+					return settled && (settled.status === 'undone' || settled.status === 'partially_undone')
+						? [{ ...settled, undoneAt: at }]
+						: []
+				})
+				if (stamped.length)
+					this.emit({ kind: 'undo-status', sessionId: session.view.id, turns: stamped })
+			}
+			return undone
+		} finally {
+			if (session.admitting === admission) session.admitting = undefined
+		}
+	}
 	private async runRetry(
 		session: Conversation,
 		turnId: string,
@@ -3762,6 +3958,7 @@ export class Operator {
 					/* Original failure remains visible. */
 				}
 			}
+			await this.refreshUndoQuietly(session)
 			await this.readTasksSnapshot(session, true)
 			this.state(
 				session,

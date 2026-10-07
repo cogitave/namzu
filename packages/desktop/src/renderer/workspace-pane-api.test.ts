@@ -336,6 +336,28 @@ describe('pane write admission', () => {
 		)
 	})
 
+	it('fences an undo by pane ownership and is absent when the bridge has none', async () => {
+		const undoTurn = vi.fn<NonNullable<DesktopApi['undoTurn']>>().mockResolvedValue({
+			turnId: 'turn',
+			status: 'undone',
+			files: {},
+		})
+		const controller = createWorkspacePaneApi(bridge({ undoTurn }), {
+			owns: (id) => id === 'owned',
+			blocked: () => false,
+		})
+		await expect(controller.api.undoTurn?.('foreign', 'turn', 'plan')).rejects.toThrow(
+			'another pane',
+		)
+		await controller.api.undoTurn?.('owned', 'turn', 'plan', { alsoUndoLater: true })
+		expect(undoTurn).toHaveBeenCalledExactlyOnceWith('owned', 'turn', 'plan', {
+			alsoUndoLater: true,
+		})
+		const older = createWorkspacePaneApi(bridge({}), { owns: () => true, blocked: () => false })
+		expect(older.api.undoTurn).toBeUndefined()
+		expect(older.api.undoPreview).toBeUndefined()
+	})
+
 	it('copies a frozen context bridge and blocks another pane without mutating the original API', async () => {
 		const saveDraft = vi.fn<DesktopApi['saveDraft']>().mockResolvedValue(undefined)
 		const original = Object.freeze(bridge({ saveDraft }))

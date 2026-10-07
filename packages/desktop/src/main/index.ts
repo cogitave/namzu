@@ -24,6 +24,7 @@ import type {
 	AttachmentInput,
 	DesktopEvent,
 	DesktopSendOptions,
+	DesktopUndoOptions,
 	DraftSettings,
 	PalChanges,
 	PalComputerInput,
@@ -299,6 +300,8 @@ function register(): void {
 		['providers', 1],
 		['readyConversation', 1],
 		['conversationMarkdown', 0],
+		['undoStatus', 0],
+		['undoPreview', 0],
 		['models', 2],
 		['modelSettings', 3],
 		['plugins', 1],
@@ -317,6 +320,7 @@ function register(): void {
 		['send', 0],
 		['sendCurrent', 0],
 		['retryTurn', 0],
+		['undoTurn', 0],
 		['saveDraft', 0],
 		['saveDraftSettings', 0],
 		['cancel', 0],
@@ -800,6 +804,15 @@ function register(): void {
 			checkpointId: string,
 			options?: Omit<DesktopSendOptions, 'attachmentIds'>,
 		) => operator.retryTurn(id, turnId, checkpointId, options),
+	)
+	handle('undoStatus', (id: string, turnIds?: string[]) => operator.undoStatus(id, turnIds))
+	handle('undoPreview', (id: string, turnId: string, options?: { alsoUndoLater?: boolean }) =>
+		operator.undoPreview(id, turnId, options),
+	)
+	handle(
+		'undoTurn',
+		(id: string, turnId: string, planToken: string, options?: DesktopUndoOptions) =>
+			operator.undoTurn(id, turnId, planToken, options),
 	)
 	handle('draft', (id: string) => operator.draft(id))
 	handle('saveDraft', (id: string, draft: string) => operator.saveDraft(id, draft))

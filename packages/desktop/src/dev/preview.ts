@@ -9,6 +9,10 @@ import type {
 	ConversationView,
 	DesktopApi,
 	DesktopEvent,
+	DesktopTurnUndo,
+	DesktopUndoFile,
+	DesktopUndoPreview,
+	DesktopUndoResult,
 	DraftSettings,
 	HarnessView,
 	ModelCatalogueView,
@@ -486,6 +490,167 @@ function announceUpdate(view: ConversationView): ConversationView {
 	return next
 }
 
+// Undo for the first conversation's saved replies. The states live here the way the CLI keeps them:
+// the card only ever shows what undo-status says. /preview?undo=partial starts the second reply
+// partly undone, ?undo=undone starts the first one undone, ?undo=moved makes the first apply of
+// the second reply find the files changed since its preview.
+const undoMode = new URLSearchParams(location.search).get('undo')
+const undoRoot = '/sample/app/'
+const undoStatuses = new Map<string, DesktopTurnUndo>([
+	[
+		't1',
+		{
+			turnId: 't1',
+			status: undoMode === 'undone' ? 'undone' : 'applied',
+			files: 1,
+			added: 0,
+			removed: 0,
+			uncoveredShell: false,
+			skipped: [],
+		},
+	],
+	[
+		't2',
+		{
+			turnId: 't2',
+			status: undoMode === 'partial' ? 'partially_undone' : 'applied',
+			files: 4,
+			added: 1,
+			removed: 0,
+			uncoveredShell: true,
+			skipped: [{ path: `${undoRoot}assets/hero.psd`, reason: 'too-large' }],
+		},
+	],
+])
+// Paths each reply's undo has already put back, so a second run finds them settled.
+const undoDone = new Map<string, Set<string>>([
+	['t1', new Set()],
+	['t2', undoMode === 'partial' ? new Set(['src/rail.css', 'src/rail-notes.md']) : new Set()],
+	['t3', new Set()],
+])
+let undoRevision = 0
+let undoMoved = undoMode === 'moved'
+const undoRow = (
+	turnId: string,
+	rel: string,
+	action: DesktopUndoFile['action'],
+	reason?: DesktopUndoFile['reason'],
+	blockedBy?: string[],
+): DesktopUndoFile => ({
+	turnId,
+	path: `${undoRoot}${rel}`,
+	rel,
+	action: undoDone.get(turnId)?.has(rel) ? 'noop' : action,
+	...(reason && !undoDone.get(turnId)?.has(rel) ? { reason } : {}),
+	...(blockedBy ? { blockedBy } : {}),
+})
+function undoPlan(turnId: string, alsoUndoLater: boolean): DesktopUndoPreview {
+	const status = undoStatuses.get(turnId)
+	if (!status) throw new Error('This reply has nothing to undo.')
+	const later = alsoUndoLater && turnId === 't2'
+	const files: DesktopUndoFile[] =
+		turnId === 't1'
+			? [undoRow('t1', 'src/sidebar.css', 'restore')]
+			: [
+					...(later ? [undoRow('t3', 'src/components/header.tsx', 'restore')] : []),
+					undoRow('t2', 'src/rail.css', 'restore'),
+					undoRow('t2', 'src/rail-notes.md', 'delete'),
+					undoRow('t2', 'design/tokens.json', 'conflict', 'drifted'),
+					later
+						? undoRow('t2', 'src/components/header.tsx', 'restore')
+						: undoRow('t2', 'src/components/header.tsx', 'conflict', 'later-reply', ['t3']),
+				]
+	return {
+		turnId,
+		status: status.status === 'none' || status.status === 'expired' ? 'applied' : status.status,
+		planToken: `sample-plan:${turnId}:${later ? 'later' : 'own'}:${undoRevision}:${files
+			.map((file) => file.action)
+			.join(',')}`,
+		files,
+		skipped: status.skipped,
+		uncoveredShell: status.uncoveredShell,
+		laterTurnsOnSameFiles: turnId === 't2' ? ['t3'] : [],
+	}
+}
+function announceUndo(turns: DesktopTurnUndo[]) {
+	for (const listener of listeners)
+		listener({ kind: 'undo-status', sessionId: 'sample-thread-1', turns: clone(turns) })
+}
+function undoTurnSample(
+	turnId: string,
+	planToken: string,
+	options?: { resolutions?: Record<string, 'skip' | 'keep_copy'>; alsoUndoLater?: boolean },
+): DesktopUndoResult {
+	const later = options?.alsoUndoLater === true
+	if (undoMoved && turnId === 't2') {
+		// The disk moved after the preview: nothing is written and the new plan comes back.
+		undoMoved = false
+		undoRevision += 1
+		return {
+			turnId,
+			status: 'plan-changed',
+			files: {},
+			replan: undoPlan(turnId, later),
+		}
+	}
+	const plan = undoPlan(turnId, later)
+	if (plan.planToken !== planToken)
+		return { turnId, status: 'plan-changed', files: {}, replan: plan }
+	const results: Record<string, 'restored' | 'removed' | 'skipped' | 'failed' | 'noop'> = {}
+	const laterResults: Record<string, typeof results> = {}
+	const copies: { path: string; sha256: string }[] = []
+	let partial = false
+	for (const file of plan.files) {
+		if (file.turnId !== turnId && !laterResults[file.turnId]) laterResults[file.turnId] = {}
+		const into = file.turnId === turnId ? results : (laterResults[file.turnId] ?? {})
+		if (file.action === 'noop') into[file.path] = 'noop'
+		else if (file.action === 'conflict') {
+			if (options?.resolutions?.[file.path] === 'keep_copy') {
+				into[file.path] = 'restored'
+				copies.push({ path: file.path, sha256: 'a'.repeat(64) })
+				undoDone.get(file.turnId)?.add(file.rel)
+			} else {
+				into[file.path] = 'skipped'
+				if (file.turnId === turnId) partial = true
+			}
+		} else {
+			into[file.path] = file.action === 'delete' ? 'removed' : 'restored'
+			undoDone.get(file.turnId)?.add(file.rel)
+		}
+	}
+	const at = Date.now()
+	const settled: DesktopTurnUndo[] = []
+	const target = undoStatuses.get(turnId)
+	if (target) {
+		target.status = partial ? 'partially_undone' : 'undone'
+		target.undoneAt = at
+		settled.push(target)
+	}
+	for (const id of Object.keys(laterResults)) {
+		const other = undoStatuses.get(id) ?? {
+			turnId: id,
+			status: 'undone' as const,
+			files: 1,
+			added: 0,
+			removed: 0,
+			uncoveredShell: false,
+			skipped: [],
+		}
+		other.status = 'undone'
+		other.undoneAt = at
+		undoStatuses.set(id, other)
+		settled.push(other)
+	}
+	undoRevision += 1
+	announceUndo(settled)
+	return {
+		turnId,
+		status: partial ? 'partially_undone' : 'undone',
+		files: results,
+		...(Object.keys(laterResults).length ? { later: laterResults } : {}),
+		...(copies.length ? { copies } : {}),
+	}
+}
 const api: DesktopApi = {
 	copyText: async (text) => {
 		const value = copyTextPayload(text)
@@ -637,9 +802,27 @@ const api: DesktopApi = {
 			messages: saved,
 			partial: false,
 			...(id === 'sample-thread-1'
-				? { thread: restoreHistoryWork(emptyThread(), saved, sampleWork) }
+				? {
+						thread: {
+							...restoreHistoryWork(emptyThread(), saved, sampleWork),
+							undo: Object.fromEntries(
+								[...undoStatuses].map(([turnId, row]) => [turnId, clone(row)]),
+							),
+						},
+					}
 				: {}),
 		}
+	},
+	undoStatus: async (id) => {
+		if (id === 'sample-thread-1') announceUndo([...undoStatuses.values()])
+	},
+	undoPreview: async (id, turnId, options) => {
+		if (id !== 'sample-thread-1') throw new Error('This sample reply has nothing to undo.')
+		return clone(undoPlan(turnId, options?.alsoUndoLater === true))
+	},
+	undoTurn: async (id, turnId, planToken, options) => {
+		if (id !== 'sample-thread-1') throw new Error('This sample reply has nothing to undo.')
+		return clone(undoTurnSample(turnId, planToken, options))
 	},
 	renameConversation: async (id, title) => {
 		const view = conversation(id)

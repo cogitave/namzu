@@ -3,6 +3,7 @@ import type {
 	ChatMessage,
 	DesktopEvent,
 	DesktopTurnRetry,
+	DesktopTurnUndo,
 	PermissionView,
 	QueuedMessageView,
 } from './protocol.js'
@@ -70,6 +71,8 @@ export interface ThreadState {
 	error?: string
 	retry?: DesktopTurnRetry
 	retryNotice?: string
+	/** Per journal turn id; only ever written from the CLI's undo-status. */
+	undo?: Record<string, DesktopTurnUndo>
 	tools: Record<string, ProjectedToolCall>
 	activeToolIds: string[]
 	permissions: PermissionView[]
@@ -126,6 +129,7 @@ export function restoreMessages(thread: ThreadState, messages: ChatMessage[]): T
 		result: undefined,
 		retry: undefined,
 		retryNotice: undefined,
+		undo: undefined,
 		historyWorkPartial: undefined,
 	}
 }
@@ -418,6 +422,20 @@ export function applyEvent(previous: ThreadState, event: DesktopEvent): ThreadSt
 					: item,
 			),
 		}
+	}
+	if (event.kind === 'undo-status') {
+		const undo = { ...thread.undo }
+		for (const turn of event.turns) {
+			const before = undo[turn.turnId]
+			// The time is this window's observation; keep it while the status it belongs to stands.
+			const undoneAt =
+				turn.undoneAt ??
+				(before && before.status === turn.status && turn.status !== 'applied'
+					? before.undoneAt
+					: undefined)
+			undo[turn.turnId] = { ...turn, ...(undoneAt === undefined ? {} : { undoneAt }) }
+		}
+		return { ...thread, undo }
 	}
 	if (event.kind === 'retry-status')
 		return { ...thread, retry: event.retry, retryNotice: event.notice }

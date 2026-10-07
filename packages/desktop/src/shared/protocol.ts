@@ -272,6 +272,65 @@ export interface DesktopRetryStatus {
 	retry?: DesktopTurnRetry
 	notice?: string
 }
+/** What undoing a reply stands at; read from the CLI's file history, never kept by the UI. */
+export type DesktopUndoState = 'applied' | 'undone' | 'partially_undone' | 'none' | 'expired'
+export type DesktopUndoSkipReason = 'too-large' | 'outside-cwd' | 'sandbox' | 'snapshot-failed'
+export interface DesktopUndoSkipped {
+	path: string
+	reason: DesktopUndoSkipReason
+}
+export interface DesktopTurnUndo {
+	turnId: string
+	status: DesktopUndoState
+	files: number
+	added: number
+	removed: number
+	/** A shell command ran in the reply; undo cannot reverse what it changed. */
+	uncoveredShell: boolean
+	skipped: DesktopUndoSkipped[]
+	/** Host clock of an undo this window observed; absent after a cold reopen. */
+	undoneAt?: number
+}
+export type DesktopUndoAction = 'restore' | 'delete' | 'noop' | 'conflict'
+export type DesktopUndoConflictReason =
+	| 'drifted'
+	| 'later-reply'
+	| 'unavailable'
+	| 'symlink'
+	| 'outside-cwd'
+export interface DesktopUndoFile {
+	turnId: string
+	path: string
+	rel: string
+	action: DesktopUndoAction
+	reason?: DesktopUndoConflictReason
+	blockedBy?: string[]
+}
+export interface DesktopUndoPreview {
+	turnId: string
+	status: 'applied' | 'undone' | 'partially_undone'
+	/** Names the plan the operator saw; an undo of any other plan is refused and re-planned. */
+	planToken: string
+	files: DesktopUndoFile[]
+	skipped: DesktopUndoSkipped[]
+	uncoveredShell: boolean
+	laterTurnsOnSameFiles: string[]
+}
+export type DesktopUndoFileResult = 'restored' | 'removed' | 'skipped' | 'failed' | 'noop'
+export interface DesktopUndoOptions {
+	/** Per path: skip (the default) or keep a copy of the file as it is now, then restore. */
+	resolutions?: Record<string, 'skip' | 'keep_copy'>
+	alsoUndoLater?: boolean
+}
+export interface DesktopUndoResult {
+	turnId: string
+	/** `plan-changed` means nothing was written and `replan` is what to show instead. */
+	status: 'applied' | 'undone' | 'partially_undone' | 'plan-changed'
+	files: Record<string, DesktopUndoFileResult>
+	later?: Record<string, Record<string, DesktopUndoFileResult>>
+	copies?: { path: string; sha256: string }[]
+	replan?: DesktopUndoPreview
+}
 export type DesktopEvent = (
 	| BackgroundWorkStatusEvent
 	| {
@@ -298,6 +357,7 @@ export type DesktopEvent = (
 	  }
 	| ({ kind: 'retry-status'; sessionId: string } & DesktopRetryStatus)
 	| { kind: 'retry'; sessionId: string; turnId: string }
+	| { kind: 'undo-status'; sessionId: string; turns: DesktopTurnUndo[] }
 	| {
 			kind: 'state'
 			sessionId: string
@@ -548,6 +608,19 @@ export interface DesktopApi {
 		checkpointId: string,
 		options?: Omit<DesktopSendOptions, 'attachmentIds'>,
 	): Promise<void>
+	/** Per-reply file undo; absent when the CLI keeps no file history. State arrives as `undo-status` events. */
+	undoStatus?(sessionId: string, turnIds?: string[]): Promise<void>
+	undoPreview?(
+		sessionId: string,
+		turnId: string,
+		options?: { alsoUndoLater?: boolean },
+	): Promise<DesktopUndoPreview>
+	undoTurn?(
+		sessionId: string,
+		turnId: string,
+		planToken: string,
+		options?: DesktopUndoOptions,
+	): Promise<DesktopUndoResult>
 	draft(sessionId: string): Promise<string>
 	saveDraft(sessionId: string, draft: string): Promise<void>
 	draftSettings(ownerId: string): Promise<DraftSettings>

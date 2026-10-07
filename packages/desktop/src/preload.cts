@@ -96,6 +96,9 @@ const api: DesktopApi = {
 	sendCurrent: (id, prompt, options) => invoke('sendCurrent', id, prompt, options),
 	retryTurn: (id, turnId, checkpointId, options) =>
 		invoke('retryTurn', id, turnId, checkpointId, options),
+	undoStatus: (id, turnIds) => invoke('undoStatus', id, turnIds),
+	undoPreview: (id, turnId, options) => invoke('undoPreview', id, turnId, options),
+	undoTurn: (id, turnId, planToken, options) => invoke('undoTurn', id, turnId, planToken, options),
 	draft: (id) => invoke('draft', id),
 	saveDraft: (id, draft) => invoke('saveDraft', id, draft),
 	draftSettings: (owner) => invoke('draftSettings', owner),

@@ -109,3 +109,23 @@
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
+
+/* An undone reply keeps its record but reads as past: the numbers no longer describe the files. */
+.turn-changes[data-undo="undone"] .turn-changes-totals,
+.turn-changes[data-undo="undone"] .turn-changes-title,
+.turn-changes[data-undo="undone"] .turn-changes-icon {
+	opacity: 0.5;
+}
+.turn-changes-undone-chip {
+	flex: none;
+	padding: 2px 8px;
+	border-radius: 999px;
+	background: color-mix(in srgb, var(--muted-foreground) 14%, transparent);
+	color: var(--muted-foreground);
+	font-size: 12px;
+	white-space: nowrap;
+}
+.turn-changes-open[aria-disabled="true"] {
+	cursor: not-allowed;
+	opacity: 0.6;
+}

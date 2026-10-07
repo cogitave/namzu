@@ -43,6 +43,9 @@ export function createWorkspacePaneApi(
 		createPalSubscription,
 		disablePalSubscription,
 		retryTurn,
+		undoStatus,
+		undoPreview,
+		undoTurn,
 		deletePal,
 		removeConversation,
 		renameConversation,
@@ -420,6 +423,21 @@ export function createWorkspacePaneApi(
 			? {
 					retryTurn: (owner, turnId, checkpointId, settings) =>
 						invoke(() => retryTurn(owner, turnId, checkpointId, settings), [owner]),
+				}
+			: {}),
+		...(undoStatus
+			? { undoStatus: (owner, turnIds) => invoke(() => undoStatus(owner, turnIds), [owner]) }
+			: {}),
+		...(undoPreview
+			? {
+					undoPreview: (owner, turnId, options) =>
+						invoke(() => undoPreview(owner, turnId, options), [owner]),
+				}
+			: {}),
+		...(undoTurn
+			? {
+					undoTurn: (owner, turnId, planToken, options) =>
+						invoke(() => undoTurn(owner, turnId, planToken, options), [owner]),
 				}
 			: {}),
 		...(openChat ? { openChat: () => invoke(() => openChat(), [], { global: true }) } : {}),
