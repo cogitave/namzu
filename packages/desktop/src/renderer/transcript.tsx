@@ -20,6 +20,7 @@ import {
 	useTranscriptPhaseMotion,
 } from './transcript-motion.js'
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from './ui/collapsible.js'
+import { type WorkDisclosureChoices, workDisclosureKey } from './workspace-presentation.js'
 import './transcript-motion.css'
 
 function Entry({
@@ -49,16 +50,16 @@ function Entry({
 		const thought = thread.reasoning[entry.id]
 		// A redacted block can drive Thinking, but cannot invent a public body.
 		return thought?.text.trim() ? (
-			<div
+			<section
 				className="reasoning"
+				aria-label="Public reasoning"
 				data-timeline-turn={entry.turn}
 				data-reasoning-id={entry.id}
 				data-transcript-entry-key={transcriptEntryKey(entry)}
 			>
-				<span className="transcript-content-label">Reasoning</span>
 				<MessageContent text={thought.text} markdown />
 				<MessageTime time={thought.startedTime ?? thought.endedTime} focusable />
-			</div>
+			</section>
 		) : null
 	}
 	const message = thread.messages[entry.index]
@@ -66,11 +67,12 @@ function Entry({
 		<Message
 			from={message.role}
 			className={`message ${message.role}${message.phase === 'commentary' ? ' commentary' : ''}`}
+			role={message.phase === 'commentary' ? 'group' : undefined}
+			aria-label={message.phase === 'commentary' ? 'Progress update' : undefined}
 			data-timeline-turn={entry.turn}
 			data-message-phase={message.phase}
 			data-transcript-entry-key={transcriptEntryKey(entry)}
 		>
-			{message.phase === 'commentary' && <span className="transcript-content-label">Update</span>}
 			<MessageContent text={message.text} markdown={message.role === 'assistant'} />
 			{message.attachments && (
 				<div className="mt-2">
@@ -201,6 +203,10 @@ function TurnActivity({
 	thread,
 	turn,
 	entries,
+	ownsTurnSummary,
+	disclosureKey,
+	workDisclosures,
+	onWorkDisclosureChange,
 	animate,
 	renderMessageAction,
 	now,
@@ -208,43 +214,54 @@ function TurnActivity({
 	thread: ThreadState
 	turn: number
 	entries: TimelineEntry[]
+	ownsTurnSummary: boolean
+	disclosureKey?: string
+	workDisclosures?: WorkDisclosureChoices
+	onWorkDisclosureChange?: (key: string, open: boolean) => void
 	animate: boolean
 	renderMessageAction?: (message: ChatMessage, key: string) => ReactNode
 	now: number
 }) {
 	const live = thread.running && thread.stopReason === undefined && thread.turn === turn
 	const [chosenOpen, setChosenOpen] = useState<boolean>()
-	const label = live ? (livePhaseLabel(thread) ?? 'Working') : turnActivityLabel(thread, turn)
-	const start = live ? thread.turns[turn]?.startedAt : undefined
+	const controlled = !!disclosureKey && !!onWorkDisclosureChange
+	const savedOpen = disclosureKey ? workDisclosures?.[disclosureKey] : undefined
+	const label = ownsTurnSummary ? turnActivityLabel(thread, turn) : 'Earlier work'
+	const start = live && ownsTurnSummary ? thread.turns[turn]?.startedAt : undefined
 	const elapsed = start === undefined ? undefined : elapsedLabel(now - start)
-	const savedTime =
-		thread.turns[turn]?.startedTime ??
-		(thread.turns[turn]?.startedAt === undefined
-			? undefined
-			: { at: thread.turns[turn].startedAt, source: 'host' as const })
+	const savedTime = ownsTurnSummary
+		? (thread.turns[turn]?.startedTime ??
+			(thread.turns[turn]?.startedAt === undefined
+				? undefined
+				: { at: thread.turns[turn].startedAt, source: 'host' as const }))
+		: undefined
 	const savedDuration =
+		ownsTurnSummary &&
 		!live &&
 		thread.turns[turn]?.recordedDurationMs !== undefined &&
 		thread.turns[turn]?.startedAt === undefined
 	return (
 		<Collapsible
 			className="turn-activity"
-			open={chosenOpen ?? live}
-			onOpenChange={setChosenOpen}
+			open={controlled ? (savedOpen ?? live) : (chosenOpen ?? live)}
+			onOpenChange={(open) => {
+				if (disclosureKey && onWorkDisclosureChange) onWorkDisclosureChange(disclosureKey, open)
+				else setChosenOpen(open)
+			}}
 			data-activity-turn={turn}
 		>
 			<CollapsibleTrigger
 				className="activity-trigger"
-				aria-label={elapsed ? `${label} · ${elapsed}` : label}
+				aria-label={elapsed ? `${label} for ${elapsed}` : label}
 				title={savedDuration ? 'Time reported for this saved work' : undefined}
 				data-duration-source={savedDuration ? 'recorded-runtime' : undefined}
 			>
 				<PhaseLabel label={label} animate={animate} />
-				{elapsed && <span className="turn-activity-elapsed">{elapsed}</span>}
-				{!live && <MessageTime time={savedTime} />}
+				{elapsed && <span className="turn-activity-elapsed">for {elapsed}</span>}
 				<ChevronRightIcon className="disclosure-chevron" aria-hidden="true" />
+				{!live && <MessageTime time={savedTime} />}
 			</CollapsibleTrigger>
-			<CollapsiblePanel>
+			<CollapsiblePanel keepMounted>
 				<div className="activity-entries">
 					<ActivityEntries
 						entries={entries}
@@ -262,11 +279,13 @@ function LiveStatus({
 	animate,
 	now,
 	visuallyHidden,
+	showElapsed,
 }: {
 	thread: ThreadState
 	animate: boolean
 	now: number
 	visuallyHidden: boolean
+	showElapsed: boolean
 }) {
 	const phase = threadPhase(thread)
 	const label = livePhaseLabel(thread)
@@ -290,7 +309,7 @@ function LiveStatus({
 			<span className="working-label transcript-phase-label" aria-hidden="true">
 				<span className="transcript-phase-text">{label ?? retained.current}</span>
 			</span>
-			{start !== undefined && !visuallyHidden && (
+			{start !== undefined && showElapsed && !visuallyHidden && (
 				<span className="working-elapsed" aria-hidden="true">
 					{elapsedLabel(now - start)}
 				</span>
@@ -303,10 +322,14 @@ export function Transcript({
 	thread,
 	animate = false,
 	renderMessageAction,
+	workDisclosures,
+	onWorkDisclosureChange,
 }: {
 	thread: ThreadState
 	animate?: boolean
 	renderMessageAction?: (message: ChatMessage, key: string) => ReactNode
+	workDisclosures?: WorkDisclosureChoices
+	onWorkDisclosureChange?: (key: string, open: boolean) => void
 }) {
 	const ref = useRef<HTMLDivElement>(null)
 	useTranscriptEntryMotion(ref, thread, animate)
@@ -314,13 +337,15 @@ export function Transcript({
 		? terminalNotice(thread.turns[thread.turn]?.reason ?? thread.stopReason)
 		: undefined
 	const groups = transcriptTurns(thread)
-	const visuallyHidden =
+	const hasLiveActivity =
 		thread.running &&
 		groups.some(
 			(group) =>
 				group.turn === thread.turn &&
 				group.segments.some((segment) => hasPublicActivity(segment.activity, thread)),
 		)
+	const phase = threadPhase(thread)
+	const visuallyHidden = hasLiveActivity && phase !== 'thinking' && phase !== 'waiting'
 	const [now, setNow] = useState(Date.now)
 	const start = thread.turns[thread.turn]?.startedAt
 	useEffect(() => {
@@ -361,6 +386,18 @@ export function Transcript({
 									thread={thread}
 									turn={group.turn}
 									entries={segment.activity}
+									disclosureKey={
+										segment.activity[0]
+											? workDisclosureKey(group.turn, entryKey(segment.activity[0]))
+											: undefined
+									}
+									workDisclosures={workDisclosures}
+									onWorkDisclosureChange={onWorkDisclosureChange}
+									ownsTurnSummary={
+										!group.segments
+											.slice(index + 1)
+											.some((later) => hasPublicActivity(later.activity, thread))
+									}
 									animate={animate}
 									renderMessageAction={renderMessageAction}
 									now={now}
@@ -378,7 +415,13 @@ export function Transcript({
 					))}
 				</div>
 			))}
-			<LiveStatus thread={thread} animate={animate} now={now} visuallyHidden={visuallyHidden} />
+			<LiveStatus
+				thread={thread}
+				animate={animate}
+				now={now}
+				visuallyHidden={visuallyHidden}
+				showElapsed={!hasLiveActivity}
+			/>
 			{notice && <p className="notice">{notice}</p>}
 		</div>
 	)

@@ -236,7 +236,7 @@ describe('phase transition interruption', () => {
 		controller.update('Working')
 		controller.update(undefined)
 		const exit = f.effects[0]?.effect
-		expect(f.effects[0]?.effect.options.duration).toBe(160)
+		expect(f.effects[0]?.effect.options.duration).toBe(260)
 		f.paint(26, '0.5')
 		f.text.textContent = 'Thinking'
 		controller.update('Thinking')
@@ -256,16 +256,17 @@ describe('phase transition interruption', () => {
 })
 
 describe('truthful turn labels', () => {
-	it('uses real phase priority, keeps completed duration and separates stop/pause duration', () => {
+	it('keeps live phase separate from the work header and preserves settled duration and outcome', () => {
 		const thread = emptyThread()
 		thread.turn = 1
 		thread.running = true
 		expect(livePhaseLabel(thread)).toBe('Working')
 		thread.activeReasoningId = 'r'
 		thread.reasoning.r = { text: '', status: 'pending', turn: 1 }
-		expect(turnActivityLabel(thread, 1)).toBe('Thinking')
+		expect(turnActivityLabel(thread, 1)).toBe('Working')
 		thread.permissions = [{ id: 'review', sessionId: 's', projectId: 'p', calls: [] }]
-		expect(turnActivityLabel(thread, 1)).toBe('Waiting for your decision')
+		expect(livePhaseLabel(thread)).toBe('Waiting for your decision')
+		expect(turnActivityLabel(thread, 1)).toBe('Working')
 		thread.running = false
 		thread.turns[1] = {
 			startedAt: 1000,

@@ -1,0 +1,491 @@
+{
+  "passed": true,
+  "records": [
+    {
+      "passed": true,
+      "nativeWindows": true,
+      "at": "2026-10-07T09:26:06.225Z",
+      "packageInstalls": 0,
+      "sdkCopies": 0,
+      "cliModuleCopies": 0,
+      "modelRequests": 0,
+      "computerActions": 0,
+      "sourceFiles": 730,
+      "sourceManifestSha256": "d282146699405ae26b7912891604564d9479bf719a9925fd9bde6b566856b968",
+      "launchConfigSha256": "0cea7da46af9d9bc24915a559f8a58f7f3d1973a4eef3963acb3ebaa562dc742",
+      "desktopPackageSha256": "7c6aeb23b754fa256b46bf2b7caafb61fffd03ba0cb5478ab79f6973c864c4f9",
+      "phase": "preflight",
+      "checks": [
+        "applied 0 changed CLI and 0 changed SDK module(s) after graceful close; reviewed 7 CLI and 2 SDK module(s)",
+        "staged complete built desktop and retained old dist as backup",
+        "fresh exact main/preload/renderer bytes",
+        "original tab order, authored message bodies, drafts, files, selected model/settings, tasks, profiles and computers preserved"
+      ],
+      "beforePid": 43224,
+      "afterPid": 25764,
+      "before": {
+        "groups": "b3a694a35f10ce088679dd4cd6ba77c57764797cd33ed9867f8489bb7942c34d",
+        "catalogues": "fe0710bdd6cba1d8e76152b22d04df617b552825756ad14abd1c169ea48950ac",
+        "profiles": "b2aedecc6991fa7b99ef1783bb0ed61bd2a80d8239e15d1901521d254072b3d7",
+        "computers": "b09ea1417ab1123fab7f0d3bc86251af0302468681b8f84b236b4c123824eb20",
+        "projects": "2f5af3c8210644d12a05c7b073f3f957a89a8186e8e2d974be115e7dd4fbcf91",
+        "presentation": "b6cb909efe5c2432eb54878ff7adb7c66eece21ef755d7541ccda28d6a6db4f2",
+        "sessions": "579b6b55aeb14925ab52456105d3b2a1a48f31f69be32e9c5b4ee3920a544f68"
+      },
+      "after": {
+        "groups": "b3a694a35f10ce088679dd4cd6ba77c57764797cd33ed9867f8489bb7942c34d",
+        "catalogues": "fe0710bdd6cba1d8e76152b22d04df617b552825756ad14abd1c169ea48950ac",
+        "profiles": "b2aedecc6991fa7b99ef1783bb0ed61bd2a80d8239e15d1901521d254072b3d7",
+        "computers": "b09ea1417ab1123fab7f0d3bc86251af0302468681b8f84b236b4c123824eb20",
+        "projects": "2f5af3c8210644d12a05c7b073f3f957a89a8186e8e2d974be115e7dd4fbcf91",
+        "presentation": "b6cb909efe5c2432eb54878ff7adb7c66eece21ef755d7541ccda28d6a6db4f2",
+        "sessions": "579b6b55aeb14925ab52456105d3b2a1a48f31f69be32e9c5b4ee3920a544f68"
+      },
+      "dependencyLinks": 225,
+      "sdkUsers": 11,
+      "sourceBytesMatch": true,
+      "normalization": {
+        "projectAndCatalogueOrder": "canonical ID order",
+        "assistantTransportFields": [
+          "messageId",
+          "status",
+          "stopReason"
+        ],
+        "provider": "effective captured draft model overrides unspecified runtime default",
+        "scroll": "distance to transcript end after content reflow",
+        "activePresentation": "graceful close flushes current view",
+        "palConnections": "read-only presence may hydrate local connection before second snapshot"
+      },
+      "observedScroll": {
+        "before": 637,
+        "after": 1303,
+        "beforeRange": 1080,
+        "afterRange": 1746
+      },
+      "previousActivationPassed": false,
+      "previousActivationPhase": "verify",
+      "verificationFromSha256": "cfe144833284c647f84297a076149dcb479a4a1461c597eb423d31434359b470",
+      "zeroCopyBookkeeping": {
+        "rule": "nine reviewed before/after module hashes equal; no runtime copies; derive missing after manifests from exact before manifests only in memory",
+        "originalGuardSha256": "f85cd8f55dd95cd76ffdbfc166d15410d383470f7c6fd3296cfb8dee4693e56d",
+        "adapterSha256": "386844195e4c5ef6bc7352917434ba1f5d790eed1226c45e671a1c4510583e8f"
+      },
+      "originalFailedReceiptSha256": "cfe144833284c647f84297a076149dcb479a4a1461c597eb423d31434359b470",
+      "originalFailure": "Only the protected transcript reading distance differed after old manually opened panels collapsed on restart.",
+      "durableJournalCount": 1,
+      "durableJournalsSha256": "68c1692a5a53d4100027847d8d1a632c0a57905754fd28833b12ef741bbe3974"
+    },
+    {
+      "passed": true,
+      "nativeWindows": true,
+      "at": "2026-10-07T09:30:26.825Z",
+      "packageInstalls": 0,
+      "sdkCopies": 0,
+      "cliModuleCopies": 0,
+      "modelRequests": 0,
+      "computerActions": 0,
+      "sourceFiles": 730,
+      "sourceManifestSha256": "0be450344a9c0c9dee6ab984560d98d33b1425d3c80cefd3aa1b67003fbb92a3",
+      "launchConfigSha256": "0cea7da46af9d9bc24915a559f8a58f7f3d1973a4eef3963acb3ebaa562dc742",
+      "desktopPackageSha256": "7c6aeb23b754fa256b46bf2b7caafb61fffd03ba0cb5478ab79f6973c864c4f9",
+      "phase": "preflight",
+      "checks": [
+        "applied 0 changed CLI and 0 changed SDK module(s) after graceful close; reviewed 7 CLI and 2 SDK module(s)",
+        "staged complete built desktop and retained old dist as backup",
+        "fresh exact main/preload/renderer bytes",
+        "original tab order, authored message bodies, drafts, files, selected model/settings, tasks, profiles and computers preserved"
+      ],
+      "beforePid": 25764,
+      "afterPid": 35180,
+      "before": {
+        "groups": "b3a694a35f10ce088679dd4cd6ba77c57764797cd33ed9867f8489bb7942c34d",
+        "catalogues": "fe0710bdd6cba1d8e76152b22d04df617b552825756ad14abd1c169ea48950ac",
+        "profiles": "b2aedecc6991fa7b99ef1783bb0ed61bd2a80d8239e15d1901521d254072b3d7",
+        "computers": "b09ea1417ab1123fab7f0d3bc86251af0302468681b8f84b236b4c123824eb20",
+        "projects": "2f5af3c8210644d12a05c7b073f3f957a89a8186e8e2d974be115e7dd4fbcf91",
+        "presentation": "b6cb909efe5c2432eb54878ff7adb7c66eece21ef755d7541ccda28d6a6db4f2",
+        "sessions": "579b6b55aeb14925ab52456105d3b2a1a48f31f69be32e9c5b4ee3920a544f68"
+      },
+      "after": {
+        "groups": "b3a694a35f10ce088679dd4cd6ba77c57764797cd33ed9867f8489bb7942c34d",
+        "catalogues": "fe0710bdd6cba1d8e76152b22d04df617b552825756ad14abd1c169ea48950ac",
+        "profiles": "b2aedecc6991fa7b99ef1783bb0ed61bd2a80d8239e15d1901521d254072b3d7",
+        "computers": "b09ea1417ab1123fab7f0d3bc86251af0302468681b8f84b236b4c123824eb20",
+        "projects": "2f5af3c8210644d12a05c7b073f3f957a89a8186e8e2d974be115e7dd4fbcf91",
+        "presentation": "b6cb909efe5c2432eb54878ff7adb7c66eece21ef755d7541ccda28d6a6db4f2",
+        "sessions": "579b6b55aeb14925ab52456105d3b2a1a48f31f69be32e9c5b4ee3920a544f68"
+      },
+      "dependencyLinks": 225,
+      "sdkUsers": 11,
+      "sourceBytesMatch": true,
+      "normalization": {
+        "projectAndCatalogueOrder": "canonical ID order",
+        "assistantTransportFields": [
+          "messageId",
+          "status",
+          "stopReason"
+        ],
+        "provider": "effective captured draft model overrides unspecified runtime default",
+        "scroll": "distance to transcript end after content reflow",
+        "activePresentation": "graceful close flushes current view",
+        "palConnections": "read-only presence may hydrate local connection before second snapshot"
+      },
+      "observedScroll": {
+        "before": 1303,
+        "after": 1303,
+        "beforeRange": 1746,
+        "afterRange": 1746
+      },
+      "previousActivationPassed": false,
+      "previousActivationPhase": "verify",
+      "verificationFromSha256": "2d887ee0fa88045ccd166c8659b325fe3da2cafe0145464f55562d5dc5be6e62",
+      "zeroCopyBookkeeping": {
+        "rule": "nine reviewed before/after module hashes equal; no runtime copies; derive missing after manifests from exact before manifests only in memory",
+        "originalGuardSha256": "f85cd8f55dd95cd76ffdbfc166d15410d383470f7c6fd3296cfb8dee4693e56d",
+        "adapterSha256": "386844195e4c5ef6bc7352917434ba1f5d790eed1226c45e671a1c4510583e8f"
+      },
+      "originalFailedReceiptSha256": "2d887ee0fa88045ccd166c8659b325fe3da2cafe0145464f55562d5dc5be6e62",
+      "originalFailure": "Only the protected transcript reading distance differed after old manually opened panels collapsed on restart.",
+      "durableJournalCount": 1,
+      "durableJournalsSha256": "68c1692a5a53d4100027847d8d1a632c0a57905754fd28833b12ef741bbe3974"
+    }
+  ],
+  "uiRepairs": [
+    {
+      "passed": true,
+      "at": "2026-10-07T09:25:32.787Z",
+      "phase": "complete",
+      "expectedPid": 25764,
+      "activationSha256": "cfe144833284c647f84297a076149dcb479a4a1461c597eb423d31434359b470",
+      "snapshotSha256": "da4d8a9f4f4c68ecb9d94974397b6f581a2f0705e5b63a41730700a40e5df2ed",
+      "originalTailDistance": 443,
+      "actions": {
+        "disclosureClicks": 2,
+        "wheelGestures": 1,
+        "scrollAssignments": 1,
+        "storageWrites": 0,
+        "modelRequests": 0,
+        "inputs": 0,
+        "restarts": 0
+      },
+      "before": {
+        "panels": [
+          {
+            "turn": "3",
+            "expanded": "false",
+            "height": 0,
+            "opacity": "1",
+            "display": "none"
+          },
+          {
+            "turn": "4",
+            "expanded": "false",
+            "height": 0,
+            "opacity": "1",
+            "display": "none"
+          }
+        ],
+        "scroll": {
+          "top": 93,
+          "range": 93,
+          "scrollHeight": 931,
+          "clientHeight": 838
+        }
+      },
+      "opened": {
+        "panels": [
+          {
+            "turn": "3",
+            "expanded": "true",
+            "height": 802.015625,
+            "opacity": "1",
+            "display": "block"
+          },
+          {
+            "turn": "4",
+            "expanded": "true",
+            "height": 859.890625,
+            "opacity": "1",
+            "display": "block"
+          }
+        ],
+        "scroll": {
+          "top": 1075,
+          "range": 1751,
+          "scrollHeight": 2589,
+          "clientHeight": 838
+        }
+      },
+      "after": {
+        "panels": [
+          {
+            "turn": "3",
+            "expanded": "true",
+            "height": 802.015625,
+            "opacity": "1",
+            "display": "block"
+          },
+          {
+            "turn": "4",
+            "expanded": "true",
+            "height": 854.375,
+            "opacity": "1",
+            "display": "block"
+          }
+        ],
+        "scroll": {
+          "top": 1303,
+          "range": 1746,
+          "scrollHeight": 2584,
+          "clientHeight": 838
+        }
+      }
+    },
+    {
+      "passed": false,
+      "at": "2026-10-07T09:27:45.348Z",
+      "phase": "restore-reading-distance",
+      "expectedPid": 35180,
+      "activationSha256": "2d887ee0fa88045ccd166c8659b325fe3da2cafe0145464f55562d5dc5be6e62",
+      "snapshotSha256": "622b06b24d5b1716f504e86f3d7ac2d78ce30259ac448b74d5f324983924bc70",
+      "originalTailDistance": 443,
+      "actions": {
+        "disclosureClicks": 2,
+        "wheelGestures": 1,
+        "scrollAssignments": 1,
+        "storageWrites": 0,
+        "modelRequests": 0,
+        "inputs": 0,
+        "restarts": 0
+      },
+      "before": {
+        "panels": [
+          {
+            "turn": "3",
+            "expanded": "false",
+            "height": 0,
+            "opacity": "1",
+            "display": "none"
+          },
+          {
+            "turn": "4",
+            "expanded": "false",
+            "height": 0,
+            "opacity": "1",
+            "display": "none"
+          }
+        ],
+        "scroll": {
+          "top": 89,
+          "range": 89,
+          "scrollHeight": 927,
+          "clientHeight": 838
+        }
+      },
+      "opened": {
+        "panels": [
+          {
+            "turn": "3",
+            "expanded": "true",
+            "height": 802.015625,
+            "opacity": "1",
+            "display": "block"
+          },
+          {
+            "turn": "4",
+            "expanded": "true",
+            "height": 870.734375,
+            "opacity": "1",
+            "display": "block"
+          }
+        ],
+        "scroll": {
+          "top": 1762,
+          "range": 1762,
+          "scrollHeight": 2600,
+          "clientHeight": 838
+        }
+      },
+      "error": {
+        "name": "AssertionError",
+        "message": "Exact original reading distance was not restored\n\n441 !== 443\n"
+      }
+    },
+    {
+      "passed": true,
+      "at": "2026-10-07T09:30:13.032Z",
+      "phase": "complete",
+      "expectedPid": 35180,
+      "activationSha256": "2d887ee0fa88045ccd166c8659b325fe3da2cafe0145464f55562d5dc5be6e62",
+      "snapshotSha256": "622b06b24d5b1716f504e86f3d7ac2d78ce30259ac448b74d5f324983924bc70",
+      "originalTailDistance": 443,
+      "actions": {
+        "disclosureClicks": 0,
+        "wheelGestures": 1,
+        "scrollAssignments": 1,
+        "directStorageWrites": 0,
+        "modelRequests": 0,
+        "inputs": 0,
+        "restarts": 0
+      },
+      "before": {
+        "panels": [
+          {
+            "turn": "3",
+            "expanded": "true",
+            "height": 802.015625,
+            "opacity": "1",
+            "display": "block"
+          },
+          {
+            "turn": "4",
+            "expanded": "true",
+            "height": 854.234375,
+            "opacity": "1",
+            "display": "block"
+          }
+        ],
+        "scroll": {
+          "top": 1312,
+          "range": 1746,
+          "scrollHeight": 2584,
+          "clientHeight": 838
+        }
+      },
+      "opened": {
+        "panels": [
+          {
+            "turn": "3",
+            "expanded": "true",
+            "height": 802.015625,
+            "opacity": "1",
+            "display": "block"
+          },
+          {
+            "turn": "4",
+            "expanded": "true",
+            "height": 854.234375,
+            "opacity": "1",
+            "display": "block"
+          }
+        ],
+        "scroll": {
+          "top": 1312,
+          "range": 1746,
+          "scrollHeight": 2584,
+          "clientHeight": 838
+        }
+      },
+      "after": {
+        "panels": [
+          {
+            "turn": "3",
+            "expanded": "true",
+            "height": 802.015625,
+            "opacity": "1",
+            "display": "block"
+          },
+          {
+            "turn": "4",
+            "expanded": "true",
+            "height": 854.234375,
+            "opacity": "1",
+            "display": "block"
+          }
+        ],
+        "scroll": {
+          "top": 1303,
+          "range": 1746,
+          "scrollHeight": 2584,
+          "clientHeight": 838
+        }
+      },
+      "scrollGeometry": [
+        {
+          "label": "after-wheel-and-external-focus",
+          "before": {
+            "top": 1311,
+            "range": 1746,
+            "scrollHeight": 2584,
+            "clientHeight": 838
+          },
+          "after": {
+            "top": 1311,
+            "range": 1746,
+            "scrollHeight": 2584,
+            "clientHeight": 838
+          },
+          "waitedActualMs": 169.69999999552965,
+          "durations": [
+            {
+              "type": "CSSTransition",
+              "property": "max-height",
+              "id": "",
+              "duration": 160,
+              "currentTime": 16.702000001941997
+            },
+            {
+              "type": "CSSTransition",
+              "property": "max-width",
+              "id": "",
+              "duration": 160,
+              "currentTime": 16.702000001941997
+            },
+            {
+              "type": "CSSTransition",
+              "property": "opacity",
+              "id": "",
+              "duration": 160,
+              "currentTime": 16.702000001941997
+            }
+          ],
+          "remaining": [],
+          "pointerTarget": "Toggle sidebar",
+          "focusedTarget": "Toggle sidebar",
+          "focusInsideTranscript": false
+        },
+        {
+          "label": "scroll-assignment-1",
+          "before": {
+            "top": 1311,
+            "range": 1746
+          },
+          "target": 1303,
+          "assigned": true,
+          "after": {
+            "top": 1303,
+            "range": 1746
+          }
+        },
+        {
+          "label": "after-scroll-assignment-1",
+          "before": {
+            "top": 1303,
+            "range": 1746,
+            "scrollHeight": 2584,
+            "clientHeight": 838
+          },
+          "after": {
+            "top": 1303,
+            "range": 1746,
+            "scrollHeight": 2584,
+            "clientHeight": 838
+          },
+          "waitedActualMs": 32.100000001490116,
+          "durations": [],
+          "remaining": [],
+          "pointerTarget": "Toggle sidebar",
+          "focusedTarget": "Toggle sidebar",
+          "focusInsideTranscript": false
+        }
+      ]
+    }
+  ],
+  "limits": [
+    "Original failed activation and transient-scroll receipts remain failed and unchanged in the private runtime directory.",
+    "Scoped UI repair opened two settled panels and restored the exact original 443 px tail distance; all remaining inherited state, journal, payload and dependency comparisons stayed strict.",
+    "Only Desktop payload changed: no installation, CLI or SDK copy, model prompt, voice playback or Pal computer action.",
+    "Zero runtime-copy verification reconstructs only missing after-manifest bookkeeping in memory from nine byte-identical reviewed modules.",
+    "Private snapshots, messages, paths and journal identities are omitted. Later live-provider verification is a separate receipt."
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "passed": true,
+  "nativeWindows": true,
+  "readOnly": true,
+  "authoredMessages": 13,
+  "authoredJournals": 2,
+  "exactIdsRolesBodiesOrderAndClocks": true,
+  "wholeJournalBytesUnchanged": true,
+  "currentLayoutUnchangedDuringObservation": true,
+  "observedCurrentTabCount": 12,
+  "providerRequests": 0,
+  "uiActions": 0,
+  "restartActions": 0,
+  "originalApplyPassed": false,
+  "supplementalVerifierExecuted": false,
+  "fullBeforeActivationPresentationVerified": false,
+  "privateReceiptSha256": "dea2e30d4edbc6cc8ce6a28c9edfd780b355cbefbb8aee14462dcfdf71e7c3e9",
+  "helperSha256": "d2e6f6b24599641df13fecda0474fd8c0e6eac16a4f99145a51d1fd481cc5e14",
+  "originalFailedReceiptSha256": "6b79f91a1a06d76b3b4bd8efd8e560556832de78a6e3e967a03ee0da29d60c28",
+  "scope": "Only two previously authored SDK histories; current human layout observed before/after, without restoring an older layout or reader position."
+}

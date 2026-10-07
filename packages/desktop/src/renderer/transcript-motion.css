@@ -1,10 +1,10 @@
 .normal-transcript {
 	--transcript-entry-duration: 120ms;
 	--transcript-phase-duration: 120ms;
-	--transcript-frame-duration: 160ms;
+	--transcript-frame-duration: 260ms;
 	--transcript-entry-ease: ease-out;
 	--transcript-phase-ease: ease-out;
-	--transcript-frame-ease: cubic-bezier(0.2, 0, 0, 1);
+	--transcript-frame-ease: cubic-bezier(0.42, 0, 0.58, 1);
 }
 .normal-transcript .message {
 	/* Stored history and tab selection are immediate. Live entries use their admission effects. */
@@ -23,24 +23,24 @@
 .normal-transcript .reasoning .message-time {
 	margin-top: 0;
 }
+.normal-transcript .message > .message-time,
+.normal-transcript .reasoning > .message-time {
+	/* Reserve a stable clock row before hover so the reader's position cannot jump. */
+	display: block;
+	width: max-content;
+}
 .normal-transcript .message-time {
-	max-width: 0;
-	max-height: 0;
 	opacity: 0;
-	overflow: hidden;
 	white-space: nowrap;
+	transition: opacity 160ms ease-out;
 }
 .normal-transcript .tool-duration {
-	max-width: 0;
-	max-height: 0;
 	opacity: 0;
-	overflow: hidden;
 	white-space: nowrap;
+	transition: opacity 160ms ease-out;
 }
 .normal-transcript .tool:hover .tool-duration,
 .normal-transcript .tool:focus-within .tool-duration {
-	max-width: 10ch;
-	max-height: 2em;
 	opacity: 1;
 }
 .normal-transcript .transcript-visually-hidden,
@@ -76,30 +76,47 @@
 .normal-transcript .activity-trigger:hover .message-time,
 .normal-transcript .activity-trigger:focus-within .message-time,
 .normal-transcript .message-time:focus-visible {
-	max-width: 10ch;
-	max-height: 2em;
 	opacity: 1;
 }
 .normal-transcript .message-time:focus-visible {
 	outline: 2px solid var(--ring);
 	outline-offset: 2px;
+	transition: none;
 }
 .normal-transcript .message-time[aria-pressed="true"] {
-	max-width: 32ch;
-	max-height: 2em;
 	opacity: 1;
 }
 .normal-transcript .activity-trigger {
 	min-height: 32px;
 	line-height: 20px;
-	gap: 8px;
+	gap: 4px;
 	padding-block: 4px;
-	border-bottom: 0;
+	border-bottom: 1px solid var(--border);
+	color: var(--muted-foreground);
+}
+.normal-transcript .activity-trigger:hover,
+.normal-transcript .activity-trigger[data-panel-open] {
+	color: var(--muted-foreground);
+}
+.normal-transcript .activity-trigger > .disclosure-chevron {
+	margin-left: 2px;
+	transition-duration: var(--transcript-frame-duration);
 }
 .normal-transcript .activity-entries {
 	margin-left: 7px;
 	padding: 4px 0 8px 16px;
 	border-left: 1px solid var(--border);
+}
+.normal-transcript .activity-entries .message.commentary {
+	padding-bottom: 0;
+	margin-bottom: 8px;
+}
+.normal-transcript .activity-entries .message.commentary .message-text {
+	color: var(--foreground);
+}
+.normal-transcript .activity-entries .reasoning {
+	padding-bottom: 8px;
+	color: var(--foreground);
 }
 .normal-transcript .activity-entries .tool-trigger {
 	min-height: 32px;
@@ -114,8 +131,7 @@
 	min-width: 0;
 }
 .normal-transcript .turn-activity-elapsed {
-	margin-left: auto;
-	font-size: 11px;
+	font-size: 14px;
 	font-variant-numeric: tabular-nums;
 	color: var(--muted-foreground);
 }
@@ -170,6 +186,14 @@
 	transition-duration: var(--transcript-frame-duration);
 	transition-timing-function: var(--transcript-frame-ease);
 }
+.normal-transcript .turn-activity > [data-slot="collapsible-panel"] {
+	transition-property: height, opacity;
+	opacity: 1;
+}
+.normal-transcript .turn-activity > [data-slot="collapsible-panel"][data-starting-style],
+.normal-transcript .turn-activity > [data-slot="collapsible-panel"][data-ending-style] {
+	opacity: 0;
+}
 @keyframes transcript-status-breathe {
 	50% {
 		opacity: 0.5;
@@ -180,7 +204,9 @@
 		animation: none;
 	}
 	.normal-transcript [data-slot="collapsible-panel"],
-	.normal-transcript .disclosure-chevron {
+	.normal-transcript .disclosure-chevron,
+	.normal-transcript .message-time,
+	.normal-transcript .tool-duration {
 		transition: none;
 	}
 }

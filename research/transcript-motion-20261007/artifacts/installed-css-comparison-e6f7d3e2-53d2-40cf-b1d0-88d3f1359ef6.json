@@ -1,0 +1,56 @@
+{
+  "schema": "namzu.desktop-installed-build-readonly-comparison.v1",
+  "at": "2026-10-07T10:23:02.278Z",
+  "readOnly": true,
+  "installedFiles": 730,
+  "builtFiles": 730,
+  "identicalFiles": 730,
+  "changed": [],
+  "removed": [],
+  "added": [],
+  "normalization": {
+    "installedRefs": {
+      "js": [
+        "./assets/index-BAYtpAZa.js"
+      ],
+      "css": [
+        "./assets/index-0HJrTCjy.css"
+      ]
+    },
+    "builtRefs": {
+      "js": [
+        "./assets/index-BAYtpAZa.js"
+      ],
+      "css": [
+        "./assets/index-0HJrTCjy.css"
+      ]
+    },
+    "exactCssReferenceSubstitutionOnly": true,
+    "htmlAfterVerifiedReferenceSubstitutionsEqual": true,
+    "js": {
+      "installedPath": "renderer/assets/index-BAYtpAZa.js",
+      "builtPath": "renderer/assets/index-BAYtpAZa.js",
+      "installedSha256": "846f2a41347e217da635abe4c8e89d642be0f697704ebbfddeccbcd3e04f11bf",
+      "builtSha256": "846f2a41347e217da635abe4c8e89d642be0f697704ebbfddeccbcd3e04f11bf",
+      "exactOldCssFilename": "index-0HJrTCjy.css",
+      "exactNewCssFilename": "index-0HJrTCjy.css",
+      "substitutions": 0,
+      "normalizedInstalledSha256": "846f2a41347e217da635abe4c8e89d642be0f697704ebbfddeccbcd3e04f11bf"
+    },
+    "normalizedInstalledHtmlSha256": "d1cdff322adb088d4302c61bdd00603cc2a29022c51b689f8aa50f25e31236dc"
+  },
+  "nativeMainPreloadAllJsByteExact": true,
+  "nonRendererJsByteExact": true,
+  "mainIndex": {
+    "installedSha256": "73d55cb57dc7430a56311e9469063a972d7bf0094a37861af656181c327bb130",
+    "builtSha256": "73d55cb57dc7430a56311e9469063a972d7bf0094a37861af656181c327bb130"
+  },
+  "preload": {
+    "installedSha256": "d0d3164fc26a2867f209338a2798998699c9fb1e1fdc11964a166c9b1acf2123",
+    "builtSha256": "d0d3164fc26a2867f209338a2798998699c9fb1e1fdc11964a166c9b1acf2123"
+  },
+  "limits": [
+    "Bytes only; no installed script execution, restart, style injection or mutation.",
+    "Normalization permits only the exact old/new CSS filename from HTML; HTML JS filename substitution is allowed only after independently proving the corresponding JS differs solely in that CSS filename."
+  ]
+}

@@ -1,0 +1,270 @@
+{
+  "schema": "namzu.native-css-delivery-public-proof.v1",
+  "sourceCssSha256": "df4b65b57e95eceeaf32074fb22798b9de1aeaab2f135b5db383684135d99b93",
+  "passed": true,
+  "runs": [
+    {
+      "at": "2026-10-07T09:53:57.051Z",
+      "helperSha256": "dc56c8c6e1049c7b6014ad11db5cf52dc6b304c40e976c346f73f12ee6803d4b",
+      "passed": false,
+      "restarts": 0,
+      "reloads": 0,
+      "providerRequests": 0,
+      "hostMutations": 0,
+      "bodyReads": 0,
+      "inputActions": 0,
+      "oldAssetsRetained": true,
+      "privateReceiptSha256": "751b0acfa33ac995499d8eb95849861b74fa69127b8619afb76348370c13fcc3",
+      "failure": "Hidden tool-policy form proxy was classified as a draft; no payload changes."
+    },
+    {
+      "at": "2026-10-07T09:56:02.202Z",
+      "helperSha256": "4f56d5ecb8289bf2b683b47da0a9e1ad4c615d13d43331ec70ea1c8011f6cf1d",
+      "passed": false,
+      "persistentAssetsApplied": true,
+      "restarts": 0,
+      "reloads": 0,
+      "providerRequests": 0,
+      "hostMutations": 0,
+      "bodyReads": 0,
+      "inputActions": 0,
+      "oldAssetsRetained": true,
+      "privateReceiptSha256": "07affc35e725effff36097a1e37feb817b127b4e4854c1b27e1c563cb34adcd2",
+      "failure": "CSS applied; strict initial reader-anchor equality failed by 0.5 px due to native scroll quantization. Hover had not yet been tested."
+    },
+    {
+      "at": "2026-10-07T09:56:49.738Z",
+      "helperSha256": "8a7c8cdb5c8e6560326ab053ed66a6aae88f69c68560559004859d63ee1284fc",
+      "passed": true,
+      "persistentAssetsApplied": true,
+      "verifyOnly": true,
+      "restarts": 0,
+      "reloads": 0,
+      "providerRequests": 0,
+      "hostMutations": 0,
+      "bodyReads": 0,
+      "inputActions": 0,
+      "oldAssetsRetained": true,
+      "privateReceiptSha256": "790bc7882e8306264921836da4639d251690c617e6b0a2f3ca9573161ad3fad0",
+      "preflight": {
+        "editorCount": 1,
+        "editorCharacters": 0,
+        "anchorOffset": -887.5,
+        "scrollTop": 1388,
+        "scrollHeight": 2242,
+        "layoutSha256": "eacdf8d0c1ba77495a24dc8d644fe69d9d3c7a50356049cc5523465e6799ab3c"
+      },
+      "liveDelivery": {
+        "parsed": true,
+        "hrefIsNew": true,
+        "oneTimeReaderCorrectionPx": 0,
+        "anchorOffset": -887.5,
+        "userInteractions": 0,
+        "styleAssignment": false
+      },
+      "payloadFilesUnchanged": 732,
+      "identicalExecutableBytes": true,
+      "persistentHtmlSha256": "1061eea2b88f9f27f4ca73c0f700956cc08d1e26a2560068b4e5b10dd2d520f8",
+      "cssSha256": "c2f6d205222fb5974d71a6b0edddb146ceecccb3db8e1150e6c95b0c24ae3431",
+      "hover": {
+        "method": "native CDP forced CSS hover; no human pointer movement",
+        "target": {
+          "clockIndex": 8,
+          "kind": "message",
+          "visibleInViewport": true
+        },
+        "rest": {
+          "geometry": {
+            "clock": {
+              "x": 460,
+              "y": 708.9375,
+              "width": 40.359375,
+              "height": 16.5
+            },
+            "row": {
+              "x": 460,
+              "y": -803.5,
+              "width": 768,
+              "height": 1569.9375
+            },
+            "parent": {
+              "x": 460,
+              "y": -1284,
+              "width": 768,
+              "height": 2050.4375
+            },
+            "next": null,
+            "composer": null,
+            "chevron": null,
+            "scrollTop": 1388,
+            "scrollHeight": 2242,
+            "clientHeight": 838
+          },
+          "opacity": "0",
+          "transitionProperty": "opacity",
+          "interactions": 0,
+          "contentRevisions": 0
+        },
+        "samples": [
+          {
+            "fraction": 0,
+            "animation": {
+              "observedTransition": true,
+              "type": "CSSTransition",
+              "duration": 160,
+              "currentTime": 0
+            },
+            "geometry": {
+              "clock": {
+                "x": 460,
+                "y": 708.9375,
+                "width": 40.359375,
+                "height": 16.5
+              },
+              "row": {
+                "x": 460,
+                "y": -803.5,
+                "width": 768,
+                "height": 1569.9375
+              },
+              "parent": {
+                "x": 460,
+                "y": -1284,
+                "width": 768,
+                "height": 2050.4375
+              },
+              "next": null,
+              "composer": null,
+              "chevron": null,
+              "scrollTop": 1388,
+              "scrollHeight": 2242,
+              "clientHeight": 838
+            },
+            "opacity": "0",
+            "transitionProperty": "opacity",
+            "interactions": 0,
+            "contentRevisions": 0
+          },
+          {
+            "fraction": 0.5,
+            "animation": {
+              "observedTransition": true,
+              "type": "CSSTransition",
+              "duration": 160,
+              "currentTime": 80
+            },
+            "geometry": {
+              "clock": {
+                "x": 460,
+                "y": 708.9375,
+                "width": 40.359375,
+                "height": 16.5
+              },
+              "row": {
+                "x": 460,
+                "y": -803.5,
+                "width": 768,
+                "height": 1569.9375
+              },
+              "parent": {
+                "x": 460,
+                "y": -1284,
+                "width": 768,
+                "height": 2050.4375
+              },
+              "next": null,
+              "composer": null,
+              "chevron": null,
+              "scrollTop": 1388,
+              "scrollHeight": 2242,
+              "clientHeight": 838
+            },
+            "opacity": "0.684643",
+            "transitionProperty": "opacity",
+            "interactions": 0,
+            "contentRevisions": 0
+          },
+          {
+            "fraction": 1,
+            "animation": {
+              "observedTransition": true,
+              "type": "CSSTransition",
+              "duration": 160,
+              "currentTime": 160
+            },
+            "geometry": {
+              "clock": {
+                "x": 460,
+                "y": 708.9375,
+                "width": 40.359375,
+                "height": 16.5
+              },
+              "row": {
+                "x": 460,
+                "y": -803.5,
+                "width": 768,
+                "height": 1569.9375
+              },
+              "parent": {
+                "x": 460,
+                "y": -1284,
+                "width": 768,
+                "height": 2050.4375
+              },
+              "next": null,
+              "composer": null,
+              "chevron": null,
+              "scrollTop": 1388,
+              "scrollHeight": 2242,
+              "clientHeight": 838
+            },
+            "opacity": "1",
+            "transitionProperty": "opacity",
+            "interactions": 0,
+            "contentRevisions": 0
+          }
+        ],
+        "afterHover": {
+          "geometry": {
+            "clock": {
+              "x": 460,
+              "y": 708.9375,
+              "width": 40.359375,
+              "height": 16.5
+            },
+            "row": {
+              "x": 460,
+              "y": -803.5,
+              "width": 768,
+              "height": 1569.9375
+            },
+            "parent": {
+              "x": 460,
+              "y": -1284,
+              "width": 768,
+              "height": 2050.4375
+            },
+            "next": null,
+            "composer": null,
+            "chevron": null,
+            "scrollTop": 1388,
+            "scrollHeight": 2242,
+            "clientHeight": 838
+          },
+          "opacity": "0",
+          "transitionProperty": "opacity",
+          "interactions": 0,
+          "contentRevisions": 0
+        }
+      },
+      "ownerLayoutUnchanged": true,
+      "sameNativePid": true
+    }
+  ],
+  "limits": [
+    "The successful verification used real native Chromium forced CSS hover, without pointer movement, navigation or a provider request.",
+    "Native hover geometry is exactly unchanged at rest/start/midpoint/end/leave. Missing neighbouring row, composer and chevron metrics are null for this final message target; the isolated 28-variant matrix covers them.",
+    "The initial live style delivery needed a one-time reader adjustment; its first strict comparison failed by half a pixel and remains failed evidence. This is separate from subsequent hover geometry.",
+    "Only stylesheet bytes and identical JavaScript asset filenames were delivered. Older assets remain for rollback; no reload or restart occurred."
+  ]
+}

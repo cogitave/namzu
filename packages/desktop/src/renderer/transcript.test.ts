@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { type ThreadState, applyEvent, emptyThread } from '../shared/projection.js'
 import type { ChatMessage } from '../shared/protocol.js'
 import { Transcript } from './transcript.js'
+import { workDisclosureKey } from './workspace-presentation.js'
 
 function started(at = 53000): ThreadState {
 	return applyEvent(
@@ -170,21 +171,64 @@ describe('single live transcript status', () => {
 		expect(html.match(/Steer now/g)).toHaveLength(1)
 		expect(html.match(/data-transcript-turn="1"/g)).toHaveLength(1)
 	})
-	it('keeps one live phase and actual elapsed time while retaining the current work disclosure', () => {
+	it('assigns one timed header to the latest work segment after live steering', () => {
+		let thread = update(started(), {
+			kind: 'agent_message_chunk',
+			text: 'First check',
+			phase: 'commentary',
+			messageId: 'first',
+		})
+		thread = applyEvent(thread, {
+			kind: 'live-input',
+			sessionId: 'session',
+			inputId: 'steer',
+			prompt: 'Check again',
+			status: 'unknown',
+		})
+		thread = applyEvent(thread, {
+			kind: 'live-input',
+			sessionId: 'session',
+			inputId: 'steer',
+			prompt: 'Check again',
+			status: 'delivered',
+		})
+		thread = update(thread, {
+			kind: 'agent_message_chunk',
+			text: 'Second check',
+			phase: 'commentary',
+			messageId: 'second',
+		})
+		const live = render(thread)
+		expect(phaseLabels(live)).toEqual(['Earlier work', 'Working', 'Working'])
+		expect(live.match(/class="turn-activity-elapsed"/g)).toHaveLength(1)
+		expect(live).toContain('aria-label="Working for 47s"')
+		expect(live.indexOf('First check')).toBeLessThan(live.indexOf('Check again'))
+		expect(live.indexOf('Check again')).toBeLessThan(live.indexOf('Second check'))
+		thread = update(thread, { kind: 'turn_ended', stopReason: 'end_turn' }, 100000)
+		thread = applyEvent(thread, {
+			kind: 'state',
+			sessionId: 'session',
+			running: false,
+			queued: [],
+		})
+		expect(phaseLabels(render(thread))).toEqual(['Earlier work', 'Worked for 47s'])
+	})
+	it('keeps a neutral timed work header and one hidden duplicate status while tools run', () => {
 		const thread = pendingCommand()
 		const before = structuredClone(thread)
 		const html = render(thread)
 		expect(phaseLabels(html)).toEqual(['Working', 'Working'])
 		expect(html.match(/<output\b[^>]*aria-live="polite"/g)).toHaveLength(1)
-		expect(html).toContain('aria-label="Working · 47s"')
+		expect(html).toContain('aria-label="Working for 47s"')
 		expect(html).toContain('aria-expanded="true"')
-		expect(html).toContain('class="turn-activity-elapsed">47s</span>')
+		expect(html).toContain('class="turn-activity-elapsed">for 47s</span>')
 		expect(html).toContain('transcript-status-only')
+		expect(html).not.toContain('class="working-elapsed"')
 		expect(html).toContain('Running pwd')
 		expect(thread).toEqual(before)
 	})
 
-	it('keeps public reasoning and commentary as details without duplicating Thinking', () => {
+	it('shows real Thinking below commentary while the outer work header owns elapsed time', () => {
 		let thread = update(started(), {
 			kind: 'agent_message_chunk',
 			text: 'Inspecting the workspace',
@@ -197,21 +241,26 @@ describe('single live transcript status', () => {
 			blockId: 'thought',
 		})
 		const html = render(thread)
-		expect(phaseLabels(html)).toEqual(['Thinking', 'Thinking'])
+		expect(phaseLabels(html)).toEqual(['Working', 'Thinking'])
+		expect(html).toContain('aria-label="Working for 47s"')
 		expect(html).toContain('Inspecting the workspace')
 		expect(html).toContain('Comparing the public results')
 		expect(html).toContain('data-transcript-phase="thinking"')
+		expect(html).not.toContain('transcript-status-only')
+		expect(html).not.toContain('class="working-elapsed"')
 		expect(html.match(/<output\b[^>]*aria-live="polite"/g)).toHaveLength(1)
 	})
 
-	it('shows one waiting status while retaining the real pending action for review', () => {
+	it('shows real waiting separately from the timed work header and pending action', () => {
 		const thread = applyEvent(pendingCommand(), {
 			kind: 'permission',
 			request: { id: 'approval', sessionId: 'session', projectId: 'project', calls: [] },
 		})
 		const html = render(thread)
-		expect(phaseLabels(html)).toEqual(['Waiting for your decision', 'Waiting for your decision'])
+		expect(phaseLabels(html)).toEqual(['Working', 'Waiting for your decision'])
 		expect(html).toContain('data-transcript-phase="waiting"')
+		expect(html).not.toContain('transcript-status-only')
+		expect(html).not.toContain('class="working-elapsed"')
 		expect(html).toContain('Running pwd')
 		expect(html.match(/<output\b[^>]*aria-live="polite"/g)).toHaveLength(1)
 	})
@@ -229,7 +278,69 @@ describe('single live transcript status', () => {
 		expect(html).not.toContain('turn-activity')
 		expect(html).not.toContain('data-reasoning-id')
 		expect(html).toContain('data-transcript-phase="thinking"')
+		expect(html).toContain('class="working-elapsed"')
 		expect(thread).toEqual(before)
+	})
+
+	it('keeps the settled work disclosure collapsed before its final answer', () => {
+		let thread = update(started(), {
+			kind: 'agent_message_chunk',
+			text: 'Checking the evidence',
+			phase: 'commentary',
+			messageId: 'update',
+		})
+		thread = update(thread, {
+			kind: 'agent_message',
+			status: 'completed',
+			messageId: 'answer',
+			content: 'Final answer is ready',
+			stopReason: 'end_turn',
+		})
+		thread = update(thread, { kind: 'turn_ended', stopReason: 'end_turn' }, 100000)
+		thread = applyEvent(thread, {
+			kind: 'state',
+			sessionId: 'session',
+			running: false,
+			queued: [],
+		})
+		const html = render(thread)
+		expect(phaseLabels(html)).toEqual(['Worked for 47s'])
+		expect(html).toContain('aria-expanded="false"')
+		expect(html.indexOf('Checking the evidence')).toBeGreaterThan(
+			html.indexOf('data-slot="collapsible-panel"'),
+		)
+		expect(html.indexOf('Final answer is ready')).toBeGreaterThan(
+			html.indexOf('Checking the evidence'),
+		)
+	})
+	it('restores only an explicit disclosure choice and preserves the live/settled defaults', () => {
+		const live = update(started(), {
+			kind: 'agent_message_chunk',
+			text: 'Checking now',
+			phase: 'commentary',
+			messageId: 'commentary',
+		})
+		const key = workDisclosureKey(1, 'message-1')
+		expect(key).toBeDefined()
+		const draw = (thread: ThreadState, choice?: boolean) =>
+			renderToStaticMarkup(
+				createElement(Transcript, {
+					thread,
+					workDisclosures: choice === undefined ? {} : { [key!]: choice },
+					onWorkDisclosureChange: vi.fn(),
+				}),
+			)
+		expect(draw(live)).toContain('aria-expanded="true"')
+		expect(draw(live, false)).toContain('aria-expanded="false"')
+		let settled = update(live, { kind: 'turn_ended', stopReason: 'end_turn' }, 100000)
+		settled = applyEvent(settled, {
+			kind: 'state',
+			sessionId: 'session',
+			running: false,
+			queued: [],
+		})
+		expect(draw(settled)).toContain('aria-expanded="false"')
+		expect(draw(settled, true)).toContain('aria-expanded="true"')
 	})
 
 	it('does not create details from an empty commentary event', () => {

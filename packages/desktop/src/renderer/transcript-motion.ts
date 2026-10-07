@@ -5,7 +5,7 @@ import { elapsedLabel, transcriptOutcome } from './transcript-layout.js'
 export const transcriptMotion = {
 	entry: { duration: 120, easing: 'ease-out' },
 	phase: { duration: 120, easing: 'ease-out' },
-	frame: { duration: 160, easing: 'cubic-bezier(0.2, 0, 0, 1)' },
+	frame: { duration: 260, easing: 'cubic-bezier(0.42, 0, 0.58, 1)' },
 } as const
 
 export function transcriptEntryKey(entry: TimelineEntry): string {
@@ -23,8 +23,8 @@ export function livePhaseLabel(thread: ThreadState): string | undefined {
 }
 
 export function turnActivityLabel(thread: ThreadState, turn: number): string {
-	if (thread.running && thread.stopReason === undefined && thread.turn === turn)
-		return livePhaseLabel(thread) ?? 'Working'
+	// The outer disclosure names the work; its live Thinking/Waiting phase is a separate status.
+	if (thread.running && thread.stopReason === undefined && thread.turn === turn) return 'Working'
 	const timing = thread.turns[turn]
 	const reason =
 		timing?.reason ??

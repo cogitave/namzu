@@ -1,0 +1,1743 @@
+{
+  "passed": false,
+  "source": [
+    {
+      "path": "transcript.tsx",
+      "sha256": "c58f9b88955630fe396047b6bb5a9c4a38ee170ceef8b11f5a43cb056ca63bd5"
+    },
+    {
+      "path": "transcript-motion.ts",
+      "sha256": "627660b9bf7317598a94eebfc0f527f786fa5e044aa14b4003388f5319b0f5b0"
+    },
+    {
+      "path": "transcript-motion.css",
+      "sha256": "b9d08630623d9142c2458a52b5bbe123973967421eb12bd6bb79d878abd814b7"
+    },
+    {
+      "path": "ui/collapsible.tsx",
+      "sha256": "ce95af61dcd48cc10f7e0e88c96ab17f7714af606cc0c6d159e715a5a0b1a2b6"
+    }
+  ],
+  "capturedAt": "2026-10-07T09:06:15.424Z",
+  "timeline": "Chromium Animation playback paused; individual actual animations seeked at explicit fractions; Playwright JS timers advanced virtually.",
+  "nativeActions": 0,
+  "providerRequests": 0,
+  "measurements": [
+    {
+      "scenario": "before-wide-dark",
+      "kind": "panel",
+      "name": "cold-open",
+      "open": true,
+      "rest": {
+        "rect": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0,
+          "right": 0,
+          "bottom": 0
+        },
+        "opacity": "1",
+        "height": "0px",
+        "display": "none",
+        "transitionProperty": "height, opacity",
+        "transitionDuration": "0.24s",
+        "borderBottomWidth": "0px",
+        "borderBottomColor": "rgb(245, 245, 245)",
+        "open": null,
+        "dataOpen": false,
+        "starting": false,
+        "ending": false,
+        "chevron": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0,
+          "right": 0,
+          "bottom": 0
+        },
+        "clock": {
+          "rect": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "right": 0,
+            "bottom": 0
+          },
+          "opacity": "0",
+          "maxWidth": "0px",
+          "maxHeight": "0px"
+        },
+        "animations": []
+      },
+      "start": {
+        "rect": {
+          "x": 284,
+          "y": 218.75,
+          "width": 760,
+          "height": 0,
+          "right": 1044,
+          "bottom": 218.75
+        },
+        "opacity": "0",
+        "height": "0px",
+        "display": "block",
+        "transitionProperty": "height, opacity",
+        "transitionDuration": "0.24s",
+        "borderBottomWidth": "0px",
+        "borderBottomColor": "rgb(245, 245, 245)",
+        "open": null,
+        "dataOpen": true,
+        "starting": false,
+        "ending": false,
+        "chevron": {
+          "x": 1030,
+          "y": 231.75,
+          "width": 14,
+          "height": 14,
+          "right": 1044,
+          "bottom": 245.75
+        },
+        "clock": {
+          "rect": {
+            "x": 444.03125,
+            "y": 238.75,
+            "width": 0,
+            "height": 0,
+            "right": 444.03125,
+            "bottom": 238.75
+          },
+          "opacity": "0",
+          "maxWidth": "0px",
+          "maxHeight": "0px"
+        },
+        "animations": [
+          {
+            "type": "CSSTransition",
+            "property": "height",
+            "id": "",
+            "playState": "paused",
+            "currentTime": 0,
+            "duration": 240
+          },
+          {
+            "type": "CSSTransition",
+            "property": "opacity",
+            "id": "",
+            "playState": "paused",
+            "currentTime": 0,
+            "duration": 240
+          }
+        ]
+      },
+      "middle": {
+        "rect": {
+          "x": 284,
+          "y": 218.75,
+          "width": 760,
+          "height": 122.890625,
+          "right": 1044,
+          "bottom": 341.640625
+        },
+        "opacity": "0.877834",
+        "height": "122.891px",
+        "display": "block",
+        "transitionProperty": "height, opacity",
+        "transitionDuration": "0.24s",
+        "borderBottomWidth": "0px",
+        "borderBottomColor": "rgb(245, 245, 245)",
+        "open": null,
+        "dataOpen": true,
+        "starting": false,
+        "ending": false,
+        "chevron": {
+          "x": 1030,
+          "y": 231.75,
+          "width": 14,
+          "height": 14,
+          "right": 1044,
+          "bottom": 245.75
+        },
+        "pointerTarget": null,
+        "clock": {
+          "rect": {
+            "x": 444.03125,
+            "y": 238.75,
+            "width": 0,
+            "height": 0,
+            "right": 444.03125,
+            "bottom": 238.75
+          },
+          "opacity": "0",
+          "maxWidth": "0px",
+          "maxHeight": "0px"
+        },
+        "animations": [
+          {
+            "type": "CSSTransition",
+            "property": "height",
+            "id": "",
+            "playState": "paused",
+            "currentTime": 120,
+            "duration": 240
+          },
+          {
+            "type": "CSSTransition",
+            "property": "opacity",
+            "id": "",
+            "playState": "paused",
+            "currentTime": 120,
+            "duration": 240
+          }
+        ]
+      },
+      "end": {
+        "rect": {
+          "x": 284,
+          "y": 218.75,
+          "width": 760,
+          "height": 140,
+          "right": 1044,
+          "bottom": 358.75
+        },
+        "opacity": "1",
+        "height": "140px",
+        "display": "block",
+        "transitionProperty": "height, opacity",
+        "transitionDuration": "0.24s",
+        "borderBottomWidth": "0px",
+        "borderBottomColor": "rgb(245, 245, 245)",
+        "open": null,
+        "dataOpen": true,
+        "starting": false,
+        "ending": false,
+        "chevron": {
+          "x": 1030,
+          "y": 231.75,
+          "width": 14,
+          "height": 14,
+          "right": 1044,
+          "bottom": 245.75
+        },
+        "pointerTarget": null,
+        "clock": {
+          "rect": {
+            "x": 444.03125,
+            "y": 238.75,
+            "width": 0,
+            "height": 0,
+            "right": 444.03125,
+            "bottom": 238.75
+          },
+          "opacity": "0",
+          "maxWidth": "0px",
+          "maxHeight": "0px"
+        },
+        "animations": []
+      },
+      "animations": [
+        {
+          "type": "CSSTransition",
+          "id": "",
+          "transitionProperty": "height",
+          "currentTime": 0,
+          "timing": {
+            "delay": 0,
+            "direction": "normal",
+            "duration": 240,
+            "easing": "cubic-bezier(0.2, 0, 0, 1)",
+            "endDelay": 0,
+            "fill": "backwards",
+            "iterationStart": 0,
+            "iterations": 1,
+            "activeDuration": 240,
+            "currentIteration": 0,
+            "endTime": 240,
+            "localTime": 0,
+            "progress": 0
+          },
+          "keyframes": [
+            {
+              "offset": 0,
+              "easing": "linear",
+              "composite": "auto",
+              "height": "0px",
+              "computedOffset": 0
+            },
+            {
+              "offset": 1,
+              "easing": "linear",
+              "composite": "auto",
+              "height": "140px",
+              "computedOffset": 1
+            }
+          ]
+        },
+        {
+          "type": "CSSTransition",
+          "id": "",
+          "transitionProperty": "opacity",
+          "currentTime": 0,
+          "timing": {
+            "delay": 0,
+            "direction": "normal",
+            "duration": 240,
+            "easing": "cubic-bezier(0.2, 0, 0, 1)",
+            "endDelay": 0,
+            "fill": "backwards",
+            "iterationStart": 0,
+            "iterations": 1,
+            "activeDuration": 240,
+            "currentIteration": 0,
+            "endTime": 240,
+            "localTime": 0,
+            "progress": 0
+          },
+          "keyframes": [
+            {
+              "offset": 0,
+              "easing": "linear",
+              "composite": "auto",
+              "opacity": "0",
+              "computedOffset": 0
+            },
+            {
+              "offset": 1,
+              "easing": "linear",
+              "composite": "auto",
+              "opacity": "1",
+              "computedOffset": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": "before-wide-dark",
+      "kind": "hover",
+      "name": "tool",
+      "rest": {
+        "rect": {
+          "x": 308,
+          "y": 222.75,
+          "width": 736,
+          "height": 32,
+          "right": 1044,
+          "bottom": 254.75
+        },
+        "opacity": "1",
+        "height": "32px",
+        "display": "flex",
+        "transitionProperty": "background-color",
+        "transitionDuration": "0.15s",
+        "borderBottomWidth": "0px",
+        "borderBottomColor": "rgb(129, 129, 129)",
+        "open": "false",
+        "dataOpen": false,
+        "starting": false,
+        "ending": false,
+        "chevron": {
+          "x": 1030,
+          "y": 231.75,
+          "width": 14,
+          "height": 14,
+          "right": 1044,
+          "bottom": 245.75
+        },
+        "pointerTarget": null,
+        "clock": {
+          "rect": {
+            "x": 444.03125,
+            "y": 238.75,
+            "width": 0,
+            "height": 0,
+            "right": 444.03125,
+            "bottom": 238.75
+          },
+          "opacity": "0",
+          "maxWidth": "0px",
+          "maxHeight": "0px"
+        },
+        "animations": []
+      },
+      "start": {
+        "rect": {
+          "x": 308,
+          "y": 222.75,
+          "width": 736,
+          "height": 32,
+          "right": 1044,
+          "bottom": 254.75
+        },
+        "opacity": "1",
+        "height": "32px",
+        "display": "flex",
+        "transitionProperty": "background-color",
+        "transitionDuration": "0.15s",
+        "borderBottomWidth": "0px",
+        "borderBottomColor": "rgb(129, 129, 129)",
+        "open": "false",
+        "dataOpen": false,
+        "starting": false,
+        "ending": false,
+        "chevron": {
+          "x": 1030,
+          "y": 231.75,
+          "width": 14,
+          "height": 14,
+          "right": 1044,
+          "bottom": 245.75
+        },
+        "pointerTarget": null,
+        "clock": {
+          "rect": {
+            "x": 444.03125,
+            "y": 230.5,
+            "width": 40.359375,
+            "height": 16.5,
+            "right": 484.390625,
+            "bottom": 247
+          },
+          "opacity": "0",
+          "maxWidth": "59.2969px",
+          "maxHeight": "22px"
+        },
+        "animations": [
+          {
+            "type": "CSSTransition",
+            "property": "background-color",
+            "id": "",
+            "playState": "paused",
+            "currentTime": 0,
+            "duration": 150
+          },
+          {
+            "type": "CSSTransition",
+            "property": "opacity",
+            "id": "",
+            "playState": "paused",
+            "currentTime": 0,
+            "duration": 160
+          }
+        ]
+      },
+      "middle": {
+        "rect": {
+          "x": 308,
+          "y": 222.75,
+          "width": 736,
+          "height": 32,
+          "right": 1044,
+          "bottom": 254.75
+        },
+        "opacity": "1",
+        "height": "32px",
+        "display": "flex",
+        "transitionProperty": "background-color",
+        "transitionDuration": "0.15s",
+        "borderBottomWidth": "0px",
+        "borderBottomColor": "rgb(129, 129, 129)",
+        "open": "false",
+        "dataOpen": false,
+        "starting": false,
+        "ending": false,
+        "chevron": {
+          "x": 1030,
+          "y": 231.75,
+          "width": 14,
+          "height": 14,
+          "right": 1044,
+          "bottom": 245.75
+        },
+        "pointerTarget": null,
+        "clock": {
+          "rect": {
+            "x": 444.03125,
+            "y": 230.5,
+            "width": 40.359375,
+            "height": 16.5,
+            "right": 484.390625,
+            "bottom": 247
+          },
+          "opacity": "0.684643",
+          "maxWidth": "59.2969px",
+          "maxHeight": "22px"
+        },
+        "animations": [
+          {
+            "type": "CSSTransition",
+            "property": "background-color",
+            "id": "",
+            "playState": "paused",
+            "currentTime": 75,
+            "duration": 150
+          },
+          {
+            "type": "CSSTransition",
+            "property": "opacity",
+            "id": "",
+            "playState": "paused",
+            "currentTime": 80,
+            "duration": 160
+          }
+        ]
+      },
+      "end": {
+        "rect": {
+          "x": 308,
+          "y": 222.75,
+          "width": 736,
+          "height": 32,
+          "right": 1044,
+          "bottom": 254.75
+        },
+        "opacity": "1",
+        "height": "32px",
+        "display": "flex",
+        "transitionProperty": "background-color",
+        "transitionDuration": "0.15s",
+        "borderBottomWidth": "0px",
+        "borderBottomColor": "rgb(129, 129, 129)",
+        "open": "false",
+        "dataOpen": false,
+        "starting": false,
+        "ending": false,
+        "chevron": {
+          "x": 1030,
+          "y": 231.75,
+          "width": 14,
+          "height": 14,
+          "right": 1044,
+          "bottom": 245.75
+        },
+        "pointerTarget": null,
+        "clock": {
+          "rect": {
+            "x": 444.03125,
+            "y": 230.5,
+            "width": 40.359375,
+            "height": 16.5,
+            "right": 484.390625,
+            "bottom": 247
+          },
+          "opacity": "1",
+          "maxWidth": "59.2969px",
+          "maxHeight": "22px"
+        },
+        "animations": []
+      },
+      "animations": [
+        {
+          "type": "CSSTransition",
+          "id": "",
+          "transitionProperty": "background-color",
+          "currentTime": 0,
+          "timing": {
+            "delay": 0,
+            "direction": "normal",
+            "duration": 150,
+            "easing": "ease",
+            "endDelay": 0,
+            "fill": "backwards",
+            "iterationStart": 0,
+            "iterations": 1,
+            "activeDuration": 150,
+            "currentIteration": 0,
+            "endTime": 150,
+            "localTime": 0,
+            "progress": 0
+          },
+          "keyframes": [
+            {
+              "offset": 0,
+              "easing": "linear",
+              "composite": "auto",
+              "backgroundColor": "rgba(0, 0, 0, 0)",
+              "computedOffset": 0
+            },
+            {
+              "offset": 1,
+              "easing": "linear",
+              "composite": "auto",
+              "backgroundColor": "oklab(0.264478 0.0000120252 0.00000530481 / 0.2)",
+              "computedOffset": 1
+            }
+          ]
+        },
+        {
+          "type": "CSSTransition",
+          "id": "",
+          "transitionProperty": "opacity",
+          "currentTime": 0,
+          "timing": {
+            "delay": 0,
+            "direction": "normal",
+            "duration": 160,
+            "easing": "ease-out",
+            "endDelay": 0,
+            "fill": "backwards",
+            "iterationStart": 0,
+            "iterations": 1,
+            "activeDuration": 160,
+            "currentIteration": 0,
+            "endTime": 160,
+            "localTime": 0,
+            "progress": 0
+          },
+          "keyframes": [
+            {
+              "offset": 0,
+              "easing": "linear",
+              "composite": "auto",
+              "opacity": "0",
+              "computedOffset": 0
+            },
+            {
+              "offset": 1,
+              "easing": "linear",
+              "composite": "auto",
+              "opacity": "1",
+              "computedOffset": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": "before-wide-dark",
+      "kind": "hover",
+      "name": "header",
+      "rest": {
+        "rect": {
+          "x": 284,
+          "y": 186.75,
+          "width": 760,
+          "height": 32,
+          "right": 1044,
+          "bottom": 218.75
+        },
+        "opacity": "1",
+        "height": "32px",
+        "display": "flex",
+        "transitionProperty": "all",
+        "transitionDuration": "0s",
+        "borderBottomWidth": "1px",
+        "borderBottomColor": "rgba(255, 255, 255, 0.06)",
+        "open": "true",
+        "dataOpen": false,
+        "starting": false,
+        "ending": false,
+        "chevron": {
+          "x": 377.28125,
+          "y": 195.25,
+          "width": 14,
+          "height": 14,
+          "right": 391.28125,
+          "bottom": 209.25
+        },
+        "pointerTarget": "Worked for 4s",
+        "clock": {
+          "rect": {
+            "x": 1044,
+            "y": 202.25,
+            "width": 0,
+            "height": 0,
+            "right": 1044,
+            "bottom": 202.25
+          },
+          "opacity": "0",
+          "maxWidth": "0px",
+          "maxHeight": "0px"
+        },
+        "animations": []
+      },
+      "start": {
+        "rect": {
+          "x": 284,
+          "y": 186.75,
+          "width": 760,
+          "height": 32,
+          "right": 1044,
+          "bottom": 218.75
+        },
+        "opacity": "1",
+        "height": "32px",
+        "display": "flex",
+        "transitionProperty": "all",
+        "transitionDuration": "0s",
+        "borderBottomWidth": "1px",
+        "borderBottomColor": "rgba(255, 255, 255, 0.06)",
+        "open": "true",
+        "dataOpen": false,
+        "starting": false,
+        "ending": false,
+        "chevron": {
+          "x": 377.28125,
+          "y": 195.25,
+          "width": 14,
+          "height": 14,
+          "right": 391.28125,
+          "bottom": 209.25
+        },
+        "pointerTarget": "Worked for 4s",
+        "clock": {
+          "rect": {
+            "x": 1003.640625,
+            "y": 194,
+            "width": 40.359375,
+            "height": 16.5,
+            "right": 1044,
+            "bottom": 210.5
+          },
+          "opacity": "0",
+          "maxWidth": "59.2969px",
+          "maxHeight": "22px"
+        },
+        "animations": [
+          {
+            "type": "CSSTransition",
+            "property": "opacity",
+            "id": "",
+            "playState": "paused",
+            "currentTime": 0,
+            "duration": 160
+          }
+        ]
+      },
+      "middle": {
+        "rect": {
+          "x": 284,
+          "y": 186.75,
+          "width": 760,
+          "height": 32,
+          "right": 1044,
+          "bottom": 218.75
+        },
+        "opacity": "1",
+        "height": "32px",
+        "display": "flex",
+        "transitionProperty": "all",
+        "transitionDuration": "0s",
+        "borderBottomWidth": "1px",
+        "borderBottomColor": "rgba(255, 255, 255, 0.06)",
+        "open": "true",
+        "dataOpen": false,
+        "starting": false,
+        "ending": false,
+        "chevron": {
+          "x": 377.28125,
+          "y": 195.25,
+          "width": 14,
+          "height": 14,
+          "right": 391.28125,
+          "bottom": 209.25
+        },
+        "pointerTarget": "Worked for 4s",
+        "clock": {
+          "rect": {
+            "x": 1003.640625,
+            "y": 194,
+            "width": 40.359375,
+            "height": 16.5,
+            "right": 1044,
+            "bottom": 210.5
+          },
+          "opacity": "0.684643",
+          "maxWidth": "59.2969px",
+          "maxHeight": "22px"
+        },
+        "animations": [
+          {
+            "type": "CSSTransition",
+            "property": "opacity",
+            "id": "",
+            "playState": "paused",
+            "currentTime": 80,
+            "duration": 160
+          }
+        ]
+      },
+      "end": {
+        "rect": {
+          "x": 284,
+          "y": 186.75,
+          "width": 760,
+          "height": 32,
+          "right": 1044,
+          "bottom": 218.75
+        },
+        "opacity": "1",
+        "height": "32px",
+        "display": "flex",
+        "transitionProperty": "all",
+        "transitionDuration": "0s",
+        "borderBottomWidth": "1px",
+        "borderBottomColor": "rgba(255, 255, 255, 0.06)",
+        "open": "true",
+        "dataOpen": false,
+        "starting": false,
+        "ending": false,
+        "chevron": {
+          "x": 377.28125,
+          "y": 195.25,
+          "width": 14,
+          "height": 14,
+          "right": 391.28125,
+          "bottom": 209.25
+        },
+        "pointerTarget": "Worked for 4s",
+        "clock": {
+          "rect": {
+            "x": 1003.640625,
+            "y": 194,
+            "width": 40.359375,
+            "height": 16.5,
+            "right": 1044,
+            "bottom": 210.5
+          },
+          "opacity": "1",
+          "maxWidth": "59.2969px",
+          "maxHeight": "22px"
+        },
+        "animations": []
+      },
+      "animations": [
+        {
+          "type": "CSSTransition",
+          "id": "",
+          "transitionProperty": "opacity",
+          "currentTime": 0,
+          "timing": {
+            "delay": 0,
+            "direction": "normal",
+            "duration": 160,
+            "easing": "ease-out",
+            "endDelay": 0,
+            "fill": "backwards",
+            "iterationStart": 0,
+            "iterations": 1,
+            "activeDuration": 160,
+            "currentIteration": 0,
+            "endTime": 160,
+            "localTime": 0,
+            "progress": 0
+          },
+          "keyframes": [
+            {
+              "offset": 0,
+              "easing": "linear",
+              "composite": "auto",
+              "opacity": "0",
+              "computedOffset": 0
+            },
+            {
+              "offset": 1,
+              "easing": "linear",
+              "composite": "auto",
+              "opacity": "1",
+              "computedOffset": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": "before-wide-dark",
+      "kind": "panel",
+      "name": "cold-close",
+      "open": false,
+      "rest": {
+        "rect": {
+          "x": 284,
+          "y": 218.75,
+          "width": 760,
+          "height": 140,
+          "right": 1044,
+          "bottom": 358.75
+        },
+        "opacity": "1",
+        "height": "140px",
+        "display": "block",
+        "transitionProperty": "height, opacity",
+        "transitionDuration": "0.24s",
+        "borderBottomWidth": "0px",
+        "borderBottomColor": "rgb(245, 245, 245)",
+        "open": null,
+        "dataOpen": true,
+        "starting": false,
+        "ending": false,
+        "chevron": {
+          "x": 1030,
+          "y": 231.75,
+          "width": 14,
+          "height": 14,
+          "right": 1044,
+          "bottom": 245.75
+        },
+        "pointerTarget": null,
+        "clock": {
+          "rect": {
+            "x": 444.03125,
+            "y": 238.75,
+            "width": 0,
+            "height": 0,
+            "right": 444.03125,
+            "bottom": 238.75
+          },
+          "opacity": "0",
+          "maxWidth": "0px",
+          "maxHeight": "0px"
+        },
+        "animations": []
+      },
+      "start": {
+        "rect": {
+          "x": 284,
+          "y": 218.75,
+          "width": 760,
+          "height": 140,
+          "right": 1044,
+          "bottom": 358.75
+        },
+        "opacity": "1",
+        "height": "140px",
+        "display": "block",
+        "transitionProperty": "height, opacity",
+        "transitionDuration": "0.24s",
+        "borderBottomWidth": "0px",
+        "borderBottomColor": "rgb(245, 245, 245)",
+        "open": null,
+        "dataOpen": false,
+        "starting": false,
+        "ending": true,
+        "chevron": {
+          "x": 1030,
+          "y": 231.75,
+          "width": 14,
+          "height": 14,
+          "right": 1044,
+          "bottom": 245.75
+        },
+        "pointerTarget": null,
+        "clock": {
+          "rect": {
+            "x": 444.03125,
+            "y": 238.75,
+            "width": 0,
+            "height": 0,
+            "right": 444.03125,
+            "bottom": 238.75
+          },
+          "opacity": "0",
+          "maxWidth": "0px",
+          "maxHeight": "0px"
+        },
+        "animations": [
+          {
+            "type": "CSSTransition",
+            "property": "height",
+            "id": "",
+            "playState": "paused",
+            "currentTime": 0,
+            "duration": 240
+          },
+          {
+            "type": "CSSTransition",
+            "property": "opacity",
+            "id": "",
+            "playState": "paused",
+            "currentTime": 0,
+            "duration": 240
+          }
+        ]
+      },
+      "middle": {
+        "rect": {
+          "x": 284,
+          "y": 218.75,
+          "width": 760,
+          "height": 17.09375,
+          "right": 1044,
+          "bottom": 235.84375
+        },
+        "opacity": "0.122166",
+        "height": "17.0938px",
+        "display": "block",
+        "transitionProperty": "height, opacity",
+        "transitionDuration": "0.24s",
+        "borderBottomWidth": "0px",
+        "borderBottomColor": "rgb(245, 245, 245)",
+        "open": null,
+        "dataOpen": false,
+        "starting": false,
+        "ending": true,
+        "chevron": {
+          "x": 1030,
+          "y": 231.75,
+          "width": 14,
+          "height": 14,
+          "right": 1044,
+          "bottom": 245.75
+        },
+        "clock": {
+          "rect": {
+            "x": 444.03125,
+            "y": 238.75,
+            "width": 0,
+            "height": 0,
+            "right": 444.03125,
+            "bottom": 238.75
+          },
+          "opacity": "0",
+          "maxWidth": "0px",
+          "maxHeight": "0px"
+        },
+        "animations": [
+          {
+            "type": "CSSTransition",
+            "property": "height",
+            "id": "",
+            "playState": "paused",
+            "currentTime": 120,
+            "duration": 240
+          },
+          {
+            "type": "CSSTransition",
+            "property": "opacity",
+            "id": "",
+            "playState": "paused",
+            "currentTime": 120,
+            "duration": 240
+          }
+        ]
+      },
+      "end": {
+        "rect": {
+          "x": 284,
+          "y": 218.75,
+          "width": 760,
+          "height": 0,
+          "right": 1044,
+          "bottom": 218.75
+        },
+        "opacity": "0",
+        "height": "0px",
+        "display": "block",
+        "transitionProperty": "height, opacity",
+        "transitionDuration": "0.24s",
+        "borderBottomWidth": "0px",
+        "borderBottomColor": "rgb(245, 245, 245)",
+        "open": null,
+        "dataOpen": false,
+        "starting": false,
+        "ending": true,
+        "chevron": {
+          "x": 1030,
+          "y": 231.75,
+          "width": 14,
+          "height": 14,
+          "right": 1044,
+          "bottom": 245.75
+        },
+        "clock": {
+          "rect": {
+            "x": 444.03125,
+            "y": 238.75,
+            "width": 0,
+            "height": 0,
+            "right": 444.03125,
+            "bottom": 238.75
+          },
+          "opacity": "0",
+          "maxWidth": "0px",
+          "maxHeight": "0px"
+        },
+        "animations": []
+      },
+      "animations": [
+        {
+          "type": "CSSTransition",
+          "id": "",
+          "transitionProperty": "height",
+          "currentTime": 0,
+          "timing": {
+            "delay": 0,
+            "direction": "normal",
+            "duration": 240,
+            "easing": "cubic-bezier(0.2, 0, 0, 1)",
+            "endDelay": 0,
+            "fill": "backwards",
+            "iterationStart": 0,
+            "iterations": 1,
+            "activeDuration": 240,
+            "currentIteration": 0,
+            "endTime": 240,
+            "localTime": 0,
+            "progress": 0
+          },
+          "keyframes": [
+            {
+              "offset": 0,
+              "easing": "linear",
+              "composite": "auto",
+              "height": "140px",
+              "computedOffset": 0
+            },
+            {
+              "offset": 1,
+              "easing": "linear",
+              "composite": "auto",
+              "height": "0px",
+              "computedOffset": 1
+            }
+          ]
+        },
+        {
+          "type": "CSSTransition",
+          "id": "",
+          "transitionProperty": "opacity",
+          "currentTime": 0,
+          "timing": {
+            "delay": 0,
+            "direction": "normal",
+            "duration": 240,
+            "easing": "cubic-bezier(0.2, 0, 0, 1)",
+            "endDelay": 0,
+            "fill": "backwards",
+            "iterationStart": 0,
+            "iterations": 1,
+            "activeDuration": 240,
+            "currentIteration": 0,
+            "endTime": 240,
+            "localTime": 0,
+            "progress": 0
+          },
+          "keyframes": [
+            {
+              "offset": 0,
+              "easing": "linear",
+              "composite": "auto",
+              "opacity": "1",
+              "computedOffset": 0
+            },
+            {
+              "offset": 1,
+              "easing": "linear",
+              "composite": "auto",
+              "opacity": "0",
+              "computedOffset": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": "before-wide-dark",
+      "kind": "panel",
+      "name": "cold-reopen",
+      "open": true,
+      "rest": {
+        "rect": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0,
+          "right": 0,
+          "bottom": 0
+        },
+        "opacity": "1",
+        "height": "0px",
+        "display": "none",
+        "transitionProperty": "height, opacity",
+        "transitionDuration": "0.24s",
+        "borderBottomWidth": "0px",
+        "borderBottomColor": "rgb(245, 245, 245)",
+        "open": null,
+        "dataOpen": false,
+        "starting": false,
+        "ending": false,
+        "chevron": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0,
+          "right": 0,
+          "bottom": 0
+        },
+        "clock": {
+          "rect": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "right": 0,
+            "bottom": 0
+          },
+          "opacity": "0",
+          "maxWidth": "0px",
+          "maxHeight": "0px"
+        },
+        "animations": []
+      },
+      "start": {
+        "rect": {
+          "x": 284,
+          "y": 218.75,
+          "width": 760,
+          "height": 0,
+          "right": 1044,
+          "bottom": 218.75
+        },
+        "opacity": "0",
+        "height": "0px",
+        "display": "block",
+        "transitionProperty": "height, opacity",
+        "transitionDuration": "0.24s",
+        "borderBottomWidth": "0px",
+        "borderBottomColor": "rgb(245, 245, 245)",
+        "open": null,
+        "dataOpen": true,
+        "starting": false,
+        "ending": false,
+        "chevron": {
+          "x": 1030,
+          "y": 231.75,
+          "width": 14,
+          "height": 14,
+          "right": 1044,
+          "bottom": 245.75
+        },
+        "clock": {
+          "rect": {
+            "x": 444.03125,
+            "y": 238.75,
+            "width": 0,
+            "height": 0,
+            "right": 444.03125,
+            "bottom": 238.75
+          },
+          "opacity": "0",
+          "maxWidth": "0px",
+          "maxHeight": "0px"
+        },
+        "animations": [
+          {
+            "type": "CSSTransition",
+            "property": "height",
+            "id": "",
+            "playState": "paused",
+            "currentTime": 0,
+            "duration": 240
+          },
+          {
+            "type": "CSSTransition",
+            "property": "opacity",
+            "id": "",
+            "playState": "paused",
+            "currentTime": 0,
+            "duration": 240
+          }
+        ]
+      },
+      "middle": {
+        "rect": {
+          "x": 284,
+          "y": 218.75,
+          "width": 760,
+          "height": 122.890625,
+          "right": 1044,
+          "bottom": 341.640625
+        },
+        "opacity": "0.877834",
+        "height": "122.891px",
+        "display": "block",
+        "transitionProperty": "height, opacity",
+        "transitionDuration": "0.24s",
+        "borderBottomWidth": "0px",
+        "borderBottomColor": "rgb(245, 245, 245)",
+        "open": null,
+        "dataOpen": true,
+        "starting": false,
+        "ending": false,
+        "chevron": {
+          "x": 1030,
+          "y": 231.75,
+          "width": 14,
+          "height": 14,
+          "right": 1044,
+          "bottom": 245.75
+        },
+        "pointerTarget": null,
+        "clock": {
+          "rect": {
+            "x": 444.03125,
+            "y": 238.75,
+            "width": 0,
+            "height": 0,
+            "right": 444.03125,
+            "bottom": 238.75
+          },
+          "opacity": "0",
+          "maxWidth": "0px",
+          "maxHeight": "0px"
+        },
+        "animations": [
+          {
+            "type": "CSSTransition",
+            "property": "height",
+            "id": "",
+            "playState": "paused",
+            "currentTime": 120,
+            "duration": 240
+          },
+          {
+            "type": "CSSTransition",
+            "property": "opacity",
+            "id": "",
+            "playState": "paused",
+            "currentTime": 120,
+            "duration": 240
+          }
+        ]
+      },
+      "end": {
+        "rect": {
+          "x": 284,
+          "y": 218.75,
+          "width": 760,
+          "height": 140,
+          "right": 1044,
+          "bottom": 358.75
+        },
+        "opacity": "1",
+        "height": "140px",
+        "display": "block",
+        "transitionProperty": "height, opacity",
+        "transitionDuration": "0.24s",
+        "borderBottomWidth": "0px",
+        "borderBottomColor": "rgb(245, 245, 245)",
+        "open": null,
+        "dataOpen": true,
+        "starting": false,
+        "ending": false,
+        "chevron": {
+          "x": 1030,
+          "y": 231.75,
+          "width": 14,
+          "height": 14,
+          "right": 1044,
+          "bottom": 245.75
+        },
+        "pointerTarget": null,
+        "clock": {
+          "rect": {
+            "x": 444.03125,
+            "y": 238.75,
+            "width": 0,
+            "height": 0,
+            "right": 444.03125,
+            "bottom": 238.75
+          },
+          "opacity": "0",
+          "maxWidth": "0px",
+          "maxHeight": "0px"
+        },
+        "animations": []
+      },
+      "animations": [
+        {
+          "type": "CSSTransition",
+          "id": "",
+          "transitionProperty": "height",
+          "currentTime": 0,
+          "timing": {
+            "delay": 0,
+            "direction": "normal",
+            "duration": 240,
+            "easing": "cubic-bezier(0.2, 0, 0, 1)",
+            "endDelay": 0,
+            "fill": "backwards",
+            "iterationStart": 0,
+            "iterations": 1,
+            "activeDuration": 240,
+            "currentIteration": 0,
+            "endTime": 240,
+            "localTime": 0,
+            "progress": 0
+          },
+          "keyframes": [
+            {
+              "offset": 0,
+              "easing": "linear",
+              "composite": "auto",
+              "height": "0px",
+              "computedOffset": 0
+            },
+            {
+              "offset": 1,
+              "easing": "linear",
+              "composite": "auto",
+              "height": "140px",
+              "computedOffset": 1
+            }
+          ]
+        },
+        {
+          "type": "CSSTransition",
+          "id": "",
+          "transitionProperty": "opacity",
+          "currentTime": 0,
+          "timing": {
+            "delay": 0,
+            "direction": "normal",
+            "duration": 240,
+            "easing": "cubic-bezier(0.2, 0, 0, 1)",
+            "endDelay": 0,
+            "fill": "backwards",
+            "iterationStart": 0,
+            "iterations": 1,
+            "activeDuration": 240,
+            "currentIteration": 0,
+            "endTime": 240,
+            "localTime": 0,
+            "progress": 0
+          },
+          "keyframes": [
+            {
+              "offset": 0,
+              "easing": "linear",
+              "composite": "auto",
+              "opacity": "0",
+              "computedOffset": 0
+            },
+            {
+              "offset": 1,
+              "easing": "linear",
+              "composite": "auto",
+              "opacity": "1",
+              "computedOffset": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": "before-wide-dark",
+      "kind": "interrupted-reopen",
+      "interrupted": {
+        "rect": {
+          "x": 284,
+          "y": 218.75,
+          "width": 760,
+          "height": 17.09375,
+          "right": 1044,
+          "bottom": 235.84375
+        },
+        "opacity": "0.122166",
+        "height": "17.0938px",
+        "display": "block",
+        "transitionProperty": "height, opacity",
+        "transitionDuration": "0.24s",
+        "borderBottomWidth": "0px",
+        "borderBottomColor": "rgb(245, 245, 245)",
+        "open": null,
+        "dataOpen": false,
+        "starting": false,
+        "ending": true,
+        "chevron": {
+          "x": 1030,
+          "y": 231.75,
+          "width": 14,
+          "height": 14,
+          "right": 1044,
+          "bottom": 245.75
+        },
+        "clock": {
+          "rect": {
+            "x": 444.03125,
+            "y": 238.75,
+            "width": 0,
+            "height": 0,
+            "right": 444.03125,
+            "bottom": 238.75
+          },
+          "opacity": "0",
+          "maxWidth": "0px",
+          "maxHeight": "0px"
+        },
+        "animations": [
+          {
+            "type": "CSSTransition",
+            "property": "height",
+            "id": "",
+            "playState": "paused",
+            "currentTime": 120,
+            "duration": 240
+          },
+          {
+            "type": "CSSTransition",
+            "property": "opacity",
+            "id": "",
+            "playState": "paused",
+            "currentTime": 120,
+            "duration": 240
+          }
+        ]
+      },
+      "reverseStart": {
+        "rect": {
+          "x": 284,
+          "y": 218.75,
+          "width": 760,
+          "height": 17.09375,
+          "right": 1044,
+          "bottom": 235.84375
+        },
+        "opacity": "0.122166",
+        "height": "17.0938px",
+        "display": "block",
+        "transitionProperty": "height, opacity",
+        "transitionDuration": "0.24s",
+        "borderBottomWidth": "0px",
+        "borderBottomColor": "rgb(245, 245, 245)",
+        "open": null,
+        "dataOpen": true,
+        "starting": false,
+        "ending": false,
+        "chevron": {
+          "x": 1030,
+          "y": 231.75,
+          "width": 14,
+          "height": 14,
+          "right": 1044,
+          "bottom": 245.75
+        },
+        "clock": {
+          "rect": {
+            "x": 444.03125,
+            "y": 238.75,
+            "width": 0,
+            "height": 0,
+            "right": 444.03125,
+            "bottom": 238.75
+          },
+          "opacity": "0",
+          "maxWidth": "0px",
+          "maxHeight": "0px"
+        },
+        "animations": [
+          {
+            "type": "CSSTransition",
+            "property": "height",
+            "id": "",
+            "playState": "paused",
+            "currentTime": 0,
+            "duration": 210.68006518629807
+          },
+          {
+            "type": "CSSTransition",
+            "property": "opacity",
+            "id": "",
+            "playState": "paused",
+            "currentTime": 0,
+            "duration": 210.68006518629807
+          }
+        ]
+      },
+      "reverseMiddle": {
+        "rect": {
+          "x": 284,
+          "y": 218.75,
+          "width": 760,
+          "height": 124.984375,
+          "right": 1044,
+          "bottom": 343.734375
+        },
+        "opacity": "0.892758",
+        "height": "124.984px",
+        "display": "block",
+        "transitionProperty": "height, opacity",
+        "transitionDuration": "0.24s",
+        "borderBottomWidth": "0px",
+        "borderBottomColor": "rgb(245, 245, 245)",
+        "open": null,
+        "dataOpen": true,
+        "starting": false,
+        "ending": false,
+        "chevron": {
+          "x": 1030,
+          "y": 231.75,
+          "width": 14,
+          "height": 14,
+          "right": 1044,
+          "bottom": 245.75
+        },
+        "pointerTarget": null,
+        "clock": {
+          "rect": {
+            "x": 444.03125,
+            "y": 238.75,
+            "width": 0,
+            "height": 0,
+            "right": 444.03125,
+            "bottom": 238.75
+          },
+          "opacity": "0",
+          "maxWidth": "0px",
+          "maxHeight": "0px"
+        },
+        "animations": [
+          {
+            "type": "CSSTransition",
+            "property": "height",
+            "id": "",
+            "playState": "paused",
+            "currentTime": 105.34003259314903,
+            "duration": 210.68006518629807
+          },
+          {
+            "type": "CSSTransition",
+            "property": "opacity",
+            "id": "",
+            "playState": "paused",
+            "currentTime": 105.34003259314903,
+            "duration": 210.68006518629807
+          }
+        ]
+      },
+      "reopened": {
+        "rect": {
+          "x": 284,
+          "y": 218.75,
+          "width": 760,
+          "height": 140,
+          "right": 1044,
+          "bottom": 358.75
+        },
+        "opacity": "1",
+        "height": "140px",
+        "display": "block",
+        "transitionProperty": "height, opacity",
+        "transitionDuration": "0.24s",
+        "borderBottomWidth": "0px",
+        "borderBottomColor": "rgb(245, 245, 245)",
+        "open": null,
+        "dataOpen": true,
+        "starting": false,
+        "ending": false,
+        "chevron": {
+          "x": 1030,
+          "y": 231.75,
+          "width": 14,
+          "height": 14,
+          "right": 1044,
+          "bottom": 245.75
+        },
+        "pointerTarget": null,
+        "clock": {
+          "rect": {
+            "x": 444.03125,
+            "y": 238.75,
+            "width": 0,
+            "height": 0,
+            "right": 444.03125,
+            "bottom": 238.75
+          },
+          "opacity": "0",
+          "maxWidth": "0px",
+          "maxHeight": "0px"
+        },
+        "animations": []
+      },
+      "animations": [
+        {
+          "type": "CSSTransition",
+          "id": "",
+          "transitionProperty": "height",
+          "currentTime": 0,
+          "timing": {
+            "delay": 0,
+            "direction": "normal",
+            "duration": 210.68006518629807,
+            "easing": "cubic-bezier(0.2, 0, 0, 1)",
+            "endDelay": 0,
+            "fill": "backwards",
+            "iterationStart": 0,
+            "iterations": 1,
+            "activeDuration": 210.68006518629807,
+            "currentIteration": 0,
+            "endTime": 210.68006518629807,
+            "localTime": 0,
+            "progress": 0
+          },
+          "keyframes": [
+            {
+              "offset": 0,
+              "easing": "linear",
+              "composite": "auto",
+              "height": "17.1033px",
+              "computedOffset": 0
+            },
+            {
+              "offset": 1,
+              "easing": "linear",
+              "composite": "auto",
+              "height": "140px",
+              "computedOffset": 1
+            }
+          ]
+        },
+        {
+          "type": "CSSTransition",
+          "id": "",
+          "transitionProperty": "opacity",
+          "currentTime": 0,
+          "timing": {
+            "delay": 0,
+            "direction": "normal",
+            "duration": 210.68006518629807,
+            "easing": "cubic-bezier(0.2, 0, 0, 1)",
+            "endDelay": 0,
+            "fill": "backwards",
+            "iterationStart": 0,
+            "iterations": 1,
+            "activeDuration": 210.68006518629807,
+            "currentIteration": 0,
+            "endTime": 210.68006518629807,
+            "localTime": 0,
+            "progress": 0
+          },
+          "keyframes": [
+            {
+              "offset": 0,
+              "easing": "linear",
+              "composite": "auto",
+              "opacity": "0.122166",
+              "computedOffset": 0
+            },
+            {
+              "offset": 1,
+              "easing": "linear",
+              "composite": "auto",
+              "opacity": "1",
+              "computedOffset": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": "before-wide-dark",
+      "kind": "cached-history",
+      "animationIds": [
+        ""
+      ]
+    }
+  ],
+  "checks": [],
+  "pageErrors": [],
+  "limits": [
+    "UI-only synthetic live conversation; no native app, paid prompt, reference app agent execution, or pixel parity claim. Controlled fixture work lasts15s; this is not an inference benchmark."
+  ]
+}

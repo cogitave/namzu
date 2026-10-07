@@ -65,7 +65,11 @@ describe('public transcript content', () => {
 		})
 		const before = structuredClone(thread)
 		const html = render(thread)
-		for (const label of ['Update', 'Reasoning', 'Completed']) expect(html).toContain(label)
+		expect(html).toContain('data-message-phase="commentary"')
+		expect(html).toContain('aria-label="Progress update"')
+		expect(html).toContain('aria-label="Public reasoning"')
+		expect(html).not.toContain('transcript-content-label')
+		expect(html).toContain('Completed')
 		const contents = [
 			'Checking the saved settings.',
 			'Compare the two recorded values.',
@@ -86,7 +90,7 @@ describe('public transcript content', () => {
 		])
 		const html = render(thread)
 		expect(html).toContain('aria-label="Work details"')
-		expect(html).toContain('Update')
+		expect(html).toContain('aria-label="Progress update"')
 		expect(html.indexOf('Reading the file.')).toBeLessThan(html.indexOf('Verified.'))
 		expect(html).not.toContain('Worked')
 	})

@@ -1,5 +1,5 @@
 import { ArrowDown, MessageSquare, Minus } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal, flushSync } from 'react-dom'
 import type { BackgroundWorkStatus } from '../shared/background-work-protocol.js'
 import { resolveComposerSendOptions } from '../shared/composer-send-options.js'
@@ -100,7 +100,12 @@ import {
 import { WorkspacePageHeader } from './workspace-page-header.js'
 import { createWorkspacePaneApi } from './workspace-pane-api.js'
 import type { WorkspacePaneProps } from './workspace-pane-types.js'
-import { readWorkspacePresentation, writeWorkspacePresentation } from './workspace-presentation.js'
+import {
+	type WorkDisclosureChoices,
+	chooseWorkDisclosure,
+	readWorkspacePresentation,
+	writeWorkspacePresentation,
+} from './workspace-presentation.js'
 import { WorkspaceSessionCache } from './workspace-session-cache.js'
 
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error))
@@ -208,6 +213,17 @@ export function App({
 	previousMembership.current = group.tabs
 	const openingHistory = useRef<number | null>(null)
 	const writePresentation = useRef<() => void>(() => {})
+	const [workDisclosureView, setWorkDisclosureView] = useState<{
+		sessionId: string
+		choices: WorkDisclosureChoices
+	}>({ sessionId: '', choices: {} })
+	const workDisclosureViewRef = useRef(workDisclosureView)
+	const pendingPresentationScroll = useRef<{
+		generation: number
+		sessionId: string
+		scrollTop: number
+		follow: boolean
+	} | null>(null)
 
 	const [palRecords, setPals] = useState<PalView[]>([])
 	const pals = useMemo(
@@ -581,6 +597,75 @@ export function App({
 	const pal = pals.find((item) => item.id === project?.palId)
 	const palConversation = Boolean(project?.palId || conversation?.palId)
 	const detailsOpen = jobsOpen && !palConversation
+	useLayoutEffect(() => {
+		const pending = pendingPresentationScroll.current
+		if (
+			!pending ||
+			pending.sessionId !== sessionId ||
+			pending.generation !== navigation.current ||
+			historyPending ||
+			(historyDisplay?.sessionId === sessionId && historyDisplay.saved) ||
+			workDisclosureView.sessionId !== sessionId
+		)
+			return
+		let second: number | undefined
+		const apply = (complete: boolean) => {
+			if (
+				pendingPresentationScroll.current !== pending ||
+				pending.generation !== navigation.current ||
+				activeSession.current !== pending.sessionId
+			)
+				return
+			const node = transcript.current
+			if (!node) return
+			node.scrollTop = pending.scrollTop
+			follow.current = pending.follow
+			if (complete) pendingPresentationScroll.current = null
+		}
+		const first = requestAnimationFrame(() => {
+			apply(false)
+			second = requestAnimationFrame(() => apply(true))
+		})
+		return () => {
+			cancelAnimationFrame(first)
+			if (second !== undefined) cancelAnimationFrame(second)
+		}
+	}, [
+		sessionId,
+		historyPending,
+		historyDisplay?.sessionId,
+		historyDisplay?.saved,
+		workDisclosureView,
+	])
+	useLayoutEffect(() => {
+		const node = transcript.current
+		if (!node || !sessionId) return
+		const retire = () => {
+			const pending = pendingPresentationScroll.current
+			if (pending?.sessionId === sessionId && activeSession.current === sessionId)
+				pendingPresentationScroll.current = null
+		}
+		const onKey = (event: KeyboardEvent) => {
+			if (
+				!event.defaultPrevented &&
+				!event.altKey &&
+				!event.ctrlKey &&
+				!event.metaKey &&
+				['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)
+			)
+				retire()
+		}
+		// A reader action on visible retained history supersedes its old saved offset.
+		// Scroll events alone also come from layout and programmatic restoration.
+		node.addEventListener('wheel', retire, { passive: true })
+		node.addEventListener('touchmove', retire, { passive: true })
+		node.addEventListener('keydown', onKey)
+		return () => {
+			node.removeEventListener('wheel', retire)
+			node.removeEventListener('touchmove', retire)
+			node.removeEventListener('keydown', onKey)
+		}
+	}, [sessionId])
 	useEffect(() => {
 		if (
 			!focused ||
@@ -1645,10 +1730,15 @@ export function App({
 					setRailSection(null)
 					setPalsPage(false)
 					setSideOpen(false)
-					const presentation =
-						restoring || remembered || retained
-							? readWorkspacePresentation(localStorage, view.id, view.palId)
-							: null
+					// This view record is scoped to the selected catalogue conversation;
+					// it never supplies history or write authority.
+					const presentation = readWorkspacePresentation(localStorage, view.id, view.palId)
+					const disclosureView = {
+						sessionId: view.id,
+						choices: presentation?.workDisclosures ?? {},
+					}
+					workDisclosureViewRef.current = disclosureView
+					setWorkDisclosureView(disclosureView)
 					if (presentation) {
 						setPalScreen(
 							!restoring && presentation.palScreen
@@ -1662,13 +1752,16 @@ export function App({
 						setJobsOpen(presentation.jobsOpen)
 						setPanelTab(presentation.panelTab)
 						follow.current = presentation.follow
-						requestAnimationFrame(() => {
-							if (generation === navigation.current && transcript.current)
-								transcript.current.scrollTop = presentation.scrollTop
-						})
+						pendingPresentationScroll.current = {
+							generation,
+							sessionId: view.id,
+							scrollTop: presentation.scrollTop,
+							follow: presentation.follow,
+						}
 					} else {
 						setJobsOpen(false)
 						follow.current = true
+						pendingPresentationScroll.current = null
 					}
 				}
 				try {
@@ -2329,6 +2422,15 @@ export function App({
 	}, [focused, railSection, palsPage, computerPage, onShellState])
 	const savePresentation = useCallback(() => {
 		if (!sessionId || !context.current.group.tabs.includes(sessionId)) return
+		const disclosureView = workDisclosureViewRef.current
+		const pendingPosition = pendingPresentationScroll.current
+		const position = pendingPosition?.sessionId === sessionId ? pendingPosition : undefined
+		const workDisclosures =
+			!palConversation &&
+			disclosureView.sessionId === sessionId &&
+			Object.keys(disclosureView.choices).length
+				? disclosureView.choices
+				: undefined
 		writeWorkspacePresentation(localStorage, sessionId, {
 			palScreen,
 			computerChat,
@@ -2337,8 +2439,9 @@ export function App({
 			computerProfileOpen,
 			jobsOpen: detailsOpen,
 			panelTab,
-			follow: follow.current,
-			scrollTop: transcript.current?.scrollTop ?? 0,
+			follow: position?.follow ?? follow.current,
+			scrollTop: position?.scrollTop ?? transcript.current?.scrollTop ?? 0,
+			workDisclosures,
 		})
 	}, [
 		sessionId,
@@ -2349,8 +2452,34 @@ export function App({
 		computerProfileOpen,
 		detailsOpen,
 		panelTab,
+		palConversation,
 	])
 	writePresentation.current = savePresentation
+	const onWorkDisclosureChange = useCallback(
+		(owner: string, key: string, open: boolean) => {
+			const current = workDisclosureViewRef.current
+			if (
+				owner !== activeSession.current ||
+				current.sessionId !== owner ||
+				palConversation ||
+				context.current.frozen ||
+				current.choices[key] === open
+			)
+				return
+			const next = { sessionId: owner, choices: chooseWorkDisclosure(current.choices, key, open) }
+			if (next.choices === current.choices) return
+			if (pendingPresentationScroll.current?.sessionId === owner)
+				pendingPresentationScroll.current = null
+			workDisclosureViewRef.current = next
+			setWorkDisclosureView(next)
+			try {
+				writePresentation.current()
+			} catch (failure) {
+				setError(errorText(failure))
+			}
+		},
+		[palConversation],
+	)
 	useEffect(() => {
 		if (frozen || openingHistory.current !== null) return
 		try {
@@ -3681,6 +3810,14 @@ export function App({
 												key={sessionId || 'blank'}
 												thread={thread}
 												animate={!historyPending && !restoringTabs}
+												workDisclosures={
+													workDisclosureView.sessionId === sessionId
+														? workDisclosureView.choices
+														: undefined
+												}
+												onWorkDisclosureChange={(key, open) =>
+													onWorkDisclosureChange(sessionId, key, open)
+												}
 												renderMessageAction={(message, key) => (
 													<LocalSpeechReadAloud
 														speech={speech}

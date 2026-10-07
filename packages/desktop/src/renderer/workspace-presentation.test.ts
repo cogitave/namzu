@@ -1,7 +1,9 @@
 import { expect, it } from 'vitest'
 import {
 	type WorkspacePresentation,
+	chooseWorkDisclosure,
 	readWorkspacePresentation,
+	workDisclosureKey,
 	writeWorkspacePresentation,
 } from './workspace-presentation.js'
 
@@ -56,6 +58,56 @@ it('keeps ordinary session view state independent from other conversations', () 
 	expect(readWorkspacePresentation(cache, 'first')).toEqual(first)
 	expect(readWorkspacePresentation(cache, 'second')).toEqual(second)
 	expect(readWorkspacePresentation(cache, 'missing')).toBeNull()
+})
+
+it('retains only explicit ordinary work choices, including closed, across owner restores', () => {
+	const cache = storage()
+	const first = workDisclosureKey(2, 'message-4')
+	const steered = workDisclosureKey(2, 'tool-check')
+	expect(first).toBeDefined()
+	expect(steered).toBeDefined()
+	expect(first).not.toBe(steered)
+	const choices = chooseWorkDisclosure(chooseWorkDisclosure({}, first!, true), steered!, false)
+	writeWorkspacePresentation(cache, 'ordinary', presentation({ workDisclosures: choices }))
+	writeWorkspacePresentation(cache, 'other', presentation())
+	expect(readWorkspacePresentation(cache, 'ordinary')?.workDisclosures).toEqual({
+		[first!]: true,
+		[steered!]: false,
+	})
+	expect(readWorkspacePresentation(cache, 'other')?.workDisclosures).toBeUndefined()
+	expect(readWorkspacePresentation(cache, 'ordinary', 'pal')?.workDisclosures).toBeUndefined()
+})
+
+it('bounds work choices without corrupting the other presentation fields', () => {
+	let choices = {}
+	for (let turn = 0; turn < 40; turn++) {
+		const key = workDisclosureKey(turn, 'message-0')
+		expect(key).toBeDefined()
+		choices = chooseWorkDisclosure(choices, key!, turn % 2 === 0)
+	}
+	expect(Object.keys(choices)).toHaveLength(32)
+	expect(choices).not.toHaveProperty(workDisclosureKey(0, 'message-0')!)
+	expect(choices).toHaveProperty(workDisclosureKey(39, 'message-0')!, false)
+	expect(workDisclosureKey(1, `tool-${'x'.repeat(100)}`)).toBeUndefined()
+	const cache = storage()
+	writeWorkspacePresentation(cache, 'session', presentation({ workDisclosures: choices }))
+	expect(readWorkspacePresentation(cache, 'session')?.scrollTop).toBe(428)
+	expect(readWorkspacePresentation(cache, 'session')?.workDisclosures).toEqual(choices)
+})
+
+it('prunes escaped work keys before the stored presentation exceeds its read limit', () => {
+	let choices = {}
+	for (let turn = 0; turn < 32; turn++) {
+		const key = workDisclosureKey(turn, `tool-${'\\'.repeat(34)}`)
+		expect(key).toBeDefined()
+		choices = chooseWorkDisclosure(choices, key!, true)
+	}
+	// A key can fit the per-key limit while escaping expands it again in the map.
+	expect(Object.keys(choices).length).toBeLessThan(32)
+	expect(choices).toHaveProperty(workDisclosureKey(31, `tool-${'\\'.repeat(34)}`)!, true)
+	const cache = storage()
+	writeWorkspacePresentation(cache, 'session', presentation({ workDisclosures: choices }))
+	expect(readWorkspacePresentation(cache, 'session')?.workDisclosures).toEqual(choices)
 })
 
 it('drops stale or malformed Pal identity while preserving the remaining valid view state', () => {
@@ -120,6 +172,10 @@ it.each([
 	{ ...presentation(), scrollTop: -1 },
 	{ ...presentation(), scrollTop: '20' },
 	{ ...presentation(), scrollTop: Number.POSITIVE_INFINITY },
+	{ ...presentation(), workDisclosures: [] },
+	{ ...presentation(), workDisclosures: { 'not-a-key': true } },
+	{ ...presentation(), workDisclosures: { [JSON.stringify([1, 'message-0'])]: 'true' } },
+	{ ...presentation(), workDisclosures: { [JSON.stringify([1, 'message-0'])]: null } },
 ])('rejects malformed presentation shapes %#', (value) => {
 	expect(readRaw(value)).toBeNull()
 })

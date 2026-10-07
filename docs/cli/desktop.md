@@ -707,8 +707,10 @@ The model control is one menu inside the composer; the
 provider and exact model choice are edited there before the next message.
 
 Assistant replies render headings, lists, fenced code and tables. User messages
-stay literal. Raw HTML cannot execute, remote images do not load and message
-links are currently displayed as text. Tool output remains a separate tool view.
+stay literal. Raw HTML cannot execute and remote images do not load. A user click
+opens validated HTTP(S) assistant links, including a sole safe inline-code URL,
+through the main process's system-browser bridge; other schemes remain inert.
+Tool output remains a separate tool view.
 Messages and tool rows retain their admitted event order. Repeated provider call
 IDs in later turns have separate receipts; progress updates do not move a row.
 Interface and composer text use the platform sans stack; code uses the platform
@@ -1145,22 +1147,29 @@ opaque reasoning, signatures or replay material.
 In ordinary conversations, work belongs to its admitted runtime turn. Saved
 steering messages with the same recorded turn identity stay in that turn. Its public
 reasoning, tool receipts and explicit commentary stay in admission order inside
-a collapsible work summary. While live its heading is Work details; one status
-line near the composer owns Thinking, Working or Waiting for your decision and
-the elapsed time. Opening or closing details does not duplicate that state.
-Opaque reasoning alone does not create an empty disclosure. Settled headings retain Worked for the observed
-duration, Paused, Stopped or Work incomplete as appropriate. The summary opens
-while that turn runs and collapses after settlement unless the operator chose
-otherwise. The answer appears below that group only when it is a trailing
-answer; grouping never moves text across a later tool or reasoning event.
+a collapsible work summary. While live, its outer heading says **Working for**
+the host-observed elapsed time when known, or **Working** when no start is known.
+Actual Thinking or Waiting for your decision
+appears separately below the work when that phase is active, without a second
+elapsed counter. With no public work disclosure, the live status alone can show
+the elapsed time. Steering can create another ordered work segment in the same
+turn; only the latest public segment owns the turn's time and outcome heading,
+and earlier segments say **Earlier work**. Opaque reasoning alone does not
+create an empty disclosure. Settled headings retain **Worked for** the observed
+or recorded duration, Paused, Stopped or Work incomplete as appropriate. The
+summary opens while that turn runs and collapses after settlement unless the
+operator chose otherwise. The answer appears below that group only when it is
+a trailing answer; grouping never moves text across a later tool or reasoning event.
 Message and text-part identities preserve distinct responses. Providers without
 phase metadata retain their admitted order without invented commentary labels.
 An authoritative completion replaces its streamed partial text, including an
 explicit empty result that withdraws rejected output.
 
-Public commentary carries an **Update** label and admitted readable reasoning
-carries **Reasoning** inside work details; the final answer stays outside that
-disclosure. Whitespace-only entries do not hide a substantive trailing answer.
+Public commentary and admitted readable reasoning appear as ordinary foreground
+text inside work details, without visible internal phase labels. Their admitted
+phase, accessible descriptions and known times remain available; the final
+answer stays outside that disclosure. Whitespace-only entries do not hide a
+substantive trailing answer.
 Restored commentary keeps its phase only when unchanged selected journal text
 proves it. A cold history with no completion metadata says **Work details**,
 without inventing a successful outcome or elapsed duration.
@@ -1201,18 +1210,26 @@ New admitted transcript entries fade from 65% opacity over 120ms without moving
 the text. A phase change retains one readable label and a 120ms opacity effect;
 there is no outgoing label or moving text gradient. A small status dot indicates
 ongoing work and stays still while a review waits. Status presence and work
-disclosures change height over 160ms. The height effect completes independently
+disclosures change height over 260ms; the work panel also fades through the same
+symmetric easing. Known clocks and durations reserve their row space before
+hover; hover changes only opacity over 160ms, leaving message, action, chevron
+and reader positions fixed. Missing clocks reserve no space. Keyboard focus
+reveals a visible outline immediately. The height effect completes independently
 of the shorter text effect. Streaming chunks do not restart an entry effect,
 and mounted history, navigation and pending restoration do not replay it.
 Interrupted changes retain the observed opacity and height without dimming the
-new phase below 65%. Reduced motion settles the current state immediately. Pal conversations retain their delivered
-chat bubbles and their own concise Typing/Working states. The
+new phase below 65%. Reduced motion settles the current state immediately. Pal
+conversations retain their delivered chat bubbles and their own concise
+Typing/Working states. The
 [single live status browser proof](../../research/runtime-desktop-20260930/artifacts/transcript-single-live-status-motion-proof-20261006.json)
 records the earlier expanded, collapsed and private-reasoning behavior. The
 [supplemental calm-motion proof](../../research/runtime-desktop-20260930/artifacts/calm-transcript-motion-browser-proof-20261006.json)
-verifies the current timings, one label, streaming identity, uninterrupted frame
-completion, reversal, history navigation and reduced motion in the actual
-renderer. Both proofs use isolated events rather than native/model actions.
+records the preceding motion behavior. The [motion research overview](../../research/transcript-motion-20261007/README.md)
+distinguishes those historical dimensional-hover measurements from the current
+design. These proofs use isolated events rather than native/model actions. The
+[current fixed-slot hover proof](../../research/transcript-motion-20261007/HOVER_PROOF.md)
+checks constant parent, neighbour and scroll geometry through hover, reversal
+and focus in four viewport and motion settings, with the [source-bound receipt](../../research/transcript-motion-20261007/artifacts/hover-fixed-layout-564aaf64-ce37969e.json).
 
 The [reference observations](../../research/runtime-desktop-20260930/artifacts/transcript-reference-observations-20261006.json)
 record the installed Codex build's verified source labels and motion constants.
@@ -1303,14 +1320,16 @@ and privileged renderer navigation remain blocked. A sole HTTP(S) source URL in
 inline code remains styled as code and opens through the same bridge. URLs in
 fenced code, commands and unsafe schemes remain inert.
 
-Work details use one turn disclosure and a compact rail of steps. Exact
+Work details use a compact rail of steps in admitted turn order. Exact
 `search_conversation` actions say **Checked earlier messages**; their query
 strings are available in the explicit detail rather than being mistaken for
 tool names. Qualified provider-hosted search receipts say **Searched the web**.
 Routine completion labels and exact row clocks stay visually quiet; hover and
 keyboard focus reveal time and duration without replacing their recorded
-values. Failed and waiting states remain visible. The turn summary continues to
-distinguish actual live Thinking/Working from settled work.
+values. Failed and waiting states remain visible. The outer live summary reports
+**Working for** the observed elapsed time while actual Thinking or approval
+waiting remains a separate status; settled work uses the saved outcome and
+duration.
 
 Design evidence comes from inspected WAI seeded UI and the public
 [Beautiful UI](https://www.beautifului.dev/) Thinking, Tool Chips and Sources
@@ -1324,9 +1343,23 @@ Streaming follows the latest message only while the reader is at the bottom.
 Reading older output preserves its position as new messages arrive. A small,
 keyboard-accessible **Jump to latest messages** control returns to the end and
 resumes following; reduced motion uses immediate movement. Warm tab navigation
-restores the saved reading position. Settled Markdown bodies retain their parsed
-subtree when only a live body changes. The [renderer proof](../../research/desktop-autonomy-20261007/artifacts/desktop-reading-browser-proof.json)
-checks these behaviors, ordinary background indicators, narrow light layouts and
+restores the saved reading position. Ordinary conversations also retain only
+work disclosures the reader explicitly opened or closed, including an explicit
+closed choice; untouched work keeps its live-open and settled-closed defaults.
+These per-conversation choices are bounded and restored before the saved reading
+position, including after reopening the app. Pal chat has no ordinary work
+disclosure choices. While a retained history refresh is pending, a reader's
+new wheel, keyboard, touch or disclosure action takes precedence over the old
+saved position. Leaving before history finishes preserves that conversation's
+saved position instead of writing the shorter loading view's offset. Ordinary
+programmatic scroll events do not count as reader actions. Settled Markdown
+bodies retain their parsed subtree when
+only a live body changes. The [disclosure persistence proof](../../research/transcript-motion-20261007/artifacts/disclosure-persistence-e0661714-2e79d0ad.json)
+checks independent owner choices, cached tab return and a held authoritative
+history reload with the same reader anchor and follow state. The [held-history race proof](../../research/transcript-motion-20261007/artifacts/pending-scroll-races-e0661714-9b0eaf9b.json)
+checks real reader input, programmatic scroll and a conversation switch before
+the held read settles. The earlier [renderer proof](../../research/desktop-autonomy-20261007/artifacts/desktop-reading-browser-proof.json)
+checks follow-scroll, ordinary background indicators, narrow light layouts and
 the separate Pal chat, without model requests or computer actions.
 
 ## Operator flow

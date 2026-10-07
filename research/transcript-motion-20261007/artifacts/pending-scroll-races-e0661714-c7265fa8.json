@@ -1,0 +1,137 @@
+{
+  "passed": false,
+  "source": [
+    {
+      "path": "app.tsx",
+      "sha256": "b0949cfc8699d7e9503bcdf715079270cb780702ca12dce9b15b362719960a35"
+    },
+    {
+      "path": "transcript.tsx",
+      "sha256": "85d731a2dd12139dd8ab0e7d48dd63ad858e09b5b31218b223b87fd9b21a3ee6"
+    },
+    {
+      "path": "transcript-motion.ts",
+      "sha256": "426275f450095cefa336a9155a5c0a4a84e8ff9aac55df5af2e9824751647e53"
+    },
+    {
+      "path": "transcript-motion.css",
+      "sha256": "df4b65b57e95eceeaf32074fb22798b9de1aeaab2f135b5db383684135d99b93"
+    },
+    {
+      "path": "workspace-presentation.ts",
+      "sha256": "d4e1054e03d9bb83b800380db62d4ffb7ab05749d3d10eb62d5903bdac60cced"
+    },
+    {
+      "path": "use-transcript-scroll.ts",
+      "sha256": "34821475e2847cab4b3e4f33400a2044fe2f5d54d36ff40bea07f5656abd2fd8"
+    },
+    {
+      "path": "ui/collapsible.tsx",
+      "sha256": "ce95af61dcd48cc10f7e0e88c96ab17f7714af606cc0c6d159e715a5a0b1a2b6"
+    }
+  ],
+  "capturedAt": "2026-10-07T09:59:35.241Z",
+  "timeline": "Chromium Animation playback paused; individual actual animations seeked at explicit fractions; Playwright JS timers advanced virtually.",
+  "imageProvenance": "Unqualified screenshot paths were reused during draft runs and may show stale cached captures. Use each settled-rendered-body.authoritativeScreenshot with its SHA-256.",
+  "nativeActions": 0,
+  "providerRequests": 0,
+  "measurements": [
+    {
+      "scenario": "pending-cold-navigation",
+      "kind": "pending-scroll-race",
+      "action": "cold-navigation",
+      "original": {
+        "scrollTop": 1230,
+        "tailDistance": 5105,
+        "anchor": {
+          "key": "message-5",
+          "phase": "final_answer",
+          "topOffset": -24.203125,
+          "textPrefix": "Owner A checkpoint 1.2, paragraph 1. This public synthetic paragraph makes the saved histo"
+        }
+      },
+      "originalB": {
+        "scrollTop": 1872,
+        "tailDistance": 4272,
+        "anchor": {
+          "key": "message-8",
+          "phase": "final_answer",
+          "topOffset": -10.65625,
+          "textPrefix": "Owner B checkpoint 2.1, paragraph 1. This public synthetic paragraph makes the saved histo"
+        }
+      },
+      "savedA": {
+        "computerChat": "hidden",
+        "floatingChatMinimized": false,
+        "palProfileOpen": true,
+        "computerProfileOpen": false,
+        "jobsOpen": false,
+        "panelTab": "jobs",
+        "follow": false,
+        "scrollTop": 1230,
+        "workDisclosures": {
+          "[1,\"message-1\"]": true,
+          "[1,\"message-4\"]": true
+        }
+      },
+      "held": {
+        "gate": {
+          "sessionId": "sample-thread-1",
+          "requested": true,
+          "released": false,
+          "completed": false
+        },
+        "state": "loading",
+        "headers": 0,
+        "scrollTop": 0,
+        "saved": {
+          "computerChat": "hidden",
+          "floatingChatMinimized": false,
+          "palProfileOpen": true,
+          "computerProfileOpen": false,
+          "jobsOpen": false,
+          "panelTab": "jobs",
+          "follow": false,
+          "scrollTop": 1230,
+          "workDisclosures": {
+            "[1,\"message-1\"]": true,
+            "[1,\"message-4\"]": true
+          }
+        }
+      },
+      "after": {
+        "scrollTop": 1230,
+        "tailDistance": 5105,
+        "anchor": {
+          "key": "message-5",
+          "phase": "final_answer",
+          "topOffset": -24.203125,
+          "textPrefix": "Owner A checkpoint 1.2, paragraph 1. This public synthetic paragraph makes the saved histo"
+        }
+      },
+      "savedAfter": {
+        "computerChat": "hidden",
+        "floatingChatMinimized": false,
+        "palProfileOpen": true,
+        "computerProfileOpen": false,
+        "jobsOpen": false,
+        "panelTab": "jobs",
+        "follow": false,
+        "scrollTop": 1230,
+        "workDisclosures": {
+          "[1,\"message-1\"]": true,
+          "[1,\"message-4\"]": true
+        }
+      },
+      "userInput": "none",
+      "directProductStorageWrites": 0
+    }
+  ],
+  "checks": [
+    "pending-cold-navigation: navigation before held cold history preserves the original saved reader despite generation change."
+  ],
+  "pageErrors": [],
+  "limits": [
+    "UI-only synthetic live conversation; no native app, paid prompt, reference app agent execution, or pixel parity claim. Controlled fixture work lasts15s; this is not an inference benchmark."
+  ]
+}

@@ -1,0 +1,85 @@
+{
+  "uiaAvailable": true,
+  "visibleCodexWindows": 0,
+  "visitedControls": 0,
+  "boundedControlLimit": 4000,
+  "truncated": false,
+  "matchedControls": [],
+  "cdpAvailable": false,
+  "processNameProbeCount": 5,
+  "existingUsableDebugPortCount": 0,
+  "readonly": true,
+  "inputActions": 0,
+  "launchesOrRestarts": 0,
+  "profileReads": 0,
+  "note": "Availability only; no native Codex DOM/style/motion measurement was established.",
+  "providedImageGeometry": [
+    {
+      "image": "tmpA80.png",
+      "width": 911,
+      "height": 274,
+      "backgroundRgb": [
+        24,
+        24,
+        24
+      ],
+      "horizontalRules": [
+        {
+          "x": 71,
+          "y": 86,
+          "width": 736,
+          "rgb": [
+            43,
+            43,
+            43
+          ]
+        }
+      ]
+    },
+    {
+      "image": "tmp54E7.png",
+      "width": 857,
+      "height": 408,
+      "backgroundRgb": [
+        24,
+        24,
+        24
+      ],
+      "horizontalRules": [
+        {
+          "x": 54,
+          "y": 29,
+          "width": 736,
+          "rgb": [
+            43,
+            43,
+            43
+          ]
+        }
+      ]
+    },
+    {
+      "image": "tmp7753.png",
+      "width": 920,
+      "height": 293,
+      "backgroundRgb": [
+        24,
+        24,
+        24
+      ],
+      "horizontalRules": [
+        {
+          "x": 76,
+          "y": 61,
+          "width": 736,
+          "rgb": [
+            43,
+            43,
+            43
+          ]
+        }
+      ]
+    }
+  ],
+  "imageMeasurementNote": "Raster pixel coordinates only; cropped image dimensions do not establish browser zoom, CSS dimensions, font identity or motion timing."
+}

@@ -1,0 +1,86 @@
+{
+  "schema": "namzu.desktop-installed-build-readonly-comparison.v1",
+  "at": "2026-10-07T09:48:00.250Z",
+  "readOnly": true,
+  "installedFiles": 730,
+  "builtFiles": 730,
+  "identicalFiles": 727,
+  "changed": [
+    {
+      "path": "renderer/index.html",
+      "installedSha256": "c06639f390747304431a77a7346e1c3b7da3aafc27c87e3556b18dcdd98603fe",
+      "builtSha256": "1061eea2b88f9f27f4ca73c0f700956cc08d1e26a2560068b4e5b10dd2d520f8",
+      "installedBytes": 592,
+      "builtBytes": 592
+    }
+  ],
+  "removed": [
+    {
+      "path": "renderer/assets/index-G0YslIQe.css",
+      "sha256": "6102a3d7ea7a48df0be9499444915dc206decb999ce52c03e6411ecc5d363f52",
+      "bytes": 279399
+    },
+    {
+      "path": "renderer/assets/index-TyqQe7z-.js",
+      "sha256": "e40a9e971645ea47485efc375faac79013516aaee361533bba4a9c67b3dfdb60",
+      "bytes": 1498140
+    }
+  ],
+  "added": [
+    {
+      "path": "renderer/assets/index-0HJrTCjy.css",
+      "sha256": "c2f6d205222fb5974d71a6b0edddb146ceecccb3db8e1150e6c95b0c24ae3431",
+      "bytes": 279219
+    },
+    {
+      "path": "renderer/assets/index-BOLUfcPf.js",
+      "sha256": "e40a9e971645ea47485efc375faac79013516aaee361533bba4a9c67b3dfdb60",
+      "bytes": 1498140
+    }
+  ],
+  "normalization": {
+    "installedRefs": {
+      "js": [
+        "./assets/index-TyqQe7z-.js"
+      ],
+      "css": [
+        "./assets/index-G0YslIQe.css"
+      ]
+    },
+    "builtRefs": {
+      "js": [
+        "./assets/index-BOLUfcPf.js"
+      ],
+      "css": [
+        "./assets/index-0HJrTCjy.css"
+      ]
+    },
+    "exactCssReferenceSubstitutionOnly": true,
+    "htmlAfterVerifiedReferenceSubstitutionsEqual": true,
+    "js": {
+      "installedPath": "renderer/assets/index-TyqQe7z-.js",
+      "builtPath": "renderer/assets/index-BOLUfcPf.js",
+      "installedSha256": "e40a9e971645ea47485efc375faac79013516aaee361533bba4a9c67b3dfdb60",
+      "builtSha256": "e40a9e971645ea47485efc375faac79013516aaee361533bba4a9c67b3dfdb60",
+      "exactOldCssFilename": "index-G0YslIQe.css",
+      "exactNewCssFilename": "index-0HJrTCjy.css",
+      "substitutions": 0,
+      "normalizedInstalledSha256": "e40a9e971645ea47485efc375faac79013516aaee361533bba4a9c67b3dfdb60"
+    },
+    "normalizedInstalledHtmlSha256": "1061eea2b88f9f27f4ca73c0f700956cc08d1e26a2560068b4e5b10dd2d520f8"
+  },
+  "nativeMainPreloadAllJsByteExact": false,
+  "nonRendererJsByteExact": true,
+  "mainIndex": {
+    "installedSha256": "73d55cb57dc7430a56311e9469063a972d7bf0094a37861af656181c327bb130",
+    "builtSha256": "73d55cb57dc7430a56311e9469063a972d7bf0094a37861af656181c327bb130"
+  },
+  "preload": {
+    "installedSha256": "d0d3164fc26a2867f209338a2798998699c9fb1e1fdc11964a166c9b1acf2123",
+    "builtSha256": "d0d3164fc26a2867f209338a2798998699c9fb1e1fdc11964a166c9b1acf2123"
+  },
+  "limits": [
+    "Bytes only; no installed script execution, restart, style injection or mutation.",
+    "Normalization permits only the exact old/new CSS filename from HTML; HTML JS filename substitution is allowed only after independently proving the corresponding JS differs solely in that CSS filename."
+  ]
+}

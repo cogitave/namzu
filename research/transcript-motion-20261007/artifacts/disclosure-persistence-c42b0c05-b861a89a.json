@@ -1,0 +1,256 @@
+{
+  "passed": true,
+  "source": [
+    {
+      "path": "app.tsx",
+      "sha256": "b06c674535a1fdcd5c574734043d286c86c5fc0b61bca608054fd3cc944e2de7"
+    },
+    {
+      "path": "transcript.tsx",
+      "sha256": "85d731a2dd12139dd8ab0e7d48dd63ad858e09b5b31218b223b87fd9b21a3ee6"
+    },
+    {
+      "path": "transcript-motion.ts",
+      "sha256": "426275f450095cefa336a9155a5c0a4a84e8ff9aac55df5af2e9824751647e53"
+    },
+    {
+      "path": "transcript-motion.css",
+      "sha256": "4445ea19660953b30f8d8b47e570f5256d44e7f0406da4b9f7239994a4b27059"
+    },
+    {
+      "path": "workspace-presentation.ts",
+      "sha256": "d4e1054e03d9bb83b800380db62d4ffb7ab05749d3d10eb62d5903bdac60cced"
+    },
+    {
+      "path": "use-transcript-scroll.ts",
+      "sha256": "34821475e2847cab4b3e4f33400a2044fe2f5d54d36ff40bea07f5656abd2fd8"
+    },
+    {
+      "path": "ui/collapsible.tsx",
+      "sha256": "ce95af61dcd48cc10f7e0e88c96ab17f7714af606cc0c6d159e715a5a0b1a2b6"
+    }
+  ],
+  "capturedAt": "2026-10-07T09:26:39.586Z",
+  "timeline": "Chromium Animation playback paused; individual actual animations seeked at explicit fractions; Playwright JS timers advanced virtually.",
+  "imageProvenance": "Unqualified screenshot paths were reused during draft runs and may show stale cached captures. Use each settled-rendered-body.authoritativeScreenshot with its SHA-256.",
+  "nativeActions": 0,
+  "providerRequests": 0,
+  "measurements": [
+    {
+      "scenario": "persistence-wide-dark",
+      "kind": "persistence-screenshot",
+      "stage": "owner-a-open-reading",
+      "authoritativeScreenshot": "persistence-c42b0c05-b861a89a-owner-a-open-reading.png",
+      "screenshotSha256": "4c89700c2111cb18c2979894c1eead00e09b6b898cbb12335b91ef279c74d239"
+    },
+    {
+      "scenario": "persistence-wide-dark",
+      "kind": "persistence-screenshot",
+      "stage": "owner-a-cached-return",
+      "authoritativeScreenshot": "persistence-c42b0c05-b861a89a-owner-a-cached-return.png",
+      "screenshotSha256": "b55202633b7d259f064a810b974695c0d9dc00c96fd3e2c6a9ab2a6733bae329"
+    },
+    {
+      "scenario": "persistence-wide-dark",
+      "kind": "persistence-screenshot",
+      "stage": "owner-a-cold-loading-deferred",
+      "authoritativeScreenshot": "persistence-c42b0c05-b861a89a-owner-a-cold-loading-deferred.png",
+      "screenshotSha256": "92338d5496b610447b3954aa784f4f82310321da51d63362da27c87cf9f3f51b"
+    },
+    {
+      "scenario": "persistence-wide-dark",
+      "kind": "persistence-screenshot",
+      "stage": "owner-a-cold-reloaded",
+      "authoritativeScreenshot": "persistence-c42b0c05-b861a89a-owner-a-cold-reloaded.png",
+      "screenshotSha256": "2fba52f2f900ebbe728d8939c316041a13314d9808a43210f617ccc25d5cdcae"
+    },
+    {
+      "scenario": "persistence-wide-dark",
+      "kind": "persistence-screenshot",
+      "stage": "owner-b-explicit-false-return",
+      "authoritativeScreenshot": "persistence-c42b0c05-b861a89a-owner-b-explicit-false-return.png",
+      "screenshotSha256": "2082c9a28d3d1a9a63ae6ffca8c771bc461af7275acd34b89700aa251e1386d3"
+    },
+    {
+      "scenario": "persistence-wide-dark",
+      "kind": "owner-disclosure-reader-restoration",
+      "opened": [
+        {
+          "turn": 1,
+          "firstKey": "message-1",
+          "key": "[1,\"message-1\"]",
+          "open": true,
+          "label": "Earlier work"
+        },
+        {
+          "turn": 1,
+          "firstKey": "message-4",
+          "key": "[1,\"message-4\"]",
+          "open": true,
+          "label": "Worked for 4s"
+        },
+        {
+          "turn": 2,
+          "firstKey": "message-7",
+          "key": "[2,\"message-7\"]",
+          "open": false,
+          "label": "Earlier work"
+        },
+        {
+          "turn": 2,
+          "firstKey": "message-10",
+          "key": "[2,\"message-10\"]",
+          "open": false,
+          "label": "Worked for 4s"
+        },
+        {
+          "turn": 3,
+          "firstKey": "message-13",
+          "key": "[3,\"message-13\"]",
+          "open": false,
+          "label": "Earlier work"
+        },
+        {
+          "turn": 3,
+          "firstKey": "message-16",
+          "key": "[3,\"message-16\"]",
+          "open": false,
+          "label": "Worked for 4s"
+        },
+        {
+          "turn": 4,
+          "firstKey": "message-19",
+          "key": "[4,\"message-19\"]",
+          "open": false,
+          "label": "Earlier work"
+        },
+        {
+          "turn": 4,
+          "firstKey": "message-22",
+          "key": "[4,\"message-22\"]",
+          "open": false,
+          "label": "Worked for 4s"
+        }
+      ],
+      "ownerA": {
+        "scrollTop": 1147,
+        "tailDistance": 4907,
+        "anchor": {
+          "key": "message-5",
+          "phase": "final_answer",
+          "topOffset": -23.703125,
+          "textPrefix": "Owner A checkpoint 1.2, paragraph 1. This public synthetic paragraph makes the saved histo"
+        }
+      },
+      "ownerB": {
+        "scrollTop": 1869,
+        "tailDistance": 4090,
+        "anchor": {
+          "key": "message-8",
+          "phase": "final_answer",
+          "topOffset": -11.40625,
+          "textPrefix": "Owner B checkpoint 2.1, paragraph 1. This public synthetic paragraph makes the saved histo"
+        }
+      },
+      "cachedA": {
+        "scrollTop": 1147,
+        "tailDistance": 4891,
+        "anchor": {
+          "key": "message-5",
+          "phase": "final_answer",
+          "topOffset": -23.703125,
+          "textPrefix": "Owner A checkpoint 1.2, paragraph 1. This public synthetic paragraph makes the saved histo"
+        }
+      },
+      "loading": {
+        "gate": {
+          "sessionId": "sample-thread-1",
+          "requested": true,
+          "released": false
+        },
+        "state": "loading",
+        "headers": 0
+      },
+      "reloadedA": {
+        "scrollTop": 1147,
+        "tailDistance": 4891,
+        "anchor": {
+          "key": "message-5",
+          "phase": "final_answer",
+          "topOffset": -23.703125,
+          "textPrefix": "Owner A checkpoint 1.2, paragraph 1. This public synthetic paragraph makes the saved histo"
+        }
+      },
+      "storedA": {
+        "computerChat": "hidden",
+        "floatingChatMinimized": false,
+        "palProfileOpen": true,
+        "computerProfileOpen": false,
+        "jobsOpen": false,
+        "panelTab": "jobs",
+        "follow": false,
+        "scrollTop": 1147,
+        "workDisclosures": {
+          "[1,\"message-1\"]": true,
+          "[1,\"message-4\"]": true
+        }
+      },
+      "storedB": {
+        "computerChat": "hidden",
+        "floatingChatMinimized": false,
+        "palProfileOpen": true,
+        "computerProfileOpen": false,
+        "jobsOpen": false,
+        "panelTab": "jobs",
+        "follow": false,
+        "scrollTop": 1869,
+        "workDisclosures": {
+          "[1,\"message-1\"]": false,
+          "[1,\"message-4\"]": true
+        }
+      },
+      "cachedAdmissionAnimationIds": [],
+      "controlledHistoryRelease": true,
+      "actualUserConversationRead": false
+    }
+  ],
+  "checks": [
+    "Actual App: two same-turn work panels retain distinct explicit open choices across a cached-tab return; a different conversation with identical keys retains explicit false and its own reader anchor.",
+    "Actual App reload: a controlled deferred authoritative history promise exposes an empty loading tree without losing saved choices or consuming scroll restoration; release restores the exact same reader message, offset, follow=false and open panels."
+  ],
+  "pageErrors": [],
+  "limits": [
+    "UI-only synthetic live conversation; no native app, paid prompt, reference app agent execution, or pixel parity claim. Controlled fixture work lasts15s; this is not an inference benchmark."
+  ],
+  "sourceAfter": [
+    {
+      "path": "app.tsx",
+      "sha256": "b06c674535a1fdcd5c574734043d286c86c5fc0b61bca608054fd3cc944e2de7"
+    },
+    {
+      "path": "transcript.tsx",
+      "sha256": "85d731a2dd12139dd8ab0e7d48dd63ad858e09b5b31218b223b87fd9b21a3ee6"
+    },
+    {
+      "path": "transcript-motion.ts",
+      "sha256": "426275f450095cefa336a9155a5c0a4a84e8ff9aac55df5af2e9824751647e53"
+    },
+    {
+      "path": "transcript-motion.css",
+      "sha256": "4445ea19660953b30f8d8b47e570f5256d44e7f0406da4b9f7239994a4b27059"
+    },
+    {
+      "path": "workspace-presentation.ts",
+      "sha256": "d4e1054e03d9bb83b800380db62d4ffb7ab05749d3d10eb62d5903bdac60cced"
+    },
+    {
+      "path": "use-transcript-scroll.ts",
+      "sha256": "34821475e2847cab4b3e4f33400a2044fe2f5d54d36ff40bea07f5656abd2fd8"
+    },
+    {
+      "path": "ui/collapsible.tsx",
+      "sha256": "ce95af61dcd48cc10f7e0e88c96ab17f7714af606cc0c6d159e715a5a0b1a2b6"
+    }
+  ],
+  "sourceStayedFixed": true
+}
