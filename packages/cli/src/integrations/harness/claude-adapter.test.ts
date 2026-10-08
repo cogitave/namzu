@@ -30,7 +30,12 @@ function deferred<T>() {
 }
 
 const models = [
-	{ value: 'sonnet', displayName: 'Engine model' },
+	{
+		value: 'sonnet',
+		displayName: 'Engine model',
+		supportsEffort: true,
+		supportedEffortLevels: ['low', 'medium', 'high'],
+	},
 	{ value: 'opus-5', resolvedModel: 'claude-opus-5', displayName: 'Other engine model' },
 ]
 class WireFixture {
@@ -530,7 +535,12 @@ describe('native engine model discovery', () => {
 			resolveExecutable: async () => '/fixture/native-engine',
 		})
 		expect(listed).toEqual([
-			{ id: 'sonnet', label: 'Engine model', current: true },
+			{
+				id: 'sonnet',
+				label: 'Engine model',
+				current: true,
+				effortLevels: ['low', 'medium', 'high'],
+			},
 			{ id: 'claude-opus-5', label: 'Other engine model' },
 		])
 		expect(fixture.userWrites()).toEqual([])
@@ -685,8 +695,8 @@ describe('native engine conversation ownership', () => {
 		await expect(connection.dispatch(prompt('x', { permissionMode: 'auto' }))).rejects.toThrow(
 			'supervised and plan',
 		)
-		await expect(connection.dispatch(prompt('x', { effort: 'high' }))).rejects.toThrow(
-			'reasoning effort',
+		await expect(connection.dispatch(prompt('x', { effort: 'max' }))).rejects.toThrow(
+			'does not offer this reasoning effort',
 		)
 		await connection.dispatch(prompt())
 		await expect(connection.dispatch(prompt('concurrent'))).rejects.toThrow('still working')
@@ -1580,5 +1590,87 @@ describe('native engine live permissions and cancellation', () => {
 			current = next
 		}
 		expect(() => claudeJson(deep)).toThrow('too large')
+	})
+})
+
+describe('native engine reasoning effort', () => {
+	const subtypes = () =>
+		fixture.writes.map((frame) =>
+			frame.type === 'control_request'
+				? (frame.request as { subtype: string }).subtype
+				: String(frame.type),
+		)
+	it('rows carry only the levels the engine reports, none without support', () => {
+		const rows = claudeModels({
+			models: [
+				{ value: 'a', supportsEffort: true, supportedEffortLevels: ['low', 'max', 'bogus'] },
+				{ value: 'b', supportsEffort: false, supportedEffortLevels: ['low'] },
+				{ value: 'c' },
+			],
+		})
+		expect(rows.map((row) => row.effortLevels)).toEqual([['low', 'max'], undefined, undefined])
+	})
+	it('launches without a flag by default and with --effort after a change, resuming after a turn', async () => {
+		const connection = await open()
+		expect(fixture.command.args).not.toContain('--effort')
+		expect(connection.capabilities.effortLevels).toEqual(['low', 'medium', 'high'])
+		const first = await connection.dispatch(prompt('one', { effort: 'high' }))
+		const args = fixture.command.args
+		expect(args.slice(args.indexOf('--effort'), args.indexOf('--effort') + 2)).toEqual([
+			'--effort',
+			'high',
+		])
+		// Nothing was sent before the first turn, so the same id is claimed again, not resumed.
+		expect(args).toContain('--session-id')
+		await fixture.emit(result(first.nativeSessionId))
+		await connection.dispatch(prompt('two', { effort: 'low' }))
+		expect(fixture.command.args).toContain('--resume')
+		expect(fixture.command.args).toContain(first.nativeSessionId)
+		expect(fixture.command.args).toContain('low')
+		await connection.close()
+	})
+	it('restarts only between turns and sends the turn after the new process is ready', async () => {
+		const connection = await open()
+		const first = await connection.dispatch(prompt('one', { effort: 'high' }))
+		const closes = fixture.closeCount
+		// Same level while running: no restart, and a second dispatch is still refused as busy.
+		await expect(connection.dispatch(prompt('busy', { effort: 'low' }))).rejects.toThrow(
+			'still working',
+		)
+		expect(fixture.closeCount).toBe(closes)
+		await fixture.emit(result(first.nativeSessionId))
+		fixture.writes.length = 0
+		await connection.dispatch(prompt('two', { effort: 'low' }))
+		expect(fixture.closeCount).toBe(closes + 1)
+		const order = subtypes()
+		expect(order.indexOf('initialize')).toBeLessThan(order.indexOf('user'))
+		expect(order.at(-1)).toBe('user')
+		expect(events.some((event) => event.kind === 'connection-lost')).toBe(false)
+		// Unchanged level: no further restart.
+		await fixture.emit(result(first.nativeSessionId, 'result-2'))
+		await connection.dispatch(prompt('three', { effort: 'low' }))
+		expect(fixture.closeCount).toBe(closes + 1)
+		await connection.close()
+	})
+	it('returns to the engine default by relaunching without the flag', async () => {
+		const connection = await open()
+		const first = await connection.dispatch(prompt('one', { effort: 'medium' }))
+		await fixture.emit(result(first.nativeSessionId))
+		await connection.dispatch(prompt('two'))
+		expect(fixture.command.args).not.toContain('--effort')
+		await connection.close()
+	})
+	it('refuses a level the model does not offer without restarting or sending', async () => {
+		const connection = await open()
+		const closes = fixture.closeCount
+		await expect(connection.dispatch(prompt('x', { effort: 'xhigh' }))).rejects.toThrow(
+			'does not offer this reasoning effort',
+		)
+		await expect(
+			connection.dispatch(prompt('y', { model: 'claude-opus-5', effort: 'low' })),
+		).rejects.toThrow('does not offer this reasoning effort')
+		expect(fixture.closeCount).toBe(closes)
+		expect(fixture.userWrites()).toEqual([])
+		await connection.close()
 	})
 })

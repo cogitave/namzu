@@ -5,6 +5,7 @@ import type {
 	HarnessModel,
 	HarnessNativeTurn,
 	MessageStopReason,
+	ReasoningEffort,
 	ReviewMode,
 } from '@namzu/sdk'
 
@@ -57,8 +58,20 @@ export function claudePermissionMode(mode: ReviewMode): 'default' | 'plan' {
 	throw new Error('This engine currently supports supervised and plan modes only.')
 }
 
+const EFFORTS: readonly ReasoningEffort[] = [
+	'none',
+	'minimal',
+	'low',
+	'medium',
+	'high',
+	'xhigh',
+	'max',
+	'ultra',
+]
+
 export function claudeLaunchArgs(input: {
 	model?: string
+	effort?: ReasoningEffort
 	nativeSessionId: string
 	resume: boolean
 	metadata?: boolean
@@ -76,6 +89,7 @@ export function claudeLaunchArgs(input: {
 		'default',
 	]
 	if (input.model) args.push('--model', input.model)
+	if (input.effort) args.push('--effort', input.effort)
 	if (input.metadata) {
 		args.push(
 			'--no-session-persistence',
@@ -124,11 +138,20 @@ export function claudeModels(
 		seen.add(id)
 		resolvedById.set(id, resolved)
 		const label = claudeString(row.displayName) ?? id
-		// Effort is launch-only in this slice; do not offer an unsupported turn control.
+		// Only levels the engine reports for this row are offered; a row without them has no effort.
+		const offered =
+			row.supportsEffort === true && Array.isArray(row.supportedEffortLevels)
+				? EFFORTS.filter((level) => (row.supportedEffortLevels as unknown[]).includes(level))
+				: []
 		// The engine's own aliases (opus, sonnet, ...) always point at its current model of a
 		// family; an id that names a version is a specific release, which may be an older one.
 		models.push(
-			Object.freeze({ id, label, ...(/\d/.test(value) ? {} : { current: true as const }) }),
+			Object.freeze({
+				id,
+				label,
+				...(offered.length ? { effortLevels: Object.freeze(offered) } : {}),
+				...(/\d/.test(value) ? {} : { current: true as const }),
+			}),
 		)
 	}
 	if (defaultResolved) {

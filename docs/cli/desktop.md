@@ -684,7 +684,9 @@ transition moves the composer from the centre to the bottom and respects reduced
 motion; merely focusing the editor does not change its layout. Pal conversations use
 the compact, always-docked composer described above; its plus popup keeps model,
 permission, attachment and plugin controls accessible. The model control opens the
-effort panel when the model offers a choice of effort, and the model list otherwise.
+effort panel when the model offers a choice of effort, and the model list otherwise. This holds for
+the second external engine too: its catalogue rows carry the levels the engine reports, and picking
+a new level restarts the engine between turns (see [Native engines](native-engines.md)).
 The effort panel's header is left-aligned: the effort in the accent colour above the model
 link, and a compact engine chip on the right (the engine mark and a chevron, named "Engine:
 <label>"). There is no reset icon: double-clicking the slider returns to the model's default

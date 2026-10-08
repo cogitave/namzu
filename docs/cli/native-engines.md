@@ -110,8 +110,18 @@ control responses must settle before a prompt is sent. An unknown control
 outcome refuses later dispatch until the connection is closed. Plan does not
 allow `ExitPlanMode` approval to silently execute the plan. Native questions
 whose typed answer interface is not supported receive “Answer this question
-in the conversation” denial feedback. Reasoning effort and attachments are not
-offered by this initial adapter.
+in the conversation” denial feedback. Attachments are not offered by this
+initial adapter.
+
+Reasoning effort follows the engine's own catalogue. A model row that reports
+effort support carries the levels Namzu knows (`low` to `max`); a row without
+support carries none, and Namzu adds no guessed levels. The engine fixes effort
+at launch, so a turn that asks for a different level than the running process
+was launched with restarts the process on the same native session (resuming it
+once a turn has been sent) with `--effort <level>`, and only while the engine is
+idle between turns; a turn never restarts mid-work. No selected effort launches
+without the flag and so uses the engine default. A level the selected model does
+not offer is refused before anything is restarted or sent.
 
 An incoming `can_use_tool` request captures its exact native session, operation,
 request ID, tool-use ID and immutable proposed input. Approval applies once to

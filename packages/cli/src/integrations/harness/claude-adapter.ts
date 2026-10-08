@@ -13,6 +13,7 @@ import type {
 	HarnessNativeTurn,
 	HarnessPrompt,
 	HarnessReviewRequest,
+	ReasoningEffort,
 } from '@namzu/sdk'
 import { canonicalProjectPath } from '../../permissions/canonical-project.js'
 import {
@@ -184,9 +185,22 @@ class ClaudeWire {
 	}
 }
 
+type Launch = {
+	executable: string
+	env: NodeJS.ProcessEnv
+	cwd: string
+	start: NonNullable<ClaudeHarnessOptions['startProcess']>
+}
+
 class ClaudeConnection implements HarnessConnection {
-	readonly capabilities = CAPABILITIES
-	private readonly wire: ClaudeWire
+	capabilities: HarnessCapabilities = CAPABILITIES
+	private wire: ClaudeWire
+	private launch: Launch | undefined
+	/** The level the running process was launched with; undefined means the engine default. */
+	private effort: ReasoningEffort | undefined
+	/** A native conversation exists to resume only after a turn was sent or when resuming. */
+	private conversation: boolean
+	private restarting = false
 	private active: Active | undefined
 	private submitting = false
 	private closing = false
@@ -209,11 +223,20 @@ class ClaudeConnection implements HarnessConnection {
 		readonly binding: HarnessBinding,
 		private readonly sink: HarnessEventSink,
 		initialModel: string,
+		resumed: boolean,
 	) {
 		this.model = initialModel
-		this.wire = new ClaudeWire(
-			(frame) => this.frame(frame),
+		this.conversation = resumed
+		this.wire = this.newWire()
+	}
+	private newWire(): ClaudeWire {
+		const wire: ClaudeWire = new ClaudeWire(
+			async (frame) => {
+				// A replaced process can no longer speak for this conversation.
+				if (wire === this.wire) await this.frame(frame)
+			},
 			async () => {
+				if (wire !== this.wire || this.restarting) return
 				this.disconnected = true
 				await this.emit({
 					kind: 'connection-lost',
@@ -222,13 +245,51 @@ class ClaudeConnection implements HarnessConnection {
 				})
 			},
 		)
+		return wire
 	}
-	start(
-		command: NativeHarnessCommand,
-		options: { cwd: string },
-		start: NonNullable<ClaudeHarnessOptions['startProcess']>,
-	): void {
-		this.wire.start(command, options, start)
+	start(launch: Launch): void {
+		this.launch = launch
+		this.wire.start(this.command(), { cwd: launch.cwd }, launch.start)
+	}
+	private command(): NativeHarnessCommand {
+		const launch = this.launch as Launch
+		return {
+			executable: launch.executable,
+			args: claudeLaunchArgs({
+				model: this.model,
+				...(this.effort ? { effort: this.effort } : {}),
+				nativeSessionId: this.binding.nativeSessionId,
+				resume: this.conversation,
+			}),
+			env: launch.env,
+		}
+	}
+	/**
+	 * Effort is a launch setting of the engine, so a different level needs a new process on the
+	 * same native session. Only called between turns; the old process is confirmed stopped first.
+	 */
+	private async relaunch(model: string, effort: ReasoningEffort | undefined, signal?: AbortSignal) {
+		const launch = this.launch as Launch
+		const previous = { model: this.model, effort: this.effort }
+		this.restarting = true
+		try {
+			await this.wire.close()
+			this.wire = this.newWire()
+			this.model = model
+			this.effort = effort
+			// The new process starts in supervised mode regardless of the old one.
+			this.permissionMode = 'prompt'
+			this.sessionState = undefined
+			this.wire.start(this.command(), { cwd: launch.cwd }, launch.start)
+			await this.initialize(signal)
+		} catch (error) {
+			this.model = previous.model
+			this.effort = previous.effort
+			this.configurationUncertain = true
+			throw error
+		} finally {
+			this.restarting = false
+		}
 	}
 	async initialize(signal?: AbortSignal): Promise<void> {
 		const initialized = await this.wire.control({ subtype: 'initialize' }, signal)
@@ -238,6 +299,14 @@ class ClaudeConnection implements HarnessConnection {
 			: await this.models(signal)
 		if (!models.some((model) => model.id === this.model))
 			throw new Error('The selected model is not in the native engine catalogue.')
+		this.offerEffort(models)
+	}
+	/** SDK admission reads the engine-wide levels; dispatch checks the chosen model's own row. */
+	private offerEffort(models: readonly HarnessModel[]): void {
+		this.capabilities = {
+			...this.capabilities,
+			effortLevels: [...new Set(models.flatMap((model) => model.effortLevels ?? []))],
+		}
 	}
 	private async emit(event: HarnessEvent): Promise<void> {
 		if (
@@ -269,7 +338,9 @@ class ClaudeConnection implements HarnessConnection {
 	}
 	async models(signal?: AbortSignal): Promise<readonly HarnessModel[]> {
 		this.assertConnected()
-		return claudeModels(await this.wire.control({ subtype: 'list_models' }, signal))
+		const models = claudeModels(await this.wire.control({ subtype: 'list_models' }, signal))
+		this.offerEffort(models)
+		return models
 	}
 	async dispatch(supplied: HarnessPrompt): Promise<HarnessNativeTurn> {
 		const input = Object.freeze({ ...supplied })
@@ -294,11 +365,24 @@ class ClaudeConnection implements HarnessConnection {
 		if (this.operations.has(input.operationId))
 			throw new Error('A native engine prompt cannot be automatically replayed.')
 		const mode = claudePermissionMode(input.permissionMode)
-		if (input.effort !== undefined)
-			throw new Error('This engine adapter does not yet support changing reasoning effort.')
 		this.submitting = true
 		try {
-			if (input.model !== this.model) {
+			let restarted = false
+			if (input.effort !== this.effort) {
+				const row = (await this.models(input.signal)).find((model) => model.id === input.model)
+				if (!row) throw new Error('The selected model is not in the native engine catalogue.')
+				if (input.effort !== undefined && !row.effortLevels?.includes(input.effort))
+					throw new Error('The selected native engine model does not offer this reasoning effort.')
+				input.signal?.throwIfAborted()
+				// The process is idle here: no active turn, no background work, no pending write.
+				await this.relaunch(input.model, input.effort, input.signal)
+				restarted = true
+			} else if (input.effort !== undefined && input.model !== this.model) {
+				const row = (await this.models(input.signal)).find((model) => model.id === input.model)
+				if (row && !row.effortLevels?.includes(input.effort))
+					throw new Error('The selected native engine model does not offer this reasoning effort.')
+			}
+			if (!restarted && input.model !== this.model) {
 				if (!(await this.models(input.signal)).some((model) => model.id === input.model))
 					throw new Error('The selected model is not in the native engine catalogue.')
 				try {
@@ -334,6 +418,7 @@ class ClaudeConnection implements HarnessConnection {
 			}
 			this.active = active
 			this.operations.add(input.operationId)
+			this.conversation = true
 			// State precedes the write: a terminal result may arrive before the write ACK.
 			await this.wire.write({
 				type: 'user',
@@ -625,20 +710,8 @@ export function createClaudeHarnessAdapter(options: ClaudeHarnessOptions): Harne
 				env,
 			})
 			input.signal?.throwIfAborted()
-			const connection = new ClaudeConnection(binding, onEvent, model)
-			connection.start(
-				{
-					executable: command,
-					args: claudeLaunchArgs({
-						model,
-						nativeSessionId,
-						resume: Boolean(resume),
-					}),
-					env,
-				},
-				{ cwd },
-				start,
-			)
+			const connection = new ClaudeConnection(binding, onEvent, model, Boolean(resume))
+			connection.start({ executable: command, env, cwd, start })
 			try {
 				await connection.initialize(input.signal)
 				return connection

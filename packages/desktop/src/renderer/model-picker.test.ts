@@ -180,6 +180,24 @@ it('shows the catalogue name and the effort in the trigger, and names both for a
 	expect(trigger).not.toContain('data-selected-model-icon')
 })
 
+it('shows the effort for an engine row that reports levels but no default', () => {
+	catalogue('claude-code', [{ id: 'opus', label: 'Opus 5.5', current: true }])
+	const providers: ProviderView = {
+		available: [{ id: 'claude-code', label: 'Claude Code', defaultModel: 'opus' }],
+		selected: { id: 'claude-code', model: 'opus' },
+	}
+	const withLevels = render(providers, {
+		settings: { effortLevels: ['low', 'medium', 'high', 'xhigh', 'max'] },
+		effort: 'high',
+		onEffortChange: vi.fn(),
+	})
+	expect(withLevels).toContain('effort: High')
+	expect(withLevels).toContain('model-picker-trigger-effort')
+	// Without reported levels the trigger names the model only.
+	const without = render(providers, { settings: {}, onEffortChange: vi.fn() })
+	expect(without).not.toContain('model-picker-trigger-effort')
+})
+
 it('shows the model default effort when none is saved, and no effort when the model offers none', () => {
 	const providers: ProviderView = {
 		available: [{ id: 'codex-cli', label: 'Codex', defaultModel: 'gpt-x' }],
