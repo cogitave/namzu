@@ -1,0 +1,265 @@
+{
+  "passed": true,
+  "mode": "probe-only",
+  "at": "2026-10-08T08:59:55.664Z",
+  "phase": "complete",
+  "nativeWindows": true,
+  "packageInstalls": 0,
+  "modelRequests": 0,
+  "computerActions": 0,
+  "uiInteractions": 0,
+  "checks": [
+    "source dists have all required entries",
+    "desktop.pid names the configured electron executable",
+    "attached over CDP to the exact page",
+    "installed desktop, cli and sdk dist manifests equal source",
+    "window.namzu.linkPreview and linkPreviewImage are functions",
+    "network probe: previews, images, refusals, cached repeat"
+  ],
+  "observations": [],
+  "launchConfigSha256": "0cea7da46af9d9bc24915a559f8a58f7f3d1973a4eef3963acb3ebaa562dc742",
+  "snapshotCommit": "cb47381cd",
+  "packages": {
+    "desktop": {
+      "name": "@namzu/desktop",
+      "installedFiles": 846,
+      "sourceFiles": 846,
+      "installedManifestSha256": "12a9e4ac24c24490efc5258aabb04f528e1e547d5d1f3a05a3bc022c6544a476",
+      "sourceManifestSha256": "12a9e4ac24c24490efc5258aabb04f528e1e547d5d1f3a05a3bc022c6544a476",
+      "changedCount": 0,
+      "addedCount": 0,
+      "removedCount": 0,
+      "changed": [],
+      "added": [],
+      "removed": [],
+      "classification": {
+        "runtime": [],
+        "noise": []
+      },
+      "differs": false
+    },
+    "cli": {
+      "name": "@namzu/cli",
+      "installedFiles": 387,
+      "sourceFiles": 387,
+      "installedManifestSha256": "3af87fe5c4b8b98df81968d7c14152832ab9bf2698dbf0662378affb9c3dbef3",
+      "sourceManifestSha256": "3af87fe5c4b8b98df81968d7c14152832ab9bf2698dbf0662378affb9c3dbef3",
+      "changedCount": 0,
+      "addedCount": 0,
+      "removedCount": 0,
+      "changed": [],
+      "added": [],
+      "removed": [],
+      "classification": {
+        "runtime": [],
+        "noise": []
+      },
+      "differs": false,
+      "dependencies": {
+        "installedVersion": "35.0.0",
+        "snapshotVersion": "35.0.0",
+        "equal": true,
+        "fields": {
+          "dependencies": true,
+          "optionalDependencies": true,
+          "peerDependencies": true
+        },
+        "differing": [],
+        "dependenciesSha256": "f1810624efcd75dedcee67d3fef3b16216ecbc2856f6b2b07723ce97a82997f5"
+      }
+    },
+    "sdk": {
+      "name": "@namzu/sdk",
+      "installedFiles": 822,
+      "sourceFiles": 822,
+      "installedManifestSha256": "bbd57adfdf09e184233224eba1b8f52efc104c01b00ca790232204c8767d1785",
+      "sourceManifestSha256": "bbd57adfdf09e184233224eba1b8f52efc104c01b00ca790232204c8767d1785",
+      "changedCount": 0,
+      "addedCount": 0,
+      "removedCount": 0,
+      "changed": [],
+      "added": [],
+      "removed": [],
+      "classification": {
+        "runtime": [],
+        "noise": []
+      },
+      "differs": false,
+      "dependencies": {
+        "installedVersion": "49.0.0",
+        "snapshotVersion": "49.0.0",
+        "equal": true,
+        "fields": {
+          "dependencies": true,
+          "optionalDependencies": true,
+          "peerDependencies": true
+        },
+        "differing": [],
+        "dependenciesSha256": "a01d041c3bb4a5d015552ecd02b062116ec242e17b162a62c657c45a8697e099"
+      }
+    },
+    "zen": {
+      "name": "@namzu/zen",
+      "installedFiles": 12,
+      "sourceFiles": 12,
+      "installedManifestSha256": "af6d60b3577615db736345890a0f44ba06b075bd42de3631c63a461af284543e",
+      "sourceManifestSha256": "af6d60b3577615db736345890a0f44ba06b075bd42de3631c63a461af284543e",
+      "changedCount": 0,
+      "addedCount": 0,
+      "removedCount": 0,
+      "changed": [],
+      "added": [],
+      "removed": [],
+      "classification": {
+        "runtime": [],
+        "noise": []
+      },
+      "differs": false,
+      "dependencies": {
+        "installedVersion": "3.1.0",
+        "snapshotVersion": "3.1.0",
+        "equal": true,
+        "fields": {
+          "dependencies": true,
+          "optionalDependencies": true,
+          "peerDependencies": true
+        },
+        "differing": [],
+        "dependenciesSha256": "49a08529da7b28a816dc78e96e5f41df5f23d8d969d2813ca9e21d33cfc5aed1"
+      }
+    }
+  },
+  "beforePid": 43704,
+  "ownedProcesses": [
+    {
+      "pid": 17292,
+      "ppid": 43704,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 40160,
+      "ppid": 43704,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 41240,
+      "ppid": 43704,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 43704,
+      "ppid": 55716,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 53528,
+      "ppid": 43704,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 56460,
+      "ppid": 43704,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 62244,
+      "ppid": 43704,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 64700,
+      "ppid": 43704,
+      "name": "electron.exe",
+      "kind": "electron"
+    }
+  ],
+  "afterPid": 43704,
+  "probe": {
+    "pages": [
+      {
+        "target": "github.com",
+        "nonNull": true,
+        "finalHost": "github.com",
+        "headLength": 32726,
+        "hasOgTitle": true,
+        "hasOgImage": true,
+        "ms": 912
+      },
+      {
+        "target": "huggingface.co",
+        "nonNull": true,
+        "finalHost": "huggingface.co",
+        "headLength": 3875,
+        "hasOgTitle": true,
+        "hasOgImage": true,
+        "ms": 261
+      },
+      {
+        "target": "www.beautifului.dev",
+        "nonNull": true,
+        "finalHost": "www.beautifului.dev",
+        "headLength": 2753,
+        "hasOgTitle": false,
+        "hasOgImage": false,
+        "ms": 412
+      }
+    ],
+    "images": [
+      {
+        "kind": "image",
+        "found": true,
+        "nonNull": true,
+        "shape": "string",
+        "mime": "image/png",
+        "bytes": 86988,
+        "ms": 123
+      },
+      {
+        "kind": "icon",
+        "found": true,
+        "nonNull": true,
+        "shape": "string",
+        "mime": "image/png",
+        "bytes": 33270,
+        "ms": 294
+      }
+    ],
+    "refusals": [
+      {
+        "target": "https://localhost/",
+        "isNull": true
+      },
+      {
+        "target": "https://127.0.0.1/",
+        "isNull": true
+      },
+      {
+        "target": "https://192.168.1.1/",
+        "isNull": true
+      },
+      {
+        "target": "http://example.com/",
+        "isNull": true
+      },
+      {
+        "target": "https://example.com:8443/",
+        "isNull": true
+      },
+      {
+        "target": "https://metadata.google.internal/",
+        "isNull": true
+      }
+    ],
+    "repeat": {
+      "nonNull": true,
+      "ms": 0
+    }
+  }
+}

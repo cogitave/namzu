@@ -92,3 +92,7 @@ The app was still closed. `--check --offline` then `--apply --offline` replaced 
 ## Offline delivery of ae59e7db1 (2026-10-07)
 
 The app was closed again. `--check --offline` then `--apply --offline` replaced Desktop, `@namzu/cli` and `@namzu/sdk` (dependencies equal; modules `ws`, `yaml`, `ignore` kept), re-checked that nothing owned had started before the swap, and confirmed the installed manifests equal the snapshot. Not started; the next launch brings the compact effort panel, streaming performance, toasts, one-line action rows, the diff approval card, the engine choice in the model popup, the compact model list and durable "Declined" rows. Run `--probe-only` after the owner's first launch.
+
+## Delivery of cb47381cd with @namzu/zen (2026-10-08)
+
+The updater now also replaces the installed `@namzu/zen` dist when the snapshot carries `zen-dist` (meta `zen.package.json`); older snapshots leave it alone. Built in a clean detached worktree of `cb47381cd` (`pnpm install --frozen-lockfile --offline`, `pnpm -r build`) because the main tree held another workflow's uncommitted edits. A fresh build drops stale leftovers the installed dists still carried (sdk 112 files from the removed run concept, cli 15, desktop 14 dev/test outputs); no `exports` entry of the installed sdk or cli points at any of them. The app was closed: `--check --offline` and `--apply --offline` replaced desktop, cli, sdk and zen, then `launch.cjs` started it and `--probe-only` passed.

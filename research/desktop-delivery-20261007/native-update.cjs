@@ -411,6 +411,9 @@ function buildItems() {
     { key: 'cli', name: '@namzu/cli', source: path.join(snapshot, 'cli-dist'), target: path.join(resolvePackage('@namzu/cli'), 'dist'), required: ['bin.js', 'cli.js'], meta: 'cli.package.json' },
     { key: 'sdk', name: '@namzu/sdk', source: path.join(snapshot, 'sdk-dist'), target: path.join(resolvePackage('@namzu/sdk'), 'dist'), required: ['index.js'], meta: 'sdk.package.json' },
   ];
+  // Optional: older snapshots carry no zen-dist and leave the installed provider alone.
+  if (fs.existsSync(path.join(snapshot, 'zen-dist')))
+    defs.push({ key: 'zen', name: '@namzu/zen', source: path.join(snapshot, 'zen-dist'), target: path.join(resolvePackage('@namzu/zen'), 'dist'), required: ['index.js', 'models.js', 'catalogue/index.js'], meta: 'zen.package.json' });
   for (const d of defs) {
     const dir = path.dirname(d.target);
     items.push({ ...d, skip: d.meta ? packSkip(d.meta) : () => false, stage: path.join(dir, `dist-stage-${stamp}`), backup: path.join(dir, `dist-before-${label}-${stamp}`) });

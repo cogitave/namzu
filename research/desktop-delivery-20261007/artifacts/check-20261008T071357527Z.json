@@ -1,0 +1,242 @@
+{
+  "passed": false,
+  "mode": "check",
+  "at": "2026-10-08T07:13:57.528Z",
+  "phase": "state",
+  "nativeWindows": true,
+  "packageInstalls": 0,
+  "modelRequests": 0,
+  "computerActions": 0,
+  "uiInteractions": 0,
+  "checks": [
+    "source dists have all required entries",
+    "desktop runtime modules planned: keep ignore@7.0.12, keep ws@8.21.3, keep yaml@2.9.1",
+    "desktop.pid names the configured electron executable",
+    "attached over CDP to the exact page"
+  ],
+  "observations": [],
+  "launchConfigSha256": "0cea7da46af9d9bc24915a559f8a58f7f3d1973a4eef3963acb3ebaa562dc742",
+  "snapshotCommit": "345a019db",
+  "packages": {
+    "desktop": {
+      "name": "@namzu/desktop",
+      "installedFiles": 842,
+      "sourceFiles": 858,
+      "installedManifestSha256": "3bea736d724a64a4fbefc1b7a605e285455ea072a8c6a1b1cca8c48dec0e4146",
+      "sourceManifestSha256": "add255ec309bfa742e4c036c171a34b59406de511ec16308fdf2bde4643a2c74",
+      "changedCount": 9,
+      "addedCount": 18,
+      "removedCount": 2,
+      "changed": [
+        "main/link-preview.test.js",
+        "main/link-preview.test.js.map",
+        "main/operator.d.ts",
+        "main/operator.d.ts.map",
+        "main/operator.js",
+        "main/operator.js.map",
+        "renderer/index.html",
+        "shared/protocol.d.ts",
+        "shared/protocol.d.ts.map"
+      ],
+      "added": [
+        "main/model-list-store.d.ts",
+        "main/model-list-store.d.ts.map",
+        "main/model-list-store.js",
+        "main/model-list-store.js.map",
+        "main/model-list-store.test.d.ts",
+        "main/model-list-store.test.d.ts.map",
+        "main/model-list-store.test.js",
+        "main/model-list-store.test.js.map",
+        "main/operator.model-lists.test.d.ts",
+        "main/operator.model-lists.test.d.ts.map",
+        "main/operator.model-lists.test.js",
+        "main/operator.model-lists.test.js.map",
+        "main/zz-measure.test.d.ts",
+        "main/zz-measure.test.d.ts.map",
+        "main/zz-measure.test.js",
+        "main/zz-measure.test.js.map",
+        "renderer/assets/index-CRB_vziG.js",
+        "renderer/assets/index-LM11_BZn.css"
+      ],
+      "removed": [
+        "renderer/assets/index-CWuhTZYa.css",
+        "renderer/assets/index-DTkCtGCl.js"
+      ],
+      "classification": {
+        "runtime": [
+          "main/link-preview.test.js",
+          "main/model-list-store.js",
+          "main/model-list-store.test.js",
+          "main/operator.js",
+          "main/operator.model-lists.test.js",
+          "main/zz-measure.test.js",
+          "renderer/assets/index-CRB_vziG.js",
+          "renderer/assets/index-CWuhTZYa.css",
+          "renderer/assets/index-DTkCtGCl.js",
+          "renderer/assets/index-LM11_BZn.css",
+          "renderer/index.html"
+        ],
+        "noise": [
+          "main/link-preview.test.js.map",
+          "main/model-list-store.d.ts",
+          "main/model-list-store.d.ts.map",
+          "main/model-list-store.js.map",
+          "main/model-list-store.test.d.ts",
+          "main/model-list-store.test.d.ts.map",
+          "main/model-list-store.test.js.map",
+          "main/operator.d.ts",
+          "main/operator.d.ts.map",
+          "main/operator.js.map",
+          "main/operator.model-lists.test.d.ts",
+          "main/operator.model-lists.test.d.ts.map",
+          "main/operator.model-lists.test.js.map",
+          "main/zz-measure.test.d.ts",
+          "main/zz-measure.test.d.ts.map",
+          "main/zz-measure.test.js.map",
+          "shared/protocol.d.ts",
+          "shared/protocol.d.ts.map"
+        ]
+      },
+      "differs": true
+    },
+    "cli": {
+      "name": "@namzu/cli",
+      "installedFiles": 402,
+      "sourceFiles": 402,
+      "installedManifestSha256": "73c121412e48f8a70378ff12f418593e3e886b371adf1720ac794eb2145ec844",
+      "sourceManifestSha256": "92e872281b69a65cabeac42cffcb1ad2af581780a49ccc67c3339aaa2d116078",
+      "changedCount": 1,
+      "addedCount": 0,
+      "removedCount": 0,
+      "changed": [
+        "commands/desktop-model-catalogue.js"
+      ],
+      "added": [],
+      "removed": [],
+      "classification": {
+        "runtime": [
+          "commands/desktop-model-catalogue.js"
+        ],
+        "noise": []
+      },
+      "differs": true,
+      "dependencies": {
+        "installedVersion": "35.0.0",
+        "snapshotVersion": "35.0.0",
+        "equal": true,
+        "fields": {
+          "dependencies": true,
+          "optionalDependencies": true,
+          "peerDependencies": true
+        },
+        "differing": [],
+        "dependenciesSha256": "f1810624efcd75dedcee67d3fef3b16216ecbc2856f6b2b07723ce97a82997f5"
+      }
+    },
+    "sdk": {
+      "name": "@namzu/sdk",
+      "installedFiles": 934,
+      "sourceFiles": 934,
+      "installedManifestSha256": "032a9a3390ec9dda12fb2d22e11c64145b149fe7a8388129b1ab550e6b9390f3",
+      "sourceManifestSha256": "032a9a3390ec9dda12fb2d22e11c64145b149fe7a8388129b1ab550e6b9390f3",
+      "changedCount": 0,
+      "addedCount": 0,
+      "removedCount": 0,
+      "changed": [],
+      "added": [],
+      "removed": [],
+      "classification": {
+        "runtime": [],
+        "noise": []
+      },
+      "differs": false,
+      "dependencies": {
+        "installedVersion": "49.0.0",
+        "snapshotVersion": "49.0.0",
+        "equal": true,
+        "fields": {
+          "dependencies": true,
+          "optionalDependencies": true,
+          "peerDependencies": true
+        },
+        "differing": [],
+        "dependenciesSha256": "a01d041c3bb4a5d015552ecd02b062116ec242e17b162a62c657c45a8697e099"
+      }
+    }
+  },
+  "runtimeModules": {
+    "manifestPresent": true,
+    "required": [
+      {
+        "name": "ignore",
+        "version": "7.0.12",
+        "action": "keep"
+      },
+      {
+        "name": "ws",
+        "version": "8.21.3",
+        "action": "keep"
+      },
+      {
+        "name": "yaml",
+        "version": "2.9.1",
+        "action": "keep"
+      }
+    ]
+  },
+  "beforePid": 51144,
+  "ownedProcesses": [
+    {
+      "pid": 23240,
+      "ppid": 51144,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 31436,
+      "ppid": 51144,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 40920,
+      "ppid": 51144,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 47328,
+      "ppid": 51144,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 47420,
+      "ppid": 51144,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 50808,
+      "ppid": 51144,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 51144,
+      "ppid": 45832,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 54936,
+      "ppid": 51144,
+      "name": "electron.exe",
+      "kind": "electron"
+    }
+  ],
+  "error": {
+    "name": "Error",
+    "message": "page.evaluate: Error: A dialog, alert, computer canvas, or focused editor is active. at eval (eval at evaluate (:311:30), <anonymous>:61:13) at async <anonymous>:337:30"
+  }
+}
