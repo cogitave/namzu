@@ -348,6 +348,26 @@ it('requires exact affirmative folder trust before reading conversations', async
 	await owner.close()
 })
 
+it('untrusts exactly the confirmed folder and leaves the host unable to read its conversations', async () => {
+	const owner = runtime()
+	const host = createDesktopHostExtensions(owner, cwd)
+	host['namzu/project/trust']({ confirmed: true, cwd })
+	expect(() => host['namzu/project/untrust']({ confirmed: true, cwd: root })).toThrow(
+		'does not match',
+	)
+	expect(() => host['namzu/project/untrust']({ cwd })).toThrow('does not match')
+	expect(host['namzu/project/untrust']({ confirmed: true, cwd })).toMatchObject({
+		removed: true,
+		trusted: false,
+	})
+	await expect(host['namzu/conversations/list']()).rejects.toThrow('Trust this folder')
+	expect(host['namzu/project/untrust']({ confirmed: true, cwd })).toMatchObject({
+		removed: false,
+		trusted: false,
+	})
+	await owner.close()
+})
+
 it('restores only the owned durable task list without leaking private planning fields', async () => {
 	const owner = runtime()
 	const host = createDesktopHostExtensions(owner, cwd)

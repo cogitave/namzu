@@ -8,7 +8,8 @@
  * trusting a repo root covers its subfolders.
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve, sep } from 'node:path'
 
 import { canonicalProjectPath } from '../../permissions/canonical-project.js'
@@ -85,8 +86,46 @@ export function trustDir(dir: string, home?: string): void {
 		trusted: [...current, target],
 	}
 	const path = trustFilePath(home)
+	writeTrustFile(path, next)
+}
+
+/** Written whole under a name of its own, then renamed: a reader never sees half a file. */
+function writeTrustFile(path: string, next: TrustFile): void {
 	mkdirSync(dirname(path), { recursive: true, mode: DIR_MODE })
-	writeFileSync(path, `${JSON.stringify(next, null, 2)}\n`, {
-		mode: FILE_MODE,
-	})
+	const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`
+	try {
+		writeFileSync(temporary, `${JSON.stringify(next, null, 2)}\n`, { mode: FILE_MODE })
+		renameSync(temporary, path)
+	} catch (error) {
+		rmSync(temporary, { force: true })
+		throw error
+	}
+}
+
+export interface UntrustResult {
+	/** True when an entry naming exactly this folder was removed. */
+	readonly removed: boolean
+	/** An ancestor entry that still covers the folder; only that entry's removal untrusts it. */
+	readonly stillTrustedBy?: string
+}
+
+/**
+ * Remove `dir` from the trusted list. Only the entry that names this exact folder goes: an
+ * ancestor entry is never touched, and when one still covers the folder it is reported rather
+ * than silently honoured. Idempotent.
+ */
+export function untrustDir(dir: string, home?: string): UntrustResult {
+	const target = canonicalProjectPath(dir)
+	const current = readTrustedDirs(home)
+	const kept = current.filter((entry) => canonicalStoredPath(entry) !== target)
+	const removed = kept.length !== current.length
+	if (removed) {
+		const next: TrustFile = { version: TRUST_FILE_VERSION, trusted: kept }
+		const path = trustFilePath(home)
+		writeTrustFile(path, next)
+	}
+	const cover = kept
+		.map(canonicalStoredPath)
+		.find((entry) => target.startsWith(entry.endsWith(sep) ? entry : entry + sep))
+	return { removed, ...(cover ? { stillTrustedBy: cover } : {}) }
 }

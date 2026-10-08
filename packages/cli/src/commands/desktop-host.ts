@@ -29,7 +29,12 @@ import {
 } from '../integrations/sessions/store.js'
 import { conversationMarkdown } from '../integrations/sessions/transcript-export.js'
 import { resolveNamzuHome } from '../integrations/state/home.js'
-import { isTrusted, isTrustedAtStateRoot, trustDir } from '../integrations/trust/store.js'
+import {
+	isTrusted,
+	isTrustedAtStateRoot,
+	trustDir,
+	untrustDir,
+} from '../integrations/trust/store.js'
 import {
 	claimPalConversation,
 	listPalConversations,
@@ -1141,6 +1146,12 @@ export function createDesktopHostExtensions(
 				throw new Error('Folder confirmation does not match this project.')
 			trustDir(cwd)
 			return { cwd, trusted: true }
+		},
+		'namzu/project/untrust': (params: Record<string, unknown>) => {
+			if (params.confirmed !== true || text(params, 'cwd', 32768) !== cwd)
+				throw new Error('Folder confirmation does not match this project.')
+			const result = untrustDir(cwd)
+			return { cwd, ...result, trusted: isTrusted(cwd) }
 		},
 		'namzu/conversations/list': () =>
 			withState(async (state) => {
