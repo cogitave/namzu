@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-10-09
+
+- **Update** [Desktop](cli/desktop.md) makes the sidebar rows compact and gives each row one surface: the project heading no longer draws a second filled box around its name on hover, and the toggle, remove, pin and archive icons only change colour; rows are 28px (projects 30px) with 12.5px titles, Show more/less 12px, and Projects/Recents headers 11px.
+
 ## 2026-10-08
 
 - **Update** [Desktop](cli/desktop.md#terminal-tabs) fixes what the terminal-tab review found: Codex CLI no longer starts with `-c approval_policy=untrusted` (the installed Codex refuses it), so Ask first and Edit automatically use `-a on-request`; opening a terminal repeats the changed-settings check and a folder that becomes untrusted loses its terminals; pasted text loses control characters and a multi-line paste into an unbracketed program asks; program-drawn links use the same allowlist; no screen is saved while *Bring terminal tabs back* is off; a reloaded window can type at once; the saved screen is refreshed at least every 12 seconds; closing a tab kills programs that detached with `nohup` or `setsid`; Windows launches use the absolute Command Prompt, refuse line breaks, `!` and over-long lines, and never run a bare `namzu`; the last row fits inside the pane, and selection and dark black are readable.

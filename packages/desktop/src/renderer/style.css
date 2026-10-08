@@ -293,9 +293,10 @@ pre {
 	}
 }
 .sidebar-section-title {
-	margin: 20px 16px 8px;
+	margin: 14px 16px 6px;
 	color: var(--muted-foreground);
-	font-size: 12px;
+	font-size: 11px;
+	letter-spacing: 0.01em;
 	font-weight: 600;
 }
 .sidebar-projects {

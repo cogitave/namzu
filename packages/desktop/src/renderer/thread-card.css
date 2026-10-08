@@ -65,10 +65,10 @@
 .sidebar-thread-item[data-removable][data-menu-open] .conversation-row-title {
 	-webkit-mask-image: linear-gradient(
 		to right,
-		#000 calc(100% - 28px),
-		transparent calc(100% - 12px)
+		#000 calc(100% - 60px),
+		transparent calc(100% - 44px)
 	);
-	mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent calc(100% - 12px));
+	mask-image: linear-gradient(to right, #000 calc(100% - 60px), transparent calc(100% - 44px));
 }
 .sidebar-thread-item[data-removable]:hover .conversation-row-pin,
 .sidebar-thread-item[data-removable]:has(:focus-visible) .conversation-row-pin,
