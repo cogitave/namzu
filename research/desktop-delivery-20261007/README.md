@@ -110,3 +110,7 @@ Before installing, both profiles were copied (not moved) to `%LOCALAPPDATA%\Namz
 Independent check after launch (read-only; app neither attached to nor restarted): all 8 `Namzu.exe` processes run from `%LOCALAPPDATA%\Programs\Namzu`; exe version 0.1.0; the Start-menu `Namzu.lnk` targets that exe; the backup file counts match the live `.namzu` tree (1,646) and `desktop-conversations.json` lists the same 4 projects and 46 conversations as the backup; `projects.json` is byte-identical to the backup.
 
 Rollback: close Namzu, rename `launch.cjs.retired-20261008` back to `launch.cjs` and start it with `launch.ps1` (or `launch.json`'s command). The profile is shared, so no data needs restoring; if a profile was damaged, restore from the backup folder above by copying it over `%APPDATA%\Namzu` and `.namzu` while the app is closed. Uninstall with `%LOCALAPPDATA%\Programs\Namzu\Uninstall Namzu.exe` (leaves the profile). `native-update.cjs` targets the development install and no longer applies to the installed app, which updates through its own updater.
+
+## Installer update to 964e85ba9 (2026-10-08)
+
+First update of the installed app. Built from a clean worktree at `964e85ba9` (sha256 `B24C25E0…CA72`, 178,317,511 bytes, app icon embedded). The app was not running; the installer ran silently over the existing install (`/S`, exit 0, 138 s), then the Start-menu shortcut started it from `%LOCALAPPDATA%\Programs\namzu\Namzu.exe` and the CLI connected. Profile untouched.
