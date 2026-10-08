@@ -1,0 +1,41 @@
+.restore-skeleton {
+	flex: 1;
+	min-height: 0;
+	display: flex;
+	justify-content: center;
+	padding: 24px 16px;
+}
+.restore-skeleton-lane {
+	width: 100%;
+	max-width: 768px;
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+.restore-skeleton-line {
+	height: 14px;
+	border-radius: 6px;
+	background: color-mix(in srgb, currentColor 8%, transparent);
+}
+.restore-skeleton-line-short {
+	width: 35%;
+}
+.restore-skeleton-line-medium {
+	width: 60%;
+}
+.restore-skeleton-composer {
+	margin-top: auto;
+	height: 72px;
+	border-radius: 16px;
+	border: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+}
+@media (prefers-reduced-motion: no-preference) {
+	.restore-skeleton-line {
+		animation: restore-skeleton-pulse 1.4s ease-in-out infinite;
+	}
+}
+@keyframes restore-skeleton-pulse {
+	50% {
+		opacity: 0.5;
+	}
+}

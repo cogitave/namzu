@@ -279,6 +279,19 @@ export class FolderAccess {
 		const kind = classifyBroadFolder(path, this.env, this.canonical)
 		if (kind) return { ...project, broadFolder: { kind, token: this.tokens.issue(windowId, path) } }
 		const found = await this.findSettings(path)
+		// A folder whose settings changed is never trusted on the renderer's word: it gets the
+		// detailed dialog, with what changed first, and trust takes main's token.
+		if (project.settingsChanged?.length)
+			return {
+				...project,
+				riskySettings: {
+					found: [
+						...project.settingsChanged,
+						...found.filter((item) => !project.settingsChanged?.includes(item)),
+					],
+					token: this.tokens.issue(windowId, path),
+				},
+			}
 		if (found.length > 0)
 			return { ...project, riskySettings: { found, token: this.tokens.issue(windowId, path) } }
 		// A picked folder is trusted by the pick itself. A known folder reaches here only

@@ -29,12 +29,24 @@ class FakeUpdater extends EventEmitter implements AutoUpdaterLike {
 		this.checks += 1
 		return this.checkResult()
 	}
+	downloads = 0
+	downloadUpdate() {
+		this.downloads += 1
+		return Promise.resolve()
+	}
 	quitAndInstall(silent?: boolean, force?: boolean) {
 		this.calls.push(`quitAndInstall:${silent}:${force}`)
 	}
 }
 
-function build(overrides: { enabled?: boolean; blockers?: () => UpdateBlocker[] } = {}) {
+function build(
+	overrides: {
+		enabled?: boolean
+		blockers?: () => UpdateBlocker[]
+		autoDownload?: () => boolean
+		now?: () => number
+	} = {},
+) {
 	const updater = new FakeUpdater()
 	const states: UpdateState[] = []
 	const log: string[] = []
@@ -45,6 +57,9 @@ function build(overrides: { enabled?: boolean; blockers?: () => UpdateBlocker[] 
 	const controller = new UpdateController({
 		updater: () => updater,
 		enabled: overrides.enabled ?? true,
+		...(overrides.autoDownload ? { autoDownload: overrides.autoDownload } : {}),
+		...(overrides.now ? { now: overrides.now } : {}),
+		currentVersion: '1.2.3',
 		feed: { provider: 'generic', url: 'http://127.0.0.1:9/feed/' },
 		mainBlockers: overrides.blockers ?? (() => []),
 		shutdown: async () => {
@@ -214,6 +229,59 @@ describe('states', () => {
 		updater.emit('update-downloaded', { version: '2.0.0' })
 		updater.emit('error', new Error('late'))
 		expect(controller.state).toEqual({ status: 'ready', version: '2.0.0' })
+	})
+})
+
+describe('automatic download setting', () => {
+	it('only offers the update when automatic download is off, and downloads when asked', async () => {
+		const { updater, controller, states } = build({ autoDownload: () => false })
+		controller.start()
+		expect(updater.autoDownload).toBe(false)
+		updater.emit('checking-for-update')
+		updater.emit('update-available', { version: '2.0.0' })
+		expect(controller.state).toEqual({ status: 'available', version: '2.0.0' })
+		expect(updater.downloads).toBe(0)
+		// A later scheduled check does not disturb an offered update.
+		await controller.check()
+		expect(updater.checks).toBe(0)
+		await controller.download()
+		expect(updater.downloads).toBe(1)
+		expect(states.at(-1)).toEqual({ status: 'downloading', percent: 0, bytesPerSecond: 0 })
+		updater.emit('update-downloaded', { version: '2.0.0' })
+		expect(controller.state).toEqual({ status: 'ready', version: '2.0.0' })
+	})
+
+	it('does nothing when there is no offered update to download', async () => {
+		const { updater, controller } = build({ autoDownload: () => false })
+		controller.start()
+		await controller.download()
+		expect(updater.downloads).toBe(0)
+		expect(controller.state).toEqual({ status: 'idle' })
+	})
+
+	it('follows the setting live and takes an offered update when it is turned on', () => {
+		let auto = false
+		const { updater, controller } = build({ autoDownload: () => auto })
+		controller.start()
+		updater.emit('checking-for-update')
+		updater.emit('update-available', { version: '2.0.0' })
+		expect(controller.state.status).toBe('available')
+		auto = true
+		controller.autoDownloadChanged()
+		expect(updater.autoDownload).toBe(true)
+		expect(updater.downloads).toBe(1)
+		expect(controller.state.status).toBe('downloading')
+	})
+
+	it('reports the running version and the time of the last finished check from the injected clock', () => {
+		let clock = 1_000
+		const { updater, controller } = build({ now: () => clock })
+		controller.start()
+		expect(controller.info()).toEqual({ currentVersion: '1.2.3' })
+		updater.emit('checking-for-update')
+		clock = 5_000
+		updater.emit('update-not-available')
+		expect(controller.info()).toEqual({ currentVersion: '1.2.3', lastCheckedAt: 5_000 })
 	})
 })
 

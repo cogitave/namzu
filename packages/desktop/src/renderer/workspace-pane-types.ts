@@ -15,8 +15,10 @@ export interface WorkspacePaneProps {
 	shell: HTMLElement | null
 	frozen: boolean
 	appearance: Appearance
+	/** This launch shows the home screen instead of reopening the saved active tab. */
+	startAtHome?: boolean
 	/** The window's app update, when it has an updater. */
-	update?: { state: UpdateState; onOpen: () => void; onCheck: () => void }
+	update?: { state: UpdateState; onOpen: () => void; onCheck: () => void; onDownload?: () => void }
 	onAppearanceChange: (value: Appearance) => void
 	sideCollapsed: boolean
 	onSideCollapsedChange: (value: boolean | ((previous: boolean) => boolean)) => void

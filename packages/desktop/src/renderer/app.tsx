@@ -38,6 +38,8 @@ import type {
 	ProjectView,
 	ProviderView,
 } from '../shared/protocol.js'
+import type { DataFolderKind, SettingsSection } from '../shared/settings-protocol.js'
+import type { UpdateState } from '../shared/update-protocol.js'
 import {
 	ADD_PROJECT_LABEL,
 	AddProjectMenu,
@@ -115,12 +117,13 @@ import {
 	MoreHorizontalIcon,
 	PanelLeftIcon,
 	PlusIcon,
+	SettingsIcon,
 	SquareIcon,
 	SquarePenIcon,
 	XIcon,
 } from './icons.js'
 import { JobRow } from './job-row.js'
-import { LocalSpeechReadAloud, LocalSpeechSettings } from './local-speech-settings.js'
+import { LocalSpeechReadAloud } from './local-speech-settings.js'
 import { MessageActions } from './message-actions.js'
 import {
 	invalidateModelCatalogueDisplayCache,
@@ -153,7 +156,11 @@ import { newProjectFailure, projectHomeHeading } from './project-home.js'
 import { projectStage } from './project-stage.js'
 import { ProjectConnecting, ProjectOpenError } from './project-views.js'
 import { RenameConversationDialog } from './rename-conversation-dialog.js'
+import { RestoreSkeleton } from './restore-skeleton.js'
+import { projectRemovalCopy, removalNotice, settingsRoute } from './settings-model.js'
+import { SettingsPage, SettingsSidebar } from './settings-page.js'
 import { type ConversationCollection, Sidebar } from './sidebar.js'
+import { launchSeed, restoreDecision, settleLaunchSeed } from './startup-restore.js'
 import type { ThreadRowActions } from './thread-card.js'
 import { PaneToasts } from './toast.js'
 import { Transcript } from './transcript.js'
@@ -163,6 +170,7 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from './ui/empty.js'
 import { UndoDialog } from './undo-dialog.js'
 import { undoNotice } from './undo-model.js'
 import { useAttachments } from './use-attachments.js'
+import { useDesktopInfo, useDesktopSettings, useUpdateInfo } from './use-desktop-settings.js'
 import { useDraftSettings } from './use-draft-settings.js'
 import { useLocalSpeech } from './use-local-speech.js'
 import { useTranscriptScroll } from './use-transcript-scroll.js'
@@ -187,6 +195,8 @@ import {
 import { WorkspaceSessionCache } from './workspace-session-cache.js'
 
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error))
+const conversationIsGone = (error: unknown) =>
+	/does not belong to this project/.test(errorText(error))
 function omitRecords<T>(records: Record<string, T>, ids: ReadonlySet<string>): Record<string, T> {
 	return Object.fromEntries(Object.entries(records).filter(([id]) => !ids.has(id)))
 }
@@ -201,6 +211,7 @@ function Icon({ name }: { name: 'folder' | 'plus' | 'menu' | 'arrow' | 'stop' | 
 	}[name]
 	return <Component aria-hidden="true" />
 }
+const NO_UPDATER: UpdateState = { status: 'disabled' }
 export function App({
 	group,
 	windowId,
@@ -208,6 +219,7 @@ export function App({
 	shell,
 	frozen: externalFrozen,
 	appearance,
+	startAtHome = false,
 	update,
 	onAppearanceChange,
 	sideCollapsed,
@@ -327,6 +339,8 @@ export function App({
 		pending?: { name: string; path: string }
 	}>()
 	const [removingConversation, setRemovingConversation] = useState<ConversationView>()
+	const [removingProject, setRemovingProject] = useState<ProjectView>()
+	const projectRemovalTrigger = useRef<HTMLElement | null>(null)
 	const removalTrigger = useRef<HTMLElement | null>(null)
 	const [communicationOwner, setCommunicationOwner] = useState<{
 		palId: string
@@ -399,7 +413,11 @@ export function App({
 	}, [retireComputerPendingInput])
 	const [inputBusy, setInputBusy] = useState(false)
 	const previousNormalProject = useRef<string | undefined>(undefined)
-	const [projectRecords, setProjects] = useState<ProjectView[]>([])
+	// Seed data from the pre-paint snapshot, for the panes of the launch commit only; the
+	// asynchronous reads below replace all of it.
+	const [seed] = useState(() => launchSeed())
+	useEffect(() => settleLaunchSeed(), [])
+	const [projectRecords, setProjects] = useState<ProjectView[]>(() => seed?.projects ?? [])
 	const projects = useMemo(
 		() =>
 			projectRecords.filter(
@@ -411,6 +429,10 @@ export function App({
 	)
 	const [projectId, setProjectId] = useState('')
 	const [conversationRecords, setConversations] = useState<ConversationView[]>([])
+	// Saved views of the launch tabs. They are never listed: a row is actionable only once its
+	// folder is connected. They tell the restore which folder a tab belongs to before the
+	// authoritative listing arrives.
+	const [savedViews] = useState(() => seed?.conversations ?? [])
 	const conversations = useMemo(
 		() =>
 			conversationRecords.filter(
@@ -524,6 +546,8 @@ export function App({
 	} | null>(null)
 	const activeSession = useRef('')
 	activeSession.current = sessionId
+	const activeProjectId = useRef('')
+	activeProjectId.current = projectId
 	const editingQueue = useRef(new Set<string>())
 	const [queueEditing, setQueueEditing] = useState<Record<string, boolean>>({})
 	const [providers, setProviders] = useState<ProviderView>({
@@ -652,12 +676,23 @@ export function App({
 		return () => window.removeEventListener('keydown', key)
 	}, [toggleSidebar, commandOpen])
 	const setAppearance = onAppearanceChange
-	const [railSection, setRailSection] = useState<'spaces' | 'plugins' | null>(null)
+	const [railSection, setRailSection] = useState<'spaces' | 'plugins' | 'settings' | null>(null)
+	const [settingsSection, setSettingsSection] = useState<SettingsSection>('general')
+	const [settingsFocus, setSettingsFocus] = useState<string>()
+	/** Plugins and Settings replace the conversation with a page of their own. */
+	const pageOpen = railSection === 'plugins' || railSection === 'settings'
+	const settingsOpen = railSection === 'settings'
+	const desktopSettings = useDesktopSettings(api, settingsOpen)
+	const desktopInfo = useDesktopInfo(
+		api,
+		settingsOpen && (settingsSection === 'about' || settingsSection === 'speech'),
+	)
+	const updateInfo = useUpdateInfo(api, update?.state ?? NO_UPDATER, settingsOpen)
 	const previousRailSection = useRef(railSection)
 	useEffect(() => {
 		const previous = previousRailSection.current
 		previousRailSection.current = railSection
-		if (previous === 'plugins' && railSection === null)
+		if ((previous === 'plugins' || previous === 'settings') && railSection === null)
 			input.current?.focus({ preventScroll: true })
 	}, [railSection])
 	const [jobsOpen, setJobsOpen] = useState(false)
@@ -710,6 +745,22 @@ export function App({
 	const project = projects.find((item) => item.id === projectId)
 	// A folder that failed to open gets its own stage, which already carries the error text.
 	const stage = project ? projectStage(project) : undefined
+	const activeTabProject = projects.find(
+		(item) =>
+			item.id ===
+			(
+				conversations.find((row) => row.id === group.activeTabId) ??
+				savedViews.find((row) => row.id === group.activeTabId)
+			)?.projectId,
+	)
+	const restoreHold =
+		restoreDecision({
+			startupHome: startAtHome,
+			activeTabId: group.activeTabId,
+			restoring: restoringTabs,
+			failed: Boolean(error),
+			tabProject: activeTabProject,
+		}) === 'restore'
 	const openErrorStage = stage === 'error'
 	const conversation = conversations.find((item) => item.id === sessionId)
 	const speech = useLocalSpeech(api, sessionId || undefined)
@@ -1434,6 +1485,49 @@ export function App({
 				}
 				return
 			}
+			if (event.kind === 'settings') return
+			if (event.kind === 'open-settings') {
+				if (context.current.focused && !context.current.frozen)
+					openSettingsRef.current(event.section)
+				return
+			}
+			if (event.kind === 'project-removed') {
+				const ids = new Set(event.sessionIds)
+				for (const item of catalogueRows.current.conversations)
+					if (item.projectId === event.projectId) ids.add(item.id)
+				removedProjects.current.add(event.projectId)
+				warmSessions.current.invalidateProject(event.projectId)
+				invalidateModelCatalogueDisplayCache(window.namzu, event.projectId)
+				for (const id of ids) {
+					removedConversations.current.add(id)
+					loadedHistory.current.delete(id)
+					warmSessions.current.forget(id)
+					createdSessions.current.delete(id)
+					draftEditRevisions.current.delete(id)
+					draftAdmissions.current.delete(id)
+				}
+				setRemovedCatalogue({
+					pals: new Set(removedPals.current),
+					projects: new Set(removedProjects.current),
+					conversations: new Set(removedConversations.current),
+				})
+				setProjects((all) => all.filter((item) => item.id !== event.projectId))
+				setConversations((all) => all.filter((item) => !ids.has(item.id)))
+				setThreads((all) => omitRecords(all, ids))
+				setBackgroundWork((all) => omitRecords(all, ids))
+				setDrafts((all) => omitRecords(all, ids))
+				draftsRef.current = omitRecords(draftsRef.current, ids)
+				setRemovingProject((value) => (value?.id === event.projectId ? undefined : value))
+				if (ids.has(activeSession.current) || activeProjectId.current === event.projectId) {
+					navigation.current++
+					snapshotRead.current = null
+					invalidateComputerInput()
+					setSessionId('')
+					setProjectId('')
+					setHistoryDisplay(null)
+				}
+				return
+			}
 			if (event.kind === 'conversation-removed') {
 				const id = event.sessionId
 				const ids = new Set([id])
@@ -1971,6 +2065,20 @@ export function App({
 		composerFocusFor.current = -1
 		field.focus()
 	})
+	// A folder this app trusted whose automatic settings changed asks again, once per change,
+	// as soon as it is known: until the person answers it behaves as untrusted.
+	const promptedChanges = useRef(new Map<string, string>())
+	useEffect(() => {
+		if (folderAccess) return
+		for (const item of projects) {
+			if (item.trusted || item.status !== 'ready' || !item.settingsChanged?.length) continue
+			const signature = item.settingsChanged.join('|')
+			if (promptedChanges.current.get(item.id) === signature) continue
+			promptedChanges.current.set(item.id, signature)
+			setFolderAccess({ projectId: item.id })
+			return
+		}
+	}, [projects, folderAccess])
 	// A project that was just added lands on its home with the composer focused; there is no
 	// step in between for a trusted one.
 	const landOnProject = useCallback(
@@ -2381,7 +2489,7 @@ export function App({
 			}
 			paneHold.current = ''
 		}
-		const target = group.activeTabId || ''
+		const target = startAtHome ? '' : group.activeTabId || ''
 		if (!target) {
 			activation.current = null
 			if (sessionId && !group.tabs.includes(sessionId)) {
@@ -2403,6 +2511,16 @@ export function App({
 			return
 		const view = conversations.find((item) => item.id === target)
 		if (!view) {
+			const savedOwner = projects.find(
+				(item) => item.id === savedViews.find((row) => row.id === target)?.projectId,
+			)
+			// Its folder is connected but not trusted here (new, or its settings changed), so
+			// nothing can be listed: the trust dialog explains, not a load failure.
+			if (savedOwner?.status === 'ready' && !savedOwner.trusted) {
+				setTabsRestored(true)
+				setRestoringTabs(false)
+				return
+			}
 			if (loading || operations.current.size > 0) return
 			if (missingActivation.current === target) return
 			if (projects.every((item) => item.status === 'ready' || item.status === 'error')) {
@@ -2442,11 +2560,30 @@ export function App({
 			})
 			.catch((failure) => {
 				if (!current()) return
+				if (conversationIsGone(failure)) {
+					// Its journal is gone: there is nothing to open, so the tab closes and the
+					// project's home shows instead of an error over an empty composer.
+					activation.current = null
+					setError('')
+					setConversations((all) => all.filter((item) => item.id !== target))
+					void api.removeConversation?.(target).catch(() => undefined)
+					void onAction({ kind: 'close', groupId: context.current.group.id, tabId: target })
+						.catch((closeFailure) => setError(errorText(closeFailure)))
+						.finally(() => {
+							setSessionId('')
+							setConversationSelection(null)
+							setTabsRestored(true)
+							setRestoringTabs(false)
+						})
+					return
+				}
 				setError(errorText(failure))
 				onLoadFailure(target, failure)
 			})
 	}, [
 		group.activeTabId,
+		startAtHome,
+		savedViews,
 		group.tabs,
 		catalogueReady,
 		catalogueTabsKey,
@@ -2458,6 +2595,8 @@ export function App({
 		openConversation,
 		sessionId,
 		onLoadFailure,
+		onAction,
+		api,
 	])
 	useEffect(() => {
 		void metadataEpoch
@@ -2585,6 +2724,26 @@ export function App({
 		if (!api.restoreConversation) return requestConversationRemoval(value, trigger)
 		void act(() => confirmedRemoval(() => archiveConversation(value)))
 	}
+	const requestProjectRemoval = (value: ProjectView, trigger: HTMLElement | null) => {
+		if (context.current.frozen || value.palId || value.isChat || !api.removeProject) return
+		projectRemovalTrigger.current = trigger
+		setRemovingProject(value)
+	}
+	const removeProject = async (value: ProjectView) => {
+		if (!api.removeProject) throw new Error('Removing a project is unavailable.')
+		const result = await api.removeProject(value.id)
+		if (result.projectId !== value.id)
+			throw new Error('Removing the project was not confirmed. Try again.')
+		notify(removalNotice(value.name, result.trust), {
+			tone: 'success',
+			timeoutMs: result.trust.state === 'removed' ? undefined : 10_000,
+		})
+	}
+	const projectRemovalReturnFocus = () =>
+		projectRemovalTrigger.current?.isConnected
+			? projectRemovalTrigger.current
+			: (document.getElementById('settings-content') ??
+				document.querySelector<HTMLElement>('.sidebar-new-conversation'))
 	const removalReturnFocus = () =>
 		removalTrigger.current?.isConnected
 			? removalTrigger.current
@@ -2891,7 +3050,7 @@ export function App({
 		}
 	}
 	useEffect(() => {
-		if (!pal?.id || palsPage || railSection === 'plugins' || project?.status !== 'ready') return
+		if (!pal?.id || palsPage || pageOpen || project?.status !== 'ready') return
 		// Explicit refresh invalidates a pending capture and starts a new read.
 		void screenRefresh
 		const id = pal.id
@@ -2995,7 +3154,7 @@ export function App({
 		pal?.id,
 		project?.status,
 		palsPage,
-		railSection,
+		pageOpen,
 		palScreen?.palId,
 		palScreen?.activeTab,
 		screenRefresh,
@@ -3069,8 +3228,8 @@ export function App({
 		if (focused)
 			onShellState({
 				page:
-					railSection === 'plugins'
-						? 'plugins'
+					railSection === 'plugins' || railSection === 'settings'
+						? railSection
 						: palsPage
 							? 'pals'
 							: computerPage
@@ -3507,6 +3666,21 @@ export function App({
 		setRailSection('spaces')
 		revealSidebar('[data-project-group] .project-row')
 	}
+	/** Settings is a page like Plugins; `settings/<section>` is its route and a search result adds a target. */
+	const openSettings = (section?: SettingsSection, focusId?: string) => {
+		abandonTabRestore()
+		navigation.current += 1
+		setPalScreen(undefined)
+		setPluginSelection(undefined)
+		setPalsPage(false)
+		if (section) setSettingsSection(section)
+		setSettingsFocus(focusId)
+		setRailSection('settings')
+		setJobsOpen(false)
+		setSideOpen(false)
+	}
+	const openSettingsRef = useRef(openSettings)
+	openSettingsRef.current = openSettings
 	const changeDraft = (target: string, value: string) => {
 		if (editingQueue.current.has(target)) return
 		draftEditRevisions.current.set(target, (draftEditRevisions.current.get(target) ?? 0) + 1)
@@ -3703,6 +3877,16 @@ export function App({
 			}
 			// Modal dismissal must never become a cancellation of the underlying turn.
 			if (commandOpen || creatingPal || editingPal) return
+			if (
+				(event.metaKey || event.ctrlKey) &&
+				!event.altKey &&
+				!event.shiftKey &&
+				event.key === ','
+			) {
+				event.preventDefault()
+				openSettingsRef.current()
+				return
+			}
 			if (event.key === 'Escape') {
 				if (computerPage) {
 					showPalChat()
@@ -3713,7 +3897,7 @@ export function App({
 				if (sideOpen || detailsOpen) {
 					setSideOpen(false)
 					if (detailsOpen) closeDetails()
-				} else if (thread.running && !loading && !restoringTabs && railSection !== 'plugins')
+				} else if (thread.running && !loading && !restoringTabs && !pageOpen)
 					void act(() => api.cancel(sessionId))
 				return
 			}
@@ -3744,7 +3928,7 @@ export function App({
 				event.preventDefault()
 				if (!loading) void act(newConversation)
 			}
-			if (event.altKey && event.key === 'ArrowUp' && sessionId && railSection !== 'plugins') {
+			if (event.altKey && event.key === 'ArrowUp' && sessionId && !pageOpen) {
 				event.preventDefault()
 				void act(() => editQueued())
 			}
@@ -3768,7 +3952,7 @@ export function App({
 		openCommands,
 		loading,
 		closeDetails,
-		railSection,
+		pageOpen,
 		computerPage,
 		showPalChat,
 		api,
@@ -3801,6 +3985,22 @@ export function App({
 			shortcut: [shortcutModifier, 'N'],
 			disabled: loading,
 			onAction: () => void act(newConversation),
+		},
+		{
+			id: 'open-settings',
+			label: 'Settings',
+			group: 'Quick actions',
+			icon: <SettingsIcon aria-hidden="true" />,
+			shortcut: [shortcutModifier, ','],
+			keywords: [
+				'preferences',
+				'options',
+				'theme',
+				'updates',
+				'projects',
+				settingsRoute('general'),
+			],
+			onAction: () => openSettings(),
 		},
 		{
 			id: 'create-project',
@@ -3902,7 +4102,7 @@ export function App({
 	const groupTabs = (
 		<ConversationTabs
 			tabs={normalTabs}
-			active={group.activeTabId || sessionId}
+			active={startAtHome ? '' : group.activeTabId || sessionId}
 			busy={loading || harnessBusy || frozen}
 			onRemove={api.removeConversation ? requestConversationRemoval : undefined}
 			actions={tabActions}
@@ -3979,6 +4179,11 @@ export function App({
 										path={target.path}
 										broad={folderAccess.broad?.kind}
 										risky={folderAccess.risky?.found}
+										changed={
+											'settingsChanged' in target && !folderAccess.risky && !folderAccess.broad
+												? target.settingsChanged
+												: undefined
+										}
 										onClose={() => setFolderAccess(undefined)}
 										returnFocus={() => document.querySelector<HTMLElement>('.welcome .primary')}
 										onCancel={() => {
@@ -4117,6 +4322,22 @@ export function App({
 							/>
 						)}
 
+						{removingProject &&
+							(() => {
+								const copy = projectRemovalCopy(removingProject)
+								return (
+									<ConfirmRemovalDialog
+										key={`remove-project:${removingProject.id}`}
+										title={copy.title}
+										description={copy.description}
+										actionLabel={copy.actionLabel}
+										pendingLabel={copy.pendingLabel}
+										onClose={() => setRemovingProject(undefined)}
+										returnFocus={projectRemovalReturnFocus}
+										onConfirm={() => confirmedRemoval(() => removeProject(removingProject))}
+									/>
+								)
+							})()}
 						<CommandPalette
 							open={commandOpen}
 							onOpenChange={setCommandOpen}
@@ -4144,12 +4365,11 @@ export function App({
 						/>
 						<NavigationRail
 							section={railSection ?? 'home'}
-							appearance={appearance}
 							onHome={() => {
 								if (!loading) void act(newConversation)
 							}}
 							onSpaces={showSpaces}
-							onAppearanceChange={setAppearance}
+							onSettings={() => openSettings()}
 							update={update}
 							onOpenProject={() => void act(openProject)}
 							onCreateProject={() => void act(createProject)}
@@ -4193,7 +4413,8 @@ export function App({
 							rowActions={sidebarRowActions}
 							threads={threads}
 							backgroundWork={backgroundWork}
-							open={railSection !== 'plugins' && sideOpen}
+							open={!pageOpen && sideOpen}
+							onRemoveProject={api.removeProject ? requestProjectRemoval : undefined}
 							collapsed={sideCollapsed}
 							opening={loading}
 							onClose={() => setSideOpen(false)}
@@ -4206,6 +4427,44 @@ export function App({
 								void act(() => openConversation(view, collection))
 							}
 						/>
+						{railSection === 'settings' && (
+							<>
+								{sideOpen && (
+									<button
+										type="button"
+										className="scrim"
+										aria-label="Close sidebar"
+										onClick={() => setSideOpen(false)}
+									/>
+								)}
+								<aside
+									id="namzu-settings-sidebar"
+									className={`sidebar plugins-navigation-sidebar settings-navigation-sidebar ${sideOpen ? 'open' : ''}`}
+									inert={sideCollapsed && !sideOpen}
+									aria-hidden={sideCollapsed && !sideOpen}
+									aria-label="Settings"
+								>
+									<SettingsSidebar
+										section={settingsSection}
+										onSection={(section) => {
+											setSettingsSection(section)
+											setSettingsFocus(undefined)
+											// A narrow window shows the list as an overlay; choosing a section closes it.
+											setSideOpen(false)
+										}}
+									/>
+									<Button
+										variant="ghost-muted"
+										size="icon-xs"
+										className="sidebar-close plugins-sidebar-close"
+										aria-label="Close sidebar"
+										onClick={() => setSideOpen(false)}
+									>
+										<XIcon />
+									</Button>
+								</aside>
+							</>
+						)}
 						{railSection === 'plugins' && (
 							<>
 								{sideOpen && (
@@ -4268,8 +4527,8 @@ export function App({
 				data-computer-chat={computerPage ? chatMotion.renderedLayout : undefined}
 				data-chat-minimized={computerPage && floatingChatMinimized}
 				data-page={
-					railSection === 'plugins'
-						? 'plugins'
+					railSection === 'plugins' || railSection === 'settings'
+						? railSection
 						: palsPage
 							? 'pals'
 							: computerPage
@@ -4430,6 +4689,45 @@ export function App({
 						<PalContextCard {...palContextProps} />
 					</div>
 				)}
+				{railSection === 'settings' && (
+					<SettingsPage
+						section={settingsSection}
+						onSection={(section, focusId) => {
+							setSettingsSection(section)
+							setSettingsFocus(focusId)
+						}}
+						focusId={settingsFocus}
+						settings={desktopSettings}
+						appearance={appearance}
+						onAppearanceChange={setAppearance}
+						projects={projects.filter((item) => !item.palId && !item.isChat)}
+						onRemoveProject={api.removeProject ? requestProjectRemoval : undefined}
+						update={
+							update
+								? {
+										...update,
+										info: updateInfo,
+										onDownload: api.downloadUpdate
+											? () =>
+													void api
+														.downloadUpdate?.()
+														.catch((failure) => setError(errorText(failure)))
+											: undefined,
+									}
+								: undefined
+						}
+						speech={speech}
+						info={desktopInfo.info}
+						infoError={desktopInfo.error}
+						onOpenFolder={
+							api.openDataFolder
+								? (kind: DataFolderKind) =>
+										void api.openDataFolder?.(kind).catch((failure) => setError(errorText(failure)))
+								: undefined
+						}
+						now={Date.now()}
+					/>
+				)}
 				{railSection === 'plugins' && (
 					<PluginsPage
 						scope={pluginsKey}
@@ -4461,7 +4759,8 @@ export function App({
 					/>
 				)}
 
-				{(error || (project?.error && !openErrorStage) || savedSettings.error) && (
+				{/* A trust dialog for the folder is the explanation; the banner behind it would repeat it. */}
+				{!folderAccess && (error || (project?.error && !openErrorStage) || savedSettings.error) && (
 					<div className="connection-error">
 						<ChatErrorBanner
 							message={savedSettings.error || error || project?.error || ''}
@@ -4498,7 +4797,12 @@ export function App({
 						/>
 					</div>
 				)}
-				{!project ? (
+				{restoreHold ? (
+					<RestoreSkeleton />
+				) : !project && !projectsLoaded ? (
+					// The list has not been read yet: not knowing is not the same as having none.
+					<div className="welcome" aria-busy="true" />
+				) : !project ? (
 					<Empty className="welcome">
 						<Wordmark hero />
 
@@ -4552,7 +4856,9 @@ export function App({
 							<EmptyDescription>
 								Namzu will work with the files in this folder.
 								<br />
-								Review the folder before allowing access.
+								{project.settingsChanged?.length
+									? 'Its automatic settings changed since you last trusted it.'
+									: 'Review the folder before allowing access.'}
 							</EmptyDescription>
 						</EmptyHeader>
 						<Button
@@ -4746,7 +5052,6 @@ export function App({
 								</Button>
 							)}
 							<Composer
-								speechControl={<LocalSpeechSettings speech={speech} />}
 								variant={pal ? 'pal' : 'default'}
 								pluginsSupported={!pal}
 								toolsAvailable={palCanWork}

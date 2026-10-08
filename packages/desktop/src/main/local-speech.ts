@@ -1,6 +1,6 @@
 import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
 import {
@@ -81,6 +81,7 @@ export class LocalSpeechService {
 	private settingsWrites: Promise<void> = Promise.resolve()
 	private installation?: LocalSpeechInstallation
 	private installing?: Promise<LocalSpeechState>
+	private removing?: Promise<void>
 	private installController?: AbortController
 	private readonly installerProcesses = new LocalSpeechInstallerProcesses()
 	private worker?: Worker
@@ -212,6 +213,51 @@ export class LocalSpeechService {
 			return this.snapshot()
 		})()
 		return this.installing
+	}
+	/**
+	 * Removes the downloaded voice engine and models. The saved preferences stay, and so does
+	 * everything outside this service's own folder. Refused while a download is running.
+	 */
+	async uninstall(): Promise<LocalSpeechState> {
+		await this.initialized
+		if (this.disposed) throw new Error('Local speech service is closed.')
+		if (this.installing)
+			throw new Error('Wait for the voice download to finish before removing it.')
+		const removal = (this.removing ?? Promise.resolve()).then(async () => {
+			if (this.disposed) throw new Error('Local speech service is closed.')
+			if (this.installing)
+				throw new Error('Wait for the voice download to finish before removing it.')
+			this.speakRevision += 1
+			this.starting = undefined
+			if (this.active) this.cancel(this.active.id)
+			else this.stopWorker()
+			await this.stopping
+			let names: string[] = []
+			try {
+				names = await readdir(this.options.directory)
+			} catch (error) {
+				if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+			}
+			for (const name of names) {
+				if (name === 'settings.json' || /^settings-.*\.tmp$/.test(name)) continue
+				await rm(join(this.options.directory, name), {
+					recursive: true,
+					force: true,
+					maxRetries: 3,
+					retryDelay: 100,
+				})
+			}
+			this.installation = undefined
+			this.current.installation = 'missing'
+			this.current.worker = 'unloaded'
+			this.current.resources.runtimeDownloadBytes = null
+			this.current.resources.diskBytes = null
+			this.current.error = this.preferencesWarning
+			this.changed()
+		})
+		this.removing = removal.catch(() => undefined)
+		await removal
+		return this.snapshot()
 	}
 	async speak(input: { requestId: string; text: string; preview?: boolean }): Promise<{
 		requestId: string

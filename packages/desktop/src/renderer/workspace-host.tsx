@@ -4,6 +4,7 @@ import { workspaceGroups } from '../shared/workspace-layout.js'
 import type { WorkspaceWindowBounds } from '../shared/workspace-layout.js'
 import { App } from './app.js'
 import type { Appearance } from './sidebar.js'
+import { adoptBoot } from './startup-restore.js'
 import { UpdateDialog } from './update-dialog.js'
 import { type UpdateDialogAction, updateDialogModel } from './update-model.js'
 import { useUpdateBusyReporter, useUpdateState } from './use-update.js'
@@ -13,11 +14,13 @@ import type { WorkspacePaneController } from './workspace-pane-types.js'
 import './workspace-host.css'
 
 const api = window.namzu
+// Before anything renders, so the first render of every pane can seed from the snapshot.
+adoptBoot(api?.boot)
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error))
 
 /** The shell belongs to the native window; each stable leaf owns one conversation controller. */
 export function WorkspaceHost() {
-	const [view, setView] = useState<WorkspaceView>()
+	const [view, setView] = useState<WorkspaceView | undefined>(() => api?.boot?.workspace)
 	const current = useRef(view)
 	current.current = view
 	const [shell, setShell] = useState<HTMLDivElement | null>(null)
@@ -27,6 +30,11 @@ export function WorkspaceHost() {
 	const controllers = useRef(new Map<string, WorkspacePaneController>())
 	const localMoves = useRef(new Set<string>())
 	const acknowledging = useRef(new Set<string>())
+	// "Start on the home screen": the saved tab stays in its strip, but this launch does not
+	// open it until the person picks one.
+	const [startAtHome, setStartAtHome] = useState(
+		() => api?.boot?.launch === true && api.boot.settings.startup === 'home',
+	)
 	const [appearance, setAppearance] = useState<Appearance>(() => {
 		const saved = localStorage.getItem('namzu.appearance')
 		return saved === 'light' || saved === 'system' ? saved : 'dark'
@@ -50,6 +58,7 @@ export function WorkspaceHost() {
 	useUpdateBusyReporter(api, updateState.status !== 'disabled')
 	const updateAction = (action: UpdateDialogAction) => {
 		if (action === 'restart' || action === 'retry') void api.installUpdate?.().catch(report)
+		else if (action === 'download') void api.downloadUpdate?.().catch(report)
 		else if (action === 'later') {
 			void api.cancelUpdateInstall?.().catch(report)
 			setUpdateOpen(false)
@@ -62,6 +71,7 @@ export function WorkspaceHost() {
 					state: updateState,
 					onOpen: () => setUpdateOpen(true),
 					onCheck: () => void api.checkForUpdate?.().catch(report),
+					onDownload: () => void api.downloadUpdate?.().catch(report),
 				}
 	const keyboardCapture = useRef<boolean | null>(null)
 	const syncComputerFocus = useCallback(() => {
@@ -124,6 +134,8 @@ export function WorkspaceHost() {
 		async (value: WorkspaceAction) => {
 			if (!api.workspaceAction)
 				throw new Error('Restart the desktop app to move conversation tabs.')
+			// Choosing a tab ends the home-screen start; the choice is the person's.
+			if (value.kind === 'activate' || value.kind === 'open') setStartAtHome(false)
 			try {
 				if (value.kind === 'close') {
 					localMoves.current.add(value.groupId)
@@ -374,6 +386,7 @@ export function WorkspaceHost() {
 									(!!view.outgoingTransfer && group.tabs.includes(view.outgoingTransfer.tabId))
 								}
 								appearance={appearance}
+								startAtHome={startAtHome}
 								update={update}
 								onAppearanceChange={setAppearance}
 								sideCollapsed={sideCollapsed}

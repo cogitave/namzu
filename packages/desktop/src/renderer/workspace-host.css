@@ -10,7 +10,10 @@
 	overflow: clip;
 	border-radius: var(--content-corner-radius) 0 0 var(--content-corner-radius);
 }
-.workspace-host[data-page="plugins"] .workspace-shell > .sidebar:not(.plugins-navigation-sidebar) {
+.workspace-host[data-page="plugins"] .workspace-shell > .sidebar:not(.plugins-navigation-sidebar),
+.workspace-host[data-page="settings"]
+	.workspace-shell
+	> .sidebar:not(.settings-navigation-sidebar) {
 	display: none;
 }
 .workspace-window-error {

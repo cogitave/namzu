@@ -6,6 +6,10 @@ import { Button } from './ui/button.js'
 export interface FolderAccessCopy {
 	title: string
 	description: string
+	/** What was found or what changed, one entry each, shown as a list under the description. */
+	items?: string[]
+	/** The closing caution, below the list. */
+	note?: string
 	confirm: string
 	cancel: string
 }
@@ -22,6 +26,8 @@ export function folderAccessCopy(
 	broad?: BroadFolderKind,
 	/** What main found in the folder that can run code on its own. */
 	risky?: readonly string[],
+	/** What changed in a folder this app had already trusted. */
+	changed?: readonly string[],
 ): FolderAccessCopy {
 	if (broad)
 		return {
@@ -30,10 +36,21 @@ export function folderAccessCopy(
 			confirm: 'Allow anyway',
 			cancel: 'Choose another folder',
 		}
+	if (changed && changed.length > 0)
+		return {
+			title: 'Trust this folder?',
+			description: `These automatic settings of ${name} changed since you last trusted it:`,
+			items: [...changed],
+			note: 'Folder settings can run code automatically, even without a model request. Continue only if you trust these changes.',
+			confirm: 'Trust folder',
+			cancel: 'Cancel',
+		}
 	if (risky && risky.length > 0)
 		return {
 			title: 'Trust this folder?',
-			description: `Namzu and your selected conversation engine can read, edit and run files in ${name}. Folder settings can also run code automatically, even without a model request. This folder has ${risky.join(', ')}. Continue only if you trust these files.`,
+			description: `Namzu and your selected conversation engine can read, edit and run files in ${name}. Folder settings can also run code automatically, even without a model request. This folder has:`,
+			items: [...risky],
+			note: 'Continue only if you trust these files.',
 			confirm: 'Trust folder',
 			cancel: 'Cancel',
 		}
@@ -56,6 +73,7 @@ export function FolderAccessDialog({
 	path,
 	broad,
 	risky,
+	changed,
 	onConfirm,
 	onCancel,
 	onClose,
@@ -65,12 +83,13 @@ export function FolderAccessDialog({
 	path: string
 	broad?: BroadFolderKind
 	risky?: readonly string[]
+	changed?: readonly string[]
 	onConfirm: () => Promise<void>
 	onCancel: () => void
 	onClose: () => void
 	returnFocus: () => HTMLElement | null
 }) {
-	const copy = folderAccessCopy(name, broad, risky)
+	const copy = folderAccessCopy(name, broad, risky, changed)
 	const [pending, setPending] = useState(false)
 	const [error, setError] = useState('')
 	const cancel = useRef<HTMLButtonElement>(null)
@@ -107,7 +126,9 @@ export function FolderAccessDialog({
 				<Dialog.Backdrop className="fixed inset-0 z-[160] bg-black/50" />
 				<Dialog.Viewport className="fixed inset-0 z-[161] grid place-items-center overflow-y-auto p-4">
 					<Dialog.Popup
-						data-folder-access-dialog={broad ?? (risky?.length ? 'risky' : 'review')}
+						data-folder-access-dialog={
+							broad ?? (changed?.length ? 'changed' : risky?.length ? 'risky' : 'review')
+						}
 						initialFocus={cancel}
 						finalFocus={returnFocus}
 						className="w-full max-w-md rounded-2xl border border-border bg-background p-5 text-foreground shadow-xl outline-none"
@@ -119,13 +140,29 @@ export function FolderAccessDialog({
 						<Dialog.Description className="mt-3 text-sm text-muted-foreground">
 							{copy.description}
 						</Dialog.Description>
+						{copy.items && (
+							<ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
+								{copy.items.map((item) => (
+									<li key={item} className="break-words">
+										{item}
+									</li>
+								))}
+							</ul>
+						)}
+						{copy.note && <p className="mt-3 text-sm text-muted-foreground">{copy.note}</p>}
 						{error && (
 							<p role="alert" className="mt-3 text-sm text-destructive-foreground">
 								{error}
 							</p>
 						)}
 						<div className="mt-5 flex justify-end gap-2">
-							<Button ref={cancel} variant="outline" disabled={pending} onClick={onCancel}>
+							<Button
+								ref={cancel}
+								className="focus:ring-2 focus:ring-ring focus:ring-offset-1 focus:ring-offset-background"
+								variant="outline"
+								disabled={pending}
+								onClick={onCancel}
+							>
 								{copy.cancel}
 							</Button>
 							<Button

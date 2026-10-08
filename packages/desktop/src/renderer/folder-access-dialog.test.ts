@@ -28,8 +28,8 @@ describe('folderAccessCopy', () => {
 		expect(copy.title).toBe('Trust this folder?')
 		expect(copy.description).toContain('read, edit and run files in risky-app')
 		expect(copy.description).toContain('even without a model request')
-		expect(copy.description).toContain('hooks in .namzu/hooks, 2 MCP servers')
-		expect(copy.description).toContain('Continue only if you trust these files')
+		expect(copy.items).toEqual(['hooks in .namzu/hooks', '2 MCP servers'])
+		expect(copy.note).toContain('Continue only if you trust these files')
 		expect([copy.confirm, copy.cancel]).toEqual(['Trust folder', 'Cancel'])
 	})
 	it('keeps the broad caution ahead of the settings wording', () => {
@@ -54,5 +54,17 @@ describe('FolderAccessDialog', () => {
 			}),
 		)
 		expect(typeof html).toBe('string')
+	})
+})
+
+describe('folderAccessCopy for changed settings', () => {
+	it('names what changed since the folder was trusted', () => {
+		const copy = folderAccessCopy('docs', undefined, undefined, [
+			'hooks changed',
+			'plugin a.js added',
+		])
+		expect(copy.title).toBe('Trust this folder?')
+		expect(copy.description).toContain('changed since you last trusted it:')
+		expect(copy.items).toEqual(['hooks changed', 'plugin a.js added'])
 	})
 })

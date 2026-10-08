@@ -1,7 +1,15 @@
 /// <reference types="vite/client" />
 
+import { projectBusyReason } from '../main/project-removal.js'
 import { copyTextPayload } from '../shared/clipboard-text.js'
 import { type HistoryWorkSnapshot, restoreHistoryWork } from '../shared/history-work.js'
+import {
+	DEFAULT_LOCAL_SPEECH_SETTINGS,
+	LOCAL_SPEECH_MODEL_BYTES,
+	type LocalSpeechEvent,
+	type LocalSpeechState,
+	localSpeechSettings,
+} from '../shared/local-speech-protocol.js'
 import { emptyThread } from '../shared/projection.js'
 import type {
 	ChatMessage,
@@ -21,6 +29,11 @@ import type {
 	ProviderView,
 	WorkspaceView,
 } from '../shared/protocol.js'
+import {
+	DEFAULT_DESKTOP_SETTINGS,
+	type DesktopSettings,
+	desktopSettingsPatch,
+} from '../shared/settings-protocol.js'
 import type { UpdateState } from '../shared/update-protocol.js'
 import {
 	activateWorkspaceTab,
@@ -806,6 +819,7 @@ const updateStart = new URLSearchParams(location.search).get('update')
 let updateStateValue: UpdateState = (
 	{
 		ready: { status: 'ready', version: '0.2.0' },
+		available: { status: 'available', version: '0.2.0' },
 		downloading: { status: 'downloading', percent: 42, bytesPerSecond: 3_100_000 },
 		installing: { status: 'installing', version: '0.2.0', phase: 'preparing' },
 		waiting: { status: 'ready', version: '0.2.0', waiting: ['turn-running'] },
@@ -820,7 +834,118 @@ const setPreviewUpdate = (state: UpdateState) => {
 	set: setPreviewUpdate,
 }
 
+// Settings: the same validation as the native store, kept in memory. `?removal-busy=<project id>`
+// makes that project refuse removal the way a running reply does.
+let desktopSettingsValue: DesktopSettings = { ...DEFAULT_DESKTOP_SETTINGS }
+const busyProjectId = new URLSearchParams(location.search).get('removal-busy')
+let lastCheckedAt = Date.now() - 12 * 60_000
+const speechListeners = new Set<(event: LocalSpeechEvent) => void>()
+let speechState: LocalSpeechState = {
+	settings: { ...DEFAULT_LOCAL_SPEECH_SETTINGS },
+	installation: 'ready',
+	worker: 'unloaded',
+	device: 'cpu',
+	resources: {
+		modelDownloadBytes: LOCAL_SPEECH_MODEL_BYTES,
+		runtimeDownloadBytes: 112_000_000,
+		diskBytes: 486_000_000,
+		ramBytes: null,
+		cpuPercent: null,
+		vramBytes: null,
+		firstAudioMs: null,
+		measuredAt: null,
+	},
+}
+const setSpeechState = (next: LocalSpeechState) => {
+	speechState = next
+	for (const listener of speechListeners) listener({ type: 'state', state: clone(next) })
+	return clone(next)
+}
+
 const api: DesktopApi = {
+	settings: async () => ({ ...desktopSettingsValue }),
+	setSettings: async (patch, token) => {
+		const next = desktopSettingsPatch(patch)
+		if (
+			next.retrustOnConfigChange === false &&
+			desktopSettingsValue.retrustOnConfigChange &&
+			!token
+		)
+			return { status: 'confirm', settings: { ...desktopSettingsValue }, token: 'preview-token' }
+		desktopSettingsValue = { ...desktopSettingsValue, ...next }
+		for (const listener of listeners)
+			listener({ kind: 'settings', settings: { ...desktopSettingsValue } })
+		return { status: 'saved', settings: { ...desktopSettingsValue } }
+	},
+	desktopInfo: async () => ({
+		version: '0.1.0',
+		cliVersion: '25.3.0',
+		sdkVersion: '25.2.1',
+		platform: 'preview (browser)',
+		folders: [
+			{ kind: 'app', label: 'Desktop app data', path: '/sample/appdata/Namzu' },
+			{
+				kind: 'namzu',
+				label: 'Namzu home (conversations and trust list)',
+				path: '/sample/home/.namzu',
+			},
+			{ kind: 'diagnostics', label: 'Diagnostic logs', path: '/sample/appdata/Namzu/logs' },
+			{ kind: 'speech', label: 'Downloaded voice', path: '/sample/appdata/Namzu/local-speech' },
+		],
+		notices: 'Namzu Desktop third-party notices\n\nSample text for the design preview.\n',
+	}),
+	openDataFolder: async () => nativeOnly('Opening a folder'),
+	removeProject: async (id) => {
+		const view = project(id)
+		const sessionIds = conversations.filter((item) => item.projectId === id).map((item) => item.id)
+		if (busyProjectId === id)
+			throw new Error(
+				projectBusyReason(
+					view.name,
+					[
+						{
+							view: { id: sessionIds[0] ?? 'x' },
+							running: true,
+							queue: [],
+							permissions: new Map(),
+						},
+					],
+					new Set(),
+				) ?? 'busy',
+			)
+		for (const sessionId of sessionIds) {
+			conversations.splice(
+				conversations.findIndex((item) => item.id === sessionId),
+				1,
+			)
+			for (const group of workspaceGroups(workspace.layout.windows[0]?.root ?? null))
+				if (group.tabs.includes(sessionId))
+					commitLayout(
+						closeWorkspaceTab(workspace.layout, { windowId, groupId: group.id, tabId: sessionId }),
+					)
+		}
+		projects.splice(projects.indexOf(view), 1)
+		for (const listener of listeners)
+			listener({ kind: 'project-removed', projectId: id, sessionIds })
+		return { projectId: id, sessionIds, trust: { state: 'removed' } }
+	},
+	localSpeechState: async () => clone(speechState),
+	localSpeechConfigure: async (change) =>
+		setSpeechState({ ...speechState, settings: localSpeechSettings(change, speechState.settings) }),
+	localSpeechInstall: async () => setSpeechState({ ...speechState, installation: 'ready' }),
+	localSpeechUninstall: async () =>
+		setSpeechState({
+			...speechState,
+			installation: 'missing',
+			resources: { ...speechState.resources, diskBytes: null, runtimeDownloadBytes: null },
+		}),
+	localSpeechSpeak: async () => nativeOnly('Speaking aloud'),
+	localSpeechCancel: async () => {},
+	localSpeechAcknowledge: async () => {},
+	onLocalSpeechEvent: (listener) => {
+		speechListeners.add(listener)
+		return () => speechListeners.delete(listener)
+	},
 	copyText: async (text) => {
 		const value = copyTextPayload(text)
 		if (!navigator.clipboard?.writeText)
@@ -1509,7 +1634,19 @@ const api: DesktopApi = {
 	readJob: async () => nativeOnly('Reading a background process'),
 	stopJob: async () => nativeOnly('Stopping a background process'),
 	updateState: async () => updateStateValue,
-	checkForUpdate: async () => {},
+	updateInfo: async () => ({ currentVersion: '0.1.0', lastCheckedAt }),
+	checkForUpdate: async () => {
+		setPreviewUpdate({ status: 'checking' })
+		lastCheckedAt = Date.now()
+		await Promise.resolve()
+		if (updateStateValue.status === 'checking') setPreviewUpdate({ status: 'idle' })
+	},
+	downloadUpdate: async () => {
+		if (updateStateValue.status !== 'available') return
+		const version = updateStateValue.version
+		setPreviewUpdate({ status: 'downloading', percent: 0, bytesPerSecond: 0 })
+		setPreviewUpdate({ status: 'ready', version })
+	},
 	installUpdate: async () => {
 		if (updateStateValue.status !== 'ready') return { ok: false, error: 'No update is ready.' }
 		setPreviewUpdate({

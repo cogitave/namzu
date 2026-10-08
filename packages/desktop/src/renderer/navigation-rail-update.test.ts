@@ -8,13 +8,12 @@ const rail = (state?: UpdateState) =>
 	renderToStaticMarkup(
 		createElement(NavigationRail, {
 			section: 'home',
-			appearance: 'dark',
 			onHome: () => {},
 			onSpaces: () => {},
 			onPlugins: () => {},
+			onSettings: () => {},
 			onOpenProject: () => {},
 			onToggleSidebar: () => {},
-			onAppearanceChange: () => {},
 			update: state ? { state, onOpen: () => {}, onCheck: () => {} } : undefined,
 		}),
 	)

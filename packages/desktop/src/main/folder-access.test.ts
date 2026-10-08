@@ -208,3 +208,53 @@ describe('FolderAccess', () => {
 		await expect(setup().access.confirm('w1', 'nope')).rejects.toThrow(/Unknown project/)
 	})
 })
+
+describe('FolderAccess for a folder whose settings changed', () => {
+	it("shows the detailed dialog for a changed folder and trusts only with main's token, and refuses a broad folder", async () => {
+		const trusted: string[] = []
+		const views = new Map<string, ProjectView>([
+			[
+				'a',
+				{
+					id: 'a',
+					path: '/work/a',
+					name: 'a',
+					trusted: false,
+					status: 'ready',
+					settingsChanged: ['hooks changed'],
+				},
+			],
+			[
+				'b',
+				{
+					id: 'b',
+					path: '/home/arda',
+					name: 'b',
+					trusted: false,
+					status: 'ready',
+					settingsChanged: ['hooks changed'],
+				},
+			],
+		])
+		const access = new FolderAccess({
+			env: linux,
+			canonical: (path) => path,
+			openProject: async () => {
+				throw new Error('unused')
+			},
+			findProject: (id) => views.get(id),
+			trust: async (id) => {
+				trusted.push(id)
+				return { ...(views.get(id) as ProjectView), trusted: true }
+			},
+			findSettings: async () => ['hooks'],
+		})
+		const asked = await access.confirm('w', 'a')
+		expect(asked.trusted).toBe(false)
+		expect(asked.riskySettings?.found).toEqual(['hooks changed', 'hooks'])
+		expect(trusted).toEqual([])
+		expect((await access.confirm('w', 'a', asked.riskySettings?.token)).trusted).toBe(true)
+		expect((await access.confirm('w', 'b')).broadFolder?.kind).toBe('home')
+		expect(trusted).toEqual(['a'])
+	})
+})

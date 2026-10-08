@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import {
 	net,
@@ -23,6 +23,7 @@ import type {
 } from '../shared/pal-communication-protocol.js'
 import type {
 	AttachmentInput,
+	DesktopBoot,
 	DesktopEvent,
 	DesktopSendOptions,
 	DesktopUndoOptions,
@@ -33,6 +34,7 @@ import type {
 	PermissionResponse,
 	WorkspaceAction,
 } from '../shared/protocol.js'
+import type { DataFolderKind, DesktopInfo } from '../shared/settings-protocol.js'
 import {
 	type WorkspaceWindowBounds,
 	locateWorkspaceTab,
@@ -40,8 +42,10 @@ import {
 } from '../shared/workspace-layout.js'
 import { bundledCliEntry } from './bundled-runtime.js'
 import { ClipboardTextWriter } from './clipboard-text.js'
+import { DesktopSettingsStore } from './desktop-settings.js'
 import { DesktopDiagnostics, observeDesktopIpc, observeRendererConsole } from './diagnostics.js'
 import { externalSourceUrl } from './external-url.js'
+import { canonicalFolder } from './folder-access.js'
 import { FolderAccess } from './folder-access.js'
 import { humanComputer } from './host-computer.js'
 import { electronLinkPreviewNetwork } from './link-preview-electron.js'
@@ -55,7 +59,10 @@ import { PalStreamProxy } from './pal-stream-proxy.js'
 import { projectDraftOwner } from './project-draft-owner.js'
 import { selectRendererPage } from './renderer-page.js'
 import { desktopRuntimeNodeArgs } from './runtime-node-args.js'
+import { readRuntimeVersions } from './runtime-versions.js'
+import { SettingsConfirmation } from './settings-confirmation.js'
 import { installStreamRendererPolicy, withStreamRendererPort } from './stream-renderer-policy.js'
+import { TrustedFolderStore, createFolderTrustGuard } from './trusted-folders.js'
 import {
 	type AutoUpdaterLike,
 	UpdateController,
@@ -253,9 +260,15 @@ const command = cliEntry
 const operator = new Operator(
 	command,
 	(event: DesktopEvent) => {
-		if (event.kind === 'pal-deleted' || event.kind === 'conversation-removed') {
+		if (
+			event.kind === 'pal-deleted' ||
+			event.kind === 'conversation-removed' ||
+			event.kind === 'project-removed'
+		) {
 			try {
-				workspace.retireTabs(event.kind === 'pal-deleted' ? event.sessionIds : [event.sessionId])
+				workspace.retireTabs(
+					event.kind === 'conversation-removed' ? [event.sessionId] : event.sessionIds,
+				)
 				discardAbortedWindows()
 			} catch (error) {
 				diagnostics.record('ipc_failed', {
@@ -275,6 +288,15 @@ const operator = new Operator(
 			openPath: (path) => shell.openPath(path),
 		}),
 	),
+	createFolderTrustGuard({
+		store: new TrustedFolderStore(join(app.getPath('userData'), 'trusted-folders.json'), {
+			onError: (error, operation) =>
+				diagnostics.record('ipc_failed', { operation: `trustedFolders.${operation}`, error }),
+		}),
+		// Read on each check: the setting can change while the app runs.
+		enabled: () => settingsStore.get().retrustOnConfigChange,
+		canonical: canonicalFolder,
+	}),
 )
 /** Documents as the platform names it; the home folder's Documents when the platform has none. */
 function documentsFolder(): string {
@@ -297,6 +319,73 @@ function saveProjects(): void {
 		{ mode: 0o600 },
 	)
 	renameSync(`${file}.tmp`, file)
+}
+/** Windows created by this app start that have not read their pre-paint snapshot yet. */
+const launchWindows = new Set<string>()
+const settingsStore = new DesktopSettingsStore({
+	file: join(app.getPath('userData'), 'desktop-settings.json'),
+	onChange: (settings, previous) => {
+		windows.fanout({ kind: 'settings', settings }, (error) =>
+			diagnostics.record('renderer_failed', { error }),
+		)
+		if (settings.autoDownloadUpdates !== previous.autoDownloadUpdates) updates.autoDownloadChanged()
+		if (settings.retrustOnConfigChange && !previous.retrustOnConfigChange)
+			void operator
+				.rebaselineTrusted()
+				.catch((error) => diagnostics.record('ipc_failed', { operation: 'rebaseline', error }))
+	},
+	onError: (error, operation) =>
+		diagnostics.record('ipc_failed', {
+			operation: operation === 'read' ? 'settings' : 'setSettings',
+			error,
+		}),
+})
+/** `NAMZU_HOME`, default `~/.namzu`: where the command line keeps conversations and its trust list. */
+function namzuHome(): string {
+	const configured = process.env.NAMZU_HOME
+	return configured ? resolve(configured) : join(app.getPath('home'), '.namzu')
+}
+const dataFolders = (): Record<DataFolderKind, string> => ({
+	app: app.getPath('userData'),
+	namzu: namzuHome(),
+	diagnostics: diagnostics.directory,
+	speech: join(app.getPath('userData'), 'local-speech'),
+})
+const FOLDER_LABELS: Record<DataFolderKind, string> = {
+	app: 'Desktop app data',
+	namzu: 'Namzu home (conversations and trust list)',
+	diagnostics: 'Diagnostic logs',
+	speech: 'Downloaded voice',
+}
+function readNotices(): string | undefined {
+	try {
+		const text = readFileSync(join(here, '../THIRD-PARTY-NOTICES.txt'), 'utf8')
+		return text.length > 256 * 1024 ? text.slice(0, 256 * 1024) : text
+	} catch {
+		return undefined
+	}
+}
+function desktopInfo(): DesktopInfo {
+	const folders = dataFolders()
+	const notices = readNotices()
+	return {
+		version: app.getVersion(),
+		...readRuntimeVersions(cliEntry),
+		platform: `${process.platform} ${process.arch}`,
+		folders: (Object.keys(folders) as DataFolderKind[]).map((kind) => ({
+			kind,
+			label: FOLDER_LABELS[kind],
+			path: folders[kind],
+		})),
+		...(notices ? { notices } : {}),
+	}
+}
+/** Opens one of the app's own folders. The renderer names a kind, never a path. */
+async function openDataFolder(kind: unknown): Promise<void> {
+	const folders = dataFolders()
+	if (typeof kind !== 'string' || !Object.hasOwn(folders, kind)) throw new Error('Unknown folder.')
+	const failure = await shell.openPath(folders[kind as DataFolderKind])
+	if (failure) throw new Error('This folder does not exist yet.')
 }
 function register(): void {
 	let sequence = 0
@@ -360,6 +449,9 @@ function register(): void {
 		'conversationMarkdown',
 	])
 	const globalWrites = new Set([
+		'setSettings',
+		'removeProject',
+		'localSpeechUninstall',
 		'localSpeechConfigure',
 		'localSpeechInstall',
 		'createPal',
@@ -502,7 +594,41 @@ function register(): void {
 		discardAbortedWindows()
 		return view
 	})
+	// The one synchronous read: the first render needs the saved layout before it paints. It
+	// authenticates the exact owned main frame like every other handler, answers null on any
+	// refusal, and carries seed data only (the async reads replace all of it).
+	ipcMain.on('namzu:boot', (event) => {
+		try {
+			const context = windows.authenticate(event, page)
+			const launch = launchWindows.delete(context.id)
+			const view = workspace.view(context.id)
+			const layout = view.layout.windows.find((item) => item.id === context.id)
+			const tabs = workspaceGroups(layout?.root ?? null).flatMap((group) => group.tabs)
+			event.returnValue = {
+				settings: settingsStore.get(),
+				workspace: view,
+				projects: operator.projectsForWindow(),
+				conversations: operator.savedConversationViews(tabs),
+				launch,
+			} satisfies DesktopBoot
+		} catch (error) {
+			diagnostics.record('ipc_failed', { operation: 'boot', error })
+			event.returnValue = null
+		}
+	})
+	handle('settings', () => settingsStore.get())
+	const settingsConfirmation = new SettingsConfirmation({
+		get: () => settingsStore.get(),
+		set: (patch) => settingsStore.set(patch),
+	})
+	handleWindow('setSettings', ({ id }, patch: unknown, token: unknown) =>
+		settingsConfirmation.change(id, patch, token),
+	)
+	handle('desktopInfo', () => desktopInfo())
+	handle('openDataFolder', (kind: unknown) => openDataFolder(kind))
 	handle('updateState', () => updates.state)
+	handle('updateInfo', () => updates.info())
+	handle('downloadUpdate', () => updates.download())
 	handle('checkForUpdate', () => updates.check())
 	handle('installUpdate', () => updates.install())
 	handle('cancelUpdateInstall', () => updates.cancel())
@@ -524,6 +650,7 @@ function register(): void {
 		localSpeech.configure(settings),
 	)
 	handle('localSpeechInstall', () => localSpeech.install())
+	handle('localSpeechUninstall', () => localSpeech.uninstall())
 	registerHandler('localSpeechSpeak', ({ id }, args) => localSpeechRouting.speak(id, args[0]))
 	registerHandler('localSpeechCancel', ({ id }, args) => localSpeechRouting.cancel(id, args[0]))
 	registerHandler('localSpeechAcknowledge', ({ id }, args) =>
@@ -581,7 +708,7 @@ function register(): void {
 			menu.popup({ window: currentWindow, ...anchor, callback: resolve })
 		})
 	})
-	handle('projects', () => operator.listProjects())
+	handle('projects', () => operator.projectsForWindow())
 	handle('pals', () => operator.listPals())
 	handle('palCommunication', (sessionId: string, palId: string) =>
 		operator.palCommunication(sessionId, palId),
@@ -607,6 +734,16 @@ function register(): void {
 	)
 	handle('deletePal', (id: string, revision: number) => operator.deletePal(id, revision))
 	handle('removeConversation', (id: string) => operator.removeConversation(id))
+	handle('removeProject', async (id: string) => {
+		const result = await operator.removeProject(id)
+		// projects.json is read again at startup; a stale path would bring the project back.
+		try {
+			saveProjects()
+		} catch (error) {
+			diagnostics.record('ipc_failed', { operation: 'removeProject', error })
+		}
+		return result
+	})
 	handle('renameConversation', (id: string, title: string) =>
 		operator.renameConversation(id, title),
 	)
@@ -1014,6 +1151,8 @@ const updates = new UpdateController({
 	// Nothing is checked unless a feed was named (environment) or the build itself declares one.
 	enabled: updateFeed !== undefined || (app.isPackaged && bakedFeedDeclared(bakedUpdateConfig())),
 	feed: updateFeed,
+	autoDownload: () => settingsStore.get().autoDownloadUpdates,
+	currentVersion: app.getVersion(),
 	mainBlockers: () => {
 		// A closed window can no longer be busy.
 		updates.retainWindows(windows.entries().map(([id]) => id))
@@ -1088,9 +1227,50 @@ void app
 			productionPage: pathToFileURL(join(here, '../renderer/index.html')).href,
 			port: streamPort,
 		})
+		const openSettingsFromMenu = () => {
+			const target =
+				BrowserWindow.getFocusedWindow() ??
+				windows
+					.entries()
+					.map(([, window]) => window)
+					.find((window) => !window.isDestroyed())
+			if (!target || target.isDestroyed()) return
+			if (target.isMinimized()) target.restore()
+			target.show()
+			target.focus()
+			try {
+				target.webContents.send('namzu:event', { kind: 'open-settings' } satisfies DesktopEvent)
+			} catch (error) {
+				diagnostics.record('renderer_failed', { error })
+			}
+		}
+		const settingsItem = {
+			label: 'Settings…',
+			accelerator: 'CmdOrCtrl+,',
+			click: openSettingsFromMenu,
+		}
 		Menu.setApplicationMenu(
 			Menu.buildFromTemplate([
-				...(process.platform === 'darwin' ? [{ role: 'appMenu' as const }] : []),
+				...(process.platform === 'darwin'
+					? [
+							{
+								label: app.name,
+								submenu: [
+									{ role: 'about' as const },
+									{ type: 'separator' as const },
+									settingsItem,
+									{ type: 'separator' as const },
+									{ role: 'services' as const },
+									{ type: 'separator' as const },
+									{ role: 'hide' as const },
+									{ role: 'hideOthers' as const },
+									{ role: 'unhide' as const },
+									{ type: 'separator' as const },
+									{ role: 'quit' as const },
+								],
+							},
+						]
+					: [{ label: 'File', submenu: [settingsItem] }]),
 				{ id: 'edit', role: 'editMenu' },
 				{ id: 'view', role: 'viewMenu' },
 				{ id: 'window', role: 'windowMenu' },
@@ -1124,10 +1304,8 @@ void app
 		register()
 		updates.start()
 		const saved = workspace.snapshot().windows
-		if (saved.length) {
-			for (const layout of saved) await createWindow(layout.id, layout.bounds)
-		} else await createWindow()
 		const tabs = saved.flatMap((item) => workspaceGroups(item.root).flatMap((group) => group.tabs))
+		for (const layout of saved) launchWindows.add(layout.id)
 		let priorPaths: string[] = []
 		try {
 			const paths = JSON.parse(
@@ -1140,6 +1318,12 @@ void app
 				diagnostics.record('project_restore_failed', { error })
 		}
 		const restorePaths = [...new Set([...operator.restoredProjectPaths(tabs), ...priorPaths])]
+		// Told before any window can ask, so no first read sees "no projects" for a folder that
+		// is only waiting its turn.
+		operator.expectProjects(restorePaths)
+		if (saved.length) {
+			for (const layout of saved) await createWindow(layout.id, layout.bounds)
+		} else await createWindow()
 		void (async () => {
 			for (const path of restorePaths) {
 				if (quitting) return
@@ -1147,6 +1331,8 @@ void app
 					await operator.openProject(path)
 				} catch (error) {
 					diagnostics.record('project_restore_failed', { error })
+				} finally {
+					operator.settleExpectedProject(path)
 				}
 			}
 		})()

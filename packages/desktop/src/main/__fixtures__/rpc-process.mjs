@@ -17,7 +17,7 @@ const discovery = (id, kind, result) => {
 const releaseDiscoveries = () => {
 	for (const { id, result } of delayedDiscoveries.splice(0)) reply(id, result)
 }
-const methods = ['namzu/harnesses/list', 'namzu/harnesses/select', 'namzu/project/status', 'namzu/project/trust', 'namzu/conversations/list', 'namzu/conversations/history', 'namzu/providers/status', 'namzu/providers/models', 'namzu/providers/select', 'namzu/jobs/list', 'namzu/jobs/read', 'namzu/jobs/stop', ...(process.env.FIXTURE_LIVE_INPUT ? ['namzu/conversations/input/status', 'namzu/conversations/input'] : []), 'namzu/conversations/rename', 'namzu/conversations/fork', 'namzu/conversations/markdown', 'namzu/project/git', ...(process.env.FIXTURE_NO_CHANGES ? [] : ['namzu/project/changes', 'namzu/project/diff']), 'namzu/conversations/archived', 'namzu/conversations/unarchive']
+const methods = ['namzu/harnesses/list', 'namzu/harnesses/select', 'namzu/project/status', 'namzu/project/trust', ...(process.env.FIXTURE_NO_UNTRUST ? [] : ['namzu/project/untrust']), 'namzu/conversations/list', 'namzu/conversations/history', 'namzu/providers/status', 'namzu/providers/models', 'namzu/providers/select', 'namzu/jobs/list', 'namzu/jobs/read', 'namzu/jobs/stop', ...(process.env.FIXTURE_LIVE_INPUT ? ['namzu/conversations/input/status', 'namzu/conversations/input'] : []), 'namzu/conversations/rename', 'namzu/conversations/fork', 'namzu/conversations/markdown', 'namzu/project/git', ...(process.env.FIXTURE_NO_CHANGES ? [] : ['namzu/project/changes', 'namzu/project/diff']), 'namzu/conversations/archived', 'namzu/conversations/unarchive']
 const lines = createInterface({ input: process.stdin })
 lines.on('close', () => process.exit(0))
 lines.on('line', (line) => {
@@ -58,6 +58,10 @@ lines.on('line', (line) => {
 		else discovery(id, 'harness', result)
 	}
 	else if (method === 'namzu/project/status') reply(id, { cwd: process.cwd(), trusted: !(process.env.FIXTURE_UNTRUSTED_FILE && existsSync(process.env.FIXTURE_UNTRUSTED_FILE)) })
+	else if (method === 'namzu/project/untrust') {
+		if (process.env.FIXTURE_UNTRUST_FAILS) send({ id, error: { code: -32603, message: 'The isolated fixture could not update trust.' } })
+		else reply(id, process.env.FIXTURE_STILL_TRUSTED_BY ? { cwd: params.cwd, removed: true, trusted: true, stillTrustedBy: process.env.FIXTURE_STILL_TRUSTED_BY } : { cwd: params.cwd, removed: true, trusted: false })
+	}
 	else if (method === 'namzu/conversations/list') reply(id, process.env.FIXTURE_LIST_ROWS ? JSON.parse(process.env.FIXTURE_LIST_ROWS) : [])
 	else if (method === 'namzu/conversations/rename') reply(id, { title: params.title || 'Derived title' })
 	else if (method === 'namzu/conversations/fork') reply(id, { id: `fork-${randomUUID()}`, title: 'Forked conversation (fork)' })

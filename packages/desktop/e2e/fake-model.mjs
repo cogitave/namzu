@@ -40,7 +40,9 @@ export async function startFakeModel(rules = [], options = {}) {
 				holds.set(step.hold, entry);
 				if (!entry.released) {
 					entry.waiters.push(emit);
-					req.on("close", () => {
+					// A request's own "close" fires once its body was read, long before the client
+					// goes away; only the response closing early means the caller gave up.
+					res.on("close", () => {
 						if (!res.writableEnded)
 							entry.waiters = entry.waiters.filter((w) => w !== emit);
 					});

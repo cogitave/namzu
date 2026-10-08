@@ -1,6 +1,6 @@
 import type { ChildProcessWithoutNullStreams, spawn } from 'node:child_process'
 import { EventEmitter } from 'node:events'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
@@ -387,4 +387,29 @@ it('structurally streams PCM with consumption backpressure and finishes with one
 	child.frame({ type: 'end', requestId })
 	expect((await final).value).toMatchObject({ final: true, frame: { samplesPerChannel: 0 } })
 	expect((await stream.next()).done).toBe(true)
+})
+
+it('removes the downloaded engine, keeps the saved preferences and refuses while downloading', async () => {
+	const fixture = await setup({ installed: true, enabled: true })
+	await fixture.service.state()
+	await mkdir(join(fixture.directory, 'runtime-x', 'models'), { recursive: true })
+	await writeFile(join(fixture.directory, 'runtime-x', 'models', 'm.bin'), 'x')
+	await writeFile(join(fixture.directory, 'installation.json'), '{}')
+	const removed = await fixture.service.uninstall()
+	expect(removed).toMatchObject({
+		installation: 'missing',
+		worker: 'unloaded',
+		settings: { enabled: true },
+		resources: { diskBytes: null, runtimeDownloadBytes: null },
+	})
+	expect((await readdir(fixture.directory)).sort()).toEqual(['settings.json'])
+	await expect(
+		fixture.service.speak({ requestId: 'after-removal', text: 'Merhaba.' }),
+	).rejects.toThrow('Install the local speech engine')
+	const gate = deferred<LocalSpeechInstallation>()
+	fixture.install.mockReturnValueOnce(gate.promise)
+	const installing = fixture.service.install()
+	await expect(fixture.service.uninstall()).rejects.toThrow('Wait for the voice download')
+	gate.resolve(installation)
+	await installing
 })

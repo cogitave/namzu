@@ -14,7 +14,19 @@ import type {
 	PalSubscriptionCreate,
 	PalSubscriptionDisable,
 } from './pal-communication-protocol.js'
-import type { UpdateInstallResult, UpdateState, UpdateUiBusy } from './update-protocol.js'
+import type {
+	DataFolderKind,
+	DesktopInfo,
+	DesktopSettings,
+	SettingsChangeResult,
+	SettingsSection,
+} from './settings-protocol.js'
+import type {
+	UpdateInfo,
+	UpdateInstallResult,
+	UpdateState,
+	UpdateUiBusy,
+} from './update-protocol.js'
 export type { PalComputerInput } from '@namzu/sdk'
 import type {
 	WorkspaceDropPosition,
@@ -128,6 +140,19 @@ export interface PluginInventoryView {
 	notice?: string
 }
 
+/** What happened to a removed project's entry in Namzu's trust list. */
+export type ProjectUntrust =
+	| { state: 'removed' | 'not-connected' | 'unsupported' }
+	/** An ancestor folder is trusted, so this one still is until that entry goes. */
+	| { state: 'still-trusted'; by: string }
+
+export interface ProjectRemovalResult {
+	projectId: string
+	/** Conversations whose tabs were closed with the project. */
+	sessionIds: string[]
+	trust: ProjectUntrust
+}
+
 /** Why a folder needs an explicit in-app confirmation before it is trusted. */
 export type BroadFolderKind = 'drive' | 'home' | 'system'
 
@@ -152,6 +177,11 @@ export interface ProjectView {
 	 * the one-time proof to send back (`trustFolder` for a pending pick, else `trustProject`).
 	 */
 	riskySettings?: { found: string[]; token: string }
+	/**
+	 * The folder was trusted but its automatic settings changed since (hooks, servers, plugins,
+	 * commands…). It is treated as untrusted until the person confirms; `trust` clears this.
+	 */
+	settingsChanged?: string[]
 	/** A picked folder that is not in the app yet: only `trustFolder` adds it. */
 	pending?: true
 }
@@ -428,6 +458,11 @@ export type DesktopEvent = (
 	  }
 	| { kind: 'connection'; project: ProjectView }
 	| { kind: 'workspace'; view: WorkspaceView }
+	/** The saved preferences changed; every window follows. */
+	| { kind: 'settings'; settings: DesktopSettings }
+	/** The native menu or a shortcut asked for Settings; only the focused window gets it. */
+	| { kind: 'open-settings'; section?: SettingsSection }
+	| { kind: 'project-removed'; projectId: string; sessionIds: string[] }
 	/** A stored model list was refreshed and its rows differ; the next read returns the new rows. */
 	| { kind: 'model-catalogue-updated'; engine: string; provider: string }
 	| {
@@ -495,7 +530,25 @@ export interface ProjectLinkResolution {
 	path?: string
 	line?: number
 }
+/**
+ * What main knows before the page paints, read once through a synchronous preload call. It is
+ * seed data only: every field is replaced by the asynchronous read that follows, and a window
+ * that gets no snapshot works exactly as before.
+ */
+export interface DesktopBoot {
+	settings: DesktopSettings
+	workspace: WorkspaceView
+	/** Saved projects not yet connected read as `connecting`; ids match the ones that connect. */
+	projects: ProjectView[]
+	/** The saved views of the conversations that are open as tabs in this window. */
+	conversations: ConversationView[]
+	/** True for a window created by this app start, once; false for one opened later or reloaded. */
+	launch: boolean
+}
+
 export interface DesktopApi {
+	/** The pre-paint snapshot; absent when main did not answer. */
+	readonly boot?: DesktopBoot
 	/** Open a user-selected HTTP(S) source in the system browser. */
 	openExternal?(url: string): Promise<void>
 	/** Explicit plain-text copy; bounded to 4 MiB UTF-8 and never truncated. */
@@ -541,6 +594,8 @@ export interface DesktopApi {
 		settings: Partial<import('./local-speech-protocol.js').LocalSpeechSettings>,
 	): Promise<import('./local-speech-protocol.js').LocalSpeechState>
 	localSpeechInstall?(): Promise<import('./local-speech-protocol.js').LocalSpeechState>
+	/** Delete the downloaded voice engine; the saved speech preferences stay. */
+	localSpeechUninstall?(): Promise<import('./local-speech-protocol.js').LocalSpeechState>
 	localSpeechSpeak?(
 		input: import('./local-speech-protocol.js').LocalSpeechSpeakInput,
 	): Promise<{ requestId: string }>
@@ -556,6 +611,12 @@ export interface DesktopApi {
 	/** Native diagnostic paths and storage status; never journal or raw error payloads. */
 	diagnostics?(): Promise<DesktopDiagnosticsView>
 	setComputerKeyboardCapture?(enabled: boolean): Promise<void>
+	/** Saved preferences main acts on; changes arrive as `settings` events. */
+	settings?(): Promise<DesktopSettings>
+	setSettings?(patch: Partial<DesktopSettings>, token?: string): Promise<SettingsChangeResult>
+	desktopInfo?(): Promise<DesktopInfo>
+	/** Opens one of the app's own data folders in the file manager. */
+	openDataFolder?(kind: DataFolderKind): Promise<void>
 	windowChrome(): Promise<WindowChrome>
 	setWindowAppearance(appearance: WindowAppearance): Promise<void>
 	popupWindowMenu(menu: WindowMenu, anchor: WindowMenuAnchor): Promise<void>
@@ -600,6 +661,11 @@ export interface DesktopApi {
 	returnPalComputerControl?(id: string, generation: string): Promise<PalComputerView>
 	palComputerInput?(id: string, generation: string, input: PalComputerInput): Promise<void>
 	openProject(): Promise<ProjectView | null>
+	/**
+	 * Takes a project out of Namzu: closes its connection, removes it from the list and from
+	 * the trust list. Refused while work is running. Files and conversation journals stay.
+	 */
+	removeProject?(projectId: string): Promise<ProjectRemovalResult>
 	openChat?(): Promise<ProjectView>
 	/** Creates a new project folder in Documents, trusted and open. */
 	createProject?(): Promise<ProjectView>
@@ -698,6 +764,9 @@ export interface DesktopApi {
 	stopJob(sessionId: string, jobId: string): Promise<void>
 	/** App updates. Absent in a preview that has no updater. */
 	updateState?(): Promise<UpdateState>
+	updateInfo?(): Promise<UpdateInfo>
+	/** Fetch an update that was only offered because automatic download is off. */
+	downloadUpdate?(): Promise<void>
 	checkForUpdate?(): Promise<void>
 	/** Restart now. A blocked install waits for the next idle moment until `cancelUpdateInstall`. */
 	installUpdate?(): Promise<UpdateInstallResult>

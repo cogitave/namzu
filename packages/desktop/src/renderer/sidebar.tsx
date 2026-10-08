@@ -18,6 +18,7 @@ import {
 	SquarePenIcon,
 	XIcon,
 } from './icons.js'
+import { ProjectContextMenu } from './project-row-actions.js'
 import { createSidebarListMotion } from './sidebar-motion.js'
 import { ThreadCard, type ThreadRowActions } from './thread-card.js'
 import { Button } from './ui/button.js'
@@ -55,6 +56,7 @@ export function Sidebar({
 	onProject,
 	onConversation,
 	rowActions,
+	onRemoveProject,
 	pals,
 }: {
 	activeProject?: ProjectView
@@ -76,6 +78,8 @@ export function Sidebar({
 	onProject: (id: string) => void
 	onConversation: (view: ConversationView, collection: ConversationCollection) => void
 	rowActions?: ThreadRowActions
+	/** Absent when the host cannot remove a project; the hover button and menu are then not offered. */
+	onRemoveProject?: (project: ProjectView, trigger: HTMLElement | null) => void
 	pals?: ReactNode
 }) {
 	const [collapsedProjects, setCollapsedProjects] = useState<Record<string, boolean>>({})
@@ -215,9 +219,10 @@ export function Sidebar({
 									}))
 								}
 							>
-								<div
-									className="sidebar-project-heading"
-									data-selected={(!sessionId && projectId === project.id) || undefined}
+								<ProjectHeading
+									project={project}
+									selected={!sessionId && projectId === project.id}
+									onRemoveProject={onRemoveProject}
 								>
 									<CollapsibleTrigger
 										aria-label={`${collapsedProjects[project.id] === false ? 'Collapse' : 'Expand'} ${project.name} conversations`}
@@ -249,7 +254,7 @@ export function Sidebar({
 									>
 										<span className="sidebar-project-name">{project.name}</span>
 									</button>
-								</div>
+								</ProjectHeading>
 								<CollapsiblePanel className="sidebar-project-panel">
 									<ThreadList
 										rows={rows}
@@ -303,6 +308,70 @@ export function Sidebar({
 				</div>
 			</aside>
 		</>
+	)
+}
+
+/** The row: toggle and name from the caller, plus the remove button and the right-click menu. */
+function ProjectHeading({
+	project,
+	selected,
+	onRemoveProject,
+	children,
+}: {
+	project: ProjectView
+	selected: boolean
+	onRemoveProject?: (project: ProjectView, trigger: HTMLElement | null) => void
+	children: ReactNode
+}) {
+	const row = useRef<HTMLDivElement>(null)
+	const [menuOpen, setMenuOpen] = useState(false)
+	const removable = onRemoveProject !== undefined && !project.palId && !project.isChat
+	const props = {
+		className: 'sidebar-project-heading',
+		'data-selected': selected || undefined,
+		'data-removable': removable || undefined,
+		'data-menu-open': menuOpen || undefined,
+	}
+	const trigger = () => row.current?.querySelector<HTMLElement>('.project-row') ?? null
+	const body = (
+		<>
+			{children}
+			{removable && (
+				<Tooltip>
+					<TooltipTrigger
+						render={
+							<Button
+								variant="ghost-muted"
+								size="icon-xs"
+								className="sidebar-project-remove"
+								aria-label={`Remove ${project.name}`}
+								onClick={(event) => onRemoveProject?.(project, event.currentTarget)}
+							/>
+						}
+					>
+						<XIcon aria-hidden="true" />
+					</TooltipTrigger>
+					<TooltipPopup>Remove project…</TooltipPopup>
+				</Tooltip>
+			)}
+		</>
+	)
+	if (!removable)
+		return (
+			<div ref={row} {...props}>
+				{body}
+			</div>
+		)
+	return (
+		<ProjectContextMenu
+			label={`${project.name} actions`}
+			render={<div ref={row} {...props} />}
+			restoreFocus={trigger}
+			onOpenChange={setMenuOpen}
+			onRemove={() => onRemoveProject(project, trigger())}
+		>
+			{body}
+		</ProjectContextMenu>
 	)
 }
 

@@ -1,11 +1,9 @@
 import { Cpu, Download, Volume2 } from 'lucide-react'
-import { useId } from 'react'
+import { useId, useState } from 'react'
 import { LOCAL_SPEECH_MAX_TEXT, type LocalSpeechState } from '../shared/local-speech-protocol.js'
-import { ComposerControl } from './composer-control.js'
 import { ChevronDownIcon, SquareIcon } from './icons.js'
 import { Button } from './ui/button.js'
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from './ui/collapsible.js'
-import { Popover, PopoverPopup, PopoverTrigger } from './ui/popover.js'
 import { Select, SelectItem, SelectPopup, SelectTrigger } from './ui/select.js'
 import type { LocalSpeechControls } from './use-local-speech.js'
 import './local-speech-settings.css'
@@ -30,8 +28,20 @@ function voiceStatus(state: LocalSpeechState): string {
 }
 
 /** Pure content is also used by real-renderer browser checks. No measurement is guessed. */
-export function LocalSpeechSettingsContent({ speech }: { speech: LocalSpeechControls }) {
+export function LocalSpeechSettingsContent({
+	speech,
+	location,
+	embedded = false,
+}: {
+	speech: LocalSpeechControls
+	/** Where the downloaded voice lives, when known. */
+	location?: string
+	/** Inside the Settings page, which supplies the section heading. */
+	embedded?: boolean
+}) {
 	const languageLabelId = useId()
+	const [confirmingRemoval, setConfirmingRemoval] = useState(false)
+	const Heading = embedded ? 'h3' : 'h2'
 	const { state } = speech
 	const disabled = !speech.supported || speech.loading || speech.busy || !state
 	const downloading = state?.installation === 'installing'
@@ -40,7 +50,7 @@ export function LocalSpeechSettingsContent({ speech }: { speech: LocalSpeechCont
 	return (
 		<div className="local-speech-settings">
 			<header className="local-speech-heading">
-				<h2>Voice</h2>
+				<Heading>Voice</Heading>
 				<span className="local-speech-badge">On this device</span>
 			</header>
 			<p className="local-speech-help">Turkish speech runs on this device.</p>
@@ -53,6 +63,9 @@ export function LocalSpeechSettingsContent({ speech }: { speech: LocalSpeechCont
 				<span>Enable voice</span>
 				<input
 					type="checkbox"
+					role="switch"
+					className="settings-switch"
+					aria-checked={state?.settings.enabled ?? false}
 					checked={state?.settings.enabled ?? false}
 					disabled={disabled || downloading}
 					onChange={(event) => void speech.configure({ enabled: event.target.checked })}
@@ -83,6 +96,11 @@ export function LocalSpeechSettingsContent({ speech }: { speech: LocalSpeechCont
 				<span className="local-speech-badge">{state ? voiceStatus(state) : 'Not measured'}</span>
 			</section>
 			{state && <LocalSpeechResourceCard state={state} />}
+			{location && state?.installation === 'ready' && (
+				<p className="local-speech-help local-speech-location">
+					Stored in <span title={location}>{location}</span>
+				</p>
+			)}
 			<label className="local-speech-toggle local-speech-memory">
 				<span>
 					Free memory when idle
@@ -90,6 +108,9 @@ export function LocalSpeechSettingsContent({ speech }: { speech: LocalSpeechCont
 				</span>
 				<input
 					type="checkbox"
+					role="switch"
+					className="settings-switch"
+					aria-checked={!!state && state.settings.idleUnloadSeconds !== 0}
 					checked={!!state && state.settings.idleUnloadSeconds !== 0}
 					disabled={disabled || downloading}
 					onChange={(event) =>
@@ -128,6 +149,34 @@ export function LocalSpeechSettingsContent({ speech }: { speech: LocalSpeechCont
 						{previewing ? 'Stop preview' : 'Preview voice'}
 					</Button>
 				)}
+				{state?.installation === 'ready' &&
+					(confirmingRemoval ? (
+						<>
+							<Button
+								size="sm"
+								variant="destructive-outline"
+								disabled={disabled || downloading}
+								onClick={() => {
+									setConfirmingRemoval(false)
+									void speech.uninstall()
+								}}
+							>
+								Remove the downloaded voice
+							</Button>
+							<Button size="sm" variant="ghost" onClick={() => setConfirmingRemoval(false)}>
+								Keep it
+							</Button>
+						</>
+					) : (
+						<Button
+							size="sm"
+							variant="ghost"
+							disabled={disabled || downloading}
+							onClick={() => setConfirmingRemoval(true)}
+						>
+							Remove voice…
+						</Button>
+					))}
 				{speech.playingMessageId && !previewing && (
 					<Button size="sm" variant="ghost" onClick={speech.stop}>
 						Stop playback
@@ -192,32 +241,6 @@ export function LocalSpeechResourceCard({
 			</Collapsible>
 			<p>Memory and CPU cover the voice worker.</p>
 		</section>
-	)
-}
-
-export function LocalSpeechSettings({ speech }: { speech: LocalSpeechControls }) {
-	return (
-		<Popover>
-			<PopoverTrigger
-				render={<ComposerControl size="xs" className="local-speech-trigger" />}
-				aria-label="Voice settings"
-				title="Voice settings"
-			>
-				<Volume2 aria-hidden="true" />
-				{speech.state?.settings.enabled && <span>Türkçe</span>}
-			</PopoverTrigger>
-			<PopoverPopup
-				align="end"
-				side="top"
-				sideOffset={8}
-				padding="none"
-				className="local-speech-popup"
-				positionerClassName="local-speech-positioner"
-				aria-label="Voice settings"
-			>
-				<LocalSpeechSettingsContent speech={speech} />
-			</PopoverPopup>
-		</Popover>
 	)
 }
 

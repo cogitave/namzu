@@ -41,6 +41,7 @@ function controls(overrides: Partial<LocalSpeechControls> = {}): LocalSpeechCont
 		busy: false,
 		configure: vi.fn(),
 		install: vi.fn(),
+		uninstall: vi.fn(),
 		preview: vi.fn(),
 		readAloud: vi.fn(),
 		stop: vi.fn(),

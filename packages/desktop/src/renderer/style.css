@@ -86,8 +86,14 @@ pre {
 	border-radius: var(--content-corner-radius) 0 0 var(--content-corner-radius);
 }
 .app[data-page="plugins"] > .sidebar:not(.plugins-navigation-sidebar),
+.app[data-page="settings"] > .sidebar:not(.settings-navigation-sidebar),
+.workspace[data-page="settings"] > :not(.settings-page):not(.toast-viewport),
 .workspace[data-page="plugins"] > :not(.plugins-page) {
 	display: none;
+}
+/* The Settings page has no composer to ride above, so notices sit near the bottom edge. */
+.workspace[data-page="settings"] > .toast-viewport {
+	bottom: 24px;
 }
 .plugins-sidebar-close {
 	position: absolute;

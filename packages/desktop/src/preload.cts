@@ -1,9 +1,29 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { LocalSpeechEvent } from './shared/local-speech-protocol.js'
-import type { DesktopApi, DesktopEvent } from './shared/protocol.js'
+import type { DesktopApi, DesktopBoot, DesktopEvent } from './shared/protocol.js'
 import type { UpdateState } from './shared/update-protocol.js'
-const invoke = (name: string, ...args: unknown[]) => ipcRenderer.invoke(`namzu:${name}`, ...args)
+/** Electron prefixes a rejected invoke with its own words; only the cause is for the person. */
+const clean = (error: unknown): Error => {
+	const raw = error instanceof Error ? error.message : String(error)
+	return new Error(raw.replace(/^Error invoking remote method '[^']*': (?:Error: )?/, ''))
+}
+const invoke = (name: string, ...args: unknown[]) =>
+	ipcRenderer.invoke(`namzu:${name}`, ...args).catch((error: unknown) => {
+		throw clean(error)
+	})
+/** One synchronous read so the first render knows the saved layout; any failure falls back to the async path. */
+function readBoot(): DesktopBoot | undefined {
+	try {
+		const value = ipcRenderer.sendSync('namzu:boot') as DesktopBoot | null
+		return value && typeof value === 'object' && value.workspace && Array.isArray(value.projects)
+			? value
+			: undefined
+	} catch {
+		return undefined
+	}
+}
 const api: DesktopApi = {
+	boot: readBoot(),
 	openExternal: (url) => invoke('openExternal', url),
 	copyText: (text) => invoke('copyText', text),
 	linkPreview: (url) => invoke('linkPreview', url),
@@ -11,6 +31,7 @@ const api: DesktopApi = {
 	localSpeechState: () => invoke('localSpeechState'),
 	localSpeechConfigure: (settings) => invoke('localSpeechConfigure', settings),
 	localSpeechInstall: () => invoke('localSpeechInstall'),
+	localSpeechUninstall: () => invoke('localSpeechUninstall'),
 	localSpeechSpeak: (input) => invoke('localSpeechSpeak', input),
 	localSpeechCancel: (requestId) => invoke('localSpeechCancel', requestId),
 	localSpeechAcknowledge: (requestId, sequence) =>
@@ -24,6 +45,10 @@ const api: DesktopApi = {
 	workspaceAction: (action) => invoke('workspaceAction', action),
 	workspaceReady: (transferId) => invoke('workspaceReady', transferId),
 	workspaceCloseReady: (closeId) => invoke('workspaceCloseReady', closeId),
+	settings: () => invoke('settings'),
+	setSettings: (patch, token) => invoke('setSettings', patch, token),
+	desktopInfo: () => invoke('desktopInfo'),
+	openDataFolder: (kind) => invoke('openDataFolder', kind),
 	diagnostics: () => invoke('diagnostics'),
 	windowChrome: () => invoke('windowChrome'),
 	setComputerKeyboardCapture: (enabled) => invoke('setComputerKeyboardCapture', enabled),
@@ -56,10 +81,11 @@ const api: DesktopApi = {
 	returnPalComputerControl: (id, generation) => invoke('returnPalComputerControl', id, generation),
 	palComputerInput: (id, generation, input) => invoke('palComputerInput', id, generation, input),
 	openProject: () => invoke('openProject'),
+	removeProject: (id) => invoke('removeProject', id),
 	openChat: () => invoke('openChat'),
 	createProject: () => invoke('createProject'),
 	trustFolder: (token) => invoke('trustFolder', token),
-	reconnectProject: (id) => ipcRenderer.invoke('namzu:reconnectProject', id),
+	reconnectProject: (id) => invoke('reconnectProject', id),
 	trustProject: (id, token) => invoke('trustProject', id, token),
 	conversations: (id) => invoke('conversations', id),
 	newConversation: (id) => invoke('newConversation', id),
@@ -116,7 +142,9 @@ const api: DesktopApi = {
 	readJob: (id, job) => invoke('readJob', id, job),
 	stopJob: (id, job) => invoke('stopJob', id, job),
 	updateState: () => invoke('updateState'),
+	updateInfo: () => invoke('updateInfo'),
 	checkForUpdate: () => invoke('checkForUpdate'),
+	downloadUpdate: () => invoke('downloadUpdate'),
 	installUpdate: () => invoke('installUpdate'),
 	cancelUpdateInstall: () => invoke('cancelUpdateInstall'),
 	reportUiBusy: (busy) => invoke('reportUiBusy', busy),

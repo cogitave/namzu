@@ -15,6 +15,8 @@ export type UpdateState =
 	| { status: 'disabled' }
 	| { status: 'idle' }
 	| { status: 'checking' }
+	/** Found, not downloaded: automatic download is off and the person has not asked yet. */
+	| { status: 'available'; version: string }
 	| { status: 'downloading'; percent: number; bytesPerSecond: number }
 	| { status: 'ready'; version: string; waiting?: UpdateBlocker[]; error?: string }
 	| { status: 'installing'; version: string; phase: 'preparing' | 'installing' }
@@ -58,4 +60,11 @@ export const updateBlockerText: Record<UpdateBlocker, string> = {
 	'dialog-open': 'A dialog is open',
 	'typing-unsaved': 'You are typing',
 	'computer-session': 'A Pal computer session is open',
+}
+
+/** Facts the Settings page shows beside the state. */
+export interface UpdateInfo {
+	currentVersion: string
+	/** When a check last finished, in milliseconds since the epoch. */
+	lastCheckedAt?: number
 }

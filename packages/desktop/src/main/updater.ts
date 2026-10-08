@@ -1,5 +1,6 @@
 import {
 	type UpdateBlocker,
+	type UpdateInfo,
 	type UpdateInstallResult,
 	type UpdateState,
 	type UpdateUiBusy,
@@ -15,6 +16,7 @@ export interface AutoUpdaterLike {
 	on(event: string, listener: (...args: unknown[]) => void): unknown
 	setFeedURL(options: UpdateFeed): void
 	checkForUpdates(): Promise<unknown>
+	downloadUpdate(): Promise<unknown>
 	quitAndInstall(isSilent?: boolean, isForceRunAfter?: boolean): void
 }
 
@@ -88,6 +90,11 @@ export interface UpdateControllerOptions {
 	/** Starts the app again when the installer could not begin after the runtime was stopped. */
 	relaunch: () => void
 	broadcast: (state: UpdateState) => void
+	/** Read each time an update is found; absent means download on its own. */
+	autoDownload?: () => boolean
+	/** The running version, for the Settings page. */
+	currentVersion?: string
+	now?: () => number
 	record: (event: string, details?: Record<string, unknown>) => void
 }
 
@@ -103,6 +110,7 @@ export class UpdateController {
 	private idleTimer?: ReturnType<typeof setTimeout>
 	private installing = false
 	private started = false
+	private lastCheckedAt?: number
 
 	constructor(private readonly options: UpdateControllerOptions) {
 		this.current = { status: options.enabled ? 'idle' : 'disabled' }
@@ -112,13 +120,48 @@ export class UpdateController {
 		return this.current
 	}
 
+	/** What Settings shows beside the state. */
+	info(): UpdateInfo {
+		return {
+			currentVersion: this.options.currentVersion ?? 'unknown',
+			...(this.lastCheckedAt === undefined ? {} : { lastCheckedAt: this.lastCheckedAt }),
+		}
+	}
+
+	private get autoDownload(): boolean {
+		return this.options.autoDownload?.() ?? true
+	}
+
+	/** The setting changed. Turning it on takes an update that was only offered. */
+	autoDownloadChanged(): void {
+		if (!this.started) return
+		this.options.updater().autoDownload = this.autoDownload
+		if (this.autoDownload && this.current.status === 'available') void this.download()
+	}
+
+	/** Fetch an update that was only offered. Nothing else starts a download when auto is off. */
+	async download(): Promise<void> {
+		const state = this.current
+		if (state.status !== 'available') return
+		this.set({ status: 'downloading', percent: 0, bytesPerSecond: 0 })
+		try {
+			await this.options.updater().downloadUpdate()
+		} catch (error) {
+			this.failed(error)
+		}
+	}
+
+	private checked(): void {
+		this.lastCheckedAt = (this.options.now ?? Date.now)()
+	}
+
 	/** Wires electron-updater and schedules the first check and the periodic ones. */
 	start(): void {
 		if (this.started || !this.options.enabled) return
 		this.started = true
 		const { feed } = this.options
 		const updater = this.options.updater()
-		updater.autoDownload = true
+		updater.autoDownload = this.autoDownload
 		updater.autoInstallOnAppQuit = false
 		updater.allowDowngrade = false
 		if (feed) {
@@ -130,11 +173,14 @@ export class UpdateController {
 			if (this.current.status === 'idle' || this.current.status === 'error')
 				this.set({ status: 'checking' })
 		})
-		updater.on('update-available', () => {
-			if (this.current.status === 'checking' || this.current.status === 'idle')
-				this.set({ status: 'downloading', percent: 0, bytesPerSecond: 0 })
-		})
+		updater.on('update-available', ((info: { version?: string }) => {
+			this.checked()
+			if (this.current.status !== 'checking' && this.current.status !== 'idle') return
+			if (this.autoDownload) this.set({ status: 'downloading', percent: 0, bytesPerSecond: 0 })
+			else this.set({ status: 'available', version: info?.version ?? 'new' })
+		}) as never)
 		updater.on('update-not-available', () => {
+			this.checked()
 			if (this.current.status === 'checking') this.set({ status: 'idle' })
 		})
 		updater.on('download-progress', ((progress: { percent?: number; bytesPerSecond?: number }) => {
@@ -161,7 +207,7 @@ export class UpdateController {
 		if (!this.options.enabled) return
 		const status = this.current.status
 		if (status === 'checking' || status === 'downloading' || status === 'installing') return
-		if (status === 'ready') return
+		if (status === 'ready' || status === 'available') return
 		try {
 			await this.options.updater().checkForUpdates()
 		} catch (error) {

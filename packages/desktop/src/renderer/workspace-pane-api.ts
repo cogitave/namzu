@@ -48,6 +48,9 @@ export function createWorkspacePaneApi(
 		undoTurn,
 		deletePal,
 		removeConversation,
+		removeProject,
+		setSettings,
+		localSpeechUninstall,
 		renameConversation,
 		setConversationPinned,
 		forkConversation,
@@ -242,6 +245,35 @@ export function createWorkspacePaneApi(
 							if (event.type === 'end' || event.type === 'error')
 								speechRequests.delete(event.requestId)
 							listener(event)
+						}),
+				}
+			: {}),
+		...(localSpeechUninstall
+			? {
+					localSpeechUninstall: () =>
+						invoke(() => localSpeechUninstall(), [], {
+							global: true,
+							serializeOwner: 'local-speech',
+						}),
+				}
+			: {}),
+		...(setSettings
+			? {
+					setSettings: (patch, token) => {
+						const snapshot = structuredClone(patch)
+						return invoke(() => setSettings(snapshot, token), [], {
+							global: true,
+							serializeOwner: 'desktop-settings',
+						})
+					},
+				}
+			: {}),
+		...(removeProject
+			? {
+					removeProject: (id) =>
+						invoke(() => removeProject(id), [], {
+							global: true,
+							serializeOwner: `remove-project:${id}`,
 						}),
 				}
 			: {}),

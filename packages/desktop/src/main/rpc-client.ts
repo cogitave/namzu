@@ -61,6 +61,11 @@ export class RuntimeClient extends EventEmitter {
 	supportsArchivedConversations(): boolean {
 		return this.archivedConversations
 	}
+	private projectUntrust = false
+	/** An older runtime has no way to take a folder off the trust list. */
+	supportsProjectUntrust(): boolean {
+		return this.projectUntrust
+	}
 	private projectGit = false
 	supportsProjectGit(): boolean {
 		return this.projectGit
@@ -206,6 +211,7 @@ export class RuntimeClient extends EventEmitter {
 			'namzu/conversations/unarchive',
 		].every((method) => result.extensions?.includes(method))
 		this.projectGit = result.extensions?.includes('namzu/project/git') === true
+		this.projectUntrust = result.extensions?.includes('namzu/project/untrust') === true
 		this.projectChanges = ['namzu/project/changes', 'namzu/project/diff'].every((method) =>
 			result.extensions?.includes(method),
 		)

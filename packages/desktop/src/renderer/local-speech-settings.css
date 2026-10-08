@@ -24,7 +24,7 @@
 .local-speech-heading {
 	gap: 8px;
 }
-.local-speech-heading h2 {
+.local-speech-heading :is(h2, h3) {
 	margin: 0;
 	font-size: 14px;
 	font-weight: 500;
@@ -54,14 +54,11 @@
 }
 .local-speech-toggle input {
 	flex: none;
-	width: 14px;
-	height: 14px;
-	accent-color: var(--primary);
 	cursor: inherit;
 }
 .local-speech-toggle input:focus-visible {
 	outline: 2px solid var(--ring);
-	outline-offset: 3px;
+	outline-offset: 2px;
 }
 .local-speech-toggle:has(input:disabled) {
 	cursor: default;

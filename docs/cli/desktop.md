@@ -15,13 +15,16 @@ import CLI code or create a second agent execution loop.
 
 ## Local Turkish speech
 
-The composer's **Voice** control offers Turkish playback through EMA Lightning
-1.0.1 on this device. **Speech language** selects the synthesis language; it does
+**Settings ▸ Speech** (see [Settings](#settings)) offers Turkish playback through EMA Lightning
+1.0.1 on this device; the composer no longer carries a voice control, and **Read aloud**
+on a reply stays where it was. **Speech language** selects the synthesis language; it does
 not change the model's chat language. This engine supplies one Turkish voice and
 runs on CPU. Microphone transcription and automatic voice conversation are not
 implemented by this feature.
 
-Speech is disabled initially. **Download voice** explicitly installs an isolated
+Speech is disabled initially. **Remove voice…** deletes the downloaded engine and models
+(the saved preferences stay, and a running playback or download is stopped or refused first);
+the card shows where the voice is stored. **Download voice** explicitly installs an isolated
 Python environment below the profile's `local-speech/` directory. An installed
 app uses the CPython it carries under `resources/python`; a development run needs
 Python 3.11–3.14 already available. Nothing is downloaded or loaded by opening
@@ -118,8 +121,11 @@ so `scripts/installer-after-pack.cjs` copies the CLI's after packing. The result
 ### App updates
 
 The installed app updates itself with `electron-updater` (`src/main/updater.ts`), driven
-by a state machine of `disabled | idle | checking | downloading | ready | installing | error`.
-It downloads on its own, never installs on quit (`autoInstallOnAppQuit` is off) and never
+by a state machine of `disabled | idle | checking | available | downloading | ready | installing | error`.
+It downloads on its own unless **Download updates automatically** is off in Settings (then a
+found update is `available`: the badge and the profile menu offer **Download**, and nothing is
+fetched until it is pressed; turning the setting back on takes an offered update at once),
+never installs on quit (`autoInstallOnAppQuit` is off) and never
 downgrades. The first check is 30 seconds after launch and then every four hours; a failed
 check is quiet (a diagnostic and a "Check for updates" entry in the profile menu, never a
 dialog).
@@ -156,7 +162,7 @@ Clicking it opens a dialog with **Restart now** and **Later**; while installing 
 "Installing update / Namzu will restart when installation finishes." with a bar that is
 indeterminate ("Preparing…", then "Installing…") because the installer reports no progress,
 and it ignores Escape. A download in progress shows its real percentage. The desktop
-preview (`/preview?update=ready|downloading|installing|waiting`) draws every state without
+preview (`/preview?update=ready|available|downloading|installing|waiting`) draws every state without
 an updater; `research/updater-20261008/shots.mjs` captures them in both themes.
 
 The installer is **unsigned** (no `publisherName`). Windows SmartScreen shows "Windows
@@ -386,6 +392,10 @@ untrusted folder with such settings answers its confirmation with a token the
 same way, and a broad folder keeps the broad dialog. An ordinary folder is
 still trusted at once.
 
+A folder that was trusted but whose automatic settings have changed since asks
+again on its next connect; see
+[Trust again when automatic settings change](#trust-again-when-automatic-settings-change).
+
 **Add new project** is a two-item menu in the sidebar (empty state and workspace
 menu), the File menu, the rail's More menu, the welcome screen, the composer's
 project chooser and the command palette. **Start from scratch** has main create
@@ -399,9 +409,174 @@ existing folder** is the folder picker above, and Ctrl/⌘+O still opens it.
 A project that was just added, or selected, and is trusted lands on its home at
 once with the heading "What should we work on in *name*?" and the composer
 focused, as soon as the composer is enabled; chats and Pal workspaces keep
-"What would you like to work on?". Removing a project from the app is not a
-feature yet: no project can be removed from the sidebar except through a Pal's
-deletion.
+"What would you like to work on?". A project leaves Namzu
+through [Removing a project](#removing-a-project).
+
+## Settings
+
+**Settings** is a page of its own in the main area, like Plugins: the rail's gear, the
+profile menu's **Settings…**, the command palette's **Settings**, the File menu's **Settings…**
+(`Ctrl+,` or `⌘,`) all open it. The left column lists the sections and the right side shows
+one. A section is addressed as `settings/<section>` (`general`, `projects`, `appearance`,
+`updates`, `speech`, `about`); the search field at the top matches setting labels,
+descriptions and keywords (`src/renderer/settings-model.ts`) and a result opens its section
+and focuses that setting. Every control is a real input with a label, groups are
+fieldsets, the section list is a `nav`, and the page works at the 560px minimum window.
+Screenshots of every section in both themes, narrow, the search, and both removal
+surfaces are in [`research/settings-20261008/`](../../research/settings-20261008/).
+
+What it holds, and where each value lives (one source of truth per value):
+
+- **General** — *When Namzu starts*: `Continue where I left off` (default) or `Start on the home
+  screen`. See [Starting the app](#starting-the-app).
+- **Projects** — every project (name, path, trusted state) with **Remove…**, and *Ask again when a
+  project's automatic settings change* (default on). See
+  [Trust again when automatic settings change](#trust-again-when-automatic-settings-change).
+- **Appearance** — the theme (light, dark, system). It stays in the renderer's own storage
+  (`namzu.appearance`) because only the renderer paints it; it moved out of the profile menu.
+- **Updates** — the running version, when the last check finished, the state in words,
+  **Check for updates**, **Download update** / **Restart to update…** where the state calls for
+  them, and *Download updates automatically* (default on).
+- **Speech** — the voice status, size and location, Download, Preview, Remove and the existing
+  options (the same content the composer popover used to show).
+- **About** — the Desktop, CLI and SDK versions (read from the `package.json` files beside the
+  bundled runtime; unreadable ones read "Not found"), the platform, the data folders with
+  **Open**, and the third-party notices. A folder is opened by kind (`app`, `namzu`,
+  `diagnostics`, `speech`); the renderer never names a path.
+
+Everything main acts on lives in `desktop-settings.json` in the profile folder, written by
+`src/main/desktop-settings.ts`: atomically (temporary file then rename, mode `0600`), validated
+on every change (an unknown key or a value outside its set refuses the whole request and
+changes nothing), and broadcast to every window as a `settings` event. It is a separate file
+because `desktop-conversations.json` rejects unknown keys, so a new key there would make an
+older app refuse the file. A missing, damaged or hand-edited file never blocks startup: each
+bad entry reads as its default and the next change rewrites the file whole. The typed
+renderer API is `settings()`, `setSettings(patch)`, `desktopInfo()` and `openDataFolder(kind)`.
+
+## Starting the app
+
+With *When Namzu starts* on `Continue where I left off` (the default) a launch brings back
+the saved windows, panes and tabs, and no frame shows the home screen, the welcome or an
+empty composer while a saved tab is on its way back.
+
+- **Before the first paint.** The preload makes one synchronous read, `ipcRenderer.sendSync('namzu:boot')`,
+  which main answers only to the authenticated main frame of one of its own windows. The reply
+  (`DesktopBoot` in `src/shared/protocol.ts`, exposed as `window.namzu.boot`) holds the settings,
+  that window's workspace view, the saved folders as `connecting` placeholders with the ids they
+  will connect under, the saved views of the open tabs (used only to learn which folder a tab belongs to; they are never listed as rows, since a row is actionable only once its folder is connected), and `launch`, true once for a window the
+  app start created. It is seed data only: the asynchronous reads that follow replace all of it
+  by the same sequence rules as before, and a failed or missing reply leaves the old path in
+  place. Only the panes mounted by the launch commit seed from it (`src/renderer/startup-restore.ts`);
+  a pane opened later, or after a reload, reads live state.
+- **Folders still waiting their turn.** The restore reopens folders one after another, so a
+  first `projects()` read used to answer "none" and the welcome screen painted. Main now
+  registers the folders to reopen (`Operator.expectProjects`) before any window exists and
+  lists them as `connecting` until their connection registers; a folder that never registers is
+  reported as failed. `listProjects()`, from which `projects.json` is written, never carries a
+  placeholder.
+- **Skeleton, not home.** While the active tab restores (`restoreDecision`), the pane shows
+  a skeleton of a conversation (`RestoreSkeleton`, `data-skeleton="restore"`). The tab opens only
+  once its folder is connected, and when that folder failed to open, or is not trusted here, the
+  ordinary screen and its explanation take over. A tab whose conversation was archived or
+  removed falls back to its project's home.
+- **First paint colours.** `public/theme-boot.js`, a classic script that runs before the bundle,
+  puts the saved theme's `dark` class on `<html>` from the same `namzu.appearance` key, so the
+  first painted frame is no longer light.
+- **Start on the home screen.** The saved tab stays in the strip with nothing selected and the
+  pane shows its project's home; choosing a tab, or any other open or activate action, ends it
+  for that window. A window opened later is never affected.
+
+Measured with the real Electron harness (`instrumentFrames` in `packages/desktop/e2e/harness.mjs`
+records every painted frame, and the flow "a restart restores the same tab…" asserts on it), one
+project and one conversation, three runs before: the first painted frames were a light empty
+page (47–64 ms), the welcome with "What would you like to work on?" (268–291 ms), a blank body
+(302–318 ms), the project home (633–670 ms) and an empty transcript with the composer
+(875–893 ms), then the conversation (899–914 ms). After: an empty dark page, the skeleton, the
+conversation. The conversation itself still arrives when the folder's CLI host is up and has
+read the journal; what changed is what is painted until then.
+
+## Trust again when automatic settings change
+
+Trusting a folder in Desktop records a fingerprint of what the folder can run on its own:
+the same nine sections of `namzu.config.json` the CLI's project digest covers (a test compares
+the two lists), plus a hash of every entry in `.namzu/commands`, `.namzu/plugins`,
+`.namzu/skills` and `.namzu/agents`. A file is hashed by its whole content, streamed (not by size
+and time), a link records where it points and then what is behind it, and a config of any size is
+read. Key order and unrelated keys do not count. A part too large to read (past 64 MiB a file,
+256 MiB a tree, or 20,000 entries) is reported changed every time rather than trusted unseen.
+`MEMORY.md` is not covered: it is prompt text, not something that runs. The record is
+`trusted-folders.json` in the profile folder (`src/main/trusted-folders.ts`): the canonical
+path, a digest, one hash per part and a time. It holds hashes and entry names, never contents.
+
+On every connect, main compares the folder's current fingerprint with the record:
+
+- **No record** (a folder trusted before this existed): the current fingerprint is recorded
+  and nothing is asked. This is trust on first use, so only later changes prompt.
+- **Same**: nothing happens.
+- **Changed, and the setting is on** (the default): the folder is shown as not trusted
+  (`ProjectView.settingsChanged` lists what changed, such as "hooks changed" or "plugin a.js
+  added") and the in-app dialog "Trust this folder?" opens by itself, once per change. It says the
+  folder's automatic settings changed since it was last trusted and names them. Until it is
+  confirmed, every operator action that needs a trusted project refuses, and the tab is not
+  opened. **Trust folder** trusts and records the new fingerprint; **Cancel** leaves it
+  untrusted and reopens nothing. A broad folder still takes its own dialog.
+- **Changed, and the setting is off**: the record is brought up to date and the folder opens as
+  before. Turning the setting off asks for confirmation in an in-app dialog (Cancel is focused first); main
+  answers the first request with a one-time token bound to that window and that change, valid five
+  minutes, and applies the change only when it comes back with the token, so the renderer cannot
+  lower it alone, and turning it back on records every connected trusted folder as it is, so
+  edits made meanwhile do not prompt later.
+
+The same check runs again right before work that makes the CLI read the folder: a new
+conversation, a conversation's reattach or turn start, and a plugin change. A folder that
+changed since connect becomes untrusted at that moment and the work is refused with "This
+folder's automatic settings changed". **Trust folder** in the first dialog opens a second one
+with the same list in full (the change first, then the hooks, servers and plugins found in the
+folder); only that one, issued with a main token, trusts. A Pal workspace is not checked: it lives under the
+reserved `<home>-workspaces/pals` root that Namzu creates and trusts itself, and no repository
+content is cloned into it.
+
+The gate is Desktop's. The CLI host's own `trust.json` still says the folder is trusted, and
+the host is already running in it; Desktop simply does not send it work until the person
+answers. A fingerprint that cannot be read is recorded as a diagnostic and treated as
+unchanged.
+
+## Removing a project
+
+A project can be removed from its sidebar row (a hover **×** button, and a right-click or
+Shift+F10 menu with **Remove project…**) and from **Settings ▸ Projects**. Both ask first:
+"Remove *name*?" — "This only removes the project from Namzu. Files on your computer and
+existing conversations won't be deleted." — **Remove project** / **Cancel**. Pal workspaces and
+the chat workspace have no remove action; a Pal's workspace goes with the Pal.
+
+`Operator.removeProject` refuses a project that is still connecting, and while anything in it is active: a running, admitting
+or queued turn, a pending permission, a plugin or engine change in progress, background work
+the tracker knows about, or a running or recovery-needed job the host reports. The dialog stays
+open and says "A reply is still running in *name*…". When it is idle it, in order:
+
+1. asks the project's CLI host to remove the folder from the trust list
+   (`namzu/project/untrust`, below); a failure here refuses the whole removal, so nothing is
+   half done;
+2. closes the project's CLI connection (the project leaves the table first, so the close is
+   not reported as a failed connection);
+3. drops the project's row, conversations, tabs, drafts, pins and draft attachments from
+   `desktop-conversations.json`, `projects.json` and the open windows, and emits
+   `project-removed`, which retires the tabs in every window.
+
+It mirrors what archiving a conversation does to Desktop's own state, so drafts and pins go
+with the project. It never deletes files, and it never touches a journal: those live under
+`NAMZU_HOME/projects/<slug>` keyed by the folder, so adding the same folder back lists its
+conversations again, under a new project id, with no pins or drafts and with the trust
+question asked again.
+
+Trust is shared with the terminal CLI (`~/.namzu/trust.json`), so removing a project from
+Desktop also stops that folder being trusted for terminal use. `untrustDir(dir)` in
+`packages/cli/src/integrations/trust/store.ts` removes only the entry that names exactly this
+folder. An ancestor entry (trusting a repository root covers its subfolders) is never touched;
+when one still covers the folder the notice says "Removed *name*. The folder is still trusted
+through *path*." instead of claiming it was untrusted. A project that was not connected has no
+host to ask, and a runtime that predates `namzu/project/untrust` cannot be asked; the notice
+says the trust entry was left as it was.
 
 ## Persistent Pals
 
@@ -766,8 +941,8 @@ does not yet run a resident autonomous loop, Pal Team or external channel adapte
 
 ## Appearance and message display
 
-The app opens in its dark appearance. The bottom Profile menu offers light,
-system and dark appearance; the local choice survives window reload. The
+The app opens in its dark appearance. **Settings ▸ Appearance** offers light,
+system and dark; the local choice survives window reload. The
 two-row wordmark and phosphor-green accents match the operator CLI. Menu,
 panel and message transitions respect the system reduced-motion preference.
 In the project and engine pickers the arrow keys only move the highlight; Enter,
@@ -806,9 +981,9 @@ current conversation only when that plugin is actually enabled there, preserving
 the draft and sending no prompt. Uninstall remains disabled with an explanation
 until a desktop uninstall API exists. The page shares its mutation and ownership guards with
 the composer menu, including the restrictions on live changes. More offers
-Open folder and Toggle sidebar. Profile holds local appearance settings and
-does not claim a signed-in account. An update icon is absent until the host can
-report an available update. Scheduled is currently unavailable in the desktop
+Open folder and Toggle sidebar. Profile holds **Settings…** and the update entry and
+does not claim a signed-in account; a gear above it opens Settings. The update icon appears
+for an installable update, or for an offered one when automatic download is off. Scheduled is currently unavailable in the desktop
 preview; its disabled control never opens a conversation's background shells.
 The sidebar brand (the wordmark with a small green "Beta" badge after it) opens its
 workspace menu. The labelled New conversation row is the primary
@@ -2391,6 +2566,7 @@ ACP methods and are not automatically installed in embedded SDK servers.
 | --- | --- | --- |
 | `namzu/project/status` | none | canonical cwd and remembered trust |
 | `namzu/project/trust` | exact `cwd`, `confirmed: true` | updated trust; client must require an operator confirmation |
+| `namzu/project/untrust` | exact `cwd`, `confirmed: true` | `{cwd, removed, trusted, stillTrustedBy?}`; removes only the trust entry that names exactly this folder. `trusted` stays `true` with `stillTrustedBy` set when an ancestor entry still covers it. Used by [Removing a project](#removing-a-project); a host that does not advertise it is simply not asked |
 | `namzu/conversations/list` | none | up to 100 recent project conversations |
 | `namzu/conversations/history` | `sessionId` | bounded text messages, text `partial`, and optional ordinary `work` v1 display snapshot |
 | `namzu/conversations/archive` | exact `sessionId` | strict captured-project archive; `{sessionId, archived: true}` only for a confirmed archived journal, or `{sessionId, archived: false, missing: true}` for confirmed absence. A journal recorded under a different Namzu identity (regenerated `identity.json`) is refused with `This conversation was saved by a different Namzu identity.` and left untouched; the Desktop operator drops that sidebar row, and any restored or catalogue-only row the host reports missing, without archiving |

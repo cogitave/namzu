@@ -7,16 +7,16 @@ import { join } from 'node:path'
  * one small file and lists two directories; it never runs, imports or follows anything.
  */
 
-const CONFIG_FILE = 'namzu.config.json'
-const CONFIG_LIMIT = 1024 * 1024
-const ENTRY_CAP = 2000
+export const CONFIG_FILE = 'namzu.config.json'
+export const CONFIG_LIMIT = 1024 * 1024
+export const ENTRY_CAP = 2000
 
 function plural(count: number, one: string, many: string): string {
 	return `${count} ${count === 1 ? one : many}`
 }
 
 /** Config sections that execute or widen what may run, with how each reads in the dialog. */
-const CONFIG_SECTIONS: readonly [key: string, say: (value: unknown) => string][] = [
+export const CONFIG_SECTIONS: readonly [key: string, say: (value: unknown) => string][] = [
 	['hooks', () => 'hooks'],
 	[
 		'mcpServers',
@@ -44,7 +44,7 @@ const CONFIG_SECTIONS: readonly [key: string, say: (value: unknown) => string][]
  * reads through links, so a link in a settings position can point anywhere and is treated
  * as carrying settings.
  */
-async function entryKind(path: string): Promise<'file' | 'directory' | 'link' | undefined> {
+export async function entryKind(path: string): Promise<'file' | 'directory' | 'link' | undefined> {
 	try {
 		const info = await lstat(path)
 		if (info.isSymbolicLink()) return 'link'

@@ -11,6 +11,12 @@ export type UpdateBadge = { visible: false } | { visible: true; label: string; t
 
 /** The small download button above the profile avatar, shown only for an installable update. */
 export function updateBadge(state: UpdateState): UpdateBadge {
+	if (state.status === 'available')
+		return {
+			visible: true,
+			label: `Update available. Download version ${state.version}`,
+			tooltip: 'Update available — download',
+		}
 	if (state.status !== 'ready') return { visible: false }
 	return {
 		visible: true,
@@ -21,12 +27,14 @@ export function updateBadge(state: UpdateState): UpdateBadge {
 
 /** One polite announcement when an update first becomes ready; nothing else is announced. */
 export function updateAnnouncement(previous: UpdateState, next: UpdateState): string {
+	if (next.status === 'available' && previous.status !== 'available')
+		return `Update available. Download version ${next.version}.`
 	if (next.status === 'ready' && previous.status !== 'ready')
 		return `Update downloaded. Restart Namzu to install version ${next.version}.`
 	return ''
 }
 
-export type UpdateDialogAction = 'restart' | 'retry' | 'later' | 'close'
+export type UpdateDialogAction = 'download' | 'restart' | 'retry' | 'later' | 'close'
 
 export interface UpdateDialogModel {
 	title: string
@@ -44,6 +52,14 @@ const restartBody = 'Namzu will restart when installation finishes.'
 
 export function updateDialogModel(state: UpdateState): UpdateDialogModel | undefined {
 	switch (state.status) {
+		case 'available':
+			return {
+				title: 'Update available',
+				body: `Version ${state.version} is available. Download it now, then restart when you are ready.`,
+				reasons: [],
+				actions: ['download', 'later'],
+				dismissible: true,
+			}
 		case 'downloading':
 			return {
 				title: 'Downloading update',
@@ -106,6 +122,8 @@ export function updateMenuEntry(
 			return { label: 'Update check failed. Retry', action: 'check' }
 		case 'checking':
 			return undefined
+		case 'available':
+			return { label: `Download update (version ${state.version})`, action: 'open' }
 		case 'downloading':
 			return { label: `Downloading update (${state.percent}%)`, action: 'open' }
 		case 'ready':

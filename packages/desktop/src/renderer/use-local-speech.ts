@@ -13,6 +13,7 @@ export interface LocalSpeechRendererApi {
 	localSpeechState?(): Promise<LocalSpeechState>
 	localSpeechConfigure?(settings: Partial<LocalSpeechSettings>): Promise<LocalSpeechState>
 	localSpeechInstall?(): Promise<LocalSpeechState>
+	localSpeechUninstall?(): Promise<LocalSpeechState>
 	localSpeechSpeak?(input: LocalSpeechSpeakInput): Promise<{ requestId: string }>
 	localSpeechCancel?(requestId: string): Promise<void>
 	localSpeechAcknowledge?(requestId: string, sequence: number): Promise<void>
@@ -143,6 +144,11 @@ export class LocalSpeechController {
 
 	install = async (): Promise<void> => {
 		await this.change(() => this.api.localSpeechInstall?.())
+	}
+
+	uninstall = async (): Promise<void> => {
+		this.stop()
+		await this.change(() => this.api.localSpeechUninstall?.())
 	}
 
 	preview = async (ownerId: string | undefined): Promise<void> => {
@@ -311,6 +317,7 @@ function message(error: unknown): string {
 export interface LocalSpeechControls extends LocalSpeechSnapshot {
 	configure(settings: Partial<LocalSpeechSettings>): Promise<void>
 	install(): Promise<void>
+	uninstall(): Promise<void>
 	preview(): Promise<void>
 	readAloud(messageId: string, text: string): Promise<void>
 	stop(): void
@@ -332,6 +339,7 @@ export function useLocalSpeech(
 		...snapshot,
 		configure: controller.configure,
 		install: controller.install,
+		uninstall: controller.uninstall,
 		preview: () => controller.preview(ownerId),
 		readAloud: (messageId, text) => controller.readAloud(ownerId, messageId, text),
 		stop: controller.stop,

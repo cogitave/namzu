@@ -10,6 +10,7 @@ import {
 import './update-dialog.css'
 
 const actionLabel: Record<UpdateDialogAction, string> = {
+	download: 'Download',
 	restart: 'Restart now',
 	retry: 'Try again',
 	later: 'Later',

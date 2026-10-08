@@ -5,6 +5,7 @@ import {
 	cpSync,
 	mkdirSync,
 	mkdtempSync,
+	readFileSync,
 	rmSync,
 	symlinkSync,
 	writeFileSync,
@@ -125,6 +126,22 @@ export async function launch(world) {
 	world.faults = [];
 	page.on("pageerror", (e) => world.faults.push(e.message));
 	return { app, page };
+}
+
+/**
+ * Make the frozen copy record every frame it paints (window.__frames), from before the bundle.
+ * Call with the app closed and before the launch to measure; the file lives only in the copy.
+ */
+export function instrumentFrames(world) {
+	const renderer = join(freezeApp(world.root), "dist/renderer");
+	cpSync(join(here, "frame-probe.js"), join(renderer, "frame-probe.js"));
+	const index = join(renderer, "index.html");
+	const html = readFileSync(index, "utf8");
+	if (!html.includes("frame-probe.js"))
+		writeFileSync(
+			index,
+			html.replace("<title>", '<script src="./frame-probe.js"></script><title>'),
+		);
 }
 
 export async function relaunch(world) {

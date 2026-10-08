@@ -712,3 +712,52 @@ it('focuses the originating group before creating a session and grants provision
 	expect(created.has('new')).toBe(true)
 	expect(saveDraft).toHaveBeenCalledExactlyOnceWith('new', 'first message')
 })
+
+describe('settings and project removal', () => {
+	it('sends them as global writes that a frozen or closed pane refuses', async () => {
+		const removeProject = vi.fn(async (id: string) => ({
+			projectId: id,
+			sessionIds: [],
+			trust: { state: 'removed' as const },
+		}))
+		const setSettings = vi.fn(async (patch) => ({
+			status: 'saved' as const,
+			settings: {
+				startup: 'continue' as const,
+				retrustOnConfigChange: true,
+				autoDownloadUpdates: true,
+				...patch,
+			},
+		}))
+		const localSpeechUninstall = vi.fn(async () => ({}) as never)
+		let blocked = false
+		const controller = createWorkspacePaneApi(
+			bridge({ removeProject, setSettings, localSpeechUninstall }),
+			{ owns: () => true, blocked: () => blocked },
+		)
+		await expect(controller.api.removeProject!('p1')).resolves.toMatchObject({ projectId: 'p1' })
+		await expect(controller.api.setSettings!({ startup: 'home' })).resolves.toMatchObject({
+			settings: { startup: 'home' },
+		})
+		await controller.api.localSpeechUninstall!()
+		expect(removeProject).toHaveBeenCalledWith('p1')
+		expect(localSpeechUninstall).toHaveBeenCalledOnce()
+		blocked = true
+		await expect(controller.api.removeProject!('p2')).rejects.toThrow('moving')
+		await expect(controller.api.setSettings!({ startup: 'continue' })).rejects.toThrow('moving')
+		expect(removeProject).toHaveBeenCalledTimes(1)
+		blocked = false
+		controller.invalidate()
+		await expect(controller.api.removeProject!('p3')).rejects.toThrow('closed')
+		expect(setSettings).toHaveBeenCalledTimes(1)
+	})
+
+	it('leaves them absent when the bridge has none', () => {
+		const controller = createWorkspacePaneApi(bridge({}), {
+			owns: () => true,
+			blocked: () => false,
+		})
+		expect(controller.api.removeProject).toBeUndefined()
+		expect(controller.api.setSettings).toBeUndefined()
+	})
+})

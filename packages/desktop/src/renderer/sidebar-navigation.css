@@ -32,6 +32,25 @@
 	background: var(--sidebar-row-hover);
 }
 
+.sidebar-project-heading {
+	position: relative;
+}
+.sidebar-project-heading .sidebar-project-remove {
+	flex: none;
+	margin-right: 4px;
+	visibility: hidden;
+	transition: none;
+}
+.sidebar-project-heading:hover .sidebar-project-remove,
+.sidebar-project-heading:has(:focus-visible) .sidebar-project-remove,
+.sidebar-project-heading[data-menu-open] .sidebar-project-remove {
+	visibility: visible;
+}
+@media (hover: none) {
+	.sidebar-project-heading .sidebar-project-remove {
+		visibility: visible;
+	}
+}
 .sidebar-project-heading .sidebar-project-toggle {
 	width: 28px;
 	height: 32px;

@@ -178,3 +178,28 @@ describe('window facts', () => {
 		expect(sameUiBusy(quiet, { ...quiet, typingRecent: true })).toBe(false)
 	})
 })
+
+describe('an offered update (automatic download off)', () => {
+	const available: UpdateState = { status: 'available', version: '0.3.0' }
+
+	it('shows the badge and announces it once, offering Download rather than Restart', () => {
+		expect(updateBadge(available)).toEqual({
+			visible: true,
+			label: 'Update available. Download version 0.3.0',
+			tooltip: 'Update available — download',
+		})
+		expect(updateAnnouncement({ status: 'checking' }, available)).toBe(
+			'Update available. Download version 0.3.0.',
+		)
+		expect(updateAnnouncement(available, available)).toBe('')
+		expect(updateDialogModel(available)).toMatchObject({
+			title: 'Update available',
+			actions: ['download', 'later'],
+			dismissible: true,
+		})
+		expect(updateMenuEntry(available)).toEqual({
+			label: 'Download update (version 0.3.0)',
+			action: 'open',
+		})
+	})
+})

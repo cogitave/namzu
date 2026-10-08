@@ -3,23 +3,19 @@ import { type ReactNode, type RefObject, useEffect, useRef, useState } from 'rea
 import type { UpdateState } from '../shared/update-protocol.js'
 import { AddProjectItems } from './add-project-menu.js'
 import {
-	CheckIcon,
 	DownloadIcon,
 	FoldersFilledIcon,
 	FoldersIcon,
 	HistoryIcon,
 	HomeFilledIcon,
 	HomeIcon,
-	MonitorIcon,
-	MoonIcon,
 	MoreHorizontalIcon,
 	PanelLeftIcon,
 	PuzzleFilledIcon,
 	PuzzleIcon,
-	SunIcon,
+	SettingsIcon,
 	UserRoundIcon,
 } from './icons.js'
-import type { Appearance } from './sidebar.js'
 import { Button } from './ui/button.js'
 import { Tooltip, TooltipPopup, TooltipTrigger } from './ui/tooltip.js'
 import { updateAnnouncement, updateBadge, updateMenuEntry } from './update-model.js'
@@ -27,27 +23,25 @@ import './navigation-rail.css'
 
 export function NavigationRail({
 	section,
-	appearance,
 	onHome,
 	onSpaces,
 	onPlugins,
+	onSettings,
 	onOpenProject,
 	onCreateProject,
 	onToggleSidebar,
 	openProjectDisabled = false,
-	onAppearanceChange,
 	update,
 }: {
-	section: 'home' | 'spaces' | 'plugins'
-	appearance: Appearance
+	section: 'home' | 'spaces' | 'plugins' | 'settings'
 	onHome: () => void
 	onSpaces: () => void
 	onPlugins: () => void
+	onSettings: () => void
 	onOpenProject: () => void
 	onCreateProject?: () => void
 	onToggleSidebar: () => void
 	openProjectDisabled?: boolean
-	onAppearanceChange: (appearance: Appearance) => void
 	/** Absent in a window that has no updater. */
 	update?: { state: UpdateState; onOpen: () => void; onCheck: () => void }
 }) {
@@ -89,6 +83,14 @@ export function NavigationRail({
 				</RailMenuPopup>
 			</RailMenuRoot>
 			<div className="rail-spacer" />
+			<RailButton
+				label="Settings"
+				tooltip={`Settings (${typeof navigator !== 'undefined' && /Mac/.test(navigator.platform) ? '⌘,' : 'Ctrl+,'})`}
+				active={section === 'settings'}
+				onClick={onSettings}
+			>
+				<SettingsIcon />
+			</RailButton>
 			{update && <UpdateRailButton state={update.state} onOpen={update.onOpen} />}
 			<RailMenuRoot triggerRef={profileTrigger}>
 				<RailMenuTrigger label="Profile" profile triggerRef={profileTrigger}>
@@ -96,36 +98,13 @@ export function NavigationRail({
 						<UserRoundIcon />
 					</span>
 				</RailMenuTrigger>
-				<RailMenuPopup label="Profile and appearance" align="end" triggerRef={profileTrigger}>
+				<RailMenuPopup label="Profile" align="end" triggerRef={profileTrigger}>
 					<div className="rail-profile-copy">Namzu on this device</div>
+					<Menu.Item className="rail-menu-item" onClick={onSettings}>
+						<SettingsIcon />
+						Settings…
+					</Menu.Item>
 					{update && <UpdateMenuItem state={update.state} update={update} />}
-					<Menu.Separator className="rail-menu-separator" />
-					<Menu.Group>
-						<Menu.GroupLabel className="rail-menu-label">Appearance</Menu.GroupLabel>
-						<Menu.RadioGroup
-							value={appearance}
-							onValueChange={(value: string) => {
-								if (value === 'light' || value === 'dark' || value === 'system')
-									onAppearanceChange(value)
-							}}
-						>
-							{(
-								[
-									{ value: 'light', label: 'Light', Icon: SunIcon },
-									{ value: 'dark', label: 'Dark', Icon: MoonIcon },
-									{ value: 'system', label: 'System', Icon: MonitorIcon },
-								] as const
-							).map(({ value, label, Icon }) => (
-								<Menu.RadioItem key={value} className="rail-menu-item" value={value} closeOnClick>
-									<Icon />
-									<span>{label}</span>
-									<Menu.RadioItemIndicator className="rail-menu-check">
-										<CheckIcon />
-									</Menu.RadioItemIndicator>
-								</Menu.RadioItem>
-							))}
-						</Menu.RadioGroup>
-					</Menu.Group>
 				</RailMenuPopup>
 			</RailMenuRoot>
 		</nav>

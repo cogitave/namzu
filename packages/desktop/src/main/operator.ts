@@ -50,6 +50,8 @@ import type {
 	ProjectFileEntry,
 	ProjectGitView,
 	ProjectLinkResolution,
+	ProjectRemovalResult,
+	ProjectUntrust,
 	ProjectView,
 	ProviderView,
 } from '../shared/protocol.js'
@@ -78,8 +80,10 @@ import { PalCommunicationManager } from './pal-communication.js'
 import type { PalStreamProxy } from './pal-stream-proxy.js'
 import { projectDraftOwner } from './project-draft-owner.js'
 import { ProjectFiles, confineProjectPath, resolveProjectLinks } from './project-files.js'
+import { parseUntrust, projectBusyReason, withoutProject } from './project-removal.js'
 import { RuntimeClient, type RuntimeCommand } from './rpc-client.js'
 import { SupersededConversationSettingsError } from './superseded-settings.js'
+import type { FolderTrustGuard } from './trusted-folders.js'
 
 interface PendingMessage {
 	id: string
@@ -356,6 +360,7 @@ export class Operator {
 	/** Archived rows last shown per project, so a restore knows which project owns the id. */
 	private readonly archivedOwners = new Map<string, string>()
 	private readonly projects = new Map<string, Project>()
+	private readonly removingProjects = new Set<string>()
 	private readonly projectStarting = new Map<string, Promise<ProjectView>>()
 	private readonly conversations = new Map<string, Conversation>()
 	private readonly projectDrafts = new Map<
@@ -385,6 +390,7 @@ export class Operator {
 		private readonly diagnostics?: DesktopDiagnosticSink,
 		private readonly streamProxy?: Pick<PalStreamProxy, 'onClosed' | 'open' | 'close'>,
 		private readonly openIn?: Pick<OpenIn, 'editors' | 'open'>,
+		private readonly folderGuard?: FolderTrustGuard,
 	) {
 		this.backgroundWork = new BackgroundWorkStatusTracker((event) => this.publish(event))
 		this.communication = new PalCommunicationManager(
@@ -1214,6 +1220,9 @@ export class Operator {
 			event.kind !== 'connection' &&
 			event.kind !== 'workspace' &&
 			event.kind !== 'pal-deleted' &&
+			event.kind !== 'project-removed' &&
+			event.kind !== 'settings' &&
+			event.kind !== 'open-settings' &&
 			event.kind !== 'model-catalogue-updated'
 		) {
 			const id = event.kind === 'permission' ? event.request.sessionId : event.sessionId
@@ -1264,6 +1273,58 @@ export class Operator {
 	}
 	listProjects(): ProjectView[] {
 		return [...this.projects.values()].map(({ view }) => ({ ...view }))
+	}
+	/**
+	 * Folders the app is about to reopen from the last run, keyed by path. Until a folder's
+	 * connection is registered the window is told it is `connecting`, so a launch never reads
+	 * as "no projects" while the sequential restore has not reached them yet.
+	 */
+	private readonly expectedProjects = new Map<string, ProjectView>()
+	expectProjects(paths: readonly string[]): void {
+		for (const path of paths) {
+			const saved = this.savedDesktop?.projects.find((item) => item.path === path)
+			if (!saved || this.expectedProjects.has(path)) continue
+			const palId = this.savedDesktop?.conversations.find(
+				(item) => item.view.projectId === saved.id && item.view.palId,
+			)?.view.palId
+			this.expectedProjects.set(path, {
+				id: saved.id,
+				path,
+				name: basename(path),
+				trusted: false,
+				status: 'connecting',
+				...(palId ? { palId } : {}),
+			})
+		}
+	}
+	/** The restore of this folder is over; a folder that never registered is reported as failed. */
+	settleExpectedProject(path: string): void {
+		const placeholder = this.expectedProjects.get(path)
+		if (!placeholder) return
+		this.expectedProjects.delete(path)
+		if ([...this.projects.values()].some(({ view }) => view.path === path)) return
+		this.emit({
+			kind: 'connection',
+			project: { ...placeholder, status: 'error', error: 'Namzu could not open this folder.' },
+		})
+	}
+	/** What a window reads: the connected projects, then the ones still to be reopened. */
+	projectsForWindow(): ProjectView[] {
+		const listed = this.listProjects()
+		const known = new Set(listed.map((item) => item.path))
+		return [
+			...listed,
+			...[...this.expectedProjects.values()]
+				.filter((item) => !known.has(item.path))
+				.map((item) => ({ ...item })),
+		]
+	}
+	/** Saved views of the given conversations (open tabs), for the pre-paint snapshot. */
+	savedConversationViews(ids: readonly string[]): ConversationView[] {
+		const wanted = new Set(ids)
+		return (this.savedDesktop?.conversations ?? [])
+			.filter((item) => wanted.has(item.view.id))
+			.map((item) => ({ ...item.view }))
 	}
 	async openChat(): Promise<ProjectView> {
 		if (this.closing) throw new Error('Namzu is closing.')
@@ -1418,6 +1479,16 @@ export class Operator {
 			}
 			if (this.closing) throw new Error('Namzu is closing.')
 			view.trusted = status.trusted === true
+			if (view.trusted && !status.pal) {
+				// The host says trusted, but the folder's automatic settings may have changed since
+				// this app trusted it: until the person confirms again it behaves as untrusted.
+				const changed = await this.settingsChangedSinceTrust(cwd)
+				if (this.closing) throw new Error('Namzu is closing.')
+				if (changed.length > 0) {
+					view.trusted = false
+					view.settingsChanged = changed
+				}
+			}
 			if (status.pal) {
 				view.palId = status.pal.id
 				view.name = status.pal.name
@@ -1437,6 +1508,7 @@ export class Operator {
 	private project(id: unknown): Project {
 		if (this.closing) throw new Error('Namzu is closing.')
 		if (typeof id !== 'string') throw new Error('Invalid project.')
+		if (this.removingProjects.has(id)) throw new Error('This project is being removed.')
 		const project = this.projects.get(id)
 		if (!project || project.view.status !== 'ready')
 			throw new Error('Reopen this project to connect Namzu.')
@@ -1463,7 +1535,47 @@ export class Operator {
 			confirmed: true,
 		})
 		project.view.trusted = true
+		project.view.settingsChanged = undefined
+		await this.recordTrustedSettings(project.view.path)
 		return { ...project.view }
+	}
+	/** Fail open on a read error: the host's own trust still applies, and the error is recorded. */
+	private async settingsChangedSinceTrust(path: string): Promise<string[]> {
+		if (!this.folderGuard) return []
+		try {
+			return await this.folderGuard.check(path)
+		} catch (error) {
+			this.diagnostics?.record('ipc_failed', { operation: 'folderFingerprint', error })
+			return []
+		}
+	}
+	/**
+	 * The CLI reads a folder's hooks, plugins and commands when a session is created, long after
+	 * connect: look again right before work that makes it read them. A folder that changed is
+	 * untrusted until the person answers, and the work is refused.
+	 */
+	private async assertSettingsUnchanged(project: Project): Promise<void> {
+		if (!this.folderGuard || project.view.palId || !project.view.trusted) return
+		const changed = await this.settingsChangedSinceTrust(project.view.path)
+		if (changed.length === 0) return
+		project.view.trusted = false
+		project.view.settingsChanged = changed
+		this.emit({ kind: 'connection', project: { ...project.view } })
+		throw new Error('This folder’s automatic settings changed. Review and trust it again.')
+	}
+	/** The re-prompt setting went from off to on: what changed while it was off is not news. */
+	async rebaselineTrusted(): Promise<void> {
+		for (const project of [...this.projects.values()]) {
+			if (project.view.status !== 'ready' || !project.view.trusted || project.view.palId) continue
+			await this.recordTrustedSettings(project.view.path)
+		}
+	}
+	private async recordTrustedSettings(path: string): Promise<void> {
+		try {
+			await this.folderGuard?.record(path)
+		} catch (error) {
+			this.diagnostics?.record('ipc_failed', { operation: 'folderFingerprint', error })
+		}
 	}
 	async listConversations(id: string): Promise<ConversationView[]> {
 		const known = this.projects.get(id)
@@ -1682,6 +1794,149 @@ export class Operator {
 			return { sessionId, removed: true, archived }
 		} finally {
 			this.archivingConversations.delete(sessionId)
+		}
+	}
+	/**
+	 * Takes a project out of Namzu. Its host connection is closed, its row, tabs, drafts and
+	 * pins are forgotten, and its folder leaves the trust list. Nothing on disk is deleted:
+	 * the folder and the conversation journals stay, so opening the folder again lists its
+	 * conversations. Refused while any work in the project is still running.
+	 */
+	async removeProject(projectId: unknown): Promise<ProjectRemovalResult> {
+		if (this.closing) throw new Error('Namzu is closing.')
+		if (typeof projectId !== 'string' || !projectId.trim() || projectId.length > 400)
+			throw new Error('Invalid project.')
+		if (this.removingProjects.has(projectId))
+			throw new Error('This project is already being removed.')
+		const project = this.projects.get(projectId)
+		if (!project) throw new Error('This project is no longer in Namzu.')
+		const { view } = project
+		if (view.palId) throw new Error('A Pal’s workspace is removed by deleting the Pal.')
+		if (view.isChat) throw new Error('The chat workspace cannot be removed.')
+		// A connection still starting would report itself back into the list after it was removed.
+		if (view.status === 'connecting')
+			throw new Error(`${view.name} is still connecting. Wait a moment, then remove the project.`)
+		const ofProject = () =>
+			[...this.conversations.values()].filter((item) => item.view.projectId === projectId)
+		const assertIdle = () => {
+			if (this.projects.get(projectId) !== project)
+				throw new Error('This project changed while removing it. Try again.')
+			const busy = projectBusyReason(view.name, ofProject(), this.changingPlugins)
+			if (busy) throw new Error(busy)
+			for (const item of ofProject())
+				if (
+					this.archivingConversations.has(item.view.id) ||
+					this.pendingConversationRemovals.has(item.view.id)
+				)
+					throw new Error(`${view.name} is still changing. Wait a moment, then remove the project.`)
+			const background = this.backgroundWork.snapshot()
+			for (const item of ofProject()) {
+				const status = background[item.view.id]
+				if (status?.state === 'known' && status.runningCount > 0)
+					throw new Error(
+						`Background work is still running in ${view.name}. Stop it, then remove the project.`,
+					)
+			}
+		}
+		assertIdle()
+		this.removingProjects.add(projectId)
+		try {
+			if (view.status === 'ready' && view.trusted) {
+				// Jobs live in the host this removal closes, so a running one is a reason to wait.
+				const loaded = ofProject().filter(
+					(item) => item.hasPrompted && !item.needsHistory && item.client === project.client,
+				)
+				for (const item of loaded.slice(0, 50)) {
+					let jobs: unknown
+					try {
+						jobs = await project.client.request(
+							'namzu/jobs/list',
+							{ sessionId: item.runtimeSessionId },
+							8_000,
+						)
+					} catch {
+						// An unreadable job list is unknown, not a reason; the same policy as updates.
+						continue
+					}
+					if (
+						Array.isArray(jobs) &&
+						jobs.some((job) => job?.status === 'running' || job?.recoveryRequired)
+					)
+						throw new Error(
+							`Background work is still running in ${view.name}. Stop it, then remove the project.`,
+						)
+				}
+				assertIdle()
+			}
+			let trust: ProjectUntrust
+			if (view.status !== 'ready') trust = { state: 'not-connected' }
+			else if (!project.client.supportsProjectUntrust()) trust = { state: 'unsupported' }
+			else {
+				try {
+					trust = parseUntrust(
+						await project.client.request('namzu/project/untrust', {
+							cwd: view.path,
+							confirmed: true,
+						}),
+					)
+				} catch (error) {
+					this.diagnostics?.record('ipc_failed', { operation: 'removeProject', error })
+					throw new Error(
+						'Namzu could not take this folder off its trust list, so nothing was removed. Try again.',
+					)
+				}
+				assertIdle()
+			}
+			// Leave the map first so the connection's own close is not reported as a failure.
+			this.projects.delete(projectId)
+			this.backgroundWork.invalidateProject(projectId)
+			try {
+				await this.closeClient(project.client)
+			} catch (error) {
+				this.diagnostics?.record('ipc_failed', { operation: 'removeProject', error })
+			}
+			const sessionIds = new Set<string>()
+			for (const item of this.conversations.values())
+				if (item.view.projectId === projectId) sessionIds.add(item.view.id)
+			for (const id of project.conversationCatalogue?.keys() ?? []) sessionIds.add(id)
+			for (const item of this.savedDesktop?.conversations ?? [])
+				if (item.view.projectId === projectId) sessionIds.add(item.view.id)
+			const retiredOwners = new Set(sessionIds)
+			for (const id of sessionIds) {
+				this.conversations.delete(id)
+				this.attachmentPreviews.forget(id)
+				this.backgroundWork.invalidate(id)
+			}
+			const isProjectDraft = (ownerId: string) => {
+				try {
+					return projectDraftOwner(ownerId)?.projectId === projectId
+				} catch {
+					return false
+				}
+			}
+			for (const ownerId of [...this.projectDrafts.keys()])
+				if (isProjectDraft(ownerId)) {
+					retiredOwners.add(ownerId)
+					this.projectDrafts.delete(ownerId)
+				}
+			for (const [attachmentId, file] of this.attachmentFiles)
+				if (retiredOwners.has(file.ownerId)) this.attachmentFiles.delete(attachmentId)
+			for (const [id, owner] of this.archivedOwners)
+				if (owner === projectId) this.archivedOwners.delete(id)
+			this.projectFiles.invalidate(view.path)
+			if (this.savedDesktop)
+				this.savedDesktop = withoutProject(
+					this.savedDesktop,
+					projectId,
+					isProjectDraft,
+					retiredOwners,
+				)
+			this.persistDesktop(true)
+			const retired = [...sessionIds]
+			this.emit({ kind: 'project-removed', projectId, sessionIds: retired })
+			return { projectId, sessionIds: retired, trust }
+		} finally {
+			this.removingProjects.delete(projectId)
 		}
 	}
 	/** Re-publishes one conversation's identity after a title, pin or fork change. */
@@ -2078,6 +2333,7 @@ export class Operator {
 	async newConversation(projectId: string): Promise<ConversationView> {
 		const project = this.project(projectId)
 		if (!project.view.trusted) throw new Error('Trust this folder first.')
+		await this.assertSettingsUnchanged(project)
 		this.assertPalAdmission(project.view.palId)
 		const palId = project.view.palId
 		if (palId)
@@ -2446,6 +2702,7 @@ export class Operator {
 		},
 	): Promise<void> {
 		if (!session.needsLoad) return
+		await this.assertSettingsUnchanged(this.project(session.view.projectId))
 		if (session.reattaching) return await session.reattaching
 		const project = this.project(session.view.projectId)
 		if (!project.view.trusted) throw new Error('Trust this folder first.')
@@ -2853,6 +3110,7 @@ export class Operator {
 			typeof enabled !== 'boolean'
 		)
 			throw new Error('Invalid plugin choice.')
+		await this.assertSettingsUnchanged(this.project(session.view.projectId))
 		this.changingPlugins.add(sessionId)
 		session.selectionRevision = (session.selectionRevision ?? 0) + 1
 		try {
@@ -3101,6 +3359,7 @@ export class Operator {
 			throw new Error('Invalid attachments.')
 		if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 50_000)
 			throw new Error('Enter a message under 50,000 characters.')
+		if (!session.running) await this.assertSettingsUnchanged(this.project(session.view.projectId))
 		if (
 			!session.running ||
 			!!session.projection.stopReason ||
