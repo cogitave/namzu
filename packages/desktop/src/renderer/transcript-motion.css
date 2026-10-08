@@ -304,10 +304,10 @@
 	padding-left: 4px;
 }
 
-/* The stage line: the work's current stage under the clock. Only it shimmers; a decision wait holds still. */
+/* The status line: one muted line at the bottom of the live block. It shimmers; a decision wait holds still. */
 .normal-transcript .stage-line {
 	display: block;
-	margin: 10px 0 0;
+	margin: 2px 0 0;
 	min-width: 0;
 	font-size: 14px;
 	line-height: 20px;
@@ -337,9 +337,28 @@
 	color: var(--muted-foreground);
 	animation: none;
 }
+/* Narration being written: its trailing line carries the same soft sweep, so the newest words fade in. */
+.normal-transcript .message.commentary[data-streaming] .message-text > :last-child:is(p, ul, ol) {
+	background-image: linear-gradient(
+		105deg,
+		var(--foreground) 35%,
+		var(--muted-foreground) 50%,
+		var(--foreground) 65%
+	);
+	background-size: 240% 100%;
+	background-clip: text;
+	-webkit-background-clip: text;
+	color: transparent;
+	animation: working-shine 2.2s linear infinite;
+}
 @media (prefers-reduced-motion: reduce) {
 	.normal-transcript .stage-text {
 		background: none;
 		color: var(--foreground);
+	}
+	.normal-transcript .message.commentary[data-streaming] .message-text > :last-child:is(p, ul, ol) {
+		background: none;
+		color: var(--foreground);
+		animation: none;
 	}
 }

@@ -97,6 +97,48 @@ function declinedCopy(value: unknown): { note?: string } {
 	return typeof note === 'string' && note ? { note } : {}
 }
 
+/**
+ * The plain-words label for a tool whose name is known, so a saved row never reads "Used todo
+ * write". Mirrors the SDK's saved-view name map (`engineSavedView`); both tests pin the same table.
+ */
+const knownActionLabels: ReadonlyArray<readonly [ReadonlySet<string>, string]> = [
+	[
+		new Set([
+			'todowrite',
+			'todo_write',
+			'update_plan',
+			'taskcreate',
+			'taskupdate',
+			'tasklist',
+			'taskget',
+		]),
+		'Updated tasks',
+	],
+	[new Set(['task', 'agent', 'spawnagent', 'spawn_agent']), 'Ran agent'],
+	[new Set(['wait', 'wait_agent', 'waitagent']), 'Waited for agent'],
+	[
+		new Set([
+			'close_agent',
+			'closeagent',
+			'interrupt_agent',
+			'interruptagent',
+			'kill_agent',
+			'killagent',
+		]),
+		'Stopped agent',
+	],
+]
+
+export function knownActionLabel(name: string): string | undefined {
+	const last =
+		name
+			.split(/[:.]|__/)
+			.filter(Boolean)
+			.pop() ?? name
+	const key = last.toLowerCase()
+	return knownActionLabels.find(([names]) => names.has(key))?.[1]
+}
+
 /** `engine:Name`, `server.tool` and camelCase all read as plain words in a row. */
 function humanToolName(name: string): string {
 	const last =
@@ -327,7 +369,8 @@ export function restoreHistoryWork(
 				label:
 					tool.hosted && (tool.name === 'Web search' || tool.name === 'Web fetch')
 						? tool.name
-						: `${tool.status === 'skipped' ? 'Skipped' : 'Used'} ${humanToolName(tool.name)}`,
+						: ((tool.status === 'skipped' ? undefined : knownActionLabel(tool.name)) ??
+							`${tool.status === 'skipped' ? 'Skipped' : 'Used'} ${humanToolName(tool.name)}`),
 				presentation: 'activity',
 				...(tool.status === 'cancelled' ? { outcome: 'cancelled' } : {}),
 			}

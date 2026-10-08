@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest'
 import { toolTranscriptPresentation } from '../renderer/tool-transcript-presentation.js'
-import { type HistoryWorkSnapshot, restoreHistoryWork } from './history-work.js'
+import { type HistoryWorkSnapshot, knownActionLabel, restoreHistoryWork } from './history-work.js'
 import { applyEvent, emptyThread, restoreMessages } from './projection.js'
 import type { ChatMessage } from './protocol.js'
 
@@ -415,5 +415,21 @@ it('names an engine tool without its engine prefix or casing', () => {
 	work.tools[0]!.name = 'claude:TodoWrite'
 	work.tools[0]!.presentation = undefined
 	const thread = restoreHistoryWork(emptyThread(), messages, work)
-	expect(toolTranscriptPresentation(thread, '1:same')?.label).toBe('Used todo write')
+	expect(toolTranscriptPresentation(thread, '1:same')?.label).toBe('Updated tasks')
+	work.tools[0]!.name = 'server.fetch_page'
+	expect(
+		toolTranscriptPresentation(restoreHistoryWork(emptyThread(), messages, work), '1:same')?.label,
+	).toBe('Used fetch page')
+})
+
+it('names the agent and task tools the way the SDK saved-view map does', () => {
+	// Mirrors packages/sdk/src/runtime/harness-session/saved-view.test.ts; change both together.
+	expect(knownActionLabel('TodoWrite')).toBe('Updated tasks')
+	expect(knownActionLabel('update_plan')).toBe('Updated tasks')
+	expect(knownActionLabel('engine:spawn_agent')).toBe('Ran agent')
+	expect(knownActionLabel('Task')).toBe('Ran agent')
+	expect(knownActionLabel('wait_agent')).toBe('Waited for agent')
+	expect(knownActionLabel('close_agent')).toBe('Stopped agent')
+	expect(knownActionLabel('interruptAgent')).toBe('Stopped agent')
+	expect(knownActionLabel('write')).toBeUndefined()
 })

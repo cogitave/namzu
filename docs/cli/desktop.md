@@ -1384,29 +1384,29 @@ unknown time never produce or move a separator. Pal friend chat has none.
 
 ### Live phases
 
-The transcript follows admitted runtime events. While the work runs, one line under
-the **Working for Ns** heading names the stage it is in, the way other apps do. A stage
-lasts as long as the work stays in it: the words change only when the work enters a new
-stage, never on a timer, and the same stage derived again on every streamed token changes
-nothing. The line takes the first of these that applies:
+The transcript follows admitted runtime events. While the work runs, the content stays in
+order under the **Working for Ns** heading and ONE muted, shimmering status line sits at
+the bottom of the block, after the newest entry. It is drawn only when it adds something
+the block does not already show, and it changes only when the work enters a new stage,
+never on a timer (the same stage derived again on every streamed token changes nothing):
 
-1. A pending approval: Waiting for your decision (it holds still, with no shimmer).
-2. A plan task in progress in this turn: the task's active form when the tool gave one
-   ("Running the tests"), else its subject.
-3. The stage the model stated most recently in this turn, whichever of its reasoning
-   headline (a leading bold run, else the first sentence) and its latest narration message
-   came later. Only a finished headline or sentence counts, so half-streamed text never
-   shows and the previous stage stays until the new one is complete.
-4. Nothing stated yet: the action under way, verb first ("Reading app.css", "Editing
-   app.css", "Searching for useTheme", "Running pnpm test").
-5. Thinking while reasoning has no readable headline, else Working. Between two actions
-   the last finished action's words stay, in the past tense ("Ran pnpm test"), rather than
-   a bare Working flashing in or a finished command still reading as running.
+1. A pending approval: Waiting for your decision (always shown; it holds still, with no
+   shimmer).
+2. The newest entry is a reasoning segment: its headline (a leading bold run, else the
+   first sentence; Thinking while it has none yet) becomes the status line, and that
+   reasoning row is not drawn while it is the newest entry. As soon as anything newer
+   arrives the row draws in place as usual, and a finished turn shows every reasoning row.
+3. Nothing is running and nothing new arrived since the last finished action or narration:
+   Thinking.
+4. Otherwise no line: the newest entry is itself the live element, whether a running
+   action row, the plan row with a step in progress (both shimmer in place) or narration
+   being written, whose trailing line carries the same soft sweep until the message
+   completes.
 
 The text is plain (markdown stripped) and at most 80 characters, cut at a word boundary.
 Each new stage fades in and restarts the sweep that shimmers across it; reduced motion swaps
-it instantly and shows it solid. The line is a polite live region that announces each new
-stage once, never the clock and never partial text. It goes when the answer starts or the
+it instantly and shows every shimmer solid. The line is a polite live region that announces
+each new status once, never the clock, never streaming narration word by word. It goes when the answer starts or the
 turn ends. Before the work block exists the quiet end-of-transcript status stands in. Tool
 work and answer streaming retain their own phase in the projection. A provider that withholds reasoning can indicate
 an active block without supplying a readable body; the desktop does not expose
@@ -1419,7 +1419,7 @@ steering messages with the same recorded turn identity stay in that turn. Its pu
 reasoning, tool receipts and explicit commentary stay in admission order inside
 a collapsible work summary. While live, its outer heading says **Working for**
 the host-observed elapsed time when known, or **Working** when no start is known.
-The stage line described above sits directly under that heading, without a second
+The status line described above sits at the bottom of the live block, without a second
 elapsed counter. With no public work disclosure, the live status alone can show
 the elapsed time. Steering can create another ordered work segment in the same
 turn; only the latest public segment owns the turn's time and outcome heading,

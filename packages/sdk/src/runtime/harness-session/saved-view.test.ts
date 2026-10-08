@@ -34,6 +34,14 @@ describe('engineSavedView', () => {
 		expect(label(engineSavedView('TodoWrite', { todos: [] }))).toBe('Updated tasks')
 	})
 
+	it('names the agent lifecycle tools, matching the Desktop history fallback', () => {
+		// Mirrored by packages/desktop/src/shared/history-work.test.ts; change both together.
+		expect(label(engineSavedView('wait_agent', {}))).toBe('Waited for agent')
+		expect(label(engineSavedView('close_agent', {}))).toBe('Stopped agent')
+		expect(label(engineSavedView('interruptAgent', {}))).toBe('Stopped agent')
+		expect(label(engineSavedView('update_plan', {}))).toBe('Updated tasks')
+	})
+
 	it('names an unknown tool instead of calling it saved', () => {
 		expect(label(engineSavedView('server.fetch_page', {}))).toBe('Used fetch page')
 		expect(label(engineSavedView('mcp__srv__DoThing', null))).toBe('Used do thing')

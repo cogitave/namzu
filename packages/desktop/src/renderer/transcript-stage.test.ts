@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { type ThreadState, applyEvent, emptyThread } from '../shared/projection.js'
 import type { DesktopEvent } from '../shared/protocol.js'
-import { clipStage, liveStage, statedStage } from './transcript-motion.js'
+import { clipStage, liveStatus, narrationBeingWritten, statedStage } from './transcript-motion.js'
 
 const send = (thread: ThreadState, event: unknown) => applyEvent(thread, event as DesktopEvent)
 const update = (thread: ThreadState, value: unknown) =>
@@ -53,113 +53,28 @@ it('cuts at a word boundary with an ellipsis, within 80 characters', () => {
 	expect(clipStage('short')).toBe('short')
 })
 
-describe('liveStage', () => {
-	it('is nothing when idle and Working before anything is said', () => {
-		expect(liveStage(emptyThread())).toBeUndefined()
-		expect(liveStage(live())).toEqual({ text: 'Working', source: 'fallback' })
+const say = (thread: ThreadState, text: string, messageId = 'n1') =>
+	update(thread, { kind: 'agent_message_chunk', text, phase: 'commentary', messageId })
+const sayDone = (thread: ThreadState, text: string, messageId = 'n1') =>
+	update(thread, { kind: 'agent_message', text, phase: 'commentary', messageId })
+const done = (thread: ThreadState, id: string, command = 'ls') =>
+	tool(thread, id, 'bash', { kind: 'terminal', command, output: 'x' }, 'completed')
+const task = (thread: ThreadState, status: 'pending' | 'in_progress' | 'completed') =>
+	send(thread, {
+		kind: 'task',
+		sessionId: 's',
+		task: { taskId: 'a', subject: 'Run the tests', status, blockedBy: [] },
+	})
+const planTool = (thread: ThreadState, id: string) =>
+	tool(thread, id, 'task_create', { kind: 'generic', label: 'Add task' }, 'completed')
+
+describe('liveStatus', () => {
+	it('is nothing when idle, and Thinking before anything has arrived', () => {
+		expect(liveStatus(emptyThread())).toEqual({})
+		expect(liveStatus(live())).toEqual({ stage: { text: 'Thinking', source: 'gap' } })
 	})
 
-	it('says Thinking while reasoning has no headline yet', () => {
-		expect(liveStage(think(live(), 'let me'))?.text).toBe('Thinking')
-	})
-
-	it('names the action when nothing has been stated, verb first', () => {
-		const thread = tool(live(), 'c', 'bash', {
-			kind: 'terminal',
-			command: 'pnpm test\n--silent',
-			output: '',
-		})
-		expect(liveStage(thread)).toEqual({ text: 'Running pnpm test', source: 'action' })
-		expect(
-			liveStage(
-				tool(live(), 'd', 'edit', {
-					kind: 'diff',
-					path: 'src/app.css',
-					before: 'a',
-					after: 'b',
-				}),
-			)?.text,
-		).toBe('Editing app.css')
-	})
-
-	it('holds a finished action in the past tense, never as still running', () => {
-		const thread = tool(
-			live(),
-			'c',
-			'bash',
-			{ kind: 'terminal', command: 'cat notes.md', output: 'x' },
-			'completed',
-		)
-		expect(liveStage(thread)).toEqual({ text: 'Ran cat notes.md', source: 'action' })
-	})
-
-	it('holds a stated stage across any number of actions and deltas', () => {
-		let thread = think(live(), '**Checking the styles**\n\n')
-		const stage = liveStage(thread)
-		expect(stage).toEqual({ text: 'Checking the styles', source: 'reasoning' })
-		thread = think(thread, 'The rows look tight.')
-		thread = tool(thread, 'c', 'bash', { kind: 'terminal', command: 'ls', output: '' })
-		expect(liveStage(thread)).toEqual(stage)
-	})
-
-	it('keeps the earlier stage until a later one is complete', () => {
-		let thread = think(live(), '**First stage**')
-		thread = tool(thread, 'c', 'read', { kind: 'generic', label: 'x' }, 'completed')
-		thread = think(thread, '**Second sta', 'b2')
-		expect(liveStage(thread)?.text).toBe('First stage')
-		thread = think(thread, 'ge**', 'b2')
-		expect(liveStage(thread)?.text).toBe('Second stage')
-	})
-
-	it('follows whichever of reasoning and narration is later', () => {
-		let thread = think(live(), '**Planning**')
-		thread = update(thread, {
-			kind: 'agent_message_chunk',
-			text: 'Now I open the file. More follows',
-			phase: 'commentary',
-			messageId: 'n1',
-		})
-		expect(liveStage(thread)).toEqual({ text: 'Now I open the file.', source: 'narration' })
-		thread = think(thread, '**Verifying**', 'b3')
-		expect(liveStage(thread)).toEqual({ text: 'Verifying', source: 'reasoning' })
-	})
-
-	it('puts the task in progress above what was said, using its active form', () => {
-		let thread = think(live(), '**Planning**')
-		thread = tool(thread, 't', 'task_create', { kind: 'generic', label: 'Add task' }, 'completed')
-		thread = send(thread, {
-			kind: 'task',
-			sessionId: 's',
-			task: {
-				taskId: 'a',
-				subject: 'Run the tests',
-				activeForm: 'Running the tests',
-				status: 'in_progress',
-				blockedBy: [],
-			},
-		})
-		expect(liveStage(thread)).toEqual({ text: 'Running the tests', source: 'plan' })
-		thread = send(thread, {
-			kind: 'task',
-			sessionId: 's',
-			task: { taskId: 'a', subject: 'Run the tests', status: 'in_progress', blockedBy: [] },
-		})
-		expect(liveStage(thread)?.text).toBe('Run the tests')
-	})
-
-	it('ignores a task left in progress by an earlier turn', () => {
-		let thread = tool(live(), 't', 'task_create', { kind: 'generic', label: 'x' }, 'completed')
-		thread = send(thread, {
-			kind: 'task',
-			sessionId: 's',
-			task: { taskId: 'a', subject: 'Old', status: 'in_progress', blockedBy: [] },
-		})
-		thread = send(thread, { kind: 'prompt', sessionId: 's', prompt: 'next' })
-		thread = send(thread, { kind: 'state', sessionId: 's', running: true, queued: [] })
-		expect(liveStage(thread)?.text).toBe('Working')
-	})
-
-	it('waits for a decision above everything', () => {
+	it('waits for a decision above everything, with no reasoning hidden', () => {
 		const thread = send(think(live(), '**Planning**'), {
 			kind: 'permission',
 			request: {
@@ -169,6 +84,82 @@ describe('liveStage', () => {
 				calls: [{ id: 'c', name: 'bash', input: {}, isDestructive: false }],
 			},
 		})
-		expect(liveStage(thread)).toEqual({ text: 'Waiting for your decision', source: 'waiting' })
+		expect(liveStatus(thread)).toEqual({
+			stage: { text: 'Waiting for your decision', source: 'waiting' },
+		})
+	})
+
+	it('turns the newest reasoning into the status line and stands its row down', () => {
+		const thread = think(live(), '**Checking the styles**\n\nThe rows look tight.')
+		expect(liveStatus(thread)).toEqual({
+			stage: { text: 'Checking the styles', source: 'reasoning' },
+			hiddenReasoningId: '1:b1',
+		})
+	})
+
+	it('says Thinking, still hiding the row, while the headline is not yet written', () => {
+		expect(liveStatus(think(live(), '**Checking the sty'))).toEqual({
+			stage: { text: 'Thinking', source: 'gap' },
+			hiddenReasoningId: '1:b1',
+		})
+	})
+
+	it('draws the reasoning row again as soon as anything newer arrives', () => {
+		let thread = think(live(), '**Checking the styles**')
+		thread = tool(thread, 'c', 'bash', { kind: 'terminal', command: 'ls', output: '' })
+		// A running action is the live element: no line, no hidden row.
+		expect(liveStatus(thread)).toEqual({})
+	})
+
+	it('names the newest of two reasoning segments only', () => {
+		let thread = think(live(), '**First**', 'b1')
+		thread = done(thread, 'c')
+		thread = think(thread, '**Second**', 'b2')
+		expect(liveStatus(thread).stage?.text).toBe('Second')
+		expect(liveStatus(thread).hiddenReasoningId).toBe('1:b2')
+	})
+
+	it('has no line while an action runs, and Thinking once it has finished and nothing followed', () => {
+		let thread = tool(live(), 'c', 'bash', { kind: 'terminal', command: 'ls', output: '' })
+		expect(liveStatus(thread)).toEqual({})
+		thread = done(thread, 'c')
+		expect(liveStatus(thread)).toEqual({ stage: { text: 'Thinking', source: 'gap' } })
+	})
+
+	it('has no line while narration is written, and Thinking once it is complete and nothing followed', () => {
+		let thread = say(live(), 'I will read the notes, then update the styles.')
+		expect(liveStatus(thread)).toEqual({})
+		expect(narrationBeingWritten(thread)).toBeDefined()
+		thread = sayDone(thread, 'I will read the notes, then update the styles.')
+		expect(liveStatus(thread)).toEqual({ stage: { text: 'Thinking', source: 'gap' } })
+		expect(narrationBeingWritten(thread)).toBeUndefined()
+	})
+
+	it('has no line while a plan step is in progress', () => {
+		let thread = planTool(done(live(), 'c'), 't')
+		thread = task(thread, 'pending')
+		expect(liveStatus(thread).stage?.text).toBe('Thinking')
+		thread = task(planTool(thread, 't2'), 'in_progress')
+		expect(liveStatus(thread)).toEqual({})
+		// The step shimmers in its row even when an action finished after it.
+		expect(liveStatus(done(thread, 'e'))).toEqual({})
+		expect(liveStatus(task(thread, 'completed')).stage?.text).toBe('Thinking')
+	})
+
+	it('ignores a task left in progress by an earlier turn', () => {
+		let thread = task(planTool(live(), 't'), 'in_progress')
+		thread = send(thread, { kind: 'prompt', sessionId: 's', prompt: 'next' })
+		thread = send(thread, { kind: 'state', sessionId: 's', running: true, queued: [] })
+		expect(liveStatus(thread).stage?.text).toBe('Thinking')
+	})
+
+	it('has no line once the answer is the newest entry', () => {
+		const thread = update(live(), { kind: 'agent_message_chunk', text: 'Here.', messageId: 'a' })
+		expect(liveStatus(thread)).toEqual({})
+	})
+
+	it('does not decide anything from elapsed time', () => {
+		const thread = think(live(), '**Planning**')
+		expect(liveStatus(thread)).toEqual(liveStatus(thread))
 	})
 })

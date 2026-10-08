@@ -60,6 +60,15 @@ const EDIT = new Set(['edit', 'multiedit', 'notebookedit', 'apply_patch', 'str_r
 const WRITE = new Set(['write', 'write_file'])
 const SEARCH = new Set(['grep', 'glob', 'search', 'find', 'web_search', 'websearch'])
 const AGENT = new Set(['task', 'agent', 'spawnagent', 'spawn_agent'])
+const WAIT = new Set(['wait', 'wait_agent', 'waitagent'])
+const STOP = new Set([
+	'close_agent',
+	'closeagent',
+	'interrupt_agent',
+	'interruptagent',
+	'kill_agent',
+	'killagent',
+])
 const TASKS = new Set([
 	'todowrite',
 	'todo_write',
@@ -106,6 +115,8 @@ export function engineSavedView(name: string, input: unknown): ToolResultView {
 		const head = type ? `Ran agent ${type}` : 'Ran agent'
 		return activity(about ? `${head} · ${about}` : head)
 	}
+	if (WAIT.has(key)) return activity('Waited for agent')
+	if (STOP.has(key)) return activity('Stopped agent')
 	if (TASKS.has(key)) return activity('Updated tasks')
 	return activity(`Used ${humanize(name)}`)
 }

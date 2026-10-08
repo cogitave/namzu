@@ -1,7 +1,6 @@
 import { type RefObject, useLayoutEffect, useRef } from 'react'
 import { type ThreadState, type TimelineEntry, threadPhase } from '../shared/projection.js'
-import { isTaskEntry, latestPlanTurn } from './plan-row.js'
-import { toolTranscriptPresentation } from './tool-transcript-presentation.js'
+import { latestPlanTurn } from './plan-row.js'
 import { elapsedLabel, transcriptOutcome, turnDurationMs } from './transcript-layout.js'
 
 export const transcriptMotion = {
@@ -27,7 +26,15 @@ export function livePhaseLabel(thread: ThreadState): string | undefined {
 export interface LiveStage {
 	text: string
 	/** Where the words came from; only `waiting` holds still instead of shimmering. */
-	source: 'waiting' | 'plan' | 'reasoning' | 'narration' | 'action' | 'fallback'
+	source: 'waiting' | 'reasoning' | 'gap'
+}
+
+/** What the live block's bottom line says, and which row it replaces. */
+export interface LiveStatus {
+	/** Undefined when the block already shows the live element itself. */
+	stage?: LiveStage
+	/** The reasoning row the status line stands in for; not drawn while it is the newest entry. */
+	hiddenReasoningId?: string
 }
 
 const stageMax = 80
@@ -72,83 +79,63 @@ export function statedStage(text: string, finished: boolean): string | undefined
 	return sentence ? clipStage(sentence) : undefined
 }
 
-function currentAction(thread: ThreadState): string | undefined {
-	for (let index = thread.timeline.length - 1; index >= 0; index--) {
-		const entry = thread.timeline[index]
-		if (!entry || entry.turn !== thread.turn || entry.kind !== 'tool') continue
-		if (isTaskEntry(thread, entry)) continue
-		const presentation = toolTranscriptPresentation(thread, entry.id)
-		if (presentation?.state !== 'running') continue
-		const text =
-			presentation.kind === 'command' && presentation.tooltip
-				? `Running ${presentation.tooltip}`
-				: presentation.label
-		const plain = stripMarkdown(text)
-		if (plain) return clipStage(plain, 60)
-	}
-	return undefined
-}
-
-/** The last action to finish, in the past tense: the words that hold between two actions. */
-function finishedAction(thread: ThreadState): string | undefined {
-	for (let index = thread.timeline.length - 1; index >= 0; index--) {
-		const entry = thread.timeline[index]
-		if (!entry || entry.turn !== thread.turn || entry.kind !== 'tool') continue
-		if (isTaskEntry(thread, entry)) continue
-		const presentation = toolTranscriptPresentation(thread, entry.id)
-		// Only an action that really finished: a cancelled or declined one is not something that was done.
-		if (presentation?.state !== 'completed') continue
-		const text =
-			presentation.kind === 'command' && presentation.tooltip
-				? `Ran ${presentation.tooltip}`
-				: presentation.label
-		const plain = stripMarkdown(text)
-		if (plain) return clipStage(plain, 60)
-		return undefined
-	}
-	return undefined
+/** The entries a person can see in this turn, in order. */
+function drawnEntries(thread: ThreadState): TimelineEntry[] {
+	return thread.timeline.filter((entry) => {
+		if (entry.turn !== thread.turn) return false
+		if (entry.kind === 'tool') return Boolean(thread.tools[entry.id])
+		if (entry.kind === 'reasoning') return Boolean(thread.reasoning[entry.id]?.text.trim())
+		const message = thread.messages[entry.index]
+		return message?.role === 'assistant' && Boolean(message.text.trim())
+	})
 }
 
 /**
- * What the work is doing right now, as a stage: it changes when the work enters a new stage and
- * holds for as long as that stage lasts. Never a function of elapsed time.
+ * The one muted line at the bottom of the live Worked block, only when it adds something the block
+ * does not already show. It changes at stage boundaries, never with elapsed time:
+ * a decision wait; the newest reasoning's headline (and that row stands down); a gap where nothing
+ * runs and nothing new arrived ("Thinking"); otherwise nothing, because the newest entry is itself
+ * the live element (a running action, a plan step in progress, narration being written).
  */
-export function liveStage(thread: ThreadState): LiveStage | undefined {
+export function liveStatus(thread: ThreadState): LiveStatus {
 	const phase = threadPhase(thread)
-	if (phase === 'idle') return undefined
-	if (phase === 'waiting') return { text: 'Waiting for your decision', source: 'waiting' }
-	if (latestPlanTurn(thread) === thread.turn) {
-		const task = thread.tasks.find((candidate) => candidate.status === 'in_progress')
-		const words = stripMarkdown(task?.activeForm?.trim() || task?.subject || '')
-		if (words) return { text: clipStage(words), source: 'plan' }
-	}
-	// The latest statement that is complete: a later one still being written leaves the earlier one up.
-	for (let index = thread.timeline.length - 1; index >= 0; index--) {
-		const entry = thread.timeline[index]
-		if (!entry || entry.turn !== thread.turn) continue
-		const later = index < thread.timeline.length - 1
-		if (entry.kind === 'reasoning') {
-			const segment = thread.reasoning[entry.id]
-			const text = segment
-				? statedStage(segment.text, segment.status === 'completed' || later)
-				: undefined
-			if (text) return { text, source: 'reasoning' }
-		} else if (entry.kind === 'message') {
-			const message = thread.messages[entry.index]
-			if (message?.role !== 'assistant' || message.phase !== 'commentary') continue
-			const text = statedStage(message.text, message.status === 'completed' || later)
-			if (text) return { text, source: 'narration' }
+	if (phase === 'idle') return {}
+	if (phase === 'waiting')
+		return { stage: { text: 'Waiting for your decision', source: 'waiting' } }
+	const newest = drawnEntries(thread).at(-1)
+	if (newest?.kind === 'reasoning') {
+		const segment = thread.reasoning[newest.id]
+		const headline = segment ? statedStage(segment.text, segment.status === 'completed') : undefined
+		return {
+			stage: headline
+				? { text: headline, source: 'reasoning' }
+				: { text: 'Thinking', source: 'gap' },
+			hiddenReasoningId: newest.id,
 		}
 	}
-	const action = currentAction(thread)
-	if (action) return { text: action, source: 'action' }
-	// Between two actions nothing runs and nothing new was said: the last action's words hold, but
-	// finished, so the line never claims a command is still running.
-	if (phase !== 'thinking') {
-		const done = finishedAction(thread)
-		if (done) return { text: done, source: 'action' }
+	if (newest?.kind === 'message') {
+		const message = thread.messages[newest.index]
+		// Narration being written, or the answer itself: the text is the live element.
+		if (message?.phase !== 'commentary' || message.status !== 'completed') return {}
 	}
-	return { text: phase === 'thinking' ? 'Thinking' : 'Working', source: 'fallback' }
+	if (phase === 'tools') return {}
+	if (
+		latestPlanTurn(thread) === thread.turn &&
+		thread.tasks.some((task) => task.status === 'in_progress')
+	)
+		return {}
+	return { stage: { text: 'Thinking', source: 'gap' } }
+}
+
+/** True while the newest drawn entry is a commentary message still being written. */
+export function narrationBeingWritten(thread: ThreadState): number | undefined {
+	if (!thread.running || thread.stopReason !== undefined) return undefined
+	const newest = drawnEntries(thread).at(-1)
+	if (newest?.kind !== 'message') return undefined
+	const message = thread.messages[newest.index]
+	return message?.phase === 'commentary' && message.status !== 'completed'
+		? newest.index
+		: undefined
 }
 
 export function turnActivityLabel(thread: ThreadState, turn: number): string {

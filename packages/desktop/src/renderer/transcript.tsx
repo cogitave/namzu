@@ -28,7 +28,8 @@ import { turnInputsUnchanged } from './transcript-memo.js'
 import {
 	type LiveStage,
 	livePhaseLabel,
-	liveStage,
+	liveStatus,
+	narrationBeingWritten,
 	transcriptEntryKey,
 	turnActivityLabel,
 	useTranscriptEntryMotion,
@@ -58,11 +59,14 @@ function Entry({
 	action,
 	quiet = false,
 	showTime = true,
+	streaming = false,
 }: {
 	entry: TimelineEntry
 	thread: ThreadState
 	/** The reply's action row; shown once the reply has settled. */
 	action?: ReactNode
+	/** Narration still being written: its newest words shimmer until it completes. */
+	streaming?: boolean
 	/** Inside a Worked block: no visible clock; the time stays in the row's tooltip. */
 	quiet?: boolean
 	/** A reply shows one clock, under its last answer; the other answer messages leave it out. */
@@ -107,6 +111,7 @@ function Entry({
 			title={quiet || !showTime ? timeDescription(message.time) : undefined}
 			data-timeline-turn={entry.turn}
 			data-message-phase={message.phase}
+			data-streaming={streaming ? '' : undefined}
 			data-transcript-entry-key={transcriptEntryKey(entry)}
 		>
 			{message.role === 'user' && message.attachments?.length ? (
@@ -262,23 +267,38 @@ function ActivityEntries({
 	turnLive,
 	workDisclosures,
 	onWorkDisclosureChange,
+	hiddenReasoningId,
+	streamingMessage,
 }: {
 	entries: TimelineEntry[]
 	thread: ThreadState
 	turn: number
 	turnLive: boolean
+	/** The reasoning row the status line stands in for. */
+	hiddenReasoningId?: string
+	/** The narration message being written. */
+	streamingMessage?: number
 	workDisclosures?: WorkDisclosureChoices
 	onWorkDisclosureChange?: (key: string, open: boolean) => void
 }) {
 	const parts = splitActivity(
 		entries.filter(
 			(entry) =>
-				entry.kind !== 'tool' || (Boolean(thread.tools[entry.id]) && !isTaskEntry(thread, entry)),
+				!(entry.kind === 'reasoning' && entry.id === hiddenReasoningId) &&
+				(entry.kind !== 'tool' || (Boolean(thread.tools[entry.id]) && !isTaskEntry(thread, entry))),
 		),
 	)
 	return parts.map((part, index) => {
 		if ('entry' in part)
-			return <Entry key={entryKey(part.entry)} entry={part.entry} thread={thread} quiet />
+			return (
+				<Entry
+					key={entryKey(part.entry)}
+					entry={part.entry}
+					thread={thread}
+					quiet
+					streaming={part.entry.kind === 'message' && part.entry.index === streamingMessage}
+				/>
+			)
 		const first = part.run[0]
 		if (!first) return null
 		// One action is just its row; the summary starts at two.
@@ -342,7 +362,9 @@ function TurnActivity({
 	const planAt = entries.findIndex((entry) => isTaskEntry(thread, entry))
 	const planKey = workDisclosureKey(turn, 'plan')
 	// Only the block that owns the clock names the stage, and only until the answer starts.
-	const stage = live && ownsTurnSummary && !answered ? liveStage(thread) : undefined
+	const status = live && ownsTurnSummary && !answered ? liveStatus(thread) : undefined
+	const stage = status?.stage
+	const streamingMessage = status ? narrationBeingWritten(thread) : undefined
 	// Open while the reply is written, folded once it ends; a choice the person made always wins.
 	const [chosenOpen, setChosenOpen] = useState<boolean>()
 	const controlled = !!disclosureKey && !!onWorkDisclosureChange
@@ -393,7 +415,6 @@ function TurnActivity({
 				</span>
 				<ChevronRightIcon className="disclosure-chevron" aria-hidden="true" />
 			</CollapsibleTrigger>
-			{stage && <StageLine stage={stage} animate={animate} />}
 			<CollapsiblePanel keepMounted>
 				<div className="activity-entries">
 					{planAt < 0 ? (
@@ -404,6 +425,8 @@ function TurnActivity({
 							turnLive={live}
 							workDisclosures={workDisclosures}
 							onWorkDisclosureChange={onWorkDisclosureChange}
+							hiddenReasoningId={status?.hiddenReasoningId}
+							streamingMessage={streamingMessage}
 						/>
 					) : (
 						<>
@@ -414,6 +437,8 @@ function TurnActivity({
 								turnLive={live}
 								workDisclosures={workDisclosures}
 								onWorkDisclosureChange={onWorkDisclosureChange}
+								hiddenReasoningId={status?.hiddenReasoningId}
+								streamingMessage={streamingMessage}
 							/>
 							{planTurn === turn ? (
 								<PlanRow
@@ -437,17 +462,20 @@ function TurnActivity({
 								turnLive={live}
 								workDisclosures={workDisclosures}
 								onWorkDisclosureChange={onWorkDisclosureChange}
+								hiddenReasoningId={status?.hiddenReasoningId}
+								streamingMessage={streamingMessage}
 							/>
 						</>
 					)}
 				</div>
 			</CollapsiblePanel>
+			{stage && <StageLine stage={stage} animate={animate} />}
 		</Collapsible>
 	)
 }
 
 /**
- * The stage the work is in, one line under the clock. It keeps its words for the whole stage; a new
+ * The stage the work is in, one muted line at the bottom of the live block. It keeps its words for the whole stage; a new
  * stage fades in and starts a new sweep, and the same stage re-derived never does.
  */
 function StageLine({ stage, animate }: { stage: LiveStage; animate: boolean }) {

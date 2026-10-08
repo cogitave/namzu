@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import type { AcpSessionUpdate } from '@namzu/sdk'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
@@ -270,12 +271,13 @@ describe('single live transcript status', () => {
 		})
 		expect(phaseLabels(render(thread))).toEqual(['Earlier work', 'Worked for 47s'])
 	})
-	it('keeps a neutral timed work header and one hidden duplicate status while tools run', () => {
+	it('keeps a neutral timed work header and no status line while a tool runs', () => {
 		const thread = pendingCommand()
 		const before = structuredClone(thread)
 		const html = render(thread)
 		expect(phaseLabels(html)).toEqual(['Working', 'Working'])
-		expect(html.match(/<output\b[^>]*aria-live="polite"/g)).toHaveLength(1)
+		// The running row is the live element, so nothing is announced.
+		expect(html.match(/<output\b[^>]*aria-live="polite"/g)).toBeNull()
 		expect(html).toContain('aria-label="Working for 47s"')
 		expect(html).toContain('aria-expanded="true"')
 		expect(html).toContain('class="turn-activity-elapsed">for 47s</span>')
@@ -285,7 +287,7 @@ describe('single live transcript status', () => {
 		expect(thread).toEqual(before)
 	})
 
-	it('names the stage under the work header once, and keeps the end status out of the way', () => {
+	it('puts one status line after the newest entry and never repeats what the block shows', () => {
 		let thread = update(started(), {
 			kind: 'agent_message_chunk',
 			text: 'Inspecting the workspace',
@@ -294,20 +296,74 @@ describe('single live transcript status', () => {
 		})
 		thread = update(thread, {
 			kind: 'agent_thought_chunk',
-			text: 'Comparing the public results',
+			text: '**Comparing the public results**\n\nThe rows differ.',
 			blockId: 'thought',
 		})
 		const html = render(thread)
-		// The sentence the model finished is the stage; the half-written reasoning is not.
 		expect(phaseLabels(html)).toEqual(['Working', 'Thinking'])
-		expect(html).toContain('stage-text">Inspecting the workspace<')
+		// The headline is the status line, after the narration; its own row stands down.
+		expect(html.match(/Comparing the public results/g)).toHaveLength(2) // hidden announcement + visible text
+		expect(html).toContain('stage-text">Comparing the public results<')
+		expect(html).not.toContain('data-reasoning-id')
+		expect(html).not.toContain('The rows differ.')
+		expect(html.indexOf('Inspecting the workspace')).toBeLessThan(html.indexOf('stage-line'))
 		expect(html).toContain('aria-label="Working for 47s"')
-		expect(html).toContain('Inspecting the workspace')
-		expect(html).toContain('Comparing the public results')
 		expect(html).toContain('data-transcript-phase="thinking"')
 		expect(html).toContain('working  transcript-status-only')
 		expect(html).not.toContain('class="working-elapsed"')
 		expect(html.match(/<output\b[^>]*aria-live="polite"/g)).toHaveLength(1)
+	})
+
+	it('draws the reasoning row in place once something newer arrives, with no status line', () => {
+		let thread = update(started(), {
+			kind: 'agent_thought_chunk',
+			text: '**Planning the change**\n\nThe notes ask for roomier rows.',
+			blockId: 'thought',
+		})
+		thread = pendingCommand(thread)
+		const html = render(thread)
+		expect(html).toContain('data-reasoning-id')
+		expect(html).toContain('The notes ask for roomier rows.')
+		expect(html).not.toContain('stage-line')
+		expect(html.match(/Planning the change/g)).toHaveLength(1)
+	})
+
+	it('shows the narration being written once, shimmering, and no status line beside it', () => {
+		const thread = update(started(), {
+			kind: 'agent_message_chunk',
+			text: 'I will read the notes, then update the styles.',
+			phase: 'commentary',
+			messageId: 'commentary',
+		})
+		const html = render(thread)
+		expect(html.match(/I will read the notes, then update the styles\./g)).toHaveLength(1)
+		expect(html).toContain('data-streaming=""')
+		expect(html).not.toContain('stage-line')
+	})
+
+	it('says Thinking in a gap after an action finished, announced once', () => {
+		const thread = update(pendingCommand(), {
+			kind: 'tool_call',
+			toolCallId: 'command',
+			title: 'Read working directory',
+			status: 'completed',
+			view: { kind: 'terminal', command: 'pwd', output: '/work' },
+		})
+		const html = render(thread)
+		expect(html).toContain('stage-text">Thinking<')
+		expect(html).toContain('data-stage-source="gap"')
+		expect(html.match(/<output\b[^>]*aria-live="polite"/g)).toHaveLength(1)
+		expect(html).not.toContain('data-streaming')
+	})
+
+	it('keeps motion off for reduced-motion readers', () => {
+		const css = readFileSync(new URL('./transcript-motion.css', import.meta.url), 'utf8')
+		const reduced = css.slice(
+			css.indexOf('@media (prefers-reduced-motion: reduce) {\n\t.normal-transcript .stage-text'),
+		)
+		expect(reduced).toContain('.stage-text')
+		expect(reduced).toContain('[data-streaming] .message-text > :last-child')
+		expect(reduced.slice(0, reduced.indexOf('\n}\n') + 3)).toContain('animation: none')
 	})
 
 	it('shows no stage line once the answer has started', () => {
@@ -449,7 +505,7 @@ describe('single live transcript status', () => {
 		expect(phaseLabels(html)).toEqual(['Worked for 5s', 'Working', 'Working'])
 		expect(html).toContain('data-activity-turn="1"')
 		expect(html).toContain('data-activity-turn="2"')
-		expect(html.match(/<output\b[^>]*aria-live="polite"/g)).toHaveLength(1)
+		expect(html.match(/<output\b[^>]*aria-live="polite"/g)).toBeNull()
 	})
 
 	it.each([
