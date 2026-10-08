@@ -100,3 +100,13 @@ The updater now also replaces the installed `@namzu/zen` dist when the snapshot 
 ## Delivery of fb64e99d6 (2026-10-08)
 
 Built in the clean delivery worktree. The first `--check` passed with the app running and idle (the composer equal to its saved draft now passes the preflight). By `--apply` the owner had closed the app, so the run refused on the missing recorded process and changed nothing; `--check --offline` and `--apply --offline` then replaced desktop, cli and sdk (zen already equal), `launch.cjs` started it, and `--probe-only` ran afterwards.
+
+## Move to the real per-user installer (2026-10-08)
+
+The owner's Windows machine moved from the development install (`%LOCALAPPDATA%\Namzu\Development`) to the per-user NSIS installer built from `046a39c48` (`Namzu-Setup-0.1.0.exe`, sha256 `99ccb030...a4047`, unsigned, installed with `/S` to `%LOCALAPPDATA%\Programs\Namzu`). Profile is unchanged: `%APPDATA%\Namzu` and `C:\Users\Arda\.namzu`; no parallel profile folder was created.
+
+Before installing, both profiles were copied (not moved) to `%LOCALAPPDATA%\Namzu\Backups\pre-installer-20261008T191629\` (`appdata-Namzu` without cache folders: 17,057 files, 745.78 MB; `home-.namzu`: 1,646 files, 41.83 MB). `Development\launch.cjs` was renamed to `launch.cjs.retired-20261008` (`README-RETIRED.txt` beside it); `launch.json`, `launch.ps1`, `close-current.cjs`, `app\`, `runtime\` and the `%TEMP%` Electron were kept.
+
+Independent check after launch (read-only; app neither attached to nor restarted): all 8 `Namzu.exe` processes run from `%LOCALAPPDATA%\Programs\Namzu`; exe version 0.1.0; the Start-menu `Namzu.lnk` targets that exe; the backup file counts match the live `.namzu` tree (1,646) and `desktop-conversations.json` lists the same 4 projects and 46 conversations as the backup; `projects.json` is byte-identical to the backup.
+
+Rollback: close Namzu, rename `launch.cjs.retired-20261008` back to `launch.cjs` and start it with `launch.ps1` (or `launch.json`'s command). The profile is shared, so no data needs restoring; if a profile was damaged, restore from the backup folder above by copying it over `%APPDATA%\Namzu` and `.namzu` while the app is closed. Uninstall with `%LOCALAPPDATA%\Programs\Namzu\Uninstall Namzu.exe` (leaves the profile). `native-update.cjs` targets the development install and no longer applies to the installed app, which updates through its own updater.
