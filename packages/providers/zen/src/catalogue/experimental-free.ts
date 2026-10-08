@@ -11,6 +11,7 @@ const EXPERIMENTAL_FREE_ZEN_IDS: ReadonlySet<string> = new Set([
 	'ling-3.0-flash-fin-free',
 	'longcat-2.5-preview-free',
 	'mimo-v2.5-free',
+	'mimo-v2.6-flash-free',
 	'muse-spark-1.3-contributor-free',
 	'nemotron-3-ultra-free',
 	'nemotron-3.5-lightning-free',
