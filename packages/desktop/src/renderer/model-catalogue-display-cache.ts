@@ -60,6 +60,8 @@ export class ModelCatalogueDisplayCache {
 	private readonly entries = new Map<string, Entry>()
 	private readonly projectEpochs = new Map<string, number>()
 	private readonly known = new Map<string, ModelCatalogueView>()
+	/** The newest list read for an engine and provider, whichever conversation asked. */
+	private readonly knownByEngine = new Map<string, ModelCatalogueView>()
 	private readonly listeners = new Set<() => void>()
 	private globalEpoch = 0
 	private revision = 0
@@ -110,6 +112,14 @@ export class ModelCatalogueDisplayCache {
 		return this.known.get(scope.key)
 	}
 
+	/**
+	 * The newest list read for this engine and provider in any conversation, so a conversation or
+	 * pane that has not read yet still names its model from what the same engine last returned.
+	 */
+	lastKnownForEngine(engine: string, provider: string): ModelCatalogueView | undefined {
+		return this.knownByEngine.get(JSON.stringify([engine, provider]))
+	}
+
 	load(
 		scope: ModelCatalogueDisplayScope,
 		read: () => Promise<ModelCatalogueView>,
@@ -145,6 +155,7 @@ export class ModelCatalogueDisplayCache {
 					return { current: true, retained: false, value: copy }
 				}
 				this.remember(scope.key, copy)
+				this.knownByEngine.set(JSON.stringify([scope.engine, scope.provider]), copy)
 				entry.state = 'ready'
 				entry.value = copy
 				entry.chars = chars
@@ -172,6 +183,7 @@ export class ModelCatalogueDisplayCache {
 		if (projectId === undefined) {
 			this.globalEpoch++
 			this.known.clear()
+			this.knownByEngine.clear()
 			this.entries.clear()
 			this.projectEpochs.clear()
 			this.retainedChars = 0
@@ -181,6 +193,7 @@ export class ModelCatalogueDisplayCache {
 		if (!this.projectEpochs.has(projectId) && this.projectEpochs.size >= MAX_PROJECT_EPOCHS) {
 			this.globalEpoch++
 			this.known.clear()
+			this.knownByEngine.clear()
 			this.projectEpochs.clear()
 			this.entries.clear()
 			this.retainedChars = 0

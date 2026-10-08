@@ -1,0 +1,34 @@
+{
+  "check": "network reachability from the runtime",
+  "result": "info",
+  "results": {
+    "huggingface": {
+      "status": 307,
+      "location": "/api/resolve-cache/models/canberkkkkkk/ema-lightning/7a6ba1ad216bb2f1da9863f80ac8770a6a807632/README.md?%2Fcanberkkkkkk%",
+      "ms": 248
+    },
+    "pypi": {
+      "status": 200,
+      "location": "",
+      "ms": 206
+    },
+    "pytorch": {
+      "status": 200,
+      "location": "",
+      "ms": 253
+    },
+    "pythonhosted": {
+      "status": 404,
+      "location": "",
+      "ms": 63
+    },
+    "modelFile": {
+      "status": 200,
+      "bytes": 12103269,
+      "finalHost": "us.aws.cdn.hf.co",
+      "ms": 1206
+    }
+  },
+  "startedAt": "2026-10-08T15:12:47.281Z",
+  "ms": 1979
+}

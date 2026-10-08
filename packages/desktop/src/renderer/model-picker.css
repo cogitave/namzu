@@ -6,6 +6,14 @@
 	min-width: 0;
 	color: var(--foreground);
 }
+.model-picker-trigger-skeleton {
+	display: inline-block;
+	flex: none;
+	width: 84px;
+	height: 0.8em;
+	border-radius: 999px;
+	background: color-mix(in srgb, var(--muted-foreground) 22%, transparent);
+}
 .model-picker-trigger-engine {
 	display: inline-grid;
 	flex: none;

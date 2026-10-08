@@ -15,7 +15,11 @@ const transport = vi.hoisted(() => ({
 	pals: new Map<string, PalView>(),
 	sessionIds: new Map<string, string>(),
 	claims: new Map<string, string[]>(),
-	calls: [] as { cwd: string; method: string; params: Record<string, unknown> }[],
+	calls: [] as {
+		cwd: string
+		method: string
+		params: Record<string, unknown>
+	}[],
 	answers: [] as { cwd: string; id: string | number; result: unknown }[],
 	clients: [] as { cwd: string; closed: boolean }[],
 	instances: [] as {
@@ -30,7 +34,11 @@ const transport = vi.hoisted(() => ({
 		| undefined,
 	claimFailure: false,
 	controlSupported: true,
-	screen: { source: 'data:image/png;base64,aGVsbG8=', width: 1280, height: 800 },
+	screen: {
+		source: 'data:image/png;base64,aGVsbG8=',
+		width: 1280,
+		height: 800,
+	},
 }))
 vi.mock('./rpc-client.js', async () => {
 	const { EventEmitter } = await import('node:events')
@@ -92,14 +100,20 @@ vi.mock('./rpc-client.js', async () => {
 					case 'namzu/conversations/history':
 						return { messages: [], partial: false }
 					case 'session/new':
-						return { sessionId: transport.sessionIds.get(this.cwd) ?? 'claimed-fixture-session' }
+						return {
+							sessionId: transport.sessionIds.get(this.cwd) ?? 'claimed-fixture-session',
+						}
 					case 'namzu/pals/conversations/claim':
 						if (transport.claimFailure) throw new Error('Claim rejected')
 						transport.claims.set(this.cwd, [
 							...(transport.claims.get(this.cwd) ?? []),
 							params.sessionId as string,
 						])
-						return { sessionId: params.sessionId, palId: pal?.id, revision: pal?.revision }
+						return {
+							sessionId: params.sessionId,
+							palId: pal?.id,
+							revision: pal?.revision,
+						}
 					case 'namzu/pals/update': {
 						const current = transport.pals.get(params.id as string)
 						if (!current) throw new Error('Missing Pal')
@@ -307,14 +321,21 @@ it('shares metadata startup and routes computer access through the Pal workspace
 })
 it('loads onboarding and saved Pal catalogues without starting a computer or conversation', async () => {
 	const { owner, workspace, pal } = fixture()
-	const provider = { id: 'zen', label: 'Zen', defaultModel: 'space-bunny-free' }
+	const provider = {
+		id: 'zen',
+		label: 'Zen',
+		defaultModel: 'space-bunny-free',
+	}
 	const catalogue = {
 		models: [{ id: provider.defaultModel, label: 'Space Bunny Free' }],
 		notice: null,
 	}
 	transport.requestHook = async (_cwd, method) => {
 		if (method === 'namzu/providers/status')
-			return { available: [provider], selected: { id: provider.id, model: provider.defaultModel } }
+			return {
+				available: [provider],
+				selected: { id: provider.id, model: provider.defaultModel },
+			}
 		if (method === 'namzu/providers/models') return catalogue
 	}
 
@@ -331,7 +352,11 @@ it('loads onboarding and saved Pal catalogues without starting a computer or con
 			method: 'namzu/providers/models',
 			params: { provider: 'zen' },
 		},
-		{ cwd: workspace, method: 'namzu/providers/models', params: { provider: 'zen' } },
+		{
+			cwd: workspace,
+			method: 'namzu/providers/models',
+			params: { provider: 'zen' },
+		},
 	])
 	expect(requests[0]?.cwd).not.toBe(workspace)
 	expect(
@@ -374,7 +399,11 @@ it('retains the actual workspace setup failure when intentional close follows a 
 		'Pal workspace metadata could not be verified',
 	)
 	expect(owner.listProjects()).toMatchObject([
-		{ path: workspace, status: 'error', error: 'Pal workspace metadata could not be verified' },
+		{
+			path: workspace,
+			status: 'error',
+			error: 'Pal workspace metadata could not be verified',
+		},
 	])
 	expect(await owner.listPals()).toEqual([pal])
 	expect(transport.clients.find((client) => client.cwd === workspace)?.closed).toBe(true)
@@ -416,7 +445,11 @@ it('refuses a Pal opening when its ready connection closes during the held catal
 	released.resolve()
 	await rejected
 	expect(owner.listProjects()).toMatchObject([
-		{ path: workspace, status: 'error', error: 'Owned Pal transport closed during catalogue read' },
+		{
+			path: workspace,
+			status: 'error',
+			error: 'Owned Pal transport closed during catalogue read',
+		},
 	])
 	expect(
 		transport.calls.some((call) =>
@@ -572,7 +605,12 @@ it.each(['ordinary', 'foreign', 'untrusted'] as const)(
 					trusted: status !== 'untrusted',
 					...(status === 'ordinary'
 						? {}
-						: { pal: { ...pal, id: status === 'foreign' ? 'other-pal' : pal.id } }),
+						: {
+								pal: {
+									...pal,
+									id: status === 'foreign' ? 'other-pal' : pal.id,
+								},
+							}),
 				}
 		}
 		await expect(owner.openPal(pal.id)).rejects.toThrow('workspace ownership could not be verified')
@@ -613,7 +651,9 @@ it.each([
 			).toEqual(expected)
 			owner.send(conversation.id, 'Queued work', options)
 			expect(owner.takeQueued(conversation.id)).toBe('Queued work')
-			expect(owner.draftSettings(conversation.id)).toEqual({ options: expected })
+			expect(owner.draftSettings(conversation.id)).toEqual({
+				options: expected,
+			})
 		} finally {
 			complete.resolve()
 		}
@@ -853,7 +893,11 @@ it('loads a durable empty Pal claim once after reconnect and preserves its sessi
 	loadComplete.resolve()
 	await readiness
 	for (const history of await loading)
-		expect(history.thread).toMatchObject({ messages: [], running: false, permissions: [] })
+		expect(history.thread).toMatchObject({
+			messages: [],
+			running: false,
+			permissions: [],
+		})
 	expect(transport.calls.filter((call) => call.method === 'session/new')).toHaveLength(1)
 	expect(
 		transport.calls.filter((call) => call.method === 'namzu/pals/conversations/claim'),
@@ -863,10 +907,17 @@ it('loads a durable empty Pal claim once after reconnect and preserves its sessi
 })
 it('rejects an invalid screenshot before forwarding image content to the renderer', async () => {
 	const { owner, pal } = fixture()
-	await expect(owner.palScreen(pal.id)).resolves.toMatchObject({ width: 1280, height: 800 })
+	await expect(owner.palScreen(pal.id)).resolves.toMatchObject({
+		width: 1280,
+		height: 800,
+	})
 	const original = transport.screen
 	try {
-		transport.screen = { source: 'https://untrusted.invalid/screen.png', width: 1280, height: 800 }
+		transport.screen = {
+			source: 'https://untrusted.invalid/screen.png',
+			width: 1280,
+			height: 800,
+		}
 		await expect(owner.palScreen(pal.id)).rejects.toThrow('invalid screen')
 	} finally {
 		transport.screen = original
@@ -902,7 +953,11 @@ it('verifies a stale generation before cancelling any owned Pal work', async () 
 	const { owner, pal } = fixture()
 	transport.requestHook = async (_cwd, method) => {
 		if (method === 'namzu/pals/computer/status')
-			return { status: 'ready', generation: '2', control: { supported: true, mode: 'pal' } }
+			return {
+				status: 'ready',
+				generation: '2',
+				control: { supported: true, mode: 'pal' },
+			}
 	}
 	await expect(owner.takeOverPalComputer(pal.id, '1')).rejects.toThrow('computer changed')
 	expect(
@@ -942,7 +997,11 @@ it('fences new work, waits for cancelled foreground completion, stops owned jobs
 	let jobRunning = true
 	transport.requestHook = async (_cwd, method) => {
 		if (method === 'namzu/pals/computer/status')
-			return { status: 'ready', generation: '1', control: { supported: true, mode } }
+			return {
+				status: 'ready',
+				generation: '1',
+				control: { supported: true, mode },
+			}
 		if (method === 'session/prompt') {
 			promptEntered.resolve()
 			await promptDone.promise
@@ -964,11 +1023,19 @@ it('fences new work, waits for cancelled foreground completion, stops owned jobs
 		}
 		if (method === 'namzu/pals/computer/take_over') {
 			mode = 'operator'
-			return { status: 'ready', generation: '1', control: { supported: true, mode } }
+			return {
+				status: 'ready',
+				generation: '1',
+				control: { supported: true, mode },
+			}
 		}
 		if (method === 'namzu/pals/computer/return_control') {
 			mode = 'pal'
-			return { status: 'ready', generation: '1', control: { supported: true, mode } }
+			return {
+				status: 'ready',
+				generation: '1',
+				control: { supported: true, mode },
+			}
 		}
 	}
 	owner.send(conversation.id, 'First')
@@ -989,7 +1056,9 @@ it('fences new work, waits for cancelled foreground completion, stops owned jobs
 	stopDone.resolve()
 	expect((await takeover).control?.mode).toBe('operator')
 	expect(() =>
-		owner.respondPermission(conversation.id, 'guest-review', { outcome: 'approve' }),
+		owner.respondPermission(conversation.id, 'guest-review', {
+			outcome: 'approve',
+		}),
 	).toThrow('Return this Pal computer')
 	expect(transport.calls.find((call) => call.method === 'namzu/jobs/stop')?.params).toEqual({
 		sessionId: conversation.id,
@@ -1010,7 +1079,11 @@ it('keeps Pal control when job termination remains unconfirmed', async () => {
 	transport.requestHook = async (_cwd, method) => {
 		if (method === 'session/prompt') return { stopReason: 'end_turn' }
 		if (method === 'namzu/pals/computer/status')
-			return { status: 'ready', generation: '1', control: { supported: true, mode: 'pal' } }
+			return {
+				status: 'ready',
+				generation: '1',
+				control: { supported: true, mode: 'pal' },
+			}
 		if (method === 'namzu/jobs/list')
 			return [{ id: 'owned-job', status: 'running', recoveryRequired: true }]
 		if (method === 'namzu/jobs/stop') throw new Error('Stop unconfirmed')
@@ -1031,7 +1104,11 @@ it('captures exact operator input before asynchronous preflight and routes only 
 		if (method === 'namzu/pals/computer/status') {
 			statusEntered.resolve()
 			await statusDone.promise
-			return { status: 'ready', generation: '7', control: { supported: true, mode: 'operator' } }
+			return {
+				status: 'ready',
+				generation: '7',
+				control: { supported: true, mode: 'operator' },
+			}
 		}
 		if (method === 'namzu/pals/computer/input') return { type: 'ok' }
 	}
@@ -1044,7 +1121,11 @@ it('captures exact operator input before asynchronous preflight and routes only 
 	expect(transport.calls.find((call) => call.method === 'namzu/pals/computer/input')).toEqual({
 		cwd: workspace,
 		method: 'namzu/pals/computer/input',
-		params: { palId: pal.id, generation: '7', input: { type: 'key', keys: 'A' } },
+		params: {
+			palId: pal.id,
+			generation: '7',
+			input: { type: 'key', keys: 'A' },
+		},
 	})
 	await owner.palScreen(pal.id, '7')
 	expect(
@@ -1057,12 +1138,18 @@ it('clears native control admission fencing only after a confirmed computer stop
 	const conversation = await owner.newConversation(opened.project.id)
 	transport.requestHook = async (_cwd, method) => {
 		if (method === 'namzu/pals/computer/status')
-			return { status: 'ready', generation: '1', control: { supported: true, mode: 'operator' } }
+			return {
+				status: 'ready',
+				generation: '1',
+				control: { supported: true, mode: 'operator' },
+			}
 		if (method === 'namzu/pals/computer/stop') return { status: 'stopped' }
 	}
 	await owner.palComputer(pal.id)
 	expect(() =>
-		owner.respondPermission(conversation.id, 'guest-review', { outcome: 'approve' }),
+		owner.respondPermission(conversation.id, 'guest-review', {
+			outcome: 'approve',
+		}),
 	).toThrow('Return this Pal computer')
 	await owner.stopPalComputer(pal.id)
 	expect(() => owner.send(conversation.id, 'Fresh admission')).not.toThrow()
@@ -1076,12 +1163,18 @@ it('admits operator-held conversation text while keeping guest tool approvals fe
 	const conversation = await owner.newConversation(opened.project.id)
 	transport.requestHook = async (_cwd, method) => {
 		if (method === 'namzu/pals/computer/status')
-			return { status: 'ready', generation: '1', control: { supported: true, mode: 'operator' } }
+			return {
+				status: 'ready',
+				generation: '1',
+				control: { supported: true, mode: 'operator' },
+			}
 		if (method === 'session/prompt') return { stopReason: 'end_turn' }
 	}
 	await owner.palComputer(pal.id)
 	expect(() =>
-		owner.respondPermission(conversation.id, 'guest-review', { outcome: 'approve' }),
+		owner.respondPermission(conversation.id, 'guest-review', {
+			outcome: 'approve',
+		}),
 	).toThrow('Return this Pal computer')
 	owner.send(conversation.id, 'Just chat with me')
 	await settled.promise
@@ -1091,7 +1184,9 @@ it('admits operator-held conversation text while keeping guest tool approvals fe
 		false,
 	)
 	expect(() =>
-		owner.respondPermission(conversation.id, 'guest-review', { outcome: 'approve' }),
+		owner.respondPermission(conversation.id, 'guest-review', {
+			outcome: 'approve',
+		}),
 	).toThrow('Return this Pal computer')
 })
 
@@ -1160,10 +1255,18 @@ it('does not let an earlier Pal status response clear newly confirmed operator a
 				statusEntered.resolve()
 				await oldStatusDone.promise
 			}
-			return { status: 'ready', generation: '1', control: { supported: true, mode: 'pal' } }
+			return {
+				status: 'ready',
+				generation: '1',
+				control: { supported: true, mode: 'pal' },
+			}
 		}
 		if (method === 'namzu/pals/computer/take_over')
-			return { status: 'ready', generation: '1', control: { supported: true, mode: 'operator' } }
+			return {
+				status: 'ready',
+				generation: '1',
+				control: { supported: true, mode: 'operator' },
+			}
 	}
 	const stale = owner.palComputer(pal.id)
 	await statusEntered.promise
@@ -1171,7 +1274,9 @@ it('does not let an earlier Pal status response clear newly confirmed operator a
 	oldStatusDone.resolve()
 	await stale
 	expect(() =>
-		owner.respondPermission(conversation.id, 'guest-review', { outcome: 'approve' }),
+		owner.respondPermission(conversation.id, 'guest-review', {
+			outcome: 'approve',
+		}),
 	).toThrow('Return this Pal computer')
 })
 
@@ -1181,12 +1286,19 @@ it('reuses only an owned ready Pal input connection without reloading metadata o
 	let mode = 'operator'
 	transport.requestHook = async (_cwd, method) => {
 		if (method === 'namzu/pals/computer/status')
-			return { status: 'ready', generation: '8', control: { supported: true, mode } }
+			return {
+				status: 'ready',
+				generation: '8',
+				control: { supported: true, mode },
+			}
 		if (method === 'namzu/pals/computer/input') return { type: 'ok' }
 	}
 	const before = transport.calls.length
 	await owner.palComputerInput(pal.id, '8', { type: 'key', keys: 'CTRL+l' })
-	await owner.palComputerInput(pal.id, '8', { type: 'type_text', text: 'Owned guest text' })
+	await owner.palComputerInput(pal.id, '8', {
+		type: 'type_text',
+		text: 'Owned guest text',
+	})
 	await expect(owner.palComputerInput(pal.id, '7', { type: 'key', keys: 'ENTER' })).rejects.toThrow(
 		'computer changed',
 	)
@@ -1226,7 +1338,11 @@ it('reconnects an errored Pal input client instead of reusing its retained shutd
 	old.emit('closed', new Error('Unexpected disconnect'))
 	transport.requestHook = async (_cwd, method) => {
 		if (method === 'namzu/pals/computer/status')
-			return { status: 'ready', generation: '9', control: { supported: true, mode: 'operator' } }
+			return {
+				status: 'ready',
+				generation: '9',
+				control: { supported: true, mode: 'operator' },
+			}
 		if (method === 'namzu/pals/computer/input') return { type: 'ok' }
 	}
 	const before = transport.calls.length
@@ -1236,7 +1352,10 @@ it('reconnects an errored Pal input client instead of reusing its retained shutd
 	expect(transport.calls.slice(before).map((call) => call.method)).toContain('namzu/pals/get')
 	expect(
 		transport.calls.filter((call) => call.method === 'namzu/pals/computer/input').at(-1),
-	).toMatchObject({ cwd: workspace, params: { palId: pal.id, generation: '9' } })
+	).toMatchObject({
+		cwd: workspace,
+		params: { palId: pal.id, generation: '9' },
+	})
 })
 
 it('rejects a delayed native input preflight after return and retake of the same computer generation', async () => {
@@ -1252,17 +1371,33 @@ it('rejects a delayed native input preflight after return and retake of the same
 				first = false
 				oldStatusEntered.resolve()
 				await oldStatusDone.promise
-				return { status: 'ready', generation: '12', control: { supported: true, mode: 'operator' } }
+				return {
+					status: 'ready',
+					generation: '12',
+					control: { supported: true, mode: 'operator' },
+				}
 			}
-			return { status: 'ready', generation: '12', control: { supported: true, mode } }
+			return {
+				status: 'ready',
+				generation: '12',
+				control: { supported: true, mode },
+			}
 		}
 		if (method === 'namzu/pals/computer/return_control') {
 			mode = 'pal'
-			return { status: 'ready', generation: '12', control: { supported: true, mode } }
+			return {
+				status: 'ready',
+				generation: '12',
+				control: { supported: true, mode },
+			}
 		}
 		if (method === 'namzu/pals/computer/take_over') {
 			mode = 'operator'
-			return { status: 'ready', generation: '12', control: { supported: true, mode } }
+			return {
+				status: 'ready',
+				generation: '12',
+				control: { supported: true, mode },
+			}
 		}
 		if (method === 'namzu/pals/computer/input') return { type: 'ok' }
 	}
@@ -1280,7 +1415,11 @@ it('rejects a delayed native input preflight after return and retake of the same
 	await owner.palComputerInput(pal.id, '12', { type: 'key', keys: 'ENTER' })
 	expect(transport.calls.filter((call) => call.method === 'namzu/pals/computer/input')).toEqual([
 		expect.objectContaining({
-			params: { palId: pal.id, generation: '12', input: { type: 'key', keys: 'ENTER' } },
+			params: {
+				palId: pal.id,
+				generation: '12',
+				input: { type: 'key', keys: 'ENTER' },
+			},
 		}),
 	])
 })
@@ -1335,9 +1474,17 @@ it('rejects a stream result from the previous authority epoch before opening a t
 			return { generation: '1' }
 		}
 		if (method === 'namzu/pals/computer/status')
-			return { status: 'ready', generation: '1', control: { supported: true, mode: 'pal' } }
+			return {
+				status: 'ready',
+				generation: '1',
+				control: { supported: true, mode: 'pal' },
+			}
 		if (method === 'namzu/pals/computer/take_over')
-			return { status: 'ready', generation: '1', control: { supported: true, mode: 'operator' } }
+			return {
+				status: 'ready',
+				generation: '1',
+				control: { supported: true, mode: 'operator' },
+			}
 	}
 	const view = owner.openPalComputerStream(pal.id, '1')
 	await streamEntered.promise
@@ -1363,12 +1510,20 @@ it('reboots only the current owned generation, preserving its profile and closin
 		if (method === 'namzu/pals/computer/stream')
 			return { generation: cwd === workspace ? generation : '1' }
 		if (method === 'namzu/pals/computer/status')
-			return { status: 'ready', generation, control: { supported: true, mode } }
+			return {
+				status: 'ready',
+				generation,
+				control: { supported: true, mode },
+			}
 		if (method === 'namzu/pals/computer/stop') return { status: 'stopped' }
 		if (method === 'namzu/pals/computer/start') {
 			generation = '6'
 			mode = 'pal'
-			return { status: 'ready', generation, control: { supported: true, mode } }
+			return {
+				status: 'ready',
+				generation,
+				control: { supported: true, mode },
+			}
 		}
 	}
 	const view = await owner.openPalComputerStream(pal.id, '5')
@@ -1388,8 +1543,16 @@ it('reboots only the current owned generation, preserving its profile and closin
 	expect(
 		transport.calls.slice(before).filter((call) => /computer\/(stop|start)$/.test(call.method)),
 	).toEqual([
-		{ cwd: workspace, method: 'namzu/pals/computer/stop', params: { palId: pal.id } },
-		{ cwd: workspace, method: 'namzu/pals/computer/start', params: { palId: pal.id } },
+		{
+			cwd: workspace,
+			method: 'namzu/pals/computer/stop',
+			params: { palId: pal.id },
+		},
+		{
+			cwd: workspace,
+			method: 'namzu/pals/computer/start',
+			params: { palId: pal.id },
+		},
 	])
 	expect(transport.calls.some((call) => call.method === 'session/prompt')).toBe(false)
 	await expect(owner.palComputerInput(pal.id, '5', { type: 'key', keys: 'ENTER' })).rejects.toThrow(
@@ -1547,7 +1710,11 @@ it.each(['failed', 'unconfirmed'])(
 		const conversation = await owner.newConversation(opened.project.id)
 		transport.requestHook = async (_cwd, method) => {
 			if (method === 'namzu/pals/computer/status')
-				return { status: 'ready', generation: '1', control: { supported: true, mode: 'operator' } }
+				return {
+					status: 'ready',
+					generation: '1',
+					control: { supported: true, mode: 'operator' },
+				}
 			if (method === 'namzu/pals/computer/stream') return { generation: '1' }
 			if (method === 'namzu/pals/computer/stop') {
 				if (outcome === 'failed') throw new Error('Stop failed')
@@ -1562,7 +1729,9 @@ it.each(['failed', 'unconfirmed'])(
 		expect(transport.calls.some((call) => call.method === 'namzu/pals/computer/start')).toBe(false)
 		expect(views.has(view.id)).toBe(true)
 		expect(() =>
-			owner.respondPermission(conversation.id, 'guest-review', { outcome: 'approve' }),
+			owner.respondPermission(conversation.id, 'guest-review', {
+				outcome: 'approve',
+			}),
 		).toThrow('Return this Pal computer')
 	},
 )
@@ -1632,7 +1801,11 @@ it('deletes only after owned guest and runtime cleanup, retiring its cached view
 	const conversation = await owner.newConversation(opened.project.id)
 	transport.requestHook = async (cwd, method) => {
 		if (method === 'namzu/pals/computer/status')
-			return { status: 'ready', generation: '1', control: { supported: true, mode: 'operator' } }
+			return {
+				status: 'ready',
+				generation: '1',
+				control: { supported: true, mode: 'operator' },
+			}
 		if (method === 'namzu/pals/computer/stream') return { generation: '1' }
 		if (method === 'namzu/pals/computer/stop') return { status: 'stopped' }
 		if (method === 'namzu/pals/delete') {
@@ -1646,7 +1819,10 @@ it('deletes only after owned guest and runtime cleanup, retiring its cached view
 	}
 	const viewer = await owner.openPalComputerStream(pal.id, '1')
 	const before = transport.calls.length
-	expect(await owner.deletePal(pal.id, pal.revision)).toEqual({ id: pal.id, deleted: true })
+	expect(await owner.deletePal(pal.id, pal.revision)).toEqual({
+		id: pal.id,
+		deleted: true,
+	})
 	expect(views.has(viewer.id)).toBe(false)
 	expect(owner.listProjects()).toEqual([])
 	expect(await owner.listPals()).toEqual([])
@@ -1666,7 +1842,11 @@ it('deletes only after owned guest and runtime cleanup, retiring its cached view
 		calls.findIndex((call) => call.method === 'namzu/pals/delete'),
 	)
 	expect(calls.filter((call) => call.method === 'namzu/pals/computer/stop')).toEqual([
-		{ cwd: workspace, method: 'namzu/pals/computer/stop', params: { palId: pal.id } },
+		{
+			cwd: workspace,
+			method: 'namzu/pals/computer/stop',
+			params: { palId: pal.id },
+		},
 	])
 	await expect(owner.openPal(pal.id)).rejects.toThrow('deleted')
 	await expect(owner.startPalComputer(pal.id)).rejects.toThrow('deleted')
@@ -1874,6 +2054,44 @@ it('removes an unopened durable Recent only after exact owned archive acknowledg
 	)
 })
 
+const OWNERSHIP = 'This conversation does not belong to this project.'
+const IDENTITY = 'This conversation was saved by a different Namzu identity.'
+it.each([
+	['its journal is gone', 'missing'],
+	['it was saved under another identity', 'identity'],
+])('removes a restored row whose journal cannot be opened when %s', async (_name, kind) => {
+	const { owner, pal, workspace } = fixture()
+	transport.claims.set(workspace, ['dead-row-chat'])
+	const opened = await owner.openPal(pal.id)
+	transport.requestHook = async (_cwd, method) => {
+		if (method === 'namzu/jobs/list') throw new Error(OWNERSHIP)
+		if (method === 'namzu/conversations/archive') {
+			if (kind === 'identity') throw new Error(IDENTITY)
+			return { sessionId: 'dead-row-chat', archived: false, missing: true }
+		}
+	}
+	expect(await owner.removeConversation('dead-row-chat')).toEqual({
+		sessionId: 'dead-row-chat',
+		removed: true,
+		archived: false,
+	})
+	expect(await owner.listConversations(opened.project.id)).toEqual([])
+})
+
+it('still refuses a conversation id the host calls foreign when archiving it', async () => {
+	const { owner, pal, workspace } = fixture()
+	transport.claims.set(workspace, ['foreign-row-chat'])
+	const opened = await owner.openPal(pal.id)
+	transport.requestHook = async (_cwd, method) => {
+		if (method === 'namzu/jobs/list') throw new Error(OWNERSHIP)
+		if (method === 'namzu/conversations/archive') throw new Error(OWNERSHIP)
+	}
+	await expect(owner.removeConversation('foreign-row-chat')).rejects.toThrow(OWNERSHIP)
+	expect((await owner.listConversations(opened.project.id)).map((c) => c.id)).toEqual([
+		'foreign-row-chat',
+	])
+})
+
 it.each(['unknown', 'foreign', 'missing', 'throws'])(
 	'keeps a durable conversation and its draft when archive returns %s',
 	async (outcome) => {
@@ -2048,7 +2266,10 @@ it.each([true, false])(
 			if (method === 'namzu/conversations/history') {
 				entered.resolve()
 				await release.promise
-				return { messages: [{ role: 'assistant', text: 'Historical answer' }], partial: false }
+				return {
+					messages: [{ role: 'assistant', text: 'Historical answer' }],
+					partial: false,
+				}
 			}
 			if (method === 'namzu/conversations/archive' && !confirmed) return { sessionId: id }
 		}

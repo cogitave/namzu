@@ -250,3 +250,16 @@ it('leaves a read that is already running alone when an update arrives', async (
 	pending.resolve(catalogue('Fresh'))
 	expect(await loading).toMatchObject({ current: true, retained: true })
 })
+
+it('names a model from the same engine and provider read for another conversation', async () => {
+	const cache = new ModelCatalogueDisplayCache()
+	await cache.load(scope(cache, { sessionId: 'one', harnessScope: 'codex' }), async () =>
+		catalogue('Read in one'),
+	)
+	const other = scope(cache, { sessionId: 'two', harnessScope: 'codex' })
+	expect(cache.peek(other)).toEqual({ state: 'idle' })
+	expect(cache.lastKnownForEngine('codex', 'sample')?.models[0]?.label).toBe('Read in one')
+	expect(cache.lastKnownForEngine('namzu', 'sample')).toBeUndefined()
+	cache.invalidate()
+	expect(cache.lastKnownForEngine('codex', 'sample')).toBeUndefined()
+})

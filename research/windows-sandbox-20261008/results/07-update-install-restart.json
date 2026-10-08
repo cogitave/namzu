@@ -1,0 +1,36 @@
+{
+  "check": "v1 installs v2 through the dialog and restarts",
+  "clickBadge": true,
+  "dialog": "Update ready\n\nVersion 0.1.1 is ready. Namzu will restart when installation finishes. Your tabs and drafts come back.\n\nRestart now\nLater",
+  "clicked": true,
+  "pidsBefore": "",
+  "sawGone": true,
+  "relaunched": true,
+  "msToBack": 34043,
+  "installedAfter": "0.1.1.0",
+  "relaunchedPids": "3696,4380,4568,5432,5936,6136",
+  "relaunchedCommandLength": 78,
+  "cdpAfterRestart": true,
+  "reconnect": null,
+  "page": {
+    "title": "Namzu",
+    "api": "object"
+  },
+  "draft": "sandbox-marker-c865640d",
+  "draftSurvived": true,
+  "projects": [
+    {
+      "path": "C:\\work\\fixture",
+      "status": "ready",
+      "trusted": true
+    }
+  ],
+  "updateState": {
+    "status": "disabled"
+  },
+  "markerFileSurvived": true,
+  "speechInstallSurvived": true,
+  "result": "pass",
+  "startedAt": "2026-10-08T15:14:16.353Z",
+  "ms": 127745
+}

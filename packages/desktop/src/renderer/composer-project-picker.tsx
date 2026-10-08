@@ -2,8 +2,14 @@ import { Radio } from '@base-ui/react/radio'
 import { RadioGroup } from '@base-ui/react/radio-group'
 import { useEffect, useState } from 'react'
 import type { ProjectView } from '../shared/protocol.js'
+import {
+	ADD_PROJECT_LABEL,
+	AddProjectMenu,
+	START_FROM_SCRATCH_LABEL,
+	USE_EXISTING_FOLDER_LABEL,
+} from './add-project-menu.js'
 import { ComposerControl, ComposerControlChevron } from './composer-control.js'
-import { CheckIcon, FolderIcon, SearchIcon, XIcon } from './icons.js'
+import { CheckIcon, FolderIcon, FolderPlusIcon, SearchIcon, XIcon } from './icons.js'
 import { commitsOnKey, committableProject } from './picker-commit.js'
 import { Button } from './ui/button.js'
 import { Input } from './ui/input.js'
@@ -17,6 +23,7 @@ export function ComposerProjectPicker({
 	projects,
 	onSelectProject,
 	onOpenProject,
+	onCreateProject,
 	onLeaveProject,
 }: {
 	projectId: string
@@ -25,6 +32,7 @@ export function ComposerProjectPicker({
 	projects?: readonly ProjectView[]
 	onSelectProject?: (project: ProjectView) => void
 	onOpenProject: () => void
+	onCreateProject?: () => void
 	onLeaveProject?: () => void
 }) {
 	const [open, setOpen] = useState(false)
@@ -59,16 +67,21 @@ export function ComposerProjectPicker({
 		/>
 	)
 	if (!projects || !onSelectProject) {
-		return (
+		const fallback = (
 			<ComposerControl
 				size="xs"
-				aria-label="Choose project folder"
+				aria-label={onCreateProject ? ADD_PROJECT_LABEL : 'Choose project folder'}
 				className="composer-project-control"
 				title={projectPath}
-				onClick={onOpenProject}
+				onClick={onCreateProject ? undefined : onOpenProject}
 			>
 				{label}
 			</ComposerControl>
+		)
+		return onCreateProject ? (
+			<AddProjectMenu trigger={fallback} onCreate={onCreateProject} onOpen={onOpenProject} />
+		) : (
+			fallback
 		)
 	}
 	const select = (id: string) => {
@@ -166,6 +179,18 @@ export function ComposerProjectPicker({
 					</p>
 				)}
 				<div className="composer-project-actions">
+					{onCreateProject && (
+						<Button
+							variant="ghost"
+							size="sm"
+							onClick={() => {
+								setOpen(false)
+								onCreateProject()
+							}}
+						>
+							<FolderPlusIcon aria-hidden="true" /> {START_FROM_SCRATCH_LABEL}
+						</Button>
+					)}
 					<Button
 						variant="ghost"
 						size="sm"
@@ -174,7 +199,7 @@ export function ComposerProjectPicker({
 							onOpenProject()
 						}}
 					>
-						<FolderIcon aria-hidden="true" /> Open folder…
+						<FolderIcon aria-hidden="true" /> {USE_EXISTING_FOLDER_LABEL}
 					</Button>
 					{onLeaveProject && (
 						<Button

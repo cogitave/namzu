@@ -1,0 +1,50 @@
+{
+  "check": "first launch",
+  "result": "pass",
+  "msToWindow": 514,
+  "page": {
+    "title": "Namzu",
+    "textLength": 314,
+    "rootChildren": 1,
+    "api": "object"
+  },
+  "projects": [
+    {
+      "id": "00537879-8461-46ae-b432-b83b1386a14b",
+      "path": "C:\\work\\fixture",
+      "status": "ready",
+      "trusted": false
+    }
+  ],
+  "userDataEntries": [
+    "blob_storage",
+    "Cache",
+    "Code Cache",
+    "DawnGraphiteCache",
+    "DawnWebGPUCache",
+    "declarative_performance_observer.db",
+    "declarative_performance_observer.db-journal",
+    "desktop-conversations.json",
+    "DevToolsActivePort",
+    "DIPS",
+    "DIPS-wal",
+    "GPUCache",
+    "GPUPersistentCache",
+    "GrShaderCache",
+    "Local Storage",
+    "lockfile",
+    "logs",
+    "Network",
+    "projects.json",
+    "Session Storage",
+    "ShaderCache",
+    "Shared Dictionary",
+    "workspace-layout.json"
+  ],
+  "cliLogs": [
+    "cli",
+    "pals"
+  ],
+  "startedAt": "2026-10-08T15:12:27.382Z",
+  "ms": 8579
+}

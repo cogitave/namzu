@@ -112,8 +112,12 @@ export class DraftSettingsStore {
 				}
 				if (state.unconfirmed)
 					throw new Error(state.error ?? 'Message settings could not be saved. Try again.')
-				this.retireRead(state)
-				state.known = false
+				// A first read already in flight started after the last save, so it is as fresh as a
+				// new one; joining it keeps `loading` from going true a second time.
+				if (!(state.reading && !state.known)) {
+					this.retireRead(state)
+					state.known = false
+				}
 				await this.load(owner)
 				assertCurrent()
 				if (!state.known || state.error)

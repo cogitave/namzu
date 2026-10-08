@@ -1,0 +1,35 @@
+{
+  "check": "free Zen reply without a key",
+  "result": "pass",
+  "provider": {
+    "id": "zen",
+    "label": "Zen",
+    "defaultModel": "space-bunny-free"
+  },
+  "selected": {
+    "id": "zen"
+  },
+  "models": {
+    "count": 12,
+    "free": 12,
+    "chosen": "big-pickle"
+  },
+  "replyChars": 5,
+  "eventCounts": {
+    "prompt": 1,
+    "state": 2,
+    "update:agent_message_chunk": 1,
+    "update:agent_message": 1,
+    "update:turn_ended": 1,
+    "background-work-status": 1,
+    "permission-cleared": 1,
+    "undo-status": 1,
+    "tasks": 1
+  },
+  "errors": [],
+  "updateErrors": [],
+  "sendError": null,
+  "note": "Zen answered anonymously.",
+  "startedAt": "2026-10-08T15:12:39.277Z",
+  "ms": 8002
+}

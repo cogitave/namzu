@@ -55,6 +55,7 @@ import type {
 } from '../shared/protocol.js'
 import { readTaskUpdate, readTasks } from '../shared/task-protocol.js'
 import { readUndoPreview, readUndoResult, readUndoStatus } from '../shared/undo-protocol.js'
+import type { UpdateBlocker } from '../shared/update-protocol.js'
 import { AttachmentPreviewBudget } from './attachment-preview-budget.js'
 import {
 	type AdmittedAttachment,
@@ -411,6 +412,20 @@ export class Operator {
 				diagnostics?.record('project_restore_failed', { error })
 			}
 		}
+	}
+	/**
+	 * What keeps an app update from restarting the process right now. A status that is only
+	 * unknown or unavailable is not a reason: an engine that cannot report is covered while it runs.
+	 */
+	updateBlockers(): UpdateBlocker[] {
+		const found = new Set<UpdateBlocker>()
+		for (const item of this.conversations.values()) {
+			if (item.running || item.admitting || item.queue.length) found.add('turn-running')
+			if (item.permissions.size) found.add('permission-pending')
+		}
+		for (const status of Object.values(this.backgroundWork.snapshot()))
+			if (status.state === 'known' && status.runningCount > 0) found.add('background-work')
+		return [...found]
 	}
 	/** Volatile UI knowledge. Missing entries are unknown, never zero. */
 	backgroundWorkStatuses(): Record<string, BackgroundWorkStatus> {
@@ -1540,6 +1555,9 @@ export class Operator {
 				!session.projection.messages.some((message) => message.role === 'user') &&
 				!session.projection.timeline.some((entry) => entry.kind !== 'message'),
 		)
+		// Only a row that was never live this run (unsent, catalogue-only, or restored from the
+		// saved list and not yet loaded) may be dropped on the host's word that no journal exists.
+		const deadRow = unsent || !session || Boolean(session.restorePending)
 		const aliases = [...new Set([sessionId, ...(runtimeId ? [runtimeId] : [])])]
 		const project = this.project(view.projectId)
 		if (!project.view.trusted) throw new Error('Trust this folder first.')
@@ -1581,31 +1599,59 @@ export class Operator {
 				// archive endpoint validates absence/ownership and existing jobs without
 				// creating a provider context. Ordinary durable rows still preflight jobs.
 				if (!unsent) {
-					const jobs = (await project.client.request('namzu/jobs/list', {
-						sessionId: alias,
-					})) as JobView[]
+					// A row whose journal this home or identity can no longer open is refused
+					// by the jobs route with the ownership error. The archive endpoint below
+					// re-derives ownership and idleness itself, so it adjudicates those rows.
+					let jobs: JobView[] | null
+					try {
+						jobs = (await project.client.request('namzu/jobs/list', {
+							sessionId: alias,
+						})) as JobView[]
+					} catch (error) {
+						if (!(error instanceof Error) || !/does not belong to this project/.test(error.message))
+							throw error
+						jobs = null
+					}
 					if (
-						!Array.isArray(jobs) ||
-						jobs.some(
-							(job) =>
-								!job ||
-								typeof job.status !== 'string' ||
-								job.status === 'running' ||
-								job.recoveryRequired,
-						)
+						jobs !== null &&
+						(!Array.isArray(jobs) ||
+							jobs.some(
+								(job) =>
+									!job ||
+									typeof job.status !== 'string' ||
+									job.status === 'running' ||
+									job.recoveryRequired,
+							))
 					)
 						throw new Error('Stop this conversation’s background work before removing it.')
 				}
 				assertIdle()
 				this.pendingConversationRemovals.add(sessionId)
-				const result = (await project.client.request('namzu/conversations/archive', {
-					sessionId: alias,
-				})) as { sessionId?: unknown; archived?: unknown; missing?: unknown }
+				let result: {
+					sessionId?: unknown
+					archived?: unknown
+					missing?: unknown
+				}
+				try {
+					result = (await project.client.request('namzu/conversations/archive', {
+						sessionId: alias,
+					})) as typeof result
+				} catch (error) {
+					// Saved under another identity: the journal is untouched, the row is dead.
+					if (
+						!(error instanceof Error) ||
+						!/saved by a different Namzu identity/.test(error.message)
+					)
+						throw error
+					result = { sessionId: alias, archived: false, missing: true }
+				}
+				// An absent journal is an observation the host reports for a row with no
+				// durable conversation left; the row is dropped, nothing is archived.
 				if (
 					!result ||
 					result.sessionId !== alias ||
 					(result.archived !== true &&
-						!(unsent && result.archived === false && result.missing === true))
+						!(deadRow && result.archived === false && result.missing === true))
 				)
 					throw new Error('Conversation removal was not confirmed. Retry removing it.')
 				archived ||= result.archived === true
@@ -2716,7 +2762,10 @@ export class Operator {
 			// The warning that the selected model is missing is per conversation; keep only
 			// what describes the list itself.
 			const notice = view.notice === TRUNCATED_MODEL_NOTICE ? view.notice : null
-			const { changed, entry } = this.modelLists.put(key, { models: view.models, notice })
+			const { changed, entry } = this.modelLists.put(key, {
+				models: view.models,
+				notice,
+			})
 			if (changed)
 				this.emit({
 					kind: 'model-catalogue-updated',
@@ -3573,7 +3622,10 @@ export class Operator {
 			await this.refreshUndo(session)
 		} catch (error) {
 			try {
-				this.diagnostics?.record('cli_notice', { operation: 'namzu/turns/undo-status', error })
+				this.diagnostics?.record('cli_notice', {
+					operation: 'namzu/turns/undo-status',
+					error,
+				})
 			} catch {
 				/* Diagnostics cannot break opening a conversation. */
 			}
@@ -3730,7 +3782,11 @@ export class Operator {
 						: []
 				})
 				if (stamped.length)
-					this.emit({ kind: 'undo-status', sessionId: session.view.id, turns: stamped })
+					this.emit({
+						kind: 'undo-status',
+						sessionId: session.view.id,
+						turns: stamped,
+					})
 			}
 			return undone
 		} finally {

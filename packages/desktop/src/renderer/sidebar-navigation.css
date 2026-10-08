@@ -142,6 +142,8 @@
 .sidebar-project-list .conversation-age,
 .sidebar-recent-list .conversation-age {
 	opacity: 0;
+	/* Appears and disappears with the hover buttons' slot, in the same frame. */
+	transition: none;
 }
 
 .sidebar-project-list .sidebar-conversation-button:hover .conversation-age,

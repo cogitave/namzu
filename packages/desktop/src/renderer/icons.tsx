@@ -5,6 +5,7 @@ import {
 	ChevronsDownUp,
 	Clock,
 	Copy,
+	Download,
 	Ellipsis,
 	FilePen,
 	FolderClosed,
@@ -245,6 +246,7 @@ export const CollapseAllIcon = createOutlineIcon(ChevronsDownUp)
 export const FilterIcon = createOutlineIcon(ListFilter)
 export const ConversationIcon = createOutlineIcon(MessageSquare)
 export const UserRoundIcon = createOutlineIcon(UserRound)
+export const DownloadIcon = createOutlineIcon(Download)
 export const HandIcon = createOutlineIcon(Hand)
 export const FilePenIcon = createOutlineIcon(FilePen)
 export const ListChecksIcon = createOutlineIcon(ListChecks)

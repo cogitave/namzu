@@ -57,3 +57,22 @@ it('rejects a complete list on one malformed row rather than treating it as empt
 		),
 	).toThrow('Foreign')
 })
+it('admits a message from the owner conversation as its own source and keeps only metadata', () => {
+	const [message] = readPalInbox(
+		{
+			v: 1,
+			palId: 'one',
+			messages: [
+				{
+					id: 'message',
+					status: 'pending',
+					sourceKind: 'operator-conversation',
+					operatorSessionId: 'session',
+					body: 'PRIVATE',
+				},
+			],
+		},
+		'one',
+	)
+	expect(message).toEqual({ id: 'message', status: 'pending', sourceKind: 'operator-conversation' })
+})

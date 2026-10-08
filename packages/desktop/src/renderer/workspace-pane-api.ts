@@ -413,7 +413,7 @@ export function createWorkspacePaneApi(
 		stopPalComputer: (id) => invoke(() => base.stopPalComputer(id), [], { global: true }),
 		openProject: () => invoke(() => base.openProject(), [], { global: true }),
 		reconnectProject: (id) => invoke(() => base.reconnectProject(id), [], { global: true }),
-		trustProject: (id) => invoke(() => base.trustProject(id), [], { global: true }),
+		trustProject: (id, token) => invoke(() => base.trustProject(id, token), [], { global: true }),
 		...(selectHarness
 			? {
 					selectHarness: (owner, harness) => invoke(() => selectHarness(owner, harness), [owner]),

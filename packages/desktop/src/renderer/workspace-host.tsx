@@ -4,6 +4,9 @@ import { workspaceGroups } from '../shared/workspace-layout.js'
 import type { WorkspaceWindowBounds } from '../shared/workspace-layout.js'
 import { App } from './app.js'
 import type { Appearance } from './sidebar.js'
+import { UpdateDialog } from './update-dialog.js'
+import { type UpdateDialogAction, updateDialogModel } from './update-model.js'
+import { useUpdateBusyReporter, useUpdateState } from './use-update.js'
 import type { WorkspaceTabDrag } from './workspace-canvas-geometry.js'
 import { WorkspaceCanvas } from './workspace-canvas.js'
 import type { WorkspacePaneController } from './workspace-pane-types.js'
@@ -38,6 +41,28 @@ export function WorkspaceHost() {
 		setLocalFocus(undefined)
 	}, [])
 	const report = useCallback((failure: unknown) => setError(message(failure)), [])
+	const updateState = useUpdateState(api)
+	const [updateOpen, setUpdateOpen] = useState(false)
+	const updateDialogShown = updateOpen || updateState.status === 'installing'
+	useEffect(() => {
+		if (!updateDialogModel(updateState)) setUpdateOpen(false)
+	}, [updateState])
+	useUpdateBusyReporter(api, updateState.status !== 'disabled')
+	const updateAction = (action: UpdateDialogAction) => {
+		if (action === 'restart' || action === 'retry') void api.installUpdate?.().catch(report)
+		else if (action === 'later') {
+			void api.cancelUpdateInstall?.().catch(report)
+			setUpdateOpen(false)
+		} else setUpdateOpen(false)
+	}
+	const update =
+		api.updateState === undefined
+			? undefined
+			: {
+					state: updateState,
+					onOpen: () => setUpdateOpen(true),
+					onCheck: () => void api.checkForUpdate?.().catch(report),
+				}
 	const keyboardCapture = useRef<boolean | null>(null)
 	const syncComputerFocus = useCallback(() => {
 		const active =
@@ -349,6 +374,7 @@ export function WorkspaceHost() {
 									(!!view.outgoingTransfer && group.tabs.includes(view.outgoingTransfer.tabId))
 								}
 								appearance={appearance}
+								update={update}
 								onAppearanceChange={setAppearance}
 								sideCollapsed={sideCollapsed}
 								onSideCollapsedChange={setSideCollapsed}
@@ -365,6 +391,14 @@ export function WorkspaceHost() {
 					/>
 				)}
 			</div>
+			{updateDialogShown && (
+				<UpdateDialog
+					state={updateState}
+					onAction={updateAction}
+					onClose={() => setUpdateOpen(false)}
+					returnFocus={() => document.querySelector<HTMLElement>('.rail-profile-button')}
+				/>
+			)}
 		</div>
 	)
 }

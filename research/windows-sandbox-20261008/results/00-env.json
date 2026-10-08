@@ -1,0 +1,14 @@
+﻿{
+    "freeDiskBytes":  40233996288,
+    "build":  "19041",
+    "soundDevices":  [
+
+                     ],
+    "at":  "2026-10-08T18:10:59.5258411+03:00",
+    "os":  "Microsoft Windows 10 Enterprise",
+    "memoryMB":  6143,
+    "pythonOnPath":  null,
+    "network":  true,
+    "check":  "environment",
+    "user":  "WDAGUtilityAccount"
+}

@@ -38,6 +38,12 @@ import type {
 	ProjectView,
 	ProviderView,
 } from '../shared/protocol.js'
+import {
+	ADD_PROJECT_LABEL,
+	AddProjectMenu,
+	START_FROM_SCRATCH_LABEL,
+	USE_EXISTING_FOLDER_LABEL,
+} from './add-project-menu.js'
 import { ArchivedConversationsDialog } from './archived-conversations-dialog.js'
 import { applyCachedAttachmentPreviewEviction } from './attachment-preview-events.js'
 import { ChangesPanel } from './changes-panel.js'
@@ -102,6 +108,7 @@ import { useEditors } from './file-panel/open-in.js'
 import { PanelResizeHandle, PanelTabStrip, type PanelView } from './file-panel/panel-tabs.js'
 import { ProjectFilesContext } from './file-panel/project-files.js'
 import { createLinkCache } from './file-panel/project-refs.js'
+import { FolderAccessDialog } from './folder-access-dialog.js'
 import {
 	ArrowUpIcon,
 	FolderIcon,
@@ -141,10 +148,13 @@ import {
 import { palRecentActivity } from './pal-recent-activity.js'
 import { PalCustomizeDialog, PalSidebarSection, PalsPage } from './pals-page.js'
 import { PluginsPage, PluginsSidebar } from './plugins-page.js'
+import { reusableProjectDraft } from './project-draft-reuse.js'
+import { newProjectFailure, projectHomeHeading } from './project-home.js'
 import { projectStage } from './project-stage.js'
 import { ProjectConnecting, ProjectOpenError } from './project-views.js'
 import { RenameConversationDialog } from './rename-conversation-dialog.js'
 import { type ConversationCollection, Sidebar } from './sidebar.js'
+import type { ThreadRowActions } from './thread-card.js'
 import { PaneToasts } from './toast.js'
 import { Transcript } from './transcript.js'
 import { TurnRecovery } from './turn-recovery.js'
@@ -198,6 +208,7 @@ export function App({
 	shell,
 	frozen: externalFrozen,
 	appearance,
+	update,
 	onAppearanceChange,
 	sideCollapsed,
 	onSideCollapsedChange,
@@ -298,6 +309,8 @@ export function App({
 		() => palRecords.filter((item) => !removedCatalogue.pals.has(item.id)),
 		[palRecords, removedCatalogue],
 	)
+	// Names for an approval that only carries a Pal's ID.
+	const palNames = useMemo(() => new Map(pals.map((item) => [item.id, item.name])), [pals])
 	const [palsLoading, setPalsLoading] = useState(true)
 	const [palsError, setPalsError] = useState('')
 	const [palsSaving, setPalsSaving] = useState(false)
@@ -305,6 +318,14 @@ export function App({
 	const [creatingPal, setCreatingPal] = useState(false)
 	const [editingPal, setEditingPal] = useState<PalView>()
 	const [deletingPal, setDeletingPal] = useState<PalView>()
+	// The in-app folder consent. `broad` is main's one-time proof for a drive, home or system folder.
+	const [folderAccess, setFolderAccess] = useState<{
+		projectId: string
+		broad?: NonNullable<ProjectView['broadFolder']>
+		risky?: NonNullable<ProjectView['riskySettings']>
+		/** A picked folder that is not in the app yet; only a confirmed trust adds it. */
+		pending?: { name: string; path: string }
+	}>()
 	const [removingConversation, setRemovingConversation] = useState<ConversationView>()
 	const removalTrigger = useRef<HTMLElement | null>(null)
 	const [communicationOwner, setCommunicationOwner] = useState<{
@@ -429,6 +450,11 @@ export function App({
 	}>()
 	const [harnessBusy, setHarnessBusy] = useState(false)
 	const harnessChoicePending = useRef(false)
+	// A pane that is not a tab (a landing or a draft) while an engine choice settles on it: tab
+	// restore must not take the pane away to open another tab or clear it.
+	const paneHold = useRef('')
+	// The untouched draft this window last opened for each project, so a project switch reuses it.
+	const projectDrafts = useRef(new Map<string, string>())
 	const harnessChoiceFailure = useRef<{
 		sessionId: string
 		message: string
@@ -1229,6 +1255,17 @@ export function App({
 				: [view, ...all],
 		)
 	}, [])
+	// An archived conversation is blocked from upserts and hidden from the sidebar until it is
+	// restored; both records must forget it, or the restored row never comes back.
+	const unblockRestoredConversation = useCallback((id: string) => {
+		removedConversations.current.delete(id)
+		setRemovedCatalogue((current) => {
+			if (!current.conversations.has(id)) return current
+			const conversations = new Set(current.conversations)
+			conversations.delete(id)
+			return { ...current, conversations }
+		})
+	}, [])
 	const act = useCallback(async (action: () => Promise<unknown>) => {
 		if (context.current.frozen) return
 		harnessChoiceFailure.current = null
@@ -1808,6 +1845,8 @@ export function App({
 		const capturedDraft = draftsRef.current[sourceOwner] ?? ''
 		let target = sessionId
 		let finishMutation: (() => void) | undefined
+		// Providers and the engine view were read for the current pane and applied.
+		let applied = false
 		harnessChoicePending.current = true
 		setHarnessBusy(true)
 		try {
@@ -1815,6 +1854,8 @@ export function App({
 			if (create) {
 				const view = await api.newConversation(sourceProject.id)
 				target = view.id
+				// Held before the pane shows it: the awaits below let tab restore run in between.
+				paneHold.current = target
 				setConversations((all) => [view, ...all.filter((item) => item.id !== view.id)])
 				setThreads((all) => ({ ...all, [view.id]: emptyThread() }))
 				setOpenTabIds((all) => (all.includes(view.id) ? all : [...all, view.id]))
@@ -1833,6 +1874,7 @@ export function App({
 				}
 				if (generation === navigation.current) setSessionId(target)
 			}
+			if (!context.current.group.tabs.includes(target)) paneHold.current = target
 			finishMutation = warmSessions.current.beginMutation(target)
 			setMetadataEpoch((epoch) => epoch + 1)
 			const view = await api.selectHarness(target, engine)
@@ -1851,13 +1893,18 @@ export function App({
 				setRailSection(null)
 				setJobsOpen(false)
 			}
-			await savedSettings.save(target, {
-				options: { permissionMode: 'prompt' },
-			})
-			const available = await api.providers(sourceProject.id, target)
+			// The two reads are independent; waiting for one before starting the other doubled the time
+			// the trigger spent on the previous engine.
+			const [, available] = await Promise.all([
+				savedSettings.save(target, {
+					options: { permissionMode: 'prompt' },
+				}),
+				api.providers(sourceProject.id, target),
+			])
 			if (generation !== navigation.current) return
 			setProviders(available)
 			setProviderOwner(owner)
+			applied = true
 		} catch (failure) {
 			if (finishMutation)
 				harnessChoiceFailure.current = {
@@ -1872,7 +1919,13 @@ export function App({
 				// A user may return to this owner while its choice ACK is pending.
 				// Retire visible metadata before waking that activation, regardless
 				// of the navigation generation which initiated the mutation.
-				if (activeSession.current === target || context.current.group.activeTabId === target) {
+				const tabbed = context.current.group.tabs.includes(target)
+				// A pane that is not a tab has nothing to restore: re-arming tab restore opened another
+				// tab, or cleared the pane, and the engine choice vanished with it.
+				if (
+					tabbed &&
+					(activeSession.current === target || context.current.group.activeTabId === target)
+				) {
 					providerGeneration.current++
 					harnessGeneration.current++
 					hydratedSession.current = null
@@ -1882,7 +1935,10 @@ export function App({
 					setModelSettings(null)
 					setRestoringTabs(true)
 				}
-				setMetadataEpoch((epoch) => epoch + 1)
+				// Everything this pane shows was just read and applied; reading it all again is the
+				// duplicate that kept the trigger on its placeholder.
+				if (tabbed || !applied || generation !== navigation.current)
+					setMetadataEpoch((epoch) => epoch + 1)
 				finishMutation()
 			}
 		}
@@ -1891,12 +1947,58 @@ export function App({
 	const createProjectDraft = useCallback(
 		async (item: ProjectView) => {
 			if (!item.trusted || item.status !== 'ready') return ''
+			const reused = reusableProjectDraft({
+				candidate: projectDrafts.current.get(item.id),
+				projectId: item.id,
+				conversations: catalogueRows.current.conversations,
+				thread: threadsRef.current[projectDrafts.current.get(item.id) ?? ''],
+				draftText: draftsRef.current[projectDrafts.current.get(item.id) ?? ''],
+			})
+			if (reused) return reused
 			const view = await api.newConversation(item.id)
+			projectDrafts.current.set(item.id, view.id)
 			setConversations((all) => [view, ...all.filter((row) => row.id !== view.id)])
 			setThreads((all) => ({ ...all, [view.id]: emptyThread() }))
 			return view.id
 		},
 		[api],
+	)
+	const composerFocusFor = useRef(-1)
+	useEffect(() => {
+		const field = input.current
+		if (composerFocusFor.current !== navigation.current || !field || field.disabled) return
+		if (!context.current.focused || context.current.frozen) return
+		composerFocusFor.current = -1
+		field.focus()
+	})
+	// A project that was just added lands on its home with the composer focused; there is no
+	// step in between for a trusted one.
+	const landOnProject = useCallback(
+		async (item: ProjectView, generation: number) => {
+			updateProject(item)
+			// Main trusted an ordinary pick itself; a broad folder or one with settings that run
+			// code waits for the dialog.
+			if (item.broadFolder) setFolderAccess({ projectId: item.id, broad: item.broadFolder })
+			else if (item.riskySettings)
+				setFolderAccess({ projectId: item.id, risky: item.riskySettings })
+			if (generation !== navigation.current) return
+			const target = await createProjectDraft(item)
+			if (generation !== navigation.current) return
+			setProjectId(item.id)
+			setSessionId(target)
+			setConversationSelection(null)
+			setPalScreen(undefined)
+			setRailSection(null)
+			setPalsPage(false)
+			setSideOpen(false)
+			setJobsOpen(false)
+			// The composer of a project that was just added mounts, and is enabled, after this
+			// render; a menu that started the add hands focus back to its button as it closes.
+			// The effect below focuses it once it can take focus, for this navigation only.
+			composerFocusFor.current = generation
+			if (context.current.focused && !context.current.frozen) input.current?.focus()
+		},
+		[updateProject, createProjectDraft],
 	)
 	const openProject = useCallback(async () => {
 		abandonTabRestore()
@@ -1904,27 +2006,40 @@ export function App({
 		setLoading(true)
 		try {
 			const item = await api.openProject()
-			if (item) {
-				updateProject(item)
-				if (generation !== navigation.current) return
-				const target = await createProjectDraft(item)
-				if (generation !== navigation.current) return
-				setProjectId(item.id)
-				setSessionId(target)
-				setConversationSelection(null)
-				setPalScreen(undefined)
-				setRailSection(null)
-				setPalsPage(false)
-				setSideOpen(false)
-				setJobsOpen(false)
-				if (context.current.focused && !context.current.frozen) input.current?.focus()
-			}
+			if (item?.pending && item.riskySettings) {
+				// Not in the app yet: only a confirmed trust adds it, and cancelling adds nothing.
+				setFolderAccess({
+					projectId: item.id,
+					risky: item.riskySettings,
+					pending: { name: item.name, path: item.path },
+				})
+			} else if (item) await landOnProject(item, generation)
 		} catch (failure) {
 			if (generation === navigation.current) throw failure
 		} finally {
 			if (generation === navigation.current) setLoading(false)
 		}
-	}, [updateProject, abandonTabRestore, createProjectDraft, api])
+	}, [abandonTabRestore, landOnProject, api])
+	const createProject = useCallback(async () => {
+		abandonTabRestore()
+		const generation = ++navigation.current
+		setLoading(true)
+		try {
+			if (!api.createProject)
+				throw newProjectFailure(new Error('Restart the desktop app, then try again.'))
+			let item: ProjectView
+			try {
+				item = await api.createProject()
+			} catch (failure) {
+				throw newProjectFailure(failure)
+			}
+			await landOnProject(item, generation)
+		} catch (failure) {
+			if (generation === navigation.current) throw failure
+		} finally {
+			if (generation === navigation.current) setLoading(false)
+		}
+	}, [abandonTabRestore, landOnProject, api])
 	const leaveProject = async () => {
 		if (!api.openChat) throw new Error('Restart the desktop app to open a normal conversation.')
 		abandonTabRestore()
@@ -2258,6 +2373,14 @@ export function App({
 	useEffect(() => {
 		void metadataEpoch
 		setOpenTabIds([...group.tabs])
+		if (paneHold.current) {
+			if (paneHold.current === sessionId && !group.tabs.includes(sessionId)) {
+				setTabsRestored(true)
+				setRestoringTabs(false)
+				return
+			}
+			paneHold.current = ''
+		}
 		const target = group.activeTabId || ''
 		if (!target) {
 			activation.current = null
@@ -2432,6 +2555,35 @@ export function App({
 		if (context.current.frozen || value.palId || !api.removeConversation) return
 		removalTrigger.current = trigger
 		setRemovingConversation(value)
+	}
+	// Archives and offers Undo through the same host path whether the dialog or a row button asked.
+	const archiveConversation = async (value: ConversationView) => {
+		if (!api.removeConversation) throw new Error('Conversation removal is unavailable.')
+		const result = await api.removeConversation(value.id)
+		if (result.sessionId !== value.id || result.removed !== true)
+			throw new Error('Conversation removal was not confirmed. Try again.')
+		const archivedId = value.id
+		notify('Conversation archived.', {
+			tone: 'success',
+			action: api.restoreConversation
+				? {
+						label: 'Undo',
+						onClick: () =>
+							void act(async () => {
+								const restored = await api.restoreConversation?.(archivedId)
+								if (!restored) return
+								unblockRestoredConversation(restored.id)
+								upsertConversation(restored)
+							}),
+					}
+				: undefined,
+		})
+	}
+	// A row's Archive button: with an Undo path there is nothing to confirm, so it archives at once.
+	const archiveConversationNow = (value: ConversationView, trigger: HTMLElement | null) => {
+		if (context.current.frozen || value.palId || !api.removeConversation) return
+		if (!api.restoreConversation) return requestConversationRemoval(value, trigger)
+		void act(() => confirmedRemoval(() => archiveConversation(value)))
 	}
 	const removalReturnFocus = () =>
 		removalTrigger.current?.isConnected
@@ -2620,6 +2772,17 @@ export function App({
 		mac: macPlatform,
 		input: conversationActionInput,
 		run: runConversationAction,
+	}
+	const sidebarRowActions: ThreadRowActions = {
+		mac: macPlatform,
+		input: conversationActionInput,
+		run: (id, view, trigger) =>
+			id === 'archive'
+				? archiveConversationNow(view, trigger)
+				: runConversationAction(id, view, trigger),
+		archive: api.removeConversation ? archiveConversationNow : undefined,
+		pin: api.setConversationPinned ? (view) => runConversationAction('pin', view, null) : undefined,
+		loadGit: api.projectGit,
 	}
 	// The key handler is registered once per state change; it reads the latest runner here.
 	// Returns whether the chord meant something here, so an inert chord stays the browser's.
@@ -2954,10 +3117,12 @@ export function App({
 	writePresentation.current = savePresentation
 	const onWorkDisclosureChange = useCallback(
 		(owner: string, key: string, open: boolean) => {
-			const current = workDisclosureViewRef.current
+			// A conversation started in this window has no saved view yet: it begins with no choices
+			// rather than ignoring the click, or its work summary could not be opened until reopened.
+			const held = workDisclosureViewRef.current
+			const current = held.sessionId === owner ? held : { sessionId: owner, choices: {} }
 			if (
 				owner !== activeSession.current ||
-				current.sessionId !== owner ||
 				palConversation ||
 				context.current.frozen ||
 				current.choices[key] === open
@@ -3638,8 +3803,16 @@ export function App({
 			onAction: () => void act(newConversation),
 		},
 		{
+			id: 'create-project',
+			label: START_FROM_SCRATCH_LABEL,
+			group: 'Quick actions',
+			icon: <FolderIcon aria-hidden="true" />,
+			disabled: loading,
+			onAction: () => void act(createProject),
+		},
+		{
 			id: 'open-project',
-			label: 'Open folder',
+			label: USE_EXISTING_FOLDER_LABEL,
 			group: 'Quick actions',
 			icon: <FolderIcon aria-hidden="true" />,
 			shortcut: [shortcutModifier, 'O'],
@@ -3792,6 +3965,53 @@ export function App({
 								loadModels={api.palModels}
 							/>
 						)}
+						{folderAccess &&
+							(() => {
+								const target =
+									folderAccess.pending && folderAccess.risky
+										? { id: folderAccess.projectId, ...folderAccess.pending }
+										: projects.find((item) => item.id === folderAccess.projectId)
+								if (!target) return null
+								return (
+									<FolderAccessDialog
+										key={`folder-access:${target.id}:${folderAccess.broad ? 'broad' : folderAccess.risky ? 'risky' : 'review'}`}
+										name={target.name}
+										path={target.path}
+										broad={folderAccess.broad?.kind}
+										risky={folderAccess.risky?.found}
+										onClose={() => setFolderAccess(undefined)}
+										returnFocus={() => document.querySelector<HTMLElement>('.welcome .primary')}
+										onCancel={() => {
+											const choose = Boolean(folderAccess.broad)
+											setFolderAccess(undefined)
+											if (choose) void act(openProject)
+										}}
+										onConfirm={async () => {
+											// Confirming a known folder is consent the renderer captured: the person
+											// already added it. A broad folder needs main's token; main answers an
+											// unproven broad folder with a token, and this dialog asks again.
+											if (folderAccess.pending) {
+												if (!folderAccess.risky || !api.trustFolder)
+													throw new Error('Restart the desktop app, then choose the folder again.')
+												const added = await api.trustFolder(folderAccess.risky.token)
+												setFolderAccess(undefined)
+												await landOnProject(added, ++navigation.current)
+												return
+											}
+											const token = folderAccess.broad?.token ?? folderAccess.risky?.token
+											const result = await api.trustProject(target.id, token)
+											updateProject(result)
+											setFolderAccess(
+												result.broadFolder
+													? { projectId: result.id, broad: result.broadFolder }
+													: result.riskySettings
+														? { projectId: result.id, risky: result.riskySettings }
+														: undefined,
+											)
+										}}
+									/>
+								)
+							})()}
 						{deletingPal && (
 							<ConfirmRemovalDialog
 								key={`delete-pal:${deletingPal.id}:${deletingPal.revision}`}
@@ -3879,8 +4099,7 @@ export function App({
 								onClose={() => setArchivedProject(undefined)}
 								returnFocus={() => detailsTrigger.current ?? input.current}
 								onRestored={(view) => {
-									// A conversation archived earlier in this window is blocked from upserts.
-									removedConversations.current.delete(view.id)
+									unblockRestoredConversation(view.id)
 									upsertConversation(view)
 								}}
 							/>
@@ -3894,32 +4113,7 @@ export function App({
 								pendingLabel="Archiving…"
 								onClose={() => setRemovingConversation(undefined)}
 								returnFocus={removalReturnFocus}
-								onConfirm={() =>
-									confirmedRemoval(async () => {
-										if (!api.removeConversation)
-											throw new Error('Conversation removal is unavailable.')
-										const result = await api.removeConversation(removingConversation.id)
-										if (result.sessionId !== removingConversation.id || result.removed !== true)
-											throw new Error('Conversation removal was not confirmed. Try again.')
-										const archivedId = removingConversation.id
-										notify('Conversation archived.', {
-											tone: 'success',
-											action: api.restoreConversation
-												? {
-														label: 'Undo',
-														onClick: () =>
-															void act(async () => {
-																const restored = await api.restoreConversation?.(archivedId)
-																if (!restored) return
-																// An archived conversation is blocked from upserts until it is restored.
-																removedConversations.current.delete(restored.id)
-																upsertConversation(restored)
-															}),
-													}
-												: undefined,
-										})
-									})
-								}
+								onConfirm={() => confirmedRemoval(() => archiveConversation(removingConversation))}
 							/>
 						)}
 
@@ -3943,6 +4137,7 @@ export function App({
 							onToggleSidebar={toggleSidebar}
 							sidebarExpanded={mobile ? sideOpen : !sideCollapsed}
 							onOpenProject={() => void act(openProject)}
+							onCreateProject={() => void act(createProject)}
 							onNewConversation={() => void act(newConversation)}
 							newConversationDisabled={loading}
 							onError={setError}
@@ -3955,7 +4150,9 @@ export function App({
 							}}
 							onSpaces={showSpaces}
 							onAppearanceChange={setAppearance}
+							update={update}
 							onOpenProject={() => void act(openProject)}
+							onCreateProject={() => void act(createProject)}
 							openProjectDisabled={loading}
 							onToggleSidebar={toggleSidebar}
 							onPlugins={() => {
@@ -3993,7 +4190,7 @@ export function App({
 							projectId={palsPage ? '' : projectId}
 							sessionId={palsPage ? '' : sessionId}
 							conversationCollection={conversationCollection}
-							onRemoveConversation={api.removeConversation ? requestConversationRemoval : undefined}
+							rowActions={sidebarRowActions}
 							threads={threads}
 							backgroundWork={backgroundWork}
 							open={railSection !== 'plugins' && sideOpen}
@@ -4001,6 +4198,7 @@ export function App({
 							opening={loading}
 							onClose={() => setSideOpen(false)}
 							onOpenProject={() => void act(openProject)}
+							onCreateProject={() => void act(createProject)}
 							onNewConversation={() => void act(newConversation)}
 							onSearch={openCommands}
 							onProject={(id) => void act(() => selectProject(id))}
@@ -4314,16 +4512,17 @@ export function App({
 								or start a new conversation.
 							</EmptyDescription>
 						</EmptyHeader>
-						<Button
-							type="button"
-							className="primary"
-							size="default"
-							onClick={() => void act(openProject)}
+						<AddProjectMenu
 							disabled={loading}
-						>
-							<Icon name="folder" />
-							Open a project
-						</Button>
+							onCreate={() => void act(createProject)}
+							onOpen={() => void act(openProject)}
+							trigger={
+								<Button type="button" className="primary" size="default">
+									<Icon name="folder" />
+									{ADD_PROJECT_LABEL}
+								</Button>
+							}
+						/>
 					</Empty>
 				) : stage === 'connecting' ? (
 					<ProjectConnecting key={project.id} name={project.name} />
@@ -4361,9 +4560,7 @@ export function App({
 							className="primary"
 							size="default"
 							disabled={project.status !== 'ready'}
-							onClick={() =>
-								void act(async () => updateProject(await api.trustProject(project.id)))
-							}
+							onClick={() => setFolderAccess({ projectId: project.id })}
 						>
 							Review folder access
 						</Button>
@@ -4561,6 +4758,7 @@ export function App({
 								}
 								inputRef={input}
 								permissions={thread.permissions}
+								palNames={palNames}
 								onApproval={async (permission, response) => {
 									// The card stays usable when the answer did not get through.
 									let delivered = false
@@ -4571,6 +4769,7 @@ export function App({
 									return delivered
 								}}
 								projectName={project.name}
+								emptyHeading={projectHomeHeading(project)}
 								projectId={project.id}
 								sessionId={sessionId || undefined}
 								projectPath={project.path}
@@ -4585,6 +4784,7 @@ export function App({
 								projects={projects.filter((item) => !item.palId)}
 								onSelectProject={(item) => selectProject(item.id)}
 								onOpenProject={() => void act(openProject)}
+								onCreateProject={() => void act(createProject)}
 								empty={!pal && !historyPending && thread.messages.length === 0}
 								draft={draft}
 								onDraftChange={(value) => changeDraft(draftOwner, value)}
@@ -4614,6 +4814,19 @@ export function App({
 									!restoringTabs
 								}
 								providersLoading={!providerReady}
+								catalogueReady={
+									project.status === 'ready' && providerReady && project.trusted && !harnessBusy
+								}
+								modelPending={
+									project.status === 'ready' &&
+									project.trusted &&
+									(!providerReady ||
+										!attached.loaded ||
+										savedSettings.loading ||
+										harnessBusy ||
+										loading ||
+										restoringTabs)
+								}
 								choice={choice}
 								choiceUnchosen={choiceUnchosen}
 								onChoiceChange={(value) => {

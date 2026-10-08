@@ -152,9 +152,11 @@ export function PalCommunicationContent({
 										? name(message.sourcePalId)
 										: message.sourceKind === 'host-observation'
 											? `Activity from ${name(message.observedPalId)}`
-											: message.provider
-												? `Channel · ${message.provider}`
-												: 'Channel input'}
+											: message.sourceKind === 'operator-conversation'
+												? 'Message from your conversation'
+												: message.provider
+													? `Channel · ${message.provider}`
+													: 'Channel input'}
 								</strong>
 								<span className="pal-communication-badge">
 									{message.status === 'pending'

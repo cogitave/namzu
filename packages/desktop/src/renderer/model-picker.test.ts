@@ -375,3 +375,33 @@ it('draws no heading for a Zen list with only free models, or for any other prov
 	catalogue('zen', zenRows.slice(2, 3))
 	expect(render(zenProviders)).not.toContain('model-picker-group-title')
 })
+
+it('draws a skeleton, not "Select model" or a raw id, while the choice resolves', () => {
+	const providers: ProviderView = {
+		available: [{ id: 'sample', label: 'Sample', defaultModel: 'sample-balanced' }],
+		selected: { id: 'sample', model: 'sample-balanced' },
+	}
+	const pendingHtml = render(providers, { pending: true })
+	expect(pendingHtml).toContain('model-picker-trigger-skeleton')
+	expect(pendingHtml).not.toContain('Select model')
+	expect(pendingHtml).not.toContain('sample-balanced')
+	expect(pendingHtml).toContain('Model, loading')
+	const empty = render({ available: [], selected: null }, { pending: true })
+	expect(empty).toContain('model-picker-trigger-skeleton')
+	expect(empty).not.toContain('Select model')
+	const settled = render({ available: [], selected: null }, { pending: false })
+	expect(settled).toContain('Select model')
+})
+
+it('names a saved choice by its saved label while the catalogue has not been read', () => {
+	const providers: ProviderView = {
+		available: [{ id: 'sample', label: 'Sample', defaultModel: 'sample-balanced' }],
+		selected: null,
+	}
+	const html = render(providers, {
+		pending: true,
+		choice: { provider: 'sample', model: 'sample-balanced', label: 'Sample balanced' },
+	})
+	expect(html).toContain('Sample balanced')
+	expect(html).not.toContain('model-picker-trigger-skeleton')
+})

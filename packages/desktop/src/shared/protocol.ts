@@ -14,6 +14,7 @@ import type {
 	PalSubscriptionCreate,
 	PalSubscriptionDisable,
 } from './pal-communication-protocol.js'
+import type { UpdateInstallResult, UpdateState, UpdateUiBusy } from './update-protocol.js'
 export type { PalComputerInput } from '@namzu/sdk'
 import type {
 	WorkspaceDropPosition,
@@ -127,6 +128,9 @@ export interface PluginInventoryView {
 	notice?: string
 }
 
+/** Why a folder needs an explicit in-app confirmation before it is trusted. */
+export type BroadFolderKind = 'drive' | 'home' | 'system'
+
 export interface ProjectView {
 	id: string
 	path: string
@@ -137,6 +141,19 @@ export interface ProjectView {
 	palId?: string
 	/** App-created ordinary chat context, not a user project or Pal workspace. */
 	isChat?: boolean
+	/**
+	 * Present only on the answer to a pick or a trust request for a broad folder: it was
+	 * not trusted, and `token` is the one-time proof to send back to `trustProject`.
+	 */
+	broadFolder?: { kind: BroadFolderKind; token: string }
+	/**
+	 * Present on the answer to a pick or a trust request when the folder holds settings that
+	 * run code on their own: it was not trusted, `found` names what main saw, and `token` is
+	 * the one-time proof to send back (`trustFolder` for a pending pick, else `trustProject`).
+	 */
+	riskySettings?: { found: string[]; token: string }
+	/** A picked folder that is not in the app yet: only `trustFolder` adds it. */
+	pending?: true
 }
 export interface ConversationView {
 	id: string
@@ -584,8 +601,12 @@ export interface DesktopApi {
 	palComputerInput?(id: string, generation: string, input: PalComputerInput): Promise<void>
 	openProject(): Promise<ProjectView | null>
 	openChat?(): Promise<ProjectView>
+	/** Creates a new project folder in Documents, trusted and open. */
+	createProject?(): Promise<ProjectView>
+	/** Adds a pending picked folder after the in-app trust dialog; `token` came from the pick. */
+	trustFolder?(token: string): Promise<ProjectView>
 	reconnectProject(projectId: string): Promise<ProjectView>
-	trustProject(projectId: string): Promise<ProjectView>
+	trustProject(projectId: string, token?: string): Promise<ProjectView>
 	conversations(projectId: string): Promise<ConversationView[]>
 	newConversation(projectId: string): Promise<ConversationView>
 	harnesses?(projectId: string, sessionId?: string): Promise<HarnessView>
@@ -675,6 +696,14 @@ export interface DesktopApi {
 	refreshTasks?(sessionId: string): Promise<void>
 	readJob(sessionId: string, jobId: string): Promise<{ output: string; truncated?: boolean }>
 	stopJob(sessionId: string, jobId: string): Promise<void>
+	/** App updates. Absent in a preview that has no updater. */
+	updateState?(): Promise<UpdateState>
+	checkForUpdate?(): Promise<void>
+	/** Restart now. A blocked install waits for the next idle moment until `cancelUpdateInstall`. */
+	installUpdate?(): Promise<UpdateInstallResult>
+	cancelUpdateInstall?(): Promise<void>
+	reportUiBusy?(busy: UpdateUiBusy): Promise<void>
+	onUpdateState?(listener: (state: UpdateState) => void): () => void
 	onEvent(listener: (event: DesktopEvent) => void): () => void
 }
 

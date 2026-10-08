@@ -11,10 +11,13 @@ import {
 import {
 	LOCAL_SPEECH_WORKER_SHA256,
 	type LocalSpeechInstallation,
+	bundledLocalSpeechPython,
+	copyVisualCRuntimeIntoTorch,
 	installLocalSpeech,
 	localSpeechContainsPath,
 	localSpeechRuntimePaths,
 	readLocalSpeechInstallation,
+	windowsRuntimeRequirements,
 } from './local-speech-install.js'
 import { LocalSpeechInstallShutdownError } from './local-speech-process.js'
 
@@ -193,4 +196,56 @@ it('preserves the incomplete runtime when installer process closure is unconfirm
 		'a live process may still use this file',
 	)
 	await expect(readFile(join(root, 'installation.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+it('prefers the interpreter bundled under resources and ignores a directory or a missing one', async () => {
+	const resources = await directory()
+	expect(await bundledLocalSpeechPython(resources, 'win32')).toBeUndefined()
+	expect(await bundledLocalSpeechPython(undefined, 'win32')).toBeUndefined()
+	await mkdir(join(resources, 'python', 'python.exe'), { recursive: true })
+	expect(await bundledLocalSpeechPython(resources, 'win32')).toBeUndefined()
+	const other = await directory()
+	await mkdir(join(other, 'python'))
+	await writeFile(join(other, 'python', 'python.exe'), 'fixture; never executed')
+	expect(await bundledLocalSpeechPython(other, 'win32')).toEqual({
+		program: join(other, 'python', 'python.exe'),
+		args: [],
+	})
+	await mkdir(join(other, 'python', 'bin'))
+	await writeFile(join(other, 'python', 'bin', 'python3'), 'fixture; never executed')
+	expect(await bundledLocalSpeechPython(other, 'linux')).toEqual({
+		program: join(other, 'python', 'bin', 'python3'),
+		args: [],
+	})
+})
+
+it('asks for the Visual C++ runtime wheel on Windows only, pinned', () => {
+	expect(windowsRuntimeRequirements('win32')).toEqual(['msvc-runtime==14.44.35112'])
+	expect(windowsRuntimeRequirements('linux')).toEqual([])
+	expect(windowsRuntimeRequirements('darwin')).toEqual([])
+})
+
+it('copies only the runtime DLLs from the venv Scripts folder into torch lib', async () => {
+	const venv = await mkdtemp(join(tmpdir(), 'namzu-vc-'))
+	try {
+		await mkdir(join(venv, 'Scripts'), { recursive: true })
+		await mkdir(join(venv, 'Lib', 'site-packages', 'torch', 'lib'), { recursive: true })
+		for (const name of [
+			'msvcp140.dll',
+			'vcruntime140_1.dll',
+			'vcomp140.dll',
+			'python.exe',
+			'pip.exe',
+		])
+			await writeFile(join(venv, 'Scripts', name), name)
+		expect(await copyVisualCRuntimeIntoTorch(venv)).toBe(3)
+		expect((await readdir(join(venv, 'Lib', 'site-packages', 'torch', 'lib'))).sort()).toEqual([
+			'msvcp140.dll',
+			'vcomp140.dll',
+			'vcruntime140_1.dll',
+		])
+		expect(await copyVisualCRuntimeIntoTorch(join(venv, 'missing'))).toBe(0)
+	} finally {
+		await rm(venv, { recursive: true, force: true })
+	}
 })

@@ -1,6 +1,7 @@
 import { Menu } from '@base-ui/react/menu'
 import { useEffect, useState } from 'react'
 import type { WindowChrome, WindowMenu } from '../shared/protocol.js'
+import { START_FROM_SCRATCH_LABEL, USE_EXISTING_FOLDER_LABEL } from './add-project-menu.js'
 import { ArrowLeftIcon, ArrowRightIcon, PanelLeftIcon } from './icons.js'
 import { Button } from './ui/button.js'
 
@@ -13,6 +14,7 @@ export function WindowTitlebar({
 	onToggleSidebar,
 	sidebarExpanded,
 	onOpenProject,
+	onCreateProject,
 	onNewConversation,
 	newConversationDisabled = false,
 	onError,
@@ -25,6 +27,7 @@ export function WindowTitlebar({
 	onToggleSidebar: () => void
 	sidebarExpanded: boolean
 	onOpenProject: () => void
+	onCreateProject?: () => void
 	onNewConversation: () => void
 	newConversationDisabled?: boolean
 	onError: (message: string) => void
@@ -127,8 +130,13 @@ export function WindowTitlebar({
 										<span>New conversation</span>
 										<kbd>{chrome.platform === 'darwin' ? '⌘N' : 'Ctrl+N'}</kbd>
 									</Menu.Item>
+									{onCreateProject && (
+										<Menu.Item className="window-titlebar-item" onClick={onCreateProject}>
+											<span>{START_FROM_SCRATCH_LABEL}</span>
+										</Menu.Item>
+									)}
 									<Menu.Item className="window-titlebar-item" onClick={onOpenProject}>
-										<span>Open project…</span>
+										<span>{USE_EXISTING_FOLDER_LABEL}</span>
 										<kbd>{chrome.platform === 'darwin' ? '⌘O' : 'Ctrl+O'}</kbd>
 									</Menu.Item>
 								</Menu.Popup>

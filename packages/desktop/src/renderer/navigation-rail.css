@@ -28,6 +28,22 @@
 	width: 16px;
 	height: 16px;
 }
+.navigation-rail .rail-update-button {
+	border-radius: 50%;
+}
+.rail-update-badge {
+	display: grid;
+	place-items: center;
+	width: 26px;
+	height: 26px;
+	border-radius: 50%;
+	background: var(--primary);
+	color: var(--primary-foreground);
+}
+.navigation-rail .rail-update-badge svg {
+	width: 15px;
+	height: 15px;
+}
 .rail-menu-positioner {
 	z-index: 150;
 	outline: none;

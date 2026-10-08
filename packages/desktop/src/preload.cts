@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { LocalSpeechEvent } from './shared/local-speech-protocol.js'
 import type { DesktopApi, DesktopEvent } from './shared/protocol.js'
+import type { UpdateState } from './shared/update-protocol.js'
 const invoke = (name: string, ...args: unknown[]) => ipcRenderer.invoke(`namzu:${name}`, ...args)
 const api: DesktopApi = {
 	openExternal: (url) => invoke('openExternal', url),
@@ -56,8 +57,10 @@ const api: DesktopApi = {
 	palComputerInput: (id, generation, input) => invoke('palComputerInput', id, generation, input),
 	openProject: () => invoke('openProject'),
 	openChat: () => invoke('openChat'),
+	createProject: () => invoke('createProject'),
+	trustFolder: (token) => invoke('trustFolder', token),
 	reconnectProject: (id) => ipcRenderer.invoke('namzu:reconnectProject', id),
-	trustProject: (id) => invoke('trustProject', id),
+	trustProject: (id, token) => invoke('trustProject', id, token),
 	conversations: (id) => invoke('conversations', id),
 	newConversation: (id) => invoke('newConversation', id),
 	harnesses: (id, sessionId) => invoke('harnesses', id, sessionId),
@@ -112,6 +115,16 @@ const api: DesktopApi = {
 	refreshTasks: (id) => invoke('refreshTasks', id),
 	readJob: (id, job) => invoke('readJob', id, job),
 	stopJob: (id, job) => invoke('stopJob', id, job),
+	updateState: () => invoke('updateState'),
+	checkForUpdate: () => invoke('checkForUpdate'),
+	installUpdate: () => invoke('installUpdate'),
+	cancelUpdateInstall: () => invoke('cancelUpdateInstall'),
+	reportUiBusy: (busy) => invoke('reportUiBusy', busy),
+	onUpdateState: (listener) => {
+		const handler = (_event: unknown, state: UpdateState) => listener(state)
+		ipcRenderer.on('namzu:update-state', handler)
+		return () => ipcRenderer.removeListener('namzu:update-state', handler)
+	},
 	onEvent: (listener) => {
 		const handler = (_event: unknown, data: DesktopEvent) => listener(data)
 		ipcRenderer.on('namzu:event', handler)

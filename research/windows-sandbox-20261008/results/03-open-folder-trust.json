@@ -1,0 +1,18 @@
+{
+  "check": "open a folder and trust it",
+  "result": "pass",
+  "before": {
+    "status": "ready",
+    "trusted": false
+  },
+  "dialog": {
+    "reviewClicked": true,
+    "allowClicked": true
+  },
+  "after": {
+    "status": "ready",
+    "trusted": true
+  },
+  "startedAt": "2026-10-08T15:12:35.964Z",
+  "ms": 3310
+}

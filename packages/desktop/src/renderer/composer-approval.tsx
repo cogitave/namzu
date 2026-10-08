@@ -146,14 +146,16 @@ function DiffBox({
 
 export function ComposerApproval({
 	permission,
+	palNames,
 	count,
 	onRespond,
 }: {
 	permission: PermissionView
+	palNames?: ReadonlyMap<string, string> | undefined
 	count: number
 	onRespond: (permission: PermissionView, response: PermissionResponse) => unknown
 }) {
-	const model = useMemo(() => buildApprovalCard(permission), [permission])
+	const model = useMemo(() => buildApprovalCard(permission, palNames), [permission, palNames])
 	const [wrap, setWrap] = useState(false)
 	const [expanded, setExpanded] = useState(false)
 	const [editing, setEditing] = useState(false)
@@ -257,6 +259,18 @@ export function ComposerApproval({
 									<pre className="approval-command" tabIndex={0} aria-label="Command">
 										{model.command}
 									</pre>
+								)}
+								{model.message !== undefined && (
+									// biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable region
+									<pre className="approval-command" tabIndex={0} aria-label="Message">
+										{model.message}
+									</pre>
+								)}
+								{model.message !== undefined && (
+									<p className="approval-note">
+										Goes to the Pal's inbox. It does not start the Pal, and you are asked again for
+										each message.
+									</p>
 								)}
 								{model.kind === 'other' && model.entries.length > 0 && (
 									<dl className="approval-entries">

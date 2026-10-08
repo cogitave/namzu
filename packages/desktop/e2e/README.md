@@ -1,0 +1,39 @@
+# Namzu Desktop end-to-end flows
+
+Real Electron, real CLI host, scripted model. No paid model call, no network, no
+owner data.
+
+## Run
+
+```bash
+pnpm --filter @namzu/desktop build        # the harness runs the built dist/
+export PATH=$(echo "$PATH" | tr ':' '\n' | grep -v '^/mnt/' | paste -sd:)   # WSL: keep /mnt out of PATH
+cd packages/desktop
+xvfb-run -a node --test e2e/flows.test.mjs
+# one flow:
+xvfb-run -a node --test --test-name-pattern="archive" e2e/flows.test.mjs
+```
+
+Display: on WSL and Linux CI the run uses `xvfb-run` (Electron needs a display).
+It was run in WSL under Xvfb, not on the Windows side.
+
+## What it does
+
+- `harness.mjs` freezes `dist/` into a temp app directory (a rebuild during a run
+  cannot pull files out from under it), points `--user-data-dir`, `NAMZU_HOME`,
+  `HOME` and `USERPROFILE` at temp directories, strips credential variables, and
+  stubs the native folder and message dialogs from the test.
+- `cli-entry.mjs` is the `NAMZU_DESKTOP_CLI` entry: it patches `fetch` (see
+  `redirect-fetch.cjs`) so the chat-completions driver talks to the scripted server, then
+  loads the real `packages/cli/dist/bin.js`. Any other outbound host is refused.
+  Electron strips `NODE_OPTIONS`, so a `--require` preload is not an option.
+- `fake-model.mjs` serves `/v1/chat/completions` (stream and not) and `/v1/models`.
+  A rule matches the newest user message it claims; its steps are consumed by the
+  number of tool results already in the request, so a replay depends only on the
+  request, never on timing. `hold`/`release` park a reply for stop/queue flows.
+- Tests never race wall-clock time: they await the UI state through Playwright's
+  auto-waiting `expect`, and the per-test timeout catches a real hang.
+- On failure the temp directory is kept and its path printed; `shots/failure.png`
+  inside it is the screenshot.
+
+Not run by CI yet: it needs a built workspace and a display.

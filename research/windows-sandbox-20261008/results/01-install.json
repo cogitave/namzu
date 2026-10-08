@@ -1,0 +1,25 @@
+﻿{
+    "installer":  "Namzu-Setup-0.1.0.exe",
+    "seconds":  77.3,
+    "exitCode":  0,
+    "exeExists":  true,
+    "fileVersion":  "0.1.0.0",
+    "check":  "silent install",
+    "installerBytes":  178961331,
+    "registry":  [
+                     {
+                         "name":  "Namzu",
+                         "version":  "0.1.0",
+                         "uninstall":  "\"C:\\Users\\WDAGUtilityAccount\\AppData\\Local\\Programs\\namzu\\Uninstall Namzu.exe\" /currentuser"
+                     }
+                 ],
+    "installDir":  "C:\\Users\\WDAGUtilityAccount\\AppData\\Local\\Programs\\Namzu",
+    "bundledPython":  true,
+    "startMenuShortcuts":  [
+                               "C:\\Users\\WDAGUtilityAccount\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Namzu.lnk"
+                           ],
+    "running":  0,
+    "installedBytes":  617511709,
+    "bundledCli":  true,
+    "uninstaller":  true
+}

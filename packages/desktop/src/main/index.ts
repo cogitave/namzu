@@ -15,6 +15,7 @@ import {
 	session,
 	shell,
 } from 'electron'
+import electronUpdater from 'electron-updater'
 import type {
 	PalPermissionChange,
 	PalSubscriptionCreate,
@@ -37,14 +38,17 @@ import {
 	locateWorkspaceTab,
 	workspaceGroups,
 } from '../shared/workspace-layout.js'
+import { bundledCliEntry } from './bundled-runtime.js'
 import { ClipboardTextWriter } from './clipboard-text.js'
 import { DesktopDiagnostics, observeDesktopIpc, observeRendererConsole } from './diagnostics.js'
 import { externalSourceUrl } from './external-url.js'
+import { FolderAccess } from './folder-access.js'
 import { humanComputer } from './host-computer.js'
 import { electronLinkPreviewNetwork } from './link-preview-electron.js'
 import { createLinkPreviewService } from './link-preview.js'
 import { LocalSpeechRouting } from './local-speech-routing.js'
 import { LocalSpeechService } from './local-speech.js'
+import { createNewProject } from './new-project.js'
 import { OpenIn, systemOpenInHost } from './open-in.js'
 import { Operator } from './operator.js'
 import { PalStreamProxy } from './pal-stream-proxy.js'
@@ -52,6 +56,7 @@ import { projectDraftOwner } from './project-draft-owner.js'
 import { selectRendererPage } from './renderer-page.js'
 import { desktopRuntimeNodeArgs } from './runtime-node-args.js'
 import { installStreamRendererPolicy, withStreamRendererPort } from './stream-renderer-policy.js'
+import { UpdateController, bakedFeedDeclared, updateFeedFromEnv } from './updater.js'
 import {
 	readWindowMenu,
 	readWindowMenuAnchor,
@@ -225,7 +230,9 @@ app.on('second-instance', () => {
 	target.show()
 	target.focus()
 })
-const cliEntry = process.env.NAMZU_DESKTOP_CLI
+const cliEntry =
+	process.env.NAMZU_DESKTOP_CLI ??
+	bundledCliEntry({ isPackaged: app.isPackaged, resourcesPath: process.resourcesPath })
 const command = cliEntry
 	? {
 			program: process.execPath,
@@ -264,6 +271,14 @@ const operator = new Operator(
 		}),
 	),
 )
+/** Documents as the platform names it; the home folder's Documents when the platform has none. */
+function documentsFolder(): string {
+	try {
+		return app.getPath('documents')
+	} catch {
+		return join(app.getPath('home'), 'Documents')
+	}
+}
 function saveProjects(): void {
 	const file = join(app.getPath('userData'), 'projects.json')
 	writeFileSync(
@@ -354,6 +369,8 @@ function register(): void {
 		'palComputerInput',
 		'openProject',
 		'openChat',
+		'createProject',
+		'trustFolder',
 		'reconnectProject',
 		'trustProject',
 		'newConversation',
@@ -480,6 +497,11 @@ function register(): void {
 		discardAbortedWindows()
 		return view
 	})
+	handle('updateState', () => updates.state)
+	handle('checkForUpdate', () => updates.check())
+	handle('installUpdate', () => updates.install())
+	handle('cancelUpdateInstall', () => updates.cancel())
+	handleWindow('reportUiBusy', ({ id }, busy: unknown) => updates.report(id, busy))
 	handle('diagnostics', () => diagnostics.view())
 	handle('openExternal', (url: unknown) => shell.openExternal(externalSourceUrl(url)))
 	// registerHandler authenticates the exact owned main frame before this
@@ -634,34 +656,38 @@ function register(): void {
 		saveProjects()
 		return project
 	})
-	const confirmFolderAccess = async (window: BrowserWindow, id: string) => {
-		const project = operator.listProjects().find((item) => item.id === id)
-		if (!project || !window) throw new Error('Unknown project.')
-		if (project.trusted || project.status !== 'ready') return project
-		const answer = await dialog.showMessageBox(window, {
-			type: 'question',
-			title: 'Allow folder access?',
-			message: `Work in ${project.name}?`,
-			detail: `${project.path}\n\nAllow Namzu and your selected conversation engine to read files and run commands in this folder. Each conversation keeps its own tool permissions. Only allow access to a folder you trust.`,
-			buttons: ['Cancel', 'Allow folder access'],
-			defaultId: 0,
-			cancelId: 0,
-		})
-		return answer.response === 1 ? operator.trust(id) : project
-	}
-	handleWindow('openProject', async ({ window }) => {
+	const folderAccess = new FolderAccess({
+		openProject: (path) => operator.openProject(path),
+		findProject: (id) => operator.listProjects().find((item) => item.id === id),
+		trust: (id) => operator.trust(id),
+	})
+	handleWindow('openProject', async ({ id: windowId, window }) => {
 		if (!window) return null
 		const picked = await dialog.showOpenDialog(window, {
 			title: 'Open a project',
 			properties: ['openDirectory'],
 		})
 		if (picked.canceled || !picked.filePaths[0]) return null
-		const project = await operator.openProject(picked.filePaths[0])
+		// The native picker is the only consent a normal folder needs; main records it here.
+		const project = await folderAccess.picked(windowId, picked.filePaths[0])
 		saveProjects()
-		return await confirmFolderAccess(window, project.id)
+		return project
+	})
+	handle('createProject', async () => {
+		const path = await createNewProject({ documents: documentsFolder() })
+		const project = await folderAccess.created(path)
+		saveProjects()
+		return project
+	})
+	handleWindow('trustFolder', async ({ id: windowId }, token: string) => {
+		const project = await folderAccess.admit(windowId, token)
+		saveProjects()
+		return project
 	})
 	handle('reconnectProject', (id: string) => operator.reconnect(id))
-	handleWindow('trustProject', ({ window }, id: string) => confirmFolderAccess(window, id))
+	handleWindow('trustProject', ({ id: windowId }, id: string, token?: string) =>
+		folderAccess.confirm(windowId, id, token),
+	)
 	handle('conversations', (id: string) => operator.listConversations(id))
 	handleWindow('newConversation', async ({ id: windowId }, id: string) => {
 		const before = workspace.view(windowId)
@@ -958,21 +984,73 @@ app.on('activate', () => {
 app.on('window-all-closed', () => {
 	if (process.platform !== 'darwin') app.quit()
 })
+const updateFeed = updateFeedFromEnv(process.env, { packaged: app.isPackaged })
+function bakedUpdateConfig(): string | undefined {
+	try {
+		return readFileSync(join(process.resourcesPath, 'app-update.yml'), 'utf8')
+	} catch {
+		return undefined
+	}
+}
+const updates = new UpdateController({
+	updater: () => electronUpdater.autoUpdater,
+	// Nothing is checked unless a feed was named (environment) or the build itself declares one.
+	enabled: updateFeed !== undefined || (app.isPackaged && bakedFeedDeclared(bakedUpdateConfig())),
+	feed: updateFeed,
+	mainBlockers: () => {
+		// A closed window can no longer be busy.
+		updates.retainWindows(windows.entries().map(([id]) => id))
+		return operator.updateBlockers()
+	},
+	shutdown,
+	relaunch: () => {
+		app.relaunch()
+		app.exit(0)
+	},
+	broadcast: (state) => {
+		for (const [, window] of windows.entries())
+			if (!window.isDestroyed()) window.webContents.send('namzu:update-state', state)
+	},
+	record: (_event, details) =>
+		diagnostics.record('update_failed', {
+			severity: 'warn',
+			// Which half failed: finding or fetching the update, or handing over to the installer.
+			operation:
+				details?.stage === 'shutdown' || details?.stage === 'install'
+					? 'installUpdate'
+					: 'checkForUpdate',
+			error: details?.error,
+		}),
+})
 let quitting = false
 let stopped = false
-app.on('before-quit', (event) => {
-	if (stopped) return
-	event.preventDefault()
-	if (quitting) return
+let shutdownRun: Promise<void> | undefined
+/** Our graceful stop, shared by every way out: a normal quit and an app update. */
+function shutdown(): Promise<void> {
+	if (stopped) return Promise.resolve()
+	if (shutdownRun) return shutdownRun
 	quitting = true
-	void Promise.all([operator.close(), localSpeech.dispose()])
+	shutdownRun = Promise.all([operator.close(), localSpeech.dispose()])
 		.then(async () => {
 			await streamProxy.shutdown()
 			stopped = true
-			app.quit()
 		})
 		.catch((error: unknown) => {
 			quitting = false
+			throw error
+		})
+		.finally(() => {
+			shutdownRun = undefined
+		})
+	return shutdownRun
+}
+app.on('before-quit', (event) => {
+	if (stopped) return
+	event.preventDefault()
+	if (shutdownRun) return
+	void shutdown()
+		.then(() => app.quit())
+		.catch((error: unknown) => {
 			diagnostics.record('shutdown_failed', { error })
 			dialog.showErrorBox(
 				'Namzu could not stop',
@@ -1027,6 +1105,7 @@ void app
 			]),
 		)
 		register()
+		updates.start()
 		const saved = workspace.snapshot().windows
 		if (saved.length) {
 			for (const layout of saved) await createWindow(layout.id, layout.bounds)

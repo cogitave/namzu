@@ -160,3 +160,38 @@ it('builds the note the model reads and leaves room for it inside the wire limit
 	expect(declineFeedback('  use tabs  ')).toBe('The user declined this change and said: use tabs')
 	expect(declineFeedback('x'.repeat(FEEDBACK_NOTE_MAX)).length).toBe(4000)
 })
+
+it('titles a message to a Pal with its name and shows the whole message, not a summary', () => {
+	const body = `Check the build.\n${'detail '.repeat(100)}`
+	const model = buildApprovalCard(
+		request([call('send_pal_message', { palId: 'pal-1', body })]),
+		new Map([['pal-1', 'Review']]),
+	)
+	expect(model).toMatchObject({
+		kind: 'other',
+		title: 'Message to Review',
+		message: body,
+		entries: [],
+	})
+	expect(model.destructive).toBe(false)
+})
+
+it('does not guess a Pal name it was not given, and never cuts a very long message', () => {
+	const model = buildApprovalCard(
+		request([call('send_pal_message', { palId: 'unknown', body: 'x'.repeat(5_000) })]),
+		new Map([['pal-1', 'Review']]),
+	)
+	expect(model.title).toBe('Message to a Pal')
+	expect(model.message).toBe('x'.repeat(5_000))
+})
+
+it('names a message to a Pal among the other calls one answer covers', () => {
+	const model = buildApprovalCard(
+		request([
+			call('bash', { command: 'ls' }),
+			call('send_pal_message', { palId: 'pal-1', body: 'Hi' }),
+		]),
+		new Map([['pal-1', 'Review']]),
+	)
+	expect(model.others).toEqual(['Message to Review'])
+})

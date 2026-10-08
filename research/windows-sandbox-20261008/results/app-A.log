@@ -1,0 +1,9 @@
+
+
+DevTools listening on ws://127.0.0.1:9347/devtools/browser/3d2e6775-e90e-47d2-91d7-4c51f7644c96
+Error occurred in handler for 'namzu:providers': SupersededConversationSettingsError: The conversation settings changed while loading. Retry this request.
+    at assertCurrent (file:///C:/Users/WDAGUtilityAccount/AppData/Local/Programs/Namzu/resources/app.asar/dist/main/operator.js:2056:23)
+    at Operator.providers (file:///C:/Users/WDAGUtilityAccount/AppData/Local/Programs/Namzu/resources/app.asar/dist/main/operator.js:2413:9)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async observeDesktopIpc (file:///C:/Users/WDAGUtilityAccount/AppData/Local/Programs/Namzu/resources/app.asar/dist/main/diagnostics.js:431:16)
+    at async Session.<anonymous> (node:electron/js2c/browser_init:1:118948)

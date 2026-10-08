@@ -22,8 +22,9 @@ runs on CPU. Microphone transcription and automatic voice conversation are not
 implemented by this feature.
 
 Speech is disabled initially. **Download voice** explicitly installs an isolated
-Python environment below the profile's `local-speech/` directory; Python
-3.11–3.14 must already be available. Nothing is downloaded or loaded by opening
+Python environment below the profile's `local-speech/` directory. An installed
+app uses the CPython it carries under `resources/python`; a development run needs
+Python 3.11–3.14 already available. Nothing is downloaded or loaded by opening
 the application or changing a preference. The model is pinned to the speech model host
 revision `7a6ba1ad216bb2f1da9863f80ac8770a6a807632`; both weights and the EMA wheel
 are SHA-256 verified. The CPU runtime uses pinned Torch/NumPy/normalizer versions,
@@ -62,6 +63,115 @@ records real EMA PCM and WebAudio completion without changing the disabled voice
 preference or speaking authored user messages. The
 [verification notes](../../research/local-speech-20261007/README.md) separate initial
 installation, corrected UTF-8 inference, and observed device resource use.
+
+## Installing and updating
+
+The installer is a per-user NSIS setup built by `electron-builder`
+(`packages/desktop/electron-builder.yml`): no administrator prompt, installed to
+`%LOCALAPPDATA%\Programs\Namzu`, with a Start-menu entry and an uninstaller. The app is
+`Namzu` (`appId` `com.cogitave.namzu`) and its profile stays `%APPDATA%\Namzu`, the
+folder the development app already uses, so conversations, drafts and settings carry over
+to an installed build. Because the folder is the same, an installed Namzu and a development
+Namzu on one account are one instance: starting the second only focuses the first. Test
+builds that must not touch a real profile start with `--user-data-dir=<folder>`.
+
+The installed app is self-contained under `resources/`:
+
+- `cli/` is `@namzu/cli` with its workspace and npm dependencies as a flat, link-free
+  `node_modules`. `app.isPackaged` makes the app run `resources/cli/dist/bin.js` on
+  Electron's own Node (`ELECTRON_RUN_AS_NODE`), exactly as before; an explicit
+  `NAMZU_DESKTOP_CLI` still wins.
+- `python/` is a standalone CPython 3.14 from python-build-standalone with `venv`, `pip` and
+  `ssl` (the python.org embeddable zip has none of them). Local speech prefers it, then the
+  Python Install Manager's `%LOCALAPPDATA%\Python`, then `python.exe` on `PATH`. The release,
+  URL and SHA-256 are pinned in `scripts/stage-installer.mjs`, and `PYTHON-BUILD-STANDALONE.txt`
+  and `LICENSE.txt` ship beside the interpreter. The pinned wheel and model hashes of local
+  speech are unchanged.
+  A clean Windows image has no Visual C++ runtime, so torch fails to load `c10.dll`; the
+  speech installer therefore also installs the pinned `msvc-runtime` wheel into the venv and
+  copies its DLLs into torch's own `lib` folder (the wheel alone is not enough, because the
+  venv's `python.exe` is a launcher for the bundled interpreter).
+
+Build it with a staged copy, which `scripts/stage-installer.mjs` writes outside the
+repository (it refuses a folder inside it). Run `pnpm -r build` first.
+
+```sh
+# WSL or Linux: stage the flat project (under 2 minutes, 260 MB of resources)
+node packages/desktop/scripts/stage-installer.mjs "$STAGE"
+# Windows: build the installer from the staged copy with Windows Node (about 2 minutes)
+cd %STAGE% && npm install --save-exact electron-builder@26.17.0   # once, in a tools folder
+node tools\node_modules\electron-builder\cli.js --win nsis --x64 --publish never ^
+  --config electron-builder.yml --config.electronVersion=44.5.1
+```
+
+`--config.extraMetadata.version=<n>` builds a test version for update tests; never edit the
+version by hand. electron-builder drops a `node_modules` folder given to `extraResources`,
+so `scripts/installer-after-pack.cjs` copies the CLI's after packing. The result for 0.1.0 is
+`Namzu-Setup-0.1.0.exe` (about 179 MB) with its blockmap.
+
+### App updates
+
+The installed app updates itself with `electron-updater` (`src/main/updater.ts`), driven
+by a state machine of `disabled | idle | checking | downloading | ready | installing | error`.
+It downloads on its own, never installs on quit (`autoInstallOnAppQuit` is off) and never
+downgrades. The first check is 30 seconds after launch and then every four hours; a failed
+check is quiet (a diagnostic and a "Check for updates" entry in the profile menu, never a
+dialog).
+
+The feed is set by the environment until publishing is approved. `NAMZU_UPDATE_FEED_URL`
+names a generic `http(s)` folder holding `latest.yml`; the GitHub provider is used only
+when `NAMZU_UPDATE_PROVIDER=github` and `NAMZU_UPDATE_GITHUB=owner/repo` are both set.
+An installed (packaged) build accepts an environment feed only on loopback (`localhost`,
+`127.0.0.1`, `[::1]`) or the GitHub provider for `cogitave/namzu`, because updates are
+integrity-checked but not yet signed; any other value is ignored. A development build
+accepts any `http(s)` feed.
+Without a feed an installed build has no updater and shows nothing (`disabled`).
+The installer writes `resources/app-update.yml` with only `updaterCacheDirName`: electron-updater
+reads that file when it downloads, even with the feed set at run time, and without it the
+download failed with ENOENT. No provider is declared in it, so the build stays `disabled`
+until a feed is named in the environment or published in that file.
+
+Installing is always the person's choice and never interrupts work. **Restart now** runs the
+install gate: it is refused while a turn is running, queued or admitting, a permission is
+pending, background work reports running, a dialog other than the update dialog is open in
+any window, someone typed in the last three seconds, or a Pal computer is open. A refused
+restart is remembered and tried again every three seconds until the gate is clear, and
+**Later** forgets it; an update the person never confirmed is never installed because the
+app went idle. When the gate is clear the app runs its own graceful shutdown (the runtime,
+local speech, the computer stream proxy) to completion and only then calls
+`quitAndInstall(true, true)`, so the installer never starts over a running runtime. If the
+shutdown fails the update stays `ready` and nothing is installed; if the installer refuses
+to start after the runtime stopped, the app relaunches itself. Tabs, drafts and settings
+come back from the profile after the restart.
+
+When an update is ready a small download button appears above the profile avatar (tooltip
+"Update ready — restart to install"; one polite announcement when it first appears).
+Clicking it opens a dialog with **Restart now** and **Later**; while installing it reads
+"Installing update / Namzu will restart when installation finishes." with a bar that is
+indeterminate ("Preparing…", then "Installing…") because the installer reports no progress,
+and it ignores Escape. A download in progress shows its real percentage. The desktop
+preview (`/preview?update=ready|downloading|installing|waiting`) draws every state without
+an updater; `research/updater-20261008/shots.mjs` captures them in both themes.
+
+The installer is **unsigned** (no `publisherName`). Windows SmartScreen shows "Windows
+protected your PC / Unknown publisher" on the first run; choose *More info*, then *Run
+anyway*. Updates are then checked by sha512 only, not by signature.
+
+### Clean-machine test
+
+`research/windows-sandbox-20261008/run.sh <v1.exe> <v2.exe>` tests the installers in a fresh
+Windows Sandbox (6 GB, no GPU, networking on, an installer folder mapped read-only and a
+results folder writable). It copies the inputs to `C:\namzu-sbx`, opens the sandbox, waits for
+`done.json` and closes it. Inside, `run.ps1` installs v1 silently (`/S`) and
+`driver.cjs` runs under a renamed copy of the installed Electron as plain Node, drives the app over
+CDP and writes one JSON receipt per check plus screenshots: first launch, opening and trusting
+a folder, a free Zen reply with no key, local speech (install with the bundled Python, then
+one sentence checked for 24 kHz mono 16-bit PCM, contiguous frames, duration and level), the
+updater (a static feed of a v2 build served from inside the sandbox, found and downloaded by v1, installed
+through the real badge and dialog, the app relaunched as v2 with its draft and projects intact)
+and a silent uninstall that keeps the profile. `make-feed.mjs` writes the generic
+`latest.yml` for a build; a v2 is the same build with `--config.extraMetadata.version`.
+The driver runs from a copy because the installer stops and replaces every `Namzu.exe`.
 
 ## Run from source
 
@@ -231,6 +341,61 @@ connected and is genuinely not trusted. A folder that fails to connect shows
 reconnects it through the same path as the banner's Reconnect. Pal and chat
 workspaces keep their previous failure handling. The main process still trusts
 nothing early. [Proof](../../research/project-connecting-20261008/README.md).
+
+Folder access is asked inside the app, never in a native message box. A folder
+chosen in the app's own folder picker is trusted by the main process right after
+the pick with no second prompt: the pick is the consent, and main captures it,
+never the renderer. A broad folder is the exception: a drive root, the home
+folder itself, or a system folder (the Windows directory, Program Files and
+ProgramData with everything under them, the roaming and local application-data
+roots, `/etc`, `/usr` and the like; the list is data in
+`src/main/folder-access.ts`). Main does not trust it. It answers with the
+project plus a `broadFolder` kind and a one-time token bound to that exact
+canonical path and window, valid for five minutes. The renderer shows an in-app
+dialog ("This is your whole drive … Prefer a project folder.") with **Allow
+anyway** and **Choose another folder**; **Allow anyway** sends the token back to
+`trustProject`, and main trusts only when the token is unspent, unexpired and
+matches the path and the window. A used, expired, foreign-window or
+other-path token is refused. A folder that is already known but untrusted
+(restored, opened by path, created by the CLI) keeps the gate; **Review folder
+access** opens the same in-app dialog, and its confirmation is consent captured
+by the renderer, since the person already added the folder. A known broad
+folder is answered with a token first, so it takes the broad dialog too.
+
+A picked folder that holds settings able to run code on their own gets the same
+kind of in-app consent. Main looks, without running anything, at
+`namzu.config.json` (the sections `hooks`, `mcpServers`, `plugins`,
+`permissions`, `permissionChecks`, `sandbox`, `web`, `additionalDirectories` and
+`profiles`; an unparseable file counts), and at `.namzu/plugins` and
+`.namzu/commands` (links are not followed; the list is data in
+`src/main/folder-settings.ts`). When it finds any, the pick does not add the
+folder: main answers with a pending folder (`pending: true`) that carries
+`riskySettings.found` and a one-time token bound to the canonical path and the
+window, valid for five minutes. The dialog "Trust this folder?" names what was
+found ("hooks, 2 MCP servers, 1 plugin in .namzu/plugins") and says folder
+settings can run code automatically, even without a model request; **Trust
+folder** sends the token to `trustFolder`, and only then does main open the
+folder, trust it and save the project list. **Cancel** adds nothing. A known
+untrusted folder with such settings answers its confirmation with a token the
+same way, and a broad folder keeps the broad dialog. An ordinary folder is
+still trusted at once.
+
+**Add new project** is a two-item menu in the sidebar (empty state and workspace
+menu), the File menu, the rail's More menu, the welcome screen, the composer's
+project chooser and the command palette. **Start from scratch** has main create
+`Documents/Namzu/New project` (`New project 2`, `New project 3`… when the name is
+taken; the folder is made without `recursive`, so two windows cannot share one),
+run `git init` there when git is on the PATH (a missing or failing git never
+fails the creation), trust it (a folder main created is its own consent) and open
+it. A failure reads "Couldn't create a new project: *message*". **Use an
+existing folder** is the folder picker above, and Ctrl/⌘+O still opens it.
+
+A project that was just added, or selected, and is trusted lands on its home at
+once with the heading "What should we work on in *name*?" and the composer
+focused, as soon as the composer is enabled; chats and Pal workspaces keep
+"What would you like to work on?". Removing a project from the app is not a
+feature yet: no project can be removed from the sidebar except through a Pal's
+deletion.
 
 ## Persistent Pals
 
@@ -765,6 +930,17 @@ remain unconfirmed rather than showing a stale count from another conversation.
 Opening a detail pane returns the transcript to the available width. Unsupported
 artifact and child-session inventories are absent. No floating card sits beside the
 conversation at any width.
+A project or Recents row shows two icon buttons on its right while the pointer is over it or the keyboard
+focus is on it: Pin (Unpin when pinned) and Archive. They take the place of the relative time in the same
+frame, with no fade, so the time and the buttons are never shown together and the row does not shift; the
+title fades under them instead of moving. Archive acts at once when the host can restore a conversation and
+offers Undo in the toast; without a restore path it keeps the confirmation dialog. The full conversation menu
+(rename, pin, fork, copy, open in, move, archive) opens on right-click or with the context-menu key or
+Shift+F10 on a focused row. After the pointer rests on a row for 450 ms a card opens to the right of the
+sidebar with the full title, the relative time, the computer it runs on, the project folder and, when the
+project exposes one, the git branch. The branch comes from the cached project repository read, never a
+guess, and the line is left out when it is unknown or the head is detached. The card closes when the pointer
+leaves, on scroll, on click or drag, and while a menu is open; it does not open for keyboard focus or touch.
 The sidebar uses one folder glyph per project and plain indented conversation
 titles. Each group initially shows five conversations, keeping the active one
 visible when it lies beyond that limit. Show more reveals additional loaded
@@ -1219,6 +1395,21 @@ card titles. Successful planning bookkeeping stays in the plan and retained
 tool timeline, while failed planning actions remain visible on the card.
 Recent activity does not open a technical pane. Output details expand inside
 the existing card without adding a Changes column.
+
+**Messaging a Pal from an ordinary conversation.** When a normal Namzu-engine
+conversation calls `send_pal_message`, the approval card is titled **Message to
+*Pal name*** (the name is looked up in the Pal list; an unknown ID reads "Message
+to a Pal"), shows the whole message in a scrollable block (never cut, so nothing is
+approved unseen), and says it goes to the Pal's inbox, does not start the
+Pal and is asked again for each message. It offers the usual Reject, Edit and Accept
+only: there is no "allow for this conversation" choice. The action row reads
+**Messaging *name*** while it runs and **Messaged *name*** once accepted, with the
+hover text **Sent to inbox**; a failure reads "Couldn't message *name*" and a No
+reads "Declined message to *name*". The name comes from the tool's own call and
+receipt labels, which a reload keeps, so a reloaded conversation keeps the wording.
+A Pal's own `send_pal_message` row, which names no Pal, is unchanged. The Pal's
+communication dialog lists an owner message as **Message from your conversation**,
+without its body.
 
 The [earlier progress preview receipt](../../research/runtime-desktop-20260930/artifacts/pal-progress-browser-proof-20261006.json)
 checks completed disclosure, active/failed/dependent steps, unavailable reads,
@@ -2196,7 +2387,7 @@ ACP methods and are not automatically installed in embedded SDK servers.
 | `namzu/project/trust` | exact `cwd`, `confirmed: true` | updated trust; client must require an operator confirmation |
 | `namzu/conversations/list` | none | up to 100 recent project conversations |
 | `namzu/conversations/history` | `sessionId` | bounded text messages, text `partial`, and optional ordinary `work` v1 display snapshot |
-| `namzu/conversations/archive` | exact `sessionId` | strict captured-project archive; `{sessionId, archived: true}` only for a confirmed archived journal, or `{sessionId, archived: false, missing: true}` for confirmed absence |
+| `namzu/conversations/archive` | exact `sessionId` | strict captured-project archive; `{sessionId, archived: true}` only for a confirmed archived journal, or `{sessionId, archived: false, missing: true}` for confirmed absence. A journal recorded under a different Namzu identity (regenerated `identity.json`) is refused with `This conversation was saved by a different Namzu identity.` and left untouched; the Desktop operator drops that sidebar row, and any restored or catalogue-only row the host reports missing, without archiving |
 | `namzu/conversations/archived` | `{}` | the project's archived conversations, newest first, as rows shaped like `namzu/conversations/list`; empty in a Pal workspace; requires folder trust |
 | `namzu/conversations/unarchive` | exact `sessionId` | restores one owned archived conversation (a single log append, no idle-writer gate) and returns its list row; rejects an unowned, unarchived or Pal conversation; requires folder trust |
 | `namzu/conversations/rename` | exact `sessionId`, `title` (at most 200 characters) | `{title}`; names the conversation, and an empty title restores the title derived from its first message |

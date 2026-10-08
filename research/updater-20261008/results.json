@@ -1,0 +1,37 @@
+{
+  "dark.badge.count": 1,
+  "dark.badge.aboveAvatar": true,
+  "dark.tooltip": true,
+  "dark.dialog.name": true,
+  "dark.dialog.described": true,
+  "dark.dialog.focus": "Restart now",
+  "dark.later.badgeKept": true,
+  "dark.installing.stillOpen": true,
+  "dark.installing.buttons": 0,
+  "dark.installing.valuenow": null,
+  "dark.installing.live": "polite",
+  "dark.downloading.badge": 0,
+  "dark.downloading.valuenow": "42",
+  "dark.waiting.reason": true,
+  "dark.waiting.buttons": [
+    "Later"
+  ],
+  "light.badge.count": 1,
+  "light.badge.aboveAvatar": true,
+  "light.tooltip": true,
+  "light.dialog.name": true,
+  "light.dialog.described": true,
+  "light.dialog.focus": "Restart now",
+  "light.later.badgeKept": true,
+  "light.installing.stillOpen": true,
+  "light.installing.buttons": 0,
+  "light.installing.valuenow": null,
+  "light.installing.live": "polite",
+  "light.downloading.badge": 0,
+  "light.downloading.valuenow": "42",
+  "light.waiting.reason": true,
+  "light.waiting.buttons": [
+    "Later"
+  ],
+  "errors": []
+}

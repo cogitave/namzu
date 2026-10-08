@@ -15,7 +15,7 @@ export interface PalInboxView {
 	id: string
 	status: 'pending' | 'claimed' | 'recorded'
 	conversationId?: string
-	sourceKind: 'pal' | 'host-observation' | 'channel'
+	sourceKind: 'pal' | 'host-observation' | 'channel' | 'operator-conversation'
 	sourcePalId?: string
 	subscriptionId?: string
 	observedPalId?: string
@@ -166,7 +166,10 @@ export function readPalInbox(value: unknown, palId: string): PalInboxView[] {
 			const sourceKind = message.sourceKind
 			if (
 				(status !== 'pending' && status !== 'claimed' && status !== 'recorded') ||
-				(sourceKind !== 'pal' && sourceKind !== 'host-observation' && sourceKind !== 'channel')
+				(sourceKind !== 'pal' &&
+					sourceKind !== 'host-observation' &&
+					sourceKind !== 'channel' &&
+					sourceKind !== 'operator-conversation')
 			)
 				throw new Error('Invalid Pal delivery phase.')
 			const result: PalInboxView = { id: text(message.id), status, sourceKind }

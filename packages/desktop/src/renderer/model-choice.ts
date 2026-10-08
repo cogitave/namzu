@@ -78,6 +78,51 @@ export function modelDisplayLabel(
 }
 
 /**
+ * What the model trigger reads. A name is never invented: the catalogue's label, else the label
+ * saved with the choice, else the id once the catalogue is known (or failed) and does not list it.
+ * While the catalogue or the choice is still resolving the trigger is `pending` and carries no
+ * text, so a raw id or the "Select model" prompt is never flashed. `named` is true only for a
+ * real name (catalogue or saved label), the only kind worth keeping across a re-read. The prompt is for a settled
+ * picker that has nothing to show.
+ */
+export function triggerLabel({
+	model,
+	label,
+	rows,
+	fallbackRows,
+	catalogue,
+	pending,
+}: {
+	model: string
+	label?: string
+	rows: readonly Pick<Row, 'id' | 'label'>[] | undefined
+	/** The same engine's list read for another conversation: it may name a model, never prove one absent. */
+	fallbackRows?: readonly Pick<Row, 'id' | 'label'>[]
+	catalogue: 'idle' | 'loading' | 'error' | 'ready'
+	pending: boolean
+}): { text: string; pending: boolean; named: boolean } {
+	if (!model)
+		return pending
+			? { text: '', pending: true, named: false }
+			: { text: 'Select model', pending: false, named: false }
+	const listed = (rows ?? fallbackRows)?.find((row) => row.id === model)?.label?.trim()
+	if (listed) return { text: listed, pending: false, named: true }
+	const saved = label?.trim()
+	if (saved) return { text: saved, pending: false, named: true }
+	if (rows === undefined && (pending || catalogue === 'loading'))
+		return { text: '', pending: true, named: false }
+	return { text: model, pending: false, named: false }
+}
+
+/**
+ * One settle or correction is sent per scope, provider and target. Keying only by provider and
+ * target let the key from one conversation suppress the same settle in the next.
+ */
+export function settleKey(scope: string, provider: string, target: string): string {
+	return JSON.stringify([scope, provider, target])
+}
+
+/**
  * The engine's own recommended model: the row its catalogue flags, else the row the provider
  * names as its default model.
  */
@@ -96,7 +141,10 @@ const DATE_RUN = /(?<!\d)(?:19|20)\d{6}(?!\d)/g
 const VERSION_RUN = /\d+(?:[.-]\d+)*/
 
 /** The family (name without its version) and numeric version of a row, or no version at all. */
-function parseModel(row: Pick<Row, 'id' | 'label'>): { family: string; version?: number[] } {
+function parseModel(row: Pick<Row, 'id' | 'label'>): {
+	family: string
+	version?: number[]
+} {
 	for (const text of [row.label, row.id]) {
 		const clean = text.replace(DATE_RUN, ' ')
 		const run = VERSION_RUN.exec(clean)

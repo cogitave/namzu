@@ -1,0 +1,50 @@
+{
+  "check": "local speech with the bundled Python",
+  "result": "pass",
+  "before": {
+    "installation": "missing"
+  },
+  "install": {
+    "ms": 41791,
+    "installation": "ready",
+    "runtimeDownloadBytes": 161411877,
+    "modelDownloadBytes": 34389147,
+    "diskBytes": 943046648,
+    "localSpeechDirBytes": 943047042
+  },
+  "speak": {
+    "firstAudioMs": 3601,
+    "totalMs": 4125,
+    "frames": 19,
+    "bytes": 165120,
+    "sampleRate": 24000,
+    "format": "pcm_s16le",
+    "channels": 1,
+    "maxFrameBytes": 9600,
+    "contiguous": true,
+    "durationSeconds": 3.44,
+    "rms": 1787,
+    "sha256": "d4bb9c04bfb1e392d2f460a6460952c687af75a47971c580375975f8ea6b4a2e",
+    "end": "completed",
+    "error": null
+  },
+  "audioContext": {
+    "state": "running",
+    "sampleRate": 24000,
+    "baseLatency": 0.010041666666666667,
+    "afterResume": "running",
+    "ended": true
+  },
+  "resources": {
+    "modelDownloadBytes": 34389147,
+    "runtimeDownloadBytes": 161411877,
+    "diskBytes": 943046648,
+    "ramBytes": 351502336,
+    "cpuPercent": 211.0415830707766,
+    "vramBytes": null,
+    "firstAudioMs": 3576.541299999997,
+    "measuredAt": "2026-10-08T15:13:35.563Z"
+  },
+  "startedAt": "2026-10-08T15:12:49.264Z",
+  "ms": 46832
+}

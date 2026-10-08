@@ -19,6 +19,8 @@ export interface ApprovalCardModel {
 	/** A file change from an engine that sent no preview: the card says so. */
 	previewMissing: boolean
 	command?: string
+	/** The text a message to a Pal would carry, drawn whole rather than summarised. */
+	message?: string
 	/** A readable summary of any other tool's arguments. */
 	entries: { label: string; value: string }[]
 	destructive: boolean
@@ -30,6 +32,8 @@ const FILE_TOOLS = new Set(['edit', 'write', 'multiedit'])
 const DELETE_TOOLS = new Set(['delete', 'delete_file', 'remove', 'remove_file'])
 const COMMAND_TOOLS = new Set(['bash', 'shell', 'run_command', 'exec'])
 const VALUE_MAX = 240
+/** The name of the tool an ordinary conversation uses to message a Pal. */
+export const PAL_MESSAGE_TOOL = 'send_pal_message'
 
 const record = (value: unknown): value is Record<string, unknown> =>
 	typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -125,9 +129,19 @@ function fromPreview(preview: PermissionPreview) {
 	}
 }
 
-export function buildApprovalCard(permission: PermissionView): ApprovalCardModel {
+/** "Message to Review", or "Message to a Pal" while the Pal's name is unknown. */
+function palMessageTitle(call: Call, palNames?: ReadonlyMap<string, string>): string {
+	const id = record(call.input) && typeof call.input.palId === 'string' ? call.input.palId : ''
+	const name = palNames?.get(id)?.trim()
+	return name ? `Message to ${name}` : 'Message to a Pal'
+}
+
+export function buildApprovalCard(
+	permission: PermissionView,
+	palNames?: ReadonlyMap<string, string>,
+): ApprovalCardModel {
 	const [first, ...rest] = permission.calls
-	const others = rest.map((call) => cardTitle(call))
+	const others = rest.map((call) => cardTitle(call, palNames))
 	if (!first) {
 		return {
 			kind: 'other',
@@ -195,6 +209,19 @@ export function buildApprovalCard(permission: PermissionView): ApprovalCardModel
 		}
 	}
 
+	if (name === PAL_MESSAGE_TOOL && typeof input?.body === 'string') {
+		const body = input.body
+		return {
+			kind: 'other',
+			title: palMessageTitle(first, palNames),
+			message: body,
+			previewMissing: false,
+			entries: [],
+			destructive: false,
+			others,
+		}
+	}
+
 	const command = typeof input?.command === 'string' ? input.command : undefined
 	if (command !== undefined && (COMMAND_TOOLS.has(name) || !input?.path)) {
 		return {
@@ -219,8 +246,9 @@ export function buildApprovalCard(permission: PermissionView): ApprovalCardModel
 }
 
 /** One-line title for a call that is only mentioned, not drawn. */
-function cardTitle(call: Call): string {
+function cardTitle(call: Call, palNames?: ReadonlyMap<string, string>): string {
 	const name = call.name.toLowerCase()
+	if (name === PAL_MESSAGE_TOOL) return palMessageTitle(call, palNames)
 	const path = pathOf(call)
 	if (FILE_TOOLS.has(name) && path)
 		return `${name === 'write' ? 'Write' : 'Edit'} ${baseName(path)}`

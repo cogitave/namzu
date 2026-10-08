@@ -1,8 +1,10 @@
 import { Menu } from '@base-ui/react/menu'
-import { type ReactNode, type RefObject, useRef } from 'react'
+import { type ReactNode, type RefObject, useEffect, useRef, useState } from 'react'
+import type { UpdateState } from '../shared/update-protocol.js'
+import { AddProjectItems } from './add-project-menu.js'
 import {
 	CheckIcon,
-	FolderPlusIcon,
+	DownloadIcon,
 	FoldersFilledIcon,
 	FoldersIcon,
 	HistoryIcon,
@@ -20,6 +22,7 @@ import {
 import type { Appearance } from './sidebar.js'
 import { Button } from './ui/button.js'
 import { Tooltip, TooltipPopup, TooltipTrigger } from './ui/tooltip.js'
+import { updateAnnouncement, updateBadge, updateMenuEntry } from './update-model.js'
 import './navigation-rail.css'
 
 export function NavigationRail({
@@ -29,9 +32,11 @@ export function NavigationRail({
 	onSpaces,
 	onPlugins,
 	onOpenProject,
+	onCreateProject,
 	onToggleSidebar,
 	openProjectDisabled = false,
 	onAppearanceChange,
+	update,
 }: {
 	section: 'home' | 'spaces' | 'plugins'
 	appearance: Appearance
@@ -39,9 +44,12 @@ export function NavigationRail({
 	onSpaces: () => void
 	onPlugins: () => void
 	onOpenProject: () => void
+	onCreateProject?: () => void
 	onToggleSidebar: () => void
 	openProjectDisabled?: boolean
 	onAppearanceChange: (appearance: Appearance) => void
+	/** Absent in a window that has no updater. */
+	update?: { state: UpdateState; onOpen: () => void; onCheck: () => void }
 }) {
 	const moreTrigger = useRef<HTMLButtonElement>(null)
 	const profileTrigger = useRef<HTMLButtonElement>(null)
@@ -68,14 +76,12 @@ export function NavigationRail({
 					<MoreHorizontalIcon />
 				</RailMenuTrigger>
 				<RailMenuPopup label="More actions" triggerRef={moreTrigger}>
-					<Menu.Item
-						className="rail-menu-item"
+					<AddProjectItems
+						itemClassName="rail-menu-item"
 						disabled={openProjectDisabled}
-						onClick={onOpenProject}
-					>
-						<FolderPlusIcon />
-						Open folder…
-					</Menu.Item>
+						onCreate={onCreateProject}
+						onOpen={onOpenProject}
+					/>
 					<Menu.Item className="rail-menu-item" onClick={onToggleSidebar}>
 						<PanelLeftIcon />
 						Toggle sidebar
@@ -83,6 +89,7 @@ export function NavigationRail({
 				</RailMenuPopup>
 			</RailMenuRoot>
 			<div className="rail-spacer" />
+			{update && <UpdateRailButton state={update.state} onOpen={update.onOpen} />}
 			<RailMenuRoot triggerRef={profileTrigger}>
 				<RailMenuTrigger label="Profile" profile triggerRef={profileTrigger}>
 					<span className="rail-profile-avatar" aria-hidden="true">
@@ -91,6 +98,7 @@ export function NavigationRail({
 				</RailMenuTrigger>
 				<RailMenuPopup label="Profile and appearance" align="end" triggerRef={profileTrigger}>
 					<div className="rail-profile-copy">Namzu on this device</div>
+					{update && <UpdateMenuItem state={update.state} update={update} />}
 					<Menu.Separator className="rail-menu-separator" />
 					<Menu.Group>
 						<Menu.GroupLabel className="rail-menu-label">Appearance</Menu.GroupLabel>
@@ -121,6 +129,67 @@ export function NavigationRail({
 				</RailMenuPopup>
 			</RailMenuRoot>
 		</nav>
+	)
+}
+
+function UpdateMenuItem({
+	state,
+	update,
+}: {
+	state: UpdateState
+	update: { onOpen: () => void; onCheck: () => void }
+}) {
+	const entry = updateMenuEntry(state)
+	if (!entry) return null
+	return (
+		<>
+			<Menu.Separator className="rail-menu-separator" />
+			<Menu.Item
+				className="rail-menu-item"
+				onClick={entry.action === 'check' ? update.onCheck : update.onOpen}
+			>
+				<DownloadIcon />
+				{entry.label}
+			</Menu.Item>
+		</>
+	)
+}
+
+/** A real button above the avatar for an installable update, announced once when it appears. */
+function UpdateRailButton({ state, onOpen }: { state: UpdateState; onOpen: () => void }) {
+	const badge = updateBadge(state)
+	const previous = useRef<UpdateState>(state)
+	const [announcement, setAnnouncement] = useState('')
+	useEffect(() => {
+		setAnnouncement(updateAnnouncement(previous.current, state))
+		previous.current = state
+	}, [state])
+	return (
+		<>
+			<output className="sr-only" aria-live="polite">
+				{announcement}
+			</output>
+			{badge.visible && (
+				<Tooltip>
+					<TooltipTrigger
+						render={
+							<Button
+								variant="ghost-muted"
+								size="icon"
+								className="rail-button rail-update-button"
+								aria-label={badge.label}
+								onClick={onOpen}
+							/>
+						}
+					>
+						<span className="rail-update-badge" aria-hidden="true">
+							<DownloadIcon />
+						</span>
+					</TooltipTrigger>
+					<TooltipPopup side="right">{badge.tooltip}</TooltipPopup>
+				</Tooltip>
+			)}
+		</>
 	)
 }
 

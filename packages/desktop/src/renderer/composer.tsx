@@ -40,6 +40,7 @@ import {
 } from './icons.js'
 import { type ModelChoice, ModelPicker } from './model-picker.js'
 import { usePresence } from './presence.js'
+import { DEFAULT_HOME_HEADING } from './project-home.js'
 import { Button } from './ui/button.js'
 import { Popover, PopoverPopup, PopoverTrigger } from './ui/popover.js'
 import { Textarea } from './ui/textarea.js'
@@ -58,6 +59,8 @@ export function Composer({
 	pluginsSupported = true,
 	modelSelectionReady = connected,
 	providersLoading = false,
+	catalogueReady,
+	modelPending = false,
 	choice,
 	onChoiceChange,
 	choiceUnchosen,
@@ -90,8 +93,11 @@ export function Composer({
 	permissionScope,
 	onLeaveProject,
 	onOpenProject,
+	onCreateProject,
+	emptyHeading = DEFAULT_HOME_HEADING,
 	empty,
 	permissions,
+	palNames,
 	onApproval,
 	attachments,
 	attachmentsBusy,
@@ -120,6 +126,13 @@ export function Composer({
 	/** Catalogue access does not require a Pal's execution computer. */
 	modelSelectionReady?: boolean
 	providersLoading?: boolean
+	/**
+	 * The catalogue may be read: it needs the providers, not the draft settings, so it starts
+	 * while those still load. Defaults to `modelSelectionReady`.
+	 */
+	catalogueReady?: boolean
+	/** The model choice is still resolving, so the trigger draws no prompt and no raw id. */
+	modelPending?: boolean
 	choice: ModelChoice
 	/** Nothing was ever chosen for this pane; the picker settles on the recommended model. */
 	choiceUnchosen?: boolean
@@ -158,8 +171,13 @@ export function Composer({
 	permissionScope?: string
 	onLeaveProject?: () => void
 	onOpenProject: () => void
+	onCreateProject?: () => void
+	/** The line above an empty conversation. */
+	emptyHeading?: string
 	empty: boolean
 	permissions: PermissionView[]
+	/** Pal names by ID, for an approval that names a Pal only by ID. */
+	palNames?: ReadonlyMap<string, string>
 	onApproval: (permission: PermissionView, response: PermissionResponse) => unknown
 	attachments: AttachmentView[]
 	draftDisabled?: boolean
@@ -204,7 +222,12 @@ export function Composer({
 			choice={choice}
 			unchosen={choiceUnchosen}
 			onChange={onChoiceChange}
-			catalogueEnabled={modelSelectionReady && !harnessBusy}
+			catalogueEnabled={
+				// An explicit `catalogueReady` already answers for the engine switch; `harnessBusy` here also
+				// counts tab restore and loading, which must not hold the read back.
+				catalogueReady ?? (modelSelectionReady && !harnessBusy)
+			}
+			pending={modelPending}
 			disabled={running || sending || !modelSelectionReady || harnessBusy}
 			settings={capabilities}
 			effort={settings.effort}
@@ -368,7 +391,7 @@ export function Composer({
 					{empty && !compact && (
 						<div className="absolute inset-x-0 bottom-full pb-8">
 							<h1 className="text-center text-2xl font-normal tracking-tight text-foreground sm:text-3xl">
-								What would you like to work on?
+								{emptyHeading}
 							</h1>
 						</div>
 					)}
@@ -516,6 +539,7 @@ export function Composer({
 									onLeaveProject={onLeaveProject}
 									onSelectProject={onSelectProject}
 									onOpenProject={onOpenProject}
+									onCreateProject={onCreateProject}
 								/>
 								<span className="composer-computer-label" title={computerLabel}>
 									<MonitorIcon aria-hidden="true" />
@@ -532,6 +556,7 @@ export function Composer({
 								<ComposerApproval
 									key={permissions[0].id}
 									permission={permissions[0]}
+									palNames={palNames}
 									count={permissions.length}
 									onRespond={(permission, response) =>
 										approvalDisabled ? false : onApproval(permission, response)

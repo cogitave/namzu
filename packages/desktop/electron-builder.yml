@@ -1,0 +1,48 @@
+# Windows installer for Namzu Desktop. Run through scripts/stage-installer.mjs, which
+# assembles the flat project this file describes (see docs/cli/desktop.md, "Installing and updating").
+appId: com.cogitave.namzu
+productName: Namzu
+copyright: Namzu Contributors
+artifactName: Namzu-Setup-${version}.${ext}
+directories:
+  output: out
+# Identity: electron-builder writes the NSIS install folder from productName and Electron derives
+# app.getPath('userData') from the same name, so an installed build uses %APPDATA%\Namzu exactly
+# like the development app does. Do not rename productName without migrating that folder.
+asar: true
+files:
+  - package.json
+  - dist/**
+  - '!**/*.map'
+  - '!**/*.d.ts'
+  - '!**/*.d.cts'
+  - '!**/*.test.*'
+  - '!dist/dev/**'
+# node_modules cannot travel through extraResources; this hook adds the CLI's.
+afterPack: installer-after-pack.cjs
+extraResources:
+  - from: extra/cli
+    to: cli
+  - from: extra/python
+    to: python
+win:
+  target:
+    - target: nsis
+      arch: x64
+  # Unsigned for now: no publisherName, so the installer shows SmartScreen's
+  # "unknown publisher" warning and the updater checks sha512 integrity only.
+  signAndEditExecutable: true
+nsis:
+  oneClick: true
+  perMachine: false
+  allowElevation: false
+  allowToChangeInstallationDirectory: false
+  deleteAppDataOnUninstall: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Namzu
+  uninstallDisplayName: Namzu
+  runAfterFinish: true
+# The feed is chosen at run time by the updater (an environment variable in development, a
+# GitHub or generic URL once publishing is approved); nothing is baked into app-update.yml here.
+publish: null

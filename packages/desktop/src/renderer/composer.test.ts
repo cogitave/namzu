@@ -122,6 +122,9 @@ it('docks the slim Pal composer with one authored textarea and preserves the sta
 	expect(standard).toContain('data-slot="composer-context-strip"')
 	expect(standard).toContain('What would you like to work on?')
 	expect(standard).toContain('placeholder="Ask Namzu anything"')
+	expect(render({ empty: true, emptyHeading: 'What should we work on in demo?' })).toContain(
+		'What should we work on in demo?',
+	)
 })
 
 it('keeps the Pal Plus menu and actual model available while computer execution is offline', () => {
@@ -448,6 +451,7 @@ it('offers only actual ordinary projects with current selection and connection/t
 		],
 		onSelectProject: () => {},
 		onLeaveProject: () => {},
+		onCreateProject: () => {},
 	})
 	expect(html).toContain('aria-label="Project chooser"')
 	expect(html).toContain('aria-label="Available projects"')
@@ -457,7 +461,8 @@ it('offers only actual ordinary projects with current selection and connection/t
 	expect(html).toContain('Connection error')
 	expect(html).not.toContain('An ordinary chat')
 	expect(html).toContain('Don&#x27;t work in a project')
-	expect(html).toContain('Open folder…')
+	expect(html).toContain('Use an existing folder')
+	expect(html).toContain('Start from scratch')
 	expect(html).toContain('aria-label="Search projects"')
 	expect(html).not.toContain('Private Pal workspace')
 	expect(html).not.toContain('/owned/private')
@@ -562,4 +567,11 @@ it('says parked queued messages are paused', () => {
 it('shows the tray only while the conversation is empty', () => {
 	expect(render({ empty: true })).toContain('data-slot="composer-context-strip"')
 	expect(render({ empty: false })).not.toContain('data-slot="composer-context-strip"')
+})
+
+it('draws no model prompt or raw id while the model choice is still resolving', () => {
+	const html = render({ modelSelectionReady: false, modelPending: true })
+	expect(html).toContain('model-picker-trigger-skeleton')
+	expect(html).not.toContain('Select model')
+	expect(html).not.toContain('Model: space-bunny-free')
 })

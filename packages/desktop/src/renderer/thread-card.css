@@ -33,29 +33,54 @@
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
-.sidebar-thread-menu {
+/*
+ * The hover buttons sit over the row's state slot, and the two never share a frame: both
+ * switch on the same selectors with no transition, so one is always showing and never both.
+ */
+.sidebar-thread-actions {
 	position: absolute;
 	right: 4px;
 	top: 50%;
+	display: flex;
+	gap: 0;
 	transform: translateY(-50%);
-	opacity: 0;
-	transition: opacity 100ms ease-out;
+	visibility: hidden;
 }
-.sidebar-thread-item:hover .sidebar-thread-menu,
-.sidebar-thread-item:focus-within .sidebar-thread-menu,
-.sidebar-thread-menu[data-popup-open] {
-	opacity: 1;
+.sidebar-thread-action {
+	transition: none;
+}
+.sidebar-thread-item:hover .sidebar-thread-actions,
+.sidebar-thread-item:has(:focus-visible) .sidebar-thread-actions,
+.sidebar-thread-item[data-menu-open] .sidebar-thread-actions {
+	visibility: visible;
 }
 .sidebar-thread-item[data-removable]:hover .conversation-row-state,
-.sidebar-thread-item[data-removable]:focus-within .conversation-row-state {
-	opacity: 0;
+.sidebar-thread-item[data-removable]:has(:focus-visible) .conversation-row-state,
+.sidebar-thread-item[data-removable][data-menu-open] .conversation-row-state {
+	visibility: hidden;
+}
+/* The buttons cover the end of the title and the pin mark; fade the title instead of moving it. */
+.sidebar-thread-item[data-removable]:hover .conversation-row-title,
+.sidebar-thread-item[data-removable]:has(:focus-visible) .conversation-row-title,
+.sidebar-thread-item[data-removable][data-menu-open] .conversation-row-title {
+	-webkit-mask-image: linear-gradient(
+		to right,
+		#000 calc(100% - 28px),
+		transparent calc(100% - 12px)
+	);
+	mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent calc(100% - 12px));
+}
+.sidebar-thread-item[data-removable]:hover .conversation-row-pin,
+.sidebar-thread-item[data-removable]:has(:focus-visible) .conversation-row-pin,
+.sidebar-thread-item[data-removable][data-menu-open] .conversation-row-pin {
+	visibility: hidden;
 }
 @media (hover: none) {
-	.sidebar-thread-menu {
-		opacity: 1;
+	.sidebar-thread-actions {
+		visibility: visible;
 	}
 	.sidebar-thread-item[data-removable] .conversation-row-state {
-		opacity: 0;
+		visibility: hidden;
 	}
 }
 .thread-running-indicator {
@@ -72,9 +97,6 @@
 	}
 }
 @media (prefers-reduced-motion: reduce) {
-	.sidebar-thread-menu {
-		transition: none;
-	}
 	.thread-running-indicator {
 		animation: none;
 	}

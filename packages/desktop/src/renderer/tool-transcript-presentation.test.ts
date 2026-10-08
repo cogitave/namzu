@@ -404,3 +404,76 @@ it('does not open a finished command that printed nothing', () => {
 	expect(toolTranscriptPresentation(thread, key)?.detailView).toBeUndefined()
 	expect(toolTranscriptPresentation(thread, key)?.tooltip).toBe('ls')
 })
+
+describe('a message to a Pal from an ordinary conversation', () => {
+	const call = (status: 'pending' | 'completed' | 'failed', label: string, callLabel?: string) => {
+		let thread = start(
+			{ kind: 'generic', label: callLabel ?? label, presentation: 'activity' },
+			'send_pal_message',
+		)
+		if (status !== 'pending')
+			thread = result(
+				thread,
+				{ kind: 'generic', label, presentation: 'activity' },
+				status,
+				'send_pal_message',
+			)
+		return thread
+	}
+
+	it('names the Pal while it runs, and says the message reached the inbox once it is sent', () => {
+		expect(toolTranscriptPresentation(call('pending', 'Message to Review'), key)).toMatchObject({
+			label: 'Messaging Review',
+			state: 'running',
+		})
+		const sent = toolTranscriptPresentation(
+			call('completed', "Sent to Review's inbox", 'Message to Review'),
+			key,
+		)
+		expect(sent).toMatchObject({
+			label: 'Messaged Review',
+			tooltip: 'Sent to inbox',
+			state: 'completed',
+		})
+		expect(sent?.detailView).toBeUndefined()
+	})
+
+	it('reads the Pal from the saved receipt label after the conversation is reloaded', () => {
+		expect(
+			toolTranscriptPresentation(call('completed', "Sent to Review's inbox"), key),
+		).toMatchObject({ label: 'Messaged Review', tooltip: 'Sent to inbox' })
+		expect(toolTranscriptPresentation(call('completed', 'Message to Review'), key)?.label).toBe(
+			'Messaged Review',
+		)
+	})
+
+	it('does not claim the message was sent when it failed or was declined', () => {
+		const failed = toolTranscriptPresentation(call('failed', 'Message to Review'), key)
+		expect(failed).toMatchObject({ label: "Couldn't message Review", state: 'failed' })
+		expect(failed?.tooltip).toBeUndefined()
+		const declined = result(
+			start({ kind: 'generic', label: 'Message to Review' }, 'send_pal_message'),
+			{ kind: 'generic', label: 'Message to Review', declined: {} },
+			'failed',
+			'send_pal_message',
+		)
+		expect(toolTranscriptPresentation(declined, key)).toMatchObject({
+			label: 'Declined message to Review',
+			state: 'declined',
+		})
+	})
+
+	it('leaves a Pal-to-Pal row, which names no Pal, as it was', () => {
+		const row = toolTranscriptPresentation(
+			result(
+				start({ kind: 'generic', label: 'send_pal_message' }, 'send_pal_message'),
+				{ kind: 'generic', label: 'send_pal_message' },
+				'completed',
+				'send_pal_message',
+			),
+			key,
+		)
+		expect(row?.label).toBe('send_pal_message')
+		expect(row?.tooltip).toBeUndefined()
+	})
+})

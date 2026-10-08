@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import type { ProviderView } from '../shared/protocol.js'
 import {
 	effortLabel,
@@ -11,9 +11,11 @@ import {
 	recommendedRow,
 	resolveComposerModelChoice,
 	resolveEffort,
+	settleKey,
 	splitModels,
 	staleEffort,
 	startingRow,
+	triggerLabel,
 } from './model-choice.js'
 
 const profile = { provider: 'zen', model: 'space-bunny-free' }
@@ -337,4 +339,85 @@ it('judges the newest generation per maker, so a mixed list keeps every maker la
 	const { current, older } = splitModels(list)
 	expect(ids(current)).toEqual(['gpt-5', 'claude-sonnet-4-5', 'claude-opus-4-1', 'gemini-3-pro'])
 	expect(ids(older)).toEqual(['claude-sonnet-3-7', 'gemini-2-5-pro', 'gpt-4o'])
+})
+
+describe('triggerLabel', () => {
+	const rows = [{ id: 'a', label: 'Model A' }]
+	it('never flashes the prompt or a raw id while the catalogue or the choice resolves', () => {
+		expect(triggerLabel({ model: '', rows: undefined, catalogue: 'idle', pending: true })).toEqual({
+			text: '',
+			pending: true,
+			named: false,
+		})
+		expect(
+			triggerLabel({
+				model: 'sample-balanced',
+				rows: undefined,
+				catalogue: 'loading',
+				pending: false,
+			}),
+		).toEqual({ text: '', pending: true, named: false })
+		expect(
+			triggerLabel({
+				model: 'sample-balanced',
+				rows: undefined,
+				catalogue: 'idle',
+				pending: true,
+			}),
+		).toEqual({ text: '', pending: true, named: false })
+	})
+	it('names the model from the catalogue, else the saved label, else the id once the catalogue is known or failed', () => {
+		expect(
+			triggerLabel({ model: 'a', label: 'old', rows, catalogue: 'ready', pending: true }),
+		).toEqual({ text: 'Model A', pending: false, named: true })
+		expect(
+			triggerLabel({
+				model: 'x',
+				label: 'Saved',
+				rows: undefined,
+				catalogue: 'loading',
+				pending: true,
+			}),
+		).toEqual({ text: 'Saved', pending: false, named: true })
+		expect(triggerLabel({ model: 'x', rows, catalogue: 'ready', pending: false }).text).toBe('x')
+		// A bare id is no name: it is never kept to stand in for one while the list is read again.
+		expect(triggerLabel({ model: 'x', rows, catalogue: 'ready', pending: false }).named).toBe(false)
+		expect(
+			triggerLabel({ model: 'x', rows: undefined, catalogue: 'error', pending: false }).text,
+		).toBe('x')
+	})
+	it("lets another conversation's list of the same engine name a model, never prove it absent", () => {
+		const named = triggerLabel({
+			model: 'a',
+			rows: undefined,
+			fallbackRows: rows,
+			catalogue: 'loading',
+			pending: false,
+		})
+		expect(named).toMatchObject({ text: 'Model A', named: true })
+		const unlisted = triggerLabel({
+			model: 'x',
+			rows: undefined,
+			fallbackRows: rows,
+			catalogue: 'loading',
+			pending: false,
+		})
+		expect(unlisted).toMatchObject({ text: '', pending: true })
+	})
+	it('shows the prompt only for a settled picker with nothing to show', () => {
+		expect(triggerLabel({ model: '', rows: undefined, catalogue: 'idle', pending: false })).toEqual(
+			{
+				text: 'Select model',
+				pending: false,
+				named: false,
+			},
+		)
+	})
+})
+
+describe('settleKey', () => {
+	it('differs per scope, so one conversation settling does not suppress the next', () => {
+		expect(settleKey('p:one', 'sample', 'haiku')).not.toBe(settleKey('p:two', 'sample', 'haiku'))
+		expect(settleKey('p:one', 'sample', 'haiku')).toBe(settleKey('p:one', 'sample', 'haiku'))
+	})
 })

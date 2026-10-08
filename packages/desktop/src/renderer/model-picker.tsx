@@ -41,12 +41,13 @@ import {
 	SECTION_HEADINGS,
 	effortLabel,
 	followCatalogue,
-	modelDisplayLabel,
 	modelSections,
 	recommendedRow,
 	resolveEffort,
+	settleKey,
 	splitModels,
 	startingRow,
+	triggerLabel,
 } from './model-choice.js'
 import { isNewModel } from './model-freshness.js'
 import { commitsOnKey } from './picker-commit.js'
@@ -109,6 +110,7 @@ export function ModelPicker({
 	onEffortChange,
 	engineControl,
 	unchosen,
+	pending = false,
 }: {
 	providers: ProviderView
 	choice: ModelChoice
@@ -130,6 +132,8 @@ export function ModelPicker({
 	engineControl?: EngineControl
 	/** Nothing was ever chosen: settle on the source's recommended model once its list is known. */
 	unchosen?: boolean
+	/** The choice, providers or engine are still resolving: the trigger never flashes a prompt or an id. */
+	pending?: boolean
 }) {
 	const [open, setOpen] = useState(false)
 	const [view, setView] = useState<View>('models')
@@ -151,14 +155,21 @@ export function ModelPicker({
 		cache: ModelCatalogueDisplayCache
 	}>(null)
 	if (!localCache.current || localCache.current.loader !== loadCatalogue)
-		localCache.current = { loader: loadCatalogue, cache: new ModelCatalogueDisplayCache() }
+		localCache.current = {
+			loader: loadCatalogue,
+			cache: new ModelCatalogueDisplayCache(),
+		}
 	const displayCache =
 		!loadCatalogue && typeof window !== 'undefined' && window.namzu
 			? modelCatalogueDisplayCacheForApi(window.namzu)
 			: localCache.current.cache
 	const provider = providers.available.find((item) => item.id === choice.provider)
 	const modelId = choice.model || provider?.defaultModel || ''
-	const rows = useChoiceCatalogue({
+	const {
+		rows,
+		engineRows,
+		state: catalogueState,
+	} = useChoiceCatalogue({
 		displayCache,
 		provider,
 		providers,
@@ -168,7 +179,21 @@ export function ModelPicker({
 		harnessScope: catalogueHarnessScope,
 		enabled: catalogueEnabled,
 	})
-	const label = modelId ? modelDisplayLabel({ model: modelId, label: choice.label }, rows) : ''
+	const trigger = triggerLabel({
+		model: modelId,
+		label: choice.label,
+		rows,
+		fallbackRows: engineRows,
+		catalogue: catalogueState,
+		pending,
+	})
+	// What this conversation last showed on this engine stays while its choice resolves again.
+	const shownScope = JSON.stringify([projectId, sessionId ?? '', engine])
+	const shown = useRef<{ scope: string; text: string }>(null)
+	if (trigger.text && trigger.named) shown.current = { scope: shownScope, text: trigger.text }
+	const kept = shown.current?.scope === shownScope ? shown.current.text : ''
+	const label = trigger.text || (trigger.pending ? kept : '')
+	const triggerPending = trigger.pending && !label
 	const shownEffort = onEffortChange ? resolveEffort(settings, effort) : undefined
 	const effortChoices = shownEffort?.levels.length ?? 0
 	useEffect(() => {
@@ -176,6 +201,7 @@ export function ModelPicker({
 	}, [disabled])
 	// A choice that follows the engine's default, or whose saved label went stale, is brought up to
 	// date once the catalogue is known. Each correction is sent once, however often it re-renders.
+	const scope = `${projectId}:${sessionId ?? ''}`
 	const corrected = useRef('')
 	useEffect(() => {
 		if (disabled) return
@@ -184,11 +210,11 @@ export function ModelPicker({
 			corrected.current = ''
 			return
 		}
-		const key = JSON.stringify(next)
+		const key = settleKey(scope, choice.provider, JSON.stringify(next))
 		if (corrected.current === key) return
 		corrected.current = key
 		onChange(next)
-	}, [disabled, choice, modelId, rows, provider?.defaultModel, onChange])
+	}, [disabled, choice, modelId, rows, provider?.defaultModel, onChange, scope])
 	// Nothing was ever chosen: settle on the source's recommended model once its list is known, so
 	// what the trigger shows is what a send uses.
 	const settled = useRef('')
@@ -196,12 +222,16 @@ export function ModelPicker({
 		if (disabled || !unchosen || !provider) return
 		const start = startingRow(rows)
 		if (!start || start.id === modelId) return
-		const key = JSON.stringify([provider.id, start.id])
+		const key = settleKey(scope, provider.id, start.id)
 		if (settled.current === key) return
 		settled.current = key
-		onChange({ provider: provider.id, model: start.id, label: start.label, auto: true })
-	}, [disabled, unchosen, provider, rows, modelId, onChange])
-	const scope = `${projectId}:${sessionId ?? ''}`
+		onChange({
+			provider: provider.id,
+			model: start.id,
+			label: start.label,
+			auto: true,
+		})
+	}, [disabled, unchosen, provider, rows, modelId, onChange, scope])
 	const previousScope = useRef(scope)
 	useEffect(() => {
 		if (previousScope.current !== scope) {
@@ -211,7 +241,9 @@ export function ModelPicker({
 	}, [scope])
 	const accessibleName = label
 		? `Model: ${label}${shownEffort?.value ? `, effort: ${effortLabel(shownEffort.value)}` : ''}`
-		: 'Select model'
+		: triggerPending
+			? 'Model, loading'
+			: 'Select model'
 	const choose = (next: ModelChoice) => {
 		if (disabled) return
 		onChange(next)
@@ -263,7 +295,14 @@ export function ModelPicker({
 						<HarnessMark engine={engine} />
 					</span>
 				)}
-				<span className="model-picker-trigger-model truncate">{label || 'Select model'}</span>
+				{triggerPending ? (
+					<span
+						className="model-picker-trigger-model model-picker-trigger-skeleton"
+						aria-hidden="true"
+					/>
+				) : (
+					<span className="model-picker-trigger-model truncate">{label || 'Select model'}</span>
+				)}
 				{shownEffort?.value && (
 					<span className="model-picker-trigger-effort" aria-hidden="true">
 						{effortLabel(shownEffort.value)}
@@ -406,7 +445,11 @@ function useChoiceCatalogue({
 	loadCatalogue?: (provider: string) => Promise<ModelCatalogueView>
 	harnessScope?: string
 	enabled: boolean
-}): CatalogueRows | undefined {
+}): {
+	rows: CatalogueRows | undefined
+	engineRows: CatalogueRows | undefined
+	state: 'idle' | 'loading' | 'error' | 'ready'
+} {
 	const version = useSyncExternalStore(
 		displayCache.subscribe,
 		displayCache.version,
@@ -426,7 +469,8 @@ function useChoiceCatalogue({
 	const last = useRef<{ identity: string; rows: CatalogueRows }>(null)
 	if (snapshot.state === 'ready') last.current = { identity, rows: snapshot.value.models }
 	const rows = snapshot.state === 'ready' ? snapshot.value.models : undefined
-	useEffect(() => {
+	// Started before paint, so an enabled picker is never drawn once as unread and then as loading.
+	useLayoutEffect(() => {
 		void version
 		if (!enabled || !provider || !scope || !projectId) return
 		if (displayCache.peek(scope).state !== 'idle') return
@@ -437,7 +481,15 @@ function useChoiceCatalogue({
 		// The shared cache publishes the error; the menu retries once per opening.
 		displayCache.load(scope, read).catch(() => {})
 	}, [enabled, provider, scope, projectId, sessionId, loadCatalogue, displayCache, version])
-	return rows ?? (last.current?.identity === identity ? last.current.rows : undefined)
+	// The same engine's list, read for any other conversation, names the model until this one reads.
+	const engineRows = provider
+		? displayCache.lastKnownForEngine(harnessScope ?? 'namzu', provider.id)?.models
+		: undefined
+	return {
+		rows: rows ?? (last.current?.identity === identity ? last.current.rows : undefined),
+		engineRows,
+		state: snapshot.state,
+	}
 }
 
 function ModelBrowser({
@@ -465,7 +517,12 @@ function ModelBrowser({
 	onBack?: () => void
 	settingsNotice?: string
 	/** The engine chip for the heading, when engines are offered. */
-	engine?: { id: HarnessView['selected']; label: string; disabled: boolean; onOpen: () => void }
+	engine?: {
+		id: HarnessView['selected']
+		label: string
+		disabled: boolean
+		onOpen: () => void
+	}
 }) {
 	const [providerId, setProviderId] = useState(choice.provider)
 	const [catalogues, setCatalogues] = useState<Record<string, Catalogue>>({})
@@ -545,7 +602,11 @@ function ModelBrowser({
 						uncachedScopes.current.set(provider.id, scope.key)
 						setCatalogues((all) => ({
 							...all,
-							[provider.id]: { scopeKey: scope.key, loading: false, value: result.value },
+							[provider.id]: {
+								scopeKey: scope.key,
+								loading: false,
+								value: result.value,
+							},
 						}))
 					}
 				})

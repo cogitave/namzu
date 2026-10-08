@@ -22,6 +22,27 @@ const otherChoice: DraftSettings = {
 }
 
 describe('saved draft settings admission', () => {
+	it('joins a first read already in flight instead of reading the owner twice', async () => {
+		const pending = deferred<DraftSettings>()
+		const read = vi
+			.fn<(_owner: string) => Promise<DraftSettings>>()
+			.mockReturnValue(pending.promise)
+		const loading: boolean[] = []
+		const store = new DraftSettingsStore(
+			read,
+			async () => {},
+			(_owner, snapshot) => loading.push(snapshot.loading),
+			() => {},
+		)
+		const first = store.load('session')
+		const refreshing = store.reload('session')
+		pending.resolve(choice)
+		await Promise.all([first, refreshing])
+		expect(read).toHaveBeenCalledTimes(1)
+		// Loading went true once and false once: the picker is not disabled a second time.
+		expect(loading).toEqual([true, false])
+		expect(store.snapshot('session').value).toEqual(choice)
+	})
 	it('coalesces overlapping authoritative refreshes into one admitted snapshot', async () => {
 		const started = deferred<void>()
 		const refreshed = deferred<DraftSettings>()

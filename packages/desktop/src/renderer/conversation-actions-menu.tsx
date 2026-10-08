@@ -1,3 +1,4 @@
+import { ContextMenu } from '@base-ui/react/context-menu'
 import { Menu } from '@base-ui/react/menu'
 import {
 	Fragment,
@@ -132,6 +133,91 @@ function EntryItem({
 	)
 }
 
+function ActionGroups({
+	groups,
+	mac,
+	busy,
+	afterMove,
+	onSelect,
+}: {
+	/** A function is read only when this renders, which a closed menu never does. */
+	groups: ConversationActionEntry[][] | (() => ConversationActionEntry[][])
+	mac: boolean
+	busy: boolean
+	afterMove?: ReactNode
+	onSelect: (id: ConversationActionId) => void
+}) {
+	const resolved = typeof groups === 'function' ? groups() : groups
+	return resolved.map((group, index) => (
+		<Fragment key={group[0]?.id ?? index}>
+			{index > 0 && <Menu.Separator className="conversation-actions-separator" />}
+			{group.map((entry) => (
+				<EntryItem key={entry.id} entry={entry} mac={mac} busy={busy} onSelect={onSelect} />
+			))}
+			{afterMove && group.some((entry) => entry.id === 'move-window') && afterMove}
+		</Fragment>
+	))
+}
+
+/**
+ * The same menu, opened by right-click, long-press or the keyboard's context-menu key
+ * (Shift+F10) on the element it wraps. `render` supplies that element.
+ */
+export function ConversationContextMenu({
+	getInput,
+	mac,
+	busy = false,
+	label,
+	render,
+	children,
+	restoreFocus,
+	onOpenChange,
+	onAction,
+}: {
+	/** Read when the menu opens, so a closed row computes nothing. */
+	getInput: () => ConversationActionInput
+	mac: boolean
+	busy?: boolean
+	label: string
+	render: ReactElement
+	children: ReactNode
+	/** Where focus returns when the menu closes without an action that moves it. */
+	restoreFocus: () => HTMLElement | null
+	onOpenChange?: (open: boolean) => void
+	onAction: (id: ConversationActionId) => void
+}) {
+	const accepted = useRef(false)
+	return (
+		<ContextMenu.Root
+			onOpenChange={(open) => {
+				if (open) accepted.current = false
+				onOpenChange?.(open)
+			}}
+		>
+			<ContextMenu.Trigger render={render}>{children}</ContextMenu.Trigger>
+			<ContextMenu.Portal>
+				<ContextMenu.Positioner className="conversation-actions-positioner" sideOffset={2}>
+					<ContextMenu.Popup
+						className="conversation-actions-popup"
+						aria-label={label}
+						finalFocus={() => (accepted.current ? false : (restoreFocus() ?? true))}
+					>
+						<ActionGroups
+							groups={() => conversationActionGroups(getInput())}
+							mac={mac}
+							busy={busy}
+							onSelect={(id) => {
+								if (TAKES_FOCUS.has(id)) accepted.current = true
+								onAction(id)
+							}}
+						/>
+					</ContextMenu.Popup>
+				</ContextMenu.Positioner>
+			</ContextMenu.Portal>
+		</ContextMenu.Root>
+	)
+}
+
 /**
  * One menu for a conversation, used by the header and by each tab. The caller supplies the
  * trigger button and performs the actions; this component only decides what is offered.
@@ -196,24 +282,16 @@ export function ConversationActionsMenu({
 								<Menu.Separator className="conversation-actions-separator" />
 							</>
 						)}
-						{groups.map((group, index) => (
-							<Fragment key={group[0]?.id ?? index}>
-								{index > 0 && <Menu.Separator className="conversation-actions-separator" />}
-								{group.map((entry) => (
-									<EntryItem
-										key={entry.id}
-										entry={entry}
-										mac={mac}
-										busy={busy}
-										onSelect={(id) => {
-											if (TAKES_FOCUS.has(id)) accepted.current = true
-											onAction(id, opener.current)
-										}}
-									/>
-								))}
-								{afterMove && group.some((entry) => entry.id === 'move-window') && afterMove}
-							</Fragment>
-						))}
+						<ActionGroups
+							groups={groups}
+							mac={mac}
+							busy={busy}
+							afterMove={afterMove}
+							onSelect={(id) => {
+								if (TAKES_FOCUS.has(id)) accepted.current = true
+								onAction(id, opener.current)
+							}}
+						/>
 					</Menu.Popup>
 				</Menu.Positioner>
 			</Menu.Portal>

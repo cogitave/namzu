@@ -1,0 +1,16 @@
+{
+  "check": "updater finds and downloads v2",
+  "result": "pass",
+  "installedBefore": "0.1.0.0",
+  "finalState": {
+    "status": "ready",
+    "version": "0.1.1"
+  },
+  "seen": [
+    "idle",
+    "ready"
+  ],
+  "badgeLabel": "Update ready. Restart Namzu to install version 0.1.1",
+  "startedAt": "2026-10-08T15:13:44.334Z",
+  "ms": 32018
+}

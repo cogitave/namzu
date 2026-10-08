@@ -1,0 +1,8 @@
+﻿{
+    "exitCode":  0,
+    "check":  "silent uninstall keeps the profile",
+    "startMenuRemoved":  true,
+    "userDataKept":  true,
+    "exeRemoved":  true,
+    "seconds":  18.2
+}

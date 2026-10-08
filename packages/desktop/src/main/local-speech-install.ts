@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import {
+	copyFile,
 	lstat,
 	mkdir,
 	open,
@@ -254,7 +255,31 @@ async function rollbackRuntime(
 	await rmdir(runtime)
 }
 
+/**
+ * The CPython that ships inside the installed app, under `<resources>/python`. It is a
+ * python-build-standalone build with venv and pip, so speech needs nothing from the machine.
+ * Only a regular file counts: a missing, linked or foreign entry falls through to the lookup.
+ */
+export async function bundledLocalSpeechPython(
+	resourcesPath: string | undefined = (process as { resourcesPath?: string }).resourcesPath,
+	platform: NodeJS.Platform = process.platform,
+): Promise<LocalSpeechPython | undefined> {
+	if (!resourcesPath) return undefined
+	const interpreter =
+		platform === 'win32'
+			? join(resourcesPath, 'python', 'python.exe')
+			: join(resourcesPath, 'python', 'bin', 'python3')
+	try {
+		if ((await lstat(interpreter)).isFile()) return { program: interpreter, args: [] }
+	} catch {
+		/* Not bundled in this build; the existing lookup follows. */
+	}
+	return undefined
+}
+
 async function defaultPython(): Promise<LocalSpeechPython> {
+	const bundled = await bundledLocalSpeechPython()
+	if (bundled) return bundled
 	if (process.platform !== 'win32') return { program: 'python3', args: [] }
 	const nativeData = process.env.LOCALAPPDATA
 	if (nativeData) {
@@ -266,6 +291,39 @@ async function defaultPython(): Promise<LocalSpeechPython> {
 		}
 	}
 	return { program: 'python.exe', args: [] }
+}
+
+/** The pinned Visual C++ runtime wheel torch needs on Windows; nothing elsewhere. */
+export function windowsRuntimeRequirements(platform: NodeJS.Platform): string[] {
+	return platform === 'win32' ? ['msvc-runtime==14.44.35112'] : []
+}
+
+const VC_RUNTIME_DLL = /^(?:msvcp|vcruntime|vcomp|concrt|vcamp|vccorlib)\d[\w]*\.dll$/i
+
+/**
+ * Copies the Visual C++ runtime DLLs that `msvc-runtime` left in the venv's Scripts folder into
+ * torch's own `lib` folder. The venv's python.exe is a launcher for the bundled interpreter, so
+ * the Scripts folder is not on its DLL search path, while torch loads `c10.dll` with the search
+ * set to its own folder. Verified on a clean Windows image: the wheel alone leaves `import torch`
+ * failing with WinError 126, and this copy makes it load. A no-op where there is nothing to copy.
+ */
+export async function copyVisualCRuntimeIntoTorch(venv: string): Promise<number> {
+	const scripts = join(venv, 'Scripts')
+	const target = join(venv, 'Lib', 'site-packages', 'torch', 'lib')
+	let names: string[]
+	try {
+		names = (await readdir(scripts)).filter((name) => VC_RUNTIME_DLL.test(name))
+		if (!(await lstat(target)).isDirectory()) return 0
+	} catch {
+		return 0
+	}
+	let copied = 0
+	for (const name of names) {
+		if (!(await lstat(join(scripts, name))).isFile()) continue
+		await copyFile(join(scripts, name), join(target, name))
+		copied += 1
+	}
+	return copied
 }
 
 /** Explicit user action only. Nothing here runs at app startup or when merely enabling speech. */
@@ -313,6 +371,9 @@ export async function installLocalSpeech(
 		const cpuWheel = process.platform !== 'darwin'
 		const torch = cpuWheel ? 'torch==2.14.1+cpu' : 'torch==2.14.1'
 		const numpy = metadata.minor === 11 ? 'numpy==2.3.5' : 'numpy==2.5.3'
+		// A clean Windows machine has no Visual C++ runtime, and torch then fails to load c10.dll.
+		// msvc-runtime puts the DLLs beside the venv's python.exe, so nothing is installed system-wide.
+		const runtimeDlls = windowsRuntimeRequirements(process.platform)
 		const pip = ['-I', '-m', 'pip', '--isolated', '--disable-pip-version-check']
 		await run(
 			paths.python,
@@ -331,7 +392,7 @@ export async function installLocalSpeech(
 		const constraints = join(paths.runtime, 'constraints.txt')
 		await writeFile(
 			constraints,
-			`${torch}\n${numpy}\nhuggingface-hub==2.1.1\nnormalizer-tr==0.4.0\n`,
+			`${[torch, numpy, 'huggingface-hub==2.1.1', 'normalizer-tr==0.4.0', ...runtimeDlls].join('\n')}\n`,
 			{ mode: 0o600 },
 		)
 		await run(
@@ -352,6 +413,7 @@ export async function installLocalSpeech(
 				numpy,
 				'huggingface-hub==2.1.1',
 				'normalizer-tr==0.4.0',
+				...runtimeDlls,
 			],
 			{ cwd: directory, signal: options.signal },
 		)
@@ -377,9 +439,11 @@ export async function installLocalSpeech(
 				numpy,
 				'huggingface-hub==2.1.1',
 				'normalizer-tr==0.4.0',
+				...runtimeDlls,
 			],
 			{ cwd: directory, signal: options.signal },
 		)
+		if (runtimeDlls.length > 0) await copyVisualCRuntimeIntoTorch(join(paths.runtime, 'venv'))
 		for (const model of EMA_MODEL_FILES)
 			await downloadModel(model, join(paths.models, model.name), options)
 		await run(

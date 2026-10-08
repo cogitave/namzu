@@ -21,6 +21,7 @@ import type {
 	ProviderView,
 	WorkspaceView,
 } from '../shared/protocol.js'
+import type { UpdateState } from '../shared/update-protocol.js'
 import {
 	activateWorkspaceTab,
 	closeWorkspaceTab,
@@ -387,6 +388,11 @@ const sampleWork: HistoryWorkSnapshot = {
 const connectMode = ['slow', 'error', 'untrusted'].find(
 	(mode) => new URLSearchParams(location.search).get('connect') === mode,
 )
+const pickMode = ['drive', 'home', 'system', 'plain', 'risky'].find(
+	(mode) => new URLSearchParams(location.search).get('pick') === mode,
+) as 'drive' | 'home' | 'system' | 'plain' | 'risky' | undefined
+// ?create=fail makes Start from scratch fail the way a read-only Documents folder would.
+const createFails = new URLSearchParams(location.search).get('create') === 'fail'
 let sampleConnectStarted = false
 function settleSampleConnect(sample: ProjectView) {
 	setTimeout(() => {
@@ -794,6 +800,26 @@ function undoTurnSample(
 		...(copies.length ? { copies } : {}),
 	}
 }
+// /preview?update=ready|downloading|installing|waiting shows the app-update surfaces with no updater;
+// window.namzuPreviewUpdate.set(state) moves them. Restart now enters `installing` and stays there.
+const updateStart = new URLSearchParams(location.search).get('update')
+let updateStateValue: UpdateState = (
+	{
+		ready: { status: 'ready', version: '0.2.0' },
+		downloading: { status: 'downloading', percent: 42, bytesPerSecond: 3_100_000 },
+		installing: { status: 'installing', version: '0.2.0', phase: 'preparing' },
+		waiting: { status: 'ready', version: '0.2.0', waiting: ['turn-running'] },
+	} as Record<string, UpdateState>
+)[updateStart ?? ''] ?? { status: 'idle' }
+const updateListeners = new Set<(state: UpdateState) => void>()
+const setPreviewUpdate = (state: UpdateState) => {
+	updateStateValue = state
+	for (const listener of updateListeners) listener(state)
+}
+;(window as unknown as { namzuPreviewUpdate: unknown }).namzuPreviewUpdate = {
+	set: setPreviewUpdate,
+}
+
 const api: DesktopApi = {
 	copyText: async (text) => {
 		const value = copyTextPayload(text)
@@ -919,7 +945,74 @@ const api: DesktopApi = {
 	stopPalComputer: async () => nativeOnly('Stopping a Pal virtual computer'),
 	palScreen: async () => nativeOnly('Capturing a Pal virtual computer screen'),
 
-	openProject: async () => nativeOnly('Opening a device folder'),
+	// ?pick=drive|home|system|plain stands in for the native folder picker. A plain pick is
+	// trusted by main at once; the broad ones come back untrusted with a one-time token.
+	openProject: async () => {
+		if (!pickMode) return nativeOnly('Opening a device folder')
+		if (pickMode === 'risky')
+			// Not in the app yet: only trustFolder adds it, and cancelling adds nothing.
+			return clone({
+				id: 'pending-folder',
+				path: 'C:\\work\\risky-app',
+				name: 'risky-app',
+				trusted: false,
+				status: 'ready',
+				pending: true,
+				riskySettings: {
+					found: ['hooks', '2 MCP servers', '1 plugin in .namzu/plugins'],
+					token: 'sample-risky-token',
+				},
+			} satisfies ProjectView)
+		const broad = pickMode !== 'plain'
+		const path = {
+			drive: 'C:\\',
+			home: 'C:\\Users\\sample',
+			system: 'C:\\Windows',
+			plain: 'C:\\work\\fixture',
+		}[pickMode]
+		const picked: ProjectView = {
+			id: `sample-picked-${projects.length}`,
+			path,
+			name: pickMode === 'plain' ? 'fixture' : path,
+			trusted: !broad,
+			status: 'ready',
+		}
+		projects.push(picked)
+		return clone(
+			broad
+				? {
+						...picked,
+						broadFolder: { kind: pickMode as 'drive' | 'home' | 'system', token: 'sample-token' },
+					}
+				: picked,
+		)
+	},
+	createProject: async () => {
+		if (createFails)
+			throw new Error("EACCES: permission denied, mkdir 'C:\\Users\\sample\\Documents\\Namzu'")
+		const created: ProjectView = {
+			id: `sample-created-${projects.length}`,
+			path: 'C:\\Users\\sample\\Documents\\Namzu\\New project',
+			name: 'New project',
+			trusted: true,
+			status: 'ready',
+		}
+		projects.push(created)
+		return clone(created)
+	},
+	trustFolder: async (token) => {
+		if (token !== 'sample-risky-token')
+			throw new Error('This folder confirmation expired. Choose the folder again.')
+		const added: ProjectView = {
+			id: `sample-picked-${projects.length}`,
+			path: 'C:\\work\\risky-app',
+			name: 'risky-app',
+			trusted: true,
+			status: 'ready',
+		}
+		projects.push(added)
+		return clone(added)
+	},
 	reconnectProject: async (id) => {
 		if (!connectMode) return nativeOnly('Connecting a real project')
 		const sample = project(id)
@@ -928,9 +1021,11 @@ const api: DesktopApi = {
 		settleSampleConnect(sample)
 		return clone(sample)
 	},
-	trustProject: async (id) => {
-		if (!connectMode) return nativeOnly('Granting device folder access')
+	trustProject: async (id, token) => {
+		if (!connectMode && !pickMode) return nativeOnly('Granting device folder access')
 		const sample = project(id)
+		if (sample.id.startsWith('sample-picked-') && pickMode !== 'plain' && token !== 'sample-token')
+			throw new Error('This folder confirmation expired. Choose the folder again.')
 		sample.trusted = true
 		return clone(sample)
 	},
@@ -1413,6 +1508,26 @@ const api: DesktopApi = {
 	},
 	readJob: async () => nativeOnly('Reading a background process'),
 	stopJob: async () => nativeOnly('Stopping a background process'),
+	updateState: async () => updateStateValue,
+	checkForUpdate: async () => {},
+	installUpdate: async () => {
+		if (updateStateValue.status !== 'ready') return { ok: false, error: 'No update is ready.' }
+		setPreviewUpdate({
+			status: 'installing',
+			version: updateStateValue.version,
+			phase: 'preparing',
+		})
+		return { ok: true }
+	},
+	cancelUpdateInstall: async () => {
+		if (updateStateValue.status === 'ready')
+			setPreviewUpdate({ status: 'ready', version: updateStateValue.version })
+	},
+	reportUiBusy: async () => {},
+	onUpdateState: (listener) => {
+		updateListeners.add(listener)
+		return () => updateListeners.delete(listener)
+	},
 	onEvent: (listener) => {
 		listeners.add(listener)
 		return () => listeners.delete(listener)

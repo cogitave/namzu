@@ -1,0 +1,20 @@
+
+
+DevTools listening on ws://127.0.0.1:9347/devtools/browser/281b576f-8652-4207-8eab-c72ca74d7be8
+Checking for update
+Generated new staging user ID: ded60a49-b705-577e-8356-2c70372405a5
+Found version 0.1.1 (url: Namzu-Setup-0.1.1.exe)
+Downloading update from Namzu-Setup-0.1.1.exe
+updater cache dir: C:\Users\WDAGUtilityAccount\AppData\Local\namzu-updater
+disableWebInstaller is set to false, you should set it to true if you do not plan on using a web installer. This will default to true in a future version.
+Download block maps (old: "http://127.0.0.1:8099/Namzu-Setup-0.1.0.exe.blockmap", new: http://127.0.0.1:8099/Namzu-Setup-0.1.1.exe.blockmap)
+No cached blockmap for the old installer, downloading it from "http://127.0.0.1:8099/Namzu-Setup-0.1.0.exe.blockmap"
+Cannot download differentially, fallback to full download: Error: Cannot download "http://127.0.0.1/Namzu-Setup-0.1.0.exe.blockmap", status 404: Not Found
+    at ClientRequest.<anonymous> (C:\Users\WDAGUtilityAccount\AppData\Local\Programs\Namzu\resources\app.asar\node_modules\builder-util-runtime\out\httpExecutor.js:245:34)
+    at ClientRequest.emit (node:events:514:28)
+    at SimpleURLLoaderWrapper.<anonymous> (node:electron/js2c/browser_init:1:137559)
+    at SimpleURLLoaderWrapper.emit (node:events:514:28)
+New version 0.1.1 has been downloaded to C:\Users\WDAGUtilityAccount\AppData\Local\namzu-updater\pending\Namzu-Setup-0.1.1.exe
+Install on explicit quitAndInstall
+Install: isSilent: true, isForceRunAfter: true
+Executing: C:\Users\WDAGUtilityAccount\AppData\Local\namzu-updater\pending\Namzu-Setup-0.1.1.exe with args: --updated,/S,--force-run

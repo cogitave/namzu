@@ -250,6 +250,37 @@ function observedActionLabel(
 	return names[state]
 }
 
+const PAL_MESSAGE_TOOL = 'send_pal_message'
+
+/**
+ * Who a message to a Pal was for. The tool authors "Message to <name>" for the call and
+ * "Sent to <name>'s inbox" for the receipt, and a saved conversation keeps one of them as
+ * its label; no field names the Pal, and a Pal's own `send_pal_message` row carries neither.
+ */
+function palMessageName(tool: ProjectedToolCall): string | undefined {
+	if (tool.title !== PAL_MESSAGE_TOOL) return undefined
+	const named = tool.callView ?? tool.view
+	const label = named.kind === 'generic' ? firstLine(named.label) : ''
+	const call = /^Message to (.+)$/.exec(label)?.[1]?.trim()
+	if (call && call !== 'a Pal') return call
+	const receipt = /^Sent to (.+)'s inbox$/.exec(label)?.[1]?.trim()
+	return receipt || undefined
+}
+
+function palMessageLabel(name: string, state: ToolTranscriptState): string {
+	const labels: Record<ToolTranscriptState, string> = {
+		waiting: `Waiting to message ${name}`,
+		running: `Messaging ${name}`,
+		completed: `Messaged ${name}`,
+		failed: `Couldn't message ${name}`,
+		cancelled: `Cancelled message to ${name}`,
+		interrupted: `Interrupted message to ${name}`,
+		skipped: `Skipped message to ${name}`,
+		declined: `Declined message to ${name}`,
+	}
+	return labels[state]
+}
+
 const FILE_TOOLS = new Set(['edit', 'write', 'multiedit'])
 const COMMAND_TOOLS = new Set(['bash', 'shell', 'run_command', 'exec'])
 
@@ -263,7 +294,10 @@ function declinedPresentation(tool: ProjectedToolCall): ToolTranscriptPresentati
 	const target = nonBlank(firstLine(view.label))
 	const name = tool.title.toLowerCase()
 	const note = nonBlank(view.declined?.note)
-	let label = `Declined ${tool.title.replace(/[_-]+/g, ' ').trim().toLowerCase() || 'action'}`
+	const palName = palMessageName(tool)
+	let label = palName
+		? palMessageLabel(palName, 'declined')
+		: `Declined ${tool.title.replace(/[_-]+/g, ' ').trim().toLowerCase() || 'action'}`
 	let kind: ActionKind = 'other'
 	let lead: string | undefined
 	let file: ActionFile | undefined
@@ -316,7 +350,13 @@ export function toolTranscriptPresentation(
 	let tooltip: string | undefined
 	const observed = observedActionLabel(tool, state)
 	const explored = exploration(tool)
-	if (observed) {
+	const palName = palMessageName(tool)
+	if (palName) {
+		// The row names the Pal and says the message reached its inbox, never that it was read.
+		label = palMessageLabel(palName, state)
+		if (state === 'completed') tooltip = 'Sent to inbox'
+		detailView = undefined
+	} else if (observed) {
 		label = observed
 		kind = tool.title === 'search_conversation' ? 'lookup' : 'web'
 		if (view.kind === 'generic' && !view.label.trim()) detailView = undefined

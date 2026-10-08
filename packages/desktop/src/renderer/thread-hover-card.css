@@ -1,0 +1,51 @@
+.thread-hover-card {
+	display: flex;
+	width: 272px;
+	max-width: 100%;
+	flex-direction: column;
+	gap: 8px;
+	padding: 12px 14px;
+	font-size: 13px;
+	line-height: 1.35;
+	pointer-events: none;
+}
+.thread-hover-card-head {
+	display: flex;
+	align-items: flex-start;
+	gap: 8px;
+}
+.thread-hover-card-title {
+	min-width: 0;
+	flex: 1;
+	font-weight: 600;
+	overflow-wrap: anywhere;
+}
+.thread-hover-card-icon {
+	width: 14px;
+	height: 14px;
+	flex: none;
+	margin-top: 2px;
+	color: var(--muted-foreground);
+}
+.thread-hover-card-age {
+	flex: none;
+	color: var(--muted-foreground);
+	font-size: 12px;
+	font-variant-numeric: tabular-nums;
+}
+.thread-hover-card-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+	color: var(--muted-foreground);
+}
+.thread-hover-card-row svg {
+	width: 14px;
+	height: 14px;
+	flex: none;
+}
+.thread-hover-card-row span {
+	min-width: 0;
+	overflow-wrap: anywhere;
+}

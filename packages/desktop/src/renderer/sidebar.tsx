@@ -6,6 +6,7 @@ import {
 } from '../shared/background-work-protocol.js'
 import type { ThreadState } from '../shared/projection.js'
 import type { ConversationView, ProjectView } from '../shared/protocol.js'
+import { ADD_PROJECT_LABEL, AddProjectItems, AddProjectMenu } from './add-project-menu.js'
 import { BrandDither } from './brand-dither.js'
 import { compareConversationOrder } from './conversation-order.js'
 import {
@@ -18,7 +19,7 @@ import {
 	XIcon,
 } from './icons.js'
 import { createSidebarListMotion } from './sidebar-motion.js'
-import { ThreadCard } from './thread-card.js'
+import { ThreadCard, type ThreadRowActions } from './thread-card.js'
 import { Button } from './ui/button.js'
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from './ui/collapsible.js'
 import { Tooltip, TooltipPopup, TooltipTrigger } from './ui/tooltip.js'
@@ -49,10 +50,11 @@ export function Sidebar({
 	onSearch,
 	collapsed,
 	onOpenProject,
+	onCreateProject,
 	onNewConversation,
 	onProject,
 	onConversation,
-	onRemoveConversation,
+	rowActions,
 	pals,
 }: {
 	activeProject?: ProjectView
@@ -69,10 +71,11 @@ export function Sidebar({
 	onSearch: () => void
 	collapsed: boolean
 	onOpenProject: () => void
+	onCreateProject?: () => void
 	onNewConversation: () => void
 	onProject: (id: string) => void
 	onConversation: (view: ConversationView, collection: ConversationCollection) => void
-	onRemoveConversation?: (view: ConversationView, trigger: HTMLElement | null) => void
+	rowActions?: ThreadRowActions
 	pals?: ReactNode
 }) {
 	const [collapsedProjects, setCollapsedProjects] = useState<Record<string, boolean>>({})
@@ -138,14 +141,11 @@ export function Sidebar({
 						<Menu.Portal>
 							<Menu.Positioner className="z-[150] outline-none" align="start" sideOffset={4}>
 								<Menu.Popup className="workspace-menu-popup window-titlebar-popup dropdown-glass min-w-52 rounded-lg p-1 text-sm text-popover-foreground shadow-xl outline-none">
-									<Menu.Item
-										className="window-titlebar-item"
-										onClick={onOpenProject}
+									<AddProjectItems
+										onCreate={onCreateProject}
+										onOpen={onOpenProject}
 										disabled={opening}
-									>
-										<FolderPlusIcon className="size-4" aria-hidden="true" />
-										<span>Open project…</span>
-									</Menu.Item>
+									/>
 									<Menu.Item
 										className="window-titlebar-item"
 										onClick={onNewConversation}
@@ -266,21 +266,23 @@ export function Sidebar({
 											}))
 										}
 										onConversation={(view) => onConversation(view, 'projects')}
-										onRemoveConversation={onRemoveConversation}
+										rowActions={rowActions}
 									/>
 								</CollapsiblePanel>
 							</Collapsible>
 						))}
 						{projects.length === 0 && (
-							<button
-								type="button"
-								className="project-row"
+							<AddProjectMenu
 								disabled={opening}
-								onClick={onOpenProject}
-							>
-								<FolderPlusIcon aria-hidden="true" />
-								<span>Open a project</span>
-							</button>
+								onCreate={onCreateProject}
+								onOpen={onOpenProject}
+								trigger={
+									<button type="button" className="project-row">
+										<FolderPlusIcon aria-hidden="true" />
+										<span>{ADD_PROJECT_LABEL}</span>
+									</button>
+								}
+							/>
 						)}
 					</nav>
 					{recent.length > 0 && (
@@ -294,7 +296,7 @@ export function Sidebar({
 								sessionId={sessionId}
 								active={conversationCollection === 'recents'}
 								onConversation={(view) => onConversation(view, 'recents')}
-								onRemoveConversation={onRemoveConversation}
+								rowActions={rowActions}
 							/>
 						</section>
 					)}
@@ -314,7 +316,7 @@ function ThreadList({
 	expanded,
 	onExpandedChange,
 	onConversation,
-	onRemoveConversation,
+	rowActions,
 }: {
 	rows: ConversationView[]
 	project: ProjectView
@@ -325,7 +327,7 @@ function ThreadList({
 	expanded: boolean
 	onExpandedChange: (expanded: boolean) => void
 	onConversation: (view: ConversationView) => void
-	onRemoveConversation?: (view: ConversationView, trigger: HTMLElement | null) => void
+	rowActions?: ThreadRowActions
 }) {
 	const limitedRows = rows.filter(
 		(item, index) =>
@@ -352,9 +354,7 @@ function ThreadList({
 					backgroundWork={backgroundWork?.[item.id]}
 					active={active && item.id === sessionId}
 					onClick={() => onConversation(item)}
-					onRemove={
-						onRemoveConversation ? (trigger) => onRemoveConversation(item, trigger) : undefined
-					}
+					rowActions={rowActions}
 				/>
 			))}
 			{hasExtra && (
@@ -381,7 +381,7 @@ function RecentList({
 	sessionId,
 	active,
 	onConversation,
-	onRemoveConversation,
+	rowActions,
 }: {
 	rows: ConversationView[]
 	projects: ReadonlyMap<string, ProjectView>
@@ -390,7 +390,7 @@ function RecentList({
 	sessionId: string
 	active: boolean
 	onConversation: (view: ConversationView) => void
-	onRemoveConversation?: (view: ConversationView, trigger: HTMLElement | null) => void
+	rowActions?: ThreadRowActions
 }) {
 	const list = useThreadListMotion()
 	return (
@@ -410,9 +410,7 @@ function RecentList({
 						backgroundWork={backgroundWork?.[item.id]}
 						active={active && item.id === sessionId}
 						onClick={() => onConversation(item)}
-						onRemove={
-							onRemoveConversation ? (trigger) => onRemoveConversation(item, trigger) : undefined
-						}
+						rowActions={rowActions}
 					/>
 				) : null
 			})}
