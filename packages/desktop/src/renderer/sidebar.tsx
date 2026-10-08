@@ -129,7 +129,10 @@ export function Sidebar({
 								/>
 							}
 						>
-							<Wordmark />
+							<span className="sidebar-brand">
+								<Wordmark />
+								<span className="beta-badge">Beta</span>
+							</span>
 							<ChevronDownIcon className="size-3" aria-hidden="true" />
 						</Menu.Trigger>
 						<Menu.Portal>

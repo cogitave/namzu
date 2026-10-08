@@ -639,7 +639,8 @@ Open folder and Toggle sidebar. Profile holds local appearance settings and
 does not claim a signed-in account. An update icon is absent until the host can
 report an available update. Scheduled is currently unavailable in the desktop
 preview; its disabled control never opens a conversation's background shells.
-The sidebar brand opens its workspace menu. The labelled New conversation row is the primary
+The sidebar brand (the wordmark with a small green "Beta" badge after it) opens its
+workspace menu. The labelled New conversation row is the primary
 creation action, rather than duplicating it across icon groups.
 The dark icon rail has a slightly deeper surface than the conversation sidebar.
 Surface contrast separates the rail from the sidebar without a divider. A

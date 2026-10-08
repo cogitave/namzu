@@ -146,6 +146,23 @@ pre {
 	border-radius: 8px;
 	cursor: pointer;
 }
+.sidebar-brand {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+}
+.beta-badge {
+	flex: none;
+	padding: 0 6px;
+	border: 1px solid color-mix(in srgb, var(--primary) 40%, transparent);
+	border-radius: 999px;
+	background: color-mix(in srgb, var(--primary) 12%, transparent);
+	color: var(--primary);
+	font-size: 10px;
+	font-weight: 600;
+	line-height: 15px;
+	letter-spacing: 0.02em;
+}
 .workspace-menu-popup .window-titlebar-item {
 	justify-content: flex-start;
 	gap: 10px;
