@@ -1,0 +1,296 @@
+{
+  "passed": false,
+  "mode": "apply",
+  "at": "2026-10-08T11:30:16.234Z",
+  "phase": "preflight",
+  "nativeWindows": true,
+  "packageInstalls": 0,
+  "modelRequests": 0,
+  "computerActions": 0,
+  "uiInteractions": 0,
+  "checks": [
+    "source dists have all required entries",
+    "desktop runtime modules planned: keep ignore@7.0.12, keep ws@8.21.3, keep yaml@2.9.1"
+  ],
+  "observations": [],
+  "launchConfigSha256": "0cea7da46af9d9bc24915a559f8a58f7f3d1973a4eef3963acb3ebaa562dc742",
+  "snapshotCommit": "fb64e99d6",
+  "packages": {
+    "desktop": {
+      "name": "@namzu/desktop",
+      "installedFiles": 846,
+      "sourceFiles": 850,
+      "installedManifestSha256": "12a9e4ac24c24490efc5258aabb04f528e1e547d5d1f3a05a3bc022c6544a476",
+      "sourceManifestSha256": "1d4fed10ca285925373a00f2bdbf016b8272b13fd9d883e73a0bf25bfee635b2",
+      "changedCount": 43,
+      "addedCount": 6,
+      "removedCount": 2,
+      "changed": [
+        "dev/preview-activity.d.ts",
+        "dev/preview-activity.d.ts.map",
+        "dev/preview-activity.js",
+        "dev/preview-activity.js.map",
+        "main/desktop-conversation-store.d.ts",
+        "main/desktop-conversation-store.d.ts.map",
+        "main/desktop-conversation-store.js",
+        "main/desktop-conversation-store.js.map",
+        "main/desktop-conversation-store.test.js",
+        "main/desktop-conversation-store.test.js.map",
+        "main/local-speech-assets.d.ts",
+        "main/local-speech-assets.d.ts.map",
+        "main/local-speech-assets.js",
+        "main/local-speech-assets.js.map",
+        "main/model-list-store.d.ts.map",
+        "main/model-list-store.js",
+        "main/model-list-store.js.map",
+        "main/model-list-store.test.js",
+        "main/model-list-store.test.js.map",
+        "main/operator.d.ts",
+        "main/operator.d.ts.map",
+        "main/operator.js",
+        "main/operator.js.map",
+        "main/operator.test.js",
+        "main/operator.test.js.map",
+        "renderer/index.html",
+        "shared/history-work.d.ts",
+        "shared/history-work.d.ts.map",
+        "shared/history-work.js",
+        "shared/history-work.js.map",
+        "shared/history-work.test.js",
+        "shared/history-work.test.js.map",
+        "shared/projection-tasks.test.js",
+        "shared/projection-tasks.test.js.map",
+        "shared/projection.d.ts",
+        "shared/projection.d.ts.map",
+        "shared/projection.js",
+        "shared/projection.js.map",
+        "shared/protocol.d.ts",
+        "shared/protocol.d.ts.map",
+        "shared/task-protocol.d.ts.map",
+        "shared/task-protocol.js",
+        "shared/task-protocol.js.map"
+      ],
+      "added": [
+        "dev/preview-plan.d.ts",
+        "dev/preview-plan.d.ts.map",
+        "dev/preview-plan.js",
+        "dev/preview-plan.js.map",
+        "renderer/assets/index-B_wjnxYf.css",
+        "renderer/assets/index-Bd-hH4ut.js"
+      ],
+      "removed": [
+        "renderer/assets/index-DQwDqzmA.js",
+        "renderer/assets/index-Dmu1rIdB.css"
+      ],
+      "classification": {
+        "runtime": [
+          "dev/preview-activity.js",
+          "dev/preview-plan.js",
+          "main/desktop-conversation-store.js",
+          "main/desktop-conversation-store.test.js",
+          "main/local-speech-assets.js",
+          "main/model-list-store.js",
+          "main/model-list-store.test.js",
+          "main/operator.js",
+          "main/operator.test.js",
+          "renderer/assets/index-B_wjnxYf.css",
+          "renderer/assets/index-Bd-hH4ut.js",
+          "renderer/assets/index-DQwDqzmA.js",
+          "renderer/assets/index-Dmu1rIdB.css",
+          "renderer/index.html",
+          "shared/history-work.js",
+          "shared/history-work.test.js",
+          "shared/projection-tasks.test.js",
+          "shared/projection.js",
+          "shared/task-protocol.js"
+        ],
+        "noise": [
+          "dev/preview-activity.d.ts",
+          "dev/preview-activity.d.ts.map",
+          "dev/preview-activity.js.map",
+          "dev/preview-plan.d.ts",
+          "dev/preview-plan.d.ts.map",
+          "dev/preview-plan.js.map",
+          "main/desktop-conversation-store.d.ts",
+          "main/desktop-conversation-store.d.ts.map",
+          "main/desktop-conversation-store.js.map",
+          "main/desktop-conversation-store.test.js.map",
+          "main/local-speech-assets.d.ts",
+          "main/local-speech-assets.d.ts.map",
+          "main/local-speech-assets.js.map",
+          "main/model-list-store.d.ts.map",
+          "main/model-list-store.js.map",
+          "main/model-list-store.test.js.map",
+          "main/operator.d.ts",
+          "main/operator.d.ts.map",
+          "main/operator.js.map",
+          "main/operator.test.js.map",
+          "shared/history-work.d.ts",
+          "shared/history-work.d.ts.map",
+          "shared/history-work.js.map",
+          "shared/history-work.test.js.map",
+          "shared/projection-tasks.test.js.map",
+          "shared/projection.d.ts",
+          "shared/projection.d.ts.map",
+          "shared/projection.js.map",
+          "shared/protocol.d.ts",
+          "shared/protocol.d.ts.map",
+          "shared/task-protocol.d.ts.map",
+          "shared/task-protocol.js.map"
+        ]
+      },
+      "differs": true
+    },
+    "cli": {
+      "name": "@namzu/cli",
+      "installedFiles": 387,
+      "sourceFiles": 387,
+      "installedManifestSha256": "3af87fe5c4b8b98df81968d7c14152832ab9bf2698dbf0662378affb9c3dbef3",
+      "sourceManifestSha256": "a158aac6991c350263db755028fc0cbfc284459bbaff4396258d0638e3e2f76c",
+      "changedCount": 9,
+      "addedCount": 0,
+      "removedCount": 0,
+      "changed": [
+        "commands/acp-harness.js",
+        "commands/desktop-host.js",
+        "commands/desktop-model-catalogue.js",
+        "integrations/harness/claude-protocol.js",
+        "integrations/harness/codex-protocol.js",
+        "tui/Picker.js",
+        "tui/agent.js",
+        "tui/model-choices.js",
+        "tui/model-search.js"
+      ],
+      "added": [],
+      "removed": [],
+      "classification": {
+        "runtime": [
+          "commands/acp-harness.js",
+          "commands/desktop-host.js",
+          "commands/desktop-model-catalogue.js",
+          "integrations/harness/claude-protocol.js",
+          "integrations/harness/codex-protocol.js",
+          "tui/Picker.js",
+          "tui/agent.js",
+          "tui/model-choices.js",
+          "tui/model-search.js"
+        ],
+        "noise": []
+      },
+      "differs": true,
+      "dependencies": {
+        "installedVersion": "35.0.0",
+        "snapshotVersion": "35.0.0",
+        "equal": true,
+        "fields": {
+          "dependencies": true,
+          "optionalDependencies": true,
+          "peerDependencies": true
+        },
+        "differing": [],
+        "dependenciesSha256": "f1810624efcd75dedcee67d3fef3b16216ecbc2856f6b2b07723ce97a82997f5"
+      }
+    },
+    "sdk": {
+      "name": "@namzu/sdk",
+      "installedFiles": 822,
+      "sourceFiles": 824,
+      "installedManifestSha256": "bbd57adfdf09e184233224eba1b8f52efc104c01b00ca790232204c8767d1785",
+      "sourceManifestSha256": "f7881402e486a4613b76433cf4c134c1279995bd3703339762e80566ddfd4183",
+      "changedCount": 5,
+      "addedCount": 2,
+      "removedCount": 0,
+      "changed": [
+        "bridge/acp/tasks.js",
+        "registry/tool/presentation.js",
+        "runtime/harness-session/index.js",
+        "runtime/query/events.js",
+        "runtime/query/executor.js"
+      ],
+      "added": [
+        "runtime/harness-session/saved-view.js",
+        "runtime/query/saved-presentation.js"
+      ],
+      "removed": [],
+      "classification": {
+        "runtime": [
+          "bridge/acp/tasks.js",
+          "registry/tool/presentation.js",
+          "runtime/harness-session/index.js",
+          "runtime/harness-session/saved-view.js",
+          "runtime/query/events.js",
+          "runtime/query/executor.js",
+          "runtime/query/saved-presentation.js"
+        ],
+        "noise": []
+      },
+      "differs": true,
+      "dependencies": {
+        "installedVersion": "49.0.0",
+        "snapshotVersion": "49.0.0",
+        "equal": true,
+        "fields": {
+          "dependencies": true,
+          "optionalDependencies": true,
+          "peerDependencies": true
+        },
+        "differing": [],
+        "dependenciesSha256": "a01d041c3bb4a5d015552ecd02b062116ec242e17b162a62c657c45a8697e099"
+      }
+    },
+    "zen": {
+      "name": "@namzu/zen",
+      "installedFiles": 12,
+      "sourceFiles": 12,
+      "installedManifestSha256": "af6d60b3577615db736345890a0f44ba06b075bd42de3631c63a461af284543e",
+      "sourceManifestSha256": "af6d60b3577615db736345890a0f44ba06b075bd42de3631c63a461af284543e",
+      "changedCount": 0,
+      "addedCount": 0,
+      "removedCount": 0,
+      "changed": [],
+      "added": [],
+      "removed": [],
+      "classification": {
+        "runtime": [],
+        "noise": []
+      },
+      "differs": false,
+      "dependencies": {
+        "installedVersion": "3.1.0",
+        "snapshotVersion": "3.1.0",
+        "equal": true,
+        "fields": {
+          "dependencies": true,
+          "optionalDependencies": true,
+          "peerDependencies": true
+        },
+        "differing": [],
+        "dependenciesSha256": "49a08529da7b28a816dc78e96e5f41df5f23d8d969d2813ca9e21d33cfc5aed1"
+      }
+    }
+  },
+  "runtimeModules": {
+    "manifestPresent": true,
+    "required": [
+      {
+        "name": "ignore",
+        "version": "7.0.12",
+        "action": "keep"
+      },
+      {
+        "name": "ws",
+        "version": "8.21.3",
+        "action": "keep"
+      },
+      {
+        "name": "yaml",
+        "version": "2.9.1",
+        "action": "keep"
+      }
+    ]
+  },
+  "error": {
+    "name": "AssertionError",
+    "message": "Refused: the recorded desktop process does not exist"
+  }
+}

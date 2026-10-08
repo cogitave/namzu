@@ -96,3 +96,7 @@ The app was closed again. `--check --offline` then `--apply --offline` replaced 
 ## Delivery of cb47381cd with @namzu/zen (2026-10-08)
 
 The updater now also replaces the installed `@namzu/zen` dist when the snapshot carries `zen-dist` (meta `zen.package.json`); older snapshots leave it alone. Built in a clean detached worktree of `cb47381cd` (`pnpm install --frozen-lockfile --offline`, `pnpm -r build`) because the main tree held another workflow's uncommitted edits. A fresh build drops stale leftovers the installed dists still carried (sdk 112 files from the removed run concept, cli 15, desktop 14 dev/test outputs); no `exports` entry of the installed sdk or cli points at any of them. The app was closed: `--check --offline` and `--apply --offline` replaced desktop, cli, sdk and zen, then `launch.cjs` started it and `--probe-only` passed.
+
+## Delivery of fb64e99d6 (2026-10-08)
+
+Built in the clean delivery worktree. The first `--check` passed with the app running and idle (the composer equal to its saved draft now passes the preflight). By `--apply` the owner had closed the app, so the run refused on the missing recorded process and changed nothing; `--check --offline` and `--apply --offline` then replaced desktop, cli and sdk (zen already equal), `launch.cjs` started it, and `--probe-only` ran afterwards.

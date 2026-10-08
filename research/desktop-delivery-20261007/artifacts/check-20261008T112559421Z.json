@@ -1,0 +1,439 @@
+{
+  "passed": true,
+  "mode": "check",
+  "at": "2026-10-08T11:25:59.423Z",
+  "phase": "complete",
+  "nativeWindows": true,
+  "packageInstalls": 0,
+  "modelRequests": 0,
+  "computerActions": 0,
+  "uiInteractions": 0,
+  "checks": [
+    "source dists have all required entries",
+    "desktop runtime modules planned: keep ignore@7.0.12, keep ws@8.21.3, keep yaml@2.9.1",
+    "desktop.pid names the configured electron executable",
+    "attached over CDP to the exact page",
+    "live state read: idle, no dialogs, composer matches saved draft",
+    "installed package.json dependencies equal the snapshot commit",
+    "installed dists differ from source; plan computed"
+  ],
+  "observations": [],
+  "launchConfigSha256": "0cea7da46af9d9bc24915a559f8a58f7f3d1973a4eef3963acb3ebaa562dc742",
+  "snapshotCommit": "fb64e99d6",
+  "packages": {
+    "desktop": {
+      "name": "@namzu/desktop",
+      "installedFiles": 846,
+      "sourceFiles": 850,
+      "installedManifestSha256": "12a9e4ac24c24490efc5258aabb04f528e1e547d5d1f3a05a3bc022c6544a476",
+      "sourceManifestSha256": "1d4fed10ca285925373a00f2bdbf016b8272b13fd9d883e73a0bf25bfee635b2",
+      "changedCount": 43,
+      "addedCount": 6,
+      "removedCount": 2,
+      "changed": [
+        "dev/preview-activity.d.ts",
+        "dev/preview-activity.d.ts.map",
+        "dev/preview-activity.js",
+        "dev/preview-activity.js.map",
+        "main/desktop-conversation-store.d.ts",
+        "main/desktop-conversation-store.d.ts.map",
+        "main/desktop-conversation-store.js",
+        "main/desktop-conversation-store.js.map",
+        "main/desktop-conversation-store.test.js",
+        "main/desktop-conversation-store.test.js.map",
+        "main/local-speech-assets.d.ts",
+        "main/local-speech-assets.d.ts.map",
+        "main/local-speech-assets.js",
+        "main/local-speech-assets.js.map",
+        "main/model-list-store.d.ts.map",
+        "main/model-list-store.js",
+        "main/model-list-store.js.map",
+        "main/model-list-store.test.js",
+        "main/model-list-store.test.js.map",
+        "main/operator.d.ts",
+        "main/operator.d.ts.map",
+        "main/operator.js",
+        "main/operator.js.map",
+        "main/operator.test.js",
+        "main/operator.test.js.map",
+        "renderer/index.html",
+        "shared/history-work.d.ts",
+        "shared/history-work.d.ts.map",
+        "shared/history-work.js",
+        "shared/history-work.js.map",
+        "shared/history-work.test.js",
+        "shared/history-work.test.js.map",
+        "shared/projection-tasks.test.js",
+        "shared/projection-tasks.test.js.map",
+        "shared/projection.d.ts",
+        "shared/projection.d.ts.map",
+        "shared/projection.js",
+        "shared/projection.js.map",
+        "shared/protocol.d.ts",
+        "shared/protocol.d.ts.map",
+        "shared/task-protocol.d.ts.map",
+        "shared/task-protocol.js",
+        "shared/task-protocol.js.map"
+      ],
+      "added": [
+        "dev/preview-plan.d.ts",
+        "dev/preview-plan.d.ts.map",
+        "dev/preview-plan.js",
+        "dev/preview-plan.js.map",
+        "renderer/assets/index-B_wjnxYf.css",
+        "renderer/assets/index-Bd-hH4ut.js"
+      ],
+      "removed": [
+        "renderer/assets/index-DQwDqzmA.js",
+        "renderer/assets/index-Dmu1rIdB.css"
+      ],
+      "classification": {
+        "runtime": [
+          "dev/preview-activity.js",
+          "dev/preview-plan.js",
+          "main/desktop-conversation-store.js",
+          "main/desktop-conversation-store.test.js",
+          "main/local-speech-assets.js",
+          "main/model-list-store.js",
+          "main/model-list-store.test.js",
+          "main/operator.js",
+          "main/operator.test.js",
+          "renderer/assets/index-B_wjnxYf.css",
+          "renderer/assets/index-Bd-hH4ut.js",
+          "renderer/assets/index-DQwDqzmA.js",
+          "renderer/assets/index-Dmu1rIdB.css",
+          "renderer/index.html",
+          "shared/history-work.js",
+          "shared/history-work.test.js",
+          "shared/projection-tasks.test.js",
+          "shared/projection.js",
+          "shared/task-protocol.js"
+        ],
+        "noise": [
+          "dev/preview-activity.d.ts",
+          "dev/preview-activity.d.ts.map",
+          "dev/preview-activity.js.map",
+          "dev/preview-plan.d.ts",
+          "dev/preview-plan.d.ts.map",
+          "dev/preview-plan.js.map",
+          "main/desktop-conversation-store.d.ts",
+          "main/desktop-conversation-store.d.ts.map",
+          "main/desktop-conversation-store.js.map",
+          "main/desktop-conversation-store.test.js.map",
+          "main/local-speech-assets.d.ts",
+          "main/local-speech-assets.d.ts.map",
+          "main/local-speech-assets.js.map",
+          "main/model-list-store.d.ts.map",
+          "main/model-list-store.js.map",
+          "main/model-list-store.test.js.map",
+          "main/operator.d.ts",
+          "main/operator.d.ts.map",
+          "main/operator.js.map",
+          "main/operator.test.js.map",
+          "shared/history-work.d.ts",
+          "shared/history-work.d.ts.map",
+          "shared/history-work.js.map",
+          "shared/history-work.test.js.map",
+          "shared/projection-tasks.test.js.map",
+          "shared/projection.d.ts",
+          "shared/projection.d.ts.map",
+          "shared/projection.js.map",
+          "shared/protocol.d.ts",
+          "shared/protocol.d.ts.map",
+          "shared/task-protocol.d.ts.map",
+          "shared/task-protocol.js.map"
+        ]
+      },
+      "differs": true
+    },
+    "cli": {
+      "name": "@namzu/cli",
+      "installedFiles": 387,
+      "sourceFiles": 387,
+      "installedManifestSha256": "3af87fe5c4b8b98df81968d7c14152832ab9bf2698dbf0662378affb9c3dbef3",
+      "sourceManifestSha256": "a158aac6991c350263db755028fc0cbfc284459bbaff4396258d0638e3e2f76c",
+      "changedCount": 9,
+      "addedCount": 0,
+      "removedCount": 0,
+      "changed": [
+        "commands/acp-harness.js",
+        "commands/desktop-host.js",
+        "commands/desktop-model-catalogue.js",
+        "integrations/harness/claude-protocol.js",
+        "integrations/harness/codex-protocol.js",
+        "tui/Picker.js",
+        "tui/agent.js",
+        "tui/model-choices.js",
+        "tui/model-search.js"
+      ],
+      "added": [],
+      "removed": [],
+      "classification": {
+        "runtime": [
+          "commands/acp-harness.js",
+          "commands/desktop-host.js",
+          "commands/desktop-model-catalogue.js",
+          "integrations/harness/claude-protocol.js",
+          "integrations/harness/codex-protocol.js",
+          "tui/Picker.js",
+          "tui/agent.js",
+          "tui/model-choices.js",
+          "tui/model-search.js"
+        ],
+        "noise": []
+      },
+      "differs": true,
+      "dependencies": {
+        "installedVersion": "35.0.0",
+        "snapshotVersion": "35.0.0",
+        "equal": true,
+        "fields": {
+          "dependencies": true,
+          "optionalDependencies": true,
+          "peerDependencies": true
+        },
+        "differing": [],
+        "dependenciesSha256": "f1810624efcd75dedcee67d3fef3b16216ecbc2856f6b2b07723ce97a82997f5"
+      }
+    },
+    "sdk": {
+      "name": "@namzu/sdk",
+      "installedFiles": 822,
+      "sourceFiles": 824,
+      "installedManifestSha256": "bbd57adfdf09e184233224eba1b8f52efc104c01b00ca790232204c8767d1785",
+      "sourceManifestSha256": "f7881402e486a4613b76433cf4c134c1279995bd3703339762e80566ddfd4183",
+      "changedCount": 5,
+      "addedCount": 2,
+      "removedCount": 0,
+      "changed": [
+        "bridge/acp/tasks.js",
+        "registry/tool/presentation.js",
+        "runtime/harness-session/index.js",
+        "runtime/query/events.js",
+        "runtime/query/executor.js"
+      ],
+      "added": [
+        "runtime/harness-session/saved-view.js",
+        "runtime/query/saved-presentation.js"
+      ],
+      "removed": [],
+      "classification": {
+        "runtime": [
+          "bridge/acp/tasks.js",
+          "registry/tool/presentation.js",
+          "runtime/harness-session/index.js",
+          "runtime/harness-session/saved-view.js",
+          "runtime/query/events.js",
+          "runtime/query/executor.js",
+          "runtime/query/saved-presentation.js"
+        ],
+        "noise": []
+      },
+      "differs": true,
+      "dependencies": {
+        "installedVersion": "49.0.0",
+        "snapshotVersion": "49.0.0",
+        "equal": true,
+        "fields": {
+          "dependencies": true,
+          "optionalDependencies": true,
+          "peerDependencies": true
+        },
+        "differing": [],
+        "dependenciesSha256": "a01d041c3bb4a5d015552ecd02b062116ec242e17b162a62c657c45a8697e099"
+      }
+    },
+    "zen": {
+      "name": "@namzu/zen",
+      "installedFiles": 12,
+      "sourceFiles": 12,
+      "installedManifestSha256": "af6d60b3577615db736345890a0f44ba06b075bd42de3631c63a461af284543e",
+      "sourceManifestSha256": "af6d60b3577615db736345890a0f44ba06b075bd42de3631c63a461af284543e",
+      "changedCount": 0,
+      "addedCount": 0,
+      "removedCount": 0,
+      "changed": [],
+      "added": [],
+      "removed": [],
+      "classification": {
+        "runtime": [],
+        "noise": []
+      },
+      "differs": false,
+      "dependencies": {
+        "installedVersion": "3.1.0",
+        "snapshotVersion": "3.1.0",
+        "equal": true,
+        "fields": {
+          "dependencies": true,
+          "optionalDependencies": true,
+          "peerDependencies": true
+        },
+        "differing": [],
+        "dependenciesSha256": "49a08529da7b28a816dc78e96e5f41df5f23d8d969d2813ca9e21d33cfc5aed1"
+      }
+    }
+  },
+  "runtimeModules": {
+    "manifestPresent": true,
+    "required": [
+      {
+        "name": "ignore",
+        "version": "7.0.12",
+        "action": "keep"
+      },
+      {
+        "name": "ws",
+        "version": "8.21.3",
+        "action": "keep"
+      },
+      {
+        "name": "yaml",
+        "version": "2.9.1",
+        "action": "keep"
+      }
+    ]
+  },
+  "beforePid": 43704,
+  "ownedProcesses": [
+    {
+      "pid": 17292,
+      "ppid": 43704,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 40160,
+      "ppid": 43704,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 41240,
+      "ppid": 43704,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 43704,
+      "ppid": 55716,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 53528,
+      "ppid": 43704,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 56460,
+      "ppid": 43704,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 62244,
+      "ppid": 43704,
+      "name": "electron.exe",
+      "kind": "electron"
+    },
+    {
+      "pid": 64700,
+      "ppid": 43704,
+      "name": "electron.exe",
+      "kind": "electron"
+    }
+  ],
+  "privateSnapshot": "delivery-before-private-20261008T112559421Z.json",
+  "before": {
+    "groups": [
+      {
+        "tabs": [
+          "01a11a45-7177-741b-b785-f44f04c08945",
+          "01a11a49-3eda-7770-a3f5-418d7121533b"
+        ],
+        "active": "01a11a45-7177-741b-b785-f44f04c08945",
+        "focused": true
+      }
+    ],
+    "sessions": [
+      {
+        "id": "6642d3219e50bb5ccda12e220a8b229f7f71ac76dc61c48e08c39d66344c8538",
+        "messageCount": 0,
+        "messageHashes": [],
+        "draftHash": "6c179f21e6f62b629055d8ab40f454ed02e48b68563913473b857d3638e23b28",
+        "draftLength": 2,
+        "settingsHash": "87dcf0fa1d32c3a3de2449c541c0a6662c51ad0203a5cbb4334397d2291e54ea",
+        "attachmentCount": 0,
+        "attachmentsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "providerHash": "7a03d12b61e54474139c0c7e0f00965cfd41d7ca2f452c4d25ca7e7d7158b9a6",
+        "jobCount": 0
+      },
+      {
+        "id": "4d7e92ab0b6f7509b5d8405d956ec67a776c1da4ce4f937d561748c3393bf8ed",
+        "messageCount": 11,
+        "messageHashes": [
+          "c766713bd745ff01d2f70effc3bade20f399bf766366e366dd37e7ac5ede2afa",
+          "314f28b4f825911bbe79eaba35fe5a33ba48f09eff1e8552975f391f4aa96943",
+          "dd35e36790527a9c3f09e0ed5c1052d356185ed44b1598588f91760643921981",
+          "8c42d79f8c2054b2df55db5234544764ebebe984c3c1b14659597235858e59ba",
+          "ad422551534f2ce88710dd10895f8403ed13b53eb1eb0a9b7ca62855dd887429",
+          "b6d2ffd3b1783597f6bd27186ccab363e50cad2d5e64dfdcd994ea6dab38cd69",
+          "59940099c21bf9ddbf1d43b9415b0acb086e88c4d02f97082cc53e46f76aa1b2",
+          "ec88550dbde7dbe11ffa087ecaf6d43c6f2f4879de8eaa532873f6bbaed4a1da",
+          "e349961bfd5bb001095039f2259d0783e05388e8fc8ce2ceea6c64574d633f93",
+          "b34f3ec9e9c5d18ef9336c2620b4d28419be04dd69bbaf7e834db9c969ae66ce",
+          "8963a3eae56d45cfe44332763a795ce2827648abb6556c1532a8422cea7c912d"
+        ],
+        "draftHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "draftLength": 0,
+        "settingsHash": "378e779da3c23c27b4a4dc59220c3b16edc9c00054360cf910962823bfccf9a7",
+        "attachmentCount": 0,
+        "attachmentsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "providerHash": "2b90dda74c514786463be812f26e4ce66640efa9afc2576f796e73b9a354ef92",
+        "jobCount": 0
+      }
+    ],
+    "computers": [
+      {
+        "id": "34fde891995a6c0bc40b94b8cd145e55a7f5bf40102a1d72847befcfa7474b35",
+        "status": "unavailable"
+      }
+    ],
+    "presentation": {
+      "otherEntriesHash": "8d4bbb463c0079dca9b5281c53d8cc4293caab9f9aea9a76e36bf788c5ac336f",
+      "entryCount": 56,
+      "appearanceHash": "e6bb5689beec52c4672bd4df92c3613d128d30cdc2b704f76953fe43d89c4ae8",
+      "collapsedHash": "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa",
+      "sidebarCollapsed": "false",
+      "page": "chat"
+    },
+    "scroll": {
+      "sidebarScrollTop": 0,
+      "transcriptScrollTop": 0,
+      "transcriptScrollRange": 0
+    }
+  },
+  "terminalAlertsBefore": 0,
+  "dependenciesEqual": true,
+  "plan": {
+    "replace": [
+      "desktop",
+      "cli",
+      "sdk"
+    ],
+    "stage": [
+      "dist-stage-20261008T112559421Z",
+      "dist-stage-20261008T112559421Z",
+      "dist-stage-20261008T112559421Z"
+    ],
+    "backup": [
+      "dist-before-delivery-20261008T112559421Z",
+      "dist-before-delivery-20261008T112559421Z",
+      "dist-before-delivery-20261008T112559421Z"
+    ],
+    "addModules": [],
+    "moduleStage": []
+  }
+}
