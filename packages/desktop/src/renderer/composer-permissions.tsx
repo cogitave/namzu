@@ -108,7 +108,7 @@ const menuOrder: readonly ComposerPermissionMode[] = ['prompt', 'accept-edits', 
 export function defaultPermissionModes(
 	engine: ComposerPermissionEngine,
 ): readonly ComposerPermissionMode[] {
-	// Namzu and Codex run every mode (the main process accepts them all); Claude Code only two.
+	// Namzu and Codex run every mode (the main process accepts them all); the second external engine only two.
 	return engine === 'claude-code'
 		? ['prompt', 'plan']
 		: ['prompt', 'accept-edits', 'auto', 'strict', 'plan']

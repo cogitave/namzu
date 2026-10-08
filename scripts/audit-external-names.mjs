@@ -928,7 +928,7 @@ function findings(source, path) {
 		const isShell = family === 'shell'
 		const inComment = isShell
 			? /^\s*#/.test(line)
-			: /^\s*(\/\/|\/\*|\*)/.test(line) || line.includes('//')
+			: /^\s*(\/\/|\/\*|\*)/.test(line) || stripStringLiterals(line).includes('//')
 		let code = stripStringLiterals(line)
 		if (isShell && !inComment) code = code.replace(WORKSPACE_PACKAGE_PATH, 'providers/')
 

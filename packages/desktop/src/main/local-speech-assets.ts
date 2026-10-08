@@ -1,4 +1,4 @@
-/** Immutable upstream inputs, verified against the pinned Hugging Face / PyPI metadata. */
+/** Immutable upstream inputs, verified against the pinned model-host / PyPI metadata. */
 export const EMA_MODEL_REVISION = '7a6ba1ad216bb2f1da9863f80ac8770a6a807632'
 export const EMA_SOURCE_REVISION = '129e39c7d9feb56de9c6830e94a630f04fc8aa03'
 export const EMA_WHEEL_URL =
@@ -18,7 +18,7 @@ export const EMA_MODEL_FILES = [
 ] as const
 
 /**
- * Stdio-only CPU worker. No sockets, Hugging Face constructor or unsafe pickle loader.
+ * Stdio-only CPU worker. No sockets, model-host constructor or unsafe pickle loader.
  * Persisted as a private, hash-verified file only by the explicit installation action.
  */
 export const LOCAL_SPEECH_WORKER_SOURCE = String.raw`import argparse

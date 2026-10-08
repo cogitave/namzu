@@ -5,7 +5,7 @@ import { withKeyNote } from '../tui/model-choices.js'
 /**
  * A GPT display name written "GPT-5.6-Sol" reads "GPT-5.6 Sol", as the Codex app writes it.
  * Only names that start with "GPT-" change: ids, "gpt-4o", "o3-mini", "qwen2.5-coder" and
- * "Claude Opus 5.5" pass through, and so does a raw id used as its own label.
+ * "Opus 5.5" pass through, and so does a raw id used as its own label.
  */
 export function modelListLabel(name: string, id: string): string {
 	return name !== id && name.startsWith('GPT-') ? codexModelLabel(name) : name

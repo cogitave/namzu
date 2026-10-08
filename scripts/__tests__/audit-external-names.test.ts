@@ -231,3 +231,12 @@ test('device provider attribution stays scoped to integration docs and exact cre
 	assert.equal(result.status, 1)
 	assert.match(result.stderr, /packages\/cli\/src\/tui\/agent.ts/)
 })
+
+test('a URL inside a string literal is a wire value, while a trailing comment is still prose', () => {
+	const root = repository()
+	const file = join(root, 'packages/sdk/src/clean.ts')
+	writeFileSync(file, 'export const modelUrl = `https://huggingface.co/org/model/${1}`\n')
+	assert.equal(runAudit(root).status, 0)
+	writeFileSync(file, "export const modelUrl = 'https://huggingface.co/x' // shaped like Hugging Face\n")
+	assert.equal(runAudit(root).status, 1)
+})

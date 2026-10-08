@@ -44,7 +44,7 @@ sign-in status establish availability of that interface; neither establishes
 that a fresh inference request is authorized. Native startup may itself
 refresh or change its own authentication state.
 
-Model rows keep the engine's own ids. Codex labels read as its app shows them (`GPT-5.6-Sol` becomes `GPT-5.6 Sol`), and the row the engine recommends carries an optional `default: true`: Codex's `isDefault` row, or for Claude Code the row its non-selectable `default` entry resolves to.
+Model rows keep the engine's own ids. Codex labels read as its app shows them (`GPT-5.6-Sol` becomes `GPT-5.6 Sol`), and the row the engine recommends carries an optional `default: true`: Codex's `isDefault` row, or for the second external engine the row its non-selectable `default` entry resolves to.
 
 A real native turn can refuse expired or missing credentials even when its
 local catalogue is available. Authentication failures use a fixed notice.
@@ -126,7 +126,7 @@ snapshot identity. Full messages replace partial text; two messages with the
 same text keep separate identities. Public thinking text can be shown, while
 signature and redacted replay blocks are omitted.
 
-Claude's [documented streaming flow](https://code.claude.com/docs/en/agent-sdk/streaming-output#message-flow)
+The engine vendor's [documented streaming flow](https://code.claude.com/docs/en/agent-sdk/streaming-output#message-flow)
 emits each completed content block as a separate assistant frame sharing the
 same native message ID. The adapter merges those blocks using their stream
 indices and native block UUIDs. It completes a streamed message at

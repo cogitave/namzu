@@ -432,7 +432,7 @@ const available: ProviderView['available'] = [
 let nextConversation = conversations.length + 1
 
 // Engines other than Namzu carry their own provider, catalogue and effort levels, as the real
-// Codex and Claude Code engines do, so the model and effort menus can be tried against each.
+// Codex and second external engines do, so the model and effort menus can be tried against each.
 const engines: HarnessView['engines'] = [
 	{ id: 'namzu', label: 'Namzu', available: true },
 	{ id: 'codex-cli', label: 'Codex', available: true },

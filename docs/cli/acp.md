@@ -30,7 +30,7 @@ change the active turn's model, effort, permission mode or attachments.
 Availability belongs only to a current ordinary Namzu prompt on that connection.
 An aborted or terminal prompt becomes unavailable before its asynchronous cleanup finishes.
 Idle, replaced, foreign and obsolete owners cannot admit input. Pals do not
-open this mailbox. The current native Codex/Claude wrapper reports live input
+open this mailbox. The current native external-engine wrapper reports live input
 unavailable and refuses submission; this describes Namzu's integration, not the
 native engines' upstream capabilities.
 

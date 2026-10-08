@@ -33,10 +33,10 @@ describe('committableEngine', () => {
 })
 
 describe('engineRowNote', () => {
-	const [namzu, codex, claude] = view.engines
+	const [namzu, codex, unavailable] = view.engines
 	it('says an unavailable engine is not installed, even on a started conversation', () => {
-		expect(engineRowNote(view, claude)).toBe('Not installed')
-		expect(engineRowNote({ ...view, locked: true }, claude)).toBe('Not installed')
+		expect(engineRowNote(view, unavailable)).toBe('Not installed')
+		expect(engineRowNote({ ...view, locked: true }, unavailable)).toBe('Not installed')
 	})
 	it('says another engine opens a new tab only once the conversation has started', () => {
 		expect(engineRowNote(view, codex)).toBeUndefined()
