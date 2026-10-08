@@ -1,0 +1,37 @@
+.project-connecting-note {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	color: var(--muted-foreground);
+	font-size: 12px;
+	animation: project-connecting-in 160ms ease both;
+}
+.project-connecting-note:empty {
+	display: none;
+}
+.project-connecting:focus {
+	outline: none;
+}
+.project-connecting-spinner {
+	width: 12px;
+	height: 12px;
+	border: 1.5px solid currentColor;
+	border-right-color: transparent;
+	border-radius: 50%;
+	animation: project-connecting-spin 0.9s linear infinite;
+}
+@keyframes project-connecting-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+@keyframes project-connecting-in {
+	from {
+		opacity: 0;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.project-connecting-spinner {
+		animation-duration: 3s;
+	}
+}

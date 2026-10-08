@@ -1,0 +1,57 @@
+{
+  "pageErrors": [],
+  "report": [
+    {
+      "scheme": "dark",
+      "scenario": "slow",
+      "early": {
+        "spinner": false,
+        "gate": false,
+        "sidebar": true
+      },
+      "frames": 76,
+      "gateFrames": 0,
+      "spinnerFrames": 51,
+      "firstSpinnerMs": 1050,
+      "firstReadyMs": 3701
+    },
+    {
+      "scheme": "dark",
+      "scenario": "untrusted",
+      "gate": true
+    },
+    {
+      "scheme": "dark",
+      "scenario": "error",
+      "copies": 1,
+      "errorShownDuringRetry": false,
+      "gateFrames": 0
+    },
+    {
+      "scheme": "light",
+      "scenario": "slow",
+      "early": {
+        "spinner": false,
+        "gate": false,
+        "sidebar": true
+      },
+      "frames": 78,
+      "gateFrames": 0,
+      "spinnerFrames": 51,
+      "firstSpinnerMs": 1100,
+      "firstReadyMs": 3758
+    },
+    {
+      "scheme": "light",
+      "scenario": "untrusted",
+      "gate": true
+    },
+    {
+      "scheme": "light",
+      "scenario": "error",
+      "copies": 1,
+      "errorShownDuringRetry": false,
+      "gateFrames": 0
+    }
+  ]
+}

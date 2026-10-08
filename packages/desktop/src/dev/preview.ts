@@ -372,6 +372,36 @@ const sampleWork: HistoryWorkSnapshot = {
 		},
 	],
 }
+// ?connect=slow holds the first sample project in 'connecting' for 3 s, ?connect=error then fails
+// it (Reconnect fails again), ?connect=untrusted opens it ready but not yet trusted.
+const connectMode = ['slow', 'error', 'untrusted'].find(
+	(mode) => new URLSearchParams(location.search).get('connect') === mode,
+)
+let sampleConnectStarted = false
+function settleSampleConnect(sample: ProjectView) {
+	setTimeout(() => {
+		if (connectMode === 'error') {
+			sample.status = 'error'
+			sample.error = 'The Namzu runtime did not start. Check that it is installed, then try again.'
+		} else {
+			sample.status = 'ready'
+			sample.trusted = true
+		}
+		for (const listener of listeners) listener({ kind: 'connection', project: clone(sample) })
+	}, 3000)
+}
+function beginSampleConnect() {
+	if (!connectMode || sampleConnectStarted) return
+	sampleConnectStarted = true
+	const sample = projects[0]
+	if (connectMode === 'untrusted') {
+		sample.trusted = false
+		return
+	}
+	sample.trusted = false
+	sample.status = 'connecting'
+	settleSampleConnect(sample)
+}
 const drafts = new Map<string, string>()
 const settings = new Map<string, DraftSettings>()
 const selections = new Map<string, ProviderView['selected']>()
@@ -777,7 +807,10 @@ const api: DesktopApi = {
 	},
 	setWindowAppearance: async () => {},
 	popupWindowMenu: async () => nativeOnly('Native window menus'),
-	projects: async () => clone(projects),
+	projects: async () => {
+		beginSampleConnect()
+		return clone(projects)
+	},
 	pals: async () => clone(pals),
 	palProviders: async () => ({
 		available: clone(available),
@@ -837,8 +870,20 @@ const api: DesktopApi = {
 	palScreen: async () => nativeOnly('Capturing a Pal virtual computer screen'),
 
 	openProject: async () => nativeOnly('Opening a device folder'),
-	reconnectProject: async () => nativeOnly('Connecting a real project'),
-	trustProject: async () => nativeOnly('Granting device folder access'),
+	reconnectProject: async (id) => {
+		if (!connectMode) return nativeOnly('Connecting a real project')
+		const sample = project(id)
+		sample.status = 'connecting'
+		delete sample.error
+		settleSampleConnect(sample)
+		return clone(sample)
+	},
+	trustProject: async (id) => {
+		if (!connectMode) return nativeOnly('Granting device folder access')
+		const sample = project(id)
+		sample.trusted = true
+		return clone(sample)
+	},
 	conversations: async (id) => {
 		project(id)
 		return clone(conversations.filter((item) => item.projectId === id))

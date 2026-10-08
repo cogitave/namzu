@@ -133,6 +133,8 @@ import {
 import { palRecentActivity } from './pal-recent-activity.js'
 import { PalCustomizeDialog, PalSidebarSection, PalsPage } from './pals-page.js'
 import { PluginsPage, PluginsSidebar } from './plugins-page.js'
+import { projectStage } from './project-stage.js'
+import { ProjectConnecting, ProjectOpenError } from './project-views.js'
 import { RenameConversationDialog } from './rename-conversation-dialog.js'
 import { type ConversationCollection, Sidebar } from './sidebar.js'
 import { PaneToasts } from './toast.js'
@@ -672,6 +674,9 @@ export function App({
 	const follow = useRef(true)
 	const transcriptScroll = useTranscriptScroll(sessionId, transcript, follow)
 	const project = projects.find((item) => item.id === projectId)
+	// A folder that failed to open gets its own stage, which already carries the error text.
+	const stage = project ? projectStage(project) : undefined
+	const openErrorStage = stage === 'error'
 	const conversation = conversations.find((item) => item.id === sessionId)
 	const speech = useLocalSpeech(api, sessionId || undefined)
 	const historyPending = historyDisplay?.sessionId === sessionId && !!historyDisplay.pending
@@ -4236,7 +4241,7 @@ export function App({
 					/>
 				)}
 
-				{(error || project?.error || savedSettings.error) && (
+				{(error || (project?.error && !openErrorStage) || savedSettings.error) && (
 					<div className="connection-error">
 						<ChatErrorBanner
 							message={savedSettings.error || error || project?.error || ''}
@@ -4298,7 +4303,25 @@ export function App({
 							Open a project
 						</Button>
 					</Empty>
-				) : !project.trusted ? (
+				) : stage === 'connecting' ? (
+					<ProjectConnecting key={project.id} name={project.name} />
+				) : stage === 'error' ? (
+					<ProjectOpenError
+						message={project.error || 'Namzu could not connect to this folder.'}
+						onRetry={() =>
+							void act(async () => {
+								// Show connecting at once; the answer replaces it.
+								updateProject({ ...project, status: 'connecting', error: undefined })
+								try {
+									updateProject(await api.reconnectProject(project.id))
+								} catch (failure) {
+									updateProject(project)
+									throw failure
+								}
+							})
+						}
+					/>
+				) : stage === 'gate' ? (
 					<Empty className="welcome">
 						<EmptyHeader className="max-w-lg px-8">
 							<EmptyTitle>

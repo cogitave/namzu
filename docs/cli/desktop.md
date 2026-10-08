@@ -215,6 +215,23 @@ clearly labelled sample projects and conversations. This development-only
 preview keeps changes in memory and has no access to the CLI, credentials,
 filesystem or live tasks. Use the native development window for actual work.
 
+Add `?connect=slow` to hold the first sample project in connecting for 3 s,
+`?connect=error` to fail it (Try again fails again) or `?connect=untrusted` to open
+it ready but not yet trusted, so each project state can be reviewed.
+
+### Opening a folder
+
+A project starts as not trusted and connecting; the CLI reports its real trust
+only after it starts, which can take seconds on Windows. While connecting the
+stage keeps the sidebar and tabs, stays blank for the first 400 ms, then shows
+a small spinner and "Opening *name*…"; the trust gate never appears for it. "Make
+this your workspace" with **Review folder access** shows only for a project that
+connected and is genuinely not trusted. A folder that fails to connect shows
+"Couldn’t open this folder", the error text once and **Try again**, which
+reconnects it through the same path as the banner's Reconnect. Pal and chat
+workspaces keep their previous failure handling. The main process still trusts
+nothing early. [Proof](../../research/project-connecting-20261008/README.md).
+
 ## Persistent Pals
 
 **New conversation** opens an ordinary conversation, including when a Pal or its

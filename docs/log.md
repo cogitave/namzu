@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-10-08
+
+- **Update** [Desktop](cli/desktop.md#opening-a-folder) no longer flashes "Review folder access" while a project opens: a connecting project shows the app chrome with a quiet "Opening *name*…" after 400 ms, the gate shows only for a connected, genuinely untrusted folder, and a failed folder shows "Couldn’t open this folder" with Try again. The design preview gains `?connect=slow|error|untrusted`. [Proof](../research/project-connecting-20261008/README.md).
+
 ## 2026-10-07
 
 - **Update** [Desktop](cli/desktop.md#operator-flow) keeps a declined call across a reload: the row reads "Declined edit to app.css" in its own muted state, opening it shows "You said: ...", and a run of them folds to "Declined 2 actions". The kernel records a person's No with their note (4,000 characters) as `declined` on the call's result view, set only by a review answer that says it came from a person; the [review policy](sdk/review-policy.md), [tool execution](sdk/tool-execution.md) and [ACP](sdk/agent-client-protocol.md) pages describe the optional field, and a policy refusal keeps its recorded shape. [Proof](../research/declined-note-20261007/README.md).
