@@ -206,6 +206,7 @@ function toZenModel(model: DerivedZenModel): ZenModel {
 		supportsStreaming: true,
 		effortLevels: [...model.effortLevels],
 		...(model.supportsAnonymousAccess ? { supportsAnonymousAccess: true } : {}),
+		...(model.limitsVerified === false ? { limitsVerified: false as const } : {}),
 	}
 }
 
@@ -264,6 +265,7 @@ const MODEL_KEYS: ReadonlySet<string> = new Set([
 	'supportsStreaming',
 	'effortLevels',
 	'supportsAnonymousAccess',
+	'limitsVerified',
 ])
 
 /** A last-good cache cannot reinstate an id the current reviewed roster omits. */
@@ -351,6 +353,9 @@ function parseModel(value: unknown, service: ZenService, where: string): ZenMode
 		invalid(`${where}.supportsToolUse`, 'is not true or false')
 	}
 	if (raw.supportsStreaming !== true) invalid(`${where}.supportsStreaming`, 'is not true')
+	if (raw.limitsVerified !== undefined && raw.limitsVerified !== false) {
+		invalid(`${where}.limitsVerified`, 'is only ever `false`, and absent when limits are stated')
+	}
 	const anonymous = raw.supportsAnonymousAccess
 	if (anonymous !== undefined && (anonymous !== true || service !== 'zen')) {
 		invalid(`${where}.supportsAnonymousAccess`, 'is only ever `true`, and only on zen')
@@ -381,6 +386,7 @@ function parseModel(value: unknown, service: ZenService, where: string): ZenMode
 			false,
 		),
 		...(anonymous === true ? { supportsAnonymousAccess: true } : {}),
+		...(raw.limitsVerified === false ? { limitsVerified: false as const } : {}),
 	}
 }
 

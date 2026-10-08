@@ -416,3 +416,35 @@ describe('modelStep', () => {
 		})
 	})
 })
+
+it('notes a listed model whose limits are not published yet', () => {
+	const step = modelStep('other', {
+		kind: 'ok',
+		models: [
+			{
+				id: 'new',
+				name: 'New',
+				inputPrice: 1,
+				outputPrice: 2,
+				limitsVerified: false,
+			},
+		],
+	})
+	expect(step.choices.find((c) => c.id === 'new')?.note).toBe('(Limits not published yet)')
+})
+
+it('marks a listed model that needs an API key', () => {
+	const step = modelStep('other', {
+		kind: 'ok',
+		models: [
+			{
+				id: 'paid',
+				name: 'Paid',
+				inputPrice: 1,
+				outputPrice: 2,
+				requiresKey: true,
+			},
+		],
+	})
+	expect(step.choices.find((c) => c.id === 'paid')?.note).toBe('(API key)')
+})

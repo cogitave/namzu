@@ -73,7 +73,12 @@ const MODELS_DEV = {
 const served = (ids: string[]) =>
 	JSON.stringify({
 		object: 'list',
-		data: ids.map((id) => ({ id, object: 'model', created: 0, owned_by: 'opencode' })),
+		data: ids.map((id) => ({
+			id,
+			object: 'model',
+			created: 0,
+			owned_by: 'opencode',
+		})),
 	})
 
 function sources(overrides: Partial<ZenCatalogueSources> = {}): ZenCatalogueSources {
@@ -173,7 +178,9 @@ describe('buildZenCatalogue', () => {
 				go: served(['go-chat']),
 			},
 		})
-		const { catalogue } = buildZenCatalogue(withOmitted, { baseline: FIXTURE.baseline })
+		const { catalogue } = buildZenCatalogue(withOmitted, {
+			baseline: FIXTURE.baseline,
+		})
 		expect(catalogue.unrouted.zen).not.toContain(id)
 	})
 
@@ -315,9 +322,140 @@ describe('buildZenCatalogue', () => {
 		)
 		// Two hundred characters is still a name.
 		const { catalogue } = build(
-			sources({ docs: { zen: ZEN_PAGE.replaceAll('Alpha Chat', 'A'.repeat(200)), go: GO_PAGE } }),
+			sources({
+				docs: {
+					zen: ZEN_PAGE.replaceAll('Alpha Chat', 'A'.repeat(200)),
+					go: GO_PAGE,
+				},
+			}),
 		)
 		expect(catalogue.zen[0]?.name).toHaveLength(200)
+	})
+})
+
+describe('a routed model whose limits models.dev does not state yet', () => {
+	const NEW_ROW = row(ZEN_HOST, 'Delta New', 'delta-new', '/chat/completions', CHAT)
+	const FREE_ROW = row(ZEN_HOST, 'Omega Free', 'omega-free', '/chat/completions', CHAT)
+	const withNew = (page: string) =>
+		page
+			.replace('\n| Model | Input', `\n${NEW_ROW}\n${FREE_ROW}\n\n| Model | Input`)
+			.replace(
+				'| Beta Messages | $3.00',
+				'| Delta New | $2.00 | $8.00 | $0.20 |\n| Beta Messages | $3.00',
+			)
+			.replace('- Gamma Free is', '- Omega Free is available for a limited time.\n- Gamma Free is')
+	const input = (overrides: Partial<ZenCatalogueSources> = {}) =>
+		sources({
+			docs: { zen: withNew(ZEN_PAGE), go: GO_PAGE },
+			served: {
+				zen: served(['alpha-chat', 'beta-messages', 'gamma-free', 'delta-new', 'omega-free']),
+				go: served(['go-chat']),
+			},
+			...overrides,
+		})
+
+	it('is carried with conservative limits and limitsVerified: false', () => {
+		const { catalogue } = build(input())
+		const priced = catalogue.zen.find((model) => model.id === 'delta-new')
+		expect(priced).toEqual({
+			id: 'delta-new',
+			name: 'Delta New',
+			protocol: 'chat',
+			contextWindow: 65_536,
+			maxOutputTokens: 8_192,
+			inputModalities: ['text'],
+			inputPrice: 2,
+			outputPrice: 8,
+			supportsToolUse: true,
+			supportsStreaming: true,
+			effortLevels: [],
+			limitsVerified: false,
+		})
+		// Named in the free list, with no price row: zero is the stated rate.
+		const free = catalogue.zen.find((model) => model.id === 'omega-free')
+		expect(free).toMatchObject({
+			inputPrice: 0,
+			outputPrice: 0,
+			limitsVerified: false,
+		})
+		// Models with published limits carry no flag at all.
+		expect(catalogue.zen.find((model) => model.id === 'alpha-chat')).not.toHaveProperty(
+			'limitsVerified',
+		)
+		// A stored copy reads back with the flag intact.
+		expect(parseZenCatalogue(JSON.parse(JSON.stringify(catalogue)))).toEqual(catalogue)
+	})
+
+	it('drops the flag and takes the stated limits once models.dev has them', () => {
+		const dev = {
+			...MODELS_DEV,
+			opencode: {
+				models: {
+					...MODELS_DEV.opencode.models,
+					'delta-new': entry(400_000, 32_000, ['text', 'image']),
+				},
+			},
+		}
+		const { catalogue } = build(input({ modelsDev: JSON.stringify(dev) }))
+		const model = catalogue.zen.find((candidate) => candidate.id === 'delta-new')
+		expect(model).toMatchObject({
+			contextWindow: 400_000,
+			maxOutputTokens: 32_000,
+		})
+		expect(model).not.toHaveProperty('limitsVerified')
+	})
+
+	it('is never carried when its price cannot be read, and never priced zero by default', () => {
+		const unreadable = withNew(ZEN_PAGE).replace(
+			'| Delta New | $2.00 | $8.00 |',
+			'| Delta New | $2.0.0 | $8.00 |',
+		)
+		const { catalogue, report } = build(input({ docs: { zen: unreadable, go: GO_PAGE } }))
+		expect(catalogue.zen.map((model) => model.id)).not.toContain('delta-new')
+		expect(report.undecided.map(([key]) => key)).toContain('zen/delta-new')
+	})
+
+	it('is not carried when the service does not serve it', () => {
+		const { catalogue, report } = build(
+			input({
+				served: {
+					zen: served(['alpha-chat', 'beta-messages', 'gamma-free', 'omega-free']),
+					go: served(['go-chat']),
+				},
+			}),
+		)
+		expect(catalogue.zen.map((model) => model.id)).not.toContain('delta-new')
+		expect(report.undecided.map(([key]) => key)).toContain('zen/delta-new')
+	})
+
+	it('stops when models.dev has no entry for any model, rather than guessing every limit', () => {
+		expect(() =>
+			build(
+				input({
+					modelsDev: JSON.stringify({
+						...MODELS_DEV,
+						opencode: { models: {} },
+					}),
+				}),
+			),
+		).toThrow(ZenCatalogueSourceError)
+	})
+
+	it('reads a stored copy that predates the field', () => {
+		const { catalogue } = build(input())
+		const raw = JSON.parse(JSON.stringify(catalogue))
+		for (const model of [...raw.zen, ...raw.go]) delete model.limitsVerified
+		const parsed = parseZenCatalogue(raw)
+		expect(parsed.zen.find((model) => model.id === 'alpha-chat')).not.toHaveProperty(
+			'limitsVerified',
+		)
+	})
+
+	it('refuses a stored limitsVerified that is not false', () => {
+		const { catalogue } = build(input())
+		const raw = JSON.parse(JSON.stringify(catalogue))
+		raw.zen[0].limitsVerified = true
+		expect(() => parseZenCatalogue(raw)).toThrow(ZenCatalogueFormatError)
 	})
 })
 
@@ -345,7 +483,10 @@ describe('parseZenCatalogue', () => {
 			'anonymous access on go',
 			(c: Record<string, unknown>) => ({
 				...c,
-				go: (c.go as object[]).map((m) => ({ ...m, supportsAnonymousAccess: true })),
+				go: (c.go as object[]).map((m) => ({
+					...m,
+					supportsAnonymousAccess: true,
+				})),
 			}),
 		],
 		[
@@ -373,7 +514,10 @@ describe('parseZenCatalogue', () => {
 		],
 		[
 			'an unrouted id that is carried',
-			(c: Record<string, unknown>) => ({ ...c, unrouted: { zen: ['alpha-chat'], go: [] } }),
+			(c: Record<string, unknown>) => ({
+				...c,
+				unrouted: { zen: ['alpha-chat'], go: [] },
+			}),
 		],
 	])('refuses a stored catalogue with %s', (_why, tamper) => {
 		const stored = JSON.parse(JSON.stringify(build().catalogue)) as Record<string, unknown>
@@ -414,7 +558,10 @@ const healthy = () => upstream()
 describe('fetchZenCatalogue', () => {
 	it('reads the five sources, refusing redirects, and derives the catalogue', async () => {
 		const fetchFn = healthy()
-		const { catalogue } = await fetchZenCatalogue({ fetch: fetchFn, baseline: FIXTURE.baseline })
+		const { catalogue } = await fetchZenCatalogue({
+			fetch: fetchFn,
+			baseline: FIXTURE.baseline,
+		})
 		expect(catalogue.zen.map((model) => model.id)).toEqual([
 			'alpha-chat',
 			'beta-messages',
@@ -432,7 +579,9 @@ describe('fetchZenCatalogue', () => {
 	})
 
 	it('rejects when a source is unreachable, with no partial result', async () => {
-		const fetchFn = upstream({ '/api.json': () => Promise.reject(new TypeError('fetch failed')) })
+		const fetchFn = upstream({
+			'/api.json': () => Promise.reject(new TypeError('fetch failed')),
+		})
 		await expect(fetchZenCatalogue({ fetch: fetchFn })).rejects.toThrow(ZenCatalogueSourceError)
 		await expect(fetchZenCatalogue({ fetch: fetchFn })).rejects.toThrow(/fetch failed/)
 	})
@@ -440,7 +589,9 @@ describe('fetchZenCatalogue', () => {
 	it('refuses an oversized source by its declared length and by what it streams', async () => {
 		const declared = upstream({
 			'/api.json': () =>
-				new Response('{}', { headers: { 'content-length': String(64 * 1024 * 1024) } }),
+				new Response('{}', {
+					headers: { 'content-length': String(64 * 1024 * 1024) },
+				}),
 		})
 		await expect(
 			fetchZenCatalogue({ fetch: declared, limits: { modelsDevBytes: 1024 } }),
@@ -501,7 +652,10 @@ describe('ZenProvider with a runtime catalogue', () => {
 		)
 		return catalogue
 	}
-	const params = { model: '', messages: [{ role: 'user' as const, content: 'Hello' }] }
+	const params = {
+		model: '',
+		messages: [{ role: 'user' as const, content: 'Hello' }],
+	}
 
 	async function drain(stream: AsyncIterable<unknown>): Promise<void> {
 		for await (const _ of stream) {
@@ -512,7 +666,10 @@ describe('ZenProvider with a runtime catalogue', () => {
 		const transport = vi.fn<typeof fetch>(async () => new Response('{}', { status: 400 }))
 		vi.stubGlobal('fetch', transport)
 		expect(findZenModel('zen', 'beta-messages')).toBeUndefined()
-		const provider = new ZenProvider({ apiKey: 'fixture', catalogue: runtime() })
+		const provider = new ZenProvider({
+			apiKey: 'fixture',
+			catalogue: runtime(),
+		})
 		await expect(
 			drain(provider.chatStream({ ...params, model: 'beta-messages' })),
 		).rejects.toThrow()
@@ -537,7 +694,10 @@ describe('ZenProvider with a runtime catalogue', () => {
 
 	it('reads a catalogue function at every lookup, so a fresher one reaches a built provider', async () => {
 		const holder: { current?: ReturnType<typeof runtime> } = {}
-		const provider = new ZenProvider({ apiKey: 'fixture', catalogue: () => holder.current })
+		const provider = new ZenProvider({
+			apiKey: 'fixture',
+			catalogue: () => holder.current,
+		})
 		expect(await provider.resolveContextWindow('beta-messages')).toBeUndefined()
 		holder.current = runtime()
 		expect(await provider.resolveContextWindow('beta-messages')).toBe(1_000_000)
@@ -550,7 +710,10 @@ describe('ZenProvider with a runtime catalogue', () => {
 				async () => new Response(served(['go-chat', 'go-hidden', 'never-heard-of'])),
 			),
 		)
-		const provider = new ZenGoProvider({ apiKey: 'fixture', catalogue: runtime() })
+		const provider = new ZenGoProvider({
+			apiKey: 'fixture',
+			catalogue: runtime(),
+		})
 		const listed = await provider.listModels()
 		expect(listed.map((model) => model.id)).toEqual(['go-chat', 'go-hidden'])
 		expect(listed[1]).toEqual({
@@ -564,7 +727,10 @@ describe('ZenProvider with a runtime catalogue', () => {
 	it('calls an unrouted id only with an explicit protocol, never on a guessed one', async () => {
 		const transport = vi.fn<typeof fetch>(async () => new Response('{}', { status: 400 }))
 		vi.stubGlobal('fetch', transport)
-		const guessed = new ZenProvider({ apiKey: 'fixture', catalogue: runtime() })
+		const guessed = new ZenProvider({
+			apiKey: 'fixture',
+			catalogue: runtime(),
+		})
 		await expect(
 			drain(guessed.chatStream({ ...params, model: 'hidden-model' })),
 		).rejects.toMatchObject({
@@ -626,7 +792,10 @@ describe('ZenProvider with a runtime catalogue', () => {
 
 	it('refuses a catalogue option that is neither a catalogue nor a function', () => {
 		expect(
-			() => new ZenProvider({ catalogue: 'fresh' as unknown as ReturnType<typeof runtime> }),
+			() =>
+				new ZenProvider({
+					catalogue: 'fresh' as unknown as ReturnType<typeof runtime>,
+				}),
 		).toThrow(/catalogue must be/)
 	})
 })

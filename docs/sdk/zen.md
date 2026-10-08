@@ -16,9 +16,11 @@ Install it alongside `@namzu/sdk >=36.0.0` and the
 SDK's Zod v3 peer in a Node.js 20+ application.
 
 Zen publishes a free-model catalogue, but a listing does not guarantee keyless
-access from Namzu. `space-bunny-free` is the verified direct default. The other
-seven bundled free models are available through an experimental request path
-that reproduces OpenCode's observed client identity. Zen can still refuse them.
+access from Namzu. `space-bunny-free` is the verified direct default. Every
+other Zen model the active catalogue prices at zero (twelve in the bundled
+snapshot, listed below) is available through an experimental request path that
+reproduces OpenCode's observed client identity. Zen can still refuse them.
+Models that need an API key are listed after the free ones and marked "(API key)". The pickers have no group headings yet.
 Zen Go is a separate service and requires its own API key.
 
 ```bash
@@ -134,20 +136,41 @@ does not displace them when no provider preference is saved.
 The CLI supports `--provider zen` and `--provider zen-go`; its
 model picker uses live discovery.
 
-The bundled catalogue records these free model IDs advertised by Zen. All
-eight may be selected anonymously as an experiment; the driver still marks
+The bundled catalogue records these zero-price Zen IDs (snapshot of
+2026-10-08). Any of them may be selected anonymously as an experiment, and so
+may any Zen model a refreshed catalogue prices at zero; the driver still marks
 only `space-bunny-free` with `supportsAnonymousAccess` for verified direct
-access. A runtime refresh reads the page's free list but cannot add arbitrary
-anonymous IDs:
+access:
 
 - `muse-spark-1.3-contributor-free`
 - `big-pickle`
 - `mimo-v2.5-free`
+- `mimo-v2.6-flash-free`
 - `ling-3.0-flash-fin-free`
+- `ling-3.1-flash-free`
 - `nemotron-3-ultra-free`
 - `nemotron-3.5-lightning-free`
 - `space-bunny-free`
 - `longcat-2.5-preview-free`
+- `exo-free`
+- `fledge-alpha-free`
+
+### Models whose limits are not published yet
+
+models.dev is where context windows and output caps come from, and it lags the
+pages: `mimo-v2.6-flash-free` was routed and priced for weeks before it had an
+entry. A model that the page routes on a stated wire and prices (or names as
+free), that the service serves, and for which models.dev has no entry is
+carried with conservative limits (65,536 context, 8,192 output, text input, tool
+use on because the reference client calls tools on every routed model, no effort
+levels) and `limitsVerified: false`. The field is absent on every other model,
+so no existing entry changes shape. When models.dev states the limits the entry
+uses them and the flag disappears. A model whose price cannot be read is never
+carried, and is never priced zero by default; a model the service does not
+serve is not carried either. An entry that exists but lacks a limit or modality is treated as models.dev changing shape and stops the run, not as an unpublished model. Tool use is an assumption: a carried model that cannot call tools fails at run time. CLI and Desktop pickers note such a model with
+"Limits not published yet". At the time of writing models.dev has caught up for
+every routed model, so the bundled snapshot carries no flagged entry; the
+runtime refresh produces them when a new model appears first on the page.
 
 This is the documented free catalogue, subject to upstream admission and
 limits. Earlier direct Namzu requests received `FreeTierError` for all seven
@@ -163,10 +186,10 @@ matter, and admission can change. `supportsAnonymousAccess` continues to mark
 only the verified direct Space Bunny path.
 
 The service serves more than the pages document, and the difference is
-recorded rather than ignored. Its own `/models` answer advertises two further
-free ids on Zen — `deepseek-v4-flash-free` and `muse-spark-1.2-contributor-free`
-— which appear on no page, so no wire is stated for either and neither can be
-routed. They are not bundled, `src/models.review.json` records that decision by
+recorded rather than ignored. Its own `/models` answer advertises a further
+free id on Zen, `muse-spark-1.2-contributor-free`, which appears on no page, so
+no wire is stated for it and it cannot be routed (`deepseek-v4-flash-free`, named
+here before 2026-10-08, is no longer served or documented). It is not bundled, `src/models.review.json` records that decision by
 name, and the snapshot generator refuses to report agreement while a served id is
 neither carried nor omitted, so this stays a decision rather than a gap nobody
 noticed.
@@ -190,8 +213,8 @@ real credential, because anonymous admission is a claim this catalogue makes
 only about models it carries.
 
 The driver does not infer public admission from an arbitrary model name or
-zero price. `isExperimentalFreeZenModel(service, model)` admits one of the
-eight curated Zen IDs only while its active catalogue still prices it at zero;
+zero price. `isExperimentalFreeZenModel(service, model)` admits any
+Zen model its active catalogue prices at zero (no fixed list);
 this is separate from the `ZenModel.supportsAnonymousAccess` flag for verified
 direct access. Paid, unknown and Zen Go models require a real key, even when a
 caller supplies a `protocol` override. The public convention follows OpenCode's
@@ -232,7 +255,7 @@ context limits, pricing or effort support.
 requests the selected service's `/models` endpoint and intersects its IDs
 with that metadata. A live model without a supported entry is not
 advertised as ready to use. Anonymous discovery additionally restricts the
-result to the eight curated zero-price Zen models; the live `/models` answer
+result to the Zen models priced at zero; the live `/models` answer
 can make the actual selectable list smaller. Only Space Bunny has verified
 direct anonymous access.
 

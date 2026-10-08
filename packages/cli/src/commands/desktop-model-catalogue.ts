@@ -49,6 +49,8 @@ export function desktopModelCatalogue(
 		if (model.inputModalities?.includes('image')) notes.push('image input')
 		if (model.inputPrice === 0 && model.outputPrice === 0 && !/\bfree\b/i.test(model.name))
 			notes.push('free')
+		if (model.requiresKey) notes.push('API key')
+		if (model.limitsVerified === false) notes.push('Limits not published yet')
 		models.push({
 			id: model.id,
 			label: modelListLabel(model.name || model.id, model.id).slice(0, 400),

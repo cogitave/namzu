@@ -77,6 +77,7 @@ interface RenderedModel {
 	supportsToolUse: boolean
 	effortLevels: string[]
 	supportsAnonymousAccess: boolean
+	limitsVerified?: false
 }
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -1256,6 +1257,29 @@ describe('renderEntry', () => {
 			renderEntry({ ...base, supportsAnonymousAccess: true }),
 			/\n\t\tsupportsAnonymousAccess: true,/,
 		)
+	})
+})
+
+describe('renderEntry for a model with unverified limits', () => {
+	test('writes limitsVerified: false only for such a model, and reads it back', () => {
+		const base: RenderedModel = {
+			id: 'delta-new',
+			name: 'Delta New',
+			protocol: 'chat',
+			contextWindow: 65536,
+			maxOutputTokens: 8192,
+			inputModalities: ['text'],
+			inputPrice: 2,
+			outputPrice: 8,
+			supportsToolUse: true,
+			effortLevels: [],
+			supportsAnonymousAccess: false,
+		}
+		assert.equal(renderEntry(base).includes('limitsVerified'), false)
+		const text = renderEntry({ ...base, limitsVerified: false })
+		assert.match(text, /\n\t\tlimitsVerified: false,/)
+		const parsed = parseRendered(`const ZEN_MODELS = freezeModels([\n${text}\n])\n`)
+		assert.equal(parsed.zen[0]?.limitsVerified, false)
 	})
 })
 

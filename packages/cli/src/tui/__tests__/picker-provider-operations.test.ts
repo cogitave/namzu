@@ -53,6 +53,44 @@ afterEach(() => {
 })
 
 describe('picker provider operations', () => {
+	it('lists Zen free models before API-key models and carries the unverified-limits flag', async () => {
+		const zen: DetectedProvider = { ...detected, entry: PROVIDER_REGISTRY.zen }
+		const info = (id: string, price: number, extra: object = {}) => ({
+			id,
+			name: id,
+			inputPrice: price,
+			outputPrice: price,
+			supportsToolUse: true,
+			supportsStreaming: true,
+			...extra,
+		})
+		provider = base({
+			listModels: async () =>
+				[
+					info('paid-one', 2),
+					info('exo-free', 0),
+					info('paid-two', 3, { limitsVerified: false }),
+					info('mimo-v2.6-flash-free', 0, { limitsVerified: false }),
+				] as never,
+		})
+		const listing = await describeProviderModels('zen', zen)
+		if (listing.kind !== 'ok') throw new Error('expected a listing')
+		expect(listing.models.map((m) => m.id)).toEqual([
+			'exo-free',
+			'mimo-v2.6-flash-free',
+			'paid-one',
+			'paid-two',
+		])
+		expect(listing.models.map((m) => m.limitsVerified)).toEqual([
+			undefined,
+			false,
+			undefined,
+			false,
+		])
+		// Only a stated non-zero price marks a key; free rows are never marked.
+		expect(listing.models.map((m) => m.requiresKey)).toEqual([undefined, undefined, true, true])
+	})
+
 	it('distinguishes a withdrawn credential from a remote rejection and hides its diagnostic', async () => {
 		provider = base({
 			listModels: async () => {

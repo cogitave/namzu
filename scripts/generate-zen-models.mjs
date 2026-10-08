@@ -185,6 +185,7 @@ function price(value) {
 export function renderEntry(model) {
 	const lines = ['\t{', `\t\tid: ${JSON.stringify(model.id)},`]
 	if (model.supportsAnonymousAccess) lines.push('\t\tsupportsAnonymousAccess: true,')
+	if (model.limitsVerified === false) lines.push('\t\tlimitsVerified: false,')
 	lines.push(
 		`\t\tname: ${JSON.stringify(model.name)},`,
 		`\t\tprotocol: '${model.protocol}',`,
@@ -292,6 +293,8 @@ export interface ZenModel {
 	readonly supportsStreaming: boolean
 	/** True only for verified direct-anonymous Zen models; zero price does not grant access. */
 	readonly supportsAnonymousAccess?: boolean
+	/** False: the limits are conservative placeholders models.dev has not published. */
+	readonly limitsVerified?: false
 	/** Exact advertised selectable effort levels; empty means no effort selector. */
 	readonly effortLevels?: readonly ReasoningEffort[]
 }
@@ -427,6 +430,7 @@ const COMPARED_FIELDS = [
 	'supportsToolUse',
 	'effortLevels',
 	'supportsAnonymousAccess',
+	'limitsVerified',
 ]
 
 /**
@@ -446,6 +450,7 @@ function comparable(model) {
 		supportsToolUse: model.supportsToolUse,
 		effortLevels: [...model.effortLevels],
 		supportsAnonymousAccess: model.supportsAnonymousAccess === true,
+		...(model.limitsVerified === false ? { limitsVerified: false } : {}),
 	}
 }
 
@@ -490,6 +495,7 @@ export function parseRendered(text) {
 				supportsToolUse: field('supportsToolUse') === 'true',
 				effortLevels: strings('effortLevels'),
 				supportsAnonymousAccess: field('supportsAnonymousAccess') === 'true',
+				...(field('limitsVerified') === 'false' ? { limitsVerified: false } : {}),
 			})
 		}
 		return entries

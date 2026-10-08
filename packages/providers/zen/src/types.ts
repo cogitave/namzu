@@ -17,8 +17,8 @@ export interface ZenConfig {
 	/**
 	 * A runtime catalogue, from `@namzu/zen/catalogue`, consulted before the
 	 * bundled snapshot for every lookup: routing, model listing, context windows
-	 * and effort levels. Anonymous admission also requires the driver's curated
-	 * free-model ID and zero price; a catalogue cannot add an arbitrary ID. A function is called
+	 * and effort levels. Anonymous admission requires a zero price in the
+	 * catalogue; a catalogue cannot add a model the service does not route. A function is called
 	 * at each lookup, so a host can swap in a fresher catalogue for providers it
 	 * already built. Returning `undefined` means the bundled snapshot alone.
 	 * Omitted, the provider uses the bundled snapshot and fetches nothing.

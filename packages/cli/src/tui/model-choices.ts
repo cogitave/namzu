@@ -170,6 +170,8 @@ export function modelStep(
 		if (m.id === defaultModel) notes.push('namzu default')
 		if (m.inputModalities?.includes('image')) notes.push('image input')
 		if (isKnownFree(m) && !labelAlreadySaysFree(m.name)) notes.push('free')
+		if (m.requiresKey) notes.push('API key')
+		if (m.limitsVerified === false) notes.push('Limits not published yet')
 		choices.push({
 			id: m.id,
 			label: m.name,

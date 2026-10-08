@@ -16,9 +16,10 @@ delegation.
 
 Zen publishes a free-model catalogue. Namzu defaults requests without a key to
 `space-bunny-free`, which completed keyless text and tool-continuation checks
-through the real driver on 2026-09-28. All eight bundled free models can be
-selected without a key through an experimental request path; the Zen gateway
-may still refuse them. Zen Go requires its own API key.
+through the real driver on 2026-09-28. Every Zen model the catalogue prices at
+zero can be selected without a key through an experimental request path; the
+Zen gateway may still refuse them. Models that need an API key are listed
+after the free ones and marked "(API key)". Zen Go requires its own API key.
 
 ```bash
 pnpm add @namzu/sdk @namzu/zen zod@^3
@@ -73,7 +74,7 @@ and model ID: `chat` uses Chat Completions, `responses` uses Responses,
 `generateContent`. The same model family can use different wires on Zen
 and Go. Unknown IDs require an explicit `protocol` configuration; model
 names are never used to guess a wire format. The direct keyless path is verified
-for `space-bunny-free`. Seven more curated zero-price models use an experimental
+for `space-bunny-free`. Every other zero-price Zen model uses an experimental
 OpenCode-shaped request identity on the official Zen endpoint. Installing
 OpenCode is recommended for comparison, but Namzu sends its own requests and
 does not invoke the installed binary. A protocol override does not grant access
@@ -133,7 +134,9 @@ controls also depend on the wire. See the [SDK guide](../../../docs/sdk/zen.md)
 for configuration and refusal details.
 
 `listModels(signal?)` intersects the live service catalogue with supported
-models and restricts anonymous results to the curated zero-price free set.
+models and restricts anonymous results to Zen models priced at zero. A model the page
+routes and prices but models.dev has not described yet is listed with
+conservative limits and `limitsVerified: false`; the field is absent otherwise.
 Static limits and USD-per-million-token prices are derived from the
 services' own documentation pages, models.dev and the services' `/models`
 answers, and are estimates rather than invoices: context tiers, caches, Go

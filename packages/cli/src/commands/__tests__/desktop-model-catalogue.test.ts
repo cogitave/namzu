@@ -113,3 +113,49 @@ describe('modelListLabel', () => {
 		expect(modelListLabel(name, id)).toBe(expected)
 	})
 })
+
+it('notes a model whose limits are not published yet', () => {
+	const result = desktopModelCatalogue(
+		{
+			kind: 'ok',
+			models: [
+				{
+					id: 'new-free',
+					name: 'New Free',
+					inputPrice: 0,
+					outputPrice: 0,
+					limitsVerified: false,
+				},
+				{ id: 'known', name: 'Known', inputPrice: 1, outputPrice: 2 },
+			],
+		},
+		'known',
+		'known',
+		() => true,
+	)
+	expect(result.models).toEqual([
+		{ id: 'new-free', label: 'New Free', note: '(Limits not published yet)' },
+		{ id: 'known', label: 'Known', default: true },
+	])
+})
+
+it('marks a model the listing flags as needing an API key', () => {
+	const result = desktopModelCatalogue(
+		{
+			kind: 'ok',
+			models: [
+				{
+					id: 'paid',
+					name: 'Paid',
+					inputPrice: 1,
+					outputPrice: 2,
+					requiresKey: true,
+				},
+			],
+		},
+		'other',
+		undefined,
+		() => true,
+	)
+	expect(result.models).toEqual([{ id: 'paid', label: 'Paid', note: '(API key)' }])
+})

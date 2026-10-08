@@ -4850,7 +4850,12 @@ export function constructProvider(
  * `publishedPrices` below is where value becomes presence.
  */
 export type ListedModel = Pick<ModelInfo, 'id' | 'name' | 'inputModalities'> &
-	Partial<Pick<ModelInfo, 'inputPrice' | 'outputPrice'>>
+	Partial<Pick<ModelInfo, 'inputPrice' | 'outputPrice'>> & {
+		/** `false` when the driver carries the model with placeholder limits (Zen, until models.dev publishes them). */
+		readonly limitsVerified?: false
+		/** Zen only: the catalogue states a non-zero price, so the model needs an API key. */
+		readonly requiresKey?: true
+	}
 
 /**
  * What happened when we asked a provider for its models.
@@ -4890,6 +4895,20 @@ function publishedPrices(m: ModelInfo): Pick<ListedModel, 'inputPrice' | 'output
 	if (Number.isFinite(m.inputPrice)) prices.inputPrice = m.inputPrice
 	if (Number.isFinite(m.outputPrice)) prices.outputPrice = m.outputPrice
 	return prices
+}
+
+/**
+ * Zen lists its free models (price 0/0) before the models that need an API key.
+ * The order inside each group is the driver's. Other providers keep their order.
+ */
+function zenFreeFirst(id: ProviderId, models: ListedModel[]): ListedModel[] {
+	if (id !== 'zen') return models
+	const free = (m: ListedModel) => m.inputPrice === 0 && m.outputPrice === 0
+	// A model with no published price lands after the free ones but is not marked:
+	// only a stated non-zero rate is a claim that a key is needed.
+	const paid = (m: ListedModel) => (m.inputPrice ?? 0) > 0 || (m.outputPrice ?? 0) > 0
+	const keyed = (m: ListedModel): ListedModel => (paid(m) ? { ...m, requiresKey: true } : m)
+	return [...models.filter(free), ...models.filter((m) => !free(m)).map(keyed)]
 }
 
 /** Capability-only composer query; no session, tools, browser or model turn is created. */
@@ -4966,19 +4985,29 @@ export async function describeProviderModels(
 			kind: 'ok',
 			// A Zen id served with no known wire is listed by the driver for hosts
 			// that can name a protocol. This one cannot, so it is not offered.
-			models: models
-				.filter((m) => isOfferableModel(id, m.id))
-				.map((m) => ({
-					id: m.id,
-					name: m.name || m.id,
-					...(m.inputModalities !== undefined ? { inputModalities: [...m.inputModalities] } : {}),
-					// Carried, and omitted when the driver did not know — the same
-					// distinction the driver made. `undefined` here says no rate was
-					// published; `0` says the model is free, and the model step is
-					// entitled to print that as a fact. Collapsing the two at this
-					// projection would put the lie back one layer up.
-					...publishedPrices(m),
-				})),
+			models: zenFreeFirst(
+				id,
+				models
+					.filter((m) => isOfferableModel(id, m.id))
+					.map(
+						(m): ListedModel => ({
+							id: m.id,
+							name: m.name || m.id,
+							...((m as { limitsVerified?: unknown }).limitsVerified === false
+								? { limitsVerified: false as const }
+								: {}),
+							...(m.inputModalities !== undefined
+								? { inputModalities: [...m.inputModalities] }
+								: {}),
+							// Carried, and omitted when the driver did not know — the same
+							// distinction the driver made. `undefined` here says no rate was
+							// published; `0` says the model is free, and the model step is
+							// entitled to print that as a fact. Collapsing the two at this
+							// projection would put the lie back one layer up.
+							...publishedPrices(m),
+						}),
+					),
+			),
 		}
 	} catch (err) {
 		if (signal?.aborted) throw signal.reason

@@ -483,7 +483,21 @@ export interface DerivedZenModel {
 	readonly supportsToolUse: boolean
 	readonly effortLevels: ReasoningEffort[]
 	readonly supportsAnonymousAccess: boolean
+	/** `false` when models.dev states no limits for the model yet; absent when they are stated. */
+	readonly limitsVerified?: false
 }
+
+/**
+ * What a model is carried with while models.dev states nothing about it: small
+ * enough to be safe on any routed model, and flagged `limitsVerified: false` so
+ * a host can say so. Tool use is true because the reference client calls tools
+ * on every model the page routes.
+ */
+const CONSERVATIVE_LIMITS = Object.freeze({
+	contextWindow: 65_536,
+	maxOutputTokens: 8_192,
+	supportsToolUse: true,
+})
 
 /** Everything one service's derivation produced, carried and not. */
 export interface DerivedZenService {
@@ -555,6 +569,7 @@ export function derive(
 	let considered = 0
 	let silentOnTools = 0
 	let modelsDevEntries = 0
+	const unverified: DerivedZenModel[] = []
 	for (const row of parsed.routes) {
 		if (omitted.has(`${service}/${row.id}`)) continue
 		if (row.npm === undefined) {
@@ -567,7 +582,33 @@ export function derive(
 		considered += 1
 		const metadata = provider.models[row.id] as ModelsDevEntry | undefined
 		if (!metadata || typeof metadata !== 'object') {
-			undecided.push([`${service}/${row.id}`, `models.dev has no \`${providerKey}\` entry`])
+			// The route and the price are stated and the limits are not, yet: carry it
+			// with conservative limits when the service serves it AND the page states
+			// a price (a priced row or a free-list name). A price that cannot be read
+			// is never defaulted to zero.
+			const statedPrice = priceRowFor(parsed.prices, row.name)
+			if (served.has(row.id) && (statedPrice || freeIds.has(row.id))) {
+				unverified.push({
+					id: row.id,
+					name: row.name,
+					protocol: pinnedProtocolFor(row, service),
+					...CONSERVATIVE_LIMITS,
+					inputModalities: ['text'],
+					inputPrice: statedPrice ? statedPrice.input : 0,
+					outputPrice: statedPrice ? statedPrice.output : 0,
+					effortLevels: [],
+					supportsAnonymousAccess:
+						service === 'zen' && freeIds.has(row.id) && ZEN_DIRECT_ANONYMOUS_IDS.has(row.id),
+					limitsVerified: false,
+				})
+				continue
+			}
+			undecided.push([
+				`${service}/${row.id}`,
+				statedPrice || freeIds.has(row.id)
+					? `models.dev has no \`${providerKey}\` entry and the service does not serve it`
+					: `models.dev has no \`${providerKey}\` entry`,
+			])
 			continue
 		}
 		if (metadata.tool_call === undefined) silentOnTools += 1
@@ -640,6 +681,14 @@ export function derive(
 			`All ${modelsDevEntries} models.dev entr${modelsDevEntries === 1 ? 'y' : 'ies'} for the ${service}\n  provider omit \`tool_call\`. A field that vanished from every entry at once is models.dev\n  having changed shape, not every model losing its tools, so this is reported as a\n  SOURCE failure rather than written into the catalogue as \`supportsToolUse: false\`.`,
 		)
 	}
+	// A provider with NO entry for any considered model is models.dev having
+	// moved (or lost the provider), not a set of models it has yet to learn about.
+	if (unverified.length > 0 && modelsDevEntries === 0) {
+		unusable(
+			`models.dev has no \`${providerKey}\` entry for any of the ${considered} model(s) the ${service}\n  page routes. That is the provider moving, not each model being new, so nothing is\n  carried with guessed limits.`,
+		)
+	}
+	models.push(...unverified)
 	const servedUncurried = [...served]
 		.filter((id) => !documented.has(id) && !omitted.has(`${service}/${id}`))
 		.sort()
