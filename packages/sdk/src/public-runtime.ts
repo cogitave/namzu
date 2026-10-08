@@ -1740,6 +1740,7 @@ export {
 	PalCommunicationConflictError,
 } from './pals/communication/store.js'
 export { PalMessageBroker } from './pals/communication/broker.js'
+export { PalOperatorMessageBroker } from './pals/communication/operator.js'
 export { createPalInboxSource } from './pals/communication/inbound.js'
 export { dispatchPalMessagesOnce } from './pals/communication/dispatch.js'
 export {
@@ -1763,6 +1764,7 @@ export { verifyIngressRecorded } from './pals/communication/verify.js'
 export {
 	PAL_OBSERVATION_NAMESPACE,
 	PAL_CHANNEL_NAMESPACE,
+	PAL_OPERATOR_NAMESPACE,
 	ingressMessageRef,
 } from './pals/communication/ingress-types.js'
 export { DiskPalChannelRoutes, PalChannelRouteConflictError } from './pals/channels/routes.js'

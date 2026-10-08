@@ -1422,11 +1422,23 @@ export class ToolExecutor {
 			commandDialect: this.commandDialect(name),
 			toolSource: this.toolSource(name),
 		})
-		if (gateResult && gateResult.decision !== 'allow') {
-			const reason =
-				gateResult.decision === 'deny'
+		// A tool that declares `requiresApproval` for this input needs a person's
+		// yes for every call, and no rule outranks that. An operator review cannot
+		// be opened from inside another tool, so a nested call to it is refused
+		// even when a rule allows it (the direct path turns that allow into a review).
+		const nestedTool = this.config.tools.get(name)
+		let needsApproval = false
+		try {
+			needsApproval = nestedTool?.requiresApproval?.(preparedInput as never) === true
+		} catch {
+			needsApproval = true
+		}
+		if (needsApproval || (gateResult && gateResult.decision !== 'allow')) {
+			const reason = needsApproval
+				? `Blocked: "${name}" requires the person's approval for every call, and an approval cannot be requested from inside another tool. Call it directly.`
+				: gateResult?.decision === 'deny'
 					? `Blocked by the authorization gate: ${gateResult.reason}`
-					: `Blocked by the authorization gate: this nested call requires an explicit allow rule because an operator review cannot be opened from inside another tool. ${gateResult.reason}`
+					: `Blocked by the authorization gate: this nested call requires an explicit allow rule because an operator review cannot be opened from inside another tool. ${gateResult?.reason}`
 			const output = deniedToolOutput(name, reason)
 			// Same fail-closed durability rule as a direct gate denial: if the
 			// configured session log cannot record the refusal, do not quietly carry

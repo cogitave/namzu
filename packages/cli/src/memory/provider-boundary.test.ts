@@ -555,11 +555,34 @@ it('keeps tool-writable project memory out of system guidance on the next turn',
 	expect(durableHistory).not.toContain('## Curated memory (this project)')
 })
 
+/**
+ * Words of `history ` that leave about `target` tokens of an 18,000-token window
+ * free for the first request. The fixed tool roster, the system prompt and the
+ * runtime blocks all occupy that window, so the padding is derived from what a
+ * probe turn measures rather than from a hard-coded size that every new tool
+ * would invalidate. The estimator counts `history ` as two tokens.
+ */
+const TOKENS_PER_HISTORY_WORD = 2
+async function historyWordsLeaving(target: number): Promise<number> {
+	let free = -1
+	const { session } = await makeSession(false, cwd, {
+		compaction: { contextWindowTokens: 18_000, strategy: 'structured' },
+		residentEvidenceRecall: ({ contextBudget }) => {
+			free = contextBudget?.remainingTokens ?? -1
+			return undefined
+		},
+	})
+	await send(session, 'Inspect the fixture.')
+	expect(free, 'the probe turn must report a context budget').toBeGreaterThan(target)
+	return Math.floor((free - target) / TOKENS_PER_HISTORY_WORD)
+}
+
 it('bounds file and index memory under a small, occupied context window', async () => {
 	writeFileSync(join(appHome, 'USER.md'), `PROFILE_START\n${'profile line\n'.repeat(600)}`)
 	writeFileSync(join(appHome, 'MEMORY.md'), `GLOBAL_START\n${'global line\n'.repeat(600)}`)
 	writeFileSync(join(cwd, '.namzu', 'MEMORY.md'), `PROJECT_START\n${'project line\n'.repeat(600)}`)
 	const observed: { remaining: number; context: string }[] = []
+	const historyWords = await historyWordsLeaving(800)
 	const { session, state, scope } = await makeSession(false, cwd, {
 		compaction: { contextWindowTokens: 18_000, strategy: 'structured' },
 		residentEvidenceRecall: ({ contextBudget, prepared }) => {
@@ -579,7 +602,7 @@ it('bounds file and index memory under a small, occupied context window', async 
 			description: `INDEX_ITEM_${index}_${'x'.repeat(80)}`,
 		})
 	}
-	const result = await send(session, `Inspect the fixture. ${'history '.repeat(850)}`)
+	const result = await send(session, `Inspect the fixture. ${'history '.repeat(historyWords)}`)
 	expect(observed).toHaveLength(1)
 	expect(observed[0]!.remaining).toBeGreaterThan(0)
 	expect(observed[0]!.context).not.toContain('## About the user')
@@ -602,6 +625,7 @@ it('re-bounds memory against a smaller model selected by a later preparation sta
 		join(cwd, '.namzu', 'MEMORY.md'),
 		`PROJECT_FOR_MODEL_SWITCH\n${'project line\n'.repeat(600)}`,
 	)
+	const historyWords = await historyWordsLeaving(800)
 	const scripted = Object.assign(
 		new MockLLMProvider({
 			responseText: 'Selected model finished.',
@@ -636,7 +660,7 @@ it('re-bounds memory against a smaller model selected by a later preparation sta
 	}
 	const result = await send(
 		session,
-		`Inspect the selected window. ${'history '.repeat(850)} cedargraph`,
+		`Inspect the selected window. ${'history '.repeat(historyWords)} cedargraph`,
 	)
 	expect(result.request.model).toBe('narrow')
 	expect(result.context).toContain('## About the user')

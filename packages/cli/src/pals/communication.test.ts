@@ -19,6 +19,7 @@ import {
 	type PalChannelIntent,
 	type PalIngressIntentDraft,
 	type PalObservationIntent,
+	type PalOperatorIntent,
 	type PalRouteBinding,
 	type ToolContext,
 	autoApproveHandler,
@@ -222,6 +223,32 @@ async function channel(f: Awaited<ReturnType<typeof fixture>>) {
 	await f.store.acceptIngress(intent, f.recipient.revision)
 	const binding = await f.store.routeIngress(intent.routeKey)
 	if (!binding) throw new Error('Missing channel route')
+	return { intent, binding }
+}
+
+/** A message the owner approved in their own ordinary conversation, already accepted. */
+async function operator(f: Awaited<ReturnType<typeof fixture>>) {
+	const sessionId = generateSessionId()
+	const draft: PalIngressIntentDraft = {
+		kind: 'operator',
+		source: { kind: 'operator-conversation', tenantId: f.target.tenantId, sessionId },
+		recipient: f.target,
+		routeKey: { v: 1, kind: 'operator', recipient: f.target, conversationId: sessionId },
+		body: 'OWNER_TASK_CONTEXT_20261008',
+		operationId: 'operator-tool-call',
+		replyTo: null,
+		grant: { id: 'owner-conversation', revision: '1' },
+		createdAt: 100,
+	}
+	const id = ingressIntentId(draft)
+	const intent = {
+		...draft,
+		id,
+		digest: ingressIntentDigest({ ...draft, id }),
+	} as PalOperatorIntent
+	await f.store.acceptIngress(intent, f.recipient.revision)
+	const binding = await f.store.routeIngress(intent.routeKey)
+	if (!binding) throw new Error('Missing operator route')
 	return { intent, binding }
 }
 
@@ -688,11 +715,16 @@ describe('CLI Pal messaging over real disk and session ownership', () => {
 		})
 		expect((await authorize(observationRequest)).allow).toBe(false)
 	})
-	it.each(['observation', 'channel'] as const)(
+	it.each(['observation', 'channel', 'operator'] as const)(
 		'records %s intake through actual CLI query composition with exact provenance',
 		async (kind) => {
 			const f = await fixture()
-			const incoming = kind === 'observation' ? await observation(f) : await channel(f)
+			const incoming =
+				kind === 'observation'
+					? await observation(f)
+					: kind === 'operator'
+						? await operator(f)
+						: await channel(f)
 			if ('subscriptionId' in incoming)
 				await cliPalActivitySubscriptionPolicy().update({
 					subscriptionId: incoming.subscriptionId,
@@ -764,7 +796,12 @@ describe('CLI Pal messaging over real disk and session ownership', () => {
 				content: {
 					source: {
 						type: 'runtime-context',
-						kind: kind === 'observation' ? 'host-observation' : 'channel-message',
+						kind:
+							kind === 'observation'
+								? 'host-observation'
+								: kind === 'operator'
+									? 'peer-message'
+									: 'channel-message',
 						deliveryRef: delivered.receipt.ref,
 					},
 				},

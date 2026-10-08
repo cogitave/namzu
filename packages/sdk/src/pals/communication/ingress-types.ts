@@ -44,6 +44,18 @@ export interface PalChannelRouteKey extends PalChannelIdentity {
 	readonly recipient: PalAddress
 }
 
+/**
+ * Route key for the operator's own ordinary conversation addressing one Pal. One
+ * operator conversation opens one distinct Pal conversation; it never reuses a
+ * Pal-to-Pal route and carries no Pal sender address.
+ */
+export interface PalOperatorRouteKey {
+	readonly v: 1
+	readonly kind: 'operator'
+	readonly recipient: PalAddress
+	readonly conversationId: SessionId
+}
+
 export interface PalObservationSource {
 	readonly kind: 'host-observation'
 	readonly subscriptionId: string
@@ -56,6 +68,16 @@ export interface PalChannelSource extends PalChannelIdentity {
 	readonly tenantId: PalAddress['tenantId']
 	readonly actorId: string
 	readonly eventId: string
+}
+
+/**
+ * The host-captured identity of the owner's ordinary (non-Pal) conversation.
+ * It is not a Pal address and cannot impersonate one; the model never selects it.
+ */
+export interface PalOperatorSource {
+	readonly kind: 'operator-conversation'
+	readonly tenantId: PalAddress['tenantId']
+	readonly sessionId: SessionId
 }
 
 export interface PalIngressIntentBase {
@@ -84,17 +106,35 @@ export interface PalChannelIntent extends PalIngressIntentBase {
 	readonly body: string
 }
 
+/** A message the owner sent from an ordinary conversation, after approving it there. */
+export interface PalOperatorIntent extends PalIngressIntentBase {
+	readonly kind: 'operator'
+	readonly source: PalOperatorSource
+	readonly routeKey: PalOperatorRouteKey
+	readonly body: string
+}
+
 /** Legacy Pal intents retain their original shape and namespace. */
-export type PalIngressIntent = PalMessageIntent | PalObservationIntent | PalChannelIntent
+export type PalIngressIntent =
+	| PalMessageIntent
+	| PalObservationIntent
+	| PalChannelIntent
+	| PalOperatorIntent
 export type PalIngressIntentDraft =
 	| Omit<PalMessageIntent, 'id' | 'digest'>
 	| Omit<PalObservationIntent, 'id' | 'digest'>
 	| Omit<PalChannelIntent, 'id' | 'digest'>
+	| Omit<PalOperatorIntent, 'id' | 'digest'>
 export type PalIngressDigestInput =
 	| Omit<PalMessageIntent, 'digest'>
 	| Omit<PalObservationIntent, 'digest'>
 	| Omit<PalChannelIntent, 'digest'>
-export type PalIngressRouteKey = PalRouteKey | PalObservationRouteKey | PalChannelRouteKey
+	| Omit<PalOperatorIntent, 'digest'>
+export type PalIngressRouteKey =
+	| PalRouteKey
+	| PalObservationRouteKey
+	| PalChannelRouteKey
+	| PalOperatorRouteKey
 
 export interface PalIngressRouteBinding {
 	readonly id: string
@@ -115,7 +155,7 @@ export interface PalIngressDeliveryState {
 
 export type PalIngressInboxMessage =
 	| PalInboxMessage
-	| ((PalObservationIntent | PalChannelIntent) & PalIngressDeliveryState)
+	| ((PalObservationIntent | PalChannelIntent | PalOperatorIntent) & PalIngressDeliveryState)
 export type PalIngressAcceptanceReceipt = PalMessageReceipt
 
 export interface PalIngressSnapshot {
@@ -172,6 +212,9 @@ export type PalIngressAuthorizationRequest =
 	| (Omit<PalChannelIntent, 'id' | 'digest' | 'operationId' | 'grant' | 'createdAt'> & {
 			readonly phase: 'accept' | 'deliver' | 'wake'
 	  })
+	| (Omit<PalOperatorIntent, 'id' | 'digest' | 'operationId' | 'grant' | 'createdAt'> & {
+			readonly phase: 'accept' | 'deliver' | 'wake'
+	  })
 
 export interface PalIngressHostPort {
 	ensureConversation(binding: PalIngressRouteBinding, signal: AbortSignal): Promise<void>
@@ -208,10 +251,11 @@ export type PalIngressDispatchOutcome =
 
 export const PAL_OBSERVATION_NAMESPACE = 'namzu-pal-observation/1'
 export const PAL_CHANNEL_NAMESPACE = 'namzu-pal-channel/1'
+export const PAL_OPERATOR_NAMESPACE = 'namzu-pal-operator/1'
 
 export function ingressMessageRef(
 	message: Pick<PalIngressInboxMessage, 'id' | 'digest'> & {
-		readonly kind?: 'observation' | 'channel'
+		readonly kind?: 'observation' | 'channel' | 'operator'
 	},
 ): InboundDeliveryRef {
 	return {
@@ -220,20 +264,26 @@ export function ingressMessageRef(
 				? PAL_OBSERVATION_NAMESPACE
 				: message.kind === 'channel'
 					? PAL_CHANNEL_NAMESPACE
-					: 'namzu-pal-message/1',
+					: message.kind === 'operator'
+						? PAL_OPERATOR_NAMESPACE
+						: 'namzu-pal-message/1',
 		id: message.id,
 		digest: message.digest,
 	}
 }
 
+/**
+ * The runtime-context kind a delivery is recorded under. An operator-conversation
+ * message reuses `peer-message` (a message from another conversation) so the public
+ * runtime-context union is unchanged; its rendered envelope, not this kind, names
+ * the owner's conversation as the source.
+ */
 export function ingressRuntimeContextKind(
 	message: PalIngressIntent,
 ): 'peer-message' | 'host-observation' | 'channel-message' {
-	return 'kind' in message
-		? message.kind === 'observation'
-			? 'host-observation'
-			: 'channel-message'
-		: 'peer-message'
+	if (!('kind' in message)) return 'peer-message'
+	if (message.kind === 'observation') return 'host-observation'
+	return message.kind === 'channel' ? 'channel-message' : 'peer-message'
 }
 
 export function ingressAuthorizationRequest(
@@ -250,22 +300,30 @@ export function ingressAuthorizationRequest(
 		routeKey: message.routeKey,
 		replyTo: null,
 	}
-	return message.kind === 'observation'
-		? {
-				...common,
-				kind: 'observation',
-				source: message.source,
-				routeKey: message.routeKey,
-				fact: message.fact,
-				subscriptionTrail: message.subscriptionTrail,
-			}
-		: {
-				...common,
-				kind: 'channel',
-				source: message.source,
-				routeKey: message.routeKey,
-				body: message.body,
-			}
+	if (message.kind === 'observation')
+		return {
+			...common,
+			kind: 'observation',
+			source: message.source,
+			routeKey: message.routeKey,
+			fact: message.fact,
+			subscriptionTrail: message.subscriptionTrail,
+		}
+	if (message.kind === 'operator')
+		return {
+			...common,
+			kind: 'operator',
+			source: message.source,
+			routeKey: message.routeKey,
+			body: message.body,
+		}
+	return {
+		...common,
+		kind: 'channel',
+		source: message.source,
+		routeKey: message.routeKey,
+		body: message.body,
+	}
 }
 
 export function currentIngressRecipient(

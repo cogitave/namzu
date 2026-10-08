@@ -777,6 +777,14 @@ export type { PeerMessageEnvelopeInput } from './peers/envelope.js'
 export type * from './pals/communication/types.js'
 export type { PalMessagingToolsOptions, PalMessagingRecipient } from './pals/communication/tools.js'
 export type {
+	PalOperatorConversation,
+	PalOperatorMessageBrokerOptions,
+	PalOperatorMessageSender,
+	PalOperatorMessagingToolsOptions,
+	PalOperatorRecipient,
+	PalOperatorSendRequest,
+} from './pals/communication/operator.js'
+export type {
 	PalMessagePermission,
 	PalMessagePermissionUpdate,
 } from './pals/communication/policy.js'

@@ -78,12 +78,17 @@ export async function runPalMessageCommand(
 									subscriptionId: message.source.subscriptionId,
 									observedPalId: message.source.scope.palId,
 								}
-							: {
-									sourceKind: 'channel',
-									provider: message.source.provider,
-									connectionId: message.source.connectionId,
-									actorId: message.source.actorId,
-								}),
+							: message.kind === 'operator'
+								? {
+										sourceKind: 'operator-conversation',
+										operatorSessionId: message.source.sessionId,
+									}
+								: {
+										sourceKind: 'channel',
+										provider: message.source.provider,
+										connectionId: message.source.connectionId,
+										actorId: message.source.actorId,
+									}),
 					status: message.phase,
 					conversationId: state?.routes.find((route) => route.id === message.routeId)?.sessionId,
 				})),
@@ -94,7 +99,11 @@ export async function runPalMessageCommand(
 			process.once('SIGINT', interrupt)
 			process.once('SIGTERM', interrupt)
 			try {
-				output.print(await dispatchCliPalMessages(ctx, first.palId, controller.signal))
+				// Running this command is the owner starting the Pal themselves, which is the one
+				// consent that also lets a message from their conversation wake it.
+				output.print(
+					await dispatchCliPalMessages(ctx, first.palId, controller.signal, { operatorWake: true }),
+				)
 			} catch (error) {
 				output.error({ message: error instanceof Error ? error.message : String(error) })
 				return EXIT_UNAVAILABLE

@@ -3188,6 +3188,25 @@ export async function createAgentSession(
 		toolsets.push(toolset('extra', options.extraTools))
 	}
 	if (options.openUrl) toolsets.push(toolset('open-url', [createOpenUrlTool()]))
+	// The owner's Pals, reachable from an ordinary conversation of the Namzu engine.
+	// Mounted whether or not any Pal exists yet so one created mid-conversation is
+	// usable at once (the roster never changes, so the cached prefix does not); the
+	// prompt names Pals only while some exist. A Pal's own session branches off above.
+	const operatorPals = await import('../pals/operator-tools.js')
+	toolsets.push(
+		toolset(
+			'pals',
+			operatorPals.createCliOperatorPalTools({
+				tenantId: scope.tenantId,
+				...(options.stateRoot ? { home: options.stateRoot } : {}),
+			}).tools,
+		),
+	)
+	const palPromptBlock = (): string | undefined =>
+		options.withheldTools?.includes('send_pal_message') ||
+		options.withheldTools?.includes('list_pals')
+			? undefined
+			: operatorPals.operatorPalPromptBlock(options.stateRoot)
 	// Task store → query registers task_create / task_update / task_list and
 	// emits task_created/task_updated, so the agent can track a plan. Tasks
 	// belong to the session (`<session-id>/tasks/`) and record the turn that
@@ -3575,6 +3594,7 @@ export async function createAgentSession(
 					NAMZU_WORKING_DOCTRINE,
 					browserDesktopRouting,
 					NAMZU_DELEGATION_DOCTRINE,
+					palPromptBlock(),
 					options.conversationSessions ? CONVERSATION_EVIDENCE_GUIDANCE : undefined,
 					environmentPrompt,
 					systemNote,
@@ -4421,6 +4441,7 @@ export async function createAgentSession(
 									? undefined
 									: NAMZU_DELEGATION_DOCTRINE,
 								!residentContext && opts?.hypermode ? NAMZU_HYPERMODE_DOCTRINE : undefined,
+								residentContext ? undefined : palPromptBlock(),
 								options.conversationSessions ? CONVERSATION_EVIDENCE_GUIDANCE : undefined,
 								options.toolLoading === 'deferred' ? DEFERRED_TOOL_GUIDANCE : undefined,
 								// Present only while the turn runs under `plan`. A mode change

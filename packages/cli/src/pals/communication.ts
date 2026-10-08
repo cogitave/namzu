@@ -69,15 +69,54 @@ export function cliPalActivitySubscriptionPolicy(home = resolveNamzuHome()) {
 /** Only a trusted configured connection adapter can authorize a channel actor. */
 export interface CliPalIngressAuthorizationOptions {
 	readonly authorizeChannel?: PalChannelIngressOptions['authorize']
+	/**
+	 * True only where the owner explicitly started the recipient themselves (the
+	 * `namzu pal dispatch` command). A message from the owner's conversation is
+	 * accepted after the tool review the owner answered, but waking its recipient is
+	 * a separate consent no model-driven call can give.
+	 */
+	readonly operatorWake?: boolean
 }
+
+/** Audit reference for a message the owner approved in their own conversation; never a continuing grant. */
+const OPERATOR_GRANT = { id: 'owner-conversation', revision: '1' } as const
+
+/**
+ * Authority for an owner-conversation message. It touches no disk, so a session
+ * can build it without creating any Pal state.
+ *
+ * Security boundary: this answers `accept` for any operator-source request and
+ * does not itself prove a person approved it. The approval is the tool review
+ * of `send_pal_message` (`requiresApproval`, which no rule or mode outranks), so
+ * the broker must only be reachable from that tool. A new caller of
+ * `PalOperatorMessageBroker.send` must put its own explicit approval in front of it.
+ */
+export function createCliOperatorIngressAuthorization(
+	options: Pick<CliPalIngressAuthorizationOptions, 'operatorWake'> = {},
+): PalIngressOptions['authorize'] {
+	return async (request: PalIngressAuthorizationRequest) => {
+		if (!('kind' in request) || request.kind !== 'operator')
+			return { allow: false, reason: 'Only an owner-conversation message is authorized here.' }
+		if (request.phase === 'wake' && options.operatorWake !== true)
+			return {
+				allow: false,
+				reason:
+					'Starting this Pal for an owner message needs your explicit go: run namzu pal dispatch.',
+			}
+		return { allow: true, grant: OPERATOR_GRANT }
+	}
+}
+
 export function createCliPalIngressAuthorization(
 	input: CliPalIngressAuthorizationOptions = {},
 ): PalIngressOptions['authorize'] {
 	const authorizeChannel = input.authorizeChannel
 	const peer = cliPalCommunicationPolicy()
 	const observation = cliPalActivitySubscriptionPolicy()
+	const operator = createCliOperatorIngressAuthorization(input)
 	return async (request: PalIngressAuthorizationRequest) => {
 		if (!('kind' in request)) return peer.authorize(request)
+		if (request.kind === 'operator') return operator(request)
 		if (request.kind === 'observation') return observation.authorizeIngress(request)
 		if (!authorizeChannel)
 			return { allow: false, reason: 'No trusted channel authorization adapter is configured.' }

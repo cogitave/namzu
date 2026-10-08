@@ -311,6 +311,9 @@ describe('computer use session reachability', () => {
 				'wait_for_task',
 				// The built-in skills are loaded through it.
 				'skill',
+				// The owner's Pals, mounted in every ordinary conversation.
+				'list_pals',
+				'send_pal_message',
 			].sort(),
 		)
 		const computerUse = queryTools.find((t) => t.function.name === 'computer_use')?.function

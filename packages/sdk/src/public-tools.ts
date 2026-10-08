@@ -245,3 +245,4 @@ export {
 export { buildResidentToolEvidenceTools } from './tools/resident-tool-evidence.js'
 
 export { createPalMessagingTools } from './pals/communication/tools.js'
+export { createPalOperatorMessagingTools } from './pals/communication/operator.js'

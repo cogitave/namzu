@@ -44,7 +44,7 @@ export async function dispatchCliPalMessages(
 	signal: AbortSignal,
 	options: CliPalIngressAuthorizationOptions = {},
 ): Promise<PalIngressDispatchOutcome> {
-	const authorizeChannel = options.authorizeChannel
+	const { authorizeChannel, operatorWake } = options
 	const pals = getCliPalStore()
 	const pal = pals.get(palId)
 	if (!pal) throw new Error('Pal does not exist.')
@@ -52,7 +52,10 @@ export async function dispatchCliPalMessages(
 	const address = { tenantId: identity.tenantId, palId }
 	closeSessions(identity)
 	const store = cliPalCommunicationStore()
-	const authorize = createCliPalIngressAuthorization({ authorizeChannel })
+	const authorize = createCliPalIngressAuthorization({
+		...(authorizeChannel ? { authorizeChannel } : {}),
+		...(operatorWake ? { operatorWake } : {}),
+	})
 	const runConversation = async (
 		binding: PalIngressRouteBinding,
 		source: DurableInboundSource,

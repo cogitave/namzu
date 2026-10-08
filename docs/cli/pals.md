@@ -688,6 +688,39 @@ whose job cleanup failed remains closable for an explicit retry.
 
 For the local engine/image requirements, including the supported Windows Podman route, see [Local Pal computer](../sdk/local-pal-computer.md). Engine selection does not change the Pal identity or guest-only tool boundary.
 
+## Giving a Pal work from a normal conversation
+
+In the Namzu engine's ordinary conversation (Desktop or terminal, not inside a
+Pal and not an external engine) the agent has `list_pals` and `send_pal_message`.
+They are mounted in every such session, so a Pal created mid-conversation is usable
+at once; the roster never changes, and the system prompt names Pals only while the
+owner has some. The block names them, separates them from sub-agents and says a
+sent message only reaches the inbox and a Pal's later report is a claim to check.
+Names are clipped to one plain line and purposes never enter the prompt. A session
+of an owner without Pals creates no Pal files.
+
+- `list_pals` returns each Pal's ID, name, purpose, whether it is paused and whether
+  this application runs a conversation for it (`idle`; another application's
+  conversation is not visible, so `idle` is not proof the Pal is free).
+- `send_pal_message { palId, body }` asks you first, every time: the tool declares
+  that a person must approve it, so `auto`, `accept-edits`, a rule and a remembered
+  "approve all" do not cover it, `strict` refuses it, and a session with nobody to
+  ask refuses it rather than sending. On approval the message is accepted into the
+  Pal's durable inbox and the tool answers "Sent to *name*'s inbox. This is durable
+  acceptance, not delivery, a reply or finished work." A paused or removed Pal is
+  refused with a clear error and nothing is written.
+- No directed grant is involved, because the sender is you rather than a Pal. The
+  Pal sees the message as untrusted context from your conversation, not as a tool
+  approval, and its own tool prompts stay in its own conversation. A message from
+  the owner's conversation is accepted and delivered to a running Pal like any
+  other input, but it never starts a stopped Pal: `namzu pal dispatch <pal-id>`,
+  which you type, is the consent that does (`inbox` lists it with
+  `sourceKind: operator-conversation`). Starting a Pal from inside the conversation
+  with its own approval is not built yet.
+
+Not offered: an "allow for this conversation" choice. Approval is per message.
+External engines do not get these tools; Pal tasks are Namzu-engine only for now.
+
 ## Directed messaging consent
 
 The terminal and desktop Pal sessions mount the same SDK `list_pals` and
@@ -715,8 +748,9 @@ current Namzu home's local tenant and persisted Pal IDs.
 delivery status and owned conversation ID. Existing peer rows retain `sourcePalId`.
 Observation rows add `sourceKind: host-observation`, subscription ID and observed
 Pal ID; channel rows add `sourceKind: channel`, provider, connection and current
-event actor. It prints no private message bodies. Acceptance does not mean the
-model has read the input.
+event actor; owner-conversation rows add `sourceKind: operator-conversation` and
+the sending `operatorSessionId`. It prints no private message bodies. Acceptance
+does not mean the model has read the input.
 `dispatch` selects the oldest pending input across all families and runs one
 eligible owned route with the recipient's pinned profile and
 actual local computer. Its tools use **strict** review mode: only explicit

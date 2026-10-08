@@ -183,10 +183,26 @@ export const observationRouteKeySchema = z
 		scope: activityScopeSchema,
 	})
 	.strict()
+export const operatorSourceSchema = z
+	.object({
+		kind: z.literal('operator-conversation'),
+		tenantId: z.custom<PalActivityScope['tenantId']>((value) => isEntityId(value, 'tenant')),
+		sessionId,
+	})
+	.strict()
+export const operatorRouteKeySchema = z
+	.object({
+		v: z.literal(1),
+		kind: z.literal('operator'),
+		recipient: addressSchema,
+		conversationId: sessionId,
+	})
+	.strict()
 export const ingressRouteKeySchema = z.union([
 	routeKeySchema,
 	observationRouteKeySchema,
 	channelRouteKeySchema,
+	operatorRouteKeySchema,
 ])
 
 const base = {
@@ -244,10 +260,25 @@ export const channelIntentSchema = z
 		(value) => value.operationId === value.source.eventId,
 		'Operation identity must equal the captured channel event.',
 	)
+const operatorBody = z
+	.string()
+	.min(1)
+	.max(32_000)
+	.refine((value) => !value.includes('\u0000'))
+export const operatorIntentSchema = z
+	.object({
+		...base,
+		kind: z.literal('operator'),
+		source: operatorSourceSchema,
+		routeKey: operatorRouteKeySchema,
+		body: operatorBody,
+	})
+	.strict()
 export const ingressIntentSchema = z.union([
 	intentSchema,
 	observationIntentSchema,
 	channelIntentSchema,
+	operatorIntentSchema,
 ])
 
 export const ingressBindingSchema = z.object({
@@ -267,6 +298,7 @@ export const ingressReceiptSchema = z
 					'namzu-pal-message/1',
 					'namzu-pal-observation/1',
 					'namzu-pal-channel/1',
+					'namzu-pal-operator/1',
 				]),
 				id: digest,
 				digest,
@@ -322,6 +354,16 @@ export const ingressInboxSchema = z.union([
 				.refine((value) => !value.includes('\u0000')),
 		})
 		.strict(),
+	z
+		.object({
+			...base,
+			...delivery,
+			kind: z.literal('operator'),
+			source: operatorSourceSchema,
+			routeKey: operatorRouteKeySchema,
+			body: operatorBody,
+		})
+		.strict(),
 ])
 export const ingressSnapshotSchema = z.object({
 	recipient: addressSchema,
@@ -359,6 +401,8 @@ export function ingressRouteTuple(key: PalIngressRouteKey): readonly unknown[] {
 			key.subscriptionId,
 			activityScopeTuple(key.scope),
 		]
+	if (key.kind === 'operator')
+		return [1, 'operator', addressTuple(key.recipient), key.conversationId]
 	return [1, 'channel', addressTuple(key.recipient), ...nativeChannelTuple(key)]
 }
 export function ingressRouteId(key: PalIngressRouteKey): string {
@@ -374,6 +418,14 @@ export function ingressIntentId(intent: PalIngressIntentDraft): string {
 			intent.source.subscriptionId,
 			activityScopeTuple(intent.source.scope),
 			intent.fact.id,
+		])
+	if (intent.kind === 'operator')
+		return hash([
+			1,
+			'pal-operator',
+			intent.source.tenantId,
+			intent.source.sessionId,
+			intent.operationId,
 		])
 	return hash([
 		1,
@@ -410,6 +462,17 @@ export function ingressIntentDigest(intent: PalIngressDigestInput): string {
 				intent.fact.reviewDecision ?? null,
 			],
 			intent.subscriptionTrail,
+		])
+	if (intent.kind === 'operator')
+		return hash([
+			1,
+			'operator',
+			intent.source.tenantId,
+			intent.source.sessionId,
+			intent.operationId,
+			addressTuple(intent.recipient),
+			ingressRouteTuple(intent.routeKey),
+			intent.body,
 		])
 	return hash([
 		1,
@@ -448,6 +511,12 @@ export function checkedIngressIntent(value: unknown): PalIngressIntent {
 			!isDeepStrictEqual(intent.source.scope, intent.routeKey.scope)
 		)
 			throw new Error('Foreign observation source or route.')
+	} else if (intent.kind === 'operator') {
+		if (
+			intent.source.tenantId !== intent.recipient.tenantId ||
+			intent.source.sessionId !== intent.routeKey.conversationId
+		)
+			throw new Error('Foreign operator conversation source or route.')
 	} else if (
 		intent.source.tenantId !== intent.recipient.tenantId ||
 		!isDeepStrictEqual(nativeChannelTuple(intent.source), nativeChannelTuple(intent.routeKey))

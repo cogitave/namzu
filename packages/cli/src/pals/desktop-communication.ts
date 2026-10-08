@@ -249,12 +249,17 @@ export function createDesktopPalCommunicationExtensions(options: {
 									subscriptionId: message.source.subscriptionId,
 									observedPalId: message.source.scope.palId,
 								}
-							: {
-									sourceKind: 'channel' as const,
-									provider: message.source.provider,
-									connectionId: message.source.connectionId,
-									actorId: message.source.actorId,
-								}),
+							: message.kind === 'operator'
+								? {
+										sourceKind: 'operator-conversation' as const,
+										operatorSessionId: message.source.sessionId,
+									}
+								: {
+										sourceKind: 'channel' as const,
+										provider: message.source.provider,
+										connectionId: message.source.connectionId,
+										actorId: message.source.actorId,
+									}),
 				}))
 				return { v: 1 as const, palId: pal.id, messages }
 			}),

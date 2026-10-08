@@ -5,6 +5,7 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
+	rmSync,
 	symlinkSync,
 	writeFileSync,
 } from 'node:fs'
@@ -131,7 +132,11 @@ it('authorizes and reads tasks through the same state if the application home ch
 				paths: replacement.paths,
 				session: { sessionId },
 				tenantId: replacement.tenantId,
-			}).create({ sessionId, turnId: generateTurnId(), subject: 'UNAUTHORIZED_REPLACEMENT_RECORD' })
+			}).create({
+				sessionId,
+				turnId: generateTurnId(),
+				subject: 'UNAUTHORIZED_REPLACEMENT_RECORD',
+			})
 		} finally {
 			closeSessions(replacement)
 		}
@@ -261,9 +266,11 @@ it.each(['slot', 'home'] as const)(
 	async (change) => {
 		const owner = runtime()
 		const sessionId = generateSessionId()
-		const accept = vi
-			.spyOn(owner, 'liveInput')
-			.mockResolvedValue({ accepted: true, scopeId: 'scope', inputId: 'entry' })
+		const accept = vi.spyOn(owner, 'liveInput').mockResolvedValue({
+			accepted: true,
+			scopeId: 'scope',
+			inputId: 'entry',
+		})
 		let published: string | undefined = cwd
 		const host = createDesktopHostExtensions(owner, cwd, (id) =>
 			id === sessionId ? published : undefined,
@@ -654,7 +661,13 @@ it('restores only proven commentary and final phases from a fresh ordinary journ
 	const sessionId = await startConversation(state)
 	const commentary = {
 		...createAssistantMessage('Checking the file.'),
-		textParts: [{ id: 'progress', text: 'Checking the file.', phase: 'commentary' as const }],
+		textParts: [
+			{
+				id: 'progress',
+				text: 'Checking the file.',
+				phase: 'commentary' as const,
+			},
+		],
 	}
 	const final = {
 		...createAssistantMessage('Ready.'),
@@ -663,14 +676,26 @@ it('restores only proven commentary and final phases from a fresh ordinary journ
 	const mixed = {
 		...createAssistantMessage('Selected answer.'),
 		textParts: [
-			{ id: 'mixed-progress', text: 'More work.', phase: 'commentary' as const },
-			{ id: 'mixed-answer', text: 'Selected answer.', phase: 'final_answer' as const },
+			{
+				id: 'mixed-progress',
+				text: 'More work.',
+				phase: 'commentary' as const,
+			},
+			{
+				id: 'mixed-answer',
+				text: 'Selected answer.',
+				phase: 'final_answer' as const,
+			},
 		],
 	}
 	const ambiguous = {
 		...createAssistantMessage('Commentary.\n\nUnphased.'),
 		textParts: [
-			{ id: 'ambiguous-progress', text: 'Commentary.', phase: 'commentary' as const },
+			{
+				id: 'ambiguous-progress',
+				text: 'Commentary.',
+				phase: 'commentary' as const,
+			},
 			{ id: 'ambiguous-other', text: 'Unphased.' },
 		],
 	}
@@ -726,7 +751,11 @@ it('keeps the Pal history filter unchanged while ordinary phase metadata is avai
 			{
 				...createAssistantMessage('Public result.'),
 				textParts: [
-					{ id: 'more-progress', text: 'More private progress.', phase: 'commentary' },
+					{
+						id: 'more-progress',
+						text: 'More private progress.',
+						phase: 'commentary',
+					},
 					{ id: 'answer', text: 'Public result.', phase: 'final_answer' },
 				],
 			},
@@ -769,7 +798,12 @@ it('keeps an uncommitted stopped reply out of Pal history', async () => {
 			content: createUserMessage('Stop me'),
 		})
 		const messageId = generateMessageId()
-		await log.append(lease, { type: 'message_started', turnId, iteration: 1, messageId })
+		await log.append(lease, {
+			type: 'message_started',
+			turnId,
+			iteration: 1,
+			messageId,
+		})
 		await log.append(lease, {
 			type: 'message_completed',
 			turnId,
@@ -1143,7 +1177,10 @@ it('reads fresh retry eligibility without an index or a model runtime', async ()
 		expect(await host['namzu/sessions/retry-status']!({ sessionId: f.sessionId })).toEqual({
 			notice: expect.stringContaining('original approval settings'),
 		})
-		const lease = await f.log.claim({ holder: 'fresh-retry-read', ttlMs: 60_000 })
+		const lease = await f.log.claim({
+			holder: 'fresh-retry-read',
+			ttlMs: 60_000,
+		})
 		if (!lease) throw new Error('Fixture writer unavailable')
 		try {
 			await f.log.append(lease, {
@@ -1281,7 +1318,10 @@ it.each(['load', 'retry'] as const)(
 				return scope
 			},
 		})
-		createDesktopHostExtensions(owner, cwd)['namzu/project/trust']({ confirmed: true, cwd })
+		createDesktopHostExtensions(owner, cwd)['namzu/project/trust']({
+			confirmed: true,
+			cwd,
+		})
 		const { state, sessionId } = await seeded()
 		const indexed = vi.spyOn(sdk, 'openSessionIndex')
 		try {
@@ -1306,7 +1346,10 @@ it('preserves an embedding storage seam until an explicit direct-read seam repla
 		openSessions(directory, { stateRoot: state.root }),
 	)
 	const owner = runtime({ openSessions: legacyOpen })
-	createDesktopHostExtensions(owner, cwd)['namzu/project/trust']({ confirmed: true, cwd })
+	createDesktopHostExtensions(owner, cwd)['namzu/project/trust']({
+		confirmed: true,
+		cwd,
+	})
 	const read = vi.fn((directory: string) =>
 		sessionStorage.openSessionScope(directory, { stateRoot: state.root }),
 	)
@@ -1478,7 +1521,11 @@ it('logically deletes an offline Pal through the metadata host without initializ
 			deleted: true,
 		})
 		await expect(
-			host['namzu/pals/update']({ id: pal.id, expectedRevision: 1, paused: false }),
+			host['namzu/pals/update']({
+				id: pal.id,
+				expectedRevision: 1,
+				paused: false,
+			}),
 		).rejects.toThrow('does not exist')
 		expect(initialize).not.toHaveBeenCalled()
 		expect(readFileSync(proof, 'utf8')).toBe('Retained output')
@@ -1577,7 +1624,10 @@ it('requires existing model authority and warm guest cleanup to finish before de
 	})
 	vi.spyOn(palEnvironment, 'existingCliPalRuntime').mockResolvedValue(active)
 	try {
-		const admission = await active.admitConversation({ palId: pal.id, conversationId: 'text' })
+		const admission = await active.admitConversation({
+			palId: pal.id,
+			conversationId: 'text',
+		})
 		await expect(host['namzu/pals/delete']({ id: pal.id, expectedRevision: 1 })).rejects.toThrow(
 			'Stop this Pal',
 		)
@@ -1597,6 +1647,44 @@ it('requires existing model authority and warm guest cleanup to finish before de
 		})
 	} finally {
 		await active.close()
+		await owner.close()
+	}
+})
+
+it('names an identity change instead of calling a saved conversation foreign, and leaves its journal alone', async () => {
+	const owner = runtime()
+	const host = createDesktopHostExtensions(owner, cwd)
+	host['namzu/project/trust']({ confirmed: true, cwd })
+	const { state, sessionId } = await seeded()
+	const file = state.paths.sessionLog({ sessionId })
+	const before = readFileSync(file, 'utf8')
+	closeSessions(state)
+	rmSync(join(root, 'state', 'identity.json'))
+	try {
+		const error = await host['namzu/conversations/archive']({
+			sessionId,
+		}).catch((e) => e)
+		expect(error).toBeInstanceOf(Error)
+		expect((error as Error).message).toBe(
+			'This conversation was saved by a different Namzu identity.',
+		)
+		expect(readFileSync(file, 'utf8')).toBe(before)
+	} finally {
+		await owner.close()
+	}
+})
+
+it('reports a journal-less id as missing and still refuses one published for another workspace', async () => {
+	const owner = runtime()
+	const host = createDesktopHostExtensions(owner, cwd, () => join(root, 'elsewhere'))
+	host['namzu/project/trust']({ confirmed: true, cwd })
+	const sessionId = generateSessionId()
+	mkdirSync(join(root, 'elsewhere'), { recursive: true })
+	try {
+		await expect(host['namzu/conversations/archive']({ sessionId })).rejects.toThrow(
+			'does not belong to this project',
+		)
+	} finally {
 		await owner.close()
 	}
 })
@@ -1730,9 +1818,16 @@ it('archives settled native history by releasing only its owning SDK harness wri
 				},
 				models: async () => [{ id: 'native-fixture-model', label: 'Native fixture model' }],
 				dispatch: async () => {
-					const turn = { nativeSessionId: binding.nativeSessionId, nativeTurnId: 'archive-turn' }
+					const turn = {
+						nativeSessionId: binding.nativeSessionId,
+						nativeTurnId: 'archive-turn',
+					}
 					await emit({ kind: 'turn-started', ...turn })
-					await emit({ kind: 'message-started', ...turn, nativeItemId: 'archive-answer' })
+					await emit({
+						kind: 'message-started',
+						...turn,
+						nativeItemId: 'archive-answer',
+					})
 					await emit({
 						kind: 'message-completed',
 						...turn,
@@ -1751,7 +1846,12 @@ it('archives settled native history by releasing only its owning SDK harness wri
 				},
 				interrupt: async () => ({ requested: true }),
 				respond: async () => ({ sent: true }),
-				readHistory: async () => ({ binding, events: [], pendingReviews: [], complete: true }),
+				readHistory: async () => ({
+					binding,
+					events: [],
+					pendingReviews: [],
+					complete: true,
+				}),
 				close,
 			}
 		},
@@ -1925,7 +2025,7 @@ it.each(['projectId', 'tenantId'] as const)(
 		const before = readFileSync(state.paths.sessionLog({ sessionId }), 'utf8')
 		try {
 			await expect(host['namzu/conversations/archive']({ sessionId })).rejects.toThrow(
-				'does not belong',
+				field === 'projectId' ? 'does not belong' : 'different Namzu identity',
 			)
 			expect(readFileSync(state.paths.sessionLog({ sessionId }), 'utf8')).toBe(before)
 		} finally {
@@ -1942,7 +2042,9 @@ it('refuses corrupt archive history and open parked turns without mutating eithe
 	const state = await openSessions(cwd)
 	const corruptId = await startConversation(state)
 	const parkedId = await startConversation(state)
-	await recordTurn(state, parkedId, [createUserMessage('Waiting for review')], { status: 'paused' })
+	await recordTurn(state, parkedId, [createUserMessage('Waiting for review')], {
+		status: 'paused',
+	})
 	appendFileSync(state.paths.sessionLog({ sessionId: corruptId }), '{broken durable record}\n')
 	try {
 		for (const sessionId of [corruptId, parkedId]) {

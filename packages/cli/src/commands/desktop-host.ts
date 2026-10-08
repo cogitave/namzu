@@ -852,6 +852,7 @@ export function createDesktopHostExtensions(
 				}
 			}),
 		)
+	const DIFFERENT_IDENTITY_MESSAGE = 'This conversation was saved by a different Namzu identity.'
 	const withReadScope = async <T>(run: (state: CliSessionScope) => Promise<T>): Promise<T> => {
 		const root = resolveNamzuHome()
 		if (!isTrustedAtStateRoot(cwd, root))
@@ -1364,6 +1365,8 @@ export function createDesktopHostExtensions(
 						missing: true as const,
 					}
 				}
+				if (facts.started.tenantId !== undefined && facts.started.tenantId !== state.tenantId)
+					throw new Error(DIFFERENT_IDENTITY_MESSAGE)
 				await ownedSessionIn({ sessionId: requestedId }, state)
 				if (facts.activeTurn)
 					throw new Error('Resolve this conversation’s open turn before archiving it.')

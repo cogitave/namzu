@@ -322,6 +322,7 @@ const WIRE_VALUE_FILES = [
 	'packages/cli/src/tui/__tests__/model-picker-search.test.tsx',
 	'packages/cli/src/tui/__tests__/google-provider-session.test.ts',
 	'packages/cli/src/tui/__tests__/model-switch-reaches-session.test.ts',
+	'packages/cli/src/pals/operator-tools.test.ts',
 	'packages/cli/src/tui/__tests__/token-refresh-reaches-session.test.ts',
 	'packages/cli/src/tui/model-selection-intent.test.ts',
 	'packages/cli/src/tui/model-switch.test.ts',

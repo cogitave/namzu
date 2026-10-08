@@ -311,6 +311,19 @@ refuses. The discovery view returns only declared Pal ID/name/description fields
 visibility does not itself grant sending authority. Replies must name an observed
 incoming message and return to its authorized original conversation.
 
+`createPalOperatorMessagingTools` is the counterpart for the owner's ordinary
+conversation, where no Pal is the sender. It exposes the same two tool names. The
+sender is the host-fixed tenant plus the executing call's session, never a model
+input and never a Pal address, so no directed grant is needed; the owner's answer
+to the tool review is the consent. `send_pal_message` declares `requiresApproval`,
+which no rule, permission mode or remembered "allow all" outranks and which is
+refused when nobody can be asked, and takes only `palId` and `body` (no `replyTo`,
+because an owner message has no earlier Pal message to answer). It returns durable
+acceptance with the recipient's name, never delivery or an answer. `list_pals`
+reports the host's tenant Pals as ID, name, purpose, `paused` and an `idle` flag
+that is only the host application's own view. See
+[operator-conversation input](pal-ingress.md#source-identity).
+
 Communication does not start a resident daemon, create schedules, configure an
 external transport or expose host plugins automatically. Pal Team coordination
 and external channel membership are separate host concerns.

@@ -149,7 +149,8 @@ describe('explicit tool loading reaches the real session and query', () => {
 				// Unchanged by `narrate_work`, which mounts only where an operator
 				// is watching (`askUser`) and so is absent from this headless
 				// session — see the pair of cases below.
-				expect(names(requests[0])).toHaveLength(25)
+				// The owner's Pals (`list_pals`, `send_pal_message`) are two of them, whether or not any exist.
+				expect(names(requests[0])).toHaveLength(27)
 				expect(JSON.stringify(requests[0].messages)).not.toContain(
 					'Before using a tool listed under',
 				)

@@ -302,6 +302,64 @@ describe('nested dispatch authority', () => {
 		}
 	})
 
+	it('refuses a nested call to a tool that always needs approval even when a rule allows it', async () => {
+		let effects = 0
+		const sessionLog = new InMemorySessionLog({ sessionId: generateSessionId() })
+		const tools: ToolDefinition[] = [
+			parentTool(
+				'nested_parent',
+				async (context) => {
+					const result = await context.dispatchTool?.('needs_yes', {})
+					return result ?? { success: false, output: 'dispatch unavailable' }
+				},
+				1_000,
+			),
+			defineTool({
+				name: 'needs_yes',
+				description: 'a tool every call of which needs a person',
+				inputSchema: z.object({}),
+				category: 'custom',
+				permissions: [],
+				readOnly: false,
+				destructive: true,
+				concurrencySafe: false,
+				requiresApproval: true,
+				execute: async () => {
+					effects++
+					return { success: true, output: 'done' }
+				},
+			}),
+		]
+		const provider = new MockLLMProvider({
+			turns: [
+				{ toolCalls: [call('parent', 'nested_parent', {})] },
+				{ text: 'the nested call was refused' },
+			],
+		})
+
+		await drainQuery({
+			...params(provider, tools),
+			sessionLog,
+			sessionId: sessionLog.sessionId,
+			authorizationGate: {
+				enabled: true,
+				rules: [{ type: 'allow_by_name', toolNames: ['nested_parent', 'needs_yes'] }],
+				allowReadOnlyTools: false,
+				denyDangerousPatterns: false,
+				logDecisions: false,
+			},
+		})
+
+		expect(effects).toBe(0)
+		expect(await readAuditTrail(sessionLog)).toContainEqual(
+			expect.objectContaining({
+				what: { action: 'tool_call', tool: 'needs_yes' },
+				outcome: 'refused',
+				reason: expect.stringMatching(/requires the person's approval/i),
+			}),
+		)
+	})
+
 	it('cannot use an allowed parent to execute a child the operator denied', async () => {
 		let shellExecutions = 0
 		const events: SessionEvent[] = []

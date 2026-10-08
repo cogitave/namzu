@@ -238,7 +238,10 @@ describe('explicit Pal message commands', () => {
 		const sigterm = process.listenerCount('SIGTERM')
 		expect(await runPalMessageCommand(ctx, 'dispatch', [pal.id])).toBe(EXIT_OK)
 		expect(controls.dispatch).toHaveBeenCalledOnce()
-		expect(controls.dispatch).toHaveBeenCalledWith(ctx, pal.id, expect.any(AbortSignal))
+		// Typing the command is the owner starting the Pal, the one consent that also wakes it for an owner message.
+		expect(controls.dispatch).toHaveBeenCalledWith(ctx, pal.id, expect.any(AbortSignal), {
+			operatorWake: true,
+		})
 		expect(print).toHaveBeenCalledWith({ status: 'idle', reason: 'empty' })
 		expect(process.listenerCount('SIGINT')).toBe(sigint)
 		expect(process.listenerCount('SIGTERM')).toBe(sigterm)
