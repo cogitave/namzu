@@ -67,6 +67,7 @@ import { type BackgroundWorkOwner, BackgroundWorkStatusTracker } from './backgro
 import {
 	type DesktopConversationSnapshot,
 	DesktopConversationStore,
+	type SavedLastModel,
 } from './desktop-conversation-store.js'
 import type { DesktopDiagnosticSink } from './diagnostics.js'
 import { ModelListStore, type StoredModelList, modelListKey } from './model-list-store.js'
@@ -374,6 +375,8 @@ export class Operator {
 	/** When a failed background read may be tried again, per key. */
 	private readonly modelsRetryAt = new Map<string, number>()
 	private savedDesktop?: DesktopConversationSnapshot
+	/** The model last picked per engine; a new conversation of that engine starts from it. */
+	private readonly lastModels = new Map<string, SavedLastModel>()
 	constructor(
 		private readonly command: RuntimeCommand,
 		private readonly publish: (event: DesktopEvent) => void,
@@ -400,6 +403,8 @@ export class Operator {
 						draft: item.draft,
 						...(item.draftSettings ? { draftSettings: structuredClone(item.draftSettings) } : {}),
 					})
+				for (const [engine, item] of Object.entries(this.savedDesktop?.lastModels ?? {}))
+					this.lastModels.set(engine, { ...item })
 				for (const item of this.savedDesktop?.attachments ?? [])
 					this.attachmentFiles.set(item.view.id, structuredClone(item))
 			} catch (error) {
@@ -493,6 +498,7 @@ export class Operator {
 				ownerId,
 				...structuredClone(item),
 			})),
+			...(this.lastModels.size ? { lastModels: Object.fromEntries(this.lastModels) } : {}),
 			attachments: [...this.attachmentFiles.values()]
 				.filter((item) => item.draft)
 				.map((item) => ({ ...item, draft: true as const })),
@@ -3820,12 +3826,48 @@ export class Operator {
 	draft(sessionId: string): string {
 		return this.draftOwner(sessionId).draft
 	}
+	/**
+	 * Where a conversation that has chosen nothing starts: the model last picked on its engine.
+	 * A Pal and a conversation that already started keep their own. A model the engine no longer
+	 * lists is dropped silently, and the source's recommendation applies again.
+	 */
+	private startingChoice(ownerId: string): DraftSettings['choice'] | undefined {
+		const projectOwner = projectDraftOwner(ownerId)
+		const session = projectOwner ? undefined : this.conversations.get(ownerId)
+		if (session?.hasPrompted || session?.view.palId) return undefined
+		const project = this.projects.get(projectOwner?.projectId ?? session?.view.projectId ?? '')
+		if (!project || project.view.palId) return undefined
+		const engine = session?.view.harness ?? 'namzu'
+		const last = this.lastModels.get(engine)
+		if (!last) return undefined
+		const status = session ? session.providers : project.providers
+		if (status && !status.available.some((item) => item.id === last.provider)) return undefined
+		const stored = this.storedModels(project, session, last.provider)
+		if (stored && !stored.entry.rows.models.some((model) => model.id === last.model)) {
+			this.lastModels.delete(engine)
+			this.persistDesktop(true)
+			return undefined
+		}
+		return { ...last }
+	}
+	private rememberModel(ownerId: string, choice: NonNullable<DraftSettings['choice']>): void {
+		const projectOwner = projectDraftOwner(ownerId)
+		const session = projectOwner ? undefined : this.conversations.get(ownerId)
+		const project = this.projects.get(projectOwner?.projectId ?? session?.view.projectId ?? '')
+		if (!project || project.view.palId || session?.view.palId) return
+		this.lastModels.set(session?.view.harness ?? 'namzu', {
+			provider: choice.provider,
+			model: choice.model,
+			...(choice.label !== undefined ? { label: choice.label } : {}),
+		})
+	}
 	draftSettings(ownerId: string): DraftSettings {
 		const value = this.draftOwner(ownerId).draftSettings
-		return value
+		const choice = value?.choice ?? this.startingChoice(ownerId)
+		return value || choice
 			? {
-					...(value.choice ? { choice: { ...value.choice } } : {}),
-					...(value.options ? { options: { ...value.options } } : {}),
+					...(choice ? { choice: { ...choice } } : {}),
+					...(value?.options ? { options: { ...value.options } } : {}),
 				}
 			: {}
 	}
@@ -3845,7 +3887,9 @@ export class Operator {
 				!choice ||
 				typeof choice !== 'object' ||
 				Array.isArray(choice) ||
-				Object.keys(choice).some((key) => !['provider', 'model', 'label', 'preset'].includes(key))
+				Object.keys(choice).some(
+					(key) => !['provider', 'model', 'label', 'preset', 'auto'].includes(key),
+				)
 			)
 				throw new Error('Invalid draft model choice.')
 			for (const key of ['provider', 'model'] as const)
@@ -3864,6 +3908,8 @@ export class Operator {
 				...(choice.label !== undefined ? { label: choice.label } : {}),
 				...(choice.preset !== undefined ? { preset: choice.preset } : {}),
 			}
+			if (choice.preset === undefined && choice.auto !== true)
+				this.rememberModel(ownerId, next.choice)
 		}
 		if (value.options !== undefined) {
 			const options = value.options

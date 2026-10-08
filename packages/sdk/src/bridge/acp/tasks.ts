@@ -16,6 +16,7 @@ export function toAcpTaskUpdate(event: SessionEvent, sessionId: string): AcpTask
 			status: event.status,
 			blockedBy: [...(event.blockedBy ?? [])],
 			...(event.owner === undefined ? {} : { owner: event.owner }),
+			...(event.activeForm ? { activeForm: event.activeForm } : {}),
 		},
 		...(event.type === 'task_updated' && event.deleted === true ? { deleted: true } : {}),
 	}

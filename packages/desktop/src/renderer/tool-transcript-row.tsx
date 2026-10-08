@@ -59,6 +59,11 @@ function focusVisible(target: HTMLElement): boolean {
 	}
 }
 
+/** The duration rides the tooltip a row already has, so a sighted reader sees it too. */
+function withTook(text: string, took: string | undefined): string {
+	return took ? `${text} · ${took}` : text
+}
+
 /** One admitted action: a one-line row, with a disclosure only when there is output to inspect. */
 export function ToolTranscriptRow({
 	thread,
@@ -89,16 +94,15 @@ export function ToolTranscriptRow({
 				? openTarget(actions, file.path) !== undefined
 				: Boolean(actions?.onOpenChangedFile)
 			: false
-	const duration =
-		tool.durationMs !== undefined && Number.isFinite(tool.durationMs) && tool.durationMs >= 0
-			? tool.durationMs < 1000
-				? `${tool.durationMs} ms`
-				: elapsedLabel(tool.durationMs)
+	// A clock beside every row is noise; a call that took a second or more says so on hover and to screen readers.
+	const took =
+		tool.durationMs !== undefined && Number.isFinite(tool.durationMs) && tool.durationMs >= 1000
+			? `Took ${tool.durationMs < 60_000 ? `${Math.round(tool.durationMs / 1000)} s` : elapsedLabel(tool.durationMs)}`
 			: undefined
 	// Screen readers get the command or the full path the sighted reader sees in the tooltip.
 	const quietTime = quiet ? timeDescription(tool.startedTime ?? tool.endedTime) : undefined
 	const subject = file ? fullPath(file.path, actions?.projectRoot) : presentation.tooltip
-	const description = [subject, quietTime].filter(Boolean).join('. ') || undefined
+	const description = [subject, quietTime, took].filter(Boolean).join('. ') || undefined
 	const focusProps = {
 		'aria-description': description,
 		onFocus: (event: React.FocusEvent<HTMLElement>) =>
@@ -106,7 +110,11 @@ export function ToolTranscriptRow({
 		onBlur: () => setFocused(false),
 	}
 	const name = file ? (
-		<Tip className="tool-file" text={fullPath(file.path, actions?.projectRoot)} focused={focused}>
+		<Tip
+			className="tool-file"
+			text={withTook(fullPath(file.path, actions?.projectRoot), took)}
+			focused={focused}
+		>
 			{file.name}
 		</Tip>
 	) : null
@@ -117,7 +125,11 @@ export function ToolTranscriptRow({
 			</span>
 		) : presentation.tooltip ? (
 			<span className="tool-label">
-				<Tip className="tool-tip-text" text={presentation.tooltip} focused={focused}>
+				<Tip
+					className="tool-tip-text"
+					text={withTook(presentation.tooltip, took)}
+					focused={focused}
+				>
 					{label}
 				</Tip>
 			</span>
@@ -130,15 +142,6 @@ export function ToolTranscriptRow({
 				{statusLabel}
 			</span>
 			{!quiet && <MessageTime time={tool.startedTime ?? tool.endedTime} />}
-			{duration && (
-				<span
-					className="tool-duration"
-					aria-label={`Duration: ${tool.durationMs} ms`}
-					title={`Duration: ${tool.durationMs} ms`}
-				>
-					{duration}
-				</span>
-			)}
 		</>
 	)
 	const props = {
@@ -146,7 +149,10 @@ export function ToolTranscriptRow({
 		'data-tool-call-id': tool.toolCallId,
 		'data-tool-state': state,
 		// A row with its own hover tooltip carries the time for screen readers only.
-		title: quietTime && !file && !presentation.tooltip ? quietTime : undefined,
+		title:
+			!file && !presentation.tooltip
+				? [quietTime, took].filter(Boolean).join('. ') || undefined
+				: undefined,
 	}
 	if (opens && file && actions)
 		return (

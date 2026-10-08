@@ -2,7 +2,7 @@ import { Radio } from '@base-ui/react/radio'
 import { RadioGroup } from '@base-ui/react/radio-group'
 import { Tabs } from '@base-ui/react/tabs'
 import type { ReasoningEffort } from '@namzu/sdk'
-import { ChevronLeft } from 'lucide-react'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import {
 	type CSSProperties,
 	Fragment,
@@ -39,12 +39,14 @@ import {
 import {
 	type ModelChoice,
 	SECTION_HEADINGS,
-	defaultModelRow,
 	effortLabel,
 	followCatalogue,
 	modelDisplayLabel,
 	modelSections,
+	recommendedRow,
 	resolveEffort,
+	splitModels,
+	startingRow,
 } from './model-choice.js'
 import { isNewModel } from './model-freshness.js'
 import { commitsOnKey } from './picker-commit.js'
@@ -71,7 +73,8 @@ export type EngineControl = {
 	disabled: boolean
 	onSelect: (engine: HarnessView['selected']) => void
 }
-const DEFAULT_KEY = 'default'
+/** A list longer than this gets a search icon; a shorter one is read at a glance. */
+const SEARCH_FROM = 7
 const LOAD_FAILED = "Couldn't load the model list. It will try again next time you open this."
 
 function ProviderMark({ provider }: { provider: Provider }) {
@@ -105,6 +108,7 @@ export function ModelPicker({
 	effort,
 	onEffortChange,
 	engineControl,
+	unchosen,
 }: {
 	providers: ProviderView
 	choice: ModelChoice
@@ -124,6 +128,8 @@ export function ModelPicker({
 	onEffortChange?: (effort: ReasoningEffort | undefined) => void
 	/** Absent where engines are not offered, such as the Pal composer. */
 	engineControl?: EngineControl
+	/** Nothing was ever chosen: settle on the source's recommended model once its list is known. */
+	unchosen?: boolean
 }) {
 	const [open, setOpen] = useState(false)
 	const [view, setView] = useState<View>('models')
@@ -183,6 +189,18 @@ export function ModelPicker({
 		corrected.current = key
 		onChange(next)
 	}, [disabled, choice, modelId, rows, provider?.defaultModel, onChange])
+	// Nothing was ever chosen: settle on the source's recommended model once its list is known, so
+	// what the trigger shows is what a send uses.
+	const settled = useRef('')
+	useEffect(() => {
+		if (disabled || !unchosen || !provider) return
+		const start = startingRow(rows)
+		if (!start || start.id === modelId) return
+		const key = JSON.stringify([provider.id, start.id])
+		if (settled.current === key) return
+		settled.current = key
+		onChange({ provider: provider.id, model: start.id, label: start.label, auto: true })
+	}, [disabled, unchosen, provider, rows, modelId, onChange])
 	const scope = `${projectId}:${sessionId ?? ''}`
 	const previousScope = useRef(scope)
 	useEffect(() => {
@@ -600,8 +618,8 @@ function ModelBrowser({
 	const loading = shownProviders.some(
 		(provider) => !shownCatalogues.get(provider.id) || shownCatalogues.get(provider.id)?.loading,
 	)
-	// A short single-engine list needs no search; it appears with a long list.
-	const showTools = multipleProviders || searching || models.length > 12
+	// A short single-engine list needs no search; it appears once the list outgrows a glance.
+	const showTools = multipleProviders || searching || models.length > SEARCH_FROM
 	const errors = shownProviders.filter((provider) => shownCatalogues.get(provider.id)?.error)
 	const notices = shownProviders.flatMap((provider) => {
 		const notice = shownCatalogues.get(provider.id)?.value?.notice
@@ -614,39 +632,37 @@ function ModelBrowser({
 		if (note && listed.length > 1 && listed.every((model) => model.note?.trim() === note))
 			sharedNotes.set(provider.id, note)
 	}
-	const groups = shownProviders.flatMap((provider) => {
-		const rows = filtered.filter((model) => model.provider.id === provider.id)
-		const sections = sectionsByProvider.get(provider.id)
-		return rows.length ? [{ provider, rows, sections }] : []
-	})
 	const modelKey = (provider: string, model: string) => JSON.stringify([provider, model])
+	const selectedKey = modelKey(
+		choice.provider,
+		choice.model ||
+			providers.available.find((provider) => provider.id === choice.provider)?.defaultModel ||
+			'',
+	)
+	// The recommended row is the engine's own flagged default, and only while it is a current one.
+	const recommendedIds = new Set(
+		shownProviders.flatMap((provider) => {
+			const row = recommendedRow(shownCatalogues.get(provider.id)?.value?.models)
+			return row ? [row.id] : []
+		}),
+	)
+	const groups = shownProviders.flatMap((provider) => {
+		const all = filtered.filter((model) => model.provider.id === provider.id)
+		const sections = sectionsByProvider.get(provider.id)
+		// A search reads every row; otherwise older models sit behind one row, and the checked
+		// model stays visible, under the current ones, even when it is an older one.
+		const { current, older } = searching ? { current: all, older: [] } : splitModels(all)
+		const pinned = older.filter((model) => modelKey(model.provider.id, model.id) === selectedKey)
+		const rest = older.filter((model) => !pinned.includes(model))
+		return all.length ? [{ provider, top: [...current, ...pinned], rest, sections }] : []
+	})
 	const toChoice = (model: (typeof models)[number]): ModelChoice => ({
 		provider: model.provider.id,
 		model: model.id,
 		label: model.label,
 	})
-	// The engine's own recommendation leads the list, but only for the provider on screen.
-	const recommended = searching
-		? undefined
-		: defaultModelRow(shownCatalogues.get(active?.id ?? '')?.value?.models, active?.defaultModel)
-	const followsDefault = !searching && choice.preset === 'default' && choice.provider === active?.id
-	const selectedKey = followsDefault
-		? DEFAULT_KEY
-		: modelKey(
-				choice.provider,
-				choice.model ||
-					providers.available.find((provider) => provider.id === choice.provider)?.defaultModel ||
-					'',
-			)
-	const chooseDefault = () => {
-		if (active && recommended)
-			onChoose({
-				provider: active.id,
-				model: recommended.id,
-				label: recommended.label,
-				preset: 'default',
-			})
-	}
+	// Older models fold away behind one row; search ignores the fold.
+	const [showOlder, setShowOlder] = useState(false)
 	// Opening the list puts the keyboard on the checked row, so arrows start from the current model.
 	// The popup reclaims focus when the control that was clicked to get here unmounts, so focus is
 	// placed again once that has settled.
@@ -759,106 +775,135 @@ function ModelBrowser({
 					// Arrow keys only move the highlight; a choice is made by click, Enter or Space.
 					onValueChange={() => {}}
 				>
-					{groups.map(({ provider, rows, sections }, groupIndex) => (
-						<fieldset
-							key={provider.id}
-							className="model-picker-section"
-							aria-label={provider.label}
-						>
-							{searching && (
-								<legend className="model-picker-section-title">{provider.label}</legend>
-							)}
-							{groupIndex === 0 && recommended && (
-								<Radio.Root
-									value={DEFAULT_KEY}
-									nativeButton
-									render={<button type="button" />}
-									className="model-picker-row"
-									aria-label={`Default, recommended: ${recommended.label}`}
-									onClick={(event) => {
-										event.preventDefault()
-										chooseDefault()
-									}}
-									onKeyDown={(event) => {
-										if (commitsOnKey(event.key)) {
+					{groups.map(({ provider, top, rest, sections }) => {
+						const display = showOlder ? [...top, ...rest] : top
+						const renderRow = (model: (typeof models)[number]) => {
+							const rowIndex = display.indexOf(model)
+							const section = sections?.get(model.id)
+							const heading =
+								section !== undefined &&
+								section !==
+									(rowIndex > 0 ? sections?.get(display[rowIndex - 1]?.id ?? '') : undefined)
+									? SECTION_HEADINGS[section]
+									: undefined
+							const recommended =
+								!searching && model.default === true && recommendedIds.has(model.id)
+							const fresh = isNewModel(model.firstSeen, Date.now())
+							return (
+								<Fragment key={modelKey(model.provider.id, model.id)}>
+									{heading && (
+										<div className="model-picker-group-title" aria-hidden="true">
+											{heading}
+										</div>
+									)}
+									<Radio.Root
+										value={modelKey(model.provider.id, model.id)}
+										nativeButton
+										render={<button type="button" />}
+										className="model-picker-row"
+										aria-label={[
+											model.provider.label,
+											section ? SECTION_HEADINGS[section] : undefined,
+											model.label,
+											model.note?.trim(),
+											recommended ? 'Recommended' : undefined,
+											fresh ? 'New' : undefined,
+										]
+											.filter(Boolean)
+											.join(' ')}
+										onClick={(event) => {
 											event.preventDefault()
-											chooseDefault()
-										}
-									}}
-								>
-									<span className="model-picker-name">
-										<span>Default</span>
-										<small>Recommended · {recommended.label}</small>
-									</span>
-									<span className="model-picker-selection" aria-hidden="true">
-										<Radio.Indicator className="model-picker-checked">
-											<CheckIcon aria-hidden="true" />
-										</Radio.Indicator>
-									</span>
-								</Radio.Root>
-							)}
-							{rows.map((model, rowIndex) => {
-								const section = sections?.get(model.id)
-								const heading =
-									section !== undefined &&
-									section !==
-										(rowIndex > 0 ? sections?.get(rows[rowIndex - 1]?.id ?? '') : undefined)
-										? SECTION_HEADINGS[section]
-										: undefined
-								return (
-									<Fragment key={modelKey(model.provider.id, model.id)}>
-										{heading && (
-											<div className="model-picker-group-title" aria-hidden="true">
-												{heading}
-											</div>
-										)}
-										<Radio.Root
-											value={modelKey(model.provider.id, model.id)}
-											nativeButton
-											render={<button type="button" />}
-											className="model-picker-row"
-											aria-label={[
-												model.provider.label,
-												section ? SECTION_HEADINGS[section] : undefined,
-												model.label,
-												model.note?.trim(),
-												isNewModel(model.firstSeen, Date.now()) ? 'New' : undefined,
-											]
-												.filter(Boolean)
-												.join(' ')}
-											onClick={(event) => {
+											onChoose(toChoice(model))
+										}}
+										onKeyDown={(event) => {
+											if (commitsOnKey(event.key)) {
 												event.preventDefault()
 												onChoose(toChoice(model))
-											}}
-											onKeyDown={(event) => {
-												if (commitsOnKey(event.key)) {
-													event.preventDefault()
-													onChoose(toChoice(model))
-												}
-											}}
-										>
-											<span className="model-picker-name">
-												<span title={`${model.label} · ${model.id}`}>{model.label}</span>
-												{model.note && sharedNotes.get(model.provider.id) !== model.note.trim() && (
-													<small>{model.note}</small>
-												)}
-											</span>
-											{isNewModel(model.firstSeen, Date.now()) && (
-												<span className="model-picker-new" aria-hidden="true">
-													New
-												</span>
+											}
+										}}
+									>
+										<span className="model-picker-name">
+											<span title={`${model.label} · ${model.id}`}>{model.label}</span>
+											{model.note && sharedNotes.get(model.provider.id) !== model.note.trim() && (
+												<small>{model.note}</small>
 											)}
-											<span className="model-picker-selection" aria-hidden="true">
-												<Radio.Indicator className="model-picker-checked">
-													<CheckIcon aria-hidden="true" />
-												</Radio.Indicator>
+										</span>
+										{recommended && (
+											<span className="model-picker-chip" aria-hidden="true">
+												Recommended
 											</span>
-										</Radio.Root>
-									</Fragment>
-								)
-							})}
-						</fieldset>
-					))}
+										)}
+										{fresh && (
+											<span className="model-picker-new" aria-hidden="true">
+												New
+											</span>
+										)}
+										<span className="model-picker-selection" aria-hidden="true">
+											<Radio.Indicator className="model-picker-checked">
+												<CheckIcon aria-hidden="true" />
+											</Radio.Indicator>
+										</span>
+									</Radio.Root>
+								</Fragment>
+							)
+						}
+						return (
+							<fieldset
+								key={provider.id}
+								className="model-picker-section"
+								aria-label={provider.label}
+								// The fold row is not a radio, so the group's arrows would wrap past it. While it
+								// is closed, the arrow after the last visible model lands on it.
+								onKeyDownCapture={(event) => {
+									if (showOlder || rest.length === 0) return
+									if (event.key !== 'ArrowDown' && event.key !== 'ArrowRight') return
+									const radios = event.currentTarget.querySelectorAll<HTMLElement>('[role=radio]')
+									if (event.target !== radios[radios.length - 1]) return
+									event.preventDefault()
+									event.stopPropagation()
+									event.currentTarget.querySelector<HTMLElement>('.model-picker-fold')?.focus()
+								}}
+							>
+								{searching && (
+									<legend className="model-picker-section-title">{provider.label}</legend>
+								)}
+								{top.map(renderRow)}
+								{rest.length > 0 && (
+									<button
+										type="button"
+										className="model-picker-fold"
+										aria-expanded={showOlder}
+										onClick={() => setShowOlder((value) => !value)}
+										onKeyDown={(event) => {
+											const up = event.key === 'ArrowUp' || event.key === 'ArrowLeft'
+											if (!up && event.key !== 'ArrowDown' && event.key !== 'ArrowRight') return
+											const radios = [
+												...(event.currentTarget.parentElement?.querySelectorAll<HTMLElement>(
+													'[role=radio]',
+												) ?? []),
+											]
+											// Radios before the fold row come first in the document, the older ones after it.
+											const before = radios.filter(
+												(radio) =>
+													radio.compareDocumentPosition(event.currentTarget) &
+													Node.DOCUMENT_POSITION_FOLLOWING,
+											)
+											const after = radios.filter((radio) => !before.includes(radio))
+											const next = up ? before[before.length - 1] : (after[0] ?? radios[0])
+											if (!next) return
+											event.preventDefault()
+											event.stopPropagation()
+											next.focus()
+										}}
+									>
+										<span>Older models ({rest.length})</span>
+										<ChevronRight aria-hidden="true" />
+									</button>
+								)}
+								{showOlder && rest.map(renderRow)}
+							</fieldset>
+						)
+					})}
 				</RadioGroup>
 				{loading && (
 					<output className="model-picker-status">

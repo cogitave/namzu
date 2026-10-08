@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createAutoScrollMark, followAfterDisclosure, latestThreshold } from './scroll-follow.js'
+import {
+	createAutoScrollMark,
+	followAfterDisclosure,
+	latestThreshold,
+	panelPausesFollow,
+} from './scroll-follow.js'
 
 describe('createAutoScrollMark', () => {
 	beforeEach(() => {
@@ -60,5 +65,14 @@ describe('followAfterDisclosure', () => {
 		expect(followAfterDisclosure(300, { ...base, moved: true })).toBe(false)
 		expect(followAfterDisclosure(300, { ...base, wasFollowing: false })).toBe(false)
 		expect(followAfterDisclosure(300, { ...base, panelHeight: undefined })).toBe(false)
+	})
+})
+
+describe('panelPausesFollow', () => {
+	it('lets a small panel grow under a following reader and pauses for a tall one', () => {
+		expect(panelPausesFollow(34, 900)).toBe(false)
+		expect(panelPausesFollow(300, 900)).toBe(false)
+		expect(panelPausesFollow(301, 900)).toBe(true)
+		expect(panelPausesFollow(undefined, 900)).toBe(false)
 	})
 })

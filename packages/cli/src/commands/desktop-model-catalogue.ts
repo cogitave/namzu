@@ -16,6 +16,8 @@ export interface DesktopModelRow {
 	label: string
 	note?: string
 	default?: true
+	/** The source says this model is current; the picker folds the rest under older models. */
+	current?: true
 	/** Zen only; the picker draws a heading where it changes. Absent when no price is published. */
 	group?: ModelGroup
 }

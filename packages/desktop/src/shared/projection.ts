@@ -42,6 +42,8 @@ export type ProjectedToolCall = Extract<AcpSessionUpdate, { kind: 'tool_call' }>
 	readonly callView?: ToolCallView
 	/** Display-only historical outcome absent from ACP's live three-state union. */
 	readonly historicalStatus?: 'skipped'
+	/** A saved action whose view was never journaled: named from its tool, nothing to open. */
+	readonly detailUnavailable?: true
 	readonly startedTime?: TranscriptTime
 	readonly endedTime?: TranscriptTime
 }
@@ -344,11 +346,13 @@ export function applyEvent(previous: ThreadState, event: DesktopEvent): ThreadSt
 			tasksNotice: event.notice,
 		}
 	if (event.kind === 'task') {
-		const tasks = thread.tasks.filter((task) => task.taskId !== event.task.taskId)
-		if (event.deleted) return { ...thread, tasks }
 		const index = thread.tasks.findIndex((task) => task.taskId === event.task.taskId)
-		if (index < 0) tasks.push(event.task)
-		else tasks.splice(index, 0, event.task)
+		const tasks = [...thread.tasks]
+		if (event.deleted) {
+			if (index >= 0) tasks.splice(index, 1)
+		} else if (index < 0) tasks.push(event.task)
+		// An update keeps the task's place in the list.
+		else tasks[index] = event.task
 		return { ...thread, tasks }
 	}
 	if (event.kind === 'prompt') {

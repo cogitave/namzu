@@ -144,7 +144,7 @@ unchanged, and hosts that omit this option retain their earlier wire behavior.
 
 The exported `AcpTaskUpdate` payload is `{ sessionId, task: AcpTask, deleted? }`.
 `AcpTask` contains the existing planning `taskId`, `subject`, `status`, an explicit
-`blockedBy` array, and optional `owner`. Each notification replaces the entire
+`blockedBy` array, optional `owner`, and an optional `activeForm` (what the task reads as while it is being worked on, such as "Running the tests"; absent when the model gave none). Each notification replaces the entire
 row: an empty dependency array clears earlier blockers and an absent owner
 clears an earlier owner. `deleted: true` removes the row. `status` retains the
 existing `TaskStatus`, including `failed`; failure is distinct from completion.

@@ -40,6 +40,19 @@ it('round-trips lists through the file and a second store reads them back', asyn
 	expect(await readdir(path)).toEqual(['model-lists.json'])
 })
 
+it("keeps the source's own current flag through the file", async () => {
+	const path = await dir()
+	const list = {
+		models: [
+			{ id: 'opus', label: 'Opus 5.5', current: true as const },
+			{ id: 'claude-opus-5', label: 'Opus 5' },
+		],
+		notice: null,
+	}
+	new ModelListStore(path).put(key(), list)
+	expect(new ModelListStore(path).get(key())?.rows).toEqual(list)
+})
+
 it('stamps only ids absent from the previous list, once, and reports real changes', async () => {
 	vi.useFakeTimers({ toFake: ['Date'] })
 	vi.setSystemTime(new Date('2026-10-08T09:00:00.000Z'))

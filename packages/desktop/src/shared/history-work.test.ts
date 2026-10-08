@@ -197,11 +197,12 @@ it('renders missing, interrupted, skipped and cancelled records truthfully witho
 	for (const [index, status] of ['interrupted', 'skipped', 'cancelled'].entries()) {
 		const view = toolTranscriptPresentation(thread, `1:tool${index}`)
 		expect(view?.state).toBe(status)
-		expect(view?.label).toBe(status === 'skipped' ? 'Skipped action' : 'Saved action')
-		expect(view?.detailView).toMatchObject({
-			kind: 'generic',
-			label: expect.stringContaining('Details were not recorded.'),
-		})
+		expect(view?.label).toBe(
+			status === 'skipped' ? 'Skipped technical dispatch' : 'Used technical dispatch',
+		)
+		// A name with no saved view is not expandable; the tooltip says why.
+		expect(view?.detailView).toBeUndefined()
+		expect(view?.tooltip).toBe('Details were not saved')
 	}
 	expect(JSON.stringify(thread.tools)).not.toContain('SHOULD_NOT_CLAIM_EXECUTION')
 })
@@ -221,10 +222,8 @@ it('copies the closed public view and bounds it without truncating a diff or exp
 		privateInput: 'SECRET',
 	} as never
 	const thread = restoreHistoryWork(emptyThread(), messages, work)
-	expect(thread.tools['1:same']?.view).toMatchObject({
-		kind: 'generic',
-		label: 'Saved action\nDetails were not recorded.',
-	})
+	expect(thread.tools['1:same']?.view).toMatchObject({ kind: 'generic', label: 'Used write' })
+	expect(thread.tools['1:same']?.detailUnavailable).toBe(true)
 	expect(thread.tools['2:same']?.view).toEqual({
 		kind: 'terminal',
 		command: 'false',
@@ -409,4 +408,12 @@ it('restores a declined call as the person’s No, with their note, and drops on
 	expect(toolTranscriptPresentation(thread, '1:claimed')?.state).not.toBe('declined')
 	expect(toolTranscriptPresentation(thread, '1:huge')?.state).not.toBe('declined')
 	expect(JSON.stringify(thread.tools)).not.toContain('PRIVATE_OPAQUE')
+})
+
+it('names an engine tool without its engine prefix or casing', () => {
+	const work = snapshot()
+	work.tools[0]!.name = 'claude:TodoWrite'
+	work.tools[0]!.presentation = undefined
+	const thread = restoreHistoryWork(emptyThread(), messages, work)
+	expect(toolTranscriptPresentation(thread, '1:same')?.label).toBe('Used todo write')
 })

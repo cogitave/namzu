@@ -370,6 +370,20 @@ export function toolTranscriptPresentation(
 		)
 			detailView = undefined
 	}
+	// A command with nothing printed has no output to open, whether it finished or failed:
+	// a restored row's output is simply not kept, and an empty panel would claim otherwise.
+	if (
+		state !== 'running' &&
+		state !== 'waiting' &&
+		detailView?.kind === 'terminal' &&
+		!detailView.output.trim()
+	)
+		detailView = undefined
+	// A row restored without its view is only a name: nothing to open, and the tooltip says why.
+	if (tool.detailUnavailable) {
+		detailView = undefined
+		tooltip = 'Details were not saved'
+	}
 	return {
 		label,
 		kind,

@@ -60,6 +60,7 @@ export function Composer({
 	providersLoading = false,
 	choice,
 	onChoiceChange,
+	choiceUnchosen,
 	running,
 	liveInputSupported = false,
 	liveInputs = [],
@@ -120,6 +121,8 @@ export function Composer({
 	modelSelectionReady?: boolean
 	providersLoading?: boolean
 	choice: ModelChoice
+	/** Nothing was ever chosen for this pane; the picker settles on the recommended model. */
+	choiceUnchosen?: boolean
 	onChoiceChange: (choice: ModelChoice) => void
 	running: boolean
 	liveInputSupported?: boolean
@@ -199,6 +202,7 @@ export function Composer({
 			catalogueHarnessScope={permissionEngine ?? harnessView?.selected ?? 'namzu'}
 			providers={providers}
 			choice={choice}
+			unchosen={choiceUnchosen}
 			onChange={onChoiceChange}
 			catalogueEnabled={modelSelectionReady && !harnessBusy}
 			disabled={running || sending || !modelSelectionReady || harnessBusy}

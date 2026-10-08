@@ -29,7 +29,11 @@ const efforts: readonly ReasoningEffort[] = [
 ]
 
 /** A catalogue row may also say it is the engine's own recommended default. */
-export type HarnessCatalogueModel = HarnessModel & { readonly default?: true }
+export type HarnessCatalogueModel = HarnessModel & {
+	readonly default?: true
+	/** The engine itself names this model as current rather than an older release. */
+	readonly current?: true
+}
 
 /** The Codex app writes "GPT-5.6 Sol" where its server says "GPT-5.6-Sol". */
 export function codexModelLabel(name: string): string {
@@ -65,7 +69,7 @@ export function parseCodexModels(rows: unknown): HarnessCatalogueModel[] {
 					label: displayName ? codexModelLabel(displayName) : id,
 					effortLevels: offered,
 					defaultEffort,
-					...(row.isDefault === true ? { default: true as const } : {}),
+					...(row.isDefault === true ? { default: true as const, current: true as const } : {}),
 				},
 			]
 		})

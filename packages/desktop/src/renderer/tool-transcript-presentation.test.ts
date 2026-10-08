@@ -287,6 +287,12 @@ describe('actual tool lifecycle', () => {
 		expect(toolTranscriptPresentation(thread, key)?.state).toBe('interrupted')
 	})
 
+	it('opens nothing for a failed command whose output was not kept', () => {
+		const terminal = start({ kind: 'terminal', command: 'false', output: '' })
+		const failed = result(terminal, { kind: 'terminal', command: 'false', output: '' }, 'failed')
+		expect(toolTranscriptPresentation(failed, key)?.detailView).toBeUndefined()
+	})
+
 	it('labels failed commands truthfully but does not call a plain result a command execution', () => {
 		const terminal = start({ kind: 'terminal', command: 'pwd', output: '' })
 		expect(toolTranscriptPresentation(terminal, key)?.label).toBe('Running command')
@@ -386,4 +392,15 @@ describe('a call the person declined', () => {
 		)
 		expect(toolTranscriptPresentation(refused, key)?.state).toBe('failed')
 	})
+})
+
+it('does not open a finished command that printed nothing', () => {
+	const thread = result(
+		start({ kind: 'generic', label: 'ls' }, 'bash'),
+		{ kind: 'terminal', command: 'ls', output: '' },
+		'completed',
+		'bash',
+	)
+	expect(toolTranscriptPresentation(thread, key)?.detailView).toBeUndefined()
+	expect(toolTranscriptPresentation(thread, key)?.tooltip).toBe('ls')
 })

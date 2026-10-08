@@ -10,8 +10,13 @@ export interface ModelChoice {
 	provider: string
 	model: string
 	label?: string
-	/** `default` follows the engine's own recommended model as its catalogue changes. */
+	/**
+	 * Only read from older saved choices: `default` once followed the engine's recommended model.
+	 * It is resolved to that row once and dropped on the next save.
+	 */
 	preset?: 'default'
+	/** The picker settled on this model by itself rather than the person choosing it. */
+	auto?: true
 }
 
 type Row = ModelCatalogueView['models'][number]
@@ -42,6 +47,25 @@ export function resolveComposerModelChoice({
 }
 
 /**
+ * True when nothing was ever chosen for a conversation that has not started: no saved choice, no
+ * Pal model and no model in the preferences. Such a conversation starts from the source's
+ * recommended model, not a registry literal.
+ */
+export function isUnchosen({
+	providers,
+	draftChoice,
+	palModel,
+	started,
+}: {
+	providers: ProviderView
+	draftChoice?: ModelChoice
+	palModel?: PalView['model']
+	started: boolean
+}): boolean {
+	return !draftChoice && !started && !palModel?.model && !providers.selected?.model
+}
+
+/**
  * The name to show for a model: the catalogue's own label for the chosen id, else the label saved
  * with the choice, else the id. Saved labels go stale when an engine renames a model.
  */
@@ -67,9 +91,95 @@ export function defaultModelRow(
 	)
 }
 
+/** A date such as 20251101 is a snapshot of a version, never part of it. */
+const DATE_RUN = /(?<!\d)(?:19|20)\d{6}(?!\d)/g
+const VERSION_RUN = /\d+(?:[.-]\d+)*/
+
+/** The family (name without its version) and numeric version of a row, or no version at all. */
+function parseModel(row: Pick<Row, 'id' | 'label'>): { family: string; version?: number[] } {
+	for (const text of [row.label, row.id]) {
+		const clean = text.replace(DATE_RUN, ' ')
+		const run = VERSION_RUN.exec(clean)
+		if (!run) continue
+		const family = (clean.slice(0, run.index) + clean.slice(run.index + run[0].length))
+			.toLowerCase()
+			.replace(/[^a-z0-9]+/g, ' ')
+			.trim()
+		return { family, version: run[0].split(/[.-]/).map(Number) }
+	}
+	return { family: row.label.toLowerCase() }
+}
+
+function compareVersions(a: readonly number[], b: readonly number[]): number {
+	for (let index = 0; index < Math.max(a.length, b.length); index++) {
+		const delta = (a[index] ?? 0) - (b[index] ?? 0)
+		if (delta !== 0) return delta
+	}
+	return 0
+}
+
+/** A list this short is shown whole; folding it would hide more than it saves. */
+const COMPACT_LIST = 6
+
 /**
- * A choice that follows the engine default moves with it. Returns the choice to save, or
- * undefined when nothing changes (including a saved label that already matches).
+ * Splits one provider's rows into the ones worth showing first and the older ones, each in
+ * source order. The source's own statement (`current`) always counts. Otherwise a family's
+ * newest version is current when its major version is not behind its maker's newest major, so
+ * a single stale generation folds away while every family of the latest one stays. A short or
+ * unversioned list is all current.
+ */
+export function splitModels<T extends Pick<Row, 'id' | 'label' | 'current'>>(
+	rows: readonly T[],
+): { current: T[]; older: T[] } {
+	const parsed = rows.map((row) => ({ row, ...parseModel(row) }))
+	const versions = parsed.flatMap((item) => (item.version ? [item.version] : []))
+	if (rows.length <= COMPACT_LIST || versions.length === 0) return { current: [...rows], older: [] }
+	// The newest generation is judged within one maker's models: a list that mixes makers (a
+	// router, a free tier) must not fold one maker's latest because another is on a higher number.
+	const vendorOf = (family: string) => family.split(' ')[0] ?? ''
+	const maxMajor = new Map<string, number>()
+	const newest = new Map<string, number[]>()
+	for (const { family, version } of parsed) {
+		if (!version) continue
+		const vendor = vendorOf(family)
+		maxMajor.set(vendor, Math.max(maxMajor.get(vendor) ?? 0, version[0] ?? 0))
+		const known = newest.get(family)
+		if (!known || compareVersions(version, known) > 0) newest.set(family, version)
+	}
+	const current: T[] = []
+	const older: T[] = []
+	for (const { row, family, version } of parsed) {
+		const isCurrent =
+			row.current === true ||
+			!version ||
+			((version[0] ?? 0) >= (maxMajor.get(vendorOf(family)) ?? 0) &&
+				compareVersions(version, newest.get(family) ?? []) >= 0)
+		;(isCurrent ? current : older).push(row)
+	}
+	return current.length ? { current, older } : { current: [...rows], older: [] }
+}
+
+/**
+ * The model a source recommends: the row its catalogue flags as its own default when that row
+ * is current, else nothing. A provider default the catalogue merely echoes can be stale, so it
+ * is never shown as a recommendation.
+ */
+export function recommendedRow<T extends Row>(rows: readonly T[] | undefined): T | undefined {
+	if (!rows?.length) return undefined
+	const { current } = splitModels(rows)
+	return current.find((row) => row.default === true)
+}
+
+/** Where a conversation with nothing chosen starts: the recommendation, else the first current row. */
+export function startingRow<T extends Row>(rows: readonly T[] | undefined): T | undefined {
+	if (!rows?.length) return undefined
+	return recommendedRow(rows) ?? splitModels(rows).current[0]
+}
+
+/**
+ * Brings a saved choice up to date. A choice saved under the retired `default` preset resolves
+ * once to the row that preset pointed at and becomes an ordinary choice. Otherwise only a stale
+ * label is corrected. Returns undefined when nothing changes.
  */
 export function followCatalogue(
 	choice: ModelChoice,
@@ -78,15 +188,12 @@ export function followCatalogue(
 ): ModelChoice | undefined {
 	if (!rows?.length) return undefined
 	if (choice.preset === 'default') {
-		const fallback = defaultModelRow(rows, providerDefault)
-		if (fallback && (fallback.id !== choice.model || fallback.label !== choice.label))
-			return {
-				provider: choice.provider,
-				model: fallback.id,
-				label: fallback.label,
-				preset: 'default',
-			}
-		return undefined
+		const target = defaultModelRow(rows, providerDefault)
+		return {
+			provider: choice.provider,
+			model: target?.id ?? choice.model,
+			...(target || choice.label !== undefined ? { label: target?.label ?? choice.label } : {}),
+		}
 	}
 	const listed = rows.find((row) => row.id === choice.model)
 	if (listed && choice.label !== undefined && listed.label !== choice.label)

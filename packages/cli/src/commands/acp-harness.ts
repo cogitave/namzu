@@ -509,6 +509,7 @@ export function withCliHarnesses(
 					id: model.id,
 					label: model.label,
 					...(model.default ? { default: true as const } : {}),
+					...(model.current ? { current: true as const } : {}),
 				})),
 				notice: null,
 			}

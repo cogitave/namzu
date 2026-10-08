@@ -286,6 +286,7 @@ export class EventTranslator {
 						// "depends on nothing" from an emitter that predates these.
 						...(task.blockedBy.length > 0 ? { blockedBy: task.blockedBy } : {}),
 						...(task.owner !== undefined ? { owner: task.owner } : {}),
+						...(task.activeForm ? { activeForm: task.activeForm } : {}),
 					})
 					break
 				case 'task.updated':
@@ -297,6 +298,7 @@ export class EventTranslator {
 						subject: task.subject,
 						status: task.status,
 						owner: task.owner,
+						...(task.activeForm ? { activeForm: task.activeForm } : {}),
 						...(task.blockedBy.length > 0 ? { blockedBy: task.blockedBy } : {}),
 						...(event.type === 'task.deleted' ? { deleted: true as const } : {}),
 					})

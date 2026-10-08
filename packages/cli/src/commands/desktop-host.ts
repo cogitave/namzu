@@ -694,11 +694,13 @@ function historyWork(
 			typeof latest.result === 'string'
 		) {
 			status = latest.skipped === true ? 'skipped' : latest.isError ? 'failed' : 'completed'
-			if (
-				latest.skipped === undefined &&
-				(latest.outputTruncated === undefined || latest.outputTruncated === false)
-			)
-				presentation = historyPresentation(latest.presentation)
+			// A truncated output blocks the result view only; the saved label never held output.
+			if (latest.skipped === undefined)
+				presentation = historyPresentation(
+					latest.outputTruncated === true
+						? latest.savedPresentation
+						: (latest.presentation ?? latest.savedPresentation),
+				)
 			if (presentation?.kind === 'generic' && presentation.outcome === 'cancelled') {
 				if (latest.isError) status = 'cancelled'
 				else presentation = undefined
@@ -1501,6 +1503,7 @@ export function createDesktopHostExtensions(
 						status: task.status,
 						blockedBy: [...task.blockedBy],
 						...(task.owner === undefined ? {} : { owner: task.owner }),
+						...(task.activeForm ? { activeForm: task.activeForm } : {}),
 					}))
 				return { tasks }
 			})

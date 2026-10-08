@@ -1,5 +1,7 @@
 import { type RefObject, useLayoutEffect, useRef } from 'react'
 import { type ThreadState, type TimelineEntry, threadPhase } from '../shared/projection.js'
+import { isTaskEntry, latestPlanTurn } from './plan-row.js'
+import { toolTranscriptPresentation } from './tool-transcript-presentation.js'
 import { elapsedLabel, transcriptOutcome, turnDurationMs } from './transcript-layout.js'
 
 export const transcriptMotion = {
@@ -20,6 +22,133 @@ export function livePhaseLabel(thread: ThreadState): string | undefined {
 		: phase === 'thinking'
 			? 'Thinking'
 			: 'Working'
+}
+
+export interface LiveStage {
+	text: string
+	/** Where the words came from; only `waiting` holds still instead of shimmering. */
+	source: 'waiting' | 'plan' | 'reasoning' | 'narration' | 'action' | 'fallback'
+}
+
+const stageMax = 80
+
+/** Plain words: the markdown a model writes in a headline never reaches the status line. */
+function stripMarkdown(text: string): string {
+	return text
+		.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+		.replace(/^\s*(?:#{1,6}\s+|[-*+]\s+|>\s*)/, '')
+		.replace(/[*_`~]+/g, '')
+		.replace(/\s+/g, ' ')
+		.trim()
+}
+
+/** Cut at a word boundary, with an ellipsis, so the line never wraps or reads half a word. */
+export function clipStage(text: string, max = stageMax): string {
+	if (text.length <= max) return text
+	const cut = text.slice(0, max - 1)
+	const space = cut.lastIndexOf(' ')
+	return `${(space > max / 2 ? cut.slice(0, space) : cut).replace(/[\s.,;:!?-]+$/, '')}…`
+}
+
+/**
+ * The stage a model stated in `text`: a leading bold run, else the first sentence. Undefined while it
+ * is still being written, so a half-streamed headline never reaches the screen.
+ */
+export function statedStage(text: string, finished: boolean): string | undefined {
+	const trimmed = text.trimStart()
+	if (!trimmed) return undefined
+	const bold = /^\*\*([\s\S]+?)\*\*/.exec(trimmed)
+	if (bold) {
+		const headline = stripMarkdown(bold[1] ?? '')
+		return headline ? clipStage(headline) : undefined
+	}
+	// An opening bold run with no close yet is still being written.
+	if (trimmed.startsWith('**') && !finished) return undefined
+	const end = /[.!?…](?=\s|$)|\n/.exec(trimmed)
+	if (!end && !finished) return undefined
+	const sentence = stripMarkdown(
+		end ? trimmed.slice(0, end.index + (end[0] === '\n' ? 0 : 1)) : trimmed,
+	)
+	return sentence ? clipStage(sentence) : undefined
+}
+
+function currentAction(thread: ThreadState): string | undefined {
+	for (let index = thread.timeline.length - 1; index >= 0; index--) {
+		const entry = thread.timeline[index]
+		if (!entry || entry.turn !== thread.turn || entry.kind !== 'tool') continue
+		if (isTaskEntry(thread, entry)) continue
+		const presentation = toolTranscriptPresentation(thread, entry.id)
+		if (presentation?.state !== 'running') continue
+		const text =
+			presentation.kind === 'command' && presentation.tooltip
+				? `Running ${presentation.tooltip}`
+				: presentation.label
+		const plain = stripMarkdown(text)
+		if (plain) return clipStage(plain, 60)
+	}
+	return undefined
+}
+
+/** The last action to finish, in the past tense: the words that hold between two actions. */
+function finishedAction(thread: ThreadState): string | undefined {
+	for (let index = thread.timeline.length - 1; index >= 0; index--) {
+		const entry = thread.timeline[index]
+		if (!entry || entry.turn !== thread.turn || entry.kind !== 'tool') continue
+		if (isTaskEntry(thread, entry)) continue
+		const presentation = toolTranscriptPresentation(thread, entry.id)
+		// Only an action that really finished: a cancelled or declined one is not something that was done.
+		if (presentation?.state !== 'completed') continue
+		const text =
+			presentation.kind === 'command' && presentation.tooltip
+				? `Ran ${presentation.tooltip}`
+				: presentation.label
+		const plain = stripMarkdown(text)
+		if (plain) return clipStage(plain, 60)
+		return undefined
+	}
+	return undefined
+}
+
+/**
+ * What the work is doing right now, as a stage: it changes when the work enters a new stage and
+ * holds for as long as that stage lasts. Never a function of elapsed time.
+ */
+export function liveStage(thread: ThreadState): LiveStage | undefined {
+	const phase = threadPhase(thread)
+	if (phase === 'idle') return undefined
+	if (phase === 'waiting') return { text: 'Waiting for your decision', source: 'waiting' }
+	if (latestPlanTurn(thread) === thread.turn) {
+		const task = thread.tasks.find((candidate) => candidate.status === 'in_progress')
+		const words = stripMarkdown(task?.activeForm?.trim() || task?.subject || '')
+		if (words) return { text: clipStage(words), source: 'plan' }
+	}
+	// The latest statement that is complete: a later one still being written leaves the earlier one up.
+	for (let index = thread.timeline.length - 1; index >= 0; index--) {
+		const entry = thread.timeline[index]
+		if (!entry || entry.turn !== thread.turn) continue
+		const later = index < thread.timeline.length - 1
+		if (entry.kind === 'reasoning') {
+			const segment = thread.reasoning[entry.id]
+			const text = segment
+				? statedStage(segment.text, segment.status === 'completed' || later)
+				: undefined
+			if (text) return { text, source: 'reasoning' }
+		} else if (entry.kind === 'message') {
+			const message = thread.messages[entry.index]
+			if (message?.role !== 'assistant' || message.phase !== 'commentary') continue
+			const text = statedStage(message.text, message.status === 'completed' || later)
+			if (text) return { text, source: 'narration' }
+		}
+	}
+	const action = currentAction(thread)
+	if (action) return { text: action, source: 'action' }
+	// Between two actions nothing runs and nothing new was said: the last action's words hold, but
+	// finished, so the line never claims a command is still running.
+	if (phase !== 'thinking') {
+		const done = finishedAction(thread)
+		if (done) return { text: done, source: 'action' }
+	}
+	return { text: phase === 'thinking' ? 'Thinking' : 'Working', source: 'fallback' }
 }
 
 export function turnActivityLabel(thread: ThreadState, turn: number): string {

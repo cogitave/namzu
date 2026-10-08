@@ -112,6 +112,26 @@ describe('a host can see what a unit waits on', () => {
 	})
 })
 
+describe('a host can name what a unit is doing', () => {
+	it('carries the active form on creation and on update, and omits it when there is none', async () => {
+		const events = await capture(async (store) => {
+			const named = await store.create({
+				sessionId: SESSION,
+				turnId: TURN,
+				subject: 'Run the tests',
+				activeForm: 'Running the tests',
+			})
+			await store.update(named.id, { status: 'in_progress' })
+			await store.create({ sessionId: SESSION, turnId: TURN, subject: 'plain' })
+		})
+		const created = events.filter((e): e is Created => e.type === 'task_created')
+		const updated = events.filter((e): e is Updated => e.type === 'task_updated')
+		expect(created[0]?.activeForm).toBe('Running the tests')
+		expect(updated[0]?.activeForm).toBe('Running the tests')
+		expect(created[1] && 'activeForm' in created[1]).toBe(false)
+	})
+})
+
 describe('a host can tell a removal from an update', () => {
 	it('marks the update a deletion sends, and no other', async () => {
 		// A removal used to arrive as an update that changed nothing, so a

@@ -103,6 +103,64 @@ describe('ToolExecutor plugin hooks', () => {
 		expect(batch.results[0]?.output).toBe('ok')
 	})
 
+	it('journals a label-only view for a call with no diff, beside the live result', async () => {
+		const tools = makeToolRegistry(vi.fn(async () => ({ success: true, output: 'big output' })))
+		vi.mocked(tools.get).mockReturnValue({
+			presentCall: () => ({ kind: 'generic', label: 'Add task · x', presentation: 'activity' }),
+		} as unknown as ToolDefinition)
+		const executor = new ToolExecutor(
+			{
+				sessionId: SESSION_ID,
+				tools,
+				turnId: mockTurnId,
+				workingDirectory: '/tmp',
+				permissionMode: 'auto',
+				env: {},
+				abortSignal: new AbortController().signal,
+			},
+			activityStore,
+			emitEvent,
+			makeLogger(),
+		)
+		await executor.executeBatch(buildResponse('echo', {}))
+		const completed = emitted.find((event) => event.type === 'tool_completed')
+		if (completed?.type !== 'tool_completed') throw new Error('no completion')
+		expect(completed.presentation).toBeUndefined()
+		expect(completed.savedPresentation).toEqual({
+			kind: 'generic',
+			label: 'Add task · x',
+			presentation: 'activity',
+		})
+	})
+
+	it('keeps the saved label when the output was truncated', async () => {
+		const tools = makeToolRegistry(vi.fn(async () => ({ success: true, output: 'x'.repeat(5000) })))
+		vi.mocked(tools.get).mockReturnValue({
+			presentCall: () => ({ kind: 'generic', label: 'Read big.log' }),
+		} as unknown as ToolDefinition)
+		const executor = new ToolExecutor(
+			{
+				sessionId: SESSION_ID,
+				tools,
+				turnId: mockTurnId,
+				workingDirectory: '/tmp',
+				permissionMode: 'auto',
+				env: {},
+				abortSignal: new AbortController().signal,
+				maxToolOutputChars: 100,
+			},
+			activityStore,
+			emitEvent,
+			makeLogger(),
+		)
+		await executor.executeBatch(buildResponse('echo', {}))
+		const completed = emitted.find((event) => event.type === 'tool_completed')
+		if (completed?.type !== 'tool_completed') throw new Error('no completion')
+		expect(completed.outputTruncated).toBe(true)
+		expect(completed.presentation).toBeUndefined()
+		expect(completed.savedPresentation).toEqual({ kind: 'generic', label: 'Read big.log' })
+	})
+
 	it.each(['visible', 'redacted', 'oversized', 'throws'] as const)(
 		'bounds completed diff presentation: %s',
 		async (mode) => {

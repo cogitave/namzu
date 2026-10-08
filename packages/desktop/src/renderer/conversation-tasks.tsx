@@ -1,6 +1,5 @@
 import type { ThreadState } from '../shared/projection.js'
 import { CheckIcon, ChevronRightIcon, ListTodoIcon, LoaderCircleIcon, XIcon } from './icons.js'
-import { Button } from './ui/button.js'
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from './ui/collapsible.js'
 import './conversation-tasks.css'
 
@@ -10,51 +9,6 @@ const labels = {
 	completed: 'Completed',
 	failed: 'Failed',
 }
-export function TasksProgress({
-	thread,
-	onOpen,
-	palName,
-}: { thread: ThreadState; onOpen: () => void; palName?: string }) {
-	if (!thread.tasks.length && !thread.tasksNotice) return null
-	const completed = thread.tasks.filter((task) => task.status === 'completed').length
-	const failed = thread.tasks.filter((task) => task.status === 'failed').length
-	const Icon =
-		!palName || (thread.tasks.length > 0 && completed === thread.tasks.length)
-			? CheckIcon
-			: failed
-				? XIcon
-				: thread.tasks.some((task) => task.status === 'in_progress')
-					? LoaderCircleIcon
-					: ListTodoIcon
-	return (
-		<Button
-			variant="ghost-muted"
-			size={palName ? 'sm-multiline' : 'sm'}
-			className="tasks-progress"
-			data-pal-progress={Boolean(palName)}
-			onClick={onOpen}
-		>
-			<Icon aria-hidden="true" />
-			<span>
-				{palName
-					? thread.tasks.length
-						? `Progress · ${completed} of ${thread.tasks.length} ${thread.tasks.length === 1 ? 'step' : 'steps'} done`
-						: 'Progress'
-					: thread.tasks.length
-						? `Tasks · ${completed}/${thread.tasks.length} completed`
-						: 'Tasks'}
-			</span>
-			{failed > 0 && (
-				<span className="tasks-failed">
-					{failed} {palName ? (failed === 1 ? 'needs attention' : 'need attention') : 'failed'}
-				</span>
-			)}
-			{thread.tasksNotice && <span>Unavailable</span>}
-			<ChevronRightIcon aria-hidden="true" />
-		</Button>
-	)
-}
-
 /** Plan milestones are reported states, not measured execution percentages. */
 function PalTaskProgress({
 	thread,

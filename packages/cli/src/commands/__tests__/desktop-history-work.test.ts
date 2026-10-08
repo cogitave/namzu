@@ -744,3 +744,77 @@ it('does not duplicate a committed reply or restore one that a later replacement
 		await f.close()
 	}
 })
+
+it('restores the label-only view a call saved, never its output', async () => {
+	const f = await fixture()
+	try {
+		const { turnId } = await begin(f.log, f.lease)
+		const toolUseId = generateMessageId()
+		await f.log.append(f.lease, {
+			type: 'tool_executing',
+			turnId,
+			toolUseId,
+			toolName: 'bash',
+			input: { command: 'ls' },
+		})
+		await f.log.append(f.lease, {
+			type: 'tool_completed',
+			turnId,
+			toolUseId,
+			toolName: 'bash',
+			result: 'PRIVATE_RAW_OUTPUT',
+			isError: false,
+			savedPresentation: { kind: 'terminal', command: 'ls', output: '' },
+			durationMs: 6000,
+		})
+		await answer(f.log, f.lease, turnId)
+		await finish(f.log, f.lease, turnId)
+		const result = await f.history()
+		expect(result.work?.tools[0]?.presentation).toEqual({
+			kind: 'terminal',
+			command: 'ls',
+			output: '',
+		})
+		expect(result.work?.tools[0]?.detailUnavailable).toBeUndefined()
+		expect(JSON.stringify(result)).not.toContain('PRIVATE_RAW_OUTPUT')
+	} finally {
+		await f.close()
+	}
+})
+
+it('keeps the saved label of a call whose output was truncated', async () => {
+	const f = await fixture()
+	try {
+		const { turnId } = await begin(f.log, f.lease)
+		const toolUseId = generateMessageId()
+		await f.log.append(f.lease, {
+			type: 'tool_executing',
+			turnId,
+			toolUseId,
+			toolName: 'bash',
+			input: { command: 'cat big.log' },
+		})
+		await f.log.append(f.lease, {
+			type: 'tool_completed',
+			turnId,
+			toolUseId,
+			toolName: 'bash',
+			result: 'PRIVATE_RAW_OUTPUT',
+			isError: false,
+			outputTruncated: true,
+			savedPresentation: { kind: 'terminal', command: 'cat big.log', output: '' },
+			durationMs: 900,
+		})
+		await answer(f.log, f.lease, turnId)
+		await finish(f.log, f.lease, turnId)
+		const result = await f.history()
+		expect(result.work?.tools[0]?.presentation).toEqual({
+			kind: 'terminal',
+			command: 'cat big.log',
+			output: '',
+		})
+		expect(JSON.stringify(result)).not.toContain('PRIVATE_RAW_OUTPUT')
+	} finally {
+		await f.close()
+	}
+})

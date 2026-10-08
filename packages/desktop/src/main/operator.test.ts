@@ -1,4 +1,7 @@
 import { EventEmitter } from 'node:events'
+import { mkdtempSync, readFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { DesktopEvent, PermissionView } from '../shared/protocol.js'
@@ -755,6 +758,59 @@ it('retains bounded draft settings in the main owner across navigation and disco
 		options: { effort: 'high', permissionMode: 'strict' },
 	})
 	owner.saveDraftSettings(landing, {})
-	expect(owner.draftSettings(landing)).toEqual({})
+	// A pane with nothing chosen continues from the model last picked on this engine.
+	expect(owner.draftSettings(landing)).toEqual({
+		choice: { provider: 'fixture', model: 'chosen', label: 'Chosen model' },
+	})
 	expect(owner.draftSettings(session.id).choice?.model).toBe('chosen')
+})
+
+it('continues from the last model picked on an engine, and drops it once the engine stops listing it', async () => {
+	const directory = mkdtempSync(join(tmpdir(), 'namzu-last-model-'))
+	const owner = new Operator(
+		{
+			program: process.execPath,
+			args: [fileURLToPath(new URL('./__fixtures__/rpc-process.mjs', import.meta.url))],
+			env: { ...process.env, FIXTURE_LIST_PROVIDER: 'Fixture' },
+		},
+		() => {},
+		directory,
+	)
+	operators.push(owner)
+	const project = await owner.openProject(process.cwd())
+	await owner.providers(project.id)
+	const landing = `project:${project.id}`
+	const saved = () =>
+		JSON.parse(readFileSync(join(directory, 'desktop-conversations.json'), 'utf8')).lastModels
+	// Nothing picked yet: nothing is invented, the source's recommendation applies.
+	expect(owner.draftSettings(landing)).toEqual({})
+	expect(saved()).toBeUndefined()
+	// The picker settling on a model by itself is not a pick, so it is not remembered.
+	owner.saveDraftSettings(landing, {
+		choice: { provider: 'fixture', model: 'settled', auto: true },
+	})
+	expect(saved()).toBeUndefined()
+	expect(owner.draftSettings(landing).choice).toEqual({ provider: 'fixture', model: 'settled' })
+	owner.saveDraftSettings(landing, {
+		choice: { provider: 'fixture', model: 'fixture-project', label: 'Configured fixture model' },
+	})
+	expect(saved()).toEqual({
+		namzu: { provider: 'fixture', model: 'fixture-project', label: 'Configured fixture model' },
+	})
+	// A blank pane and a new conversation both start from it; the pick is not written to them.
+	owner.saveDraftSettings(landing, {})
+	expect(owner.draftSettings(landing).choice?.model).toBe('fixture-project')
+	const session = await owner.newConversation(project.id)
+	expect(owner.draftSettings(session.id).choice).toEqual({
+		provider: 'fixture',
+		model: 'fixture-project',
+		label: 'Configured fixture model',
+	})
+	// The engine's list no longer holds it: the entry is dropped without a word.
+	await owner.models(project.id, 'fixture')
+	owner.saveDraftSettings(landing, { choice: { provider: 'fixture', model: 'withdrawn' } })
+	owner.saveDraftSettings(landing, {})
+	await owner.models(project.id, 'fixture')
+	expect(owner.draftSettings(landing)).toEqual({})
+	expect(saved()).toBeUndefined()
 })

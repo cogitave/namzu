@@ -1,4 +1,4 @@
-import type { ToolCallView } from '@namzu/sdk'
+import type { AcpTask, ToolCallView } from '@namzu/sdk'
 import type { HistoryWorkSnapshot } from '../shared/history-work.js'
 import type { ChatMessage, ConversationView, DesktopEvent } from '../shared/protocol.js'
 
@@ -249,10 +249,12 @@ export function activityConversation(projectId: string, updatedAt: string): Conv
 	return { id: activityConversationId, projectId, title: 'Activity rows', updatedAt }
 }
 
-interface Step {
+export interface Step {
 	name: string
 	after: number
-	update: Extract<DesktopEvent, { kind: 'update' }>['update']
+	update?: Extract<DesktopEvent, { kind: 'update' }>['update']
+	/** A task event sent with the update, as the host sends one when the plan changes. */
+	task?: AcpTask
 }
 
 /** A running turn: Running command, Ran command, Editing, Edited, then the answer. */
@@ -264,17 +266,24 @@ function liveSteps(): Step[] {
 		view: ToolCallView,
 	): Step['update'] => ({ kind: 'tool_call', toolCallId, title, status, view })
 	const edit = diff('src/app.css', css, '.row {\n  padding: 8px;\n}\n')
+	const thought = (text: string, blockId = 'live-think'): Step['update'] => ({
+		kind: 'agent_thought_chunk',
+		text,
+		blockId,
+		messageId: 'live-think-m',
+	})
+	const planTool = (id: string, title: string, label: string, status: 'pending' | 'completed') =>
+		call(id, title, status, { kind: 'generic', label, presentation: 'activity' })
+	const task = (status: AcpTask['status']): AcpTask => ({
+		taskId: 'live-t1',
+		subject: 'Update the row padding',
+		activeForm: 'Updating the row padding',
+		status,
+		blockedBy: [],
+	})
+	// Each stage the status line can show, in the order a real turn reaches them: the model has said
+	// nothing yet (an action names it), then a headline, a narration, then a plan task in progress.
 	return [
-		{
-			name: 'say',
-			after: 300,
-			update: {
-				kind: 'agent_message_chunk',
-				text: 'I will read the notes, then update the styles.',
-				phase: 'commentary',
-				messageId: 'live-say',
-			},
-		},
 		{
 			name: 'cmd',
 			after: 600,
@@ -282,24 +291,78 @@ function liveSteps(): Step[] {
 		},
 		{
 			name: 'cmd-done',
-			after: 4000,
+			after: 3000,
 			update: call('live-c', 'bash', 'completed', command('cat notes.md', 'Make rows roomier.')),
+		},
+		{ name: 'think', after: 300, update: thought('**Planning the style change**') },
+		{
+			name: 'think-body',
+			after: 1500,
+			update: thought('\n\nThe notes ask for roomier rows, so the padding changes.'),
+		},
+		{
+			name: 'think-end',
+			after: 500,
+			update: {
+				kind: 'agent_thought',
+				status: 'completed',
+				blockId: 'live-think',
+				messageId: 'live-think-m',
+			},
 		},
 		{
 			name: 'read',
-			after: 300,
+			after: 2500,
 			update: call('live-r', 'read', 'pending', explore('Read notes.md')),
 		},
 		{
 			name: 'read-done',
-			after: 2500,
+			after: 1500,
 			update: call('live-r', 'read', 'completed', explore('Read notes.md')),
 		},
-		{ name: 'edit', after: 300, update: call('live-e', 'edit', 'pending', edit) },
-		{ name: 'edit-done', after: 4000, update: call('live-e', 'edit', 'completed', edit) },
+		{
+			name: 'say',
+			after: 400,
+			update: {
+				kind: 'agent_message_chunk',
+				text: 'I will read the notes, then update the styles. ',
+				phase: 'commentary',
+				messageId: 'live-say',
+			},
+		},
+		{
+			name: 'plan',
+			after: 2500,
+			update: planTool('live-p', 'task_create', 'Add task · Update the row padding', 'completed'),
+			task: task('pending'),
+		},
+		{
+			name: 'plan-start',
+			after: 800,
+			update: planTool(
+				'live-p2',
+				'task_update',
+				'Update task · Update the row padding',
+				'completed',
+			),
+			task: task('in_progress'),
+		},
+		{ name: 'edit', after: 1500, update: call('live-e', 'edit', 'pending', edit) },
+		{ name: 'edit-done', after: 3500, update: call('live-e', 'edit', 'completed', edit) },
+		{
+			name: 'plan-done',
+			after: 300,
+			update: planTool(
+				'live-p3',
+				'task_update',
+				'Update task · Update the row padding',
+				'completed',
+			),
+			task: task('completed'),
+		},
 		{
 			name: 'answer',
-			after: 400,
+			after: 2500,
 			update: {
 				kind: 'agent_message_chunk',
 				text: 'The rows now have more room.',
@@ -318,13 +381,15 @@ export interface ActivityLive {
 export function createActivityLive(
 	view: ConversationView,
 	emit: (event: DesktopEvent) => void,
+	/** Another script to play instead of the default one. */
+	script: () => Step[] = liveSteps,
 ): ActivityLive {
 	return {
 		start({ hold } = {}) {
 			const prompt = 'Update the row padding from my notes.'
 			emit({ kind: 'prompt', sessionId: view.id, prompt, at: Date.now() })
 			emit({ kind: 'state', sessionId: view.id, running: true, queued: [] })
-			const steps = liveSteps()
+			const steps = script()
 			return new Promise((resolve) => {
 				const next = (index: number) => {
 					const step = steps[index]
@@ -341,13 +406,15 @@ export function createActivityLive(
 						return
 					}
 					setTimeout(() => {
-						emit({
-							kind: 'update',
-							projectId: view.projectId,
-							sessionId: view.id,
-							update: step.update,
-							at: Date.now(),
-						})
+						if (step.update)
+							emit({
+								kind: 'update',
+								projectId: view.projectId,
+								sessionId: view.id,
+								update: step.update,
+								at: Date.now(),
+							})
+						if (step.task) emit({ kind: 'task', sessionId: view.id, task: step.task })
 						if (step.name === hold) resolve()
 						else next(index + 1)
 					}, step.after)

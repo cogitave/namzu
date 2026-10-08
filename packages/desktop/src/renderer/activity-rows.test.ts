@@ -309,6 +309,29 @@ describe('rendered activity', () => {
 		expect(html.match(/data-tool-call-id=/g)).toHaveLength(4)
 		expect(html).toContain('Edited')
 	})
+	it('folds the task tools into one plan row and never counts them as actions', () => {
+		let thread = work()
+		thread = {
+			...thread,
+			tasks: [
+				{ taskId: 't1', subject: 'One', status: 'completed', blockedBy: [] },
+				{ taskId: 't2', subject: 'Two', status: 'pending', blockedBy: [] },
+			],
+		}
+		const generic: ToolCallView = {
+			kind: 'generic',
+			label: 'Add task · One',
+			presentation: 'activity',
+		}
+		thread = tool(thread, 'k1', 'task_create', generic)
+		thread = tool(thread, 'k2', 'task_update', generic)
+		const html = render(thread)
+		expect(html).toContain('Plan · 1/2')
+		expect(html.match(/class="tool tool-group plan-row/g)).toHaveLength(1)
+		expect(html).not.toContain('data-tool-call-id="k1"')
+		expect(html).not.toContain('data-tool-call-id="k2"')
+		expect(html).toContain('Ran 2 commands, edited a file')
+	})
 	it('has no scroll box around a run', () => {
 		expect(render(work())).not.toContain('max-height')
 	})

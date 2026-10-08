@@ -35,21 +35,26 @@ function truncate(value: string, max = MAX_LABEL): string {
  * a delegation tool came to show a blob of its own arguments while
  * requiring the model to write a label nothing then read.
  */
-export function genericLabel(input: unknown): string {
+export function genericPrimary(input: unknown): string | undefined {
 	if (input && typeof input === 'object') {
 		const obj = input as Record<string, unknown>
 		const pick = (k: string): string | undefined =>
 			typeof obj[k] === 'string' ? (obj[k] as string) : undefined
-		const primary =
+		return (
 			pick('command') ??
 			pick('path') ??
 			pick('file_path') ??
 			pick('pattern') ??
 			pick('query') ??
 			pick('description')
-		if (primary) return truncate(primary)
+		)
 	}
-	if (typeof input === 'string') return truncate(input)
+	return typeof input === 'string' ? input : undefined
+}
+
+export function genericLabel(input: unknown): string {
+	const primary = genericPrimary(input)
+	if (primary) return truncate(primary)
 	return truncate(JSON.stringify(input ?? {}))
 }
 

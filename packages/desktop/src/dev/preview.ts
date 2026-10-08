@@ -44,6 +44,7 @@ import {
 	resolveSampleLinks,
 	sampleFileIndex,
 } from './preview-files.js'
+import { planMessages, planSavedTasks, planSteps, planWork } from './preview-plan.js'
 import { createStressStream, stressConversationId, stressMessages } from './preview-stress.js'
 
 // This separate development entry never substitutes for the native preload API.
@@ -146,14 +147,23 @@ if (Number.isInteger(stressTurns) && stressTurns > 0) {
 const activityParams = new URLSearchParams(location.search)
 const activityShown = activityParams.has('activity')
 const activityLiveShown = activityParams.has('live')
+// &plan=1 swaps the activity sample for turns that touched the plan (&plan=done finishes it).
+const planShown = activityParams.has('plan')
 let activityLive: ReturnType<typeof createActivityLive> | undefined
-if (activityShown || activityLiveShown) {
+if (activityShown || activityLiveShown || planShown) {
 	const view = activityConversation('sample-app', sampleDate)
 	conversations.unshift(view)
-	messages.set(view.id, activityShown ? activityMessages() : [])
-	activityLive = createActivityLive(view, (event) => {
-		for (const listener of listeners) listener(event)
-	})
+	messages.set(
+		view.id,
+		planShown && !activityLiveShown ? planMessages() : activityShown ? activityMessages() : [],
+	)
+	activityLive = createActivityLive(
+		view,
+		(event) => {
+			for (const listener of listeners) listener(event)
+		},
+		planShown ? planSteps : undefined,
+	)
 	;(window as unknown as { namzuPreviewActivity: unknown }).namzuPreviewActivity = activityLive
 }
 // The first sample conversation carries attachments, saved file edits and a pinned-looking history,
@@ -448,7 +458,7 @@ const engineProviders: Record<
 	'codex-cli': {
 		provider: { id: 'codex-cli', label: 'Codex', defaultModel: 'gpt-6.1-sol' },
 		models: [
-			{ id: 'gpt-6.1-sol', label: 'GPT-6.1 Sol', default: true },
+			{ id: 'gpt-6.1-sol', label: 'GPT-6.1 Sol', default: true, current: true },
 			{ id: 'gpt-6-astra', label: 'GPT-6 Astra' },
 			{ id: 'gpt-6-sol', label: 'GPT-6 Sol' },
 			{ id: 'gpt-6-luna', label: 'GPT-6 Luna' },
@@ -462,12 +472,21 @@ const engineProviders: Record<
 		provider: {
 			id: 'claude-code',
 			label: 'Claude Code',
-			defaultModel: 'claude-sonnet-5-5',
+			defaultModel: 'opus',
 		},
+		// The engine's own aliases are marked current; pinned releases are not.
 		models: [
-			{ id: 'claude-sonnet-5-5', label: 'Sonnet 5.5', default: true },
-			{ id: 'claude-opus-5-5', label: 'Opus 5.5' },
-			{ id: 'claude-haiku-5', label: 'Haiku 5' },
+			{ id: 'opus', label: 'Opus 5.5', default: true, current: true },
+			{ id: 'fable', label: 'Fable 5.1', current: true },
+			{ id: 'sonnet', label: 'Sonnet 5.5', current: true },
+			{ id: 'haiku', label: 'Haiku 4.5', current: true },
+			{ id: 'claude-sonnet-5', label: 'Sonnet 5' },
+			{ id: 'claude-opus-5', label: 'Opus 5' },
+			{ id: 'claude-fable-5', label: 'Fable 5' },
+			{ id: 'claude-opus-4-8', label: 'Opus 4.8' },
+			{ id: 'claude-opus-4-7', label: 'Opus 4.7' },
+			{ id: 'claude-opus-4-6', label: 'Opus 4.6' },
+			{ id: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
 		],
 	},
 }
@@ -498,17 +517,43 @@ const engineEffort: Record<string, ComposerModelSettings> = {
 	},
 	'gpt-5.6-luna': { effortLevels: ['low', 'medium'], effortDefault: 'low' },
 	'gpt-5.5': {},
-	'claude-sonnet-5-5': {
+	sonnet: {
 		effortLevels: ['low', 'medium', 'high'],
 		effortDefault: 'medium',
 	},
-	'claude-opus-5-5': {
+	opus: {
 		effortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
 		effortDefault: 'high',
 	},
-	'claude-haiku-5': {},
+	fable: { effortLevels: ['low', 'medium', 'high'], effortDefault: 'medium' },
+	haiku: {},
 }
 const harnesses = new Map<string, HarnessView['selected']>()
+function previewModelsMode(): string | null {
+	try {
+		return localStorage.getItem('namzu.preview.models')
+	} catch {
+		return null
+	}
+}
+// The last model picked survives a reload, as the real host keeps it in its snapshot.
+const LAST_MODEL_KEY = 'namzu.preview.lastModel'
+function readLastModel(engine: string): DraftSettings['choice'] | undefined {
+	try {
+		const raw = localStorage.getItem(`${LAST_MODEL_KEY}.${engine}`)
+		return raw ? (JSON.parse(raw) as DraftSettings['choice']) : undefined
+	} catch {
+		return undefined
+	}
+}
+function writeLastModel(engine: string, choice: NonNullable<DraftSettings['choice']>): void {
+	try {
+		localStorage.setItem(
+			`${LAST_MODEL_KEY}.${engine}`,
+			JSON.stringify({ provider: choice.provider, model: choice.model, label: choice.label }),
+		)
+	} catch {}
+}
 // A conversation with messages is started, so its engine is locked as in the real host.
 function started(sessionId?: string): boolean {
 	return Boolean(sessionId && (messages.get(sessionId)?.length ?? 0) > 0)
@@ -920,9 +965,15 @@ const api: DesktopApi = {
 			return {
 				messages: saved,
 				partial: false,
-				thread: activityShown
-					? restoreHistoryWork(emptyThread(), saved, activityWork())
-					: undefined,
+				thread:
+					planShown && !activityLiveShown
+						? {
+								...restoreHistoryWork(emptyThread(), saved, planWork()),
+								tasks: planSavedTasks(activityParams.get('plan') === 'done'),
+							}
+						: activityShown
+							? restoreHistoryWork(emptyThread(), saved, activityWork())
+							: undefined,
 			}
 		}
 		return {
@@ -1093,7 +1144,11 @@ const api: DesktopApi = {
 			selected: clone(
 				(id && selections.get(id)) || {
 					id: 'anthropic',
-					model: 'sample-balanced',
+					// The long engine-like lists model a machine with no saved preference, so the
+					// picker starts from the source's recommendation.
+					...(['versions', 'codex', 'aliases'].includes(previewModelsMode() ?? '')
+						? {}
+						: { model: 'sample-balanced' }),
 				},
 			),
 		}
@@ -1131,12 +1186,39 @@ const api: DesktopApi = {
 				],
 				notice: null,
 			}
-		// A design aid: localStorage 'namzu.preview.models' = 'fail' makes the sample catalogue unreadable, 'many' gives it 16 models.
+		// A design aid: localStorage 'namzu.preview.models' = 'fail' makes the sample catalogue unreadable, 'many' gives it 16 models, 'versions' a long list of versioned models in several families.
 		try {
 			if (localStorage.getItem('namzu.preview.models') === 'fail') throw new Error('unavailable')
 		} catch (error) {
 			if (error instanceof Error && error.message === 'unavailable') throw error
 		}
+		// 'codex' and 'aliases' show the sample provider with the catalogue of that engine.
+		const asEngine = (['codex-cli', 'claude-code'] as const).find(
+			(engine) => previewModelsMode() === (engine === 'codex-cli' ? 'codex' : 'aliases'),
+		)
+		if (asEngine) return { models: clone(engineProviders[asEngine].models), notice: null }
+		try {
+			if (localStorage.getItem('namzu.preview.models') === 'versions')
+				return {
+					models: [
+						{ id: 'claude-haiku-5-5', label: 'Claude Haiku 5.5' },
+						{ id: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5' },
+						{ id: 'claude-opus-5-5', label: 'Claude Opus 5.5' },
+						{ id: 'claude-fable-5-1', label: 'Claude Fable 5.1' },
+						{ id: 'claude-opus-5', label: 'Claude Opus 5' },
+						{ id: 'claude-sonnet-5', label: 'Claude Sonnet 5' },
+						{ id: 'claude-fable-5', label: 'Claude Fable 5' },
+						{ id: 'claude-opus-4-8', label: 'Claude Opus 4.8' },
+						{ id: 'claude-opus-4-7', label: 'Claude Opus 4.7' },
+						{ id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
+						{ id: 'claude-opus-4-6', label: 'Claude Opus 4.6' },
+						{ id: 'claude-opus-4-5', label: 'Claude Opus 4.5' },
+						{ id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5' },
+						{ id: 'claude-sonnet-4-5', label: 'Claude Sonnet 4.5' },
+					],
+					notice: null,
+				}
+		} catch {}
 		try {
 			if (localStorage.getItem('namzu.preview.models') === 'many')
 				return {
@@ -1264,11 +1346,15 @@ const api: DesktopApi = {
 	},
 	draftSettings: async (id) => {
 		owner(id)
-		return clone(settings.get(id) ?? {})
+		const saved = settings.get(id)
+		// Like the real host: a pane with nothing chosen starts from the model last picked.
+		const last = saved?.choice ? undefined : readLastModel(engineOf(id))
+		return clone({ ...saved, ...(last ? { choice: last } : {}) })
 	},
 	saveDraftSettings: async (id, value) => {
 		owner(id)
 		settings.set(id, clone(value))
+		if (value.choice) writeLastModel(engineOf(id), value.choice)
 	},
 	openExternal: async () => {},
 	linkPreview: async (url) => {

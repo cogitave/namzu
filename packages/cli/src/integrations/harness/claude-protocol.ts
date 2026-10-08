@@ -95,11 +95,11 @@ export function claudeLaunchArgs(input: {
 
 export function claudeModels(
 	payload: unknown,
-): readonly (HarnessModel & { readonly default?: true })[] {
+): readonly (HarnessModel & { readonly default?: true; readonly current?: true })[] {
 	const rows = claudeRecord(payload)?.models
 	if (!Array.isArray(rows) || rows.length > 4096)
 		throw new Error('The native engine did not return a supported model catalogue.')
-	const models: (HarnessModel & { default?: true })[] = []
+	const models: (HarnessModel & { default?: true; current?: true })[] = []
 	const resolvedById = new Map<string, string | undefined>()
 	let defaultResolved: string | undefined
 	const seen = new Set<string>()
@@ -125,7 +125,11 @@ export function claudeModels(
 		resolvedById.set(id, resolved)
 		const label = claudeString(row.displayName) ?? id
 		// Effort is launch-only in this slice; do not offer an unsupported turn control.
-		models.push(Object.freeze({ id, label }))
+		// The engine's own aliases (opus, sonnet, ...) always point at its current model of a
+		// family; an id that names a version is a specific release, which may be an older one.
+		models.push(
+			Object.freeze({ id, label, ...(/\d/.test(value) ? {} : { current: true as const }) }),
+		)
 	}
 	if (defaultResolved) {
 		const index = models.findIndex(

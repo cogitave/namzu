@@ -30,15 +30,6 @@
 	white-space: nowrap;
 	transition: opacity 160ms ease-out;
 }
-.normal-transcript .tool-duration {
-	opacity: 0;
-	white-space: nowrap;
-	transition: opacity 160ms ease-out;
-}
-.normal-transcript .tool:hover .tool-duration,
-.normal-transcript .tool:focus-within .tool-duration {
-	opacity: 1;
-}
 .normal-transcript .transcript-visually-hidden,
 .normal-transcript .tool.completed .tool-status,
 .normal-transcript .tool.running .tool-status {
@@ -284,8 +275,7 @@
 	}
 	.normal-transcript [data-slot="collapsible-panel"],
 	.normal-transcript .disclosure-chevron,
-	.normal-transcript .message-time,
-	.normal-transcript .tool-duration {
+	.normal-transcript .message-time {
 		transition: none;
 	}
 }
@@ -312,4 +302,44 @@
 /* The reply clock lines up with the answer text, which sits 4px inside its box. */
 .normal-transcript .message.assistant:not(.commentary) > .message-footer {
 	padding-left: 4px;
+}
+
+/* The stage line: the work's current stage under the clock. Only it shimmers; a decision wait holds still. */
+.normal-transcript .stage-line {
+	display: block;
+	margin: 10px 0 0;
+	min-width: 0;
+	font-size: 14px;
+	line-height: 20px;
+	color: var(--muted-foreground);
+}
+.normal-transcript .stage-line .transcript-phase-label {
+	display: inline-grid;
+	max-width: 100%;
+}
+.normal-transcript .stage-text {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	background-image: linear-gradient(
+		105deg,
+		var(--muted-foreground) 35%,
+		var(--foreground) 50%,
+		var(--muted-foreground) 65%
+	);
+	background-size: 240% 100%;
+	background-clip: text;
+	color: transparent;
+	animation: working-shine 2.2s linear infinite;
+}
+.normal-transcript .stage-line[data-stage-source="waiting"] .stage-text {
+	background: none;
+	color: var(--muted-foreground);
+	animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+	.normal-transcript .stage-text {
+		background: none;
+		color: var(--foreground);
+	}
 }

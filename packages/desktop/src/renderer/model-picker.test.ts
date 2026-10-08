@@ -132,7 +132,7 @@ it('offers search once a single-engine list grows long, and never refresh or typ
 	expect(html).not.toContain('Retry')
 })
 
-it('names the Default row for assistive tools with the model it stands for, and keeps notes in model names', () => {
+it('names the recommended row for assistive tools, and keeps notes in model names', () => {
 	catalogue('codex-cli', [
 		{ id: 'gpt-top', label: 'GPT Top', default: true },
 		{ id: 'gpt-other', label: 'GPT Other', note: 'Fast and cheap' },
@@ -141,11 +141,12 @@ it('names the Default row for assistive tools with the model it stands for, and 
 		available: [{ id: 'codex-cli', label: 'Codex', defaultModel: 'gpt-top' }],
 		selected: { id: 'codex-cli', model: 'gpt-top' },
 	})
-	expect(html).toContain('aria-label="Default, recommended: GPT Top"')
+	expect(html).toContain('aria-label="Codex GPT Top Recommended"')
 	expect(html).toContain('aria-label="Codex GPT Other Fast and cheap"')
+	expect(html).not.toContain('aria-label="Default')
 })
 
-it('falls back to the provider default model for the Default row when no row is flagged', () => {
+it('does not recommend a model only because the provider names it', () => {
 	catalogue('sample', [
 		{ id: 'sample-a', label: 'Sample A' },
 		{ id: 'sample-b', label: 'Sample B' },
@@ -154,7 +155,7 @@ it('falls back to the provider default model for the Default row when no row is 
 		available: [{ id: 'sample', label: 'Sample', defaultModel: 'sample-b' }],
 		selected: { id: 'sample', model: 'sample-a' },
 	})
-	expect(html).toContain('Recommended · Sample B')
+	expect(html).not.toContain('Recommended')
 })
 
 it('shows the catalogue name and the effort in the trigger, and names both for assistive tools', () => {
@@ -203,7 +204,7 @@ it('shows the model default effort when none is saved, and no effort when the mo
 	).toContain('aria-label="Model: gpt-x, effort: Medium"')
 })
 
-it('leads the list with a Default row naming the engine recommendation, checked only when it is the preset', () => {
+it('has no Default row: a recommended model is a chip on its own row, and an old preset is an ordinary choice', () => {
 	catalogue('codex-cli', [
 		{ id: 'gpt-top', label: 'GPT Top', default: true },
 		{ id: 'gpt-other', label: 'GPT Other' },
@@ -213,26 +214,59 @@ it('leads the list with a Default row naming the engine recommendation, checked 
 		selected: { id: 'codex-cli', model: 'gpt-top' },
 	}
 	const row = (html: string, name: string) =>
-		html.match(
-			new RegExp(
-				`<button[^>]*aria-label="${name === 'Default' ? 'Default, recommended: [^"]*' : name}"[^>]*>`,
-			),
-		)?.[0]
-	const preset = render(providers, {
+		html.match(new RegExp(`<button[^>]*aria-label="${name}"[^>]*>`))?.[0]
+	const html = render(providers, {
 		choice: { provider: 'codex-cli', model: 'gpt-top', label: 'GPT Top', preset: 'default' },
 	})
-	expect(preset.indexOf('Recommended · GPT Top')).toBeGreaterThan(0)
-	expect(preset.indexOf('aria-label="Default"')).toBeLessThan(
-		preset.indexOf('aria-label="Codex GPT Top"'),
+	expect(html).not.toContain('Default')
+	expect(html).toContain('model-picker-chip')
+	expect(row(html, 'Codex GPT Top Recommended')).toContain('aria-checked="true"')
+	expect(row(html, 'Codex GPT Other')).toContain('aria-checked="false"')
+	expect(html.match(/role="radio"/g)).toHaveLength(2)
+})
+
+const longList = [
+	{ id: 'm-6-1', label: 'Gamma 6.1' },
+	{ id: 'm-6-0', label: 'Delta 6' },
+	{ id: 'e-6', label: 'Epsilon 6' },
+	{ id: 'g-5-9', label: 'Gamma 5.9' },
+	{ id: 'd-5', label: 'Delta 5' },
+	{ id: 'e-5', label: 'Epsilon 5' },
+	{ id: 'g-5', label: 'Gamma 5' },
+	{ id: 'd-4', label: 'Delta 4' },
+]
+const longProviders: ProviderView = {
+	available: [{ id: 'long', label: 'Long', defaultModel: 'm-6-1' }],
+	selected: { id: 'long', model: 'm-6-1' },
+}
+
+it('folds older models behind one collapsed row and counts them', () => {
+	catalogue('long', longList)
+	const html = render(longProviders)
+	expect(html.match(/role="radio"/g)).toHaveLength(3)
+	expect(html).toContain('Older models (5)')
+	expect(html).toContain('aria-expanded="false"')
+	// Eight rows pass the search threshold.
+	expect(html).toContain('aria-label="Search models"')
+})
+
+it('keeps a checked older model visible, pinned under the current rows', () => {
+	catalogue('long', longList)
+	const html = render(longProviders, { choice: { provider: 'long', model: 'g-5-9' } })
+	expect(html.match(/role="radio"/g)).toHaveLength(4)
+	expect(html).toContain('Older models (4)')
+	expect(html.indexOf('Gamma 5.9')).toBeGreaterThan(html.indexOf('Epsilon 6'))
+	expect(html).toMatch(
+		/aria-checked="true"[^>]*aria-label="Long Gamma 5.9"|aria-label="Long Gamma 5.9"[^>]*aria-checked="true"/,
 	)
-	expect(row(preset, 'Default')).toContain('aria-checked="true"')
-	expect(row(preset, 'Codex GPT Top')).toContain('aria-checked="false"')
-	const explicit = render(providers, {
-		choice: { provider: 'codex-cli', model: 'gpt-top', label: 'GPT Top' },
-	})
-	expect(row(explicit, 'Default')).toContain('aria-checked="false"')
-	expect(row(explicit, 'Codex GPT Top')).toContain('aria-checked="true"')
-	expect(explicit).toContain('Choose a model')
+})
+
+it('shows a short list whole with no fold and no search icon', () => {
+	catalogue('long', longList.slice(0, 5))
+	const html = render(longProviders)
+	expect(html.match(/role="radio"/g)).toHaveLength(5)
+	expect(html).not.toContain('Older models')
+	expect(html).not.toContain('aria-label="Search models"')
 })
 
 it('offers no Default row when the engine marks no default model', () => {

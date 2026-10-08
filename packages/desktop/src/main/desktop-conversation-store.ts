@@ -44,6 +44,13 @@ export interface DesktopConversationSnapshot {
 	conversations: SavedDesktopConversation[]
 	projectDrafts: SavedDesktopProjectDraft[]
 	attachments: SavedDesktopAttachment[]
+	/** The model last picked per engine, so a new conversation continues from it. */
+	lastModels?: Record<string, SavedLastModel>
+}
+export interface SavedLastModel {
+	provider: string
+	model: string
+	label?: string
 }
 
 const MAX_FILE_BYTES = 48 * 1024 * 1024
@@ -189,12 +196,32 @@ function conversation(input: unknown): SavedDesktopConversation {
 	}
 	return result
 }
+function lastModels(input: unknown): Record<string, SavedLastModel> {
+	if (!input || typeof input !== 'object' || Array.isArray(input))
+		throw new Error('Invalid saved last models.')
+	const entries = Object.entries(input)
+	if (entries.length > 32) throw new Error('Invalid saved last models.')
+	return Object.fromEntries(
+		entries.map(([engine, value]) => {
+			const item = record(value, ['provider', 'model', 'label'])
+			return [
+				string(engine, 64),
+				{
+					provider: string(item.provider, 400),
+					model: string(item.model, 400),
+					...(item.label === undefined ? {} : { label: string(item.label, 400, false) }),
+				},
+			]
+		}),
+	)
+}
 function metadata(input: unknown): Omit<DesktopConversationSnapshot, 'attachments'> {
 	const value = record(input, [
 		'version',
 		'projects',
 		'conversations',
 		'projectDrafts',
+		'lastModels',
 		'attachments',
 	])
 	if (value.version !== 1) throw new Error('Unsupported saved desktop conversation version.')
@@ -234,7 +261,13 @@ function metadata(input: unknown): Omit<DesktopConversationSnapshot, 'attachment
 		MAX_DRAFT_CHARACTERS
 	)
 		throw new Error('Saved desktop drafts are too large.')
-	return { version: 1, projects, conversations, projectDrafts }
+	return {
+		version: 1,
+		projects,
+		conversations,
+		projectDrafts,
+		...(value.lastModels === undefined ? {} : { lastModels: lastModels(value.lastModels) }),
+	}
 }
 function attachment(input: unknown): SavedDesktopAttachment {
 	const value = record(input, ['ownerId', 'view', 'draft', 'image', 'text'])
@@ -307,6 +340,7 @@ function parsed(input: unknown): DesktopConversationSnapshot {
 		'projects',
 		'conversations',
 		'projectDrafts',
+		'lastModels',
 		'attachments',
 	])
 	const result = {
@@ -423,6 +457,7 @@ export class DesktopConversationStore {
 			'projects',
 			'conversations',
 			'projectDrafts',
+			'lastModels',
 			'attachmentFile',
 		])
 		let attachments: unknown[] = []
@@ -442,6 +477,7 @@ export class DesktopConversationStore {
 			projects: value.projects,
 			conversations: value.conversations,
 			projectDrafts: value.projectDrafts,
+			lastModels: value.lastModels,
 			attachments,
 		})
 		this.cachedAttachments = cloneAttachments(snapshot.attachments)
@@ -454,6 +490,7 @@ export class DesktopConversationStore {
 			'projects',
 			'conversations',
 			'projectDrafts',
+			'lastModels',
 			'attachments',
 		])
 		const incoming = array(value.attachments, 131_072)

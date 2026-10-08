@@ -4,6 +4,7 @@ import {
 	disclosureSettleMs,
 	followAfterDisclosure,
 	latestThreshold,
+	panelPausesFollow,
 } from './scroll-follow.js'
 
 /** Keep reading position independent of streaming; follow only after reaching the end. */
@@ -78,8 +79,13 @@ export function useTranscriptScroll(
 			if (follow.current) pin()
 			update()
 		}
-		// Opening a disclosure grows the page under the reader. Stop following while it grows, then
-		// follow again only if the reader is still at the end.
+		// Opening a disclosure grows the page under the reader. A reader at the end keeps following
+		// while a small panel grows, so nothing jumps; a panel taller than a third of the view is
+		// being read, so following pauses for it and resumes only if the reader is back at the end.
+		const panelOf = () =>
+			document.getElementById(disclosureTrigger?.getAttribute('aria-controls') ?? '')
+		const tallPanel = () =>
+			panelPausesFollow(panelOf()?.getBoundingClientRect().height, node.clientHeight)
 		const onDisclosure = (event: Event) => {
 			const trigger =
 				event.target instanceof Element ? event.target.closest('[aria-expanded]') : null
@@ -92,7 +98,7 @@ export function useTranscriptScroll(
 				disclosureMoved = false
 			}
 			disclosureTrigger = trigger
-			follow.current = false
+			if (!disclosureWasFollowing) follow.current = false
 			if (disclosure !== undefined) clearTimeout(disclosure)
 			disclosure = setTimeout(() => {
 				disclosure = undefined
@@ -102,9 +108,7 @@ export function useTranscriptScroll(
 						wasFollowing: disclosureWasFollowing,
 						moved: disclosureMoved,
 						// The trigger names its panel only once open, so look it up when the panel has grown.
-						panelHeight: document
-							.getElementById(disclosureTrigger?.getAttribute('aria-controls') ?? '')
-							?.getBoundingClientRect().height,
+						panelHeight: panelOf()?.getBoundingClientRect().height,
 						viewportHeight: node.clientHeight,
 					})
 				)
@@ -112,16 +116,22 @@ export function useTranscriptScroll(
 				schedule()
 			}, disclosureSettleMs)
 		}
+		const settle = () => {
+			if (!current) return
+			if (disclosure !== undefined && tallPanel()) follow.current = false
+			if (follow.current && !explicitJump && Math.abs(node.scrollTop - bottom()) > 0.5) pin()
+			update()
+		}
 		const schedule = () => {
 			if (frame !== undefined) return
 			frame = requestAnimationFrame(() => {
 				frame = undefined
-				if (!current) return
-				if (follow.current && !explicitJump && Math.abs(node.scrollTop - bottom()) > 0.5) pin()
-				update()
+				settle()
 			})
 		}
-		const observer = new ResizeObserver(schedule)
+		// A resize is pinned before the frame is painted, so a growing panel never shows a frame
+		// that is off the end.
+		const observer = new ResizeObserver(settle)
 		observer.observe(node)
 		if (node.firstElementChild) observer.observe(node.firstElementChild)
 		node.addEventListener('scroll', onScroll, { passive: true })

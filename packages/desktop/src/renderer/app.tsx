@@ -75,7 +75,7 @@ import {
 	type ConversationTabActions,
 	ConversationTabs,
 } from './conversation-tabs.js'
-import { ConversationTasks, TasksProgress } from './conversation-tasks.js'
+import { ConversationTasks } from './conversation-tasks.js'
 import { copyPlainText } from './copy-button.js'
 import { FilePanelBody } from './file-panel/file-panel.js'
 import {
@@ -119,7 +119,12 @@ import {
 	invalidateModelCatalogueDisplayCache,
 	modelCatalogueDisplayCacheForApi,
 } from './model-catalogue-display-cache.js'
-import { effortToSend, resolveComposerModelChoice, staleEffort } from './model-choice.js'
+import {
+	effortToSend,
+	isUnchosen,
+	resolveComposerModelChoice,
+	staleEffort,
+} from './model-choice.js'
 import { NavigationRail } from './navigation-rail.js'
 import { normalConversationProject } from './normal-conversation.js'
 import { notify } from './notify.js'
@@ -1018,6 +1023,13 @@ export function App({
 		palModel: pal?.model,
 		sessionId,
 	})
+	const choiceUnchosen =
+		!pal &&
+		isUnchosen({
+			providers: activeProviders,
+			draftChoice: savedSettings.value.choice,
+			started: thread.messages.length > 0 || thread.running,
+		})
 	const modelId =
 		choice.model ||
 		activeProviders.available.find((provider) => provider.id === choice.provider)?.defaultModel ||
@@ -4473,6 +4485,10 @@ export function App({
 													setJobsOpen(true)
 												}}
 												onOpenChangedFile={projectFiles ? openChangedFile : undefined}
+												onOpenTasks={() => {
+													showPanelTab('activity')
+													setJobsOpen(true)
+												}}
 												onUndoTurn={
 													api.undoPreview && api.undoTurn
 														? (turnId) => setUndoingTurn({ sessionId, turnId })
@@ -4491,15 +4507,6 @@ export function App({
 												)}
 											/>
 										</ProjectFilesContext.Provider>
-									)}
-									{!palConversation && (
-										<TasksProgress
-											thread={thread}
-											onOpen={() => {
-												showPanelTab('activity')
-												setJobsOpen(true)
-											}}
-										/>
 									)}
 									{thread.error && (
 										<p className="inline-error" role="alert">
@@ -4608,6 +4615,7 @@ export function App({
 								}
 								providersLoading={!providerReady}
 								choice={choice}
+								choiceUnchosen={choiceUnchosen}
 								onChoiceChange={(value) => {
 									void act(() =>
 										savedSettings.save(draftOwner, {

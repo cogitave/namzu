@@ -40,6 +40,14 @@ export function createAutoScrollMark(ttl = 250, now: () => number = Date.now): A
 	}
 }
 
+/** A panel taller than a third of the view is being read, so following pauses while it is open. */
+export function panelPausesFollow(
+	panelHeight: number | undefined,
+	viewportHeight: number,
+): boolean {
+	return panelHeight !== undefined && panelHeight > viewportHeight / 3
+}
+
 /**
  * After a disclosure the reader opened has finished growing: whether to follow again. A reader who
  * was following and has not scrolled keeps following when the panel is a small one, because the
@@ -63,5 +71,5 @@ export function followAfterDisclosure(
 		panelHeight = Number.POSITIVE_INFINITY,
 		viewportHeight = 0,
 	} = options
-	return wasFollowing && !moved && panelHeight <= viewportHeight / 3
+	return wasFollowing && !moved && !panelPausesFollow(panelHeight, viewportHeight)
 }

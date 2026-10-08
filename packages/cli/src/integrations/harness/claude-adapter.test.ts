@@ -530,7 +530,7 @@ describe('native engine model discovery', () => {
 			resolveExecutable: async () => '/fixture/native-engine',
 		})
 		expect(listed).toEqual([
-			{ id: 'sonnet', label: 'Engine model' },
+			{ id: 'sonnet', label: 'Engine model', current: true },
 			{ id: 'claude-opus-5', label: 'Other engine model' },
 		])
 		expect(fixture.userWrites()).toEqual([])
@@ -551,7 +551,7 @@ describe('native engine model discovery', () => {
 		).toEqual([])
 		expect(
 			claudeModels({ models: [{ value: 'sonnet', supportedEffortLevels: ['high'] }] }),
-		).toEqual([{ id: 'sonnet', label: 'sonnet' }])
+		).toEqual([{ id: 'sonnet', label: 'sonnet', current: true }])
 	})
 	it('marks the row the engine default resolves to, without listing the default row', () => {
 		const rows = [
@@ -561,8 +561,8 @@ describe('native engine model discovery', () => {
 			{ value: 'opus-5', displayName: 'Opus 5', resolvedModel: 'claude-opus-5' },
 		]
 		expect(claudeModels({ models: rows })).toEqual([
-			{ id: 'sonnet', label: 'Sonnet' },
-			{ id: 'opus', label: 'Opus', default: true },
+			{ id: 'sonnet', label: 'Sonnet', current: true },
+			{ id: 'opus', label: 'Opus', default: true, current: true },
 			{ id: 'claude-opus-5', label: 'Opus 5' },
 		])
 		expect(
@@ -570,8 +570,8 @@ describe('native engine model discovery', () => {
 				models: [{ value: 'default', resolvedModel: 'claude-gone-1' }, ...rows.slice(1)],
 			}),
 		).toEqual([
-			{ id: 'sonnet', label: 'Sonnet' },
-			{ id: 'opus', label: 'Opus' },
+			{ id: 'sonnet', label: 'Sonnet', current: true },
+			{ id: 'opus', label: 'Opus', current: true },
 			{ id: 'claude-opus-5', label: 'Opus 5' },
 		])
 	})

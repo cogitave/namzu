@@ -97,6 +97,22 @@ function declinedCopy(value: unknown): { note?: string } {
 	return typeof note === 'string' && note ? { note } : {}
 }
 
+/** `engine:Name`, `server.tool` and camelCase all read as plain words in a row. */
+function humanToolName(name: string): string {
+	const last =
+		name
+			.split(/[:.]|__/)
+			.filter(Boolean)
+			.pop() ?? name
+	return (
+		last
+			.replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+			.replace(/[_-]+/g, ' ')
+			.trim()
+			.toLowerCase() || 'tool'
+	)
+}
+
 /** Copy only this closed public view; a journal extension must not leak extra fields. */
 function publicView(value: unknown): ToolCallView | undefined {
 	if (!record(value)) return undefined
@@ -304,16 +320,14 @@ export function restoreHistoryWork(
 			if (viewBytes + size > 128 * 1024) view = undefined
 			else viewBytes += size
 		}
+		const unsaved = !view
 		if (!view)
 			view = {
 				kind: 'generic',
-				label: `${
+				label:
 					tool.hosted && (tool.name === 'Web search' || tool.name === 'Web fetch')
 						? tool.name
-						: tool.status === 'skipped'
-							? 'Skipped action'
-							: 'Saved action'
-				}\nDetails were not recorded.`,
+						: `${tool.status === 'skipped' ? 'Skipped' : 'Used'} ${humanToolName(tool.name)}`,
 				presentation: 'activity',
 				...(tool.status === 'cancelled' ? { outcome: 'cancelled' } : {}),
 			}
@@ -329,6 +343,7 @@ export function restoreHistoryWork(
 						? 'failed'
 						: 'completed',
 			view,
+			...(unsaved ? { detailUnavailable: true as const } : {}),
 			...(count(tool.durationMs) ? { durationMs: tool.durationMs } : {}),
 			...(journalTime(tool.startedAt) ? { startedTime: journalTime(tool.startedAt) } : {}),
 			...(journalTime(tool.endedAt) ? { endedTime: journalTime(tool.endedAt) } : {}),

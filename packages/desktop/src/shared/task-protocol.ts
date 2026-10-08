@@ -17,7 +17,8 @@ export function readTask(value: unknown): AcpTask | undefined {
 		!['pending', 'in_progress', 'completed', 'failed'].includes(value.status) ||
 		!Array.isArray(value.blockedBy) ||
 		!value.blockedBy.every(id) ||
-		(value.owner !== undefined && typeof value.owner !== 'string')
+		(value.owner !== undefined && typeof value.owner !== 'string') ||
+		(value.activeForm !== undefined && typeof value.activeForm !== 'string')
 	)
 		return undefined
 	return {
@@ -26,6 +27,8 @@ export function readTask(value: unknown): AcpTask | undefined {
 		status: value.status as AcpTask['status'],
 		blockedBy: [...value.blockedBy],
 		...(value.owner === undefined ? {} : { owner: value.owner }),
+		// Bounded: it becomes one line of status text.
+		...(value.activeForm ? { activeForm: value.activeForm.slice(0, 200) } : {}),
 	}
 }
 export function readTaskUpdate(value: unknown): AcpTaskUpdate | undefined {

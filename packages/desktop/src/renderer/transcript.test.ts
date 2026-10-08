@@ -285,7 +285,7 @@ describe('single live transcript status', () => {
 		expect(thread).toEqual(before)
 	})
 
-	it('shows real Thinking below commentary while the outer work header owns elapsed time', () => {
+	it('names the stage under the work header once, and keeps the end status out of the way', () => {
 		let thread = update(started(), {
 			kind: 'agent_message_chunk',
 			text: 'Inspecting the workspace',
@@ -298,14 +298,29 @@ describe('single live transcript status', () => {
 			blockId: 'thought',
 		})
 		const html = render(thread)
+		// The sentence the model finished is the stage; the half-written reasoning is not.
 		expect(phaseLabels(html)).toEqual(['Working', 'Thinking'])
+		expect(html).toContain('stage-text">Inspecting the workspace<')
 		expect(html).toContain('aria-label="Working for 47s"')
 		expect(html).toContain('Inspecting the workspace')
 		expect(html).toContain('Comparing the public results')
 		expect(html).toContain('data-transcript-phase="thinking"')
-		expect(html).not.toContain('transcript-status-only')
+		expect(html).toContain('working  transcript-status-only')
 		expect(html).not.toContain('class="working-elapsed"')
 		expect(html.match(/<output\b[^>]*aria-live="polite"/g)).toHaveLength(1)
+	})
+
+	it('shows no stage line once the answer has started', () => {
+		const thread = update(
+			update(started(), {
+				kind: 'agent_message_chunk',
+				text: 'Looking around.',
+				phase: 'commentary',
+				messageId: 'commentary',
+			}),
+			{ kind: 'agent_message_chunk', text: 'Here is the answer.', messageId: 'answer' },
+		)
+		expect(render(thread)).not.toContain('stage-line')
 	})
 
 	it('shows real waiting separately from the timed work header and pending action', () => {
@@ -321,7 +336,7 @@ describe('single live transcript status', () => {
 		const html = render(thread)
 		expect(phaseLabels(html)).toEqual(['Working', 'Waiting for your decision'])
 		expect(html).toContain('data-transcript-phase="waiting"')
-		expect(html).not.toContain('transcript-status-only')
+		expect(html).toContain('data-stage-source="waiting"')
 		expect(html).not.toContain('class="working-elapsed"')
 		expect(html).toContain('Running command')
 		expect(html.match(/<output\b[^>]*aria-live="polite"/g)).toHaveLength(1)

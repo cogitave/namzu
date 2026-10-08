@@ -73,6 +73,7 @@ import { describeVisibleFileEvidence } from './file-evidence-context.js'
 import { seedObservationLedger } from './file-evidence-seed.js'
 import { DEFAULT_TOOL_RESULT_GUARDRAILS } from './guardrail-presets.js'
 import type { ToolResultObservation } from './project-instructions.js'
+import { savedPresentation } from './saved-presentation.js'
 import { ToolCallBudget, assertMaxToolCalls } from './tool-call-budget.js'
 import {
 	DEFAULT_MAX_TOOL_OUTPUT_CHARS,
@@ -1590,7 +1591,7 @@ export class ToolExecutor {
 			toolUseId: nestedId,
 			toolName: name,
 			result: budgeted.output,
-			...(!budgeted.truncated ? this.resultPresentation(name, preparedInput, result) : {}),
+			...this.resultPresentation(name, preparedInput, result, budgeted.truncated),
 			isError: !result.success,
 			durationMs: Date.now() - startedAt,
 			outputLength: budgeted.originalLength,
@@ -1612,24 +1613,34 @@ export class ToolExecutor {
 		return visibleResult
 	}
 
-	private resultPresentation(name: string, input: unknown, result: ToolResult) {
+	private resultPresentation(name: string, input: unknown, result: ToolResult, savedOnly = false) {
 		try {
 			const view = this.config.tools.get(name)?.presentResult?.(input, result)
 			// A failed call carries one view only: the person's No on the tool's
 			// own screen, which a host draws as cancelled rather than failed and
 			// cannot tell apart from the result text alone.
 			if (!result.success) {
-				return view?.kind === 'generic' && view.outcome === 'cancelled'
-					? {
-							presentation: {
-								kind: 'generic',
-								label: view.label,
-								outcome: 'cancelled',
-							} as const,
-						}
-					: {}
+				if (!savedOnly && view?.kind === 'generic' && view.outcome === 'cancelled')
+					return {
+						presentation: {
+							kind: 'generic',
+							label: view.label,
+							outcome: 'cancelled',
+						} as const,
+					}
+				const saved = savedPresentation(
+					input,
+					this.config.tools.get(name)?.presentCall?.(input),
+					undefined,
+				)
+				return saved ? { savedPresentation: saved } : {}
 			}
-			if (view?.kind !== 'diff') return {}
+			if (savedOnly || view?.kind !== 'diff') {
+				// Journal-only: the live event keeps drawing the real result.
+				const tool = this.config.tools.get(name)
+				const saved = savedPresentation(input, tool?.presentCall?.(input), view)
+				return saved ? { savedPresentation: saved } : {}
+			}
 			const serialized = JSON.stringify(view)
 			if (serialized.length > (this.config.maxToolOutputChars ?? DEFAULT_MAX_TOOL_OUTPUT_CHARS))
 				return {}
@@ -2127,9 +2138,14 @@ export class ToolExecutor {
 			toolUseId: toolCall.id,
 			toolName,
 			result: output,
-			...(!postOverride && !budgeted.truncated && rawOutput === output
-				? this.resultPresentation(toolName, input, result)
-				: {}),
+			// The result view only describes an output the host will show as is; the
+			// saved label never depended on the output, so it is kept regardless.
+			...this.resultPresentation(
+				toolName,
+				input,
+				result,
+				Boolean(postOverride) || budgeted.truncated || rawOutput !== output,
+			),
 			isError: effectiveIsError,
 			...(visibleInputFailure ? { inputFailure: visibleInputFailure } : {}),
 			...(structuredResultJson !== undefined ? { structuredResultJson } : {}),

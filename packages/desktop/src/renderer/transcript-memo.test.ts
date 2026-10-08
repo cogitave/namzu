@@ -72,6 +72,24 @@ describe('turnInputsUnchanged', () => {
 		).toBe(true)
 	})
 
+	it('redraws only the turn that holds the plan when the tasks change', () => {
+		const before = conversation()
+		const withPlan = applyEvent(
+			before,
+			update({
+				kind: 'tool_call',
+				toolCallId: 'k',
+				title: 'task_create',
+				status: 'completed',
+				view: { kind: 'generic', label: 'Add task' },
+			}),
+		)
+		const task = { taskId: 't', subject: 'One', status: 'pending' as const, blockedBy: [] }
+		const after = { ...withPlan, tasks: [task] }
+		expect(compare(withPlan, after, 2)).toBe(false)
+		expect(compare(withPlan, after, 1)).toBe(true)
+	})
+
 	it('redraws when a field it has no rule for changes', () => {
 		const before = conversation()
 		const after = { ...before, somethingNew: 1 } as ThreadState

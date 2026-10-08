@@ -534,7 +534,7 @@ recovery reason and offers Retry stop; only confirmed termination removes that
 control. Model status belongs to both the project and selected conversation,
 so a delayed landing-page response cannot replace a pinned conversation route.
 
-A model list row may carry an optional `default: true` naming that engine's or provider's own recommended model; the picker shows it as "Default" and its note no longer repeats it. Codex rows are labelled as the Codex app labels them ("GPT-5.6 Sol"); ids are unchanged.
+A model list row may carry an optional `default: true` naming that engine's or provider's own recommended model; the picker marks that row with a muted "Recommended" chip (there is no separate Default row) and its note no longer repeats it. A row may also carry `current: true`, the source's own statement that the model is current rather than an older release: the second external engine marks its alias rows (a row whose id names no version), the Codex engine marks its default row. Codex rows are labelled as the Codex app labels them ("GPT-5.6 Sol"); ids are unchanged.
 
 The native host uses a metadata-only registry connection for saved definitions
 and model catalogues. Execution, captures and computer lifecycle requests go
@@ -1167,8 +1167,23 @@ records this separately from the earlier empty-conversation restoration.
 
 Namzu conversations retain their existing session planning list in the shared
 conversation projection. In Pal conversations, progress appears inside the
-existing Pal card. Ordinary conversations retain the task summary above the
-composer, which opens Activity.
+existing Pal card. An ordinary conversation draws its plan as one row inside
+the "Worked" block of the latest turn that touched it, and no longer draws a
+"Tasks" chip after the transcript:
+
+- While the turn runs the row reads "Plan · 2/5 · *the task in progress*" and
+  sweeps like a running action. It opens to a checklist (done rows muted, a
+  spinner for the task in progress, an empty circle for a pending one, a cross
+  for a failed one) of at most six rows, then "+N more", which opens Activity.
+  It updates in place by task id, so a task update never adds a row.
+- When every task is done it reads "Plan · 5/5 done" in muted text and starts
+  folded. A turn that ends with tasks left reads "Plan · 3/5" in normal text.
+  An earlier turn that touched the plan shows one muted "Updated tasks" line.
+- The task tools (`task_create`, `task_update`, `task_list`, `task_get` and an
+  engine's `TodoWrite` or `update_plan`) fold into this row. They never draw as
+  action rows and are not counted in "Used N tools". The row is built from the
+  conversation's task list plus the turn's task tool calls, so a reload matches
+  the live view. Updating a task replaces it at its place in the list.
 Subjects, reported statuses and dependency subjects are shown without raw IDs.
 Planning state is agent-maintained: a completed item does not independently
 verify an artifact. Failed items remain distinct from completed items. The
@@ -1369,10 +1384,33 @@ unknown time never produce or move a separator. Pal friend chat has none.
 
 ### Live phases
 
-The transcript follows admitted runtime events. Pending approvals show Waiting
-for your decision; an active public reasoning block shows Thinking. Tool work
-and answer streaming retain their own phase in the projection. An unspecified
-model phase remains Working. A provider that withholds reasoning can indicate
+The transcript follows admitted runtime events. While the work runs, one line under
+the **Working for Ns** heading names the stage it is in, the way other apps do. A stage
+lasts as long as the work stays in it: the words change only when the work enters a new
+stage, never on a timer, and the same stage derived again on every streamed token changes
+nothing. The line takes the first of these that applies:
+
+1. A pending approval: Waiting for your decision (it holds still, with no shimmer).
+2. A plan task in progress in this turn: the task's active form when the tool gave one
+   ("Running the tests"), else its subject.
+3. The stage the model stated most recently in this turn, whichever of its reasoning
+   headline (a leading bold run, else the first sentence) and its latest narration message
+   came later. Only a finished headline or sentence counts, so half-streamed text never
+   shows and the previous stage stays until the new one is complete.
+4. Nothing stated yet: the action under way, verb first ("Reading app.css", "Editing
+   app.css", "Searching for useTheme", "Running pnpm test").
+5. Thinking while reasoning has no readable headline, else Working. Between two actions
+   the last finished action's words stay, in the past tense ("Ran pnpm test"), rather than
+   a bare Working flashing in or a finished command still reading as running.
+
+The text is plain (markdown stripped) and at most 80 characters, cut at a word boundary.
+Each new stage fades in and restarts the sweep that shimmers across it; reduced motion swaps
+it instantly and shows it solid. The line is a polite live region that announces each new
+stage once, never the clock and never partial text. It goes when the answer starts or the
+turn ends. Before the work block exists the quiet end-of-transcript status stands in. Tool
+work and answer streaming retain their own phase in the projection. A provider that withholds reasoning can indicate
+an active block without supplying a readable body; the desktop does not expose
+opaque reasoning, signatures or replay material. A provider that withholds reasoning can indicate
 an active block without supplying a readable body; the desktop does not expose
 opaque reasoning, signatures or replay material.
 
@@ -1381,8 +1419,7 @@ steering messages with the same recorded turn identity stay in that turn. Its pu
 reasoning, tool receipts and explicit commentary stay in admission order inside
 a collapsible work summary. While live, its outer heading says **Working for**
 the host-observed elapsed time when known, or **Working** when no start is known.
-Actual Thinking or Waiting for your decision
-appears separately below the work when that phase is active, without a second
+The stage line described above sits directly under that heading, without a second
 elapsed counter. With no public work disclosure, the live status alone can show
 the elapsed time. Steering can create another ordered work segment in the same
 turn; only the latest public segment owns the turn's time and outcome heading,
@@ -1497,7 +1534,19 @@ relative path is shown in full against the conversation's folder, with `.` and `
 resolved. Screen readers get the command or the path as the row's description. An edit never expands
 in the transcript; its Before and After live in the Changes panel. When the reply has
 no completed receipt for the path yet (or the path was never receipted) the click opens
-the file instead. Status, time and duration show on hover; a failure always shows.
+the file instead. Status and time show on hover; a failure always shows. A row never draws a
+clock: a call that took a second or more says "Took 6 s" in its hover text and to screen readers,
+and a faster one says nothing.
+
+A reopened conversation names each action the way the live row did. The kernel journals one label
+line (200 characters at most) for every call that has no diff, or a command's first line, never the
+output, so "Added task · Map the repo", "Ran agent explore" and "Ran command" read the same after a
+reload; an engine's own tools are named by a small map (shell, read, edit, write, search, agent,
+task list) and anything else reads "Used" plus its name in words. A call whose view was never saved
+(an older conversation) reads "Used" plus its name, is not expandable, and says "Details were not
+saved" in its hover text. A command that printed nothing has nothing to open. Opening a small panel
+while the transcript follows its end keeps following, so the page does not jump; a panel taller than
+a third of the view pauses following as before.
 
 Consecutive actions between two pieces of narration form a run. A run of two or more
 gets a summary row, with a pencil if it holds an edit and otherwise the icon of its most
@@ -1847,15 +1896,27 @@ The menu has a provider column when more than one provider is available and
 selectable model rows with their catalogue labels. A single provider uses a
 compact list headed "Choose a model". The effort panel and the list share one width per
 engine (300px, or 360px with a provider column) and the popover eases its height when
-the view changes. A short single-engine list (twelve models or fewer) shows no search,
-refresh or typed-id controls; they appear with a longer list or several providers. The menu opens from the end of the model
+the view changes. A single-engine list of seven models or fewer shows no search, refresh or typed-id controls; the search icon appears with a longer list or several providers. The menu opens from the end of the model
 control, with collision handling at the window edges. Provider glyphs stay in their
-navigation column; model rows use their names and selected checkmarks. When the engine
-marks its own recommended model (or, failing that, names a provider default model that is
-in the list), the first row is Default ("Recommended · GPT-6.1 Sol"):
-choosing it saves `preset: 'default'` with the choice, the check sits on Default rather than
-the model row, and the choice follows the engine's default if a later catalogue names
-another. The trigger names a model from the catalogue row for its id, then the saved
+navigation column; model rows use their names and selected checkmarks. A long list shows only the current models first, in the source's order, then one
+muted row "Older models (N)" that expands in place inside the same scroller and radio group (the
+arrow keys continue into the older rows); a model that is checked but older stays visible under
+the current rows. Search reads every row and ignores the fold. A row is current when the source
+says so (`current: true`) or, by one pure rule in `model-choice.ts`, when it is the newest version
+of its family (the label or id without its version numbers; a date suffix such as 20251101 equals
+the undated id) and its major version is not behind the newest major of its maker (the first word of its name, so a mixed list keeps every maker's latest). A list of six rows
+or fewer, or one with no parseable version, is all current in source order. The checked row is
+the saved choice. The row the engine flags `default` wears "Recommended" while it is current;
+a provider default that the catalogue merely echoes is never shown as a recommendation.
+A choice saved under the retired `preset: 'default'` is resolved once to the row the engine flags
+and is an ordinary choice from the next save.
+Main keeps `lastModels` (engine to `{provider, model, label}`) in `desktop-conversations.json`,
+written whenever a model choice is saved, and a conversation of that engine with no saved choice
+and no prompt yet starts from it; a Pal and a started conversation keep their own. If the engine's
+stored list no longer holds the model, main drops the entry without a notice. With nothing ever
+chosen (no saved choice, no Pal model, no model in the preferences) a new conversation settles on
+the recommended row, else the first current row, once its list is known. The CLI preferences file
+is never written. The trigger names a model from the catalogue row for its id, then the saved
 label, then the id, and refreshes a saved label that the catalogue renamed. The
 catalogue is read as soon as the composer is ready, through the shared display cache. Repeated provider-wide notes appear
 once; distinct model notes remain beside their models. Catalogue notices,

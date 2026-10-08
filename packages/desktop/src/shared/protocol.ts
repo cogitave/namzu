@@ -95,6 +95,8 @@ export interface DraftSettings {
 		model: string
 		label?: string
 		preset?: 'default'
+		/** The picker settled on this model by itself; it is saved but not remembered as a pick. */
+		auto?: true
 	}
 	options?: Omit<DesktopSendOptions, 'attachmentIds'>
 }
@@ -186,6 +188,8 @@ export interface ModelCatalogueView {
 		label: string
 		note?: string
 		default?: true
+		/** The source itself calls this model current (an engine's own alias or default), not an older release. */
+		current?: true
 		/** Zen only: `free` is a stated 0/0 price, `key` a stated non-zero one; absent when no price is published. */
 		group?: 'free' | 'key'
 		/** ISO time main first saw this id in a list it had already stored; absent when unknown. */

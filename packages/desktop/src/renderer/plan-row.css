@@ -1,0 +1,92 @@
+.plan-row[data-tone="muted"] .plan-label,
+.plan-touched .plan-label {
+	color: var(--muted-foreground);
+}
+.plan-row[data-tone="normal"] .plan-label {
+	color: var(--foreground);
+}
+.plan-steps {
+	list-style: none;
+	margin: 0;
+	padding: 2px 0 4px 22px;
+	display: grid;
+	gap: 2px;
+}
+.plan-steps li {
+	position: relative;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+	font-size: 13px;
+	line-height: 22px;
+	color: var(--foreground);
+}
+.plan-steps li[data-status="completed"] {
+	color: var(--muted-foreground);
+}
+.plan-steps li[data-status="failed"] .plan-mark {
+	color: var(--error-foreground);
+}
+.plan-mark {
+	display: inline-flex;
+	flex: none;
+	align-items: center;
+	justify-content: center;
+	width: 14px;
+	height: 14px;
+}
+.plan-mark svg {
+	width: 14px;
+	height: 14px;
+}
+.plan-pending-mark {
+	width: 9px;
+	height: 9px;
+	border: 1.5px solid var(--icon-muted);
+	border-radius: 50%;
+	box-sizing: border-box;
+}
+.plan-spinner {
+	animation: plan-spin 1s linear infinite;
+}
+@keyframes plan-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+.plan-subject {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+/* The status word is for assistive technology and the tooltip, not for the eye. */
+.plan-state {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
+}
+.plan-more {
+	margin: 0 0 4px 22px;
+	padding: 2px 0;
+	border: 0;
+	background: none;
+	color: var(--muted-foreground);
+	font: inherit;
+	font-size: 13px;
+	cursor: pointer;
+}
+.plan-more:hover,
+.plan-more:focus-visible {
+	color: var(--foreground);
+}
+@media (prefers-reduced-motion: reduce) {
+	.plan-spinner {
+		animation: none;
+	}
+}

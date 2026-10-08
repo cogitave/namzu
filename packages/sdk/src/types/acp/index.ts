@@ -274,6 +274,8 @@ export interface AcpTask {
 	readonly blockedBy: readonly string[]
 	/** Absence clears any previously displayed owner. */
 	readonly owner?: string
+	/** What the task reads as while it is being worked on, such as "Running the tests". */
+	readonly activeForm?: string
 }
 
 /** Optional Namzu planning notification; distinct from delegated worker state. */

@@ -1,8 +1,9 @@
 import type { ThreadState, TimelineEntry } from '../shared/projection.js'
+import { isTaskEntry } from './plan-row.js'
 import type { TranscriptTurn } from './transcript-layout.js'
 
 /**
- * Parts of the thread no turn's rows read. A change to one of these never redraws a turn. Anything
+ * Parts of the thread no turn's rows read (a turn holding the plan is checked for `tasks` below). A change to one of these never redraws a turn. Anything
  * not named here (a field added later included) is compared, so the safe answer is the default.
  */
 const unreadByTurns: ReadonlySet<keyof ThreadState> = new Set([
@@ -51,6 +52,12 @@ export function turnInputsUnchanged(
 	for (const key of Object.keys(before) as (keyof ThreadState)[])
 		if (!(key in after) && !unreadByTurns.has(key) && !readPerEntry.has(key)) return false
 	if (previous.group.turn !== next.group.turn) return false
+	// Only a turn that holds the plan draws it.
+	if (
+		before.tasks !== after.tasks &&
+		entriesOf(next.group).some((list) => list.some((entry) => isTaskEntry(after, entry)))
+	)
+		return false
 	if (before.turns[next.group.turn] !== after.turns[next.group.turn]) return false
 	const left = entriesOf(previous.group)
 	const right = entriesOf(next.group)

@@ -2,7 +2,7 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, it } from 'vitest'
 import { emptyThread } from '../shared/projection.js'
-import { ConversationTasks, TasksProgress } from './conversation-tasks.js'
+import { ConversationTasks } from './conversation-tasks.js'
 
 it('shows the real plan and failure separately from completed work and resolves dependencies without raw IDs', () => {
 	const thread = {
@@ -40,11 +40,6 @@ it('shows the real plan and failure separately from completed work and resolves 
 		expect(html).toContain(text)
 	for (const text of ['private-id', 'private-agent-id', 'private-missing', 'verified'])
 		expect(html).not.toContain(text)
-	const progress = renderToStaticMarkup(
-		createElement(TasksProgress, { thread, onOpen: () => undefined }),
-	)
-	expect(progress).toContain('1/3 completed')
-	expect(progress).toContain('1 failed')
 })
 it('does not create an empty plan and marks failed reads as unavailable while retaining known states', () => {
 	expect(renderToStaticMarkup(createElement(ConversationTasks, { thread: emptyThread() }))).toBe('')
@@ -52,9 +47,6 @@ it('does not create an empty plan and marks failed reads as unavailable while re
 	expect(renderToStaticMarkup(createElement(ConversationTasks, { thread }))).toContain(
 		'Task list unavailable.',
 	)
-	expect(
-		renderToStaticMarkup(createElement(TasksProgress, { thread, onOpen: () => undefined })),
-	).toContain('Unavailable')
 })
 
 it('shows Pal plan milestones without treating failed or unmet dependencies as completed work', () => {
@@ -112,11 +104,6 @@ it('shows Pal plan milestones without treating failed or unmet dependencies as c
 	expect(html).not.toContain('private')
 	expect(html).not.toContain('<progress')
 	expect(html).not.toContain('%')
-	const summary = renderToStaticMarkup(
-		createElement(TasksProgress, { thread, palName: 'Palu', onOpen: () => {} }),
-	)
-	expect(summary).toContain('Progress · 1 of 6 steps done')
-	expect(summary).toContain('1 needs attention')
 })
 
 it('collapses a finished Pal plan while retaining an accessible disclosure and a truthful count', () => {

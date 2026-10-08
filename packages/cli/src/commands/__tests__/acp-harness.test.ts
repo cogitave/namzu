@@ -507,6 +507,20 @@ it('passes the engine default flag through the models handler and omits it elsew
 	expect('default' in view.models[1]!).toBe(false)
 })
 
+it("passes the engine's own current flag through the models handler", async () => {
+	const f = await fixture()
+	await f.runtime.selectHarness(f.sessionId, 'claude-code')
+	f.dependencies.models.mockImplementationOnce(async () => [
+		{ id: 'opus', label: 'Opus 5.5', current: true } as HarnessModel,
+		{ id: 'claude-opus-4-8', label: 'Opus 4.8' },
+	])
+	const view = await f.runtime.models('claude-code', f.sessionId)
+	expect(view.models).toEqual([
+		{ id: 'opus', label: 'Opus 5.5', current: true },
+		{ id: 'claude-opus-4-8', label: 'Opus 4.8' },
+	])
+})
+
 it('keeps a model selection exclusive while it awaits refreshed engine metadata', async () => {
 	const f = await fixture()
 	await f.runtime.selectHarness(f.sessionId, 'codex-cli')

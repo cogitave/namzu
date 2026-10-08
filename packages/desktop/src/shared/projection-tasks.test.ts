@@ -64,3 +64,40 @@ it('admits only complete typed public rows and does not project private metadata
 	}
 	expect(readTasks({ tasks: [task, task] })).toBeUndefined()
 })
+it("keeps a task's active form, bounded, and refuses one that is not text", () => {
+	expect(readTasks({ tasks: [{ ...task, activeForm: 'Running the tests' }] })).toEqual([
+		{ ...task, activeForm: 'Running the tests' },
+	])
+	expect(
+		readTasks({ tasks: [{ ...task, activeForm: 'x'.repeat(500) }] })?.[0]?.activeForm,
+	).toHaveLength(200)
+	expect(readTasks({ tasks: [{ ...task, activeForm: 4 }] })).toBeUndefined()
+})
+it('updates a task in place and keeps the order of the list', () => {
+	const first = { ...task, taskId: 'a', blockedBy: [] }
+	const second = { ...task, taskId: 'b', blockedBy: [] }
+	const third = { ...task, taskId: 'c', blockedBy: [] }
+	let thread = applyEvent(emptyThread(), {
+		kind: 'tasks',
+		sessionId: 'session',
+		tasks: [first, second, third],
+	})
+	thread = applyEvent(thread, {
+		kind: 'task',
+		sessionId: 'session',
+		task: { ...second, status: 'completed' },
+	})
+	expect(thread.tasks.map((item) => [item.taskId, item.status])).toEqual([
+		['a', 'pending'],
+		['b', 'completed'],
+		['c', 'pending'],
+	])
+	thread = applyEvent(thread, { kind: 'task', sessionId: 'session', task: first, deleted: true })
+	expect(thread.tasks.map((item) => item.taskId)).toEqual(['b', 'c'])
+	thread = applyEvent(thread, {
+		kind: 'task',
+		sessionId: 'session',
+		task: { ...first, taskId: 'd' },
+	})
+	expect(thread.tasks.map((item) => item.taskId)).toEqual(['b', 'c', 'd'])
+})

@@ -127,6 +127,18 @@ describe('durable desktop conversation schema', () => {
 		conversation.view.palId = undefined
 		expect(parseDesktopConversationSnapshot(saved)).toBeNull()
 	})
+	it('keeps the model last picked per engine across reload and rejects a malformed entry', () => {
+		const saved = snapshot()
+		saved.lastModels = { namzu: { provider: 'fixture', model: 'model', label: 'Model' } }
+		const store = new DesktopConversationStore(directory())
+		store.write(saved)
+		expect(store.read()?.lastModels).toEqual(saved.lastModels)
+		expect(
+			parseDesktopConversationSnapshot({ ...saved, lastModels: { namzu: { model: 'x' } } }),
+		).toBeNull()
+		expect(parseDesktopConversationSnapshot({ ...saved, lastModels: [] })).toBeNull()
+		expect(parseDesktopConversationSnapshot(snapshot())?.lastModels).toBeUndefined()
+	})
 	it('keeps empty UI sessions, runtime aliases, model settings and pane-scoped landing drafts', () => {
 		const original = snapshot()
 		original.attachments = [text(), image('project:project:workspace:window:home-window')]

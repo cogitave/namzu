@@ -5,6 +5,8 @@ import { type ActivityActions, ActivityActionsContext } from './activity-actions
 import { AttachmentList } from './attachment-list.js'
 import { ChevronRightIcon } from './icons.js'
 import { Message, MessageContent, MessageFooter, timeDescription } from './message.js'
+import { PlanRow, PlanTouched } from './plan-row-view.js'
+import { isTaskEntry, latestPlanTurn } from './plan-row.js'
 import { renderedEqual } from './rendered-equal.js'
 import { toolTranscriptPresentation } from './tool-transcript-presentation.js'
 import { ToolTranscriptRow, actionIcon } from './tool-transcript-row.js'
@@ -24,7 +26,9 @@ import {
 } from './transcript-layout.js'
 import { turnInputsUnchanged } from './transcript-memo.js'
 import {
+	type LiveStage,
 	livePhaseLabel,
+	liveStage,
 	transcriptEntryKey,
 	turnActivityLabel,
 	useTranscriptEntryMotion,
@@ -267,7 +271,10 @@ function ActivityEntries({
 	onWorkDisclosureChange?: (key: string, open: boolean) => void
 }) {
 	const parts = splitActivity(
-		entries.filter((entry) => entry.kind !== 'tool' || Boolean(thread.tools[entry.id])),
+		entries.filter(
+			(entry) =>
+				entry.kind !== 'tool' || (Boolean(thread.tools[entry.id]) && !isTaskEntry(thread, entry)),
+		),
 	)
 	return parts.map((part, index) => {
 		if ('entry' in part)
@@ -312,10 +319,15 @@ function TurnActivity({
 	answered,
 	animate,
 	now,
+	planTurn,
+	onOpenTasks,
 }: {
 	thread: ThreadState
 	turn: number
 	entries: TimelineEntry[]
+	/** The latest turn that touched the plan; only it draws the plan itself. */
+	planTurn?: number
+	onOpenTasks?: () => void
 	/** The reply text has started, so this work is done even though the turn is still running. */
 	answered: boolean
 	ownsTurnSummary: boolean
@@ -326,6 +338,11 @@ function TurnActivity({
 	now: number
 }) {
 	const live = thread.running && thread.stopReason === undefined && thread.turn === turn
+	// The task tools' rows fold into one plan row, drawn where the first of them was.
+	const planAt = entries.findIndex((entry) => isTaskEntry(thread, entry))
+	const planKey = workDisclosureKey(turn, 'plan')
+	// Only the block that owns the clock names the stage, and only until the answer starts.
+	const stage = live && ownsTurnSummary && !answered ? liveStage(thread) : undefined
 	// Open while the reply is written, folded once it ends; a choice the person made always wins.
 	const [chosenOpen, setChosenOpen] = useState<boolean>()
 	const controlled = !!disclosureKey && !!onWorkDisclosureChange
@@ -376,19 +393,77 @@ function TurnActivity({
 				</span>
 				<ChevronRightIcon className="disclosure-chevron" aria-hidden="true" />
 			</CollapsibleTrigger>
+			{stage && <StageLine stage={stage} animate={animate} />}
 			<CollapsiblePanel keepMounted>
 				<div className="activity-entries">
-					<ActivityEntries
-						entries={entries}
-						thread={thread}
-						turn={turn}
-						turnLive={live}
-						workDisclosures={workDisclosures}
-						onWorkDisclosureChange={onWorkDisclosureChange}
-					/>
+					{planAt < 0 ? (
+						<ActivityEntries
+							entries={entries}
+							thread={thread}
+							turn={turn}
+							turnLive={live}
+							workDisclosures={workDisclosures}
+							onWorkDisclosureChange={onWorkDisclosureChange}
+						/>
+					) : (
+						<>
+							<ActivityEntries
+								entries={entries.slice(0, planAt)}
+								thread={thread}
+								turn={turn}
+								turnLive={live}
+								workDisclosures={workDisclosures}
+								onWorkDisclosureChange={onWorkDisclosureChange}
+							/>
+							{planTurn === turn ? (
+								<PlanRow
+									tasks={thread.tasks}
+									turnLive={live}
+									open={planKey ? workDisclosures?.[planKey] : undefined}
+									onOpenChange={
+										planKey && onWorkDisclosureChange
+											? (open) => onWorkDisclosureChange(planKey, open)
+											: undefined
+									}
+									onOpenTasks={onOpenTasks}
+								/>
+							) : (
+								<PlanTouched />
+							)}
+							<ActivityEntries
+								entries={entries.slice(planAt)}
+								thread={thread}
+								turn={turn}
+								turnLive={live}
+								workDisclosures={workDisclosures}
+								onWorkDisclosureChange={onWorkDisclosureChange}
+							/>
+						</>
+					)}
 				</div>
 			</CollapsiblePanel>
 		</Collapsible>
+	)
+}
+
+/**
+ * The stage the work is in, one line under the clock. It keeps its words for the whole stage; a new
+ * stage fades in and starts a new sweep, and the same stage re-derived never does.
+ */
+function StageLine({ stage, animate }: { stage: LiveStage; animate: boolean }) {
+	const ref = useRef<HTMLOutputElement>(null)
+	const shown = stage
+	useTranscriptPhaseMotion(ref, shown.text, animate)
+	return (
+		<output ref={ref} className="stage-line" data-stage-source={shown.source} aria-live="polite">
+			{/* Live regions announce changed text, not a changed label, so the words live in the region. */}
+			<span className="transcript-visually-hidden">{shown.text}</span>
+			<span className="transcript-phase-label" aria-hidden="true">
+				<span key={shown.text} className="transcript-phase-text stage-text">
+					{shown.text}
+				</span>
+			</span>
+		</output>
 	)
 }
 
@@ -418,7 +493,7 @@ function LiveStatus({
 		<output
 			ref={ref}
 			className={`working ${phase === 'waiting' ? 'waiting' : ''}${visuallyHidden ? ' transcript-status-only' : ''}`}
-			aria-live={label ? 'polite' : 'off'}
+			aria-live={label && !visuallyHidden ? 'polite' : 'off'}
 			aria-label={label}
 			aria-hidden={!label}
 			inert={!label}
@@ -459,6 +534,10 @@ interface TurnGroupProps {
 	onOpenChangedFile?: (path: string) => void
 	onUndoTurn?: (turnId: string) => void
 	projectRoot?: string
+	/** The latest turn that touched the plan. */
+	planTurn?: number
+	/** Opens the full task list; the same function for the life of the transcript. */
+	onOpenTasks?: () => void
 }
 
 function shallowEqual(a: object | undefined, b: object | undefined): boolean {
@@ -494,6 +573,8 @@ const TurnGroupView = memo(function TurnGroupView({
 	onOpenChangedFile,
 	onUndoTurn,
 	projectRoot,
+	planTurn,
+	onOpenTasks,
 }: TurnGroupProps) {
 	const actionsValue = useMemo<ActivityActions>(
 		() => ({ changes, projectRoot, onOpenTurnChanges, onOpenChangedFile }),
@@ -548,6 +629,8 @@ const TurnGroupView = memo(function TurnGroupView({
 								answered={hasPublicActivity(segment.answer, thread)}
 								animate={animate}
 								now={now}
+								planTurn={planTurn}
+								onOpenTasks={onOpenTasks}
 							/>
 						)}
 						{segment.answer.map((entry) => (
@@ -598,6 +681,8 @@ function turnGroupPropsEqual(previous: TurnGroupProps, next: TurnGroupProps): bo
 		previous.onOpenTurnChanges !== next.onOpenTurnChanges ||
 		previous.onOpenChangedFile !== next.onOpenChangedFile ||
 		previous.onUndoTurn !== next.onUndoTurn ||
+		previous.planTurn !== next.planTurn ||
+		previous.onOpenTasks !== next.onOpenTasks ||
 		!shallowEqual(previous.separators, next.separators)
 	)
 		return false
@@ -619,6 +704,7 @@ export function Transcript({
 	onOpenTurnChanges,
 	onOpenChangedFile,
 	onUndoTurn,
+	onOpenTasks,
 	undoKept,
 	projectRoot,
 	dateSeparators = true,
@@ -634,6 +720,8 @@ export function Transcript({
 	onOpenChangedFile?: (path: string) => void
 	/** Opens the undo dialog for a reply by its journal turn id; absent where the CLI cannot undo. */
 	onUndoTurn?: (turnId: string) => void
+	/** Opens the full task list, for the plan row's "+N more". */
+	onOpenTasks?: () => void
 	/** Files a partly undone reply still has to finish, by turn id. */
 	undoKept?: Record<string, number>
 	/** The conversation's folder; relative paths in action rows show in full against it. */
@@ -649,8 +737,15 @@ export function Transcript({
 		onOpenTurnChanges,
 		onOpenChangedFile,
 		onUndoTurn,
+		onOpenTasks,
 	})
-	handlers.current = { onWorkDisclosureChange, onOpenTurnChanges, onOpenChangedFile, onUndoTurn }
+	handlers.current = {
+		onWorkDisclosureChange,
+		onOpenTurnChanges,
+		onOpenChangedFile,
+		onUndoTurn,
+		onOpenTasks,
+	}
 	const stable = useMemo(
 		() => ({
 			onWorkDisclosureChange: (key: string, open: boolean) =>
@@ -659,6 +754,7 @@ export function Transcript({
 				handlers.current.onOpenTurnChanges?.(ids, path),
 			onOpenChangedFile: (path: string) => handlers.current.onOpenChangedFile?.(path),
 			onUndoTurn: (turnId: string) => handlers.current.onUndoTurn?.(turnId),
+			onOpenTasks: () => handlers.current.onOpenTasks?.(),
 		}),
 		[],
 	)
@@ -667,6 +763,7 @@ export function Transcript({
 		: undefined
 	const groups = transcriptTurns(thread)
 	const { timeline, tools } = thread
+	const planTurn = useMemo(() => latestPlanTurn({ timeline, tools }), [timeline, tools])
 	// Line totals are costly to recompute for every streamed token, so they follow the receipts. The
 	// handler is built anew on every render, so only whether there is one may key the totals.
 	const showsChanges = Boolean(onOpenTurnChanges)
@@ -682,8 +779,8 @@ export function Transcript({
 				group.turn === thread.turn &&
 				group.segments.some((segment) => hasPublicActivity(segment.activity, thread)),
 		)
-	const phase = threadPhase(thread)
-	const visuallyHidden = hasLiveActivity && phase !== 'thinking' && phase !== 'waiting'
+	// The stage line under the clock names the state once there is work to show.
+	const visuallyHidden = hasLiveActivity
 	const [now, setNow] = useState(Date.now)
 	const start = thread.turns[thread.turn]?.startedAt
 	useEffect(() => {
@@ -741,6 +838,8 @@ export function Transcript({
 						onOpenTurnChanges={onOpenTurnChanges ? stable.onOpenTurnChanges : undefined}
 						onOpenChangedFile={onOpenChangedFile ? stable.onOpenChangedFile : undefined}
 						onUndoTurn={onUndoTurn ? stable.onUndoTurn : undefined}
+						planTurn={planTurn}
+						onOpenTasks={onOpenTasks ? stable.onOpenTasks : undefined}
 					/>
 				)
 			})}

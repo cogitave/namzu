@@ -28,6 +28,7 @@ describe('Codex external protocol projection', () => {
 			{
 				id: 'native-default',
 				default: true,
+				current: true,
 				label: 'native-default',
 				effortLevels: ['high'],
 				defaultEffort: 'high',

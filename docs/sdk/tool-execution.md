@@ -288,6 +288,16 @@ or post-hook-overridden direct results and when its serialized size exceeds
 `maxToolOutputChars`. Presentation failure never changes the mutation result.
 Hosts can fall back to the retained result text when the view is absent.
 
+`tool_completed.savedPresentation` is the journal-only counterpart for every other
+call: one label line of at most 200 characters (the call's own `presentCall` label,
+or the generic label from its arguments), or, for a command, its first line as a
+`terminal` view with empty output. It never holds output and is absent when there
+is no label to keep (a call whose only label would be a dump of its arguments).
+Live hosts keep drawing the real result and ignore it; a host that replays history
+reads `presentation ?? savedPresentation`. Failed calls carry it too, except the
+cancelled and declined shapes above, which are unchanged. Engine-run tools get the
+same field from a name map in the harness session.
+
 ## Reusing available evidence
 
 When a tool result is shortened, its retained-output path identifies the saved

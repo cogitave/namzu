@@ -34,6 +34,7 @@ import {
 	isEntityId,
 } from '../../utils/id.js'
 import { HarnessJournal, HarnessSessionError, harnessDigest } from './journal.js'
+import { engineSavedView } from './saved-view.js'
 
 type Payload<E> = E extends unknown ? Omit<E, 'sessionId' | 'turnId'> : never
 type EventPayload = Payload<SessionEvent>
@@ -45,6 +46,8 @@ interface Item {
 	completed?: string
 	content: string
 	blocks: Map<string, number>
+	/** What the call was started with, for the label a saved conversation keeps. */
+	input?: unknown
 }
 interface Active {
 	turnId: TurnId
@@ -690,6 +693,7 @@ class ExternalHarnessSession implements HarnessSession {
 				const item = await this.item(event, active, 'tool')
 				if (item.started) return
 				item.started = true
+				item.input = event.input
 				await this.emit(active, {
 					type: 'tool_executing',
 					toolUseId: item.toolUseId as string,
@@ -724,6 +728,7 @@ class ExternalHarnessSession implements HarnessSession {
 					toolName: `${this.currentBinding?.engineId}:${event.name}`,
 					result: event.result,
 					isError: event.status !== 'completed',
+					savedPresentation: engineSavedView(event.name, item.input),
 					...(event.durationMs === undefined ? {} : { durationMs: event.durationMs }),
 				})
 				return

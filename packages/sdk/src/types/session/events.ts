@@ -416,6 +416,12 @@ type CoreSessionEvent =
 			type: 'tool_completed'
 			/** Bounded result view; omitted when output was overridden or truncated. */
 			presentation?: ToolResultView
+			/**
+			 * What a saved conversation keeps of a call that has no diff: one
+			 * label line (or a command's first line), never the output. Live
+			 * hosts ignore it and draw the real result.
+			 */
+			savedPresentation?: ToolResultView
 			sessionId: SessionId
 			turnId: TurnId
 			toolUseId: ToolUseId
@@ -945,6 +951,8 @@ type CoreSessionEvent =
 			 */
 			blockedBy?: readonly TaskId[]
 			owner?: string
+			/** The present-continuous form the model gave ("Running the tests"); absent when it gave none. */
+			activeForm?: string
 	  }
 	| {
 			type: 'task_updated'
@@ -956,6 +964,8 @@ type CoreSessionEvent =
 			owner?: string
 			/** See `task_created`. Carried on updates because an edge can be added later. */
 			blockedBy?: readonly TaskId[]
+			/** See `task_created`. */
+			activeForm?: string
 			/**
 			 * The task was removed from the list (`task_update` with status
 			 * `deleted`). `status` and `subject` are what it had when it went.
