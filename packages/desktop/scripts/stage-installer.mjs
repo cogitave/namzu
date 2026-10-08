@@ -2,7 +2,7 @@
 //
 //   node scripts/stage-installer.mjs <out-dir> [--python-archive <file.tar.gz>]
 //
-// <out-dir> receives: package.json (generated from this package, same version), dist/ (the built
+// <out-dir> receives: build/ (the app icon), package.json (generated from this package, same version), dist/ (the built
 // desktop), node_modules/ (the main process's runtime dependencies), electron-builder.yml,
 // extra/cli (the CLI and its dependencies as a flat, real-file node_modules: no links, no absolute
 // paths) and extra/python (a standalone CPython with venv and pip, for local speech).
@@ -103,6 +103,7 @@ async function main() {
 		)}\n`,
 	)
 	cpSync(join(pkgRoot, 'dist'), join(out, 'dist'), { recursive: true })
+	cpSync(join(pkgRoot, 'build'), join(out, 'build'), { recursive: true })
 	cpSync(join(pkgRoot, 'electron-builder.yml'), join(out, 'electron-builder.yml'))
 	cpSync(join(pkgRoot, 'scripts/installer-after-pack.cjs'), join(out, 'installer-after-pack.cjs'))
 	run('npm', ['install', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund', '--no-package-lock'], {

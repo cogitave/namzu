@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -864,6 +864,14 @@ function register(): void {
 	handle('readJob', (id: string, job: string) => operator.readJob(id, job))
 	handle('stopJob', (id: string, job: string) => operator.stopJob(id, job))
 }
+// The development and unpacked app have no embedded executable icon; an installed build does, and
+// ships no build/ folder, so this is then undefined and the executable's own icon is used.
+const windowIconPath = join(
+	here,
+	'../../build',
+	process.platform === 'win32' ? 'icon.ico' : 'icon.png',
+)
+const windowIcon = existsSync(windowIconPath) ? windowIconPath : undefined
 async function createWindow(
 	windowId: string = randomUUID(),
 	savedBounds?: WorkspaceWindowBounds,
@@ -875,6 +883,7 @@ async function createWindow(
 	workspace.addWindow(windowId, bounds)
 	const window = new BrowserWindow({
 		title: 'Namzu',
+		...(windowIcon ? { icon: windowIcon } : {}),
 		...bounds,
 		minWidth: 560,
 		minHeight: 460,

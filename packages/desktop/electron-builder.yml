@@ -6,6 +6,8 @@ copyright: Namzu Contributors
 artifactName: Namzu-Setup-${version}.${ext}
 directories:
   output: out
+  # build/icon.ico and build/icon.png come from scripts/generate-icon.mjs.
+  buildResources: build
 # Identity: electron-builder writes the NSIS install folder from productName and Electron derives
 # app.getPath('userData') from the same name, so an installed build uses %APPDATA%\Namzu exactly
 # like the development app does. Do not rename productName without migrating that folder.
@@ -26,6 +28,7 @@ extraResources:
   - from: extra/python
     to: python
 win:
+  icon: build/icon.ico
   target:
     - target: nsis
       arch: x64
@@ -33,6 +36,9 @@ win:
   # "unknown publisher" warning and the updater checks sha512 integrity only.
   signAndEditExecutable: true
 nsis:
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  installerHeaderIcon: build/icon.ico
   oneClick: true
   perMachine: false
   allowElevation: false

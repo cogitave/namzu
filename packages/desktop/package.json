@@ -15,6 +15,7 @@
 		"dev": "node scripts/dev.mjs",
 		"dev:renderer": "node scripts/dev.mjs --renderer-only",
 		"dev:check": "node scripts/dev.mjs --check",
+		"icon": "node scripts/generate-icon.mjs",
 		"stage:installer": "node scripts/stage-installer.mjs",
 		"test:native": "node ../../research/runtime-desktop-20260930/native-smoke.mjs ../.."
 	},
