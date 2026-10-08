@@ -1,4 +1,5 @@
 import type { ThreadState, TimelineEntry } from '../shared/projection.js'
+import type { ChatMessage } from '../shared/protocol.js'
 import type { ActionKind, ToolTranscriptState } from './tool-transcript-presentation.js'
 
 export interface TranscriptSegment {
@@ -352,4 +353,58 @@ export function dateSeparatorLabel(at: number, locale?: string | string[]): stri
 		hour: '2-digit',
 		minute: '2-digit',
 	}).format(new Date(at))
+}
+
+/**
+ * Whether a Worked block is open: the person's saved choice always wins; without one it is open
+ * while the reply is being written and folds to its "Worked for" line when the reply ends.
+ */
+export function workBlockOpen(saved: boolean | undefined, live: boolean): boolean {
+	return saved ?? live
+}
+
+export type ReplyClock =
+	| { at: 'answer'; entry: TimelineEntry; time: NonNullable<ChatMessage['time']> }
+	| { at: 'turn'; time: NonNullable<ChatMessage['time']> }
+
+function knownTime(time: ChatMessage['time']): time is NonNullable<ChatMessage['time']> {
+	return !!time && Number.isFinite(time.at) && time.at >= 0
+}
+
+/**
+ * The one clock a reply shows, at its bottom: the last answer message's time, or, when the reply
+ * ends without answer text (stopped, failed, only actions), the time its work ended. Nothing while
+ * the reply is still being written, and nothing when no time was ever recorded.
+ */
+export function replyClock(
+	thread: ThreadState,
+	group: Pick<TranscriptTurn, 'turn' | 'segments' | 'activity'>,
+	live: boolean,
+): ReplyClock | undefined {
+	if (live) return undefined
+	// A steering message ends the earlier segment; only the reply's last segment closes it.
+	const answer = group.segments.at(-1)?.answer ?? []
+	for (let index = answer.length - 1; index >= 0; index--) {
+		const entry = answer[index]
+		const message = entry?.kind === 'message' ? thread.messages[entry.index] : undefined
+		if (!entry || !message || message.role !== 'assistant') continue
+		if (!message.text.trim() && !message.attachments?.length) continue
+		if (knownTime(message.time)) return { at: 'answer', entry, time: message.time }
+		break
+	}
+	const timing = thread.turns[group.turn]
+	if (knownTime(timing?.endedTime)) return { at: 'turn', time: timing.endedTime }
+	if (timing?.endedAt !== undefined && knownTime({ at: timing.endedAt, source: 'host' }))
+		return { at: 'turn', time: { at: timing.endedAt, source: 'host' } }
+	let last: NonNullable<ChatMessage['time']> | undefined
+	for (const entry of group.activity) {
+		const time =
+			entry.kind === 'message'
+				? thread.messages[entry.index]?.time
+				: entry.kind === 'tool'
+					? (thread.tools[entry.id]?.endedTime ?? thread.tools[entry.id]?.startedTime)
+					: (thread.reasoning[entry.id]?.endedTime ?? thread.reasoning[entry.id]?.startedTime)
+		if (knownTime(time) && (!last || time.at > last.at)) last = time
+	}
+	return last ? { at: 'turn', time: last } : undefined
 }

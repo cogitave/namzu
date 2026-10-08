@@ -180,6 +180,13 @@ function knownMessageTime(time: ChatMessage['time']): boolean {
 	return !!time && Number.isFinite(time.at) && time.at >= 0 && time.at <= 8_640_000_000_000_000
 }
 
+/** The full time as the clock's tooltip and accessible name say it; undefined when it is unknown. */
+export function timeDescription(time: ChatMessage['time']): string | undefined {
+	if (!time || !knownMessageTime(time)) return undefined
+	const full = messageFullTime.format(new Date(time.at))
+	return `${time.source === 'journal' ? 'Recorded in conversation' : 'Observed by Namzu'}: ${full}`
+}
+
 export function MessageTime({
 	time,
 	focusable = false,
@@ -189,7 +196,7 @@ export function MessageTime({
 	const date = new Date(time.at)
 	const label = messageClock.format(date)
 	const full = messageFullTime.format(date)
-	const description = `${time.source === 'journal' ? 'Recorded in conversation' : 'Observed by Namzu'}: ${full}`
+	const description = timeDescription(time) ?? full
 	if (focusable)
 		return (
 			<button

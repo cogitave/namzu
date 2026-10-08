@@ -4,7 +4,7 @@ import type { ChatMessage } from '../shared/protocol.js'
 import { type ActivityActions, ActivityActionsContext } from './activity-actions.js'
 import { AttachmentList } from './attachment-list.js'
 import { ChevronRightIcon } from './icons.js'
-import { Message, MessageContent, MessageFooter, MessageTime } from './message.js'
+import { Message, MessageContent, MessageFooter, timeDescription } from './message.js'
 import { renderedEqual } from './rendered-equal.js'
 import { toolTranscriptPresentation } from './tool-transcript-presentation.js'
 import { ToolTranscriptRow, actionIcon } from './tool-transcript-row.js'
@@ -14,11 +14,13 @@ import {
 	dateSeparatorFlags,
 	dateSeparatorLabel,
 	elapsedLabel,
+	replyClock,
 	runDefaultOpen,
 	splitActivity,
 	terminalNotice,
 	toolGroupLabel,
 	transcriptTurns,
+	workBlockOpen,
 } from './transcript-layout.js'
 import { turnInputsUnchanged } from './transcript-memo.js'
 import {
@@ -50,11 +52,17 @@ function Entry({
 	entry,
 	thread,
 	action,
+	quiet = false,
+	showTime = true,
 }: {
 	entry: TimelineEntry
 	thread: ThreadState
 	/** The reply's action row; shown once the reply has settled. */
 	action?: ReactNode
+	/** Inside a Worked block: no visible clock; the time stays in the row's tooltip. */
+	quiet?: boolean
+	/** A reply shows one clock, under its last answer; the other answer messages leave it out. */
+	showTime?: boolean
 }) {
 	if (entry.kind === 'tool') {
 		const tool = thread.tools[entry.id]
@@ -64,7 +72,7 @@ function Entry({
 				data-timeline-turn={entry.turn}
 				data-transcript-entry-key={transcriptEntryKey(entry)}
 			>
-				<ToolTranscriptRow thread={thread} id={entry.id} />
+				<ToolTranscriptRow thread={thread} id={entry.id} quiet={quiet} />
 			</div>
 		) : null
 	}
@@ -78,9 +86,9 @@ function Entry({
 				data-timeline-turn={entry.turn}
 				data-reasoning-id={entry.id}
 				data-transcript-entry-key={transcriptEntryKey(entry)}
+				title={timeDescription(thought.startedTime ?? thought.endedTime)}
 			>
 				<MessageContent text={thought.text} markdown />
-				<MessageTime time={thought.startedTime ?? thought.endedTime} focusable />
 			</section>
 		) : null
 	}
@@ -92,6 +100,7 @@ function Entry({
 			className={`message ${message.role}${message.phase === 'commentary' ? ' commentary' : ''}`}
 			role={message.phase === 'commentary' ? 'group' : undefined}
 			aria-label={message.phase === 'commentary' ? 'Progress update' : undefined}
+			title={quiet || !showTime ? timeDescription(message.time) : undefined}
 			data-timeline-turn={entry.turn}
 			data-message-phase={message.phase}
 			data-transcript-entry-key={transcriptEntryKey(entry)}
@@ -116,7 +125,7 @@ function Entry({
 					<AttachmentList attachments={message.attachments} />
 				</div>
 			)}
-			<MessageFooter time={message.time} focusable>
+			<MessageFooter time={quiet || !showTime ? undefined : message.time} focusable>
 				{message.role === 'assistant' && message.text.trim() && settled && action}
 			</MessageFooter>
 		</Message>
@@ -234,7 +243,7 @@ function ToolRun({
 			<CollapsiblePanel keepMounted>
 				<div className="tool-group-entries">
 					{entries.map((entry) => (
-						<Entry key={entryKey(entry)} entry={entry} thread={thread} />
+						<Entry key={entryKey(entry)} entry={entry} thread={thread} quiet />
 					))}
 				</div>
 			</CollapsiblePanel>
@@ -262,11 +271,12 @@ function ActivityEntries({
 	)
 	return parts.map((part, index) => {
 		if ('entry' in part)
-			return <Entry key={entryKey(part.entry)} entry={part.entry} thread={thread} />
+			return <Entry key={entryKey(part.entry)} entry={part.entry} thread={thread} quiet />
 		const first = part.run[0]
 		if (!first) return null
 		// One action is just its row; the summary starts at two.
-		if (part.run.length === 1) return <Entry key={entryKey(first)} entry={first} thread={thread} />
+		if (part.run.length === 1)
+			return <Entry key={entryKey(first)} entry={first} thread={thread} quiet />
 		return (
 			<ToolRun
 				key={entryKey(first)}
@@ -299,12 +309,15 @@ function TurnActivity({
 	disclosureKey,
 	workDisclosures,
 	onWorkDisclosureChange,
+	answered,
 	animate,
 	now,
 }: {
 	thread: ThreadState
 	turn: number
 	entries: TimelineEntry[]
+	/** The reply text has started, so this work is done even though the turn is still running. */
+	answered: boolean
 	ownsTurnSummary: boolean
 	disclosureKey?: string
 	workDisclosures?: WorkDisclosureChoices
@@ -313,10 +326,7 @@ function TurnActivity({
 	now: number
 }) {
 	const live = thread.running && thread.stopReason === undefined && thread.turn === turn
-	// Work that ended while the person watched stays as it was; saved history opens closed.
-	const watched = useRef(false)
-	if (live) watched.current = true
-	const defaultOpen = live || watched.current
+	// Open while the reply is written, folded once it ends; a choice the person made always wins.
 	const [chosenOpen, setChosenOpen] = useState<boolean>()
 	const controlled = !!disclosureKey && !!onWorkDisclosureChange
 	const savedOpen = disclosureKey ? workDisclosures?.[disclosureKey] : undefined
@@ -337,17 +347,26 @@ function TurnActivity({
 	return (
 		<Collapsible
 			className="turn-activity"
-			open={controlled ? (savedOpen ?? defaultOpen) : (chosenOpen ?? defaultOpen)}
+			// Fold when the answer arrives, not after it: folding later shrinks the page under a reader at the end.
+			open={workBlockOpen(controlled ? savedOpen : chosenOpen, live && !answered)}
 			onOpenChange={(open) => {
 				if (disclosureKey && onWorkDisclosureChange) onWorkDisclosureChange(disclosureKey, open)
 				else setChosenOpen(open)
 			}}
 			data-activity-turn={turn}
+			// No choice yet, so any fold is the work finishing: it settles at once, in the same frame the answer lands.
+			data-automatic={(controlled ? savedOpen : chosenOpen) === undefined ? '' : undefined}
 		>
 			<CollapsibleTrigger
 				className="activity-trigger"
 				aria-label={elapsed ? `${label} for ${elapsed}` : label}
-				title={savedDuration ? 'Time reported for this saved work' : undefined}
+				title={
+					savedDuration
+						? 'Time reported for this saved work'
+						: live
+							? undefined
+							: timeDescription(savedTime)
+				}
 				data-duration-source={savedDuration ? 'recorded-runtime' : undefined}
 				data-live={live ? '' : undefined}
 			>
@@ -356,7 +375,6 @@ function TurnActivity({
 					{elapsed && <span className="turn-activity-elapsed">for {elapsed}</span>}
 				</span>
 				<ChevronRightIcon className="disclosure-chevron" aria-hidden="true" />
-				{!live && <MessageTime time={savedTime} />}
 			</CollapsibleTrigger>
 			<CollapsiblePanel keepMounted>
 				<div className="activity-entries">
@@ -481,6 +499,7 @@ const TurnGroupView = memo(function TurnGroupView({
 		() => ({ changes, projectRoot, onOpenTurnChanges, onOpenChangedFile }),
 		[changes, projectRoot, onOpenTurnChanges, onOpenChangedFile],
 	)
+	const clock = replyClock(thread, group, live)
 	return (
 		<ActivityActionsContext.Provider value={actionsValue}>
 			<div
@@ -526,6 +545,7 @@ const TurnGroupView = memo(function TurnGroupView({
 										.slice(index + 1)
 										.some((later) => hasPublicActivity(later.activity, thread))
 								}
+								answered={hasPublicActivity(segment.answer, thread)}
 								animate={animate}
 								now={now}
 							/>
@@ -535,11 +555,21 @@ const TurnGroupView = memo(function TurnGroupView({
 								{entryKey(entry) in separators && (
 									<DateSeparator at={separators[entryKey(entry)] as number} />
 								)}
-								<Entry entry={entry} thread={thread} action={actions[entryKey(entry)]} />
+								<Entry
+									entry={entry}
+									thread={thread}
+									action={actions[entryKey(entry)]}
+									showTime={clock?.at === 'answer' && clock.entry === entry}
+								/>
 							</Fragment>
 						))}
 					</Fragment>
 				))}
+				{clock?.at === 'turn' && (
+					<Message from="assistant" className="message assistant turn-clock">
+						<MessageFooter time={clock.time} focusable />
+					</Message>
+				)}
 				{onOpenTurnChanges && changes && !live && (
 					<TurnChangesCard
 						changes={changes}

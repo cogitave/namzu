@@ -152,19 +152,56 @@ const sampleTurns: SampleTurn[] = [
 			{ answer: 'Understood. I left the colour and the build folder alone.' },
 		],
 	},
+	{
+		// Work that ended with no reply text, so the turn's own clock stands in for the answer's.
+		id: 'a6',
+		prompt: 'Stop after listing the files.',
+		durationMs: 9000,
+		items: [
+			{ say: 'Listing the files first.' },
+			{
+				tool: 'a6-c',
+				name: 'bash',
+				view: { kind: 'terminal', command: 'ls src', output: 'app.css' },
+			},
+		],
+	},
 ]
 
+// Saved messages carry recorded times, so the transcript has clocks to show (or not show).
+const savedStart = Date.UTC(2026, 9, 7, 9, 0, 0)
 export function activityMessages(): ChatMessage[] {
-	return sampleTurns.flatMap((turn): ChatMessage[] => [
-		{ role: 'user', text: turn.prompt },
-		...turn.items.flatMap((item): ChatMessage[] =>
-			'say' in item
-				? [{ role: 'assistant', text: item.say, phase: 'commentary' }]
-				: 'answer' in item
-					? [{ role: 'assistant', text: item.answer, status: 'completed' }]
-					: [],
-		),
-	])
+	return sampleTurns.flatMap((turn, turnIndex): ChatMessage[] => {
+		const start = savedStart + turnIndex * 600_000
+		const at = (offsetMs: number): ChatMessage['time'] => ({
+			at: start + offsetMs,
+			source: 'journal',
+		})
+		return [
+			{ role: 'user', text: turn.prompt, time: at(0) },
+			...turn.items.flatMap((item, index): ChatMessage[] =>
+				'say' in item
+					? [
+							{
+								role: 'assistant',
+								text: item.say,
+								phase: 'commentary',
+								time: at(1000 + index * 1000),
+							},
+						]
+					: 'answer' in item
+						? [
+								{
+									role: 'assistant',
+									text: item.answer,
+									status: 'completed',
+									time: at(turn.durationMs),
+								},
+							]
+						: [],
+			),
+		]
+	})
 }
 
 export function activityWork(): HistoryWorkSnapshot {
@@ -297,6 +334,7 @@ export function createActivityLive(
 							projectId: view.projectId,
 							sessionId: view.id,
 							update: { kind: 'turn_ended', stopReason: 'end_turn' },
+							at: Date.now(),
 						})
 						emit({ kind: 'state', sessionId: view.id, running: false, queued: [] })
 						resolve()
@@ -308,6 +346,7 @@ export function createActivityLive(
 							projectId: view.projectId,
 							sessionId: view.id,
 							update: step.update,
+							at: Date.now(),
 						})
 						if (step.name === hold) resolve()
 						else next(index + 1)

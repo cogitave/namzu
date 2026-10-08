@@ -9,7 +9,7 @@ import {
 	TerminalIcon,
 	WrenchIcon,
 } from './icons.js'
-import { MessageTime } from './message.js'
+import { MessageTime, timeDescription } from './message.js'
 import { type ActionKind, toolTranscriptPresentation } from './tool-transcript-presentation.js'
 import { ToolView } from './tool-view.js'
 import { elapsedLabel } from './transcript-layout.js'
@@ -64,10 +64,13 @@ export function ToolTranscriptRow({
 	thread,
 	id,
 	onOpenChange,
+	quiet = false,
 }: {
 	thread: ThreadState
 	id: string
 	onOpenChange?: (open: boolean) => void
+	/** Inside a Worked block: no visible clock; the time stays in the row's tooltip. */
+	quiet?: boolean
 }) {
 	const actions = useContext(ActivityActionsContext)
 	const [focused, setFocused] = useState(false)
@@ -93,7 +96,9 @@ export function ToolTranscriptRow({
 				: elapsedLabel(tool.durationMs)
 			: undefined
 	// Screen readers get the command or the full path the sighted reader sees in the tooltip.
-	const description = file ? fullPath(file.path, actions?.projectRoot) : presentation.tooltip
+	const quietTime = quiet ? timeDescription(tool.startedTime ?? tool.endedTime) : undefined
+	const subject = file ? fullPath(file.path, actions?.projectRoot) : presentation.tooltip
+	const description = [subject, quietTime].filter(Boolean).join('. ') || undefined
 	const focusProps = {
 		'aria-description': description,
 		onFocus: (event: React.FocusEvent<HTMLElement>) =>
@@ -124,7 +129,7 @@ export function ToolTranscriptRow({
 			<span className={quietCompleted ? 'tool-status transcript-visually-hidden' : 'tool-status'}>
 				{statusLabel}
 			</span>
-			<MessageTime time={tool.startedTime ?? tool.endedTime} />
+			{!quiet && <MessageTime time={tool.startedTime ?? tool.endedTime} />}
 			{duration && (
 				<span
 					className="tool-duration"
@@ -140,6 +145,8 @@ export function ToolTranscriptRow({
 		className: `tool ${state}${active ? ' active' : ''} tool-kind-${kind}`,
 		'data-tool-call-id': tool.toolCallId,
 		'data-tool-state': state,
+		// A row with its own hover tooltip carries the time for screen readers only.
+		title: quietTime && !file && !presentation.tooltip ? quietTime : undefined,
 	}
 	if (opens && file && actions)
 		return (

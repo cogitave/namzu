@@ -1389,8 +1389,15 @@ turn; only the latest public segment owns the turn's time and outcome heading,
 and earlier segments say **Earlier work**. Opaque reasoning alone does not
 create an empty disclosure. Settled headings retain **Worked for** the observed
 or recorded duration, Paused, Stopped or Work incomplete as appropriate. The
-summary opens while that turn runs; a turn that finished while the person
-watched stays open, a restored one opens closed, and a choice the person made wins. The answer appears below that group only when it is
+summary opens while that turn runs and folds to its **Worked for** line (without animation, so a reader at the end does not bounce) the moment the answer starts or
+the turn ends, even if the person watched it; a restored one opens closed, and a choice
+the person made wins and is kept. The whole process between the person's message and
+the answer (narration, reasoning, every run and single action) is that one block, and
+nothing inside it draws a clock: not the narration, thoughts, action rows, run
+summaries or the heading. Each row keeps its full time in its tooltip and accessible
+description ("Observed by Namzu: ..."). A reply shows one clock, under its answer in the
+footer row, or, when it ends without answer text (stopped, failed, only actions), at
+the bottom of the turn; none while it is still being written. The answer appears below that group only when it is
 a trailing answer; grouping never moves text across a later tool or reasoning event.
 Message and text-part identities preserve distinct responses. Providers without
 phase metadata retain their admitted order without invented commentary labels.
@@ -1498,7 +1505,8 @@ common kind, and a counted label in order of first appearance: "Edited a file, r
 commands", "Read 4 files", "Searched 3 times", "Used 2 tools" (a file counts once however
 often it was edited; live it reads "Editing a file, running commands"; a failure adds
 ", 1 failed" so a folded run does not read as all done). A run is open while it works,
-and a run the person watched work stays open when it ends; a restored run of five or
+and a run the person watched work stays open when it ends (the block around it folds, so
+it shows again when the person opens the block); a restored run of five or
 fewer is open and a longer one folds to its summary. The person's choice is kept with the turn's other disclosure choices. One
 action is just its row, and the run no longer scrolls inside a box.
 

@@ -20,11 +20,7 @@
 .normal-transcript .message .message-time {
 	margin-top: 0;
 }
-.normal-transcript .reasoning .message-time {
-	margin-top: 0;
-}
-.normal-transcript .message > .message-time,
-.normal-transcript .reasoning > .message-time {
+.normal-transcript .message > .message-time {
 	/* Reserve a stable clock row before hover so the reader's position cannot jump. */
 	display: block;
 	width: max-content;
@@ -126,12 +122,8 @@
 }
 .normal-transcript .message:hover .message-time,
 .normal-transcript .message:focus-within .message-time,
-.normal-transcript .reasoning:hover .message-time,
-.normal-transcript .reasoning:focus-within .message-time,
 .normal-transcript .tool:hover .message-time,
 .normal-transcript .tool:focus-within .message-time,
-.normal-transcript .activity-trigger:hover .message-time,
-.normal-transcript .activity-trigger:focus-within .message-time,
 .normal-transcript .message-time:focus-visible {
 	opacity: 1;
 }
@@ -148,7 +140,7 @@
 	line-height: 20px;
 	gap: 4px;
 	padding-block: 4px;
-	border-bottom: 1px solid var(--border);
+	border-bottom: 1px solid color-mix(in srgb, var(--foreground) 9%, transparent);
 	color: var(--muted-foreground);
 }
 .normal-transcript .activity-trigger:hover,
@@ -188,7 +180,9 @@
 }
 .normal-transcript .activity-entries .message.commentary {
 	padding-bottom: 0;
-	margin-bottom: 8px;
+	margin-bottom: 14px;
+	/* The message box sits 4px inside its column; pull the text flush with the header and rows. */
+	margin-left: -4px;
 }
 .normal-transcript .activity-entries .message.commentary .message-text {
 	color: var(--foreground);
@@ -213,9 +207,6 @@
 	font-size: 14px;
 	font-variant-numeric: tabular-nums;
 	color: var(--muted-foreground);
-}
-.normal-transcript .activity-trigger .message-time {
-	margin-left: auto;
 }
 .normal-transcript .transcript-status-only {
 	position: absolute;
@@ -274,6 +265,10 @@
 	transition-property: height, opacity;
 	opacity: 1;
 }
+/* An automatic fold must not animate: the answer lands in the same frame, and a slow shrink would make a reader at the end bounce. */
+.normal-transcript .turn-activity[data-automatic] > [data-slot="collapsible-panel"] {
+	transition: none;
+}
 .normal-transcript .turn-activity > [data-slot="collapsible-panel"][data-starting-style],
 .normal-transcript .turn-activity > [data-slot="collapsible-panel"][data-ending-style] {
 	opacity: 0;
@@ -313,4 +308,8 @@
 	contain-intrinsic-block-size: auto 400px;
 	/* Painting is contained too: let a focus ring at the turn's edge show. */
 	overflow-clip-margin: 8px;
+}
+/* The reply clock lines up with the answer text, which sits 4px inside its box. */
+.normal-transcript .message.assistant:not(.commentary) > .message-footer {
+	padding-left: 4px;
 }
