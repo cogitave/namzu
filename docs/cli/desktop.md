@@ -820,8 +820,11 @@ are fetched the same way, capped at 2 MiB (256 KiB for icons) and shown only whe
 their bytes are PNG, JPEG, GIF, WebP, AVIF or, for icons, ICO; vector images are
 never loaded. Every refusal or failure leaves a card with the address alone and
 no error text, and no address or page text reaches diagnostics. Results are kept
-in memory for 15 minutes (2 minutes for a page that gave nothing). Under reduced
-motion the card appears without movement.
+in memory for 15 minutes (2 minutes for a page or picture that gave nothing,
+including one a host answered with HTTP 429 "too many requests"; a share image
+generated on demand, such as GitHub's, can be rate-limited while its icon still
+loads, and the card then shows without the picture until the failure expires).
+Under reduced motion the card appears without movement.
 Tool output remains a separate tool view. Settled answers have a compact
 **Copy reply** action alongside optional read-aloud; commentary, reasoning and
 tool details do not receive the answer toolbar. In ordinary and Pal chat, the

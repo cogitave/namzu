@@ -442,6 +442,20 @@ describe('cache', () => {
 		await service.page('https://a.com/')
 		expect(h.requests).toHaveLength(3)
 	})
+	it('treats a rate-limited picture as a failure kept for two minutes, then asks again', async () => {
+		let clock = 0
+		let limited = true
+		const h = harness(() => (limited ? { status: 429 } : { chunks: [new Uint8Array(PNG)] }))
+		const service = createLinkPreviewService({ network: h.network, now: () => clock })
+		expect(await service.image('https://a.com/i', 'image')).toBeNull()
+		limited = false
+		clock = 2 * 60_000 - 1
+		expect(await service.image('https://a.com/i', 'image')).toBeNull()
+		expect(h.requests).toHaveLength(1)
+		clock = 2 * 60_000
+		expect(await service.image('https://a.com/i', 'image')).toMatch(/^data:image\/png;base64,/)
+		expect(h.requests).toHaveLength(2)
+	})
 	it('caches images per kind', async () => {
 		const h = harness(() => ({ chunks: [new Uint8Array(PNG)] }))
 		const service = createLinkPreviewService({ network: h.network })

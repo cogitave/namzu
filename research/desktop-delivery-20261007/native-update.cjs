@@ -463,7 +463,9 @@ async function probe() {
   const p = receipt.probe;
   assert(p.pages.some(x => x.nonNull), 'No probed page returned a preview');
   assert(p.refusals.every(x => x.isNull), 'A refused address did not return null');
-  assert(p.images.length === 2 && p.images.every(x => x.found && x.nonNull && x.mime?.startsWith('image/')), 'Image or icon fetch failed');
+  // A host may rate-limit one of the two (github's on-demand share image answers 429 after repeated probes): one picture proves the path.
+  assert(p.images.some(x => x.found && x.nonNull && x.mime?.startsWith('image/')), 'Neither the page image nor the icon could be fetched');
+  if (p.images.some(x => !(x.found && x.nonNull))) receipt.observations.push('one of the two probed pictures was not fetched (a host may have rate-limited it)');
   assert(p.repeat?.nonNull, 'Repeat call returned null');
   if (p.pages.some(x => x.nonNull === false || x.error)) receipt.observations.push('at least one probed page returned null or errored');
   receipt.checks.push('network probe: previews, images, refusals, cached repeat');
