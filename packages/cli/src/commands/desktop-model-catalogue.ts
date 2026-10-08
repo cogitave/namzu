@@ -1,4 +1,14 @@
+import { codexModelLabel } from '../integrations/harness/codex-protocol.js'
 import type { ModelListing } from '../tui/agent.js'
+
+/**
+ * A GPT display name written "GPT-5.6-Sol" reads "GPT-5.6 Sol", as the Codex app writes it.
+ * Only names that start with "GPT-" change: ids, "gpt-4o", "o3-mini", "qwen2.5-coder" and
+ * "Claude Opus 5.5" pass through, and so does a raw id used as its own label.
+ */
+export function modelListLabel(name: string, id: string): string {
+	return name !== id && name.startsWith('GPT-') ? codexModelLabel(name) : name
+}
 
 /** A desktop catalogue reports provider rows, never invented defaults or saved pins. */
 export function desktopModelCatalogue(
@@ -41,7 +51,7 @@ export function desktopModelCatalogue(
 			notes.push('free')
 		models.push({
 			id: model.id,
-			label: (model.name || model.id).slice(0, 400),
+			label: modelListLabel(model.name || model.id, model.id).slice(0, 400),
 			...(notes.length ? { note: `(${notes.join(' · ')})` } : {}),
 			...(model.id === defaultModel ? { default: true as const } : {}),
 		})

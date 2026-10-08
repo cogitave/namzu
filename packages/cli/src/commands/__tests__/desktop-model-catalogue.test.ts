@@ -1,5 +1,5 @@
-import { expect, it } from 'vitest'
-import { desktopModelCatalogue } from '../desktop-model-catalogue.js'
+import { describe, expect, it } from 'vitest'
+import { desktopModelCatalogue, modelListLabel } from '../desktop-model-catalogue.js'
 
 it('never treats an absent default or saved pin as a published model', () => {
 	expect(
@@ -95,4 +95,21 @@ it('keeps empty, unsupported and timeout catalogues distinct without adding regi
 		expect(result.models).toEqual([])
 		expect(result.notice).toBeTruthy()
 	}
+})
+
+describe('modelListLabel', () => {
+	it.each([
+		['GPT-5.6-Sol', 'gpt-5.6-sol', 'GPT-5.6 Sol'],
+		['GPT-5.6-mini', 'gpt-5.6-mini', 'GPT-5.6 mini'],
+		['GPT-5.6-Codex-Max', 'gpt-5.6-codex-max', 'GPT-5.6-Codex-Max'],
+		['gpt-4o', 'gpt-4o', 'gpt-4o'],
+		['gpt-4-turbo', 'gpt-4-turbo', 'gpt-4-turbo'],
+		['o3-mini', 'o3-mini', 'o3-mini'],
+		['Claude Opus 5.5', 'claude-opus-5-5', 'Claude Opus 5.5'],
+		['qwen2.5-coder', 'qwen2.5-coder', 'qwen2.5-coder'],
+		['llama-3.3-70b', 'llama-3.3-70b', 'llama-3.3-70b'],
+		['GPT-5.6-Sol', 'GPT-5.6-Sol', 'GPT-5.6-Sol'],
+	])('%s (id %s) reads %s', (name, id, expected) => {
+		expect(modelListLabel(name, id)).toBe(expected)
+	})
 })

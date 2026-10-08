@@ -245,16 +245,30 @@ it('offers no Default row when the engine marks no default model', () => {
 	expect(html).not.toContain('Recommended')
 })
 
-it('keeps the current model visible when it is not in the list', () => {
+it('shows no separate current-model section when the model is not in the list', () => {
 	catalogue('zen', [{ id: 'listed-model', label: 'Listed model' }])
 	const html = render({
 		available: [{ id: 'zen', label: 'Zen', defaultModel: 'unlisted-default' }],
 		selected: { id: 'zen', model: 'actual-custom' },
 	})
-	expect(html).toContain('Current model')
-	expect(html).toContain('actual-custom')
+	expect(html).not.toContain('Current model')
+	expect(html).toContain('aria-label="Model: actual-custom"')
 	expect(html).not.toContain('aria-label="Zen actual-custom"')
 	expect(html.match(/role="radio"/g)).toHaveLength(1)
+})
+
+it('marks the provider in use on its tab', () => {
+	catalogue('zen', [{ id: 'listed-model', label: 'Listed model' }])
+	catalogue('codex-cli', [{ id: 'gpt-top', label: 'GPT Top' }])
+	const html = render({
+		available: [
+			{ id: 'zen', label: 'Zen', defaultModel: 'listed-model' },
+			{ id: 'codex-cli', label: 'Codex', defaultModel: 'gpt-top' },
+		],
+		selected: { id: 'codex-cli', model: 'gpt-top' },
+	})
+	expect(html.match(/data-in-use/g)).toHaveLength(1)
+	expect(html).toMatch(/aria-label="Codex"[^>]*data-in-use|data-in-use[^>]*aria-label="Codex"/)
 })
 
 it('keeps capability feedback inside the model list', () => {

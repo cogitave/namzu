@@ -607,14 +607,6 @@ function ModelBrowser({
 		return rows.length ? [{ provider, rows }] : []
 	})
 	const modelKey = (provider: string, model: string) => JSON.stringify([provider, model])
-	const selectedModel =
-		choice.model ||
-		providers.available.find((provider) => provider.id === choice.provider)?.defaultModel ||
-		''
-	const hasSelectedRow = groups.some(
-		({ provider, rows }) =>
-			provider.id === choice.provider && rows.some((row) => row.id === selectedModel),
-	)
 	const toChoice = (model: (typeof models)[number]): ModelChoice => ({
 		provider: model.provider.id,
 		model: model.id,
@@ -841,21 +833,6 @@ function ModelBrowser({
 					</output>
 				)}
 			</div>
-			{!searching && !hasSelectedRow && !loading && selectedModel && (
-				<div className="model-picker-current">
-					<span className="model-picker-section-title">Current model</span>
-					<div className="model-picker-current-row">
-						<span className="model-picker-name" title={selectedModel}>
-							<span>
-								{modelDisplayLabel({ model: selectedModel, label: choice.label }, undefined)}
-							</span>
-						</span>
-						<span className="model-picker-selection" aria-hidden="true">
-							<CheckIcon className="model-picker-checked" />
-						</span>
-					</div>
-				</div>
-			)}
 			{(errors.length > 0 || notices.length > 0 || sharedNotes.size > 0 || settingsNotice) && (
 				<div className="model-picker-feedback" aria-label="Model catalogue information">
 					{settingsNotice && <p className="model-picker-settings-notice">{settingsNotice}</p>}
@@ -916,12 +893,15 @@ function ModelBrowser({
 									value={provider.id}
 									aria-label={provider.label}
 									className="model-provider-tab"
+									data-in-use={provider.id === choice.provider ? '' : undefined}
 								/>
 							}
 						>
 							<ProviderMark provider={provider} />
 						</TooltipTrigger>
-						<TooltipPopup side="left">{provider.label}</TooltipPopup>
+						<TooltipPopup side="left">
+							{provider.id === choice.provider ? `${provider.label} (in use)` : provider.label}
+						</TooltipPopup>
 					</Tooltip>
 				))}
 			</Tabs.List>

@@ -50,22 +50,6 @@
 	overflow-y: auto;
 	overscroll-behavior: contain;
 }
-.model-picker-current {
-	flex: none;
-	border-top: 1px solid var(--border);
-}
-.model-picker-current > .model-picker-section-title {
-	display: block;
-	padding: 6px 8px 2px;
-}
-.model-picker-current-row {
-	display: flex;
-	align-items: center;
-	min-height: 32px;
-	padding: 6px 8px;
-	font-size: 13px;
-	line-height: 18px;
-}
 .model-picker-settings-notice {
 	margin: 4px 0;
 	color: var(--muted-foreground);
@@ -120,6 +104,19 @@
 .model-provider-tab:hover {
 	background: var(--accent);
 	color: var(--foreground);
+}
+.model-provider-tab {
+	position: relative;
+}
+.model-provider-tab[data-in-use]::after {
+	content: "";
+	position: absolute;
+	top: 4px;
+	right: 4px;
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: var(--primary);
 }
 .model-provider-tab:focus-visible,
 .model-picker-row:focus-visible {

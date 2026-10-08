@@ -3,6 +3,7 @@
 ## 2026-10-08
 
 - **Update** [Desktop](cli/desktop.md#operator-flow) documents why a link card can lack its share picture while the icon loads: a host such as GitHub's image service answers 429 when asked repeatedly, the rule refuses non-2xx and keeps the failure for 2 minutes. No rule changed; the guarded updater's probe now needs only one of the two pictures. [Proof](../research/link-preview-image-20261008/README.md).
+- **Update** [Desktop](cli/desktop.md#operator-flow) drops the "Current model" section from the end of the model list (the provider column dots the provider in use instead) and writes API-catalogue GPT names as "GPT-5.6 Sol" like Codex rows. [Proof](../research/model-list-current-row-20261008/README.md).
 - **Update** [Desktop](cli/desktop.md#opening-a-folder) no longer flashes "Review folder access" while a project opens: a connecting project shows the app chrome with a quiet "Opening *name*…" after 400 ms, the gate shows only for a connected, genuinely untrusted folder, and a failed folder shows "Couldn’t open this folder" with Try again. The design preview gains `?connect=slow|error|untrusted`. [Proof](../research/project-connecting-20261008/README.md).
 
 ## 2026-10-07
