@@ -281,7 +281,6 @@ describe('anonymous Zen access', () => {
 		await expect(new ZenProvider().listModels()).resolves.toEqual([])
 	})
 
-
 	it('withdraws verified direct access when a refreshed catalogue reprices Space Bunny', async () => {
 		const spaceBunny = findZenModel('zen', defaultFree)
 		if (!spaceBunny) throw new Error('Expected bundled Space Bunny model')

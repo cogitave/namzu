@@ -10,9 +10,6 @@ export function isExperimentalFreeZenModel(
 	model: ZenModel | undefined,
 ): boolean {
 	return (
-		service === 'zen' &&
-		model !== undefined &&
-		model.inputPrice === 0 &&
-		model.outputPrice === 0
+		service === 'zen' && model !== undefined && model.inputPrice === 0 && model.outputPrice === 0
 	)
 }
