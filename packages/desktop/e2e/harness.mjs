@@ -77,7 +77,15 @@ export async function createWorld(opts = {}) {
 		);
 	}
 	const model = await startFakeModel(opts.rules ?? [], { models: opts.models });
-	const world = { ...dirs, model, app: null, page: null, cleanup: null };
+	const world = {
+		...dirs,
+		model,
+		app: null,
+		page: null,
+		cleanup: null,
+		pathPrefix: opts.pathPrefix,
+		env: opts.env,
+	};
 	await opts.seed?.(world);
 	return world;
 }
@@ -87,6 +95,9 @@ export async function launch(world) {
 	const env = {};
 	for (const [k, v] of Object.entries(process.env))
 		if (INHERIT.test(k) && v !== undefined) env[k] = v;
+	// Programs the flow wants found first on PATH (a stand-in for an installed engine CLI).
+	if (world.pathPrefix) env.PATH = `${world.pathPrefix}:${env.PATH ?? ""}`;
+	Object.assign(env, world.env ?? {});
 	Object.assign(env, {
 		HOME: world.osHome,
 		USERPROFILE: world.osHome,
@@ -142,6 +153,16 @@ export function instrumentFrames(world) {
 			index,
 			html.replace("<title>", '<script src="./frame-probe.js"></script><title>'),
 		);
+}
+
+/**
+ * Let the page read terminal screens (the terminals draw to a canvas, so there is no text to find).
+ * The flag is read when the first terminal is made, so the page is loaded again after it is set.
+ */
+export async function enableTerminalDebug(world) {
+	await world.page.evaluate(() => localStorage.setItem("namzu.terminal.debug", "1"));
+	await world.page.reload();
+	await world.page.waitForLoadState("domcontentloaded");
 }
 
 export async function relaunch(world) {

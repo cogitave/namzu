@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { LocalSpeechEvent } from './shared/local-speech-protocol.js'
 import type { DesktopApi, DesktopBoot, DesktopEvent } from './shared/protocol.js'
+import type { TerminalEvent } from './shared/terminal-view.js'
 import type { UpdateState } from './shared/update-protocol.js'
 /** Electron prefixes a rejected invoke with its own words; only the cause is for the person. */
 const clean = (error: unknown): Error => {
@@ -148,6 +149,21 @@ const api: DesktopApi = {
 	installUpdate: () => invoke('installUpdate'),
 	cancelUpdateInstall: () => invoke('cancelUpdateInstall'),
 	reportUiBusy: (busy) => invoke('reportUiBusy', busy),
+	terminals: () => invoke('terminals'),
+	terminalAvailability: (projectId) => invoke('terminalAvailability', projectId),
+	terminalShells: () => invoke('terminalShells'),
+	openTerminal: (request) => invoke('openTerminal', request),
+	attachTerminal: (tabId, viewerId, options) => invoke('attachTerminal', tabId, viewerId, options),
+	detachTerminal: (tabId, viewerId) => invoke('detachTerminal', tabId, viewerId),
+	writeTerminal: (tabId, viewerId, data) => invoke('writeTerminal', tabId, viewerId, data),
+	resizeTerminal: (tabId, viewerId, cols, rows) =>
+		invoke('resizeTerminal', tabId, viewerId, cols, rows),
+	closeTerminal: (tabId) => invoke('closeTerminal', tabId),
+	onTerminalEvent: (listener) => {
+		const handler = (_event: unknown, data: TerminalEvent) => listener(data)
+		ipcRenderer.on('namzu:terminal-event', handler)
+		return () => ipcRenderer.removeListener('namzu:terminal-event', handler)
+	},
 	onUpdateState: (listener) => {
 		const handler = (_event: unknown, state: UpdateState) => listener(state)
 		ipcRenderer.on('namzu:update-state', handler)

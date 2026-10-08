@@ -21,6 +21,16 @@ import type {
 	SettingsChangeResult,
 	SettingsSection,
 } from './settings-protocol.js'
+import type { TerminalTabView } from './terminal-tabs.js'
+import type {
+	TerminalAttachOptions,
+	TerminalAttachView,
+	TerminalAvailability,
+	TerminalEvent,
+	TerminalOpenRequest,
+	TerminalOpenResult,
+	TerminalShellChoice,
+} from './terminal-view.js'
 import type {
 	UpdateInfo,
 	UpdateInstallResult,
@@ -458,6 +468,8 @@ export type DesktopEvent = (
 	  }
 	| { kind: 'connection'; project: ProjectView }
 	| { kind: 'workspace'; view: WorkspaceView }
+	/** The terminal tabs changed (one added, ended, renamed, closed or its badge moved). */
+	| { kind: 'terminals'; terminals: TerminalTabView[] }
 	/** The saved preferences changed; every window follows. */
 	| { kind: 'settings'; settings: DesktopSettings }
 	/** The native menu or a shortcut asked for Settings; only the focused window gets it. */
@@ -773,6 +785,25 @@ export interface DesktopApi {
 	cancelUpdateInstall?(): Promise<void>
 	reportUiBusy?(busy: UpdateUiBusy): Promise<void>
 	onUpdateState?(listener: (state: UpdateState) => void): () => void
+	/** Terminal tabs. Absent in a preview with no host to run them. */
+	terminals?(): Promise<TerminalTabView[]>
+	terminalAvailability?(projectId: string): Promise<TerminalAvailability>
+	/** The shells a plain terminal tab can open on this machine, for the setting. */
+	terminalShells?(): Promise<TerminalShellChoice[]>
+	/** Start a terminal in a project and open it as a tab in the given pane. */
+	openTerminal?(request: TerminalOpenRequest): Promise<TerminalOpenResult>
+	attachTerminal?(
+		tabId: string,
+		viewerId: string,
+		options?: TerminalAttachOptions,
+	): Promise<TerminalAttachView>
+	detachTerminal?(tabId: string, viewerId: string): Promise<void>
+	writeTerminal?(tabId: string, viewerId: string, data: string): Promise<void>
+	resizeTerminal?(tabId: string, viewerId: string, cols: number, rows: number): Promise<void>
+	/** End the terminal's whole process tree, forget it and close its tab. */
+	closeTerminal?(tabId: string): Promise<void>
+	/** Output and endings of the terminals this window has open. */
+	onTerminalEvent?(listener: (event: TerminalEvent) => void): () => void
 	onEvent(listener: (event: DesktopEvent) => void): () => void
 }
 

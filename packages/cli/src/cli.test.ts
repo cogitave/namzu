@@ -44,6 +44,35 @@ describe('runCli', () => {
 		expect(stderr).toContain('--output-schema applies to the interactive TUI')
 	})
 
+	it('refuses the launch flags on a subcommand instead of ignoring them', async () => {
+		expect(await invoke(['--model', 'm', '--effort', 'high', 'providers-json'])).toBe(64)
+		expect(stderr).toContain('--model, --effort apply to the interactive TUI, not this subcommand')
+	})
+
+	it('points the launch flags at their place after exec', async () => {
+		expect(await invoke(['--provider', 'zen', 'exec', 'hello'])).toBe(64)
+		expect(stderr).toContain('namzu exec --provider <value> "<prompt>"')
+	})
+
+	it('validates --effort and --permission-mode before anything starts', async () => {
+		expect(await invoke(['--effort', 'enormous'])).toBe(64)
+		expect(stderr).toContain('enormous')
+		stderr = ''
+		expect(await invoke(['--permission-mode', 'yolo'])).toBe(64)
+		expect(stderr).toContain('prompt, accept-edits, auto, strict, plan')
+	})
+
+	it('lists the launch flags in --help', async () => {
+		expect(await invoke(['--help'])).toBe(0)
+		for (const flag of [
+			'--provider <id>',
+			'--model <id>',
+			'--effort <level>',
+			'--permission-mode <mode>',
+		])
+			expect(stdout).toContain(flag)
+	})
+
 	it('--help returns 0 and lists every registered command', async () => {
 		const code = await invoke(['--help'])
 		expect(code).toBe(0)

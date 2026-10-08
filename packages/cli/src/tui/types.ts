@@ -97,6 +97,12 @@ export interface TuiContext {
 	/** Initial TUI mode is auto (--dangerously-skip-permissions / --yolo); /permissions may narrow it. */
 	readonly skipPermissions?: boolean
 	/**
+	 * `--provider`, `--model`, `--effort` and `--permission-mode` for this launch.
+	 * Session-only: none of them is saved, and `/model`, `/effort` and
+	 * `/permissions` change them as usual.
+	 */
+	readonly launchSettings?: import('./launch-settings.js').TuiLaunchSettings
+	/**
 	 * The operator's `permissions` table, compiled to kernel rules.
 	 *
 	 * A config file belongs to the user, not to a command: someone who writes

@@ -503,6 +503,9 @@ flow(
 				startup: "home",
 				retrustOnConfigChange: false,
 				autoDownloadUpdates: false,
+				// The terminal settings are saved with their defaults beside the ones changed here.
+				restoreTerminals: true,
+				terminalShell: "auto",
 			});
 		await relaunch(w);
 		await w.page.getByRole("button", { name: "Settings", exact: true }).click();
@@ -687,6 +690,11 @@ flow(
 		).toBeVisible({ timeout: T });
 		await expect(w.page.locator(".conversation-tab")).toHaveCount(1);
 		await expect(w.page.getByText("Scripted hello back.")).toHaveCount(0);
+		// A tab can be picked once its conversation is known, which is when it carries its title.
+		await expect(w.page.locator(".conversation-tab").first()).toContainText(
+			"hello there",
+			{ timeout: T },
+		);
 		await w.page.locator(".conversation-tab").first().click();
 		await expect(w.page.getByText("Scripted hello back.")).toBeVisible({
 			timeout: T,

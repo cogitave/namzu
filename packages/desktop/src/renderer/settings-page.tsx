@@ -4,6 +4,7 @@ import type { ProjectView } from '../shared/protocol.js'
 import {
 	type DataFolderKind,
 	type DesktopInfo,
+	type DesktopSettings,
 	SETTINGS_SECTIONS,
 	type SettingsSection,
 	type StartupBehavior,
@@ -287,26 +288,104 @@ function GeneralSection({ settings }: SettingsPageProps) {
 	const group = useId()
 	const value = settings.settings?.startup
 	return (
-		<Row id="startup" label="When Namzu starts" stacked>
-			<fieldset className="settings-choices" disabled={!settings.settings}>
-				<legend className="sr-only">When Namzu starts</legend>
-				{STARTUP_CHOICES.map((choice) => (
-					<label key={choice.value} className="settings-choice">
-						<input
-							type="radio"
-							name={group}
-							value={choice.value}
-							checked={value === choice.value}
-							onChange={() => void settings.change({ startup: choice.value })}
-						/>
-						<span>
-							<span className="settings-choice-label">{choice.label}</span>
-							<span className="settings-choice-hint">{choice.hint}</span>
-						</span>
-					</label>
-				))}
-			</fieldset>
-		</Row>
+		<>
+			<Row id="startup" label="When Namzu starts" stacked>
+				<fieldset className="settings-choices" disabled={!settings.settings}>
+					<legend className="sr-only">When Namzu starts</legend>
+					{STARTUP_CHOICES.map((choice) => (
+						<label key={choice.value} className="settings-choice">
+							<input
+								type="radio"
+								name={group}
+								value={choice.value}
+								checked={value === choice.value}
+								onChange={() => void settings.change({ startup: choice.value })}
+							/>
+							<span>
+								<span className="settings-choice-label">{choice.label}</span>
+								<span className="settings-choice-hint">{choice.hint}</span>
+							</span>
+						</label>
+					))}
+				</fieldset>
+			</Row>
+			<TerminalSettings settings={settings} />
+		</>
+	)
+}
+
+/** The shell a plain terminal tab opens, and whether terminal tabs come back after a restart. */
+function TerminalSettings({ settings }: { settings: DesktopSettingsControls }) {
+	const group = useId()
+	const [shells, setShells] = useState<{ value: string; label: string }[]>()
+	const bridge = typeof window === 'undefined' ? undefined : window.namzu
+	useEffect(() => {
+		let live = true
+		void bridge?.terminalShells?.().then(
+			(list) => live && setShells(list),
+			() => undefined,
+		)
+		return () => {
+			live = false
+		}
+	}, [bridge])
+	if (!bridge?.terminalShells) return null
+	const current = settings.settings?.terminalShell
+	const choices = shells ?? []
+	return (
+		<>
+			<Row
+				id="terminal-shell"
+				label="Default terminal shell"
+				description={
+					choices.length > 1
+						? 'Automatic uses PowerShell 7 when it is installed and otherwise Command Prompt, which is set to UTF-8. Windows PowerShell can drop some typed Turkish capitals.'
+						: 'A new terminal tab opens your login shell.'
+				}
+				stacked
+			>
+				{choices.length > 1 ? (
+					<fieldset className="settings-choices" disabled={!settings.settings}>
+						<legend className="sr-only">Default terminal shell</legend>
+						{choices.map((choice) => (
+							<label key={choice.value} className="settings-choice">
+								<input
+									type="radio"
+									name={group}
+									value={choice.value}
+									checked={current === choice.value}
+									onChange={() =>
+										void settings.change({
+											terminalShell: choice.value as DesktopSettings['terminalShell'],
+										})
+									}
+								/>
+								<span>
+									<span className="settings-choice-label">{choice.label}</span>
+									{choice.value === 'powershell' ? (
+										<span className="settings-choice-hint">
+											Can drop some typed Turkish capitals.
+										</span>
+									) : null}
+								</span>
+							</label>
+						))}
+					</fieldset>
+				) : null}
+			</Row>
+			<Row
+				id="terminal-restore"
+				label="Bring terminal tabs back"
+				description="After a restart, terminal tabs return as ended sessions with their last screen. Their programs do not keep running while Namzu is closed."
+			>
+				<Switch
+					label="Bring terminal tabs back"
+					checked={settings.settings?.restoreTerminals ?? true}
+					disabled={!settings.settings}
+					onChange={(value) => void settings.change({ restoreTerminals: value })}
+				/>
+			</Row>
+		</>
 	)
 }
 

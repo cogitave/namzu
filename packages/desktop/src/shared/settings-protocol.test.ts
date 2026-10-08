@@ -20,6 +20,8 @@ it('accepts only known keys with valid values in a change', () => {
 		{ startup: 'HOME' },
 		{ startup: true },
 		{ autoDownloadUpdates: 'true' },
+		{ terminalShell: 'zsh' },
+		{ restoreTerminals: 'yes' },
 		{ unknown: 1 },
 		{ __proto__: { startup: 'home' }, constructor: 1 },
 	])
@@ -37,7 +39,13 @@ it('reads a stored file entry by entry and ignores what it does not know', () =>
 			autoDownloadUpdates: false,
 			future: 'x',
 		}),
-	).toEqual({ startup: 'home', retrustOnConfigChange: true, autoDownloadUpdates: false })
+	).toEqual({
+		startup: 'home',
+		retrustOnConfigChange: true,
+		autoDownloadUpdates: false,
+		terminalShell: 'auto',
+		restoreTerminals: true,
+	})
 })
 
 it('documents the defaults the spec names', () => {
@@ -45,6 +53,8 @@ it('documents the defaults the spec names', () => {
 		startup: 'continue',
 		retrustOnConfigChange: true,
 		autoDownloadUpdates: true,
+		terminalShell: 'auto',
+		restoreTerminals: true,
 	})
 })
 

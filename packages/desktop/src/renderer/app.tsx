@@ -39,6 +39,7 @@ import type {
 	ProviderView,
 } from '../shared/protocol.js'
 import type { DataFolderKind, SettingsSection } from '../shared/settings-protocol.js'
+import { PROMPT_NOT_PASSED, TERMINAL_ENGINE_LABELS } from '../shared/terminal-tabs.js'
 import type { UpdateState } from '../shared/update-protocol.js'
 import {
 	ADD_PROJECT_LABEL,
@@ -111,6 +112,7 @@ import { PanelResizeHandle, PanelTabStrip, type PanelView } from './file-panel/p
 import { ProjectFilesContext } from './file-panel/project-files.js'
 import { createLinkCache } from './file-panel/project-refs.js'
 import { FolderAccessDialog } from './folder-access-dialog.js'
+import type { EngineSurface, EngineSurfaceControl } from './harness-picker.js'
 import {
 	ArrowUpIcon,
 	FolderIcon,
@@ -120,6 +122,7 @@ import {
 	SettingsIcon,
 	SquareIcon,
 	SquarePenIcon,
+	TerminalIcon,
 	XIcon,
 } from './icons.js'
 import { JobRow } from './job-row.js'
@@ -161,6 +164,9 @@ import { projectRemovalCopy, removalNotice, settingsRoute } from './settings-mod
 import { SettingsPage, SettingsSidebar } from './settings-page.js'
 import { type ConversationCollection, Sidebar } from './sidebar.js'
 import { launchSeed, restoreDecision, settleLaunchSeed } from './startup-restore.js'
+import { TerminalPane } from './terminal-pane.js'
+import { terminalApi, terminalSessions } from './terminal-registry.js'
+import { engineTerminalRequest, shellTerminalRequest } from './terminal-request.js'
 import type { ThreadRowActions } from './thread-card.js'
 import { PaneToasts } from './toast.js'
 import { Transcript } from './transcript.js'
@@ -214,6 +220,7 @@ function Icon({ name }: { name: 'folder' | 'plus' | 'menu' | 'arrow' | 'stop' | 
 const NO_UPDATER: UpdateState = { status: 'disabled' }
 export function App({
 	group,
+	terminals: terminalGroup,
 	windowId,
 	focused,
 	shell,
@@ -745,6 +752,23 @@ export function App({
 	const project = projects.find((item) => item.id === projectId)
 	// A folder that failed to open gets its own stage, which already carries the error text.
 	const stage = project ? projectStage(project) : undefined
+	// Terminal tabs share this pane's strip. The conversation side never sees them.
+	const terminalById = new Map((terminalGroup?.tabs ?? []).map((tab) => [tab.id, tab]))
+	const stripTerminals = (terminalGroup?.order ?? []).flatMap((id) => {
+		const tab = terminalById.get(id)
+		return tab ? [tab] : []
+	})
+	const activeTerminal =
+		!startAtHome && terminalGroup?.activeId ? terminalById.get(terminalGroup.activeId) : undefined
+	const terminalBridge = terminalApi(window.namzu)
+	const terminalReady = Boolean(
+		terminalBridge &&
+			window.namzu.openTerminal &&
+			project?.trusted &&
+			project.status === 'ready' &&
+			!project.palId,
+	)
+	const terminalSessionsHere = terminalBridge ? terminalSessions(terminalBridge) : undefined
 	const activeTabProject = projects.find(
 		(item) =>
 			item.id ===
@@ -1127,6 +1151,83 @@ export function App({
 		if (capabilities) warmSession.modelSettings.set(modelSettingsKey, capabilities)
 	}
 	const pluginsKey = modelSettingsKey
+	// "Desktop | CLI": the CLI side opens the chosen engine's own command line in a terminal tab.
+	const [surfacePref, setSurfacePref] = useState<EngineSurface>(() => {
+		try {
+			return localStorage.getItem('namzu.surface') === 'cli' ? 'cli' : 'desktop'
+		} catch {
+			return 'desktop'
+		}
+	})
+	const surfaceEngine = permissionEngine ?? harnessView?.selected ?? 'namzu'
+	const surfaceReason = !terminalReady
+		? 'Open a trusted project to use the engine’s command line.'
+		: thread.messages.length > 0 || thread.running
+			? 'Start a new conversation to open this engine’s command line.'
+			: undefined
+	const cliSurface = surfacePref === 'cli' && !surfaceReason && !pal
+	const surfaceControl: EngineSurfaceControl | undefined =
+		terminalReady && !pal
+			? {
+					value: cliSurface ? 'cli' : 'desktop',
+					onChange: (value) => {
+						setSurfacePref(value)
+						try {
+							localStorage.setItem('namzu.surface', value)
+						} catch {
+							/* The choice lasts for this window. */
+						}
+					},
+					disabled: Boolean(surfaceReason),
+					reason: surfaceReason,
+				}
+			: undefined
+	const openShellTerminal = async () => {
+		if (context.current.frozen || !project || !terminalReady || !window.namzu.openTerminal) return
+		await window.namzu.openTerminal(shellTerminalRequest(project.id, group.id))
+	}
+	const openShellRef = useRef(openShellTerminal)
+	openShellRef.current = openShellTerminal
+	const openEngineTerminal = async () => {
+		if (context.current.frozen || !project || !terminalReady || !window.namzu.openTerminal) return
+		const engine = surfaceEngine
+		const request = engineTerminalRequest({
+			engine,
+			projectId: project.id,
+			groupId: group.id,
+			provider: choice.provider,
+			model: choice.model || undefined,
+			modelIsDefault: choice.preset === 'default',
+			effort: effortToSend(capabilities, settings.effort),
+			permissionMode: settings.permissionMode,
+			draft,
+		})
+		const result = await window.namzu.openTerminal(request)
+		if (request.kind === 'engine' && request.prompt && !result.omitted.includes(PROMPT_NOT_PASSED))
+			changeDraft(draftOwner, '')
+		if (result.omitted.length > 0)
+			notify(`${TERMINAL_ENGINE_LABELS[engine]} started without ${result.omitted.join(' and ')}.`, {
+				tone: 'warning',
+			})
+	}
+	// A quiet notice when an engine's terminal ends badly; one that ended before this window knew of it stays quiet.
+	const terminalStatuses = useRef(new Map<string, string>())
+	useEffect(() => {
+		const known = terminalStatuses.current
+		for (const tab of terminalGroup?.tabs ?? []) {
+			const previous = known.get(tab.id)
+			known.set(tab.id, tab.status)
+			if (
+				previous === 'running' &&
+				tab.status === 'exited' &&
+				tab.kind === 'engine' &&
+				tab.exitCode !== undefined &&
+				tab.exitCode !== 0 &&
+				terminalGroup?.order.includes(tab.id)
+			)
+				notify(`${tab.title} exited with code ${tab.exitCode}.`, { tone: 'warning' })
+		}
+	}, [terminalGroup?.tabs, terminalGroup?.order])
 	const pluginOwner = useRef({ key: pluginsKey, generation: 0 })
 	if (pluginOwner.current.key !== pluginsKey) {
 		pluginOwner.current.key = pluginsKey
@@ -1485,7 +1586,7 @@ export function App({
 				}
 				return
 			}
-			if (event.kind === 'settings') return
+			if (event.kind === 'settings' || event.kind === 'terminals') return
 			if (event.kind === 'open-settings') {
 				if (context.current.focused && !context.current.frozen)
 					openSettingsRef.current(event.section)
@@ -2057,6 +2158,35 @@ export function App({
 		},
 		[api],
 	)
+	// The composer is usable while a project's conversation is still being made, and what a person
+	// types in that gap lives under the pane's own key. The landing hands it on once the new
+	// conversation is the pane's owner: text typed up to the render that shows it is still carried.
+	const pendingCarry = useRef<{ projectKey: string; target: string } | undefined>(undefined)
+	const carryPendingDraftRef = useRef((_projectKey: string, _target: string) => {})
+	carryPendingDraftRef.current = (projectKey, target) => {
+		const owner = `project:${projectKey}:workspace:${windowId}:${group.id}`
+		const text = draftsRef.current[owner] ?? ''
+		const files = attached.get(owner).length > 0
+		if (!target || owner === target || (!text && !files)) return
+		if (text && !(draftsRef.current[target] ?? '')) {
+			draftsRef.current[target] = text
+			setDrafts((all) => ({ ...all, [target]: text }))
+			void api.saveDraft(target, text).catch((failure) => setError(errorText(failure)))
+		}
+		draftsRef.current[owner] = ''
+		setDrafts((all) => ({ ...all, [owner]: '' }))
+		void api.saveDraft(owner, '').catch((failure) => setError(errorText(failure)))
+		if (files) void attached.promote(owner, target)
+	}
+	const carryPendingDraft = useCallback((projectKey: string, target: string) => {
+		pendingCarry.current = { projectKey, target }
+	}, [])
+	useEffect(() => {
+		const carry = pendingCarry.current
+		if (!carry || carry.target !== draftOwner) return
+		pendingCarry.current = undefined
+		carryPendingDraftRef.current(carry.projectKey, carry.target)
+	})
 	const composerFocusFor = useRef(-1)
 	useEffect(() => {
 		const field = input.current
@@ -2092,6 +2222,7 @@ export function App({
 			if (generation !== navigation.current) return
 			const target = await createProjectDraft(item)
 			if (generation !== navigation.current) return
+			carryPendingDraft(item.id, target)
 			setProjectId(item.id)
 			setSessionId(target)
 			setConversationSelection(null)
@@ -2106,7 +2237,7 @@ export function App({
 			composerFocusFor.current = generation
 			if (context.current.focused && !context.current.frozen) input.current?.focus()
 		},
-		[updateProject, createProjectDraft],
+		[updateProject, createProjectDraft, carryPendingDraft],
 	)
 	const openProject = useCallback(async () => {
 		abandonTabRestore()
@@ -2159,6 +2290,7 @@ export function App({
 			if (generation !== navigation.current) return
 			const target = await createProjectDraft(item)
 			if (generation !== navigation.current) return
+			carryPendingDraft(item.id, target)
 			setProjectId(item.id)
 			setSessionId(target)
 			setConversationSelection(null)
@@ -2181,6 +2313,7 @@ export function App({
 		try {
 			const target = await createProjectDraft(item)
 			if (generation !== navigation.current) return
+			carryPendingDraft(id, target)
 			setProjectId(id)
 			setSessionId(target)
 			setConversationSelection(null)
@@ -3733,6 +3866,10 @@ export function App({
 	)
 	const send = async (delivery: 'current' | 'queue' = 'current') => {
 		if (context.current.frozen) return
+		if (cliSurface) {
+			await openEngineTerminal()
+			return
+		}
 		if (thread.retry || thread.retryNotice || thread.reason === 'paused')
 			throw new Error(
 				thread.retryNotice ??
@@ -3879,6 +4016,16 @@ export function App({
 			if (commandOpen || creatingPal || editingPal) return
 			if (
 				(event.metaKey || event.ctrlKey) &&
+				event.shiftKey &&
+				!event.altKey &&
+				(event.code === 'Backquote' || event.key === '`' || event.key === '~')
+			) {
+				event.preventDefault()
+				void act(() => openShellRef.current())
+				return
+			}
+			if (
+				(event.metaKey || event.ctrlKey) &&
 				!event.altKey &&
 				!event.shiftKey &&
 				event.key === ','
@@ -3985,6 +4132,16 @@ export function App({
 			shortcut: [shortcutModifier, 'N'],
 			disabled: loading,
 			onAction: () => void act(newConversation),
+		},
+		{
+			id: 'new-terminal',
+			label: 'New terminal',
+			group: 'Quick actions',
+			icon: <TerminalIcon aria-hidden="true" />,
+			shortcut: [shortcutModifier, 'Shift', '`'],
+			keywords: ['shell', 'command line', 'console', 'cli'],
+			disabled: loading || !terminalReady,
+			onAction: () => void act(openShellTerminal),
 		},
 		{
 			id: 'open-settings',
@@ -4111,7 +4268,40 @@ export function App({
 			backgroundWork={backgroundWork}
 			running={(id) => threads[id]?.running ?? false}
 			onNew={() => void act(newConversation)}
-			onSelect={(view) => void act(() => openConversation(view))}
+			onSelect={(view) =>
+				// A tab whose conversation the catalogue has not delivered yet names no project to open it in.
+				!view.projectId
+					? undefined
+					: activeTerminal
+						? // The conversation behind the terminal is already open; fronting its tab is a layout change.
+							void onAction({ kind: 'activate', groupId: group.id, tabId: view.id }).catch(
+								(failure) => setError(errorText(failure)),
+							)
+						: void act(() => openConversation(view))
+			}
+			terminals={
+				terminalGroup
+					? {
+							tabs: stripTerminals,
+							order: terminalGroup.order,
+							activeId: activeTerminal?.id,
+							onSelect: (tab) =>
+								void onAction({ kind: 'activate', groupId: group.id, tabId: tab.id }).catch(
+									(failure) => setError(errorText(failure)),
+								),
+							onClose: (tab) =>
+								void onAction({ kind: 'close', groupId: group.id, tabId: tab.id }).catch(
+									(failure) => setError(errorText(failure)),
+								),
+							onDetach: (tab, bounds) => onDetach(group.id, tab.id, bounds),
+							onSplit:
+								terminalGroup.order.length > 1
+									? (tab, position) => onSplit(group.id, tab.id, position)
+									: undefined,
+							onNew: terminalReady ? () => void act(openShellTerminal) : undefined,
+						}
+					: undefined
+			}
 			windowId={windowId}
 			groupId={group.id}
 			onDetach={(view, bounds) => onDetach(group.id, view.id, bounds)}
@@ -4426,6 +4616,21 @@ export function App({
 							onConversation={(view, collection) =>
 								void act(() => openConversation(view, collection))
 							}
+							terminals={terminalGroup?.tabs}
+							activeTerminalId={activeTerminal?.id}
+							onTerminal={(tab) =>
+								void onAction({ kind: 'open', tabId: tab.id }).catch((failure) =>
+									setError(errorText(failure)),
+								)
+							}
+							onCloseTerminal={
+								api.closeTerminal
+									? (tab) =>
+											void api
+												.closeTerminal?.(tab.id)
+												.catch((failure) => setError(errorText(failure)))
+									: undefined
+							}
 						/>
 						{railSection === 'settings' && (
 							<>
@@ -4540,7 +4745,7 @@ export function App({
 					className="topbar workspace-conversation-header"
 					aria-label="Conversation workspace"
 				>
-					{normalTabs.length > 0 ? (
+					{normalTabs.length > 0 || stripTerminals.length > 0 ? (
 						groupTabs
 					) : (
 						<WorkspaceBreadcrumb ariaLabel="Conversation breadcrumb" className="breadcrumb flex-1">
@@ -4561,7 +4766,7 @@ export function App({
 							</WorkspaceBreadcrumbItem>
 						</WorkspaceBreadcrumb>
 					)}
-					{!palConversation && sessionId && conversation && (
+					{!palConversation && sessionId && conversation && !activeTerminal && (
 						<div className="conversation-header-actions">
 							<ConversationActionsMenu
 								input={conversationActionInput(conversation)}
@@ -4797,7 +5002,19 @@ export function App({
 						/>
 					</div>
 				)}
-				{restoreHold ? (
+				{activeTerminal && terminalSessionsHere && !pageOpen && !palsPage ? (
+					<TerminalPane
+						key={activeTerminal.id}
+						tab={activeTerminal}
+						session={terminalSessionsHere.get(activeTerminal.id)}
+						focused={focused && !frozen}
+						onClose={() =>
+							void onAction({ kind: 'close', groupId: group.id, tabId: activeTerminal.id }).catch(
+								(failure) => setError(errorText(failure)),
+							)
+						}
+					/>
+				) : restoreHold ? (
 					<RestoreSkeleton />
 				) : !project && !projectsLoaded ? (
 					// The list has not been read yet: not knowing is not the same as having none.
@@ -5053,6 +5270,7 @@ export function App({
 							)}
 							<Composer
 								variant={pal ? 'pal' : 'default'}
+								surface={surfaceControl}
 								pluginsSupported={!pal}
 								toolsAvailable={palCanWork}
 								draftDisabled={

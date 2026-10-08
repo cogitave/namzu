@@ -218,3 +218,21 @@
 		transition: none;
 	}
 }
+
+/* A terminal row sits with the conversations: the same row, led by the engine's mark or a prompt. */
+.sidebar-terminal-mark {
+	display: grid;
+	place-items: center;
+	flex: none;
+	width: 14px;
+	height: 14px;
+	margin-right: 6px;
+	color: var(--sidebar-icon-color);
+}
+.sidebar-terminal-mark svg {
+	width: 14px;
+	height: 14px;
+}
+.sidebar-terminal-item[data-ended] .conversation-row-title {
+	opacity: 0.65;
+}

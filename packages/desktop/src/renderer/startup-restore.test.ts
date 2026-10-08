@@ -41,7 +41,13 @@ describe('launch seed', () => {
 	afterEach(() => adoptBoot(undefined))
 	const boot = (launch: boolean): DesktopBoot => ({
 		launch,
-		settings: { startup: 'continue', retrustOnConfigChange: true, autoDownloadUpdates: true },
+		settings: {
+			startup: 'continue',
+			retrustOnConfigChange: true,
+			autoDownloadUpdates: true,
+			terminalShell: 'auto',
+			restoreTerminals: true,
+		},
 		workspace: {} as DesktopBoot['workspace'],
 		projects: [],
 		conversations: [],

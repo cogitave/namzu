@@ -94,3 +94,15 @@ it('records every connected trusted project again when asked', async () => {
 	await owner.rebaselineTrusted()
 	expect(recorded).toEqual([path])
 })
+
+it('looks again before a terminal: a change after connect refuses it and untrusts the folder', async () => {
+	let changes: string[] = []
+	const { owner, path } = await setup({ check: async () => changes, record: async () => {} })
+	const project = await owner.openProject(path)
+	await expect(owner.terminalHost(project.id)).resolves.toMatchObject({ project: { path } })
+	changes = ['hooks changed']
+	await expect(owner.terminalHost(project.id)).rejects.toThrow(/automatic settings changed/)
+	expect(owner.listProjects().find((item) => item.id === project.id)).toMatchObject({
+		trusted: false,
+	})
+})

@@ -25,6 +25,7 @@ import {
 	ComposerSettings,
 } from './composer-settings.js'
 import { ComposerSurface } from './composer-surface.js'
+import { type EngineSurfaceControl, engineLabel } from './harness-picker.js'
 import {
 	ArrowUpIcon,
 	ChevronDownIcon,
@@ -37,6 +38,7 @@ import {
 	PlusIcon,
 	SearchIcon,
 	SquareIcon,
+	TerminalIcon,
 } from './icons.js'
 import { type ModelChoice, ModelPicker } from './model-picker.js'
 import { usePresence } from './presence.js'
@@ -112,8 +114,11 @@ export function Composer({
 	onOpenPlugins,
 	onSetPluginEnabled,
 	speechControl,
+	surface,
 }: {
 	speechControl?: ReactNode
+	/** "Desktop | CLI": CLI sends open the engine's own command line in a terminal tab. */
+	surface?: EngineSurfaceControl
 	inputRef: RefObject<HTMLTextAreaElement | null>
 	variant?: 'default' | 'pal'
 	draft: string
@@ -213,6 +218,8 @@ export function Composer({
 	const attachmentsStranded = attachments.length > 0 && !attachmentsSupported
 	const hasDraft = draft.length > 0 || attachments.length > 0
 	const [pasteNotice, setPasteNotice] = useState<string>()
+	const cliMode = !compact && surface?.value === 'cli'
+	const cliLabel = engineLabel(harnessView, permissionEngine ?? harnessView?.selected ?? 'namzu')
 	const modelControl = (
 		<ModelPicker
 			projectId={projectId}
@@ -241,6 +248,7 @@ export function Composer({
 							busy: harnessBusy,
 							disabled: !connected || running || sending,
 							onSelect: onHarnessChange ?? (() => {}),
+							surface,
 						}
 			}
 		/>
@@ -610,7 +618,13 @@ export function Composer({
 										value={draft}
 										maxLength={50000}
 										disabled={editingQueued || draftDisabled}
-										placeholder={compact ? 'Send a message' : 'Ask Namzu anything'}
+										placeholder={
+											compact
+												? 'Send a message'
+												: cliMode
+													? `Optional first message for ${cliLabel} in a terminal`
+													: 'Ask Namzu anything'
+										}
 										onChange={(event) => {
 											setPasteNotice(undefined)
 											onDraftChange(event.target.value)
@@ -709,22 +723,26 @@ export function Composer({
 															type="button"
 															className="relative isolate flex h-9 w-9 items-center justify-center overflow-hidden rounded-full shadow-xs transition-all duration-150 enabled:cursor-pointer enabled:inset-shadow-2xs enabled:inset-shadow-white/16 hover:scale-105 active:inset-shadow-black/8 active:shadow-none disabled:pointer-events-none disabled:opacity-64 disabled:shadow-none disabled:hover:scale-100 sm:h-8 sm:w-8 bg-message-action text-message-action-foreground enabled:shadow-message-action/24 hover:bg-message-action-hover"
 															aria-label={
-																sending
-																	? 'Sending'
-																	: running && liveInputSupported && attachments.length === 0
-																		? 'Send to current turn'
-																		: running
-																			? 'Queue message'
-																			: 'Send message'
+																cliMode
+																	? `Open ${cliLabel} in a terminal`
+																	: sending
+																		? 'Sending'
+																		: running && liveInputSupported && attachments.length === 0
+																			? 'Send to current turn'
+																			: running
+																				? 'Queue message'
+																				: 'Send message'
 															}
 															aria-busy={sending}
 															disabled={
-																(!draft.trim() && attachments.length === 0) ||
-																!choice.provider ||
-																sending ||
-																attachmentsBusy ||
-																attachmentsStranded ||
-																!connected
+																cliMode
+																	? !choice.provider || sending || !connected
+																	: (!draft.trim() && attachments.length === 0) ||
+																		!choice.provider ||
+																		sending ||
+																		attachmentsBusy ||
+																		attachmentsStranded ||
+																		!connected
 															}
 															onClick={(event) => {
 																// Sending disables the button, which would drop focus to the page.
@@ -740,18 +758,22 @@ export function Composer({
 															className="composer-send-spinner size-3.5"
 															aria-hidden="true"
 														/>
+													) : cliMode ? (
+														<TerminalIcon className="size-3.5" />
 													) : (
 														<ArrowUpIcon className="size-3.5" strokeWidth={1.8} />
 													)}
 												</TooltipTrigger>
 												<TooltipPopup>
-													{sending
-														? 'Sending'
-														: running
-															? liveInputSupported && attachments.length === 0
-																? 'Send text to this running turn with its current model and review settings'
-																: 'Queue for the next turn'
-															: 'Send message · Enter'}
+													{cliMode
+														? `Open ${cliLabel} in a terminal · Enter`
+														: sending
+															? 'Sending'
+															: running
+																? liveInputSupported && attachments.length === 0
+																	? 'Send text to this running turn with its current model and review settings'
+																	: 'Queue for the next turn'
+																: 'Send message · Enter'}
 												</TooltipPopup>
 											</Tooltip>
 										)}

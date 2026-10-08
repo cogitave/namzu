@@ -35,6 +35,12 @@ import type {
 	WorkspaceAction,
 } from '../shared/protocol.js'
 import type { DataFolderKind, DesktopInfo } from '../shared/settings-protocol.js'
+import { SHELL_CHOICE_LABELS, availableShells, isTerminalTabId } from '../shared/terminal-tabs.js'
+import {
+	type TerminalEvent,
+	readTerminalAttachOptions,
+	readTerminalOpenRequest,
+} from '../shared/terminal-view.js'
 import {
 	type WorkspaceWindowBounds,
 	locateWorkspaceTab,
@@ -58,10 +64,14 @@ import { Operator } from './operator.js'
 import { PalStreamProxy } from './pal-stream-proxy.js'
 import { projectDraftOwner } from './project-draft-owner.js'
 import { selectRendererPage } from './renderer-page.js'
-import { desktopRuntimeNodeArgs } from './runtime-node-args.js'
+import { desktopRuntimeNodeArgs, desktopRuntimeNodeFlags } from './runtime-node-args.js'
 import { readRuntimeVersions } from './runtime-versions.js'
 import { SettingsConfirmation } from './settings-confirmation.js'
 import { installStreamRendererPolicy, withStreamRendererPort } from './stream-renderer-policy.js'
+import { TerminalHostClient } from './terminal-client.js'
+import { engineHost, shellEnvironment } from './terminal-env.js'
+import { TerminalHub } from './terminal-hub.js'
+import { TerminalTabStore } from './terminal-tab-store.js'
 import { TrustedFolderStore, createFolderTrustGuard } from './trusted-folders.js'
 import {
 	type AutoUpdaterLike,
@@ -277,6 +287,17 @@ const operator = new Operator(
 				})
 			}
 		}
+		// A folder that is no longer trusted keeps no running terminal.
+		const untrusted =
+			event.kind === 'connection' && !event.project.trusted ? event.project.id : undefined
+		if (event.kind === 'project-removed' || untrusted !== undefined)
+			void terminals
+				.closeProject(untrusted ?? (event as { projectId: string }).projectId)
+				.then((tabs) => {
+					if (tabs.length > 0) workspace.retireTabs(tabs)
+					discardAbortedWindows()
+				})
+				.catch((error) => diagnostics.record('ipc_failed', { operation: 'closeTerminals', error }))
 		windows.fanout(event, (error) => diagnostics.record('renderer_failed', { error }))
 	},
 	app.getPath('userData'),
@@ -328,6 +349,7 @@ const settingsStore = new DesktopSettingsStore({
 		windows.fanout({ kind: 'settings', settings }, (error) =>
 			diagnostics.record('renderer_failed', { error }),
 		)
+		if (settings.restoreTerminals !== previous.restoreTerminals) terminals.settingsChanged()
 		if (settings.autoDownloadUpdates !== previous.autoDownloadUpdates) updates.autoDownloadChanged()
 		if (settings.retrustOnConfigChange && !previous.retrustOnConfigChange)
 			void operator
@@ -345,6 +367,52 @@ function namzuHome(): string {
 	const configured = process.env.NAMZU_HOME
 	return configured ? resolve(configured) : join(app.getPath('home'), '.namzu')
 }
+const terminalStore = new TerminalTabStore(
+	join(app.getPath('userData'), 'terminal-tabs.json'),
+	(error, operation) =>
+		diagnostics.record('ipc_failed', { operation: `terminalTabs.${operation}`, error }),
+)
+const sendTerminalEvent = (windowId: string, event: TerminalEvent): void => {
+	const target = windows.entries().find(([id]) => id === windowId)?.[1]
+	try {
+		if (target && !target.isDestroyed() && !target.webContents.isDestroyed())
+			target.webContents.send('namzu:terminal-event', event)
+	} catch (error) {
+		diagnostics.record('renderer_failed', { error })
+	}
+}
+const terminals = new TerminalHub({
+	projectHost: (projectId) => operator.terminalHost(projectId),
+	createClient: (connection) => new TerminalHostClient(connection),
+	settings: () => settingsStore.get(),
+	shellEnvironment: () => shellEnvironment(),
+	engineHost: () =>
+		engineHost({
+			execPath: process.execPath,
+			...(cliEntry ? { cliEntry } : {}),
+			nodeArgs: desktopRuntimeNodeFlags(),
+		}),
+	publish: (tabs) =>
+		windows.fanout({ kind: 'terminals', terminals: tabs }, (error) =>
+			diagnostics.record('renderer_failed', { error }),
+		),
+	send: sendTerminalEvent,
+	save: (tabs) => terminalStore.save(tabs),
+	clock: {
+		now: () => Date.now(),
+		every: (ms, run) => {
+			const timer = setInterval(run, ms)
+			timer.unref()
+			return () => clearInterval(timer)
+		},
+		after: (ms, run) => {
+			const timer = setTimeout(run, ms)
+			timer.unref()
+			return () => clearTimeout(timer)
+		},
+	},
+	onError: (error, operation) => diagnostics.record('ipc_failed', { operation, error }),
+})
 const dataFolders = (): Record<DataFolderKind, string> => ({
 	app: app.getPath('userData'),
 	namzu: namzuHome(),
@@ -415,6 +483,7 @@ function register(): void {
 		['models', 2],
 		['modelSettings', 3],
 		['plugins', 1],
+		['attachTerminal', 0],
 	])
 	const writeOwners = new Map<string, number>([
 		['updatePalPermission', 0],
@@ -441,6 +510,8 @@ function register(): void {
 		['renameConversation', 0],
 		['setConversationPinned', 0],
 		['forkConversation', 0],
+		['writeTerminal', 0],
+		['resizeTerminal', 0],
 	])
 	const catalogueActions = new Set([
 		'renameConversation',
@@ -589,6 +660,11 @@ function register(): void {
 				}
 		}
 		const view = workspace.action(id, action, size)
+		// A terminal lives as long as its tab: closing the tab ends the process tree.
+		if (action.kind === 'close' && isTerminalTabId(action.tabId))
+			void terminals
+				.close(action.tabId)
+				.catch((error) => diagnostics.record('ipc_failed', { operation: 'closeTerminal', error }))
 		if (view.outgoingTransfer) watchTransfer(view.outgoingTransfer.id)
 		if (view.pendingTransfer) watchTransfer(view.pendingTransfer.id)
 		discardAbortedWindows()
@@ -615,6 +691,51 @@ function register(): void {
 			diagnostics.record('ipc_failed', { operation: 'boot', error })
 			event.returnValue = null
 		}
+	})
+	handle('terminals', () => terminals.list())
+	handle('terminalAvailability', (projectId: string) => terminals.availability(projectId))
+	handle('terminalShells', () =>
+		availableShells(shellEnvironment()).map((value) => ({
+			value,
+			label: SHELL_CHOICE_LABELS[value],
+		})),
+	)
+	handleWindow('openTerminal', async ({ id: windowId }, value: unknown) => {
+		const request = readTerminalOpenRequest(value)
+		workspace.assertWindowWritable(windowId)
+		workspace.assertProjectDraft(windowId, request.groupId)
+		const result = await terminals.open(request)
+		try {
+			workspace.open(windowId, result.terminal.id, request.groupId)
+		} catch (error) {
+			await terminals.close(result.terminal.id)
+			throw error
+		}
+		return result
+	})
+	handleWindow(
+		'attachTerminal',
+		({ id: windowId }, tabId: string, viewerId: string, options?: unknown) =>
+			terminals.attach(tabId, viewerId, windowId, readTerminalAttachOptions(options)),
+	)
+	handleWindow('detachTerminal', ({ id: windowId }, tabId: string, viewerId: string) =>
+		terminals.detach(tabId, viewerId, windowId),
+	)
+	handleWindow('writeTerminal', ({ id: windowId }, tabId: string, viewerId: string, data: string) =>
+		terminals.write(tabId, viewerId, windowId, data),
+	)
+	handleWindow(
+		'resizeTerminal',
+		({ id: windowId }, tabId: string, viewerId: string, cols: number, rows: number) =>
+			terminals.resize(tabId, viewerId, windowId, cols, rows),
+	)
+	handleWindow('closeTerminal', async ({ id: windowId }, tabId: string) => {
+		if (!isTerminalTabId(tabId)) throw new Error('Invalid terminal tab.')
+		workspace.assertWindowWritable(windowId)
+		const placed = locateWorkspaceTab(workspace.snapshot(), tabId)
+		if (placed) workspace.assertOwner(windowId, tabId)
+		await terminals.close(tabId)
+		if (placed) workspace.retireTabs([tabId])
 	})
 	handle('settings', () => settingsStore.get())
 	const settingsConfirmation = new SettingsConfirmation({
@@ -1059,6 +1180,7 @@ async function createWindow(
 			exitCode: details.exitCode,
 		})
 		abortTransfers()
+		terminals.releaseWindow(windowId)
 	})
 	window.webContents.on('did-fail-load', (_event, errorCode, _description, _url, isMainFrame) => {
 		if (isMainFrame) {
@@ -1076,7 +1198,11 @@ async function createWindow(
 	window.webContents.on('did-start-loading', () => window.webContents.setIgnoreMenuShortcuts(false))
 	window.webContents.on('did-start-navigation', (details) => {
 		// A new document cannot acknowledge the old document's queued audio.
-		if (details.isMainFrame && !details.isSameDocument) localSpeechRouting.cancelWindow(windowId)
+		if (details.isMainFrame && !details.isSameDocument) {
+			localSpeechRouting.cancelWindow(windowId)
+			// The old document's views are gone; the new one attaches afresh and may take the keyboard.
+			terminals.releaseWindow(windowId)
+		}
 	})
 	window.once('ready-to-show', () => window.show())
 	const saveBounds = () => {
@@ -1110,6 +1236,7 @@ async function createWindow(
 	})
 	window.on('closed', () => {
 		localSpeechRouting.cancelWindow(windowId)
+		terminals.releaseWindow(windowId)
 		windows.remove(windowId)
 		const timer = closeTimers.get(windowId)
 		if (timer) clearTimeout(timer)
@@ -1186,7 +1313,11 @@ function shutdown(): Promise<void> {
 	if (stopped) return Promise.resolve()
 	if (shutdownRun) return shutdownRun
 	quitting = true
-	shutdownRun = Promise.all([operator.close(), localSpeech.dispose()])
+	// The terminals' last screens are read from their hosts, so they go before the hosts do.
+	shutdownRun = terminals
+		.shutdown()
+		.catch((error: unknown) => diagnostics.record('shutdown_failed', { error }))
+		.then(() => Promise.all([operator.close(), localSpeech.dispose()]))
 		.then(async () => {
 			await streamProxy.shutdown()
 			stopped = true
@@ -1303,8 +1434,24 @@ void app
 		)
 		register()
 		updates.start()
+		const layoutTabs = (): string[] =>
+			workspace
+				.snapshot()
+				.windows.flatMap((item) => workspaceGroups(item.root).flatMap((group) => group.tabs))
+		// Terminal tabs come back as ended sessions; a layout tab with nothing behind it goes.
+		const orphanTerminals = terminals.restore(
+			terminalStore.load(),
+			new Set(layoutTabs().filter(isTerminalTabId)),
+		)
+		if (orphanTerminals.length > 0) {
+			try {
+				workspace.retireTabs(orphanTerminals)
+			} catch (error) {
+				diagnostics.record('project_restore_failed', { error })
+			}
+		}
 		const saved = workspace.snapshot().windows
-		const tabs = saved.flatMap((item) => workspaceGroups(item.root).flatMap((group) => group.tabs))
+		const tabs = layoutTabs()
 		for (const layout of saved) launchWindows.add(layout.id)
 		let priorPaths: string[] = []
 		try {
@@ -1317,7 +1464,15 @@ void app
 			if (!(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT'))
 				diagnostics.record('project_restore_failed', { error })
 		}
-		const restorePaths = [...new Set([...operator.restoredProjectPaths(tabs), ...priorPaths])]
+		const restorePaths = [
+			...new Set([
+				...operator.restoredProjectPaths(
+					tabs,
+					terminals.list().map((tab) => tab.projectId),
+				),
+				...priorPaths,
+			]),
+		]
 		// Told before any window can ask, so no first read sees "no projects" for a folder that
 		// is only waiting its turn.
 		operator.expectProjects(restorePaths)

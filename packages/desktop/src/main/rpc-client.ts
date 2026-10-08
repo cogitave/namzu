@@ -5,6 +5,7 @@ import { EventEmitter } from 'node:events'
 import { join } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
 import type { AcpInitializeResult } from '@namzu/sdk'
+import { TERMINAL_METHODS } from '../shared/terminal-protocol.js'
 import {
 	type DesktopDiagnosticContext,
 	type DesktopDiagnosticEvent,
@@ -73,6 +74,11 @@ export class RuntimeClient extends EventEmitter {
 	private projectChanges = false
 	supportsProjectChanges(): boolean {
 		return this.projectChanges
+	}
+	private terminals = false
+	/** A host that predates host terminals answers none of the `namzu/terminal/*` methods. */
+	supportsTerminals(): boolean {
+		return this.terminals
 	}
 	private tasks = false
 	supportsTasks(): boolean {
@@ -210,6 +216,9 @@ export class RuntimeClient extends EventEmitter {
 			'namzu/conversations/archived',
 			'namzu/conversations/unarchive',
 		].every((method) => result.extensions?.includes(method))
+		this.terminals = Object.values(TERMINAL_METHODS).every((method) =>
+			result.extensions?.includes(method),
+		)
 		this.projectGit = result.extensions?.includes('namzu/project/git') === true
 		this.projectUntrust = result.extensions?.includes('namzu/project/untrust') === true
 		this.projectChanges = ['namzu/project/changes', 'namzu/project/diff'].every((method) =>

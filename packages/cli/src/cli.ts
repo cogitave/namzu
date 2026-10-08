@@ -20,6 +20,7 @@ import { browserCommand } from './commands/browser.js'
 import { doctorCommand } from './commands/doctor.js'
 import { drainCommand } from './commands/drain.js'
 import { evalCommand } from './commands/eval.js'
+import { REASONING_EFFORT_LEVELS } from './commands/exec-flags.js'
 import { execCommand } from './commands/exec.js'
 import { historyCommand, providersJSONCommand, skillsJSONCommand } from './commands/host-queries.js'
 import { loginCommand, logoutCommand } from './commands/login.js'
@@ -68,6 +69,7 @@ import {
 import type { ResolvedLogging } from './logging.js'
 import { type FormatName, createFormatter, isFormatName } from './output/index.js'
 import { compileBrowserSites, withBrowserSiteRules } from './permissions/browser-sites.js'
+import { PERMISSION_MODES } from './permissions/mode.js'
 import { compilePermissions, warnLegacyMcpPermissionNames } from './permissions/rules.js'
 import { CLI_VERSION } from './version.js'
 
@@ -180,6 +182,26 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		)
 		.option('--yolo', 'Alias of --dangerously-skip-permissions.')
 		.option(
+			'--provider <id>',
+			'Start the interactive session on this provider for this launch only; the saved choice is untouched.',
+		)
+		.option(
+			'--model <id>',
+			'Start the interactive session on this model for this launch only. With --provider it models that provider; alone it re-models the saved primary.',
+		)
+		.addOption(
+			new Option(
+				'--effort <level>',
+				'Reasoning effort for this launch only. A level the model does not offer is reported and the default stays.',
+			).choices(REASONING_EFFORT_LEVELS),
+		)
+		.addOption(
+			new Option(
+				'--permission-mode <mode>',
+				'Permission mode for this launch only; wins over --yolo. /permissions changes it from inside.',
+			).choices(PERMISSION_MODES),
+		)
+		.option(
 			'--add-dir <path>',
 			'Let the file tools reach another directory this session; repeatable. /add-dir does the same from inside.',
 			(value: string, previous: string[]) => [...previous, value],
@@ -192,6 +214,20 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		// Required by Commander 14 so subcommands (doctor) can opt into
 		// passThroughOptions for unparsed argument forwarding.
 		.hook('preAction', (command, action) => {
+			const launchOnly = (['provider', 'model', 'effort', 'permissionMode'] as const).filter(
+				(key) => command.opts()[key] !== undefined,
+			)
+			if (launchOnly.length > 0 && !['namzu', 'resume'].includes(action.name())) {
+				const flags = launchOnly.map(
+					(key) => `--${key === 'permissionMode' ? 'permission-mode' : key}`,
+				)
+				command.error(
+					action.name() === 'exec' || action.name() === 'drain'
+						? `${flags.join(', ')} before the command apply to the interactive TUI; for ${action.name()}, pass them after it: namzu ${action.name()} ${flags[0]} <value> "<prompt>".`
+						: `${flags.join(', ')} apply to the interactive TUI, not this subcommand.`,
+					{ exitCode: EX_USAGE, code: 'commander.invalidArgument' },
+				)
+			}
 			if (command.opts().outputSchema && !['namzu', 'resume'].includes(action.name())) {
 				command.error(
 					action.name() === 'exec'
@@ -405,11 +441,23 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 				yolo?: boolean
 				outputSchema?: string
 				addDir?: string[]
+				provider?: string
+				model?: string
+				effort?: (typeof REASONING_EFFORT_LEVELS)[number]
+				permissionMode?: (typeof PERMISSION_MODES)[number]
 			}>()
 			const structuredOutput = launchOpts.outputSchema
 				? loadOutputSchema(resolve(process.cwd(), launchOpts.outputSchema))
 				: undefined
 			const skipPermissions = Boolean(launchOpts.dangerouslySkipPermissions || launchOpts.yolo)
+			const provider = launchOpts.provider?.trim()
+			const model = launchOpts.model?.trim()
+			const launchSettings = {
+				...(provider ? { provider } : {}),
+				...(model ? { model } : {}),
+				...(launchOpts.effort ? { effort: launchOpts.effort } : {}),
+				...(launchOpts.permissionMode ? { permissionMode: launchOpts.permissionMode } : {}),
+			}
 			// The same three lines `exec` uses. The TUI compiled
 			// nothing at all, so a `permissions` table in a config file did nothing
 			// in the mode most people actually use.
@@ -443,6 +491,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					version: CLI_VERSION,
 					configDebug: resolvedCtx.configDebug,
 					skipPermissions,
+					...(Object.keys(launchSettings).length > 0 ? { launchSettings } : {}),
 					...(additionalDirectories.length > 0 ? { additionalDirectories } : {}),
 					rules: browserSites
 						? withBrowserSiteRules(permissions.rules, browserSites.rules)

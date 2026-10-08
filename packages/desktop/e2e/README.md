@@ -37,3 +37,12 @@ It was run in WSL under Xvfb, not on the Windows side.
   inside it is the screenshot.
 
 Not run by CI yet: it needs a built workspace and a display.
+
+## Terminal tabs
+
+`terminals.test.mjs` covers terminal tabs on Linux (plain shell, size, tab switch, whole-tree kill on close, the
+Desktop | CLI switch, an installed engine's flags through stand-in programs on `PATH`, the status badge, restart
+as an ended session) and writes dark and light screenshots to `research/terminal-20261008/`.
+`windows-smoke.mjs` is the same checks on Windows, run by hand with Windows `node` from a folder holding a staged
+app (`scripts/stage-installer.mjs`), Electron's Windows build, `@playwright/test` and this folder's `fake-model.mjs`,
+`redirect-fetch.cjs` and a `cli-entry.mjs` pointing at the staged CLI. It uses a temp profile under a path with a space.

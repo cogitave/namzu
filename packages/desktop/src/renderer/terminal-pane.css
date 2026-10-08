@@ -1,0 +1,162 @@
+.terminal-pane {
+	display: flex;
+	flex-direction: column;
+	flex: 1 1 auto;
+	min-height: 0;
+	min-width: 0;
+	background: var(--background);
+}
+.terminal-pane-bar {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0 0.5rem 0 0.75rem;
+	height: 32px;
+	flex: none;
+	border-bottom: 1px solid var(--border);
+	font-size: var(--text-ui-sm, 12px);
+	color: var(--muted-foreground);
+}
+.terminal-pane-mark {
+	display: grid;
+	place-items: center;
+	flex: 0 0 1rem;
+	width: 1rem;
+	height: 1rem;
+	color: var(--foreground);
+}
+.terminal-pane-mark svg {
+	width: 1rem;
+	height: 1rem;
+}
+.terminal-pane-title {
+	color: var(--foreground);
+	font-weight: 500;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.terminal-pane-kind {
+	white-space: nowrap;
+}
+.terminal-pane-status {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.375rem;
+	white-space: nowrap;
+}
+.terminal-pane-spacer {
+	flex: 1 1 auto;
+}
+.terminal-pane-screen {
+	position: relative;
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow: hidden;
+}
+/* The padding belongs to the emulator's own element: the fit subtracts it from the rows it makes. */
+.terminal-pane-screen .xterm {
+	box-sizing: border-box;
+	height: 100%;
+	padding: 0.5rem 0 0.5rem 0.75rem;
+}
+.terminal-pane-screen .xterm-viewport {
+	background-color: transparent !important;
+}
+.terminal-pane-note {
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
+	flex: none;
+	margin: 0;
+	padding: 0.375rem 0.75rem;
+	border-top: 1px solid var(--border);
+	background: var(--muted);
+	color: var(--muted-foreground);
+	font-size: var(--text-ui-sm, 12px);
+}
+.terminal-pane-note[data-tone="error"] {
+	color: var(--error-foreground);
+}
+.terminal-find {
+	display: flex;
+	align-items: center;
+	gap: 0.25rem;
+	padding: 0.25rem 0.75rem;
+	border-bottom: 1px solid var(--border);
+	background: var(--muted);
+}
+.terminal-find input {
+	flex: 0 1 20rem;
+	min-width: 0;
+	height: 1.5rem;
+	padding: 0 0.5rem;
+	border: 1px solid var(--input);
+	border-radius: var(--radius-sm, 4px);
+	background: var(--background);
+	color: var(--foreground);
+	font: inherit;
+	font-size: var(--text-ui-sm, 12px);
+}
+.terminal-find input:focus-visible {
+	outline: 1px solid var(--ring);
+	outline-offset: 0;
+}
+
+/* The badge is a dot: its colour is the state, its label is for assistive technology and the tooltip. */
+.terminal-badge {
+	display: inline-block;
+	flex: none;
+	width: 0.5rem;
+	height: 0.5rem;
+	border-radius: 999px;
+	background: var(--muted-foreground);
+}
+.terminal-badge[data-activity="working"] {
+	background: var(--primary);
+	animation: terminal-badge-pulse 1.4s ease-in-out infinite;
+}
+.terminal-badge[data-activity="waiting"] {
+	background: var(--warning);
+}
+.terminal-badge[data-activity="idle"] {
+	background: var(--muted-foreground);
+	opacity: 0.6;
+}
+.terminal-badge[data-activity="exited"] {
+	background: transparent;
+	box-shadow: inset 0 0 0 1.5px var(--muted-foreground);
+}
+.terminal-badge[data-failed] {
+	background: var(--error);
+	box-shadow: none;
+}
+@keyframes terminal-badge-pulse {
+	50% {
+		opacity: 0.45;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.terminal-badge[data-activity="working"] {
+		animation: none;
+	}
+}
+
+/*
+ * The wordmark's initial is lettering, not an icon: it is set exactly as in the conversation tabs
+ * (6px, line-height 1). It is a <pre>, and the global `pre { overflow-x: auto }` turns a box a hair
+ * narrower than its glyphs into a scrollbar that clips the top half and draws a gray box under it,
+ * so it never scrolls; `.sidebar .namzu-wordmark` (9.5px) is out-ranked inside the terminal row.
+ */
+.terminal-pane-mark .namzu-wordmark,
+.sidebar .sidebar-terminal-mark .namzu-wordmark {
+	margin: 0;
+	padding: 0;
+	border: 0;
+	background: transparent;
+	font-size: 6px;
+	line-height: 1;
+	overflow: visible;
+	scrollbar-width: none;
+}

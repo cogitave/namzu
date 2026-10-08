@@ -28,18 +28,25 @@ function hasExplicitCaOption(options: string): boolean {
 	return false
 }
 
-/** Node flags must precede the CLI entry; inherited trust options remain authoritative. */
-export function desktopRuntimeNodeArgs(
-	cliEntry: string,
-	runtime: RuntimeNodeOptions = {
-		platform: process.platform,
-		allowedNodeEnvironmentFlags: process.allowedNodeEnvironmentFlags,
-		nodeOptions: process.env.NODE_OPTIONS,
-	},
-): string[] {
+const processRuntime = (): RuntimeNodeOptions => ({
+	platform: process.platform,
+	allowedNodeEnvironmentFlags: process.allowedNodeEnvironmentFlags,
+	nodeOptions: process.env.NODE_OPTIONS,
+})
+
+/** The Node flags the runtime needs ahead of the CLI entry; inherited trust options stay authoritative. */
+export function desktopRuntimeNodeFlags(runtime: RuntimeNodeOptions = processRuntime()): string[] {
 	const useSystemCa =
 		runtime.platform === 'win32' &&
 		runtime.allowedNodeEnvironmentFlags.has('--use-system-ca') &&
 		!hasExplicitCaOption(runtime.nodeOptions ?? '')
-	return [...(useSystemCa ? ['--use-system-ca'] : []), cliEntry, 'acp', '--desktop']
+	return useSystemCa ? ['--use-system-ca'] : []
+}
+
+/** Node flags must precede the CLI entry; inherited trust options remain authoritative. */
+export function desktopRuntimeNodeArgs(
+	cliEntry: string,
+	runtime: RuntimeNodeOptions = processRuntime(),
+): string[] {
+	return [...desktopRuntimeNodeFlags(runtime), cliEntry, 'acp', '--desktop']
 }

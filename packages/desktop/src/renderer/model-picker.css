@@ -36,7 +36,7 @@
 /* One width per engine for both views, so switching between them only changes the height. */
 .model-picker-popup {
 	width: fit-content;
-	max-width: min(360px, var(--available-width), calc(100vw - 16px));
+	max-width: min(400px, var(--available-width), calc(100vw - 16px));
 	max-height: var(--available-height);
 	border-radius: 16px;
 	background: var(--popover);

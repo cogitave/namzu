@@ -726,6 +726,8 @@ describe('settings and project removal', () => {
 				startup: 'continue' as const,
 				retrustOnConfigChange: true,
 				autoDownloadUpdates: true,
+				terminalShell: 'auto' as const,
+				restoreTerminals: true,
 				...patch,
 			},
 		}))

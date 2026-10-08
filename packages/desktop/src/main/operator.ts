@@ -533,13 +533,17 @@ export class Operator {
 			throw new Error('Namzu could not save desktop drafts. Check diagnostic storage and retry.')
 		}
 	}
-	restoredProjectPaths(tabIds: readonly string[]): string[] {
+	restoredProjectPaths(
+		tabIds: readonly string[],
+		alsoProjectIds: readonly string[] = [],
+	): string[] {
 		const selected = new Set(tabIds)
-		const projects = new Set(
-			(this.savedDesktop?.conversations ?? [])
+		const projects = new Set([
+			...(this.savedDesktop?.conversations ?? [])
 				.filter((item) => selected.has(item.view.id))
 				.map((item) => item.view.projectId),
-		)
+			...alsoProjectIds,
+		])
 		return (this.savedDesktop?.projects ?? [])
 			.filter((item) => projects.has(item.id))
 			.map((item) => item.path)
@@ -1219,6 +1223,7 @@ export class Operator {
 		if (
 			event.kind !== 'connection' &&
 			event.kind !== 'workspace' &&
+			event.kind !== 'terminals' &&
 			event.kind !== 'pal-deleted' &&
 			event.kind !== 'project-removed' &&
 			event.kind !== 'settings' &&
@@ -1513,6 +1518,24 @@ export class Operator {
 		if (!project || project.view.status !== 'ready')
 			throw new Error('Reopen this project to connect Namzu.')
 		return project
+	}
+	/**
+	 * The running host of a project that may hold terminals, for the terminal tabs. A terminal runs
+	 * on the person's machine like the agent's own tools do, so the folder must be trusted first.
+	 */
+	async terminalHost(projectId: unknown): Promise<{
+		project: { id: string; name: string; path: string }
+		connection: RuntimeClient
+	}> {
+		const project = this.project(projectId)
+		if (project.view.palId) throw new Error('A Pal’s workspace has no terminal here.')
+		if (!project.view.trusted) throw new Error('Trust this project to open a terminal in it.')
+		// The shell, and the `namzu` typed into it, would read folder settings that changed since the last look.
+		await this.assertSettingsUnchanged(project)
+		return {
+			project: { id: project.view.id, name: project.view.name, path: project.view.path },
+			connection: project.client,
+		}
 	}
 	private session(id: unknown): Conversation {
 		if (typeof id !== 'string') throw new Error('Invalid conversation.')

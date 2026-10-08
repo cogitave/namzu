@@ -53,6 +53,7 @@ import { palAtWorkspace } from '../pals/store.js'
 import { canonicalProjectPath } from '../permissions/canonical-project.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import { compilePermissions, warnLegacyMcpPermissionNames } from '../permissions/rules.js'
+import { type TerminalHost, createTerminalHost } from '../terminal/host.js'
 import {
 	type AgentSession,
 	createAgentSession,
@@ -1618,24 +1619,40 @@ export async function closeAcpResources(
 
 export async function runAcpCommand(ctx: CommandContext, desktop = false): Promise<number> {
 	const runtime = withCliHarnesses(createCliAcpRuntime(ctx), process.cwd())
+	const transport = new ServerStdioTransport()
+	// The terminals this process hosts for the desktop. Their output travels as
+	// notifications on the same stream, written in the order it was produced; once
+	// shutdown begins nothing more is written to a client that may already be gone.
+	let announcing = true
+	const terminals: TerminalHost | undefined = desktop
+		? createTerminalHost({
+				cwd: process.cwd(),
+				notify: (method, params) => {
+					if (announcing) void transport.send({ jsonrpc: '2.0', method, params })
+				},
+			})
+		: undefined
 	const server: ACPServer = new ACPServer({
 		supportsPromptAttachments: true,
 		supportsPromptOptions: true,
 		supportsTaskNotifications: desktop,
-		transport: new ServerStdioTransport(),
+		transport,
 		gateway: runtime.gateway,
 		commands: new HostCommandRegistry(),
 		presenter: runtime.presenter,
 		agentInfo: { name: 'namzu', version: readPackageVersion() },
 		...(desktop
 			? {
-					extensions: createDesktopHostExtensions(
-						runtime,
-						process.cwd(),
-						(id) => server.getSessionCwd(id),
-						(id, turnId, checkpointId, options) =>
-							server.retrySession(id, turnId, checkpointId, options),
-					),
+					extensions: {
+						...createDesktopHostExtensions(
+							runtime,
+							process.cwd(),
+							(id) => server.getSessionCwd(id),
+							(id, turnId, checkpointId, options) =>
+								server.retrySession(id, turnId, checkpointId, options),
+						),
+						...terminals?.extensions,
+					},
 				}
 			: {}),
 	})
@@ -1658,10 +1675,15 @@ export async function runAcpCommand(ctx: CommandContext, desktop = false): Promi
 			process.stdin.once('close', finish)
 		})
 	} finally {
+		announcing = false
 		try {
-			await server.stop()
+			await terminals?.close()
 		} finally {
-			await closeAcpResources(runtime)
+			try {
+				await server.stop()
+			} finally {
+				await closeAcpResources(runtime)
+			}
 		}
 	}
 	return 0

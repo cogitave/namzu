@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { WorkspaceAction, WorkspaceView } from '../shared/protocol.js'
+import { isTerminalTabId } from '../shared/terminal-tabs.js'
 import { workspaceGroups } from '../shared/workspace-layout.js'
 import type { WorkspaceWindowBounds } from '../shared/workspace-layout.js'
 import { App } from './app.js'
 import type { Appearance } from './sidebar.js'
 import { adoptBoot } from './startup-restore.js'
+import { rememberConversation, splitTerminalGroup } from './terminal-group.js'
+import { terminalApi, terminalSessions } from './terminal-registry.js'
+import { useTerminalTabs } from './terminal-store.js'
 import { UpdateDialog } from './update-dialog.js'
 import { type UpdateDialogAction, updateDialogModel } from './update-model.js'
 import { useUpdateBusyReporter, useUpdateState } from './use-update.js'
@@ -28,6 +32,9 @@ export function WorkspaceHost() {
 	const [error, setError] = useState('')
 	const [localFocus, setLocalFocus] = useState<string>()
 	const controllers = useRef(new Map<string, WorkspacePaneController>())
+	const terminalTabs = useTerminalTabs(api)
+	// The conversation in front of each pane before a terminal came to the front.
+	const lastConversation = useRef(new Map<string, string>())
 	const localMoves = useRef(new Set<string>())
 	const acknowledging = useRef(new Set<string>())
 	// "Start on the home screen": the saved tab stays in its strip, but this launch does not
@@ -256,6 +263,15 @@ export function WorkspaceHost() {
 		},
 		[accept, cancelTransfer],
 	)
+	// A terminal arrives with nothing to load: it is ready as soon as it is in front.
+	useEffect(() => {
+		const incoming = view?.pendingTransfer
+		if (!incoming || !incoming.sourcePrepared || !isTerminalTabId(incoming.tabId)) return
+		const group = workspaceGroups(incoming.previewRoot).find(
+			(item) => item.activeTabId === incoming.tabId,
+		)
+		if (group) ready(group.id, incoming.tabId)
+	}, [view, ready])
 	const loadFailure = useCallback(
 		(sessionId: string, failure: unknown) => {
 			const pending = current.current?.pendingTransfer
@@ -323,6 +339,17 @@ export function WorkspaceHost() {
 	const preview =
 		canonical && pending?.sourcePrepared ? { ...canonical, root: pending.previewRoot } : canonical
 	const groups = workspaceGroups(preview?.root ?? null)
+	// A terminal's view lives as long as its tab is in this window; one that left takes its view with it.
+	const terminalIdsHere = groups
+		.flatMap((group) => group.tabs)
+		.filter(isTerminalTabId)
+		.join(' ')
+	useEffect(() => {
+		if (!view) return
+		const bridge = terminalApi(api)
+		if (!bridge) return
+		terminalSessions(bridge).retain(new Set(terminalIdsHere ? terminalIdsHere.split(' ') : []))
+	}, [view, terminalIdsHere])
 	const incomingGroup = pending && groups.find((group) => group.tabs.includes(pending.tabId))
 	const focused =
 		incomingGroup?.id ??
@@ -374,33 +401,49 @@ export function WorkspaceHost() {
 						onPrepareMove={prepare}
 						onError={report}
 						busy={!!view.closingWindow || !!pending || !!view.outgoingTransfer}
-						renderPane={(group) => (
-							<App
-								group={group}
-								windowId={view.windowId}
-								focused={focused === group.id}
-								shell={shell}
-								frozen={
-									!!view.closingWindow ||
-									!!pending ||
-									(!!view.outgoingTransfer && group.tabs.includes(view.outgoingTransfer.tabId))
-								}
-								appearance={appearance}
-								startAtHome={startAtHome}
-								update={update}
-								onAppearanceChange={setAppearance}
-								sideCollapsed={sideCollapsed}
-								onSideCollapsedChange={setSideCollapsed}
-								onShellState={shellState}
-								onAction={action}
-								registerController={register}
-								onReady={ready}
-								onLoadFailure={loadFailure}
-								onComputerFocus={syncComputerFocus}
-								onDetach={detach}
-								onSplit={split}
-							/>
-						)}
+						renderPane={(pane) => {
+							const remembered = rememberConversation(lastConversation.current.get(pane.id), pane)
+							if (remembered) lastConversation.current.set(pane.id, remembered)
+							else lastConversation.current.delete(pane.id)
+							const parts = splitTerminalGroup(pane, remembered)
+							const group = parts.group
+							return (
+								<App
+									group={group}
+									terminals={
+										api.openTerminal
+											? {
+													tabs: terminalTabs,
+													order: parts.order,
+													...(parts.activeTerminalId ? { activeId: parts.activeTerminalId } : {}),
+												}
+											: undefined
+									}
+									windowId={view.windowId}
+									focused={focused === group.id}
+									shell={shell}
+									frozen={
+										!!view.closingWindow ||
+										!!pending ||
+										(!!view.outgoingTransfer && group.tabs.includes(view.outgoingTransfer.tabId))
+									}
+									appearance={appearance}
+									startAtHome={startAtHome}
+									update={update}
+									onAppearanceChange={setAppearance}
+									sideCollapsed={sideCollapsed}
+									onSideCollapsedChange={setSideCollapsed}
+									onShellState={shellState}
+									onAction={action}
+									registerController={register}
+									onReady={ready}
+									onLoadFailure={loadFailure}
+									onComputerFocus={syncComputerFocus}
+									onDetach={detach}
+									onSplit={split}
+								/>
+							)
+						}}
 					/>
 				)}
 			</div>

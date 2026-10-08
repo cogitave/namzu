@@ -64,7 +64,9 @@ async function main() {
 	const args = process.argv.slice(2)
 	const archiveFlag = args.indexOf('--python-archive')
 	const explicitArchive = archiveFlag === -1 ? undefined : resolve(args[archiveFlag + 1] ?? '')
-	const positional = args.filter((_, index) => index !== archiveFlag && index !== archiveFlag + 1)
+	const positional = args.filter(
+		(_, index) => archiveFlag === -1 || (index !== archiveFlag && index !== archiveFlag + 1),
+	)
 	if (positional.length !== 1) throw new Error('Usage: stage-installer.mjs <out-dir>')
 	const out = resolve(positional[0])
 	if (out === repoRoot || out.startsWith(`${repoRoot}/`) || out.startsWith(`${repoRoot}\\`))
@@ -118,6 +120,11 @@ async function main() {
 		cwd: repoRoot,
 	})
 	prune(cli, (entry) => entry.name === '.bin' || entry.isSymbolicLink())
+	// Terminals need node-pty, an optional dependency of the CLI that a deploy on a machine without a
+	// compiler can silently omit. The Windows binaries ship inside the package, so check for them here
+	// rather than finding an installer whose terminals are all unavailable.
+	if (!existsSync(join(cli, 'node_modules/node-pty/prebuilds/win32-x64/pty.node')))
+		throw new Error('The staged CLI runtime has no node-pty win32-x64 binary; terminals would not work.')
 
 	// 3. Python.
 	const scratch = join(out, '.download')

@@ -3,8 +3,10 @@
 	gap: 8px;
 	padding: 12px;
 }
+/* The engine and its surface switch wrap under the title when the popup is narrow. */
 .composer-effort-header {
 	display: flex;
+	flex-wrap: wrap;
 	align-items: flex-start;
 	justify-content: space-between;
 	gap: 8px;

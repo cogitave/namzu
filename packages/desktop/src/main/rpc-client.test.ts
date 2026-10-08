@@ -344,3 +344,11 @@ it('keeps an unexpected exit diagnostic and ordinary disconnected errors after c
 	expect(calls).toContain('cli_transport_failed')
 	expect(calls.filter((event) => event === 'cli_request_failed')).toHaveLength(2)
 })
+it('offers host terminals only when the host answers every terminal method', async () => {
+	const without = client()
+	await without.start()
+	expect(without.supportsTerminals()).toBe(false)
+	const withTerminals = client({ ...process.env, FIXTURE_TERMINALS: '1' })
+	await withTerminals.start()
+	expect(withTerminals.supportsTerminals()).toBe(true)
+})

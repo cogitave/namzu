@@ -6,6 +6,7 @@ import {
 } from '../shared/background-work-protocol.js'
 import type { ThreadState } from '../shared/projection.js'
 import type { ConversationView, ProjectView } from '../shared/protocol.js'
+import type { TerminalTabView } from '../shared/terminal-tabs.js'
 import { ADD_PROJECT_LABEL, AddProjectItems, AddProjectMenu } from './add-project-menu.js'
 import { BrandDither } from './brand-dither.js'
 import { compareConversationOrder } from './conversation-order.js'
@@ -20,6 +21,7 @@ import {
 } from './icons.js'
 import { ProjectContextMenu } from './project-row-actions.js'
 import { createSidebarListMotion } from './sidebar-motion.js'
+import { TerminalBadge, TerminalMark } from './terminal-pane.js'
 import { ThreadCard, type ThreadRowActions } from './thread-card.js'
 import { Button } from './ui/button.js'
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from './ui/collapsible.js'
@@ -58,6 +60,10 @@ export function Sidebar({
 	rowActions,
 	onRemoveProject,
 	pals,
+	terminals = [],
+	activeTerminalId,
+	onTerminal,
+	onCloseTerminal,
 }: {
 	activeProject?: ProjectView
 	projects: ProjectView[]
@@ -81,6 +87,11 @@ export function Sidebar({
 	/** Absent when the host cannot remove a project; the hover button and menu are then not offered. */
 	onRemoveProject?: (project: ProjectView, trigger: HTMLElement | null) => void
 	pals?: ReactNode
+	/** Open terminal tabs; each is listed under its project with a terminal mark. */
+	terminals?: readonly TerminalTabView[]
+	activeTerminalId?: string
+	onTerminal?: (tab: TerminalTabView) => void
+	onCloseTerminal?: (tab: TerminalTabView) => void
 }) {
 	const [collapsedProjects, setCollapsedProjects] = useState<Record<string, boolean>>({})
 	const [expandedLists, setExpandedLists] = useState<Record<string, boolean>>({})
@@ -256,6 +267,13 @@ export function Sidebar({
 									</button>
 								</ProjectHeading>
 								<CollapsiblePanel className="sidebar-project-panel">
+									<TerminalList
+										tabs={terminals.filter((tab) => tab.projectId === project.id)}
+										project={project}
+										activeId={activeTerminalId}
+										onOpen={onTerminal}
+										onClose={onCloseTerminal}
+									/>
 									<ThreadList
 										rows={rows}
 										project={project}
@@ -372,6 +390,74 @@ function ProjectHeading({
 		>
 			{body}
 		</ProjectContextMenu>
+	)
+}
+
+/** The open terminals of a project, above its conversations. */
+function TerminalList({
+	tabs,
+	project,
+	activeId,
+	onOpen,
+	onClose,
+}: {
+	tabs: readonly TerminalTabView[]
+	project: ProjectView
+	activeId?: string
+	onOpen?: (tab: TerminalTabView) => void
+	onClose?: (tab: TerminalTabView) => void
+}) {
+	if (tabs.length === 0) return null
+	return (
+		<ul
+			aria-label={`${project.name} terminals`}
+			className="sidebar-project-list sidebar-terminal-list relative flex flex-col gap-px"
+		>
+			{tabs.map((tab) => (
+				<li
+					key={tab.id}
+					className="sidebar-thread-item sidebar-terminal-item relative list-none"
+					data-terminal-row={tab.id}
+					data-removable={onClose ? true : undefined}
+					data-ended={tab.status !== 'running' || undefined}
+				>
+					<button
+						type="button"
+						aria-label={`${tab.title}, terminal${tab.status === 'running' ? '' : ', ended'}`}
+						aria-current={activeId === tab.id ? 'page' : undefined}
+						onClick={() => onOpen?.(tab)}
+						className={`group/sidebar-row sidebar-conversation-button relative w-full cursor-pointer overflow-hidden rounded-md text-left outline-none select-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring text-sidebar-foreground ${
+							activeId === tab.id
+								? 'bg-sidebar-row-active'
+								: 'bg-transparent hover:bg-sidebar-row-hover'
+						}`}
+					>
+						<div className="conversation-row">
+							<span className="sidebar-terminal-mark" aria-hidden="true">
+								<TerminalMark tab={tab} />
+							</span>
+							<span className="conversation-row-title">{tab.title}</span>
+							<span className="conversation-row-state">
+								<TerminalBadge tab={tab} />
+							</span>
+						</div>
+					</button>
+					{onClose && (
+						<div className="sidebar-thread-actions">
+							<Button
+								variant="ghost-muted"
+								size="icon-xs"
+								className="sidebar-thread-action"
+								aria-label={`Close terminal ${tab.title}`}
+								onClick={() => onClose(tab)}
+							>
+								<XIcon aria-hidden="true" />
+							</Button>
+						</div>
+					)}
+				</li>
+			))}
+		</ul>
 	)
 }
 

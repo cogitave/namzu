@@ -303,6 +303,7 @@ import { type EditablePrompt, editablePrompts } from './edit-prompts.js'
 import type { TuiExitSummary } from './exit-summary.js'
 import { editDraftInExternalEditor } from './external-editor.js'
 import { checklistInView, liveWindow, settledBeforeStreaming } from './live-window.js'
+import { choosesModel, launchPreferences } from './launch-settings.js'
 import { ViewportBound } from './ViewportBound.js'
 import {
 	type ModelSwitchOutcome,
@@ -1037,6 +1038,10 @@ export function App({
 	>('provider-and-model')
 	/** Active preferences, or the saved chain awaiting its missing credential. */
 	const savedPrefsRef = useRef<Preferences | null>(null)
+	// `--provider`/`--model`/`--effort` apply to the first session this launch opens and then
+	// step aside, so a later `/model` or a re-login behaves as it always did.
+	const launchModelPendingRef = useRef(choosesModel(initialCtx.launchSettings))
+	const launchEffortPendingRef = useRef(initialCtx.launchSettings?.effort)
 	/**
 	 * Why the picker is open, drawn ON the picker.
 	 *
@@ -1089,12 +1094,14 @@ export function App({
 	// The launch bypass is an INITIAL selection, not permanent authority. A
 	// typed /permissions command can narrow it back to prompt/strict without
 	// rebuilding the provider, tools, plugins, or sandbox.
+	// `--permission-mode` names the starting mode outright and wins over the bypass alias.
+	const launchPermissionMode = ctx.palId ? undefined : ctx.launchSettings?.permissionMode
 	const [permissionMode, setPermissionModeState] = useState<PermissionMode>(
-		ctx.skipPermissions === true || ctx.palId ? 'auto' : 'prompt',
+		launchPermissionMode ?? (ctx.skipPermissions === true || ctx.palId ? 'auto' : 'prompt'),
 	)
 	const permissionModeRef = useRef<PermissionMode>(permissionMode)
-	const permissionModeSourceRef = useRef<'default' | 'launch-bypass' | 'session'>(
-		ctx.skipPermissions === true ? 'launch-bypass' : 'default',
+	const permissionModeSourceRef = useRef<'default' | 'launch-bypass' | 'launch-flag' | 'session'>(
+		launchPermissionMode ? 'launch-flag' : ctx.skipPermissions === true ? 'launch-bypass' : 'default',
 	)
 	const [reasoningEffort, setReasoningEffortState] = useState<ReasoningEffort | undefined>()
 	const reasoningEffortRef = useRef<ReasoningEffort | undefined>(undefined)
@@ -3875,6 +3882,16 @@ export function App({
 			void previousSessionRef.current?.close()
 			previousSessionRef.current = s
 			setSession(s)
+			const launchEffort = launchEffortPendingRef.current
+			if (launchEffort && s.hasProvider) {
+				launchEffortPendingRef.current = undefined
+				if (s.reasoningEffortLevels?.includes(launchEffort)) setReasoningEffort(launchEffort)
+				else
+					pushMessage(
+						'system',
+						`--effort ${launchEffort} is not offered by ${primaryProvider(prefs).model ?? primaryProvider(prefs).id}; using the provider default.`,
+					)
+			}
 			// Hypermode already re-pinned effort above; reopening this picker
 			// would ask the operator to redo a choice the mode just made for them.
 			if (!hypermodeRef.current && options.chooseReasoningEffort && s.reasoningEffortLevels?.length) {
@@ -4171,6 +4188,37 @@ export function App({
 					const preferences = tuiPalPreferences(pinnedPal, probe.preferences)
 					if (!preferences) throw new Error('The Pal has no available model route.')
 					await hydrateSession(preferences, probe.detected, { signal, announce })
+					return
+				}
+				const launch = ctxRef.current.launchSettings
+				if (launch && launchModelPendingRef.current) {
+					launchModelPendingRef.current = false
+					const requested = launchPreferences(probe.preferences, launch)
+					const admissionSignal = signal ?? appLifetime.signal
+					const toPicker = (notice: string) => {
+						setPickerDetected(null)
+						setPickerSelectionKind('provider-and-model')
+						setPickerInitialView('providers')
+						pushMessage('system', notice)
+						setPickerNotice(notice)
+						setPhase('picker')
+					}
+					if (!requested) {
+						toPicker('--model needs --provider here: no provider is saved to apply it to.')
+						return
+					}
+					try {
+						// Never persisted: the launch flags choose this session only.
+						await hydrateSession(requested, probe.detected, {
+							signal: admissionSignal,
+							announce,
+						})
+					} catch (error) {
+						if (admissionSignal.aborted) return
+						toPicker(
+							`Could not start with ${launch.provider ?? requested.providers[0]?.id}${launch.model ? ` / ${launch.model}` : ''}: ${error instanceof Error ? error.message : String(error)}`,
+						)
+					}
 					return
 				}
 				if (probe.needsRepickReason) {

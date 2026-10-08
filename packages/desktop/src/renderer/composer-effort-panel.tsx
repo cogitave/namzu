@@ -4,7 +4,7 @@ import { ChevronRight } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { HarnessView } from '../shared/protocol.js'
 import { EffortShader } from './effort-shader/effort-shader.js'
-import { EngineChip } from './harness-picker.js'
+import { EngineChip, type EngineSurfaceControl, SurfaceSwitch } from './harness-picker.js'
 import { LoaderCircleIcon } from './icons.js'
 import { effortLabel } from './model-choice.js'
 import './composer-effort-panel.css'
@@ -70,6 +70,7 @@ export function ComposerEffortPanel({
 		label: string
 		disabled: boolean
 		onOpen: () => void
+		surface?: EngineSurfaceControl
 	}
 }) {
 	const slider = useRef<HTMLDivElement>(null)
@@ -113,12 +114,22 @@ export function ComposerEffortPanel({
 					</button>
 				</div>
 				{engine && (
-					<EngineChip
-						engine={engine.id}
-						label={engine.label}
-						disabled={engine.disabled}
-						onClick={engine.onOpen}
-					/>
+					<span className="engine-controls">
+						<EngineChip
+							engine={engine.id}
+							label={engine.label}
+							disabled={engine.disabled}
+							onClick={engine.onOpen}
+						/>
+						{engine.surface && (
+							<SurfaceSwitch
+								value={engine.surface.value}
+								onChange={engine.surface.onChange}
+								disabled={engine.surface.disabled}
+								reason={engine.surface.reason}
+							/>
+						)}
+					</span>
 				)}
 			</div>
 			{loading ? (

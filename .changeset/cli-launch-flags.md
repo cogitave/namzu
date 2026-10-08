@@ -1,0 +1,5 @@
+---
+"@namzu/cli": minor
+---
+
+The interactive `namzu` (and `namzu resume`) now accepts `--provider <id>`, `--model <id>`, `--effort <level>` and `--permission-mode <prompt|accept-edits|auto|strict|plan>`, written before any command. They choose how that one launch starts and are never saved: `preferences.json` is not touched, so the next plain `namzu` starts where you last left it, and `/model`, `/effort` and `/permissions` still change the session as before. `--provider` replaces the provider chain with that provider alone, `--model` alone re-models the saved primary (it needs a saved provider, otherwise the provider list opens and says so), `--permission-mode` wins over `--yolo`, and an `--effort` the model does not offer is reported and the provider default stays. An unknown provider opens the provider list with the reason instead of starting unusable. Before a subcommand other than `resume` these flags are refused with exit 64 rather than ignored; `exec` and `drain` keep their own `--provider`, `--model`, `--effort` and `--permission-mode` after the command name.

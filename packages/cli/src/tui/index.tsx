@@ -15,6 +15,7 @@ import {
 	formatTuiExitSummary,
 } from './exit-summary.js'
 import { type TerminationSignal, handleTerminationSignals } from '../termination.js'
+import { openConsoleInput } from './console-input.js'
 import { installTuiLogSink } from './log-pane.js'
 import type { TuiContext } from './types.js'
 
@@ -45,6 +46,9 @@ export async function launchTui(
 	// process can /resume or /abandon at once, then the App leaves as `/exit`
 	// does, which is what hands the terminal back.
 	const termination = handleTerminationSignals()
+	// Under Electron-as-Node on a Windows pseudo-console `process.stdin` is not the console;
+	// the console's own input device is (see `console-input.ts`). Elsewhere this is undefined.
+	const consoleInput = openConsoleInput()
 	const terminationExit: { current: (() => void) | null } = { current: null }
 	let terminatedBy: TerminationSignal | null = null
 	const instance = render(
@@ -58,7 +62,7 @@ export async function launchTui(
 		{
 			stdout: process.stdout,
 			stderr: process.stderr,
-			stdin: process.stdin,
+			stdin: consoleInput?.stream ?? process.stdin,
 			exitOnCtrlC: false,
 			kittyKeyboard: {
 				mode: 'auto',
@@ -82,6 +86,7 @@ export async function launchTui(
 		await instance.waitUntilExit()
 	} finally {
 		termination.dispose()
+		consoleInput?.release()
 		logs.close()
 		// A hangup means the terminal is gone: nobody is there to read the
 		// handoff, and writing to it fails.

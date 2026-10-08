@@ -173,3 +173,60 @@ export function EnginePanel({
 		</div>
 	)
 }
+
+export type EngineSurface = 'desktop' | 'cli'
+
+/** The switch's state and what it may do, as the composer hands it down. */
+export interface EngineSurfaceControl {
+	value: EngineSurface
+	onChange: (value: EngineSurface) => void
+	disabled: boolean
+	/** Why the switch is unavailable, when it is. */
+	reason?: string
+}
+
+/**
+ * "Desktop | CLI": where the chosen engine runs. Desktop is the conversation in this window; CLI opens
+ * the engine's own command line in a terminal tab with the composer's choices.
+ */
+export function SurfaceSwitch({
+	value,
+	onChange,
+	disabled = false,
+	reason,
+}: {
+	value: EngineSurface
+	onChange: (value: EngineSurface) => void
+	disabled?: boolean
+	/** Why the switch is unavailable, when it is. */
+	reason?: string
+}) {
+	const choices: { id: EngineSurface; label: string }[] = [
+		{ id: 'desktop', label: 'Desktop' },
+		{ id: 'cli', label: 'CLI' },
+	]
+	return (
+		<RadioGroup
+			className="surface-switch"
+			aria-label="Where this engine runs"
+			title={reason}
+			value={value}
+			disabled={disabled}
+			onValueChange={(next) => {
+				if (next === 'desktop' || next === 'cli') onChange(next)
+			}}
+		>
+			{choices.map((choice) => (
+				<Radio.Root
+					key={choice.id}
+					value={choice.id}
+					nativeButton
+					render={<button type="button" />}
+					data-selected={value === choice.id || undefined}
+				>
+					{choice.label}
+				</Radio.Root>
+			))}
+		</RadioGroup>
+	)
+}

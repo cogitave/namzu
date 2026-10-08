@@ -22,7 +22,14 @@ import type {
 } from '../shared/protocol.js'
 import { ComposerControl, ComposerControlChevron } from './composer-control.js'
 import { ComposerEffortPanel } from './composer-effort-panel.js'
-import { EngineChip, EnginePanel, HarnessMark, engineLabel } from './harness-picker.js'
+import {
+	EngineChip,
+	EnginePanel,
+	type EngineSurfaceControl,
+	HarnessMark,
+	SurfaceSwitch,
+	engineLabel,
+} from './harness-picker.js'
 import {
 	CheckIcon,
 	CloudIcon,
@@ -73,6 +80,8 @@ export type EngineControl = {
 	busy: boolean
 	disabled: boolean
 	onSelect: (engine: HarnessView['selected']) => void
+	/** The "Desktop | CLI" switch beside the engine chip; absent where a CLI tab cannot be opened. */
+	surface?: EngineSurfaceControl
 }
 /** A list longer than this gets a search icon; a shorter one is read at a glance. */
 const SEARCH_FROM = 7
@@ -265,6 +274,7 @@ export function ModelPicker({
 					label: engineName,
 					disabled: engineControl.disabled || engineControl.busy || !engineControl.view,
 					onOpen: () => openEngine(from),
+					surface: engineControl.surface,
 				}
 			: undefined
 	const { resize, measured, resizeStyle } = useAnimatedHeight(open)
@@ -328,7 +338,7 @@ export function ModelPicker({
 					ref={resize}
 					style={{
 						...resizeStyle,
-						width: `min(${view === 'engine' || (view === 'effort' && onEffortChange) ? 264 : providers.available.length > 1 ? 360 : 300}px, calc(100vw - 16px))`,
+						width: `min(${view === 'engine' || (view === 'effort' && onEffortChange) ? 264 + (view === 'effort' && engineControl?.surface ? 52 : 0) : (providers.available.length > 1 ? 360 : 300) + (engineControl?.surface ? 28 : 0)}px, calc(100vw - 16px))`,
 					}}
 				>
 					<div className="model-picker-body" ref={measured}>
@@ -522,6 +532,7 @@ function ModelBrowser({
 		label: string
 		disabled: boolean
 		onOpen: () => void
+		surface?: EngineSurfaceControl
 	}
 }) {
 	const [providerId, setProviderId] = useState(choice.provider)
@@ -797,7 +808,7 @@ function ModelBrowser({
 								</button>
 							)}
 							<h2 className="model-picker-title">Choose a model</h2>
-							{multipleProviders && !onBack && (
+							{multipleProviders && !onBack && !engine?.surface && (
 								<span className="model-picker-provider-label" title={active?.label}>
 									{active?.label}
 								</span>
@@ -806,12 +817,22 @@ function ModelBrowser({
 						{(showTools || engine) && (
 							<div className="model-picker-heading-actions">
 								{engine && (
-									<EngineChip
-										engine={engine.id}
-										label={engine.label}
-										disabled={engine.disabled}
-										onClick={engine.onOpen}
-									/>
+									<span className="engine-controls">
+										<EngineChip
+											engine={engine.id}
+											label={engine.label}
+											disabled={engine.disabled}
+											onClick={engine.onOpen}
+										/>
+										{engine.surface && (
+											<SurfaceSwitch
+												value={engine.surface.value}
+												onChange={engine.surface.onChange}
+												disabled={engine.surface.disabled}
+												reason={engine.surface.reason}
+											/>
+										)}
+									</span>
 								)}
 								{showTools && (
 									<Button

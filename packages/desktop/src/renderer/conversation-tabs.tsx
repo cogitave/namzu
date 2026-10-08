@@ -7,6 +7,7 @@ import {
 	freshBackgroundWorkStatus,
 } from '../shared/background-work-protocol.js'
 import type { ConversationView } from '../shared/protocol.js'
+import type { TerminalTabView } from '../shared/terminal-tabs.js'
 import type { WorkspaceWindowBounds } from '../shared/workspace-layout.js'
 import {
 	ComputerWorkspaceComputerTab,
@@ -27,6 +28,7 @@ import {
 	TerminalIcon,
 	XIcon,
 } from './icons.js'
+import { TerminalStripTab } from './terminal-tab.js'
 import { Button } from './ui/button.js'
 import { WordmarkInitial } from './wordmark.js'
 import {
@@ -36,6 +38,21 @@ import {
 } from './workspace-canvas-geometry.js'
 import './computer-workspace-toolbar.css'
 import './conversation-tabs.css'
+
+/** Terminal tabs that share the strip with the conversations. */
+export interface ConversationTabTerminals {
+	tabs: readonly TerminalTabView[]
+	/** Every tab of the pane in strip order, terminals included. */
+	order: readonly string[]
+	/** The terminal in front, if one is. */
+	activeId?: string
+	onSelect: (tab: TerminalTabView) => void
+	onClose: (tab: TerminalTabView) => void
+	onDetach: (tab: TerminalTabView, bounds?: WorkspaceWindowBounds) => void
+	onSplit?: (tab: TerminalTabView, position: 'right' | 'bottom') => void
+	/** Absent where terminals cannot be opened. */
+	onNew?: () => void
+}
 
 export interface ConversationPalWorkspace extends ComputerWorkspaceToolbarProps {
 	conversationId: string
@@ -349,7 +366,9 @@ export function ConversationTabs({
 	actions,
 	palNames,
 	palWorkspace,
+	terminals,
 }: {
+	terminals?: ConversationTabTerminals
 	tabs: readonly ConversationView[]
 	windowId: string
 	groupId: string
@@ -369,14 +388,37 @@ export function ConversationTabs({
 }) {
 	const currentPal = palWorkspace?.conversationId === active ? palWorkspace : undefined
 	const computerValue = currentPal ? computerWorkspaceIds(currentPal.idPrefix).computerTab : ''
-	const selected =
-		currentPal?.computerTabOpen && currentPal.activeTab === 'computer' ? computerValue : active
+	const selected = terminals?.activeId
+		? terminals.activeId
+		: currentPal?.computerTabOpen && currentPal.activeTab === 'computer'
+			? computerValue
+			: active
+	// The strip's order is the pane's: a terminal sits between conversations where the person put it.
+	const terminalById = new Map(terminals?.tabs.map((tab) => [tab.id, tab]))
+	const conversationById = new Map(tabs.map((view) => [view.id, view]))
+	type StripItem =
+		| { kind: 'conversation'; view: ConversationView }
+		| { kind: 'terminal'; tab: TerminalTabView }
+	const strip: StripItem[] = []
+	if (terminals) {
+		for (const id of terminals.order) {
+			const tab = terminalById.get(id)
+			const view = conversationById.get(id)
+			if (tab) strip.push({ kind: 'terminal', tab })
+			else if (view) strip.push({ kind: 'conversation', view })
+		}
+	} else for (const view of tabs) strip.push({ kind: 'conversation', view })
 	return (
 		<Tabs.Root
 			className="conversation-tabs"
 			value={selected}
 			onValueChange={(id) => {
 				if (busy) return
+				const terminal = terminalById.get(id)
+				if (terminal) {
+					terminals?.onSelect(terminal)
+					return
+				}
 				const selection = resolveConversationTabSelection(tabs, active, id, currentPal)
 				if (selection?.kind === 'computer') currentPal?.onOpenComputer?.()
 				else if (selection?.kind === 'chat') currentPal?.onOpenChat?.()
@@ -384,34 +426,48 @@ export function ConversationTabs({
 			}}
 		>
 			<Tabs.List className="conversation-tab-list" aria-label="Conversation tabs">
-				{tabs.map((view) => (
-					<Fragment key={view.id}>
-						<ConversationTab
-							view={view}
+				{strip.map((item) =>
+					item.kind === 'terminal' ? (
+						<TerminalStripTab
+							key={item.tab.id}
+							tab={item.tab}
 							windowId={windowId}
 							groupId={groupId}
-							active={selected === view.id}
+							active={selected === item.tab.id}
 							busy={busy}
-							running={running(view.id)}
-							backgroundWork={backgroundWork?.[view.id]}
-							palName={view.palId ? palNames?.[view.palId] : undefined}
-							pal={view.id === currentPal?.conversationId ? currentPal : undefined}
-							onClose={onClose}
-							onRemove={onRemove}
-							onDetach={onDetach}
-							onSplit={onSplit}
-							actions={actions}
+							onClose={(tab) => terminals?.onClose(tab)}
+							onDetach={(tab, bounds) => terminals?.onDetach(tab, bounds)}
+							onSplit={terminals?.onSplit}
 						/>
-						{view.id === currentPal?.conversationId && currentPal.computerTabOpen && (
-							<ComputerWorkspaceComputerTab
-								{...currentPal}
-								value={computerValue}
-								shared
-								disabled={busy}
+					) : (
+						<Fragment key={item.view.id}>
+							<ConversationTab
+								view={item.view}
+								windowId={windowId}
+								groupId={groupId}
+								active={selected === item.view.id}
+								busy={busy}
+								running={running(item.view.id)}
+								backgroundWork={backgroundWork?.[item.view.id]}
+								palName={item.view.palId ? palNames?.[item.view.palId] : undefined}
+								pal={item.view.id === currentPal?.conversationId ? currentPal : undefined}
+								onClose={onClose}
+								onRemove={onRemove}
+								onDetach={onDetach}
+								onSplit={onSplit}
+								actions={actions}
 							/>
-						)}
-					</Fragment>
-				))}
+							{item.view.id === currentPal?.conversationId && currentPal.computerTabOpen && (
+								<ComputerWorkspaceComputerTab
+									{...currentPal}
+									value={computerValue}
+									shared
+									disabled={busy}
+								/>
+							)}
+						</Fragment>
+					),
+				)}
 			</Tabs.List>
 			<Button
 				variant="ghost-muted"
@@ -422,6 +478,18 @@ export function ConversationTabs({
 			>
 				<PlusIcon />
 			</Button>
+			{terminals?.onNew && (
+				<Button
+					variant="ghost-muted"
+					size="icon-sm"
+					aria-label="New terminal tab"
+					title="New terminal (Ctrl+Shift+`)"
+					disabled={busy}
+					onClick={terminals.onNew}
+				>
+					<TerminalIcon />
+				</Button>
+			)}
 			{currentPal && <ComputerWorkspaceControls {...currentPal} disabled={busy} />}
 		</Tabs.Root>
 	)

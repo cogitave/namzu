@@ -35,6 +35,26 @@ function turnLimit(value: string, flag: string): number {
 	return n
 }
 
+/** Every effort level a flag accepts; a provider offers the subset its model supports. */
+export const REASONING_EFFORT_LEVELS = [
+	'none',
+	'minimal',
+	'low',
+	'medium',
+	'high',
+	'xhigh',
+	'max',
+	'ultra',
+] as const satisfies readonly ReasoningEffort[]
+
+/** The level a `--effort` value names, or an error that lists the levels. */
+export function parseReasoningEffort(value: string, flag: string): ReasoningEffort {
+	const level = REASONING_EFFORT_LEVELS.find((entry) => entry === value)
+	if (level === undefined)
+		throw new Error(`${flag} takes one of ${REASONING_EFFORT_LEVELS.join(', ')}; got ${value}`)
+	return level
+}
+
 export interface ExecFlags {
 	session: string | null
 	model: string | null
@@ -152,20 +172,7 @@ export function parseExecFlags(rawArgs: readonly string[]): ExecFlags {
 				a,
 				'effort',
 				(value) => {
-					const levels = [
-						'none',
-						'minimal',
-						'low',
-						'medium',
-						'high',
-						'xhigh',
-						'max',
-						'ultra',
-					] as const satisfies readonly ReasoningEffort[]
-					const level = levels.find((entry) => entry === value)
-					if (level === undefined)
-						throw new Error(`--effort takes one of ${levels.join(', ')}; got ${value}`)
-					out.effort = level
+					out.effort = parseReasoningEffort(value, '--effort')
 				},
 				idx,
 			)

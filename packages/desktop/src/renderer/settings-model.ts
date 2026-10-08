@@ -41,6 +41,22 @@ export const SETTINGS_ENTRIES: readonly SettingsEntry[] = [
 		keywords: ['startup', 'launch', 'open', 'restore', 'tabs', 'home', 'restart'],
 	},
 	{
+		id: 'terminal-shell',
+		section: 'general',
+		label: 'Default terminal shell',
+		description:
+			'The shell a new terminal tab opens: PowerShell, Command Prompt or WSL on Windows.',
+		keywords: ['terminal', 'shell', 'powershell', 'cmd', 'command prompt', 'wsl', 'console'],
+	},
+	{
+		id: 'terminal-restore',
+		section: 'general',
+		label: 'Bring terminal tabs back',
+		description:
+			'After a restart, terminal tabs return as ended sessions showing their last screen.',
+		keywords: ['terminal', 'restore', 'restart', 'tabs', 'session'],
+	},
+	{
 		id: 'projects',
 		section: 'projects',
 		label: 'Projects',

@@ -369,7 +369,7 @@ export interface SlashContext {
 		/** Live mode and why it currently has that value, read at render time. */
 		readonly currentMode: () => {
 			readonly mode: PermissionMode
-			readonly source: 'default' | 'launch-bypass' | 'session'
+			readonly source: 'default' | 'launch-bypass' | 'launch-flag' | 'session'
 		}
 		readonly rules: readonly AuthorizationRule[]
 		/**
@@ -1949,6 +1949,7 @@ export function renderPermissions(
 	if (!details) return lines.join('\n')
 	if (current.source === 'launch-bypass')
 		lines.push('Selected at launch with --dangerously-skip-permissions.')
+	if (current.source === 'launch-flag') lines.push('Selected at launch with --permission-mode.')
 	lines.push('Explicit deny rules and the built-in safety gate apply in every mode.')
 	if (current.mode === 'plan')
 		lines.push('Plan mode also blocks writes that an allow rule would otherwise permit.')
