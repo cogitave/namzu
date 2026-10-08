@@ -19,6 +19,7 @@ The snapshot dir holds `desktop-dist`, `cli-dist`, `sdk-dist` and `HEAD`. `--met
 - Whole-dist replacement per package, never per file. Unchanged packages are not touched.
 - The runtime copies are JavaScript only and follow the package `files` negations (tests, fixtures); the snapshot is filtered the same way before it is compared or staged.
 - Refuses when the desktop pid is not the configured electron, when the state has active, queued, permission or recovery work, or when everything already equals the snapshot.
+- Active-use preflight: refuses with the rule named for a visible dialog, the computer canvas, a focused contenteditable, unsaved composer typing (focused composer text differs from its saved draft), any other focused non-empty input (search, rename, settings), or recent input (keydown, input, pointerdown or wheel seen during a 3 second observation window: "Someone is using the app right now."). A focused composer whose text equals its saved draft is idle and passes. The post-update read does not observe.
 - The check never closes, kills, clicks or types into the app; it only reads over CDP.
 - The receipt holds counts, hashes, paths, pids and booleans; drafts and messages live only in the private snapshot.
 - Do not rebuild `dist` while a run is in progress; build the snapshot first.

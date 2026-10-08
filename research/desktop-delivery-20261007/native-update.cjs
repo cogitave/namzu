@@ -199,8 +199,20 @@ async function disconnect() {
 }
 
 // Adapted from the base guard (transcript-content-desktop-activation-native-20261007.cjs).
-async function readState() {
-  return page.evaluate(async () => {
+async function readState(watch = true) {
+  return page.evaluate(async watch => {
+    if (watch) {
+      // Activity window: any real input in the next 3 s means someone is using the app,
+      // including typing that has not reached the saved draft yet.
+      const fired = await new Promise(resolve => {
+        const kinds = ['keydown', 'input', 'pointerdown', 'wheel'];
+        let hit = null;
+        const on = e => { hit ??= e.type; };
+        for (const k of kinds) window.addEventListener(k, on, true);
+        setTimeout(() => { for (const k of kinds) window.removeEventListener(k, on, true); resolve(hit); }, 3000);
+      });
+      if (fired) throw new Error('Someone is using the app right now. Recent input (' + fired + ') was seen in the last 3 seconds.');
+    }
     const api = window.namzu;
     if (!api) throw new Error('Native preload API is missing.');
     const workspace = await api.workspace();
@@ -256,11 +268,25 @@ async function readState() {
         throw new Error('A visible alert is not the captured idle conversation’s exact terminal error.');
       return { sessionId: s.id, error: message };
     });
-    if (visible('[role="dialog"], [role="alertdialog"]') || visible('.pal-computer-view canvas') ||
-      document.activeElement?.closest?.('.pal-computer-view') ||
-      (document.activeElement?.matches?.('textarea,input,[contenteditable="true"]') &&
-        (document.activeElement.value?.length || document.activeElement.isContentEditable)))
-      throw new Error('A dialog, alert, computer canvas, or focused editor is active.');
+    if (visible('[role="dialog"], [role="alertdialog"]'))
+      throw new Error('A dialog or alert dialog is open. Ask the owner to close it.');
+    if (visible('.pal-computer-view canvas') || document.activeElement?.closest?.('.pal-computer-view'))
+      throw new Error('The computer canvas is active. Ask the owner to leave the Pal computer view.');
+    const focused = document.activeElement;
+    if (focused?.isContentEditable)
+      throw new Error('A contenteditable editor has focus. Ask the owner to click outside it.');
+    if (focused?.matches?.('textarea,input') && focused.value?.length) {
+      // A focused composer whose text equals its persisted draft is idle (drafts survive the update
+      // and are compared before/after); anything else is unsaved typing or another field.
+      const gid = focused.closest('[data-workspace-group]')?.dataset.workspaceGroup;
+      const g = groups.find(c => c.id === gid);
+      const s = g && sessions.find(c => c.id === g.activeTabId);
+      const isComposer = focused.matches('.composer-input textarea[aria-label="Message Namzu"]');
+      if (!isComposer || !s || typeof s.draft !== 'string' || !s.draft.length)
+        throw new Error('A non-empty field other than a saved composer draft has focus (search, rename or settings field). Ask the owner to clear it or click outside it.');
+      if (focused.value !== s.draft)
+        throw new Error('Unsaved typing in the composer (text differs from its saved draft). Ask the owner to finish or wait a few seconds, then retry.');
+    }
     if (!sidebar || sidebar.inert || !scroll || !focusedGroup || !transcript)
       throw new Error('Recents or the focused conversation is not available for navigation.');
     const presentations = Object.keys(localStorage).filter(k => k.startsWith('namzu.workspace.presentation:')).sort().map(k => [k, localStorage.getItem(k)]);
@@ -273,7 +299,7 @@ async function readState() {
       presentations, appearance: localStorage.getItem('namzu.appearance'),
       collapsedPreference: localStorage.getItem('namzu.sidebar-collapsed'),
       focusedElement: document.activeElement?.tagName ?? null, terminalAlerts } };
-  });
+  }, watch);
 }
 const stripMessage = ({ messageId, status, stopReason, ...body }) => body;
 // Digests only; no text leaves this function.
@@ -434,9 +460,9 @@ async function verifyAfter(before) {
     const editor = document.querySelector('.composer-input textarea[aria-label="Message Namzu"]');
     return JSON.stringify(ids) === JSON.stringify(expected.tabs) && active === expected.active && editor && !editor.disabled && !editor.readOnly;
   }, { tabs: before.groups[0].tabs, active: before.groups[0].activeTabId }, { timeout: 60_000 });
-  await readState(); // hydrate read-only Pal presence before comparing
+  await readState(false); // hydrate read-only Pal presence before comparing
   receipt.phase = 'verify';
-  const after = await readState();
+  const after = await readState(false);
   fs.writeFileSync(path.join(root, `${label}-after-private-${stamp}.json`), JSON.stringify({ stamp, afterPid: receipt.afterPid, state: after }), { mode: 0o600, flag: 'wx' });
   receipt.after = summarize(after);
   assert.deepEqual(protectedPart(receipt.after), protectedPart(receipt.before), 'Protected state changed across the update');
