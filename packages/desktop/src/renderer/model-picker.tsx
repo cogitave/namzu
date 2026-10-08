@@ -43,6 +43,7 @@ import {
 	modelDisplayLabel,
 	resolveEffort,
 } from './model-choice.js'
+import { isNewModel } from './model-freshness.js'
 import { commitsOnKey } from './picker-commit.js'
 import { Button } from './ui/button.js'
 import { Input } from './ui/input.js'
@@ -567,9 +568,9 @@ function ModelBrowser({
 			return known ? { loading: false, value: known } : { loading: true }
 		if (snapshot.state === 'error') return { loading: false, value: known, error: LOAD_FAILED }
 		const local = catalogues[provider.id]
-		return local && (local.scopeKey === undefined || local.scopeKey === scope.key)
-			? local
-			: undefined
+		if (local && (local.scopeKey === undefined || local.scopeKey === scope.key)) return local
+		// An expired or updated scope reads again; its previous rows stay up meanwhile.
+		return known ? { loading: false, value: known } : undefined
 	}
 	const shownCatalogues = new Map(
 		shownProviders.map((provider) => [provider.id, catalogueFor(provider)]),
@@ -791,7 +792,12 @@ function ModelBrowser({
 									nativeButton
 									render={<button type="button" />}
 									className="model-picker-row"
-									aria-label={[model.provider.label, model.label, model.note?.trim()]
+									aria-label={[
+										model.provider.label,
+										model.label,
+										model.note?.trim(),
+										isNewModel(model.firstSeen, Date.now()) ? 'New' : undefined,
+									]
 										.filter(Boolean)
 										.join(' ')}
 									onClick={(event) => {
@@ -811,6 +817,11 @@ function ModelBrowser({
 											<small>{model.note}</small>
 										)}
 									</span>
+									{isNewModel(model.firstSeen, Date.now()) && (
+										<span className="model-picker-new" aria-hidden="true">
+											New
+										</span>
+									)}
 									<span className="model-picker-selection" aria-hidden="true">
 										<Radio.Indicator className="model-picker-checked">
 											<CheckIcon aria-hidden="true" />

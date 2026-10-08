@@ -420,3 +420,12 @@
 		transform: none;
 	}
 }
+.model-picker-new {
+	flex: none;
+	padding: 0 6px;
+	border-radius: 999px;
+	background: color-mix(in srgb, var(--foreground) 8%, transparent);
+	color: var(--muted-foreground);
+	font-size: 11px;
+	line-height: 16px;
+}

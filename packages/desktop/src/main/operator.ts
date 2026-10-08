@@ -69,6 +69,7 @@ import {
 	DesktopConversationStore,
 } from './desktop-conversation-store.js'
 import type { DesktopDiagnosticSink } from './diagnostics.js'
+import { ModelListStore, type StoredModelList, modelListKey } from './model-list-store.js'
 import { isNormalChatWorkspace, normalChatWorkspace } from './normal-chat-workspace.js'
 import type { OpenIn, OpenTarget } from './open-in.js'
 import { PalCommunicationManager } from './pal-communication.js'
@@ -198,6 +199,16 @@ interface Conversation {
 	}
 	restorePending?: boolean
 	permissions: Map<string, string | number>
+}
+/** A stored model list older than this is read again in the background. */
+const MODEL_LIST_MAX_AGE_MS = 6 * 60 * 60 * 1000
+// The CLI's own wording; only this notice describes the list rather than the conversation.
+const MODEL_RETRY_AFTER_MS = 60 * 1000
+const TRUNCATED_MODEL_NOTICE = 'Showing the first 4,096 models.'
+interface ModelRead {
+	view: ModelCatalogueView
+	/** Present when the read was a usable list and is now stored. */
+	entry?: StoredModelList
 }
 const CHANGE_STATUSES = new Set(['modified', 'added', 'deleted', 'renamed', 'untracked', 'binary'])
 
@@ -354,6 +365,14 @@ export class Operator {
 	private readonly changingPlugins = new Set<string>()
 	private readonly backgroundWork: BackgroundWorkStatusTracker
 	private readonly desktopStore?: DesktopConversationStore
+	private readonly modelLists?: ModelListStore
+	private readonly modelReads = new Map<string, Promise<ModelRead>>()
+	/** Keys read from the CLI in this app run, so a stored list is revalidated once per launch. */
+	private readonly modelsRevalidated = new Set<string>()
+	/** Keys whose list the CLI contradicted; the next read refreshes them regardless of age. */
+	private readonly modelsStale = new Set<string>()
+	/** When a failed background read may be tried again, per key. */
+	private readonly modelsRetryAt = new Map<string, number>()
 	private savedDesktop?: DesktopConversationSnapshot
 	constructor(
 		private readonly command: RuntimeCommand,
@@ -370,6 +389,9 @@ export class Operator {
 		)
 		streamProxy?.onClosed((id) => this.closePalComputerStream(id))
 		if (registryDirectory) {
+			this.modelLists = new ModelListStore(registryDirectory, {
+				onError: (error) => diagnostics?.record('ipc_failed', { operation: 'models', error }),
+			})
 			this.desktopStore = new DesktopConversationStore(registryDirectory)
 			try {
 				this.savedDesktop = this.desktopStore.read()
@@ -1167,7 +1189,12 @@ export class Operator {
 		this.streamProxy?.close(id)
 	}
 	private emit(event: DesktopEvent): void {
-		if (event.kind !== 'connection' && event.kind !== 'workspace' && event.kind !== 'pal-deleted') {
+		if (
+			event.kind !== 'connection' &&
+			event.kind !== 'workspace' &&
+			event.kind !== 'pal-deleted' &&
+			event.kind !== 'model-catalogue-updated'
+		) {
 			const id = event.kind === 'permission' ? event.request.sessionId : event.sessionId
 			const session = this.conversations.get(id)
 			if (session) {
@@ -2522,7 +2549,22 @@ export class Operator {
 			this.captureProviderSelection(session, result)
 			session.providers = result
 		} else project.providers = result
+		this.pruneModelLists(project, session, result)
 		return result
+	}
+	/** A provider row that left the status (signed out) or changed takes its stored list along. */
+	private pruneModelLists(
+		project: Project,
+		session: Conversation | undefined,
+		status: ProviderView,
+	): void {
+		if (!this.modelLists || project.view.palId || !Array.isArray(status?.available)) return
+		const keep = new Set<string>()
+		for (const row of status.available) {
+			const key = this.modelListKeyFor(project, session, row.id, status)
+			if (key) keep.add(key)
+		}
+		this.modelLists.prune(session?.view.harness ?? 'namzu', keep)
 	}
 	async models(id: string, provider: string, sessionId?: string): Promise<ModelCatalogueView> {
 		const project = this.project(id)
@@ -2531,14 +2573,166 @@ export class Operator {
 		const session = sessionId === undefined ? undefined : this.session(sessionId)
 		if (session && session.view.projectId !== id)
 			throw new Error('This conversation belongs to another project.')
-		if (session?.needsLoad) await this.reattach(session)
-		const assertCurrent = this.metadataRead(project, session)
-		const result = (await project.client.request('namzu/providers/models', {
-			provider,
-			...(session ? { sessionId: session.runtimeSessionId } : {}),
-		})) as ModelCatalogueView
-		assertCurrent()
-		return result
+		// A stored list answers at once; the CLI is asked in the background, never awaited.
+		const stored = this.storedModels(project, session, provider)
+		if (stored) {
+			if (
+				(!this.modelsRevalidated.has(stored.key) ||
+					this.modelsStale.has(stored.key) ||
+					Date.now() - stored.entry.fetchedAt > MODEL_LIST_MAX_AGE_MS) &&
+				Date.now() >= (this.modelsRetryAt.get(stored.key) ?? 0)
+			)
+				void this.readModels(project, session, provider, stored.key).then(
+					(read) => {
+						// The stored rows stay; the failure is only a diagnostics line.
+						if (!read.entry) this.modelReadFailed(stored.key)
+					},
+					(error: unknown) => {
+						if (error instanceof SupersededConversationSettingsError) return
+						this.modelReadFailed(stored.key, error)
+					},
+				)
+			return this.storedView(stored.entry, session, provider)
+		}
+		let read: ModelRead
+		try {
+			read = await this.readModels(project, session, provider)
+		} catch (error) {
+			// A read shared with another conversation can be superseded by that one's change;
+			// this caller's own state is unchanged, so it asks once more for itself.
+			if (!(error instanceof SupersededConversationSettingsError)) throw error
+			read = await this.readModels(project, session, provider)
+		}
+		return read.entry ? this.storedView(read.entry, session, provider) : read.view
+	}
+	private modelReadFailed(key: string, error?: unknown): void {
+		// A source that keeps failing is tried again after a minute, not on every picker open.
+		this.modelsRetryAt.set(key, Date.now() + MODEL_RETRY_AFTER_MS)
+		this.diagnostics?.record('cli_request_failed', {
+			operation: 'models',
+			...(error === undefined ? {} : { error }),
+		})
+	}
+	/** Resolves once no model list read is running; a test seam for the background refresh. */
+	async modelReadsSettled(): Promise<void> {
+		while (this.modelReads.size) await Promise.allSettled([...this.modelReads.values()])
+	}
+	/** The list kept for this provider, when the cached provider status can name its key. */
+	private storedModels(
+		project: Project,
+		session: Conversation | undefined,
+		provider: string,
+	): { key: string; entry: StoredModelList } | undefined {
+		const key = this.modelListKeyFor(project, session, provider)
+		const entry = key ? this.modelLists?.get(key) : undefined
+		return key && entry ? { key, entry } : undefined
+	}
+	private modelListKeyFor(
+		project: Project,
+		session: Conversation | undefined,
+		provider: string,
+		status = session ? session.providers : project.providers,
+	): string | undefined {
+		// A Pal reads its own provider set, which the key does not describe; it is always live.
+		const row = project.view.palId
+			? undefined
+			: status?.available.find((item) => item.id === provider)
+		return row
+			? modelListKey({
+					engine: session?.view.harness ?? 'namzu',
+					id: row.id,
+					label: row.label,
+				})
+			: undefined
+	}
+	private storedView(
+		entry: StoredModelList,
+		session: Conversation | undefined,
+		provider: string,
+	): ModelCatalogueView {
+		const models = entry.rows.models.map((model) =>
+			Object.hasOwn(entry.firstSeen, model.id)
+				? { ...model, firstSeen: entry.firstSeen[model.id] }
+				: model,
+		)
+		// The selected-model warning belongs to the conversation, so it is never stored.
+		const selected = session?.providers?.selected
+		const engine = session?.view.harness ?? 'namzu'
+		const missing =
+			engine === 'namzu' &&
+			entry.rows.notice === null &&
+			selected?.id === provider &&
+			selected.model !== undefined &&
+			!models.some((model) => model.id === selected.model)
+		return {
+			models,
+			notice: missing
+				? 'The selected model is not in this catalogue. Choose a listed model or another provider.'
+				: entry.rows.notice,
+			fetchedAt: entry.fetchedAt,
+		}
+	}
+	/** One CLI read per key at a time; a successful, non-empty list is stored. */
+	private readModels(
+		project: Project,
+		session: Conversation | undefined,
+		provider: string,
+		knownKey?: string,
+	): Promise<ModelRead> {
+		const keyed = knownKey ?? this.modelListKeyFor(project, session, provider)
+		const running = keyed ? this.modelReads.get(keyed) : undefined
+		if (running) return running
+		const operation = (async (): Promise<ModelRead> => {
+			if (session?.needsLoad) await this.reattach(session)
+			const assertCurrent = this.metadataRead(project, session)
+			const view = (await project.client.request('namzu/providers/models', {
+				provider,
+				...(session ? { sessionId: session.runtimeSessionId } : {}),
+			})) as ModelCatalogueView
+			assertCurrent()
+			let key = keyed
+			// A failed listing arrives as a notice with no rows. It is shown, never kept.
+			if (!this.modelLists || !Array.isArray(view?.models) || !view.models.length) return { view }
+			if (!key) {
+				// The renderer reads provider status first, so this is the rare cold path.
+				const status = (await project.client.request(
+					'namzu/providers/status',
+					session ? { sessionId: session.runtimeSessionId } : {},
+				)) as ProviderView
+				assertCurrent()
+				key = this.modelListKeyFor(project, session, provider, status)
+			}
+			if (!key) return { view }
+			// Only a usable list counts as this run's revalidation; a failed read is tried again.
+			this.modelsRevalidated.add(key)
+			this.modelsRetryAt.delete(key)
+			this.modelsStale.delete(key)
+			// The warning that the selected model is missing is per conversation; keep only
+			// what describes the list itself.
+			const notice = view.notice === TRUNCATED_MODEL_NOTICE ? view.notice : null
+			const { changed, entry } = this.modelLists.put(key, { models: view.models, notice })
+			if (changed)
+				this.emit({
+					kind: 'model-catalogue-updated',
+					engine: session?.view.harness ?? 'namzu',
+					provider,
+				})
+			return { view, entry }
+		})()
+		if (keyed) {
+			this.modelReads.set(keyed, operation)
+			const clear = () => {
+				if (this.modelReads.get(keyed) === operation) this.modelReads.delete(keyed)
+			}
+			operation.then(clear, clear)
+		}
+		return operation
+	}
+	/** A model the CLI refused means the stored list is out of date for the next read. */
+	private markModelsStale(session: Conversation, provider: string): void {
+		const project = this.projects.get(session.view.projectId)
+		const key = project ? this.modelListKeyFor(project, session, provider) : undefined
+		if (key) this.modelsStale.add(key)
 	}
 	async modelSettings(
 		id: string,
@@ -2647,11 +2841,17 @@ export class Operator {
 							: undefined,
 				)
 			const assertCurrent = this.metadataRead(this.project(session.view.projectId), session, true)
-			await session.client.request('namzu/providers/select', {
-				sessionId: session.runtimeSessionId,
-				provider,
-				...(model?.trim() ? { model: model.trim() } : {}),
-			})
+			try {
+				await session.client.request('namzu/providers/select', {
+					sessionId: session.runtimeSessionId,
+					provider,
+					...(model?.trim() ? { model: model.trim() } : {}),
+				})
+			} catch (error) {
+				// The CLI refused this choice, so the list that offered it may be out of date.
+				if (model?.trim()) this.markModelsStale(session, provider)
+				throw error
+			}
 			assertCurrent()
 			session.providerSelection = {
 				provider,

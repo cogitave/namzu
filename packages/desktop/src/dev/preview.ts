@@ -1136,6 +1136,8 @@ const api: DesktopApi = {
 					id: 'sample-focused',
 					label: 'Sample focused',
 					note: 'Preview model',
+					// Shows the "New" chip: first seen two days ago.
+					firstSeen: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
 				},
 				{ id: 'sample-quick', label: 'Sample quick', note: 'Preview model' },
 			],

@@ -26,6 +26,9 @@ const catalogueMetadata = ({
 export interface ModelCatalogueDisplayScope {
 	projectId: string
 	key: string
+	/** Which list this is, so a main-process update can find the scopes it makes stale. */
+	engine: string
+	provider: string
 }
 
 export type ModelCatalogueDisplaySnapshot =
@@ -36,6 +39,8 @@ export type ModelCatalogueDisplaySnapshot =
 
 type Entry = {
 	projectId: string
+	engine: string
+	provider: string
 	state: 'loading' | 'error' | 'ready'
 	value?: ModelCatalogueView
 	chars: number
@@ -76,6 +81,8 @@ export class ModelCatalogueDisplayCache {
 	}): ModelCatalogueDisplayScope {
 		return {
 			projectId: input.projectId,
+			engine: input.harnessScope ?? 'namzu',
+			provider: input.provider.id,
 			key: JSON.stringify([
 				this.id,
 				this.globalEpoch,
@@ -119,6 +126,8 @@ export class ModelCatalogueDisplayCache {
 		if (existing) this.delete(scope.key)
 		const entry: Entry = {
 			projectId: scope.projectId,
+			engine: scope.engine,
+			provider: scope.provider,
 			state: 'loading',
 			chars: 0,
 			expiresAt: 0,
@@ -179,6 +188,20 @@ export class ModelCatalogueDisplayCache {
 		this.projectEpochs.set(projectId, (this.projectEpochs.get(projectId) ?? 0) + 1)
 		for (const [key, entry] of this.entries) if (entry.projectId === projectId) this.delete(key)
 		this.changed()
+	}
+
+	/**
+	 * Main stored a changed list. Matching scopes read again; `known` stays, so the picker keeps
+	 * showing the old rows until the new ones arrive.
+	 */
+	catalogueUpdated(engine: string, provider: string): void {
+		let touched = false
+		for (const [key, entry] of this.entries)
+			if (entry.engine === engine && entry.provider === provider && entry.state !== 'loading') {
+				this.delete(key)
+				touched = true
+			}
+		if (touched) this.changed()
 	}
 
 	private remember(key: string, value: ModelCatalogueView): void {

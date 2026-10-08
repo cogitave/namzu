@@ -115,7 +115,10 @@ import {
 import { JobRow } from './job-row.js'
 import { LocalSpeechReadAloud, LocalSpeechSettings } from './local-speech-settings.js'
 import { MessageActions } from './message-actions.js'
-import { invalidateModelCatalogueDisplayCache } from './model-catalogue-display-cache.js'
+import {
+	invalidateModelCatalogueDisplayCache,
+	modelCatalogueDisplayCacheForApi,
+} from './model-catalogue-display-cache.js'
 import { effortToSend, resolveComposerModelChoice, staleEffort } from './model-choice.js'
 import { NavigationRail } from './navigation-rail.js'
 import { normalConversationProject } from './normal-conversation.js'
@@ -1446,6 +1449,13 @@ export function App({
 					setModelSettings(null)
 				}
 				updateProject(event.project)
+				return
+			}
+			if (event.kind === 'model-catalogue-updated') {
+				modelCatalogueDisplayCacheForApi(window.namzu).catalogueUpdated(
+					event.engine,
+					event.provider,
+				)
 				return
 			}
 			const id = event.kind === 'permission' ? event.request.sessionId : event.sessionId

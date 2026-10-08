@@ -97,8 +97,18 @@ lines.on('line', (line) => {
 		} else discovery(id, 'provider', engine && engine !== 'namzu' ? {
 			available: [{ id: engine, label: engine, defaultModel: `${engine}-default` }],
 			selected: { id: engine, model: models.get(params.sessionId) },
+		} : process.env.FIXTURE_LIST_PROVIDER ? {
+			available: [{ id: 'fixture', label: process.env.FIXTURE_LIST_PROVIDER, defaultModel: 'fixture-default' }],
+			selected: null,
 		} : { available: [], selected: null })
 	}
+	else if (method === 'namzu/providers/models' && process.env.FIXTURE_MODELS_FILE && existsSync(process.env.FIXTURE_MODELS_FILE)) {
+		const content = readFileSync(process.env.FIXTURE_MODELS_FILE, 'utf8')
+		if (content === 'throw') send({ id, error: { code: -32603, message: 'The isolated fixture could not list models.' } })
+		else if (content === 'empty') reply(id, { models: [], notice: 'The provider catalogue could not be loaded. Refresh the list to retry.' })
+		else reply(id, { models: JSON.parse(content), notice: null })
+	}
+	else if (method === 'namzu/providers/models' && process.env.FIXTURE_MODELS_DELAY_MS) setTimeout(() => reply(id, { models: [{ id: 'alpha', label: 'Alpha' }], notice: null }), Number(process.env.FIXTURE_MODELS_DELAY_MS))
 	else if (method === 'namzu/providers/models') reply(id, { models: [{ id: `${params.provider}-${params.sessionId ?? 'project'}`, label: 'Configured fixture model' }], notice: null })
 	else if (method === 'session/load') { sessions.add(params.sessionId); reply(id, { sessionId: params.sessionId }) }
 	else if (method === 'session/new') { const sessionId = `session-${randomUUID()}`; sessions.add(sessionId); reply(id, { sessionId }) }

@@ -181,8 +181,17 @@ export interface ProviderView {
 }
 export interface ModelCatalogueView {
 	/** `default` marks this engine's own recommended default model. */
-	models: { id: string; label: string; note?: string; default?: true }[]
+	models: {
+		id: string
+		label: string
+		note?: string
+		default?: true
+		/** ISO time main first saw this id in a list it had already stored; absent when unknown. */
+		firstSeen?: string
+	}[]
 	notice: string | null
+	/** Epoch milliseconds of the read behind a stored list; absent on a live read. */
+	fetchedAt?: number
 }
 export interface PalView {
 	id: string
@@ -396,6 +405,8 @@ export type DesktopEvent = (
 	  }
 	| { kind: 'connection'; project: ProjectView }
 	| { kind: 'workspace'; view: WorkspaceView }
+	/** A stored model list was refreshed and its rows differ; the next read returns the new rows. */
+	| { kind: 'model-catalogue-updated'; engine: string; provider: string }
 	| {
 			kind: 'pal-deleted'
 			palId: string
