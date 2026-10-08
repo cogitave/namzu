@@ -114,3 +114,7 @@ Rollback: close Namzu, rename `launch.cjs.retired-20261008` back to `launch.cjs`
 ## Installer update to 964e85ba9 (2026-10-08)
 
 First update of the installed app. Built from a clean worktree at `964e85ba9` (sha256 `B24C25E0…CA72`, 178,317,511 bytes, app icon embedded). The app was not running; the installer ran silently over the existing install (`/S`, exit 0, 138 s), then the Start-menu shortcut started it from `%LOCALAPPDATA%\Programs\namzu\Namzu.exe` and the CLI connected. Profile untouched.
+
+## Installer update to fb986b64d (2026-10-09)
+
+Terminal tabs and the Desktop | CLI surface. Built from a clean worktree at `fb986b64d` (sha256 `C05700E4…A142`, 180,014,404 bytes, node-pty staged for win32-x64 only). Both the installed app and a temporary preview build (`stage-preview`, its own `--user-data-dir`) were already closed; the installer ran silently over the install (`/S`, exit 0, 151 s), the Start-menu shortcut started it, `resources\cli\node_modules\node-pty` is present, and the preview's temporary profile was deleted.
