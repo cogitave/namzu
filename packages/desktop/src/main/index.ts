@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import {
@@ -15,7 +16,6 @@ import {
 	session,
 	shell,
 } from 'electron'
-import electronUpdater from 'electron-updater'
 import type {
 	PalPermissionChange,
 	PalSubscriptionCreate,
@@ -56,7 +56,12 @@ import { projectDraftOwner } from './project-draft-owner.js'
 import { selectRendererPage } from './renderer-page.js'
 import { desktopRuntimeNodeArgs } from './runtime-node-args.js'
 import { installStreamRendererPolicy, withStreamRendererPort } from './stream-renderer-policy.js'
-import { UpdateController, bakedFeedDeclared, updateFeedFromEnv } from './updater.js'
+import {
+	type AutoUpdaterLike,
+	UpdateController,
+	bakedFeedDeclared,
+	updateFeedFromEnv,
+} from './updater.js'
 import {
 	readWindowMenu,
 	readWindowMenuAnchor,
@@ -993,7 +998,10 @@ function bakedUpdateConfig(): string | undefined {
 	}
 }
 const updates = new UpdateController({
-	updater: () => electronUpdater.autoUpdater,
+	// Required lazily: a development install carries no updater package, and only an enabled updater needs it.
+	updater: () =>
+		(createRequire(import.meta.url)('electron-updater') as { autoUpdater: AutoUpdaterLike })
+			.autoUpdater,
 	// Nothing is checked unless a feed was named (environment) or the build itself declares one.
 	enabled: updateFeed !== undefined || (app.isPackaged && bakedFeedDeclared(bakedUpdateConfig())),
 	feed: updateFeed,
