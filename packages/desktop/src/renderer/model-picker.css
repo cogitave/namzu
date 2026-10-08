@@ -271,6 +271,19 @@
 	line-height: 16px;
 	font-weight: 500;
 }
+.model-picker-group-title {
+	margin: 0;
+	padding: 6px 8px 2px;
+	color: var(--muted-foreground);
+	font-size: 11px;
+	line-height: 16px;
+	font-weight: 500;
+}
+/* Under a provider legend (search) the group heading steps in, so the two read as levels. */
+.model-picker-section-title ~ .model-picker-group-title {
+	padding-left: 16px;
+	font-weight: 400;
+}
 .model-picker-row {
 	display: flex;
 	align-items: center;

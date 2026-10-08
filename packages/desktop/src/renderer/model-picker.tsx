@@ -5,6 +5,7 @@ import type { ReasoningEffort } from '@namzu/sdk'
 import { ChevronLeft } from 'lucide-react'
 import {
 	type CSSProperties,
+	Fragment,
 	type KeyboardEvent,
 	useCallback,
 	useEffect,
@@ -37,10 +38,12 @@ import {
 } from './model-catalogue-display-cache.js'
 import {
 	type ModelChoice,
+	SECTION_HEADINGS,
 	defaultModelRow,
 	effortLabel,
 	followCatalogue,
 	modelDisplayLabel,
+	modelSections,
 	resolveEffort,
 } from './model-choice.js'
 import { isNewModel } from './model-freshness.js'
@@ -581,11 +584,19 @@ function ModelBrowser({
 			provider,
 		})),
 	)
-	const filtered = models.filter((model) =>
-		`${model.label} ${model.id} ${model.provider.label}`
-			.toLowerCase()
-			.includes(query.trim().toLowerCase()),
+	// A headed list also matches its heading, so "api key" still finds the key models.
+	const sectionsByProvider = new Map(
+		shownProviders.map((provider) => [
+			provider.id,
+			modelSections(shownCatalogues.get(provider.id)?.value?.models ?? []),
+		]),
 	)
+	const filtered = models.filter((model) => {
+		const section = sectionsByProvider.get(model.provider.id)?.get(model.id)
+		return `${model.label} ${model.id} ${model.provider.label} ${section ? SECTION_HEADINGS[section] : ''}`
+			.toLowerCase()
+			.includes(query.trim().toLowerCase())
+	})
 	const loading = shownProviders.some(
 		(provider) => !shownCatalogues.get(provider.id) || shownCatalogues.get(provider.id)?.loading,
 	)
@@ -605,7 +616,8 @@ function ModelBrowser({
 	}
 	const groups = shownProviders.flatMap((provider) => {
 		const rows = filtered.filter((model) => model.provider.id === provider.id)
-		return rows.length ? [{ provider, rows }] : []
+		const sections = sectionsByProvider.get(provider.id)
+		return rows.length ? [{ provider, rows, sections }] : []
 	})
 	const modelKey = (provider: string, model: string) => JSON.stringify([provider, model])
 	const toChoice = (model: (typeof models)[number]): ModelChoice => ({
@@ -747,7 +759,7 @@ function ModelBrowser({
 					// Arrow keys only move the highlight; a choice is made by click, Enter or Space.
 					onValueChange={() => {}}
 				>
-					{groups.map(({ provider, rows }, groupIndex) => (
+					{groups.map(({ provider, rows, sections }, groupIndex) => (
 						<fieldset
 							key={provider.id}
 							className="model-picker-section"
@@ -785,50 +797,66 @@ function ModelBrowser({
 									</span>
 								</Radio.Root>
 							)}
-							{rows.map((model) => (
-								<Radio.Root
-									key={modelKey(model.provider.id, model.id)}
-									value={modelKey(model.provider.id, model.id)}
-									nativeButton
-									render={<button type="button" />}
-									className="model-picker-row"
-									aria-label={[
-										model.provider.label,
-										model.label,
-										model.note?.trim(),
-										isNewModel(model.firstSeen, Date.now()) ? 'New' : undefined,
-									]
-										.filter(Boolean)
-										.join(' ')}
-									onClick={(event) => {
-										event.preventDefault()
-										onChoose(toChoice(model))
-									}}
-									onKeyDown={(event) => {
-										if (commitsOnKey(event.key)) {
-											event.preventDefault()
-											onChoose(toChoice(model))
-										}
-									}}
-								>
-									<span className="model-picker-name">
-										<span title={`${model.label} · ${model.id}`}>{model.label}</span>
-										{model.note && sharedNotes.get(model.provider.id) !== model.note.trim() && (
-											<small>{model.note}</small>
+							{rows.map((model, rowIndex) => {
+								const section = sections?.get(model.id)
+								const heading =
+									section !== undefined &&
+									section !==
+										(rowIndex > 0 ? sections?.get(rows[rowIndex - 1]?.id ?? '') : undefined)
+										? SECTION_HEADINGS[section]
+										: undefined
+								return (
+									<Fragment key={modelKey(model.provider.id, model.id)}>
+										{heading && (
+											<div className="model-picker-group-title" aria-hidden="true">
+												{heading}
+											</div>
 										)}
-									</span>
-									{isNewModel(model.firstSeen, Date.now()) && (
-										<span className="model-picker-new" aria-hidden="true">
-											New
-										</span>
-									)}
-									<span className="model-picker-selection" aria-hidden="true">
-										<Radio.Indicator className="model-picker-checked">
-											<CheckIcon aria-hidden="true" />
-										</Radio.Indicator>
-									</span>
-								</Radio.Root>
-							))}
+										<Radio.Root
+											value={modelKey(model.provider.id, model.id)}
+											nativeButton
+											render={<button type="button" />}
+											className="model-picker-row"
+											aria-label={[
+												model.provider.label,
+												section ? SECTION_HEADINGS[section] : undefined,
+												model.label,
+												model.note?.trim(),
+												isNewModel(model.firstSeen, Date.now()) ? 'New' : undefined,
+											]
+												.filter(Boolean)
+												.join(' ')}
+											onClick={(event) => {
+												event.preventDefault()
+												onChoose(toChoice(model))
+											}}
+											onKeyDown={(event) => {
+												if (commitsOnKey(event.key)) {
+													event.preventDefault()
+													onChoose(toChoice(model))
+												}
+											}}
+										>
+											<span className="model-picker-name">
+												<span title={`${model.label} · ${model.id}`}>{model.label}</span>
+												{model.note && sharedNotes.get(model.provider.id) !== model.note.trim() && (
+													<small>{model.note}</small>
+												)}
+											</span>
+											{isNewModel(model.firstSeen, Date.now()) && (
+												<span className="model-picker-new" aria-hidden="true">
+													New
+												</span>
+											)}
+											<span className="model-picker-selection" aria-hidden="true">
+												<Radio.Indicator className="model-picker-checked">
+													<CheckIcon aria-hidden="true" />
+												</Radio.Indicator>
+											</span>
+										</Radio.Root>
+									</Fragment>
+								)
+							})}
 						</fieldset>
 					))}
 				</RadioGroup>

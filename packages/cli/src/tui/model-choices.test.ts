@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { canSelectModel } from '../integrations/providers/access.js'
 import { PROVIDER_REGISTRY } from '../integrations/providers/registry.js'
 
-import { modelStep } from './model-choices.js'
+import { hasBothGroups, modelStep, rowSection, sectionHeading } from './model-choices.js'
 
 const DEFAULT = 'claude-sonnet-4-5'
 
@@ -443,8 +443,66 @@ it('marks a listed model that needs an API key', () => {
 				inputPrice: 1,
 				outputPrice: 2,
 				requiresKey: true,
+				group: 'key',
 			},
 		],
 	})
+	// No free group beside it, so no headings: the note carries the fact instead.
 	expect(step.choices.find((c) => c.id === 'paid')?.note).toBe('(API key)')
+})
+
+describe('Zen group headings', () => {
+	const mixed = modelStep('u', {
+		kind: 'ok',
+		models: [
+			{ id: 'f', name: 'F', inputPrice: 0, outputPrice: 0, group: 'free' },
+			{
+				id: 'k',
+				name: 'K',
+				inputPrice: 1,
+				outputPrice: 2,
+				requiresKey: true,
+				group: 'key',
+				limitsVerified: false,
+			},
+			{ id: 'u', name: 'U' },
+		],
+	})
+
+	it('drops the per-row API key note when both headings are drawn', () => {
+		expect(hasBothGroups(mixed.choices)).toBe(true)
+		expect(mixed.choices.map((c) => c.group)).toEqual(['free', 'key', undefined])
+		expect(mixed.choices.find((c) => c.id === 'k')?.note).toBe('(Limits not published yet)')
+	})
+
+	it('files an unpriced row under its own heading, after the grouped ones', () => {
+		const sections = mixed.choices.map((_, i) => rowSection(mixed.choices, i))
+		expect(sections).toEqual(['free', 'key', 'other'])
+		expect(sections.map((s) => sectionHeading(s ?? 'other'))).toEqual([
+			'Free',
+			'API key',
+			'Other models',
+		])
+	})
+
+	it('puts no heading on a row that precedes every grouped one', () => {
+		expect(rowSection([{}, { group: 'free' }], 0)).toBeUndefined()
+	})
+
+	it('keeps the note, with the limits remark last, when only key models are listed', () => {
+		const step = modelStep('k', {
+			kind: 'ok',
+			models: [{ id: 'k', name: 'K', requiresKey: true, group: 'key', limitsVerified: false }],
+		})
+		expect(step.choices[0]?.note).toBe('(namzu default · API key · Limits not published yet)')
+	})
+
+	it('shows no heading and no key note for a list of free models only', () => {
+		const step = modelStep('f', {
+			kind: 'ok',
+			models: [{ id: 'f', name: 'F', inputPrice: 0, outputPrice: 0, group: 'free' }],
+		})
+		expect(hasBothGroups(step.choices)).toBe(false)
+		expect(step.choices[0]?.note).toBe('(namzu default · free)')
+	})
 })

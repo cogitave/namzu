@@ -67,7 +67,8 @@ function validRows(value: unknown): value is StoredModelList['rows'] {
 			model.id.length <= 400 &&
 			typeof model.label === 'string' &&
 			(model.note === undefined || typeof model.note === 'string') &&
-			(model.default === undefined || model.default === true),
+			(model.default === undefined || model.default === true) &&
+			(model.group === undefined || model.group === 'free' || model.group === 'key'),
 	)
 }
 
@@ -90,6 +91,7 @@ function cleanRows(rows: StoredModelList['rows']): StoredModelList['rows'] {
 			label: model.label,
 			...(model.note === undefined ? {} : { note: model.note }),
 			...(model.default ? { default: true as const } : {}),
+			...(model.group === undefined ? {} : { group: model.group }),
 		})),
 		notice: rows.notice,
 	}

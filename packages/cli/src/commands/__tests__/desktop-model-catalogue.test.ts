@@ -150,6 +150,7 @@ it('marks a model the listing flags as needing an API key', () => {
 					inputPrice: 1,
 					outputPrice: 2,
 					requiresKey: true,
+					group: 'key',
 				},
 			],
 		},
@@ -157,5 +158,52 @@ it('marks a model the listing flags as needing an API key', () => {
 		undefined,
 		() => true,
 	)
-	expect(result.models).toEqual([{ id: 'paid', label: 'Paid', note: '(API key)' }])
+	// Alone it has no heading to sit under, so the row keeps its note.
+	expect(result.models).toEqual([{ id: 'paid', label: 'Paid', note: '(API key)', group: 'key' }])
+})
+
+describe('Zen groups on the wire', () => {
+	const rows = (
+		models: Parameters<typeof desktopModelCatalogue>[0] extends infer L
+			? L extends { kind: 'ok'; models: infer M }
+				? M
+				: never
+			: never,
+	) => desktopModelCatalogue({ kind: 'ok', models }, 'other', undefined, () => true).models
+
+	it('carries the group and drops the key note when both headings will show', () => {
+		expect(
+			rows([
+				{ id: 'f', name: 'F', inputPrice: 0, outputPrice: 0, group: 'free' },
+				{ id: 'k', name: 'K', inputPrice: 1, outputPrice: 1, requiresKey: true, group: 'key' },
+				{ id: 'u', name: 'U' },
+			]),
+		).toEqual([
+			{ id: 'f', label: 'F', note: '(free)', group: 'free' },
+			{ id: 'k', label: 'K', group: 'key' },
+			{ id: 'u', label: 'U' },
+		])
+	})
+
+	it('leaves a provider without groups exactly as it was', () => {
+		expect(rows([{ id: 'a', name: 'A', inputPrice: 0, outputPrice: 0 }])).toEqual([
+			{ id: 'a', label: 'A', note: '(free)' },
+		])
+	})
+
+	it('keeps the key note when every free row was filtered out', () => {
+		const result = desktopModelCatalogue(
+			{
+				kind: 'ok',
+				models: [
+					{ id: 'f', name: 'F', inputPrice: 0, outputPrice: 0, group: 'free' },
+					{ id: 'k', name: 'K', inputPrice: 1, outputPrice: 1, requiresKey: true, group: 'key' },
+				],
+			},
+			'other',
+			undefined,
+			(id) => id === 'k',
+		)
+		expect(result.models).toEqual([{ id: 'k', label: 'K', note: '(API key)', group: 'key' }])
+	})
 })

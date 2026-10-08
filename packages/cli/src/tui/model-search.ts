@@ -12,6 +12,9 @@ import type { ModelChoice } from './model-choices.js'
  * what the screen shows is also the only rule an operator can predict by
  * looking at it, which is worth more than any word list this could invent.
  *
+ * A headed list also matches the heading a row sits under (`headings`, by id), so "api key"
+ * still finds key models once the per-row note is gone.
+ *
  * Nothing else moves. Every word must still appear, matching stays a
  * case-insensitive substring test after NFKC, an empty query still returns the
  * array it was given, and a match still returns the caller's own objects in
@@ -21,11 +24,15 @@ import type { ModelChoice } from './model-choices.js'
 export function filterModelChoices(
 	choices: readonly ModelChoice[],
 	query: string,
+	headings?: ReadonlyMap<string, string>,
 ): readonly ModelChoice[] {
 	const words = query.normalize('NFKC').toLowerCase().trim().split(/\s+/).filter(Boolean)
 	if (words.length === 0) return choices
 	return choices.filter((choice) => {
-		const text = `${choice.id} ${choice.label} ${choice.note ?? ''}`.normalize('NFKC').toLowerCase()
+		const text =
+			`${choice.id} ${choice.label} ${choice.note ?? ''} ${headings?.get(choice.id) ?? ''}`
+				.normalize('NFKC')
+				.toLowerCase()
 		return words.every((word) => text.includes(word))
 	})
 }

@@ -4855,7 +4855,15 @@ export type ListedModel = Pick<ModelInfo, 'id' | 'name' | 'inputModalities'> &
 		readonly limitsVerified?: false
 		/** Zen only: the catalogue states a non-zero price, so the model needs an API key. */
 		readonly requiresKey?: true
+		/**
+		 * Zen only: `free` is a stated 0/0 price, `key` a stated non-zero price. A model with no
+		 * published price carries neither, so a picker never files an unknown under either heading.
+		 */
+		readonly group?: ModelGroup
 	}
+
+/** Which heading a Zen model sits under in a picker. */
+export type ModelGroup = 'free' | 'key'
 
 /**
  * What happened when we asked a provider for its models.
@@ -4907,8 +4915,12 @@ function zenFreeFirst(id: ProviderId, models: ListedModel[]): ListedModel[] {
 	// A model with no published price lands after the free ones but is not marked:
 	// only a stated non-zero rate is a claim that a key is needed.
 	const paid = (m: ListedModel) => (m.inputPrice ?? 0) > 0 || (m.outputPrice ?? 0) > 0
-	const keyed = (m: ListedModel): ListedModel => (paid(m) ? { ...m, requiresKey: true } : m)
-	return [...models.filter(free), ...models.filter((m) => !free(m)).map(keyed)]
+	const keyed = (m: ListedModel): ListedModel =>
+		paid(m) ? { ...m, requiresKey: true, group: 'key' } : m
+	return [
+		...models.filter(free).map((m): ListedModel => ({ ...m, group: 'free' })),
+		...models.filter((m) => !free(m)).map(keyed),
+	]
 }
 
 /** Capability-only composer query; no session, tools, browser or model turn is created. */

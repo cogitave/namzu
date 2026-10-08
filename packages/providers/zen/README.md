@@ -19,7 +19,9 @@ Zen publishes a free-model catalogue. Namzu defaults requests without a key to
 through the real driver on 2026-09-28. Every Zen model the catalogue prices at
 zero can be selected without a key through an experimental request path; the
 Zen gateway may still refuse them. Models that need an API key are listed
-after the free ones and marked "(API key)". Zen Go requires its own API key.
+after the free ones, under their own "Free" and "API key" headings in the
+pickers (a list with only one group keeps an "(API key)" note on those rows
+instead). Zen Go requires its own API key.
 
 ```bash
 pnpm add @namzu/sdk @namzu/zen zod@^3

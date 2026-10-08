@@ -423,6 +423,11 @@ const available: ProviderView['available'] = [
 		label: 'Sample local models',
 		defaultModel: 'sample-focused',
 	},
+	{
+		id: 'sample-zen',
+		label: 'Sample Zen',
+		defaultModel: 'zen-free-one',
+	},
 ]
 let nextConversation = conversations.length + 1
 
@@ -1109,6 +1114,23 @@ const api: DesktopApi = {
 			if (engine.provider.id === provider) return { models: clone(engine.models), notice: null }
 		if (!available.some((item) => item.id === provider))
 			throw new Error('Choose a sample provider.')
+		// A Zen-like catalogue: free models, models that need an API key, and one with no published price.
+		if (provider === 'sample-zen')
+			return {
+				models: [
+					{ id: 'zen-free-one', label: 'Space Bunny Free', group: 'free', default: true },
+					{ id: 'zen-free-two', label: 'Sample Flash Free', group: 'free' },
+					{ id: 'zen-key-one', label: 'Sample Pro', group: 'key' },
+					{
+						id: 'zen-key-two',
+						label: 'Sample Reasoner',
+						group: 'key',
+						note: '(Limits not published yet)',
+					},
+					{ id: 'zen-unpriced', label: 'Sample Preview' },
+				],
+				notice: null,
+			}
 		// A design aid: localStorage 'namzu.preview.models' = 'fail' makes the sample catalogue unreadable, 'many' gives it 16 models.
 		try {
 			if (localStorage.getItem('namzu.preview.models') === 'fail') throw new Error('unavailable')

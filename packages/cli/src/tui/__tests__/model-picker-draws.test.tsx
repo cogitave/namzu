@@ -125,6 +125,79 @@ describe('the model step', () => {
 			unmount()
 		}
 	})
+	it('draws Free and API key headings as lines between rows, never as rows', async () => {
+		const { lastFrame, stdin, unmount } = open({
+			describeModels: async () => ({
+				kind: 'ok',
+				models: [
+					{ id: 'free-one', name: 'Free One', inputPrice: 0, outputPrice: 0, group: 'free' },
+					{
+						id: 'key-one',
+						name: 'Key One',
+						inputPrice: 1,
+						outputPrice: 2,
+						requiresKey: true,
+						group: 'key',
+					},
+				],
+			}),
+		})
+		try {
+			stdin.write('\r')
+			await flush()
+			const lines = (lastFrame() ?? '').split('\n')
+			const at = (pattern: RegExp) => lines.findIndex((l) => pattern.test(l))
+			const free = at(/^│\s+Free\s+│$/)
+			const key = at(/^│\s+API key\s+│$/)
+			expect(free).toBeGreaterThan(-1)
+			expect(free).toBeLessThan(at(/2\. Free One/))
+			expect(at(/2\. Free One/)).toBeLessThan(key)
+			expect(key).toBeLessThan(at(/3\. Key One/))
+			// Numbering counts choices only, and the per-row note is gone.
+			expect(lastFrame()).not.toContain('(API key)')
+			stdin.write('\u001b[B')
+			await flush()
+			expect(selectedRow(lastFrame() ?? '')).toContain('2. Free One')
+			stdin.write('\u001b[B')
+			await flush()
+			expect(selectedRow(lastFrame() ?? '')).toContain('3. Key One')
+		} finally {
+			unmount()
+		}
+	})
+	it('keeps the heading of an unpriced row that a search leaves alone, and finds key rows by heading', async () => {
+		const { lastFrame, stdin, unmount } = open({
+			describeModels: async () => ({
+				kind: 'ok',
+				models: [
+					{ id: 'free-one', name: 'Free One', inputPrice: 0, outputPrice: 0, group: 'free' },
+					{
+						id: 'key-one',
+						name: 'Key One',
+						inputPrice: 1,
+						outputPrice: 2,
+						requiresKey: true,
+						group: 'key',
+					},
+					{ id: 'odd-one', name: 'Odd One' },
+				],
+			}),
+		})
+		try {
+			stdin.write('\r')
+			await flush()
+			for (const ch of 'odd') {
+				stdin.write(ch)
+				await flush()
+			}
+			const frame = lastFrame() ?? ''
+			expect(frame).toContain('Other models')
+			expect(frame).toContain('Odd One')
+			expect(frame).not.toContain('Free One')
+		} finally {
+			unmount()
+		}
+	})
 	it('appears after a provider is accepted', async () => {
 		const { lastFrame, stdin, unmount } = open()
 		expect(lastFrame()).toContain('Choose a provider')

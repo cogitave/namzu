@@ -89,6 +89,7 @@ describe('picker provider operations', () => {
 		])
 		// Only a stated non-zero price marks a key; free rows are never marked.
 		expect(listing.models.map((m) => m.requiresKey)).toEqual([undefined, undefined, true, true])
+		expect(listing.models.map((m) => m.group)).toEqual(['free', 'free', 'key', 'key'])
 	})
 
 	it('distinguishes a withdrawn credential from a remote rejection and hides its diagnostic', async () => {

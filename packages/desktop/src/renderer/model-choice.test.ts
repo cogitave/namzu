@@ -6,6 +6,7 @@ import {
 	effortToSend,
 	followCatalogue,
 	modelDisplayLabel,
+	modelSections,
 	resolveComposerModelChoice,
 	resolveEffort,
 	staleEffort,
@@ -162,4 +163,27 @@ it('keeps a saved effort across a model change while the new model offers it', (
 	expect(effortToSend({ effortLevels: ['low'] }, 'high')).toBeUndefined()
 	expect(effortToSend(null, 'high')).toBe('high')
 	expect(staleEffort({ effortLevels: ['low'] }, undefined)).toBe(false)
+})
+
+it('names a heading for each row only when a list holds both Zen groups', () => {
+	const rows = [
+		{ id: 'f1', label: 'F1', group: 'free' as const },
+		{ id: 'f2', label: 'F2', group: 'free' as const },
+		{ id: 'k1', label: 'K1', group: 'key' as const },
+		{ id: 'u1', label: 'U1' },
+	]
+	expect(modelSections(rows)).toEqual(
+		new Map([
+			['f1', 'free'],
+			['f2', 'free'],
+			['k1', 'key'],
+			['u1', 'other'],
+		]),
+	)
+	expect(modelSections(rows.slice(0, 2))).toBeUndefined()
+	expect(modelSections(rows.slice(2))).toBeUndefined()
+	expect(modelSections([{ id: 'a', label: 'A' }])).toBeUndefined()
+	// A row ahead of every grouped one sits under no heading.
+	const ahead = modelSections([{ id: 'x', label: 'X' }, ...rows.filter((r) => r.group)])
+	expect(ahead?.has('x')).toBe(false)
 })

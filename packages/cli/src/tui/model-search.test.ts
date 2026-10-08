@@ -99,4 +99,17 @@ describe('filterModelChoices', () => {
 			'unbiased/pareto',
 		])
 	})
+
+	it('matches the heading a row sits under when headings are given', () => {
+		const choices = [
+			{ id: 'a', label: 'Alpha' },
+			{ id: 'b', label: 'Beta' },
+		]
+		const headings = new Map([
+			['a', 'Free'],
+			['b', 'API key'],
+		])
+		expect(filterModelChoices(choices, 'api key', headings).map((c) => c.id)).toEqual(['b'])
+		expect(filterModelChoices(choices, 'api key').map((c) => c.id)).toEqual([])
+	})
 })

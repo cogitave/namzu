@@ -186,6 +186,8 @@ export interface ModelCatalogueView {
 		label: string
 		note?: string
 		default?: true
+		/** Zen only: `free` is a stated 0/0 price, `key` a stated non-zero one; absent when no price is published. */
+		group?: 'free' | 'key'
 		/** ISO time main first saw this id in a list it had already stored; absent when unknown. */
 		firstSeen?: string
 	}[]

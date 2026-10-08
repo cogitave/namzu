@@ -216,3 +216,35 @@ it('prunes an engine to the keys still offered, and leaves other engines alone',
 	expect(reread.get(key('codex-cli', 'codex-cli', 'codex-cli'))).toBeDefined()
 	expect(store.prune('namzu', new Set([key('zen')]))).toBe(false)
 })
+
+it('keeps the Zen group on a stored row and still reads a row saved without one', async () => {
+	const path = await dir()
+	new ModelListStore(path).put(key(), {
+		models: [
+			{ id: 'f', label: 'F', group: 'free' },
+			{ id: 'k', label: 'K', group: 'key' },
+			{ id: 'u', label: 'U' },
+		],
+		notice: null,
+	})
+	expect(new ModelListStore(path).get(key())?.rows.models).toEqual([
+		{ id: 'f', label: 'F', group: 'free' },
+		{ id: 'k', label: 'K', group: 'key' },
+		{ id: 'u', label: 'U' },
+	])
+	const withEntry = async (rows: unknown) => {
+		const other = await dir()
+		await writeFile(
+			join(other, 'model-lists.json'),
+			JSON.stringify({
+				version: 1,
+				entries: { k: { rows: { models: [rows], notice: null }, fetchedAt: 1, firstSeen: {} } },
+			}),
+		)
+		return new ModelListStore(other).get('k')
+	}
+	expect((await withEntry({ id: 'a', label: 'A', note: '(free)' }))?.rows.models).toEqual([
+		{ id: 'a', label: 'A', note: '(free)' },
+	])
+	expect(await withEntry({ id: 'a', label: 'A', group: 'paid' })).toBeUndefined()
+})

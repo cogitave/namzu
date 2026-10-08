@@ -170,3 +170,31 @@ export function effortToSend(
 	if (settingsUnknown(settings)) return undefined
 	return staleEffort(settings, saved) ? undefined : saved
 }
+
+export type ModelSection = 'free' | 'key' | 'other'
+
+export const SECTION_HEADINGS: Record<ModelSection, string> = {
+	free: 'Free',
+	key: 'API key',
+	other: 'Other models',
+}
+
+/**
+ * Which heading each row of one provider's full list sits under, or `undefined` when the list
+ * holds fewer than both groups and so shows no headings. A row after the first grouped one that
+ * carries no group (no published price) sits under `other`; a row before every grouped one sits
+ * under none. Rows are keyed by id, so a search that drops rows leaves the rest where they were.
+ */
+export function modelSections(rows: readonly Row[]): Map<string, ModelSection> | undefined {
+	if (!rows.some((row) => row.group === 'free') || !rows.some((row) => row.group === 'key'))
+		return undefined
+	const sections = new Map<string, ModelSection>()
+	let grouped = false
+	for (const row of rows) {
+		if (row.group) {
+			grouped = true
+			sections.set(row.id, row.group)
+		} else if (grouped) sections.set(row.id, 'other')
+	}
+	return sections
+}

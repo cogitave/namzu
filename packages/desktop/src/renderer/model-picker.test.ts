@@ -282,3 +282,44 @@ it('keeps capability feedback inside the model list', () => {
 	expect(html).toContain('Actual model settings unavailable.')
 	expect(html).toContain('aria-label="Model: actual-model"')
 })
+
+const zenRows: ModelCatalogueView['models'] = [
+	{ id: 'free-a', label: 'Free A', group: 'free' },
+	{ id: 'free-b', label: 'Free B', group: 'free' },
+	{ id: 'key-a', label: 'Key A', group: 'key', note: '(Limits not published yet)' },
+	{ id: 'plain', label: 'Plain' },
+]
+const zenProviders: ProviderView = {
+	available: [{ id: 'zen', label: 'Zen', defaultModel: 'free-a' }],
+	selected: { id: 'zen', model: 'free-a' },
+}
+
+it('draws a heading before each Zen group, hidden from assistive tools and never a radio', () => {
+	catalogue('zen', zenRows)
+	const html = render(zenProviders)
+	const headings = [
+		...html.matchAll(/<div class="model-picker-group-title" aria-hidden="true">([^<]*)</g),
+	]
+	expect(headings.map((m) => m[1])).toEqual(['Free', 'API key', 'Other models'])
+	// Order on screen: heading, then its rows.
+	const at = (text: string) => html.indexOf(text)
+	const title = (text: string) => at(`aria-hidden="true">${text}<`)
+	expect(title('Free')).toBeLessThan(at('<span title="Free A'))
+	expect(at('<span title="Free B')).toBeLessThan(title('API key'))
+	expect(title('API key')).toBeLessThan(at('<span title="Key A'))
+	expect(at('<span title="Key A')).toBeLessThan(title('Other models'))
+	// The heading is still spoken, as part of each row's name; the limits note stays.
+	expect(html).toContain('aria-label="Zen Free Free A"')
+	expect(html).toContain('aria-label="Zen API key Key A (Limits not published yet)"')
+	expect(html).toContain('Limits not published yet')
+	expect(html).not.toContain('(API key)')
+})
+
+it('draws no heading for a Zen list with only free models, or for any other provider', () => {
+	catalogue('zen', zenRows.slice(0, 2))
+	const free = render(zenProviders)
+	expect(free).not.toContain('model-picker-group-title')
+	expect(free).toContain('aria-label="Zen Free A"')
+	catalogue('zen', zenRows.slice(2, 3))
+	expect(render(zenProviders)).not.toContain('model-picker-group-title')
+})

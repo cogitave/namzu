@@ -23,7 +23,7 @@ import {
 	unsupportedProviderMessage,
 	type VendorId,
 } from '../integrations/providers/index.js'
-import { type ModelListing, describeProviderModels, verifyCredential } from './agent.js'
+import { type ModelGroup, type ModelListing, describeProviderModels, verifyCredential } from './agent.js'
 import {
 	classifyCredential,
 	describeDisposition,
@@ -31,7 +31,13 @@ import {
 	maskKey,
 	sessionCredential,
 } from './credential-entry.js'
-import { type ModelStep, modelStep } from './model-choices.js'
+import {
+	type ModelStep,
+	hasBothGroups,
+	modelStep,
+	rowSection,
+	sectionHeading,
+} from './model-choices.js'
 import { filterModelChoices } from './model-search.js'
 import {
 	credentialNeed,
@@ -1548,12 +1554,24 @@ function ModelStepView({
 	// The same area the provider list measures against — see `pickerContentWidth`
 	// for the three deductions and what counting only two of them cost.
 	const width = pickerContentWidth(columns)
-	const choices = step ? filterModelChoices(step.choices, query ?? '') : []
+	// Sections come from the full list, so a search that drops rows leaves the rest under the
+	// heading they had, as in Desktop.
+	const sections = new Map<string, ModelGroup | 'other'>()
+	if (step && hasBothGroups(step.choices))
+		step.choices.forEach((c, i) => {
+			const section = rowSection(step.choices, i)
+			if (section) sections.set(c.id, section)
+		})
+	const headed = sections.size > 0
+	const headings = new Map([...sections].map(([id, section]) => [id, sectionHeading(section)]))
+	const choices = step ? filterModelChoices(step.choices, query ?? '', headings) : []
 	const noticeRows = step?.notice ? Math.ceil(choiceDisplayWidth(step.notice) / width) : 0
+	// "Free" and "API key" headings are lines between rows, never rows: the cursor and the digit
+	// shortcuts count choices only. They take screen lines, so the window gives them room: up to three at once (the repeated one, "API key", "Other models").
 	const window = selectionWindow(
 		choices,
 		cursor,
-		Math.max(1, Math.min(7, (terminal.rows ?? 24) - 7 - noticeRows)),
+		Math.max(1, Math.min(7, (terminal.rows ?? 24) - 7 - noticeRows - (headed ? 3 : 0))),
 	)
 	const hiddenAbove = window.start
 	const hiddenBelow = choices.length - window.start - window.items.length
@@ -1651,15 +1669,27 @@ function ModelStepView({
 										]
 							const note = notes.filter(Boolean).join(' ')
 							const labelWidth = width - choiceDisplayWidth(prefix) - choiceDisplayWidth(note) - 1
+							// A heading opens each section, and the first visible row repeats its
+							// section's so a scrolled window still says where it is.
+							const section = sections.get(c.id)
+							const heading =
+								section !== undefined &&
+								(visibleIndex === 0 || section !== sections.get(choices[index - 1]?.id ?? ''))
+									? sectionHeading(section)
+									: undefined
 							return (
-								<Text
-									key={c.id}
-									color={index === cursor ? theme.accent.system : theme.text.primary}
-								>
-									{prefix}
-									{truncateChoiceText(c.label, labelWidth)}
-									{note ? ` ${note}` : ''}
-								</Text>
+								<Box key={c.id} flexDirection="column">
+									{heading ? (
+										<Text color={theme.text.muted} bold>
+											{`  ${heading}`}
+										</Text>
+									) : null}
+									<Text color={index === cursor ? theme.accent.system : theme.text.primary}>
+										{prefix}
+										{truncateChoiceText(c.label, labelWidth)}
+										{note ? ` ${note}` : ''}
+									</Text>
+								</Box>
 							)
 						})}
 					</Box>

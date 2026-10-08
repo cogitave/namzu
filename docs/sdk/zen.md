@@ -20,7 +20,7 @@ access from Namzu. `space-bunny-free` is the verified direct default. Every
 other Zen model the active catalogue prices at zero (twelve in the bundled
 snapshot, listed below) is available through an experimental request path that
 reproduces OpenCode's observed client identity. Zen can still refuse them.
-Models that need an API key are listed after the free ones and marked "(API key)". The pickers have no group headings yet.
+Models that need an API key are listed after the free ones, under their own headings. The Desktop and terminal pickers draw a "Free" heading before the free models (stated price 0/0) and an "API key" heading before the models with a stated non-zero price; a model with no published price follows under "Other models". A list that holds only one of the two groups draws no headings, so its key models keep the "(API key)" note instead. Each catalogue row carries the group as an optional `group: 'free' | 'key'` (Zen only).
 Zen Go is a separate service and requires its own API key.
 
 ```bash

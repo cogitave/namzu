@@ -20,13 +20,15 @@
  * can retry that, and cannot retry a provider that genuinely has one model.
  */
 
-import type { ModelListing } from './agent.js'
+import type { ModelGroup, ModelListing } from './agent.js'
 
 export interface ModelChoice {
 	readonly id: string
 	readonly label: string
 	/** Shown beside the row. `(namzu default)` for the value namzu picks. */
 	readonly note?: string
+	/** Zen only: the heading this row sits under when the list shows both. */
+	readonly group?: ModelGroup
 }
 
 export interface ModelStep {
@@ -170,13 +172,22 @@ export function modelStep(
 		if (m.id === defaultModel) notes.push('namzu default')
 		if (m.inputModalities?.includes('image')) notes.push('image input')
 		if (isKnownFree(m) && !labelAlreadySaysFree(m.name)) notes.push('free')
-		if (m.requiresKey) notes.push('API key')
 		if (m.limitsVerified === false) notes.push('Limits not published yet')
 		choices.push({
 			id: m.id,
 			label: m.name,
 			...(notes.length > 0 ? { note: `(${notes.join(' · ')})` } : {}),
+			...(m.group ? { group: m.group } : {}),
 		})
+	}
+	// The picker draws "Free" and "API key" headings only when both groups are present. A list
+	// with one group keeps the note on its key rows, so the fact is not lost with no heading.
+	if (!hasBothGroups(choices)) {
+		for (let i = 0; i < choices.length; i++) {
+			const c = choices[i]
+			if (c?.group !== 'key') continue
+			choices[i] = { ...c, note: withKeyNote(c.note) }
+		}
 	}
 	if (defaultAllowed && !seen.has(defaultModel)) {
 		choices.unshift({
@@ -193,4 +204,36 @@ export function modelStep(
 	const idx = choices.findIndex((c) => c.id === wanted)
 
 	return { choices, notice: null, initialIndex: idx >= 0 ? idx : 0 }
+}
+
+/** Whether a list holds both Zen groups, which is when a picker draws their headings. */
+export function hasBothGroups(choices: readonly { readonly group?: ModelGroup }[]): boolean {
+	return choices.some((c) => c.group === 'free') && choices.some((c) => c.group === 'key')
+}
+
+/**
+ * The heading a row sits under in a headed list: its own group, or `other` for a row after the
+ * first grouped one that carries no group (no published price, the current model). A row before
+ * every grouped one, such as namzu's own default, sits under no heading.
+ */
+export function rowSection(
+	choices: readonly { readonly group?: ModelGroup }[],
+	index: number,
+): ModelGroup | 'other' | undefined {
+	const group = choices[index]?.group
+	if (group) return group
+	for (let i = 0; i < index; i++) if (choices[i]?.group) return 'other'
+	return undefined
+}
+
+export function sectionHeading(section: ModelGroup | 'other'): string {
+	return section === 'free' ? 'Free' : section === 'key' ? 'API key' : 'Other models'
+}
+
+/** Adds `API key` to a parenthesised note, ahead of the limits remark, which stays last. */
+export function withKeyNote(note: string | undefined): string {
+	const parts = note ? note.slice(1, -1).split(' · ') : []
+	const at = parts.indexOf('Limits not published yet')
+	parts.splice(at < 0 ? parts.length : at, 0, 'API key')
+	return `(${parts.join(' · ')})`
 }
