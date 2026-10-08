@@ -543,7 +543,7 @@ describe('ZenProvider with a runtime catalogue', () => {
 		expect(await provider.resolveContextWindow('beta-messages')).toBe(1_000_000)
 	})
 
-	it('lists an unrouted served id as having no known wire format', async () => {
+	it('lists an unrouted served id as having no known wire format, and never anonymously', async () => {
 		vi.stubGlobal(
 			'fetch',
 			vi.fn<typeof fetch>(
@@ -559,6 +559,13 @@ describe('ZenProvider with a runtime catalogue', () => {
 			supportsToolUse: false,
 			supportsStreaming: true,
 		})
+
+		vi.stubGlobal(
+			'fetch',
+			vi.fn<typeof fetch>(async () => new Response(served(['gamma-free', 'hidden-model']))),
+		)
+		const anonymous = new ZenProvider({ catalogue: runtime() })
+		expect((await anonymous.listModels()).map((model) => model.id)).toEqual([])
 	})
 
 	it('calls an unrouted id only with an explicit protocol, never on a guessed one', async () => {
