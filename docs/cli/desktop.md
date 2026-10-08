@@ -2123,7 +2123,7 @@ project's CLI host (see [Host terminals](#host-terminals)); the window is a view
 palette's **New terminal**, and Ctrl+Shift with the backtick key (⌘+Shift on a Mac) open a shell. The tab joins the pane
 that has focus and shares its strip with the conversations, in the order you put it: it drags,
 splits (**Move to right pane**, **Split down**) and moves to a new window like a conversation tab,
-and the sidebar lists it under its project with a terminal mark. The terminal on screen is made once
+and the sidebar lists it under its project with a terminal mark. The pane has no header of its own: the terminal fills it, the tab (strip and sidebar row) carries the title and status, closing is the tab's close, and the region is still named `<title> terminal` for assistive technology. A click on the pane's dead space hands the keyboard back to the program. The terminal on screen is made once
 per tab and kept while the tab is in the window, so switching to a conversation and back costs
 nothing and keeps the scrollback; reloading the window rebuilds the screen from the host's snapshot.
 
@@ -2150,8 +2150,7 @@ several lines pasted into a program that did not ask for bracketing ask first. T
 contrast of 4.5:1, selected text has its own opaque colours, and an ended session hides its cursor. Almost every key belongs to the program, including
 `Ctrl+K`, `Ctrl+N` and `Escape`, which the rest of the app uses elsewhere: the pane stops them at its
 edge. The exceptions are `Ctrl+C` (the interrupt, unless text is selected, then a copy; `Ctrl+Shift+C`
-always copies), `Ctrl+V` and `Ctrl+Shift+V` (paste, bracketed when the program asks), `Ctrl+F` (a find
-bar) and the new-terminal chord (Ctrl+Shift+backtick); on a Mac the same chords use `⌘`. The terminal follows the pane's
+always copies), `Ctrl+V` and `Ctrl+Shift+V` (paste, bracketed when the program asks), `Ctrl+F` (a small find overlay inside the terminal; `Escape` closes it) and the new-terminal chord (Ctrl+Shift+backtick); on a Mac the same chords use `⌘`. The terminal follows the pane's
 size: the view fits itself, tells the host, and the program and the host's own screen resize together.
 Only one view types into a terminal; a second window that opens the same tab watches and offers
 **Take over**; when a window reloads, navigates or closes, its views are released so the new page
@@ -2212,7 +2211,7 @@ before anything is built.
 
 ### Status badge
 
-An engine's tab carries a dot (and the pane bar says it in words) for what its program is doing, read
+An engine's tab carries a dot (its accessible name says it in words) for what its program is doing, read
 from nothing but its output and its end: **Working** (output in the last 1.5 s, or just started),
 **Waiting for input** (it printed and went quiet), **Idle** (quiet for a minute) and **Exited** (red,
 `Exited with code N`, when the code is not zero). When an engine's program ends with a non-zero code

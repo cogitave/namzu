@@ -264,6 +264,38 @@ flow(
 	},
 );
 
+flow(
+	"a message typed in the Namzu CLI tab is sent and the scripted reply reaches the screen",
+	{ rules: [{ match: /hello there/, steps: [{ text: "Scripted terminal reply." }] }] },
+	async (w) => {
+		await openProject(w);
+		await enableTerminalDebug(w);
+		await openPicker(w);
+		await w.page.getByRole("radio", { name: "OpenAI gpt-e2e-0" }).click();
+		await openPicker(w).catch(() => undefined);
+		await w.page.getByRole("radio", { name: "CLI", exact: true }).click();
+		await w.page.keyboard.press("Escape");
+		const send = w.page.getByRole("button", { name: "Open Namzu in a terminal" });
+		await expect(send).toBeEnabled({ timeout: T });
+		await send.click();
+		await expect(pane(w)).toBeVisible({ timeout: T });
+		// The tab carries the title and status: the pane has no bar of its own, and is still named.
+		await expect(w.page.locator(".terminal-pane-bar")).toHaveCount(0);
+		await expect(w.page.getByRole("region", { name: "Namzu · project terminal" })).toBeVisible();
+		await expect.poll(() => screen(w), { timeout: T }).toContain("gpt-e2e-0");
+		// A click on the pane's dead space must not take the keyboard from the program.
+		await pane(w).click({ position: { x: 2, y: 2 } });
+		await type(w, "hello there");
+		await expect.poll(() => screen(w), { timeout: T }).toContain("Scripted terminal reply.");
+		// Ctrl+F opens a find overlay inside the terminal; Escape closes it and returns the keyboard.
+		await w.page.keyboard.press("Control+f");
+		const find = pane(w).getByRole("searchbox", { name: "Find in terminal" });
+		await expect(find).toBeVisible();
+		await w.page.keyboard.press("Escape");
+		await expect(find).toHaveCount(0);
+	},
+);
+
 const FAKE = (name, code) => `#!/bin/sh
 if [ "$1" = "--version" ]; then echo "${name} 0.0.0-fake"; exit 0; fi
 echo "FAKE-${name} argv:"

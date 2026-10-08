@@ -1,11 +1,8 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import {
-	ACTIVITY_LABELS,
-	TERMINAL_ENGINE_LABELS,
-	type TerminalTabView,
-} from '../shared/terminal-tabs.js'
+import { ACTIVITY_LABELS, type TerminalTabView } from '../shared/terminal-tabs.js'
 import { HarnessMark } from './harness-picker.js'
-import { SearchIcon, TerminalIcon, XIcon } from './icons.js'
+import { TerminalIcon } from './icons.js'
+import { pressReturnsKeyboard } from './terminal-pane-focus.js'
 import { onTerminalFind } from './terminal-registry.js'
 import type { TerminalSession } from './terminal-session.js'
 import { Button } from './ui/button.js'
@@ -136,9 +133,6 @@ export function TerminalPane({
 	}
 
 	const ended = state.phase === 'ended'
-	const label =
-		tab.kind === 'engine' && tab.engine ? TERMINAL_ENGINE_LABELS[tab.engine] : 'Terminal'
-	const badge = terminalBadgeLabel(tab)
 	return (
 		<section
 			className="terminal-pane"
@@ -148,6 +142,14 @@ export function TerminalPane({
 			data-terminal-status={tab.status}
 			// Almost every key belongs to the program in here; only the app's own chord leaves. The
 			// emulator has had the key by the time it bubbles here.
+			// A click on the pane's own surface (a note, the padding) must not take the keyboard away
+			// from the program: only a control or the find box keeps what it was clicked for.
+			onMouseDown={(event) => {
+				if (pressReturnsKeyboard(event.target as HTMLElement)) {
+					event.preventDefault()
+					if (!finding) session.focus()
+				}
+			}}
 			onKeyDown={(event) => {
 				const native = event.nativeEvent
 				if (
@@ -159,40 +161,7 @@ export function TerminalPane({
 				event.stopPropagation()
 			}}
 		>
-			<header className="terminal-pane-bar">
-				<span className="terminal-pane-mark" aria-hidden="true">
-					<TerminalMark tab={tab} />
-				</span>
-				<span className="terminal-pane-title" title={tab.title}>
-					{tab.title}
-				</span>
-				{tab.kind === 'shell' && <span className="terminal-pane-kind">{label}</span>}
-				{badge && (
-					<span className="terminal-pane-status" data-activity={tab.activity}>
-						<TerminalBadge tab={tab} />
-						{badge}
-					</span>
-				)}
-				<span className="terminal-pane-spacer" />
-				<Button
-					variant="ghost-muted"
-					size="icon-xs"
-					aria-label="Find in terminal"
-					title="Find in terminal"
-					onClick={() => setFinding((value) => !value)}
-				>
-					<SearchIcon />
-				</Button>
-				<Button
-					variant="ghost-muted"
-					size="icon-xs"
-					aria-label={ended ? 'Close terminal tab' : 'End session and close tab'}
-					title={ended ? 'Close tab' : 'End session and close tab'}
-					onClick={onClose}
-				>
-					<XIcon />
-				</Button>
-			</header>
+			<div className="terminal-pane-screen" ref={host} data-terminal-host />
 			{finding && (
 				<form
 					className="terminal-find"
@@ -232,7 +201,6 @@ export function TerminalPane({
 					</Button>
 				</form>
 			)}
-			<div className="terminal-pane-screen" ref={host} data-terminal-host />
 			{state.phase === 'failed' && (
 				<p className="terminal-pane-note" role="alert" data-tone="error">
 					{state.error ?? 'This terminal could not be opened.'}

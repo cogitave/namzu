@@ -2,6 +2,7 @@
 
 ## 2026-10-09
 
+- **Update** [Desktop](cli/desktop.md#terminal-tabs) removes the terminal pane's own header bar (the tab already carries title and status; find is Ctrl/⌘+F as an overlay, closing is the tab's close) and fixes a click on the pane's dead space taking the keyboard from the program, so typed messages went nowhere.
 - **Update** [Desktop](cli/desktop.md) makes the sidebar rows compact and gives each row one surface: the project heading no longer draws a second filled box around its name on hover, and the toggle, remove, pin and archive icons only change colour; rows are 28px (projects 30px) with 12.5px titles, Show more/less 12px, and Projects/Recents headers 11px.
 
 ## 2026-10-08

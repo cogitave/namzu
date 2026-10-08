@@ -1,0 +1,47 @@
+[
+ {
+  "step": "1 Namzu CLI tab shows TUI",
+  "pass": true,
+  "text": " █▄ █ ▄▀█ █▀▄▀█ ▀█ █ █\n █ ▀█ █▀█ █ ▀ █ █▄ █▄█  Cogitave v35.0.0\n ┌─ MESSAGE ──────────────────────────────────────────────────────────────────────────────────────┐\n │ › Type a message… (/help for commands)                                                         │\n └────────────────────────────────────────────────────────────────────────────────────────────────┘\n shift+tab to cycle · effort high · ~\\Documents\\Namzu\\New project                  claude-haiku-5-5"
+ },
+ {
+  "step": "2 header bar gone",
+  "pass": true,
+  "text": ".terminal-pane-bar count=0; <header> inside pane=0; section aria-label=Namzu · New project terminal"
+ },
+ {
+  "step": "3 message 1 typed appears in composer",
+  "pass": true,
+  "text": " █▄ █ ▄▀█ █▀▄▀█ ▀█ █ █\n █ ▀█ █▀█ █ ▀ █ █▄ █▄█  Cogitave v35.0.0\n ┌─ MESSAGE ──────────────────────────────────────────────────────────────────────────────────────┐\n │ › hello there▏                                                                                 │\n └────────────────────────────────────────────────────────────────────────────────────────────────┘\n shift+tab to cycle · effort high · ~\\Documents\\Namzu\\New project                  claude-haiku-5-5"
+ },
+ {
+  "step": "4 message 1 reply visible",
+  "pass": true,
+  "text": " █▄ █ ▄▀█ █▀▄▀█ ▀█ █ █\n █ ▀█ █▀█ █ ▀ █ █▄ █▄█  Cogitave v35.0.0\n › hello there\n ∴ SCRIPTED-ANTHROPIC-OK to: e\":true,\"scannedBytes\":20740,\"omittedPassages\":0}\n ┌─ MESSAGE ──────────────────────────────────────────────────────────────────────────────────────┐\n │ › Type a message… (/help for commands)                                                         │\n └────────────────────────────────────────────────────────────────────────────────────────────────┘\n shift+tab to cycle · effort high · ~\\Documents\\Namzu\\New project                  claude-haiku-5-5"
+ },
+ {
+  "step": "5 message 2 in same tab works",
+  "pass": true,
+  "text": " █▄ █ ▄▀█ █▀▄▀█ ▀█ █ █\n █ ▀█ █▀█ █ ▀ █ █▄ █▄█  Cogitave v35.0.0\n › hello there\n ∴ SCRIPTED-ANTHROPIC-OK to: e\":true,\"scannedBytes\":20740,\"omittedPassages\":0}\n › second message\n ∴ SCRIPTED-ANTHROPIC-OK to: e\":true,\"scannedBytes\":64938,\"omittedPassages\":0}\n ┌─ MESSAGE ──────────────────────────────────────────────────────────────────────────────────────┐\n │ › Type a message… (/help for commands)                                                         │\n └────────────────────────────────────────────────────────────────────────────────────────────────┘\n shift+tab to cycle · effort high · ~\\Documents\\Namzu\\New project                  claude-haiku-5-5"
+ },
+ {
+  "step": "6 Ctrl+F opens search",
+  "pass": true,
+  "text": "searchbox count=1; active=INPUT."
+ },
+ {
+  "step": "7 Escape closes search",
+  "pass": true,
+  "text": "searchbox count after Escape=0"
+ },
+ {
+  "step": "8 corner click keeps keyboard in terminal",
+  "pass": true,
+  "text": " ┌─ MESSAGE ──────────────────────────────────────────────────────────────────────────────────────┐\n │ › third after corner click▏                                                                    │\n └────────────────────────────────────────────────────────────────────────────────────────────────┘\n shift+tab to cycle · effort high · ~\\Documents\\Namzu\\New project                  claude-haiku-5-5"
+ },
+ {
+  "step": "9 plain shell tab echoes \"ğüşöçı İ\"",
+  "pass": true,
+  "text": "panes=1\nC:\\Users\\Arda\\AppData\\Local\\Temp\\namzu-sendfix-final\\osHome\\Documents\\Namzu\\New project>echo ğüşöçı İ\nğüşöçı İ\nC:\\Users\\Arda\\AppData\\Local\\Temp\\namzu-sendfix-final\\osHome\\Documents\\Namzu\\New project>"
+ }
+]
