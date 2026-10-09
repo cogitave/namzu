@@ -179,6 +179,24 @@ export function workspacePaneSplitFits(
 	)
 }
 
+/**
+ * Whether a split made from the menu has room, and whether closing the sidebar would give it the
+ * room it lacks. `canvas` is the space the panes share now; the sidebar sits beside it.
+ */
+export function workspaceSplitRoom(
+	canvas: WorkspaceSize,
+	position: 'right' | 'bottom',
+	sidebarWidth: number,
+): 'fits' | 'collapse-sidebar' | 'too-small' {
+	if (workspacePaneSplitFits(canvas, position)) return 'fits'
+	if (
+		position === 'right' &&
+		workspacePaneSplitFits({ ...canvas, width: canvas.width + sidebarWidth }, position)
+	)
+		return 'collapse-sidebar'
+	return 'too-small'
+}
+
 /** Edges that cannot create two readable panes fall back to joining the target's tabs. */
 export function workspacePointerDrop(
 	rect: WorkspaceRect,

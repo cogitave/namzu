@@ -114,7 +114,7 @@ describe('the actions matrix', () => {
 		expect(find(input({ queued: 2 }), 'archive')?.reason).toMatch(/queued/)
 		expect(find(input({ backgroundRunning: 1 }), 'archive')?.reason).toMatch(/background/)
 		expect(find(input(), 'archive')?.reason).toBeUndefined()
-		expect(find(input(), 'archive')?.label).toBe('Archive…')
+		expect(find(input(), 'archive')?.label).toBe('Archive')
 	})
 	it('drops the project path when there is none and disables an empty copy', () => {
 		expect(ids(input({ hasProjectPath: false }))).not.toContain('copy-path')

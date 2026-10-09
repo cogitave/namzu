@@ -35,19 +35,19 @@
 .sidebar-project-heading {
 	position: relative;
 }
-.sidebar-project-heading .sidebar-project-remove {
+.sidebar-project-heading .sidebar-project-more {
 	flex: none;
 	margin-right: 4px;
 	visibility: hidden;
 	transition: none;
 }
-.sidebar-project-heading:hover .sidebar-project-remove,
-.sidebar-project-heading:has(:focus-visible) .sidebar-project-remove,
-.sidebar-project-heading[data-menu-open] .sidebar-project-remove {
+.sidebar-project-heading:hover .sidebar-project-more,
+.sidebar-project-heading:has(:focus-visible) .sidebar-project-more,
+.sidebar-project-heading[data-menu-open] .sidebar-project-more {
 	visibility: visible;
 }
 @media (hover: none) {
-	.sidebar-project-heading .sidebar-project-remove {
+	.sidebar-project-heading .sidebar-project-more {
 		visibility: visible;
 	}
 }
@@ -63,16 +63,16 @@
  * and focus fill. The buttons inside it only change colour, so no box sits inside the box.
  */
 .sidebar-project-heading .sidebar-project-toggle:hover,
-.sidebar-project-heading .sidebar-project-remove:hover,
+.sidebar-project-heading .sidebar-project-more:hover,
 .sidebar-thread-item .sidebar-thread-action:hover,
 .sidebar-project-heading .sidebar-project-toggle[data-pressed],
-.sidebar-project-heading .sidebar-project-remove[data-pressed],
+.sidebar-project-heading .sidebar-project-more[data-pressed],
 .sidebar-thread-item .sidebar-thread-action[data-pressed] {
 	background: transparent;
 	color: var(--sidebar-foreground);
 }
 /* Pointer targets stay 28px even though the row itself is tighter. */
-.sidebar-project-heading .sidebar-project-remove,
+.sidebar-project-heading .sidebar-project-more,
 .sidebar-thread-item .sidebar-thread-action {
 	width: 28px;
 	height: 28px;
@@ -302,4 +302,64 @@
 	display: flex;
 	gap: 4px;
 	padding-left: 24px;
+}
+/* One entry point for adding a project, on the Projects heading. */
+.sidebar-section-heading {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding-right: 8px;
+}
+.sidebar-section-heading .sidebar-section-title {
+	margin-bottom: 6px;
+}
+.sidebar-section-heading .sidebar-add-project {
+	flex: none;
+	margin-top: 8px;
+	color: var(--sidebar-muted-foreground);
+}
+.sidebar-empty-note {
+	margin: 0;
+	padding: 4px 16px 8px;
+	color: var(--sidebar-muted-foreground);
+	font-size: 12px;
+}
+/* The project a Recents row belongs to, so the same title in two projects is two rows. */
+.conversation-row-project {
+	flex: 0 1 auto;
+	min-width: 0;
+	max-width: 38%;
+	overflow: hidden;
+	color: var(--sidebar-muted-foreground);
+	font-size: 11px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.sidebar-archived-link {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	width: calc(100% - 16px);
+	margin: 10px 8px 12px;
+	padding: 6px 8px;
+	border: 0;
+	border-radius: 8px;
+	background: transparent;
+	color: var(--sidebar-muted-foreground);
+	font-size: 12.5px;
+	text-align: left;
+	cursor: pointer;
+}
+.sidebar-archived-link:hover {
+	background: var(--sidebar-row-hover);
+	color: var(--sidebar-foreground);
+}
+.sidebar-archived-link:focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: -2px;
+}
+.sidebar-archived-link > svg {
+	width: 14px;
+	height: 14px;
+	flex: none;
 }

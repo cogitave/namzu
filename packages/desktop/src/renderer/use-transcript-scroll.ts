@@ -12,7 +12,11 @@ export function useTranscriptScroll(
 	owner: string,
 	transcript: { current: HTMLDivElement | null },
 	follow: { current: boolean },
+	/** The reader stopped scrolling, or the window is closing: a moment to keep the position. */
+	onRest?: () => void,
 ) {
+	const rest = useRef(onRest)
+	rest.current = onRest
 	const [node, setNode] = useState<HTMLDivElement | null>(null)
 	const [away, setAway] = useState(false)
 	const jump = useRef<(() => void) | undefined>(undefined)
@@ -74,7 +78,9 @@ export function useTranscriptScroll(
 			if (!event.defaultPrevented && ['ArrowUp', 'PageUp', 'Home'].includes(event.key)) cancelJump()
 		}
 		const onScrollEnd = () => {
-			if (!current || !explicitJump) return
+			if (!current) return
+			rest.current?.()
+			if (!explicitJump) return
 			explicitJump = false
 			if (follow.current) pin()
 			update()
@@ -136,6 +142,9 @@ export function useTranscriptScroll(
 		if (node.firstElementChild) observer.observe(node.firstElementChild)
 		node.addEventListener('scroll', onScroll, { passive: true })
 		node.addEventListener('scrollend', onScrollEnd, { passive: true })
+		// A window that closes mid-read keeps where the reader was, as it does after a pause.
+		const onPageHide = () => rest.current?.()
+		window.addEventListener('pagehide', onPageHide)
 		node.addEventListener('wheel', onWheel, { passive: true })
 		node.addEventListener('touchstart', onTouch, { passive: true })
 		node.addEventListener('keydown', onKey)
@@ -158,6 +167,7 @@ export function useTranscriptScroll(
 			if (frame !== undefined) cancelAnimationFrame(frame)
 			node.removeEventListener('scroll', onScroll)
 			node.removeEventListener('scrollend', onScrollEnd)
+			window.removeEventListener('pagehide', onPageHide)
 			node.removeEventListener('wheel', onWheel)
 			node.removeEventListener('touchstart', onTouch)
 			node.removeEventListener('keydown', onKey)

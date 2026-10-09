@@ -5,7 +5,13 @@ import { useEffect, useRef } from 'react'
 import type { TerminalTabView } from '../shared/terminal-tabs.js'
 import type { WorkspaceWindowBounds } from '../shared/workspace-layout.js'
 import { AppWindowIcon, MoreHorizontalIcon, SplitRightIcon, XIcon } from './icons.js'
-import { TerminalBadge, TerminalMark, terminalBadgeLabel } from './terminal-pane.js'
+import { TAB_TITLE_CHARS, shortenTitle } from './short-title.js'
+import {
+	TerminalBadge,
+	TerminalMark,
+	terminalBadgeLabel,
+	terminalStatusText,
+} from './terminal-pane.js'
 import { Button } from './ui/button.js'
 import {
 	WORKSPACE_TAB_DRAG_MIME,
@@ -23,6 +29,8 @@ export function TerminalStripTab({
 	onClose,
 	onDetach,
 	onSplit,
+	onNew,
+	newReason,
 }: {
 	tab: TerminalTabView
 	windowId: string
@@ -32,12 +40,17 @@ export function TerminalStripTab({
 	onClose: (tab: TerminalTabView) => void
 	onDetach: (tab: TerminalTabView, bounds?: WorkspaceWindowBounds) => void
 	onSplit?: (tab: TerminalTabView, position: 'right' | 'bottom') => void
+	/** Opens another terminal beside or below this pane; absent where the strip has no such menu. */
+	onNew?: (id: 'terminal-right' | 'terminal-below') => void
+	/** Why a new terminal cannot open here. */
+	newReason?: string
 }) {
 	const drag = useRef({ cancelled: false, allowed: true })
 	const stopEscape = useRef<(() => void) | undefined>(undefined)
 	useEffect(() => () => stopEscape.current?.(), [])
 	const badge = terminalBadgeLabel(tab)
 	const ended = tab.status !== 'running'
+	const statusTitle = terminalStatusText(tab)
 	return (
 		<div
 			className="conversation-tab terminal-strip-tab"
@@ -122,8 +135,8 @@ export function TerminalStripTab({
 				<span className="conversation-tab-mark" aria-hidden="true">
 					<TerminalMark tab={tab} />
 				</span>
-				<span className="truncate" title={tab.title}>
-					{tab.title}
+				<span className="truncate" title={statusTitle}>
+					{shortenTitle(tab.title, TAB_TITLE_CHARS)}
 				</span>
 				<TerminalBadge tab={tab} />
 			</Tabs.Tab>
@@ -148,6 +161,29 @@ export function TerminalStripTab({
 								className="conversation-actions-popup"
 								aria-label={`${tab.title} tab actions`}
 							>
+								{onNew && (
+									<>
+										<Menu.Item
+											className="conversation-actions-item"
+											disabled={busy || !!newReason}
+											title={newReason}
+											onClick={() => onNew('terminal-right')}
+										>
+											<SplitRightIcon aria-hidden="true" />
+											<span className="conversation-actions-label">New terminal to the right</span>
+										</Menu.Item>
+										<Menu.Item
+											className="conversation-actions-item"
+											disabled={busy || !!newReason}
+											title={newReason}
+											onClick={() => onNew('terminal-below')}
+										>
+											<SplitSquareVertical aria-hidden="true" />
+											<span className="conversation-actions-label">New terminal below</span>
+										</Menu.Item>
+										<Menu.Separator className="conversation-actions-separator" />
+									</>
+								)}
 								{onSplit && (
 									<Menu.Item
 										className="conversation-actions-item"

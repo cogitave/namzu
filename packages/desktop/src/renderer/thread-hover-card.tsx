@@ -43,7 +43,7 @@ export function ThreadHoverCardView({ model }: { model: HoverCardModel }) {
 	return (
 		<div className="thread-hover-card" data-slot="thread-hover-card">
 			<div className="thread-hover-card-head">
-				<span className="thread-hover-card-title">{model.title}</span>
+				<span className="thread-hover-card-engine">{model.engine}</span>
 				<EnvironmentIcon
 					className="thread-hover-card-icon"
 					role="img"
@@ -51,6 +51,7 @@ export function ThreadHoverCardView({ model }: { model: HoverCardModel }) {
 				/>
 				{model.age && <span className="thread-hover-card-age">{model.age}</span>}
 			</div>
+			{model.preview && <p className="thread-hover-card-preview">{model.preview}</p>}
 			{model.folder && (
 				<div className="thread-hover-card-row">
 					<FolderIcon aria-hidden="true" />
@@ -71,13 +72,17 @@ export function ThreadHoverCard({
 	conversation,
 	project,
 	loadGit,
+	messages,
 }: {
 	conversation: ConversationView
 	project: ProjectView
 	loadGit?: GitLoader
+	messages?: readonly { role: 'user' | 'assistant'; text: string }[]
 }) {
 	const git = useProjectGit(project, loadGit)
 	return (
-		<ThreadHoverCardView model={hoverCardModel({ conversation, project, git, now: Date.now() })} />
+		<ThreadHoverCardView
+			model={hoverCardModel({ conversation, project, git, messages, now: Date.now() })}
+		/>
 	)
 }

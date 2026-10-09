@@ -40,10 +40,12 @@
 .sidebar-thread-actions {
 	position: absolute;
 	right: 4px;
-	top: 50%;
+	/* Centred by the row's own height, not by a transform, so no row height or zoom moves it. */
+	top: 0;
+	bottom: 0;
 	display: flex;
+	align-items: center;
 	gap: 0;
-	transform: translateY(-50%);
 	visibility: hidden;
 }
 .sidebar-thread-action {

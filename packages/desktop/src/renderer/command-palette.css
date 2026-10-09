@@ -155,11 +155,13 @@
 }
 .command-palette-shortcut kbd {
 	min-width: 18px;
-	padding: 0 5px;
+	padding: 0 6px;
+	white-space: nowrap;
 	border-radius: 6px;
 	background: color-mix(in srgb, var(--foreground) 8%, transparent);
 	color: var(--muted-foreground);
 	font: inherit;
+	font-variant-ligatures: none;
 	font-size: 11px;
 	line-height: 17px;
 }

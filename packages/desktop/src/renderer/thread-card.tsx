@@ -20,6 +20,7 @@ import {
 	TerminalIcon,
 } from './icons.js'
 import { cn } from './lib/utils.js'
+import { ROW_TITLE_CHARS, shortenTitle } from './short-title.js'
 import { createHoverIntent, relativeAge } from './sidebar-hover-card.js'
 import { ThreadHoverCard } from './thread-hover-card.js'
 import { Button } from './ui/button.js'
@@ -50,6 +51,7 @@ export function ThreadCard({
 	active,
 	onClick,
 	rowActions,
+	projectLabel,
 }: {
 	conversation: ConversationView
 	project: ProjectView
@@ -58,6 +60,8 @@ export function ThreadCard({
 	active: boolean
 	onClick: () => void
 	rowActions?: ThreadRowActions
+	/** The project's name, shown after the title where rows from several projects share a list. */
+	projectLabel?: string
 }) {
 	const statusId = useId()
 	const rowButton = useRef<HTMLButtonElement>(null)
@@ -155,7 +159,14 @@ export function ThreadCard({
 						</span>
 					)}
 					<div className="conversation-row">
-						<span className="conversation-row-title">{conversation.title}</span>
+						<span className="conversation-row-title" title={conversation.title}>
+							{shortenTitle(conversation.title, ROW_TITLE_CHARS)}
+						</span>
+						{projectLabel && (
+							<span className="conversation-row-project" title={projectLabel}>
+								{projectLabel}
+							</span>
+						)}
 						{conversation.pinned && <PinIcon className="conversation-row-pin" aria-hidden="true" />}
 						<span className="conversation-row-state">
 							{workText && work.state === 'known' && (
@@ -189,14 +200,16 @@ export function ThreadCard({
 					</div>
 				</PreviewCardTrigger>
 				<PreviewCardPopup
-					side="right"
+					// Below the row, inside the sidebar: beside it the card would cover the transcript.
+					side="bottom"
 					align="start"
-					sideOffset={12}
+					sideOffset={4}
 					positionerClassName="pointer-events-none"
 				>
 					<ThreadHoverCard
 						conversation={conversation}
 						project={project}
+						messages={thread?.messages}
 						loadGit={rowActions?.loadGit}
 					/>
 				</PreviewCardPopup>

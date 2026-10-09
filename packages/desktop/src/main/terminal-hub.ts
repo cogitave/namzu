@@ -30,6 +30,24 @@ import {
 } from '../shared/terminal-view.js'
 import type { SavedTerminalTab } from './terminal-tab-store.js'
 
+/** The last segment of a folder path, whichever separator it uses. */
+function folderName(path: string): string {
+	return path.split(/[\\/]/).filter(Boolean).at(-1) ?? ''
+}
+
+/**
+ * `base`, or the same with a number after its first word (`sh 2 · api`) when a tab of the project
+ * already carries the name. The number comes early so a tab cut short still shows it.
+ */
+export function uniqueTabTitle(base: string, taken: readonly string[]): string {
+	if (!taken.includes(base)) return base
+	const [head = base, ...rest] = base.split(' · ')
+	for (let n = 2; ; n++) {
+		const candidate = [`${head} ${n}`, ...rest].join(' · ')
+		if (!taken.includes(candidate)) return candidate
+	}
+}
+
 /** The slice of the host's terminal client the hub uses; tests supply a fake. */
 export interface HostTerminals {
 	status(): Promise<TerminalStatus>
@@ -297,6 +315,14 @@ export class TerminalHub {
 		watched?: boolean
 	}): Promise<TerminalOpenResult> {
 		const { project, connection, launch, omitted, cols, rows } = input
+		const title = uniqueTabTitle(
+			input.kind === 'shell' && !input.watched
+				? `${launch.title} · ${folderName(project.path) || project.name}`
+				: launch.title,
+			[...this.entries.values()]
+				.filter((entry) => entry.view.projectId === project.id)
+				.map((entry) => entry.view.title),
+		)
 		const client = this.clientFor(connection)
 		const status = await client.status()
 		if (!status.available) throw new Error(status.reason ?? 'Terminals are not available here.')
@@ -307,7 +333,7 @@ export class TerminalHub {
 			...(launch.env ? { env: launch.env } : {}),
 			cols,
 			rows,
-			title: launch.title,
+			title,
 		})
 		const entry: Entry = {
 			view: {
@@ -315,7 +341,7 @@ export class TerminalHub {
 				projectId: project.id,
 				kind: input.kind,
 				...(input.kind === 'engine' && input.engine ? { engine: input.engine } : {}),
-				title: launch.title,
+				title,
 				status: 'running',
 				createdAt: info.createdAt,
 				...(input.kind === 'engine' ? { activity: 'working' as const } : {}),

@@ -15,6 +15,10 @@ export function relativeAge(updatedAt: string, now: number): string {
 
 export interface HoverCardModel {
 	title: string
+	/** The engine that answers in this conversation, as the engine popup names it. */
+	engine: string
+	/** The last thing said, when this window has the conversation loaded. */
+	preview?: string
 	age: string
 	environment: { kind: 'this-computer' | 'pal-computer'; label: string }
 	/** Absent for a conversation that has no project folder of its own. */
@@ -30,18 +34,44 @@ export function projectHasRepository(project: ProjectView): boolean {
 	return project.trusted && !project.isChat && !project.palId && project.path.length > 0
 }
 
+const ENGINE_NAMES = {
+	namzu: 'Namzu',
+	'codex-cli': 'Codex CLI',
+	'claude-code': 'Claude Code',
+} as const
+
+/** The last message with words in it, one short line; the person's own lines lead with "You:". */
+export function lastMessagePreview(
+	messages: readonly { role: 'user' | 'assistant'; text: string }[] | undefined,
+	limit = 120,
+): string | undefined {
+	for (let index = (messages?.length ?? 0) - 1; index >= 0; index--) {
+		const message = messages?.[index]
+		const text = message?.text.replace(/\s+/g, ' ').trim()
+		if (!message || !text) continue
+		const line = message.role === 'user' ? `You: ${text}` : text
+		const letters = [...line]
+		return letters.length > limit ? `${letters.slice(0, limit).join('').trimEnd()}…` : line
+	}
+	return undefined
+}
+
 export function hoverCardModel(input: {
 	conversation: ConversationView
 	project: ProjectView
 	git?: ProjectGitView | null
+	messages?: readonly { role: 'user' | 'assistant'; text: string }[]
 	now: number
 }): HoverCardModel {
 	const { conversation, project, git, now } = input
+	const preview = lastMessagePreview(input.messages)
 	const pal = Boolean(conversation.palId || project.palId)
 	const folder = project.isChat || pal ? undefined : project.name
 	const branch = projectHasRepository(project) && git?.branch ? git.branch : undefined
 	return {
 		title: conversation.title,
+		engine: ENGINE_NAMES[conversation.harness ?? 'namzu'],
+		...(preview ? { preview } : {}),
 		age: relativeAge(conversation.updatedAt, now),
 		environment: pal
 			? { kind: 'pal-computer', label: "A Pal's computer" }

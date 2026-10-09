@@ -182,6 +182,7 @@ const all = process.argv.slice(2);
 const args = all.filter((arg) => !arg.startsWith("--registry="));
 console.log("fake npm " + all.join(" "));
 if (fs.existsSync(dir + "/npm-fail")) { console.error("npm error code EBUSY"); process.exit(1); }
+while (fs.existsSync(dir + "/update-hold")) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
 if (args[0] === "install" && args[1] === "-g" && args[2] === "@openai/codex@latest") {
 	const latest = fs.readFileSync(dir + "/latest-codex", "utf8").trim();
 	const file = dir + "/lib/node_modules/@openai/codex/bin/codex.js";
@@ -201,6 +202,7 @@ const dir = process.env.FAKE_CODEX_DIR;
 if (process.argv[2] === "--version") { console.log(VERSION + " (Claude Code)"); process.exit(0); }
 if (process.argv[2] === "update") {
 	console.log("Checking for updates...");
+while (fs.existsSync(dir + "/update-hold")) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
 	const latest = fs.readFileSync(dir + "/latest-claude", "utf8").trim();
 	const file = __filename;
 	fs.writeFileSync(file, fs.readFileSync(file, "utf8").replace(/const VERSION = "[^"]*";/, 'const VERSION = "' + latest + '";') + "\\n// updated " + Date.now() + "\\n");
@@ -374,17 +376,20 @@ updateFlow(
 				{ id: "fake-nova", model: "fake-nova", displayName: "Fake Nova", supportedReasoningEfforts: EFFORTS, defaultReasoningEffort: "medium" },
 			]),
 		);
-		// A click runs the command in a visible terminal tab.
+		// A click runs the command in a visible terminal tab (held until the flow has looked at it).
+		writeFileSync(join(w.control, "update-hold"), "");
 		await row(w, "codex-cli").getByRole("button", { name: "Update Codex CLI" }).click();
 		await expect(termTabs(w)).toHaveCount(1, { timeout: T });
 		await expect(termTabs(w).first()).toContainText("Updating Codex CLI");
 		await expect.poll(() => termScreen(w), { timeout: T }).toContain("--registry=");
 		await expect.poll(() => termScreen(w), { timeout: T }).toContain("@openai/codex@latest");
-		await expect.poll(() => termScreen(w), { timeout: T }).toContain("added 1 package");
 		await shot(w, "updates-terminal");
 		// Namzu's own idle server for Codex was ended before the command ran.
 		await expect.poll(() => discovery.some(alive), { timeout: T }).toBe(false);
+		rmSync(join(w.control, "update-hold"));
 		await expect(w.page.getByText("Codex CLI updated to 0.162.0")).toBeVisible({ timeout: T });
+		// A successful update has nothing left to read: its tab closes by itself.
+		await expect(termTabs(w)).toHaveCount(0, { timeout: T });
 		assert.equal(installedCodex(w), "0.162.0");
 		// Settings reads the new version and the row says so; only the second engine is still behind.
 		await openUpdates(w);
@@ -483,7 +488,6 @@ updateFlow(
 		assert.equal(installedCodex(w), "0.154.0");
 		rmSync(join(w.control, "npm-fail"));
 		await row(w, "codex-cli").getByRole("button", { name: "Try again Codex CLI" }).click();
-		await expect.poll(() => termScreen(w), { timeout: T }).toContain("added 1 package");
 		await expect(w.page.getByText("Codex CLI updated to 0.162.0")).toBeVisible({ timeout: T });
 		assert.equal(installedCodex(w), "0.162.0");
 		await openUpdates(w);
@@ -500,10 +504,13 @@ updateFlow(
 		await checkNow(w);
 		await openUpdates(w);
 		await expect(row(w, "claude-code")).toContainText("Runs in a new terminal tab: claude update");
+		writeFileSync(join(w.control, "update-hold"), "");
 		await row(w, "claude-code").getByRole("button", { name: "Update Claude Code" }).click();
 		await expect(termTabs(w).first()).toContainText("Updating Claude Code");
-		await expect.poll(() => termScreen(w), { timeout: T }).toContain("Successfully updated from 2.1.290 to 2.1.295");
+		await expect.poll(() => termScreen(w), { timeout: T }).toContain("Checking for updates...");
+		rmSync(join(w.control, "update-hold"));
 		await expect(w.page.getByText("Claude Code updated to 2.1.295")).toBeVisible({ timeout: T });
+		await expect(termTabs(w)).toHaveCount(0, { timeout: T });
 		await openUpdates(w);
 		await expect(row(w, "claude-code")).toContainText("2.1.295");
 		await expect(row(w, "claude-code")).toContainText("Up to date");

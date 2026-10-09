@@ -123,12 +123,16 @@ import {
 } from './friendly-errors.js'
 import { type EngineSurface, type EngineSurfaceControl, engineLabel } from './harness-picker.js'
 import {
+	ArchiveIcon,
 	ArrowUpIcon,
 	FolderIcon,
 	MoreHorizontalIcon,
 	PanelLeftIcon,
 	PlusIcon,
+	SearchIcon,
 	SettingsIcon,
+	SplitDownIcon,
+	SplitRightIcon,
 	SquareIcon,
 	SquarePenIcon,
 	TerminalIcon,
@@ -168,7 +172,11 @@ import {
 import { palRecentActivity } from './pal-recent-activity.js'
 import { PalCustomizeDialog, PalSidebarSection, PalsPage } from './pals-page.js'
 import { PluginsPage, PluginsSidebar } from './plugins-page.js'
-import { reusableProjectDraft } from './project-draft-reuse.js'
+import {
+	EMPTY_CONVERSATION_TITLE,
+	emptyProjectConversation,
+	reusableProjectDraft,
+} from './project-draft-reuse.js'
 import {
 	createdProjectNotice,
 	homeStarters,
@@ -185,8 +193,9 @@ import { projectRemovalCopy, removalNotice, settingsRoute } from './settings-mod
 import { SettingsPage, SettingsSidebar } from './settings-page.js'
 import { type ConversationCollection, Sidebar } from './sidebar.js'
 import { launchSeed, restoreDecision, settleLaunchSeed } from './startup-restore.js'
+import { type TabChord, movedTabIndex, selectedTabIndex, tabChord } from './tab-keys.js'
 import { TerminalPane } from './terminal-pane.js'
-import { terminalApi, terminalSessions } from './terminal-registry.js'
+import { openTerminalFind, terminalApi, terminalSessions } from './terminal-registry.js'
 import { engineTerminalRequest, shellTerminalRequest } from './terminal-request.js'
 import type { ThreadRowActions } from './thread-card.js'
 import { PaneToasts } from './toast.js'
@@ -240,6 +249,10 @@ function Icon({ name }: { name: 'folder' | 'plus' | 'menu' | 'arrow' | 'stop' | 
 	return <Component aria-hidden="true" />
 }
 const NO_UPDATER: UpdateState = { status: 'disabled' }
+/** How many of the newest conversations the command palette lists under "Recent". */
+const RECENT_PALETTE_CONVERSATIONS = 5
+/** How long the Undo toast after archiving stays: long enough to read where the conversation went. */
+const ARCHIVE_UNDO_MS = 20_000
 export function App({
 	group,
 	terminals: terminalGroup,
@@ -752,7 +765,7 @@ export function App({
 	const [detailsPopoverOpen, setDetailsPopoverOpen] = useState(false)
 	const [renamingConversation, setRenamingConversation] = useState<ConversationView>()
 	const [undoingTurn, setUndoingTurn] = useState<{ sessionId: string; turnId: string }>()
-	const [archivedProject, setArchivedProject] = useState<string>()
+	const [archivedOpen, setArchivedOpen] = useState(false)
 	const renameTrigger = useRef<HTMLElement | null>(null)
 	const announce = useCallback((text: string) => void notify(text), [])
 	const [git, setGit] = useState<{ projectId: string; value: ProjectGitView | null }>()
@@ -773,7 +786,17 @@ export function App({
 	const input = useRef<HTMLTextAreaElement>(null)
 	const transcript = useRef<HTMLDivElement>(null)
 	const follow = useRef(true)
-	const transcriptScroll = useTranscriptScroll(sessionId, transcript, follow)
+	// Where the reader stopped is kept with the rest of the conversation's view, so a restart
+	// reopens it there and not where it was when something else last changed.
+	const keepScrollPosition = useCallback(() => {
+		if (context.current.frozen || openingHistory.current !== null) return
+		try {
+			writePresentation.current()
+		} catch (failure) {
+			setError(errorText(failure))
+		}
+	}, [])
+	const transcriptScroll = useTranscriptScroll(sessionId, transcript, follow, keepScrollPosition)
 	const project = projects.find((item) => item.id === projectId)
 	// A folder that failed to open gets its own stage, which already carries the error text.
 	const stage = project ? projectStage(project) : undefined
@@ -1209,6 +1232,9 @@ export function App({
 			: undefined
 	// A tab that opens beside or below the pane, or in a window of its own, joins this pane first,
 	// then leaves as a move; the tab that was in front stays in front where it was.
+	// The tab in front now: a terminal when one is, else the pane's active conversation.
+	const frontTabNow = () =>
+		(!startAtHome && terminalGroup?.activeId) || context.current.group.activeTabId
 	const placeNewTab = async (tabId: string, place: NewTabPlacement | undefined, before: string) => {
 		if (!place) return
 		const groupId = context.current.group.id
@@ -1218,7 +1244,7 @@ export function App({
 	}
 	const openShellTerminal = async (place?: NewTabPlacement) => {
 		if (context.current.frozen || !project || !terminalReady || !window.namzu.openTerminal) return
-		const before = context.current.group.activeTabId
+		const before = frontTabNow()
 		const opened = await window.namzu.openTerminal(shellTerminalRequest(project.id, group.id))
 		await placeNewTab(opened.terminal.id, place, before)
 	}
@@ -1234,7 +1260,7 @@ export function App({
 		if (!destination.trusted || destination.status !== 'ready')
 			throw new Error('Trust this project to start a conversation.')
 		previousNormalProject.current = destination.id
-		const before = context.current.group.activeTabId
+		const before = frontTabNow()
 		const view = await api.newConversation(destination.id)
 		upsertConversation(view)
 		await onAction({ kind: 'open', tabId: view.id, groupId: context.current.group.id })
@@ -2233,14 +2259,22 @@ export function App({
 	const createProjectDraft = useCallback(
 		async (item: ProjectView) => {
 			if (!item.trusted || item.status !== 'ready') return ''
+			// After a restart nothing remembers which conversation was the project's draft, so an
+			// untouched one that is already in the list is reused before another is made.
+			const candidate =
+				projectDrafts.current.get(item.id) ??
+				emptyProjectConversation(catalogueRows.current.conversations, item.id)
 			const reused = reusableProjectDraft({
-				candidate: projectDrafts.current.get(item.id),
+				candidate,
 				projectId: item.id,
 				conversations: catalogueRows.current.conversations,
-				thread: threadsRef.current[projectDrafts.current.get(item.id) ?? ''],
-				draftText: draftsRef.current[projectDrafts.current.get(item.id) ?? ''],
+				thread: threadsRef.current[candidate ?? ''],
+				draftText: draftsRef.current[candidate ?? ''],
 			})
-			if (reused) return reused
+			if (reused) {
+				projectDrafts.current.set(item.id, reused)
+				return reused
+			}
 			const view = await api.newConversation(item.id)
 			projectDrafts.current.set(item.id, view.id)
 			setConversations((all) => [view, ...all.filter((row) => row.id !== view.id)])
@@ -2964,8 +2998,9 @@ export function App({
 		if (result.sessionId !== value.id || result.removed !== true)
 			throw new Error('Conversation removal was not confirmed. Try again.')
 		const archivedId = value.id
-		notify('Conversation archived.', {
+		notify('Conversation archived. Find it under Archived conversations in the sidebar.', {
 			tone: 'success',
+			timeoutMs: ARCHIVE_UNDO_MS,
 			action: api.restoreConversation
 				? {
 						label: 'Undo',
@@ -3523,6 +3558,11 @@ export function App({
 			Object.keys(disclosureView.choices).length
 				? disclosureView.choices
 				: undefined
+		// A transcript that is hidden or detached (a window closing, a pane being moved) reads as
+		// scrolled to the top; that is not where the reader was, so the saved position is kept.
+		const node = transcript.current
+		const measured = Boolean(node?.isConnected && node.clientHeight > 0)
+		const kept = measured ? null : readWorkspacePresentation(localStorage, sessionId)
 		writeWorkspacePresentation(localStorage, sessionId, {
 			palScreen,
 			computerChat,
@@ -3532,8 +3572,9 @@ export function App({
 			jobsOpen: detailsOpen,
 			panelTab: shownPanelTab?.kind === 'changes' ? 'changes' : 'jobs',
 			panelExpanded,
-			follow: position?.follow ?? follow.current,
-			scrollTop: position?.scrollTop ?? transcript.current?.scrollTop ?? 0,
+			follow: position?.follow ?? kept?.follow ?? follow.current,
+			scrollTop:
+				position?.scrollTop ?? (measured ? (node?.scrollTop ?? 0) : (kept?.scrollTop ?? 0)),
 			workDisclosures,
 		})
 	}, [
@@ -4183,6 +4224,69 @@ export function App({
 		follow.current = true
 	}
 
+	// The pane's strip in order (terminals included) and the tab in front.
+	const stripIds = terminalGroup ? terminalGroup.order : group.tabs
+	const frontTabId = activeTerminal?.id ?? (group.activeTabId || sessionId)
+	const showTab = (id: string) => {
+		const activate = () =>
+			void onAction({ kind: 'activate', groupId: group.id, tabId: id }).catch((failure) =>
+				setError(errorText(failure)),
+			)
+		if (terminalById.has(id)) return activate()
+		const view = conversations.find((item) => item.id === id)
+		if (!view?.projectId) return
+		if (activeTerminal) activate()
+		else void act(() => openConversation(view))
+	}
+	// Returns whether the chord meant something here, so an inert chord stays the browser's.
+	const runTabChord = (chord: TabChord): boolean => {
+		if (context.current.frozen || loading) return false
+		const at = stripIds.indexOf(frontTabId)
+		switch (chord.kind) {
+			case 'close':
+				if (!frontTabId) return false
+				void onAction({ kind: 'close', groupId: group.id, tabId: frontTabId }).catch((failure) =>
+					setError(errorText(failure)),
+				)
+				return true
+			case 'next':
+			case 'previous': {
+				if (stripIds.length === 0) return false
+				const step = chord.kind === 'next' ? 1 : -1
+				const target = stripIds[(Math.max(at, 0) + step + stripIds.length) % stripIds.length]
+				if (target && target !== frontTabId) showTab(target)
+				return true
+			}
+			case 'select': {
+				const index = selectedTabIndex(chord.number, stripIds.length)
+				const target = index === undefined ? undefined : stripIds[index]
+				if (target && target !== frontTabId) showTab(target)
+				return true
+			}
+			case 'move': {
+				const to = at < 0 ? undefined : movedTabIndex(at, chord.delta, stripIds.length)
+				if (at < 0 || to === undefined) return true
+				// The drop index counts the tab being moved, as a drop on the far half of a neighbour does.
+				void onAction({
+					kind: 'move',
+					tabId: frontTabId,
+					sourceGroupId: group.id,
+					targetWindowId: windowId,
+					targetGroupId: group.id,
+					position: 'center',
+					index: chord.delta > 0 ? at + 2 : at - 1,
+				}).catch((failure) => setError(errorText(failure)))
+				return true
+			}
+			case 'split-right':
+				if (!terminalReady) return false
+				newTabMenuAction('terminal-right')
+				return true
+		}
+	}
+	const runTabChordRef = useRef(runTabChord)
+	runTabChordRef.current = runTabChord
+
 	useEffect(() => {
 		const onKey = (event: KeyboardEvent) => {
 			if (
@@ -4209,6 +4313,11 @@ export function App({
 			) {
 				event.preventDefault()
 				void act(() => openShellRef.current())
+				return
+			}
+			const tabAction = tabChord(event, { mac: macPlatform })
+			if (tabAction && runTabChordRef.current(tabAction)) {
+				event.preventDefault()
 				return
 			}
 			if (
@@ -4295,26 +4404,41 @@ export function App({
 		macPlatform,
 	])
 	const shortcutModifier = /Mac/.test(navigator.platform) ? 'Cmd' : 'Ctrl'
+	// Conversations that were never written in are left out, and each one is listed once: the
+	// newest few as "Recent", the rest under "Conversations".
+	const paletteConversations = [
+		...new Map(
+			conversations
+				.filter(
+					(view) =>
+						projects.some((item) => item.id === view.projectId) &&
+						(view.palId ||
+							view.title !== EMPTY_CONVERSATION_TITLE ||
+							threads[view.id]?.messages.length),
+				)
+				.map((view) => [view.id, view] as const),
+		).values(),
+	].sort(compareConversationRecency)
+	const frontConversation = conversations.find((item) => item.id === sessionId)
+	const conversationChordReady =
+		Boolean(frontConversation) && !palConversation && !loading && !restoringTabs
 	const commandItems: CommandPaletteItem[] = [
-		...conversations
-			.filter((view) => projects.some((item) => item.id === view.projectId))
-			.sort(compareConversationRecency)
-			.map((view) => {
-				const owner = projects.find((item) => item.id === view.projectId)
-				return {
-					id: `conversation:${view.id}`,
-					label: view.title,
-					group: 'Chats',
-					meta: owner?.name,
-					keywords: [owner?.name ?? '', view.id],
-					disabled: !owner?.trusted || owner.status !== 'ready',
-					onAction: () => void act(() => openConversation(view)),
-				}
-			}),
+		...paletteConversations.map((view, index) => {
+			const owner = projects.find((item) => item.id === view.projectId)
+			return {
+				id: `conversation:${view.id}`,
+				label: view.title,
+				group: index < RECENT_PALETTE_CONVERSATIONS ? 'Recent' : 'Conversations',
+				meta: owner?.name,
+				keywords: [owner?.name ?? '', view.id],
+				disabled: !owner?.trusted || owner.status !== 'ready',
+				onAction: () => void act(() => openConversation(view)),
+			}
+		}),
 		{
 			id: 'new-conversation',
 			label: 'New conversation',
-			group: 'Quick actions',
+			group: 'Actions',
 			icon: <SquarePenIcon aria-hidden="true" />,
 			shortcut: [shortcutModifier, 'N'],
 			disabled: loading,
@@ -4323,7 +4447,7 @@ export function App({
 		{
 			id: 'new-terminal',
 			label: 'New terminal',
-			group: 'Quick actions',
+			group: 'Actions',
 			icon: <TerminalIcon aria-hidden="true" />,
 			shortcut: [shortcutModifier, 'Shift', '`'],
 			keywords: ['shell', 'command line', 'console', 'cli'],
@@ -4331,9 +4455,142 @@ export function App({
 			onAction: () => void act(openShellTerminal),
 		},
 		{
+			id: 'terminal-right',
+			label: 'New terminal to the right',
+			group: 'Actions',
+			icon: <SplitRightIcon aria-hidden="true" />,
+			shortcut: [shortcutModifier, 'Shift', '\\'],
+			keywords: ['split', 'beside', 'side by side', 'shell'],
+			disabled: loading || !terminalReady,
+			onAction: () => newTabMenuAction('terminal-right'),
+		},
+		{
+			id: 'terminal-below',
+			label: 'New terminal below',
+			group: 'Actions',
+			icon: <SplitDownIcon aria-hidden="true" />,
+			keywords: ['split', 'under', 'shell'],
+			disabled: loading || !terminalReady,
+			onAction: () => newTabMenuAction('terminal-below'),
+		},
+		{
+			id: 'conversation-right',
+			label: 'New conversation to the right',
+			group: 'Actions',
+			icon: <SplitRightIcon aria-hidden="true" />,
+			keywords: ['split', 'beside', 'side by side'],
+			disabled: loading,
+			onAction: () => newTabMenuAction('conversation-right'),
+		},
+		{
+			id: 'conversation-below',
+			label: 'New conversation below',
+			group: 'Actions',
+			icon: <SplitDownIcon aria-hidden="true" />,
+			keywords: ['split', 'under'],
+			disabled: loading,
+			onAction: () => newTabMenuAction('conversation-below'),
+		},
+		...(activeTerminal
+			? [
+					{
+						id: 'find-in-terminal',
+						label: 'Find in terminal',
+						group: 'Actions',
+						icon: <SearchIcon aria-hidden="true" />,
+						shortcut: [shortcutModifier, 'F'],
+						keywords: ['search', 'terminal'],
+						onAction: () => openTerminalFind(activeTerminal.id),
+					},
+				]
+			: []),
+		{
+			id: 'rename-conversation',
+			label: 'Rename conversation',
+			group: 'Actions',
+			shortcut: [shortcutModifier, 'Alt', 'R'],
+			disabled: !conversationChordReady,
+			onAction: () => void shortcutRunner.current('rename'),
+		},
+		{
+			id: 'pin-conversation',
+			label: frontConversation?.pinned ? 'Unpin conversation' : 'Pin conversation',
+			group: 'Actions',
+			shortcut: [shortcutModifier, 'Alt', 'P'],
+			disabled: !conversationChordReady,
+			onAction: () => void shortcutRunner.current('pin'),
+		},
+		{
+			id: 'archive-conversation',
+			label: 'Archive conversation',
+			group: 'Actions',
+			shortcut: [shortcutModifier, 'Shift', 'A'],
+			disabled: !conversationChordReady,
+			onAction: () => void shortcutRunner.current('archive'),
+		},
+		...(api.archivedConversations
+			? [
+					{
+						id: 'archived-conversations',
+						label: 'Archived conversations',
+						group: 'Actions',
+						icon: <ArchiveIcon aria-hidden="true" />,
+						keywords: ['restore', 'archive', 'old'],
+						onAction: () => setArchivedOpen(true),
+					},
+				]
+			: []),
+		{
+			id: 'close-tab',
+			label: 'Close tab',
+			group: 'Tabs',
+			shortcut: [shortcutModifier, 'W'],
+			meta: 'In a terminal: Ctrl+F4',
+			keywords: ['tab', 'close'],
+			disabled: !frontTabId,
+			onAction: () => void runTabChord({ kind: 'close' }),
+		},
+		{
+			id: 'next-tab',
+			label: 'Next tab',
+			group: 'Tabs',
+			shortcut: ['Ctrl', 'Tab'],
+			meta: `${shortcutModifier}+1 to 9 picks a tab`,
+			keywords: ['switch', 'tab'],
+			disabled: stripIds.length < 2,
+			onAction: () => void runTabChord({ kind: 'next' }),
+		},
+		{
+			id: 'previous-tab',
+			label: 'Previous tab',
+			group: 'Tabs',
+			shortcut: ['Ctrl', 'Shift', 'Tab'],
+			keywords: ['switch', 'tab'],
+			disabled: stripIds.length < 2,
+			onAction: () => void runTabChord({ kind: 'previous' }),
+		},
+		{
+			id: 'move-tab-left',
+			label: 'Move tab left',
+			group: 'Tabs',
+			shortcut: ['Ctrl', 'Shift', 'PageUp'],
+			keywords: ['reorder', 'tab'],
+			disabled: stripIds.length < 2,
+			onAction: () => void runTabChord({ kind: 'move', delta: -1 }),
+		},
+		{
+			id: 'move-tab-right',
+			label: 'Move tab right',
+			group: 'Tabs',
+			shortcut: ['Ctrl', 'Shift', 'PageDown'],
+			keywords: ['reorder', 'tab'],
+			disabled: stripIds.length < 2,
+			onAction: () => void runTabChord({ kind: 'move', delta: 1 }),
+		},
+		{
 			id: 'open-settings',
 			label: 'Settings',
-			group: 'Quick actions',
+			group: 'Actions',
 			icon: <SettingsIcon aria-hidden="true" />,
 			shortcut: [shortcutModifier, ','],
 			keywords: [
@@ -4348,18 +4605,20 @@ export function App({
 		},
 		{
 			id: 'create-project',
-			label: START_FROM_SCRATCH_LABEL,
-			group: 'Quick actions',
+			label: `Add project: ${START_FROM_SCRATCH_LABEL.toLowerCase()}`,
+			group: 'Actions',
 			icon: <FolderIcon aria-hidden="true" />,
+			keywords: ['new project', 'folder', 'create'],
 			disabled: loading,
 			onAction: () => void act(createProject),
 		},
 		{
 			id: 'open-project',
-			label: USE_EXISTING_FOLDER_LABEL,
-			group: 'Quick actions',
+			label: `Add project: ${USE_EXISTING_FOLDER_LABEL.toLowerCase()}`,
+			group: 'Actions',
 			icon: <FolderIcon aria-hidden="true" />,
 			shortcut: [shortcutModifier, 'O'],
+			keywords: ['new project', 'open folder'],
 			disabled: loading,
 			onAction: () => void act(openProject),
 		},
@@ -4675,15 +4934,14 @@ export function App({
 								}}
 							/>
 						)}
-						{archivedProject && api.archivedConversations && (
+						{archivedOpen && api.archivedConversations && (
 							<ArchivedConversationsDialog
-								key={`archived:${archivedProject}`}
+								key="archived"
 								api={api}
-								projectId={archivedProject}
-								projectName={
-									projects.find((item) => item.id === archivedProject)?.name ?? 'Project'
-								}
-								onClose={() => setArchivedProject(undefined)}
+								projects={projects
+									.filter((item) => !item.palId && !item.isChat)
+									.map((item) => ({ id: item.id, name: item.name }))}
+								onClose={() => setArchivedOpen(false)}
 								returnFocus={() => detailsTrigger.current ?? input.current}
 								onRestored={(view) => {
 									unblockRestoredConversation(view.id)
@@ -4724,6 +4982,7 @@ export function App({
 							open={commandOpen}
 							onOpenChange={setCommandOpen}
 							triggerRef={commandTrigger}
+							fallbackFocusRef={input}
 							items={commandItems}
 							loading={commandListing.loading}
 							notice={commandListing.notice}
@@ -4801,6 +5060,16 @@ export function App({
 							onLocateProject={
 								api.locateProject ? (value) => void act(() => locateProject(value)) : undefined
 							}
+							onOpenProjectFolder={
+								api.openProjectPath
+									? (item) =>
+											void act(
+												() =>
+													api.openProjectPath?.(item.id, '', 'file-manager') ?? Promise.resolve(),
+											)
+									: undefined
+							}
+							onOpenArchived={api.archivedConversations ? () => setArchivedOpen(true) : undefined}
 							collapsed={sideCollapsed}
 							opening={loading}
 							onClose={() => setSideOpen(false)}
@@ -5012,7 +5281,7 @@ export function App({
 								}}
 								onOpenArchived={
 									project && !project.isChat && api.archivedConversations
-										? () => setArchivedProject(project.id)
+										? () => setArchivedOpen(true)
 										: undefined
 								}
 								onAttach={() => {

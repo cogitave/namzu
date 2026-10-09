@@ -1,6 +1,7 @@
 import type { ProjectView } from '../shared/protocol.js'
 import { type SettingsSection, isSettingsSection } from '../shared/settings-protocol.js'
 import type { UpdateState } from '../shared/update-protocol.js'
+import { foldSearchText } from './text-fold.js'
 
 export const SETTINGS_SECTION_TITLES: Record<SettingsSection, string> = {
 	general: 'General',
@@ -141,8 +142,7 @@ export const SETTINGS_ENTRIES: readonly SettingsEntry[] = [
 ]
 
 function words(value: string): string[] {
-	return value
-		.toLowerCase()
+	return foldSearchText(value)
 		.split(/[^\p{L}\p{N}]+/u)
 		.filter(Boolean)
 }

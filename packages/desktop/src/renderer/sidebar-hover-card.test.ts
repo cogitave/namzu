@@ -7,6 +7,7 @@ import {
 	createGitCache,
 	createHoverIntent,
 	hoverCardModel,
+	lastMessagePreview,
 	relativeAge,
 } from './sidebar-hover-card.js'
 import { ThreadHoverCardView } from './thread-hover-card.js'
@@ -88,7 +89,9 @@ describe('hoverCardModel', () => {
 				}),
 			}),
 		)
-		expect(html).toContain('Find a memorable workspace name')
+		// The row already shows the title; the card says what the row cannot.
+		expect(html).not.toContain('Find a memorable workspace name')
+		expect(html).toContain('Namzu')
 		expect(html).toContain('This computer')
 		expect(html).toContain('Cogitave')
 		expect(html).toContain('feat/x')
@@ -98,6 +101,33 @@ describe('hoverCardModel', () => {
 			}),
 		)
 		expect(bare).not.toContain('feat/x')
+		const said = renderToStaticMarkup(
+			createElement(ThreadHoverCardView, {
+				model: hoverCardModel({
+					conversation,
+					project,
+					messages: [
+						{ role: 'user', text: 'Please list the files' },
+						{ role: 'assistant', text: '  Here are\nthe files.  ' },
+					],
+					now: NOW,
+				}),
+			}),
+		)
+		expect(said).toContain('Here are the files.')
+	})
+	it('previews the last message, marking the person’s own', () => {
+		expect(lastMessagePreview([{ role: 'user', text: ' hi   there ' }])).toBe('You: hi there')
+		expect(
+			lastMessagePreview([
+				{ role: 'assistant', text: 'ok' },
+				{ role: 'user', text: '  ' },
+			]),
+		).toBe('ok')
+		expect(lastMessagePreview([{ role: 'assistant', text: 'x'.repeat(200) }])).toBe(
+			`${'x'.repeat(120)}…`,
+		)
+		expect(lastMessagePreview(undefined)).toBeUndefined()
 	})
 })
 

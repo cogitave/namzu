@@ -26,3 +26,23 @@ export function reusableProjectDraft({
 	if (draftText) return undefined
 	return candidate
 }
+
+/** The title a conversation keeps until its first message names it. */
+export const EMPTY_CONVERSATION_TITLE = 'New conversation'
+
+/** The newest conversation of the project that was never written in, if one exists. */
+export function emptyProjectConversation(
+	conversations: readonly Pick<
+		ConversationView,
+		'id' | 'projectId' | 'palId' | 'title' | 'updatedAt'
+	>[],
+	projectId: string,
+): string | undefined {
+	let best: (typeof conversations)[number] | undefined
+	for (const item of conversations) {
+		if (item.projectId !== projectId || item.palId || item.title !== EMPTY_CONVERSATION_TITLE)
+			continue
+		if (!best || item.updatedAt > best.updatedAt) best = item
+	}
+	return best?.id
+}

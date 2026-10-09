@@ -13,14 +13,38 @@
 	overflow-x: auto;
 	scrollbar-width: none;
 }
+.conversation-tab-list {
+	scroll-padding-inline: 8px;
+}
+.conversation-tab-new-more {
+	width: 18px;
+	min-width: 18px;
+	margin-inline-start: -6px;
+	flex: none;
+}
+.conversation-tab-new-more > svg {
+	width: 12px;
+	height: 12px;
+}
+.conversation-tab-overflow {
+	flex: none;
+}
+.conversation-actions-icon-slot {
+	display: grid;
+	place-items: center;
+	flex: 0 0 16px;
+	width: 16px;
+	height: 16px;
+}
 .conversation-tab {
 	position: relative;
 	display: flex;
 	align-items: center;
 	width: 220px;
-	min-width: 140px;
+	min-width: 160px;
 	height: 32px;
-	flex: 0 0 auto;
+	/* Tabs give way down to their minimum before the strip scrolls, so none is cut mid-letter early. */
+	flex: 0 1 auto;
 	padding-right: 4px;
 	border: 1px solid transparent;
 	border-radius: 8px;

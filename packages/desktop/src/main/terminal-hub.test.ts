@@ -18,6 +18,7 @@ import {
 	type TerminalEndInfo,
 	TerminalHub,
 	type TerminalHubOptions,
+	uniqueTabTitle,
 } from './terminal-hub.js'
 import type { SavedTerminalTab } from './terminal-tab-store.js'
 
@@ -207,13 +208,13 @@ describe('opening a terminal', () => {
 		const t = setup()
 		const { terminal } = await t.hub.open(shell)
 		expect(t.client.created).toEqual([
-			{ cwd: '/work/api', command: '/bin/zsh', args: [], cols: 100, rows: 30, title: 'zsh' },
+			{ cwd: '/work/api', command: '/bin/zsh', args: [], cols: 100, rows: 30, title: 'zsh · api' },
 		])
 		expect(terminal).toMatchObject({
 			id: TAB_A,
 			projectId: 'p1',
 			kind: 'shell',
-			title: 'zsh',
+			title: 'zsh · api',
 			status: 'running',
 		})
 		expect(terminal.activity).toBeUndefined()
@@ -222,6 +223,16 @@ describe('opening a terminal', () => {
 		expect(t.hub.list().map((tab) => tab.id)).toEqual([TAB_A])
 		expect(t.published.at(-1)?.map((tab) => tab.id)).toEqual([TAB_A])
 		expect(t.saves.at(-1)?.[0]?.view.id).toBe(TAB_A)
+	})
+
+	it('tells two shells of one project apart by number', async () => {
+		const t = setup()
+		const first = await t.hub.open(shell)
+		const second = await t.hub.open(shell)
+		expect([first.terminal.title, second.terminal.title]).toEqual(['zsh · api', 'zsh 2 · api'])
+		expect(uniqueTabTitle('a', ['a', 'a 2'])).toBe('a 3')
+		expect(uniqueTabTitle('Codex CLI · api', ['Codex CLI · api'])).toBe('Codex CLI 2 · api')
+		expect(uniqueTabTitle('a', ['b'])).toBe('a')
 	})
 
 	it('starts an engine CLI with the composer choices and names the tab for engine and project', async () => {

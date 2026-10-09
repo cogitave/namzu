@@ -41,6 +41,11 @@ export function onTerminalFind(open: ((tabId: string) => void) | undefined): voi
 	findOpener = open
 }
 
+/** Opens the find bar of the terminal `tabId`, as Ctrl+F inside it does. */
+export function openTerminalFind(tabId: string): void {
+	findOpener?.(tabId)
+}
+
 /** The window's terminal sessions. One registry per API object, shared by every pane. */
 export function terminalSessions(api: TerminalSessionApi): TerminalSessions {
 	let sessions = registries.get(api)

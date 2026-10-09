@@ -9,6 +9,7 @@ import {
 	workspacePaneSplitFits,
 	workspacePointerDrop,
 	workspacePointerRatio,
+	workspaceSplitRoom,
 } from './workspace-canvas-geometry.js'
 
 const group = (id: string): WorkspaceGroup => ({
@@ -203,5 +204,17 @@ describe('tab drag and drop admission', () => {
 		expect(workspaceDropRect(rect, 'top')).toEqual({ x: 100, y: 200, width: 1000, height: 398 })
 		expect(workspaceDropRect(rect, 'bottom')).toEqual({ x: 100, y: 602, width: 1000, height: 398 })
 		expect(workspaceDropRect(rect, 'center')).toEqual(rect)
+	})
+})
+
+describe('workspaceSplitRoom', () => {
+	it('splits where two panes fit, and steps the sidebar aside where only that gives room', () => {
+		expect(workspaceSplitRoom({ width: 900, height: 700 }, 'right', 260)).toBe('fits')
+		// At 900 px wide the sidebar leaves 640: two panes of 380 do not fit, without it they do.
+		expect(workspaceSplitRoom({ width: 640, height: 680 }, 'right', 260)).toBe('collapse-sidebar')
+		expect(workspaceSplitRoom({ width: 640, height: 680 }, 'right', 0)).toBe('too-small')
+		expect(workspaceSplitRoom({ width: 500, height: 680 }, 'right', 260)).toBe('too-small')
+		// Below needs height, which a sidebar does not give.
+		expect(workspaceSplitRoom({ width: 900, height: 400 }, 'bottom', 260)).toBe('too-small')
 	})
 })
