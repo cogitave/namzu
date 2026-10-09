@@ -119,15 +119,26 @@ await import(${JSON.stringify(`file://${BIN}`)})
 	return { screenHas, resize }
 }
 
-/** The composer's frame has been drawn for exactly this pane width, with its footer under it. */
+/**
+ * The composer's frame has been drawn whole for exactly this pane width: the top and
+ * bottom borders both span it and close with their corners, nothing on screen is wider
+ * than the pane, and the footer is under it. The redraw arrives in several chunks, so a
+ * screen can show the new bottom border and footer while the top border is still the old
+ * width's; that frame is not yet the answer, and the wait goes on to the next output.
+ */
 function drawnFor(cols: number) {
 	return (lines: string[]): boolean => {
+		const top = lines.find((line) => line.trimStart().startsWith('┌'))
 		const bottom = lines.find((line) => line.trimStart().startsWith('└'))
 		const footer = lines.find((line) => line.includes('shift+tab'))
 		return (
+			top !== undefined &&
 			bottom !== undefined &&
-			bottom.length >= cols - 4 &&
+			top.endsWith('┐') &&
 			bottom.endsWith('┘') &&
+			[...top].length >= cols - 4 &&
+			[...top].length === [...bottom].length &&
+			lines.every((line) => [...line].length <= cols) &&
 			footer !== undefined &&
 			footer.includes(MODEL)
 		)
