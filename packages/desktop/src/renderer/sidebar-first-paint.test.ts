@@ -46,7 +46,7 @@ it('never writes "Loading…" next to an empty-state sentence in the Pals list',
 			onOpen: () => {},
 		}),
 	)
-	expect(markup).toContain('sidebar-skeleton')
+	expect(markup).toContain('sidebar-section-skeleton')
 	expect(markup).not.toContain('Loading…')
 	expect(markup).not.toContain('Create your first Pal')
 })
