@@ -992,10 +992,17 @@ export function App({
 			follow.current = pending.follow
 			if (complete) pendingPresentationScroll.current = null
 		}
-		const first = requestAnimationFrame(() => {
-			apply(false)
-			second = requestAnimationFrame(() => apply(true))
-		})
+		// The transcript can mount a few frames after its history is ready (the page behind it is
+		// still settling); wait for it, up to a second's worth of frames, instead of giving up.
+		let first = 0
+		const attempt = (left: number) => {
+			first = requestAnimationFrame(() => {
+				if (!transcript.current && left > 0) return attempt(left - 1)
+				apply(false)
+				second = requestAnimationFrame(() => apply(true))
+			})
+		}
+		attempt(60)
 		return () => {
 			cancelAnimationFrame(first)
 			if (second !== undefined) cancelAnimationFrame(second)
