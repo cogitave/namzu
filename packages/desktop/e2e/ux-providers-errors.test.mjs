@@ -233,7 +233,7 @@ failureFlow(
 		body: "<html><body>502 Bad Gateway</body></html>",
 	},
 	{
-		main: ["OpenAI had a problem on its side. Your message is saved. Try again in a minute."],
+		main: ["OpenAI had a problem on its side. Your message is saved."],
 		buttons: [/Start a new conversation|Try again/],
 	},
 	"10-fault-502",

@@ -13,7 +13,7 @@ describe('describeFailure', () => {
 		[
 			'anthropic — could not reach the provider: Connection error.',
 			'connection',
-			'Namzu couldn’t reach Anthropic. Check your internet connection, then try again.',
+			'Namzu couldn’t reach Anthropic. Check your internet connection.',
 			['try-again'],
 		],
 		[
@@ -25,13 +25,13 @@ describe('describeFailure', () => {
 		[
 			'anthropic (HTTP 429) — rate limited by the provider',
 			'rate-limit',
-			'Anthropic asked Namzu to slow down. Wait a minute, then try again.',
+			'Anthropic asked Namzu to slow down. Give it a minute.',
 			['try-again'],
 		],
 		[
 			'openai (HTTP 502) — the provider failed to complete the request: 502 <html><body>502 Bad Gateway</body></html>',
 			'server',
-			'OpenAI had a problem on its side. Your message is saved. Try again in a minute.',
+			'OpenAI had a problem on its side. Your message is saved.',
 			['try-again'],
 		],
 		[

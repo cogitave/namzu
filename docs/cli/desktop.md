@@ -618,10 +618,10 @@ removed, key-shaped text hidden, at most 500 characters): `src/renderer/friendly
 
 | What happened | What the person reads | Action |
 |---|---|---|
-| Cannot reach the provider | Namzu couldn't reach OpenAI. Check your internet connection, then try again. | Try again |
+| Cannot reach the provider | Namzu couldn't reach OpenAI. Check your internet connection. | Try again |
 | 401 / 403 | OpenAI didn't accept your key. Check it in Settings, then send again. | Open model settings |
 | 429 | OpenAI asked Namzu to slow down… (and, while waiting, the countdown below) | Try again |
-| 5xx | OpenAI had a problem on its side. Your message is saved. Try again in a minute. | Try again |
+| 5xx | OpenAI had a problem on its side. Your message is saved. | Try again |
 | Context window | This conversation is too long for the model… | Start a new conversation |
 | No key | There is no API key for Anthropic. Add one in Settings, then send again. | Open model settings |
 

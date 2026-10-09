@@ -84,7 +84,7 @@ export function describeFailure(raw: string, providerLabel?: string): FriendlyFa
 			return withDetails(
 				{
 					kind: 'connection',
-					text: `Namzu couldn’t reach ${name}. Check your internet connection, then try again.`,
+					text: `Namzu couldn’t reach ${name}. Check your internet connection.`,
 					actions: ['try-again'],
 				},
 				message,
@@ -102,7 +102,7 @@ export function describeFailure(raw: string, providerLabel?: string): FriendlyFa
 			return withDetails(
 				{
 					kind: 'rate-limit',
-					text: `${name} asked Namzu to slow down. Wait a minute, then try again.`,
+					text: `${name} asked Namzu to slow down. Give it a minute.`,
 					actions: ['try-again'],
 				},
 				message,
@@ -111,7 +111,7 @@ export function describeFailure(raw: string, providerLabel?: string): FriendlyFa
 			return withDetails(
 				{
 					kind: 'server',
-					text: `${name} had a problem on its side. Your message is saved. Try again in a minute.`,
+					text: `${name} had a problem on its side. Your message is saved.`,
 					actions: ['try-again'],
 				},
 				message,
