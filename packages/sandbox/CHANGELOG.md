@@ -1,5 +1,222 @@
 # @namzu/sandbox
 
+## 25.0.0
+
+### Major Changes
+
+- c82b951: Change the local Pal provider's default foreground ownership from strict command
+  lifetime to computer lifetime. Rebuild the shipped local-computer image from this
+  release to use the new default. To retain the previous behavior and continue using
+  an existing strict image, set `normalExitPolicy: 'strict'` when calling
+  `createLocalVirtualComputerProvider`. A successful
+  foreground launcher can leave Blender or another application open without retiring
+  the entire computer; the application remains owned by that guest allocation until
+  the computer stops. An authenticated execution-reservation acknowledgment prevents
+  an upgraded host from silently admitting this policy against an older image.
+
+  Generic workers and registered background jobs retain strict process ownership.
+  Failed launchers and timed-out or cancelled commands cannot transfer live descendants;
+  if termination cannot be confirmed, the worker retires the allocation.
+  A completed launcher does not claim its surviving application has terminated.
+
+  CLI Pal computers use the same new default. Set
+  `NAMZU_PAL_COMPUTER_NORMAL_EXIT_POLICY=strict` before starting the CLI or desktop
+  host to retain their previous command lifetime and use an older strict image.
+
+- 7f5ac50: Update the bundled local Pal computer's normal Blender launcher from the
+  distribution Blender 3.4 to checksum-pinned Blender 5.2.2 LTS and its Godot
+  launcher from Godot 3.2 to checksum-pinned Godot 4.7.2. Godot 3 projects must be
+  converted and tested before opening with the new default. Preserve the original
+  project and use `/usr/bin/godot3` for explicit legacy work; `/usr/bin/blender`
+  also remains available. A custom older image retains its own application versions.
+
+  Normal Godot launches use the guest's OpenGL compatibility renderer. Blender MCP
+  startup addon update checks and telemetry are disabled for guest launches. These
+  settings do not install a server or addon automatically. Rebuild the local image
+  explicitly, then stop and reopen an idle Pal computer to select it; rebuilding a
+  tag does not replace a running allocation or change saved guest files.
+
+### Minor Changes
+
+- 7f5ac50: Add optional `MCPClientConfig.transportFactory` for caller-owned transports,
+  preserving built-in transport configurations and the existing MCP protocol
+  lifecycle without launching a host subprocess as fallback.
+
+  Add optional `Sandbox.openStdio` with allocation-owned interactive guest pipes,
+  byte streaming, confirmed process-group shutdown and explicit per-request device
+  operation barriers. Idle services permit operator takeover; an unknown issued
+  application operation permanently fences the allocation until computer stop and
+  cannot be cleared by a late response or closing an external application's MCP
+  server. The local Pal worker must be rebuilt alongside the runtime to advertise
+  interactive support. Older workers refuse this capability before spawning;
+  ordinary foreground, background, file and desktop APIs remain available.
+
+  Keep quiet interactive services alive with bounded worker heartbeat frames,
+  discarded by the matching runtime before application output and without
+  changing request ownership or uncertain-effect barriers. Rebuild the worker
+  and load the matching runtime together for the interactive protocol.
+
+- 0f5aa96: Ready-computer Pal prompts now default to general application work guidance:
+  understand references and acceptance criteria, make reversible changes,
+  observe and correct the actual result, and validate saved files and requested
+  exports before delivery. SDK hosts that need the previous prompt behavior can
+  pass `workGuidance: 'basic'` to `buildPalSystemPrompt`. This guidance shapes
+  model behavior; it does not certify semantic correctness.
+
+  The SDK `read` tool now refuses real PNG, JPEG and WebP bytes as text. Mount
+  the optional `view_image` / `createViewImageTool` for saved-image inspection,
+  or use a format-aware binary reader when pixels are not the desired result.
+  `getBuiltinTools()` retains its previous tool roster. Saved artifact images
+  provide no GUI screenshot authority.
+
+  The CLI and desktop Pal runtime now explicitly mount `view_image` and
+  `import_reference_images`. Image import is a reviewed file-write operation
+  using only the current operator input and admitted guest. Original image
+  bytes and manifests survive durable review; current plan, pause and control
+  guards remain in force. Ordinary chat and unavailable-computer sessions do
+  not acquire guest tool access.
+
+  The local Pal sandbox adds authenticated, acknowledged bounded byte reads.
+  Rebuild the local Pal image from this release to inspect saved images; an
+  older worker fails explicitly before file contents are requested. Existing
+  whole-file requests and generic worker defaults are unchanged.
+
+  The Pal image also includes the standard `file` utility for format checks.
+  This reports file type; it does not establish application or visual quality.
+
+- 81d1721: The optional local computer image now includes 15 real application launchers,
+  including Blender, FreeCAD, GIMP, Inkscape and LibreOffice Draw. Normal Chromium
+  home and new tabs use the bundled Namzu New Tab page with a blank omnibox;
+  navigated sites retain their normal address bar. Launchers use a guest-only
+  native messaging host with a fixed extension origin and fixed application commands.
+  The image activates its bundled New Tab extension and waits for its own startup
+  tab to become ready, without rewriting browser policies or the saved profile.
+  Application launches discard Chromium's disabled D-Bus session address.
+  Kdenlive includes its video effects and uses a virtual audio driver so its editor
+  can start without a host sound device.
+
+  Rebuild the optional local image and restart the owning computer to use the new
+  applications and New Tab page. Existing running images are unchanged, and the
+  persistent home volume and browser profile are retained. The bundled Godot is
+  Debian's Godot 3; no unavailable reference apps are advertised.
+
+- ce52b90: Add optional host-only `PalComputerScreenStream`, `PalEnvironmentLease.screenStream`
+  and `PalRuntime.computerScreenStream(palId, generation)` for observing an exact
+  current Pal computer over read-only RFB. Existing providers remain compatible;
+  providers without the optional capability explicitly refuse live observation.
+  Keep allocation authorization private in the embedding host and enforce read-only
+  observation server-side; the stream does not grant operator input authority.
+
+  The CLI exposes the owning desktop ACP stream method with geometry and generation
+  rechecks, and reuses initialized registry roots to avoid repeated Windows ACL
+  subprocesses while retaining fresh Pal definitions and directory identity checks.
+  The local computer image adds x11vnc and authenticated binary WebSocket transport.
+  Rebuild the installed image explicitly and restart the owning computer to enable
+  live observation; older images retain screenshot/input behavior and advertise no
+  stream capability. Persistent workspace and browser profile volumes survive.
+
+  The guest desktop includes a themed wallpaper, a real dock, Files, terminal and
+  browser launchers, plus a local browser home page. Normal browser-window closure
+  keeps the desktop alive; owned profile shutdown retains browser flush ordering.
+
+- 84a9472: Add optional exclusive operator control to local Pal computer leases. Hosts can
+  transfer an idle guest desktop to human mouse/keyboard input while all agent
+  sandbox and desktop mutation calls are fenced, then return control without
+  starting a query. Pending work refuses transfer; unknown input or file-write
+  outcomes require stopping the owned computer. A fresh agent screen capture is
+  required after returning control. This local container boundary does not hide
+  same-user guest files or credentials from arbitrary Pal commands.
+- f7f48f9: Add `createLocalVirtualComputerProvider` for SDK Pals. Each Pal receives its own local Linux container desktop, visible Chromium browser, terminal command and file access, guest background processes with confirmed tree cancellation, and a persistent private volume. The provider requires an explicitly installed local Docker engine (the unchanged default) or an explicitly selected registered Windows WSL Podman machine, and a prebuilt Namzu computer image; it refuses remote engines and never installs, builds, or pulls images automatically. This is container isolation with a shared kernel, rather than a dedicated virtual machine. The Podman adapter verifies the local machine and pins owned loopback SSH forwards without changing machine settings or default connections; it has no per-container CPU, memory, or PID quota. Native Podman commands use a validated Windows profile directory even when an SDK caller starts in a WSL UNC directory. Custom command runners receive an optional `cwd` and must honor it. Graceful lease shutdown flushes Chromium's persistent profile before removing the guest. Existing sandbox providers remain available.
+- 4367edc: Add opt-in held keyboard input for a Pal's operator-controlled guest. Providers
+  advertise `heldKeyboard: true` only after negotiating the owned guest's support;
+  `PalComputerInput` then accepts session-scoped `key_down`, `key_up` and
+  `release_keys`. Providers must release their tracked held keys before confirming
+  returned Pal authority. Existing complete `key` taps and AI `computer_use`
+  actions keep their behavior, and older local images do not advertise holds.
+
+  The desktop captures a new keyboard lifetime for each focus session, forwards
+  press and release events without replaying browser key repeats, and releases
+  only that lifetime on focus/view loss. Cleanup retains exact Pal/generation and
+  operator authority checks and cannot release another lifetime's keys. Rebuild
+  the local Pal image to enable this capability; a runtime update alone retains
+  the older image's tap input.
+
+### Patch Changes
+
+- a5dbeb2: Remove Chromium's separate stock New Tab footer and its Customize Chromium
+  button from the local Pal browser home. The guest-only launcher disables
+  `NtpFooter`; the native blank home omnibox, installed application launchers,
+  normal website address bars and existing browser profile are preserved.
+  The home header uses the same block-letter wordmark as the desktop and CLI,
+  bundled as font-independent SVG geometry.
+
+  Rebuild the installed local computer image and restart its owning computer to
+  apply the change. Running containers keep their previous image; the persistent
+  workspace and browser profile volume survives the restart.
+
+- Updated dependencies [dd7ee4b]
+- Updated dependencies [4314f90]
+- Updated dependencies [7f5ac50]
+- Updated dependencies [7f5ac50]
+- Updated dependencies [56d88dc]
+- Updated dependencies [3727e2b]
+- Updated dependencies [1af4531]
+- Updated dependencies [efb7b06]
+- Updated dependencies [84452ec]
+- Updated dependencies [53aed2a]
+- Updated dependencies [6194bda]
+- Updated dependencies [301f5b3]
+- Updated dependencies [6194bda]
+- Updated dependencies [56d88dc]
+- Updated dependencies [f7f48f9]
+- Updated dependencies [9ef6506]
+- Updated dependencies [56e846c]
+- Updated dependencies [2057fd6]
+- Updated dependencies [c8613e0]
+- Updated dependencies [6f46da3]
+- Updated dependencies [be9f8b6]
+- Updated dependencies [c1027fb]
+- Updated dependencies [24cb6b4]
+- Updated dependencies [bb0ad2e]
+- Updated dependencies [d5030ca]
+- Updated dependencies [7f5ac50]
+- Updated dependencies [7473449]
+- Updated dependencies [6194bda]
+- Updated dependencies [6f46da3]
+- Updated dependencies [f4b7d1d]
+- Updated dependencies [6ff961f]
+- Updated dependencies [56d88dc]
+- Updated dependencies [7f5ac50]
+- Updated dependencies [6f46da3]
+- Updated dependencies [5e2fb3a]
+- Updated dependencies [0f5aa96]
+- Updated dependencies [84a9472]
+- Updated dependencies [c1027fb]
+- Updated dependencies [d8d562e]
+- Updated dependencies [53aed2a]
+- Updated dependencies [ce52b90]
+- Updated dependencies [815433f]
+- Updated dependencies [4367edc]
+- Updated dependencies [6ff961f]
+- Updated dependencies [6f46da3]
+- Updated dependencies [f7f48f9]
+- Updated dependencies [846557b]
+- Updated dependencies [56d88dc]
+- Updated dependencies [53aed2a]
+- Updated dependencies [12b5af9]
+- Updated dependencies [e447a47]
+- Updated dependencies [093d657]
+- Updated dependencies [57c99b2]
+- Updated dependencies [c590142]
+- Updated dependencies [1fa60b9]
+- Updated dependencies [5a0a1f7]
+- Updated dependencies [3727e2b]
+- Updated dependencies [e447a47]
+- Updated dependencies [56d88dc]
+- Updated dependencies [98e8469]
+- Updated dependencies [f7f48f9]
+  - @namzu/sdk@50.0.0
+
 ## 24.0.0
 
 ### Patch Changes

@@ -1,5 +1,50 @@
 # @namzu/zen
 
+## 4.0.0
+
+### Major Changes
+
+- 2395a85: **Breaking: `fledge-alpha-free` leaves the bundled catalogue.** Zen no longer documents or serves it, so `findZenModel('zen', 'fledge-alpha-free')` and `getZenModels('zen')` no longer return it, and a request naming it fails as an unknown model. Pick another free Zen model, for example `step-5-preview-free` or `mimo-v2.6-flash-free`.
+- 4367edc: Remove the default 4096-token per-call output ceiling when `maxTokens` is
+  omitted. Requests now use the known model's advertised output ceiling instead
+  of selecting a smaller service default by omitting the wire field. Unknown
+  Chat, Responses and Google models without catalogue metadata leave the field
+  omitted. Messages requires `max_tokens`, so an unknown Messages model without
+  a known ceiling requires explicit `maxTokens` or model catalogue metadata.
+  Explicit limits remain unchanged and include manual thinking tokens on Messages.
+
+  Calls that relied on the previous default can produce longer output and consume
+  more tokens. Set `maxTokens: 4096` explicitly, or `maxResponseTokens: 4096` on
+  SDK turns, to preserve the previous behavior. Service and model limits still
+  apply. This fixes Pal requests where Space Bunny spent the 4096-token allowance
+  on reasoning and stopped before using tools, even with unlimited SDK turn guards.
+
+- 0de3571: **Breaking: Zen Go's `space-bunny-free` leaves the bundled catalogue.** Go no longer serves that id, so `findZenModel('go', 'space-bunny-free')` and `getZenModels('go')` no longer return it, and a Go request naming it fails as an unknown model. On Go, use `space-bunny`, which the snapshot now carries. Zen's own `space-bunny-free` is unchanged.
+
+  Zen now carries models that the service routes, prices and serves but that models.dev has not described yet, where it used to omit them. These models get conservative limits: 65,536 context, 8,192 output, text input, tool use on and no effort levels. They also get a new optional `ZenModel.limitsVerified: false`. Every other model leaves the field out, so existing code reads the same shape. Once models.dev publishes a model's limits, the entry uses them and the flag goes away. Tool use is assumed for these models, so one that cannot call tools fails when it runs. Models are still never carried when their price cannot be read or the service does not serve them, and a missing price never becomes zero.
+
+  The free rule changed earlier without a changeset. Any Zen model priced at zero in the active catalogue is now offered without a key through the experimental request path, where previously only a fixed list of eight ids was. An id outside the old list used to be refused without a key; now it can be selected, though the gateway may still refuse it.
+
+  The bundled snapshot adds `mimo-v2.6-flash-free`, `exo-free`, `fledge-alpha-free`, `ling-3.1-flash-free`, `grok-4.7`, `gpt-6.1-sol`, `claude-sonnet-5-5` and `claude-haiku-5-5` on Zen. On Go it adds MiMo V2.6 Flash and Pro, `claude-haiku-5-5` and `space-bunny`.
+
+  `parseZenCatalogue` accepts `limitsVerified: false` in a stored copy and rejects any other value. An older `@namzu/zen` rejects any stored copy that contains the field and falls back to its bundled snapshot.
+
+### Minor Changes
+
+- 134932b: The bundled catalogue adds `step-5-preview-free` on Zen and on Zen Go, which both services now document and serve. Nothing else changes.
+
+### Patch Changes
+
+- 4367edc: Deliver screenshot and saved-image tool results to Chat Completions models as
+  real, attributed image content after the complete tool-result batch. Previously
+  these results failed local history conversion, despite the driver's advertised
+  image capability, stopping Space Bunny Pal work after its first screenshot.
+
+  Preserve original tool IDs, text and failure markers; leave the durable journal
+  and operator messages unchanged. Images with persisted delivery omissions stay
+  omitted, and text-only histories keep their previous request shape. The model
+  must support image input; chat tool documents remain explicitly unsupported.
+
 ## 3.1.0
 
 ### Minor Changes
