@@ -21,9 +21,30 @@ export interface EngineRowView {
 	command?: string
 	/** The button is busy and cannot be pressed again. */
 	busy: boolean
+	/** The program is installed but has no account signed in: the row offers a terminal. */
+	signedOut?: boolean
 }
 
-export function engineRowView(item: EngineUpdateItem): EngineRowView {
+export function engineRowView(
+	item: EngineUpdateItem,
+	/** The engine said no account is signed in (see `engine-sign-in.ts`). */
+	options: { signedOut?: boolean } = {},
+): EngineRowView {
+	const view = rowView(item)
+	if (!options.signedOut || item.missing) return view
+	const sentence = `Signed out \u2014 sign in to ${item.name} in a terminal`
+	// A version that cannot be compared is explained by the missing account; otherwise the row keeps
+	// its own state and adds the sentence beside it.
+	return item.status === 'unknown'
+		? { ...view, status: sentence, tone: 'attention', note: '', signedOut: true }
+		: {
+				...view,
+				note: [view.note, `${sentence}.`].filter(Boolean).join(' \u00b7 '),
+				signedOut: true,
+			}
+}
+
+function rowView(item: EngineUpdateItem): EngineRowView {
 	// The command line that comes with the app is the one About lists; a copy installed on its own
 	// is a different program with its own version, and the row says so.
 	const title =
@@ -37,7 +58,7 @@ export function engineRowView(item: EngineUpdateItem): EngineRowView {
 			versions: '',
 			status: 'Not installed',
 			tone: 'neutral',
-			note: 'Namzu does not install it for you. Run one of these in a terminal, then choose Check again.',
+			note: 'Namzu does not install it for you. Run one of these in a terminal, then choose Check again to look for the program on this computer.',
 			busy: false,
 		}
 	const versions =
@@ -92,7 +113,10 @@ export function engineRowView(item: EngineUpdateItem): EngineRowView {
 				versions,
 				status: item.installed ? 'Could not check' : 'Version unknown',
 				tone: 'neutral',
-				note: item.installed ? 'You may be offline. Namzu will try again later.' : note,
+				// Say which side did not answer: the update server, or the program itself.
+				note: item.installed
+					? 'Namzu couldn\u2019t reach the update server. It will try again later.'
+					: `${item.name} didn\u2019t answer when asked for its version.`,
 				busy: false,
 			}
 	}

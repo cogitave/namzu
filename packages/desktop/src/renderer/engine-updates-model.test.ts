@@ -78,6 +78,34 @@ describe('a row of Settings ▸ Updates', () => {
 		expect(engineRowView(standalone).title).toBe('Namzu command line (installed separately)')
 		expect(engineRowView({ ...standalone, missing: true }).title).toBe('Namzu command line')
 	})
+	it('says which side did not answer when a check could not finish', () => {
+		const unknown: EngineUpdateItem = { ...codex, status: 'unknown', latest: undefined }
+		expect(engineRowView(unknown)).toMatchObject({
+			status: 'Could not check',
+			note: 'Namzu couldn\u2019t reach the update server. It will try again later.',
+		})
+		const silent = engineRowView({ ...unknown, installed: undefined })
+		expect(silent.status).toBe('Version unknown')
+		expect(silent.note).toBe('Codex CLI didn\u2019t answer when asked for its version.')
+		expect(JSON.stringify([engineRowView(unknown), silent])).not.toContain('offline')
+	})
+	it('shows a signed-out engine as signed out, not offline, and offers a terminal', () => {
+		const unknown: EngineUpdateItem = { ...codex, status: 'unknown', latest: undefined }
+		expect(engineRowView(unknown, { signedOut: true })).toMatchObject({
+			status: 'Signed out \u2014 sign in to Codex CLI in a terminal',
+			signedOut: true,
+			note: '',
+		})
+		// An engine that can be compared keeps its own state and adds the sentence.
+		const current = engineRowView(second, { signedOut: true })
+		expect(current.status).toBe('Up to date')
+		expect(current.note).toContain('Signed out \u2014 sign in to')
+		expect(engineRowView(codex, { signedOut: false }).signedOut).toBeUndefined()
+		expect(engineRowView(codex).signedOut).toBeUndefined()
+		expect(
+			engineRowView({ ...codex, missing: true }, { signedOut: true }).signedOut,
+		).toBeUndefined()
+	})
 	it('says Up to date with no button, and adds the restart note after an update', () => {
 		expect(engineRowView(second)).toMatchObject({ status: 'Up to date', versions: '2.1.295' })
 		expect(engineRowView(second).action).toBeUndefined()

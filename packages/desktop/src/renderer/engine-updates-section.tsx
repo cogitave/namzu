@@ -3,6 +3,7 @@ import { useId, useState } from 'react'
 import type { EngineUpdateId } from '../shared/engine-update-protocol.js'
 import { copyPlainText } from './copy-button.js'
 import { engineSetup, setupPlatform } from './engine-setup.js'
+import { useSignedOutEngines } from './engine-sign-in.js'
 import { engineRowView } from './engine-updates-model.js'
 import { CopyableCommand } from './harness-picker.js'
 import { DownloadIcon } from './icons.js'
@@ -19,6 +20,8 @@ export interface EngineUpdateTarget {
 	 * takes the person out of Settings by itself; its progress shows on the row.
 	 */
 	onShowOutput?: (tabId: string) => void
+	/** Opens a plain terminal tab, where the person signs in to a signed-out engine. */
+	onOpenTerminal?: () => void
 }
 
 interface Refusal {
@@ -32,6 +35,7 @@ interface Refusal {
  */
 export function EngineUpdateRows({ target }: { target?: EngineUpdateTarget }) {
 	const engines = useEngineUpdates()
+	const signedOut = useSignedOutEngines()
 	const heading = useId()
 	const [refused, setRefused] = useState<Partial<Record<EngineUpdateId, Refusal>>>({})
 	const [copied, setCopied] = useState<EngineUpdateId>()
@@ -62,7 +66,7 @@ export function EngineUpdateRows({ target }: { target?: EngineUpdateTarget }) {
 			</h3>
 			<ul>
 				{engines.state.items.map((item) => {
-					const view = engineRowView(item)
+					const view = engineRowView(item, { signedOut: signedOut.has(item.id) })
 					const refusal = refused[item.id]
 					const command = refusal?.command ?? view.command
 					return (
@@ -122,9 +126,20 @@ export function EngineUpdateRows({ target }: { target?: EngineUpdateTarget }) {
 										variant="outline"
 										disabled={engines.state.checking}
 										aria-label={`Check again for ${item.name}`}
+										title="Looks for the program on this computer"
 										onClick={() => engines.check()}
 									>
 										{engines.state.checking ? 'Checking…' : 'Check again'}
+									</Button>
+								)}
+								{view.signedOut && target?.onOpenTerminal && (
+									<Button
+										size="sm"
+										variant="outline"
+										aria-label={`Open a terminal to sign in to ${item.name}`}
+										onClick={() => target.onOpenTerminal?.()}
+									>
+										Open terminal
 									</Button>
 								)}
 								{view.busy && (

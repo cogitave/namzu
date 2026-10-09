@@ -89,6 +89,7 @@ import {
 import { ConversationTasks } from './conversation-tasks.js'
 import { copyPlainText } from './copy-button.js'
 import { signInHelpFor } from './engine-setup.js'
+import { setEngineSignedOut } from './engine-sign-in.js'
 import { FilePanelBody } from './file-panel/file-panel.js'
 import {
 	MIN_PANEL_WIDTH,
@@ -126,6 +127,7 @@ import {
 import { type EngineSurface, type EngineSurfaceControl, engineLabel } from './harness-picker.js'
 import {
 	ArchiveIcon,
+	ArrowLeftIcon,
 	ArrowUpIcon,
 	FolderIcon,
 	MoreHorizontalIcon,
@@ -5069,6 +5071,19 @@ export function App({
 			}
 		/>
 	)
+	// An engine that says it needs an account is remembered as signed out, so Settings > Updates can
+	// say so. It is forgotten only on proof: a finished reply from a conversation on that engine.
+	const signInEngine = signInHelpFor(savedSettings.error || error || project?.error || '')?.engine
+	const repliedEngine = thread.messages.some(
+		(message) => message.role === 'assistant' && message.status !== 'pending' && message.text,
+	)
+		? surfaceEngine
+		: undefined
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the two names are the whole input.
+	useEffect(() => {
+		if (signInEngine) setEngineSignedOut(signInEngine, true)
+		else if (repliedEngine && repliedEngine !== 'namzu') setEngineSignedOut(repliedEngine, false)
+	}, [signInEngine, repliedEngine])
 	return (
 		<PaneToasts focused={focused} pane={paneRoot}>
 			{focused &&
@@ -5389,6 +5404,7 @@ export function App({
 							}}
 						/>
 						<Sidebar
+							projectsLoaded={projectsLoaded}
 							activeProject={project}
 							projects={projects.filter((item) => !item.palId)}
 							pals={
@@ -5577,6 +5593,9 @@ export function App({
 				>
 					{normalTabs.length > 0 || stripTerminals.length > 0 ? (
 						groupTabs
+					) : !pal && !project && !conversation ? (
+						// The welcome page already says what to do; a breadcrumb of "Workspace" would repeat it.
+						<div className="flex-1" aria-hidden="true" />
 					) : (
 						<WorkspaceBreadcrumb ariaLabel="Conversation breadcrumb" className="breadcrumb flex-1">
 							<WorkspaceBreadcrumbItem className="breadcrumb-project shrink">
@@ -5735,6 +5754,14 @@ export function App({
 						engineTarget={{
 							groupId: group.id,
 							...(projectId ? { projectId } : {}),
+							...(terminalReady
+								? {
+										onOpenTerminal: () => {
+											setRailSection(null)
+											void act(() => openShellTerminal())
+										},
+									}
+								: {}),
 							onShowOutput: (tabId) => {
 								setRailSection(null)
 								void onAction({ kind: 'activate', groupId: group.id, tabId }).catch((failure) =>
@@ -6351,6 +6378,13 @@ export function App({
 								)
 							}
 						/>
+						{/* Shown only when the panel covers the pane (see style.css): the way back is a word. */}
+						<div className="panel-back-row">
+							<Button type="button" size="sm" variant="ghost-muted" onClick={closeDetails}>
+								<ArrowLeftIcon aria-hidden="true" />
+								Back to conversation
+							</Button>
+						</div>
 						<div className="section-heading panel-heading">
 							<PanelTabStrip
 								panelId="side-panel-body"

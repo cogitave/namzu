@@ -14,6 +14,7 @@
 	animation: plugins-arrive 180ms var(--motion-ease) both;
 }
 .settings-page-header {
+	min-height: 58px;
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
@@ -281,6 +282,14 @@
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+}
+.settings-folder-note {
+	color: var(--muted-foreground);
+	font-size: 12px;
+	line-height: 18px;
+}
+.settings-folder-note[data-safe="false"] {
+	color: var(--foreground);
 }
 .settings-badge {
 	flex: none;

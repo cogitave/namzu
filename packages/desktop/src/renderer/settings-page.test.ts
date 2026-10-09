@@ -188,6 +188,27 @@ describe('the settings page', () => {
 		expect(off).toMatch(/<input[^>]*role="switch"/)
 	})
 
+	it('every section opens with the same header: a title and one subtitle line', () => {
+		for (const section of SETTINGS_SECTIONS) {
+			const header = page(section).match(/<header class="settings-page-header">(.*?)<\/header>/s)
+			expect(header?.[1], section).toMatch(/<h1>[^<]+<\/h1><p>[^<]+<\/p>/)
+		}
+	})
+
+	it('names one re-check button and does not claim a check this copy cannot make', () => {
+		const disabled = page('updates', {
+			update: {
+				state: { status: 'disabled' },
+				info: { currentVersion: '0.1.0' },
+				onOpen: () => {},
+				onCheck: () => {},
+			},
+		})
+		expect(disabled).not.toContain('Last checked')
+		expect(disabled).not.toContain('Check the programs')
+		expect(page('updates')).toContain('Last checked: 5 minutes ago')
+	})
+
 	it('Updates hides the automatic-download switch where the app cannot update itself', () => {
 		const disabled = page('updates', {
 			update: {
@@ -261,7 +282,7 @@ describe('the settings page', () => {
 		const markup = page('about')
 		for (const text of [
 			'0.1.0',
-			'<dt>Namzu command line</dt><dd>25.3.0</dd>',
+			'<dt>Namzu command line (bundled with this app)</dt><dd>25.3.0</dd>',
 			'25.2.1',
 			'Windows (64-bit Intel or AMD)',
 			'Desktop app data',
@@ -273,6 +294,13 @@ describe('the settings page', () => {
 		expect(markup.slice(0, markup.indexOf('Data folders'))).not.toContain('AppData')
 		expect(markup).toContain('aria-label="Open Desktop app data"')
 		expect(page('about', { info: { ...info, cliVersion: undefined } })).toContain('Not found')
+		expect(markup).not.toContain('installed separately')
+		const both = page('about', { info: { ...info, installedCliVersion: '35.0.0' } })
+		expect(both).toContain('<dt>Namzu command line (installed separately)</dt><dd>35.0.0</dd>')
+		// Folders say what is safe to delete and what holds the person's work.
+		expect(both).toContain('Safe to delete; it downloads again when needed.')
+		expect(both).toContain('Deleting it resets the app.')
+		expect(both).toContain('The Namzu home folder holds your work')
 		expect(page('about', { info: undefined })).toContain('Loading')
 		expect(page('about', { onOpenFolder: undefined })).not.toContain('aria-label="Open Desktop')
 	})

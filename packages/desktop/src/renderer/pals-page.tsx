@@ -559,7 +559,9 @@ export function PalSidebarSection({
 		<section className="sidebar-pals" aria-label="Pals">
 			{pals.length <= 3 && <h2 className="sidebar-pals-heading">Pals</h2>}
 			{loading ? (
-				<output className="sidebar-pals-loading">Loading…</output>
+				<output className="sidebar-pals-loading sidebar-skeleton" aria-busy="true">
+					<span className="sr-only">Loading Pals</span>
+				</output>
 			) : failed && pals.length === 0 ? (
 				<div className="sidebar-pals-failed" role="alert">
 					<span>Couldn’t load your Pals.</span>

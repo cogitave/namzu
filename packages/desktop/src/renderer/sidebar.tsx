@@ -88,7 +88,10 @@ export function Sidebar({
 	activeTerminalId,
 	onTerminal,
 	onCloseTerminal,
+	projectsLoaded = true,
 }: {
+	/** False until the first list of projects has arrived; the empty hint waits for it. */
+	projectsLoaded?: boolean
 	activeProject?: ProjectView
 	projects: ProjectView[]
 	conversations: ConversationView[]
@@ -367,7 +370,14 @@ export function Sidebar({
 								</Collapsible>
 							),
 						)}
-						{projects.length === 0 && <p className="sidebar-empty-note">Use + to add a project.</p>}
+						{projects.length === 0 &&
+							(projectsLoaded ? (
+								<p className="sidebar-empty-note">Use + to add a project.</p>
+							) : (
+								<output className="sidebar-skeleton" aria-busy="true">
+									<span className="sr-only">Loading projects</span>
+								</output>
+							))}
 						{groups.length === 0 && projects.length > 0 && (
 							<AddProjectMenu
 								disabled={opening}

@@ -1,5 +1,9 @@
 import type { ProjectView } from '../shared/protocol.js'
-import { type SettingsSection, isSettingsSection } from '../shared/settings-protocol.js'
+import {
+	type DataFolderKind,
+	type SettingsSection,
+	isSettingsSection,
+} from '../shared/settings-protocol.js'
 import type { UpdateState } from '../shared/update-protocol.js'
 import { foldSearchText } from './text-fold.js'
 
@@ -12,6 +16,20 @@ export const SETTINGS_SECTION_TITLES: Record<SettingsSection, string> = {
 	speech: 'Speech',
 	about: 'About',
 }
+
+/** One line under each section's title, so every page opens with the same header height. */
+export const SETTINGS_SECTION_SUBTITLES: Record<SettingsSection, string> = {
+	general: 'How Namzu starts, looks and keeps your projects safe.',
+	models: 'The providers and models Namzu can use.',
+	projects: 'The folders Namzu knows, and when it asks you to trust them again.',
+	appearance: 'Choose how Namzu looks.',
+	updates: 'Keep Namzu and the programs it works with up to date.',
+	speech: 'Dictate with a voice that stays on this computer.',
+	about: 'Versions, your system, and where Namzu keeps its files.',
+}
+
+/** The line under the heading while a search is showing results. */
+export const SETTINGS_SEARCH_SUBTITLE = 'Matches from every section.'
 
 /** `settings/<section>`; a bare `settings` means the first section. */
 export function settingsRoute(section: SettingsSection): string {
@@ -249,12 +267,16 @@ export function platformText(platform: string): string {
 export function aboutDetailsText(info: {
 	version: string
 	cliVersion?: string
+	installedCliVersion?: string
 	sdkVersion?: string
 	platform: string
 }): string {
 	return [
 		`Namzu Desktop ${info.version}`,
-		`Namzu command line ${info.cliVersion ?? 'not found'}`,
+		`Namzu command line (bundled with this app) ${info.cliVersion ?? 'not found'}`,
+		...(info.installedCliVersion
+			? [`Namzu command line (installed separately) ${info.installedCliVersion}`]
+			: []),
 		`Namzu engine (SDK) ${info.sdkVersion ?? 'not found'}`,
 		platformText(info.platform),
 	].join('\n')
@@ -298,4 +320,18 @@ export function removalNotice(
 	if (trust.state === 'unsupported')
 		return `Removed \u201c${name}\u201d. This Namzu runtime can’t update its trust list, so the folder stays trusted.`
 	return `Removed \u201c${name}\u201d. Namzu no longer trusts the folder.`
+}
+
+/** What deleting each data folder does, so a person knows which are safe to clear. */
+export const DATA_FOLDER_NOTES: Record<DataFolderKind, { safe: boolean; text: string }> = {
+	app: { safe: false, text: 'Your settings, open tabs and drafts. Deleting it resets the app.' },
+	namzu: {
+		safe: false,
+		text: 'Your conversations, Pals and projects. Keep this folder.',
+	},
+	diagnostics: { safe: true, text: 'Logs for support. Safe to delete.' },
+	speech: {
+		safe: true,
+		text: 'The downloaded voice. Safe to delete; it downloads again when needed.',
+	},
 }

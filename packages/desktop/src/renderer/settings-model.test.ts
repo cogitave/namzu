@@ -81,7 +81,7 @@ describe('about', () => {
 		).toBe(
 			[
 				'Namzu Desktop 0.1.0',
-				'Namzu command line 35.0.0',
+				'Namzu command line (bundled with this app) 35.0.0',
 				'Namzu engine (SDK) not found',
 				'Linux (64-bit Intel or AMD)',
 			].join('\n'),
