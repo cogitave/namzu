@@ -131,7 +131,13 @@ describe.skipIf(!binding || process.platform === 'win32')(
 				'--permission-mode',
 				'plan',
 			])
-			const screen = await screenHas((text) => text.includes('MESSAGE') && text.includes('gpt-5'))
+			const screen = await screenHas(
+				(text) =>
+					text.includes('MESSAGE') &&
+					text.includes('gpt-5') &&
+					text.includes('Plan (read-only)') &&
+					text.includes('effort high'),
+			)
 			expect(screen).toContain('Plan (read-only)')
 			expect(screen).toContain('effort high')
 			expect(() => readFileSync(join(home, 'preferences.json'))).toThrow(/ENOENT/)
@@ -153,7 +159,10 @@ describe.skipIf(!binding || process.platform === 'win32')(
 
 		it('says so and offers the provider list when the provider is unknown', async () => {
 			const { screenHas } = await launch(['--provider', 'nonesuch'])
-			const screen = await screenHas((text) => text.includes('Choose a provider'))
+			const screen = await screenHas(
+				(text) =>
+					text.includes('Choose a provider') && text.includes('Could not start with nonesuch'),
+			)
 			expect(screen).toContain('Could not start with nonesuch')
 		}, 60_000)
 
@@ -166,7 +175,9 @@ describe.skipIf(!binding || process.platform === 'win32')(
 				'--effort',
 				'high',
 			])
-			const screen = await screenHas((text) => text.includes('is not offered by'))
+			const screen = await screenHas((text) =>
+				text.includes('--effort high is not offered by gpt-launch-0'),
+			)
 			expect(screen).toContain('--effort high is not offered by gpt-launch-0')
 			expect(screen).not.toContain('effort high ·')
 		}, 60_000)
