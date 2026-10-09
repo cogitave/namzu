@@ -113,13 +113,6 @@ export const SETTINGS_ENTRIES: readonly SettingsEntry[] = [
 		description: 'Where Namzu keeps its files, and a way to open them.',
 		keywords: ['explorer', 'finder', 'logs', 'diagnostics', 'storage', 'open'],
 	},
-	{
-		id: 'licenses',
-		section: 'about',
-		label: 'Licenses',
-		description: 'Open-source notices for what Namzu is built on.',
-		keywords: ['third party', 'notices', 'open source', 'legal'],
-	},
 ]
 
 function words(value: string): string[] {

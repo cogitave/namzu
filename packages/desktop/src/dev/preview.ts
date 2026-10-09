@@ -892,7 +892,6 @@ const api: DesktopApi = {
 			{ kind: 'diagnostics', label: 'Diagnostic logs', path: '/sample/appdata/Namzu/logs' },
 			{ kind: 'speech', label: 'Downloaded voice', path: '/sample/appdata/Namzu/local-speech' },
 		],
-		notices: 'Namzu Desktop third-party notices\n\nSample text for the design preview.\n',
 	}),
 	openDataFolder: async () => nativeOnly('Opening a folder'),
 	removeProject: async (id) => {

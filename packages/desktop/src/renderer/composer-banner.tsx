@@ -1,4 +1,3 @@
-/* Adapted source attachment primitives; provenance: THIRD-PARTY-NOTICES.txt. */
 import { mergeProps } from '@base-ui/react/merge-props'
 import { useRender } from '@base-ui/react/use-render'
 import type { ComponentProps } from 'react'

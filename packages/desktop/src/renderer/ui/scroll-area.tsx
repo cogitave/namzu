@@ -1,4 +1,3 @@
-/* Adapted UI component. License and provenance: packages/desktop/THIRD-PARTY-NOTICES.txt. */
 'use client'
 
 import { ScrollArea as ScrollAreaPrimitive } from '@base-ui/react/scroll-area'

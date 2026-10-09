@@ -1,4 +1,3 @@
-/* Adapted UI component. License and provenance: packages/desktop/THIRD-PARTY-NOTICES.txt. */
 'use client'
 
 import { Field as FieldPrimitive } from '@base-ui/react/field'

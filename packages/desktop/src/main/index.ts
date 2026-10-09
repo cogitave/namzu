@@ -436,17 +436,8 @@ const FOLDER_LABELS: Record<DataFolderKind, string> = {
 	diagnostics: 'Diagnostic logs',
 	speech: 'Downloaded voice',
 }
-function readNotices(): string | undefined {
-	try {
-		const text = readFileSync(join(here, '../THIRD-PARTY-NOTICES.txt'), 'utf8')
-		return text.length > 256 * 1024 ? text.slice(0, 256 * 1024) : text
-	} catch {
-		return undefined
-	}
-}
 function desktopInfo(): DesktopInfo {
 	const folders = dataFolders()
-	const notices = readNotices()
 	return {
 		version: app.getVersion(),
 		...readRuntimeVersions(cliEntry),
@@ -456,7 +447,6 @@ function desktopInfo(): DesktopInfo {
 			label: FOLDER_LABELS[kind],
 			path: folders[kind],
 		})),
-		...(notices ? { notices } : {}),
 	}
 }
 /** Opens one of the app's own folders. The renderer names a kind, never a path. */

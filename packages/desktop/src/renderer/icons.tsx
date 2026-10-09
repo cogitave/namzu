@@ -1,4 +1,3 @@
-/* Adapted icon assets. License and provenance: packages/desktop/THIRD-PARTY-NOTICES.txt. */
 import {
 	AppWindow,
 	Archive,

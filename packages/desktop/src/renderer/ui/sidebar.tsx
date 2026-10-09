@@ -1,7 +1,6 @@
 import { mergeProps } from '@base-ui/react/merge-props'
 import { useRender } from '@base-ui/react/use-render'
 import { type VariantProps, cva } from 'class-variance-authority'
-/* Adapted UI component. License and provenance: packages/desktop/THIRD-PARTY-NOTICES.txt. */
 import type * as React from 'react'
 import { cn } from '../lib/utils.js'
 import { Input, type InputProps } from './input.js'

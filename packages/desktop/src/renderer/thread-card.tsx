@@ -11,7 +11,6 @@ import {
 	type ConversationActionInput,
 	archiveBlockedReason,
 } from './conversation-actions.js'
-/* Adapted UI component. License and provenance: packages/desktop/THIRD-PARTY-NOTICES.txt. */
 import {
 	ArchiveIcon,
 	LoaderCircleIcon,

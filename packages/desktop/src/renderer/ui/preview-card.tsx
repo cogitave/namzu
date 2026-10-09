@@ -1,4 +1,3 @@
-/* Adapted UI component. License and provenance: packages/desktop/THIRD-PARTY-NOTICES.txt. */
 'use client'
 
 import { PreviewCard as PreviewCardPrimitive } from '@base-ui/react/preview-card'

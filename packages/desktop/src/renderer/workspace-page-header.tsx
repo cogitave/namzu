@@ -1,4 +1,3 @@
-/* Adapted UI component. License and provenance: packages/desktop/THIRD-PARTY-NOTICES.txt. */
 import type { ComponentPropsWithoutRef } from 'react'
 
 import { cn } from './lib/utils.js'

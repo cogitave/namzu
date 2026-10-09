@@ -1,4 +1,3 @@
-/* Adapted stateless source artwork; provenance: THIRD-PARTY-NOTICES.txt. */
 import { useId } from 'react'
 const STAGE_BACKDROP_VIEW_BOX = '0 0 8192 96'
 export function HeaderBackdrop() {

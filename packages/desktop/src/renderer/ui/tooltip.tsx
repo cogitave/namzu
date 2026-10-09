@@ -1,4 +1,3 @@
-/* Adapted UI component. License and provenance: packages/desktop/THIRD-PARTY-NOTICES.txt. */
 import { Tooltip as TooltipPrimitive } from '@base-ui/react/tooltip'
 
 import { cn } from '../lib/utils.js'

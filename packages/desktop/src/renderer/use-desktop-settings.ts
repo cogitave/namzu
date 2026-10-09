@@ -92,7 +92,7 @@ export function useDesktopSettings(
 	}
 }
 
-/** Version, folders and notices; read once when About first needs them. */
+/** Version and folders; read once when About first needs them. */
 export function useDesktopInfo(api: Pick<DesktopApi, 'desktopInfo'>, active: boolean) {
 	const [info, setInfo] = useState<DesktopInfo>()
 	const [error, setError] = useState('')

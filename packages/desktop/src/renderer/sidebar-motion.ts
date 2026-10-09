@@ -1,4 +1,3 @@
-/* Adapted UI motion. License and provenance: packages/desktop/THIRD-PARTY-NOTICES.txt. */
 const motionTiming = { duration: 150, easing: 'ease-out' }
 // Rows normally ride their displaced neighbour's travel. Absent a moving
 // neighbour, a row still travels on its own, clamped so a tall card does not

@@ -620,19 +620,6 @@ function AboutSection({ info, infoError, onOpenFolder }: SettingsPageProps) {
 					))}
 				</ul>
 			</div>
-			<div id="setting-licenses" className="settings-licenses">
-				<details>
-					<summary>Open-source licenses</summary>
-					{info.notices ? (
-						// biome-ignore lint/a11y/noNoninteractiveTabindex: a scrollable region must be reachable by keyboard.
-						<pre tabIndex={0} aria-label="Third-party notices">
-							{info.notices}
-						</pre>
-					) : (
-						<p className="settings-empty">The notices file was not found in this build.</p>
-					)}
-				</details>
-			</div>
 		</>
 	)
 }

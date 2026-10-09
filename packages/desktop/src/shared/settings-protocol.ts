@@ -93,6 +93,4 @@ export interface DesktopInfo {
 	sdkVersion?: string
 	platform: string
 	folders: { kind: DataFolderKind; label: string; path: string }[]
-	/** The third-party notices shipped with this build, bounded; absent when not found. */
-	notices?: string
 }

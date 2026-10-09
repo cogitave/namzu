@@ -1,4 +1,3 @@
-/* Adapted UI styles. License and provenance: packages/desktop/THIRD-PARTY-NOTICES.txt. */
 export const DIFF_SURFACE_THEME_UNSAFE_CSS = `
 [data-diffs-header],
 [data-diff],

@@ -31,7 +31,6 @@ describe('search', () => {
 		expect(searchSettings('dark').map((e) => e.id)).toContain('theme')
 		expect(searchSettings('startup').map((e) => e.id)).toEqual(['startup'])
 		expect(searchSettings('restore').map((e) => e.id)).toContain('startup')
-		expect(searchSettings('licen').map((e) => e.id)).toEqual(['licenses'])
 	})
 
 	it('requires every word and ranks a label match above a description match', () => {

@@ -1,4 +1,3 @@
-/* Semantic palette with the operator CLI phosphor accent; license and provenance: packages/desktop/THIRD-PARTY-NOTICES.txt. */
 @import "tailwindcss";
 @custom-variant dark (&:where(.dark, .dark *));
 @theme inline {

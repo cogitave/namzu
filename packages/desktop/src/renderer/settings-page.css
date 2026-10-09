@@ -326,32 +326,6 @@
 	line-height: 20px;
 	font-variant-numeric: tabular-nums;
 }
-.settings-licenses {
-	margin-top: 20px;
-	border-top: 1px solid var(--border);
-	padding-top: 14px;
-}
-.settings-licenses summary {
-	cursor: pointer;
-	font-size: 13px;
-	line-height: 20px;
-}
-.settings-licenses summary:focus-visible {
-	outline: 2px solid var(--ring);
-	outline-offset: 2px;
-}
-.settings-licenses pre {
-	max-height: 320px;
-	margin: 12px 0 0;
-	padding: 12px;
-	overflow: auto;
-	border: 1px solid var(--border);
-	border-radius: 10px;
-	font-size: 11px;
-	line-height: 16px;
-	white-space: pre-wrap;
-	overflow-wrap: anywhere;
-}
 .settings-speech {
 	border-top: 1px solid var(--border);
 }

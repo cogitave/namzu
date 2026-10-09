@@ -563,8 +563,8 @@ What it holds, and where each value lives (one source of truth per value):
   options (the same content the composer popover used to show).
 - **About** — the Desktop, CLI and SDK versions (read from the `package.json` files beside the
   bundled runtime; unreadable ones read "Not found"), the platform, the data folders with
-  **Open**, and the third-party notices. A folder is opened by kind (`app`, `namzu`,
-  `diagnostics`, `speech`); the renderer never names a path.
+  **Open**. A folder is opened by kind (`app`, `namzu`,
+  `diagnostics`, `speech`); the renderer never names a path. License texts ship in the install folder.
 
 Everything main acts on lives in `desktop-settings.json` in the profile folder, written by
 `src/main/desktop-settings.ts`: atomically (temporary file then rename, mode `0600`), validated

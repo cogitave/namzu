@@ -63,7 +63,6 @@ const info: DesktopInfo = {
 			path: 'C:/Users/me/AppData/Roaming/Namzu/local-speech',
 		},
 	],
-	notices: 'Third-party notices text',
 }
 
 /** Whether the input carrying this value is checked, whatever order the attributes print in. */
@@ -211,13 +210,11 @@ describe('the settings page', () => {
 		expect(missing).not.toContain('Remove voice…')
 	})
 
-	it('About shows the versions, the folders with Open buttons, and the licenses', () => {
+	it('About shows the versions, and the folders with Open buttons', () => {
 		const markup = page('about')
 		for (const text of ['0.1.0', '25.3.0', '25.2.1', 'win32 x64', 'Desktop app data'])
 			expect(markup).toContain(text)
 		expect(markup).toContain('aria-label="Open Desktop app data"')
-		expect(markup).toContain('Open-source licenses')
-		expect(markup).toContain('Third-party notices text')
 		expect(page('about', { info: { ...info, cliVersion: undefined } })).toContain('Not found')
 		expect(page('about', { info: undefined })).toContain('Loading')
 		expect(page('about', { onOpenFolder: undefined })).not.toContain('aria-label="Open Desktop')

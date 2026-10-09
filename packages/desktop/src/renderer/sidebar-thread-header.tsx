@@ -5,7 +5,6 @@ import type {
 	ReactNode,
 	RefObject,
 } from 'react'
-/* Adapted UI component. License and provenance: packages/desktop/THIRD-PARTY-NOTICES.txt. */
 /**
  * The sidebar header: one row holding search, project scope and new thread.
  *

@@ -1,4 +1,3 @@
-/* Adapted UI component. License and provenance: packages/desktop/THIRD-PARTY-NOTICES.txt. */
 import {
 	type ComponentProps,
 	type ComponentPropsWithoutRef,
