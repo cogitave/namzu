@@ -371,7 +371,11 @@ flow(
 		});
 		assert.deepEqual(result.omitted, []);
 		await expect(pane(w)).toBeVisible({ timeout: T });
-		await expect(tabs(w).first()).toContainText("Codex CLI · project");
+		// The strip may show a shorter whole-word title in a narrow window; the full one is the label.
+		await expect(tabs(w).first().locator(".conversation-tab-label")).toHaveAttribute(
+			"aria-label",
+			/^Codex CLI · project, terminal/,
+		);
 		await expect.poll(() => screen(w), { timeout: T }).toContain("ready");
 		const codex = await screen(w);
 		for (const line of [
@@ -392,7 +396,10 @@ flow(
 			permissionMode: "plan",
 		});
 		await expect(tabs(w)).toHaveCount(2, { timeout: T });
-		await expect(tabs(w).nth(1)).toContainText("Claude Code · project");
+		await expect(tabs(w).nth(1).locator(".conversation-tab-label")).toHaveAttribute(
+			"aria-label",
+			/^Claude Code · project, terminal/,
+		);
 		await expect.poll(() => screen(w), { timeout: T }).toContain("ready");
 		const second = await screen(w);
 		for (const line of ["[--model]", "[opus]", "[--effort]", "[max]", "[--permission-mode]", "[plan]"])

@@ -315,7 +315,10 @@ updateFlow(
 		// The link leads to the terminal tab that shows the output.
 		await row(w, "codex-cli").getByRole("button", { name: "Show terminal output" }).click();
 		await expect(w.page.getByRole("navigation", { name: "Settings sections" })).toHaveCount(0);
-		await expect(w.page.locator("[data-terminal-tab-id]").first()).toContainText("Updating Codex CLI");
+		// The strip may show a shorter whole-word title in a narrow window; the full one is the label.
+		await expect(
+			w.page.locator("[data-terminal-tab-id]").first().locator(".conversation-tab-label"),
+		).toHaveAttribute("aria-label", /^Updating Codex CLI, terminal/);
 		await shot(w, "updates-terminal-output");
 
 		// Back in Settings the row finishes by itself once the update does.

@@ -385,7 +385,11 @@ updateFlow(
 		// The person stays in Settings; the terminal tab is one click away.
 		await expect(w.page.getByRole("navigation", { name: "Settings sections" })).toBeVisible();
 		await showUpdateOutput(w);
-		await expect(termTabs(w).first()).toContainText("Updating Codex CLI");
+		// The strip may show a shorter whole-word title in a narrow window; the full one is the label.
+		await expect(termTabs(w).first().locator(".conversation-tab-label")).toHaveAttribute(
+			"aria-label",
+			/^Updating Codex CLI, terminal/,
+		);
 		await expect.poll(() => termScreen(w), { timeout: T }).toContain("--registry=");
 		await expect.poll(() => termScreen(w), { timeout: T }).toContain("@openai/codex@latest");
 		await shot(w, "updates-terminal");
@@ -520,7 +524,10 @@ updateFlow(
 		writeFileSync(join(w.control, "update-hold"), "");
 		await row(w, "claude-code").getByRole("button", { name: "Update Claude Code" }).click();
 		await showUpdateOutput(w);
-		await expect(termTabs(w).first()).toContainText("Updating Claude Code");
+		await expect(termTabs(w).first().locator(".conversation-tab-label")).toHaveAttribute(
+			"aria-label",
+			/^Updating Claude Code, terminal/,
+		);
 		await expect.poll(() => termScreen(w), { timeout: T }).toContain("Checking for updates...");
 		rmSync(join(w.control, "update-hold"));
 		await expect(w.page.getByText("Claude Code updated to 2.1.295")).toBeVisible({ timeout: T });
