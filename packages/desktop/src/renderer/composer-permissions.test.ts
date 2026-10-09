@@ -208,6 +208,22 @@ it('requires explicit Codex full-access confirmation, focuses cancellation first
 	expect(one(render(props), 'alert-dialog').props.open).toBe(false)
 })
 
+it('asks once, with the consequences in words, before Namzu full access', () => {
+	const onChange = vi.fn()
+	const props: Partial<Props> = { engine: 'namzu', onChange }
+	choose(render(props), 'auto')
+	expect(onChange).not.toHaveBeenCalled()
+	const view = render(props)
+	expect(one(view, 'alert-dialog').props.open).toBe(true)
+	expect(text(one(view, 'title'))).toBe('Allow Namzu full access?')
+	expect(text(one(view, 'description'))).toContain('without asking you first')
+	expect(text(one(view, 'description'))).toContain('only to this conversation')
+	const apply = confirm(view)
+	apply()
+	apply()
+	expect(onChange).toHaveBeenCalledExactlyOnceWith('auto')
+})
+
 it('dismisses full-access confirmation without policy selection', () => {
 	const onChange = vi.fn()
 	const props: Partial<Props> = { engine: 'codex-cli', onChange }

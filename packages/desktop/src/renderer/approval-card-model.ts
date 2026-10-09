@@ -266,3 +266,31 @@ export const FEEDBACK_NOTE_MAX = PERMISSION_FEEDBACK_MAX - FEEDBACK_PREFIX.lengt
 export function declineFeedback(note: string): string {
 	return `${FEEDBACK_PREFIX}${note.trim()}`
 }
+
+/** Commands whose effect on a person's files is hard to take back. */
+const RISKY_COMMAND =
+	/(^|[\s;&|])(rm\s+-[a-z]*[rf]|rmdir|del\s|rd\s|sudo\s|mkfs|dd\s+if=|shred|truncate\s|chmod\s+-R|chown\s+-R)|git\s+(reset\s+--hard|clean\s+-[a-z]*f|push\s+.*--force)|>\s*\/dev\/sd/i
+
+/** True when a command line looks like it deletes or overwrites data. */
+export function riskyCommand(command: string): boolean {
+	return RISKY_COMMAND.test(command)
+}
+
+/**
+ * One sentence on what saying yes lets happen: where it happens and what it can change.
+ * Nothing for an action the card already explains by its own content.
+ */
+export function approvalConsequence(model: ApprovalCardModel, folder?: string): string | undefined {
+	const where = folder?.trim()
+	if (model.kind === 'command') {
+		const risky = model.command !== undefined && riskyCommand(model.command)
+		const base = where ? `Runs on your computer in ${where}.` : 'Runs on your computer.'
+		return risky
+			? `${base} This command looks like it deletes or overwrites files, so check it before you accept.`
+			: `${base} It can read and change files there.`
+	}
+	if (model.kind === 'delete') return 'Removes this file from your computer.'
+	if (model.kind === 'create' && model.path) return `Adds a new file at ${model.path}.`
+	if (model.kind === 'edit' && model.path) return `Changes the file at ${model.path}.`
+	return undefined
+}

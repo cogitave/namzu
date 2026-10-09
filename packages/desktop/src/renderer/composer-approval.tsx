@@ -12,6 +12,7 @@ import type { PermissionResponse, PermissionView } from '../shared/protocol.js'
 import {
 	type ApprovalCardModel,
 	FEEDBACK_NOTE_MAX,
+	approvalConsequence,
 	buildApprovalCard,
 	declineFeedback,
 } from './approval-card-model.js'
@@ -148,11 +149,14 @@ export function ComposerApproval({
 	permission,
 	palNames,
 	count,
+	folder,
 	onRespond,
 }: {
 	permission: PermissionView
 	palNames?: ReadonlyMap<string, string> | undefined
 	count: number
+	/** The folder the conversation works in, named on a command so the person knows where it runs. */
+	folder?: string | undefined
 	onRespond: (permission: PermissionView, response: PermissionResponse) => unknown
 }) {
 	const model = useMemo(() => buildApprovalCard(permission, palNames), [permission, palNames])
@@ -161,6 +165,7 @@ export function ComposerApproval({
 	const [editing, setEditing] = useState(false)
 	const [note, setNote] = useState('')
 	const editButton = useRef<HTMLButtonElement>(null)
+	const acceptButton = useRef<HTMLButtonElement>(null)
 	const noteField = useRef<HTMLInputElement>(null)
 	const answered = useRef(false)
 	const returning = useRef(false)
@@ -195,6 +200,15 @@ export function ComposerApproval({
 		setEditing(false)
 		setNote('')
 	}
+	// A new card takes the keyboard, so Enter answers it and a person is not left typing into the
+	// composer behind it. Someone in the middle of a message keeps their place and their words.
+	useEffect(() => {
+		const active = document.activeElement
+		const typing =
+			(active instanceof HTMLTextAreaElement || active instanceof HTMLInputElement) &&
+			active.value.trim().length > 0
+		if (!typing) acceptButton.current?.focus()
+	}, [])
 	useEffect(() => {
 		if (editing) noteField.current?.focus()
 		// Back to where the person was, not to the composer.
@@ -220,6 +234,7 @@ export function ComposerApproval({
 		}
 	}
 
+	const consequence = approvalConsequence(model, folder)
 	const hasDiff = Boolean(model.diff)
 	const showDetails = !(model.diff && !model.diff.fragment) || permission.calls.length > 1
 	const showWarning = model.destructive && model.kind !== 'create'
@@ -238,10 +253,24 @@ export function ComposerApproval({
 									{hasDiff && (model.added || model.removed) ? (
 										<span className="approval-counts">
 											{model.added ? (
-												<span className="changes-added">+{formatLineCount(model.added)}</span>
+												<span
+													className="changes-added"
+													title={`${model.added} ${model.added === 1 ? 'line' : 'lines'} added`}
+													role="img"
+													aria-label={`${model.added} ${model.added === 1 ? 'line' : 'lines'} added`}
+												>
+													+{formatLineCount(model.added)}
+												</span>
 											) : null}
 											{model.removed ? (
-												<span className="changes-removed">−{formatLineCount(model.removed)}</span>
+												<span
+													className="changes-removed"
+													title={`${model.removed} ${model.removed === 1 ? 'line' : 'lines'} removed`}
+													role="img"
+													aria-label={`${model.removed} ${model.removed === 1 ? 'line' : 'lines'} removed`}
+												>
+													−{formatLineCount(model.removed)}
+												</span>
 											) : null}
 										</span>
 									) : null}
@@ -282,6 +311,7 @@ export function ComposerApproval({
 										))}
 									</dl>
 								)}
+								{consequence && <p className="approval-note approval-consequence">{consequence}</p>}
 								{model.others.length > 0 && (
 									<p className="approval-note">
 										Also in this request: {model.others.join(', ')}. Your answer covers all of them.
@@ -352,10 +382,10 @@ export function ComposerApproval({
 											<button
 												ref={editButton}
 												type="button"
-												className="approval-button"
+												className="approval-button approval-instead"
 												onClick={() => setEditing(true)}
 											>
-												Edit
+												Tell Namzu what to do instead
 											</button>
 											<button
 												type="button"
@@ -366,6 +396,7 @@ export function ComposerApproval({
 												Reject
 											</button>
 											<button
+												ref={acceptButton}
 												type="button"
 												className="approval-button"
 												data-tone="accept"
@@ -376,6 +407,11 @@ export function ComposerApproval({
 										</>
 									)}
 								</footer>
+								{!editing && (
+									<p className="approval-hint">
+										Enter accepts. Esc stops this reply and nothing waiting here runs.
+									</p>
+								)}
 							</div>
 						</ComposerBanner.Root>
 					</section>

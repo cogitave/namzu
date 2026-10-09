@@ -3,7 +3,7 @@ import { type ThreadState, threadPhase } from '../shared/projection.js'
 import type { ChatMessage } from '../shared/protocol.js'
 import { AttachmentList } from './attachment-list.js'
 import { Message, MessageContent, MessageFooter } from './message.js'
-import { terminalNotice, transcriptTurns } from './transcript-layout.js'
+import { transcriptTurns, turnNotice } from './transcript-layout.js'
 import './pal-chat-transcript.css'
 
 export interface PalChatRow {
@@ -78,9 +78,7 @@ export function PalChatTranscript({
 	renderMessageAction?: (message: ChatMessage, key: string) => ReactNode
 }) {
 	const status = palChatStatus(thread)
-	const notice = !thread.running
-		? terminalNotice(thread.turns[thread.turn]?.reason ?? thread.stopReason)
-		: undefined
+	const notice = !thread.running ? turnNotice(thread) : undefined
 	return (
 		<div
 			className="pal-chat-transcript"

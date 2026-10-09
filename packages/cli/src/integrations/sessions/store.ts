@@ -56,6 +56,7 @@ import { resolveNamzuHome } from '../state/home.js'
 import { loadIdentity } from '../state/identity.js'
 import { ensurePrivateStateDirectory } from '../state/private-directory.js'
 import { cliProjectRoot } from '../state/project.js'
+import { typedTextOf } from './display-title.js'
 
 /**
  * The part of the kernel's `SessionStore` contract the CLI still reads: one
@@ -1124,7 +1125,10 @@ export function conversationTitle(messages: readonly Message[]): string {
 			: firstGoal?.role === 'user' && firstGoal.source?.type === 'goal-round'
 				? firstGoal.source.objective
 				: 'Conversation'
-	const text = raw.replace(/\s+/g, ' ').trim()
+	const typed = typedTextOf(raw)
+	const text = (typed.text.trim() ? typed.text : (typed.firstFile ?? ''))
+		.replace(/\s+/g, ' ')
+		.trim()
 	return text.length > 60 ? `${text.slice(0, 59)}…` : text || 'Conversation'
 }
 

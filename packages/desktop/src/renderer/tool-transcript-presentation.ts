@@ -36,6 +36,8 @@ export interface ToolTranscriptPresentation {
 	quietCompleted?: true
 	callDetail?: ToolCallView
 	detailView?: ToolCallView
+	/** What the person typed when they declined and said what to do instead; the transcript shows it. */
+	note?: string
 }
 
 const statusLabels: Record<ToolTranscriptState, string> = {
@@ -286,8 +288,8 @@ const COMMAND_TOOLS = new Set(['bash', 'shell', 'run_command', 'exec'])
 
 /**
  * A call the person said No to. The recorded view names its target (a path, a
- * command) and may carry their note; the row says what was declined and shows
- * the note when it is opened.
+ * command) and may carry their note; the row says what was declined and the note
+ * is drawn under the work block as the person's own words.
  */
 function declinedPresentation(tool: ProjectedToolCall): ToolTranscriptPresentation {
 	const view = tool.view as Extract<ToolCallView, { kind: 'generic' }>
@@ -325,7 +327,7 @@ function declinedPresentation(tool: ProjectedToolCall): ToolTranscriptPresentati
 		...(tooltip ? { tooltip } : {}),
 		state: 'declined',
 		statusLabel: statusLabels.declined,
-		...(note ? { detailView: { kind: 'generic', label: `You said: ${note}` } as const } : {}),
+		...(note ? { note } : {}),
 	}
 }
 

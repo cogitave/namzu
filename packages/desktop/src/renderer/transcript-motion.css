@@ -362,3 +362,16 @@
 		animation: none;
 	}
 }
+
+/* The person's own redirect, kept in the conversation after they decline a change. */
+.normal-transcript .redirect-note {
+	margin: 4px 0 0;
+	padding-left: 4px;
+	font-size: 14px;
+	line-height: 20px;
+	color: var(--foreground);
+	overflow-wrap: anywhere;
+}
+.normal-transcript .redirect-note-lead {
+	color: var(--muted-foreground);
+}

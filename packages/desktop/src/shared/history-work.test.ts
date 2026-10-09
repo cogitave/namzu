@@ -403,7 +403,7 @@ it('restores a declined call as the person’s No, with their note, and drops on
 	expect(toolTranscriptPresentation(thread, '1:declined')).toMatchObject({
 		state: 'declined',
 		label: 'Declined edit to app.css',
-		detailView: { label: 'You said: Keep the old colour.' },
+		note: 'Keep the old colour.',
 	})
 	expect(toolTranscriptPresentation(thread, '1:claimed')?.state).not.toBe('declined')
 	expect(toolTranscriptPresentation(thread, '1:huge')?.state).not.toBe('declined')

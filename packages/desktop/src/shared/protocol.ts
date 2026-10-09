@@ -213,6 +213,8 @@ export interface ConversationView {
 	palGreeting?: { id: string; text: string }
 	/** Desktop-local: pinned conversations lead their lists. */
 	pinned?: true
+	/** Desktop-local: the window was closed while a reply was running, so that reply never finished. */
+	closedWhileRunning?: true
 }
 /** Repository facts for a trusted project; `branch` is null on a detached head. */
 export interface ProjectGitView {

@@ -19,9 +19,9 @@ import {
 	replyClock,
 	runDefaultOpen,
 	splitActivity,
-	terminalNotice,
 	toolGroupLabel,
 	transcriptTurns,
+	turnNotice,
 	workBlockOpen,
 } from './transcript-layout.js'
 import { turnInputsUnchanged } from './transcript-memo.js'
@@ -384,54 +384,43 @@ function TurnActivity({
 		thread.turns[turn]?.recordedDurationMs !== undefined &&
 		thread.turns[turn]?.startedAt === undefined
 	return (
-		<Collapsible
-			className="turn-activity"
-			// Fold when the answer arrives, not after it: folding later shrinks the page under a reader at the end.
-			open={workBlockOpen(controlled ? savedOpen : chosenOpen, live && !answered)}
-			onOpenChange={(open) => {
-				if (disclosureKey && onWorkDisclosureChange) onWorkDisclosureChange(disclosureKey, open)
-				else setChosenOpen(open)
-			}}
-			data-activity-turn={turn}
-			// No choice yet, so any fold is the work finishing: it settles at once, in the same frame the answer lands.
-			data-automatic={(controlled ? savedOpen : chosenOpen) === undefined ? '' : undefined}
-		>
-			<CollapsibleTrigger
-				className="activity-trigger"
-				aria-label={elapsed ? `${label} for ${elapsed}` : label}
-				title={
-					savedDuration
-						? 'Time reported for this saved work'
-						: live
-							? undefined
-							: timeDescription(savedTime)
-				}
-				data-duration-source={savedDuration ? 'recorded-runtime' : undefined}
-				data-live={live ? '' : undefined}
+		<>
+			<Collapsible
+				className="turn-activity"
+				// Fold when the answer arrives, not after it: folding later shrinks the page under a reader at the end.
+				open={workBlockOpen(controlled ? savedOpen : chosenOpen, live && !answered)}
+				onOpenChange={(open) => {
+					if (disclosureKey && onWorkDisclosureChange) onWorkDisclosureChange(disclosureKey, open)
+					else setChosenOpen(open)
+				}}
+				data-activity-turn={turn}
+				// No choice yet, so any fold is the work finishing: it settles at once, in the same frame the answer lands.
+				data-automatic={(controlled ? savedOpen : chosenOpen) === undefined ? '' : undefined}
 			>
-				<span className="activity-text">
-					<PhaseLabel label={label} animate={animate} />
-					{elapsed && <span className="turn-activity-elapsed">for {elapsed}</span>}
-				</span>
-				<ChevronRightIcon className="disclosure-chevron" aria-hidden="true" />
-			</CollapsibleTrigger>
-			<CollapsiblePanel keepMounted>
-				<div className="activity-entries">
-					{planAt < 0 ? (
-						<ActivityEntries
-							entries={entries}
-							thread={thread}
-							turn={turn}
-							turnLive={live}
-							workDisclosures={workDisclosures}
-							onWorkDisclosureChange={onWorkDisclosureChange}
-							hiddenReasoningId={status?.hiddenReasoningId}
-							streamingMessage={streamingMessage}
-						/>
-					) : (
-						<>
+				<CollapsibleTrigger
+					className="activity-trigger"
+					aria-label={elapsed ? `${label} for ${elapsed}` : label}
+					title={
+						savedDuration
+							? 'Time reported for this saved work'
+							: live
+								? undefined
+								: timeDescription(savedTime)
+					}
+					data-duration-source={savedDuration ? 'recorded-runtime' : undefined}
+					data-live={live ? '' : undefined}
+				>
+					<span className="activity-text">
+						<PhaseLabel label={label} animate={animate} />
+						{elapsed && <span className="turn-activity-elapsed">for {elapsed}</span>}
+					</span>
+					<ChevronRightIcon className="disclosure-chevron" aria-hidden="true" />
+				</CollapsibleTrigger>
+				<CollapsiblePanel keepMounted>
+					<div className="activity-entries">
+						{planAt < 0 ? (
 							<ActivityEntries
-								entries={entries.slice(0, planAt)}
+								entries={entries}
 								thread={thread}
 								turn={turn}
 								turnLive={live}
@@ -440,38 +429,69 @@ function TurnActivity({
 								hiddenReasoningId={status?.hiddenReasoningId}
 								streamingMessage={streamingMessage}
 							/>
-							{planTurn === turn ? (
-								<PlanRow
-									tasks={thread.tasks}
+						) : (
+							<>
+								<ActivityEntries
+									entries={entries.slice(0, planAt)}
+									thread={thread}
+									turn={turn}
 									turnLive={live}
-									open={planKey ? workDisclosures?.[planKey] : undefined}
-									onOpenChange={
-										planKey && onWorkDisclosureChange
-											? (open) => onWorkDisclosureChange(planKey, open)
-											: undefined
-									}
-									onOpenTasks={onOpenTasks}
+									workDisclosures={workDisclosures}
+									onWorkDisclosureChange={onWorkDisclosureChange}
+									hiddenReasoningId={status?.hiddenReasoningId}
+									streamingMessage={streamingMessage}
 								/>
-							) : (
-								<PlanTouched />
-							)}
-							<ActivityEntries
-								entries={entries.slice(planAt)}
-								thread={thread}
-								turn={turn}
-								turnLive={live}
-								workDisclosures={workDisclosures}
-								onWorkDisclosureChange={onWorkDisclosureChange}
-								hiddenReasoningId={status?.hiddenReasoningId}
-								streamingMessage={streamingMessage}
-							/>
-						</>
-					)}
-				</div>
-			</CollapsiblePanel>
-			{stage && <StageLine stage={stage} animate={animate} />}
-		</Collapsible>
+								{planTurn === turn ? (
+									<PlanRow
+										tasks={thread.tasks}
+										turnLive={live}
+										open={planKey ? workDisclosures?.[planKey] : undefined}
+										onOpenChange={
+											planKey && onWorkDisclosureChange
+												? (open) => onWorkDisclosureChange(planKey, open)
+												: undefined
+										}
+										onOpenTasks={onOpenTasks}
+									/>
+								) : (
+									<PlanTouched />
+								)}
+								<ActivityEntries
+									entries={entries.slice(planAt)}
+									thread={thread}
+									turn={turn}
+									turnLive={live}
+									workDisclosures={workDisclosures}
+									onWorkDisclosureChange={onWorkDisclosureChange}
+									hiddenReasoningId={status?.hiddenReasoningId}
+									streamingMessage={streamingMessage}
+								/>
+							</>
+						)}
+					</div>
+				</CollapsiblePanel>
+				{stage && <StageLine stage={stage} animate={animate} />}
+			</Collapsible>
+			{redirectNotes(thread, entries).map((note) => (
+				<p key={note.id} className="redirect-note">
+					<span className="redirect-note-lead">You asked Namzu to do this instead:</span>{' '}
+					{note.text}
+				</p>
+			))}
+		</>
 	)
+}
+
+/** The words a person typed when they declined a change and said what to do instead. */
+export function redirectNotes(
+	thread: ThreadState,
+	entries: TimelineEntry[],
+): { id: string; text: string }[] {
+	return entries.flatMap((entry) => {
+		if (entry.kind !== 'tool') return []
+		const note = toolTranscriptPresentation(thread, entry.id)?.note
+		return note ? [{ id: entry.id, text: note }] : []
+	})
 }
 
 /**
@@ -735,6 +755,7 @@ export function Transcript({
 	onOpenTasks,
 	undoKept,
 	projectRoot,
+	closedWhileRunning = false,
 	dateSeparators = true,
 }: {
 	thread: ThreadState
@@ -754,6 +775,8 @@ export function Transcript({
 	undoKept?: Record<string, number>
 	/** The conversation's folder; relative paths in action rows show in full against it. */
 	projectRoot?: string
+	/** The window was closed while the latest reply ran, which is why it stopped. */
+	closedWhileRunning?: boolean
 	dateSeparators?: boolean
 }) {
 	const ref = useRef<HTMLDivElement>(null)
@@ -786,9 +809,7 @@ export function Transcript({
 		}),
 		[],
 	)
-	const notice = !thread.running
-		? terminalNotice(thread.turns[thread.turn]?.reason ?? thread.stopReason)
-		: undefined
+	const notice = !thread.running ? turnNotice(thread, closedWhileRunning) : undefined
 	const groups = transcriptTurns(thread)
 	const { timeline, tools } = thread
 	const planTurn = useMemo(() => latestPlanTurn({ timeline, tools }), [timeline, tools])

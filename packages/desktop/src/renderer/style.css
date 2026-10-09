@@ -885,6 +885,18 @@ pre {
 	color: var(--error-foreground);
 	font-size: 12px;
 }
+.inline-error-retry {
+	padding: 0 2px;
+	border-radius: 4px;
+	color: var(--foreground);
+	font: inherit;
+	text-decoration: underline;
+	cursor: pointer;
+}
+.inline-error-retry:focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: 2px;
+}
 .connection-error {
 	padding: 12px 20px;
 }

@@ -285,8 +285,11 @@ export function Composer({
 			onSetEnabled={onSetPluginEnabled}
 		/>
 	)
+	// Namzu is only waiting on the person, so stopping is not an emergency.
+	const waitingOnPerson = permissions.length > 0
+	const [plusOpen, setPlusOpen] = useState(false)
 	const plusControl = (
-		<Popover>
+		<Popover open={plusOpen} onOpenChange={setPlusOpen}>
 			<PopoverTrigger
 				render={<Button variant="ghost-muted" size="icon-sm" />}
 				className={compact ? 'pal-composer-add' : 'composer-add'}
@@ -302,6 +305,8 @@ export function Composer({
 				padding="compact"
 				aria-label="Attachments and message settings"
 				className="pal-composer-tools"
+				// A pick hands the keyboard back to the message box, not to the plus button.
+				finalFocus={inputRef}
 			>
 				<Button
 					variant="ghost"
@@ -309,7 +314,12 @@ export function Composer({
 					className="pal-composer-attach"
 					aria-label="Attach files"
 					disabled={importDisabled}
-					onClick={onAttach}
+					onClick={() => {
+						// The menu has done its job; the chip it adds must not sit under it.
+						setPlusOpen(false)
+						inputRef.current?.focus()
+						onAttach()
+					}}
 				>
 					<PaperclipIcon /> Attach images or files
 				</Button>
@@ -573,6 +583,7 @@ export function Composer({
 									permission={permissions[0]}
 									palNames={palNames}
 									count={permissions.length}
+									folder={projectPath}
 									onRespond={(permission, response) =>
 										approvalDisabled ? false : onApproval(permission, response)
 									}
@@ -687,20 +698,29 @@ export function Composer({
 									)}
 									<div className="pal-composer-send-actions flex shrink-0 flex-nowrap items-center justify-end gap-2">
 										{running && liveInputSupported && onQueue && (
-											<Button
-												variant="ghost-muted"
-												size="xs"
-												aria-label="Queue for next turn"
-												disabled={
-													sending ||
-													draftDisabled ||
-													attachmentsStranded ||
-													(!draft.trim() && attachments.length === 0)
-												}
-												onClick={onQueue}
-											>
-												Queue
-											</Button>
+											<Tooltip>
+												<TooltipTrigger
+													render={
+														<Button
+															variant="ghost-muted"
+															size="xs"
+															aria-label="Queue for next turn"
+															disabled={
+																sending ||
+																draftDisabled ||
+																attachmentsStranded ||
+																(!draft.trim() && attachments.length === 0)
+															}
+															onClick={onQueue}
+														/>
+													}
+												>
+													Queue
+												</TooltipTrigger>
+												<TooltipPopup>
+													Hold this message and send it when the current reply is done
+												</TooltipPopup>
+											</Tooltip>
 										)}
 										{!compact && <div className="composer-selected-model">{modelControl}</div>}
 										{speechControl}
@@ -710,7 +730,11 @@ export function Composer({
 													render={
 														<button
 															type="button"
-															className="flex size-8 cursor-pointer items-center justify-center rounded-full bg-destructive/90 text-white shadow-xs shadow-destructive/24 inset-shadow-2xs inset-shadow-white/16 transition-all duration-150 hover:bg-destructive hover:scale-105 active:inset-shadow-black/8 active:shadow-none"
+															className={
+																waitingOnPerson
+																	? 'flex size-8 cursor-pointer items-center justify-center rounded-full border border-border bg-secondary text-foreground transition-all duration-150 hover:bg-accent hover:scale-105'
+																	: 'flex size-8 cursor-pointer items-center justify-center rounded-full bg-destructive/90 text-white shadow-xs shadow-destructive/24 inset-shadow-2xs inset-shadow-white/16 transition-all duration-150 hover:bg-destructive hover:scale-105 active:inset-shadow-black/8 active:shadow-none'
+															}
 															aria-label="Stop turn"
 															disabled={draftDisabled}
 															onClick={onStop}
@@ -719,7 +743,11 @@ export function Composer({
 												>
 													<SquareIcon className="size-3 fill-current" />
 												</TooltipTrigger>
-												<TooltipPopup>Stop · Esc</TooltipPopup>
+												<TooltipPopup>
+													{waitingOnPerson
+														? 'Stop this reply · Esc. The action waiting for you will not run.'
+														: 'Stop · Esc'}
+												</TooltipPopup>
 											</Tooltip>
 										)}
 										{(!running || draft.trim() || attachments.length > 0) && (

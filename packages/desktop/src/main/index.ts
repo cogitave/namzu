@@ -74,6 +74,7 @@ import { Operator } from './operator.js'
 import { PalStreamProxy } from './pal-stream-proxy.js'
 import { projectDraftOwner } from './project-draft-owner.js'
 import { selectRendererPage } from './renderer-page.js'
+import { RunningReplyGuard } from './running-reply-guard.js'
 import { desktopRuntimeNodeArgs, desktopRuntimeNodeFlags } from './runtime-node-args.js'
 import { readRuntimeVersions } from './runtime-versions.js'
 import { SettingsConfirmation } from './settings-confirmation.js'
@@ -1238,6 +1239,18 @@ async function createWindow(
 	window.on('close', (event) => {
 		if (stopped || quitting || allowNativeClose.delete(windowId)) return
 		event.preventDefault()
+		// The last window ends the app on Windows and Linux; ask first when a reply would be cut off.
+		if (
+			process.platform !== 'darwin' &&
+			windows.entries().length <= 1 &&
+			!replyGuard.approved &&
+			operator.runningReplies() > 0
+		) {
+			void replyGuard.confirm().then((quit) => {
+				if (quit && !window.isDestroyed()) window.close()
+			})
+			return
+		}
 		saveBounds()
 		if (workspace.pendingNativeWindows().includes(windowId)) {
 			workspace.abortTransfers(windowId)
@@ -1434,6 +1447,7 @@ const engineUpdates = new EngineUpdates({
 })
 let quitting = false
 let stopped = false
+const replyGuard = new RunningReplyGuard(dialog, () => operator.runningReplies())
 let shutdownRun: Promise<void> | undefined
 /** Our graceful stop, shared by every way out: a normal quit and an app update. */
 function shutdown(): Promise<void> {
@@ -1461,6 +1475,12 @@ function shutdown(): Promise<void> {
 app.on('before-quit', (event) => {
 	if (stopped) return
 	event.preventDefault()
+	if (!replyGuard.approved && operator.runningReplies() > 0) {
+		void replyGuard.confirm().then((quit) => {
+			if (quit) app.quit()
+		})
+		return
+	}
 	if (shutdownRun) return
 	void shutdown()
 		.then(() => app.quit())

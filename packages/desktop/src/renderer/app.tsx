@@ -165,6 +165,7 @@ import { projectStage } from './project-stage.js'
 import { ProjectConnecting, ProjectOpenError } from './project-views.js'
 import { RenameConversationDialog } from './rename-conversation-dialog.js'
 import { RestoreSkeleton } from './restore-skeleton.js'
+import { retryableAsk, retryableReply } from './retry-reply.js'
 import { projectRemovalCopy, removalNotice, settingsRoute } from './settings-model.js'
 import { SettingsPage, SettingsSidebar } from './settings-page.js'
 import { type ConversationCollection, Sidebar } from './sidebar.js'
@@ -4060,6 +4061,32 @@ export function App({
 		}
 	}
 
+	/** Asks the newest reply's question again, exactly as it was typed. */
+	const retryable = retryableReply(thread)
+	const failedAsk = retryableAsk(thread)
+	const retryReply = async (prompt: string) => {
+		if (
+			context.current.frozen ||
+			thread.running ||
+			loading ||
+			restoringTabs ||
+			!sessionId ||
+			!project?.trusted ||
+			project.status !== 'ready' ||
+			!choice.provider ||
+			!providerReady
+		)
+			return
+		const route = { ...choice }
+		await api.selectProvider(sessionId, route.provider, route.model)
+		await api.send(sessionId, prompt, {
+			...settings,
+			effort: effortToSend(capabilities, settings.effort),
+			attachmentIds: [],
+		})
+		follow.current = true
+	}
+
 	useEffect(() => {
 		const onKey = (event: KeyboardEvent) => {
 			if (
@@ -5290,8 +5317,16 @@ export function App({
 												}
 												undoKept={undoKept}
 												projectRoot={project?.path}
+												closedWhileRunning={conversation?.closedWhileRunning === true}
 												renderMessageAction={(message, key) => (
-													<MessageActions text={message.text}>
+													<MessageActions
+														text={message.text}
+														onRetry={
+															retryable && retryable.reply === message
+																? () => void act(() => retryReply(retryable.prompt))
+																: undefined
+														}
+													>
 														<LocalSpeechReadAloud
 															speech={speech}
 															messageId={key}
@@ -5304,7 +5339,16 @@ export function App({
 									)}
 									{thread.error && (
 										<p className="inline-error" role="alert">
-											{thread.error}
+											{thread.error}{' '}
+											{failedAsk !== undefined && (
+												<button
+													type="button"
+													className="inline-error-retry"
+													onClick={() => void act(() => retryReply(failedAsk))}
+												>
+													Retry
+												</button>
+											)}
 										</p>
 									)}
 									<TurnRecovery

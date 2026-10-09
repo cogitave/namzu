@@ -16,11 +16,11 @@ export function transcriptEntryKey(entry: TimelineEntry): string {
 export function livePhaseLabel(thread: ThreadState): string | undefined {
 	const phase = threadPhase(thread)
 	if (phase === 'idle') return undefined
-	return phase === 'waiting'
-		? 'Waiting for your decision'
-		: phase === 'thinking'
-			? 'Thinking'
-			: 'Working'
+	if (phase === 'waiting') return 'Waiting for your decision'
+	if (phase === 'thinking') return 'Thinking'
+	// Before anything of this turn has been drawn there is no action to name, so say what is happening.
+	if (phase === 'working' && drawnEntries(thread).length === 0) return 'Reading your message'
+	return 'Working'
 }
 
 export interface LiveStage {

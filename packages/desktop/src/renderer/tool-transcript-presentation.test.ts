@@ -350,17 +350,15 @@ describe('a call the person declined', () => {
 		})
 	})
 
-	it('shows what the person said when the row is opened, and nothing to open without a note', () => {
+	it('carries what the person said as a note, and has none without one', () => {
 		const withNote = toolTranscriptPresentation(
 			declined('edit', '/repo/src/app.css', 'Keep the old colour.'),
 			key,
 		)
-		expect(withNote?.detailView).toEqual({
-			kind: 'generic',
-			label: 'You said: Keep the old colour.',
-		})
+		expect(withNote?.note).toBe('Keep the old colour.')
+		expect(withNote?.detailView).toBeUndefined()
 		const bare = toolTranscriptPresentation(declined('edit', '/repo/src/app.css'), key)
-		expect(bare?.detailView).toBeUndefined()
+		expect(bare?.note).toBeUndefined()
 	})
 
 	it('names a declined command and a declined write', () => {

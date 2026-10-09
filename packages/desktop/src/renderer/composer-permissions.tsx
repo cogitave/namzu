@@ -140,6 +140,24 @@ export function permissionRows(
 	})
 }
 
+/** Engines whose Full access turns every approval off. */
+function needsFullAccessConfirmation(engine: ComposerPermissionEngine): boolean {
+	return engine === 'codex-cli' || engine === 'namzu'
+}
+
+/** What switching approvals off means for each engine, in plain words. */
+export function fullAccessCopy(engine: ComposerPermissionEngine): { title: string; body: string } {
+	if (engine === 'codex-cli')
+		return {
+			title: 'Allow Codex full access?',
+			body: 'Codex CLI can access files across this computer, run commands and use the network without asking for approval. Access is not restricted to this project. This choice applies only to this conversation.',
+		}
+	return {
+		title: 'Allow Namzu full access?',
+		body: 'Namzu will run commands and change files on this computer without asking you first, except what your rules block. You can switch back to Ask first at any time. This choice applies only to this conversation.',
+	}
+}
+
 /** Arrow keys only move the highlight; Enter, Space or a click commits. */
 function moveHighlight(event: KeyboardEvent<HTMLElement>) {
 	const keys = ['ArrowDown', 'ArrowUp', 'Home', 'End']
@@ -195,7 +213,7 @@ export function ComposerPermissions({
 			confirmation.engine === engine &&
 			confirmation.scope === permissionScope &&
 			confirmation.mode === permissionMode &&
-			engine === 'codex-cli' &&
+			needsFullAccessConfirmation(engine) &&
 			!disabled &&
 			supportsAuto,
 	)
@@ -215,8 +233,8 @@ export function ComposerPermissions({
 	const choose = (row: PermissionRow) => {
 		setOpen(false)
 		if (disabled || !row.selectable || row.value === permissionMode) return
-		if (engine === 'codex-cli' && row.value === 'auto') {
-			// Codex full access reaches beyond the project, so it needs an explicit yes.
+		if (needsFullAccessConfirmation(engine) && row.value === 'auto') {
+			// Turning approvals off for a conversation needs one explicit yes, for every engine.
 			const request = { engine, scope: permissionScope, mode: permissionMode }
 			pendingConfirmation.current = request
 			setConfirmation(request)
@@ -302,12 +320,10 @@ export function ComposerPermissions({
 							className="w-full max-w-md rounded-2xl border border-border bg-background p-5 text-foreground shadow-xl outline-none"
 						>
 							<AlertDialog.Title className="text-lg font-semibold">
-								Allow Codex full access?
+								{fullAccessCopy(engine).title}
 							</AlertDialog.Title>
 							<AlertDialog.Description className="mt-2 text-sm text-muted-foreground">
-								Codex CLI can access files across this computer, run commands and use the network
-								without asking for approval. Access is not restricted to this project. This choice
-								applies only to this conversation.
+								{fullAccessCopy(engine).body}
 							</AlertDialog.Description>
 							<div className="mt-5 flex flex-wrap justify-end gap-2">
 								<AlertDialog.Close
