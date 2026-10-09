@@ -303,6 +303,13 @@ export interface PalInput {
 	model?: PalView['model']
 	appearance?: PalAppearance
 }
+/**
+ * A create carries the id of the attempt. The same id sent twice (a double click, a retry) makes
+ * one Pal and returns it both times.
+ */
+export interface PalCreateInput extends PalInput {
+	requestId?: string
+}
 export interface PalChanges extends PalInput {
 	paused?: boolean
 }
@@ -665,7 +672,7 @@ export interface DesktopApi {
 	pals(): Promise<PalView[]>
 	palProviders(): Promise<ProviderView>
 	palModels(provider: string): Promise<ModelCatalogueView>
-	createPal(input: PalInput): Promise<PalView>
+	createPal(input: PalCreateInput): Promise<PalView>
 	updatePal(id: string, expectedRevision: number, changes: Partial<PalChanges>): Promise<PalView>
 	/** Retire the profile after confirmed guest cleanup; workspace files and journals remain. */
 	deletePal?(id: string, expectedRevision: number): Promise<{ id: string; deleted: true }>

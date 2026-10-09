@@ -1,0 +1,32 @@
+{
+ "palsOnDisk": 1,
+ "firstOpeningMs": 302,
+ "openingEndedMs": 1684,
+ "anyInertDuringOpening": false,
+ "anySavingAfterDialogClosed": false,
+ "customizeWhileOpening": {
+  "nameEnabled": true,
+  "saveText": "Save",
+  "closeEnabled": true
+ },
+ "refusal": "You already have a Pal called “Pamir”. Try “Pamir 2”.",
+ "final": {
+  "mainInert": false,
+  "dialogs": 0,
+  "saving": false,
+  "opening": null,
+  "composer": true,
+  "sidebar": [
+   "pamir",
+   "New Pal"
+  ]
+ },
+ "log": [
+  "duplicate message: You already have a Pal called “Pamir”. Try “Pamir 2”.",
+  "opening seen: true",
+  "customize while opening: {\"nameEnabled\":true,\"saveText\":\"Save\",\"closeEnabled\":true}",
+  "after open: {\"mainInert\":false,\"dialogs\":0,\"saving\":false,\"opening\":null,\"composer\":false,\"sidebar\":[\"pamirOpening…\",\"New Pal\"]}",
+  "pals on disk after first create: 1",
+  "second create refusal: You already have a Pal called “Pamir”. Try “Pamir 2”."
+ ]
+}

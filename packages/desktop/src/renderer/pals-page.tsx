@@ -1,6 +1,11 @@
 import { Dialog } from '@base-ui/react/dialog'
-import { useEffect, useId, useState } from 'react'
-import type { ModelCatalogueView, PalInput, PalView, ProviderView } from '../shared/protocol.js'
+import { useEffect, useId, useRef, useState } from 'react'
+import type {
+	ModelCatalogueView,
+	PalCreateInput,
+	PalView,
+	ProviderView,
+} from '../shared/protocol.js'
 import {
 	ChevronDownIcon,
 	ChevronRightIcon,
@@ -20,6 +25,7 @@ import {
 	palColors,
 } from './pal-character.js'
 import { PalAvatar } from './pal-context.js'
+import { createSubmitGuard } from './submit-guard.js'
 import { Button } from './ui/button.js'
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from './ui/collapsible.js'
 import { Input } from './ui/input.js'
@@ -137,10 +143,14 @@ export function PalCustomizeDialog({
 	model: PalView['model']
 	onModelChange: (model: PalView['model']) => void
 	onClose: () => void
-	onSave: (input: PalInput, id?: string) => Promise<void>
+	onSave: (input: PalCreateInput, id?: string) => Promise<void>
 	onDelete?: (pal: PalView) => void
 }) {
 	const id = useId()
+	// One id per dialog: a second submit of the same attempt is the same create, never a new Pal.
+	const attempt = useRef(globalThis.crypto.randomUUID())
+	// A ref, not the prop: two submits can arrive before the next render says "saving".
+	const submitting = useRef(createSubmitGuard())
 	const [name, setName] = useState(editing?.name ?? '')
 	const [appearance, setAppearance] = useState<PalCharacterAppearance>(
 		editing?.appearance ?? defaultPalAppearance,
@@ -164,8 +174,10 @@ export function PalCustomizeDialog({
 							className="pal-customize-form"
 							onSubmit={(event) => {
 								event.preventDefault()
-								if (!saving && name.trim())
-									void onSave({ name: name.trim(), model, appearance }, editing?.id)
+								if (saving || !name.trim()) return
+								const input: PalCreateInput = { name: name.trim(), model, appearance }
+								if (!editing) input.requestId = attempt.current
+								submitting.current.run(() => onSave(input, editing?.id))
 							}}
 						>
 							<div className="pal-customize-mobile-heading" aria-hidden="true">
@@ -316,16 +328,82 @@ export function PalCustomizeDialog({
 	)
 }
 
+/** What the opening notice says after this many seconds. Pure so it is tested without a clock. */
+export function palOpeningStatus(
+	name: string,
+	seconds: number,
+): { text: string; stalled: boolean } {
+	if (seconds >= PAL_OPENING_STALLED_SECONDS)
+		return { text: `Still starting ${name}… ${seconds}s`, stalled: true }
+	if (seconds >= 2) return { text: `Opening ${name}… ${seconds}s`, stalled: false }
+	return { text: `Opening ${name}…`, stalled: false }
+}
+export const PAL_OPENING_STALLED_SECONDS = 10
+
+export type PalOpening = { palId: string; name: string; startedAt: number; failure?: string }
+
+/** Shows a Pal that is created and still starting, or that could not start. Never blocks anything. */
+export function PalOpeningNotice({
+	opening,
+	onRetry,
+	onCancel,
+}: {
+	opening: PalOpening
+	onRetry: () => void
+	onCancel: () => void
+}) {
+	const [now, setNow] = useState(() => Date.now())
+	useEffect(() => {
+		if (opening.failure) return
+		setNow(Date.now())
+		const timer = setInterval(() => setNow(Date.now()), 1000)
+		return () => clearInterval(timer)
+	}, [opening.failure])
+	if (opening.failure)
+		return (
+			<div className="pal-opening" role="alert" data-state="failed">
+				<span>
+					{opening.name} is created, but it could not start. {opening.failure}
+				</span>
+				<Button variant="outline" size="xs" onClick={onRetry}>
+					Retry
+				</Button>
+				<Button variant="ghost-muted" size="xs" onClick={onCancel}>
+					Dismiss
+				</Button>
+			</div>
+		)
+	const status = palOpeningStatus(
+		opening.name,
+		Math.max(0, Math.floor((now - opening.startedAt) / 1000)),
+	)
+	return (
+		<output className="pal-opening" data-state={status.stalled ? 'stalled' : 'opening'}>
+			<LoaderCircleIcon className="pal-loading" />
+			<span>{status.text}</span>
+			<Button variant="ghost-muted" size="xs" onClick={onCancel}>
+				Cancel
+			</Button>
+		</output>
+	)
+}
+
 export function PalsPage({
 	model,
 	onModelChange,
 	onCustomize,
+	opening,
+	onRetryOpening,
+	onCancelOpening,
 	loadProviders,
 	loadModels,
 }: ModelLoaders & {
 	model: PalView['model']
 	onModelChange: (model: PalView['model']) => void
 	onCustomize: () => void
+	opening?: PalOpening
+	onRetryOpening: () => void
+	onCancelOpening: () => void
 }) {
 	return (
 		<section
@@ -352,6 +430,9 @@ export function PalsPage({
 					</div>
 				</div>
 			</div>
+			{opening && (
+				<PalOpeningNotice opening={opening} onRetry={onRetryOpening} onCancel={onCancelOpening} />
+			)}
 			<footer className="pal-onboarding-footer">
 				<p>Give your Pal a name to start.</p>
 				<Button variant="outline" onClick={onCustomize}>
@@ -368,6 +449,7 @@ export function PalSidebarSection({
 	pals,
 	selectedId,
 	creating,
+	openingId,
 	loading,
 	onCreate,
 	onOpen,
@@ -375,6 +457,7 @@ export function PalSidebarSection({
 	pals: readonly PalView[]
 	selectedId?: string
 	creating?: boolean
+	openingId?: string
 	loading: boolean
 	onCreate: () => void
 	onOpen: (pal: PalView) => void
@@ -393,6 +476,7 @@ export function PalSidebarSection({
 					<PalAvatar name={pal.name} appearance={pal.appearance} compact paused={pal.paused} />
 					<span>{pal.name}</span>
 					{pal.paused && <small>Paused</small>}
+					{openingId === pal.id && <small>Opening…</small>}
 				</Button>
 			))}
 			<Button
