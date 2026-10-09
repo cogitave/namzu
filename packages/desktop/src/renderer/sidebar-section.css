@@ -62,3 +62,14 @@
 		transition: none;
 	}
 }
+/* Folded sections sit one heading apart: no section padding below a folded body, and the next
+   heading takes the Recents margin instead of its own 14px lead. */
+.sidebar-pals:has(> .sidebar-section-body[hidden]) {
+	padding-bottom: 0;
+}
+[data-sidebar-section]:has(> .sidebar-section-body[hidden]) + [data-sidebar-section] .sidebar-section-title {
+	margin-top: 6px;
+}
+[data-sidebar-section]:has(> .sidebar-section-body[hidden]) + [data-sidebar-section] .sidebar-add-project {
+	margin-top: 0;
+}
