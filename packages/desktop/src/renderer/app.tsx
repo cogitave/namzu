@@ -139,6 +139,11 @@ import {
 	staleEffort,
 } from './model-choice.js'
 import { NavigationRail } from './navigation-rail.js'
+import {
+	type NewTabActionId,
+	type NewTabPlacement,
+	terminalUnavailableReason,
+} from './new-tab-menu.js'
 import { normalConversationProject } from './normal-conversation.js'
 import { notify } from './notify.js'
 import { PalChatTranscript } from './pal-chat-transcript.js'
@@ -1182,9 +1187,49 @@ export function App({
 					reason: surfaceReason,
 				}
 			: undefined
-	const openShellTerminal = async () => {
+	// A tab that opens beside or below the pane, or in a window of its own, joins this pane first,
+	// then leaves as a move; the tab that was in front stays in front where it was.
+	const placeNewTab = async (tabId: string, place: NewTabPlacement | undefined, before: string) => {
+		if (!place) return
+		const groupId = context.current.group.id
+		if (before && before !== tabId) await onAction({ kind: 'activate', groupId, tabId: before })
+		if (place === 'window') onDetach(groupId, tabId)
+		else onSplit(groupId, tabId, place)
+	}
+	const openShellTerminal = async (place?: NewTabPlacement) => {
 		if (context.current.frozen || !project || !terminalReady || !window.namzu.openTerminal) return
-		await window.namzu.openTerminal(shellTerminalRequest(project.id, group.id))
+		const before = context.current.group.activeTabId
+		const opened = await window.namzu.openTerminal(shellTerminalRequest(project.id, group.id))
+		await placeNewTab(opened.terminal.id, place, before)
+	}
+	const openConversationAt = async (place: NewTabPlacement) => {
+		if (context.current.frozen) return
+		let destination = normalConversationProject(projects, projectId, previousNormalProject.current)
+		if (!destination) {
+			if (!api.openChat) throw new Error('Restart the desktop app to open a normal conversation.')
+			destination = await api.openChat()
+			updateProject(destination)
+		}
+		if (destination.palId) throw new Error('A normal conversation cannot use a Pal workspace.')
+		if (!destination.trusted || destination.status !== 'ready')
+			throw new Error('Trust this project to start a conversation.')
+		previousNormalProject.current = destination.id
+		const before = context.current.group.activeTabId
+		const view = await api.newConversation(destination.id)
+		upsertConversation(view)
+		await onAction({ kind: 'open', tabId: view.id, groupId: context.current.group.id })
+		await placeNewTab(view.id, place, before)
+	}
+	const newTabMenuAction = (id: NewTabActionId) => {
+		const place = (value: string): NewTabPlacement =>
+			value === 'right' ? 'right' : value === 'below' ? 'bottom' : 'window'
+		if (id === 'conversation') return void act(newConversation)
+		if (id === 'terminal') return void act(() => openShellTerminal())
+		if (id === 'window') return void act(() => openConversationAt('window'))
+		const [kind, where] = id.split('-') as ['conversation' | 'terminal', string]
+		return void act(() =>
+			kind === 'terminal' ? openShellTerminal(place(where)) : openConversationAt(place(where)),
+		)
 	}
 	const openShellRef = useRef(openShellTerminal)
 	openShellRef.current = openShellTerminal
@@ -1205,10 +1250,15 @@ export function App({
 		const result = await window.namzu.openTerminal(request)
 		if (request.kind === 'engine' && request.prompt && !result.omitted.includes(PROMPT_NOT_PASSED))
 			changeDraft(draftOwner, '')
-		if (result.omitted.length > 0)
-			notify(`${TERMINAL_ENGINE_LABELS[engine]} started without ${result.omitted.join(' and ')}.`, {
-				tone: 'warning',
-			})
+		if (result.omitted.length > 0) {
+			const kept = result.omitted.includes(PROMPT_NOT_PASSED)
+				? ' Windows Command Prompt would read part of the message as a command, so it stays in the composer.'
+				: ''
+			notify(
+				`${TERMINAL_ENGINE_LABELS[engine]} started without ${result.omitted.join(' and ')}.${kept}`,
+				{ tone: 'warning' },
+			)
+		}
 	}
 	// A quiet notice when an engine's terminal ends badly; one that ended before this window knew of it stays quiet.
 	const terminalStatuses = useRef(new Map<string, string>())
@@ -4298,10 +4348,14 @@ export function App({
 								terminalGroup.order.length > 1
 									? (tab, position) => onSplit(group.id, tab.id, position)
 									: undefined,
-							onNew: terminalReady ? () => void act(openShellTerminal) : undefined,
+							onNew: terminalReady ? () => void act(() => openShellTerminal()) : undefined,
 						}
 					: undefined
 			}
+			newMenu={{
+				onAction: newTabMenuAction,
+				terminalReason: terminalUnavailableReason({ bridge: Boolean(terminalBridge), project }),
+			}}
 			windowId={windowId}
 			groupId={group.id}
 			onDetach={(view, bounds) => onDetach(group.id, view.id, bounds)}

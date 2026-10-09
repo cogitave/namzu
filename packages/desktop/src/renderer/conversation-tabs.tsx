@@ -1,7 +1,8 @@
+import { ContextMenu } from '@base-ui/react/context-menu'
 import { Menu } from '@base-ui/react/menu'
 import { Tabs } from '@base-ui/react/tabs'
 import { MessageCircle, SplitSquareVertical } from 'lucide-react'
-import { Fragment, useEffect, useRef } from 'react'
+import { Fragment, type ReactElement, useEffect, useRef } from 'react'
 import {
 	type BackgroundWorkStatus,
 	freshBackgroundWorkStatus,
@@ -21,13 +22,18 @@ import { ConversationActionsMenu } from './conversation-actions-menu.js'
 import type { ConversationActionId, ConversationActionInput } from './conversation-actions.js'
 import { HarnessMark } from './harness-picker.js'
 import {
+	AppWindowIcon,
+	type IconComponent,
 	LoaderCircleIcon,
 	MoreHorizontalIcon,
 	PinIcon,
 	PlusIcon,
+	SplitDownIcon,
+	SplitRightIcon,
 	TerminalIcon,
 	XIcon,
 } from './icons.js'
+import { type NewTabActionId, type NewTabIconId, newTabMenuGroups } from './new-tab-menu.js'
 import { TerminalStripTab } from './terminal-tab.js'
 import { Button } from './ui/button.js'
 import { WordmarkInitial } from './wordmark.js'
@@ -77,6 +83,66 @@ export function resolveConversationTabSelection(
 	if (pal && active === pal.conversationId && view.id === pal.conversationId)
 		return { kind: 'chat' }
 	return { kind: 'conversation', view }
+}
+
+const NEW_TAB_ICONS: Record<NewTabIconId, IconComponent> = {
+	plus: PlusIcon,
+	terminal: TerminalIcon,
+	right: SplitRightIcon,
+	below: SplitDownIcon,
+	window: AppWindowIcon,
+}
+
+/** The right-click menu of the + button: what a new tab is, and where it opens. */
+export interface ConversationTabsNewMenu {
+	onAction: (id: NewTabActionId) => void
+	terminalReason?: string
+	conversationReason?: string
+	windowReason?: string
+}
+
+function NewTabContextMenu({
+	menu,
+	busy,
+	children,
+}: {
+	menu: ConversationTabsNewMenu
+	busy: boolean
+	children: ReactElement
+}) {
+	const groups = newTabMenuGroups(menu)
+	return (
+		<ContextMenu.Root>
+			<ContextMenu.Trigger render={children} />
+			<ContextMenu.Portal>
+				<ContextMenu.Positioner className="conversation-actions-positioner" sideOffset={2}>
+					<ContextMenu.Popup className="conversation-actions-popup" aria-label="New tab">
+						{groups.map((group, index) => (
+							<Fragment key={group[0]?.id}>
+								{index > 0 && <Menu.Separator className="conversation-actions-separator" />}
+								{group.map((entry) => {
+									const Icon = NEW_TAB_ICONS[entry.icon]
+									return (
+										<Menu.Item
+											key={entry.id}
+											className="conversation-actions-item"
+											disabled={busy || !!entry.reason}
+											title={entry.reason}
+											aria-description={entry.reason}
+											onClick={() => menu.onAction(entry.id)}
+										>
+											<Icon aria-hidden="true" />
+											<span className="conversation-actions-label">{entry.label}</span>
+										</Menu.Item>
+									)
+								})}
+							</Fragment>
+						))}
+					</ContextMenu.Popup>
+				</ContextMenu.Positioner>
+			</ContextMenu.Portal>
+		</ContextMenu.Root>
+	)
 }
 
 /** What the shared conversation menu needs from the application, per tab. */
@@ -367,7 +433,9 @@ export function ConversationTabs({
 	palNames,
 	palWorkspace,
 	terminals,
+	newMenu,
 }: {
+	newMenu?: ConversationTabsNewMenu
 	terminals?: ConversationTabTerminals
 	tabs: readonly ConversationView[]
 	windowId: string
@@ -469,27 +537,44 @@ export function ConversationTabs({
 					),
 				)}
 			</Tabs.List>
-			<Button
-				variant="ghost-muted"
-				size="icon-sm"
-				aria-label="New conversation tab"
-				disabled={busy}
-				onClick={onNew}
-			>
-				<PlusIcon />
-			</Button>
-			{terminals?.onNew && (
-				<Button
-					variant="ghost-muted"
-					size="icon-sm"
-					aria-label="New terminal tab"
-					title="New terminal (Ctrl+Shift+`)"
-					disabled={busy}
-					onClick={terminals.onNew}
-				>
-					<TerminalIcon />
-				</Button>
-			)}
+			{(() => {
+				const withMenu = (button: ReactElement) =>
+					newMenu ? (
+						<NewTabContextMenu menu={newMenu} busy={busy}>
+							{button}
+						</NewTabContextMenu>
+					) : (
+						button
+					)
+				return (
+					<>
+						{withMenu(
+							<Button
+								variant="ghost-muted"
+								size="icon-sm"
+								aria-label="New conversation tab"
+								disabled={busy}
+								onClick={onNew}
+							>
+								<PlusIcon />
+							</Button>,
+						)}
+						{terminals?.onNew &&
+							withMenu(
+								<Button
+									variant="ghost-muted"
+									size="icon-sm"
+									aria-label="New terminal tab"
+									title="New terminal (Ctrl+Shift+`)"
+									disabled={busy}
+									onClick={terminals.onNew}
+								>
+									<TerminalIcon />
+								</Button>,
+							)}
+					</>
+				)
+			})()}
 			{currentPal && <ComputerWorkspaceControls {...currentPal} disabled={busy} />}
 		</Tabs.Root>
 	)

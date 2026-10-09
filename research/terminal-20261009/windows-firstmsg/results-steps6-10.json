@@ -1,0 +1,37 @@
+[
+ {
+  "step": "6 composer gone with the draft tab (it became the CLI tab); no leftover text",
+  "pass": true,
+  "text": "textbox \"Message Namzu\" count in CLI tab=0; terminal panes=1"
+ },
+ {
+  "step": "7 second message typed in terminal gets a reply",
+  "pass": true,
+  "text": " █▄ █ ▄▀█ █▀▄▀█ ▀█ █ █\n █ ▀█ █▀█ █ ▀ █ █▄ █▄█  Cogitave v35.0.0\n › test message\n ∴ SCRIPTED-ANTHROPIC-OK to: e\":true,\"scannedBytes\":20730,\"omittedPassages\":0}\n › second message\n ∴ SCRIPTED-ANTHROPIC-OK to: e\":true,\"scannedBytes\":64908,\"omittedPassages\":0}\n ┌─ MESSAGE ──────────────────────────────────────────────────────────────────────────────────────┐\n │ › Type a message… (/help for commands)                                                         │\n └────────────────────────────────────────────────────────────────────────────────────────────────┘\n shift+tab to cycle · ~\\Documents\\Namzu\\New project                                claude-haiku-5-5"
+ },
+ {
+  "step": "6b new conversation composer is empty",
+  "pass": true,
+  "text": "composer value=\"\""
+ },
+ {
+  "step": "8 Turkish first message in new CLI tab",
+  "pass": true,
+  "text": "composer was=\"merhaba, nasılsın? (ğüşöçı İ)\" tabs=3 panes=1\n █▄ █ ▄▀█ █▀▄▀█ ▀█ █ █\n █ ▀█ █▀█ █ ▀ █ █▄ █▄█  Cogitave v35.0.0\n › merhaba, nasılsın? (ğüşöçı İ)\n ∴ SCRIPTED-ANTHROPIC-OK to: e\":true,\"scannedBytes\":20756,\"omittedPassages\":0}\n ┌─ MESSAGE ──────────────────────────────────────────────────────────────────────────────────────┐\n │ › Type a message… (/help for commands)                                                         │\n └────────────────────────────────────────────────────────────────────────────────────────────────┘\n shift+tab to cycle · ~\\Documents\\Namzu\\New project                                claude-haiku-5-5"
+ },
+ {
+  "step": "9a right-click + shows menu",
+  "pass": true,
+  "text": "items=[\"New conversation\",\"New terminal\",\"New conversation to the right\",\"New conversation below\",\"New terminal to the right\",\"New terminal below\",\"New window\"]"
+ },
+ {
+  "step": "9b terminal in new right pane, echo ok",
+  "pass": true,
+  "text": "panes before=1 after=1 boxes=[[760,84,420,736]]\nC:\\Users\\Arda\\AppData\\Local\\Temp\\namzu-firstmsg-run\\osHo\nme\\Documents\\Namzu\\New project>echo ok\nok\nC:\\Users\\Arda\\AppData\\Local\\Temp\\namzu-firstmsg-run\\osHo\nme\\Documents\\Namzu\\New project>"
+ },
+ {
+  "step": "10 left-click + opens a new conversation",
+  "pass": true,
+  "text": "tabs 4 -> 5; composer visible=1"
+ }
+]

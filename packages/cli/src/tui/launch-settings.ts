@@ -15,6 +15,12 @@ export interface TuiLaunchSettings {
 	readonly model?: string
 	readonly effort?: ReasoningEffort
 	readonly permissionMode?: PermissionMode
+	/**
+	 * `--message`: the first message of this launch, sent once when the composer is
+	 * ready. A plain prompt, not a slash command, and never sent again on a resume
+	 * or a reload.
+	 */
+	readonly message?: string
 }
 
 /** Whether any flag changes which provider or model the session starts on. */

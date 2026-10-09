@@ -4,7 +4,7 @@ import { engineTerminalRequest, shellTerminalRequest } from './terminal-request.
 const base = { projectId: 'p', groupId: 'g', draft: '' }
 
 describe('engineTerminalRequest', () => {
-	it('gives the Namzu terminal app every choice as a flag and never the message', () => {
+	it('gives the Namzu terminal app every choice and the message', () => {
 		expect(
 			engineTerminalRequest({
 				...base,
@@ -26,6 +26,7 @@ describe('engineTerminalRequest', () => {
 			model: 'gpt-5',
 			effort: 'high',
 			permissionMode: 'plan',
+			prompt: 'hello',
 		})
 	})
 

@@ -1244,6 +1244,14 @@ panes. A tinted preview shows the admitted destination. Dragging a tab outside
 the native window opens that conversation in a separate registered Namzu window.
 The tab's actions menu also offers Split right, Split down and Move to new window
 for keyboard use; split actions appear when the owning group supports them.
+
+Right-clicking the tab strip's + button or its terminal button (or Shift+F10 / the context-menu key on
+it) opens a menu: New conversation, New terminal, then New conversation or New
+terminal to the right or below, then New window. A left click on + still opens a
+new conversation (on the terminal button, a terminal). The new tab joins the current pane, then leaves as the same
+split or window move the tab menu uses, so the tab that was in front stays in
+front. The terminal entries are shown disabled, with the reason, when the
+folder is untrusted, not ready, a Pal workspace, or terminals are unavailable.
 Each group selects its own conversation, with its own draft, model, attachments,
 queued messages and pending reviews. The sidebar, navigation and application
 shortcuts follow the focused group. Namzu tabs use the canonical wordmark's N;
@@ -2177,13 +2185,13 @@ the choice is remembered per window.
 
 | Engine | Program and arguments |
 | --- | --- |
-| Namzu | the bundled CLI as the terminal's program (`process.execPath` with `ELECTRON_RUN_AS_NODE=1`, the Desktop runtime's Node flags, then the entry): `--provider <id> --model <id> --effort <level> --permission-mode <mode>`. The [launch flags](launch-flags.md) apply to that session only and never write `preferences.json`. The composer's text stays in the composer |
+| Namzu | the bundled CLI as the terminal's program (`process.execPath` with `ELECTRON_RUN_AS_NODE=1`, the Desktop runtime's Node flags, then the entry): `--provider <id> --model <id> --effort <level> --permission-mode <mode>`. The [launch flags](launch-flags.md) apply to that session only and never write `preferences.json`. The composer's text goes as `--message=<text>` (one argument, never re-parsed by a shell): the session sends it once, as a plain prompt, when its composer is ready, and shows it as the first user message |
 | Codex CLI | `codex -m <model> -c model_reasoning_effort=<level>` and the approval and sandbox flags below, then `-- <message>` |
 | Second engine | its own program `--model <id> --effort <level> --permission-mode <mode>`, then `-- <message>` |
 
 An effort the engine does not offer is left out and named in a notice (`Codex CLI started without
 the max effort.`); a model that was only the engine's default is left to the engine. The composer's
-text is the installed engine's first message and is cleared from the composer only when it was passed.
+text is every engine's first message, and is cleared from the composer only after the tab opened and the message was passed. On Windows, text Command Prompt would read as syntax (`& | < > ^ % " !`, a backtick or a line break) or a line over 8000 characters is not passed: the engine still opens, the text stays in the composer, and a notice says so in one line. Plain words, `. , ? ' : ( )` and Turkish letters pass.
 
 | Desktop mode | Codex CLI | Second engine |
 | --- | --- | --- |

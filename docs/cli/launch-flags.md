@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Launch flags for the interactive session
-description: --provider, --model, --effort and --permission-mode on the interactive namzu and namzu resume, what each chooses for that launch only, how they combine with the saved choice and --yolo, and what happens when one cannot be honoured.
+description: --provider, --model, --effort, --permission-mode and --message on the interactive namzu and namzu resume, what each chooses for that launch only, how they combine with the saved choice and --yolo, and what happens when one cannot be honoured.
 resource: packages/cli/src/tui/launch-settings.ts
 tags: [cli, tui, providers, permissions]
 status: stable
@@ -25,6 +25,8 @@ Four options choose how one interactive session starts. They are written **befor
 | `--effort <level>` | the reasoning effort | `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra` |
 | `--permission-mode <mode>` | the permission mode | `prompt`, `accept-edits`, `auto`, `strict`, `plan` |
 
+A fifth, `--message <text>`, is the first message of the launch: the session sends it once, as a plain prompt (a leading `/`, `!` or `#` is text, not a command), as soon as the composer is ready, and the turn runs with the provider, model, effort and mode chosen above. It is shown as the first user message, is kept in the composer's history, and is never sent again by a later `/resume`, reload or re-login. Pass it as `--message=<text>` when the text may begin with a dash. It is refused before a subcommand like the others, and before `resume` (exit 64): a resumed conversation never gets a first message.
+
 The same four flags exist on `namzu exec` and `namzu drain`, written after the command, where they apply to that run. Written before `exec`, `drain` or any other subcommand they are refused with exit status 64 and a line naming where they go, so a flag is never silently ignored.
 
 ## How they combine with what is saved
@@ -40,4 +42,4 @@ An unknown provider, or one the session cannot start on, does not leave an unusa
 
 ## The desktop's terminal tabs
 
-The Desktop's "CLI" surface for the Namzu engine starts this same command in a terminal tab with the composer's choices as these flags, which is why they are session-only: the person's saved preferences are theirs, and a tab started for one task must not rewrite them. See [Desktop](desktop.md#host-terminals).
+The Desktop's "CLI" surface for the Namzu engine starts this same command in a terminal tab with the composer's choices as these flags, and the composer's text as `--message=`, which is why they are session-only: the person's saved preferences are theirs, and a tab started for one task must not rewrite them. See [Desktop](desktop.md#host-terminals).

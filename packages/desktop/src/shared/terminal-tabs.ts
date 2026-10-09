@@ -187,7 +187,7 @@ export interface EngineChoices {
 	model?: string
 	effort?: ReasoningEffort
 	permissionMode: ReviewMode
-	/** What the person typed in the composer: the first message of an installed engine's CLI. */
+	/** What the person typed in the composer: the first message of the engine's CLI (`--message=` for Namzu). */
 	prompt?: string
 }
 
@@ -261,6 +261,15 @@ const CMD_SYNTAX = /[&|<>^%"!`\r\n\0]/u
 /** Command Prompt reads a line of at most 8191 characters; stay clear of the edge. */
 const CMD_LINE_LIMIT = 8_000
 
+const COMMAND_PROMPT_REFUSALS = [
+	'A value in this launch cannot be passed through Command Prompt safely.',
+	'This launch is too long to pass through Command Prompt.',
+]
+
+function isCommandPromptRefusal(error: unknown): boolean {
+	return error instanceof Error && COMMAND_PROMPT_REFUSALS.includes(error.message)
+}
+
 /**
  * A Windows pseudo-console runs Electron-as-Node and npm's `.cmd` shims through
  * `cmd.exe /d /c call <program> <arguments>`. node-pty quotes each argument that holds a space, and
@@ -274,10 +283,9 @@ function viaCommandPrompt(
 	commandPrompt = 'cmd.exe',
 ): Pick<TerminalLaunch, 'command' | 'args'> {
 	for (const part of [program, ...args])
-		if (CMD_SYNTAX.test(part))
-			throw new Error('A value in this launch cannot be passed through Command Prompt safely.')
+		if (CMD_SYNTAX.test(part)) throw new Error(COMMAND_PROMPT_REFUSALS[0])
 	if ([program, ...args].join(' ').length > CMD_LINE_LIMIT)
-		throw new Error('This launch is too long to pass through Command Prompt.')
+		throw new Error(COMMAND_PROMPT_REFUSALS[1])
 	return { command: commandPrompt, args: ['/d', '/c', 'call', program, ...args] }
 }
 
@@ -313,15 +321,31 @@ export function buildEngineLaunch(
 		if (choices.model) args.push('--model', choices.model)
 		if (choices.effort) args.push('--effort', choices.effort)
 		args.push('--permission-mode', choices.permissionMode)
-		if (host.cliEntry) {
-			const launch = wrap(host, host.execPath, [...host.nodeArgs, host.cliEntry, ...args], true)
-			return { ...launch, env: { ELECTRON_RUN_AS_NODE: '1' }, title, omitted }
+		const message = choices.prompt?.trim() ? choices.prompt : undefined
+		// `--message=<text>` is one argument, so a leading dash or a space in the message is not parsed
+		// as anything else; the TUI sends it once, as a plain prompt, when its composer is ready.
+		const namzuLaunch = (withMessage: boolean) => {
+			const all = withMessage && message ? [...args, `--message=${message}`] : args
+			if (host.cliEntry) {
+				const launch = wrap(host, host.execPath, [...host.nodeArgs, host.cliEntry, ...all], true)
+				return { ...launch, env: { ELECTRON_RUN_AS_NODE: '1' }, title, omitted }
+			}
+			// A bare `namzu` is resolved from the project folder first by Command Prompt, so a trusted
+			// repository could plant one; without the bundled entry there is nothing safe to run.
+			if (host.platform === 'win32')
+				throw new Error('The bundled Namzu CLI is not available, so it cannot be started here.')
+			return { ...wrap(host, 'namzu', all, true), title, omitted }
 		}
-		// A bare `namzu` is resolved from the project folder first by Command Prompt, so a trusted
-		// repository could plant one; without the bundled entry there is nothing safe to run.
-		if (host.platform === 'win32')
-			throw new Error('The bundled Namzu CLI is not available, so it cannot be started here.')
-		return { ...wrap(host, 'namzu', args, true), title, omitted }
+		if (message) {
+			try {
+				return namzuLaunch(true)
+			} catch (error) {
+				// Only Command Prompt's refusal of the message is recoverable; anything else stands.
+				if (!isCommandPromptRefusal(error)) throw error
+				omitted.push(PROMPT_NOT_PASSED)
+			}
+		}
+		return namzuLaunch(false)
 	}
 	const name = choices.engine === 'codex-cli' ? 'codex' : 'claude'
 	const program = host.resolve(name)
@@ -351,7 +375,8 @@ export function buildEngineLaunch(
 		const withPrompt = [...args, '--', choices.prompt]
 		try {
 			return { ...wrap(host, program.path, withPrompt, program.shim), title, omitted }
-		} catch {
+		} catch (error) {
+			if (!isCommandPromptRefusal(error)) throw error
 			// Command Prompt would read the message as syntax; it stays in the composer for the person to type.
 			omitted.push(PROMPT_NOT_PASSED)
 		}

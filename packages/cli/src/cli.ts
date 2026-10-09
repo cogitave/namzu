@@ -202,6 +202,10 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			).choices(PERMISSION_MODES),
 		)
 		.option(
+			'--message <text>',
+			'Send this text as the first message once the interactive session is ready, for this launch only. It runs as a plain prompt, never a slash command, and is not sent again on resume.',
+		)
+		.option(
 			'--add-dir <path>',
 			'Let the file tools reach another directory this session; repeatable. /add-dir does the same from inside.',
 			(value: string, previous: string[]) => [...previous, value],
@@ -214,9 +218,9 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		// Required by Commander 14 so subcommands (doctor) can opt into
 		// passThroughOptions for unparsed argument forwarding.
 		.hook('preAction', (command, action) => {
-			const launchOnly = (['provider', 'model', 'effort', 'permissionMode'] as const).filter(
-				(key) => command.opts()[key] !== undefined,
-			)
+			const launchOnly = (
+				['provider', 'model', 'effort', 'permissionMode', 'message'] as const
+			).filter((key) => command.opts()[key] !== undefined)
 			if (launchOnly.length > 0 && !['namzu', 'resume'].includes(action.name())) {
 				const flags = launchOnly.map(
 					(key) => `--${key === 'permissionMode' ? 'permission-mode' : key}`,
@@ -228,6 +232,11 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					{ exitCode: EX_USAGE, code: 'commander.invalidArgument' },
 				)
 			}
+			if (action.name() === 'resume' && command.opts().message !== undefined)
+				command.error(
+					'--message is the first message of a new conversation; it is not sent when resuming one.',
+					{ exitCode: EX_USAGE, code: 'commander.invalidArgument' },
+				)
 			if (command.opts().outputSchema && !['namzu', 'resume'].includes(action.name())) {
 				command.error(
 					action.name() === 'exec'
@@ -445,6 +454,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 				model?: string
 				effort?: (typeof REASONING_EFFORT_LEVELS)[number]
 				permissionMode?: (typeof PERMISSION_MODES)[number]
+				message?: string
 			}>()
 			const structuredOutput = launchOpts.outputSchema
 				? loadOutputSchema(resolve(process.cwd(), launchOpts.outputSchema))
@@ -457,6 +467,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 				...(model ? { model } : {}),
 				...(launchOpts.effort ? { effort: launchOpts.effort } : {}),
 				...(launchOpts.permissionMode ? { permissionMode: launchOpts.permissionMode } : {}),
+				...(launchOpts.message?.trim() ? { message: launchOpts.message } : {}),
 			}
 			// The same three lines `exec` uses. The TUI compiled
 			// nothing at all, so a `permissions` table in a config file did nothing

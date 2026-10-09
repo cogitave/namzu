@@ -35,6 +35,7 @@ import {
 	ShieldCheck,
 	SquarePen,
 	SquareSplitHorizontal,
+	SquareSplitVertical,
 	Trash2,
 	TriangleAlert,
 	UserRound,
@@ -264,3 +265,4 @@ export const ImageIcon = createOutlineIcon(Image)
 export const AppWindowIcon = createOutlineIcon(AppWindow)
 export const SideChatIcon = createOutlineIcon(MessageSquarePlus)
 export const SplitRightIcon = createOutlineIcon(SquareSplitHorizontal)
+export const SplitDownIcon = createOutlineIcon(SquareSplitVertical)

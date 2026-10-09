@@ -7402,7 +7402,7 @@ export function App({
 			// host-side meanings of `/`, `!`, `#` or a model switch: `!` runs on
 			// the host outside the sandbox with no review, and `#` writes memory
 			// every later turn reads. It is sent as the prompt it looks like.
-			const operatorText = meta.source !== 'model-loop'
+			const operatorText = meta.source !== 'model-loop' && meta.source !== 'launch-message'
 			const selectionIntent =
 				operatorText && !attachments?.length ? parseModelSelectionIntent(value) : undefined
 			if (selectionIntent) {
@@ -8826,6 +8826,24 @@ export function App({
 			terminal.rows,
 		],
 	)
+	// `--message`: the launch's first message, sent once the session can take it. The ref is
+	// spent before the call, so neither a re-render, a resume nor a reload can send it twice.
+	const launchMessageRef = useRef(initialCtx.launchSettings?.message)
+	useEffect(() => {
+		const message = launchMessageRef.current
+		if (message === undefined) return
+		if (
+			phase !== 'ready' ||
+			state !== 'idle' ||
+			!session?.hasProvider ||
+			permission !== null ||
+			textPrompt !== null ||
+			choicePicker !== null
+		)
+			return
+		launchMessageRef.current = undefined
+		handleSubmit(message.trim(), undefined, 'submit', { source: 'launch-message' })
+	}, [phase, state, session, permission, textPrompt, choicePicker, handleSubmit])
 	// `applyChoiceSelection` is declared before `handleSubmit` because the
 	// picker is also used by review/export flows. Keep only this dispatch hop in
 	// a ref so selecting a help row re-enters the one ordinary slash-command

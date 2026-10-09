@@ -49,6 +49,16 @@ describe('runCli', () => {
 		expect(stderr).toContain('--model, --effort apply to the interactive TUI, not this subcommand')
 	})
 
+	it('refuses --message on a subcommand instead of ignoring it', async () => {
+		expect(await invoke(['--message', 'hi', 'providers-json'])).toBe(64)
+		expect(stderr).toContain('--message apply to the interactive TUI, not this subcommand')
+	})
+
+	it('refuses --message on resume: a resumed conversation never gets a first message', async () => {
+		expect(await invoke(['--message', 'hi', 'resume', 'abc'])).toBe(64)
+		expect(stderr).toContain('not sent when resuming')
+	})
+
 	it('points the launch flags at their place after exec', async () => {
 		expect(await invoke(['--provider', 'zen', 'exec', 'hello'])).toBe(64)
 		expect(stderr).toContain('namzu exec --provider <value> "<prompt>"')
@@ -69,6 +79,7 @@ describe('runCli', () => {
 			'--model <id>',
 			'--effort <level>',
 			'--permission-mode <mode>',
+			'--message <text>',
 		])
 			expect(stdout).toContain(flag)
 	})

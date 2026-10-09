@@ -155,6 +155,9 @@ export type ComposerSubmitMode = 'submit' | 'queue'
  * - `model-loop`: a loop the model made with `session_loop`, firing. Its text
  *   is always a plain prompt: never a `/` command, a `!` shell line, a `#`
  *   memory note or a model switch, and never an entry in composer history.
+ * - `launch-message`: the `--message` text of this launch, sent once. Like a loop's text it is a
+ *   plain prompt (a leading `/`, `!` or `#` is not a command), but it is the operator's own
+ *   words, so it is kept in history.
  */
 export type SubmitSource =
 	| 'composer'
@@ -162,6 +165,7 @@ export type SubmitSource =
 	| 'command-picker'
 	| 'operator-loop'
 	| 'model-loop'
+	| 'launch-message'
 
 /**
  * A trigger armed when the operator pressed Enter or Tab, with its words'

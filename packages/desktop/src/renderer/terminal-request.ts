@@ -22,14 +22,14 @@ export interface ComposerTerminalChoices {
 export const INITIAL_TERMINAL_SIZE = { cols: 100, rows: 30 } as const
 
 /**
- * The request that opens the engine's own command line with the composer's choices. The Namzu terminal
- * app starts empty (its flags carry the provider, model, effort and mode); an installed engine starts
- * on the message and, unless the model was only the default, the model.
+ * The request that opens the engine's own command line with the composer's choices. Every engine
+ * starts on the message; the Namzu terminal app also takes the provider, model, effort and mode as
+ * flags, and an installed engine the model unless it was only the default.
  */
 export function engineTerminalRequest(choices: ComposerTerminalChoices): TerminalOpenRequest {
 	const namzu = choices.engine === 'namzu'
 	const model = !namzu && choices.modelIsDefault ? undefined : choices.model || undefined
-	const prompt = namzu ? undefined : choices.draft.trim() || undefined
+	const prompt = choices.draft.trim() || undefined
 	return {
 		kind: 'engine',
 		engine: choices.engine,

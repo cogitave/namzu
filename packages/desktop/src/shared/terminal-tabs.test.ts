@@ -339,13 +339,57 @@ describe('the composer message', () => {
 		}
 	})
 
-	it('never puts the message of the Namzu engine on the command line', () => {
+	it('starts the Namzu CLI on the message as one --message= argument', () => {
 		const launch = buildEngineLaunch(
-			{ engine: 'namzu', permissionMode: 'plan', prompt: 'hello' },
+			{ engine: 'namzu', permissionMode: 'plan', prompt: '--rm -rf: test message' },
 			linux,
 			{ name: 'api' },
 		)
-		expect(launch.args).not.toContain('hello')
+		expect(launch.args.slice(-3)).toEqual([
+			'--permission-mode',
+			'plan',
+			'--message=--rm -rf: test message',
+		])
+		expect(launch.omitted).toEqual([])
+	})
+
+	it('passes plain words, common punctuation and Turkish letters to Namzu through Command Prompt', () => {
+		for (const text of [
+			'test message',
+			"What's this (really)? Yes, it is: fine.",
+			'Merhaba, şöyle çalışsın: ığüİĞÜŞÖÇ?',
+		]) {
+			const launch = buildEngineLaunch(
+				{ engine: 'namzu', permissionMode: 'plan', prompt: text },
+				windows,
+				{ name: 'api' },
+			)
+			expect(launch.omitted).toEqual([])
+			expect(launch.command).toBe('cmd.exe')
+			expect(launch.args.at(-1)).toBe(`--message=${text}`)
+		}
+	})
+
+	it('starts Namzu without a message Command Prompt would read as syntax, and says so', () => {
+		for (const text of ['a && b', '100%', 'say "hi"', 'wow!', 'line\nbreak']) {
+			const launch = buildEngineLaunch(
+				{ engine: 'namzu', permissionMode: 'plan', prompt: text },
+				windows,
+				{ name: 'api' },
+			)
+			expect(launch.omitted).toEqual([PROMPT_NOT_PASSED])
+			expect(launch.args.some((arg) => arg.startsWith('--message'))).toBe(false)
+		}
+	})
+
+	it('still refuses a launch that fails for another reason', () => {
+		expect(() =>
+			buildEngineLaunch(
+				{ engine: 'namzu', permissionMode: 'plan', prompt: 'hello' },
+				{ ...windows, cliEntry: undefined },
+				{ name: 'api' },
+			),
+		).toThrow(/bundled Namzu CLI/)
 	})
 
 	it('leaves the message in the composer when Command Prompt would read it as syntax', () => {

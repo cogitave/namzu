@@ -296,6 +296,36 @@ flow(
 	},
 );
 
+flow(
+	"the composer's text is the first message of the Namzu CLI tab, sent without typing in the terminal",
+	{ rules: [{ match: /test message/, steps: [{ text: "Scripted first reply." }] }] },
+	async (w) => {
+		await openProject(w);
+		await enableTerminalDebug(w);
+		await openPicker(w);
+		await w.page.getByRole("radio", { name: "OpenAI gpt-e2e-0" }).click();
+		await openPicker(w).catch(() => undefined);
+		await w.page.getByRole("radio", { name: "CLI", exact: true }).click();
+		await w.page.keyboard.press("Escape");
+		const composer = w.page.getByRole("textbox", { name: "Message Namzu" });
+		await composer.fill("test message");
+		const send = w.page.getByRole("button", { name: "Open Namzu in a terminal" });
+		await expect(send).toBeEnabled({ timeout: T });
+		await send.click();
+		await expect(pane(w)).toBeVisible({ timeout: T });
+		// Nothing is typed into the terminal: the message went in with the launch.
+		await expect.poll(() => screen(w), { timeout: T }).toContain("Scripted first reply.");
+		const shown = await screen(w);
+		assert.match(shown, /test message/, "the first message is the first user row");
+		assert.equal(shown.split("Scripted first reply.").length, 2, "it was sent exactly once");
+		// The composer was cleared once the tab opened and the message was handed over.
+		await w.page.locator("[data-tab-id]").first().getByRole("tab").click();
+		await expect(w.page.getByRole("textbox", { name: "Message Namzu" })).toHaveValue("", {
+			timeout: T,
+		});
+	},
+);
+
 const FAKE = (name, code) => `#!/bin/sh
 if [ "$1" = "--version" ]; then echo "${name} 0.0.0-fake"; exit 0; fi
 echo "FAKE-${name} argv:"
@@ -471,3 +501,55 @@ flow(
 		}
 	},
 );
+
+flow("right-click on + opens a terminal in a new pane to the right, and it takes input", {}, async (w) => {
+	await openProject(w);
+	await enableTerminalDebug(w);
+	await expect(w.page.getByRole("textbox", { name: "Message Namzu" })).toBeVisible({
+		timeout: T,
+	});
+	await w.page.getByRole("button", { name: "New conversation tab" }).click({ button: "right" });
+	const menu = w.page.getByRole("menu", { name: "New tab" });
+	await expect(menu).toBeVisible();
+	assert.deepEqual(
+		await menu.getByRole("menuitem").allInnerTexts(),
+		[
+			"New conversation",
+			"New terminal",
+			"New conversation to the right",
+			"New conversation below",
+			"New terminal to the right",
+			"New terminal below",
+			"New window",
+		],
+	);
+	await menu.getByRole("menuitem", { name: "New terminal to the right" }).click();
+	await expect(tabs(w)).toHaveCount(1, { timeout: T });
+	await expect(pane(w)).toBeVisible({ timeout: T });
+	await expect(w.page.locator(".conversation-tab-list")).toHaveCount(2);
+	// The terminal is in its own pane, to the right of the conversation, which kept the left.
+	const [composer, terminal] = await Promise.all([
+		w.page.getByRole("textbox", { name: "Message Namzu" }).boundingBox(),
+		pane(w).boundingBox(),
+	]);
+	assert.ok(composer && terminal && terminal.x > composer.x + composer.width / 2 - 1);
+	await type(w, "echo split-right-$((6*7))");
+	await expect.poll(() => screen(w), { timeout: T }).toContain("split-right-42");
+});
+
+flow("Shift+F10 on + opens the same menu, and a conversation can open below", {}, async (w) => {
+	await openProject(w);
+	await expect(w.page.getByRole("textbox", { name: "Message Namzu" })).toBeVisible({
+		timeout: T,
+	});
+	await w.page.getByRole("button", { name: "New conversation tab" }).focus();
+	await w.page.keyboard.press("Shift+F10");
+	const menu = w.page.getByRole("menu", { name: "New tab" });
+	await expect(menu).toBeVisible();
+	await menu.getByRole("menuitem", { name: "New conversation below" }).click();
+	await expect(w.page.locator(".conversation-tab-list")).toHaveCount(2, { timeout: T });
+	const strips = await w.page.locator(".conversation-tab-list").evaluateAll((all) =>
+		all.map((el) => el.getBoundingClientRect().top),
+	);
+	assert.ok(Math.abs(strips[0] - strips[1]) > 40, "the second pane is below the first");
+});

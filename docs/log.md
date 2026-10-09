@@ -2,8 +2,10 @@
 
 ## 2026-10-09
 
+- **Update** [Launch flags](cli/launch-flags.md) and [Desktop](cli/desktop.md#desktop--cli) add `--message <text>` to the interactive `namzu`: a session-only first message sent once, as a plain prompt, when the composer is ready. The Desktop's CLI surface now passes the composer's text to the Namzu terminal app as `--message=<text>` (the two installed engines already took it after `--`), clears the composer only once the tab opened and the text was handed over, and keeps it with a one-line notice when Windows Command Prompt would read it as syntax.
 - **Update** [Desktop](cli/desktop.md#terminal-tabs) removes the terminal pane's own header bar (the tab already carries title and status; find is Ctrl/⌘+F as an overlay, closing is the tab's close) and fixes a click on the pane's dead space taking the keyboard from the program, so typed messages went nowhere.
 - **Update** [Desktop](cli/desktop.md) makes the sidebar rows compact and gives each row one surface: the project heading no longer draws a second filled box around its name on hover, and the toggle, remove, pin and archive icons only change colour; rows are 28px (projects 30px) with 12.5px titles, Show more/less 12px, and Projects/Recents headers 11px.
+- **Update** [Desktop](cli/desktop.md) adds a context menu to the tab strip's + button (right-click, Shift+F10 or the context-menu key): New conversation, New terminal, either one to the right or below, and New window; the terminal entries are disabled with a reason in an untrusted folder. Left-click on + is unchanged.
 
 ## 2026-10-08
 
