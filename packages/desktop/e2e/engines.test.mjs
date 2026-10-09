@@ -526,7 +526,7 @@ updateFlow(
 		await showUpdateOutput(w);
 		await expect(termTabs(w).first().locator(".conversation-tab-label")).toHaveAttribute(
 			"aria-label",
-			/^Updating Claude Code, terminal/,
+			new RegExp("^Updating Claude Code, terminal"),
 		);
 		await expect.poll(() => termScreen(w), { timeout: T }).toContain("Checking for updates...");
 		rmSync(join(w.control, "update-hold"));

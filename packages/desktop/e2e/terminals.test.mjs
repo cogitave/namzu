@@ -398,7 +398,7 @@ flow(
 		await expect(tabs(w)).toHaveCount(2, { timeout: T });
 		await expect(tabs(w).nth(1).locator(".conversation-tab-label")).toHaveAttribute(
 			"aria-label",
-			/^Claude Code · project, terminal/,
+			new RegExp("^Claude Code · project, terminal"),
 		);
 		await expect.poll(() => screen(w), { timeout: T }).toContain("ready");
 		const second = await screen(w);
