@@ -80,6 +80,13 @@ describe.skipIf(!pty || process.platform === 'win32')('host terminals over the r
 		expect(first.mode).toBe('replay')
 		printed = first.data + printed
 		await until(() => printed.includes('ready> '))
+
+		// The other attach path: a snapshot, taken now that the prompt has been printed, resets the
+		// viewer and carries the prompt in `screen`.
+		const snapshot = await terminals.attach(info.id, 'snapshot')
+		expect(snapshot.mode).toBe('snapshot')
+		expect(snapshot.screen).toContain('ready> ')
+
 		await terminals.write(info.id, 'main', 'echo from-the-desktop-$((6*7)); stty size\r')
 		await until(() => printed.includes('from-the-desktop-42') && printed.includes('20 90'))
 
