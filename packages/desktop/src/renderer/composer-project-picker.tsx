@@ -137,6 +137,8 @@ export function ComposerProjectPicker({
 							render={<button type="button" />}
 							className="composer-project-row"
 							aria-label={project.name}
+							disabled={project.missing === true}
+							data-project-missing={project.missing ? '' : undefined}
 							data-project-status={project.status}
 							data-project-trusted={project.trusted}
 							onClick={(event) => {
@@ -153,16 +155,20 @@ export function ComposerProjectPicker({
 							<FolderIcon aria-hidden="true" />
 							<span className="composer-project-name">
 								<span title={project.path}>{project.name}</span>
-								{(!project.trusted || project.status !== 'ready') && (
-									<small>
-										{!project.trusted ? 'Folder access required' : ''}
-										{project.status !== 'ready' && (
-											<>
-												{!project.trusted ? ' · ' : ''}
-												{project.status === 'connecting' ? 'Connecting…' : 'Connection error'}
-											</>
-										)}
-									</small>
+								{project.missing ? (
+									<small>Folder not found</small>
+								) : (
+									(!project.trusted || project.status !== 'ready') && (
+										<small>
+											{!project.trusted ? 'Folder access required' : ''}
+											{project.status !== 'ready' && (
+												<>
+													{!project.trusted ? ' · ' : ''}
+													{project.status === 'connecting' ? 'Connecting…' : 'Connection error'}
+												</>
+											)}
+										</small>
+									)
 								)}
 							</span>
 							<span className="composer-project-selection" aria-hidden="true">

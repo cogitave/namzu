@@ -51,6 +51,7 @@ const api: DesktopApi = {
 	setSettings: (patch, token) => invoke('setSettings', patch, token),
 	desktopInfo: () => invoke('desktopInfo'),
 	openDataFolder: (kind) => invoke('openDataFolder', kind),
+	openPalFolder: (id) => invoke('openPalFolder', id),
 	diagnostics: () => invoke('diagnostics'),
 	windowChrome: () => invoke('windowChrome'),
 	setComputerKeyboardCapture: (enabled) => invoke('setComputerKeyboardCapture', enabled),
@@ -68,6 +69,7 @@ const api: DesktopApi = {
 	updatePal: (id, revision, changes) => invoke('updatePal', id, revision, changes),
 	deletePal: (id, revision) => invoke('deletePal', id, revision),
 	palCommunication: (sessionId, palId) => invoke('palCommunication', sessionId, palId),
+	palInbox: (sessionId, palId) => invoke('palInbox', sessionId, palId),
 	updatePalPermission: (sessionId, palId, change) =>
 		invoke('updatePalPermission', sessionId, palId, change),
 	createPalSubscription: (sessionId, palId, input) =>

@@ -1,4 +1,12 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import {
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	realpathSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync,
+} from 'node:fs'
 import * as filesystem from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -2292,3 +2300,12 @@ it.each([true, false])(
 		).toHaveLength(requests)
 	},
 )
+
+it('names a Pal’s own folder to reveal, from its record and never from a caller path', async () => {
+	const { owner, pal, workspace } = fixture()
+	await owner.listPals()
+	expect(await owner.palFolder(pal.id)).toBe(realpathSync(workspace))
+	await expect(owner.palFolder('')).rejects.toThrow('Invalid Pal')
+	rmSync(workspace, { recursive: true, force: true })
+	await expect(owner.palFolder(pal.id)).rejects.toThrow('does not exist')
+})

@@ -335,6 +335,13 @@
 .composer-project-row[data-highlighted] {
 	background: color-mix(in srgb, var(--foreground) 8%, var(--popover));
 }
+.composer-project-row:disabled {
+	cursor: not-allowed;
+	opacity: 0.6;
+}
+.composer-project-row:disabled:hover {
+	background: transparent;
+}
 .composer-project-row:focus-visible {
 	outline: 2px solid var(--ring);
 	outline-offset: -2px;

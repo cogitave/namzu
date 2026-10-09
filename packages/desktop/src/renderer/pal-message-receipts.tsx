@@ -3,20 +3,28 @@ import { palMessageName } from './tool-transcript-presentation.js'
 import { Button } from './ui/button.js'
 import './pal-message-receipts.css'
 
-/** The Pals a turn's completed messages went to, once each, in the order they were sent. */
-export function palMessageRecipients(
+/** The completed message sends in a turn, with the tool call that made each one. */
+export function palMessageSends(
 	entries: readonly TimelineEntry[],
 	thread: Pick<ThreadState, 'tools'>,
-): string[] {
-	const names: string[] = []
+): { id: string; name: string }[] {
+	const sends: { id: string; name: string }[] = []
 	for (const entry of entries) {
 		if (entry.kind !== 'tool') continue
 		const tool = thread.tools[entry.id]
 		if (!tool || tool.status !== 'completed' || tool.historicalStatus) continue
 		const name = palMessageName(tool)
-		if (name) names.push(name)
+		if (name) sends.push({ id: entry.id, name })
 	}
-	return names
+	return sends
+}
+
+/** The Pals a turn's completed messages went to, once each, in the order they were sent. */
+export function palMessageRecipients(
+	entries: readonly TimelineEntry[],
+	thread: Pick<ThreadState, 'tools'>,
+): string[] {
+	return palMessageSends(entries, thread).map((send) => send.name)
 }
 
 /**

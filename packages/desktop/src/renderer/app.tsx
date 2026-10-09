@@ -172,6 +172,7 @@ import {
 	warmPalConversation,
 } from './pal-navigation.js'
 import { palRecentActivity } from './pal-recent-activity.js'
+import { unreadAfterOpen, unreadAfterSends } from './pal-unread.js'
 import { PalCustomizeDialog, PalSidebarSection, PalsPage } from './pals-page.js'
 import { PluginsPage, PluginsSidebar } from './plugins-page.js'
 import {
@@ -212,6 +213,7 @@ import { useDesktopInfo, useDesktopSettings, useUpdateInfo } from './use-desktop
 import { useDraftSettings } from './use-draft-settings.js'
 import { useEngineUpdates } from './use-engine-updates.js'
 import { useLocalSpeech } from './use-local-speech.js'
+import { usePalOperatorMessages } from './use-pal-operator-messages.js'
 import { useTranscriptScroll } from './use-transcript-scroll.js'
 import { useUndoKept } from './use-undo-kept.js'
 import { WindowTitlebar } from './window-titlebar.js'
@@ -843,6 +845,23 @@ export function App({
 	const historyPending = historyDisplay?.sessionId === sessionId && !!historyDisplay.pending
 	const thread = historyPending ? emptyThread() : (threads[sessionId] ?? emptyThread())
 	const pal = pals.find((item) => item.id === project?.palId)
+	// A Pal row shows a marker from the moment the person messages it until they open it.
+	const [unreadPals, setUnreadPals] = useState<ReadonlySet<string>>(() => new Set())
+	const countedPalSends = useRef(new Set<string>())
+	useEffect(() => {
+		setUnreadPals((previous) =>
+			unreadAfterSends(previous, countedPalSends.current, threads, pals, pal?.id),
+		)
+	}, [threads, pals, pal?.id])
+	useEffect(() => {
+		if (pal?.id) setUnreadPals((previous) => unreadAfterOpen(previous, pal.id))
+	}, [pal?.id])
+	const palOperatorMessages = usePalOperatorMessages(
+		api,
+		sessionId,
+		pal?.id,
+		`${thread.turn}:${thread.running}`,
+	)
 	const palConversation = Boolean(project?.palId || conversation?.palId)
 	const detailsOpen = jobsOpen && !palConversation
 	// Files belong to a trusted, ready project the person opened; never a chat or a Pal's workspace.
@@ -1701,6 +1720,11 @@ export function App({
 				return
 			}
 			if (event.kind === 'settings' || event.kind === 'terminals') return
+			if (event.kind === 'tab-command') {
+				if (context.current.focused && !context.current.frozen)
+					runTabChordRef.current({ kind: event.command })
+				return
+			}
 			if (event.kind === 'open-settings') {
 				if (context.current.focused && !context.current.frozen)
 					openSettingsRef.current(event.section)
@@ -4947,6 +4971,15 @@ export function App({
 								description={palDeletionCopy(deletingPal).description}
 								details={palDeletionCopy(deletingPal).details}
 								actionLabel="Delete Pal"
+								sideAction={
+									api.openPalFolder
+										? {
+												label: 'Open folder',
+												run: () =>
+													(api.openPalFolder as (id: string) => Promise<void>)(deletingPal.id),
+											}
+										: undefined
+								}
 								onClose={() => setDeletingPal(undefined)}
 								returnFocus={removalReturnFocus}
 								onConfirm={() =>
@@ -5118,6 +5151,7 @@ export function App({
 								<PalSidebarSection
 									pals={pals}
 									selectedId={palsPage ? undefined : pal?.id}
+									unreadIds={unreadPals}
 									creating={palsPage}
 									loading={palsLoading}
 									onCreate={showPalOnboarding}
@@ -5767,6 +5801,7 @@ export function App({
 											thread={thread}
 											name={pal.name}
 											intro={conversation?.palGreeting}
+											received={palOperatorMessages}
 											renderMessageAction={(message, key) => (
 												<MessageActions text={message.text}>
 													<LocalSpeechReadAloud

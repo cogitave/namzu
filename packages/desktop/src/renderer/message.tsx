@@ -171,22 +171,33 @@ function knownMessageTime(time: ChatMessage['time']): boolean {
 }
 
 /** The full time as the clock's tooltip and accessible name say it; undefined when it is unknown. */
-export function timeDescription(time: ChatMessage['time']): string | undefined {
+export function timeDescription(
+	time: ChatMessage['time'],
+	role: MessageTimeRole = 'received',
+): string | undefined {
 	if (!time || !knownMessageTime(time)) return undefined
-	const full = fullTimeLabel(time.at)
-	return `${time.source === 'journal' ? 'Saved in the conversation' : 'Seen by Namzu'}: ${full}`
+	return `${role === 'sent' ? 'Sent at' : 'Received at'} ${fullTimeLabel(time.at)}`
+}
+
+/** The person's own messages say "Sent at"; every reply and the work behind it says "Received at". */
+export type MessageTimeRole = 'sent' | 'received'
+
+/** The wording of a message's time for the sender of that message. */
+export function timeRoleOf(from: 'user' | 'assistant'): MessageTimeRole {
+	return from === 'user' ? 'sent' : 'received'
 }
 
 export function MessageTime({
 	time,
 	focusable = false,
-}: { time?: ChatMessage['time']; focusable?: boolean }) {
+	direction = 'received',
+}: { time?: ChatMessage['time']; focusable?: boolean; direction?: MessageTimeRole }) {
 	const [expanded, setExpanded] = useState(false)
 	if (!time || !knownMessageTime(time)) return null
 	const date = new Date(time.at)
 	const label = clockLabel(date.getTime())
 	const full = fullTimeLabel(date.getTime())
-	const description = timeDescription(time) ?? full
+	const description = timeDescription(time, direction) ?? full
 	if (focusable)
 		return (
 			<button
@@ -217,11 +228,17 @@ export function MessageFooter({
 	time,
 	children,
 	focusable = false,
-}: { time?: ChatMessage['time']; children?: ReactNode; focusable?: boolean }) {
+	direction = 'received',
+}: {
+	time?: ChatMessage['time']
+	children?: ReactNode
+	focusable?: boolean
+	direction?: MessageTimeRole
+}) {
 	if (!knownMessageTime(time) && !children) return null
 	return (
 		<div className="message-footer">
-			<MessageTime time={time} focusable={focusable} />
+			<MessageTime time={time} focusable={focusable} direction={direction} />
 			{children}
 		</div>
 	)

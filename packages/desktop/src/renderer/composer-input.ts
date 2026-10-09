@@ -34,3 +34,26 @@ export function decidePaste({
 export const UNSUPPORTED_ATTACHMENTS_HINT = 'Remove attachments to send with this engine.'
 
 export const PARKED_QUEUE_COPY = 'Paused — these start after your next message finishes.'
+
+/**
+ * What the Stop button's tooltip says. While Queue is unavailable it says why, because a disabled
+ * Queue button shows no tooltip of its own.
+ */
+export function stopTooltip(input: {
+	waitingOnPerson: boolean
+	/** The engine takes a message while a reply is running. */
+	liveInputSupported: boolean
+	/** Queue is offered but cannot be used right now (nothing typed, or attachments stranded). */
+	queueDisabled: boolean
+	attachmentsStranded?: boolean
+}): string {
+	if (input.waitingOnPerson)
+		return 'Stop this reply · Esc. The action waiting for you will not run.'
+	if (!input.liveInputSupported)
+		return "Stop · Esc. This engine can't take a new message while it works."
+	if (input.queueDisabled)
+		return input.attachmentsStranded
+			? 'Stop · Esc. Queue is off: remove the attachments first, this engine cannot take them.'
+			: 'Stop · Esc. Queue is off until you type a message.'
+	return 'Stop · Esc'
+}

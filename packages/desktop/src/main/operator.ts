@@ -81,6 +81,7 @@ import { ModelListStore, type StoredModelList, modelListKey } from './model-list
 import { isNormalChatWorkspace, normalChatWorkspace } from './normal-chat-workspace.js'
 import type { OpenIn, OpenTarget } from './open-in.js'
 import { PalCommunicationManager } from './pal-communication.js'
+import { palFolderToReveal } from './pal-folder.js'
 import type { PalStreamProxy } from './pal-stream-proxy.js'
 import { projectDraftOwner } from './project-draft-owner.js'
 import { ProjectFiles, confineProjectPath, resolveProjectLinks } from './project-files.js'
@@ -309,6 +310,9 @@ export class Operator {
 	}
 	palCommunication(sessionId: string, palId: string) {
 		return this.communication.read(sessionId, palId)
+	}
+	palInbox(sessionId: string, palId: string) {
+		return this.communication.inbox(sessionId, palId)
 	}
 	updatePalPermission(sessionId: string, palId: string, change: PalPermissionChange) {
 		return this.changePalCommunication(palId, () =>
@@ -645,6 +649,15 @@ export class Operator {
 		const available = pals.filter((pal) => !this.deletedPals.has(pal.id))
 		for (const pal of available) this.palRecords.set(pal.id, pal)
 		return available
+	}
+	/** The folder to reveal for one Pal; the Pal is named by id and the path comes from main's own record. */
+	async palFolder(id: string): Promise<string> {
+		if (typeof id !== 'string' || !id.trim() || id.length > 400) throw new Error('Invalid Pal.')
+		if (this.deletedPals.has(id)) throw new Error('This Pal was deleted.')
+		let pal = this.palRecords.get(id)
+		if (!pal) pal = (await (await this.registry()).request('namzu/pals/get', { id })) as PalView
+		if (!pal || pal.id !== id) throw new Error('This Pal is unavailable.')
+		return palFolderToReveal(pal.workspace)
 	}
 	async palProviders(): Promise<ProviderView> {
 		return (await (await this.registry()).request('namzu/providers/status')) as ProviderView
@@ -1338,6 +1351,7 @@ export class Operator {
 			event.kind !== 'project-removed' &&
 			event.kind !== 'settings' &&
 			event.kind !== 'open-settings' &&
+			event.kind !== 'tab-command' &&
 			event.kind !== 'model-catalogue-updated' &&
 			event.kind !== 'providers-changed'
 		) {

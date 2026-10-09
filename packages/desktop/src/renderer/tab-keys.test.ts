@@ -17,13 +17,10 @@ describe('tabChord', () => {
 		expect(tabChord(press('KeyW', { ctrlKey: true }), linux)).toEqual({ kind: 'close' })
 		expect(tabChord(press('F4', { ctrlKey: true }), linux)).toEqual({ kind: 'close' })
 	})
-	it('leaves Ctrl+W to the shell inside a terminal', () => {
-		expect(tabChord(press('KeyW', { ctrlKey: true }), { mac: false, inTerminal: true })).toBe(
-			undefined,
-		)
-		expect(tabChord(press('F4', { ctrlKey: true }), { mac: false, inTerminal: true })).toEqual({
-			kind: 'close',
-		})
+	it('closes with Ctrl+W in a terminal too, and leaves the program its other chords', () => {
+		expect(tabChord(press('KeyW', { ctrlKey: true }), linux)).toEqual({ kind: 'close' })
+		expect(tabChord(press('KeyC', { ctrlKey: true }), linux)).toBeUndefined()
+		expect(tabChord(press('KeyD', { ctrlKey: true }), linux)).toBeUndefined()
 	})
 	it('switches with Ctrl+Tab and Ctrl+PageUp/PageDown', () => {
 		expect(tabChord(press('Tab', { ctrlKey: true }), linux)).toEqual({ kind: 'next' })

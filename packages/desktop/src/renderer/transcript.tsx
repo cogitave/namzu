@@ -14,7 +14,7 @@ import { type ActivityActions, ActivityActionsContext } from './activity-actions
 import { AttachmentList } from './attachment-list.js'
 import { providerWaitText } from './friendly-errors.js'
 import { ChevronRightIcon } from './icons.js'
-import { Message, MessageContent, MessageFooter, timeDescription } from './message.js'
+import { Message, MessageContent, MessageFooter, timeDescription, timeRoleOf } from './message.js'
 import { PalMessageReceipts } from './pal-message-receipts.js'
 import { PlanRow, PlanTouched } from './plan-row-view.js'
 import { isTaskEntry, latestPlanTurn } from './plan-row.js'
@@ -120,7 +120,9 @@ function Entry({
 			className={`message ${message.role}${message.phase === 'commentary' ? ' commentary' : ''}`}
 			role={message.phase === 'commentary' ? 'group' : undefined}
 			aria-label={message.phase === 'commentary' ? 'Progress update' : undefined}
-			title={quiet || !showTime ? timeDescription(message.time) : undefined}
+			title={
+				quiet || !showTime ? timeDescription(message.time, timeRoleOf(message.role)) : undefined
+			}
 			data-timeline-turn={entry.turn}
 			data-message-phase={message.phase}
 			data-streaming={streaming ? '' : undefined}
@@ -146,7 +148,11 @@ function Entry({
 					<AttachmentList attachments={message.attachments} />
 				</div>
 			)}
-			<MessageFooter time={quiet || !showTime ? undefined : message.time} focusable>
+			<MessageFooter
+				time={quiet || !showTime ? undefined : message.time}
+				direction={timeRoleOf(message.role)}
+				focusable
+			>
 				{message.role === 'assistant' && message.text.trim() && settled && action}
 			</MessageFooter>
 		</Message>

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type {
 	PalCommunicationView,
+	PalInboxView,
 	PalPermissionChange,
 	PalSubscriptionCreate,
 	PalSubscriptionDisable,
@@ -128,6 +129,20 @@ export class PalCommunicationManager {
 		current()
 		this.snapshots.set(key, { scope, view })
 		return structuredClone(view)
+	}
+	/**
+	 * The inbox rows alone, for showing the owner's own messages in the Pal's conversation. It keeps
+	 * no snapshot and takes no read ownership, so it can run beside the settings dialog's read
+	 * without making that one report "changed".
+	 */
+	async inbox(sessionId: string, palId: string): Promise<PalInboxView[]> {
+		this.key(sessionId, palId)
+		const scope = this.capture(sessionId, palId)
+		scope.assertCurrent()
+		if (!scope.client.supportsPalCommunication()) return []
+		const value = await scope.client.request(PAL_COMMUNICATION_METHODS[1], { palId })
+		scope.assertCurrent()
+		return readPalInbox(value, palId)
 	}
 	private async mutate(
 		sessionId: string,

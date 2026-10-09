@@ -165,6 +165,11 @@ test(
 			const receipt = page.getByRole("list", { name: "Messages sent to Pals" });
 			await expect(receipt).toContainText("Sent to Işık’s inbox.", { timeout: 60000 });
 			await shot(world, "08-sent-line-1440");
+			// The Pal row carries an unread dot, since the person messaged it and has not opened it.
+			const unread = page.locator(".sidebar-pal-row .sidebar-pal-unread");
+			await expect(page.getByRole("button", { name: /Işık.*New message/ })).toBeVisible();
+			await expect(unread).toHaveCount(1);
+			await shot(world, "08b-unread-dot-1440");
 			await receipt.getByRole("button", { name: "See it in Işık’s messages" }).click();
 			const settings = page.getByRole("dialog", { name: "Işık settings" });
 			await expect(settings).toBeVisible({ timeout: 60000 });
@@ -188,6 +193,17 @@ test(
 			await expect(settings).toContainText("Ready to chat");
 			await shot(world, "11-general-1440");
 			await page.keyboard.press("Escape");
+			// Opening the Pal read its messages: the dot is gone and the message is quoted in its own
+			// conversation with where it stands, worded as the person's own ("Sent at").
+			await expect(unread).toHaveCount(0);
+			const incoming = page.locator("[data-pal-incoming]");
+			await expect(incoming).toHaveCount(1, { timeout: 60000 });
+			await expect(incoming.locator("blockquote")).toHaveText(
+				"Please summarise the README and tell me what is missing.",
+			);
+			await expect(incoming).toContainText("Waiting for Işık to read it");
+			await expect(incoming.locator(".message-time")).toHaveAttribute("aria-label", /^Sent at /);
+			await shot(world, "11b-incoming-quote-1440");
 
 			// A second Pal with the same name is allowed but warned about.
 			await page.getByRole("button", { name: "New Pal" }).click();
@@ -221,6 +237,21 @@ test(
 			await expect(removal).toContainText("Its conversations and files are not deleted.");
 			await expect(removal).not.toContainText("stored data");
 			await shot(world, "15-delete-900");
+			// Open folder reveals the Pal's own workspace and leaves the dialog open.
+			await world.app.evaluate(({ shell }) => {
+				globalThis.__revealed = [];
+				shell.openPath = async (path) => {
+					globalThis.__revealed.push(path);
+					return "";
+				};
+			});
+			await removal.getByRole("button", { name: "Open folder" }).click();
+			await expect
+				.poll(() => world.app.evaluate(() => globalThis.__revealed.length))
+				.toBe(1);
+			const revealed = await world.app.evaluate(() => globalThis.__revealed[0]);
+			assert.ok(revealed.endsWith(palId), `the folder opened is the Pal's own (${revealed})`);
+			await expect(removal).toBeVisible();
 			await removal.getByRole("button", { name: "Cancel" }).click();
 
 			// Light theme, the main Pal view and the settings.

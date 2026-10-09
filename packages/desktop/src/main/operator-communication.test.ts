@@ -291,6 +291,30 @@ it('honestly handles an older runtime without invoking any unadvertised communic
 	expect(view.peersNotice).toContain('does not support')
 	expect(calls.filter(({ method }) => method.includes('/communication/'))).toEqual([])
 })
+it('reads the inbox alone without taking the settings dialog’s snapshot, and nothing for an older runtime', async () => {
+	const { owner, session, calls } = await fixture()
+	const view = await owner.palCommunication(session.id, 'one')
+	const rows = await owner.palInbox(session.id, 'one')
+	expect(Array.isArray(rows)).toBe(true)
+	// The dialog's snapshot stays valid: reading the inbox did not supersede it.
+	const peer = view.peers[0]
+	if (!peer) throw new Error('Missing peer')
+	await expect(
+		owner.updatePalPermission(session.id, 'one', {
+			snapshotId: view.snapshotId,
+			peerPalId: peer.palId,
+			enabled: true,
+			allowWake: false,
+		}),
+	).resolves.toBeDefined()
+	await expect(owner.palInbox('missing', 'one')).rejects.toThrow('first')
+	expect(calls.filter(({ method }) => method.endsWith('/communication/inbox')).length).toBe(3)
+})
+it('reads no inbox from an older runtime', async () => {
+	const { owner, session, calls } = await fixture(true)
+	expect(await owner.palInbox(session.id, 'one')).toEqual([])
+	expect(calls.filter(({ method }) => method.includes('/communication/'))).toEqual([])
+})
 it('does not treat an unrelated successful mutation reply as confirmation or automatically repeat it', async () => {
 	const { owner, session, client } = await fixture()
 	const first = await owner.palCommunication(session.id, 'one')

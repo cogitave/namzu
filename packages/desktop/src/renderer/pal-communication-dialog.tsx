@@ -240,7 +240,7 @@ export function PalCommunicationContent({
 								)}
 								{sent && (
 									<p className="pal-communication-sent">
-										Sent <time dateTime={sent.iso}>{sent.text}</time>
+										Sent at <time dateTime={sent.iso}>{sent.text}</time>
 									</p>
 								)}
 							</article>
