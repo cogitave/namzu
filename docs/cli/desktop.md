@@ -2573,6 +2573,12 @@ project folder with the composer's choices, and starts no conversation here. The
 a trusted project for an engine conversation that has not started (a started one keeps its engine);
 the choice is remembered per window.
 
+The popup's header never overlaps itself. The back link, the title (**Choose a model**), the engine
+chip (the NAMZU wordmark for Namzu), the switch and the search button keep their size; when they do not
+fit one line, the chip, switch and search drop to a line of their own under the title, and a title that
+is still too long is cut with an ellipsis. `e2e/model-header.test.mjs` measures every part's box in both
+themes at window widths 900 to 1440 and 100, 125 and 150% zoom and fails on any overlap.
+
 | Engine | Program and arguments |
 | --- | --- |
 | Namzu | the bundled CLI as the terminal's program (`process.execPath` with `ELECTRON_RUN_AS_NODE=1`, the Desktop runtime's Node flags, then the entry): `--provider <id> --model <id> --effort <level> --permission-mode <mode>`. The [launch flags](launch-flags.md) apply to that session only and never write `preferences.json`. The composer's text goes as `--message=<text>` (one argument, never re-parsed by a shell): the session sends it once, as a plain prompt, when its composer is ready, and shows it as the first user message |
