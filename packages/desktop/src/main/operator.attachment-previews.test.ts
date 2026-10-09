@@ -102,7 +102,13 @@ it('bounds live previews across owners and strips every copy of a retried image 
 	owner.respondPermission(first.id, retryRequest.id, { outcome: 'approve' })
 	await retryEnded
 
-	for (let index = 0; index < 7; index += 1) {
+	// Each admitted image keeps one preview of the same encoded size, and the original is held twice
+	// (the cancelled attempt and the retry). Fill the budget past its limit with the least that
+	// does it, plus one image to spare, so the oldest copies are retired by the bound itself.
+	const previewSize = Buffer.byteLength(`data:image/png;base64,${originalData}`)
+	const referencesToOverflow = Math.floor(MAX_MESSAGE_PREVIEW_BYTES / previewSize) + 1
+	const laterImages = referencesToOverflow - 2 + 1
+	for (let index = 0; index < laterImages; index += 1) {
 		const sessionId = index % 2 === 0 ? second.id : first.id
 		const bytes = image(index + 2)
 		const files = owner.addAttachments(sessionId, [{ name: `image-${index}.png`, bytes }])
