@@ -3,10 +3,14 @@ export function commitsOnKey(key: string): boolean {
 	return key === 'Enter'
 }
 
-/** The row a project picker may commit, or undefined for an id that is not in the list. */
-export function committableProject<T extends { id: string }>(
+/**
+ * The row a project picker may commit, or undefined for an id that is not in the list or for a
+ * project whose folder is gone (it is listed so the person sees why it is not offered).
+ */
+export function committableProject<T extends { id: string; missing?: boolean }>(
 	choices: readonly T[],
 	id: string,
 ): T | undefined {
-	return choices.find((item) => item.id === id)
+	const found = choices.find((item) => item.id === id)
+	return found && !found.missing ? found : undefined
 }

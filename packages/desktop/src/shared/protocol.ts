@@ -17,6 +17,7 @@ import type {
 } from './engine-update-protocol.js'
 import type {
 	PalCommunicationView,
+	PalInboxView,
 	PalPermissionChange,
 	PalSubscriptionCreate,
 	PalSubscriptionDisable,
@@ -338,6 +339,8 @@ export interface ModelCatalogueView {
 	/** What the engine start behind a live read cost; the main process records it. */
 	timings?: EngineTimingReport[]
 }
+/** What the File menu's tab entries ask a window to do. */
+export type TabCommand = 'close' | 'next' | 'previous'
 export interface PalView {
 	id: string
 	name: string
@@ -565,6 +568,8 @@ export type DesktopEvent = (
 	| { kind: 'settings'; settings: DesktopSettings }
 	/** The native menu or a shortcut asked for Settings; only the focused window gets it. */
 	| { kind: 'open-settings'; section?: SettingsSection }
+	/** A File menu tab entry (Close tab, Next tab, Previous tab); only the focused window gets it. */
+	| { kind: 'tab-command'; command: TabCommand }
 	| { kind: 'project-removed'; projectId: string; sessionIds: string[] }
 	/** A stored model list was refreshed and its rows differ; the next read returns the new rows. */
 	| { kind: 'model-catalogue-updated'; engine: string; provider: string }
@@ -722,6 +727,8 @@ export interface DesktopApi {
 	desktopInfo?(): Promise<DesktopInfo>
 	/** Opens one of the app's own data folders in the file manager. */
 	openDataFolder?(kind: DataFolderKind): Promise<void>
+	/** Reveal one Pal's workspace folder in the file manager; main resolves the path from the Pal. */
+	openPalFolder?(id: string): Promise<void>
 	windowChrome(): Promise<WindowChrome>
 	setWindowAppearance(appearance: WindowAppearance): Promise<void>
 	popupWindowMenu(menu: WindowMenu, anchor: WindowMenuAnchor): Promise<void>
@@ -741,6 +748,8 @@ export interface DesktopApi {
 	/** Retire the profile after confirmed guest cleanup; workspace files and journals remain. */
 	deletePal?(id: string, expectedRevision: number): Promise<{ id: string; deleted: true }>
 	palCommunication?(sessionId: string, palId: string): Promise<PalCommunicationView>
+	/** The inbox rows alone, read without disturbing an open settings dialog. */
+	palInbox?(sessionId: string, palId: string): Promise<PalInboxView[]>
 	updatePalPermission?(
 		sessionId: string,
 		palId: string,

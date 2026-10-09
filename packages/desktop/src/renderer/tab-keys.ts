@@ -22,13 +22,11 @@ export interface TabKeyEvent {
 }
 
 /**
- * What a key press means for the tab strip, if anything. In a terminal Ctrl+W belongs to the
- * shell (delete a word), so there it does not close the tab; Ctrl+F4 always does.
+ * What a key press means for the tab strip, if anything. Ctrl+W closes the tab in front even in a
+ * terminal, where the program gives up the shell's delete-a-word; Ctrl+C, Ctrl+D and every other
+ * chord stay the program's.
  */
-export function tabChord(
-	event: TabKeyEvent,
-	options: { mac: boolean; inTerminal?: boolean },
-): TabChord | undefined {
+export function tabChord(event: TabKeyEvent, options: { mac: boolean }): TabChord | undefined {
 	if (event.altKey) return undefined
 	const { ctrlKey, metaKey, shiftKey, code } = event
 	// Ctrl+Tab and Ctrl+PageUp/PageDown are Control on every platform, as in a browser.
@@ -43,7 +41,7 @@ export function tabChord(
 	if (!shiftKey) {
 		const digit = /^Digit([1-9])$/.exec(code)
 		if (digit) return { kind: 'select', number: Number(digit[1]) }
-		if (code === 'KeyW' && (options.mac || !options.inTerminal)) return { kind: 'close' }
+		if (code === 'KeyW') return { kind: 'close' }
 	} else if (code === 'Backslash') return { kind: 'split-right' }
 	return undefined
 }

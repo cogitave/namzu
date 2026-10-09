@@ -13,7 +13,12 @@ import type {
 import { usableProviders } from '../shared/provider-connections.js'
 import { AttachmentList } from './attachment-list.js'
 import { ComposerApproval } from './composer-approval.js'
-import { PARKED_QUEUE_COPY, UNSUPPORTED_ATTACHMENTS_HINT, decidePaste } from './composer-input.js'
+import {
+	PARKED_QUEUE_COPY,
+	UNSUPPORTED_ATTACHMENTS_HINT,
+	decidePaste,
+	stopTooltip,
+} from './composer-input.js'
 import {
 	type ComposerPlugin,
 	type ComposerPluginInventory,
@@ -775,9 +780,16 @@ export function Composer({
 													<SquareIcon className="size-3 fill-current" />
 												</TooltipTrigger>
 												<TooltipPopup>
-													{waitingOnPerson
-														? 'Stop this reply · Esc. The action waiting for you will not run.'
-														: 'Stop · Esc'}
+													{stopTooltip({
+														waitingOnPerson,
+														liveInputSupported,
+														queueDisabled:
+															(!draft.trim() && attachments.length === 0) ||
+															sending ||
+															draftDisabled ||
+															attachmentsStranded,
+														attachmentsStranded,
+													})}
 												</TooltipPopup>
 											</Tooltip>
 										)}

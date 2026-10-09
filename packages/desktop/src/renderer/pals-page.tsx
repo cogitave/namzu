@@ -499,6 +499,7 @@ export function PalsPage({
 export function PalSidebarSection({
 	pals,
 	selectedId,
+	unreadIds,
 	creating,
 	openingId,
 	loading,
@@ -507,6 +508,8 @@ export function PalSidebarSection({
 }: {
 	pals: readonly PalView[]
 	selectedId?: string
+	/** Pals the person has messaged and not opened since. */
+	unreadIds?: ReadonlySet<string>
 	creating?: boolean
 	openingId?: string
 	loading: boolean
@@ -528,6 +531,11 @@ export function PalSidebarSection({
 					<span>{pal.name}</span>
 					{pal.paused && <small>Paused</small>}
 					{openingId === pal.id && <small>Opening…</small>}
+					{unreadIds?.has(pal.id) && selectedId !== pal.id && (
+						<i className="sidebar-pal-unread" title="New message">
+							<span className="sr-only">New message</span>
+						</i>
+					)}
 				</Button>
 			))}
 			<Button

@@ -2,7 +2,9 @@ import type { ReactNode } from 'react'
 import { type ThreadState, threadPhase } from '../shared/projection.js'
 import type { ChatMessage } from '../shared/protocol.js'
 import { AttachmentList } from './attachment-list.js'
-import { Message, MessageContent, MessageFooter } from './message.js'
+import { Message, MessageContent, MessageFooter, MessageTime, timeRoleOf } from './message.js'
+import { messageStatus } from './pal-communication-dialog.js'
+import { type PalOperatorMessage, interleavePalChat } from './pal-operator-messages.js'
 import { transcriptTurns, turnNotice } from './transcript-layout.js'
 import './pal-chat-transcript.css'
 
@@ -71,10 +73,13 @@ export function PalChatTranscript({
 	name,
 	intro,
 	renderMessageAction,
+	received = [],
 }: {
 	thread: ThreadState
 	name: string
 	intro?: { id: string; text: string }
+	/** What the person sent this Pal from their own conversations, with where each one stands. */
+	received?: readonly PalOperatorMessage[]
 	renderMessageAction?: (message: ChatMessage, key: string) => ReactNode
 }) {
 	const status = palChatStatus(thread)
@@ -96,40 +101,68 @@ export function PalChatTranscript({
 					<MessageContent className="pal-chat-bubble" text={intro.text} />
 				</Message>
 			)}
-			{palChatRows(thread).map(({ message, index }) => (
-				<Message
-					key={`${index}:${message.messageId ?? ''}:${message.textPartId ?? ''}`}
-					from={message.role}
-					className={`pal-chat-message ${message.role}`}
-					data-message-phase={message.phase}
-				>
-					<MessageContent
-						className="pal-chat-bubble"
-						text={message.text}
-						markdown={message.role === 'assistant'}
-					/>
-					{message.attachments && message.attachments.length > 0 && (
-						<div className="pal-chat-attachments">
-							<AttachmentList attachments={message.attachments} />
-						</div>
-					)}
-					<MessageFooter time={message.time} focusable>
-						{message.role === 'assistant' &&
-							(!thread.running ||
-								thread.timeline.some(
-									(entry) =>
-										entry.kind === 'message' &&
-										entry.index === index &&
-										(entry.turn !== thread.turn ||
-											thread.turns[entry.turn]?.stopReason !== undefined),
-								)) &&
-							renderMessageAction?.(
-								message,
-								`${index}:${message.messageId ?? ''}:${message.textPartId ?? ''}`,
-							)}
-					</MessageFooter>
-				</Message>
-			))}
+			{interleavePalChat(palChatRows(thread), received).map((item) => {
+				if (item.kind === 'operator')
+					return (
+						<Message
+							key={`incoming:${item.message.id}`}
+							from="user"
+							className="pal-chat-message user pal-chat-incoming"
+							data-pal-incoming={item.message.id}
+							data-delivery-status={item.message.status}
+						>
+							<blockquote className="pal-chat-bubble pal-chat-quote">
+								{item.message.text}
+							</blockquote>
+							<p className="pal-chat-delivery">
+								<MessageTime
+									time={
+										item.message.at === undefined
+											? undefined
+											: { at: item.message.at, source: 'host' }
+									}
+									direction="sent"
+								/>
+								<span>{messageStatus(item.message.status, name)}</span>
+							</p>
+						</Message>
+					)
+				const { message, index } = item.row
+				return (
+					<Message
+						key={`${index}:${message.messageId ?? ''}:${message.textPartId ?? ''}`}
+						from={message.role}
+						className={`pal-chat-message ${message.role}`}
+						data-message-phase={message.phase}
+					>
+						<MessageContent
+							className="pal-chat-bubble"
+							text={message.text}
+							markdown={message.role === 'assistant'}
+						/>
+						{message.attachments && message.attachments.length > 0 && (
+							<div className="pal-chat-attachments">
+								<AttachmentList attachments={message.attachments} />
+							</div>
+						)}
+						<MessageFooter time={message.time} direction={timeRoleOf(message.role)} focusable>
+							{message.role === 'assistant' &&
+								(!thread.running ||
+									thread.timeline.some(
+										(entry) =>
+											entry.kind === 'message' &&
+											entry.index === index &&
+											(entry.turn !== thread.turn ||
+												thread.turns[entry.turn]?.stopReason !== undefined),
+									)) &&
+								renderMessageAction?.(
+									message,
+									`${index}:${message.messageId ?? ''}:${message.textPartId ?? ''}`,
+								)}
+						</MessageFooter>
+					</Message>
+				)
+			})}
 			{status && (
 				<output
 					className="pal-chat-status"

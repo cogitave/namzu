@@ -576,7 +576,7 @@ connection, listed in `projects.json` so it survives the next launch). **Locate�
 folder picker, and the folder it finds takes over the project's id, so its saved conversations
 come along; the new folder goes through the normal pick checks and asks for trust like any other.
 **Remove** forgets the saved project, its conversations and drafts in Namzu and touches nothing on
-disk. A missing project is left out of Recents, the command palette and the project chooser.
+disk. A missing project is left out of Recents and the command palette. The composer's project chooser still lists it, dimmed, marked "Folder not found" and not selectable, so the person sees why it is not offered.
 
 A folder that vanishes while its project is open gets the same screen ("can’t be found", **Locate folder…**,
 **Remove project…**), and **Locate folder…** relinks it the same way.
@@ -1117,7 +1117,10 @@ The Pal menu provides customization, guarded pause/resume and guarded computer
 reboot and Delete Pal. Deletion is also available inside the customization dialog.
 Confirmation lists one consequence per line: the Pal disappears from the sidebar and
 its computer stops, and its conversations and files are not deleted and stay in the
-named workspace folder. The saved conversations, workspace files, profile revisions
+named workspace folder. The confirmation also has **Open folder**, which shows that
+folder in the file manager and leaves the dialog open: the window names only the Pal
+(`openPalFolder`), and main takes the path from its own record of that Pal and reveals it
+only when it is an existing absolute directory. The saved conversations, workspace files, profile revisions
 and persistent volume remain; this is not a storage purge.
 A paused Pal shows **Paused** as its status with **Resume** as the one action, and its
 composer says "*name* is paused. Resume *name* to chat." above whatever was typed.
@@ -1232,6 +1235,15 @@ wrote and approved it (the host's `namzu/pals/communication/inbox` answer carrie
 `receivedAt` for every row and `text`, at most 4,000 characters, only for those).
 Messages from Pals and channels show no text. Private profile context, receipt
 internals and journal cursors are omitted.
+
+The same owner messages also appear in the Pal's own conversation, as a quoted block
+on the person's side ("Sent at *time*") with the delivery status beneath it
+(**Waiting for *name* to read it**, **Delivered to *name*'s conversation**), placed by
+time among the chat bubbles. The window rereads the inbox when the Pal opens and when
+a turn starts or ends. This is display only: it never starts or wakes the Pal. Until the
+person opens the Pal, its sidebar row shows a small dot ("New message") after a message
+sent from a conversation in this window (history reloaded from disk does not light it;
+the dot is not kept across a restart).
 
 An activity subscription selects a known owned source Pal and its exact original
 conversation, plus a recipient. The currently opened Pal must be one participant.
@@ -2153,7 +2165,7 @@ the person made wins and is kept. The whole process between the person's message
 the answer (narration, reasoning, every run and single action) is that one block, and
 nothing inside it draws a clock: not the narration, thoughts, action rows, run
 summaries or the heading. Each row keeps its full time in its tooltip and accessible
-description ("Seen by Namzu: ..."). A reply shows one clock, under its answer in the
+description ("Received at ...", or "Sent at ..." on the person's own message). A reply shows one clock, under its answer in the
 footer row, or, when it ends without answer text (stopped, failed, only actions), at
 the bottom of the turn; none while it is still being written. The answer appears below that group only when it is
 a trailing answer; grouping never moves text across a later tool or reasoning event.
@@ -2380,8 +2392,7 @@ the native host's first observed time and actual observed settlement; cold
 history uses validated journal timestamps attached to the same message/turn/tool
 identity. Bounded history rows retain a journal message ID only when that ID
 passes validation; older rows without a known ID remain readable. The clock
-tooltip distinguishes **Seen by Namzu** from **Saved in the
-conversation**. Every time and date in the transcript (the day header, the footer clock, the tooltip and the
+tooltip says **Sent at** *time* on the person's own messages and **Received at** *time* on replies and the work behind them; the same two phrases are used in the Pal conversation and in a Pal's Messages list, and nothing says where the time was read from. Every time and date in the transcript (the day header, the footer clock, the tooltip and the
 "Undone at" chip) comes from `src/renderer/time-format.ts` in the operating system's locale and its own
 12- or 24-hour habit; nothing forces `hour12`, and the footer clock has no seconds (the tooltip does). Reopening or switching tabs does not replace these values
 with the current time. Missing legacy clocks remain absent. Timeline order still
@@ -2490,8 +2501,10 @@ never scrolls sideways. A split made while a terminal is in front leaves that te
 and Ctrl+PageUp) go to the next and previous tab, wrapping; Ctrl+1 to Ctrl+8 pick a tab by position and
 Ctrl+9 the last one (⌘ on a Mac); Ctrl+Shift+PageUp and Ctrl+Shift+PageDown move the tab left and right;
 Ctrl+Shift+backslash opens a terminal to the right. Inside a terminal these chords leave for the window,
-except Ctrl+W, which stays the shell's (delete a word): Ctrl+F4 closes the terminal tab there. Ctrl+, opens
-Settings from a terminal too.
+Ctrl+W included (it closes the terminal tab instead of deleting a word; Ctrl+F4 does too); Ctrl+C, Ctrl+D and every
+other chord stay the program's. Ctrl+, opens Settings from a terminal too. The File menu lists **Close tab**,
+**Next tab** and **Previous tab** with these shortcuts and runs the same actions in the focused window (on Windows
+and Linux the menu only shows the shortcut and the window handles the key, so a terminal can hand it on).
 
 **Command palette** (Ctrl+K). The box reads "Search conversations and actions"; the groups are **Recent**
 (the five newest conversations), **Conversations**, **Actions**, **Tabs** and **Projects**, and nothing is
@@ -2958,7 +2971,10 @@ reads "The user declined this change and said: <your note>" (at most 4,000
 characters in all), and the turn goes on with that instruction. Escape cancels
 the field. Ctrl or Cmd+Enter accepts only while focus is inside the card; nothing
 listens on the window. While Namzu only waits for the person, the Stop button is neutral
-instead of red and its tooltip says the waiting action will not run. The reply's live line
+instead of red and its tooltip says the waiting action will not run. While a reply runs and
+Queue is not usable (nothing typed, attachments the engine cannot take, or an engine that
+cannot take a message mid-reply), the Stop tooltip says why ("Queue is off until you type a
+message."), because a disabled Queue button shows no tooltip of its own. The reply's live line
 reads "Reading your message" until the first thought or action appears, and Queue says it
 holds the message until the current reply is done.
 
@@ -2990,8 +3006,8 @@ A turn stopped while an action waited for an answer ends "Stopped. The command w
 your answer was not run." (or "The change ... was not made."). The newest settled reply has a
 **Retry** button beside Copy, and a failed turn's error line has one too: both send the
 same question again as a new message, and neither appears for a question that carried files
-or while a paused turn waits for its own Retry. A reply's clock is a button named "Time:
-..." (or "Saved in this conversation: ..." when read back from the journal). The "Edited
+or while a paused turn waits for its own Retry. A message's clock is a button named "Sent at ..." (the
+person's message) or "Received at ..." (a reply). The "Edited
 *file*" card keeps the file name whole and moves its buttons to a second line before the
 name loses a letter.
 

@@ -579,3 +579,10 @@
 	border-color: var(--destructive);
 	color: var(--foreground);
 }
+.sidebar-pal-unread {
+	flex: none;
+	width: 8px;
+	height: 8px;
+	border-radius: 999px;
+	background: var(--primary);
+}

@@ -14,6 +14,16 @@ xvfb-run -a node --test e2e/flows.test.mjs
 xvfb-run -a node --test --test-name-pattern="archive" e2e/flows.test.mjs
 ```
 
+Run the files **one at a time**: `pnpm --filter @namzu/desktop test:e2e` is `xvfb-run -a node --test
+--test-concurrency=1 "e2e/*.test.mjs"`. `node --test` runs files in parallel by default, and several real Electron windows on
+one Xvfb display steal focus and keyboard input from each other: that is the likely cause of the "element detached" and hover-card
+timeouts seen in a 32-process run (the same files pass one by one; five files in parallel on a quiet machine did
+not reproduce it, so the cause is removed rather than observed). The harness backs this up: it takes a lock
+for the display (`display-lock.mjs`, a directory under the temp folder holding the owner's process id, taken over
+when that process is gone) before it launches anything, so a parallel run queues instead of flaking.
+`NAMZU_E2E_NO_LOCK=1` turns the lock off, for a run with one display per file. Do not raise a timeout to cover a
+parallel flake; wait for the state the test needs instead.
+
 Display: on WSL and Linux CI the run uses `xvfb-run` (Electron needs a display).
 It was run in WSL under Xvfb, not on the Windows side.
 

@@ -178,7 +178,16 @@ describe('message presentation', () => {
 			createElement(MessageTime, { time: { at: 1_700_000_000_000, source: 'journal' } }),
 		)
 		expect(saved).toContain('dateTime="2023-11-14T22:13:20.000Z"')
-		expect(saved).toContain('Saved in the conversation')
+		expect(saved).toContain('Received at ')
+		expect(saved).not.toMatch(/Seen by Namzu|Saved in/)
+		const sent = renderToStaticMarkup(
+			createElement(MessageTime, {
+				time: { at: 1_700_000_000_000, source: 'host' },
+				direction: 'sent',
+			}),
+		)
+		expect(sent).toContain('Sent at ')
+		expect(sent).not.toContain('Received at')
 		const focusable = renderToStaticMarkup(
 			createElement(MessageTime, {
 				time: { at: 1_700_000_000_000, source: 'journal' },

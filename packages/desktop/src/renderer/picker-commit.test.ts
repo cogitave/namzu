@@ -20,4 +20,7 @@ describe('committableProject', () => {
 	it('refuses an unknown id', () => {
 		expect(committableProject(choices, 'z')).toBeUndefined()
 	})
+	it('refuses a project whose folder is gone', () => {
+		expect(committableProject([{ id: 'a', missing: true as const }], 'a')).toBeUndefined()
+	})
 })

@@ -12,6 +12,7 @@ export function ConfirmRemovalDialog({
 	onConfirm,
 	onClose,
 	returnFocus,
+	sideAction,
 }: {
 	title: string
 	description: string
@@ -22,6 +23,11 @@ export function ConfirmRemovalDialog({
 	onConfirm: () => Promise<void>
 	onClose: () => void
 	returnFocus: () => HTMLElement | null
+	/**
+	 * An action that leaves the dialog open, for looking before deciding. A failure is shown in the
+	 * dialog's own error line.
+	 */
+	sideAction?: { label: string; run: () => Promise<void> }
 }) {
 	const [pending, setPending] = useState(false)
 	const [error, setError] = useState('')
@@ -81,6 +87,22 @@ export function ConfirmRemovalDialog({
 							</p>
 						)}
 						<div className="mt-5 flex justify-end gap-2">
+							{sideAction && (
+								<Button
+									className="mr-auto"
+									variant="ghost"
+									disabled={pending}
+									onClick={() => {
+										setError('')
+										sideAction.run().catch((failure: unknown) => {
+											if (mounted.current)
+												setError(failure instanceof Error ? failure.message : String(failure))
+										})
+									}}
+								>
+									{sideAction.label}
+								</Button>
+							)}
 							<Button
 								ref={cancel}
 								className="focus:ring-2 focus:ring-ring focus:ring-offset-1 focus:ring-offset-background"

@@ -30,7 +30,7 @@ export interface TerminalKeyEvent {
 
 /** Chords that belong to the window and never reach the program: tabs, settings, another terminal. */
 export function isTerminalAppChord(event: TerminalKeyEvent, mac: boolean): boolean {
-	if (tabChord(event, { mac, inTerminal: true })) return true
+	if (tabChord(event, { mac })) return true
 	const primary = mac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey
 	if (!primary || event.altKey) return false
 	const key = event.key.toLowerCase()

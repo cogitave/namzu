@@ -355,7 +355,7 @@ flow("times read one way, the composer's edge is solid, and the Changes panel do
 	assert.equal(twelveHour(header), twelveHour(footer), `header "${header}" and footer "${footer}" agree on 12 or 24 hours`);
 	assert.doesNotMatch(footer, /:\d{2}:\d{2}/, `the footer "${footer}" shows no seconds`);
 	const label = await w.page.locator(".message-time").first().getAttribute("aria-label");
-	assert.match(label ?? "", /^(Saved in the conversation|Seen by Namzu): /);
+	assert.match(label ?? "", /^(Sent at|Received at) /);
 
 	// A long reply never shows through under the composer.
 	await send(w, "long please");

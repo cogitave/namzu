@@ -52,7 +52,7 @@ describe('terminalKeyAction', () => {
 	})
 
 	it('leaves everything else to the program, including the keys the app uses elsewhere', () => {
-		for (const key of ['k', 'n', 'o', 'a', 'e', 'l', 'r', 'u', 'w', 'z'])
+		for (const key of ['k', 'n', 'o', 'a', 'e', 'l', 'r', 'u', 'z'])
 			expect(terminalKeyAction(press(key, { ctrlKey: true }), linux(false))).toBe('send')
 		expect(terminalKeyAction(press('Escape', { code: 'Escape' }), linux(false))).toBe('send')
 		expect(terminalKeyAction(press('c', { ctrlKey: true, altKey: true }), linux(true))).toBe('send')
@@ -72,7 +72,13 @@ describe('terminalKeyAction', () => {
 		expect(terminalKeyAction(code('|', { code: 'Backslash', shiftKey: true }), linux(false))).toBe(
 			'app',
 		)
-		// Ctrl+W deletes a word in the shell, so it stays the program's inside a terminal.
-		expect(terminalKeyAction(code('w', { code: 'KeyW' }), linux(false))).toBe('send')
+		// Ctrl+W closes the tab, even in a terminal; the interrupt and end-of-input keys stay the program's.
+		expect(terminalKeyAction(code('w', { code: 'KeyW' }), linux(false))).toBe('app')
+		expect(terminalKeyAction(code('c', { code: 'KeyC' }), linux(false))).toBe('send')
+		expect(terminalKeyAction(code('d', { code: 'KeyD' }), linux(false))).toBe('send')
+		expect(terminalKeyAction(code('z', { code: 'KeyZ' }), linux(false))).toBe('send')
+		expect(terminalKeyAction(code('w', { code: 'KeyW', shiftKey: true }), linux(false))).toBe(
+			'send',
+		)
 	})
 })

@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { decidePaste } from './composer-input.js'
+import { decidePaste, stopTooltip } from './composer-input.js'
 
 const base = { text: '', fileCount: 0, importDisabled: false, attachmentsSupported: true }
 
@@ -28,4 +28,17 @@ it('says why files were refused instead of swallowing them', () => {
 	expect(
 		decidePaste({ ...base, fileCount: 1, importDisabled: true, attachmentsSupported: false }),
 	).toEqual({ action: 'notice', notice: "This engine doesn't take attachments yet." })
+})
+
+it('explains in the Stop tooltip why Queue is off', () => {
+	const open = { waitingOnPerson: false, liveInputSupported: true, queueDisabled: false }
+	expect(stopTooltip(open)).toBe('Stop · Esc')
+	expect(stopTooltip({ ...open, queueDisabled: true })).toContain('Queue is off until you type')
+	expect(stopTooltip({ ...open, queueDisabled: true, attachmentsStranded: true })).toContain(
+		'remove the attachments',
+	)
+	expect(stopTooltip({ ...open, liveInputSupported: false })).toContain("can't take a new message")
+	expect(stopTooltip({ ...open, waitingOnPerson: true, queueDisabled: true })).toContain(
+		'action waiting for you will not run',
+	)
 })

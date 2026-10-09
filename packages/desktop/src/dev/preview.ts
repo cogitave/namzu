@@ -894,6 +894,7 @@ const api: DesktopApi = {
 		],
 	}),
 	openDataFolder: async () => nativeOnly('Opening a folder'),
+	openPalFolder: async () => nativeOnly('Opening a folder'),
 	removeProject: async (id) => {
 		const view = project(id)
 		const sessionIds = conversations.filter((item) => item.projectId === id).map((item) => item.id)

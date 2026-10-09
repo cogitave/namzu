@@ -15,7 +15,11 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { holdDisplayForThisProcess } from "./display-lock.mjs";
 import { startFakeModel } from "./fake-model.mjs";
+
+// Parallel test files share one display; only one of them drives Electron at a time (see display-lock.mjs).
+await holdDisplayForThisProcess();
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const desktopRoot = resolve(here, "..");

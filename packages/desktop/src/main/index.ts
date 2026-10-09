@@ -80,6 +80,7 @@ import { desktopRuntimeNodeArgs, desktopRuntimeNodeFlags } from './runtime-node-
 import { readRuntimeVersions } from './runtime-versions.js'
 import { SettingsConfirmation } from './settings-confirmation.js'
 import { installStreamRendererPolicy, withStreamRendererPort } from './stream-renderer-policy.js'
+import { tabMenuItems } from './tab-menu.js'
 import { TerminalHostClient } from './terminal-client.js'
 import { engineHost, findProgram, shellEnvironment } from './terminal-env.js'
 import { TerminalHub } from './terminal-hub.js'
@@ -476,6 +477,7 @@ function register(): void {
 	type WindowContext = { id: string; window: BrowserWindow }
 	const readOwners = new Map<string, number>([
 		['palCommunication', 0],
+		['palInbox', 0],
 		['draft', 0],
 		['draftSettings', 0],
 		['attachments', 0],
@@ -756,6 +758,10 @@ function register(): void {
 	)
 	handle('desktopInfo', () => desktopInfo())
 	handle('openDataFolder', (kind: unknown) => openDataFolder(kind))
+	handle('openPalFolder', async (id: unknown) => {
+		const failure = await shell.openPath(await operator.palFolder(id as string))
+		if (failure) throw new Error('This Pal’s folder could not be opened.')
+	})
 	handle('updateState', () => updates.state)
 	handle('updateInfo', () => updates.info())
 	handle('downloadUpdate', () => updates.download())
@@ -853,6 +859,7 @@ function register(): void {
 	})
 	handle('projects', () => operator.projectsForWindow())
 	handle('pals', () => operator.listPals())
+	handle('palInbox', (sessionId: string, palId: string) => operator.palInbox(sessionId, palId))
 	handle('palCommunication', (sessionId: string, palId: string) =>
 		operator.palCommunication(sessionId, palId),
 	)
@@ -1548,7 +1555,7 @@ void app
 			productionPage: pathToFileURL(join(here, '../renderer/index.html')).href,
 			port: streamPort,
 		})
-		const openSettingsFromMenu = () => {
+		const sendToFocusedWindow = (event: DesktopEvent) => {
 			const target =
 				BrowserWindow.getFocusedWindow() ??
 				windows
@@ -1560,11 +1567,15 @@ void app
 			target.show()
 			target.focus()
 			try {
-				target.webContents.send('namzu:event', { kind: 'open-settings' } satisfies DesktopEvent)
+				target.webContents.send('namzu:event', event)
 			} catch (error) {
 				diagnostics.record('renderer_failed', { error })
 			}
 		}
+		const openSettingsFromMenu = () => sendToFocusedWindow({ kind: 'open-settings' })
+		const tabItems = tabMenuItems(process.platform, (command) =>
+			sendToFocusedWindow({ kind: 'tab-command', command }),
+		)
 		const settingsItem = {
 			label: 'Settings…',
 			accelerator: 'CmdOrCtrl+,',
@@ -1591,7 +1602,14 @@ void app
 								],
 							},
 						]
-					: [{ label: 'File', submenu: [settingsItem] }]),
+					: []),
+				{
+					label: 'File',
+					submenu:
+						process.platform === 'darwin'
+							? tabItems
+							: [...tabItems, { type: 'separator' as const }, settingsItem],
+				},
 				{ id: 'edit', role: 'editMenu' },
 				{ id: 'view', role: 'viewMenu' },
 				{ id: 'window', role: 'windowMenu' },

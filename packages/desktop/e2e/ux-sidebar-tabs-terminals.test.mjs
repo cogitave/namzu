@@ -415,7 +415,7 @@ flow(
 );
 
 flow(
-	"keyboard: switch, reorder and close tabs, and Ctrl+, from a terminal",
+	"keyboard: switch, reorder and close tabs, Ctrl+W inside a terminal, and Ctrl+,",
 	{ rules: CHATS },
 	async (w) => {
 		await openProject(w);
@@ -452,11 +452,11 @@ flow(
 		await expect.poll(async () => (await names()).includes("alpha chat")).toBe(false);
 		await expect(terminalTabs(w)).toHaveCount(1);
 		await shot(w, "keyboard-tabs");
-		// Ctrl+, reaches the app from the terminal, where Ctrl+W stays the shell's.
+		// Ctrl+W closes the terminal in front too, even with the terminal holding the keyboard.
 		await w.page.locator("[data-terminal-tab-id]").first().click();
 		await w.page.locator("section.terminal-pane .xterm-helper-textarea").focus();
 		await w.page.keyboard.press("Control+w");
-		await expect(terminalTabs(w)).toHaveCount(1);
+		await expect(terminalTabs(w)).toHaveCount(0, { timeout: T });
 		await w.page.keyboard.press("Control+,");
 		await expect(w.page.locator("section.settings-page")).toBeVisible({ timeout: T });
 	},
@@ -571,9 +571,15 @@ flow(
 	async (w) => {
 		await twoChats(w);
 		const row = sidebar(w).locator("li[data-thread-item]", { hasText: "alpha chat" });
-		await row.hover();
 		const card = w.page.locator('[data-slot="thread-hover-card"]');
-		await expect(card).toBeVisible({ timeout: T });
+		// The card opens after the pointer has rested on the row. A sidebar that re-renders just as
+		// the pointer arrives (a reply landing, a re-sort) loses that rest, so each attempt starts from
+		// outside the row and the step is retried as a whole, not given a longer wait.
+		await expect(async () => {
+			await w.page.mouse.move(700, 400);
+			await row.hover({ timeout: 3000 });
+			await expect(card).toBeVisible({ timeout: 3000 });
+		}).toPass({ timeout: T });
 		assert.doesNotMatch(await card.innerText(), /alpha chat/i, "the title is not repeated");
 		await expect(card).toContainText("Reply alpha.");
 		const covered = await w.page.evaluate(() => {
