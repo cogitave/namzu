@@ -434,7 +434,7 @@ export class SessionTokenBudget {
 		persistence?: SessionTokenBudgetPersistence,
 	): SessionTokenBudget {
 		const state = validateSessionTokenBudgetSnapshot(snapshot)
-		return new SessionTokenBudget(
+		const restored = new SessionTokenBudget(
 			{
 				rootAccountId: state.rootAccountId,
 				scope: { rootSessionId: state.rootSessionId, rootTurnId: state.rootTurnId },
@@ -449,6 +449,27 @@ export class SessionTokenBudget {
 			},
 			state.rootAccountId,
 		)
+		// A request that was in flight when a process stopped has no receipt. On an
+		// unbounded account it stays recorded as unknown spend, but it no longer
+		// counts as work in progress, so the turn can ask again.
+		for (const request of [...restored.ledger.requests.values()]) {
+			if (!restored.account(request.accountId).bounded) restored.retainUnresolved(request)
+		}
+		return restored
+	}
+
+	/**
+	 * Whether this account, or any account above it, carries a finite limit. A bounded
+	 * account cannot be admitted past unknown spend, because the unknown amount may
+	 * already exceed the limit. An unbounded one has no limit to exceed: its unknown
+	 * spend stays recorded (never as zero) and does not stop the next request.
+	 */
+	get bounded(): boolean {
+		for (let cursor: SessionTokenBudgetAccountSnapshot | undefined = this.node; cursor; ) {
+			if (cursor.limit > 0) return true
+			cursor = cursor.parentId === undefined ? undefined : this.requireAccount(cursor.parentId)
+		}
+		return false
 	}
 
 	get limit(): number {
@@ -608,7 +629,25 @@ export class SessionTokenBudget {
 
 	/** Unknown spend cannot be converted into a refund, even after cancellation. */
 	async failRequest(requestId: string, usage?: TokenUsage): Promise<void> {
-		if (this.hasReceipt(requestId)) return this.flush()
+		if (this.hasReceipt(requestId)) {
+			// An unbounded account retains a failed request as a receipt; usage that
+			// arrives late is still evidence of spend and is kept.
+			const receipt = this.ledger.finishedRequests.get(
+				requestId,
+			) as SessionTokenBudgetRequestSnapshot
+			if (usage !== undefined && receipt.unresolved === true) {
+				try {
+					this.recordRequestUsage(receipt, usage)
+				} catch (error) {
+					this.ledger.poisoned = true
+					this.persist()
+					await this.flush()
+					throw error
+				}
+				this.persist()
+			}
+			return this.flush()
+		}
 		const request = this.requireRequest(requestId)
 		request.unresolved = true
 		try {
@@ -619,6 +658,7 @@ export class SessionTokenBudget {
 			await this.flush()
 			throw error
 		}
+		if (!this.bounded) this.retainUnresolved(request)
 		this.persist()
 		await this.flush()
 	}
@@ -713,6 +753,12 @@ export class SessionTokenBudget {
 		if (this.ledger.persistenceError !== undefined) throw this.ledger.persistenceError
 	}
 
+	/** Move a request with no receipt out of flight, keeping its unknown-spend marker. */
+	private retainUnresolved(request: SessionTokenBudgetRequestSnapshot): void {
+		request.unresolved = true
+		this.ledger.requests.delete(request.id)
+		this.ledger.finishedRequests.set(request.id, request)
+	}
 	private uncertainRequests(): SessionTokenBudgetRequestSnapshot[] {
 		return [...this.ledger.requests.values(), ...this.ledger.finishedRequests.values()].filter(
 			(request) => request.unresolved === true,
@@ -722,8 +768,8 @@ export class SessionTokenBudget {
 		if (this.ledger.poisoned || this.ledger.persistenceError !== undefined) return true
 		const uncertain = this.uncertainRequests()
 		if (uncertain.length === 0) return false
-		// An account cannot resume its own uncertain request, even without a cap.
-		if (uncertain.some((request) => request.accountId === this.accountId)) return true
+		// Unknown spend blocks only through a finite limit at or above this account,
+		// where it could already have been exceeded; see `bounded`.
 		let cursor = this.node
 		for (;;) {
 			if (cursor.limit > 0) {

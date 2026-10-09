@@ -161,8 +161,13 @@ that continued after that checkpoint.
 A cold reopen retains unfinished child reservations. It does not recreate their
 workers or infer that they finished because an in-memory task registry is empty.
 An outstanding provider request on cold reopen is marked unresolved. It blocks
-its own account and any branch sharing a finite ancestor allowance. Healthy
-branches under unlimited ancestors can continue. Partial usage
+any account at or under a finite limit, and any branch sharing a finite ancestor
+allowance, because the unknown amount may already exceed that limit. An account
+with no finite limit at or above it (`SessionTokenBudget.bounded` is `false`) is
+not blocked: its request moves out of flight, keeps the `unresolved` marker as a
+retained record, and the same turn may ask again. A late usage frame for such a
+request is still added to it. Unknown spend is never recorded as zero, and no
+request is admitted past a configured limit because its spend is unknown. Partial usage
 already observed remains counted, and a broken stream cannot receive a refund
 based on an absent final receipt. A typed rejection before any generation, such
 as a context-size rejection or throttling, resolves with zero usage. Unknown

@@ -139,6 +139,44 @@ describe('provider calls use the shared token account', () => {
 		expect(budget.summary()).toMatchObject({ poisoned: false, inFlightRequests: 0 })
 	})
 
+	it('admits a new request after a 502 when the conversation has no limit, keeping the unknown spend', async () => {
+		const budget = SessionTokenBudget.create(0, rootScope())
+		let calls = 0
+		const wrapped = withTokenBudget(
+			provider(async function* () {
+				calls++
+				if (calls === 1) throw new Error('502 Bad Gateway')
+				yield { id: 'b', delta: { content: 'ok' }, usage: usage(40), finishReason: 'stop' }
+			}),
+			budget,
+		)
+		await expect(collectChatCompletion(wrapped.chatStream(params))).rejects.toThrow('502')
+		expect(budget.summary()).toMatchObject({ unresolvedRequests: 1, inFlightRequests: 0 })
+		await collectChatCompletion(wrapped.chatStream(params))
+		expect(calls).toBe(2)
+		expect(budget.ownTokens).toBe(40)
+		// The failed request is still recorded as unknown, never as zero.
+		expect(budget.summary().unresolvedRequests).toBe(1)
+	})
+
+	it('still refuses a new request after a 502 when the conversation has a limit', async () => {
+		const budget = SessionTokenBudget.create(1_000, rootScope())
+		let calls = 0
+		const wrapped = withTokenBudget(
+			provider(async function* () {
+				calls++
+				yield* []
+				throw new Error('502 Bad Gateway')
+			}),
+			budget,
+		)
+		await expect(collectChatCompletion(wrapped.chatStream(params))).rejects.toThrow('502')
+		await expect(collectChatCompletion(wrapped.chatStream(params))).rejects.toThrow(
+			'no available allowance',
+		)
+		expect(calls).toBe(1)
+	})
+
 	it('does not turn a missing usage receipt into a zero-cost successful request', async () => {
 		const budget = SessionTokenBudget.create(1_000, rootScope())
 		const wrapped = withTokenBudget(
