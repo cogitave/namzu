@@ -178,6 +178,11 @@ describe('starting a Pal from the person’s click', () => {
 		const started = await starter.start(f.pal.id, 'click-0001')
 		expect(started.state).toBe('reading')
 		await starter.idle()
+		// The host's shared runtime is never closed (that would stop every Pal's computer); only
+		// the computer this start brought up is stopped again, and the runtime stays usable.
+		expect(controls.close).not.toHaveBeenCalled()
+		expect((await controls.runtime()) as PalRuntime).toBe(runtimes[0])
+		expect(runtimes[0]?.computer(f.pal.id)).toBeNull()
 		expect(f.provider.requests).toHaveLength(1)
 		expect((await messages(f.pal.id, f.tenantId))[0]?.phase).toBe('recorded')
 		// The message was read by a run in the Pal's own conversation, as untrusted context.

@@ -134,7 +134,7 @@ export function createPalInboxStarter(
 			typeof context === 'function' ? context() : context,
 			palId,
 			controller.signal,
-			{ operatorWake: { evidence } },
+			{ operatorWake: { evidence }, sharedRuntime: true },
 		).then(
 			(outcome: PalIngressDispatchOutcome) => {
 				if (outcome.status === 'blocked') failures.set(palId, `${pal.name} could not be started.`)
