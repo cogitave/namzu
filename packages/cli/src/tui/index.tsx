@@ -16,6 +16,7 @@ import {
 } from './exit-summary.js'
 import { type TerminationSignal, handleTerminationSignals } from '../termination.js'
 import { openConsoleInput } from './console-input.js'
+import { watchOutputSize } from './output-size-watch.js'
 import { installTuiLogSink } from './log-pane.js'
 import type { TuiContext } from './types.js'
 
@@ -49,6 +50,9 @@ export async function launchTui(
 	// Under Electron-as-Node on a Windows pseudo-console `process.stdin` is not the console;
 	// the console's own input device is (see `console-input.ts`). Elsewhere this is undefined.
 	const consoleInput = openConsoleInput()
+	// Ink redraws only on the stream's `resize`; on a Windows pseudo-console that event can fail
+	// to come, so the size is asked for on a timer there (see `output-size-watch.ts`).
+	const stopSizeWatch = watchOutputSize(process.stdout)
 	const terminationExit: { current: (() => void) | null } = { current: null }
 	let terminatedBy: TerminationSignal | null = null
 	const instance = render(
@@ -86,6 +90,7 @@ export async function launchTui(
 		await instance.waitUntilExit()
 	} finally {
 		termination.dispose()
+		stopSizeWatch?.()
 		consoleInput?.release()
 		logs.close()
 		// A hangup means the terminal is gone: nobody is there to read the

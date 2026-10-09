@@ -612,6 +612,19 @@ replay per width change; ordinary streaming and animation frames remain
 incremental. A height reduction also rebuilds the transcript. An open retained
 tool-output viewer stays open through a resize.
 
+On Windows, a program run as the desktop's embedded interpreter on a pseudo-console
+is not seen to receive Node's console-layout notification, the only thing that makes
+`process.stdout` emit `resize`. Without it Ink keeps the width it started with and every
+line it writes wraps in a narrower pane. On that platform, on a terminal, the TUI
+therefore asks the console for its size every 250 ms through Node's own refresh
+(`output-size-watch.ts`), which raises `resize` itself when the answer changed; nowhere
+else is anything polled. The footer shortens a Windows path at a backslash as it does
+a POSIX path at a slash, and writes `~` for the home folder from `USERPROFILE` when
+`HOME` is not set. `resize-pty.test.ts` resizes the real CLI in a real pseudo-terminal
+and checks the box, the corners and the footer at each width; the desktop's
+`narrow-cli-tab.test.mjs` does the same in a Namzu CLI tab as the window narrows and
+splits.
+
 Screen regressions drive the production Ink renderer through a terminal
 emulator. They check wrapped input, short viewports, retained drafts, normal
 scrollback and the amount of output emitted during streaming. These checks use
