@@ -2,7 +2,15 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
 import type { HarnessView } from '../shared/protocol.js'
-import { EnginePanel, committableEngine, engineLabel, engineRowNote } from './harness-picker.js'
+import {
+	EngineInstallHelp,
+	EnginePanel,
+	SurfaceCaption,
+	committableEngine,
+	engineLabel,
+	engineRowNote,
+	surfaceCaption,
+} from './harness-picker.js'
 
 const view: HarnessView = {
 	selected: 'namzu',
@@ -74,9 +82,46 @@ describe('EnginePanel', () => {
 		expect(html).toContain('Not installed')
 		expect(html).not.toContain('Opens in a new tab')
 	})
+	it('turns a missing engine into a row that opens its install steps', () => {
+		const html = render(view)
+		expect(html).toContain('aria-expanded="false"')
+		expect(html).toContain('<small>Not installed</small>')
+		expect(html).toContain('How to install')
+		// The row is no radio, so it is never a disabled dead end.
+		expect(html).not.toContain('aria-disabled="true"')
+		expect(html.match(/role="radio"/g)).toHaveLength(2)
+	})
 	it('says other available engines open a new tab on a started conversation', () => {
 		const html = render({ ...view, locked: true })
 		expect(html.match(/Opens in a new tab/g)).toHaveLength(1)
 		expect(html).toContain('Not installed')
+	})
+})
+
+describe('EngineInstallHelp', () => {
+	const render = (engine: 'codex-cli' | 'claude-code', platform: 'windows' | 'mac' | 'linux') =>
+		renderToStaticMarkup(
+			createElement(EngineInstallHelp, { engine, platform, onRecheck: async () => {} }),
+		)
+	it('gives the exact command per system, a Copy button for each, and Check again', () => {
+		const windows = render('claude-code', 'windows')
+		expect(windows).toContain('irm https://claude.ai/install.ps1 | iex')
+		expect(windows).not.toContain('install.sh')
+		expect(windows).toContain('npm install -g @anthropic-ai/claude-code')
+		expect(windows.match(/Copy: /g)).toHaveLength(2)
+		expect(windows).toContain('Check again')
+		const mac = render('claude-code', 'mac')
+		expect(mac).toContain('curl -fsSL https://claude.ai/install.sh | bash')
+		expect(render('codex-cli', 'linux')).toContain('npm install -g @openai/codex')
+	})
+})
+
+describe('SurfaceCaption', () => {
+	it('explains the side in force in one short line', () => {
+		expect(surfaceCaption('desktop')).toBe('Desktop: you chat with this engine in this window.')
+		expect(surfaceCaption('cli')).toBe('CLI: sending opens this engine in a terminal tab.')
+		expect(renderToStaticMarkup(createElement(SurfaceCaption, { value: 'cli' }))).toContain(
+			'terminal tab',
+		)
 	})
 })

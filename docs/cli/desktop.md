@@ -1257,9 +1257,26 @@ link, and a compact engine chip on the right (the engine mark and a chevron, nam
 effort, the default stop is drawn as a larger dot, and the slider's value text says "(default)"
 there. The engine chip, also in the model list's heading, opens a third view of the same
 popup ("Choose an engine", Back returns to Effort or Models). Its rows show the engine mark,
-a check on the current one, "Not installed" for an unavailable engine and, on a started
-conversation, "Opens in a new tab" for every other engine. When the engine is not Namzu, the
+a check on the current one and, on a started conversation, "Opens in a new tab" for every other
+engine. An engine that is not on the computer is not a dead end: its row reads "Not installed" with
+**How to install**, and opening it shows what to run for the system in use (Codex CLI:
+`npm install -g @openai/codex`; the second external engine: its own installer, a shell command or,
+on Windows, a PowerShell one, and its npm package as the other way), each with **Copy**, and **Check again**, which reads the engines again so a program installed
+since turns into a choice without restarting the app ("Still not found." otherwise). Settings ▸
+Updates shows the same commands and a **Check again** for a program that is missing, and says "Not
+installed" once. An engine that is installed but signed out fails with its own error (Codex: "Codex
+CLI requires its own signed-in account."); the banner then adds "Sign in to Codex CLI in a terminal
+first" with the command to run (`codex login`; the second engine asks on its first run),
+**Copy**, **Open terminal** (a shell tab in the project) and **Retry setup**, and the model trigger
+reads "Not available" instead of staying a grey bar. When the engine is not Namzu, the
 model trigger shows its small icon before the model name.
+
+The popup keeps one width in all three views (effort, models, engine), so a step never changes its
+shape; a heading that does not fit beside its controls wraps them under it, so the engine mark never
+covers "Choose a model". Wherever the Desktop | CLI switch is shown, one line under the heading says
+what the side in force means ("Desktop: you chat with this engine in this window." or "CLI: sending
+opens this engine in a terminal tab."). The provider column's icons carry their name as a tooltip
+and as their accessible name.
 
 The model list is compact: 30px rows, 11px group headings, and a height of at most 60% of the window, scrolling inside. Its heading carries the engine chip and, on a long list, a search button (or the `/` key); there is no refresh button, no Retry button and no "Use a model ID" row. Opening the list re-reads a catalogue that failed or has gone stale (older than two minutes) once in the background, showing the last good list meanwhile; if that read fails the list shows one muted line, "Couldn't load the model list. It will try again next time you open this." The list ends with the models; it has no "Current model" section for a model outside the visible list. The provider column marks the provider in use with a small dot, whichever provider's tab is open. GPT names written "GPT-5.6-Sol" by an API provider's catalogue read "GPT-5.6 Sol", as Codex rows do; ids are unchanged. A Zen list shows its free models under a "Free" heading and the models with a stated non-zero price under an "API key" heading (a model with no published price follows under "Other models"); each catalogue row carries an optional `group: 'free' | 'key'`, set for Zen only and stored with the row in `model-lists.json` (an older stored row without it still reads). The headings use the 11px group-heading style, are not rows (arrow keys skip them), are read out as part of each row's name, and appear only when the list holds both groups: a list with only free models shows none, and one with only key models keeps the per-row "(API key)" note. Search keeps a heading only while a row under it still matches.
 
@@ -2680,7 +2697,10 @@ more known supported levels. It is a 300px popover above the control: a "Use def
 effort" button on the left (disabled while the effort already equals the model's
 default), the level named in the accent colour with the model's name beneath it as a
 button back to the model list, and a discrete slider (Base UI) with one stop per
-supported level, ordered from lower to higher effort, and "Faster" and "Smarter" beneath.
+supported level, ordered from lower to higher effort, with the level names beneath the
+stops (every stop on a scale of five or fewer; on a longer one the two ends and the stop in
+force, an end beside the stop in force left out) with the stop in force in bold, and the line
+"Lower is faster. Higher thinks longer." The model button is drawn as a button, with a border.
 Arrow keys move one level, Home and End jump to the ends, and every move is saved at
 once. The slider has focus when the panel opens, and Escape closes it and restores focus
 to the control. The shown effort is the saved one while the model offers it, else the

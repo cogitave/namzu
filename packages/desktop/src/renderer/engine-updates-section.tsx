@@ -2,7 +2,9 @@ import { LoaderCircle } from 'lucide-react'
 import { useId, useState } from 'react'
 import type { EngineUpdateId } from '../shared/engine-update-protocol.js'
 import { copyPlainText } from './copy-button.js'
+import { engineSetup, setupPlatform } from './engine-setup.js'
 import { engineRowView } from './engine-updates-model.js'
+import { CopyableCommand } from './harness-picker.js'
 import { DownloadIcon } from './icons.js'
 import { Button } from './ui/button.js'
 import { useEngineUpdates } from './use-engine-updates.js'
@@ -30,6 +32,7 @@ export function EngineUpdateRows({ target }: { target?: EngineUpdateTarget }) {
 	const heading = useId()
 	const [refused, setRefused] = useState<Partial<Record<EngineUpdateId, Refusal>>>({})
 	const [copied, setCopied] = useState<EngineUpdateId>()
+	const platform = setupPlatform(typeof navigator === 'undefined' ? '' : navigator.userAgent)
 	if (!engines || engines.state.items.length === 0) return null
 	const run = async (id: EngineUpdateId) => {
 		if (!target) return
@@ -65,7 +68,7 @@ export function EngineUpdateRows({ target }: { target?: EngineUpdateTarget }) {
 							<div className="engine-update-copy">
 								<div className="engine-update-heading">
 									<h4>{view.title}</h4>
-									<span className="engine-update-versions">{view.versions}</span>
+									{view.versions && <span className="engine-update-versions">{view.versions}</span>}
 								</div>
 								<p className="engine-update-status" data-tone={view.tone}>
 									{view.status}
@@ -77,6 +80,17 @@ export function EngineUpdateRows({ target }: { target?: EngineUpdateTarget }) {
 										<code>{command}</code>
 									</p>
 								)}
+								{item.missing && item.id !== 'namzu-cli' && (
+									<div className="engine-update-install">
+										{engineSetup(item.id, platform).install.map((step) => (
+											<CopyableCommand
+												key={step.command}
+												command={step.command}
+												label={step.label}
+											/>
+										))}
+									</div>
+								)}
 								{refusal && (
 									<p role="alert" className="engine-update-refusal">
 										{refusal.reason}
@@ -84,6 +98,17 @@ export function EngineUpdateRows({ target }: { target?: EngineUpdateTarget }) {
 								)}
 							</div>
 							<div className="engine-update-control">
+								{item.missing && (
+									<Button
+										size="sm"
+										variant="outline"
+										disabled={engines.state.checking}
+										aria-label={`Check again for ${item.name}`}
+										onClick={() => engines.check()}
+									>
+										{engines.state.checking ? 'Checking…' : 'Check again'}
+									</Button>
+								)}
 								{view.busy && (
 									<Button size="sm" variant="outline" disabled aria-busy="true">
 										<LoaderCircle

@@ -1,13 +1,16 @@
 import { Radio } from '@base-ui/react/radio'
 import { RadioGroup } from '@base-ui/react/radio-group'
 import { ChevronDown, ChevronLeft } from 'lucide-react'
-import { useEffect, useRef } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import type { HarnessView } from '../shared/protocol.js'
+import { copyPlainText } from './copy-button.js'
+import { type ExternalEngine, engineSetup, setupPlatform } from './engine-setup.js'
 import { engineUpdateNote } from './engine-updates-model.js'
 import { CheckIcon, ProviderIcons } from './icons.js'
 import { Wordmark } from './wordmark.js'
 import './harness-picker.css'
 import { commitsOnKey } from './picker-commit.js'
+import { Button } from './ui/button.js'
 import { useEngineUpdates } from './use-engine-updates.js'
 
 export function HarnessMark({ engine }: { engine: HarnessView['selected'] }) {
@@ -57,6 +60,81 @@ export function engineRowNote(
 	return undefined
 }
 
+/** A command a person copies into a terminal, with its Copy button. */
+export function CopyableCommand({ command, label }: { command: string; label: string }) {
+	const [copied, setCopied] = useState(false)
+	return (
+		<div className="engine-command">
+			<span className="engine-command-label">{label}</span>
+			<div className="engine-command-line">
+				<code>{command}</code>
+				<Button
+					size="xs"
+					variant="outline"
+					aria-label={`Copy: ${command}`}
+					onClick={() => {
+						void copyPlainText(command)
+							.then(() => setCopied(true))
+							.catch(() => setCopied(false))
+					}}
+				>
+					{copied ? 'Copied' : 'Copy'}
+				</Button>
+			</div>
+		</div>
+	)
+}
+
+/** What to do about an engine that is not on this computer: the commands, and a way to look again. */
+export function EngineInstallHelp({
+	engine,
+	platform,
+	onRecheck,
+}: {
+	engine: ExternalEngine
+	platform: ReturnType<typeof setupPlatform>
+	/** Looks for the program again; resolves once the list of engines has been read. */
+	onRecheck?: () => Promise<void>
+}) {
+	const setup = engineSetup(engine, platform)
+	const [state, setState] = useState<'idle' | 'checking' | 'missing'>('idle')
+	const root = useRef<HTMLDivElement>(null)
+	// The steps open at the foot of a scrolling list: bring them, Check again included, into view.
+	useEffect(() => {
+		root.current?.scrollIntoView?.({ block: 'nearest' })
+	}, [])
+	return (
+		<div className="engine-install-help" ref={root}>
+			<p>
+				{setup.name} is not installed on this computer. Install it in a terminal, then check again.
+			</p>
+			{setup.install.map((item) => (
+				<CopyableCommand key={item.command} command={item.command} label={item.label} />
+			))}
+			{onRecheck && (
+				<div className="engine-install-actions">
+					<Button
+						size="xs"
+						variant="outline"
+						disabled={state === 'checking'}
+						onClick={() => {
+							setState('checking')
+							void onRecheck()
+								.then(() => setState('missing'))
+								.catch(() => setState('missing'))
+						}}
+					>
+						{state === 'checking' ? 'Checking…' : 'Check again'}
+					</Button>
+					<output className="engine-install-result">
+						{state === 'missing' ? 'Still not found. Finish the install, then check again.' : ''}
+					</output>
+				</div>
+			)}
+		</div>
+	)
+}
+
 /** The engine mark and a small chevron: the way into the engine view of the model popup. */
 export function EngineChip({
 	engine,
@@ -95,6 +173,7 @@ export function EnginePanel({
 	disabled,
 	onBack,
 	onSelect,
+	onRecheck,
 }: {
 	view?: HarnessView
 	selectedEngine?: HarnessView['selected']
@@ -104,8 +183,13 @@ export function EnginePanel({
 	disabled: boolean
 	onBack: () => void
 	onSelect: (engine: HarnessView['selected']) => void
+	/** Reads the list of engines again, so a program installed since is picked up. */
+	onRecheck?: () => Promise<void>
 }) {
 	const selected = view?.selected ?? selectedEngine ?? 'namzu'
+	const helpId = useId()
+	const [helpFor, setHelpFor] = useState<ExternalEngine>()
+	const platform = setupPlatform(typeof navigator === 'undefined' ? '' : navigator.userAgent)
 	const updates = useEngineUpdates()?.state
 	const commit = (value: string) => {
 		const engine = committableEngine(view, value, { busy, disabled })
@@ -144,11 +228,40 @@ export function EnginePanel({
 					(engine) => {
 						const note = engineRowNote(view, engine)
 						const updateNote = engineUpdateNote(updates, engine.id)
+						const id = engine.id
+						if (!engine.available && id !== 'namzu') {
+							const open = helpFor === id
+							return (
+								<div key={engine.id} className="harness-picker-setup">
+									<button
+										type="button"
+										className="harness-picker-row"
+										aria-expanded={open}
+										aria-controls={`${helpId}-${engine.id}`}
+										onClick={() => setHelpFor(open ? undefined : id)}
+									>
+										<HarnessMark engine={engine.id} />
+										<span className="harness-picker-name">
+											<span>{engine.label}</span>
+											<small>Not installed</small>
+										</span>
+										<span className="harness-picker-howto">
+											How to install
+											<ChevronDown aria-hidden="true" data-open={open || undefined} />
+										</span>
+									</button>
+									{open && (
+										<div id={`${helpId}-${engine.id}`}>
+											<EngineInstallHelp engine={id} platform={platform} onRecheck={onRecheck} />
+										</div>
+									)}
+								</div>
+							)
+						}
 						return (
 							<Radio.Root
 								key={engine.id}
 								value={engine.id}
-								disabled={!engine.available}
 								nativeButton
 								render={<button type="button" />}
 								className="harness-picker-row"
@@ -236,4 +349,15 @@ export function SurfaceSwitch({
 			))}
 		</RadioGroup>
 	)
+}
+
+/** What the switch means, in one short line that follows the side in force. */
+export function surfaceCaption(value: EngineSurface): string {
+	return value === 'cli'
+		? 'CLI: sending opens this engine in a terminal tab.'
+		: 'Desktop: you chat with this engine in this window.'
+}
+
+export function SurfaceCaption({ value }: { value: EngineSurface }) {
+	return <p className="surface-caption">{surfaceCaption(value)}</p>
 }

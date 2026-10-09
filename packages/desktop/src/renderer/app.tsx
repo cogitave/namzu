@@ -87,6 +87,7 @@ import {
 } from './conversation-tabs.js'
 import { ConversationTasks } from './conversation-tasks.js'
 import { copyPlainText } from './copy-button.js'
+import { signInHelpFor } from './engine-setup.js'
 import { FilePanelBody } from './file-panel/file-panel.js'
 import {
 	MIN_PANEL_WIDTH,
@@ -5097,6 +5098,10 @@ export function App({
 											project?.error ||
 											''
 								}
+								signIn={signInHelpFor(savedSettings.error || error || project?.error || '')}
+								onOpenTerminal={
+									terminalReady ? () => void act(() => openShellTerminal()) : undefined
+								}
 								onRetry={
 									project?.lost && project.reconnecting
 										? undefined
@@ -5445,6 +5450,7 @@ export function App({
 								permissionEngine={permissionEngine}
 								harnessBusy={harnessBusy || loading || restoringTabs || frozen}
 								onHarnessChange={(engine) => void act(() => selectHarness(engine))}
+								onRecheckEngines={() => act(retryConversationSetup)}
 								attachmentsSupported={!externalHarness}
 								reviewModes={permissionEngine === 'claude-code' ? ['prompt', 'plan'] : undefined}
 								permissionScope={draftOwner}
