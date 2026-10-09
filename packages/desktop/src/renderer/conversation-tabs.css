@@ -146,3 +146,19 @@
 	width: 16px;
 	height: 18px;
 }
+/* A title takes the free width of its tab; the text inside is cut after a whole word by FittedTitle. */
+.fitted-title {
+	flex: 1 1 0%;
+	min-width: 0;
+	overflow: hidden;
+	white-space: nowrap;
+	text-align: start;
+}
+/* A tab that does not fit in the strip is hidden whole; "Show all tabs" lists it. */
+.conversation-tab[data-clipped="true"] {
+	visibility: hidden;
+}
+/* An ended terminal reads as ended at a glance: its label is dimmed. */
+.terminal-strip-tab[data-ended] .fitted-title {
+	opacity: 0.55;
+}

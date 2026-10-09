@@ -87,11 +87,14 @@ export function TerminalPane({
 	session,
 	focused,
 	onClose,
+	onRestart,
 }: {
 	tab: TerminalTabView
 	session: TerminalSession
 	focused: boolean
 	onClose: () => void
+	/** Starts the same program again; absent where the tab cannot be restarted. */
+	onRestart?: () => void
 }) {
 	const host = useRef<HTMLDivElement>(null)
 	const state = useSyncExternalStore(
@@ -161,6 +164,23 @@ export function TerminalPane({
 				if (pressReturnsKeyboard(event.target as HTMLElement)) {
 					event.preventDefault()
 					if (!finding) session.focus()
+				}
+			}}
+			// The emulator stops a key it handles from bubbling, so an ended session's own keys are read
+			// on the way down, before it can.
+			onKeyDownCapture={(event) => {
+				if (!ended || finding || event.nativeEvent.isComposing) return
+				const bare = !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey
+				if (!bare || !(event.target as HTMLElement).classList.contains('xterm-helper-textarea'))
+					return
+				if (event.key === 'Enter') {
+					event.preventDefault()
+					event.stopPropagation()
+					onClose()
+				} else if ((event.key === 'r' || event.key === 'R') && onRestart) {
+					event.preventDefault()
+					event.stopPropagation()
+					onRestart()
 				}
 			}}
 			onKeyDown={(event) => {
@@ -239,11 +259,19 @@ export function TerminalPane({
 				</p>
 			)}
 			{ended && (
-				<output className="terminal-pane-note">
-					{sessionNotice(tab, state.exitCode ?? tab.exitCode)}
+				<output className="terminal-pane-note" data-terminal-ended-note>
+					<span>
+						{sessionNotice(tab, state.exitCode ?? tab.exitCode)}{' '}
+						{onRestart ? 'Press Enter to close, or R to restart.' : 'Press Enter to close.'}
+					</span>
 					<Button type="button" variant="ghost" size="xs" onClick={onClose}>
 						Close tab
 					</Button>
+					{onRestart && (
+						<Button type="button" variant="ghost" size="xs" onClick={onRestart}>
+							Restart
+						</Button>
+					)}
 				</output>
 			)}
 			{state.keyboardTaken && !ended && (

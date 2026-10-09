@@ -94,6 +94,7 @@ const api: DesktopApi = {
 	palComputerInput: (id, generation, input) => invoke('palComputerInput', id, generation, input),
 	openProject: () => invoke('openProject'),
 	removeProject: (id) => invoke('removeProject', id),
+	renameProject: (id, name) => invoke('renameProject', id, name),
 	locateProject: (id) => invoke('locateProject', id),
 	restoreProject: (token) => invoke('restoreProject', token),
 	openChat: () => invoke('openChat'),

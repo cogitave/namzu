@@ -169,3 +169,9 @@
 		transition: none;
 	}
 }
+/* A page with no composer has no lane to ride above: a toast there sits bottom-left, over the sidebar side, so it never covers the page's primary action. */
+.toast-viewport[data-placement="pane"] {
+	bottom: 16px;
+	left: 16px;
+	translate: none;
+}

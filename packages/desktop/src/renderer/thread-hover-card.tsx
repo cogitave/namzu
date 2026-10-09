@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ConversationView, ProjectGitView, ProjectView } from '../shared/protocol.js'
 import { FolderIcon, GitBranchIcon, MonitorIcon, UserRoundIcon } from './icons.js'
 import {
@@ -38,17 +38,32 @@ function useProjectGit(project: ProjectView, loader: GitLoader | undefined) {
 	return git
 }
 
-export function ThreadHoverCardView({ model }: { model: HoverCardModel }) {
+export function ThreadHoverCardView({
+	model,
+	onCovers,
+}: {
+	model: HoverCardModel
+	/** Called once the card is on screen if it covers the sidebar's Archived conversations row. */
+	onCovers?: () => void
+}) {
 	const EnvironmentIcon = model.environment.kind === 'pal-computer' ? UserRoundIcon : MonitorIcon
+	const card = useRef<HTMLDivElement>(null)
+	useLayoutEffect(() => {
+		const element = card.current
+		const archived = document.querySelector('.sidebar-archived-link')
+		if (!element || !archived || !onCovers) return
+		const a = element.getBoundingClientRect()
+		const b = archived.getBoundingClientRect()
+		if (a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top) onCovers()
+	})
 	return (
-		<div className="thread-hover-card" data-slot="thread-hover-card">
+		<div ref={card} className="thread-hover-card" data-slot="thread-hover-card">
 			<div className="thread-hover-card-head">
 				<span className="thread-hover-card-engine">{model.engine}</span>
-				<EnvironmentIcon
-					className="thread-hover-card-icon"
-					role="img"
-					aria-label={model.environment.label}
-				/>
+				<span className="thread-hover-card-environment">
+					<EnvironmentIcon className="thread-hover-card-icon" aria-hidden="true" />
+					{model.environment.label}
+				</span>
 				{model.age && <span className="thread-hover-card-age">{model.age}</span>}
 			</div>
 			{model.preview && <p className="thread-hover-card-preview">{model.preview}</p>}
@@ -73,9 +88,11 @@ export function ThreadHoverCard({
 	project,
 	loadGit,
 	messages,
+	onCovers,
 }: {
 	conversation: ConversationView
 	project: ProjectView
+	onCovers?: () => void
 	loadGit?: GitLoader
 	messages?: readonly { role: 'user' | 'assistant'; text: string }[]
 }) {
@@ -83,6 +100,7 @@ export function ThreadHoverCard({
 	return (
 		<ThreadHoverCardView
 			model={hoverCardModel({ conversation, project, git, messages, now: Date.now() })}
+			onCovers={onCovers}
 		/>
 	)
 }

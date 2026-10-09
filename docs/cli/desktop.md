@@ -551,14 +551,20 @@ run `git init` there when git is on the PATH (a missing or failing git never
 fails the creation), trust it (a folder main created is its own consent) and open
 it, and a notice says where ("Created “New project” in …/Documents/Namzu.") with
 **Show in folder**. A failure reads "Couldn't create a new project: *message*". The
-folder is named after its leaf; to rename it, rename the folder in the file manager and
-use **Locate…** on the "Folder not found" row (see
+folder is named after its leaf. A project's **…** menu has **Rename project…**: it changes the name Namzu
+shows (kept in `project-names.json` in the profile folder, by folder path; an empty name brings the
+folder's own name back) and never the folder, so rename the folder itself in the file manager and use
+**Locate…** on the "Folder not found" row (see
 [A project whose folder is gone](#a-project-whose-folder-is-gone)). **Use an
 existing folder** is the folder picker above, and Ctrl/⌘+O still opens it.
 
 A conversation without a project shows ideas that need no files ("Explain something",
-"Draft a message", "Plan a task"), and the sidebar keeps its **Add new project** row while no
-real project is listed (the chat workspace does not count). A project that was just added,
+"Draft a message", "Plan a task"), and once a conversation exists without a project the sidebar's Projects
+section shows an **Add new project** row (the same two choices as the **+**) instead of a bare heading; the
+chat workspace does not count as a project. A project whose folder held nothing the person made when it
+connected (empty, or only `.git` and files a file manager adds; `ProjectView.emptyFolder`) shows ideas that
+fit an empty folder, "Plan a project", "Create a first file" and "Describe what you want to build", instead
+of "Explore this project" and "Review a change". A project that was just added,
 or selected, and is trusted lands on its home at
 once with the heading "What should we work on in *name*?" and the composer
 focused, as soon as the composer is enabled; chats and Pal workspaces keep
@@ -577,6 +583,10 @@ folder picker, and the folder it finds takes over the project's id, so its saved
 come along; the new folder goes through the normal pick checks and asks for trust like any other.
 **Remove** forgets the saved project, its conversations and drafts in Namzu and touches nothing on
 disk. A missing project is left out of Recents and the command palette. The composer's project chooser still lists it, dimmed, marked "Folder not found" and not selectable, so the person sees why it is not offered.
+
+The open tab keeps the conversation's own title from its saved view (not "Conversation"), and the Pals
+section of the sidebar says "Couldn’t load your Pals." with **Retry** if the list cannot be read instead of
+offering a first Pal.
 
 A folder that vanishes while its project is open gets the same screen ("can’t be found", **Locate folder…**,
 **Remove project…**), and **Locate folder…** relinks it the same way.
@@ -823,7 +833,8 @@ Shift+F10 menu with **Remove project…**) and from **Settings ▸ Projects**. B
 "Remove “*name*” from Namzu?" — "This removes “*name*” from Namzu and takes the folder off
 Namzu’s trusted list, so Namzu asks again if you add it back. Its open tabs close. Files on
 your computer and existing conversations won’t be deleted." — **Remove project** / **Cancel**.
-The notice after it carries **Add it again** for ten seconds: main hands the window a
+The notice after it carries **Add it again** for ten seconds (a page with no composer, such as the
+welcome, puts every notice at the bottom left so it never covers the page's own button): main hands the window a
 one-time token for that exact folder (`readdToken`, five minutes, its own token store so it can
 never trust a risky or broad folder), and `restoreProject` sends the folder through the same
 pick checks as a new one. Pal workspaces and
@@ -2519,10 +2530,12 @@ Clicking a project row reuses the project's untouched "New conversation" (also a
 adding another empty tab. **Archived conversations** is a row at the bottom of the sidebar (and in the
 palette and the project menu): one dialog for every project, grouped by project, newest first, with
 **Restore**. A project that cannot be read says so and does not hide the others. Row titles are cut at a
-word (26 characters in a tab, 34 in a row) with `…`, and the full title is the tooltip. The hover card
-under a row says which engine answers, the last message when this window has it,
+word with `…` (34 characters in a row; a tab measures the room it has and keeps whole words, dropping
+a terminal's ` · project` suffix before the part that tells tabs apart), and the full title is the tooltip.
+The hover card under a row says which engine answers, where it runs ("This computer" or "A Pal's
+computer", in words beside the glyph), the last message when this window has it,
 the project and the branch; it opens below the row, inside the sidebar, so it never covers the
-conversation. The close, pin, archive and menu buttons at the end of a row are centred on the row
+conversation, and above the row instead when below would cover **Archived conversations**. The close, pin, archive and menu buttons at the end of a row are centred on the row
 (`e2e/ux-sidebar-tabs-terminals.test.mjs` measures them at 100, 125 and 150% zoom, dark and light).
 
 **Archiving.** The menu entry reads **Archive** (no ellipsis: it acts at once). The toast says
@@ -2530,7 +2543,8 @@ conversation. The close, pin, archive and menu buttons at the end of a row are c
 **Undo**.
 
 **Tab strip.** The tab in front scrolls into view when it changes and when the pane is resized; tabs
-shrink to 160 px before the strip scrolls; when it scrolls, a **Show all tabs** button lists every tab with a
+shrink to 160 px before the strip scrolls; when it scrolls, a tab the strip's edge would cut is hidden whole
+(never shown without its first letters) and a **Show all tabs** button lists every tab with a
 check on the one in front. A caret beside **+** ("More ways to add a tab") opens the same menu as the
 right-click on **+**. The menu of a terminal tab also offers **New terminal to the right** and **New
 terminal below**. When a split needs more room than the pane has, the docked sidebar closes first
@@ -2684,7 +2698,7 @@ from nothing but its output and its end: **Working** (output in the last 1.5 s, 
 **Waiting for input** (it printed and went quiet), **Idle** (quiet for a minute) and **Exited** (red,
 `Exited with code N`, when the code is not zero). When an engine's program ends with a non-zero code
 a quiet notice names the tab and the code. The badge cannot yet tell an approval prompt from a
-finished answer; that needs the screen and is a later step. A plain shell has a badge only once its session has ended (a hollow ring, "Session ended"). The dot's meaning is its tooltip, and the sidebar row's tooltip reads `<title> — <meaning>`. When Namzu's own update of an engine or of the command line finishes successfully, its terminal tab closes by itself; a failed one stays so its output can be read.
+finished answer; that needs the screen and is a later step. A plain shell has a badge only once its session has ended (a hollow ring, "Session ended"), and an ended terminal reads as ended at a glance: its label is dimmed in the strip and the sidebar, and the pane says "This session ended. Press Enter to close, or R to restart." with **Close tab** and, for a shell, **Restart**. Enter closes the tab; R (or **Restart**) starts the same shell again in the same pane and closes the ended tab, so the new session has a new tab id. The dot's meaning is its tooltip, and the sidebar row's tooltip reads `<title> — <meaning>`. When Namzu's own update of an engine or of the command line finishes successfully, its terminal tab closes by itself; a failed one stays so its output can be read.
 
 Screenshots of the tabs, the switch and the badges in both themes are in
 [`research/terminal-20261008/`](../../research/terminal-20261008/), made by the real-Electron flows in

@@ -199,7 +199,7 @@ flow(
 		await expect(terminalTabs(w)).toHaveCount(1, { timeout: T });
 		await newTerminal(w);
 		await expect(terminalTabs(w)).toHaveCount(2, { timeout: T });
-		const titles = await terminalTabs(w).locator(".conversation-tab-label .truncate").allTextContents();
+		const titles = await terminalTabs(w).locator(".conversation-tab-label .fitted-title").allTextContents();
 		assert.equal(new Set(titles).size, 2, `two different names, got ${titles}`);
 		assert.match(titles[0], /^sh · project$/);
 		assert.match(titles[1], /^sh 2 · project$/);
@@ -425,9 +425,9 @@ flow(
 		await newTerminal(w);
 		await newTerminal(w);
 		await expect(terminalTabs(w)).toHaveCount(2, { timeout: T });
-		const names = async () => w.page.locator(".conversation-tab-label .truncate").allTextContents();
+		const names = async () => w.page.locator(".conversation-tab-label .fitted-title").allTextContents();
 		assert.equal((await names()).length, 3);
-		const front = async () => (await activeTab(w).locator(".conversation-tab-label .truncate").textContent()) ?? "";
+		const front = async () => (await activeTab(w).locator(".conversation-tab-label .fitted-title").textContent()) ?? "";
 		// The second terminal is in front. Ctrl+Tab wraps to the first tab; Ctrl+Shift+Tab goes back.
 		await w.page.locator("section.terminal-pane .xterm-helper-textarea").focus();
 		await w.page.keyboard.press("Control+Tab");
@@ -532,11 +532,25 @@ flow(
 		await expect(overflow).toBeVisible();
 		await setAppearance(w, "light");
 		await shot(w, "tab-overflow-light");
+		// A tab the strip's edge would cut is hidden whole, never shown with its first letters missing.
+		const clipped = await w.page.evaluate(() => {
+			const list = document.querySelector(".conversation-tab-list")?.getBoundingClientRect();
+			if (!list) return ["no strip"];
+			return [...document.querySelectorAll(".conversation-tab")]
+				.filter((tab) => getComputedStyle(tab).visibility !== "hidden")
+				.map((tab) => tab.getBoundingClientRect())
+				.filter((box) => box.left < list.left - 1 || box.right > list.right + 1)
+				.map((box) => `${box.left}..${box.right}`);
+		});
+		assert.deepEqual(clipped, [], "every shown tab is whole");
 		await overflow.click();
 		const first = w.page.locator("[data-overflow-tab]").first();
 		const name = ((await first.textContent()) ?? "").trim();
 		await first.click();
-		await expect(activeTab(w).first()).toContainText(name);
+		await expect(activeTab(w).first().locator(".conversation-tab-label")).toHaveAttribute(
+			"aria-label",
+			new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+		);
 		await expect.poll(inView).toBe(true);
 		await w.page.keyboard.press("Control+9");
 		await expect.poll(inView).toBe(true);
@@ -552,13 +566,29 @@ flow(
 		await openProject(w);
 		const title = "Bu eki ekledim, lütfen dosya oluştur ve kaydet yarın sabah";
 		await chat(w, title, "Scripted default reply.");
-		const label = w.page.locator(".conversation-tab-label .truncate", { hasText: "Bu eki" }).first();
+		const label = w.page.locator(".conversation-tab-label .fitted-title", { hasText: "Bu eki" }).first();
 		const shown = (await label.textContent()) ?? "";
 		assert.ok(shown.endsWith("…"), `shortened: ${shown}`);
 		const kept = shown.slice(0, -1);
 		assert.ok(title.startsWith(kept), "a prefix of the title");
-		assert.equal(title[kept.length], " ", "the cut falls on a space, not inside a word");
+		assert.match(title.slice(kept.length), /^[\s,;:.\-–—(]/, "the cut falls between words, not inside one");
 		assert.equal(await label.getAttribute("title"), title);
+		// The tab uses the room it has: the text fills the label up to the last whole word that fits.
+		const room = await label.evaluate((element) => ({
+			text: element.scrollWidth,
+			box: element.clientWidth,
+		}));
+		assert.ok(room.text <= room.box + 1, `the tab text is not cut by the box: ${JSON.stringify(room)}`);
+		// The next word would not have fitted: the tab used the room it has.
+		const nextFits = await label.evaluate((element, args) => {
+			const style = getComputedStyle(element);
+			const context = document.createElement("canvas").getContext("2d");
+			context.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+			const rest = args.title.slice(args.kept.length).replace(/^[\s,;:.\-–—(]+/, "");
+			const next = rest.split(" ")[0];
+			return context.measureText(`${args.kept}, ${next}…`).width <= element.clientWidth;
+		}, { title, kept });
+		assert.equal(nextFits, false, `the tab left room for another word: ${shown}`);
 		const row = sidebar(w).locator("li[data-thread-item] .conversation-row-title").first();
 		assert.equal(await row.getAttribute("title"), title);
 		await shot(w, "long-title");
@@ -582,6 +612,17 @@ flow(
 		}).toPass({ timeout: T });
 		assert.doesNotMatch(await card.innerText(), /alpha chat/i, "the title is not repeated");
 		await expect(card).toContainText("Reply alpha.");
+		// The glyph beside the age has words, and the card never covers the Archived row.
+		await expect(card.locator(".thread-hover-card-environment")).toContainText("This computer");
+		const onArchived = await w.page.evaluate(() => {
+			const card = document.querySelector('[data-slot="thread-hover-card"]')?.getBoundingClientRect();
+			const link = document.querySelector(".sidebar-archived-link")?.getBoundingClientRect();
+			if (!card || !link) return "missing";
+			return card.left < link.right && card.right > link.left && card.top < link.bottom && card.bottom > link.top
+				? "covers"
+				: "clear";
+		});
+		assert.equal(onArchived, "clear");
 		const covered = await w.page.evaluate(() => {
 			const card = document.querySelector('[data-slot="thread-hover-card"]')?.getBoundingClientRect();
 			const transcript = document.querySelector(".transcript, [data-transcript]")?.getBoundingClientRect();
@@ -592,6 +633,49 @@ flow(
 		});
 		assert.equal(covered, "clear");
 		await shot(w, "hover-card");
+	},
+);
+
+flow(
+	"an ended terminal reads as ended, closes on Enter and starts again on R",
+	{ rules: CHATS },
+	async (w) => {
+		await openProject(w);
+		await enableTerminalDebug(w);
+		await expect(w.page.getByRole("textbox", { name: "Message Namzu" })).toBeVisible({ timeout: T });
+		await newTerminal(w);
+		await expect(terminalTabs(w)).toHaveCount(1, { timeout: T });
+		const input = w.page.locator("section.terminal-pane .xterm-helper-textarea");
+		await input.focus();
+		await w.page.keyboard.type("exit");
+		await w.page.keyboard.press("Enter");
+		const note = w.page.locator("[data-terminal-ended-note]");
+		await expect(note).toContainText("This session ended. Press Enter to close, or R to restart.", {
+			timeout: T,
+		});
+		// The label is dimmed in the tab and in the sidebar, not only a ring beside it.
+		const dim = await w.page.evaluate(() => ({
+			tab: Number(getComputedStyle(document.querySelector(".terminal-strip-tab .fitted-title")).opacity),
+			row: Number(getComputedStyle(document.querySelector("li[data-terminal-row] .conversation-row-title")).opacity),
+		}));
+		assert.ok(dim.tab < 0.7 && dim.row < 0.7, `ended labels are dimmed: ${JSON.stringify(dim)}`);
+		await shot(w, "ended-terminal");
+		// R starts the same shell again where the ended one was, and the ended tab goes.
+		await input.focus();
+		await w.page.keyboard.press("r");
+		await expect(note).toHaveCount(0, { timeout: T });
+		await expect(terminalTabs(w)).toHaveCount(1, { timeout: T });
+		await expect(w.page.locator("section.terminal-pane")).toHaveAttribute("data-terminal-phase", "live", {
+			timeout: T,
+		});
+		// Enter on an ended session closes its tab.
+		await w.page.locator("section.terminal-pane .xterm-helper-textarea").focus();
+		await w.page.keyboard.type("exit");
+		await w.page.keyboard.press("Enter");
+		await expect(note).toContainText("Press Enter to close", { timeout: T });
+		await w.page.locator("section.terminal-pane .xterm-helper-textarea").focus();
+		await w.page.keyboard.press("Enter");
+		await expect(terminalTabs(w)).toHaveCount(0, { timeout: T });
 	},
 );
 

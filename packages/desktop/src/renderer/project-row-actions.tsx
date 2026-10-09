@@ -1,7 +1,7 @@
 import { ContextMenu } from '@base-ui/react/context-menu'
 import { Menu } from '@base-ui/react/menu'
 import { type ReactElement, type ReactNode, useRef } from 'react'
-import { ArchiveIcon, FolderOpenIcon, MoreHorizontalIcon, XIcon } from './icons.js'
+import { ArchiveIcon, FolderOpenIcon, MoreHorizontalIcon, PencilIcon, XIcon } from './icons.js'
 import { Button } from './ui/button.js'
 import './conversation-actions-menu.css'
 
@@ -11,6 +11,8 @@ export interface ProjectRowActions {
 	onOpenFolder?: () => void
 	/** Show every archived conversation, grouped by project. */
 	onArchived?: () => void
+	/** Change the name Namzu shows for the project; the folder keeps its name. */
+	onRename?: () => void
 	/** Leave Namzu; the caller confirms and performs it. */
 	onRemove: () => void
 }
@@ -26,9 +28,15 @@ function ProjectMenuItems({
 		accepted.current = true
 		action()
 	}
-	const { onOpenFolder, onArchived, onRemove } = actions
+	const { onOpenFolder, onArchived, onRename, onRemove } = actions
 	return (
 		<>
+			{onRename && (
+				<Menu.Item className="conversation-actions-item" onClick={run(onRename)}>
+					<PencilIcon aria-hidden="true" />
+					<span className="conversation-actions-label">Rename project…</span>
+				</Menu.Item>
+			)}
 			{onOpenFolder && (
 				<Menu.Item className="conversation-actions-item" onClick={run(onOpenFolder)}>
 					<FolderOpenIcon aria-hidden="true" />
@@ -41,7 +49,7 @@ function ProjectMenuItems({
 					<span className="conversation-actions-label">Archived conversations</span>
 				</Menu.Item>
 			)}
-			{(onOpenFolder || onArchived) && (
+			{(onRename || onOpenFolder || onArchived) && (
 				<Menu.Separator className="conversation-actions-separator" />
 			)}
 			<Menu.Item className="conversation-actions-item" data-destructive onClick={run(onRemove)}>

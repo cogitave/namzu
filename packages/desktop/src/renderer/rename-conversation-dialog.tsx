@@ -11,7 +11,16 @@ export function RenameConversationDialog({
 	onSave,
 	onClose,
 	returnFocus,
+	heading = 'Rename conversation',
+	description = 'Leave the name empty to use the automatic title.',
+	fieldLabel = 'Conversation name',
+	maxLength = MAX_TITLE_LENGTH,
 }: {
+	/** Words for another kind of rename (a project); the defaults are the conversation's. */
+	heading?: string
+	description?: string
+	fieldLabel?: string
+	maxLength?: number
 	initialTitle: string
 	onSave: (title: string) => Promise<void>
 	onClose: () => void
@@ -65,17 +74,17 @@ export function RenameConversationDialog({
 								void save()
 							}}
 						>
-							<Dialog.Title className="text-lg font-semibold">Rename conversation</Dialog.Title>
+							<Dialog.Title className="text-lg font-semibold">{heading}</Dialog.Title>
 							<Dialog.Description className="mt-2 text-sm text-muted-foreground">
-								Leave the name empty to use the automatic title.
+								{description}
 							</Dialog.Description>
 							<input
 								ref={field}
 								type="text"
-								aria-label="Conversation name"
+								aria-label={fieldLabel}
 								className="mt-4 h-9 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
 								value={value}
-								maxLength={MAX_TITLE_LENGTH}
+								maxLength={maxLength}
 								disabled={pending}
 								autoComplete="off"
 								spellCheck={false}

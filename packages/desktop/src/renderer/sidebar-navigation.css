@@ -267,7 +267,7 @@
 	height: 14px;
 }
 .sidebar-terminal-item[data-ended] .conversation-row-title {
-	opacity: 0.65;
+	opacity: 0.5;
 }
 
 .sidebar-project-missing {
@@ -362,4 +362,21 @@
 	width: 14px;
 	height: 14px;
 	flex: none;
+}
+/* With no project yet the section offers the same Add new project choice as the + beside its title, as a row. */
+.sidebar-navigation .sidebar-add-project-row,
+.sidebar-project-navigation .sidebar-add-project-row {
+	display: flex;
+	align-items: center;
+	justify-content: flex-start;
+	gap: 8px;
+	width: 100%;
+	height: 28px;
+	padding: 0 12px;
+	color: var(--sidebar-muted-foreground);
+	font-size: 13px;
+}
+.sidebar-add-project-row svg {
+	width: 14px;
+	height: 14px;
 }

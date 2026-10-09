@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync, realpathSync } from 'node:fs'
-import { lstat, mkdir, realpath, stat } from 'node:fs/promises'
+import { lstat, mkdir, readdir, realpath, stat } from 'node:fs/promises'
 import { basename, resolve } from 'node:path'
 import type {
 	AcpRequestPermissionParams,
@@ -88,6 +88,7 @@ import { palFolderToReveal } from './pal-folder.js'
 import type { PalStreamProxy } from './pal-stream-proxy.js'
 import { projectDraftOwner } from './project-draft-owner.js'
 import { ProjectFiles, confineProjectPath, resolveProjectLinks } from './project-files.js'
+import { type ProjectNameStore, projectNameProblem } from './project-names.js'
 import { parseUntrust, projectBusyReason, withoutProject } from './project-removal.js'
 import { RuntimeClient, type RuntimeCommand } from './rpc-client.js'
 import { SupersededConversationSettingsError } from './superseded-settings.js'
@@ -406,7 +407,7 @@ export class Operator {
 		private readonly streamProxy?: Pick<PalStreamProxy, 'onClosed' | 'open' | 'close'>,
 		private readonly openIn?: Pick<OpenIn, 'editors' | 'open'>,
 		private readonly folderGuard?: FolderTrustGuard,
-		private readonly options: { autoReconnect?: boolean } = {},
+		private readonly options: { autoReconnect?: boolean; projectNames?: ProjectNameStore } = {},
 	) {
 		this.backgroundWork = new BackgroundWorkStatusTracker((event) => this.publish(event))
 		this.communication = new PalCommunicationManager(
@@ -1561,7 +1562,7 @@ export class Operator {
 			this.expectedProjects.set(path, {
 				id: saved.id,
 				path,
-				name: basename(path),
+				name: this.options.projectNames?.get(path) ?? basename(path),
 				trusted: false,
 				status: 'connecting',
 				...(palId ? { palId } : {}),
@@ -1752,6 +1753,7 @@ export class Operator {
 			this.projects.delete(existing.view.id)
 		}
 		const isChat = await isNormalChatWorkspace(cwd, this.registryDirectory)
+		const emptyFolder = !isChat && !ownedPalCanonical && (await folderHasNoWork(cwd))
 		const view: ProjectView = {
 			id:
 				existing?.view.id ??
@@ -1759,8 +1761,9 @@ export class Operator {
 				this.savedDesktop?.projects.find((item) => item.path === cwd)?.id ??
 				randomUUID(),
 			path: cwd,
-			name: isChat ? 'Chat' : basename(cwd),
+			name: isChat ? 'Chat' : (this.options.projectNames?.get(cwd) ?? basename(cwd)),
 			...(isChat ? { isChat: true } : {}),
+			...(emptyFolder ? { emptyFolder: true as const } : {}),
 			trusted: false,
 			status: 'connecting',
 		}
@@ -2174,6 +2177,34 @@ export class Operator {
 		} finally {
 			this.archivingConversations.delete(sessionId)
 		}
+	}
+	/**
+	 * Gives a project the name Namzu shows for it. Only the display name changes: the folder on
+	 * disk keeps its name. An empty name clears the choice and the folder's own name shows again.
+	 */
+	renameProject(projectId: unknown, name: unknown): ProjectView {
+		if (typeof projectId !== 'string' || !projectId.trim() || projectId.length > 400)
+			throw new Error('Invalid project.')
+		if (typeof name !== 'string') throw new Error('Give the project a name.')
+		const known =
+			this.projects.get(projectId)?.view ??
+			this.missingProjects.get(projectId) ??
+			[...this.expectedProjects.values()].find((item) => item.id === projectId)
+		if (!known) throw new Error('This project is no longer in Namzu.')
+		if (known.palId) throw new Error('A Pal’s name is changed on the Pal.')
+		if (known.isChat) throw new Error('The chat workspace cannot be renamed.')
+		const store = this.options.projectNames
+		if (!store) throw new Error('Renaming a project is unavailable.')
+		const trimmed = name.trim()
+		const clearing = trimmed.length === 0
+		if (!clearing) {
+			const problem = projectNameProblem(trimmed)
+			if (problem) throw new Error(problem)
+		}
+		store.set(known.path, clearing ? undefined : trimmed)
+		known.name = clearing ? basename(known.path) : trimmed
+		this.emit({ kind: 'connection', project: { ...known } })
+		return { ...known }
 	}
 	/**
 	 * Takes a project out of Namzu. Its host connection is closed, its row, tabs, drafts and
@@ -5237,5 +5268,18 @@ export class Operator {
 		this.attachmentFiles.clear()
 		this.attachmentPreviews.clear()
 		this.projectDrafts.clear()
+	}
+}
+
+/** Files a file manager or version control adds on its own; they are not the person's work. */
+const BACKGROUND_ENTRIES = new Set(['.git', '.DS_Store', 'desktop.ini', 'Thumbs.db'])
+
+/** True when the folder holds nothing the person made: it is empty, or has only what the system adds. */
+export async function folderHasNoWork(path: string): Promise<boolean> {
+	try {
+		const entries = await readdir(path)
+		return entries.every((entry) => BACKGROUND_ENTRIES.has(entry))
+	} catch {
+		return false
 	}
 }

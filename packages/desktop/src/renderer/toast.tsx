@@ -26,19 +26,21 @@ function ToastList() {
  */
 function PaneViewport({ pane }: { pane: RefObject<HTMLElement | null> }) {
 	const [host, setHost] = useState<Element | null>(null)
+	const [lane, setLane] = useState<Element | null>(null)
 	// The lane comes and goes with the page, so look again after every render.
 	useLayoutEffect(() => {
 		// The Settings page hides the conversation lane, so its notices use the pane itself.
-		const lane =
+		const found =
 			pane.current?.dataset.page === 'settings'
 				? null
-				: pane.current?.querySelector('.conversation-lane')
-		const next = lane ?? pane.current ?? null
+				: (pane.current?.querySelector('.conversation-lane') ?? null)
+		const next = found ?? pane.current ?? null
 		setHost((current) => (current === next ? current : next))
+		setLane((current) => (current === found ? current : found))
 	})
 	if (!host) return null
 	return createPortal(
-		<Toast.Viewport className="toast-viewport">
+		<Toast.Viewport className="toast-viewport" data-placement={host === lane ? 'lane' : 'pane'}>
 			<ToastList />
 		</Toast.Viewport>,
 		host,

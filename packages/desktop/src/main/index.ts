@@ -74,6 +74,7 @@ import { Operator } from './operator.js'
 import { PalStreamProxy } from './pal-stream-proxy.js'
 import { projectDraftOwner } from './project-draft-owner.js'
 import { setFileSortLocale } from './project-files.js'
+import { ProjectNameStore } from './project-names.js'
 import { selectRendererPage } from './renderer-page.js'
 import { RunningReplyGuard } from './running-reply-guard.js'
 import { desktopRuntimeNodeArgs, desktopRuntimeNodeFlags } from './runtime-node-args.js'
@@ -332,7 +333,10 @@ const operator = new Operator(
 		canonical: canonicalFolder,
 	}),
 	// A host that drops under an open conversation is reopened once, without a click.
-	{ autoReconnect: true },
+	{
+		autoReconnect: true,
+		projectNames: new ProjectNameStore(join(app.getPath('userData'), 'project-names.json')),
+	},
 )
 /** Documents as the platform names it; the home folder's Documents when the platform has none. */
 function documentsFolder(): string {
@@ -531,6 +535,7 @@ function register(): void {
 	const globalWrites = new Set([
 		'setSettings',
 		'removeProject',
+		'renameProject',
 		'locateProject',
 		'restoreProject',
 		'localSpeechUninstall',
@@ -917,6 +922,7 @@ function register(): void {
 		saveProjects()
 		return project
 	})
+	handle('renameProject', (id: string, name: string) => operator.renameProject(id, name))
 	handle('renameConversation', (id: string, title: string) =>
 		operator.renameConversation(id, title),
 	)

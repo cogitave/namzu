@@ -56,3 +56,15 @@
 	min-width: 0;
 	overflow-wrap: anywhere;
 }
+/* The glyph says where the conversation runs; its words sit beside it so it is never a bare icon. */
+.thread-hover-card-environment {
+	display: inline-flex;
+	flex: none;
+	align-items: center;
+	gap: 4px;
+	color: var(--muted-foreground);
+	font-size: 12px;
+}
+.thread-hover-card-environment .thread-hover-card-icon {
+	margin-top: 0;
+}

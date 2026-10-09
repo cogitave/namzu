@@ -79,6 +79,7 @@ export function Sidebar({
 	onConversation,
 	rowActions,
 	onRemoveProject,
+	onRenameProject,
 	onLocateProject,
 	onOpenProjectFolder,
 	onOpenArchived,
@@ -109,6 +110,8 @@ export function Sidebar({
 	rowActions?: ThreadRowActions
 	/** Absent when the host cannot remove a project; the hover button and menu are then not offered. */
 	onRemoveProject?: (project: ProjectView, trigger: HTMLElement | null) => void
+	/** Absent when the host cannot rename a project; the menu then has no Rename. */
+	onRenameProject?: (project: ProjectView, trigger: HTMLElement | null) => void
 	/** Absent when the host cannot relink a project; a missing folder then offers only Remove. */
 	onLocateProject?: (project: ProjectView) => void
 	/** Absent when the host cannot show a folder in the file manager. */
@@ -300,6 +303,7 @@ export function Sidebar({
 										project={project}
 										selected={!sessionId && projectId === project.id}
 										onRemoveProject={onRemoveProject}
+										onRenameProject={onRenameProject}
 										onOpenProjectFolder={onOpenProjectFolder}
 										onOpenArchived={onOpenArchived}
 									>
@@ -364,6 +368,24 @@ export function Sidebar({
 							),
 						)}
 						{projects.length === 0 && <p className="sidebar-empty-note">Use + to add a project.</p>}
+						{groups.length === 0 && projects.length > 0 && (
+							<AddProjectMenu
+								disabled={opening}
+								onCreate={onCreateProject}
+								onOpen={onOpenProject}
+								align="start"
+								trigger={
+									<Button
+										variant="ghost-muted"
+										className="sidebar-add-project-row"
+										data-sidebar-add-project-row
+									>
+										<PlusIcon aria-hidden="true" />
+										<span>{ADD_PROJECT_LABEL}</span>
+									</Button>
+								}
+							/>
+						)}
 					</nav>
 					{recent.length > 0 && (
 						<section className="sidebar-recents" aria-label="Recent conversations">
@@ -447,6 +469,7 @@ function ProjectHeading({
 	project,
 	selected,
 	onRemoveProject,
+	onRenameProject,
 	onOpenProjectFolder,
 	onOpenArchived,
 	children,
@@ -454,6 +477,7 @@ function ProjectHeading({
 	project: ProjectView
 	selected: boolean
 	onRemoveProject?: (project: ProjectView, trigger: HTMLElement | null) => void
+	onRenameProject?: (project: ProjectView, trigger: HTMLElement | null) => void
 	onOpenProjectFolder?: (project: ProjectView) => void
 	onOpenArchived?: () => void
 	children: ReactNode
@@ -472,6 +496,7 @@ function ProjectHeading({
 		onRemoveProject && removable
 			? {
 					onRemove: () => onRemoveProject(project, trigger()),
+					...(onRenameProject ? { onRename: () => onRenameProject(project, trigger()) } : {}),
 					...(onOpenProjectFolder && project.path
 						? { onOpenFolder: () => onOpenProjectFolder(project) }
 						: {}),

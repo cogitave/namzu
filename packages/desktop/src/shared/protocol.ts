@@ -194,6 +194,8 @@ export interface ProjectView {
 	 * connection, so the person can point Namzu at the new place (`locateProject`) or remove it.
 	 */
 	missing?: true
+	/** The folder held nothing the person made when the project connected: a project to start from scratch. */
+	emptyFolder?: true
 	/**
 	 * Present only on the answer to a pick or a trust request for a broad folder: it was
 	 * not trusted, and `token` is the one-time proof to send back to `trustProject`.
@@ -808,6 +810,8 @@ export interface DesktopApi {
 	 * the trust list. Refused while work is running. Files and conversation journals stay.
 	 */
 	removeProject?(projectId: string): Promise<ProjectRemovalResult>
+	/** Gives a project the name Namzu shows for it; the folder keeps its name. An empty name clears the choice. */
+	renameProject?(projectId: string, name: string): Promise<ProjectView>
 	/**
 	 * Asks for the folder a missing project moved to, in the native picker, and keeps the
 	 * project's conversations with it. Resolves null when the picker is cancelled.
