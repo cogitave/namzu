@@ -117,6 +117,7 @@ export function EngineInstallHelp({
 						size="xs"
 						variant="outline"
 						disabled={state === 'checking'}
+						title="Looks for the program on this computer"
 						onClick={() => {
 							setState('checking')
 							void onRecheck()

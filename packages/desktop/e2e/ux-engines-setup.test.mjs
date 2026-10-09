@@ -134,6 +134,15 @@ flow(
 		await banner.getByRole("button", { name: "Open terminal" }).click();
 		await expect(w.page.locator(".xterm").first()).toBeVisible({ timeout: T });
 		await shot(w, "05-terminal-opened");
+		// Settings > Updates says the same, in the same words, instead of suggesting the person is offline.
+		await w.page.getByRole("button", { name: "Settings", exact: true }).click();
+		await w.page.getByRole("navigation", { name: "Settings sections" }).getByRole("button", { name: "Updates", exact: true }).click();
+		const row = w.page.locator("#setting-engine-codex-cli");
+		await expect(row).toContainText("Signed out \u2014 sign in to Codex CLI in a terminal", { timeout: T });
+		await expect(row).not.toContainText("offline");
+		await shot(w, "06-updates-signed-out");
+		await row.getByRole("button", { name: /Open a terminal to sign in/ }).click();
+		await expect(w.page.getByRole("navigation", { name: "Settings sections" })).toHaveCount(0);
 	},
 );
 

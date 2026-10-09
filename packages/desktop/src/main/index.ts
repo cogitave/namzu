@@ -445,9 +445,13 @@ const FOLDER_LABELS: Record<DataFolderKind, string> = {
 }
 function desktopInfo(): DesktopInfo {
 	const folders = dataFolders()
+	const separate = engineUpdates
+		.state()
+		.items.find((item) => item.id === 'namzu-cli' && !item.bundled && !item.missing)
 	return {
 		version: app.getVersion(),
 		...readRuntimeVersions(cliEntry),
+		...(separate?.installed ? { installedCliVersion: separate.installed } : {}),
 		platform: `${process.platform} ${process.arch}`,
 		folders: (Object.keys(folders) as DataFolderKind[]).map((kind) => ({
 			kind,

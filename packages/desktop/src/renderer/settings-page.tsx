@@ -28,7 +28,10 @@ import { LocalSpeechSettingsContent } from './local-speech-settings.js'
 import { ModelsSection } from './models-section.js'
 import { SettingsConfirmDialog } from './settings-confirm-dialog.js'
 import {
+	DATA_FOLDER_NOTES,
 	SETTINGS_ENTRIES,
+	SETTINGS_SEARCH_SUBTITLE,
+	SETTINGS_SECTION_SUBTITLES,
 	SETTINGS_SECTION_TITLES,
 	aboutDetailsText,
 	lastCheckedText,
@@ -177,9 +180,7 @@ export function SettingsPage(props: SettingsPageProps) {
 				<header className="settings-page-header">
 					<div>
 						<h1>{searching ? 'Search results' : SETTINGS_SECTION_TITLES[section]}</h1>
-						{!searching && section === 'general' && (
-							<p>How Namzu starts, looks and keeps your projects safe.</p>
-						)}
+						<p>{searching ? SETTINGS_SEARCH_SUBTITLE : SETTINGS_SECTION_SUBTITLES[section]}</p>
 					</div>
 					<div className="settings-page-search">
 						<SearchIcon aria-hidden="true" />
@@ -555,7 +556,12 @@ function UpdatesSection({ update, settings, now, engineTarget, hasAppUpdater }: 
 			<Row
 				id="version"
 				label="Namzu Desktop version"
-				description={`Last checked: ${lastCheckedText(checkedAt || undefined, now)}`}
+				// A copy that cannot update itself made no check of its own, so it claims none.
+				description={
+					hasAppUpdater
+						? `Last checked: ${lastCheckedText(checkedAt || undefined, now)}`
+						: undefined
+				}
 			>
 				<span className="settings-value">{update?.info?.currentVersion ?? '…'}</span>
 			</Row>
@@ -574,11 +580,7 @@ function UpdatesSection({ update, settings, now, engineTarget, hasAppUpdater }: 
 						</Button>
 					)}
 					<Button size="sm" variant="outline" disabled={!canCheck} onClick={check}>
-						{checking
-							? 'Checking…'
-							: hasAppUpdater || !engines
-								? 'Check for updates'
-								: 'Check the programs'}
+						{checking ? 'Checking…' : 'Check for updates'}
 					</Button>
 				</div>
 			</div>
@@ -647,9 +649,15 @@ function AboutSection({ info, infoError, onOpenFolder }: SettingsPageProps) {
 						<dd>{info.version}</dd>
 					</div>
 					<div>
-						<dt>Namzu command line</dt>
+						<dt>Namzu command line (bundled with this app)</dt>
 						<dd>{info.cliVersion ?? 'Not found'}</dd>
 					</div>
+					{info.installedCliVersion && (
+						<div>
+							<dt>Namzu command line (installed separately)</dt>
+							<dd>{info.installedCliVersion}</dd>
+						</div>
+					)}
 					<div>
 						<dt>Namzu engine (SDK)</dt>
 						<dd>{info.sdkVersion ?? 'Not found'}</dd>
@@ -665,6 +673,10 @@ function AboutSection({ info, infoError, onOpenFolder }: SettingsPageProps) {
 			</div>
 			<div id="setting-folders" className="settings-folders">
 				<h3 className="settings-subtitle">Data folders</h3>
+				<p className="settings-help">
+					Logs and the downloaded voice are safe to delete. The Namzu home folder holds your work,
+					so keep it.
+				</p>
 				<ul>
 					{info.folders.map((folder) => (
 						<li key={folder.kind}>
@@ -672,6 +684,12 @@ function AboutSection({ info, infoError, onOpenFolder }: SettingsPageProps) {
 								<span className="settings-project-name">{folder.label}</span>
 								<span className="settings-project-path" title={folder.path}>
 									{folder.path}
+								</span>
+								<span
+									className="settings-folder-note"
+									data-safe={DATA_FOLDER_NOTES[folder.kind].safe}
+								>
+									{DATA_FOLDER_NOTES[folder.kind].text}
 								</span>
 							</div>
 							{onOpenFolder && (

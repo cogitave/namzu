@@ -610,21 +610,36 @@ What it holds, and where each value lives (one source of truth per value):
   [Trust again when automatic settings change](#trust-again-when-automatic-settings-change).
 - **Appearance** — the theme (light, dark, system). It stays in the renderer's own storage
   (`namzu.appearance`) because only the renderer paints it; it moved out of the profile menu.
-- **Updates** — the Namzu Desktop version, when the last check finished, the state in words,
-  **Check for updates** (one button for the app and for the programs below; **Check the programs**
-  where the app cannot update itself),
+- Every section opens with the same header, a title and one subtitle line, so the search box and
+  the content start at the same height on every page (search results get the subtitle "Matches from
+  every section.").
+- **Updates** — the Namzu Desktop version, when the last check finished (omitted on a copy that
+  cannot update itself, which made no check of its own), the state in words,
+  **Check for updates** (the one button that checks the app and the programs below; a missing
+  program's own **Check again** sits only in its install steps and says it looks for the program
+  on this computer),
   **Download update** / **Restart to update…** where the state calls for them,
   *Programs Namzu works with* (Codex CLI, `claude-code`, the Namzu command line; see
   [Updates to the programs Namzu works with](#updates-to-the-programs-namzu-works-with); the
   command line that comes with the app is one row saying it updates with the app, and a copy
-  installed on its own is labelled "(installed separately)" with its own version), and
+  installed on its own is labelled "(installed separately)" with its own version). A program that is
+  installed but reported, when Namzu last started it, that no account is signed in shows "Signed out —
+  sign in to *name* in a terminal" with **Open terminal** (the window remembers the engine's own
+  "needs an account" error until the same engine connects without it; Namzu never runs an engine's
+  login command to find out, because an unknown command could start a chat and spend tokens). A
+  check that could not finish names its cause: "Namzu couldn't reach the update server", or
+  "*name* didn't answer when asked for its version". And
   *Download updates automatically* (default on; not drawn where the app cannot update itself).
 - **Speech** — what the voice does and its size before the download; after it the voice status,
   Preview, Remove and the existing options (see [Local Turkish speech](#local-turkish-speech)).
-- **About** — "Namzu Desktop", "Namzu command line" and "Namzu engine (SDK)" versions (read from the
-  `package.json` files beside the bundled runtime; unreadable ones read "Not found"), the system in
-  words ("Windows (64-bit Intel or AMD)"), **Copy details** (versions only, never a path) and the data
-  folders with **Open**; raw paths appear only there. A folder is opened by kind (`app`, `namzu`,
+- **About** — "Namzu Desktop", "Namzu command line (bundled with this app)" and "Namzu engine (SDK)"
+  versions (read from the `package.json` files beside the bundled runtime; unreadable ones read "Not
+  found"), plus "Namzu command line (installed separately)" when a copy is on the computer's PATH
+  (`installedCliVersion` of `desktopInfo()`), the system in words ("Windows (64-bit Intel or AMD)"),
+  **Copy details** (versions only, never a path) and the data folders with **Open**, each saying what
+  deleting it does (logs and the downloaded voice are safe to delete; the Namzu home folder holds
+  conversations, Pals and projects; the app data holds settings, tabs and drafts); raw paths appear
+  only there. A folder is opened by kind (`app`, `namzu`,
   `diagnostics`, `speech`); the renderer never names a path. License texts ship in the install folder.
 
 Everything main acts on lives in `desktop-settings.json` in the profile folder, written by
@@ -1605,7 +1620,7 @@ change to the model's recorded history. Syntax highlighting uses bundled WASM;
 the renderer policy allows that compilation without enabling JavaScript eval.
 Background work uses a separate column when the workspace has at least 880px
 available; narrower workspaces let the panel take the whole pane (the conversation is not squeezed into a
-clipped sliver; **Hide panel** brings it back). The project and computer chips above an empty composer are one
+clipped sliver; a **Back to conversation** button at its top-left, and **Hide panel**, bring it back). The project and computer chips above an empty composer are one
 flat row on the composer's own edges, and the page edge under the composer is solid, so a long reply never shows
 through below it. The panel and conversation widths animate together, and the
 details control remains mounted during the transition. Closing the panel or
@@ -3282,3 +3297,11 @@ runs its installed browser, terminal and Files applications; its live desktop
 supports exclusive operator control. Remote hosts, native release packaging and
 auto-update are not offered in this preview. Source comparisons and validation
 receipts are in `research/runtime-desktop-20260930/`.
+
+## First paint
+
+Until the first list of projects has arrived the sidebar shows a quiet placeholder bar under
+*Projects* instead of "Use + to add a project.", and a placeholder bar under *Pals* instead of
+"Loading…", so a hint about an empty list never sits beside a list that is still loading. The
+welcome page, which has no project, Pal or conversation, draws no "Workspace / Start a conversation"
+breadcrumb above its heading.

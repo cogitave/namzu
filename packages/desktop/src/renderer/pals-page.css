@@ -456,6 +456,26 @@
 	display: block;
 	margin: 6px 8px;
 }
+/* A quiet placeholder bar while a list loads; it never sits beside an empty-state sentence. */
+.sidebar-skeleton {
+	display: block;
+	height: 10px;
+	width: 55%;
+	margin: 8px;
+	border-radius: 999px;
+	background: color-mix(in srgb, var(--sidebar-muted-foreground) 22%, transparent);
+	animation: sidebar-skeleton-pulse 1.4s ease-in-out infinite;
+}
+@keyframes sidebar-skeleton-pulse {
+	50% {
+		opacity: 0.45;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.sidebar-skeleton {
+		animation: none;
+	}
+}
 @keyframes pals-arrive {
 	from {
 		opacity: 0;

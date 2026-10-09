@@ -91,6 +91,8 @@ export interface DesktopInfo {
 	version: string
 	/** Absent when the bundled runtime cannot be read. */
 	cliVersion?: string
+	/** A separate Namzu command line found on this computer's PATH, when there is one. */
+	installedCliVersion?: string
 	sdkVersion?: string
 	platform: string
 	folders: { kind: DataFolderKind; label: string; path: string }[]

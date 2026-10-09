@@ -931,6 +931,10 @@ pre {
 	visibility: hidden;
 	transition: transform var(--motion-duration) var(--motion-ease), visibility var(--motion-duration);
 }
+.panel-back-row {
+	display: none;
+	padding: 6px 8px 0;
+}
 .jobs-panel[data-open="true"] {
 	visibility: visible;
 	transform: translateX(0);
@@ -1168,6 +1172,9 @@ pre {
 		width: 100%;
 		box-shadow: none;
 		z-index: 30;
+	}
+	.panel-back-row {
+		display: flex;
 	}
 }
 @media (max-width: 767px) {

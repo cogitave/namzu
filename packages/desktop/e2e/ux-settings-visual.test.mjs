@@ -116,17 +116,37 @@ flow("Settings has one heading per page, no control-less shell row, and a search
 	await search.fill("");
 });
 
+flow("every Settings section opens with the same header, so the search box never moves", {}, async (w) => {
+	await openProject(w);
+	let top;
+	for (const section of ["General", "Models", "Projects", "Appearance", "Updates", "Speech", "About"]) {
+		await openSettings(w, section);
+		const searchbox = w.page.getByRole("searchbox", { name: "Search settings" });
+		const title = w.page.getByRole("heading", { level: 1, name: section, exact: true });
+		await expect(w.page.locator(".settings-page-header p")).toHaveText(/\S/);
+		// The page eases in; measure once its animations have finished, against the first section's positions.
+		await w.page.evaluate(() => Promise.allSettled(document.getAnimations().map((animation) => animation.finished)));
+		top ??= { search: Math.round((await box(searchbox)).top), heading: Math.round((await box(title)).top) };
+		await expect.poll(async () => Math.round((await box(searchbox)).top), { timeout: T, message: `${section}: the search box stays put` }).toBe(top.search);
+		await expect.poll(async () => Math.round((await box(title)).top), { timeout: T, message: `${section}: the heading stays put` }).toBe(top.heading);
+		await shot(w, `settings-header-${section.toLowerCase()}`);
+	}
+});
+
 flow("About says versions and system in plain words, with paths only under Data folders", {}, async (w) => {
 	await openProject(w);
 	await openSettings(w, "About");
-	await expect(w.page.getByText("Namzu command line", { exact: true })).toBeVisible();
+	await expect(w.page.getByText("Namzu command line (bundled with this app)", { exact: true })).toBeVisible();
 	await expect(w.page.getByText("Namzu engine (SDK)", { exact: true })).toBeVisible();
 	await expect(w.page.getByText("Linux (64-bit Intel or AMD)")).toBeVisible();
 	const text = await pageText(w);
 	const beforeFolders = text.slice(0, text.indexOf("Data folders"));
 	assert.doesNotMatch(beforeFolders, /linux x64/);
 	assert.ok(!beforeFolders.includes(w.osHome) && !beforeFolders.includes(w.home), "no raw path above Data folders");
-	assert.match(beforeFolders, /Namzu command line\s+\d+\.\d+\.\d+/);
+	assert.match(beforeFolders, /Namzu command line \(bundled with this app\)\s+\d+\.\d+\.\d+/);
+	// Which folders are safe to clear, and which hold the person's work, is said in the page.
+	assert.match(text, /safe to delete/i);
+	await expect(w.page.getByText(/Your conversations, Pals and projects\. Keep this folder\./)).toBeVisible();
 	await expect(w.page.getByRole("button", { name: "Copy version details" })).toBeVisible();
 	await expect(w.page.getByRole("button", { name: /^Open / }).first()).toBeVisible();
 	await shootBoth(w, "settings-about");
@@ -267,7 +287,11 @@ updateFlow(
 		// This build has no updater: nothing contradicts that, and no switch controls what cannot happen.
 		await expect(w.page.getByRole("switch", { name: "Download updates automatically" })).toHaveCount(0);
 		await expect(w.page.getByText("Namzu Desktop version")).toBeVisible();
-		await expect(w.page.getByRole("button", { name: "Check the programs" })).toBeVisible();
+		await expect(w.page.getByRole("button", { name: "Check for updates" })).toBeVisible();
+		await expect(w.page.getByRole("button", { name: "Check the programs" })).toHaveCount(0);
+		// This copy cannot update itself, so it claims no check of its own.
+		assert.ok(!/Last checked/.test(text), "no Last checked on a copy that cannot update itself");
+		assert.ok(!/You may be offline/.test(text), "no offline wording");
 		assert.ok(!/Download updates automatically/.test(text));
 		// One Namzu command line row, which says what bundled means.
 		await expect(w.page.locator("[id^='setting-engine-namzu']")).toHaveCount(1);
@@ -391,7 +415,7 @@ flow("times read one way, the composer's edge is solid, and the Changes panel do
 	const covers = side.left <= lane.left + 1;
 	assert.ok(visibleChat >= 420 || covers, `the chat keeps ${visibleChat}px beside the panel, or the panel covers it`);
 	if (covers) {
-		await panel.getByRole("button", { name: "Hide panel" }).click();
+		await panel.getByRole("button", { name: "Back to conversation" }).click();
 		await expect(panel).toBeHidden();
 		await expect(w.page.getByText("Wrote out.txt.")).toBeVisible();
 		await expect(w.page.getByRole("textbox", { name: "Message Namzu" })).toBeVisible();
