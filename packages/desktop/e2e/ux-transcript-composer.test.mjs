@@ -121,6 +121,8 @@ flow(
 		await expect(approvalCard(w)).toBeVisible({ timeout: T });
 		await expect(approvalCard(w).getByText(`Runs on your computer in ${w.project}`, { exact: false })).toBeVisible();
 		await expect(approvalCard(w).getByText("deletes or overwrites files", { exact: false })).toBeVisible();
+		await expect(approvalCard(w).getByText("Enter rejects it", { exact: false })).toBeVisible();
+		await expect(approvalCard(w).getByRole("button", { name: "Reject" })).toBeFocused();
 		const gap = await w.page.evaluate(() => {
 			const buttons = document.querySelector('[aria-label="Tool approval"] .approval-footer');
 			const box = document.querySelector('textarea[aria-label="Message Namzu"], [role="textbox"][aria-label="Message Namzu"]');

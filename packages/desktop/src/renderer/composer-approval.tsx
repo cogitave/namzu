@@ -15,6 +15,7 @@ import {
 	approvalConsequence,
 	buildApprovalCard,
 	declineFeedback,
+	riskyCommand,
 } from './approval-card-model.js'
 import { gateNotice, richDiffVerdict } from './changes-review/diff-gate.js'
 import { unifiedDiff } from './changes-review/model.js'
@@ -165,7 +166,10 @@ export function ComposerApproval({
 	const [editing, setEditing] = useState(false)
 	const [note, setNote] = useState('')
 	const editButton = useRef<HTMLButtonElement>(null)
+	const risky =
+		model.kind === 'command' && model.command !== undefined && riskyCommand(model.command)
 	const acceptButton = useRef<HTMLButtonElement>(null)
+	const rejectButton = useRef<HTMLButtonElement>(null)
 	const noteField = useRef<HTMLInputElement>(null)
 	const answered = useRef(false)
 	const returning = useRef(false)
@@ -207,8 +211,9 @@ export function ComposerApproval({
 		const typing =
 			(active instanceof HTMLTextAreaElement || active instanceof HTMLInputElement) &&
 			active.value.trim().length > 0
-		if (!typing) acceptButton.current?.focus()
-	}, [])
+		// A command that deletes never has Enter on yes: a stray Enter must not run it.
+		if (!typing) (risky ? rejectButton : acceptButton).current?.focus()
+	}, [risky])
 	useEffect(() => {
 		if (editing) noteField.current?.focus()
 		// Back to where the person was, not to the composer.
@@ -388,6 +393,7 @@ export function ComposerApproval({
 												Tell Namzu what to do instead
 											</button>
 											<button
+												ref={rejectButton}
 												type="button"
 												className="approval-button"
 												data-tone="reject"
@@ -409,7 +415,9 @@ export function ComposerApproval({
 								</footer>
 								{!editing && (
 									<p className="approval-hint">
-										Enter accepts. Esc stops this reply and nothing waiting here runs.
+										{risky
+											? 'This one looks risky, so Enter rejects it. Esc stops this reply and nothing waiting here runs.'
+											: 'Enter accepts. Esc stops this reply and nothing waiting here runs.'}
 									</p>
 								)}
 							</div>

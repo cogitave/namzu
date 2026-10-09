@@ -2667,7 +2667,7 @@ folder it runs in and what it can change (and warns on `rm -rf`, `sudo`, a hard 
 similar), a file card says which file is added or changed, and the `+N`/`−M` counts read
 "N lines added" to a screen reader and on hover. A muted line under the buttons says that
 Enter accepts and Esc stops the reply (Esc is the app's Stop key everywhere, so it is not
-a Reject). A new card moves the keyboard to Accept so Enter answers it, except when the
+a Reject). A new card moves the keyboard to Accept so Enter answers it (to Reject for a command that looks like it deletes, so a stray Enter cannot run it, and the line then says "Enter rejects it"), except when the
 person has words typed in a field, which keep their place. The card sits above the
 message box with room for its buttons. Reject sends a plain
 reject. Accept approves. **Tell Namzu what to do instead** turns the footer into a one-line field, "Tell Namzu

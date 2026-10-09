@@ -33,6 +33,11 @@ it('tells the person which keys answer the card', () => {
 	expect(draw(bash('ls'))).toContain('Enter accepts. Esc stops this reply')
 })
 
+it('does not leave Enter on yes for a command that deletes', () => {
+	expect(draw(bash('rm -rf build'))).toContain('Enter rejects it')
+	expect(draw(bash('rm -rf build'))).not.toContain('Enter accepts')
+})
+
 it('explains the added-lines badge to a screen reader and on hover', () => {
 	const html = draw({
 		id: 'r2',
