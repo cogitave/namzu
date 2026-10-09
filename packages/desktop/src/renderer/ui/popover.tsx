@@ -18,6 +18,15 @@ function PopoverTrigger({ className, children, ...props }: PopoverPrimitive.Trig
 
 // Popovers hold prose and forms, so a width is fixed rather than a minimum,
 // and every width is capped to the viewport.
+// A popover never leaves the window: it keeps this much clear of every edge, flips to the other
+// side when its own does not fit, and slides along the edge rather than past it.
+const POPOVER_COLLISION_PADDING = 8
+const POPOVER_COLLISION_AVOIDANCE: PopoverPrimitive.Positioner.Props['collisionAvoidance'] = {
+	side: 'flip',
+	align: 'shift',
+	fallbackAxisSide: 'end',
+}
+
 const popoverPopupWidthClassName = {
 	auto: '',
 	sm: 'w-64',
@@ -44,6 +53,8 @@ function PopoverPopup({
 	align = 'center',
 	sideOffset = 4,
 	alignOffset = 0,
+	collisionPadding = POPOVER_COLLISION_PADDING,
+	collisionAvoidance = POPOVER_COLLISION_AVOIDANCE,
 	tooltipStyle = false,
 	keepMounted = false,
 	anchor,
@@ -55,6 +66,8 @@ function PopoverPopup({
 	align?: PopoverPrimitive.Positioner.Props['align']
 	sideOffset?: PopoverPrimitive.Positioner.Props['sideOffset']
 	alignOffset?: PopoverPrimitive.Positioner.Props['alignOffset']
+	collisionPadding?: PopoverPrimitive.Positioner.Props['collisionPadding']
+	collisionAvoidance?: PopoverPrimitive.Positioner.Props['collisionAvoidance']
 	tooltipStyle?: boolean
 	keepMounted?: PopoverPrimitive.Portal.Props['keepMounted']
 	anchor?: PopoverPrimitive.Positioner.Props['anchor']
@@ -69,8 +82,10 @@ function PopoverPopup({
 				align={align}
 				alignOffset={alignOffset}
 				anchor={anchor}
+				collisionAvoidance={collisionAvoidance}
+				collisionPadding={collisionPadding}
 				className={cn(
-					'z-[130] h-(--positioner-height) w-(--positioner-width) max-w-(--available-width) transition-transform data-instant:transition-none',
+					'z-[130] h-(--positioner-height) w-(--positioner-width) max-w-[min(var(--available-width),calc(100vw-1rem))] transition-transform data-instant:transition-none',
 					positionerClassName,
 				)}
 				data-slot="popover-positioner"

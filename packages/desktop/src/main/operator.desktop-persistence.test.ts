@@ -343,3 +343,29 @@ it.each(['foreign', 'unreadable', 'wrong-session', 'partial'])(
 		})
 	},
 )
+
+it('keeps a Pal marked unread across a restart until it is read, and refuses a bad id', async () => {
+	const root = await directory()
+	const log = join(root, 'requests.ndjson')
+	const before = operator(root, log)
+	// A conversation exists so the desktop file is written with its other data.
+	const project = await before.openProject(process.cwd())
+	await before.newConversation(project.id)
+	expect(before.setPalUnread('pal-a', true)).toEqual(['pal-a'])
+	expect(before.setPalUnread('pal-b', true)).toEqual(['pal-a', 'pal-b'])
+	expect(before.setPalUnread('pal-a', true)).toEqual(['pal-a', 'pal-b'])
+	expect(() => before.setPalUnread('', true)).toThrow('Invalid Pal')
+	expect(() => before.setPalUnread('x'.repeat(401), true)).toThrow('Invalid Pal')
+	expect(() => before.setPalUnread('pal-a', 'yes')).toThrow('Invalid Pal')
+	await before.close()
+	owners.splice(owners.indexOf(before), 1)
+
+	const after = operator(root, log)
+	expect(after.palUnread()).toEqual(['pal-a', 'pal-b'])
+	// Opening the Pal reads it; that too survives a restart.
+	expect(after.setPalUnread('pal-a', false)).toEqual(['pal-b'])
+	expect(after.setPalUnread('pal-a', false)).toEqual(['pal-b'])
+	await after.close()
+	owners.splice(owners.indexOf(after), 1)
+	expect(operator(root, log).palUnread()).toEqual(['pal-b'])
+})

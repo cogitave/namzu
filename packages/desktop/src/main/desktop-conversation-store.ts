@@ -46,6 +46,8 @@ export interface DesktopConversationSnapshot {
 	attachments: SavedDesktopAttachment[]
 	/** The model last picked per engine, so a new conversation continues from it. */
 	lastModels?: Record<string, SavedLastModel>
+	/** Pals the person has messaged and not opened since; the sidebar's "New message" marker. */
+	unreadPals?: string[]
 }
 export interface SavedLastModel {
 	provider: string
@@ -217,6 +219,11 @@ function lastModels(input: unknown): Record<string, SavedLastModel> {
 		}),
 	)
 }
+function unreadPals(input: unknown): string[] {
+	const ids = array(input, 1024).map(id)
+	if (new Set(ids).size !== ids.length) throw new Error('Duplicate saved unread Pal.')
+	return ids
+}
 function metadata(input: unknown): Omit<DesktopConversationSnapshot, 'attachments'> {
 	const value = record(input, [
 		'version',
@@ -224,6 +231,7 @@ function metadata(input: unknown): Omit<DesktopConversationSnapshot, 'attachment
 		'conversations',
 		'projectDrafts',
 		'lastModels',
+		'unreadPals',
 		'attachments',
 	])
 	if (value.version !== 1) throw new Error('Unsupported saved desktop conversation version.')
@@ -269,6 +277,7 @@ function metadata(input: unknown): Omit<DesktopConversationSnapshot, 'attachment
 		conversations,
 		projectDrafts,
 		...(value.lastModels === undefined ? {} : { lastModels: lastModels(value.lastModels) }),
+		...(value.unreadPals === undefined ? {} : { unreadPals: unreadPals(value.unreadPals) }),
 	}
 }
 function attachment(input: unknown): SavedDesktopAttachment {
@@ -343,6 +352,7 @@ function parsed(input: unknown): DesktopConversationSnapshot {
 		'conversations',
 		'projectDrafts',
 		'lastModels',
+		'unreadPals',
 		'attachments',
 	])
 	const result = {
@@ -460,6 +470,8 @@ export class DesktopConversationStore {
 			'conversations',
 			'projectDrafts',
 			'lastModels',
+			'unreadPals',
+			'unreadPals',
 			'attachmentFile',
 		])
 		let attachments: unknown[] = []
@@ -480,6 +492,7 @@ export class DesktopConversationStore {
 			conversations: value.conversations,
 			projectDrafts: value.projectDrafts,
 			lastModels: value.lastModels,
+			unreadPals: value.unreadPals,
 			attachments,
 		})
 		this.cachedAttachments = cloneAttachments(snapshot.attachments)
@@ -493,6 +506,8 @@ export class DesktopConversationStore {
 			'conversations',
 			'projectDrafts',
 			'lastModels',
+			'unreadPals',
+			'unreadPals',
 			'attachments',
 		])
 		const incoming = array(value.attachments, 131_072)

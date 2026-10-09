@@ -1242,8 +1242,13 @@ on the person's side ("Sent at *time*") with the delivery status beneath it
 time among the chat bubbles. The window rereads the inbox when the Pal opens and when
 a turn starts or ends. This is display only: it never starts or wakes the Pal. Until the
 person opens the Pal, its sidebar row shows a small dot ("New message") after a message
-sent from a conversation in this window (history reloaded from disk does not light it;
-the dot is not kept across a restart).
+sent from a conversation in this window (history reloaded from disk does not light it).
+The dot is kept by main: the renderer tells it through `setPalUnread(id, unread)` when the
+dot is set and when the Pal's conversation is opened, and `palUnread()` returns the ids at
+startup. Main stores them as `unreadPals` (at most 1024 distinct ids, validated like the rest of
+the file) in `desktop-conversations.json`, so the dot survives a restart and a deleted Pal's
+entry is not returned. `e2e/pal-unread-restart.test.mjs` sends a message, restarts the app, sees
+the dot, opens the Pal, restarts again and sees it gone.
 
 An activity subscription selects a known owned source Pal and its exact original
 conversation, plus a recipient. The currently opened Pal must be one participant.
@@ -2591,6 +2596,17 @@ chip (the NAMZU wordmark for Namzu), the switch and the search button keep their
 fit one line, the chip, switch and search drop to a line of their own under the title, and a title that
 is still too long is cut with an ellipsis. `e2e/model-header.test.mjs` measures every part's box in both
 themes at window widths 900 to 1440 and 100, 125 and 150% zoom and fails on any overlap.
+
+Every composer popup (model, effort, engine, permission, attach, project chooser, and the model
+control inside a Pal's plus popup) stays inside the window. `PopoverPopup` gives every popover an
+8px collision padding, a flip to the other side when its own side is full, a slide along the edge
+instead of past it, and a width of at most the space left and the window minus 1rem.
+`e2e/composer-popups.test.mjs` opens each popup on the landing composer, in a conversation and in a
+Pal, at window widths 900, 1100 and 1440 and 100, 125 and 150% zoom in both themes, waits until the
+popup's content has loaded and its box has held still for 20 frames, and measures the popup and its
+positioner against the viewport. A popup left open while the window shrinks and zooms is measured
+too. Its screenshots use Electron's own capture, because Playwright's crops a zoomed page to its
+unzoomed width.
 
 | Engine | Program and arguments |
 | --- | --- |
