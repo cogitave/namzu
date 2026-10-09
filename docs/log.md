@@ -2,6 +2,7 @@
 
 ## 2026-10-09
 
+- **Update** `packages/cli/src/tui/index.tsx`: the terminal app draws live on a real terminal even when `CI` variables are set, instead of showing a blank screen until exit; the variables are left as they are for the commands the agent runs.
 - **Update** `packages/desktop/src/main/rpc-client.ts`: the runtime connection joins a message once when its line ends instead of searching the growing buffer on every chunk, so large messages such as images no longer slow the window.
 - **Update** `packages/desktop/scripts/stage-installer.mjs`: staging that downloads Python measures the archive before it deletes the download, so the desktop release workflow's stage step completes.
 - **Update** [Desktop](cli/desktop.md#sidebar-tabs-and-the-command-palette) puts a sidebar row's hover glyph (close, pin, archive) on the same centre as the status dot it replaces, across and down (the button now ends on the row's edge and each mark in the state slot is centred 14px in), and trims the row title to its x-height band so its letters are centred with them on Windows (`text-box: trim-both ex alphabetic`), with an e2e (`sidebar-row-geometry.test.mjs`) that measures the drawn glyph paths.

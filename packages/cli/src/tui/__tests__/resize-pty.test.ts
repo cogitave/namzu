@@ -93,6 +93,9 @@ await import(${JSON.stringify(`file://${BIN}`)})
 		command: process.execPath,
 		args: [entry],
 		env: {
+			// CI markers in the child's environment must not stop the screen drawing live.
+			CI: 'true',
+			GITHUB_ACTIONS: 'true',
 			NAMZU_HOME: home,
 			HOME: root,
 			OPENAI_API_KEY: 'not-a-secret',

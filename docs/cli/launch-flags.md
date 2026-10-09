@@ -40,6 +40,10 @@ The same four flags exist on `namzu exec` and `namzu drain`, written after the c
 
 An unknown provider, or one the session cannot start on, does not leave an unusable session: the provider list opens with the reason (`Could not start with <provider> / <model>: …`), and picking from it is an ordinary choice. An invalid `--effort` or `--permission-mode` value is refused before anything starts, with the values it takes.
 
+## Environment markers
+
+The terminal app draws live in a terminal even when the shell exports `CI` or a similar marker; only its own drawing is affected, and the commands the agent runs still see the same variables. With output or input piped, the usual detection applies.
+
 ## The desktop's terminal tabs
 
 The Desktop's "CLI" surface for the Namzu engine starts this same command in a terminal tab with the composer's choices as these flags, and the composer's text as `--message=`, which is why they are session-only: the person's saved preferences are theirs, and a tab started for one task must not rewrite them. See [Desktop](desktop.md#host-terminals).
