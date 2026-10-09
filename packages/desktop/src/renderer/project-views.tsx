@@ -70,3 +70,48 @@ export function ProjectOpenError({
 		</Empty>
 	)
 }
+
+/** The folder was moved or deleted. Not a trust problem, so no trust words: find it, or let it go. */
+export function ProjectMissing({
+	name,
+	path,
+	onLocate,
+	onRemove,
+	removeDisabled,
+}: {
+	name: string
+	path: string
+	onLocate: () => void
+	onRemove?: (trigger: HTMLElement | null) => void
+	removeDisabled?: boolean
+}) {
+	return (
+		<Empty className="welcome project-open-error project-missing">
+			<EmptyHeader className="max-w-lg px-8">
+				<EmptyTitle>
+					<h1>{name} can’t be found</h1>
+				</EmptyTitle>
+				<EmptyDescription>
+					This folder no longer exists. It may have been moved, renamed or deleted.
+				</EmptyDescription>
+				<EmptyDescription className="project-path">{path}</EmptyDescription>
+			</EmptyHeader>
+			<div className="project-missing-actions">
+				<Button type="button" className="primary" size="default" onClick={onLocate}>
+					Locate folder…
+				</Button>
+				{onRemove && (
+					<Button
+						type="button"
+						variant="outline"
+						size="default"
+						disabled={removeDisabled}
+						onClick={(event) => onRemove(event.currentTarget)}
+					>
+						Remove project…
+					</Button>
+				)}
+			</div>
+		</Empty>
+	)
+}

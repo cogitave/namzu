@@ -540,6 +540,34 @@ describe('public message and reasoning lifecycle', () => {
 		).toHaveProperty('messageId', MID)
 	})
 
+	it('maps a provider retry to a wait a client can show, with no provider body', () => {
+		expect(
+			toAcpSessionUpdate(
+				{
+					type: 'provider_retry',
+					sessionId: SID,
+					turnId: TID,
+					iteration: 1,
+					attempt: 2,
+					maxRetries: 5,
+					delayMs: 6000,
+					code: 'rate_limit',
+					status: 429,
+					serverDirected: true,
+				} as SessionEvent,
+				presenter,
+			),
+		).toEqual({
+			kind: 'provider_retry',
+			attempt: 2,
+			maxRetries: 5,
+			delayMs: 6000,
+			status: 429,
+			serverDirected: true,
+			turnId: TID,
+		})
+	})
+
 	it('preserves a measured zero duration rather than treating it as missing', () => {
 		expect(
 			toAcpSessionUpdate(

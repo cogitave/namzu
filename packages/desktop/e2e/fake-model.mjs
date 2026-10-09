@@ -97,6 +97,15 @@ function pick(rules, messages) {
 }
 
 function respond(res, request, step) {
+	// A provider failure: `{ status, body, headers }` answers with that HTTP status instead of a reply.
+	if (step.status) {
+		res.writeHead(step.status, {
+			"content-type": step.contentType ?? "application/json",
+			...(step.headers ?? {}),
+		});
+		res.end(step.body ?? "");
+		return;
+	}
 	const id = "chatcmpl-e2e";
 	const message = step.tool
 		? {

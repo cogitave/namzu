@@ -72,6 +72,10 @@ export class RuntimeClient extends EventEmitter {
 		return this.projectGit
 	}
 	private projectChanges = false
+	private providerSetup = false
+	supportsProviderSetup(): boolean {
+		return this.providerSetup
+	}
 	supportsProjectChanges(): boolean {
 		return this.projectChanges
 	}
@@ -190,7 +194,7 @@ export class RuntimeClient extends EventEmitter {
 			finishStderr()
 			this.processClosed = true
 			this.report('cli_closed', { exitCode })
-			this.fail(new Error('The Namzu connection closed. Reopen the project to reconnect.'))
+			this.fail(new Error('The Namzu connection closed.'))
 		})
 		const result = (await this.request(
 			'initialize',
@@ -219,6 +223,13 @@ export class RuntimeClient extends EventEmitter {
 		this.terminals = Object.values(TERMINAL_METHODS).every((method) =>
 			result.extensions?.includes(method),
 		)
+		this.providerSetup = [
+			'namzu/providers/connections',
+			'namzu/providers/save_key',
+			'namzu/providers/remove_key',
+			'namzu/providers/test',
+			'namzu/providers/refresh',
+		].every((method) => result.extensions?.includes(method))
 		this.projectGit = result.extensions?.includes('namzu/project/git') === true
 		this.projectUntrust = result.extensions?.includes('namzu/project/untrust') === true
 		this.projectChanges = ['namzu/project/changes', 'namzu/project/diff'].every((method) =>

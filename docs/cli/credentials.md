@@ -39,7 +39,12 @@ field, and a sign-in starts the same device-code or browser flow `l` starts.
 The paste field feeds the session-credential path. A pasted Google API key is
 saved privately after Google starts successfully, and both the key and selected
 provider are available on the next launch. Other pasted credentials are held
-in memory for that session and written nowhere.
+in memory for that session in the terminal picker. The Desktop's **Settings ▸ Models** saves a
+pasted key for any provider that takes one in `api-keys.json` beside the other credential files
+(`{ "version": 1, "keys": { "<provider id>": "<key>" } }`, created `0600` in a `0700` directory and
+read back and verified like them, refused rather than stored unprotected); discovery reads it after
+the environment, names it `saved API key · this device`, and every Namzu surface then uses it.
+Removing the last key deletes the file.
 
 **The choice follows the ways, not the ids.** What makes a row worth asking
 about is that it has more than one way in — a machine that found a session *and*

@@ -2,11 +2,49 @@ import { expect, it } from 'vitest'
 import type { PermissionView } from '../shared/protocol.js'
 import {
 	FEEDBACK_NOTE_MAX,
+	approvalWarning,
 	baseName,
 	buildApprovalCard,
 	declineFeedback,
+	previewNote,
 	summarizeInput,
 } from './approval-card-model.js'
+
+it('explains a missing preview and names the file a warning is about, in plain words', () => {
+	const write = buildApprovalCard(
+		request([
+			call('write', { path: 'özet ışık.txt', content: 'merhaba' }, { isDestructive: true }),
+		]),
+	)
+	expect(previewNote(write)).toBe(
+		'Namzu couldn’t show what’s in özet ışık.txt now. This is what it wants to write.',
+	)
+	expect(approvalWarning(write)).toBe('This writes over özet ışık.txt if it already exists.')
+	const edit = buildApprovalCard(
+		request([call('edit', { path: 'a.ts', old_string: 'foo', new_string: 'bar' })]),
+	)
+	expect(previewNote(edit)).toBe(
+		'Namzu couldn’t show the whole file. This is the part it wants to change.',
+	)
+	expect(previewNote(buildApprovalCard(request([call('edit', { path: 'a.ts' })])))).toBe(
+		'Namzu couldn’t show a preview of this change.',
+	)
+	const overwrite = buildApprovalCard(
+		request([
+			call(
+				'write',
+				{ path: 'n.md' },
+				{ isDestructive: true, preview: { path: '/w/n.md', before: 'x\n', after: 'y\n' } },
+			),
+		]),
+	)
+	expect(approvalWarning(overwrite)).toBe('This replaces n.md, which already exists.')
+	expect(
+		approvalWarning(buildApprovalCard(request([call('delete', { path: '/w/old.txt' })]))),
+	).toBe('This deletes old.txt.')
+	const command = buildApprovalCard(request([call('bash', { command: 'rm -rf x' })]))
+	expect(approvalWarning(command)).toBe('This command can change or remove files on your computer.')
+})
 
 const request = (calls: PermissionView['calls']): PermissionView => ({
 	id: 'r',

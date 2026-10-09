@@ -65,3 +65,12 @@ answers, Update running in a visible terminal tab and Namzu's own idle server fo
 re-read and the model list refreshed, an update refused while the engine is open in a terminal, a failed command and
 Try again, the second engine's own command, and an install Namzu cannot name (the command and Copy, nothing run). Every other
 flow's harness points `NAMZU_ENGINE_REGISTRY` at a dead port, so no run reaches the real registry.
+
+## Providers and error wording
+
+`ux-providers-errors.test.mjs` runs a first-timer with no key (the harness drops the key variable and, under WSL, the
+variables that let the CLI read the paired Windows account's sign-ins): the composer's empty state, Settings ▸ Models
+(paste, check, remove, nothing left in the window or on disk afterwards), the wording of a 502, a 401 and a 429 countdown
+(`fake-model.mjs` answers a rule step `{ status, body, headers }` as an HTTP failure), a deleted folder, a killed host
+that reconnects by itself, an engine stand-in that cannot start, and an approval card that replaces a file. Pictures go to
+`research/ux-20261009/providers-errors/` in both themes.

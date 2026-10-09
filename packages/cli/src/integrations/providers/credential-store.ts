@@ -143,6 +143,70 @@ export function clearStoredGeminiApiKey(home?: string): void {
 }
 
 /**
+ * Namzu-owned API keys a person pasted for a provider, one file for all of them.
+ * Gemini keeps its own file above so older writers stay readable; every other
+ * provider that accepts a typed key lives here, written with the same
+ * verified-private protection. Environment variables still win in discovery.
+ */
+export function apiKeysPath(home?: string): string {
+	return join(namzuHomePath(home), 'api-keys.json')
+}
+
+function readApiKeyDocument(home?: string): Record<string, string> {
+	const path = apiKeysPath(home)
+	try {
+		protectCredentialParentOnWindows(path)
+		const entry = lstatSync(path)
+		if (!entry.isFile() || entry.isSymbolicLink()) return {}
+		restrictToOwner(path)
+		const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'))
+		if (typeof parsed !== 'object' || parsed === null) return {}
+		const record = parsed as { version?: unknown; keys?: unknown }
+		if (record.version !== 1 || typeof record.keys !== 'object' || record.keys === null) return {}
+		const keys: Record<string, string> = Object.create(null)
+		for (const [id, value] of Object.entries(record.keys as Record<string, unknown>))
+			if (typeof value === 'string' && value.trim()) keys[id] = value
+		return keys
+	} catch {
+		return {}
+	}
+}
+
+/** The saved key for one provider id, or `null`. Never throws. */
+export function readStoredApiKey(providerId: string, home?: string): string | null {
+	return readApiKeyDocument(home)[providerId] ?? null
+}
+
+/** Provider ids that have a saved key. Never carries a key. */
+export function listStoredApiKeyProviders(home?: string): string[] {
+	return Object.keys(readApiKeyDocument(home))
+}
+
+/** Save one provider's key, keeping the others. Throws `CredentialStoreError` if it cannot be made private. */
+export function writeStoredApiKey(providerId: string, apiKey: string, home?: string): string {
+	if (!apiKey.trim()) throw new CredentialStoreError('Cannot store an empty API key.')
+	const path = apiKeysPath(home)
+	mkdirSync(dirname(path), { recursive: true, mode: DIR_MODE })
+	return withCredentialStoreLock(path, () =>
+		writeCredentialBodyUnlocked(
+			`${JSON.stringify({ version: 1, keys: { ...readApiKeyDocument(home), [providerId]: apiKey } })}\n`,
+			path,
+		),
+	)
+}
+
+/** Remove one provider's saved key; the file goes when it was the last. */
+export function clearStoredApiKey(providerId: string, home?: string): void {
+	const path = apiKeysPath(home)
+	mkdirSync(dirname(path), { recursive: true, mode: DIR_MODE })
+	withCredentialStoreLock(path, () => {
+		const { [providerId]: _removed, ...rest } = readApiKeyDocument(home)
+		if (Object.keys(rest).length === 0) rmSync(path, { force: true })
+		else writeCredentialBodyUnlocked(`${JSON.stringify({ version: 1, keys: rest })}\n`, path)
+	})
+}
+
+/**
  * The stored subscription credential, or `null` when there is none.
  *
  * Non-throwing on every shape of absence and corruption — a store that

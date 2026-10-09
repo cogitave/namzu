@@ -11,10 +11,12 @@ export type ProjectStageKind = 'connecting' | 'error' | 'gate' | 'ready'
  * for a failed connection, together with the banner that already handles it.
  */
 export function projectStage(
-	project: Pick<ProjectView, 'status' | 'trusted' | 'palId' | 'isChat'>,
+	project: Pick<ProjectView, 'status' | 'trusted' | 'palId' | 'isChat' | 'lost'>,
 ): ProjectStageKind {
 	if (project.status === 'connecting') return 'connecting'
-	if (project.status === 'error' && !project.palId && !project.isChat) return 'error'
+	// A connection that dropped keeps the conversation on screen; only a project that never opened fails the stage.
+	if (project.status === 'error' && !project.palId && !project.isChat && !project.lost)
+		return 'error'
 	return project.trusted ? 'ready' : 'gate'
 }
 

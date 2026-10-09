@@ -73,6 +73,11 @@ export interface ThreadState {
 	error?: string
 	retry?: DesktopTurnRetry
 	retryNotice?: string
+	/**
+	 * The provider asked to be tried again later. Held only until the next thing happens in the
+	 * turn, so a wait that is over never lingers on screen.
+	 */
+	providerWait?: ProviderWait
 	/** Per journal turn id; only ever written from the CLI's undo-status. */
 	undo?: Record<string, DesktopTurnUndo>
 	tools: Record<string, ProjectedToolCall>
@@ -87,6 +92,16 @@ export interface ThreadState {
 	stopReason?: string
 	reason?: string
 	result?: string
+}
+export interface ProviderWait {
+	/** When the host saw the failed attempt; the wait ends `delayMs` after it. */
+	at: number
+	delayMs: number
+	/** The attempt that just failed, 1-based. */
+	attempt: number
+	maxRetries: number
+	/** The provider is rate limiting (HTTP 429) rather than failing. */
+	throttled: boolean
 }
 export const emptyThread = (): ThreadState => ({
 	revision: 0,
@@ -481,12 +496,13 @@ export function applyEvent(previous: ThreadState, event: DesktopEvent): ThreadSt
 				? thread.liveInputs
 				: thread.liveInputs.filter((item) => item.status !== 'delivered'),
 			liveInputSupported: event.liveInputSupported === true,
+			providerWait: event.running ? thread.providerWait : undefined,
 			activeToolIds: event.running ? thread.activeToolIds : [],
 			activeReasoningId: event.running ? thread.activeReasoningId : undefined,
 			responding: event.running && thread.responding,
 			queued: event.queued,
 			queuedItems: event.queuedItems ?? [],
-			...(event.error ? { error: event.error } : {}),
+			...(event.error ? { error: event.error } : event.clearError ? { error: undefined } : {}),
 		}
 	if (event.kind === 'permission') {
 		const index = thread.permissions.findIndex((permission) => permission.id === event.request.id)
@@ -504,6 +520,22 @@ export function applyEvent(previous: ThreadState, event: DesktopEvent): ThreadSt
 		}
 	if (event.kind !== 'update') return thread
 	const update = event.update
+	if (update.kind === 'provider_retry') {
+		const at = timestamp(event.at)
+		if (at === undefined) return thread
+		return {
+			...thread,
+			providerWait: {
+				at,
+				delayMs: Math.max(0, update.delayMs),
+				attempt: update.attempt,
+				maxRetries: update.maxRetries,
+				throttled: update.status === 429,
+			},
+		}
+	}
+	// Anything else happening in the turn means the wait is over.
+	if (thread.providerWait) thread = { ...thread, providerWait: undefined }
 	const turn = updateTurn(thread, update)
 	const current = turn === thread.turn
 	// The settled answer remains authoritative even if a delayed stream tail

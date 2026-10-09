@@ -18,6 +18,10 @@ export interface ApprovalCardModel {
 	removed?: number
 	/** A file change from an engine that sent no preview: the card says so. */
 	previewMissing: boolean
+	/** The call writes a whole file rather than editing part of one. */
+	write?: boolean
+	/** A write to a path that already holds a file. Unknown without a preview. */
+	overwrites?: boolean
 	command?: string
 	/** The text a message to a Pal would carry, drawn whole rather than summarised. */
 	message?: string
@@ -162,6 +166,7 @@ export function buildApprovalCard(
 		const created = name === 'write' && first.preview?.before === null
 		const kind: ApprovalKind = created ? 'create' : 'edit'
 		const title = `${created ? 'Create' : name === 'write' ? 'Write' : 'Edit'} ${fileName}?`
+		const write = name === 'write'
 		if (first.preview) {
 			const diff = fromPreview(first.preview)
 			return {
@@ -172,6 +177,7 @@ export function buildApprovalCard(
 				diff,
 				...counts(diff.before, diff.after, path),
 				previewMissing: false,
+				...(write ? { write, overwrites: !created } : {}),
 				entries: [],
 				destructive,
 				others,
@@ -190,6 +196,7 @@ export function buildApprovalCard(
 					}
 				: {}),
 			previewMissing: true,
+			...(write ? { write } : {}),
 			entries: [],
 			destructive,
 			others,
@@ -265,4 +272,29 @@ export const FEEDBACK_NOTE_MAX = PERMISSION_FEEDBACK_MAX - FEEDBACK_PREFIX.lengt
 /** The text that reaches the model when the person redirects instead of just rejecting. */
 export function declineFeedback(note: string): string {
 	return `${FEEDBACK_PREFIX}${note.trim()}`
+}
+
+/** Why the card has no "before" to show, and what is shown instead, in plain words. */
+export function previewNote(model: ApprovalCardModel): string {
+	if (!model.diff) return 'Namzu couldn’t show a preview of this change.'
+	return model.write
+		? `Namzu couldn’t show what’s in ${model.fileName ?? 'the file'} now. This is what it wants to write.`
+		: 'Namzu couldn’t show the whole file. This is the part it wants to change.'
+}
+
+/** The caution under a change that removes or replaces something, naming what it touches. */
+export function approvalWarning(model: ApprovalCardModel): string {
+	const file = model.fileName
+	switch (model.kind) {
+		case 'delete':
+			return file ? `This deletes ${file}.` : 'This deletes a file.'
+		case 'edit':
+			if (file && model.overwrites) return `This replaces ${file}, which already exists.`
+			if (file && model.write) return `This writes over ${file} if it already exists.`
+			return file ? `This changes ${file}.` : 'This changes a file.'
+		case 'command':
+			return 'This command can change or remove files on your computer.'
+		default:
+			return 'This action can change or remove data.'
+	}
 }

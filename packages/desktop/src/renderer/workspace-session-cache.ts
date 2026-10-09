@@ -95,6 +95,11 @@ export class WorkspaceSessionCache<T> {
 		}
 	}
 
+	invalidateAll(): void {
+		const projects = new Set([...this.admitted.values()].map((saved) => saved.ticket.projectId))
+		for (const projectId of projects) this.invalidateProject(projectId)
+	}
+
 	invalidateProject(projectId: string): void {
 		this.connections.set(projectId, (this.connections.get(projectId) ?? 0) + 1)
 		for (const [id, saved] of this.admitted)

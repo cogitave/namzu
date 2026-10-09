@@ -199,6 +199,14 @@ export interface ProjectView {
 	 * commands…). It is treated as untrusted until the person confirms; `trust` clears this.
 	 */
 	settingsChanged?: string[]
+	/** The folder was moved or deleted while the project was open; `error` names the path. */
+	missing?: true
+	/**
+	 * The connection to Namzu dropped while the project was open. The conversation stays on
+	 * screen; `reconnecting` is true while Namzu is already trying again on its own.
+	 */
+	lost?: true
+	reconnecting?: true
 	/** A picked folder that is not in the app yet: only `trustFolder` adds it. */
 	pending?: true
 }
@@ -262,9 +270,36 @@ export interface ProviderView {
 		defaultModel: string
 		/** An external engine's installed build; a stored model list is keyed by it. */
 		identity?: string
+		/** Free models with no key: listed, but not a connection a person set up. */
+		anonymous?: true
 	}[]
 	selected: { id: string; model?: string } | null
 }
+/** One provider in Settings ▸ Models. Never carries a key. */
+export interface ProviderConnectionView {
+	id: string
+	label: string
+	/** `free` is the keyless free tier: offered, not a connection. */
+	state: 'connected' | 'free' | 'not-connected'
+	how?:
+		| 'environment'
+		| 'saved-key'
+		| 'claude-sign-in'
+		| 'codex-sign-in'
+		| 'gemini-sign-in'
+		| 'namzu-sign-in'
+		| 'opencode-key'
+		| 'local'
+		| 'free'
+	/** The environment variable's name that supplied the key; never its value. */
+	envName?: string
+	canSaveKey: boolean
+	/** A pasted key Namzu holds, which Remove deletes. */
+	hasSavedKey: boolean
+	help?: string
+}
+export type ProviderTestResult = 'ok' | 'rejected' | 'unchecked' | 'missing'
+
 export interface ModelCatalogueView {
 	/** `default` marks this engine's own recommended default model. */
 	models: {
@@ -485,6 +520,8 @@ export type DesktopEvent = (
 			queued: string[]
 			queuedItems?: QueuedMessageView[]
 			error?: string
+			/** The connection came back: drop the error that said it was lost. */
+			clearError?: true
 			/** Actual first-prompt preflight recovery; never overwrites a newer authored edit. */
 			restoredDraft?: string
 	  }
@@ -506,6 +543,8 @@ export type DesktopEvent = (
 	| { kind: 'project-removed'; projectId: string; sessionIds: string[] }
 	/** A stored model list was refreshed and its rows differ; the next read returns the new rows. */
 	| { kind: 'model-catalogue-updated'; engine: string; provider: string }
+	/** A key was saved or removed: every window re-reads which providers can answer. */
+	| { kind: 'providers-changed' }
 	| {
 			kind: 'pal-deleted'
 			palId: string
@@ -664,6 +703,13 @@ export interface DesktopApi {
 	projects(): Promise<ProjectView[]>
 	pals(): Promise<PalView[]>
 	palProviders(): Promise<ProviderView>
+	/** Settings ▸ Models: every provider Namzu can use and how each is connected. */
+	providerConnections?(): Promise<ProviderConnectionView[]>
+	/** Saves a pasted key in the CLI's private store. The key is never returned or logged. */
+	saveProviderKey?(provider: string, apiKey: string): Promise<ProviderConnectionView[]>
+	removeProviderKey?(provider: string): Promise<ProviderConnectionView[]>
+	/** A cheap authenticated check; never a model turn. */
+	testProvider?(provider: string): Promise<ProviderTestResult>
 	palModels(provider: string): Promise<ModelCatalogueView>
 	createPal(input: PalInput): Promise<PalView>
 	updatePal(id: string, expectedRevision: number, changes: Partial<PalChanges>): Promise<PalView>

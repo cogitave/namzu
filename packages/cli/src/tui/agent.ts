@@ -4144,9 +4144,9 @@ export async function createAgentSession(
 			...(computerUseError
 				? [`Computer use is unavailable on this device: ${describeError(computerUseError)}`]
 				: []),
-			...(computerUseProviderRefusal !== undefined
-				? [`Computer use is unavailable in this session: ${computerUseProviderRefusal}`]
-				: []),
+			// A provider that cannot return images is not a fault to announce at the top of
+			// every session. The roster's computer_use tool carries the reason, and the model
+			// tells the person the moment computer use is actually asked for.
 			...(browserUnavailable !== undefined
 				? [`The browser is unavailable: ${browserUnavailable}`]
 				: []),

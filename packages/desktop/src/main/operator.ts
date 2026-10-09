@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { realpathSync } from 'node:fs'
+import { existsSync, realpathSync } from 'node:fs'
 import { lstat, mkdir, realpath, stat } from 'node:fs/promises'
 import { basename, resolve } from 'node:path'
 import type {
@@ -54,8 +54,11 @@ import type {
 	ProjectRemovalResult,
 	ProjectUntrust,
 	ProjectView,
+	ProviderConnectionView,
+	ProviderTestResult,
 	ProviderView,
 } from '../shared/protocol.js'
+import { readProviderConnections } from '../shared/provider-connections.js'
 import { readTaskUpdate, readTasks } from '../shared/task-protocol.js'
 import { readUndoPreview, readUndoResult, readUndoStatus } from '../shared/undo-protocol.js'
 import type { UpdateBlocker } from '../shared/update-protocol.js'
@@ -157,6 +160,8 @@ interface Conversation {
 	/** Actual successful runtime choice, independent of unsubmitted composer settings. */
 	providerSelection?: { provider: string; model?: string }
 	providerSetupFailure?: string
+	/** The host dropped under this conversation; its error line is cleared once Namzu reconnects. */
+	connectionLost?: boolean
 	selectionRevision?: number
 	selectionPending?: boolean
 	client: RuntimeClient
@@ -392,6 +397,7 @@ export class Operator {
 		private readonly streamProxy?: Pick<PalStreamProxy, 'onClosed' | 'open' | 'close'>,
 		private readonly openIn?: Pick<OpenIn, 'editors' | 'open'>,
 		private readonly folderGuard?: FolderTrustGuard,
+		private readonly options: { autoReconnect?: boolean } = {},
 	) {
 		this.backgroundWork = new BackgroundWorkStatusTracker((event) => this.publish(event))
 		this.communication = new PalCommunicationManager(
@@ -596,7 +602,13 @@ export class Operator {
 		await client.close()
 		this.ownedClients.delete(client)
 	}
-	private async registry(): Promise<RuntimeClient> {
+	private async registry(requirePals = true): Promise<RuntimeClient> {
+		const client = await this.startRegistry()
+		if (requirePals && !client.supportsPals())
+			throw new Error('Update Namzu to a version that supports Pals.')
+		return client
+	}
+	private async startRegistry(): Promise<RuntimeClient> {
 		if (this.closing) throw new Error('Namzu is closing.')
 		if (this.registryClient) return this.registryClient
 		if (this.registryStarting) return this.registryStarting
@@ -612,7 +624,6 @@ export class Operator {
 			try {
 				await client.start()
 				if (this.closing) throw new Error('Namzu is closing.')
-				if (!client.supportsPals()) throw new Error('Update Namzu to a version that supports Pals.')
 				this.registryClient = client
 				return client
 			} catch (error) {
@@ -637,6 +648,63 @@ export class Operator {
 	}
 	async palProviders(): Promise<ProviderView> {
 		return (await (await this.registry()).request('namzu/providers/status')) as ProviderView
+	}
+	private async providerHost(): Promise<RuntimeClient> {
+		const client = await this.registry(false)
+		if (!client.supportsProviderSetup())
+			throw new Error('Update Namzu to a version that can connect providers.')
+		return client
+	}
+	async providerConnections(): Promise<ProviderConnectionView[]> {
+		const client = await this.providerHost()
+		return readProviderConnections(await client.request('namzu/providers/connections'))
+	}
+	/** The key goes straight to the CLI's private store; this process neither keeps nor logs it. */
+	async saveProviderKey(provider: unknown, apiKey: unknown): Promise<ProviderConnectionView[]> {
+		if (typeof provider !== 'string' || !provider.trim() || provider.length > 400)
+			throw new Error('Choose a provider.')
+		if (typeof apiKey !== 'string' || !apiKey.trim()) throw new Error('Paste an API key.')
+		if (apiKey.length > 4096) throw new Error('That is too long to be an API key.')
+		const client = await this.providerHost()
+		await client.request('namzu/providers/save_key', { provider, apiKey: apiKey.trim() })
+		return this.providersChanged(client)
+	}
+	async removeProviderKey(provider: unknown): Promise<ProviderConnectionView[]> {
+		if (typeof provider !== 'string' || !provider.trim() || provider.length > 400)
+			throw new Error('Choose a provider.')
+		const client = await this.providerHost()
+		await client.request('namzu/providers/remove_key', { provider })
+		return this.providersChanged(client)
+	}
+	async testProvider(provider: unknown): Promise<ProviderTestResult> {
+		if (typeof provider !== 'string' || !provider.trim() || provider.length > 400)
+			throw new Error('Choose a provider.')
+		const client = await this.providerHost()
+		const result = (await client.request('namzu/providers/test', { provider }, 45_000)) as {
+			status?: unknown
+		}
+		return result?.status === 'ok' ||
+			result?.status === 'rejected' ||
+			result?.status === 'missing' ||
+			result?.status === 'unchecked'
+			? result.status
+			: 'unchecked'
+	}
+	/** Every open project host and every window must see the new set of providers. */
+	private async providersChanged(registry: RuntimeClient): Promise<ProviderConnectionView[]> {
+		const clients = new Set<RuntimeClient>()
+		for (const project of this.projects.values()) {
+			project.providers = undefined
+			if (project.view.status === 'ready' && project.client.supportsProviderSetup())
+				clients.add(project.client)
+		}
+		for (const session of this.conversations.values()) session.providers = undefined
+		clients.delete(registry)
+		await Promise.allSettled(
+			[...clients].map((client) => client.request('namzu/providers/refresh', {}, 10_000)),
+		)
+		this.emit({ kind: 'providers-changed' })
+		return readProviderConnections(await registry.request('namzu/providers/connections'))
 	}
 	async palModels(provider: string): Promise<ModelCatalogueView> {
 		if (typeof provider !== 'string' || !provider.trim() || provider.length > 400)
@@ -1270,7 +1338,8 @@ export class Operator {
 			event.kind !== 'project-removed' &&
 			event.kind !== 'settings' &&
 			event.kind !== 'open-settings' &&
-			event.kind !== 'model-catalogue-updated'
+			event.kind !== 'model-catalogue-updated' &&
+			event.kind !== 'providers-changed'
 		) {
 			const id = event.kind === 'permission' ? event.request.sessionId : event.sessionId
 			const session = this.conversations.get(id)
@@ -1505,17 +1574,23 @@ export class Operator {
 		client.on('closed', (error: Error) => {
 			if (this.closing || this.projects.get(view.id) !== project) return
 			this.backgroundWork.invalidateProject(view.id)
+			// A connection that was working and dropped is not an unopenable folder: the
+			// conversation stays on screen and Namzu reconnects by itself.
+			const lost = view.status === 'ready' && !view.missing
 			const failure = view.status === 'error' && view.error ? view.error : error.message
 			view.status = 'error'
 			view.error = failure
+			if (lost) view.lost = true
 			for (const session of this.conversations.values()) {
 				if (session.view.projectId !== view.id) continue
 				session.running = false
 				session.permissions.clear()
+				if (lost) session.connectionLost = true
 				this.state(session, failure)
 				this.emit({ kind: 'permission-cleared', sessionId: session.view.id })
 			}
 			this.emit({ kind: 'connection', project: { ...view } })
+			if (lost && this.options.autoReconnect) void this.reconnectAfterLoss(view.id)
 		})
 		try {
 			await client.start()
@@ -1549,6 +1624,7 @@ export class Operator {
 			if (this.closing) throw error
 		}
 		this.emit({ kind: 'connection', project: { ...view } })
+		if (view.status === 'ready') this.clearLostErrors(view.id)
 		this.persistDesktop()
 		return { ...view }
 	}
@@ -1558,7 +1634,12 @@ export class Operator {
 		if (this.removingProjects.has(id)) throw new Error('This project is being removed.')
 		const project = this.projects.get(id)
 		if (!project || project.view.status !== 'ready')
-			throw new Error('Reopen this project to connect Namzu.')
+			throw new Error('Namzu is not connected to this project. Reconnect it, then try again.')
+		// Every action on a project passes here: a folder that has gone is said to be gone, not "untrusted".
+		if (!existsSync(project.view.path)) {
+			this.markFolderMissing(project)
+			throw new Error(project.view.error)
+		}
 		return project
 	}
 	/**
@@ -1569,6 +1650,7 @@ export class Operator {
 		project: { id: string; name: string; path: string }
 		connection: RuntimeClient
 	}> {
+		if (typeof projectId === 'string') this.assertFolderPresent(projectId)
 		const project = this.project(projectId)
 		if (project.view.palId) throw new Error('A Pal’s workspace has no terminal here.')
 		if (!project.view.trusted) throw new Error('Trust this project to open a terminal in it.')
@@ -2899,10 +2981,68 @@ export class Operator {
 			if (session.reattaching === operation) session.reattaching = undefined
 		}
 	}
+	/**
+	 * One automatic attempt after the host dropped. It either clears the loss (new connection,
+	 * stale error gone) or leaves the notice with a Reconnect button; it never loops.
+	 */
+	private async reconnectAfterLoss(projectId: string): Promise<void> {
+		const lost = this.projects.get(projectId)
+		if (!lost || this.closing) return
+		lost.view.reconnecting = true
+		this.emit({ kind: 'connection', project: { ...lost.view } })
+		let next: ProjectView | undefined
+		try {
+			next = await this.reconnect(projectId)
+		} catch {
+			next = undefined
+		}
+		const current = this.projects.get(projectId)
+		if (!current || this.closing) return
+		if (next?.status === 'ready') return
+		// Still down: keep the conversation, stop saying "reconnecting", offer the button.
+		current.view.lost = true
+		current.view.reconnecting = undefined
+		this.emit({ kind: 'connection', project: { ...current.view } })
+	}
+	/** The connection is back: the line that said it was lost no longer describes anything. */
+	private clearLostErrors(projectId: string): void {
+		for (const session of this.conversations.values()) {
+			if (session.view.projectId !== projectId || !session.connectionLost) continue
+			session.connectionLost = false
+			this.state(session, undefined, undefined, true)
+		}
+	}
+	/** The sentence for a project whose folder was moved or deleted while Namzu had it open. */
+	private folderMissingMessage(path: string): string {
+		return `This folder no longer exists: ${path}`
+	}
+	/**
+	 * A folder that vanished is not an untrusted folder: say so before any trust check can. The
+	 * project becomes a failed one that names the missing path; the window offers to locate it or
+	 * remove the project.
+	 */
+	private assertFolderPresent(projectId: string): void {
+		const project = this.projects.get(projectId)
+		if (!project || project.view.status !== 'ready' || existsSync(project.view.path)) return
+		this.markFolderMissing(project)
+		throw new Error(project.view.error)
+	}
+	private markFolderMissing(project: Project): void {
+		project.view.missing = true
+		project.view.status = 'error'
+		project.view.error = this.folderMissingMessage(project.view.path)
+		// Closing the host reports the failed project to every window.
+		void this.closeClient(project.client)
+	}
 	async reconnect(id: string): Promise<ProjectView> {
 		const project = this.projects.get(id)
 		if (!project) throw new Error('Unknown project.')
 		if (project.view.status !== 'error') return { ...project.view }
+		if (!project.view.palId && !existsSync(project.view.path)) {
+			project.view.missing = true
+			project.view.error = this.folderMissingMessage(project.view.path)
+			return { ...project.view }
+		}
 		if (project.view.palId) return (await this.openPal(project.view.palId)).project
 		return this.openProject(project.view.path)
 	}
@@ -3408,6 +3548,7 @@ export class Operator {
 		options?: DesktopSendOptions,
 	): Promise<'accepted' | 'queued'> {
 		const session = this.session(sessionId)
+		this.assertFolderPresent(session.view.projectId)
 		if (session.admitting) throw new Error('Wait for this conversation’s admission to finish.')
 		if (this.changingPlugins.has(sessionId))
 			throw new Error('Wait for this conversation’s settings change to finish.')
@@ -3617,6 +3758,7 @@ export class Operator {
 	}
 	send(sessionId: string, prompt: string, options?: DesktopSendOptions): void | Promise<void> {
 		const session = this.session(sessionId)
+		this.assertFolderPresent(session.view.projectId)
 		if (session.admitting) throw new Error('Wait for this conversation’s admission to finish.')
 		this.assertPalAdmission(session.view.palId)
 		if (this.changingPlugins.has(sessionId))
@@ -4350,7 +4492,12 @@ export class Operator {
 		if (conversation) conversation.draftRevision = (conversation.draftRevision ?? 0) + 1
 		this.persistDesktop()
 	}
-	private state(session: Conversation, error?: string, restoredDraft?: string): void {
+	private state(
+		session: Conversation,
+		error?: string,
+		restoredDraft?: string,
+		clearError?: true,
+	): void {
 		this.emit({
 			kind: 'state',
 			sessionId: session.view.id,
@@ -4369,6 +4516,7 @@ export class Operator {
 				...item.options,
 			})),
 			...(error ? { error } : {}),
+			...(clearError ? { clearError } : {}),
 			...(restoredDraft !== undefined ? { restoredDraft } : {}),
 		})
 	}

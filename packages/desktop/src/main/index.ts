@@ -328,6 +328,8 @@ const operator = new Operator(
 		enabled: () => settingsStore.get().retrustOnConfigChange,
 		canonical: canonicalFolder,
 	}),
+	// A host that drops under an open conversation is reopened once, without a click.
+	{ autoReconnect: true },
 )
 /** Documents as the platform names it; the home folder's Documents when the platform has none. */
 function documentsFolder(): string {
@@ -872,6 +874,12 @@ function register(): void {
 			operator.disablePalSubscription(sessionId, palId, input),
 	)
 	handle('palProviders', () => operator.palProviders())
+	handle('providerConnections', () => operator.providerConnections())
+	handle('saveProviderKey', (provider: unknown, apiKey: unknown) =>
+		operator.saveProviderKey(provider, apiKey),
+	)
+	handle('removeProviderKey', (provider: unknown) => operator.removeProviderKey(provider))
+	handle('testProvider', (provider: unknown) => operator.testProvider(provider))
 	handle('palModels', (provider: string) => operator.palModels(provider))
 	handle('createPal', (input: PalInput) => operator.createPal(input))
 	handle('updatePal', (id: string, revision: number, changes: Partial<PalChanges>) =>

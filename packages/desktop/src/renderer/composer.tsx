@@ -10,6 +10,7 @@ import type {
 	ProviderView,
 	QueuedMessageView,
 } from '../shared/protocol.js'
+import { usableProviders } from '../shared/provider-connections.js'
 import { AttachmentList } from './attachment-list.js'
 import { ComposerApproval } from './composer-approval.js'
 import { PARKED_QUEUE_COPY, UNSUPPORTED_ATTACHMENTS_HINT, decidePaste } from './composer-input.js'
@@ -49,6 +50,9 @@ import { Textarea } from './ui/textarea.js'
 import { Tooltip, TooltipPopup, TooltipTrigger } from './ui/tooltip.js'
 import './composer.css'
 
+const PROVIDER_EMPTY_HELP =
+	'Namzu needs a model provider to answer. Paste an API key, or sign in with Claude Code or Codex and Namzu will find that sign-in.'
+
 export function Composer({
 	draftDisabled = false,
 	inputRef,
@@ -61,6 +65,7 @@ export function Composer({
 	pluginsSupported = true,
 	modelSelectionReady = connected,
 	providersLoading = false,
+	onOpenModelSettings,
 	catalogueReady,
 	modelPending = false,
 	startingEngine,
@@ -133,6 +138,8 @@ export function Composer({
 	/** Catalogue access does not require a Pal's execution computer. */
 	modelSelectionReady?: boolean
 	providersLoading?: boolean
+	/** Opens Settings ▸ Models; the empty state's one action when no provider can answer. */
+	onOpenModelSettings?: () => void
 	/**
 	 * The catalogue may be read: it needs the providers, not the draft settings, so it starts
 	 * while those still load. Defaults to `modelSelectionReady`.
@@ -224,6 +231,8 @@ export function Composer({
 	const hasDraft = draft.length > 0 || attachments.length > 0
 	const [pasteNotice, setPasteNotice] = useState<string>()
 	const cliMode = !compact && surface?.value === 'cli'
+	// Free keyless models are offered but are not a provider the person connected.
+	const noProvider = !providersLoading && usableProviders(providers).length === 0 && !cliMode
 	const cliLabel = engineLabel(harnessView, permissionEngine ?? harnessView?.selected ?? 'namzu')
 	const modelControl = (
 		<ModelPicker
@@ -242,6 +251,7 @@ export function Composer({
 			pending={modelPending}
 			startingEngine={startingEngine}
 			startFailed={startFailed}
+			unconnected={noProvider}
 			disabled={running || sending || !modelSelectionReady || harnessBusy}
 			settings={capabilities}
 			effort={settings.effort}
@@ -745,6 +755,7 @@ export function Composer({
 																cliMode
 																	? !choice.provider || sending || !connected
 																	: (!draft.trim() && attachments.length === 0) ||
+																		noProvider ||
 																		!choice.provider ||
 																		sending ||
 																		attachmentsBusy ||
@@ -793,6 +804,7 @@ export function Composer({
 						!compact &&
 						draft.length === 0 &&
 						attachments.length === 0 &&
+						!noProvider &&
 						providers.available.length > 0 && (
 							<div className="starter-actions" aria-label="Ideas to get started">
 								{[
@@ -814,10 +826,18 @@ export function Composer({
 								))}
 							</div>
 						)}
-					{!providersLoading && providers.available.length === 0 && (
-						<p className="notice">
-							Connect a provider in the Namzu terminal app, then reconnect this project.
-						</p>
+					{noProvider && (
+						<section className="provider-empty" aria-labelledby="provider-empty-title">
+							<h2 id="provider-empty-title">Add an API key or sign in to start</h2>
+							<p>{PROVIDER_EMPTY_HELP}</p>
+							{onOpenModelSettings ? (
+								<Button size="sm" onClick={onOpenModelSettings}>
+									Connect a provider
+								</Button>
+							) : (
+								<p>Open Settings, then Models.</p>
+							)}
+						</section>
 					)}
 					<div aria-hidden className="h-4 sm:h-5" />
 				</div>

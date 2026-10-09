@@ -22,7 +22,7 @@ import type {
 } from '../shared/protocol.js'
 import { ComposerControl, ComposerControlChevron } from './composer-control.js'
 import { ComposerEffortPanel } from './composer-effort-panel.js'
-import { startingLabel, startsAProcess, useElapsed } from './engine-starting.js'
+import { engineStartName, startingLabel, startsAProcess, useElapsed } from './engine-starting.js'
 import {
 	EngineChip,
 	EnginePanel,
@@ -123,6 +123,7 @@ export function ModelPicker({
 	pending = false,
 	startingEngine,
 	startFailed,
+	unconnected = false,
 }: {
 	providers: ProviderView
 	choice: ModelChoice
@@ -150,6 +151,8 @@ export function ModelPicker({
 	startingEngine?: HarnessView['selected']
 	/** The engine failed to answer, so "Starting…" would be a claim of progress that no longer holds. */
 	startFailed?: boolean
+	/** No provider is connected: the trigger says so rather than naming a model nothing can answer with. */
+	unconnected?: boolean
 }) {
 	const [open, setOpen] = useState(false)
 	const [view, setView] = useState<View>('models')
@@ -210,6 +213,8 @@ export function ModelPicker({
 	const kept = shown.current?.scope === shownScope ? shown.current.text : ''
 	const label = trigger.text || (trigger.pending ? kept : '')
 	const triggerPending = trigger.pending && !label
+	// The engine never answered: the trigger says so instead of a skeleton that never resolves.
+	const engineUnavailable = triggerPending && Boolean(startFailed) && startsAProcess(engine)
 	// A process is being awaited: the engine being chosen, or the selected one while its list loads.
 	const starting =
 		startingEngine && startsAProcess(startingEngine)
@@ -269,13 +274,17 @@ export function ModelPicker({
 			setOpen(false)
 		}
 	}, [scope])
-	const accessibleName = startingText
-		? `Model, ${startingText.replace('\u2026', '')}`
-		: label
-			? `Model: ${label}${shownEffort?.value ? `, effort: ${effortLabel(shownEffort.value)}` : ''}`
-			: triggerPending
-				? 'Model, loading'
-				: 'Select model'
+	const accessibleName = unconnected
+		? 'Model: no provider connected'
+		: startingText
+			? `Model, ${startingText.replace('\u2026', '')}`
+			: engineUnavailable
+				? `Model, ${engineStartName(engineName)} unavailable`
+				: label
+					? `Model: ${label}${shownEffort?.value ? `, effort: ${effortLabel(shownEffort.value)}` : ''}`
+					: triggerPending
+						? 'Model, loading'
+						: 'Select model'
 	const choose = (next: ModelChoice) => {
 		if (disabled) return
 		onChange(next)
@@ -318,7 +327,7 @@ export function ModelPicker({
 				render={
 					<ComposerControl
 						className="model-picker-trigger"
-						disabled={disabled || providers.available.length === 0}
+						disabled={disabled || unconnected || providers.available.length === 0}
 						aria-label={accessibleName}
 					/>
 				}
@@ -328,9 +337,15 @@ export function ModelPicker({
 						<HarnessMark engine={engine} />
 					</span>
 				)}
-				{startingText ? (
+				{unconnected ? (
+					<span className="model-picker-trigger-model truncate">No provider connected</span>
+				) : startingText ? (
 					<span className="model-picker-trigger-model model-picker-trigger-starting truncate">
 						{startingText}
+					</span>
+				) : engineUnavailable ? (
+					<span className="model-picker-trigger-model truncate">
+						{engineStartName(engineName)} unavailable
 					</span>
 				) : triggerPending ? (
 					<span

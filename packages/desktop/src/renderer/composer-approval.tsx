@@ -12,8 +12,10 @@ import type { PermissionResponse, PermissionView } from '../shared/protocol.js'
 import {
 	type ApprovalCardModel,
 	FEEDBACK_NOTE_MAX,
+	approvalWarning,
 	buildApprovalCard,
 	declineFeedback,
+	previewNote,
 } from './approval-card-model.js'
 import { gateNotice, richDiffVerdict } from './changes-review/diff-gate.js'
 import { unifiedDiff } from './changes-review/model.js'
@@ -247,12 +249,7 @@ export function ComposerApproval({
 									) : null}
 									{count > 1 && <span className="approval-count">1 of {count}</span>}
 								</header>
-								{model.previewMissing && (
-									<p className="approval-note">
-										Preview not available
-										{model.diff ? ' — this is the change as the tool described it.' : '.'}
-									</p>
-								)}
+								{model.previewMissing && <p className="approval-note">{previewNote(model)}</p>}
 								<DiffBox model={model} wrap={wrap} expanded={expanded} onExpand={setExpanded} />
 								{model.command !== undefined && (
 									// biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable region
@@ -287,9 +284,7 @@ export function ComposerApproval({
 										Also in this request: {model.others.join(', ')}. Your answer covers all of them.
 									</p>
 								)}
-								{showWarning && (
-									<p className="approval-warning">This action changes or removes data.</p>
-								)}
+								{showWarning && <p className="approval-warning">{approvalWarning(model)}</p>}
 								{showDetails && (
 									<details className="approval-details">
 										<summary>Details</summary>

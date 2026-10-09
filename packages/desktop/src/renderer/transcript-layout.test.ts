@@ -173,7 +173,7 @@ it('keeps elapsed labels and pause/limit notices tied to actual reported metadat
 	expect(terminalNotice('end_turn')).toBeUndefined()
 	expect(terminalNotice('paused')).toContain('Paused')
 	expect(terminalNotice('cancelled')).toContain('Stopped')
-	expect(terminalNotice('output_guardrail')).toContain('guardrail')
+	expect(terminalNotice('output_guardrail')).toContain('safety rule')
 })
 
 it('does not label failed or interrupted command groups as completed work', () => {
@@ -222,10 +222,10 @@ it('classifies actual stop metadata without promising unsupported recovery or bl
 		expect(terminalNotice(reason)).not.toMatch(/continue|retry/i)
 	expect(terminalNotice('step_refused')).toContain('execution policy')
 	expect(terminalNotice('step_refused')).not.toContain('approved')
-	expect(terminalNotice('cost_unmeasurable')).toContain('could not be measured')
+	expect(terminalNotice('cost_unmeasurable')).toContain('could not be checked')
 	expect(terminalNotice('answer_rejected')).toContain('response')
 	expect(terminalNotice('plan_rejected')).toContain('plan')
-	expect(terminalNotice('max_iterations')).toContain('turn limit')
+	expect(terminalNotice('max_iterations')).toContain('step limit')
 })
 
 it('does not infer command execution from terminal-shaped generic output', () => {

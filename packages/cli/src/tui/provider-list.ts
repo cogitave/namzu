@@ -204,7 +204,8 @@ export function vendorPaths(
 			((provider.source.kind === 'env' &&
 				(provider.entry.id !== 'zen' || hasApiCredential(provider.entry, provider.apiKey))) ||
 				provider.source.kind === 'opencode-file' ||
-				provider.source.kind === 'stored-gemini-key'),
+				provider.source.kind === 'stored-gemini-key' ||
+				provider.source.kind === 'stored-api-key'),
 	)
 	for (const entry of entries) {
 		if (!entry.constructible || !entry.acceptsTypedCredential) continue

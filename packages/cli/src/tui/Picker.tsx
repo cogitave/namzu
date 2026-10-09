@@ -2188,6 +2188,8 @@ function describeSource(d: DetectedProvider): string {
 			return 'Gemini session · this device'
 		case 'stored-gemini-key':
 			return 'saved Gemini API key · this device'
+		case 'stored-api-key':
+			return 'saved API key · this device'
 		case 'codex-file':
 			return 'Codex session · this device'
 		case 'stored':

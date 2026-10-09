@@ -1583,6 +1583,17 @@ export function createDesktopHostExtensions(
 			)
 			return { selected: true }
 		},
+		'namzu/providers/connections': () => runtime.providerConnections(),
+		'namzu/providers/save_key': async (params: Record<string, unknown>) => {
+			if (Object.keys(params).some((key) => !['provider', 'apiKey'].includes(key)))
+				throw new Error('Saving a key accepts only the provider and the key.')
+			return runtime.saveProviderKey(text(params, 'provider'), text(params, 'apiKey', 4096))
+		},
+		'namzu/providers/refresh': () => runtime.refreshProviders(),
+		'namzu/providers/remove_key': async (params: Record<string, unknown>) =>
+			runtime.removeProviderKey(text(params, 'provider')),
+		'namzu/providers/test': async (params: Record<string, unknown>) =>
+			runtime.testProvider(text(params, 'provider')),
 		'namzu/jobs/list': async (params: Record<string, unknown>) =>
 			runtime.jobs(await ownedReadSession(params)),
 		'namzu/jobs/read': async (params: Record<string, unknown>) =>

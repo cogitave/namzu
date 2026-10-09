@@ -83,6 +83,8 @@ export const credentialSourcesCheck: DoctorCheck = {
 					return `${d.entry.id} (Gemini session · ${d.source.path})`
 				case 'stored-gemini-key':
 					return `${d.entry.id} (saved Gemini API key · ${d.source.path})`
+				case 'stored-api-key':
+					return `${d.entry.id} (saved API key · ${d.source.path})`
 				case 'codex-file':
 					return `${d.entry.id} (Codex session · ${d.source.path})`
 				case 'stored':
