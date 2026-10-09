@@ -88,13 +88,18 @@ describe('the preview of a pending file change', () => {
 		).toBeUndefined()
 	})
 
-	it('has no preview for a path outside the roots, another tool, or a change that changes nothing', async () => {
+	it('has no preview for a path outside the roots or another tool', async () => {
 		expect(await preview('write', { path: '../escape.txt', content: 'x' })).toBeUndefined()
 		expect(
 			await buildFilePreview({ name: 'bash', input: { command: 'ls' } }, [dir]),
 		).toBeUndefined()
+	})
+
+	it('still has a preview for a write that leaves the file as it is, with before equal to after', async () => {
 		await file('same.txt', 'same')
-		expect(await preview('write', { path: 'same.txt', content: 'same' })).toBeUndefined()
+		const result = await preview('write', { path: 'same.txt', content: 'same' })
+		expect(result?.before).toBe('same')
+		expect(result?.after).toBe('same')
 	})
 
 	it('does not read through a link that leaves the roots, nor a CRLF body differently from the tool', async () => {

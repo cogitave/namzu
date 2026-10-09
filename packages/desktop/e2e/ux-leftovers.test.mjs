@@ -111,8 +111,8 @@ flow("the Stop tooltip says why Queue is off, and goes back to plain when it is 
 	});
 	await shot(w, "stop-tooltip-queue-off");
 	await w.page.getByRole("textbox", { name: "Message Namzu" }).fill("and then this");
-	await expect(w.page.getByRole("button", { name: "Queue for next turn" })).toBeEnabled();
-	await w.page.getByRole("button", { name: "Queue for next turn" }).hover();
+	await expect(w.page.getByRole("button", { name: "Queue message for next turn" })).toBeEnabled();
+	await w.page.getByRole("button", { name: "Queue message for next turn" }).hover();
 	await stop.hover();
 	await expect(w.page.getByText("Stop · Esc", { exact: true })).toBeVisible({ timeout: T });
 	w.model.release("slow");

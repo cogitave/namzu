@@ -241,14 +241,14 @@ async function sweep(w, popups, tag) {
 	assert.equal(seen.length, THEMES.length * WIDTHS.length * ZOOMS.length * popups.length);
 }
 
-function flow(name, body) {
+function flow(name, body, options = {}) {
 	test(name, { timeout: 900000 }, async () => {
 		const bin = mkdtempSync(join(tmpdir(), "namzu-e2e-bin-"));
-		writeFileSync(join(bin, "codex"), FAKE_CODEX);
+		writeFileSync(join(bin, "codex"), options.codex ?? FAKE_CODEX);
 		chmodSync(join(bin, "codex"), 0o755);
 		const w = await createWorld({
-			models: ["gpt-5.6-luna", "gpt-6-luna"],
-			model: "gpt-5.6-luna",
+			models: options.models ?? ["gpt-5.6-luna", "gpt-6-luna"],
+			model: options.model ?? "gpt-5.6-luna",
 			pathPrefix: bin,
 			rules: [{ match: /hello/i, steps: [{ text: "Hello there." }] }],
 		});
@@ -325,3 +325,85 @@ flow("every popup of a Pal's composer stays inside the window", async (w) => {
 	await expect(w.page.getByText("Ready to chat")).toBeVisible({ timeout: T });
 	await sweep(w, PAL_POPUPS, "pal");
 });
+
+// The model popup has four steps (effort, models, older models, engine) on two engines. Every step of
+// both engines is measured at every size: it stays inside the window, and all of them share one
+// width and one right edge, so the popup never jumps sideways as a person clicks through.
+const MANY = [8, 7, 6, 5, 4, 3, 2, 1];
+const ENGINE_FAKE_CODEX = FAKE_CODEX.replace(
+	'const models = ["fake-sol", "fake-luna"].map((id, index) => ({ id, model: id, displayName: "Fake " + id.slice(5), isDefault: index === 0,',
+	'const models = [8, 7, 6, 5, 4, 3, 2, 1].map((n, index) => ({ id: "gpt-" + n, model: "gpt-" + n, displayName: "GPT " + n, isDefault: index === 0,',
+);
+const MODEL_TRIGGER = (p) =>
+	p.getByRole("button", { name: /^Model[:,]|gpt-|GPT |Select model/ }).first();
+
+async function openStep(w, step) {
+	await expect(async () => {
+		await w.page.keyboard.press("Escape");
+		await expect(w.page.locator('[data-slot="popover-popup"]')).toHaveCount(0, { timeout: 1000 });
+	}).toPass({ timeout: T });
+	await MODEL_TRIGGER(w.page).click();
+	// A model with a choice of effort opens on that step; one without opens on the model list.
+	const open = w.page.getByRole("dialog", { name: /Reasoning effort|Model picker/ });
+	await expect(open).toBeVisible({ timeout: T });
+	const onEffort = (await open.getAttribute("aria-label")) === "Reasoning effort";
+	if (step === "effort") return onEffort;
+	if (onEffort) await w.page.getByRole("button", { name: /change model/ }).click();
+	await expect(w.page.getByRole("dialog", { name: "Model picker" })).toBeVisible({ timeout: T });
+	if (step === "older") await w.page.locator(".model-picker-fold").first().click();
+	if (step === "engine") {
+		await w.page.getByRole("button", { name: /^Engine:/ }).click();
+		await expect(w.page.getByRole("dialog", { name: "Engine" })).toBeVisible({ timeout: T });
+	}
+	return true;
+}
+
+flow(
+	"every step of the model popup, on both engines, shares one width and one right edge",
+	async (w) => {
+		const first = new Map();
+		for (const engine of ["namzu", "codex"]) {
+			if (engine === "codex") {
+				await openStep(w, "engine");
+				await w.page.getByRole("radio", { name: /Codex CLI/ }).click();
+				await expect(MODEL_TRIGGER(w.page)).toHaveAccessibleName(/GPT 8/, { timeout: T });
+			}
+			for (const theme of THEMES) {
+				await setAppearance(w, theme);
+				for (const [width, zoom] of [
+					[900, 1.5],
+					[900, 1],
+					[1100, 1.25],
+					[1440, 1],
+				]) {
+					await resize(w, width, zoom);
+					const boxes = [];
+					for (const step of ["effort", "models", "older", "engine"]) {
+						const label = `${engine} ${step} ${theme} ${width}px x${zoom}`;
+						if (!(await openStep(w, step))) continue;
+						await expect(w.page.locator('[data-slot="popover-popup"]').last()).not.toContainText(
+							/Loading|Checking/,
+							{ timeout: T },
+						);
+						await w.page.evaluate(settled);
+						const m = await w.page.evaluate(measure);
+						if (width === 900 && zoom === 1.5)
+							await shot(w, `steps-${engine}-${step}-${theme}-900-x1.5`);
+						assertInside(m, label);
+						boxes.push({ label, ...m.popups[m.popups.length - 1].popup });
+					}
+					const same = (a, b) => Math.abs(a.left - b.left) <= 0.5 && Math.abs(a.right - b.right) <= 0.5;
+					const span = (b) => `${b.left.toFixed(1)}..${b.right.toFixed(1)}`;
+					for (const box of boxes)
+						assert.ok(same(box, boxes[0]), `${box.label} sits at ${span(box)}, ${boxes[0].label} at ${span(boxes[0])}`);
+					const key = `${theme} ${width} ${zoom}`;
+					const other = first.get(key);
+					if (other)
+						assert.ok(same(other, boxes[0]), `${engine} popup at ${key} is ${span(boxes[0])}, namzu was ${span(other)}`);
+					else first.set(key, boxes[0]);
+				}
+			}
+		}
+	},
+	{ models: MANY.map((n) => `gpt-${n}`), model: "gpt-8", codex: ENGINE_FAKE_CODEX },
+);

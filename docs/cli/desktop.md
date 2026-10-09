@@ -2696,6 +2696,30 @@ composer instead. A provider or model that begins with a dash or holds a control
 before anything is built.
 `codex` and `claude` are found on `PATH`, `~/.local/bin` and `%APPDATA%\npm`.
 
+### The composer, its popups and approval cards
+
+The model popup has four steps (effort, models with their older models, engine) on every engine.
+All of them share one width, 388 px (less than the window minus 16 px in a narrow window), and
+the popup's right edge stays on the trigger, so it never jumps sideways as a person clicks through;
+the popup's frame no longer draws a scrollbar of its own (the list inside scrolls) so a long list does
+not make it wider. The engine chip names the engine beside its logo (for Codex CLI, its name; the Namzu
+mark is its own name). `e2e/composer-popups.test.mjs` measures every step on the Namzu and Codex
+engines at four window sizes in both themes.
+
+An approval card sits wholly above the composer, with a gap, and "Waiting for your decision" is the
+line directly above it. The transcript keeps that wording for assistive technology only, so it no longer
+floats far above the card. The `+3 lines` badge says what it counts, **Wrap lines** is a labelled button,
+and **Stop** is the same red button while a decision is awaited as while a reply runs. The Queue control
+reads **Queue message**. When the file a write would change already holds exactly that text, the CLI's
+permission preview is still sent (with `before` equal to `after`) and the card says "No change to
+`name`." instead of "couldn't show what's in `name`".
+
+A note typed when declining ("You asked Namzu to do this instead: ...") is drawn as the person's own
+message, in the right-hand bubble. After a reload, a user message that carries the host's attachment
+wrapper (`Attached text file: "name"` followed by the file's text, or `Attached image: "name"`) is read
+back into the person's words plus one chip per file, in `shared/attachment-wrapper.ts`; the file's text
+is never shown as typed. The sidebar row stops spinning as soon as a turn is stopped.
+
 ### Status badge
 
 An engine's tab carries a dot (its accessible name says it in words) for what its program is doing, read

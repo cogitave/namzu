@@ -63,6 +63,14 @@
 	cursor: pointer;
 	transition: background-color 150ms var(--motion-ease);
 }
+.engine-chip-label {
+	max-width: 110px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 12px;
+	line-height: 18px;
+}
 .engine-chip svg:last-child {
 	width: 12px;
 	height: 12px;

@@ -240,8 +240,8 @@
 	outline-offset: 1px;
 }
 .approval-icon-button {
-	width: 28px;
-	padding: 0;
+	gap: 4px;
+	padding: 0 8px;
 	color: var(--muted-foreground);
 }
 .approval-icon-button svg {
@@ -272,4 +272,14 @@
 }
 .approval-button[data-tone="accept"]:hover:not(:disabled) {
 	background: var(--message-action-hover);
+}
+
+/* The state the person is being asked about, directly above the card that asks it. */
+.approval-waiting {
+	position: relative;
+	z-index: 1;
+	margin: 0 0 6px 8px;
+	color: var(--muted-foreground);
+	font-size: 12px;
+	line-height: 18px;
 }

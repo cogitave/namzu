@@ -97,9 +97,11 @@ export function ThreadCard({
 				? `${work.runningCount} ${work.runningCount === 1 ? 'process' : 'processes'} running in background${work.needsAttention ? '; background work needs attention' : ''}`
 				: 'Background work needs attention'
 			: undefined
+	// A stopped turn is not running, even before the host has settled it.
+	const busy = !!thread?.running && thread.stopReason === undefined
 	const threadStatus = thread?.permissions.length
 		? 'Approval needed'
-		: thread?.running
+		: busy
 			? 'Running'
 			: thread?.error
 				? 'Needs attention'
@@ -183,7 +185,7 @@ export function ThreadCard({
 									className="size-3.5 text-warning-foreground"
 									aria-label="Approval needed"
 								/>
-							) : thread?.running ? (
+							) : busy ? (
 								<LoaderCircleIcon
 									className="thread-running-indicator"
 									role="img"

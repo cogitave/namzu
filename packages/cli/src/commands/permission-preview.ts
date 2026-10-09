@@ -15,6 +15,9 @@ interface CallLike {
  * What a pending `edit` or `write` would do to the file, worked out with the
  * SDK's own apply code against the file as it is now.
  *
+ * A change that leaves the file as it is still has a preview, with `before` equal to
+ * `after`, so the client can say "no change" rather than "no preview".
+ *
  * `undefined` whenever there is nothing honest to show: another tool, a path
  * the tool would refuse, a missing file for an edit, a binary or oversized
  * file, a call the tool would reject. A preview must never be the reason an
@@ -52,7 +55,6 @@ export async function buildFilePreview(
 			after = result.content
 		}
 		if (Buffer.byteLength(after) > PREVIEW_MAX_BYTES) return undefined
-		if (before === after) return undefined
 		return { path, before, after }
 	} catch {
 		return undefined

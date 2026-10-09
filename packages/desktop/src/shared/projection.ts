@@ -1,4 +1,5 @@
 import type { AcpSessionUpdate, AcpTask, ToolCallView } from '@namzu/sdk'
+import { splitAttachmentWrapper } from './attachment-wrapper.js'
 import type {
 	ChatMessage,
 	DesktopEvent,
@@ -126,7 +127,15 @@ export const emptyThread = (): ThreadState => ({
 	responding: false,
 })
 /** Durable text history provides no reasoning, tool receipts or host duration. */
-export function restoreMessages(thread: ThreadState, messages: ChatMessage[]): ThreadState {
+export function restoreMessages(thread: ThreadState, input: ChatMessage[]): ThreadState {
+	// A user message carries the model-facing attachment wrapper; show chips, not file text.
+	const messages = input.map((message, index): ChatMessage => {
+		if (message.role !== 'user' || message.attachments?.length) return message
+		const split = splitAttachmentWrapper(message.text, `history-${index}`)
+		return split.attachments.length
+			? { ...message, text: split.text, attachments: split.attachments }
+			: message
+	})
 	let turn = 0
 	const timeline = messages.map((message, index): TimelineEntry => {
 		if (message.role === 'user') turn += 1
