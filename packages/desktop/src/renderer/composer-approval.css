@@ -119,6 +119,25 @@
 	white-space: pre-wrap;
 	overflow-wrap: anywhere;
 }
+.approval-message {
+	max-height: 140px;
+	margin: 0;
+	padding: 8px 12px;
+	overflow: auto;
+	border: 1px solid var(--border);
+	border-left: 3px solid var(--border-strong, var(--muted-foreground));
+	border-radius: 8px;
+	background: var(--surface);
+	color: var(--foreground);
+	font-size: 13px;
+	line-height: 20px;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+.approval-message:focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: -2px;
+}
 .approval-entries {
 	display: grid;
 	gap: 4px;

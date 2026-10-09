@@ -5,6 +5,7 @@ import {
 	baseName,
 	buildApprovalCard,
 	declineFeedback,
+	palMessageNote,
 	summarizeInput,
 } from './approval-card-model.js'
 
@@ -194,4 +195,24 @@ it('names a message to a Pal among the other calls one answer covers', () => {
 		new Map([['pal-1', 'Review']]),
 	)
 	expect(model.others).toEqual(['Message to Review'])
+})
+
+it('keeps the Pal name on a message so the card can say whose inbox it goes to', () => {
+	const model = buildApprovalCard(
+		request([call('send_pal_message', { palId: 'pal-1', body: 'Hi' })]),
+		new Map([['pal-1', 'Işık']]),
+	)
+	expect(model.palName).toBe('Işık')
+	expect(
+		buildApprovalCard(request([call('send_pal_message', { palId: 'x', body: 'Hi' })])).palName,
+	).toBeUndefined()
+})
+
+it('tells the person where an approved message goes, when it is read and how the Pal is started', () => {
+	const note = palMessageNote('Işık')
+	expect(note).toContain('Goes to Işık’s inbox.')
+	expect(note).toContain('reads it the next time it runs')
+	expect(note).toContain('does not start it')
+	expect(note).toContain('namzu pal dispatch')
+	expect(palMessageNote(undefined)).toContain('The Pal reads it the next time it runs')
 })

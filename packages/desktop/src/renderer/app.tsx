@@ -147,9 +147,11 @@ import {
 import { normalConversationProject } from './normal-conversation.js'
 import { notify } from './notify.js'
 import { PalChatTranscript } from './pal-chat-transcript.js'
-import { PalCommunicationDialog } from './pal-communication-dialog.js'
+import { PalCommunicationDialog, type PalSettingsTab } from './pal-communication-dialog.js'
+import { presentComputerNotice } from './pal-computer-notice.js'
 import { PalComputerView } from './pal-computer-view.js'
 import { PalContextCard, type PalContextProps } from './pal-context.js'
+import { palDeletionCopy } from './pal-deletion-copy.js'
 import {
 	PalCatalogueActivity,
 	latestPalConversation,
@@ -358,7 +360,10 @@ export function App({
 	const [communicationOwner, setCommunicationOwner] = useState<{
 		palId: string
 		sessionId: string
+		tab?: PalSettingsTab
 	}>()
+	// A Pal whose messages the person asked to see; shown once its conversation is the open one.
+	const [pendingPalInbox, setPendingPalInbox] = useState<string>()
 	const communicationTrigger = useRef<HTMLButtonElement | null>(null)
 	const [draftPalModel, setDraftPalModel] = useState<PalView['model']>(null)
 	const [palComputers, setPalComputers] = useState<Record<string, ComputerState>>({})
@@ -1000,6 +1005,13 @@ export function App({
 		)
 			setCommunicationOwner(undefined)
 	}, [focused, pal?.id, sessionId, communicationOwner])
+	useEffect(() => {
+		if (!pendingPalInbox || !focused || loading || !pal || pal.id !== pendingPalInbox || !sessionId)
+			return
+		setPendingPalInbox(undefined)
+		communicationTrigger.current = null
+		setCommunicationOwner({ palId: pal.id, sessionId, tab: 'inbox' })
+	}, [pendingPalInbox, focused, loading, pal, sessionId])
 	useEffect(() => {
 		if (project?.id && !project?.palId) previousNormalProject.current = project.id
 	}, [project?.id, project?.palId])
@@ -3215,6 +3227,23 @@ export function App({
 			if (loadingGeneration === navigation.current) setLoading(false)
 		}
 	}
+	/** The open conversation when nothing was ever said, typed or run in it; otherwise nothing. */
+	const untouchedConversation = (): string | undefined => {
+		const view = conversations.find((item) => item.id === sessionId)
+		const owned = threads[sessionId]
+		if (
+			!view ||
+			view.palId ||
+			view.title !== 'New conversation' ||
+			owned?.messages.length ||
+			owned?.running ||
+			owned?.queued.length ||
+			owned?.permissions.length ||
+			draftsRef.current[sessionId]?.trim()
+		)
+			return undefined
+		return view.id
+	}
 	const savePal = async (value: PalInput, id?: string) => {
 		setPalsSaving(true)
 		setPalsError('')
@@ -3230,7 +3259,18 @@ export function App({
 			setEditingPal(undefined)
 			setCreatingPal(false)
 			// Editing stays in the current conversation; its model choice is local.
-			if (!id) await openPal(saved).catch((failure) => setError(errorText(failure)))
+			if (!id) {
+				// Starting a Pal from an empty, untouched "New conversation" would leave that tab
+				// open beside it for no reason, so it closes once the Pal has opened.
+				const blank = untouchedConversation()
+				await openPal(saved).catch((failure) => setError(errorText(failure)))
+				if (blank && context.current.group.tabs.includes(blank))
+					await onAction({
+						kind: 'close',
+						groupId: context.current.group.id,
+						tabId: blank,
+					}).catch(() => undefined)
+			}
 		} catch (failure) {
 			setPalsError(errorText(failure))
 		} finally {
@@ -3709,6 +3749,24 @@ export function App({
 		return operation
 	}
 
+	const togglePalPaused = (value: PalView) =>
+		void act(async () => {
+			upsertPal(await api.updatePal(value.id, value.revision, { paused: !value.paused }))
+		})
+	const openPalInbox = (palName: string) => {
+		const matches = pals.filter((item) => item.name === palName)
+		const target = matches[0]
+		if (!target) return
+		if (matches.length > 1) {
+			notify(`More than one Pal is called ${palName}. Open the one you meant from the sidebar.`, {
+				tone: 'warning',
+			})
+			return
+		}
+		setPendingPalInbox(target.id)
+		void act(() => openPal(target))
+	}
+
 	const palContextProps: PalContextProps | null = pal
 		? {
 				pal,
@@ -3734,11 +3792,12 @@ export function App({
 								: 'error',
 					screen: currentScreen,
 					loading: computerCapture?.loading,
-					notice:
+					notice: presentComputerNotice(
 						palComputer?.notice ??
-						(palComputer?.status === 'stopped'
-							? 'Start your Pal’s local computer to use apps and tools.'
-							: undefined),
+							(palComputer?.status === 'stopped'
+								? 'Start your Pal’s local computer to use apps and tools.'
+								: undefined),
+					),
 				},
 				hostComputer: humanComputer,
 				activity: palRecentActivity(thread),
@@ -3769,14 +3828,7 @@ export function App({
 						}
 					: undefined,
 				customizeDisabled: palBusy || palsSaving,
-				onPause: () =>
-					void act(async () => {
-						upsertPal(
-							await api.updatePal(pal.id, pal.revision, {
-								paused: !pal.paused,
-							}),
-						)
-					}),
+				onPause: () => togglePalPaused(pal),
 				pauseDisabled: palBusy || palsSaving,
 				onStartComputer: pal.paused ? undefined : () => void startPalComputer(pal),
 				onOpenComputer: () => void openPalScreen(pal),
@@ -4328,6 +4380,7 @@ export function App({
 			onRemove={api.removeConversation ? requestConversationRemoval : undefined}
 			actions={tabActions}
 			palNames={Object.fromEntries(pals.map((item) => [item.id, item.name]))}
+			palAppearances={Object.fromEntries(pals.map((item) => [item.id, item.appearance]))}
 			palWorkspace={palTabs}
 			backgroundWork={backgroundWork}
 			running={(id) => threads[id]?.running ?? false}
@@ -4395,10 +4448,30 @@ export function App({
 							pal?.id === communicationOwner.palId &&
 							sessionId === communicationOwner.sessionId && (
 								<PalCommunicationDialog
-									key={`${sessionId}:${pal.id}`}
+									key={`${sessionId}:${pal.id}:${communicationOwner.tab ?? 'general'}`}
 									api={api}
 									sessionId={sessionId}
 									pal={pal}
+									tab={communicationOwner.tab}
+									conversationTitle={(id) => conversations.find((item) => item.id === id)?.title}
+									settings={{
+										pal,
+										disabled: palBusy || palsSaving,
+										onCustomize: () => {
+											setCommunicationOwner(undefined)
+											showPalEditor(pal)
+										},
+										onTogglePause: () => {
+											setCommunicationOwner(undefined)
+											togglePalPaused(pal)
+										},
+										onDelete: api.deletePal
+											? () => {
+													setCommunicationOwner(undefined)
+													requestPalDeletion(pal)
+												}
+											: undefined,
+									}}
 									onClose={() => setCommunicationOwner(undefined)}
 									returnFocus={() =>
 										communicationTrigger.current?.isConnected ? communicationTrigger.current : null
@@ -4409,6 +4482,9 @@ export function App({
 							<PalCustomizeDialog
 								key={editingPal ? `${editingPal.id}:${editingPal.revision}` : 'new'}
 								editing={editingPal}
+								existingNames={pals
+									.filter((item) => item.id !== editingPal?.id)
+									.map((item) => item.name)}
 								saving={palsSaving}
 								error={palsError}
 								model={draftPalModel}
@@ -4479,7 +4555,8 @@ export function App({
 							<ConfirmRemovalDialog
 								key={`delete-pal:${deletingPal.id}:${deletingPal.revision}`}
 								title={`Delete ${deletingPal.name}?`}
-								description="This will stop the computer and remove your Pal from Namzu. Its saved conversations and files will stay on this computer. This does not erase its stored data."
+								description={palDeletionCopy(deletingPal).description}
+								details={palDeletionCopy(deletingPal).details}
 								actionLabel="Delete Pal"
 								onClose={() => setDeletingPal(undefined)}
 								returnFocus={removalReturnFocus}
@@ -4905,7 +4982,7 @@ export function App({
 						palName={pal.name}
 						computer={{
 							...palContextProps.computer,
-							notice: liveStream?.error ?? palContextProps.computer.notice,
+							notice: presentComputerNotice(liveStream?.error) ?? palContextProps.computer.notice,
 						}}
 						screen={null}
 						stream={activeStream}
@@ -5279,6 +5356,7 @@ export function App({
 													setJobsOpen(true)
 												}}
 												onOpenChangedFile={projectFiles ? openChangedFile : undefined}
+												onOpenPalInbox={openPalInbox}
 												onOpenTasks={() => {
 													showPanelTab('activity')
 													setJobsOpen(true)
@@ -5347,6 +5425,9 @@ export function App({
 								surface={surfaceControl}
 								pluginsSupported={!pal}
 								toolsAvailable={palCanWork}
+								blockedNotice={
+									pal?.paused ? `${pal.name} is paused. Resume ${pal.name} to chat.` : undefined
+								}
 								draftDisabled={
 									loading ||
 									restoringTabs ||

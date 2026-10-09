@@ -334,6 +334,16 @@ enabled. An explicit CA option in inherited `NODE_OPTIONS` is preserved, and
 unsupported runtimes keep their existing trust behavior. The installed `namzu`
 command and standalone CLI trust defaults are unchanged.
 
+When a Pal's computer cannot start, the app never shows the host's developer wording
+(a Dockerfile path, an image tag, an engine command). It says what is missing: a Pal's
+computer needs Docker Desktop or Podman with the Namzu computer image added, and
+chatting works without one. A stopped Podman machine, a remote or unregistered engine
+and any other failure that names a path get their own plain sentence. The computer row
+keeps its status (**Offline**, **Starting…**, **Connected**) and shows **Start computer**
+or **Stop computer** as a separate button, so choosing it never replaces the status;
+**Take over** on the computer page says "Offline. Start the computer to take over."
+while the computer is off.
+
 Pal computers inherit the CLI's local-engine settings from this native host.
 The default is Docker. If this device uses an existing local Podman machine,
 set `NAMZU_PAL_COMPUTER_ENGINE=podman` and its verified local machine/connection
@@ -722,9 +732,11 @@ does not approve host access. The [Pal execution boundary](pals.md#computer-setu
 retains configured denials, pause, takeover and current writer/control checks.
 
 The Home sidebar puts **Create your first Pal** directly below New conversation.
-After creation it lists each Pal followed by **New Pal**, without a group
-heading for the first three. Four or more Pals appear in a collapsible **Pals**
-group. Create more than one Pal with a name, appearance and model from the
+After creation it lists each Pal followed by **New Pal**, under a **Pals**
+heading. Four or more Pals appear in a collapsible **Pals** group. A Pal's tab
+carries its own character instead of a chat bubble. Creating a Pal from an empty,
+untouched "New conversation" closes that tab once the Pal has opened, so no
+unrelated tab is left beside it. Create more than one Pal with a name, appearance and model from the
 actual provider catalogue. Give work and preferences through the conversation;
 customization does not require a purpose form. Customize uses the saved revision to reject
 conflicting edits. Definitions and
@@ -735,7 +747,10 @@ update the next turn's display identity. A conversation's model choice remains
 local to that conversation.
 
 Setup begins inside the conversation with a character, greeting, model picker
-and invitation to choose a name. These welcome messages are local interface
+and invitation to choose a name; the page has one **Customize your Pal** action
+and no nameless label. In the dialog an empty name shows "Give your Pal a name."
+(Save stays off, and Enter says "Give your Pal a name to save it."), and a name
+another Pal already has shows a warning but is allowed. These welcome messages are local interface
 content; they do not start a model turn or the Pal's computer. Customize opens a
 two-column dialog: color and character choices on the left, editable name and a
 large animated preview on the right. Save publishes name, model and appearance
@@ -937,8 +952,12 @@ attachment, model and tool settings under its plus control. Ordinary conversatio
 keep their existing composer.
 The Pal menu provides customization, guarded pause/resume and guarded computer
 reboot and Delete Pal. Deletion is also available inside the customization dialog.
-Confirmation names the retained data: the saved conversations, workspace files,
-profile revisions and persistent volume remain; this is not a storage purge.
+Confirmation lists one consequence per line: the Pal disappears from the sidebar and
+its computer stops, and its conversations and files are not deleted and stay in the
+named workspace folder. The saved conversations, workspace files, profile revisions
+and persistent volume remain; this is not a storage purge.
+A paused Pal shows **Paused** as its status with **Resume** as the one action, and its
+composer says "*name* is paused. Resume *name* to chat." above whatever was typed.
 Main validates the exact profile revision, refuses active/queued/review/recovery
 work and confirms cleanup through the actual owning computer client before
 publishing a terminal profile revision. Failed or unconfirmed cleanup keeps the
@@ -1015,20 +1034,22 @@ the CLI's [ACP extension table](pals.md#acp-host-extensions) describes the wire.
 
 ### Pal communication management
 
-The small settings icon in the Pal context card opens a settings dialog named
-for the currently owned Pal. Its Communication section contains Peers, Inbox
-and Activity subscriptions, which use the
+The settings icon in the Pal context card (a labelled **Settings** button on the
+compact bar, when the window is narrow) opens one dialog named for the Pal, with
+four sections: **General** (name, status, the model for new conversations, and the
+buttons to change the name, look or model, pause or resume, and delete), **Messages**,
+**Other Pals** and **Shared activity**. They use the
 existing SDK message policies, durable inbox and activity subscription stores.
-Opening or refreshing this panel does not request a model turn or start a
-computer.
+Opening or refreshing the dialog does not request a model turn or start a
+computer. Choices are app-styled switches and pickers, in plain words.
 
-Peer permissions are directional. The operator can change this Pal's outgoing
-send and wake permissions; incoming permissions are displayed separately and
-edited from the sending Pal's own view. Disabling sending also disables its wake
-grant. A wake grant permits a host to execute a delivery; it does not install an
-automatic idle dispatcher. Active Pal turns can receive accepted messages at
-their existing safe execution boundaries, and the CLI retains its explicit
-finite dispatch operation.
+**Other Pals** permissions are directional. The operator can change what this Pal
+may send (**Let *name* message *other***) and whether those messages may start the
+other Pal; incoming permission is shown separately and edited from the sending
+Pal's own view. Turning sending off turns the start permission off too. The start
+permission lets a host execute a delivery; it does not install an automatic idle
+dispatcher. Active Pal turns can receive accepted messages at their existing safe
+execution boundaries, and the CLI retains its explicit finite dispatch operation.
 
 The [actual Sıtkı → Kiro Windows receipt](../../research/runtime-desktop-20260930/artifacts/pal-producer-native-safe-20261006.json)
 records a free-model desktop turn using `list_pals` and one `send_pal_message`,
@@ -1038,9 +1059,15 @@ workspace placement and computer generations, and restores the original
 operator control. This producer check does not dispatch Kiro or establish a
 recipient answer.
 
-Inbox entries show pending, claimed or recorded delivery metadata. Recorded
-means the message entered the durable conversation, not that the recipient
-answered or completed a task. Message bodies, private profile context, receipt
+**Messages** lists what was sent to the Pal, with where it came from, when it was
+accepted and where it is: **Waiting for *name* to read it** (accepted, not yet
+picked up), ***name* is picking it up**, or **Delivered to *name*'s conversation**.
+Delivered means the message entered the durable conversation, not that the
+recipient answered or completed a task. A message the owner sent from their own
+conversation also shows its text and the conversation's title, because the owner
+wrote and approved it (the host's `namzu/pals/communication/inbox` answer carries
+`receivedAt` for every row and `text`, at most 4,000 characters, only for those).
+Messages from Pals and channels show no text. Private profile context, receipt
 internals and journal cursors are omitted.
 
 An activity subscription selects a known owned source Pal and its exact original
@@ -1712,17 +1739,22 @@ the existing card without adding a Changes column.
 **Messaging a Pal from an ordinary conversation.** When a normal Namzu-engine
 conversation calls `send_pal_message`, the approval card is titled **Message to
 *Pal name*** (the name is looked up in the Pal list; an unknown ID reads "Message
-to a Pal"), shows the whole message in a scrollable block (never cut, so nothing is
-approved unseen), and says it goes to the Pal's inbox, does not start the
-Pal and is asked again for each message. It offers the usual Reject, Edit and Accept
+to a Pal"), shows the whole message as a quoted block in the normal font (never
+cut, so nothing is approved unseen, and not styled like a command), and says
+where it goes and what happens next: it goes to the Pal's inbox, the Pal reads it
+the next time it runs, sending does not start it, starting it is
+`namzu pal dispatch` in a terminal, and the person is asked again for each
+message. After approval the transcript keeps a line outside the folded work,
+"Sent to *name*'s inbox. *name* reads it the next time it runs.", with **See it in
+*name*'s messages**, which opens that Pal's settings on **Messages**. It offers the usual Reject, Edit and Accept
 only: there is no "allow for this conversation" choice. The action row reads
 **Messaging *name*** while it runs and **Messaged *name*** once accepted, with the
 hover text **Sent to inbox**; a failure reads "Couldn't message *name*" and a No
 reads "Declined message to *name*". The name comes from the tool's own call and
 receipt labels, which a reload keeps, so a reloaded conversation keeps the wording.
 A Pal's own `send_pal_message` row, which names no Pal, is unchanged. The Pal's
-communication dialog lists an owner message as **Message from your conversation**,
-without its body.
+Messages list shows an owner message as **From your conversation "title"**, with its
+text and time.
 
 The [earlier progress preview receipt](../../research/runtime-desktop-20260930/artifacts/pal-progress-browser-proof-20261006.json)
 checks completed disclosure, active/failed/dependent steps, unavailable reads,

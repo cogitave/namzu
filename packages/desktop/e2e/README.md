@@ -65,3 +65,12 @@ answers, Update running in a visible terminal tab and Namzu's own idle server fo
 re-read and the model list refreshed, an update refused while the engine is open in a terminal, a failed command and
 Try again, the second engine's own command, and an install Namzu cannot name (the command and Copy, nothing run). Every other
 flow's harness points `NAMZU_ENGINE_REGISTRY` at a dead port, so no run reaches the real registry.
+
+## Pals
+
+`ux-pals.test.mjs` is one flow through the Pal screens in plain words: the welcome page (one Customize action, a
+hint for an empty name), creating a Pal (no leftover empty conversation tab, a Pals heading), the computer notice
+without build instructions and the status that stays a status, Pause and Resume with the reason in the composer, a
+message approved from a conversation (the card's wording, the visible "Sent to" line, the Messages list with its text,
+time and status), the settings sections, a duplicate name, the compact 900px bar and the Delete wording. Pictures go
+to `research/ux-20261009/pals/`.

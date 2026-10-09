@@ -119,8 +119,34 @@ function PalModelChoice({
 	)
 }
 
+/** The name a person typed, compared the way they would read it: case and edge spaces do not count. */
+export function nameKey(value: string): string {
+	return value.trim().toLocaleLowerCase()
+}
+
+/** What to tell the person about the name they are typing; nothing when there is nothing to say. */
+export function palNameHint(
+	name: string,
+	existing: readonly string[],
+	attempted: boolean,
+): { tone: 'empty' | 'duplicate'; text: string } | undefined {
+	const key = nameKey(name)
+	if (!key)
+		return {
+			tone: 'empty',
+			text: attempted ? 'Give your Pal a name to save it.' : 'Give your Pal a name.',
+		}
+	if (existing.some((other) => nameKey(other) === key))
+		return {
+			tone: 'duplicate',
+			text: `You already have a Pal called “${name.trim()}”. You can keep this name, but messages and tabs for the two will look alike.`,
+		}
+	return undefined
+}
+
 export function PalCustomizeDialog({
 	editing,
+	existingNames = [],
 	saving,
 	error,
 	model,
@@ -132,6 +158,8 @@ export function PalCustomizeDialog({
 	loadModels,
 }: ModelLoaders & {
 	editing?: PalView
+	/** Names of the person's other Pals, to warn about a duplicate. */
+	existingNames?: readonly string[]
 	saving: boolean
 	error?: string
 	model: PalView['model']
@@ -145,6 +173,8 @@ export function PalCustomizeDialog({
 	const [appearance, setAppearance] = useState<PalCharacterAppearance>(
 		editing?.appearance ?? defaultPalAppearance,
 	)
+	const [attempted, setAttempted] = useState(false)
+	const hint = palNameHint(name, existingNames, attempted)
 	return (
 		<Dialog.Root
 			open
@@ -164,8 +194,13 @@ export function PalCustomizeDialog({
 							className="pal-customize-form"
 							onSubmit={(event) => {
 								event.preventDefault()
-								if (!saving && name.trim())
-									void onSave({ name: name.trim(), model, appearance }, editing?.id)
+								if (saving) return
+								if (!name.trim()) {
+									setAttempted(true)
+									document.getElementById(`${id}-name`)?.focus()
+									return
+								}
+								void onSave({ name: name.trim(), model, appearance }, editing?.id)
 							}}
 						>
 							<div className="pal-customize-mobile-heading" aria-hidden="true">
@@ -289,11 +324,27 @@ export function PalCustomizeDialog({
 									placeholder="Your Pal’s name"
 									value={name}
 									maxLength={80}
-									required
 									disabled={saving}
 									autoComplete="off"
+									aria-describedby={hint ? `${id}-hint` : undefined}
+									aria-invalid={hint?.tone === 'empty' && attempted ? true : undefined}
 									onChange={(event) => setName(event.target.value)}
+									onKeyDown={(event) => {
+										// Enter cannot submit while Save is off, so it says why instead of doing nothing.
+										if (event.key === 'Enter' && !event.nativeEvent.isComposing && !name.trim())
+											setAttempted(true)
+									}}
 								/>
+								{hint && (
+									<p
+										id={`${id}-hint`}
+										className="pal-name-hint"
+										data-tone={hint.tone}
+										role={hint.tone === 'empty' && attempted ? 'alert' : 'status'}
+									>
+										{hint.text}
+									</p>
+								)}
 								<div className="pal-customize-character" key={appearance.character}>
 									<PalCharacter3D appearance={appearance} />
 								</div>
@@ -339,7 +390,7 @@ export function PalsPage({
 			</header>
 			<div className="pal-onboarding-transcript">
 				<div className="conversation-body">
-					<PalWelcome onCustomize={onCustomize} />
+					<PalWelcome />
 					<div className="pal-onboarding-model">
 						<span>Which model would you like me to use?</span>
 						<PalModelChoice
@@ -409,6 +460,7 @@ export function PalSidebarSection({
 	)
 	return (
 		<section className="sidebar-pals" aria-label="Pals">
+			{pals.length <= 3 && <h2 className="sidebar-pals-heading">Pals</h2>}
 			{loading ? (
 				<output className="sidebar-pals-loading">Loading…</output>
 			) : pals.length > 3 ? (
@@ -428,17 +480,13 @@ export function PalSidebarSection({
 	)
 }
 
-export function PalWelcome({
-	pal,
-	onCustomize,
-	disabled = false,
-}: { pal?: PalView; onCustomize: () => void; disabled?: boolean }) {
+/** The greeting only. Naming and customizing the Pal is the page's one action below it. */
+export function PalWelcome({ pal }: { pal?: PalView }) {
 	return (
 		<div className="pal-welcome">
 			{!pal && (
 				<div className="pal-welcome-identity">
 					<PalCharacter3D />
-					<span>Your Pal</span>
 				</div>
 			)}
 			<div className="pal-welcome-message">
@@ -449,16 +497,6 @@ export function PalWelcome({
 					'Bring me an idea, a question, or something you’d like to work on. We can pick it up together here.'}
 			</div>
 			{!pal && <div className="pal-welcome-message">What would you like to call me?</div>}
-			<Button
-				className="pal-welcome-customize"
-				variant="ghost"
-				disabled={disabled}
-				onClick={onCustomize}
-			>
-				<UserRoundIcon />
-				Customize your Pal
-				<ChevronRightIcon />
-			</Button>
 		</div>
 	)
 }

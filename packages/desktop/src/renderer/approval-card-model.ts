@@ -21,6 +21,8 @@ export interface ApprovalCardModel {
 	command?: string
 	/** The text a message to a Pal would carry, drawn whole rather than summarised. */
 	message?: string
+	/** Who the message is for, when the Pal list names it. */
+	palName?: string
 	/** A readable summary of any other tool's arguments. */
 	entries: { label: string; value: string }[]
 	destructive: boolean
@@ -129,10 +131,14 @@ function fromPreview(preview: PermissionPreview) {
 	}
 }
 
+function palNameOf(call: Call, palNames?: ReadonlyMap<string, string>): string | undefined {
+	const id = record(call.input) && typeof call.input.palId === 'string' ? call.input.palId : ''
+	return palNames?.get(id)?.trim() || undefined
+}
+
 /** "Message to Review", or "Message to a Pal" while the Pal's name is unknown. */
 function palMessageTitle(call: Call, palNames?: ReadonlyMap<string, string>): string {
-	const id = record(call.input) && typeof call.input.palId === 'string' ? call.input.palId : ''
-	const name = palNames?.get(id)?.trim()
+	const name = palNameOf(call, palNames)
 	return name ? `Message to ${name}` : 'Message to a Pal'
 }
 
@@ -215,6 +221,7 @@ export function buildApprovalCard(
 			kind: 'other',
 			title: palMessageTitle(first, palNames),
 			message: body,
+			...(palNameOf(first, palNames) ? { palName: palNameOf(first, palNames) } : {}),
 			previewMissing: false,
 			entries: [],
 			destructive: false,
@@ -265,4 +272,14 @@ export const FEEDBACK_NOTE_MAX = PERMISSION_FEEDBACK_MAX - FEEDBACK_PREFIX.lengt
 /** The text that reaches the model when the person redirects instead of just rejecting. */
 export function declineFeedback(note: string): string {
 	return `${FEEDBACK_PREFIX}${note.trim()}`
+}
+
+/**
+ * What happens to a message once the person approves it, in the order it happens: it is delivered
+ * to the Pal's inbox, the Pal reads it the next time it runs, and starting the Pal is a separate act.
+ */
+export function palMessageNote(name: string | undefined): string {
+	const owner = name ? `${name}’s` : 'the Pal’s'
+	const pal = name ?? 'the Pal'
+	return `Goes to ${owner} inbox. ${name ?? 'The Pal'} reads it the next time it runs; sending does not start it. To start ${pal}, run “namzu pal dispatch” in a terminal. You are asked again for each message.`
 }

@@ -34,6 +34,7 @@ import {
 	XIcon,
 } from './icons.js'
 import { type NewTabActionId, type NewTabIconId, newTabMenuGroups } from './new-tab-menu.js'
+import { PalCharacter, type PalCharacterAppearance } from './pal-character.js'
 import { TerminalStripTab } from './terminal-tab.js'
 import { Button } from './ui/button.js'
 import { WordmarkInitial } from './wordmark.js'
@@ -161,6 +162,8 @@ interface ConversationTabProps {
 	running: boolean
 	backgroundWork?: BackgroundWorkStatus
 	palName?: string
+	/** The Pal's own face, so its tab is not mistaken for an ordinary conversation. */
+	palAppearance?: PalCharacterAppearance
 	pal?: ConversationPalWorkspace
 	onClose: (view: ConversationView) => void
 	onRemove?: (view: ConversationView, trigger: HTMLElement | null) => void
@@ -178,6 +181,7 @@ function ConversationTab({
 	running,
 	backgroundWork,
 	palName,
+	palAppearance,
 	pal,
 	onClose,
 	onRemove,
@@ -332,7 +336,11 @@ function ConversationTab({
 					{running ? (
 						<LoaderCircleIcon className="size-3 animate-spin" />
 					) : isPal ? (
-						<MessageCircle />
+						palAppearance ? (
+							<PalCharacter appearance={palAppearance} size="compact" />
+						) : (
+							<MessageCircle />
+						)
 					) : !view.harness || view.harness === 'namzu' ? (
 						<WordmarkInitial />
 					) : (
@@ -431,6 +439,7 @@ export function ConversationTabs({
 	onSplit,
 	actions,
 	palNames,
+	palAppearances,
 	palWorkspace,
 	terminals,
 	newMenu,
@@ -452,6 +461,7 @@ export function ConversationTabs({
 	onSplit?: (view: ConversationView, position: 'right' | 'bottom') => void
 	actions?: ConversationTabActions
 	palNames?: Readonly<Record<string, string>>
+	palAppearances?: Readonly<Record<string, PalCharacterAppearance | undefined>>
 	palWorkspace?: ConversationPalWorkspace
 }) {
 	const currentPal = palWorkspace?.conversationId === active ? palWorkspace : undefined
@@ -518,6 +528,7 @@ export function ConversationTabs({
 								running={running(item.view.id)}
 								backgroundWork={backgroundWork?.[item.view.id]}
 								palName={item.view.palId ? palNames?.[item.view.palId] : undefined}
+								palAppearance={item.view.palId ? palAppearances?.[item.view.palId] : undefined}
 								pal={item.view.id === currentPal?.conversationId ? currentPal : undefined}
 								onClose={onClose}
 								onRemove={onRemove}

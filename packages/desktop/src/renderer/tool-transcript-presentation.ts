@@ -257,7 +257,7 @@ const PAL_MESSAGE_TOOL = 'send_pal_message'
  * "Sent to <name>'s inbox" for the receipt, and a saved conversation keeps one of them as
  * its label; no field names the Pal, and a Pal's own `send_pal_message` row carries neither.
  */
-function palMessageName(tool: ProjectedToolCall): string | undefined {
+export function palMessageName(tool: ProjectedToolCall): string | undefined {
 	if (tool.title !== PAL_MESSAGE_TOOL) return undefined
 	const named = tool.callView ?? tool.view
 	const label = named.kind === 'generic' ? firstLine(named.label) : ''
