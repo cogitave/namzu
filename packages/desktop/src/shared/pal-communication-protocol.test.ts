@@ -74,5 +74,36 @@ it('admits a message from the owner conversation as its own source and keeps onl
 		},
 		'one',
 	)
-	expect(message).toEqual({ id: 'message', status: 'pending', sourceKind: 'operator-conversation' })
+	expect(message).toEqual({
+		id: 'message',
+		status: 'pending',
+		sourceKind: 'operator-conversation',
+		operatorSessionId: 'session',
+	})
+})
+it('keeps what the owner wrote and when, but never the text of a Pal or channel message', () => {
+	const messages = readPalInbox(
+		{
+			v: 1,
+			palId: 'one',
+			messages: [
+				{
+					id: 'owner',
+					status: 'pending',
+					sourceKind: 'operator-conversation',
+					operatorSessionId: 'session',
+					receivedAt: 1_700_000_000_000,
+					text: 'Please summarise the README.',
+				},
+				{ id: 'pal', status: 'pending', sourceKind: 'pal', sourcePalId: 'two', text: 'PRIVATE' },
+				{ id: 'channel', status: 'recorded', sourceKind: 'channel', text: 'PRIVATE' },
+			],
+		},
+		'one',
+	)
+	expect(messages[0]).toMatchObject({
+		receivedAt: 1_700_000_000_000,
+		text: 'Please summarise the README.',
+	})
+	expect(JSON.stringify(messages.slice(1))).not.toContain('PRIVATE')
 })

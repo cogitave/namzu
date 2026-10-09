@@ -15,6 +15,7 @@ import {
 	DiskPalCommunicationStore,
 	DiskPalMessagePolicy,
 	PalMessageBroker,
+	PalOperatorMessageBroker,
 	generateSessionId,
 } from '@namzu/sdk'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -33,6 +34,7 @@ import {
 	cliPalActivitySubscriptionStore,
 	cliPalCommunicationPolicy,
 	cliPalCommunicationStore,
+	createCliOperatorIngressAuthorization,
 	createCliPalMessageHost,
 } from './communication.js'
 import { claimPalConversation } from './conversations.js'
@@ -200,6 +202,7 @@ it('returns only accepted delivery metadata from a genuine broker message, never
 				{
 					id: accepted.id,
 					status: 'pending',
+					receivedAt: expect.any(Number),
 					conversationId: accepted.sessionId,
 					sourceKind: 'pal',
 					sourcePalId: f.source.id,
@@ -209,6 +212,40 @@ it('returns only accepted delivery metadata from a genuine broker message, never
 		expect(JSON.stringify(result)).not.toContain('PRIVATE_')
 		expect(JSON.stringify(result)).not.toContain('digest')
 		expect(JSON.stringify(result)).not.toContain('claim')
+	} finally {
+		closeSessions(state)
+	}
+})
+
+it('lets the owner read back a message they sent from a conversation, with its time, and keeps Pal bodies private', async () => {
+	const f = await fixture()
+	const state = await openSessions(f.recipient.workspace)
+	try {
+		const operatorSession = generateSessionId()
+		const sent = await new PalOperatorMessageBroker({
+			pals: getCliPalStore(),
+			store: cliPalCommunicationStore(),
+			authorize: createCliOperatorIngressAuthorization(),
+			now: () => 1_700_000_000_000,
+		}).send(
+			{ tenantId: state.tenantId, sessionId: operatorSession },
+			{
+				operationId: 'owner-readback',
+				recipient: { tenantId: state.tenantId, palId: f.recipient.id },
+				body: 'Please summarise the README.',
+			},
+		)
+		const result = await f.other['namzu/pals/communication/inbox']({ palId: f.recipient.id })
+		expect(result.messages).toEqual([
+			expect.objectContaining({
+				id: sent.id,
+				status: 'pending',
+				sourceKind: 'operator-conversation',
+				operatorSessionId: operatorSession,
+				receivedAt: 1_700_000_000_000,
+				text: 'Please summarise the README.',
+			}),
+		])
 	} finally {
 		closeSessions(state)
 	}

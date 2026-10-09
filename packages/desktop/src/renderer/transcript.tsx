@@ -15,6 +15,7 @@ import { AttachmentList } from './attachment-list.js'
 import { providerWaitText } from './friendly-errors.js'
 import { ChevronRightIcon } from './icons.js'
 import { Message, MessageContent, MessageFooter, timeDescription } from './message.js'
+import { PalMessageReceipts } from './pal-message-receipts.js'
 import { PlanRow, PlanTouched } from './plan-row-view.js'
 import { isTaskEntry, latestPlanTurn } from './plan-row.js'
 import { ProviderNameContext } from './provider-name-context.js'
@@ -605,6 +606,8 @@ interface TurnGroupProps {
 	onWorkDisclosureChange?: (key: string, open: boolean) => void
 	onOpenTurnChanges?: (receiptIds: string[], path?: string) => void
 	onOpenChangedFile?: (path: string) => void
+	/** Leads from a "sent to a Pal" line to that Pal's messages; the same function for the life of the transcript. */
+	onOpenPalInbox?: (palName: string) => void
 	onUndoTurn?: (turnId: string) => void
 	projectRoot?: string
 	/** The latest turn that touched the plan. */
@@ -644,6 +647,7 @@ const TurnGroupView = memo(function TurnGroupView({
 	onWorkDisclosureChange,
 	onOpenTurnChanges,
 	onOpenChangedFile,
+	onOpenPalInbox,
 	onUndoTurn,
 	projectRoot,
 	planTurn,
@@ -706,6 +710,11 @@ const TurnGroupView = memo(function TurnGroupView({
 								onOpenTasks={onOpenTasks}
 							/>
 						)}
+						<PalMessageReceipts
+							entries={segment.activity}
+							thread={thread}
+							onOpen={onOpenPalInbox}
+						/>
 						{segment.answer.map((entry) => (
 							<Fragment key={entryKey(entry)}>
 								{entryKey(entry) in separators && (
@@ -753,6 +762,7 @@ function turnGroupPropsEqual(previous: TurnGroupProps, next: TurnGroupProps): bo
 		previous.onWorkDisclosureChange !== next.onWorkDisclosureChange ||
 		previous.onOpenTurnChanges !== next.onOpenTurnChanges ||
 		previous.onOpenChangedFile !== next.onOpenChangedFile ||
+		previous.onOpenPalInbox !== next.onOpenPalInbox ||
 		previous.onUndoTurn !== next.onUndoTurn ||
 		previous.planTurn !== next.planTurn ||
 		previous.onOpenTasks !== next.onOpenTasks ||
@@ -776,6 +786,7 @@ export function Transcript({
 	onWorkDisclosureChange,
 	onOpenTurnChanges,
 	onOpenChangedFile,
+	onOpenPalInbox,
 	onUndoTurn,
 	onOpenTasks,
 	undoKept,
@@ -792,6 +803,8 @@ export function Transcript({
 	onOpenTurnChanges?: (receiptIds: string[], path?: string) => void
 	/** Shows an edited file in the side panel; absent when the project's files are not available. */
 	onOpenChangedFile?: (path: string) => void
+	/** Opens a Pal's messages by its name, from the line that says a message was sent to it. */
+	onOpenPalInbox?: (palName: string) => void
 	/** Opens the undo dialog for a reply by its journal turn id; absent where the CLI cannot undo. */
 	onUndoTurn?: (turnId: string) => void
 	/** Opens the full task list, for the plan row's "+N more". */
@@ -812,6 +825,7 @@ export function Transcript({
 		onWorkDisclosureChange,
 		onOpenTurnChanges,
 		onOpenChangedFile,
+		onOpenPalInbox,
 		onUndoTurn,
 		onOpenTasks,
 	})
@@ -819,6 +833,7 @@ export function Transcript({
 		onWorkDisclosureChange,
 		onOpenTurnChanges,
 		onOpenChangedFile,
+		onOpenPalInbox,
 		onUndoTurn,
 		onOpenTasks,
 	}
@@ -829,6 +844,7 @@ export function Transcript({
 			onOpenTurnChanges: (ids: string[], path?: string) =>
 				handlers.current.onOpenTurnChanges?.(ids, path),
 			onOpenChangedFile: (path: string) => handlers.current.onOpenChangedFile?.(path),
+			onOpenPalInbox: (palName: string) => handlers.current.onOpenPalInbox?.(palName),
 			onUndoTurn: (turnId: string) => handlers.current.onUndoTurn?.(turnId),
 			onOpenTasks: () => handlers.current.onOpenTasks?.(),
 		}),
@@ -911,6 +927,7 @@ export function Transcript({
 						}
 						onOpenTurnChanges={onOpenTurnChanges ? stable.onOpenTurnChanges : undefined}
 						onOpenChangedFile={onOpenChangedFile ? stable.onOpenChangedFile : undefined}
+						onOpenPalInbox={onOpenPalInbox ? stable.onOpenPalInbox : undefined}
 						onUndoTurn={onUndoTurn ? stable.onUndoTurn : undefined}
 						planTurn={planTurn}
 						onOpenTasks={onOpenTasks ? stable.onOpenTasks : undefined}

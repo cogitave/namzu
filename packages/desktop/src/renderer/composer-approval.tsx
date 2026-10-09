@@ -16,6 +16,7 @@ import {
 	approvalWarning,
 	buildApprovalCard,
 	declineFeedback,
+	palMessageNote,
 	previewNote,
 	riskyCommand,
 } from './approval-card-model.js'
@@ -292,16 +293,14 @@ export function ComposerApproval({
 									</pre>
 								)}
 								{model.message !== undefined && (
+									// A message is prose the person wrote, not something that will be run.
 									// biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable region
-									<pre className="approval-command" tabIndex={0} aria-label="Message">
+									<blockquote className="approval-message" tabIndex={0} aria-label="Message">
 										{model.message}
-									</pre>
+									</blockquote>
 								)}
 								{model.message !== undefined && (
-									<p className="approval-note">
-										Goes to the Pal's inbox. It does not start the Pal, and you are asked again for
-										each message.
-									</p>
+									<p className="approval-note">{palMessageNote(model.palName)}</p>
 								)}
 								{model.kind === 'other' && model.entries.length > 0 && (
 									<dl className="approval-entries">

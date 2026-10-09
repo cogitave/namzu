@@ -82,7 +82,7 @@ const statusLabels: Record<PalContextProps['status'], string> = {
 }
 
 function computerStatusLabel(status: PalContextProps['computer']['status']) {
-	return status === 'ready' ? 'Connected' : status === 'connecting' ? 'Connecting…' : 'Offline'
+	return status === 'ready' ? 'Connected' : status === 'connecting' ? 'Starting…' : 'Offline'
 }
 
 function PalContextBody({
@@ -105,6 +105,8 @@ function PalContextBody({
 }: PalContextProps) {
 	const pauseLabel = `${pal.paused ? 'Resume' : 'Pause'} ${pal.name}`
 	const computerStatus = computerStatusLabel(computer.status)
+	// The status line always says what the computer is. The action is its own button, so choosing
+	// it can never replace the status with the action's name.
 	const computerAction =
 		computer.status !== 'connecting' && onStopComputer
 			? { label: 'Stop computer', onClick: onStopComputer, disabled: stopComputerDisabled }
@@ -129,32 +131,21 @@ function PalContextBody({
 				</div>
 				<div className="pal-context-identity">
 					<h2 title={pal.name}>{pal.name}</h2>
-					{onPause ? (
-						<>
-							<output className="sr-only" aria-live="polite">
-								{statusLabels[status]}
-							</output>
-							<Button
-								variant="ghost-muted"
-								className="pal-context-status pal-status-action"
-								aria-label={pauseLabel}
-								disabled={pauseDisabled}
-								onClick={onPause}
-							>
-								<span className="pal-status-rest" aria-hidden="true">
-									{status === 'working' && <LoaderCircleIcon className="pal-context-loading" />}
-									<span>{statusLabels[status]}</span>
-								</span>
-								<span className="pal-status-hover" aria-hidden="true">
-									<span>{pauseLabel}</span>
-								</span>
-							</Button>
-						</>
-					) : (
-						<output className="pal-context-status" aria-live="polite">
-							{status === 'working' && <LoaderCircleIcon className="pal-context-loading" />}
-							{statusLabels[status]}
-						</output>
+					<output className="pal-context-status" aria-live="polite">
+						{status === 'working' && <LoaderCircleIcon className="pal-context-loading" />}
+						{statusLabels[status]}
+					</output>
+					{onPause && (
+						<Button
+							variant="outline"
+							size="xs"
+							className="pal-pause-action"
+							aria-label={pauseLabel}
+							disabled={pauseDisabled}
+							onClick={onPause}
+						>
+							{pal.paused ? 'Resume' : 'Pause'}
+						</Button>
 					)}
 				</div>
 				{onCommunication && (
@@ -186,12 +177,7 @@ function PalContextBody({
 						</span>
 						<span className="pal-context-copy">
 							<strong title={computer.name}>{computer.name}</strong>
-							<span
-								className={`pal-computer-status${computerAction ? ' pal-computer-status-placeholder' : ''}`}
-								aria-hidden={!!computerAction || undefined}
-							>
-								{computerStatus}
-							</span>
+							<span className="pal-computer-status">{computerStatus}</span>
 						</span>
 						<span className="pal-computer-thumbnail" aria-hidden="true">
 							{computer.screen && computer.status === 'ready' ? (
@@ -204,25 +190,15 @@ function PalContextBody({
 						</span>
 					</Button>
 					{computerAction && (
-						<>
-							<output className="sr-only" aria-live="polite">
-								{computerStatus}
-							</output>
-							<Button
-								variant="ghost-muted"
-								className="pal-status-action pal-computer-action"
-								aria-label={computerAction.label}
-								disabled={computerAction.disabled}
-								onClick={computerAction.onClick}
-							>
-								<span className="pal-status-rest" aria-hidden="true">
-									<span>{computerStatus}</span>
-								</span>
-								<span className="pal-status-hover" aria-hidden="true">
-									<span>{computerAction.label}</span>
-								</span>
-							</Button>
-						</>
+						<Button
+							variant="outline"
+							size="xs"
+							className="pal-computer-action"
+							disabled={computerAction.disabled}
+							onClick={computerAction.onClick}
+						>
+							{computerAction.label}
+						</Button>
 					)}
 				</div>
 				{hostComputer?.name.trim() && (
@@ -316,7 +292,7 @@ function PalContextBody({
 
 export function PalContextCard(props: PalContextProps) {
 	const card = useRef<HTMLElement>(null)
-	const compactTrigger = useRef<HTMLButtonElement>(null)
+	const compactSettings = useRef<HTMLButtonElement>(null)
 	const [compact, setCompact] = useState(false)
 	const [open, setOpen] = useState(false)
 	useLayoutEffect(() => {
@@ -340,7 +316,7 @@ export function PalContextCard(props: PalContextProps) {
 		},
 		onCommunication: props.onCommunication
 			? () => {
-					const trigger = compactTrigger.current
+					const trigger = compactSettings.current
 					if (!trigger) return
 					setOpen(false)
 					props.onCommunication?.(trigger)
@@ -356,36 +332,54 @@ export function PalContextCard(props: PalContextProps) {
 	return (
 		<aside className="pal-context-card" aria-label="Pal context" data-compact={compact} ref={card}>
 			{compact ? (
-				<Popover open={open} onOpenChange={setOpen}>
-					<PopoverTrigger
-						render={
-							<Button
-								ref={compactTrigger}
-								variant="ghost-muted"
-								className="pal-context-compact-trigger"
+				<div className="pal-context-compact-bar">
+					<Popover open={open} onOpenChange={setOpen}>
+						<PopoverTrigger
+							render={<Button variant="ghost-muted" className="pal-context-compact-trigger" />}
+							aria-label={`Show ${props.pal.name} details, ${statusLabels[props.status]}, computer ${computerStatusLabel(props.computer.status)}`}
+						>
+							<PalAvatar
+								name={props.pal.name}
+								appearance={props.pal.appearance}
+								compact
+								paused={props.pal.paused}
 							/>
-						}
-						aria-label={`Show ${props.pal.name} details, ${statusLabels[props.status]}, computer ${computerStatusLabel(props.computer.status)}`}
-					>
-						<ConversationIcon aria-hidden="true" />
-						<strong title={props.pal.name}>{props.pal.name}</strong>
-						<span className="pal-context-compact-status">{statusLabels[props.status]}</span>
-						<span className="pal-context-compact-computer">
-							<MonitorIcon aria-hidden="true" />
-							{computerStatusLabel(props.computer.status)}
-						</span>
-						<ChevronRightIcon className="pal-context-compact-chevron" aria-hidden="true" />
-					</PopoverTrigger>
-					<PopoverPopup
-						aria-label={`${props.pal.name} details`}
-						align="start"
-						padding="none"
-						width="md"
-						className="pal-context-popup"
-					>
-						<PalContextBody {...compactBodyProps} />
-					</PopoverPopup>
-				</Popover>
+							<strong title={props.pal.name}>{props.pal.name}</strong>
+							<span className="pal-context-compact-status">{statusLabels[props.status]}</span>
+							<span className="pal-context-compact-computer">
+								<MonitorIcon aria-hidden="true" />
+								{computerStatusLabel(props.computer.status)}
+							</span>
+							<ChevronRightIcon className="pal-context-compact-chevron" aria-hidden="true" />
+						</PopoverTrigger>
+						<PopoverPopup
+							aria-label={`${props.pal.name} details`}
+							align="start"
+							padding="none"
+							width="md"
+							className="pal-context-popup"
+						>
+							<PalContextBody {...compactBodyProps} />
+						</PopoverPopup>
+					</Popover>
+					{props.onCommunication && (
+						<Button
+							ref={compactSettings}
+							variant="outline"
+							size="sm"
+							className="pal-context-compact-settings"
+							aria-label={`${props.pal.name} settings`}
+							aria-haspopup="dialog"
+							onClick={() => {
+								setOpen(false)
+								props.onCommunication?.(compactSettings.current as HTMLButtonElement)
+							}}
+						>
+							<SettingsIcon aria-hidden="true" />
+							Settings
+						</Button>
+					)}
+				</div>
 			) : (
 				<PalContextBody {...props} />
 			)}

@@ -1,0 +1,21 @@
+.pal-message-receipts {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	margin: 8px 0;
+	padding: 0;
+	list-style: none;
+}
+.pal-message-receipts li {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 4px 10px;
+	padding: 8px 12px;
+	border: 1px solid var(--border);
+	border-radius: 12px;
+	background: var(--surface);
+	color: var(--muted-foreground);
+	font-size: 13px;
+	line-height: 20px;
+}

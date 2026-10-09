@@ -432,7 +432,7 @@ export function PalComputerView({
 								)}
 								<h3>
 									{computer.status === 'connecting'
-										? `Connecting to ${computer.name}…`
+										? `Starting ${computer.name}…`
 										: loading
 											? `Opening ${computer.name}…`
 											: connected
@@ -468,7 +468,9 @@ export function PalComputerView({
 							{changingControl
 								? 'Changing control…'
 								: !connected
-									? 'Offline'
+									? onTakeOver
+										? 'Offline. Start the computer to take over.'
+										: 'Offline'
 									: control?.mode === 'operator'
 										? 'You have control'
 										: control?.mode === 'pal'

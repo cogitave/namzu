@@ -164,12 +164,8 @@
 	padding: 6px 0;
 	line-height: 1.5;
 }
-.pal-communication-check input {
-	width: 15px;
-	height: 15px;
-	margin: 0;
+.pal-communication-check .settings-switch {
 	flex: none;
-	accent-color: var(--primary);
 }
 .pal-communication-check:has(input:disabled) {
 	color: var(--muted-foreground);
@@ -190,7 +186,7 @@
 	gap: 12px;
 	margin-bottom: 12px;
 }
-.pal-communication-selects label {
+.pal-communication-field {
 	min-width: 0;
 	display: flex;
 	flex-direction: column;
@@ -198,15 +194,53 @@
 	color: var(--muted-foreground);
 	font-size: 12px;
 }
-.pal-communication-selects select {
+.pal-communication-field button {
 	width: 100%;
 	min-width: 0;
-	padding: 8px;
-	border: 1px solid var(--border);
-	border-radius: 8px;
 	color: var(--foreground);
-	background: var(--surface);
+}
+.pal-communication-message {
+	margin: 0 0 8px;
+	padding: 8px 12px;
+	border-left: 3px solid var(--border);
+	border-radius: 4px;
+	background: var(--background);
+	color: var(--foreground);
 	font-size: 13px;
+	line-height: 1.6;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+.pal-communication-row .pal-communication-sent {
+	margin: 0;
+	font-size: 12px;
+}
+.pal-communication-badge[data-status="pending"] {
+	color: var(--foreground);
+}
+.pal-settings-facts {
+	display: grid;
+	gap: 12px;
+	margin: 16px 0;
+}
+.pal-settings-facts div {
+	display: grid;
+	grid-template-columns: minmax(120px, 30%) minmax(0, 1fr);
+	gap: 12px;
+}
+.pal-settings-facts dt {
+	color: var(--muted-foreground);
+}
+.pal-settings-facts dd {
+	margin: 0;
+	overflow-wrap: anywhere;
+}
+.pal-settings-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	padding-top: 14px;
+	border-top: 1px solid var(--border);
 }
 @media (max-width: 600px) {
 	.pal-communication-viewport {

@@ -57,6 +57,7 @@ const DEFAULT_STARTERS = ['Explore this project', 'Review a change', 'Plan a tas
 
 export function Composer({
 	draftDisabled = false,
+	blockedNotice,
 	inputRef,
 	variant = 'default',
 	draft,
@@ -130,6 +131,8 @@ export function Composer({
 	speechControl?: ReactNode
 	/** "Desktop | CLI": CLI sends open the engine's own command line in a terminal tab. */
 	surface?: EngineSurfaceControl
+	/** Why sending is blocked right now, in words, shown above the text the person may still type. */
+	blockedNotice?: string
 	inputRef: RefObject<HTMLTextAreaElement | null>
 	variant?: 'default' | 'pal'
 	draft: string
@@ -650,6 +653,11 @@ export function Composer({
 											<PaperclipIcon />
 											<span>Drop files to attach</span>
 										</div>
+									)}
+									{blockedNotice && (
+										<output className="block pb-2 text-xs text-muted-foreground">
+											{blockedNotice}
+										</output>
 									)}
 									<Textarea
 										unstyled

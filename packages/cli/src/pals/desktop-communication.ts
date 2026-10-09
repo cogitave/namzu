@@ -240,6 +240,7 @@ export function createDesktopPalCommunicationExtensions(options: {
 				const messages = (snapshot?.messages ?? []).map((message) => ({
 					id: message.id,
 					status: message.phase,
+					receivedAt: message.createdAt,
 					conversationId: snapshot?.routes.find((route) => route.id === message.routeId)?.sessionId,
 					...(!('kind' in message)
 						? { sourceKind: 'pal' as const, sourcePalId: message.source.address.palId }
@@ -253,6 +254,9 @@ export function createDesktopPalCommunicationExtensions(options: {
 								? {
 										sourceKind: 'operator-conversation' as const,
 										operatorSessionId: message.source.sessionId,
+										// The owner wrote and approved this message themselves, so they may read it
+										// back. Messages from Pals and channels stay private.
+										text: message.body.slice(0, 4000),
 									}
 								: {
 										sourceKind: 'channel' as const,

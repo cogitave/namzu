@@ -141,3 +141,8 @@
 		opacity: 1;
 	}
 }
+
+.conversation-tab-mark .pal-character {
+	width: 16px;
+	height: 18px;
+}

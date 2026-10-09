@@ -74,3 +74,12 @@ variables that let the CLI read the paired Windows account's sign-ins): the comp
 (`fake-model.mjs` answers a rule step `{ status, body, headers }` as an HTTP failure), a deleted folder, a killed host
 that reconnects by itself, an engine stand-in that cannot start, and an approval card that replaces a file. Pictures go to
 `research/ux-20261009/providers-errors/` in both themes.
+
+## Pals
+
+`ux-pals.test.mjs` is one flow through the Pal screens in plain words: the welcome page (one Customize action, a
+hint for an empty name), creating a Pal (no leftover empty conversation tab, a Pals heading), the computer notice
+without build instructions and the status that stays a status, Pause and Resume with the reason in the composer, a
+message approved from a conversation (the card's wording, the visible "Sent to" line, the Messages list with its text,
+time and status), the settings sections, a duplicate name, the compact 900px bar and the Delete wording. Pictures go
+to `research/ux-20261009/pals/`.

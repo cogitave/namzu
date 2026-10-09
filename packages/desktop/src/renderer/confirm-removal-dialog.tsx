@@ -6,6 +6,7 @@ import { Button } from './ui/button.js'
 export function ConfirmRemovalDialog({
 	title,
 	description,
+	details,
 	actionLabel,
 	pendingLabel = 'Removing…',
 	onConfirm,
@@ -14,6 +15,8 @@ export function ConfirmRemovalDialog({
 }: {
 	title: string
 	description: string
+	/** One consequence per line, for a removal whose effects the person should read one by one. */
+	details?: readonly string[]
 	actionLabel: string
 	pendingLabel?: string
 	onConfirm: () => Promise<void>
@@ -65,6 +68,13 @@ export function ConfirmRemovalDialog({
 						<AlertDialog.Description className="mt-2 text-sm text-muted-foreground">
 							{description}
 						</AlertDialog.Description>
+						{details && details.length > 0 && (
+							<ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-foreground">
+								{details.map((line) => (
+									<li key={line}>{line}</li>
+								))}
+							</ul>
+						)}
 						{error && (
 							<p role="alert" className="mt-3 text-sm text-destructive-foreground">
 								{error}

@@ -1,4 +1,4 @@
-/** Operator-only metadata. Message bodies and journal cursors never enter this view. */
+/** Operator-only metadata. Pal and channel message bodies and journal cursors never enter this view. */
 export interface PalPeerPermission {
 	revision: number
 	enabled: boolean
@@ -22,6 +22,15 @@ export interface PalInboxView {
 	provider?: string
 	connectionId?: string
 	actorId?: string
+	/** The owner's own ordinary conversation that sent the message. */
+	operatorSessionId?: string
+	/** When the Pal's inbox accepted it, in epoch milliseconds. */
+	receivedAt?: number
+	/**
+	 * What the owner wrote. Present only for a message the owner sent and approved from their own
+	 * conversation; messages from Pals and channels never carry their text.
+	 */
+	text?: string
 }
 export interface PalSubscriptionView {
 	v: 1
@@ -183,6 +192,14 @@ export function readPalInbox(value: unknown, palId: string): PalInboxView[] {
 				'actorId',
 			] as const) {
 				if (message[key] !== undefined) result[key] = text(message[key])
+			}
+			if (message.receivedAt !== undefined) result.receivedAt = integer(message.receivedAt)
+			if (sourceKind === 'operator-conversation') {
+				if (message.operatorSessionId !== undefined)
+					result.operatorSessionId = text(message.operatorSessionId)
+				// Not `text()`: an owner message may be longer than a label.
+				if (typeof message.text === 'string' && message.text && message.text.length <= 4000)
+					result.text = message.text
 			}
 			return result
 		}),
