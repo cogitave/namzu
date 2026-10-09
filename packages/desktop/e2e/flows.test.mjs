@@ -474,7 +474,7 @@ flow(
 		});
 		await expect(ask).toBeChecked();
 		// Turning the check off asks in the app, never in a native box; Cancel keeps it on.
-		await ask.uncheck();
+		await ask.click();
 		const confirm = w.page.getByRole("dialog", {
 			name: "Stop asking when a project’s automatic settings change?",
 		});
@@ -484,7 +484,7 @@ flow(
 		await expect(confirm).toBeHidden();
 		await expect(ask).toBeChecked();
 		assert.deepEqual(await dialogsSeen(w), []);
-		await ask.uncheck();
+		await ask.click();
 		await confirm.getByRole("button", { name: "Turn off" }).click();
 		await expect(confirm).toBeHidden();
 		await expect(ask).not.toBeChecked();
