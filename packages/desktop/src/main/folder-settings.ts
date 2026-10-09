@@ -52,7 +52,9 @@ function entries(value: unknown): [string, unknown][] {
 }
 
 function scalar(value: unknown): string {
-	return typeof value === 'string' ? value : JSON.stringify(value)
+	if (typeof value === 'string') return value
+	// Nested objects can hold credentials under any key name, so they are never printed whole.
+	return value && typeof value === 'object' ? '(more settings, not shown)' : String(value)
 }
 
 function hookLines(value: unknown): string[] {

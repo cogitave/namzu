@@ -172,7 +172,7 @@ export function FolderAccessDialog({
 													<dd
 														// biome-ignore lint/suspicious/noArrayIndexKey: lines repeat and never reorder
 														key={index}
-														className="break-all font-mono text-muted-foreground"
+														className="break-all font-mono text-foreground"
 													>
 														{line}
 													</dd>

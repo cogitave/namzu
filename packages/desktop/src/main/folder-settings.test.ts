@@ -116,6 +116,13 @@ describe('inspectAutoRunSettings details', () => {
 	})
 })
 
+describe('inspectAutoRunSettings nested values', () => {
+	it('never prints a nested object, which could hold a credential under any key', async () => {
+		await config({ hooks: { pre_tool_use: [{ run: 'x', env: { API_KEY: 'sekret2' } }] } })
+		expect(JSON.stringify(await inspectAutoRunSettings(folder))).not.toContain('sekret2')
+	})
+})
+
 describe('safeLine', () => {
 	it('drops credentials, URL queries and user info, and keeps one short line', () => {
 		expect(safeLine('run --token=abc123 --port=80')).toBe('run --token=… --port=80')
