@@ -164,7 +164,7 @@ describe('the settings page', () => {
 		const markup = page('updates')
 		expect(markup).toContain('0.1.0')
 		expect(markup).toContain('Last checked: 5 minutes ago')
-		expect(markup).toContain('Namzu is up to date.')
+		expect(markup).toContain('Up to date.')
 		expect(markup).toContain('Check for updates')
 		expect(markup).toContain('Download updates automatically')
 		const off = page('updates', {
@@ -191,7 +191,7 @@ describe('the settings page', () => {
 				onDownload: () => {},
 			},
 		})
-		expect(offered).toContain('Version 2.0.0 is available.')
+		expect(offered).toContain('Update available: version 2.0.0.')
 		expect(offered).toContain('Download update')
 		expect(offered).toMatch(/<button[^>]*disabled[^>]*>(?:(?!<\/button>).)*Check for updates/s)
 		expect(offered).toContain('Last checked: Not checked yet')

@@ -71,13 +71,16 @@ describe('updates', () => {
 	})
 
 	it('offers one button per state and a check only when one is useful', () => {
-		expect(updateStatusView({ status: 'disabled' })).toMatchObject({ canCheck: false })
+		expect(updateStatusView({ status: 'disabled' })).toMatchObject({
+			canCheck: false,
+			text: 'This copy can’t update itself. Install the latest version once to turn updates on.',
+		})
 		expect(updateStatusView({ status: 'idle' })).toMatchObject({ action: 'check', canCheck: true })
 		expect(updateStatusView({ status: 'checking' })).toMatchObject({ canCheck: false })
 		expect(updateStatusView({ status: 'available', version: '2.0.0' })).toMatchObject({
 			action: 'download',
 			canCheck: false,
-			text: 'Version 2.0.0 is available.',
+			text: 'Update available: version 2.0.0.',
 		})
 		expect(
 			updateStatusView({ status: 'downloading', percent: 40, bytesPerSecond: 0 }).text,

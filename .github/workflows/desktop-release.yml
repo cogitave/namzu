@@ -1,0 +1,215 @@
+# Builds the Windows installer for Namzu Desktop and publishes it to the rolling GitHub release
+# `desktop-latest`, which is the update feed baked into every installed app
+# (packages/desktop/electron-builder.yml). Started by hand, from main only. It is a packaging job
+# only: it runs none of ci.yml's or release.yml's gates and is not part of their gate parity
+# (.github/scripts/check-workflow-gate-parity.mjs reads those two files only).
+#
+# Three jobs, the same split docs/cli/desktop.md documents for a local build:
+#   stage    (Linux, read-only token)  builds the workspace and stages the installer project
+#   package  (Windows, read-only token) runs electron-builder on the staged copy
+#   publish  (Linux, the only job with contents: write) checks the files, then uploads them
+# stage-installer.mjs is a Linux/WSL script (it spawns npm and pnpm without a shell and extracts
+# with tar), so it is not run on Windows. Third-party install scripts never see a write token.
+#
+# The version is the one `changeset version` wrote into packages/desktop/package.json. Never edit it
+# by hand. The input must equal it, so a mistyped dispatch cannot publish under another number.
+# Actions are pinned to full commit SHAs (checkout v5, pnpm/action-setup v5, setup-node v6,
+# upload-artifact v4, download-artifact v4).
+name: Desktop release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Must equal the version in packages/desktop/package.json
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-release
+  cancel-in-progress: false
+
+env:
+  FEED_TAG: desktop-latest
+  ELECTRON_BUILDER_VERSION: 26.17.0
+
+jobs:
+  stage:
+    name: Stage the installer project
+    # A dispatch from another branch would publish that branch's code to every install.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      electron: ${{ steps.version.outputs.electron }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Version matches the input
+        id: version
+        env:
+          REQUESTED: ${{ inputs.version }}
+        run: |
+          actual="$(node -p "require('./packages/desktop/package.json').version")"
+          if [ "$actual" != "$REQUESTED" ]; then
+            echo "packages/desktop/package.json is $actual but the dispatch asked for $REQUESTED." >&2
+            exit 1
+          fi
+          echo "version=$actual" >> "$GITHUB_OUTPUT"
+          echo "electron=$(node -p "require('./packages/desktop/package.json').devDependencies.electron")" >> "$GITHUB_OUTPUT"
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm -r build
+
+      - name: Stage the installer project
+        run: |
+          node packages/desktop/scripts/stage-installer.mjs "$RUNNER_TEMP/stage"
+          tar -czf "$RUNNER_TEMP/stage.tgz" -C "$RUNNER_TEMP/stage" .
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: desktop-stage
+          path: ${{ runner.temp }}/stage.tgz
+          retention-days: 1
+          if-no-files-found: error
+
+  package:
+    name: Windows installer
+    needs: stage
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      VERSION: ${{ needs.stage.outputs.version }}
+      ELECTRON: ${{ needs.stage.outputs.electron }}
+    steps:
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 24
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: desktop-stage
+          path: ${{ runner.temp }}
+
+      - name: Unpack the staged project and install electron-builder
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path "$env:RUNNER_TEMP\stage" | Out-Null
+          tar -xzf "$env:RUNNER_TEMP\stage.tgz" -C "$env:RUNNER_TEMP\stage"
+          if ($LASTEXITCODE -ne 0) { throw 'tar failed' }
+          New-Item -ItemType Directory -Path "$env:RUNNER_TEMP\tools" | Out-Null
+          Push-Location "$env:RUNNER_TEMP\tools"
+          npm install --save-exact --ignore-scripts --no-audit --no-fund "electron-builder@$env:ELECTRON_BUILDER_VERSION"
+          if ($LASTEXITCODE -ne 0) { throw 'npm install failed' }
+          Pop-Location
+
+      - name: Build the NSIS installer (unsigned, never published by electron-builder)
+        shell: pwsh
+        working-directory: ${{ runner.temp }}/stage
+        run: |
+          node "$env:RUNNER_TEMP\tools\node_modules\electron-builder\cli.js" --win nsis --x64 --publish never --config electron-builder.yml "--config.electronVersion=$env:ELECTRON"
+          if ($LASTEXITCODE -ne 0) { throw 'electron-builder failed' }
+          Get-ChildItem out
+          foreach ($f in "Namzu-Setup-$env:VERSION.exe", "Namzu-Setup-$env:VERSION.exe.blockmap", 'latest.yml') {
+            if (-not (Test-Path "out\$f")) { throw "missing out\$f" }
+          }
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: desktop-installer
+          path: |
+            ${{ runner.temp }}/stage/out/Namzu-Setup-${{ needs.stage.outputs.version }}.exe
+            ${{ runner.temp }}/stage/out/Namzu-Setup-${{ needs.stage.outputs.version }}.exe.blockmap
+            ${{ runner.temp }}/stage/out/latest.yml
+          retention-days: 1
+          if-no-files-found: error
+
+  publish:
+    name: Publish to the rolling release
+    needs: [stage, package]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      VERSION: ${{ needs.stage.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: desktop-installer
+          path: installer
+
+      # latest.yml is what every install trusts, and its sha512 is the only integrity check, so the
+      # files are proven to agree before anything is uploaded.
+      - name: The feed file names exactly this installer
+        working-directory: installer
+        run: |
+          node --input-type=module -e "
+            import { createHash } from 'node:crypto'
+            import { readFileSync, readdirSync } from 'node:fs'
+            const v = process.env.VERSION
+            const exe = 'Namzu-Setup-' + v + '.exe'
+            const yml = readFileSync('latest.yml', 'utf8')
+            const field = (name) => (yml.match(new RegExp('^' + name + ':\\\\s*(\\\\S+)\\\\s*$', 'm')) ?? [])[1]
+            const sum = createHash('sha512').update(readFileSync(exe)).digest('base64')
+            const fail = (m) => { console.error(m); process.exit(1) }
+            if (field('version') !== v) fail('latest.yml version is ' + field('version') + ', expected ' + v)
+            if (field('path') !== exe) fail('latest.yml path is ' + field('path') + ', expected ' + exe)
+            if (field('sha512') !== sum) fail('latest.yml sha512 does not match ' + exe)
+            const files = readdirSync('.').sort().join(',')
+            if (files !== ['latest.yml', exe, exe + '.blockmap'].sort().join(',')) fail('unexpected files: ' + files)
+          "
+
+      - name: Create the rolling release once
+        run: |
+          gh release view "$FEED_TAG" >/dev/null 2>&1 || gh release create "$FEED_TAG" \
+            --prerelease --latest=false \
+            --title "Namzu Desktop" \
+            --notes "Update feed read by the installed Namzu Desktop app. It holds the newest installer and the one before it; do not delete this release."
+
+      # A version is never reused: replacing the bytes under a number people already run would make
+      # their sha512 check fail, so a second upload of the same version stops here.
+      - name: This version is not on the feed yet
+        run: |
+          if gh release view "$FEED_TAG" --json assets --jq '.assets[].name' | grep -Fxq "Namzu-Setup-$VERSION.exe"; then
+            echo "Namzu-Setup-$VERSION.exe is already on $FEED_TAG; bump the version instead." >&2
+            exit 1
+          fi
+
+      # The installer and its blockmap go first and latest.yml last, so the feed never names a file
+      # that is not there yet. Older blockmaps stay on the release for differential updates.
+      - name: Upload the installer, then the feed file
+        working-directory: installer
+        run: |
+          gh release upload "$FEED_TAG" "Namzu-Setup-$VERSION.exe" "Namzu-Setup-$VERSION.exe.blockmap"
+          gh release upload "$FEED_TAG" --clobber latest.yml
+
+      # Keep this version and the one before it (their blockmaps give the next update a small
+      # download); remove older ones so the release does not grow without bound.
+      - name: Remove installers older than the previous one
+        run: |
+          gh release view "$FEED_TAG" --json assets --jq '.assets[].name' \
+            | sed -n 's/^Namzu-Setup-\(.*\)\.exe$/\1/p' | sort -V -r | tail -n +3 \
+            | while read -r old; do
+                echo "Removing $old"
+                gh release delete-asset "$FEED_TAG" "Namzu-Setup-$old.exe" --yes
+                gh release delete-asset "$FEED_TAG" "Namzu-Setup-$old.exe.blockmap" --yes || true
+              done

@@ -183,16 +183,16 @@ export function updateStatusView(state: UpdateState): UpdateStatusView {
 	switch (state.status) {
 		case 'disabled':
 			return {
-				text: 'Namzu updates by installing a newer version of the app. Automatic updates aren’t available in this build.',
+				text: 'This copy can’t update itself. Install the latest version once to turn updates on.',
 				canCheck: false,
 			}
 		case 'idle':
-			return { text: 'Namzu is up to date.', action: 'check', canCheck: true }
+			return { text: 'Up to date.', action: 'check', canCheck: true }
 		case 'checking':
 			return { text: 'Checking for updates…', canCheck: false }
 		case 'available':
 			return {
-				text: `Version ${state.version} is available.`,
+				text: `Update available: version ${state.version}.`,
 				action: 'download',
 				canCheck: false,
 			}

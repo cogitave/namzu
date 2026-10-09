@@ -136,18 +136,30 @@ downgrades. The first check is 30 seconds after launch and then every four hours
 check is quiet (a diagnostic and a "Check for updates" entry in the profile menu, never a
 dialog).
 
-The feed is set by the environment until publishing is approved. `NAMZU_UPDATE_FEED_URL`
-names a generic `http(s)` folder holding `latest.yml`; the GitHub provider is used only
-when `NAMZU_UPDATE_PROVIDER=github` and `NAMZU_UPDATE_GITHUB=owner/repo` are both set.
+An installed build reads its feed from `resources/app-update.yml`, which `electron-builder` writes
+from the `publish` block of `electron-builder.yml`: the generic provider on
+`https://github.com/cogitave/namzu/releases/download/desktop-latest/` (the rolling release described
+under [Releasing the installer](#releasing-the-installer)), with `useMultipleRangeRequest: false`
+because GitHub's asset host does not answer multi-range requests. Builds always run with
+`--publish never` (the generic provider cannot upload); the files are uploaded by
+`.github/workflows/desktop-release.yml`.
+
+The environment can still name a feed, for development and the clean-machine test.
+`NAMZU_UPDATE_FEED_URL` names a generic `http(s)` folder holding `latest.yml`; the GitHub provider is
+used only when `NAMZU_UPDATE_PROVIDER=github` and `NAMZU_UPDATE_GITHUB=owner/repo` are both set.
 An installed (packaged) build accepts an environment feed only on loopback (`localhost`,
 `127.0.0.1`, `[::1]`) or the GitHub provider for `cogitave/namzu`, because updates are
 integrity-checked but not yet signed; any other value is ignored. A development build
 accepts any `http(s)` feed.
-Without a feed an installed build has no updater and shows nothing (`disabled`).
-The installer writes `resources/app-update.yml` with only `updaterCacheDirName`: electron-updater
-reads that file when it downloads, even with the feed set at run time, and without it the
-download failed with ENOENT. No provider is declared in it, so the build stays `disabled`
-until a feed is named in the environment or published in that file.
+A build with neither an environment feed nor a provider in `app-update.yml` has no updater and
+shows nothing (`disabled`); Settings ▸ Updates then says "This copy can't update itself. Install the
+latest version once to turn updates on." That is every installer built before the feed was baked in:
+it needs one manual reinstall, after which updates arrive on their own. Settings reads "Up to date."
+or "Update available: version X." for a build with a feed.
+
+A feed that answers 404 for `latest.yml` (the rolling release has no installer yet, or does not
+exist) means "no Desktop release published yet": the state stays `idle`, nothing is shown, and only a
+diagnostic is written. Any other failure keeps the quiet "Update check failed" behaviour.
 
 Installing is always the person's choice and never interrupts work. **Restart now** runs the
 install gate: it is refused while a turn is running, queued or admitting, a permission is
@@ -174,6 +186,34 @@ an updater; `research/updater-20261008/shots.mjs` captures them in both themes.
 The installer is **unsigned** (no `publisherName`). Windows SmartScreen shows "Windows
 protected your PC / Unknown publisher" on the first run; choose *More info*, then *Run
 anyway*. Updates are then checked by sha512 only, not by signature.
+
+### Releasing the installer
+
+Desktop versions come from changesets. A change to the app adds `.changeset/<slug>.md` with
+`'@namzu/desktop': patch` (or `minor`); merging it makes `release.yml` open the "chore(release):
+version packages" pull request, which bumps `packages/desktop/package.json` and writes its
+`CHANGELOG.md`. Never edit that version by hand. `@namzu/desktop` is `private`, so changesets
+versions it but never tags or publishes it to npm (the config's `privatePackages` default,
+`{ version: true, tag: false }`, is what is wanted, so `.changeset/config.json` is unchanged), and
+`stage-installer.mjs` copies the version into the installer, so the installer's version is that field.
+A version is never reused: the feed would change bytes under a number people already run.
+
+After the version pull request is merged, the owner starts **Desktop release**
+(`.github/workflows/desktop-release.yml`, `workflow_dispatch`, refused on any branch but `main`)
+with the version as input, which must equal `packages/desktop/package.json`. Three jobs, the same
+split as the local build above: `stage` (Linux) builds the workspace and runs `stage-installer.mjs`;
+`package` (`windows-latest`) unpacks the staged project and runs the pinned `electron-builder` with
+`--win nsis --x64 --publish never` and `CSC_IDENTITY_AUTO_DISCOVERY=false`; `publish` (Linux, the
+only job with `contents: write`) checks that `latest.yml` names exactly that version, installer and
+sha512, refuses a version already on the feed, creates the rolling release `desktop-latest` once (a
+prerelease, `--latest=false`, so the repository's "Latest" stays an npm package), uploads
+`Namzu-Setup-<version>.exe` and its blockmap, and uploads `latest.yml` last so the feed never names a
+missing file. It keeps the installer and blockmap of the previous version (a differential download
+needs the old blockmap; without it the app downloads the whole installer) and removes older ones.
+The workflow is not part of the `ci.yml`/`release.yml` gate parity.
+
+The installer is unsigned, so anyone who can write to that release can ship an update to every
+install; restrict who has `contents: write`, and sign the installer before wide distribution.
 
 ### Updates to the programs Namzu works with
 

@@ -7,6 +7,7 @@ import {
 	type UpdateFeed,
 	bakedFeedDeclared,
 	checkIntervalMs,
+	feedHasNoRelease,
 	firstCheckDelayMs,
 	idleRetryMs,
 	uiBlockers,
@@ -95,6 +96,9 @@ describe('configuration', () => {
 	it('treats a build whose app-update.yml names no provider as having no feed', () => {
 		expect(bakedFeedDeclared(undefined)).toBe(false)
 		expect(bakedFeedDeclared('updaterCacheDirName: namzu-updater\n')).toBe(false)
+		expect(
+			bakedFeedDeclared('provider: generic\nurl: https://example.test/\nupdaterCacheDirName: x\n'),
+		).toBe(true)
 		expect(bakedFeedDeclared('provider: github\nowner: a\nrepo: b\nupdaterCacheDirName: x\n')).toBe(
 			true,
 		)
@@ -105,7 +109,10 @@ describe('configuration', () => {
 		expect(updater.autoDownload).toBe(true)
 		expect(updater.autoInstallOnAppQuit).toBe(false)
 		expect(updater.allowDowngrade).toBe(false)
-		expect(updater.feed).toEqual({ provider: 'generic', url: 'http://127.0.0.1:9/feed/' })
+		expect(updater.feed).toEqual({
+			provider: 'generic',
+			url: 'http://127.0.0.1:9/feed/',
+		})
 		expect(updater.forceDevUpdateConfig).toBe(true)
 	})
 
@@ -127,7 +134,10 @@ describe('configuration', () => {
 		expect(updateFeedFromEnv({ NAMZU_UPDATE_FEED_URL: 'not a url' })).toBeUndefined()
 		expect(updateFeedFromEnv({ NAMZU_UPDATE_GITHUB: 'cogitave/namzu' })).toBeUndefined()
 		expect(
-			updateFeedFromEnv({ NAMZU_UPDATE_PROVIDER: 'github', NAMZU_UPDATE_GITHUB: 'cogitave/namzu' }),
+			updateFeedFromEnv({
+				NAMZU_UPDATE_PROVIDER: 'github',
+				NAMZU_UPDATE_GITHUB: 'cogitave/namzu',
+			}),
 		).toEqual({ provider: 'github', owner: 'cogitave', repo: 'namzu' })
 	})
 
@@ -141,13 +151,19 @@ describe('configuration', () => {
 		).toBeUndefined()
 		expect(
 			updateFeedFromEnv(
-				{ NAMZU_UPDATE_PROVIDER: 'github', NAMZU_UPDATE_GITHUB: 'someone/fork' },
+				{
+					NAMZU_UPDATE_PROVIDER: 'github',
+					NAMZU_UPDATE_GITHUB: 'someone/fork',
+				},
 				packaged,
 			),
 		).toBeUndefined()
 		expect(
 			updateFeedFromEnv(
-				{ NAMZU_UPDATE_PROVIDER: 'github', NAMZU_UPDATE_GITHUB: 'cogitave/namzu' },
+				{
+					NAMZU_UPDATE_PROVIDER: 'github',
+					NAMZU_UPDATE_GITHUB: 'cogitave/namzu',
+				},
 				packaged,
 			),
 		).toEqual({ provider: 'github', owner: 'cogitave', repo: 'namzu' })
@@ -188,8 +204,14 @@ describe('states', () => {
 		controller.start()
 		updater.emit('checking-for-update')
 		updater.emit('update-available', { version: '2.0.0' })
-		updater.emit('download-progress', { percent: 41.6, bytesPerSecond: 1234.4 })
-		updater.emit('download-progress', { percent: 250, bytesPerSecond: Number.NaN })
+		updater.emit('download-progress', {
+			percent: 41.6,
+			bytesPerSecond: 1234.4,
+		})
+		updater.emit('download-progress', {
+			percent: 250,
+			bytesPerSecond: Number.NaN,
+		})
 		updater.emit('update-downloaded', { version: '2.0.0' })
 		expect(states).toEqual([
 			{ status: 'checking' },
@@ -215,12 +237,88 @@ describe('states', () => {
 			throw new Error('ENOTFOUND secret.example')
 		}
 		await controller.check()
-		expect(controller.state).toEqual({ status: 'error', message: 'Update check failed.' })
+		expect(controller.state).toEqual({
+			status: 'error',
+			message: 'Update check failed.',
+		})
 		expect(JSON.stringify(controller.state)).not.toContain('secret')
 		expect(records).toEqual(['update_failed'])
 		updater.checkResult = async () => undefined
 		updater.emit('checking-for-update')
 		expect(controller.state.status).toBe('checking')
+	})
+
+	it('treats a feed with no latest.yml as no release yet: current, no error, only a diagnostic', async () => {
+		const { updater, controller, records, states } = build()
+		controller.start()
+		const missing = Object.assign(
+			new Error('Cannot find latest.yml in the latest release artifacts'),
+			{
+				code: 'ERR_UPDATER_CHANNEL_FILE_NOT_FOUND',
+			},
+		)
+		updater.checkResult = async () => {
+			// electron-updater emits the error and also rejects the check.
+			updater.emit('checking-for-update')
+			updater.emit('error', missing)
+			throw missing
+		}
+		await controller.check()
+		expect(controller.state).toEqual({ status: 'idle' })
+		expect(states.some((state) => state.status === 'error')).toBe(false)
+		expect(records.length).toBeGreaterThan(0)
+		expect(controller.info().lastCheckedAt).toBeDefined()
+	})
+
+	it('still reports another failure after a no-release answer', async () => {
+		const { updater, controller } = build()
+		controller.start()
+		updater.checkResult = async () => {
+			throw Object.assign(new Error('x'), {
+				code: 'ERR_UPDATER_CHANNEL_FILE_NOT_FOUND',
+			})
+		}
+		await controller.check()
+		expect(controller.state).toEqual({ status: 'idle' })
+		updater.checkResult = async () => {
+			throw Object.assign(new Error('boom'), { statusCode: 500 })
+		}
+		await controller.check()
+		expect(controller.state).toEqual({
+			status: 'error',
+			message: 'Update check failed.',
+		})
+	})
+
+	it('keeps a 404 on the installer after latest.yml named it an error', async () => {
+		const { updater, controller } = build()
+		controller.start()
+		updater.checkResult = async () => {
+			updater.emit('checking-for-update')
+			updater.emit('update-available', { version: '2.0.0' })
+			// autoDownload is on: the status is now downloading when the installer 404s.
+			updater.emit(
+				'error',
+				Object.assign(new Error('404 Namzu-Setup-2.0.0.exe'), {
+					statusCode: 404,
+				}),
+			)
+			return undefined
+		}
+		await controller.check()
+		expect(controller.state).toEqual({
+			status: 'error',
+			message: 'Update check failed.',
+		})
+	})
+
+	it('recognises the no-release answers and nothing else', () => {
+		expect(feedHasNoRelease({ code: 'ERR_UPDATER_CHANNEL_FILE_NOT_FOUND' })).toBe(true)
+		expect(feedHasNoRelease({ statusCode: 404 })).toBe(false)
+		expect(feedHasNoRelease(new Error('HttpError: 404 ... Namzu-Setup-0.2.0.exe'))).toBe(false)
+		expect(feedHasNoRelease(new Error('ENOTFOUND'))).toBe(false)
+		expect(feedHasNoRelease({ statusCode: 403 })).toBe(false)
+		expect(feedHasNoRelease(undefined)).toBe(false)
 	})
 
 	it('keeps a downloaded update installable through a later error event', () => {
@@ -234,7 +332,9 @@ describe('states', () => {
 
 describe('automatic download setting', () => {
 	it('only offers the update when automatic download is off, and downloads when asked', async () => {
-		const { updater, controller, states } = build({ autoDownload: () => false })
+		const { updater, controller, states } = build({
+			autoDownload: () => false,
+		})
 		controller.start()
 		expect(updater.autoDownload).toBe(false)
 		updater.emit('checking-for-update')
@@ -246,7 +346,11 @@ describe('automatic download setting', () => {
 		expect(updater.checks).toBe(0)
 		await controller.download()
 		expect(updater.downloads).toBe(1)
-		expect(states.at(-1)).toEqual({ status: 'downloading', percent: 0, bytesPerSecond: 0 })
+		expect(states.at(-1)).toEqual({
+			status: 'downloading',
+			percent: 0,
+			bytesPerSecond: 0,
+		})
 		updater.emit('update-downloaded', { version: '2.0.0' })
 		expect(controller.state).toEqual({ status: 'ready', version: '2.0.0' })
 	})
@@ -281,7 +385,10 @@ describe('automatic download setting', () => {
 		updater.emit('checking-for-update')
 		clock = 5_000
 		updater.emit('update-not-available')
-		expect(controller.info()).toEqual({ currentVersion: '1.2.3', lastCheckedAt: 5_000 })
+		expect(controller.info()).toEqual({
+			currentVersion: '1.2.3',
+			lastCheckedAt: 5_000,
+		})
 	})
 })
 
@@ -318,8 +425,16 @@ describe('install gate', () => {
 		const { updater, controller } = build()
 		controller.start()
 		updater.emit('update-downloaded', { version: '2.0.0' })
-		controller.report('a', { dialogOpen: false, typingRecent: false, computerSession: false })
-		controller.report('b', { dialogOpen: true, typingRecent: true, computerSession: false })
+		controller.report('a', {
+			dialogOpen: false,
+			typingRecent: false,
+			computerSession: false,
+		})
+		controller.report('b', {
+			dialogOpen: true,
+			typingRecent: true,
+			computerSession: false,
+		})
 		controller.report('c', { nonsense: true })
 		expect(controller.blockers()).toEqual(['dialog-open', 'typing-unsaved'])
 		controller.forgetWindow('b')
@@ -352,7 +467,10 @@ describe('install gate', () => {
 		later.updater.emit('update-downloaded', { version: '2.0.0' })
 		await later.controller.install()
 		later.controller.cancel()
-		expect(later.controller.state).toEqual({ status: 'ready', version: '2.0.0' })
+		expect(later.controller.state).toEqual({
+			status: 'ready',
+			version: '2.0.0',
+		})
 		await vi.advanceTimersByTimeAsync(idleRetryMs * 5)
 		expect(later.log).toEqual([])
 	})
@@ -391,9 +509,15 @@ describe('ordering', () => {
 		controller.start()
 		updater.emit('update-downloaded', { version: '2.0.0' })
 		failShutdown(new Error('could not confirm that all runtime processes stopped'))
-		expect(await controller.install()).toEqual({ ok: false, error: 'Shutdown failed.' })
+		expect(await controller.install()).toEqual({
+			ok: false,
+			error: 'Shutdown failed.',
+		})
 		expect(log).toEqual(['shutdown:start'])
-		expect(controller.state).toMatchObject({ status: 'ready', version: '2.0.0' })
+		expect(controller.state).toMatchObject({
+			status: 'ready',
+			version: '2.0.0',
+		})
 		expect(JSON.stringify(controller.state)).not.toContain('runtime processes')
 		controller.cancel()
 		expect(controller.state).toEqual({ status: 'ready', version: '2.0.0' })

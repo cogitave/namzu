@@ -7,6 +7,20 @@ import {
 	isUpdateUiBusy,
 } from '../shared/update-protocol.js'
 
+/**
+ * True when the feed answered that it holds no Desktop release yet (no `latest.yml` at the
+ * rolling tag, which is what the repository answers before the first release is uploaded).
+ */
+export function feedHasNoRelease(error: unknown): boolean {
+	// electron-updater's generic provider turns a 404 on latest.yml, and only that, into this code.
+	// A bare 404 (an installer or blockmap that is missing after latest.yml named it) is a real failure.
+	return (
+		!!error &&
+		typeof error === 'object' &&
+		(error as { code?: unknown }).code === 'ERR_UPDATER_CHANNEL_FILE_NOT_FOUND'
+	)
+}
+
 /** The slice of electron-updater's `AppUpdater` this controller drives. */
 export interface AutoUpdaterLike {
 	autoDownload: boolean
@@ -29,8 +43,9 @@ export const checkIntervalMs = 4 * 60 * 60_000
 export const idleRetryMs = 3_000
 
 /**
- * The feed comes from the environment until publishing is approved. A generic HTTP(S) URL is
- * the only source used by default; the GitHub provider is read only when asked for by name.
+ * A feed named in the environment (development and the clean-machine test). An installed build
+ * normally takes its feed from the `app-update.yml` the installer bakes in. A generic HTTP(S) URL
+ * is the only source used by default; the GitHub provider is read only when asked for by name.
  */
 export function updateFeedFromEnv(
 	env: Record<string, string | undefined>,
@@ -59,8 +74,8 @@ export function updateFeedFromEnv(
 }
 
 /**
- * True when the build's own `app-update.yml` names a provider. The installer writes that file with
- * only a cache folder name until publishing is approved, so such a build checks nothing by itself.
+ * True when the build's own `app-update.yml` names a provider. Installers built before the feed was
+ * baked in wrote that file with only a cache folder name, so such a build checks nothing by itself.
  */
 export function bakedFeedDeclared(appUpdateYml: string | undefined): boolean {
 	return appUpdateYml !== undefined && /^provider:\s*\S/m.test(appUpdateYml)
@@ -183,7 +198,10 @@ export class UpdateController {
 			this.checked()
 			if (this.current.status === 'checking') this.set({ status: 'idle' })
 		})
-		updater.on('download-progress', ((progress: { percent?: number; bytesPerSecond?: number }) => {
+		updater.on('download-progress', ((progress: {
+			percent?: number
+			bytesPerSecond?: number
+		}) => {
 			if (this.current.status !== 'downloading' && this.current.status !== 'checking') return
 			this.set({
 				status: 'downloading',
@@ -274,7 +292,11 @@ export class UpdateController {
 			const blockers = this.blockers()
 			if (blockers.length) {
 				if (!sameBlockers(blockers, state.waiting))
-					this.set({ status: 'ready', version: state.version, waiting: blockers })
+					this.set({
+						status: 'ready',
+						version: state.version,
+						waiting: blockers,
+					})
 				this.scheduleIdleCheck()
 				return
 			}
@@ -330,6 +352,14 @@ export class UpdateController {
 			return
 		}
 		this.options.record('update_failed', { stage: status, error })
+		// No release published yet is not a failure: stay current, only the diagnostic remains.
+		if (status === 'checking' || status === 'idle') {
+			if (feedHasNoRelease(error)) {
+				this.checked()
+				this.set({ status: 'idle' })
+				return
+			}
+		}
 		// A downloaded update stays installable; only a check or download is reported quietly.
 		if (status === 'ready') return
 		this.set({ status: 'error', message: 'Update check failed.' })

@@ -49,6 +49,12 @@ nsis:
   shortcutName: Namzu
   uninstallDisplayName: Namzu
   runAfterFinish: true
-# The feed is chosen at run time by the updater (an environment variable in development, a
-# GitHub or generic URL once publishing is approved); nothing is baked into app-update.yml here.
-publish: null
+# The update feed baked into resources/app-update.yml: a rolling GitHub release named
+# desktop-latest, read through the generic provider because the repository's own "latest"
+# release belongs to the npm packages. Always build with --publish never (the generic provider
+# cannot upload); .github/workflows/desktop-release.yml uploads the files with gh.
+# GitHub's asset host does not answer multi-range requests, so differential downloads use one range.
+publish:
+  provider: generic
+  url: https://github.com/cogitave/namzu/releases/download/desktop-latest/
+  useMultipleRangeRequest: false
