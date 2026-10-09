@@ -611,7 +611,16 @@ export class SessionTokenBudget {
 	}
 
 	async finishRequest(requestId: string, usage: TokenUsage): Promise<void> {
-		if (this.hasReceipt(requestId)) return this.flush()
+		if (this.hasReceipt(requestId)) {
+			// A request retained as unknown spend can still be answered late. The
+			// measured usage is evidence and is kept; the unknown marker stays until
+			// an explicit reconciliation clears it.
+			const receipt = this.ledger.finishedRequests.get(
+				requestId,
+			) as SessionTokenBudgetRequestSnapshot
+			if (receipt.unresolved === true) return this.failRequest(requestId, usage)
+			return this.flush()
+		}
 		const request = this.requireRequest(requestId)
 		try {
 			this.recordRequestUsage(request, usage)

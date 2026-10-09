@@ -21,6 +21,8 @@ export async function providerPaused(
 	state: CliSessions,
 	options: {
 		unresolved?: boolean
+		/** Leave the request in flight, as a process that stopped mid-request does. */
+		inFlight?: boolean
 		poisoned?: boolean
 		limit?: number
 		pause?: Partial<Extract<SessionRecordDraft, { type: 'turn_paused' }>>
@@ -48,7 +50,9 @@ export async function providerPaused(
 		cachedTokens: 0,
 		cacheWriteTokens: 0,
 	}
-	if (options.unresolved) await budget.failRequest(requestId)
+	if (options.inFlight) {
+		// The request is left open: no receipt, no failure.
+	} else if (options.unresolved) await budget.failRequest(requestId)
 	else await budget.finishRequest(requestId, usage)
 	const snapshot = budget.snapshot()
 	if (options.poisoned) snapshot.poisoned = true

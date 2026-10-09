@@ -91,7 +91,8 @@ export async function readProviderRetryStatus(
 	// Unknown spend stops a retry only where a finite limit could already be exceeded by it.
 	// Without a limit it stays recorded (never as zero) and the retry is a new request.
 	const live = SessionTokenBudget.restore(budget).account(binding.accountId)
-	if (live.summary().poisoned)
+	// A request still in flight under a finite limit was never settled either way.
+	if (live.summary().poisoned || live.summary().inFlightRequests > 0)
 		return {
 			notice:
 				'This provider request has unresolved token usage. Retry requires its actual provider usage receipt; the original turn is retained.',

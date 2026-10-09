@@ -46,6 +46,7 @@ describe('durable provider retry eligibility', () => {
 		{ poisoned: true },
 		{ unresolved: true, poisoned: true },
 		{ unresolved: true, limit: 1_000_000 },
+		{ inFlight: true, limit: 1_000_000 },
 	])('retains a turn with unknown accounting it cannot admit past: %j', async (options) => {
 		const f = await providerPaused(state, options)
 		const journal = await readFile(conversationLogPath(state, f.sessionId), 'utf8')
