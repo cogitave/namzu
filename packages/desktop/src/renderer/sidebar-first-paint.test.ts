@@ -49,4 +49,6 @@ it('never writes "Loading…" next to an empty-state sentence in the Pals list',
 	expect(markup).toContain('sidebar-section-skeleton')
 	expect(markup).not.toContain('Loading…')
 	expect(markup).not.toContain('Create your first Pal')
+	// Loading sits directly under New conversation with no heading, like three Pals or fewer.
+	expect(markup).not.toContain('<h2')
 })

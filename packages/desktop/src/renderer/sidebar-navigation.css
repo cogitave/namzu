@@ -184,6 +184,23 @@
 	font-size: 12.5px;
 	line-height: 18px;
 }
+/*
+ * The title's line box is centred on the row, but its letters are not: Segoe UI puts the x-height
+ * band about 1.75px below the line box's middle (measured on Windows at 100%, 12.5px), so the dot
+ * and the hover glyph, which are centred on the row, read as sitting high. Trimming the box to the
+ * x-height line and the baseline makes the box, and so the row's centring, follow the letters
+ * whatever the font's metrics. The padding keeps ascenders and descenders inside the box that
+ * `overflow: hidden` clips at, and is equal above and below so it moves nothing.
+ */
+/* biome-ignore lint/correctness/noUnknownProperty: text-box is CSS Inline Layout Level 3 (Chromium 133+); Biome's property list predates it. */
+@supports (text-box: trim-both ex alphabetic) {
+	.sidebar-project-list .conversation-row-title,
+	.sidebar-recent-list .conversation-row-title {
+		/* biome-ignore lint/correctness/noUnknownProperty: see above. */
+		text-box: trim-both ex alphabetic;
+		padding-block: 0.4em;
+	}
+}
 
 .sidebar-project-list .conversation-row-state,
 .sidebar-recent-list .conversation-row-state {

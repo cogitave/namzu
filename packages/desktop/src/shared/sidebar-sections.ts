@@ -1,5 +1,5 @@
-/** The sidebar groups the person can fold away. */
-export const SIDEBAR_SECTIONS = ['pals', 'projects', 'recents'] as const
+/** The sidebar groups the person can fold away. Recents never folds; an old saved value is dropped. */
+export const SIDEBAR_SECTIONS = ['pals', 'projects'] as const
 export type SidebarSectionId = (typeof SIDEBAR_SECTIONS)[number]
 
 export function isSidebarSection(value: unknown): value is SidebarSectionId {

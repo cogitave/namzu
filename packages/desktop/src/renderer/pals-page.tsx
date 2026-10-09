@@ -544,6 +544,9 @@ export function PalsPage({
 	)
 }
 
+/** The most Pals the sidebar lists without a group heading. */
+export const PAL_GROUP_AFTER = 3
+
 export function PalSidebarSection({
 	pals,
 	selectedId,
@@ -614,6 +617,28 @@ export function PalSidebarSection({
 			</Button>
 		</>
 	)
+	const body = loading ? (
+		<output className="sidebar-pals-loading" aria-label="Loading Pals">
+			<span className="sidebar-section-skeleton" />
+		</output>
+	) : failed && pals.length === 0 ? (
+		<div className="sidebar-pals-failed" role="alert">
+			<span>Couldn’t load your Pals.</span>
+			<Button variant="ghost-muted" size="sm" onClick={onRetry}>
+				Retry
+			</Button>
+		</div>
+	) : (
+		rows
+	)
+	// Up to PAL_GROUP_AFTER Pals there is no group: the rows sit directly under "New conversation".
+	// Only a longer list earns a foldable "Pals" heading, which remembers its state.
+	if (loading || pals.length <= PAL_GROUP_AFTER)
+		return (
+			<section className="sidebar-pals" aria-label="Pals">
+				{body}
+			</section>
+		)
 	return (
 		<SidebarSection
 			label="Pals"
@@ -627,20 +652,7 @@ export function PalSidebarSection({
 				selectedId,
 			)}
 		>
-			{loading ? (
-				<output className="sidebar-pals-loading" aria-label="Loading Pals">
-					<span className="sidebar-section-skeleton" />
-				</output>
-			) : failed && pals.length === 0 ? (
-				<div className="sidebar-pals-failed" role="alert">
-					<span>Couldn’t load your Pals.</span>
-					<Button variant="ghost-muted" size="sm" onClick={onRetry}>
-						Retry
-					</Button>
-				</div>
-			) : (
-				rows
-			)}
+			{body}
 		</SidebarSection>
 	)
 }

@@ -153,16 +153,25 @@ describe('durable desktop conversation schema', () => {
 	})
 	it('keeps the folded sidebar sections across reload and treats a bad value as open', () => {
 		const saved = snapshot()
-		saved.collapsedSections = ['pals', 'recents']
+		saved.collapsedSections = ['pals', 'projects']
 		const store = new DesktopConversationStore(directory())
 		store.write(saved)
-		expect(store.read()?.collapsedSections).toEqual(['pals', 'recents'])
+		expect(store.read()?.collapsedSections).toEqual(['pals', 'projects'])
 		expect(
 			parseDesktopConversationSnapshot({
 				...saved,
-				collapsedSections: ['recents', 'nope', 3, 'pals', 'pals'],
+				collapsedSections: ['projects', 'nope', 3, 'pals', 'pals'],
 			})?.collapsedSections,
-		).toEqual(['pals', 'recents'])
+		).toEqual(['pals', 'projects'])
+		// Recents used to fold; an old saved value is ignored, not a reason to lose the file.
+		expect(
+			parseDesktopConversationSnapshot({ ...saved, collapsedSections: ['recents', 'pals'] })
+				?.collapsedSections,
+		).toEqual(['pals'])
+		expect(
+			parseDesktopConversationSnapshot({ ...saved, collapsedSections: ['recents'] })
+				?.collapsedSections,
+		).toBeUndefined()
 		for (const bad of ['pals', 7, {}, ['nope'], []])
 			expect(
 				parseDesktopConversationSnapshot({ ...saved, collapsedSections: bad })?.collapsedSections,

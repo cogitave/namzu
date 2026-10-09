@@ -412,13 +412,8 @@ export function Sidebar({
 						</nav>
 					</SidebarSection>
 					{recent.length > 0 && (
-						<SidebarSection
-							label="Recents"
-							ariaLabel="Recent conversations"
-							className="sidebar-recents"
-							{...sectionProps('recents')}
-							attention={conversationsAttention(recent, threads, backgroundWork)}
-						>
+						<section className="sidebar-recents" aria-label="Recent conversations">
+							<h2 className="sidebar-section-title">Recents</h2>
 							<RecentList
 								rows={recent}
 								projects={projectById}
@@ -429,7 +424,7 @@ export function Sidebar({
 								onConversation={(view) => onConversation(view, 'recents')}
 								rowActions={rowActions}
 							/>
-						</SidebarSection>
+						</section>
 					)}
 					{onOpenArchived && (
 						<button type="button" className="sidebar-archived-link" onClick={onOpenArchived}>

@@ -118,70 +118,55 @@ it('has one Customize action and no nameless placeholder on the welcome page', (
 	expect(html).toContain('Give your Pal a name to start.')
 })
 
-it('labels the Pals section whether there are few Pals or none', () => {
-	for (const pals of [[], [pal]]) {
-		const html = renderToStaticMarkup(
-			createElement(PalSidebarSection, {
-				pals,
-				loading: false,
-				onCreate: () => {},
-				onOpen: () => {},
-			}),
-		)
-		expect(html).toMatch(/<h2[^>]*sidebar-pals-heading[^>]*><button[^>]*aria-expanded="true"/)
-		expect(html).toContain('<span>Pals</span>')
+const pals4 = [pal, { ...pal, id: 'b' }, { ...pal, id: 'c' }, { ...pal, id: 'd' }]
+const renderPals = (props: Record<string, unknown>) =>
+	renderToStaticMarkup(
+		createElement(PalSidebarSection, {
+			loading: false,
+			onCreate: () => {},
+			onOpen: () => {},
+			...props,
+		} as never),
+	)
+
+it('lists up to three Pals directly, with no heading, group or chevron, even if "pals" was saved as folded', () => {
+	for (const pals of [[], [pal], pals4.slice(0, 3)]) {
+		for (const collapsed of [undefined, true]) {
+			const html = renderPals({ pals, collapsed })
+			expect(html).not.toContain('<h2')
+			expect(html).not.toContain('sidebar-section-toggle')
+			expect(html).not.toContain('aria-expanded')
+			expect(html).not.toMatch(/\shidden[\s=>]/)
+			expect(html).toContain(pals.length === 0 ? 'Create your first Pal' : 'New Pal')
+		}
 	}
 })
 
-it('lets the Pals heading fold at any count and hides the rows without removing them', () => {
-	for (const pals of [
-		[],
-		[pal],
-		[pal, { ...pal, id: 'b' }, { ...pal, id: 'c' }, { ...pal, id: 'd' }],
-	]) {
-		const html = renderToStaticMarkup(
-			createElement(PalSidebarSection, {
-				pals,
-				loading: false,
-				collapsed: true,
-				onCreate: () => {},
-				onOpen: () => {},
-			}),
-		)
-		expect(html).toMatch(/aria-expanded="false"/)
-		expect(html).toMatch(/class="sidebar-section-body"[^>]*hidden/)
-	}
+it('shows the loading and failed states without a heading', () => {
+	const loading = renderPals({ pals: [], loading: true })
+	expect(loading).toContain('sidebar-section-skeleton')
+	expect(loading).not.toContain('<h2')
+	const failed = renderPals({ pals: [], failed: true })
+	expect(failed).toContain('Couldn’t load your Pals.')
+	expect(failed).not.toContain('<h2')
 })
 
-it('shows a dot on a folded Pals heading only while a Pal has a new message', () => {
+it('groups four Pals under a foldable heading that hides the rows without removing them', () => {
+	const open = renderPals({ pals: pals4 })
+	expect(open).toMatch(/<h2[^>]*sidebar-pals-heading[^>]*><button[^>]*aria-expanded="true"/)
+	expect(open).toContain('<span>Pals</span>')
+	const folded = renderPals({ pals: pals4, collapsed: true })
+	expect(folded).toMatch(/aria-expanded="false"/)
+	expect(folded).toMatch(/class="sidebar-section-body"[^>]*hidden/)
+	expect(folded).toContain('sidebar-pal-row')
+})
+
+it('shows a dot on a folded Pals group only while a Pal has a new message', () => {
 	const render = (unreadIds: ReadonlySet<string>, collapsed: boolean) =>
-		renderToStaticMarkup(
-			createElement(PalSidebarSection, {
-				pals: [pal],
-				unreadIds,
-				loading: false,
-				collapsed,
-				onCreate: () => {},
-				onOpen: () => {},
-			}),
-		)
+		renderPals({ pals: pals4, unreadIds, collapsed })
 	expect(render(new Set(['pal']), true)).toContain('title="1 Pal has a new message"')
 	expect(render(new Set(['pal']), false)).not.toContain('data-attention')
 	expect(render(new Set(), true)).not.toContain('data-attention')
-})
-
-it('shows a quiet placeholder under the Pals heading while the list loads', () => {
-	const html = renderToStaticMarkup(
-		createElement(PalSidebarSection, {
-			pals: [],
-			loading: true,
-			onCreate: () => {},
-			onOpen: () => {},
-		}),
-	)
-	expect(html).toContain('<span>Pals</span>')
-	expect(html).toContain('sidebar-section-skeleton')
-	expect(html).not.toContain('Loading…')
 })
 
 const sent = (id: string, label: string, status: ProjectedToolCall['status'] = 'completed') =>

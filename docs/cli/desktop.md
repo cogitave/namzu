@@ -2584,21 +2584,25 @@ no one-click ×, so nothing starts a removal by a stray click. Each conversation
 under its project, and **Recents** holds only the conversations a project's list is not showing (a
 collapsed project, or the ones behind *Show more*), each with its project's name beside the title; Recents
 is hidden when nothing is left for it. Opening a conversation from Recents does not expand its project.
-**Folding the sections.** The **Pals**, **Projects** and **Recents** headings are buttons that fold their
-list at any count (Pals used to fold only past three). The heading keeps its look; a small chevron shows
-while the pointer or keyboard focus is on it and stays visible while the section is folded. Enter and
-Space toggle it, and the **+** beside Projects is its own button that opens the Add new project menu
-without folding anything. The body is hidden, not removed, so folding never closes a tab or changes
-the open conversation. A folded heading shows a small dot with a tooltip when something inside needs the
-person: "1 Pal has a new message" (the open Pal does not count), or "A conversation is waiting for
-you" / "A conversation is running" (a conversation waiting on an approval counts first). While the Pals
-list loads the heading is there and the body shows a quiet placeholder row. Main keeps which sections
-are folded, so a restart brings them back: the renderer reads `sidebarCollapsed()` at startup and
-tells main with `setSidebarSectionCollapsed(id, collapsed)` (`pals`, `projects` or `recents`); main
-stores them as `collapsedSections` in `desktop-conversations.json`, and a missing or invalid value, or an
-unknown name, reads as open without costing the rest of the file. `e2e/sidebar-sections.test.mjs`
-folds each section (Pals with none and with one Pal), checks the + and the keyboard, sees the dot for a
-Pal message while folded, and restarts to see the sections still folded.
+**Folding the sections.** **Projects** has a foldable heading, and **Pals** has one only when there are more
+than three Pals. Up to three Pals there is no heading, group or chevron: the Pal rows and the
+"Create your first Pal" / "New Pal" row sit directly under **New conversation**, and so do the loading
+placeholder and the "Couldn’t load your Pals." message with Retry. From the fourth Pal on, the rows sit under a
+foldable **Pals** group. **Recents** keeps a plain heading and never folds. A foldable heading is a button: a
+small chevron shows while the pointer or keyboard focus is on it and stays visible while the section is
+folded (the Pals group always shows it). Enter and Space toggle it, and the **+** beside Projects is its own
+button that opens the Add new project menu without folding anything. The body is hidden, not removed, so
+folding never closes a tab or changes the open conversation. A folded heading shows a small dot with a
+tooltip when something inside needs the person: "1 Pal has a new message" (the open Pal does not count), or
+"A conversation is waiting for you" / "A conversation is running" (a conversation waiting on an approval
+counts first). Main keeps which sections are folded, so a restart brings them back: the renderer reads
+`sidebarCollapsed()` at startup and tells main with `setSidebarSectionCollapsed(id, collapsed)` (`pals` or
+`projects`); main stores them as `collapsedSections` in `desktop-conversations.json`. A missing or invalid
+value, an unknown name, or the `recents` value an earlier build saved reads as open without costing the rest
+of the file, and a saved `pals` only applies while the group exists (more than three Pals).
+`e2e/sidebar-sections.test.mjs` checks 0, 1 and 3 Pals have no heading, four make a group that folds, shows
+the dot for a Pal message while folded and stays folded after a restart, Projects folds from the keyboard
+with its + separate, and Recents has no toggle.
 Clicking a project row reuses the project's untouched "New conversation" (also after a restart) instead of
 adding another empty tab. **Archived conversations** is a row at the bottom of the sidebar (and in the
 palette and the project menu): one dialog for every project, grouped by project, newest first, with
@@ -2610,6 +2614,19 @@ computer", in words beside the glyph), the last message when this window has it,
 the project and the branch; it opens below the row, inside the sidebar, so it never covers the
 conversation, and above the row instead when below would cover **Archived conversations**. The close, pin, archive and menu buttons at the end of a row are centred on the row
 (`e2e/ux-sidebar-tabs-terminals.test.mjs` measures them at 100, 125 and 150% zoom, dark and light).
+On hover the glyph replaces the row's status mark, so it is drawn on the mark's own centre: the 28px button ends on
+the row's edge (centre 14px in) and each mark in the row's state slot is centred on that line (the 8px terminal
+dot, the 4px error dot, the 14px approval shield and the 12px spinner each get the margin that puts them there).
+The title's letters are in line with both: the title box is trimmed to the x-height line and the baseline
+(`text-box: trim-both ex alphabetic`, with equal padding so descenders stay inside the clip), because Segoe UI
+sets its x-height band about 1.75px below the middle of an 18px line box, which made a glyph centred on the row
+read as sitting high. The row's button is a block, so its `<li>` is exactly its height (as an inline-block it sat on
+the text baseline and the `<li>` grew by the line's strut, 0.875px once the title was trimmed, which moved the
+glyphs, centred on the `<li>`, off the button's middle). `e2e/sidebar-row-geometry.test.mjs` hovers each row kind
+(conversation, running and ended terminal), dark and light, and asserts that the `<li>` is its button's height,
+that the glyph's drawn paths are within 0.5px of the row's middle,
+that the status dot has the same centre across and down, and that the title's x-height band (from the font's
+metrics) is within a pixel.
 
 **Archiving.** The menu entry reads **Archive** (no ellipsis: it acts at once). The toast says
 "Conversation archived. Find it under Archived conversations in the sidebar." and stays 20 seconds with
