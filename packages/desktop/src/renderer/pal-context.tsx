@@ -270,7 +270,7 @@ function PalContextBody({
 				{computer.notice && !computer.setupMissing && (
 					<p className="pal-context-note">{computer.notice}</p>
 				)}
-				{computer.notice && computer.setupMissing && (
+				{computer.notice && computer.setupMissing && !waiting?.blocked && (
 					<p className="pal-context-note">
 						{computer.name} cannot start yet: it needs Docker Desktop or Podman, and neither is
 						ready on this computer.

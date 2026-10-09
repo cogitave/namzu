@@ -61,6 +61,22 @@ export function usePalStarts(
 	useEffect(() => {
 		if (openPalId) void refresh(openPalId)
 	}, [openPalId, refresh])
+	// A Start that is switched off for want of Docker or Podman is checked again when the person
+	// comes back to this window, which is when they have just installed or started one. Without
+	// this the button would stay off until the Pal was reopened.
+	const blocked = Object.entries(entries)
+		.filter(([, entry]) => entry.setupMissing)
+		.map(([palId]) => palId)
+		.join('\n')
+	useEffect(() => {
+		if (!blocked) return
+		const ids = blocked.split('\n')
+		const recheck = () => {
+			for (const palId of ids) void refresh(palId)
+		}
+		window.addEventListener('focus', recheck)
+		return () => window.removeEventListener('focus', recheck)
+	}, [blocked, refresh])
 	const reading = Object.entries(entries)
 		.filter(([, entry]) => entry.view?.state === 'reading')
 		.map(([palId]) => palId)

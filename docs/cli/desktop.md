@@ -358,7 +358,9 @@ reads them, and it starts the computer first when that is needed (the host's
 (`palComputer`); when no container engine or image is available, or a Podman machine is
 stopped, Start is switched off, the page and the offer under a sent message say so in one
 sentence ("*name*'s computer cannot start yet: it needs Docker Desktop or Podman, and neither is
-ready on this computer.") and **How to set up** opens the setup steps. A card that is not
+ready on this computer.") and **How to set up** opens the setup steps. The state is read again
+when the window is focused, so installing or starting Docker or Podman and coming back switches
+Start on without reopening the Pal. A card that is not
 connected also says "Chatting works without a computer." directly under the computer.
 
 Pal computers inherit the CLI's local-engine settings from this native host.
