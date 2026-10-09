@@ -17,8 +17,10 @@ import { EnvCredentialProvider } from '@namzu/sdk'
 
 import { hasApiCredential } from './access.js'
 import {
+	apiKeysPath,
 	credentialsPath,
 	googleApiKeyPath,
+	readStoredApiKey,
 	readStoredCodexCredential,
 	readStoredGeminiApiKey,
 	readStoredSubscriptionCredential,
@@ -50,6 +52,8 @@ export type DetectionSource =
 	| { readonly kind: 'gemini-file'; readonly path: string }
 	/** A Gemini API key Namzu stored after the operator pasted it. */
 	| { readonly kind: 'stored-gemini-key'; readonly path: string }
+	/** An API key a person pasted for this provider and Namzu saved privately. */
+	| { readonly kind: 'stored-api-key'; readonly path: string }
 	/**
 	 * namzu's own credential store — a subscription the operator signed in to
 	 * from inside namzu. Carries the path because "where did this come from"
@@ -352,6 +356,13 @@ export async function discoverProviders(
 			if (resolved && hasApiCredential(entry, resolved.value)) {
 				if (apiKey === undefined) apiKey = resolved.value
 				sources.push({ kind: 'env', envName })
+			}
+		}
+		if (!opts.skipStored && id !== 'google' && entry.acceptsTypedCredential) {
+			const saved = readStoredApiKey(id, opts.home)
+			if (saved && hasApiCredential(entry, saved)) {
+				if (apiKey === undefined) apiKey = saved
+				sources.push({ kind: 'stored-api-key', path: apiKeysPath(opts.home) })
 			}
 		}
 		if (id === 'google') {

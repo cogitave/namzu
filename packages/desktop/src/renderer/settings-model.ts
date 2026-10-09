@@ -4,6 +4,7 @@ import type { UpdateState } from '../shared/update-protocol.js'
 
 export const SETTINGS_SECTION_TITLES: Record<SettingsSection, string> = {
 	general: 'General',
+	models: 'Models',
 	projects: 'Projects',
 	appearance: 'Appearance',
 	updates: 'Updates',
@@ -55,6 +56,30 @@ export const SETTINGS_ENTRIES: readonly SettingsEntry[] = [
 		description:
 			'After a restart, terminal tabs return as ended sessions showing their last screen.',
 		keywords: ['terminal', 'restore', 'restart', 'tabs', 'session'],
+	},
+	{
+		id: 'models',
+		section: 'models',
+		label: 'Models and API keys',
+		description:
+			'Connect a provider: paste an API key, or use a Claude or ChatGPT sign-in Namzu finds. Check or remove a key.',
+		keywords: [
+			'provider',
+			'api key',
+			'key',
+			'anthropic',
+			'claude',
+			'openai',
+			'chatgpt',
+			'codex',
+			'gemini',
+			'google',
+			'sign in',
+			'connect',
+			'login',
+			'zen',
+			'free',
+		],
 	},
 	{
 		id: 'projects',

@@ -356,9 +356,8 @@ describe('computer use session reachability', () => {
 
 		expect(desktop.initialize).not.toHaveBeenCalled()
 		expect(session.toolNames()).toContain('computer_use')
-		expect(session.configNotices).toContain(
-			'Computer use is unavailable in this session: The openai provider cannot return images in tool results, so the model would never see a screenshot. Use a provider that can (for example Anthropic, Codex or Google) for computer use.',
-		)
+		// Not announced at the top of every session: the reason travels with the tool, below.
+		expect(session.configNotices.join('\n')).not.toContain('Computer use is unavailable')
 		for await (const _ of session.send([{ role: 'user', content: 'see the desktop' } as never])) {
 			// drain into the mocked kernel boundary
 		}

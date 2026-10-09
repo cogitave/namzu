@@ -1,0 +1,105 @@
+.models-list {
+	display: flex;
+	flex-direction: column;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+.models-row {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	padding: 12px 0;
+	border-top: 1px solid var(--border);
+}
+.models-row:first-child {
+	border-top: 0;
+}
+.models-row-main {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 12px;
+	flex-wrap: wrap;
+}
+.models-row-copy {
+	min-width: 0;
+	flex: 1 1 220px;
+}
+.models-row-name {
+	margin: 0;
+	font-size: 14px;
+	font-weight: 600;
+	line-height: 20px;
+}
+.models-row-status,
+.models-row-help {
+	margin: 2px 0 0;
+	color: var(--muted-foreground);
+	font-size: 13px;
+	line-height: 20px;
+	overflow-wrap: anywhere;
+}
+.models-row-status[data-state="connected"] {
+	color: var(--foreground);
+}
+.models-row-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+}
+.models-key-form {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+.models-key-label {
+	font-size: 13px;
+	font-weight: 500;
+}
+.models-key-controls {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+}
+.models-key-input {
+	flex: 1 1 240px;
+	min-width: 0;
+	height: 32px;
+	padding: 0 10px;
+	border: 1px solid var(--input, var(--border));
+	border-radius: var(--control-radius, 8px);
+	background: var(--background);
+	color: var(--foreground);
+	font: inherit;
+	font-size: 13px;
+}
+.models-key-input:focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: 1px;
+}
+.models-key-input[aria-invalid="true"] {
+	border-color: var(--error, var(--destructive-foreground));
+}
+.models-key-problem {
+	margin: 0;
+	color: var(--error, var(--destructive-foreground));
+	font-size: 13px;
+	line-height: 20px;
+}
+.models-row-result {
+	display: block;
+	min-height: 0;
+	color: var(--muted-foreground);
+	font-size: 13px;
+	line-height: 20px;
+}
+.models-row-result:empty {
+	display: none;
+}
+.models-row-result[data-tone="good"] {
+	color: var(--foreground);
+}
+.models-row-result[data-tone="bad"] {
+	color: var(--error, var(--destructive-foreground));
+}

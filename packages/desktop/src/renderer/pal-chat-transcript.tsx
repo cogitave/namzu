@@ -79,7 +79,10 @@ export function PalChatTranscript({
 }) {
 	const status = palChatStatus(thread)
 	const notice = !thread.running
-		? terminalNotice(thread.turns[thread.turn]?.reason ?? thread.stopReason)
+		? terminalNotice(
+				thread.turns[thread.turn]?.reason ?? thread.stopReason,
+				Boolean(thread.error || thread.retryNotice),
+			)
 		: undefined
 	return (
 		<div

@@ -93,7 +93,7 @@ it('keeps an empty provider collection disabled even with catalogue readiness', 
 		modelSelectionReady: true,
 		providers: { available: [], selected: null },
 	})
-	expect(button(html, 'Model: space-bunny-free')).toMatch(/\bdisabled=/)
+	expect(button(html, 'Model: no provider connected')).toMatch(/\bdisabled=/)
 })
 
 it('preserves ordinary composer readiness when no separate catalogue guard is supplied', () => {
@@ -574,4 +574,34 @@ it('draws no model prompt or raw id while the model choice is still resolving', 
 	expect(html).toContain('model-picker-trigger-skeleton')
 	expect(html).not.toContain('Select model')
 	expect(html).not.toContain('Model: space-bunny-free')
+})
+
+const freeOnly = {
+	available: [
+		{ id: 'zen', label: 'Zen', defaultModel: 'space-bunny-free', anonymous: true as const },
+	],
+	selected: null,
+}
+
+it('tells a first-timer to add a key or sign in, with one action, before a send can fail', () => {
+	const html = render({
+		providers: freeOnly,
+		connected: true,
+		empty: true,
+		draft: 'make me a small website',
+		onOpenModelSettings: () => {},
+	})
+	expect(html).toContain('Add an API key or sign in to start')
+	expect(html).toContain('Connect a provider')
+	expect(html).not.toContain('Ideas to get started')
+	expect(html).not.toContain('Namzu terminal app')
+	expect(button(html, 'Send message')).toMatch(/\bdisabled=/)
+})
+
+it('keeps the empty state away once a provider is connected, and while providers still load', () => {
+	const connected = render({ connected: true, empty: true, draft: '' })
+	expect(connected).not.toContain('Add an API key or sign in to start')
+	expect(connected).toContain('Ideas to get started')
+	const loading = render({ providers: freeOnly, providersLoading: true, empty: true })
+	expect(loading).not.toContain('Add an API key or sign in to start')
 })

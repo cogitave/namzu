@@ -419,3 +419,28 @@
 		transform: none;
 	}
 }
+
+.provider-empty {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 8px;
+	margin: 12px 0;
+	padding: 14px 16px;
+	border: 1px solid var(--border);
+	border-radius: 12px;
+	background: var(--surface, var(--background));
+	color: var(--foreground);
+}
+.provider-empty h2 {
+	margin: 0;
+	font-size: 14px;
+	font-weight: 600;
+	line-height: 20px;
+}
+.provider-empty p {
+	margin: 0;
+	color: var(--muted-foreground);
+	font-size: 13px;
+	line-height: 20px;
+}

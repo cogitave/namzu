@@ -29,6 +29,11 @@ export {
 	type CodexDeviceLoginOutcome,
 } from './codex-device-login.js'
 export {
+	apiKeysPath,
+	clearStoredApiKey,
+	listStoredApiKeyProviders,
+	readStoredApiKey,
+	writeStoredApiKey,
 	clearAllStoredCredentials,
 	clearStoredSubscriptionCredential,
 	clearStoredCodexCredential,

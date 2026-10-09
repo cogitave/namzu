@@ -26,11 +26,19 @@ import { fileURLToPath } from 'node:url'
 import { FileCheckpointStore, type TurnUndoStatus, type UndoPreview } from '../checkpoints/store.js'
 import { resolveTrustedProjectContext } from '../config/trusted-project-context.js'
 import { type PluginInventoryView, readPluginInventory } from '../integrations/plugins/inventory.js'
-import { canSelectModel } from '../integrations/providers/access.js'
+import { canSelectModel, hasApiCredential } from '../integrations/providers/access.js'
 import {
 	type ComposerModelSettings,
 	validateComposerSendSettings,
 } from '../integrations/providers/composer-settings.js'
+import {
+	type ProviderConnection,
+	listProviderConnections,
+	removeProviderKey,
+	saveProviderKey,
+	typedKeyProvider,
+} from '../integrations/providers/connections.js'
+import { discoverProviders } from '../integrations/providers/discover.js'
 import type { DetectedProvider, Preferences } from '../integrations/providers/index.js'
 import { isOfferableModel } from '../integrations/providers/zen-catalogue.js'
 import {
@@ -60,6 +68,7 @@ import {
 	describeProviderModels,
 	describeProviderReasoning,
 	probeAgentSession,
+	verifyCredential,
 } from '../tui/agent.js'
 import { withCliHarnesses } from './acp-harness.js'
 import { type ProviderRetryStatus, readProviderRetryStatus } from './acp-provider-retry.js'
@@ -211,6 +220,7 @@ export interface AcpRuntimeDependencies {
 	readonly palRuntime?: typeof getCliPalRuntime
 	readonly probe: typeof probeAgentSession
 	readonly describeModels?: typeof describeProviderModels
+	readonly verifyKey?: typeof verifyCredential
 	readonly describeReasoning?: typeof describeProviderReasoning
 	readonly readPlugins?: typeof readPluginInventory
 	readonly createSession: (
@@ -341,6 +351,15 @@ export interface CliAcpRuntime {
 		scope?: CliSessionScope,
 	): Promise<{ accepted: true; scopeId: string; inputId: string }>
 	providerStatus(sessionId?: string): Promise<unknown>
+	/** Every provider this build can use, and whether this machine has one connected. */
+	providerConnections(): Promise<{ providers: ProviderConnection[] }>
+	/** Save a pasted key privately and forget the cached provider list. */
+	saveProviderKey(provider: string, apiKey: string): Promise<{ saved: true }>
+	removeProviderKey(provider: string): Promise<{ removed: true }>
+	/** A cheap authenticated call; never a model turn. */
+	/** Forget the cached provider list so the next read sees keys saved by another connection. */
+	refreshProviders(): Promise<{ refreshed: true }>
+	testProvider(provider: string): Promise<{ status: 'ok' | 'rejected' | 'unchecked' | 'missing' }>
 	/** The optional scope is a host-authenticated handoff, never a wire-supplied ownership claim. */
 	providerRetryStatus?(
 		sessionId: string,
@@ -1468,14 +1487,44 @@ export function createCliAcpRuntime(
 				selecting.delete(sessionId)
 			}
 		},
+		refreshProviders: async () => {
+			probePromise = undefined
+			catalogueRequests.clear()
+			return { refreshed: true }
+		},
+		providerConnections: async () => ({ providers: await listProviderConnections() }),
+		saveProviderKey: async (provider, apiKey) => {
+			saveProviderKey(provider, apiKey)
+			probePromise = undefined
+			catalogueRequests.clear()
+			return { saved: true }
+		},
+		removeProviderKey: async (provider) => {
+			removeProviderKey(provider)
+			probePromise = undefined
+			catalogueRequests.clear()
+			return { removed: true }
+		},
+		testProvider: async (provider) => {
+			const id = typedKeyProvider(provider)
+			const found = (await discoverProviders()).find(({ entry }) => entry.id === id)
+			if (!found) return { status: 'missing' }
+			const result = await (deps.verifyKey ?? verifyCredential)(id, found)
+			return {
+				status:
+					result.kind === 'verified' ? 'ok' : result.kind === 'rejected' ? 'rejected' : 'unchecked',
+			}
+		},
 		providerStatus: async (sessionId) => {
 			const probe = await sharedProbe()
 			const choice = (await preferencesFor(sessionId, probe))?.providers[0]
 			return {
-				available: probe.detected.map(({ entry }) => ({
+				available: probe.detected.map(({ entry, apiKey }) => ({
 					id: entry.id,
 					label: entry.label,
 					defaultModel: entry.defaultModel,
+					// Free models without a key: listed, but not a connection a person set up.
+					...(entry.id === 'zen' && !hasApiCredential(entry, apiKey) ? { anonymous: true } : {}),
 				})),
 				selected: choice
 					? { id: choice.id, ...(choice.model ? { model: choice.model } : {}) }

@@ -38,6 +38,7 @@ import type {
 	ProjectView,
 	ProviderView,
 } from '../shared/protocol.js'
+import { usableProviders } from '../shared/provider-connections.js'
 import type { DataFolderKind, SettingsSection } from '../shared/settings-protocol.js'
 import { PROMPT_NOT_PASSED, TERMINAL_ENGINE_LABELS } from '../shared/terminal-tabs.js'
 import type { UpdateState } from '../shared/update-protocol.js'
@@ -112,7 +113,14 @@ import { PanelResizeHandle, PanelTabStrip, type PanelView } from './file-panel/p
 import { ProjectFilesContext } from './file-panel/project-files.js'
 import { createLinkCache } from './file-panel/project-refs.js'
 import { FolderAccessDialog } from './folder-access-dialog.js'
-import type { EngineSurface, EngineSurfaceControl } from './harness-picker.js'
+import {
+	describeBlockedRetry,
+	describeEngineFailure,
+	describeFailure,
+	lostConnectionText,
+	providerName,
+} from './friendly-errors.js'
+import { type EngineSurface, type EngineSurfaceControl, engineLabel } from './harness-picker.js'
 import {
 	ArrowUpIcon,
 	FolderIcon,
@@ -162,7 +170,8 @@ import { PluginsPage, PluginsSidebar } from './plugins-page.js'
 import { reusableProjectDraft } from './project-draft-reuse.js'
 import { newProjectFailure, projectHomeHeading } from './project-home.js'
 import { projectStage } from './project-stage.js'
-import { ProjectConnecting, ProjectOpenError } from './project-views.js'
+import { ProjectConnecting, ProjectMissing, ProjectOpenError } from './project-views.js'
+import { ProviderNameContext } from './provider-name-context.js'
 import { RenameConversationDialog } from './rename-conversation-dialog.js'
 import { RestoreSkeleton } from './restore-skeleton.js'
 import { projectRemovalCopy, removalNotice, settingsRoute } from './settings-model.js'
@@ -305,6 +314,7 @@ export function App({
 		}>(),
 	)
 	const [metadataEpoch, setMetadataEpoch] = useState(0)
+	const lostProjects = useRef(new Set<string>())
 	warmSessions.current.synchronizeMembers([...group.tabs, ...createdSessions.current])
 	const openFlights = useRef(new Map<string, { generation: number; promise: Promise<void> }>())
 	const previousMembership = useRef(group.tabs)
@@ -1721,6 +1731,16 @@ export function App({
 				return
 			}
 			if (event.kind === 'connection') {
+				// A message about a dropped connection ends with the drop: once Namzu is back it is stale.
+				if (event.project.lost) lostProjects.current.add(event.project.id)
+				else if (lostProjects.current.delete(event.project.id) && event.project.status === 'ready')
+					setError('')
+				// While the connection is down the conversation stays exactly as it is on screen; only
+				// the way back (a ready project) forgets what was read and reads it again.
+				if (event.project.lost) {
+					updateProject(event.project)
+					return
+				}
 				const ids = new Set(
 					catalogueRows.current.conversations
 						.filter((item) => item.projectId === event.project.id)
@@ -1753,6 +1773,15 @@ export function App({
 					event.engine,
 					event.provider,
 				)
+				return
+			}
+			if (event.kind === 'providers-changed') {
+				// A key was saved or removed. Forget what each pane remembered about providers
+				// and read them again; the send button follows the new answer.
+				warmSessions.current.invalidateAll()
+				providerGeneration.current++
+				setProviderOwner('')
+				setMetadataEpoch((epoch) => epoch + 1)
 				return
 			}
 			const id = event.kind === 'permission' ? event.request.sessionId : event.sessionId
@@ -3928,6 +3957,14 @@ export function App({
 			pal,
 		],
 	)
+	// What a stopped reply says: plain words with a next step; the runtime's own text sits behind Details.
+	const failedProviderLabel = activeProviders.available.find(
+		(item) => item.id === choice.provider,
+	)?.label
+	const replyFailures = [
+		...(thread.error ? [describeFailure(thread.error, failedProviderLabel)] : []),
+		...(thread.retryNotice ? [describeBlockedRetry(thread.retryNotice)] : []),
+	]
 	const send = async (delivery: 'current' | 'queue' = 'current') => {
 		if (context.current.frozen) return
 		if (cliSurface) {
@@ -3936,8 +3973,9 @@ export function App({
 		}
 		if (thread.retry || thread.retryNotice || thread.reason === 'paused')
 			throw new Error(
-				thread.retryNotice ??
-					'Retry the paused turn before sending a new message. Your draft is retained.',
+				thread.retryNotice
+					? describeBlockedRetry(thread.retryNotice).text
+					: 'The last reply stopped early. Choose Try again, or start a new conversation. Your message is kept.',
 			)
 		if (
 			loading ||
@@ -3948,6 +3986,8 @@ export function App({
 			project.status !== 'ready' ||
 			!choice.provider ||
 			!providerReady ||
+			// Free keyless models are offered, not a connection; the composer says what to do.
+			usableProviders(activeProviders).length === 0 ||
 			!attached.loaded ||
 			savedSettings.loading ||
 			harnessBusy ||
@@ -5039,43 +5079,61 @@ export function App({
 				)}
 
 				{/* A trust dialog for the folder is the explanation; the banner behind it would repeat it. */}
-				{!folderAccess && (error || (project?.error && !openErrorStage) || savedSettings.error) && (
-					<div className="connection-error">
-						<ChatErrorBanner
-							message={savedSettings.error || error || project?.error || ''}
-							onRetry={
-								restoringTabs
-									? () =>
-											void act(async () => {
-												const generation = navigation.current
-												if (project?.status === 'error')
-													updateProject(await api.reconnectProject(project.id))
-												if (generation === navigation.current) {
-													activation.current = null
-													missingActivation.current = null
-													setCatalogueReady(false)
-													setError('')
-													setTabRestoreAttempt((attempt) => attempt + 1)
-												}
-											})
-									: project?.status === 'error'
-										? () =>
-												void act(async () => updateProject(await api.reconnectProject(project.id)))
-										: savedSettings.error ||
-												(project?.trusted &&
-													(!providerReady || (!pal && api.harnesses && !harnessView)))
-											? () => void act(retryConversationSetup)
-											: undefined
-							}
-							retryLabel={project?.status === 'error' ? 'Reconnect' : 'Retry setup'}
-							onDismiss={
-								!restoringTabs && project?.status !== 'error' && !savedSettings.error
-									? () => setError('')
-									: undefined
-							}
-						/>
-					</div>
-				)}
+				{!folderAccess &&
+					!project?.missing &&
+					(error || (project?.error && !openErrorStage) || savedSettings.error) && (
+						<div className="connection-error">
+							<ChatErrorBanner
+								message={
+									project?.lost
+										? lostConnectionText(project)
+										: (externalHarness &&
+												describeEngineFailure(
+													savedSettings.error || error || project?.error || '',
+													engineLabel(harnessView, permissionEngine),
+												)) ||
+											savedSettings.error ||
+											error ||
+											project?.error ||
+											''
+								}
+								onRetry={
+									project?.lost && project.reconnecting
+										? undefined
+										: restoringTabs
+											? () =>
+													void act(async () => {
+														const generation = navigation.current
+														if (project?.status === 'error')
+															updateProject(await api.reconnectProject(project.id))
+														if (generation === navigation.current) {
+															activation.current = null
+															missingActivation.current = null
+															setCatalogueReady(false)
+															setError('')
+															setTabRestoreAttempt((attempt) => attempt + 1)
+														}
+													})
+											: project?.status === 'error'
+												? () =>
+														void act(async () =>
+															updateProject(await api.reconnectProject(project.id)),
+														)
+												: savedSettings.error ||
+														(project?.trusted &&
+															(!providerReady || (!pal && api.harnesses && !harnessView)))
+													? () => void act(retryConversationSetup)
+													: undefined
+								}
+								retryLabel={project?.status === 'error' ? 'Reconnect' : 'Retry setup'}
+								onDismiss={
+									!restoringTabs && project?.status !== 'error' && !savedSettings.error
+										? () => setError('')
+										: undefined
+								}
+							/>
+						</div>
+					)}
 				{activeTerminal && terminalSessionsHere && !pageOpen && !palsPage ? (
 					<TerminalPane
 						key={activeTerminal.id}
@@ -5121,6 +5179,16 @@ export function App({
 					</Empty>
 				) : stage === 'connecting' ? (
 					<ProjectConnecting key={project.id} name={project.name} />
+				) : stage === 'error' && project.missing ? (
+					<ProjectMissing
+						name={project.name}
+						path={project.path}
+						onLocate={() => void act(openProject)}
+						onRemove={
+							api.removeProject ? (trigger) => requestProjectRemoval(project, trigger) : undefined
+						}
+						removeDisabled={frozen}
+					/>
 				) : stage === 'error' ? (
 					<ProjectOpenError
 						message={project.error || 'Namzu could not connect to this folder.'}
@@ -5260,56 +5328,59 @@ export function App({
 											)}
 										/>
 									) : (
-										<ProjectFilesContext.Provider value={projectFiles}>
-											<Transcript
-												key={sessionId || 'blank'}
-												thread={thread}
-												animate={!historyPending && !restoringTabs}
-												workDisclosures={
-													workDisclosureView.sessionId === sessionId
-														? workDisclosureView.choices
-														: undefined
-												}
-												onWorkDisclosureChange={(key, open) =>
-													onWorkDisclosureChange(sessionId, key, open)
-												}
-												onOpenTurnChanges={(receiptIds, path) => {
-													setChangesFilter(receiptIds, path)
-													showPanelTab('changes')
-													setJobsOpen(true)
-												}}
-												onOpenChangedFile={projectFiles ? openChangedFile : undefined}
-												onOpenTasks={() => {
-													showPanelTab('activity')
-													setJobsOpen(true)
-												}}
-												onUndoTurn={
-													api.undoPreview && api.undoTurn
-														? (turnId) => setUndoingTurn({ sessionId, turnId })
-														: undefined
-												}
-												undoKept={undoKept}
-												projectRoot={project?.path}
-												renderMessageAction={(message, key) => (
-													<MessageActions text={message.text}>
-														<LocalSpeechReadAloud
-															speech={speech}
-															messageId={key}
-															text={message.text}
-														/>
-													</MessageActions>
-												)}
-											/>
-										</ProjectFilesContext.Provider>
-									)}
-									{thread.error && (
-										<p className="inline-error" role="alert">
-											{thread.error}
-										</p>
+										<ProviderNameContext.Provider
+											value={providerName(choice.provider, failedProviderLabel)}
+										>
+											<ProjectFilesContext.Provider value={projectFiles}>
+												<Transcript
+													key={sessionId || 'blank'}
+													thread={thread}
+													animate={!historyPending && !restoringTabs}
+													workDisclosures={
+														workDisclosureView.sessionId === sessionId
+															? workDisclosureView.choices
+															: undefined
+													}
+													onWorkDisclosureChange={(key, open) =>
+														onWorkDisclosureChange(sessionId, key, open)
+													}
+													onOpenTurnChanges={(receiptIds, path) => {
+														setChangesFilter(receiptIds, path)
+														showPanelTab('changes')
+														setJobsOpen(true)
+													}}
+													onOpenChangedFile={projectFiles ? openChangedFile : undefined}
+													onOpenTasks={() => {
+														showPanelTab('activity')
+														setJobsOpen(true)
+													}}
+													onUndoTurn={
+														api.undoPreview && api.undoTurn
+															? (turnId) => setUndoingTurn({ sessionId, turnId })
+															: undefined
+													}
+													undoKept={undoKept}
+													projectRoot={project?.path}
+													renderMessageAction={(message, key) => (
+														<MessageActions text={message.text}>
+															<LocalSpeechReadAloud
+																speech={speech}
+																messageId={key}
+																text={message.text}
+															/>
+														</MessageActions>
+													)}
+												/>
+											</ProjectFilesContext.Provider>
+										</ProviderNameContext.Provider>
 									)}
 									<TurnRecovery
 										retry={thread.retry}
-										notice={thread.retryNotice}
+										failures={replyFailures}
+										onAction={(action) => {
+											if (action === 'settings') openSettings('models', 'models')
+											else void act(newConversation)
+										}}
 										disabled={
 											thread.running ||
 											loading ||
@@ -5411,6 +5482,7 @@ export function App({
 									!restoringTabs
 								}
 								providersLoading={!providerReady}
+								onOpenModelSettings={() => openSettings('models', 'models')}
 								catalogueReady={
 									project.status === 'ready' && providerReady && project.trusted && !harnessBusy
 								}

@@ -374,7 +374,7 @@ it('keeps drafts available during connection failure and restores them after rec
 		selected: null,
 	})
 	expect(() => owner.send(session.id, 'Do not pretend this connected')).toThrow(
-		'Reopen this project',
+		'not connected to this project',
 	)
 	await owner.reconnect(project.id)
 	await owner.openConversation(project.id, session.id)

@@ -71,6 +71,7 @@ export function storedDesktopSettings(value: unknown): DesktopSettings {
 
 export const SETTINGS_SECTIONS = [
 	'general',
+	'models',
 	'projects',
 	'appearance',
 	'updates',

@@ -535,8 +535,8 @@ through [Removing a project](#removing-a-project).
 **Settings** is a page of its own in the main area, like Plugins: the rail's gear, the
 profile menu's **Settings…**, the command palette's **Settings**, the File menu's **Settings…**
 (`Ctrl+,` or `⌘,`) all open it. The left column lists the sections and the right side shows
-one. A section is addressed as `settings/<section>` (`general`, `projects`, `appearance`,
-`updates`, `speech`, `about`); the search field at the top matches setting labels,
+one. A section is addressed as `settings/<section>` (`general`, `models`, `projects`,
+`appearance`, `updates`, `speech`, `about`); the search field at the top matches setting labels,
 descriptions and keywords (`src/renderer/settings-model.ts`) and a result opens its section
 and focuses that setting. Every control is a real input with a label, groups are
 fieldsets, the section list is a `nav`, and the page works at the 560px minimum window.
@@ -548,6 +548,10 @@ What it holds, and where each value lives (one source of truth per value):
 - **General** — *When Namzu starts*: `Continue where I left off` (default) or `Start on the home
   screen` (see [Starting the app](#starting-the-app)); *Default terminal shell* and *Bring terminal
   tabs back* (see [Terminal tabs](#terminal-tabs)).
+- **Models** — which providers Namzu can answer with and how each is connected: a key in the
+  environment (the variable's name, never its value), a key saved here, an existing `claude-code` or
+  Codex sign-in, an OpenCode key, a local server, or the keyless free tier (listed as free, not
+  as a connection). See [Connecting a provider](#connecting-a-provider).
 - **Projects** — every project (name, path, trusted state) with **Remove…**, and *Ask again when a
   project's automatic settings change* (default on). See
   [Trust again when automatic settings change](#trust-again-when-automatic-settings-change).
@@ -574,6 +578,98 @@ because `desktop-conversations.json` rejects unknown keys, so a new key there wo
 older app refuse the file. A missing, damaged or hand-edited file never blocks startup: each
 bad entry reads as its default and the next change rewrites the file whole. The typed
 renderer API is `settings()`, `setSettings(patch)`, `desktopInfo()` and `openDataFolder(kind)`.
+
+## Connecting a provider
+
+A first-timer has no provider, and Namzu says so before anything is sent instead of letting a message
+fail. While no provider can answer, the composer shows **Add an API key or sign in to start** with one
+button, **Connect a provider**, which opens **Settings ▸ Models**. Send is disabled, the starter
+chips are hidden and the model trigger reads "No provider connected". Only providers a person
+connected count: the keyless free Zen tier is offered (and listed as "Free models, no key. Limits may
+apply.") but does not end the empty state, because the gateway may refuse a direct request.
+
+**Settings ▸ Models** lists every provider this build can drive, connected ones first. A row says in
+plain words how it is connected ("Connected with the key you saved", "…with your Codex sign-in",
+"…the key in your computer's `ANTHROPIC_API_KEY` setting") and offers **Add key** or **Replace key**
+(a password-type field, focused, Esc cancels and returns focus to the button that opened it),
+**Check**, and **Remove key** for a key Namzu holds. A provider that signs in rather than takes a key
+(the Codex subscription) says how to sign in. After a key is saved Namzu checks it with the
+provider's own credential probe (a cheap authenticated call, never a model turn) and says
+"OpenAI accepted the key.", "…did not accept this key…", or, when the provider has no probe, that the
+key is saved but not confirmed.
+
+Where the key goes: main forwards it to the CLI host (`namzu/providers/save_key`), which writes it to
+`api-keys.json` in the Namzu home with the same verified-private protection as the other credential
+files (see [Provider credentials](credentials.md)); Google's key keeps its own file. The environment
+still wins, so an exported key is never silently replaced. The renderer holds a pasted key only in the
+open field and clears it before the request returns; the host answers with no key field (main also
+drops any field it does not know), diagnostics record only the method name, and the key never appears
+in the page, storage or a request body. Removing the last key deletes the file. Saving or removing
+sends `namzu/providers/refresh` to every open project host and a `providers-changed` event to every
+window, so the composer follows without a restart. The host methods are `namzu/providers/connections`,
+`save_key`, `remove_key`, `test` and `refresh`; a host without them reads "Update Namzu to connect
+providers here."
+
+## What a failed reply says
+
+The runtime words its failures for engineers (status codes, receipts, accounting, vendor bodies). The
+window shows one plain sentence and a next step, and keeps the original behind **Details** (markup
+removed, key-shaped text hidden, at most 500 characters): `src/renderer/friendly-errors.ts`.
+
+| What happened | What the person reads | Action |
+|---|---|---|
+| Cannot reach the provider | Namzu couldn't reach OpenAI. Check your internet connection. | Try again |
+| 401 / 403 | OpenAI didn't accept your key. Check it in Settings, then send again. | Open model settings |
+| 429 | OpenAI asked Namzu to slow down… (and, while waiting, the countdown below) | Try again |
+| 5xx | OpenAI had a problem on its side. Your message is saved. | Try again |
+| Context window | This conversation is too long for the model… | Start a new conversation |
+| No key | There is no API key for Anthropic. Add one in Settings, then send again. | Open model settings |
+
+**Try again** appears only when the runtime holds a reply it can safely repeat. When it cannot prove
+what the stopped request cost, it refuses to repeat it and also refuses new messages in that
+conversation; the window then says "Namzu can't safely repeat this reply, because it can't tell how
+much the provider counted before it stopped. Your message is saved above." with **Start a new
+conversation**. When a failure message is shown, the "Paused." and limit lines are not (they named a
+cause the person never hit; the stop reason `token_budget` is also what an unmeasured request leaves
+behind, which is not a spent budget).
+
+**Waiting on a rate limit.** The provider driver retries a transient failure after a delay. The SDK
+already emitted `provider_retry`; the ACP bridge now maps it to a `provider_retry` session update
+(attempt, `maxRetries`, `delayMs`, optional HTTP `status`, `serverDirected`, no body or header) and the
+transcript draws "Waiting for Anthropic to accept more requests… retrying in 6s" (for any other
+transient failure, "Couldn't get an answer from OpenAI… retrying in 6s") in place of the silent
+"Working". The count is drawn each second but announced once ("Waiting for OpenAI to accept more
+requests. Retrying soon."), and the line ends with the next thing that happens in the turn.
+
+**Folder deleted or moved while open.** Every action on a project checks the folder first. A missing
+folder turns the project into a failed one with `missing: true` and the pane reads "*name* can't be
+found. This folder no longer exists. It may have been moved, renamed or deleted." with the path and
+two buttons, **Locate folder…** (the folder picker) and **Remove project…**. It never says "Trust this
+folder first". Reconnecting while the folder is still gone says the same; once it exists again the
+project opens normally.
+
+**The Namzu connection drops.** A connection that was working and closed (the host crashed) is not an
+unopenable folder: the project keeps `lost: true`, the conversation stays on screen, and the app
+reopens the host once by itself ("Namzu lost its connection. Reconnecting…"). If that fails the one
+notice reads "Namzu couldn't reconnect. Your conversation is safe." with **Reconnect**. When the
+connection is back the line that said it was lost (the failure shown for a turn the crash cut short,
+and the banner's stale error) is cleared; a failed *first* open still shows the old full-pane
+"Couldn't open this folder" with **Try again**.
+
+**An engine that cannot start.** When Codex or `claude-code` does not answer, the banner names the
+engine ("… could not start. Check that it is installed on this computer and that you are signed in to it,
+then choose Retry setup."), the model button reads "… unavailable" instead of a skeleton that never
+resolves, and the banner no longer pushes the page down (banners are laid over the page at the spot
+they would have taken).
+
+**Approval cards.** A write whose "before" cannot be shown reads "Namzu couldn't show what's in
+*file* now. This is what it wants to write." and the caution names the file: "This replaces *file*,
+which already exists." (known), "This writes over *file* if it already exists." (not known), "This
+deletes *file*.", "This command can change or remove files on your computer."
+
+Pictures of each state in both themes are in
+[`research/ux-20261009/providers-errors/`](../../research/ux-20261009/providers-errors/); the flows
+that produce them are `packages/desktop/e2e/ux-providers-errors.test.mjs`.
 
 ## Starting the app
 

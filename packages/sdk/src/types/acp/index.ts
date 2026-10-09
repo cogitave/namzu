@@ -246,6 +246,23 @@ export type AcpSessionUpdate =
 				readonly fraction?: number
 			}
 	  }
+	/**
+	 * A model call failed transiently and will be tried again after `delayMs`.
+	 * Lets a client say "waiting, retrying in N seconds" instead of a silent spinner.
+	 * Carries no provider body, header or credential.
+	 */
+	| {
+			readonly kind: 'provider_retry'
+			/** 1-based attempt that just failed. */
+			readonly attempt: number
+			readonly maxRetries: number
+			readonly delayMs: number
+			/** The HTTP status of the failed attempt, when there was one. */
+			readonly status?: number
+			/** The provider asked for this delay itself (for example `Retry-After`). */
+			readonly serverDirected: boolean
+			readonly turnId?: string
+	  }
 	/** The turn is over. Carries the same reason the prompt result will. */
 	| {
 			readonly kind: 'turn_ended'

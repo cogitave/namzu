@@ -264,19 +264,24 @@ export function transcriptOutcome(
 	return 'incomplete'
 }
 
-export function terminalNotice(reason?: string): string | undefined {
+/**
+ * The line under a reply that did not simply finish. `explained` says a failure message is already
+ * shown for it: that message names the cause, so a second line (a "paused" or a limit the person
+ * never reached) would only contradict it.
+ */
+export function terminalNotice(reason?: string, explained = false): string | undefined {
 	const outcome = transcriptOutcome(reason)
 	if (outcome === 'unknown' || outcome === 'completed') return undefined
+	if (explained && outcome !== 'stopped') return undefined
 	if (outcome === 'paused') return 'Paused.'
 	if (outcome === 'stopped') return 'Stopped.'
 	if (reason === 'max_turns' || reason === 'max_iterations')
-		return 'The configured turn limit was reached.'
+		return 'Stopped at the step limit set for one reply.'
 	if (reason === 'token_budget' || reason === 'max_tokens')
-		return 'The configured token budget was reached.'
-	if (reason === 'cost_limit') return 'The configured cost limit was reached.'
-	if (reason === 'cost_unmeasurable')
-		return 'Stopped because the configured cost budget could not be measured.'
-	if (reason === 'timeout') return 'This turn timed out.'
+		return 'Stopped at the size limit set for one reply.'
+	if (reason === 'cost_limit') return 'Stopped at the cost limit that was set.'
+	if (reason === 'cost_unmeasurable') return 'Stopped because the cost limit could not be checked.'
+	if (reason === 'timeout') return 'This reply timed out.'
 	if (reason === 'step_refused') return 'Stopped by the configured execution policy.'
 	if (reason === 'refused') return 'The action was declined.'
 	if (reason === 'answer_rejected') return 'The response did not pass the configured review.'
@@ -286,10 +291,10 @@ export function terminalNotice(reason?: string): string | undefined {
 		reason === 'input_guardrail' ||
 		reason === 'output_guardrail'
 	)
-		return 'This turn was blocked by a configured guardrail.'
+		return 'This reply was blocked by a safety rule that was set up.'
 	if (reason === 'structured_output_failed')
 		return 'The response did not match the required format.'
-	return 'This turn could not finish.'
+	return 'This reply could not finish.'
 }
 
 /**

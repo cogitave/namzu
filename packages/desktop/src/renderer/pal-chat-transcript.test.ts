@@ -432,7 +432,7 @@ describe('actual Pal chat activity', () => {
 	it.each([
 		['cancelled', 'Stopped.'],
 		['refused', 'The action was declined.'],
-		['output_guardrail', 'This turn was blocked by a configured guardrail.'],
+		['output_guardrail', 'This reply was blocked by a safety rule that was set up.'],
 	])(
 		'shows the actual %s settlement notice without delivering provisional output',
 		(reason, notice) => {

@@ -85,6 +85,7 @@ export async function createWorld(opts = {}) {
 		cleanup: null,
 		pathPrefix: opts.pathPrefix,
 		env: opts.env,
+		noKey: opts.noKey === true,
 	};
 	await opts.seed?.(world);
 	return world;
@@ -106,9 +107,16 @@ export async function launch(world) {
 		XDG_CONFIG_HOME: join(world.osHome, ".config"),
 		NAMZU_HOME: world.home,
 		NAMZU_DESKTOP_CLI: join(here, "cli-entry.mjs"),
-		OPENAI_API_KEY: "e2e-not-a-secret",
 		NAMZU_E2E_MODEL_URL: world.model.url,
 	});
+	// A first-timer has no provider: nothing in the environment names a key.
+	if (!world.noKey) env.OPENAI_API_KEY = "e2e-not-a-secret";
+	else {
+		// Under WSL the CLI also reads the sign-ins of the paired Windows account.
+		// A first-timer has none, and the owner's must never decide what a test sees.
+		delete env.WSL_DISTRO_NAME;
+		delete env.WSL_INTEROP;
+	}
 	const app = await _electron.launch({
 		executablePath: require("electron"),
 		args: [appDir, `--user-data-dir=${world.userData}`, "--no-sandbox"],

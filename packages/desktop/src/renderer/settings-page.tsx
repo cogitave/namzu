@@ -1,4 +1,4 @@
-import { Volume2 } from 'lucide-react'
+import { KeyRound, Volume2 } from 'lucide-react'
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import type { ProjectView } from '../shared/protocol.js'
 import {
@@ -24,6 +24,7 @@ import {
 	XIcon,
 } from './icons.js'
 import { LocalSpeechSettingsContent } from './local-speech-settings.js'
+import { ModelsSection } from './models-section.js'
 import { SettingsConfirmDialog } from './settings-confirm-dialog.js'
 import {
 	SETTINGS_SECTION_TITLES,
@@ -37,10 +38,12 @@ import { Button } from './ui/button.js'
 import type { DesktopSettingsControls } from './use-desktop-settings.js'
 import { useEngineUpdates } from './use-engine-updates.js'
 import type { LocalSpeechControls } from './use-local-speech.js'
+import { useProviderConnections } from './use-provider-connections.js'
 import './settings-page.css'
 
 const SECTION_ICONS: Record<SettingsSection, IconComponent> = {
 	general: SettingsIcon,
+	models: KeyRound as IconComponent,
 	projects: FoldersIcon,
 	appearance: SunIcon,
 	updates: DownloadIcon,
@@ -220,6 +223,7 @@ function SectionBody(props: SettingsPageProps) {
 		<div className="settings-section" data-section={props.section}>
 			<h2 className="settings-section-title">{title}</h2>
 			{props.section === 'general' && <GeneralSection {...props} />}
+			{props.section === 'models' && <ModelsContainer />}
 			{props.section === 'projects' && <ProjectsSection {...props} />}
 			{props.section === 'appearance' && <AppearanceSection {...props} />}
 			{props.section === 'updates' && <UpdatesSection {...props} />}
@@ -227,6 +231,11 @@ function SectionBody(props: SettingsPageProps) {
 			{props.section === 'about' && <AboutSection {...props} />}
 		</div>
 	)
+}
+
+function ModelsContainer() {
+	const bridge = typeof window === 'undefined' ? undefined : window.namzu
+	return <ModelsSection connections={useProviderConnections(bridge, true)} />
 }
 
 function Row({

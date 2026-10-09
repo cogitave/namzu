@@ -1,12 +1,23 @@
-import { Fragment, type ReactNode, memo, useEffect, useMemo, useRef, useState } from 'react'
+import {
+	Fragment,
+	type ReactNode,
+	memo,
+	useContext,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from 'react'
 import { type ThreadState, type TimelineEntry, threadPhase } from '../shared/projection.js'
 import type { ChatMessage } from '../shared/protocol.js'
 import { type ActivityActions, ActivityActionsContext } from './activity-actions.js'
 import { AttachmentList } from './attachment-list.js'
+import { providerWaitText } from './friendly-errors.js'
 import { ChevronRightIcon } from './icons.js'
 import { Message, MessageContent, MessageFooter, timeDescription } from './message.js'
 import { PlanRow, PlanTouched } from './plan-row-view.js'
 import { isTaskEntry, latestPlanTurn } from './plan-row.js'
+import { ProviderNameContext } from './provider-name-context.js'
 import { renderedEqual } from './rendered-equal.js'
 import { toolTranscriptPresentation } from './tool-transcript-presentation.js'
 import { ToolTranscriptRow, actionIcon } from './tool-transcript-row.js'
@@ -510,6 +521,8 @@ function LiveStatus({
 }) {
 	const phase = threadPhase(thread)
 	const label = livePhaseLabel(thread)
+	const provider = useContext(ProviderNameContext)
+	const wait = thread.running && thread.stopReason === undefined ? thread.providerWait : undefined
 	const retained = useRef(label)
 	const ref = useRef<HTMLOutputElement>(null)
 	useTranscriptPhaseMotion(ref, label, animate, true)
@@ -517,6 +530,18 @@ function LiveStatus({
 		if (label) retained.current = label
 	}, [label])
 	const start = thread.turns[thread.turn]?.startedAt
+	if (wait)
+		return (
+			<output className="working working-wait" aria-live="polite" data-transcript-phase="working">
+				{/* The count below changes every second; what is announced does not. */}
+				<span className="transcript-visually-hidden">
+					Waiting for {provider} to accept more requests. Retrying soon.
+				</span>
+				<span className="working-label" aria-hidden="true">
+					{providerWaitText(wait, now, provider)}
+				</span>
+			</output>
+		)
 	return (
 		<output
 			ref={ref}
@@ -787,7 +812,10 @@ export function Transcript({
 		[],
 	)
 	const notice = !thread.running
-		? terminalNotice(thread.turns[thread.turn]?.reason ?? thread.stopReason)
+		? terminalNotice(
+				thread.turns[thread.turn]?.reason ?? thread.stopReason,
+				Boolean(thread.error || thread.retryNotice),
+			)
 		: undefined
 	const groups = transcriptTurns(thread)
 	const { timeline, tools } = thread

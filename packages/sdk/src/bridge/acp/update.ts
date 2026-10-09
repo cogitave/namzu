@@ -207,6 +207,17 @@ export function toAcpSessionUpdate(
 			}
 		}
 
+		case 'provider_retry':
+			return {
+				kind: 'provider_retry',
+				attempt: event.attempt,
+				maxRetries: event.maxRetries,
+				delayMs: event.delayMs,
+				...(event.status === undefined ? {} : { status: event.status }),
+				serverDirected: event.serverDirected,
+				...(event.turnId === undefined ? {} : { turnId: event.turnId }),
+			}
+
 		case 'turn_completed':
 			return {
 				kind: 'turn_ended',
