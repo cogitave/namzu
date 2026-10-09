@@ -91,6 +91,7 @@ export function Composer({
 	harnessView,
 	harnessBusy = false,
 	onHarnessChange,
+	onRecheckEngines,
 	attachmentsSupported = true,
 	reviewModes,
 	permissionEngine,
@@ -175,6 +176,8 @@ export function Composer({
 	harnessView?: HarnessView
 	harnessBusy?: boolean
 	onHarnessChange?: (engine: HarnessView['selected']) => void
+	/** Reads the engines again, after a program was installed. */
+	onRecheckEngines?: () => Promise<unknown>
 	attachmentsSupported?: boolean
 	reviewModes?: readonly ComposerPermissionMode[]
 	permissionEngine?: HarnessView['selected']
@@ -255,6 +258,11 @@ export function Composer({
 							busy: harnessBusy,
 							disabled: !connected || running || sending,
 							onSelect: onHarnessChange ?? (() => {}),
+							onRecheck: onRecheckEngines
+								? async () => {
+										await onRecheckEngines()
+									}
+								: undefined,
 							surface,
 						}
 			}

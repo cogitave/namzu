@@ -4,7 +4,12 @@ import { ChevronRight } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { HarnessView } from '../shared/protocol.js'
 import { EffortShader } from './effort-shader/effort-shader.js'
-import { EngineChip, type EngineSurfaceControl, SurfaceSwitch } from './harness-picker.js'
+import {
+	EngineChip,
+	type EngineSurfaceControl,
+	SurfaceCaption,
+	SurfaceSwitch,
+} from './harness-picker.js'
 import { LoaderCircleIcon } from './icons.js'
 import { effortLabel } from './model-choice.js'
 import './composer-effort-panel.css'
@@ -15,6 +20,36 @@ export function defaultStop(
 	defaultValue: ReasoningEffort | undefined,
 ): number {
 	return defaultValue ? levels.indexOf(defaultValue) : -1
+}
+
+export interface ScaleLabel {
+	level: ReasoningEffort
+	text: string
+	/** Position along the slider, 0 to 100. */
+	at: number
+	current: boolean
+}
+
+/**
+ * The names printed under the slider. A short scale names every stop; a long one would run its names
+ * together, so it names the two ends and the stop in force.
+ */
+export function effortScale(levels: readonly ReasoningEffort[], position: number): ScaleLabel[] {
+	const last = levels.length - 1
+	return levels.flatMap((level, stop) =>
+		levels.length <= 5 ||
+		stop === position ||
+		((stop === 0 || stop === last) && Math.abs(stop - position) > 1)
+			? [
+					{
+						level,
+						text: effortLabel(level),
+						at: last <= 0 ? 0 : (stop / last) * 100,
+						current: stop === position,
+					},
+				]
+			: [],
+	)
 }
 
 /** What a screen reader hears at a stop; the default stop says so, as the reset icon once did. */
@@ -132,6 +167,7 @@ export function ComposerEffortPanel({
 					</span>
 				)}
 			</div>
+			{engine?.surface && <SurfaceCaption value={engine.surface.value} />}
 			{loading ? (
 				<output className="composer-effort-status">
 					<LoaderCircleIcon className="composer-effort-spinner" aria-hidden="true" />
@@ -194,9 +230,19 @@ export function ComposerEffortPanel({
 						</Slider.Control>
 					</Slider.Root>
 					<div className="composer-effort-scale" aria-hidden="true">
-						<span>Faster</span>
-						<span>Smarter</span>
+						{effortScale(levels, index).map((item, order, all) => (
+							<span
+								key={item.level}
+								className="composer-effort-scale-name"
+								data-current={item.current || undefined}
+								data-edge={order === 0 ? 'start' : order === all.length - 1 ? 'end' : undefined}
+								style={{ left: `${item.at}%` }}
+							>
+								{item.text}
+							</span>
+						))}
 					</div>
+					<p className="composer-effort-hint">Lower is faster. Higher thinks longer.</p>
 				</>
 			)}
 		</div>

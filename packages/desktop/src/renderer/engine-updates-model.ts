@@ -28,10 +28,11 @@ export function engineRowView(item: EngineUpdateItem): EngineRowView {
 	if (item.missing)
 		return {
 			title,
-			versions: 'Not installed',
+			// The state is said once, in the status line.
+			versions: '',
 			status: 'Not installed',
 			tone: 'neutral',
-			note: 'Namzu does not install it. Install it first to use it from Namzu.',
+			note: 'Namzu does not install it for you. Run one of these in a terminal, then choose Check again.',
 			busy: false,
 		}
 	const versions =

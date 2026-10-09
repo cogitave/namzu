@@ -28,6 +28,7 @@ import {
 	EnginePanel,
 	type EngineSurfaceControl,
 	HarnessMark,
+	SurfaceCaption,
 	SurfaceSwitch,
 	engineLabel,
 } from './harness-picker.js'
@@ -81,6 +82,8 @@ export type EngineControl = {
 	busy: boolean
 	disabled: boolean
 	onSelect: (engine: HarnessView['selected']) => void
+	/** Reads the list of engines again, so a program installed since is picked up. */
+	onRecheck?: () => Promise<void>
 	/** The "Desktop | CLI" switch beside the engine chip; absent where a CLI tab cannot be opened. */
 	surface?: EngineSurfaceControl
 }
@@ -273,9 +276,11 @@ export function ModelPicker({
 		? `Model, ${startingText.replace('\u2026', '')}`
 		: label
 			? `Model: ${label}${shownEffort?.value ? `, effort: ${effortLabel(shownEffort.value)}` : ''}`
-			: triggerPending
-				? 'Model, loading'
-				: 'Select model'
+			: triggerPending && startFailed
+				? 'Model, not available. Open to choose another engine'
+				: triggerPending
+					? 'Model, loading'
+					: 'Select model'
 	const choose = (next: ModelChoice) => {
 		if (disabled) return
 		onChange(next)
@@ -332,6 +337,11 @@ export function ModelPicker({
 					<span className="model-picker-trigger-model model-picker-trigger-starting truncate">
 						{startingText}
 					</span>
+				) : triggerPending && startFailed ? (
+					// The engine did not start (signed out, say): a word, never a grey bar that waits forever.
+					<span className="model-picker-trigger-model model-picker-trigger-starting truncate">
+						Not available
+					</span>
 				) : triggerPending ? (
 					<span
 						className="model-picker-trigger-model model-picker-trigger-skeleton"
@@ -365,7 +375,8 @@ export function ModelPicker({
 					ref={resize}
 					style={{
 						...resizeStyle,
-						width: `min(${view === 'engine' || (view === 'effort' && onEffortChange) ? 264 + (view === 'effort' && engineControl?.surface ? 52 : 0) : (providers.available.length > 1 ? 360 : 300) + (engineControl?.surface ? 28 : 0)}px, calc(100vw - 16px))`,
+						// One width for every view of the popup, so a step never changes its shape.
+						width: `min(${(providers.available.length > 1 ? 360 : 300) + (engineControl?.surface ? 28 : 0)}px, calc(100vw - 16px))`,
 					}}
 				>
 					<div className="model-picker-body" ref={measured}>
@@ -376,6 +387,7 @@ export function ModelPicker({
 								backLabel={engineFrom === 'effort' ? 'Effort' : 'Models'}
 								busy={engineControl.busy}
 								disabled={engineControl.disabled}
+								onRecheck={engineControl.onRecheck}
 								onBack={() =>
 									setView(engineFrom === 'effort' && onEffortChange ? 'effort' : 'models')
 								}
@@ -877,6 +889,7 @@ function ModelBrowser({
 					</>
 				)}
 			</header>
+			{!searching && engine?.surface && <SurfaceCaption value={engine.surface.value} />}
 			<div ref={results} className="model-picker-list">
 				<RadioGroup
 					aria-label={searching ? 'Search results' : `${active?.label ?? ''} models`}

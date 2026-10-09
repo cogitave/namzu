@@ -107,6 +107,8 @@ describe('a row of Settings ▸ Updates', () => {
 			engineRowView({ ...codex, installed: undefined, missing: true, status: 'unknown' }),
 		).toMatchObject({
 			status: 'Not installed',
+			// Said once: the title line carries no second "Not installed".
+			versions: '',
 		})
 	})
 	it('explains the bundled command line instead of offering an update', () => {

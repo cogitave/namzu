@@ -30,12 +30,12 @@
 	align-items: center;
 	gap: 2px;
 	max-width: 100%;
-	padding: 3px 4px 3px 6px;
-	margin-block: -3px;
+	padding: 2px 4px 2px 6px;
+	margin-block-start: 2px;
 	margin-inline-start: -6px;
-	border: 0;
+	border: 1px solid var(--border);
 	border-radius: 6px;
-	background: transparent;
+	background: color-mix(in srgb, var(--foreground) 4%, transparent);
 	color: var(--foreground);
 	font-size: 12px;
 	line-height: 18px;
@@ -192,9 +192,32 @@
 	transform: scale(1.06);
 }
 .composer-effort-scale {
-	display: flex;
-	justify-content: space-between;
-	padding-inline: 4px;
+	position: relative;
+	height: 16px;
+	margin-inline: 13px;
+	color: var(--muted-foreground);
+	font-size: 11px;
+	line-height: 16px;
+}
+/* Each name sits under its stop; the two ends are pulled in so they never leave the panel. */
+.composer-effort-scale-name {
+	position: absolute;
+	top: 0;
+	white-space: nowrap;
+	transform: translateX(-50%);
+}
+.composer-effort-scale-name[data-edge="start"] {
+	transform: translateX(-13px);
+}
+.composer-effort-scale-name[data-edge="end"] {
+	transform: translateX(calc(-100% + 13px));
+}
+.composer-effort-scale-name[data-current] {
+	color: var(--foreground);
+	font-weight: 600;
+}
+.composer-effort-hint {
+	margin: 0;
 	color: var(--muted-foreground);
 	font-size: 11px;
 	line-height: 16px;
@@ -231,4 +254,8 @@
 	.composer-effort-spinner {
 		animation: none;
 	}
+}
+/* Inside the effort step the caption lines up with the slider, not with a list row. */
+.composer-effort-panel .surface-caption {
+	padding: 0;
 }

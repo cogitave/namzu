@@ -1,7 +1,12 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, it, vi } from 'vitest'
-import { ComposerEffortPanel, defaultStop, effortValueText } from './composer-effort-panel.js'
+import {
+	ComposerEffortPanel,
+	defaultStop,
+	effortScale,
+	effortValueText,
+} from './composer-effort-panel.js'
 
 function render(overrides: Partial<Parameters<typeof ComposerEffortPanel>[0]> = {}) {
 	return renderToStaticMarkup(
@@ -29,8 +34,10 @@ it('shows the level in force, the model button and one stop per offered level', 
 	expect(html.match(/composer-effort-stop"/g)).toHaveLength(5)
 	// Stops up to the thumb are drawn on the filled part of the track.
 	expect(html.match(/data-passed/g)).toHaveLength(4)
-	expect(html).toContain('Faster')
-	expect(html).toContain('Smarter')
+	// Every stop of a short scale is named, and the one in force is marked.
+	for (const name of ['Low', 'Medium', 'High', 'Extra High', 'Max'])
+		expect(html).toContain(`>${name}</span>`)
+	expect(html).toMatch(/data-current="true"[^>]*>Extra High<\/span>/)
 	expect(html).toContain('aria-valuetext="Extra High"')
 	expect(html.match(/<input[^>]*type="range"[^>]*>/)?.[0]).toMatch(/max="4"/)
 })
@@ -77,4 +84,15 @@ it('draws the slider unset, not on the first level, when no level is in force', 
 	expect(html).toContain('>Model default</output>')
 	expect(html).toContain('data-unset')
 	expect(render()).not.toContain('data-unset')
+})
+
+it('names the ends and the stop in force on a long scale, never the end next to it', () => {
+	const levels = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as const
+	expect(effortScale(levels, 3).map((item) => item.text)).toEqual(['None', 'Medium', 'Ultra'])
+	// An end beside the current stop would run into its name.
+	expect(effortScale(levels, 1).map((item) => item.text)).toEqual(['Minimal', 'Ultra'])
+	expect(effortScale(['low', 'high'], 0).map((item) => [item.text, item.at])).toEqual([
+		['Low', 0],
+		['High', 100],
+	])
 })

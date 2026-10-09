@@ -164,13 +164,14 @@
 	padding: 4px;
 }
 .model-picker-heading {
+	flex-wrap: wrap;
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
 	min-height: 28px;
 	flex: none;
 	padding: 0 4px;
-	gap: 8px;
+	gap: 2px 8px;
 	color: var(--muted-foreground);
 	font-size: 12px;
 	line-height: 18px;
@@ -209,6 +210,7 @@
 	outline-offset: 1px;
 }
 .model-picker-heading-copy {
+	flex: 1 1 auto;
 	display: flex;
 	align-items: center;
 	gap: 8px;
@@ -227,6 +229,7 @@
 	flex: none;
 }
 .model-picker-heading-actions {
+	margin-inline-start: auto;
 	display: flex;
 	align-items: center;
 	flex: none;
