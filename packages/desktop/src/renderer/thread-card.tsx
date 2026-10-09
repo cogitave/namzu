@@ -67,12 +67,17 @@ export function ThreadCard({
 	const rowButton = useRef<HTMLButtonElement>(null)
 	const time = relativeAge(conversation.updatedAt, Date.now())
 	const [cardOpen, setCardOpen] = useState(false)
+	// The card opens below its row; it opens above instead when below would cover "Archived conversations".
+	const [cardSide, setCardSide] = useState<'bottom' | 'top'>('bottom')
 	const [menuOpen, setMenuOpen] = useState(false)
 	const intent = useMemo(
 		() =>
 			createHoverIntent({
 				onOpen: () => setCardOpen(true),
-				onClose: () => setCardOpen(false),
+				onClose: () => {
+					setCardOpen(false)
+					setCardSide('bottom')
+				},
 			}),
 		[],
 	)
@@ -203,7 +208,7 @@ export function ThreadCard({
 				</PreviewCardTrigger>
 				<PreviewCardPopup
 					// Below the row, inside the sidebar: beside it the card would cover the transcript.
-					side="bottom"
+					side={cardSide}
 					align="start"
 					sideOffset={4}
 					positionerClassName="pointer-events-none"
@@ -213,6 +218,7 @@ export function ThreadCard({
 						project={project}
 						messages={thread?.messages}
 						loadGit={rowActions?.loadGit}
+						onCovers={cardSide === 'bottom' ? () => setCardSide('top') : undefined}
 					/>
 				</PreviewCardPopup>
 			</PreviewCard>

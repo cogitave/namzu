@@ -101,6 +101,18 @@ function settingLines(value: unknown): string[] {
 	return capped(all)
 }
 
+/** What the folder's sandbox settings do, said plainly; the raw keys stay in Details. */
+export function sandboxSentence(value: unknown): string {
+	const setting = (value && typeof value === 'object' ? value : {}) as Record<string, unknown>
+	if (value === false || setting.enabled === false)
+		return 'This folder’s settings turn off the sandbox, so commands would run directly on your computer.'
+	if (setting.allowUnattendedEscape === true)
+		return 'This folder’s settings let a command leave the sandbox when nobody is there to ask.'
+	if (setting.allowEscape === true)
+		return 'This folder’s settings let a command ask to leave the sandbox.'
+	return 'This folder’s settings change how commands are kept apart from your computer (the sandbox).'
+}
+
 /** Config sections that execute or widen what may run, with how each reads in the dialog. */
 export const CONFIG_SECTIONS: readonly [key: string, say: (value: unknown) => AutoRunFinding][] = [
 	[
@@ -141,15 +153,12 @@ export const CONFIG_SECTIONS: readonly [key: string, say: (value: unknown) => Au
 	],
 	[
 		'permissionChecks',
-		(value) => ({ label: 'changes to how actions are checked', lines: settingLines(value) }),
-	],
-	[
-		'sandbox',
 		(value) => ({
-			label: 'settings that can change how commands are isolated',
+			label: 'changes to how Namzu checks an action before it runs',
 			lines: settingLines(value),
 		}),
 	],
+	['sandbox', (value) => ({ label: sandboxSentence(value), lines: settingLines(value) })],
 	[
 		'web',
 		(value) => ({

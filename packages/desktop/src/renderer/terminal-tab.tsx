@@ -4,6 +4,7 @@ import { SplitSquareVertical } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 import type { TerminalTabView } from '../shared/terminal-tabs.js'
 import type { WorkspaceWindowBounds } from '../shared/workspace-layout.js'
+import { FittedTitle } from './fitted-title.js'
 import { AppWindowIcon, MoreHorizontalIcon, SplitRightIcon, XIcon } from './icons.js'
 import { TAB_TITLE_CHARS, shortenTitle } from './short-title.js'
 import {
@@ -18,6 +19,12 @@ import {
 	createWorkspaceTabDrag,
 	workspaceDragEndsOutsideWindow,
 } from './workspace-canvas-geometry.js'
+
+/** `sh 7 · project` is shown whole when it fits, then as `sh 7`: the project goes before the part that tells tabs apart. */
+export function terminalTitleCandidates(title: string): string[] {
+	const [head = title] = title.split(' · ')
+	return head === title ? [title] : [title, head]
+}
 
 /** A terminal's tab in the pane's strip: dragged, split and closed like a conversation's. */
 export function TerminalStripTab({
@@ -58,6 +65,7 @@ export function TerminalStripTab({
 			data-terminal-tab-id={tab.id}
 			data-tab-id={tab.id}
 			data-kind={tab.kind}
+			data-ended={ended || undefined}
 			draggable={!busy}
 			onPointerDownCapture={(event) => {
 				if (
@@ -135,9 +143,11 @@ export function TerminalStripTab({
 				<span className="conversation-tab-mark" aria-hidden="true">
 					<TerminalMark tab={tab} />
 				</span>
-				<span className="truncate" title={statusTitle}>
-					{shortenTitle(tab.title, TAB_TITLE_CHARS)}
-				</span>
+				<FittedTitle
+					candidates={terminalTitleCandidates(tab.title)}
+					title={statusTitle}
+					fallback={shortenTitle(tab.title, TAB_TITLE_CHARS)}
+				/>
 				<TerminalBadge tab={tab} />
 			</Tabs.Tab>
 			<div className="conversation-tab-actions">

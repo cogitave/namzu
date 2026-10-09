@@ -586,3 +586,12 @@
 	border-radius: 999px;
 	background: var(--primary);
 }
+.sidebar-pals-failed {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 4px 8px;
+	margin: 6px 8px;
+	color: var(--sidebar-muted-foreground);
+	font-size: 12px;
+}

@@ -98,6 +98,10 @@ for (const scheme of ["dark", "light"]) {
 				await expect(dialog).toContainText("1 tool it can start (an MCP server)");
 			});
 			await expect(dialog).not.toContainText(/engine|model request|sandbox settings$/);
+			// A folder that turns the sandbox off says so in words a first-timer understands.
+			await expect(dialog).toContainText(
+				"This folder’s settings turn off the sandbox, so commands would run directly on your computer.",
+			);
 			// Nothing is added behind the dialog.
 			await expect(w.page.locator("[data-project-group]")).toHaveCount(0);
 			// The real command is behind Details, and the secret never reaches the page.
@@ -171,7 +175,32 @@ flow("Start from scratch says where the project was made and can show it", {}, a
 	await expect(notice).toContainText("Namzu");
 	await expect(w.page.getByRole("button", { name: "Show in folder" })).toBeVisible();
 	assert.equal(existsSync(join(w.osHome, "Namzu", "New project")), true);
+	// An empty folder has nothing to explore or review: the starters fit it.
+	const starters = w.page.getByLabel("Ideas to get started");
+	await expect(starters).toBeVisible({ timeout: T });
+	await expect(starters).toContainText("Plan a project");
+	await expect(starters).toContainText("Create a first file");
+	await expect(starters).toContainText("Describe what you want to build");
+	await expect(starters).not.toContainText("Explore this project");
+	await expect(starters).not.toContainText("Review a change");
 	await shot(w, "start-from-scratch");
+	// Rename changes the name Namzu shows, never the folder, and survives a restart.
+	const group = w.page.locator("[data-project-group]").first();
+	await group.hover();
+	await group.getByRole("button", { name: /^Actions for / }).click();
+	await w.page.getByRole("menuitem", { name: "Rename project…" }).click();
+	const rename = w.page.getByRole("dialog", { name: "Rename project" });
+	await expect(rename).toContainText("The folder keeps its name");
+	await shot(w, "rename-project");
+	await rename.getByLabel("Project name").fill("Garden plan");
+	await rename.getByRole("button", { name: "Save" }).click();
+	await expect(rename).toHaveCount(0, { timeout: T });
+	await expect(w.page.locator("[data-project-group]").first()).toContainText("Garden plan");
+	assert.equal(existsSync(join(w.osHome, "Namzu", "New project")), true);
+	await relaunch(w);
+	await expect(w.page.locator("[data-project-group]").first()).toContainText("Garden plan", {
+		timeout: T,
+	});
 });
 
 flow(
@@ -192,9 +221,16 @@ flow(
 		await expect(
 			w.page.locator("[data-app-sidebar]").getByRole("button", {
 				name: "Add new project",
-			}),
+			}).first(),
 		).toBeVisible();
+		// With no project yet the section is a row that offers the same two choices, not a bare header.
+		const row = w.page.locator("[data-sidebar-add-project-row]");
+		await expect(row).toBeVisible();
+		await expect(row).toContainText("Add new project");
 		await shot(w, "chat-sidebar");
+		await row.click();
+		await expect(w.page.getByRole("menuitem", { name: "Start from scratch" })).toBeVisible();
+		await w.page.keyboard.press("Escape");
 	},
 );
 
@@ -222,6 +258,28 @@ flow(
 		const add = w.page.getByRole("button", { name: "Add it again" });
 		await expect(add).toBeVisible({ timeout: T });
 		await shot(w, "remove-toast");
+		// The notice never sits on the page's own primary action.
+		const covered = await w.page.evaluate(() => {
+			const toast = document.querySelector(".toast-root")?.getBoundingClientRect();
+			const buttons = [...document.querySelectorAll("button")].filter(
+				(button) =>
+					button.getAttribute("aria-label") === "Add new project" ||
+					button.textContent?.trim() === "Add new project",
+			);
+			if (!toast) return ["no toast"];
+			return buttons
+				.map((button) => button.getBoundingClientRect())
+				.filter((box) => box.width > 0)
+				.filter(
+					(box) =>
+						box.left < toast.right &&
+						box.right > toast.left &&
+						box.top < toast.bottom &&
+						box.bottom > toast.top,
+				)
+				.map((box) => `${box.left},${box.top}`);
+		});
+		assert.deepEqual(covered, [], "the removal notice covers no Add new project button");
 		await add.click();
 		await expect(w.page.locator("[data-project-group]")).toHaveCount(1, { timeout: T });
 		await expect(w.page.getByRole("textbox", { name: "Message Namzu" })).toBeVisible({
@@ -256,6 +314,9 @@ for (const scheme of ["dark", "light"]) {
 			// The open tab says the same thing, not "saved message settings could not be loaded".
 			await expect(w.page.locator("[data-project-folder-missing]")).toContainText("can’t be found");
 			await expect(w.page.getByText(/Saved message settings/)).toHaveCount(0);
+			// The tab keeps the conversation's own name, and Pals is not stuck on Loading.
+			await expect(w.page.getByRole("tab", { name: /hello there/ })).toBeVisible({ timeout: T });
+			await expect(w.page.locator(".sidebar-pals-loading")).toHaveCount(0, { timeout: T });
 			await shot(w, `folder-missing-${scheme}`);
 			// It survives another restart.
 			await relaunch(w);

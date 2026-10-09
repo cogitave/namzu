@@ -20,6 +20,7 @@ import {
 } from './computer-workspace-toolbar.js'
 import { ConversationActionsMenu } from './conversation-actions-menu.js'
 import type { ConversationActionId, ConversationActionInput } from './conversation-actions.js'
+import { FittedTitle } from './fitted-title.js'
 import { HarnessMark } from './harness-picker.js'
 import {
 	AppWindowIcon,
@@ -69,6 +70,20 @@ export interface ConversationPalWorkspace extends ComputerWorkspaceToolbarProps 
 }
 
 /** Computer/chat switches retain the current session; other tabs change its owner. */
+/**
+ * A tab cut by the strip's edge is hidden whole, so no tab ever shows half a letter; the tab in
+ * front is never hidden, and "Show all tabs" still lists every one.
+ */
+export function hideClippedTabs(list: HTMLElement): void {
+	const edge = list.getBoundingClientRect()
+	for (const tab of list.querySelectorAll<HTMLElement>('.conversation-tab')) {
+		const box = tab.getBoundingClientRect()
+		const clipped = box.width > 0 && (box.left < edge.left - 0.5 || box.right > edge.right + 0.5)
+		if (clipped && tab.dataset.active !== 'true') tab.dataset.clipped = 'true'
+		else delete tab.dataset.clipped
+	}
+}
+
 export function resolveConversationTabSelection(
 	tabs: readonly ConversationView[],
 	active: string,
@@ -403,9 +418,11 @@ function ConversationTab({
 				{view.pinned && (
 					<PinIcon className="conversation-row-pin conversation-tab-pin" aria-hidden="true" />
 				)}
-				<span className="truncate" title={label}>
-					{shortenTitle(label, TAB_TITLE_CHARS)}
-				</span>
+				<FittedTitle
+					candidates={[label]}
+					title={label}
+					fallback={shortenTitle(label, TAB_TITLE_CHARS)}
+				/>
 				{workLabel && work.state === 'known' && (
 					<span
 						className="conversation-tab-background-work"
@@ -564,13 +581,24 @@ export function ConversationTabs({
 			element
 				.querySelector<HTMLElement>('.conversation-tab[data-active="true"]')
 				?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+			hideClippedTabs(element)
 		}
+		const clip = () => hideClippedTabs(element)
 		reveal()
-		if (typeof ResizeObserver === 'undefined') return
+		element.addEventListener('scroll', clip, { passive: true })
+		if (typeof ResizeObserver === 'undefined')
+			return () => element.removeEventListener('scroll', clip)
 		const observer = new ResizeObserver(reveal)
 		observer.observe(element)
-		return () => observer.disconnect()
+		return () => {
+			observer.disconnect()
+			element.removeEventListener('scroll', clip)
+		}
 	}, [selected, strip.length])
+	// Tabs move when the strip re-renders (a reorder, a rename), so the hidden ones are worked out again.
+	useLayoutEffect(() => {
+		if (list.current) hideClippedTabs(list.current)
+	})
 	const stripLabel = (item: StripItem) =>
 		item.kind === 'terminal'
 			? item.tab.title

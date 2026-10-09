@@ -377,6 +377,7 @@ export function App({
 	const palNames = useMemo(() => new Map(pals.map((item) => [item.id, item.name])), [pals])
 	const [palsLoading, setPalsLoading] = useState(true)
 	const [palsError, setPalsError] = useState('')
+	const [palsLoadFailed, setPalsLoadFailed] = useState(false)
 	const [palsSaving, setPalsSaving] = useState(false)
 	const savingPal = useRef(createSubmitGuard())
 	const openingRun = useRef(0)
@@ -395,7 +396,9 @@ export function App({
 	}>()
 	const [removingConversation, setRemovingConversation] = useState<ConversationView>()
 	const [removingProject, setRemovingProject] = useState<ProjectView>()
+	const [renamingProject, setRenamingProject] = useState<ProjectView>()
 	const projectRemovalTrigger = useRef<HTMLElement | null>(null)
+	const projectRenameTrigger = useRef<HTMLElement | null>(null)
 	const removalTrigger = useRef<HTMLElement | null>(null)
 	const [communicationOwner, setCommunicationOwner] = useState<{
 		palId: string
@@ -1233,7 +1236,9 @@ export function App({
 	}, [detailsPopoverOpen, gitProjectId, turnRunning, api])
 	const normalTabs = group.tabs.map(
 		(id): ConversationView =>
-			conversations.find((item) => item.id === id) ?? {
+			conversations.find((item) => item.id === id) ??
+			// A folder that is gone lists nothing, but the saved view of the tab still has its real title.
+			savedViews.find((item) => item.id === id) ?? {
 				id,
 				projectId: '',
 				title: 'Conversation',
@@ -1657,15 +1662,21 @@ export function App({
 				: Promise.resolve(),
 		])
 	}
+	const [palsRetry, setPalsRetry] = useState(0)
 	useEffect(() => {
 		let current = true
+		void palsRetry
+		setPalsLoading(true)
+		setPalsLoadFailed(false)
 		void api
 			.pals()
 			.then((items) => {
 				if (current) setPals(items)
 			})
 			.catch((failure) => {
-				if (current) setPalsError(errorText(failure))
+				if (!current) return
+				setPalsError(errorText(failure))
+				setPalsLoadFailed(true)
 			})
 			.finally(() => {
 				if (current) setPalsLoading(false)
@@ -1673,7 +1684,7 @@ export function App({
 		return () => {
 			current = false
 		}
-	}, [api])
+	}, [api, palsRetry])
 	useEffect(() => {
 		if (!api.backgroundWorkStatuses) return
 		let current = true
@@ -3119,6 +3130,11 @@ export function App({
 		if (context.current.frozen || value.palId || value.isChat || !api.removeProject) return
 		projectRemovalTrigger.current = trigger
 		setRemovingProject(value)
+	}
+	const requestProjectRename = (value: ProjectView, trigger: HTMLElement | null) => {
+		if (context.current.frozen || value.palId || value.isChat || !api.renameProject) return
+		projectRenameTrigger.current = trigger
+		setRenamingProject(value)
 	}
 	const removeProject = async (value: ProjectView) => {
 		if (!api.removeProject) throw new Error('Removing a project is unavailable.')
@@ -5237,6 +5253,31 @@ export function App({
 								}}
 							/>
 						)}
+						{renamingProject && (
+							<RenameConversationDialog
+								key={`rename-project:${renamingProject.id}`}
+								heading="Rename project"
+								description="This changes the name Namzu shows. The folder keeps its name. Leave the name empty to show the folder name."
+								fieldLabel="Project name"
+								maxLength={80}
+								initialTitle={renamingProject.name}
+								onClose={() => setRenamingProject(undefined)}
+								returnFocus={() =>
+									projectRenameTrigger.current?.isConnected
+										? projectRenameTrigger.current
+										: document.querySelector<HTMLElement>('.sidebar-new-conversation')
+								}
+								onSave={async (name) => {
+									if (context.current.frozen)
+										throw new Error('Wait for this conversation to finish moving.')
+									if (!api.renameProject) throw new Error('Renaming a project is unavailable.')
+									const renamed = await api.renameProject(renamingProject.id, name)
+									setProjects((items) =>
+										items.map((row) => (row.id === renamed.id ? renamed : row)),
+									)
+								}}
+							/>
+						)}
 						{renamingConversation && (
 							<RenameConversationDialog
 								key={`rename-conversation:${renamingConversation.id}`}
@@ -5358,6 +5399,8 @@ export function App({
 									creating={palsPage}
 									openingId={palOpening && !palOpening.failure ? palOpening.palId : undefined}
 									loading={palsLoading}
+									failed={palsLoadFailed}
+									onRetry={() => setPalsRetry((value) => value + 1)}
 									onCreate={showPalOnboarding}
 									onOpen={(value) => void act(() => openPal(value))}
 								/>
@@ -5378,6 +5421,7 @@ export function App({
 							backgroundWork={backgroundWork}
 							open={!pageOpen && sideOpen}
 							onRemoveProject={api.removeProject ? requestProjectRemoval : undefined}
+							onRenameProject={api.renameProject ? requestProjectRename : undefined}
 							onLocateProject={
 								api.locateProject ? (value) => void act(() => locateProject(value)) : undefined
 							}
@@ -5836,6 +5880,18 @@ export function App({
 							void onAction({ kind: 'close', groupId: group.id, tabId: activeTerminal.id }).catch(
 								(failure) => setError(errorText(failure)),
 							)
+						}
+						onRestart={
+							activeTerminal.kind === 'shell' && terminalReady && window.namzu.openTerminal
+								? () =>
+										// Not through `act`: closing a tab waits for every pending operation, this one too.
+										void (async () => {
+											// The same shell starts again in this pane, then the ended tab, which holds
+											// nothing but its last screen, goes.
+											await openShellTerminal()
+											await onAction({ kind: 'close', groupId: group.id, tabId: activeTerminal.id })
+										})().catch((failure) => setError(errorText(failure)))
+								: undefined
 						}
 					/>
 				) : restoreHold ? (

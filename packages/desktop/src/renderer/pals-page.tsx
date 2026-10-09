@@ -503,6 +503,8 @@ export function PalSidebarSection({
 	creating,
 	openingId,
 	loading,
+	failed,
+	onRetry,
 	onCreate,
 	onOpen,
 }: {
@@ -513,6 +515,9 @@ export function PalSidebarSection({
 	creating?: boolean
 	openingId?: string
 	loading: boolean
+	/** The Pal list could not be read: say so with a Retry instead of offering to create a first Pal. */
+	failed?: boolean
+	onRetry?: () => void
 	onCreate: () => void
 	onOpen: (pal: PalView) => void
 }) {
@@ -555,6 +560,13 @@ export function PalSidebarSection({
 			{pals.length <= 3 && <h2 className="sidebar-pals-heading">Pals</h2>}
 			{loading ? (
 				<output className="sidebar-pals-loading">Loading…</output>
+			) : failed && pals.length === 0 ? (
+				<div className="sidebar-pals-failed" role="alert">
+					<span>Couldn’t load your Pals.</span>
+					<Button variant="ghost-muted" size="sm" onClick={onRetry}>
+						Retry
+					</Button>
+				</div>
 			) : pals.length > 3 ? (
 				<Collapsible open={expanded} onOpenChange={setExpanded}>
 					<CollapsibleTrigger

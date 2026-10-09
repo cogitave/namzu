@@ -36,6 +36,15 @@ describe('homeStarters', () => {
 		for (const none of [undefined, { isChat: true as const }, { palId: 'p' }])
 			for (const label of homeStarters(none)) expect(label).not.toMatch(/project|change/i)
 	})
+	it('offers ideas that fit a folder with nothing in it yet', () => {
+		expect(homeStarters({ emptyFolder: true })).toEqual([
+			'Plan a project',
+			'Create a first file',
+			'Describe what you want to build',
+		])
+		for (const label of homeStarters({ emptyFolder: true }))
+			expect(label).not.toMatch(/explore|review/i)
+	})
 })
 
 describe('createdProjectNotice', () => {

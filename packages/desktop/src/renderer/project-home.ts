@@ -10,12 +10,15 @@ export function projectHomeHeading(
 	return `What should we work on in ${project.name}?`
 }
 
-/** The three ideas under an empty conversation: a project has files to explore, a plain chat does not. */
+/** The three ideas under an empty conversation: a project has files to explore, an empty folder and a plain chat do not. */
 export function homeStarters(
-	project: Pick<ProjectView, 'palId' | 'isChat'> | undefined,
+	project: Pick<ProjectView, 'palId' | 'isChat' | 'emptyFolder'> | undefined,
 ): readonly [string, string, string] {
 	if (!project || project.palId !== undefined || project.isChat)
 		return ['Explain something', 'Draft a message', 'Plan a task']
+	// A folder with nothing in it has nothing to explore or review yet.
+	if (project.emptyFolder)
+		return ['Plan a project', 'Create a first file', 'Describe what you want to build']
 	return ['Explore this project', 'Review a change', 'Plan a task']
 }
 
