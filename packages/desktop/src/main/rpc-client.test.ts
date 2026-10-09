@@ -43,6 +43,22 @@ it('decodes a response split within UTF-8 and correlates actual process replies'
 	await runtime.start()
 	expect(await runtime.request('test/echo')).toBe('Türkçe 🧪')
 })
+it('reassembles frames from arbitrary chunks, several to a chunk, and keeps an unfinished tail', () => {
+	const runtime = client()
+	const frames: unknown[] = []
+	runtime.on('frame', (frame) => frames.push(frame))
+	const consume = (text: string) =>
+		(runtime as unknown as { consume(text: string): void }).consume(text)
+	const big = JSON.stringify({ jsonrpc: '2.0', method: 'one', params: { data: 'x'.repeat(5000) } })
+	const small = JSON.stringify({ jsonrpc: '2.0', method: 'two' })
+	const stream = `${big}\n${small}\r\n\n${small.slice(0, 10)}`
+	for (let at = 0; at < stream.length; at += 7) consume(stream.slice(at, at + 7))
+	expect(frames).toHaveLength(2)
+	expect(frames[0]).toMatchObject({ method: 'one' })
+	expect(frames[1]).toMatchObject({ method: 'two' })
+	consume(`${small.slice(10)}\n`)
+	expect(frames).toHaveLength(3)
+})
 it('rejects all pending callers when the process exits', async () => {
 	const runtime = client()
 	await runtime.start()
