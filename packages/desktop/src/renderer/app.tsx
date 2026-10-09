@@ -14,6 +14,7 @@ import {
 	freshBackgroundWorkStatus,
 } from '../shared/background-work-protocol.js'
 import { resolveComposerSendOptions } from '../shared/composer-send-options.js'
+import { duplicatePalNameMessage, isDuplicatePalName } from '../shared/pal-name.js'
 import {
 	type ThreadState,
 	applyEvent,
@@ -31,7 +32,7 @@ import type {
 	JobView,
 	PalComputerInput,
 	PalComputerStreamView,
-	PalInput,
+	PalCreateInput,
 	PalScreenView,
 	PalView,
 	ProjectGitView,
@@ -172,7 +173,7 @@ import {
 	warmPalConversation,
 } from './pal-navigation.js'
 import { palRecentActivity } from './pal-recent-activity.js'
-import { PalCustomizeDialog, PalSidebarSection, PalsPage } from './pals-page.js'
+import { PalCustomizeDialog, type PalOpening, PalSidebarSection, PalsPage } from './pals-page.js'
 import { PluginsPage, PluginsSidebar } from './plugins-page.js'
 import {
 	EMPTY_CONVERSATION_TITLE,
@@ -196,6 +197,7 @@ import { SettingsPage, SettingsSidebar } from './settings-page.js'
 import { type ConversationCollection, Sidebar } from './sidebar.js'
 import { launchSeed, restoreDecision, settleLaunchSeed } from './startup-restore.js'
 import { type TabChord, movedTabIndex, selectedTabIndex, tabChord } from './tab-keys.js'
+import { createSubmitGuard } from './submit-guard.js'
 import { TerminalPane } from './terminal-pane.js'
 import { openTerminalFind, terminalApi, terminalSessions } from './terminal-registry.js'
 import { engineTerminalRequest, shellTerminalRequest } from './terminal-request.js'
@@ -370,6 +372,9 @@ export function App({
 	const [palsLoading, setPalsLoading] = useState(true)
 	const [palsError, setPalsError] = useState('')
 	const [palsSaving, setPalsSaving] = useState(false)
+	const savingPal = useRef(createSubmitGuard())
+	const openingRun = useRef(0)
+	const [palOpening, setPalOpening] = useState<PalOpening>()
 	const [palsPage, setPalsPage] = useState(false)
 	const [creatingPal, setCreatingPal] = useState(false)
 	const [editingPal, setEditingPal] = useState<PalView>()
@@ -3372,13 +3377,68 @@ export function App({
 			return undefined
 		return view.id
 	}
-	const savePal = async (value: PalInput, id?: string) => {
+	/**
+	 * Starts the new Pal's own host and shows it. The Pal already exists: a slow or failed start never
+	 * undoes it, never holds the saving state, and is cancelled or retried from the notice.
+	 */
+	const beginOpeningPal = async (saved: PalView, blank?: string) => {
+		const run = ++openingRun.current
+		setPalOpening({ palId: saved.id, name: saved.name, startedAt: Date.now() })
+		try {
+			await openPal(saved)
+		} catch (failure) {
+			if (run === openingRun.current)
+				setPalOpening({
+					palId: saved.id,
+					name: saved.name,
+					startedAt: Date.now(),
+					failure: errorText(failure),
+				})
+			return
+		}
+		if (run === openingRun.current) setPalOpening(undefined)
+		// An empty, untouched "New conversation" would stay open beside the new Pal for no reason.
+		if (blank && context.current.group.tabs.includes(blank))
+			await onAction({
+				kind: 'close',
+				groupId: context.current.group.id,
+				tabId: blank,
+			}).catch(() => undefined)
+	}
+	// A start that failed is told on the Pals page; once the person is elsewhere it is old news.
+	useEffect(() => {
+		if (!palsPage && palOpening?.failure) setPalOpening(undefined)
+	}, [palsPage, palOpening])
+	const cancelOpeningPal = () => {
+		openingRun.current += 1
+		navigation.current += 1
+		setLoading(false)
+		setPalOpening(undefined)
+	}
+	const savePal = (value: PalCreateInput, id?: string) =>
+		new Promise<void>((resolve) => {
+			// Synchronous: a second submit before the next render must not start a second save.
+			const started = savingPal.current.run(async () => {
+				try {
+					await saveOnce(value, id)
+				} finally {
+					resolve()
+				}
+			})
+			if (!started) resolve()
+		})
+	const saveOnce = async (value: PalCreateInput, id?: string) => {
 		setPalsSaving(true)
 		setPalsError('')
+		let created: PalView | undefined
+		let blank: string | undefined
 		try {
 			const editing = editingPal
 			if (id && (!editing || editing.id !== id))
 				throw new Error('Open this Pal’s customization again.')
+			const others = pals.filter((item) => item.id !== id).map((item) => item.name)
+			if (isDuplicatePalName(value.name, others))
+				throw new Error(duplicatePalNameMessage(value.name, others))
 			const saved = id
 				? await api.updatePal(id, editing?.revision ?? 0, value)
 				: await api.createPal(value)
@@ -3388,22 +3448,16 @@ export function App({
 			setCreatingPal(false)
 			// Editing stays in the current conversation; its model choice is local.
 			if (!id) {
-				// Starting a Pal from an empty, untouched "New conversation" would leave that tab
-				// open beside it for no reason, so it closes once the Pal has opened.
-				const blank = untouchedConversation()
-				await openPal(saved).catch((failure) => setError(errorText(failure)))
-				if (blank && context.current.group.tabs.includes(blank))
-					await onAction({
-						kind: 'close',
-						groupId: context.current.group.id,
-						tabId: blank,
-					}).catch(() => undefined)
+				created = saved
+				blank = untouchedConversation()
 			}
 		} catch (failure) {
 			setPalsError(errorText(failure))
 		} finally {
 			setPalsSaving(false)
 		}
+		// After the saving state is released, so the dialog and every control stay usable meanwhile.
+		if (created) void beginOpeningPal(created, blank)
 	}
 	useEffect(() => {
 		if (!pal?.id || palsPage || pageOpen || project?.status !== 'ready') return
@@ -5119,6 +5173,7 @@ export function App({
 									pals={pals}
 									selectedId={palsPage ? undefined : pal?.id}
 									creating={palsPage}
+									openingId={palOpening && !palOpening.failure ? palOpening.palId : undefined}
 									loading={palsLoading}
 									onCreate={showPalOnboarding}
 									onOpen={(value) => void act(() => openPal(value))}
@@ -5517,6 +5572,12 @@ export function App({
 						model={draftPalModel}
 						onModelChange={setDraftPalModel}
 						onCustomize={() => showPalEditor()}
+						opening={palOpening}
+						onRetryOpening={() => {
+							const target = pals.find((item) => item.id === palOpening?.palId)
+							if (target) void act(() => beginOpeningPal(target))
+						}}
+						onCancelOpening={cancelOpeningPal}
 						loadProviders={api.palProviders}
 						loadModels={api.palModels}
 					/>

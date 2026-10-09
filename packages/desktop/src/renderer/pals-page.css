@@ -557,3 +557,25 @@
 		transform: none;
 	}
 }
+.pal-opening {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	width: calc(100% - 56px);
+	max-width: var(--chat-max-width);
+	margin: 0 auto 12px;
+	padding: 10px 16px;
+	border: 1px solid var(--border);
+	border-radius: 14px;
+	background: var(--surface);
+	color: var(--muted-foreground);
+	font-size: 13px;
+}
+.pal-opening > span {
+	flex: 1;
+	min-width: 0;
+}
+.pal-opening[data-state="failed"] {
+	border-color: var(--destructive);
+	color: var(--foreground);
+}

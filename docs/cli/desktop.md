@@ -915,6 +915,21 @@ casing, the host preserves the profile's stored spelling after verifying that
 both paths name the same physical directory. A failed open keeps the profile
 available for retry and retains the original metadata error.
 
+Creating a Pal makes exactly one. Save holds the saving state only for the create call itself
+(a synchronous guard in the dialog and in the app, so a double click or two Enter presses cannot
+start two), and the renderer sends one request id per dialog: the main process keeps creates in
+flight and the last 32 finished ones by that id, so a repeated id returns the same Pal and sends
+nothing new to the host. Starting the new Pal's own host then runs separately: the Pals page shows
+**Opening *name*…** (with seconds after two, **Still starting *name*…** after ten) and the sidebar
+row says **Opening…**, with **Cancel**, and none of it disables Customize, **New Pal**, Pause or any
+other Pal; a new Customize dialog always starts empty and enabled. A name that matches an existing
+Pal ignoring case, spacing at the ends and the Turkish dotted and dotless i is refused, in the
+dialog and again in the main process, with a suggestion ("You already have a Pal called “pamir”.
+Try “pamir 2”."). If the start fails or is cancelled the Pal stays created: the page says "*name* is
+created, but it could not start." with the reason, **Retry** and **Dismiss**, and nothing stays
+busy. The e2e flows hold or fail the start with a gate in the main process
+(`e2e/pals-create.test.mjs`), so none of them waits on the clock.
+
 Save opens an owned conversation with a stable English introduction from the
 original profile revision. It starts no paid inference or guest computer, and
 the introduction remains visible through later messages, reloads and renames.

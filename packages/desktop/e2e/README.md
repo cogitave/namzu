@@ -83,3 +83,11 @@ without build instructions and the status that stays a status, Pause and Resume 
 message approved from a conversation (the card's wording, the visible "Sent to" line, the Messages list with its text,
 time and status), the settings sections, a duplicate name, the compact 900px bar and the Delete wording. Pictures go
 to `research/ux-20261009/pals/`.
+
+## Creating a Pal
+
+`pals-create.test.mjs` patches the frozen copy so `openPal` waits on a gate the flow holds and releases from the main
+process (and can fail once on demand), so nothing waits on the clock. It covers a double click on Save making one Pal, a
+second create of the same name in any case refused with a suggestion, Customize and New Pal staying usable and starting
+empty while the new Pal opens, Cancel, and a failed start leaving the Pal with Retry. Pictures go to
+`research/pals-create-20261009/` (the Windows run, on a fresh unpacked build with a temp profile, is in `windows/`).

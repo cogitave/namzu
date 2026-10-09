@@ -2292,3 +2292,73 @@ it.each([true, false])(
 		).toHaveLength(requests)
 	},
 )
+
+const created = (name: string, id: string): PalView => ({
+	id,
+	name,
+	purpose: '',
+	workspace: `/pals/${id}`,
+	revision: 1,
+	model: null,
+	paused: false,
+	createdAt: '2026-10-09T00:00:00Z',
+	updatedAt: '2026-10-09T00:00:00Z',
+})
+const createCalls = () => transport.calls.filter((call) => call.method === 'namzu/pals/create')
+
+it('makes one Pal when the same create attempt arrives twice while the first is running', async () => {
+	const { owner } = fixture()
+	let release: (() => void) | undefined
+	let made = 0
+	transport.requestHook = async (_cwd, method) => {
+		if (method !== 'namzu/pals/create') return undefined
+		made += 1
+		await new Promise<void>((resolve) => {
+			release = resolve
+		})
+		return created('pamir', `pal-${made}`)
+	}
+	const first = owner.createPal({ name: 'pamir', requestId: 'attempt-1' })
+	const second = owner.createPal({ name: 'pamir', requestId: 'attempt-1' })
+	await vi.waitFor(() => expect(release).toBeDefined())
+	release?.()
+	const [one, two] = await Promise.all([first, second])
+	expect(one.id).toBe('pal-1')
+	expect(two).toBe(one)
+	expect(createCalls()).toHaveLength(1)
+})
+
+it('returns the finished Pal for a repeated attempt and does not send the attempt id on', async () => {
+	const { owner } = fixture()
+	transport.requestHook = async (_cwd, method) =>
+		method === 'namzu/pals/create' ? created('pamir', 'pal-1') : undefined
+	const one = await owner.createPal({ name: 'pamir', requestId: 'attempt-1' })
+	const again = await owner.createPal({ name: 'pamir', requestId: 'attempt-1' })
+	expect(again).toBe(one)
+	expect(createCalls()).toHaveLength(1)
+	expect(createCalls()[0]?.params).toEqual({ name: 'pamir' })
+})
+
+it('does not remember a failed attempt, so the same attempt can be retried', async () => {
+	const { owner } = fixture()
+	let calls = 0
+	transport.requestHook = async (_cwd, method) => {
+		if (method !== 'namzu/pals/create') return undefined
+		calls += 1
+		if (calls === 1) throw new Error('The Namzu connection was closed.')
+		return created('pamir', 'pal-1')
+	}
+	await expect(owner.createPal({ name: 'pamir', requestId: 'attempt-1' })).rejects.toThrow('closed')
+	expect((await owner.createPal({ name: 'pamir', requestId: 'attempt-1' })).id).toBe('pal-1')
+})
+
+it('refuses a second Pal whose name differs only by case or the Turkish i', async () => {
+	const { owner } = fixture()
+	transport.requestHook = async (_cwd, method) =>
+		method === 'namzu/pals/create' ? created('Isık', 'pal-1') : undefined
+	await owner.createPal({ name: 'Isık', requestId: 'a' })
+	await expect(owner.createPal({ name: ' ISIK ', requestId: 'b' })).rejects.toThrow(
+		'You already have a Pal called “ISIK”. Try “ISIK 2”.',
+	)
+	expect(createCalls()).toHaveLength(1)
+})

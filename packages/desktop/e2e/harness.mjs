@@ -29,7 +29,7 @@ const INHERIT =
 	/^(PATH|DISPLAY|XAUTHORITY|LANG|LC_[A-Z_]+|TMPDIR|TERM|TZ|SHELL|USER|LOGNAME|XDG_RUNTIME_DIR|DBUS_SESSION_BUS_ADDRESS|WSL_DISTRO_NAME|WSL_INTEROP)$/;
 
 /** Freeze dist/ so a sibling rebuild cannot pull files out from under a run. */
-function freezeApp(root) {
+export function freezeApp(root) {
 	const app = join(root, "app");
 	if (existsSync(app)) return app;
 	mkdirSync(app, { recursive: true });

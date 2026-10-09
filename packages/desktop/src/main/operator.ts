@@ -15,6 +15,7 @@ import type {
 	PalSubscriptionCreate,
 	PalSubscriptionDisable,
 } from '../shared/pal-communication-protocol.js'
+import { duplicatePalNameMessage, isDuplicatePalName } from '../shared/pal-name.js'
 import { readPermissionCalls, readPermissionResponse } from '../shared/permission-protocol.js'
 import { type ThreadState, applyEvent, emptyThread } from '../shared/projection.js'
 import type {
@@ -38,6 +39,7 @@ import type {
 	PalComputerInput,
 	PalComputerStreamView,
 	PalComputerView,
+	PalCreateInput,
 	PalInput,
 	PalScreenView,
 	PalView,
@@ -715,7 +717,47 @@ export class Operator {
 			provider,
 		})) as ModelCatalogueView
 	}
-	async createPal(input: PalInput): Promise<PalView> {
+	/** Creates in flight and recently finished, by attempt id: a repeated id never makes a second Pal. */
+	private readonly creatingPals = new Map<string, Promise<PalView>>()
+	private readonly createdPals = new Map<string, PalView>()
+	async createPal(input: PalCreateInput): Promise<PalView> {
+		const { requestId, ...fields } = input
+		if (
+			requestId !== undefined &&
+			(typeof requestId !== 'string' || !requestId || requestId.length > 100)
+		)
+			throw new Error('Invalid Pal request.')
+		if (requestId) {
+			const done = this.createdPals.get(requestId)
+			if (done) return done
+			const flight = this.creatingPals.get(requestId)
+			if (flight) return flight
+		}
+		const operation = this.createNewPal(fields)
+		if (!requestId) return operation
+		this.creatingPals.set(requestId, operation)
+		try {
+			const pal = await operation
+			this.createdPals.set(requestId, pal)
+			// Only the latest attempts are kept; a repeat comes within moments of the first.
+			while (this.createdPals.size > 32) {
+				const oldest = this.createdPals.keys().next().value
+				if (oldest === undefined) break
+				this.createdPals.delete(oldest)
+			}
+			return pal
+		} finally {
+			this.creatingPals.delete(requestId)
+		}
+	}
+	private async createNewPal(input: PalInput): Promise<PalView> {
+		if (typeof input?.name === 'string') {
+			const names = [...this.palRecords.values()]
+				.filter((item) => !this.deletedPals.has(item.id))
+				.map((item) => item.name)
+			if (isDuplicatePalName(input.name, names))
+				throw new Error(duplicatePalNameMessage(input.name, names))
+		}
 		const pal = (await (
 			await this.registry()
 		).request('namzu/pals/create', { ...input })) as PalView

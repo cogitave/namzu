@@ -31,7 +31,7 @@ import type {
 	DraftSettings,
 	PalChanges,
 	PalComputerInput,
-	PalInput,
+	PalCreateInput,
 	PermissionResponse,
 	WorkspaceAction,
 } from '../shared/protocol.js'
@@ -877,7 +877,7 @@ function register(): void {
 	handle('removeProviderKey', (provider: unknown) => operator.removeProviderKey(provider))
 	handle('testProvider', (provider: unknown) => operator.testProvider(provider))
 	handle('palModels', (provider: string) => operator.palModels(provider))
-	handle('createPal', (input: PalInput) => operator.createPal(input))
+	handle('createPal', (input: PalCreateInput) => operator.createPal(input))
 	handle('updatePal', (id: string, revision: number, changes: Partial<PalChanges>) =>
 		operator.updatePal(id, revision, changes),
 	)

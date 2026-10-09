@@ -100,6 +100,8 @@ it('has one Customize action and no nameless placeholder on the welcome page', (
 			model: null,
 			onModelChange: () => {},
 			onCustomize: () => {},
+			onRetryOpening: () => {},
+			onCancelOpening: () => {},
 			loadProviders: async () => {
 				throw new Error('not used')
 			},
