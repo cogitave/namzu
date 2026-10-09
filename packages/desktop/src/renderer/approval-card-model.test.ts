@@ -246,13 +246,16 @@ it('keeps the Pal name on a message so the card can say whose inbox it goes to',
 	).toBeUndefined()
 })
 
-it('tells the person where an approved message goes, when it is read and how the Pal is started', () => {
+it('tells the person where an approved message goes and that starting the Pal comes after', () => {
 	const note = palMessageNote('Işık')
-	expect(note).toContain('Goes to Işık’s inbox.')
-	expect(note).toContain('reads it the next time it runs')
-	expect(note).toContain('does not start it')
-	expect(note).toContain('namzu pal dispatch')
-	expect(palMessageNote(undefined)).toContain('The Pal reads it the next time it runs')
+	expect(note).toBe(
+		'Goes to Işık’s inbox. You can start Işık after sending, and it will read the message on its own computer.',
+	)
+	expect(note).not.toContain('namzu pal dispatch')
+	expect(palMessageNote(undefined)).toContain('You can start the Pal after sending')
+	expect(palMessageNote('Işık', true)).toBe(
+		'Goes to Işık’s inbox. Işık will read it at its next step.',
+	)
 })
 
 it('says there is no change when the file already holds what the call writes', () => {

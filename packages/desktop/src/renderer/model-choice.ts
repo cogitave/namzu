@@ -353,3 +353,50 @@ export function modelSections(rows: readonly Row[]): Map<string, ModelSection> |
 	}
 	return sections
 }
+
+/**
+ * The model a new Pal starts with: one a connected provider actually lists. The composer's current
+ * choice comes first, then the configured default. When neither is listed, the first candidate
+ * provider's own recommended (else first) model stands in, so the default is never a model no
+ * provider offers. Nothing is chosen when no candidate's list can be read.
+ */
+export async function pickOfferedPalModel({
+	candidates,
+	providers,
+	loadModels,
+}: {
+	candidates: readonly { provider: string; model?: string | undefined }[]
+	providers: ProviderView
+	loadModels: (provider: string) => Promise<ModelCatalogueView>
+}): Promise<{ provider: string; model: string; label?: string } | undefined> {
+	const usable = candidates.filter((item) =>
+		providers.available.some((entry) => entry.id === item.provider),
+	)
+	const lists = new Map<string, readonly Row[] | undefined>()
+	const rowsOf = async (provider: string) => {
+		if (!lists.has(provider)) {
+			try {
+				lists.set(provider, (await loadModels(provider)).models)
+			} catch {
+				lists.set(provider, undefined)
+			}
+		}
+		return lists.get(provider)
+	}
+	for (const item of usable) {
+		const row = item.model
+			? (await rowsOf(item.provider))?.find((r) => r.id === item.model)
+			: undefined
+		if (row) return { provider: item.provider, model: row.id, label: row.label }
+	}
+	for (const item of usable) {
+		const rows = await rowsOf(item.provider)
+		const fallback =
+			defaultModelRow(
+				rows,
+				providers.available.find((entry) => entry.id === item.provider)?.defaultModel,
+			) ?? rows?.[0]
+		if (fallback) return { provider: item.provider, model: fallback.id, label: fallback.label }
+	}
+	return undefined
+}

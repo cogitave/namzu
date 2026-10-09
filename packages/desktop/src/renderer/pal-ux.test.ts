@@ -38,7 +38,7 @@ it('keeps the computer status a status and the action its own button', () => {
 	expect(html).toContain('Offline')
 	// The action is a visible button, never a hover layer that replaces the status.
 	expect(html).toMatch(
-		/<button\b[^>]*class="[^"]*pal-computer-action[^"]*"[^>]*>Start computer<\/button>/,
+		/<button\b[^>]*class="[^"]*pal-computer-action[^"]*"[^>]*>Start Işık<\/button>/,
 	)
 	expect(html).not.toContain('pal-status-hover')
 	expect(html).not.toContain('pal-status-rest')
@@ -47,7 +47,7 @@ it('keeps the computer status a status and the action its own button', () => {
 it('says Starting while the computer starts and offers no second Start', () => {
 	const html = card({ computer: { ...base.computer, status: 'connecting' } })
 	expect(html).toContain('Starting…')
-	expect(html).not.toContain('>Start computer<')
+	expect(html).not.toContain('>Start Işık<')
 })
 
 it('shows Paused as the status and Resume as the action for a paused Pal', () => {
@@ -84,13 +84,16 @@ it('keeps a labelled Settings button on the compact bar', () => {
 	expect(html).toContain('aria-label="Işık settings"')
 })
 
-it('warns about a duplicate name without blocking it, and about an empty one', () => {
+it('says a duplicate name is refused, in the words Save uses, and asks for an empty one', () => {
 	expect(palNameHint('', [], false)).toEqual({ tone: 'empty', text: 'Give your Pal a name.' })
 	expect(palNameHint('  ', [], true)?.text).toBe('Give your Pal a name to save it.')
 	expect(palNameHint('Işık', ['Mira'], false)).toBeUndefined()
 	const duplicate = palNameHint(' mira ', ['Mira'], false)
 	expect(duplicate?.tone).toBe('duplicate')
-	expect(duplicate?.text).toContain('already have a Pal called')
+	expect(duplicate?.text).toBe('You already have a Pal called “mira”. Try “mira 2”.')
+	expect(duplicate?.text).not.toContain('keep this name')
+	// The Turkish dotted and dotless i are one letter here, as they are on Save.
+	expect(palNameHint('ISIK', ['ısık'], false)?.tone).toBe('duplicate')
 	expect(nameKey(' Mira ')).toBe('mira')
 })
 
@@ -155,4 +158,38 @@ it('leaves a visible line for each completed message to a Pal, with a way to its
 	expect(
 		renderToStaticMarkup(createElement(PalMessageReceipts, { entries: [], thread: { tools } })),
 	).toBe('')
+})
+
+it('has one Start: it starts the computer too, and is switched off with a way to set up when it cannot work', () => {
+	const waiting = { text: '1 unread message', action: 'start' as const }
+	// Messages waiting: the message Start is the only one, so the computer never offers a second.
+	const withMessage = card({ waiting, onWaitingAction: () => {} })
+	expect(withMessage.match(/>Start Işık</g)).toHaveLength(1)
+	expect(withMessage).not.toContain('Start computer')
+	// A Pal computer that cannot start: Start is disabled and the setup help is one click away.
+	const blocked = card({
+		computer: { ...base.computer, setupMissing: true },
+	})
+	expect(blocked).toMatch(/<button\b[^>]*disabled=""[^>]*>Start Işık<\/button>/)
+	expect(blocked).toContain('How to set up')
+	expect(blocked).toContain('Chatting works without a computer')
+	// An offline computer always says that chatting needs none; a connected one does not.
+	expect(card({}).match(/Chatting works without a computer\./g)).toHaveLength(1)
+	expect(card({ computer: { ...base.computer, status: 'ready' } })).not.toContain(
+		'Chatting works without a computer',
+	)
+})
+
+it('shows the message Start switched off, with how to set up, when the computer is missing', () => {
+	const html = card({
+		onWaitingAction: () => {},
+		waiting: {
+			text: '1 unread message',
+			action: 'start',
+			blocked: { text: 'Işık’s computer cannot start yet.', help: 'Install Docker Desktop.' },
+		},
+	})
+	expect(html).toMatch(/<button\b[^>]*disabled=""[^>]*>Start Işık<\/button>/)
+	expect(html).toContain('Işık’s computer cannot start yet.')
+	expect(html).toContain('How to set up')
 })

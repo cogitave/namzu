@@ -339,11 +339,15 @@ export function approvalConsequence(model: ApprovalCardModel, folder?: string): 
 }
 
 /**
- * What happens to a message once the person approves it, in the order it happens: it is delivered
- * to the Pal's inbox, the Pal reads it the next time it runs, and starting the Pal is a separate act.
+ * What happens to a message once the person approves it: it is delivered to the Pal's inbox, and
+ * the person starts the Pal afterwards. A Pal that is already running picks it up at its next step.
  */
-export function palMessageNote(name: string | undefined): string {
+export function palMessageNote(name: string | undefined, running = false): string {
 	const owner = name ? `${name}’s` : 'the Pal’s'
 	const pal = name ?? 'the Pal'
-	return `Goes to ${owner} inbox. ${name ?? 'The Pal'} reads it the next time it runs; sending does not start it. To start ${pal}, run “namzu pal dispatch” in a terminal. You are asked again for each message.`
+	if (running) return `Goes to ${owner} inbox. ${pal} will read it at its next step.`
+	return `Goes to ${owner} inbox. You can start ${pal} after sending, and it will read the message on its own computer.`
 }
+
+/** The terminal route to the same start, kept out of the main sentence and shown under Details. */
+export const PAL_TERMINAL_START = 'namzu pal dispatch'

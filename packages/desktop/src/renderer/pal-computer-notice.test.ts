@@ -17,7 +17,7 @@ it('replaces developer build instructions with what is missing and how to get it
 	}
 	expect(COMPUTER_SETUP_NOTICE).toContain('Docker Desktop or Podman')
 	expect(COMPUTER_SETUP_NOTICE).toContain('Namzu computer image')
-	expect(COMPUTER_SETUP_NOTICE).toContain('Start computer')
+	expect(COMPUTER_SETUP_NOTICE).toContain('start your Pal again')
 })
 
 it('says a stopped Podman machine is stopped, and what to do', () => {
@@ -25,13 +25,13 @@ it('says a stopped Podman machine is stopped, and what to do', () => {
 		presentComputerNotice(
 			'The selected local Podman machine pipe is unavailable; start that machine explicitly',
 		),
-	).toBe('Your Podman machine is not running. Start it, then choose Start computer again.')
+	).toBe('Your Podman machine is not running. Start it, then start your Pal again.')
 })
 
 it('never leaks a repository path, even from an unrecognised failure', () => {
 	const shown = presentComputerNotice('spawn failed at packages/sandbox/src/x.ts:12')
 	expect(shown).not.toContain('packages/')
-	expect(shown).toContain('Start computer')
+	expect(shown).toContain('start your Pal again')
 })
 
 it('keeps a plain sentence that carries no developer detail', () => {

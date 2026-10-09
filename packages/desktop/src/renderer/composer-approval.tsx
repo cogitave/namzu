@@ -12,6 +12,7 @@ import type { PermissionResponse, PermissionView } from '../shared/protocol.js'
 import {
 	type ApprovalCardModel,
 	FEEDBACK_NOTE_MAX,
+	PAL_TERMINAL_START,
 	approvalConsequence,
 	approvalWarning,
 	buildApprovalCard,
@@ -152,12 +153,15 @@ function DiffBox({
 export function ComposerApproval({
 	permission,
 	palNames,
+	palRunning,
 	count,
 	folder,
 	onRespond,
 }: {
 	permission: PermissionView
 	palNames?: ReadonlyMap<string, string> | undefined
+	/** Names of Pals that are reading their inbox right now. */
+	palRunning?: ReadonlySet<string> | undefined
 	count: number
 	/** The folder the conversation works in, named on a command so the person knows where it runs. */
 	folder?: string | undefined
@@ -309,7 +313,12 @@ export function ComposerApproval({
 									</blockquote>
 								)}
 								{model.message !== undefined && (
-									<p className="approval-note">{palMessageNote(model.palName)}</p>
+									<p className="approval-note">
+										{palMessageNote(
+											model.palName,
+											model.palName ? (palRunning?.has(model.palName) ?? false) : false,
+										)}
+									</p>
 								)}
 								{model.kind === 'other' && model.entries.length > 0 && (
 									<dl className="approval-entries">
@@ -333,6 +342,12 @@ export function ComposerApproval({
 								{showDetails && (
 									<details className="approval-details">
 										<summary>Details</summary>
+										{model.message !== undefined && (
+											<p className="approval-note">
+												From a terminal, the same start is “{PAL_TERMINAL_START}”. You are asked
+												again for each message.
+											</p>
+										)}
 										<pre>
 											{JSON.stringify(
 												permission.calls.length === 1

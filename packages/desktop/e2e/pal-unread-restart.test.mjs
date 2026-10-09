@@ -23,7 +23,7 @@ const SHOTS = join(repoRoot, "research/pal-unread-20261009");
 mkdirSync(SHOTS, { recursive: true });
 
 const shot = (w, name) => w.page.screenshot({ path: join(SHOTS, `${name}.png`) });
-const row = (w) => w.page.getByRole("button", { name: /Işık.*New message/ });
+const row = (w) => w.page.getByRole("button", { name: /Işık.*Your message is waiting for Işık/ });
 const dot = (w) => w.page.locator(".sidebar-pal-row .sidebar-pal-unread");
 
 test("a Pal's New message marker survives a restart until its conversation is opened", {

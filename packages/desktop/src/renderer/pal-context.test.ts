@@ -35,7 +35,7 @@ it('keeps computer state and controls while omitting empty activity and output s
 	const html = renderToStaticMarkup(createElement(PalContextCard, base))
 	expect(html).toContain('Start the computer to continue.')
 	expect(html).toContain('Open Palu’s computer')
-	expect(html).toContain('Start computer')
+	expect(html).toContain('Start Palu')
 	expect(html).not.toContain('Recent activity')
 	expect(html).not.toContain('No activity yet')
 	expect(html).not.toContain('Outputs')

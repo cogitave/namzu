@@ -541,3 +541,19 @@
 	font-size: 13px;
 	line-height: 20px;
 }
+
+.pal-setup-help {
+	flex-basis: 100%;
+	margin: 6px 0 0;
+	color: var(--muted-foreground);
+	font-size: 12px;
+	line-height: 18px;
+}
+.pal-setup-help summary {
+	cursor: pointer;
+	width: fit-content;
+}
+.pal-setup-help p {
+	margin: 6px 0 0;
+	overflow-wrap: anywhere;
+}

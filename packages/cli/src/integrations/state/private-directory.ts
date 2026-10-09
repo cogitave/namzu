@@ -1,7 +1,7 @@
 import { chmodSync, lstatSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { restrictToOwner } from '../providers/credential-store.js'
+import { restrictToOwnerOnce } from '../providers/credential-store.js'
 
 const PRIVATE_DIRECTORY_MODE = 0o700
 
@@ -40,6 +40,6 @@ export function ensurePrivateStateDirectory(stateRoot: string, segment: string):
 	// POSIX reads back the tightened mode; Windows replaces inheritance with a
 	// inheritable current-user ACL, permits an existing LocalSystem grant, and reads that
 	// descriptor back. Windows chmod controls only the read-only attribute.
-	restrictToOwner(path)
+	restrictToOwnerOnce(path)
 	return path
 }
