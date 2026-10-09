@@ -139,6 +139,8 @@ const api: DesktopApi = {
 	sendCurrent: (id, prompt, options) => invoke('sendCurrent', id, prompt, options),
 	retryTurn: (id, turnId, checkpointId, options) =>
 		invoke('retryTurn', id, turnId, checkpointId, options),
+	continueWithoutReply: (id) => invoke('continueWithoutReply', id),
+	reopenLastMessage: (id) => invoke('reopenLastMessage', id),
 	undoStatus: (id, turnIds) => invoke('undoStatus', id, turnIds),
 	undoPreview: (id, turnId, options) => invoke('undoPreview', id, turnId, options),
 	undoTurn: (id, turnId, planToken, options) => invoke('undoTurn', id, turnId, planToken, options),

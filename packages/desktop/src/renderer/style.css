@@ -911,6 +911,8 @@ pre {
 .connection-error {
 	/* Laid over the page, at the spot it would have taken: showing or clearing it moves nothing. */
 	position: absolute;
+	/* Below the tab strip, never over it: the tabs and + stay reachable while a notice shows. */
+	top: var(--workspace-topbar-height);
 	z-index: 30;
 	padding: 12px 20px;
 	pointer-events: none;

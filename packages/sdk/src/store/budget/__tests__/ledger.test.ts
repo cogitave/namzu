@@ -196,33 +196,55 @@ describe('a scoped session token budget', () => {
 		await expect(grandchild.beginRequest()).rejects.toThrow()
 	})
 
-	it('isolates uncertain children without erasing usage or reopening their own account', async () => {
+	it('keeps unknown spend on an unbounded child without stopping its next request', async () => {
 		const root = create(0)
 		const broken = child(root, 0)
 		const healthy = child(root, 0)
+		expect(broken.bounded).toBe(false)
 		const request = await broken.beginRequest()
 		await broken.failRequest(request, usage(15))
 		expect(root.summary()).toMatchObject({ poisoned: false, unresolvedRequests: 1, treeTokens: 15 })
-		await expect(broken.beginRequest()).rejects.toThrow('unresolved')
+		// The unknown request stays recorded and is no longer in flight, so the turn can ask again.
+		expect(broken.hasInFlightRequest).toBe(false)
+		await spend(broken, 5)
 		await spend(healthy, 20)
 		await spend(root, 10)
 		const restored = SessionTokenBudget.restore(root.snapshot())
 		expect(restored.summary()).toMatchObject({
-			treeTokens: 45,
+			treeTokens: 50,
 			unresolvedRequests: 1,
 			poisoned: false,
 		})
-		await spend(restored.account(healthy.accountId), 5)
-		restored.narrow(100)
-		expect(restored.account(healthy.accountId).remaining).toBe(0)
-		await restored.account(broken.accountId).finishRequest(request, usage(25))
-		expect(restored.summary().poisoned).toBe(true)
+		// Late usage for the failed request is still kept; it is never recorded as zero.
+		await restored.account(broken.accountId).failRequest(request, usage(25))
+		expect(restored.summary()).toMatchObject({ treeTokens: 60, unresolvedRequests: 1 })
 		await restored.account(broken.accountId).reconcileRequest(request, usage(30))
 		expect(restored.summary()).toMatchObject({
 			treeTokens: 65,
 			unresolvedRequests: 0,
 			poisoned: false,
 		})
+	})
+
+	it('reopens an unbounded request that was in flight when the process stopped', async () => {
+		const root = create(0)
+		await root.beginRequest()
+		const restored = SessionTokenBudget.restore(root.snapshot())
+		expect(restored.hasInFlightRequest).toBe(false)
+		expect(restored.summary()).toMatchObject({ unresolvedRequests: 1, poisoned: false })
+		await spend(restored, 7)
+		expect(restored.summary().unresolvedRequests).toBe(1)
+	})
+
+	it('refuses to admit a bounded account past unknown spend', async () => {
+		const root = create(1_000)
+		expect(root.bounded).toBe(true)
+		const request = await root.beginRequest()
+		await root.failRequest(request)
+		expect(root.summary().poisoned).toBe(true)
+		await expect(root.beginRequest()).rejects.toThrow('unresolved')
+		const restored = SessionTokenBudget.restore(root.snapshot())
+		await expect(restored.beginRequest()).rejects.toThrow('unresolved')
 	})
 
 	it('contains uncertainty within the finite branch that owns the missing receipt', async () => {

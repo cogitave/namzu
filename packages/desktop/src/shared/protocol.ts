@@ -464,6 +464,8 @@ export interface DesktopTurnRetry {
 export interface DesktopRetryStatus {
 	retry?: DesktopTurnRetry
 	notice?: string
+	/** A repeat is a new request; what one earlier request cost is still unknown. */
+	unknownUsage?: number
 }
 /** What undoing a reply stands at; read from the CLI's file history, never kept by the UI. */
 export type DesktopUndoState = 'applied' | 'undone' | 'partially_undone' | 'none' | 'expired'
@@ -550,6 +552,8 @@ export type DesktopEvent = (
 	  }
 	| ({ kind: 'retry-status'; sessionId: string } & DesktopRetryStatus)
 	| { kind: 'retry'; sessionId: string; turnId: string }
+	/** The paused turn was closed without being repeated; the conversation takes new messages. */
+	| { kind: 'turn-closed'; sessionId: string }
 	| { kind: 'undo-status'; sessionId: string; turns: DesktopTurnUndo[] }
 	| {
 			kind: 'state'
@@ -879,6 +883,13 @@ export interface DesktopApi {
 		checkpointId: string,
 		options?: Omit<DesktopSendOptions, 'attachmentIds'>,
 	): Promise<void>
+	/**
+	 * Close a paused turn without repeating it and put its message back in the composer, not sent.
+	 * Absent when the runtime cannot.
+	 */
+	continueWithoutReply?(sessionId: string): Promise<{ text: string; attachments: AttachmentView[] }>
+	/** Put the last message back in this conversation's composer without closing anything. */
+	reopenLastMessage?(sessionId: string): Promise<{ text: string; attachments: AttachmentView[] }>
 	/** Per-reply file undo; absent when the CLI keeps no file history. State arrives as `undo-status` events. */
 	undoStatus?(sessionId: string, turnIds?: string[]): Promise<void>
 	undoPreview?(

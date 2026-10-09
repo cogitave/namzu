@@ -172,6 +172,7 @@ it('keeps elapsed labels and pause/limit notices tied to actual reported metadat
 	expect(elapsedLabel(-100)).toBe('0s')
 	expect(terminalNotice('end_turn')).toBeUndefined()
 	expect(terminalNotice('paused')).toContain('Paused')
+	expect(terminalNotice('abandoned')).toBe('You continued without this reply.')
 	expect(terminalNotice('cancelled')).toContain('Stopped')
 	expect(terminalNotice('output_guardrail')).toContain('safety rule')
 })

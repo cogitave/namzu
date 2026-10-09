@@ -249,6 +249,9 @@ export function Composer({
 	const cliMode = !compact && surface?.value === 'cli'
 	// Free keyless models are offered but are not a provider the person connected.
 	const noProvider = !providersLoading && usableProviders(providers).length === 0 && !cliMode
+	// With nothing connected, Enter and the Send button lead to the card that fixes it.
+	const focusConnectCard = () =>
+		document.getElementById('provider-empty-connect')?.focus({ preventScroll: false })
 	const cliLabel = engineLabel(harnessView, permissionEngine ?? harnessView?.selected ?? 'namzu')
 	const modelControl = (
 		<ModelPicker
@@ -708,7 +711,8 @@ export function Composer({
 												!event.nativeEvent.isComposing
 											) {
 												event.preventDefault()
-												if (!attachmentsStranded) onSend()
+												if (noProvider) focusConnectCard()
+												else if (!attachmentsStranded) onSend()
 											}
 										}}
 									/>
@@ -799,7 +803,8 @@ export function Composer({
 													render={
 														<button
 															type="button"
-															className="relative isolate flex h-9 w-9 items-center justify-center overflow-hidden rounded-full shadow-xs transition-all duration-150 enabled:cursor-pointer enabled:inset-shadow-2xs enabled:inset-shadow-white/16 hover:scale-105 active:inset-shadow-black/8 active:shadow-none disabled:pointer-events-none disabled:opacity-64 disabled:shadow-none disabled:hover:scale-100 sm:h-8 sm:w-8 bg-message-action text-message-action-foreground enabled:shadow-message-action/24 hover:bg-message-action-hover"
+															className="relative isolate flex h-9 w-9 items-center justify-center overflow-hidden rounded-full shadow-xs transition-all duration-150 enabled:cursor-pointer enabled:inset-shadow-2xs enabled:inset-shadow-white/16 hover:scale-105 active:inset-shadow-black/8 active:shadow-none disabled:pointer-events-none disabled:opacity-64 disabled:shadow-none disabled:hover:scale-100 sm:h-8 sm:w-8 bg-message-action text-message-action-foreground enabled:shadow-message-action/24 hover:bg-message-action-hover aria-disabled:opacity-64 aria-disabled:shadow-none aria-disabled:hover:scale-100"
+															aria-disabled={noProvider && !cliMode ? true : undefined}
 															aria-label={
 																cliMode
 																	? `Open ${cliLabel} in a terminal`
@@ -816,7 +821,6 @@ export function Composer({
 																cliMode
 																	? !choice.provider || sending || !connected
 																	: (!draft.trim() && attachments.length === 0) ||
-																		noProvider ||
 																		!choice.provider ||
 																		sending ||
 																		attachmentsBusy ||
@@ -824,6 +828,10 @@ export function Composer({
 																		!connected
 															}
 															onClick={(event) => {
+																if (noProvider) {
+																	focusConnectCard()
+																	return
+																}
 																// Sending disables the button, which would drop focus to the page.
 																const hadFocus = document.activeElement === event.currentTarget
 																onSend()
@@ -846,13 +854,15 @@ export function Composer({
 												<TooltipPopup>
 													{cliMode
 														? `Open ${cliLabel} in a terminal · Enter`
-														: sending
-															? 'Sending'
-															: running
-																? liveInputSupported && attachments.length === 0
-																	? 'Send text to this running turn with its current model and review settings'
-																	: 'Queue for the next turn'
-																: 'Send message · Enter'}
+														: noProvider
+															? 'Connect a provider to send'
+															: sending
+																? 'Sending'
+																: running
+																	? liveInputSupported && attachments.length === 0
+																		? 'Send text to this running turn with its current model and review settings'
+																		: 'Queue for the next turn'
+																	: 'Send message · Enter'}
 												</TooltipPopup>
 											</Tooltip>
 										)}
@@ -891,7 +901,7 @@ export function Composer({
 							<h2 id="provider-empty-title">Add an API key or sign in to start</h2>
 							<p>{PROVIDER_EMPTY_HELP}</p>
 							{onOpenModelSettings ? (
-								<Button size="sm" onClick={onOpenModelSettings}>
+								<Button id="provider-empty-connect" size="sm" onClick={onOpenModelSettings}>
 									Connect a provider
 								</Button>
 							) : (

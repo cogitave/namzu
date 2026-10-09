@@ -34,4 +34,5 @@
 .turn-recovery-details p {
 	margin: 4px 0 0;
 	overflow-wrap: anywhere;
+	white-space: pre-line;
 }

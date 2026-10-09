@@ -57,6 +57,8 @@ export async function startFakeModel(rules = [], options = {}) {
 	return {
 		url: `http://127.0.0.1:${port}`,
 		requests,
+		/** The live rules: a flow may change a rule's steps between two sends. */
+		rules,
 		/** Release a reply parked with `hold: name`. */
 		release(name) {
 			const entry = holds.get(name) ?? { released: false, waiters: [] };

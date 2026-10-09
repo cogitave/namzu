@@ -1,0 +1,55 @@
+import { expect, it } from 'vitest'
+import { EMPTY_TOKEN_USAGE } from '../../../constants/limits.js'
+import { generateSessionId, generateTurnId } from '../../../utils/id.js'
+import { SessionTokenBudget } from '../ledger.js'
+const u = (n: number) => ({ ...EMPTY_TOKEN_USAGE, promptTokens: n, totalTokens: n })
+const sc = () => ({ rootSessionId: generateSessionId(), rootTurnId: generateTurnId() })
+it('a limit added after a failed request blocks the next one', async () => {
+	const b = SessionTokenBudget.create(0, sc())
+	const r = await b.beginRequest()
+	await b.failRequest(r)
+	expect(b.summary().unresolvedRequests).toBe(1)
+	b.narrow(1000)
+	await expect(b.beginRequest()).rejects.toThrow()
+	expect(b.remaining).toBe(0)
+})
+it('a bounded child blocks on its own failure while the unbounded root continues', async () => {
+	const b = SessionTokenBudget.create(0, sc())
+	const c = b.reserve(500)
+	c.bindTurn(generateSessionId(), generateTurnId())
+	const r = await c.beginRequest()
+	await c.failRequest(r)
+	await expect(c.beginRequest()).rejects.toThrow()
+	const rr = await b.beginRequest()
+	await b.finishRequest(rr, u(5))
+})
+it('a restored in-flight request on an unbounded account stays unknown but does not block', async () => {
+	const b = SessionTokenBudget.create(0, sc())
+	await b.beginRequest()
+	const s = b.snapshot()
+	const r = SessionTokenBudget.restore(s)
+	expect(r.summary().unresolvedRequests).toBe(1)
+	const q = await r.beginRequest()
+	await r.finishRequest(q, u(3))
+})
+it('a restored in-flight request on a bounded account stays blocked', async () => {
+	const b = SessionTokenBudget.create(100, sc())
+	await b.beginRequest()
+	const r = SessionTokenBudget.restore(b.snapshot())
+	await expect(r.beginRequest()).rejects.toThrow()
+})
+it('a late success after a failure keeps its usage and the unknown marker', async () => {
+	const b = SessionTokenBudget.create(0, sc())
+	const q = await b.beginRequest()
+	await b.failRequest(q)
+	await b.finishRequest(q, u(50))
+	expect(b.ownTokens).toBe(50)
+	expect(b.summary().unresolvedRequests).toBe(1)
+})
+it('late usage on a failed request is added once', async () => {
+	const b = SessionTokenBudget.create(0, sc())
+	const q = await b.beginRequest()
+	await b.failRequest(q, u(10))
+	await b.failRequest(q, u(30))
+	expect(b.ownTokens).toBe(30)
+})

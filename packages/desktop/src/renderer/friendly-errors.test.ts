@@ -4,6 +4,7 @@ import {
 	describeFailure,
 	providerName,
 	sanitizeDetails,
+	withUnknownUsage,
 } from './friendly-errors.js'
 
 const JARGON = /HTTP|\b[45]\d\d\b|receipt|retained|token|unresolved|<|JSON/i
@@ -88,14 +89,39 @@ describe('describeFailure', () => {
 })
 
 describe('describeBlockedRetry', () => {
-	it('explains the unresolved-usage refusal without receipts and offers a new conversation', () => {
+	it('explains the unresolved-usage refusal without receipts and offers to continue here', () => {
 		const blocked = describeBlockedRetry(
 			'This provider request has unresolved token usage. Retry requires its actual provider usage receipt; the original turn is retained.',
 		)
 		expect(blocked.kind).toBe('cannot-repeat')
 		expect(blocked.text).not.toMatch(JARGON)
-		expect(blocked.actions).toEqual(['new-conversation'])
-		expect(blocked.details).toContain('unresolved token usage')
+		expect(blocked.actions).toEqual(['continue'])
+		expect(blocked.text).toContain('Continue without this reply')
+		expect(blocked.details).toBe('Usage for one request is unknown.')
+	})
+
+	it('offers to continue when the allowance is used up, and never shows the runtime wording', () => {
+		const used = describeBlockedRetry(
+			'This turn’s original token allowance is exhausted. Retry cannot change that allowance.',
+		)
+		expect(used.actions).toEqual(['continue'])
+		expect(used.details).toBeUndefined()
+		expect(used.text).not.toMatch(JARGON)
+	})
+
+	it('adds what is unknown about usage to the details of a repeatable failure', () => {
+		const failure = describeFailure(
+			'openai (HTTP 502) — the provider failed to complete the request: 502 502 Bad Gateway',
+		)
+		expect(failure.details).toBe(
+			'OpenAI: the provider failed to complete the request (502 Bad Gateway)',
+		)
+		expect(failure.details).not.toMatch(/502 502/)
+		expect(withUnknownUsage([failure])[0]?.details).toBe(
+			'OpenAI: the provider failed to complete the request (502 Bad Gateway)\nUsage for one request is unknown.',
+		)
+		expect(withUnknownUsage([failure], 4)[0]?.details).toMatch(/Usage for 4 requests is unknown\.$/)
+		expect(withUnknownUsage([])).toEqual([])
 	})
 
 	it.each([

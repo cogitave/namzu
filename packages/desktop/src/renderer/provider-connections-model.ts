@@ -3,7 +3,8 @@ import type { ProviderConnectionView, ProviderTestResult } from '../shared/proto
 /** Plain words for how a provider is connected. Never carries a key. */
 export function connectionStatus(row: ProviderConnectionView): string {
 	if (row.state === 'not-connected') return 'Not connected'
-	if (row.state === 'free') return 'Free models, no key. Limits may apply.'
+	// Namzu counts a provider only once a key is saved; the free models need a free key from Zen.
+	if (row.state === 'free') return 'Free models. Needs a free Zen key.'
 	switch (row.how) {
 		case 'environment':
 			return row.envName
@@ -59,6 +60,9 @@ export function keyProblem(text: string): string | undefined {
 	if (value.length > 4096) return 'That is too long to be an API key.'
 	return undefined
 }
+
+/** Where a person gets the free Zen key. */
+export const ZEN_KEY_URL = 'https://opencode.ai/zen'
 
 /** How many providers can answer a message right now. */
 export function connectedCount(rows: readonly ProviderConnectionView[]): number {

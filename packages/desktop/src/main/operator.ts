@@ -383,6 +383,8 @@ export class Operator {
 	private readonly attachmentFiles = new Map<string, OwnedAttachment>()
 	private readonly attachmentPreviews = new AttachmentPreviewBudget()
 	private readonly changingPlugins = new Set<string>()
+	/** Conversations closing a paused turn: the one admission that may put its message back. */
+	private readonly continuing = new Set<string>()
 	private readonly backgroundWork: BackgroundWorkStatusTracker
 	private readonly desktopStore?: DesktopConversationStore
 	private readonly modelLists?: ModelListStore
@@ -4148,7 +4150,7 @@ export class Operator {
 			throw new Error('The connection changed while reading this turn’s retry status.')
 		if (!result || typeof result !== 'object' || Array.isArray(result))
 			throw new Error('Namzu returned an invalid turn retry status.')
-		const { retry, notice } = result as DesktopRetryStatus
+		const { retry, notice, unknownUsage } = result as DesktopRetryStatus
 		if (
 			(retry !== undefined &&
 				(!retry ||
@@ -4159,7 +4161,9 @@ export class Operator {
 					typeof retry.checkpointId !== 'string' ||
 					!retry.checkpointId ||
 					retry.checkpointId.length > 200)) ||
-			(notice !== undefined && (typeof notice !== 'string' || notice.length > 2_000))
+			(notice !== undefined && (typeof notice !== 'string' || notice.length > 2_000)) ||
+			(unknownUsage !== undefined &&
+				(!Number.isSafeInteger(unknownUsage) || unknownUsage < 1 || unknownUsage > 100_000))
 		)
 			throw new Error('Namzu returned an invalid turn retry status.')
 		if ((session.executionRevision ?? 0) !== executionRevision || session.running)
@@ -4174,15 +4178,21 @@ export class Operator {
 			)
 		if (
 			JSON.stringify(session.projection.retry) !== JSON.stringify(retry) ||
-			session.projection.retryNotice !== notice
+			session.projection.retryNotice !== notice ||
+			session.projection.retryUnknownUsage !== unknownUsage
 		)
 			this.emit({
 				kind: 'retry-status',
 				sessionId: session.view.id,
 				retry,
 				notice,
+				...(unknownUsage ? { unknownUsage } : {}),
 			})
-		return { ...(retry ? { retry } : {}), ...(notice ? { notice } : {}) }
+		return {
+			...(retry ? { retry } : {}),
+			...(notice ? { notice } : {}),
+			...(unknownUsage ? { unknownUsage } : {}),
+		}
 	}
 	private async readTasksSnapshot(session: Conversation, force = false): Promise<void> {
 		const client = session.client
@@ -5048,6 +5058,63 @@ export class Operator {
 		session.queue.splice(index, 1)
 		this.state(session)
 		return prompt
+	}
+	/**
+	 * Put the last message back in this conversation's composer, text and files, not sent. A draft
+	 * the person already started stays after it. Used when a reply cannot be repeated.
+	 */
+	reopenLastMessage(sessionId: string): { text: string; attachments: AttachmentView[] } {
+		const session = this.session(sessionId)
+		if (session.running || (session.admitting && !this.continuing.has(sessionId)))
+			throw new Error('Wait for this conversation’s active work to finish.')
+		const last = [...session.projection.messages]
+			.reverse()
+			.find((message) => message.role === 'user')
+		if (!last) throw new Error('This conversation has no message to put back.')
+		const files = (last.attachments ?? [])
+			.map((view) => this.attachmentFiles.get(view.id))
+			.filter((file): file is OwnedAttachment => file !== undefined && file.ownerId === sessionId)
+		const existing = [...this.attachmentFiles.values()].filter(
+			(file) => file.ownerId === sessionId && file.draft,
+		)
+		validateAttachmentBatch([...new Set([...existing, ...files])])
+		const text = session.draft.trim() ? `${last.text}\n\n${session.draft}` : last.text
+		this.saveDraft(sessionId, text)
+		for (const file of files) file.draft = true
+		this.persistDesktop()
+		return { text, attachments: this.attachments(sessionId) }
+	}
+	/**
+	 * Close the paused turn without repeating it and put its message back in the composer. What the
+	 * stopped request may have cost stays recorded as unknown by the runtime.
+	 */
+	async continueWithoutReply(
+		sessionId: string,
+	): Promise<{ text: string; attachments: AttachmentView[] }> {
+		const session = this.session(sessionId)
+		if (session.running || session.admitting || this.changingPlugins.has(sessionId))
+			throw new Error('Wait for this conversation’s active work to finish.')
+		if (!session.client.supportsAbandonPaused())
+			throw new Error('Update Namzu to continue without this reply.')
+		if (!session.projection.messages.some((message) => message.role === 'user'))
+			throw new Error('This conversation has no message to put back.')
+		this.assertPalAdmission(session.view.palId, true)
+		const admission = Symbol('continue admission')
+		session.admitting = admission
+		this.continuing.add(sessionId)
+		try {
+			await this.reattach(session)
+			await session.client.request('namzu/sessions/abandon-paused', {
+				sessionId: session.runtimeSessionId,
+			})
+			this.emit({ kind: 'turn-closed', sessionId })
+			await this.refreshRetry(session).catch(() => undefined)
+			this.state(session, undefined, undefined, true)
+			return this.reopenLastMessage(sessionId)
+		} finally {
+			this.continuing.delete(sessionId)
+			if (session.admitting === admission) session.admitting = undefined
+		}
 	}
 	removeQueued(sessionId: string, itemId: string): void {
 		const session = this.session(sessionId)

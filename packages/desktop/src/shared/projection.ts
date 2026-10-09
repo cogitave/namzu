@@ -73,6 +73,8 @@ export interface ThreadState {
 	error?: string
 	retry?: DesktopTurnRetry
 	retryNotice?: string
+	/** The repeat is a new request; one earlier request's usage stays unknown. */
+	retryUnknownUsage?: number
 	/**
 	 * The provider asked to be tried again later. Held only until the next thing happens in the
 	 * turn, so a wait that is over never lingers on screen.
@@ -148,6 +150,7 @@ export function restoreMessages(thread: ThreadState, messages: ChatMessage[]): T
 		result: undefined,
 		retry: undefined,
 		retryNotice: undefined,
+		retryUnknownUsage: undefined,
 		undo: undefined,
 		historyWorkPartial: undefined,
 	}
@@ -395,6 +398,7 @@ export function applyEvent(previous: ThreadState, event: DesktopEvent): ThreadSt
 			result: undefined,
 			retry: undefined,
 			retryNotice: undefined,
+			retryUnknownUsage: undefined,
 			activeToolIds: [],
 			activeReasoningId: undefined,
 			responding: false,
@@ -459,7 +463,26 @@ export function applyEvent(previous: ThreadState, event: DesktopEvent): ThreadSt
 		return { ...thread, undo }
 	}
 	if (event.kind === 'retry-status')
-		return { ...thread, retry: event.retry, retryNotice: event.notice }
+		return {
+			...thread,
+			retry: event.retry,
+			retryNotice: event.notice,
+			retryUnknownUsage: event.unknownUsage,
+		}
+	if (event.kind === 'turn-closed')
+		return {
+			...thread,
+			turns: {
+				...thread.turns,
+				[thread.turn]: { ...thread.turns[thread.turn], reason: 'abandoned' },
+			},
+			error: undefined,
+			reason: 'abandoned',
+			retry: undefined,
+			retryNotice: undefined,
+			retryUnknownUsage: undefined,
+			running: false,
+		}
 	if (event.kind === 'retry') {
 		const turn =
 			Object.entries(thread.turns).find(([, state]) => state.turnId === event.turnId)?.[0] ??
@@ -484,6 +507,7 @@ export function applyEvent(previous: ThreadState, event: DesktopEvent): ThreadSt
 			result: undefined,
 			retry: undefined,
 			retryNotice: undefined,
+			retryUnknownUsage: undefined,
 			activeToolIds: [],
 			activeReasoningId: undefined,
 			responding: false,

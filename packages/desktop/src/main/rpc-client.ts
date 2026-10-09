@@ -54,6 +54,11 @@ export class RuntimeClient extends EventEmitter {
 	private promptOptions = false
 	private turnRetry = false
 	private turnUndo = false
+	private abandonPaused = false
+	/** An older runtime cannot close a paused turn without repeating it. */
+	supportsAbandonPaused(): boolean {
+		return this.abandonPaused
+	}
 	private liveInput = false
 	supportsLiveInput(): boolean {
 		return this.liveInput
@@ -242,6 +247,7 @@ export class RuntimeClient extends EventEmitter {
 		this.turnRetry = ['namzu/sessions/retry-status', 'namzu/sessions/retry'].every((method) =>
 			result.extensions?.includes(method),
 		)
+		this.abandonPaused = result.extensions?.includes('namzu/sessions/abandon-paused') === true
 		this.turnUndo = [
 			'namzu/turns/undo-status',
 			'namzu/turns/undo-preview',

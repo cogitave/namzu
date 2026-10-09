@@ -11,6 +11,7 @@ import {
 	type SessionId,
 	type ToolPresenter,
 	asSessionId,
+	asTurnId,
 	createUserMessage,
 	generateSessionId,
 	genericLabel,
@@ -214,7 +215,10 @@ type AcpLiveSession = Pick<
 	| 'documentAttachmentsSupported'
 	| 'checkpoints'
 	| 'markFilesChanged'
-> & { readonly resumePaused?: AgentSession['resumePaused'] }
+> & {
+	readonly resumePaused?: AgentSession['resumePaused']
+	readonly abandonTurn?: AgentSession['abandonTurn']
+}
 
 export interface AcpRuntimeDependencies {
 	readonly palBinding?: typeof palConversationBinding
@@ -367,6 +371,12 @@ export interface CliAcpRuntime {
 		cwd: string,
 		scope?: CliSessionScope,
 	): Promise<ProviderRetryStatus>
+	/**
+	 * Close the conversation's paused provider turn without repeating it (`turn_failed`, code
+	 * `abandoned`), so the next message starts a new turn. Whatever the stopped request may have
+	 * cost stays recorded as unknown. Refuses a turn that waits for a person's decision.
+	 */
+	abandonPausedTurn?(sessionId: string, cwd: string, turnId?: string): Promise<{ closed: true }>
 	modelSettings(provider: string, model: string, sessionId?: string): Promise<ComposerModelSettings>
 	plugins(cwd: string, sessionId?: string): Promise<PluginInventoryView>
 	setPluginEnabled(
@@ -1369,6 +1379,36 @@ export function createCliAcpRuntime(
 			} finally {
 				reading.close()
 			}
+		},
+		abandonPausedTurn: async (sessionId, requestedCwd, turnId) => {
+			const record = await ensureSession(sessionId, requestedCwd, new AbortController().signal)
+			if (!record.conversations || !record.session.abandonTurn)
+				throw new Error('This connection cannot close paused turns.')
+			if (record.route) throw new Error('This conversation already has active work.')
+			const target = await deps.resolveSession(sessionId)
+			const facts = await readConversationFacts(record.conversations, target.sessionId)
+			const active = facts?.activeTurn
+			if (!active?.paused || (turnId !== undefined && active.turnId !== turnId))
+				throw new Error('This conversation has no paused turn to close. Open it again.')
+			const pausedTurn = active.turnId
+			const pause = [...(facts?.records ?? [])]
+				.reverse()
+				.find((row) => row.type === 'turn_paused' && row.turnId === pausedTurn)
+			if (pause?.type !== 'turn_paused' || pause.handoff || !pause.providerError)
+				throw new Error('Only a turn that stopped on a provider error can be closed this way.')
+			const waiting = new Set<string>()
+			for (const row of facts?.records ?? []) {
+				if (row.type === 'decision_requested' && row.turnId === pausedTurn)
+					waiting.add(row.decisionId)
+				if (row.type === 'decision_resolved' || row.type === 'decision_expired')
+					waiting.delete(row.decisionId)
+			}
+			if (waiting.size) throw new Error('This turn is waiting for a decision; answer it first.')
+			await record.session.abandonTurn(
+				asTurnId(pausedTurn),
+				'The person continued without the reply that stopped on a provider error.',
+			)
+			return { closed: true as const }
 		},
 		modelSettings: async (provider, model, sessionId) => {
 			if (closed) throw new Error('The connection is closed.')

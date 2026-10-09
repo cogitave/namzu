@@ -43,6 +43,8 @@ export function createWorkspacePaneApi(
 		createPalSubscription,
 		disablePalSubscription,
 		retryTurn,
+		continueWithoutReply,
+		reopenLastMessage,
 		undoStatus,
 		undoPreview,
 		undoTurn,
@@ -480,6 +482,14 @@ export function createWorkspacePaneApi(
 					retryTurn: (owner, turnId, checkpointId, settings) =>
 						invoke(() => retryTurn(owner, turnId, checkpointId, settings), [owner]),
 				}
+			: {}),
+		...(continueWithoutReply
+			? {
+					continueWithoutReply: (owner) => invoke(() => continueWithoutReply(owner), [owner]),
+				}
+			: {}),
+		...(reopenLastMessage
+			? { reopenLastMessage: (owner) => invoke(() => reopenLastMessage(owner), [owner]) }
 			: {}),
 		...(undoStatus
 			? { undoStatus: (owner, turnIds) => invoke(() => undoStatus(owner, turnIds), [owner]) }

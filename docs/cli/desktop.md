@@ -640,10 +640,14 @@ renderer API is `settings()`, `setSettings(patch)`, `desktopInfo()` and `openDat
 
 A first-timer has no provider, and Namzu says so before anything is sent instead of letting a message
 fail. While no provider can answer, the composer shows **Add an API key or sign in to start** with one
-button, **Connect a provider**, which opens **Settings ▸ Models**. Send is disabled, the starter
-chips are hidden and the model trigger reads "No provider connected". Only providers a person
-connected count: the keyless free Zen tier is offered (and listed as "Free models, no key. Limits may
-apply.") but does not end the empty state, because the gateway may refuse a direct request.
+button, **Connect a provider**, which opens **Settings ▸ Models**. Send is visibly disabled
+(`aria-disabled`, so its tooltip "Connect a provider to send" can still be read) and it, like Enter in
+the message box, only moves focus to that card and sends nothing; the starter chips are hidden and the
+model trigger reads "No provider connected". Only providers a person connected count: the keyless free
+Zen tier is listed, but as "Free models. Needs a free Zen key." with **Add key** and **Get a free key**
+(opens opencode.ai/zen), because Namzu does not use it without a key (the gateway refuses a direct
+anonymous request outside OpenCode's own client, see [Zen](../sdk/zen.md)), so it does not end the
+empty state.
 
 **Settings ▸ Models** lists every provider this build can drive, connected ones first. A row says in
 plain words how it is connected ("Connected with the key you saved", "…with your Codex sign-in",
@@ -682,13 +686,28 @@ removed, key-shaped text hidden, at most 500 characters): `src/renderer/friendly
 | Context window | This conversation is too long for the model… | Start a new conversation |
 | No key | There is no API key for Anthropic. Add one in Settings, then send again. | Open model settings |
 
-**Try again** appears only when the runtime holds a reply it can safely repeat. When it cannot prove
-what the stopped request cost, it refuses to repeat it and also refuses new messages in that
-conversation; the window then says "Namzu can't safely repeat this reply, because it can't tell how
-much the provider counted before it stopped. Your message is saved above." with **Start a new
-conversation**. When a failure message is shown, the "Paused." and limit lines are not (they named a
-cause the person never hit; the stop reason `token_budget` is also what an unmeasured request leaves
-behind, which is not a spent budget).
+**Try again** appears only when the runtime holds a reply it can safely repeat. A Desktop
+conversation has no token limit of its own (the ACP session is opened without `limits`), so after a
+5xx the stopped request is recorded as unknown usage and **Try again** sends a new request in the
+same conversation; **Details** then reads "OpenAI: the provider failed to complete the request (502
+Bad Gateway)" and "Usage for one request is unknown." (or "Usage for N requests is unknown.": the
+driver retries a 5xx before the turn pauses, and each failed attempt is recorded). The status comes
+from `namzu/sessions/retry-status` as `{ retry, unknownUsage: <count> }`.
+
+When a finite limit applies (a turn begun under one), the runtime refuses to repeat the reply
+because the unknown amount may already exceed the limit, and also refuses new messages in that
+turn. The window then says "Namzu can't repeat this reply, because this conversation has a limit and
+it can't tell how much the provider counted before it stopped. Continue without this reply to put
+your message back in the message box and keep working here." with **Continue without this reply**.
+That calls `continueWithoutReply` in main, which sends `namzu/sessions/abandon-paused` (the CLI
+closes the paused turn with `turn_failed`, code `abandoned`, through the SDK's `abandonTurn`; the
+unknown usage stays on the ledger), emits `turn-closed`, and puts the last message and its files
+back in the composer, not sent (text already typed stays after it). The line under the empty slot
+reads "You continued without this reply." If closing the turn fails, the same card also offers **Copy
+to a new conversation** (`reopenLastMessage`, a new tab in the same project with the message and its
+files in its composer, not sent). When a failure message is shown, the "Paused." and limit lines are
+not (they named a cause the person never hit; the stop reason `token_budget` is also what an
+unmeasured request leaves behind, which is not a spent budget).
 
 **Waiting on a rate limit.** The provider driver retries a transient failure after a delay. The SDK
 already emitted `provider_retry`; the ACP bridge now maps it to a `provider_retry` session update
@@ -716,8 +735,8 @@ and the banner's stale error) is cleared; a failed *first* open still shows the 
 **An engine that cannot start.** When Codex or `claude-code` does not answer, the banner names the
 engine ("… could not start. Check that it is installed on this computer and that you are signed in to it,
 then choose Retry setup."), the model button reads "… unavailable" instead of a skeleton that never
-resolves, and the banner no longer pushes the page down (banners are laid over the page at the spot
-they would have taken).
+resolves, and the banner no longer pushes the page down (banners are laid over the page, starting
+below the tab strip so the tabs and + stay visible and reachable while it shows).
 
 **Approval cards.** A write whose "before" cannot be shown reads "Namzu couldn't show what's in
 *file* now. This is what it wants to write." and the caution names the file: "This replaces *file*,
