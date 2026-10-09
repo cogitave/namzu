@@ -160,9 +160,14 @@ import { palRecentActivity } from './pal-recent-activity.js'
 import { PalCustomizeDialog, PalSidebarSection, PalsPage } from './pals-page.js'
 import { PluginsPage, PluginsSidebar } from './plugins-page.js'
 import { reusableProjectDraft } from './project-draft-reuse.js'
-import { newProjectFailure, projectHomeHeading } from './project-home.js'
+import {
+	createdProjectNotice,
+	homeStarters,
+	newProjectFailure,
+	projectHomeHeading,
+} from './project-home.js'
 import { projectStage } from './project-stage.js'
-import { ProjectConnecting, ProjectOpenError } from './project-views.js'
+import { ProjectConnecting, ProjectFolderMissing, ProjectOpenError } from './project-views.js'
 import { RenameConversationDialog } from './rename-conversation-dialog.js'
 import { RestoreSkeleton } from './restore-skeleton.js'
 import { projectRemovalCopy, removalNotice, settingsRoute } from './settings-model.js'
@@ -2294,26 +2299,50 @@ export function App({
 		},
 		[updateProject, createProjectDraft, carryPendingDraft],
 	)
+	// What a pick (or an add-back) answered: a folder that still needs an answer waits in the
+	// dialog and is not in the app yet; any other lands on its home.
+	const adoptPicked = useCallback(
+		async (item: ProjectView | null, generation: number) => {
+			if (item?.pending && (item.riskySettings || item.broadFolder)) {
+				// Not in the app yet: only a confirmed answer adds it, and cancelling adds nothing.
+				setFolderAccess({
+					projectId: item.id,
+					risky: item.riskySettings,
+					broad: item.broadFolder,
+					pending: { name: item.name, path: item.path },
+				})
+			} else if (item) await landOnProject(item, generation)
+		},
+		[landOnProject],
+	)
 	const openProject = useCallback(async () => {
 		abandonTabRestore()
 		const generation = ++navigation.current
 		setLoading(true)
 		try {
-			const item = await api.openProject()
-			if (item?.pending && item.riskySettings) {
-				// Not in the app yet: only a confirmed trust adds it, and cancelling adds nothing.
-				setFolderAccess({
-					projectId: item.id,
-					risky: item.riskySettings,
-					pending: { name: item.name, path: item.path },
-				})
-			} else if (item) await landOnProject(item, generation)
+			await adoptPicked(await api.openProject(), generation)
 		} catch (failure) {
 			if (generation === navigation.current) throw failure
 		} finally {
 			if (generation === navigation.current) setLoading(false)
 		}
-	}, [abandonTabRestore, landOnProject, api])
+	}, [abandonTabRestore, adoptPicked, api])
+	const locateProject = useCallback(
+		async (value: ProjectView) => {
+			if (!api.locateProject) return
+			abandonTabRestore()
+			const generation = ++navigation.current
+			setLoading(true)
+			try {
+				await adoptPicked(await api.locateProject(value.id), generation)
+			} catch (failure) {
+				if (generation === navigation.current) throw failure
+			} finally {
+				if (generation === navigation.current) setLoading(false)
+			}
+		},
+		[abandonTabRestore, adoptPicked, api],
+	)
 	const createProject = useCallback(async () => {
 		abandonTabRestore()
 		const generation = ++navigation.current
@@ -2328,12 +2357,26 @@ export function App({
 				throw newProjectFailure(failure)
 			}
 			await landOnProject(item, generation)
+			// Nothing else says where a project made from scratch lives.
+			notify(createdProjectNotice(item), {
+				tone: 'success',
+				timeoutMs: 12_000,
+				action: api.openProjectPath
+					? {
+							label: 'Show in folder',
+							onClick: () =>
+								void act(async () => {
+									await api.openProjectPath?.(item.id, '', 'file-manager')
+								}),
+						}
+					: undefined,
+			})
 		} catch (failure) {
 			if (generation === navigation.current) throw failure
 		} finally {
 			if (generation === navigation.current) setLoading(false)
 		}
-	}, [abandonTabRestore, landOnProject, api])
+	}, [abandonTabRestore, landOnProject, api, act])
 	const leaveProject = async () => {
 		if (!api.openChat) throw new Error('Restart the desktop app to open a normal conversation.')
 		abandonTabRestore()
@@ -2922,9 +2965,22 @@ export function App({
 		const result = await api.removeProject(value.id)
 		if (result.projectId !== value.id)
 			throw new Error('Removing the project was not confirmed. Try again.')
+		const readd = result.readdToken
+		const restore = api.restoreProject
 		notify(removalNotice(value.name, result.trust), {
 			tone: 'success',
-			timeoutMs: result.trust.state === 'removed' ? undefined : 10_000,
+			timeoutMs: readd && restore ? 10_000 : result.trust.state === 'removed' ? undefined : 10_000,
+			action:
+				readd && restore
+					? {
+							label: 'Add it again',
+							onClick: () =>
+								void act(async () => {
+									const generation = ++navigation.current
+									await adoptPicked(await restore(readd), generation)
+								}),
+						}
+					: undefined,
 		})
 	}
 	const projectRemovalReturnFocus = () =>
@@ -4241,7 +4297,7 @@ export function App({
 			onAction: () => void act(openProject),
 		},
 		...projects
-			.filter((item) => !item.palId && !item.isChat)
+			.filter((item) => !item.palId && !item.isChat && !item.missing)
 			.map((item) => ({
 				id: `project:${item.id}`,
 				label: item.name,
@@ -4425,10 +4481,9 @@ export function App({
 						)}
 						{folderAccess &&
 							(() => {
-								const target =
-									folderAccess.pending && folderAccess.risky
-										? { id: folderAccess.projectId, ...folderAccess.pending }
-										: projects.find((item) => item.id === folderAccess.projectId)
+								const target = folderAccess.pending
+									? { id: folderAccess.projectId, ...folderAccess.pending }
+									: projects.find((item) => item.id === folderAccess.projectId)
 								if (!target) return null
 								return (
 									<FolderAccessDialog
@@ -4437,6 +4492,7 @@ export function App({
 										path={target.path}
 										broad={folderAccess.broad?.kind}
 										risky={folderAccess.risky?.found}
+										details={folderAccess.risky?.details}
 										changed={
 											'settingsChanged' in target && !folderAccess.risky && !folderAccess.broad
 												? target.settingsChanged
@@ -4454,9 +4510,10 @@ export function App({
 											// already added it. A broad folder needs main's token; main answers an
 											// unproven broad folder with a token, and this dialog asks again.
 											if (folderAccess.pending) {
-												if (!folderAccess.risky || !api.trustFolder)
+												const proof = folderAccess.broad?.token ?? folderAccess.risky?.token
+												if (!proof || !api.trustFolder)
 													throw new Error('Restart the desktop app, then choose the folder again.')
-												const added = await api.trustFolder(folderAccess.risky.token)
+												const added = await api.trustFolder(proof)
 												setFolderAccess(undefined)
 												await landOnProject(added, ++navigation.current)
 												return
@@ -4674,6 +4731,9 @@ export function App({
 							backgroundWork={backgroundWork}
 							open={!pageOpen && sideOpen}
 							onRemoveProject={api.removeProject ? requestProjectRemoval : undefined}
+							onLocateProject={
+								api.locateProject ? (value) => void act(() => locateProject(value)) : undefined
+							}
 							collapsed={sideCollapsed}
 							opening={loading}
 							onClose={() => setSideOpen(false)}
@@ -5039,43 +5099,47 @@ export function App({
 				)}
 
 				{/* A trust dialog for the folder is the explanation; the banner behind it would repeat it. */}
-				{!folderAccess && (error || (project?.error && !openErrorStage) || savedSettings.error) && (
-					<div className="connection-error">
-						<ChatErrorBanner
-							message={savedSettings.error || error || project?.error || ''}
-							onRetry={
-								restoringTabs
-									? () =>
-											void act(async () => {
-												const generation = navigation.current
-												if (project?.status === 'error')
-													updateProject(await api.reconnectProject(project.id))
-												if (generation === navigation.current) {
-													activation.current = null
-													missingActivation.current = null
-													setCatalogueReady(false)
-													setError('')
-													setTabRestoreAttempt((attempt) => attempt + 1)
-												}
-											})
-									: project?.status === 'error'
+				{!folderAccess &&
+					!project?.missing &&
+					(error || (project?.error && !openErrorStage) || savedSettings.error) && (
+						<div className="connection-error">
+							<ChatErrorBanner
+								message={savedSettings.error || error || project?.error || ''}
+								onRetry={
+									restoringTabs
 										? () =>
-												void act(async () => updateProject(await api.reconnectProject(project.id)))
-										: savedSettings.error ||
-												(project?.trusted &&
-													(!providerReady || (!pal && api.harnesses && !harnessView)))
-											? () => void act(retryConversationSetup)
-											: undefined
-							}
-							retryLabel={project?.status === 'error' ? 'Reconnect' : 'Retry setup'}
-							onDismiss={
-								!restoringTabs && project?.status !== 'error' && !savedSettings.error
-									? () => setError('')
-									: undefined
-							}
-						/>
-					</div>
-				)}
+												void act(async () => {
+													const generation = navigation.current
+													if (project?.status === 'error')
+														updateProject(await api.reconnectProject(project.id))
+													if (generation === navigation.current) {
+														activation.current = null
+														missingActivation.current = null
+														setCatalogueReady(false)
+														setError('')
+														setTabRestoreAttempt((attempt) => attempt + 1)
+													}
+												})
+										: project?.status === 'error'
+											? () =>
+													void act(async () =>
+														updateProject(await api.reconnectProject(project.id)),
+													)
+											: savedSettings.error ||
+													(project?.trusted &&
+														(!providerReady || (!pal && api.harnesses && !harnessView)))
+												? () => void act(retryConversationSetup)
+												: undefined
+								}
+								retryLabel={project?.status === 'error' ? 'Reconnect' : 'Retry setup'}
+								onDismiss={
+									!restoringTabs && project?.status !== 'error' && !savedSettings.error
+										? () => setError('')
+										: undefined
+								}
+							/>
+						</div>
+					)}
 				{activeTerminal && terminalSessionsHere && !pageOpen && !palsPage ? (
 					<TerminalPane
 						key={activeTerminal.id}
@@ -5121,6 +5185,17 @@ export function App({
 					</Empty>
 				) : stage === 'connecting' ? (
 					<ProjectConnecting key={project.id} name={project.name} />
+				) : stage === 'error' && project.missing ? (
+					<ProjectFolderMissing
+						name={project.name}
+						path={project.path}
+						onLocate={api.locateProject ? () => void act(() => locateProject(project)) : undefined}
+						onRemove={
+							api.removeProject
+								? () => requestProjectRemoval(project, document.activeElement as HTMLElement)
+								: undefined
+						}
+					/>
 				) : stage === 'error' ? (
 					<ProjectOpenError
 						message={project.error || 'Namzu could not connect to this folder.'}
@@ -5366,6 +5441,7 @@ export function App({
 									return delivered
 								}}
 								projectName={project.name}
+								starters={homeStarters(project)}
 								emptyHeading={projectHomeHeading(project)}
 								projectId={project.id}
 								sessionId={sessionId || undefined}

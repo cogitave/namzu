@@ -9,6 +9,7 @@ import {
 	confineProjectPath,
 	parseFrontmatter,
 	resolveProjectLinks,
+	setFileSortLocale,
 } from './project-files.js'
 
 let outside: string
@@ -534,4 +535,45 @@ describe('read hardening', () => {
 			await expect(files.read(root, 'pipe')).rejects.toThrow('not a file')
 		},
 	)
+})
+
+describe('sorting by the app language', () => {
+	afterEach(() => setFileSortLocale(undefined))
+	const names = [
+		'Zeytin.txt',
+		'Şeker.txt',
+		'Sat.txt',
+		'Çalışma.txt',
+		'Cam.txt',
+		'Öğrenci.txt',
+		'Oda.txt',
+	]
+	it('puts Turkish letters after their plain neighbours in a Turkish app', async () => {
+		setFileSortLocale('tr')
+		for (const name of names) put(name)
+		expect((await files.list(root, '')).map((entry) => entry.name)).toEqual([
+			'Cam.txt',
+			'Çalışma.txt',
+			'Oda.txt',
+			'Öğrenci.txt',
+			'Sat.txt',
+			'Şeker.txt',
+			'Zeytin.txt',
+		])
+	})
+	it('keeps dotless and dotted i as different names', async () => {
+		setFileSortLocale('tr')
+		put('ışık.txt')
+		put('isik.txt')
+		expect((await files.list(root, '')).map((entry) => entry.name)).toEqual([
+			'ışık.txt',
+			'isik.txt',
+		])
+	})
+	it('falls back to the system order when the locale is not valid', async () => {
+		setFileSortLocale('not a locale!!')
+		put('b.txt')
+		put('a.txt')
+		expect((await files.list(root, '')).map((entry) => entry.name)).toEqual(['a.txt', 'b.txt'])
+	})
 })

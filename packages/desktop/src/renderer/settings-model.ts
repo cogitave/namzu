@@ -218,18 +218,20 @@ export function projectTrustText(project: ProjectView): string {
 }
 
 /** The confirmation the spec words exactly. */
-export function projectRemovalCopy(project: Pick<ProjectView, 'name'>): {
+export function projectRemovalCopy(project: Pick<ProjectView, 'name' | 'missing'>): {
 	title: string
 	description: string
 	actionLabel: string
 	pendingLabel: string
 } {
+	const quoted = `\u201c${project.name}\u201d`
 	return {
-		title: `Remove ${project.name}?`,
-		description:
-			'This only removes the project from Namzu. Files on your computer and existing conversations won’t be deleted.',
+		title: `Remove ${quoted} from Namzu?`,
+		description: project.missing
+			? `Namzu can\u2019t find the folder for ${quoted}. This only removes the project from Namzu. Nothing on your computer is deleted.`
+			: `This removes ${quoted} from Namzu and takes the folder off Namzu\u2019s trusted list, so Namzu asks again if you add it back. Its open tabs close. Files on your computer and existing conversations won\u2019t be deleted.`,
 		actionLabel: 'Remove project',
-		pendingLabel: 'Removing…',
+		pendingLabel: 'Removing\u2026',
 	}
 }
 
@@ -240,11 +242,11 @@ export function removalNotice(
 ): string {
 	if (trust.state === 'still-trusted')
 		return trust.by
-			? `Removed ${name}. The folder is still trusted through ${trust.by}.`
-			: `Removed ${name}. The folder is still trusted through a parent folder.`
+			? `Removed \u201c${name}\u201d. The folder is still trusted through ${trust.by}.`
+			: `Removed \u201c${name}\u201d. The folder is still trusted through a parent folder.`
 	if (trust.state === 'not-connected')
-		return `Removed ${name}. It wasn’t connected, so its trust entry was left as it was.`
+		return `Removed \u201c${name}\u201d. It wasn’t connected, so its trust entry was left as it was.`
 	if (trust.state === 'unsupported')
-		return `Removed ${name}. This Namzu runtime can’t update its trust list, so the folder stays trusted.`
-	return `Removed ${name}.`
+		return `Removed \u201c${name}\u201d. This Namzu runtime can’t update its trust list, so the folder stays trusted.`
+	return `Removed \u201c${name}\u201d. Namzu no longer trusts the folder.`
 }

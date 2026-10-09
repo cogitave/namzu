@@ -157,6 +157,8 @@ const OPERATIONS = new Set([
 	'palComputerInput',
 	'openProject',
 	'removeProject',
+	'locateProject',
+	'restoreProject',
 	'openChat',
 	'createProject',
 	'trustFolder',

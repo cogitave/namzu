@@ -70,3 +70,41 @@ export function ProjectOpenError({
 		</Empty>
 	)
 }
+
+/** The stage of a project whose folder is gone: what happened, and the two ways forward. */
+export function ProjectFolderMissing({
+	name,
+	path,
+	onLocate,
+	onRemove,
+}: {
+	name: string
+	path: string
+	onLocate?: () => void
+	onRemove?: () => void
+}) {
+	return (
+		<Empty className="welcome project-open-error" data-project-folder-missing>
+			<EmptyHeader className="max-w-lg px-8">
+				<EmptyTitle>
+					<h1>Folder not found</h1>
+				</EmptyTitle>
+				<EmptyDescription>
+					{`Namzu can\u2019t find \u201c${name}\u201d at ${path}. If you moved or renamed the folder, point Namzu at its new place. Nothing was deleted.`}
+				</EmptyDescription>
+			</EmptyHeader>
+			<div className="flex gap-2">
+				{onLocate && (
+					<Button type="button" className="primary" size="default" onClick={onLocate}>
+						Locate…
+					</Button>
+				)}
+				{onRemove && (
+					<Button type="button" variant="outline" size="default" onClick={onRemove}>
+						Remove from Namzu
+					</Button>
+				)}
+			</div>
+		</Empty>
+	)
+}

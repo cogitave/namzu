@@ -4,7 +4,7 @@ import { homedir } from 'node:os'
 import { posix, win32 } from 'node:path'
 import { basename } from 'node:path'
 import type { BroadFolderKind, ProjectView } from '../shared/protocol.js'
-import { findAutoRunSettings } from './folder-settings.js'
+import { type AutoRunFinding, inspectAutoRunSettings } from './folder-settings.js'
 
 /**
  * Who consents to a folder, and when.
@@ -193,8 +193,8 @@ export interface FolderAccessDeps {
 	canonical?: (path: string) => string
 	env?: BroadFolderEnv
 	tokens?: FolderAccessTokens
-	/** Names of auto-run settings in a folder; empty for an ordinary one. */
-	findSettings?: (path: string) => Promise<string[]>
+	/** What a folder carries that runs code on its own; empty for an ordinary one. */
+	findSettings?: (path: string) => Promise<AutoRunFinding[]>
 }
 
 /** The id a folder that is not in the app yet carries; no project ever has it. */
@@ -208,14 +208,28 @@ export function canonicalFolder(path: string): string {
 	}
 }
 
+function risky(
+	found: readonly AutoRunFinding[],
+	token: string,
+	changed: readonly string[] = [],
+): NonNullable<ProjectView['riskySettings']> {
+	const labels = found.map((item) => item.label)
+	const details = found.filter((item) => item.lines.length > 0)
+	return {
+		found: [...changed, ...labels.filter((label) => !changed.includes(label))],
+		...(details.length > 0 ? { details } : {}),
+		token,
+	}
+}
+
 export class FolderAccess {
 	private readonly canonical: (path: string) => string
 	private readonly env: BroadFolderEnv
 	private readonly tokens: FolderAccessTokens
-	private readonly findSettings: (path: string) => Promise<string[]>
+	private readonly findSettings: (path: string) => Promise<AutoRunFinding[]>
 	constructor(private readonly deps: FolderAccessDeps) {
 		this.canonical = deps.canonical ?? canonicalFolder
-		this.findSettings = deps.findSettings ?? findAutoRunSettings
+		this.findSettings = deps.findSettings ?? inspectAutoRunSettings
 		this.env = deps.env ?? { platform: process.platform, home: homedir(), env: process.env }
 		const windows = this.env.platform === 'win32'
 		this.tokens =
@@ -226,19 +240,22 @@ export class FolderAccess {
 	/** The person chose this folder in the native picker. */
 	async picked(windowId: string, path: string): Promise<ProjectView> {
 		const canonical = this.canonical(path)
-		if (!classifyBroadFolder(canonical, this.env, this.canonical)) {
-			const found = await this.findSettings(canonical)
-			if (found.length > 0)
-				return {
-					id: PENDING_FOLDER_ID,
-					path,
-					name: basename(path) || path,
-					trusted: false,
-					status: 'ready',
-					pending: true,
-					riskySettings: { found, token: this.tokens.issue(windowId, canonical) },
-				}
+		const pending = {
+			id: PENDING_FOLDER_ID,
+			path,
+			name: basename(path) || path,
+			trusted: false,
+			status: 'ready' as const,
+			pending: true as const,
 		}
+		// A folder that needs an answer is not added by the pick: nothing joins the app (no sidebar
+		// row, no saved project) until the token is redeemed, and cancelling leaves no trace.
+		const kind = classifyBroadFolder(canonical, this.env, this.canonical)
+		if (kind)
+			return { ...pending, broadFolder: { kind, token: this.tokens.issue(windowId, canonical) } }
+		const found = await this.findSettings(canonical)
+		if (found.length > 0)
+			return { ...pending, riskySettings: risky(found, this.tokens.issue(windowId, canonical)) }
 		const project = await this.deps.openProject(path)
 		if (project.trusted || project.status !== 'ready') return project
 		return this.decide(windowId, project)
@@ -284,16 +301,10 @@ export class FolderAccess {
 		if (project.settingsChanged?.length)
 			return {
 				...project,
-				riskySettings: {
-					found: [
-						...project.settingsChanged,
-						...found.filter((item) => !project.settingsChanged?.includes(item)),
-					],
-					token: this.tokens.issue(windowId, path),
-				},
+				riskySettings: risky(found, this.tokens.issue(windowId, path), project.settingsChanged),
 			}
 		if (found.length > 0)
-			return { ...project, riskySettings: { found, token: this.tokens.issue(windowId, path) } }
+			return { ...project, riskySettings: risky(found, this.tokens.issue(windowId, path)) }
 		// A picked folder is trusted by the pick itself. A known folder reaches here only
 		// after the in-app dialog, whose confirmation the renderer reported.
 		return this.deps.trust(project.id)

@@ -168,6 +168,11 @@ export interface ProjectRemovalResult {
 	/** Conversations whose tabs were closed with the project. */
 	sessionIds: string[]
 	trust: ProjectUntrust
+	/**
+	 * Main's one-time proof, valid for a few minutes in this window, that the person just
+	 * removed this folder: `restoreProject` takes it to add the folder back.
+	 */
+	readdToken?: string
 }
 
 /** Why a folder needs an explicit in-app confirmation before it is trusted. */
@@ -184,6 +189,11 @@ export interface ProjectView {
 	/** App-created ordinary chat context, not a user project or Pal workspace. */
 	isChat?: boolean
 	/**
+	 * The folder is gone (moved, renamed or deleted). The project stays listed, without a
+	 * connection, so the person can point Namzu at the new place (`locateProject`) or remove it.
+	 */
+	missing?: true
+	/**
 	 * Present only on the answer to a pick or a trust request for a broad folder: it was
 	 * not trusted, and `token` is the one-time proof to send back to `trustProject`.
 	 */
@@ -193,13 +203,21 @@ export interface ProjectView {
 	 * run code on their own: it was not trusted, `found` names what main saw, and `token` is
 	 * the one-time proof to send back (`trustFolder` for a pending pick, else `trustProject`).
 	 */
-	riskySettings?: { found: string[]; token: string }
+	riskySettings?: {
+		found: string[]
+		/** The commands, servers or names behind some of `found`, for the dialog's Details. */
+		details?: { label: string; lines: string[] }[]
+		token: string
+	}
 	/**
 	 * The folder was trusted but its automatic settings changed since (hooks, servers, plugins,
 	 * commands…). It is treated as untrusted until the person confirms; `trust` clears this.
 	 */
 	settingsChanged?: string[]
-	/** A picked folder that is not in the app yet: only `trustFolder` adds it. */
+	/**
+	 * A picked folder that is not in the app yet: only `trustFolder` adds it. It carries either
+	 * `broadFolder` or `riskySettings`, whose token is what `trustFolder` takes.
+	 */
 	pending?: true
 }
 export interface ConversationView {
@@ -707,6 +725,13 @@ export interface DesktopApi {
 	 * the trust list. Refused while work is running. Files and conversation journals stay.
 	 */
 	removeProject?(projectId: string): Promise<ProjectRemovalResult>
+	/**
+	 * Asks for the folder a missing project moved to, in the native picker, and keeps the
+	 * project's conversations with it. Resolves null when the picker is cancelled.
+	 */
+	locateProject?(projectId: string): Promise<ProjectView | null>
+	/** Adds a just-removed folder back (`token` came from the removal); a risky or broad one still asks. */
+	restoreProject?(token: string): Promise<ProjectView>
 	openChat?(): Promise<ProjectView>
 	/** Creates a new project folder in Documents, trusted and open. */
 	createProject?(): Promise<ProjectView>

@@ -91,7 +91,7 @@ try {
 	await page.getByRole("menuitem", { name: "Use an existing folder" }).click();
 	const consent = page.getByRole("dialog", { name: "Trust this folder?" });
 	await expect(consent).toBeVisible({ timeout: T });
-	await consent.getByRole("button", { name: "Trust folder" }).click();
+	await consent.getByRole("button", { name: "Trust and open" }).click();
 	await expect(page.getByRole("textbox", { name: "Message Namzu" })).toBeVisible({ timeout: T });
 	await page.evaluate(() => localStorage.setItem("namzu.terminal.debug", "1"));
 	await page.reload();

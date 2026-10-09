@@ -536,12 +536,13 @@ flow(
 		await openSettings(w, "Projects");
 		await w.page.getByRole("button", { name: "Remove project…", exact: true }).click();
 		const dialog = removeDialog(w);
-		await expect(dialog.getByText("Remove project?")).toBeVisible({ timeout: T });
-		await expect(
-			dialog.getByText(
-				"This only removes the project from Namzu. Files on your computer and existing conversations won’t be deleted.",
-			),
-		).toBeVisible();
+		await expect(dialog.getByText("Remove \u201cproject\u201d from Namzu?")).toBeVisible({
+			timeout: T,
+		});
+		await expect(dialog).toContainText("off Namzu\u2019s trusted list");
+		await expect(dialog).toContainText(
+			"Files on your computer and existing conversations won\u2019t be deleted.",
+		);
 		await dialog.getByRole("button", { name: "Remove project", exact: true }).click();
 		await expect(w.page.getByText("No projects yet.")).toBeVisible({ timeout: T });
 		// The folder left the trust list; nothing on disk was deleted.
@@ -760,14 +761,14 @@ flow(
 		await expect(
 			w.page.getByRole("textbox", { name: "Message Namzu" }),
 		).toHaveCount(0);
-		await dialog.getByRole("button", { name: "Trust folder" }).click();
+		await dialog.getByRole("button", { name: "Trust and open" }).click();
 		// Trust takes main's token, so a second dialog lists what the folder runs, with the
 		// change first; nothing is trusted on the renderer's word alone.
-		await expect(dialog).toContainText("This folder has:", { timeout: T });
+		await expect(dialog).toContainText("start programs on their own", { timeout: T });
 		await expect(dialog.getByRole("listitem").first()).toContainText(
 			"MCP servers added",
 		);
-		await dialog.getByRole("button", { name: "Trust folder" }).click();
+		await dialog.getByRole("button", { name: "Trust and open" }).click();
 		await expect(dialog).toHaveCount(0);
 		await w.page.locator(".conversation-tab").first().click();
 		await expect(w.page.getByText("Scripted hello back.")).toBeVisible({

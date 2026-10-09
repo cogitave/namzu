@@ -104,3 +104,68 @@ it('answers the saved views of the open tabs only', async () => {
 		'saved',
 	])
 })
+
+it('keeps a project whose folder is gone, marked as missing, instead of dropping it', async () => {
+	const { owner, path, events } = await setup()
+	await rm(path, { recursive: true, force: true })
+	owner.expectProjects([path])
+	owner.settleExpectedProject(path)
+	const [listed] = owner.projectsForWindow()
+	expect(listed).toMatchObject({
+		id: 'project',
+		path,
+		status: 'error',
+		error: 'Folder not found',
+		missing: true,
+	})
+	expect(events).toContainEqual(
+		expect.objectContaining({
+			kind: 'connection',
+			project: expect.objectContaining({ id: 'project', missing: true }),
+		}),
+	)
+	// It is not a connection: projects.json must be told separately to keep it.
+	expect(owner.listProjects()).toEqual([])
+	expect(owner.missingProjectPaths()).toEqual([path])
+})
+
+it('gives a located folder the missing project\u2019s id, so its conversations come along', async () => {
+	const { owner, path } = await setup()
+	const moved = await mkdtemp(join(tmpdir(), 'namzu-expected-moved-'))
+	directories.push(moved)
+	await rm(path, { recursive: true, force: true })
+	owner.expectProjects([path])
+	owner.settleExpectedProject(path)
+	owner.expectRelocation(moved, 'project')
+	const opened = await owner.openProject(moved)
+	expect(opened.id).toBe('project')
+	expect(opened.missing).toBeUndefined()
+	// The row is now the connection, not the missing placeholder.
+	expect(owner.projectsForWindow().filter((item) => item.id === 'project')).toHaveLength(1)
+	expect(owner.missingProjectPaths()).toEqual([])
+})
+
+it('ignores a relocation for a project that is not missing', async () => {
+	const { owner, path } = await setup()
+	const other = await mkdtemp(join(tmpdir(), 'namzu-expected-other-'))
+	directories.push(other)
+	owner.expectRelocation(other, 'project')
+	expect((await owner.openProject(other)).id).not.toBe('project')
+	expect(path).toBeTruthy()
+})
+
+it('removes a missing project without a connection, forgetting its saved conversations', async () => {
+	const { owner, path, events } = await setup()
+	await rm(path, { recursive: true, force: true })
+	owner.expectProjects([path])
+	owner.settleExpectedProject(path)
+	const result = await owner.removeProject('project')
+	expect(result).toMatchObject({
+		projectId: 'project',
+		sessionIds: ['saved'],
+		trust: { state: 'not-connected' },
+	})
+	expect(owner.projectsForWindow()).toEqual([])
+	expect(owner.savedConversationViews(['saved'])).toEqual([])
+	expect(events).toContainEqual(expect.objectContaining({ kind: 'project-removed' }))
+})

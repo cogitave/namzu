@@ -158,30 +158,32 @@ describe('FolderAccess', () => {
 		expect(project.broadFolder).toBeUndefined()
 		expect(trusted).toEqual(['p0'])
 	})
-	it('does not trust a broad pick and hands back a token', async () => {
-		const { access, trusted } = setup()
-		const project = await access.picked('w1', 'C:\\')
-		expect(project.trusted).toBe(false)
-		expect(project.broadFolder).toEqual({ kind: 'drive', token: 'tok1' })
+	it('holds a broad pick outside the app until its token is redeemed', async () => {
+		const { access, known, trusted } = setup()
+		const pending = await access.picked('w1', 'C:\\')
+		expect(pending).toMatchObject({
+			id: 'pending-folder',
+			pending: true,
+			trusted: false,
+			broadFolder: { kind: 'drive', token: 'tok1' },
+		})
+		// Nothing joined the app: no row to show behind the dialog, nothing to clean up on cancel.
+		expect(known.size).toBe(0)
 		expect(trusted).toEqual([])
-		const done = await access.confirm('w1', project.id, project.broadFolder?.token)
+		const done = await access.admit('w1', pending.broadFolder?.token)
 		expect(done.trusted).toBe(true)
 		expect(trusted).toEqual(['p0'])
 	})
-	it('refuses reuse, another window, another folder and expiry', async () => {
-		const { access, trusted, advance } = setup()
+	it('refuses reuse, another window and expiry of a broad pick, and adds nothing', async () => {
+		const { access, known, trusted, advance } = setup()
 		const home = await access.picked('w1', 'C:\\Users\\arda')
 		const token = home.broadFolder?.token
-		await expect(access.confirm('w2', home.id, token)).rejects.toThrow(/expired/)
-		await expect(access.confirm('w1', home.id, token)).rejects.toThrow(/expired/)
+		await expect(access.admit('w2', token)).rejects.toThrow(/expired/)
+		await expect(access.admit('w1', token)).rejects.toThrow(/expired/)
 		const again = await access.picked('w1', 'C:\\Users\\arda')
 		advance(5 * 60_000 + 1)
-		await expect(access.confirm('w1', again.id, again.broadFolder?.token)).rejects.toThrow(
-			/expired/,
-		)
-		const a = await access.picked('w1', 'C:\\Windows')
-		const b = await access.picked('w1', 'C:\\')
-		await expect(access.confirm('w1', b.id, a.broadFolder?.token)).rejects.toThrow(/expired/)
+		await expect(access.admit('w1', again.broadFolder?.token)).rejects.toThrow(/expired/)
+		expect(known.size).toBe(0)
 		expect(trusted).toEqual([])
 	})
 	it('never gives an ordinary folder a token flow', async () => {
@@ -247,11 +249,14 @@ describe('FolderAccess for a folder whose settings changed', () => {
 				trusted.push(id)
 				return { ...(views.get(id) as ProjectView), trusted: true }
 			},
-			findSettings: async () => ['hooks'],
+			findSettings: async () => [{ label: 'hooks', lines: ['pre tool use: ./check.sh'] }],
 		})
 		const asked = await access.confirm('w', 'a')
 		expect(asked.trusted).toBe(false)
 		expect(asked.riskySettings?.found).toEqual(['hooks changed', 'hooks'])
+		expect(asked.riskySettings?.details).toEqual([
+			{ label: 'hooks', lines: ['pre tool use: ./check.sh'] },
+		])
 		expect(trusted).toEqual([])
 		expect((await access.confirm('w', 'a', asked.riskySettings?.token)).trusted).toBe(true)
 		expect((await access.confirm('w', 'b')).broadFolder?.kind).toBe('home')

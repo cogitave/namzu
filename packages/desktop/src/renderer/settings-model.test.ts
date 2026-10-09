@@ -111,20 +111,30 @@ describe('projects', () => {
 		expect(projectTrustText(project({ status: 'error' }))).toBe('Needs reconnecting')
 	})
 
-	it('words the confirmation exactly as the spec does', () => {
-		expect(projectRemovalCopy({ name: 'App' })).toEqual({
-			title: 'Remove App?',
-			description:
-				'This only removes the project from Namzu. Files on your computer and existing conversations won’t be deleted.',
-			actionLabel: 'Remove project',
-			pendingLabel: 'Removing…',
-		})
+	it('names the project and says trust goes with it', () => {
+		const copy = projectRemovalCopy({ name: 'App' })
+		expect(copy.title).toBe('Remove \u201cApp\u201d from Namzu?')
+		expect(copy.description).toContain('\u201cApp\u201d')
+		expect(copy.description).toContain('off Namzu\u2019s trusted list')
+		expect(copy.description).toContain('asks again if you add it back')
+		expect(copy.description).toContain(
+			'Files on your computer and existing conversations won\u2019t be deleted',
+		)
+		expect([copy.actionLabel, copy.pendingLabel]).toEqual(['Remove project', 'Removing\u2026'])
+	})
+
+	it('words a missing folder without promising a trust change', () => {
+		const copy = projectRemovalCopy({ name: 'App', missing: true })
+		expect(copy.description).toContain('can\u2019t find the folder')
+		expect(copy.description).not.toContain('trusted list')
 	})
 
 	it('is honest about a folder that stays trusted', () => {
-		expect(removalNotice('App', { state: 'removed' })).toBe('Removed App.')
+		expect(removalNotice('App', { state: 'removed' })).toBe(
+			'Removed \u201cApp\u201d. Namzu no longer trusts the folder.',
+		)
 		expect(removalNotice('App', { state: 'still-trusted', by: '/home/me' })).toBe(
-			'Removed App. The folder is still trusted through /home/me.',
+			'Removed \u201cApp\u201d. The folder is still trusted through /home/me.',
 		)
 		expect(removalNotice('App', { state: 'still-trusted', by: '' })).toContain('a parent folder')
 		expect(removalNotice('App', { state: 'not-connected' })).toContain('wasn’t connected')

@@ -49,6 +49,8 @@ export function createWorkspacePaneApi(
 		deletePal,
 		removeConversation,
 		removeProject,
+		locateProject,
+		restoreProject,
 		setSettings,
 		localSpeechUninstall,
 		renameConversation,
@@ -275,6 +277,20 @@ export function createWorkspacePaneApi(
 							global: true,
 							serializeOwner: `remove-project:${id}`,
 						}),
+				}
+			: {}),
+		...(locateProject
+			? {
+					locateProject: (id) =>
+						invoke(() => locateProject(id), [], {
+							global: true,
+							serializeOwner: `remove-project:${id}`,
+						}),
+				}
+			: {}),
+		...(restoreProject
+			? {
+					restoreProject: (token) => invoke(() => restoreProject(token), [], { global: true }),
 				}
 			: {}),
 		...(updatePalPermission

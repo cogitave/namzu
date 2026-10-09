@@ -61,7 +61,7 @@ import {
 } from './engine-updates-system.js'
 import { EngineUpdates } from './engine-updates.js'
 import { externalSourceUrl } from './external-url.js'
-import { canonicalFolder } from './folder-access.js'
+import { FolderAccessTokens, canonicalFolder } from './folder-access.js'
 import { FolderAccess } from './folder-access.js'
 import { humanComputer } from './host-computer.js'
 import { electronLinkPreviewNetwork } from './link-preview-electron.js'
@@ -73,6 +73,7 @@ import { OpenIn, systemOpenInHost } from './open-in.js'
 import { Operator } from './operator.js'
 import { PalStreamProxy } from './pal-stream-proxy.js'
 import { projectDraftOwner } from './project-draft-owner.js'
+import { setFileSortLocale } from './project-files.js'
 import { selectRendererPage } from './renderer-page.js'
 import { desktopRuntimeNodeArgs, desktopRuntimeNodeFlags } from './runtime-node-args.js'
 import { readRuntimeVersions } from './runtime-versions.js'
@@ -345,7 +346,9 @@ function saveProjects(): void {
 			operator
 				.listProjects()
 				.filter((project) => !project.palId)
-				.map((project) => project.path),
+				.map((project) => project.path)
+				// A folder that is gone stays listed (Locate or Remove), so it must come back next launch.
+				.concat(operator.missingProjectPaths()),
 		),
 		{ mode: 0o600 },
 	)
@@ -533,6 +536,8 @@ function register(): void {
 	const globalWrites = new Set([
 		'setSettings',
 		'removeProject',
+		'locateProject',
+		'restoreProject',
 		'localSpeechUninstall',
 		'localSpeechConfigure',
 		'localSpeechInstall',
@@ -879,7 +884,11 @@ function register(): void {
 	)
 	handle('deletePal', (id: string, revision: number) => operator.deletePal(id, revision))
 	handle('removeConversation', (id: string) => operator.removeConversation(id))
-	handle('removeProject', async (id: string) => {
+	// A removal can be taken back for a few minutes. The proof is main's own, bound to this
+	// window and the exact folder, and it goes through the same pick checks as a new folder.
+	const readdTokens = new FolderAccessTokens()
+	handleWindow('removeProject', async ({ id: windowId }, id: string) => {
+		const before = operator.listProjects().find((item) => item.id === id)
 		const result = await operator.removeProject(id)
 		// projects.json is read again at startup; a stale path would bring the project back.
 		try {
@@ -887,7 +896,17 @@ function register(): void {
 		} catch (error) {
 			diagnostics.record('ipc_failed', { operation: 'removeProject', error })
 		}
-		return result
+		return before?.trusted
+			? { ...result, readdToken: readdTokens.issue(windowId, canonicalFolder(before.path)) }
+			: result
+	})
+	handleWindow('restoreProject', async ({ id: windowId }, token: string) => {
+		const path = readdTokens.take(token, windowId)
+		if (!path)
+			throw new Error('Adding it back expired. Use Add new project to choose the folder again.')
+		const project = await folderAccess.picked(windowId, path)
+		saveProjects()
+		return project
 	})
 	handle('renameConversation', (id: string, title: string) =>
 		operator.renameConversation(id, title),
@@ -957,6 +976,22 @@ function register(): void {
 		if (picked.canceled || !picked.filePaths[0]) return null
 		// The native picker is the only consent a normal folder needs; main records it here.
 		const project = await folderAccess.picked(windowId, picked.filePaths[0])
+		saveProjects()
+		return project
+	})
+	handleWindow('locateProject', async ({ id: windowId, window }, id: string) => {
+		if (!window) return null
+		const missing = operator.missingProject(id)
+		if (!missing) throw new Error('This project is no longer waiting for its folder.')
+		const picked = await dialog.showOpenDialog(window, {
+			title: `Find the folder for \u201c${missing.name}\u201d`,
+			properties: ['openDirectory'],
+		})
+		if (picked.canceled || !picked.filePaths[0]) return null
+		// The conversations stay with the project: the new folder takes over its id when it connects.
+		operator.expectRelocation(canonicalFolder(picked.filePaths[0]), id)
+		const project = await folderAccess.picked(windowId, picked.filePaths[0])
+		if (project.id !== id && !project.pending) await operator.forgetMissingProject(id)
 		saveProjects()
 		return project
 	})
@@ -1476,6 +1511,7 @@ app.on('before-quit', (event) => {
 void app
 	.whenReady()
 	.then(async () => {
+		setFileSortLocale(app.getLocale())
 		const streamPort = await streamProxy.start()
 		page = withStreamRendererPort(page, streamPort)
 		streamProxy.allowRenderer(page)
