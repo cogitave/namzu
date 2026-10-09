@@ -167,10 +167,12 @@
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
+	/* When the title and the controls do not fit one line, the controls drop to a line of their own. */
+	flex-wrap: wrap;
 	min-height: 28px;
 	flex: none;
 	padding: 0 4px;
-	gap: 8px;
+	gap: 2px 8px;
 	color: var(--muted-foreground);
 	font-size: 12px;
 	line-height: 18px;
@@ -212,6 +214,7 @@
 	display: flex;
 	align-items: center;
 	gap: 8px;
+	flex: 1 1 auto;
 	min-width: 0;
 }
 .model-picker-provider-label {
@@ -223,14 +226,21 @@
 	color: var(--foreground);
 	font-size: 11px;
 }
+/* The title gives way before anything else: it is cut with an ellipsis, never drawn under a control. */
 .model-picker-heading-copy .model-picker-title {
-	flex: none;
+	flex: 0 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
+/* The engine chip, the switch and the search button keep their size and their place at the end. */
 .model-picker-heading-actions {
 	display: flex;
 	align-items: center;
 	flex: none;
 	gap: 2px;
+	margin-inline-start: auto;
 }
 .model-search {
 	display: flex;

@@ -47,6 +47,10 @@ as an ended session) and writes dark and light screenshots to `research/terminal
 app (`scripts/stage-installer.mjs`), Electron's Windows build, `@playwright/test` and this folder's `fake-model.mjs`,
 `redirect-fetch.cjs` and a `cli-entry.mjs` pointing at the staged CLI. It uses a temp profile under a path with a space.
 
+## Model popup header
+
+`model-header.test.mjs` opens the model popup on the Namzu engine (wordmark chip) and on Codex, in both themes at window widths 900, 1100, 1280 and 1440 and 100, 125 and 150% zoom, and measures every header part with `getBoundingClientRect`: none may overlap or leave the header, and the chip, switch and search button are never squeezed. Pictures go to `research/model-header-20261009/`.
+
 ## External engines
 
 `engines.test.mjs` puts a stand-in `codex` on `PATH` that speaks the app-server protocol and records every process it is
