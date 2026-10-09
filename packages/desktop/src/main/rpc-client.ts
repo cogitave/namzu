@@ -110,7 +110,13 @@ export class RuntimeClient extends EventEmitter {
 		return this.promptAttachments
 	}
 	private child?: ChildProcessWithoutNullStreams
-	private buffer = ''
+	/**
+	 * The unfinished last line, kept as the chunks it arrived in. Joining them only when its newline
+	 * arrives matters: searching a concatenated buffer flattens it on every chunk, which is quadratic
+	 * in the frame size (a frame carrying a 3 MiB image arrives in about eighty chunks).
+	 */
+	private partial: string[] = []
+	private partialLength = 0
 	private sequence = 0
 	private diagnostic = ''
 	private stderrBuffer = ''
@@ -333,16 +339,18 @@ export class RuntimeClient extends EventEmitter {
 	}
 	private consume(text: string): void {
 		if (this.closed) return
-		this.buffer += text
-		if (this.buffer.length > MAX_FRAME) {
+		if (this.partialLength + text.length > MAX_FRAME) {
 			this.fail(new Error('Namzu returned an oversized protocol frame.'))
 			this.close()
 			return
 		}
-		let newline = this.buffer.indexOf('\n')
+		let rest = text
+		let newline = rest.indexOf('\n')
 		while (newline !== -1) {
-			const line = this.buffer.slice(0, newline).trim()
-			this.buffer = this.buffer.slice(newline + 1)
+			const line = (this.partial.join('') + rest.slice(0, newline)).trim()
+			this.partial = []
+			this.partialLength = 0
+			rest = rest.slice(newline + 1)
 			try {
 				if (line) {
 					const frame = JSON.parse(line) as Record<string, unknown>
@@ -400,7 +408,11 @@ export class RuntimeClient extends EventEmitter {
 				this.close()
 				return
 			}
-			newline = this.buffer.indexOf('\n')
+			newline = rest.indexOf('\n')
+		}
+		if (rest) {
+			this.partial.push(rest)
+			this.partialLength += rest.length
 		}
 	}
 	private fail(error: Error, expected = false): void {

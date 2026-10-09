@@ -102,7 +102,13 @@ it('bounds live previews across owners and strips every copy of a retried image 
 	owner.respondPermission(first.id, retryRequest.id, { outcome: 'approve' })
 	await retryEnded
 
-	for (let index = 0; index < 7; index += 1) {
+	// Each admitted image keeps one preview of the same encoded size, and the original is held twice
+	// (the cancelled attempt and the retry). Fill the budget past its limit with the least that
+	// does it, plus one image to spare, so the oldest copies are retired by the bound itself.
+	const previewSize = Buffer.byteLength(`data:image/png;base64,${originalData}`)
+	const referencesToOverflow = Math.floor(MAX_MESSAGE_PREVIEW_BYTES / previewSize) + 1
+	const laterImages = referencesToOverflow - 2 + 1
+	for (let index = 0; index < laterImages; index += 1) {
 		const sessionId = index % 2 === 0 ? second.id : first.id
 		const bytes = image(index + 2)
 		const files = owner.addAttachments(sessionId, [{ name: `image-${index}.png`, bytes }])
@@ -197,7 +203,9 @@ it('bounds live previews across owners and strips every copy of a retried image 
 	owner.respondPermission(first.id, queuedRequest.id, { outcome: 'approve' })
 	await queuedEnded
 	expect(owner.attachments(first.id)).toEqual([])
-})
+	// A real runtime subprocess and megabyte-sized frames over its pipes: process and pipe I/O, which a
+	// loaded runner stretches past the 5 s default.
+}, 30_000)
 
 it('commits budget evictions before a renderer publication callback can throw', async () => {
 	let throwOnPrompt = false
@@ -234,4 +242,6 @@ it('commits budget evictions before a renderer publication callback can throw', 
 	if (!thread) throw new Error('Missing owned projection')
 	expect(previewBytes(thread)).toBeLessThanOrEqual(MAX_MESSAGE_PREVIEW_BYTES)
 	expect(thread.messages.some((message) => message.text === 'Publication failure')).toBe(true)
-})
+	// A real runtime subprocess and megabyte-sized frames over its pipes: process and pipe I/O, which a
+	// loaded runner stretches past the 5 s default.
+}, 30_000)

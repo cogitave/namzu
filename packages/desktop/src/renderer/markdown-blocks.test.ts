@@ -215,9 +215,16 @@ describe('rendering the blocks equals rendering the whole text', () => {
 		'    ~~~\nfence with ``` inside\n\n~~~',
 		'',
 	]
-	it('holds for generated documents, and the pieces always concatenate to the input', () => {
+	// The 800 documents of one fixed-seed sequence, generated in order and then dealt out in
+	// consecutive chunks, so the chunks together are exactly that sequence. Every document is both
+	// split-checked and render-compared; the chunks keep each test far below the time limit of a
+	// loaded CI runner, where rendering (about 1.7 ms a pass, twice per document) is the cost.
+	const DOCUMENTS = 800
+	const CHUNKS = 8
+	const documents: string[] = []
+	{
 		const next = random(20261007)
-		for (let round = 0; round < 800; round++) {
+		for (let round = 0; round < DOCUMENTS; round++) {
 			const count = 1 + Math.floor(next() * 7)
 			let text = ''
 			for (let index = 0; index < count; index++) {
@@ -226,9 +233,15 @@ describe('rendering the blocks equals rendering the whole text', () => {
 			}
 			if (next() < 0.25) text = text.replace(/\n/g, '\r\n')
 			// A stream stops anywhere; every prefix of a document is a state the reader can see.
-			const cut = next() < 0.5 ? text : text.slice(0, Math.floor(next() * text.length))
-			expect(splitMarkdownBlocks(cut).join('')).toBe(cut)
-			expect(html(cut, true), JSON.stringify(cut)).toBe(html(cut, false))
+			documents.push(next() < 0.5 ? text : text.slice(0, Math.floor(next() * text.length)))
 		}
-	})
+	}
+	const size = DOCUMENTS / CHUNKS
+	for (let chunk = 0; chunk < CHUNKS; chunk++)
+		it(`holds for generated documents ${chunk * size} to ${(chunk + 1) * size - 1}, and the pieces always concatenate to the input`, () => {
+			for (const cut of documents.slice(chunk * size, (chunk + 1) * size)) {
+				expect(splitMarkdownBlocks(cut).join('')).toBe(cut)
+				expect(html(cut, true), JSON.stringify(cut)).toBe(html(cut, false))
+			}
+		})
 })

@@ -71,9 +71,24 @@ describe.skipIf(!pty || process.platform === 'win32')('host terminals over the r
 			while (!done()) await new Promise<void>((resolve) => waiting.push(resolve))
 		}
 
-		const first = await terminals.attach(info.id, 'main', { writer: true })
-		printed = first.data
+		// The shell starts printing as soon as it is created, so the prompt may already be past by the
+		// time this view attaches. A snapshot attach carries that earlier output in `screen`, not in
+		// `data`, so read it as a replay from the start: `data` is then every byte so far. Output that
+		// arrived while the attach was in flight was emitted already and lies beyond `end`, so the
+		// replay goes in front of it rather than over it.
+		const first = await terminals.attach(info.id, 'main', { writer: true, fromOffset: 0 })
+		expect(first.mode).toBe('replay')
+		printed = first.data + printed
 		await until(() => printed.includes('ready> '))
+
+		// The other attach path: a snapshot, taken now that the prompt has been printed, resets the
+		// viewer and writes `screen`, then `data`. The host's emulator may not yet have parsed the
+		// newest bytes, so the prompt is in `screen` or, if it is still unparsed, at the start of
+		// `data`; the viewer sees it either way, and nothing before `start` is left out.
+		const snapshot = await terminals.attach(info.id, 'snapshot')
+		expect(snapshot.mode).toBe('snapshot')
+		expect(snapshot.screen + snapshot.data).toContain('ready> ')
+
 		await terminals.write(info.id, 'main', 'echo from-the-desktop-$((6*7)); stty size\r')
 		await until(() => printed.includes('from-the-desktop-42') && printed.includes('20 90'))
 

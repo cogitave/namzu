@@ -68,4 +68,6 @@ it('serves valid exact dev websocket sources while preserving the production pol
 	} finally {
 		await server.close()
 	}
-})
+	// Starts a real Vite server on a real socket and transforms index.html over HTTP, so its time is
+	// server start-up and socket I/O, which a loaded CI runner stretches to several seconds.
+}, 30_000)
