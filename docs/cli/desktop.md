@@ -2584,21 +2584,25 @@ no one-click ×, so nothing starts a removal by a stray click. Each conversation
 under its project, and **Recents** holds only the conversations a project's list is not showing (a
 collapsed project, or the ones behind *Show more*), each with its project's name beside the title; Recents
 is hidden when nothing is left for it. Opening a conversation from Recents does not expand its project.
-**Folding the sections.** The **Pals**, **Projects** and **Recents** headings are buttons that fold their
-list at any count (Pals used to fold only past three). The heading keeps its look; a small chevron shows
-while the pointer or keyboard focus is on it and stays visible while the section is folded. Enter and
-Space toggle it, and the **+** beside Projects is its own button that opens the Add new project menu
-without folding anything. The body is hidden, not removed, so folding never closes a tab or changes
-the open conversation. A folded heading shows a small dot with a tooltip when something inside needs the
-person: "1 Pal has a new message" (the open Pal does not count), or "A conversation is waiting for
-you" / "A conversation is running" (a conversation waiting on an approval counts first). While the Pals
-list loads the heading is there and the body shows a quiet placeholder row. Main keeps which sections
-are folded, so a restart brings them back: the renderer reads `sidebarCollapsed()` at startup and
-tells main with `setSidebarSectionCollapsed(id, collapsed)` (`pals`, `projects` or `recents`); main
-stores them as `collapsedSections` in `desktop-conversations.json`, and a missing or invalid value, or an
-unknown name, reads as open without costing the rest of the file. `e2e/sidebar-sections.test.mjs`
-folds each section (Pals with none and with one Pal), checks the + and the keyboard, sees the dot for a
-Pal message while folded, and restarts to see the sections still folded.
+**Folding the sections.** **Projects** has a foldable heading, and **Pals** has one only when there are more
+than three Pals. Up to three Pals there is no heading, group or chevron: the Pal rows and the
+"Create your first Pal" / "New Pal" row sit directly under **New conversation**, and so do the loading
+placeholder and the "Couldn’t load your Pals." message with Retry. From the fourth Pal on, the rows sit under a
+foldable **Pals** group. **Recents** keeps a plain heading and never folds. A foldable heading is a button: a
+small chevron shows while the pointer or keyboard focus is on it and stays visible while the section is
+folded (the Pals group always shows it). Enter and Space toggle it, and the **+** beside Projects is its own
+button that opens the Add new project menu without folding anything. The body is hidden, not removed, so
+folding never closes a tab or changes the open conversation. A folded heading shows a small dot with a
+tooltip when something inside needs the person: "1 Pal has a new message" (the open Pal does not count), or
+"A conversation is waiting for you" / "A conversation is running" (a conversation waiting on an approval
+counts first). Main keeps which sections are folded, so a restart brings them back: the renderer reads
+`sidebarCollapsed()` at startup and tells main with `setSidebarSectionCollapsed(id, collapsed)` (`pals` or
+`projects`); main stores them as `collapsedSections` in `desktop-conversations.json`. A missing or invalid
+value, an unknown name, or the `recents` value an earlier build saved reads as open without costing the rest
+of the file, and a saved `pals` only applies while the group exists (more than three Pals).
+`e2e/sidebar-sections.test.mjs` checks 0, 1 and 3 Pals have no heading, four make a group that folds, shows
+the dot for a Pal message while folded and stays folded after a restart, Projects folds from the keyboard
+with its + separate, and Recents has no toggle.
 Clicking a project row reuses the project's untouched "New conversation" (also after a restart) instead of
 adding another empty tab. **Archived conversations** is a row at the bottom of the sidebar (and in the
 palette and the project menu): one dialog for every project, grouped by project, newest first, with

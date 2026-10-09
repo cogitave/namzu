@@ -3,7 +3,7 @@ import { collapsedSectionsFrom, isSidebarSection } from './sidebar-sections.js'
 
 describe('collapsedSectionsFrom', () => {
 	it('keeps known sections once each, in the sidebar order', () => {
-		expect(collapsedSectionsFrom(['recents', 'pals', 'recents'])).toEqual(['pals', 'recents'])
+		expect(collapsedSectionsFrom(['projects', 'pals', 'projects'])).toEqual(['pals', 'projects'])
 		expect(collapsedSectionsFrom(['projects'])).toEqual(['projects'])
 	})
 	it('reads a missing or invalid value as nothing folded', () => {
@@ -15,8 +15,10 @@ describe('collapsedSectionsFrom', () => {
 	})
 })
 
-it('recognises only the three sections', () => {
-	expect(['pals', 'projects', 'recents'].every(isSidebarSection)).toBe(true)
+it('recognises only the two foldable sections; Recents no longer folds', () => {
+	expect(['pals', 'projects'].every(isSidebarSection)).toBe(true)
+	expect(isSidebarSection('recents')).toBe(false)
+	expect(collapsedSectionsFrom(['recents'])).toEqual([])
 	expect(isSidebarSection('archive')).toBe(false)
 	expect(isSidebarSection(undefined)).toBe(false)
 })

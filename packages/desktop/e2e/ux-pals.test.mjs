@@ -79,11 +79,11 @@ test(
 			await customize.getByRole("textbox", { name: "Pal name" }).fill("Işık");
 			await customize.getByRole("textbox", { name: "Pal name" }).press("Enter");
 
-			// The Pal opens; no empty "New conversation" tab is left beside it; the sidebar has a heading.
+			// The Pal opens; no empty "New conversation" tab is left beside it; the sidebar adds no Pals heading.
 			const palTab = page.getByRole("tab", { name: "Işık" });
 			await expect(palTab).toBeVisible({ timeout: 60000 });
 			await expect(page.getByRole("tab", { name: /New conversation/ })).toHaveCount(0);
-			await expect(page.getByRole("heading", { name: "Pals", exact: true })).toBeVisible();
+			await expect(page.getByRole("heading", { name: "Pals", exact: true })).toHaveCount(0);
 			await expect(palTab.locator(".pal-character")).toHaveCount(1);
 			await expect(page.getByText("Ready to chat")).toBeVisible();
 			await shot(world, "03-pal-opened-1440");

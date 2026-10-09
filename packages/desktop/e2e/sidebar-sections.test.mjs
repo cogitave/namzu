@@ -1,9 +1,10 @@
-// The sidebar's Pals, Projects and Recents headings fold at any count, remember it across a
-// restart, keep the Projects + a separate button, toggle from the keyboard, and show a dot while
-// folded when something inside needs the person. Scripted model, no paid call, no owner data.
+// Up to three Pals have no heading and sit directly under "New conversation"; four make a foldable
+// "Pals" group that remembers its state across a restart and shows a dot while folded when a Pal
+// has a message. Projects folds (its + is a separate button); Recents never folds.
+// Scripted model, no paid call, no owner data.
 // Run: pnpm --filter @namzu/desktop build && xvfb-run -a node --test --test-concurrency=1 e2e/sidebar-sections.test.mjs
 import assert from "node:assert/strict";
-import { mkdirSync, readdirSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import {
@@ -18,13 +19,14 @@ import {
 } from "./harness.mjs";
 
 const T = 60000;
-const SHOTS = join(repoRoot, "research/sidebar-sections-20261009");
+const SHOTS = join(repoRoot, "research/sidebar-sections-20261009b");
 mkdirSync(SHOTS, { recursive: true });
 
 const section = (w, label) => w.page.locator(`[data-sidebar-section="${label}"]`);
 const toggle = (w, label) => section(w, label).locator(".sidebar-section-toggle");
 const folded = (w, label) => expect(toggle(w, label)).toHaveAttribute("aria-expanded", "false");
 const open = (w, label) => expect(toggle(w, label)).toHaveAttribute("aria-expanded", "true");
+const palRows = (w) => w.page.locator(".sidebar-pals .sidebar-pal-row:not(.sidebar-pal-create)");
 
 async function theme(w, mode) {
 	await w.page.evaluate((value) => {
@@ -34,7 +36,7 @@ async function theme(w, mode) {
 	if (mode === "dark") await expect(w.page.locator("html")).toHaveClass(/dark/);
 	else await expect(w.page.locator("html")).not.toHaveClass(/dark/);
 }
-/** Both themes of the sidebar column at the default 1280 px window. */
+/** Both themes of the window at the default 1280 px width. */
 async function shoot(w, name) {
 	for (const mode of ["dark", "light"]) {
 		await theme(w, mode);
@@ -43,8 +45,36 @@ async function shoot(w, name) {
 	await theme(w, "dark");
 }
 
-test("the sidebar sections fold, remember it, and flag what needs attention", {
-	timeout: 400000,
+/** Makes Pals through the app's own create call, then restarts so the sidebar reads the list. */
+async function addPals(w, names) {
+	for (const name of names)
+		await w.page.evaluate((value) => window.namzu.createPal({ name: value }), name);
+	await relaunch(w);
+	await expect(w.page.getByRole("button", { name: "New conversation" }).first()).toBeVisible({
+		timeout: T,
+	});
+}
+/** No "Pals" heading, group, toggle or chevron; the rows sit between New conversation and Projects. */
+async function noPalsGroup(w, count) {
+	await expect(palRows(w)).toHaveCount(count, { timeout: T });
+	await expect(section(w, "Pals")).toHaveCount(0);
+	await expect(w.page.locator(".sidebar-pals .sidebar-section-toggle")).toHaveCount(0);
+	await expect(w.page.locator(".sidebar-pals h2")).toHaveCount(0);
+	await expect(w.page.getByRole("heading", { name: "Pals", exact: true })).toHaveCount(0);
+	const order = await w.page.evaluate(() => {
+		const y = (el) => el.getBoundingClientRect().top;
+		const nc = [...document.querySelectorAll("button")].find((b) =>
+			b.textContent?.includes("New conversation"),
+		);
+		const first = document.querySelector(".sidebar-pals .sidebar-pal-row");
+		const projects = document.querySelector('[data-sidebar-section="Projects"]');
+		return { nc: y(nc), first: y(first), projects: y(projects) };
+	});
+	assert.ok(order.nc < order.first && order.first < order.projects, JSON.stringify(order));
+}
+
+test("Pals have no group up to three, a foldable one at four, and Recents never folds", {
+	timeout: 600000,
 }, async () => {
 	const rules = [];
 	const w = await createWorld({ rules });
@@ -52,31 +82,21 @@ test("the sidebar sections fold, remember it, and flag what needs attention", {
 	try {
 		await launch(w);
 		const page = w.page;
-		await expect(toggle(w, "Pals")).toBeVisible({ timeout: T });
+		await expect(section(w, "Projects")).toBeVisible({ timeout: T });
 
-		// No Pals yet: the heading still folds and takes the "Create your first Pal" row with it.
-		const create = page.getByRole("button", { name: "Create your first Pal" });
-		await expect(create).toBeVisible();
-		await open(w, "Pals");
-		await shoot(w, "1-expanded-no-pals");
-		await toggle(w, "Pals").click();
-		await folded(w, "Pals");
-		await expect(create).toBeHidden();
-		await shoot(w, "2-pals-collapsed-no-pals");
-		await toggle(w, "Pals").click();
-		await open(w, "Pals");
-		await expect(create).toBeVisible();
+		// 0 Pals: the create row sits directly under New conversation, with no heading.
+		await expect(page.getByRole("button", { name: "Create your first Pal" })).toBeVisible();
+		await noPalsGroup(w, 0);
+		await shoot(w, "0-pals");
 
-		// The + belongs to the Projects heading but is its own button: it opens the menu and
-		// leaves the section as it was.
+		// The + belongs to the Projects heading but is its own button.
 		await section(w, "Projects").locator(".sidebar-add-project").click();
 		await expect(page.getByRole("menuitem", { name: "Use an existing folder" })).toBeVisible();
 		await open(w, "Projects");
 		await page.keyboard.press("Escape");
 		await expect(page.getByRole("menuitem", { name: "Use an existing folder" })).toBeHidden();
 		await open(w, "Projects");
-
-		// Enter and Space both toggle.
+		// Enter and Space both fold Projects.
 		await toggle(w, "Projects").focus();
 		await page.keyboard.press("Enter");
 		await folded(w, "Projects");
@@ -85,11 +105,7 @@ test("the sidebar sections fold, remember it, and flag what needs attention", {
 
 		await openProject(w);
 
-		// One Pal: still foldable (it used to need more than three).
-		await toggle(w, "Pals").click();
-		await folded(w, "Pals");
-		await toggle(w, "Pals").click();
-		await open(w, "Pals");
+		// 1 Pal, made through the app's own screens: still no group.
 		await page.getByRole("button", { name: "Create your first Pal" }).click();
 		const name = page.getByRole("textbox", { name: "Pal name" });
 		await expect(async () => {
@@ -101,18 +117,27 @@ test("the sidebar sections fold, remember it, and flag what needs attention", {
 		await name.press("Enter");
 		await expect(page.getByRole("tab", { name: "Işık" })).toBeVisible({ timeout: T });
 		await expect(page.getByText("Ready to chat")).toBeVisible({ timeout: T });
+		await noPalsGroup(w, 1);
+		await shoot(w, "1-pal");
+
+		// 3 Pals: still no group.
+		await addPals(w, ["Bora", "Deniz"]);
+		await noPalsGroup(w, 3);
+		await shoot(w, "3-pals");
+
+		// 4 Pals: the foldable group appears, folds without closing a tab, and shows a dot.
+		await addPals(w, ["Ece"]);
+		await open(w, "Pals");
+		await expect(palRows(w)).toHaveCount(4);
+		await shoot(w, "4-pals");
 		const palRow = section(w, "Pals").locator(".sidebar-pal-row", { hasText: "Işık" });
-		await expect(palRow).toBeVisible();
-		await shoot(w, "3-expanded-one-pal");
 		await toggle(w, "Pals").click();
 		await folded(w, "Pals");
 		await expect(palRow).toBeHidden();
-		// Folding closes no tab and changes no conversation.
-		await expect(page.getByRole("tab", { name: "Işık" })).toBeVisible();
-		await shoot(w, "4-pals-collapsed-one-pal");
+		await shoot(w, "4-pals-folded");
 
-		// A message to the Pal while the heading is folded puts a dot on the heading.
-		const palId = readdirSync(join(w.home, "pals"))[0];
+		// A message to the Pal while the group is folded puts a dot on its heading.
+		const palId = (await w.page.evaluate(() => window.namzu.pals())).find((p) => p.name === "Işık").id;
 		rules.push({
 			match: /ask the pal/i,
 			steps: [
@@ -120,32 +145,30 @@ test("the sidebar sections fold, remember it, and flag what needs attention", {
 				{ text: "I sent your Pal the request." },
 			],
 		});
-		await page.getByRole("button", { name: "New conversation" }).first().click();
+		await w.page.getByRole("button", { name: "New conversation" }).first().click();
 		await send(w, "Ask the Pal to summarise the README");
-		const approval = page.getByRole("region", { name: "Tool approval" });
+		const approval = w.page.getByRole("region", { name: "Tool approval" });
 		await expect(approval).toBeVisible({ timeout: T });
 		await approval.getByRole("button", { name: /Accept/ }).click();
 		const dot = section(w, "Pals").locator("[data-attention]");
 		await expect(dot).toHaveCount(1, { timeout: T });
 		await expect(dot).toHaveAttribute("title", "1 Pal has a new message");
-		await expect(palRow).toBeHidden();
-		await shoot(w, "5-pals-collapsed-with-dot");
 
-		// Folding the project's own list sends its conversation to Recents, which folds too.
-		await page
+		// Recents has a plain heading: no toggle, no chevron, and it is not a foldable section.
+		await w.page
 			.getByRole("button", { name: /^Collapse .* conversations$/ })
 			.first()
 			.click();
-		await expect(toggle(w, "Recents")).toBeVisible({ timeout: T });
-		await open(w, "Recents");
-		await shoot(w, "6-recents-expanded");
-		await toggle(w, "Recents").click();
-		await folded(w, "Recents");
+		const recents = w.page.locator("section.sidebar-recents");
+		await expect(recents.getByRole("heading", { name: "Recents" })).toBeVisible({ timeout: T });
+		await expect(recents.locator(".sidebar-section-toggle")).toHaveCount(0);
+		await expect(recents.locator("[aria-expanded]")).toHaveCount(0);
+		await expect(section(w, "Recents")).toHaveCount(0);
+		await shoot(w, "recents-plain");
+
+		// Fold Projects too; a restart keeps both folded and nothing else.
 		await toggle(w, "Projects").click();
 		await folded(w, "Projects");
-		await shoot(w, "7-all-collapsed");
-
-		// A restart keeps all three folded, and the Pal's marker too.
 		await relaunch(w);
 		await expect(toggle(w, "Pals")).toBeVisible({ timeout: T });
 		await folded(w, "Pals");
@@ -154,17 +177,15 @@ test("the sidebar sections fold, remember it, and flag what needs attention", {
 		assert.deepEqual(await w.page.evaluate(() => window.namzu.sidebarCollapsed()), [
 			"pals",
 			"projects",
-			"recents",
 		]);
-		await shoot(w, "8-all-collapsed-after-restart");
+		await shoot(w, "4-pals-folded-after-restart");
 
-		// Expanding is remembered too.
+		// Opening again is remembered too.
 		await toggle(w, "Pals").click();
 		await toggle(w, "Projects").click();
 		await open(w, "Pals");
 		await open(w, "Projects");
-		await shoot(w, "9-reopened");
-		assert.deepEqual(await w.page.evaluate(() => window.namzu.sidebarCollapsed()), ["recents"]);
+		assert.deepEqual(await w.page.evaluate(() => window.namzu.sidebarCollapsed()), []);
 		await relaunch(w);
 		await expect(toggle(w, "Pals")).toBeVisible({ timeout: T });
 		await open(w, "Pals");

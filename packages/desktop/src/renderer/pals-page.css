@@ -393,12 +393,23 @@
 .sidebar-pals {
 	padding: 0 var(--sidebar-content-inset) 14px;
 }
+/* The group heading only exists past three Pals; it keeps the look of the original trigger. */
 .sidebar-pals .sidebar-pals-heading {
-	margin: 0 0 6px 8px;
+	margin: 0 0 4px;
 	color: var(--muted-foreground);
-	font-size: 11px;
-	letter-spacing: 0.01em;
-	font-weight: 600;
+	font-size: 12px;
+	font-weight: 500;
+}
+.sidebar-pals .sidebar-section-toggle {
+	width: 100%;
+	height: 28px;
+	padding: 0 8px;
+	justify-content: space-between;
+}
+.sidebar-pals .sidebar-section-chevron {
+	width: 12px;
+	height: 12px;
+	opacity: 1;
 }
 .sidebar-pals .sidebar-pal-row {
 	display: flex;
