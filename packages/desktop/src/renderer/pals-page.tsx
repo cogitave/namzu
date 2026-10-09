@@ -8,7 +8,6 @@ import type {
 	ProviderView,
 } from '../shared/protocol.js'
 import {
-	ChevronDownIcon,
 	ChevronRightIcon,
 	LoaderCircleIcon,
 	PlusIcon,
@@ -27,9 +26,10 @@ import {
 	palColors,
 } from './pal-character.js'
 import { PalAvatar } from './pal-context.js'
+import { palsAttention } from './sidebar-section-attention.js'
+import { SidebarSection } from './sidebar-section.js'
 import { createSubmitGuard } from './submit-guard.js'
 import { Button } from './ui/button.js'
-import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from './ui/collapsible.js'
 import { Input } from './ui/input.js'
 import './pals-page.css'
 
@@ -556,6 +556,8 @@ export function PalSidebarSection({
 	onRetry,
 	onCreate,
 	onOpen,
+	collapsed,
+	onCollapsedChange,
 }: {
 	pals: readonly PalView[]
 	selectedId?: string
@@ -571,8 +573,10 @@ export function PalSidebarSection({
 	onRetry?: () => void
 	onCreate: () => void
 	onOpen: (pal: PalView) => void
+	/** Whether the section is folded; absent keeps the state inside the component. */
+	collapsed?: boolean
+	onCollapsedChange?: (collapsed: boolean) => void
 }) {
-	const [expanded, setExpanded] = useState(true)
 	const rows = (
 		<>
 			{pals.map((pal) => (
@@ -611,11 +615,21 @@ export function PalSidebarSection({
 		</>
 	)
 	return (
-		<section className="sidebar-pals" aria-label="Pals">
-			{pals.length <= 3 && <h2 className="sidebar-pals-heading">Pals</h2>}
+		<SidebarSection
+			label="Pals"
+			className="sidebar-pals"
+			titleClassName="sidebar-pals-heading"
+			collapsed={collapsed}
+			onCollapsedChange={onCollapsedChange}
+			attention={palsAttention(
+				pals.map((pal) => pal.id),
+				unreadIds,
+				selectedId,
+			)}
+		>
 			{loading ? (
-				<output className="sidebar-pals-loading sidebar-skeleton" aria-busy="true">
-					<span className="sr-only">Loading Pals</span>
+				<output className="sidebar-pals-loading" aria-label="Loading Pals">
+					<span className="sidebar-section-skeleton" />
 				</output>
 			) : failed && pals.length === 0 ? (
 				<div className="sidebar-pals-failed" role="alert">
@@ -624,20 +638,10 @@ export function PalSidebarSection({
 						Retry
 					</Button>
 				</div>
-			) : pals.length > 3 ? (
-				<Collapsible open={expanded} onOpenChange={setExpanded}>
-					<CollapsibleTrigger
-						render={<Button variant="ghost-muted" className="sidebar-pals-group" />}
-					>
-						<span>Pals</span>
-						<ChevronDownIcon />
-					</CollapsibleTrigger>
-					<CollapsiblePanel>{rows}</CollapsiblePanel>
-				</Collapsible>
 			) : (
 				rows
 			)}
-		</section>
+		</SidebarSection>
 	)
 }
 

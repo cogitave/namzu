@@ -13,6 +13,7 @@ import {
 import { join } from 'node:path'
 import type { ImageAttachment } from '@namzu/sdk'
 import type { AttachmentView, ConversationView, DraftSettings } from '../shared/protocol.js'
+import { type SidebarSectionId, collapsedSectionsFrom } from '../shared/sidebar-sections.js'
 import {
 	type AdmittedAttachment,
 	MAX_ATTACHMENT_BYTES,
@@ -48,6 +49,8 @@ export interface DesktopConversationSnapshot {
 	lastModels?: Record<string, SavedLastModel>
 	/** Pals the person has messaged and not opened since; the sidebar's "New message" marker. */
 	unreadPals?: string[]
+	/** Sidebar sections the person folded away; absent means every section is open. */
+	collapsedSections?: SidebarSectionId[]
 }
 export interface SavedLastModel {
 	provider: string
@@ -232,6 +235,7 @@ function metadata(input: unknown): Omit<DesktopConversationSnapshot, 'attachment
 		'projectDrafts',
 		'lastModels',
 		'unreadPals',
+		'collapsedSections',
 		'attachments',
 	])
 	if (value.version !== 1) throw new Error('Unsupported saved desktop conversation version.')
@@ -271,6 +275,7 @@ function metadata(input: unknown): Omit<DesktopConversationSnapshot, 'attachment
 		MAX_DRAFT_CHARACTERS
 	)
 		throw new Error('Saved desktop drafts are too large.')
+	const collapsed = collapsedSectionsFrom(value.collapsedSections)
 	return {
 		version: 1,
 		projects,
@@ -278,6 +283,7 @@ function metadata(input: unknown): Omit<DesktopConversationSnapshot, 'attachment
 		projectDrafts,
 		...(value.lastModels === undefined ? {} : { lastModels: lastModels(value.lastModels) }),
 		...(value.unreadPals === undefined ? {} : { unreadPals: unreadPals(value.unreadPals) }),
+		...(collapsed.length ? { collapsedSections: collapsed } : {}),
 	}
 }
 function attachment(input: unknown): SavedDesktopAttachment {
@@ -353,6 +359,7 @@ function parsed(input: unknown): DesktopConversationSnapshot {
 		'projectDrafts',
 		'lastModels',
 		'unreadPals',
+		'collapsedSections',
 		'attachments',
 	])
 	const result = {
@@ -471,6 +478,7 @@ export class DesktopConversationStore {
 			'projectDrafts',
 			'lastModels',
 			'unreadPals',
+			'collapsedSections',
 			'attachmentFile',
 		])
 		let attachments: unknown[] = []
@@ -492,6 +500,7 @@ export class DesktopConversationStore {
 			projectDrafts: value.projectDrafts,
 			lastModels: value.lastModels,
 			unreadPals: value.unreadPals,
+			collapsedSections: value.collapsedSections,
 			attachments,
 		})
 		this.cachedAttachments = cloneAttachments(snapshot.attachments)
@@ -506,6 +515,7 @@ export class DesktopConversationStore {
 			'projectDrafts',
 			'lastModels',
 			'unreadPals',
+			'collapsedSections',
 			'attachments',
 		])
 		const incoming = array(value.attachments, 131_072)

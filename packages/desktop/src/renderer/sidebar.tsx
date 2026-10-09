@@ -1,11 +1,9 @@
 import { Menu } from '@base-ui/react/menu'
 import { type ReactNode, useLayoutEffect, useRef, useState } from 'react'
-import {
-	type BackgroundWorkStatus,
-	freshBackgroundWorkStatus,
-} from '../shared/background-work-protocol.js'
+import type { BackgroundWorkStatus } from '../shared/background-work-protocol.js'
 import type { ThreadState } from '../shared/projection.js'
 import type { ConversationView, ProjectView } from '../shared/protocol.js'
+import type { SidebarSectionId } from '../shared/sidebar-sections.js'
 import type { TerminalTabView } from '../shared/terminal-tabs.js'
 import { ADD_PROJECT_LABEL, AddProjectMenu } from './add-project-menu.js'
 import { BrandDither } from './brand-dither.js'
@@ -22,6 +20,8 @@ import {
 } from './icons.js'
 import { ProjectContextMenu, ProjectMoreMenu } from './project-row-actions.js'
 import { createSidebarListMotion } from './sidebar-motion.js'
+import { conversationsAttention, hasVisibleBackgroundWork } from './sidebar-section-attention.js'
+import { SidebarSection } from './sidebar-section.js'
 import { TerminalBadge, TerminalMark, terminalStatusText } from './terminal-pane.js'
 import { ThreadCard, type ThreadRowActions } from './thread-card.js'
 import { Button } from './ui/button.js'
@@ -32,14 +32,6 @@ import './sidebar-navigation.css'
 
 export type Appearance = 'system' | 'light' | 'dark'
 export type ConversationCollection = 'projects' | 'recents'
-function hasVisibleBackgroundWork(
-	view: ConversationView,
-	status: BackgroundWorkStatus | undefined,
-): boolean {
-	if (view.palId || (view.harness && view.harness !== 'namzu')) return false
-	const fresh = freshBackgroundWorkStatus(status)
-	return fresh.state === 'known' && (fresh.runningCount > 0 || fresh.needsAttention)
-}
 /** The rows a project's list shows: the first five, the open one, and any that are busy; or all. */
 function visibleProjectRows(
 	rows: readonly ConversationView[],
@@ -89,6 +81,8 @@ export function Sidebar({
 	onTerminal,
 	onCloseTerminal,
 	projectsLoaded = true,
+	collapsedSections,
+	onSectionCollapsedChange,
 }: {
 	/** False until the first list of projects has arrived; the empty hint waits for it. */
 	projectsLoaded?: boolean
@@ -127,10 +121,19 @@ export function Sidebar({
 	activeTerminalId?: string
 	onTerminal?: (tab: TerminalTabView) => void
 	onCloseTerminal?: (tab: TerminalTabView) => void
+	/** Sections the person folded away; absent keeps each section's state inside the sidebar. */
+	collapsedSections?: ReadonlySet<SidebarSectionId>
+	onSectionCollapsedChange?: (id: SidebarSectionId, collapsed: boolean) => void
 }) {
 	const [collapsedProjects, setCollapsedProjects] = useState<Record<string, boolean>>({})
 	const [expandedLists, setExpandedLists] = useState<Record<string, boolean>>({})
 	const newConversationDisabled = opening
+	const sectionProps = (id: SidebarSectionId) => ({
+		collapsed: collapsedSections?.has(id),
+		onCollapsedChange: onSectionCollapsedChange
+			? (next: boolean) => onSectionCollapsedChange(id, next)
+			: undefined,
+	})
 	const groups = projects
 		.filter((project) => !project.isChat)
 		.map((project) => ({
@@ -257,149 +260,165 @@ export function Sidebar({
 				</button>
 				<div className="sidebar-scroll">
 					{pals}
-					<div className="sidebar-section-heading">
-						<h2 className="sidebar-section-title">Projects</h2>
-						<AddProjectMenu
-							disabled={opening}
-							onCreate={onCreateProject}
-							onOpen={onOpenProject}
-							align="end"
-							trigger={
-								<Button
-									variant="ghost-muted"
-									size="icon-xs"
-									className="sidebar-add-project"
-									aria-label={ADD_PROJECT_LABEL}
-									title={ADD_PROJECT_LABEL}
-								>
-									<PlusIcon aria-hidden="true" />
-								</Button>
-							}
-						/>
-					</div>
-					<nav
-						className="conversations sidebar-project-navigation"
-						aria-label="Projects and conversations"
-					>
-						{groups.map(({ project, rows }) =>
-							project.missing ? (
-								<MissingProjectRow
-									key={project.id}
-									project={project}
-									onLocate={onLocateProject}
-									onRemove={onRemoveProject}
-								/>
-							) : (
-								<Collapsible
-									key={project.id}
-									className="sidebar-project-group"
-									data-project-group={project.id}
-									open={collapsedProjects[project.id] === false}
-									onOpenChange={(expanded) =>
-										setCollapsedProjects((current) => ({
-											...current,
-											[project.id]: !expanded,
-										}))
-									}
-								>
-									<ProjectHeading
-										project={project}
-										selected={!sessionId && projectId === project.id}
-										onRemoveProject={onRemoveProject}
-										onRenameProject={onRenameProject}
-										onOpenProjectFolder={onOpenProjectFolder}
-										onOpenArchived={onOpenArchived}
-									>
-										<CollapsibleTrigger
-											aria-label={`${collapsedProjects[project.id] === false ? 'Collapse' : 'Expand'} ${project.name} conversations`}
-											render={
-												<Button
-													variant="ghost-muted"
-													size="icon-xs"
-													className="sidebar-project-toggle"
-												/>
-											}
-										>
-											<span className="sidebar-project-folder" aria-hidden="true">
-												<FolderIcon className="sidebar-project-folder-closed" />
-												<FolderOpenIcon className="sidebar-project-folder-open" />
-											</span>
-										</CollapsibleTrigger>
-										<button
-											type="button"
-											className="project-row"
-											aria-label={`Open ${project.name}`}
-											aria-current={!sessionId && projectId === project.id ? 'page' : undefined}
-											onClick={() => {
-												setCollapsedProjects((current) => ({
-													...current,
-													[project.id]: false,
-												}))
-												onProject(project.id)
-											}}
-										>
-											<span className="sidebar-project-name">{project.name}</span>
-										</button>
-									</ProjectHeading>
-									<CollapsiblePanel className="sidebar-project-panel">
-										<TerminalList
-											tabs={terminals.filter((tab) => tab.projectId === project.id)}
-											project={project}
-											activeId={activeTerminalId}
-											onOpen={onTerminal}
-											onClose={onCloseTerminal}
-										/>
-										<ThreadList
-											rows={rows}
-											project={project}
-											threads={threads}
-											backgroundWork={backgroundWork}
-											sessionId={sessionId}
-											active={conversationCollection === 'projects'}
-											expanded={Boolean(expandedLists[project.id])}
-											onExpandedChange={(expanded) =>
-												setExpandedLists((current) => ({
-													...current,
-													[project.id]: expanded,
-												}))
-											}
-											onConversation={(view) => onConversation(view, 'projects')}
-											rowActions={rowActions}
-										/>
-									</CollapsiblePanel>
-								</Collapsible>
-							),
+					<SidebarSection
+						label="Projects"
+						ariaLabel="Projects"
+						headingClassName="sidebar-section-heading"
+						{...sectionProps('projects')}
+						attention={conversationsAttention(
+							groups.flatMap(({ project, rows }) => (project.missing ? [] : rows)),
+							threads,
+							backgroundWork,
 						)}
-						{projects.length === 0 &&
-							(projectsLoaded ? (
-								<p className="sidebar-empty-note">Use + to add a project.</p>
-							) : (
-								<output className="sidebar-skeleton" aria-busy="true">
-									<span className="sr-only">Loading projects</span>
-								</output>
-							))}
-						{groups.length === 0 && projects.length > 0 && (
+						actions={
 							<AddProjectMenu
 								disabled={opening}
 								onCreate={onCreateProject}
 								onOpen={onOpenProject}
-								align="start"
+								align="end"
 								trigger={
 									<Button
 										variant="ghost-muted"
-										className="sidebar-add-project-row"
-										data-sidebar-add-project-row
+										size="icon-xs"
+										className="sidebar-add-project"
+										aria-label={ADD_PROJECT_LABEL}
+										title={ADD_PROJECT_LABEL}
 									>
 										<PlusIcon aria-hidden="true" />
-										<span>{ADD_PROJECT_LABEL}</span>
 									</Button>
 								}
 							/>
-						)}
-					</nav>
+						}
+					>
+						<nav
+							className="conversations sidebar-project-navigation"
+							aria-label="Projects and conversations"
+						>
+							{groups.map(({ project, rows }) =>
+								project.missing ? (
+									<MissingProjectRow
+										key={project.id}
+										project={project}
+										onLocate={onLocateProject}
+										onRemove={onRemoveProject}
+									/>
+								) : (
+									<Collapsible
+										key={project.id}
+										className="sidebar-project-group"
+										data-project-group={project.id}
+										open={collapsedProjects[project.id] === false}
+										onOpenChange={(expanded) =>
+											setCollapsedProjects((current) => ({
+												...current,
+												[project.id]: !expanded,
+											}))
+										}
+									>
+										<ProjectHeading
+											project={project}
+											selected={!sessionId && projectId === project.id}
+											onRemoveProject={onRemoveProject}
+											onRenameProject={onRenameProject}
+											onOpenProjectFolder={onOpenProjectFolder}
+											onOpenArchived={onOpenArchived}
+										>
+											<CollapsibleTrigger
+												aria-label={`${collapsedProjects[project.id] === false ? 'Collapse' : 'Expand'} ${project.name} conversations`}
+												render={
+													<Button
+														variant="ghost-muted"
+														size="icon-xs"
+														className="sidebar-project-toggle"
+													/>
+												}
+											>
+												<span className="sidebar-project-folder" aria-hidden="true">
+													<FolderIcon className="sidebar-project-folder-closed" />
+													<FolderOpenIcon className="sidebar-project-folder-open" />
+												</span>
+											</CollapsibleTrigger>
+											<button
+												type="button"
+												className="project-row"
+												aria-label={`Open ${project.name}`}
+												aria-current={!sessionId && projectId === project.id ? 'page' : undefined}
+												onClick={() => {
+													setCollapsedProjects((current) => ({
+														...current,
+														[project.id]: false,
+													}))
+													onProject(project.id)
+												}}
+											>
+												<span className="sidebar-project-name">{project.name}</span>
+											</button>
+										</ProjectHeading>
+										<CollapsiblePanel className="sidebar-project-panel">
+											<TerminalList
+												tabs={terminals.filter((tab) => tab.projectId === project.id)}
+												project={project}
+												activeId={activeTerminalId}
+												onOpen={onTerminal}
+												onClose={onCloseTerminal}
+											/>
+											<ThreadList
+												rows={rows}
+												project={project}
+												threads={threads}
+												backgroundWork={backgroundWork}
+												sessionId={sessionId}
+												active={conversationCollection === 'projects'}
+												expanded={Boolean(expandedLists[project.id])}
+												onExpandedChange={(expanded) =>
+													setExpandedLists((current) => ({
+														...current,
+														[project.id]: expanded,
+													}))
+												}
+												onConversation={(view) => onConversation(view, 'projects')}
+												rowActions={rowActions}
+											/>
+										</CollapsiblePanel>
+									</Collapsible>
+								),
+							)}
+							{projects.length === 0 &&
+								(projectsLoaded ? (
+									<p className="sidebar-empty-note">Use + to add a project.</p>
+								) : (
+									<output className="sidebar-skeleton" aria-busy="true">
+										<span className="sr-only">Loading projects</span>
+									</output>
+								))}
+							{groups.length === 0 && projects.length > 0 && (
+								<AddProjectMenu
+									disabled={opening}
+									onCreate={onCreateProject}
+									onOpen={onOpenProject}
+									align="start"
+									trigger={
+										<Button
+											variant="ghost-muted"
+											className="sidebar-add-project-row"
+											data-sidebar-add-project-row
+										>
+											<PlusIcon aria-hidden="true" />
+											<span>{ADD_PROJECT_LABEL}</span>
+										</Button>
+									}
+								/>
+							)}
+						</nav>
+					</SidebarSection>
 					{recent.length > 0 && (
-						<section className="sidebar-recents" aria-label="Recent conversations">
-							<h2 className="sidebar-section-title">Recents</h2>
+						<SidebarSection
+							label="Recents"
+							ariaLabel="Recent conversations"
+							className="sidebar-recents"
+							{...sectionProps('recents')}
+							attention={conversationsAttention(recent, threads, backgroundWork)}
+						>
 							<RecentList
 								rows={recent}
 								projects={projectById}
@@ -410,7 +429,7 @@ export function Sidebar({
 								onConversation={(view) => onConversation(view, 'recents')}
 								rowActions={rowActions}
 							/>
-						</section>
+						</SidebarSection>
 					)}
 					{onOpenArchived && (
 						<button type="button" className="sidebar-archived-link" onClick={onOpenArchived}>

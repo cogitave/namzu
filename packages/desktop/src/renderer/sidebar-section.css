@@ -1,0 +1,64 @@
+/* A foldable sidebar group: the heading keeps the look of a plain section title. */
+.sidebar-section-head > .sidebar-section-title,
+.sidebar-section-head > .sidebar-pals-heading {
+	flex: 1;
+	min-width: 0;
+}
+.sidebar-section-toggle {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	max-width: 100%;
+	padding: 0;
+	border: 0;
+	background: none;
+	color: inherit;
+	font: inherit;
+	letter-spacing: inherit;
+	cursor: pointer;
+	border-radius: 4px;
+}
+.sidebar-section-toggle:focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: 2px;
+}
+.sidebar-section-chevron {
+	flex: none;
+	width: 10px;
+	height: 10px;
+	opacity: 0;
+	transition: opacity 120ms var(--motion-ease), transform var(--motion-duration) var(--motion-ease);
+}
+.sidebar-section-toggle:hover .sidebar-section-chevron,
+.sidebar-section-toggle:focus-visible .sidebar-section-chevron,
+.sidebar-section-toggle[aria-expanded="false"] .sidebar-section-chevron {
+	opacity: 1;
+}
+.sidebar-section-toggle[aria-expanded="false"] .sidebar-section-chevron {
+	transform: rotate(-90deg);
+}
+.sidebar-section-attention {
+	flex: none;
+	width: 6px;
+	height: 6px;
+	margin-left: 2px;
+	border-radius: 999px;
+	background: var(--primary);
+}
+.sidebar-section-body[hidden] {
+	display: none;
+}
+.sidebar-section-skeleton {
+	display: block;
+	height: 10px;
+	width: 96px;
+	margin: 12px 8px;
+	border-radius: 5px;
+	background: var(--sidebar-row-active);
+	opacity: 0.7;
+}
+@media (prefers-reduced-motion: reduce) {
+	.sidebar-section-chevron {
+		transition: none;
+	}
+}

@@ -200,6 +200,7 @@ import { RestoreSkeleton } from './restore-skeleton.js'
 import { retryableReply } from './retry-reply.js'
 import { projectRemovalCopy, removalNotice, settingsRoute } from './settings-model.js'
 import { SettingsPage, SettingsSidebar } from './settings-page.js'
+import { useSidebarSections } from './sidebar-section.js'
 import { type ConversationCollection, Sidebar } from './sidebar.js'
 import { launchSeed, restoreDecision, settleLaunchSeed } from './startup-restore.js'
 import { createSubmitGuard } from './submit-guard.js'
@@ -862,6 +863,7 @@ export function App({
 	const thread = historyPending ? emptyThread() : (threads[sessionId] ?? emptyThread())
 	const pal = pals.find((item) => item.id === project?.palId)
 	// A Pal row shows a marker from the moment the person messages it until they open it.
+	const { collapsed: collapsedSections, setSectionCollapsed } = useSidebarSections(api)
 	const [unreadPals, setUnreadPals] = useState<ReadonlySet<string>>(() => new Set())
 	const countedPalSends = useRef(new Set<string>())
 	useEffect(() => {
@@ -5466,6 +5468,8 @@ export function App({
 						<Sidebar
 							projectsLoaded={projectsLoaded}
 							activeProject={project}
+							collapsedSections={collapsedSections}
+							onSectionCollapsedChange={setSectionCollapsed}
 							projects={projects.filter((item) => !item.palId)}
 							pals={
 								<PalSidebarSection
@@ -5478,6 +5482,8 @@ export function App({
 									loading={palsLoading}
 									failed={palsLoadFailed}
 									onRetry={() => setPalsRetry((value) => value + 1)}
+									collapsed={collapsedSections.has('pals')}
+									onCollapsedChange={(next) => setSectionCollapsed('pals', next)}
 									onCreate={showPalOnboarding}
 									onOpen={(value) => void act(() => openPal(value))}
 								/>

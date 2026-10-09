@@ -433,25 +433,6 @@
 .sidebar-pals .sidebar-pal-create {
 	color: var(--sidebar-muted-foreground);
 }
-.sidebar-pals .sidebar-pals-group {
-	display: flex;
-	justify-content: space-between;
-	width: 100%;
-	height: 28px;
-	padding: 0 8px;
-	margin-bottom: 4px;
-	font-size: 12px;
-	font-weight: 500;
-}
-.sidebar-pals-group svg {
-	width: 12px;
-	height: 12px;
-	transform: rotate(-90deg);
-	transition: transform var(--motion-duration) var(--motion-ease);
-}
-.sidebar-pals-group[data-panel-open] svg {
-	transform: rotate(0deg);
-}
 .sidebar-pals-loading {
 	display: block;
 	margin: 6px 8px;
@@ -568,8 +549,7 @@
 	.pal-customize-popup,
 	.pal-color-choice,
 	.pal-character-choice-option,
-	.sidebar-pal-row,
-	.sidebar-pals-group svg {
+	.sidebar-pal-row {
 		transition: none;
 	}
 	.pal-color-choice:hover,
