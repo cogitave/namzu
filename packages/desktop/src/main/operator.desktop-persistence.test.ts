@@ -356,6 +356,7 @@ it('keeps a Pal marked unread across a restart until it is read, and refuses a b
 	expect(before.setPalUnread('pal-a', true)).toEqual(['pal-a', 'pal-b'])
 	expect(() => before.setPalUnread('', true)).toThrow('Invalid Pal')
 	expect(() => before.setPalUnread('x'.repeat(401), true)).toThrow('Invalid Pal')
+	expect(() => before.setPalUnread('bad\u0001id', true)).toThrow('Invalid Pal')
 	expect(() => before.setPalUnread('pal-a', 'yes')).toThrow('Invalid Pal')
 	await before.close()
 	owners.splice(owners.indexOf(before), 1)

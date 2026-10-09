@@ -471,7 +471,6 @@ export class DesktopConversationStore {
 			'projectDrafts',
 			'lastModels',
 			'unreadPals',
-			'unreadPals',
 			'attachmentFile',
 		])
 		let attachments: unknown[] = []
@@ -506,7 +505,6 @@ export class DesktopConversationStore {
 			'conversations',
 			'projectDrafts',
 			'lastModels',
-			'unreadPals',
 			'unreadPals',
 			'attachments',
 		])

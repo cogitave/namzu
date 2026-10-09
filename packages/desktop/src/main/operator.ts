@@ -664,6 +664,10 @@ export class Operator {
 	setPalUnread(id: unknown, unread: unknown): string[] {
 		if (typeof id !== 'string' || !id.trim() || id.length > 400 || typeof unread !== 'boolean')
 			throw new Error('Invalid Pal.')
+		// The saved file rejects control characters in an id; one stored here would make the whole
+		// file unreadable on the next start and lose every saved draft.
+		if (Array.from(id).some((c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127))
+			throw new Error('Invalid Pal.')
 		if (unread) {
 			if (this.deletedPals.has(id) || this.unreadPals.has(id)) return this.palUnread()
 			if (this.unreadPals.size >= 1024) throw new Error('Too many Pals are marked unread.')
@@ -970,6 +974,7 @@ export class Operator {
 			this.deletedPals.set(id, expectedRevision)
 			this.deletingPals.delete(id)
 			this.palRecords.delete(id)
+			this.unreadPals.delete(id)
 			for (const sessionId of scope.sessionIds) this.backgroundWork.invalidate(sessionId)
 			for (const projectId of scope.projectIds) this.projects.delete(projectId)
 			for (const sessionId of scope.sessionIds) {
