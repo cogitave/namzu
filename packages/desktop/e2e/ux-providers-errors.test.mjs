@@ -81,7 +81,7 @@ async function openModels(w) {
 		.getByRole("navigation", { name: "Settings sections" })
 		.getByRole("button", { name: "Models", exact: true })
 		.click();
-	await expect(w.page.getByRole("heading", { level: 2, name: "Models", exact: true })).toBeVisible({
+	await expect(w.page.getByRole("heading", { level: 1, name: "Models", exact: true })).toBeVisible({
 		timeout: T,
 	});
 }
@@ -102,7 +102,7 @@ flow(
 		await shots(w, "01-no-provider-empty-state");
 
 		await w.page.getByRole("button", { name: "Connect a provider" }).click();
-		await expect(w.page.getByRole("heading", { level: 2, name: "Models", exact: true })).toBeVisible({
+		await expect(w.page.getByRole("heading", { level: 1, name: "Models", exact: true })).toBeVisible({
 			timeout: T,
 		});
 		await expect(w.page.getByText("Not connected").first()).toBeVisible({ timeout: T });

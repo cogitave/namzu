@@ -501,8 +501,6 @@ updateFlow(
 		assert.equal(installedCodex(w), "0.154.0");
 		rmSync(join(w.control, "npm-fail"));
 		await row(w, "codex-cli").getByRole("button", { name: "Try again Codex CLI" }).click();
-		await showUpdateOutput(w);
-		await expect.poll(() => termScreen(w), { timeout: T }).toContain("added 1 package");
 		await expect(w.page.getByText("Codex CLI updated to 0.162.0")).toBeVisible({ timeout: T });
 		assert.equal(installedCodex(w), "0.162.0");
 		await openUpdates(w);

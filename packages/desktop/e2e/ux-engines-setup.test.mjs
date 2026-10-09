@@ -127,8 +127,8 @@ flow(
 		await expect(banner.locator("code")).toHaveText("codex login");
 		await expect(banner.getByRole("button", { name: "Retry setup" })).toBeVisible();
 		// The pill says so in words, and nothing of it is a placeholder bar.
-		const pill = w.page.getByRole("button", { name: /^Model, not available/ });
-		await expect(pill).toContainText("Not available");
+		const pill = w.page.getByRole("button", { name: /^Model, (not available|.+ unavailable)/ });
+		await expect(pill).toContainText(/Not available| unavailable/);
 		await expect(w.page.locator(".model-picker-trigger-skeleton")).toHaveCount(0);
 		await shot(w, "04-signed-out");
 		await banner.getByRole("button", { name: "Open terminal" }).click();

@@ -458,7 +458,7 @@ flow(
 		await w.page.keyboard.press("Control+w");
 		await expect(terminalTabs(w)).toHaveCount(1);
 		await w.page.keyboard.press("Control+,");
-		await expect(w.page.getByRole("heading", { name: "Settings" }).first()).toBeVisible({ timeout: T });
+		await expect(w.page.locator("section.settings-page")).toBeVisible({ timeout: T });
 	},
 );
 

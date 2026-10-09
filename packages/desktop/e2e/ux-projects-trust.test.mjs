@@ -190,7 +190,7 @@ flow(
 		await w.page.getByRole("button", { name: "Send message" }).click();
 		await expect(w.page.getByText("Scripted hello back.")).toBeVisible({ timeout: T });
 		await expect(
-			w.page.locator("nav.sidebar-project-navigation").getByRole("button", {
+			w.page.locator("[data-app-sidebar]").getByRole("button", {
 				name: "Add new project",
 			}),
 		).toBeVisible();
@@ -212,7 +212,8 @@ flow(
 		});
 		const group = w.page.locator("[data-project-group]").first();
 		await group.hover();
-		await w.page.getByRole("button", { name: "Remove project", exact: true }).click();
+		await group.getByRole("button", { name: /^Actions for / }).click();
+		await w.page.getByRole("menuitem", { name: "Remove project…" }).click();
 		const dialog = w.page.getByRole("alertdialog");
 		await expect(dialog).toContainText("Remove “project” from Namzu?");
 		await expect(dialog).toContainText("off Namzu’s trusted list");
