@@ -82,10 +82,12 @@ describe.skipIf(!pty || process.platform === 'win32')('host terminals over the r
 		await until(() => printed.includes('ready> '))
 
 		// The other attach path: a snapshot, taken now that the prompt has been printed, resets the
-		// viewer and carries the prompt in `screen`.
+		// viewer and writes `screen`, then `data`. The host's emulator may not yet have parsed the
+		// newest bytes, so the prompt is in `screen` or, if it is still unparsed, at the start of
+		// `data`; the viewer sees it either way, and nothing before `start` is left out.
 		const snapshot = await terminals.attach(info.id, 'snapshot')
 		expect(snapshot.mode).toBe('snapshot')
-		expect(snapshot.screen).toContain('ready> ')
+		expect(snapshot.screen + snapshot.data).toContain('ready> ')
 
 		await terminals.write(info.id, 'main', 'echo from-the-desktop-$((6*7)); stty size\r')
 		await until(() => printed.includes('from-the-desktop-42') && printed.includes('20 90'))
