@@ -34,6 +34,16 @@
 	white-space: nowrap;
 }
 /*
+ * The row's button is the only thing in flow inside its <li>. As an inline-block it sat on the
+ * <li>'s text baseline, so the <li> was as tall as the button plus whatever the line's strut needed
+ * below it (0.875px once the title was trimmed, 0 by luck before). The hover glyphs are centred
+ * on the <li>, so that sliver moved them off the button's middle. A block button makes the <li>
+ * exactly the row.
+ */
+.sidebar-thread-item > .sidebar-conversation-button {
+	display: block;
+}
+/*
  * The hover buttons sit over the row's state slot, and the two never share a frame: both
  * switch on the same selectors with no transition, so one is always showing and never both.
  */

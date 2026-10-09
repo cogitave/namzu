@@ -58,6 +58,7 @@ function measureHovered(w, rowSelector) {
 			return { cx: (left + right) / 2, cy: (top + bottom) / 2 };
 		};
 		const row = box(li);
+		const button = box(li.querySelector(":scope > button"));
 		const glyphs = [...li.querySelectorAll(".sidebar-thread-action")].map((button) => ({
 			label: button.getAttribute("aria-label"),
 			ink: union([...button.querySelectorAll("svg path, svg line, svg circle, svg rect")]),
@@ -81,6 +82,7 @@ function measureHovered(w, rowSelector) {
 		}
 		return {
 			row,
+			button,
 			glyphs,
 			dot: dotElement ? box(dotElement) : null,
 			letters,
@@ -91,6 +93,11 @@ function measureHovered(w, rowSelector) {
 function check(label, m, { expectDot }) {
 	assert.ok(m, `${label}: the hovered row was found`);
 	assert.ok(m.glyphs.length > 0, `${label}: the hover glyphs were measured`);
+	// The <li> the glyphs are centred on is exactly the row's button, not taller than it.
+	assert.ok(
+		Math.abs(m.row.h - m.button.h) <= 0.01 && Math.abs(m.row.cy - m.button.cy) <= 0.01,
+		`${label}: the <li> is ${m.row.h}px tall around a ${m.button.h}px button`,
+	);
 	for (const glyph of m.glyphs) {
 		assert.ok(glyph.ink, `${label}: ${glyph.label} has drawn shapes`);
 		const off = Math.abs(glyph.ink.cy - m.row.cy);

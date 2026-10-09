@@ -2620,8 +2620,11 @@ dot, the 4px error dot, the 14px approval shield and the 12px spinner each get t
 The title's letters are in line with both: the title box is trimmed to the x-height line and the baseline
 (`text-box: trim-both ex alphabetic`, with equal padding so descenders stay inside the clip), because Segoe UI
 sets its x-height band about 1.75px below the middle of an 18px line box, which made a glyph centred on the row
-read as sitting high. `e2e/sidebar-row-geometry.test.mjs` hovers each row kind (conversation, running and ended
-terminal), dark and light, and asserts that the glyph's drawn paths are within 0.5px of the row's middle,
+read as sitting high. The row's button is a block, so its `<li>` is exactly its height (as an inline-block it sat on
+the text baseline and the `<li>` grew by the line's strut, 0.875px once the title was trimmed, which moved the
+glyphs, centred on the `<li>`, off the button's middle). `e2e/sidebar-row-geometry.test.mjs` hovers each row kind
+(conversation, running and ended terminal), dark and light, and asserts that the `<li>` is its button's height,
+that the glyph's drawn paths are within 0.5px of the row's middle,
 that the status dot has the same centre across and down, and that the title's x-height band (from the font's
 metrics) is within a pixel.
 
