@@ -37,7 +37,7 @@ export interface ZenModel {
  * derived is an edit to src/catalogue/derive.ts. Both survive regeneration; a
  * hand edit here does not.
  *
- * Refreshed: 2026-10-08
+ * Refreshed: 2026-10-09
  *
  * This is the BUNDLED snapshot: what the driver knows with no network. A host
  * can derive a fresher roster at run time from the same sources, by the same
@@ -976,19 +976,6 @@ const ZEN_MODELS = freezeModels([
 		supportsToolUse: true,
 		supportsStreaming: true,
 		effortLevels: ['high'],
-	},
-	{
-		id: 'fledge-alpha-free',
-		name: 'Fledge Alpha Free',
-		protocol: 'chat',
-		contextWindow: 1048576,
-		maxOutputTokens: 131072,
-		inputModalities: ['text', 'image'],
-		inputPrice: 0,
-		outputPrice: 0,
-		supportsToolUse: true,
-		supportsStreaming: true,
-		effortLevels: ['low', 'high', 'max'],
 	},
 	{
 		id: 'mimo-v2.6-flash-free',
