@@ -67,9 +67,13 @@
 .sidebar-pals:has(> .sidebar-section-body[hidden]) {
 	padding-bottom: 0;
 }
-[data-sidebar-section]:has(> .sidebar-section-body[hidden]) + [data-sidebar-section] .sidebar-section-title {
+[data-sidebar-section]:has(> .sidebar-section-body[hidden])
+	+ [data-sidebar-section]
+	.sidebar-section-title {
 	margin-top: 6px;
 }
-[data-sidebar-section]:has(> .sidebar-section-body[hidden]) + [data-sidebar-section] .sidebar-add-project {
+[data-sidebar-section]:has(> .sidebar-section-body[hidden])
+	+ [data-sidebar-section]
+	.sidebar-add-project {
 	margin-top: 0;
 }
