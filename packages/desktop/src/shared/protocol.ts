@@ -29,6 +29,7 @@ import type {
 	SettingsChangeResult,
 	SettingsSection,
 } from './settings-protocol.js'
+import type { SidebarSectionId } from './sidebar-sections.js'
 import type { TerminalTabView } from './terminal-tabs.js'
 import type {
 	TerminalAttachOptions,
@@ -745,6 +746,9 @@ export interface DesktopApi {
 	popupWindowMenu(menu: WindowMenu, anchor: WindowMenuAnchor): Promise<void>
 	projects(): Promise<ProjectView[]>
 	pals(): Promise<PalView[]>
+	/** Sidebar sections the person folded away; kept by main across restarts. */
+	sidebarCollapsed?(): Promise<SidebarSectionId[]>
+	setSidebarSectionCollapsed?(id: SidebarSectionId, collapsed: boolean): Promise<SidebarSectionId[]>
 	/** Ids of the Pals with an unread "New message" marker; kept by main across restarts. */
 	palUnread?(): Promise<string[]>
 	setPalUnread?(id: string, unread: boolean): Promise<string[]>

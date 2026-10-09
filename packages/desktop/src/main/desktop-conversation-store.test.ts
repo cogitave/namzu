@@ -151,6 +151,24 @@ describe('durable desktop conversation schema', () => {
 		expect(parseDesktopConversationSnapshot({ ...saved, unreadPals: 'pal-a' })).toBeNull()
 		expect(parseDesktopConversationSnapshot(snapshot())?.unreadPals).toBeUndefined()
 	})
+	it('keeps the folded sidebar sections across reload and treats a bad value as open', () => {
+		const saved = snapshot()
+		saved.collapsedSections = ['pals', 'recents']
+		const store = new DesktopConversationStore(directory())
+		store.write(saved)
+		expect(store.read()?.collapsedSections).toEqual(['pals', 'recents'])
+		expect(
+			parseDesktopConversationSnapshot({
+				...saved,
+				collapsedSections: ['recents', 'nope', 3, 'pals', 'pals'],
+			})?.collapsedSections,
+		).toEqual(['pals', 'recents'])
+		for (const bad of ['pals', 7, {}, ['nope'], []])
+			expect(
+				parseDesktopConversationSnapshot({ ...saved, collapsedSections: bad })?.collapsedSections,
+			).toBeUndefined()
+		expect(parseDesktopConversationSnapshot(snapshot())?.collapsedSections).toBeUndefined()
+	})
 	it('keeps empty UI sessions, runtime aliases, model settings and pane-scoped landing drafts', () => {
 		const original = snapshot()
 		original.attachments = [text(), image('project:project:workspace:window:home-window')]

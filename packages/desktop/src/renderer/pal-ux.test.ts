@@ -125,8 +125,60 @@ it('labels the Pals section whether there are few Pals or none', () => {
 				onOpen: () => {},
 			}),
 		)
-		expect(html).toMatch(/<h2[^>]*sidebar-pals-heading[^>]*>Pals<\/h2>/)
+		expect(html).toMatch(/<h2[^>]*sidebar-pals-heading[^>]*><button[^>]*aria-expanded="true"/)
+		expect(html).toContain('<span>Pals</span>')
 	}
+})
+
+it('lets the Pals heading fold at any count and hides the rows without removing them', () => {
+	for (const pals of [
+		[],
+		[pal],
+		[pal, { ...pal, id: 'b' }, { ...pal, id: 'c' }, { ...pal, id: 'd' }],
+	]) {
+		const html = renderToStaticMarkup(
+			createElement(PalSidebarSection, {
+				pals,
+				loading: false,
+				collapsed: true,
+				onCreate: () => {},
+				onOpen: () => {},
+			}),
+		)
+		expect(html).toMatch(/aria-expanded="false"/)
+		expect(html).toMatch(/class="sidebar-section-body"[^>]*hidden/)
+	}
+})
+
+it('shows a dot on a folded Pals heading only while a Pal has a new message', () => {
+	const render = (unreadIds: ReadonlySet<string>, collapsed: boolean) =>
+		renderToStaticMarkup(
+			createElement(PalSidebarSection, {
+				pals: [pal],
+				unreadIds,
+				loading: false,
+				collapsed,
+				onCreate: () => {},
+				onOpen: () => {},
+			}),
+		)
+	expect(render(new Set(['pal']), true)).toContain('title="1 Pal has a new message"')
+	expect(render(new Set(['pal']), false)).not.toContain('data-attention')
+	expect(render(new Set(), true)).not.toContain('data-attention')
+})
+
+it('shows a quiet placeholder under the Pals heading while the list loads', () => {
+	const html = renderToStaticMarkup(
+		createElement(PalSidebarSection, {
+			pals: [],
+			loading: true,
+			onCreate: () => {},
+			onOpen: () => {},
+		}),
+	)
+	expect(html).toContain('<span>Pals</span>')
+	expect(html).toContain('sidebar-section-skeleton')
+	expect(html).not.toContain('Loading…')
 })
 
 const sent = (id: string, label: string, status: ProjectedToolCall['status'] = 'completed') =>

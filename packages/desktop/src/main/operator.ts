@@ -62,6 +62,11 @@ import type {
 	ProviderView,
 } from '../shared/protocol.js'
 import { readProviderConnections } from '../shared/provider-connections.js'
+import {
+	type SidebarSectionId,
+	collapsedSectionsFrom,
+	isSidebarSection,
+} from '../shared/sidebar-sections.js'
 import { readTaskUpdate, readTasks } from '../shared/task-protocol.js'
 import { readUndoPreview, readUndoResult, readUndoStatus } from '../shared/undo-protocol.js'
 import type { UpdateBlocker } from '../shared/update-protocol.js'
@@ -398,6 +403,8 @@ export class Operator {
 	private readonly lastModels = new Map<string, SavedLastModel>()
 	/** Pals with a message from the person they have not opened; survives a restart. */
 	private readonly unreadPals = new Set<string>()
+	/** Sidebar sections the person folded away; survives a restart. */
+	private readonly collapsedSections = new Set<SidebarSectionId>()
 	constructor(
 		private readonly command: RuntimeCommand,
 		private readonly publish: (event: DesktopEvent) => void,
@@ -429,6 +436,7 @@ export class Operator {
 				for (const [engine, item] of Object.entries(this.savedDesktop?.lastModels ?? {}))
 					this.lastModels.set(engine, { ...item })
 				for (const palId of this.savedDesktop?.unreadPals ?? []) this.unreadPals.add(palId)
+				for (const id of this.savedDesktop?.collapsedSections ?? []) this.collapsedSections.add(id)
 				for (const item of this.savedDesktop?.attachments ?? [])
 					this.attachmentFiles.set(item.view.id, structuredClone(item))
 			} catch (error) {
@@ -579,6 +587,9 @@ export class Operator {
 			})),
 			...(this.lastModels.size ? { lastModels: Object.fromEntries(this.lastModels) } : {}),
 			...(this.unreadPals.size ? { unreadPals: [...this.unreadPals] } : {}),
+			...(this.collapsedSections.size
+				? { collapsedSections: collapsedSectionsFrom([...this.collapsedSections]) }
+				: {}),
 			attachments: [...this.attachmentFiles.values()]
 				.filter((item) => item.draft)
 				.map((item) => ({ ...item, draft: true as const })),
@@ -656,6 +667,20 @@ export class Operator {
 		const available = pals.filter((pal) => !this.deletedPals.has(pal.id))
 		for (const pal of available) this.palRecords.set(pal.id, pal)
 		return available
+	}
+	/** The sidebar sections the person folded away. */
+	sidebarCollapsed(): SidebarSectionId[] {
+		return collapsedSectionsFrom([...this.collapsedSections])
+	}
+	/** Folds one sidebar section away or opens it again. */
+	setSidebarSectionCollapsed(id: unknown, collapsed: unknown): SidebarSectionId[] {
+		if (!isSidebarSection(id) || typeof collapsed !== 'boolean')
+			throw new Error('Invalid sidebar section.')
+		if (collapsed === this.collapsedSections.has(id)) return this.sidebarCollapsed()
+		if (collapsed) this.collapsedSections.add(id)
+		else this.collapsedSections.delete(id)
+		this.persistDesktop(true)
+		return this.sidebarCollapsed()
 	}
 	/** The Pals that have a message from the person they have not opened yet. */
 	palUnread(): string[] {

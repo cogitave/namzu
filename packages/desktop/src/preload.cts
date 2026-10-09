@@ -59,6 +59,9 @@ const api: DesktopApi = {
 	popupWindowMenu: (menu, anchor) => invoke('popupWindowMenu', menu, anchor),
 	projects: () => invoke('projects'),
 	pals: () => invoke('pals'),
+	sidebarCollapsed: () => invoke('sidebarCollapsed'),
+	setSidebarSectionCollapsed: (id, collapsed) =>
+		invoke('setSidebarSectionCollapsed', id, collapsed),
 	palUnread: () => invoke('palUnread'),
 	setPalUnread: (id, unread) => invoke('setPalUnread', id, unread),
 	palProviders: () => invoke('palProviders'),

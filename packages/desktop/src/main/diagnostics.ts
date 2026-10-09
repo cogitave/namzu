@@ -117,6 +117,8 @@ const OPERATIONS = new Set([
 	'openLogs',
 	'projects',
 	'pals',
+	'sidebarCollapsed',
+	'setSidebarSectionCollapsed',
 	'palUnread',
 	'setPalUnread',
 	'palProviders',

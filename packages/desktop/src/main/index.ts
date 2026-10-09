@@ -860,6 +860,10 @@ function register(): void {
 	})
 	handle('projects', () => operator.projectsForWindow())
 	handle('pals', () => operator.listPals())
+	handle('sidebarCollapsed', () => operator.sidebarCollapsed())
+	handle('setSidebarSectionCollapsed', (id: unknown, collapsed: unknown) =>
+		operator.setSidebarSectionCollapsed(id, collapsed),
+	)
 	handle('palUnread', () => operator.palUnread())
 	handle('setPalUnread', (id: unknown, unread: unknown) => operator.setPalUnread(id, unread))
 	handle('palInbox', (sessionId: string, palId: string) => operator.palInbox(sessionId, palId))
