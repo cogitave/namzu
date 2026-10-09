@@ -137,10 +137,10 @@ function drawnFor(cols: number) {
 describe.skipIf(!binding || process.platform === 'win32')(
 	'namzu redraws when its terminal is resized',
 	() => {
-		it('fits the message box and footer to each new width, wide to narrow and back', async () => {
+		it('fits the message box and footer to each new width, wide to narrow and back, repeatedly', async () => {
 			const { screenHas, resize } = await launch(100)
 			await screenHas(drawnFor(100))
-			for (const cols of [46, 40, 60, 80]) {
+			for (const cols of [46, 40, 60, 80, 50, 120, 40, 120, 60, 80]) {
 				resize(cols)
 				const lines = await screenHas(drawnFor(cols))
 				const longest = Math.max(...lines.map((line) => [...line].length))
