@@ -13,6 +13,8 @@ import { type CliSessionScope, readConversationFacts } from '../integrations/ses
 export interface ProviderRetryStatus {
 	retry?: { turnId: string; checkpointId: string }
 	notice?: string
+	/** How many earlier requests have a cost nobody reported; a retry is a new request. */
+	unknownUsage?: number
 }
 
 /** Strict durable eligibility; no provider call, writer claim or budget mutation. */
@@ -86,11 +88,10 @@ export async function readProviderRetryStatus(
 		return {
 			notice: 'This turn’s original token accounting is unavailable. Its checkpoint is retained.',
 		}
-	if (
-		budget.poisoned ||
-		budget.requests.length > 0 ||
-		budget.completedRequests.some((request) => request.unresolved)
-	)
+	// Unknown spend stops a retry only where a finite limit could already be exceeded by it.
+	// Without a limit it stays recorded (never as zero) and the retry is a new request.
+	const live = SessionTokenBudget.restore(budget).account(binding.accountId)
+	if (live.summary().poisoned)
 		return {
 			notice:
 				'This provider request has unresolved token usage. Retry requires its actual provider usage receipt; the original turn is retained.',
@@ -100,10 +101,15 @@ export async function readProviderRetryStatus(
 			notice:
 				'This paused turn’s original token account is not active. Its checkpoint is retained.',
 		}
-	if (SessionTokenBudget.restore(budget).account(binding.accountId).remaining <= 0)
+	if (live.remaining <= 0)
 		return {
 			notice:
 				'This turn’s original token allowance is exhausted. Retry cannot change that allowance.',
 		}
-	return { retry: { turnId: active.turnId, checkpointId: pause.checkpointId } }
+	return {
+		retry: { turnId: active.turnId, checkpointId: pause.checkpointId },
+		...(live.summary().unresolvedRequests > 0
+			? { unknownUsage: live.summary().unresolvedRequests }
+			: {}),
+	}
 }

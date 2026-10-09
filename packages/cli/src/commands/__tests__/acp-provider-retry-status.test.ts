@@ -32,20 +32,31 @@ describe('durable provider retry eligibility', () => {
 			retry: { turnId: f.turnId, checkpointId: f.checkpointId },
 		})
 	})
-	it.each([{ unresolved: true }, { poisoned: true }, { unresolved: true, poisoned: true }])(
-		'retains an unlimited turn with unknown accounting: %j',
-		async (options) => {
-			const f = await providerPaused(state, options)
-			const journal = await readFile(conversationLogPath(state, f.sessionId), 'utf8')
-			const store = new DiskSessionTokenBudgetStore({ paths: state.paths })
-			const before = await store.load(f.budgetScope)
-			expect(await readProviderRetryStatus(state, f.sessionId)).toEqual({
-				notice: expect.stringContaining('actual provider usage receipt'),
-			})
-			expect(await store.load(f.budgetScope)).toEqual(before)
-			expect(await readFile(conversationLogPath(state, f.sessionId), 'utf8')).toBe(journal)
-		},
-	)
+	it('retries an unlimited turn whose one request has unknown usage, leaving that usage recorded', async () => {
+		const f = await providerPaused(state, { unresolved: true })
+		const store = new DiskSessionTokenBudgetStore({ paths: state.paths })
+		const before = await store.load(f.budgetScope)
+		expect(await readProviderRetryStatus(state, f.sessionId)).toEqual({
+			retry: { turnId: f.turnId, checkpointId: f.checkpointId },
+			unknownUsage: 1,
+		})
+		expect(await store.load(f.budgetScope)).toEqual(before)
+	})
+	it.each([
+		{ poisoned: true },
+		{ unresolved: true, poisoned: true },
+		{ unresolved: true, limit: 1_000_000 },
+	])('retains a turn with unknown accounting it cannot admit past: %j', async (options) => {
+		const f = await providerPaused(state, options)
+		const journal = await readFile(conversationLogPath(state, f.sessionId), 'utf8')
+		const store = new DiskSessionTokenBudgetStore({ paths: state.paths })
+		const before = await store.load(f.budgetScope)
+		expect(await readProviderRetryStatus(state, f.sessionId)).toEqual({
+			notice: expect.stringContaining('actual provider usage receipt'),
+		})
+		expect(await store.load(f.budgetScope)).toEqual(before)
+		expect(await readFile(conversationLogPath(state, f.sessionId), 'utf8')).toBe(journal)
+	})
 	it.each([
 		{ failure: undefined, providerError: undefined },
 		{

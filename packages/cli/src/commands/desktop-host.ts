@@ -907,6 +907,7 @@ export function createDesktopHostExtensions(
 	}
 	const turnUndo = runtime.turnUndo
 	const retryStatus = runtime.providerRetryStatus?.bind(runtime)
+	const abandonPaused = runtime.abandonPausedTurn?.bind(runtime)
 	const liveInputStatus = runtime.liveInputStatus?.bind(runtime)
 	const liveInput = runtime.liveInput?.bind(runtime)
 	const liveOwner = async (params: Record<string, unknown>, state: CliSessionScope) => {
@@ -1031,6 +1032,19 @@ export function createDesktopHostExtensions(
 							checkpointId,
 							params.options as AcpSessionPromptParams['options'],
 						)
+					},
+				}
+			: {}),
+		...(abandonPaused
+			? {
+					'namzu/sessions/abandon-paused': async (params: Record<string, unknown>) => {
+						if (Object.keys(params).some((key) => !['sessionId', 'turnId'].includes(key)))
+							throw new Error('Closing a paused turn accepts only the conversation and its turn.')
+						const id = await ownedSession(params)
+						const turnId = params.turnId === undefined ? undefined : text(params, 'turnId')
+						if (turnId !== undefined && !isEntityId(turnId, 'turn'))
+							throw new Error('Invalid turn.')
+						return abandonPaused(id, cwd, turnId)
 					},
 				}
 			: {}),

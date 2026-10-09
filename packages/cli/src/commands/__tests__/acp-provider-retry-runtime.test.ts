@@ -2,13 +2,16 @@ import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+	DiskSessionTokenBudgetStore,
 	type SessionEvent,
+	abandonTurn,
 	asSessionId,
 	createAssistantMessage,
 	generateMessageId,
 	generateSessionId,
 	generateTurnId,
 } from '@namzu/sdk'
+import type { TurnId } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import { closeSessions, loadConversation, openSessions } from '../../integrations/sessions/store.js'
@@ -30,8 +33,8 @@ afterEach(() => {
 	removeTempDir(root)
 })
 
-async function fixture({ ownedPal = false, unresolved = false } = {}) {
-	const f = await providerPaused(state, { unresolved })
+async function fixture({ ownedPal = false, unresolved = false, limit = 0 } = {}) {
+	const f = await providerPaused(state, { unresolved, limit })
 	let route: ((event: SessionEvent) => void) | undefined
 	let busy = false
 	let finish = false
@@ -127,6 +130,8 @@ async function fixture({ ownedPal = false, unresolved = false } = {}) {
 				close: async () => {},
 				send,
 				resumePaused: resume,
+				abandonTurn: (turnId: TurnId, reason: string) =>
+					abandonTurn(f.sessionId, turnId, reason, { log: f.log }),
 				reasoningEffortLevels: ['low', 'high'],
 				reasoningEffortDefault: 'low',
 				presenter: {
@@ -275,6 +280,32 @@ describe('CLI explicit provider retry composition', () => {
 			}
 		},
 	)
+	it('closes a paused provider turn without repeating it, keeping unknown usage recorded', async () => {
+		const f = await fixture({ unresolved: true, limit: 1_000_000 })
+		try {
+			await f.pause({ permissionMode: 'auto' })
+			expect(await f.runtime.providerRetryStatus!(f.sessionId, root)).toEqual({
+				notice: expect.stringContaining('actual provider usage receipt'),
+			})
+			await expect(
+				f.runtime.abandonPausedTurn!(f.sessionId, root, generateTurnId()),
+			).rejects.toThrow('no paused turn')
+			expect(await f.runtime.abandonPausedTurn!(f.sessionId, root, f.turnId)).toEqual({
+				closed: true,
+			})
+			expect(await f.runtime.providerRetryStatus!(f.sessionId, root)).toEqual({})
+			expect(f.resume).not.toHaveBeenCalled()
+			const store = new DiskSessionTokenBudgetStore({ paths: state.paths })
+			const ledger = await store.load(f.budgetScope)
+			expect(
+				[...(ledger?.requests ?? []), ...(ledger?.completedRequests ?? [])].filter(
+					(request) => request.unresolved,
+				),
+			).toHaveLength(1)
+		} finally {
+			await f.runtime.close()
+		}
+	})
 	it('retains automatic own-computer approval without restoring an ordinary default', async () => {
 		const f = await fixture({ ownedPal: true })
 		try {
@@ -285,8 +316,22 @@ describe('CLI explicit provider retry composition', () => {
 			await f.runtime.close()
 		}
 	})
-	it('rejects an obsolete turn and unresolved accounting before resume', async () => {
+	it('retries in place when a conversation with no limit has unknown usage for one request', async () => {
 		const f = await fixture({ unresolved: true })
+		try {
+			await f.pause({ permissionMode: 'auto' })
+			expect(await f.runtime.providerRetryStatus!(f.sessionId, root)).toEqual({
+				retry: { turnId: f.turnId, checkpointId: f.checkpointId },
+				unknownUsage: 1,
+			})
+			await f.retry()
+			expect(f.resume).toHaveBeenCalledOnce()
+		} finally {
+			await f.runtime.close()
+		}
+	})
+	it('rejects an obsolete turn and unresolved accounting under a limit before resume', async () => {
+		const f = await fixture({ unresolved: true, limit: 1_000_000 })
 		try {
 			await f.pause({ permissionMode: 'auto' })
 			expect(await f.runtime.providerRetryStatus!(f.sessionId, root)).toEqual({
