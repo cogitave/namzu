@@ -17,6 +17,7 @@ import {
 import { type TerminationSignal, handleTerminationSignals } from '../termination.js'
 import { openConsoleInput } from './console-input.js'
 import { watchOutputSize } from './output-size-watch.js'
+import { liveRenderOption } from './render-mode.js'
 import { installTuiLogSink } from './log-pane.js'
 import type { TuiContext } from './types.js'
 
@@ -68,6 +69,8 @@ export async function launchTui(
 			stderr: process.stderr,
 			stdin: consoleInput?.stream ?? process.stdin,
 			exitOnCtrlC: false,
+			// A CI marker in the environment must not blank a real terminal (see render-mode.ts).
+			...liveRenderOption(process.stdout, process.stdin, consoleInput !== undefined),
 			kittyKeyboard: {
 				mode: 'auto',
 				flags: ['disambiguateEscapeCodes'],
