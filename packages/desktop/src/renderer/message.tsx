@@ -183,7 +183,7 @@ function knownMessageTime(time: ChatMessage['time']): boolean {
 export function timeDescription(time: ChatMessage['time']): string | undefined {
 	if (!time || !knownMessageTime(time)) return undefined
 	const full = messageFullTime.format(new Date(time.at))
-	return `${time.source === 'journal' ? 'Recorded in conversation' : 'Observed by Namzu'}: ${full}`
+	return `${time.source === 'journal' ? 'Saved in this conversation' : 'Time'}: ${full}`
 }
 
 export function MessageTime({

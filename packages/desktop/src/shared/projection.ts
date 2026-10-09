@@ -83,6 +83,8 @@ export interface ThreadState {
 	tools: Record<string, ProjectedToolCall>
 	activeToolIds: string[]
 	permissions: PermissionView[]
+	/** Calls that were still waiting for an answer when the turn ended: they never ran. */
+	unanswered?: { turn: number; calls: { id: string; name: string }[] }
 	reasoning: Record<string, ReasoningSegment>
 	activeReasoningId?: string
 	responding: boolean
@@ -511,13 +513,21 @@ export function applyEvent(previous: ThreadState, event: DesktopEvent): ThreadSt
 		else permissions[index] = event.request
 		return { ...thread, permissions }
 	}
-	if (event.kind === 'permission-cleared')
+	if (event.kind === 'permission-cleared') {
+		// Clearing everything at once is the turn ending; what still waited never ran.
+		const calls = event.requestId
+			? []
+			: thread.permissions.flatMap((permission) =>
+					permission.calls.map((call) => ({ id: call.id, name: call.name })),
+				)
 		return {
 			...thread,
 			permissions: event.requestId
 				? thread.permissions.filter((permission) => permission.id !== event.requestId)
 				: [],
+			...(calls.length ? { unanswered: { turn: thread.turn, calls } } : {}),
 		}
+	}
 	if (event.kind !== 'update') return thread
 	const update = event.update
 	if (update.kind === 'provider_retry') {

@@ -265,6 +265,35 @@ export function transcriptOutcome(
 }
 
 /**
+ * The notice under a finished turn. A failure message already shown for it explains the cause, so
+ * only a stop the person asked for adds a line.
+ * A turn stopped while an action waited for an answer says that
+ * action did not happen, so nobody wonders whether the command ran.
+ */
+export function turnNotice(thread: ThreadState, closedWhileRunning = false): string | undefined {
+	const reason = thread.turns[thread.turn]?.reason ?? thread.stopReason
+	const notice = terminalNotice(reason, Boolean(thread.error || thread.retryNotice))
+	if (!notice || transcriptOutcome(reason) !== 'stopped') return notice
+	// The window closed under a running reply: that, not the person, is why it stopped.
+	if (closedWhileRunning) return 'Stopped because Namzu was closed.'
+	const waited = thread.unanswered?.turn === thread.turn ? thread.unanswered.calls : []
+	const kinds = new Set(
+		waited.map((call) => {
+			const name = call.name.toLowerCase()
+			if (['bash', 'shell', 'run_command', 'exec'].includes(name)) return 'command'
+			if (['edit', 'write', 'multiedit', 'delete', 'delete_file'].includes(name)) return 'change'
+			return 'action'
+		}),
+	)
+	if (kinds.size === 0) return notice
+	const only = kinds.size === 1 ? [...kinds][0] : undefined
+	if (waited.length > 1)
+		return `${notice} ${only ? `The ${only}s` : 'The actions'} waiting for your answer were not run.`
+	if (only === 'change') return `${notice} The change waiting for your answer was not made.`
+	return `${notice} The ${only ?? 'action'} waiting for your answer was not run.`
+}
+
+/**
  * The line under a reply that did not simply finish. `explained` says a failure message is already
  * shown for it: that message names the cause, so a second line (a "paused" or a limit the person
  * never reached) would only contradict it.

@@ -175,6 +175,7 @@ import { ProjectConnecting, ProjectMissing, ProjectOpenError } from './project-v
 import { ProviderNameContext } from './provider-name-context.js'
 import { RenameConversationDialog } from './rename-conversation-dialog.js'
 import { RestoreSkeleton } from './restore-skeleton.js'
+import { retryableReply } from './retry-reply.js'
 import { projectRemovalCopy, removalNotice, settingsRoute } from './settings-model.js'
 import { SettingsPage, SettingsSidebar } from './settings-page.js'
 import { type ConversationCollection, Sidebar } from './sidebar.js'
@@ -4101,6 +4102,31 @@ export function App({
 		}
 	}
 
+	/** Asks the newest reply's question again, exactly as it was typed. */
+	const retryable = retryableReply(thread)
+	const retryReply = async (prompt: string) => {
+		if (
+			context.current.frozen ||
+			thread.running ||
+			loading ||
+			restoringTabs ||
+			!sessionId ||
+			!project?.trusted ||
+			project.status !== 'ready' ||
+			!choice.provider ||
+			!providerReady
+		)
+			return
+		const route = { ...choice }
+		await api.selectProvider(sessionId, route.provider, route.model)
+		await api.send(sessionId, prompt, {
+			...settings,
+			effort: effortToSend(capabilities, settings.effort),
+			attachmentIds: [],
+		})
+		follow.current = true
+	}
+
 	useEffect(() => {
 		const onKey = (event: KeyboardEvent) => {
 			if (
@@ -5366,8 +5392,16 @@ export function App({
 													}
 													undoKept={undoKept}
 													projectRoot={project?.path}
+													closedWhileRunning={conversation?.closedWhileRunning === true}
 													renderMessageAction={(message, key) => (
-														<MessageActions text={message.text}>
+														<MessageActions
+															text={message.text}
+															onRetry={
+																retryable && retryable.reply === message
+																	? () => void act(() => retryReply(retryable.prompt))
+																	: undefined
+															}
+														>
 															<LocalSpeechReadAloud
 																speech={speech}
 																messageId={key}

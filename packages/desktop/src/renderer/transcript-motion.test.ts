@@ -260,7 +260,7 @@ describe('truthful turn labels', () => {
 		const thread = emptyThread()
 		thread.turn = 1
 		thread.running = true
-		expect(livePhaseLabel(thread)).toBe('Working')
+		expect(livePhaseLabel(thread)).toBe('Reading your message')
 		thread.activeReasoningId = 'r'
 		thread.reasoning.r = { text: '', status: 'pending', turn: 1 }
 		expect(turnActivityLabel(thread, 1)).toBe('Working')

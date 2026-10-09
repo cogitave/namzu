@@ -2052,7 +2052,7 @@ the person made wins and is kept. The whole process between the person's message
 the answer (narration, reasoning, every run and single action) is that one block, and
 nothing inside it draws a clock: not the narration, thoughts, action rows, run
 summaries or the heading. Each row keeps its full time in its tooltip and accessible
-description ("Observed by Namzu: ..."). A reply shows one clock, under its answer in the
+description ("Time: ..."). A reply shows one clock, under its answer in the
 footer row, or, when it ends without answer text (stopped, failed, only actions), at
 the bottom of the turn; none while it is still being written. The answer appears below that group only when it is
 a trailing answer; grouping never moves text across a later tool or reasoning event.
@@ -2279,8 +2279,8 @@ the native host's first observed time and actual observed settlement; cold
 history uses validated journal timestamps attached to the same message/turn/tool
 identity. Bounded history rows retain a journal message ID only when that ID
 passes validation; older rows without a known ID remain readable. The clock
-tooltip distinguishes **Observed by Namzu** from **Recorded
-in conversation**. Reopening or switching tabs does not replace these values
+tooltip says **Time** for a moment Namzu saw and **Saved in this
+conversation** for one read from the saved record. Reopening or switching tabs does not replace these values
 with the current time. Missing legacy clocks remain absent. Timeline order still
 follows admitted event/journal order rather than sorting by potentially adjusted
 wall clocks.
@@ -2573,9 +2573,11 @@ the engine no longer supports stays visible without changing the stored policy.
 Arrow keys move the highlight; Enter, Space or a click chooses; Escape closes and
 returns focus to the chip. Codex's Ask first mapping uses native read-only/untrusted
 policy; it is not the current Codex app's workspace-write approval default, and
-choosing Codex Full access requires an explicit confirmation for the captured
-conversation. Full access is computer-wide native access without tool review;
-Namzu Full access continues to respect Namzu's configured tool rules.
+choosing Full access for Codex or for Namzu asks once first ("Allow Codex full access?"
+or "Allow Namzu full access?"), says what it lets happen, and applies to that
+conversation only; "Keep current permissions" leaves Ask first in place. Codex Full access is
+computer-wide native access without tool review; Namzu Full access continues to respect
+Namzu's configured tool rules.
 The initial `claude-code` adapter offers Ask first and Plan only. The app does not
 offer Codex's automatic safety reviewer. Native engines disable attachments and
 Namzu plugin toggles rather than discarding inputs.
@@ -2717,7 +2719,8 @@ changes. Settings are captured with each submitted or queued message and do not
 change the turn already running.
 
 The attachment/settings popup exposes Attach images or files and Plugins.
-Attach images or files opens the native chooser. Drop files into the editor or paste an image to add their actual
+Attach images or files opens the native chooser, closes the popup at once and returns the
+keyboard to the message box, so the new file's chip is never covered. Drop files into the editor or paste an image to add their actual
 bytes. Supported native inputs are PNG, JPEG, GIF, WebP and strict UTF-8 text.
 PDF and other binary files are currently refused in the desktop preview. Image
 thumbnails open a full preview; each file has a removal action. A file-only
@@ -2774,13 +2777,24 @@ percent of the window; a diff past the Changes tab's size gate falls back to its
 plain patch). A command shows in a monospace box; any other tool shows a readable
 key and value list. Details keeps the exact inputs, and a destructive call keeps
 a warning line. The footer, right-aligned, holds a wrap toggle (only for a diff),
-**Edit**, **Reject** (red text) and **Accept** (green text). Reject sends a plain
-reject. Accept approves. Edit turns the footer into a one-line field, "Tell Namzu
+**Tell Namzu what to do instead**, **Reject** (outlined, red text) and **Accept** (the one
+filled button). A short line says what saying yes lets happen: a command card names the
+folder it runs in and what it can change (and warns on `rm -rf`, `sudo`, a hard reset and
+similar), a file card says which file is added or changed, and the `+N`/`−M` counts read
+"N lines added" to a screen reader and on hover. A muted line under the buttons says that
+Enter accepts and Esc stops the reply (Esc is the app's Stop key everywhere, so it is not
+a Reject). A new card moves the keyboard to Accept so Enter answers it (to Reject for a command that looks like it deletes, so a stray Enter cannot run it, and the line then says "Enter rejects it"), except when the
+person has words typed in a field, which keep their place. The card sits above the
+message box with room for its buttons. Reject sends a plain
+reject. Accept approves. **Tell Namzu what to do instead** turns the footer into a one-line field, "Tell Namzu
 what to do instead", with Send and Cancel: Send rejects the call and the model
 reads "The user declined this change and said: <your note>" (at most 4,000
 characters in all), and the turn goes on with that instruction. Escape cancels
 the field. Ctrl or Cmd+Enter accepts only while focus is inside the card; nothing
-listens on the window, and the card never takes focus from the composer.
+listens on the window. While Namzu only waits for the person, the Stop button is neutral
+instead of red and its tooltip says the waiting action will not run. The reply's live line
+reads "Reading your message" until the first thought or action appears, and Queue says it
+holds the message until the current reply is done.
 
 The diff comes from the CLI, which dry-runs the SDK's own `dryRunEdit` (or the
 `write` body) against the file as it is, so what the card shows is what the tool
@@ -2796,7 +2810,8 @@ model in `feedback`), and the main process tells the agent over ACP that the
 person declined (`declined: { note? }`). The kernel records that on the call, so a
 declined call is durable: its row reads "Declined edit to app.css" (or "Declined
 command", "Declined read of x") in the muted state `declined`, with "Declined" as its
-status, and opening the row shows "You said: *note*" when there is one. A row of
+status. The note is drawn in the conversation, under the Worked block, as "You asked
+Namzu to do this instead: *note*", so it is still there after the block folds. A row of
 declined calls folds to "Declined 2 actions" rather than counting as edits or
 commands, and its file name does not open the Changes panel, since nothing
 changed. After a reload the same row comes back from history, because the recorded
@@ -2805,6 +2820,22 @@ characters). A call a policy refused (strict mode, plan mode, an unattended
 refusal, the authorization gate) is not marked, and its row stays "details
 unavailable" after a reload, as it was; so does a call a TUI user declined, since
 the TUI does not report that yet.
+A turn stopped while an action waited for an answer ends "Stopped. The command waiting for
+your answer was not run." (or "The change ... was not made."). The newest settled reply has a
+**Retry** button beside Copy, and a failed turn's error line has one too: both send the
+same question again as a new message, and neither appears for a question that carried files
+or while a paused turn waits for its own Retry. A reply's clock is a button named "Time:
+..." (or "Saved in this conversation: ..." when read back from the journal). The "Edited
+*file*" card keeps the file name whole and moves its buttons to a second line before the
+name loses a letter.
+
+Closing the last window on Windows or Linux, or quitting, while a reply runs asks "A reply is
+still running" with **Keep working** (the default) and **Quit and stop**; replies that were
+running are marked `closedWhileRunning` in the saved conversation, and the next launch ends
+that conversation with "Stopped because Namzu was closed." until a new message is sent.
+A conversation title comes from the words typed, never from the attached file's text
+(`Attached text file: "name"`): a message with only files is titled with the first file's name.
+
 Follow-up drafting and queuing remain available while a
 review waits. Cancellation aborts its permission wait. Approval IDs belong to
 the conversation that asked; navigation does not redirect an answer to another

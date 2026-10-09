@@ -161,10 +161,21 @@
 }
 .approval-footer {
 	display: flex;
+	flex-wrap: wrap;
 	align-items: center;
 	justify-content: flex-end;
 	gap: 8px;
 	padding-top: 2px;
+}
+.approval-hint {
+	margin: 0;
+	color: var(--muted-foreground);
+	font-size: 11px;
+	text-align: right;
+}
+/* The card's lower edge sits clear of the message box, with room for the buttons' focus ring. */
+.approval-card {
+	padding-bottom: 6px;
 }
 .approval-note-field {
 	flex: 1;
@@ -226,6 +237,20 @@
 .approval-button[data-tone="reject"] {
 	color: var(--error-foreground);
 }
+.approval-instead {
+	border-color: transparent;
+	color: var(--muted-foreground);
+}
+.approval-instead:hover:not(:disabled) {
+	color: var(--foreground);
+}
+/* Accept is the one filled button: the answer that lets the action go ahead. */
 .approval-button[data-tone="accept"] {
-	color: var(--update-foreground);
+	border-color: transparent;
+	background: var(--message-action);
+	color: var(--message-action-foreground);
+	font-weight: 600;
+}
+.approval-button[data-tone="accept"]:hover:not(:disabled) {
+	background: var(--message-action-hover);
 }

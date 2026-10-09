@@ -16,9 +16,11 @@
 .turn-changes-head {
 	display: flex;
 	align-items: center;
-	gap: 10px;
+	gap: 6px 10px;
 	min-width: 0;
 	padding: 10px 12px;
+	/* A narrow window moves the buttons to a second line before the file name loses a letter. */
+	flex-wrap: wrap;
 }
 .turn-changes-toggle {
 	display: flex;
@@ -48,17 +50,24 @@
 	color: var(--muted-foreground);
 }
 .turn-changes-title {
+	display: flex;
 	flex: 0 1 auto;
 	min-width: 0;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
+	white-space: pre;
+}
+/* The verb never shrinks; the file name is what gives way, with an ellipsis. */
+.turn-changes-title > span {
+	flex: none;
 }
 .turn-changes-head > .turn-changes-title {
-	flex: 1;
+	flex: 1 1 10rem;
 }
 .turn-changes-title strong {
+	min-width: 0;
+	overflow: hidden;
 	font-weight: 600;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 .turn-changes-toggle .turn-changes-title {
 	flex: 0 1 auto;

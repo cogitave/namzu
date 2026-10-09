@@ -1765,6 +1765,12 @@ export class Operator {
 						: {}),
 				...(project.view.palId ? { palId: project.view.palId } : {}),
 				...(project.view.palId && row.palGreeting ? { palGreeting: row.palGreeting } : {}),
+				...((
+					this.runtimeSession(project, row.id)?.view ??
+					this.savedDesktop?.conversations.find((item) => item.view.id === row.id)?.view
+				)?.closedWhileRunning
+					? { closedWhileRunning: true as const }
+					: {}),
 			}))
 		const returned = new Set(views.map((row) => row.id))
 		for (const session of this.conversations.values()) {
@@ -4564,6 +4570,15 @@ export class Operator {
 				id: session.runtimeSessionId,
 			}
 			session.hasPrompted = true
+			if (session.view.closedWhileRunning) {
+				// A new question settles the old one: the earlier reply is no longer the latest word.
+				delete session.view.closedWhileRunning
+				this.emit({
+					kind: 'conversation-updated',
+					sessionId: session.view.id,
+					view: { ...session.view },
+				})
+			}
 			const content = [
 				prompt,
 				...files.map((file) =>
@@ -4960,8 +4975,17 @@ export class Operator {
 		this.backgroundWork.invalidate(sessionId)
 		this.trackBackgroundWork(sessionId)
 	}
+	/** How many conversations have a reply running or waiting on the person right now. */
+	runningReplies(): number {
+		let count = 0
+		for (const item of this.conversations.values()) if (item.running || item.admitting) count++
+		return count
+	}
 	async close(): Promise<void> {
 		this.closing = true
+		// Closing ends these replies; the next launch says so instead of a bare "Stopped.".
+		for (const item of this.conversations.values())
+			if (item.running && !item.view.palId) item.view.closedWhileRunning = true
 		this.backgroundWork.close()
 		for (const id of this.computerViewers.keys()) this.closePalComputerStream(id)
 		const closing = await Promise.allSettled(
