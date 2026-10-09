@@ -203,7 +203,9 @@ it('bounds live previews across owners and strips every copy of a retried image 
 	owner.respondPermission(first.id, queuedRequest.id, { outcome: 'approve' })
 	await queuedEnded
 	expect(owner.attachments(first.id)).toEqual([])
-})
+	// A real runtime subprocess and megabyte-sized frames over its pipes: process and pipe I/O, which a
+	// loaded runner stretches past the 5 s default.
+}, 30_000)
 
 it('commits budget evictions before a renderer publication callback can throw', async () => {
 	let throwOnPrompt = false
@@ -240,4 +242,6 @@ it('commits budget evictions before a renderer publication callback can throw', 
 	if (!thread) throw new Error('Missing owned projection')
 	expect(previewBytes(thread)).toBeLessThanOrEqual(MAX_MESSAGE_PREVIEW_BYTES)
 	expect(thread.messages.some((message) => message.text === 'Publication failure')).toBe(true)
-})
+	// A real runtime subprocess and megabyte-sized frames over its pipes: process and pipe I/O, which a
+	// loaded runner stretches past the 5 s default.
+}, 30_000)
