@@ -1,5 +1,483 @@
 # Changelog
 
+## 50.0.0
+
+### Major Changes
+
+- efb7b06: Extend the closed `AcpSessionUpdate` output union with `agent_thought` reasoning boundaries and `agent_message` completed messages. Exhaustive consumers must add handlers for both kinds before upgrading. Existing variants and required fields remain available. Reasoning boundaries contain no private replay payload; readable reasoning still arrives through `agent_thought_chunk`.
+
+  Message chunks carry optional actual message/turn identity and public commentary/final-answer metadata. Completed messages provide selected settled content and ordered public text parts. `turn_ended` can provide the authoritative result and its actual answer-message identity; consumers must replace the preview when a result is present, including an empty result that clears blocked output.
+
+  Keep the coarse `AcpStopReason` union and add optional exact `reason` to terminal updates and prompt responses. Current runtime guardrails/refusals map to `refused`, resource limits to `max_turns`, and parked segments retain `reason: 'paused'` under the older coarse cancellation label. Legacy aliases remain accepted. Prompt preparation cancellation returns an explicit cancellation reason even if no runtime event was produced. Streamed updates are sent in admission order and finish before the prompt response. Tool completion retains optional runtime-measured duration.
+
+  Permission questions wait for already-admitted updates and fail closed when that context was not delivered. Update errors are caught immediately, retain the first failure and release the prompt slot after flushing; failed question sends settle their pending wait. Delivery failure does not undo runtime work already recorded.
+
+  Update the CLI session-isolation regression expectations to include the exact cancellation and completion reasons; the CLI runtime is unchanged.
+
+- 0f5aa96: Ready-computer Pal prompts now default to general application work guidance:
+  understand references and acceptance criteria, make reversible changes,
+  observe and correct the actual result, and validate saved files and requested
+  exports before delivery. SDK hosts that need the previous prompt behavior can
+  pass `workGuidance: 'basic'` to `buildPalSystemPrompt`. This guidance shapes
+  model behavior; it does not certify semantic correctness.
+
+  The SDK `read` tool now refuses real PNG, JPEG and WebP bytes as text. Mount
+  the optional `view_image` / `createViewImageTool` for saved-image inspection,
+  or use a format-aware binary reader when pixels are not the desired result.
+  `getBuiltinTools()` retains its previous tool roster. Saved artifact images
+  provide no GUI screenshot authority.
+
+  The CLI and desktop Pal runtime now explicitly mount `view_image` and
+  `import_reference_images`. Image import is a reviewed file-write operation
+  using only the current operator input and admitted guest. Original image
+  bytes and manifests survive durable review; current plan, pause and control
+  guards remain in force. Ordinary chat and unavailable-computer sessions do
+  not acquire guest tool access.
+
+  The local Pal sandbox adds authenticated, acknowledged bounded byte reads.
+  Rebuild the local Pal image from this release to inspect saved images; an
+  older worker fails explicitly before file contents are requested. Existing
+  whole-file requests and generic worker defaults are unchanged.
+
+  The Pal image also includes the standard `file` utility for format checks.
+  This reports file type; it does not establish application or visual quality.
+
+- 6ff961f: Add an owner-conversation source to the shared Pal input ledger, so an ordinary conversation (not a Pal) can leave a message in a Pal's durable inbox. `PalOperatorMessageBroker` and `createPalOperatorMessagingTools` (`list_pals` and an always-approved `send_pal_message` that takes only `palId` and `body`) are new; the host fixes the tenant and the executing call supplies the conversation, so the model cannot choose or forge the sender, and the source carries no Pal address. Acceptance is a receipt, never delivery or an answer, and the existing Pal-to-Pal rows, route hashes, IDs and receipt namespaces are unchanged.
+
+  Why this is a major release: the exported unions `PalIngressIntent`, `PalIngressInboxMessage`, `PalIngressRouteKey`, `PalIngressAuthorizationRequest` and the `acceptIngress`/`readIngress` results gain an `operator` member (`kind: 'operator'`, source `operator-conversation`), and `ingressMessageRef` can return the new `namzu-pal-operator/1` namespace. TypeScript code that narrows these unions with `kind === 'observation' ? … : <channel fields>` no longer compiles; handle `kind === 'operator'` (its source is `{ kind: 'operator-conversation', tenantId, sessionId }`) before reading channel fields. A custom `authorize` callback must also return a decision for an `operator` request: allow `accept` and `deliver` only for a host that has already shown the owner a review, and refuse `wake` unless the owner started the Pal. The public `RuntimeContextMessageKind` union is not widened: a delivery is recorded as `peer-message`, and its rendered envelope names the owner's conversation and says it is untrusted context, not an approval.
+
+  An older SDK process sharing a communication store that holds an owner-conversation message fails to read that recipient's record rather than overwriting it; stop older processes before sharing the path.
+
+- 53aed2a: Add a shared durable Pal input ledger for existing Pal messages, closed host activity facts and authenticated channel messages. Generic intake and finite dispatch retain exact original-log receipts, current authorization and one unresolved recipient claim across all sources. Existing Pal-only APIs, row shapes and message IDs remain supported; their writes preserve the new input families.
+
+  The public RuntimeContextMessageKind output union and RUNTIME_CONTEXT_MESSAGE_KINDS catalogue now include host-observation and channel-message. Consumers that exhaustively handle runtime context must add those cases when upgrading. Treat both as untrusted context; neither grants approval or operator authority. This output-type expansion requires a major SDK release even though the new intake APIs are additive.
+
+  Persisted communication and operation records upgrade to schema version 2. Stop older SDK processes before sharing these store paths; older binaries refuse the new records instead of overwriting mixed input state. Observation and channel messages remain untrusted runtime context, never operator approval or permission grants.
+
+- f7f48f9: Add the explicit `cmd` ShellDialect and change the native Windows host-shell metadata default from `sh` to `cmd`. The physical command shell remains Node's platform shell (normally CMD); no PowerShell or WSL switch occurs. Update exhaustive dialect handling to include `cmd` and pass the actual value to authorization helpers.
+
+  CMD lines are conservatively opaque until a matching parser exists. Command-specific allow rules and skill patterns no longer pre-approve native CMD commands. The existing unknown-program escalation still requires exact-call review, even when the gate has a whole-tool allowance. Use that review or explicitly select a POSIX interpreter rather than incorrectly labelling CMD as `sh`. Sandboxed Linux guests retain `sh`.
+
+  SDK query prompts disclose the active command tools' host or guest execution dialect, including minimal and cached prompts. Explicit Windows `bash.exe` and `sh.exe` overrides retain their matching POSIX dialects.
+
+  Native Windows CLI model shell calls inherit the exact-call review requirement. The scheduled-run floor refuses CMD commands rather than checking them with POSIX quoting; confirmed script jobs still accept only explicit bash/sh interpreters. Use an installed POSIX interpreter where appropriate or run reviewed interactive CMD calls.
+
+### Minor Changes
+
+- dd7ee4b: A failed model request on a turn that has no token limit anywhere above it no longer blocks that turn's next request. Before, an unanswered request (a 502, a dropped stream) left the account "in flight" and unresolved, so the same turn could never ask again and a host could only abandon it. The request still stays recorded as unknown spend, never as zero, and a late usage frame for it is still added.
+
+  A turn with any finite limit (its own, or on an account above it) behaves exactly as before: unknown spend still refuses the next request, because the unknown amount may already exceed the limit. `SessionTokenBudget.bounded` reports which of the two an account is. If you depend on the old refusal for an unlimited turn, check `summary().unresolvedRequests` yourself; nothing else changes for limited turns.
+
+- 4314f90: A tool call a person declined at review is now recorded as declined by them, with what they said, so a host that reopens the conversation can show it. Nothing you already send or receive changes shape, and no code needs to change to upgrade.
+
+  New and optional: `ToolReviewAnswer`'s `reject`, `AcpPermissionOutcome`'s `reject` and the `reject_tools` decision take `declined?: { note?: string }`; an ACP client's `reject` answer takes the same field; and a generic `ToolCallView` result carries `declined?: { note?: string }`. A host that sets `declined` on its reject gets, on that call's `tool_completed`, a view whose `label` is the call's target (path or command) and whose `note` is the person's words, cut at 4,000 characters. A host that does not set it, a call the authorization gate refused even when the person rejects the rest of its batch, and every other refusal by policy (strict or plan mode, no one to ask, the authorization gate, a repeated failure), is recorded exactly as before: an error result with no presentation. The text the model reads is unchanged. `ToolExecutor.executeBatch` takes an optional fifth argument for the same purpose.
+
+  The CLI's ACP server passes the field through, so a client such as Namzu Desktop that reports "the person said no" now shows "Declined" after a reload instead of "details unavailable". The terminal UI does not report it yet, so a call declined there still reloads as before.
+
+- 7f5ac50: Expose explicit paused-turn recovery through optional `AcpAgentGateway.retry` and
+  `ACPServer.retrySession`. Hosts retain the existing ordered update, review,
+  cancellation and single active execution owner without inventing a new prompt.
+
+  The desktop CLI host advertises scoped retry-status and retry methods. It resumes
+  only the exact verified checkpoint of a classified retryable provider pause with
+  resolved original accounting. Human decision holds and uncertain provider usage
+  remain blocked, including unlimited turns; this feature never resets a ledger or
+  abandons an active turn. Same-process retries preserve captured approval/effort
+  and the recorded model. After reconnection, default Retry is unavailable when the
+  original approval settings cannot be verified; a deliberate host retry must
+  explicitly select a permission mode in ordinary conversations. Pal recovery also
+  pins the authenticated original computer generation and environment identity
+  before sending, and rechecks them at resumed provider/tool entries. A cold,
+  originally offline, replaced or unavailable Pal computer lifetime cannot be
+  substituted with the currently ready computer. Pal ownership and current
+  computer-control guards remain required.
+
+- 56d88dc: Add optional `namzu/tasks/update` planning notifications, exported `AcpTask` and `AcpTaskUpdate` shapes, and `ACP_TASK_CAPABILITY`. Hosts enable `supportsTaskNotifications` and clients declare `namzu/tasks`; existing core updates and default wire behavior remain unchanged. Notifications preserve planning IDs, failed status, dependency and owner clears, and deletion without forwarding private task descriptions or metadata.
+- 3727e2b: Add the read-only `ACPServer.getSessionCwd(sessionId)` lookup for the exact
+  workspace of a session published on the current connection. Reserved loads,
+  unknown identities and stopped servers return `undefined`. Hosts can authorize
+  new-session model preparation before the first durable turn without accepting
+  an arbitrary client-provided session ID. Folder trust and durable/Pal ownership
+  checks remain the host's responsibility.
+- 84452ec: Add `ToolManager.prepareExecutionAsync(name, rawInput, signal?)` and use it for
+  direct, nested and structured tool calls. Asynchronous refinements and JSON-safe
+  transforms now prepare one normalized input for authorization, review and
+  execution. Execution retries reuse that input; actual rewrites are revalidated.
+  The existing synchronous preparation API remains unchanged.
+
+  Cancellation ends preparation without admitting a late result. Schema callbacks
+  remain trusted host code: keep external work free of effects or cooperative with
+  host cancellation. Non-JSON host inputs must not be mutated while preparation is
+  pending.
+
+  Observation deduplication no longer replays historical schema callbacks. It uses
+  current executor evidence tied to the actual successful call and exact result.
+  Historical or recovered results without this proof remain full, so a new turn or
+  resume may retain more context under the existing compaction limits.
+
+- 53aed2a: Add authenticated Pal channel ingress with captured host connections, a fresh actor per event, immutable native conversation targets, and shared durable inbox delivery. Recorded reply and action routing verifies the original owned conversation receipt and current authority; it does not send remote messages automatically. Hosts must provide a trusted event verifier and explicit receive, wake, reply and action policy. The CLI includes a private local HMAC fixture adapter and a bridge to exact native parked tool-review actions; other channel actions remain unsupported.
+- 6194bda: Observe a background server's output without waiting for it to exit. `BackgroundJobRegistry.waitForOutput` and the optional `BackgroundJobRegistryRef.waitForOutput` match a bounded UTF-8 literal on stdout, stderr or either pipe independently, preserve combined byte cursors, and report match, exit, stop, timeout or cancellation outcomes with explicit retention gaps.
+
+  Set `output_contains` and optional `output_stream` on `wait_for_job` for one readiness observation. This mode never marks the process as work that must hold a finishing turn open. Omitting the condition preserves the existing exit wait. Custom hosts must implement the optional output-observation method to support readiness; unsupported hosts refuse it rather than waiting for exit. Observers have per-owner and registry limits and are cleaned up on every outcome. Process output remains evidence, not a guarantee of service health.
+
+  Byte caps and cursors now skip partial UTF-8 code points and report those skipped bytes instead of introducing replacement characters into the retained output.
+
+- 301f5b3: Add opt-in `structuredResultSpilling: true` to built-in session logs. Large
+  screened structured tool candidates and accepted final JSON can use separate
+  checked spill references while their records remain within the 4 MiB ceiling.
+  The default keeps existing inline records; each spilled JSON body is limited
+  to 16 MiB. Live events and returned turns still carry the full value.
+
+  Use `readStructuredOutput` on a completed record from a verified log read to
+  restore accepted JSON. Completed-call recovery hydrates only the latest
+  selected completion and refuses missing or corrupt evidence without replay.
+  `readSpill` and spill stores accept optional byte limits and cancellation;
+  built-in bounded reads verify actual size, UTF-8, regular files and hashes.
+  Custom backends remain responsible for their own I/O limits. This does not
+  restore a pre-crash review decision or introduce general tool-data artifacts.
+
+- 6194bda: Add `resumeSessionId` to local child-task admission and expose the admitted conversation as `TaskHandle.childSessionId`. A follow-up keeps the child's conversation and history while creating a fresh task, parent-turn attribution, cancellation channel, budget reservation and current configuration. Existing terminal task handles remain unchanged. Continuation requires a retained capability in the same manager and an unchanged registered definition; replayed history alone cannot authorize execution, and isolated workspaces are refused.
+
+  Existing builders supplying a custom log for another session keep their first-invocation behavior. Such a log does not create continuation authority for the admitted child, so a later follow-up is refused instead of replaying unrelated history.
+
+  Add optional invocation identifiers to immutable summaries: `SessionSummaryRef.turnRef`, `SessionSummaryMaterializer.materialize({ turnId })`, and `SessionStore.getSummary(sessionId, tenantId, turnId)`. Built-in stores seal follow-up summaries independently without replacing the original conversation summary. Custom session stores enabling continuation must declare `supportsInvocationSummaries: true` and implement this optional invocation key; their existing calls without a turn id retain their behavior.
+
+  Continuation also requires `supportsOwnerVersionCas: true`: custom stores must honor the optional expected ownership version on `updateSession` and `recordSummary`. Admission, rollback and pre-invocation checks refuse changed ownership, and `materialize({ expectedOwnerVersion })` prevents an old invocation from idling a new owner during completion. Built-in disk stores serialize these writes within a process; this does not establish a cross-process lease. Calls omitting the version preserve their existing behavior.
+
+- 56d88dc: Add `DiskTaskStore.listStrict()` for hosts replacing a complete task projection. It rejects unreadable directories and corrupt records rather than silently presenting an empty or partial list. A session without a task directory still returns an empty list; existing `list()` retains its tolerant behavior.
+- f7f48f9: Add optional `terminate(signal?): Promise<void>` to `SandboxDetachedProcess` and background `JobProcess` for providers that must confirm a remote process tree stopped. The registry waits for this confirmation before reporting termination. A failed confirmation rejects the stop call and retains the owned running job with optional `recoveryRequired` and a safe `stopError`, so the host can retry recovery without forgetting live work. Providers that use the existing synchronous `kill` method retain their current behavior.
+- 9ef6506: Expose live tool progress and actual turn failure messages through optional fields on existing ACP update variants. Add explicit optional `namzu/*` ACP host extensions and advertise their method names. Gateway history loading now receives the requested workspace as an optional second argument; existing one-argument gateways remain compatible.
+
+  The CLI now loads durable, project/tenant-scoped ACP conversations and refuses archived writers. `namzu acp --desktop` enables operator methods for folder trust, scoped conversation/history, safe provider metadata and background jobs. Ordinary ACP connections retain the core method set. The private desktop preview uses this existing runtime and log rather than a second conversation store.
+
+- 56e846c: Add optional inline user attachments to ACP prompt requests. Hosts opt into delivery with `supportsPromptAttachments: true`; initialization then advertises `promptAttachments: true`. Clients can check this capability before sending bytes, and gateways receive the validated attachment payload alongside the prompt. Stored attachment references are refused across this boundary; inline payloads are limited to eight attachments and 3 MiB of decoded bytes per message.
+
+  The CLI opts in and preserves image/document attachments in the actual user message and settled conversation history. Existing plain text requests keep their behavior. The private desktop admits native file picks or dropped/pasted bytes as bounded images and UTF-8 text, keeps draft and queue ownership, and refuses image submission to an older CLI rather than silently dropping it.
+
+  New image/document inputs are refused before send when the selected live provider explicitly declares that it cannot receive them. Desktop files remain available for retry with a suitable model. Attachment/settings-only drafts survive a connection rebuild, and queue editing restores captured options together with its text and files. Pre-turn CLI errors retain their actual diagnostic rather than becoming a generic failed turn.
+
+  ACP also accepts optional `AcpPromptOptions` with a reasoning effort and tool review mode. Hosts opt in with `supportsPromptOptions: true`, advertised as `promptOptions: true`; unsupported or malformed explicit settings are rejected before a turn starts. The CLI validates reasoning effort against the actual selected runtime's supported menu and applies the captured review mode to that turn.
+
+- 2057fd6: Surface provider-hosted web search and fetch activity through existing ACP tool
+  updates, using qualified IDs and only provider-reported state and bounded public
+  captions. These display receipts do not grant local execution or approval.
+
+  Desktop conversation history adds optional validated journal message IDs and
+  timestamps for messages and work, and restores saved hosted search receipts.
+  Missing timing and unfinished operations remain explicit; reopening history
+  does not invent a current clock or a successful outcome. Existing message text
+  and execution authority are retained.
+
+- 6f46da3: Add an optional `durableInbound` source to query, runAgent and query-backed
+  agent configuration. Deliveries use ordinary session-log message records and
+  await both their append queue and the host's exact acknowledgement before
+  inference. An explicit sessionLog is required for this optional source.
+
+  Export durable claim/reference/receipt contracts and bounded reference
+  validation. Runtime context can retain an optional delivery reference without
+  acquiring operator authority. Existing initial input, synchronous queues and
+  outstanding-work holds retain their defaults.
+
+- be9f8b6: Add opt-in `structuredOutput.toolResultRetention: 'durable'` for tool mode.
+  Retain screened, post-hook JSON independently of capped tool previews, so
+  larger valid candidates can reach review and final structured settlement.
+  The default `receipt` behavior is unchanged; native mode rejects the durable
+  tool option.
+
+  The full JSON is an additional host-visible `tool_completed.structuredResultJson`
+  field and a verified completion recovery field, not provider-message content
+  or proof of acceptance. Guardrails, hooks, skips, cancellation and the session
+  record size ceiling still apply. Resume preserves execution evidence without
+  automatically accepting a pre-crash candidate or replaying its tool.
+
+- 24cb6b4: Add `createHarnessSession` and host-composed external engine contracts. External sessions record an immutable engine/profile/native-session/cwd binding, authored prompts before dispatch, native item identities and exact review decisions under the existing session writer lease. Admission is required before native execution or approval; interrupted connections require matching native history and never automatically resend prompts. Existing Namzu query, provider and tool execution APIs and defaults are unchanged. New optional `harness` payloads use the existing session record kinds.
+
+  New external-bound journals cannot be continued through kernel `query`, `resumeSession` or `TurnRecorder.open`; use their recorded harness adapter or a separate Namzu session. Reading their owned history remains available.
+
+- d5030ca: On Windows, `bash` with `run_in_background` now runs the command: before, the job registry spawned `/bin/sh`, which does not exist there, so every background job ended within milliseconds with no output and no explanation. Background jobs, foreground `bash` calls and plugin shell hooks now share one spawn (`spawnHostShell`, newly exported). A command that cannot be started is reported as "Could not start the command: <reason>" (and as `failed to start` by `job` and `wait_for_job`, with an `error` field) rather than as a plain exit, and Windows console output is decoded in its OEM code page instead of garbled as UTF-8. On Windows the command now runs under UTF-8 (an outer `cmd` sets code page 65001 and starts the real one with the command in the environment), so letters the OEM page lacks, such as `ğ` and `ş`, are no longer flattened to `g` and `s`, and a missing working directory is reported as such. Nothing to change on upgrade; `BackgroundJob`, `BackgroundJobOutput` and the job tool results gain an optional `error`.
+- 6f46da3: Add durable Pal addresses, owned conversation routes, incoming message storage,
+  captured senders, explicit directed consent and executor-correlated messaging
+  tools. Acceptance is separate from verified session-log delivery and recipient
+  execution; unresolved claims are retained for recovery without repeating effects.
+
+  CLI and desktop Pal sessions use the same SDK messaging tools and durable query
+  input. Add `pal grant/revoke/inbox/dispatch`: wake consent is explicit and finite
+  dispatch uses preapproved tools. No external transport, automatic listener or
+  Pal Team membership is installed by this feature.
+
+- 56d88dc: Add `CompletionInbox.deferDelivery(taskId, settlement)` and `drainAsync(signal?)` so hosts can await an owned task's tracking writes before delivering its result. The existing synchronous `drain()` keeps pending deferred results queued and reports rejected writes without consuming results. Cancelling an asynchronous drain releases its waiter while retaining the tracking promise and result. Query notification waits respect the caller's existing cancellation/deadline, and finalizers and outstanding-work holds never wait again on pending tracking.
+
+  Coordinator background workers and abandoned foreground waits now settle their linked planning task and original approved plan step from the actual worker outcome exactly once. Completion notifications and explicit waits await that settlement. Replacing the active plan cannot redirect an old worker's outcome to a reused step ID. Direct background launches without a completion channel are refused before starting a worker.
+
+  Rejected scheduler admission also fails the linked planning record and original plan step rather than leaving them running. The original admission error is retained, an uncertain worker dispatch is not represented as absent, and failed tracking persistence reports both errors without retrying the worker.
+
+- 7f5ac50: Add optional `MCPClientConfig.transportFactory` for caller-owned transports,
+  preserving built-in transport configurations and the existing MCP protocol
+  lifecycle without launching a host subprocess as fallback.
+
+  Add optional `Sandbox.openStdio` with allocation-owned interactive guest pipes,
+  byte streaming, confirmed process-group shutdown and explicit per-request device
+  operation barriers. Idle services permit operator takeover; an unknown issued
+  application operation permanently fences the allocation until computer stop and
+  cannot be cleared by a late response or closing an external application's MCP
+  server. The local Pal worker must be rebuilt alongside the runtime to advertise
+  interactive support. Older workers refuse this capability before spawning;
+  ordinary foreground, background, file and desktop APIs remain available.
+
+  Keep quiet interactive services alive with bounded worker heartbeat frames,
+  discarded by the matching runtime before application output and without
+  changing request ownership or uncertain-effect barriers. Rebuild the worker
+  and load the matching runtime together for the interactive protocol.
+
+- 6f46da3: Add `PalRuntime.onLifecycle` for live computer and admission observations, with
+  unsubscribe and isolated listener failures. Add `createPalActivitySource` for
+  authorized, bounded pages of approved metadata from an owned original Pal journal.
+  No private message, tool argument, result or error body is exposed in activity facts.
+
+  Activity cursors must remain unchanged previously emitted outputs stored by a
+  trusted host. Their scope hash binds ownership but does not authenticate a client
+  cursor, and previously consumed prefixes are not rescanned. Hosts must resolve
+  stored cursors rather than accept model, renderer or remote anchors directly.
+
+  These observation APIs do not grant execution, approve actions or wake Pals.
+
+- 5e2fb3a: `DiskPalActivitySubscriptionStore.list()` is an additive trusted-host read of frozen latest subscription records, including disabled subscriptions. A missing root returns an empty list, while malformed or unreadable committed records and aliased directories reject the complete projection. Hosts must still enforce tenant and participant access before exposing metadata.
+
+  Custom `PalActivitySubscriptionStore` implementations do not acquire a new required method, and existing create, get, consent and progress behavior is unchanged.
+
+- 84a9472: Add optional provider-owned Pal computer takeover through `PalComputerControl`,
+  `PalComputerInput` and runtime control methods. Hosts can transfer an idle guest
+  to human input using its exact generation, return it without waking the Pal, and
+  observe current control authority. Providers without the optional port retain
+  normal Pal execution and explicitly refuse takeover.
+
+  The runtime serializes control operations, refuses new Pal admissions during
+  operator control, and requires each subsequent admission to obtain its own
+  fresh screenshot before GUI input. CLI desktop ACP exposes take-over, return and
+  bounded input methods; optional screen generation pinning rejects stale captures.
+
+- c1027fb: Add a connected computer observation to `PalSystemPromptOptions.computer`, with the current control mode, so hosts can describe an existing device independently of permission to execute tools.
+
+  Fix Pal chat composition when the operator holds its connected computer. The Pal now receives its actual connected/control state instead of being told the computer is unavailable. Operator-held chat retains zero guest tools and performs no guest inspection or allocation; Return control admits the existing guest capabilities on the following turn.
+
+- d8d562e: Add `buildPalSystemPrompt` and `PalSystemPromptOptions` for hosts to compose a
+  Pal's saved identity, conversational language, public output discipline and
+  truthful computer availability. The helper does not acquire execution authority.
+  CLI Pal sessions use these shared instructions while retaining their pinned
+  model and execution policy. Authenticated name and appearance edits update the
+  next turn's display identity without rewriting the original introduction.
+
+  Add `PalRuntime.admitConversation`, `PalConversationAdmission` and
+  `PalRuntime.computerChanging`. Hosts can admit exclusive model-only chat without
+  starting a computer, with current pause, cancellation and ownership checks.
+  Guest acquisition remains separate and requires the real guarded environment;
+  the existing mandatory `admit` contract is unchanged. CLI manual chat supplies
+  zero tools while offline or operator-controlled, then adopts the actual guest
+  toolset on a later turn after explicit startup or returned control. Directed
+  dispatch and checkpoint resume continue to require guest admission.
+  The standalone `pal chat` command keeps its existing computer-startup preflight.
+
+  Add `palConversationGreeting` and `PalConversationGreeting` to reconstruct a
+  stable English onboarding prelude from an owned conversation's original profile
+  revision. CLI Pal claim and list results expose this separate host-authored
+  intro without starting a model request or manufacturing a journal turn.
+  Pal desktop history omits explicit assistant commentary and tool-call narration
+  from its public display projection while retaining the original journal.
+
+- 53aed2a: Add durable subscriptions for closed Pal activity metadata from an exact owned original conversation. Observation, disclosure, recipient receipt and idle wake have independent current permission checks. Custom publication authorizers must also implement the final accept phase requiring current observation, disclosure and receipt together. Accepted facts enter the shared Pal inbox before cursor progress; retries preserve identity and verified observation trails suppress feedback.
+
+  The CLI adds finite pal subscribe, subscription, activity and unsubscribe commands. Publication performs no inference or guest startup; explicit dispatch still requires current wake/tool authorization. Original turn intake and exact recorded delivery receipts are required for causality, and unknown evidence or exhausted journal read budgets reject without advancing progress.
+
+- ce52b90: Add optional host-only `PalComputerScreenStream`, `PalEnvironmentLease.screenStream`
+  and `PalRuntime.computerScreenStream(palId, generation)` for observing an exact
+  current Pal computer over read-only RFB. Existing providers remain compatible;
+  providers without the optional capability explicitly refuse live observation.
+  Keep allocation authorization private in the embedding host and enforce read-only
+  observation server-side; the stream does not grant operator input authority.
+
+  The CLI exposes the owning desktop ACP stream method with geometry and generation
+  rechecks, and reuses initialized registry roots to avoid repeated Windows ACL
+  subprocesses while retaining fresh Pal definitions and directory identity checks.
+  The local computer image adds x11vnc and authenticated binary WebSocket transport.
+  Rebuild the installed image explicitly and restart the owning computer to enable
+  live observation; older images retain screenshot/input behavior and advertise no
+  stream capability. Persistent workspace and browser profile volumes survive.
+
+  The guest desktop includes a themed wallpaper, a real dock, Files, terminal and
+  browser launchers, plus a local browser home page. Normal browser-window closure
+  keeps the desktop alive; owned profile shutdown retains browser flush ordering.
+
+- 815433f: Add `DiskPalStore.delete(id, expectedRevision)` and the desktop host's
+  `namzu/pals/delete` metadata endpoint. Deletion uses a terminal immutable revision,
+  hides the current Pal, and refuses future updates and execution admission while
+  preserving historical profiles, journals, host files, and guest data volumes.
+  Hosts must stop active work and confirm computer cleanup before deleting its
+  identity. Existing custom `PalStore` implementations require no new method.
+  Readers from older releases do not understand terminal deleted profiles and
+  should not be used to read a registry after deletion has been published.
+
+  Add the desktop host's `namzu/conversations/archive` endpoint. It performs a
+  scoped, writer-gated soft removal while retaining the durable conversation and
+  files. Successful retries return `archived: true`; a physically absent strict
+  journal returns `archived: false, missing: true`, never claiming that an absent
+  conversation was archived. Hosts may discard only their own known unsent local
+  projection from this missing receipt. Existing terminal archive commands are
+  unchanged.
+
+  Release a connection's exact idle native-engine writer before desktop archival,
+  reserving the conversation until the operation settles. Active or unresolved
+  work is refused and a failed native close retains cleanup authority for retry.
+  The runtime reservation method is optional for existing embeddings.
+
+  Keep a Pal's approved stored control-path spelling when Windows native path
+  resolution changes only its case, after verifying the same physical directory.
+  Physical project identity remains canonical, while existing Pal profile revisions
+  and journal ownership paths remain unchanged. Different directory objects and
+  non-case aliases are refused.
+
+- 4367edc: Add opt-in held keyboard input for a Pal's operator-controlled guest. Providers
+  advertise `heldKeyboard: true` only after negotiating the owned guest's support;
+  `PalComputerInput` then accepts session-scoped `key_down`, `key_up` and
+  `release_keys`. Providers must release their tracked held keys before confirming
+  returned Pal authority. Existing complete `key` taps and AI `computer_use`
+  actions keep their behavior, and older local images do not advertise holds.
+
+  The desktop captures a new keyboard lifetime for each focus session, forwards
+  press and release events without replaying browser key repeats, and releases
+  only that lifetime on focus/view loss. Cleanup retains exact Pal/generation and
+  operator authority checks and cannot release another lifetime's keys. Rebuild
+  the local Pal image to enable this capability; a runtime update alone retains
+  the older image's tap input.
+
+- 6f46da3: Add optional `PalAppearance` preferences to saved Pal definitions and create/update inputs. Character and color selections persist in immutable profile revisions; existing records retain their absent appearance and hosts may choose their own display default.
+
+  The CLI accepts `--appearance <character>/<color>` on `pal create` and `pal update`, and the desktop ACP create/update extensions carry the same validated preference. Supported characters are `pixel`, `sprout`, and `spark`; supported colors are `green`, `blue`, `amber`, `violet`, and `rose`.
+
+- f7f48f9: Add persistent Pal identities, immutable profile revisions and an SDK runtime
+  that requires an explicitly provided virtual computer before execution. Hosts
+  can retain one warm computer per Pal, serialize active conversations, enforce
+  current pause state and retry failed computer cleanup without losing ownership.
+
+  Add `namzu pal list/create/show/update/pause/resume/chat` and desktop host Pal
+  methods. Pal conversations pin a saved profile and bind exactly one Pal in their
+  session log. File, shell and computer tools run in the Pal guest, with no host
+  folder, host browser or host plugin fallback. The local computer image and engine
+  must be set up explicitly before chat can execute.
+
+- 846557b: Add `dryRunEdit(content, input)` and the `AcpFileChangePreview` type, and let each tool call in a `session/request_permission` request carry an optional `preview` (`{ path, before, after }`) that the bridge forwards untouched. `dryRunEdit` runs the `edit` tool's own schema and apply code (single replacement, `replace_all`, `edits[]`, `insertLine`) on a string, so a host can show exactly what an approved edit will write without touching the file. `resolveWithinAnyReal` is now exported beside `resolveWithinReal`. Nothing existing changes: a client that ignores `preview` and an agent that never sets it behave as before.
+- 56d88dc: Allow `task_update` to mark a planning task `failed`, matching the existing TaskStore status. Add `stats.failed` to `task_list` and show failures separately in model receipts and operator presentation. Failed blockers stop waiting without being counted as completed; earlier terminal tasks remain excluded from later-turn planning views.
+- e447a47: `tool_completed` gains an optional `savedPresentation`: one label line (at most 200
+  characters) or a command's first line, never the output, journaled for every call that
+  has no diff, and for an external engine's tools from a name map. Nothing existing
+  changes: `presentation` keeps its diff and cancelled/declined shapes, and live hosts
+  that ignore the new field behave as before. A host that replays history can read
+  `presentation ?? savedPresentation` so a reopened conversation names its actions
+  instead of showing a placeholder. The desktop host does.
+- 57c99b2: Scheduled script jobs can opt out of a project folder with `workspace: none` (`--workspace none` in the CLI). Namzu creates a private working directory only after operator confirmation, and a script never loads that directory as a project configuration.
+
+  Interactive schedule proposals now bind noteworthy results to the exact source conversation. The CLI stores them as durable host notices and displays them on resume without adding a fake model turn or changing the model's conversation history. An optional JSON script report lets a polling script distinguish a quiet check from a change and carry a bounded scheduler-owned state value between runs.
+
+  The CLI default for newly confirmed interactive proposals changes from detached results to source-conversation delivery. An unavailable source keeps its result pending and holds later runs until delivery succeeds. Existing jobs retain their previous behavior. To keep a new job detached, review `namzu schedule edit <job> --delivery none`; the operator must confirm any exact pending results being waived. New workspace, source-delivery and report fields use job format v3, which older CLIs refuse rather than silently ignore. Upgrade the scheduler service together with the CLI.
+
+- c590142: New scheduled agent phases now default to unlimited tokens (`tokenBudget: 0`)
+  instead of 500,000 tokens. A positive request or configured limit still applies,
+  and existing saved jobs retain their confirmed values. Set `limits.tokenBudget`
+  to `500000` or pass `--token-budget 500000` to retain the old default for new jobs.
+  To remove an existing job's limit, run `namzu schedule edit <name> --token-budget 0`
+  and confirm the edit. Iteration and timeout defaults remain unchanged.
+
+  The SDK schedule tool accepts zero for an unlimited agent token allowance.
+  Unlimited previews omit the numeric daily ceiling and identify the absence of a
+  token limit; usage accounting continues to measure actual tokens.
+
+- 1fa60b9: The ACP bridge now sends a `provider_retry` session update when a model call fails
+  transiently and will be tried again: `attempt`, `maxRetries`, `delayMs`, an optional
+  HTTP `status`, `serverDirected` and the `turnId`. It carries no provider body, header
+  or credential. A client can show "waiting, retrying in 6 seconds" instead of a silent
+  spinner.
+
+  `AcpSessionUpdate` gains this member. A client that already ignores update kinds it
+  does not know needs no change; a client with an exhaustive `switch` over
+  `update.kind` should add a `provider_retry` case (or a default branch) before it
+  upgrades the type.
+
+- 5a0a1f7: Expose optional `skipped: true` metadata on pre-tool hook completions, recovered completed-call records and step tool results. This distinguishes a non-error skip receipt from output produced by executing a tool. Existing records without the field remain unchanged.
+
+  A skipped standalone structured-output or terminal tool now returns its receipt to the model instead of failing JSON integrity checks or settling with an unexecuted answer. Skips do not consume structured schema corrections; cancellation and iteration limits still apply. The runtime creates the marker only for pre-tool hook skips and does not infer it from receipt text or tool-authored result fields.
+
+- e447a47: `task_created` and `task_updated` session events, and the ACP `AcpTask` row, gain an
+  optional `activeForm` (what the task reads as while it is being worked on, such as
+  "Running the tests"). It is absent when the model gave none, so nothing existing
+  changes; a host that ignores it behaves as before. A host that draws a live plan can
+  show it beside the task in progress. The desktop host passes it on when it lists a
+  session's tasks.
+
+### Patch Changes
+
+- 7f5ac50: Preserve the recorded failure explanation in ACP `turn_ended.error` when a
+  provider fault pauses a turn at a checkpoint. Hosts can display the actual
+  failure instead of silently showing only a stopped turn. The existing coarse
+  `cancelled` category and exact `paused` reason remain compatible; ordinary
+  review pauses and user cancellation do not produce an error.
+- 1af4531: Preserve the runtime's completed tool presentation in ACP updates. File diffs and terminal results now reach ACP clients with the real result data instead of falling back to a generic text label. Older event producers without a presentation retain the existing fallback.
+- c8613e0: Make the held sandbox acquisition timeout regression deterministic by controlling its clock after sandbox creation starts. Runtime cancellation and timeout behavior are unchanged.
+- c1027fb: Enforce the existing tool-mode structured-output retry allowance for unrepaired invalid JSON, truncated arguments and schema mismatches, as well as missing output. All such responses share one counter; multiple invalid calls in a response consume one correction after every sibling result is recorded. The default remains two correction opportunities. Valid paired candidates, ordinary tool work, successful local repairs, host refusals and reviewer rejections retain their separate behavior.
+
+  Persist corrections in optional `Checkpoint.review.toolStructuredAttempts`, saving feedback and answered results before another request. Exhausted resumes stop without another model call, and completed argument-failure evidence survives pending-batch recovery without revalidation. Old checkpoints and tool records remain readable without rewriting their bytes or hashes. Hosts must continue supplying the output configuration when resuming.
+
+- bb0ad2e: Fail structured tool output explicitly when its retained receipt is no longer valid JSON, including without a reviewer, instead of publishing truncated or rewritten text as a successful structured result. Increase `maxToolOutputChars` for larger tool results or select native structured output with a capable provider.
+
+  Make `wait_for_task` report the underlying turn outcome and retain failure explanations even with an empty answer. Completed scheduler lifecycles containing failed, partial or cancelled turns no longer appear successful; legacy completed results without a turn status retain their existing behavior. Blocking `create_task` and linked planning failure notes also preserve those explanations and describe empty legacy completions accurately.
+
+  Report a planning-task status change that cannot be confirmed as failure with the requested and returned statuses. The store may have refused the request or a concurrent update may have advanced it; other requested edits may already have applied. Existing store transition policies remain unchanged; successful task updates retain their quiet presentation.
+
+- 7f5ac50: Recognize a source-exact bare `[` POSIX test command as a literal program
+  instead of falsely classifying it as a glob-expanded command. This removes
+  unnecessary unknown-program approval prompts for ordinary shell predicates and
+  copy loops in automatically approved Pal guest work. Real bracket patterns,
+  runtime-produced program names, opaque shell constructs and dangerous-command
+  denials retain their existing review/refusal behavior.
+- 7473449: Interactive terminals in the same project can discover and message one another
+  with `/peers`, `list_sessions` and `send_session_message`. Idle terminals can
+  start a turn for peer context; busy terminals receive it at the next safe
+  request boundary. Peer input remains separate from operator instructions and
+  cannot grant approval. Different permission modes are refused. Use `/peers off`
+  to refuse new mail and pause delivery in this terminal.
+
+  The mailbox is bounded and process-local; queued is an acceptance receipt, not
+  proof of model delivery. Conversation switches cannot redirect pending mail.
+  Child-task activity now labels accepted messages as queued, and SDK manager
+  documentation describes the inbound callback that query-backed agents actually
+  consume. The SDK peer envelope refers to the host's reply tool rather than
+  prescribing a CLI child-task tool.
+
+- 6194bda: Forward tool starts and progress through the query event stream while an approved batch is still running. Previously these events were recorded immediately but reached the operator only after the batch finished, leaving long commands and readiness waits without a live tool row. Event-driven observation retains the existing authorization, result ordering and provider-valid batch boundaries.
+
+  Closing the stream during a live tool event cancels the captured batch and waits for executor settlement before releasing the recorder and borrowed turn resources. Tools must still honor their cancellation signal; this does not promise forced termination of arbitrary custom code.
+
+- f4b7d1d: Honor MCP input schemas that explicitly declare dictionary values through
+  schema-valued `additionalProperties`, including the empty `{}` value schema.
+  Previously local validation silently removed those dictionary keys before
+  dispatch, so application input could report success with empty event data.
+  Retain declared keys, validate typed values and bound recursive dictionaries.
+  Existing omitted/false closed-object behavior, explicit true passthrough,
+  server trust, result provenance and execution guards remain unchanged.
+- 6ff961f: A tool call made from inside another tool (for example through `run_code`) to a tool that declares `requiresApproval` for that input is now refused and audited, even when an allow rule covers it. An approval cannot be requested from inside another tool; call such a tool directly. Hosts that mounted `run_code` with an allow rule on an approval-gated tool will see it refused.
+- 12b5af9: Compare actual error/output/content fingerprints before refusing identical failed calls. Different errors restart the streak, and a successful potentially mutating execution allows a new check after repair. Denied calls and unrelated reads cannot reset the guard. Repetition advice no longer claims an unobserved future result is certain.
+- 093d657: A saved engine tool named `wait`, `wait_agent` or `waitagent` now reads "Waited for agent", and `close_agent`, `interrupt_agent` or `kill_agent` (any casing, with or without the underscore) read "Stopped agent", where they read "Used wait agent" and so on before. No export or type changes; a consumer that matched on the old label text should match the new one.
+- 3727e2b: Keep an assistant message's runtime stream ID when recording its durable history and final settlement, including forced closing summaries. ACP clients can now reconcile the settled answer with its streamed message instead of displaying it twice. Distinct messages with identical text retain separate identities; caller-authored message IDs are not trusted as stream identities.
+- 56d88dc: Creating a task with `blockedBy` and deleting a task now emit `task.updated` for each existing task whose reciprocal dependency list actually changed, before `task.created` or `task.deleted`. Disk and in-memory task stores keep live event projections aligned with their dependency records, without announcing unchanged rows or the deleted task's self-edge as a surviving task. Repeated blocker references no longer add duplicate reciprocal edges in the in-memory store; supplied `blockedBy` references remain intact.
+
+  Confirmed disk neighbor writes are announced immediately, even when a later neighbor write, new-task record write, or target-file deletion fails. No created or deleted event is emitted for an unsuccessful creation or deletion, and already persisted changes remain observable.
+
+- 98e8469: Clarify that task_list returns open tasks and tasks closed in the current turn,
+  with earlier completed or failed tasks retained in storage but omitted. Its
+  output now reports retained omissions and distinguishes a filtered empty view
+  from finding no records; the human presenter also qualifies its counts. Task
+  selection, input and data.stats remain unchanged. Hosts needing all durable
+  records should read their authorized TaskStore rather than infer deletion from
+  this filtered tool result.
+
 ## 49.0.0
 
 ### Major Changes

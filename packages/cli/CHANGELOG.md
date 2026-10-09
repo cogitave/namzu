@@ -1,5 +1,626 @@
 # @namzu/cli
 
+## 36.0.0
+
+### Major Changes
+
+- c82b951: Change the local Pal provider's default foreground ownership from strict command
+  lifetime to computer lifetime. Rebuild the shipped local-computer image from this
+  release to use the new default. To retain the previous behavior and continue using
+  an existing strict image, set `normalExitPolicy: 'strict'` when calling
+  `createLocalVirtualComputerProvider`. A successful
+  foreground launcher can leave Blender or another application open without retiring
+  the entire computer; the application remains owned by that guest allocation until
+  the computer stops. An authenticated execution-reservation acknowledgment prevents
+  an upgraded host from silently admitting this policy against an older image.
+
+  Generic workers and registered background jobs retain strict process ownership.
+  Failed launchers and timed-out or cancelled commands cannot transfer live descendants;
+  if termination cannot be confirmed, the worker retires the allocation.
+  A completed launcher does not claim its surviving application has terminated.
+
+  CLI Pal computers use the same new default. Set
+  `NAMZU_PAL_COMPUTER_NORMAL_EXIT_POLICY=strict` before starting the CLI or desktop
+  host to retain their previous command lifetime and use an older strict image.
+
+- 0f5aa96: Ready-computer Pal prompts now default to general application work guidance:
+  understand references and acceptance criteria, make reversible changes,
+  observe and correct the actual result, and validate saved files and requested
+  exports before delivery. SDK hosts that need the previous prompt behavior can
+  pass `workGuidance: 'basic'` to `buildPalSystemPrompt`. This guidance shapes
+  model behavior; it does not certify semantic correctness.
+
+  The SDK `read` tool now refuses real PNG, JPEG and WebP bytes as text. Mount
+  the optional `view_image` / `createViewImageTool` for saved-image inspection,
+  or use a format-aware binary reader when pixels are not the desired result.
+  `getBuiltinTools()` retains its previous tool roster. Saved artifact images
+  provide no GUI screenshot authority.
+
+  The CLI and desktop Pal runtime now explicitly mount `view_image` and
+  `import_reference_images`. Image import is a reviewed file-write operation
+  using only the current operator input and admitted guest. Original image
+  bytes and manifests survive durable review; current plan, pause and control
+  guards remain in force. Ordinary chat and unavailable-computer sessions do
+  not acquire guest tool access.
+
+  The local Pal sandbox adds authenticated, acknowledged bounded byte reads.
+  Rebuild the local Pal image from this release to inspect saved images; an
+  older worker fails explicitly before file contents are requested. Existing
+  whole-file requests and generic worker defaults are unchanged.
+
+  The Pal image also includes the standard `file` utility for format checks.
+  This reports file type; it does not establish application or visual quality.
+
+- 4367edc: Manual Pal conversations now default to automatic approval for tools in their
+  owned virtual computer across the terminal, ACP and desktop. Previously a review
+  callback or the interactive composer selected Ask first, requiring repeated
+  approvals. To retain that behavior, explicitly choose Ask first, use
+  `/permissions prompt` in the terminal, or send `permissionMode: 'prompt'` through
+  ACP. Existing explicit desktop selections are preserved.
+
+  Ordinary conversations retain their existing defaults. Explicit Plan, strict
+  and review selections, configured deny rules, host escape refusal, ownership,
+  pause and operator-control fences remain effective. This grants no authority for
+  host files, other Pals or ungranted communication routes.
+
+- 57c99b2: Scheduled script jobs can opt out of a project folder with `workspace: none` (`--workspace none` in the CLI). Namzu creates a private working directory only after operator confirmation, and a script never loads that directory as a project configuration.
+
+  Interactive schedule proposals now bind noteworthy results to the exact source conversation. The CLI stores them as durable host notices and displays them on resume without adding a fake model turn or changing the model's conversation history. An optional JSON script report lets a polling script distinguish a quiet check from a change and carry a bounded scheduler-owned state value between runs.
+
+  The CLI default for newly confirmed interactive proposals changes from detached results to source-conversation delivery. An unavailable source keeps its result pending and holds later runs until delivery succeeds. Existing jobs retain their previous behavior. To keep a new job detached, review `namzu schedule edit <job> --delivery none`; the operator must confirm any exact pending results being waived. New workspace, source-delivery and report fields use job format v3, which older CLIs refuse rather than silently ignore. Upgrade the scheduler service together with the CLI.
+
+- c590142: New scheduled agent phases now default to unlimited tokens (`tokenBudget: 0`)
+  instead of 500,000 tokens. A positive request or configured limit still applies,
+  and existing saved jobs retain their confirmed values. Set `limits.tokenBudget`
+  to `500000` or pass `--token-budget 500000` to retain the old default for new jobs.
+  To remove an existing job's limit, run `namzu schedule edit <name> --token-budget 0`
+  and confirm the edit. Iteration and timeout defaults remain unchanged.
+
+  The SDK schedule tool accepts zero for an unlimited agent token allowance.
+  Unlimited previews omit the numeric daily ceiling and identify the absence of a
+  token limit; usage accounting continues to measure actual tokens.
+
+- 12b5af9: Session task snapshots now reach model requests as user-role runtime context instead of system instructions, including checkpoint resumes and compaction. Agent-maintained subjects and descriptions are planning data. Move any host policy formerly encoded in task descriptions to trusted instructions; task storage, tools and durable conversation records are unchanged.
+- f7f48f9: Add the explicit `cmd` ShellDialect and change the native Windows host-shell metadata default from `sh` to `cmd`. The physical command shell remains Node's platform shell (normally CMD); no PowerShell or WSL switch occurs. Update exhaustive dialect handling to include `cmd` and pass the actual value to authorization helpers.
+
+  CMD lines are conservatively opaque until a matching parser exists. Command-specific allow rules and skill patterns no longer pre-approve native CMD commands. The existing unknown-program escalation still requires exact-call review, even when the gate has a whole-tool allowance. Use that review or explicitly select a POSIX interpreter rather than incorrectly labelling CMD as `sh`. Sandboxed Linux guests retain `sh`.
+
+  SDK query prompts disclose the active command tools' host or guest execution dialect, including minimal and cached prompts. Explicit Windows `bash.exe` and `sh.exe` overrides retain their matching POSIX dialects.
+
+  Native Windows CLI model shell calls inherit the exact-call review requirement. The scheduled-run floor refuses CMD commands rather than checking them with POSIX quoting; confirmed script jobs still accept only explicit bash/sh interpreters. Use an installed POSIX interpreter where appropriate or run reviewed interactive CMD calls.
+
+### Minor Changes
+
+- 4314f90: A tool call a person declined at review is now recorded as declined by them, with what they said, so a host that reopens the conversation can show it. Nothing you already send or receive changes shape, and no code needs to change to upgrade.
+
+  New and optional: `ToolReviewAnswer`'s `reject`, `AcpPermissionOutcome`'s `reject` and the `reject_tools` decision take `declined?: { note?: string }`; an ACP client's `reject` answer takes the same field; and a generic `ToolCallView` result carries `declined?: { note?: string }`. A host that sets `declined` on its reject gets, on that call's `tool_completed`, a view whose `label` is the call's target (path or command) and whose `note` is the person's words, cut at 4,000 characters. A host that does not set it, a call the authorization gate refused even when the person rejects the rest of its batch, and every other refusal by policy (strict or plan mode, no one to ask, the authorization gate, a repeated failure), is recorded exactly as before: an error result with no presentation. The text the model reads is unchanged. `ToolExecutor.executeBatch` takes an optional fifth argument for the same purpose.
+
+  The CLI's ACP server passes the field through, so a client such as Namzu Desktop that reports "the person said no" now shows "Declined" after a reload instead of "details unavailable". The terminal UI does not report it yet, so a call declined there still reloads as before.
+
+- 7f5ac50: Expose explicit paused-turn recovery through optional `AcpAgentGateway.retry` and
+  `ACPServer.retrySession`. Hosts retain the existing ordered update, review,
+  cancellation and single active execution owner without inventing a new prompt.
+
+  The desktop CLI host advertises scoped retry-status and retry methods. It resumes
+  only the exact verified checkpoint of a classified retryable provider pause with
+  resolved original accounting. Human decision holds and uncertain provider usage
+  remain blocked, including unlimited turns; this feature never resets a ledger or
+  abandons an active turn. Same-process retries preserve captured approval/effort
+  and the recorded model. After reconnection, default Retry is unavailable when the
+  original approval settings cannot be verified; a deliberate host retry must
+  explicitly select a permission mode in ordinary conversations. Pal recovery also
+  pins the authenticated original computer generation and environment identity
+  before sending, and rechecks them at resumed provider/tool entries. A cold,
+  originally offline, replaced or unavailable Pal computer lifetime cannot be
+  substituted with the currently ready computer. Pal ownership and current
+  computer-control guards remain required.
+
+- 53aed2a: Add authenticated Pal channel ingress with captured host connections, a fresh actor per event, immutable native conversation targets, and shared durable inbox delivery. Recorded reply and action routing verifies the original owned conversation receipt and current authority; it does not send remote messages automatically. Hosts must provide a trusted event verifier and explicit receive, wake, reply and action policy. The CLI includes a private local HMAC fixture adapter and a bridge to exact native parked tool-review actions; other channel actions remain unsupported.
+- 8cf64b3: Offer reasoning effort for the second external engine. Its model rows now carry the effort levels the engine reports (none for a model without support), so the Desktop and terminal effort controls appear. A turn that asks for a different level restarts the engine on the same session between turns with `--effort`; a level the model does not offer is refused before anything is sent. Nothing to change for callers who select no effort: the engine keeps its own default.
+- 24cb6b4: Compose installed Codex CLI app-server and Claude Code persistent stream-json
+  engines behind the ordinary desktop conversation host, with their native model catalogues,
+  exact session/profile/workspace binding, streamed message replacement,
+  one-request native tool approval and confirmed interruption/shutdown.
+  Keep these routes separate from Namzu's borrowed Codex and Anthropic provider credentials.
+  The desktop selects the engine before first dispatch and manages conversations
+  as peer tabs with their own drafts, engine bindings and selected models.
+
+  The native app-server adapter offers its declared review policies, including
+  explicitly confirmed Full access; the initial stream-json adapter offers
+  supervised and plan modes. Both omit unsupported controls
+  and explicitly deny unsupported typed questions. Codex models advertise only
+  their discovered effort options; the initial Claude adapter offers no effort
+  control, and neither route accepts attachments yet.
+  Native metadata is not proof of successful account authentication. Retain
+  uncertain sends and approvals for reconciliation rather than replaying them;
+  the initial engine has no authoritative history-query adapter.
+
+- afc5bf5: The desktop host adds two methods, `namzu/conversations/archived` (list a project's archived conversations) and `namzu/conversations/unarchive` (restore one by `sessionId`). Both require folder trust, and restore only admits an owned, archived, non-Pal conversation. Existing methods are unchanged; nothing to do on upgrade.
+- 3c2bda7: `namzu acp --desktop` now hosts pseudo-terminals for the desktop application: ten `namzu/terminal/*` methods (status, create, list, attach, detach, write, resize, ack, kill, close) and two notifications (`namzu/terminal/data`, `namzu/terminal/exit`). A terminal keeps a bounded replay ring and a headless screen, one view holds the keyboard at a time, output is paused when the viewer falls behind, and killing a terminal ends its whole process tree, including programs that detached themselves with `nohup` or `setsid` (the host lists a terminal's descendants before the polite stop and kills the survivors), and a terminal's folder must be inside the project after links are resolved. Nothing changes for `namzu`, `exec` or any other command, and a host that predates this answers `-32601` for the new methods.
+
+  `node-pty@1.1.0` is a new **optional** dependency and `@xterm/headless` (now pinned to 6.0.0, previously a development dependency) and `@xterm/addon-serialize` are new runtime dependencies. node-pty ships Windows and macOS binaries and compiles on Linux at install time; if that fails the install still succeeds, the rest of the CLI is unaffected, and `namzu/terminal/status` answers `available: false` with the reason. With pnpm 10, a workspace that depends on `@namzu/cli` and wants terminals on Linux must allow node-pty's build script (`onlyBuiltDependencies`).
+
+- 3c2bda7: The interactive `namzu` (and `namzu resume`) now accepts `--provider <id>`, `--model <id>`, `--effort <level>` and `--permission-mode <prompt|accept-edits|auto|strict|plan>`, written before any command. They choose how that one launch starts and are never saved: `preferences.json` is not touched, so the next plain `namzu` starts where you last left it, and `/model`, `/effort` and `/permissions` still change the session as before. `--provider` replaces the provider chain with that provider alone, `--model` alone re-models the saved primary (it needs a saved provider, otherwise the provider list opens and says so), `--permission-mode` wins over `--yolo`, and an `--effort` the model does not offer is reported and the provider default stays. An unknown provider opens the provider list with the reason instead of starting unusable. Before a subcommand other than `resume` these flags are refused with exit 64 rather than ignored; `exec` and `drain` keep their own `--provider`, `--model`, `--effort` and `--permission-mode` after the command name.
+- 846557b: `namzu acp` now attaches a file change preview to the permission request of an `edit` or `write` call: the path as the tool resolves it, the file's current body (`null` for a new file) and the body after the call, computed with the SDK's own apply code. Files over 1 MiB, binary files, paths outside the turn's directory and calls the tool would refuse get no preview. Clients that do not read the new `preview` field are unaffected.
+- fae17a3: The desktop host now answers `namzu/project/untrust`, and the trust store exports `untrustDir(dir)`. They remove only the entry that names the exact folder from `~/.namzu/trust.json` and report an ancestor entry that still covers it as `stillTrustedBy`, so a caller can say the folder remains trusted instead of claiming it was removed. Nothing existing changes: `trustDir`, `isTrusted` and `namzu/project/trust` behave as before, and a host that predates the method is simply not asked. `trustDir` and `untrustDir` now write `trust.json` to a uniquely named temporary file and rename it, so a concurrent reader never sees a partial file.
+- 888e37b: A paused provider turn that has no token limit can now be retried in place even when earlier requests have unknown usage (a 502 is the usual cause). `namzu/sessions/retry-status` then answers `{ retry, unknownUsage: <count> }` instead of a notice, and the retry is a new request; the unknown usage stays recorded. A turn with a finite limit still answers the notice and refuses the retry, so an ACP or Desktop client that treated every unresolved-usage pause as "cannot retry" will now see a retry target for unlimited turns.
+
+  Desktop connections gain `namzu/sessions/abandon-paused` (optional `turnId`): it closes the paused provider turn without repeating it (`turn_failed`, code `abandoned`, its unknown usage kept on the ledger) so the same conversation takes the next message. It refuses a turn that waits for a person's decision or did not stop on a provider error. Hosts that do not advertise the method keep today's behaviour.
+
+- 1fa60b9: An API key for a provider can now be saved once and kept. Namzu stores it in
+  `api-keys.json` in the Namzu home (created private to you and verified private after
+  writing, like the other credential files; Google keeps its own file), reads it after
+  the environment, and shows it as `saved API key · this device`. A key from an
+  environment variable still wins, so nothing you exported is replaced. Until now a key
+  pasted in the terminal picker was held for that session only; that path is unchanged,
+  but a key saved some other way is now found by every Namzu screen.
+
+  `namzu acp --desktop` advertises five new methods for the desktop app's Settings:
+  `namzu/providers/connections` (every provider and how it is connected, never a key),
+  `save_key`, `remove_key`, `test` (a cheap authenticated check, not a model turn) and
+  `refresh`. `DetectionSource` gains a `stored-api-key` kind and the provider status rows
+  may carry `anonymous: true` for the keyless free tier.
+
+  Removing the last saved key deletes `api-keys.json`; delete it by hand to forget keys
+  without the app.
+
+- cdb4aec: File history now outlives the session. Closing the CLI used to delete the snapshots `/restore` rolls back to; it no longer does. Each conversation keeps `file-history/turns/<turn id>.json` and content-addressed `file-history/blobs/<sha256>` (both the file before and after every `edit` and `write`) until the conversation is deleted, 30 days after its last edit, or the history passes 512 MiB, whichever comes first, oldest turn first. Expect `file-history/` to take disk space you did not have before; deleting a conversation removes it, and no flag or config key tunes the 30 days or 512 MiB yet. After a crash the next open settles any half-recorded edit, `/restore` lists the turns of the conversation that is open (including after a restart or `/resume`), and edits from a resumed stream land in their own turn instead of a stray one. `/restore N` no longer overwrites blindly: it undoes turn N and every later turn newest first, checking each file against what the turn left, and a file you (or a shell command) changed since is left as it is and listed with the reason instead of being replaced; if a later turn's change to a file could not be undone, the older turn's change to it is left too. The undone turns are no longer deleted: their manifests and bodies stay, marked undone, they leave the `/restore` list, and a turn with files left alone stays listed as partly undone so `/restore N` run again finishes the rest. The report also names files no history covers and says when a turn ran shell commands. There is no force option in the TUI: to restore a file it kept, put it back to what the model left (or restore it by hand) and run `/restore N` again. This is a minor, not a major: where nothing changed since the turn the result is the same as before; the only difference is that a destructive overwrite of your own later edits no longer happens. A symlink is resolved before it is recorded, a sandboxed edit is never snapshotted from the host path of the same name, a restore writes through a temporary file and rename and keeps permission bits, and a failed edit leaves no entry. Nothing exported, no flag, config key or wire shape changes, so this is a minor. `namzu acp --desktop` also gains three extension methods, `namzu/turns/undo-status`, `namzu/turns/undo-preview` and `namzu/turns/undo`, for a client that undoes one reply's file changes (see docs/cli/turn-undo.md); a client that does not call them sees no change.
+- 33f9109: Add optional desktop ACP live-input extensions for active ordinary Namzu conversations. A bounded, scope-owned mailbox delivers operator text at safe query boundaries and releases delegation waits without cancelling the child. Hosts can reconcile pending or delivered input IDs after cancellation or a lost acknowledgement; core overlapping prompt refusal, existing next-turn queues and native-engine routing remain unchanged.
+- 56e846c: Expose the selected model's exact reasoning effort choices and per-message tool permissions to the desktop operator. Read installed plugin metadata without starting a model session or executing plugin modules; plugin changes remain scoped to an existing idle conversation.
+
+  Add scoped desktop-host methods for reasoning settings and plugin inventory. Explicit plugin enable/disable choices remain local to the conversation and are restored when changing its model; they do not update startup configuration.
+
+  Agent sessions expose optional image/document attachment support declarations from their exact primary provider route. ACP rejects new attachments before a model request when that route explicitly cannot receive them; undeclared support retains the existing runtime policy.
+
+- a5e0038: Codex model names in the Desktop model list now read like the Codex app ("GPT-5.6 Sol" instead of "GPT-5.6-Sol"), and each engine's model list marks that engine's own recommended default with an optional `default: true` flag on the row. Namzu provider lists no longer say "Namzu default" in a row's note; the flagged row replaces it. Model ids are unchanged, so saved selections keep working; clients that read the model list can ignore the new flag.
+- e94e149: `namzu acp --desktop` gains four methods for the Desktop conversation header: `namzu/conversations/rename` (`{ sessionId, title }` returns `{ title }`; an empty title restores the title derived from the first message), `namzu/conversations/fork` (`{ sessionId }` returns `{ id, title }`; refused while a reply is running or when there is nothing to copy), `namzu/conversations/markdown` (`{ sessionId }` returns `{ markdown, truncated }`, cut at 4 MiB of UTF-8) and `namzu/project/git` (returns `{ branch, subject }`, or `null` when the folder is untrusted, not a repository, git is missing or git takes over 3 seconds). All are new; existing methods and clients are unaffected. Each conversation method needs a trusted folder and a conversation this project owns, the same as archive.
+- 9ef6506: Expose live tool progress and actual turn failure messages through optional fields on existing ACP update variants. Add explicit optional `namzu/*` ACP host extensions and advertise their method names. Gateway history loading now receives the requested workspace as an optional second argument; existing one-argument gateways remain compatible.
+
+  The CLI now loads durable, project/tenant-scoped ACP conversations and refuses archived writers. `namzu acp --desktop` enables operator methods for folder trust, scoped conversation/history, safe provider metadata and background jobs. Ordinary ACP connections retain the core method set. The private desktop preview uses this existing runtime and log rather than a second conversation store.
+
+- 3ff96b4: Add the `namzu/providers/models` desktop ACP extension for reading a configured provider's model catalogue on demand. Results contain model IDs, labels, optional notes and an explicit fallback notice when listing fails or is unsupported. The extension reuses the terminal picker's access filter, keeps permitted default and session-specific choices, and never returns provider credential envelopes or raw driver error text. Existing exact model selection remains available.
+- 5e2fb3a: Desktop hosts expose six additive Pal communication methods for known peer consent, inbox delivery metadata, and activity subscription listing, creation and disabling. Reads and writes use the authenticated Pal workspace and captured application home, exact revisions, and original source conversations. The first communication request pins the physical home for that host connection; replacing it requires reconnecting even when copied IDs and revisions match. Incoming permission is read-only; reverse and wake grants remain separate explicit actions.
+
+  These management methods do not invoke a model, start a computer, dispatch messages or run a CLI subprocess. Snapshots omit message bodies, host paths and cursors; source labels include explicit user names, while derived prompt titles remain `New conversation`. Unreadable records reject with redacted errors rather than erasing known rows. Partial subscription setup remains disabled and unknown writes are not automatically retried.
+
+- 56d88dc: Add the desktop host's read-only `namzu/tasks/list` extension and opt into negotiated `namzu/tasks/update` notifications. Restore the existing planning list from its durable session store before new work, preserving failed outcomes and deletions. Scope reads to the authorized project, session, tenant and Pal claim; exclude task descriptions, metadata and filesystem paths. Older clients continue using the existing ACP update union.
+- 56e846c: Add optional inline user attachments to ACP prompt requests. Hosts opt into delivery with `supportsPromptAttachments: true`; initialization then advertises `promptAttachments: true`. Clients can check this capability before sending bytes, and gateways receive the validated attachment payload alongside the prompt. Stored attachment references are refused across this boundary; inline payloads are limited to eight attachments and 3 MiB of decoded bytes per message.
+
+  The CLI opts in and preserves image/document attachments in the actual user message and settled conversation history. Existing plain text requests keep their behavior. The private desktop admits native file picks or dropped/pasted bytes as bounded images and UTF-8 text, keeps draft and queue ownership, and refuses image submission to an older CLI rather than silently dropping it.
+
+  New image/document inputs are refused before send when the selected live provider explicitly declares that it cannot receive them. Desktop files remain available for retry with a suitable model. Attachment/settings-only drafts survive a connection rebuild, and queue editing restores captured options together with its text and files. Pre-turn CLI errors retain their actual diagnostic rather than becoming a generic failed turn.
+
+  ACP also accepts optional `AcpPromptOptions` with a reasoning effort and tool review mode. Hosts opt in with `supportsPromptOptions: true`, advertised as `promptOptions: true`; unsupported or malformed explicit settings are rejected before a turn starts. The CLI validates reasoning effort against the actual selected runtime's supported menu and applies the captured review mode to that turn.
+
+- 0f3df20: Add an optional versioned `work` display snapshot to ordinary desktop conversation
+  history. It restores retained message and turn identities, actual saved action
+  outcomes and bounded recorded public tool views from the same strict journal read.
+  Existing text messages and limits are unchanged. Legacy missing details stay
+  explicit; reopened history grants no execution, approval or retry authority.
+- 2057fd6: Surface provider-hosted web search and fetch activity through existing ACP tool
+  updates, using qualified IDs and only provider-reported state and bounded public
+  captions. These display receipts do not grant local execution or approval.
+
+  Desktop conversation history adds optional validated journal message IDs and
+  timestamps for messages and work, and restores saved hosted search receipts.
+  Missing timing and unfinished operations remain explicit; reopening history
+  does not invent a current clock or a successful outcome. Existing message text
+  and execution authority are retained.
+
+- dc306f3: The Desktop host (`namzu acp --desktop`) gains two read-only ACP methods, `namzu/project/changes` and `namzu/project/diff`, so the Desktop Changes view can review uncommitted work. `changes` lists the working tree against HEAD (status, added and removed lines, renames, binary and untracked files, at most 2,000 files) and answers `null` for an untrusted folder or a folder that is not a repository; `diff` returns both sides of one changed file, confined to the project folder and capped at 2 MiB. Nothing to change on upgrade: an older Desktop never calls them, and a newer Desktop talking to an older CLI simply hides the view.
+- 6194bda: Send an operator message directly from a selected child transcript while preserving the parent's draft. Running children accept bounded input at the next valid request boundary; finished shared-workspace children retained by this process can receive a new task in the same conversation with current permissions, credentials and budget. Saved-only and isolated-workspace continuation is refused. The parent receives host-attributed assignment notices and explicitly framed child results; a durable observation journal preserves unacknowledged reports across restart without restoring execution authority.
+
+  Only a parent response ending with `end_turn` acknowledges its captured observation snapshot. Timeouts and other unsuccessful stops keep notices pending, including stops before a model request; observations arriving after that snapshot are not acknowledged accidentally.
+
+- e447a47: The desktop model catalogue (`namzu/providers/models`) now carries an optional
+  `current: true` on a row when the execution engine itself says the model is current
+  rather than an older release: the Claude Code engine's alias rows (a model id that
+  names no version) and the Codex engine's default row. A client that ignores the field
+  is unaffected, and rows without it read as before. Nothing needs changing to keep the
+  old behaviour.
+- d063837: Opening an external engine from the desktop host (`namzu acp --desktop`) starts the engine's process once instead of two or three times. The Codex app-server that model discovery starts is kept (closed after two idle minutes, or when the connection closes) and the first conversation opened in that folder takes it over instead of spawning again; re-reading the model list reuses a running server too. A model list read in the last ten minutes is answered from memory, so opening the picker no longer spawns the engine each time, and the last good list of each installed engine build is kept in `engine-models.json` in `NAMZU_HOME` (ids, labels and effort levels only), so a later launch names the default model without waiting for the engine. A new build of the engine (its executable's path, size or modification time changes) drops its old list at once.
+
+  What changes for an ACP client: `namzu/harnesses/select` no longer waits for the engine's model list, so an engine that cannot list models (signed out, no models) is accepted there and the error comes from `namzu/providers/status` or `namzu/providers/models` instead; the status row of an external engine carries an optional `identity` (a short hash naming the installed build) for clients that cache the list; the harness view and the model listing carry optional `timings` (spawn, initialize and model-list milliseconds, no paths or account details) that a client may record. Nothing changes for callers that ignore the new fields. To keep the old always-fresh read, there is no flag: a list older than ten minutes is read again on the next `namzu/providers/models`.
+
+- d063837: `namzu acp --desktop` gains the host method `namzu/harnesses/release`, which takes an `engine` (`codex-cli` or `claude-code`) and ends the idle engine servers the connection keeps for it, answering `{ released: true }`. It never touches a conversation that is running; it only closes the Codex app-server that model discovery parked, so a client can replace the engine's program on disk (a running executable cannot be overwritten on Windows) before it updates it. The Desktop uses it before running an engine's update command. A client that never calls it sees no change, and a host that predates the method answers `-32601`, which the Desktop treats as "nothing to release".
+- 79a7354: Add `--message <text>` to the interactive `namzu`: the session sends the text once, as a plain prompt (a leading `/`, `!` or `#` is not a command), when its composer is ready, with the provider, model, effort and mode chosen by the other launch flags. It is session-only, shown as the first user message, and not sent again on resume or reload. Before a subcommand it is refused with exit 64, like `--model`. Nothing changes for callers that do not pass it. Pass `--message=<text>` when the text may start with a dash.
+- 7473449: Interactive terminals in the same project can discover and message one another
+  with `/peers`, `list_sessions` and `send_session_message`. Idle terminals can
+  start a turn for peer context; busy terminals receive it at the next safe
+  request boundary. Peer input remains separate from operator instructions and
+  cannot grant approval. Different permission modes are refused. Use `/peers off`
+  to refuse new mail and pause delivery in this terminal.
+
+  The mailbox is bounded and process-local; queued is an acceptance receipt, not
+  proof of model delivery. Conversation switches cannot redirect pending mail.
+  Child-task activity now labels accepted messages as queued, and SDK manager
+  documentation describes the inbound callback that query-backed agents actually
+  consume. The SDK peer envelope refers to the host's reply tool rather than
+  prescribing a CLI child-task tool.
+
+- 6f46da3: Add durable Pal addresses, owned conversation routes, incoming message storage,
+  captured senders, explicit directed consent and executor-correlated messaging
+  tools. Acceptance is separate from verified session-log delivery and recipient
+  execution; unresolved claims are retained for recovery without repeating effects.
+
+  CLI and desktop Pal sessions use the same SDK messaging tools and durable query
+  input. Add `pal grant/revoke/inbox/dispatch`: wake consent is explicit and finite
+  dispatch uses preapproved tools. No external transport, automatic listener or
+  Pal Team membership is installed by this feature.
+
+- 84a9472: Add optional provider-owned Pal computer takeover through `PalComputerControl`,
+  `PalComputerInput` and runtime control methods. Hosts can transfer an idle guest
+  to human input using its exact generation, return it without waking the Pal, and
+  observe current control authority. Providers without the optional port retain
+  normal Pal execution and explicitly refuse takeover.
+
+  The runtime serializes control operations, refuses new Pal admissions during
+  operator control, and requires each subsequent admission to obtain its own
+  fresh screenshot before GUI input. CLI desktop ACP exposes take-over, return and
+  bounded input methods; optional screen generation pinning rejects stale captures.
+
+- 53aed2a: Add durable subscriptions for closed Pal activity metadata from an exact owned original conversation. Observation, disclosure, recipient receipt and idle wake have independent current permission checks. Custom publication authorizers must also implement the final accept phase requiring current observation, disclosure and receipt together. Accepted facts enter the shared Pal inbox before cursor progress; retries preserve identity and verified observation trails suppress feedback.
+
+  The CLI adds finite pal subscribe, subscription, activity and unsubscribe commands. Publication performs no inference or guest startup; explicit dispatch still requires current wake/tool authorization. Original turn intake and exact recorded delivery receipts are required for causality, and unknown evidence or exhausted journal read budgets reject without advancing progress.
+
+- 53aed2a: Resume a Pal's real parked tool review in its original session and local guest
+  computer. Explicit review holds record durable checkpoints, preserve the
+  conversation's pinned profile and original turn limits on resume, and hold later
+  batches for their own decision. Existing live terminal permission prompts keep
+  their behavior when no hold is requested.
+
+  Trusted hosts can authenticate one-batch review actions against the exact
+  original journal request and current consent. Durable operation and decision
+  reservations prevent automatic replay, and acknowledgement requires an actual
+  recorded decision resolution. Unconfirmed attempts retain their ownership for
+  reconciliation rather than executing again.
+
+  The required trusted host `currentPermissionMode` callback keeps current plan
+  mode stricter than a restored approval and later rule-allowed batches. Channel
+  action payloads cannot change the mode or substitute the captured host ports.
+  For this action, `auto` and `accept-edits` are limited to `prompt` on later
+  review requests, so a one-batch answer never grants automatic later approval.
+  Independent operator rules and ordinary CLI automatic modes retain their
+  existing behavior.
+
+- 5d91ac1: The desktop host's `namzu/pals/communication/inbox` answer now carries `receivedAt` (epoch milliseconds, when the Pal's inbox accepted the input) on every row, and, for a message the owner sent from their own conversation (`sourceKind: operator-conversation`), the message `text` (up to 4,000 characters) so the owner can read back what they approved. Messages from Pals and channels still carry no text, and the existing fields are unchanged. Nothing breaks: a client that ignores unknown fields keeps working, and a strict one that compared whole rows must allow the two new keys.
+- 7f5ac50: Allow owned Pal conversations to use explicitly installed application MCP servers inside their original virtual computer. Install a reviewed guest bridge and a version 1 `/home/namzu/.config/namzu/mcp.json` manifest with absolute guest paths, an explicit tool allowlist and `outcomeProtocol: "namzu-v1"`; host MCP preferences and credentials remain excluded.
+
+  Retain rich MCP output and provenance, current permissions, writer and computer lifetime checks. Do not retry or take over after a bridge loses application completion evidence. The bundled pinned Blender bridge reports uncertain socket operations before upstream turns them into successful text replies, preserving the computer recovery fence.
+
+- ce52b90: Add optional host-only `PalComputerScreenStream`, `PalEnvironmentLease.screenStream`
+  and `PalRuntime.computerScreenStream(palId, generation)` for observing an exact
+  current Pal computer over read-only RFB. Existing providers remain compatible;
+  providers without the optional capability explicitly refuse live observation.
+  Keep allocation authorization private in the embedding host and enforce read-only
+  observation server-side; the stream does not grant operator input authority.
+
+  The CLI exposes the owning desktop ACP stream method with geometry and generation
+  rechecks, and reuses initialized registry roots to avoid repeated Windows ACL
+  subprocesses while retaining fresh Pal definitions and directory identity checks.
+  The local computer image adds x11vnc and authenticated binary WebSocket transport.
+  Rebuild the installed image explicitly and restart the owning computer to enable
+  live observation; older images retain screenshot/input behavior and advertise no
+  stream capability. Persistent workspace and browser profile volumes survive.
+
+  The guest desktop includes a themed wallpaper, a real dock, Files, terminal and
+  browser launchers, plus a local browser home page. Normal browser-window closure
+  keeps the desktop alive; owned profile shutdown retains browser flush ordering.
+
+- 815433f: Add `DiskPalStore.delete(id, expectedRevision)` and the desktop host's
+  `namzu/pals/delete` metadata endpoint. Deletion uses a terminal immutable revision,
+  hides the current Pal, and refuses future updates and execution admission while
+  preserving historical profiles, journals, host files, and guest data volumes.
+  Hosts must stop active work and confirm computer cleanup before deleting its
+  identity. Existing custom `PalStore` implementations require no new method.
+  Readers from older releases do not understand terminal deleted profiles and
+  should not be used to read a registry after deletion has been published.
+
+  Add the desktop host's `namzu/conversations/archive` endpoint. It performs a
+  scoped, writer-gated soft removal while retaining the durable conversation and
+  files. Successful retries return `archived: true`; a physically absent strict
+  journal returns `archived: false, missing: true`, never claiming that an absent
+  conversation was archived. Hosts may discard only their own known unsent local
+  projection from this missing receipt. Existing terminal archive commands are
+  unchanged.
+
+  Release a connection's exact idle native-engine writer before desktop archival,
+  reserving the conversation until the operation settles. Active or unresolved
+  work is refused and a failed native close retains cleanup authority for retry.
+  The runtime reservation method is optional for existing embeddings.
+
+  Keep a Pal's approved stored control-path spelling when Windows native path
+  resolution changes only its case, after verifying the same physical directory.
+  Physical project identity remains canonical, while existing Pal profile revisions
+  and journal ownership paths remain unchanged. Different directory objects and
+  non-case aliases are refused.
+
+- 6f46da3: Add optional `PalAppearance` preferences to saved Pal definitions and create/update inputs. Character and color selections persist in immutable profile revisions; existing records retain their absent appearance and hosts may choose their own display default.
+
+  The CLI accepts `--appearance <character>/<color>` on `pal create` and `pal update`, and the desktop ACP create/update extensions carry the same validated preference. Supported characters are `pixel`, `sprout`, and `spark`; supported colors are `green`, `blue`, `amber`, `violet`, and `rose`.
+
+- f7f48f9: Add persistent Pal identities, immutable profile revisions and an SDK runtime
+  that requires an explicitly provided virtual computer before execution. Hosts
+  can retain one warm computer per Pal, serialize active conversations, enforce
+  current pause state and retry failed computer cleanup without losing ownership.
+
+  Add `namzu pal list/create/show/update/pause/resume/chat` and desktop host Pal
+  methods. Pal conversations pin a saved profile and bind exactly one Pal in their
+  session log. File, shell and computer tools run in the Pal guest, with no host
+  folder, host browser or host plugin fallback. The local computer image and engine
+  must be set up explicitly before chat can execute.
+
+- 6943add: The Desktop can now start a Pal for a message waiting in its inbox, on the person's click. After an approved `send_pal_message` to a Pal that is not running, the sender's transcript asks "Start _name_ now?" and the Pal's own page offers the same (or **Resume** for a paused Pal). **Start** runs the same finite dispatch as `namzu pal dispatch` in the Pal's own host, in the background: the sender's turn is never held, the Pal reads the message in its own conversation under its own permission rules, and its approvals stay in its own tab. A Pal that is already running is only reported, repeated clicks start once, and a missing Pal computer is explained in plain words with **Retry** instead of starting.
+
+  The CLI's desktop host gains two methods, `namzu/pals/inbox/status` and `namzu/pals/inbox/start`; an older runtime simply shows no question. Nothing about sending changes: a message still only reaches the inbox, and `send_pal_message` still never starts a Pal itself. If you embed the CLI's authorization, an owner-conversation wake now also accepts a click-evidence object (`operatorWake: { evidence }`) besides `true`; with neither, a wake is still refused.
+
+- 6ff961f: The Namzu engine's ordinary conversation (terminal and Desktop) can now give a Pal work. It mounts `list_pals` and `send_pal_message` in every such session, and its system prompt names the owner's Pals, separate from sub-agents, only while some exist; a session with no Pals leaves no Pal files. `send_pal_message` always asks the person (in every permission mode and even after "allow all"; `strict` and a session with nobody to ask refuse it) and returns "Sent to _name_'s inbox" as durable acceptance, never delivery or an answer. A paused or removed Pal is refused. The message lands in that Pal's inbox as untrusted context from the owner's conversation; it does not start a stopped Pal, which `namzu pal dispatch` (typed by the owner) still does. `namzu pal inbox` and the Desktop Pal communication view list such a message as `operator-conversation`. External engines and a Pal's own sessions are unchanged.
+
+  If you keep an exact list of the ordinary session's tool names (a plugin allowlist test, a snapshot), it now includes `list_pals` and `send_pal_message`; withhold them with `withheldTools` (withholding `send_pal_message` also drops the prompt block).
+
+  Desktop: the approval card reads "Message to _name_" with the whole message and a note that it goes to the inbox only, and the action row reads "Messaged _name_" with the hover text "Sent to inbox", including after a reload.
+
+- 53aed2a: Read and dispatch Pal messages, authorized activity observations and authenticated channel messages through one SDK ledger. `namzu pal inbox` preserves existing peer row fields and adds explicit source metadata for observation/channel rows without exposing message bodies. Pal sessions and finite dispatch check source-specific current consent; channel execution denies unless a trusted host adapter is explicitly injected.
+
+### Patch Changes
+
+- efb7b06: Extend the closed `AcpSessionUpdate` output union with `agent_thought` reasoning boundaries and `agent_message` completed messages. Exhaustive consumers must add handlers for both kinds before upgrading. Existing variants and required fields remain available. Reasoning boundaries contain no private replay payload; readable reasoning still arrives through `agent_thought_chunk`.
+
+  Message chunks carry optional actual message/turn identity and public commentary/final-answer metadata. Completed messages provide selected settled content and ordered public text parts. `turn_ended` can provide the authoritative result and its actual answer-message identity; consumers must replace the preview when a result is present, including an empty result that clears blocked output.
+
+  Keep the coarse `AcpStopReason` union and add optional exact `reason` to terminal updates and prompt responses. Current runtime guardrails/refusals map to `refused`, resource limits to `max_turns`, and parked segments retain `reason: 'paused'` under the older coarse cancellation label. Legacy aliases remain accepted. Prompt preparation cancellation returns an explicit cancellation reason even if no runtime event was produced. Streamed updates are sent in admission order and finish before the prompt response. Tool completion retains optional runtime-measured duration.
+
+  Permission questions wait for already-admitted updates and fail closed when that context was not delivered. Update errors are caught immediately, retain the first failure and release the prompt slot after flushing; failed question sends settle their pending wait. Delivery failure does not undo runtime work already recorded.
+
+  Update the CLI session-isolation regression expectations to include the exact cancellation and completion reasons; the CLI runtime is unchanged.
+
+- a32c679: Mark unfinished Claude messages closed by native failure or interruption as cancelled instead of completed replies. Preserve partial text, the failed turn's actual status and error, and messages the engine already completed.
+- 642104d: Preserve observed Claude tool calls and results when the engine emits thinking, text and tool blocks under one native message ID. Complete streamed messages at the native message boundary instead of the first content block, retain authoritative inputs and interrupted partial text, and ignore duplicate or older-operation receipts. Public wire shapes and permission admission are unchanged.
+- 6ff961f: Removing a sidebar conversation in the desktop app no longer fails with "This conversation does not belong to this project." when its journal is gone or was saved under a regenerated identity; the host now names the identity change and leaves the journal untouched.
+- dbc466a: The terminal app's header now names the product: "Namzu v35.0.0 · by Cogitave".
+- 4367edc: Keep terminal and ACP conversations running when refused or truncated tool
+  arguments produce an invalid presentation. A malformed write call no longer
+  throws while drawing its label: the CLI uses the tool name, preserves the
+  original error and lets the model repair its input and complete the turn.
+  Valid tool views, tool validation and permission checks retain their behavior.
+- d521813: On Windows, the interactive screen now re-measures its terminal every 250 ms, so a
+  Namzu terminal tab that is narrowed or split redraws to the new width instead of
+  keeping the width it started with (lines cut mid-word, a message box with its
+  right edge in the wrong place). Nothing changes on other platforms. The footer
+  also shortens a Windows path at a backslash and shows the home folder as `~` from
+  `USERPROFILE`. No option or output format changes.
+- 1fa60b9: The terminal app no longer opens with "Computer use is unavailable in this session: The
+  openai provider cannot return images in tool results…" when the chosen provider cannot
+  show screenshots. The reason still travels with the computer-use tool, so the model
+  tells you the moment computer use is actually asked for. A desktop that cannot start at
+  all is still reported when the session opens.
+- 0888f71: An approval request for a write that would leave the file exactly as it is now carries a file preview with `before` equal to `after`, where it carried none. A client that treated a missing preview as "cannot show the file" can now say "no change". A client that draws `before` and `after` as a diff shows an empty diff.
+- 2e8f811: A conversation's title no longer includes the text of an attached file. Desktop sends an
+  attachment to the model as `Attached text file: "name"` after the typed words; the saved
+  title now comes from the typed words only, and is the first file's name when only files
+  were sent. A title that was already saved with attachment text keeps it until the conversation is
+  renamed.
+- 3c2bda7: The interactive screen now reads keys from the Windows console input device when `process.stdin` is not a terminal but the output is, which is the case when the CLI runs as Electron's plain-interpreter mode inside a pseudo-console (a terminal started by the desktop application). Before, it stopped with `Raw mode is not supported on the current process.stdin`. An ordinary launch, and every non-Windows launch, keeps `process.stdin`; nothing to change on upgrade.
+- 2d2a6c3: On Windows, opening a Pal or a conversation no longer starts three Windows processes (`whoami`, `icacls`, `icacls /save`) every time it checks that a state folder is private. The check still runs the first time this process meets a folder, and it runs again when the path names a different folder than before (another device, file id or creation time), so a folder replaced under the same name is re-proved. What changed is that a folder this process already proved private is not re-proved while it is still the same folder, so an access-list edit made to that same folder while Namzu runs is no longer noticed until the next start. The signed-in account's id is also asked for once per process. Nothing changes on other systems. On a Windows machine with antivirus scanning, this removes seconds from opening a Pal.
+- 0de3571: The model pickers (TUI and Desktop catalogue) list Zen's free models before the ones that need an API key and show them under separate "Free" and "API key" headings (a model with no published price follows under "Other models"; a list with only one group draws no headings and keeps an "(API key)" note on its key models), and mark a model whose limits the catalogue has not published yet with "Limits not published yet". Nothing to change on your side; only the order and headings of the Zen list and one extra note differ. The Desktop catalogue row gains an optional `group` field (`'free'` or `'key'`, Zen only). A client that ignores `group` draws no headings and loses the "(API key)" marker on a list that has both groups, because the per-row note is dropped once the headings carry it.
+- 815433f: Fix installed Codex conversations rejecting effort choices offered by their native model catalogue. SDK admission now receives the discovered effort capabilities; dispatch still checks each selection against the current selected model before sending a native turn.
+- 479adc4: Reopened ordinary Desktop conversations now keep an assistant reply you stopped
+  mid-answer. Previously the partial text was visible live but vanished after a
+  restart; it is now restored from the saved journal and shown as stopped. A stopped
+  reply that had no text, or that was later replaced, still adds nothing, and Pal
+  chat history is unchanged. The `namzu/conversations/history` result gains an
+  optional `stopReason: 'cancelled'` on assistant rows; existing clients that ignore
+  unknown fields keep working and nothing needs to change.
+- 24cb6b4: Distinguish a subscription credential removed or cleared by its owner from a
+  remote authentication rejection in desktop model catalogues. Show a fixed
+  sign-in-unavailable notice without exposing owner paths or provider diagnostics.
+  TLS and network failures retain their catalogue-loading notice.
+- 7e1068a: Do not display a tool-only assistant record as a media message when reopening
+  ordinary desktop history. Text accompanying tools and actual media placeholders
+  remain visible; the model's complete recorded history is unchanged.
+
+  Desktop task, retry-status, and metadata ownership reads no longer synchronize the installation-wide session index. ACP history loading verifies and folds one scoped journal snapshot without preparing a provider. Retry inspection retains the authenticated application home, trust, project, tenant, Pal claim, and checkpoint checks; actual retry and write admission remain enforced. Existing injected storage openers are preserved until the host supplies a direct-read opener.
+
+- 292ed84: Read desktop conversation history through one fresh owned session scope without opening or synchronizing the installation index. Authorization, strict journal reads, and Pal reply filtering use the same admitted application home, with folder trust rechecked before reading the journal. Project, tenant, and Pal ownership checks remain enforced; conversation listing and other operations retain their indexed behavior.
+- 3727e2b: Show only the provider's actual listed model rows in the desktop catalogue.
+  Do not insert unavailable registry defaults or saved models as available
+  choices. Keep the current route visible in provider status and report omitted,
+  failed, unsupported and timed-out catalogues with explicit notices. Credential
+  rejections receive a safe authentication notice without remote diagnostics.
+  Recognize a typed rejected subscription refresh grant as an authentication
+  failure while keeping TLS and network failures distinct from invalid credentials.
+  Use the driver's strict account listing when provided instead of mistaking a
+  bundled fallback for a live account catalogue.
+
+  Check the selected model's credential access and supported wire before closing
+  the previous conversation session. An invalid anonymous Zen switch now leaves
+  the previous session intact, and a new conversation can select an eligible free
+  model before preparing an unavailable saved provider.
+
+  Fix model preparation on a newly created ordinary ACP conversation before its
+  first journal exists. Authorize only a session actually published on the same
+  connection with the exact canonical workspace; unknown IDs, foreign workspaces
+  and stopped slots remain refused. Pal conversations still require their durable
+  ownership claim.
+
+- a32c679: Preserve a stored assistant message's explicit commentary or final-answer phase in desktop conversation history when its public text still matches the recorded parts. This keeps progress narration in the work details after reopening an ordinary conversation. Pal history also omits an unchanged interrupted reply only when its own durable completion records cancellation; completed earlier replies and revised or legacy messages remain visible. These display projections leave journal messages and model replay unchanged.
+- a923f6b: Check complete Godot input batches before the original MCP handler and runtime
+  WebSocket send. Invalid nested boolean strings previously aborted the pinned
+  runtime coroutine and could leave earlier input dispatched without a final
+  reply. Return a field-specific, repairable `not_dispatched` error instead,
+  without coercing values or sending any event from the refused batch.
+
+  Advertise the accepted boolean/number constructor types separately for each
+  input event in live tool listings. Use literal `pressed: false` to release a
+  key, mouse button or action; action `strength: 0` does not release it. Retain
+  open dictionaries and encoded top-level event compatibility without adding
+  required fields or injected defaults, and keep all other tools unchanged.
+
+  Preserve valid Godot constructor inputs, optional defaults, top-level server
+  coercion and ignored application dictionary keys. The generic SDK dictionary
+  schema remains unchanged. Existing unknown application effects still require
+  computer stop; validation never clears that barrier or replays input.
+
+- c8613e0: Clarify Godot input timing in the installed bridge's tool description. Put a
+  bounded hold duration on the press event's `delay_after_ms`, or on the release
+  event's `delay_before_ms`; a delay after release waits with the input already
+  released. Show a 250 ms press-hold-release example and distinguish empty key
+  events from waits and composite click's internal `click_delay_ms`.
+
+  Argument types, defaults, dispatch behavior and pinned upstream source remain
+  unchanged. Update an existing guest bridge from the shipped asset while idle,
+  then reconfigure normally to load its updated description.
+
+- b0b6afa: The Desktop model list writes a GPT display name such as "GPT-5.6-Sol" as "GPT-5.6 Sol", the way the Codex app does. Only names that start with "GPT-" and end in "-<Word>" change; model ids sent to providers, and every other family's labels, are unchanged. Nothing to do on upgrade.
+- 7f3b74b: Reset Codex reasoning effort to the selected model's actual native default when
+  Default effort is selected, including after a model change. Refuse an omitted
+  effort when the native model catalogue supplies no valid default, rather than
+  silently retaining a previous turn's effort. Admit the native Codex review modes
+  already advertised by its adapter; Claude Code retains its supported Ask first
+  and Plan modes.
+
+  Retain the actual completed native final-answer identity in Codex terminal
+  receipts and history reconciliation so successful turns no longer erase
+  streamed replies when the terminal notification contains no text.
+
+- c1027fb: Add a connected computer observation to `PalSystemPromptOptions.computer`, with the current control mode, so hosts can describe an existing device independently of permission to execute tools.
+
+  Fix Pal chat composition when the operator holds its connected computer. The Pal now receives its actual connected/control state instead of being told the computer is unavailable. Operator-held chat retains zero guest tools and performs no guest inspection or allocation; Return control admits the existing guest capabilities on the following turn.
+
+- a923f6b: List Pal conversations with one per-call session-index synchronization instead of reopening and synchronizing the entire index for each candidate. Membership, current workspace identity, pinned revision, tenant, project, exact working directory and archive state remain validated from fresh profile and journal reads before the output limit. Standalone membership checks and ordinary-workspace or alias refusals retain their existing behavior.
+- d8d562e: Add `buildPalSystemPrompt` and `PalSystemPromptOptions` for hosts to compose a
+  Pal's saved identity, conversational language, public output discipline and
+  truthful computer availability. The helper does not acquire execution authority.
+  CLI Pal sessions use these shared instructions while retaining their pinned
+  model and execution policy. Authenticated name and appearance edits update the
+  next turn's display identity without rewriting the original introduction.
+
+  Add `PalRuntime.admitConversation`, `PalConversationAdmission` and
+  `PalRuntime.computerChanging`. Hosts can admit exclusive model-only chat without
+  starting a computer, with current pause, cancellation and ownership checks.
+  Guest acquisition remains separate and requires the real guarded environment;
+  the existing mandatory `admit` contract is unchanged. CLI manual chat supplies
+  zero tools while offline or operator-controlled, then adopts the actual guest
+  toolset on a later turn after explicit startup or returned control. Directed
+  dispatch and checkpoint resume continue to require guest admission.
+  The standalone `pal chat` command keeps its existing computer-startup preflight.
+
+  Add `palConversationGreeting` and `PalConversationGreeting` to reconstruct a
+  stable English onboarding prelude from an owned conversation's original profile
+  revision. CLI Pal claim and list results expose this separate host-authored
+  intro without starting a model request or manufacturing a journal turn.
+  Pal desktop history omits explicit assistant commentary and tool-call narration
+  from its public display projection while retaining the original journal.
+
+- 56d88dc: Restore the existing durable planning tools and bounded task context to Pal computer-work conversations. Tasks survive reopening and checkpoint resume in the same conversation; offline chat remains tool-free and planning does not grant host filesystem or computer access.
+
+  Use the task tools' compact activity labels for active calls and receipts in terminal and desktop views, including resumed turns.
+
+- e447a47: `tool_completed` gains an optional `savedPresentation`: one label line (at most 200
+  characters) or a command's first line, never the output, journaled for every call that
+  has no diff, and for an external engine's tools from a name map. Nothing existing
+  changes: `presentation` keeps its diff and cancelled/declined shapes, and live hosts
+  that ignore the new field behave as before. A host that replays history can read
+  `presentation ?? savedPresentation` so a reopened conversation names its actions
+  instead of showing a placeholder. The desktop host does.
+- 8b9cb0a: Correct regression verification of the skill save confirmation when a long home path wraps the suggested destination label across terminal rows.
+- e447a47: `task_created` and `task_updated` session events, and the ACP `AcpTask` row, gain an
+  optional `activeForm` (what the task reads as while it is being worked on, such as
+  "Running the tests"). It is absent when the model gave none, so nothing existing
+  changes; a host that ignores it behaves as before. A host that draws a live plan can
+  show it beside the task in progress. The desktop host passes it on when it lists a
+  session's tasks.
+- 56d88dc: Use the SDK's existing task context selector for interactive task snapshots. Failed tasks closed before the current turn no longer stay open or crowd out pending work; a failed dependency is terminal without being reported as successful. Preserve current-turn outcomes and the original start time during resume.
+- ea9e812: The terminal app now draws in a terminal even when `CI` or similar variables are set in the shell (dev containers, inherited terminal tabs); before, the screen stayed blank until exit. The variables are not changed for the commands the agent runs. Nothing to do on upgrade.
+- f7f48f9: Secure and verify private state and credential files on long Windows paths by passing extended absolute paths to icacls. Keep the existing current-user ACL proof and fail-closed behavior. Project and conversation directory names remain compatible with existing installations.
+- f7f48f9: Fix operator `!command` execution on native Windows by using its platform shell instead of `/bin/sh`. Preserve `/bin/sh` on POSIX, decode split UTF-8 output, refuse pre-aborted launches, and share host process-tree cancellation. Transcript output remains capped at 20,000 characters; a command is also stopped if either stream exceeds 80,000 bytes. Process-start failures now remain visible in the transcript.
+- afd7ba4: Show `namzu.cmd resume` on Windows when the npm command wrapper belongs to the running installation. Keep explicit Node and entrypoint commands for alternate installations and source launches. Scheduled-run resume commands now use PowerShell 5.1-compatible directory changes and quoting on native Windows, preserving the job's project and additional directories.
+
+  Scheduled-task guidance now distinguishes tool permissions from available tools, local HTML files from artifact services, and cumulative token budgets from context-window size so proposals do not promise unavailable tools or outputs.
+
+- Updated dependencies [dd7ee4b]
+- Updated dependencies [4314f90]
+- Updated dependencies [7f5ac50]
+- Updated dependencies [7f5ac50]
+- Updated dependencies [56d88dc]
+- Updated dependencies [3727e2b]
+- Updated dependencies [1af4531]
+- Updated dependencies [efb7b06]
+- Updated dependencies [84452ec]
+- Updated dependencies [53aed2a]
+- Updated dependencies [6194bda]
+- Updated dependencies [301f5b3]
+- Updated dependencies [6194bda]
+- Updated dependencies [56d88dc]
+- Updated dependencies [f7f48f9]
+- Updated dependencies [9ef6506]
+- Updated dependencies [56e846c]
+- Updated dependencies [2057fd6]
+- Updated dependencies [c8613e0]
+- Updated dependencies [6f46da3]
+- Updated dependencies [be9f8b6]
+- Updated dependencies [c1027fb]
+- Updated dependencies [24cb6b4]
+- Updated dependencies [bb0ad2e]
+- Updated dependencies [d5030ca]
+- Updated dependencies [7f5ac50]
+- Updated dependencies [7473449]
+- Updated dependencies [6194bda]
+- Updated dependencies [6f46da3]
+- Updated dependencies [f4b7d1d]
+- Updated dependencies [6ff961f]
+- Updated dependencies [56d88dc]
+- Updated dependencies [7f5ac50]
+- Updated dependencies [6f46da3]
+- Updated dependencies [5e2fb3a]
+- Updated dependencies [c82b951]
+- Updated dependencies [0f5aa96]
+- Updated dependencies [a5dbeb2]
+- Updated dependencies [84a9472]
+- Updated dependencies [c1027fb]
+- Updated dependencies [d8d562e]
+- Updated dependencies [53aed2a]
+- Updated dependencies [81d1721]
+- Updated dependencies [ce52b90]
+- Updated dependencies [84a9472]
+- Updated dependencies [f7f48f9]
+- Updated dependencies [815433f]
+- Updated dependencies [4367edc]
+- Updated dependencies [6ff961f]
+- Updated dependencies [6f46da3]
+- Updated dependencies [f7f48f9]
+- Updated dependencies [7f5ac50]
+- Updated dependencies [846557b]
+- Updated dependencies [56d88dc]
+- Updated dependencies [53aed2a]
+- Updated dependencies [12b5af9]
+- Updated dependencies [e447a47]
+- Updated dependencies [093d657]
+- Updated dependencies [57c99b2]
+- Updated dependencies [c590142]
+- Updated dependencies [1fa60b9]
+- Updated dependencies [5a0a1f7]
+- Updated dependencies [3727e2b]
+- Updated dependencies [3727e2b]
+- Updated dependencies [e447a47]
+- Updated dependencies [56d88dc]
+- Updated dependencies [98e8469]
+- Updated dependencies [f7f48f9]
+- Updated dependencies [4367edc]
+- Updated dependencies [2395a85]
+- Updated dependencies [4367edc]
+- Updated dependencies [134932b]
+- Updated dependencies [0de3571]
+  - @namzu/sdk@50.0.0
+  - @namzu/sandbox@25.0.0
+  - @namzu/anthropic@6.3.0
+  - @namzu/zen@4.0.0
+  - @namzu/browser@2.0.0
+  - @namzu/computer-use@3.1.0
+  - @namzu/ollama@2.2.5
+  - @namzu/openai@4.1.3
+  - @namzu/openrouter@3.0.3
+
 ## 35.0.0
 
 ### Major Changes
