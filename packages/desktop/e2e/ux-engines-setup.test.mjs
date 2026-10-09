@@ -69,6 +69,8 @@ function flow(name, setup, body) {
 
 async function shot(w, name) {
 	mkdirSync(SHOTS, { recursive: true });
+	// Let the popup's 150ms height transition finish; only the picture depends on it, never an assertion.
+	await w.page.waitForTimeout(400);
 	await w.page.screenshot({ path: join(SHOTS, `${name}.png`) });
 }
 
