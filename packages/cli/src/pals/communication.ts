@@ -75,7 +75,15 @@ export interface CliPalIngressAuthorizationOptions {
 	 * accepted after the tool review the owner answered, but waking its recipient is
 	 * a separate consent no model-driven call can give.
 	 */
-	readonly operatorWake?: boolean
+	readonly operatorWake?: boolean | PalWakeConsent
+}
+
+/**
+ * The owner's click in the Desktop, kept as the evidence behind a wake. The id is minted by the
+ * Desktop main process for one click; it is audit text, never an authority a caller can reuse.
+ */
+export interface PalWakeConsent {
+	readonly evidence: string
 }
 
 /** Audit reference for a message the owner approved in their own conversation; never a continuing grant. */
@@ -97,12 +105,21 @@ export function createCliOperatorIngressAuthorization(
 	return async (request: PalIngressAuthorizationRequest) => {
 		if (!('kind' in request) || request.kind !== 'operator')
 			return { allow: false, reason: 'Only an owner-conversation message is authorized here.' }
-		if (request.phase === 'wake' && options.operatorWake !== true)
+		if (request.phase === 'wake') {
+			const consent = options.operatorWake
+			if (consent === true) return { allow: true, grant: OPERATOR_GRANT }
+			if (
+				consent &&
+				typeof consent === 'object' &&
+				/^[A-Za-z0-9:_.-]{1,120}$/u.test(consent.evidence)
+			)
+				return { allow: true, grant: { id: 'owner-wake-click', revision: consent.evidence } }
 			return {
 				allow: false,
 				reason:
 					'Starting this Pal for an owner message needs your explicit go: run namzu pal dispatch.',
 			}
+		}
 		return { allow: true, grant: OPERATOR_GRANT }
 	}
 }

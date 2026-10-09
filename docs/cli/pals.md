@@ -715,8 +715,28 @@ of an owner without Pals creates no Pal files.
   the owner's conversation is accepted and delivered to a running Pal like any
   other input, but it never starts a stopped Pal: `namzu pal dispatch <pal-id>`,
   which you type, is the consent that does (`inbox` lists it with
-  `sourceKind: operator-conversation`). Starting a Pal from inside the conversation
-  with its own approval is not built yet.
+  `sourceKind: operator-conversation`).
+- In the Desktop the start is a separate question, never part of the tool call.
+  After an approved send to a Pal that is not running, the sender's transcript shows
+  "*name* is not running. Start *name* now? It will read your message on its own
+  computer." with **Start *name*** and **Not now**; the Pal's own page offers the same
+  as "1 unread message · Start *name*" (or "Resume *name*" for a paused Pal). The tool
+  returns its receipt at once and the sender's turn is never held. **Start** goes to
+  the Pal's own host (`namzu/pals/inbox/start`, answered at once) and runs the same
+  finite dispatch as `namzu pal dispatch`, in the background: the Pal reads the
+  message in its own conversation, on its own computer, under its own permission
+  rules, with its approvals in its own tab. The click is the consent. The Desktop's
+  main process checks the Pal (it exists, was not deleted, is not paused) and mints
+  the evidence for that one click itself; the wake grant is recorded as
+  `owner-wake-click` with that evidence, never implied by the send approval, and a
+  repeated click while a start is live joins it instead of starting a second run.
+  If the Pal is already running in the Desktop, **Start** only reports "*name* will
+  read it at its next step". If its computer is not available (no Docker or Podman, or
+  the image is missing) nothing starts: the card says "*name*'s computer is not
+  available on this machine yet. Install and start Docker or Podman, then start
+  *name* again." with **Retry**; any other failure reads "*name* could not be started.
+  Try again in a moment." `namzu/pals/inbox/status` reports `{ waiting, state }` with
+  `state` one of `empty`, `waiting`, `reading` or `failed`.
 
 Not offered: an "allow for this conversation" choice. Approval is per message.
 External engines do not get these tools; Pal tasks are Namzu-engine only for now.

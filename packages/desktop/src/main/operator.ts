@@ -40,6 +40,7 @@ import type {
 	PalComputerStreamView,
 	PalComputerView,
 	PalCreateInput,
+	PalInboxStartView,
 	PalInput,
 	PalScreenView,
 	PalView,
@@ -1198,6 +1199,75 @@ export class Operator {
 			input: captured,
 		})) as { type?: string }
 		if (result?.type !== 'ok') throw new Error('The Pal computer did not confirm this input.')
+	}
+	/** Starts in flight, by Pal: repeated clicks join the one start instead of making another. */
+	private readonly startingPalInboxes = new Map<string, Promise<PalInboxStartView>>()
+	private palInboxClient(client: RuntimeClient): RuntimeClient {
+		if (!client.supportsPalInboxStart())
+			throw new Error('Update Namzu to start a Pal from its waiting messages.')
+		return client
+	}
+	private readInboxStart(value: unknown, palId: string): PalInboxStartView {
+		const view = value as Partial<PalInboxStartView> | null
+		if (
+			!view ||
+			view.v !== 1 ||
+			view.palId !== palId ||
+			typeof view.waiting !== 'number' ||
+			!Number.isSafeInteger(view.waiting) ||
+			view.waiting < 0 ||
+			!['empty', 'waiting', 'reading', 'failed'].includes(view.state as string)
+		)
+			throw new Error('Namzu returned an invalid Pal start state.')
+		return {
+			v: 1,
+			palId,
+			waiting: view.waiting,
+			state: view.state as PalInboxStartView['state'],
+			...(typeof view.message === 'string' ? { message: view.message.slice(0, 400) } : {}),
+		}
+	}
+	/** What waits in one Pal's inbox. Reads only; it never starts anything. */
+	async palInboxStart(palId: string): Promise<PalInboxStartView> {
+		this.assertPalAvailable(palId)
+		const client = this.palInboxClient(await this.controlClient(palId, true))
+		this.assertPalAvailable(palId)
+		return this.readInboxStart(await client.request('namzu/pals/inbox/status', { palId }), palId)
+	}
+	/**
+	 * The person's click on "Start <Pal>". The consent is this call: main checks the Pal here
+	 * (it exists, belongs to this registry, is not deleted or paused) and mints the evidence for
+	 * the click itself, so nothing a conversation or the page says can stand in for it.
+	 */
+	async startPalInbox(palId: string): Promise<PalInboxStartView> {
+		this.assertPalAvailable(palId)
+		const running = this.startingPalInboxes.get(palId)
+		if (running) return running
+		const start = this.startOwnedPalInbox(palId).finally(() => {
+			this.startingPalInboxes.delete(palId)
+		})
+		this.startingPalInboxes.set(palId, start)
+		return start
+	}
+	private async startOwnedPalInbox(palId: string): Promise<PalInboxStartView> {
+		if (this.changingPals.has(palId)) throw new Error('Wait for this Pal’s changes to finish.')
+		const current = (await (
+			await this.registry()
+		).request('namzu/pals/get', {
+			id: palId,
+		})) as PalView | null
+		this.assertPalAvailable(palId)
+		if (!current || current.id !== palId) throw new Error('This Pal is unavailable.')
+		this.palRecords.set(palId, current)
+		if (current.paused) throw new Error(`${current.name} is paused. Resume it first.`)
+		const { project } = await this.openOwnedPal(palId)
+		this.assertPalAvailable(palId)
+		const client = this.palInboxClient(this.project(project.id).client)
+		const clickId = randomUUID()
+		return this.readInboxStart(
+			await client.request('namzu/pals/inbox/start', { palId, clickId }, 60_000),
+			palId,
+		)
 	}
 	async startPalComputer(id: string): Promise<PalComputerView> {
 		this.assertPalAvailable(id)

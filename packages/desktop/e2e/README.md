@@ -105,3 +105,12 @@ process (and can fail once on demand), so nothing waits on the clock. It covers 
 second create of the same name in any case refused with a suggestion, Customize and New Pal staying usable and starting
 empty while the new Pal opens, Cancel, and a failed start leaving the Pal with Retry. Pictures go to
 `research/pals-create-20261009/` (the Windows run, on a fresh unpacked build with a temp profile, is in `windows/`).
+
+## Starting a Pal from a conversation
+
+`ux-pal-start.test.mjs` sends an approved message to an idle Pal and follows the question under it: Start, the run on
+the Pal's own computer, and the Pal's own tab; a second flow on a machine with no container engine checks **Not now**,
+the waiting line on the Pal's page, the plain "computer is not available" answer and **Retry**. The success flow sets
+`NAMZU_E2E_PAL_COMPUTER=fake`, which `cli-entry.mjs` answers with `fake-pal-computer-hooks.mjs`: `@namzu/sandbox` keeps
+every export but its computer provider, whose guest is a recorder, so the real host and the real dispatch read the
+message with no Docker. Pictures go to `research/pal-wake-20261009/`.

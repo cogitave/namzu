@@ -529,3 +529,15 @@
 		transform: none;
 	}
 }
+
+.pal-waiting {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px 10px;
+}
+.pal-waiting-line {
+	color: var(--muted-foreground);
+	font-size: 13px;
+	line-height: 20px;
+}

@@ -930,6 +930,41 @@ created, but it could not start." with the reason, **Retry** and **Dismiss**, an
 busy. The e2e flows hold or fail the start with a gate in the main process
 (`e2e/pals-create.test.mjs`), so none of them waits on the clock.
 
+### Starting a Pal for a waiting message
+
+A message sent to a Pal from an ordinary conversation waits in the Pal's inbox
+until the Pal next runs. The Desktop asks separately whether to run it now, and
+the question never blocks the sender: the tool has already returned its receipt.
+
+- After an approved send, the line under the tool row becomes a card: "*name* is
+  not running. Start *name* now? It will read your message on its own computer."
+  with **Start *name***, **Not now** and the existing link to the Pal's messages.
+  **Not now** puts the quiet "Sent to *name*'s inbox" line back. A Pal that is
+  already running gets no question ("*name* will read it at its next step"); a paused
+  Pal's card says so and offers **Resume *name***.
+- The Pal's own page (the context card) shows "1 unread message" with **Start
+  *name*** while the messages wait, "*name* is reading your messages." while a run
+  reads them, and the failure with **Retry**.
+- **Start** is validated and recorded in the main process: `startPalInbox(palId)`
+  checks the Pal still exists and is not paused, opens its own CLI host through the
+  usual open path, mints the evidence for the click itself (the page supplies only
+  the Pal) and calls `namzu/pals/inbox/start`. Repeated clicks while a start is live
+  join it. `palInboxStart(palId)` only reads `namzu/pals/inbox/status`
+  (`{ v, palId, waiting, state, message? }`); an older runtime without the two
+  methods shows no question.
+- While the host runs the dispatch the card says "*name* is reading your message."
+  and then "*name* read your message." with **Open *name***, which opens the Pal on
+  the conversation its run wrote to. Nothing is navigated for the person; the sender's
+  conversation keeps focus. The Pal's tool approvals appear in the Pal's tab, never in
+  the sender's.
+- If the Pal's computer is missing, nothing starts and the card says "*name*'s
+  computer is not available on this machine yet. Install and start Docker or Podman,
+  then start *name* again." with **Retry**; any other failure reads "*name* could not
+  be started. Try again in a moment." The e2e `ux-pal-start.test.mjs` runs both: the
+  success flow swaps `@namzu/sandbox` for a recorder computer through
+  `NAMZU_E2E_PAL_COMPUTER=fake` (test-owned, in `e2e/cli-entry.mjs`) so the real host
+  and the real dispatch read the message on a machine with no container engine.
+
 Save opens an owned conversation with a stable English introduction from the
 original profile revision. It starts no paid inference or guest computer, and
 the introduction remains visible through later messages, reloads and renames.

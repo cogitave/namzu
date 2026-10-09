@@ -42,9 +42,16 @@ export async function dispatchCliPalMessages(
 	ctx: CommandContext,
 	palId: string,
 	signal: AbortSignal,
-	options: CliPalIngressAuthorizationOptions = {},
+	options: CliPalIngressAuthorizationOptions & {
+		/**
+		 * Run inside a host that already owns the Pal runtime (the Desktop host): never close it.
+		 * Closing stops every Pal computer and drops the runtime other conversations are using.
+		 * The Pal computer this dispatch started, if any, is stopped again instead.
+		 */
+		readonly sharedRuntime?: boolean
+	} = {},
 ): Promise<PalIngressDispatchOutcome> {
-	const { authorizeChannel, operatorWake } = options
+	const { authorizeChannel, operatorWake, sharedRuntime } = options
 	const pals = getCliPalStore()
 	const pal = pals.get(palId)
 	if (!pal) throw new Error('Pal does not exist.')
@@ -56,6 +63,7 @@ export async function dispatchCliPalMessages(
 		...(authorizeChannel ? { authorizeChannel } : {}),
 		...(operatorWake ? { operatorWake } : {}),
 	})
+	let startedComputer = false
 	const runConversation = async (
 		binding: PalIngressRouteBinding,
 		source: DurableInboundSource,
@@ -79,6 +87,7 @@ export async function dispatchCliPalMessages(
 		await assertExecutionAllowed()
 		const runtime = await getCliPalRuntime()
 		if (runtime.busy(palId)) throw new Error('This Pal is busy in another conversation.')
+		if (sharedRuntime && !runtime.computer(palId)) startedComputer = true
 		const state = await openSessions(definition.workspace)
 		let agent: Awaited<ReturnType<typeof createAgentSession>> | undefined
 		let workFailure: unknown
@@ -134,6 +143,17 @@ export async function dispatchCliPalMessages(
 		dispatchFailure = error
 		throw error
 	} finally {
-		await closeAfterWork(dispatchFailure, [closeCliPalRuntime])
+		await closeAfterWork(
+			dispatchFailure,
+			sharedRuntime
+				? [
+						async () => {
+							if (!startedComputer) return
+							const runtime = await getCliPalRuntime()
+							if (!runtime.busy(palId) && runtime.computer(palId)) await runtime.stopComputer(palId)
+						},
+					]
+				: [closeCliPalRuntime],
+		)
 	}
 }

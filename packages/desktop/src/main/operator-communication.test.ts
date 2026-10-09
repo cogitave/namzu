@@ -25,7 +25,7 @@ function deferred<T>() {
 	})
 	return { promise, resolve, reject }
 }
-async function fixture(unsupported = false) {
+async function fixture(unsupported = false, extraEnv: Record<string, string> = {}) {
 	const root = await mkdtemp(join(tmpdir(), 'namzu-pal-communication-'))
 	dirs.push(root)
 	const workspace = join(root, 'pal')
@@ -53,6 +53,7 @@ async function fixture(unsupported = false) {
 				...process.env,
 				FIXTURE_PAL_WORKSPACE: workspace,
 				...(unsupported ? { FIXTURE_NO_COMMUNICATION: '1' } : {}),
+				...extraEnv,
 			},
 		},
 		() => {},
@@ -337,4 +338,34 @@ it('does not treat an unrelated successful mutation reply as confirmation or aut
 	)
 	await expect(owner.updatePalPermission(session.id, 'one', change)).rejects.toThrow('refresh')
 	expect(writes).toHaveLength(1)
+})
+
+it('starts a Pal only on a click main validates, mints the evidence itself, and starts once for repeated clicks', async () => {
+	const { owner, calls } = await fixture()
+	const waiting = await owner.palInboxStart('one')
+	expect(waiting).toEqual({ v: 1, palId: 'one', waiting: 1, state: 'waiting' })
+	// Looking never starts anything.
+	expect(calls.some(({ method }) => method === 'namzu/pals/inbox/start')).toBe(false)
+	const [first, second] = await Promise.all([
+		owner.startPalInbox('one'),
+		owner.startPalInbox('one'),
+	])
+	expect(first.state).toBe('reading')
+	expect(second).toEqual(first)
+	const starts = calls.filter(({ method }) => method === 'namzu/pals/inbox/start')
+	expect(starts).toHaveLength(1)
+	const params = starts[0]?.params as { palId: string; clickId: string }
+	expect(Object.keys(params).sort()).toEqual(['clickId', 'palId'])
+	expect(params.clickId).toMatch(/^[0-9a-f-]{36}$/)
+	// No run, no computer call and no prompt came from the start question itself.
+	expect(calls.filter(({ method }) => method === 'session/prompt')).toEqual([])
+})
+it('refuses to start an unknown Pal and an older runtime without starting anything', async () => {
+	const { owner, calls } = await fixture()
+	await expect(owner.startPalInbox('')).rejects.toThrow('Invalid Pal')
+	await expect(owner.startPalInbox('missing')).rejects.toThrow('unavailable')
+	expect(calls.some(({ method }) => method === 'namzu/pals/inbox/start')).toBe(false)
+	const older = await fixture(false, { FIXTURE_NO_INBOX_START: '1' })
+	await expect(older.owner.startPalInbox('one')).rejects.toThrow('Update Namzu')
+	expect(older.calls.some(({ method }) => method === 'namzu/pals/inbox/start')).toBe(false)
 })
