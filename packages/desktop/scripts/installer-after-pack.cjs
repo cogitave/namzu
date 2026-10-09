@@ -1,6 +1,6 @@
 // electron-builder never copies a node_modules folder through extraResources, so the CLI's
 // dependencies are put beside it here, before the installer is built from the unpacked app.
-const { cpSync, existsSync, readdirSync, rmSync, writeFileSync } = require('node:fs')
+const { cpSync, existsSync, readdirSync, readFileSync, rmSync, writeFileSync } = require('node:fs')
 const { join } = require('node:path')
 
 // electron-builder's Arch enum, as `context.arch` reports it.
@@ -42,6 +42,31 @@ function stripNodePty(dir, target) {
 }
 exports.stripNodePty = stripNodePty
 
+/**
+ * electron-updater reads resources/app-update.yml for its feed and for its cache folder name.
+ * electron-builder writes that file from the `publish` block of electron-builder.yml in its own
+ * after-pack handler, which runs BEFORE this hook, so the file is kept as written (provider, url,
+ * range-request setting) and only the cache folder name is set. Only a build with `publish: null`
+ * writes no file; then a cache-only file is written (without it the download fails with ENOENT)
+ * and, with no provider declared, an installed build with no feed stays disabled.
+ * The file is flat `key: value` lines, so a line edit is enough and no YAML library is needed.
+ */
+function writeAppUpdateYml(file) {
+	const line = 'updaterCacheDirName: namzu-updater'
+	if (!existsSync(file)) {
+		writeFileSync(file, `${line}\n`)
+		return
+	}
+	const lines = readFileSync(file, 'utf8')
+		.split(/\r?\n/)
+		.filter((l, i, all) => l !== '' || i < all.length - 1)
+	const at = lines.findIndex((l) => /^updaterCacheDirName\s*:/.test(l))
+	if (at >= 0) lines[at] = line
+	else lines.push(line)
+	writeFileSync(file, `${lines.join('\n')}\n`)
+}
+exports.writeAppUpdateYml = writeAppUpdateYml
+
 exports.default = async function afterPack(context) {
 	const from = join(context.packager.projectDir, 'extra', 'cli', 'node_modules')
 	const to = join(context.appOutDir, 'resources', 'cli', 'node_modules')
@@ -53,11 +78,5 @@ exports.default = async function afterPack(context) {
 	if (!stripNodePty(join(to, 'node-pty'), { platform: context.electronPlatformName, arch }))
 		throw new Error(`The staged CLI has no node-pty at ${join(to, 'node-pty')}; terminals would be unavailable.`)
 	rmSync(join(to, 'node-addon-api'), { recursive: true, force: true })
-	// electron-updater reads resources/app-update.yml for its cache folder name even when the feed is
-	// set at run time (a build with `publish: null` writes no such file, and the download then fails
-	// with ENOENT). No provider is declared, so an installed build with no feed stays disabled.
-	writeFileSync(
-		join(context.appOutDir, 'resources', 'app-update.yml'),
-		'updaterCacheDirName: namzu-updater\n',
-	)
+	writeAppUpdateYml(join(context.appOutDir, 'resources', 'app-update.yml'))
 }

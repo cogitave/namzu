@@ -1,12 +1,14 @@
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
+import { bakedFeedDeclared } from './updater.js'
 
-const { stripNodePty } = createRequire(import.meta.url)(
+const { stripNodePty, writeAppUpdateYml } = createRequire(import.meta.url)(
 	'../../scripts/installer-after-pack.cjs',
 ) as {
+	writeAppUpdateYml(file: string): void
 	stripNodePty(dir: string, target: { platform: string; arch: string }): boolean
 }
 const roots: string[] = []
@@ -73,4 +75,53 @@ it('reports a runtime without the package', () => {
 	expect(
 		stripNodePty(join(tmpdir(), 'namzu-no-such-node-pty'), { platform: 'win32', arch: 'x64' }),
 	).toBe(false)
+})
+
+function ymlPath() {
+	const dir = mkdtempSync(join(tmpdir(), 'namzu-app-update-'))
+	roots.push(dir)
+	return join(dir, 'app-update.yml')
+}
+const BUILT = [
+	'provider: generic',
+	'url: https://github.com/cogitave/namzu/releases/download/desktop-latest/',
+	'useMultipleRangeRequest: false',
+]
+
+it('keeps the feed electron-builder wrote and sets the cache folder name once', () => {
+	const file = ymlPath()
+	writeFileSync(file, `${[...BUILT, 'updaterCacheDirName: namzu-desktop-updater'].join('\n')}\n`)
+	writeAppUpdateYml(file)
+	expect(readFileSync(file, 'utf8')).toBe(
+		`${[...BUILT, 'updaterCacheDirName: namzu-updater'].join('\n')}\n`,
+	)
+})
+
+it('appends the cache folder name when the file has none', () => {
+	const file = ymlPath()
+	writeFileSync(file, `${BUILT.join('\n')}\n`)
+	writeAppUpdateYml(file)
+	expect(readFileSync(file, 'utf8')).toBe(
+		`${[...BUILT, 'updaterCacheDirName: namzu-updater'].join('\n')}\n`,
+	)
+})
+
+it('writes a cache-only file when electron-builder wrote none', () => {
+	const file = ymlPath()
+	writeAppUpdateYml(file)
+	expect(readFileSync(file, 'utf8')).toBe('updaterCacheDirName: namzu-updater\n')
+	expect(bakedFeedDeclared(readFileSync(file, 'utf8'))).toBe(false)
+})
+
+it('keeps the publish block of electron-builder.yml what bakedFeedDeclared reads as a feed', () => {
+	const config = readFileSync(join(__dirname, '../../electron-builder.yml'), 'utf8')
+	const block = /^publish:\s*\n((?:[ \t]+.*\n?)+)/m.exec(config)?.[1] ?? ''
+	expect(block).toMatch(/^\s+provider:\s*generic\s*$/m)
+	expect(block).toMatch(
+		/^\s+url:\s*https:\/\/github\.com\/cogitave\/namzu\/releases\/download\/desktop-latest\/\s*$/m,
+	)
+	const file = ymlPath()
+	writeFileSync(file, `${BUILT.join('\n')}\n`)
+	writeAppUpdateYml(file)
+	expect(bakedFeedDeclared(readFileSync(file, 'utf8'))).toBe(true)
 })
