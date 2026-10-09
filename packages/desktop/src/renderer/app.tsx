@@ -865,6 +865,46 @@ export function App({
 		if (pal?.id) setUnreadPals((previous) => unreadAfterOpen(previous, pal.id))
 	}, [pal?.id])
 	const palStarts = usePalStarts(api, threads, pals, pal?.id)
+	// Main keeps the markers, so a restart brings them back. `savedUnread` is what main holds now.
+	const savedUnread = useRef<ReadonlySet<string> | undefined>(undefined)
+	const openPalIdRef = useRef(pal?.id)
+	openPalIdRef.current = pal?.id
+	useEffect(() => {
+		if (!api.palUnread) {
+			savedUnread.current = new Set()
+			return
+		}
+		let current = true
+		void api
+			.palUnread()
+			.then((ids) => {
+				if (!current) return
+				savedUnread.current = new Set(ids)
+				setUnreadPals((previous) => {
+					const next = new Set(previous)
+					for (const id of ids) if (id !== openPalIdRef.current) next.add(id)
+					// Always a new set, so the sync below runs once even when nothing was added.
+					return next
+				})
+			})
+			.catch(() => {
+				savedUnread.current = new Set()
+				setUnreadPals((previous) => new Set(previous))
+			})
+		return () => {
+			current = false
+		}
+	}, [api])
+	useEffect(() => {
+		const saved = savedUnread.current
+		if (!saved || !api.setPalUnread) return
+		const next = new Set(saved)
+		for (const id of unreadPals) if (!saved.has(id)) next.add(id)
+		for (const id of saved) if (!unreadPals.has(id)) next.delete(id)
+		for (const id of next) if (!saved.has(id)) void api.setPalUnread(id, true).catch(() => {})
+		for (const id of saved) if (!next.has(id)) void api.setPalUnread(id, false).catch(() => {})
+		savedUnread.current = next
+	}, [api, unreadPals])
 	const palOperatorMessages = usePalOperatorMessages(
 		api,
 		sessionId,

@@ -396,6 +396,8 @@ export class Operator {
 	private savedDesktop?: DesktopConversationSnapshot
 	/** The model last picked per engine; a new conversation of that engine starts from it. */
 	private readonly lastModels = new Map<string, SavedLastModel>()
+	/** Pals with a message from the person they have not opened; survives a restart. */
+	private readonly unreadPals = new Set<string>()
 	constructor(
 		private readonly command: RuntimeCommand,
 		private readonly publish: (event: DesktopEvent) => void,
@@ -426,6 +428,7 @@ export class Operator {
 					})
 				for (const [engine, item] of Object.entries(this.savedDesktop?.lastModels ?? {}))
 					this.lastModels.set(engine, { ...item })
+				for (const palId of this.savedDesktop?.unreadPals ?? []) this.unreadPals.add(palId)
 				for (const item of this.savedDesktop?.attachments ?? [])
 					this.attachmentFiles.set(item.view.id, structuredClone(item))
 			} catch (error) {
@@ -575,6 +578,7 @@ export class Operator {
 				...structuredClone(item),
 			})),
 			...(this.lastModels.size ? { lastModels: Object.fromEntries(this.lastModels) } : {}),
+			...(this.unreadPals.size ? { unreadPals: [...this.unreadPals] } : {}),
 			attachments: [...this.attachmentFiles.values()]
 				.filter((item) => item.draft)
 				.map((item) => ({ ...item, draft: true as const })),
@@ -652,6 +656,26 @@ export class Operator {
 		const available = pals.filter((pal) => !this.deletedPals.has(pal.id))
 		for (const pal of available) this.palRecords.set(pal.id, pal)
 		return available
+	}
+	/** The Pals that have a message from the person they have not opened yet. */
+	palUnread(): string[] {
+		return [...this.unreadPals].filter((id) => !this.deletedPals.has(id))
+	}
+	/** Marks one Pal unread (a message was delivered) or read (its conversation was opened). */
+	setPalUnread(id: unknown, unread: unknown): string[] {
+		if (typeof id !== 'string' || !id.trim() || id.length > 400 || typeof unread !== 'boolean')
+			throw new Error('Invalid Pal.')
+		// The saved file rejects control characters in an id; one stored here would make the whole
+		// file unreadable on the next start and lose every saved draft.
+		if (Array.from(id).some((c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127))
+			throw new Error('Invalid Pal.')
+		if (unread) {
+			if (this.deletedPals.has(id) || this.unreadPals.has(id)) return this.palUnread()
+			if (this.unreadPals.size >= 1024) throw new Error('Too many Pals are marked unread.')
+			this.unreadPals.add(id)
+		} else if (!this.unreadPals.delete(id)) return this.palUnread()
+		this.persistDesktop(true)
+		return this.palUnread()
 	}
 	/** The folder to reveal for one Pal; the Pal is named by id and the path comes from main's own record. */
 	async palFolder(id: string): Promise<string> {
@@ -951,6 +975,7 @@ export class Operator {
 			this.deletedPals.set(id, expectedRevision)
 			this.deletingPals.delete(id)
 			this.palRecords.delete(id)
+			this.unreadPals.delete(id)
 			for (const sessionId of scope.sessionIds) this.backgroundWork.invalidate(sessionId)
 			for (const projectId of scope.projectIds) this.projects.delete(projectId)
 			for (const sessionId of scope.sessionIds) {

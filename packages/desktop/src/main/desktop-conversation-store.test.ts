@@ -139,6 +139,18 @@ describe('durable desktop conversation schema', () => {
 		expect(parseDesktopConversationSnapshot({ ...saved, lastModels: [] })).toBeNull()
 		expect(parseDesktopConversationSnapshot(snapshot())?.lastModels).toBeUndefined()
 	})
+	it('keeps the Pals marked unread across reload and rejects a malformed list', () => {
+		const saved = snapshot()
+		saved.unreadPals = ['pal-a', 'pal-b']
+		const store = new DesktopConversationStore(directory())
+		store.write(saved)
+		expect(store.read()?.unreadPals).toEqual(['pal-a', 'pal-b'])
+		expect(parseDesktopConversationSnapshot({ ...saved, unreadPals: ['x', 'x'] })).toBeNull()
+		expect(parseDesktopConversationSnapshot({ ...saved, unreadPals: [''] })).toBeNull()
+		expect(parseDesktopConversationSnapshot({ ...saved, unreadPals: [3] })).toBeNull()
+		expect(parseDesktopConversationSnapshot({ ...saved, unreadPals: 'pal-a' })).toBeNull()
+		expect(parseDesktopConversationSnapshot(snapshot())?.unreadPals).toBeUndefined()
+	})
 	it('keeps empty UI sessions, runtime aliases, model settings and pane-scoped landing drafts', () => {
 		const original = snapshot()
 		original.attachments = [text(), image('project:project:workspace:window:home-window')]

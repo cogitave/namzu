@@ -745,6 +745,9 @@ export interface DesktopApi {
 	popupWindowMenu(menu: WindowMenu, anchor: WindowMenuAnchor): Promise<void>
 	projects(): Promise<ProjectView[]>
 	pals(): Promise<PalView[]>
+	/** Ids of the Pals with an unread "New message" marker; kept by main across restarts. */
+	palUnread?(): Promise<string[]>
+	setPalUnread?(id: string, unread: boolean): Promise<string[]>
 	palProviders(): Promise<ProviderView>
 	/** Settings ▸ Models: every provider Namzu can use and how each is connected. */
 	providerConnections?(): Promise<ProviderConnectionView[]>
