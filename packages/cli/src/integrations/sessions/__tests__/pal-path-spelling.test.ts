@@ -24,7 +24,8 @@ vi.mock('../../providers/credential-store.js', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('../../providers/credential-store.js')>()
 	// The fixture models Windows path APIs on a POSIX host; privacy still uses
 	// this host's real owner-only permissions instead of launching Windows ACLs.
-	return { ...actual, restrictToOwner: (path: string) => chmodSync(path, 0o700) }
+	const restrict = (path: string) => chmodSync(path, 0o700)
+	return { ...actual, restrictToOwner: restrict, restrictToOwnerOnce: restrict }
 })
 vi.mock('@namzu/sdk', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('@namzu/sdk')>()
