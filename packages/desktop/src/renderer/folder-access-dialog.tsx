@@ -2,12 +2,15 @@ import { Dialog } from '@base-ui/react/dialog'
 import { useEffect, useRef, useState } from 'react'
 import type { BroadFolderKind } from '../shared/protocol.js'
 import { Button } from './ui/button.js'
+import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from './ui/collapsible.js'
 
 export interface FolderAccessCopy {
 	title: string
 	description: string
 	/** What was found or what changed, one entry each, shown as a list under the description. */
 	items?: string[]
+	/** What is behind some of the items: the commands and servers, under a Details disclosure. */
+	details?: { label: string; lines: string[] }[]
 	/** The closing caution, below the list. */
 	note?: string
 	confirm: string
@@ -28,36 +31,40 @@ export function folderAccessCopy(
 	risky?: readonly string[],
 	/** What changed in a folder this app had already trusted. */
 	changed?: readonly string[],
+	details?: readonly { label: string; lines: string[] }[],
 ): FolderAccessCopy {
+	const quoted = `“${name}”`
 	if (broad)
 		return {
 			title: `Allow access to ${BROAD_SUBJECT[broad]}?`,
-			description: `This is ${BROAD_SUBJECT[broad]}. Namzu and the conversation engine could read every file under it and run commands there. Prefer a project folder.`,
+			description: `This is ${BROAD_SUBJECT[broad]}. Namzu and the AI tool you chose could read every file under it and run commands there. Prefer a project folder.`,
 			confirm: 'Allow anyway',
 			cancel: 'Choose another folder',
 		}
 	if (changed && changed.length > 0)
 		return {
 			title: 'Trust this folder?',
-			description: `These automatic settings of ${name} changed since you last trusted it:`,
+			description: `These settings in ${quoted} changed since you last trusted it. They can start programs on their own:`,
 			items: [...changed],
-			note: 'Folder settings can run code automatically, even without a model request. Continue only if you trust these changes.',
-			confirm: 'Trust folder',
+			...(details?.length ? { details: [...details] } : {}),
+			note: 'Trust it again only if you made or expected these changes.',
+			confirm: 'Trust and open',
 			cancel: 'Cancel',
 		}
 	if (risky && risky.length > 0)
 		return {
 			title: 'Trust this folder?',
-			description: `Namzu and your selected conversation engine can read, edit and run files in ${name}. Folder settings can also run code automatically, even without a model request. This folder has:`,
+			description: `Namzu and the AI tool you chose will be able to read, edit and run files in ${quoted}. This folder also has settings that can start programs on their own, even before you send a message:`,
 			items: [...risky],
-			note: 'Continue only if you trust these files.',
-			confirm: 'Trust folder',
+			...(details?.length ? { details: [...details] } : {}),
+			note: 'Only continue if you trust where this folder came from. Open Details to see exactly what would run.',
+			confirm: 'Trust and open',
 			cancel: 'Cancel',
 		}
 	return {
-		title: `Work in ${name}?`,
+		title: `Work in ${quoted}?`,
 		description:
-			'Allow Namzu and your selected conversation engine to read files and run commands in this folder. Each conversation keeps its own tool permissions. Only allow access to a folder you trust.',
+			'Allow Namzu and the AI tool you chose to read files and run commands in this folder. Each conversation keeps its own tool permissions. Only allow access to a folder you trust.',
 		confirm: 'Allow folder access',
 		cancel: 'Cancel',
 	}
@@ -74,6 +81,7 @@ export function FolderAccessDialog({
 	broad,
 	risky,
 	changed,
+	details,
 	onConfirm,
 	onCancel,
 	onClose,
@@ -84,12 +92,13 @@ export function FolderAccessDialog({
 	broad?: BroadFolderKind
 	risky?: readonly string[]
 	changed?: readonly string[]
+	details?: readonly { label: string; lines: string[] }[]
 	onConfirm: () => Promise<void>
 	onCancel: () => void
 	onClose: () => void
 	returnFocus: () => HTMLElement | null
 }) {
-	const copy = folderAccessCopy(name, broad, risky, changed)
+	const copy = folderAccessCopy(name, broad, risky, changed, details)
 	const [pending, setPending] = useState(false)
 	const [error, setError] = useState('')
 	const cancel = useRef<HTMLButtonElement>(null)
@@ -123,7 +132,7 @@ export function FolderAccessDialog({
 			}}
 		>
 			<Dialog.Portal>
-				<Dialog.Backdrop className="fixed inset-0 z-[160] bg-black/50" />
+				<Dialog.Backdrop className="fixed inset-0 z-[160] bg-black/75 backdrop-blur-sm" />
 				<Dialog.Viewport className="fixed inset-0 z-[161] grid place-items-center overflow-y-auto p-4">
 					<Dialog.Popup
 						data-folder-access-dialog={
@@ -148,6 +157,31 @@ export function FolderAccessDialog({
 									</li>
 								))}
 							</ul>
+						)}
+						{copy.details && (
+							<Collapsible className="mt-3">
+								<CollapsibleTrigger className="text-sm font-medium text-foreground underline underline-offset-2">
+									Details
+								</CollapsibleTrigger>
+								<CollapsiblePanel>
+									<dl className="mt-2 max-h-60 space-y-2 overflow-y-auto rounded-md bg-muted p-2 text-xs">
+										{copy.details.map((item) => (
+											<div key={item.label}>
+												<dt className="font-medium text-foreground">{item.label}</dt>
+												{item.lines.map((line, index) => (
+													<dd
+														// biome-ignore lint/suspicious/noArrayIndexKey: lines repeat and never reorder
+														key={index}
+														className="break-all font-mono text-foreground"
+													>
+														{line}
+													</dd>
+												))}
+											</div>
+										))}
+									</dl>
+								</CollapsiblePanel>
+							</Collapsible>
 						)}
 						{copy.note && <p className="mt-3 text-sm text-muted-foreground">{copy.note}</p>}
 						{error && (

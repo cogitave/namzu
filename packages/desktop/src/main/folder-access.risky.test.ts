@@ -18,7 +18,7 @@ function setup(risky: Record<string, string[]>) {
 	const access = new FolderAccess({
 		env: linux,
 		canonical: (path) => path,
-		findSettings: async (path) => risky[path] ?? [],
+		findSettings: async (path) => (risky[path] ?? []).map((label) => ({ label, lines: [] })),
 		tokens: new FolderAccessTokens(
 			() => now,
 			() => `tok${++n}`,

@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_HOME_HEADING, newProjectFailure, projectHomeHeading } from './project-home.js'
+import {
+	DEFAULT_HOME_HEADING,
+	createdProjectNotice,
+	homeStarters,
+	newProjectFailure,
+	projectHomeHeading,
+} from './project-home.js'
 
 describe('projectHomeHeading', () => {
 	it('names the project on its home', () => {
@@ -21,5 +27,27 @@ describe('newProjectFailure', () => {
 		)
 		expect(newProjectFailure(wrapped).message).toBe("Couldn't create a new project: EACCES: denied")
 		expect(newProjectFailure('plain').message).toBe("Couldn't create a new project: plain")
+	})
+})
+
+describe('homeStarters', () => {
+	it('offers file-based ideas only where there is a project', () => {
+		expect(homeStarters({})[0]).toBe('Explore this project')
+		for (const none of [undefined, { isChat: true as const }, { palId: 'p' }])
+			for (const label of homeStarters(none)) expect(label).not.toMatch(/project|change/i)
+	})
+})
+
+describe('createdProjectNotice', () => {
+	it('says which folder holds the new project, in either path style', () => {
+		expect(
+			createdProjectNotice({ name: 'New project', path: '/home/me/Documents/Namzu/New project' }),
+		).toBe('Created \u201cNew project\u201d in /home/me/Documents/Namzu.')
+		expect(
+			createdProjectNotice({
+				name: 'New project 2',
+				path: 'C:\\Users\\me\\Documents\\Namzu\\New project 2',
+			}),
+		).toBe('Created \u201cNew project 2\u201d in C:\\Users\\me\\Documents\\Namzu.')
 	})
 })

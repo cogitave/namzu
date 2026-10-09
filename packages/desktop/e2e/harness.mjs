@@ -208,7 +208,7 @@ export async function openProject(world) {
 	// asks "Trust this folder?" before the project opens; the user must confirm it.
 	const consent = page.getByRole("dialog", { name: "Trust this folder?" });
 	await expect(consent).toBeVisible({ timeout: 30000 });
-	await consent.getByRole("button", { name: "Trust folder" }).click();
+	await consent.getByRole("button", { name: "Trust and open" }).click();
 	await expect(
 		page.getByRole("textbox", { name: "Message Namzu" }),
 	).toBeVisible({ timeout: 60000 });

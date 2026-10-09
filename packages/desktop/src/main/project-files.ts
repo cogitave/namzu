@@ -159,7 +159,19 @@ async function assertVisible(root: string, relative: string): Promise<void> {
 		throw new ProjectPathError('That file is hidden by this project’s ignore rules.')
 }
 
-const collator = new Intl.Collator('en', { numeric: true, sensitivity: 'base' })
+/**
+ * File lists sort the way the person's language sorts names (Turkish puts ç, ğ, ı, ö, ş and ü
+ * after c, g, h, o, s and u). `sensitivity: 'accent'` keeps "ışık" and "isik" apart. The app sets
+ * its locale once Electron knows it; until then the system default applies.
+ */
+let collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'accent' })
+export function setFileSortLocale(locale: string | undefined): void {
+	try {
+		collator = new Intl.Collator(locale, { numeric: true, sensitivity: 'accent' })
+	} catch {
+		collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'accent' })
+	}
+}
 const byName = (left: ProjectFileEntry, right: ProjectFileEntry) =>
 	collator.compare(left.name, right.name) || (left.name < right.name ? -1 : 1)
 

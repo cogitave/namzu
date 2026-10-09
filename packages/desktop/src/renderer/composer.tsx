@@ -53,6 +53,8 @@ import './composer.css'
 const PROVIDER_EMPTY_HELP =
 	'Namzu needs a model provider to answer. Paste an API key, or sign in with Claude Code or Codex and Namzu will find that sign-in.'
 
+const DEFAULT_STARTERS = ['Explore this project', 'Review a change', 'Plan a task'] as const
+
 export function Composer({
 	draftDisabled = false,
 	inputRef,
@@ -87,6 +89,7 @@ export function Composer({
 	onEditQueued,
 	onRemoveQueued,
 	projectName,
+	starters = DEFAULT_STARTERS,
 	projectId,
 	sessionId,
 	projectPath,
@@ -174,6 +177,8 @@ export function Composer({
 	onEditQueued: (itemId?: string) => void
 	onRemoveQueued: (itemId: string) => void
 	projectName: string
+	/** The ideas under an empty conversation; a chat without a project gets ones that need no files. */
+	starters?: readonly [string, string, string]
 	projectId: string
 	sessionId?: string
 	projectPath: string
@@ -843,23 +848,22 @@ export function Composer({
 						!noProvider &&
 						providers.available.length > 0 && (
 							<div className="starter-actions" aria-label="Ideas to get started">
-								{[
-									{ label: 'Explore this project', Icon: SearchIcon },
-									{ label: 'Review a change', Icon: FileDiffIcon },
-									{ label: 'Plan a task', Icon: ListTodoIcon },
-								].map(({ label, Icon }) => (
-									<button
-										type="button"
-										key={label}
-										onClick={() => {
-											onDraftChange(`${label}. `)
-											inputRef.current?.focus()
-										}}
-									>
-										<Icon aria-hidden="true" />
-										<span>{label}</span>
-									</button>
-								))}
+								{[SearchIcon, FileDiffIcon, ListTodoIcon].map((Icon, index) => {
+									const label = starters[index]
+									return (
+										<button
+											type="button"
+											key={label}
+											onClick={() => {
+												onDraftChange(`${label}. `)
+												inputRef.current?.focus()
+											}}
+										>
+											<Icon aria-hidden="true" />
+											<span>{label}</span>
+										</button>
+									)
+								})}
 							</div>
 						)}
 					{noProvider && (

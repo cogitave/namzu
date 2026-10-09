@@ -479,18 +479,21 @@ never the renderer. A broad folder is the exception: a drive root, the home
 folder itself, or a system folder (the Windows directory, Program Files and
 ProgramData with everything under them, the roaming and local application-data
 roots, `/etc`, `/usr` and the like; the list is data in
-`src/main/folder-access.ts`). Main does not trust it. It answers with the
-project plus a `broadFolder` kind and a one-time token bound to that exact
-canonical path and window, valid for five minutes. The renderer shows an in-app
-dialog ("This is your whole drive … Prefer a project folder.") with **Allow
-anyway** and **Choose another folder**; **Allow anyway** sends the token back to
-`trustProject`, and main trusts only when the token is unspent, unexpired and
-matches the path and the window. A used, expired, foreign-window or
-other-path token is refused. A folder that is already known but untrusted
-(restored, opened by path, created by the CLI) keeps the gate; **Review folder
-access** opens the same in-app dialog, and its confirmation is consent captured
-by the renderer, since the person already added the folder. A known broad
-folder is answered with a token first, so it takes the broad dialog too.
+`src/main/folder-access.ts`). Main does not trust it, and it does not add it
+either: the pick answers with a pending folder (`pending: true`, no project id,
+nothing in the sidebar or in `projects.json`) that carries a `broadFolder` kind
+and a one-time token bound to that exact canonical path and window, valid for
+five minutes. The renderer shows an in-app dialog over a dark, blurred scrim
+("This is your whole drive … Prefer a project folder.") with **Allow anyway**
+and **Choose another folder**; **Allow anyway** sends the token to
+`trustFolder`, and main opens and trusts the folder only when the token is
+unspent, unexpired and matches the window. A used, expired or foreign-window
+token is refused, and cancelling leaves no trace. A folder that is already
+known but untrusted (restored, opened by path, created by the CLI) keeps the
+gate; **Review folder access** opens the same in-app dialog, and its
+confirmation is consent captured by the renderer, since the person already added
+the folder. A known broad folder is answered with a token first (`trustProject`),
+so it takes the broad dialog too.
 
 A picked folder that holds settings able to run code on their own gets the same
 kind of in-app consent. Main looks, without running anything, at
@@ -500,12 +503,18 @@ kind of in-app consent. Main looks, without running anything, at
 `.namzu/commands` (links are not followed; the list is data in
 `src/main/folder-settings.ts`). When it finds any, the pick does not add the
 folder: main answers with a pending folder (`pending: true`) that carries
-`riskySettings.found` and a one-time token bound to the canonical path and the
-window, valid for five minutes. The dialog "Trust this folder?" names what was
-found ("hooks, 2 MCP servers, 1 plugin in .namzu/plugins") and says folder
-settings can run code automatically, even without a model request; **Trust
-folder** sends the token to `trustFolder`, and only then does main open the
-folder, trust it and save the project list. **Cancel** adds nothing. A known
+`riskySettings.found` (plain-language labels), `riskySettings.details` (the
+commands, servers and names behind some of them) and a one-time token bound to
+the canonical path and the window, valid for five minutes. The dialog "Trust
+this folder?" quotes the folder's name, says what was found in plain words ("a
+Namzu settings file that can start programs", "2 tools it can start (MCP
+servers)", "commands that run by themselves at set moments (hooks)") and has a
+**Details** disclosure that shows the real hook command and each server's
+command or address. Details never carry environment values; a URL loses its
+query and credentials, anything that looks like a token or password is shown as
+`…`, and a list stops at eight lines (`safeLine` in `src/main/folder-settings.ts`).
+**Trust and open** sends the token to `trustFolder`, and only then does main open
+the folder, trust it and save the project list. **Cancel** adds nothing. A known
 untrusted folder with such settings answers its confirmation with a token the
 same way, and a broad folder keeps the broad dialog. An ordinary folder is
 still trusted at once.
@@ -521,14 +530,33 @@ project chooser and the command palette. **Start from scratch** has main create
 taken; the folder is made without `recursive`, so two windows cannot share one),
 run `git init` there when git is on the PATH (a missing or failing git never
 fails the creation), trust it (a folder main created is its own consent) and open
-it. A failure reads "Couldn't create a new project: *message*". **Use an
+it, and a notice says where ("Created “New project” in …/Documents/Namzu.") with
+**Show in folder**. A failure reads "Couldn't create a new project: *message*". The
+folder is named after its leaf; to rename it, rename the folder in the file manager and
+use **Locate…** on the "Folder not found" row (see
+[A project whose folder is gone](#a-project-whose-folder-is-gone)). **Use an
 existing folder** is the folder picker above, and Ctrl/⌘+O still opens it.
 
-A project that was just added, or selected, and is trusted lands on its home at
+A conversation without a project shows ideas that need no files ("Explain something",
+"Draft a message", "Plan a task"), and the sidebar keeps its **Add new project** row while no
+real project is listed (the chat workspace does not count). A project that was just added,
+or selected, and is trusted lands on its home at
 once with the heading "What should we work on in *name*?" and the composer
 focused, as soon as the composer is enabled; chats and Pal workspaces keep
-"What would you like to work on?". A project leaves Namzu
-through [Removing a project](#removing-a-project).
+"What would you like to work on?". File lists in the project (the Files panel) sort names in the app's language: Turkish names
+order ç, ğ, ı, ö, ş, ü after c, g, h, o, s, u, and "ışık" and "isik" stay two names.
+A project leaves Namzu through [Removing a project](#removing-a-project).
+
+## A project whose folder is gone
+
+If a saved project's folder no longer exists at launch (moved, renamed, deleted or on a drive
+that is not mounted), the project stays in the sidebar instead of vanishing: it shows its name,
+"Folder not found", **Locate…** and **Remove**. Main keeps it as a `missing` project (no
+connection, listed in `projects.json` so it survives the next launch). **Locate…** opens the
+folder picker, and the folder it finds takes over the project's id, so its saved conversations
+come along; the new folder goes through the normal pick checks and asks for trust like any other.
+**Remove** forgets the saved project, its conversations and drafts in Namzu and touches nothing on
+disk. A missing project is left out of Recents, the command palette and the project chooser.
 
 ## Settings
 
@@ -736,7 +764,7 @@ On every connect, main compares the folder's current fingerprint with the record
   added") and the in-app dialog "Trust this folder?" opens by itself, once per change. It says the
   folder's automatic settings changed since it was last trusted and names them. Until it is
   confirmed, every operator action that needs a trusted project refuses, and the tab is not
-  opened. **Trust folder** trusts and records the new fingerprint; **Cancel** leaves it
+  opened. **Trust and open** trusts and records the new fingerprint; **Cancel** leaves it
   untrusted and reopens nothing. A broad folder still takes its own dialog.
 - **Changed, and the setting is off**: the record is brought up to date and the folder opens as
   before. Turning the setting off asks for confirmation in an in-app dialog (Cancel is focused first); main
@@ -748,7 +776,7 @@ On every connect, main compares the folder's current fingerprint with the record
 The same check runs again right before work that makes the CLI read the folder: a new
 conversation, a conversation's reattach or turn start, and a plugin change. A folder that
 changed since connect becomes untrusted at that moment and the work is refused with "This
-folder's automatic settings changed". **Trust folder** in the first dialog opens a second one
+folder's automatic settings changed". **Trust and open** in the first dialog opens a second one
 with the same list in full (the change first, then the hooks, servers and plugins found in the
 folder); only that one, issued with a main token, trusts. A Pal workspace is not checked: it lives under the
 reserved `<home>-workspaces/pals` root that Namzu creates and trusts itself, and no repository
@@ -763,8 +791,13 @@ unchanged.
 
 A project can be removed from its sidebar row (a hover **×** button, and a right-click or
 Shift+F10 menu with **Remove project…**) and from **Settings ▸ Projects**. Both ask first:
-"Remove *name*?" — "This only removes the project from Namzu. Files on your computer and
-existing conversations won't be deleted." — **Remove project** / **Cancel**. Pal workspaces and
+"Remove “*name*” from Namzu?" — "This removes “*name*” from Namzu and takes the folder off
+Namzu’s trusted list, so Namzu asks again if you add it back. Its open tabs close. Files on
+your computer and existing conversations won’t be deleted." — **Remove project** / **Cancel**.
+The notice after it carries **Add it again** for ten seconds: main hands the window a
+one-time token for that exact folder (`readdToken`, five minutes, its own token store so it can
+never trust a risky or broad folder), and `restoreProject` sends the folder through the same
+pick checks as a new one. Pal workspaces and
 the chat workspace have no remove action; a Pal's workspace goes with the Pal.
 
 `Operator.removeProject` refuses a project that is still connecting, and while anything in it is active: a running, admitting

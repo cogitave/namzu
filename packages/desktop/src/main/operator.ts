@@ -1396,6 +1396,10 @@ export class Operator {
 	 * as "no projects" while the sequential restore has not reached them yet.
 	 */
 	private readonly expectedProjects = new Map<string, ProjectView>()
+	/** Saved projects whose folder no longer exists: listed as such until located or removed. */
+	private readonly missingProjects = new Map<string, ProjectView>()
+	/** A located folder takes over the id of the missing project it replaces, keyed by its path. */
+	private readonly relocations = new Map<string, string>()
 	expectProjects(paths: readonly string[]): void {
 		for (const path of paths) {
 			const saved = this.savedDesktop?.projects.find((item) => item.path === path)
@@ -1419,17 +1423,85 @@ export class Operator {
 		if (!placeholder) return
 		this.expectedProjects.delete(path)
 		if ([...this.projects.values()].some(({ view }) => view.path === path)) return
+		if (!existsSync(path)) {
+			const missing: ProjectView = {
+				...placeholder,
+				status: 'error',
+				error: 'Folder not found',
+				missing: true,
+			}
+			this.missingProjects.set(missing.id, missing)
+			this.emit({ kind: 'connection', project: { ...missing } })
+			return
+		}
 		this.emit({
 			kind: 'connection',
 			project: { ...placeholder, status: 'error', error: 'Namzu could not open this folder.' },
 		})
 	}
+	missingProject(id: string): ProjectView | undefined {
+		// A folder that vanished while its project was open is missing too, though it is still connected.
+		const open = this.projects.get(id)?.view
+		const view = this.missingProjects.get(id) ?? (open?.missing ? open : undefined)
+		return view && { ...view }
+	}
+	missingProjectPaths(): string[] {
+		return [...this.missingProjects.values()].map((item) => item.path)
+	}
+	expectRelocation(path: string, projectId: string): void {
+		if (this.missingProjects.has(projectId)) this.relocations.set(path, projectId)
+	}
+	/** Forgets a project whose folder is gone: its saved row, conversations and drafts. Files are not touched. */
+	async forgetMissingProject(projectId: string): Promise<ProjectRemovalResult> {
+		const missing = this.missingProjects.get(projectId)
+		if (!missing) throw new Error('This project is no longer in Namzu.')
+		const sessionIds = new Set<string>()
+		for (const item of this.savedDesktop?.conversations ?? [])
+			if (item.view.projectId === projectId) sessionIds.add(item.view.id)
+		const retiredOwners = new Set(sessionIds)
+		const isProjectDraft = (ownerId: string) => {
+			try {
+				return projectDraftOwner(ownerId)?.projectId === projectId
+			} catch {
+				return false
+			}
+		}
+		for (const ownerId of [...this.projectDrafts.keys()])
+			if (isProjectDraft(ownerId)) {
+				retiredOwners.add(ownerId)
+				this.projectDrafts.delete(ownerId)
+			}
+		for (const [attachmentId, file] of this.attachmentFiles)
+			if (retiredOwners.has(file.ownerId)) this.attachmentFiles.delete(attachmentId)
+		for (const id of sessionIds) {
+			this.conversations.delete(id)
+			this.attachmentPreviews.forget(id)
+		}
+		this.missingProjects.delete(projectId)
+		for (const [path, id] of this.relocations) if (id === projectId) this.relocations.delete(path)
+		if (this.savedDesktop)
+			this.savedDesktop = withoutProject(
+				this.savedDesktop,
+				projectId,
+				isProjectDraft,
+				retiredOwners,
+			)
+		this.persistDesktop(true)
+		const retired = [...sessionIds]
+		this.emit({ kind: 'project-removed', projectId, sessionIds: retired })
+		// It never had a connection this session, so there is no trust entry to take back.
+		return { projectId, sessionIds: retired, trust: { state: 'not-connected' } }
+	}
 	/** What a window reads: the connected projects, then the ones still to be reopened. */
 	projectsForWindow(): ProjectView[] {
 		const listed = this.listProjects()
 		const known = new Set(listed.map((item) => item.path))
+		const connected = new Set(listed.map((item) => item.id))
 		return [
 			...listed,
+			...[...this.missingProjects.values()]
+				.filter((item) => !connected.has(item.id))
+				.map((item) => ({ ...item })),
 			...[...this.expectedProjects.values()]
 				.filter((item) => !known.has(item.path))
 				.map((item) => ({ ...item })),
@@ -1532,6 +1604,7 @@ export class Operator {
 		const view: ProjectView = {
 			id:
 				existing?.view.id ??
+				this.relocations.get(cwd) ??
 				this.savedDesktop?.projects.find((item) => item.path === cwd)?.id ??
 				randomUUID(),
 			path: cwd,
@@ -1568,6 +1641,8 @@ export class Operator {
 			session.needsLoad = true
 		}
 		this.projects.set(view.id, project)
+		this.relocations.delete(cwd)
+		this.missingProjects.delete(view.id)
 		client.on('frame', (frame) => {
 			if (!this.closing && this.projects.get(view.id) === project) this.onFrame(project, frame)
 		})
@@ -1962,6 +2037,7 @@ export class Operator {
 		if (this.removingProjects.has(projectId))
 			throw new Error('This project is already being removed.')
 		const project = this.projects.get(projectId)
+		if (!project && this.missingProjects.has(projectId)) return this.forgetMissingProject(projectId)
 		if (!project) throw new Error('This project is no longer in Namzu.')
 		const { view } = project
 		if (view.palId) throw new Error('A Pal’s workspace is removed by deleting the Pal.')

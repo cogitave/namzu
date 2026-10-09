@@ -59,6 +59,7 @@ export function Sidebar({
 	onConversation,
 	rowActions,
 	onRemoveProject,
+	onLocateProject,
 	pals,
 	terminals = [],
 	activeTerminalId,
@@ -86,6 +87,8 @@ export function Sidebar({
 	rowActions?: ThreadRowActions
 	/** Absent when the host cannot remove a project; the hover button and menu are then not offered. */
 	onRemoveProject?: (project: ProjectView, trigger: HTMLElement | null) => void
+	/** Absent when the host cannot relink a project; a missing folder then offers only Remove. */
+	onLocateProject?: (project: ProjectView) => void
 	pals?: ReactNode
 	/** Open terminal tabs; each is listed under its project with a terminal mark. */
 	terminals?: readonly TerminalTabView[]
@@ -104,7 +107,7 @@ export function Sidebar({
 		}))
 	const projectById = new Map(projects.map((project) => [project.id, project]))
 	const recent = [...new Map(conversations.map((item) => [item.id, item])).values()]
-		.filter((item) => projectById.has(item.projectId))
+		.filter((item) => projectById.has(item.projectId) && !projectById.get(item.projectId)?.missing)
 		.sort(compareConversationOrder)
 		.filter(
 			(item, index) =>
@@ -217,84 +220,93 @@ export function Sidebar({
 						className="conversations sidebar-project-navigation"
 						aria-label="Projects and conversations"
 					>
-						{groups.map(({ project, rows }) => (
-							<Collapsible
-								key={project.id}
-								className="sidebar-project-group"
-								data-project-group={project.id}
-								open={collapsedProjects[project.id] === false}
-								onOpenChange={(expanded) =>
-									setCollapsedProjects((current) => ({
-										...current,
-										[project.id]: !expanded,
-									}))
-								}
-							>
-								<ProjectHeading
+						{groups.map(({ project, rows }) =>
+							project.missing ? (
+								<MissingProjectRow
+									key={project.id}
 									project={project}
-									selected={!sessionId && projectId === project.id}
-									onRemoveProject={onRemoveProject}
+									onLocate={onLocateProject}
+									onRemove={onRemoveProject}
+								/>
+							) : (
+								<Collapsible
+									key={project.id}
+									className="sidebar-project-group"
+									data-project-group={project.id}
+									open={collapsedProjects[project.id] === false}
+									onOpenChange={(expanded) =>
+										setCollapsedProjects((current) => ({
+											...current,
+											[project.id]: !expanded,
+										}))
+									}
 								>
-									<CollapsibleTrigger
-										aria-label={`${collapsedProjects[project.id] === false ? 'Collapse' : 'Expand'} ${project.name} conversations`}
-										render={
-											<Button
-												variant="ghost-muted"
-												size="icon-xs"
-												className="sidebar-project-toggle"
-											/>
-										}
-									>
-										<span className="sidebar-project-folder" aria-hidden="true">
-											<FolderIcon className="sidebar-project-folder-closed" />
-											<FolderOpenIcon className="sidebar-project-folder-open" />
-										</span>
-									</CollapsibleTrigger>
-									<button
-										type="button"
-										className="project-row"
-										aria-label={`Open ${project.name}`}
-										aria-current={!sessionId && projectId === project.id ? 'page' : undefined}
-										onClick={() => {
-											setCollapsedProjects((current) => ({
-												...current,
-												[project.id]: false,
-											}))
-											onProject(project.id)
-										}}
-									>
-										<span className="sidebar-project-name">{project.name}</span>
-									</button>
-								</ProjectHeading>
-								<CollapsiblePanel className="sidebar-project-panel">
-									<TerminalList
-										tabs={terminals.filter((tab) => tab.projectId === project.id)}
+									<ProjectHeading
 										project={project}
-										activeId={activeTerminalId}
-										onOpen={onTerminal}
-										onClose={onCloseTerminal}
-									/>
-									<ThreadList
-										rows={rows}
-										project={project}
-										threads={threads}
-										backgroundWork={backgroundWork}
-										sessionId={sessionId}
-										active={conversationCollection === 'projects'}
-										expanded={Boolean(expandedLists[project.id])}
-										onExpandedChange={(expanded) =>
-											setExpandedLists((current) => ({
-												...current,
-												[project.id]: expanded,
-											}))
-										}
-										onConversation={(view) => onConversation(view, 'projects')}
-										rowActions={rowActions}
-									/>
-								</CollapsiblePanel>
-							</Collapsible>
-						))}
-						{projects.length === 0 && (
+										selected={!sessionId && projectId === project.id}
+										onRemoveProject={onRemoveProject}
+									>
+										<CollapsibleTrigger
+											aria-label={`${collapsedProjects[project.id] === false ? 'Collapse' : 'Expand'} ${project.name} conversations`}
+											render={
+												<Button
+													variant="ghost-muted"
+													size="icon-xs"
+													className="sidebar-project-toggle"
+												/>
+											}
+										>
+											<span className="sidebar-project-folder" aria-hidden="true">
+												<FolderIcon className="sidebar-project-folder-closed" />
+												<FolderOpenIcon className="sidebar-project-folder-open" />
+											</span>
+										</CollapsibleTrigger>
+										<button
+											type="button"
+											className="project-row"
+											aria-label={`Open ${project.name}`}
+											aria-current={!sessionId && projectId === project.id ? 'page' : undefined}
+											onClick={() => {
+												setCollapsedProjects((current) => ({
+													...current,
+													[project.id]: false,
+												}))
+												onProject(project.id)
+											}}
+										>
+											<span className="sidebar-project-name">{project.name}</span>
+										</button>
+									</ProjectHeading>
+									<CollapsiblePanel className="sidebar-project-panel">
+										<TerminalList
+											tabs={terminals.filter((tab) => tab.projectId === project.id)}
+											project={project}
+											activeId={activeTerminalId}
+											onOpen={onTerminal}
+											onClose={onCloseTerminal}
+										/>
+										<ThreadList
+											rows={rows}
+											project={project}
+											threads={threads}
+											backgroundWork={backgroundWork}
+											sessionId={sessionId}
+											active={conversationCollection === 'projects'}
+											expanded={Boolean(expandedLists[project.id])}
+											onExpandedChange={(expanded) =>
+												setExpandedLists((current) => ({
+													...current,
+													[project.id]: expanded,
+												}))
+											}
+											onConversation={(view) => onConversation(view, 'projects')}
+											rowActions={rowActions}
+										/>
+									</CollapsiblePanel>
+								</Collapsible>
+							),
+						)}
+						{groups.length === 0 && (
 							<AddProjectMenu
 								disabled={opening}
 								onCreate={onCreateProject}
@@ -326,6 +338,56 @@ export function Sidebar({
 				</div>
 			</aside>
 		</>
+	)
+}
+
+/**
+ * A project whose folder is gone. It stays in the list, dimmed, instead of vanishing: the person
+ * can point Namzu at the folder's new place or take the project out.
+ */
+function MissingProjectRow({
+	project,
+	onLocate,
+	onRemove,
+}: {
+	project: ProjectView
+	onLocate?: (project: ProjectView) => void
+	onRemove?: (project: ProjectView, trigger: HTMLElement | null) => void
+}) {
+	return (
+		<div
+			className="sidebar-project-group sidebar-project-missing"
+			data-project-group={project.id}
+			data-project-missing
+		>
+			<div className="sidebar-project-missing-name" title={project.path}>
+				<FolderIcon aria-hidden="true" />
+				<span className="sidebar-project-name">{project.name}</span>
+			</div>
+			<p className="sidebar-project-missing-note">Folder not found</p>
+			<div className="sidebar-project-missing-actions">
+				{onLocate && (
+					<Button
+						variant="outline"
+						size="xs"
+						aria-label={`Locate the folder for ${project.name}`}
+						onClick={() => onLocate(project)}
+					>
+						Locate…
+					</Button>
+				)}
+				{onRemove && (
+					<Button
+						variant="ghost-muted"
+						size="xs"
+						aria-label={`Remove ${project.name}`}
+						onClick={(event) => onRemove(project, event.currentTarget)}
+					>
+						Remove
+					</Button>
+				)}
+			</div>
+		</div>
 	)
 }
 

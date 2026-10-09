@@ -72,7 +72,7 @@ export function ProjectOpenError({
 }
 
 /** The folder was moved or deleted. Not a trust problem, so no trust words: find it, or let it go. */
-export function ProjectMissing({
+export function ProjectFolderMissing({
 	name,
 	path,
 	onLocate,
@@ -81,25 +81,28 @@ export function ProjectMissing({
 }: {
 	name: string
 	path: string
-	onLocate: () => void
+	onLocate?: () => void
 	onRemove?: (trigger: HTMLElement | null) => void
 	removeDisabled?: boolean
 }) {
 	return (
-		<Empty className="welcome project-open-error project-missing">
+		<Empty className="welcome project-open-error project-missing" data-project-folder-missing>
 			<EmptyHeader className="max-w-lg px-8">
 				<EmptyTitle>
 					<h1>{name} can’t be found</h1>
 				</EmptyTitle>
 				<EmptyDescription>
-					This folder no longer exists. It may have been moved, renamed or deleted.
+					This folder no longer exists. It may have been moved, renamed or deleted. If you moved or
+					renamed it, point Namzu at its new place. Nothing was deleted.
 				</EmptyDescription>
 				<EmptyDescription className="project-path">{path}</EmptyDescription>
 			</EmptyHeader>
 			<div className="project-missing-actions">
-				<Button type="button" className="primary" size="default" onClick={onLocate}>
-					Locate folder…
-				</Button>
+				{onLocate && (
+					<Button type="button" className="primary" size="default" onClick={onLocate}>
+						Locate folder…
+					</Button>
+				)}
 				{onRemove && (
 					<Button
 						type="button"
