@@ -253,7 +253,9 @@ it('rotates to one bounded previous file and limits a deterministic renderer flo
 	now += 1000
 	sink.record('renderer_failed')
 	expect(records(sink).at(-1).eventName).toBe('namzu.desktop.renderer_failed')
-})
+	// Several thousand synchronous appends and stats on a real log file, enough to cross the 512 KiB
+	// rotation bound; the file system, not the CPU, sets the pace on a loaded runner.
+}, 30_000)
 
 it('reports unavailable storage without throwing or changing the original operation failure', async () => {
 	const { root } = create()
