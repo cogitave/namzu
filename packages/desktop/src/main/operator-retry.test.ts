@@ -284,6 +284,62 @@ it('shows an authoritative unsafe-usage notice, refusing retry and new prompt be
 	expect(requests().filter((request) => request.method === 'namzu/sessions/retry')).toHaveLength(0)
 })
 
+it('closes a paused turn it cannot repeat, puts the message and its file back in the composer, and keeps the conversation usable', async () => {
+	const { owner, wait, requests } = harness('unsafe')
+	const project = await owner.openProject(process.cwd())
+	const session = await owner.newConversation(project.id)
+	const files = await owner.addAttachments(session.id, [
+		{ name: 'proof.txt', bytes: Buffer.from('proof') },
+	])
+	const stopped = wait(settled)
+	await owner.send(session.id, 'Build with the proof', {
+		attachmentIds: files.map((file) => file.id),
+	})
+	await stopped
+	expect((await owner.openConversation(project.id, session.id)).thread?.retryNotice).toBeDefined()
+	const restored = await owner.continueWithoutReply(session.id)
+	expect(restored.text).toBe('Build with the proof')
+	expect(restored.attachments.map((file) => file.id)).toEqual(files.map((file) => file.id))
+	expect(owner.draft(session.id)).toBe('Build with the proof')
+	expect(owner.attachments(session.id).map((file) => file.id)).toEqual(files.map((file) => file.id))
+	const thread = (await owner.openConversation(project.id, session.id)).thread
+	expect(thread?.retry).toBeUndefined()
+	expect(thread?.retryNotice).toBeUndefined()
+	expect(thread?.error).toBeUndefined()
+	expect(
+		requests().filter((request) => request.method === 'namzu/sessions/abandon-paused'),
+	).toEqual([expect.objectContaining({ params: { sessionId: expect.any(String) } })])
+	// The message was only put back; the same conversation takes the next send.
+	const again = wait(settled)
+	await owner.send(session.id, owner.draft(session.id), {
+		attachmentIds: files.map((file) => file.id),
+	})
+	await again
+	expect(requests().filter((request) => request.method === 'session/prompt')).toHaveLength(2)
+})
+
+it('keeps what the person already typed after the message it puts back', async () => {
+	const { owner, wait } = harness('unsafe')
+	const project = await owner.openProject(process.cwd())
+	const session = await owner.newConversation(project.id)
+	const stopped = wait(settled)
+	await owner.send(session.id, 'Build')
+	await stopped
+	owner.saveDraft(session.id, 'and also this')
+	expect((await owner.continueWithoutReply(session.id)).text).toBe('Build\n\nand also this')
+})
+
+it('does not close anything on a connection that cannot', async () => {
+	const { owner, wait, requests } = harness('old')
+	const project = await owner.openProject(process.cwd())
+	const session = await owner.newConversation(project.id)
+	const stopped = wait(settled)
+	owner.send(session.id, 'Build')
+	await stopped
+	await expect(owner.continueWithoutReply(session.id)).rejects.toThrow('Update Namzu')
+	expect(requests().filter((request) => request.method.includes('abandon'))).toEqual([])
+})
+
 it('rejects stale checkpoint identity and allows cancellation of an admitted retry without another turn', async () => {
 	const { owner, recorded, wait, requests } = harness()
 	const project = await owner.openProject(process.cwd())

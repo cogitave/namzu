@@ -97,7 +97,19 @@ flow(
 			w.page.getByRole("heading", { name: "Add an API key or sign in to start" }),
 		).toBeVisible({ timeout: T });
 		await box(w).fill("make me a small website");
-		await expect(w.page.getByRole("button", { name: "Send message" })).toBeDisabled();
+		// Send looks and acts disabled, says why, and both it and Enter lead to the card that fixes it.
+		const send = w.page.getByRole("button", { name: "Send message" });
+		await expect(send).toHaveAttribute("aria-disabled", "true");
+		await send.hover();
+		await expect(w.page.getByText("Connect a provider to send")).toBeVisible({ timeout: T });
+		await shot(w, "01-send-tooltip-dark");
+		await box(w).press("Enter");
+		await expect(w.page.getByRole("button", { name: "Connect a provider" })).toBeFocused();
+		await box(w).focus();
+		await send.click({ force: true });
+		await expect(w.page.getByRole("button", { name: "Connect a provider" })).toBeFocused();
+		assert.equal(w.model.requests.length, 0, "nothing was sent to a model");
+		assert.equal(await box(w).inputValue(), "make me a small website", "the text is kept");
 		await expect(w.page.getByText("Ideas to get started")).toHaveCount(0);
 		await shots(w, "01-no-provider-empty-state");
 
@@ -106,7 +118,7 @@ flow(
 			timeout: T,
 		});
 		await expect(w.page.getByText("Not connected").first()).toBeVisible({ timeout: T });
-		await expect(w.page.getByText("Free models, no key. Limits may apply.")).toBeVisible();
+		await expect(w.page.getByText("Free models. Needs a free Zen key.")).toBeVisible();
 		await shots(w, "02-models-section-before");
 
 		const add = w.page.getByRole("button", { name: "Add an API key for OpenAI", exact: true });
@@ -225,18 +237,112 @@ function failureFlow(name, status, extra, expected, shotName) {
 	);
 }
 
-failureFlow(
-	"a provider fault (502) says what happened in plain words and keeps the original behind Details",
-	502,
-	{
-		contentType: "text/html",
-		body: "<html><body>502 Bad Gateway</body></html>",
+const BAD_GATEWAY = {
+	status: 502,
+	contentType: "text/html",
+	body: "<html><body>502 Bad Gateway</body></html>",
+};
+
+flow(
+	"a provider fault (502) in a conversation with no limit is tried again in place, with the unknown usage kept in Details",
+	{ rules: [{ match: /go wrong/i, steps: [BAD_GATEWAY] }] },
+	async (w) => {
+		await openProject(w);
+		await sendText(w, "please go wrong");
+		await expect(
+			w.page.getByText(`${PROVIDER_NAME} had a problem on its side. Your message is saved.`).first(),
+		).toBeVisible({ timeout: T });
+		const region = w.page.locator(".turn-recovery");
+		await expect(region.getByRole("button", { name: "Try again" })).toBeVisible({ timeout: T });
+		await expect(w.page.getByRole("button", { name: "Start a new conversation" })).toHaveCount(0);
+		await expect(w.page.getByRole("button", { name: "Continue without this reply" })).toHaveCount(0);
+		const visible = (await region.innerText()).replace(/Details[\s\S]*$/, "");
+		assert.doesNotMatch(visible, JARGON, "the main text carries no code, markup or receipt wording");
+		await shots(w, "10-fault-502");
+		await region.getByText("Details").click();
+		const details = await region.locator("details").innerText();
+		assert.match(details, /Usage for (one request|\d+ requests) is unknown\./);
+		assert.doesNotMatch(details, /502 502|receipt|retained|unresolved/i, "no doubled status or receipt wording");
+		assert.match(
+			details,
+			new RegExp(`${PROVIDER_NAME}: the provider failed to complete the request \\(502 Bad Gateway\\)`),
+		);
+		await shot(w, "10-fault-502-details-dark");
+		// The retry is a new request in the same conversation, and it is answered.
+		const before = w.model.requests.length;
+		w.model.rules[0].steps = [{ text: "The provider is back." }];
+		await region.getByRole("button", { name: "Try again" }).click();
+		await expect(w.page.getByText("The provider is back.")).toBeVisible({ timeout: T });
+		assert.ok(w.model.requests.length > before, "the retry reached the model as a new request");
+		await expect(w.page.locator(".turn-recovery")).toHaveCount(0);
+		await expect(w.page.getByText("Working").locator("visible=true")).toHaveCount(0, { timeout: T });
+		await shot(w, "10-fault-502-retried-dark");
 	},
-	{
-		main: ["OpenAI had a problem on its side. Your message is saved."],
-		buttons: [/Start a new conversation|Try again/],
+);
+
+/** Every token-budget ledger under the profile (`<session>/budgets/<turn>.json`). */
+function budgetFiles(home) {
+	const found = [];
+	const walk = (dir) => {
+		for (const entry of readdirSync(dir, { withFileTypes: true })) {
+			const path = join(dir, entry.name);
+			if (entry.isDirectory()) walk(path);
+			else if (entry.name.endsWith(".json") && dir.endsWith("budgets")) found.push(path);
+		}
+	};
+	walk(home);
+	return found;
+}
+
+flow(
+	"a provider fault (502) in a conversation that has a limit offers to continue here, and puts the message back in the box",
+	{ rules: [{ match: /go wrong/i, steps: [BAD_GATEWAY] }] },
+	async (w) => {
+		await openProject(w);
+		await sendText(w, "please go wrong");
+		const region = w.page.locator(".turn-recovery");
+		await expect(region.getByRole("button", { name: "Try again" })).toBeVisible({ timeout: T });
+		// A Desktop conversation has no limit of its own. Give this turn's ledger one, the way a turn
+		// begun under a configured limit would carry it, and open the conversation again.
+		const ledgers = budgetFiles(w.home);
+		assert.equal(ledgers.length, 1, "the turn has one durable ledger");
+		const ledger = JSON.parse(readFileSync(ledgers[0], "utf8"));
+		ledger.limit = 1000000;
+		ledger.accounts.find((account) => account.id === ledger.rootAccountId).limit = 1000000;
+		writeFileSync(ledgers[0], JSON.stringify(ledger));
+		await w.page.reload();
+		await expect(region.getByRole("button", { name: "Continue without this reply" })).toBeVisible({
+			timeout: T,
+		});
+		await expect(region.getByRole("button", { name: "Try again" })).toHaveCount(0);
+		await expect(w.page.getByRole("button", { name: "Start a new conversation" })).toHaveCount(0);
+		const visible = (await region.innerText()).replace(/Details[\s\S]*$/, "");
+		assert.doesNotMatch(visible, JARGON, "the main text carries no code, markup or receipt wording");
+		assert.doesNotMatch(visible, /receipt|unresolved|retained|token/i);
+		await shots(w, "10-fault-502-limited");
+		await region.getByText("Details").click();
+		assert.match(await region.locator("details").innerText(), /Usage for (one request|\d+ requests) is unknown\./);
+		await shot(w, "10-fault-502-limited-details-dark");
+		const tabs = await w.page.getByRole("tab").count();
+		await region.getByRole("button", { name: "Continue without this reply" }).click();
+		await expect(w.page.locator(".turn-recovery")).toHaveCount(0, { timeout: T });
+		await expect(box(w)).toHaveValue("please go wrong");
+		assert.equal(await w.page.getByRole("tab").count(), tabs, "no new conversation was opened");
+		await shot(w, "10-fault-502-limited-continued-dark");
+		// The unknown usage of the stopped request is still on the ledger, never zero.
+		const after = JSON.parse(readFileSync(budgetFiles(w.home)[0], "utf8"));
+		assert.ok(
+			[...after.requests, ...after.completedRequests].filter((request) => request.unresolved).length >= 1,
+			"the stopped requests are still recorded as unknown",
+		);
+		// Not sent: the same conversation takes it as a new turn.
+		const sent = w.model.requests.length;
+		w.model.rules[0].steps = [{ text: "The provider is back." }];
+		await w.page.getByRole("button", { name: "Send message" }).click();
+		await expect(w.page.getByText("The provider is back.")).toBeVisible({ timeout: T });
+		assert.ok(w.model.requests.length > sent);
+		assert.equal(await w.page.getByRole("tab").count(), tabs, "the same conversation took it");
 	},
-	"10-fault-502",
 );
 
 failureFlow(
@@ -291,8 +397,11 @@ flow(
 flow("a project folder deleted while open says so, with the two ways forward", {}, async (w) => {
 	await openProject(w);
 	await expect(box(w)).toBeVisible({ timeout: T });
+	// The text is typed before the folder goes, and sent with the key the box already has focus
+	// for: no actionability wait can lose the box to the page that replaces it.
+	await box(w).fill("anyone there?");
 	rmSync(w.project, { recursive: true, force: true });
-	await sendText(w, "anyone there?");
+	await w.page.keyboard.press("Enter");
 	await expect(w.page.getByRole("heading", { name: /can’t be found/ })).toBeVisible({ timeout: T });
 	await expect(w.page.getByText("This folder no longer exists.")).toBeVisible();
 	await expect(w.page.getByRole("button", { name: "Locate folder…" })).toBeVisible();
@@ -372,6 +481,15 @@ process.exit(1);
 				w.page.getByRole("button", { name: new RegExp(`^Model, ${ENGINE} unavailable`) }),
 			).toBeVisible({ timeout: T });
 			await expect(w.page.getByText(/native engine connection/i)).toHaveCount(0);
+			// The notice sits below the tab strip: the tabs and + stay visible and reachable.
+			const strip = await w.page.locator(".topbar").first().boundingBox();
+			const notice = await w.page.locator(".connection-error > *").first().boundingBox();
+			assert.ok(strip && notice, "both the tab strip and the notice are drawn");
+			assert.ok(
+				notice.y >= strip.y + strip.height - 1,
+				`the notice (top ${notice.y}) starts below the tab strip (bottom ${strip.y + strip.height})`,
+			);
+			await expect(w.page.getByRole("button", { name: /new tab|new conversation/i }).first()).toBeVisible();
 			await shots(w, "40-engine-cannot-start");
 		},
 	);

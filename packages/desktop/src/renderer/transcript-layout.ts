@@ -324,6 +324,7 @@ export function terminalNotice(reason?: string, explained = false): string | und
 		return 'This reply was blocked by a safety rule that was set up.'
 	if (reason === 'structured_output_failed')
 		return 'The response did not match the required format.'
+	if (reason === 'abandoned') return 'You continued without this reply.'
 	return 'This reply could not finish.'
 }
 

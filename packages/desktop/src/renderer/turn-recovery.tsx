@@ -7,6 +7,8 @@ const ACTION_LABEL: Record<FailureAction, string> = {
 	'try-again': 'Try again',
 	settings: 'Open model settings',
 	'new-conversation': 'Start a new conversation',
+	continue: 'Continue without this reply',
+	'copy-to-new': 'Copy to a new conversation',
 }
 
 /** The actions a set of failures offers, once each, with Try again only where it can really run. */

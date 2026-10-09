@@ -29,15 +29,26 @@ it('says a failure in plain words with the original behind Details', () => {
 	expect(main).not.toMatch(/502|html|HTTP|receipt|retained|token/i)
 })
 
-it('does not offer Try again when nothing can be repeated, but offers a way out', () => {
+it('does not offer Try again when nothing can be repeated, but offers a way on in the same conversation', () => {
 	const blocked = describeBlockedRetry(
 		'This provider request has unresolved token usage. Retry requires its actual provider usage receipt; the original turn is retained.',
 	)
 	const html = render({ failures: [blocked] })
 	expect(html).not.toContain('Try again')
-	expect(html).toContain('Start a new conversation')
-	expect(html).toContain('Your message is saved above')
+	expect(html).toContain('Continue without this reply')
+	expect(html).not.toContain('Start a new conversation')
+	expect(html).toContain('put your message back in the message box')
 	expect(html.slice(0, html.indexOf('<details'))).not.toMatch(/receipt|unresolved|retained/i)
+})
+
+it('offers to copy the message to a new conversation only when asked to', () => {
+	const blocked = describeBlockedRetry('The paused turn’s checkpoint is unavailable.')
+	const html = render({
+		failures: [{ ...blocked, actions: [...blocked.actions, 'copy-to-new'] }],
+		onAction: () => {},
+	})
+	expect(html).toContain('Continue without this reply')
+	expect(html).toContain('Copy to a new conversation')
 })
 
 it('lists each action once, with the first one drawn as the primary', () => {

@@ -7,7 +7,7 @@ const methods = [
 	'namzu/project/status', 'namzu/project/trust', 'namzu/conversations/list',
 	'namzu/conversations/history', 'namzu/providers/status', 'namzu/providers/select',
 	'namzu/jobs/list', 'namzu/jobs/read', 'namzu/jobs/stop',
-	...(process.env.FIXTURE_RETRY_MODE === 'old' ? [] : ['namzu/sessions/retry-status', 'namzu/sessions/retry']),
+	...(process.env.FIXTURE_RETRY_MODE === 'old' ? [] : ['namzu/sessions/retry-status', 'namzu/sessions/retry', 'namzu/sessions/abandon-paused']),
 ]
 const sessions = new Map()
 const pending = new Map()
@@ -65,6 +65,11 @@ lines.on('line', (line) => {
 		const requestId = `review-${id}`
 		pending.set(requestId, { id, sessionId: params.sessionId, kind: 'retry' })
 		send({ id: requestId, method: 'session/request_permission', params: { sessionId: params.sessionId, toolCalls: [{ id: 'retry-call', name: 'guest-action', input: {}, isDestructive: false }] } })
+	} else if (method === 'namzu/sessions/abandon-paused') {
+		const session = sessions.get(params.sessionId)
+		if (!session?.paused) { fail(id, 'This conversation has no paused turn to close.'); return }
+		session.paused = false
+		reply(id, { closed: true })
 	} else if (method === 'session/cancel') {
 		for (const [requestId, request] of pending) {
 			if (request.sessionId !== params.sessionId) continue

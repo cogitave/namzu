@@ -5,7 +5,14 @@
  * it can be tested without a window.
  */
 
-export type FailureAction = 'try-again' | 'settings' | 'new-conversation'
+export type FailureAction =
+	| 'try-again'
+	| 'settings'
+	| 'new-conversation'
+	/** Close the stopped turn, keep working here, and put the message back in the box. */
+	| 'continue'
+	/** Carry the saved message and its files to a new conversation of the same project. */
+	| 'copy-to-new'
 
 export interface FriendlyFailure {
 	kind:
@@ -61,6 +68,7 @@ export function sanitizeDetails(raw: string): string {
 		.replace(/<[^>]*>/g, ' ')
 		.replace(/\b(?:sk|pk|rk|key|tok|ghp|xox[a-z])[-_][A-Za-z0-9*._-]{4,}/gi, '[hidden]')
 		.replace(/\b[A-Za-z0-9_-]{32,}\b/g, '[hidden]')
+		.replace(/\b(\d{3})(?:\s+\1\b)+/g, '$1')
 		.replace(/\s+/g, ' ')
 		.trim()
 	return text.length > 500 ? `${text.slice(0, 499)}…` : text
@@ -68,8 +76,47 @@ export function sanitizeDetails(raw: string): string {
 
 const PROVIDER_FAILURE = /^([a-z0-9][a-z0-9-]*)(?: \(HTTP (\d{3})\))? — ([^:]+?)(?:: ([\s\S]*))?$/i
 
+/** What Details says about the requests whose cost the provider never reported. */
+export function unknownUsageDetail(count = 1): string {
+	return count === 1
+		? 'Usage for one request is unknown.'
+		: `Usage for ${count} requests is unknown.`
+}
+export const UNKNOWN_USAGE_DETAIL = unknownUsageDetail()
+
+/** The provider's own wording as one plain sentence: who answered, and with what. */
+function plainProviderDetails(raw: string): string {
+	const matched = PROVIDER_FAILURE.exec(raw.trim())
+	if (!matched) return raw
+	const name = providerName(matched[1]?.toLowerCase())
+	const answer = sanitizeDetails(matched[4] ?? '')
+	const status = matched[2] && !answer.startsWith(matched[2]) ? `${matched[2]} ` : ''
+	const sentence = (matched[3] ?? '').trim().replace(/\.$/, '')
+	return `${name}: ${sentence}${answer || status ? ` (${status}${answer})` : ''}`.replace(
+		/\(\s+/g,
+		'(',
+	)
+}
+
+/** Add what is unknown about usage to the details a failure already carries. */
+export function withUnknownUsage(
+	failures: readonly FriendlyFailure[],
+	count = 1,
+): FriendlyFailure[] {
+	if (failures.length === 0) return []
+	const sentence = unknownUsageDetail(count)
+	return failures.map((failure, index) =>
+		index === failures.length - 1
+			? {
+					...failure,
+					details: failure.details ? `${failure.details}\n${sentence}` : sentence,
+				}
+			: failure,
+	)
+}
+
 function withDetails(failure: Omit<FriendlyFailure, 'details'>, raw: string): FriendlyFailure {
-	const details = sanitizeDetails(raw)
+	const details = sanitizeDetails(plainProviderDetails(raw))
 	return details ? { ...failure, details } : failure
 }
 
@@ -177,32 +224,38 @@ export function describeFailure(raw: string, providerLabel?: string): FriendlyFa
  * and what to do instead.
  */
 export function describeBlockedRetry(notice: string): FriendlyFailure {
-	const details = sanitizeDetails(notice)
-	const withOriginal = (failure: Omit<FriendlyFailure, 'details'>): FriendlyFailure =>
-		details ? { ...failure, details } : failure
 	if (/wait for this conversation.s active turn to settle/i.test(notice))
-		return withOriginal({
+		return {
 			kind: 'busy',
 			text: 'Namzu is still finishing the last reply. Give it a moment.',
 			actions: [],
-		})
-	if (/allowance is exhausted/i.test(notice))
-		return withOriginal({
-			kind: 'cannot-repeat',
-			text: 'This reply used up everything it was allowed, so Namzu can’t repeat it. Start a new conversation to carry on.',
-			actions: ['new-conversation'],
-		})
+		}
 	if (/recorded human decision|recorded decision/i.test(notice))
-		return withOriginal({
+		return {
 			kind: 'busy',
 			text: 'This reply is waiting for a decision before it can go on.',
 			actions: [],
-		})
-	return withOriginal({
+		}
+	// Every other refusal is about usage Namzu cannot account for; the way on is the same.
+	const unknown = /unresolved token usage|actual provider usage receipt/i.test(notice)
+	if (/allowance is exhausted/i.test(notice))
+		return {
+			kind: 'cannot-repeat',
+			text: 'This reply used up everything it was allowed, so Namzu can’t repeat it. Continue without this reply to put your message back in the message box and keep working here.',
+			actions: ['continue'],
+		}
+	if (unknown)
+		return {
+			kind: 'cannot-repeat',
+			text: 'Namzu can’t repeat this reply, because this conversation has a limit and it can’t tell how much the provider counted before it stopped. Continue without this reply to put your message back in the message box and keep working here.',
+			actions: ['continue'],
+			details: UNKNOWN_USAGE_DETAIL,
+		}
+	return {
 		kind: 'cannot-repeat',
-		text: 'Namzu can’t safely repeat this reply, because it can’t tell how much the provider counted before it stopped. Your message is saved above. Start a new conversation to try again.',
-		actions: ['new-conversation'],
-	})
+		text: 'Namzu can’t safely repeat this reply. Continue without this reply to put your message back in the message box and keep working here.',
+		actions: ['continue'],
+	}
 }
 
 /** Seconds left in a provider's requested wait, rounded up so it never reads 0 while time remains. */

@@ -121,6 +121,7 @@ import {
 	describeFailure,
 	lostConnectionText,
 	providerName,
+	withUnknownUsage,
 } from './friendly-errors.js'
 import { type EngineSurface, type EngineSurfaceControl, engineLabel } from './harness-picker.js'
 import {
@@ -795,6 +796,8 @@ export function App({
 	const [jobsError, setJobsError] = useState('')
 	const [jobsLoading, setJobsLoading] = useState(false)
 	const [error, setError] = useState('')
+	// The conversation whose "Continue without this reply" failed, so the card also offers a copy.
+	const [continueFailed, setContinueFailed] = useState<string>('')
 	const [sending, setSending] = useState<Record<string, boolean>>({})
 	const sendingRef = useRef(new Set<string>())
 	const input = useRef<HTMLTextAreaElement>(null)
@@ -4291,10 +4294,61 @@ export function App({
 	const failedProviderLabel = activeProviders.available.find(
 		(item) => item.id === choice.provider,
 	)?.label
-	const replyFailures = [
+	// "Continue without this reply" failed: the conversation itself cannot take the message back,
+	// so the same words offer to carry it to a new conversation instead.
+	const baseFailures = [
 		...(thread.error ? [describeFailure(thread.error, failedProviderLabel)] : []),
 		...(thread.retryNotice ? [describeBlockedRetry(thread.retryNotice)] : []),
 	]
+	const replyFailures = (
+		thread.retry && thread.retryUnknownUsage
+			? withUnknownUsage(baseFailures, thread.retryUnknownUsage)
+			: baseFailures
+	).map((failure) =>
+		continueFailed === sessionId && failure.actions.includes('continue')
+			? { ...failure, actions: [...failure.actions, 'copy-to-new' as const] }
+			: failure,
+	)
+	const putMessageBack = (text: string) => {
+		draftsRef.current[sessionId] = text
+		setDrafts((all) => ({ ...all, [sessionId]: text }))
+		requestAnimationFrame(() => input.current?.focus())
+	}
+	const continueWithoutReply = async () => {
+		const from = sessionId
+		if (!api.continueWithoutReply || !from) return
+		try {
+			const restored = await api.continueWithoutReply(from)
+			setContinueFailed('')
+			if (activeSession.current === from) putMessageBack(restored.text)
+			await attached.reload(from)
+		} catch (failure) {
+			setContinueFailed(from)
+			throw failure
+		}
+	}
+	const copyMessageToNewConversation = async () => {
+		const from = sessionId
+		if (!api.reopenLastMessage || !from || !project) return
+		const restored = await api.reopenLastMessage(from)
+		const view = await api.newConversation(project.id)
+		setConversations((all) => [view, ...all.filter((item) => item.id !== view.id)])
+		setThreads((all) => ({ ...all, [view.id]: emptyThread() }))
+		setOpenTabIds((all) => (all.includes(view.id) ? all : [...all, view.id]))
+		draftsRef.current[view.id] = restored.text
+		setDrafts((all) => ({ ...all, [view.id]: restored.text }))
+		await api.saveDraft(view.id, restored.text)
+		if (restored.attachments.length > 0) {
+			await api.moveAttachments(from, view.id)
+			await attached.reload(view.id)
+		}
+		await api.saveDraft(from, '')
+		draftsRef.current[from] = ''
+		setDrafts((all) => ({ ...all, [from]: '' }))
+		setContinueFailed('')
+		setSessionId(view.id)
+		requestAnimationFrame(() => input.current?.focus())
+	}
 	const send = async (delivery: 'current' | 'queue' = 'current') => {
 		if (context.current.frozen) return
 		if (cliSurface) {
@@ -4305,7 +4359,7 @@ export function App({
 			throw new Error(
 				thread.retryNotice
 					? describeBlockedRetry(thread.retryNotice).text
-					: 'The last reply stopped early. Choose Try again, or start a new conversation. Your message is kept.',
+					: 'The last reply stopped early. Choose Try again, or Continue without this reply. Your message is kept.',
 			)
 		if (
 			loading ||
@@ -6031,6 +6085,8 @@ export function App({
 										failures={replyFailures}
 										onAction={(action) => {
 											if (action === 'settings') openSettings('models', 'models')
+											else if (action === 'continue') void act(continueWithoutReply)
+											else if (action === 'copy-to-new') void act(copyMessageToNewConversation)
 											else void act(newConversation)
 										}}
 										disabled={

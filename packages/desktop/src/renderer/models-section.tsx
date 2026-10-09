@@ -2,6 +2,7 @@ import { LoaderCircle } from 'lucide-react'
 import { useId, useRef, useState } from 'react'
 import type { ProviderConnectionView } from '../shared/protocol.js'
 import {
+	ZEN_KEY_URL,
 	connectedCount,
 	connectionStatus,
 	keyProblem,
@@ -148,6 +149,19 @@ function ProviderRow({
 							{row.hasSavedKey ? 'Replace key' : 'Add key'}
 						</Button>
 					)}
+					{row.state === 'free' &&
+						!editing &&
+						typeof window !== 'undefined' &&
+						window.namzu?.openExternal && (
+							<Button
+								size="sm"
+								variant="outline"
+								aria-label={`Open the page where you get a free key for ${row.label}`}
+								onClick={() => void window.namzu?.openExternal?.(ZEN_KEY_URL).catch(() => {})}
+							>
+								Get a free key
+							</Button>
+						)}
 					{row.hasSavedKey && !editing && (
 						<Button
 							size="sm"
