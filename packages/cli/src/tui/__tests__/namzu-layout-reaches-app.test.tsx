@@ -224,7 +224,7 @@ function expectIdleLayout(screen: Screen): void {
 	expect.soft(output).not.toContain('fixture-provider')
 	expect.soft(output).not.toContain('Type a message to begin')
 	expect.soft(output.match(/█▄ █ ▄▀█ █▀▄▀█ ▀█ █ █|∴ namzu/g)).toHaveLength(1)
-	expect.soft(output.match(/Cogitave v0\.0\.0-test/g)).toHaveLength(1)
+	expect.soft(output.match(/Namzu v0\.0\.0-test · by Cogitave/g)).toHaveLength(1)
 	expect.soft(viewport).toContain('/help')
 	expect.soft(screen.bufferType()).toBe('normal')
 }

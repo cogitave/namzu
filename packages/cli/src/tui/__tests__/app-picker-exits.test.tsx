@@ -1298,7 +1298,7 @@ describe('cancelling the picker opened by /model', () => {
 		expect(create).toHaveBeenCalledTimes(2)
 
 		const painted = screen.scrollback().join('\n')
-		expect(painted.match(/Cogitave v0\.0\.0-test/g)).toHaveLength(1)
+		expect(painted.match(/Namzu v0\.0\.0-test · by Cogitave/g)).toHaveLength(1)
 		expect(painted.match(/Connected to catalog-provider/g)).toHaveLength(1)
 	})
 

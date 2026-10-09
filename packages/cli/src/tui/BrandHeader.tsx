@@ -19,7 +19,13 @@ interface BrandHeaderProps {
 export function BrandHeader({ version, permissionMode }: BrandHeaderProps) {
 	const { columns, rows } = useWindowSize()
 	const wordmark = columns >= NAMZU_WORDMARK_MIN_WIDTH && rows >= 20 ? NAMZU_WORDMARK : NAMZU_COMPACT_WORDMARK
-	const attribution = `${columns >= 40 ? 'Cogitave ' : ''}v${terminalDisplayText(version)}`
+	const shownVersion = `v${terminalDisplayText(version)}`
+	const attribution =
+		columns >= 52
+			? `Namzu ${shownVersion} · by Cogitave`
+			: columns >= 30
+				? `Namzu ${shownVersion}`
+				: shownVersion
 	return (
 		<Box flexDirection="column" marginY={1}>
 			<Box flexDirection="row" alignItems="flex-end">

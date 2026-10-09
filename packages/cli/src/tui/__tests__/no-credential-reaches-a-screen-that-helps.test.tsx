@@ -377,7 +377,7 @@ describe('launching with a saved provider and no credential', () => {
 	})
 	it('keeps one Static owner through startup, credential entry, and session exit', async () => {
 		const screen = await launch()
-		const banner = 'Cogitave v0.0.0-test'
+		const banner = 'Namzu v0.0.0-test · by Cogitave'
 		try {
 			expect(staticLifecycle).toEqual({ mounts: 1, unmounts: 0 })
 			expect(text(screen)).toContain('No credential found')

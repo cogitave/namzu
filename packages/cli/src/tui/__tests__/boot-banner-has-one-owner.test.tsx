@@ -119,13 +119,13 @@ it('keeps one banner through readiness and the full subscription login frame', a
 	mounted = screen
 
 	await screen.waitForRender()
-	expect(painted(screen)).not.toContain('Cogitave v0.0.0-test')
+	expect(painted(screen)).not.toContain('Namzu v0.0.0-test · by Cogitave')
 
 	boot.release()
 	await waitUntil(screen, () => painted(screen).includes('gpt-test'))
 
 	const output = painted(screen)
-	expect(output.match(/Cogitave v0\.0\.0-test/g)).toHaveLength(1)
+	expect(output.match(/Namzu v0\.0\.0-test · by Cogitave/g)).toHaveLength(1)
 	expect(output).not.toContain('● idle')
 	expect(output).not.toContain('Esc×2 edit previous')
 	expect(output).not.toContain('Ctrl+C ×2 to exit')
@@ -144,5 +144,5 @@ it('keeps one banner through readiness and the full subscription login frame', a
 
 	const loginOutput = painted(screen)
 	expect(loginOutput).toContain('/oauth/authorize')
-	expect(loginOutput.match(/Cogitave v0\.0\.0-test/g)).toHaveLength(1)
+	expect(loginOutput.match(/Namzu v0\.0\.0-test · by Cogitave/g)).toHaveLength(1)
 })
