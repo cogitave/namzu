@@ -254,3 +254,23 @@ it('tells the person where an approved message goes, when it is read and how the
 	expect(note).toContain('namzu pal dispatch')
 	expect(palMessageNote(undefined)).toContain('The Pal reads it the next time it runs')
 })
+
+it('says there is no change when the file already holds what the call writes', () => {
+	const same = buildApprovalCard(
+		request([
+			call(
+				'write',
+				{ path: 'hello.txt' },
+				{ isDestructive: true, preview: { path: '/w/hello.txt', before: 'hi\n', after: 'hi\n' } },
+			),
+		]),
+	)
+	expect(same.unchanged).toBe(true)
+	expect(previewNote(same)).toBe('No change to hello.txt. It already holds this.')
+	const created = buildApprovalCard(
+		request([
+			call('write', { path: 'n.txt' }, { preview: { path: '/w/n.txt', before: null, after: '' } }),
+		]),
+	)
+	expect(created.unchanged).toBeUndefined()
+})

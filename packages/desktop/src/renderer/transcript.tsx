@@ -491,10 +491,11 @@ function TurnActivity({
 				{stage && <StageLine stage={stage} animate={animate} />}
 			</Collapsible>
 			{redirectNotes(thread, entries).map((note) => (
-				<p key={note.id} className="redirect-note">
-					<span className="redirect-note-lead">You asked Namzu to do this instead:</span>{' '}
-					{note.text}
-				</p>
+				// What the person typed when they declined, so it is drawn as their own message.
+				<Message key={note.id} from="user" className="message user redirect-note">
+					<span className="redirect-note-lead">You asked Namzu to do this instead:</span>
+					<MessageContent text={note.text} />
+				</Message>
 			))}
 		</>
 	)
@@ -876,7 +877,7 @@ export function Transcript({
 				group.segments.some((segment) => hasPublicActivity(segment.activity, thread)),
 		)
 	// The stage line under the clock names the state once there is work to show.
-	const visuallyHidden = hasLiveActivity
+	const visuallyHidden = hasLiveActivity || threadPhase(thread) === 'waiting'
 	const [now, setNow] = useState(Date.now)
 	const start = thread.turns[thread.turn]?.startedAt
 	useEffect(() => {

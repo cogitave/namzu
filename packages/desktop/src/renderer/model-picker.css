@@ -45,6 +45,10 @@
 	border-radius: 16px;
 	background: var(--popover);
 }
+/* The body scrolls itself; a second scrollbar on the popup's frame would widen it by its own width. */
+.model-picker-popup [data-slot="popover-viewport"] {
+	overflow: clip !important;
+}
 .model-picker-resize {
 	overflow: hidden;
 	transition: height 150ms var(--motion-ease), width 150ms var(--motion-ease);

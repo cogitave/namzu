@@ -740,7 +740,7 @@ export function Composer({
 														<Button
 															variant="ghost-muted"
 															size="xs"
-															aria-label="Queue for next turn"
+															aria-label="Queue message for next turn"
 															disabled={
 																sending ||
 																draftDisabled ||
@@ -751,7 +751,7 @@ export function Composer({
 														/>
 													}
 												>
-													Queue
+													Queue message
 												</TooltipTrigger>
 												<TooltipPopup>
 													Hold this message and send it when the current reply is done
@@ -766,11 +766,8 @@ export function Composer({
 													render={
 														<button
 															type="button"
-															className={
-																waitingOnPerson
-																	? 'flex size-8 cursor-pointer items-center justify-center rounded-full border border-border bg-secondary text-foreground transition-all duration-150 hover:bg-accent hover:scale-105'
-																	: 'flex size-8 cursor-pointer items-center justify-center rounded-full bg-destructive/90 text-white shadow-xs shadow-destructive/24 inset-shadow-2xs inset-shadow-white/16 transition-all duration-150 hover:bg-destructive hover:scale-105 active:inset-shadow-black/8 active:shadow-none'
-															}
+															// One look whether the turn is running or waiting for a decision.
+															className="flex size-8 cursor-pointer items-center justify-center rounded-full bg-destructive/90 text-white shadow-xs shadow-destructive/24 inset-shadow-2xs inset-shadow-white/16 transition-all duration-150 hover:bg-destructive hover:scale-105 active:inset-shadow-black/8 active:shadow-none"
 															aria-label="Stop turn"
 															disabled={draftDisabled}
 															onClick={onStop}

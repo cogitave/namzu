@@ -243,15 +243,20 @@ export function ComposerApproval({
 	}
 
 	const consequence = approvalConsequence(model, folder)
-	const hasDiff = Boolean(model.diff)
+	const hasDiff = Boolean(model.diff) && !model.unchanged
 	const showDetails = !(model.diff && !model.diff.fragment) || permission.calls.length > 1
-	const showWarning = model.destructive && model.kind !== 'create'
+	const showWarning = model.destructive && model.kind !== 'create' && !model.unchanged
 	return (
-		<ComposerBanner.Dock>
+		// The whole card, border and background, sits above the composer with a gap, not tucked under it.
+		<div className="mx-auto flex w-[calc(100%-2*var(--chat-composer-drawer-inset))] items-end pb-2 pt-3">
 			<ComposerBanner.Column>
 				<ComposerBanner.Attachment>
 					<section aria-label="Tool approval" onKeyDown={onKeyDown}>
-						<ComposerBanner.Root variant="default" density="spacious">
+						{/* The status line the transcript used to draw far above; it belongs next to the card. */}
+						<p className="approval-waiting" aria-hidden="true">
+							Waiting for your decision
+						</p>
+						<ComposerBanner.Root variant="default" density="spacious" placement="floating">
 							<div className="approval-card" data-kind={model.kind}>
 								<header className="approval-head">
 									<ShieldAlertIcon aria-hidden="true" className="approval-head-icon" />
@@ -267,7 +272,7 @@ export function ComposerApproval({
 													role="img"
 													aria-label={`${model.added} ${model.added === 1 ? 'line' : 'lines'} added`}
 												>
-													+{formatLineCount(model.added)}
+													+{formatLineCount(model.added)} {model.added === 1 ? 'line' : 'lines'}
 												</span>
 											) : null}
 											{model.removed ? (
@@ -277,15 +282,19 @@ export function ComposerApproval({
 													role="img"
 													aria-label={`${model.removed} ${model.removed === 1 ? 'line' : 'lines'} removed`}
 												>
-													−{formatLineCount(model.removed)}
+													−{formatLineCount(model.removed)} {model.removed === 1 ? 'line' : 'lines'}
 												</span>
 											) : null}
 										</span>
 									) : null}
 									{count > 1 && <span className="approval-count">1 of {count}</span>}
 								</header>
-								{model.previewMissing && <p className="approval-note">{previewNote(model)}</p>}
-								<DiffBox model={model} wrap={wrap} expanded={expanded} onExpand={setExpanded} />
+								{(model.previewMissing || model.unchanged) && (
+									<p className="approval-note">{previewNote(model)}</p>
+								)}
+								{!model.unchanged && (
+									<DiffBox model={model} wrap={wrap} expanded={expanded} onExpand={setExpanded} />
+								)}
 								{model.command !== undefined && (
 									// biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable region
 									<pre className="approval-command" tabIndex={0} aria-label="Command">
@@ -312,7 +321,7 @@ export function ComposerApproval({
 										))}
 									</dl>
 								)}
-								{consequence && !showWarning && (
+								{consequence && !showWarning && !model.unchanged && (
 									<p className="approval-note approval-consequence">{consequence}</p>
 								)}
 								{model.others.length > 0 && (
@@ -373,11 +382,11 @@ export function ComposerApproval({
 													type="button"
 													className="approval-button approval-icon-button"
 													aria-pressed={wrap}
-													aria-label="Wrap long lines"
-													title="Wrap long lines"
+													title="Wrap long lines so none runs off the edge"
 													onClick={() => setWrap((value) => !value)}
 												>
 													<TextWrapIcon aria-hidden="true" />
+													Wrap lines
 												</button>
 											)}
 											<button
@@ -421,6 +430,6 @@ export function ComposerApproval({
 					</section>
 				</ComposerBanner.Attachment>
 			</ComposerBanner.Column>
-		</ComposerBanner.Dock>
+		</div>
 	)
 }

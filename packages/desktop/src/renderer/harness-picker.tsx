@@ -159,6 +159,8 @@ export function EngineChip({
 			onClick={onClick}
 		>
 			<HarnessMark engine={engine} />
+			{/* The Namzu mark is its own name; another engine's logo gets its name beside it. */}
+			{engine !== 'namzu' && <span className="engine-chip-label">{label}</span>}
 			<ChevronDown aria-hidden="true" />
 		</button>
 	)

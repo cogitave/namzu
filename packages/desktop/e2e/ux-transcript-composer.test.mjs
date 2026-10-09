@@ -2,7 +2,7 @@
 // Run: pnpm --filter @namzu/desktop build && xvfb-run -a node --test packages/desktop/e2e/ux-transcript-composer.test.mjs
 // Screenshots land in research/ux-20261009/transcript-composer/ and are looked at, not asserted.
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import {
@@ -47,6 +47,24 @@ const size = (w, width, height) =>
 	);
 const approvalCard = (w) => w.page.getByRole("region", { name: "Tool approval" });
 
+/**
+ * The card's whole surface ends above the composer, and the line that names the state sits right
+ * above the card.
+ */
+async function assertCardClear(w, label) {
+	const m = await w.page.evaluate(() => {
+		const box = (el) => (el ? el.getBoundingClientRect() : null);
+		const card = box(document.querySelector('[aria-label="Tool approval"] [data-slot="composer-banner"]'));
+		const caption = box(document.querySelector(".approval-waiting"));
+		const composer = box(document.querySelector("[data-chat-composer-body]"));
+		return { card, caption, composer };
+	});
+	assert.ok(m.card && m.caption && m.composer, `${label}: card, caption and composer are drawn`);
+	assert.ok(m.card.bottom <= m.composer.top - 2, `${label}: the card ends ${m.card.bottom} but the composer starts at ${m.composer.top}`);
+	assert.ok(m.caption.bottom <= m.card.top + 0.5 && m.card.top - m.caption.bottom <= 16, `${label}: "Waiting for your decision" is ${m.card.top - m.caption.bottom}px above the card`);
+	await expect(w.page.locator(".working:not(.transcript-status-only)")).toHaveCount(0);
+}
+
 const WRITE = {
 	match: /write the file/i,
 	steps: [
@@ -81,6 +99,14 @@ flow(
 			w.page.getByText("You asked Namzu to do this instead:", { exact: false }),
 		).toBeVisible({ timeout: T });
 		await expect(w.page.getByText("call it home.html")).toBeVisible();
+		// It is the person's message: the same right-hand bubble as anything they typed.
+		await expect(
+			w.page.locator('[data-message-role="user"].redirect-note').getByText("call it home.html"),
+		).toBeVisible();
+		// A picture is taken once the status line's own fade has finished.
+		await expect
+			.poll(() => w.page.evaluate(() => document.querySelector(".working")?.getAnimations().length ?? 0), { timeout: T })
+			.toBe(0);
 		await shot(w, "note-in-conversation-1280");
 	},
 );
@@ -104,6 +130,7 @@ flow(
 			approvalCard(w).getByRole("button", { name: "Tell Namzu what to do instead" }),
 		).toBeVisible();
 		await expect(approvalCard(w).getByText("Enter accepts.", { exact: false })).toBeVisible();
+		await assertCardClear(w, "1280x800");
 		await shot(w, "approval-1280");
 		await w.page.keyboard.press("Enter");
 		await expect(w.page.getByText("Wrote out.txt.")).toBeVisible({ timeout: T });
@@ -130,24 +157,29 @@ flow(
 			return box.getBoundingClientRect().top - buttons.getBoundingClientRect().bottom;
 		});
 		assert.ok(gap !== null && gap >= 8, `the buttons end ${gap}px above the message box`);
+		await assertCardClear(w, "900x720");
 		await shot(w, "approval-command-900");
 	},
 );
 
 flow(
-	"stopping while a command waits says it was not run, and the stop button is not alarming",
+	"stopping while a command waits says it was not run, and Stop looks the same as while it runs",
 	{ rules: [REMOVE] },
 	async (w) => {
 		await openProject(w);
 		await send(w, "Please clean the build");
 		await expect(approvalCard(w)).toBeVisible({ timeout: T });
 		const stop = w.page.getByRole("button", { name: "Stop turn" });
-		const colour = await stop.evaluate((node) => getComputedStyle(node).backgroundColor);
-		assert.doesNotMatch(colour, /^rgb\(2[0-9][0-9], ?\d+, ?\d+\)$/, "not red while waiting");
+		// The same red button as while a reply runs: waiting does not turn Stop into another control.
+		await expect(stop).toHaveClass(/bg-destructive/);
 		await stop.click();
 		await expect(
 			w.page.getByText("Stopped. The command waiting for your answer was not run."),
 		).toBeVisible({ timeout: T });
+		// Nothing is waiting any more: the live line is gone, not dimmed, and the sidebar stops spinning.
+		await expect(w.page.locator(".working .working-label")).toBeHidden({ timeout: T });
+		await expect(w.page.locator(".stage-line")).toHaveCount(0);
+		await expect(w.page.getByRole("complementary").locator("[data-running], .animate-spin")).toHaveCount(0);
 		await shot(w, "stopped-while-waiting-1280");
 	},
 );
@@ -158,8 +190,26 @@ flow("the live line says what is happening before the first action", {
 	await openProject(w);
 	await send(w, "slow please");
 	await expect(w.page.getByText("Reading your message")).toBeVisible({ timeout: T });
+	// Once its entrance has finished the line is drawn whole: no inline clip, and nothing of the
+	// text below the box it is drawn in.
+	await expect
+		.poll(
+			() =>
+				w.page.evaluate(() => {
+					const line = document.querySelector(".working");
+					if (!line || line.getAnimations().length) return "animating";
+					const label = line.querySelector(".working-label");
+					const a = line.getBoundingClientRect();
+					const b = label?.getBoundingClientRect();
+					return line.style.overflow === "hidden" || !b || b.bottom > a.bottom + 0.5 || label.scrollHeight > label.clientHeight + 1
+						? "clipped"
+						: "whole";
+				}),
+			{ timeout: T },
+		)
+		.toBe("whole");
 	await w.page.getByRole("textbox", { name: "Message Namzu" }).fill("and then this");
-	await w.page.getByRole("button", { name: "Queue for next turn" }).hover();
+	await w.page.getByRole("button", { name: "Queue message for next turn" }).hover();
 	await expect(
 		w.page.getByText("Hold this message and send it when the current reply is done"),
 	).toBeVisible({ timeout: T });
@@ -290,5 +340,54 @@ flow(
 			timeout: T,
 		});
 		await shot(w, "stopped-because-closed-1280");
+	},
+);
+
+flow(
+	"a write that leaves the file as it is says so, instead of saying it cannot show the file",
+	{
+		rules: [
+			{
+				match: /rewrite hello/i,
+				steps: [
+					{ tool: "write", args: { path: "hello.txt", content: "hello from the scripted model" } },
+					{ text: "Done." },
+				],
+			},
+		],
+	},
+	async (w) => {
+		await openProject(w);
+		writeFileSync(join(w.project, "hello.txt"), "hello from the scripted model");
+		await send(w, "Please rewrite hello");
+		await expect(approvalCard(w)).toBeVisible({ timeout: T });
+		await expect(approvalCard(w).getByText("No change to hello.txt.", { exact: false })).toBeVisible();
+		await expect(approvalCard(w).getByText("couldn", { exact: false })).toHaveCount(0);
+		await shot(w, "no-change-1280");
+	},
+);
+
+flow(
+	"after a reload the message shows the file as a chip, never the wrapper or the file's text",
+	{
+		rules: [{ match: /Ekimi/, steps: [{ text: "Tamam." }] }],
+		files: { "Sözleşme İmzalı.txt": "gizli ek içerik\n" },
+	},
+	async (w) => {
+		await openProject(w);
+		await w.app.evaluate((_electron, path) => {
+			globalThis.__e2eDialog.open = [path];
+		}, join(w.project, "Sözleşme İmzalı.txt"));
+		await w.page.getByRole("button", { name: /Add attachments|Attachments/ }).first().click();
+		await w.page.getByRole("button", { name: "Attach files" }).click();
+		await send(w, "Ekimi gör");
+		await expect(w.page.getByText("Tamam.")).toBeVisible({ timeout: T });
+		await relaunch(w);
+		const bubble = w.page.locator('[data-message-role="user"]').first();
+		await expect(bubble.getByText("Ekimi gör")).toBeVisible({ timeout: T });
+		await expect(bubble.getByText("Sözleşme İmzalı.txt")).toBeVisible({ timeout: T });
+		await expect(w.page.getByText("Attached text file", { exact: false })).toHaveCount(0);
+		await expect(w.page.getByText("gizli ek içerik", { exact: false })).toHaveCount(0);
+		await shot(w, "attachment-after-reload-1280");
 	},
 );

@@ -20,6 +20,8 @@ export interface ApprovalCardModel {
 	previewMissing: boolean
 	/** The call writes a whole file rather than editing part of one. */
 	write?: boolean
+	/** The file already holds exactly what the call would write. */
+	unchanged?: boolean
 	/** A write to a path that already holds a file. Unknown without a preview. */
 	overwrites?: boolean
 	command?: string
@@ -183,6 +185,7 @@ export function buildApprovalCard(
 				diff,
 				...counts(diff.before, diff.after, path),
 				previewMissing: false,
+				...(!created && diff.before === diff.after ? { unchanged: true } : {}),
 				...(write ? { write, overwrites: !created } : {}),
 				entries: [],
 				destructive,
@@ -283,6 +286,7 @@ export function declineFeedback(note: string): string {
 
 /** Why the card has no "before" to show, and what is shown instead, in plain words. */
 export function previewNote(model: ApprovalCardModel): string {
+	if (model.unchanged) return `No change to ${model.fileName ?? 'the file'}. It already holds this.`
 	if (!model.diff) return 'Namzu couldn’t show a preview of this change.'
 	return model.write
 		? `Namzu couldn’t show what’s in ${model.fileName ?? 'the file'} now. This is what it wants to write.`

@@ -363,15 +363,23 @@
 	}
 }
 
-/* The person's own redirect, kept in the conversation after they decline a change. */
+/* The person's own redirect, kept in the conversation after they decline a change. It is their
+   message, so it keeps the right-hand bubble; the lead says what it is, above the bubble. */
 .normal-transcript .redirect-note {
 	margin: 4px 0 0;
-	padding-left: 4px;
-	font-size: 14px;
-	line-height: 20px;
-	color: var(--foreground);
-	overflow-wrap: anywhere;
 }
 .normal-transcript .redirect-note-lead {
+	font-size: 12px;
+	line-height: 18px;
 	color: var(--muted-foreground);
+}
+/* While a decision is awaited the card above the composer says so; the transcript keeps the words for assistive technology only. */
+.normal-transcript .stage-line[data-stage-source="waiting"] {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0, 0, 0, 0);
+	white-space: nowrap;
 }
