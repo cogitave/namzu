@@ -2,6 +2,7 @@
 
 ## 2026-10-09
 
+- **Update** `packages/desktop/src/main/rpc-client.ts`: the runtime connection joins a message once when its line ends instead of searching the growing buffer on every chunk, so large messages such as images no longer slow the window.
 - **Update** `packages/desktop/scripts/stage-installer.mjs`: staging that downloads Python measures the archive before it deletes the download, so the desktop release workflow's stage step completes.
 - **Update** [Desktop](cli/desktop.md#app-updates): installed builds keep the update feed electron-builder writes. The after-pack hook used to overwrite `resources/app-update.yml` with only the cache folder name, so an installer built from this repo shipped with no provider and never checked for updates; it now keeps the file and sets `updaterCacheDirName` in it.
 - **Update** [Terminal design](cli/terminal-design.md) adds the narrow-pane resize path: on a Windows pseudo-console the TUI asks the console for its size on a 250 ms timer so Ink redraws after a split (the symptom was lines wrapped mid-word and a box drawn at the old width), the footer shortens a Windows path at a backslash and reads the home folder from `USERPROFILE`, and a real-PTY test and a desktop e2e (`narrow-cli-tab.test.mjs`) check the box, corners and model name at each width.
