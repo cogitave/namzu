@@ -93,7 +93,8 @@ const METHOD_NOTES: Record<EngineInstallMethod, string> = {
 	'npm-global': 'Installed with npm',
 	native: 'Installed by its own installer',
 	standalone: 'Standalone install',
-	bundled: 'Bundled with Namzu Desktop, so it updates with the app.',
+	bundled:
+		'Bundled with Namzu Desktop, so it updates with the app. A copy you install yourself is listed here instead.',
 	unknown:
 		'Namzu can’t tell how this was installed, so it won’t run the update. Run this in a terminal:',
 }

@@ -85,6 +85,19 @@ describe('following main’s engine updates', () => {
 		expect(t.sink.openUpdates).toHaveBeenCalledTimes(1)
 	})
 
+	it('puts versions found together in one toast so none hides behind another', async () => {
+		const t = setup([
+			{ id: 'codex-cli', name: 'Codex CLI', version: '0.162.0' },
+			{ id: 'claude-code', name: 'Claude Code', version: '2.1.295' },
+		])
+		t.push(behind)
+		await flush()
+		expect(t.sink.notify).toHaveBeenCalledTimes(1)
+		expect((t.sink.notify.mock.calls[0] as unknown[])[0]).toBe(
+			'Updates available for Codex CLI and Claude Code',
+		)
+	})
+
 	it('toasts nothing when main says another window already announced it', async () => {
 		const t = setup([])
 		t.push(behind)

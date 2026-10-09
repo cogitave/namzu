@@ -25,6 +25,7 @@ import { LinkPreviewCard } from './link-preview-card.js'
 import { markdownBlockSources } from './markdown-blocks.js'
 import { COPY_CODE_PROPERTY, markdownCodeCopy, remarkCodeCopy } from './markdown-code-copy.js'
 import { useThrottledText } from './throttled-text.js'
+import { clockLabel, fullTimeLabel } from './time-format.js'
 import './message-footer.css'
 import {
 	PreviewCard,
@@ -164,16 +165,6 @@ function MarkdownCode({
 }
 
 /** A known clock only; source stays explicit in its full-date tooltip. */
-const messageClock = new Intl.DateTimeFormat(undefined, {
-	hour: '2-digit',
-	minute: '2-digit',
-	second: '2-digit',
-	hour12: false,
-})
-const messageFullTime = new Intl.DateTimeFormat(undefined, {
-	dateStyle: 'medium',
-	timeStyle: 'medium',
-})
 
 function knownMessageTime(time: ChatMessage['time']): boolean {
 	return !!time && Number.isFinite(time.at) && time.at >= 0 && time.at <= 8_640_000_000_000_000
@@ -182,8 +173,8 @@ function knownMessageTime(time: ChatMessage['time']): boolean {
 /** The full time as the clock's tooltip and accessible name say it; undefined when it is unknown. */
 export function timeDescription(time: ChatMessage['time']): string | undefined {
 	if (!time || !knownMessageTime(time)) return undefined
-	const full = messageFullTime.format(new Date(time.at))
-	return `${time.source === 'journal' ? 'Recorded in conversation' : 'Observed by Namzu'}: ${full}`
+	const full = fullTimeLabel(time.at)
+	return `${time.source === 'journal' ? 'Saved in the conversation' : 'Seen by Namzu'}: ${full}`
 }
 
 export function MessageTime({
@@ -193,8 +184,8 @@ export function MessageTime({
 	const [expanded, setExpanded] = useState(false)
 	if (!time || !knownMessageTime(time)) return null
 	const date = new Date(time.at)
-	const label = messageClock.format(date)
-	const full = messageFullTime.format(date)
+	const label = clockLabel(date.getTime())
+	const full = fullTimeLabel(date.getTime())
 	const description = timeDescription(time) ?? full
 	if (focusable)
 		return (

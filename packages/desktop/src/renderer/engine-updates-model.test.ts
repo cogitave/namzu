@@ -50,7 +50,7 @@ const namzu: EngineUpdateItem = {
 	status: 'current',
 	bundled: true,
 	runnable: false,
-	note: 'Bundled with Namzu Desktop, so it updates with the app.',
+	note: 'Bundled with Namzu Desktop, so it updates with the app. A copy you install yourself is listed here instead.',
 }
 const state = (...items: EngineUpdateItem[]): EngineUpdatesState => ({ items, checking: false })
 
@@ -66,6 +66,17 @@ describe('a row of Settings ▸ Updates', () => {
 			command: 'npm install -g @openai/codex@latest',
 			busy: false,
 		})
+	})
+	it('tells a separately installed command line from the one bundled with the app', () => {
+		expect(engineRowView(namzu).title).toBe('Namzu command line')
+		const standalone: EngineUpdateItem = {
+			...namzu,
+			bundled: false,
+			method: 'npm-global',
+			note: 'Installed with npm',
+		}
+		expect(engineRowView(standalone).title).toBe('Namzu command line (installed separately)')
+		expect(engineRowView({ ...standalone, missing: true }).title).toBe('Namzu command line')
 	})
 	it('says Up to date with no button, and adds the restart note after an update', () => {
 		expect(engineRowView(second)).toMatchObject({ status: 'Up to date', versions: '2.1.295' })
@@ -112,7 +123,7 @@ describe('a row of Settings ▸ Updates', () => {
 	it('explains the bundled command line instead of offering an update', () => {
 		expect(engineRowView(namzu)).toMatchObject({
 			status: 'Up to date',
-			note: 'Bundled with Namzu Desktop, so it updates with the app.',
+			note: 'Bundled with Namzu Desktop, so it updates with the app. A copy you install yourself is listed here instead.',
 		})
 	})
 })
@@ -155,6 +166,12 @@ describe('what is behind', () => {
 		expect(engineToastText({ name: 'Codex CLI', version: '0.162.0' })).toBe(
 			'Codex CLI 0.162.0 is available',
 		)
+		expect(
+			engineToastText([
+				{ name: 'Codex CLI', version: '0.162.0' },
+				{ name: 'Claude Code', version: '2.1.295' },
+			]),
+		).toBe('Updates available for Codex CLI and Claude Code')
 	})
 })
 
@@ -186,9 +203,8 @@ describe('the rows in Settings', () => {
 		expect(markup).toContain('Programs Namzu works with')
 		expect(markup).toContain('0.154.0 → 0.162.0')
 		expect(markup).toContain('aria-label="Update Codex CLI"')
-		expect(markup).toContain(
-			'Runs in a new terminal tab: <code>npm install -g @openai/codex@latest</code>',
-		)
+		expect(markup).toContain('The update runs in a terminal tab you can watch.')
+		expect(markup).not.toContain('npm install')
 		expect(markup).toContain('Up to date')
 		expect(markup).toContain('Bundled with Namzu Desktop')
 		expect(markup.match(/aria-label="Update /g)).toHaveLength(1)
@@ -198,6 +214,20 @@ describe('the rows in Settings', () => {
 		expect(markup).toContain('aria-busy="true"')
 		expect(markup).toContain('Updating…')
 		expect(markup).not.toContain('aria-label="Update Codex CLI"')
+	})
+	it('keeps the person in Settings: a running update links to its terminal tab instead of jumping there', () => {
+		const show = vi.fn()
+		const running = { ...codex, status: 'updating' as const, tabId: 'tab-7' }
+		const markup = renderToStaticMarkup(
+			provided(
+				controls(state(running)),
+				createElement(EngineUpdateRows, { target: { groupId: 'g1', onShowOutput: show } }),
+			),
+		)
+		expect(markup).toContain('Show terminal output')
+		expect(markup).toContain('Updating…')
+		// Without a place to show the output there is no link to nowhere.
+		expect(rows(controls(state(running)))).not.toContain('Show terminal output')
 	})
 	it('offers Copy and no Update for an install it does not know', () => {
 		const markup = rows(

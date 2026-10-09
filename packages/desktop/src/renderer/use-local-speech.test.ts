@@ -181,6 +181,31 @@ describe('local speech window controller', () => {
 		reconnect()
 	})
 
+	it('turns the voice on once its download finishes, so Download voice is the only step', async () => {
+		const installed = voiceState(false)
+		const fixture = setup({
+			localSpeechState: vi.fn(async () => voiceState(false)),
+			localSpeechInstall: vi.fn(async () => installed),
+		})
+		await fixture.controller.refresh()
+		await fixture.controller.install()
+		expect(fixture.api.localSpeechConfigure).toHaveBeenCalledWith({ enabled: true })
+		expect(fixture.controller.getSnapshot().state?.settings.enabled).toBe(true)
+		fixture.disconnect()
+	})
+
+	it('does not turn the voice on when the download failed', async () => {
+		const fixture = setup({
+			localSpeechInstall: vi.fn(async () => {
+				throw new Error('Offline')
+			}),
+		})
+		await fixture.controller.refresh()
+		await fixture.controller.install()
+		expect(fixture.api.localSpeechConfigure).not.toHaveBeenCalled()
+		fixture.disconnect()
+	})
+
 	it('allows only fixed preview while voice is disabled, with no conversation text sent', async () => {
 		const fixture = setup({ localSpeechState: vi.fn(async () => voiceState(false)) })
 		await fixture.controller.refresh()

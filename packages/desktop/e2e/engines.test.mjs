@@ -337,14 +337,17 @@ updateFlow(
 		await shot(w, "updates-registry-down");
 		// The registry answers; the person asks to check.
 		w.registry.status = 200;
-		await w.page.getByRole("button", { name: "Check for updates" }).click();
+		await w.page.getByRole("button", { name: /^Check (for updates|the programs)$/ }).click();
 		await expect(railBadge(w)).toHaveAccessibleName(
 			"Updates available. Open Settings to update Codex CLI and Claude Code",
 			{ timeout: T },
 		);
 		// The launch toast names each new version once, with an action that opens Settings ▸ Updates.
-		await expect(w.page.getByText("Codex CLI 0.162.0 is available")).toBeVisible({ timeout: T });
-		await expect(w.page.getByText("Claude Code 2.1.295 is available")).toBeVisible();
+		// Both found at once: one toast names both, so neither hides behind the other.
+		await expect(w.page.getByText("Updates available for Codex CLI and Claude Code")).toBeVisible({
+			timeout: T,
+		});
+		await expect(w.page.getByText("Codex CLI 0.162.0 is available")).toHaveCount(0);
 		await shot(w, "updates-badge-and-toast");
 		await expect(row(w, "codex-cli")).toContainText("0.154.0 → 0.162.0");
 		await expect(row(w, "codex-cli")).toContainText("Installed with npm");
@@ -376,7 +379,9 @@ updateFlow(
 		);
 		// A click runs the command in a visible terminal tab.
 		await row(w, "codex-cli").getByRole("button", { name: "Update Codex CLI" }).click();
-		await expect(termTabs(w)).toHaveCount(1, { timeout: T });
+		// The person stays in Settings; the terminal tab is one click away.
+		await expect(w.page.getByRole("navigation", { name: "Settings sections" })).toBeVisible();
+		await showUpdateOutput(w);
 		await expect(termTabs(w).first()).toContainText("Updating Codex CLI");
 		await expect.poll(() => termScreen(w), { timeout: T }).toContain("--registry=");
 		await expect.poll(() => termScreen(w), { timeout: T }).toContain("@openai/codex@latest");
@@ -421,10 +426,17 @@ updateFlow(
 	},
 );
 
+/** An update runs in a terminal tab behind Settings; open the newest tab to read its output. */
+async function showUpdateOutput(w) {
+	await expect(termTabs(w).first()).toBeAttached({ timeout: T });
+	await w.page.getByRole("button", { name: "Home", exact: true }).click();
+	await termTabs(w).last().getByRole("tab").click();
+}
+
 /** The check the person asks for, once the registry is up. Returns when the rows have read the registry. */
 async function checkNow(w) {
 	await openUpdates(w);
-	await w.page.getByRole("button", { name: "Check for updates" }).click();
+	await w.page.getByRole("button", { name: /^Check (for updates|the programs)$/ }).click();
 	await expect(railBadge(w)).toBeVisible({ timeout: T });
 }
 
@@ -472,6 +484,7 @@ updateFlow(
 		writeFileSync(join(w.control, "npm-fail"), "");
 		await openUpdates(w);
 		await row(w, "codex-cli").getByRole("button", { name: "Update Codex CLI" }).click();
+		await showUpdateOutput(w);
 		await expect.poll(() => termScreen(w), { timeout: T }).toContain("npm error code EBUSY");
 		await expect(w.page.getByText("Codex CLI update failed. The terminal tab shows why.", { exact: true }).first()).toBeVisible({ timeout: T });
 		// The tab stays, so the output can be read.
@@ -483,6 +496,7 @@ updateFlow(
 		assert.equal(installedCodex(w), "0.154.0");
 		rmSync(join(w.control, "npm-fail"));
 		await row(w, "codex-cli").getByRole("button", { name: "Try again Codex CLI" }).click();
+		await showUpdateOutput(w);
 		await expect.poll(() => termScreen(w), { timeout: T }).toContain("added 1 package");
 		await expect(w.page.getByText("Codex CLI updated to 0.162.0")).toBeVisible({ timeout: T });
 		assert.equal(installedCodex(w), "0.162.0");
@@ -499,8 +513,9 @@ updateFlow(
 		await enableTerminalScreens(w);
 		await checkNow(w);
 		await openUpdates(w);
-		await expect(row(w, "claude-code")).toContainText("Runs in a new terminal tab: claude update");
+		await expect(row(w, "claude-code")).toContainText("The update runs in a terminal tab you can watch.");
 		await row(w, "claude-code").getByRole("button", { name: "Update Claude Code" }).click();
+		await showUpdateOutput(w);
 		await expect(termTabs(w).first()).toContainText("Updating Claude Code");
 		await expect.poll(() => termScreen(w), { timeout: T }).toContain("Successfully updated from 2.1.290 to 2.1.295");
 		await expect(w.page.getByText("Claude Code updated to 2.1.295")).toBeVisible({ timeout: T });
@@ -520,7 +535,7 @@ updateFlow(
 		await checkNow(w);
 		await openUpdates(w);
 		const second = row(w, "claude-code");
-		await expect(w.page.getByRole("button", { name: "Check for updates" })).toBeVisible({ timeout: T });
+		await expect(w.page.getByRole("button", { name: /^Check (for updates|the programs)$/ })).toBeVisible({ timeout: T });
 		await expect(second).toContainText("2.1.290 → 2.1.295");
 		await expect(second).toContainText("Namzu can’t tell how this was installed, so it won’t run the update.");
 		await expect(second).toContainText("Run: claude update");

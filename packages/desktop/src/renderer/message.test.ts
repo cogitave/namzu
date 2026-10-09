@@ -178,7 +178,7 @@ describe('message presentation', () => {
 			createElement(MessageTime, { time: { at: 1_700_000_000_000, source: 'journal' } }),
 		)
 		expect(saved).toContain('dateTime="2023-11-14T22:13:20.000Z"')
-		expect(saved).toContain('Recorded in conversation')
+		expect(saved).toContain('Saved in the conversation')
 		const focusable = renderToStaticMarkup(
 			createElement(MessageTime, {
 				time: { at: 1_700_000_000_000, source: 'journal' },

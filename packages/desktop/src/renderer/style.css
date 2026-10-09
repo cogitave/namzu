@@ -24,6 +24,13 @@ select,
 summary {
 	-webkit-app-region: no-drag;
 }
+/* A heading that wraps splits into even lines instead of leaving one orphan word on the last. */
+h1,
+h2,
+h3,
+h4 {
+	text-wrap: balance;
+}
 pre,
 code {
 	font-family: var(--font-mono);
@@ -583,6 +590,10 @@ pre {
 	translate: -50% 0;
 	animation: content-arrive 120ms ease-out;
 }
+.transcript-latest {
+	/* Opaque enough that the line of text behind it does not read through the arrow. */
+	background: color-mix(in srgb, var(--background) 94%, transparent);
+}
 @media (prefers-reduced-motion: reduce) {
 	.transcript-latest {
 		animation: none;
@@ -1133,9 +1144,11 @@ pre {
 	.workspace.jobs-open > :is(.topbar, .connection-error, .welcome, .chat-stage) {
 		width: 100%;
 	}
+	/* Beside the chat a panel this wide would leave a sliver of clipped transcript: it takes the pane instead. */
 	.jobs-panel {
-		width: min(560px, 100%);
-		box-shadow: -20px 0 60px rgb(0 0 0 / 25%);
+		width: 100%;
+		box-shadow: none;
+		z-index: 30;
 	}
 }
 @media (max-width: 767px) {

@@ -364,11 +364,11 @@ describe('rendered activity', () => {
 		const html = render(finish(thread))
 		expect(html).toContain('Ran 6 commands, 1 failed')
 		expect(html).toContain('Command failed')
-		expect(html).toContain('aria-description="false. Observed by Namzu')
+		expect(html).toContain('aria-description="false. Seen by Namzu')
 	})
 	it('gives a path row its full path as a description', () => {
 		const html = render(work(), { onOpenChangedFile: () => {}, projectRoot: '/work/proj' })
-		expect(html).toContain('aria-description="/p/new.txt. Observed by Namzu')
+		expect(html).toContain('aria-description="/p/new.txt. Seen by Namzu')
 	})
 	it('opens saved history closed', () => {
 		expect(render(work())).toContain('aria-expanded="false"')

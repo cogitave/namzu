@@ -4,8 +4,10 @@ import { SETTINGS_SECTIONS } from '../shared/settings-protocol.js'
 import {
 	SETTINGS_ENTRIES,
 	SETTINGS_SECTION_TITLES,
+	aboutDetailsText,
 	lastCheckedText,
 	parseSettingsRoute,
+	platformText,
 	projectRemovalCopy,
 	projectTrustText,
 	removalNotice,
@@ -47,6 +49,17 @@ describe('search', () => {
 		expect(searchSettings('  THEME!! ').map((e) => e.id)).toEqual(['theme'])
 	})
 
+	it('finds a Turkish word typed with a capital İ or a dotless ı, and a lone İ is not a word', () => {
+		expect(searchSettings('TERMİNAL').map((e) => e.id)).toContain('terminal-shell')
+		expect(searchSettings('termınal').map((e) => e.id)).toContain('terminal-shell')
+		expect(searchSettings('THEMİ')).toEqual([])
+		const entries = [
+			{ id: 'a', section: 'general', label: 'Işık ve ŞEKİL', description: 'x' },
+		] as const
+		expect(searchSettings('isik sekil', entries).map((e) => e.id)).toEqual(['a'])
+		expect(searchSettings('ŞEKİL', entries).map((e) => e.id)).toEqual(['a'])
+	})
+
 	it('has a unique id for every entry and a real section for each', () => {
 		const ids = SETTINGS_ENTRIES.map((e) => e.id)
 		expect(new Set(ids).size).toBe(ids.length)
@@ -54,6 +67,25 @@ describe('search', () => {
 			expect(SETTINGS_SECTION_TITLES[entry.section]).toBeTruthy()
 		for (const section of SETTINGS_SECTIONS)
 			expect(SETTINGS_ENTRIES.some((e) => e.section === section)).toBe(true)
+	})
+})
+
+describe('about', () => {
+	it('says the system in words and copies versions, not paths', () => {
+		expect(platformText('win32 x64')).toBe('Windows (64-bit Intel or AMD)')
+		expect(platformText('darwin arm64')).toBe('macOS (ARM)')
+		expect(platformText('linux x64')).toBe('Linux (64-bit Intel or AMD)')
+		expect(platformText('')).toBe('Unknown')
+		expect(
+			aboutDetailsText({ version: '0.1.0', cliVersion: '35.0.0', platform: 'linux x64' }),
+		).toBe(
+			[
+				'Namzu Desktop 0.1.0',
+				'Namzu command line 35.0.0',
+				'Namzu engine (SDK) not found',
+				'Linux (64-bit Intel or AMD)',
+			].join('\n'),
+		)
 	})
 })
 

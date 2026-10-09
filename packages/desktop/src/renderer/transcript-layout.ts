@@ -1,5 +1,6 @@
 import type { ThreadState, TimelineEntry } from '../shared/projection.js'
 import type { ChatMessage } from '../shared/protocol.js'
+import { daySeparatorLabel } from './time-format.js'
 import type { ActionKind, ToolTranscriptState } from './tool-transcript-presentation.js'
 
 export interface TranscriptSegment {
@@ -346,13 +347,7 @@ function sameLocalDay(a: number, b: number): boolean {
 }
 
 export function dateSeparatorLabel(at: number, locale?: string | string[]): string {
-	return new Intl.DateTimeFormat(locale, {
-		weekday: 'short',
-		day: 'numeric',
-		month: 'short',
-		hour: '2-digit',
-		minute: '2-digit',
-	}).format(new Date(at))
+	return daySeparatorLabel(at, locale)
 }
 
 /**
