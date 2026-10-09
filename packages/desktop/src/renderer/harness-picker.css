@@ -183,3 +183,21 @@
 	align-items: center;
 	gap: 6px;
 }
+
+/* A small dot on the engine mark, and a quiet line in the engine view, for a program that is behind. */
+.engine-chip[data-update="available"] {
+	position: relative;
+}
+.engine-chip[data-update="available"]::after {
+	content: "";
+	position: absolute;
+	top: 3px;
+	right: 2px;
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: var(--primary);
+}
+.harness-picker-name .harness-picker-update {
+	color: var(--foreground);
+}

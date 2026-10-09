@@ -43,9 +43,21 @@ const realFs: ModelListFs = {
  * provider status exposes only an id and a label (its `defaultModel` echoes the current
  * choice, so it is left out); session ids are never part of it.
  */
-export function modelListKey(input: { engine: string; id: string; label: string }): string {
+export function modelListKey(input: {
+	engine: string
+	id: string
+	label: string
+	/** The engine build behind the row. A new build is a new key, so an upgrade drops the old list. */
+	identity?: string
+}): string {
 	const fingerprint = createHash('sha256')
-		.update(JSON.stringify([input.engine, input.id, input.label]))
+		.update(
+			JSON.stringify(
+				input.identity === undefined
+					? [input.engine, input.id, input.label]
+					: [input.engine, input.id, input.label, input.identity],
+			),
+		)
 		.digest('hex')
 		.slice(0, 16)
 	return `${input.engine}/${input.id}/${fingerprint}`
@@ -193,6 +205,19 @@ export class ModelListStore {
 		let removed = false
 		for (const key of [...entries.keys()])
 			if (key.startsWith(`${engine}/`) && !keep.has(key)) {
+				entries.delete(key)
+				removed = true
+			}
+		if (removed) this.persist(entries)
+		return removed
+	}
+
+	/** Drops every list of this engine, whatever build it came from: the engine itself changed. */
+	forgetEngine(engine: string): boolean {
+		const entries = this.load()
+		let removed = false
+		for (const key of [...entries.keys()])
+			if (key.startsWith(`${engine}/`)) {
 				entries.delete(key)
 				removed = true
 			}

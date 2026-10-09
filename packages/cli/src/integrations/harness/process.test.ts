@@ -27,6 +27,31 @@ describe('native harness JSON transport', () => {
 		expect(await child.close()).toEqual({ stopped: true })
 		await expect(child.write({ late: true })).rejects.toThrow('closed')
 	})
+	it('tells the caller when the operating system has created the process', async () => {
+		let spawned = 0
+		let receive!: () => void
+		const received = new Promise<void>((resolve) => {
+			receive = resolve
+		})
+		const child = startHarnessProcess(
+			{
+				executable: process.execPath,
+				args: ['-e', `process.stdout.write('{"n":1}\\n'); process.stdin.resume()`],
+			},
+			{
+				cwd: process.cwd(),
+				onSpawn: () => {
+					spawned++
+				},
+				onFrame: receive,
+				onClosed: () => undefined,
+			},
+		)
+		await received
+		// A frame can only arrive from a process that exists, so the spawn was reported first.
+		expect(spawned).toBe(1)
+		await child.close()
+	})
 	it('serializes async frame sinks and drains them before publishing closure', async () => {
 		let first!: () => void
 		let release!: () => void

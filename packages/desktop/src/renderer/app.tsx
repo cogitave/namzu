@@ -183,6 +183,7 @@ import { undoNotice } from './undo-model.js'
 import { useAttachments } from './use-attachments.js'
 import { useDesktopInfo, useDesktopSettings, useUpdateInfo } from './use-desktop-settings.js'
 import { useDraftSettings } from './use-draft-settings.js'
+import { useEngineUpdates } from './use-engine-updates.js'
 import { useLocalSpeech } from './use-local-speech.js'
 import { useTranscriptScroll } from './use-transcript-scroll.js'
 import { useUndoKept } from './use-undo-kept.js'
@@ -483,6 +484,8 @@ export function App({
 		view: HarnessView
 	}>()
 	const [harnessBusy, setHarnessBusy] = useState(false)
+	// The engine whose process the pending choice is starting; the trigger says so while it waits.
+	const [startingEngine, setStartingEngine] = useState<HarnessView['selected']>()
 	const harnessChoicePending = useRef(false)
 	// A pane that is not a tab (a landing or a draft) while an engine choice settles on it: tab
 	// restore must not take the pane away to open another tab or clear it.
@@ -2094,6 +2097,7 @@ export function App({
 		let applied = false
 		harnessChoicePending.current = true
 		setHarnessBusy(true)
+		setStartingEngine(engine)
 		try {
 			const create = !target || harnessView?.locked || thread.messages.length > 0
 			if (create) {
@@ -2160,6 +2164,7 @@ export function App({
 		} finally {
 			harnessChoicePending.current = false
 			setHarnessBusy(false)
+			setStartingEngine(undefined)
 			if (finishMutation) {
 				// A user may return to this owner while its choice ACK is pending.
 				// Retire visible metadata before waking that activation, regardless
@@ -3864,6 +3869,15 @@ export function App({
 	}
 	const openSettingsRef = useRef(openSettings)
 	openSettingsRef.current = openSettings
+	// A toast about a program that is behind opens Settings ▸ Updates in the pane that was focused last.
+	const engineUpdates = useEngineUpdates()
+	useEffect(
+		() =>
+			focused
+				? engineUpdates?.registerOpenUpdates(() => openSettingsRef.current('updates'))
+				: undefined,
+		[focused, engineUpdates?.registerOpenUpdates],
+	)
 	const changeDraft = (target: string, value: string) => {
 		if (editingQueue.current.has(target)) return
 		draftEditRevisions.current.set(target, (draftEditRevisions.current.get(target) ?? 0) + 1)
@@ -4615,6 +4629,7 @@ export function App({
 							onSpaces={showSpaces}
 							onSettings={() => openSettings()}
 							update={update}
+							onOpenUpdates={() => openSettings('updates')}
 							onOpenProject={() => void act(openProject)}
 							onCreateProject={() => void act(createProject)}
 							openProjectDisabled={loading}
@@ -4956,6 +4971,11 @@ export function App({
 							setSettingsFocus(focusId)
 						}}
 						focusId={settingsFocus}
+						engineTarget={{
+							groupId: group.id,
+							...(projectId ? { projectId } : {}),
+							onStarted: () => setRailSection(null),
+						}}
 						settings={desktopSettings}
 						appearance={appearance}
 						onAppearanceChange={setAppearance}
@@ -5394,6 +5414,8 @@ export function App({
 								catalogueReady={
 									project.status === 'ready' && providerReady && project.trusted && !harnessBusy
 								}
+								startingEngine={harnessBusy ? startingEngine : undefined}
+								startFailed={Boolean(error)}
 								modelPending={
 									project.status === 'ready' &&
 									project.trusted &&

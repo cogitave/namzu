@@ -9,7 +9,8 @@ import {
 	type HarnessPrompt,
 	generateSessionId,
 } from '@namzu/sdk'
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { EngineModelCache } from '../../integrations/harness/model-cache.js'
 import {
 	archiveConversation,
 	closeSessions,
@@ -17,7 +18,12 @@ import {
 	openSessions,
 	readConversationFacts,
 } from '../../integrations/sessions/store.js'
-import { type CliHarnessRuntime, withCliHarnesses } from '../acp-harness.js'
+import {
+	type CliEngineTiming,
+	type CliHarnessRuntime,
+	MODEL_LIST_FRESH_MS,
+	withCliHarnesses,
+} from '../acp-harness.js'
 import type { CliAcpRuntime } from '../acp.js'
 
 const directories: string[] = []
@@ -164,18 +170,36 @@ async function fixture(engine: 'codex-cli' | 'claude-code' = 'codex-cli') {
 			}
 		}),
 	}
+	const opened = { count: 0 }
+	const stored = new Map<string, { rows: readonly HarnessModel[]; at: number }>()
+	const memoryCache: EngineModelCache = {
+		read: async (name, identity) => stored.get(`${name}:${identity}`),
+		write: async (name, identity, rows, at) => {
+			stored.set(`${name}:${identity}`, { rows, at })
+		},
+	}
+	// A fake clock: freshness of a model list is decided by it, never by how fast the host is.
+	const clock = { now: 1_000_000 }
 	const dependencies = {
+		now: () => clock.now,
+		identity: vi.fn(async (): Promise<string | undefined> => 'build-1'),
+		cache: memoryCache,
+		timings: vi.fn((): CliEngineTiming[] => []),
+		close: vi.fn(async () => {}),
+		release: vi.fn(async (_engine: string) => {}),
 		adapter: vi.fn(async () => adapter),
 		models: vi.fn(async () => [
 			{ id: 'actual-model', label: 'Actual model' },
 			{ id: 'other-model', label: 'Other model' },
 		]),
 		installed: vi.fn(async () => true),
-		openSessions: (cwd: string) =>
-			openSessions(cwd, {
+		openSessions: (cwd: string) => {
+			opened.count++
+			return openSessions(cwd, {
 				stateRoot: join(root, 'state'),
 				indexBackend: 'scan',
-			}),
+			})
+		},
 		decideTrust: ({ cwd }: { cwd: string }) => ({
 			allowed: true as const,
 			cwd,
@@ -219,6 +243,14 @@ async function fixture(engine: 'codex-cli' | 'claude-code' = 'codex-cli') {
 		review: () => {
 			reviewed = true
 		},
+		/** Lets the list the engine choice started reading settle, then ages it past its freshness. */
+		stale: async (provider: 'codex-cli' | 'claude-code' = engine) => {
+			await runtime.models(provider, sessionId)
+			clock.now += MODEL_LIST_FRESH_MS
+		},
+		clock,
+		stored,
+		opened,
 	}
 }
 
@@ -335,6 +367,7 @@ it('uses a separate native catalogue and durable engine without constructing a N
 	expect((await f.runtime.harnesses(f.sessionId)).selected).toBe('namzu')
 	expect(f.adapter.open).not.toHaveBeenCalled()
 	await f.runtime.selectHarness(f.sessionId, 'codex-cli')
+	await f.runtime.models('codex-cli', f.sessionId)
 	expect(await f.runtime.providerStatus(f.sessionId)).toMatchObject({
 		selected: { id: 'codex-cli', model: 'actual-model' },
 	})
@@ -467,13 +500,15 @@ it('refuses untrusted folders and Pal workspaces before metadata or adapter acce
 	expect(f.dependencies.adapter).not.toHaveBeenCalled()
 })
 
-it('reserves an engine selection before awaited metadata and rejects overlapping sends or selectors', async () => {
+it('reserves an engine selection while it is being made and rejects overlapping sends or selectors', async () => {
 	const f = await fixture()
-	const metadata = deferred<readonly HarnessModel[]>()
+	// The choice itself is held open (not the engine, which the choice does not wait for).
+	const gate = deferred<void>()
 	const entered = deferred<void>()
-	f.dependencies.models.mockImplementationOnce(async () => {
+	f.dependencies.installed.mockImplementationOnce(async () => {
 		entered.resolve()
-		return [...(await metadata.promise)]
+		await gate.promise
+		return true
 	})
 	const selecting = f.runtime.selectHarness(f.sessionId, 'codex-cli')
 	await entered.promise
@@ -486,7 +521,7 @@ it('reserves an engine selection before awaited metadata and rejects overlapping
 	)
 	expect(f.base.gateway.prompt).not.toHaveBeenCalled()
 	expect(f.dependencies.adapter).not.toHaveBeenCalled()
-	metadata.resolve([{ id: 'actual-model', label: 'Actual model' }])
+	gate.resolve()
 	expect((await selecting).selected).toBe('codex-cli')
 	await expect(f.prompt()).resolves.toMatchObject({ stopReason: 'end_turn' })
 	expect(f.dependencies.adapter).toHaveBeenCalledWith('codex-cli')
@@ -495,6 +530,7 @@ it('reserves an engine selection before awaited metadata and rejects overlapping
 it('passes the engine default flag through the models handler and omits it elsewhere', async () => {
 	const f = await fixture()
 	await f.runtime.selectHarness(f.sessionId, 'codex-cli')
+	await f.stale()
 	f.dependencies.models.mockImplementationOnce(async () => [
 		{ id: 'actual-model', label: 'Actual model', default: true } as HarnessModel,
 		{ id: 'other-model', label: 'Other model' },
@@ -510,6 +546,7 @@ it('passes the engine default flag through the models handler and omits it elsew
 it("passes the engine's own current flag through the models handler", async () => {
 	const f = await fixture()
 	await f.runtime.selectHarness(f.sessionId, 'claude-code')
+	await f.stale('claude-code')
 	f.dependencies.models.mockImplementationOnce(async () => [
 		{ id: 'opus', label: 'Opus 5.5', current: true } as HarnessModel,
 		{ id: 'claude-opus-4-8', label: 'Opus 4.8' },
@@ -524,6 +561,7 @@ it("passes the engine's own current flag through the models handler", async () =
 it('keeps a model selection exclusive while it awaits refreshed engine metadata', async () => {
 	const f = await fixture()
 	await f.runtime.selectHarness(f.sessionId, 'codex-cli')
+	await f.stale()
 	const metadata = deferred<readonly HarnessModel[]>()
 	const entered = deferred<void>()
 	f.dependencies.models.mockImplementationOnce(async () => {
@@ -560,6 +598,7 @@ it('keeps a model selection exclusive while it awaits refreshed engine metadata'
 it('reserves a prompt before awaited metadata and prevents a competing engine or model change', async () => {
 	const f = await fixture()
 	await f.runtime.selectHarness(f.sessionId, 'codex-cli')
+	await f.stale()
 	const metadata = deferred<readonly HarnessModel[]>()
 	const entered = deferred<void>()
 	f.dependencies.models.mockImplementationOnce(async () => {
@@ -611,15 +650,15 @@ it('retains the reservation until the original Namzu prompt has actually complet
 	expect(f.adapter.open).not.toHaveBeenCalled()
 })
 
-it('releases a failed selection and refreshes model metadata before allowing a removed model', async () => {
+it('does not cache a failed read, and refreshes model metadata before allowing a removed model', async () => {
 	const f = await fixture()
+	// Choosing the engine reads its models in the background; a failure there is not the choice's.
 	f.dependencies.models.mockRejectedValueOnce(new Error('Native metadata unavailable'))
-	await expect(f.runtime.selectHarness(f.sessionId, 'codex-cli')).rejects.toThrow(
-		'Native metadata unavailable',
-	)
-	await f.prompt()
-	expect(f.base.gateway.prompt).toHaveBeenCalledOnce()
 	await f.runtime.selectHarness(f.sessionId, 'codex-cli')
+	await f.stale()
+	expect(f.dependencies.models).toHaveBeenCalledTimes(2)
+	await f.runtime.selectProvider(f.sessionId, 'codex-cli', 'actual-model')
+	f.clock.now += MODEL_LIST_FRESH_MS
 	f.dependencies.models.mockResolvedValueOnce([{ id: 'other-model', label: 'Other model' }])
 	expect(await f.runtime.models('codex-cli', f.sessionId)).toMatchObject({
 		models: [{ id: 'other-model', label: 'Other model' }],
@@ -669,4 +708,185 @@ it('refuses an external draft if another writer binds its disk journal to Namzu 
 	expect(f.base.providerStatus).not.toHaveBeenCalled()
 	expect(f.dependencies.adapter).not.toHaveBeenCalled()
 	expect(f.adapter.open).not.toHaveBeenCalled()
+})
+
+describe('engine start cost', () => {
+	it('reads an engine once for choosing it and opening the picker again and again', async () => {
+		const f = await fixture()
+		await f.runtime.selectHarness(f.sessionId, 'codex-cli')
+		await f.runtime.models('codex-cli', f.sessionId)
+		await f.runtime.models('codex-cli', f.sessionId)
+		await f.runtime.models('codex-cli', f.sessionId)
+		expect(f.dependencies.models).toHaveBeenCalledTimes(1)
+		await f.prompt()
+		expect(f.dependencies.models).toHaveBeenCalledTimes(1)
+	})
+
+	it('reads again only after the list is older than its freshness window', async () => {
+		const f = await fixture()
+		await f.runtime.selectHarness(f.sessionId, 'codex-cli')
+		await f.runtime.models('codex-cli', f.sessionId)
+		f.clock.now += MODEL_LIST_FRESH_MS - 1
+		await f.runtime.models('codex-cli', f.sessionId)
+		expect(f.dependencies.models).toHaveBeenCalledTimes(1)
+		f.clock.now += 1
+		await f.runtime.models('codex-cli', f.sessionId)
+		expect(f.dependencies.models).toHaveBeenCalledTimes(2)
+	})
+
+	it('drops a list at once when the installed build of the engine changes', async () => {
+		const f = await fixture()
+		await f.runtime.selectHarness(f.sessionId, 'codex-cli')
+		await f.runtime.models('codex-cli', f.sessionId)
+		f.dependencies.identity.mockResolvedValue('build-2')
+		f.dependencies.models.mockResolvedValueOnce([{ id: 'newer-model', label: 'Newer model' }])
+		const view = await f.runtime.models('codex-cli', f.sessionId)
+		expect(view.models).toEqual([{ id: 'newer-model', label: 'Newer model' }])
+		expect(f.dependencies.models).toHaveBeenCalledTimes(2)
+	})
+
+	it('names the installed build in the provider status so the desktop can key its stored list', async () => {
+		const f = await fixture()
+		await f.runtime.selectHarness(f.sessionId, 'codex-cli')
+		expect(await f.runtime.providerStatus(f.sessionId)).toMatchObject({
+			available: [{ id: 'codex-cli', identity: 'build-1' }],
+		})
+		f.dependencies.identity.mockResolvedValue('build-2')
+		expect(await f.runtime.providerStatus(f.sessionId)).toMatchObject({
+			available: [{ id: 'codex-cli', identity: 'build-2' }],
+		})
+	})
+
+	it('never makes choosing an engine wait for it to start', async () => {
+		const f = await fixture()
+		const starting = deferred<readonly HarnessModel[]>()
+		f.dependencies.models.mockImplementationOnce(async () => [...(await starting.promise)])
+		// The engine has not answered, and the choice is already made.
+		const view = await f.runtime.selectHarness(f.sessionId, 'codex-cli')
+		expect(view.selected).toBe('codex-cli')
+		// Nothing is known about this build yet, so its status is the one thing that waits.
+		const status = f.runtime.providerStatus(f.sessionId)
+		starting.resolve([{ id: 'actual-model', label: 'Actual model' }])
+		expect(await status).toMatchObject({
+			available: [{ id: 'codex-cli', defaultModel: 'actual-model' }],
+			selected: { id: 'codex-cli', model: 'actual-model' },
+		})
+	})
+
+	it('opens the project index once to choose an engine, not once per question it asks itself', async () => {
+		const f = await fixture()
+		f.opened.count = 0
+		await f.runtime.selectHarness(f.sessionId, 'codex-cli')
+		expect(f.opened.count).toBe(1)
+	})
+
+	it('answers the status from the last run at once and reads the engine in the background', async () => {
+		const f = await fixture()
+		f.stored.set('codex-cli:build-1', {
+			rows: [
+				{ id: 'older-default', label: 'Older default', default: true } as HarnessModel,
+				{ id: 'older-other', label: 'Older other' },
+			],
+			at: f.clock.now - 3 * 60 * 60 * 1000,
+		})
+		const starting = deferred<readonly HarnessModel[]>()
+		f.dependencies.models.mockImplementationOnce(async () => [...(await starting.promise)])
+		await f.runtime.selectHarness(f.sessionId, 'codex-cli')
+		// The engine is still starting; the status did not wait for it.
+		expect(await f.runtime.providerStatus(f.sessionId)).toMatchObject({
+			selected: { id: 'codex-cli', model: 'older-default' },
+		})
+		expect(f.dependencies.models).toHaveBeenCalledTimes(1)
+		starting.resolve([{ id: 'newer-default', label: 'Newer', default: true } as HarnessModel])
+		const view = await f.runtime.models('codex-cli', f.sessionId)
+		expect(view.models.map((row) => row.id)).toEqual(['newer-default'])
+		// What the engine said is kept for the next run, under this build.
+		expect(f.stored.get('codex-cli:build-1')?.rows.map((row) => row.id)).toEqual(['newer-default'])
+		expect(f.stored.get('codex-cli:build-1')?.at).toBe(f.clock.now)
+	})
+
+	it("does not use another build's stored list", async () => {
+		const f = await fixture()
+		f.stored.set('codex-cli:build-0', {
+			rows: [{ id: 'old-build-model', label: 'Old build' }],
+			at: f.clock.now,
+		})
+		await f.runtime.selectHarness(f.sessionId, 'codex-cli')
+		expect(await f.runtime.providerStatus(f.sessionId)).toMatchObject({
+			selected: { id: 'codex-cli', model: 'actual-model' },
+		})
+	})
+
+	it("looks again before refusing a model that the last run's list did not have", async () => {
+		const f = await fixture()
+		f.stored.set('codex-cli:build-1', {
+			rows: [{ id: 'actual-model', label: 'Actual model' }],
+			at: f.clock.now,
+		})
+		f.dependencies.models.mockResolvedValue([
+			{ id: 'actual-model', label: 'Actual model' },
+			{ id: 'brand-new-model', label: 'Brand new' },
+		])
+		await f.runtime.selectHarness(f.sessionId, 'codex-cli')
+		await f.runtime.selectProvider(f.sessionId, 'codex-cli', 'brand-new-model')
+		await f.prompt()
+		expect(f.adapter.open).toHaveBeenCalledWith(
+			expect.objectContaining({ model: 'brand-new-model' }),
+			expect.any(Function),
+		)
+	})
+
+	it('sends the model the person chose, and the engine default otherwise', async () => {
+		const f = await fixture()
+		f.dependencies.models.mockResolvedValueOnce([
+			{ id: 'first-model', label: 'First' },
+			{ id: 'flagged-model', label: 'Flagged', default: true } as HarnessModel,
+		])
+		await f.runtime.selectHarness(f.sessionId, 'codex-cli')
+		await f.runtime.models('codex-cli', f.sessionId)
+		await f.prompt()
+		expect(f.dispatches).toHaveLength(1)
+		expect(f.adapter.open).toHaveBeenCalledWith(
+			expect.objectContaining({ model: 'flagged-model' }),
+			expect.any(Function),
+		)
+	})
+
+	it('reports what engine starts cost once, with the list and the engine view', async () => {
+		const f = await fixture()
+		const report: CliEngineTiming = {
+			engine: 'codex-cli',
+			operation: 'models',
+			timings: { spawnMs: 40, initializeMs: 90, modelListMs: 12, totalMs: 150 },
+		}
+		f.dependencies.timings.mockReturnValueOnce([report])
+		const selected = await f.runtime.selectHarness(f.sessionId, 'codex-cli')
+		expect(selected).toMatchObject({ timings: [report] })
+		f.dependencies.timings.mockReturnValueOnce([report])
+		expect(await f.runtime.models('codex-cli', f.sessionId)).toMatchObject({ timings: [report] })
+		expect(await f.runtime.models('codex-cli', f.sessionId)).not.toHaveProperty('timings')
+	})
+
+	it('ends the idle servers of one engine on request, so its program can be replaced', async () => {
+		const f = await fixture()
+		await f.runtime.releaseHarness('codex-cli')
+		expect(f.dependencies.release).toHaveBeenCalledExactlyOnceWith('codex-cli')
+		await f.runtime.releaseHarness('claude-code')
+		expect(f.dependencies.release).toHaveBeenLastCalledWith('claude-code')
+		// A running conversation is not touched: only the dependencies' servers are asked to end.
+		expect(f.close).not.toHaveBeenCalled()
+	})
+
+	it('refuses to release an engine it does not know, and does nothing without a release hook', async () => {
+		const f = await fixture()
+		await expect(f.runtime.releaseHarness('namzu')).rejects.toThrow(/Unknown execution engine/)
+		await expect(f.runtime.releaseHarness('bash')).rejects.toThrow(/Unknown execution engine/)
+		expect(f.dependencies.release).not.toHaveBeenCalled()
+	})
+
+	it('ends the engine servers when the connection closes', async () => {
+		const f = await fixture()
+		await f.runtime.close()
+		expect(f.dependencies.close).toHaveBeenCalledOnce()
+	})
 })

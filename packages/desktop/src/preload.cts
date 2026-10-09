@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type { EngineUpdateNotice, EngineUpdatesState } from './shared/engine-update-protocol.js'
 import type { LocalSpeechEvent } from './shared/local-speech-protocol.js'
 import type { DesktopApi, DesktopBoot, DesktopEvent } from './shared/protocol.js'
 import type { TerminalEvent } from './shared/terminal-view.js'
@@ -163,6 +164,20 @@ const api: DesktopApi = {
 		const handler = (_event: unknown, data: TerminalEvent) => listener(data)
 		ipcRenderer.on('namzu:terminal-event', handler)
 		return () => ipcRenderer.removeListener('namzu:terminal-event', handler)
+	},
+	engineUpdates: () => invoke('engineUpdates'),
+	checkEngineUpdates: () => invoke('checkEngineUpdates'),
+	updateEngine: (request) => invoke('updateEngine', request),
+	claimEngineUpdateAnnouncements: () => invoke('claimEngineUpdateAnnouncements'),
+	onEngineUpdates: (listener) => {
+		const handler = (_event: unknown, state: EngineUpdatesState) => listener(state)
+		ipcRenderer.on('namzu:engine-updates', handler)
+		return () => ipcRenderer.removeListener('namzu:engine-updates', handler)
+	},
+	onEngineUpdateNotice: (listener) => {
+		const handler = (_event: unknown, notice: EngineUpdateNotice) => listener(notice)
+		ipcRenderer.on('namzu:engine-update-notice', handler)
+		return () => ipcRenderer.removeListener('namzu:engine-update-notice', handler)
 	},
 	onUpdateState: (listener) => {
 		const handler = (_event: unknown, state: UpdateState) => listener(state)

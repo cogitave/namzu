@@ -26,6 +26,7 @@ const EVENTS = {
 	cli_stderr: 'Desktop CLI wrote diagnostic output',
 	cli_notice: 'Desktop CLI reported an unavailable capability',
 	cli_request_failed: 'Desktop CLI request failed',
+	engine_timing: 'Desktop engine start timings',
 	cli_turn_failed: 'Desktop CLI turn failed',
 	cli_transport_failed: 'Desktop CLI transport failed',
 	cli_closed: 'Desktop CLI connection closed',
@@ -52,6 +53,16 @@ export interface DesktopDiagnosticContext {
 	platform?: 'win32' | 'linux' | 'darwin' | 'other'
 	line?: number
 	column?: number
+	/** engine_timing: which external engine, which step, and what it cost in milliseconds. */
+	engineId?: 'codex-cli' | 'claude-code'
+	step?: 'open' | 'models'
+	timings?: {
+		spawnMs?: number
+		initializeMs?: number
+		modelListMs?: number
+		totalMs?: number
+		reused?: boolean
+	}
 	reason?:
 		| 'type-error'
 		| 'reference-error'
@@ -119,6 +130,12 @@ const OPERATIONS = new Set([
 	'installUpdate',
 	'cancelUpdateInstall',
 	'reportUiBusy',
+	'engineUpdates',
+	'checkEngineUpdates',
+	'updateEngine',
+	'claimEngineUpdateAnnouncements',
+	'releaseEngine',
+	'engineUpdateTerminal',
 	'namzu/pals/communication/peers',
 	'namzu/pals/communication/inbox',
 	'namzu/pals/communication/permissions/update',
@@ -197,6 +214,7 @@ const OPERATIONS = new Set([
 	'namzu/tasks/update',
 	'namzu/harnesses/list',
 	'namzu/harnesses/select',
+	'namzu/harnesses/release',
 	'namzu/providers/status',
 	'namzu/providers/models',
 	'namzu/providers/settings',
@@ -446,6 +464,18 @@ export class DesktopDiagnostics implements DesktopDiagnosticSink {
 				if (typeof value === 'number' && Number.isSafeInteger(value))
 					attributes[`namzu.desktop.${key}`] = value
 			}
+			if (context.engineId && ['codex-cli', 'claude-code'].includes(context.engineId))
+				attributes['namzu.desktop.engine.id'] = context.engineId
+			if (context.step && ['open', 'models'].includes(context.step))
+				attributes['namzu.desktop.engine.step'] = context.step
+			if (context.timings) {
+				for (const key of ['spawnMs', 'initializeMs', 'modelListMs', 'totalMs'] as const) {
+					const value = context.timings[key]
+					if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0)
+						attributes[`namzu.desktop.engine.${key}`] = value
+				}
+				if (context.timings.reused === true) attributes['namzu.desktop.engine.reused'] = 1
+			}
 			if (context.error !== undefined) {
 				const failure = desktopFailure(context.error)
 				attributes['namzu.desktop.failure.reason'] = failure.reason
@@ -466,7 +496,10 @@ export class DesktopDiagnostics implements DesktopDiagnosticSink {
 			const severity =
 				context.severity && ['debug', 'info', 'warn', 'error'].includes(context.severity)
 					? context.severity
-					: event === 'started' || event === 'cli_started' || event === 'cli_closed'
+					: event === 'started' ||
+							event === 'cli_started' ||
+							event === 'cli_closed' ||
+							event === 'engine_timing'
 						? 'info'
 						: event === 'cli_stderr' || event === 'cli_notice' || event === 'rate_limited'
 							? 'warn'

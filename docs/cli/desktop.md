@@ -175,6 +175,69 @@ The installer is **unsigned** (no `publisherName`). Windows SmartScreen shows "W
 protected your PC / Unknown publisher" on the first run; choose *More info*, then *Run
 anyway*. Updates are then checked by sha512 only, not by signature.
 
+### Updates to the programs Namzu works with
+
+Namzu Desktop updates through the state machine above. Codex CLI, the second external engine
+(`claude-code`) and a standalone `namzu` on `PATH` are other people's programs, installed by other means, so they have a separate,
+smaller mechanism in `src/main/engine-updates.ts`: it finds out that one is behind, and when the
+person clicks **Update** it runs that program's own update command in a terminal tab they can
+watch. It never installs by itself.
+
+**What is checked.** For each program Namzu runs `<program> --version` directly (no shell, no
+PowerShell; an npm `.cmd` shim goes through Command Prompt on one fixed line, because Node will not
+start it otherwise; 8 seconds, hidden window) and asks the registry for the package's `latest`
+(`GET https://registry.npmjs.org/<package>/latest`, only the `version` field, only a plain
+`x.y.z`, never an alpha): `@openai/codex`, `@anthropic-ai/claude-code`, `@namzu/cli`. The first
+check is 30 seconds after launch, then every four hours, and a check that finds the cache
+(`engine-updates.json` in the profile folder, `checkedAt` per program) newer than four hours skips
+the network at launch. Offline, a timeout or an answer that is not a version is quiet: the last answer
+stays, nothing is shown, and an answer older than seven days never produces a badge. Installed
+versions are read at launch without waiting for the network. `NAMZU_ENGINE_REGISTRY` names another
+registry base (a packaged app accepts only loopback), and `NAMZU_ENGINE_FIRST_CHECK_MS` (at most 30,000)
+shortens the first delay; the end-to-end flows use both with a stand-in registry.
+
+**How each was installed** is read only from where its program is, never guessed:
+
+| Method | Where | The command a click runs |
+| --- | --- | --- |
+| `npm-global` | under `%APPDATA%\npm`, the npm prefix's `bin`, a `node_modules/@openai/codex` (and the other two packages) after following links, or a Windows `.cmd` shim that names the package it starts (so a custom prefix is read too) | `npm install -g <package>@latest`, with `npm.cmd` on Windows, never `npm.ps1` |
+| `native` | `claude-code` in `~/.local/bin` | `claude update` |
+| `standalone` | Codex under `~/.codex/packages` | `codex update` |
+| `bundled` | the app's own command line, when no `namzu` is on `PATH` | none: it updates with the app |
+| `unknown` | anything else (Homebrew, winget, scoop, a download) | none: the command is shown with **Copy** |
+
+**The update.** A click (never anything else) is refused while that program has a reply running,
+queued or waiting for an answer in a conversation, or has a live engine terminal tab ("Close the
+Codex CLI tab first."); nothing is stopped for the person. Otherwise Namzu ends its own idle
+servers for that engine (`namzu/harnesses/release` to each project's host, because a running
+`codex.exe` cannot be replaced on Windows), then opens a shell tab titled **Updating Codex CLI** in
+the pane and a trusted project in front (the host starts terminals in a project folder, so none open without one; the
+row then shows the command with **Copy**), running exactly that command, and leaves Settings so the output is
+what is on screen. The tab stays after the command ends so its output can be read. When it ends
+Namzu reads the version again, drops every stored model list of that engine, emits
+`model-catalogue-updated` so open pickers read again, and toasts "Codex CLI updated to 0.162.0".
+An exit code of zero with the same version reads "Updated, but the installed version is still
+0.154.0. Another copy may be earlier on PATH (<path>)."; any other end reads "Update failed — see
+the terminal" with a **Try again**; on Windows output naming `EBUSY` or `EPERM` says to close other
+Codex windows and retry, and `EACCES` says the install needs administrator rights. Namzu never
+elevates and never changes the npm prefix. Open conversations keep running their old process until
+they restart, and the row says so.
+
+**Where it runs.** The update tab starts in a trusted project's folder (the terminal host refuses any folder outside a project), where npm still reads that folder's `.npmrc`; an npm update therefore passes `--registry=` with the registry the check used, which a project file cannot override. One update runs at a time, and the engine is checked for activity again after its servers stop.
+
+**Where it shows.** Settings ▸ Updates lists the three programs under the app's own row (name,
+`installed → latest`, how it was installed as a muted note, the command a click will run, and
+**Update**, **Updating…**, **Up to date** or **Check failed**). The rail's download button appears
+when any program is behind, labelled "Updates available. Open Settings to update" followed by the names of the programs
+that are behind, and opening Settings ▸ Updates; the app's own *ready* state keeps priority over it.
+The engine view of the model popup adds "Update available (0.162.0)" under an engine that is behind
+and a small dot on the engine chip. Once per new version a quiet toast says "Codex CLI 0.162.0 is
+available" with **Update…**, which opens Settings ▸ Updates; which window announces is decided in
+main, so two windows do not both toast. The renderer API is `engineUpdates()`, `checkEngineUpdates()`,
+`updateEngine({ engine, groupId, projectId? })` (the command always comes from main, never from the
+window), `claimEngineUpdateAnnouncements()`, `onEngineUpdates` and `onEngineUpdateNotice`.
+Screenshots are in [`research/engines-20261009/`](../../research/engines-20261009/).
+
 ### Clean-machine test
 
 `research/windows-sandbox-20261008/run.sh <v1.exe> <v2.exe>` tests the installers in a fresh
@@ -298,6 +361,15 @@ warning. INFO/debug output has no failure attributes; the words `JSON` or
 `protocol` alone do not establish a protocol failure. Split UTF-8/line chunks
 are reassembled with a bounded buffer, and a final partial line is recorded on
 stream closure. Raw body and attribute content still remain excluded.
+
+An external engine's start is recorded as `engine_timing` at INFO: the engine
+(Codex or the second external engine), the step (`open` or `models`) and, as whole
+milliseconds, `spawnMs` (until the operating system had created the process, where
+antivirus scans show), `initializeMs`, `modelListMs` and `totalMs`, with `reused`
+when a process that was already running served the step. The CLI measures them and
+returns them with `namzu/harnesses/list`, `namzu/harnesses/select` and
+`namzu/providers/models`; main records them and ignores nothing else in those
+fields. No path, model id or account detail is part of a record.
 
 A model settings read superseded by an owned provider or engine selection is
 still rejected by the metadata fence. It records `ipc_superseded` at INFO with
@@ -442,8 +514,11 @@ What it holds, and where each value lives (one source of truth per value):
 - **Appearance** — the theme (light, dark, system). It stays in the renderer's own storage
   (`namzu.appearance`) because only the renderer paints it; it moved out of the profile menu.
 - **Updates** — the running version, when the last check finished, the state in words,
-  **Check for updates**, **Download update** / **Restart to update…** where the state calls for
-  them, and *Download updates automatically* (default on).
+  **Check for updates** (one button for the app and for the programs below),
+  **Download update** / **Restart to update…** where the state calls for them,
+  *Programs Namzu works with* (Codex CLI, `claude-code`, the Namzu command line; see
+  [Updates to the programs Namzu works with](#updates-to-the-programs-namzu-works-with)), and
+  *Download updates automatically* (default on).
 - **Speech** — the voice status, size and location, Download, Preview, Remove and the existing
   options (the same content the composer popover used to show).
 - **About** — the Desktop, CLI and SDK versions (read from the `package.json` files beside the
@@ -1052,7 +1127,9 @@ model trigger shows its small icon before the model name.
 
 The model list is compact: 30px rows, 11px group headings, and a height of at most 60% of the window, scrolling inside. Its heading carries the engine chip and, on a long list, a search button (or the `/` key); there is no refresh button, no Retry button and no "Use a model ID" row. Opening the list re-reads a catalogue that failed or has gone stale (older than two minutes) once in the background, showing the last good list meanwhile; if that read fails the list shows one muted line, "Couldn't load the model list. It will try again next time you open this." The list ends with the models; it has no "Current model" section for a model outside the visible list. The provider column marks the provider in use with a small dot, whichever provider's tab is open. GPT names written "GPT-5.6-Sol" by an API provider's catalogue read "GPT-5.6 Sol", as Codex rows do; ids are unchanged. A Zen list shows its free models under a "Free" heading and the models with a stated non-zero price under an "API key" heading (a model with no published price follows under "Other models"); each catalogue row carries an optional `group: 'free' | 'key'`, set for Zen only and stored with the row in `model-lists.json` (an older stored row without it still reads). The headings use the 11px group-heading style, are not rows (arrow keys skip them), are read out as part of each row's name, and appear only when the list holds both groups: a list with only free models shows none, and one with only key models keeps the per-row "(API key)" note. Search keeps a heading only while a row under it still matches.
 
-Model lists persist across launches. Main keeps the last good list per provider in `model-lists.json` in the app's data folder (at most 64 lists and 1 MiB, written to a temporary file and renamed; a corrupt, oversize or foreign file is ignored and rewritten by the next success). The key is the engine, the provider id and a short hash of the provider's id and label as `providers/status` reports them; the status exposes no account or credential field, and the selected-model echo and conversation ids are not part of the key, so every conversation of a provider shares one list. Because the status carries no credential, a sign-out or account change is seen only when a provider row leaves the status or changes: main then deletes that engine's lists for the missing keys, so the next sign-in reads fresh rows instead of the earlier account's. A source that fails is retried at most once a minute, not on every open. A stored list answers `models()` at once with its `fetchedAt`. Main then asks the CLI once per key in the background (never twice at the same time) when the key has not been read in this app run, when the list is older than 6 hours, or when the CLI refused a model choice (the list that offered it is marked stale). A refresh that returns different rows replaces the list and sends one `model-catalogue-updated` event (engine and provider); the renderer then re-reads the matching scopes while the old rows stay on screen, so "Loading models…" shows only for a provider's first-ever read. A failed or empty listing is never stored: the old rows stay and one diagnostics line is recorded. Pal projects and the Pal composer's `palModels` are always read live. A model id not in the previous stored list is stamped with `firstSeen` and wears a small muted "New" chip in the picker for 7 days; nothing is marked on a key's first stored list. A warm launch shows rows in about 0 ms instead of the source's 0.6 s (Codex) to 1.4 s (the second external engine).
+Starting an engine is cheap to the person and cheap to the machine. Choosing Codex or the second external engine in the engine view never waits for the engine to answer: the host starts reading its models in the background and the choice is acknowledged at once. While an engine process is actually being waited for (a build never read before, so no stored list can be shown) the model trigger reads **Starting Codex…** (or the second engine's name in the same form), with the seconds waited (`Starting Codex… 3s`) once it takes a second, instead of a blank or the previous model; it is announced as "Model, Starting Codex". A stored list shows at once and is revalidated in the background, so nothing is shown while it is. Behind that the CLI host spawns the engine's executable once per use: the Codex app-server that listed the models stays running (closed after two idle minutes, and when the connection closes) and the conversation's first message takes it over, so opening the picker, choosing the engine and sending a message start one process, not two or three. A model list read less than ten minutes ago is served from memory; an older one, or one read in the previous run, is read again in the background, and the last good list of each installed build is kept in `engine-models.json` in the CLI home so a later launch names the default model without waiting. A model the person chose that an older list lacks is looked for once more in a list read now before it is refused.
+
+Model lists persist across launches. Main keeps the last good list per provider in `model-lists.json` in the app's data folder (at most 64 lists and 1 MiB, written to a temporary file and renamed; a corrupt, oversize or foreign file is ignored and rewritten by the next success). The key is the engine, the provider id and a short hash of the provider's id and label as `providers/status` reports them, plus, for an external engine, the `identity` the status row carries (a short hash of the installed executable's path, size and modification time), so an upgraded engine finds no list under its new build and the old one is pruned at once; the status exposes no account or credential field, and the selected-model echo and conversation ids are not part of the key, so every conversation of a provider shares one list. Because the status carries no credential, a sign-out or account change is seen only when a provider row leaves the status or changes: main then deletes that engine's lists for the missing keys, so the next sign-in reads fresh rows instead of the earlier account's. A source that fails is retried at most once a minute, not on every open. A stored list answers `models()` at once with its `fetchedAt`. Main then asks the CLI once per key in the background (never twice at the same time) when the key has not been read in this app run, when the list is older than 6 hours, or when the CLI refused a model choice (the list that offered it is marked stale). A refresh that returns different rows replaces the list and sends one `model-catalogue-updated` event (engine and provider); the renderer then re-reads the matching scopes while the old rows stay on screen, so "Loading models…" shows only for a provider's first-ever read. A failed or empty listing is never stored: the old rows stay and one diagnostics line is recorded. Pal projects and the Pal composer's `palModels` are always read live. A model id not in the previous stored list is stamped with `firstSeen` and wears a small muted "New" chip in the picker for 7 days; nothing is marked on a key's first stored list. A warm launch shows rows in about 0 ms instead of the source's 0.6 s (Codex) to 1.4 s (the second external engine).
 
 The filled effort track is a WebGL2 ordered-dither surface in the accent ramp (deep green to teal to accent to mint) with drifting shimmer, rising sparkles and a thumb bloom that all grow with the level; without WebGL2, or after a lost context it is the plain CSS fill, and under reduced motion it draws one static frame.
 
@@ -2705,8 +2782,9 @@ ACP methods and are not automatically installed in embedded SDK servers.
 | `namzu/conversations/input/status` | exact `sessionId`, optional `scopeId` | current or retained closed prompt scope, `available`, and input IDs classified as `pending` or `delivered` |
 | `namzu/conversations/input` | exact `sessionId`, `scopeId`, `inputId`, text `prompt` | idempotent current-turn admission receipt; differing text under the same input ID is refused |
 | `namzu/pals/delete` | exact `id`, `expectedRevision` | `{id, deleted: true}` after exact-revision terminal publication; retained data is not erased |
-| `namzu/providers/status` | optional `sessionId` | safe configured provider metadata and saved default |
-| `namzu/providers/models` | `provider`, optional `sessionId` | configured provider catalogue; `{ models: [{ id, label, note? }], notice }`, with at most 4,096 actual listed rows; unavailable selections and failed lists have explicit notices |
+| `namzu/harnesses/release` | `engine` (`codex-cli` or `claude-code`) | `{released: true}`; ends the idle engine servers this connection keeps (the Codex app-server that discovery parked) so the engine's program can be replaced on disk, without touching a running conversation. Used by [engine updates](#updates-to-the-programs-namzu-works-with); a host that predates it answers `-32601` and the update goes on |
+| `namzu/providers/status` | optional `sessionId` | safe configured provider metadata and saved default; an external engine's row also carries an optional `identity`, a short hash of the installed build, that the stored model list is keyed by |
+| `namzu/providers/models` | `provider`, optional `sessionId` | configured provider catalogue; `{ models: [{ id, label, note? }], notice }`, with at most 4,096 actual listed rows; unavailable selections and failed lists have explicit notices; an external engine's reply may add `timings` (spawn, initialize and model-list milliseconds of the start it waited for) |
 | `namzu/providers/select` | `sessionId`, `provider`, optional `model` | checks access and supported wire before replacing a session-local choice; active work blocks changes |
 | `namzu/providers/settings` | `provider`, `model`, optional `sessionId` | exact supported effort choices/default or a safe notice, without creating a session |
 | `namzu/plugins/list` | optional `sessionId` | bounded installed or live plugin inventory and whether it can be changed |

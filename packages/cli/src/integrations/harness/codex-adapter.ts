@@ -35,6 +35,10 @@ export interface CodexHarnessAdapterOptions {
 	readonly env?: NodeJS.ProcessEnv
 	/** Host-owned profile identity; never an account token or renderer argument. */
 	readonly profileRef?: string
+	/** Servers that discovery started and `open` may take over, so one use costs one spawn. */
+	readonly pool?: CodexServerPool
+	/** Told what each start cost; never carries a path, model or account detail. */
+	readonly onTiming?: (operation: 'open' | 'models', timings: EngineTimings) => void
 }
 
 type RpcId = string | number
@@ -47,31 +51,61 @@ interface PendingRpc {
 	clear(): void
 }
 
+interface CodexWireHandlers {
+	onNotification(method: string, params: unknown): Promise<void>
+	onRequest(id: RpcId, method: string, params: unknown): Promise<void>
+	onClosed(): Promise<void>
+}
+
+/** What one engine start cost, in milliseconds. A step that did not run is absent. */
+export interface EngineTimings {
+	/** Until the operating system had created the process (antivirus scans land here). */
+	spawnMs?: number
+	/** `initialize` and `account/read`. */
+	initializeMs?: number
+	/** `model/list`, every page. */
+	modelListMs?: number
+	/** The whole operation as the caller waited for it. */
+	totalMs: number
+	/** A process that was already running served this operation, so nothing was spawned. */
+	reused?: boolean
+}
+
+const clock = () => performance.now()
+const whole = (ms: number) => Math.max(0, Math.round(ms))
+
 class CodexWire {
 	private sequence = 0
 	private readonly pending = new Map<RpcId, PendingRpc>()
 	readonly process: HarnessProcess
 	private expectedClose = false
+	private handlers: CodexWireHandlers
+	private readonly startedAt = clock()
+	spawnMs?: number
+	initializeMs?: number
+	modelListMs?: number
 	constructor(
 		executable: string,
 		env: NodeJS.ProcessEnv,
 		cwd: string,
-		onNotification: (method: string, params: unknown) => Promise<void>,
-		onRequest: (id: RpcId, method: string, params: unknown) => Promise<void>,
-		onClosed: () => Promise<void>,
+		handlers: CodexWireHandlers,
 	) {
+		this.handlers = handlers
 		this.process = startHarnessProcess(
 			{ executable, args: ['app-server'], env },
 			{
 				cwd,
+				onSpawn: () => {
+					this.spawnMs = whole(clock() - this.startedAt)
+				},
 				onFrame: async (value) => {
 					const frame = codexRecord(value)
 					if (!frame) throw new Error('Codex emitted an invalid protocol envelope.')
 					const id =
 						typeof frame.id === 'string' || typeof frame.id === 'number' ? frame.id : undefined
 					if (typeof frame.method === 'string') {
-						if (id !== undefined) await onRequest(id, frame.method, frame.params)
-						else await onNotification(frame.method, frame.params)
+						if (id !== undefined) await this.handlers.onRequest(id, frame.method, frame.params)
+						else await this.handlers.onNotification(frame.method, frame.params)
 					} else if (id !== undefined) {
 						const pending = this.pending.get(id)
 						if (!pending) return
@@ -88,10 +122,14 @@ class CodexWire {
 						request.reject(new Error('Codex transport closed before the request completed.'))
 					}
 					this.pending.clear()
-					if (!this.expectedClose) await onClosed()
+					if (!this.expectedClose) await this.handlers.onClosed()
 				},
 			},
 		)
+	}
+	/** A server that was started for one purpose is handed to the next one that needs it. */
+	retarget(handlers: CodexWireHandlers): void {
+		this.handlers = handlers
 	}
 	request(method: string, params: unknown, signal?: AbortSignal): Promise<unknown> {
 		signal?.throwIfAborted()
@@ -120,6 +158,7 @@ class CodexWire {
 		})
 	}
 	async initialize(signal?: AbortSignal): Promise<void> {
+		const began = clock()
 		await this.request(
 			'initialize',
 			{
@@ -132,10 +171,12 @@ class CodexWire {
 		const response = codexRecord(
 			await this.request('account/read', { refreshToken: false }, signal),
 		)
+		this.initializeMs = whole(clock() - began)
 		if (!response || (response.requiresOpenaiAuth === true && !response.account))
 			throw new Error('Codex CLI requires its own signed-in account.')
 	}
 	async models(signal?: AbortSignal): Promise<readonly HarnessModel[]> {
+		const began = clock()
 		const rows: unknown[] = []
 		const seen = new Set<string>()
 		let cursor: string | undefined
@@ -150,6 +191,7 @@ class CodexWire {
 			if (cursor && seen.has(cursor)) throw new Error('Codex repeated a model pagination cursor.')
 			if (cursor) seen.add(cursor)
 		} while (cursor)
+		this.modelListMs = whole(clock() - began)
 		return parseCodexModels(rows)
 	}
 	respond(id: RpcId, result: unknown): Promise<void> {
@@ -233,14 +275,12 @@ class CodexConnection implements HarnessConnection {
 		private readonly cwd: string,
 		private readonly profileRef: string,
 		private readonly sink: HarnessEventSink,
+		private readonly adopted?: CodexWire,
 	) {
-		this.wire = new CodexWire(
-			executable,
-			env,
-			cwd,
-			(method, params) => this.notification(method, params),
-			(id, method, params) => this.serverRequest(id, method, params),
-			async () => {
+		const handlers: CodexWireHandlers = {
+			onNotification: (method, params) => this.notification(method, params),
+			onRequest: (id, method, params) => this.serverRequest(id, method, params),
+			onClosed: async () => {
 				this.closed = true
 				await this.sink({
 					kind: 'connection-lost',
@@ -248,7 +288,20 @@ class CodexConnection implements HarnessConnection {
 					mayBeRunning: this.dispatching || this.uncertain || this.active !== undefined,
 				})
 			},
-		)
+		}
+		if (adopted) adopted.retarget(handlers)
+		this.wire = adopted ?? new CodexWire(executable, env, cwd, handlers)
+	}
+	/** What starting this connection cost; read once `open` has returned. */
+	timings(began: number): EngineTimings {
+		return {
+			...(this.adopted ? { reused: true } : { spawnMs: this.wire.spawnMs }),
+			...(this.wire.initializeMs !== undefined && !this.adopted
+				? { initializeMs: this.wire.initializeMs }
+				: {}),
+			...(this.wire.modelListMs !== undefined ? { modelListMs: this.wire.modelListMs } : {}),
+			totalMs: whole(clock() - began),
+		}
 	}
 	get binding(): HarnessBinding {
 		if (!this.bindingValue) throw new Error('Codex thread binding is not established.')
@@ -256,7 +309,8 @@ class CodexConnection implements HarnessConnection {
 	}
 	async open(input: Parameters<HarnessAdapter['open']>[0]): Promise<this> {
 		try {
-			await this.wire.initialize(input.signal)
+			// A server discovery already started is initialised; it is not asked again.
+			if (!this.adopted) await this.wire.initialize(input.signal)
 			const models = await this.models(input.signal)
 			const model = input.model ?? input.resume?.initialModel ?? models[0]?.id
 			if (!model || !models.some((row) => row.id === model))
@@ -784,8 +838,95 @@ export async function createCodexHarnessAdapter(
 		async open(input, onEvent) {
 			input.signal?.throwIfAborted()
 			const cwd = await realpath(input.cwd)
-			return new CodexConnection(executable, env, cwd, profileRef, onEvent).open({ ...input, cwd })
+			const began = clock()
+			const connection = new CodexConnection(
+				executable,
+				env,
+				cwd,
+				profileRef,
+				onEvent,
+				options.pool?.take(serverKey(executable, cwd, env)),
+			)
+			const opened = await connection.open({ ...input, cwd })
+			options.onTiming?.('open', connection.timings(began))
+			return opened
 		},
+	}
+}
+
+function serverKey(executable: string, cwd: string, env: NodeJS.ProcessEnv): string {
+	return JSON.stringify([executable, cwd, env.CODEX_HOME ?? ''])
+}
+
+const SERVER_IDLE_MS = 120_000
+
+/**
+ * App-servers that discovery started and nothing has claimed yet. Opening a conversation takes one
+ * instead of spawning the engine's large executable again; an unclaimed one is closed after it has
+ * been idle for a while, and `closeAll` ends every one when its owner goes away.
+ */
+export class CodexServerPool {
+	private readonly entries = new Map<
+		string,
+		{ wire: CodexWire; timer: ReturnType<typeof setTimeout> }
+	>()
+	private epoch = 0
+	constructor(private readonly idleMs = SERVER_IDLE_MS) {}
+	/** Bumped by every `closeAll`; a discovery that began before it must not park afterwards. */
+	get generation(): number {
+		return this.epoch
+	}
+	get size(): number {
+		return this.entries.size
+	}
+	/** @internal */
+	take(key: string): CodexWire | undefined {
+		const entry = this.entries.get(key)
+		if (!entry) return undefined
+		clearTimeout(entry.timer)
+		this.entries.delete(key)
+		return entry.wire
+	}
+	/** @internal */
+	park(key: string, wire: CodexWire, generation?: number): boolean {
+		// A discovery that began before `closeAll` finishes into a closed pool: close, never park.
+		if (generation !== undefined && generation !== this.epoch) return false
+		const earlier = this.entries.get(key)
+		if (earlier) {
+			clearTimeout(earlier.timer)
+			void earlier.wire.close().catch(() => undefined)
+		}
+		const timer = setTimeout(() => {
+			if (this.entries.get(key)?.wire !== wire) return
+			this.entries.delete(key)
+			void wire.close().catch(() => undefined)
+		}, this.idleMs)
+		timer.unref?.()
+		wire.retarget({
+			onNotification: async () => undefined,
+			onRequest: async (id) => wire.unsupported(id),
+			// A server that died while parked is simply not there for the next open.
+			onClosed: async () => {
+				if (this.entries.get(key)?.wire !== wire) return
+				clearTimeout(timer)
+				this.entries.delete(key)
+			},
+		})
+		this.entries.set(key, { wire, timer })
+		return true
+	}
+	async closeAll(): Promise<void> {
+		this.epoch += 1
+		const all = [...this.entries.values()]
+		this.entries.clear()
+		const outcomes = await Promise.allSettled(
+			all.map(async ({ wire, timer }) => {
+				clearTimeout(timer)
+				await wire.close()
+			}),
+		)
+		const failure = outcomes.find((row) => row.status === 'rejected')
+		if (failure) throw (failure as PromiseRejectedResult).reason
 	}
 }
 
@@ -796,23 +937,38 @@ export async function discoverCodexHarnessModels(
 		readonly signal?: AbortSignal
 	},
 ): Promise<readonly HarnessModel[]> {
+	const began = clock()
 	const env = { ...process.env, ...options.env }
 	const executable = await resolveHarnessExecutable('codex', {
 		executable: options.executable,
 		env,
 	})
-	const wire: CodexWire = new CodexWire(
-		executable,
-		env,
-		await realpath(options.cwd),
-		async () => undefined,
-		async (id): Promise<void> => wire.unsupported(id),
-		async () => undefined,
-	)
+	const cwd = await realpath(options.cwd)
+	const key = serverKey(executable, cwd, env)
+	const idle: CodexWireHandlers = {
+		onNotification: async () => undefined,
+		onRequest: async (id): Promise<void> => wire.unsupported(id),
+		onClosed: async () => undefined,
+	}
+	// A server that is already running answers the list again without a new process.
+	const running = options.pool?.take(key)
+	const wire: CodexWire = running ?? new CodexWire(executable, env, cwd, idle)
+	running?.retarget(idle)
+	const generation = options.pool?.generation
+	let parked = false
 	try {
-		await wire.initialize(options.signal)
-		return await wire.models(options.signal)
+		if (!running) await wire.initialize(options.signal)
+		const models = await wire.models(options.signal)
+		options.onTiming?.('models', {
+			...(running ? { reused: true } : { spawnMs: wire.spawnMs, initializeMs: wire.initializeMs }),
+			modelListMs: wire.modelListMs,
+			totalMs: whole(clock() - began),
+		})
+		if (options.pool) {
+			parked = options.pool.park(key, wire, generation)
+		}
+		return models
 	} finally {
-		await wire.close()
+		if (!parked) await wire.close()
 	}
 }

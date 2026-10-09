@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { DesktopEvent } from '../shared/protocol.js'
+import { ModelListStore, modelListKey } from './model-list-store.js'
 import { Operator } from './operator.js'
 
 const directories: string[] = []
@@ -29,7 +30,9 @@ async function setup() {
 	const metadata = join(root, 'metadata')
 	const events: DesktopEvent[] = []
 	const diagnostics: { event: string; operation?: string }[] = []
-	const open = () => {
+	const contexts: { event: string; context: Record<string, unknown> }[] = []
+	const identity = join(root, 'identity')
+	const open = (extraEnv: Record<string, string> = {}) => {
 		const owner = new Operator(
 			{
 				program: process.execPath,
@@ -41,11 +44,18 @@ async function setup() {
 					FIXTURE_MODELS_FILE: modelsFile,
 					FIXTURE_REJECT_SELECTION_FILE: rejectSelection,
 					FIXTURE_REJECT_METADATA_FILE: metadata,
+					FIXTURE_IDENTITY_FILE: identity,
+					...extraEnv,
 				},
 			},
 			(event) => events.push(event),
 			root,
-			{ record: (event, context) => diagnostics.push({ event, operation: context?.operation }) },
+			{
+				record: (event, context) => {
+					diagnostics.push({ event, operation: context?.operation })
+					contexts.push({ event, context: { ...context } })
+				},
+			},
 		)
 		owners.push(owner)
 		return owner
@@ -65,9 +75,11 @@ async function setup() {
 		updates,
 		events,
 		diagnostics,
+		contexts,
 		modelsFile,
 		rejectSelection,
 		metadata,
+		identity,
 	}
 }
 
@@ -288,4 +300,89 @@ it('tries a failing source again after a minute, not on every open', async () =>
 	await owner.modelReadsSettled()
 	expect(await f.reads()).toBe(3)
 	expect(f.updates()).toHaveLength(1)
+})
+
+it('keys a stored list by the installed engine build, so an upgrade drops the old list at once', async () => {
+	const f = await setup()
+	await writeFile(f.identity, 'build-a')
+	await seed(f, 'alpha')
+	await f.list('alpha', 'beta')
+	await writeFile(f.identity, 'build-b')
+	const owner = f.open()
+	const view = await project(owner)
+	// Nothing stored under the new build: the read is awaited, never the old build's rows.
+	const first = await owner.models(view.id, 'fixture')
+	expect(first.models.map((model) => model.id)).toEqual(['alpha', 'beta'])
+	expect(first.fetchedAt).toBe(Date.now())
+	const file = JSON.parse(await readFile(join(f.root, 'model-lists.json'), 'utf8'))
+	expect(Object.keys(file.entries)).toHaveLength(1)
+})
+
+it('keeps serving the stored list while the same build is unchanged', async () => {
+	const f = await setup()
+	await writeFile(f.identity, 'build-a')
+	await seed(f, 'alpha')
+	const owner = f.open()
+	const view = await project(owner)
+	await f.list('alpha', 'beta')
+	const stored = await owner.models(view.id, 'fixture')
+	expect(stored.models.map((model) => model.id)).toEqual(['alpha'])
+	await owner.modelReadsSettled()
+})
+
+it('records what an engine start cost, from the CLI, as a diagnostics line without paths', async () => {
+	const f = await setup()
+	await f.list('alpha')
+	const timings = [
+		{
+			engine: 'codex-cli',
+			operation: 'models',
+			timings: { spawnMs: 41, initializeMs: 93, modelListMs: 12, totalMs: 160 },
+		},
+	]
+	const owner = f.open({ FIXTURE_TIMINGS: JSON.stringify(timings) })
+	const view = await project(owner)
+	await owner.models(view.id, 'fixture')
+	const lines = f.contexts.filter((line) => line.event === 'engine_timing')
+	expect(lines).toHaveLength(1)
+	expect(lines[0]?.context).toMatchObject({
+		engineId: 'codex-cli',
+		step: 'models',
+		timings: { spawnMs: 41, initializeMs: 93, modelListMs: 12, totalMs: 160 },
+	})
+})
+
+it('drops every stored list of an engine whose program was updated, and tells open pickers', async () => {
+	const f = await setup()
+	const build = (identity: string) =>
+		modelListKey({ engine: 'codex-cli', id: 'codex-cli', label: 'Codex CLI', identity })
+	const zen = modelListKey({ engine: 'namzu', id: 'fixture', label: 'Fixture provider' })
+	const store = new ModelListStore(f.root)
+	store.put(build('old'), { models: [{ id: 'gpt-old', label: 'Old' }], notice: null })
+	store.put(zen, { models: [{ id: 'alpha', label: 'Alpha' }], notice: null })
+	const owner = f.open()
+	owner.engineUpdated('codex-cli')
+	expect(f.updates()).toEqual([
+		{ kind: 'model-catalogue-updated', engine: 'codex-cli', provider: 'codex-cli' },
+	])
+	const file = JSON.parse(await readFile(join(f.root, 'model-lists.json'), 'utf8'))
+	expect(Object.keys(file.entries)).toEqual([zen])
+})
+
+it('asks each ready project’s runtime to end its idle servers for the engine', async () => {
+	const f = await setup()
+	const owner = f.open()
+	await project(owner)
+	await expect(owner.releaseEngine('codex-cli')).resolves.toBeUndefined()
+	const log = await readFile(join(f.root, 'requests.jsonl'), 'utf8')
+	const release = log.split('\n').filter((line) => line.includes('"namzu/harnesses/release"'))
+	expect(release).toHaveLength(1)
+	expect(release[0]).toContain('"engine":"codex-cli"')
+})
+
+it('is busy for an engine only while a conversation on that engine has work', async () => {
+	const f = await setup()
+	const owner = f.open()
+	expect(owner.engineBusy('codex-cli')).toBe(false)
+	expect(owner.engineBusy('claude-code')).toBe(false)
 })

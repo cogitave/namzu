@@ -22,6 +22,7 @@ import type {
 } from '../shared/protocol.js'
 import { ComposerControl, ComposerControlChevron } from './composer-control.js'
 import { ComposerEffortPanel } from './composer-effort-panel.js'
+import { startingLabel, startsAProcess, useElapsed } from './engine-starting.js'
 import {
 	EngineChip,
 	EnginePanel,
@@ -120,6 +121,8 @@ export function ModelPicker({
 	engineControl,
 	unchosen,
 	pending = false,
+	startingEngine,
+	startFailed,
 }: {
 	providers: ProviderView
 	choice: ModelChoice
@@ -143,6 +146,10 @@ export function ModelPicker({
 	unchosen?: boolean
 	/** The choice, providers or engine are still resolving: the trigger never flashes a prompt or an id. */
 	pending?: boolean
+	/** The engine being chosen right now, whose process is still starting. */
+	startingEngine?: HarnessView['selected']
+	/** The engine failed to answer, so "Starting…" would be a claim of progress that no longer holds. */
+	startFailed?: boolean
 }) {
 	const [open, setOpen] = useState(false)
 	const [view, setView] = useState<View>('models')
@@ -203,6 +210,20 @@ export function ModelPicker({
 	const kept = shown.current?.scope === shownScope ? shown.current.text : ''
 	const label = trigger.text || (trigger.pending ? kept : '')
 	const triggerPending = trigger.pending && !label
+	// A process is being awaited: the engine being chosen, or the selected one while its list loads.
+	const starting =
+		startingEngine && startsAProcess(startingEngine)
+			? startingEngine
+			: triggerPending && !startFailed && startsAProcess(engine)
+				? engine
+				: undefined
+	const startingFor = useElapsed(starting !== undefined)
+	const startingText = starting
+		? startingLabel(
+				starting === engine ? engineName : engineLabel(engineControl?.view, starting),
+				startingFor,
+			)
+		: undefined
 	const shownEffort = onEffortChange ? resolveEffort(settings, effort) : undefined
 	const effortChoices = shownEffort?.levels.length ?? 0
 	useEffect(() => {
@@ -248,11 +269,13 @@ export function ModelPicker({
 			setOpen(false)
 		}
 	}, [scope])
-	const accessibleName = label
-		? `Model: ${label}${shownEffort?.value ? `, effort: ${effortLabel(shownEffort.value)}` : ''}`
-		: triggerPending
-			? 'Model, loading'
-			: 'Select model'
+	const accessibleName = startingText
+		? `Model, ${startingText.replace('\u2026', '')}`
+		: label
+			? `Model: ${label}${shownEffort?.value ? `, effort: ${effortLabel(shownEffort.value)}` : ''}`
+			: triggerPending
+				? 'Model, loading'
+				: 'Select model'
 	const choose = (next: ModelChoice) => {
 		if (disabled) return
 		onChange(next)
@@ -305,7 +328,11 @@ export function ModelPicker({
 						<HarnessMark engine={engine} />
 					</span>
 				)}
-				{triggerPending ? (
+				{startingText ? (
+					<span className="model-picker-trigger-model model-picker-trigger-starting truncate">
+						{startingText}
+					</span>
+				) : triggerPending ? (
 					<span
 						className="model-picker-trigger-model model-picker-trigger-skeleton"
 						aria-hidden="true"

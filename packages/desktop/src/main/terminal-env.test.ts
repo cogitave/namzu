@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { engineHost, shellEnvironment } from './terminal-env.js'
+import { engineHost, findProgram, shellEnvironment } from './terminal-env.js'
 
 const files = (...paths: string[]) => {
 	const set = new Set(paths)
@@ -78,5 +78,27 @@ describe('engineHost', () => {
 			path: 'C:\\Users\\A\\AppData\\Roaming\\npm\\codex.cmd',
 			shim: true,
 		})
+	})
+})
+
+describe('findProgram', () => {
+	it('finds npm next to Node on Windows as a shim, and never the PowerShell script', () => {
+		const found = findProgram('npm', {
+			platform: 'win32',
+			env: { PATH: 'C:\\a', ProgramFiles: 'C:\\Program Files' },
+			home: 'C:\\Users\\A',
+			...files('C:\\Program Files\\nodejs\\npm.cmd', 'C:\\a\\npm.ps1'),
+		})
+		expect(found).toEqual({ path: 'C:\\Program Files\\nodejs\\npm.cmd', shim: true })
+	})
+	it('finds a program on PATH elsewhere than Windows and nothing that is absent', () => {
+		const deps = {
+			platform: 'linux' as const,
+			env: { PATH: '/usr/bin' },
+			home: '/home/a',
+			...files('/usr/bin/npm'),
+		}
+		expect(findProgram('npm', deps)).toEqual({ path: '/usr/bin/npm', shim: false })
+		expect(findProgram('yarn', deps)).toBeUndefined()
 	})
 })

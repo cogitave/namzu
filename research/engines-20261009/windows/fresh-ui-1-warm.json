@@ -1,0 +1,26 @@
+{
+ "variant": "fresh",
+ "mode": "ui",
+ "n": "1",
+ "delay": 0,
+ "spawnsBefore": 1,
+ "clickAt": 1791515928843,
+ "ready": false,
+ "timeline": [],
+ "spawnsAfterReady": 1,
+ "pickerDialogMs": 57,
+ "pickerRowsMs": 87,
+ "spawnsAfterPicker": 1,
+ "spawnsTotal": 1,
+ "unmatchedStarts": 0,
+ "codexPidsBeforeLaunch": 2,
+ "newCodexProcessesAfterClose": 0,
+ "spawnLog": [
+  "start 50328 63927112694065 --version",
+  "exit 50328 63927112694087 code 0",
+  "start 56396 63927112695784 app-server",
+  "start 32460 63927112724095 --version",
+  "exit 32460 63927112724117 code 0",
+  "exit 56396 63927112816095 code 0"
+ ]
+}

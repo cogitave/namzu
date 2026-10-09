@@ -9,6 +9,13 @@ import type {
 } from '@namzu/sdk'
 import type { BackgroundWorkStatus, BackgroundWorkStatusEvent } from './background-work-protocol.js'
 import type {
+	EngineUpdateAnnouncement,
+	EngineUpdateNotice,
+	EngineUpdateRequest,
+	EngineUpdateResult,
+	EngineUpdatesState,
+} from './engine-update-protocol.js'
+import type {
 	PalCommunicationView,
 	PalPermissionChange,
 	PalSubscriptionCreate,
@@ -221,6 +228,20 @@ export interface HarnessView {
 		available: boolean
 		notice?: string
 	}[]
+	/** What engine starts cost since the last report; the main process records it, the UI ignores it. */
+	timings?: EngineTimingReport[]
+}
+/** What starting an external engine cost, in milliseconds. A step that did not run is absent. */
+export interface EngineTimingReport {
+	engine: 'codex-cli' | 'claude-code'
+	operation: 'open' | 'models'
+	timings: {
+		spawnMs?: number
+		initializeMs?: number
+		modelListMs?: number
+		totalMs: number
+		reused?: boolean
+	}
 }
 export interface ChatMessage {
 	/** First host observation or durable journal time; absent when timing is unknown. */
@@ -235,7 +256,13 @@ export interface ChatMessage {
 	attachments?: AttachmentView[]
 }
 export interface ProviderView {
-	available: { id: string; label: string; defaultModel: string }[]
+	available: {
+		id: string
+		label: string
+		defaultModel: string
+		/** An external engine's installed build; a stored model list is keyed by it. */
+		identity?: string
+	}[]
 	selected: { id: string; model?: string } | null
 }
 export interface ModelCatalogueView {
@@ -255,6 +282,8 @@ export interface ModelCatalogueView {
 	notice: string | null
 	/** Epoch milliseconds of the read behind a stored list; absent on a live read. */
 	fetchedAt?: number
+	/** What the engine start behind a live read cost; the main process records it. */
+	timings?: EngineTimingReport[]
 }
 export interface PalView {
 	id: string
@@ -785,6 +814,15 @@ export interface DesktopApi {
 	cancelUpdateInstall?(): Promise<void>
 	reportUiBusy?(busy: UpdateUiBusy): Promise<void>
 	onUpdateState?(listener: (state: UpdateState) => void): () => void
+	/** The two external engines and a standalone Namzu CLI: versions and the update action. */
+	engineUpdates?(): Promise<EngineUpdatesState>
+	checkEngineUpdates?(): Promise<void>
+	/** Runs the update in a visible terminal tab in the given pane; only ever for a click. */
+	updateEngine?(request: EngineUpdateRequest): Promise<EngineUpdateResult>
+	/** Versions found since the person was last told, each returned once across all windows. */
+	claimEngineUpdateAnnouncements?(): Promise<EngineUpdateAnnouncement[]>
+	onEngineUpdates?(listener: (state: EngineUpdatesState) => void): () => void
+	onEngineUpdateNotice?(listener: (notice: EngineUpdateNotice) => void): () => void
 	/** Terminal tabs. Absent in a preview with no host to run them. */
 	terminals?(): Promise<TerminalTabView[]>
 	terminalAvailability?(projectId: string): Promise<TerminalAvailability>

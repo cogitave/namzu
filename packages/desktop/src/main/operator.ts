@@ -30,6 +30,7 @@ import type {
 	DesktopUndoPreview,
 	DesktopUndoResult,
 	DraftSettings,
+	EngineTimingReport,
 	HarnessView,
 	JobView,
 	ModelCatalogueView,
@@ -432,6 +433,47 @@ export class Operator {
 		for (const status of Object.values(this.backgroundWork.snapshot()))
 			if (status.state === 'known' && status.runningCount > 0) found.add('background-work')
 		return [...found]
+	}
+	/** Whether a conversation on this engine has a reply running, queued, or a permission waiting. */
+	engineBusy(engine: 'codex-cli' | 'claude-code'): boolean {
+		for (const item of this.conversations.values())
+			if (
+				item.view.harness === engine &&
+				(item.running || item.admitting || item.queue.length || item.permissions.size)
+			)
+				return true
+		return false
+	}
+	/**
+	 * Ends the idle servers every project's runtime keeps for this engine, so an update can replace
+	 * its program. A runtime that is gone, or too old to know the call, is skipped.
+	 */
+	async releaseEngine(engine: 'codex-cli' | 'claude-code'): Promise<void> {
+		await Promise.all(
+			[...this.projects.values()].map(async (project) => {
+				if (project.view.status !== 'ready' || project.view.palId) return
+				try {
+					await project.client.request('namzu/harnesses/release', { engine })
+				} catch (error) {
+					this.diagnostics?.record('cli_request_failed', {
+						operation: 'releaseEngine',
+						error,
+					})
+				}
+			}),
+		)
+	}
+	/**
+	 * The engine's program changed on disk: every stored model list for it is dropped and the next
+	 * read asks the new build. Open pickers read again.
+	 */
+	engineUpdated(engine: 'codex-cli' | 'claude-code'): void {
+		this.modelLists?.forgetEngine(engine)
+		for (const set of [this.modelsRevalidated, this.modelsStale])
+			for (const key of [...set]) if (key.startsWith(`${engine}/`)) set.delete(key)
+		for (const key of [...this.modelsRetryAt.keys()])
+			if (key.startsWith(`${engine}/`)) this.modelsRetryAt.delete(key)
+		this.emit({ kind: 'model-catalogue-updated', engine, provider: engine })
 	}
 	/** Volatile UI knowledge. Missing entries are unknown, never zero. */
 	backgroundWorkStatuses(): Record<string, BackgroundWorkStatus> {
@@ -2417,6 +2459,7 @@ export class Operator {
 			session ? { sessionId: session.runtimeSessionId } : {},
 		)) as HarnessView
 		assertCurrent()
+		this.recordEngineTimings(view.timings)
 		if (session) {
 			if (session.view.harness !== view.selected)
 				this.backgroundWork.invalidate(
@@ -2454,6 +2497,7 @@ export class Operator {
 				engine,
 			})) as HarnessView
 			assertCurrent()
+			this.recordEngineTimings(view.timings)
 			if (session.view.harness !== view.selected)
 				this.backgroundWork.invalidate(
 					sessionId,
@@ -2937,6 +2981,16 @@ export class Operator {
 		}
 		return read.entry ? this.storedView(read.entry, session, provider) : read.view
 	}
+	/** Spawn, initialize and model-list costs of external engine starts, as the CLI measured them. */
+	private recordEngineTimings(reports: EngineTimingReport[] | undefined): void {
+		if (!Array.isArray(reports)) return
+		for (const report of reports.slice(0, 16))
+			this.diagnostics?.record('engine_timing', {
+				engineId: report?.engine,
+				step: report?.operation,
+				timings: report?.timings,
+			})
+	}
 	private modelReadFailed(key: string, error?: unknown): void {
 		// A source that keeps failing is tried again after a minute, not on every picker open.
 		this.modelsRetryAt.set(key, Date.now() + MODEL_RETRY_AFTER_MS)
@@ -2974,6 +3028,7 @@ export class Operator {
 					engine: session?.view.harness ?? 'namzu',
 					id: row.id,
 					label: row.label,
+					...(row.identity ? { identity: row.identity } : {}),
 				})
 			: undefined
 	}
@@ -3022,6 +3077,7 @@ export class Operator {
 				...(session ? { sessionId: session.runtimeSessionId } : {}),
 			})) as ModelCatalogueView
 			assertCurrent()
+			this.recordEngineTimings(view?.timings)
 			let key = keyed
 			// A failed listing arrives as a notice with no rows. It is shown, never kept.
 			if (!this.modelLists || !Array.isArray(view?.models) || !view.models.length) return { view }

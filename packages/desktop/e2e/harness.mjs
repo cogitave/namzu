@@ -97,6 +97,8 @@ export async function launch(world) {
 		if (INHERIT.test(k) && v !== undefined) env[k] = v;
 	// Programs the flow wants found first on PATH (a stand-in for an installed engine CLI).
 	if (world.pathPrefix) env.PATH = `${world.pathPrefix}:${env.PATH ?? ""}`;
+	// Nothing reaches the real npm registry: the engine update check asks a dead loopback port unless a flow serves one.
+	env.NAMZU_ENGINE_REGISTRY = "http://127.0.0.1:9";
 	Object.assign(env, world.env ?? {});
 	Object.assign(env, {
 		HOME: world.osHome,

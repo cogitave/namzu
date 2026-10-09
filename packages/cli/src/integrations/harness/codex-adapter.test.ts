@@ -11,7 +11,12 @@ import {
 	generateTopicId,
 } from '@namzu/sdk'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { createCodexHarnessAdapter, discoverCodexHarnessModels } from './codex-adapter.js'
+import {
+	CodexServerPool,
+	type EngineTimings,
+	createCodexHarnessAdapter,
+	discoverCodexHarnessModels,
+} from './codex-adapter.js'
 
 const fixture = vi.hoisted(() => ({
 	frames: [] as Record<string, unknown>[],
@@ -23,6 +28,8 @@ const fixture = vi.hoisted(() => ({
 				emit: (frame: unknown) => Promise<void>,
 		  ) => Promise<boolean>),
 	close: vi.fn(),
+	spawns: 0,
+	exit: undefined as undefined | (() => Promise<void>),
 }))
 vi.mock('node:fs/promises', async (importOriginal) => ({
 	...(await importOriginal<typeof import('node:fs/promises')>()),
@@ -40,6 +47,8 @@ vi.mock('./process.js', () => ({
 		},
 	) => {
 		fixture.emit = options.onFrame
+		fixture.spawns++
+		fixture.exit = async () => options.onClosed()
 		return {
 			closed: Promise.resolve(),
 			close: async () => {
@@ -106,6 +115,8 @@ beforeEach(() => {
 	fixture.emit = undefined
 	fixture.onWrite = undefined
 	fixture.close.mockClear()
+	fixture.spawns = 0
+	fixture.exit = undefined
 })
 
 async function open() {
@@ -947,5 +958,118 @@ describe('Codex owned external engine adapter', () => {
 		await expect(
 			first.adapter.open({ cwd: '/other', resume: binding }, async () => undefined),
 		).rejects.toThrow('does not belong')
+	})
+})
+
+describe('Codex app-server sharing', () => {
+	const methods = () => fixture.frames.map((frame) => frame.method)
+
+	it('lets opening a conversation take the server that discovery started', async () => {
+		const pool = new CodexServerPool()
+		const timings: [string, EngineTimings][] = []
+		const onTiming = (operation: 'open' | 'models', value: EngineTimings) =>
+			timings.push([operation, value])
+		await discoverCodexHarnessModels({ cwd: '/workspace', pool, onTiming })
+		expect(fixture.spawns).toBe(1)
+		expect(pool.size).toBe(1)
+		expect(fixture.close).not.toHaveBeenCalled()
+		const adapter = await createCodexHarnessAdapter({
+			profileRef: 'native-profile',
+			pool,
+			onTiming,
+		})
+		const connection = await adapter.open({ cwd: '/workspace' }, async () => undefined)
+		// One process served discovery and the conversation; it was initialised once.
+		expect(fixture.spawns).toBe(1)
+		expect(pool.size).toBe(0)
+		expect(methods().filter((method) => method === 'initialize')).toHaveLength(1)
+		expect(methods()).toContain('thread/start')
+		expect(timings.map(([operation]) => operation)).toEqual(['models', 'open'])
+		expect(timings[1]?.[1]).toMatchObject({ reused: true })
+		expect(timings[1]?.[1]).not.toHaveProperty('initializeMs')
+		await connection.close()
+		expect(fixture.close).toHaveBeenCalledOnce()
+	})
+
+	it('closes a discovery that finishes after the pool was closed instead of parking it', async () => {
+		const pool = new CodexServerPool()
+		const generation = pool.generation
+		await pool.closeAll()
+		const wire = { close: vi.fn(async () => undefined), retarget: vi.fn() } as never
+		expect(pool.park('k', wire, generation)).toBe(false)
+		expect(pool.size).toBe(0)
+	})
+
+	it('spawns when nothing is waiting and reads the list again on the server that is', async () => {
+		const pool = new CodexServerPool()
+		await discoverCodexHarnessModels({ cwd: '/workspace', pool })
+		await discoverCodexHarnessModels({ cwd: '/workspace', pool })
+		expect(fixture.spawns).toBe(1)
+		expect(methods().filter((method) => method === 'model/list')).toHaveLength(2)
+		const adapter = await createCodexHarnessAdapter({ profileRef: 'native-profile' })
+		const connection = await adapter.open({ cwd: '/workspace' }, async () => undefined)
+		expect(fixture.spawns).toBe(2)
+		await connection.close()
+		await pool.closeAll()
+	})
+
+	it('does not hand a server to another folder', async () => {
+		const pool = new CodexServerPool()
+		await discoverCodexHarnessModels({ cwd: '/workspace', pool })
+		const adapter = await createCodexHarnessAdapter({ profileRef: 'native-profile', pool })
+		const connection = await adapter.open({ cwd: '/other' }, async () => undefined)
+		expect(fixture.spawns).toBe(2)
+		expect(pool.size).toBe(1)
+		await connection.close()
+		await pool.closeAll()
+	})
+
+	it('closes an unclaimed server once it has been idle, on the fake clock', async () => {
+		vi.useFakeTimers()
+		try {
+			const pool = new CodexServerPool(5_000)
+			await discoverCodexHarnessModels({ cwd: '/workspace', pool })
+			await vi.advanceTimersByTimeAsync(4_999)
+			expect(pool.size).toBe(1)
+			expect(fixture.close).not.toHaveBeenCalled()
+			await vi.advanceTimersByTimeAsync(1)
+			expect(pool.size).toBe(0)
+			expect(fixture.close).toHaveBeenCalledOnce()
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+
+	it('ends every waiting server when its owner goes away', async () => {
+		const pool = new CodexServerPool()
+		await discoverCodexHarnessModels({ cwd: '/workspace', pool })
+		await discoverCodexHarnessModels({ cwd: '/other', pool })
+		expect(pool.size).toBe(2)
+		await pool.closeAll()
+		expect(pool.size).toBe(0)
+		expect(fixture.close).toHaveBeenCalledTimes(2)
+	})
+
+	it('forgets a server that exited while it waited, so opening starts a fresh one', async () => {
+		const pool = new CodexServerPool()
+		await discoverCodexHarnessModels({ cwd: '/workspace', pool })
+		await fixture.exit?.()
+		expect(pool.size).toBe(0)
+		const adapter = await createCodexHarnessAdapter({ profileRef: 'native-profile', pool })
+		const connection = await adapter.open({ cwd: '/workspace' }, async () => undefined)
+		expect(fixture.spawns).toBe(2)
+		await connection.close()
+	})
+
+	it('closes the server when discovery fails, and parks nothing', async () => {
+		const pool = new CodexServerPool()
+		fixture.onWrite = async (frame, emit) => {
+			if (frame.method !== 'model/list') return false
+			await emit({ id: frame.id, error: { code: -1, message: 'no' } })
+			return true
+		}
+		await expect(discoverCodexHarnessModels({ cwd: '/workspace', pool })).rejects.toThrow()
+		expect(pool.size).toBe(0)
+		expect(fixture.close).toHaveBeenCalledOnce()
 	})
 })

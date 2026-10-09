@@ -1,0 +1,77 @@
+/* Programs Namzu works with, inside Settings ▸ Updates. Colours come from the app's tokens, so both themes follow. */
+.engine-updates ul {
+	display: flex;
+	flex-direction: column;
+	margin: 8px 0 0;
+	padding: 0;
+	list-style: none;
+}
+.engine-updates li {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 16px;
+	padding: 12px 0;
+	border-top: 1px solid var(--border);
+}
+.engine-update-copy {
+	flex: 1;
+	min-width: 0;
+}
+.engine-update-heading {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: 4px 12px;
+}
+.engine-update-heading h4 {
+	margin: 0;
+	font-size: 13px;
+	font-weight: 500;
+	line-height: 20px;
+}
+.engine-update-versions {
+	font-size: 13px;
+	font-variant-numeric: tabular-nums;
+	color: var(--muted-foreground);
+}
+.engine-update-copy p {
+	margin: 2px 0 0;
+	font-size: 12px;
+	line-height: 18px;
+	overflow-wrap: anywhere;
+}
+.engine-update-status[data-tone="attention"] {
+	color: var(--foreground);
+	font-weight: 500;
+}
+.engine-update-status[data-tone="error"],
+.engine-update-refusal {
+	color: var(--warning-foreground);
+}
+.engine-update-status[data-tone="neutral"],
+.engine-update-note,
+.engine-update-command {
+	color: var(--muted-foreground);
+}
+.engine-update-command code {
+	padding: 1px 4px;
+	border-radius: 4px;
+	background: color-mix(in srgb, var(--foreground) 7%, transparent);
+	font-size: 11px;
+}
+.engine-update-control {
+	flex: none;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+.engine-updates button:focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: 2px;
+}
+@media (max-width: 560px) {
+	.engine-updates li {
+		flex-direction: column;
+	}
+}

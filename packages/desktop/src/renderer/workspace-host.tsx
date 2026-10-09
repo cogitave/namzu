@@ -11,6 +11,7 @@ import { terminalApi, terminalSessions } from './terminal-registry.js'
 import { useTerminalTabs } from './terminal-store.js'
 import { UpdateDialog } from './update-dialog.js'
 import { type UpdateDialogAction, updateDialogModel } from './update-model.js'
+import { EngineUpdatesContext, useEngineUpdatesController } from './use-engine-updates.js'
 import { useUpdateBusyReporter, useUpdateState } from './use-update.js'
 import type { WorkspaceTabDrag } from './workspace-canvas-geometry.js'
 import { WorkspaceCanvas } from './workspace-canvas.js'
@@ -57,6 +58,7 @@ export function WorkspaceHost() {
 	}, [])
 	const report = useCallback((failure: unknown) => setError(message(failure)), [])
 	const updateState = useUpdateState(api)
+	const engineUpdates = useEngineUpdatesController(api, report)
 	const [updateOpen, setUpdateOpen] = useState(false)
 	const updateDialogShown = updateOpen || updateState.status === 'installing'
 	useEffect(() => {
@@ -362,7 +364,7 @@ export function WorkspaceHost() {
 			groups.some(
 				(group) => group.id === focused && group.tabs.includes(view.outgoingTransfer?.tabId ?? ''),
 			))
-	return (
+	const content = (
 		<div className="app workspace-host" data-sidebar-collapsed={sideCollapsed} data-page={page}>
 			<div ref={setShell} className="workspace-shell" inert={activeFrozen} />
 			<div className="workspace-stage">
@@ -456,5 +458,8 @@ export function WorkspaceHost() {
 				/>
 			)}
 		</div>
+	)
+	return (
+		<EngineUpdatesContext.Provider value={engineUpdates}>{content}</EngineUpdatesContext.Provider>
 	)
 }

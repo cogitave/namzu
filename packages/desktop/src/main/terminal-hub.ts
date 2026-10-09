@@ -10,6 +10,7 @@ import type {
 import {
 	type EngineHost,
 	type ShellEnvironment,
+	type TerminalEngine,
 	type TerminalLaunch,
 	type TerminalTabView,
 	buildEngineLaunch,
@@ -88,6 +89,18 @@ export interface TerminalHubOptions {
 		after(ms: number, run: () => void): () => void
 	}
 	onError?(error: unknown, operation: string): void
+	/** A terminal started with `openCommand` ended, or its tab was closed before it did. */
+	onEnd?(info: TerminalEndInfo): void
+}
+
+/** What an owner of a command terminal is told when it is over. */
+export interface TerminalEndInfo {
+	tabId: string
+	/** Absent when the host went away or the tab was closed before the program ended. */
+	exitCode?: number
+	closed?: boolean
+	/** The end of what the program printed, for reading an error from. */
+	tail: string
 }
 
 interface Entry {
@@ -101,7 +114,12 @@ interface Entry {
 	lastInputAt?: number
 	screen: string
 	viewers: Map<string, string>
+	/** Set for a command terminal whose owner wants to be told how it ended. */
+	watched?: { tail: string }
 }
+
+/** How much of a watched terminal's output is kept for its owner. */
+const TAIL_CHARS = 4_000
 
 /** The observer the hub itself keeps on every terminal, so output and an exit are seen with no view open. */
 const OBSERVER = 'desktop'
@@ -230,6 +248,55 @@ export class TerminalHub {
 			omitted = built.omitted
 		} else
 			launch = resolveShell(this.options.settings().terminalShell, this.options.shellEnvironment())
+		return this.spawn({
+			project,
+			connection,
+			kind: request.kind,
+			...(request.kind === 'engine' ? { engine: request.engine } : {}),
+			launch,
+			omitted,
+			cols,
+			rows,
+		})
+	}
+
+	/**
+	 * Start a command of Namzu's own choosing as a shell tab, and tell `onEnd` how it ended. The
+	 * caller supplies the program; no window ever does.
+	 */
+	async openCommand(input: {
+		projectId: string
+		launch: TerminalLaunch
+		cols: number
+		rows: number
+	}): Promise<TerminalOpenResult> {
+		const { project, connection } = await this.options.projectHost(input.projectId)
+		if (!connection.supportsTerminals())
+			throw new Error('This project runs a Namzu runtime that has no terminals. Update Namzu.')
+		return this.spawn({
+			project,
+			connection,
+			kind: 'shell',
+			launch: input.launch,
+			omitted: [],
+			cols: input.cols,
+			rows: input.rows,
+			watched: true,
+		})
+	}
+
+	private async spawn(input: {
+		project: HubProject
+		connection: HubConnection
+		kind: 'shell' | 'engine'
+		engine?: TerminalEngine
+		launch: TerminalLaunch
+		omitted: string[]
+		cols: number
+		rows: number
+		watched?: boolean
+	}): Promise<TerminalOpenResult> {
+		const { project, connection, launch, omitted, cols, rows } = input
 		const client = this.clientFor(connection)
 		const status = await client.status()
 		if (!status.available) throw new Error(status.reason ?? 'Terminals are not available here.')
@@ -246,12 +313,12 @@ export class TerminalHub {
 			view: {
 				id: terminalTabId(info.id),
 				projectId: project.id,
-				kind: request.kind,
-				...(request.kind === 'engine' ? { engine: request.engine } : {}),
+				kind: input.kind,
+				...(input.kind === 'engine' && input.engine ? { engine: input.engine } : {}),
 				title: launch.title,
 				status: 'running',
 				createdAt: info.createdAt,
-				...(request.kind === 'engine' ? { activity: 'working' as const } : {}),
+				...(input.kind === 'engine' ? { activity: 'working' as const } : {}),
 			},
 			hostId: info.id,
 			connection,
@@ -260,6 +327,7 @@ export class TerminalHub {
 			lastOutputAt: this.options.clock.now(),
 			screen: '',
 			viewers: new Map(),
+			...(input.watched ? { watched: { tail: '' } } : {}),
 		}
 		try {
 			// Every output and the exit are seen from here on, whether or not a window is looking.
@@ -399,6 +467,7 @@ export class TerminalHub {
 		this.entries.delete(tabId)
 		if (entry.hostId) this.byHost.delete(entry.hostId)
 		entry.viewers.clear()
+		if (entry.view.status === 'running') this.ended(entry, undefined, true)
 		try {
 			if (entry.client && entry.hostId) await entry.client.close(entry.hostId)
 		} catch (error) {
@@ -454,6 +523,7 @@ export class TerminalHub {
 		const now = this.options.clock.now()
 		if (entry.lastInputAt === undefined || now - entry.lastInputAt >= ECHO_MS)
 			entry.lastOutputAt = now
+		if (entry.watched) entry.watched.tail = `${entry.watched.tail}${note.data}`.slice(-TAIL_CHARS)
 		this.send(entry, { kind: 'data', tabId: entry.view.id, offset: note.offset, data: note.data })
 		this.scheduleSave()
 		if (entry.view.kind === 'engine') this.refreshActivity()
@@ -478,6 +548,24 @@ export class TerminalHub {
 		if (exitCode !== undefined) entry.view.exitCode = exitCode
 		if (entry.view.kind === 'engine') entry.view.activity = 'exited'
 		this.afterChange()
+		this.ended(entry, exitCode)
+	}
+
+	/** Tells the owner of a command terminal how it ended, once. */
+	private ended(entry: Entry, exitCode: number | undefined, closed = false): void {
+		const watched = entry.watched
+		if (!watched) return
+		entry.watched = undefined
+		try {
+			this.options.onEnd?.({
+				tabId: entry.view.id,
+				...(exitCode === undefined ? {} : { exitCode }),
+				...(closed ? { closed: true } : {}),
+				tail: watched.tail,
+			})
+		} catch (error) {
+			this.options.onError?.(error, 'terminal.onEnd')
+		}
 	}
 
 	/** The hub's own view dropped output: continue from where it is, so nothing is skipped for later views. */
@@ -500,6 +588,7 @@ export class TerminalHub {
 				entry.view.status = 'exited'
 				if (entry.view.kind === 'engine') entry.view.activity = 'exited'
 				this.send(entry, { kind: 'exit', tabId: entry.view.id })
+				this.ended(entry, undefined)
 			}
 			entry.hostId = undefined
 			entry.client = undefined

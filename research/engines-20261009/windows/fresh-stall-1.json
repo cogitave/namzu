@@ -1,0 +1,68 @@
+{
+ "variant": "fresh",
+ "mode": "stall",
+ "n": "1",
+ "delay": 3500,
+ "spawnsBefore": 0,
+ "clickAt": 1791516069449,
+ "ready": true,
+ "timeline": [
+  {
+   "t": 27,
+   "label": "Model, Starting Codex",
+   "disabled": true
+  },
+  {
+   "t": 1029,
+   "label": "Model, Starting Codex 1s",
+   "disabled": true
+  },
+  {
+   "t": 2033,
+   "label": "Model, Starting Codex 2s",
+   "disabled": true
+  },
+  {
+   "t": 3036,
+   "label": "Model, Starting Codex 3s",
+   "disabled": true
+  },
+  {
+   "t": 4043,
+   "label": "Model, Starting Codex 4s",
+   "disabled": true
+  },
+  {
+   "t": 5036,
+   "label": "Model, Starting Codex 5s",
+   "disabled": true
+  },
+  {
+   "t": 5478,
+   "label": "",
+   "disabled": null
+  },
+  {
+   "t": 6289,
+   "label": "Model, Starting Codex",
+   "disabled": false
+  },
+  {
+   "t": 7262,
+   "label": "Model: GPT-6 Astra, effort: Medium",
+   "disabled": false
+  }
+ ],
+ "timeToModelMs": 7262,
+ "spawnsAfterReady": 1,
+ "spawnsTotal": 1,
+ "unmatchedStarts": 0,
+ "codexPidsBeforeLaunch": 2,
+ "newCodexProcessesAfterClose": 0,
+ "spawnLog": [
+  "start 57916 63927112858767 --version",
+  "exit 57916 63927112862295 code 0",
+  "start 47848 63927112870472 app-server",
+  "exit 47848 63927112877221 code 0"
+ ]
+}

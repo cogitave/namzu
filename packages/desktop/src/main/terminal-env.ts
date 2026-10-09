@@ -111,22 +111,34 @@ export function engineHost(
 		...(deps.platform === 'win32'
 			? { commandPrompt: deps.env.ComSpec || win32.join(root(deps), 'System32', 'cmd.exe') }
 			: {}),
-		resolve: (name) => {
-			if (deps.platform === 'win32')
-				return findWindowsProgram(name, {
-					path: pathOf(deps.env),
-					extensions: ['.exe', '.cmd'],
-					extraDirectories: toolDirectories(deps),
-					exists: deps.exists,
-				})
-			for (const directory of [
-				...pathOf(deps.env).split(delimiter).filter(Boolean),
-				...toolDirectories(deps),
-			]) {
-				const candidate = posix.join(directory, name)
-				if (deps.executable(candidate)) return { path: candidate, shim: false }
-			}
-			return undefined
-		},
+		resolve: (name) => findProgram(name, deps),
 	}
+}
+
+/**
+ * Where a program is over PATH and the places a person's own tools land. A name may be a program
+ * Namzu only reads the version of or updates through (`npm`), not just an engine.
+ */
+export function findProgram(
+	name: string,
+	deps: TerminalEnvDeps = defaultTerminalEnvDeps(),
+): { path: string; shim: boolean } | undefined {
+	if (deps.platform === 'win32')
+		return findWindowsProgram(name, {
+			path: pathOf(deps.env),
+			extensions: ['.exe', '.cmd'],
+			extraDirectories: [
+				...toolDirectories(deps),
+				...(deps.env.ProgramFiles ? [win32.join(deps.env.ProgramFiles, 'nodejs')] : []),
+			],
+			exists: deps.exists,
+		})
+	for (const directory of [
+		...pathOf(deps.env).split(delimiter).filter(Boolean),
+		...toolDirectories(deps),
+	]) {
+		const candidate = posix.join(directory, name)
+		if (deps.executable(candidate)) return { path: candidate, shim: false }
+	}
+	return undefined
 }

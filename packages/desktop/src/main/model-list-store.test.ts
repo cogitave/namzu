@@ -230,6 +230,22 @@ it('prunes an engine to the keys still offered, and leaves other engines alone',
 	expect(store.prune('namzu', new Set([key('zen')]))).toBe(false)
 })
 
+it('forgets every list of an engine whatever build it came from, and only that engine', async () => {
+	const path = await dir()
+	const store = new ModelListStore(path)
+	const build = (identity: string) =>
+		modelListKey({ engine: 'codex-cli', id: 'codex-cli', label: 'Codex CLI', identity })
+	store.put(build('old'), rows('a'))
+	store.put(build('new'), rows('b'))
+	store.put(key('zen'), rows('c'))
+	expect(store.forgetEngine('codex-cli')).toBe(true)
+	const reread = new ModelListStore(path)
+	expect(reread.get(build('old'))).toBeUndefined()
+	expect(reread.get(build('new'))).toBeUndefined()
+	expect(reread.get(key('zen'))).toBeDefined()
+	expect(store.forgetEngine('codex-cli')).toBe(false)
+})
+
 it('keeps the Zen group on a stored row and still reads a row saved without one', async () => {
 	const path = await dir()
 	new ModelListStore(path).put(key(), {
@@ -260,4 +276,26 @@ it('keeps the Zen group on a stored row and still reads a row saved without one'
 		{ id: 'a', label: 'A', note: '(free)' },
 	])
 	expect(await withEntry({ id: 'a', label: 'A', group: 'paid' })).toBeUndefined()
+})
+
+it('keys a list by the engine build when one is named, and leaves other keys as they were', () => {
+	const plain = modelListKey({ engine: 'codex-cli', id: 'codex-cli', label: 'Codex CLI' })
+	const buildA = modelListKey({
+		engine: 'codex-cli',
+		id: 'codex-cli',
+		label: 'Codex CLI',
+		identity: 'a',
+	})
+	const buildB = modelListKey({
+		engine: 'codex-cli',
+		id: 'codex-cli',
+		label: 'Codex CLI',
+		identity: 'b',
+	})
+	expect(new Set([plain, buildA, buildB]).size).toBe(3)
+	expect(buildA.startsWith('codex-cli/codex-cli/')).toBe(true)
+	// Without an identity the key is the one earlier launches stored.
+	expect(modelListKey({ engine: 'zen', id: 'zen', label: 'Zen' })).toBe(
+		modelListKey({ engine: 'zen', id: 'zen', label: 'Zen', identity: undefined }),
+	)
 })

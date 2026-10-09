@@ -3,10 +3,12 @@ import { RadioGroup } from '@base-ui/react/radio-group'
 import { ChevronDown, ChevronLeft } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 import type { HarnessView } from '../shared/protocol.js'
+import { engineUpdateNote } from './engine-updates-model.js'
 import { CheckIcon, ProviderIcons } from './icons.js'
 import { Wordmark } from './wordmark.js'
 import './harness-picker.css'
 import { commitsOnKey } from './picker-commit.js'
+import { useEngineUpdates } from './use-engine-updates.js'
 
 export function HarnessMark({ engine }: { engine: HarnessView['selected'] }) {
 	if (engine === 'namzu')
@@ -67,12 +69,14 @@ export function EngineChip({
 	disabled: boolean
 	onClick: () => void
 }) {
+	const note = engineUpdateNote(useEngineUpdates()?.state, engine)
 	return (
 		<button
 			type="button"
 			className="engine-chip"
-			aria-label={`Engine: ${label}`}
-			title={label}
+			aria-label={note ? `Engine: ${label}. ${note}` : `Engine: ${label}`}
+			title={note ? `${label} — ${note}` : label}
+			data-update={note ? 'available' : undefined}
 			disabled={disabled}
 			onClick={onClick}
 		>
@@ -102,6 +106,7 @@ export function EnginePanel({
 	onSelect: (engine: HarnessView['selected']) => void
 }) {
 	const selected = view?.selected ?? selectedEngine ?? 'namzu'
+	const updates = useEngineUpdates()?.state
 	const commit = (value: string) => {
 		const engine = committableEngine(view, value, { busy, disabled })
 		if (engine) onSelect(engine)
@@ -138,6 +143,7 @@ export function EnginePanel({
 				{(view?.engines ?? [{ id: 'namzu' as const, label: 'Namzu', available: true }]).map(
 					(engine) => {
 						const note = engineRowNote(view, engine)
+						const updateNote = engineUpdateNote(updates, engine.id)
 						return (
 							<Radio.Root
 								key={engine.id}
@@ -161,6 +167,7 @@ export function EnginePanel({
 								<span className="harness-picker-name">
 									<span>{engine.label}</span>
 									{note && <small>{note}</small>}
+									{updateNote && <small className="harness-picker-update">{updateNote}</small>}
 								</span>
 								<span className="harness-picker-selection" aria-hidden="true">
 									{selected === engine.id && <CheckIcon />}

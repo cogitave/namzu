@@ -20,6 +20,8 @@ export interface HarnessProcessOptions {
 	readonly cwd: string
 	readonly onFrame: (frame: unknown) => Promise<void> | void
 	readonly onClosed: (error?: Error) => Promise<void> | void
+	/** The operating system created the process; the gap from the call is the spawn time. */
+	readonly onSpawn?: () => void
 	readonly signal?: AbortSignal
 }
 
@@ -167,6 +169,7 @@ export function startHarnessProcess(
 	child.stderr.on('data', () => undefined)
 	child.stdin.on('error', () => undefined)
 	child.on('error', () => fail(new Error('Harness native process could not start.')))
+	child.once('spawn', () => options.onSpawn?.())
 	child.once('exit', () => {
 		exited = true
 	})

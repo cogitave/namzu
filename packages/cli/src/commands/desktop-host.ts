@@ -1055,6 +1055,12 @@ export function createDesktopHostExtensions(
 			if (!harness.selectHarness) throw new Error('Update Namzu to use external engines.')
 			return harness.selectHarness(await ownedSession(params), text(params, 'engine'))
 		},
+		'namzu/harnesses/release': async (params: Record<string, unknown>) => {
+			const harness = runtime as Partial<CliHarnessRuntime>
+			if (!harness.releaseHarness) return { released: false as const }
+			await harness.releaseHarness(text(params, 'engine'))
+			return { released: true as const }
+		},
 		'namzu/project/status': () => ({
 			cwd,
 			trusted: isTrusted(cwd),

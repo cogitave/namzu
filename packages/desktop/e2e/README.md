@@ -46,3 +46,22 @@ as an ended session) and writes dark and light screenshots to `research/terminal
 `windows-smoke.mjs` is the same checks on Windows, run by hand with Windows `node` from a folder holding a staged
 app (`scripts/stage-installer.mjs`), Electron's Windows build, `@playwright/test` and this folder's `fake-model.mjs`,
 `redirect-fetch.cjs` and a `cli-entry.mjs` pointing at the staged CLI. It uses a temp profile under a path with a space.
+
+## External engines
+
+`engines.test.mjs` puts a stand-in `codex` on `PATH` that speaks the app-server protocol and records every process it is
+started as. It covers choosing Codex while the engine is held in its first start (the model trigger reads "Starting Codex…"
+and the choice has not waited), one process serving the picker, the list and the first message (one start, one
+`initialize`), and no process outliving the app. Pictures go to `research/engines-20261009/`.
+
+## Engine updates
+
+The second half of `engines.test.mjs` serves a stand-in npm registry on loopback (`NAMZU_ENGINE_REGISTRY`, with
+`NAMZU_ENGINE_FIRST_CHECK_MS` shortening the first check) and puts old stand-ins first on `PATH`: a `codex` that is a
+link into a `node_modules/@openai/codex` folder (an npm global install), an `npm` that really rewrites it to the
+registry's version and swaps in a longer model list, and a second engine under `~/.local/bin` whose `update` does
+the same. The flows cover a registry that is down (quiet), the badge, the toast and the engine popup note once it
+answers, Update running in a visible terminal tab and Namzu's own idle server for the engine ending first, the version
+re-read and the model list refreshed, an update refused while the engine is open in a terminal, a failed command and
+Try again, the second engine's own command, and an install Namzu cannot name (the command and Copy, nothing run). Every other
+flow's harness points `NAMZU_ENGINE_REGISTRY` at a dead port, so no run reaches the real registry.

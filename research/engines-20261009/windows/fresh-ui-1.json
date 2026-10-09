@@ -1,0 +1,51 @@
+{
+ "variant": "fresh",
+ "mode": "ui",
+ "n": "1",
+ "delay": 0,
+ "spawnsBefore": 0,
+ "clickAt": 1791515819017,
+ "ready": true,
+ "timeline": [
+  {
+   "t": 27,
+   "label": "Model, Starting Codex",
+   "disabled": true
+  },
+  {
+   "t": 1041,
+   "label": "Model, Starting Codex 1s",
+   "disabled": true
+  },
+  {
+   "t": 1951,
+   "label": "",
+   "disabled": null
+  },
+  {
+   "t": 2753,
+   "label": "Model, Starting Codex",
+   "disabled": false
+  },
+  {
+   "t": 3694,
+   "label": "Model: GPT-6 Astra, effort: Medium",
+   "disabled": false
+  }
+ ],
+ "timeToModelMs": 3694,
+ "spawnsAfterReady": 1,
+ "pickerDialogMs": 99,
+ "pickerRowsMs": 327,
+ "spawnsAfterPicker": 1,
+ "spawnsTotal": 1,
+ "unmatchedStarts": 0,
+ "codexPidsBeforeLaunch": 2,
+ "newCodexProcessesAfterClose": 0,
+ "spawnLog": [
+  "start 51852 63927112608372 --version",
+  "exit 51852 63927112608395 code 0",
+  "start 38124 63927112620030 app-server",
+  "exit 38124 63927112627284 code 0"
+ ]
+}

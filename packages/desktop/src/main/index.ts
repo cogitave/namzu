@@ -16,6 +16,7 @@ import {
 	session,
 	shell,
 } from 'electron'
+import { readEngineUpdateRequest } from '../shared/engine-update-protocol.js'
 import type {
 	PalPermissionChange,
 	PalSubscriptionCreate,
@@ -50,6 +51,15 @@ import { bundledCliEntry } from './bundled-runtime.js'
 import { ClipboardTextWriter } from './clipboard-text.js'
 import { DesktopSettingsStore } from './desktop-settings.js'
 import { DesktopDiagnostics, observeDesktopIpc, observeRendererConsole } from './diagnostics.js'
+import {
+	engineUpdateCacheFile,
+	realPathOf,
+	registryBase,
+	registryLatest,
+	shimTextOf,
+	versionRunner,
+} from './engine-updates-system.js'
+import { EngineUpdates } from './engine-updates.js'
 import { externalSourceUrl } from './external-url.js'
 import { canonicalFolder } from './folder-access.js'
 import { FolderAccess } from './folder-access.js'
@@ -69,7 +79,7 @@ import { readRuntimeVersions } from './runtime-versions.js'
 import { SettingsConfirmation } from './settings-confirmation.js'
 import { installStreamRendererPolicy, withStreamRendererPort } from './stream-renderer-policy.js'
 import { TerminalHostClient } from './terminal-client.js'
-import { engineHost, shellEnvironment } from './terminal-env.js'
+import { engineHost, findProgram, shellEnvironment } from './terminal-env.js'
 import { TerminalHub } from './terminal-hub.js'
 import { TerminalTabStore } from './terminal-tab-store.js'
 import { TrustedFolderStore, createFolderTrustGuard } from './trusted-folders.js'
@@ -412,6 +422,7 @@ const terminals = new TerminalHub({
 		},
 	},
 	onError: (error, operation) => diagnostics.record('ipc_failed', { operation, error }),
+	onEnd: (info) => void engineUpdates.terminalEnded(info),
 })
 const dataFolders = (): Record<DataFolderKind, string> => ({
 	app: app.getPath('userData'),
@@ -754,6 +765,19 @@ function register(): void {
 	handle('installUpdate', () => updates.install())
 	handle('cancelUpdateInstall', () => updates.cancel())
 	handleWindow('reportUiBusy', ({ id }, busy: unknown) => updates.report(id, busy))
+	handle('engineUpdates', () => engineUpdates.state())
+	handle('checkEngineUpdates', () => engineUpdates.check())
+	handle('claimEngineUpdateAnnouncements', () => engineUpdates.claimAnnouncements())
+	handleWindow('updateEngine', ({ id: windowId }, value: unknown) => {
+		const request = readEngineUpdateRequest(value)
+		workspace.assertWindowWritable(windowId)
+		workspace.assertProjectDraft(windowId, request.groupId)
+		return engineUpdates.update(request.engine, {
+			windowId,
+			groupId: request.groupId,
+			...(request.projectId ? { projectId: request.projectId } : {}),
+		})
+	})
 	handle('diagnostics', () => diagnostics.view())
 	handle('openExternal', (url: unknown) => shell.openExternal(externalSourceUrl(url)))
 	// registerHandler authenticates the exact owned main frame before this
@@ -1305,6 +1329,109 @@ const updates = new UpdateController({
 			error: details?.error,
 		}),
 })
+/** The project an update's terminal tab starts in: the one asked for if it can run one, else any that can. */
+function updateTerminalProject(preferred: string | undefined): string {
+	const usable = operator
+		.listProjects()
+		.filter((item) => item.status === 'ready' && item.trusted && !item.palId && !item.isChat)
+	const chosen = usable.find((item) => item.id === preferred) ?? usable[0]
+	if (!chosen) throw new Error('Open a trusted folder in Namzu first, or run the command yourself.')
+	return chosen.id
+}
+function sendToWindow(windowId: string | undefined, channel: string, payload: unknown): void {
+	const only = windowId ? windows.entries().filter(([id]) => id === windowId) : []
+	for (const [, window] of only.length ? only : windows.entries())
+		if (!window.isDestroyed()) window.webContents.send(channel, payload)
+}
+const engineFirstCheck = Number(process.env.NAMZU_ENGINE_FIRST_CHECK_MS)
+const engineUpdates = new EngineUpdates({
+	platform: process.platform,
+	install: {
+		platform: process.platform,
+		home: app.getPath('home'),
+		...(process.env.APPDATA ? { appData: process.env.APPDATA } : {}),
+		...(process.env.npm_config_prefix || process.env.NPM_CONFIG_PREFIX
+			? { npmPrefix: process.env.npm_config_prefix ?? process.env.NPM_CONFIG_PREFIX }
+			: {}),
+	},
+	find: (name) => findProgram(name),
+	realPath: realPathOf,
+	shimText: shimTextOf,
+	version: versionRunner({
+		platform: process.platform,
+		...(process.platform === 'win32' ? { commandPrompt: process.env.ComSpec ?? 'cmd.exe' } : {}),
+	}),
+	registry: registryBase(process.env, { packaged: app.isPackaged }),
+	latest: registryLatest({
+		base: registryBase(process.env, { packaged: app.isPackaged }),
+		fetch: (url, init) => net.fetch(url, init),
+	}),
+	bundledVersion: () => readRuntimeVersions(cliEntry).cliVersion,
+	...(process.platform === 'win32' ? { commandPrompt: process.env.ComSpec ?? 'cmd.exe' } : {}),
+	cache: engineUpdateCacheFile(join(app.getPath('userData'), 'engine-updates.json'), (error) =>
+		diagnostics.record('ipc_failed', { operation: 'engineUpdates', error }),
+	),
+	clock: {
+		now: () => Date.now(),
+		after: (ms, run) => {
+			const timer = setTimeout(run, ms)
+			timer.unref()
+			return () => clearTimeout(timer)
+		},
+		every: (ms, run) => {
+			const timer = setInterval(run, ms)
+			timer.unref()
+			return () => clearInterval(timer)
+		},
+	},
+	...(Number.isFinite(engineFirstCheck) && engineFirstCheck >= 0 && engineFirstCheck <= 30_000
+		? { firstCheckDelayMs: engineFirstCheck }
+		: {}),
+	blocker: (id) => {
+		if (id === 'namzu-cli') return undefined
+		const label = id === 'codex-cli' ? 'Codex CLI' : 'Claude Code'
+		if (operator.engineBusy(id))
+			return `A ${label} reply is still running. Wait for it to finish, then update.`
+		if (
+			terminals
+				.list()
+				.some((tab) => tab.kind === 'engine' && tab.engine === id && tab.status === 'running')
+		)
+			return `Close the ${label} tab first.`
+		return undefined
+	},
+	stopServers: async (id) => {
+		if (id !== 'namzu-cli') await operator.releaseEngine(id)
+	},
+	open: async (context, launch) => {
+		const result = await terminals.openCommand({
+			projectId: updateTerminalProject(context.projectId),
+			launch: { command: launch.command, args: launch.args, title: launch.title },
+			cols: 100,
+			rows: 30,
+		})
+		if (context.windowId) {
+			try {
+				workspace.open(context.windowId, result.terminal.id, context.groupId)
+			} catch (error) {
+				await terminals.close(result.terminal.id)
+				throw error
+			}
+		}
+		return { tabId: result.terminal.id }
+	},
+	updated: (id) => {
+		if (id !== 'namzu-cli') operator.engineUpdated(id)
+	},
+	broadcast: (state) => sendToWindow(undefined, 'namzu:engine-updates', state),
+	notice: (windowId, notice) => sendToWindow(windowId, 'namzu:engine-update-notice', notice),
+	record: (_event, details) =>
+		diagnostics.record('ipc_failed', {
+			severity: 'warn',
+			operation: 'engineUpdates',
+			error: details?.error,
+		}),
+})
 let quitting = false
 let stopped = false
 let shutdownRun: Promise<void> | undefined
@@ -1434,6 +1561,7 @@ void app
 		)
 		register()
 		updates.start()
+		engineUpdates.start()
 		const layoutTabs = (): string[] =>
 			workspace
 				.snapshot()

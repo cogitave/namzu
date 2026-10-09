@@ -338,3 +338,42 @@ it('does not classify a deliberate typed transport cancellation as IPC failure',
 		error: unexpected,
 	})
 })
+
+it('records engine start timings as numbers only, with the engine and step, and nothing else from the report', () => {
+	const { sink } = create()
+	sink.record('engine_timing', {
+		engineId: 'codex-cli',
+		step: 'models',
+		timings: { spawnMs: 41, initializeMs: 93, modelListMs: 12, totalMs: 160, reused: false },
+	})
+	sink.record('engine_timing', {
+		engineId: 'claude-code',
+		step: 'open',
+		timings: {
+			totalMs: 1.5,
+			spawnMs: -3,
+			reused: true,
+			path: 'C:\\Users\\Private\\codex.exe',
+		} as never,
+	})
+	const [first, second] = records(sink)
+	expect(first).toMatchObject({
+		eventName: 'namzu.desktop.engine_timing',
+		severityText: 'info',
+		attributes: {
+			'namzu.desktop.engine.id': 'codex-cli',
+			'namzu.desktop.engine.step': 'models',
+			'namzu.desktop.engine.spawnMs': 41,
+			'namzu.desktop.engine.initializeMs': 93,
+			'namzu.desktop.engine.modelListMs': 12,
+			'namzu.desktop.engine.totalMs': 160,
+		},
+	})
+	expect(first.attributes).not.toHaveProperty('namzu.desktop.engine.reused')
+	expect(second.attributes).toEqual({
+		'namzu.desktop.engine.id': 'claude-code',
+		'namzu.desktop.engine.step': 'open',
+		'namzu.desktop.engine.reused': 1,
+	})
+	expect(JSON.stringify(second)).not.toContain('Private')
+})

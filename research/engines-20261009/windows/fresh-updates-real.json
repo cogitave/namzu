@@ -1,0 +1,45 @@
+{
+  "mode": "real",
+  "registry": {
+    "codex": "0.162.0",
+    "claude": "2.1.295"
+  },
+  "realCodexPackageVersion": "0.154.0",
+  "witnessBefore": {
+    "C:\\Users\\Arda\\AppData\\Roaming\\npm\\node_modules\\@openai\\codex\\package.json": {
+      "size": 1082,
+      "mtimeMs": 1789074038653
+    },
+    "C:\\Users\\Arda\\AppData\\Roaming\\npm\\codex.cmd": {
+      "size": 341,
+      "mtimeMs": 1789074040717
+    },
+    "C:\\Users\\Arda\\.local\\bin\\claude.exe": {
+      "size": 253090464,
+      "mtimeMs": 1791245689630
+    }
+  },
+  "codexSettled": true,
+  "claudeSettled": true,
+  "rows": {
+    "codex": "Codex CLI 0.154.0 → 0.162.0 Update available Installed with npm Runs in a new terminal tab: npm install -g @openai/codex@latest Update",
+    "claude": "Claude Code 2.1.290 → 2.1.295 Update available Installed by its own installer Runs in a new terminal tab: claude update Update",
+    "namzu": "Namzu command line 35.0.0 Up to date Bundled with Namzu Desktop, so it updates with the app."
+  },
+  "badge": "Updates available. Open Settings to update Codex CLI and Claude Code",
+  "witnessAfter": {
+    "C:\\Users\\Arda\\AppData\\Roaming\\npm\\node_modules\\@openai\\codex\\package.json": {
+      "size": 1082,
+      "mtimeMs": 1789074038653
+    },
+    "C:\\Users\\Arda\\AppData\\Roaming\\npm\\codex.cmd": {
+      "size": 341,
+      "mtimeMs": 1789074040717
+    },
+    "C:\\Users\\Arda\\.local\\bin\\claude.exe": {
+      "size": 253090464,
+      "mtimeMs": 1791245689630
+    }
+  },
+  "realInstallsUnchanged": true
+}

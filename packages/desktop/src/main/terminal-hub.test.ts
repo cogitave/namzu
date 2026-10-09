@@ -15,6 +15,7 @@ import type { TerminalEvent, TerminalOpenRequest } from '../shared/terminal-view
 import {
 	type HostTerminals,
 	type HubConnection,
+	type TerminalEndInfo,
 	TerminalHub,
 	type TerminalHubOptions,
 } from './terminal-hub.js'
@@ -604,5 +605,74 @@ describe('keeping tabs between runs', () => {
 		await t.hub.shutdown()
 		expect(t.saves.at(-1)?.[0]?.screen).toBe('SCREEN')
 		expect(t.client.disposed).toBe(true)
+	})
+})
+
+describe('a command Namzu chose', () => {
+	const launch = {
+		command: '/bin/npm',
+		args: ['install', '-g', 'pkg@latest'],
+		title: 'Updating pkg',
+	}
+
+	it('opens as a shell tab running exactly that program', async () => {
+		const t = setup()
+		const result = await t.hub.openCommand({ projectId: 'p1', launch, cols: 100, rows: 30 })
+		expect(t.client.created[0]).toMatchObject({
+			cwd: '/work/api',
+			command: '/bin/npm',
+			args: ['install', '-g', 'pkg@latest'],
+			title: 'Updating pkg',
+		})
+		expect(result.terminal).toMatchObject({
+			kind: 'shell',
+			title: 'Updating pkg',
+			status: 'running',
+		})
+		expect(result.terminal.activity).toBeUndefined()
+	})
+
+	it('tells its owner how it ended, once, with the end of its output', async () => {
+		const ends: TerminalEndInfo[] = []
+		const t = setup({ onEnd: (info) => ends.push(info) })
+		await t.hub.openCommand({ projectId: 'p1', launch, cols: 100, rows: 30 })
+		t.client.emit('data', { terminalId: HOST_A, offset: 0, data: 'npm ERR! EBUSY\n' })
+		t.client.emit('exit', { terminalId: HOST_A, exitCode: 1 })
+		t.client.emit('exit', { terminalId: HOST_A, exitCode: 1 })
+		expect(ends).toEqual([{ tabId: TAB_A, exitCode: 1, tail: 'npm ERR! EBUSY\n' }])
+	})
+
+	it('keeps only the end of a long output', async () => {
+		const ends: TerminalEndInfo[] = []
+		const t = setup({ onEnd: (info) => ends.push(info) })
+		await t.hub.openCommand({ projectId: 'p1', launch, cols: 100, rows: 30 })
+		for (let index = 0; index < 5; index++)
+			t.client.emit('data', {
+				terminalId: HOST_A,
+				offset: index,
+				data: `${'x'.repeat(2_000)}${index}`,
+			})
+		t.client.emit('exit', { terminalId: HOST_A, exitCode: 0 })
+		expect(ends[0]?.tail.length).toBe(4_000)
+		expect(ends[0]?.tail.endsWith('4')).toBe(true)
+	})
+
+	it('reports a tab closed before the program ended, and a lost host', async () => {
+		const ends: TerminalEndInfo[] = []
+		const t = setup({ onEnd: (info) => ends.push(info) })
+		await t.hub.openCommand({ projectId: 'p1', launch, cols: 100, rows: 30 })
+		await t.hub.close(TAB_A)
+		expect(ends).toEqual([{ tabId: TAB_A, closed: true, tail: '' }])
+		await t.hub.openCommand({ projectId: 'p1', launch, cols: 100, rows: 30 })
+		t.connection.emit('closed')
+		expect(ends.at(-1)).toEqual({ tabId: TAB_B, tail: '' })
+	})
+
+	it('says nothing about an ordinary tab', async () => {
+		const ends: TerminalEndInfo[] = []
+		const t = setup({ onEnd: (info) => ends.push(info) })
+		await t.hub.open(shell)
+		t.client.emit('exit', { terminalId: HOST_A, exitCode: 0 })
+		expect(ends).toEqual([])
 	})
 })

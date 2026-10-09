@@ -14,6 +14,10 @@
 	border-radius: 999px;
 	background: color-mix(in srgb, var(--muted-foreground) 22%, transparent);
 }
+.model-picker-trigger-starting {
+	color: var(--muted-foreground);
+	font-variant-numeric: tabular-nums;
+}
 .model-picker-trigger-engine {
 	display: inline-grid;
 	flex: none;

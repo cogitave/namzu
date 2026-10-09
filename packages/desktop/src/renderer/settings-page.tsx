@@ -10,6 +10,7 @@ import {
 	type StartupBehavior,
 } from '../shared/settings-protocol.js'
 import type { UpdateInfo, UpdateState } from '../shared/update-protocol.js'
+import { EngineUpdateRows, type EngineUpdateTarget } from './engine-updates-section.js'
 import {
 	DownloadIcon,
 	FoldersIcon,
@@ -34,6 +35,7 @@ import {
 import type { Appearance } from './sidebar.js'
 import { Button } from './ui/button.js'
 import type { DesktopSettingsControls } from './use-desktop-settings.js'
+import { useEngineUpdates } from './use-engine-updates.js'
 import type { LocalSpeechControls } from './use-local-speech.js'
 import './settings-page.css'
 
@@ -98,6 +100,8 @@ export interface SettingsPageProps {
 		onCheck: () => void
 		onDownload?: () => void
 	}
+	/** Where an engine update's terminal tab opens: this pane and the project in front. */
+	engineTarget?: EngineUpdateTarget
 	speech: LocalSpeechControls
 	info?: DesktopInfo
 	infoError?: string
@@ -494,38 +498,47 @@ function AppearanceSection({ appearance, onAppearanceChange }: SettingsPageProps
 	)
 }
 
-function UpdatesSection({ update, settings, now }: SettingsPageProps) {
-	if (!update)
+function UpdatesSection({ update, settings, now, engineTarget }: SettingsPageProps) {
+	const engines = useEngineUpdates()
+	if (!update && !engines)
 		return <p className="settings-empty">Updates are managed outside this window in this build.</p>
-	const view = updateStatusView(update.state)
+	const view = update ? updateStatusView(update.state) : undefined
+	const checking = engines?.state.checking === true
+	const canCheck = (view?.canCheck ?? false) || (engines !== undefined && !checking)
+	const checkedAt = Math.max(update?.info?.lastCheckedAt ?? 0, engines?.state.checkedAt ?? 0)
+	const check = () => {
+		if (view?.canCheck) update?.onCheck()
+		engines?.check()
+	}
 	return (
 		<>
 			<Row
 				id="version"
 				label="Namzu version"
-				description={`Last checked: ${lastCheckedText(update.info?.lastCheckedAt, now)}`}
+				description={`Last checked: ${lastCheckedText(checkedAt || undefined, now)}`}
 			>
-				<span className="settings-value">{update.info?.currentVersion ?? '…'}</span>
+				<span className="settings-value">{update?.info?.currentVersion ?? '…'}</span>
 			</Row>
 			<div className="settings-update-status" aria-live="polite">
-				<p>{view.text}</p>
+				{view && <p>{view.text}</p>}
 				<div className="settings-actions">
-					{view.action === 'download' && update.onDownload && (
+					{view?.action === 'download' && update?.onDownload && (
 						<Button size="sm" onClick={update.onDownload}>
 							<DownloadIcon aria-hidden="true" />
 							Download update
 						</Button>
 					)}
-					{view.action === 'restart' && (
+					{view?.action === 'restart' && update && (
 						<Button size="sm" onClick={update.onOpen}>
 							Restart to update…
 						</Button>
 					)}
-					<Button size="sm" variant="outline" disabled={!view.canCheck} onClick={update.onCheck}>
-						Check for updates
+					<Button size="sm" variant="outline" disabled={!canCheck} onClick={check}>
+						{checking ? 'Checking…' : 'Check for updates'}
 					</Button>
 				</div>
 			</div>
+			<EngineUpdateRows target={engineTarget} />
 			<Row
 				id="auto-download"
 				label="Download updates automatically"

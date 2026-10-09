@@ -1,0 +1,30 @@
+{
+ "variant": "fresh",
+ "mode": "api",
+ "n": "1",
+ "delay": 0,
+ "spawnsBefore": 0,
+ "newConversationMs": 6,
+ "harnessesListMs": 955,
+ "selectMs": 1115,
+ "spawnsAfterSelect": 1,
+ "providersMs": 320,
+ "selectedModel": "gpt-6-astra",
+ "spawnsAfterProviders": 1,
+ "modelsFirstMs": 319,
+ "modelCount": 4,
+ "spawnsAfterModels": 1,
+ "timeToList": 1761,
+ "modelsSecondMs": 0,
+ "spawnsAfterSettle": 1,
+ "spawnsTotal": 1,
+ "unmatchedStarts": 0,
+ "codexPidsBeforeLaunch": 2,
+ "newCodexProcessesAfterClose": 0,
+ "spawnLog": [
+  "start 29324 63927112832951 --version",
+  "exit 29324 63927112832982 code 0",
+  "start 54636 63927112844046 app-server",
+  "exit 54636 63927112849015 code 0"
+ ]
+}

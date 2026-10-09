@@ -63,6 +63,8 @@ export function Composer({
 	providersLoading = false,
 	catalogueReady,
 	modelPending = false,
+	startingEngine,
+	startFailed,
 	choice,
 	onChoiceChange,
 	choiceUnchosen,
@@ -138,6 +140,9 @@ export function Composer({
 	catalogueReady?: boolean
 	/** The model choice is still resolving, so the trigger draws no prompt and no raw id. */
 	modelPending?: boolean
+	startingEngine?: HarnessView['selected']
+	/** The engine failed to answer, so "Starting…" would be a claim of progress that no longer holds. */
+	startFailed?: boolean
 	choice: ModelChoice
 	/** Nothing was ever chosen for this pane; the picker settles on the recommended model. */
 	choiceUnchosen?: boolean
@@ -235,6 +240,8 @@ export function Composer({
 				catalogueReady ?? (modelSelectionReady && !harnessBusy)
 			}
 			pending={modelPending}
+			startingEngine={startingEngine}
+			startFailed={startFailed}
 			disabled={running || sending || !modelSelectionReady || harnessBusy}
 			settings={capabilities}
 			effort={settings.effort}

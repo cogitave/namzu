@@ -1,7 +1,9 @@
 import { Menu } from '@base-ui/react/menu'
 import { type ReactNode, type RefObject, useEffect, useRef, useState } from 'react'
+import type { EngineUpdatesState } from '../shared/engine-update-protocol.js'
 import type { UpdateState } from '../shared/update-protocol.js'
 import { AddProjectItems } from './add-project-menu.js'
+import { engineAnnouncement, engineBadge } from './engine-updates-model.js'
 import {
 	DownloadIcon,
 	FoldersFilledIcon,
@@ -19,6 +21,7 @@ import {
 import { Button } from './ui/button.js'
 import { Tooltip, TooltipPopup, TooltipTrigger } from './ui/tooltip.js'
 import { updateAnnouncement, updateBadge, updateMenuEntry } from './update-model.js'
+import { useEngineUpdates } from './use-engine-updates.js'
 import './navigation-rail.css'
 
 export function NavigationRail({
@@ -32,6 +35,7 @@ export function NavigationRail({
 	onToggleSidebar,
 	openProjectDisabled = false,
 	update,
+	onOpenUpdates,
 }: {
 	section: 'home' | 'spaces' | 'plugins' | 'settings'
 	onHome: () => void
@@ -44,7 +48,10 @@ export function NavigationRail({
 	openProjectDisabled?: boolean
 	/** Absent in a window that has no updater. */
 	update?: { state: UpdateState; onOpen: () => void; onCheck: () => void }
+	/** Opens Settings ▸ Updates, for programs that are behind. */
+	onOpenUpdates?: () => void
 }) {
+	const engines = useEngineUpdates()
 	const moreTrigger = useRef<HTMLButtonElement>(null)
 	const profileTrigger = useRef<HTMLButtonElement>(null)
 	return (
@@ -91,7 +98,14 @@ export function NavigationRail({
 			>
 				<SettingsIcon />
 			</RailButton>
-			{update && <UpdateRailButton state={update.state} onOpen={update.onOpen} />}
+			{(update || (engines && onOpenUpdates)) && (
+				<UpdateRailButton
+					state={update?.state ?? { status: 'disabled' }}
+					onOpen={update?.onOpen ?? (() => {})}
+					engines={engines?.state}
+					onOpenEngines={onOpenUpdates}
+				/>
+			)}
 			<RailMenuRoot triggerRef={profileTrigger}>
 				<RailMenuTrigger label="Profile" profile triggerRef={profileTrigger}>
 					<span className="rail-profile-avatar" aria-hidden="true">
@@ -134,15 +148,36 @@ function UpdateMenuItem({
 	)
 }
 
-/** A real button above the avatar for an installable update, announced once when it appears. */
-function UpdateRailButton({ state, onOpen }: { state: UpdateState; onOpen: () => void }) {
-	const badge = updateBadge(state)
+/**
+ * A real button above the avatar for an installable update, announced once when it appears. The app's
+ * own update comes first (it is a restart); programs that are behind show the same button otherwise.
+ */
+function UpdateRailButton({
+	state,
+	onOpen,
+	engines,
+	onOpenEngines,
+}: {
+	state: UpdateState
+	onOpen: () => void
+	engines?: EngineUpdatesState
+	onOpenEngines?: () => void
+}) {
+	const appBadge = updateBadge(state)
+	const programBadge = onOpenEngines ? engineBadge(engines) : ({ visible: false } as const)
+	const badge = appBadge.visible ? appBadge : programBadge
+	const click = appBadge.visible ? onOpen : onOpenEngines
 	const previous = useRef<UpdateState>(state)
+	const previousEngines = useRef<EngineUpdatesState | undefined>(engines)
 	const [announcement, setAnnouncement] = useState('')
 	useEffect(() => {
-		setAnnouncement(updateAnnouncement(previous.current, state))
+		setAnnouncement(
+			updateAnnouncement(previous.current, state) ||
+				engineAnnouncement(previousEngines.current, engines),
+		)
 		previous.current = state
-	}, [state])
+		previousEngines.current = engines
+	}, [state, engines])
 	return (
 		<>
 			<output className="sr-only" aria-live="polite">
@@ -157,7 +192,7 @@ function UpdateRailButton({ state, onOpen }: { state: UpdateState; onOpen: () =>
 								size="icon"
 								className="rail-button rail-update-button"
 								aria-label={badge.label}
-								onClick={onOpen}
+								onClick={click}
 							/>
 						}
 					>

@@ -51,6 +51,49 @@ local catalogue is available. Authentication failures use a fixed notice.
 Remote error assistants, error bodies, stderr, token material, account details
 and thinking replay/signatures do not become public journal output.
 
+## Starting an engine
+
+An engine's executable is large and its first start can stall (a first run, an
+antivirus scan), so the host starts it as seldom as it can.
+
+- **One server per use.** Codex model discovery starts `codex app-server` and
+  leaves it initialised in a small pool owned by the connection. Opening a
+  conversation in the same folder takes that server instead of spawning another;
+  re-reading the list uses it too. An unclaimed server is closed after two idle
+  minutes, one that exits while it waits is forgotten, and closing the connection
+  ends every one. The `claude` engine's metadata probe is a separate process with
+  its own arguments and is not shared.
+- **Listing never forces a spawn.** `namzu/providers/models` answers from memory
+  for ten minutes after a read and reads again only after that; a stored list from
+  the previous run counts as old. `namzu/harnesses/select` does not wait for the
+  list: it reads in the background and takes the default model from a list already
+  known. `namzu/providers/status` waits only when nothing is known for the installed
+  build.
+- **The build is part of the key.** The cached list is keyed by engine and by the
+  installed executable (a hash of its resolved path, size and modification time), so
+  an upgrade drops the old list. The last good list of up to eight builds is kept in
+  `engine-models.json` in `NAMZU_HOME` (ids, labels and effort levels; no path,
+  account or credential), and the desktop adds the same identity to its stored
+  list's key.
+- **What it cost.** The adapter reports `spawnMs`, `initializeMs` and `modelListMs`
+  for each start, and the host returns them with its responses; the desktop writes
+  them to its diagnostic log as `engine_timing`.
+
+## Versions and updates
+
+An engine is whatever is installed on the machine, so its version decides what it can do: Codex CLI
+0.154.0 lists four models where 0.161 lists seven. The Desktop reads each installed engine's
+version (`<program> --version`) and the registry's latest (`@openai/codex`,
+`@anthropic-ai/claude-code`), shows a badge when one is behind, and on a click runs the program's own
+update command in a visible terminal tab; see
+[Updates to the programs Namzu works with](desktop.md#updates-to-the-programs-namzu-works-with).
+Before it runs, the Desktop calls the ACP extension `namzu/harnesses/release` with the engine, which
+ends the idle servers the connection keeps for it (the parked Codex app-server), because a running
+Windows executable cannot be overwritten. A conversation that is running is never touched: the
+Desktop refuses to update while one is. The new build has a new identity (its resolved path, size
+and modification time), so the cached model list of the old build is not read again, and the
+Desktop drops its stored lists for that engine when the update ends.
+
 ## Codex session behavior
 
 A native terminal receipt retains the actual completed final-answer item identity

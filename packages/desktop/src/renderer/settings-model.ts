@@ -182,7 +182,10 @@ export interface UpdateStatusView {
 export function updateStatusView(state: UpdateState): UpdateStatusView {
 	switch (state.status) {
 		case 'disabled':
-			return { text: 'Updates are not set up for this build.', canCheck: false }
+			return {
+				text: 'Namzu updates by installing a newer version of the app. Automatic updates aren’t available in this build.',
+				canCheck: false,
+			}
 		case 'idle':
 			return { text: 'Namzu is up to date.', action: 'check', canCheck: true }
 		case 'checking':
