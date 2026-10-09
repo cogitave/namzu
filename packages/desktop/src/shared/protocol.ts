@@ -369,6 +369,17 @@ export interface PalCreateInput extends PalInput {
 export interface PalChanges extends PalInput {
 	paused?: boolean
 }
+/**
+ * What waits in a Pal's inbox for the person's go. `waiting` offers "Start"; `reading` means a run
+ * is reading the messages now; `failed` carries plain words and offers Retry.
+ */
+export interface PalInboxStartView {
+	v: 1
+	palId: string
+	waiting: number
+	state: 'empty' | 'waiting' | 'reading' | 'failed'
+	message?: string
+}
 export interface HumanComputerView {
 	name: string
 	platform: 'win32' | 'darwin' | 'linux' | 'other'
@@ -771,6 +782,13 @@ export interface DesktopApi {
 		conversations: ConversationView[]
 	}>
 	palComputer(id: string): Promise<PalComputerView>
+	/** What waits in one Pal's inbox. Optional: an older runtime cannot start a Pal from the app. */
+	palInboxStart?(palId: string): Promise<PalInboxStartView>
+	/**
+	 * The person's click on "Start <Pal>". Main mints the evidence for the click itself; the caller
+	 * supplies only the Pal.
+	 */
+	startPalInbox?(palId: string): Promise<PalInboxStartView>
 	startPalComputer(id: string): Promise<PalComputerView>
 	stopPalComputer(id: string): Promise<PalComputerView>
 	rebootPalComputer?(id: string, generation: string): Promise<PalComputerView>

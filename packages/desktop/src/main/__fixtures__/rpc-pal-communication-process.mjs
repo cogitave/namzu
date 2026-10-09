@@ -6,6 +6,8 @@ const pal = { id: 'one', name: 'One', purpose: '', revision: 1, workspace, model
 const required = ['namzu/project/status', 'namzu/project/trust', 'namzu/conversations/list', 'namzu/conversations/history', 'namzu/providers/status', 'namzu/providers/select', 'namzu/jobs/list', 'namzu/jobs/read', 'namzu/jobs/stop']
 const pals = ['namzu/pals/list', 'namzu/pals/get', 'namzu/pals/create', 'namzu/pals/update', 'namzu/pals/conversations/list', 'namzu/pals/conversations/claim', 'namzu/pals/computer/status', 'namzu/pals/computer/start', 'namzu/pals/computer/stop', 'namzu/pals/computer/screen']
 const communication = ['peers', 'inbox', 'permissions/update', 'subscriptions/list', 'subscriptions/create', 'subscriptions/disable'].map((method) => `namzu/pals/communication/${method}`)
+const inboxStart = ['status', 'start'].map((method) => `namzu/pals/inbox/${method}`)
+let inboxState = 'waiting'
 let outgoing = { revision: 0, enabled: false, allowWake: false }
 const incoming = { revision: 0, enabled: false, allowWake: false }
 let subscriptions = []
@@ -18,7 +20,7 @@ lines.on('line', (line) => {
   const { id, method, params = {} } = JSON.parse(line)
   const reply = (result) => send({ id, result })
   const error = () => send({ id, error: { code: -32000, message: 'Fixture conflict PRIVATE' } })
-  if (method === 'initialize') reply({ agentInfo: { name: 'namzu' }, extensions: [...required, ...pals, ...(process.env.FIXTURE_NO_COMMUNICATION ? [] : communication)] })
+  if (method === 'initialize') reply({ agentInfo: { name: 'namzu' }, extensions: [...required, ...pals, ...(process.env.FIXTURE_NO_COMMUNICATION ? [] : communication), ...(process.env.FIXTURE_NO_INBOX_START ? [] : inboxStart)] })
   else if (method === 'namzu/project/status') reply({ trusted: true, ...(process.cwd() === workspace ? { pal } : {}) })
   else if (method === 'namzu/pals/get') reply(pal)
   else if (method === 'namzu/pals/list') reply([pal])
@@ -47,6 +49,8 @@ lines.on('line', (line) => {
     const next = { ...row, enabled: false, revision: row.revision + 1, configurationRevision: row.configurationRevision + 1 }
     subscriptions = subscriptions.map((row) => row.id === next.id ? next : row)
     reply({ v: 1, palId: params.palId, subscription: next })
-  } else if (method === 'test/exit') process.exit(0)
+  } else if (method === inboxStart[0]) reply({ v: 1, palId: params.palId, waiting: inboxState === 'empty' ? 0 : 1, state: inboxState })
+  else if (method === inboxStart[1]) { inboxState = 'reading'; reply({ v: 1, palId: params.palId, waiting: 1, state: 'reading' }) }
+  else if (method === 'test/exit') process.exit(0)
   else reply({})
 })

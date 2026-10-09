@@ -166,6 +166,7 @@ import { presentComputerNotice } from './pal-computer-notice.js'
 import { PalComputerView } from './pal-computer-view.js'
 import { PalContextCard, type PalContextProps } from './pal-context.js'
 import { palDeletionCopy } from './pal-deletion-copy.js'
+import { PalStartContext, type PalStartControls, palMessageSends } from './pal-message-receipts.js'
 import {
 	PalCatalogueActivity,
 	latestPalConversation,
@@ -173,6 +174,7 @@ import {
 	warmPalConversation,
 } from './pal-navigation.js'
 import { palRecentActivity } from './pal-recent-activity.js'
+import { palStartCard, palWaitingLine } from './pal-start-model.js'
 import { unreadAfterOpen, unreadAfterSends } from './pal-unread.js'
 import { PalCustomizeDialog, type PalOpening, PalSidebarSection, PalsPage } from './pals-page.js'
 import { PluginsPage, PluginsSidebar } from './plugins-page.js'
@@ -216,6 +218,7 @@ import { useDraftSettings } from './use-draft-settings.js'
 import { useEngineUpdates } from './use-engine-updates.js'
 import { useLocalSpeech } from './use-local-speech.js'
 import { usePalOperatorMessages } from './use-pal-operator-messages.js'
+import { usePalStarts } from './use-pal-starts.js'
 import { useTranscriptScroll } from './use-transcript-scroll.js'
 import { useUndoKept } from './use-undo-kept.js'
 import { WindowTitlebar } from './window-titlebar.js'
@@ -861,6 +864,7 @@ export function App({
 	useEffect(() => {
 		if (pal?.id) setUnreadPals((previous) => unreadAfterOpen(previous, pal.id))
 	}, [pal?.id])
+	const palStarts = usePalStarts(api, threads, pals, pal?.id)
 	const palOperatorMessages = usePalOperatorMessages(
 		api,
 		sessionId,
@@ -3979,6 +3983,50 @@ export function App({
 		void act(() => openPal(target))
 	}
 
+	// Only the newest message to a Pal in the open conversation asks to start it.
+	const newestPalSends = useMemo(() => {
+		const newest = new Map<string, string>()
+		for (const send of palMessageSends(thread.timeline, thread)) newest.set(send.name, send.id)
+		return newest
+	}, [thread])
+	// Rebuilt each render: only the few lines that say "sent to a Pal" read it.
+	const palStartControls = ((): PalStartControls | undefined => {
+		if (!palStarts.enabled) return undefined
+		const byName = (name: string) => {
+			const matches = pals.filter((item) => item.name === name)
+			return matches.length === 1 ? matches[0] : undefined
+		}
+		return {
+			card: (name, sendId) => {
+				const target = byName(name)
+				if (!target || newestPalSends.get(name) !== sendId) return { kind: 'none' }
+				return palStartCard(name, target.paused, palStarts.entries[target.id])
+			},
+			onStart: (name) => {
+				const target = byName(name)
+				if (target) void palStarts.start(target.id)
+			},
+			onNotNow: (name) => {
+				const target = byName(name)
+				if (target) palStarts.dismiss(target.id)
+			},
+			onOpenPal: (name) => {
+				const target = byName(name)
+				if (!target) return
+				// The run wrote to a conversation this window has not listed yet.
+				palCatalogueActivity.current.changed(target.id)
+				void act(() => openPal(target))
+			},
+			onResume: (name) => {
+				const target = byName(name)
+				if (target) {
+					togglePalPaused(target)
+					void palStarts.refresh(target.id)
+				}
+			},
+		}
+	})()
+
 	const palContextProps: PalContextProps | null = pal
 		? {
 				pal,
@@ -4042,6 +4090,13 @@ export function App({
 				customizeDisabled: palBusy || palsSaving,
 				onPause: () => togglePalPaused(pal),
 				pauseDisabled: palBusy || palsSaving,
+				waiting: palWaitingLine(pal.name, pal.paused, palStarts.entries[pal.id]),
+				onWaitingAction: (action) => {
+					if (action === 'resume') {
+						togglePalPaused(pal)
+						void palStarts.refresh(pal.id)
+					} else void palStarts.start(pal.id)
+				},
 				onStartComputer: pal.paused ? undefined : () => void startPalComputer(pal),
 				onOpenComputer: () => void openPalScreen(pal),
 				onStopComputer:
@@ -5878,54 +5933,56 @@ export function App({
 											value={providerName(choice.provider, failedProviderLabel)}
 										>
 											<ProjectFilesContext.Provider value={projectFiles}>
-												<Transcript
-													key={sessionId || 'blank'}
-													thread={thread}
-													animate={!historyPending && !restoringTabs}
-													workDisclosures={
-														workDisclosureView.sessionId === sessionId
-															? workDisclosureView.choices
-															: undefined
-													}
-													onWorkDisclosureChange={(key, open) =>
-														onWorkDisclosureChange(sessionId, key, open)
-													}
-													onOpenTurnChanges={(receiptIds, path) => {
-														setChangesFilter(receiptIds, path)
-														showPanelTab('changes')
-														setJobsOpen(true)
-													}}
-													onOpenChangedFile={projectFiles ? openChangedFile : undefined}
-													onOpenPalInbox={openPalInbox}
-													onOpenTasks={() => {
-														showPanelTab('activity')
-														setJobsOpen(true)
-													}}
-													onUndoTurn={
-														api.undoPreview && api.undoTurn
-															? (turnId) => setUndoingTurn({ sessionId, turnId })
-															: undefined
-													}
-													undoKept={undoKept}
-													projectRoot={project?.path}
-													closedWhileRunning={conversation?.closedWhileRunning === true}
-													renderMessageAction={(message, key) => (
-														<MessageActions
-															text={message.text}
-															onRetry={
-																retryable && retryable.reply === message
-																	? () => void act(() => retryReply(retryable.prompt))
-																	: undefined
-															}
-														>
-															<LocalSpeechReadAloud
-																speech={speech}
-																messageId={key}
+												<PalStartContext.Provider value={palStartControls}>
+													<Transcript
+														key={sessionId || 'blank'}
+														thread={thread}
+														animate={!historyPending && !restoringTabs}
+														workDisclosures={
+															workDisclosureView.sessionId === sessionId
+																? workDisclosureView.choices
+																: undefined
+														}
+														onWorkDisclosureChange={(key, open) =>
+															onWorkDisclosureChange(sessionId, key, open)
+														}
+														onOpenTurnChanges={(receiptIds, path) => {
+															setChangesFilter(receiptIds, path)
+															showPanelTab('changes')
+															setJobsOpen(true)
+														}}
+														onOpenChangedFile={projectFiles ? openChangedFile : undefined}
+														onOpenPalInbox={openPalInbox}
+														onOpenTasks={() => {
+															showPanelTab('activity')
+															setJobsOpen(true)
+														}}
+														onUndoTurn={
+															api.undoPreview && api.undoTurn
+																? (turnId) => setUndoingTurn({ sessionId, turnId })
+																: undefined
+														}
+														undoKept={undoKept}
+														projectRoot={project?.path}
+														closedWhileRunning={conversation?.closedWhileRunning === true}
+														renderMessageAction={(message, key) => (
+															<MessageActions
 																text={message.text}
-															/>
-														</MessageActions>
-													)}
-												/>
+																onRetry={
+																	retryable && retryable.reply === message
+																		? () => void act(() => retryReply(retryable.prompt))
+																		: undefined
+																}
+															>
+																<LocalSpeechReadAloud
+																	speech={speech}
+																	messageId={key}
+																	text={message.text}
+																/>
+															</MessageActions>
+														)}
+													/>
+												</PalStartContext.Provider>
 											</ProjectFilesContext.Provider>
 										</ProviderNameContext.Provider>
 									)}

@@ -53,6 +53,7 @@ import {
 	stopCliPalComputer,
 	takeOverCliPalComputer,
 } from '../pals/environment.js'
+import type { CliPalInboxStarter } from '../pals/inbox-start.js'
 import { palPublicAssistantText } from '../pals/public-transcript.js'
 import { createPal, deletePal, getPal, listPals, palAtWorkspace, updatePal } from '../pals/store.js'
 import { canonicalProjectPath } from '../permissions/canonical-project.js'
@@ -826,6 +827,7 @@ export function createDesktopHostExtensions(
 	) => Promise<AcpSessionPromptResult>,
 	projectGit: (cwd: string) => Promise<ProjectGitState | null> = createProjectGit(),
 	projectChanges: ReturnType<typeof createProjectChanges> = createProjectChanges(),
+	palInboxStart?: CliPalInboxStarter,
 ) {
 	const cwd = canonicalProjectPath(directory)
 	const pal = () => palAtWorkspace(cwd)
@@ -1141,6 +1143,14 @@ export function createDesktopHostExtensions(
 				text(params, 'generation', 16),
 				params.input as PalComputerInput,
 			),
+		...(palInboxStart
+			? {
+					'namzu/pals/inbox/status': async (params: Record<string, unknown>) =>
+						palInboxStart.status(ownedPal(params)),
+					'namzu/pals/inbox/start': async (params: Record<string, unknown>) =>
+						palInboxStart.start(ownedPal(params), text(params, 'clickId', 80)),
+				}
+			: {}),
 		'namzu/pals/conversations/claim': async (params: Record<string, unknown>) => {
 			if (!isTrusted(cwd)) throw new Error('This Pal workspace is not trusted.')
 			return claimPalConversation(cwd, text(params, 'palId'), session(params))

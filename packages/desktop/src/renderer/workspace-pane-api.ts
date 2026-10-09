@@ -458,6 +458,14 @@ export function createWorkspacePaneApi(
 				}
 			: {}),
 		startPalComputer: (id) => invoke(() => base.startPalComputer(id), [], { global: true }),
+		...(base.palInboxStart && base.startPalInbox
+			? {
+					palInboxStart: (palId: string) =>
+						invoke(() => base.palInboxStart?.(palId) as never, [], { global: true }),
+					startPalInbox: (palId: string) =>
+						invoke(() => base.startPalInbox?.(palId) as never, [], { global: true }),
+				}
+			: {}),
 		stopPalComputer: (id) => invoke(() => base.stopPalComputer(id), [], { global: true }),
 		openProject: () => invoke(() => base.openProject(), [], { global: true }),
 		reconnectProject: (id) => invoke(() => base.reconnectProject(id), [], { global: true }),

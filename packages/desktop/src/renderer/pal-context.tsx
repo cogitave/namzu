@@ -43,6 +43,9 @@ export interface PalContextProps {
 	onPause?: () => void
 	pauseDisabled?: boolean
 	customizeDisabled?: boolean
+	/** Messages waiting for the person's go, with the one action that moves them on. */
+	waiting?: { text: string; action: 'start' | 'resume' | 'retry' | null } | null
+	onWaitingAction?: (action: 'start' | 'resume' | 'retry') => void
 	onStartComputer?: () => void
 	onOpenComputer?: () => void
 	onStopComputer?: () => void
@@ -98,6 +101,8 @@ function PalContextBody({
 	onPause,
 	pauseDisabled,
 	customizeDisabled,
+	waiting,
+	onWaitingAction,
 	onStartComputer,
 	onOpenComputer,
 	onStopComputer,
@@ -162,6 +167,27 @@ function PalContextBody({
 					</Button>
 				)}
 			</header>
+			{waiting && (
+				<section className="pal-context-section pal-waiting" aria-label="Waiting messages">
+					<output className="pal-waiting-line" aria-live="polite">
+						{waiting.text}
+					</output>
+					{waiting.action && onWaitingAction && (
+						<Button
+							variant="outline"
+							size="xs"
+							className="pal-waiting-action"
+							onClick={() => onWaitingAction(waiting.action as 'start' | 'resume' | 'retry')}
+						>
+							{waiting.action === 'resume'
+								? `Resume ${pal.name}`
+								: waiting.action === 'retry'
+									? 'Retry'
+									: `Start ${pal.name}`}
+						</Button>
+					)}
+				</section>
+			)}
 			<section className="pal-context-section" aria-label="Pal computers">
 				<h3>Computers</h3>
 				<div className="pal-computer-entry">

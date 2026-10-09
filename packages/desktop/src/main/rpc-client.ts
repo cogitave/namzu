@@ -42,6 +42,10 @@ export class RuntimeClient extends EventEmitter {
 	supportsPalCommunication(): boolean {
 		return this.palCommunication
 	}
+	private palInboxStart = false
+	supportsPalInboxStart(): boolean {
+		return this.palInboxStart
+	}
 	private palComputerControl = false
 	supportsPalComputerControl(): boolean {
 		return this.palComputerControl
@@ -258,6 +262,9 @@ export class RuntimeClient extends EventEmitter {
 			'namzu/pals/computer/stop',
 			'namzu/pals/computer/screen',
 		].every((method) => result.extensions?.includes(method))
+		this.palInboxStart = ['namzu/pals/inbox/status', 'namzu/pals/inbox/start'].every((method) =>
+			result.extensions?.includes(method),
+		)
 		this.palComputerControl = [
 			'namzu/pals/computer/take_over',
 			'namzu/pals/computer/return_control',

@@ -57,6 +57,7 @@ import { cliLogger } from '../logging.js'
 import { palSessionEnvironment } from '../pals/agent-session.js'
 import { palConversationBinding } from '../pals/conversations.js'
 import { closeCliPalRuntime, getCliPalRuntime } from '../pals/environment.js'
+import { createPalInboxStarter } from '../pals/inbox-start.js'
 import { palAtWorkspace } from '../pals/store.js'
 import { canonicalProjectPath } from '../permissions/canonical-project.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
@@ -1681,6 +1682,9 @@ export async function runAcpCommand(ctx: CommandContext, desktop = false): Promi
 				},
 			})
 		: undefined
+	const palInboxStart = desktop
+		? createPalInboxStarter(() => resolveTrustedProjectContext(ctx, process.cwd()))
+		: undefined
 	const server: ACPServer = new ACPServer({
 		supportsPromptAttachments: true,
 		supportsPromptOptions: true,
@@ -1699,6 +1703,9 @@ export async function runAcpCommand(ctx: CommandContext, desktop = false): Promi
 							(id) => server.getSessionCwd(id),
 							(id, turnId, checkpointId, options) =>
 								server.retrySession(id, turnId, checkpointId, options),
+							undefined,
+							undefined,
+							palInboxStart,
 						),
 						...terminals?.extensions,
 					},
@@ -1727,6 +1734,7 @@ export async function runAcpCommand(ctx: CommandContext, desktop = false): Promi
 		announcing = false
 		try {
 			await terminals?.close()
+			await palInboxStart?.close()
 		} finally {
 			try {
 				await server.stop()

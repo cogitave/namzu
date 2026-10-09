@@ -555,6 +555,7 @@ function register(): void {
 		'newConversation',
 		'forkConversation',
 		'restoreConversation',
+		'startPalInbox',
 	])
 	const registerHandler = (
 		name: string,
@@ -943,6 +944,8 @@ function register(): void {
 	handle('restoreConversation', (sessionId: string) => operator.restoreConversation(sessionId))
 	handle('openPal', (id: string) => operator.openPal(id))
 	handle('palComputer', (id: string) => operator.palComputer(id))
+	handle('palInboxStart', (palId: string) => operator.palInboxStart(palId))
+	handle('startPalInbox', (palId: string) => operator.startPalInbox(palId))
 	handle('startPalComputer', (id: string) => operator.startPalComputer(id))
 	handle('stopPalComputer', (id: string) => operator.stopPalComputer(id))
 	handle('rebootPalComputer', (id: string, generation: string) =>
