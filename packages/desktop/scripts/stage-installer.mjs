@@ -138,10 +138,11 @@ async function main() {
 		join(out, 'extra/python/PYTHON-BUILD-STANDALONE.txt'),
 		`CPython ${PYTHON.version} from python-build-standalone ${PYTHON.release}\n${PYTHON.url}\nsha256 ${PYTHON.sha256}\nCPython is under the PSF License (LICENSE.txt in this folder); python-build-standalone is MPL-2.0.\n`,
 	)
+	// Measured before the scratch folder goes: a downloaded archive lives inside it.
+	const archiveMb = (statSync(archive).size / 1e6).toFixed(1)
 	rmSync(scratch, { recursive: true, force: true })
 
-	const size = (path) => (statSync(path).size / 1e6).toFixed(1)
-	console.log(`Staged ${out} (version ${desktop.version}); python archive ${size(archive)} MB`)
+	console.log(`Staged ${out} (version ${desktop.version}); python archive ${archiveMb} MB`)
 }
 
 await main()
