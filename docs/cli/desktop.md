@@ -2614,6 +2614,16 @@ computer", in words beside the glyph), the last message when this window has it,
 the project and the branch; it opens below the row, inside the sidebar, so it never covers the
 conversation, and above the row instead when below would cover **Archived conversations**. The close, pin, archive and menu buttons at the end of a row are centred on the row
 (`e2e/ux-sidebar-tabs-terminals.test.mjs` measures them at 100, 125 and 150% zoom, dark and light).
+On hover the glyph replaces the row's status mark, so it is drawn on the mark's own centre: the 28px button ends on
+the row's edge (centre 14px in) and each mark in the row's state slot is centred on that line (the 8px terminal
+dot, the 4px error dot, the 14px approval shield and the 12px spinner each get the margin that puts them there).
+The title's letters are in line with both: the title box is trimmed to the x-height line and the baseline
+(`text-box: trim-both ex alphabetic`, with equal padding so descenders stay inside the clip), because Segoe UI
+sets its x-height band about 1.75px below the middle of an 18px line box, which made a glyph centred on the row
+read as sitting high. `e2e/sidebar-row-geometry.test.mjs` hovers each row kind (conversation, running and ended
+terminal), dark and light, and asserts that the glyph's drawn paths are within 0.5px of the row's middle,
+that the status dot has the same centre across and down, and that the title's x-height band (from the font's
+metrics) is within a pixel.
 
 **Archiving.** The menu entry reads **Archive** (no ellipsis: it acts at once). The toast says
 "Conversation archived. Find it under Archived conversations in the sidebar." and stays 20 seconds with

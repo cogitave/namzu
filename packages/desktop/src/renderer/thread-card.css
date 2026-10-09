@@ -39,7 +39,12 @@
  */
 .sidebar-thread-actions {
 	position: absolute;
-	right: 4px;
+	/*
+	 * The 28px button ends on the row's edge, so its glyph's centre is 14px in. Every mark in the
+	 * state slot is centred on that same line (the rules below), so the close or archive glyph
+	 * lands exactly where the dot it replaces was.
+	 */
+	right: 0;
 	/* Centred by the row's own height, not by a transform, so no row height or zoom moves it. */
 	top: 0;
 	bottom: 0;
@@ -50,6 +55,21 @@
 }
 .sidebar-thread-action {
 	transition: none;
+}
+/*
+ * The state slot ends 8px inside the row (its padding), so a mark w px wide has its centre
+ * 8 + w/2 from the edge. The hover glyph's centre is 14px from it, so a mark gets
+ * margin-right: 14 - 8 - w/2: the 8px terminal dot 2px, the 4px error dot 4px, the 14px approval
+ * shield -1px. The 12px spinner and background-work glyph need none.
+ */
+.sidebar-thread-item .conversation-row-state > .terminal-badge {
+	margin-right: 2px;
+}
+.sidebar-thread-item .conversation-row-state > .connection-dot {
+	margin-right: 4px;
+}
+.sidebar-thread-item .conversation-row-state > [aria-label="Approval needed"] {
+	margin-right: -1px;
 }
 .sidebar-thread-item:hover .sidebar-thread-actions,
 .sidebar-thread-item:has(:focus-visible) .sidebar-thread-actions,
