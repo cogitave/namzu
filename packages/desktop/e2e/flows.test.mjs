@@ -215,7 +215,7 @@ flow(
 		await expect(list.getByText("alpha chat")).toBeVisible({ timeout: T });
 		await list.getByRole("button", { name: "Restore alpha chat" }).click();
 		await expect(
-			list.getByText("Nothing is archived in this project."),
+			list.getByText("Nothing is archived."),
 		).toBeVisible({ timeout: T });
 		await list.getByRole("button", { name: "Close", exact: true }).click();
 		await expect(sidebarRow(w, "alpha chat")).toBeVisible({ timeout: T });

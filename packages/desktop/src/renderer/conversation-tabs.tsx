@@ -2,7 +2,7 @@ import { ContextMenu } from '@base-ui/react/context-menu'
 import { Menu } from '@base-ui/react/menu'
 import { Tabs } from '@base-ui/react/tabs'
 import { MessageCircle, SplitSquareVertical } from 'lucide-react'
-import { Fragment, type ReactElement, useEffect, useRef } from 'react'
+import { Fragment, type ReactElement, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
 	type BackgroundWorkStatus,
 	freshBackgroundWorkStatus,
@@ -23,6 +23,8 @@ import type { ConversationActionId, ConversationActionInput } from './conversati
 import { HarnessMark } from './harness-picker.js'
 import {
 	AppWindowIcon,
+	CheckIcon,
+	ChevronDownIcon,
 	type IconComponent,
 	LoaderCircleIcon,
 	MoreHorizontalIcon,
@@ -34,6 +36,7 @@ import {
 	XIcon,
 } from './icons.js'
 import { type NewTabActionId, type NewTabIconId, newTabMenuGroups } from './new-tab-menu.js'
+import { TAB_TITLE_CHARS, shortenTitle } from './short-title.js'
 import { TerminalStripTab } from './terminal-tab.js'
 import { Button } from './ui/button.js'
 import { WordmarkInitial } from './wordmark.js'
@@ -142,6 +145,56 @@ function NewTabContextMenu({
 				</ContextMenu.Positioner>
 			</ContextMenu.Portal>
 		</ContextMenu.Root>
+	)
+}
+
+/** The same entries as the right-click menu, on a visible caret beside the + button. */
+function NewTabMenuButton({ menu, busy }: { menu: ConversationTabsNewMenu; busy: boolean }) {
+	const groups = newTabMenuGroups(menu)
+	return (
+		<Menu.Root>
+			<Menu.Trigger
+				render={
+					<Button
+						variant="ghost-muted"
+						size="icon-sm"
+						className="conversation-tab-new-more"
+						aria-label="More ways to add a tab"
+						title="More ways to add a tab"
+						disabled={busy}
+					/>
+				}
+			>
+				<ChevronDownIcon aria-hidden="true" />
+			</Menu.Trigger>
+			<Menu.Portal>
+				<Menu.Positioner className="conversation-actions-positioner" align="end" sideOffset={6}>
+					<Menu.Popup className="conversation-actions-popup" aria-label="New tab">
+						{groups.map((group, index) => (
+							<Fragment key={group[0]?.id}>
+								{index > 0 && <Menu.Separator className="conversation-actions-separator" />}
+								{group.map((entry) => {
+									const Icon = NEW_TAB_ICONS[entry.icon]
+									return (
+										<Menu.Item
+											key={entry.id}
+											className="conversation-actions-item"
+											disabled={busy || !!entry.reason}
+											title={entry.reason}
+											aria-description={entry.reason}
+											onClick={() => menu.onAction(entry.id)}
+										>
+											<Icon aria-hidden="true" />
+											<span className="conversation-actions-label">{entry.label}</span>
+										</Menu.Item>
+									)
+								})}
+							</Fragment>
+						))}
+					</Menu.Popup>
+				</Menu.Positioner>
+			</Menu.Portal>
+		</Menu.Root>
 	)
 }
 
@@ -343,7 +396,7 @@ function ConversationTab({
 					<PinIcon className="conversation-row-pin conversation-tab-pin" aria-hidden="true" />
 				)}
 				<span className="truncate" title={label}>
-					{label}
+					{shortenTitle(label, TAB_TITLE_CHARS)}
 				</span>
 				{workLabel && work.state === 'known' && (
 					<span
@@ -476,24 +529,50 @@ export function ConversationTabs({
 			else if (view) strip.push({ kind: 'conversation', view })
 		}
 	} else for (const view of tabs) strip.push({ kind: 'conversation', view })
+	const selectTab = (id: string) => {
+		if (busy) return
+		const terminal = terminalById.get(id)
+		if (terminal) {
+			terminals?.onSelect(terminal)
+			return
+		}
+		const selection = resolveConversationTabSelection(tabs, active, id, currentPal)
+		if (selection?.kind === 'computer') currentPal?.onOpenComputer?.()
+		else if (selection?.kind === 'chat') currentPal?.onOpenChat?.()
+		else if (selection?.kind === 'conversation') onSelect(selection.view)
+	}
+	const list = useRef<HTMLDivElement>(null)
+	const [overflowing, setOverflowing] = useState(false)
+	// The tab in front is always on screen: it scrolls into view when it changes, when the strip
+	// changes, and when the window is resized.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the strip's length and the selected id are the triggers.
+	useLayoutEffect(() => {
+		const element = list.current
+		if (!element) return
+		const reveal = () => {
+			setOverflowing(element.scrollWidth > element.clientWidth + 1)
+			element
+				.querySelector<HTMLElement>('.conversation-tab[data-active="true"]')
+				?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+		}
+		reveal()
+		if (typeof ResizeObserver === 'undefined') return
+		const observer = new ResizeObserver(reveal)
+		observer.observe(element)
+		return () => observer.disconnect()
+	}, [selected, strip.length])
+	const stripLabel = (item: StripItem) =>
+		item.kind === 'terminal'
+			? item.tab.title
+			: ((item.view.palId ? palNames?.[item.view.palId] : undefined) ?? item.view.title)
 	return (
-		<Tabs.Root
-			className="conversation-tabs"
-			value={selected}
-			onValueChange={(id) => {
-				if (busy) return
-				const terminal = terminalById.get(id)
-				if (terminal) {
-					terminals?.onSelect(terminal)
-					return
-				}
-				const selection = resolveConversationTabSelection(tabs, active, id, currentPal)
-				if (selection?.kind === 'computer') currentPal?.onOpenComputer?.()
-				else if (selection?.kind === 'chat') currentPal?.onOpenChat?.()
-				else if (selection?.kind === 'conversation') onSelect(selection.view)
-			}}
-		>
-			<Tabs.List className="conversation-tab-list" aria-label="Conversation tabs">
+		<Tabs.Root className="conversation-tabs" value={selected} onValueChange={selectTab}>
+			<Tabs.List
+				ref={list}
+				className="conversation-tab-list"
+				aria-label="Conversation tabs"
+				data-overflowing={overflowing || undefined}
+			>
 				{strip.map((item) =>
 					item.kind === 'terminal' ? (
 						<TerminalStripTab
@@ -506,6 +585,8 @@ export function ConversationTabs({
 							onClose={(tab) => terminals?.onClose(tab)}
 							onDetach={(tab, bounds) => terminals?.onDetach(tab, bounds)}
 							onSplit={terminals?.onSplit}
+							onNew={newMenu ? (id) => newMenu.onAction(id) : undefined}
+							newReason={newMenu?.terminalReason}
 						/>
 					) : (
 						<Fragment key={item.view.id}>
@@ -537,6 +618,48 @@ export function ConversationTabs({
 					),
 				)}
 			</Tabs.List>
+			{overflowing && (
+				<Menu.Root>
+					<Menu.Trigger
+						render={
+							<Button
+								variant="ghost-muted"
+								size="icon-sm"
+								className="conversation-tab-overflow"
+								aria-label="Show all tabs"
+								title="Show all tabs"
+							/>
+						}
+					>
+						<ChevronDownIcon aria-hidden="true" />
+					</Menu.Trigger>
+					<Menu.Portal>
+						<Menu.Positioner className="conversation-actions-positioner" align="end" sideOffset={6}>
+							<Menu.Popup className="conversation-actions-popup" aria-label="All tabs">
+								{strip.map((item) => {
+									const id = item.kind === 'terminal' ? item.tab.id : item.view.id
+									return (
+										<Menu.Item
+											key={id}
+											className="conversation-actions-item"
+											data-overflow-tab={id}
+											aria-current={id === selected ? 'true' : undefined}
+											onClick={() => selectTab(id)}
+										>
+											<span className="conversation-actions-icon-slot" aria-hidden="true">
+												{id === selected && <CheckIcon />}
+											</span>
+											<span className="conversation-actions-label" title={stripLabel(item)}>
+												{shortenTitle(stripLabel(item), 40)}
+											</span>
+										</Menu.Item>
+									)
+								})}
+							</Menu.Popup>
+						</Menu.Positioner>
+					</Menu.Portal>
+				</Menu.Root>
+			)}
 			{(() => {
 				const withMenu = (button: ReactElement) =>
 					newMenu ? (
@@ -559,6 +682,7 @@ export function ConversationTabs({
 								<PlusIcon />
 							</Button>,
 						)}
+						{newMenu && <NewTabMenuButton menu={newMenu} busy={busy} />}
 						{terminals?.onNew &&
 							withMenu(
 								<Button

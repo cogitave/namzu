@@ -13,7 +13,7 @@ import { UpdateDialog } from './update-dialog.js'
 import { type UpdateDialogAction, updateDialogModel } from './update-model.js'
 import { EngineUpdatesContext, useEngineUpdatesController } from './use-engine-updates.js'
 import { useUpdateBusyReporter, useUpdateState } from './use-update.js'
-import type { WorkspaceTabDrag } from './workspace-canvas-geometry.js'
+import { type WorkspaceTabDrag, workspaceSplitRoom } from './workspace-canvas-geometry.js'
 import { WorkspaceCanvas } from './workspace-canvas.js'
 import type { WorkspacePaneController } from './workspace-pane-types.js'
 import './workspace-host.css'
@@ -50,6 +50,8 @@ export function WorkspaceHost() {
 	const [sideCollapsed, setSideCollapsed] = useState(
 		() => localStorage.getItem('namzu.sidebar-collapsed') === 'true',
 	)
+	const sideCollapsedRef = useRef(sideCollapsed)
+	sideCollapsedRef.current = sideCollapsed
 	const accept = useCallback((next: WorkspaceView) => {
 		if (current.current && next.sequence < current.current.sequence) return
 		current.current = next
@@ -303,6 +305,29 @@ export function WorkspaceHost() {
 			const owner = current.current
 			if (!owner) return
 			const canvas = document.querySelector<HTMLElement>('.workspace-canvas')
+			const sidebar = document.querySelector<HTMLElement>('[data-app-sidebar]')
+			const room = workspaceSplitRoom(
+				{ width: canvas?.clientWidth ?? 0, height: canvas?.clientHeight ?? 0 },
+				position,
+				sideCollapsedRef.current ? 0 : (sidebar?.offsetWidth ?? 0),
+			)
+			if (room === 'too-small') {
+				report(
+					new Error('This window is too narrow to split. Make it wider, or open a new window.'),
+				)
+				return
+			}
+			// The panes keep a readable width, so a docked sidebar steps aside instead of the page scrolling sideways.
+			if (room === 'collapse-sidebar') {
+				setSideCollapsed(true)
+				try {
+					localStorage.setItem('namzu.sidebar-collapsed', 'true')
+				} catch {
+					/* The sidebar stays closed for this window. */
+				}
+			}
+			const width =
+				(canvas?.clientWidth ?? 0) + (room === 'collapse-sidebar' ? (sidebar?.offsetWidth ?? 0) : 0)
 			void prepare({ windowId: owner.windowId, groupId, tabId })
 				.then(() =>
 					action({
@@ -313,7 +338,7 @@ export function WorkspaceHost() {
 						targetGroupId: groupId,
 						tabId,
 						position,
-						size: { width: canvas?.clientWidth ?? 0, height: canvas?.clientHeight ?? 0 },
+						size: { width, height: canvas?.clientHeight ?? 0 },
 					}),
 				)
 				.catch(report)

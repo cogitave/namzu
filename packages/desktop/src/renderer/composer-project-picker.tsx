@@ -11,6 +11,7 @@ import {
 import { ComposerControl, ComposerControlChevron } from './composer-control.js'
 import { CheckIcon, FolderIcon, FolderPlusIcon, SearchIcon, XIcon } from './icons.js'
 import { commitsOnKey, committableProject } from './picker-commit.js'
+import { foldedIncludes } from './text-fold.js'
 import { Button } from './ui/button.js'
 import { Input } from './ui/input.js'
 import { Popover, PopoverPopup, PopoverTrigger } from './ui/popover.js'
@@ -44,11 +45,10 @@ export function ComposerProjectPicker({
 		}
 	}, [projectId])
 	const choices = projects?.filter((project) => project.palId === undefined) ?? []
-	const search = query.trim().toLocaleLowerCase()
+	const search = query.trim()
 	const visible = choices.filter(
 		(project) =>
-			!project.isChat &&
-			(!search || `${project.name} ${project.path}`.toLocaleLowerCase().includes(search)),
+			!project.isChat && (!search || foldedIncludes(`${project.name} ${project.path}`, search)),
 	)
 	const label = (
 		<>

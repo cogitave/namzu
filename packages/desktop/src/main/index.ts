@@ -1413,6 +1413,15 @@ const engineUpdates = new EngineUpdates({
 	updated: (id) => {
 		if (id !== 'namzu-cli') operator.engineUpdated(id)
 	},
+	finished: (tabId) => {
+		void (async () => {
+			const placed = locateWorkspaceTab(workspace.snapshot(), tabId)
+			await terminals.close(tabId)
+			if (placed) workspace.retireTabs([tabId])
+		})().catch((error) =>
+			diagnostics.record('ipc_failed', { operation: 'closeFinishedUpdate', error }),
+		)
+	},
 	broadcast: (state) => sendToWindow(undefined, 'namzu:engine-updates', state),
 	notice: (windowId, notice) => sendToWindow(windowId, 'namzu:engine-update-notice', notice),
 	record: (_event, details) =>

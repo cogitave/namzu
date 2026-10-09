@@ -7,21 +7,22 @@ import {
 import type { ThreadState } from '../shared/projection.js'
 import type { ConversationView, ProjectView } from '../shared/protocol.js'
 import type { TerminalTabView } from '../shared/terminal-tabs.js'
-import { ADD_PROJECT_LABEL, AddProjectItems, AddProjectMenu } from './add-project-menu.js'
+import { ADD_PROJECT_LABEL, AddProjectMenu } from './add-project-menu.js'
 import { BrandDither } from './brand-dither.js'
 import { compareConversationOrder } from './conversation-order.js'
 import {
+	ArchiveIcon,
 	ChevronDownIcon,
 	FolderIcon,
 	FolderOpenIcon,
-	FolderPlusIcon,
+	PlusIcon,
 	SearchIcon,
 	SquarePenIcon,
 	XIcon,
 } from './icons.js'
-import { ProjectContextMenu } from './project-row-actions.js'
+import { ProjectContextMenu, ProjectMoreMenu } from './project-row-actions.js'
 import { createSidebarListMotion } from './sidebar-motion.js'
-import { TerminalBadge, TerminalMark } from './terminal-pane.js'
+import { TerminalBadge, TerminalMark, terminalStatusText } from './terminal-pane.js'
 import { ThreadCard, type ThreadRowActions } from './thread-card.js'
 import { Button } from './ui/button.js'
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from './ui/collapsible.js'
@@ -38,6 +39,25 @@ function hasVisibleBackgroundWork(
 	if (view.palId || (view.harness && view.harness !== 'namzu')) return false
 	const fresh = freshBackgroundWorkStatus(status)
 	return fresh.state === 'known' && (fresh.runningCount > 0 || fresh.needsAttention)
+}
+/** The rows a project's list shows: the first five, the open one, and any that are busy; or all. */
+function visibleProjectRows(
+	rows: readonly ConversationView[],
+	options: {
+		expanded: boolean
+		sessionId: string
+		threads: Record<string, ThreadState>
+		backgroundWork?: Readonly<Record<string, BackgroundWorkStatus>>
+	},
+): ConversationView[] {
+	if (options.expanded) return [...rows]
+	return rows.filter(
+		(item, index) =>
+			index < 5 ||
+			item.id === options.sessionId ||
+			options.threads[item.id]?.running ||
+			hasVisibleBackgroundWork(item, options.backgroundWork?.[item.id]),
+	)
 }
 export function Sidebar({
 	projects,
@@ -59,6 +79,8 @@ export function Sidebar({
 	onConversation,
 	rowActions,
 	onRemoveProject,
+	onOpenProjectFolder,
+	onOpenArchived,
 	pals,
 	terminals = [],
 	activeTerminalId,
@@ -86,6 +108,10 @@ export function Sidebar({
 	rowActions?: ThreadRowActions
 	/** Absent when the host cannot remove a project; the hover button and menu are then not offered. */
 	onRemoveProject?: (project: ProjectView, trigger: HTMLElement | null) => void
+	/** Absent when the host cannot show a folder in the file manager. */
+	onOpenProjectFolder?: (project: ProjectView) => void
+	/** Absent when the host keeps no archive; the Archived entry is then not offered. */
+	onOpenArchived?: () => void
 	pals?: ReactNode
 	/** Open terminal tabs; each is listed under its project with a terminal mark. */
 	terminals?: readonly TerminalTabView[]
@@ -103,7 +129,7 @@ export function Sidebar({
 			rows: conversations.filter((item) => item.projectId === project.id),
 		}))
 	const projectById = new Map(projects.map((project) => [project.id, project]))
-	const recent = [...new Map(conversations.map((item) => [item.id, item])).values()]
+	const recentCandidates = [...new Map(conversations.map((item) => [item.id, item])).values()]
 		.filter((item) => projectById.has(item.projectId))
 		.sort(compareConversationOrder)
 		.filter(
@@ -113,6 +139,21 @@ export function Sidebar({
 				threads[item.id]?.running ||
 				hasVisibleBackgroundWork(item, backgroundWork?.[item.id]),
 		)
+	// A conversation is listed once: Recents holds only the ones their project's list is not
+	// showing (a collapsed project, or the part behind "Show more"), each with its project's name.
+	const listedUnderProject = new Set(
+		groups.flatMap(({ project, rows }) =>
+			collapsedProjects[project.id] === false
+				? visibleProjectRows(rows, {
+						expanded: Boolean(expandedLists[project.id]),
+						sessionId,
+						threads,
+						backgroundWork,
+					}).map((item) => item.id)
+				: [],
+		),
+	)
+	const recent = recentCandidates.filter((item) => !listedUnderProject.has(item.id))
 	const activeProjectId = sessionId
 		? (conversations.find((item) => item.id === sessionId)?.projectId ?? projectId)
 		: projectId
@@ -156,11 +197,6 @@ export function Sidebar({
 						<Menu.Portal>
 							<Menu.Positioner className="z-[150] outline-none" align="start" sideOffset={4}>
 								<Menu.Popup className="workspace-menu-popup window-titlebar-popup dropdown-glass min-w-52 rounded-lg p-1 text-sm text-popover-foreground shadow-xl outline-none">
-									<AddProjectItems
-										onCreate={onCreateProject}
-										onOpen={onOpenProject}
-										disabled={opening}
-									/>
 									<Menu.Item
 										className="window-titlebar-item"
 										onClick={onNewConversation}
@@ -212,7 +248,26 @@ export function Sidebar({
 				</button>
 				<div className="sidebar-scroll">
 					{pals}
-					<h2 className="sidebar-section-title">Projects</h2>
+					<div className="sidebar-section-heading">
+						<h2 className="sidebar-section-title">Projects</h2>
+						<AddProjectMenu
+							disabled={opening}
+							onCreate={onCreateProject}
+							onOpen={onOpenProject}
+							align="end"
+							trigger={
+								<Button
+									variant="ghost-muted"
+									size="icon-xs"
+									className="sidebar-add-project"
+									aria-label={ADD_PROJECT_LABEL}
+									title={ADD_PROJECT_LABEL}
+								>
+									<PlusIcon aria-hidden="true" />
+								</Button>
+							}
+						/>
+					</div>
 					<nav
 						className="conversations sidebar-project-navigation"
 						aria-label="Projects and conversations"
@@ -234,6 +289,8 @@ export function Sidebar({
 									project={project}
 									selected={!sessionId && projectId === project.id}
 									onRemoveProject={onRemoveProject}
+									onOpenProjectFolder={onOpenProjectFolder}
+									onOpenArchived={onOpenArchived}
 								>
 									<CollapsibleTrigger
 										aria-label={`${collapsedProjects[project.id] === false ? 'Collapse' : 'Expand'} ${project.name} conversations`}
@@ -294,19 +351,7 @@ export function Sidebar({
 								</CollapsiblePanel>
 							</Collapsible>
 						))}
-						{projects.length === 0 && (
-							<AddProjectMenu
-								disabled={opening}
-								onCreate={onCreateProject}
-								onOpen={onOpenProject}
-								trigger={
-									<button type="button" className="project-row">
-										<FolderPlusIcon aria-hidden="true" />
-										<span>{ADD_PROJECT_LABEL}</span>
-									</button>
-								}
-							/>
-						)}
+						{projects.length === 0 && <p className="sidebar-empty-note">Use + to add a project.</p>}
 					</nav>
 					{recent.length > 0 && (
 						<section className="sidebar-recents" aria-label="Recent conversations">
@@ -323,22 +368,32 @@ export function Sidebar({
 							/>
 						</section>
 					)}
+					{onOpenArchived && (
+						<button type="button" className="sidebar-archived-link" onClick={onOpenArchived}>
+							<ArchiveIcon aria-hidden="true" />
+							Archived conversations
+						</button>
+					)}
 				</div>
 			</aside>
 		</>
 	)
 }
 
-/** The row: toggle and name from the caller, plus the remove button and the right-click menu. */
+/** The row: toggle and name from the caller, plus the "…" menu and the same menu on right-click. */
 function ProjectHeading({
 	project,
 	selected,
 	onRemoveProject,
+	onOpenProjectFolder,
+	onOpenArchived,
 	children,
 }: {
 	project: ProjectView
 	selected: boolean
 	onRemoveProject?: (project: ProjectView, trigger: HTMLElement | null) => void
+	onOpenProjectFolder?: (project: ProjectView) => void
+	onOpenArchived?: () => void
 	children: ReactNode
 }) {
 	const row = useRef<HTMLDivElement>(null)
@@ -351,30 +406,31 @@ function ProjectHeading({
 		'data-menu-open': menuOpen || undefined,
 	}
 	const trigger = () => row.current?.querySelector<HTMLElement>('.project-row') ?? null
+	const actions =
+		onRemoveProject && removable
+			? {
+					onRemove: () => onRemoveProject(project, trigger()),
+					...(onOpenProjectFolder && project.path
+						? { onOpenFolder: () => onOpenProjectFolder(project) }
+						: {}),
+					...(onOpenArchived ? { onArchived: onOpenArchived } : {}),
+				}
+			: undefined
 	const body = (
 		<>
 			{children}
-			{removable && (
-				<Tooltip>
-					<TooltipTrigger
-						render={
-							<Button
-								variant="ghost-muted"
-								size="icon-xs"
-								className="sidebar-project-remove"
-								aria-label={`Remove ${project.name}`}
-								onClick={(event) => onRemoveProject?.(project, event.currentTarget)}
-							/>
-						}
-					>
-						<XIcon aria-hidden="true" />
-					</TooltipTrigger>
-					<TooltipPopup>Remove project…</TooltipPopup>
-				</Tooltip>
+			{actions && (
+				<ProjectMoreMenu
+					label={`${project.name} actions`}
+					triggerLabel={`Actions for ${project.name}`}
+					restoreFocus={trigger}
+					onOpenChange={setMenuOpen}
+					actions={actions}
+				/>
 			)}
 		</>
 	)
-	if (!removable)
+	if (!actions)
 		return (
 			<div ref={row} {...props}>
 				{body}
@@ -386,7 +442,7 @@ function ProjectHeading({
 			render={<div ref={row} {...props} />}
 			restoreFocus={trigger}
 			onOpenChange={setMenuOpen}
-			onRemove={() => onRemoveProject(project, trigger())}
+			actions={actions}
 		>
 			{body}
 		</ProjectContextMenu>
@@ -423,6 +479,7 @@ function TerminalList({
 				>
 					<button
 						type="button"
+						title={terminalStatusText(tab)}
 						aria-label={`${tab.title}, terminal${tab.status === 'running' ? '' : ', ended'}`}
 						aria-current={activeId === tab.id ? 'page' : undefined}
 						onClick={() => onOpen?.(tab)}
@@ -484,13 +541,12 @@ function ThreadList({
 	onConversation: (view: ConversationView) => void
 	rowActions?: ThreadRowActions
 }) {
-	const limitedRows = rows.filter(
-		(item, index) =>
-			index < 5 ||
-			item.id === sessionId ||
-			threads[item.id]?.running ||
-			hasVisibleBackgroundWork(item, backgroundWork?.[item.id]),
-	)
+	const limitedRows = visibleProjectRows(rows, {
+		expanded: false,
+		sessionId,
+		threads,
+		backgroundWork,
+	})
 	const shownRows = expanded ? rows : limitedRows
 	const hasExtra = limitedRows.length < rows.length
 	const list = useThreadListMotion()
@@ -566,6 +622,7 @@ function RecentList({
 						active={active && item.id === sessionId}
 						onClick={() => onConversation(item)}
 						rowActions={rowActions}
+						projectLabel={project.name}
 					/>
 				) : null
 			})}

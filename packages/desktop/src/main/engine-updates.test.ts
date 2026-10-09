@@ -210,6 +210,7 @@ interface Fake {
 	opened: { launch: EngineLaunchSpec; groupId: string }[]
 	stopped: EngineUpdateId[]
 	changed: EngineUpdateId[]
+	closed: string[]
 	registry: Map<string, string | undefined>
 	versions: Map<string, string | undefined>
 	fetches: string[]
@@ -234,6 +235,7 @@ function setup(
 		opened: [],
 		stopped: [],
 		changed: [],
+		closed: [],
 		registry: new Map([
 			['@openai/codex', '0.162.0'],
 			['@anthropic-ai/claude-code', '2.1.295'],
@@ -294,6 +296,7 @@ function setup(
 			return { tabId: 'terminal-1' }
 		},
 		updated: (id) => fake.changed.push(id),
+		finished: (tabId) => fake.closed.push(tabId),
 		broadcast: (state) => fake.states.push(state),
 		notice: (windowId, notice) => fake.notices.push({ windowId, notice }),
 		record: () => undefined,
@@ -668,6 +671,8 @@ describe('after the terminal ends', () => {
 		expect(fake.notices).toEqual([
 			{ windowId: 'w1', notice: { text: 'Codex CLI updated to 0.162.0', tone: 'success' } },
 		])
+		// A successful update has nothing left to read, so its tab closes by itself.
+		expect(fake.closed).toEqual(['terminal-1'])
 	})
 
 	it('says so when the version did not move, with where the program is', async () => {

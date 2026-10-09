@@ -179,7 +179,7 @@ export function conversationActionGroups(
 		groups.push([
 			{
 				id: 'archive',
-				label: 'Archive…',
+				label: 'Archive',
 				icon: 'archive',
 				reason: archiveBlockedReason(input),
 				destructive: true,

@@ -3,6 +3,7 @@ import { Autocomplete } from '@base-ui/react/autocomplete'
 import { Dialog } from '@base-ui/react/dialog'
 import { type ReactNode, type RefObject, useEffect, useRef, useState } from 'react'
 import { matchesCommandQuery, matchesCommandShortcut } from './command-palette-filter.js'
+import { foldedIncludes } from './text-fold.js'
 import './command-palette.css'
 
 export interface CommandPaletteItem {
@@ -23,6 +24,8 @@ export interface CommandPaletteProps {
 	onOpenChange: (open: boolean) => void
 	items: readonly CommandPaletteItem[]
 	triggerRef?: RefObject<HTMLElement | null>
+	/** Where focus goes when the element that opened the palette is gone or is the page itself. */
+	fallbackFocusRef?: RefObject<HTMLElement | null>
 	loading?: boolean
 	notice?: string
 	onRetry?: () => void
@@ -33,6 +36,7 @@ export function CommandPalette({
 	onOpenChange,
 	items,
 	triggerRef,
+	fallbackFocusRef,
 	loading,
 	notice,
 	onRetry,
@@ -56,7 +60,12 @@ export function CommandPalette({
 					<Dialog.Popup
 						className="command-palette-popup"
 						initialFocus={input}
-						finalFocus={() => (invoked.current ? false : (triggerRef?.current ?? true))}
+						finalFocus={() => {
+							if (invoked.current) return false
+							const opener = triggerRef?.current
+							if (opener?.isConnected && opener !== document.body) return opener
+							return fallbackFocusRef?.current ?? true
+						}}
 						onKeyDown={(event) => {
 							if (event.nativeEvent.isComposing || event.keyCode === 229) return
 							const item = items.find((item) => matchesCommandShortcut(item.shortcut, event))
@@ -67,7 +76,7 @@ export function CommandPalette({
 						}}
 					>
 						<Dialog.Title className="command-palette-accessible">
-							Search chats and actions
+							Search conversations and actions
 						</Dialog.Title>
 						<Dialog.Close className="command-palette-accessible" tabIndex={-1}>
 							Close search
@@ -103,7 +112,6 @@ function CommandResults({
 	onRun: (item: CommandPaletteItem) => void
 }) {
 	const [query, setQuery] = useState('')
-	const { contains } = Autocomplete.useFilter({ sensitivity: 'base' })
 	const groups = new Map<string, CommandPaletteItem[]>()
 	for (const item of items) {
 		const members = groups.get(item.group)
@@ -119,7 +127,7 @@ function CommandResults({
 			value={query}
 			onValueChange={setQuery}
 			itemToStringValue={(item: CommandPaletteItem) => item.label}
-			filter={(item: CommandPaletteItem, value) => matchesCommandQuery(item, value, contains)}
+			filter={(item: CommandPaletteItem, value) => matchesCommandQuery(item, value, foldedIncludes)}
 			autoHighlight="always"
 			keepHighlight
 			loopFocus={false}
@@ -128,8 +136,8 @@ function CommandResults({
 				<Autocomplete.Input
 					ref={inputRef}
 					className="command-palette-input"
-					aria-label="Search chats"
-					placeholder="Search chats"
+					aria-label="Search conversations and actions"
+					placeholder="Search conversations and actions"
 					autoComplete="off"
 					spellCheck={false}
 					onKeyDown={(event) => {
@@ -147,7 +155,7 @@ function CommandResults({
 					}}
 				/>
 			</div>
-			<Autocomplete.List className="command-palette-list" aria-label="Chats and quick actions">
+			<Autocomplete.List className="command-palette-list" aria-label="Conversations and actions">
 				{(group: { label: string; items: readonly CommandPaletteItem[] }) => (
 					<Autocomplete.Group
 						key={group.label}
@@ -174,10 +182,9 @@ function CommandResults({
 									<span className="command-palette-label">{item.label}</span>
 									{item.meta && <span className="command-palette-meta">{item.meta}</span>}
 									{item.shortcut?.length ? (
+										// The whole chord in one keycap, written as the menus write it.
 										<span className="command-palette-shortcut" aria-hidden="true">
-											{item.shortcut.map((key, index) => (
-												<kbd key={`${index}:${key}`}>{key}</kbd>
-											))}
+											<kbd>{item.shortcut.join('+')}</kbd>
 										</span>
 									) : null}
 								</Autocomplete.Item>
@@ -187,7 +194,7 @@ function CommandResults({
 				)}
 			</Autocomplete.List>
 			<Autocomplete.Empty className="command-palette-empty">
-				{loading ? 'Loading conversations…' : 'No matching chats or actions.'}
+				{loading ? 'Loading conversations…' : 'No matching conversations or actions.'}
 			</Autocomplete.Empty>
 			{loading || notice ? (
 				<div className="command-palette-status">

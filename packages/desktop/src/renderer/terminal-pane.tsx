@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { ACTIVITY_LABELS, type TerminalTabView } from '../shared/terminal-tabs.js'
 import { HarnessMark } from './harness-picker.js'
 import { TerminalIcon } from './icons.js'
+import { isTerminalAppChord } from './terminal-keys.js'
 import { pressReturnsKeyboard } from './terminal-pane-focus.js'
 import { onTerminalFind } from './terminal-registry.js'
 import type { TerminalSession } from './terminal-session.js'
@@ -22,6 +23,8 @@ export function TerminalMark({ tab }: { tab: Pick<TerminalTabView, 'kind' | 'eng
 
 /** The badge an engine tab carries: what its program is doing, from its output and its end. */
 export function terminalBadgeLabel(tab: TerminalTabView): string | undefined {
+	// A shell has no activity to show, but an ended one reads as ended in the strip and the sidebar.
+	if (tab.kind === 'shell') return tab.status === 'running' ? undefined : 'Session ended'
 	if (tab.kind !== 'engine' || !tab.activity) return undefined
 	if (tab.activity === 'exited')
 		return tab.exitCode !== undefined && tab.exitCode !== 0
@@ -30,14 +33,24 @@ export function terminalBadgeLabel(tab: TerminalTabView): string | undefined {
 	return ACTIVITY_LABELS[tab.activity]
 }
 
+/** The tab's name and what its dot means, in words: the tooltip of a tab and of a sidebar row. */
+export function terminalStatusText(tab: TerminalTabView): string {
+	const badge = terminalBadgeLabel(tab)
+	return badge ? `${tab.title} — ${badge}` : tab.title
+}
+
 export function TerminalBadge({ tab }: { tab: TerminalTabView }) {
 	const label = terminalBadgeLabel(tab)
 	if (!label) return null
-	const failed = tab.activity === 'exited' && tab.exitCode !== undefined && tab.exitCode !== 0
+	const failed =
+		tab.kind === 'engine' &&
+		tab.activity === 'exited' &&
+		tab.exitCode !== undefined &&
+		tab.exitCode !== 0
 	return (
 		<span
 			className="terminal-badge"
-			data-activity={tab.activity}
+			data-activity={tab.kind === 'shell' ? 'exited' : tab.activity}
 			data-failed={failed || undefined}
 			role="img"
 			aria-label={label}
@@ -151,13 +164,8 @@ export function TerminalPane({
 				}
 			}}
 			onKeyDown={(event) => {
-				const native = event.nativeEvent
-				if (
-					(native.ctrlKey || native.metaKey) &&
-					native.shiftKey &&
-					(native.code === 'Backquote' || native.key === '`' || native.key === '~')
-				)
-					return
+				// The window's own chords (another terminal, settings, moving between tabs) travel on.
+				if (isTerminalAppChord(event.nativeEvent, /Mac/.test(navigator.platform))) return
 				event.stopPropagation()
 			}}
 		>
@@ -200,6 +208,30 @@ export function TerminalPane({
 						Done
 					</Button>
 				</form>
+			)}
+			{/* Announced when the bar opens or closes, since focus moves without a word. */}
+			<output className="sr-only" aria-live="polite">
+				{finding ? 'Find in terminal. Press Escape to return to the terminal.' : ''}
+			</output>
+			{state.pendingPaste && (
+				<div className="terminal-pane-note" role="alert" data-tone="warning">
+					<span>
+						Paste {state.pendingPaste.lines} lines? This program does not hold pasted text back, so
+						each line runs as soon as it arrives.
+					</span>
+					<Button type="button" variant="ghost" size="xs" onClick={() => session.answerPaste(true)}>
+						Paste
+					</Button>
+					<Button
+						type="button"
+						variant="ghost"
+						size="xs"
+						autoFocus
+						onClick={() => session.answerPaste(false)}
+					>
+						Cancel
+					</Button>
+				</div>
 			)}
 			{state.phase === 'failed' && (
 				<p className="terminal-pane-note" role="alert" data-tone="error">

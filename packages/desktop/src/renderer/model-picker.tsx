@@ -59,6 +59,7 @@ import {
 } from './model-choice.js'
 import { isNewModel } from './model-freshness.js'
 import { commitsOnKey } from './picker-commit.js'
+import { foldedIncludes } from './text-fold.js'
 import { Button } from './ui/button.js'
 import { Input } from './ui/input.js'
 import { Popover, PopoverPopup, PopoverTrigger } from './ui/popover.js'
@@ -710,9 +711,10 @@ function ModelBrowser({
 	)
 	const filtered = models.filter((model) => {
 		const section = sectionsByProvider.get(model.provider.id)?.get(model.id)
-		return `${model.label} ${model.id} ${model.provider.label} ${section ? SECTION_HEADINGS[section] : ''}`
-			.toLowerCase()
-			.includes(query.trim().toLowerCase())
+		return foldedIncludes(
+			`${model.label} ${model.id} ${model.provider.label} ${section ? SECTION_HEADINGS[section] : ''}`,
+			query.trim(),
+		)
 	})
 	const loading = shownProviders.some(
 		(provider) => !shownCatalogues.get(provider.id) || shownCatalogues.get(provider.id)?.loading,

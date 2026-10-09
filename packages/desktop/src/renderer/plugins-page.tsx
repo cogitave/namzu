@@ -19,6 +19,7 @@ import {
 	XIcon,
 } from './icons.js'
 import { PluginDetails } from './plugin-details.js'
+import { foldedIncludes } from './text-fold.js'
 import { Button } from './ui/button.js'
 import './plugins-page.css'
 
@@ -68,13 +69,12 @@ export function PluginsPage({
 			onLoad()
 		}
 	}, [scope, disabled, onLoad])
-	const term = query.trim().toLocaleLowerCase()
+	const term = query.trim()
 	const entries: readonly (ComposerPlugin | ComposerPublicPlugin)[] | undefined =
 		collection === 'public' ? view?.publicPlugins : view?.plugins
 	const shown = (entries ?? []).filter(
 		(plugin) =>
-			!term ||
-			`${plugin.name} ${plugin.description} ${plugin.version}`.toLocaleLowerCase().includes(term),
+			!term || foldedIncludes(`${plugin.name} ${plugin.description} ${plugin.version}`, term),
 	)
 	const detail =
 		!disabled && selected

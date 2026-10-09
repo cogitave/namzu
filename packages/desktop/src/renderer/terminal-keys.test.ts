@@ -52,12 +52,27 @@ describe('terminalKeyAction', () => {
 	})
 
 	it('leaves everything else to the program, including the keys the app uses elsewhere', () => {
-		for (const key of ['k', 'n', 'o', ',', 'a', 'e', 'l', 'r', 'u', 'w', 'z'])
+		for (const key of ['k', 'n', 'o', 'a', 'e', 'l', 'r', 'u', 'w', 'z'])
 			expect(terminalKeyAction(press(key, { ctrlKey: true }), linux(false))).toBe('send')
 		expect(terminalKeyAction(press('Escape', { code: 'Escape' }), linux(false))).toBe('send')
 		expect(terminalKeyAction(press('c', { ctrlKey: true, altKey: true }), linux(true))).toBe('send')
 		expect(terminalKeyAction(press('c', { ctrlKey: true, metaKey: true }), linux(true))).toBe(
 			'send',
 		)
+	})
+
+	it('hands the window its own chords: settings, moving between tabs and another terminal', () => {
+		const code = (key: string, over: Partial<TerminalKeyEvent> = {}) =>
+			press(key, { ctrlKey: true, ...over })
+		expect(terminalKeyAction(code(',', { code: 'Comma' }), linux(false))).toBe('app')
+		expect(terminalKeyAction(code('Tab', { code: 'Tab' }), linux(false))).toBe('app')
+		expect(terminalKeyAction(code('PageDown', { code: 'PageDown' }), linux(false))).toBe('app')
+		expect(terminalKeyAction(code('3', { code: 'Digit3' }), linux(false))).toBe('app')
+		expect(terminalKeyAction(code('F4', { code: 'F4' }), linux(false))).toBe('app')
+		expect(terminalKeyAction(code('|', { code: 'Backslash', shiftKey: true }), linux(false))).toBe(
+			'app',
+		)
+		// Ctrl+W deletes a word in the shell, so it stays the program's inside a terminal.
+		expect(terminalKeyAction(code('w', { code: 'KeyW' }), linux(false))).toBe('send')
 	})
 })

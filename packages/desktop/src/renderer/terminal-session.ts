@@ -40,6 +40,8 @@ export interface TerminalSessionState {
 	/** Another view held the keyboard when this one asked. */
 	keyboardTaken: boolean
 	error?: string
+	/** A multi-line paste waiting for the person's say, because each line would run at once. */
+	pendingPaste?: { lines: number }
 }
 
 export interface TerminalSessionOptions {
@@ -80,6 +82,7 @@ export class TerminalSession {
 		keyboardTaken: false,
 	}
 	private attachToken = 0
+	private held: string | undefined
 
 	constructor(
 		private readonly api: TerminalSessionApi,
@@ -178,17 +181,25 @@ export class TerminalSession {
 				event.stopImmediatePropagation()
 				const text = sanitizePaste(event.clipboardData?.getData('text/plain') ?? '')
 				if (text.length === 0) return
-				if (
-					pasteNeedsConfirmation(text, this.term.modes.bracketedPasteMode) &&
-					!window.confirm(
-						`Paste ${pasteLineCount(text)} lines? This program does not hold pasted text back, so each line runs as soon as it arrives.`,
-					)
-				)
+				if (pasteNeedsConfirmation(text, this.term.modes.bracketedPasteMode)) {
+					// Asked in the pane, as a note that is announced, rather than in a native box.
+					this.held = text
+					this.update({ pendingPaste: { lines: pasteLineCount(text) } })
 					return
+				}
 				this.term.paste(text)
 			},
 			{ capture: true },
 		)
+	}
+
+	/** The held paste goes in (`true`) or is dropped. */
+	answerPaste(accept: boolean): void {
+		const text = this.held
+		this.held = undefined
+		this.update({ pendingPaste: undefined })
+		if (accept && text !== undefined && !this.disposed) this.term.paste(text)
+		this.focus()
 	}
 
 	/** Fit to the host. A hidden or empty host is left alone. */

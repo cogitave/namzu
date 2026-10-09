@@ -35,6 +35,9 @@
 	color: var(--muted-foreground);
 	font-size: var(--text-ui-sm, 12px);
 }
+.terminal-pane-note[data-tone="warning"] {
+	color: var(--warning-foreground);
+}
 .terminal-pane-note[data-tone="error"] {
 	color: var(--error-foreground);
 }

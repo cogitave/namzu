@@ -1,9 +1,11 @@
+import { tabChord } from './tab-keys.js'
+
 /**
  * What a key chord means inside a terminal view.
  *
  * Almost every chord belongs to the program in the terminal, including the ones the rest of the app
  * uses (Ctrl+K, Ctrl+N, Escape). The exceptions are few and named: copy and paste, find, and the
- * chord that opens another terminal.
+ * chords that open another terminal or settings and the ones that move between tabs.
  */
 export type TerminalKeyAction =
 	/** Copy the selection. */
@@ -26,10 +28,21 @@ export interface TerminalKeyEvent {
 	altKey: boolean
 }
 
+/** Chords that belong to the window and never reach the program: tabs, settings, another terminal. */
+export function isTerminalAppChord(event: TerminalKeyEvent, mac: boolean): boolean {
+	if (tabChord(event, { mac, inTerminal: true })) return true
+	const primary = mac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey
+	if (!primary || event.altKey) return false
+	const key = event.key.toLowerCase()
+	if (event.shiftKey) return event.code === 'Backquote' || key === '`' || key === '~'
+	return key === ',' || event.code === 'Comma'
+}
+
 export function terminalKeyAction(
 	event: TerminalKeyEvent,
 	state: { hasSelection: boolean; mac: boolean },
 ): TerminalKeyAction {
+	if (isTerminalAppChord(event, state.mac)) return 'app'
 	const primary = state.mac ? event.metaKey : event.ctrlKey
 	if (!primary || event.altKey) return 'send'
 	if (state.mac ? event.ctrlKey : event.metaKey) return 'send'

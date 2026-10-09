@@ -1,8 +1,7 @@
-import { Autocomplete } from '@base-ui/react/autocomplete'
 import { describe, expect, it } from 'vitest'
 import { matchesCommandQuery, matchesCommandShortcut } from './command-palette-filter.js'
+import { foldedIncludes as contains } from './text-fold.js'
 
-const { contains } = Autocomplete.useFilter({ sensitivity: 'base' })
 describe('command palette search', () => {
 	it('finds a chat using separate title and project terms without changing action identity', () => {
 		const item = { label: 'Review permissions', group: 'Chats', meta: 'Workspace A' }
@@ -32,5 +31,30 @@ describe('command palette search', () => {
 		expect(matchesCommandShortcut(['Ctrl', 'N'], { ...controlN, ctrlKey: false })).toBe(false)
 		expect(matchesCommandShortcut(['Ctrl', 'N'], { ...controlN, key: 'o' })).toBe(false)
 		expect(matchesCommandShortcut(['Meta', 'N'], controlN)).toBe(false)
+	})
+	it('finds Turkish titles whichever way the I is typed, and English words in capitals', () => {
+		const light = { label: 'Işık raporu', group: 'Conversations' }
+		const other = { label: 'ışık ölçümü', group: 'Conversations' }
+		const settings = { label: 'Settings', group: 'Actions' }
+		for (const query of ['ışık', 'Işık', 'IŞIK', 'isik', 'ISIK']) {
+			expect(matchesCommandQuery(light, query, contains)).toBe(true)
+			expect(matchesCommandQuery(other, query, contains)).toBe(true)
+		}
+		expect(
+			matchesCommandQuery({ label: 'İpek yolu', group: 'Conversations' }, 'IPEK', contains),
+		).toBe(true)
+		expect(matchesCommandQuery(settings, 'SETTINGS', contains)).toBe(true)
+	})
+	it('matches the backtick and backslash chords by the key’s place, as a shifted key reports another character', () => {
+		const base = { ctrlKey: true, metaKey: false, altKey: false, shiftKey: true }
+		expect(
+			matchesCommandShortcut(['Ctrl', 'Shift', '`'], { ...base, key: '~', code: 'Backquote' }),
+		).toBe(true)
+		expect(
+			matchesCommandShortcut(['Ctrl', 'Shift', '\\'], { ...base, key: '|', code: 'Backslash' }),
+		).toBe(true)
+		expect(
+			matchesCommandShortcut(['Ctrl', 'Shift', '`'], { ...base, key: '~', code: 'KeyA' }),
+		).toBe(false)
 	})
 })

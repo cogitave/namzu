@@ -2238,6 +2238,63 @@ The same visibility rules apply to listing, searching, reading and linking. `.gi
 
 The project index is a bounded walk (50,000 paths, depth 24, a 3 s budget checked inside each folder too) cached for 30 s, and it reports `truncated` when a cap was hit. "Open in" finds VS Code and Cursor in the per-user install folder, under Program Files and on `PATH`, and starts the first one found with separate arguments and no shell.
 
+## Sidebar, tabs and the command palette
+
+**Sidebar.** The **Projects** heading carries the one **Add new project** button (a menu: *Start from
+scratch* or *Use an existing folder*); the workspace menu no longer repeats it and an empty sidebar says
+"Use + to add a project." instead of offering a second button. A project row has a **…** button (also the
+right-click menu) with **Open folder**, **Archived conversations** and, last, **Remove project…**; there is
+no one-click ×, so nothing starts a removal by a stray click. Each conversation is listed once: it sits
+under its project, and **Recents** holds only the conversations a project's list is not showing (a
+collapsed project, or the ones behind *Show more*), each with its project's name beside the title; Recents
+is hidden when nothing is left for it. Opening a conversation from Recents does not expand its project.
+Clicking a project row reuses the project's untouched "New conversation" (also after a restart) instead of
+adding another empty tab. **Archived conversations** is a row at the bottom of the sidebar (and in the
+palette and the project menu): one dialog for every project, grouped by project, newest first, with
+**Restore**. A project that cannot be read says so and does not hide the others. Row titles are cut at a
+word (26 characters in a tab, 34 in a row) with `…`, and the full title is the tooltip. The hover card
+under a row says which engine answers, the last message when this window has it,
+the project and the branch; it opens below the row, inside the sidebar, so it never covers the
+conversation. The close, pin, archive and menu buttons at the end of a row are centred on the row
+(`e2e/ux-sidebar-tabs-terminals.test.mjs` measures them at 100, 125 and 150% zoom, dark and light).
+
+**Archiving.** The menu entry reads **Archive** (no ellipsis: it acts at once). The toast says
+"Conversation archived. Find it under Archived conversations in the sidebar." and stays 20 seconds with
+**Undo**.
+
+**Tab strip.** The tab in front scrolls into view when it changes and when the pane is resized; tabs
+shrink to 160 px before the strip scrolls; when it scrolls, a **Show all tabs** button lists every tab with a
+check on the one in front. A caret beside **+** ("More ways to add a tab") opens the same menu as the
+right-click on **+**. The menu of a terminal tab also offers **New terminal to the right** and **New
+terminal below**. When a split needs more room than the pane has, the docked sidebar closes first
+(remembered, like the toggle) and, if even that is not enough, the window says it is too narrow; the page
+never scrolls sideways. A split made while a terminal is in front leaves that terminal in front.
+
+**Keyboard.** Ctrl+W closes the tab in front (⌘+W on a Mac), Ctrl+Tab and Ctrl+Shift+Tab (or Ctrl+PageDown
+and Ctrl+PageUp) go to the next and previous tab, wrapping; Ctrl+1 to Ctrl+8 pick a tab by position and
+Ctrl+9 the last one (⌘ on a Mac); Ctrl+Shift+PageUp and Ctrl+Shift+PageDown move the tab left and right;
+Ctrl+Shift+backslash opens a terminal to the right. Inside a terminal these chords leave for the window,
+except Ctrl+W, which stays the shell's (delete a word): Ctrl+F4 closes the terminal tab there. Ctrl+, opens
+Settings from a terminal too.
+
+**Command palette** (Ctrl+K). The box reads "Search conversations and actions"; the groups are **Recent**
+(the five newest conversations), **Conversations**, **Actions**, **Tabs** and **Projects**, and nothing is
+listed twice: a conversation never written in (a new draft) is not a conversation. Actions: new
+conversation and terminal, the four split entries, **Find in terminal** (while a terminal is in front),
+rename, pin and archive the conversation in front, **Archived conversations**, **Settings**, **Add
+project: start from scratch** and **Add project: use an existing folder**; Tabs: close, next, previous,
+move left and right. A chord shows as one keycap, written as the menus write it (Ctrl+Shift+backtick). Closing
+the palette puts focus back where it was, or in the composer.
+
+**Search.** Every search box folds text the same way, whatever the system language is: the text is
+decomposed, accents are dropped, the dotless `ı` counts as `i`, and then it is lower-cased, so `I`, `ı`,
+`İ` and `i` match each other (`IŞIK`, `isik` and `ışık` find both "Işık raporu" and "ışık ölçümü"), and a
+Turkish Windows does not turn `SETTINGS` into something that matches nothing. This covers the palette,
+Settings search, the project picker, the plugin list and the model picker (`renderer/text-fold.ts`).
+
+**Scroll.** A conversation's scroll position is saved with its view when the reader stops scrolling and
+when the window closes, so it reopens where it was left after a restart.
+
 ## Terminal tabs
 
 A terminal is a tab beside the conversations. It runs on this machine, in the project folder, as
@@ -2248,7 +2305,7 @@ project's CLI host (see [Host terminals](#host-terminals)); the window is a view
 palette's **New terminal**, and Ctrl+Shift with the backtick key (⌘+Shift on a Mac) open a shell. The tab joins the pane
 that has focus and shares its strip with the conversations, in the order you put it: it drags,
 splits (**Move to right pane**, **Split down**) and moves to a new window like a conversation tab,
-and the sidebar lists it under its project with a terminal mark. The pane has no header of its own: the terminal fills it, the tab (strip and sidebar row) carries the title and status, closing is the tab's close, and the region is still named `<title> terminal` for assistive technology. A click on the pane's dead space hands the keyboard back to the program. The terminal on screen is made once
+and the sidebar lists it under its project with a terminal mark. Two shells of one project are told apart by the shell, a number and the folder (`sh · app`, `sh 2 · app`). The pane has no header of its own: the terminal fills it, the tab (strip and sidebar row) carries the title and status, closing is the tab's close, and the region is still named `<title> terminal` for assistive technology. A click on the pane's dead space hands the keyboard back to the program. The terminal on screen is made once
 per tab and kept while the tab is in the window, so switching to a conversation and back costs
 nothing and keeps the scrollback; reloading the window rebuilds the screen from the host's snapshot.
 
@@ -2271,11 +2328,11 @@ background and text are the app's, the sixteen colours differ per theme). Links 
 hyperlink escape (OSC 8), which never raise the emulator's own confirm-and-open; the address shows as
 the tooltip while the pointer is over a link. Pasted text has its control characters removed (escape
 and the 8-bit controls, so it cannot close a bracketed paste and continue as typed commands), and
-several lines pasted into a program that did not ask for bracketing ask first. Text is drawn at a minimum
+several lines pasted into a program that did not ask for bracketing ask first, in a note inside the pane that is announced and has **Paste** and **Cancel** (no native box). Text is drawn at a minimum
 contrast of 4.5:1, selected text has its own opaque colours, and an ended session hides its cursor. Almost every key belongs to the program, including
 `Ctrl+K`, `Ctrl+N` and `Escape`, which the rest of the app uses elsewhere: the pane stops them at its
 edge. The exceptions are `Ctrl+C` (the interrupt, unless text is selected, then a copy; `Ctrl+Shift+C`
-always copies), `Ctrl+V` and `Ctrl+Shift+V` (paste, bracketed when the program asks), `Ctrl+F` (a small find overlay inside the terminal; `Escape` closes it) and the new-terminal chord (Ctrl+Shift+backtick); on a Mac the same chords use `⌘`. The terminal follows the pane's
+always copies), `Ctrl+V` and `Ctrl+Shift+V` (paste, bracketed when the program asks), `Ctrl+F` (a small find overlay inside the terminal, announced when it opens; `Escape` closes it), the new-terminal chord (Ctrl+Shift+backtick) and the window's own chords: Ctrl+, for Settings and the tab chords above; on a Mac the same chords use `⌘`. The terminal follows the pane's
 size: the view fits itself, tells the host, and the program and the host's own screen resize together.
 Only one view types into a terminal; a second window that opens the same tab watches and offers
 **Take over**; when a window reloads, navigates or closes, its views are released so the new page
@@ -2341,7 +2398,7 @@ from nothing but its output and its end: **Working** (output in the last 1.5 s, 
 **Waiting for input** (it printed and went quiet), **Idle** (quiet for a minute) and **Exited** (red,
 `Exited with code N`, when the code is not zero). When an engine's program ends with a non-zero code
 a quiet notice names the tab and the code. The badge cannot yet tell an approval prompt from a
-finished answer; that needs the screen and is a later step. A plain shell has no badge.
+finished answer; that needs the screen and is a later step. A plain shell has a badge only once its session has ended (a hollow ring, "Session ended"). The dot's meaning is its tooltip, and the sidebar row's tooltip reads `<title> — <meaning>`. When Namzu's own update of an engine or of the command line finishes successfully, its terminal tab closes by itself; a failed one stays so its output can be read.
 
 Screenshots of the tabs, the switch and the badges in both themes are in
 [`research/terminal-20261008/`](../../research/terminal-20261008/), made by the real-Electron flows in

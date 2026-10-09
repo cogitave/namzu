@@ -219,6 +219,8 @@ export interface EngineUpdatesDeps {
 	open(context: EngineUpdateContext, launch: EngineLaunchSpec): Promise<{ tabId: string }>
 	/** The engine changed on disk: its stored model lists are no longer true. */
 	updated(id: EngineUpdateId): void
+	/** The update succeeded and its terminal has nothing left to show: close its tab. */
+	finished?(tabId: string): void
 	broadcast(state: EngineUpdatesState): void
 	notice(windowId: string | undefined, notice: EngineUpdateNotice): void
 	record(event: string, details?: Record<string, unknown>): void
@@ -580,6 +582,8 @@ export class EngineUpdates {
 					text: `${name} updated to ${installed}`,
 					tone: 'success',
 				})
+				// Nothing is left to read in a finished, successful update: the tab closes itself.
+				this.deps.finished?.(info.tabId)
 			} else {
 				const where = item.path ? ` (${item.path})` : ''
 				this.failures.set(
