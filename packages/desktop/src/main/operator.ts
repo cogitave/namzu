@@ -1779,8 +1779,12 @@ export class Operator {
 			if (this.closing) throw new Error('Namzu is closing.')
 			this.projects.delete(existing.view.id)
 		}
-		const isChat = await isNormalChatWorkspace(cwd, this.registryDirectory)
-		const emptyFolder = !isChat && !ownedPalCanonical && (await folderHasNoWork(cwd))
+		// Read together, so noticing an empty folder adds no step to opening a project.
+		const [isChat, noWork] = await Promise.all([
+			isNormalChatWorkspace(cwd, this.registryDirectory),
+			ownedPalCanonical ? Promise.resolve(false) : folderHasNoWork(cwd),
+		])
+		const emptyFolder = !isChat && noWork
 		const view: ProjectView = {
 			id:
 				existing?.view.id ??
