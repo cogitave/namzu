@@ -22,6 +22,7 @@ import {
 	clearStoredCodexCredential,
 	clearStoredGeminiApiKey,
 	clearStoredSubscriptionCredential,
+	createDirectoryProofCache,
 	credentialsPath,
 	currentUserSid,
 	googleApiKeyPath,
@@ -507,5 +508,28 @@ describe('assertSoleOwnerSddl', () => {
 			expect((err as Error).message).toContain('/home/x/.namzu/credentials.json')
 			expect((err as Error).message).not.toContain(SECRET)
 		}
+	})
+})
+
+describe('the proof that a directory is private is not repeated for the same directory', () => {
+	it('trusts a path only while it still names the directory that was proved', () => {
+		const cache = createDirectoryProofCache()
+		expect(cache.has('C:\\state\\projects', '1:10:100')).toBe(false)
+		cache.remember('C:\\state\\projects', '1:10:100')
+		expect(cache.has('C:\\state\\projects', '1:10:100')).toBe(true)
+		// Deleted and created again: same path, another directory, so it is proved afresh.
+		expect(cache.has('C:\\state\\projects', '1:11:200')).toBe(false)
+		// Another path is not covered by this one.
+		expect(cache.has('C:\\state\\other', '1:10:100')).toBe(false)
+	})
+
+	it('can forget a path and never grows without a bound', () => {
+		const cache = createDirectoryProofCache(3)
+		for (const name of ['a', 'b', 'c']) cache.remember(name, '1:1:1')
+		cache.forget('b')
+		expect(cache.has('b', '1:1:1')).toBe(false)
+		expect(cache.size).toBe(2)
+		for (const name of ['d', 'e', 'f', 'g']) cache.remember(name, '1:1:1')
+		expect(cache.size).toBeLessThanOrEqual(3)
 	})
 })

@@ -718,8 +718,9 @@ of an owner without Pals creates no Pal files.
   `sourceKind: operator-conversation`).
 - In the Desktop the start is a separate question, never part of the tool call.
   After an approved send to a Pal that is not running, the sender's transcript shows
-  "*name* is not running. Start *name* now? It will read your message on its own
-  computer." with **Start *name*** and **Not now**; the Pal's own page offers the same
+  "*name* is not running. Start *name* to let it read your message on its own
+  computer." with **Start *name*** and **Not now** (switched off, with how to set up, when the
+  Pal's computer cannot start on this machine); the Pal's own page offers the same
   as "1 unread message · Start *name*" (or "Resume *name*" for a paused Pal). The tool
   returns its receipt at once and the sender's turn is never held. **Start** goes to
   the Pal's own host (`namzu/pals/inbox/start`, answered at once) and runs the same

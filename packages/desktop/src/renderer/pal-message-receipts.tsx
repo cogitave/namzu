@@ -103,6 +103,22 @@ function PalSentLine({
 	return (
 		<>
 			<span role={card.kind === 'failed' ? 'alert' : 'status'}>{card.text}</span>
+			{card.kind === 'blocked' && (
+				<>
+					<Button variant="outline" size="xs" disabled>
+						Start {name}
+					</Button>
+					{onOpen && (
+						<Button variant="ghost-muted" size="xs" onClick={() => onOpen(name)}>
+							See it in {name}’s messages
+						</Button>
+					)}
+					<details className="pal-setup-help">
+						<summary>How to set up</summary>
+						<p>{card.help}</p>
+					</details>
+				</>
+			)}
 			{card.kind === 'ask' && (
 				<>
 					<Button variant="outline" size="xs" onClick={() => starts?.onStart(name)}>

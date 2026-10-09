@@ -8,6 +8,7 @@ import {
 	isUnchosen,
 	modelDisplayLabel,
 	modelSections,
+	pickOfferedPalModel,
 	recommendedRow,
 	resolveComposerModelChoice,
 	resolveEffort,
@@ -419,5 +420,61 @@ describe('settleKey', () => {
 	it('differs per scope, so one conversation settling does not suppress the next', () => {
 		expect(settleKey('p:one', 'sample', 'haiku')).not.toBe(settleKey('p:two', 'sample', 'haiku'))
 		expect(settleKey('p:one', 'sample', 'haiku')).toBe(settleKey('p:one', 'sample', 'haiku'))
+	})
+})
+
+describe('the model a new Pal starts with', () => {
+	const providers = {
+		available: [
+			{ id: 'anthropic', label: 'Anthropic', defaultModel: 'claude-opus-5' },
+			{ id: 'ollama', label: 'Ollama', defaultModel: 'llama' },
+		],
+		selected: { id: 'anthropic', model: 'claude-opus-5' },
+	}
+	const catalogue = (ids: string[]) => ({
+		models: ids.map((id) => ({ id, label: id.toUpperCase() })),
+		notice: null,
+	})
+	it('prefers the composer choice when its provider lists it', async () => {
+		const picked = await pickOfferedPalModel({
+			candidates: [
+				{ provider: 'ollama', model: 'llama' },
+				{ provider: 'anthropic', model: 'claude-opus-5' },
+			],
+			providers,
+			loadModels: async (provider) =>
+				provider === 'ollama' ? catalogue(['llama']) : catalogue(['claude-opus-5']),
+		})
+		expect(picked).toEqual({ provider: 'ollama', model: 'llama', label: 'LLAMA' })
+	})
+	it('never picks a configured model that the connected provider does not list', async () => {
+		const picked = await pickOfferedPalModel({
+			candidates: [{ provider: 'anthropic', model: 'claude-opus-5' }],
+			providers,
+			loadModels: async () => catalogue(['claude-haiku-5-5']),
+		})
+		expect(picked).toEqual({
+			provider: 'anthropic',
+			model: 'claude-haiku-5-5',
+			label: 'CLAUDE-HAIKU-5-5',
+		})
+	})
+	it('chooses nothing when no list can be read, and ignores a provider that is not connected', async () => {
+		expect(
+			await pickOfferedPalModel({
+				candidates: [{ provider: 'anthropic', model: 'claude-opus-5' }],
+				providers,
+				loadModels: async () => {
+					throw new Error('offline')
+				},
+			}),
+		).toBeUndefined()
+		expect(
+			await pickOfferedPalModel({
+				candidates: [{ provider: 'gone', model: 'x' }],
+				providers,
+				loadModels: async () => catalogue(['x']),
+			}),
+		).toBeUndefined()
 	})
 })

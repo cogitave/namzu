@@ -2,6 +2,11 @@ import { AlertDialog } from '@base-ui/react/alert-dialog'
 import { useEffect, useRef, useState } from 'react'
 import { Button } from './ui/button.js'
 
+interface SideAction {
+	label: string
+	run: () => Promise<void>
+}
+
 /** The caller performs one confirmed operation; failure leaves the choice visible. */
 export function ConfirmRemovalDialog({
 	title,
@@ -17,7 +22,7 @@ export function ConfirmRemovalDialog({
 	title: string
 	description: string
 	/** One consequence per line, for a removal whose effects the person should read one by one. */
-	details?: readonly string[]
+	details?: readonly (string | { text: string; title?: string })[]
 	actionLabel: string
 	pendingLabel?: string
 	onConfirm: () => Promise<void>
@@ -27,8 +32,10 @@ export function ConfirmRemovalDialog({
 	 * An action that leaves the dialog open, for looking before deciding. A failure is shown in the
 	 * dialog's own error line.
 	 */
-	sideAction?: { label: string; run: () => Promise<void> }
+	sideAction?: SideAction | readonly SideAction[]
 }) {
+	const sideActions =
+		sideAction === undefined ? [] : 'label' in sideAction ? [sideAction] : sideAction
 	const [pending, setPending] = useState(false)
 	const [error, setError] = useState('')
 	const cancel = useRef<HTMLButtonElement>(null)
@@ -76,9 +83,14 @@ export function ConfirmRemovalDialog({
 						</AlertDialog.Description>
 						{details && details.length > 0 && (
 							<ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-foreground">
-								{details.map((line) => (
-									<li key={line}>{line}</li>
-								))}
+								{details.map((line) => {
+									const { text, title } = typeof line === 'string' ? { text: line } : line
+									return (
+										<li key={text} title={title}>
+											{text}
+										</li>
+									)
+								})}
 							</ul>
 						)}
 						{error && (
@@ -87,22 +99,23 @@ export function ConfirmRemovalDialog({
 							</p>
 						)}
 						<div className="mt-5 flex justify-end gap-2">
-							{sideAction && (
+							{sideActions.map((action, index) => (
 								<Button
-									className="mr-auto"
+									key={action.label}
+									className={index === 0 ? 'mr-auto' : undefined}
 									variant="ghost"
 									disabled={pending}
 									onClick={() => {
 										setError('')
-										sideAction.run().catch((failure: unknown) => {
+										action.run().catch((failure: unknown) => {
 											if (mounted.current)
 												setError(failure instanceof Error ? failure.message : String(failure))
 										})
 									}}
 								>
-									{sideAction.label}
+									{action.label}
 								</Button>
-							)}
+							))}
 							<Button
 								ref={cancel}
 								className="focus:ring-2 focus:ring-ring focus:ring-offset-1 focus:ring-offset-background"

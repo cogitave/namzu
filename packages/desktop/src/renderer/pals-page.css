@@ -338,7 +338,7 @@
 	line-height: 18px;
 }
 .pal-name-hint[data-tone="duplicate"] {
-	color: var(--warning-foreground, var(--foreground));
+	color: var(--error-foreground);
 }
 .pal-name-hint[role="alert"] {
 	color: var(--error-foreground);
@@ -585,4 +585,8 @@
 	height: 8px;
 	border-radius: 999px;
 	background: var(--primary);
+}
+
+.sidebar-pal-unread[data-state="failed"] {
+	background: var(--warning, #d9a441);
 }

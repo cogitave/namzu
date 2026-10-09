@@ -117,6 +117,7 @@ export function Composer({
 	empty,
 	permissions,
 	palNames,
+	palRunning,
 	onApproval,
 	attachments,
 	attachmentsBusy,
@@ -211,6 +212,7 @@ export function Composer({
 	permissions: PermissionView[]
 	/** Pal names by ID, for an approval that names a Pal only by ID. */
 	palNames?: ReadonlyMap<string, string>
+	palRunning?: ReadonlySet<string>
 	onApproval: (permission: PermissionView, response: PermissionResponse) => unknown
 	attachments: AttachmentView[]
 	draftDisabled?: boolean
@@ -613,6 +615,7 @@ export function Composer({
 									key={permissions[0].id}
 									permission={permissions[0]}
 									palNames={palNames}
+									palRunning={palRunning}
 									count={permissions.length}
 									folder={projectPath}
 									onRespond={(permission, response) =>

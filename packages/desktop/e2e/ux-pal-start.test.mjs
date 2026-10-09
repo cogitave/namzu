@@ -45,7 +45,15 @@ async function createKiro(world) {
 		await expect(page.getByRole("region", { name: "Meet your Pal" })).toBeVisible({ timeout: 2000 });
 	}).toPass({ timeout: 60000 });
 	await expect(async () => {
-		if (!(await page.getByRole("dialog", { name: "Customize your Pal" }).isVisible()))
+		const dialog = page.getByRole("dialog", { name: "Customize your Pal" });
+		// The project's own first screen can still land after the Pals page opened and replace it;
+		// opening the page again is the same click a person would make.
+		if (
+			!(await dialog.isVisible()) &&
+			!(await page.getByRole("button", { name: "Customize your Pal" }).isVisible())
+		)
+			await page.getByRole("button", { name: "Create your first Pal" }).click({ timeout: 2000 });
+		if (!(await dialog.isVisible()))
 			await page.getByRole("button", { name: "Customize your Pal" }).click({ timeout: 2000 });
 		await expect(page.getByRole("dialog", { name: "Customize your Pal" })).toBeVisible({
 			timeout: 2000,
@@ -100,7 +108,7 @@ test(
 
 			// The tool returned its receipt: the question is its own card and the sender is not held.
 			await expect(receipt).toContainText(
-				"Kiro is not running. Start Kiro now? It will read your message on its own computer.",
+				"Kiro is not running. Start Kiro to let it read your message on its own computer.",
 				{ timeout: 60000 },
 			);
 			await expect(receipt.getByRole("button", { name: "Start Kiro" })).toBeVisible();
@@ -137,7 +145,7 @@ test(
 );
 
 test(
-	"Start Kiro with no computer: Not now keeps the question on Kiro's page, and a failed start says why and offers Retry",
+	"Start Kiro with no computer: Start is switched off with what is missing, never a start that fails",
 	{ timeout: 280000 },
 	async () => {
 		const scripted = [];
@@ -151,30 +159,25 @@ test(
 			const palId = await createKiro(world);
 			scripted.push(...rules(palId));
 			const receipt = await messageKiro(world);
-			await expect(receipt).toContainText("Start Kiro now?", { timeout: 60000 });
+			// No container engine here: the offer says what is missing, in plain words, and Start is off.
+			await expect(receipt).toContainText("Kiro’s computer cannot start yet", { timeout: 60000 });
+			await expect(receipt).toContainText("needs Docker Desktop or Podman");
+			await expect(receipt.getByRole("button", { name: "Start Kiro" })).toBeDisabled();
+			await receipt.getByText("How to set up", { exact: true }).click();
+			await expect(receipt.locator(".pal-setup-help p")).toContainText("Namzu computer image");
+			await shot(world, "04-blocked-offer-1440");
 
-			// Not now puts the first line back; the Pal's own page still offers Start.
-			await receipt.getByRole("button", { name: "Not now" }).click();
-			await expect(receipt).toContainText("Sent to Kiro’s inbox. Kiro reads it the next time it runs.");
+			// The Pal's own page says the same, with the same single Start.
 			await receipt.getByRole("button", { name: "See it in Kiro’s messages" }).click();
 			await page.keyboard.press("Escape");
 			const waiting = page.getByRole("region", { name: "Waiting messages" });
 			await expect(waiting).toContainText("1 unread message", { timeout: 60000 });
-			await shot(world, "04-waiting-line-1440");
-
-			// No container engine here: the click is answered in plain words and nothing is stuck.
-			await waiting.getByRole("button", { name: "Start Kiro" }).click();
-			await expect(waiting).toContainText("computer is not available on this machine yet", {
-				timeout: 90000,
-			});
+			await expect(waiting).toContainText("cannot start yet");
+			await expect(waiting.getByRole("button", { name: "Start Kiro" })).toBeDisabled();
+			await waiting.getByText("How to set up", { exact: true }).click();
 			const text = await waiting.innerText();
 			assert.doesNotMatch(text, /Dockerfile|packages\/|ECONN|Error:|at \S+\.js/);
 			await shot(world, "05-no-computer-1440");
-			await expect(waiting.getByRole("button", { name: "Retry" })).toBeVisible();
-			await waiting.getByRole("button", { name: "Retry" }).click();
-			await expect(waiting).toContainText("computer is not available on this machine yet", {
-				timeout: 90000,
-			});
 			assert.equal(
 				palRequests(world).length > 0,
 				false,

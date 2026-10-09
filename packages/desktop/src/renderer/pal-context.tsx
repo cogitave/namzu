@@ -16,6 +16,7 @@ import {
 } from './icons.js'
 import { PalCharacter3D } from './pal-character-3d.js'
 import { PalCharacter, type PalCharacterAppearance } from './pal-character.js'
+import { COMPUTER_SETUP_NOTICE } from './pal-computer-notice.js'
 import type { PalRecentAction } from './pal-recent-activity.js'
 import { Button } from './ui/button.js'
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from './ui/collapsible.js'
@@ -30,6 +31,8 @@ export interface PalContextProps {
 		workspace: string
 		status: 'ready' | 'connecting' | 'error'
 		notice?: string
+		/** The computer cannot start until Docker or Podman is set up, so Start is switched off. */
+		setupMissing?: boolean
 		screen?: PalScreenView | null
 		loading?: boolean
 	}
@@ -44,8 +47,14 @@ export interface PalContextProps {
 	pauseDisabled?: boolean
 	customizeDisabled?: boolean
 	/** Messages waiting for the person's go, with the one action that moves them on. */
-	waiting?: { text: string; action: 'start' | 'resume' | 'retry' | null } | null
+	waiting?: {
+		text: string
+		action: 'start' | 'resume' | 'retry' | null
+		blocked?: { text: string; help: string }
+	} | null
 	onWaitingAction?: (action: 'start' | 'resume' | 'retry') => void
+	/** Hides a failed start that is no longer current; the messages keep waiting. */
+	onDismissWaiting?: () => void
 	onStartComputer?: () => void
 	onOpenComputer?: () => void
 	onStopComputer?: () => void
@@ -88,6 +97,19 @@ function computerStatusLabel(status: PalContextProps['computer']['status']) {
 	return status === 'ready' ? 'Connected' : status === 'connecting' ? 'Starting…' : 'Offline'
 }
 
+/** What is missing, and a way to read how to set it up without leaving the page. */
+function SetupHelp({ text, help }: { text?: string; help: string }) {
+	return (
+		<>
+			{text && <p className="pal-context-note">{text}</p>}
+			<details className="pal-setup-help">
+				<summary>How to set up</summary>
+				<p>{help}</p>
+			</details>
+		</>
+	)
+}
+
 function PalContextBody({
 	pal,
 	status,
@@ -103,6 +125,7 @@ function PalContextBody({
 	customizeDisabled,
 	waiting,
 	onWaitingAction,
+	onDismissWaiting,
 	onStartComputer,
 	onOpenComputer,
 	onStopComputer,
@@ -112,11 +135,18 @@ function PalContextBody({
 	const computerStatus = computerStatusLabel(computer.status)
 	// The status line always says what the computer is. The action is its own button, so choosing
 	// it can never replace the status with the action's name.
+	// There is one Start. It starts the computer when that is needed, and reads waiting messages when
+	// there are some, so the Pal's own page never offers a second start next to the message one.
+	const messageStart = waiting?.action === 'start'
 	const computerAction =
 		computer.status !== 'connecting' && onStopComputer
 			? { label: 'Stop computer', onClick: onStopComputer, disabled: stopComputerDisabled }
-			: computer.status === 'error' && onStartComputer
-				? { label: 'Start computer', onClick: onStartComputer, disabled: false }
+			: computer.status === 'error' && onStartComputer && !messageStart
+				? {
+						label: `Start ${pal.name}`,
+						onClick: onStartComputer,
+						disabled: Boolean(computer.setupMissing),
+					}
 				: undefined
 	return (
 		<div className="pal-context-body">
@@ -177,6 +207,7 @@ function PalContextBody({
 							variant="outline"
 							size="xs"
 							className="pal-waiting-action"
+							disabled={Boolean(waiting.blocked)}
 							onClick={() => onWaitingAction(waiting.action as 'start' | 'resume' | 'retry')}
 						>
 							{waiting.action === 'resume'
@@ -186,6 +217,12 @@ function PalContextBody({
 									: `Start ${pal.name}`}
 						</Button>
 					)}
+					{waiting.action === 'retry' && onDismissWaiting && (
+						<Button variant="ghost-muted" size="xs" onClick={onDismissWaiting}>
+							Dismiss
+						</Button>
+					)}
+					{waiting.blocked && <SetupHelp text={waiting.blocked.text} help={waiting.blocked.help} />}
 				</section>
 			)}
 			<section className="pal-context-section" aria-label="Pal computers">
@@ -227,6 +264,21 @@ function PalContextBody({
 						</Button>
 					)}
 				</div>
+				{computerAction?.disabled && computerAction.label !== 'Stop computer' && (
+					<SetupHelp help={COMPUTER_SETUP_NOTICE} />
+				)}
+				{computer.notice && !computer.setupMissing && (
+					<p className="pal-context-note">{computer.notice}</p>
+				)}
+				{computer.notice && computer.setupMissing && (
+					<p className="pal-context-note">
+						{computer.name} cannot start yet: it needs Docker Desktop or Podman, and neither is
+						ready on this computer.
+					</p>
+				)}
+				{computer.status !== 'ready' && (
+					<p className="pal-context-note">Chatting works without a computer.</p>
+				)}
 				{hostComputer?.name.trim() && (
 					<div className="pal-computer-row pal-host-computer">
 						<span className="pal-computer-icon">
@@ -238,7 +290,6 @@ function PalContextBody({
 						</div>
 					</div>
 				)}
-				{computer.notice && <p className="pal-context-note">{computer.notice}</p>}
 			</section>
 			{tasks && (tasks.tasks.length > 0 || tasks.tasksNotice) && (
 				<div className="pal-context-section pal-context-tasks">

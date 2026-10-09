@@ -348,10 +348,18 @@ When a Pal's computer cannot start, the app never shows the host's developer wor
 computer needs Docker Desktop or Podman with the Namzu computer image added, and
 chatting works without one. A stopped Podman machine, a remote or unregistered engine
 and any other failure that names a path get their own plain sentence. The computer row
-keeps its status (**Offline**, **Starting…**, **Connected**) and shows **Start computer**
+keeps its status (**Offline**, **Starting…**, **Connected**) and shows **Start *name***
 or **Stop computer** as a separate button, so choosing it never replaces the status;
 **Take over** on the computer page says "Offline. Start the computer to take over."
-while the computer is off.
+while the computer is off. There is one Start, named for the Pal: with messages waiting it
+reads them, and it starts the computer first when that is needed (the host's
+`namzu/pals/inbox/start` does both), so the page never offers "Start computer" beside "Start
+*name*". The Desktop asks for the computer's state together with the inbox
+(`palComputer`); when no container engine or image is available, or a Podman machine is
+stopped, Start is switched off, the page and the offer under a sent message say so in one
+sentence ("*name*'s computer cannot start yet: it needs Docker Desktop or Podman, and neither is
+ready on this computer.") and **How to set up** opens the setup steps. A card that is not
+connected also says "Chatting works without a computer." directly under the computer.
 
 Pal computers inherit the CLI's local-engine settings from this native host.
 The default is Docker. If this device uses an existing local Podman machine,
@@ -925,7 +933,12 @@ row says **Opening…**, with **Cancel**, and none of it disables Customize, **N
 other Pal; a new Customize dialog always starts empty and enabled. A name that matches an existing
 Pal ignoring case, spacing at the ends and the Turkish dotted and dotless i is refused, in the
 dialog and again in the main process, with a suggestion ("You already have a Pal called “pamir”.
-Try “pamir 2”."). If the start fails or is cancelled the Pal stays created: the page says "*name* is
+Try “pamir 2”."). The refusal is said once, in red, as the person types and again after Save;
+there is no "you can keep this name" hint. A new Pal's default model is chosen from models a
+connected provider lists: the composer's current choice first, then the configured default,
+and when neither is listed that provider's recommended (else first) model. A configured model
+no connected provider offers is never preselected. The sidebar's **Opening…** goes as soon as
+the Pal's conversation is on screen, not when every background read behind it has finished. If the start fails or is cancelled the Pal stays created: the page says "*name* is
 created, but it could not start." with the reason, **Retry** and **Dismiss**, and nothing stays
 busy. The e2e flows hold or fail the start with a gate in the main process
 (`e2e/pals-create.test.mjs`), so none of them waits on the clock.
@@ -937,14 +950,22 @@ until the Pal next runs. The Desktop asks separately whether to run it now, and
 the question never blocks the sender: the tool has already returned its receipt.
 
 - After an approved send, the line under the tool row becomes a card: "*name* is
-  not running. Start *name* now? It will read your message on its own computer."
+  not running. Start *name* to let it read your message on its own computer."
   with **Start *name***, **Not now** and the existing link to the Pal's messages.
+  When the Pal's computer cannot start on this machine the card says what is missing,
+  **Start *name*** is switched off and **How to set up** opens the steps, instead of offering
+  a start that would fail.
   **Not now** puts the quiet "Sent to *name*'s inbox" line back. A Pal that is
   already running gets no question ("*name* will read it at its next step"); a paused
   Pal's card says so and offers **Resume *name***.
 - The Pal's own page (the context card) shows "1 unread message" with **Start
   *name*** while the messages wait, "*name* is reading your messages." while a run
-  reads them, and the failure with **Retry**.
+  reads them, and the failure with **Retry** and **Dismiss**. A failed start belongs to the
+  moment it happened: it stops being shown when the person dismisses it, when the Pal's
+  computer is in another state than when it failed, or after a successful start, and the
+  message keeps waiting. The sidebar dot beside the Pal marks a message the person sent and has
+  not opened; its tooltip says whether that message is waiting, being read, or could not be
+  delivered ("*name* could not be started. Your message is still waiting." in an amber dot).
 - **Start** is validated and recorded in the main process: `startPalInbox(palId)`
   checks the Pal still exists and is not paused, opens its own CLI host through the
   usual open path, mints the evidence for the click itself (the page supplies only
@@ -1151,8 +1172,9 @@ keep their existing composer.
 The Pal menu provides customization, guarded pause/resume and guarded computer
 reboot and Delete Pal. Deletion is also available inside the customization dialog.
 Confirmation lists one consequence per line: the Pal disappears from the sidebar and
-its computer stops, and its conversations and files are not deleted and stay in the
-named workspace folder. The confirmation also has **Open folder**, which shows that
+its computer stops, and its conversations are not deleted and its files stay in its
+folder. The folder is named, not spelled: the full path is only a tooltip on that line and
+behind **Copy path**. The confirmation also has **Open folder**, which shows that
 folder in the file manager and leaves the dialog open: the window names only the Pal
 (`openPalFolder`), and main takes the path from its own record of that Pal and reveals it
 only when it is an existing absolute directory. The saved conversations, workspace files, profile revisions
@@ -1203,7 +1225,7 @@ arbitration port remain view-only. The [SDK and local provider](../sdk/local-pal
 document the boundary, including guest-process limitations.
 
 The top Pal status reveals Pause/Resume on hover or keyboard focus. The computer
-status reveals Start computer over Offline, or Stop computer over Connected,
+status reveals Start *name* over Offline, or Stop computer over Connected,
 in the same position; there is no separate start/stop button row in the card.
 Connecting is a status without a lifecycle action. A computer requiring stop
 recovery reveals Stop computer over Offline before another start is possible.
@@ -1975,10 +1997,10 @@ conversation calls `send_pal_message`, the approval card is titled **Message to
 *Pal name*** (the name is looked up in the Pal list; an unknown ID reads "Message
 to a Pal"), shows the whole message as a quoted block in the normal font (never
 cut, so nothing is approved unseen, and not styled like a command), and says
-where it goes and what happens next: it goes to the Pal's inbox, the Pal reads it
-the next time it runs, sending does not start it, starting it is
-`namzu pal dispatch` in a terminal, and the person is asked again for each
-message. After approval the transcript keeps a line outside the folded work,
+where it goes and what happens next: "Goes to *name*'s inbox. You can start *name* after
+sending, and it will read the message on its own computer." (a Pal that is already running:
+"*name* will read it at its next step."). The terminal route, `namzu pal dispatch`, and the
+fact that the person is asked again for each message are under **Details**. After approval the transcript keeps a line outside the folded work,
 "Sent to *name*'s inbox. *name* reads it the next time it runs.", with **See it in
 *name*'s messages**, which opens that Pal's settings on **Messages**. It offers the usual Reject, Edit and Accept
 only: there is no "allow for this conversation" choice. The action row reads

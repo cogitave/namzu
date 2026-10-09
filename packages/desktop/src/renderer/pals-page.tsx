@@ -1,5 +1,6 @@
 import { Dialog } from '@base-ui/react/dialog'
 import { useEffect, useId, useRef, useState } from 'react'
+import { duplicatePalNameMessage, isDuplicatePalName } from '../shared/pal-name.js'
 import type {
 	ModelCatalogueView,
 	PalCreateInput,
@@ -15,6 +16,7 @@ import {
 	UserRoundIcon,
 	XIcon,
 } from './icons.js'
+import { pickOfferedPalModel } from './model-choice.js'
 import { ModelPicker } from './model-picker.js'
 import { PalCharacter3D } from './pal-character-3d.js'
 import {
@@ -43,11 +45,17 @@ function PalModelChoice({
 	loadProviders,
 	loadModels,
 	positionerClassName,
+	fillDefault = false,
+	preferred,
 }: ModelLoaders & {
 	value: PalView['model']
 	onChange: (value: PalView['model']) => void
 	disabled: boolean
 	positionerClassName?: string
+	/** A new Pal: start from a model a connected provider lists, instead of the configured literal. */
+	fillDefault?: boolean
+	/** The composer's current choice, tried first. */
+	preferred?: { provider: string; model: string }
 }) {
 	const [providers, setProviders] = useState<ProviderView>()
 	const [labels, setLabels] = useState<Record<string, string>>({})
@@ -72,6 +80,37 @@ function PalModelChoice({
 		}
 	}, [loadProviders, retry])
 	const configured = providers?.selected
+	const preferredKey = preferred ? `${preferred.provider}\n${preferred.model}` : ''
+	useEffect(() => {
+		if (!fillDefault || value || !providers || providers.available.length === 0) return
+		let active = true
+		// The composer's choice arrives as a key, so a new object each render never restarts the read.
+		const [preferredProvider, preferredModel] = preferredKey.split('\n')
+		void pickOfferedPalModel({
+			candidates: [
+				...(preferredProvider && preferredModel
+					? [{ provider: preferredProvider, model: preferredModel }]
+					: []),
+				...(providers.selected
+					? [{ provider: providers.selected.id, model: providers.selected.model }]
+					: []),
+				...providers.available.map((entry) => ({ provider: entry.id })),
+			],
+			providers,
+			loadModels,
+		}).then((picked) => {
+			if (!active || !picked) return
+			if (picked.label)
+				setLabels((all) => ({
+					...all,
+					[`${picked.provider}:${picked.model}`]: picked.label as string,
+				}))
+			onChange({ provider: picked.provider, model: picked.model })
+		})
+		return () => {
+			active = false
+		}
+	}, [fillDefault, providers, value, loadModels, onChange, preferredKey])
 	const route = value ?? {
 		provider: configured?.id ?? '',
 		model: configured?.model ?? '',
@@ -142,11 +181,9 @@ export function palNameHint(
 			tone: 'empty',
 			text: attempted ? 'Give your Pal a name to save it.' : 'Give your Pal a name.',
 		}
-	if (existing.some((other) => nameKey(other) === key))
-		return {
-			tone: 'duplicate',
-			text: `You already have a Pal called “${name.trim()}”. You can keep this name, but messages and tabs for the two will look alike.`,
-		}
+	// A duplicate is refused on save, so the dialog says the refusal once, in the words Save gives.
+	if (isDuplicatePalName(name, existing))
+		return { tone: 'duplicate', text: duplicatePalNameMessage(name, existing) }
 	return undefined
 }
 
@@ -162,7 +199,10 @@ export function PalCustomizeDialog({
 	onDelete,
 	loadProviders,
 	loadModels,
+	preferredModel,
 }: ModelLoaders & {
+	/** The composer's current model, which a new Pal starts from when a provider lists it. */
+	preferredModel?: { provider: string; model: string }
 	editing?: PalView
 	/** Names of the person's other Pals, to warn about a duplicate. */
 	existingNames?: readonly string[]
@@ -184,7 +224,9 @@ export function PalCustomizeDialog({
 		editing?.appearance ?? defaultPalAppearance,
 	)
 	const [attempted, setAttempted] = useState(false)
-	const hint = palNameHint(name, existingNames, attempted)
+	const named = palNameHint(name, existingNames, attempted)
+	// Once Save has answered with the same refusal, only that answer is shown.
+	const hint = error && named?.tone === 'duplicate' ? undefined : named
 	return (
 		<Dialog.Root
 			open
@@ -291,6 +333,8 @@ export function PalCustomizeDialog({
 											loadProviders={loadProviders}
 											loadModels={loadModels}
 											positionerClassName="pal-customize-model-positioner"
+											fillDefault={!editing}
+											preferred={preferredModel}
 										/>
 										<p>For new conversations.</p>
 									</div>
@@ -448,7 +492,9 @@ export function PalsPage({
 	onCancelOpening,
 	loadProviders,
 	loadModels,
+	preferredModel,
 }: ModelLoaders & {
+	preferredModel?: { provider: string; model: string }
 	model: PalView['model']
 	onModelChange: (model: PalView['model']) => void
 	onCustomize: () => void
@@ -477,6 +523,8 @@ export function PalsPage({
 							disabled={false}
 							loadProviders={loadProviders}
 							loadModels={loadModels}
+							fillDefault
+							preferred={preferredModel}
 						/>
 					</div>
 				</div>
@@ -500,6 +548,7 @@ export function PalSidebarSection({
 	pals,
 	selectedId,
 	unreadIds,
+	markers,
 	creating,
 	openingId,
 	loading,
@@ -510,6 +559,8 @@ export function PalSidebarSection({
 	selectedId?: string
 	/** Pals the person has messaged and not opened since. */
 	unreadIds?: ReadonlySet<string>
+	/** What each marker says; a Pal without an entry reads as a message that is waiting. */
+	markers?: ReadonlyMap<string, { state: 'waiting' | 'reading' | 'failed'; label: string }>
 	creating?: boolean
 	openingId?: string
 	loading: boolean
@@ -532,8 +583,12 @@ export function PalSidebarSection({
 					{pal.paused && <small>Paused</small>}
 					{openingId === pal.id && <small>Opening…</small>}
 					{unreadIds?.has(pal.id) && selectedId !== pal.id && (
-						<i className="sidebar-pal-unread" title="New message">
-							<span className="sr-only">New message</span>
+						<i
+							className="sidebar-pal-unread"
+							data-state={markers?.get(pal.id)?.state ?? 'waiting'}
+							title={markers?.get(pal.id)?.label ?? 'New message'}
+						>
+							<span className="sr-only">{markers?.get(pal.id)?.label ?? 'New message'}</span>
 						</i>
 					)}
 				</Button>

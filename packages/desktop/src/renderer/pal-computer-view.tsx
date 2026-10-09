@@ -452,7 +452,7 @@ export function PalComputerView({
 								)}
 								{onStart && computer.status === 'error' && !loading && (
 									<Button variant="outline" size="sm" onClick={onStart}>
-										Start computer
+										Start {palName}
 									</Button>
 								)}
 							</div>

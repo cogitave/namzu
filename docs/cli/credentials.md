@@ -178,6 +178,15 @@ atomic credential file, Namzu also proves that its parent directory is private;
 an account that opened a file under a broad inherited ACL could otherwise keep
 that read handle after the file ACL was tightened.
 
+A directory is proved private once per process and per directory. The proof costs three Windows
+processes (`whoami`, `icacls`, `icacls /save`), and opening a Pal or a conversation meets the same
+state folders several times, so a folder this process already proved is not proved again while
+it keeps the same device, file id and creation time. A folder deleted and created again under the
+same path has a different identity and is proved afresh. The account's security identifier is
+also read once per process. Only a successful proof is remembered, never a refusal. The trade is
+stated: an access-list edit made to that same folder while Namzu runs is noticed at the next start,
+not at the next open. Credential files, and the directories that hold them, are proved at every read and write.
+
 Windows ACL mutation and verification pass extended absolute paths to `icacls`.
 This permits private state under long project paths without changing its stored
 directory names or weakening the read-back check. A native 291-character state

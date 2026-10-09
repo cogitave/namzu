@@ -8,6 +8,7 @@ import {
 	type PalStartEntry,
 	afterRead,
 	emptyPalStart,
+	palMarker,
 	palStartCard,
 	palWaitingLine,
 } from './pal-start-model.js'
@@ -30,7 +31,7 @@ it('asks once, in plain words, only while the Pal is idle with a waiting message
 	expect(palStartCard('Kiro', false, undefined)).toEqual({ kind: 'none' })
 	expect(palStartCard('Kiro', false, entry({ view: view('waiting') }))).toEqual({
 		kind: 'ask',
-		text: 'Kiro is not running. Start Kiro now? It will read your message on its own computer.',
+		text: 'Kiro is not running. Start Kiro to let it read your message on its own computer.',
 	})
 	// "Not now" hides the question here; the Pal's page still offers Start.
 	const dismissed = entry({ view: view('waiting'), dismissed: true })
@@ -118,7 +119,7 @@ it('draws the question under the send row with Start and Not now, and a quiet li
 			),
 		)
 	const ask = html(palStartCard('Kiro', false, entry({ view: view('waiting') })))
-	expect(ask).toContain('Start Kiro now?')
+	expect(ask).toContain('Start Kiro to let it read your message')
 	expect(ask).toContain('>Start Kiro<')
 	expect(ask).toContain('>Not now<')
 	expect(ask).not.toContain('reads it the next time it runs')
@@ -147,4 +148,66 @@ it('names each Pal a message went to once, and only when exactly one Pal has tha
 	expect(
 		newPalSendTargets(new Set(), { s: thread }, [...pals, { id: 'other', name: 'Kiro' }]),
 	).toEqual([])
+})
+
+it('switches Start off, with the missing piece in plain words, when the Pal computer cannot start', () => {
+	const missing = entry({
+		view: view('waiting'),
+		setupMissing: { raw: 'Local Docker or Podman is required for the Pal computer.' },
+	})
+	const card = palStartCard('Kiro', false, missing)
+	expect(card).toMatchObject({ kind: 'blocked' })
+	expect(card.kind === 'blocked' && card.text).toBe(
+		'Kiro’s computer cannot start yet: it needs Docker Desktop or Podman, and neither is ready on this computer.',
+	)
+	expect(card.kind === 'blocked' && card.help).toContain('Docker Desktop or Podman')
+	expect(palWaitingLine('Kiro', false, missing)).toMatchObject({
+		action: 'start',
+		blocked: { text: expect.stringContaining('cannot start yet') },
+	})
+	// A stopped Podman machine says so.
+	const podman = palStartCard(
+		'Kiro',
+		false,
+		entry({
+			view: view('waiting'),
+			setupMissing: { raw: 'The Podman machine pipe is unavailable' },
+		}),
+	)
+	expect(podman.kind === 'blocked' && podman.text).toContain('Podman machine is not running')
+	// Once the computer is fine again the plain offer returns.
+	expect(palStartCard('Kiro', false, entry({ view: view('waiting') })).kind).toBe('ask')
+})
+
+it('stops showing a failed start once it is stale, and shows a new failure again', () => {
+	const failed = entry({ view: view('failed', 1, 'Kiro could not be started.') })
+	expect(palStartCard('Kiro', false, failed)).toMatchObject({ kind: 'failed' })
+	expect(palWaitingLine('Kiro', false, failed)).toMatchObject({ action: 'retry' })
+	const hidden = { ...failed, failureHidden: true }
+	// The message still waits, so Start is offered as for any waiting message.
+	expect(palStartCard('Kiro', false, hidden).kind).toBe('ask')
+	expect(palWaitingLine('Kiro', false, hidden)).toEqual({
+		text: '1 unread message',
+		action: 'start',
+	})
+	// The same failure read again stays hidden; a different one shows.
+	expect(afterRead(hidden, view('failed', 1, 'Kiro could not be started.')).failureHidden).toBe(
+		true,
+	)
+	expect(afterRead(hidden, view('failed', 1, 'Another reason.')).failureHidden).toBe(false)
+	// Pressing Start again clears the hidden flag through the entry the hook builds; a read after
+	// a successful start replaces the failed view altogether.
+	expect(afterRead(hidden, view('reading')).view?.state).toBe('reading')
+})
+
+it('keeps the sidebar dot truthful about a message that is waiting, read, or not delivered', () => {
+	expect(palMarker('Kiro', entry({ view: view('waiting') })).state).toBe('waiting')
+	expect(palMarker('Kiro', entry({ view: view('reading') })).state).toBe('reading')
+	const failed = palMarker('Kiro', entry({ view: view('failed', 1, 'x') }))
+	expect(failed.state).toBe('failed')
+	expect(failed.label).toBe('Kiro could not be started. Your message is still waiting.')
+	expect(
+		palMarker('Kiro', entry({ view: view('failed', 1, 'x'), failureHidden: true })).state,
+	).toBe('waiting')
+	expect(palMarker('Kiro', undefined).label).toBe('Your message is waiting for Kiro')
 })

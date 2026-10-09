@@ -162,7 +162,7 @@ import { normalConversationProject } from './normal-conversation.js'
 import { notify } from './notify.js'
 import { PalChatTranscript } from './pal-chat-transcript.js'
 import { PalCommunicationDialog, type PalSettingsTab } from './pal-communication-dialog.js'
-import { presentComputerNotice } from './pal-computer-notice.js'
+import { computerSetupMissing, presentComputerNotice } from './pal-computer-notice.js'
 import { PalComputerView } from './pal-computer-view.js'
 import { PalContextCard, type PalContextProps } from './pal-context.js'
 import { palDeletionCopy } from './pal-deletion-copy.js'
@@ -174,7 +174,7 @@ import {
 	warmPalConversation,
 } from './pal-navigation.js'
 import { palRecentActivity } from './pal-recent-activity.js'
-import { palStartCard, palWaitingLine } from './pal-start-model.js'
+import { palMarker, palStartCard, palWaitingLine } from './pal-start-model.js'
 import { unreadAfterOpen, unreadAfterSends } from './pal-unread.js'
 import { PalCustomizeDialog, type PalOpening, PalSidebarSection, PalsPage } from './pals-page.js'
 import { PluginsPage, PluginsSidebar } from './plugins-page.js'
@@ -865,6 +865,40 @@ export function App({
 		if (pal?.id) setUnreadPals((previous) => unreadAfterOpen(previous, pal.id))
 	}, [pal?.id])
 	const palStarts = usePalStarts(api, threads, pals, pal?.id)
+	const palMarkers = useMemo(
+		() => new Map(pals.map((item) => [item.id, palMarker(item.name, palStarts.entries[item.id])])),
+		[pals, palStarts.entries],
+	)
+	// A failed start belongs to the moment it happened: once the Pal's computer is in another state,
+	// the old failure is hidden instead of read as current. The messages keep waiting.
+	const failureComputer = useRef(new Map<string, string>())
+	useEffect(() => {
+		for (const item of pals) {
+			const entry = palStarts.entries[item.id]
+			const failed = (entry?.view?.state === 'failed' && !entry.failureHidden) || entry?.error
+			if (!failed) {
+				failureComputer.current.delete(item.id)
+				continue
+			}
+			const computer = palComputers[item.id]
+			const state = `${computer?.status ?? ''}|${computer?.notice ?? ''}`
+			const seen = failureComputer.current.get(item.id)
+			if (seen === undefined) failureComputer.current.set(item.id, state)
+			else if (seen !== state) {
+				failureComputer.current.delete(item.id)
+				palStarts.clearFailure(item.id)
+			}
+		}
+	}, [pals, palStarts.entries, palStarts.clearFailure, palComputers])
+	const palRunning = useMemo(
+		() =>
+			new Set(
+				pals
+					.filter((item) => palStarts.entries[item.id]?.view?.state === 'reading')
+					.map((item) => item.name),
+			),
+		[pals, palStarts.entries],
+	)
 	// Main keeps the markers, so a restart brings them back. `savedUnread` is what main holds now.
 	const savedUnread = useRef<ReadonlySet<string> | undefined>(undefined)
 	const openPalIdRef = useRef(pal?.id)
@@ -1258,6 +1292,8 @@ export function App({
 		palModel: pal?.model,
 		sessionId,
 	})
+	const composerModel =
+		choice.provider && choice.model ? { provider: choice.provider, model: choice.model } : undefined
 	const choiceUnchosen =
 		!pal &&
 		isUnchosen({
@@ -3477,6 +3513,13 @@ export function App({
 	useEffect(() => {
 		if (!palsPage && palOpening?.failure) setPalOpening(undefined)
 	}, [palsPage, palOpening])
+	// "Opening…" is true until the Pal can be seen, not until every background read behind it ends:
+	// once its conversation is on screen the label goes, and the composer opens when it is ready.
+	useEffect(() => {
+		if (!palOpening || palOpening.failure || palsPage) return
+		const shown = conversations.find((item) => item.id === sessionId)
+		if (shown?.palId === palOpening.palId) setPalOpening(undefined)
+	}, [palOpening, palsPage, sessionId, conversations])
 	const cancelOpeningPal = () => {
 		openingRun.current += 1
 		navigation.current += 1
@@ -4090,6 +4133,8 @@ export function App({
 							: !palComputer || palComputer.notice === 'Starting the local computer…'
 								? 'connecting'
 								: 'error',
+					setupMissing:
+						palComputer?.status === 'unavailable' && computerSetupMissing(palComputer.notice),
 					screen: currentScreen,
 					loading: computerCapture?.loading,
 					notice: presentComputerNotice(
@@ -4137,6 +4182,7 @@ export function App({
 						void palStarts.refresh(pal.id)
 					} else void palStarts.start(pal.id)
 				},
+				onDismissWaiting: () => palStarts.clearFailure(pal.id),
 				onStartComputer: pal.paused ? undefined : () => void startPalComputer(pal),
 				onOpenComputer: () => void openPalScreen(pal),
 				onStopComputer:
@@ -5058,6 +5104,7 @@ export function App({
 								onDelete={api.deletePal ? requestPalDeletion : undefined}
 								loadProviders={api.palProviders}
 								loadModels={api.palModels}
+								preferredModel={composerModel}
 							/>
 						)}
 						{folderAccess &&
@@ -5120,15 +5167,28 @@ export function App({
 								description={palDeletionCopy(deletingPal).description}
 								details={palDeletionCopy(deletingPal).details}
 								actionLabel="Delete Pal"
-								sideAction={
-									api.openPalFolder
-										? {
-												label: 'Open folder',
-												run: () =>
-													(api.openPalFolder as (id: string) => Promise<void>)(deletingPal.id),
-											}
-										: undefined
-								}
+								sideAction={[
+									...(api.openPalFolder
+										? [
+												{
+													label: 'Open folder',
+													run: () =>
+														(api.openPalFolder as (id: string) => Promise<void>)(deletingPal.id),
+												},
+											]
+										: []),
+									...(api.copyText
+										? [
+												{
+													label: 'Copy path',
+													run: () =>
+														(api.copyText as (text: string) => Promise<void>)(
+															deletingPal.workspace,
+														),
+												},
+											]
+										: []),
+								]}
 								onClose={() => setDeletingPal(undefined)}
 								returnFocus={removalReturnFocus}
 								onConfirm={() =>
@@ -5301,6 +5361,7 @@ export function App({
 									pals={pals}
 									selectedId={palsPage ? undefined : pal?.id}
 									unreadIds={unreadPals}
+									markers={palMarkers}
 									creating={palsPage}
 									openingId={palOpening && !palOpening.failure ? palOpening.palId : undefined}
 									loading={palsLoading}
@@ -5709,6 +5770,7 @@ export function App({
 						onCancelOpening={cancelOpeningPal}
 						loadProviders={api.palProviders}
 						loadModels={api.palModels}
+						preferredModel={composerModel}
 					/>
 				)}
 
@@ -6082,6 +6144,7 @@ export function App({
 								inputRef={input}
 								permissions={thread.permissions}
 								palNames={palNames}
+								palRunning={palRunning}
 								onApproval={async (permission, response) => {
 									// The card stays usable when the answer did not get through.
 									let delivered = false

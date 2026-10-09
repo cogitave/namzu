@@ -92,17 +92,21 @@ test(
 			const card = page.getByRole("complementary", { name: "Pal context" });
 			await expect(card).toBeVisible();
 			await expect(card.getByText("Offline", { exact: true })).toBeVisible();
-			const start = card.getByRole("button", { name: "Start computer" });
+			// One Start, named for the Pal. With no container engine here it is switched off and says why,
+			// with the setup steps one click away, instead of offering a start that would fail.
+			const start = card.getByRole("button", { name: "Start Işık" });
 			await expect(start).toBeVisible();
-			await start.click();
+			await expect(start).toBeDisabled({ timeout: 60000 });
+			await expect(card.getByRole("button", { name: "Start computer" })).toHaveCount(0);
 			// Starting never replaces the status with the action's name.
 			await expect(
-				card.locator(".pal-computer-open .pal-computer-status", { hasText: "Start computer" }),
+				card.locator(".pal-computer-open .pal-computer-status", { hasText: "Start" }),
 			).toHaveCount(0);
-			await expect(card.locator(".pal-context-note")).toContainText("Docker Desktop or Podman", {
+			await expect(card.locator(".pal-context-note").first()).toContainText("Docker Desktop or Podman", {
 				timeout: 60000,
 			});
-			const note = await card.locator(".pal-context-note").innerText();
+			await expect(card.getByText("How to set up", { exact: true })).toBeVisible();
+			const note = (await card.locator(".pal-context-note").allInnerTexts()).join(" ");
 			assert.doesNotMatch(note, /Dockerfile|packages\/|namzu-local-computer/);
 			await expect(card.locator(".pal-computer-open .pal-computer-status")).toHaveText("Offline");
 			await shot(world, "04-computer-notice-1440");
@@ -110,6 +114,7 @@ test(
 			await page.getByRole("button", { name: /Open Işık’s computer/ }).click();
 			await expect(page.getByText("Computer is offline")).toBeVisible();
 			await expect(page.getByText("Offline. Start the computer to take over.")).toBeVisible();
+			await expect(page.getByRole("button", { name: "Start Işık" })).toBeVisible();
 			assert.doesNotMatch(
 				await page.locator(".pal-computer-view").innerText(),
 				/Dockerfile|packages\//,
@@ -126,7 +131,9 @@ test(
 			await expect(page.getByText("Işık is paused. Resume Işık to chat.")).toBeVisible();
 			await shot(world, "06-paused-1440");
 			await card.getByRole("button", { name: "Resume Işık" }).click();
+			// Offline computer: the card says chatting needs none, right under the computer.
 			await expect(card.locator(".pal-context-status")).toHaveText("Ready to chat");
+			await expect(card).toContainText("Chatting works without a computer.");
 			await composer.fill("");
 
 			// A message from an ordinary conversation, approved, then readable in the Pal's messages.
@@ -147,9 +154,14 @@ test(
 			await expect(approval).toBeVisible({ timeout: 60000 });
 			// What happens next is stated, and the message is prose, not a command.
 			await expect(approval).toContainText("Goes to Işık’s inbox.");
-			await expect(approval).toContainText("reads it the next time it runs");
-			await expect(approval).toContainText("sending does not start it");
-			await expect(approval).toContainText("namzu pal dispatch");
+			await expect(approval).toContainText(
+				"You can start Işık after sending, and it will read the message on its own computer.",
+			);
+			// The terminal route is under Details, not in the sentence the person reads first.
+			await expect(approval.locator(".approval-note").first()).not.toContainText("namzu pal dispatch");
+			await shot(world, "07-approval-1440");
+			await approval.getByText("Details", { exact: true }).click();
+			await expect(approval.locator(".approval-details")).toContainText("namzu pal dispatch");
 			await expect(approval.locator(".approval-command")).toHaveCount(0);
 			const quote = approval.getByLabel("Message");
 			await expect(quote).toHaveText(
@@ -159,15 +171,35 @@ test(
 				await quote.evaluate((el) => getComputedStyle(el).fontFamily.includes("mono")),
 				true,
 			);
-			await shot(world, "07-approval-1440");
+			await shot(world, "07b-approval-details-1440");
 			await approval.getByRole("button", { name: /Accept/ }).click();
 			// The sent line stays in the transcript even though the work folds away.
 			const receipt = page.getByRole("list", { name: "Messages sent to Pals" });
 			await expect(receipt).toContainText("Sent to Işık’s inbox.", { timeout: 60000 });
+			// Once the reply has finished nothing under it is cut off: no element in the transcript hides
+			// part of its own text behind an overflow clip.
+			await expect(page.getByText("I sent your Pal the request.")).toBeVisible({ timeout: 60000 });
+			await expect(page.getByRole("button", { name: "Send message" })).toBeVisible({ timeout: 60000 });
+			const clipped = await page.evaluate(() =>
+				[...document.querySelectorAll(".conversation-body *, .pal-message-receipts *")]
+					.filter((el) => {
+						const style = getComputedStyle(el);
+						return (
+							el.textContent?.trim() &&
+							el.children.length === 0 &&
+							style.overflowY !== "visible" &&
+							el.scrollHeight > el.clientHeight + 1 &&
+							el.clientHeight > 0 &&
+							style.display !== "inline"
+						);
+					})
+					.map((el) => `${el.tagName}.${el.className}: ${el.textContent?.trim().slice(0, 60)}`),
+			);
+			assert.deepEqual(clipped, [], "no line in the transcript is clipped");
 			await shot(world, "08-sent-line-1440");
 			// The Pal row carries an unread dot, since the person messaged it and has not opened it.
 			const unread = page.locator(".sidebar-pal-row .sidebar-pal-unread");
-			await expect(page.getByRole("button", { name: /Işık.*New message/ })).toBeVisible();
+			await expect(page.getByRole("button", { name: /Işık.*Your message is waiting for Işık/ })).toBeVisible();
 			await expect(unread).toHaveCount(1);
 			await shot(world, "08b-unread-dot-1440");
 			await receipt.getByRole("button", { name: "See it in Işık’s messages" }).click();
@@ -205,13 +237,17 @@ test(
 			await expect(incoming.locator(".message-time")).toHaveAttribute("aria-label", /^Sent at /);
 			await shot(world, "11b-incoming-quote-1440");
 
-			// A second Pal with the same name is allowed but warned about.
+			// A second Pal with the same name is refused, and the refusal is said once, before and after Save.
 			await page.getByRole("button", { name: "New Pal" }).click();
 			await page.getByRole("button", { name: "Customize your Pal" }).click();
 			const second = page.getByRole("dialog", { name: "Customize your Pal" });
 			await second.getByRole("textbox", { name: "Pal name" }).fill("Işık");
-			await expect(second.getByText(/already have a Pal called/)).toBeVisible();
+			await expect(second.getByText(/already have a Pal called/)).toHaveCount(1);
+			await expect(second).not.toContainText("keep this name");
 			await shot(world, "12-duplicate-name-1440");
+			await second.getByRole("button", { name: "Save" }).click();
+			await expect(second.getByRole("alert")).toContainText("You already have a Pal called");
+			await expect(second.getByText(/already have a Pal called/)).toHaveCount(1);
 			await second.getByRole("button", { name: "Close customization" }).click();
 			await page.getByRole("button", { name: "Işık", exact: true }).first().click();
 
@@ -234,7 +270,13 @@ test(
 			await expect(removal).toContainText(
 				"Işık disappears from the sidebar and its computer is stopped.",
 			);
-			await expect(removal).toContainText("Its conversations and files are not deleted.");
+			await expect(removal).toContainText(
+				"Its conversations are not deleted, and Işık’s files stay in its folder.",
+			);
+			// The folder is a name, not a path: the path is a tooltip and behind Copy path.
+			assert.equal((await removal.innerText()).includes(palId), false, "no raw folder path in the dialog");
+			await expect(removal.locator("li[title]")).toHaveAttribute("title", new RegExp(palId));
+			await expect(removal.getByRole("button", { name: "Copy path" })).toBeVisible();
 			await expect(removal).not.toContainText("stored data");
 			await shot(world, "15-delete-900");
 			// Open folder reveals the Pal's own workspace and leaves the dialog open.

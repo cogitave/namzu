@@ -632,8 +632,23 @@ function publishLockAtomically(
  * property nobody can check by reading the caller.
  */
 export function restrictToOwner(path: string): void {
+	restrictToOwnerWith(path, false)
+}
+
+/**
+ * `restrictToOwner` for a generated state directory that is opened again and again in one run. A
+ * directory this process already proved private, and that is still the same directory (device,
+ * file id, creation time), is not proved again on Windows, where each proof is three processes.
+ * Credential files and the directories that hold them never use this: they are proved at every
+ * read and write.
+ */
+export function restrictToOwnerOnce(path: string): void {
+	restrictToOwnerWith(path, true)
+}
+
+function restrictToOwnerWith(path: string, once: boolean): void {
 	if (platform() === 'win32') {
-		restrictToOwnerWindows(path)
+		restrictToOwnerWindows(path, once)
 		return
 	}
 	// POSIX. `openSync` already asked for the mode; a umask cannot loosen it,
@@ -681,7 +696,7 @@ export function assertOwnerOnlyMode(mode: number, path: string): void {
  * path gets to answer a security question on our behalf, and on a developer
  * machine `PATH` routinely carries a POSIX toolchain that shadows these names.
  */
-function restrictToOwnerWindows(path: string): void {
+function restrictToOwnerWindows(path: string, once: boolean): void {
 	const system32 = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32')
 	const run = (exe: string, args: readonly string[]): string => {
 		try {
@@ -706,7 +721,14 @@ function restrictToOwnerWindows(path: string): void {
 		)
 	}
 
-	const directory = statSync(path).isDirectory()
+	const stat = statSync(path, { bigint: true })
+	const directory = stat.isDirectory()
+	// For generated state only (`once`): a directory this process already proved private, and that
+	// is still the very same directory, is not proved again. Each proof is three Windows
+	// processes, and state partitions are opened many times in one run. A replaced directory has
+	// another identity and is proved afresh.
+	const identity = `${stat.dev}:${stat.ino}:${stat.birthtimeNs}`
+	if (once && directory && provenPrivateDirectories.has(path, identity)) return
 	run('icacls.exe', [
 		toNamespacedPath(path),
 		'/inheritance:r',
@@ -725,7 +747,32 @@ function restrictToOwnerWindows(path: string): void {
 		)
 	}
 	assertSoleOwnerSddl(saved, sid, path)
+	if (once && directory) provenPrivateDirectories.remember(path, identity)
 }
+
+/**
+ * Directories this process has already proved private, by path and by the directory's identity
+ * (device, inode, creation time), so a path that now names a different directory is not trusted.
+ * It remembers a proof only after the read-back succeeded, never a failure, and holds a bounded
+ * number of entries. Exported for its tests; the proof itself stays in `restrictToOwnerWindows`.
+ */
+export function createDirectoryProofCache(limit = 256) {
+	const proven = new Map<string, string>()
+	return {
+		has: (path: string, identity: string): boolean => proven.get(path) === identity,
+		remember(path: string, identity: string): void {
+			if (!proven.has(path) && proven.size >= limit) proven.clear()
+			proven.set(path, identity)
+		},
+		forget: (path: string): void => {
+			proven.delete(path)
+		},
+		get size(): number {
+			return proven.size
+		},
+	}
+}
+const provenPrivateDirectories = createDirectoryProofCache()
 
 /**
  * The file's discretionary access-control list, as SDDL, or `null`.
@@ -766,6 +813,9 @@ export function readAclSddl(path: string): string | null {
 /** The current account's security identifier, or `null` off Windows / on failure. */
 export function currentUserSid(): string | null {
 	if (platform() !== 'win32') return null
+	// The account a process runs as does not change while it runs, and asking costs a Windows
+	// process each time. Only an answer is kept; a failure is asked again.
+	if (knownUserSid) return knownUserSid
 	const system32 = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32')
 	try {
 		const out = execFileSync(join(system32, 'whoami.exe'), ['/user', '/fo', 'csv', '/nh'], {
@@ -774,11 +824,13 @@ export function currentUserSid(): string | null {
 			stdio: ['ignore', 'pipe', 'ignore'],
 			windowsHide: true,
 		})
-		return out.match(/"(S-1-[0-9-]+)"/)?.[1] ?? null
+		knownUserSid = out.match(/"(S-1-[0-9-]+)"/)?.[1]
+		return knownUserSid ?? null
 	} catch {
 		return null
 	}
 }
+let knownUserSid: string | undefined
 
 /**
  * Require a protected SDDL discretionary ACL that grants the current account
