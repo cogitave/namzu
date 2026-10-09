@@ -50,16 +50,23 @@ function controls(overrides: Partial<LocalSpeechControls> = {}): LocalSpeechCont
 }
 
 describe('local speech settings display', () => {
-	it('separates the known model download from unknown engine, RAM and first audio', () => {
+	it('shows the known download size and leaves unmeasured figures out instead of a placeholder', () => {
 		const html = renderToStaticMarkup(
 			createElement(LocalSpeechResourceCard, { state: state(), showDetails: true }),
 		)
 		expect(html).toContain('32.8 MiB')
-		expect(html).toMatch(/Voice engine download<\/dt><dd>Not measured/)
-		expect(html).toMatch(/Total installed size<\/dt><dd>Not measured/)
-		expect(html).toMatch(/Voice memory · RAM<\/dt><dd>Not measured/)
-		expect(html).toMatch(/First audio<\/dt><dd>Not measured/)
-		expect(html).toMatch(/GPU memory · VRAM<\/dt><dd>Not used/)
+		expect(html).not.toContain('Not measured')
+		expect(html).not.toContain('RAM')
+		expect(html).not.toContain('VRAM')
+		expect(html).not.toContain('worker')
+		expect(html).not.toContain('Space used')
+		expect(html).not.toContain('More resources')
+	})
+
+	it('shows nothing at all when nothing is known', () => {
+		const view = state()
+		view.resources = { ...view.resources, modelDownloadBytes: Number.NaN }
+		expect(renderToStaticMarkup(createElement(LocalSpeechResourceCard, { state: view }))).toBe('')
 	})
 
 	it('displays actual measurements including a genuine zero CPU measurement', () => {
@@ -77,21 +84,40 @@ describe('local speech settings display', () => {
 			createElement(LocalSpeechResourceCard, { state: view, showDetails: true }),
 		)
 		expect(html).toContain('286.1 MiB')
+		expect(html).toContain('Space used')
 		expect(html).toContain('238.4 MiB')
-		expect(html).toMatch(/CPU use<\/dt><dd>0%/)
+		expect(html).toMatch(/Processor use<\/dt><dd>0%/)
 		expect(html).toContain('217 ms')
 	})
 
-	it('shows a Turkish language choice and explicit download before using speech', () => {
+	it('before the download says what it does and offers one Download voice action', () => {
 		const html = renderToStaticMarkup(
 			createElement(LocalSpeechSettingsContent, { speech: controls() }),
 		)
+		expect(html).toContain('Reads replies aloud in Turkish')
+		expect(html).toContain('32.8 MiB to download')
+		expect(html).toContain('Download voice')
+		expect(html).not.toContain('Enable voice')
+		expect(html).not.toContain('Free memory when idle')
+		expect(html).not.toContain('Resources')
+		expect(html).not.toContain('Not measured')
+		expect(html).not.toContain('EMA Lightning')
+		expect(html).not.toContain('Preview voice')
+	})
+
+	it('after the download offers the language, the switches and a preview, without a raw path', () => {
+		const view = state()
+		view.installation = 'ready'
+		const html = renderToStaticMarkup(
+			createElement(LocalSpeechSettingsContent, { speech: controls({ state: view }) }),
+		)
 		expect(html).toContain('Speech language')
 		expect(html).toContain('Türkçe')
-		expect(html).toContain('EMA Lightning')
-		expect(html).toContain('Download voice')
+		expect(html).toContain('Enable voice')
 		expect(html).toContain('Free memory when idle')
-		expect(html).not.toContain('Preview voice')
+		expect(html).toContain('Preview voice')
+		expect(html).toContain('Data folders')
+		expect(html).not.toContain('Download voice')
 	})
 
 	it('does not offer read aloud until voice is explicitly enabled', () => {

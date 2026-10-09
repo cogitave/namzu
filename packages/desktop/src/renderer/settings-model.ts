@@ -229,6 +229,37 @@ export function updateStatusView(state: UpdateState): UpdateStatusView {
 	}
 }
 
+/** `win32 x64` in words a person recognises: `Windows (64-bit Intel or AMD)`. */
+export function platformText(platform: string): string {
+	const [os = '', arch = ''] = platform.trim().split(/\s+/u)
+	const system =
+		os === 'win32' ? 'Windows' : os === 'darwin' ? 'macOS' : os === 'linux' ? 'Linux' : os
+	const chip =
+		arch === 'x64'
+			? '64-bit Intel or AMD'
+			: arch === 'arm64'
+				? 'ARM'
+				: arch === 'ia32'
+					? '32-bit'
+					: arch
+	return chip ? `${system} (${chip})` : system || 'Unknown'
+}
+
+/** The facts a person pastes into a support request: versions only, never a path or a name. */
+export function aboutDetailsText(info: {
+	version: string
+	cliVersion?: string
+	sdkVersion?: string
+	platform: string
+}): string {
+	return [
+		`Namzu Desktop ${info.version}`,
+		`Namzu command line ${info.cliVersion ?? 'not found'}`,
+		`Namzu engine (SDK) ${info.sdkVersion ?? 'not found'}`,
+		platformText(info.platform),
+	].join('\n')
+}
+
 export function projectTrustText(project: ProjectView): string {
 	if (project.status === 'connecting') return 'Connecting'
 	if (project.status === 'error') return 'Needs reconnecting'

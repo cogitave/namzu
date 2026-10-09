@@ -30,12 +30,9 @@ function voiceStatus(state: LocalSpeechState): string {
 /** Pure content is also used by real-renderer browser checks. No measurement is guessed. */
 export function LocalSpeechSettingsContent({
 	speech,
-	location,
 	embedded = false,
 }: {
 	speech: LocalSpeechControls
-	/** Where the downloaded voice lives, when known. */
-	location?: string
 	/** Inside the Settings page, which supplies the section heading. */
 	embedded?: boolean
 }) {
@@ -47,84 +44,99 @@ export function LocalSpeechSettingsContent({
 	const downloading = state?.installation === 'installing'
 	const previewing = speech.playingMessageId === 'preview'
 	const error = speech.error ?? state?.error
+	const installed = state?.installation === 'ready'
 	return (
 		<div className="local-speech-settings">
 			<header className="local-speech-heading">
 				<Heading>Voice</Heading>
 				<span className="local-speech-badge">On this device</span>
 			</header>
-			<p className="local-speech-help">Turkish speech runs on this device.</p>
+			<p className="local-speech-help">
+				Reads replies aloud in Turkish. The voice runs on this device, so nothing is sent away.
+			</p>
 			{!speech.supported ? (
 				<p className="local-speech-notice">Local speech is unavailable in this runtime.</p>
 			) : speech.loading ? (
 				<output className="local-speech-notice">Loading voice settings…</output>
 			) : null}
-			<label className="local-speech-toggle">
-				<span>Enable voice</span>
-				<input
-					type="checkbox"
-					role="switch"
-					className="settings-switch"
-					aria-checked={state?.settings.enabled ?? false}
-					checked={state?.settings.enabled ?? false}
-					disabled={disabled || downloading}
-					onChange={(event) => void speech.configure({ enabled: event.target.checked })}
-				/>
-			</label>
-			<div className="local-speech-field">
-				<span id={languageLabelId}>Speech language</span>
-				<Select
-					value={state?.settings.language ?? 'tr'}
-					disabled={disabled || downloading}
-					onValueChange={(value) => {
-						if (value === 'tr') void speech.configure({ language: value })
-					}}
-				>
-					<SelectTrigger aria-labelledby={languageLabelId} size="compact">
-						Türkçe
-					</SelectTrigger>
-					<SelectPopup>
-						<SelectItem value="tr">Türkçe · Turkish</SelectItem>
-					</SelectPopup>
-				</Select>
-			</div>
-			<section className="local-speech-engine" aria-label="Local speech engine">
-				<div>
-					<strong>EMA Lightning</strong>
-					<span>Turkish · One voice</span>
-				</div>
-				<span className="local-speech-badge">{state ? voiceStatus(state) : 'Not measured'}</span>
-			</section>
-			{state && <LocalSpeechResourceCard state={state} />}
-			{location && state?.installation === 'ready' && (
-				<p className="local-speech-help local-speech-location">
-					Stored in <span title={location}>{location}</span>
-				</p>
+			{installed && (
+				<>
+					<label className="local-speech-toggle">
+						<span>Enable voice</span>
+						<input
+							type="checkbox"
+							role="switch"
+							className="settings-switch"
+							aria-checked={state?.settings.enabled ?? false}
+							checked={state?.settings.enabled ?? false}
+							disabled={disabled}
+							onChange={(event) => void speech.configure({ enabled: event.target.checked })}
+						/>
+					</label>
+					<div className="local-speech-field">
+						<span id={languageLabelId}>Speech language</span>
+						<Select
+							value={state?.settings.language ?? 'tr'}
+							disabled={disabled}
+							onValueChange={(value) => {
+								if (value === 'tr') void speech.configure({ language: value })
+							}}
+						>
+							<SelectTrigger aria-labelledby={languageLabelId} size="compact">
+								Türkçe
+							</SelectTrigger>
+							<SelectPopup>
+								<SelectItem value="tr">Türkçe · Turkish</SelectItem>
+							</SelectPopup>
+						</Select>
+					</div>
+				</>
 			)}
-			<label className="local-speech-toggle local-speech-memory">
-				<span>
-					Free memory when idle
-					<small>After 5 minutes. The next playback reloads the voice.</small>
-				</span>
-				<input
-					type="checkbox"
-					role="switch"
-					className="settings-switch"
-					aria-checked={!!state && state.settings.idleUnloadSeconds !== 0}
-					checked={!!state && state.settings.idleUnloadSeconds !== 0}
-					disabled={disabled || downloading}
-					onChange={(event) =>
-						void speech.configure({ idleUnloadSeconds: event.target.checked ? 300 : 0 })
-					}
-				/>
-			</label>
+			{state && !installed && (
+				<section className="local-speech-engine" aria-label="Download the voice">
+					<div>
+						<strong>Turkish voice</strong>
+						<span>
+							{downloading
+								? 'Downloading…'
+								: `${formatSpeechBytes(state.resources.modelDownloadBytes)} to download, once.`}
+						</span>
+					</div>
+					<span className="local-speech-badge">{voiceStatus(state)}</span>
+				</section>
+			)}
+			{state && installed && <LocalSpeechResourceCard state={state} />}
+			{installed && (
+				<>
+					<p className="local-speech-help local-speech-location">
+						Stored on this device. Its folder is listed under About, Data folders.
+					</p>
+					<label className="local-speech-toggle local-speech-memory">
+						<span>
+							Free memory when idle
+							<small>After 5 minutes. The next playback reloads the voice.</small>
+						</span>
+						<input
+							type="checkbox"
+							role="switch"
+							className="settings-switch"
+							aria-checked={!!state && state.settings.idleUnloadSeconds !== 0}
+							checked={!!state && state.settings.idleUnloadSeconds !== 0}
+							disabled={disabled}
+							onChange={(event) =>
+								void speech.configure({ idleUnloadSeconds: event.target.checked ? 300 : 0 })
+							}
+						/>
+					</label>
+				</>
+			)}
 			{error && (
 				<p className="local-speech-notice local-speech-error" role="alert">
 					{error}
 				</p>
 			)}
 			<div className="local-speech-actions">
-				{state?.installation !== 'ready' ? (
+				{!installed ? (
 					<Button
 						size="sm"
 						variant="outline"
@@ -149,7 +161,7 @@ export function LocalSpeechSettingsContent({
 						{previewing ? 'Stop preview' : 'Preview voice'}
 					</Button>
 				)}
-				{state?.installation === 'ready' &&
+				{installed &&
 					(confirmingRemoval ? (
 						<>
 							<Button
@@ -187,59 +199,60 @@ export function LocalSpeechSettingsContent({
 	)
 }
 
+/** Only what has been measured: an unmeasured figure is left out, never shown as a placeholder. */
 export function LocalSpeechResourceCard({
 	state,
 	showDetails = false,
 }: { state: LocalSpeechState; showDetails?: boolean }) {
 	const resources = state.resources
+	const bytes = (value: number | null) =>
+		value === null || !Number.isFinite(value) || value < 0 ? undefined : formatSpeechBytes(value)
 	const number = (value: number | null, suffix: string) =>
-		value === null || !Number.isFinite(value) ? 'Not measured' : `${Math.round(value)}${suffix}`
+		value === null || !Number.isFinite(value) ? undefined : `${Math.round(value)}${suffix}`
+	const rows = [
+		['Voice download', bytes(resources.modelDownloadBytes)],
+		['Space used', bytes(resources.diskBytes)],
+		['Memory in use', bytes(resources.ramBytes)],
+		['First sound', number(resources.firstAudioMs, ' ms')],
+	] as const
+	const more = [
+		['Speech engine download', bytes(resources.runtimeDownloadBytes)],
+		['Processor use', number(resources.cpuPercent, '%')],
+	] as const
+	const shown = rows.filter(([, value]) => value !== undefined)
+	const extra = more.filter(([, value]) => value !== undefined)
+	if (shown.length === 0 && extra.length === 0) return null
 	return (
 		<section className="local-speech-resources" aria-label="Voice resource use">
 			<header>
 				<Cpu aria-hidden="true" />
-				<span>CPU · This device</span>
+				<span>Resources</span>
 			</header>
 			<dl>
-				<div>
-					<dt>Model download</dt>
-					<dd>{formatSpeechBytes(resources.modelDownloadBytes)}</dd>
-				</div>
-				<div>
-					<dt>Total installed size</dt>
-					<dd>{formatSpeechBytes(resources.diskBytes)}</dd>
-				</div>
-				<div>
-					<dt>Voice memory · RAM</dt>
-					<dd>{formatSpeechBytes(resources.ramBytes)}</dd>
-				</div>
-				<div>
-					<dt>First audio</dt>
-					<dd>{number(resources.firstAudioMs, ' ms')}</dd>
-				</div>
+				{shown.map(([label, value]) => (
+					<div key={label}>
+						<dt>{label}</dt>
+						<dd>{value}</dd>
+					</div>
+				))}
 			</dl>
-			<Collapsible defaultOpen={showDetails} className="local-speech-resource-details">
-				<CollapsibleTrigger className="local-speech-details-trigger">
-					More resources <ChevronDownIcon />
-				</CollapsibleTrigger>
-				<CollapsiblePanel>
-					<dl>
-						<div>
-							<dt>Voice engine download</dt>
-							<dd>{formatSpeechBytes(resources.runtimeDownloadBytes)}</dd>
-						</div>
-						<div>
-							<dt title="Usage of the voice worker, relative to one CPU core">CPU use</dt>
-							<dd>{number(resources.cpuPercent, '%')}</dd>
-						</div>
-						<div>
-							<dt>GPU memory · VRAM</dt>
-							<dd>Not used</dd>
-						</div>
-					</dl>
-				</CollapsiblePanel>
-			</Collapsible>
-			<p>Memory and CPU cover the voice worker.</p>
+			{extra.length > 0 && (
+				<Collapsible defaultOpen={showDetails} className="local-speech-resource-details">
+					<CollapsibleTrigger className="local-speech-details-trigger">
+						More resources <ChevronDownIcon />
+					</CollapsibleTrigger>
+					<CollapsiblePanel>
+						<dl>
+							{extra.map(([label, value]) => (
+								<div key={label}>
+									<dt>{label}</dt>
+									<dd>{value}</dd>
+								</div>
+							))}
+						</dl>
+					</CollapsiblePanel>
+				</Collapsible>
+			)}
 		</section>
 	)
 }

@@ -9,7 +9,13 @@ import {
 	SETTINGS_SECTIONS,
 	type SettingsSection,
 } from '../shared/settings-protocol.js'
-import { SettingsPage, type SettingsPageProps, SettingsSidebar } from './settings-page.js'
+import { SETTINGS_SECTION_TITLES } from './settings-model.js'
+import {
+	SettingsPage,
+	type SettingsPageProps,
+	SettingsSidebar,
+	TerminalSettings,
+} from './settings-page.js'
 import type { LocalSpeechControls } from './use-local-speech.js'
 
 const speechState = (
@@ -107,13 +113,15 @@ function page(section: SettingsSection, over: Partial<SettingsPageProps> = {}) {
 }
 
 describe('the settings page', () => {
-	it('is a labelled region with one h1, a search field and the section as h2', () => {
+	it('is a labelled region whose one h1 is the section, never a second "Settings" heading', () => {
 		for (const section of SETTINGS_SECTIONS) {
 			const markup = page(section)
 			expect(markup).toContain('aria-label="Settings"')
 			expect(markup.match(/<h1>/g)).toHaveLength(1)
+			expect(markup).toContain(`<h1>${SETTINGS_SECTION_TITLES[section]}</h1>`)
+			expect(markup).not.toContain('<h1>Settings</h1>')
 			expect(markup).toContain('aria-label="Search settings"')
-			expect(markup.match(/<h2 class="settings-section-title">/g)).toHaveLength(1)
+			expect(markup).not.toContain('<h2 class="settings-section-title">')
 		}
 	})
 
@@ -180,6 +188,45 @@ describe('the settings page', () => {
 		expect(off).toMatch(/<input[^>]*role="switch"/)
 	})
 
+	it('Updates hides the automatic-download switch where the app cannot update itself', () => {
+		const disabled = page('updates', {
+			update: {
+				state: { status: 'disabled' },
+				info: { currentVersion: '0.1.0' },
+				onOpen: () => {},
+				onCheck: () => {},
+			},
+		})
+		expect(disabled).not.toContain('Download updates automatically')
+		expect(disabled).toContain('Namzu Desktop version')
+		expect(page('updates', { update: undefined })).not.toContain('Download updates automatically')
+	})
+
+	it('Default terminal shell is a row only where there is a shell to choose', () => {
+		const settings = {
+			settings: { ...DEFAULT_DESKTOP_SETTINGS },
+			error: '',
+			change: async () => {},
+			confirmation: undefined,
+			confirm: async () => {},
+			dismiss: () => {},
+		}
+		const render = (shells: { value: string; label: string }[] | null | undefined) =>
+			renderToStaticMarkup(createElement(TerminalSettings, { settings, shells }))
+		expect(render([{ value: 'auto', label: 'Login shell' }])).not.toContain(
+			'Default terminal shell',
+		)
+		expect(render(undefined)).not.toContain('Default terminal shell')
+		expect(render(null)).toBe('')
+		const windows = render([
+			{ value: 'auto', label: 'Automatic' },
+			{ value: 'cmd', label: 'Command Prompt' },
+		])
+		expect(windows).toContain('Default terminal shell')
+		expect(windows).toContain('Command Prompt')
+		expect(windows).toContain('Bring terminal tabs back')
+	})
+
 	it('Updates offers Download for an offered update and disables Check while busy', () => {
 		const offered = page('updates', {
 			update: {
@@ -197,13 +244,13 @@ describe('the settings page', () => {
 		expect(page('updates', { update: undefined })).toContain('managed outside')
 	})
 
-	it('Speech shows status, size and location, with Remove for an installed voice', () => {
+	it('Speech shows size, no raw path, with Remove for an installed voice', () => {
 		const markup = page('speech')
 		expect(markup).toContain('Voice')
 		expect(markup).toContain('On this device')
-		expect(markup).toContain('Total installed size')
-		expect(markup).toContain('Stored in')
-		expect(markup).toContain('local-speech')
+		expect(markup).toContain('Space used')
+		expect(markup).not.toContain('Roaming')
+		expect(markup).not.toContain('AppData')
 		expect(markup).toContain('Remove voice…')
 		const missing = page('speech', { speech: speech('missing') })
 		expect(missing).toContain('Download voice')
@@ -212,8 +259,18 @@ describe('the settings page', () => {
 
 	it('About shows the versions, and the folders with Open buttons', () => {
 		const markup = page('about')
-		for (const text of ['0.1.0', '25.3.0', '25.2.1', 'win32 x64', 'Desktop app data'])
+		for (const text of [
+			'0.1.0',
+			'<dt>Namzu command line</dt><dd>25.3.0</dd>',
+			'25.2.1',
+			'Windows (64-bit Intel or AMD)',
+			'Desktop app data',
+			'aria-label="Copy version details"',
+		])
 			expect(markup).toContain(text)
+		expect(markup).not.toContain('win32 x64')
+		// Raw paths appear only under Data folders.
+		expect(markup.slice(0, markup.indexOf('Data folders'))).not.toContain('AppData')
 		expect(markup).toContain('aria-label="Open Desktop app data"')
 		expect(page('about', { info: { ...info, cliVersion: undefined } })).toContain('Not found')
 		expect(page('about', { info: undefined })).toContain('Loading')

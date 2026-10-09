@@ -10,6 +10,7 @@ import {
 	type StartupBehavior,
 } from '../shared/settings-protocol.js'
 import type { UpdateInfo, UpdateState } from '../shared/update-protocol.js'
+import { copyPlainText } from './copy-button.js'
 import { EngineUpdateRows, type EngineUpdateTarget } from './engine-updates-section.js'
 import {
 	DownloadIcon,
@@ -27,8 +28,11 @@ import { LocalSpeechSettingsContent } from './local-speech-settings.js'
 import { ModelsSection } from './models-section.js'
 import { SettingsConfirmDialog } from './settings-confirm-dialog.js'
 import {
+	SETTINGS_ENTRIES,
 	SETTINGS_SECTION_TITLES,
+	aboutDetailsText,
 	lastCheckedText,
+	platformText,
 	projectTrustText,
 	searchSettings,
 	updateStatusView,
@@ -113,11 +117,42 @@ export interface SettingsPageProps {
 	now: number
 }
 
+type ShellChoice = { value: string; label: string }
+
+/** The shells a new terminal tab can open; `undefined` until main answers, `null` where there are no terminals. */
+function useTerminalShells(): ShellChoice[] | null | undefined {
+	const bridge = typeof window === 'undefined' ? undefined : window.namzu
+	const [shells, setShells] = useState<ShellChoice[]>()
+	useEffect(() => {
+		let live = true
+		void bridge?.terminalShells?.().then(
+			(list) => live && setShells(list),
+			() => undefined,
+		)
+		return () => {
+			live = false
+		}
+	}, [bridge])
+	return bridge?.terminalShells ? shells : null
+}
+
 export function SettingsPage(props: SettingsPageProps) {
 	const { section, focusId } = props
 	const [query, setQuery] = useState('')
 	const searchId = useId()
-	const results = searchSettings(query)
+	const shells = useTerminalShells()
+	// A row that does nothing here is neither shown nor found by search.
+	const hasShellChoice = (shells?.length ?? 0) > 1
+	const hasAppUpdater = props.update !== undefined && props.update.state.status !== 'disabled'
+	const results = searchSettings(
+		query,
+		SETTINGS_ENTRIES.filter(
+			(entry) =>
+				(entry.id !== 'terminal-shell' || hasShellChoice) &&
+				(entry.id !== 'terminal-restore' || shells !== null) &&
+				(entry.id !== 'auto-download' || hasAppUpdater),
+		),
+	)
 	const searching = query.trim().length > 0
 	const page = useRef<HTMLElement>(null)
 	// biome-ignore lint/correctness/useExhaustiveDependencies: a new target or section is the trigger.
@@ -141,8 +176,10 @@ export function SettingsPage(props: SettingsPageProps) {
 			<div className="settings-page-content">
 				<header className="settings-page-header">
 					<div>
-						<h1>Settings</h1>
-						<p>How Namzu starts, looks and keeps your projects safe.</p>
+						<h1>{searching ? 'Search results' : SETTINGS_SECTION_TITLES[section]}</h1>
+						{!searching && section === 'general' && (
+							<p>How Namzu starts, looks and keeps your projects safe.</p>
+						)}
 					</div>
 					<div className="settings-page-search">
 						<SearchIcon aria-hidden="true" />
@@ -210,18 +247,22 @@ export function SettingsPage(props: SettingsPageProps) {
 						</ul>
 					</section>
 				) : (
-					<SectionBody {...props} />
+					<SectionBody {...props} shells={shells} hasAppUpdater={hasAppUpdater} />
 				)}
 			</div>
 		</section>
 	)
 }
 
-function SectionBody(props: SettingsPageProps) {
-	const title = SETTINGS_SECTION_TITLES[props.section]
+interface SectionProps extends SettingsPageProps {
+	shells: ShellChoice[] | null | undefined
+	hasAppUpdater: boolean
+}
+
+/** The page heading above is the section's name, so the body does not repeat it. */
+function SectionBody(props: SectionProps) {
 	return (
 		<div className="settings-section" data-section={props.section}>
-			<h2 className="settings-section-title">{title}</h2>
 			{props.section === 'general' && <GeneralSection {...props} />}
 			{props.section === 'models' && <ModelsContainer />}
 			{props.section === 'projects' && <ProjectsSection {...props} />}
@@ -297,7 +338,7 @@ const STARTUP_CHOICES: { value: StartupBehavior; label: string; hint: string }[]
 	{ value: 'home', label: 'Start on the home screen', hint: 'Your tabs are kept but not opened.' },
 ]
 
-function GeneralSection({ settings }: SettingsPageProps) {
+function GeneralSection({ settings, shells }: SectionProps) {
 	const group = useId()
 	const value = settings.settings?.startup
 	return (
@@ -322,42 +363,32 @@ function GeneralSection({ settings }: SettingsPageProps) {
 					))}
 				</fieldset>
 			</Row>
-			<TerminalSettings settings={settings} />
+			<TerminalSettings settings={settings} shells={shells} />
 		</>
 	)
 }
 
-/** The shell a plain terminal tab opens, and whether terminal tabs come back after a restart. */
-function TerminalSettings({ settings }: { settings: DesktopSettingsControls }) {
+/**
+ * The shell a plain terminal tab opens, and whether terminal tabs come back after a restart. The
+ * shell row appears only where there is a real choice; with one shell it would have nothing to click.
+ */
+export function TerminalSettings({
+	settings,
+	shells,
+}: { settings: DesktopSettingsControls; shells: ShellChoice[] | null | undefined }) {
 	const group = useId()
-	const [shells, setShells] = useState<{ value: string; label: string }[]>()
-	const bridge = typeof window === 'undefined' ? undefined : window.namzu
-	useEffect(() => {
-		let live = true
-		void bridge?.terminalShells?.().then(
-			(list) => live && setShells(list),
-			() => undefined,
-		)
-		return () => {
-			live = false
-		}
-	}, [bridge])
-	if (!bridge?.terminalShells) return null
+	if (shells === null) return null
 	const current = settings.settings?.terminalShell
 	const choices = shells ?? []
 	return (
 		<>
-			<Row
-				id="terminal-shell"
-				label="Default terminal shell"
-				description={
-					choices.length > 1
-						? 'Automatic uses PowerShell 7 when it is installed and otherwise Command Prompt, which is set to UTF-8. Windows PowerShell can drop some typed Turkish capitals.'
-						: 'A new terminal tab opens your login shell.'
-				}
-				stacked
-			>
-				{choices.length > 1 ? (
+			{choices.length > 1 && (
+				<Row
+					id="terminal-shell"
+					label="Default terminal shell"
+					description="Automatic uses PowerShell 7 when it is installed and otherwise Command Prompt, which is set to UTF-8. Windows PowerShell can drop some typed Turkish capitals."
+					stacked
+				>
 					<fieldset className="settings-choices" disabled={!settings.settings}>
 						<legend className="sr-only">Default terminal shell</legend>
 						{choices.map((choice) => (
@@ -384,8 +415,8 @@ function TerminalSettings({ settings }: { settings: DesktopSettingsControls }) {
 							</label>
 						))}
 					</fieldset>
-				) : null}
-			</Row>
+				</Row>
+			)}
 			<Row
 				id="terminal-restore"
 				label="Bring terminal tabs back"
@@ -507,7 +538,7 @@ function AppearanceSection({ appearance, onAppearanceChange }: SettingsPageProps
 	)
 }
 
-function UpdatesSection({ update, settings, now, engineTarget }: SettingsPageProps) {
+function UpdatesSection({ update, settings, now, engineTarget, hasAppUpdater }: SectionProps) {
 	const engines = useEngineUpdates()
 	if (!update && !engines)
 		return <p className="settings-empty">Updates are managed outside this window in this build.</p>
@@ -523,7 +554,7 @@ function UpdatesSection({ update, settings, now, engineTarget }: SettingsPagePro
 		<>
 			<Row
 				id="version"
-				label="Namzu version"
+				label="Namzu Desktop version"
 				description={`Last checked: ${lastCheckedText(checkedAt || undefined, now)}`}
 			>
 				<span className="settings-value">{update?.info?.currentVersion ?? '…'}</span>
@@ -543,33 +574,58 @@ function UpdatesSection({ update, settings, now, engineTarget }: SettingsPagePro
 						</Button>
 					)}
 					<Button size="sm" variant="outline" disabled={!canCheck} onClick={check}>
-						{checking ? 'Checking…' : 'Check for updates'}
+						{checking
+							? 'Checking…'
+							: hasAppUpdater || !engines
+								? 'Check for updates'
+								: 'Check the programs'}
 					</Button>
 				</div>
 			</div>
 			<EngineUpdateRows target={engineTarget} />
-			<Row
-				id="auto-download"
-				label="Download updates automatically"
-				description="When off, a new version is only offered with a badge, and nothing is downloaded until you ask."
-			>
-				<Switch
+			{hasAppUpdater && (
+				<Row
+					id="auto-download"
 					label="Download updates automatically"
-					checked={settings.settings?.autoDownloadUpdates ?? true}
-					disabled={!settings.settings}
-					onChange={(value) => void settings.change({ autoDownloadUpdates: value })}
-				/>
-			</Row>
+					description="When off, a new version is only offered with a badge, and nothing is downloaded until you ask."
+				>
+					<Switch
+						label="Download updates automatically"
+						checked={settings.settings?.autoDownloadUpdates ?? true}
+						disabled={!settings.settings}
+						onChange={(value) => void settings.change({ autoDownloadUpdates: value })}
+					/>
+				</Row>
+			)}
 		</>
 	)
 }
 
-function SpeechSection({ speech, info }: SettingsPageProps) {
-	const location = info?.folders.find((folder) => folder.kind === 'speech')?.path
+function SpeechSection({ speech }: SettingsPageProps) {
 	return (
 		<div id="setting-voice" className="settings-speech">
-			<LocalSpeechSettingsContent speech={speech} location={location} embedded />
+			<LocalSpeechSettingsContent speech={speech} embedded />
 		</div>
+	)
+}
+
+/** Copies the versions for a support request; says so only once the copy really happened. */
+function CopyDetails({ text }: { text: string }) {
+	const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle')
+	return (
+		<Button
+			variant="outline"
+			size="sm"
+			aria-label="Copy version details"
+			onClick={() =>
+				void copyPlainText(text).then(
+					() => setState('copied'),
+					() => setState('failed'),
+				)
+			}
+		>
+			{state === 'copied' ? 'Copied' : state === 'failed' ? 'Could not copy' : 'Copy details'}
+		</Button>
 	)
 }
 
@@ -584,25 +640,28 @@ function AboutSection({ info, infoError, onOpenFolder }: SettingsPageProps) {
 		)
 	return (
 		<>
-			<div id="setting-about" className="settings-row">
+			<div id="setting-about" className="settings-row" data-stacked>
 				<dl className="settings-facts">
 					<div>
 						<dt>Namzu Desktop</dt>
 						<dd>{info.version}</dd>
 					</div>
 					<div>
-						<dt>Command line (CLI)</dt>
+						<dt>Namzu command line</dt>
 						<dd>{info.cliVersion ?? 'Not found'}</dd>
 					</div>
 					<div>
-						<dt>SDK</dt>
+						<dt>Namzu engine (SDK)</dt>
 						<dd>{info.sdkVersion ?? 'Not found'}</dd>
 					</div>
 					<div>
-						<dt>Platform</dt>
-						<dd>{info.platform}</dd>
+						<dt>System</dt>
+						<dd>{platformText(info.platform)}</dd>
 					</div>
 				</dl>
+				<div className="settings-actions">
+					<CopyDetails text={aboutDetailsText(info)} />
+				</div>
 			</div>
 			<div id="setting-folders" className="settings-folders">
 				<h3 className="settings-subtitle">Data folders</h3>

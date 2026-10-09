@@ -75,3 +75,16 @@
 		flex-direction: column;
 	}
 }
+.engine-update-link {
+	padding: 0;
+	border: 0;
+	background: none;
+	color: var(--foreground);
+	font: inherit;
+	text-decoration: underline;
+	text-underline-offset: 2px;
+	cursor: pointer;
+}
+.engine-update-link:hover {
+	color: var(--muted-foreground);
+}

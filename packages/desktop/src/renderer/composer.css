@@ -52,13 +52,11 @@
 	display: flex;
 	align-items: center;
 	gap: 8px;
-	width: calc(100% - 2 * var(--chat-composer-drawer-inset));
-	min-height: 48px;
-	margin: 0 auto -14px;
-	padding: 6px 8px 18px;
-	border: 1px solid var(--chat-composer-outline);
-	border-radius: 16px 16px 0 0;
-	background: color-mix(in srgb, var(--surface-raised) 65%, var(--background));
+	/* One flat chip row on the composer's own edges: no box of its own, nothing tucked behind the card. */
+	width: 100%;
+	min-height: 36px;
+	margin: 0 auto 4px;
+	padding: 4px 8px;
 	color: var(--foreground);
 }
 /* After the first message the tray fades and collapses so the composer settles instead of jumping. */
@@ -68,18 +66,16 @@
 	min-height: 0;
 	padding-block: 0;
 	margin-bottom: 0;
-	border-width: 0;
 	opacity: 0;
 	pointer-events: none;
 	animation: composer-tray-out 150ms var(--motion-ease) both;
 }
 @keyframes composer-tray-out {
 	from {
-		max-height: 48px;
-		min-height: 48px;
-		padding-block: 6px 18px;
-		margin-bottom: -14px;
-		border-width: 1px;
+		max-height: 36px;
+		min-height: 36px;
+		padding-block: 4px;
+		margin-bottom: 4px;
 		opacity: 1;
 	}
 }
@@ -97,6 +93,16 @@
 	padding-inline: 5px;
 	border-radius: 999px;
 	color: var(--foreground);
+}
+/* The page edge under the composer is solid, so a long reply never shows through the gap below the card. */
+.composer-wrap:not(.items-center)::after {
+	content: "";
+	position: absolute;
+	inset: auto 0 0;
+	z-index: -1;
+	height: 24px;
+	background: var(--background);
+	pointer-events: none;
 }
 .composer-computer-label {
 	display: flex;

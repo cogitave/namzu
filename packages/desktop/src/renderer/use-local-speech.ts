@@ -144,6 +144,10 @@ export class LocalSpeechController {
 
 	install = async (): Promise<void> => {
 		await this.change(() => this.api.localSpeechInstall?.())
+		// Downloading the voice is the person's explicit ask to use it: one action, not two.
+		const state = this.snapshot.state
+		if (state?.installation === 'ready' && !state.settings.enabled && !this.snapshot.error)
+			await this.configure({ enabled: true })
 	}
 
 	uninstall = async (): Promise<void> => {

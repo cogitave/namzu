@@ -4,10 +4,10 @@ import { describe, expect, it } from 'vitest'
 import { RETRUST_OFF_COPY, SettingsConfirmDialog } from './settings-confirm-dialog.js'
 
 describe('SettingsConfirmDialog', () => {
-	it('keeps the wording of the box it replaced', () => {
-		expect(RETRUST_OFF_COPY.title).toBe('Stop asking when a folder’s automatic settings change?')
+	it('says project, as the switch does, and names one concrete risk', () => {
+		expect(RETRUST_OFF_COPY.title).toBe('Stop asking when a project’s automatic settings change?')
 		expect(RETRUST_OFF_COPY.description).toBe(
-			'A project can run hooks, MCP servers and plugins from its own files. With this off, Namzu will not ask again when they change, and changes made meanwhile are accepted as they are when you turn it back on.',
+			'Hooks, servers and plugins a project adds later will run without asking. Changes made while this is off are accepted when you turn it back on.',
 		)
 		expect([RETRUST_OFF_COPY.cancel, RETRUST_OFF_COPY.confirm]).toEqual(['Cancel', 'Turn off'])
 	})

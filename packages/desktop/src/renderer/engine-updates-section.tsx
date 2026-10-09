@@ -14,8 +14,11 @@ import './engine-updates.css'
 export interface EngineUpdateTarget {
 	groupId: string
 	projectId?: string
-	/** The terminal tab is open: leave the page so the output is what the person sees. */
-	onStarted?: () => void
+	/**
+	 * The person asked to watch an update: bring its terminal tab to the front. An update never
+	 * takes the person out of Settings by itself; its progress shows on the row.
+	 */
+	onShowOutput?: (tabId: string) => void
 }
 
 interface Refusal {
@@ -41,8 +44,7 @@ export function EngineUpdateRows({ target }: { target?: EngineUpdateTarget }) {
 			groupId: target.groupId,
 			projectId: target.projectId,
 		})
-		if (result.ok) target.onStarted?.()
-		else
+		if (!result.ok)
 			setRefused((all) => ({
 				...all,
 				[id]: { reason: result.reason, ...(result.command ? { command: result.command } : {}) },
@@ -74,10 +76,26 @@ export function EngineUpdateRows({ target }: { target?: EngineUpdateTarget }) {
 									{view.status}
 								</p>
 								{view.note && <p className="engine-update-note">{view.note}</p>}
-								{command && view.action && (
+								{command && (view.action === 'copy' || refusal?.command) ? (
 									<p className="engine-update-command">
-										{view.action === 'copy' ? 'Run: ' : 'Runs in a new terminal tab: '}
-										<code>{command}</code>
+										Run: <code>{command}</code>
+									</p>
+								) : (
+									(view.action === 'update' || view.action === 'retry') && (
+										<p className="engine-update-command">
+											The update runs in a terminal tab you can watch.
+										</p>
+									)
+								)}
+								{view.busy && item.tabId && target?.onShowOutput && (
+									<p className="engine-update-command">
+										<button
+											type="button"
+											className="engine-update-link"
+											onClick={() => item.tabId && target.onShowOutput?.(item.tabId)}
+										>
+											Show terminal output
+										</button>
 									</p>
 								)}
 								{item.missing && item.id !== 'namzu-cli' && (

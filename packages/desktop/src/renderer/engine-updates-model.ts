@@ -24,7 +24,12 @@ export interface EngineRowView {
 }
 
 export function engineRowView(item: EngineUpdateItem): EngineRowView {
-	const title = item.name
+	// The command line that comes with the app is the one About lists; a copy installed on its own
+	// is a different program with its own version, and the row says so.
+	const title =
+		item.id === 'namzu-cli' && !item.bundled && !item.missing
+			? `${item.name} (installed separately)`
+			: item.name
 	if (item.missing)
 		return {
 			title,
@@ -153,7 +158,14 @@ export function engineUpdateNote(
 	return item.latest ? `Update available (${item.latest})` : 'Update available'
 }
 
-/** The toast for a version the person has not been told about. */
-export function engineToastText(announcement: { name: string; version: string }): string {
-	return `${announcement.name} ${announcement.version} is available`
+/**
+ * The toast for versions the person has not been told about. Several found at once share one
+ * toast, so a second never sits unreadable behind the first.
+ */
+export function engineToastText(
+	announcements: readonly { name: string; version: string }[] | { name: string; version: string },
+): string {
+	const list = Array.isArray(announcements) ? announcements : [announcements]
+	if (list.length === 1) return `${list[0]?.name} ${list[0]?.version} is available`
+	return `Updates available for ${joinNames(list.map((item) => item.name))}`
 }

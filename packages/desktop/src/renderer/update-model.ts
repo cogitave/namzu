@@ -1,4 +1,5 @@
 import {
+	type UpdateBlocker,
 	type UpdateState,
 	type UpdateUiBusy,
 	updateBlockerText,
@@ -48,6 +49,30 @@ export interface UpdateDialogModel {
 	dismissible: boolean
 }
 
+/** What a restart is waiting for, in the words of the first thing in the way. */
+const waitingFor: Record<UpdateBlocker, string> = {
+	'turn-running': 'Waiting for the reply to finish',
+	'permission-pending': 'Waiting for you to answer a permission request',
+	'background-work': 'Waiting for background work to finish',
+	'dialog-open': 'Waiting for you to close the open dialog',
+	'typing-unsaved': 'Waiting for you to finish typing',
+	'computer-session': 'Waiting for the computer session to end',
+}
+const blockerOrder: UpdateBlocker[] = [
+	'turn-running',
+	'permission-pending',
+	'background-work',
+	'dialog-open',
+	'typing-unsaved',
+	'computer-session',
+]
+
+/** The one line that says what the restart waits for. */
+export function waitingBody(waiting: readonly UpdateBlocker[]): string {
+	const first = blockerOrder.find((reason) => waiting.includes(reason))
+	return `${first ? waitingFor[first] : 'Waiting to restart'}. Namzu restarts by itself after that.`
+}
+
 const restartBody = 'Namzu will restart when installation finishes.'
 
 export function updateDialogModel(state: UpdateState): UpdateDialogModel | undefined {
@@ -80,8 +105,8 @@ export function updateDialogModel(state: UpdateState): UpdateDialogModel | undef
 				}
 			if (state.waiting)
 				return {
-					title: 'Installing update',
-					body: 'Namzu will update when the current reply finishes.',
+					title: 'Waiting to restart',
+					body: waitingBody(state.waiting),
 					reasons: state.waiting.map((reason) => updateBlockerText[reason]),
 					progress: { value: null, text: 'Waiting…' },
 					actions: ['later'],

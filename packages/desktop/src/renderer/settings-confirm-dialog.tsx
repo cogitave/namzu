@@ -4,9 +4,9 @@ import { Button } from './ui/button.js'
 
 /** The words of the dialog, apart from the component so they can be tested as data. */
 export const RETRUST_OFF_COPY = {
-	title: 'Stop asking when a folder’s automatic settings change?',
+	title: 'Stop asking when a project’s automatic settings change?',
 	description:
-		'A project can run hooks, MCP servers and plugins from its own files. With this off, Namzu will not ask again when they change, and changes made meanwhile are accepted as they are when you turn it back on.',
+		'Hooks, servers and plugins a project adds later will run without asking. Changes made while this is off are accepted when you turn it back on.',
 	confirm: 'Turn off',
 	cancel: 'Cancel',
 } as const

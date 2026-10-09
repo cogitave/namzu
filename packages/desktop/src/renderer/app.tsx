@@ -213,7 +213,6 @@ import { useLocalSpeech } from './use-local-speech.js'
 import { useTranscriptScroll } from './use-transcript-scroll.js'
 import { useUndoKept } from './use-undo-kept.js'
 import { WindowTitlebar } from './window-titlebar.js'
-import { Wordmark } from './wordmark.js'
 import {
 	WorkspaceBreadcrumb,
 	WorkspaceBreadcrumbItem,
@@ -5370,7 +5369,12 @@ export function App({
 						engineTarget={{
 							groupId: group.id,
 							...(projectId ? { projectId } : {}),
-							onStarted: () => setRailSection(null),
+							onShowOutput: (tabId) => {
+								setRailSection(null)
+								void onAction({ kind: 'activate', groupId: group.id, tabId }).catch((failure) =>
+									setError(errorText(failure)),
+								)
+							},
 						}}
 						settings={desktopSettings}
 						appearance={appearance}
@@ -5513,8 +5517,6 @@ export function App({
 					<div className="welcome" aria-busy="true" />
 				) : !project ? (
 					<Empty className="welcome">
-						<Wordmark hero />
-
 						<EmptyHeader className="max-w-lg px-8">
 							<EmptyTitle>
 								<h1>What would you like to work on?</h1>

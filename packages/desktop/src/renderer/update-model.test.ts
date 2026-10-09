@@ -2,7 +2,7 @@ import { Dialog } from '@base-ui/react/dialog'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import type { UpdateState } from '../shared/update-protocol.js'
+import type { UpdateBlocker, UpdateState } from '../shared/update-protocol.js'
 import { UpdateDialogContent } from './update-dialog.js'
 import {
 	readUiBusy,
@@ -75,10 +75,20 @@ describe('dialog model', () => {
 			version: '0.2.0',
 			waiting: ['turn-running', 'typing-unsaved'],
 		})
-		expect(model?.title).toBe('Installing update')
-		expect(model?.body).toBe('Namzu will update when the current reply finishes.')
+		expect(model?.title).toBe('Waiting to restart')
+		expect(model?.body).toBe(
+			'Waiting for the reply to finish. Namzu restarts by itself after that.',
+		)
 		expect(model?.reasons).toEqual(['A reply is still running', 'You are typing'])
 		expect(model?.actions).toEqual(['later'])
+	})
+
+	it('names the actual blocker instead of always blaming the reply', () => {
+		const body = (waiting: UpdateBlocker[]) =>
+			updateDialogModel({ status: 'ready', version: '0.2.0', waiting })?.body
+		expect(body(['typing-unsaved'])).toMatch(/^Waiting for you to finish typing\./)
+		expect(body(['dialog-open'])).toMatch(/^Waiting for you to close the open dialog\./)
+		expect(body(['computer-session', 'typing-unsaved'])).toMatch(/finish typing/)
 	})
 
 	it('is indeterminate and not dismissible while installing, never a made-up percentage', () => {

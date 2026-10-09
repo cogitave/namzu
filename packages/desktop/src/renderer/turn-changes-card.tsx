@@ -2,13 +2,14 @@ import { Undo2 } from 'lucide-react'
 import { useState } from 'react'
 import { formatLineCount } from './changes-totals.js'
 import { ChevronDownIcon, ChevronRightIcon, FileDiffIcon } from './icons.js'
+import { clockLabel } from './time-format.js'
 import type { TurnChanges } from './turn-changes.js'
 import { Button } from './ui/button.js'
 import { type UndoCardView, partialLabel } from './undo-model.js'
 import './turn-changes-card.css'
 
 function undoneAt(at: number): string {
-	return new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+	return clockLabel(at)
 }
 
 /** The one place a reply's undo state shows: only ever what the CLI's status says. */

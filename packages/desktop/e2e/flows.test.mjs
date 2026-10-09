@@ -429,17 +429,14 @@ flow(
 
 /** Settings opens as a page of its own; a section is chosen from its left column. */
 async function openSettings(w, section) {
-	if ((await w.page.getByRole("heading", { level: 1, name: "Settings" }).count()) === 0)
+	const sections = w.page.getByRole("navigation", { name: "Settings sections" });
+	if ((await sections.count()) === 0)
 		await w.page.getByRole("button", { name: "Settings", exact: true }).click();
+	await expect(sections).toBeVisible({ timeout: T });
+	await sections.getByRole("button", { name: section, exact: true }).click();
+	// The page's one heading is the section's name: there is no second "Settings" title.
 	await expect(
-		w.page.getByRole("heading", { level: 1, name: "Settings" }),
-	).toBeVisible({ timeout: T });
-	await w.page
-		.getByRole("navigation", { name: "Settings sections" })
-		.getByRole("button", { name: section, exact: true })
-		.click();
-	await expect(
-		w.page.getByRole("heading", { level: 2, name: section, exact: true }),
+		w.page.getByRole("heading", { level: 1, name: section, exact: true }),
 	).toBeVisible({ timeout: T });
 }
 const removeDialog = (w) => w.page.getByRole("alertdialog");
@@ -451,14 +448,14 @@ flow(
 		await openProject(w);
 		await w.page.keyboard.press("Control+,");
 		await expect(
-			w.page.getByRole("heading", { level: 1, name: "Settings" }),
+			w.page.getByRole("heading", { level: 1, name: "General" }),
 		).toBeVisible({ timeout: T });
 		const search = w.page.getByRole("searchbox", { name: "Search settings" });
 		await search.fill("theme");
 		await expect(w.page.getByText("1 result")).toBeVisible({ timeout: T });
 		await w.page.getByRole("button", { name: /^Theme/ }).click();
 		await expect(
-			w.page.getByRole("heading", { level: 2, name: "Appearance" }),
+			w.page.getByRole("heading", { level: 1, name: "Appearance" }),
 		).toBeVisible({ timeout: T });
 		await expect(w.page.getByRole("radio", { name: /Dark/ })).toBeChecked();
 	},
@@ -479,7 +476,7 @@ flow(
 		// Turning the check off asks in the app, never in a native box; Cancel keeps it on.
 		await ask.uncheck();
 		const confirm = w.page.getByRole("dialog", {
-			name: "Stop asking when a folder’s automatic settings change?",
+			name: "Stop asking when a project’s automatic settings change?",
 		});
 		await expect(confirm).toBeVisible();
 		await expect(confirm.getByRole("button", { name: "Cancel" })).toBeFocused();
@@ -491,10 +488,9 @@ flow(
 		await confirm.getByRole("button", { name: "Turn off" }).click();
 		await expect(confirm).toBeHidden();
 		await expect(ask).not.toBeChecked();
-		await openSettings(w, "Updates");
-		await w.page
-			.getByRole("switch", { name: "Download updates automatically" })
-			.uncheck();
+		// This build has no updater, so the automatic-download switch is not offered; another switch proves the save.
+		await openSettings(w, "General");
+		await w.page.getByRole("switch", { name: "Bring terminal tabs back" }).uncheck();
 		const file = join(w.userData, "desktop-settings.json");
 		await expect
 			.poll(() => (existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : null))
@@ -502,9 +498,9 @@ flow(
 				version: 1,
 				startup: "home",
 				retrustOnConfigChange: false,
-				autoDownloadUpdates: false,
+				autoDownloadUpdates: true,
 				// The terminal settings are saved with their defaults beside the ones changed here.
-				restoreTerminals: true,
+				restoreTerminals: false,
 				terminalShell: "auto",
 			});
 		await relaunch(w);
@@ -519,10 +515,14 @@ flow(
 				name: "Ask again when a project’s automatic settings change",
 			}),
 		).not.toBeChecked();
+		await openSettings(w, "General");
+		await expect(
+			w.page.getByRole("switch", { name: "Bring terminal tabs back" }),
+		).not.toBeChecked();
 		await openSettings(w, "Updates");
 		await expect(
 			w.page.getByRole("switch", { name: "Download updates automatically" }),
-		).not.toBeChecked();
+		).toHaveCount(0);
 	},
 );
 

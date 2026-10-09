@@ -113,7 +113,7 @@ describe('the Worked block draws no clocks of its own', () => {
 		thread = command(thread, 'a', 3000)
 		const html = render(finish(answer(thread, 'All done.', 8000)))
 		const block = html.slice(html.indexOf('data-activity-turn'), html.indexOf('All done.'))
-		const observed = 'Time:'
+		const observed = 'Seen by Namzu:'
 		// Narration, the thought row and the Worked trigger carry it as a tooltip, the tool row as its description.
 		expect(block).toMatch(new RegExp(`aria-label="Progress update" title="${observed}`))
 		expect(block).toMatch(new RegExp(`class="reasoning"[^>]*title="${observed}`))

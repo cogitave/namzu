@@ -24,7 +24,11 @@ implemented by this feature.
 
 Speech is disabled initially. **Remove voice…** deletes the downloaded engine and models
 (the saved preferences stay, and a running playback or download is stopped or refused first);
-the card shows where the voice is stored. **Download voice** explicitly installs an isolated
+the folder is listed under Settings ▸ About ▸ Data folders, never as a raw path on the Speech page.
+Before the download the page says what it does and how big it is and offers one **Download voice**;
+the switches, the language, the resources and measurements appear once the voice is installed, and only
+figures that were measured are shown. **Download voice** also turns the voice on when it finishes
+installing, because the click is the person's ask to use it. It explicitly installs an isolated
 Python environment below the profile's `local-speech/` directory. An installed
 app uses the CPython it carries under `resources/python`; a development run needs
 Python 3.11–3.14 already available. Nothing is downloaded or loaded by opening
@@ -179,7 +183,9 @@ When an update is ready a small download button appears above the profile avatar
 Clicking it opens a dialog with **Restart now** and **Later**; while installing it reads
 "Installing update / Namzu will restart when installation finishes." with a bar that is
 indeterminate ("Preparing…", then "Installing…") because the installer reports no progress,
-and it ignores Escape. A download in progress shows its real percentage. The desktop
+and it ignores Escape. When a restart is blocked the dialog is titled "Waiting to restart" and its first line
+names what it waits for ("Waiting for the reply to finish", "…for you to finish typing", "…for you to close the open
+dialog", and so on), above the full list of reasons. A download in progress shows its real percentage. The desktop
 preview (`/preview?update=ready|available|downloading|installing|waiting`) draws every state without
 an updater; `research/updater-20261008/shots.mjs` captures them in both themes.
 
@@ -252,8 +258,9 @@ Codex CLI tab first."); nothing is stopped for the person. Otherwise Namzu ends 
 servers for that engine (`namzu/harnesses/release` to each project's host, because a running
 `codex.exe` cannot be replaced on Windows), then opens a shell tab titled **Updating Codex CLI** in
 the pane and a trusted project in front (the host starts terminals in a project folder, so none open without one; the
-row then shows the command with **Copy**), running exactly that command, and leaves Settings so the output is
-what is on screen. The tab stays after the command ends so its output can be read. When it ends
+row then shows the command with **Copy**), running exactly that command. The person stays in Settings: the row
+shows **Updating…** with a **Show terminal output** link that brings that tab to the front, and the row settles
+to Up to date or Update failed by itself. The tab stays after the command ends so its output can be read. When it ends
 Namzu reads the version again, drops every stored model list of that engine, emits
 `model-catalogue-updated` so open pickers read again, and toasts "Codex CLI updated to 0.162.0".
 An exit code of zero with the same version reads "Updated, but the installed version is still
@@ -266,13 +273,15 @@ they restart, and the row says so.
 **Where it runs.** The update tab starts in a trusted project's folder (the terminal host refuses any folder outside a project), where npm still reads that folder's `.npmrc`; an npm update therefore passes `--registry=` with the registry the check used, which a project file cannot override. One update runs at a time, and the engine is checked for activity again after its servers stop.
 
 **Where it shows.** Settings ▸ Updates lists the three programs under the app's own row (name,
-`installed → latest`, how it was installed as a muted note, the command a click will run, and
+`installed → latest`, how it was installed as a muted note, "The update runs in a terminal tab you can watch."
+(the command itself only where the person must run it and uses **Copy**), and
 **Update**, **Updating…**, **Up to date** or **Check failed**). The rail's download button appears
 when any program is behind, labelled "Updates available. Open Settings to update" followed by the names of the programs
 that are behind, and opening Settings ▸ Updates; the app's own *ready* state keeps priority over it.
 The engine view of the model popup adds "Update available (0.162.0)" under an engine that is behind
 and a small dot on the engine chip. Once per new version a quiet toast says "Codex CLI 0.162.0 is
-available" with **Update…**, which opens Settings ▸ Updates; which window announces is decided in
+available" (versions found together share one toast, "Updates available for <name> and <name>", so
+none hides behind another) with **Update…**, which opens Settings ▸ Updates; which window announces is decided in
 main, so two windows do not both toast. The renderer API is `engineUpdates()`, `checkEngineUpdates()`,
 `updateEngine({ engine, groupId, projectId? })` (the command always comes from main, never from the
 window), `claimEngineUpdateAnnouncements()`, `onEngineUpdates` and `onEngineUpdateNotice`.
@@ -543,7 +552,8 @@ real project is listed (the chat workspace does not count). A project that was j
 or selected, and is trusted lands on its home at
 once with the heading "What should we work on in *name*?" and the composer
 focused, as soon as the composer is enabled; chats and Pal workspaces keep
-"What would you like to work on?". File lists in the project (the Files panel) sort names in the app's language: Turkish names
+"What would you like to work on?" (with no second wordmark: the sidebar carries it). Headings wrap
+balanced (`text-wrap: balance`), so a long project name never leaves one word alone on a line. File lists in the project (the Files panel) sort names in the app's language: Turkish names
 order ç, ğ, ı, ö, ş, ü after c, g, h, o, s, u, and "ışık" and "isik" stay two names.
 A project leaves Namzu through [Removing a project](#removing-a-project).
 
@@ -558,14 +568,18 @@ come along; the new folder goes through the normal pick checks and asks for trus
 **Remove** forgets the saved project, its conversations and drafts in Namzu and touches nothing on
 disk. A missing project is left out of Recents, the command palette and the project chooser.
 
+A folder that vanishes while its project is open gets the same screen ("can’t be found", **Locate folder…**,
+**Remove project…**), and **Locate folder…** relinks it the same way.
+
 ## Settings
 
 **Settings** is a page of its own in the main area, like Plugins: the rail's gear, the
 profile menu's **Settings…**, the command palette's **Settings**, the File menu's **Settings…**
 (`Ctrl+,` or `⌘,`) all open it. The left column lists the sections and the right side shows
-one. A section is addressed as `settings/<section>` (`general`, `models`, `projects`,
-`appearance`, `updates`, `speech`, `about`); the search field at the top matches setting labels,
-descriptions and keywords (`src/renderer/settings-model.ts`) and a result opens its section
+one, under one heading, the section's name (the column's "Settings" is the only other one). A section is addressed as `settings/<section>` (`general`, `models`, `projects`, `appearance`,
+`updates`, `speech`, `about`); the search field at the top matches setting labels,
+descriptions and keywords (`src/renderer/settings-model.ts`, case and accents folded so a Turkish
+capital İ or a dotless ı finds the plain letters) and a result opens its section
 and focuses that setting. Every control is a real input with a label, groups are
 fieldsets, the section list is a `nav`, and the page works at the 560px minimum window.
 Screenshots of every section in both themes, narrow, the search, and both removal
@@ -574,8 +588,9 @@ surfaces are in [`research/settings-20261008/`](../../research/settings-20261008
 What it holds, and where each value lives (one source of truth per value):
 
 - **General** — *When Namzu starts*: `Continue where I left off` (default) or `Start on the home
-  screen` (see [Starting the app](#starting-the-app)); *Default terminal shell* and *Bring terminal
-  tabs back* (see [Terminal tabs](#terminal-tabs)).
+  screen` (see [Starting the app](#starting-the-app)); *Default terminal shell* (drawn only where
+  there is more than one shell to choose, in practice Windows, and left out of search where it is
+  not) and *Bring terminal tabs back* (see [Terminal tabs](#terminal-tabs)).
 - **Models** — which providers Namzu can answer with and how each is connected: a key in the
   environment (the variable's name, never its value), a key saved here, an existing `claude-code` or
   Codex sign-in, an OpenCode key, a local server, or the keyless free tier (listed as free, not
@@ -585,17 +600,21 @@ What it holds, and where each value lives (one source of truth per value):
   [Trust again when automatic settings change](#trust-again-when-automatic-settings-change).
 - **Appearance** — the theme (light, dark, system). It stays in the renderer's own storage
   (`namzu.appearance`) because only the renderer paints it; it moved out of the profile menu.
-- **Updates** — the running version, when the last check finished, the state in words,
-  **Check for updates** (one button for the app and for the programs below),
+- **Updates** — the Namzu Desktop version, when the last check finished, the state in words,
+  **Check for updates** (one button for the app and for the programs below; **Check the programs**
+  where the app cannot update itself),
   **Download update** / **Restart to update…** where the state calls for them,
   *Programs Namzu works with* (Codex CLI, `claude-code`, the Namzu command line; see
-  [Updates to the programs Namzu works with](#updates-to-the-programs-namzu-works-with)), and
-  *Download updates automatically* (default on).
-- **Speech** — the voice status, size and location, Download, Preview, Remove and the existing
-  options (the same content the composer popover used to show).
-- **About** — the Desktop, CLI and SDK versions (read from the `package.json` files beside the
-  bundled runtime; unreadable ones read "Not found"), the platform, the data folders with
-  **Open**. A folder is opened by kind (`app`, `namzu`,
+  [Updates to the programs Namzu works with](#updates-to-the-programs-namzu-works-with); the
+  command line that comes with the app is one row saying it updates with the app, and a copy
+  installed on its own is labelled "(installed separately)" with its own version), and
+  *Download updates automatically* (default on; not drawn where the app cannot update itself).
+- **Speech** — what the voice does and its size before the download; after it the voice status,
+  Preview, Remove and the existing options (see [Local Turkish speech](#local-turkish-speech)).
+- **About** — "Namzu Desktop", "Namzu command line" and "Namzu engine (SDK)" versions (read from the
+  `package.json` files beside the bundled runtime; unreadable ones read "Not found"), the system in
+  words ("Windows (64-bit Intel or AMD)"), **Copy details** (versions only, never a path) and the data
+  folders with **Open**; raw paths appear only there. A folder is opened by kind (`app`, `namzu`,
   `diagnostics`, `speech`); the renderer never names a path. License texts ship in the install folder.
 
 Everything main acts on lives in `desktop-settings.json` in the profile folder, written by
@@ -1491,8 +1510,10 @@ and actual media placeholders remain visible. This is a display filter, not a
 change to the model's recorded history. Syntax highlighting uses bundled WASM;
 the renderer policy allows that compilation without enabling JavaScript eval.
 Background work uses a separate column when the workspace has at least 880px
-available; narrower workspaces use an overlay without squeezing the
-conversation. The panel and conversation widths animate together, and the
+available; narrower workspaces let the panel take the whole pane (the conversation is not squeezed into a
+clipped sliver; **Hide panel** brings it back). The project and computer chips above an empty composer are one
+flat row on the composer's own edges, and the page edge under the composer is solid, so a long reply never shows
+through below it. The panel and conversation widths animate together, and the
 details control remains mounted during the transition. Closing the panel or
 pressing Escape returns focus to the Conversation details button; automatic
 navigation does not move focus back to an old panel. Reduced motion disables
@@ -2085,7 +2106,7 @@ the person made wins and is kept. The whole process between the person's message
 the answer (narration, reasoning, every run and single action) is that one block, and
 nothing inside it draws a clock: not the narration, thoughts, action rows, run
 summaries or the heading. Each row keeps its full time in its tooltip and accessible
-description ("Time: ..."). A reply shows one clock, under its answer in the
+description ("Seen by Namzu: ..."). A reply shows one clock, under its answer in the
 footer row, or, when it ends without answer text (stopped, failed, only actions), at
 the bottom of the turn; none while it is still being written. The answer appears below that group only when it is
 a trailing answer; grouping never moves text across a later tool or reasoning event.
@@ -2312,8 +2333,10 @@ the native host's first observed time and actual observed settlement; cold
 history uses validated journal timestamps attached to the same message/turn/tool
 identity. Bounded history rows retain a journal message ID only when that ID
 passes validation; older rows without a known ID remain readable. The clock
-tooltip says **Time** for a moment Namzu saw and **Saved in this
-conversation** for one read from the saved record. Reopening or switching tabs does not replace these values
+tooltip distinguishes **Seen by Namzu** from **Saved in the
+conversation**. Every time and date in the transcript (the day header, the footer clock, the tooltip and the
+"Undone at" chip) comes from `src/renderer/time-format.ts` in the operating system's locale and its own
+12- or 24-hour habit; nothing forces `hour12`, and the footer clock has no seconds (the tooltip does). Reopening or switching tabs does not replace these values
 with the current time. Missing legacy clocks remain absent. Timeline order still
 follows admitted event/journal order rather than sorting by potentially adjusted
 wall clocks.

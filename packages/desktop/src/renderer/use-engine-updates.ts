@@ -61,8 +61,8 @@ export function connectEngineUpdates(
 			.claimEngineUpdateAnnouncements()
 			.then((found) => {
 				if (!live) return
-				for (const announcement of found)
-					sink.notify(engineToastText(announcement), {
+				if (found.length > 0)
+					sink.notify(engineToastText(found), {
 						tone: 'neutral',
 						action: { label: 'Update…', onClick: sink.openUpdates },
 					})
