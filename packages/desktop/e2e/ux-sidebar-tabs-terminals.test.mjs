@@ -495,6 +495,7 @@ flow(
 			}),
 		);
 		for (const pane of panes) assert.ok(pane.right <= 900 + 0.5, "every pane is inside the window");
+		await setAppearance(w, "light");
 		await shot(w, "split-900-light");
 		await setAppearance(w, "dark");
 		await shot(w, "split-900-dark");
@@ -529,6 +530,7 @@ flow(
 		await expect.poll(inView).toBe(true);
 		const overflow = w.page.getByRole("button", { name: "Show all tabs" });
 		await expect(overflow).toBeVisible();
+		await setAppearance(w, "light");
 		await shot(w, "tab-overflow-light");
 		await overflow.click();
 		const first = w.page.locator("[data-overflow-tab]").first();
