@@ -126,7 +126,7 @@ function colorForState(state: StatusBarProps['state']): string {
 }
 
 function shortenCwd(cwd: string): string {
-	const home = process.env.HOME
+	const home = process.env.HOME ?? process.env.USERPROFILE
 	if (home && cwd.startsWith(home)) {
 		return `~${cwd.slice(home.length)}`
 	}
@@ -146,7 +146,8 @@ export function shortenPathToFit(path: string, max: number): string {
 	if (path.length <= max) return path
 	if (max === 1) return '…'
 	const tail = path.slice(-(max - 1))
-	const slash = tail.indexOf('/')
+	// A Windows path separates with a backslash.
+	const slash = tail.search(/[\\/]/)
 	// Only snap to a separator if one is close, or a long leading segment would
 	// cost more than it explains.
 	const snapped = slash >= 0 && slash <= 12 ? tail.slice(slash) : tail
