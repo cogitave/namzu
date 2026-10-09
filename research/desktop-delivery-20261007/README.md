@@ -118,3 +118,7 @@ First update of the installed app. Built from a clean worktree at `964e85ba9` (s
 ## Installer update to fb986b64d (2026-10-09)
 
 Terminal tabs and the Desktop | CLI surface. Built from a clean worktree at `fb986b64d` (sha256 `C05700E4…A142`, 180,014,404 bytes, node-pty staged for win32-x64 only). Both the installed app and a temporary preview build (`stage-preview`, its own `--user-data-dir`) were already closed; the installer ran silently over the install (`/S`, exit 0, 151 s), the Start-menu shortcut started it, `resources\cli\node_modules\node-pty` is present, and the preview's temporary profile was deleted.
+
+## Installer update to 478ee0994 (2026-10-09)
+
+Terminal pane without a header bar (keyboard stays in the terminal after a click; Ctrl+F find overlay) and one-surface compact sidebar rows. Before this build the full type-send-reply path was run on Windows on a fresh unpacked build with a temporary profile and a scripted local model (`research/terminal-20261009/windows/`). Built from a clean worktree at `478ee0994` (sha256 `535187D1…8BD2`, 180,017,239 bytes); the app was already closed; silent install over the existing one (`/S`, exit 0, 133 s); started from the Start-menu shortcut.
