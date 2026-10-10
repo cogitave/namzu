@@ -184,3 +184,169 @@ test("a row's hover glyph, its status dot and its title share one centre", {
 		await dispose(w, { failed });
 	}
 });
+
+/**
+ * Everything a hovered row paints, in client pixels, and where the hover buttons are. The title's
+ * visible end is where its letters are still opaque: the text's own right edge, or the end of the
+ * fade mask the row puts on the title (on the title or on the whole row; the mask's stops are
+ * resolved to pixels from the masked element's left edge).
+ */
+function measureOverlap(w, rowSelector) {
+	return w.page.evaluate((selector) => {
+		const li = document.querySelector(`${selector}:hover`);
+		if (!li) return null;
+		const rect = (el) => {
+			const b = el.getBoundingClientRect();
+			return { left: b.left, right: b.right, top: b.top, bottom: b.bottom };
+		};
+		const shown = (el) => {
+			const style = getComputedStyle(el);
+			return style.visibility !== "hidden" && style.display !== "none" && Number(style.opacity) > 0;
+		};
+		const title = li.querySelector(".conversation-row-title");
+		const text = [...title.childNodes].find((n) => n.nodeType === 3 && n.textContent.trim());
+		const range = document.createRange();
+		range.selectNodeContents(text);
+		const natural = Math.min(range.getBoundingClientRect().right, rect(title).right);
+		let textRight = natural;
+		for (const el of [title, li.querySelector(".conversation-row"), li.querySelector(":scope > button")]) {
+			const mask = getComputedStyle(el).maskImage;
+			if (!mask || mask === "none") continue;
+			const box = rect(el);
+			const stops = [...mask.matchAll(/calc\(100% - ([\d.]+)px\)|(-?[\d.]+)px/g)].map((m) =>
+				m[1] !== undefined ? box.right - Number(m[1]) : box.left + Number(m[2]),
+			);
+			if (stops.length) textRight = Math.min(textRight, Math.max(...stops));
+		}
+		const chip = li.querySelector(".conversation-row-project");
+		const state = li.querySelector(".conversation-row-state");
+		return {
+			rowRight: rect(li).right,
+			textRight,
+			natural,
+			chip: chip && shown(chip) ? rect(chip) : null,
+			chipPresent: !!chip,
+			state: state && shown(state) && state.childElementCount ? rect(state) : null,
+			actions: [...li.querySelectorAll(".sidebar-thread-action")].map((b) => ({
+				label: b.getAttribute("aria-label"),
+				...rect(b),
+			})),
+		};
+	}, rowSelector);
+}
+
+function checkNoOverlap(label, m) {
+	assert.ok(m && m.actions.length > 0, `${label}: the hovered row has actions`);
+	const first = m.actions[0];
+	assert.ok(
+		m.textRight <= first.left + 0.01,
+		`${label}: the title is still visible ${(m.textRight - first.left).toFixed(1)}px into ${first.label}`,
+	);
+	for (const [name, box] of [
+		["project chip", m.chip],
+		["state slot", m.state],
+	]) {
+		if (!box) continue;
+		for (const action of m.actions) {
+			const apart = box.right <= action.left + 0.01 || box.left >= action.right - 0.01;
+			assert.ok(apart, `${label}: the ${name} shares pixels with ${action.label}`);
+		}
+	}
+	// The buttons sit side by side at one even pitch, and the last ends on the row's edge.
+	for (let i = 2; i < m.actions.length; i++) {
+		const gap = m.actions[i].left - m.actions[i - 1].right;
+		const gap0 = m.actions[1].left - m.actions[0].right;
+		assert.ok(Math.abs(gap - gap0) <= 0.5, `${label}: uneven gap ${gap} vs ${gap0}`);
+	}
+	assert.ok(
+		Math.abs(m.actions.at(-1).right - m.rowRight) <= 0.5,
+		`${label}: the last action ends ${(m.rowRight - m.actions.at(-1).right).toFixed(1)}px from the row's edge`,
+	);
+	// The fade ends before the first button, but not far before it.
+	assert.ok(
+		m.natural <= m.textRight + 0.01 || first.left - m.textRight <= 40,
+		`${label}: the title fades ${(first.left - m.textRight).toFixed(1)}px before the buttons ${JSON.stringify(m)}`,
+	);
+}
+
+test("on hover no action button covers the title, the project chip or the state slot", {
+	timeout: 300000,
+}, async () => {
+	const long = "a long title that runs under the buttons on every row of the list";
+	const w = await createWorld({
+		rules: [
+			{ match: /alpha/, steps: [{ text: "Reply alpha." }] },
+			{ match: /beta/, steps: [{ text: "Reply beta." }] },
+		],
+		env: { SHELL: "/bin/sh" },
+	});
+	let failed = true;
+	try {
+		await launch(w);
+		await openProject(w);
+		await send(w, `alpha ${long}`);
+		await expect(w.page.getByText("Reply alpha.", { exact: true }).first()).toBeVisible({ timeout: T });
+		await w.page.getByRole("button", { name: "New conversation tab" }).click();
+		await send(w, `beta ${long}`);
+		await expect(w.page.getByText("Reply beta.", { exact: true }).first()).toBeVisible({ timeout: T });
+		mkdirSync(SHOTS, { recursive: true });
+		const table = [];
+		const measureRows = async (list, tag) => {
+			for (const appearance of ["dark", "light"]) {
+				await setAppearance(w, appearance);
+				const selector = `${list} li[data-thread-item]`;
+				const rows = w.page.locator(`${selector}:visible`);
+				const count = await rows.count();
+				assert.ok(count > 0, `${tag}: rows exist`);
+				for (let index = 0; index < count; index++) {
+					await w.page.mouse.move(700, 600);
+					await rows.nth(index).hover();
+					const m = await measureOverlap(w, selector);
+					checkNoOverlap(`${tag} ${index} ${appearance}`, m);
+					if (index === 0)
+						await rows.nth(index).screenshot({ path: join(SHOTS, `overlap-${tag.replace(" ", "-")}-${appearance}.png`) });
+					// The tooltip of each button covers no other control.
+					for (const action of m.actions) {
+						await rows.nth(index).hover();
+						await rows.nth(index).locator(`.sidebar-thread-action[aria-label="${action.label}"]`).hover();
+						await expect(w.page.locator('[data-slot="tooltip-popup"][data-open]')).toBeVisible({ timeout: T });
+						const clashes = await w.page.evaluate((own) => {
+							const tip = document.querySelector('[data-slot="tooltip-popup"][data-open]').getBoundingClientRect();
+							return [...document.querySelectorAll("button, [role=button], a[href]")]
+								.filter((el) => {
+									const b = el.getBoundingClientRect();
+									const s = getComputedStyle(el);
+									return (
+										b.width &&
+										b.height &&
+										s.visibility !== "hidden" &&
+										el.getAttribute("aria-label") !== own &&
+										b.left < tip.right &&
+										b.right > tip.left &&
+										b.top < tip.bottom &&
+										b.bottom > tip.top &&
+										!el.closest('[data-slot="tooltip-popup"]')
+									);
+								})
+								.map((el) => el.getAttribute("aria-label") ?? el.textContent.trim().slice(0, 30));
+						}, action.label);
+						assert.deepEqual(clashes, [], `${tag} ${index} ${appearance}: the ${action.label} tooltip covers controls`);
+						await w.page.mouse.move(700, 600);
+						await rows.nth(index).hover();
+					}
+					table.push({ tag, index, appearance, textRight: m.textRight, firstAction: m.actions[0].left });
+				}
+			}
+		};
+		await measureRows(".sidebar-project-list", "project rows");
+		await w.page.getByRole("button", { name: /^Collapse .* conversations$/ }).click();
+		await expect(w.page.locator(".sidebar-recent-list li[data-thread-item]")).toHaveCount(2, { timeout: T });
+		await expect(w.page.locator(".sidebar-project-list li[data-thread-item]:visible")).toHaveCount(0, { timeout: T });
+		await measureRows(".sidebar-recent-list", "recents rows");
+		console.log(JSON.stringify(table));
+		assert.deepEqual(w.faults, [], "the renderer raised no uncaught errors");
+		failed = false;
+	} finally {
+		await dispose(w, { failed });
+	}
+});

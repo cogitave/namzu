@@ -2658,6 +2658,16 @@ that the glyph's drawn paths are within 0.5px of the row's middle,
 that the status dot has the same centre across and down, and that the title's x-height band (from the font's
 metrics) is within a pixel.
 
+The hover buttons own the row's right edge, `--thread-actions-w` wide (one 28px button per action, `data-action-count`
+on the row says how many). Nothing else is drawn under them: on hover the Recents row's project name
+(`.conversation-row-project`), the state slot and the pin mark are hidden (hidden, not removed, so the title keeps
+its place), and the whole row's content has a fade mask that ends 4px before the first button, measured from the
+row's edge, so it is right for one button or two and for any width of project name. Each button's tooltip opens to
+the right of the buttons' group, off the row, because above or below it sat on the neighbouring rows' titles and
+buttons. `e2e/sidebar-row-geometry.test.mjs` hovers every project row and every Recents row, dark and light, and
+asserts that no button shares pixels with the title's visible text (where its mask ends), the project name or
+the state slot, that the buttons are evenly spaced and end on the row's edge, and that no tooltip covers a control.
+
 **Archiving.** The menu entry reads **Archive** (no ellipsis: it acts at once). The toast says
 "Conversation archived. Find it under Archived conversations in the sidebar." and stays 20 seconds with
 **Undo**.

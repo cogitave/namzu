@@ -64,6 +64,10 @@ export function ThreadCard({
 	projectLabel?: string
 }) {
 	const statusId = useId()
+	// A button's tooltip opens beside the row, off the group's outer edge: above or below it would
+	// sit on the neighbouring rows' titles and buttons, and left of it on the other button.
+	const [actionsEl, setActionsEl] = useState<HTMLElement | null>(null)
+	const actionTip = { anchor: actionsEl, side: 'right' as const, sideOffset: 8 }
 	const rowButton = useRef<HTMLButtonElement>(null)
 	const time = relativeAge(conversation.updatedAt, Date.now())
 	const [cardOpen, setCardOpen] = useState(false)
@@ -130,6 +134,7 @@ export function ThreadCard({
 		className:
 			'sidebar-thread-item relative list-none [content-visibility:auto] [contain-intrinsic-size:auto_32px]',
 		'data-removable': actions ? true : undefined,
+		'data-action-count': actions ? (archiveButton && pinButton ? 2 : 1) : undefined,
 		'data-menu-open': menuOpen || undefined,
 		onPointerEnter: (event: React.PointerEvent) => {
 			if (event.pointerType === 'touch' || menusOpen > 0) return
@@ -223,7 +228,11 @@ export function ThreadCard({
 				</PreviewCardPopup>
 			</PreviewCard>
 			{actions && (
-				<div className="sidebar-thread-actions" onPointerEnter={() => intent.cancel()}>
+				<div
+					ref={setActionsEl}
+					className="sidebar-thread-actions"
+					onPointerEnter={() => intent.cancel()}
+				>
 					{pinButton && (
 						<Tooltip>
 							<TooltipTrigger
@@ -243,7 +252,7 @@ export function ThreadCard({
 									<PinIcon aria-hidden="true" />
 								)}
 							</TooltipTrigger>
-							<TooltipPopup>{conversation.pinned ? 'Unpin' : 'Pin'}</TooltipPopup>
+							<TooltipPopup {...actionTip}>{conversation.pinned ? 'Unpin' : 'Pin'}</TooltipPopup>
 						</Tooltip>
 					)}
 					{archiveButton && (
@@ -265,7 +274,7 @@ export function ThreadCard({
 							>
 								<ArchiveIcon aria-hidden="true" />
 							</TooltipTrigger>
-							<TooltipPopup>{archiveReason ?? 'Archive'}</TooltipPopup>
+							<TooltipPopup {...actionTip}>{archiveReason ?? 'Archive'}</TooltipPopup>
 						</Tooltip>
 					)}
 				</div>
