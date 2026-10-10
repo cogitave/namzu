@@ -188,6 +188,7 @@ function plainExcerpt(text: string): string {
 	const flat = text
 		.replace(/[{}[\]"]/g, ' ')
 		.replace(/\s*,\s*/g, ' · ')
+		.replace(/\s*:\s*/g, ': ')
 		.replace(/\s+/g, ' ')
 		.replace(/^[\s·]+|[\s·]+$/g, '')
 	return flat.length > 200 ? `${flat.slice(0, 199)}…` : flat
@@ -245,6 +246,7 @@ function plainProviderDetails(raw: string): string[] {
 		.replace(/\b(?:cloudflare|nginx(?:\/[\d.]+)?)\b/gi, ' ')
 		.replace(/\bstatus code\b/gi, ' ')
 		.replace(/\(\s*no body\s*\)/gi, ' ')
+		.replace(/\(\s*\)/g, ' ')
 		.replace(/,\s*([}\]])/g, '$1')
 		.replace(/\s+/g, ' ')
 		.trim()

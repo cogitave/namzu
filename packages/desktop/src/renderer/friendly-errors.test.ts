@@ -317,3 +317,23 @@ describe('Details read the vendor body into labelled fields', () => {
 		expect(text.split('\n').every((line) => line.length <= 520)).toBe(true)
 	})
 })
+
+describe('Details tidy leftovers', () => {
+	it('leaves no empty brackets after a request id is lifted out', () => {
+		const text =
+			describeFailure(
+				'openai (HTTP 429) — the provider was rate limited: You exceeded your current quota. (request id: req_abcdef123456)',
+				'OpenAI',
+			).details ?? ''
+		expect(text).not.toContain('()')
+		expect(text).toContain('Request ID: req_abcdef123456')
+	})
+	it('spaces a colon in an unknown-shape excerpt like prose', () => {
+		const text =
+			describeFailure(
+				'anthropic (HTTP 500) — the provider failed to complete the request: {"unexpected":{"a":1}}',
+				'Anthropic',
+			).details ?? ''
+		expect(text).toContain('unexpected: a: 1')
+	})
+})
