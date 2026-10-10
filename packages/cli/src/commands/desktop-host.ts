@@ -8,6 +8,8 @@ import {
 	type PalComputerInput,
 	type SessionRecord,
 	type ToolCallView,
+	type ToolFacts,
+	admitToolFacts,
 	asSessionId,
 	isEntityId,
 	selectAssistantText,
@@ -337,6 +339,7 @@ interface HistoryToolView {
 	order: number
 	status: 'completed' | 'failed' | 'cancelled' | 'interrupted' | 'skipped'
 	presentation?: ToolCallView
+	facts?: ToolFacts
 	durationMs?: number
 	detailUnavailable?: true
 	hosted?: true
@@ -693,6 +696,7 @@ function historyWork(
 		}
 		let status: HistoryToolView['status'] = 'interrupted'
 		let presentation: ToolCallView | undefined
+		let facts: ToolFacts | undefined
 		let durationMs: number | undefined
 		if (
 			latest.type === 'tool_completed' &&
@@ -720,6 +724,9 @@ function historyWork(
 				else presentationBytes += size
 			}
 			if (historyCount(latest.durationMs)) durationMs = latest.durationMs
+			// What the call did, as fields, so a restored row is headlined the way a
+			// live one was. The streams' text is not kept.
+			if (latest.skipped === undefined) facts = admitToolFacts(latest.facts)
 		}
 		if (!presentation) partial = true
 		tools.push({
@@ -729,6 +736,7 @@ function historyWork(
 			order: call.firstOrder,
 			status,
 			...(presentation ? { presentation } : { detailUnavailable: true as const }),
+			...(facts ? { facts } : {}),
 			...(durationMs === undefined ? {} : { durationMs }),
 			...(call.startedAt === undefined ? {} : { startedAt: call.startedAt }),
 			...(latest.type !== 'tool_completed' || recordedAt(latest) === undefined
