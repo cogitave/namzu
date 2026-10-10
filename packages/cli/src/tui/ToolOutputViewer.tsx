@@ -1,6 +1,6 @@
 import { Box, Text, useInput } from 'ink'
 import { useMemo, useState } from 'react'
-import { fitHints } from './key-hints.js'
+import { boxedHintWidth, fitHints } from './key-hints.js'
 import { permissionReviewRows } from './permission-review.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
@@ -75,7 +75,7 @@ export function ToolOutputViewer({
 						{ text: 'g/G', rank: 1 },
 						{ text: 'esc close', rank: 5 },
 					],
-					Math.max(1, columns ?? 80),
+					boxedHintWidth(columns),
 				)}
 			</Text>
 		</Box>

@@ -23,6 +23,17 @@ export interface Hint {
 	readonly short?: string
 }
 
+/**
+ * Columns a hint line may use inside a bordered, padded box that the app draws
+ * with one column of padding on each side of the terminal: the host's inset,
+ * the box's border and its padding, two columns each. `columns - 4` was the
+ * border and the padding alone, two columns too many, and the last hint
+ * wrapped.
+ */
+export function boxedHintWidth(columns: number | undefined): number {
+	return Math.max(1, (columns ?? 80) - 6)
+}
+
 const SEPARATOR = ' · '
 
 /**

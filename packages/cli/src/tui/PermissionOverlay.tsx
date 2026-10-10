@@ -17,7 +17,7 @@ import { basename } from 'node:path'
 import { Box, Text } from 'ink'
 
 import type { PermissionToolCall } from './agent.js'
-import { fitHints } from './key-hints.js'
+import { boxedHintWidth, fitHints } from './key-hints.js'
 import {
 	type PermissionReviewSummary,
 	permissionReviewPageRows,
@@ -445,7 +445,7 @@ export function PermissionOverlay({
 								rank: 3,
 							},
 						],
-						Math.max(1, (columns ?? 80) - 4),
+						boxedHintWidth(columns),
 					)}
 				</Text>
 			</Box>

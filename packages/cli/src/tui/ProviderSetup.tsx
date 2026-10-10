@@ -2,7 +2,7 @@ import { Box, Text, useInput, useWindowSize } from 'ink'
 import { useEffect, useRef, useState } from 'react'
 import { discoverProviders } from '../integrations/providers/discover.js'
 import { type SetupProbe, installHarness, probeHarnesses } from '../integrations/providers/setup.js'
-import { fitHints } from './key-hints.js'
+import { boxedHintWidth, fitHints } from './key-hints.js'
 import { explainFailure } from './plain-failure.js'
 import { choiceDisplayText } from './terminal-choice-text.js'
 import { theme } from './theme.js'
@@ -151,7 +151,7 @@ export function ProviderSetup({
 									{ text: 'r check again', short: 'r check', rank: 2 },
 									{ text: 'esc back', rank: 5 },
 								],
-								Math.max(1, (terminal.columns ?? 80) - 2),
+								boxedHintWidth(terminal.columns),
 							)}
 				</Text>
 			)}

@@ -8,7 +8,7 @@ import { Box, Text, useStdout } from 'ink'
 
 import { displayConversationTitle } from '../integrations/sessions/display-title.js'
 import type { RecentConversation } from '../integrations/sessions/store.js'
-import { fitHints } from './key-hints.js'
+import { boxedHintWidth, fitHints } from './key-hints.js'
 import { plural } from './person-terms.js'
 import { selectionWindow } from './selection-window.js'
 import { theme } from './theme.js'
@@ -83,9 +83,9 @@ export function ResumePicker({ conversations, selected, mode = 'resume' }: Resum
 							{ text: 'PgUp/PgDn jump', rank: 1 },
 							{ text: 'Home/End', rank: 1 },
 							{ text: `enter ${mode}`, rank: 5 },
-							{ text: 'esc cancel', rank: 4 },
+							{ text: 'esc cancel', short: 'esc', rank: 5 },
 						],
-						Math.max(1, (stdout.columns ?? 80) - 4),
+						boxedHintWidth(stdout.columns),
 					)}
 				</Text>
 			</Box>

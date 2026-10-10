@@ -1847,7 +1847,7 @@ function ModelStepView({
 							...(returnToProviders || cancelExits ? [] : [{ text: 'ctrl+c exit', rank: 1 }]),
 							query === null ? { text: '1–9 select', rank: 2 } : { text: 'ctrl+u clears', rank: 2 },
 						],
-						Math.max(1, columns - 4),
+						pickerContentWidth(columns),
 					)}
 				</Text>
 				{errorHint ? <Text color={theme.status.warn}>{errorHint}</Text> : null}
