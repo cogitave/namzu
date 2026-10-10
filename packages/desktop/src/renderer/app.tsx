@@ -3201,12 +3201,19 @@ export function App({
 						onClick: () => {
 							archiveBatch.current = undefined
 							void act(async () => {
+								// One that cannot come back must not strand the others.
+								let failure: unknown
 								for (const archivedId of archivedIds) {
-									const restored = await api.restoreConversation?.(archivedId)
-									if (!restored) continue
-									unblockRestoredConversation(restored.id)
-									upsertConversation(restored)
+									try {
+										const restored = await api.restoreConversation?.(archivedId)
+										if (!restored) continue
+										unblockRestoredConversation(restored.id)
+										upsertConversation(restored)
+									} catch (error) {
+										failure ??= error
+									}
 								}
+								if (failure) throw failure
 							})
 						},
 					}
