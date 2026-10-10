@@ -209,6 +209,29 @@ it('says what esc does where there is nothing behind the picker', async () => {
 	expect(staying.viewport().join('\n')).toContain('esc keep current')
 })
 
+it.each([40, 80, 160])(
+	'carries the setup key in its bottom key line at %i columns, with no hint line of its own',
+	async (columns) => {
+		const screen = await open(columns, 40, { onSetup: vi.fn(), notice: undefined })
+		const text = screen
+			.viewport()
+			.join(' ')
+			.replace(/[│\s]+/g, ' ')
+
+		expect(text).toContain('s provider setup')
+		expect(text).not.toContain('check installations and access')
+		// One mention: the key is on the footer, not repeated on a line of its own.
+		expect(text.split('s provider setup').length - 1).toBe(1)
+	},
+)
+
+it('keeps every row visible on a short terminal now that the setup hint is not a line of its own', async () => {
+	const screen = await open(80, 14, { onSetup: vi.fn() })
+
+	expect(screen.viewport().join('\n')).toContain('s provider setup')
+	expect(rowLines(screen).length).toBeGreaterThan(0)
+})
+
 /** The number the cursor row printed, so the assertion is about its spacing. */
 function rowNumberOf(line: string): string {
 	return /› (\d+)\./.exec(line)?.[1] ?? '?'
