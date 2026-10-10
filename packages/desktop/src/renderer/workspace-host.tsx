@@ -32,6 +32,8 @@ export function WorkspaceHost() {
 	const [shell, setShell] = useState<HTMLDivElement | null>(null)
 	const [page, setPage] = useState('chat')
 	const [error, setError] = useState('')
+	// A size refusal is final until the window changes: there is nothing to retry, only to dismiss.
+	const [retryable, setRetryable] = useState(true)
 	const [localFocus, setLocalFocus] = useState<string>()
 	const controllers = useRef(new Map<string, WorkspacePaneController>())
 	const terminalTabs = useTerminalTabs(api)
@@ -59,7 +61,14 @@ export function WorkspaceHost() {
 		setView(next)
 		setLocalFocus(undefined)
 	}, [])
-	const report = useCallback((failure: unknown) => setError(message(failure)), [])
+	const report = useCallback((failure: unknown) => {
+		setRetryable(true)
+		setError(message(failure))
+	}, [])
+	const tell = useCallback((text: string) => {
+		setRetryable(false)
+		setError(text)
+	}, [])
 	const updateState = useUpdateState(api)
 	const engineUpdates = useEngineUpdatesController(api, report)
 	const [updateOpen, setUpdateOpen] = useState(false)
@@ -323,9 +332,7 @@ export function WorkspaceHost() {
 				}
 			}
 			if (room === 'too-small') {
-				report(
-					new Error('This window is too narrow to split. Make it wider, or open a new window.'),
-				)
+				tell('This window is too narrow to split. Make it wider, or open a new window.')
 				return
 			}
 			// The canvas has room for two panes, but the pane being split may not: judge the pane itself,
@@ -346,11 +353,7 @@ export function WorkspaceHost() {
 					position = 'bottom'
 					room = 'fits'
 				} else {
-					report(
-						new Error(
-							'This window is too small to split here. Make it larger, or open a new window.',
-						),
-					)
+					tell('This window is too small to split here. Make it larger, or open a new window.')
 					return
 				}
 			}
@@ -384,7 +387,7 @@ export function WorkspaceHost() {
 					controllers.current.get(groupId)?.resume()
 				})
 		},
-		[action, prepare, report],
+		[action, prepare, report, tell],
 	)
 	const paneFocus = useCallback(
 		(groupId: string) => {
@@ -433,15 +436,22 @@ export function WorkspaceHost() {
 				{error && (
 					<div className="workspace-window-error" role="alert">
 						<span>{error}</span>
-						<button
-							type="button"
-							onClick={() => {
-								setError('')
-								void refresh().catch(report)
-							}}
-						>
-							Try again
-						</button>
+						<span className="workspace-window-error-actions">
+							{retryable && (
+								<button
+									type="button"
+									onClick={() => {
+										setError('')
+										void refresh().catch(report)
+									}}
+								>
+									Try again
+								</button>
+							)}
+							<button type="button" aria-label="Dismiss error" onClick={() => setError('')}>
+								Dismiss
+							</button>
+						</span>
 					</div>
 				)}
 				{view && preview && (
