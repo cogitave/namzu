@@ -74,6 +74,8 @@ export interface ThreadState {
 	error?: string
 	retry?: DesktopTurnRetry
 	retryNotice?: string
+	/** A new message may close this provider-stopped turn and go on; see `DesktopRetryStatus.closable`. */
+	retryClosable?: true
 	/** The repeat is a new request; one earlier request's usage stays unknown. */
 	retryUnknownUsage?: number
 	/**
@@ -159,6 +161,7 @@ export function restoreMessages(thread: ThreadState, input: ChatMessage[]): Thre
 		result: undefined,
 		retry: undefined,
 		retryNotice: undefined,
+		retryClosable: undefined,
 		retryUnknownUsage: undefined,
 		undo: undefined,
 		historyWorkPartial: undefined,
@@ -407,6 +410,7 @@ export function applyEvent(previous: ThreadState, event: DesktopEvent): ThreadSt
 			result: undefined,
 			retry: undefined,
 			retryNotice: undefined,
+			retryClosable: undefined,
 			retryUnknownUsage: undefined,
 			activeToolIds: [],
 			activeReasoningId: undefined,
@@ -476,6 +480,7 @@ export function applyEvent(previous: ThreadState, event: DesktopEvent): ThreadSt
 			...thread,
 			retry: event.retry,
 			retryNotice: event.notice,
+			retryClosable: event.closable,
 			retryUnknownUsage: event.unknownUsage,
 		}
 	if (event.kind === 'turn-closed')
@@ -489,6 +494,7 @@ export function applyEvent(previous: ThreadState, event: DesktopEvent): ThreadSt
 			reason: 'abandoned',
 			retry: undefined,
 			retryNotice: undefined,
+			retryClosable: undefined,
 			retryUnknownUsage: undefined,
 			running: false,
 		}
@@ -516,6 +522,7 @@ export function applyEvent(previous: ThreadState, event: DesktopEvent): ThreadSt
 			result: undefined,
 			retry: undefined,
 			retryNotice: undefined,
+			retryClosable: undefined,
 			retryUnknownUsage: undefined,
 			activeToolIds: [],
 			activeReasoningId: undefined,

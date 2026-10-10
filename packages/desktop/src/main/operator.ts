@@ -4163,7 +4163,24 @@ export class Operator {
 					throw new Error(
 						'This conversation’s settings changed during admission. Your draft is retained.',
 					)
-				if (status.retry || status.notice || session.projection.reason === 'paused')
+				if (status.closable && session.client.supportsAbandonPaused()) {
+					// The person chose to go on, usually on another model. A reply that stopped on a provider
+					// failure is closed first, durably and with its unknown usage kept, then this message runs
+					// on the model selected now. A turn waiting for an approval never reaches this branch.
+					this.assertPalAdmission(session.view.palId)
+					await session.client.request('namzu/sessions/abandon-paused', {
+						sessionId: session.runtimeSessionId,
+					})
+					if (
+						session.admitting !== admission ||
+						(session.selectionRevision ?? 0) !== selectionRevision ||
+						this.changingPlugins.has(sessionId)
+					)
+						throw new Error(
+							'This conversation’s settings changed during admission. Your draft is retained.',
+						)
+					this.emit({ kind: 'turn-closed', sessionId })
+				} else if (status.retry || status.notice || session.projection.reason === 'paused')
 					throw new Error(
 						status.notice ??
 							'This conversation has a paused turn. Retry it before sending a new message. Your draft is retained.',
@@ -4210,7 +4227,7 @@ export class Operator {
 			throw new Error('The connection changed while reading this turn’s retry status.')
 		if (!result || typeof result !== 'object' || Array.isArray(result))
 			throw new Error('Namzu returned an invalid turn retry status.')
-		const { retry, notice, unknownUsage } = result as DesktopRetryStatus
+		const { retry, notice, unknownUsage, closable } = result as DesktopRetryStatus
 		if (
 			(retry !== undefined &&
 				(!retry ||
@@ -4220,7 +4237,15 @@ export class Operator {
 					retry.turnId.length > 200 ||
 					typeof retry.checkpointId !== 'string' ||
 					!retry.checkpointId ||
-					retry.checkpointId.length > 200)) ||
+					retry.checkpointId.length > 200 ||
+					(retry.original !== undefined &&
+						(!retry.original ||
+							typeof retry.original !== 'object' ||
+							typeof retry.original.provider !== 'string' ||
+							typeof retry.original.model !== 'string' ||
+							retry.original.provider.length > 200 ||
+							retry.original.model.length > 400)))) ||
+			(closable !== undefined && closable !== true) ||
 			(notice !== undefined && (typeof notice !== 'string' || notice.length > 2_000)) ||
 			(unknownUsage !== undefined &&
 				(!Number.isSafeInteger(unknownUsage) || unknownUsage < 1 || unknownUsage > 100_000))
@@ -4239,6 +4264,7 @@ export class Operator {
 		if (
 			JSON.stringify(session.projection.retry) !== JSON.stringify(retry) ||
 			session.projection.retryNotice !== notice ||
+			session.projection.retryClosable !== closable ||
 			session.projection.retryUnknownUsage !== unknownUsage
 		)
 			this.emit({
@@ -4246,11 +4272,13 @@ export class Operator {
 				sessionId: session.view.id,
 				retry,
 				notice,
+				...(closable ? { closable } : {}),
 				...(unknownUsage ? { unknownUsage } : {}),
 			})
 		return {
 			...(retry ? { retry } : {}),
 			...(notice ? { notice } : {}),
+			...(closable ? { closable } : {}),
 			...(unknownUsage ? { unknownUsage } : {}),
 		}
 	}

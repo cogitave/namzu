@@ -16,6 +16,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { holdDisplayForThisProcess } from "./display-lock.mjs";
+import { startFakeAnthropic } from "./fake-anthropic.mjs";
 import { startFakeModel } from "./fake-model.mjs";
 
 // Parallel test files share one display; only one of them drives Electron at a time (see display-lock.mjs).
@@ -75,15 +76,23 @@ export async function createWorld(opts = {}) {
 			join(dirs.home, "preferences.json"),
 			JSON.stringify({
 				version: 3,
-				providers: [{ id: "openai", model: opts.model ?? "gpt-e2e-1" }],
+				providers: opts.providers ?? [{ id: "openai", model: opts.model ?? "gpt-e2e-1" }],
 				subagents: { active: [] },
 			}),
 		);
 	}
-	const model = await startFakeModel(opts.rules ?? [], { models: opts.models });
+	const model = await startFakeModel(opts.rules ?? [], {
+		models: opts.models,
+		strictHistory: opts.strictHistory,
+	});
+	// A second scripted provider, on the Anthropic wire, for a flow that switches between two services.
+	const anthropic = opts.anthropicRules
+		? await startFakeAnthropic(opts.anthropicRules, { models: opts.anthropicModels })
+		: undefined;
 	const world = {
 		...dirs,
 		model,
+		anthropic,
 		app: null,
 		page: null,
 		cleanup: null,
@@ -112,6 +121,12 @@ export async function launch(world) {
 		NAMZU_HOME: world.home,
 		NAMZU_DESKTOP_CLI: join(here, "cli-entry.mjs"),
 		NAMZU_E2E_MODEL_URL: world.model.url,
+		...(world.anthropic
+			? {
+					NAMZU_E2E_ANTHROPIC_URL: world.anthropic.url,
+					ANTHROPIC_API_KEY: "e2e-not-a-secret-anthropic",
+				}
+			: {}),
 	});
 	// A first-timer has no provider: nothing in the environment names a key.
 	if (!world.noKey) env.OPENAI_API_KEY = "e2e-not-a-secret";
@@ -194,6 +209,7 @@ export async function dispose(world, { failed = false } = {}) {
 	if (failed) await shoot(world, "failure");
 	await world.app?.close().catch(() => undefined);
 	await world.model?.close().catch(() => undefined);
+	await world.anthropic?.close().catch(() => undefined);
 	if (failed) console.error(`e2e artifacts kept: ${world.root}`);
 	else rmSync(world.root, { recursive: true, force: true });
 }

@@ -166,6 +166,10 @@ async function fixture({ ownedPal = false, unresolved = false, limit = 0 } = {})
 						entry: { id: 'zen', label: 'Zen', defaultModel: 'original-model' },
 						apiKey: 'synthetic',
 					},
+					{
+						entry: { id: 'other', label: 'Other', defaultModel: 'other-default' },
+						apiKey: 'synthetic',
+					},
 				],
 				needsRepickReason: null,
 			}),
@@ -252,7 +256,12 @@ describe('CLI explicit provider retry composition', () => {
 			try {
 				await f.pause({ permissionMode: 'plan', effort: 'high' })
 				expect(await f.runtime.providerRetryStatus!(f.sessionId, root)).toEqual({
-					retry: { turnId: f.turnId, checkpointId: f.checkpointId },
+					retry: {
+						turnId: f.turnId,
+						checkpointId: f.checkpointId,
+						original: { provider: 'zen', model: 'original-model' },
+					},
+					closable: true,
 				})
 				f.finish()
 				const outcome = await f.retry()
@@ -280,11 +289,55 @@ describe('CLI explicit provider retry composition', () => {
 			}
 		},
 	)
+	it('repeats the paused turn on the model chosen after it stopped, with the approval settings it began under', async () => {
+		const f = await fixture()
+		try {
+			await f.pause({ permissionMode: 'plan', effort: 'high' })
+			// Choosing another model closes the live session; the paused turn and its settings stay.
+			await f.runtime.selectProvider(f.sessionId, 'other', 'other-model')
+			expect(await f.runtime.providerRetryStatus!(f.sessionId, root)).toEqual({
+				retry: {
+					turnId: f.turnId,
+					checkpointId: f.checkpointId,
+					original: { provider: 'zen', model: 'original-model' },
+				},
+				closable: true,
+			})
+			f.finish()
+			await f.retry()
+			expect(f.resume.mock.calls[0]?.[0]).toMatchObject({
+				turnId: f.turnId,
+				checkpointId: f.checkpointId,
+				permissionMode: 'plan',
+				model: { provider: 'other', model: 'other-model' },
+			})
+		} finally {
+			await f.runtime.close()
+		}
+	})
+	it('keeps offering to close a provider-stopped turn after the model changed, even when it cannot be repeated', async () => {
+		const f = await fixture({ unresolved: true, limit: 1_000_000 })
+		try {
+			await f.pause({ permissionMode: 'auto' })
+			await f.runtime.selectProvider(f.sessionId, 'other', 'other-model')
+			expect(await f.runtime.providerRetryStatus!(f.sessionId, root)).toEqual({
+				closable: true,
+				notice: expect.stringContaining('actual provider usage receipt'),
+			})
+			expect(await f.runtime.abandonPausedTurn!(f.sessionId, root, f.turnId)).toEqual({
+				closed: true,
+			})
+			expect(await f.runtime.providerRetryStatus!(f.sessionId, root)).toEqual({})
+		} finally {
+			await f.runtime.close()
+		}
+	})
 	it('closes a paused provider turn without repeating it, keeping unknown usage recorded', async () => {
 		const f = await fixture({ unresolved: true, limit: 1_000_000 })
 		try {
 			await f.pause({ permissionMode: 'auto' })
 			expect(await f.runtime.providerRetryStatus!(f.sessionId, root)).toEqual({
+				closable: true,
 				notice: expect.stringContaining('actual provider usage receipt'),
 			})
 			await expect(
@@ -321,7 +374,12 @@ describe('CLI explicit provider retry composition', () => {
 		try {
 			await f.pause({ permissionMode: 'auto' })
 			expect(await f.runtime.providerRetryStatus!(f.sessionId, root)).toEqual({
-				retry: { turnId: f.turnId, checkpointId: f.checkpointId },
+				retry: {
+					turnId: f.turnId,
+					checkpointId: f.checkpointId,
+					original: { provider: 'zen', model: 'original-model' },
+				},
+				closable: true,
 				unknownUsage: 1,
 			})
 			await f.retry()
@@ -335,6 +393,7 @@ describe('CLI explicit provider retry composition', () => {
 		try {
 			await f.pause({ permissionMode: 'auto' })
 			expect(await f.runtime.providerRetryStatus!(f.sessionId, root)).toEqual({
+				closable: true,
 				notice: expect.stringContaining('actual provider usage receipt'),
 			})
 			await expect(f.retry()).rejects.toThrow('actual provider usage receipt')
@@ -355,6 +414,7 @@ describe('CLI explicit provider retry composition', () => {
 		const f = await fixture()
 		try {
 			expect(await f.runtime.providerRetryStatus!(f.sessionId, root)).toEqual({
+				closable: true,
 				notice: expect.stringContaining('original approval settings'),
 			})
 			await expect(f.retry()).rejects.toThrow('explicit permission mode')
@@ -379,6 +439,7 @@ describe('CLI explicit provider retry composition', () => {
 				if (change === 'retired') f.setComputerReady(false)
 				if (change === 'operator') f.takeover()
 				expect(await f.runtime.providerRetryStatus!(f.sessionId, root)).toEqual({
+					closable: true,
 					notice: expect.stringContaining('original Pal computer'),
 				})
 				await expect(f.retry({ permissionMode: 'auto' })).rejects.toThrow('original Pal computer')
@@ -394,6 +455,7 @@ describe('CLI explicit provider retry composition', () => {
 			f.duringSend(f.changeGeneration)
 			await f.pause()
 			expect(await f.runtime.providerRetryStatus!(f.sessionId, root)).toEqual({
+				closable: true,
 				notice: expect.stringContaining('original Pal computer'),
 			})
 			await expect(f.retry()).rejects.toThrow('original Pal computer')
@@ -420,6 +482,7 @@ describe('CLI explicit provider retry composition', () => {
 		const cold = await fixture({ ownedPal: true })
 		try {
 			expect(await cold.runtime.providerRetryStatus!(cold.sessionId, root)).toEqual({
+				closable: true,
 				notice: expect.stringContaining('original Pal computer lifetime cannot be verified'),
 			})
 			await expect(cold.retry({ permissionMode: 'auto' })).rejects.toThrow(
@@ -448,6 +511,7 @@ describe('CLI explicit provider retry composition', () => {
 			await f.pause()
 			f.busy()
 			expect(await f.runtime.providerRetryStatus!(f.sessionId, root)).toEqual({
+				closable: true,
 				notice: expect.stringContaining('current work'),
 			})
 			expect(f.resume).not.toHaveBeenCalled()
@@ -476,7 +540,12 @@ describe('CLI explicit provider retry composition', () => {
 			host['namzu/project/trust']({ cwd: root, confirmed: true })
 			await f.pause({ permissionMode: 'plan' })
 			expect(await host['namzu/sessions/retry-status']!({ sessionId: f.sessionId })).toEqual({
-				retry: { turnId: f.turnId, checkpointId: f.checkpointId },
+				retry: {
+					turnId: f.turnId,
+					checkpointId: f.checkpointId,
+					original: { provider: 'zen', model: 'original-model' },
+				},
+				closable: true,
 			})
 			await expect(
 				host['namzu/sessions/retry']!({

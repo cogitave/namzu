@@ -573,12 +573,22 @@ export async function observeDesktopIpc<T>(
 	}
 }
 
+/**
+ * The browser's own note that a resize observer had more to deliver than one frame allows. The
+ * specification calls it harmless: nothing failed and nothing is lost. Popups that follow their
+ * content's height (the model picker) raise it routinely, and logging it as a renderer failure sent
+ * a person looking for a fault that is not there.
+ */
+export function isBenignResizeObserverNote(message: unknown): boolean {
+	return typeof message === 'string' && message.startsWith('ResizeObserver loop')
+}
+
 /** React may catch a render error and only emit it to the renderer console. */
 export function observeRendererConsole(
 	sink: DesktopDiagnosticSink,
 	details: { level: string; message: string; lineNumber: number },
 ): void {
-	if (details.level !== 'error') return
+	if (details.level !== 'error' || isBenignResizeObserverNote(details.message)) return
 	try {
 		sink.record('renderer_failed', {
 			error: details.message,

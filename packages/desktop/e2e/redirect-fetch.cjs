@@ -2,6 +2,7 @@
 // driver's requests to the scripted local model server and refuses any other
 // non-loopback host. Test-only: nothing in the product reads NAMZU_E2E_MODEL_URL.
 const target = process.env.NAMZU_E2E_MODEL_URL;
+const anthropicTarget = process.env.NAMZU_E2E_ANTHROPIC_URL;
 if (target) {
 	const real = globalThis.fetch;
 	globalThis.fetch = (input, init) => {
@@ -12,8 +13,8 @@ if (target) {
 					? input.href
 					: input.url;
 		const url = new URL(raw);
-		if (url.hostname === "api.openai.com") {
-			const next = new URL(target);
+		if (url.hostname === "api.openai.com" || (anthropicTarget && url.hostname === "api.anthropic.com")) {
+			const next = new URL(url.hostname === "api.anthropic.com" ? anthropicTarget : target);
 			next.pathname = url.pathname;
 			next.search = url.search;
 			return real(

@@ -463,10 +463,17 @@ export interface WindowMenuAnchor {
 export interface DesktopTurnRetry {
 	turnId: string
 	checkpointId: string
+	/** The provider and model the turn stopped on; Try again runs on the model selected now. */
+	original?: { provider: string; model: string }
 }
 export interface DesktopRetryStatus {
 	retry?: DesktopTurnRetry
 	notice?: string
+	/**
+	 * The turn stopped on a provider failure and waits for no decision: sending a new message closes it
+	 * first (as "Continue without this reply" does) and runs on the model selected now.
+	 */
+	closable?: true
 	/** A repeat is a new request; what one earlier request cost is still unknown. */
 	unknownUsage?: number
 }

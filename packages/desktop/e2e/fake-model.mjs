@@ -33,6 +33,12 @@ export async function startFakeModel(rules = [], options = {}) {
 			}
 			const parsed = body ? JSON.parse(body) : {};
 			requests.push(parsed);
+			const refusal = options.strictHistory ? refuse(parsed.messages ?? []) : undefined;
+			if (refusal) {
+				res.writeHead(400, { "content-type": "application/json" });
+				res.end(JSON.stringify({ error: { message: refusal, type: "invalid_request_error" } }));
+				return;
+			}
 			const step = pick(rules, parsed.messages ?? []);
 			const emit = () => respond(res, parsed, step);
 			if (step.hold) {
@@ -72,6 +78,27 @@ export async function startFakeModel(rules = [], options = {}) {
 				server.close(r);
 			}),
 	};
+}
+
+/** What the real service refuses about history: a tool message with no call, or a call with no answer. */
+function refuse(messages) {
+	const made = new Set();
+	for (let i = 0; i < messages.length; i++) {
+		const m = messages[i];
+		if (m.role === "assistant" && m.tool_calls?.length) {
+			for (const call of m.tool_calls) {
+				made.add(call.id);
+				const answered = messages
+					.slice(i + 1)
+					.some((n) => n.role === "tool" && n.tool_call_id === call.id);
+				if (!answered)
+					return `An assistant message with 'tool_calls' must be followed by tool messages responding to each 'tool_call_id'. Missing: ${call.id}`;
+			}
+		}
+		if (m.role === "tool" && !made.has(m.tool_call_id))
+			return `Invalid parameter: messages with role 'tool' must be a response to a preceeding message with 'tool_calls'. (${m.tool_call_id})`;
+	}
+	return undefined;
 }
 
 const textOf = (c) =>

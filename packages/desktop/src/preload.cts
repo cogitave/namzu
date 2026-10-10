@@ -211,6 +211,8 @@ const api: DesktopApi = {
 contextBridge.exposeInMainWorld('namzu', api)
 // Report failures without transferring error text, stacks, URLs or page content.
 window.addEventListener('error', (event) => {
+	// The browser's own "ResizeObserver loop completed with undelivered notifications" is not a failure.
+	if (typeof event.message === 'string' && event.message.startsWith('ResizeObserver loop')) return
 	ipcRenderer.send('namzu:rendererDiagnostic', {
 		reason:
 			event.error instanceof TypeError

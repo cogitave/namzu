@@ -253,6 +253,8 @@ interface AcpRuntimeRecord {
 	readonly palId?: string
 	readonly readyComputer?: () => PalEnvironmentLease | undefined
 	readonly provider: string
+	/** The model this connection runs on now; a retry repeats the paused turn on it, not on the failed one. */
+	readonly model: string
 	retrySettings?: {
 		turnId: string
 		settings: ReturnType<typeof validateComposerSendSettings>
@@ -556,6 +558,11 @@ export function createCliAcpRuntime(
 	// change reconstructs its runtime. Never persist these into startup config.
 	const pluginOverrides = new Map<string, Map<string, boolean>>()
 	const selecting = new Set<string>()
+	/**
+	 * The approval settings of a paused turn, kept across a model change: choosing another model closes
+	 * the live session but not the paused turn, and Retry on the new model needs the same settings.
+	 */
+	const retryCarry = new Map<string, AcpRuntimeRecord['retrySettings']>()
 	// Conversations an undo is writing into right now: no prompt may start under it.
 	const undoing = new Set<string>()
 	// What an undo changed, for the model's next turn in that conversation. Keyed
@@ -695,6 +702,7 @@ export function createCliAcpRuntime(
 			throw new Error(`ACP session "${sessionId}" is already being constructed.`)
 		}
 		constructing.set(sessionId, cwd)
+		const carriedRetry = retryCarry.get(sessionId)
 
 		const construction = (async (): Promise<AcpRuntimeRecord> => {
 			let candidate: AcpLiveSession | undefined
@@ -820,6 +828,11 @@ export function createCliAcpRuntime(
 						? { palId: palBinding.pal.id, readyComputer: palEnvironment?.readyComputer }
 						: {}),
 					provider: primary.id,
+					model:
+						primary.model ??
+						probe.detected.find(({ entry }) => entry.id === primary.id)?.entry.defaultModel ??
+						'',
+					...(carriedRetry ? { retrySettings: carriedRetry } : {}),
 					conversations: conversationState,
 					route: undefined,
 				}
@@ -1058,9 +1071,10 @@ export function createCliAcpRuntime(
 				started?.type !== 'turn_started' ||
 				!started.config.model ||
 				pause?.type !== 'turn_paused' ||
-				pause.providerError?.providerId !== record.provider
+				!pause.providerError
 			)
 				throw new Error('The original provider and model cannot be verified for this retry.')
+			if (!record.model) throw new Error('The selected model cannot be verified for this retry.')
 			const routedEvent = (event: SessionEvent): void => {
 				const outer = activeRecord
 				activeRecord = record
@@ -1087,7 +1101,8 @@ export function createCliAcpRuntime(
 						: {}),
 					model: {
 						provider: record.provider,
-						model: started.config.model,
+						// The model selected now, which is the failed one unless the person changed it.
+						model: record.model,
 						...(settings.effort ? { effort: settings.effort } : {}),
 					},
 					onPermission: async (request) => {
@@ -1346,8 +1361,12 @@ export function createCliAcpRuntime(
 					target.sessionId,
 				)
 				if (!status.retry) return status
+				const blocked = (notice: string): ProviderRetryStatus => ({
+					notice,
+					...(status.closable ? { closable: true as const } : {}),
+				})
 				if (binding) {
-					if (!record) return { notice: MISSING_RETRY_COMPUTER }
+					if (!record) return blocked(MISSING_RETRY_COMPUTER)
 					try {
 						assertRetryComputer(
 							record,
@@ -1356,25 +1375,23 @@ export function createCliAcpRuntime(
 								: undefined,
 						)
 					} catch (error) {
-						return { notice: error instanceof Error ? error.message : MISSING_RETRY_COMPUTER }
+						return blocked(error instanceof Error ? error.message : MISSING_RETRY_COMPUTER)
 					}
 				}
 				if (binding && (await deps.palRuntime?.())?.busy(binding.pal.id))
-					return {
-						notice:
-							'Wait for this Pal’s current work to settle before retrying another conversation.',
-					}
-				if (record?.retrySettings?.turnId !== status.retry.turnId)
-					return {
-						notice:
-							'The original approval settings are unavailable after reconnection. An explicit permission mode is required to retry this retained turn.',
-					}
+					return blocked(
+						'Wait for this Pal’s current work to settle before retrying another conversation.',
+					)
+				if ((record?.retrySettings ?? retryCarry.get(sessionId))?.turnId !== status.retry.turnId)
+					return blocked(
+						'The original approval settings are unavailable after reconnection. An explicit permission mode is required to retry this retained turn.',
+					)
 				const facts = await readConversationFacts(state, target.sessionId)
 				const pause = [...(facts?.records ?? [])]
 					.reverse()
 					.find((row) => row.type === 'turn_paused' && row.turnId === status.retry?.turnId)
-				if (pause?.type !== 'turn_paused' || pause.providerError?.providerId !== record.provider)
-					return { notice: 'The original provider cannot be verified for this retry.' }
+				if (pause?.type !== 'turn_paused' || !pause.providerError)
+					return blocked('The original provider cannot be verified for this retry.')
 				return status
 			} finally {
 				reading.close()
@@ -1632,6 +1649,7 @@ export function createCliAcpRuntime(
 				if (existing?.route || existing?.session.jobs?.().some((job) => job.status === 'running'))
 					throw new Error('Stop this conversation’s active work before changing its model.')
 				if (existing) {
+					if (existing.retrySettings) retryCarry.set(sessionId, existing.retrySettings)
 					records.delete(sessionId)
 					try {
 						await existing.session.close()

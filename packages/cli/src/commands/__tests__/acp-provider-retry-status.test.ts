@@ -29,7 +29,12 @@ describe('durable provider retry eligibility', () => {
 	it('selects the exact verified checkpoint only after usage is measured', async () => {
 		const f = await providerPaused(state)
 		expect(await readProviderRetryStatus(state, f.sessionId)).toEqual({
-			retry: { turnId: f.turnId, checkpointId: f.checkpointId },
+			retry: {
+				turnId: f.turnId,
+				checkpointId: f.checkpointId,
+				original: { provider: 'zen', model: 'original-model' },
+			},
+			closable: true,
 		})
 	})
 	it('retries an unlimited turn whose one request has unknown usage, leaving that usage recorded', async () => {
@@ -37,7 +42,12 @@ describe('durable provider retry eligibility', () => {
 		const store = new DiskSessionTokenBudgetStore({ paths: state.paths })
 		const before = await store.load(f.budgetScope)
 		expect(await readProviderRetryStatus(state, f.sessionId)).toEqual({
-			retry: { turnId: f.turnId, checkpointId: f.checkpointId },
+			retry: {
+				turnId: f.turnId,
+				checkpointId: f.checkpointId,
+				original: { provider: 'zen', model: 'original-model' },
+			},
+			closable: true,
 			unknownUsage: 1,
 		})
 		expect(await store.load(f.budgetScope)).toEqual(before)
@@ -53,6 +63,7 @@ describe('durable provider retry eligibility', () => {
 		const store = new DiskSessionTokenBudgetStore({ paths: state.paths })
 		const before = await store.load(f.budgetScope)
 		expect(await readProviderRetryStatus(state, f.sessionId)).toEqual({
+			closable: true,
 			notice: expect.stringContaining('actual provider usage receipt'),
 		})
 		expect(await store.load(f.budgetScope)).toEqual(before)
@@ -71,9 +82,13 @@ describe('durable provider retry eligibility', () => {
 		{ handoff: { kind: 'human-required' as const, reason: 'Operator must finish this step' } },
 	])('does not retry decisions or nonrecoverable failures: %j', async (pause) => {
 		const f = await providerPaused(state, { pause })
-		expect(await readProviderRetryStatus(state, f.sessionId)).toEqual({
+		const status = await readProviderRetryStatus(state, f.sessionId)
+		expect(status).toEqual({
 			notice: expect.stringContaining('paused'),
+			// A provider failure may be closed by sending on; a handoff or an unexplained pause may not.
+			...(pause.providerError ? { closable: true } : {}),
 		})
+		expect(status.retry).toBeUndefined()
 	})
 	it('never treats a retained human review as a provider Retry', async () => {
 		const f = await providerPaused(state)
@@ -90,6 +105,7 @@ describe('durable provider retry eligibility', () => {
 		} finally {
 			await f.log.release(lease)
 		}
+		// A paused approval is the person's to answer; sending a message does not close it.
 		expect(await readProviderRetryStatus(state, f.sessionId)).toEqual({
 			notice: expect.stringContaining('Retry cannot approve'),
 		})
@@ -97,12 +113,14 @@ describe('durable provider retry eligibility', () => {
 	it('retains the original exhausted allowance instead of creating a new ledger', async () => {
 		const f = await providerPaused(state, { limit: 6 })
 		expect(await readProviderRetryStatus(state, f.sessionId)).toEqual({
+			closable: true,
 			notice: expect.stringContaining('original token allowance is exhausted'),
 		})
 	})
 	it('retains a missing checkpoint and rejects changed checkpoint bytes', async () => {
 		const missing = await providerPaused(state, { withCheckpoint: false })
 		expect(await readProviderRetryStatus(state, missing.sessionId)).toEqual({
+			closable: true,
 			notice: expect.stringContaining('unavailable'),
 		})
 		const f = await providerPaused(state)

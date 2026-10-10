@@ -192,3 +192,32 @@ describe('truthful action receipts in normal and Pal views', () => {
 		}
 	})
 })
+
+describe('a reply the person went on without', () => {
+	it('keeps its notice under it after a later reply has been written', () => {
+		let thread = applyEvent(emptyThread(), { kind: 'prompt', sessionId: 's', prompt: 'First' })
+		thread = update(thread, {
+			kind: 'turn_ended',
+			turnId: 't1',
+			stopReason: 'cancelled',
+			reason: 'paused',
+		})
+		thread = applyEvent(thread, { kind: 'turn-closed', sessionId: 's' })
+		thread = applyEvent(thread, { kind: 'prompt', sessionId: 's', prompt: 'Second' })
+		thread = update(thread, {
+			kind: 'agent_message',
+			status: 'completed',
+			messageId: 'second-answer',
+			textParts: [{ id: 'p', phase: 'final_answer', text: 'Answered on another model.' }],
+			content: 'Answered on another model.',
+			stopReason: 'end_turn',
+		})
+		thread = update(thread, { kind: 'turn_ended', turnId: 't2', stopReason: 'end_turn' })
+		const html = render(thread)
+		expect(html.match(/You continued without this reply\./g)).toHaveLength(1)
+		// Under the first reply, before the second message.
+		expect(html.indexOf('You continued without this reply.')).toBeLessThan(
+			html.indexOf('Answered on another model.'),
+		)
+	})
+})

@@ -15,6 +15,7 @@ import {
 	DesktopDiagnostics,
 	desktopFailure,
 	desktopStderrDetails,
+	isBenignResizeObserverNote,
 	observeDesktopIpc,
 	observeRendererConsole,
 } from './diagnostics.js'
@@ -223,6 +224,19 @@ it('captures a caught renderer console error without persisting its content or o
 		},
 	])
 	expect(readFileSync(sink.path, 'utf8')).not.toContain('PRIVATE_')
+})
+
+it('does not record the browser\u2019s harmless resize-observer note as a renderer failure', () => {
+	const { sink } = create()
+	observeRendererConsole(sink, {
+		level: 'error',
+		message: 'ResizeObserver loop completed with undelivered notifications.',
+		lineNumber: 0,
+	})
+	expect(records(sink)).toEqual([])
+	expect(isBenignResizeObserverNote('ResizeObserver loop limit exceeded')).toBe(true)
+	expect(isBenignResizeObserverNote('TypeError: x is not a function')).toBe(false)
+	expect(isBenignResizeObserverNote(undefined)).toBe(false)
 })
 
 it('rotates to one bounded previous file and limits a deterministic renderer flood', () => {

@@ -4375,6 +4375,18 @@ export function App({
 			? { ...failure, actions: [...failure.actions, 'copy-to-new' as const] }
 			: failure,
 	)
+	// Try again runs on the model selected now. When that is not the one that stopped, say which.
+	const selectedModelId =
+		choice.model ||
+		activeProviders.available.find((item) => item.id === choice.provider)?.defaultModel ||
+		''
+	const retryLabel =
+		thread.retry?.original &&
+		selectedModelId &&
+		(thread.retry.original.provider !== choice.provider ||
+			thread.retry.original.model !== selectedModelId)
+			? `Try again with ${selectedModelId}`
+			: undefined
 	const putMessageBack = (text: string) => {
 		draftsRef.current[sessionId] = text
 		setDrafts((all) => ({ ...all, [sessionId]: text }))
@@ -4421,7 +4433,7 @@ export function App({
 			await openEngineTerminal()
 			return
 		}
-		if (thread.retry || thread.retryNotice || thread.reason === 'paused')
+		if (!thread.retryClosable && (thread.retry || thread.retryNotice || thread.reason === 'paused'))
 			throw new Error(
 				thread.retryNotice
 					? describeBlockedRetry(thread.retryNotice).text
@@ -6233,6 +6245,7 @@ export function App({
 									)}
 									<TurnRecovery
 										retry={thread.retry}
+										retryLabel={retryLabel}
 										failures={replyFailures}
 										onAction={(action) => {
 											if (action === 'settings') openSettings('models', 'models')
@@ -6252,8 +6265,15 @@ export function App({
 												? () => {
 														const retry = thread.retry
 														const retryTurn = api.retryTurn
+														// Try again runs on the model chosen now. The choice is applied the way a
+														// send applies it, so a switch made after the stop is not lost.
+														const route = { ...choice }
 														if (retry && retryTurn)
-															void act(() => retryTurn(sessionId, retry.turnId, retry.checkpointId))
+															void act(async () => {
+																if (route.provider)
+																	await api.selectProvider(sessionId, route.provider, route.model)
+																await retryTurn(sessionId, retry.turnId, retry.checkpointId)
+															})
 													}
 												: undefined
 										}
@@ -6334,9 +6354,10 @@ export function App({
 								}
 								connected={
 									project.status === 'ready' &&
-									!thread.retry &&
-									!thread.retryNotice &&
-									thread.reason !== 'paused' &&
+									// A reply that stopped on a provider failure does not hold the conversation: sending
+									// closes it and runs on the model selected now.
+									(thread.retryClosable ||
+										(!thread.retry && !thread.retryNotice && thread.reason !== 'paused')) &&
 									palCanChat &&
 									providerReady &&
 									attached.loaded &&

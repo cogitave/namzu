@@ -17,7 +17,7 @@ const update = (sessionId, update) => send({ method: 'session/update', params: {
 const fail = (id, message) => send({ id, error: { code: -32603, message } })
 const target = { turnId: 'original-turn', checkpointId: 'original-checkpoint' }
 const notice = 'This provider request has unresolved token usage. Its original turn is retained.'
-const status = (session) => !session?.paused ? {} : process.env.FIXTURE_RETRY_MODE === 'unsafe' ? { notice } : { retry: target }
+const status = (session) => !session?.paused ? {} : process.env.FIXTURE_RETRY_MODE === 'unsafe' ? { notice } : process.env.FIXTURE_RETRY_MODE === 'closable' ? { retry: { ...target, original: { provider: 'zen', model: 'first-model' } }, closable: true } : process.env.FIXTURE_RETRY_MODE === 'closable-unsafe' ? { notice, closable: true } : { retry: target }
 const pause = (id, sessionId) => {
 	const session = sessions.get(sessionId)
 	session.paused = true

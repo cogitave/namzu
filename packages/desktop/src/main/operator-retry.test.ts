@@ -318,6 +318,60 @@ it('closes a paused turn it cannot repeat, puts the message and its file back in
 	expect(requests().filter((request) => request.method === 'session/prompt')).toHaveLength(2)
 })
 
+it('closes a reply that stopped on a provider failure and sends the new message in the same conversation', async () => {
+	const { owner, wait, requests } = harness('closable')
+	const project = await owner.openProject(process.cwd())
+	const session = await owner.newConversation(project.id)
+	const stopped = wait(settled)
+	await owner.send(session.id, 'First message')
+	await stopped
+	const paused = (await owner.openConversation(project.id, session.id)).thread
+	expect(paused?.retry).toMatchObject({ original: { provider: 'zen', model: 'first-model' } })
+	expect(paused?.retryClosable).toBe(true)
+	// The person chose to go on, usually on another model: no Try again or Continue first.
+	const closed = wait((event) => event.kind === 'turn-closed')
+	const again = wait(settled)
+	await owner.send(session.id, 'Second message, on another model')
+	await closed
+	await again
+	const methods = requests().map((request) => request.method)
+	const close = methods.indexOf('namzu/sessions/abandon-paused')
+	expect(close).toBeGreaterThan(-1)
+	expect(methods.indexOf('session/prompt', close)).toBeGreaterThan(close)
+	expect(
+		requests()
+			.filter((request) => request.method === 'session/prompt')
+			.map((request) => request.params?.prompt),
+	).toEqual(['First message', 'Second message, on another model'])
+	expect(requests().filter((request) => request.method === 'namzu/sessions/retry')).toEqual([])
+})
+
+it('still refuses a new message over a paused turn that waits for the person', async () => {
+	// The runtime says nothing is closable here: an approval is the person's to answer.
+	const { owner, wait, requests } = harness('unsafe')
+	const project = await owner.openProject(process.cwd())
+	const session = await owner.newConversation(project.id)
+	const stopped = wait(settled)
+	await owner.send(session.id, 'First message')
+	await stopped
+	await expect(owner.send(session.id, 'Second message')).rejects.toThrow('unresolved token usage')
+	expect(requests().filter((request) => request.method.includes('abandon'))).toEqual([])
+})
+
+it('closes a provider-stopped turn that cannot be repeated when the person sends on', async () => {
+	const { owner, wait, requests } = harness('closable-unsafe')
+	const project = await owner.openProject(process.cwd())
+	const session = await owner.newConversation(project.id)
+	const stopped = wait(settled)
+	await owner.send(session.id, 'First message')
+	await stopped
+	const again = wait(settled)
+	await owner.send(session.id, 'Second message')
+	await again
+	expect(requests().filter((request) => request.method.includes('abandon'))).toHaveLength(1)
+	expect(requests().filter((request) => request.method === 'session/prompt')).toHaveLength(2)
+})
+
 it('keeps what the person already typed after the message it puts back', async () => {
 	const { owner, wait } = harness('unsafe')
 	const project = await owner.openProject(process.cwd())
