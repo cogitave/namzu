@@ -1,6 +1,11 @@
 import { expect, it } from 'vitest'
 import type { PermissionView } from '../shared/protocol.js'
-import { approvalConsequence, buildApprovalCard, riskyCommand } from './approval-card-model.js'
+import {
+	approvalConsequence,
+	approvalConsequenceTitle,
+	buildApprovalCard,
+	riskyCommand,
+} from './approval-card-model.js'
 
 const request = (calls: PermissionView['calls']): PermissionView => ({
 	id: 'r',
@@ -22,11 +27,15 @@ const call = (
 
 it('says where a command runs and what it can change, and warns on one that deletes', () => {
 	const plain = buildApprovalCard(request([call('bash', { command: 'ls' })]))
-	expect(approvalConsequence(plain, '/work/site')).toBe(
-		'Runs on your computer in /work/site. It can read and change files there.',
+	expect(approvalConsequence(plain, '/work/site', 'Site')).toBe(
+		'Runs in Site. It can read and change files there.',
+	)
+	// Without a name the folder is shortened, never printed whole.
+	expect(approvalConsequence(plain, '/home/arda/workspaces/site')).toBe(
+		'Runs in ~/workspaces/site. It can read and change files there.',
 	)
 	const risky = buildApprovalCard(request([call('bash', { command: 'rm -rf build && echo done' })]))
-	expect(approvalConsequence(risky, '/work/site')).toContain('deletes or overwrites files')
+	expect(approvalConsequence(risky, '/work/site', 'Site')).toContain('deletes or overwrites files')
 	expect(approvalConsequence(plain)).toBe(
 		'Runs on your computer. It can read and change files there.',
 	)
@@ -54,7 +63,48 @@ it('states the consequence of a file change and a deletion', () => {
 			),
 		]),
 	)
-	expect(approvalConsequence(created)).toBe('Adds a new file at /work/index.html.')
+	expect(approvalConsequence(created, '/work')).toBe('Adds a new file, index.html.')
+	expect(approvalConsequenceTitle(created, '/work')).toBe('/work/index.html')
 	const removed = buildApprovalCard(request([call('delete', { path: 'old.txt' })]))
 	expect(approvalConsequence(removed)).toBe('Removes this file from your computer.')
+})
+
+it('names an edit and a nested new file by their place in the project, not by their full path', () => {
+	const nested = buildApprovalCard(
+		request([
+			call(
+				'write',
+				{ path: 'new/deep/n.txt', content: 'x' },
+				{
+					preview: {
+						path: '/tmp/project/new/deep/n.txt',
+						before: null,
+						after: 'x\n',
+					},
+				},
+			),
+		]),
+	)
+	expect(approvalConsequence(nested, '/tmp/project')).toBe('Adds a new file, new/deep/n.txt.')
+	expect(approvalConsequenceTitle(nested, '/tmp/project')).toBe('/tmp/project/new/deep/n.txt')
+	const edited = buildApprovalCard(
+		request([
+			call('edit', {
+				path: '/tmp/project/a.ts',
+				old_string: 'a',
+				new_string: 'b',
+			}),
+		]),
+	)
+	expect(approvalConsequence(edited, '/tmp/project')).toBe('Changes a.ts.')
+	const outside = buildApprovalCard(
+		request([
+			call('edit', {
+				path: '/home/arda/notes/Günlük.md',
+				old_string: 'a',
+				new_string: 'b',
+			}),
+		]),
+	)
+	expect(approvalConsequence(outside, '/tmp/project')).toBe('Changes ~/notes/Günlük.md.')
 })

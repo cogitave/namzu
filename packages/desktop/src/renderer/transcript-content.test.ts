@@ -138,9 +138,10 @@ describe('truthful action receipts in normal and Pal views', () => {
 			renderToStaticMarkup(createElement(PalActivity, { thread })),
 		]) {
 			expect(html).toContain('data-tool-state="waiting"')
-			expect(html).toContain('Waiting to run command')
+			expect(html).toContain('Waiting to run check-review')
 			expect(html).toContain('data-tool-state="running"')
-			expect(html).toContain('Command failed')
+			expect(html).toContain('Ran check-failed')
+			expect(html).toContain('failed')
 			expect(html).toContain('Exact error evidence')
 			expect(html).toContain('No output yet.')
 			expect(html).not.toContain('Ran command')

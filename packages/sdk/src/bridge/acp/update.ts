@@ -166,6 +166,7 @@ export function toAcpSessionUpdate(
 				// data. Older producers may only carry text; keep that fallback.
 				status: event.isError === true ? 'failed' : 'completed',
 				...(event.durationMs === undefined ? {} : { durationMs: event.durationMs }),
+				...(event.facts === undefined ? {} : { facts: event.facts }),
 				view:
 					event.presentation ??
 					presenter.presentResult(event.toolName, undefined, {

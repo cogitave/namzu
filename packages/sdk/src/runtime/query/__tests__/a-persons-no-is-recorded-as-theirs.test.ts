@@ -225,7 +225,7 @@ describe('a call the person declined', () => {
 })
 
 describe('a call a policy refused', () => {
-	it('is recorded exactly as before: an error result and no presentation', async () => {
+	it('is recorded as an error result with no presentation, and says it was a block', async () => {
 		const f = fixture()
 		await f.executor.executeBatch(
 			editCall(),
@@ -239,6 +239,8 @@ describe('a call a policy refused', () => {
 			toolName: 'edit',
 			result: 'Error: Tool "edit" was not executed. Refused: strict mode does not run edits.',
 			isError: true,
+			// The kind of refusal, as a field; the wording above is the model's.
+			facts: { kind: 'failure', reason: 'blocked', subject: 'edit' },
 		})
 		expect(event).not.toHaveProperty('presentation')
 	})

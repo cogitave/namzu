@@ -99,7 +99,7 @@ export function TurnChangesCard({
 					<>
 						<FileDiffIcon className="turn-changes-icon" aria-hidden="true" />
 						<span className="turn-changes-title" title={only.path}>
-							<span>Edited </span>
+							<span>{changes.verb} </span>
 							<strong>{only.name}</strong>
 						</span>
 					</>
@@ -112,7 +112,7 @@ export function TurnChangesCard({
 					>
 						<FileDiffIcon className="turn-changes-icon" aria-hidden="true" />
 						<span className="turn-changes-title">
-							<span>Edited </span>
+							<span>{changes.verb} </span>
 							<strong>{changes.files.length} files</strong>
 						</span>
 						{expanded ? (

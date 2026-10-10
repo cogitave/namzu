@@ -59,6 +59,20 @@ export function fileWriteResult(
 	return {
 		success: true,
 		output: `${summary} · ${bytes} bytes`,
+		facts: {
+			kind: 'write',
+			path,
+			operation:
+				operation === 'create'
+					? 'created'
+					: operation === 'replace'
+						? 'updated'
+						: operation === 'unchanged'
+							? 'unchanged'
+							: 'wrote',
+			bytes,
+			...(before === null ? {} : { added: added.length, removed: removed.length }),
+		},
 		data: {
 			path,
 			size: after.length,

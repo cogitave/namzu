@@ -38,6 +38,23 @@ export interface TurnState {
 	reason?: string
 	result?: string
 }
+/**
+ * A finished edit reports a sentence for the model; the change itself is what the call carried.
+ * Once the tool says it edited the file, the call's before and after are its receipt, so the
+ * Changes panel and the reply's change card count it the way they count a written file.
+ */
+function withEditDiff(tool: ProjectedToolCall, callView?: ToolCallView): ProjectedToolCall {
+	if (
+		tool.status !== 'completed' ||
+		tool.facts?.kind !== 'edit' ||
+		tool.view.kind === 'diff' ||
+		callView?.kind !== 'diff'
+	)
+		return tool
+	const path = callView.path ?? tool.facts.path
+	return { ...tool, view: { ...callView, ...(path ? { path } : {}) } }
+}
+
 export type ProjectedToolCall = Extract<AcpSessionUpdate, { kind: 'tool_call' }> & {
 	/** First admitted call presentation, distinct from the current result view. */
 	readonly callView?: ToolCallView
@@ -709,7 +726,7 @@ export function applyEvent(previous: ThreadState, event: DesktopEvent): ThreadSt
 		const startedTime = prior?.startedTime ?? (liveTool.status === 'pending' ? time : undefined)
 		const endedTime = prior?.endedTime ?? (liveTool.status !== 'pending' ? time : undefined)
 		const tool: ProjectedToolCall = {
-			...liveTool,
+			...withEditDiff(liveTool, callView),
 			callView,
 			...(startedTime ? { startedTime } : {}),
 			...(endedTime ? { endedTime } : {}),

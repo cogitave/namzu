@@ -253,6 +253,46 @@ than read the removal as an update that changed nothing.
 
 Built-in grep accepts a single regular-file path as a one-entry search. The local and guest file walkers match the root file's basename against the include pattern and never enumerate its siblings. The same cancellation, symlink and size checks remain in effect.
 
+## What a call did, as fields
+
+`ToolResult.output` is written for the model, and its wording (`STDOUT:` and `STDERR:` labels, the note about
+credential variables that were withheld, "Edited /path: 1 replacement(s)", "Found 2 match(es)") is the model's
+interface and does not change. A person is shown something else, and reading their screen out of that prose
+is how those labels reached it. So a tool also reports `ToolResult.facts`, a closed union (`ToolFacts`) of what it
+knew:
+
+| `kind` | Fields |
+| --- | --- |
+| `command` | `command`, `exitCode`, `timedOut`, `signal`, `stdout` and `stderr` as `ToolTextWindow`, `binary: { bytes }`, `background` |
+| `read` | `path`, `binary`, `bytes`, `totalLines`, `returnedLines`, `partial` |
+| `search` (grep) | `pattern`, `path`, `matches`, `filesMatched`, `filesSearched`, `truncated` |
+| `list` (glob) | `pattern`, `path`, `count`, `truncated` |
+| `edit` | `path`, `replacements` |
+| `write` | `path`, `operation` (`created`, `updated`, `unchanged`, `wrote` when the earlier state is unknown), `bytes`, `added`, `removed` |
+| `failure` | `reason` (`not_found`, `permission_denied`, `not_a_file`, `already_exists`, `blocked`, `needs_administrator`, `unknown_tool`, `timed_out`, `invalid_input`), `subject` |
+
+A `ToolTextWindow` is the first 80 lines of a stream, its last 40 and the number of lines left out between them
+(`omittedLines`), with `totalLines` and `totalBytes`; neither half is longer than 6,000 characters. A stream that
+is not text (a NUL, or more than 2% control and replacement characters in its first 8,000) is reported as
+`binary` and its bytes are not in `stdout`. A file read is marked `binary` the same way, and the model still gets
+its numbered rendering.
+
+The executor puts `facts` on `tool_completed` and the ACP bridge on the `tool_call` update, except when a
+`post_tool_use` hook replaced the output: a structured copy would undo a redaction. It also sets `failure` where
+the runtime refuses a call without running it: `unknown_tool` for a name the registry does not hold, `blocked` for a
+refusal by policy, and `needs_administrator` when the call's own `command` argument runs `sudo` or `doas` (read
+from the argument, never from the refusal's wording). A tool that throws a filesystem error gets `not_found`,
+`permission_denied`, `not_a_file` or `already_exists` from the error's `code`, with its `path` as the subject. A
+person's own No is unchanged: it keeps the `declined` presentation and carries no `facts`.
+
+The call side uses the same shapes. A generic `ToolCallView` may carry `facts` for what the call is about (`read` with a
+`path`, `search` with a `pattern`, `command` with the command line) so a host headlines the row before any result
+exists. `bash`, `read`, `grep` and `glob` do; their labels are unchanged for hosts that ignore the field.
+
+A saved conversation keeps `facts` in the `tool_completed` record. `admitToolFacts(value)` reads one back into the
+closed shape (any other field is dropped, and the text of a command's streams is not kept), which is what the
+Desktop host does when it restores history. `execHostShell` also returns `stdoutBytes` and `stderrBytes`.
+
 ## File write receipts
 
 The built-in `write` reports the operation observed during execution in

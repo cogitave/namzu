@@ -48,6 +48,7 @@ import type {
 	ToolContext,
 	ToolDefinition,
 	ToolDispatchOptions,
+	ToolFacts,
 	ToolHandoff,
 	ToolResult,
 } from '../../types/tool/index.js'
@@ -110,6 +111,8 @@ export type PreparedDirectCall =
 			readonly isError: boolean
 			readonly inputFailure?: CompletedToolRecord['inputFailure']
 			readonly skipped?: true
+			/** Why it never ran, as a kind; see `ToolFacts`. */
+			readonly facts?: ToolFacts
 	  }
 
 /**
@@ -573,6 +576,22 @@ export type PriorToolResults = ReadonlyMap<string, PriorToolResult>
  * the reason here is also what makes rejection *steer* — the model reads
  * it in the slot it already attends to for tool outcomes.
  */
+/**
+ * The kind of refusal a call met, for the person's view. A command that asks
+ * for administrator rights is named as that; everything else is a plain block.
+ * Read from the call's own argument, never from the refusal's wording.
+ */
+function refusalFacts(toolName: string, input: unknown): ToolFacts {
+	const command =
+		input && typeof input === 'object' ? (input as { command?: unknown }).command : undefined
+	const elevated = typeof command === 'string' && /(^|[\s;&|(])(sudo|doas)\b/.test(command)
+	return {
+		kind: 'failure',
+		reason: elevated ? 'needs_administrator' : 'blocked',
+		subject: toolName,
+	}
+}
+
 export function deniedToolOutput(toolName: string, reason: string): string {
 	return `Error: Tool "${toolName}" was not executed. ${reason}`
 }
@@ -1604,6 +1623,7 @@ export class ToolExecutor {
 			toolName: name,
 			result: budgeted.output,
 			...this.resultPresentation(name, preparedInput, result, budgeted.truncated),
+			...(result.facts !== undefined ? { facts: result.facts } : {}),
 			isError: !result.success,
 			durationMs: Date.now() - startedAt,
 			outputLength: budgeted.originalLength,
@@ -2158,6 +2178,9 @@ export class ToolExecutor {
 				result,
 				Boolean(postOverride) || budgeted.truncated || rawOutput !== output,
 			),
+			// Typed fields for the person's view. A replaced output is a redaction
+			// the host chose, and a structured copy of the original would undo it.
+			...(result.facts !== undefined && !postOverride ? { facts: result.facts } : {}),
 			isError: effectiveIsError,
 			...(visibleInputFailure ? { inputFailure: visibleInputFailure } : {}),
 			...(structuredResultJson !== undefined ? { structuredResultJson } : {}),
@@ -2685,6 +2708,9 @@ export class ToolExecutor {
 			// Recorded only for a person's No. Every other refusal keeps the
 			// shape it always had: no presentation at all.
 			...(declined ? { presentation: this.declinedPresentation(toolName, input, declined) } : {}),
+			// A refusal by policy says what kind it was; the person's own No is
+			// already carried by the presentation above.
+			...(declined ? {} : { facts: refusalFacts(toolName, input) }),
 			isError: true,
 		})
 
@@ -2752,6 +2778,7 @@ export class ToolExecutor {
 			output: string
 			inputFailure?: ToolCallOutcome['inputFailure']
 			skipped?: true
+			facts?: ToolFacts
 		},
 	): Promise<ToolCallOutcome> {
 		const activity = this.activityStore.create({
@@ -2783,6 +2810,7 @@ export class ToolExecutor {
 			toolName,
 			result: outcome.output,
 			isError: outcome.kind === 'error',
+			...(outcome.facts ? { facts: outcome.facts } : {}),
 			...(outcome.inputFailure ? { inputFailure: outcome.inputFailure } : {}),
 			...(outcome.skipped ? { skipped: true as const } : {}),
 		})
@@ -2800,6 +2828,7 @@ export class ToolExecutor {
 		return this.recordSyntheticHookOutcome(call.toolCall.id, call.toolName, call.input, {
 			kind: call.isError ? 'error' : 'skip',
 			output: call.message,
+			...(call.facts ? { facts: call.facts } : {}),
 			...(call.inputFailure ? { inputFailure: call.inputFailure } : {}),
 			...(call.skipped ? { skipped: true as const } : {}),
 		})

@@ -12,6 +12,7 @@
 // ─── Tool definition primitive ───────────────────────────────────────────
 
 export { defineTool } from './tools/defineTool.js'
+export { admitToolFacts } from './tools/admit-facts.js'
 // Containment, for a host or sibling package that resolves caller-supplied
 // paths against a root. Both were internal while three call sites outside
 // this file needed them.

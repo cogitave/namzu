@@ -2,6 +2,7 @@ import { mkdir, readFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { z } from 'zod'
 import type { ToolContext, ToolResult } from '../../types/tool/index.js'
+import type { ToolFacts } from '../../types/tool/presentation.js'
 import { defineTool } from '../defineTool.js'
 import { resolveWithinAnyReal, toolRoots } from '../paths.js'
 import { atomicWriteFile } from './atomic-write-file.js'
@@ -196,13 +197,14 @@ export const WriteFileTool = defineTool({
 function enforceReadBeforeOverwrite(
 	context: ToolContext,
 	key: string,
-): { success: false; output: ''; error: string } | null {
+): { success: false; output: ''; error: string; facts?: ToolFacts } | null {
 	if (!context.fileReadTracker) return null
 	if (context.fileReadTracker.hasRead(key)) return null
 	return {
 		success: false,
 		output: '',
 		error: `${key} already exists. Use the \`read\` tool on it first in this conversation, then call \`write\` again — or prefer \`edit\` for a targeted change.`,
+		facts: { kind: 'failure', reason: 'already_exists', subject: key },
 	}
 }
 
@@ -210,7 +212,7 @@ function enforceFreshOverwrite(
 	context: ToolContext,
 	key: string,
 	currentContent: string,
-): { success: false; output: ''; error: string } | null {
+): { success: false; output: ''; error: string; facts?: ToolFacts } | null {
 	const unread = enforceReadBeforeOverwrite(context, key)
 	if (unread) return unread
 

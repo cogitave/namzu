@@ -41,6 +41,12 @@ export type ToolCallView =
 			 * out of text; a refusal by policy does not carry it.
 			 */
 			readonly declined?: { readonly note?: string }
+			/**
+			 * For a call: what the call is about, as fields. A host headlines the
+			 * row ("Read a.ts", "Searched for export") from these and never from
+			 * the text of `label`.
+			 */
+			readonly facts?: ToolFacts
 	  }
 	/**
 	 * A change to a document. `path` is optional because not every diff is
@@ -57,6 +63,113 @@ export type ToolCallView =
 	  }
 	/** A command and what it printed. */
 	| { readonly kind: 'terminal'; readonly command?: string; readonly output: string }
+
+/**
+ * A bounded window onto a block of text: the first lines, the last lines, and
+ * how much lay between. Small enough to travel in an event, and enough for a
+ * host to show "head, tail, Show more" without holding the whole output.
+ */
+export interface ToolTextWindow {
+	/** The first lines, or the whole text when it fit. */
+	readonly head: string
+	/** The last lines, present only when lines were left out between `head` and it. */
+	readonly tail?: string
+	/** Lines left out between `head` and `tail`. */
+	readonly omittedLines?: number
+	/** Lines in the whole text. */
+	readonly totalLines: number
+	/** Bytes in the whole text. */
+	readonly totalBytes: number
+}
+
+/** Why a call did not do what it was asked, as a kind a host can phrase for a person. */
+export type ToolFailureReason =
+	| 'not_found'
+	| 'permission_denied'
+	| 'not_a_file'
+	| 'already_exists'
+	| 'blocked'
+	| 'needs_administrator'
+	| 'unknown_tool'
+	| 'timed_out'
+	| 'invalid_input'
+
+/**
+ * What a call was about and what came of it, as typed fields.
+ *
+ * `output` is written for the model and its wording is the model's interface.
+ * A person is shown a different thing, and reading their screen out of the
+ * model's prose is how "STDOUT:" and "1 replacement(s)" reached it. These are
+ * the same facts the tool already knew, stated once, so a host never has to
+ * read text to learn an exit code, a file name or whether a file was created.
+ *
+ * Every field but `kind` is optional: the same shape describes a call that is
+ * still running (what it was asked) and one that finished (what it did).
+ * Paths are as the tool resolved them; a host shortens them for display.
+ */
+export type ToolFacts =
+	| {
+			readonly kind: 'command'
+			/** The command line, on the call. */
+			readonly command?: string
+			readonly exitCode?: number
+			readonly timedOut?: boolean
+			/** The signal that ended it, when one did. */
+			readonly signal?: string
+			readonly stdout?: ToolTextWindow
+			readonly stderr?: ToolTextWindow
+			/** The output was not text; nothing of it is in `stdout`/`stderr`. */
+			readonly binary?: { readonly bytes: number }
+			/** The command was handed to a background job instead of being waited on. */
+			readonly background?: true
+	  }
+	| {
+			readonly kind: 'read'
+			readonly path: string
+			/** The file is not text; the person is told so instead of being shown its bytes. */
+			readonly binary?: boolean
+			readonly bytes?: number
+			readonly totalLines?: number
+			readonly returnedLines?: number
+			/** Only a window of the file was returned. */
+			readonly partial?: boolean
+	  }
+	| {
+			readonly kind: 'search'
+			readonly pattern: string
+			readonly path?: string
+			readonly matches?: number
+			readonly filesMatched?: number
+			readonly filesSearched?: number
+			readonly truncated?: boolean
+	  }
+	| {
+			readonly kind: 'list'
+			readonly pattern: string
+			readonly path?: string
+			readonly count?: number
+			readonly truncated?: boolean
+	  }
+	| {
+			readonly kind: 'edit'
+			readonly path?: string
+			readonly replacements?: number
+	  }
+	| {
+			readonly kind: 'write'
+			readonly path: string
+			/** `wrote` when the file's earlier state could not be established. */
+			readonly operation: 'created' | 'updated' | 'unchanged' | 'wrote'
+			readonly bytes?: number
+			readonly added?: number
+			readonly removed?: number
+	  }
+	| {
+			readonly kind: 'failure'
+			readonly reason: ToolFailureReason
+			/** What it was about: a path, or the tool's name for `unknown_tool`. */
+			readonly subject?: string
+	  }
 
 /** The same shapes, for what a call produced. */
 export type ToolResultView = ToolCallView

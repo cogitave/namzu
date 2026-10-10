@@ -7,6 +7,7 @@ import type {
 } from '../types/tool/index.js'
 import type { ToolPresentation } from '../types/tool/presentation.js'
 import { toErrorMessage } from '../utils/error.js'
+import { failureFactsFromError } from './failure-facts.js'
 
 export interface DefineToolOptions<S extends z.ZodType> {
 	name: string
@@ -183,10 +184,13 @@ export function defineTool<S extends z.ZodType>(
 				return await options.execute(input, context)
 			} catch (err) {
 				const message = toErrorMessage(err)
+				const facts = failureFactsFromError(err)
 				return {
 					success: false,
 					output: '',
 					error: `${options.name} failed: ${message}`,
+					// The kind of failure, from the error's own code, for the person's view.
+					...(facts ? { facts } : {}),
 				}
 			}
 		},

@@ -70,9 +70,11 @@ export interface RunAction {
 	/** What it acted on, so two edits of one file count once. */
 	subject?: string
 	state: ToolTranscriptState
+	/** The action made a file that did not exist. */
+	created?: boolean
 }
 
-type RunCategory = ActionKind
+type RunCategory = ActionKind | 'create'
 
 function counted(count: number, one: string, many: (count: number) => string): string {
 	return count === 1 ? one : many(count)
@@ -83,6 +85,12 @@ function categoryPhrase(category: RunCategory, count: number, live: boolean): st
 		RunCategory,
 		[string, string, (count: number) => string, (count: number) => string]
 	> = {
+		create: [
+			'created a file',
+			'creating a file',
+			(n) => `created ${n} files`,
+			(n) => `creating ${n} files`,
+		],
 		edit: [
 			'edited a file',
 			'editing a file',
@@ -129,9 +137,9 @@ export function actionRunLabel(actions: RunAction[], live: boolean): string {
 			declined += 1
 			continue
 		}
-		const category = action.kind
+		const category: RunCategory = action.kind === 'edit' && action.created ? 'create' : action.kind
 		// Files are counted once each; the other kinds count every action.
-		if ((category === 'edit' || category === 'read') && action.subject) {
+		if ((category === 'edit' || category === 'create' || category === 'read') && action.subject) {
 			const seen = subjects.get(category) ?? new Set<string>()
 			seen.add(action.subject)
 			subjects.set(category, seen)

@@ -109,6 +109,11 @@ export const GrepTool = defineTool({
 			label: `Search ${input.pattern} in ${input.path ?? '.'}`,
 			presentation: 'activity',
 			activity: 'exploration',
+			facts: {
+				kind: 'search',
+				pattern: input.pattern,
+				...(input.path !== undefined ? { path: input.path } : {}),
+			},
 		}
 	},
 	timeoutMs: 15_000,
@@ -265,6 +270,15 @@ export const GrepTool = defineTool({
 			success: failure === undefined,
 			output: [results.join('\n'), summary, notice].filter(Boolean).join('\n\n'),
 			data: { totalMatches, filesSearched, filesMatched, truncated },
+			facts: {
+				kind: 'search',
+				pattern: input.pattern,
+				...(input.path !== undefined ? { path: input.path } : {}),
+				matches: totalMatches,
+				filesMatched,
+				filesSearched,
+				truncated,
+			},
 			...(failure ? { error: failure } : {}),
 		}
 	},

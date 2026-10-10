@@ -146,7 +146,10 @@ flow(
 		await size(w, 900, 720);
 		await send(w, "Please clean the build");
 		await expect(approvalCard(w)).toBeVisible({ timeout: T });
-		await expect(approvalCard(w).getByText(`Runs on your computer in ${w.project}`, { exact: false })).toBeVisible();
+		// The project's name, never its folder: the full path rides the tooltip.
+		await expect(approvalCard(w).getByText("Runs in project.", { exact: false })).toBeVisible();
+		await expect(approvalCard(w).getByText(w.project, { exact: false })).toHaveCount(0);
+		assert.equal(await approvalCard(w).locator(".approval-consequence").getAttribute("title"), w.project);
 		await expect(approvalCard(w).getByText("deletes or overwrites files", { exact: false })).toBeVisible();
 		await expect(approvalCard(w).getByText("Enter rejects it", { exact: false })).toBeVisible();
 		await expect(approvalCard(w).getByRole("button", { name: "Reject" })).toBeFocused();
@@ -389,5 +392,268 @@ flow(
 		await expect(w.page.getByText("Attached text file", { exact: false })).toHaveCount(0);
 		await expect(w.page.getByText("gizli ek içerik", { exact: false })).toHaveCount(0);
 		await shot(w, "attachment-after-reload-1280");
+	},
+);
+
+// ---- Tool rows: what the transcript says about reads, searches, edits, commands and failures ----
+// Pictures: research/hygiene-20261010/transcript-tools/, dark and light at 1280 and 900 wide.
+const TOOL_SHOTS = join(repoRoot, "research/hygiene-20261010/transcript-tools");
+mkdirSync(TOOL_SHOTS, { recursive: true });
+
+const ANSI =
+	"printf '\\033[31mred\\033[0m \\033[1;32mgreen\\033[0m \\033[4mund\\033[0m\\n'";
+const RANDOM_BYTES = "head -c 3000 /dev/urandom";
+const SEQ = "seq 1 600";
+const FAILING = "echo partial; echo oops >&2; ls /nonexistent; exit 3";
+const TOOL_TOUR = {
+	match: /tour of the tools/i,
+	steps: [
+		{ tool: "read", args: { path: "a.ts" } },
+		{ tool: "read", args: { path: "b.ts" } },
+		{ tool: "read", args: { path: "Çalışma-ğüş.md" } },
+		{ tool: "grep", args: { pattern: "export", path: "." } },
+		{ tool: "glob", args: { pattern: "**/*.ts" } },
+		{ tool: "read", args: { path: "nope/missing.txt" } },
+		{ tool: "ls", args: { path: "." } },
+		{
+			tool: "edit",
+			args: {
+				path: "a.ts",
+				old_string: "a = 1",
+				new_string: "a = 2\nexport const a2 = 3",
+			},
+		},
+		{ tool: "write", args: { path: "new/deep/n.txt", content: "one\ntwo\n" } },
+		{ tool: "bash", args: { command: ANSI } },
+		{ tool: "bash", args: { command: RANDOM_BYTES } },
+		{ tool: "bash", args: { command: SEQ } },
+		{ tool: "bash", args: { command: FAILING } },
+		{ text: "Tour finished." },
+	],
+};
+
+async function appearance(w, mode) {
+	await w.page.evaluate((value) => {
+		localStorage.setItem("namzu.appearance", value);
+		window.dispatchEvent(
+			new StorageEvent("storage", { key: "namzu.appearance", newValue: value }),
+		);
+	}, mode);
+	if (mode === "dark") await expect(w.page.locator("html")).toHaveClass(/dark/);
+	else await expect(w.page.locator("html")).not.toHaveClass(/dark/);
+}
+
+/** Every transition and animation on the page has finished: a picture of a half-faded colour proves nothing. */
+const settled = (w) =>
+	expect
+		.poll(
+			() =>
+				w.page.evaluate(
+					() =>
+						document.getAnimations().filter((a) => a.playState === "running")
+							.length,
+				),
+			{ timeout: T },
+		)
+		.toBe(0);
+
+/** Both themes at both widths of whatever is on screen, scrolled so `focus` is in the middle. */
+async function shootTool(w, name, focus) {
+	for (const width of [1280, 900]) {
+		await size(w, width, 820);
+		await expect
+			.poll(() => w.page.evaluate(() => Math.round(window.innerWidth)), {
+				timeout: T,
+			})
+			.toBeLessThanOrEqual(width);
+		for (const mode of ["dark", "light"]) {
+			await appearance(w, mode);
+			await focus?.evaluate((node) => node.scrollIntoView({ block: "center" }));
+			await settled(w);
+			await w.page.screenshot({
+				path: join(TOOL_SHOTS, `${name}-${width}-${mode}.png`),
+			});
+		}
+	}
+	await size(w, 1280, 820);
+	await appearance(w, "dark");
+}
+
+/** The row whose headline starts with this text. */
+const toolRow = (w, text) =>
+	w.page.locator(".tool[data-tool-call-id]").filter({ hasText: text }).first();
+
+flow(
+	"every tool row reads as one plain line, and its output as colour, notes or a folded block",
+	{
+		rules: [TOOL_TOUR],
+		files: {
+			"a.ts": "export const a = 1\n",
+			"b.ts": "export const b = 2\n",
+			"Çalışma-ğüş.md": "# Günlük\n",
+		},
+	},
+	async (w) => {
+		await openProject(w);
+		await send(w, "Give me a tour of the tools");
+		// Each change and command asks first; the card names where it runs and which file it touches.
+		await expect(approvalCard(w)).toBeVisible({ timeout: T });
+		await expect(
+			approvalCard(w).getByText("Changes a.ts.", { exact: false }),
+		).toBeVisible();
+		assert.equal(
+			await approvalCard(w)
+				.locator(".approval-consequence")
+				.getAttribute("title"),
+			join(w.project, "a.ts"),
+		);
+		await w.page.screenshot({
+			path: join(TOOL_SHOTS, "approval-edit-1280-dark.png"),
+		});
+		await w.page.keyboard.press("Enter");
+		await expect(
+			approvalCard(w).getByText("Adds a new file, new/deep/n.txt.", {
+				exact: false,
+			}),
+		).toBeVisible({ timeout: T });
+		await expect(
+			approvalCard(w).getByText(w.project, { exact: false }),
+		).toHaveCount(0);
+		await w.page.screenshot({
+			path: join(TOOL_SHOTS, "approval-create-1280-dark.png"),
+		});
+		await w.page.keyboard.press("Enter");
+		for (const command of [ANSI, RANDOM_BYTES, SEQ, FAILING]) {
+			await expect(
+				approvalCard(w).getByText("Runs in project.", { exact: false }),
+			).toBeVisible({ timeout: T });
+			await expect(approvalCard(w).locator(".approval-command")).toHaveText(
+				command,
+			);
+			if (command === ANSI)
+				await w.page.screenshot({
+					path: join(TOOL_SHOTS, "approval-command-1280-dark.png"),
+				});
+			await w.page.keyboard.press("Enter");
+		}
+		await expect(w.page.getByText("Tour finished.")).toBeVisible({
+			timeout: T,
+		});
+
+		// The folded work: open it, then the run inside it.
+		const work = w.page.locator(".activity-trigger").first();
+		if ((await work.getAttribute("aria-expanded")) !== "true")
+			await work.click();
+		const group = w.page.locator(".tool-run-trigger").first();
+		await expect(group).toBeVisible();
+		if ((await group.getAttribute("aria-expanded")) !== "true")
+			await group.click();
+
+		// Headlines come from fields: no prefix, no wire text, no absolute path.
+		const page = w.page;
+		await expect(toolRow(w, "Read a.ts")).toBeVisible();
+		await expect(toolRow(w, "Read b.ts")).toBeVisible();
+		await expect(toolRow(w, "Read Çalışma-ğüş.md")).toBeVisible();
+		await expect(toolRow(w, "Searched for export")).toContainText("matches in");
+		await expect(toolRow(w, "Listed **/*.ts")).toBeVisible();
+		await expect(
+			toolRow(w, "Couldn't read missing.txt: file not found"),
+		).toBeVisible();
+		await expect(
+			toolRow(w, "Namzu tried a tool it doesn't have (ls)"),
+		).toBeVisible();
+		await expect(toolRow(w, "Edited a.ts")).toBeVisible();
+		await expect(toolRow(w, "Edited a.ts")).toContainText("+2");
+		await expect(toolRow(w, "Created n.txt")).toBeVisible();
+		await expect(toolRow(w, "Ran printf")).toBeVisible();
+		await expect(toolRow(w, "Ran head -c 3000 /dev/urandom")).toBeVisible();
+		await expect(toolRow(w, "Ran seq 1 600")).toBeVisible();
+		await expect(toolRow(w, `Ran ${FAILING}`)).toContainText("failed (exit 3)");
+		const transcript = await page.locator(".normal-transcript").innerText();
+		for (const forbidden of [
+			"STDOUT",
+			"STDERR",
+			"Error:",
+			"ENOENT",
+			"replacement(s)",
+			"match(es)",
+			"credential",
+			"withheld",
+			"retained output",
+			"host-authorized",
+			"�",
+			"\u001b",
+			w.project,
+		]) {
+			assert.ok(
+				!transcript.includes(forbidden),
+				`the transcript never shows ${JSON.stringify(forbidden)}`,
+			);
+		}
+		const header = (await group.innerText()).replace(/\s+/g, " ");
+		assert.match(
+			header,
+			/^Read \d+ files?, searched \d+ times?/,
+			`the group header counts by kind: ${header}`,
+		);
+		await shootTool(w, "tour-collapsed", group);
+
+		// Output: colour drawn, bytes never dumped, a long one folded, an error under its own label.
+		await toolRow(w, "Ran printf").locator(".tool-trigger").click();
+		await expect(toolRow(w, "Ran printf").locator(".ansi-red")).toHaveText(
+			"red",
+		);
+		await expect(
+			toolRow(w, "Ran printf").locator(".ansi-green.ansi-bold"),
+		).toHaveText("green");
+		await expect(
+			toolRow(w, "Ran printf").locator(".ansi-underline"),
+		).toHaveText("und");
+		assert.equal(
+			await toolRow(w, "Ran printf").locator(".tool-output").innerText(),
+			"red green und",
+			"the output is the words, with no escape text left",
+		);
+		await toolRow(w, "Ran head -c 3000").locator(".tool-trigger").click();
+		await expect(toolRow(w, "Ran head -c 3000")).toContainText(
+			"Binary output, 3 KB",
+		);
+		await toolRow(w, "Ran seq 1 600").locator(".tool-trigger").click();
+		const seq = toolRow(w, "Ran seq 1 600");
+		await expect(seq.getByRole("button", { name: "Show more" })).toBeVisible();
+		await expect(seq).toContainText("588 lines not shown");
+		assert.ok(
+			!(await seq.innerText()).includes("\n300\n"),
+			"the middle of a long output is folded away",
+		);
+		await toolRow(w, "failed (exit 3)").locator(".tool-trigger").click();
+		const failing = toolRow(w, "failed (exit 3)");
+		// Both streams exist, so the errors sit under their own quiet label.
+		await expect(failing.locator(".tool-output-label")).toHaveText("Errors");
+		await expect(failing).toContainText("partial");
+		await expect(failing).toContainText("oops");
+		await shootTool(w, "tour-open", failing);
+
+		await seq.getByRole("button", { name: "Show more" }).click();
+		await expect(seq.getByRole("button", { name: "Show less" })).toBeVisible();
+		await expect(seq).toContainText("480 lines not shown");
+		// No row scrolls sideways: output wraps.
+		const wide = await page.evaluate(
+			() =>
+				[
+					...document.querySelectorAll(
+						".tool-output, .tool-content, .tool-label",
+					),
+				].filter((node) => {
+					const style = getComputedStyle(node);
+					return (
+						node.scrollWidth > node.clientWidth + 1 &&
+						style.overflowX !== "hidden" &&
+						style.textOverflow !== "ellipsis"
+					);
+				}).length,
+		);
+		assert.equal(wide, 0, "no tool output scrolls sideways");
+		await shootTool(w, "tour-expanded", seq);
 	},
 );

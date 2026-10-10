@@ -2254,7 +2254,8 @@ drawn by `@pierre/diffs` 1.5.2 (exact); the worker pool is not used because a wo
 
 A finished turn reads "Worked for 4m 17s" when its duration is known: the host's
 start and end, the journal's recorded duration, or the host start and the last time
-seen in the turn, in that order. Otherwise it reads "Worked" with no figure.
+seen in the turn, in that order. Otherwise it reads "Worked" with no figure, and so does work that
+took under a second ("Worked for 0s" tells nobody anything).
 
 A sent message shows its image attachments as a right-aligned stack of thumbnail
 cards (200px square, cropped to fill) above the bubble, and text files as compact
@@ -2409,25 +2410,52 @@ rows inside the same run.
 
 | Action | Row | On hover or focus | On click |
 | --- | --- | --- | --- |
-| Command | Running command, Ran command, Command failed | the command, one line, 200 characters at most | opens the command and its output |
-| Edit | Editing, Edited, Created or Deleted *name*; Waiting to edit; Couldn't edit | the full path | the Changes panel on that file for that reply |
-| Read | Reading, Read *name* | the full path | the file in a tab |
-| Search | Searched for *pattern*, Listed files in *folder* (60 characters, whole text in the tooltip) | the whole text | opens the results when there are any |
+| Command | Running *command*, Ran *command*, then ` · failed (exit 3)`, ` · timed out` or ` · stopped` when it did not succeed (the first line of the command, 60 characters at most, ending in …) | the whole command | opens its output |
+| Edit | Editing, Edited, Updated, Created or Deleted *name* with the lines added and removed (`+2 −1`); Waiting to edit; Couldn't change | the full path | the Changes panel on that file for that reply |
+| Read | Reading, Read *name*; ` · Binary file, 4 KB` for a file that is not text | the full path | the file in a tab |
+| Search | Searched for *pattern* · 2 matches in 2 files; Listed *pattern* · 5 files (` in src` for a folder other than the project's, ", more not shown" when the tool stopped early) | the whole text, "in this folder" for the project's own | nothing; the counts are the answer |
+| Failure | Couldn't read *name*: file not found; Blocked: this command needs administrator rights; Blocked: this command isn't allowed; Namzu tried a tool it doesn't have (*name*); Couldn't change *name*: it already exists | the full path or the command | nothing |
 
-Created and Deleted come from the receipt: an empty before is a creation, an empty
-after a deletion. The file name is the last path segment with a dotted underline; a
-relative path is shown in full against the conversation's folder, with `.` and `..`
-resolved. Screen readers get the command or the path as the row's description. An edit never expands
-in the transcript; its Before and After live in the Changes panel. When the reply has
-no completed receipt for the path yet (or the path was never receipted) the click opens
-the file instead. Status and time show on hover; a failure always shows. A row never draws a
-clock: a call that took a second or more says "Took 6 s" in its hover text and to screen readers,
-and a faster one says nothing.
+Every word of these rows comes from typed fields the tools report beside their text, never from the text itself.
+`ToolResult.facts` (see [Tool execution](../sdk/tool-execution.md#what-a-call-did-as-fields)) carries the exit code and
+the two streams of a command, the path and size of a read, the counts of a search, whether a write created the file,
+and the kind of a failure; the call's own view carries what it was about (`facts` on a generic `ToolCallView`)
+so a row reads "Reading a.ts" before the result is in. `shared/projection.ts` keeps `facts` on the tool, and
+`tool-transcript-presentation.ts` is the only place the words are chosen. A finished `edit` receipt is a sentence
+for the model, so the projection promotes the call's own before and after to the receipt once the tool reports
+that it edited the file: the Changes panel and the reply's card then count an edit the way they count a written
+file, and the card says **Created** when every file is new, **Edited** when none is and **Changed** when it is
+both. A conversation saved before tools reported facts keeps the older reading of the call's label for reads and
+searches.
+
+What a command row opens to is also drawn from fields. Colour is drawn with `anser` (maintained, no
+dependencies) as classes on text nodes, so no output is ever parsed as markup; the sixteen colours are tuned
+for both themes in `tool-output.css`, 256-colour and true-colour entries ride inline, and other escapes
+(cursor moves, window titles) and a line a program rewrote with a carriage return are removed. Output that is not
+text is never drawn: the row opens to "Binary output, 3 KB" (a kilobyte is 1,000 bytes). There are no `STDOUT:` or `STDERR:` labels;
+when both streams printed, the errors sit under a quiet **Errors** label. The SDK sends each stream as its first
+80 lines, its last 40 and a count of what lay between (`ToolTextWindow`); the row shows the first 8 lines, a line
+saying how many are not shown, and the last 4, with **Show more** for the whole window (and **Show less**). The
+note the runtime adds when a command's output had to be shortened for the model, the path of the saved copy and
+the note about credential variables that were withheld from the command are the model's text and are never
+drawn. Text wraps; a block taller than 28rem scrolls inside itself, never sideways.
+
+Created, Updated and Deleted come from the write's own fields (or, for a receipt without them, an empty before
+or after). The file name is the last path segment with a dotted underline; a relative path is shown in full against
+the conversation's folder, with `.` and `..` resolved. Screen readers get the command or the path as the row's
+description. An edit never expands in the transcript; its Before and After live in the Changes panel. When the
+reply has no completed receipt for the path yet (or the path was never receipted) the click opens the file
+instead. Status and time show on hover; a failure always shows. A row never draws a clock: a call that took a
+second or more says "Took 6 s" in its hover text and to screen readers, and a faster one says nothing.
+
+A row's tail ("· failed (exit 3)", "· 2 matches in 2 files", the `+2 −1`) never shrinks: only the words before
+it are cut with an ellipsis. A run's summary row carries its whole text as its tooltip.
 
 A reopened conversation names each action the way the live row did. The kernel journals one label
 line (200 characters at most) for every call that has no diff, or a command's first line, never the
-output, so "Added task · Map the repo", "Ran agent explore" and "Ran command" read the same after a
-reload; an engine's own tools are named by a small map (shell, read, edit, write, search, agent,
+output, so "Added task · Map the repo", "Ran agent explore" and "Ran npm test" read the same after a
+reload, together with the call's `facts` (a command's streams are dropped, so a restored row keeps its exit code and
+never its output); an engine's own tools are named by a small map (shell, read, edit, write, search, agent,
 task list) and anything else reads "Used" plus its name in words. A call whose view was never saved
 (an older conversation) reads "Used" plus its name, is not expandable, and says "Details were not
 saved" in its hover text. A command that printed nothing has nothing to open. Opening a small panel
@@ -2437,7 +2465,7 @@ a third of the view pauses following as before.
 Consecutive actions between two pieces of narration form a run. A run of two or more
 gets a summary row, with a pencil if it holds an edit and otherwise the icon of its most
 common kind, and a counted label in order of first appearance: "Edited a file, ran 2
-commands", "Read 4 files", "Searched 3 times", "Used 2 tools" (a file counts once however
+commands", "Read 4 files", "Searched 3 times", "Used 2 tools", "Created a file" (a file counts once however
 often it was edited; live it reads "Editing a file, running commands"; a failure adds
 ", 1 failed" so a folded run does not read as all done). A run is open while it works,
 and a run the person watched work stays open when it ends (the block around it folds, so
@@ -2846,7 +2874,9 @@ mark is its own name). `e2e/composer-popups.test.mjs` measures every step on the
 engines at four window sizes in both themes.
 
 An approval card sits wholly above the composer, with a gap, and "Waiting for your decision" is the
-line directly above it. The transcript keeps that wording for assistive technology only, so it no longer
+line directly above it. A command's card says "Runs in *project name*." (the full folder is the sentence's tooltip),
+and a file's card gives its path relative to the project ("Adds a new file, new/deep/n.txt.", "Changes a.ts."), or
+`~`-shortened with a middle ellipsis outside it, with the full path as the tooltip (`path-display.ts`). The transcript keeps that wording for assistive technology only, so it no longer
 floats far above the card. The `+3 lines` badge says what it counts, **Wrap lines** is a labelled button,
 and **Stop** is the same red button while a decision is awaited as while a reply runs. The Queue control
 reads **Queue message**. When the file a write would change already holds exactly that text, the CLI's

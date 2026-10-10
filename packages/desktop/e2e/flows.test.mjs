@@ -354,7 +354,7 @@ flow(
 			timeout: T,
 		});
 		// The plan sits inside the folded work summary of the turn.
-		const worked = w.page.getByRole("button", { name: /^Worked for/ });
+		const worked = w.page.getByRole("button", { name: /^Worked/ });
 		if ((await worked.getAttribute("aria-expanded")) !== "true")
 			await worked.click();
 		await expect(worked).toHaveAttribute("aria-expanded", "true");

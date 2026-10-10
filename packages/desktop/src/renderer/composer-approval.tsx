@@ -14,6 +14,7 @@ import {
 	FEEDBACK_NOTE_MAX,
 	PAL_TERMINAL_START,
 	approvalConsequence,
+	approvalConsequenceTitle,
 	approvalWarning,
 	buildApprovalCard,
 	declineFeedback,
@@ -156,6 +157,7 @@ export function ComposerApproval({
 	palRunning,
 	count,
 	folder,
+	projectName,
 	onRespond,
 }: {
 	permission: PermissionView
@@ -165,6 +167,8 @@ export function ComposerApproval({
 	count: number
 	/** The folder the conversation works in, named on a command so the person knows where it runs. */
 	folder?: string | undefined
+	/** The project's name, which a command's approval gives as the place it runs. */
+	projectName?: string | undefined
 	onRespond: (permission: PermissionView, response: PermissionResponse) => unknown
 }) {
 	const model = useMemo(() => buildApprovalCard(permission, palNames), [permission, palNames])
@@ -246,7 +250,8 @@ export function ComposerApproval({
 		}
 	}
 
-	const consequence = approvalConsequence(model, folder)
+	const consequence = approvalConsequence(model, folder, projectName)
+	const consequenceTitle = approvalConsequenceTitle(model, folder)
 	const hasDiff = Boolean(model.diff) && !model.unchanged
 	const showDetails = !(model.diff && !model.diff.fragment) || permission.calls.length > 1
 	const showWarning = model.destructive && model.kind !== 'create' && !model.unchanged
@@ -331,7 +336,9 @@ export function ComposerApproval({
 									</dl>
 								)}
 								{consequence && !showWarning && !model.unchanged && (
-									<p className="approval-note approval-consequence">{consequence}</p>
+									<p className="approval-note approval-consequence" title={consequenceTitle}>
+										{consequence}
+									</p>
 								)}
 								{model.others.length > 0 && (
 									<p className="approval-note">

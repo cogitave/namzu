@@ -220,6 +220,7 @@ describe('glob keeps the requested search scope', () => {
 			label: 'Find * in /home/arda',
 			presentation: 'activity',
 			activity: 'exploration',
+			facts: { kind: 'list', pattern: '*', path: '/home/arda' },
 		})
 	})
 })

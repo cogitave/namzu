@@ -236,6 +236,7 @@ function ToolRun({
 		kind: item.kind,
 		subject: item.file?.path,
 		state: item.state,
+		created: item.operation === 'created',
 	}))
 	const lookups = presentations.length > 0 && presentations.every((item) => item.kind === 'lookup')
 	const label = lookups
@@ -265,7 +266,9 @@ function ToolRun({
 		>
 			<CollapsibleTrigger className="tool-trigger tool-run-trigger">
 				<Icon className="tool-icon" aria-hidden="true" />
-				<span className="tool-label">{label}</span>
+				<span className="tool-label" title={label}>
+					{label}
+				</span>
 				<ChevronRightIcon className="disclosure-chevron" aria-hidden="true" />
 			</CollapsibleTrigger>
 			<CollapsiblePanel keepMounted>

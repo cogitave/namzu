@@ -306,7 +306,7 @@ it('lets a genuine resumed call replace its saved receipt rather than duplicatin
 	)
 	expect(toolTranscriptPresentation(thread, '2:same')).toMatchObject({
 		state: 'running',
-		label: 'Running command',
+		label: 'Running actual resumed command',
 		tooltip: 'actual resumed command',
 	})
 	expect(thread.tools['2:same']?.historicalStatus).toBeUndefined()
@@ -432,4 +432,44 @@ it('names the agent and task tools the way the SDK saved-view map does', () => {
 	expect(knownActionLabel('close_agent')).toBe('Stopped agent')
 	expect(knownActionLabel('interruptAgent')).toBe('Stopped agent')
 	expect(knownActionLabel('write')).toBeUndefined()
+})
+
+it('restores what a call did as fields, drops extra fields, and never keeps a command stream', () => {
+	const work = snapshot()
+	work.tools = [
+		{
+			turnId: 't1',
+			toolUseId: 'run',
+			name: 'bash',
+			order: 4,
+			status: 'failed',
+			presentation: { kind: 'terminal', command: 'npm test', output: '' },
+			facts: {
+				kind: 'command',
+				command: 'npm test',
+				exitCode: 3,
+				stderr: { head: 'secret output', totalLines: 1, totalBytes: 13 },
+				extra: 'x',
+			},
+		} as never,
+		{
+			turnId: 't2',
+			toolUseId: 'bad',
+			name: 'read',
+			order: 12,
+			status: 'completed',
+			facts: { kind: 'teleport' },
+		} as never,
+	]
+	const restored = restoreHistoryWork(emptyThread(), messages, work)
+	expect(restored.tools['1:run']?.facts).toEqual({
+		kind: 'command',
+		command: 'npm test',
+		exitCode: 3,
+	})
+	expect(restored.tools['2:bad']?.facts).toBeUndefined()
+	expect(toolTranscriptPresentation(restored, '1:run')).toMatchObject({
+		label: 'Ran npm test · failed (exit 3)',
+		state: 'failed',
+	})
 })

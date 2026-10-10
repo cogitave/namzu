@@ -4,7 +4,7 @@ import type { AssistantTextPart, DocumentAttachment, ImageAttachment } from '../
 import type { ReasoningEffort } from '../provider/chat.js'
 import type { MessageStopReason } from '../session/stop-reason.js'
 import type { TaskStatus } from '../task/index.js'
-import type { ToolCallView } from '../tool/presentation.js'
+import type { ToolCallView, ToolFacts } from '../tool/presentation.js'
 
 /**
  * The wire shapes an editor or an orchestrator sees.
@@ -238,6 +238,12 @@ export type AcpSessionUpdate =
 			readonly title: string
 			readonly status: 'pending' | 'completed' | 'failed'
 			readonly view: ToolCallView
+			/**
+			 * What a finished call did, as typed fields (`ToolResult.facts`): the
+			 * exit code and streams of a command, the path of a read. A host builds
+			 * the person's view from these and not from the text in `view`.
+			 */
+			readonly facts?: ToolFacts
 			/** Runtime-measured execution duration, present on completed calls when known. */
 			readonly durationMs?: number
 			/** Live progress for this call; preserve its prior presentation while updating. */
