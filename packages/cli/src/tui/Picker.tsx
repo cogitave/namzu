@@ -1832,13 +1832,17 @@ function ModelStepView({
 							{ text: 'PgUp/PgDn', rank: 1 },
 							{ text: 'Home/End', rank: 1 },
 							{ text: 'enter apply', rank: 5 },
+							// Ranked with the other keys that must stay, and said short
+							// before anything is dropped: at 40 columns the line is
+							// `↑↓ select · enter apply · esc keep`.
 							{
 								text: returnToProviders
 									? 'esc back'
 									: cancelExits
 										? 'esc or ctrl+c exit'
 										: 'esc keep current',
-								rank: 4,
+								short: returnToProviders ? undefined : cancelExits ? 'esc exit' : 'esc keep',
+								rank: 5,
 							},
 							...(returnToProviders || cancelExits ? [] : [{ text: 'ctrl+c exit', rank: 1 }]),
 							query === null ? { text: '1–9 select', rank: 2 } : { text: 'ctrl+u clears', rank: 2 },
@@ -2330,6 +2334,13 @@ function rowWindow(
 	while (end < rows.length && used + (heights[end] ?? 1) <= budget) {
 		used += heights[end] ?? 1
 		end += 1
+	}
+	// Near the end of the list there is nothing below to fill the other half of
+	// the budget, so what is left goes above the cursor: a row is hidden only
+	// when it does not fit, never because the cursor is centred.
+	while (start > 0 && used + (heights[start - 1] ?? 1) <= budget) {
+		start -= 1
+		used += heights[start] ?? 1
 	}
 	return { start, items: rows.slice(start, end) }
 }

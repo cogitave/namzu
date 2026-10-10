@@ -92,3 +92,20 @@ describe('fitHintText', () => {
 		expect(fitHintText('forking conversation — input is paused', 20)).toBe('forking…')
 	})
 })
+
+it('keeps enter and the key that leaves at 34 columns for the model list that keeps the current model', () => {
+	expect(
+		fitHints(
+			[
+				{ text: '↑↓ select', rank: 5 },
+				{ text: 'PgUp/PgDn', rank: 1 },
+				{ text: 'Home/End', rank: 1 },
+				{ text: 'enter apply', rank: 5 },
+				{ text: 'esc keep current', short: 'esc keep', rank: 5 },
+				{ text: 'ctrl+c exit', rank: 1 },
+				{ text: '1–9 select', rank: 2 },
+			],
+			34,
+		),
+	).toBe('↑↓ select · enter apply · esc keep')
+})

@@ -506,3 +506,8 @@ describe('Zen group headings', () => {
 		expect(step.choices[0]?.note).toBe('(namzu default · free)')
 	})
 })
+
+it('does not double the full stop when the reason a listing failed already ends in one', () => {
+	const step = modelStep(DEFAULT, { kind: 'failed', reason: 'Connection error.' })
+	expect(step.notice).toBe('Could not list models: Connection error. Showing namzu’s pick for it.')
+})

@@ -23,6 +23,7 @@ import { parseModelSelectionIntent } from './model-selection-intent.js'
 import { formatSize } from './person-terms.js'
 import { explainFailure } from './plain-failure.js'
 import { type SlashCommand, matchSlashCommands } from './slashCommands.js'
+import { wrapChoiceText } from './terminal-choice-text.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
 import { tagRow } from './triggers/copy.js'
@@ -314,6 +315,25 @@ export function suggestionWindowSize(rows: number | undefined): number {
 		MAX_SUGGESTIONS,
 		Math.max(MIN_SUGGESTIONS, Math.floor((rows - SUGGESTION_FURNITURE_ROWS) / 2)),
 	)
+}
+
+/**
+ * A command's description in at most two lines at this width.
+ *
+ * The menu budgets two rows for each option, and a description that wraps to
+ * four at 40 columns pushed the menu past the top of the screen. The last line
+ * ends in `…` where the description goes on, so nothing is cut without saying so.
+ */
+export function clampDescription(description: string, width: number): readonly string[] {
+	const lines = wrapChoiceText(description, width)
+	if (lines.length <= 2) return lines
+	const second = lines[1] ?? ''
+	const room = Math.max(1, width - 1)
+	const cut =
+		second.length > room
+			? second.slice(0, room).replace(/\s+\S*$/, '') || second.slice(0, room)
+			: second
+	return [lines[0] ?? '', `${cut.trimEnd()}…`]
 }
 
 function graphemeBoundaries(source: string): number[] {
@@ -637,6 +657,10 @@ export function Composer({
 		24,
 		Math.max(10, ...visibleCommandSuggestions.map((command) => command.name.length + 4)),
 	)
+	// The menu sits inside the message frame: its border and padding take four
+	// columns and the menu's own padding two more.
+	const menuTextWidth = Math.max(1, (terminal.columns ?? 80) - 6)
+	const descriptionWidth = Math.max(8, menuTextWidth - commandColumnWidth - 1)
 
 	/**
 	 * Replace the whole draft. `spans` says which characters were not typed
@@ -1444,10 +1468,12 @@ export function Composer({
 										{absoluteIndex === selIdx ? '› ' : '  '}/{cmd.name}
 									</Text>
 								</Box>
-								<Box flexGrow={1} minWidth={0}>
-									<Text color={theme.text.muted} wrap="wrap">
-										{cmd.description}
-									</Text>
+								<Box flexGrow={1} minWidth={0} flexDirection="column">
+									{clampDescription(cmd.description, descriptionWidth).map((line, at) => (
+										<Text key={`${cmd.name}:${at}`} color={theme.text.muted} wrap="truncate-end">
+											{line}
+										</Text>
+									))}
 								</Box>
 							</Box>
 						)
@@ -1459,9 +1485,9 @@ export function Composer({
 								{ text: '↑↓ select', rank: 5 },
 								{ text: 'PgUp/PgDn jump', short: 'PgUp/PgDn', rank: 1 },
 								{ text: 'enter run', rank: 5 },
-								{ text: 'tab complete', short: 'tab', rank: 3 },
+								{ text: 'tab complete', rank: 3 },
 							],
-							Math.max(1, (terminal.columns ?? 80) - 4),
+							menuTextWidth,
 						)}
 					</Text>
 				</Box>
@@ -1487,7 +1513,7 @@ export function Composer({
 								{ text: 'PgUp/PgDn jump', short: 'PgUp/PgDn', rank: 1 },
 								{ text: 'enter / tab insert', short: 'enter insert', rank: 4 },
 							],
-							Math.max(1, (terminal.columns ?? 80) - 4),
+							menuTextWidth,
 						)}
 					</Text>
 				</Box>

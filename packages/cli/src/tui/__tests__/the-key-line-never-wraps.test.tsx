@@ -177,4 +177,20 @@ describe('a list that does not fit', () => {
 			}
 		},
 	)
+
+	it.each([80, 116, 160])(
+		'hides nothing at %i columns by 24 rows when the cursor is on the last row and everything fits',
+		async (cols) => {
+			const screen = await open(cols, 24, zenOnly())
+			for (let cursor = 3; cursor <= SEVEN_VENDORS; cursor++) {
+				screen.press('\x1b[B')
+				await vi.waitFor(async () => {
+					await screen.waitForRender()
+					expect(screen.viewport().join('\n')).toContain(`› ${cursor}.`)
+				})
+			}
+			expect(numbers(screen)).toEqual([1, 2, 3, 4, 5, 6, 7])
+			expect(screen.viewport().join('\n')).not.toMatch(/[↑↓] \d+ more/)
+		},
+	)
 })

@@ -154,7 +154,9 @@ export function modelStep(
 		)
 	}
 	if (listing.kind === 'failed') {
-		return fallback(`Could not list models: ${listing.reason}. Showing namzu’s pick for it.`)
+		// The reason is a sentence of its own and usually ends in a full stop.
+		const reason = listing.reason.replace(/[.\s]+$/, '')
+		return fallback(`Could not list models: ${reason}. Showing namzu’s pick for it.`)
 	}
 	if (listing.models.length === 0) {
 		return fallback('The provider returned no models. Showing namzu’s pick for it.')
