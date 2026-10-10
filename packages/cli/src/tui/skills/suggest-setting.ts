@@ -13,6 +13,7 @@
 import { formatConfigSource } from '../../config/debug.js'
 import { type LoadConfigOptions, loadConfigWithProvenance } from '../../config/load.js'
 import { setUserConfigValue } from '../../config/user-config.js'
+import { explainFailure } from '../plain-failure.js'
 
 export interface SkillSuggestionsWrite {
 	/** The user config written, or absent when the write failed. */
@@ -36,7 +37,7 @@ export function setSkillSuggestions(
 		})
 	} catch (error) {
 		return {
-			message: `Could not save skills.suggest: ${error instanceof Error ? error.message : String(error)} This session ${on ? 'suggests skills' : 'stops suggesting skills'} until it ends.`,
+			message: `${explainFailure(error, 'Could not save that setting.')} This conversation ${on ? 'suggests skills' : 'stops suggesting skills'} until it ends.`,
 		}
 	}
 	const saved = on
@@ -48,7 +49,7 @@ export function setSkillSuggestions(
 	} catch (error) {
 		return {
 			file,
-			message: `${saved} Could not check the other config files (${error instanceof Error ? error.message : String(error)}), so a project, profile or managed skills block may still override it when namzu next starts; this session follows your choice.`,
+			message: `${saved} ${explainFailure(error, 'Could not check the other config files.')} A project, profile or managed skills block may still override it when namzu next starts; this conversation follows your choice.`,
 		}
 	}
 	const effective = resolved.config.skills?.suggest ?? true

@@ -63,7 +63,10 @@ it('resolves only authenticated exact IDs or unique complete version suffixes', 
 				],
 			}),
 		}),
-	).toMatchObject({ kind: 'rejected', reason: expect.stringContaining('ambiguous') })
+	).toMatchObject({
+		kind: 'rejected',
+		reason: expect.stringContaining('matches more than one model'),
+	})
 })
 
 it('recognizes Turkish dative requests and resolves catalogue IDs before suffix removal', async () => {

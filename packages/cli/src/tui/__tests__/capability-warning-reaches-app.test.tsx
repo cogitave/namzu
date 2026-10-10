@@ -97,7 +97,7 @@ it('renders the real DeepSeek text-model refusal without a false driver warning'
 	await tick()
 	harness.stdin.write('\r')
 	await until(
-		() => harness.frames.join('\n').includes('Error:'),
+		() => harness.frames.join('\n').includes('does not accept image input'),
 		'the provider refusal did not reach the transcript',
 	)
 
@@ -105,7 +105,7 @@ it('renders the real DeepSeek text-model refusal without a false driver warning'
 	// coupling the observer to whichever word happened to cross this width.
 	const rendered = harness.frames.join('\n').replace(/\s+/g, ' ')
 	expect(rendered).not.toContain('Capability warning (vision)')
-	expect(rendered).toContain("model 'deepseek-v4-flash' does not accept image input")
+	expect(rendered).toContain("Model 'deepseek-v4-flash' does not accept image input")
 	expect(rendered).toContain("Select 'deepseek-v4-flash-vision-exp'")
 	expect(network).not.toHaveBeenCalled()
 })

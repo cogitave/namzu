@@ -1,3 +1,4 @@
+import { explainFailure } from './plain-failure.js'
 import { Box, Text, useInput } from 'ink'
 import { useEffect, useRef, useState } from 'react'
 import { discoverProviders } from '../integrations/providers/discover.js'
@@ -31,7 +32,7 @@ export function ProviderSetup({
 					setOutput('Choose a provider. Installation and sign-in are separate steps.')
 			})
 			.catch((error) => {
-				if (!controller.signal.aborted) setOutput(String(error))
+				if (!controller.signal.aborted) setOutput(explainFailure(error, 'Could not check this provider.'))
 			})
 			.finally(() => {
 				if (!controller.signal.aborted) setBusy(false)
@@ -67,7 +68,7 @@ export function ProviderSetup({
 						: `Installation failed (exit ${result.code ?? 'unknown'}).\n${result.output}`,
 			)
 		} catch (error) {
-			if (!lifetime.current?.signal.aborted) setOutput(String(error))
+			if (!lifetime.current?.signal.aborted) setOutput(explainFailure(error, 'Could not check this provider.'))
 		} finally {
 			operation.current = null
 			if (!lifetime.current?.signal.aborted) setBusy(false)
@@ -99,7 +100,7 @@ export function ProviderSetup({
 		if (input === 'r') {
 			setBusy(true)
 			void refresh(lifetime.current!.signal)
-				.catch((error) => setOutput(String(error)))
+				.catch((error) => setOutput(explainFailure(error, 'Could not check this provider.')))
 				.finally(() => setBusy(false))
 		}
 	})

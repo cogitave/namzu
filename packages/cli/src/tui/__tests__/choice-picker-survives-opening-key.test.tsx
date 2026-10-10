@@ -327,7 +327,7 @@ it('keeps the real enabled state when a plugin change fails', async () => {
 	await waitUntil(screen, () => screen.viewport().join('\n').includes('Disable for this session'))
 	plugins.fail = true
 	screen.press('2')
-	await waitUntil(screen, () => screen.viewport().join('\n').includes('fixture activation refused'))
+	await waitUntil(screen, () => screen.viewport().join('\n').includes('Could not change plugin'))
 	expect(plugins.enabled).toBe(true)
 	expect(screen.viewport().join('\n')).toContain('Disable for this session')
 	expect(reviewPrompts).toEqual([])

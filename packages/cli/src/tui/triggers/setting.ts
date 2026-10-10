@@ -14,6 +14,7 @@ import { COMPOSER_TRIGGER_IDS, resolveComposerTriggers } from '../../config/comp
 import { formatConfigSource } from '../../config/debug.js'
 import { type LoadConfigOptions, loadConfigWithProvenance } from '../../config/load.js'
 import { setUserConfigValue } from '../../config/user-config.js'
+import { explainFailure } from '../plain-failure.js'
 
 type CascadeOptions = Pick<LoadConfigOptions, 'cwd' | 'env' | 'home' | 'profile' | 'managedPath'>
 
@@ -25,7 +26,7 @@ export function setComposerTriggers(on: boolean, opts: CascadeOptions = {}): str
 			...(opts.env ? { env: opts.env } : {}),
 		})
 	} catch (error) {
-		return `Could not save composerTriggers.enabled: ${error instanceof Error ? error.message : String(error)} This session ${on ? 'reads' : 'ignores'} composer triggers until it ends.`
+		return `${explainFailure(error, 'Could not save that setting.')} This conversation ${on ? 'reads' : 'ignores'} composer triggers until it ends.`
 	}
 	const saved = on
 		? `Composer triggers are on: hypermode and save-as-skill words in a message act for that message, shown before you send it (alt+w drops one). Saved composerTriggers.enabled: true to ${file}.`
@@ -34,7 +35,7 @@ export function setComposerTriggers(on: boolean, opts: CascadeOptions = {}): str
 	try {
 		resolved = loadConfigWithProvenance(opts)
 	} catch (error) {
-		return `${saved} Could not check the other config files (${error instanceof Error ? error.message : String(error)}); this session follows your choice.`
+		return `${saved} ${explainFailure(error, 'Could not check the other config files.')} This conversation follows your choice.`
 	}
 	const effective = resolveComposerTriggers(resolved.config.composerTriggers).enabled
 	if (effective === on) return saved
@@ -49,7 +50,7 @@ export function describeComposerTriggers(enabledNow: boolean, opts: CascadeOptio
 	try {
 		config = loadConfigWithProvenance(opts).config.composerTriggers
 	} catch (error) {
-		return `Could not read the config files: ${error instanceof Error ? error.message : String(error)}`
+		return explainFailure(error, 'Could not read the config files.')
 	}
 	const settings = resolveComposerTriggers(config)
 	return [

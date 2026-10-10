@@ -23,36 +23,36 @@ export function describeTurnStop(
 			return undefined
 		case 'token_budget':
 			if ((budget?.unresolvedRequests ?? 0) > 0)
-				return 'Turn stopped: usage for a model request could not be confirmed. /cost shows reported usage; the total remains uncertain.'
+				return 'Stopped: Namzu could not confirm how much the last model request used. /cost shows what was reported; the total is uncertain.'
 			if (budget?.poisoned)
-				return 'Turn stopped: usage accounting could not be verified. /cost shows the available measurements.'
-			return 'Turn stopped: the token allowance could not cover further work. /cost shows reported usage.'
+				return 'Stopped: usage could not be checked. /cost shows what was measured.'
+			return 'Stopped: the token limit for this reply was reached. /cost shows reported usage.'
 		case 'cost_limit':
-			return 'Turn stopped: the cost allowance could not cover further work. /cost shows reported usage.'
+			return 'Stopped: the cost limit was reached. /cost shows reported usage.'
 		case 'cost_unmeasurable':
-			return 'Turn stopped: missing pricing prevented checking the cost limit. /cost shows reported usage.'
+			return 'Stopped: the cost limit could not be checked (no price on file). /cost shows reported usage.'
 		case 'timeout':
-			return 'Turn stopped: the time limit was reached.'
+			return 'Stopped: the time limit was reached.'
 		case 'max_iterations':
-			return 'Turn stopped: the step limit was reached.'
+			return 'Stopped: the step limit was reached.'
 		case 'plan_rejected':
-			return 'Turn stopped: the plan was rejected.'
+			return 'Stopped: the plan was declined.'
 		case 'stop_condition':
-			return 'Turn stopped: the configured stop condition was met.'
+			return 'Stopped: a stop condition you set was met.'
 		case 'step_refused':
-			return 'Turn stopped: the next model call was refused.'
+			return 'Stopped: the next model request was refused.'
 		case 'structured_output_failed':
-			return 'Turn stopped: no valid structured result was produced.'
+			return 'Stopped: the reply did not match the required format.'
 		case 'answer_rejected':
-			return 'Turn stopped: the final answer was not accepted.'
+			return 'Stopped: the final answer was not accepted.'
 		case 'input_guardrail':
-			return 'Turn stopped: an input check refused this turn.'
+			return 'Stopped: an input check refused this message.'
 		case 'output_guardrail':
-			return 'Turn stopped: an output check refused the result.'
+			return 'Stopped: an output check refused the result.'
 		case 'paused':
-			return 'Turn paused.'
+			return 'Paused.'
 		case 'error':
-			return 'Turn stopped after an error.'
+			return 'Stopped after an error.'
 	}
 }
 
@@ -153,7 +153,7 @@ function describeHandoff(event: Extract<Interruption, { kind: 'paused' }>): stri
  * error code.
  */
 export const PAUSED_TURN_LINES = {
-	abandoned: 'Stopped the paused turn. Your next message starts a new one in this conversation.',
+	abandoned: 'Stopped the paused reply. Your next message starts a new one in this conversation.',
 	resuming: 'Continuing where it paused…',
 	abandonedScheduled: 'Stopped this run. The job stays scheduled.',
 } as const

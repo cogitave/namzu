@@ -184,7 +184,7 @@ it('resumes a rate-limited GPT checkpoint and sends the next turn through the se
 	await submit(screen, 'Help me with this task')
 	await until(
 		screen,
-		() => world.parked && screen.scrollback().join('\n').includes('Turn paused [provider.rate_limit]'),
+		() => world.parked && screen.scrollback().join('\n').includes('Paused: OpenAI is limiting requests right now.'),
 		'GPT turn did not pause with a rate limit',
 	)
 	expect(world.requests).toEqual([{ providerId: 'openai', operation: 'send' }])

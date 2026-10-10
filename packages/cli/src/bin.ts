@@ -3,6 +3,7 @@
 import { fileURLToPath } from 'node:url'
 
 import { runCli } from './cli.js'
+import { reportCrash } from './crash-report.js'
 import { EXIT_INTERNAL_ERROR } from './exit-codes.js'
 import { resumeInvocation } from './resume-invocation.js'
 import { terminationInProgress } from './termination.js'
@@ -21,9 +22,7 @@ runCli({
 	},
 	(err) => {
 		if (terminationInProgress() !== null) return
-		process.stderr.write(
-			`Fatal: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}\n`,
-		)
+		process.stderr.write(reportCrash(err))
 		process.exit(EXIT_INTERNAL_ERROR)
 	},
 )

@@ -164,9 +164,10 @@ describe.skipIf(!binding || process.platform === 'win32')(
 			const { screenHas } = await launch(['--provider', 'nonesuch'])
 			const screen = await screenHas(
 				(text) =>
-					text.includes('Choose a provider') && text.includes('Could not start with nonesuch'),
+					text.includes('Choose a provider') &&
+					text.includes('nonesuch is not a provider Namzu knows'),
 			)
-			expect(screen).toContain('Could not start with nonesuch')
+			expect(screen).toContain('nonesuch is not a provider Namzu knows')
 		}, 60_000)
 
 		it('reports an effort the model does not offer and keeps the default', async () => {

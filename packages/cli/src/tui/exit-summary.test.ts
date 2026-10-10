@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -10,16 +10,14 @@ import { removeTempDir } from '../__fixtures__/temp-dir.js'
 import { formatTuiExitSummary } from './exit-summary.js'
 
 describe('the shell handoff after the TUI exits', () => {
-	it('reopens a Pal through its owner and preserves an explicit launcher', () => {
+	it('reopens a Pal through its owner and prints the product command, not the launcher', () => {
 		expect(
 			formatTuiExitSummary(
 				{ conversationId: 'ses_owned', palId: 'pal_owned' },
 				{ cwd: '/private/control', command: ['/opt/node', '/checkout/bin.js'] },
 				'linux',
 			),
-		).toBe(
-			'To resume this conversation, run: /opt/node /checkout/bin.js pal chat pal_owned --resume ses_owned\n',
-		)
+		).toBe('To resume this conversation, run:\nnamzu pal chat pal_owned --resume ses_owned\n')
 	})
 
 	it('quotes Pal arguments using the Windows PowerShell handoff', () => {
@@ -30,13 +28,13 @@ describe('the shell handoff after the TUI exits', () => {
 				'win32',
 			),
 		).toBe(
-			"To resume this conversation, run in PowerShell: & 'namzu.cmd' 'pal' 'chat' 'pal_owned' '--resume' 'ses_owned'\n",
+			"To resume this conversation, run in PowerShell:\n& 'namzu.cmd' 'pal' 'chat' 'pal_owned' '--resume' 'ses_owned'\n",
 		)
 	})
 	it('prints a copy-pasteable shell command for the durable conversation', () => {
 		expect(
 			formatTuiExitSummary({ conversationId: '5be5e0e7-6c3c-4013-971a-f75c0d2d2538' }, {}, 'linux'),
-		).toBe('To resume this conversation, run: namzu resume 5be5e0e7-6c3c-4013-971a-f75c0d2d2538\n')
+		).toBe('To resume this conversation, run:\nnamzu resume 5be5e0e7-6c3c-4013-971a-f75c0d2d2538\n')
 	})
 
 	it('prints nothing before a durable conversation exists', () => {
@@ -47,7 +45,7 @@ describe('the shell handoff after the TUI exits', () => {
 		).toBe('')
 	})
 
-	it('keeps the executable and working directory explicit instead of resolving another namzu on PATH', () => {
+	it('keeps the working directory explicit and never prints the node binary or build path', () => {
 		expect(
 			formatTuiExitSummary(
 				{ conversationId: '5be5e0e7-6c3c-4013-971a-f75c0d2d2538' },
@@ -58,11 +56,11 @@ describe('the shell handoff after the TUI exits', () => {
 				'linux',
 			),
 		).toBe(
-			'To resume this conversation, run: cd /home/operator && /opt/node/bin/node /checkout/namzu/packages/cli/dist/bin.js resume 5be5e0e7-6c3c-4013-971a-f75c0d2d2538\n',
+			'To resume this conversation, run:\ncd /home/operator && namzu resume 5be5e0e7-6c3c-4013-971a-f75c0d2d2538\n',
 		)
 	})
 
-	it('labels the Windows command for PowerShell and invokes quoted executable paths', () => {
+	it('labels the Windows command for PowerShell and prints the product command', () => {
 		expect(
 			formatTuiExitSummary(
 				{ conversationId: 'ses_example' },
@@ -72,9 +70,7 @@ describe('the shell handoff after the TUI exits', () => {
 				},
 				'win32',
 			),
-		).toBe(
-			"To resume this conversation, run in PowerShell: & 'C:\\Program Files\\nodejs\\node.exe' 'C:\\operator''s tools\\bin.js' 'resume' 'ses_example'\n",
-		)
+		).toBe("To resume this conversation, run in PowerShell:\n& 'namzu' 'resume' 'ses_example'\n")
 	})
 
 	it('uses a literal directory and guards resume on its successful PowerShell 5.1 change', () => {
@@ -85,11 +81,11 @@ describe('the shell handoff after the TUI exits', () => {
 				'win32',
 			),
 		).toBe(
-			"To resume this conversation, run in PowerShell: Set-Location -LiteralPath 'C:\\project''s [work]'; if ($?) { & 'namzu' 'resume' 'ses_''$(Get-Item .)' }\n",
+			"To resume this conversation, run in PowerShell:\nSet-Location -LiteralPath 'C:\\project''s [work]'; if ($?) { & 'namzu' 'resume' 'ses_''$(Get-Item .)' }\n",
 		)
 	})
 
-	it('retains source loader and application arguments in a Windows invocation', () => {
+	it('does not print a source loader or application arguments in a Windows invocation', () => {
 		expect(
 			formatTuiExitSummary(
 				{ conversationId: 'ses_source' },
@@ -105,33 +101,35 @@ describe('the shell handoff after the TUI exits', () => {
 				},
 				'win32',
 			),
-		).toBe(
-			"To resume this conversation, run in PowerShell: & 'C:\\Program Files\\nodejs\\node.exe' '--import' 'tsx' 'C:\\operator''s tools\\bin.ts' '--output-schema' 'C:\\schemas\\$env:USERPROFILE.json' 'resume' 'ses_source'\n",
-		)
+		).toBe("To resume this conversation, run in PowerShell:\n& 'namzu' 'resume' 'ses_source'\n")
 	})
 
 	it.skipIf(process.platform === 'win32')(
-		'executes quoted paths and arguments without shell expansion',
+		'executes the printed command with a quoted working directory and no shell expansion',
 		() => {
 			const root = mkdtempSync(join(tmpdir(), 'namzu-exit-command-'))
 			try {
 				const cwd = join(root, "project's $(printf WRONG) folder")
 				mkdirSync(cwd)
-				const entry = join(root, "entry's $(printf WRONG) script.cjs")
+				const bin = join(root, 'bin')
+				mkdirSync(bin)
+				const launcher = join(bin, 'namzu')
 				writeFileSync(
-					entry,
-					'process.stdout.write(JSON.stringify({cwd: process.cwd(), args: process.argv.slice(2)}))',
+					launcher,
+					'#!/bin/sh\nprintf \'{"cwd":"%s","args":["%s","%s"]}\' "$PWD" "$1" "$2"\n',
 				)
+				chmodSync(launcher, 0o755)
 				const id = '5be5e0e7-6c3c-4013-971a-f75c0d2d2538'
 				const line = formatTuiExitSummary(
 					{ conversationId: id },
-					{ cwd, command: [process.execPath, entry] },
+					{ cwd, command: [process.execPath, 'ignored.js'] },
 				)
-				const command = line.slice('To resume this conversation, run: '.length).trimEnd()
-				expect(JSON.parse(execFileSync('sh', ['-c', command], { encoding: 'utf8' }))).toEqual({
-					cwd,
-					args: ['resume', id],
+				const command = line.slice('To resume this conversation, run:\n'.length).trimEnd()
+				const out = execFileSync('sh', ['-c', command], {
+					encoding: 'utf8',
+					env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ''}` },
 				})
+				expect(JSON.parse(out)).toEqual({ cwd: realpathSync(cwd), args: ['resume', id] })
 			} finally {
 				removeTempDir(root)
 			}

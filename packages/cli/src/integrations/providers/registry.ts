@@ -395,6 +395,6 @@ export function unsupportedProviderMessage(id: string): string {
  */
 export function missingCredentialMessage(entry: ProviderRegistryEntry): string {
 	const looked =
-		entry.envVars.length > 0 ? ` namzu looked for ${entry.envVars.join(', ')} and found none.` : ''
-	return `No credential found for ${entry.label}, your saved provider.${looked} Enter one below with "k", or choose a different provider.`
+		entry.envVars.length > 0 ? ` Namzu looked for ${entry.envVars.join(', ')} and found none.` : ''
+	return `No credential found for ${entry.label}, your saved provider.${looked} Choose an option below to add a key, or pick another provider.`
 }

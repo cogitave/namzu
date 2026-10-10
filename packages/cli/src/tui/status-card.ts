@@ -5,9 +5,9 @@ import { choiceDisplayText } from './terminal-choice-text.js'
 export function statusCard(rows: readonly (readonly [string, string])[], columns = 80): string {
 	const width = Math.min(96, Math.max(12, columns - 6))
 	const lines = rows.map(([label, value]) => `${label}: ${choiceDisplayText(value)}`)
-	if (width < 30) return ['NAMZU / SESSION', ...lines].join('\n')
+	if (width < 30) return ['NAMZU / STATUS', ...lines].join('\n')
 	const inside = width - 4
-	const title = '┌─ NAMZU / SESSION '
+	const title = '┌─ NAMZU / STATUS '
 	const result = [`${title}${'─'.repeat(width - stringWidth(title) - 1)}┐`]
 	for (const line of lines) {
 		let text = ''

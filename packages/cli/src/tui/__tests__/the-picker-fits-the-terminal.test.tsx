@@ -33,7 +33,7 @@ const HOST_INSET = 1
 const KEY_LOST_AT_60 = 'needs DEEPSEEK_API_KEY'
 
 const NOTICE =
-	'No credential found for DeepSeek, your saved provider. namzu looked for DEEPSEEK_API_KEY and found none. Enter one below with "k", or choose a different provider.'
+	'No credential found for DeepSeek, your saved provider. Namzu looked for DEEPSEEK_API_KEY and found none. Choose an option below to add a key, or pick another provider.'
 
 function detected(): readonly DetectedProvider[] {
 	return [
@@ -186,7 +186,7 @@ it('draws the notice and the title at 60x20 instead of scrolling them away', asy
 
 	expect(viewport).toContain('Choose a provider')
 	expect(viewport).toContain('No credential found for DeepSeek')
-	expect(viewport).toContain('Enter one below with "k"')
+	expect(viewport).toContain('Choose an option below to add a key')
 })
 
 it('wraps its own sentences so no continuation starts one column in', async () => {

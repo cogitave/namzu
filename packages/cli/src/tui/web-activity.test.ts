@@ -38,7 +38,7 @@ describe('web activity rows', () => {
 		)
 		expect(webSettledLine({ kind: 'search', results: 1 }, {})).toBe('Found 1 result')
 		expect(webSettledLine({ kind: 'fetch' }, { durationMs: 1_200, bytes: 7_680 })).toBe(
-			'Received 7.5KB in 1.2s',
+			'Received 7.5 KB in 1.2s',
 		)
 		expect(webSettledLine({ kind: 'fetch' }, {})).toBe('Fetched')
 	})
@@ -64,8 +64,8 @@ describe('web activity rows', () => {
 	})
 
 	it('size a fetched body the way a person reads it', () => {
-		expect(formatBytes(512)).toBe('512B')
-		expect(formatBytes(1_536)).toBe('1.5KB')
-		expect(formatBytes(3 * 1024 * 1024)).toBe('3.0MB')
+		expect(formatBytes(512)).toBe('512 B')
+		expect(formatBytes(1_536)).toBe('1.5 KB')
+		expect(formatBytes(3 * 1024 * 1024)).toBe('3.0 MB')
 	})
 })

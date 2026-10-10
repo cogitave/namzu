@@ -18,7 +18,7 @@ export function StatusPanel({ rows }: { readonly rows: readonly (readonly [strin
 				<Text bold color={theme.accent.user}>
 					NAMZU
 				</Text>
-				<Text color={theme.text.muted}> / SESSION</Text>
+				<Text color={theme.text.muted}> / STATUS</Text>
 			</Box>
 			{layout.rows.map((row, index) => (
 				<Box
@@ -43,7 +43,9 @@ export function StatusPanel({ rows }: { readonly rows: readonly (readonly [strin
 				</Box>
 			))}
 			<Box marginTop={1}>
-				<Text color={theme.text.muted}>/config · settings /status details · full report</Text>
+				<Text color={theme.text.muted}>
+					/config changes settings · /status details for the full report
+				</Text>
 			</Box>
 		</Box>
 	)

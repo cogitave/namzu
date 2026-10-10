@@ -235,7 +235,7 @@ it('/skills save typed during a turn waits for it, and neither turn is proposed'
 	await until(() => sends === 1 && shown().includes('Working'), 'first turn never started')
 	await type('/skills save todo-report')
 	await until(
-		() => shown().includes('Queued: this runs when the current turn ends.'),
+		() => shown().includes('Queued: this runs when the current reply ends.'),
 		'/skills save during a turn said nothing',
 	)
 	await tick(100)

@@ -597,7 +597,7 @@ it('fails closed when the goal turn cannot pass its turn boundary', async () => 
 	const { root, harness } = await mountedApp('namzu-goal-app-boundary-')
 	await submit(harness, '/goal require a writable conversation')
 	await until(
-		() => harness.frames.join('\n').includes('This turn was not started'),
+		() => harness.frames.join('\n').includes('Your message was not sent'),
 		'the boundary refusal did not reach the operator',
 	)
 	const sessionId = scope!.sessionId

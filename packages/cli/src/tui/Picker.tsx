@@ -7,6 +7,7 @@
  * live agent session lives in `agent.ts`.
  */
 
+import { explainFailure } from './plain-failure.js'
 import { Box, Text, useInput, useWindowSize } from 'ink'
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 
@@ -530,7 +531,7 @@ export function Picker({
 				.catch((error: unknown) =>
 					showListing({
 						kind: 'failed',
-						reason: error instanceof Error ? error.message : String(error),
+						reason: explainFailure(error, 'Could not load the list.'),
 					}),
 				)
 		},
@@ -637,7 +638,7 @@ export function Picker({
 			setLoginEntry({
 				...entry,
 				status: 'typing',
-				problem: `Could not finish sign-in: ${error instanceof Error ? error.message : String(error)}`,
+				problem: explainFailure(error, 'Could not finish sign-in.'),
 			})
 		}
 	}
@@ -679,7 +680,7 @@ export function Picker({
 				finishOperation(operation)
 				setLoginEntry(null)
 				setErrorHint(
-					`Could not start sign-in: ${error instanceof Error ? error.message : String(error)}`,
+					explainFailure(error, 'Could not start sign-in.'),
 				)
 			})
 	}

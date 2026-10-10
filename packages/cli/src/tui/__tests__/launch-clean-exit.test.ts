@@ -47,11 +47,11 @@ describe('launchTui clean settlement', () => {
 			}),
 		)
 		expect(write).toHaveBeenLastCalledWith(
-			'To resume this conversation, run: cd /workspace && namzu resume 6c43cf3e-5512-4678-9b77-179a4d4daed6\n',
+			'To resume this conversation, run:\ncd /workspace && namzu resume 6c43cf3e-5512-4678-9b77-179a4d4daed6\n',
 		)
 	})
 
-	it('preserves the supplied launcher and conversation cwd instead of the test runner argv', async () => {
+	it('prints the product command with the conversation cwd, never the supplied launcher', async () => {
 		const write = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
 		await launchTui(
 			{ cwd: '/project workspace', version: '0.0.0-test' },
@@ -65,7 +65,7 @@ describe('launchTui clean settlement', () => {
 			},
 		)
 		expect(write).toHaveBeenLastCalledWith(
-			"To resume this conversation, run: cd '/project workspace' && /absolute/node --import /checkout/loader.mjs /checkout/src/bin.ts resume 6c43cf3e-5512-4678-9b77-179a4d4daed6\n",
+			"To resume this conversation, run:\ncd '/project workspace' && namzu resume 6c43cf3e-5512-4678-9b77-179a4d4daed6\n",
 		)
 	})
 

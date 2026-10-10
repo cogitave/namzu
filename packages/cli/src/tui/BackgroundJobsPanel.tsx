@@ -1,9 +1,10 @@
 import type { BackgroundJob, BackgroundJobOutput } from '@namzu/sdk'
 import { Box, Text } from 'ink'
+import { formatSize } from './person-terms.js'
 
 import { permissionReviewRows } from './permission-review.js'
-import { terminalDisplayText } from './terminal-display.js'
 import { choiceDisplayWidth, truncateChoiceText } from './terminal-choice-text.js'
+import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
 
 /** Keep a live log readable without projecting a whole retained 1 MiB on every repaint. */
@@ -61,9 +62,9 @@ export function backgroundJobOutputRows(
 	const latest = bytes.subarray(omittedHere).toString('utf8').replace(/\n$/u, '')
 	const lines = [
 		...(output.droppedBytes > 0
-			? [`Earlier output discarded by the job buffer (${output.droppedBytes} bytes).`]
+			? [`Earlier output discarded by the job buffer (${formatSize(output.droppedBytes)}).`]
 			: []),
-		...(omittedHere > 0 ? [`Showing the latest ${MAX_VISIBLE_OUTPUT_BYTES} bytes.`] : []),
+		...(omittedHere > 0 ? [`Showing the latest ${formatSize(MAX_VISIBLE_OUTPUT_BYTES)}.`] : []),
 		latest.length > 0 ? latest : 'No output yet.',
 	]
 	// This wrapper preserves shell spacing and splits long lines before Ink can

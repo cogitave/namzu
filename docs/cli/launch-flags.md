@@ -38,7 +38,9 @@ The same four flags exist on `namzu exec` and `namzu drain`, written after the c
 
 ## When a launch cannot be honoured
 
-An unknown provider, or one the session cannot start on, does not leave an unusable session: the provider list opens with the reason (`Could not start with <provider> / <model>: …`), and picking from it is an ordinary choice. An invalid `--effort` or `--permission-mode` value is refused before anything starts, with the values it takes.
+An unknown provider, or one the session cannot start on, does not leave an unusable session: the provider list opens with the reason in plain words (`nopeai is not a provider Namzu knows. Choose one from the list below.`, or `Couldn’t start with <Provider> and <model>.`), and picking from it is an ordinary choice. A `--model` the provider does not list starts the session and says once that replies will fail until another model is picked with `/model`. An invalid `--effort` or `--permission-mode` value is refused before anything starts, with the values it takes and a pointer to `namzu --help`.
+
+`--debug` (or `NAMZU_DEBUG=1`) shows the technical text that the terminal app otherwise keeps out of sight: the provider's structured error under a failed reply, the cause behind a failure the app could not explain, and the stack of a crash.
 
 ## Environment markers
 

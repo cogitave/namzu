@@ -5,6 +5,8 @@ import {
 	resolveWebSearch,
 	webSearchLabel,
 } from '../integrations/web/search.js'
+import { explainFailure } from './plain-failure.js'
+import { tidyTerminalOutput, unknownToolNotice } from './tidy-tool-output.js'
 import {
 	type WebActivity,
 	countListedResults,
@@ -393,6 +395,21 @@ export type AgentEvent =
 			readonly partialArguments?: string
 	  }
 	| {
+			/**
+			 * The provider failed a request and the kernel is waiting before it asks
+			 * again. Emitted before the wait, so a long silence can say why.
+			 */
+			readonly kind: 'provider-wait'
+			readonly turnId?: string
+			readonly delayMs: number
+			/** 1-based attempt that just failed. */
+			readonly attempt: number
+			readonly maxRetries: number
+			/** The kernel's classification: for example `rate_limit`, `server_error`, `network`. */
+			readonly code: string
+			readonly status?: number
+	  }
+	| {
 			readonly kind: 'tool-progress'
 			readonly turnId?: string
 			readonly toolUseId: string
@@ -416,6 +433,8 @@ export type AgentEvent =
 			readonly hidden?: boolean
 			/** Output lines shown (collapsible) under the result. */
 			readonly detail?: readonly string[]
+			/** A plain sentence for why a failed step failed, to show in place of `failed: <summary>`. */
+			readonly plainFailure?: string
 			/**
 			 * The tool's own one-line account of its result, when it gave one (a
 			 * `generic` result view). `summary` is the first line of the MODEL's
@@ -2137,9 +2156,7 @@ export async function createAgentSession(
 			sessionId: scope.sessionId,
 		})
 	} catch (err) {
-		return emptySession(
-			`Failed to construct ${entry.label}: ${err instanceof Error ? err.message : String(err)}`,
-		)
+		return emptySession(explainFailure(err, `Failed to construct ${entry.label}.`))
 	}
 	// OAuth access tokens on this path are short-lived (~8h). They rarely lapse
 	// *during* a turn, but they do between turns — an idle session that sends
@@ -2487,9 +2504,7 @@ export async function createAgentSession(
 		cwd,
 	})
 		.then((report) => describeMemoryMigration(report, memoryDirectory))
-		.catch((error: unknown) => [
-			`Stored memory migration did not run: ${error instanceof Error ? error.message : String(error)}`,
-		])
+		.catch((error: unknown) => [explainFailure(error, 'Stored memory migration did not run.')])
 	/**
 	 * The stored-memory index for this turn's prompt, or null. A store that
 	 * refuses to read (a malformed memory file) costs the turn its index and
@@ -2506,7 +2521,7 @@ export async function createAgentSession(
 		} catch (error) {
 			return {
 				prompt: null,
-				notice: `Stored memory index not loaded: ${error instanceof Error ? error.message : String(error)}`,
+				notice: explainFailure(error, 'Stored memory index not loaded.'),
 			}
 		}
 	}
@@ -5933,6 +5948,16 @@ export function toAgentEvent(
 							: {}),
 					}
 				: null
+		case 'provider_retry':
+			return {
+				kind: 'provider-wait',
+				turnId: event.turnId,
+				delayMs: event.delayMs,
+				attempt: event.attempt,
+				maxRetries: event.maxRetries,
+				code: event.code,
+				...(event.status !== undefined ? { status: event.status } : {}),
+			}
 		case 'tool_progress':
 			return {
 				kind: 'tool-progress',
@@ -5943,7 +5968,7 @@ export function toAgentEvent(
 				...(event.fraction !== undefined ? { fraction: event.fraction } : {}),
 			}
 		case 'tool_completed': {
-			const view =
+			const presented =
 				admitToolView(event.presentation) ??
 				presenter.presentResult(
 					event.toolName,
@@ -5953,7 +5978,12 @@ export function toAgentEvent(
 						output: event.result,
 					},
 				)
-			const detail = viewToLines(view)
+			// Command output is cleaned for display only; `output` below stays verbatim.
+			const tidy = presented.kind === 'terminal' ? tidyTerminalOutput(presented.output) : undefined
+			const view =
+				presented.kind === 'terminal' && tidy ? { ...presented, output: tidy.output } : presented
+			const unknownTool = event.isError ? unknownToolNotice(event.result) : undefined
+			const detail = unknownTool ? undefined : viewToLines(view)
 			// The first line is the summary row. It leaves the body only when
 			// the row says all of it: a shortened summary cannot replace the
 			// first line's evidence in expanded or raw output. A first line
@@ -5964,9 +5994,16 @@ export function toAgentEvent(
 				view.kind === 'terminal' && view.output.trim().length > 0
 					? resultToLines(view.output)[0]
 					: undefined
-			const summary = first !== undefined ? resultSummaryLine(first) : firstLine(event.result)
+			const summary =
+				unknownTool ?? (first !== undefined ? resultSummaryLine(first) : firstLine(event.result))
+			// A plain failure line replaces the summary row, so the first output
+			// line is no longer said above and stays in the body.
+			const plainFailure = unknownTool ?? tidy?.failure
 			const withoutRepeatedSummary =
-				first !== undefined && detail?.[0] === first && summarySaysAll(first, summary)
+				plainFailure === undefined &&
+				first !== undefined &&
+				detail?.[0] === first &&
+				summarySaysAll(first, summary)
 					? detail.slice(1)
 					: detail
 			return {
@@ -5977,6 +6014,7 @@ export function toAgentEvent(
 				toolName: event.toolName,
 				isError: event.isError,
 				summary,
+				...(plainFailure ? { plainFailure } : {}),
 				...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),
 				...(view.kind === 'generic' && view.visibility === 'hidden' ? { hidden: true } : {}),
 				...(event.isError && view.kind === 'generic' && view.outcome === 'cancelled'

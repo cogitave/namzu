@@ -169,7 +169,7 @@ it('exports raw model/tool history after /fork and /clear-screen, then refuses t
 
 	const target = join(root, 'conversation.md')
 	await submit(harness.stdin, `/export ${target}`)
-	await waitFor(harness.lastFrame, 'Exported 1 turn')
+	await waitFor(harness.lastFrame, 'Exported 1 reply')
 	const markdown = await readFile(target, 'utf-8')
 	expect(markdown).toContain('First **raw**.')
 	expect(markdown).toContain('`read_file`')
