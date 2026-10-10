@@ -340,7 +340,11 @@ export class RuntimeClient extends EventEmitter {
 	private consume(text: string): void {
 		if (this.closed) return
 		if (this.partialLength + text.length > MAX_FRAME) {
-			this.fail(new Error('Namzu returned an oversized protocol frame.'))
+			this.fail(
+				new Error(
+					'Namzu received more data than it could handle, so the connection was reset. Try again.',
+				),
+			)
 			this.close()
 			return
 		}
@@ -354,7 +358,10 @@ export class RuntimeClient extends EventEmitter {
 			try {
 				if (line) {
 					const frame = JSON.parse(line) as Record<string, unknown>
-					if (!frame || frame.jsonrpc !== '2.0') throw new Error('Invalid Namzu protocol response.')
+					if (!frame || frame.jsonrpc !== '2.0')
+						throw new Error(
+							'Namzu got a reply it couldn’t read, so the connection was reset. Try again.',
+						)
 					if (typeof frame.method === 'string') this.emit('frame', frame)
 					else if (typeof frame.id === 'number') {
 						const entry = this.pending.get(frame.id)
@@ -454,7 +461,11 @@ export class RuntimeClient extends EventEmitter {
 					// Never target a PID after our owned child has already exited.
 					if (child.exitCode !== null || child.signalCode !== null) {
 						child.off('close', finish)
-						reject(new Error('Namzu exited while descendants retained its protocol pipes.'))
+						reject(
+							new Error(
+								'Namzu closed, but part of it kept running. Restart Namzu if this keeps happening.',
+							),
+						)
 						return
 					}
 					const taskkill = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'taskkill.exe')
@@ -466,9 +477,12 @@ export class RuntimeClient extends EventEmitter {
 							if (error && !this.processClosed) {
 								child.off('close', finish)
 								reject(
-									new Error('Could not stop the owned Namzu process tree.', {
-										cause: error,
-									}),
+									new Error(
+										'Namzu couldn’t stop one of its background programs. Close Namzu and open it again.',
+										{
+											cause: error,
+										},
+									),
 								)
 							}
 						},

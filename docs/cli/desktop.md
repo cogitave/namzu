@@ -601,6 +601,18 @@ offering a first Pal.
 A folder that vanishes while its project is open gets the same screen ("can’t be found", **Locate folder…**,
 **Remove project…**), and **Locate folder…** relinks it the same way.
 
+A restored tab whose project folder is gone shows that project's own page (its name, **Locate folder…**, **Remove project…**) and keeps its own title; no "could not be loaded" banner sits over another project's page.
+
+## Errors that reach the screen
+
+Every error a person reads goes through one function, `plainError(error, context)` in `renderer/plain-error.ts`: Electron's "Error invoking remote method '…':" prefix, class names such as `TypeError:`, stack lines and operating-system codes never appear. A sentence the product wrote for a person passes through; a known failure becomes one plain sentence with a next step ("That file or folder no longer exists. Choose another one."); anything else becomes "Couldn’t *the action that failed*. Try again." and the cleaned original is reachable only behind **Details** in the banner. The banner (`ChatErrorBanner`) applies the same cleaning to any message it is handed, so a raw error cannot reach it by mistake. Developer sentences thrown in the main process (the runtime connection, terminals, voice installation and cleanup) are written for a person at their source.
+
+Picking a folder that is gone says "That folder no longer exists. Choose another folder." and opens no tab; a folder Namzu cannot read says so with the next step.
+
+Attachments name the file and the limit in one size style (`shared/format-size.ts`: "12 KB", "1.2 MB", rounded up, never KiB or MiB): "“big.txt” is 6 MB. Choose a file under 3 MB.", "“bin.dat” can’t be attached. Namzu reads images and text files.", "You can attach up to 8 files to one message." The same style is used for the voice download and the 4 MB copy limit. A Pal that was created but did not start says "*name* was created, but Namzu couldn’t open it." with **Retry**, **Dismiss** and **Details** (the raw cause), and the first-run welcome that asks for a name is not shown for a Pal that exists.
+
+A model or engine list read that a newer choice overtook is never an error and never leaves the model button on "Not available": the main process waits for the choice to settle and reads again against the current selection (`readCurrent`, `Operator.rereadCurrent`), a read whose connection was replaced runs once more against the new one, and a choice that a later choice replaced answers with what is selected now. The window has no message matching and no retry loop of its own.
+
 ## Settings
 
 **Settings** is a page of its own in the main area, like Plugins: the rail's gear, the

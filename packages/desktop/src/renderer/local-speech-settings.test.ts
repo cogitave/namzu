@@ -54,7 +54,7 @@ describe('local speech settings display', () => {
 		const html = renderToStaticMarkup(
 			createElement(LocalSpeechResourceCard, { state: state(), showDetails: true }),
 		)
-		expect(html).toContain('32.8 MiB')
+		expect(html).toContain('33 MB')
 		expect(html).not.toContain('Not measured')
 		expect(html).not.toContain('RAM')
 		expect(html).not.toContain('VRAM')
@@ -83,9 +83,9 @@ describe('local speech settings display', () => {
 		const html = renderToStaticMarkup(
 			createElement(LocalSpeechResourceCard, { state: view, showDetails: true }),
 		)
-		expect(html).toContain('286.1 MiB')
+		expect(html).toContain('287 MB')
 		expect(html).toContain('Space used')
-		expect(html).toContain('238.4 MiB')
+		expect(html).toContain('239 MB')
 		expect(html).toMatch(/Processor use<\/dt><dd>0%/)
 		expect(html).toContain('217 ms')
 	})
@@ -95,7 +95,7 @@ describe('local speech settings display', () => {
 			createElement(LocalSpeechSettingsContent, { speech: controls() }),
 		)
 		expect(html).toContain('Reads replies aloud in Turkish')
-		expect(html).toContain('32.8 MiB to download')
+		expect(html).toContain('33 MB to download')
 		expect(html).toContain('Download voice')
 		expect(html).not.toContain('Enable voice')
 		expect(html).not.toContain('Free memory when idle')

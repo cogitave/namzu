@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { displayPath } from './path-display.js'
 import { afterQuietPeriod } from './project-stage.js'
 import { Button } from './ui/button.js'
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from './ui/empty.js'
@@ -95,7 +96,9 @@ export function ProjectFolderMissing({
 					This folder no longer exists. It may have been moved, renamed or deleted. If you moved or
 					renamed it, point Namzu at its new place. Nothing was deleted.
 				</EmptyDescription>
-				<EmptyDescription className="project-path">{path}</EmptyDescription>
+				<EmptyDescription className="project-path" title={path}>
+					{displayPath(path)}
+				</EmptyDescription>
 			</EmptyHeader>
 			<div className="project-missing-actions">
 				{onLocate && (

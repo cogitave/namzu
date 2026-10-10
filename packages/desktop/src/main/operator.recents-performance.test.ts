@@ -114,7 +114,7 @@ it('refuses a late catalogue from a replaced connection before caching its displ
 	try {
 		const project = await owner.openProject(process.cwd())
 		const listing = owner.listConversations(project.id)
-		const refused = expect(listing).rejects.toThrow('settings changed')
+		const refused = expect(listing).rejects.toThrow('couldn’t load the settings')
 		await entered.promise
 		const closed = wait((event) => event.kind === 'connection' && event.project.status === 'error')
 		await expect(client().request('test/exit')).rejects.toThrow('connection closed')
@@ -364,7 +364,7 @@ it('keeps restored drafts after failed history and rejects history from a replac
 		)
 		expect(owner.draft('saved-ui')).toBe('Saved authored draft')
 		const opening = owner.openConversation(project.id, 'saved-ui')
-		const refused = expect(opening).rejects.toThrow('settings changed')
+		const refused = expect(opening).rejects.toThrow('couldn’t load the settings')
 		await entered.promise
 		const closed = wait((event) => event.kind === 'connection' && event.project.status === 'error')
 		await expect(client().request('test/exit')).rejects.toThrow('connection closed')
@@ -525,7 +525,7 @@ it('does not register cold history from an old client after reconnect and reread
 	try {
 		const project = await owner.openProject(process.cwd())
 		const opening = owner.openConversation(project.id, 'cold-session')
-		const refused = expect(opening).rejects.toThrow('settings changed')
+		const refused = expect(opening).rejects.toThrow('couldn’t load the settings')
 		await entered.promise
 		const closed = wait((event) => event.kind === 'connection' && event.project.status === 'error')
 		await expect(client().request('test/exit')).rejects.toThrow('connection closed')

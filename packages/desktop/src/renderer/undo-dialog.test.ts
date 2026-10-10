@@ -200,7 +200,7 @@ describe('undo dialog body', () => {
 		const html = body(plan())
 		expect(html).toContain(SHELL_WARNING)
 		expect(html).toContain('Not covered')
-		expect(html).toContain('Larger than 8 MiB')
+		expect(html).toContain('Larger than 8 MB')
 		expect(html).toContain('Also undo later replies')
 		expect(
 			body(plan({ uncoveredShell: false, laterTurnsOnSameFiles: [], skipped: [] })),

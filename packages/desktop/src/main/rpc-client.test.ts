@@ -209,7 +209,7 @@ it('forces only the live owned Windows tree after EOF grace and permits failure 
 		return child as unknown as ReturnType<typeof execFile>
 	})
 	const failed = expect(runtime.close()).rejects.toThrow(
-		'Could not stop the owned Namzu process tree',
+		'Namzu couldn’t stop one of its background programs',
 	)
 	await vi.advanceTimersByTimeAsync(5_000)
 	await failed
@@ -236,7 +236,7 @@ it('refuses to target a Windows PID after its owned wrapper has exited', async (
 	const { child, runtime } = windowsFixture()
 	await runtime.start()
 	child.exitCode = 0
-	const failed = expect(runtime.close()).rejects.toThrow('descendants retained')
+	const failed = expect(runtime.close()).rejects.toThrow('part of it kept running')
 	await vi.advanceTimersByTimeAsync(5_000)
 	await failed
 	expect(execFile).not.toHaveBeenCalled()

@@ -1,4 +1,5 @@
 import type { ProjectView } from '../shared/protocol.js'
+import { plainErrorText } from './plain-error.js'
 
 export const DEFAULT_HOME_HEADING = 'What would you like to work on?'
 
@@ -24,9 +25,7 @@ export function homeStarters(
 
 /** Electron prefixes a rejected invoke with its own words; the cause is what follows. */
 export function newProjectFailure(failure: unknown): Error {
-	const raw = failure instanceof Error ? failure.message : String(failure)
-	const cause = raw.replace(/^Error invoking remote method '[^']*': (?:Error: )?/, '')
-	return new Error(`Couldn't create a new project: ${cause}`)
+	return new Error(plainErrorText(failure, 'create the new project'))
 }
 
 /** Where a project made from scratch lives, said once when it is created. */

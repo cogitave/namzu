@@ -163,7 +163,6 @@ import {
 } from './new-tab-menu.js'
 import { normalConversationProject } from './normal-conversation.js'
 import { notify } from './notify.js'
-import { OVERTAKEN_READ_LIMIT, isOvertakenRead } from './overtaken-read.js'
 import { PalChatTranscript } from './pal-chat-transcript.js'
 import { PalCommunicationDialog, type PalSettingsTab } from './pal-communication-dialog.js'
 import { computerSetupMissing, presentComputerNotice } from './pal-computer-notice.js'
@@ -181,6 +180,7 @@ import { palRecentActivity } from './pal-recent-activity.js'
 import { palMarker, palStartCard, palWaitingLine } from './pal-start-model.js'
 import { unreadAfterOpen, unreadAfterSends } from './pal-unread.js'
 import { PalCustomizeDialog, type PalOpening, PalSidebarSection, PalsPage } from './pals-page.js'
+import { plainError, plainErrorText } from './plain-error.js'
 import { PluginsPage, PluginsSidebar } from './plugins-page.js'
 import {
 	EMPTY_CONVERSATION_TITLE,
@@ -244,9 +244,9 @@ import {
 } from './workspace-presentation.js'
 import { WorkspaceSessionCache } from './workspace-session-cache.js'
 
-const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error))
+const errorText = plainErrorText
 const conversationIsGone = (error: unknown) =>
-	/does not belong to this project/.test(errorText(error))
+	/does not belong to this project/.test(error instanceof Error ? error.message : String(error))
 function omitRecords<T>(records: Record<string, T>, ids: ReadonlySet<string>): Record<string, T> {
 	return Object.fromEntries(Object.entries(records).filter(([id]) => !ids.has(id)))
 }
@@ -347,14 +347,6 @@ export function App({
 		}>(),
 	)
 	const [metadataEpoch, setMetadataEpoch] = useState(0)
-	// A read of the model or engine list that a change of model overtook is not a failure: it is read
-	// again, a few times at most, instead of leaving a raw error and an unusable model button.
-	const overtakenReads = useRef(0)
-	const readAgainIfOvertaken = useCallback((failure: unknown): boolean => {
-		if (!isOvertakenRead(failure)) return false
-		if (overtakenReads.current++ < OVERTAKEN_READ_LIMIT) setMetadataEpoch((epoch) => epoch + 1)
-		return true
-	}, [])
 	const lostProjects = useRef(new Set<string>())
 	warmSessions.current.synchronizeMembers([...group.tabs, ...createdSessions.current])
 	const openFlights = useRef(new Map<string, { generation: number; promise: Promise<void> }>())
@@ -811,6 +803,15 @@ export function App({
 	const [jobsError, setJobsError] = useState('')
 	const [jobsLoading, setJobsLoading] = useState(false)
 	const [error, setError] = useState('')
+	// The cleaned original of the sentence in `error`, shown only behind Details.
+	const [errorDetails, setErrorDetails] = useState<{ text: string; details: string }>()
+	// What detection of a signed-out engine reads: the cleaned original, since its sentence is the clue.
+	const rawError = errorDetails && errorDetails.text === error ? errorDetails.details : error
+	const showError = useCallback((failure: unknown, context?: string) => {
+		const plain = plainError(failure, context)
+		setError(plain.text)
+		setErrorDetails(plain.details ? { text: plain.text, details: plain.details } : undefined)
+	}, [])
 	// The conversation whose "Continue without this reply" failed, so the card also offers a copy.
 	const [continueFailed, setContinueFailed] = useState<string>('')
 	const [sending, setSending] = useState<Record<string, boolean>>({})
@@ -825,9 +826,9 @@ export function App({
 		try {
 			writePresentation.current()
 		} catch (failure) {
-			setError(errorText(failure))
+			showError(failure, 'save your view settings')
 		}
-	}, [])
+	}, [showError])
 	const transcriptScroll = useTranscriptScroll(sessionId, transcript, follow, keepScrollPosition)
 	const project = projects.find((item) => item.id === projectId)
 	// A folder that failed to open gets its own stage, which already carries the error text.
@@ -1201,13 +1202,13 @@ export function App({
 				if (current) setHumanComputer(value)
 			},
 			(failure) => {
-				if (current) setError(errorText(failure))
+				if (current) showError(failure, 'check this computer')
 			},
 		)
 		return () => {
 			current = false
 		}
-	}, [api])
+	}, [api, showError])
 	const visibleJobs = jobsSessionId === sessionId ? jobs : []
 	const changes = Object.values(thread.tools).filter(
 		(tool) => tool.status === 'completed' && tool.view.kind === 'diff',
@@ -1297,13 +1298,13 @@ export function App({
 	const attached = useAttachments(
 		draftOwner,
 		Boolean(project) && !historyPending,
-		(failure) => setError(errorText(failure)),
+		(failure) => showError(failure, 'attach the file'),
 		api,
 	)
 	const savedSettings = useDraftSettings(
 		draftOwner,
 		Boolean(project) && !historyPending,
-		(failure) => setError(errorText(failure)),
+		(failure) => showError(failure, 'save your message settings'),
 		api,
 	)
 	const settings = resolveComposerSendOptions(savedSettings.value.options, pal?.id)
@@ -1657,20 +1658,23 @@ export function App({
 			return { ...current, conversations }
 		})
 	}, [])
-	const act = useCallback(async (action: () => Promise<unknown>) => {
-		if (context.current.frozen) return
-		harnessChoiceFailure.current = null
-		setError('')
-		const pending = Promise.resolve().then(action)
-		operations.current.add(pending)
-		try {
-			await pending
-		} catch (failure) {
-			setError(errorText(failure))
-		} finally {
-			operations.current.delete(pending)
-		}
-	}, [])
+	const act = useCallback(
+		async (action: () => Promise<unknown>) => {
+			if (context.current.frozen) return
+			harnessChoiceFailure.current = null
+			setError('')
+			const pending = Promise.resolve().then(action)
+			operations.current.add(pending)
+			try {
+				await pending
+			} catch (failure) {
+				showError(failure, 'finish that')
+			} finally {
+				operations.current.delete(pending)
+			}
+		},
+		[showError],
+	)
 	const runJobAction = async <T,>(owner: string, generation: number, action: () => Promise<T>) => {
 		const current = () =>
 			mounted.current && activeSession.current === owner && navigation.current === generation
@@ -1724,7 +1728,7 @@ export function App({
 			})
 			.catch((failure) => {
 				if (!current) return
-				setPalsError(errorText(failure))
+				setPalsError(errorText(failure, 'load your Pals'))
 				setPalsLoadFailed(true)
 			})
 			.finally(() => {
@@ -2053,7 +2057,7 @@ export function App({
 						activeSession.current === event.sessionId &&
 						navigation.current === generation
 					)
-						setError(errorText(failure))
+						showError(failure, 'update the conversation')
 				})
 			}
 			if (event.kind === 'prompt')
@@ -2072,7 +2076,7 @@ export function App({
 					),
 				)
 		})
-	}, [updateProject, upsertConversation, attached.reload, api, invalidateComputerInput])
+	}, [updateProject, upsertConversation, attached.reload, api, invalidateComputerInput, showError])
 	useEffect(() => {
 		// Choice settlement resumes metadata admission even for the same active ID.
 		void metadataEpoch
@@ -2093,18 +2097,17 @@ export function App({
 			.then((available) => {
 				if (!current || providerReadOwner.current !== owner || providerGeneration.current !== epoch)
 					return
-				overtakenReads.current = 0
 				setProviders(available)
 				setProviderOwner(owner)
 			})
 			.catch((failure) => {
-				if (current && providerReadOwner.current === owner && !readAgainIfOvertaken(failure))
-					setError(errorText(failure))
+				if (current && providerReadOwner.current === owner)
+					showError(failure, 'load the models for this conversation')
 			})
 		return () => {
 			current = false
 		}
-	}, [project, sessionId, api, metadataEpoch, historyPending, readAgainIfOvertaken])
+	}, [project, sessionId, api, metadataEpoch, historyPending, showError])
 	useEffect(() => {
 		if (!projectId || !api) return
 		let current = true
@@ -2118,12 +2121,12 @@ export function App({
 				setDrafts((all) => ({ ...all, [owner]: all[owner] ?? saved }))
 			})
 			.catch((failure) => {
-				if (current) setError(errorText(failure))
+				if (current) showError(failure, 'restore your draft')
 			})
 		return () => {
 			current = false
 		}
-	}, [projectId, windowId, group.id, api])
+	}, [projectId, windowId, group.id, api, showError])
 	useEffect(() => {
 		if (
 			!sessionId ||
@@ -2154,7 +2157,7 @@ export function App({
 						setJobsError('')
 					}
 				} catch (failure) {
-					if (current) setJobsError(errorText(failure))
+					if (current) setJobsError(errorText(failure, 'load the scheduled tasks'))
 				} finally {
 					pending = undefined
 					if (current) setJobsLoading(false)
@@ -2203,12 +2206,21 @@ export function App({
 			return
 		let current = true
 		void api.refreshTasks(sessionId).catch((failure) => {
-			if (current) setError(errorText(failure))
+			if (current) showError(failure, 'load the task list')
 		})
 		return () => {
 			current = false
 		}
-	}, [sessionId, detailsOpen, panelView, palTasksVisible, api, historyPending, restoringTabs])
+	}, [
+		sessionId,
+		detailsOpen,
+		panelView,
+		palTasksVisible,
+		api,
+		historyPending,
+		restoringTabs,
+		showError,
+	])
 	useEffect(() => {
 		if (
 			!pal &&
@@ -2246,7 +2258,7 @@ export function App({
 					setHarnessState({ owner, view })
 			})
 			.catch((failure) => {
-				if (current && !readAgainIfOvertaken(failure)) setError(errorText(failure))
+				if (current) showError(failure, 'load the engines for this conversation')
 			})
 		return () => {
 			current = false
@@ -2260,7 +2272,7 @@ export function App({
 		metadataEpoch,
 		historyPending,
 		restoringTabs,
-		readAgainIfOvertaken,
+		showError,
 	])
 	const newConversation = useCallback(async () => {
 		abandonTabRestore()
@@ -2386,7 +2398,7 @@ export function App({
 			if (finishMutation)
 				harnessChoiceFailure.current = {
 					sessionId: target,
-					message: errorText(failure),
+					message: errorText(failure, 'switch the engine'),
 				}
 			throw failure
 		} finally {
@@ -2462,11 +2474,11 @@ export function App({
 		if (text && !(draftsRef.current[target] ?? '')) {
 			draftsRef.current[target] = text
 			setDrafts((all) => ({ ...all, [target]: text }))
-			void api.saveDraft(target, text).catch((failure) => setError(errorText(failure)))
+			void api.saveDraft(target, text).catch((failure) => showError(failure, 'save your draft'))
 		}
 		draftsRef.current[owner] = ''
 		setDrafts((all) => ({ ...all, [owner]: '' }))
-		void api.saveDraft(owner, '').catch((failure) => setError(errorText(failure)))
+		void api.saveDraft(owner, '').catch((failure) => showError(failure, 'save your draft'))
 		if (files) void attached.promote(owner, target)
 	}
 	const carryPendingDraft = useCallback((projectKey: string, target: string) => {
@@ -2885,14 +2897,14 @@ export function App({
 			})
 			.catch((failure) => {
 				if (!current) return
-				setError(errorText(failure))
+				showError(failure, 'load your projects')
 				const target = context.current.group.activeTabId
 				if (target) onLoadFailure(target, failure)
 			})
 		return () => {
 			current = false
 		}
-	}, [api, tabRestoreAttempt, onLoadFailure])
+	}, [api, tabRestoreAttempt, onLoadFailure, showError])
 	useEffect(() => {
 		let current = true
 		void tabRestoreAttempt
@@ -2983,13 +2995,26 @@ export function App({
 				setRestoringTabs(false)
 				return
 			}
+			// Its folder is gone: the project's own page says so and offers Locate or Remove, under the
+			// project's own name. The tab stays with its title; no banner speaks over another project.
+			if (savedOwner?.missing) {
+				if (missingActivation.current === target) return
+				missingActivation.current = target
+				setError('')
+				setProjectId(savedOwner.id)
+				setSessionId('')
+				setConversationSelection(null)
+				setTabsRestored(true)
+				setRestoringTabs(false)
+				return
+			}
 			if (loading || operations.current.size > 0) return
 			if (missingActivation.current === target) return
 			if (projects.every((item) => item.status === 'ready' || item.status === 'error')) {
 				missingActivation.current = target
 				setRestoringTabs(true)
 				const failure = new Error(
-					'This conversation could not be loaded. Reconnect its project or retry.',
+					'This conversation could not be loaded. Reconnect its project or try again.',
 				)
 				setError(failure.message)
 				onLoadFailure(target, failure)
@@ -3030,7 +3055,7 @@ export function App({
 					setConversations((all) => all.filter((item) => item.id !== target))
 					void api.removeConversation?.(target).catch(() => undefined)
 					void onAction({ kind: 'close', groupId: context.current.group.id, tabId: target })
-						.catch((closeFailure) => setError(errorText(closeFailure)))
+						.catch((closeFailure) => showError(closeFailure, 'close the tab'))
 						.finally(() => {
 							setSessionId('')
 							setConversationSelection(null)
@@ -3039,7 +3064,7 @@ export function App({
 						})
 					return
 				}
-				setError(errorText(failure))
+				showError(failure, 'open the conversation')
 				onLoadFailure(target, failure)
 			})
 	}, [
@@ -3059,6 +3084,7 @@ export function App({
 		onLoadFailure,
 		onAction,
 		api,
+		showError,
 	])
 	useEffect(() => {
 		void metadataEpoch
@@ -3374,7 +3400,7 @@ export function App({
 					if (!result) return
 					if (result.truncated)
 						throw new Error(
-							'This conversation is larger than the 4 MiB copy limit, so nothing was copied.',
+							'This conversation is too large to copy. The limit is 4 MB, so nothing was copied.',
 						)
 					await copyToClipboard(result.markdown, 'Conversation copied as Markdown.')
 				})
@@ -3540,7 +3566,7 @@ export function App({
 					palId: saved.id,
 					name: saved.name,
 					startedAt: Date.now(),
-					failure: errorText(failure),
+					failure: failure instanceof Error ? failure.message : String(failure),
 				})
 			return
 		}
@@ -3607,7 +3633,7 @@ export function App({
 				blank = untouchedConversation()
 			}
 		} catch (failure) {
-			setPalsError(errorText(failure))
+			setPalsError(errorText(failure, 'create the Pal'))
 		} finally {
 			setPalsSaving(false)
 		}
@@ -3682,7 +3708,7 @@ export function App({
 							[id]: {
 								generation,
 								loading: false,
-								error: errorText(failure),
+								error: errorText(failure, 'show the Pal’s computer'),
 							},
 						}))
 				}
@@ -3690,11 +3716,11 @@ export function App({
 				if (current && epoch === computerReadEpoch.current) {
 					setPalComputers((all) => ({
 						...all,
-						[id]: { status: 'unavailable', notice: errorText(failure) },
+						[id]: { status: 'unavailable', notice: errorText(failure, 'show the Pal’s computer') },
 					}))
 					setPalScreens((all) => ({
 						...all,
-						[id]: { error: errorText(failure) },
+						[id]: { error: errorText(failure, 'show the Pal’s computer') },
 					}))
 				}
 			} finally {
@@ -3749,7 +3775,10 @@ export function App({
 		} catch (failure) {
 			setPalComputers((all) => ({
 				...all,
-				[value.id]: { status: 'unavailable', notice: errorText(failure) },
+				[value.id]: {
+					status: 'unavailable',
+					notice: errorText(failure, 'update the Pal’s computer'),
+				},
 			}))
 		} finally {
 			startingComputers.current.delete(value.id)
@@ -3870,19 +3899,19 @@ export function App({
 			try {
 				writePresentation.current()
 			} catch (failure) {
-				setError(errorText(failure))
+				showError(failure, 'save your view settings')
 			}
 		},
-		[palConversation],
+		[palConversation, showError],
 	)
 	useEffect(() => {
 		if (frozen || openingHistory.current !== null) return
 		try {
 			savePresentation()
 		} catch (failure) {
-			setError(errorText(failure))
+			showError(failure, 'save your view settings')
 		}
-	}, [frozen, savePresentation])
+	}, [frozen, savePresentation, showError])
 	const chatMotion = useComputerChatMotion({
 		enabled: computerPage,
 		layout: computerChat,
@@ -3930,7 +3959,8 @@ export function App({
 				}
 				setLiveStream({ palId: id, value: viewer })
 			} catch (failure) {
-				if (current) setLiveStream({ palId: id, error: errorText(failure) })
+				if (current)
+					setLiveStream({ palId: id, error: errorText(failure, 'show the Pal’s computer') })
 			}
 		}
 		void open()
@@ -3940,7 +3970,7 @@ export function App({
 			if (viewer)
 				void api
 					.closePalComputerStream?.(viewer.id)
-					.catch((failure) => setError(errorText(failure)))
+					.catch((failure) => showError(failure, 'close the live view'))
 		}
 	}, [
 		computerPage,
@@ -3950,6 +3980,7 @@ export function App({
 		streamRefresh,
 		invalidateComputerInput,
 		api,
+		showError,
 	])
 	const computerOwner = useRef<{
 		id?: string
@@ -4332,7 +4363,7 @@ export function App({
 		draftEditRevisions.current.set(target, (draftEditRevisions.current.get(target) ?? 0) + 1)
 		draftsRef.current[target] = value
 		setDrafts((all) => ({ ...all, [target]: value }))
-		void api.saveDraft(target, value).catch((failure) => setError(errorText(failure)))
+		void api.saveDraft(target, value).catch((failure) => showError(failure, 'save your draft'))
 	}
 	const editQueued = useCallback(
 		async (itemId?: string) => {
@@ -4564,7 +4595,7 @@ export function App({
 					activeSession.current === target &&
 					navigation.current === generation
 				)
-					setError(errorText(failure))
+					showError(failure, 'open the conversation')
 			})
 			if (
 				draftsRef.current[target] === prompt &&
@@ -4614,7 +4645,7 @@ export function App({
 	const showTab = (id: string) => {
 		const activate = () =>
 			void onAction({ kind: 'activate', groupId: group.id, tabId: id }).catch((failure) =>
-				setError(errorText(failure)),
+				showError(failure, 'switch tabs'),
 			)
 		if (terminalById.has(id)) return activate()
 		const view = conversations.find((item) => item.id === id)
@@ -4630,7 +4661,7 @@ export function App({
 			case 'close':
 				if (!frontTabId) return false
 				void onAction({ kind: 'close', groupId: group.id, tabId: frontTabId }).catch((failure) =>
-					setError(errorText(failure)),
+					showError(failure, 'close the tab'),
 				)
 				return true
 			case 'next':
@@ -4659,7 +4690,7 @@ export function App({
 					targetGroupId: group.id,
 					position: 'center',
 					index: chord.delta > 0 ? at + 2 : at - 1,
-				}).catch((failure) => setError(errorText(failure)))
+				}).catch((failure) => showError(failure, 'move the tab'))
 				return true
 			}
 			case 'split-right':
@@ -5106,7 +5137,7 @@ export function App({
 					: activeTerminal
 						? // The conversation behind the terminal is already open; fronting its tab is a layout change.
 							void onAction({ kind: 'activate', groupId: group.id, tabId: view.id }).catch(
-								(failure) => setError(errorText(failure)),
+								(failure) => showError(failure, 'switch tabs'),
 							)
 						: void act(() => openConversation(view))
 			}
@@ -5118,11 +5149,11 @@ export function App({
 							activeId: activeTerminal?.id,
 							onSelect: (tab) =>
 								void onAction({ kind: 'activate', groupId: group.id, tabId: tab.id }).catch(
-									(failure) => setError(errorText(failure)),
+									(failure) => showError(failure, 'switch tabs'),
 								),
 							onClose: (tab) =>
 								void onAction({ kind: 'close', groupId: group.id, tabId: tab.id }).catch(
-									(failure) => setError(errorText(failure)),
+									(failure) => showError(failure, 'close the tab'),
 								),
 							onDetach: (tab, bounds) => onDetach(group.id, tab.id, bounds),
 							onSplit:
@@ -5148,13 +5179,15 @@ export function App({
 					kind: 'close',
 					groupId: group.id,
 					tabId: view.id,
-				}).catch((failure) => setError(errorText(failure)))
+				}).catch((failure) => showError(failure, 'close the tab'))
 			}
 		/>
 	)
 	// An engine that says it needs an account is remembered as signed out, so Settings > Updates can
 	// say so. It is forgotten only on proof: a finished reply from a conversation on that engine.
-	const signInEngine = signInHelpFor(savedSettings.error || error || project?.error || '')?.engine
+	const signInEngine = signInHelpFor(
+		savedSettings.error || rawError || project?.error || '',
+	)?.engine
 	const repliedEngine = thread.messages.some(
 		(message) => message.role === 'assistant' && message.status !== 'pending' && message.text,
 	)
@@ -5566,7 +5599,7 @@ export function App({
 							activeTerminalId={activeTerminal?.id}
 							onTerminal={(tab) =>
 								void onAction({ kind: 'open', tabId: tab.id }).catch((failure) =>
-									setError(errorText(failure)),
+									showError(failure, 'open the terminal'),
 								)
 							}
 							onCloseTerminal={
@@ -5574,7 +5607,7 @@ export function App({
 									? (tab) =>
 											void api
 												.closeTerminal?.(tab.id)
-												.catch((failure) => setError(errorText(failure)))
+												.catch((failure) => showError(failure, 'close the terminal'))
 									: undefined
 							}
 						/>
@@ -5796,7 +5829,9 @@ export function App({
 						}}
 						onStreamDisconnected={(id) => {
 							if (computerOwner.current.streamId === id) invalidateComputerInput()
-							void api.closePalComputerStream?.(id).catch((failure) => setError(errorText(failure)))
+							void api
+								.closePalComputerStream?.(id)
+								.catch((failure) => showError(failure, 'close the live view'))
 						}}
 						control={palComputer?.control}
 						controlBusy={controlBusy}
@@ -5865,7 +5900,7 @@ export function App({
 							onShowOutput: (tabId) => {
 								setRailSection(null)
 								void onAction({ kind: 'activate', groupId: group.id, tabId }).catch((failure) =>
-									setError(errorText(failure)),
+									showError(failure, 'switch tabs'),
 								)
 							},
 						}}
@@ -5883,7 +5918,7 @@ export function App({
 											? () =>
 													void api
 														.downloadUpdate?.()
-														.catch((failure) => setError(errorText(failure)))
+														.catch((failure) => showError(failure, 'download the update'))
 											: undefined,
 									}
 								: undefined
@@ -5894,7 +5929,9 @@ export function App({
 						onOpenFolder={
 							api.openDataFolder
 								? (kind: DataFolderKind) =>
-										void api.openDataFolder?.(kind).catch((failure) => setError(errorText(failure)))
+										void api
+											.openDataFolder?.(kind)
+											.catch((failure) => showError(failure, 'open the folder'))
 								: undefined
 						}
 						now={Date.now()}
@@ -5944,12 +5981,15 @@ export function App({
 					(error || (project?.error && !openErrorStage) || savedSettings.error) && (
 						<div className="connection-error">
 							<ChatErrorBanner
+								details={
+									errorDetails && errorDetails.text === error ? errorDetails.details : undefined
+								}
 								message={
 									project?.lost
 										? lostConnectionText(project)
 										: (externalHarness &&
 												describeEngineFailure(
-													savedSettings.error || error || project?.error || '',
+													savedSettings.error || rawError || project?.error || '',
 													engineLabel(harnessView, permissionEngine),
 												)) ||
 											savedSettings.error ||
@@ -5957,7 +5997,7 @@ export function App({
 											project?.error ||
 											''
 								}
-								signIn={signInHelpFor(savedSettings.error || error || project?.error || '')}
+								signIn={signInHelpFor(savedSettings.error || rawError || project?.error || '')}
 								onOpenTerminal={
 									terminalReady ? () => void act(() => openShellTerminal()) : undefined
 								}
@@ -6006,7 +6046,7 @@ export function App({
 						focused={focused && !frozen}
 						onClose={() =>
 							void onAction({ kind: 'close', groupId: group.id, tabId: activeTerminal.id }).catch(
-								(failure) => setError(errorText(failure)),
+								(failure) => showError(failure, 'close the terminal'),
 							)
 						}
 						onRestart={
@@ -6018,7 +6058,7 @@ export function App({
 											// nothing but its last screen, goes.
 											await openShellTerminal()
 											await onAction({ kind: 'close', groupId: group.id, tabId: activeTerminal.id })
-										})().catch((failure) => setError(errorText(failure)))
+										})().catch((failure) => showError(failure, 'restart the terminal'))
 								: undefined
 						}
 					/>

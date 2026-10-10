@@ -26,6 +26,7 @@ import {
 	palColors,
 } from './pal-character.js'
 import { PalAvatar } from './pal-context.js'
+import { cleanErrorMessage } from './plain-error.js'
 import { palsAttention } from './sidebar-section-attention.js'
 import { SidebarSection } from './sidebar-section.js'
 import { createSubmitGuard } from './submit-guard.js'
@@ -448,6 +449,7 @@ export function PalOpeningNotice({
 	onCancel: () => void
 }) {
 	const [now, setNow] = useState(() => Date.now())
+	const [showDetails, setShowDetails] = useState(false)
 	useEffect(() => {
 		if (opening.failure) return
 		setNow(Date.now())
@@ -457,15 +459,22 @@ export function PalOpeningNotice({
 	if (opening.failure)
 		return (
 			<div className="pal-opening" role="alert" data-state="failed">
-				<span>
-					{opening.name} is created, but it could not start. {opening.failure}
-				</span>
+				<span>{opening.name} was created, but Namzu couldn’t open it.</span>
 				<Button variant="outline" size="xs" onClick={onRetry}>
 					Retry
 				</Button>
 				<Button variant="ghost-muted" size="xs" onClick={onCancel}>
 					Dismiss
 				</Button>
+				<Button
+					variant="ghost-muted"
+					size="xs"
+					aria-expanded={showDetails}
+					onClick={() => setShowDetails((value) => !value)}
+				>
+					Details
+				</Button>
+				{showDetails && <p className="pal-opening-details">{cleanErrorMessage(opening.failure)}</p>}
 			</div>
 		)
 	const status = palOpeningStatus(
@@ -514,26 +523,28 @@ export function PalsPage({
 			</header>
 			<div className="pal-onboarding-transcript">
 				<div className="conversation-body">
-					<PalWelcome />
-					<div className="pal-onboarding-model">
-						<span>Which model would you like me to use?</span>
-						<PalModelChoice
-							value={model}
-							onChange={onModelChange}
-							disabled={false}
-							loadProviders={loadProviders}
-							loadModels={loadModels}
-							fillDefault
-							preferred={preferredModel}
-						/>
-					</div>
+					{!opening && <PalWelcome />}
+					{!opening && (
+						<div className="pal-onboarding-model">
+							<span>Which model would you like me to use?</span>
+							<PalModelChoice
+								value={model}
+								onChange={onModelChange}
+								disabled={false}
+								loadProviders={loadProviders}
+								loadModels={loadModels}
+								fillDefault
+								preferred={preferredModel}
+							/>
+						</div>
+					)}
 				</div>
 			</div>
 			{opening && (
 				<PalOpeningNotice opening={opening} onRetry={onRetryOpening} onCancel={onCancelOpening} />
 			)}
 			<footer className="pal-onboarding-footer">
-				<p>Give your Pal a name to start.</p>
+				{!opening && <p>Give your Pal a name to start.</p>}
 				<Button variant="outline" onClick={onCustomize}>
 					<UserRoundIcon />
 					Customize your Pal

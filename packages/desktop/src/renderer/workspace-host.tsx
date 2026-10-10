@@ -17,11 +17,12 @@ import { type WorkspaceTabDrag, workspaceSplitRoom } from './workspace-canvas-ge
 import { WorkspaceCanvas } from './workspace-canvas.js'
 import type { WorkspacePaneController } from './workspace-pane-types.js'
 import './workspace-host.css'
+import { plainErrorText } from './plain-error.js'
 
 const api = window.namzu
 // Before anything renders, so the first render of every pane can seed from the snapshot.
 adoptBoot(api?.boot)
-const message = (error: unknown) => (error instanceof Error ? error.message : String(error))
+const message = (error: unknown) => plainErrorText(error, 'finish that')
 
 /** The shell belongs to the native window; each stable leaf owns one conversation controller. */
 export function WorkspaceHost() {

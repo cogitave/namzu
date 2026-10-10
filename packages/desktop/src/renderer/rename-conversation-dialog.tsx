@@ -1,5 +1,6 @@
 import { Dialog } from '@base-ui/react/dialog'
 import { useEffect, useRef, useState } from 'react'
+import { plainErrorText } from './plain-error.js'
 import { Button } from './ui/button.js'
 
 /** Longest title the field accepts; longer ones would not fit a tab or a sidebar row anyway. */
@@ -47,7 +48,7 @@ export function RenameConversationDialog({
 			await onSave(value.trim())
 			if (mounted.current) onClose()
 		} catch (failure) {
-			if (mounted.current) setError(failure instanceof Error ? failure.message : String(failure))
+			if (mounted.current) setError(plainErrorText(failure, 'rename the conversation'))
 		} finally {
 			inFlight.current = false
 			if (mounted.current) setPending(false)

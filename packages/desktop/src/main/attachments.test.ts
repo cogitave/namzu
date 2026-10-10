@@ -24,7 +24,7 @@ it('snapshots text bytes, rejects unsupported binary/documents and sanitizes dis
 	expect(admitted.view.name).toBe('notes .txt')
 	for (const bytes of [Buffer.from([255, 255]), Buffer.from('%PDF-1.7'), Buffer.from([0, 1, 2])]) {
 		expect(() => admitAttachment({ name: 'file', bytes })).toThrow(
-			'not a supported image or UTF-8 text',
+			'“file” can’t be attached. Namzu reads images and text files.',
 		)
 	}
 })
@@ -35,10 +35,10 @@ it('bounds count, individual text bytes and aggregate image/text budgets', () =>
 				admitAttachment({ name: 'small.txt', bytes: Buffer.from('x') }),
 			),
 		),
-	).toThrow('eight')
+	).toThrow('You can attach up to 8 files to one message.')
 	expect(() =>
 		admitAttachment({ name: 'large.txt', bytes: Buffer.alloc(128 * 1024 + 1, 65) }),
-	).toThrow('128 KiB')
+	).toThrow('“large.txt” is 129 KB. Text files can be up to 128 KB. Choose a smaller file.')
 	const image = Buffer.alloc(2 * 1024 * 1024)
 	png.copy(image)
 	expect(() =>
@@ -46,12 +46,31 @@ it('bounds count, individual text bytes and aggregate image/text budgets', () =>
 			admitAttachment({ name: 'a.png', bytes: image }),
 			admitAttachment({ name: 'b.png', bytes: image }),
 		]),
-	).toThrow('3 MiB')
+	).toThrow('Attachments can add up to 3 MB per message.')
 	expect(() =>
 		validateAttachmentBatch(
 			Array.from({ length: 3 }, () =>
 				admitAttachment({ name: 'text.txt', bytes: Buffer.alloc(128 * 1024, 65) }),
 			),
 		),
-	).toThrow('256 KiB')
+	).toThrow('Attached text can add up to 256 KB per message.')
+})
+it('names the file and the limit in the same units a person reads', () => {
+	expect(() =>
+		admitAttachment({ name: 'big.txt', bytes: Buffer.alloc(6 * 1024 * 1024, 65) }),
+	).toThrow('“big.txt” is 6 MB. Choose a file under 3 MB.')
+	expect(() => admitAttachment({ name: 'empty.txt', bytes: Buffer.alloc(0) })).toThrow(
+		'“empty.txt” is empty. Choose another file.',
+	)
+	let message = ''
+	try {
+		admitAttachment({
+			name: 'a-very-long-quarterly-planning-document-reviewed-by-everyone.pdf',
+			bytes: Buffer.from('%PDF-1.7'),
+		})
+	} catch (error) {
+		message = (error as Error).message
+	}
+	expect(message).toMatch(/^“a-very-long.*…[^”]*\.pdf” can’t be attached\. /)
+	expect(message).not.toMatch(/UTF-8|MiB|KiB/)
 })

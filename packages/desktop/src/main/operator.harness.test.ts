@@ -304,7 +304,9 @@ it('rejects a delayed previous-engine read instead of overwriting the acknowledg
 	const selection = await f.owner.selectHarness(session.id, 'codex-cli')
 	expect(selection.selected).toBe('codex-cli')
 	expect(await staleRead).toEqual({
-		error: expect.objectContaining({ message: expect.stringContaining('Retry this request') }),
+		error: expect.objectContaining({
+			message: expect.stringContaining('changed while they were loading'),
+		}),
 	})
 	await rm(f.delayedDiscovery)
 	expect((await f.owner.harnesses(f.project.id, session.id)).selected).toBe('codex-cli')
@@ -323,7 +325,9 @@ it('rejects a delayed previous-model read and retains the newly acknowledged mod
 	)
 	await f.owner.selectProvider(session.id, 'codex-cli', 'newly-selected-model')
 	expect(await staleRead).toEqual({
-		error: expect.objectContaining({ message: expect.stringContaining('Retry this request') }),
+		error: expect.objectContaining({
+			message: expect.stringContaining('changed while they were loading'),
+		}),
 	})
 	await rm(f.delayedDiscovery)
 	await writeFile(f.defaultModel, 'different-current-default')
@@ -460,3 +464,27 @@ it.each(['prompt', 'plan', 'accept-edits', 'auto', 'strict'] as const)(
 		await ended
 	},
 )
+
+it('reads again after an overtaken engine read and answers with the engine now selected', async () => {
+	const f = await fixture()
+	const session = await f.owner.newConversation(f.project.id)
+	await writeFile(f.delayedDiscovery, 'harness:once')
+	const settled = f.owner.rereadCurrent(session.id, () =>
+		f.owner.harnesses(f.project.id, session.id),
+	)
+	const selection = await f.owner.selectHarness(session.id, 'codex-cli')
+	expect(selection.selected).toBe('codex-cli')
+	expect((await settled).selected).toBe('codex-cli')
+})
+
+it('reads again after an overtaken model read and answers with the model now selected', async () => {
+	const f = await fixture()
+	const session = await f.owner.newConversation(f.project.id)
+	await f.owner.selectHarness(session.id, 'codex-cli')
+	await writeFile(f.delayedDiscovery, 'provider:once')
+	const settled = f.owner.rereadCurrent(session.id, () =>
+		f.owner.providers(f.project.id, session.id),
+	)
+	await f.owner.selectProvider(session.id, 'codex-cli', 'newly-selected-model')
+	expect((await settled).selected).toEqual({ id: 'codex-cli', model: 'newly-selected-model' })
+})

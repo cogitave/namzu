@@ -113,7 +113,7 @@ export class TerminalHostClient extends EventEmitter {
 					...(options.force ? { force: true } : {}),
 				}),
 			)
-			if (result.terminal.id !== id) throw new Error('The host attached a different terminal.')
+			if (result.terminal.id !== id) throw new Error('That terminal couldn’t be opened. Try again.')
 		} catch (error) {
 			if (holding) this.release(id)
 			throw error

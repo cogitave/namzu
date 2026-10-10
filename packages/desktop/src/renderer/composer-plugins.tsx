@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ComposerControl, ComposerControlChevron } from './composer-control.js'
 import { LoaderCircleIcon, PuzzleIcon } from './icons.js'
+import { plainErrorText } from './plain-error.js'
 import { PluginActions } from './plugin-actions.js'
 import { Button } from './ui/button.js'
 import { Popover, PopoverPopup, PopoverTrigger } from './ui/popover.js'
@@ -119,7 +120,7 @@ export function usePluginInventory({
 					generation,
 					changing: `${plugin.scope}:${plugin.name}`,
 					errorPlugin: `${plugin.scope}:${plugin.name}`,
-					error: error instanceof Error ? error.message : String(error),
+					error: plainErrorText(error, 'change the plugin'),
 				})
 		} finally {
 			if (current()) {

@@ -11,6 +11,7 @@ import type {
 	TerminalAttachView,
 	TerminalEvent,
 } from '../shared/terminal-view.js'
+import { plainErrorText } from './plain-error.js'
 import { TerminalFeed } from './terminal-feed.js'
 import { terminalKeyAction } from './terminal-keys.js'
 import { pasteLineCount, pasteNeedsConfirmation, sanitizePaste } from './terminal-paste.js'
@@ -278,7 +279,7 @@ export class TerminalSession {
 		this.writes = this.writes
 			.then(() => this.api.writeTerminal(this.tabId, this.viewerId, data))
 			.catch((error: unknown) => {
-				this.update({ error: error instanceof Error ? error.message : String(error) })
+				this.update({ error: plainErrorText(error, 'send that to the terminal') })
 			})
 	}
 
@@ -334,7 +335,7 @@ export class TerminalSession {
 			if (token !== this.attachToken || this.disposed) return
 			this.update({
 				phase: 'failed',
-				error: error instanceof Error ? error.message : String(error),
+				error: plainErrorText(error, 'start the terminal'),
 			})
 			return
 		}

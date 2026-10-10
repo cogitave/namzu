@@ -146,8 +146,13 @@ flow("a start that fails leaves the Pal created, says what failed and retries", 
 	await nameBox(dialog).fill("kai");
 	await dialog.getByRole("button", { name: "Save" }).click();
 
-	const failed = w.page.getByRole("alert").filter({ hasText: "kai is created, but it could not start." });
+	const failed = w.page.getByRole("alert").filter({ hasText: "kai was created, but Namzu couldn’t open it." });
 	await expect(failed).toBeVisible({ timeout: T });
+	// The raw cause stays behind Details, and the name prompt is not shown for a Pal that exists.
+	await expect(failed).not.toContainText("host");
+	await expect(w.page.getByText("What would you like to call me?")).toHaveCount(0);
+	await expect(w.page.getByText("Give your Pal a name to start.")).toHaveCount(0);
+	await failed.getByRole("button", { name: "Details" }).click();
 	await expect(failed).toContainText("The Pal's host did not start.");
 	await w.page.screenshot({ path: join(SHOTS, "linux-failed.png") });
 	assert.equal(palsOnDisk(w), 1);

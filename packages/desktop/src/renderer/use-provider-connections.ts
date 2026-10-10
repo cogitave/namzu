@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { DesktopApi, ProviderConnectionView, ProviderTestResult } from '../shared/protocol.js'
+import { plainErrorText } from './plain-error.js'
 
 export interface ProviderConnectionsControls {
 	rows: ProviderConnectionView[]
@@ -22,9 +23,7 @@ type Bridge = Pick<
 
 /** The sentence a failure carries, without Electron's wrapper around it. */
 export function plainFailure(failure: unknown): string {
-	return failure instanceof Error && failure.message
-		? failure.message.replace(/^Error invoking remote method '[^']*': (?:Error: )?/, '')
-		: 'Something went wrong. Try again.'
+	return plainErrorText(failure, 'update the connection')
 }
 
 export function useProviderConnections(

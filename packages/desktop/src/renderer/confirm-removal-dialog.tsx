@@ -1,5 +1,6 @@
 import { AlertDialog } from '@base-ui/react/alert-dialog'
 import { useEffect, useRef, useState } from 'react'
+import { plainErrorText } from './plain-error.js'
 import { Button } from './ui/button.js'
 
 interface SideAction {
@@ -56,7 +57,7 @@ export function ConfirmRemovalDialog({
 			await onConfirm()
 			if (mounted.current) onClose()
 		} catch (failure) {
-			if (mounted.current) setError(failure instanceof Error ? failure.message : String(failure))
+			if (mounted.current) setError(plainErrorText(failure, 'remove it'))
 		} finally {
 			inFlight.current = false
 			if (mounted.current) setPending(false)
@@ -108,8 +109,7 @@ export function ConfirmRemovalDialog({
 									onClick={() => {
 										setError('')
 										action.run().catch((failure: unknown) => {
-											if (mounted.current)
-												setError(failure instanceof Error ? failure.message : String(failure))
+											if (mounted.current) setError(plainErrorText(failure, 'remove it'))
 										})
 									}}
 								>

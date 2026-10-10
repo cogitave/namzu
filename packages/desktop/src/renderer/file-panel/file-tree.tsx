@@ -4,6 +4,7 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { DesktopApi, ProjectFileEntry } from '../../shared/protocol.js'
 import { ChevronRightIcon, SearchIcon } from '../icons.js'
+import { plainErrorText } from '../plain-error.js'
 import { FileIcon } from './file-icons.js'
 import { type FileHit, directoryOf, prepareIndex, searchFiles } from './file-search.js'
 import { baseNameOf, isMarkdownPath, parentOf } from './project-refs.js'
@@ -141,7 +142,7 @@ function Tree({
 					setError('')
 					return list.map((entry) => ({ id: entry.path, data: entry }))
 				} catch (failure) {
-					setError(failure instanceof Error ? failure.message : 'This folder could not be read.')
+					setError(plainErrorText(failure, 'read the folder'))
 					return []
 				}
 			},

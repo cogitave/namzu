@@ -21,12 +21,19 @@ describe('projectHomeHeading', () => {
 })
 
 describe('newProjectFailure', () => {
-	it('puts the cause after the fixed lead and drops the wrapper Electron adds', () => {
+	it('says what failed in plain words and keeps no wrapper, code or class name', () => {
 		const wrapped = new Error(
 			"Error invoking remote method 'namzu:createProject': Error: EACCES: denied",
 		)
-		expect(newProjectFailure(wrapped).message).toBe("Couldn't create a new project: EACCES: denied")
-		expect(newProjectFailure('plain').message).toBe("Couldn't create a new project: plain")
+		expect(newProjectFailure(wrapped).message).toBe(
+			'Namzu isn’t allowed to open that. Check its permissions, then try again.',
+		)
+		expect(newProjectFailure('plain').message).toBe('Couldn’t create the new project. Try again.')
+	})
+	it('lets a sentence the product wrote through', () => {
+		expect(newProjectFailure(new Error('Restart the desktop app, then try again.')).message).toBe(
+			'Restart the desktop app, then try again.',
+		)
 	})
 })
 

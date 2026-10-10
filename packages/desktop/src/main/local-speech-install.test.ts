@@ -74,19 +74,17 @@ it('inspects only the exact pinned worker and model metadata without launching P
 it('refuses an altered worker or revision and does not execute an integrity-failed installation', async () => {
 	const { root, receipt, paths } = await installedFixture()
 	await writeFile(paths.worker, `${LOCAL_SPEECH_WORKER_SOURCE}\n# altered`)
-	await expect(readLocalSpeechInstallation(root)).rejects.toThrow('integrity check failed')
+	await expect(readLocalSpeechInstallation(root)).rejects.toThrow('The downloaded voice is damaged')
 	const run = vi.fn()
 	await expect(installLocalSpeech({ directory: root, run })).rejects.toThrow(
-		'integrity check failed',
+		'The downloaded voice is damaged',
 	)
 	expect(run).not.toHaveBeenCalled()
 	await writeFile(
 		join(root, 'installation.json'),
 		JSON.stringify({ ...receipt, modelRevision: 'main' }),
 	)
-	await expect(readLocalSpeechInstallation(root)).rejects.toThrow(
-		'Invalid local speech installation',
-	)
+	await expect(readLocalSpeechInstallation(root)).rejects.toThrow('The saved voice is incomplete')
 })
 
 it('rejects old Python before downloading or creating an installed runtime', async () => {
@@ -116,7 +114,7 @@ it('confines serialized runtime paths and rejects foreign or malformed receipt m
 		'runtime-------------------------------------',
 		'runtime-../',
 	])
-		expect(() => localSpeechRuntimePaths(root, path)).toThrow('Invalid local speech installation')
+		expect(() => localSpeechRuntimePaths(root, path)).toThrow('The saved voice is incomplete')
 	expect(localSpeechContainsPath(root, join(root, 'runtime-one', 'worker.py'))).toBe(true)
 	expect(localSpeechContainsPath(root, root)).toBe(false)
 	expect(localSpeechContainsPath(root, join(root, '..', 'worker.py'))).toBe(false)
@@ -126,7 +124,7 @@ it('confines serialized runtime paths and rejects foreign or malformed receipt m
 		JSON.stringify({ ...fixture.receipt, diskBytes: -1 }),
 	)
 	await expect(readLocalSpeechInstallation(fixture.root)).rejects.toThrow(
-		'Invalid local speech installation',
+		'The saved voice is incomplete',
 	)
 })
 
