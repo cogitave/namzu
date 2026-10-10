@@ -18,7 +18,7 @@ import type { Message } from '../message/index.js'
 import type { PlanStep } from '../plan/index.js'
 import type { PluginHookEvent, PluginHookResult } from '../plugin/index.js'
 import type { TaskStatus } from '../task/index.js'
-import type { ToolResultView } from '../tool/presentation.js'
+import type { ToolFacts, ToolResultView } from '../tool/presentation.js'
 import type { CancelCause } from './cancel-cause.js'
 import type { FencingToken } from './durable.js'
 import type { Lineage } from './lineage.js'
@@ -422,6 +422,12 @@ type CoreSessionEvent =
 			 * hosts ignore it and draw the real result.
 			 */
 			savedPresentation?: ToolResultView
+			/**
+			 * What the call did, as typed fields for the person's view (see
+			 * `ToolResult.facts`). Absent when a post-tool hook replaced the
+			 * output, so a redaction is never undone by a structured copy.
+			 */
+			facts?: ToolFacts
 			sessionId: SessionId
 			turnId: TurnId
 			toolUseId: ToolUseId

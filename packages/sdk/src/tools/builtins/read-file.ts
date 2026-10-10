@@ -2,8 +2,10 @@ import { readFile } from 'node:fs/promises'
 import { extname } from 'node:path'
 import { z } from 'zod'
 import type { ToolContext } from '../../types/tool/index.js'
+import type { ToolFacts } from '../../types/tool/presentation.js'
 import { defineTool } from '../defineTool.js'
 import { resolveWithinAnyReal, toolRoots } from '../paths.js'
+import { looksBinary } from '../text-window.js'
 import { fingerprintContent } from './content-fingerprint.js'
 import { type RenderedRead, renderNumberedRead } from './read-render.js'
 
@@ -55,6 +57,7 @@ export const ReadFileTool = defineTool({
 			label: `Read ${input.path}`,
 			presentation: 'activity',
 			activity: 'exploration',
+			facts: { kind: 'read', path: input.path },
 		}
 	},
 
@@ -72,6 +75,12 @@ export const ReadFileTool = defineTool({
 						sandboxed: true,
 						binary: true,
 					},
+					facts: {
+						kind: 'read',
+						path: input.path,
+						binary: true,
+						bytes: buffer.length,
+					},
 				}
 			}
 			const content = buffer.toString('utf-8')
@@ -88,6 +97,7 @@ export const ReadFileTool = defineTool({
 					path: input.path,
 					sandboxed: true,
 				},
+				facts: readFacts(input.path, buffer, content, rendered),
 			}
 		}
 
@@ -101,6 +111,12 @@ export const ReadFileTool = defineTool({
 				data: {
 					path: filePath,
 					binary: true,
+				},
+				facts: {
+					kind: 'read',
+					path: filePath,
+					binary: true,
+					bytes: buffer.length,
 				},
 			}
 		}
@@ -117,9 +133,36 @@ export const ReadFileTool = defineTool({
 				truncated: rendered.partial,
 				path: filePath,
 			},
+			facts: readFacts(filePath, buffer, content, rendered),
 		}
 	},
 })
+
+/**
+ * What a read returned, as fields. A file that is not text is named as such,
+ * so a host says "Binary file, 4 KB" instead of drawing the bytes the model's
+ * numbered rendering contains.
+ */
+function readFacts(
+	path: string,
+	buffer: Buffer,
+	content: string,
+	rendered: RenderedRead,
+): ToolFacts {
+	return {
+		kind: 'read',
+		path,
+		bytes: buffer.length,
+		...(looksBinary(content) ? { binary: true } : {}),
+		// A final newline ends a line; it does not start another.
+		totalLines: content.endsWith('\n') ? rendered.totalLines - 1 : rendered.totalLines,
+		returnedLines:
+			content.endsWith('\n') && !rendered.partial
+				? rendered.returnedLines - 1
+				: rendered.returnedLines,
+		...(rendered.partial ? { partial: true } : {}),
+	}
+}
 
 /**
  * Put this read on the observation ledger.

@@ -117,6 +117,36 @@ describe('what this protocol has a word for', () => {
 		expect(failed).toMatchObject({ status: 'failed' })
 	})
 
+	it("carries a finished call's facts beside its view and leaves them off when there are none", () => {
+		const facts = { kind: 'command', exitCode: 3 } as const
+		const withFacts = toAcpSessionUpdate(
+			{
+				type: 'tool_completed',
+				sessionId: SID,
+				turnId: TID,
+				toolUseId: 'toolu_9',
+				toolName: 'bash',
+				result: 'STDERR:\nboom',
+				isError: true,
+				facts,
+			} as SessionEvent,
+			presenter,
+		)
+		const without = toAcpSessionUpdate(
+			{
+				type: 'tool_completed',
+				sessionId: SID,
+				turnId: TID,
+				toolUseId: 'toolu_10',
+				toolName: 'bash',
+				result: 'ok',
+			} as SessionEvent,
+			presenter,
+		)
+		expect(withFacts).toMatchObject({ facts })
+		expect(without).not.toHaveProperty('facts')
+	})
+
 	it('shows provider-hosted web activity without turning it into a local tool request', () => {
 		const hosted = (tool: {
 			id: string

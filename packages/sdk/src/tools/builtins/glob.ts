@@ -77,6 +77,11 @@ export const GlobTool = defineTool({
 			label: `Find ${input.pattern} in ${input.path ?? '.'}`,
 			presentation: 'activity',
 			activity: 'exploration',
+			facts: {
+				kind: 'list',
+				pattern: input.pattern,
+				...(input.path !== undefined ? { path: input.path } : {}),
+			},
 		}
 	},
 
@@ -142,6 +147,13 @@ export const GlobTool = defineTool({
 				[...files.map(displayPath), ...(notice ? [notice] : [])].join('\n') ||
 				`No files found matching pattern "${input.pattern}" in ${root}`,
 			data: { count: files.length, files, truncated, ...(sandbox ? { sandboxed: true } : {}) },
+			facts: {
+				kind: 'list',
+				pattern: input.pattern,
+				...(input.path !== undefined ? { path: input.path } : {}),
+				count: files.length,
+				truncated,
+			},
 			...(failure ? { error: failure } : {}),
 		}
 	},

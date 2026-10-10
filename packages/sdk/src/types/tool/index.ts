@@ -773,6 +773,14 @@ export interface ToolResult {
 	 * the child's turn fails with {@link ToolHandoff.reason} instead.
 	 */
 	handoff?: ToolHandoff
+	/**
+	 * What this call did, as typed fields for the PERSON's view: the exit code
+	 * and the two streams of a command, the path and size of a read, whether a
+	 * write created the file. `output` stays the model's text and is not
+	 * derived from these; a host that headlines a row reads these and never
+	 * the prose. A host-side override of the output (a redaction) drops them.
+	 */
+	facts?: import('./presentation.js').ToolFacts
 }
 
 /**
@@ -1196,6 +1204,9 @@ export * from './repair.js'
 
 export type {
 	ToolCallView,
+	ToolFacts,
+	ToolFailureReason,
 	ToolPresentation,
 	ToolResultView,
+	ToolTextWindow,
 } from './presentation.js'

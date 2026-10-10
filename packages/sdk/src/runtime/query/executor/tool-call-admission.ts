@@ -246,6 +246,15 @@ export async function prepareDirectCall(
 				input: parsed,
 				message,
 				isError: true,
+				...(isUnregistered(host, toolName)
+					? {
+							facts: {
+								kind: 'failure' as const,
+								reason: 'unknown_tool' as const,
+								subject: toolName,
+							},
+						}
+					: {}),
 			}
 		}
 

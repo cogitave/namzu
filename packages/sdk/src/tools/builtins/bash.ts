@@ -2,6 +2,8 @@ import { z } from 'zod'
 import { SANDBOX_KILL_GRACE_MS } from '../../constants/sandbox/index.js'
 import { DANGEROUS_PATTERNS } from '../../constants/tools/index.js'
 import { killTree } from '../../process/kill-tree.js'
+import { genericLabel } from '../../registry/tool/presentation.js'
+import type { ToolFacts } from '../../types/tool/presentation.js'
 import { subscribeToAbort } from '../../utils/abort.js'
 import { readPositiveIntEnv } from '../../utils/env.js'
 import {
@@ -15,6 +17,7 @@ import {
 import { defineTool } from '../defineTool.js'
 import { scrubInheritedEnv } from '../env-scrub.js'
 import { createHostOutputDecoder } from '../host-output.js'
+import { looksBinary, windowText } from '../text-window.js'
 import { jsonStringEscapes } from './json-string-hint.js'
 
 // Namzu owns its own bash timeout knob — `NAMZU_BASH_TIMEOUT_MS` — and
@@ -158,7 +161,13 @@ export function execHostShell(
 		signal?: AbortSignal
 		onOutput?: ExecHostShellProgress
 	},
-): Promise<{ stdout: string; stderr: string }> {
+): Promise<{
+	stdout: string
+	stderr: string
+	/** Bytes captured on each stream, before decoding; absent from a runner that does not count them. */
+	stdoutBytes?: number
+	stderrBytes?: number
+}> {
 	options.signal?.throwIfAborted()
 	return new Promise((resolve, reject) => {
 		// bash where the host has it, `/bin/sh` where it does not; the
@@ -269,7 +278,12 @@ export function execHostShell(
 			const stdout = decodeCapture('stdout')
 			const stderr = decodeCapture('stderr')
 			if (!failure && cause === undefined && code === 0 && signal === null) {
-				resolve({ stdout, stderr })
+				resolve({
+					stdout,
+					stderr,
+					stdoutBytes: captures.stdout.bytes,
+					stderrBytes: captures.stderr.bytes,
+				})
 				return
 			}
 			const error =
@@ -287,6 +301,8 @@ export function execHostShell(
 				Object.assign(error, {
 					stdout,
 					stderr,
+					stdoutBytes: captures.stdout.bytes,
+					stderrBytes: captures.stderr.bytes,
 					stdoutTruncated: captures.stdout.truncated,
 					stderrTruncated: captures.stderr.truncated,
 					code: failure?.code ?? (cause === 'caller' ? 'ABORT_ERR' : code),
@@ -354,12 +370,24 @@ export const BashTool = defineTool({
 	// and diverged the moment a model asked for longer.
 	timeoutMs: MAX_BASH_TIMEOUT_MS + 30_000,
 
+	// The same one-line label every tool without an opinion gets, plus the
+	// command itself as a field so a host can headline and tooltip it whole.
+	presentCall(input) {
+		if (typeof input.command !== 'string') return undefined
+		return {
+			kind: 'generic',
+			label: genericLabel(input),
+			facts: { kind: 'command', command: input.command },
+		}
+	},
+
 	async execute(input, context) {
 		if (isDangerousCommand(input.command)) {
 			return {
 				success: false,
 				output: '',
 				error: `Dangerous command blocked: "${input.command}"`,
+				facts: { kind: 'failure', reason: 'blocked', subject: 'bash' },
 			}
 		}
 
@@ -434,6 +462,7 @@ export const BashTool = defineTool({
 					success: true,
 					output: `Started background job ${job.id}. For finite work, await completion with wait_for_job: {"id":"${job.id}"}. For a persistent server, observe its literal readiness marker with wait_for_job: {"id":"${job.id}","output_contains":"<expected marker>","output_stream":"stdout"}; this leaves it running and does not prove health. Use job with action "read" for incremental output.`,
 					data: { jobId: job.id, background: true },
+					facts: { kind: 'command', command: input.command, background: true },
 				}
 			} catch (err) {
 				// The per-owner cap, most likely. A refusal that names the limit
@@ -518,6 +547,13 @@ export const BashTool = defineTool({
 					: result.exitCode !== 0
 						? `Command exited with code ${result.exitCode}`
 						: undefined,
+				facts: commandFacts({
+					command: input.command,
+					exitCode: result.exitCode,
+					timedOut: result.timedOut,
+					stdout: result.stdout,
+					stderr: result.stderr,
+				}),
 			}
 		}
 
@@ -531,7 +567,7 @@ export const BashTool = defineTool({
 		const inherited = scrubInheritedEnv()
 
 		try {
-			const { stdout, stderr } = await execHostShell(input.command, {
+			const { stdout, stderr, stdoutBytes, stderrBytes } = await execHostShell(input.command, {
 				cwd: context.workingDirectory,
 				timeout: input.timeout,
 				env: { ...inherited.env, ...context.env },
@@ -543,11 +579,21 @@ export const BashTool = defineTool({
 				success: true,
 				output: formatShellOutput(stdout, stderr) || '(no output)',
 				data: { exitCode: 0, ...(leaveSandbox ? { sandboxed: false, sandboxEscape: true } : {}) },
+				facts: commandFacts({
+					command: input.command,
+					exitCode: 0,
+					stdout,
+					stderr,
+					stdoutBytes,
+					stderrBytes,
+				}),
 			}
 		} catch (err) {
 			const failure = err as NodeJS.ErrnoException & {
 				stdout?: string
 				stderr?: string
+				stdoutBytes?: number
+				stderrBytes?: number
 				stdoutTruncated?: boolean
 				stderrTruncated?: boolean
 				code?: number | string
@@ -597,10 +643,53 @@ export const BashTool = defineTool({
 					: exitCode !== undefined
 						? `Command exited with code ${exitCode}`
 						: `Command failed: ${failure.message}`,
+				facts: commandFacts({
+					command: input.command,
+					...(exitCode !== undefined ? { exitCode } : {}),
+					timedOut,
+					...(failure.signal ? { signal: failure.signal } : {}),
+					stdout: failure.stdout ?? '',
+					stderr: failure.stderr ?? '',
+					...(failure.stdoutBytes !== undefined ? { stdoutBytes: failure.stdoutBytes } : {}),
+					...(failure.stderrBytes !== undefined ? { stderrBytes: failure.stderrBytes } : {}),
+				}),
 			}
 		}
 	},
 })
+
+/**
+ * What a finished command did, as typed fields for the person's view: the exit
+ * code, each stream on its own as a head-and-tail window, and whether the
+ * output was bytes rather than text. The model's text (labels, the withheld
+ * environment note) is not an input here and is never reproduced.
+ */
+function commandFacts(input: {
+	command: string
+	exitCode?: number
+	timedOut?: boolean
+	signal?: string
+	stdout: string
+	stderr: string
+	stdoutBytes?: number
+	stderrBytes?: number
+}): ToolFacts {
+	const outBinary = looksBinary(input.stdout)
+	const errBinary = looksBinary(input.stderr)
+	const outBytes = input.stdoutBytes ?? Buffer.byteLength(input.stdout, 'utf8')
+	const errBytes = input.stderrBytes ?? Buffer.byteLength(input.stderr, 'utf8')
+	const binaryBytes = (outBinary ? outBytes : 0) + (errBinary ? errBytes : 0)
+	return {
+		kind: 'command',
+		command: input.command,
+		...(input.exitCode !== undefined ? { exitCode: input.exitCode } : {}),
+		...(input.timedOut ? { timedOut: true } : {}),
+		...(input.signal ? { signal: input.signal } : {}),
+		...(input.stdout && !outBinary ? { stdout: windowText(input.stdout, outBytes) } : {}),
+		...(input.stderr && !errBinary ? { stderr: windowText(input.stderr, errBytes) } : {}),
+		...(outBinary || errBinary ? { binary: { bytes: binaryBytes } } : {}),
+	}
+}
 
 /**
  * The two streams, labelled, with empty ones left out.

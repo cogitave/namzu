@@ -8,6 +8,7 @@ import { ToolResultHalted, screenToolResult } from '../registry/tool/screen.js'
 import { GENAI, NAMZU, toolSpanName } from '../telemetry/attributes.js'
 import { recordToolCall } from '../telemetry/metrics.js'
 import { getTracer } from '../telemetry/runtime-accessors.js'
+import { failureFactsFromError } from '../tools/failure-facts.js'
 import { isTrustedReadOnly } from '../tools/trusted-read-only.js'
 import { wrapUntrusted } from '../tools/untrusted-envelope.js'
 import type { ToolResultGuardrailSpec } from '../types/guardrail/index.js'
@@ -25,6 +26,7 @@ import type {
 	ToolTierConfig,
 	ToolsView,
 } from '../types/tool/index.js'
+import type { ToolFacts } from '../types/tool/presentation.js'
 import { awaitWithAbort } from '../utils/await-with-abort.js'
 import { toErrorMessage } from '../utils/error.js'
 import { cloneJsonValue as clonePreparedInput } from '../utils/json-snapshot.js'
@@ -970,6 +972,7 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 						success: false,
 						output: '',
 						error: `Tool "${toolName}" execution failed: ${errorMessage}`,
+						...failureFactsField(err),
 					}
 				}
 			} finally {
@@ -1115,4 +1118,9 @@ function describeRequiredInput(schema: { _def?: unknown }): string {
 	} catch {
 		return 'Could not introspect required parameters.'
 	}
+}
+
+function failureFactsField(err: unknown): { facts?: ToolFacts } {
+	const facts = failureFactsFromError(err)
+	return facts ? { facts } : {}
 }

@@ -444,6 +444,11 @@ export const EditTool = defineTool({
 					success: true as const,
 					output: `Edited ${parsed.data.path}: ${result.replacements} replacement(s) [sandboxed]`,
 					data: { path: parsed.data.path, replacements: result.replacements, sandboxed: true },
+					facts: {
+						kind: 'edit' as const,
+						path: parsed.data.path,
+						replacements: result.replacements,
+					},
 				}
 			}
 
@@ -470,6 +475,11 @@ export const EditTool = defineTool({
 				success: true as const,
 				output: `Edited ${hostPath}: ${result.replacements} replacement(s)`,
 				data: { path: hostPath, replacements: result.replacements },
+				facts: {
+					kind: 'edit' as const,
+					path: hostPath,
+					replacements: result.replacements,
+				},
 			}
 		})
 	},
