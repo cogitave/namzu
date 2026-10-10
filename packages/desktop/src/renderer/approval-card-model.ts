@@ -1,6 +1,8 @@
 import { PERMISSION_FEEDBACK_MAX } from '../shared/permission-protocol.js'
 import type { PermissionPreview, PermissionView } from '../shared/protocol.js'
+import { fullPath } from './activity-actions.js'
 import { changeTotals } from './changes-totals.js'
+import { displayPath } from './path-display.js'
 
 type Call = PermissionView['calls'][number]
 
@@ -323,19 +325,34 @@ export function riskyCommand(command: string): boolean {
  * One sentence on what saying yes lets happen: where it happens and what it can change.
  * Nothing for an action the card already explains by its own content.
  */
-export function approvalConsequence(model: ApprovalCardModel, folder?: string): string | undefined {
-	const where = folder?.trim()
+export function approvalConsequence(
+	model: ApprovalCardModel,
+	folder?: string,
+	projectName?: string,
+): string | undefined {
 	if (model.kind === 'command') {
 		const risky = model.command !== undefined && riskyCommand(model.command)
-		const base = where ? `Runs on your computer in ${where}.` : 'Runs on your computer.'
+		// The project's name when there is one; its folder, shortened, when there is not.
+		const where = projectName?.trim() || (folder?.trim() ? displayPath(folder) : undefined)
+		const base = where ? `Runs in ${where}.` : 'Runs on your computer.'
 		return risky
 			? `${base} This command looks like it deletes or overwrites files, so check it before you accept.`
 			: `${base} It can read and change files there.`
 	}
 	if (model.kind === 'delete') return 'Removes this file from your computer.'
-	if (model.kind === 'create' && model.path) return `Adds a new file at ${model.path}.`
-	if (model.kind === 'edit' && model.path) return `Changes the file at ${model.path}.`
+	if (model.kind === 'create' && model.path)
+		return `Adds a new file, ${displayPath(model.path, folder)}.`
+	if (model.kind === 'edit' && model.path) return `Changes ${displayPath(model.path, folder)}.`
 	return undefined
+}
+
+/** The full path the sentence above shortens, for the tooltip. */
+export function approvalConsequenceTitle(
+	model: ApprovalCardModel,
+	folder?: string,
+): string | undefined {
+	if (model.kind === 'command') return folder?.trim() || undefined
+	return model.path ? fullPath(model.path, folder) : undefined
 }
 
 /**

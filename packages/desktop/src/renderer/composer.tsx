@@ -621,6 +621,7 @@ export function Composer({
 									palRunning={palRunning}
 									count={permissions.length}
 									folder={projectPath}
+									projectName={projectName}
 									onRespond={(permission, response) =>
 										approvalDisabled ? false : onApproval(permission, response)
 									}

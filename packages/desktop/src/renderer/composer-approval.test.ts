@@ -10,9 +10,15 @@ const bash = (command: string): PermissionView => ({
 	projectId: 'p',
 	calls: [{ id: 'c1', name: 'bash', input: { command }, isDestructive: false }],
 })
-const draw = (permission: PermissionView, folder?: string) =>
+const draw = (permission: PermissionView, folder?: string, projectName?: string) =>
 	renderToStaticMarkup(
-		createElement(ComposerApproval, { permission, count: 1, folder, onRespond: () => true }),
+		createElement(ComposerApproval, {
+			permission,
+			count: 1,
+			folder,
+			projectName,
+			onRespond: () => true,
+		}),
 	)
 
 it('makes Accept the one filled answer and says what the edit button does', () => {
@@ -25,7 +31,11 @@ it('makes Accept the one filled answer and says what the edit button does', () =
 
 it('names the folder a command runs in and what it can change', () => {
 	const html = draw(bash('ls'), '/work/site')
-	expect(html).toContain('Runs on your computer in /work/site.')
+	expect(html).toContain('Runs in /work/site.')
+	// With the project's name, the name stands in for the folder and the folder is the tooltip.
+	const named = draw(bash('ls'), '/work/site', 'Site')
+	expect(named).toContain('Runs in Site.')
+	expect(named).toContain('title="/work/site"')
 	expect(draw(bash('rm -rf build'), '/work/site')).toContain('deletes or overwrites files')
 })
 

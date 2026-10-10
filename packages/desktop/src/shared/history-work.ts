@@ -1,4 +1,4 @@
-import type { ToolCallView } from '@namzu/sdk'
+import type { ToolCallView, ToolFacts } from '@namzu/sdk'
 import {
 	type ThreadState,
 	type TimelineEntry,
@@ -6,6 +6,7 @@ import {
 	restoreMessages,
 } from './projection.js'
 import type { ChatMessage } from './protocol.js'
+import { publicFacts } from './tool-facts.js'
 
 /** Public display metadata from the same owned, strict journal snapshot as its messages. */
 export interface HistoryMessageAnchor {
@@ -33,6 +34,8 @@ export interface HistoryTool {
 	order: number
 	status: 'completed' | 'failed' | 'cancelled' | 'interrupted' | 'skipped'
 	presentation?: ToolCallView
+	/** What the call did, as fields; a command's output text is not kept. */
+	facts?: ToolFacts
 	durationMs?: number
 	detailUnavailable?: true
 	hosted?: true
@@ -363,6 +366,7 @@ export function restoreHistoryWork(
 			else viewBytes += size
 		}
 		const unsaved = !view
+		const facts = tool.status === 'skipped' ? undefined : publicFacts(tool.facts)
 		if (!view)
 			view = {
 				kind: 'generic',
@@ -386,6 +390,7 @@ export function restoreHistoryWork(
 						? 'failed'
 						: 'completed',
 			view,
+			...(facts ? { facts } : {}),
 			...(unsaved ? { detailUnavailable: true as const } : {}),
 			...(count(tool.durationMs) ? { durationMs: tool.durationMs } : {}),
 			...(journalTime(tool.startedAt) ? { startedTime: journalTime(tool.startedAt) } : {}),

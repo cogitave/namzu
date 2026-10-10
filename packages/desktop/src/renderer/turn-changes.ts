@@ -9,6 +9,8 @@ export interface TurnChangeFile {
 	added: number
 	removed: number
 	receiptIds: string[]
+	/** The turn made this file: its first receipt had nothing before it. */
+	created: boolean
 }
 export interface TurnChanges {
 	turn: number
@@ -17,6 +19,8 @@ export interface TurnChanges {
 	removed: number
 	/** Every completed diff receipt of the turn, in the order the work happened. */
 	receiptIds: string[]
+	/** What the turn did to its files, for the card's title. */
+	verb: 'Created' | 'Edited' | 'Changed'
 }
 
 // Streaming rebuilds `tools` on every update, but finished receipts keep their view objects, so
@@ -49,7 +53,7 @@ export function baseName(path: string): string {
 export function turnChanges(
 	thread: Pick<ThreadState, 'timeline' | 'tools'>,
 ): Map<number, TurnChanges> {
-	const byTurn = new Map<number, Map<string, { path: string; ids: string[] }>>()
+	const byTurn = new Map<number, Map<string, { path: string; ids: string[]; created: boolean }>>()
 	let anonymous = 0
 	for (const entry of thread.timeline) {
 		if (entry.kind !== 'tool') continue
@@ -58,7 +62,11 @@ export function turnChanges(
 		const path = tool.view.path || tool.view.label || ''
 		const key = path || `receipt:${anonymous++}`
 		const files = byTurn.get(entry.turn) ?? new Map()
-		const file = files.get(key) ?? { path, ids: [] }
+		const file = files.get(key) ?? {
+			path,
+			ids: [],
+			created: !tool.view.before && Boolean(tool.view.after),
+		}
 		file.ids.push(entry.id)
 		files.set(key, file)
 		byTurn.set(entry.turn, files)
@@ -66,7 +74,7 @@ export function turnChanges(
 	const result = new Map<number, TurnChanges>()
 	for (const [turn, grouped] of byTurn) {
 		const files: TurnChangeFile[] = []
-		for (const { path, ids } of grouped.values()) {
+		for (const { path, ids, created } of grouped.values()) {
 			const totals = cachedTotals(
 				ids.map((id) => {
 					const view = thread.tools[id]?.view
@@ -80,11 +88,14 @@ export function turnChanges(
 				added: totals.added,
 				removed: totals.removed,
 				receiptIds: ids,
+				created,
 			})
 		}
 		if (!files.length) continue
+		const made = files.filter((file) => file.created).length
 		result.set(turn, {
 			turn,
+			verb: made === files.length ? 'Created' : made === 0 ? 'Edited' : 'Changed',
 			files,
 			added: files.reduce((sum, file) => sum + file.added, 0),
 			removed: files.reduce((sum, file) => sum + file.removed, 0),

@@ -312,3 +312,11 @@ it('uses a recorded duration without inventing historical host clocks or an outc
 	thread.turns[1] = { startedAt: 100, endedAt: 2100, recordedDurationMs: 8400, reason: 'aborted' }
 	expect(turnActivityLabel(thread, 1)).toBe('Stopped · 2s')
 })
+
+it('does not claim a duration for work that took under a second', () => {
+	const thread = historyThread()
+	thread.turns[1] = { recordedDurationMs: 400, reason: 'end_turn' }
+	expect(turnActivityLabel(thread, 1)).toBe('Worked')
+	thread.turns[1] = { recordedDurationMs: 1_000, reason: 'end_turn' }
+	expect(turnActivityLabel(thread, 1)).toBe('Worked for 1s')
+})

@@ -171,20 +171,21 @@ describe('action row labels', () => {
 	it('words a command by its state and keeps the command for the tooltip', () => {
 		let thread = tool(begin(), 'c', 'bash', command('pnpm test'), 'pending')
 		expect(row(thread, 'c')).toMatchObject({
-			label: 'Running command',
+			label: 'Running pnpm test',
 			kind: 'command',
 			tooltip: 'pnpm test',
 		})
 		thread = tool(thread, 'c', 'bash', command('pnpm test'), 'completed')
-		expect(row(thread, 'c')?.label).toBe('Ran command')
+		expect(row(thread, 'c')?.label).toBe('Ran pnpm test')
 		thread = tool(thread, 'c', 'bash', command('pnpm test'), 'failed')
-		expect(row(thread, 'c')?.label).toBe('Command failed')
+		expect(row(thread, 'c')?.label).toBe('Ran pnpm test · failed')
 	})
-	it('keeps the tooltip to one line of at most 200 characters', () => {
+	it('keeps the whole command in the tooltip and a short first line in the headline', () => {
 		const thread = tool(begin(), 'c', 'bash', command(`echo ${'x'.repeat(400)}\nsecond line`))
-		const tip = row(thread, 'c')?.tooltip ?? ''
-		expect(tip.length).toBe(200)
-		expect(tip).not.toContain('\n')
+		const found = row(thread, 'c')
+		expect(found?.tooltip).toBe(`echo ${'x'.repeat(400)}\nsecond line`)
+		expect(found?.label).toBe(`Ran echo ${'x'.repeat(54)}…`)
+		expect(found?.label).not.toContain('\n')
 	})
 	it('tells created, edited and deleted apart by the empty side', () => {
 		let thread = tool(begin(), 'n', 'write', edit('/p/new.txt', '', 'x'))
@@ -257,7 +258,17 @@ describe('full path and open target', () => {
 	})
 	const changes: TurnChanges = {
 		turn: 1,
-		files: [{ name: 'app.css', path: 'src/app.css', added: 1, removed: 0, receiptIds: ['r1'] }],
+		verb: 'Edited',
+		files: [
+			{
+				name: 'app.css',
+				path: 'src/app.css',
+				added: 1,
+				removed: 0,
+				receiptIds: ['r1'],
+				created: false,
+			},
+		],
 		added: 1,
 		removed: 0,
 		receiptIds: ['r1', 'r2'],
@@ -304,7 +315,7 @@ describe('rendered activity', () => {
 
 	it('summarises two or more actions and shows one action as its own row', () => {
 		const html = render(work())
-		expect(html).toContain('Ran 2 commands, edited a file')
+		expect(html).toContain('Ran 2 commands, created a file')
 		expect(html.match(/tool-run-trigger/g)).toHaveLength(1)
 		expect(html.match(/data-tool-call-id=/g)).toHaveLength(4)
 		expect(html).toContain('Edited')
@@ -330,7 +341,7 @@ describe('rendered activity', () => {
 		expect(html.match(/class="tool tool-group plan-row/g)).toHaveLength(1)
 		expect(html).not.toContain('data-tool-call-id="k1"')
 		expect(html).not.toContain('data-tool-call-id="k2"')
-		expect(html).toContain('Ran 2 commands, edited a file')
+		expect(html).toContain('Ran 2 commands, created a file')
 	})
 	it('has no scroll box around a run', () => {
 		expect(render(work())).not.toContain('max-height')
@@ -363,7 +374,7 @@ describe('rendered activity', () => {
 		thread = tool(thread, 'bad', 'bash', command('false'), 'failed')
 		const html = render(finish(thread))
 		expect(html).toContain('Ran 6 commands, 1 failed')
-		expect(html).toContain('Command failed')
+		expect(html).toContain('Ran false · failed')
 		expect(html).toContain('aria-description="false. Received at')
 	})
 	it('gives a path row its full path as a description', () => {

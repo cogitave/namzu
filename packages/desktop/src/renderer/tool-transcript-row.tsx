@@ -10,6 +10,7 @@ import {
 	WrenchIcon,
 } from './icons.js'
 import { MessageTime, timeDescription } from './message.js'
+import { ToolBodyView } from './tool-output-view.js'
 import { type ActionKind, toolTranscriptPresentation } from './tool-transcript-presentation.js'
 import { ToolView } from './tool-view.js'
 import { elapsedLabel } from './transcript-layout.js'
@@ -82,14 +83,31 @@ export function ToolTranscriptRow({
 	const tool = thread.tools[id]
 	const presentation = toolTranscriptPresentation(thread, id)
 	if (!tool || !presentation) return null
-	const { label, state, statusLabel, detailView, callDetail, quietCompleted, kind, lead, file } =
-		presentation
+	const {
+		label,
+		state,
+		statusLabel,
+		detailView,
+		callDetail,
+		quietCompleted,
+		kind,
+		lead,
+		file,
+		main,
+		tail,
+		stats,
+		body,
+	} = presentation
 	const Icon = actionIcon(kind)
 	const active = state === 'running' || state === 'waiting'
-	const expandable = Boolean(callDetail || detailView || tool.progress)
+	const expandable = Boolean(callDetail || detailView || body || tool.progress)
 	// A declined change never happened, so there is no file to open; its note is what the row opens to.
+	// A call that failed for want of the file has nothing to open.
 	const opens =
-		state !== 'declined' && file && (kind === 'edit' || kind === 'read')
+		state !== 'declined' &&
+		!(state === 'failed' && tail) &&
+		file &&
+		(kind === 'edit' || kind === 'read')
 			? kind === 'edit'
 				? openTarget(actions, file.path) !== undefined
 				: Boolean(actions?.onOpenChangedFile)
@@ -118,25 +136,46 @@ export function ToolTranscriptRow({
 			{file.name}
 		</Tip>
 	) : null
+	const tailText = tail ? <span className={`tool-tail ${state}`}>{tail}</span> : null
+	const changed =
+		stats && (stats.added > 0 || stats.removed > 0) ? (
+			<span className="tool-stats">
+				{stats.added > 0 && <span className="tool-stats-added">+{stats.added}</span>}
+				{stats.removed > 0 && <span className="tool-stats-removed">−{stats.removed}</span>}
+			</span>
+		) : null
+	// What follows the headline (how it ended, how much changed) never shrinks: only the words
+	// before it are cut with an ellipsis when the row is narrow.
+	const split = tailText || changed ? ' tool-label-split' : ''
 	const text =
 		lead && file ? (
-			<span className="tool-label">
-				{lead} {name}
+			<span className={`tool-label${split}`}>
+				<span className="tool-main">
+					{lead} {name}
+				</span>
+				{tailText}
+				{changed}
 			</span>
 		) : presentation.tooltip ? (
-			<span className="tool-label">
-				<Tip
-					className="tool-tip-text"
-					text={withTook(presentation.tooltip, took)}
-					focused={focused}
-				>
-					{label}
-				</Tip>
+			<span className={`tool-label${split}`}>
+				<span className="tool-main">
+					<Tip
+						className="tool-tip-text"
+						text={withTook(presentation.tooltip, took)}
+						focused={focused}
+					>
+						{main ?? label}
+					</Tip>
+				</span>
+				{tailText}
 			</span>
 		) : (
-			<span className="tool-label">{label}</span>
+			<span className={`tool-label${split}`}>
+				<span className="tool-main">{main ?? label}</span>
+				{tailText}
+			</span>
 		)
-	const tail = (
+	const trailing = (
 		<>
 			<span className={quietCompleted ? 'tool-status transcript-visually-hidden' : 'tool-status'}>
 				{statusLabel}
@@ -166,7 +205,7 @@ export function ToolTranscriptRow({
 				>
 					<Icon className="tool-icon" aria-hidden="true" />
 					{text}
-					{tail}
+					{trailing}
 				</button>
 			</div>
 		)
@@ -182,7 +221,7 @@ export function ToolTranscriptRow({
 				>
 					<Icon className="tool-icon" aria-hidden="true" />
 					{text}
-					{tail}
+					{trailing}
 				</div>
 			</div>
 		)
@@ -192,10 +231,11 @@ export function ToolTranscriptRow({
 				<Icon className="tool-icon" aria-hidden="true" />
 				{text}
 				<ChevronRightIcon className="disclosure-chevron" aria-hidden="true" />
-				{tail}
+				{trailing}
 			</CollapsibleTrigger>
 			<CollapsiblePanel>
 				{callDetail && <ToolView view={callDetail} state={state} />}
+				{body ? <ToolBodyView body={body} /> : null}
 				{detailView && <ToolView view={detailView} state={state} />}
 				{tool.progress && (
 					<output className="tool-progress">

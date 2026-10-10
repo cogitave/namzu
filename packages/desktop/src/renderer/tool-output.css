@@ -1,0 +1,239 @@
+/* What a tool printed, drawn in the transcript. Colours are the terminal's sixteen, tuned per theme
+   so every one reads on the surface behind it. */
+:root {
+	--ansi-black: #3b3b3b;
+	--ansi-red: #c4161c;
+	--ansi-green: #1a7f37;
+	--ansi-yellow: #8a5a00;
+	--ansi-blue: #0b57d0;
+	--ansi-magenta: #9333a8;
+	--ansi-cyan: #0a7285;
+	--ansi-white: #6b6b6b;
+	--ansi-bright-black: #6b6b6b;
+	--ansi-bright-red: #d62f3a;
+	--ansi-bright-green: #2a8c45;
+	--ansi-bright-yellow: #9a6a00;
+	--ansi-bright-blue: #2563eb;
+	--ansi-bright-magenta: #a855f7;
+	--ansi-bright-cyan: #0e7c8f;
+	--ansi-bright-white: #1f1f1f;
+}
+.dark {
+	--ansi-black: #8a8a8a;
+	--ansi-red: #ff6467;
+	--ansi-green: #4ade80;
+	--ansi-yellow: #f5c542;
+	--ansi-blue: #6ea8ff;
+	--ansi-magenta: #d58cff;
+	--ansi-cyan: #4fd1e6;
+	--ansi-white: #d4d4d4;
+	--ansi-bright-black: #a3a3a3;
+	--ansi-bright-red: #ff8a8a;
+	--ansi-bright-green: #86efac;
+	--ansi-bright-yellow: #fde68a;
+	--ansi-bright-blue: #93c5fd;
+	--ansi-bright-magenta: #e9b8ff;
+	--ansi-bright-cyan: #7fe3f2;
+	--ansi-bright-white: #fafafa;
+}
+
+.tool-content .tool-output,
+.tool-output {
+	margin: 0;
+	/* Output wraps; only a code block earns a sideways scroll. */
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	word-break: normal;
+	overflow-x: hidden;
+	max-height: 28rem;
+	overflow-y: auto;
+	font-family: var(--font-mono);
+	line-height: 1.5;
+	color: var(--foreground);
+}
+.tool-output-block + .tool-output-block {
+	margin-top: 8px;
+}
+.tool-output-label {
+	margin: 0 0 4px;
+	font-size: 11px;
+	font-weight: 500;
+	color: var(--muted-foreground);
+}
+.tool-output-gap {
+	color: var(--muted-foreground);
+	font-style: italic;
+}
+.tool-output-more {
+	margin-top: 6px;
+	padding: 2px 4px;
+	min-height: 24px;
+	border-radius: 6px;
+	font-size: 12px;
+	color: var(--muted-foreground);
+	cursor: pointer;
+}
+.tool-output-more:hover {
+	color: var(--foreground);
+	background: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.tool-output-more:focus-visible {
+	outline: 2px solid var(--ring, currentColor);
+	outline-offset: 1px;
+}
+.tool-note {
+	margin: 0;
+	padding: 6px 0;
+	font-size: 12px;
+	color: var(--muted-foreground);
+}
+.tool-command {
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	margin: 0 0 8px;
+}
+
+.ansi-bold {
+	font-weight: 600;
+}
+.ansi-dim {
+	opacity: 0.7;
+}
+.ansi-italic {
+	font-style: italic;
+}
+.ansi-underline {
+	text-decoration: underline;
+}
+.ansi-black {
+	color: var(--ansi-black);
+}
+.ansi-red {
+	color: var(--ansi-red);
+}
+.ansi-green {
+	color: var(--ansi-green);
+}
+.ansi-yellow {
+	color: var(--ansi-yellow);
+}
+.ansi-blue {
+	color: var(--ansi-blue);
+}
+.ansi-magenta {
+	color: var(--ansi-magenta);
+}
+.ansi-cyan {
+	color: var(--ansi-cyan);
+}
+.ansi-white {
+	color: var(--ansi-white);
+}
+.ansi-bright-black {
+	color: var(--ansi-bright-black);
+}
+.ansi-bright-red {
+	color: var(--ansi-bright-red);
+}
+.ansi-bright-green {
+	color: var(--ansi-bright-green);
+}
+.ansi-bright-yellow {
+	color: var(--ansi-bright-yellow);
+}
+.ansi-bright-blue {
+	color: var(--ansi-bright-blue);
+}
+.ansi-bright-magenta {
+	color: var(--ansi-bright-magenta);
+}
+.ansi-bright-cyan {
+	color: var(--ansi-bright-cyan);
+}
+.ansi-bright-white {
+	color: var(--ansi-bright-white);
+}
+.ansi-bg-black {
+	background: color-mix(in srgb, var(--ansi-black) 25%, transparent);
+}
+.ansi-bg-red {
+	background: color-mix(in srgb, var(--ansi-red) 25%, transparent);
+}
+.ansi-bg-green {
+	background: color-mix(in srgb, var(--ansi-green) 25%, transparent);
+}
+.ansi-bg-yellow {
+	background: color-mix(in srgb, var(--ansi-yellow) 25%, transparent);
+}
+.ansi-bg-blue {
+	background: color-mix(in srgb, var(--ansi-blue) 25%, transparent);
+}
+.ansi-bg-magenta {
+	background: color-mix(in srgb, var(--ansi-magenta) 25%, transparent);
+}
+.ansi-bg-cyan {
+	background: color-mix(in srgb, var(--ansi-cyan) 25%, transparent);
+}
+.ansi-bg-white {
+	background: color-mix(in srgb, var(--ansi-white) 25%, transparent);
+}
+.ansi-bg-bright-black {
+	background: color-mix(in srgb, var(--ansi-bright-black) 25%, transparent);
+}
+.ansi-bg-bright-red {
+	background: color-mix(in srgb, var(--ansi-bright-red) 25%, transparent);
+}
+.ansi-bg-bright-green {
+	background: color-mix(in srgb, var(--ansi-bright-green) 25%, transparent);
+}
+.ansi-bg-bright-yellow {
+	background: color-mix(in srgb, var(--ansi-bright-yellow) 25%, transparent);
+}
+.ansi-bg-bright-blue {
+	background: color-mix(in srgb, var(--ansi-bright-blue) 25%, transparent);
+}
+.ansi-bg-bright-magenta {
+	background: color-mix(in srgb, var(--ansi-bright-magenta) 25%, transparent);
+}
+.ansi-bg-bright-cyan {
+	background: color-mix(in srgb, var(--ansi-bright-cyan) 25%, transparent);
+}
+.ansi-bg-bright-white {
+	background: color-mix(in srgb, var(--ansi-bright-white) 25%, transparent);
+}
+
+/* The row's own parts: what came of it, and how much changed. */
+.tool-tail {
+	color: var(--muted-foreground);
+}
+.tool-tail.failed {
+	color: var(--error-foreground);
+}
+.tool-stats {
+	margin-left: 8px;
+	display: inline-flex;
+	gap: 6px;
+	font-variant-numeric: tabular-nums;
+}
+.tool-stats-added {
+	color: var(--changes-added, #15803d);
+}
+.tool-stats-removed {
+	color: var(--changes-removed, var(--error-foreground));
+}
+
+.tool-label.tool-label-split {
+	display: flex;
+	min-width: 0;
+}
+.tool-label-split > .tool-main {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.tool-label-split > .tool-tail,
+.tool-label-split > .tool-stats {
+	flex: none;
+	white-space: pre;
+}

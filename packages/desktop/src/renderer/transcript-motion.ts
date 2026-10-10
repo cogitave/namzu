@@ -147,7 +147,9 @@ export function turnActivityLabel(thread: ThreadState, turn: number): string {
 		timing?.stopReason ??
 		(turn === thread.turn ? (thread.reason ?? thread.stopReason) : undefined)
 	const milliseconds = turnDurationMs(thread, turn)
-	const duration = milliseconds === undefined ? undefined : elapsedLabel(milliseconds)
+	// "Worked for 0s" tells nobody anything: under a second, the label says no time at all.
+	const duration =
+		milliseconds === undefined || milliseconds < 1000 ? undefined : elapsedLabel(milliseconds)
 	const outcome = transcriptOutcome(reason)
 	const label =
 		turn === thread.turn && thread.error

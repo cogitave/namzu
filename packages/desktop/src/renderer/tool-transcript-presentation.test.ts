@@ -269,7 +269,7 @@ describe('actual tool lifecycle', () => {
 			},
 		})
 		expect(toolTranscriptPresentation(thread, key)).toMatchObject({
-			label: 'Waiting to run command',
+			label: 'Waiting to run pwd',
 			tooltip: 'pwd',
 			state: 'waiting',
 			statusLabel: 'Waiting for approval',
@@ -295,19 +295,19 @@ describe('actual tool lifecycle', () => {
 
 	it('labels failed commands truthfully but does not call a plain result a command execution', () => {
 		const terminal = start({ kind: 'terminal', command: 'pwd', output: '' })
-		expect(toolTranscriptPresentation(terminal, key)?.label).toBe('Running command')
+		expect(toolTranscriptPresentation(terminal, key)?.label).toBe('Running pwd')
 		expect(
 			toolTranscriptPresentation(
 				result(terminal, { kind: 'terminal', command: 'pwd', output: 'Actual failure' }, 'failed'),
 				key,
 			)?.label,
-		).toBe('Command failed')
+		).toBe('Ran pwd · failed')
 		expect(
 			toolTranscriptPresentation(
 				result(terminal, { kind: 'terminal', output: 'workspace' }, 'completed'),
 				key,
 			)?.label,
-		).toBe('Ran command')
+		).toBe('Ran pwd')
 		const read = start({
 			kind: 'generic',
 			label: 'Read the project guide',

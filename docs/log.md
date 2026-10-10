@@ -1,5 +1,14 @@
 # Documentation update log
 
+## 2026-10-10
+
+- **Update** [Tool execution](sdk/tool-execution.md#what-a-call-did-as-fields) adds `ToolResult.facts` (`ToolFacts`, `ToolTextWindow`, `ToolFailureReason`), the typed account of what a call did that a person's view is built from: a command's exit code and its two streams as head-and-tail windows, whether output was binary, a read's path and size, a search's counts, whether a write created the file, and the kind of a failure. The executor sets it on `tool_completed`, the ACP bridge on the `tool_call` update, a generic `ToolCallView` carries the call's own `facts`, and `admitToolFacts` reads a saved one back; the model's text is unchanged.
+- **Update** [Desktop](cli/desktop.md#action-rows) words every tool row from those fields: "Read a.ts", "Searched for export · 2 matches in 2 files", "Listed **/*.ts · 2 files", "Edited a.ts +2 −1", "Created n.txt", "Ran *command*" (first line, 60 characters) with " · failed (exit 3)", "Couldn't read missing.txt: file not found", "Blocked: this command needs administrator rights", "Namzu tried a tool it doesn't have (ls)"; a run's header counts by kind and carries the right icon, and a finished edit now counts in the reply's changes card, which says Created, Edited or Changed.
+- **Update** [Desktop](cli/desktop.md#action-rows) draws what a command printed with colour (`anser`), never as binary ("Binary output, 3 KB"), folded to its first 8 and last 4 lines with **Show more**, with no `STDOUT:`/`STDERR:` labels, an **Errors** label when both streams printed, and none of the runtime's notes about shortened output or withheld credentials; text wraps instead of scrolling sideways.
+- **Update** [Desktop](cli/desktop.md#the-composer-its-popups-and-approval-cards) shortens paths in approval cards: a command says "Runs in *project name*." and a file says its path relative to the project (or `~`-shortened with a middle ellipsis outside it), with the full path as the tooltip.
+- **Update** [Desktop](cli/desktop.md#reply-summary-attachments-and-dates) leaves the duration off "Worked" when the work took under a second.
+- **Update** `packages/cli/src/commands/desktop-host.ts` restores a saved conversation's `facts` (command streams dropped) so a reopened row is worded the way the live one was.
+
 ## 2026-10-09
 
 - **Update** `packages/cli/src/tui/index.tsx`: the terminal app draws live on a real terminal even when `CI` variables are set, instead of showing a blank screen until exit; the variables are left as they are for the commands the agent runs.
