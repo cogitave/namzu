@@ -332,6 +332,20 @@ it('lists archived conversations and restores one into the catalogue, store and 
 	await expect(owner.restoreConversation('old')).rejects.toThrow('archived list')
 })
 
+it('restores a conversation archived a moment ago, without the archived list being opened first', async () => {
+	const rows = [
+		{ id: 'just-archived', title: 'Just archived', updatedAt: '2026-10-05T00:00:00.000Z' },
+	]
+	const { owner, project } = await setup({
+		FIXTURE_LIST_ROWS: JSON.stringify(rows),
+		FIXTURE_ARCHIVE: '1',
+	})
+	await owner.listConversations(project.id)
+	expect(await owner.removeConversation('just-archived')).toMatchObject({ archived: true })
+	const restored = await owner.restoreConversation('just-archived')
+	expect(restored).toMatchObject({ id: 'just-archived', projectId: project.id })
+})
+
 it('refuses an invalid archived row from the host', async () => {
 	const { owner, project } = await setup({
 		FIXTURE_ARCHIVED_ROWS: JSON.stringify([{ id: 'x', title: 3 }]),

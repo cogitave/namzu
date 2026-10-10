@@ -1,5 +1,6 @@
 import { createContext, useContext } from 'react'
 import type { ThreadState, TimelineEntry } from '../shared/projection.js'
+import { GetDockerButton } from './get-docker-button.js'
 import type { PalStartCard } from './pal-start-model.js'
 import { palMessageName } from './tool-transcript-presentation.js'
 import { Button } from './ui/button.js'
@@ -116,6 +117,7 @@ function PalSentLine({
 					<details className="pal-setup-help">
 						<summary>How to set up</summary>
 						<p>{card.help}</p>
+						<GetDockerButton />
 					</details>
 				</>
 			)}

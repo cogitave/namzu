@@ -10,7 +10,10 @@ function ToastList() {
 	return toasts.map((toast) => (
 		<Toast.Root key={toast.id} toast={toast} className="toast-root" swipeDirection="down">
 			<Toast.Content className="toast-content">
-				<Toast.Title className="toast-title" />
+				<Toast.Title
+					className="toast-title"
+					title={(toast.data as { tooltip?: string } | undefined)?.tooltip}
+				/>
 				<Toast.Action className="toast-action" />
 				<Toast.Close className="toast-close" aria-label="Dismiss notification">
 					<X aria-hidden="true" />

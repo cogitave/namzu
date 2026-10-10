@@ -2211,6 +2211,8 @@ export class Operator {
 				assertIdle()
 			}
 			this.removedConversations.set(sessionId, archived)
+			// An archive can be undone straight away, without the archived list being opened first.
+			if (archived) this.archivedOwners.set(sessionId, view.projectId)
 			this.pendingConversationRemovals.delete(sessionId)
 			this.backgroundWork.invalidate(sessionId)
 			this.conversations.delete(sessionId)

@@ -12,9 +12,9 @@ import type { PermissionResponse, PermissionView } from '../shared/protocol.js'
 import {
 	type ApprovalCardModel,
 	FEEDBACK_NOTE_MAX,
-	PAL_TERMINAL_START,
 	approvalConsequence,
 	approvalConsequenceTitle,
+	approvalDetails,
 	approvalWarning,
 	buildApprovalCard,
 	declineFeedback,
@@ -349,21 +349,20 @@ export function ComposerApproval({
 								{showDetails && (
 									<details className="approval-details">
 										<summary>Details</summary>
-										{model.message !== undefined && (
-											<p className="approval-note">
-												From a terminal, the same start is “{PAL_TERMINAL_START}”. You are asked
-												again for each message.
-											</p>
-										)}
-										<pre>
-											{JSON.stringify(
-												permission.calls.length === 1
-													? permission.calls[0]?.input
-													: permission.calls.map((call) => call.input),
-												null,
-												2,
-											)}
-										</pre>
+										{approvalDetails(permission.calls, palNames).map((group, index) => (
+											// biome-ignore lint/suspicious/noArrayIndexKey: the groups follow the request's calls and never reorder
+											<div key={index} className="approval-detail-group">
+												{group.title && <p className="approval-detail-title">{group.title}</p>}
+												<dl className="approval-entries">
+													{group.entries.map((entry) => (
+														<div key={entry.label} className="approval-entry">
+															<dt>{entry.label}</dt>
+															<dd>{entry.value}</dd>
+														</div>
+													))}
+												</dl>
+											</div>
+										))}
 									</details>
 								)}
 								<footer className="approval-footer">

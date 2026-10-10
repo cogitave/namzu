@@ -27,7 +27,7 @@ Speech is disabled initially. **Remove voice…** deletes the downloaded engine 
 the folder is listed under Settings ▸ About ▸ Data folders, never as a raw path on the Speech page.
 Before the download the page says what it does and how big it is and offers one **Download voice**;
 the switches, the language, the resources and measurements appear once the voice is installed, and only
-figures that were measured are shown (sizes read "34.4 MB"). While it downloads the row says one thing for the step it is on ("Preparing the voice engine…", then "Downloading the voice · 12.3 MB of 34.4 MB" with a progress bar, then "Checking the download…"); the installer reports bytes through `onProgress` and the service sends a new state only when the step or a whole percent changes. **Download voice** also turns the voice on when it finishes
+figures that were measured are shown (sizes read "33 MB"). While it downloads the row says one thing for the step it is on ("Preparing the voice engine…", then "Downloading the voice · 12 MB of 33 MB" with a progress bar, then "Checking the download…"); the installer reports bytes through `onProgress` and the service sends a new state only when the step or a whole percent changes. **Download voice** also turns the voice on when it finishes
 installing, because the click is the person's ask to use it. It explicitly installs an isolated
 Python environment below the profile's `local-speech/` directory. An installed
 app uses the CPython it carries under `resources/python`; a development run needs
@@ -345,8 +345,9 @@ command and standalone CLI trust defaults are unchanged.
 
 When a Pal's computer cannot start, the app never shows the host's developer wording
 (a Dockerfile path, an image tag, an engine command). It says what is missing: a Pal's
-computer needs Docker Desktop or Podman with the Namzu computer image added, and
-chatting works without one. A stopped Podman machine, a remote or unregistered engine
+computer needs Docker Desktop or Podman, installed and running (the help offers **Get
+Docker Desktop**; it never points at a document or names an image), and chatting works
+without one. A stopped Podman machine, a remote or unregistered engine
 and any other failure that names a path get their own plain sentence. The computer row
 keeps its status (**Offline**, **Starting…**, **Connected**) and shows **Start *name***
 or **Stop computer** as a separate button, so choosing it never replaces the status;
@@ -559,12 +560,13 @@ project chooser and the command palette. **Start from scratch** has main create
 taken; the folder is made without `recursive`, so two windows cannot share one),
 run `git init` there when git is on the PATH (a missing or failing git never
 fails the creation), trust it (a folder main created is its own consent) and open
-it, and a notice says where ("Created “New project” in …/Documents/Namzu.") with
+it, and a one-line notice says where ("Created “New project” in ~/Documents/Namzu.", the
+home folder as `~`, a long middle cut with an ellipsis and the full path as the tooltip) with
 **Show in folder**. A failure reads "Couldn't create a new project: *message*". The
 folder is named after its leaf. A project's **…** menu has **Rename project…**: it changes the name Namzu
 shows (kept in `project-names.json` in the profile folder, by folder path; an empty name brings the
 folder's own name back) and never the folder, so rename the folder itself in the file manager and use
-**Locate…** on the "Folder not found" row (see
+**Locate folder** on the "Folder not found" row (see
 [A project whose folder is gone](#a-project-whose-folder-is-gone)). **Use an
 existing folder** is the folder picker above, and Ctrl/⌘+O still opens it.
 
@@ -587,8 +589,9 @@ A project leaves Namzu through [Removing a project](#removing-a-project).
 
 If a saved project's folder no longer exists at launch (moved, renamed, deleted or on a drive
 that is not mounted), the project stays in the sidebar instead of vanishing: it shows its name,
-"Folder not found", **Locate…** and **Remove**. Main keeps it as a `missing` project (no
-connection, listed in `projects.json` so it survives the next launch). **Locate…** opens the
+"Folder not found", **Locate folder** and **Remove**; the row shares the other rows' grid and
+12.5 px type, with the warning and the buttons under the name. Main keeps it as a `missing`
+project (no connection, listed in `projects.json` so it survives the next launch). **Locate folder** opens the
 folder picker, and the folder it finds takes over the project's id, so its saved conversations
 come along; the new folder goes through the normal pick checks and asks for trust like any other.
 **Remove** forgets the saved project, its conversations and drafts in Namzu and touches nothing on
@@ -1047,8 +1050,9 @@ row says **Opening…**, with **Cancel**, and none of it disables Customize, **N
 other Pal; a new Customize dialog always starts empty and enabled. A name that matches an existing
 Pal ignoring case, spacing at the ends and the Turkish dotted and dotless i is refused, in the
 dialog and again in the main process, with a suggestion ("You already have a Pal called “pamir”.
-Try “pamir 2”."). The refusal is said once, in red, as the person types and again after Save;
-there is no "you can keep this name" hint. A new Pal's default model is chosen from models a
+Try “pamir 2”."). The refusal is said once, in red, under the name as the person types, in a line that is always
+reserved so nothing moves, with the suggested name kept together; Save is switched off while the
+name is taken. There is no "you can keep this name" hint. A new Pal's default model is chosen from models a
 connected provider lists: the composer's current choice first, then the configured default,
 and when neither is listed that provider's recommended (else first) model. A configured model
 no connected provider offers is never preselected. The sidebar's **Opening…** goes as soon as
@@ -1612,8 +1616,10 @@ sent with `notify(text, { action?, tone?, timeoutMs? })` from `renderer/notify.t
 which any code path can call. The tone is `neutral`, `success`, `warning` or `error`;
 an error is announced assertively and the others politely. A toast lasts 4 seconds, 6
 for a warning, 8 with an action or for an error, and `timeoutMs: 0` keeps it until it is
-dismissed. Up to three show at once as a stack, the newest in front, and hovering or
-focusing the stack fans it open and pauses the timers; reduced motion removes the
+dismissed. One shows at a time: a newer notice replaces the one on screen, and archiving
+several conversations in a row merges into one notice, "3 conversations archived", whose one
+**Undo** restores all of them. `notify` also takes `tooltip` (the full text a sentence
+shortened). Hovering or focusing the toast pauses its timer; reduced motion removes the
 animation. Each pane has its own stack, centred in its conversation lane just above the
 composer (the lane's `--composer-height`), so the side panel stays clear; `notify` goes
 to the pane focused last. Pin and Unpin offer Undo, Archive offers Undo when the host
@@ -2117,8 +2123,8 @@ to a Pal"), shows the whole message as a quoted block in the normal font (never
 cut, so nothing is approved unseen, and not styled like a command), and says
 where it goes and what happens next: "Goes to *name*'s inbox. You can start *name* after
 sending, and it will read the message on its own computer." (a Pal that is already running:
-"*name* will read it at its next step."). The terminal route, `namzu pal dispatch`, and the
-fact that the person is asked again for each message are under **Details**. After approval the transcript keeps a line outside the folded work,
+"*name* will read it at its next step."). **Details** lists the call as labelled fields (**To** *name*, **Message** …), never raw keys, JSON or an id; the
+terminal route, `namzu pal dispatch`, is developer detail and is not shown. After approval the transcript keeps a line outside the folded work,
 "Sent to *name*'s inbox. *name* reads it the next time it runs.", with **See it in
 *name*'s messages**, which opens that Pal's settings on **Messages**. It offers the usual Reject, Edit and Accept
 only: there is no "allow for this conversation" choice. The action row reads
@@ -2708,6 +2714,7 @@ palette and the project menu): one dialog for every project, grouped by project,
 **Restore**. A project that cannot be read says so and does not hide the others. Row titles are cut at a
 word with `…` (34 characters in a row; a tab measures the room it has and keeps whole words, dropping
 a terminal's ` · project` suffix before the part that tells tabs apart), and the full title is the tooltip.
+The row and its hover card write the age the same way: "just now", "5 min ago", "2 h ago", "Yesterday", "3 d ago".
 The hover card under a row says which engine answers, where it runs ("This computer" or "A Pal's
 computer", in words beside the glyph), the last message when this window has it,
 the project and the branch; it opens below the row, inside the sidebar, so it never covers the
@@ -2739,12 +2746,23 @@ the state slot, that the buttons are evenly spaced and end on the row's edge, an
 
 **Archiving.** The menu entry reads **Archive** (no ellipsis: it acts at once). The toast says
 "Conversation archived. Find it under Archived conversations in the sidebar." and stays 20 seconds with
-**Undo**.
+**Undo**; the Undo works at once, without opening the archived list first, and archiving
+another conversation while it shows turns it into "*N* conversations archived" with one Undo for all.
+
+**Folder trust.** The folder's path is shown with `~` for home and a middle ellipsis, the full path as the
+tooltip. **Details** lists what the folder can run under short headings (Commands that run by themselves,
+Tools it can start, Sandbox …) with labelled fields ("Enabled: off"), not raw keys. Picking a folder that
+is already a trusted project opens it and says so ("“*name*” is already in your projects, so it was
+opened."), with no second trust prompt.
 
 **Tab strip.** The tab in front scrolls into view when it changes and when the pane is resized; tabs
 shrink to 160 px before the strip scrolls; when it scrolls, a tab the strip's edge would cut is hidden whole
 (never shown without its first letters) and a **Show all tabs** button lists every tab with a
-check on the one in front. A caret beside **+** ("More ways to add a tab") opens the same menu as the
+check on the one in front, and says how many are out of sight (a small number beside the
+chevron, "Show all tabs (3 hidden)" for a screen reader). The divider before the first tab in view
+is dropped so none hangs at the strip's edge. A Pal has one tab: opening its newest conversation (**Open
+*name*** under a message sent to it, or its row in the sidebar) replaces an older tab of the same
+Pal instead of adding a second one beside it. A caret beside **+** ("More ways to add a tab") opens the same menu as the
 right-click on **+**. The menu of a terminal tab also offers **New terminal to the right** and **New
 terminal below**. When a split needs more room than the pane has, the docked sidebar closes first
 (remembered, like the toggle) and, if even that is not enough, the window says it is too narrow; the page

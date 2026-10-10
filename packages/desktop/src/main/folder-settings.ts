@@ -19,6 +19,8 @@ function plural(count: number, one: string, many: string): string {
 export interface AutoRunFinding {
 	/** Plain words for the list: what was found and why it matters. */
 	label: string
+	/** A short heading for Details, so it adds to the list above instead of repeating it. */
+	title?: string
 	/** The actual commands, servers or names behind it; empty when there is nothing more to show. */
 	lines: string[]
 }
@@ -53,6 +55,7 @@ function entries(value: unknown): [string, unknown][] {
 
 function scalar(value: unknown): string {
 	if (typeof value === 'string') return value
+	if (typeof value === 'boolean') return value ? 'on' : 'off'
 	// Nested objects can hold credentials under any key name, so they are never printed whole.
 	return value && typeof value === 'object' ? '(more settings, not shown)' : String(value)
 }
@@ -87,6 +90,16 @@ function serverLines(value: unknown): string[] {
 	return capped(lines)
 }
 
+/** "allowUnattendedEscape" as "Allow unattended escape". */
+export function settingName(key: string): string {
+	const words = key
+		.replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+		.replace(/[_-]+/g, ' ')
+		.trim()
+		.toLowerCase()
+	return words.charAt(0).toUpperCase() + words.slice(1)
+}
+
 function settingLines(value: unknown): string[] {
 	if (Array.isArray(value)) return capped(value.map(scalar), value.length)
 	const all = entries(value).map(([key, item]) => {
@@ -96,7 +109,8 @@ function settingLines(value: unknown): string[] {
 					? `${item.length} listed`
 					: `${Object.keys(item).length} settings`
 				: scalar(item)
-		return SECRET_NAME.test(key) ? `${key}: …` : `${key}: ${shown}`
+		const name = settingName(key)
+		return SECRET_NAME.test(key) ? `${name}: …` : `${name}: ${shown}`
 	})
 	return capped(all)
 }
@@ -119,6 +133,7 @@ export const CONFIG_SECTIONS: readonly [key: string, say: (value: unknown) => Au
 		'hooks',
 		(value) => ({
 			label: 'commands that run by themselves at set moments (hooks)',
+			title: 'Commands that run by themselves',
 			lines: hookLines(value),
 		}),
 	],
@@ -136,18 +151,24 @@ export const CONFIG_SECTIONS: readonly [key: string, say: (value: unknown) => Au
 					count === 1
 						? '1 tool it can start (an MCP server)'
 						: `${count} tools it can start (MCP servers)`,
+				title: 'Tools it can start',
 				lines: serverLines(value),
 			}
 		},
 	],
 	[
 		'plugins',
-		(value) => ({ label: 'plugins that add their own code', lines: settingLines(value) }),
+		(value) => ({
+			label: 'plugins that add their own code',
+			title: 'Plugins',
+			lines: settingLines(value),
+		}),
 	],
 	[
 		'permissions',
 		(value) => ({
 			label: 'its own rules for what Namzu may do without asking',
+			title: 'Permission rules',
 			lines: settingLines(value),
 		}),
 	],
@@ -155,24 +176,37 @@ export const CONFIG_SECTIONS: readonly [key: string, say: (value: unknown) => Au
 		'permissionChecks',
 		(value) => ({
 			label: 'changes to how Namzu checks an action before it runs',
+			title: 'Permission checks',
 			lines: settingLines(value),
 		}),
 	],
-	['sandbox', (value) => ({ label: sandboxSentence(value), lines: settingLines(value) })],
+	[
+		'sandbox',
+		(value) => ({ label: sandboxSentence(value), title: 'Sandbox', lines: settingLines(value) }),
+	],
 	[
 		'web',
 		(value) => ({
 			label: 'settings for what Namzu may fetch from the web',
+			title: 'Web access',
 			lines: settingLines(value),
 		}),
 	],
 	[
 		'additionalDirectories',
-		(value) => ({ label: 'extra folders Namzu may reach', lines: settingLines(value) }),
+		(value) => ({
+			label: 'extra folders Namzu may reach',
+			title: 'Extra folders',
+			lines: settingLines(value),
+		}),
 	],
 	[
 		'profiles',
-		(value) => ({ label: 'saved profiles that change those settings', lines: settingLines(value) }),
+		(value) => ({
+			label: 'saved profiles that change those settings',
+			title: 'Saved profiles',
+			lines: settingLines(value),
+		}),
 	],
 ]
 
@@ -265,6 +299,7 @@ export async function inspectAutoRunSettings(folder: string): Promise<AutoRunFin
 			if (count)
 				found.push({
 					label: `${plural(count, one, many)} in .namzu/${name}`,
+					title: `In .namzu/${name}`,
 					lines: capped(await entryNames(where), count),
 				})
 		}

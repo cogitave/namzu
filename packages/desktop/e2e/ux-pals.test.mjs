@@ -157,11 +157,16 @@ test(
 			await expect(approval).toContainText(
 				"You can start Işık after sending, and it will read the message on its own computer.",
 			);
-			// The terminal route is under Details, not in the sentence the person reads first.
+			// The terminal route is developer detail and is not shown; Details are labelled fields.
 			await expect(approval.locator(".approval-note").first()).not.toContainText("namzu pal dispatch");
 			await shot(world, "07-approval-1440");
 			await approval.getByText("Details", { exact: true }).click();
-			await expect(approval.locator(".approval-details")).toContainText("namzu pal dispatch");
+			const details = approval.locator(".approval-details");
+			await expect(details).toContainText("To");
+			await expect(details).toContainText("Işık");
+			await expect(details).toContainText("Message");
+			await expect(details).not.toContainText("namzu pal dispatch");
+			assert.doesNotMatch(await details.innerText(), /palId|[{}]|[0-9a-f]{8}-[0-9a-f]{4}-/, "no raw JSON or id");
 			await expect(approval.locator(".approval-command")).toHaveCount(0);
 			const quote = approval.getByLabel("Message");
 			await expect(quote).toHaveText(
@@ -237,7 +242,7 @@ test(
 			await expect(incoming.locator(".message-time")).toHaveAttribute("aria-label", /^Sent at /);
 			await shot(world, "11b-incoming-quote-1440");
 
-			// A second Pal with the same name is refused, and the refusal is said once, before and after Save.
+			// A second Pal with the same name is refused, and the refusal is said once and Save is off.
 			await page.getByRole("button", { name: "New Pal" }).click();
 			await page.getByRole("button", { name: "Customize your Pal" }).click();
 			const second = page.getByRole("dialog", { name: "Customize your Pal" });
@@ -245,8 +250,9 @@ test(
 			await expect(second.getByText(/already have a Pal called/)).toHaveCount(1);
 			await expect(second).not.toContainText("keep this name");
 			await shot(world, "12-duplicate-name-1440");
-			await second.getByRole("button", { name: "Save" }).click();
-			await expect(second.getByRole("alert")).toContainText("You already have a Pal called");
+			// Save is off while the name is taken, so the refusal is the only answer on screen.
+			await expect(second.getByRole("button", { name: "Save" })).toBeDisabled();
+			await expect(second.getByRole("alert")).toHaveCount(0);
 			await expect(second.getByText(/already have a Pal called/)).toHaveCount(1);
 			await second.getByRole("button", { name: "Close customization" }).click();
 			await page.getByRole("button", { name: "Işık", exact: true }).first().click();

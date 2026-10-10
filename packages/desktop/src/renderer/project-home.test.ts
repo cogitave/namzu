@@ -55,15 +55,29 @@ describe('homeStarters', () => {
 })
 
 describe('createdProjectNotice', () => {
-	it('says which folder holds the new project, in either path style', () => {
+	it('says where the project lives with the home folder as ~ and the full path for a tooltip', () => {
 		expect(
 			createdProjectNotice({ name: 'New project', path: '/home/me/Documents/Namzu/New project' }),
-		).toBe('Created \u201cNew project\u201d in /home/me/Documents/Namzu.')
+		).toEqual({
+			text: 'Created \u201cNew project\u201d in ~/Documents/Namzu.',
+			tooltip: '/home/me/Documents/Namzu',
+		})
 		expect(
 			createdProjectNotice({
 				name: 'New project 2',
 				path: 'C:\\Users\\me\\Documents\\Namzu\\New project 2',
 			}),
-		).toBe('Created \u201cNew project 2\u201d in C:\\Users\\me\\Documents\\Namzu.')
+		).toEqual({
+			text: 'Created \u201cNew project 2\u201d in ~/Documents/Namzu.',
+			tooltip: 'C:\\Users\\me\\Documents\\Namzu',
+		})
+	})
+	it('keeps a deep folder on one short line', () => {
+		const { text } = createdProjectNotice({
+			name: 'p',
+			path: '/srv/very/long/folder/names/that/go/on/and/on/forever/and/ever/p',
+		})
+		expect(Array.from(text).length).toBeLessThan(64)
+		expect(text).toContain('\u2026')
 	})
 })

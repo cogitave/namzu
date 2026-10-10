@@ -1,6 +1,7 @@
 import { Dialog } from '@base-ui/react/dialog'
 import { useEffect, useRef, useState } from 'react'
 import type { BroadFolderKind } from '../shared/protocol.js'
+import { middleEllipsis, tildePath } from './path-display.js'
 import { plainErrorText } from './plain-error.js'
 import { Button } from './ui/button.js'
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from './ui/collapsible.js'
@@ -22,6 +23,25 @@ const BROAD_SUBJECT: Record<BroadFolderKind, string> = {
 	drive: 'your whole drive',
 	home: 'your whole home folder',
 	system: 'a system folder',
+}
+
+/** "Name: value" as a labelled field; a line without a name is shown as it is. */
+export function splitDetailLine(line: string): { name?: string; value: string } {
+	const at = line.indexOf(': ')
+	if (at <= 0 || at > 40) return { value: line }
+	return { name: line.slice(0, at), value: line.slice(at + 2) }
+}
+
+function DetailLine({ line }: { line: string }) {
+	const { name, value } = splitDetailLine(line)
+	return name ? (
+		<>
+			<span className="text-muted-foreground">{name}: </span>
+			<span className="font-mono">{value}</span>
+		</>
+	) : (
+		<span className="font-mono">{value}</span>
+	)
 }
 
 /** The words of both variants, apart from the component so they can be tested as data. */
@@ -144,8 +164,12 @@ export function FolderAccessDialog({
 						className="w-full max-w-md rounded-2xl border border-border bg-background p-5 text-foreground shadow-xl outline-none"
 					>
 						<Dialog.Title className="text-lg font-semibold">{copy.title}</Dialog.Title>
-						<p className="mt-2 break-all rounded-md bg-muted px-2 py-1 font-mono text-xs text-muted-foreground">
-							{path}
+						<p
+							className="mt-2 rounded-md bg-muted px-2 py-1 font-mono text-xs text-muted-foreground"
+							title={path}
+							data-folder-path
+						>
+							{middleEllipsis(tildePath(path), 56)}
 						</p>
 						<Dialog.Description className="mt-3 text-sm text-muted-foreground">
 							{copy.description}
@@ -173,9 +197,9 @@ export function FolderAccessDialog({
 													<dd
 														// biome-ignore lint/suspicious/noArrayIndexKey: lines repeat and never reorder
 														key={index}
-														className="break-all font-mono text-foreground"
+														className="break-words text-foreground"
 													>
-														{line}
+														<DetailLine line={line} />
 													</dd>
 												))}
 											</div>

@@ -16,7 +16,7 @@ it('replaces developer build instructions with what is missing and how to get it
 		expect(shown).not.toMatch(/Dockerfile|packages\/|namzu-local-computer|build /i)
 	}
 	expect(COMPUTER_SETUP_NOTICE).toContain('Docker Desktop or Podman')
-	expect(COMPUTER_SETUP_NOTICE).toContain('Namzu computer image')
+	expect(COMPUTER_SETUP_NOTICE).not.toMatch(/image|docs/i)
 	expect(COMPUTER_SETUP_NOTICE).toContain('start your Pal again')
 })
 

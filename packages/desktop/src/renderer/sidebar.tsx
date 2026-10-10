@@ -470,7 +470,7 @@ function MissingProjectRow({
 						aria-label={`Locate the folder for ${project.name}`}
 						onClick={() => onLocate(project)}
 					>
-						Locate…
+						Locate folder
 					</Button>
 				)}
 				{onRemove && (

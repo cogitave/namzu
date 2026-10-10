@@ -175,9 +175,12 @@ export function ToolTranscriptRow({
 				{tailText}
 			</span>
 		)
+	// A failed command already says how it ended after its headline ("· failed (exit 3)"): the
+	// separate badge would say it twice, so it stays for screen readers only.
+	const quietStatus = quietCompleted || (state === 'failed' && kind === 'command' && Boolean(tail))
 	const trailing = (
 		<>
-			<span className={quietCompleted ? 'tool-status transcript-visually-hidden' : 'tool-status'}>
+			<span className={quietStatus ? 'tool-status transcript-visually-hidden' : 'tool-status'}>
 				{statusLabel}
 			</span>
 			{!quiet && <MessageTime time={tool.startedTime ?? tool.endedTime} />}

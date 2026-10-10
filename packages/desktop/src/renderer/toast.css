@@ -4,7 +4,7 @@
 	bottom: calc(var(--composer-height, 200px) + 64px);
 	left: 50%;
 	z-index: 30;
-	width: min(360px, calc(100% - 32px));
+	width: min(440px, calc(100% - 32px));
 	translate: -50% 0;
 	outline: none;
 }
