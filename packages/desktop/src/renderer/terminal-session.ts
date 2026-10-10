@@ -360,9 +360,10 @@ export class TerminalSession {
 			error: undefined,
 			...(result.exitCode === undefined ? {} : { exitCode: result.exitCode }),
 		})
+		// The screen was drawn at the host's size; fit it to this view again (a watching or ended view
+		// has no other trigger, so it would stay at the host's size). A writer's fit resizes the host.
+		if (result.mode === 'snapshot') this.refit()
 		if (result.writer) {
-			// The screen was drawn at the host's size; now fit it to this view, which resizes the host.
-			this.refit()
 			this.sentSize = ''
 			this.syncSize()
 		}
