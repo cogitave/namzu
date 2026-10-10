@@ -4935,7 +4935,44 @@ export type ModelListing =
 			readonly reason: string
 			/** Safe classification for native callers; never the driver's raw diagnostic. */
 			readonly failure?: 'authentication' | 'credential-unavailable'
+			/**
+			 * What kind of failure it was, decided from the error's status, so the
+			 * screen can say it in plain words. `reason` stays the driver's raw text
+			 * and is only shown with `--debug`.
+			 */
+			readonly cause?: ModelListingCause
 	  }
+
+export type ModelListingCause =
+	| 'rejected'
+	| 'forbidden'
+	| 'limited'
+	| 'server'
+	| 'network'
+	| 'unknown'
+
+/** The plain class of a failed catalogue request. */
+export function modelListingCause(err: unknown): ModelListingCause {
+	const status =
+		(err as { status?: unknown; statusCode?: unknown } | null)?.status ??
+		(err as { statusCode?: unknown } | null)?.statusCode
+	const text = err instanceof Error ? err.message : String(err)
+	if (status === 401) return 'rejected'
+	if (status === 403) return 'forbidden'
+	if (status === 429) return 'limited'
+	if (typeof status === 'number' && status >= 500) return 'server'
+	if (typeof status !== 'number') {
+		if (err instanceof CredentialRefreshRejectedError) return 'rejected'
+		if (/\b(401|unauthorized|invalid[ _-]?api[ _-]?key|authentication)\b/i.test(text))
+			return 'rejected'
+		if (/\b403\b|forbidden/i.test(text)) return 'forbidden'
+		if (/\b429\b|rate[ _-]?limit|too many requests/i.test(text)) return 'limited'
+		if (/\b5\d\d\b|bad gateway|service unavailable|overloaded/i.test(text)) return 'server'
+		if (/fetch failed|ECONN|ENOTFOUND|EAI_AGAIN|network|timed? ?out|socket|connection/i.test(text))
+			return 'network'
+	}
+	return 'unknown'
+}
 
 /**
  * The price pair, and only the halves the driver gave a number for.
@@ -5077,6 +5114,7 @@ export async function describeProviderModels(
 		return {
 			kind: 'failed',
 			reason: err instanceof Error ? err.message : String(err),
+			cause: modelListingCause(err),
 			...(err instanceof CredentialWithdrawnError
 				? { failure: 'credential-unavailable' as const }
 				: isCredentialRejection(err)

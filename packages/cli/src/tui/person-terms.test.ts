@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
 	TERMS,
+	displayPath,
 	formatSize,
 	formatSpan,
 	homePath,
@@ -48,5 +49,35 @@ describe('the glossary and humanisers', () => {
 		expect(homePath('/home/ada/work/app', '/home/ada')).toBe('~/work/app')
 		expect(homePath('/srv/app', '/home/ada')).toBe('/srv/app')
 		expect(shortId('01a12552-fe6b-733f-bdfd-ee9abb0b6021')).toBe('01a12552')
+	})
+})
+
+describe('displayPath', () => {
+	const home = '/home/arda'
+	const deep = '/home/arda/workspaces/@cogitave/cogitave/namzu/packages/cli'
+	it('writes home as ~ and keeps a short path whole', () => {
+		expect(displayPath('/home/arda/work', 40, home)).toBe('~/work')
+	})
+	it('cuts the middle, keeping ~ and the last folders whole', () => {
+		expect(displayPath(deep, 32, home)).toBe('~/…/cogitave/namzu/packages/cli')
+	})
+	for (const width of [34, 54, 74]) {
+		it(`fits ${width} cells and never splits the last folder`, () => {
+			const shown = displayPath(deep, width, home)
+			expect(shown.length).toBeLessThanOrEqual(width)
+			expect(shown.endsWith('/cli')).toBe(true)
+		})
+	}
+	it('drops the head before cutting the leaf', () => {
+		expect(displayPath(deep, 6, home)).toBe('…/cli')
+	})
+	it('cuts a leaf wider than the room from its start', () => {
+		const shown = displayPath('/home/arda/a-very-long-folder-name', 8, home)
+		expect(shown).toBe('…lder-name'.slice(0, 1) + 'er-name')
+	})
+	it('handles Windows paths', () => {
+		expect(displayPath('C:\\Users\\arda\\work\\namzu\\packages\\cli', 20, 'D:\\none')).toBe(
+			'C:\\…\\packages\\cli',
+		)
 	})
 })

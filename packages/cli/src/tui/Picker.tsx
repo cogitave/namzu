@@ -28,6 +28,7 @@ import {
 	type ModelGroup,
 	type ModelListing,
 	describeProviderModels,
+	modelListingCause,
 	verifyCredential,
 } from './agent.js'
 import {
@@ -541,6 +542,9 @@ export function Picker({
 				finishOperation(operation)
 				const step = modelStep(current.entry.defaultModel, listing, activeModel, {
 					allowModel: (id) => canSelectModel(current.entry, current.apiKey, id),
+					providerId: current.entry.id,
+					keyEntryReachable:
+						keyEntryOffered && returnToProviders && current.entry.acceptsTypedCredential === true,
 				})
 				const experimentalNotice =
 					current.entry.id === 'zen' && !hasApiCredential(current.entry, current.apiKey)
@@ -560,7 +564,8 @@ export function Picker({
 				.catch((error: unknown) =>
 					showListing({
 						kind: 'failed',
-						reason: explainFailure(error, 'Could not load the list.'),
+						reason: error instanceof Error ? error.message : String(error),
+						cause: modelListingCause(error),
 					}),
 				)
 		},
@@ -570,6 +575,7 @@ export function Picker({
 			currentProvider,
 			describeModels,
 			finishOperation,
+			keyEntryOffered,
 			ownsOperation,
 			setCursor,
 		],
@@ -1698,7 +1704,7 @@ function ModelStepView({
 	const headed = sections.size > 0
 	const headings = new Map([...sections].map(([id, section]) => [id, sectionHeading(section)]))
 	const choices = step ? filterModelChoices(step.choices, query ?? '', headings) : []
-	const noticeRows = step?.notice ? Math.ceil(choiceDisplayWidth(step.notice) / width) : 0
+	const noticeRows = step?.notice ? wrapChoiceText(step.notice, width).length : 0
 	// "Free" and "API key" headings are lines between rows, never rows: the cursor and the digit
 	// shortcuts count choices only. They take screen lines, so the window gives them room: up to three at once (the repeated one, "API key", "Other models").
 	const rowBudget = Math.max(
@@ -1776,7 +1782,7 @@ function ModelStepView({
 						{truncateChoiceText(`Search: ${query ?? 'type or / to filter'}`, width)}
 					</Text>
 					{step.notice ? (
-						<Text color={theme.status.warn}>{terminalDisplayText(step.notice)}</Text>
+						<WrappedLines text={step.notice} width={width} color={theme.status.warn} />
 					) : null}
 					<Box flexDirection="column">
 						{choices.length === 0 ? (

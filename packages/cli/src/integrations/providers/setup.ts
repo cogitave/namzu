@@ -25,8 +25,30 @@ export type SetupHarness = (typeof SETUP_HARNESSES)[number]
 export interface SetupProbe {
 	readonly harness: SetupHarness
 	readonly installed: boolean
+	/** The version number alone, or empty when none could be read. */
 	readonly version: string
+	/** Whether the check ran and gave an answer. False for a timeout or a failed run. */
+	readonly checked: boolean
+	/** What the program printed. Data for `--debug` and the log, never screen text. */
+	readonly raw: string
 	readonly access: string
+}
+
+/**
+ * The version number in a `--version` run's output, or `undefined`.
+ *
+ * The output is data: a program may print warnings before or after the number
+ * ("WARNING: proceeding, even though ..."), so lines are scanned for the first
+ * one that carries a dotted number and that is not a warning.
+ */
+export function versionFromProbe(output: string): string | undefined {
+	for (const line of output.split(/\r?\n/)) {
+		const text = line.trim()
+		if (!text || /^(warn(ing)?|error|note|debug)\b/i.test(text)) continue
+		const found = text.match(/\bv?(\d+\.\d+(?:\.\d+)?(?:[-+][0-9A-Za-z.-]+)?)/)
+		if (found?.[1]) return found[1]
+	}
+	return undefined
 }
 
 /** Fixed argv, bounded output, owned process group. No credential contents enter diagnostics. */
@@ -155,8 +177,9 @@ export async function probeHarnesses(
 			return {
 				harness,
 				installed: !result.missing,
-				version:
-					result.code === 0 ? (result.output.trim().split('\n')[0] ?? '') : 'Version check failed',
+				version: result.code === 0 ? (versionFromProbe(result.output) ?? '') : '',
+				checked: result.code === 0 || result.missing,
+				raw: result.output,
 				access:
 					harness.provider === 'zen' &&
 					provider !== undefined &&

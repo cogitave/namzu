@@ -1955,7 +1955,7 @@ export function App({
 				}),
 			saved: ({ name, path }) =>
 				scheduleLiveRef.current?.say(
-					`Saved skill ${name} to ${path}. The model is offered it from the next reply; /skills ${name} activates it now.`,
+					`Saved skill ${name} to ${homePath(path)}. The model is offered it from the next reply; /skills ${name} activates it now.`,
 				),
 		})
 	}
@@ -2980,7 +2980,7 @@ export function App({
 				else if (target === 'codex') clearStoredCodexCredential()
 				else clearStoredGoogleApiKey()
 			} catch (error) {
-				pushMessage('system', explainFailure(error, `Could not remove ${path}.`))
+				pushMessage('system', explainFailure(error, `Could not remove ${homePath(path)}.`))
 				return
 			}
 			pushMessage(
@@ -9818,7 +9818,7 @@ export function App({
 				}
 				pushMessage(
 					'system',
-					`Gemini API key saved privately at ${path} for future launches. Run /logout gemini to remove it.`,
+					`Gemini API key saved privately at ${homePath(path)} for future launches. Run /logout gemini to remove it.`,
 				)
 			})()
 		},

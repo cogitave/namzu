@@ -116,6 +116,15 @@ describe('classifyCredential', () => {
 })
 
 describe('describeDisposition', () => {
+	it('keeps the provider’s own text off a rejected key’s screen', () => {
+		const text = describeDisposition(PROVIDER_REGISTRY.google, {
+			kind: 'rejected',
+			reason: '401 Authentication Fails (request_id: req_abc123def456)',
+		})
+		expect(text).toContain('rejected that API key')
+		expect(text).not.toContain('request_id')
+		expect(text).toContain('Nothing was stored.')
+	})
 	it('tells the operator a usable Gemini key will be saved and how to remove it', () => {
 		const text = describeDisposition(PROVIDER_REGISTRY.google, { kind: 'verified' })
 		expect(text).toContain('save this Gemini API key privately')
@@ -155,7 +164,8 @@ describe('describeDisposition', () => {
 
 	it('reports a rejection without implying anything was kept', () => {
 		const text = describeDisposition(entry, { kind: 'rejected', reason: 'HTTP 401' })
-		expect(text).toContain('HTTP 401')
+		expect(text).toContain('rejected that API key')
+		expect(text).not.toContain('HTTP 401')
 		expect(text).toContain('Nothing was stored')
 	})
 
