@@ -29,6 +29,7 @@ import { PalAvatar } from './pal-context.js'
 import { palsAttention } from './sidebar-section-attention.js'
 import { SidebarSection } from './sidebar-section.js'
 import { createSubmitGuard } from './submit-guard.js'
+import { elapsedLabel } from './transcript-layout.js'
 import { Button } from './ui/button.js'
 import { Input } from './ui/input.js'
 import './pals-page.css'
@@ -429,8 +430,9 @@ export function palOpeningStatus(
 	seconds: number,
 ): { text: string; stalled: boolean } {
 	if (seconds >= PAL_OPENING_STALLED_SECONDS)
-		return { text: `Still starting ${name}… ${seconds}s`, stalled: true }
-	if (seconds >= 2) return { text: `Opening ${name}… ${seconds}s`, stalled: false }
+		return { text: `Still starting ${name}… ${elapsedLabel(seconds * 1000)}`, stalled: true }
+	if (seconds >= 2)
+		return { text: `Opening ${name}… ${elapsedLabel(seconds * 1000)}`, stalled: false }
 	return { text: `Opening ${name}…`, stalled: false }
 }
 export const PAL_OPENING_STALLED_SECONDS = 10

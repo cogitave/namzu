@@ -21,6 +21,7 @@ it('refuses a second submit until the first has finished, then lets one through 
 	await Promise.resolve()
 	expect(guard.busy).toBe(false)
 	expect(guard.run(async () => {})).toBe(true)
+	expect(palOpeningStatus('pamir', 83).text).toBe('Still starting pamir… 1m 23s')
 })
 
 it('releases the guard when the action fails', async () => {
@@ -39,4 +40,5 @@ it('says what is happening while a Pal starts, with seconds only after two', () 
 		text: 'Still starting pamir… 12s',
 		stalled: true,
 	})
+	expect(palOpeningStatus('pamir', 83).text).toBe('Still starting pamir… 1m 23s')
 })
