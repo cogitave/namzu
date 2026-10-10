@@ -358,3 +358,89 @@ flow("a notice on the computer page takes its own row and covers nothing", {}, a
 	const back = (await w.page.locator(".pal-computer-view").boundingBox())?.y ?? 0;
 	assert.ok(back < top, "the computer page takes the notice's row back when it closes");
 });
+
+/**
+ * What of a pane's body is drawn over a tab strip: every visible element of every pane that is not
+ * part of a strip, clipped by the boxes that clip it (the pane, the scrolling canvas), against every
+ * strip. Returns the first few offenders by name.
+ */
+async function bodyOverStrips(w) {
+	return w.page.evaluate(() => {
+		const strips = [...document.querySelectorAll(".workspace-canvas-pane .topbar, .workspace-canvas-pane .conversation-tabs")];
+		const stripRects = strips.map((el) => el.getBoundingClientRect()).filter((r) => r.width && r.height);
+		const clipped = (el) => {
+			let r = el.getBoundingClientRect();
+			for (let up = el.parentElement; up && r.width > 0 && r.height > 0; up = up.parentElement) {
+				const s = getComputedStyle(up);
+				if (s.overflowX === "visible" && s.overflowY === "visible") continue;
+				const c = up.getBoundingClientRect();
+				const left = Math.max(r.left, c.left);
+				const top = Math.max(r.top, c.top);
+				const right = Math.min(r.right, c.right);
+				const bottom = Math.min(r.bottom, c.bottom);
+				r = { left, top, right, bottom, width: right - left, height: bottom - top };
+			}
+			return r;
+		};
+		const hits = [];
+		for (const pane of document.querySelectorAll(".workspace-canvas-pane")) {
+			for (const el of pane.querySelectorAll("*")) {
+				if (strips.some((strip) => strip.contains(el) || el.contains(strip))) continue;
+				const style = getComputedStyle(el);
+				if (style.visibility === "hidden" || style.display === "none" || Number(style.opacity) === 0) continue;
+				if (el.closest("[hidden], [aria-hidden=true], .sr-only")) continue;
+				const own = [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim());
+				const painted = own || ["INPUT", "TEXTAREA", "BUTTON", "SVG", "H1", "CANVAS"].includes(el.tagName.toUpperCase());
+				if (!painted) continue;
+				const r = clipped(el);
+				if (r.width <= 0.5 || r.height <= 0.5) continue;
+				for (const s of stripRects)
+					if (r.left < s.right - 0.5 && s.left < r.right - 0.5 && r.top < s.bottom - 0.5 && s.top < r.bottom - 0.5)
+						hits.push(`${el.tagName.toLowerCase()} "${(el.textContent ?? "").trim().slice(0, 40)}" ${Math.round(r.top)}-${Math.round(r.bottom)} over a strip ${Math.round(s.top)}-${Math.round(s.bottom)}`);
+			}
+		}
+		return hits.slice(0, 5);
+	});
+}
+
+flow("a pane's body never draws over a tab strip, at one, two and three stacked panes, short or tall", {}, async (w) => {
+	await openProject(w);
+	await enableTerminalDebug(w);
+	await sidebar(w, false);
+	const check = async (panes, height) => {
+		await resize(w, 760, height);
+		await settled(w);
+		await expect(w.page.locator(".workspace-canvas-pane")).toHaveCount(panes, { timeout: T });
+		await expect
+			.poll(() => bodyOverStrips(w), { timeout: T, message: `${panes} pane(s) at ${height}px: nothing in a pane is drawn over a tab strip` })
+			.toEqual([]);
+		// The welcome heading is either not drawn or drawn whole: never cut off at the pane's top.
+		const heading = await w.page.evaluate(() => {
+			const h = document.querySelector("[data-composer-heading]");
+			if (!h || getComputedStyle(h).visibility === "hidden") return { drawn: false };
+			const r = h.getBoundingClientRect();
+			const body = h.closest(".composer-wrap")?.getBoundingClientRect();
+			return { drawn: true, cutOff: !body || r.top < body.top - 0.5 || r.bottom > body.bottom + 0.5 };
+		});
+		assert.ok(!heading.drawn || !heading.cutOff, `${panes} pane(s) at ${height}px: the welcome heading is not cut off`);
+		mkdirSync(SHOTS, { recursive: true });
+		await w.page.screenshot({ path: join(SHOTS, `stacked-${panes}-${height}-dark.png`) });
+	};
+	for (const height of [700, 900]) await check(1, height);
+	await resize(w, 960, 1500);
+	await openSplit(w);
+	for (const height of [700, 900]) await check(2, height);
+	await resize(w, 960, 1500);
+	await settled(w);
+	await w.page.getByRole("button", { name: "New conversation tab" }).first().click({ button: "right" });
+	await w.page.getByRole("menu", { name: "New tab" }).getByRole("menuitem", { name: "New terminal below" }).click();
+	await expect(w.page.locator(".workspace-canvas-pane")).toHaveCount(3, { timeout: T });
+	for (const height of [700, 900]) await check(3, height);
+	// The big heading is dropped, not squeezed, where the pane has no room for it.
+	await resize(w, 760, 700);
+	await settled(w);
+	await expect(w.page.locator("[data-chat-composer-overlay]")).toHaveAttribute("data-heading-fits", "false", { timeout: T });
+	await resize(w, 760, 1500);
+	await settled(w);
+	await expect(w.page.locator("[data-chat-composer-overlay]")).toHaveAttribute("data-heading-fits", "true", { timeout: T });
+});

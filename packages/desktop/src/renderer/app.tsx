@@ -118,6 +118,7 @@ import { ProjectFilesContext } from './file-panel/project-files.js'
 import { createLinkCache } from './file-panel/project-refs.js'
 import { FolderAccessDialog } from './folder-access-dialog.js'
 import {
+	combineStopped,
 	describeBlockedRetry,
 	describeEngineFailure,
 	describeFailure,
@@ -4453,10 +4454,10 @@ export function App({
 	)?.label
 	// "Continue without this reply" failed: the conversation itself cannot take the message back,
 	// so the same words offer to carry it to a new conversation instead.
-	const baseFailures = [
-		...(thread.error ? [describeFailure(thread.error, failedProviderLabel)] : []),
-		...(thread.retryNotice ? [describeBlockedRetry(thread.retryNotice)] : []),
-	]
+	const baseFailures = combineStopped(
+		thread.error ? describeFailure(thread.error, failedProviderLabel) : undefined,
+		thread.retryNotice ? describeBlockedRetry(thread.retryNotice) : undefined,
+	)
 	const replyFailures = baseFailures.map((failure) =>
 		continueFailed === sessionId && failure.actions.includes('continue')
 			? { ...failure, actions: [...failure.actions, 'copy-to-new' as const] }

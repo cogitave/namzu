@@ -236,6 +236,17 @@ flow(
 		const action = region.getByRole("button", { name: "Continue without this reply" });
 		await expect(action).toBeVisible({ timeout: T });
 		assertOneLine(await rowItems(region.locator(".message-actions")), "limited row");
+		// One message, not a failure stacked on a refusal; no Retry where repeating is refused.
+		await expect(region.locator(".turn-recovery-text")).toHaveCount(1);
+		const sentence = (await region.locator(".turn-recovery-text").innerText()).trim();
+		assert.match(sentence, /can’t repeat this reply/, "it says why Retry is not offered");
+		assert.doesNotMatch(sentence, /Your message is saved|Try again|receipt|unresolved|retained/i);
+		assert.equal(sentence.match(/can’t repeat/g)?.length, 1, "the refusal is said once");
+		await expect(region.getByRole("button", { name: "Retry", exact: true })).toHaveCount(0);
+		// Details still holds the labelled fields, closed until asked for.
+		await region.getByRole("button", { name: "Details", exact: true }).click();
+		const details = (await region.locator(".turn-recovery-details-text").innerText()).trim();
+		assert.doesNotMatch(details, /[<{]|\b502 502\b/, "Details carry no markup or raw JSON");
 		await shots(w, "limited");
 	},
 );

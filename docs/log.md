@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-10-11
+
+- **Update** [Desktop](cli/desktop.md#what-a-failed-reply-says) and [Desktop](cli/desktop.md#conversation-panes-and-windows): a failed reply that cannot be repeated is one message (`combineStopped`) in the usual row, with no Retry and its Details intact, in project and Pal conversations; a pane at its minimum height drops the large welcome heading instead of drawing it over the tab strip, and its message box scrolls inside the pane. Covered by `e2e/ux-failed-reply-row.test.mjs` and `e2e/ux-layout-geometry.test.mjs`.
+
 ## 2026-10-10
 
 - **Update** [Desktop](cli/desktop.md#what-a-failed-reply-says): Details read a vendor's JSON error body (Anthropic, OpenAI, Google, a bare string) into one labelled line ("Status: 403 · Provider said: “…” · Type: …") with a separate Request ID line, and unknown shapes become a capped excerpt without braces. The window's error alert is a row above the panes instead of an overlay on the tab strip, is always dismissible and offers **Try again** only when a retry can help (not for "too small to split"); the computer page's banner is a grid row that covers nothing. Covered by `e2e/ux-layout-geometry.test.mjs` and `e2e/ux-provider-replies.test.mjs`.

@@ -468,6 +468,35 @@ export function describeBlockedRetry(notice: string): FriendlyFailure {
 	}
 }
 
+/**
+ * What a stopped reply shows when it has both a cause and a refusal to repeat it. They are one
+ * event, so they are one message: what happened, then the one way on. The cause's own next step
+ * ("Try again", "Your message is saved") is dropped because repeating is refused, and its Details
+ * stay. A refusal that is only "still finishing" or "waiting" is not a second cause and stays alone.
+ */
+export function combineStopped(
+	cause: FriendlyFailure | undefined,
+	blocked: FriendlyFailure | undefined,
+): FriendlyFailure[] {
+	if (!cause) return blocked ? [blocked] : []
+	if (!blocked) return [cause]
+	if (blocked.kind !== 'cannot-repeat') return [blocked]
+	const what = cause.text
+		.replace(/\s*Your message is saved\.?/i, '')
+		.replace(/\s*Try again\.?\s*$/i, '')
+		.trim()
+	const actions: FailureAction[] = cause.actions.filter((action) => action !== 'try-again')
+	for (const action of blocked.actions) if (!actions.includes(action)) actions.push(action)
+	return [
+		{
+			kind: cause.kind,
+			text: `${what} Namzu can’t repeat this reply, so continue without it to put your message back in the message box.`,
+			actions,
+			...(cause.details ? { details: cause.details } : {}),
+		},
+	]
+}
+
 /** Seconds left in a provider's requested wait, rounded up so it never reads 0 while time remains. */
 export function waitSeconds(wait: { at: number; delayMs: number }, now: number): number {
 	return Math.max(0, Math.ceil((wait.at + wait.delayMs - now) / 1000))

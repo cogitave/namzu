@@ -390,6 +390,14 @@ export function Composer({
 		const stage = node?.parentElement
 		if (!node || !stage) return
 		const update = () => {
+			// The big heading sits above the centred box. When the pane is too short to hold it
+			// without reaching the tab strip, it is dropped rather than drawn over it.
+			const heading = node.querySelector<HTMLElement>('[data-composer-heading]')
+			const box = node.querySelector<HTMLElement>('[data-chat-composer-stack]')
+			if (heading && box) {
+				const fits = box.offsetTop >= heading.offsetHeight + 32 + 8
+				if (node.dataset.headingFits !== String(fits)) node.dataset.headingFits = String(fits)
+			}
 			const height = `${centered ? 0 : node.getBoundingClientRect().height}px`
 			if (stage.style.getPropertyValue('--composer-height') !== height)
 				stage.style.setProperty('--composer-height', height)
@@ -426,6 +434,7 @@ export function Composer({
 		if (nextTop !== undefined) previous.current = { top: nextTop, empty: centered }
 		const observer = new ResizeObserver(scheduleResize)
 		observer.observe(node)
+		if (stack) observer.observe(stack)
 		update()
 		return () => {
 			observer.disconnect()
@@ -440,7 +449,7 @@ export function Composer({
 			data-composer-variant={variant}
 			className={
 				centered
-					? 'composer-wrap pointer-events-none absolute inset-0 z-20 flex items-center'
+					? 'composer-wrap composer-wrap-centered pointer-events-none absolute inset-0 z-20 flex items-center'
 					: 'composer-wrap pointer-events-none absolute inset-x-0 bottom-0 z-20 pt-1.5 sm:pt-2'
 			}
 		>
@@ -451,7 +460,10 @@ export function Composer({
 				>
 					{empty && !compact && (
 						<div className="absolute inset-x-0 bottom-full pb-8">
-							<h1 className="text-center text-2xl font-normal tracking-tight text-foreground sm:text-3xl">
+							<h1
+								data-composer-heading
+								className="text-center text-2xl font-normal tracking-tight text-foreground sm:text-3xl"
+							>
 								{emptyHeading}
 							</h1>
 						</div>

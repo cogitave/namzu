@@ -1,7 +1,7 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, it } from 'vitest'
-import { describeBlockedRetry, describeFailure } from './friendly-errors.js'
+import { combineStopped, describeBlockedRetry, describeFailure } from './friendly-errors.js'
 import { TurnRecovery, recoveryActions, recoveryKey } from './turn-recovery.js'
 
 const retry = { turnId: 'turn', checkpointId: 'checkpoint' }
@@ -115,4 +115,44 @@ it('keys the Details toggle on the conversation and the failure, so a new failur
 	expect(recoveryKey('a', [bad])).not.toBe(recoveryKey('b', [bad]))
 	expect(recoveryKey('a', [bad])).not.toBe(recoveryKey('a', [other]))
 	expect(recoveryKey('a', [])).not.toBe(recoveryKey('a', [bad]))
+})
+
+it('shows a cause and a refusal to repeat as one message with one row and no Retry', () => {
+	const cause = describeFailure(
+		'openai (HTTP 500) — the provider failed to complete the request: 500 Internal Server Error',
+	)
+	const blocked = describeBlockedRetry(
+		'This provider request has unresolved token usage. Retry requires its actual provider usage receipt; the original turn is retained.',
+	)
+	const failures = combineStopped(cause, blocked)
+	expect(failures).toHaveLength(1)
+	const html = render({
+		failures,
+		onAction: () => {},
+		time: { at: Date.UTC(2026, 9, 10, 12, 0), source: 'host' },
+	})
+	const main = sentenceOf(html)
+	expect(main.match(/<p /g)).toHaveLength(1)
+	expect(main).toContain('OpenAI had a problem on its side.')
+	expect(main).toContain('can’t repeat this reply')
+	expect(main).not.toMatch(/Your message is saved|Try again|receipt|retained|token/i)
+	expect(html).not.toContain('aria-label="Retry')
+	expect(html).toContain('aria-label="Copy"')
+	expect(html).toContain('>Continue without this reply<')
+	expect(html).toContain('<time')
+	expect(html).toMatch(/aria-expanded="false" aria-controls="[^"]+">Details<\/button>/)
+	// Details keep the labelled fields of the cause.
+	expect(html).toContain(
+		'OpenAI: the provider failed to complete the request (500 Internal Server Error)',
+	)
+})
+
+it('keeps a still-finishing notice alone and a lone failure untouched', () => {
+	const cause = describeFailure(
+		'openai (HTTP 500) — the provider failed to complete the request: x',
+	)
+	const busy = describeBlockedRetry('Wait for this conversation’s active turn to settle.')
+	expect(combineStopped(cause, busy)).toEqual([busy])
+	expect(combineStopped(cause, undefined)).toEqual([cause])
+	expect(combineStopped(undefined, undefined)).toEqual([])
 })

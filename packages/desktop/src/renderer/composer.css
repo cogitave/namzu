@@ -1,3 +1,15 @@
+/*
+ * A pane too short for the big welcome heading drops it (the composer measures this), and a pane
+ * too short for the centred box scrolls it inside the pane instead of drawing over the tab strip.
+ */
+.composer-wrap.composer-wrap-centered {
+	align-items: safe center;
+	overflow-y: auto;
+}
+.composer-wrap[data-heading-fits="false"] [data-composer-heading] {
+	visibility: hidden;
+}
+
 /* One control treatment for project, permission, model and engine selectors. */
 .composer-control {
 	transition: background-color 140ms var(--motion-ease), color 140ms var(--motion-ease), box-shadow

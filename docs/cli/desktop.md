@@ -793,6 +793,12 @@ files in its composer, not sent). When a failure message is shown, the "Paused."
 not (they named a cause the person never hit; the stop reason `token_budget` is also what an
 unmeasured request leaves behind, which is not a spent budget).
 
+A reply that failed and cannot be repeated is one message, not two: the cause and the refusal are
+joined (`combineStopped`), so a project or Pal conversation reads "OpenAI had a problem on its side. Namzu
+can't repeat this reply, so continue without it to put your message back in the message box." in the
+same row as any failed reply (time, Copy, **Continue without this reply**, Details), with no Retry. The
+cause's own "Try again" and "Your message is saved" are dropped, and its labelled Details stay.
+
 **Changing the model after a stopped reply.** Choosing another model is an explicit decision, so a reply
 that stopped on a provider failure (a rate limit, a 5xx, a rejected key, no connection) never holds the
 conversation. `namzu/sessions/retry-status` adds `closable: true` when the paused turn stopped on a provider
@@ -1808,7 +1814,7 @@ four- or eight-pane product limit. Existing splits remain readable after a
 window shrinks: side-by-side panes whose two minimums no longer fit the width are stacked, one above the other, the
 same way at every width (`fitWorkspaceDirections`; the saved direction and ratio are untouched, so widening the window puts them
 side by side again), because stacking keeps both panes in view with the same dividers and tabs while a one-pane switch would hide a
-running terminal; the page never scrolls sideways. Stacked panes still scroll vertically when their minimum heights exceed the window. Drag a divider to resize its branches, or focus it and use the
+running terminal; the page never scrolls sideways. Stacked panes still scroll vertically when their minimum heights exceed the window. A pane at its minimum height never draws its body over its tab strip: the empty conversation's large heading ("What should we work on in …?") is not drawn when the pane has no room above the message box for it (the composer measures this and sets `data-heading-fits`), and the box with its suggestions scrolls inside the pane (`e2e/ux-layout-geometry.test.mjs`, one, two and three stacked panes at 700 and 900 px). Drag a divider to resize its branches, or focus it and use the
 appropriate arrow keys; Shift makes a larger step, and Home/End reach the
 readable bounds. Keyboard and pointer changes preserve both branches' minimums.
 Group controllers keep stable identities when the tree gains or loses a split.

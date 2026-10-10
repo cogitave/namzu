@@ -365,8 +365,13 @@ for (const [status, contentType, body, tail, shotName] of [
 			await send(w, "please go wrong");
 			const region = w.page.locator(".turn-recovery");
 			await expect(
-				region.getByText("OpenAI had a problem on its side. Your message is saved.", { exact: true }),
+				region.getByText("OpenAI had a problem on its side. Namzu can’t repeat this reply, so continue without it to put your message back in the message box.", { exact: true }),
 			).toBeVisible({ timeout: T });
+			// A Pal's turn is limited, so the failure and the refusal to repeat it are one message with
+			// the one way on, and no Retry.
+			await expect(region.locator(".turn-recovery-text")).toHaveCount(1);
+			await expect(region.getByRole("button", { name: "Continue without this reply" })).toBeVisible();
+			await expect(region.getByRole("button", { name: "Retry", exact: true })).toHaveCount(0);
 			const visible = (await region.innerText()).replace(/Details[\s\S]*$/, "");
 			assert.doesNotMatch(visible, JARGON, "the headline carries no code, markup or accounting words");
 			await region.getByRole("button", { name: "Details", exact: true }).click();
