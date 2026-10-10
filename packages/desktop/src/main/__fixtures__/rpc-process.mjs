@@ -1,7 +1,7 @@
 // Isolated transport fixture: no credentials, model, network or shell execution.
 import { createInterface } from 'node:readline'
 import { randomUUID } from 'node:crypto'
-import { appendFileSync, existsSync, readFileSync } from 'node:fs'
+import { appendFileSync, existsSync, readFileSync, unlinkSync } from 'node:fs'
 const pending = new Map()
 const harnesses = new Map()
 const sessions = new Set()
@@ -12,8 +12,13 @@ const savedKeys = new Set()
 const send = (frame) => process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', ...frame })}\n`)
 const reply = (id, result) => send({ id, result })
 const discovery = (id, kind, result) => {
-	if (process.env.FIXTURE_DELAY_DISCOVERY_FILE && existsSync(process.env.FIXTURE_DELAY_DISCOVERY_FILE) && readFileSync(process.env.FIXTURE_DELAY_DISCOVERY_FILE, 'utf8') === kind) delayedDiscoveries.push({ id, result })
-	else reply(id, result)
+	const file = process.env.FIXTURE_DELAY_DISCOVERY_FILE
+	const held = file && existsSync(file) ? readFileSync(file, 'utf8') : ''
+	// "<kind>:once" delays one reply, then lets every later read through.
+	if (held === kind || held === `${kind}:once`) {
+		if (held.endsWith(':once')) unlinkSync(file)
+		delayedDiscoveries.push({ id, result })
+	} else reply(id, result)
 }
 const releaseDiscoveries = () => {
 	for (const { id, result } of delayedDiscoveries.splice(0)) reply(id, result)

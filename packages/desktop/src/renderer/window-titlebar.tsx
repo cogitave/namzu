@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import type { WindowChrome, WindowMenu } from '../shared/protocol.js'
 import { START_FROM_SCRATCH_LABEL, USE_EXISTING_FOLDER_LABEL } from './add-project-menu.js'
 import { ArrowLeftIcon, ArrowRightIcon, PanelLeftIcon } from './icons.js'
+import { plainErrorText } from './plain-error.js'
 import { Button } from './ui/button.js'
 
 export function WindowTitlebar({
@@ -44,7 +45,7 @@ export function WindowTitlebar({
 				if (current) setChrome(value)
 			})
 			.catch((error: unknown) => {
-				if (current) onError(error instanceof Error ? error.message : String(error))
+				if (current) onError(plainErrorText(error, 'set up the window'))
 			})
 		return () => {
 			current = false
@@ -57,7 +58,7 @@ export function WindowTitlebar({
 				appearance === 'dark' || (appearance === 'system' && media.matches) ? 'dark' : 'light'
 			void window.namzu
 				.setWindowAppearance(resolved)
-				.catch((error: unknown) => onError(error instanceof Error ? error.message : String(error)))
+				.catch((error: unknown) => onError(plainErrorText(error, 'change the appearance')))
 		}
 		apply()
 		media.addEventListener('change', apply)
@@ -67,7 +68,7 @@ export function WindowTitlebar({
 		const bounds = button.getBoundingClientRect()
 		void window.namzu
 			.popupWindowMenu(menu, { x: bounds.left, y: bounds.bottom })
-			.catch((error: unknown) => onError(error instanceof Error ? error.message : String(error)))
+			.catch((error: unknown) => onError(plainErrorText(error, 'open the menu')))
 	}
 	return (
 		<header

@@ -1,5 +1,6 @@
 import { Cpu, Download, Volume2 } from 'lucide-react'
 import { useId, useState } from 'react'
+import { formatSize } from '../shared/format-size.js'
 import { LOCAL_SPEECH_MAX_TEXT, type LocalSpeechState } from '../shared/local-speech-protocol.js'
 import { ChevronDownIcon, SquareIcon } from './icons.js'
 import { Button } from './ui/button.js'
@@ -11,10 +12,7 @@ import './local-speech-settings.css'
 export function formatSpeechBytes(value: number | null | undefined): string {
 	if (value === null || value === undefined || !Number.isFinite(value) || value < 0)
 		return 'Not measured'
-	if (value < 1_024) return `${Math.round(value)} B`
-	if (value < 1_048_576) return `${(value / 1_024).toFixed(1)} KiB`
-	if (value < 1_073_741_824) return `${(value / 1_048_576).toFixed(1)} MiB`
-	return `${(value / 1_073_741_824).toFixed(1)} GiB`
+	return formatSize(value)
 }
 
 function voiceStatus(state: LocalSpeechState): string {

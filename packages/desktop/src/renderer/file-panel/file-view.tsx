@@ -6,6 +6,7 @@ import { CopyButton } from '../copy-button.js'
 import { DIFF_VIEW_UNSAFE_CSS } from '../diff-theme.js'
 import { ChevronRightIcon } from '../icons.js'
 import { type DocumentOptions, MarkdownContent } from '../message.js'
+import { plainErrorText } from '../plain-error.js'
 import { Button } from '../ui/button.js'
 import { baseNameOf, isMarkdownPath, relativeProjectPath } from './project-refs.js'
 
@@ -44,7 +45,7 @@ export function useProjectFile(
 				setState({
 					path,
 					status: 'error',
-					message: failure instanceof Error ? failure.message : 'This file could not be read.',
+					message: plainErrorText(failure, 'read the file'),
 				}),
 		)
 		return () => {

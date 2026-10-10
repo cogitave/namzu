@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { formatSize, shortFileName } from '../shared/format-size.js'
 import type { AttachmentView, DesktopApi } from '../shared/protocol.js'
 
 /** Draft ownership is captured before a chooser or file read yields. */
@@ -142,12 +143,17 @@ export function useAttachments(
 		pick: () => change(owner, () => api.pickAttachments(owner)),
 		add: (files: File[]) =>
 			change(owner, async () => {
-				if (
-					files.length > 8 ||
-					files.some((file) => file.size > 3 * 1024 * 1024) ||
-					files.reduce((sum, file) => sum + file.size, 0) > 3 * 1024 * 1024
-				)
-					throw new Error('Attach up to 8 files with a combined size of 3 MB.')
+				const limit = 3 * 1024 * 1024
+				const big = files.find((file) => file.size > limit)
+				if (big)
+					throw new Error(
+						`“${shortFileName(big.name)}” is ${formatSize(big.size)}. Choose a file under ${formatSize(limit)}.`,
+					)
+				if (files.length > 8) throw new Error('You can attach up to 8 files to one message.')
+				if (files.reduce((sum, file) => sum + file.size, 0) > limit)
+					throw new Error(
+						`Attachments can add up to ${formatSize(limit)} per message. Remove a file or choose smaller ones.`,
+					)
 				const uploads = await Promise.all(
 					files.map(async (file) => ({
 						name: file.name,

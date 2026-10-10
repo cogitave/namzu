@@ -96,7 +96,11 @@ import { ProjectFiles, confineProjectPath, resolveProjectLinks } from './project
 import { type ProjectNameStore, projectNameProblem } from './project-names.js'
 import { parseUntrust, projectBusyReason, withoutProject } from './project-removal.js'
 import { RuntimeClient, type RuntimeCommand } from './rpc-client.js'
-import { SupersededConversationSettingsError } from './superseded-settings.js'
+import {
+	ConversationHostChangedError,
+	SupersededConversationSettingsError,
+	readCurrent,
+} from './superseded-settings.js'
 import type { FolderTrustGuard } from './trusted-folders.js'
 
 interface PendingMessage {
@@ -174,6 +178,8 @@ interface Conversation {
 	connectionLost?: boolean
 	selectionRevision?: number
 	selectionPending?: boolean
+	/** Settles when the selection in flight does; a read it overtook waits on it, then reads again. */
+	selectionSettled?: Promise<void>
 	client: RuntimeClient
 	running: boolean
 	/** Exact owner of preflight or settlement; an older finally cannot release it. */
@@ -1711,6 +1717,21 @@ export class Operator {
 			if (this.chatStarting === operation) this.chatStarting = undefined
 		}
 	}
+	/** A folder that vanished or cannot be read is said once, plainly, instead of as an operating-system code. */
+	private async reachableFolder<T>(read: () => Promise<T>): Promise<T> {
+		try {
+			return await read()
+		} catch (error) {
+			const code = (error as NodeJS.ErrnoException | undefined)?.code
+			if (code === 'ENOENT' || code === 'ENOTDIR')
+				throw new Error('That folder no longer exists. Choose another folder.')
+			if (code === 'EACCES' || code === 'EPERM')
+				throw new Error(
+					'Namzu can’t open that folder. Check that you have access to it, or choose another folder.',
+				)
+			throw error
+		}
+	}
 	async openProject(path: string): Promise<ProjectView> {
 		return this.openProjectDirectory(path)
 	}
@@ -1719,7 +1740,7 @@ export class Operator {
 		ownedPalWorkspace = false,
 	): Promise<ProjectView> {
 		if (this.closing) throw new Error('Namzu is closing.')
-		const canonical = await realpath(path)
+		const canonical = await this.reachableFolder(() => realpath(path))
 		let cwd = canonical
 		if (ownedPalWorkspace) {
 			// Windows' native realpath can change only directory spelling while the
@@ -1750,7 +1771,8 @@ export class Operator {
 			}
 			cwd = expected
 		}
-		if (!(await stat(cwd)).isDirectory()) throw new Error('Choose a folder.')
+		if (!(await this.reachableFolder(() => stat(cwd))).isDirectory())
+			throw new Error('That is a file, not a folder. Choose a folder.')
 		if (this.closing) throw new Error('Namzu is closing.')
 		const pending = this.projectStarting.get(cwd)
 		if (pending) return pending
@@ -2864,6 +2886,7 @@ export class Operator {
 		this.changingPlugins.add(sessionId)
 		session.selectionRevision = (session.selectionRevision ?? 0) + 1
 		session.selectionPending = true
+		const settleSelection = this.beginSelection(session)
 		try {
 			if (session.needsLoad) await this.reattach(session, { engine })
 			const assertCurrent = this.metadataRead(this.project(session.view.projectId), session, true)
@@ -2907,8 +2930,31 @@ export class Operator {
 			return view
 		} finally {
 			session.selectionPending = false
+			settleSelection()
 			this.changingPlugins.delete(sessionId)
 		}
+	}
+	private beginSelection(session: Conversation): () => void {
+		let settle = () => {}
+		const settled = new Promise<void>((resolve) => {
+			settle = resolve
+		})
+		session.selectionSettled = settled
+		return () => {
+			if (session.selectionSettled === settled) session.selectionSettled = undefined
+			settle()
+		}
+	}
+	/** The engine list for a conversation, once any selection in flight has settled. */
+	currentHarnesses(sessionId: string): Promise<HarnessView> {
+		const projectId = this.session(sessionId).view.projectId
+		return this.rereadCurrent(sessionId, () => this.harnesses(projectId, sessionId))
+	}
+	/** Runs a metadata read until it answers for the current selection; see `readCurrent`. */
+	rereadCurrent<T>(sessionId: string | undefined, read: () => Promise<T>): Promise<T> {
+		return readCurrent(read, () =>
+			sessionId === undefined ? undefined : this.conversations.get(sessionId)?.selectionSettled,
+		)
 	}
 	private metadataRead(project: Project, session?: Conversation, selecting = false): () => void {
 		const client = project.client
@@ -2921,7 +2967,7 @@ export class Operator {
 				project.view.status !== 'ready' ||
 				(session && (session.client !== client || session.runtimeSessionId !== runtimeId))
 			)
-				throw new Error('The conversation settings changed while loading. Retry this request.')
+				throw new ConversationHostChangedError()
 			if (
 				session &&
 				((session.selectionRevision ?? 0) !== revision ||
@@ -3650,6 +3696,7 @@ export class Operator {
 		this.changingPlugins.add(sessionId)
 		session.selectionRevision = (session.selectionRevision ?? 0) + 1
 		session.selectionPending = true
+		const settleSelection = this.beginSelection(session)
 		try {
 			if (session.needsLoad)
 				await this.reattach(
@@ -3688,6 +3735,7 @@ export class Operator {
 			this.persistDesktop()
 		} finally {
 			session.selectionPending = false
+			settleSelection()
 			this.changingPlugins.delete(sessionId)
 		}
 	}

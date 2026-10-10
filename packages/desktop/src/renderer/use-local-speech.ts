@@ -8,6 +8,7 @@ import {
 	type LocalSpeechState,
 } from '../shared/local-speech-protocol.js'
 import { LocalSpeechPlayback, decodeSpeechPcm } from './local-speech-playback.js'
+import { plainErrorText } from './plain-error.js'
 
 export interface LocalSpeechRendererApi {
 	localSpeechState?(): Promise<LocalSpeechState>
@@ -315,7 +316,9 @@ export class LocalSpeechController {
 }
 
 function message(error: unknown): string {
-	return error instanceof Error ? error.message : 'The local voice is unavailable.'
+	return error instanceof Error
+		? plainErrorText(error, 'use the local voice')
+		: 'The local voice is unavailable.'
 }
 
 export interface LocalSpeechControls extends LocalSpeechSnapshot {

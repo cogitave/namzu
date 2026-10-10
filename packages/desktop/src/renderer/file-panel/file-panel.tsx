@@ -8,6 +8,7 @@ import { FileBreadcrumb, FileView } from './file-view.js'
 import { type Editor, OpenInButton, type OpenTarget } from './open-in.js'
 import { isMarkdownPath } from './project-refs.js'
 import './file-panel.css'
+import { plainErrorText } from '../plain-error.js'
 
 /** The body under the tab strip for an open file, or for "+" before one is chosen. */
 export function FilePanelBody({
@@ -72,7 +73,7 @@ export function FilePanelBody({
 		if (!api.openProjectPath) return
 		if (!path) return
 		api.openProjectPath(projectId, path, target, line).catch((failure) => {
-			onNotice(failure instanceof Error ? failure.message : 'This could not be opened.')
+			onNotice(plainErrorText(failure, 'open it'))
 		})
 	}
 	const markdown = path ? isMarkdownPath(path) : false

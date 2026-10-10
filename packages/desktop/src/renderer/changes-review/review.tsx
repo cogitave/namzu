@@ -34,6 +34,7 @@ import { ToolButton } from './tool-button.js'
 import { ReviewTreeView } from './tree.js'
 import '../conversation-actions-menu.css'
 import './review.css'
+import { plainErrorText } from '../plain-error.js'
 
 type Tool = Extract<AcpSessionUpdate, { kind: 'tool_call' }>
 
@@ -56,8 +57,7 @@ type Remote =
 	| { state: 'error'; message: string }
 	| { state: 'ready'; view: ProjectChangesView | null }
 
-const failure = (error: unknown, fallback: string) =>
-	error instanceof Error && error.message ? error.message : fallback
+const failure = (error: unknown, context: string) => plainErrorText(error, context)
 
 export function ChangesReview({
 	tools,
@@ -128,7 +128,7 @@ export function ChangesReview({
 				current &&
 				setRemote({
 					state: 'error',
-					message: failure(error, 'The changes could not be read.'),
+					message: failure(error, 'read the changes'),
 				}),
 		)
 		return () => {
@@ -201,7 +201,7 @@ export function ChangesReview({
 					key: bodyKey,
 					body: {
 						state: 'error',
-						message: failure(error, 'This file could not be read.'),
+						message: failure(error, 'read this file'),
 					},
 				}),
 		)

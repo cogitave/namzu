@@ -81,6 +81,7 @@ import { desktopRuntimeNodeArgs, desktopRuntimeNodeFlags } from './runtime-node-
 import { readRuntimeVersions } from './runtime-versions.js'
 import { SettingsConfirmation } from './settings-confirmation.js'
 import { installStreamRendererPolicy, withStreamRendererPort } from './stream-renderer-policy.js'
+import { SupersededConversationSettingsError } from './superseded-settings.js'
 import { tabMenuItems } from './tab-menu.js'
 import { TerminalHostClient } from './terminal-client.js'
 import { engineHost, findProgram, shellEnvironment } from './terminal-env.js'
@@ -1047,11 +1048,20 @@ function register(): void {
 		workspace.open(windowId, conversation.id, groupId)
 		return conversation
 	})
-	handle('harnesses', (id: string, sessionId?: string) => operator.harnesses(id, sessionId))
+	handle('harnesses', (id: string, sessionId?: string) =>
+		operator.rereadCurrent(sessionId, () => operator.harnesses(id, sessionId)),
+	)
 	handle(
 		'selectHarness',
-		(id: string, engine: import('../shared/protocol.js').HarnessView['selected']) =>
-			operator.selectHarness(id, engine),
+		async (id: string, engine: import('../shared/protocol.js').HarnessView['selected']) => {
+			try {
+				return await operator.selectHarness(id, engine)
+			} catch (error) {
+				// A newer choice replaced this one: the answer is whatever is selected now.
+				if (!(error instanceof SupersededConversationSettingsError)) throw error
+				return operator.currentHarnesses(id)
+			}
+		},
 	)
 	handleWindow('openConversation', async ({ id: windowId }, project: string, id: string) => {
 		const before = workspace.view(windowId)
@@ -1091,23 +1101,32 @@ function register(): void {
 		}
 	})
 	handleWindow('readyConversation', async ({ id: windowId }, project: string, id: string) => {
-		await operator.readyConversation(project, id)
+		await operator.rereadCurrent(id, () => operator.readyConversation(project, id))
 		workspace.assertReadable(windowId, id)
 	})
-	handle('providers', (id: string, sessionId?: string) => operator.providers(id, sessionId))
+	handle('providers', (id: string, sessionId?: string) =>
+		operator.rereadCurrent(sessionId, () => operator.providers(id, sessionId)),
+	)
 	handle('models', (id: string, provider: string, sessionId?: string) =>
-		operator.models(id, provider, sessionId),
+		operator.rereadCurrent(sessionId, () => operator.models(id, provider, sessionId)),
 	)
 	handle('modelSettings', (id: string, provider: string, model: string, sessionId?: string) =>
-		operator.modelSettings(id, provider, model, sessionId),
+		operator.rereadCurrent(sessionId, () => operator.modelSettings(id, provider, model, sessionId)),
 	)
-	handle('plugins', (id: string, sessionId?: string) => operator.plugins(id, sessionId))
+	handle('plugins', (id: string, sessionId?: string) =>
+		operator.rereadCurrent(sessionId, () => operator.plugins(id, sessionId)),
+	)
 	handle('setPluginEnabled', (id: string, name: string, enabled: boolean) =>
 		operator.setPluginEnabled(id, name, enabled),
 	)
-	handle('selectProvider', (id: string, provider: string, model?: string) =>
-		operator.selectProvider(id, provider, model),
-	)
+	handle('selectProvider', async (id: string, provider: string, model?: string) => {
+		try {
+			await operator.selectProvider(id, provider, model)
+		} catch (error) {
+			// A newer choice replaced this one; that choice is the one in force.
+			if (!(error instanceof SupersededConversationSettingsError)) throw error
+		}
+	})
 	const choosingFiles = new Set<string>()
 	handleWindow('pickAttachments', async ({ id: windowId, window }, owner: string) => {
 		operator.attachments(owner)
@@ -1183,7 +1202,9 @@ function register(): void {
 	)
 	handle('continueWithoutReply', (id: string) => operator.continueWithoutReply(id))
 	handle('reopenLastMessage', (id: string) => operator.reopenLastMessage(id))
-	handle('undoStatus', (id: string, turnIds?: string[]) => operator.undoStatus(id, turnIds))
+	handle('undoStatus', (id: string, turnIds?: string[]) =>
+		operator.rereadCurrent(id, () => operator.undoStatus(id, turnIds)),
+	)
 	handle('undoPreview', (id: string, turnId: string, options?: { alsoUndoLater?: boolean }) =>
 		operator.undoPreview(id, turnId, options),
 	)

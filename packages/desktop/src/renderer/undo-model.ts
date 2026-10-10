@@ -42,7 +42,7 @@ export const conflictText: Record<DesktopUndoConflictReason, string> = {
 	'outside-cwd': 'Now outside this project',
 }
 export const skipText: Record<DesktopUndoSkipReason, string> = {
-	'too-large': 'Larger than 8 MiB',
+	'too-large': 'Larger than 8 MB',
 	'outside-cwd': 'Outside the project folder',
 	sandbox: 'Edited inside a sandbox',
 	'snapshot-failed': 'Could not be saved',

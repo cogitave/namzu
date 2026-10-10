@@ -284,7 +284,8 @@ flow(
 		await expect(w.page.getByRole("button", { name: new RegExp("^Model: .*claude-sonnet-5-5") })).toBeVisible({
 			timeout: T,
 		});
-		await expect(w.page.getByText(/settings changed while loading/)).toHaveCount(0);
+		await expect(w.page.getByText(/changed while (it was|they were) loading|SupersededConversation|Error invoking/)).toHaveCount(0);
+		await expect(w.page.locator(".connection-error")).toHaveCount(0);
 		await expect(w.page.getByText("Not available")).toHaveCount(0);
 		await shot(w, "e-1-overtaken-read-repeated");
 	},

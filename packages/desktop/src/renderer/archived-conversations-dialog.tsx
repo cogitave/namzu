@@ -2,6 +2,7 @@ import { Dialog } from '@base-ui/react/dialog'
 import { useEffect, useRef, useState } from 'react'
 import type { ConversationView, DesktopApi } from '../shared/protocol.js'
 import { ArchiveRestoreIcon } from './file-panel/file-icons.js'
+import { plainErrorText } from './plain-error.js'
 import { Button } from './ui/button.js'
 
 type Load =
@@ -76,8 +77,7 @@ export function ArchivedConversationsDialog({
 				const reason = first?.status === 'rejected' ? first.reason : undefined
 				setLoad({
 					status: 'error',
-					message:
-						reason instanceof Error ? reason.message : 'Archived conversations could not be read.',
+					message: plainErrorText(reason, 'load the archived conversations'),
 				})
 				return
 			}
@@ -100,9 +100,7 @@ export function ArchivedConversationsDialog({
 					: value,
 			)
 		} catch (failure) {
-			setError(
-				failure instanceof Error ? failure.message : 'This conversation could not be restored.',
-			)
+			setError(plainErrorText(failure, 'restore the conversation'))
 		} finally {
 			setRestoring('')
 		}

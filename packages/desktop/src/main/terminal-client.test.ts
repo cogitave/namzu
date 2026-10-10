@@ -90,7 +90,7 @@ describe('TerminalHostClient requests', () => {
 			[TERMINAL_METHODS.attach]: () => attached({ terminal: info({ id: other }) }),
 			[TERMINAL_METHODS.list]: () => ({ terminals: [{ nonsense: true }] }),
 		})
-		await expect(client.attach(ID, 'v')).rejects.toThrow(/different terminal/)
+		await expect(client.attach(ID, 'v')).rejects.toThrow(/couldn’t be opened/)
 		await expect(client.list()).rejects.toThrow()
 	})
 

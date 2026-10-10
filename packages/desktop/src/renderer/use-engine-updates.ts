@@ -7,6 +7,7 @@ import type {
 import type { DesktopApi } from '../shared/protocol.js'
 import { engineToastText } from './engine-updates-model.js'
 import { notify } from './notify.js'
+import { plainErrorText } from './plain-error.js'
 
 export interface EngineUpdatesControls {
 	state: EngineUpdatesState
@@ -126,7 +127,7 @@ export function useEngineUpdatesController(
 					...(target.projectId ? { projectId: target.projectId } : {}),
 				})
 			} catch (failure) {
-				return { ok: false, reason: failure instanceof Error ? failure.message : String(failure) }
+				return { ok: false, reason: plainErrorText(failure, 'update the engine') }
 			}
 		},
 		[api],

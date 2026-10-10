@@ -314,7 +314,7 @@ export function desktopFailure(error: unknown): {
 			reason = 'authentication-failed'
 		else if (/did not answer|timeout|timed out/i.test(message)) reason = 'request-timeout'
 		else if (
-			/invalid (?:Namzu )?protocol (?:response|frame)|oversized (?:Namzu )?protocol frame|malformed (?:JSON|protocol)|JSON (?:parse|parsing) (?:error|failed)|parsing JSON (?:failed|error)|(?:not valid|invalid) JSON|(?:Unexpected token|Unexpected end|Expected property name|Expected .*delimiter).*JSON/i.test(
+			/invalid (?:Namzu )?protocol (?:response|frame)|oversized (?:Namzu )?protocol frame|more data than it could handle|reply it couldn’t read|malformed (?:JSON|protocol)|JSON (?:parse|parsing) (?:error|failed)|parsing JSON (?:failed|error)|(?:not valid|invalid) JSON|(?:Unexpected token|Unexpected end|Expected property name|Expected .*delimiter).*JSON/i.test(
 				message,
 			)
 		)

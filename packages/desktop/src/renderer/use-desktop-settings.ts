@@ -2,8 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { DesktopApi } from '../shared/protocol.js'
 import type { DesktopInfo, DesktopSettings } from '../shared/settings-protocol.js'
 import type { UpdateInfo, UpdateState } from '../shared/update-protocol.js'
+import { plainErrorText } from './plain-error.js'
 
-const message = (error: unknown) => (error instanceof Error ? error.message : String(error))
+const message = (error: unknown) => plainErrorText(error, 'update your settings')
 
 export interface DesktopSettingsControls {
 	/** Undefined until main answers; the page shows a quiet placeholder meanwhile. */

@@ -34,7 +34,7 @@ export class LocalSpeechInstallerProcesses {
 		options: { cwd: string; signal?: AbortSignal },
 	): Promise<string> => {
 		if (this.closing || options.signal?.aborted)
-			return Promise.reject(new Error('Local speech installation was cancelled.'))
+			return Promise.reject(new Error('The voice download was cancelled.'))
 		const platform = this.options.platform ?? process.platform
 		const child = (this.options.spawn ?? spawn)(program, args, {
 			cwd: options.cwd,
@@ -69,9 +69,9 @@ export class LocalSpeechInstallerProcesses {
 				if (!command.didClose || stop || finished) return
 				finished = true
 				options.signal?.removeEventListener('abort', abort)
-				if (aborted) reject(new Error('Local speech installation was cancelled.'))
-				else if (failedToStart) reject(new Error('Local speech installer could not start.'))
-				else if (code !== 0) reject(new Error('Local speech installation failed.'))
+				if (aborted) reject(new Error('The voice download was cancelled.'))
+				else if (failedToStart) reject(new Error('The voice installer couldn’t start. Try again.'))
+				else if (code !== 0) reject(new Error('The voice couldn’t be installed. Try again.'))
 				else accept(output)
 			}
 			const abort = () => {

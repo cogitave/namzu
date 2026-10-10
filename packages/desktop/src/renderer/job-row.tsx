@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { JobView } from '../shared/protocol.js'
 import { ChevronRightIcon, LoaderCircleIcon, SquareIcon, TerminalIcon } from './icons.js'
+import { plainErrorText } from './plain-error.js'
 import { Button } from './ui/button.js'
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from './ui/collapsible.js'
 
@@ -57,7 +58,7 @@ export function JobRow({
 			const result = await onRead()
 			if (mounted.current && result !== undefined) setOutput(result)
 		} catch (failure) {
-			if (mounted.current) setError(failure instanceof Error ? failure.message : String(failure))
+			if (mounted.current) setError(plainErrorText(failure, 'update the scheduled task'))
 		} finally {
 			readPending.current = false
 			if (mounted.current) setReading(false)
@@ -71,7 +72,7 @@ export function JobRow({
 		try {
 			await onStop()
 		} catch (failure) {
-			if (mounted.current) setError(failure instanceof Error ? failure.message : String(failure))
+			if (mounted.current) setError(plainErrorText(failure, 'update the scheduled task'))
 		} finally {
 			stopPending.current = false
 			if (mounted.current) setStopping(false)

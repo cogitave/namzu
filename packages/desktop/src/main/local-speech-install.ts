@@ -56,7 +56,7 @@ export const LOCAL_SPEECH_WORKER_SHA256 = createHash('sha256')
 
 export function localSpeechRuntimePaths(directory: string, runtimeDirectory: string) {
 	if (!/^runtime-[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(runtimeDirectory))
-		throw new Error('Invalid local speech installation.')
+		throw new Error('The saved voice is incomplete. Download it again.')
 	const runtime = join(directory, runtimeDirectory)
 	return {
 		runtime,
@@ -99,9 +99,9 @@ async function verifyRegularFile(path: string, bytes?: number, sha256?: string):
 		metadata.isSymbolicLink() ||
 		(bytes !== undefined && metadata.size !== bytes)
 	)
-		throw new Error('Local speech installation integrity check failed.')
+		throw new Error('The downloaded voice is damaged. Download it again.')
 	if (sha256 !== undefined && (await sha256File(path)) !== sha256)
-		throw new Error('Local speech installation integrity check failed.')
+		throw new Error('The downloaded voice is damaged. Download it again.')
 }
 
 /** No subprocess, model loading or network access when reading the installed state. */
@@ -111,13 +111,14 @@ export async function readLocalSpeechInstallation(
 	let record: unknown
 	try {
 		const raw = await readFile(join(directory, 'installation.json'), 'utf8')
-		if (raw.length > 8_192) throw new Error('Invalid local speech installation.')
+		if (raw.length > 8_192) throw new Error('The saved voice is incomplete. Download it again.')
 		record = JSON.parse(raw)
 	} catch (error) {
 		if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
 		throw error
 	}
-	if (!record || typeof record !== 'object') throw new Error('Invalid local speech installation.')
+	if (!record || typeof record !== 'object')
+		throw new Error('The saved voice is incomplete. Download it again.')
 	const value = record as LocalSpeechInstallation
 	if (
 		value.v !== 1 ||
@@ -131,7 +132,7 @@ export async function readLocalSpeechInstallation(
 		value.diskBytes < 0 ||
 		typeof value.installedAt !== 'string'
 	)
-		throw new Error('Invalid local speech installation.')
+		throw new Error('The saved voice is incomplete. Download it again.')
 	const paths = localSpeechRuntimePaths(directory, value.runtimeDirectory)
 	await verifyRegularFile(paths.python)
 	await verifyRegularFile(paths.worker, undefined, LOCAL_SPEECH_WORKER_SHA256)
@@ -146,7 +147,7 @@ async function treeBytes(root: string): Promise<number> {
 	let count = 0
 	const walk = async (directory: string): Promise<void> => {
 		for (const name of await readdir(directory)) {
-			if (++count > 100_000) throw new Error('Local speech installation is too large.')
+			if (++count > 100_000) throw new Error('The saved voice is incomplete. Download it again.')
 			const path = join(directory, name)
 			const stat = await lstat(path)
 			if (stat.isSymbolicLink()) continue
@@ -170,9 +171,10 @@ async function downloadModel(
 			{ signal: options.signal },
 		)
 	} catch {
-		throw new Error('Local speech model download failed. Check the connection and try again.')
+		throw new Error('The voice couldn’t be downloaded. Check the connection and try again.')
 	}
-	if (!response.ok || !response.body) throw new Error('Local speech model download failed.')
+	if (!response.ok || !response.body)
+		throw new Error('The voice couldn’t be downloaded. Check the connection and try again.')
 	const file = await open(path, 'wx', 0o600)
 	const hash = createHash('sha256')
 	let bytes = 0
@@ -182,16 +184,20 @@ async function downloadModel(
 			const { done, value } = await reader.read()
 			if (done) break
 			bytes += value.byteLength
-			if (bytes > model.bytes) throw new Error('Local speech model integrity check failed.')
+			if (bytes > model.bytes)
+				throw new Error('The downloaded voice is damaged. Download it again.')
 			hash.update(value)
 			await file.writeFile(value)
 		}
 		if (bytes !== model.bytes || hash.digest('hex') !== model.sha256)
-			throw new Error('Local speech model integrity check failed.')
+			throw new Error('The downloaded voice is damaged. Download it again.')
 	} catch (error) {
-		if (error instanceof Error && error.message === 'Local speech model integrity check failed.')
+		if (
+			error instanceof Error &&
+			error.message === 'The downloaded voice is damaged. Download it again.'
+		)
 			throw error
-		throw new Error('Local speech model download failed. Check the connection and try again.')
+		throw new Error('The voice couldn’t be downloaded. Check the connection and try again.')
 	} finally {
 		await reader.cancel().catch(() => undefined)
 		reader.releaseLock()
@@ -212,7 +218,7 @@ async function rollbackRuntime(
 		metadata.isSymbolicLink() ||
 		relative(await realpath(directory), await realpath(runtime)) !== runtimeDirectory
 	)
-		throw new Error('Local speech cleanup ownership check failed.')
+		throw new Error('Namzu couldn’t safely remove the downloaded voice, so it left it in place.')
 	const marker = join(runtime, '.install-owner')
 	const markerStat = await lstat(marker)
 	if (
@@ -221,20 +227,26 @@ async function rollbackRuntime(
 		markerStat.size !== token.length ||
 		(await readFile(marker, 'utf8')) !== token
 	)
-		throw new Error('Local speech cleanup ownership check failed.')
+		throw new Error('Namzu couldn’t safely remove the downloaded voice, so it left it in place.')
 	let count = 0
 	const entries: { path: string; directory: boolean }[] = []
 	const inspect = async (path: string, depth: number): Promise<void> => {
-		if (depth > 32) throw new Error('Local speech cleanup exceeded its limit.')
+		if (depth > 32)
+			throw new Error('Namzu couldn’t safely remove the downloaded voice, so it left it in place.')
 		if (path !== runtime && !localSpeechContainsPath(runtime, await realpath(path)))
-			throw new Error('Local speech cleanup refused a foreign directory.')
+			throw new Error('Namzu couldn’t safely remove the downloaded voice, so it left it in place.')
 		for (const name of await readdir(path)) {
 			const child = join(path, name)
 			if (child === marker) continue
-			if (++count > 100_000) throw new Error('Local speech cleanup exceeded its limit.')
+			if (++count > 100_000)
+				throw new Error(
+					'Namzu couldn’t safely remove the downloaded voice, so it left it in place.',
+				)
 			const stat = await lstat(child)
 			if (stat.isSymbolicLink() || (!stat.isFile() && !stat.isDirectory()))
-				throw new Error('Local speech cleanup refused an unexpected filesystem entry.')
+				throw new Error(
+					'Namzu couldn’t safely remove the downloaded voice, so it left it in place.',
+				)
 			if (stat.isDirectory()) await inspect(child, depth + 1)
 			entries.push({ path: child, directory: stat.isDirectory() })
 		}
@@ -247,7 +259,7 @@ async function rollbackRuntime(
 			stat.isDirectory() !== entry.directory ||
 			!localSpeechContainsPath(runtime, await realpath(entry.path))
 		)
-			throw new Error('Local speech cleanup refused a changed filesystem entry.')
+			throw new Error('Namzu couldn’t safely remove the downloaded voice, so it left it in place.')
 		if (entry.directory) await rmdir(entry.path)
 		else await unlink(entry.path)
 	}

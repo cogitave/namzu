@@ -1,5 +1,6 @@
 import { Dialog } from '@base-ui/react/dialog'
 import { useEffect, useRef, useState } from 'react'
+import { plainErrorText } from './plain-error.js'
 import { Button } from './ui/button.js'
 
 /** The words of the dialog, apart from the component so they can be tested as data. */
@@ -43,7 +44,7 @@ export function SettingsConfirmDialog({
 		try {
 			await onConfirm()
 		} catch (failure) {
-			if (mounted.current) setError(failure instanceof Error ? failure.message : String(failure))
+			if (mounted.current) setError(plainErrorText(failure, 'save the setting'))
 		} finally {
 			inFlight.current = false
 			if (mounted.current) setPending(false)

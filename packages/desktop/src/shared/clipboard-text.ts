@@ -3,7 +3,8 @@ export const MAX_COPY_TEXT_BYTES = 4 * 1024 * 1024
 
 export function copyTextPayload(value: unknown): string {
 	if (typeof value !== 'string') throw new Error('Copy requires plain text.')
-	if (value.length > MAX_COPY_TEXT_BYTES) throw new Error('The text exceeds the 4 MiB copy limit.')
+	if (value.length > MAX_COPY_TEXT_BYTES)
+		throw new Error('That is too large to copy. The limit is 4 MB.')
 	// Native text clipboards terminate at NUL. Invalid UTF-16 would also be
 	// replaced on UTF-8 conversion, so neither can promise an exact text copy.
 	for (let index = 0; index < value.length; index++) {
@@ -17,6 +18,6 @@ export function copyTextPayload(value: unknown): string {
 			throw new Error('This text contains an incomplete Unicode character.')
 	}
 	if (new TextEncoder().encode(value).byteLength > MAX_COPY_TEXT_BYTES)
-		throw new Error('The text exceeds the 4 MiB copy limit.')
+		throw new Error('That is too large to copy. The limit is 4 MB.')
 	return value
 }

@@ -587,8 +587,16 @@
 	min-width: 0;
 }
 .pal-opening[data-state="failed"] {
+	flex-wrap: wrap;
 	border-color: var(--destructive);
 	color: var(--foreground);
+}
+.pal-opening-details {
+	flex-basis: 100%;
+	margin: 0;
+	color: var(--muted-foreground);
+	font-size: 12px;
+	overflow-wrap: anywhere;
 }
 .sidebar-pal-unread {
 	flex: none;

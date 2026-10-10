@@ -205,7 +205,7 @@ it('discards a pending snapshot when the exact owned connection closes', async (
 	try {
 		await owner.openConversation(project.id, 'cold-session')
 		const readiness = owner.readyConversation(project.id, 'cold-session')
-		const refused = expect(readiness).rejects.toThrow('settings changed')
+		const refused = expect(readiness).rejects.toThrow('couldn’t load the settings')
 		await entered.promise
 		const closed = wait((event) => event.kind === 'connection' && event.project.status === 'error')
 		await expect(client().request('test/exit')).rejects.toThrow('connection closed')

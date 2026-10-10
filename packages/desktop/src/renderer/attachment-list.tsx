@@ -1,5 +1,6 @@
 import { Dialog } from '@base-ui/react/dialog'
 import { type RefObject, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { formatSize } from '../shared/format-size.js'
 import type { AttachmentView } from '../shared/protocol.js'
 import { FileTextIcon, LoaderCircleIcon, XIcon } from './icons.js'
 import { Button } from './ui/button.js'
@@ -104,8 +105,7 @@ function AttachmentItem({
 			<span className="attachment-name" title={attachment.name}>
 				<span>{attachment.name}</span>
 				<small>
-					{attachment.kind === 'image' ? 'Image' : 'Text file'} ·{' '}
-					{Math.max(1, Math.ceil(attachment.size / 1024))} KB
+					{attachment.kind === 'image' ? 'Image' : 'Text file'} · {formatSize(attachment.size)}
 					{unavailable && ' · Preview unavailable'}
 				</small>
 			</span>

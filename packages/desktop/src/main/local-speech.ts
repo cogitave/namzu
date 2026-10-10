@@ -466,7 +466,7 @@ export class LocalSpeechService {
 		}
 		if (frame.type === 'end') {
 			if (active.pending.size !== 0)
-				throw new Error('Speech ended before playback acknowledged audio.')
+				throw new Error('The voice stopped before the reply finished playing. Try again.')
 			this.active = undefined
 			this.current.worker = 'ready'
 			this.updateResources(frame.resources)

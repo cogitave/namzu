@@ -1,6 +1,7 @@
 import { Dialog } from '@base-ui/react/dialog'
 import { useEffect, useRef, useState } from 'react'
 import type { BroadFolderKind } from '../shared/protocol.js'
+import { plainErrorText } from './plain-error.js'
 import { Button } from './ui/button.js'
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from './ui/collapsible.js'
 
@@ -118,7 +119,7 @@ export function FolderAccessDialog({
 		try {
 			await onConfirm()
 		} catch (failure) {
-			if (mounted.current) setError(failure instanceof Error ? failure.message : String(failure))
+			if (mounted.current) setError(plainErrorText(failure, 'open the folder'))
 		} finally {
 			inFlight.current = false
 			if (mounted.current) setPending(false)

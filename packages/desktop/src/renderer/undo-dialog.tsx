@@ -20,6 +20,7 @@ import {
 	summarize,
 } from './undo-model.js'
 import './undo-dialog.css'
+import { plainErrorText } from './plain-error.js'
 
 function actionLabel(file: DesktopUndoFile): string {
 	if (file.action === 'restore') return 'Restore'
@@ -314,7 +315,7 @@ export function UndoDialog({
 				setRefreshing(false)
 				setPhase({
 					kind: 'error',
-					message: failure instanceof Error ? failure.message : String(failure),
+					message: plainErrorText(failure, 'check the undo'),
 				})
 			}
 		}
@@ -350,7 +351,7 @@ export function UndoDialog({
 			if (mounted.current)
 				setPhase({
 					kind: 'error',
-					message: failure instanceof Error ? failure.message : String(failure),
+					message: plainErrorText(failure, 'undo that'),
 				})
 		} finally {
 			inFlight.current = false
