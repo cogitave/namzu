@@ -12,22 +12,6 @@
 	background: var(--sidebar-row-active);
 	color: var(--foreground);
 }
-.navigation-rail .rail-profile-button {
-	border-radius: 50%;
-}
-.rail-profile-avatar {
-	display: grid;
-	place-items: center;
-	width: 26px;
-	height: 26px;
-	border-radius: 50%;
-	background: var(--sidebar-row-active);
-	color: var(--foreground);
-}
-.navigation-rail .rail-profile-avatar svg {
-	width: 16px;
-	height: 16px;
-}
 .navigation-rail .rail-update-button {
 	border-radius: 50%;
 }
@@ -102,22 +86,11 @@
 	place-items: center;
 	margin-inline-start: auto;
 }
-.rail-profile-copy {
-	padding: 8px;
-	font-size: 13px;
-	line-height: 20px;
-	font-weight: 500;
-}
 .rail-menu-label {
 	padding: 6px 8px;
 	color: var(--muted-foreground);
 	font-size: 12px;
 	line-height: 18px;
-}
-.rail-menu-separator {
-	height: 1px;
-	margin: 4px 0;
-	background: var(--border);
 }
 @media (prefers-reduced-motion: reduce) {
 	.rail-menu,

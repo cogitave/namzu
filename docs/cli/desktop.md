@@ -133,11 +133,11 @@ so `scripts/installer-after-pack.cjs` copies the CLI's after packing. The result
 The installed app updates itself with `electron-updater` (`src/main/updater.ts`), driven
 by a state machine of `disabled | idle | checking | available | downloading | ready | installing | error`.
 It downloads on its own unless **Download updates automatically** is off in Settings (then a
-found update is `available`: the badge and the profile menu offer **Download**, and nothing is
+found update is `available`: the rail's update button offers **Download**, and nothing is
 fetched until it is pressed; turning the setting back on takes an offered update at once),
 never installs on quit (`autoInstallOnAppQuit` is off) and never
 downgrades. The first check is 30 seconds after launch and then every four hours; a failed
-check is quiet (a diagnostic and a "Check for updates" entry in the profile menu, never a
+check is quiet (a diagnostic, and **Check for updates** stays in Settings ▸ Updates, never a
 dialog).
 
 An installed build reads its feed from `resources/app-update.yml`, which `electron-builder` writes
@@ -178,7 +178,7 @@ shutdown fails the update stays `ready` and nothing is installed; if the install
 to start after the runtime stopped, the app relaunches itself. Tabs, drafts and settings
 come back from the profile after the restart.
 
-When an update is ready a small download button appears above the profile avatar (tooltip
+When an update is ready a small download button appears directly above Settings in the rail (tooltip
 "Update ready — restart to install"; one polite announcement when it first appears).
 Clicking it opens a dialog with **Restart now** and **Later**; while installing it reads
 "Installing update / Namzu will restart when installation finishes." with a bar that is
@@ -604,7 +604,7 @@ A folder that vanishes while its project is open gets the same screen ("can’t 
 ## Settings
 
 **Settings** is a page of its own in the main area, like Plugins: the rail's gear, the
-profile menu's **Settings…**, the command palette's **Settings**, the File menu's **Settings…**
+command palette's **Settings**, the File menu's **Settings…**
 (`Ctrl+,` or `⌘,`) all open it. The left column lists the sections and the right side shows
 one, under one heading, the section's name (the column's "Settings" is the only other one). A section is addressed as `settings/<section>` (`general`, `models`, `projects`, `appearance`,
 `updates`, `speech`, `about`); the search field at the top matches setting labels,
@@ -1387,8 +1387,8 @@ conversation views, with no prompt replay; the adjacent panel control toggles
 the sidebar. File provides project and conversation actions; Edit, View and
 Window open native menus. Native caption colours follow the chosen appearance.
 The left icon rail remains available when the conversation sidebar is collapsed.
-The rail contains Home, Spaces, Scheduled, Plugins and More, with Profile at
-the bottom. Home owns the chat and blank composer; Spaces reveals the actual
+The rail contains Home, Spaces, Scheduled, Plugins and More, with Settings as the
+last item at the bottom. Home owns the chat and blank composer; Spaces reveals the actual
 project list. Plugins opens a separate Customize destination with the actual
 installed inventory in its sidebar and a searchable two-column list in the main
 area. Public and Personal are separate tabs: Personal includes installed plugins
@@ -1414,9 +1414,13 @@ current conversation only when that plugin is actually enabled there, preserving
 the draft and sending no prompt. Uninstall remains disabled with an explanation
 until a desktop uninstall API exists. The page shares its mutation and ownership guards with
 the composer menu, including the restrictions on live changes. More offers
-Open folder and Toggle sidebar. Profile holds **Settings…** and the update entry and
-does not claim a signed-in account; a gear above it opens Settings. The update icon appears
-for an installable update, or for an offered one when automatic download is off. Scheduled is currently unavailable in the desktop
+Open folder and Toggle sidebar. The rail has no profile control and claims no signed-in
+account. Settings is the last item; the update icon sits directly above it and appears
+only while there is something to install: an installable update, an offered one when
+automatic download is off, or a program that is behind. The manual **Check for updates** is
+in Settings ▸ Updates. The sidebar list keeps a scrollbar lane (`scrollbar-gutter: stable`)
+and gives it back to the rows through a smaller end inset, so opening or closing a project
+never narrows or shifts a row, whether or not the list overflows. Scheduled is currently unavailable in the desktop
 preview; its disabled control never opens a conversation's background shells.
 The sidebar brand (the wordmark with a small green "Beta" badge after it) opens its
 workspace menu. The labelled New conversation row is the primary

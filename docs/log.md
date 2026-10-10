@@ -1,5 +1,10 @@
 # Documentation update log
 
+## 2026-10-10
+
+- **Update** [Desktop](cli/desktop.md#app-updates): the rail no longer has a profile avatar or menu; Settings is its last item and the update icon sits directly above it, shown only while an update (or a program that is behind) is waiting. The manual Check for updates stays in Settings ▸ Updates, and closing the update dialog returns focus to the Settings rail button.
+- **Update** [Desktop](cli/desktop.md#sidebar-tabs-and-the-command-palette): the sidebar list reserves its scrollbar lane (`scrollbar-gutter: stable`, with the rows' end inset reduced by the lane's width), so expanding or collapsing a project never narrows or shifts a row or flickers the scrollbar; `sidebar-expand-stability.test.mjs` samples every animation frame.
+
 ## 2026-10-09
 
 - **Update** `packages/cli/src/tui/index.tsx`: the terminal app draws live on a real terminal even when `CI` variables are set, instead of showing a blank screen until exit; the variables are left as they are for the commands the agent runs.

@@ -136,28 +136,6 @@ export function updateDialogModel(state: UpdateState): UpdateDialogModel | undef
 	}
 }
 
-/** The quiet profile-menu entry; failures never interrupt. */
-export function updateMenuEntry(
-	state: UpdateState,
-): { label: string; action: 'check' | 'open' } | undefined {
-	switch (state.status) {
-		case 'idle':
-			return { label: 'Check for updates', action: 'check' }
-		case 'error':
-			return { label: 'Update check failed. Retry', action: 'check' }
-		case 'checking':
-			return undefined
-		case 'available':
-			return { label: `Download update (version ${state.version})`, action: 'open' }
-		case 'downloading':
-			return { label: `Downloading update (${state.percent}%)`, action: 'open' }
-		case 'ready':
-			return { label: 'Restart to update', action: 'open' }
-		default:
-			return undefined
-	}
-}
-
 /** What the renderer knows that the main process cannot see. */
 export function readUiBusy(facts: {
 	foreignDialogs: number

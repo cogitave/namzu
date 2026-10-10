@@ -465,6 +465,14 @@ pre {
 	min-height: 0;
 	flex: 1;
 	overflow-y: auto;
+	/*
+	 * The scrollbar's lane is always reserved. Without it the list gains a 6px scrollbar the moment an
+	 * opening project makes it taller than the sidebar, every row narrows by that much, and while the
+	 * panel animates the scrollbar flickers in and out. The end inset gives the lane back to the rows,
+	 * so the list looks the same whether or not it overflows.
+	 */
+	scrollbar-gutter: stable;
+	--sidebar-scroll-end: max(0px, calc(var(--sidebar-content-inset) - var(--app-scrollbar-width)));
 }
 .sidebar-close {
 	display: none;

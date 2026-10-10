@@ -391,7 +391,7 @@
 	animation: pals-spin 900ms linear infinite;
 }
 .sidebar-pals {
-	padding: 0 var(--sidebar-content-inset) 14px;
+	padding: 0 var(--sidebar-scroll-end) 14px var(--sidebar-content-inset);
 }
 /* The group heading only exists past three Pals; it keeps the look of the original trigger. */
 .sidebar-pals .sidebar-pals-heading {
