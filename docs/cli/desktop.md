@@ -766,7 +766,11 @@ conversation has no token limit of its own (the ACP session is opened without `l
 5xx the stopped request is recorded as unknown usage and **Retry** sends a new request in the
 same conversation; **Details** then reads "OpenAI: the provider failed to complete the request (502
 Bad Gateway)", a labelled "Request ID: …" when the vendor sent one, a labelled vendor project ("OpenAI project: proj_…"; a 403
-reads "access was refused", never the runtime's own sentence about credentials). A request that
+reads "access was refused", never the runtime's own sentence about credentials). A vendor's JSON error body is read into
+labelled fields on one line, never printed: "Anthropic: access was refused" then "Status: 403 · Provider said: “Your account cannot use
+this model” · Type: permission_error" (Anthropic `{type, error: {type, message}}`, OpenAI `{error: {message, type, code, param}}`,
+Google `{error: {code, message, status}}` and a bare JSON string are read, with **Code** and **Field** where present; the request ID
+keeps its own line). An unknown shape becomes one capped excerpt with no braces or quotes (`friendly-errors.ts`). A request that
 failed before any reply arrived carries no usage line in Details; "No usage was reported for the
 failed attempts." appears only when a reply did arrive without a usage count. Details say each thing
 once: a repeated HTML title, "(no body)" and a duplicated status are dropped, and token counts are
@@ -849,6 +853,12 @@ instead of a skeleton that never resolves. A conversation's banner takes its own
 (`.connection-error` is in the column, not laid over it), so at every width it never covers the first row or the date line, and the
 transcript starts where the tab strip ends again once it is dismissed; `e2e/ux-layout-geometry.test.mjs` measures the banner against the
 conversation at 1280, 960, 900 and 760 px.
+
+The window's own alert (`.workspace-window-error`, for example "This window is too small to split here.") is a row above the panes
+and never over a tab strip or the **+** button. It always has **Dismiss**; **Try again** is offered only for a failure that a second
+attempt can change, so a size message offers none. On the computer page the same banner is a grid row between the header and the
+page (`.workspace[data-page="computer"] > .connection-error`), so it covers nothing and the page takes the row back when it closes;
+`e2e/ux-layout-geometry.test.mjs` measures both.
 
 **Approval cards.** A write whose "before" cannot be shown reads "Namzu couldn't show what's in
 *file* now. This is what it wants to write." and the caution names the file: "This replaces *file*,

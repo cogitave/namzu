@@ -1648,7 +1648,9 @@ pre {
 }
 .workspace[data-page="computer"] {
 	display: grid;
-	grid-template-rows: var(--workspace-topbar-height) minmax(0, 1fr);
+	/* The middle row is the page's notice: it takes its own height, so it covers nothing and gives
+	   the row back when it closes. */
+	grid-template-rows: var(--workspace-topbar-height) auto minmax(0, 1fr);
 	grid-template-columns: minmax(0, 1fr);
 }
 .workspace[data-page="computer"] > .workspace-conversation-header {
@@ -1656,7 +1658,7 @@ pre {
 	grid-column: 1 / -1;
 }
 .workspace[data-page="computer"] > .pal-computer-view {
-	grid-row: 2;
+	grid-row: 3;
 	grid-column: 1;
 }
 .workspace[data-page="computer"] > .chat-stage {
@@ -1673,7 +1675,7 @@ pre {
 }
 .workspace[data-page="computer"][data-computer-chat="split"] > .chat-stage {
 	display: flex;
-	grid-row: 2;
+	grid-row: 3;
 	grid-column: 1;
 	border-right: 1px solid var(--border);
 }
@@ -1725,11 +1727,8 @@ pre {
 	z-index: 5;
 }
 .workspace[data-page="computer"] > .connection-error {
-	position: absolute;
-	top: 52px;
-	left: 12px;
-	right: 12px;
-	z-index: 6;
+	grid-row: 2;
+	grid-column: 1 / -1;
 	width: auto;
 }
 @container workspace (max-width: 719px) {

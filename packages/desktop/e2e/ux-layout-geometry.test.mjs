@@ -275,4 +275,86 @@ flow("a further split in stacked panes opens when the pane has room, and says so
 	await w.page.getByRole("menu", { name: "New tab" }).getByRole("menuitem", { name: "New terminal to the right" }).click();
 	await expect(w.page.locator(".workspace-window-error")).toContainText("too small to split", { timeout: T });
 	await expect(w.page.locator(".workspace-canvas-pane")).toHaveCount(3);
+	// The notice is a row of its own above the panes: it covers no tab strip and no button, offers
+	// no retry for a size refusal, and gives its row back when dismissed.
+	const alert = w.page.locator(".workspace-window-error");
+	await settled(w);
+	const { notice, canvas, plus } = await w.page.evaluate(() => {
+		const rect = (element) => {
+			const box = element.getBoundingClientRect();
+			return { x: box.x, y: box.y, width: box.width, height: box.height };
+		};
+		return {
+			notice: rect(document.querySelector(".workspace-window-error")),
+			canvas: rect(document.querySelector(".workspace-canvas")),
+			plus: [...document.querySelectorAll('button[aria-label="New conversation tab"]')].map(rect),
+		};
+	});
+	// Every tab strip is inside the canvas, so a notice that shares no pixel with it covers none.
+	assert.ok(!intersects(notice, canvas), "the notice shares no pixel with the panes and their tab strips");
+	assert.ok(plus.length > 0 && plus.every((item) => !intersects(item, notice)), "the + button is not under the notice");
+	await expect(alert.getByRole("button", { name: "Try again" })).toHaveCount(0);
+	await w.page.screenshot({ path: join(SHOTS, "window-notice-760-dark.png") });
+	const before = await w.page.locator(".workspace-canvas").boundingBox();
+	await alert.getByRole("button", { name: "Dismiss error" }).click();
+	await expect(alert).toHaveCount(0, { timeout: T });
+	await settled(w);
+	const after = await w.page.locator(".workspace-canvas").boundingBox();
+	assert.ok(before && after && after.y < before.y && Math.abs(after.y + after.height - (before.y + before.height)) <= 1, "the canvas takes the notice's row back");
+	await expect(w.page.getByRole("button", { name: "New conversation tab" }).first()).toBeEnabled();
+});
+
+flow("a notice on the computer page takes its own row and covers nothing", {}, async (w) => {
+	await openProject(w);
+	await expect(box(w)).toBeVisible({ timeout: T });
+	await expect(async () => {
+		await w.page.getByRole("button", { name: "Create your first Pal" }).click({ timeout: 2000 });
+		await expect(w.page.getByRole("region", { name: "Meet your Pal" })).toBeVisible({ timeout: 2000 });
+	}).toPass({ timeout: 60000 });
+	await expect(async () => {
+		if (!(await w.page.getByRole("dialog", { name: "Customize your Pal" }).isVisible()))
+			await w.page.getByRole("button", { name: "Customize your Pal" }).click({ timeout: 2000 });
+		await expect(w.page.getByRole("dialog", { name: "Customize your Pal" })).toBeVisible({ timeout: 2000 });
+	}).toPass({ timeout: 60000 });
+	const customize = w.page.getByRole("dialog", { name: "Customize your Pal" });
+	await customize.getByRole("textbox", { name: "Pal name" }).fill("Isik");
+	await customize.getByRole("textbox", { name: "Pal name" }).press("Enter");
+	await expect(w.page.getByRole("tab", { name: "Isik" })).toBeVisible({ timeout: T });
+	// A folder that does not exist raises the notice; then the computer page opens under it.
+	await w.app.evaluate((_e, folder) => {
+		globalThis.__e2eDialog.open = [folder];
+	}, join(w.root, "no-such-folder"));
+	await w.page.getByRole("button", { name: "Add new project", exact: true }).last().click();
+	await w.page.getByRole("menuitem", { name: "Use an existing folder" }).click();
+	await expect(w.page.locator(".connection-error > *").first()).toContainText("That folder no longer exists", { timeout: T });
+	await w.page.getByRole("button", { name: /Open Isik’s computer/ }).click();
+	await expect(w.page.locator(".workspace[data-page=computer]")).toBeVisible({ timeout: T });
+	const measure = async (label) => {
+		await settled(w);
+		const { notice, view, header } = await w.page.evaluate(() => {
+			const rect = (element) => {
+				const box = element?.getBoundingClientRect();
+				return box && { x: box.x, y: box.y, width: box.width, height: box.height };
+			};
+			return {
+				notice: rect(document.querySelector(".workspace[data-page=computer] > .connection-error > *")),
+				view: rect(document.querySelector(".workspace[data-page=computer] > .pal-computer-view")),
+				header: rect(document.querySelector(".workspace[data-page=computer] > .workspace-conversation-header, .workspace[data-page=computer] > .topbar")),
+			};
+		});
+		assert.ok(notice && view, `${label}: the notice and the computer page are drawn`);
+		assert.ok(!intersects(notice, view), `${label}: the notice (${notice.y}+${notice.height}) does not overlap the computer page (top ${view.y})`);
+		if (header) assert.ok(!intersects(notice, header), `${label}: the notice does not cover the header`);
+	};
+	for (const width of [1280, 960, 900, 760]) {
+		await resize(w, width, 720);
+		await measure(`${width}px`);
+	}
+	await shots(w, "computer-notice");
+	const top = (await w.page.locator(".pal-computer-view").boundingBox())?.y ?? 0;
+	await w.page.locator(".connection-error").getByRole("button", { name: "Dismiss error" }).click();
+	await expect(w.page.locator(".connection-error")).toHaveCount(0, { timeout: T });
+	await settled(w);
+	const back = (await w.page.locator(".pal-computer-view").boundingBox())?.y ?? 0;
+	assert.ok(back < top, "the computer page takes the notice's row back when it closes");
 });
