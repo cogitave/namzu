@@ -268,3 +268,24 @@ flow(
 		await shot(w, "d-2-claude-answered-after-stop");
 	},
 );
+
+flow(
+	"(e) a provider read that a model change overtakes is read again, not shown as an error",
+	{
+		env: { NAMZU_E2E_HOLD_FIRST_PROVIDER_READ_MS: "2500" },
+		messagesRules: [{ match: /hello/i, steps: [{ text: "Answered in time." }] }],
+	},
+	async (w) => {
+		await openProject(w);
+		// The first message of a conversation applies the chosen model while its provider list is
+		// still being read; the read is overtaken and must be repeated, not shown as a failure.
+		await send(w, "hello there");
+		await expect(w.page.getByText("Answered in time.")).toBeVisible({ timeout: T });
+		await expect(w.page.getByRole("button", { name: new RegExp("^Model: .*claude-sonnet-5-5") })).toBeVisible({
+			timeout: T,
+		});
+		await expect(w.page.getByText(/settings changed while loading/)).toHaveCount(0);
+		await expect(w.page.getByText("Not available")).toHaveCount(0);
+		await shot(w, "e-1-overtaken-read-repeated");
+	},
+);

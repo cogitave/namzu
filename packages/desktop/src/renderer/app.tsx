@@ -163,6 +163,7 @@ import {
 } from './new-tab-menu.js'
 import { normalConversationProject } from './normal-conversation.js'
 import { notify } from './notify.js'
+import { OVERTAKEN_READ_LIMIT, isOvertakenRead } from './overtaken-read.js'
 import { PalChatTranscript } from './pal-chat-transcript.js'
 import { PalCommunicationDialog, type PalSettingsTab } from './pal-communication-dialog.js'
 import { computerSetupMissing, presentComputerNotice } from './pal-computer-notice.js'
@@ -346,6 +347,14 @@ export function App({
 		}>(),
 	)
 	const [metadataEpoch, setMetadataEpoch] = useState(0)
+	// A read of the model or engine list that a change of model overtook is not a failure: it is read
+	// again, a few times at most, instead of leaving a raw error and an unusable model button.
+	const overtakenReads = useRef(0)
+	const readAgainIfOvertaken = useCallback((failure: unknown): boolean => {
+		if (!isOvertakenRead(failure)) return false
+		if (overtakenReads.current++ < OVERTAKEN_READ_LIMIT) setMetadataEpoch((epoch) => epoch + 1)
+		return true
+	}, [])
 	const lostProjects = useRef(new Set<string>())
 	warmSessions.current.synchronizeMembers([...group.tabs, ...createdSessions.current])
 	const openFlights = useRef(new Map<string, { generation: number; promise: Promise<void> }>())
@@ -2084,16 +2093,18 @@ export function App({
 			.then((available) => {
 				if (!current || providerReadOwner.current !== owner || providerGeneration.current !== epoch)
 					return
+				overtakenReads.current = 0
 				setProviders(available)
 				setProviderOwner(owner)
 			})
 			.catch((failure) => {
-				if (current && providerReadOwner.current === owner) setError(errorText(failure))
+				if (current && providerReadOwner.current === owner && !readAgainIfOvertaken(failure))
+					setError(errorText(failure))
 			})
 		return () => {
 			current = false
 		}
-	}, [project, sessionId, api, metadataEpoch, historyPending])
+	}, [project, sessionId, api, metadataEpoch, historyPending, readAgainIfOvertaken])
 	useEffect(() => {
 		if (!projectId || !api) return
 		let current = true
@@ -2235,12 +2246,22 @@ export function App({
 					setHarnessState({ owner, view })
 			})
 			.catch((failure) => {
-				if (current) setError(errorText(failure))
+				if (current && !readAgainIfOvertaken(failure)) setError(errorText(failure))
 			})
 		return () => {
 			current = false
 		}
-	}, [project, pal, sessionId, providerKey, api, metadataEpoch, historyPending, restoringTabs])
+	}, [
+		project,
+		pal,
+		sessionId,
+		providerKey,
+		api,
+		metadataEpoch,
+		historyPending,
+		restoringTabs,
+		readAgainIfOvertaken,
+	])
 	const newConversation = useCallback(async () => {
 		abandonTabRestore()
 		const generation = ++navigation.current

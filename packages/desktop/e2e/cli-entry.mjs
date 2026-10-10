@@ -11,5 +11,21 @@ createRequire(import.meta.url)("./redirect-fetch.cjs");
 // else about the CLI changes; without the variable the real package is used.
 if (process.env.NAMZU_E2E_PAL_COMPUTER === "fake")
 	register(pathToFileURL(join(here, "fake-pal-computer-hooks.mjs")).href);
+// A flow that needs a slow answer asks for it: the first per-conversation provider read is held back, as
+// a busy machine holds it, so a change of model made meanwhile overtakes it. Nothing else changes.
+const holdMs = Number(process.env.NAMZU_E2E_HOLD_FIRST_PROVIDER_READ_MS ?? 0);
+if (holdMs > 0) {
+	let held = false;
+	const emit = process.stdin.emit.bind(process.stdin);
+	process.stdin.emit = (event, ...args) => {
+		const text = event === "data" ? String(args[0]) : "";
+		if (!held && /namzu\/providers\/status/.test(text) && /sessionId/.test(text)) {
+			held = true;
+			setTimeout(() => emit(event, ...args), holdMs);
+			return true;
+		}
+		return emit(event, ...args);
+	};
+}
 const bin = join(here, "../../cli/dist/bin.js");
 await import(pathToFileURL(bin).href);

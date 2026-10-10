@@ -764,6 +764,12 @@ error and waits for no decision (an approval or a handoff is never closable). Th
   against two scripted services, one per wire, that refuse an unpaired tool result or an unsigned thinking
   block.
 
+A read of the model or engine list that a change of model overtakes (the first message of a conversation applies the
+chosen model while its provider list is still being read, which is slow on Windows) is read again, up to three times,
+instead of showing "SupersededConversationSettingsError: The conversation settings changed while loading" with the
+model button stuck on "Not available" (`src/renderer/overtaken-read.ts`). The host still refuses to apply the stale
+answer.
+
 The browser's own "ResizeObserver loop completed with undelivered notifications" (raised by popups that follow
 their content's height, such as the model picker) is not a failure; it is no longer recorded as
 `renderer_failed`.

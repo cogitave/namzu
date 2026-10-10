@@ -2,7 +2,7 @@
 
 ## 2026-10-10
 
-- **Update** [Desktop](cli/desktop.md#what-a-failed-reply-says) and [Agent Client Protocol](sdk/agent-client-protocol.md): a reply that stopped on a provider failure no longer blocks the conversation after the model is changed. `namzu/sessions/retry-status` adds `closable` and `retry.original`; sending a new message closes the stopped turn (the `abandon-paused` path) and runs on the selected model, Try again runs on the selected model and reads "Try again with *model*" when it differs, the turn's approval settings survive a model change, and the browser's harmless resize-observer note is no longer logged as `renderer_failed`. Covered by `e2e/model-switch.test.mjs` (a signed-reasoning model and gpt-6-luna against two scripted services) and a process-level CLI test.
+- **Update** [Desktop](cli/desktop.md#what-a-failed-reply-says) and [Agent Client Protocol](sdk/agent-client-protocol.md): a reply that stopped on a provider failure no longer blocks the conversation after the model is changed. `namzu/sessions/retry-status` adds `closable` and `retry.original`; sending a new message closes the stopped turn (the `abandon-paused` path) and runs on the selected model, Try again runs on the selected model and reads "Try again with *model*" when it differs, the turn's approval settings survive a model change, a model or engine list read that a model change overtakes is read again instead of showing a raw error beside a stuck model button, and the browser's harmless resize-observer note is no longer logged as `renderer_failed`. Covered by `e2e/model-switch.test.mjs` (a signed-reasoning model and gpt-6-luna against two scripted services) and a process-level CLI test.
 
 ## 2026-10-09
 

@@ -1192,9 +1192,11 @@ it('reads fresh retry eligibility without an index or a model runtime', async ()
 	const indexed = vi.spyOn(sdk, 'openSessionIndex')
 	try {
 		expect(await owner.providerRetryStatus!(f.sessionId, cwd)).toEqual({
+			closable: true,
 			notice: expect.stringContaining('original approval settings'),
 		})
 		expect(await host['namzu/sessions/retry-status']!({ sessionId: f.sessionId })).toEqual({
+			closable: true,
 			notice: expect.stringContaining('original approval settings'),
 		})
 		const lease = await f.log.claim({
@@ -1249,6 +1251,7 @@ it('keeps retry authorization, trust and status in the captured application home
 	const indexed = vi.spyOn(sdk, 'openSessionIndex')
 	try {
 		expect(await host['namzu/sessions/retry-status']!({ sessionId: f.sessionId })).toEqual({
+			closable: true,
 			notice: expect.stringContaining('original approval settings'),
 		})
 		expect(opened).toHaveBeenCalledTimes(1)
@@ -1311,6 +1314,7 @@ it.each(['load', 'retry'] as const)(
 				expect(loaded).not.toContain('Replacement completed request')
 			} else {
 				expect(await owner.providerRetryStatus!(f.sessionId, cwd)).toEqual({
+					closable: true,
 					notice: expect.stringContaining('original approval settings'),
 				})
 			}
