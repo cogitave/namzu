@@ -1,5 +1,9 @@
 import { stripVTControlCharacters } from 'node:util'
 
+import type { ToolFacts, ToolTextWindow } from '@namzu/sdk'
+
+import { formatSize } from './person-terms.js'
+
 export interface TidyOutput {
 	/** What the transcript shows under the step. The retained raw output is untouched. */
 	readonly output: string
@@ -51,6 +55,87 @@ export function tidyTerminalOutput(raw: string): TidyOutput {
 	}
 	while (kept.length > 0 && kept[kept.length - 1]?.trim() === '') kept.pop()
 	return { output: kept.join('\n'), ...(failure ? { failure } : {}) }
+}
+
+type CommandFacts = Extract<ToolFacts, { kind: 'command' }>
+
+/** The command line as a one-line label: first line, single spaces, cut at a word. */
+function shortCommand(command: string | undefined): string | undefined {
+	const line = command?.split('\n')[0]?.replace(/\s+/g, ' ').trim()
+	if (!line) return undefined
+	if (line.length <= 60) return line
+	const cut = line.slice(0, 59)
+	const space = cut.lastIndexOf(' ')
+	return `${(space > 20 ? cut.slice(0, space) : cut).trimEnd()}…`
+}
+
+/** How a finished command ended, in the person's words; undefined when it simply succeeded. */
+function endedHow(facts: CommandFacts): string | undefined {
+	if (facts.background) return undefined
+	if (facts.timedOut) return 'timed out'
+	if (facts.signal) return 'was stopped before it finished'
+	if (facts.exitCode !== undefined && facts.exitCode !== 0) {
+		return `exited with code ${facts.exitCode}`
+	}
+	return undefined
+}
+
+/** A window holds the whole stream when nothing was left out and nothing was clipped. */
+function windowIsComplete(window: ToolTextWindow): boolean {
+	return (
+		window.tail === undefined &&
+		window.omittedLines === undefined &&
+		Buffer.byteLength(window.head, 'utf8') >= window.totalBytes - 1
+	)
+}
+
+/** Drop the `STDOUT:` / `STDERR:` labels the kernel put in the model's copy of the output. */
+function withoutStreamLabels(text: string, has: { stdout: boolean; stderr: boolean }): string {
+	let out = text
+	if (has.stdout) out = out.replace(/^STDOUT:\n/, '')
+	if (has.stderr) out = out.replace(/(^|\n\n?)STDERR:\n/, '$1')
+	return out
+}
+
+/**
+ * A command's output as a person reads it, from the typed facts the kernel
+ * reports with the result (`ToolResult.facts`), not from its prose.
+ *
+ * The exit code, a timeout or a signal come from the fields; a stream that was
+ * not text is named. When both streams fit their windows the body is the two
+ * windows; otherwise it is the full retained text, so Ctrl+O still has all of
+ * it. A conversation saved before facts existed does not reach this function:
+ * it keeps `tidyTerminalOutput`.
+ */
+export function tidyCommandOutput(facts: CommandFacts, raw: string): TidyOutput {
+	const how = endedHow(facts)
+	const label = shortCommand(facts.command)
+	const failure = how
+		? label
+			? `Ran ${label} · ${how}`
+			: `${how.charAt(0).toUpperCase()}${how.slice(1)}`
+		: undefined
+	const withFailure = (output: string): TidyOutput => ({ output, ...(failure ? { failure } : {}) })
+	if (facts.binary) {
+		return withFailure(
+			`The command printed binary data (${formatSize(facts.binary.bytes)}), which is not shown.`,
+		)
+	}
+	const streams = [facts.stdout, facts.stderr].filter(
+		(w): w is ToolTextWindow => w !== undefined && w.totalBytes > 0,
+	)
+	if (streams.length > 0 && streams.every(windowIsComplete)) {
+		return withFailure(streams.map((w) => w.head).join('\n'))
+	}
+	// Long output: the retained text is the only complete copy. Its bookkeeping
+	// lines are removed here; the exit status already came from the fields.
+	const tidy = tidyTerminalOutput(
+		withoutStreamLabels(raw, {
+			stdout: (facts.stdout?.totalBytes ?? 0) > 0,
+			stderr: (facts.stderr?.totalBytes ?? 0) > 0,
+		}),
+	)
+	return withFailure(tidy.output)
 }
 
 /**

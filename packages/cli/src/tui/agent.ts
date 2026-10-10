@@ -6,7 +6,7 @@ import {
 	webSearchLabel,
 } from '../integrations/web/search.js'
 import { explainFailure } from './plain-failure.js'
-import { tidyTerminalOutput, unknownToolNotice } from './tidy-tool-output.js'
+import { tidyCommandOutput, tidyTerminalOutput, unknownToolNotice } from './tidy-tool-output.js'
 import {
 	type WebActivity,
 	countListedResults,
@@ -5979,7 +5979,14 @@ export function toAgentEvent(
 					},
 				)
 			// Command output is cleaned for display only; `output` below stays verbatim.
-			const tidy = presented.kind === 'terminal' ? tidyTerminalOutput(presented.output) : undefined
+			// A kernel that reported typed facts is read from them; a conversation
+			// saved before facts existed keeps the text-based fallback.
+			const tidy =
+				presented.kind === 'terminal'
+					? event.facts?.kind === 'command'
+						? tidyCommandOutput(event.facts, presented.output)
+						: tidyTerminalOutput(presented.output)
+					: undefined
 			const view =
 				presented.kind === 'terminal' && tidy ? { ...presented, output: tidy.output } : presented
 			const unknownTool = event.isError ? unknownToolNotice(event.result) : undefined

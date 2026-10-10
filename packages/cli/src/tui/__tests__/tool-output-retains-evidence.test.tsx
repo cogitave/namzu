@@ -137,7 +137,7 @@ it.each([40, 80])(
 		}
 		const projected = renderedDetailLines(message)
 		expect(projected).toHaveLength(7)
-		expect(projected[3]).toBe('   … 200 lines omitted · ctrl+o · shortened preview')
+		expect(projected[3]).toBe('   … 200 lines not shown · ctrl+o · shortened preview')
 		expect(projected.every((line) => line.length <= 243)).toBe(true)
 		expect(projected.join('\n')).not.toMatch(/\p{Surrogate}/u)
 		const screen = await renderToScreen(
@@ -182,7 +182,7 @@ it.each(['\u000f', '/raw'])(
 		screen.press('\r')
 		await until(screen, () => text().includes('ctrl+o'))
 		expect(text()).toContain('FINAL_DIAGNOSTIC')
-		expect(text()).toContain('235 lines omitted')
+		expect(text()).toContain('235 lines not shown')
 		expect(text()).not.toContain('MIDDLE_DIAGNOSTIC')
 		screen.press(command)
 		await screen.waitForRender()

@@ -389,7 +389,7 @@ function splitDetail(
 	)
 	const action = detailRef === undefined ? '' : ' · ctrl+o'
 	if (hidden > 0) {
-		const hint = `… ${hidden} line${hidden === 1 ? '' : 's'} omitted${action}${clipped ? ' · shortened preview' : ''}`
+		const hint = `… ${hidden} line${hidden === 1 ? '' : 's'} not shown${action}${clipped ? ' · shortened preview' : ''}`
 		return [...shown.slice(0, fragmentLines), hint, ...shown.slice(fragmentLines)]
 	}
 	return clipped ? [...shown, `… line shortened${action}`] : shown
