@@ -139,12 +139,16 @@ describe.skipIf(!existsSync(BIN) || !binding || process.platform === 'win32')(
 				rows: 20,
 			})
 			expect(terminal.cwd).toBe(dir)
+			// The first view reads the stream from its start. A snapshot keeps output the
+			// emulator already parsed in `screen`, not `data`, so a prompt printed before this
+			// attach would never reach `seen`; the late view below covers the snapshot.
 			const attached = await wire.request(TERMINAL_METHODS.attach, {
 				terminalId: terminal.id,
 				viewerId: 'test',
+				fromOffset: 0,
 				writer: true,
 			})
-			expect(attached).toMatchObject({ mode: 'snapshot', writer: true })
+			expect(attached).toMatchObject({ mode: 'replay', start: 0, writer: true })
 			let seen = attached.data as string
 			const text = () => {
 				for (const frame of wire.notifications(TERMINAL_NOTIFICATIONS.data)) {
@@ -167,13 +171,14 @@ describe.skipIf(!existsSync(BIN) || !binding || process.platform === 'win32')(
 				offset: (attached.start as number) + seen.length,
 			})
 
-			// A second view, late, sees the same screen without replaying the stream.
+			// A second view, late, sees the same screen without replaying the stream: the screen,
+			// then the bytes the host's emulator has not drawn yet.
 			const late = await wire.request(TERMINAL_METHODS.attach, {
 				terminalId: terminal.id,
 				viewerId: 'late',
 			})
 			expect(late.mode).toBe('snapshot')
-			expect(late.screen).toContain('got-42')
+			expect(`${late.screen}${late.data}`).toContain('got-42')
 			await expect(
 				wire.request(TERMINAL_METHODS.write, {
 					terminalId: terminal.id,
