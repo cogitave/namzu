@@ -110,6 +110,32 @@ describe('durable provider retry eligibility', () => {
 			notice: expect.stringContaining('Retry cannot approve'),
 		})
 	})
+	it('does not name the first attempt’s model as the one that stopped a turn that was retried since', async () => {
+		const f = await providerPaused(state)
+		const lease = await f.log.claim({ holder: 'test-retry', ttlMs: 60_000 })
+		if (!lease) throw new Error('Fixture writer unavailable')
+		try {
+			// Retried on another model, which stopped it again: only the first attempt's model is on record.
+			await f.log.append(lease, {
+				type: 'turn_resuming',
+				turnId: f.turnId,
+				fromCheckpointId: f.checkpointId,
+			})
+			await f.log.append(lease, {
+				type: 'turn_paused',
+				turnId: f.turnId,
+				checkpointId: f.checkpointId,
+				reason: 'Provider temporarily unavailable',
+				failure: { code: 'network', message: 'Provider temporarily unavailable', retryable: true },
+				providerError: { kind: 'network', providerId: 'other' },
+			})
+		} finally {
+			await f.log.release(lease)
+		}
+		const status = await readProviderRetryStatus(state, f.sessionId)
+		expect(status.retry).toEqual({ turnId: f.turnId, checkpointId: f.checkpointId })
+		expect(status.closable).toBe(true)
+	})
 	it('retains the original exhausted allowance instead of creating a new ledger', async () => {
 		const f = await providerPaused(state, { limit: 6 })
 		expect(await readProviderRetryStatus(state, f.sessionId)).toEqual({

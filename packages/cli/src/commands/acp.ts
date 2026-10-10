@@ -562,6 +562,8 @@ export function createCliAcpRuntime(
 	 * The approval settings of a paused turn, kept across a model change: choosing another model closes
 	 * the live session but not the paused turn, and Retry on the new model needs the same settings.
 	 */
+	/** The provider and model each paused turn was last retried on, for naming what stopped it again. */
+	const retriedOn = new Map<string, { provider: string; model: string }>()
 	const retryCarry = new Map<string, AcpRuntimeRecord['retrySettings']>()
 	// Conversations an undo is writing into right now: no prompt may start under it.
 	const undoing = new Set<string>()
@@ -1085,6 +1087,7 @@ export function createCliAcpRuntime(
 				}
 			}
 			record.route = routedEvent
+			retriedOn.set(turnId, { provider: record.provider, model: record.model })
 			try {
 				let stopReason: string | undefined
 				let failureMessage: string | undefined
@@ -1392,7 +1395,11 @@ export function createCliAcpRuntime(
 					.find((row) => row.type === 'turn_paused' && row.turnId === status.retry?.turnId)
 				if (pause?.type !== 'turn_paused' || !pause.providerError)
 					return blocked('The original provider cannot be verified for this retry.')
-				return status
+				// A turn already retried stopped again on the model it was retried on.
+				const lastRun = retriedOn.get(status.retry.turnId)
+				return lastRun && !status.retry.original
+					? { ...status, retry: { ...status.retry, original: lastRun } }
+					: status
 			} finally {
 				reading.close()
 			}

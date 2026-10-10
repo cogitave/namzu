@@ -120,8 +120,13 @@ export async function readProviderRetryStatus(
 	const started = facts.records.find(
 		(record) => record.type === 'turn_started' && record.turnId === active.turnId,
 	)
+	// `turn_started` names the model of the first attempt only. Once the turn was resumed, the pause
+	// that stopped it belongs to a later attempt whose model no record carries, so none is claimed.
+	const resumed = facts.records.some(
+		(record) => record.type === 'turn_resuming' && record.turnId === active.turnId,
+	)
 	const original =
-		started?.type === 'turn_started' && started.config.model && pause.providerError
+		!resumed && started?.type === 'turn_started' && started.config.model && pause.providerError
 			? { provider: pause.providerError.providerId, model: started.config.model }
 			: undefined
 	return {

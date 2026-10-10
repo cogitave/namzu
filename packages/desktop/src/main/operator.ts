@@ -4171,6 +4171,8 @@ export class Operator {
 					await session.client.request('namzu/sessions/abandon-paused', {
 						sessionId: session.runtimeSessionId,
 					})
+					// The turn is closed durably now, so the window must hear it even when this send is stale.
+					this.emit({ kind: 'turn-closed', sessionId })
 					if (
 						session.admitting !== admission ||
 						(session.selectionRevision ?? 0) !== selectionRevision ||
@@ -4179,7 +4181,6 @@ export class Operator {
 						throw new Error(
 							'This conversation’s settings changed during admission. Your draft is retained.',
 						)
-					this.emit({ kind: 'turn-closed', sessionId })
 				} else if (status.retry || status.notice || session.projection.reason === 'paused')
 					throw new Error(
 						status.notice ??

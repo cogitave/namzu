@@ -289,3 +289,89 @@ flow(
 		await shot(w, "e-1-overtaken-read-repeated");
 	},
 );
+
+flow(
+	"(f) Try again on luna that is rate limited again names luna no longer, and a switch back names Claude",
+	{
+		messagesRules: [{ match: /hello/i, steps: [THROTTLED] }],
+		rules: [{ match: /./, steps: [THROTTLED_CHAT] }],
+	},
+	async (w) => {
+		await openProject(w);
+		await send(w, "hello there");
+		const region = w.page.locator(".turn-recovery");
+		await expect(region.getByRole("button", { name: "Try again" })).toBeVisible({ timeout: T });
+		await chooseModel(w, "OpenAI", "gpt-6-luna");
+		await region.getByRole("button", { name: "Try again with gpt-6-luna" }).click();
+		await expect.poll(() => w.model.requests.length, { timeout: T }).toBeGreaterThan(0);
+		// Luna stopped it this time, so luna is not "another model" any more.
+		await expect(region.getByRole("button", { name: "Try again", exact: true })).toBeVisible({ timeout: T });
+		await shot(w, "f-1-luna-stopped-it-again");
+		await chooseModel(w, "Anthropic (Claude)", "claude-sonnet-5-5");
+		await expect(region.getByRole("button", { name: "Try again with claude-sonnet-5-5" })).toBeVisible({
+			timeout: T,
+		});
+		// And the conversation still goes on from here.
+		w.model.rules[0].steps = [{ text: "Luna at last." }];
+		await chooseModel(w, "OpenAI", "gpt-6-luna");
+		await send(w, "hello once more");
+		await expect(w.page.getByText("Luna at last.")).toBeVisible({ timeout: T });
+	},
+);
+
+flow(
+	"(g) back and forth twice, stopping each time, every message is answered on the selected model",
+	{
+		messagesRules: [
+			{ match: /hello/i, steps: [THROTTLED] },
+			{ match: /third/i, steps: [{ text: "Claude third." }] },
+		],
+		rules: [
+			{ match: /second/i, steps: [THROTTLED_CHAT] },
+			{ match: /fourth/i, steps: [{ text: "Luna fourth." }] },
+		],
+	},
+	async (w) => {
+		await openProject(w);
+		const region = w.page.locator(".turn-recovery");
+		await send(w, "hello there");
+		await expect(region.getByRole("button", { name: "Try again" })).toBeVisible({ timeout: T });
+		await chooseModel(w, "OpenAI", "gpt-6-luna");
+		await send(w, "second");
+		await expect(region.getByRole("button", { name: /Try again/ })).toBeVisible({ timeout: T });
+		await chooseModel(w, "Anthropic (Claude)", "claude-sonnet-5-5");
+		await send(w, "third");
+		await expect(w.page.getByText("Claude third.")).toBeVisible({ timeout: T });
+		await chooseModel(w, "OpenAI", "gpt-6-luna");
+		await send(w, "fourth");
+		await expect(w.page.getByText("Luna fourth.")).toBeVisible({ timeout: T });
+		assert.equal(w.model.requests.at(-1).model, "gpt-6-luna");
+		assert.equal(w.messages.requests.at(-1).model, "claude-sonnet-5-5");
+		await shot(w, "g-1-twice-back-and-forth");
+	},
+);
+
+flow(
+	"(h) the model cannot be changed while a reply streams, and can be once it ends",
+	{
+		providers: [{ id: "openai", model: "gpt-6-luna" }],
+		rules: [{ match: /slow/i, steps: [{ hold: "g", text: "Luna slow answer." }] }],
+		messagesRules: [{ match: /next/i, steps: [{ text: "Claude next." }] }],
+	},
+	async (w) => {
+		await openProject(w);
+		await send(w, "slow one");
+		await expect.poll(() => w.model.requests.length, { timeout: T }).toBeGreaterThan(0);
+		assert.equal(
+			await w.page.getByRole("button", { name: /^Model:/ }).isDisabled(),
+			true,
+			"the model button is off while the reply streams",
+		);
+		await shot(w, "h-1-streaming");
+		w.model.release("g");
+		await expect(w.page.getByText("Luna slow answer.")).toBeVisible({ timeout: T });
+		await chooseModel(w, "Anthropic (Claude)", "claude-sonnet-5-5");
+		await send(w, "next");
+		await expect(w.page.getByText("Claude next.")).toBeVisible({ timeout: T });
+	},
+);
