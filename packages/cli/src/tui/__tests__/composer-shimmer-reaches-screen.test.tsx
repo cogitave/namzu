@@ -8,8 +8,8 @@ import { Box, Text } from 'ink'
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest'
 
 import type { Preferences } from '../../integrations/providers/index.js'
-import { LiveActivity } from '../LiveActivity.js'
 import { ComposerFrame } from '../ComposerFrame.js'
+import { LiveActivity } from '../LiveActivity.js'
 import { fakeAgentSession } from '../__fixtures__/agent-session.js'
 import type { AgentEvent, PermissionDecision } from '../agent.js'
 import { type Screen, renderToScreen } from './support/screen.js'
@@ -412,7 +412,9 @@ it('glows symmetrically from the composer center once, then settles without movi
 	const border = borderProbe(screen, 80, 12)
 	try {
 		const rule = async () =>
-			(await border.read())?.filter(({ x, y, glyph }) => y === 0 && glyph === '─' && x >= 11 && x <= 66) ?? []
+			(await border.read())?.filter(
+				({ x, y, glyph }) => y === 0 && glyph === '─' && x >= 11 && x <= 66,
+			) ?? []
 		expect(new Set((await rule()).map(({ color }) => color))).toEqual(new Set([239]))
 		const baseline = screen.bytesWritten()
 		await vi.advanceTimersByTimeAsync(1_600)

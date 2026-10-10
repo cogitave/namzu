@@ -25,10 +25,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cancelCauseOf, generateSessionId } from '@namzu/sdk'
 
 import type { Preferences } from '../../integrations/providers/index.js'
+import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 import type { AgentEvent, AgentSession, PermissionDecision, PermissionRequest } from '../agent.js'
 import { APPROVAL_SETTLE_MS } from '../consent-timing.js'
 import type { TuiContext } from '../types.js'
-import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 
 const PREFS: Preferences = { version: 3, providers: [{ id: 'openai' }], subagents: { active: [] } }
 
@@ -222,7 +222,10 @@ const tick = (ms = 40) => new Promise((r) => setTimeout(r, ms))
  * decision happened only needs enough time, proving one did not needs all of it.
  */
 async function decisionSettles(timeoutMs?: number): Promise<void> {
-	await vi.waitFor(() => expect(decisions.length, 'no decision arrived').toBeGreaterThan(0), timeoutMs)
+	await vi.waitFor(
+		() => expect(decisions.length, 'no decision arrived').toBeGreaterThan(0),
+		timeoutMs,
+	)
 }
 
 /**
@@ -464,7 +467,9 @@ describe('the permission prompt', () => {
 		const frame = lastFrame() ?? ''
 
 		expect(frame.toLowerCase(), 'the key that stops the turn is unnamed').toContain('ctrl+c')
-		expect(frame, 'named the key without naming what makes it different').toContain('stop the reply')
+		expect(frame, 'named the key without naming what makes it different').toContain(
+			'stop the reply',
+		)
 	})
 
 	it('toggles the immutable exact envelope without deciding the prompt', async () => {
@@ -691,7 +696,7 @@ describe('concurrent permission requests', () => {
 		parallelApprovals = true
 		const { stdin, lastFrame } = await promptOpenWithDraftInFlight()
 		expect(lastFrame()).toContain('1 more awaiting approval')
-		expect(lastFrame()).toContain(`Agent: another agent`)
+		expect(lastFrame()).toContain('Agent: another agent')
 		expect(lastFrame()).not.toContain(secondReviewSession)
 		expect(lastFrame()).not.toContain('echo second-review')
 		settle()
@@ -700,7 +705,7 @@ describe('concurrent permission requests', () => {
 		await tick(60)
 		expect(decisions).toEqual([{ kind: 'approve' }])
 		expect(lastFrame()).toContain('echo second-review')
-		expect(lastFrame()).toContain(`Agent: another agent`)
+		expect(lastFrame()).toContain('Agent: another agent')
 		expect(lastFrame()).not.toContain(firstReviewSession)
 		stdin.write('\r')
 		await tick(60)

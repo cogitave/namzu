@@ -13,38 +13,23 @@ import { TURN_LIMIT_FIELDS, turnLimitCommands } from './turn-limits-settings.js'
  *      automatic reuse is not mistaken for a durable operator preference.
  */
 
-import {
-	type LivePeers,
-	type PeerMail,
-	buildPeerTools,
-	openLivePeers,
-	peerMailLabel,
-	peerMailMessage,
-} from '../integrations/peers/runtime.js'
-import { discoverProviders } from '../integrations/providers/discover.js'
-import { ProviderSetup } from './ProviderSetup.js'
-import { ToolOutputViewer } from './ToolOutputViewer.js'
-import {
-	BackgroundJobsPanel,
-	backgroundJobOutputPageSize,
-	backgroundJobsPageSize,
-	maxBackgroundJobTailOffset,
-} from './BackgroundJobsPanel.js'
 import { join, relative } from 'node:path'
 import {
+	type BackgroundJob,
+	type BackgroundJobOutput,
 	type CostInfo,
 	DEFAULT_MAX_GOAL_ROUNDS,
-	type BackgroundJob,
 	DiskMessageFeedbackStore,
 	type GoalRoundAuthority,
 	GoalRoundLimitError,
 	HostCommandRegistry,
+	type MemoryType,
 	type Message,
 	type MessageAttachment,
-	type MemoryType,
 	type MessageId,
 	type ReasoningEffort,
 	type RuntimeContextMessageKind,
+	SKILL_TOOL_NAME,
 	type SessionGoal,
 	SessionGoalActivation,
 	type SessionId,
@@ -59,21 +44,43 @@ import {
 	generateTurnId,
 	isCompactionMessage,
 	kernelHostCommands,
-	SKILL_TOOL_NAME,
 } from '@namzu/sdk'
 import { Box, Text, useApp, useInput, useStdout, useWindowSize } from 'ink'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import {
+	type LivePeers,
+	type PeerMail,
+	buildPeerTools,
+	openLivePeers,
+	peerMailLabel,
+	peerMailMessage,
+} from '../integrations/peers/runtime.js'
+import { discoverProviders } from '../integrations/providers/discover.js'
+import {
+	BackgroundJobsPanel,
+	backgroundJobOutputPageSize,
+	backgroundJobsPageSize,
+	maxBackgroundJobTailOffset,
+} from './BackgroundJobsPanel.js'
+import { ProviderSetup } from './ProviderSetup.js'
+import { ToolOutputViewer } from './ToolOutputViewer.js'
 
 import {
 	pinTrustedProjectPath,
 	resolveTrustedProjectContext,
 } from '../config/trusted-project-context.js'
 import { visibleProjectInstructionPath } from '../context/project-path.js'
-import { claimPalConversation, listPalConversations } from '../pals/conversations.js'
-import { tuiPalDefinition, tuiPalEnvironment, tuiPalOwner, tuiPalPreferences } from '../pals/tui-session.js'
-import type { Pal } from '../pals/store.js'
 import { runtimeContextLabel } from '../context/runtime-message.js'
+import { claimPalConversation, listPalConversations } from '../pals/conversations.js'
+import type { Pal } from '../pals/store.js'
+import {
+	tuiPalDefinition,
+	tuiPalEnvironment,
+	tuiPalOwner,
+	tuiPalPreferences,
+} from '../pals/tui-session.js'
 
+import { resolveComposerTriggers } from '../config/composer-triggers.js'
 import { writeClipboardText } from '../integrations/clipboard/text.js'
 import {
 	type TerminalNotification,
@@ -83,12 +90,12 @@ import {
 import {
 	type CodexDeviceLogin,
 	type DetectedProvider,
+	PROVIDER_REGISTRY,
 	type Preferences,
 	type ProviderChoice,
 	type ProviderId,
 	type SubscriptionLogin,
 	type SubscriptionProviderId,
-	PROVIDER_REGISTRY,
 	beginCodexDeviceLogin,
 	beginSubscriptionLogin,
 	clearAllStoredCredentials,
@@ -106,10 +113,11 @@ import {
 	writePreferences,
 	writeStoredGeminiApiKey as writeStoredGoogleApiKey,
 } from '../integrations/providers/index.js'
+import { displayConversationTitle } from '../integrations/sessions/display-title.js'
 import {
 	type CliSessions,
-	type RecentConversation,
 	ConversationIndexRefreshError,
+	type RecentConversation,
 	activeConversationTurn,
 	archiveConversation,
 	forkConversation,
@@ -129,17 +137,14 @@ import {
 	conversationMarkdown,
 	writeConversationExport,
 } from '../integrations/sessions/transcript-export.js'
-import { displayConversationTitle } from '../integrations/sessions/display-title.js'
-import { openManagedWorktrees, worktreeOpenHint } from '../integrations/worktrees/managed.js'
-import type {
-	SubagentActivity,
-	SubagentNarrationLine,
-} from '../integrations/subagents/activity.js'
+import { resolveNamzuHome } from '../integrations/state/home.js'
+import type { SubagentActivity, SubagentNarrationLine } from '../integrations/subagents/activity.js'
 import type { Batch } from '../integrations/subagents/batches.js'
 import { NARRATION_TOOL_NAME } from '../integrations/subagents/runtime.js'
 import { agentsSlashCommand } from '../integrations/subagents/slash.js'
 import { isTrusted, trustDir } from '../integrations/trust/store.js'
 import { checkUpdates } from '../integrations/updates.js'
+import { openManagedWorktrees, worktreeOpenHint } from '../integrations/worktrees/managed.js'
 import {
 	renderMemoryReport,
 	renderMemorySaveResult,
@@ -153,6 +158,15 @@ import {
 	permissionModeDescription,
 	permissionModeLabel,
 } from '../permissions/mode.js'
+import { schedulePaths } from '../schedule/paths.js'
+import {
+	SKILL_CREATOR_SKILL,
+	type SaveSkillAnswer,
+	type SaveSkillRequest,
+	buildSaveSkillTool,
+	learnSkillPrompt,
+	newSkillPrompt,
+} from '../skills/save.js'
 import {
 	NO_SKILLS_FOUND,
 	composeSkillsPrompt,
@@ -178,10 +192,10 @@ import {
 	agentWorkflows,
 	maxAgentTranscriptTailOffset,
 } from './AgentExplorer.js'
-import { completionRow, launchReceipt, settleLine } from './agent-transcript-rows.js'
 import { BrandHeader } from './BrandHeader.js'
+import { checklistProgress } from './Checklist.js'
+import { ChildComposer, childComposerRows } from './ChildComposer.js'
 import { ChoicePicker, type ChoicePickerOption } from './ChoicePicker.js'
-import { emptyPluginReport, pluginDetails, pluginOption, pluginStartupState } from './plugin-view.js'
 import {
 	Composer,
 	type ComposerDraft,
@@ -190,101 +204,37 @@ import {
 	type SubmitMeta,
 	suggestionWindowSize,
 } from './Composer.js'
-import { resolveComposerTriggers } from '../config/composer-triggers.js'
-import { triggerContextTexts, triggerEffort } from './triggers/context-text.js'
-import { transcriptTagLine } from './triggers/copy.js'
-import { type TriggerContext, unavailable as triggerUnavailable } from './triggers/detect.js'
-import {
-	BUILTIN_TRIGGERS,
-	type TriggerId,
-	compileRegistry,
-	triggerDefinition,
-} from './triggers/registry.js'
-import { describeComposerTriggers, setComposerTriggers } from './triggers/setting.js'
 import { ComposerFrame } from './ComposerFrame.js'
-import { ChildComposer, childComposerRows } from './ChildComposer.js'
-import { PendingInputPanel, pendingInputPanelRows } from './PendingInputPanel.js'
-import { EffortSlider, effortSliderLayout } from './EffortSlider.js'
-import {
-	HYPERMODE,
-	HYPERMODE_SUMMARY,
-	ORCHESTRATE_ALIAS_NOTICE,
-	hypermodeEffort,
-	hypermodeStopLabel,
-} from './hypermode.js'
 import { CopyPicker } from './CopyPicker.js'
 import { EditPromptPicker } from './EditPromptPicker.js'
+import { EffortSlider, effortSliderLayout } from './EffortSlider.js'
 import { type ActiveTool, LiveActivity, formatElapsed } from './LiveActivity.js'
-import { type WebActivity, webCallTitle, webLiveStatus, webSettledLine } from './web-activity.js'
+import { PendingInputPanel, pendingInputPanelRows } from './PendingInputPanel.js'
 import { type PermissionChoice, PermissionOverlay, permissionAnswers } from './PermissionOverlay.js'
 import { Picker } from './Picker.js'
 import { ResumePicker } from './ResumePicker.js'
-import { resolveNamzuHome } from '../integrations/state/home.js'
-import { type ScheduleIntegration, createScheduleIntegration } from './schedule/integration.js'
-import { schedulePaths } from '../schedule/paths.js'
-import {
-	SourceDeliveryView,
-	sourceConversationBinding,
-	sourceDeliveryLine,
-	sourceDeliveryReadError,
-} from './schedule/source-deliveries.js'
-import {
-	type ScheduleReviewAnswer,
-	type ScheduleReviewRequest,
-	ScheduleReviewOverlay,
-} from './ScheduleReviewOverlay.js'
 import { SaveSkillOverlay } from './SaveSkillOverlay.js'
 import {
-	type SaveSkillAnswer,
-	type SaveSkillRequest,
-	SKILL_CREATOR_SKILL,
-	buildSaveSkillTool,
-	learnSkillPrompt,
-	newSkillPrompt,
-} from '../skills/save.js'
-import {
-	type TurnActivity,
-	SUGGESTIONS_STOPPED_NOTICE,
-	createTurnActivity,
-	judgeSkillSuggestion,
-	observeTurnEvent,
-	skillSuggestionNotice,
-} from './skills/learning.js'
-import {
-	FRESH_LEDGER,
-	admitSuggestion,
-	readSuggestionLedger,
-	writeSuggestionLedger,
-} from './skills/suggestion-ledger.js'
-import { setSkillSuggestions } from './skills/suggest-setting.js'
+	type ScheduleReviewAnswer,
+	ScheduleReviewOverlay,
+	type ScheduleReviewRequest,
+} from './ScheduleReviewOverlay.js'
 import { StatusBar } from './StatusBar.js'
-import { isRepeatedNotice } from './notices.js'
-import { checklistProgress } from './Checklist.js'
 import { TaskList, type TaskListItem, taskListRows } from './TaskList.js'
-import {
-	type TaskOperation,
-	applyTaskOperation,
-	isTaskTool,
-	removeTask,
-	taskOperationFor,
-	taskReportChecklist,
-	upsertTask,
-} from './task-activity.js'
 import { TextPrompt } from './TextPrompt.js'
-import { modelCatalogueView } from './model-catalogue-view.js'
-import { conversationEvidenceView } from './conversation-evidence-view.js'
 import { Transcript, willCollapse } from './Transcript.js'
 import { TrustPrompt } from './TrustPrompt.js'
+import { ViewportBound } from './ViewportBound.js'
+import { completionRow, launchReceipt, settleLine } from './agent-transcript-rows.js'
 import {
 	type AgentEvent,
 	type AgentSession,
 	type PermissionDecision,
-	type PermissionFn,
 	type PermissionRequest,
-	type ScreenPermissionFn,
-	type ScreenPermissionRequest,
 	type QuestionAnswer,
 	type QuestionFn,
+	type ScreenPermissionFn,
+	type ScreenPermissionRequest,
 	type SessionScope,
 	type UserQuestion,
 	createAgentSession,
@@ -298,39 +248,98 @@ import {
 } from './choice-selection.js'
 import { keepRecentRows } from './compact-transcript.js'
 import { approvalIsDeliberate } from './consent-timing.js'
+import { conversationEvidenceView } from './conversation-evidence-view.js'
 import { assistantTranscriptTexts } from './conversation-history.js'
 import { type CopyResponseTarget, copyTargetsForResponse } from './copy-targets.js'
 import { type EditablePrompt, editablePrompts } from './edit-prompts.js'
 import type { TuiExitSummary } from './exit-summary.js'
-import { formatSize, homePath, plural, productName } from './person-terms.js'
-import { explainFailure } from './plain-failure.js'
-import { declinedLine } from './tidy-tool-output.js'
-import {
-	debugRequested,
-	describePlainInterruption,
-	describeProviderWait,
-} from './plain-interruption.js'
 import { ExternalEditorError, editDraftInExternalEditor } from './external-editor.js'
-import { checklistInView, liveWindow, settledBeforeStreaming } from './live-window.js'
+import {
+	HYPERMODE,
+	HYPERMODE_SUMMARY,
+	ORCHESTRATE_ALIAS_NOTICE,
+	hypermodeEffort,
+	hypermodeStopLabel,
+} from './hypermode.js'
 import { choosesModel, launchPreferences } from './launch-settings.js'
-import { ViewportBound } from './ViewportBound.js'
+import { checklistInView, liveWindow, settledBeforeStreaming } from './live-window.js'
+import {
+	describeAllCredentialsLogout,
+	describeCodexDeviceLoginStart,
+	describeLoginOutcome,
+	describeLoginStart,
+	describeProviderLogout,
+} from './login-prompt.js'
+import { modelCatalogueView } from './model-catalogue-view.js'
+import { parseModelSelectionIntent, resolveModelSelectionIntent } from './model-selection-intent.js'
 import {
 	type ModelSwitchOutcome,
 	type ModelSwitchRequest,
 	resolveModelSwitch,
 } from './model-switch.js'
-import { parseModelSelectionIntent, resolveModelSelectionIntent } from './model-selection-intent.js'
+import { isRepeatedNotice } from './notices.js'
+import { formatSize, homePath, plural, productName } from './person-terms.js'
+import { explainFailure } from './plain-failure.js'
 import {
-	describeCodexDeviceLoginStart,
-	describeLoginOutcome,
-	describeLoginStart,
-	describeAllCredentialsLogout,
-	describeProviderLogout,
-} from './login-prompt.js'
+	debugRequested,
+	describePlainInterruption,
+	describeProviderWait,
+} from './plain-interruption.js'
+import {
+	emptyPluginReport,
+	pluginDetails,
+	pluginOption,
+	pluginStartupState,
+} from './plugin-view.js'
 import { selectPrimaryProvider } from './provider-selection.js'
+import { type ScheduleIntegration, createScheduleIntegration } from './schedule/integration.js'
+import {
+	SourceDeliveryView,
+	sourceConversationBinding,
+	sourceDeliveryLine,
+	sourceDeliveryReadError,
+} from './schedule/source-deliveries.js'
+import {
+	SUGGESTIONS_STOPPED_NOTICE,
+	type TurnActivity,
+	createTurnActivity,
+	judgeSkillSuggestion,
+	observeTurnEvent,
+	skillSuggestionNotice,
+} from './skills/learning.js'
+import { setSkillSuggestions } from './skills/suggest-setting.js'
+import {
+	FRESH_LEDGER,
+	admitSuggestion,
+	readSuggestionLedger,
+	writeSuggestionLedger,
+} from './skills/suggestion-ledger.js'
+import {
+	type TaskOperation,
+	applyTaskOperation,
+	isTaskTool,
+	removeTask,
+	taskOperationFor,
+	taskReportChecklist,
+	upsertTask,
+} from './task-activity.js'
 import { eraseLastChoiceGrapheme } from './terminal-choice-text.js'
+import { declinedLine } from './tidy-tool-output.js'
+import { triggerContextTexts, triggerEffort } from './triggers/context-text.js'
+import { transcriptTagLine } from './triggers/copy.js'
+import { type TriggerContext, unavailable as triggerUnavailable } from './triggers/detect.js'
+import {
+	BUILTIN_TRIGGERS,
+	type TriggerId,
+	compileRegistry,
+	triggerDefinition,
+} from './triggers/registry.js'
+import { describeComposerTriggers, setComposerTriggers } from './triggers/setting.js'
+import { type WebActivity, webCallTitle, webLiveStatus, webSettledLine } from './web-activity.js'
 
+import type { BrowserControl } from '../browser/control.js'
 import { renderCheckpoints, renderRestore, renderRestoreNote } from '../checkpoints/store.js'
+import { browserSiteNotes, describeBrowserHandoff, runBrowserSlash } from './browser-notices.js'
 import { expandFileMentions, listMentionableFiles } from './mentions.js'
 import { openInBrowser } from './open-browser.js'
 import {
@@ -341,13 +350,6 @@ import {
 	permissionReviewRows,
 	releasedByApproveAll,
 } from './permission-review.js'
-import {
-	PAUSED_TURN_LINES,
-	describeTurnStop,
-	handoffContinuationNote,
-} from './turn-interruption.js'
-import { browserSiteNotes, describeBrowserHandoff, runBrowserSlash } from './browser-notices.js'
-import type { BrowserControl } from '../browser/control.js'
 import { moveSelection } from './selection-window.js'
 import {
 	describeShellEscape,
@@ -372,6 +374,11 @@ import { splitCompleteBlocks, splitSafeCut } from './stream-blocks.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { terminalSupportsHyperlinks } from './terminal-hyperlinks.js'
 import { theme } from './theme.js'
+import {
+	PAUSED_TURN_LINES,
+	describeTurnStop,
+	handoffContinuationNote,
+} from './turn-interruption.js'
 import type { TranscriptMessage, TuiContext } from './types.js'
 import { useSelectionIndex } from './use-selection-index.js'
 import { renderWorkspaceDiff, workspaceDiff } from './workspace-diff.js'
@@ -411,7 +418,15 @@ export type ExternalEditorAdapter = (request: {
 	readonly signal: AbortSignal
 }) => Promise<string>
 
-type LifecyclePhase = 'trust' | 'probing' | 'picker' | 'ready' | 'unhealthy' | 'resume' | 'unarchive' | 'edit'
+type LifecyclePhase =
+	| 'trust'
+	| 'probing'
+	| 'picker'
+	| 'ready'
+	| 'unhealthy'
+	| 'resume'
+	| 'unarchive'
+	| 'edit'
 type ConversationMutation = 'fork' | 'edit' | 'new' | 'archive' | 'materialize'
 
 interface PendingModelSwitch {
@@ -497,7 +512,6 @@ type ChoicePickerState = { readonly back?: ChoicePickerState; readonly request?:
 			readonly values: readonly ('resume' | 'later')[]
 			readonly options: readonly ChoicePickerOption[]
 	  }
-
 	| {
 			/**
 			 * A question the model put to the operator. `values` are option ids
@@ -832,7 +846,12 @@ type QueuedPrompt =
 			 */
 			readonly triggers?: readonly TriggerId[]
 	  }
-	| { readonly kind: 'peer'; readonly text: string; readonly mail: PeerMail; readonly generation: number }
+	| {
+			readonly kind: 'peer'
+			readonly text: string
+			readonly mail: PeerMail
+			readonly generation: number
+	  }
 	| {
 			readonly kind: 'goal'
 			readonly text: string
@@ -1109,7 +1128,11 @@ export function App({
 	)
 	const permissionModeRef = useRef<PermissionMode>(permissionMode)
 	const permissionModeSourceRef = useRef<'default' | 'launch-bypass' | 'launch-flag' | 'session'>(
-		launchPermissionMode ? 'launch-flag' : ctx.skipPermissions === true ? 'launch-bypass' : 'default',
+		launchPermissionMode
+			? 'launch-flag'
+			: ctx.skipPermissions === true
+				? 'launch-bypass'
+				: 'default',
 	)
 	const [reasoningEffort, setReasoningEffortState] = useState<ReasoningEffort | undefined>()
 	const reasoningEffortRef = useRef<ReasoningEffort | undefined>(undefined)
@@ -1162,7 +1185,10 @@ export function App({
 		readonly jobs: readonly BackgroundJob[]
 	}>({ ownerSession: null, jobs: [] })
 	const backgroundJobs = jobSnapshot.ownerSession === session ? jobSnapshot.jobs : []
-	const snapshotIdleJobNotices = (): { readonly ids: readonly string[]; readonly text?: string } => {
+	const snapshotIdleJobNotices = (): {
+		readonly ids: readonly string[]
+		readonly text?: string
+	} => {
 		if (idleJobNoticesRef.current.ownerSession !== session) return { ids: [] }
 		const pending = idleJobNoticesRef.current.pending
 		if (pending.size === 0) return { ids: [] }
@@ -1416,13 +1442,14 @@ export function App({
 		readonly turnId: string
 		readonly reason?: string
 	} | null>(null)
-	const handoffParkRef = useRef<{ readonly turnId: string; readonly reason?: string } | null>(
-		null,
+	const handoffParkRef = useRef<{ readonly turnId: string; readonly reason?: string } | null>(null)
+	const setHandoffPark = useCallback(
+		(value: { readonly turnId: string; readonly reason?: string } | null) => {
+			handoffParkRef.current = value
+			setHandoffParkState(value)
+		},
+		[],
 	)
-	const setHandoffPark = useCallback((value: { readonly turnId: string; readonly reason?: string } | null) => {
-		handoffParkRef.current = value
-		setHandoffParkState(value)
-	}, [])
 	const composerDraftTokenRef = useRef(0)
 	/** Bounded child session projection published by the current AgentSession. */
 	const [subagents, setSubagentsState] = useState<readonly SubagentActivity[]>([])
@@ -1449,6 +1476,7 @@ export function App({
 	useLayoutEffect(() => {
 		jobSurfaceCommittedRef.current = jobSurface
 	}, [jobSurface])
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
 	useEffect(() => setJobSurface(null), [session, setJobSurface])
 	const [jobClock, setJobClock] = useState(Date.now())
 	const hasRunningBackgroundJob = backgroundJobs.some((job) => job.status === 'running')
@@ -1529,10 +1557,14 @@ export function App({
 				return
 			}
 			const phases = agentPhases(next)
-			const previousGroupId = previous.find((agent) => agent.viewId === surface.selectedId)?.workflowGroupId
+			const previousGroupId = previous.find(
+				(agent) => agent.viewId === surface.selectedId,
+			)?.workflowGroupId
 			const sameWorkflow = agentWorkflows(next).find((workflow) => workflow.id === previousGroupId)
 			const fallbackPhase =
-				phases.find((phase) => phase.id === surface.selectedPhaseId) ?? sameWorkflow?.phases[0] ?? phases[0]
+				phases.find((phase) => phase.id === surface.selectedPhaseId) ??
+				sameWorkflow?.phases[0] ??
+				phases[0]
 			const fallbackAgent = fallbackPhase?.agents[0]
 			if (!fallbackPhase || !fallbackAgent) {
 				setAgentSurface(null)
@@ -1579,11 +1611,17 @@ export function App({
 	const openCockpitFromCurrentRows = useCallback((): boolean => {
 		const agents = subagentsRef.current
 		const workflows = agentWorkflows(agents)
-		const currentWorkflow = [...workflows].reverse().find((workflow) =>
-			workflow.agents.some((agent) =>
-				agent.status === 'starting' || agent.status === 'queued' || agent.status === 'working',
-			),
-		) ?? workflows.at(-1)
+		const currentWorkflow =
+			[...workflows]
+				.reverse()
+				.find((workflow) =>
+					workflow.agents.some(
+						(agent) =>
+							agent.status === 'starting' ||
+							agent.status === 'queued' ||
+							agent.status === 'working',
+					),
+				) ?? workflows.at(-1)
 		// Opened on the work that is moving: the first phase with a live agent,
 		// and its first live agent, rather than on a phase that finished
 		// minutes ago. With nothing live, the first phase, as before.
@@ -1801,7 +1839,8 @@ export function App({
 	} | null>(null)
 	const scheduleRef = useRef<ScheduleIntegration | null>(null)
 	const sourceDeliveryViewRef = useRef<SourceDeliveryView | null>(null)
-	if (sourceDeliveryViewRef.current === null) sourceDeliveryViewRef.current = new SourceDeliveryView()
+	if (sourceDeliveryViewRef.current === null)
+		sourceDeliveryViewRef.current = new SourceDeliveryView()
 	const sourceDeliveryPollRef = useRef<() => void>(() => {})
 	const sourceDeliveryIssueRef = useRef<string | null>(null)
 	if (scheduleRef.current === null) {
@@ -1811,7 +1850,8 @@ export function App({
 			extraRoots: () => ctxRef.current.additionalDirectories ?? [],
 			config: () => ctxRef.current,
 			model: () => scheduleLiveRef.current?.model,
-			sessionId: () => (conversationMaterializedRef.current ? scopeRef.current?.sessionId : undefined),
+			sessionId: () =>
+				conversationMaterializedRef.current ? scopeRef.current?.sessionId : undefined,
 			sourceConversation: () =>
 				sourceConversationBinding(
 					sessionsRef.current,
@@ -1831,7 +1871,8 @@ export function App({
 			isIdle: () => stateRef.current === 'idle' && abortRef.current === null,
 			say: (text) => scheduleLiveRef.current?.say(text),
 			ask: (question, signal) =>
-				scheduleLiveRef.current?.ask(question, signal) ?? Promise.resolve({ kind: 'skip' as const }),
+				scheduleLiveRef.current?.ask(question, signal) ??
+				Promise.resolve({ kind: 'skip' as const }),
 			review: (request, signal) =>
 				scheduleLiveRef.current?.review(request, signal) ?? Promise.resolve('cancel' as const),
 			askPermission: (request) =>
@@ -1850,11 +1891,14 @@ export function App({
 		readonly resolve: (answer: SaveSkillAnswer) => void
 	} | null>(null)
 	const saveSkillPromptRef = useRef<typeof saveSkillPrompt>(null)
-	const setSaveSkillPrompt = useCallback((next: typeof saveSkillPrompt) => {
-		if (next) setJobSurface(null)
-		saveSkillPromptRef.current = next
-		setSaveSkillPromptState(next)
-	}, [setJobSurface])
+	const setSaveSkillPrompt = useCallback(
+		(next: typeof saveSkillPrompt) => {
+			if (next) setJobSurface(null)
+			saveSkillPromptRef.current = next
+			setSaveSkillPromptState(next)
+		},
+		[setJobSurface],
+	)
 	const [scheduleReviewPrompt, setScheduleReviewPromptState] = useState<{
 		readonly token: number
 		readonly request: ScheduleReviewRequest
@@ -1862,11 +1906,14 @@ export function App({
 	} | null>(null)
 	const scheduleReviewTokenRef = useRef(0)
 	const scheduleReviewPromptRef = useRef<typeof scheduleReviewPrompt>(null)
-	const setScheduleReviewPrompt = useCallback((next: typeof scheduleReviewPrompt) => {
-		if (next) setJobSurface(null)
-		scheduleReviewPromptRef.current = next
-		setScheduleReviewPromptState(next)
-	}, [setJobSurface])
+	const setScheduleReviewPrompt = useCallback(
+		(next: typeof scheduleReviewPrompt) => {
+			if (next) setJobSurface(null)
+			scheduleReviewPromptRef.current = next
+			setScheduleReviewPromptState(next)
+		},
+		[setJobSurface],
+	)
 	const saveSkillNotifyRef = useRef<(() => void) | null>(null)
 	const saveSkillToolRef = useRef<ReturnType<typeof buildSaveSkillTool> | null>(null)
 	if (saveSkillToolRef.current === null) {
@@ -2046,15 +2093,18 @@ export function App({
 	// outlived the row it named would resolve `/expand 3` to output the operator
 	// can no longer see anywhere, which is the failure this surface is being
 	// cleaned of, one layer up.
-	const resetTranscript = useCallback((options: { preserveOutputViewer?: boolean } = {}) => {
-		if (stdout.isTTY) writeStdout('\x1b[2J\x1b[3J\x1b[H')
-		if (!options.preserveOutputViewer) setOutputViewer(null)
-		// The scrollback floor goes with the log it counted. <Static> is remounted
-		// by the key below and has emitted nothing again; a floor that survived
-		// would keep the next conversation's rows out of the live window.
-		settledRef.current = 0
-		setResetKey((k) => k + 1)
-	}, [stdout.isTTY, writeStdout])
+	const resetTranscript = useCallback(
+		(options: { preserveOutputViewer?: boolean } = {}) => {
+			if (stdout.isTTY) writeStdout('\x1b[2J\x1b[3J\x1b[H')
+			if (!options.preserveOutputViewer) setOutputViewer(null)
+			// The scrollback floor goes with the log it counted. <Static> is remounted
+			// by the key below and has emitted nothing again; a floor that survived
+			// would keep the next conversation's rows out of the live window.
+			settledRef.current = 0
+			setResetKey((k) => k + 1)
+		},
+		[stdout.isTTY, writeStdout],
+	)
 
 	const previousTerminalRef = useRef(terminal)
 	useEffect(() => {
@@ -2196,23 +2246,31 @@ export function App({
 										}
 									: {}),
 							},
-						])
+						],
+			)
 			return id
 		},
 		[nextId],
 	)
-	useEffect(() => session?.onSubagentReport?.((report) => {
-		if (
-			previousSessionRef.current !== session ||
-			scopeRef.current?.sessionId !== report.parentSessionId
-		) return
-		const label = 'Child follow-up ended. Its report is available to the parent.'
-		directChildNoticesRef.current.set(++directChildNoticeIdRef.current, {
-			context: report.text, label, kind: 'task-completion',
-		})
-		activeTurnInboxRef.current?.notify()
-		if (!activeTurnInboxRef.current) pushMessage('system', label)
-	}), [pushMessage, session])
+	useEffect(
+		() =>
+			session?.onSubagentReport?.((report) => {
+				if (
+					previousSessionRef.current !== session ||
+					scopeRef.current?.sessionId !== report.parentSessionId
+				)
+					return
+				const label = 'Child follow-up ended. Its report is available to the parent.'
+				directChildNoticesRef.current.set(++directChildNoticeIdRef.current, {
+					context: report.text,
+					label,
+					kind: 'task-completion',
+				})
+				activeTurnInboxRef.current?.notify()
+				if (!activeTurnInboxRef.current) pushMessage('system', label)
+			}),
+		[pushMessage, session],
+	)
 	const recallQueuedPrompt = useCallback(() => {
 		const pending = queuedRef.current
 		let index = pending.length - 1
@@ -2290,7 +2348,11 @@ export function App({
 	)
 	/** A turn's hand-off to its after-turn triggers; assigned below, where the queue lives. */
 	const triggerFollowUpsRef = useRef<
-		((st: StreamState, ending: 'completed' | 'stopped' | 'paused' | 'cancelled' | 'failed') => boolean) | null
+		| ((
+				st: StreamState,
+				ending: 'completed' | 'stopped' | 'paused' | 'cancelled' | 'failed',
+		  ) => boolean)
+		| null
 	>(null)
 	const conversationLearning = useCallback(() => {
 		if (learningRef.current.generation !== conversationGenRef.current) {
@@ -2459,6 +2521,7 @@ export function App({
 	const reportedBatchesRef = useRef(new Set<string>())
 	const batchSeenAtRef = useRef(new Map<string, { readonly at: number; readonly count: number }>())
 	const [receiptTick, setReceiptTick] = useState(0)
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
 	useEffect(() => {
 		reportedAgentsRef.current.clear()
 		reportedBatchesRef.current.clear()
@@ -2491,10 +2554,7 @@ export function App({
 			if (reportedBatchesRef.current.has(key)) continue
 			// Re-stamped when the batch grows: the settle window runs from its newest member.
 			const previous = batchSeenAtRef.current.get(key)
-			const stamp =
-				previous !== undefined && previous.count === members.length
-					? previous.at
-					: now
+			const stamp = previous !== undefined && previous.count === members.length ? previous.at : now
 			if (stamp === now) batchSeenAtRef.current.set(key, { at: now, count: members.length })
 			const settledMember = members.some((agent) =>
 				['completed', 'failed', 'cancelled'].includes(agent.status),
@@ -2505,7 +2565,14 @@ export function App({
 				continue
 			}
 			reportedBatchesRef.current.add(key)
-			pushMessage('tool', launchReceipt(members).content, false, '●', undefined, theme.accent.assistant)
+			pushMessage(
+				'tool',
+				launchReceipt(members).content,
+				false,
+				'●',
+				undefined,
+				theme.accent.assistant,
+			)
 		}
 		for (const agent of subagents) {
 			if (
@@ -2561,6 +2628,7 @@ export function App({
 	 * other's rows.
 	 */
 	const reportedCorrectionsRef = useRef(new Set<string>())
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
 	useEffect(() => {
 		reportedCorrectionsRef.current.clear()
 	}, [session])
@@ -2704,10 +2772,7 @@ export function App({
 				return
 			}
 			if (selectedSession !== undefined && selectedSession !== session) {
-				pushMessage(
-					'system',
-					'Hypermode was not changed: the selected model is no longer active.',
-				)
+				pushMessage('system', 'Hypermode was not changed: the selected model is no longer active.')
 				return
 			}
 			if (
@@ -2838,10 +2903,7 @@ export function App({
 					})
 					pushMessage('system', `Recorded ${record.rating} for ${record.messageId}.`)
 				} catch (error) {
-					pushMessage(
-						'system',
-						explainFailure(error, 'Could not record feedback.'),
-					)
+					pushMessage('system', explainFailure(error, 'Could not record feedback.'))
 				}
 			})()
 		},
@@ -2867,10 +2929,7 @@ export function App({
 				conversationLearning().skillUsed = true
 				pushMessage('system', `Activated skill: ${info.name}`)
 			} catch (error) {
-				pushMessage(
-					'system',
-					explainFailure(error, `Could not load skill "${name}".`),
-				)
+				pushMessage('system', explainFailure(error, `Could not load skill "${name}".`))
 			}
 		},
 		[conversationLearning, ctx.cwd, ctx.skills, pushMessage],
@@ -2895,12 +2954,19 @@ export function App({
 					failures.push(explainFailure(error, `${googleApiKeyPath()}.`))
 				}
 				if (failures.length > 0) {
-					pushMessage('system', `Some stored credentials could not be removed: ${failures.join('; ')}. Check both stores before retrying.`)
+					pushMessage(
+						'system',
+						`Some stored credentials could not be removed: ${failures.join('; ')}. Check both stores before retrying.`,
+					)
 					return
 				}
 				pushMessage(
 					'system',
-					describeAllCredentialsLogout(path, googleApiKeyPath(), hadClaude || hadCodex || hadGoogleKey),
+					describeAllCredentialsLogout(
+						path,
+						googleApiKeyPath(),
+						hadClaude || hadCodex || hadGoogleKey,
+					),
 				)
 				return
 			}
@@ -2909,10 +2975,7 @@ export function App({
 				else if (target === 'codex') clearStoredCodexCredential()
 				else clearStoredGoogleApiKey()
 			} catch (error) {
-				pushMessage(
-					'system',
-					explainFailure(error, `Could not remove ${path}.`),
-				)
+				pushMessage('system', explainFailure(error, `Could not remove ${path}.`))
 				return
 			}
 			pushMessage(
@@ -2928,6 +2991,7 @@ export function App({
 	)
 
 	/** Publish one recoverable, read-only tombstone before leaving the TUI. */
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
 	const archiveCurrentConversation = useCallback((): void => {
 		if (conversationMutationRef.current) return
 		const sessions = sessionsRef.current
@@ -3061,9 +3125,7 @@ export function App({
 						conversationGenRef.current !== generation ||
 						scopeRef.current?.sessionId !== source.sessionId
 					) {
-						throw new Error(
-							'The active conversation changed before the export finished.',
-						)
+						throw new Error('The active conversation changed before the export finished.')
 					}
 
 					const projected = await conversationMarkdown(source.sessions, source.sessionId)
@@ -3126,6 +3188,7 @@ export function App({
 		[ctx.cwd, pushMessage, stableExportSource, stdout.isTTY, writeStdout],
 	)
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
 	const applyChoiceSelection = useCallback(
 		(index: number): void => {
 			const picker = choicePickerRef.current
@@ -3392,10 +3455,11 @@ export function App({
 			}
 			setChoicePicker(null)
 			if (picker.kind === 'resume-goal') {
-                if (value === 'resume' && scopeRef.current?.sessionId === picker.sessionId) commandPickerSubmitRef.current('/goal resume')
-                return
-            }
-            if (picker.kind === 'command') {
+				if (value === 'resume' && scopeRef.current?.sessionId === picker.sessionId)
+					commandPickerSubmitRef.current('/goal resume')
+				return
+			}
+			if (picker.kind === 'command') {
 				const command = value as CommandPickerEntry
 				if (command.problem) {
 					pushMessage('system', `Cannot run /${command.name}: ${command.problem}`)
@@ -3422,10 +3486,7 @@ export function App({
 				}
 				const sessionId = scopeRef.current?.sessionId
 				if (!sessionId) {
-					pushMessage(
-						'system',
-						'Cannot export this conversation because it is not being saved.',
-					)
+					pushMessage('system', 'Cannot export this conversation because it is not being saved.')
 					return
 				}
 				textPromptTokenRef.current += 1
@@ -3660,7 +3721,11 @@ export function App({
 		const sessions = await openSessions(ctxRef.current.cwd)
 		let sessionId: SessionId
 		if (requestedConversationId) {
-			palDefinitionRef.current = await tuiPalDefinition(ctxRef.current.cwd, requestedConversationId, ctxRef.current.palId)
+			palDefinitionRef.current = await tuiPalDefinition(
+				ctxRef.current.cwd,
+				requestedConversationId,
+				ctxRef.current.palId,
+			)
 			const restored = await loadResumableConversation(sessions, requestedConversationId)
 			sessionId = asSessionId(requestedConversationId)
 			modelHistoryRef.current = restored
@@ -3736,6 +3801,7 @@ export function App({
 		}
 	}, [ensureSessions])
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
 	const hydrateSession = useCallback(
 		async (
 			requestedPrefs: Preferences,
@@ -3756,10 +3822,14 @@ export function App({
 			if (signal?.aborted) return
 			const activeCtx = ctxRef.current
 			const definition = await tuiPalDefinition(activeCtx.cwd, scope.sessionId, activeCtx.palId)
-			const palEnvironment = definition ? await tuiPalEnvironment(definition, scope.sessionId, signal) : undefined
-			const prefs = definition && palRouteSessionRef.current !== scope.sessionId
-				? tuiPalPreferences(definition, palDefaultPreferencesRef.current ?? requestedPrefs) ?? requestedPrefs
-				: requestedPrefs
+			const palEnvironment = definition
+				? await tuiPalEnvironment(definition, scope.sessionId, signal)
+				: undefined
+			const prefs =
+				definition && palRouteSessionRef.current !== scope.sessionId
+					? (tuiPalPreferences(definition, palDefaultPreferencesRef.current ?? requestedPrefs) ??
+						requestedPrefs)
+					: requestedPrefs
 			const primary = prefs.providers[0]
 			if (primary && scheduleLiveRef.current) {
 				scheduleLiveRef.current.model = {
@@ -3782,56 +3852,63 @@ export function App({
 			const s = await createAgentSession(prefs, detectedNow, {
 				scope,
 				cwd: activeCtx.cwd,
-				...(palEnvironment ? {
-					palEnvironment,
-					rules: activeCtx.rules,
-					conversationSessions: sessionsRef.current!,
-					...(activeCtx.limits ? { limits: activeCtx.limits } : {}),
-				} : {
-				// A person is here to confirm: the model may propose scheduled jobs
-				// and session loops (never in exec, a scheduled run or a sub-agent).
-				extraTools: [
-					...peerTools,
-					...(scheduleRef.current?.tools() ?? []),
-					...(saveSkillToolRef.current ? [saveSkillToolRef.current] : []),
-				],
-				...(activeCtx.structuredOutput ? { structuredOutput: activeCtx.structuredOutput } : {}),
-				...(activeCtx.additionalDirectories
-					? { additionalDirectories: activeCtx.additionalDirectories }
-					: {}),
-				...(sessionsRef.current ? { stateRoot: sessionsRef.current.root } : {}),
-				enableComputerUse: true,
-				// The browser tools, when the config did not switch them off. The
-				// profile is the one `/browser profile` chose, else the config's.
-				...(browserOptions ? { browser: browserOptions } : {}),
-				rules: activeCtx.rules,
-				...(sessionsRef.current
-					? { sessionGoals: sessionsRef.current.goals, conversationSessions: sessionsRef.current }
-					: {}),
-				...(activeCtx.mcpServers ? { mcpServers: activeCtx.mcpServers } : {}),
-				...(activeCtx.plugins ? { plugins: activeCtx.plugins } : {}),
-				...(activeCtx.skills ? { skills: activeCtx.skills } : {}),
-				...(activeCtx.web ? { web: activeCtx.web } : {}),
-				...(activeCtx.hooks ? { hooks: activeCtx.hooks } : {}),
-				...(activeCtx.compaction ? { compaction: activeCtx.compaction } : {}),
-				...(activeCtx.memory ? { memory: activeCtx.memory } : {}),
-				...(activeCtx.limits ? { limits: activeCtx.limits } : {}),
-				...(activeCtx.sandbox ? { sandbox: activeCtx.sandbox } : {}),
-				// The operator's screens, on the same terms as every other
-				// config field the App forwards. `!== undefined` rather than a
-				// length test: `[]` is the off switch, and dropping it here
-				// would leave the kernel's default in force in the interactive
-				// session — always on, for the one operator who said otherwise.
-				...(activeCtx.toolResultScreens !== undefined
-					? { toolResultScreens: activeCtx.toolResultScreens }
-					: {}),
-				// Somebody is at this terminal, so the model may ask them one
-				// question when a decision is genuinely theirs.
-				askUser: true,
-				allowModelSwitch: true,
-				// The user is at this desktop, so the model may open a page for them.
-				openUrl: true,
-				}),
+				...(palEnvironment
+					? {
+							palEnvironment,
+							rules: activeCtx.rules,
+							conversationSessions: sessionsRef.current!,
+							...(activeCtx.limits ? { limits: activeCtx.limits } : {}),
+						}
+					: {
+							// A person is here to confirm: the model may propose scheduled jobs
+							// and session loops (never in exec, a scheduled run or a sub-agent).
+							extraTools: [
+								...peerTools,
+								...(scheduleRef.current?.tools() ?? []),
+								...(saveSkillToolRef.current ? [saveSkillToolRef.current] : []),
+							],
+							...(activeCtx.structuredOutput
+								? { structuredOutput: activeCtx.structuredOutput }
+								: {}),
+							...(activeCtx.additionalDirectories
+								? { additionalDirectories: activeCtx.additionalDirectories }
+								: {}),
+							...(sessionsRef.current ? { stateRoot: sessionsRef.current.root } : {}),
+							enableComputerUse: true,
+							// The browser tools, when the config did not switch them off. The
+							// profile is the one `/browser profile` chose, else the config's.
+							...(browserOptions ? { browser: browserOptions } : {}),
+							rules: activeCtx.rules,
+							...(sessionsRef.current
+								? {
+										sessionGoals: sessionsRef.current.goals,
+										conversationSessions: sessionsRef.current,
+									}
+								: {}),
+							...(activeCtx.mcpServers ? { mcpServers: activeCtx.mcpServers } : {}),
+							...(activeCtx.plugins ? { plugins: activeCtx.plugins } : {}),
+							...(activeCtx.skills ? { skills: activeCtx.skills } : {}),
+							...(activeCtx.web ? { web: activeCtx.web } : {}),
+							...(activeCtx.hooks ? { hooks: activeCtx.hooks } : {}),
+							...(activeCtx.compaction ? { compaction: activeCtx.compaction } : {}),
+							...(activeCtx.memory ? { memory: activeCtx.memory } : {}),
+							...(activeCtx.limits ? { limits: activeCtx.limits } : {}),
+							...(activeCtx.sandbox ? { sandbox: activeCtx.sandbox } : {}),
+							// The operator's screens, on the same terms as every other
+							// config field the App forwards. `!== undefined` rather than a
+							// length test: `[]` is the off switch, and dropping it here
+							// would leave the kernel's default in force in the interactive
+							// session — always on, for the one operator who said otherwise.
+							...(activeCtx.toolResultScreens !== undefined
+								? { toolResultScreens: activeCtx.toolResultScreens }
+								: {}),
+							// Somebody is at this terminal, so the model may ask them one
+							// question when a decision is genuinely theirs.
+							askUser: true,
+							allowModelSwitch: true,
+							// The user is at this desktop, so the model may open a page for them.
+							openUrl: true,
+						}),
 			})
 			if (signal?.aborted) {
 				void s.close()
@@ -3850,7 +3927,9 @@ export function App({
 			let commands: ReturnType<typeof discoverUserCommands>
 			try {
 				options.beforePublish?.()
-				commands = definition ? [] : discoverUserCommands({ cwd: activeCtx.cwd, reserved: hostCommandNames() })
+				commands = definition
+					? []
+					: discoverUserCommands({ cwd: activeCtx.cwd, reserved: hostCommandNames() })
 				// Construction and validation precede the saved change. There is no
 				// await between this atomic write and publishing the usable session.
 				if (persistSelection && !definition) writePreferences(prefs)
@@ -3905,7 +3984,11 @@ export function App({
 			}
 			// Hypermode already re-pinned effort above; reopening this picker
 			// would ask the operator to redo a choice the mode just made for them.
-			if (!hypermodeRef.current && options.chooseReasoningEffort && s.reasoningEffortLevels?.length) {
+			if (
+				!hypermodeRef.current &&
+				options.chooseReasoningEffort &&
+				s.reasoningEffortLevels?.length
+			) {
 				// Own input before publishing ready or releasing a paused queue. The
 				// menu closes only after choosing an effort or keeping the new default.
 				setSelectedChoice(0)
@@ -3914,7 +3997,9 @@ export function App({
 			setUserCommands(commands)
 			const mentionLoadOwner = {}
 			mentionLoadOwnerRef.current = mentionLoadOwner
-			void (definition ? Promise.resolve([]) : listMentionableFiles(activeCtx.cwd, appLifetime.signal)).then((files) => {
+			void (
+				definition ? Promise.resolve([]) : listMentionableFiles(activeCtx.cwd, appLifetime.signal)
+			).then((files) => {
 				if (!appLifetime.signal.aborted && mentionLoadOwnerRef.current === mentionLoadOwner)
 					setMentionCandidates(files)
 			})
@@ -3928,8 +4013,16 @@ export function App({
 			if (s.hasProvider) {
 				setTranscriptOwned(true)
 				setPhase('ready')
-				if (definition && (!previousInstructionFiles || previousPalDefinition?.revision !== definition.revision || announce)) {
-					pushMessage('system', `Pal: ${definition.name} · profile revision ${definition.revision} · own local computer`)
+				if (
+					definition &&
+					(!previousInstructionFiles ||
+						previousPalDefinition?.revision !== definition.revision ||
+						announce)
+				) {
+					pushMessage(
+						'system',
+						`Pal: ${definition.name} · profile revision ${definition.revision} · own local computer`,
+					)
 				}
 				// Startup identity already lives in the footer. Confirm an explicit
 				// picker selection, but do not add a routine connection log to chat.
@@ -3953,7 +4046,9 @@ export function App({
 				if (
 					s.instructionFiles.length > 0 &&
 					JSON.stringify([...s.instructionFiles].sort()) !==
-						JSON.stringify(previousInstructionFiles ? [...previousInstructionFiles].sort() : undefined)
+						JSON.stringify(
+							previousInstructionFiles ? [...previousInstructionFiles].sort() : undefined,
+						)
 				) {
 					pushMessage(
 						'system',
@@ -4073,9 +4168,7 @@ export function App({
 					start = await beginCodexDeviceLogin({ signal })
 				} catch (error) {
 					if (!signal.aborted) {
-						setPickerNotice(
-							explainFailure(error, 'Could not start Codex sign-in.'),
-						)
+						setPickerNotice(explainFailure(error, 'Could not start Codex sign-in.'))
 					}
 					return 'failed'
 				}
@@ -4107,9 +4200,7 @@ export function App({
 				start = await beginSubscriptionLogin({ signal })
 			} catch (err) {
 				if (signal.aborted) return 'failed'
-				setPickerNotice(
-					explainFailure(err, 'Could not start a sign-in.'),
-				)
+				setPickerNotice(explainFailure(err, 'Could not start a sign-in.'))
 				return 'failed'
 			}
 			if (signal.aborted) {
@@ -4178,7 +4269,11 @@ export function App({
 				// An exact shell resume owns conversation admission before provider
 				// discovery or construction. A malformed/missing id must not consume
 				// model work and then quietly continue in a fresh conversation.
-				if (initialConversationIdRef.current || ctxRef.current.palId || tuiPalOwner(ctxRef.current.cwd)) {
+				if (
+					initialConversationIdRef.current ||
+					ctxRef.current.palId ||
+					tuiPalOwner(ctxRef.current.cwd)
+				) {
 					try {
 						await ensureSessions()
 					} catch (error) {
@@ -4256,9 +4351,9 @@ export function App({
 						if (admissionSignal.aborted) return
 						toPicker(
 							explainFailure(
-							error,
-							`Could not start with ${productName(launch.provider ?? requested.providers[0]?.id) ?? 'that provider'}${launch.model ? ` and ${launch.model}` : ''}.`,
-						),
+								error,
+								`Could not start with ${productName(launch.provider ?? requested.providers[0]?.id) ?? 'that provider'}${launch.model ? ` and ${launch.model}` : ''}.`,
+							),
 						)
 					}
 					return
@@ -4405,8 +4500,8 @@ export function App({
 			pushMessage(
 				'system',
 				err instanceof Error && err.message
-						? `Could not apply this project’s settings. ${err.message}`
-						: 'Could not apply this project’s settings.',
+					? `Could not apply this project’s settings. ${err.message}`
+					: 'Could not apply this project’s settings.',
 			)
 		}
 	}, [activateTrustedProject, pushMessage, runProbe])
@@ -4419,23 +4514,34 @@ export function App({
 		attachmentCount: (input.prompt.attachments?.length ?? 0) + input.attachedFiles,
 	}))
 	const queuedInputItems = queued.map((prompt) => ({
-		text: prompt.kind === 'goal' ? 'Automatic goal continuation' : prompt.kind === 'peer' ? peerMailLabel(prompt.mail) : prompt.recallText ?? prompt.text,
+		text:
+			prompt.kind === 'goal'
+				? 'Automatic goal continuation'
+				: prompt.kind === 'peer'
+					? peerMailLabel(prompt.mail)
+					: (prompt.recallText ?? prompt.text),
 		attachmentCount: prompt.kind === 'human' ? prompt.attachments?.length : undefined,
 	}))
 	const recallableQueued = queued.filter(isRecallableHumanPrompt).at(-1)
 	const canRecallQueued = recallableQueued !== undefined
 	const pendingInputVisible =
 		phase === 'ready' &&
-		agentSurface === null && outputViewer === null && jobSurface === null &&
-		permission === null && saveSkillPrompt === null && scheduleReviewPrompt === null &&
-		textPrompt === null && choicePicker === null && copyPicker === null
+		agentSurface === null &&
+		outputViewer === null &&
+		jobSurface === null &&
+		permission === null &&
+		saveSkillPrompt === null &&
+		scheduleReviewPrompt === null &&
+		textPrompt === null &&
+		choicePicker === null &&
+		copyPicker === null
 	const pendingInputFurniture = pendingInputVisible
 		? pendingInputPanelRows({
-			pendingSteers: pendingInputItems,
-			queued: queuedInputItems,
-			rows: terminal.rows,
-			canRecall: canRecallQueued,
-		})
+				pendingSteers: pendingInputItems,
+				queued: queuedInputItems,
+				rows: terminal.rows,
+				canRecall: canRecallQueued,
+			})
 		: 0
 	// Where the streaming reply stands among the finalized rows: a row written
 	// while it streams is drawn below it, as it will be once it has finished.
@@ -4461,7 +4567,13 @@ export function App({
 	})
 	const liveTasks = checklistShown ? [] : tasks
 	const fullTaskFurniture = taskListRows(liveTasks)
-	const compactWork = LIVE_FURNITURE_ROWS + fullTaskFurniture + fullToolFurniture + shellFurniture + pendingInputFurniture >= terminal.rows
+	const compactWork =
+		LIVE_FURNITURE_ROWS +
+			fullTaskFurniture +
+			fullToolFurniture +
+			shellFurniture +
+			pendingInputFurniture >=
+		terminal.rows
 	const taskFurniture = fullTaskFurniture
 	const toolFurniture = compactWork && fullToolFurniture > 0 ? 2 : fullToolFurniture
 	// How much of the transcript is still redrawable. The rest belongs to native
@@ -4478,7 +4590,8 @@ export function App({
 		messages: finalized,
 		rows: terminal.rows,
 		columns: terminal.columns,
-		furnitureRows: LIVE_FURNITURE_ROWS + taskFurniture + toolFurniture + shellFurniture + pendingInputFurniture,
+		furnitureRows:
+			LIVE_FURNITURE_ROWS + taskFurniture + toolFurniture + shellFurniture + pendingInputFurniture,
 		settled: settledRef.current,
 		raw: rawOutput,
 	})
@@ -4487,10 +4600,18 @@ export function App({
 	// settling in the background prints through the child screen. Returning
 	// advances the floor once and emits those finalized rows exactly once.
 	const nextSettled = settledBeforeStreaming(messages, window.settled, settledRef.current)
-	if (agentSurface === null && outputViewer === null && jobSurface === null && scheduleReviewPrompt === null)
+	if (
+		agentSurface === null &&
+		outputViewer === null &&
+		jobSurface === null &&
+		scheduleReviewPrompt === null
+	)
 		settledRef.current = nextSettled
 	const renderedSettled =
-		agentSurface === null && outputViewer === null && jobSurface === null && scheduleReviewPrompt === null
+		agentSurface === null &&
+		outputViewer === null &&
+		jobSurface === null &&
+		scheduleReviewPrompt === null
 			? nextSettled
 			: settledRef.current
 
@@ -4600,10 +4721,7 @@ export function App({
 				await session.abandonTurn(active.turnId as TurnId, reason)
 				pushMessage('system', PAUSED_TURN_LINES.abandoned)
 			} catch (err) {
-				pushMessage(
-					'system',
-					explainFailure(err, 'Couldn’t stop the paused reply.'),
-				)
+				pushMessage('system', explainFailure(err, 'Couldn’t stop the paused reply.'))
 			}
 		},
 		[pushMessage, session, state],
@@ -4616,127 +4734,141 @@ export function App({
 	 */
 	// `applyEvent` is declared further down; the resume path reads it at call time.
 	const applyEventRef = useRef<((event: AgentEvent, st: StreamState) => void) | null>(null)
-	const resumeActiveTurn = useCallback(async (resume?: {
-		/** Continuing a turn a tool paused for a person: what the tool asked for. */
-		readonly handoffReason?: string | undefined
-	}): Promise<boolean> => {
-		const sessions = sessionsRef.current
-		const scope = scopeRef.current
-		if (!sessions || !scope || !conversationMaterializedRef.current || !session?.hasProvider)
-			return false
-		const resumedSessionId = scope.sessionId
-		const active = await activeConversationTurn(sessions, resumedSessionId).catch(() => undefined)
-		if (!active) return false
-		if (abortRef.current || state !== 'idle') {
-			pushMessage('system', 'Wait for the current reply to finish before continuing the paused one.')
-			return true
-		}
-		setHandoffPark(null)
-		const ac = new AbortController()
-		abortRef.current = ac
-		setState('thinking')
-		const st: StreamState = {
-			assistantId: null,
-			text: '',
-			conversationMessages: undefined,
-			pending: '',
-			completed: false,
-			outcome: null,
-			sessionId: scope.sessionId,
-			notification: null,
-		}
-		liveStreamRef.current = st
-		let scheduledRun = false
-		let restoreBrowser: (() => Promise<void>) | undefined
-		try {
-			// A scheduled run parked on a decision: the operator answers the
-			// parked batch here, and the turn continues under the job's rules.
-			const scheduled = active.paused
-				? await scheduleRef.current?.prepareResume(permissionModeRef.current, {
-						cwd: ctxRef.current.cwd,
-						roots: session.directories?.list() ?? [],
-						sandboxed: session.sandbox.workspace !== 'host',
-						// The resumed turn runs on the job's provider: one this
-						// session has no credential for is refused before asking.
-						providers: detected.map((item) => item.entry.id),
-						browser: session.browser !== undefined,
-					})
-				: undefined
-			if (scheduled && 'leave' in scheduled) {
-				pushMessage('system', 'The scheduled run stays waiting. /resume asks again.')
-				return true
-			}
-			if (scheduled && 'abandon' in scheduled) {
-				scheduledRun = true
-				if (!session.abandonTurn) throw new Error('this session cannot abandon turns')
-				await session.abandonTurn(active.turnId as TurnId, scheduled.abandon)
-				pushMessage('system', PAUSED_TURN_LINES.abandonedScheduled)
-				return true
-			}
-			scheduledRun = scheduled !== undefined
-			const { browser: jobBrowser, ...scheduledParams } = scheduled ?? {}
-			// A job's browser grant: this turn drives the job's profile, held
-			// to its sites, and the session's own comes back when it ends.
-			if (jobBrowser && session.browser) {
-				restoreBrowser = await session.browser.runAs(jobBrowser)
+	const resumeActiveTurn = useCallback(
+		async (resume?: {
+			/** Continuing a turn a tool paused for a person: what the tool asked for. */
+			readonly handoffReason?: string | undefined
+		}): Promise<boolean> => {
+			const sessions = sessionsRef.current
+			const scope = scopeRef.current
+			if (!sessions || !scope || !conversationMaterializedRef.current || !session?.hasProvider)
+				return false
+			const resumedSessionId = scope.sessionId
+			const active = await activeConversationTurn(sessions, resumedSessionId).catch(() => undefined)
+			if (!active) return false
+			if (abortRef.current || state !== 'idle') {
 				pushMessage(
 					'system',
-					`The browser uses the job’s profile ${jobBrowser.profile} for this run, on its sites only.`,
+					'Wait for the current reply to finish before continuing the paused one.',
 				)
+				return true
 			}
-			// Said once the turn really continues: a scheduled park can still
-			// be left waiting or abandoned above.
-			pushMessage('system', PAUSED_TURN_LINES.resuming)
-			for await (const event of session.resumePaused({
-				turnId: active.turnId,
-				signal: ac.signal,
-				...(scheduled ? scheduledParams : {
-					// The operator's mode, read at every decision like a new turn's:
-					// `/resume` in plan mode stays read-only, and so do its children.
-					permissionMode: permissionModeRef.current,
-					currentPermissionMode: () => permissionModeRef.current,
-					...(resume?.handoffReason
-						? { systemNote: handoffContinuationNote(resume.handoffReason) }
-						: {}),
-				}),
-			})) {
-				applyEventRef.current?.(event, st)
+			setHandoffPark(null)
+			const ac = new AbortController()
+			abortRef.current = ac
+			setState('thinking')
+			const st: StreamState = {
+				assistantId: null,
+				text: '',
+				conversationMessages: undefined,
+				pending: '',
+				completed: false,
+				outcome: null,
+				sessionId: scope.sessionId,
+				notification: null,
 			}
-			flushStream(st)
-			if (st.assistantId) finalizeMessage(st.assistantId)
-			// The resumed segment was appended to the log; the fold is the context
-			// the next prompt continues from.
-			modelHistoryRef.current = await loadConversation(sessions, resumedSessionId)
-			// A successfully completed checkpoint frees the conversation's active
-			// slot. Only then may prompts queued behind the paused turn start. A
-			// repeated pause, failed resume, unreadable log, or conversation switch
-			// keeps dependent work held for an explicit operator decision.
-			if (
-				st.completed &&
-				queuePauseRef.current?.outcome === 'paused' &&
-				scopeRef.current?.sessionId === resumedSessionId &&
-				(await activeConversationTurn(sessions, resumedSessionId)
-					.then((next) => next === undefined)
-					.catch(() => false))
-			) {
-				advanceQueueContinuation()
+			liveStreamRef.current = st
+			let scheduledRun = false
+			let restoreBrowser: (() => Promise<void>) | undefined
+			try {
+				// A scheduled run parked on a decision: the operator answers the
+				// parked batch here, and the turn continues under the job's rules.
+				const scheduled = active.paused
+					? await scheduleRef.current?.prepareResume(permissionModeRef.current, {
+							cwd: ctxRef.current.cwd,
+							roots: session.directories?.list() ?? [],
+							sandboxed: session.sandbox.workspace !== 'host',
+							// The resumed turn runs on the job's provider: one this
+							// session has no credential for is refused before asking.
+							providers: detected.map((item) => item.entry.id),
+							browser: session.browser !== undefined,
+						})
+					: undefined
+				if (scheduled && 'leave' in scheduled) {
+					pushMessage('system', 'The scheduled run stays waiting. /resume asks again.')
+					return true
+				}
+				if (scheduled && 'abandon' in scheduled) {
+					scheduledRun = true
+					if (!session.abandonTurn) throw new Error('this session cannot abandon turns')
+					await session.abandonTurn(active.turnId as TurnId, scheduled.abandon)
+					pushMessage('system', PAUSED_TURN_LINES.abandonedScheduled)
+					return true
+				}
+				scheduledRun = scheduled !== undefined
+				const { browser: jobBrowser, ...scheduledParams } = scheduled ?? {}
+				// A job's browser grant: this turn drives the job's profile, held
+				// to its sites, and the session's own comes back when it ends.
+				if (jobBrowser && session.browser) {
+					restoreBrowser = await session.browser.runAs(jobBrowser)
+					pushMessage(
+						'system',
+						`The browser uses the job’s profile ${jobBrowser.profile} for this run, on its sites only.`,
+					)
+				}
+				// Said once the turn really continues: a scheduled park can still
+				// be left waiting or abandoned above.
+				pushMessage('system', PAUSED_TURN_LINES.resuming)
+				for await (const event of session.resumePaused({
+					turnId: active.turnId,
+					signal: ac.signal,
+					...(scheduled
+						? scheduledParams
+						: {
+								// The operator's mode, read at every decision like a new turn's:
+								// `/resume` in plan mode stays read-only, and so do its children.
+								permissionMode: permissionModeRef.current,
+								currentPermissionMode: () => permissionModeRef.current,
+								...(resume?.handoffReason
+									? { systemNote: handoffContinuationNote(resume.handoffReason) }
+									: {}),
+							}),
+				})) {
+					applyEventRef.current?.(event, st)
+				}
+				flushStream(st)
+				if (st.assistantId) finalizeMessage(st.assistantId)
+				// The resumed segment was appended to the log; the fold is the context
+				// the next prompt continues from.
+				modelHistoryRef.current = await loadConversation(sessions, resumedSessionId)
+				// A successfully completed checkpoint frees the conversation's active
+				// slot. Only then may prompts queued behind the paused turn start. A
+				// repeated pause, failed resume, unreadable log, or conversation switch
+				// keeps dependent work held for an explicit operator decision.
+				if (
+					st.completed &&
+					queuePauseRef.current?.outcome === 'paused' &&
+					scopeRef.current?.sessionId === resumedSessionId &&
+					(await activeConversationTurn(sessions, resumedSessionId)
+						.then((next) => next === undefined)
+						.catch(() => false))
+				) {
+					advanceQueueContinuation()
+				}
+			} catch (err) {
+				pushMessage('system', explainFailure(err, 'Couldn’t continue this reply.'))
+			} finally {
+				if (abortRef.current === ac) abortRef.current = null
+				setState('idle')
+				// A scheduled run answered here records its end in its job now —
+				// completed, failed or cancelled — not at a scheduler's next tick,
+				// which may never come. One that parked again stays waiting.
+				if (scheduledRun) await scheduleRef.current?.settleAnswered()
+				await restoreBrowser?.().catch(() => undefined)
 			}
-		} catch (err) {
-			pushMessage(
-				'system',
-				explainFailure(err, 'Couldn’t continue this reply.'),
-			)
-		} finally {
-			if (abortRef.current === ac) abortRef.current = null
-			setState('idle')
-			// A scheduled run answered here records its end in its job now —
-			// completed, failed or cancelled — not at a scheduler's next tick,
-			// which may never come. One that parked again stays waiting.
-			if (scheduledRun) await scheduleRef.current?.settleAnswered()
-			await restoreBrowser?.().catch(() => undefined)
-		}
-		return true
-	}, [advanceQueueContinuation, detected, finalizeMessage, flushStream, pushMessage, session, setHandoffPark, state])
+			return true
+		},
+		[
+			advanceQueueContinuation,
+			detected,
+			finalizeMessage,
+			flushStream,
+			pushMessage,
+			session,
+			setHandoffPark,
+			state,
+		],
+	)
 
 	// `namzu resume <id>` of a scheduled run parked on a decision: what the
 	// notification and `/schedule` tell the operator to run. Continue it once
@@ -4751,15 +4883,18 @@ export function App({
 		if (!sessions || scopeRef.current?.sessionId !== requested || abortRef.current) return
 		pendingScheduledResumeRef.current = null
 		void (async () => {
-			const active = await activeConversationTurn(sessions, asSessionId(requested)).catch(() => undefined)
+			const active = await activeConversationTurn(sessions, asSessionId(requested)).catch(
+				() => undefined,
+			)
 			if (!active?.paused || !(await scheduleRef.current?.isParked())) return
 			if (scopeRef.current?.sessionId !== requested) return
 			await resumeActiveTurn()
 		})()
 	}, [phase, resumeActiveTurn, session, state])
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
 	const doResume = useCallback(async () => {
-		const sessions = sessionsRef.current ?? (await ensureSessions(), sessionsRef.current)
+		const sessions = sessionsRef.current ?? (await ensureSessions().then(() => sessionsRef.current))
 		if (!sessions) {
 			pushMessage('system', 'Conversation history is unavailable in this folder.')
 			return
@@ -4768,7 +4903,10 @@ export function App({
 		try {
 			const owner = palDefinitionRef.current
 			const recent = owner
-				? (await listPalConversations(owner.workspace, owner.id)).map((row) => ({ ...row, id: asSessionId(row.id) }))
+				? (await listPalConversations(owner.workspace, owner.id)).map((row) => ({
+						...row,
+						id: asSessionId(row.id),
+					}))
 				: await listRecent(sessions)
 			// Don't offer the active (empty/just-started) conversation.
 			const others = recent.filter((c) => c.id !== scopeRef.current?.sessionId)
@@ -4780,16 +4918,17 @@ export function App({
 			setSelectedResume(0)
 			setPhase('resume')
 		} catch (err) {
-			pushMessage(
-				'system',
-				explainFailure(err, 'Could not list conversations.'),
-			)
+			pushMessage('system', explainFailure(err, 'Could not list conversations.'))
 		}
 	}, [ensureSessions, pushMessage, resumeActiveTurn])
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
 	const doUnarchive = useCallback(async () => {
 		if (palDefinitionRef.current) {
-			pushMessage('system', 'Restoring archived Pal conversations is not available in this terminal yet.')
+			pushMessage(
+				'system',
+				'Restoring archived Pal conversations is not available in this terminal yet.',
+			)
 			return
 		}
 		if (
@@ -4800,10 +4939,13 @@ export function App({
 			compactingRef.current ||
 			exportingRef.current
 		) {
-			pushMessage('system', 'Wait for the current reply and queued messages to finish before restoring a conversation.')
+			pushMessage(
+				'system',
+				'Wait for the current reply and queued messages to finish before restoring a conversation.',
+			)
 			return
 		}
-		const sessions = sessionsRef.current ?? (await ensureSessions(), sessionsRef.current)
+		const sessions = sessionsRef.current ?? (await ensureSessions().then(() => sessionsRef.current))
 		if (!sessions) {
 			pushMessage('system', 'Conversation history is unavailable in this folder.')
 			return
@@ -4824,6 +4966,7 @@ export function App({
 
 	// Resolve a pending permission prompt with the user's decision and tear
 	// down the overlay. No-op if nothing is pending.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
 	const resolvePermission = useCallback(
 		(decision: PermissionDecision) => {
 			const resolve = permissionResolveRef.current
@@ -4891,70 +5034,75 @@ export function App({
 	 * leave it hanging with its reply unsaved. It is the same decision Ctrl+C
 	 * sends at that prompt, for the same reason.
 	 */
-	const interruptTurn = useCallback((recoverInput = false): boolean => {
-		const cancelledSwitch = cancelPendingModelSwitch()
-		for (const pending of permissionQueueRef.current.splice(0)) {
-			pending.resolve({ kind: 'reject', feedback: 'User interrupted.' })
-		}
-		setQueuedPermissionCount(0)
-		if (permissionResolveRef.current)
-			resolvePermission({ kind: 'reject', feedback: 'User interrupted.' })
-		const ac = abortRef.current
-		if (!ac) {
-			// A prompt still at the turn boundary: nothing has begun, so taking
-			// the slot back is the whole interrupt. It drops itself when its
-			// await returns.
-			if (admissionRef.current) {
-				admissionRef.current = null
-				const activeSessionId = scopeRef.current?.sessionId
-				if (activeSessionId) goalActivation.disarm(activeSessionId)
-				wakeGoalDriver()
-				if (recoverInput && queuedRef.current.length > 0) setQueuePause({ outcome: 'stopped', source: 'operator-interrupt' })
-				else discardQueued()
-				setState('idle')
-				return true
+	const interruptTurn = useCallback(
+		(recoverInput = false): boolean => {
+			const cancelledSwitch = cancelPendingModelSwitch()
+			for (const pending of permissionQueueRef.current.splice(0)) {
+				pending.resolve({ kind: 'reject', feedback: 'User interrupted.' })
 			}
-			if (cancelledSwitch) {
-				if (recoverInput && queuedRef.current.length > 0) setQueuePause({ outcome: 'stopped', source: 'operator-interrupt' })
-				else discardQueued()
+			setQueuedPermissionCount(0)
+			if (permissionResolveRef.current)
+				resolvePermission({ kind: 'reject', feedback: 'User interrupted.' })
+			const ac = abortRef.current
+			if (!ac) {
+				// A prompt still at the turn boundary: nothing has begun, so taking
+				// the slot back is the whole interrupt. It drops itself when its
+				// await returns.
+				if (admissionRef.current) {
+					admissionRef.current = null
+					const activeSessionId = scopeRef.current?.sessionId
+					if (activeSessionId) goalActivation.disarm(activeSessionId)
+					wakeGoalDriver()
+					if (recoverInput && queuedRef.current.length > 0)
+						setQueuePause({ outcome: 'stopped', source: 'operator-interrupt' })
+					else discardQueued()
+					setState('idle')
+					return true
+				}
+				if (cancelledSwitch) {
+					if (recoverInput && queuedRef.current.length > 0)
+						setQueuePause({ outcome: 'stopped', source: 'operator-interrupt' })
+					else discardQueued()
+				}
+				return cancelledSwitch
 			}
-			return cancelledSwitch
-		}
-		ac.abort(new TurnCancelled('user'))
-		// Esc with a pending steer means "let this instruction interrupt the
-		// answer". The kernel has not drained these inputs yet, so reclaim them
-		// before closing the inbox and let the queue pump start them first after
-		// the aborted turn settles. Ctrl+C keeps its deliberate cancel-all path.
-		const undeliveredSteers = recoverInput ? (activeTurnInboxRef.current?.close() ?? []) : []
-		const activeSessionId = scopeRef.current?.sessionId
-		if (activeSessionId) goalActivation.disarm(activeSessionId)
-		wakeGoalDriver()
-		activeTurnTokenRef.current = null
-		activeTurnInboxRef.current = null
-		setPendingSteers([])
-		// Dropped now so a second interrupt does not re-abort.
-		abortRef.current = null
-		if (recoverInput && undeliveredSteers.length > 0) {
-			replaceQueued([...undeliveredSteers.map((input) => input.prompt), ...queuedRef.current])
-			setQueuePause(null)
-		} else if (recoverInput && queuedRef.current.length > 0) {
-			// Esc without a pending steer stops the current turn; queued future
-			// instructions stay visible but do not start on a cancelled answer.
-			setQueuePause({ outcome: 'stopped', source: 'operator-interrupt' })
-		} else discardQueued()
-		clearActiveTools()
-		setState('idle')
-		return true
-	}, [
-		cancelPendingModelSwitch,
-		clearActiveTools,
-		discardQueued,
-		goalActivation,
-		replaceQueued,
-		resolvePermission,
-		setQueuePause,
-		wakeGoalDriver,
-	])
+			ac.abort(new TurnCancelled('user'))
+			// Esc with a pending steer means "let this instruction interrupt the
+			// answer". The kernel has not drained these inputs yet, so reclaim them
+			// before closing the inbox and let the queue pump start them first after
+			// the aborted turn settles. Ctrl+C keeps its deliberate cancel-all path.
+			const undeliveredSteers = recoverInput ? (activeTurnInboxRef.current?.close() ?? []) : []
+			const activeSessionId = scopeRef.current?.sessionId
+			if (activeSessionId) goalActivation.disarm(activeSessionId)
+			wakeGoalDriver()
+			activeTurnTokenRef.current = null
+			activeTurnInboxRef.current = null
+			setPendingSteers([])
+			// Dropped now so a second interrupt does not re-abort.
+			abortRef.current = null
+			if (recoverInput && undeliveredSteers.length > 0) {
+				replaceQueued([...undeliveredSteers.map((input) => input.prompt), ...queuedRef.current])
+				setQueuePause(null)
+			} else if (recoverInput && queuedRef.current.length > 0) {
+				// Esc without a pending steer stops the current turn; queued future
+				// instructions stay visible but do not start on a cancelled answer.
+				setQueuePause({ outcome: 'stopped', source: 'operator-interrupt' })
+			} else discardQueued()
+			clearActiveTools()
+			setState('idle')
+			return true
+		},
+		[
+			cancelPendingModelSwitch,
+			clearActiveTools,
+			discardQueued,
+			goalActivation,
+			replaceQueued,
+			resolvePermission,
+			setQueuePause,
+			wakeGoalDriver,
+		],
+	)
 
 	// A termination signal leaves like `/exit`, after stopping the turn: the
 	// session still owns tool servers, jobs and the `session_end` hook, and
@@ -5017,9 +5165,15 @@ export function App({
 				setPhase('ready')
 				return
 			}
-			if (palDefinitionRef.current && (abortRef.current || hasUnsettledTurn() || queuedRef.current.length > 0)) {
+			if (
+				palDefinitionRef.current &&
+				(abortRef.current || hasUnsettledTurn() || queuedRef.current.length > 0)
+			) {
 				setPhase('ready')
-				pushMessage('system', 'Wait for this Pal’s current reply and queued messages to finish before opening another conversation.')
+				pushMessage(
+					'system',
+					'Wait for this Pal’s current reply and queued messages to finish before opening another conversation.',
+				)
 				return
 			}
 			// The operator has committed; `Esc` no longer cancels from here, or a
@@ -5034,10 +5188,7 @@ export function App({
 			} catch (err) {
 				resumeCommittedRef.current = false
 				setPhase('ready')
-				pushMessage(
-					'system',
-					explainFailure(err, 'Could not resume that conversation.'),
-				)
+				pushMessage('system', explainFailure(err, 'Could not resume that conversation.'))
 				return
 			}
 			resumeCommittedRef.current = false
@@ -5142,7 +5293,10 @@ export function App({
 				exportingRef.current
 			) {
 				setPhase('ready')
-				pushMessage('system', 'Wait for the current reply and queued messages to finish before restoring a conversation.')
+				pushMessage(
+					'system',
+					'Wait for the current reply and queued messages to finish before restoring a conversation.',
+				)
 				return
 			}
 			resumeCommittedRef.current = true
@@ -5186,8 +5340,14 @@ export function App({
 	const startFreshConversation = useCallback(
 		async (clearScreen: boolean) => {
 			if (conversationMutationRef.current) return
-			if (palDefinitionRef.current && (abortRef.current || hasUnsettledTurn() || queuedRef.current.length > 0)) {
-				pushMessage('system', 'Wait for this Pal’s current reply and queued messages to finish before starting another conversation.')
+			if (
+				palDefinitionRef.current &&
+				(abortRef.current || hasUnsettledTurn() || queuedRef.current.length > 0)
+			) {
+				pushMessage(
+					'system',
+					'Wait for this Pal’s current reply and queued messages to finish before starting another conversation.',
+				)
 				return
 			}
 			conversationMutationRef.current = 'new'
@@ -5203,7 +5363,11 @@ export function App({
 					// anything in the source conversation.
 					if (palDefinitionRef.current) {
 						targetSessionId = generateSessionId()
-						await claimPalConversation(ctxRef.current.cwd, palDefinitionRef.current.id, targetSessionId)
+						await claimPalConversation(
+							ctxRef.current.cwd,
+							palDefinitionRef.current.id,
+							targetSessionId,
+						)
 					} else targetSessionId = await startConversation(sessions)
 				}
 
@@ -5234,7 +5398,8 @@ export function App({
 						palRouteSessionRef.current = null
 						try {
 							await session?.close()
-							if (!savedPrefsRef.current) throw new Error('Select a model for this Pal conversation.')
+							if (!savedPrefsRef.current)
+								throw new Error('Select a model for this Pal conversation.')
 							await hydrateSession(savedPrefsRef.current, detected)
 						} catch (error) {
 							setPhase('unhealthy')
@@ -5253,12 +5418,12 @@ export function App({
 						? `Started a fresh conversation. The previous conversation is unchanged and remains in /resume.${
 								clearScreen
 									? ''
-									: " Earlier rows above are display only and are not part of this conversation’s model context."
+									: ' Earlier rows above are display only and are not part of this conversation’s model context.'
 							}`
 						: `Started a fresh in-memory conversation because durable session persistence is unavailable.${
 								clearScreen
 									? ''
-									: " Earlier rows above are display only and are not part of this conversation’s model context."
+									: ' Earlier rows above are display only and are not part of this conversation’s model context.'
 							}`,
 				)
 				if (discardedQueued > 0) {
@@ -5276,7 +5441,10 @@ export function App({
 			} catch (err) {
 				pushMessage(
 					'system',
-					explainFailure(err, 'Couldn’t start a new conversation. The current one and any running reply are unchanged.'),
+					explainFailure(
+						err,
+						'Couldn’t start a new conversation. The current one and any running reply are unchanged.',
+					),
 				)
 			} finally {
 				conversationMutationRef.current = null
@@ -5339,15 +5507,13 @@ export function App({
 						: `Named "${title}".`,
 				)
 			} catch (err) {
-				pushMessage(
-					'system',
-					explainFailure(err, 'Could not save the name.'),
-				)
+				pushMessage('system', explainFailure(err, 'Could not save the name.'))
 			}
 		},
 		[materializeConversation, pushMessage, setTextPrompt],
 	)
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
 	const submitTextPrompt = useCallback(
 		(value: string) => {
 			const prompt = textPromptRef.current
@@ -5401,10 +5567,7 @@ export function App({
 			void setTitle(sessions, prompt.sessionId, value).then(
 				() => pushMessage('system', `Named "${value.trim()}".`),
 				(error: unknown) =>
-					pushMessage(
-						'system',
-						explainFailure(error, 'Could not save the name.'),
-					),
+					pushMessage('system', explainFailure(error, 'Could not save the name.')),
 			)
 		},
 		[pushMessage, runConversationExport, setTextPrompt],
@@ -5433,7 +5596,10 @@ export function App({
 	 */
 	const doFork = useCallback(async () => {
 		if (palDefinitionRef.current) {
-			pushMessage('system', 'Forking Pal conversations is not available yet. Use /new for a separately claimed conversation.')
+			pushMessage(
+				'system',
+				'Forking Pal conversations is not available yet. Use /new for a separately claimed conversation.',
+			)
 			return
 		}
 		if (conversationMutationRef.current) return
@@ -5508,9 +5674,13 @@ export function App({
 	])
 
 	/** Open the durable prompt picker after the composer's second empty Esc. */
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
 	const openPromptEditor = useCallback(() => {
 		if (palDefinitionRef.current) {
-			pushMessage('system', 'Editing earlier prompts by forking is not available in a Pal conversation yet.')
+			pushMessage(
+				'system',
+				'Editing earlier prompts by forking is not available in a Pal conversation yet.',
+			)
 			return
 		}
 		if (conversationMutationRef.current || compactingRef.current) return
@@ -5541,13 +5711,19 @@ export function App({
 		async (turn: number | undefined) => {
 			const store = session?.checkpoints
 			if (!store) {
-				pushMessage('system', 'File changes are not being saved in this conversation, so there is nothing to restore.')
+				pushMessage(
+					'system',
+					'File changes are not being saved in this conversation, so there is nothing to restore.',
+				)
 				return
 			}
 			// A reopened conversation's history is on disk, not yet in memory.
 			await store.open().catch(() => undefined)
 			if (turn === undefined) {
-				pushMessage('system', renderCheckpoints(store.list(), ctxRef.current.cwd, store.skippedPaths()))
+				pushMessage(
+					'system',
+					renderCheckpoints(store.list(), ctxRef.current.cwd, store.skippedPaths()),
+				)
 				return
 			}
 			if (abortRef.current || state !== 'idle' || hasUnsettledTurn()) {
@@ -5589,7 +5765,8 @@ export function App({
 			setConversationMutation('edit')
 			const generation = conversationGenRef.current
 			try {
-				const sessions = sessionsRef.current ?? (await ensureSessions(), sessionsRef.current)
+				const sessions =
+					sessionsRef.current ?? (await ensureSessions().then(() => sessionsRef.current))
 				const scope = scopeRef.current
 				if (!sessions || !scope) {
 					setPhase('ready')
@@ -5652,10 +5829,7 @@ export function App({
 				)
 			} catch (err) {
 				setPhase('ready')
-				pushMessage(
-					'system',
-					explainFailure(err, 'Could not edit the selected prompt.'),
-				)
+				pushMessage('system', explainFailure(err, 'Could not edit the selected prompt.'))
 			} finally {
 				editCommittedRef.current = false
 				conversationMutationRef.current = null
@@ -5771,7 +5945,13 @@ export function App({
 				setChoicePicker(picker)
 				sendTerminalNotification({ kind: 'approval-required' })
 			}),
-		[closeLiveReply, sendTerminalNotification, setChoicePicker, setSelectedChoice, setJobSurface, resolveQuestion,
+		[
+			closeLiveReply,
+			sendTerminalNotification,
+			setChoicePicker,
+			setSelectedChoice,
+			setJobSurface,
+			resolveQuestion,
 		],
 	)
 	const submitChildMessage = useCallback(
@@ -5876,15 +6056,16 @@ export function App({
 			st.taskBlockKey ??= nextId()
 			const key = st.taskBlockKey
 			const id = nextId()
-			setMessages((prev) =>
-				applyTaskOperation(prev, {
-					key,
-					id,
-					operation,
-					checklist,
-					settled: settledRef.current,
-					glyphColor: theme.status.ok,
-				}) as TranscriptMessage[],
+			setMessages(
+				(prev) =>
+					applyTaskOperation(prev, {
+						key,
+						id,
+						operation,
+						checklist,
+						settled: settledRef.current,
+						glyphColor: theme.status.ok,
+					}) as TranscriptMessage[],
 			)
 		},
 		[nextId],
@@ -5894,6 +6075,7 @@ export function App({
 	// and the daemon-attach poller, so both paths produce identical output.
 	// `st` carries the streaming-assistant bubble id + accumulated text across
 	// events within a turn/stream.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
 	const applyEvent = useCallback(
 		(event: AgentEvent, st: StreamState) => {
 			if (st.learning) observeTurnEvent(st.learning, event)
@@ -6081,13 +6263,16 @@ export function App({
 					setActiveTools(activeToolsRef.current)
 					break
 				}
-			case 'tool-end': {
-				// A background bash call creates its job before this event. A job
-				// action may also stop one. Re-read the owning session here so the
-				// shell rail updates while the model continues its turn.
-				if (event.toolName === 'bash' || event.toolName === 'job')
-					setJobSnapshot({ ownerSession: previousSessionRef.current, jobs: previousSessionRef.current?.jobs?.() ?? [] })
-				const running = activeToolsRef.current
+				case 'tool-end': {
+					// A background bash call creates its job before this event. A job
+					// action may also stop one. Re-read the owning session here so the
+					// shell rail updates while the model continues its turn.
+					if (event.toolName === 'bash' || event.toolName === 'job')
+						setJobSnapshot({
+							ownerSession: previousSessionRef.current,
+							jobs: previousSessionRef.current?.jobs?.() ?? [],
+						})
+					const running = activeToolsRef.current
 					// Match strictly by toolUseId. Never fall back to "the first
 					// active tool" — under parallel calls that mis-attributes a
 					// result to the wrong call. If no id matches, render the
@@ -6104,10 +6289,16 @@ export function App({
 					}
 					// Lifecycle updates own completion rows, even when the model never waits.
 					// Keep unknown waits and errors visible; never hide an unrepresented task.
-					const inspectableWait = done?.taskId && subagentsRef.current.some((agent) =>
-						agent.taskId === done.taskId &&
-						(event.turnId === undefined || agent.workflowId === event.turnId) &&
-						agent.transcript.some((row) => row.kind === 'assistant' && row.text.trim().length > 0))
+					const inspectableWait =
+						done?.taskId &&
+						subagentsRef.current.some(
+							(agent) =>
+								agent.taskId === done.taskId &&
+								(event.turnId === undefined || agent.workflowId === event.turnId) &&
+								agent.transcript.some(
+									(row) => row.kind === 'assistant' && row.text.trim().length > 0,
+								),
+						)
 					if (!event.isError && inspectableWait && event.toolName === 'wait_for_task') {
 						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
 						break
@@ -6141,11 +6332,20 @@ export function App({
 					}
 					if (!event.isError && done?.activity === 'exploration') {
 						// Preserve the result, including the summary removed from detail by the adapter.
-						const output = event.output !== undefined
-							? event.output.split('\n')
-							: [...(event.summary ? [event.summary] : []), ...(event.detail ?? [])]
-						pushMessage('tool', done.label, false, '└', output,
-							theme.text.muted, output.length > 0 ? 'ctrl+o output' : undefined, 'exploration')
+						const output =
+							event.output !== undefined
+								? event.output.split('\n')
+								: [...(event.summary ? [event.summary] : []), ...(event.detail ?? [])]
+						pushMessage(
+							'tool',
+							done.label,
+							false,
+							'└',
+							output,
+							theme.text.muted,
+							output.length > 0 ? 'ctrl+o output' : undefined,
+							'exploration',
+						)
 						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
 						break
 					}
@@ -6156,12 +6356,11 @@ export function App({
 						// Ctrl+O, as the reference terminal draws them.
 						const activity: WebActivity = {
 							...web,
-							...(event.web?.target ?? done?.web?.target
+							...((event.web?.target ?? done?.web?.target)
 								? { target: event.web?.target ?? done?.web?.target }
 								: {}),
 						}
-						const durationMs =
-							event.durationMs ?? (done ? Date.now() - done.startedAt : undefined)
+						const durationMs = event.durationMs ?? (done ? Date.now() - done.startedAt : undefined)
 						const output = web.hosted ? undefined : event.output
 						pushMessage(
 							'tool',
@@ -6216,7 +6415,8 @@ export function App({
 							undefined,
 							event.isError ? theme.status.error : theme.status.ok,
 						)
-						const said = event.resultLabel ?? (event.isError ? 'the task tool refused the call' : '')
+						const said =
+							event.resultLabel ?? (event.isError ? 'the task tool refused the call' : '')
 						if (said.length > 0) {
 							pushMessage('tool', event.isError ? `failed: ${said}` : said, false, '⎿')
 						}
@@ -6253,19 +6453,39 @@ export function App({
 						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
 						break
 					}
-					const catalogue = !event.isError && event.toolName === 'agent_models' && event.output !== undefined
-						? modelCatalogueView(event.output) : undefined
+					const catalogue =
+						!event.isError && event.toolName === 'agent_models' && event.output !== undefined
+							? modelCatalogueView(event.output)
+							: undefined
 					if (catalogue !== undefined) {
-						pushMessage('tool', catalogue, false, '✓', event.output?.split('\n'),
-							theme.status.ok, 'ctrl+o details', 'catalogue')
+						pushMessage(
+							'tool',
+							catalogue,
+							false,
+							'✓',
+							event.output?.split('\n'),
+							theme.status.ok,
+							'ctrl+o details',
+							'catalogue',
+						)
 						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
 						break
 					}
-					const evidence = !event.isError && event.output !== undefined
-						? conversationEvidenceView(event.toolName, event.output) : undefined
+					const evidence =
+						!event.isError && event.output !== undefined
+							? conversationEvidenceView(event.toolName, event.output)
+							: undefined
 					if (evidence !== undefined) {
-						pushMessage('tool', evidence.content, false, '✓', evidence.detail,
-							theme.status.ok, 'ctrl+o details', 'evidence')
+						pushMessage(
+							'tool',
+							evidence.content,
+							false,
+							'✓',
+							evidence.detail,
+							theme.status.ok,
+							'ctrl+o details',
+							'evidence',
+						)
 						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
 						break
 					}
@@ -6497,6 +6717,7 @@ export function App({
 	)
 	applyEventRef.current = applyEvent
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
 	const runTurn = useCallback(
 		async (prompt: QueuedPrompt) => {
 			// A passive queue effect can still hold the previous render's session
@@ -6542,7 +6763,10 @@ export function App({
 			} catch (error) {
 				pushMessage(
 					'system',
-					explainFailure(error, 'This conversation could not be saved. It will continue, but it cannot be resumed later.'),
+					explainFailure(
+						error,
+						'This conversation could not be saved. It will continue, but it cannot be resumed later.',
+					),
 				)
 			}
 			// A conversation can be closed outside this App after it was opened or
@@ -6566,10 +6790,7 @@ export function App({
 						goalActivation.disarm(prompt.goalRound.sessionId, prompt.goalRound)
 						wakeGoalDriver()
 					}
-					pushMessage(
-						'system',
-						explainFailure(err, 'Your message was not sent.'),
-					)
+					pushMessage('system', explainFailure(err, 'Your message was not sent.'))
 					setState('idle')
 					return
 				}
@@ -6580,7 +6801,10 @@ export function App({
 			// is dropped rather than begun under that conversation.
 			if (admissionRef.current !== admission) return
 			admissionRef.current = null
-			if (prompt.kind === 'peer' && !peersRef.current?.takeExact(prompt.generation, prompt.mail.id)) {
+			if (
+				prompt.kind === 'peer' &&
+				!peersRef.current?.takeExact(prompt.generation, prompt.mail.id)
+			) {
 				setState('idle')
 				return
 			}
@@ -6606,7 +6830,9 @@ export function App({
 							round: goalRound.round,
 							maxGoalRounds: goalRound.maxGoalRounds,
 						}
-					: prompt.kind === 'peer' ? { type: 'runtime-context', kind: 'peer-message' } : undefined,
+					: prompt.kind === 'peer'
+						? { type: 'runtime-context', kind: 'peer-message' }
+						: undefined,
 			)
 			const priorForSdk: Message[] = [...historyBeforeTurn, userMessage]
 			// Reserved before the turn begins, so everything that refers to this
@@ -6778,7 +7004,9 @@ export function App({
 						currentProvider,
 						detected,
 						describeModels: describeProviderModels,
-						signal: requestSignal ? AbortSignal.any([pending.signal, requestSignal]) : pending.signal,
+						signal: requestSignal
+							? AbortSignal.any([pending.signal, requestSignal])
+							: pending.signal,
 					})
 					if (
 						pendingModelSwitchRef.current !== pending ||
@@ -6809,7 +7037,9 @@ export function App({
 			const inboxEntries: LiveInput[] = []
 			const inputWaiters = new Set<() => void>()
 			const inbox: ActiveTurnInbox = {
-				notify() { for (const wake of [...inputWaiters]) wake() },
+				notify() {
+					for (const wake of [...inputWaiters]) wake()
+				},
 				accept(input): boolean {
 					if (
 						!inboxOpen ||
@@ -6826,8 +7056,13 @@ export function App({
 				},
 				waitForInbound(signal): Promise<void> {
 					if (signal.aborted) return Promise.reject(signal.reason)
-					if (!inboxOpen || inboxEntries.length > 0 ||
-						[...directChildNoticesRef.current.keys()].some((id) => !childNoticeSnapshot.has(id)) || (peersRef.current?.enabled && peersRef.current.pending > 0)) return Promise.resolve()
+					if (
+						!inboxOpen ||
+						inboxEntries.length > 0 ||
+						[...directChildNoticesRef.current.keys()].some((id) => !childNoticeSnapshot.has(id)) ||
+						(peersRef.current?.enabled && peersRef.current.pending > 0)
+					)
+						return Promise.resolve()
 					return new Promise((resolve, reject) => {
 						const cleanup = () => {
 							inputWaiters.delete(wake)
@@ -6918,8 +7153,9 @@ export function App({
 					`Goal round ${goalRound.round} was not started because this conversation is not durable. Automatic continuation is disarmed; /goal resume retries explicitly.`,
 				)
 			}
-			let idleNoticeSnapshot: { readonly ids: readonly string[]
-				readonly text?: string } = { ids: [] }
+			let idleNoticeSnapshot: { readonly ids: readonly string[]; readonly text?: string } = {
+				ids: [],
+			}
 			let childNoticeSnapshot = new Map<number, DirectChildNotice>()
 			try {
 				// Setup above awaited. A conversation switch can happen meanwhile and
@@ -6995,7 +7231,11 @@ export function App({
 								// An idle wake may already be queued behind operator admission.
 								// Once this turn drains it, its queue row is no longer pending.
 								const deliveredIds = new Set(mail.map((item) => item.id))
-								replaceQueued(queuedRef.current.filter((item) => item.kind !== 'peer' || !deliveredIds.has(item.mail.id)))
+								replaceQueued(
+									queuedRef.current.filter(
+										(item) => item.kind !== 'peer' || !deliveredIds.has(item.mail.id),
+									),
+								)
 								flushStream(st)
 								if (st.assistantId) {
 									finalizeMessage(st.assistantId)
@@ -7003,7 +7243,9 @@ export function App({
 								}
 								for (const item of mail) pushMessage('system', peerMailLabel(item), false, '↳')
 							}
-							return [...operatorMessages, ...mail.map(peerMailMessage),
+							return [
+								...operatorMessages,
+								...mail.map(peerMailMessage),
 								...childNotices.map(([, notice]) =>
 									createRuntimeContextMessage(notice.context, notice.kind),
 								),
@@ -7163,7 +7405,9 @@ export function App({
 							compactingRef.current ||
 							exportingRef.current
 						) {
-							throw new Error('The active conversation changed before the model switch could complete.')
+							throw new Error(
+								'The active conversation changed before the model switch could complete.',
+							)
 						}
 						if (
 							pending.ownerSession.subagents
@@ -7188,11 +7432,15 @@ export function App({
 					try {
 						await persistenceTailRef.current
 						beforePublish()
-						await hydrateSession(selectPrimaryProvider(savedPrefsRef.current, selection), detected, {
-							signal: pending.signal,
-							persistSelection: false,
-							beforePublish,
-						})
+						await hydrateSession(
+							selectPrimaryProvider(savedPrefsRef.current, selection),
+							detected,
+							{
+								signal: pending.signal,
+								persistSelection: false,
+								beforePublish,
+							},
+						)
 						if (
 							pendingModelSwitchRef.current === pending &&
 							!pending.signal.aborted &&
@@ -7391,10 +7639,7 @@ export function App({
 				const saved = appendMemoryWithStatus(note, { scope: 'project', cwd: ctx.cwd })
 				pushMessage('system', renderMemorySaveResult(saved, note))
 			} catch (err) {
-				pushMessage(
-					'system',
-					explainFailure(err, 'Could not save memory.'),
-				)
+				pushMessage('system', explainFailure(err, 'Could not save memory.'))
 			}
 		},
 		[ctx.cwd, pushMessage, session],
@@ -7433,6 +7678,7 @@ export function App({
 		[pushMessage],
 	)
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
 	const handleSubmit = useCallback(
 		(
 			value: string,
@@ -7495,7 +7741,10 @@ export function App({
 			// and both leave a row the model reads on its next turn.
 			if (operatorText && value.startsWith('#') && value.slice(1).trim().length > 0) {
 				if (palDefinitionRef.current) {
-					pushMessage('system', 'Host project memory shortcuts are unavailable in Pal chat. Ask the Pal to keep the note in its own computer.')
+					pushMessage(
+						'system',
+						'Host project memory shortcuts are unavailable in Pal chat. Ask the Pal to keep the note in its own computer.',
+					)
 					return
 				}
 				const note = value.slice(1).trim()
@@ -7505,7 +7754,10 @@ export function App({
 			const escaped = operatorText ? shellEscapeCommand(value) : null
 			if (escaped !== null) {
 				if (palDefinitionRef.current) {
-					pushMessage('system', 'Host shell shortcuts are unavailable in Pal chat. Ask the Pal to run the command in its own computer.')
+					pushMessage(
+						'system',
+						'Host shell shortcuts are unavailable in Pal chat. Ask the Pal to run the command in its own computer.',
+					)
 					return
 				}
 				pushMessage('user', value)
@@ -7545,7 +7797,9 @@ export function App({
 				const command = armedTriggers
 					.map((id) => triggerDefinition(id).standalone)
 					.find((standalone) => standalone !== undefined)
-				const needTask = armedTriggers.filter((id) => triggerDefinition(id).standalone === undefined)
+				const needTask = armedTriggers.filter(
+					(id) => triggerDefinition(id).standalone === undefined,
+				)
 				if (needTask.length > 0)
 					pushMessage(
 						'system',
@@ -7565,24 +7819,34 @@ export function App({
 			// to run one.
 			let outgoing = dispatch
 			let skillFlow = false
-			const palHostCommand = operatorText && palDefinitionRef.current && /^\/(?:schedule|loop|worktree|add-dir|browser|mcp|plugins|skills|save-skill|memory|init|review|goal|agents)(?:\s|$)/u.test(dispatch)
+			const palHostCommand =
+				operatorText &&
+				palDefinitionRef.current &&
+				/^\/(?:schedule|loop|worktree|add-dir|browser|mcp|plugins|skills|save-skill|memory|init|review|goal|agents)(?:\s|$)/u.test(
+					dispatch,
+				)
 			if (palHostCommand) {
-				pushMessage('system', 'This command is not available in Pal chat. Pal tools use its own computer; workspace and extension commands remain in ordinary conversations.')
+				pushMessage(
+					'system',
+					'This command is not available in Pal chat. Pal tools use its own computer; workspace and extension commands remain in ordinary conversations.',
+				)
 				return
 			}
 			const slash = operatorText ? runSlash(dispatch, slashCtx, hostCommands) : null
 			if (slash) {
-					switch (slash.kind) {
+				switch (slash.kind) {
 					case 'message':
 						if (slash.statusRows) {
-							setMessages((previous) => [...previous, {
-								id: nextId(),
-								role: slash.role,
-								content: slash.content,
-								statusRows: slash.statusRows,
-							}])
-						}
-						else pushMessage(slash.role, slash.content)
+							setMessages((previous) => [
+								...previous,
+								{
+									id: nextId(),
+									role: slash.role,
+									content: slash.content,
+									statusRows: slash.statusRows,
+								},
+							])
+						} else pushMessage(slash.role, slash.content)
 						return
 					case 'command-picker': {
 						if (slash.commands.length === 0) {
@@ -7627,7 +7891,9 @@ export function App({
 										`Peer message ${receipt.status}: ${receipt.reason ?? 'accepted in the receiving inbox'}`,
 									),
 								)
-								.catch((error) => pushMessage('system', explainFailure(error, 'Peer message failed.')))
+								.catch((error) =>
+									pushMessage('system', explainFailure(error, 'Peer message failed.')),
+								)
 						} else if (!verb || verb === 'list') {
 							void peers
 								.list()
@@ -7637,7 +7903,9 @@ export function App({
 										`Peer messaging ${peers.enabled ? 'on' : 'off'} · ${peers.pending} pending\n${peersList.map((peer) => `${peer.self ? 'This terminal' : peer.title} [${peer.ref}] · ${peer.state} · ${peer.permission_mode}${peer.accepts_messages ? '' : ' · not accepting messages'}`).join('\n')}`,
 									),
 								)
-								.catch((error) => pushMessage('system', explainFailure(error, 'Peer discovery failed.')))
+								.catch((error) =>
+									pushMessage('system', explainFailure(error, 'Peer discovery failed.')),
+								)
 						} else pushMessage('system', 'Usage: /peers [list|on|off|send <ref> <message>]')
 						return
 					}
@@ -7670,7 +7938,13 @@ export function App({
 						}
 						setJobSnapshot({ ownerSession: session, jobs: current })
 						setJobClock(Date.now())
-						setJobSurface({ ownerSession: session, selectedJobId: current.find((job) => job.status === 'running')?.id ?? current[0]?.id ?? null, detailJobId: null, tailOffset: 0 })
+						setJobSurface({
+							ownerSession: session,
+							selectedJobId:
+								current.find((job) => job.status === 'running')?.id ?? current[0]?.id ?? null,
+							detailJobId: null,
+							tailOffset: 0,
+						})
 						return
 					}
 					case 'abandon': {
@@ -7678,13 +7952,22 @@ export function App({
 						return
 					}
 					case 'provider-setup':
-						if (state !== 'idle' || permission || choicePickerRef.current) { pushMessage('system', 'Provider setup is available once the current reply and prompts finish.'); return }
+						if (state !== 'idle' || permission || choicePickerRef.current) {
+							pushMessage(
+								'system',
+								'Provider setup is available once the current reply and prompts finish.',
+							)
+							return
+						}
 						setProviderSetup(true)
 						return
 					case 'turn-limits-set':
 					case 'turn-limit-editor':
 					case 'turn-limits-picker': {
-						const currentLimits = resolveTurnGuards(ctxRef.current.limits, turnLimitsOverrideRef.current)
+						const currentLimits = resolveTurnGuards(
+							ctxRef.current.limits,
+							turnLimitsOverrideRef.current,
+						)
 						if (slash.kind === 'turn-limit-editor') {
 							const scope = scopeRef.current
 							if (!scope) {
@@ -7708,7 +7991,9 @@ export function App({
 						if (slash.kind === 'turn-limits-set') {
 							turnLimitsOverrideRef.current = { ...turnLimitsOverrideRef.current, ...slash.limits }
 						}
-						const commands = turnLimitCommands(resolveTurnGuards(currentLimits, turnLimitsOverrideRef.current))
+						const commands = turnLimitCommands(
+							resolveTurnGuards(currentLimits, turnLimitsOverrideRef.current),
+						)
 						setSelectedChoice(0)
 						setChoicePicker({
 							kind: 'command',
@@ -7746,7 +8031,9 @@ export function App({
 							{
 								name: 'config limits',
 								label: 'Reply limits',
-								description: turnLimitCommands(resolveTurnGuards(ctxRef.current.limits, turnLimitsOverrideRef.current))
+								description: turnLimitCommands(
+									resolveTurnGuards(ctxRef.current.limits, turnLimitsOverrideRef.current),
+								)
 									.slice(0, 3)
 									.map((field) => `${field.label}: ${field.description}`)
 									.join(' · '),
@@ -7756,7 +8043,12 @@ export function App({
 								label: 'Web & usage',
 								description: `${session?.webSearchSummary ?? 'Not resolved'} · view tools, workspace and usage.`,
 							},
-							{ name: 'setup', label: 'Provider setup', description: 'Check installed CLIs and access; connect or install without leaving Namzu.' },
+							{
+								name: 'setup',
+								label: 'Provider setup',
+								description:
+									'Check installed CLIs and access; connect or install without leaving Namzu.',
+							},
 							{
 								name: `config triggers ${composerTriggersOn ? 'off' : 'on'}`,
 								label: 'Composer triggers',
@@ -7774,7 +8066,8 @@ export function App({
 						setChoicePicker({
 							kind: 'command',
 							title: 'Configuration',
-							notice: 'Model, reasoning, permission and reply-limit changes apply to this conversation.',
+							notice:
+								'Model, reasoning, permission and reply-limit changes apply to this conversation.',
 							values: commands,
 							options: commands.map((command) => ({
 								label: command.label,
@@ -7889,10 +8182,7 @@ export function App({
 									choicePickerRef.current?.request === request
 								) {
 									setChoicePicker(null)
-									pushMessage(
-										'system',
-										explainFailure(error, 'Could not load goal.'),
-									)
+									pushMessage('system', explainFailure(error, 'Could not load goal.'))
 								}
 							} finally {
 								wakeGoalDriver()
@@ -8092,7 +8382,12 @@ export function App({
 								'Only credentials created by Namzu are listed. Sign-ins owned by other tools are left alone.',
 							values: choices,
 							options: choices.map((choice) => ({
-								label: choice === 'anthropic' ? 'Claude' : choice === 'codex' ? 'Codex' : 'Gemini API key',
+								label:
+									choice === 'anthropic'
+										? 'Claude'
+										: choice === 'codex'
+											? 'Codex'
+											: 'Gemini API key',
 								description:
 									choice === 'anthropic'
 										? 'Remove only Namzu’s Claude subscription.'
@@ -8110,15 +8405,9 @@ export function App({
 						}
 						try {
 							const saved = appendMemoryWithStatus(slash.text, { scope: slash.scope, cwd: ctx.cwd })
-							pushMessage(
-								'system',
-								renderMemorySaveResult(saved, slash.text),
-							)
+							pushMessage('system', renderMemorySaveResult(saved, slash.text))
 						} catch (err) {
-							pushMessage(
-								'system',
-								explainFailure(err, 'Could not save memory.'),
-							)
+							pushMessage('system', explainFailure(err, 'Could not save memory.'))
 						}
 						return
 					case 'import-notes': {
@@ -8132,10 +8421,7 @@ export function App({
 						void session.importCuratedNotes().then(
 							(report) => pushMessage('system', report),
 							(err: unknown) =>
-								pushMessage(
-									'system',
-									explainFailure(err, 'Notes were not copied.'),
-								),
+								pushMessage('system', explainFailure(err, 'Notes were not copied.')),
 						)
 						return
 					}
@@ -8297,16 +8583,13 @@ export function App({
 						return
 					case 'worktree': {
 						const [verb = 'list', label, extra] = slash.args
-						const notice = (content: string) =>
-							pushMessage('system', terminalDisplayText(content))
+						const notice = (content: string) => pushMessage('system', terminalDisplayText(content))
 						if (
 							!(
 								(verb === 'list' && label === undefined) ||
 								(verb === 'create' && extra === undefined) ||
 								(verb === 'fork' && extra === undefined) ||
-								(verb === 'resume' &&
-									label !== undefined &&
-									extra === undefined)
+								(verb === 'resume' && label !== undefined && extra === undefined)
 							)
 						) {
 							pushMessage(
@@ -8317,9 +8600,7 @@ export function App({
 						}
 						if (
 							verb === 'fork' &&
-							(abortRef.current ||
-								hasUnsettledTurn() ||
-								queuedRef.current.length > 0)
+							(abortRef.current || hasUnsettledTurn() || queuedRef.current.length > 0)
 						) {
 							pushMessage(
 								'system',
@@ -8354,10 +8635,7 @@ export function App({
 									)
 								} else if (verb === 'fork') {
 									const scope = await materializeConversation()
-									if (!scope)
-										throw new Error(
-											'Conversation history is unavailable in this folder.',
-										)
+									if (!scope) throw new Error('Conversation history is unavailable in this folder.')
 									await persistenceTailRef.current
 									const forked = await manager.fork(scope.sessionId, label)
 									notice(
@@ -8370,9 +8648,7 @@ export function App({
 									)
 								}
 							} catch (error) {
-								notice(
-									explainFailure(error, 'Could not set up the worktree.'),
-								)
+								notice(explainFailure(error, 'Could not set up the worktree.'))
 							} finally {
 								if (verb === 'fork') {
 									conversationMutationRef.current = null
@@ -8425,13 +8701,13 @@ export function App({
 								},
 							})
 							.then((result) => {
-							pushMessage(
-								'system',
-								result.added
-									? `Added ${result.path}. The file tools reach it by absolute path from the next reply; a sandboxed reply binds it read-write.`
-									: `Not added: ${result.path} — ${result.reason ?? 'refused'}`,
-							)
-						})
+								pushMessage(
+									'system',
+									result.added
+										? `Added ${result.path}. The file tools reach it by absolute path from the next reply; a sandboxed reply binds it read-write.`
+										: `Not added: ${result.path} — ${result.reason ?? 'refused'}`,
+								)
+							})
 						return
 					}
 					case 'prompt':
@@ -8531,10 +8807,7 @@ export function App({
 								)
 							} catch (error) {
 								if (conversationGenRef.current !== generation) return
-								pushMessage(
-									'system',
-									explainFailure(error, `Could not run /${slash.name}.`),
-								)
+								pushMessage('system', explainFailure(error, `Could not run /${slash.name}.`))
 							} finally {
 								releaseGoalCommand()
 							}
@@ -8704,10 +8977,7 @@ export function App({
 									return [summaryRow, ...keepRecentRows(prev, keptTurns)]
 								})
 							} catch (err) {
-								pushMessage(
-									'system',
-									explainFailure(err, 'Couldn’t summarise the conversation.'),
-								)
+								pushMessage('system', explainFailure(err, 'Couldn’t summarise the conversation.'))
 							} finally {
 								compactingRef.current = false
 								setCompacting(false)
@@ -8832,7 +9102,9 @@ export function App({
 				kind: 'human',
 				text: outgoing,
 				...(meta.source === 'composer' && !skillFlow ? { recallable: true as const } : {}),
-				...(meta.source === 'composer' && !skillFlow && outgoing !== value ? { recallText: value } : {}),
+				...(meta.source === 'composer' && !skillFlow && outgoing !== value
+					? { recallText: value }
+					: {}),
 				...(attachments && attachments.length > 0 ? { attachments: [...attachments] } : {}),
 				...(skillFlow ? { skillFlow: true as const } : {}),
 				...(armedTriggers.length > 0 && !skillFlow ? { triggers: armedTriggers } : {}),
@@ -8899,6 +9171,7 @@ export function App({
 			setChoicePicker,
 			setCopyPicker,
 			setReasoningEffort,
+			// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
 			slashCtx,
 			stableExportSource,
 			startFreshConversation,
@@ -9003,11 +9276,7 @@ export function App({
 		if (appLifetime.signal.aborted) return
 		const sessions = sessionsRef.current
 		const scope = scopeRef.current
-		const source = sourceConversationBinding(
-			sessions,
-			scope,
-			conversationMaterializedRef.current,
-		)
+		const source = sourceConversationBinding(sessions, scope, conversationMaterializedRef.current)
 		if (!sessions?.root || !source) return
 		const generation = conversationGenRef.current
 		void sourceDeliveryViewRef.current
@@ -9021,7 +9290,8 @@ export function App({
 					scopeRef.current?.sessionId !== source.sessionId ||
 					scopeRef.current?.projectId !== source.projectId ||
 					scopeRef.current?.tenantId !== source.tenantId
-				) return
+				)
+					return
 				sourceDeliveryIssueRef.current = null
 				for (const delivery of deliveries)
 					pushMessage(
@@ -9049,7 +9319,8 @@ export function App({
 					scopeRef.current?.sessionId !== source.sessionId ||
 					scopeRef.current?.projectId !== source.projectId ||
 					scopeRef.current?.tenantId !== source.tenantId
-				) return
+				)
+					return
 				const key = JSON.stringify([generation, source])
 				if (sourceDeliveryIssueRef.current === key) return
 				sourceDeliveryIssueRef.current = key
@@ -9087,6 +9358,7 @@ export function App({
 	// Keep the footer on the same durable goal record the driver mutates. A ref
 	// alone cannot repaint React, so every goal mutation bumps goalDriveVersion;
 	// generation/session checks stop a late disk read labelling a resumed chat.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
 	useEffect(() => {
 		void goalDriveVersion
 		const sessions = sessionsRef.current
@@ -9109,15 +9381,29 @@ export function App({
 					return
 				}
 				setGoalStatus(goal)
-				if (pendingGoalResumeRef.current === sessionId && phase === 'ready' && !choicePickerRef.current) {
+				if (
+					pendingGoalResumeRef.current === sessionId &&
+					phase === 'ready' &&
+					!choicePickerRef.current
+				) {
 					pendingGoalResumeRef.current = null
 					if (goal && (goal.phase === 'active' || goal.phase === 'paused')) {
 						setSelectedChoice(0)
-						setChoicePicker({ kind: 'resume-goal', title: 'Continue the saved goal?',
-							notice: goal.objective, sessionId, values: ['resume', 'later'],
+						setChoicePicker({
+							kind: 'resume-goal',
+							title: 'Continue the saved goal?',
+							notice: goal.objective,
+							sessionId,
+							values: ['resume', 'later'],
 							options: [
-								{ label: 'Resume goal', description: 'Continue automatic work toward this objective.' },
-								{ label: 'Not now', description: 'Keep automatic work stopped; resume later with /goal resume.' },
+								{
+									label: 'Resume goal',
+									description: 'Continue automatic work toward this objective.',
+								},
+								{
+									label: 'Not now',
+									description: 'Keep automatic work stopped; resume later with /goal resume.',
+								},
 							],
 						})
 					}
@@ -9135,6 +9421,7 @@ export function App({
 	// reserves; it never starts a turn itself. The one queue pump below remains
 	// the sole starter, which is what keeps a human prompt that arrives during
 	// admission ahead of the resulting goal round.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
 	useEffect(() => {
 		void goalDriveVersion
 		// The ref is the synchronous gate; this state read is the wake-up edge.
@@ -9266,6 +9553,7 @@ export function App({
 
 	// Drain the queue: when a turn settles (idle) and nothing is running,
 	// send the next queued message automatically.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
 	useEffect(() => {
 		if (
 			state !== 'idle' ||
@@ -9306,7 +9594,13 @@ export function App({
 	])
 
 	useEffect(() => {
-		if (phase !== 'ready' || palDefinitionRef.current || peersRef.current || peersStartingRef.current) return
+		if (
+			phase !== 'ready' ||
+			palDefinitionRef.current ||
+			peersRef.current ||
+			peersStartingRef.current
+		)
+			return
 		peersStartingRef.current = true
 		let disposed = false
 		let opened: LivePeers | null = null
@@ -9329,7 +9623,8 @@ export function App({
 						: 'busy',
 			owner: () => conversationGenRef.current,
 			ready: () =>
-				!appLifetime.signal.aborted && phaseRef.current === 'ready' &&
+				!appLifetime.signal.aborted &&
+				phaseRef.current === 'ready' &&
 				previousSessionRef.current?.hasProvider === true &&
 				!conversationMutationRef.current,
 			available: () => {
@@ -9341,7 +9636,10 @@ export function App({
 			.then((peers) => {
 				peersStartingRef.current = false
 				opened = peers
-				if (disposed) { void peers.close(); return }
+				if (disposed) {
+					void peers.close()
+					return
+				}
 				peersRef.current = peers
 				wakePeers((version) => version + 1)
 			})
@@ -9352,6 +9650,7 @@ export function App({
 			})
 	}, [phase, appLifetime.signal, pushMessage])
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
 	useEffect(() => {
 		const peers = peersRef.current
 		peers?.publish()
@@ -9374,7 +9673,10 @@ export function App({
 			return
 		const generation = conversationGenRef.current
 		const mail = peers.peek(generation)[0]
-		if (mail && !queuedRef.current.some((prompt) => prompt.kind === 'peer' && prompt.mail.id === mail.id))
+		if (
+			mail &&
+			!queuedRef.current.some((prompt) => prompt.kind === 'peer' && prompt.mail.id === mail.id)
+		)
 			enqueueQueued({
 				kind: 'peer',
 				text: peerMailMessage(mail).content as string,
@@ -9496,10 +9798,16 @@ export function App({
 					writePreferences(prefs)
 				} catch (error) {
 					const couldNot = `Your Gemini API key was saved at ${homePath(path)}, but your provider choice could not be saved.`
-					pushMessage('system', `${explainFailure(error, couldNot)} Run /logout gemini to remove the key.`)
+					pushMessage(
+						'system',
+						`${explainFailure(error, couldNot)} Run /logout gemini to remove the key.`,
+					)
 					return
 				}
-				pushMessage('system', `Gemini API key saved privately at ${path} for future launches. Run /logout gemini to remove it.`)
+				pushMessage(
+					'system',
+					`Gemini API key saved privately at ${path} for future launches. Run /logout gemini to remove it.`,
+				)
 			})()
 		},
 		[detected, hydrateFromPicker, pushMessage],
@@ -9561,7 +9869,8 @@ export function App({
 			// The save-skill screen owns its keys, Esc and Ctrl+C included: neither
 			// may interrupt the turn that is waiting on its answer. A permission
 			// request (an agent's, say) takes the screen over it and gets the keys.
-			if ((saveSkillPromptRef.current || scheduleReviewPromptRef.current) && permission === null) return
+			if ((saveSkillPromptRef.current || scheduleReviewPromptRef.current) && permission === null)
+				return
 			// Startup has refused admission, so there is no draft or active turn to
 			// protect with the ready screen's two-press exit ladder.
 			if (phase === 'unhealthy') {
@@ -9637,7 +9946,10 @@ export function App({
 					setSelectedResume((index) => moveSelection(index, resumeList.length, 'next'))
 				else if (key.return) {
 					const conv = resumeList[selectedResumeRef.current]
-					if (conv) void (phase === 'unarchive' ? restoreArchivedConversation(conv) : resumeConversation(conv))
+					if (conv)
+						void (phase === 'unarchive'
+							? restoreArchivedConversation(conv)
+							: resumeConversation(conv))
 				} else if (key.escape || (key.ctrl && input === 'c')) setPhase('ready')
 				return
 			}
@@ -9690,7 +10002,11 @@ export function App({
 						? permission.review
 						: (permission.summary.compactText ?? permission.summary.text)
 					const count = permissionReviewRows(source, terminal.columns).length
-					const pageRows = Math.max(1, permissionReviewPageRows(terminal.rows) - (reviewSource(permission, scopeRef.current?.sessionId) ? 1 : 0))
+					const pageRows = Math.max(
+						1,
+						permissionReviewPageRows(terminal.rows) -
+							(reviewSource(permission, scopeRef.current?.sessionId) ? 1 : 0),
+					)
 					const maxOffset = Math.max(0, count - pageRows)
 					const current = Math.min(permissionReviewOffsetRef.current, maxOffset)
 					const next = key.home
@@ -9759,12 +10075,19 @@ export function App({
 					return
 				}
 				if (key.escape) {
-					setJobSurface(shellView.detailJobId ? { ...shellView, detailJobId: null, tailOffset: 0 } : null)
+					setJobSurface(
+						shellView.detailJobId ? { ...shellView, detailJobId: null, tailOffset: 0 } : null,
+					)
 					return
 				}
 				const selectedId = shellView.detailJobId ?? shellView.selectedJobId ?? backgroundJobs[0]?.id
 				const selectedJob = backgroundJobs.find((job) => job.id === selectedId)
-				if (input.toLowerCase() === 'x' && selectedJob?.status === 'running' && session?.stopJob && !shellView.busyJobId) {
+				if (
+					input.toLowerCase() === 'x' &&
+					selectedJob?.status === 'running' &&
+					session?.stopJob &&
+					!shellView.busyJobId
+				) {
 					const owner = session
 					const stopJob = owner.stopJob
 					if (!stopJob) return
@@ -9778,50 +10101,73 @@ export function App({
 								setJobSurface({
 									...current,
 									busyJobId: undefined,
-									notice: result.status === 'killed'
-										? `Stopped ${selectedJob.id}.`
-										: result.status === 'exited'
-											? `${selectedJob.id} had already exited (${result.exitCode ?? '?'}).`
-											: `Stop request for ${selectedJob.id} did not finish.`,
+									notice:
+										result.status === 'killed'
+											? `Stopped ${selectedJob.id}.`
+											: result.status === 'exited'
+												? `${selectedJob.id} had already exited (${result.exitCode ?? '?'}).`
+												: `Stop request for ${selectedJob.id} did not finish.`,
 								})
 						},
 						(error) => {
 							if (previousSessionRef.current !== owner) return
 							const current = jobSurfaceRef.current
 							if (current?.busyJobId === selectedJob.id)
-								setJobSurface({ ...current, busyJobId: undefined, notice: explainFailure(error, `Could not stop ${selectedJob.id}.`) })
+								setJobSurface({
+									...current,
+									busyJobId: undefined,
+									notice: explainFailure(error, `Could not stop ${selectedJob.id}.`),
+								})
 						},
 					)
 					return
 				}
 				if (shellView.detailJobId) {
-					let output
-					try { output = session?.readJob?.(shellView.detailJobId) } catch { output = undefined }
-					const max = maxBackgroundJobTailOffset(output, terminal.rows, Math.max(1, terminal.columns - 2))
+					let output: BackgroundJobOutput | undefined
+					try {
+						output = session?.readJob?.(shellView.detailJobId)
+					} catch {
+						output = undefined
+					}
+					const max = maxBackgroundJobTailOffset(
+						output,
+						terminal.rows,
+						Math.max(1, terminal.columns - 2),
+					)
 					const page = backgroundJobOutputPageSize(terminal.rows)
 					const offset = Math.min(shellView.tailOffset, max)
-					const next = key.home || input === 'g'
-						? max
-						: key.end || input === 'G'
-							? 0
-							: key.pageUp
-								? Math.min(max, offset + page)
-								: key.pageDown
-									? Math.max(0, offset - page)
-									: key.upArrow
-										? Math.min(max, offset + 1)
-										: key.downArrow
-											? Math.max(0, offset - 1)
-											: null
+					const next =
+						key.home || input === 'g'
+							? max
+							: key.end || input === 'G'
+								? 0
+								: key.pageUp
+									? Math.min(max, offset + page)
+									: key.pageDown
+										? Math.max(0, offset - page)
+										: key.upArrow
+											? Math.min(max, offset + 1)
+											: key.downArrow
+												? Math.max(0, offset - 1)
+												: null
 					if (next !== null) setJobSurface({ ...shellView, tailOffset: next, notice: undefined })
 					return
 				}
 				if (key.return && selectedJob) {
-					setJobSurface({ ...shellView, selectedJobId: selectedJob.id, detailJobId: selectedJob.id, tailOffset: 0, notice: undefined })
+					setJobSurface({
+						...shellView,
+						selectedJobId: selectedJob.id,
+						detailJobId: selectedJob.id,
+						tailOffset: 0,
+						notice: undefined,
+					})
 					return
 				}
 				if (key.home || key.end || key.pageUp || key.pageDown || key.upArrow || key.downArrow) {
-					const current = Math.max(0, backgroundJobs.findIndex((job) => job.id === shellView.selectedJobId))
+					const current = Math.max(
+						0,
+						backgroundJobs.findIndex((job) => job.id === shellView.selectedJobId),
+					)
 					const page = backgroundJobsPageSize(terminal.rows)
 					const next = key.home
 						? 0
@@ -9955,7 +10301,10 @@ export function App({
 											: 'next'
 						if (agentView.focus === 'workflows') {
 							const next = moveSelection(
-								workflowIndex, workflows.length, movement, agentWorkflowPageSize(terminal.rows),
+								workflowIndex,
+								workflows.length,
+								movement,
+								agentWorkflowPageSize(terminal.rows),
 							)
 							const targetPhase = workflows[next]?.phases[0]
 							const targetAgent = targetPhase?.agents[0]
@@ -10224,26 +10573,44 @@ export function App({
 			if (key.ctrl && input === 'o') {
 				const shown = messages.filter((m) => !m.pending)
 				const live = shown.slice(settledRef.current)
-				const collapsible = live.filter((m) => (m.activity && (m.detail?.length ?? 0) > 0) || willCollapse(m.detail))
-				const hasBody = (m: TranscriptMessage) => m.detailRef !== undefined && (m.detail?.length ?? 0) > 0
+				const collapsible = live.filter(
+					(m) => (m.activity && (m.detail?.length ?? 0) > 0) || willCollapse(m.detail),
+				)
+				const hasBody = (m: TranscriptMessage) =>
+					m.detailRef !== undefined && (m.detail?.length ?? 0) > 0
 				const blocks = messages.filter(hasBody)
 				const olderBlock = shown.slice(0, settledRef.current).filter(hasBody).at(-1)
 				const block = collapsible.at(-1) ?? blocks.at(-1)
 				if (!block) {
-					pushMessage('system', 'Nothing to expand yet. Ctrl+O opens retained tool output when available.')
+					pushMessage(
+						'system',
+						'Nothing to expand yet. Ctrl+O opens retained tool output when available.',
+					)
 					return
 				}
 				const expanding = collapsible.some((m) => m.detailExpanded !== true)
 				const ids = new Set(collapsible.map((m) => m.id))
-				const proposed = messages.map((m) => ids.has(m.id) ? { ...m, detailExpanded: expanding } : m)
+				const proposed = messages.map((m) =>
+					ids.has(m.id) ? { ...m, detailExpanded: expanding } : m,
+				)
 				if (!expanding && olderBlock) {
 					setMessages(proposed)
 					setOutputViewer(olderBlock)
 					return
 				}
-				const projected = liveWindow({ messages: proposed.filter((m) => !m.pending), rows: terminal.rows,
-					columns: terminal.columns, furnitureRows: LIVE_FURNITURE_ROWS + taskFurniture + toolFurniture + shellFurniture + pendingInputFurniture,
-					settled: settledRef.current, raw: rawOutput })
+				const projected = liveWindow({
+					messages: proposed.filter((m) => !m.pending),
+					rows: terminal.rows,
+					columns: terminal.columns,
+					furnitureRows:
+						LIVE_FURNITURE_ROWS +
+						taskFurniture +
+						toolFurniture +
+						shellFurniture +
+						pendingInputFurniture,
+					settled: settledRef.current,
+					raw: rawOutput,
+				})
 				if (collapsible.length === 0 || (expanding && projected.settled > settledRef.current)) {
 					setOutputViewer(block)
 				} else setMessages(proposed)
@@ -10333,7 +10700,10 @@ export function App({
 		scheduleReviewPrompt === null &&
 		agentSurface === null &&
 		jobSurface === null
-			? goalStatusLabel(goalStatus, goalStatus ? goalActivation.isArmed(goalStatus.sessionId, goalStatus) : false)
+			? goalStatusLabel(
+					goalStatus,
+					goalStatus ? goalActivation.isArmed(goalStatus.sessionId, goalStatus) : false,
+				)
 			: null
 	// The effort chooser is a left-to-right slider wherever its stops fit on
 	// one row, and the vertical list everywhere else (see EffortSlider.tsx).
@@ -10343,7 +10713,7 @@ export function App({
 					choicePicker.options.map((option) => option.label),
 					Math.max(1, (terminal.columns ?? 80) - 2),
 				)
-		: undefined
+			: undefined
 	// A screen with its own box (a picker, a prompt, the agents or shells view)
 	// prints its key hints inside that box. The footer stays quiet then, so a
 	// screen never says the same keys twice (see key-hints.ts).
@@ -10445,10 +10815,7 @@ export function App({
 						staticIndent={1}
 						header={
 							transcriptOwned ? (
-								<BrandHeader
-									version={ctx.version}
-									permissionMode={displayedPermissionMode}
-								/>
+								<BrandHeader version={ctx.version} permissionMode={displayedPermissionMode} />
 							) : undefined
 						}
 					/>
@@ -10463,7 +10830,11 @@ export function App({
 							setPickerDetected(null)
 							setPickerSelectionKind('provider-and-model')
 							setPhase('picker')
-							void discoverProviders({ skipProbes: true }).then(setPickerDetected).catch((error) => setPickerNotice(explainFailure(error, 'Could not look for providers.')))
+							void discoverProviders({ skipProbes: true })
+								.then(setPickerDetected)
+								.catch((error) =>
+									setPickerNotice(explainFailure(error, 'Could not look for providers.')),
+								)
 						}}
 					/>
 				) : phase === 'trust' ? (
@@ -10475,8 +10846,12 @@ export function App({
 						</Text>
 						<Text color={theme.text.secondary}>Resolve the error above, then restart Namzu.</Text>
 					</Box>
-			) : phase === 'resume' || phase === 'unarchive' ? (
-					<ResumePicker conversations={resumeList} selected={selectedResume} mode={phase === 'unarchive' ? 'restore' : 'resume'} />
+				) : phase === 'resume' || phase === 'unarchive' ? (
+					<ResumePicker
+						conversations={resumeList}
+						selected={selectedResume}
+						mode={phase === 'unarchive' ? 'restore' : 'resume'}
+					/>
 				) : phase === 'edit' ? (
 					<EditPromptPicker prompts={editList} selected={selectedEdit} />
 				) : phase === 'picker' ? (
@@ -10506,7 +10881,10 @@ export function App({
 						    scrollback, while activity and input follow the visible tail directly.
 						    A viewport-height blank box here creates dead space and makes resize
 						    depend on an estimate of rows Ink has already rendered. */}
-						{agentSurface === null && outputViewer === null && jobSurface === null && scheduleReviewPrompt === null ? (
+						{agentSurface === null &&
+						outputViewer === null &&
+						jobSurface === null &&
+						scheduleReviewPrompt === null ? (
 							<LiveActivity
 								compact={compactWork}
 								activeTools={visibleActiveTools}
@@ -10534,7 +10912,11 @@ export function App({
 						{/* The step the plan is on, while its checklist is out of view.
 						    A sibling of the activity rows, not a mode: the composer
 						    below stays mounted and usable while it is up. */}
-						{agentSurface === null && outputViewer === null && jobSurface === null && permission === null && scheduleReviewPrompt === null ? (
+						{agentSurface === null &&
+						outputViewer === null &&
+						jobSurface === null &&
+						permission === null &&
+						scheduleReviewPrompt === null ? (
 							<TaskList tasks={liveTasks} />
 						) : null}
 						{/* Siblings, not a ternary. The overlay used to REPLACE the
@@ -10594,10 +10976,11 @@ export function App({
 								onSubmit={submitTextPrompt}
 								onCancel={cancelTextPrompt}
 							/>
-						) : permission === null && scheduleReviewPrompt === null &&
-						  !childSurfaceOpen &&
-						  choicePicker?.kind === 'reasoning-effort' &&
-						  effortSlider ? (
+						) : permission === null &&
+							scheduleReviewPrompt === null &&
+							!childSurfaceOpen &&
+							choicePicker?.kind === 'reasoning-effort' &&
+							effortSlider ? (
 							<EffortSlider
 								title={choicePicker.title}
 								notice={choicePicker.notice}
@@ -10606,7 +10989,10 @@ export function App({
 								layout={effortSlider}
 								columns={Math.max(1, (terminal.columns ?? 80) - 2)}
 							/>
-						) : permission === null && scheduleReviewPrompt === null && !childSurfaceOpen && choicePicker ? (
+						) : permission === null &&
+							scheduleReviewPrompt === null &&
+							!childSurfaceOpen &&
+							choicePicker ? (
 							<ChoicePicker
 								busy={'busy' in choicePicker && choicePicker.busy === true}
 								columns={Math.max(1, (terminal.columns ?? 80) - 2)}
@@ -10617,7 +11003,10 @@ export function App({
 								selected={selectedChoice}
 								windowSize={choicePicker.kind === 'command' ? choicePicker.windowSize : undefined}
 							/>
-						) : permission === null && scheduleReviewPrompt === null && !childSurfaceOpen && copyPicker ? (
+						) : permission === null &&
+							scheduleReviewPrompt === null &&
+							!childSurfaceOpen &&
+							copyPicker ? (
 							<CopyPicker targets={copyPicker.targets} selected={selectedCopy} />
 						) : null}
 						<ComposerFrame
@@ -10657,7 +11046,12 @@ export function App({
 									rows={terminal.rows}
 									canRecall={canRecallQueued}
 									{...(recallableQueued
-						? { recallItem: { text: recallableQueued.recallText ?? recallableQueued.text, attachmentCount: recallableQueued.attachments?.length } }
+										? {
+												recallItem: {
+													text: recallableQueued.recallText ?? recallableQueued.text,
+													attachmentCount: recallableQueued.attachments?.length,
+												},
+											}
 										: {})}
 									queuedTags={queuedTriggerLabels(queued)}
 									held={queuePause}
@@ -10741,7 +11135,11 @@ export function App({
 						canCycleMode
 					/>
 				)}
-				{showComposerSurface && !childSurfaceOpen && permission === null && scheduleReviewPrompt === null && runningShellCount > 0 ? (
+				{showComposerSurface &&
+				!childSurfaceOpen &&
+				permission === null &&
+				scheduleReviewPrompt === null &&
+				runningShellCount > 0 ? (
 					<Box>
 						<Text color={theme.text.secondary} wrap="truncate-end">
 							{terminal.columns < 38
@@ -10779,7 +11177,10 @@ export function App({
 						terminalColumns={terminal.columns}
 						compact={permission !== null}
 					/>
-				) : showComposerSurface && permission === null && scheduleReviewPrompt === null && agentSurface?.kind === 'cockpit' ? (
+				) : showComposerSurface &&
+					permission === null &&
+					scheduleReviewPrompt === null &&
+					agentSurface?.kind === 'cockpit' ? (
 					<AgentCockpit
 						agents={subagents}
 						selectedPhaseId={agentSurface.selectedPhaseId}
@@ -10789,14 +11190,16 @@ export function App({
 						terminalColumns={terminal.columns}
 					/>
 				) : showComposerSurface &&
-				  permission === null &&
-				  scheduleReviewPrompt === null &&
-				  agentSurface?.kind === 'transcript' &&
-				  selectedSubagent ? (
+					permission === null &&
+					scheduleReviewPrompt === null &&
+					agentSurface?.kind === 'transcript' &&
+					selectedSubagent ? (
 					<AgentTranscript
 						agent={selectedSubagent}
 						tailOffset={agentSurface.tailOffset}
-						terminalRows={terminal.rows - (childComposerAvailable ? childComposerRows(terminal.rows) : 0)}
+						terminalRows={
+							terminal.rows - (childComposerAvailable ? childComposerRows(terminal.rows) : 0)
+						}
 						terminalColumns={terminal.columns}
 						compact={childComposerAvailable && terminal.rows < 24}
 						navigationHint={
@@ -10827,7 +11230,8 @@ export function App({
 							if (
 								conversationGenRef.current !== childComposerGeneration ||
 								previousSessionRef.current !== session
-							) return
+							)
+								return
 							childDraftsRef.current.set(selectedSubagent.viewId, draft)
 							if (childDraftsRef.current.size > 80)
 								childDraftsRef.current.delete(childDraftsRef.current.keys().next().value!)
@@ -10836,7 +11240,8 @@ export function App({
 							if (
 								conversationGenRef.current !== childComposerGeneration ||
 								previousSessionRef.current !== session
-							) return Promise.reject(new Error('The owning conversation changed.'))
+							)
+								return Promise.reject(new Error('The owning conversation changed.'))
 							return submitChildMessage(selectedSubagent.viewId, text)
 						}}
 					/>
@@ -11022,7 +11427,8 @@ function pluginActionPicker(owner: AgentSession, name: string): ChoicePickerStat
 				description: enabled
 					? 'Remove its tools, skills and hooks; disconnect its MCP servers.'
 					: 'Load this trusted plugin’s tools, skills, hooks and MCP servers.',
-				selectedDescription: 'Resets on restart or model switch. Wait for the current reply to finish first.',
+				selectedDescription:
+					'Resets on restart or model switch. Wait for the current reply to finish first.',
 			},
 			{
 				label: `Keep ${enabled ? 'enabled' : 'disabled'} after restart`,
