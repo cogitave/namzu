@@ -123,22 +123,30 @@ export function createToastHub() {
 
 	const target = () => current ?? [...panes].at(-1)
 
+	/** Show a notice now, or hold it behind an error that is still on screen. Returns the id it answers to. */
+	const deliver = (sink: ToastSink, item: Pending): string => {
+		if (!active) {
+			show(sink, item)
+			return item.id
+		}
+		// The same words already on screen or waiting are one notice, not two.
+		if (active.text === item.text && active.tone === toneOf(item)) return active.id
+		if (active.tone === 'error') enqueue(item)
+		else {
+			// A newer notice takes the place of an older one that is not an error.
+			waiting = waiting.filter((other) => toneOf(other) === 'error')
+			show(sink, item)
+		}
+		return item.id
+	}
+
 	return {
 		notify(text: string, options: NotifyOptions = {}): string {
 			const id = `notice-${++counter}`
 			const item = { id, text, options }
 			const sink = target()
-			if (sink && active) {
-				// The same words already on screen or waiting are one notice, not two.
-				if (active.text === text && active.tone === (options.tone ?? 'neutral')) return active.id
-				if (active.tone === 'error') enqueue(item)
-				else {
-					// A newer notice takes the place of an older one that is not an error.
-					waiting = waiting.filter((other) => toneOf(other) === 'error')
-					show(sink, item)
-				}
-			} else if (sink) show(sink, item)
-			else pending = [...pending, item].slice(-PENDING_LIMIT)
+			if (sink) return deliver(sink, item)
+			pending = [...pending, item].slice(-PENDING_LIMIT)
 			return id
 		},
 		dismiss(id: string) {
@@ -151,9 +159,11 @@ export function createToastHub() {
 		register(sink: ToastSink) {
 			panes.add(sink)
 			current ??= sink
-			const waiting = pending
+			const early = pending
 			pending = []
-			for (const item of waiting) show(target() ?? sink, item)
+			// Notices sent before any pane existed go through the same queue: an early error is not
+			// closed unseen by the notice sent after it.
+			for (const item of early) deliver(target() ?? sink, item)
 			return {
 				focus() {
 					current = sink

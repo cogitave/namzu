@@ -24,6 +24,18 @@ function recordingSink() {
 
 describe('notify routing', () => {
 	describe('errors are not closed by a newer notice', () => {
+		it('does not close an error sent before any pane existed', () => {
+			const hub = createToastHub()
+			hub.notify("Couldn't save.", { tone: 'error' })
+			hub.notify('Copied.')
+			const { sink, added, closed, leave } = recordingSink()
+			hub.register(sink)
+			expect(added.map((item) => item.title)).toEqual(["Couldn't save."])
+			expect(closed).toEqual([])
+			leave(added[0]?.id ?? '')
+			expect(added.map((item) => item.title)).toEqual(["Couldn't save.", 'Copied.'])
+		})
+
 		it('holds an info notice until the error has left', () => {
 			const hub = createToastHub()
 			const { sink, added, closed, leave } = recordingSink()
