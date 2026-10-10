@@ -21,10 +21,13 @@ export function TerminalMark({ tab }: { tab: Pick<TerminalTabView, 'kind' | 'eng
 	)
 }
 
+/** The one word for a terminal that is no longer running, in the strip, the sidebar and the tooltip. */
+export const ENDED_LABEL = 'Ended'
+
 /** The badge an engine tab carries: what its program is doing, from its output and its end. */
 export function terminalBadgeLabel(tab: TerminalTabView): string | undefined {
 	// A shell has no activity to show, but an ended one reads as ended in the strip and the sidebar.
-	if (tab.kind === 'shell') return tab.status === 'running' ? undefined : 'Session ended'
+	if (tab.kind === 'shell') return tab.status === 'running' ? undefined : ENDED_LABEL
 	if (tab.kind !== 'engine' || !tab.activity) return undefined
 	if (tab.activity === 'exited')
 		return tab.exitCode !== undefined && tab.exitCode !== 0
@@ -59,14 +62,18 @@ export function TerminalBadge({ tab }: { tab: TerminalTabView }) {
 	)
 }
 
-function sessionNotice(tab: TerminalTabView, exitCode: number | undefined): string {
+/** What the note under an ended terminal says; one term, "terminal", throughout. */
+export function endedNotice(
+	tab: Pick<TerminalTabView, 'status'>,
+	exitCode: number | undefined,
+	signal?: number,
+): string {
 	if (tab.status === 'restored')
-		return 'Namzu was closed, so this session ended. Its last screen is shown above.'
-	return exitCode === undefined
-		? 'This session ended.'
-		: exitCode === 0
-			? 'This session ended.'
-			: `This session ended with code ${exitCode}.`
+		return 'Namzu was closed, so this terminal ended. Its last screen is shown above.'
+	if (signal !== undefined && signal > 0) return 'The terminal was stopped.'
+	return exitCode === undefined || exitCode === 0
+		? 'This terminal has ended.'
+		: `This terminal has ended with code ${exitCode}.`
 }
 
 /** Matches in a stronger colour than the selection, the current one stronger still. */
@@ -261,11 +268,11 @@ export function TerminalPane({
 			{ended && (
 				<output className="terminal-pane-note" data-terminal-ended-note>
 					<span>
-						{sessionNotice(tab, state.exitCode ?? tab.exitCode)}{' '}
+						{endedNotice(tab, state.exitCode ?? tab.exitCode, state.signal)}{' '}
 						{onRestart ? 'Press Enter to close, or R to restart.' : 'Press Enter to close.'}
 					</span>
 					<Button type="button" variant="ghost" size="xs" onClick={onClose}>
-						Close tab
+						Close terminal
 					</Button>
 					{onRestart && (
 						<Button type="button" variant="ghost" size="xs" onClick={onRestart}>

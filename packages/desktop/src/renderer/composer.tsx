@@ -463,7 +463,7 @@ export function Composer({
 									? 'Delivery unconfirmed'
 									: undefined,
 								shownLiveInputs.filter((item) => item.status === 'pending').length
-									? `${shownLiveInputs.filter((item) => item.status === 'pending').length} sending to this turn`
+									? `${shownLiveInputs.filter((item) => item.status === 'pending').length} sending to this reply`
 									: undefined,
 								shownLiveInputs.filter((item) => item.status === 'delivered').length
 									? `${shownLiveInputs.filter((item) => item.status === 'delivered').length} delivered`
@@ -492,11 +492,11 @@ export function Composer({
 									padding="compact"
 									className="max-h-[min(24rem,var(--available-height))]"
 								>
-									<h2 className="text-sm font-medium">Next turns</h2>
+									<h2 className="text-sm font-medium">Next messages</h2>
 									<p className="mt-1 text-xs text-muted-foreground">
 										{queueParked
 											? PARKED_QUEUE_COPY
-											: 'These messages start in order after the current turn finishes.'}
+											: 'These messages start in order after the current reply finishes.'}
 									</p>
 									<ol className="mt-3 space-y-2">
 										{queuedItems.map((item, index) => (
@@ -748,7 +748,7 @@ export function Composer({
 														<Button
 															variant="ghost-muted"
 															size="xs"
-															aria-label="Queue message for next turn"
+															aria-label="Queue message for the next reply"
 															disabled={
 																sending ||
 																draftDisabled ||
@@ -776,7 +776,7 @@ export function Composer({
 															type="button"
 															// One look whether the turn is running or waiting for a decision.
 															className="flex size-8 cursor-pointer items-center justify-center rounded-full bg-destructive/90 text-white shadow-xs shadow-destructive/24 inset-shadow-2xs inset-shadow-white/16 transition-all duration-150 hover:bg-destructive hover:scale-105 active:inset-shadow-black/8 active:shadow-none"
-															aria-label="Stop turn"
+															aria-label="Stop reply"
 															disabled={draftDisabled}
 															onClick={onStop}
 														/>
@@ -812,7 +812,7 @@ export function Composer({
 																	: sending
 																		? 'Sending'
 																		: running && liveInputSupported && attachments.length === 0
-																			? 'Send to current turn'
+																			? 'Send to current reply'
 																			: running
 																				? 'Queue message'
 																				: 'Send message'
@@ -861,8 +861,8 @@ export function Composer({
 																? 'Sending'
 																: running
 																	? liveInputSupported && attachments.length === 0
-																		? 'Send text to this running turn with its current model and review settings'
-																		: 'Queue for the next turn'
+																		? 'Send text to this running reply with its current model and review settings'
+																		: 'Queue for the next reply'
 																	: 'Send message · Enter'}
 												</TooltipPopup>
 											</Tooltip>

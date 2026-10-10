@@ -26,6 +26,7 @@ import {
 } from './icons.js'
 import { LocalSpeechSettingsContent } from './local-speech-settings.js'
 import { ModelsSection } from './models-section.js'
+import { middleEllipsis, tildePath } from './path-display.js'
 import { SettingsConfirmDialog } from './settings-confirm-dialog.js'
 import {
 	DATA_FOLDER_NOTES,
@@ -102,6 +103,8 @@ export interface SettingsPageProps {
 	/** Ordinary projects only: no Pal workspace, no chat. */
 	projects: ProjectView[]
 	onRemoveProject?: (project: ProjectView, trigger: HTMLElement | null) => void
+	/** Points a project whose folder is gone at its new place; absent where the window cannot ask. */
+	onLocateProject?: (project: ProjectView) => void
 	/** Absent in a window that has no updater. */
 	update?: {
 		state: UpdateState
@@ -421,7 +424,7 @@ export function TerminalSettings({
 			<Row
 				id="terminal-restore"
 				label="Bring terminal tabs back"
-				description="After a restart, terminal tabs return as ended sessions with their last screen. Their programs do not keep running while Namzu is closed."
+				description="After a restart, terminal tabs return as ended terminals with their last screen. Their programs do not keep running while Namzu is closed."
 			>
 				<Switch
 					label="Bring terminal tabs back"
@@ -434,7 +437,12 @@ export function TerminalSettings({
 	)
 }
 
-function ProjectsSection({ projects, onRemoveProject, settings }: SettingsPageProps) {
+function ProjectsSection({
+	projects,
+	onRemoveProject,
+	onLocateProject,
+	settings,
+}: SettingsPageProps) {
 	const switchRow = useRef<HTMLDivElement>(null)
 	return (
 		<>
@@ -475,9 +483,7 @@ function ProjectsSection({ projects, onRemoveProject, settings }: SettingsPagePr
 							<li key={project.id} className="settings-project">
 								<div className="settings-project-copy">
 									<span className="settings-project-name">{project.name}</span>
-									<span className="settings-project-path" title={project.path}>
-										{project.path}
-									</span>
+									<SettingsPath path={project.path} />
 								</div>
 								<span
 									className="settings-badge"
@@ -485,6 +491,16 @@ function ProjectsSection({ projects, onRemoveProject, settings }: SettingsPagePr
 								>
 									{projectTrustText(project)}
 								</span>
+								{project.missing && onLocateProject && (
+									<Button
+										variant="outline"
+										size="sm"
+										aria-label={`Locate the folder for ${project.name}`}
+										onClick={() => onLocateProject(project)}
+									>
+										Locate folder
+									</Button>
+								)}
 								{onRemoveProject && (
 									<Button
 										variant="outline"
@@ -612,6 +628,34 @@ function SpeechSection({ speech }: SettingsPageProps) {
 }
 
 /** Copies the versions for a support request; says so only once the copy really happened. */
+/** A folder as a person reads it: home as `~`, a long middle cut, the whole path on hover. */
+function SettingsPath({ path }: { path: string }) {
+	return (
+		<span className="settings-project-path" title={path}>
+			{middleEllipsis(tildePath(path), 56)}
+		</span>
+	)
+}
+
+function CopyPath({ path, label }: { path: string; label: string }) {
+	const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle')
+	return (
+		<Button
+			variant="ghost-muted"
+			size="sm"
+			aria-label={`Copy the path of ${label}`}
+			onClick={() =>
+				void copyPlainText(path).then(
+					() => setState('copied'),
+					() => setState('failed'),
+				)
+			}
+		>
+			{state === 'copied' ? 'Copied' : state === 'failed' ? 'Could not copy' : 'Copy path'}
+		</Button>
+	)
+}
+
 function CopyDetails({ text }: { text: string }) {
 	const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle')
 	return (
@@ -659,7 +703,7 @@ function AboutSection({ info, infoError, onOpenFolder }: SettingsPageProps) {
 						</div>
 					)}
 					<div>
-						<dt>Namzu engine (SDK)</dt>
+						<dt>Namzu engine</dt>
 						<dd>{info.sdkVersion ?? 'Not found'}</dd>
 					</div>
 					<div>
@@ -682,9 +726,7 @@ function AboutSection({ info, infoError, onOpenFolder }: SettingsPageProps) {
 						<li key={folder.kind}>
 							<div className="settings-project-copy">
 								<span className="settings-project-name">{folder.label}</span>
-								<span className="settings-project-path" title={folder.path}>
-									{folder.path}
-								</span>
+								<SettingsPath path={folder.path} />
 								<span
 									className="settings-folder-note"
 									data-safe={DATA_FOLDER_NOTES[folder.kind].safe}
@@ -692,6 +734,7 @@ function AboutSection({ info, infoError, onOpenFolder }: SettingsPageProps) {
 									{DATA_FOLDER_NOTES[folder.kind].text}
 								</span>
 							</div>
+							<CopyPath path={folder.path} label={folder.label} />
 							{onOpenFolder && (
 								<Button
 									variant="outline"

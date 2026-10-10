@@ -5907,6 +5907,9 @@ export function App({
 						onAppearanceChange={setAppearance}
 						projects={projects.filter((item) => !item.palId && !item.isChat)}
 						onRemoveProject={api.removeProject ? requestProjectRemoval : undefined}
+						onLocateProject={
+							api.locateProject ? (value) => void act(() => locateProject(value)) : undefined
+						}
 						update={
 							update
 								? {

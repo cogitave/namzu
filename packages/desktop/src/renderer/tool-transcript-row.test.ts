@@ -27,7 +27,7 @@ it('never draws a duration beside a row; a second or more goes in the hover text
 	const slow = row(6000)
 	expect(slow).not.toContain('tool-duration')
 	expect(slow).not.toContain(' ms')
-	expect(slow).toContain('Took 6 s')
+	expect(slow).toContain('Took 6s')
 	const quick = row(11)
 	expect(quick).not.toContain('tool-duration')
 	expect(quick).not.toContain('Took')
@@ -56,5 +56,5 @@ it('puts the duration in the tooltip of a row that has one', () => {
 		},
 	})
 	const html = renderToStaticMarkup(createElement(ToolTranscriptRow, { thread, id: '1:c' }))
-	expect(html).toContain('Took 6 s')
+	expect(html).toContain('Took 6s')
 })

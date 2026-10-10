@@ -13,6 +13,7 @@ import {
 	writeFile,
 } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
+import type { LocalSpeechInstallProgress } from '../shared/local-speech-protocol.js'
 import {
 	EMA_MODEL_FILES,
 	EMA_MODEL_REVISION,
@@ -48,6 +49,8 @@ export interface LocalSpeechInstallOptions {
 	/** Test seam, never accepted from a renderer. */
 	run?: typeof runLocalSpeechCommand
 	fetch?: typeof fetch
+	/** Told where the install is, so the settings page can show it moving. */
+	onProgress?: (progress: LocalSpeechInstallProgress) => void
 }
 
 export const LOCAL_SPEECH_WORKER_SHA256 = createHash('sha256')
@@ -163,6 +166,8 @@ async function downloadModel(
 	model: (typeof EMA_MODEL_FILES)[number],
 	path: string,
 	options: LocalSpeechInstallOptions,
+	before = 0,
+	total = 0,
 ): Promise<void> {
 	let response: Response
 	try {
@@ -184,6 +189,11 @@ async function downloadModel(
 			const { done, value } = await reader.read()
 			if (done) break
 			bytes += value.byteLength
+			options.onProgress?.({
+				step: 'downloading',
+				downloadedBytes: before + bytes,
+				totalBytes: total,
+			})
 			if (bytes > model.bytes)
 				throw new Error('The downloaded voice is damaged. Download it again.')
 			hash.update(value)
@@ -346,6 +356,7 @@ export async function installLocalSpeech(
 	await mkdir(directory, { recursive: true, mode: 0o700 })
 	const existing = await readLocalSpeechInstallation(directory)
 	if (existing) return existing
+	options.onProgress?.({ step: 'preparing' })
 	const python = options.python ?? (await defaultPython())
 	const run = options.run ?? runLocalSpeechCommand
 	const metadata = JSON.parse(
@@ -456,8 +467,13 @@ export async function installLocalSpeech(
 			{ cwd: directory, signal: options.signal },
 		)
 		if (runtimeDlls.length > 0) await copyVisualCRuntimeIntoTorch(join(paths.runtime, 'venv'))
-		for (const model of EMA_MODEL_FILES)
-			await downloadModel(model, join(paths.models, model.name), options)
+		const total = EMA_MODEL_FILES.reduce((sum, model) => sum + model.bytes, 0)
+		let before = 0
+		for (const model of EMA_MODEL_FILES) {
+			await downloadModel(model, join(paths.models, model.name), options, before, total)
+			before += model.bytes
+		}
+		options.onProgress?.({ step: 'checking' })
 		await run(
 			paths.python,
 			[

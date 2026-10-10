@@ -334,3 +334,36 @@ describe('the settings sidebar', () => {
 		expect(markup).toMatch(/aria-current="page"[^>]*>(?:(?!<\/button>).)*Updates/s)
 	})
 })
+
+describe('settings words and paths', () => {
+	it('shows a project whose folder is gone plainly, with Locate and Remove', () => {
+		const markup = page('projects', {
+			projects: [project({ missing: true, status: 'error', path: '/home/me/gone' })],
+			onLocateProject: () => {},
+		})
+		expect(markup).toContain('Folder not found')
+		expect(markup).not.toContain('Needs reconnecting')
+		expect(markup).toContain('Locate folder')
+		expect(markup).toContain('Remove')
+		expect(markup).toContain('~/gone')
+		expect(markup).toContain('title="/home/me/gone"')
+	})
+
+	it('offers no Locate for a folder that is there', () => {
+		expect(page('projects', { onLocateProject: () => {} })).not.toContain('Locate folder')
+	})
+
+	it('writes data folders with ~, the whole path on hover and a Copy path action', () => {
+		const markup = page('about')
+		expect(markup).toContain('~/AppData/Roaming/Namzu')
+		expect(markup).toContain('title="C:/Users/me/AppData/Roaming/Namzu"')
+		expect(markup).toContain('Copy path')
+		expect(markup).toContain('Safe to delete')
+	})
+
+	it('names the engine without developer words in About', () => {
+		const markup = page('about')
+		expect(markup).toContain('Namzu engine')
+		expect(markup).not.toContain('SDK')
+	})
+})

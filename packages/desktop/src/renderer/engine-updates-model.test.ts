@@ -82,7 +82,9 @@ describe('a row of Settings ▸ Updates', () => {
 		const unknown: EngineUpdateItem = { ...codex, status: 'unknown', latest: undefined }
 		expect(engineRowView(unknown)).toMatchObject({
 			status: 'Could not check',
-			note: 'Namzu couldn\u2019t reach the update server. It will try again later.',
+			// The server case is said once above the list, not on every row.
+			note: '',
+			unreachable: true,
 		})
 		const silent = engineRowView({ ...unknown, installed: undefined })
 		expect(silent.status).toBe('Version unknown')

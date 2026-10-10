@@ -9,10 +9,22 @@ import { Select, SelectItem, SelectPopup, SelectTrigger } from './ui/select.js'
 import type { LocalSpeechControls } from './use-local-speech.js'
 import './local-speech-settings.css'
 
+/** Sizes read as "1.2 MB" everywhere; an unmeasured figure says so instead of showing zero. */
 export function formatSpeechBytes(value: number | null | undefined): string {
 	if (value === null || value === undefined || !Number.isFinite(value) || value < 0)
 		return 'Not measured'
 	return formatSize(value)
+}
+
+/** What the download row says: one status for the step it is on, with the size once bytes move. */
+export function downloadStatus(state: LocalSpeechState): string {
+	const progress = state.progress
+	if (progress?.step === 'checking') return 'Checking the download…'
+	if (progress?.step === 'downloading' && progress.downloadedBytes !== undefined) {
+		const total = progress.totalBytes ? ` of ${formatSpeechBytes(progress.totalBytes)}` : ''
+		return `Downloading the voice · ${formatSpeechBytes(progress.downloadedBytes)}${total}`
+	}
+	return 'Preparing the voice engine…'
 }
 
 function voiceStatus(state: LocalSpeechState): string {
@@ -53,7 +65,7 @@ export function LocalSpeechSettingsContent({
 				Reads replies aloud in Turkish. The voice runs on this device, so nothing is sent away.
 			</p>
 			{!speech.supported ? (
-				<p className="local-speech-notice">Local speech is unavailable in this runtime.</p>
+				<p className="local-speech-notice">Local speech is unavailable in this app.</p>
 			) : speech.loading ? (
 				<output className="local-speech-notice">Loading voice settings…</output>
 			) : null}
@@ -96,11 +108,23 @@ export function LocalSpeechSettingsContent({
 						<strong>Turkish voice</strong>
 						<span>
 							{downloading
-								? 'Downloading…'
+								? downloadStatus(state)
 								: `${formatSpeechBytes(state.resources.modelDownloadBytes)} to download, once.`}
 						</span>
+						{downloading && (
+							<progress
+								className="local-speech-progress"
+								aria-label="Voice download"
+								max={state.progress?.totalBytes || undefined}
+								value={
+									state.progress?.step === 'downloading' && state.progress.totalBytes
+										? state.progress.downloadedBytes
+										: undefined
+								}
+							/>
+						)}
 					</div>
-					<span className="local-speech-badge">{voiceStatus(state)}</span>
+					{!downloading && <span className="local-speech-badge">{voiceStatus(state)}</span>}
 				</section>
 			)}
 			{state && installed && <LocalSpeechResourceCard state={state} />}
@@ -207,11 +231,13 @@ export function LocalSpeechResourceCard({
 		value === null || !Number.isFinite(value) || value < 0 ? undefined : formatSpeechBytes(value)
 	const number = (value: number | null, suffix: string) =>
 		value === null || !Number.isFinite(value) ? undefined : `${Math.round(value)}${suffix}`
+	const seconds = (value: number | null) =>
+		value === null || !Number.isFinite(value) ? undefined : `${Math.round(value / 100) / 10}s`
 	const rows = [
 		['Voice download', bytes(resources.modelDownloadBytes)],
 		['Space used', bytes(resources.diskBytes)],
 		['Memory in use', bytes(resources.ramBytes)],
-		['First sound', number(resources.firstAudioMs, ' ms')],
+		['First sound', seconds(resources.firstAudioMs)],
 	] as const
 	const more = [
 		['Speech engine download', bytes(resources.runtimeDownloadBytes)],

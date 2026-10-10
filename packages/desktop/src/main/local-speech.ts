@@ -9,6 +9,7 @@ import {
 	LOCAL_SPEECH_PREVIEW_TEXT,
 	LOCAL_SPEECH_SAMPLE_RATE,
 	type LocalSpeechEvent,
+	type LocalSpeechInstallProgress,
 	type LocalSpeechSettings,
 	type LocalSpeechState,
 	localSpeechRequestId,
@@ -134,6 +135,16 @@ export class LocalSpeechService {
 	private snapshot(): LocalSpeechState {
 		return structuredClone(this.current)
 	}
+	/** Tells the page where the install is, but only when a whole percent or the step moved. */
+	private noteProgress(progress: LocalSpeechInstallProgress): void {
+		const before = this.current.progress
+		const percent = (value: LocalSpeechInstallProgress | undefined) =>
+			value?.downloadedBytes === undefined || !value.totalBytes
+				? -1
+				: Math.floor((100 * value.downloadedBytes) / value.totalBytes)
+		this.current.progress = progress
+		if (before?.step !== progress.step || percent(before) !== percent(progress)) this.changed()
+	}
 	private changed(): void {
 		if (!this.disposed) this.emit({ type: 'state', state: this.snapshot() })
 	}
@@ -189,6 +200,7 @@ export class LocalSpeechService {
 					fetch: this.options.fetch,
 					run: this.installerProcesses.run,
 					signal: this.installController?.signal,
+					onProgress: (progress) => this.noteProgress(progress),
 				})
 				if (!this.disposed) this.applyInstallation(installation)
 			} catch (error) {
@@ -208,6 +220,7 @@ export class LocalSpeechService {
 			} finally {
 				this.installing = undefined
 				this.installController = undefined
+				this.current.progress = undefined
 				this.changed()
 			}
 			return this.snapshot()

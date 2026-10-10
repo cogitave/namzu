@@ -32,12 +32,20 @@ export interface LocalSpeechResources {
 	firstAudioMs: number | null
 	measuredAt: string | null
 }
+/** Where a running download is, so the person sees it moving. Present only while installing. */
+export interface LocalSpeechInstallProgress {
+	step: 'preparing' | 'downloading' | 'checking'
+	/** Voice bytes received so far; only while `step` is `downloading`. */
+	downloadedBytes?: number
+	totalBytes?: number
+}
 export interface LocalSpeechState {
 	settings: LocalSpeechSettings
 	installation: 'missing' | 'installing' | 'ready' | 'failed'
 	worker: 'unloaded' | 'loading' | 'ready' | 'speaking'
 	device: 'cpu'
 	resources: LocalSpeechResources
+	progress?: LocalSpeechInstallProgress
 	error?: string
 }
 export interface LocalSpeechSpeakInput {

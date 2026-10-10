@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { HarnessView } from '../shared/protocol.js'
+import { elapsedLabel } from './transcript-layout.js'
 
 /** After this long a start is slow enough to deserve a running count. */
 export const STARTING_COUNT_AFTER_MS = 1000
@@ -16,7 +17,7 @@ export function engineStartName(label: string): string {
 export function startingLabel(label: string, elapsedMs: number): string {
 	const name = engineStartName(label)
 	return elapsedMs >= STARTING_COUNT_AFTER_MS
-		? `Starting ${name}… ${Math.floor(elapsedMs / 1000)}s`
+		? `Starting ${name}… ${elapsedLabel(elapsedMs)}`
 		: `Starting ${name}…`
 }
 

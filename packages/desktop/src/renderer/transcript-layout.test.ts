@@ -221,7 +221,7 @@ it('classifies actual stop metadata without promising unsupported recovery or bl
 		expect(terminalNotice(reason)).toBe('Stopped.')
 	for (const reason of ['paused', 'timeout'])
 		expect(terminalNotice(reason)).not.toMatch(/continue|retry/i)
-	expect(terminalNotice('step_refused')).toContain('execution policy')
+	expect(terminalNotice('step_refused')).toContain('a rule you set')
 	expect(terminalNotice('step_refused')).not.toContain('approved')
 	expect(terminalNotice('cost_unmeasurable')).toContain('could not be checked')
 	expect(terminalNotice('answer_rejected')).toContain('response')

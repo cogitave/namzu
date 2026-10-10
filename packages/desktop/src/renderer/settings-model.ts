@@ -24,7 +24,7 @@ export const SETTINGS_SECTION_SUBTITLES: Record<SettingsSection, string> = {
 	projects: 'The folders Namzu knows, and when it asks you to trust them again.',
 	appearance: 'Choose how Namzu looks.',
 	updates: 'Keep Namzu and the programs it works with up to date.',
-	speech: 'Dictate with a voice that stays on this computer.',
+	speech: 'Read replies aloud with a voice that stays on this computer.',
 	about: 'Versions, your system, and where Namzu keeps its files.',
 }
 
@@ -73,8 +73,8 @@ export const SETTINGS_ENTRIES: readonly SettingsEntry[] = [
 		section: 'general',
 		label: 'Bring terminal tabs back',
 		description:
-			'After a restart, terminal tabs return as ended sessions showing their last screen.',
-		keywords: ['terminal', 'restore', 'restart', 'tabs', 'session'],
+			'After a restart, terminal tabs return as ended terminals showing their last screen.',
+		keywords: ['terminal', 'restore', 'restart', 'tabs'],
 	},
 	{
 		id: 'models',
@@ -147,7 +147,7 @@ export const SETTINGS_ENTRIES: readonly SettingsEntry[] = [
 		id: 'about',
 		section: 'about',
 		label: 'About Namzu',
-		description: 'Versions of the app, the command line and the SDK.',
+		description: 'Versions of the app and its command line.',
 		keywords: ['version', 'cli', 'sdk', 'build'],
 	},
 	{
@@ -277,12 +277,13 @@ export function aboutDetailsText(info: {
 		...(info.installedCliVersion
 			? [`Namzu command line (installed separately) ${info.installedCliVersion}`]
 			: []),
-		`Namzu engine (SDK) ${info.sdkVersion ?? 'not found'}`,
+		`Namzu engine ${info.sdkVersion ?? 'not found'}`,
 		platformText(info.platform),
 	].join('\n')
 }
 
 export function projectTrustText(project: ProjectView): string {
+	if (project.missing) return 'Folder not found'
 	if (project.status === 'connecting') return 'Connecting'
 	if (project.status === 'error') return 'Needs reconnecting'
 	return project.trusted ? 'Trusted' : 'Not trusted yet'
@@ -318,7 +319,7 @@ export function removalNotice(
 	if (trust.state === 'not-connected')
 		return `Removed \u201c${name}\u201d. It wasn’t connected, so its trust entry was left as it was.`
 	if (trust.state === 'unsupported')
-		return `Removed \u201c${name}\u201d. This Namzu runtime can’t update its trust list, so the folder stays trusted.`
+		return `Removed \u201c${name}\u201d. This version of Namzu can’t update its trust list, so the folder stays trusted.`
 	return `Removed \u201c${name}\u201d. Namzu no longer trusts the folder.`
 }
 

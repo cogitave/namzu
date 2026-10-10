@@ -130,7 +130,7 @@ it('shows pinned source and consent/progress truth without exposing stored ident
 	const result = html('subscriptions')
 	expect(result).toContain('Real source plan')
 	expect(result).toContain('Starting the other Pal: blocked')
-	expect(result).toContain('Shared up to activity 12')
+	expect(result).toContain('Updates have been shared')
 	expect(result).not.toContain('>private-')
 	expect(result).not.toContain('private-token')
 	expect(result).not.toContain('private-subscription')

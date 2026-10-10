@@ -10,7 +10,7 @@ import {
 	LOCAL_SPEECH_PREVIEW_TEXT,
 	type LocalSpeechEvent,
 } from '../shared/local-speech-protocol.js'
-import type { LocalSpeechInstallation } from './local-speech-install.js'
+import type { LocalSpeechInstallOptions, LocalSpeechInstallation } from './local-speech-install.js'
 import { LocalSpeechService, LocalSpeechSynthesizer } from './local-speech.js'
 
 const fixtures: { directory: string; service: LocalSpeechService }[] = []
@@ -85,7 +85,7 @@ async function setup(
 		children.push(child)
 		return child as unknown as ChildProcessWithoutNullStreams
 	})
-	const install = vi.fn(async () => installation)
+	const install = vi.fn(async (_options?: LocalSpeechInstallOptions) => installation)
 	const service = new LocalSpeechService({
 		directory,
 		spawn: spawnWorker as unknown as typeof spawn,
@@ -412,4 +412,26 @@ it('removes the downloaded engine, keeps the saved preferences and refuses while
 	await expect(fixture.service.uninstall()).rejects.toThrow('Wait for the voice download')
 	gate.resolve(installation)
 	await installing
+})
+
+it('reports how far the download is, once per whole percent, and clears it when done', async () => {
+	const fixture = await setup()
+	await fixture.service.state()
+	fixture.install.mockImplementationOnce(async (options) => {
+		options?.onProgress?.({ step: 'preparing' })
+		options?.onProgress?.({ step: 'downloading', downloadedBytes: 1, totalBytes: 1000 })
+		// Still inside the same whole percent: nothing new to say.
+		options?.onProgress?.({ step: 'downloading', downloadedBytes: 5, totalBytes: 1000 })
+		options?.onProgress?.({ step: 'downloading', downloadedBytes: 20, totalBytes: 1000 })
+		options?.onProgress?.({ step: 'checking' })
+		return installation
+	})
+	await fixture.service.install()
+	const steps = fixture.events.flatMap((event) =>
+		event.type === 'state' && event.state.progress
+			? [`${event.state.progress.step}:${event.state.progress.downloadedBytes ?? ''}`]
+			: [],
+	)
+	expect(steps).toEqual(['preparing:', 'downloading:1', 'downloading:20', 'checking:'])
+	expect((await fixture.service.state()).progress).toBeUndefined()
 })

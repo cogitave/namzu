@@ -56,7 +56,7 @@ const waitingFor: Record<UpdateBlocker, string> = {
 	'background-work': 'Waiting for background work to finish',
 	'dialog-open': 'Waiting for you to close the open dialog',
 	'typing-unsaved': 'Waiting for you to finish typing',
-	'computer-session': 'Waiting for the computer session to end',
+	'computer-session': 'Waiting for the computer to finish',
 }
 const blockerOrder: UpdateBlocker[] = [
 	'turn-running',

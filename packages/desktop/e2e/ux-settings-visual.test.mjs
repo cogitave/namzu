@@ -137,7 +137,7 @@ flow("About says versions and system in plain words, with paths only under Data 
 	await openProject(w);
 	await openSettings(w, "About");
 	await expect(w.page.getByText("Namzu command line (bundled with this app)", { exact: true })).toBeVisible();
-	await expect(w.page.getByText("Namzu engine (SDK)", { exact: true })).toBeVisible();
+	await expect(w.page.getByText("Namzu engine", { exact: true })).toBeVisible();
 	await expect(w.page.getByText("Linux (64-bit Intel or AMD)")).toBeVisible();
 	const text = await pageText(w);
 	const beforeFolders = text.slice(0, text.indexOf("Data folders"));

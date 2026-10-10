@@ -335,6 +335,8 @@ updateFlow(
 		await openUpdates(w);
 		await expect(row(w, "codex-cli")).toContainText("0.154.0");
 		await expect(row(w, "codex-cli")).toContainText("Could not check");
+		// The server being down is said once above the list, not on every row.
+		await expect(w.page.locator("[data-unreachable]")).toContainText("can’t reach the update server");
 		await expect(railBadge(w)).toHaveCount(0);
 		await shot(w, "updates-registry-down");
 		// The registry answers; the person asks to check.

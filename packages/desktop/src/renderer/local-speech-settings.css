@@ -193,3 +193,10 @@
 		transition: none;
 	}
 }
+
+.local-speech-progress {
+	width: 100%;
+	height: 4px;
+	margin-top: 6px;
+	accent-color: var(--foreground);
+}

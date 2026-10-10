@@ -67,8 +67,8 @@ export function SidebarThreadHeader({
 	onClearSearch,
 }: SidebarThreadHeaderProps) {
 	const newThreadLabel = newThreadShortcutLabel
-		? `New thread (${newThreadShortcutLabel})`
-		: 'New thread'
+		? `New conversation (${newThreadShortcutLabel})`
+		: 'New conversation'
 
 	return (
 		<div className="flex items-center gap-1">
@@ -94,7 +94,7 @@ export function SidebarThreadHeader({
 						size="icon-micro"
 						variant="ghost-muted"
 						className="shrink-0"
-						aria-label="Clear thread search"
+						aria-label="Clear conversation search"
 						onClick={() => {
 							onClearSearch()
 							searchInputRef.current?.focus()
@@ -120,13 +120,13 @@ export function SidebarThreadHeader({
 				) : null}
 				{!hideActions && (
 					<SidebarHeaderIconButton
-						label="New thread"
+						label="New conversation"
 						tooltip={
 							showNewThreadInProjectHint ? (
 								<span className="flex flex-col gap-0.5">
 									<span>{newThreadLabel}</span>
 									<span className="text-muted-foreground">
-										New thread in current project: Shift+click
+										New conversation in current project: Shift+click
 										{newThreadInProjectShortcutLabel ? ` (${newThreadInProjectShortcutLabel})` : ''}
 									</span>
 								</span>

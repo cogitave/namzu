@@ -27,7 +27,7 @@ Speech is disabled initially. **Remove voice…** deletes the downloaded engine 
 the folder is listed under Settings ▸ About ▸ Data folders, never as a raw path on the Speech page.
 Before the download the page says what it does and how big it is and offers one **Download voice**;
 the switches, the language, the resources and measurements appear once the voice is installed, and only
-figures that were measured are shown. **Download voice** also turns the voice on when it finishes
+figures that were measured are shown (sizes read "34.4 MB"). While it downloads the row says one thing for the step it is on ("Preparing the voice engine…", then "Downloading the voice · 12.3 MB of 34.4 MB" with a progress bar, then "Checking the download…"); the installer reports bytes through `onProgress` and the service sends a new state only when the step or a whole percent changes. **Download voice** also turns the voice on when it finishes
 installing, because the click is the person's ask to use it. It explicitly installs an isolated
 Python environment below the profile's `local-speech/` directory. An installed
 app uses the CPython it carries under `resources/python`; a development run needs
@@ -637,7 +637,7 @@ What it holds, and where each value lives (one source of truth per value):
   environment (the variable's name, never its value), a key saved here, an existing `claude-code` or
   Codex sign-in, an OpenCode key, a local server, or the keyless free tier (listed as free, not
   as a connection). See [Connecting a provider](#connecting-a-provider).
-- **Projects** — every project (name, path, trusted state) with **Remove…**, and *Ask again when a
+- **Projects** — every project (name, path shortened with `~` and the whole path on hover, trusted state) with **Remove…**; a project whose folder is gone reads "Folder not found" and also offers **Locate folder**, and *Ask again when a
   project's automatic settings change* (default on). See
   [Trust again when automatic settings change](#trust-again-when-automatic-settings-change).
 - **Appearance** — the theme (light, dark, system). It stays in the renderer's own storage
@@ -659,16 +659,16 @@ What it holds, and where each value lives (one source of truth per value):
   sign in to *name* in a terminal" with **Open terminal** (the window remembers the engine's own
   "needs an account" error until the same engine connects without it; Namzu never runs an engine's
   login command to find out, because an unknown command could start a chat and spend tokens). A
-  check that could not finish names its cause: "Namzu couldn't reach the update server", or
+  check that could not finish names its cause: one note above the list, "Namzu can't reach the update server. Check your internet connection, then choose Check for updates.", with each installed program reading "Could not check", or
   "*name* didn't answer when asked for its version". And
   *Download updates automatically* (default on; not drawn where the app cannot update itself).
 - **Speech** — what the voice does and its size before the download; after it the voice status,
   Preview, Remove and the existing options (see [Local Turkish speech](#local-turkish-speech)).
-- **About** — "Namzu Desktop", "Namzu command line (bundled with this app)" and "Namzu engine (SDK)"
+- **About** — "Namzu Desktop", "Namzu command line (bundled with this app)" and "Namzu engine"
   versions (read from the `package.json` files beside the bundled runtime; unreadable ones read "Not
   found"), plus "Namzu command line (installed separately)" when a copy is on the computer's PATH
   (`installedCliVersion` of `desktopInfo()`), the system in words ("Windows (64-bit Intel or AMD)"),
-  **Copy details** (versions only, never a path) and the data folders with **Open**, each saying what
+  **Copy details** (versions only, never a path) and the data folders with **Open** and **Copy path** (home as `~`, a long middle cut, the whole path on hover), each saying what
   deleting it does (logs and the downloaded voice are safe to delete; the Namzu home folder holds
   conversations, Pals and projects; the app data holds settings, tabs and drafts); raw paths appear
   only there. A folder is opened by kind (`app`, `namzu`,
@@ -2826,8 +2826,8 @@ repeats the changed-settings check first, for a shell as well as an engine tab.
 is read from its host and saved with the tab in `terminal-tabs.json` (a serialized screen over
 512 KiB is dropped, and the file is written a few seconds after output goes quiet and at least every 12
 seconds while a program never does); on the
-next start the tab returns in the layout as an **ended** session showing that screen, with a line that
-says why it is quiet and **Close tab**. A layout tab with nothing saved behind it is removed. Closing
+next start the tab returns in the layout as an **ended** terminal showing that screen, with a line that
+says why it is quiet and **Close terminal**. An ended terminal says "This terminal has ended." (with the code when it was not 0), or "The terminal was stopped." when it was killed; its strip and sidebar dot is named "Ended" (tooltip and accessible name), and the tab menu says **Close terminal**. A layout tab with nothing saved behind it is removed. Closing
 a tab, or removing its project, ends the whole process tree.
 
 ### Desktop | CLI
