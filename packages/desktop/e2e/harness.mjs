@@ -130,12 +130,11 @@ export async function launch(world) {
 	});
 	// A first-timer has no provider: nothing in the environment names a key.
 	if (!world.noKey) env.OPENAI_API_KEY = "e2e-not-a-secret";
-	else {
-		// Under WSL the CLI also reads the sign-ins of the paired Windows account.
-		// A first-timer has none, and the owner's must never decide what a test sees.
-		delete env.WSL_DISTRO_NAME;
-		delete env.WSL_INTEROP;
-	}
+	// Under WSL the CLI also reads the sign-ins of the paired Windows account. The owner's must
+	// never decide what a test sees: a first-timer has none, and a flow with a scripted key would
+	// otherwise be answered by the real, possibly expired, sign-in instead of the scripted one.
+	delete env.WSL_DISTRO_NAME;
+	delete env.WSL_INTEROP;
 	const app = await _electron.launch({
 		executablePath: require("electron"),
 		args: [appDir, `--user-data-dir=${world.userData}`, "--no-sandbox"],
