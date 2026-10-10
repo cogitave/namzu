@@ -104,15 +104,15 @@ flow("the Stop tooltip says why Queue is off, and goes back to plain when it is 
 	await openProject(w);
 	await send(w, "slow please");
 	await expect(w.page.getByText("Reading your message")).toBeVisible({ timeout: T });
-	const stop = w.page.getByRole("button", { name: "Stop turn" });
+	const stop = w.page.getByRole("button", { name: "Stop reply" });
 	await stop.hover();
 	await expect(w.page.getByText("Stop · Esc. Queue is off until you type a message.")).toBeVisible({
 		timeout: T,
 	});
 	await shot(w, "stop-tooltip-queue-off");
 	await w.page.getByRole("textbox", { name: "Message Namzu" }).fill("and then this");
-	await expect(w.page.getByRole("button", { name: "Queue message for next turn" })).toBeEnabled();
-	await w.page.getByRole("button", { name: "Queue message for next turn" }).hover();
+	await expect(w.page.getByRole("button", { name: "Queue message for the next reply" })).toBeEnabled();
+	await w.page.getByRole("button", { name: "Queue message for the next reply" }).hover();
 	await stop.hover();
 	await expect(w.page.getByText("Stop · Esc", { exact: true })).toBeVisible({ timeout: T });
 	w.model.release("slow");

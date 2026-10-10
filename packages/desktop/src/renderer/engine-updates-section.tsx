@@ -41,6 +41,9 @@ export function EngineUpdateRows({ target }: { target?: EngineUpdateTarget }) {
 	const [copied, setCopied] = useState<EngineUpdateId>()
 	const platform = setupPlatform(typeof navigator === 'undefined' ? '' : navigator.userAgent)
 	if (!engines || engines.state.items.length === 0) return null
+	const unreachable = engines.state.items.some(
+		(item) => engineRowView(item, { signedOut: signedOut.has(item.id) }).unreachable,
+	)
 	const run = async (id: EngineUpdateId) => {
 		if (!target) return
 		setRefused((all) => ({ ...all, [id]: undefined }))
@@ -64,6 +67,12 @@ export function EngineUpdateRows({ target }: { target?: EngineUpdateTarget }) {
 			<h3 id={heading} className="settings-subtitle">
 				Programs Namzu works with
 			</h3>
+			{unreachable && (
+				<p className="engine-update-note" data-unreachable>
+					Namzu can’t reach the update server. Check your internet connection, then choose Check for
+					updates.
+				</p>
+			)}
 			<ul>
 				{engines.state.items.map((item) => {
 					const view = engineRowView(item, { signedOut: signedOut.has(item.id) })

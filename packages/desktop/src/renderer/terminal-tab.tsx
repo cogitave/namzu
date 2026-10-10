@@ -230,9 +230,7 @@ export function TerminalStripTab({
 									onClick={() => onClose(tab)}
 								>
 									<XIcon aria-hidden="true" />
-									<span className="conversation-actions-label">
-										{ended ? 'Close tab' : 'End session and close tab'}
-									</span>
+									<span className="conversation-actions-label">Close terminal</span>
 								</Menu.Item>
 							</Menu.Popup>
 						</Menu.Positioner>

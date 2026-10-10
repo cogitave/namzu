@@ -17,6 +17,8 @@ export interface EngineRowView {
 	note: string
 	/** The button the state calls for. `copy` shows the command instead of running it. */
 	action?: 'update' | 'retry' | 'copy'
+	/** The update server did not answer for this installed program: one note says so for all rows. */
+	unreachable?: true
 	/** The command a click runs or a person copies. */
 	command?: string
 	/** The button is busy and cannot be pressed again. */
@@ -113,10 +115,10 @@ function rowView(item: EngineUpdateItem): EngineRowView {
 				versions,
 				status: item.installed ? 'Could not check' : 'Version unknown',
 				tone: 'neutral',
-				// Say which side did not answer: the update server, or the program itself.
-				note: item.installed
-					? 'Namzu couldn\u2019t reach the update server. It will try again later.'
-					: `${item.name} didn\u2019t answer when asked for its version.`,
+				// Say which side did not answer: the update server, or the program itself. The server
+				// case has no note of its own: the section says it once above the list.
+				note: item.installed ? '' : `${item.name} didn\u2019t answer when asked for its version.`,
+				...(item.installed ? { unreachable: true as const } : {}),
 				busy: false,
 			}
 	}

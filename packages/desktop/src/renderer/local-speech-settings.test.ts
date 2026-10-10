@@ -54,7 +54,7 @@ describe('local speech settings display', () => {
 		const html = renderToStaticMarkup(
 			createElement(LocalSpeechResourceCard, { state: state(), showDetails: true }),
 		)
-		expect(html).toContain('32.8 MiB')
+		expect(html).toContain('34.4 MB')
 		expect(html).not.toContain('Not measured')
 		expect(html).not.toContain('RAM')
 		expect(html).not.toContain('VRAM')
@@ -83,11 +83,11 @@ describe('local speech settings display', () => {
 		const html = renderToStaticMarkup(
 			createElement(LocalSpeechResourceCard, { state: view, showDetails: true }),
 		)
-		expect(html).toContain('286.1 MiB')
+		expect(html).toContain('300 MB')
 		expect(html).toContain('Space used')
-		expect(html).toContain('238.4 MiB')
+		expect(html).toContain('250 MB')
 		expect(html).toMatch(/Processor use<\/dt><dd>0%/)
-		expect(html).toContain('217 ms')
+		expect(html).toContain('0.2s')
 	})
 
 	it('before the download says what it does and offers one Download voice action', () => {
@@ -95,7 +95,7 @@ describe('local speech settings display', () => {
 			createElement(LocalSpeechSettingsContent, { speech: controls() }),
 		)
 		expect(html).toContain('Reads replies aloud in Turkish')
-		expect(html).toContain('32.8 MiB to download')
+		expect(html).toContain('34.4 MB to download')
 		expect(html).toContain('Download voice')
 		expect(html).not.toContain('Enable voice')
 		expect(html).not.toContain('Free memory when idle')
@@ -158,7 +158,7 @@ describe('local speech settings display', () => {
 				speech: controls({ supported: false, state: null }),
 			}),
 		)
-		expect(html).toContain('Local speech is unavailable in this runtime.')
+		expect(html).toContain('Local speech is unavailable in this app.')
 		expect(html).not.toContain('Ready')
 		expect(html).not.toMatch(/chat.*offline/i)
 	})
@@ -168,5 +168,24 @@ describe('local speech settings display', () => {
 		expect(formatSpeechBytes(Number.NaN)).toBe('Not measured')
 		expect(formatSpeechBytes(-1)).toBe('Not measured')
 		expect(formatSpeechBytes(0)).toBe('0 B')
+	})
+})
+
+describe('the voice download', () => {
+	const at = (progress?: LocalSpeechState['progress']) =>
+		renderToStaticMarkup(
+			createElement(LocalSpeechSettingsContent, {
+				speech: controls({ state: { ...state(), installation: 'installing', progress } }),
+			}),
+		)
+
+	it('says one thing at each step, with the size once bytes arrive', () => {
+		expect(at()).toContain('Preparing the voice engine')
+		const moving = at({ step: 'downloading', downloadedBytes: 12_300_000, totalBytes: 34_389_147 })
+		expect(moving).toContain('Downloading the voice · 12.3 MB of 34.4 MB')
+		expect(moving).toContain('<progress')
+		expect(at({ step: 'checking' })).toContain('Checking the download')
+		// The state is not said again in a badge beside the row.
+		expect(moving).not.toContain('local-speech-badge">Downloading')
 	})
 })

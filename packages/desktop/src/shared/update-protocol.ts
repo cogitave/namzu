@@ -59,7 +59,7 @@ export const updateBlockerText: Record<UpdateBlocker, string> = {
 	'background-work': 'Background work is still running',
 	'dialog-open': 'A dialog is open',
 	'typing-unsaved': 'You are typing',
-	'computer-session': 'A Pal computer session is open',
+	'computer-session': 'A Pal’s computer is open',
 }
 
 /** Facts the Settings page shows beside the state. */

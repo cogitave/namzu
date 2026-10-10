@@ -163,7 +163,7 @@ flow(
 		await w.page.keyboard.press("Enter");
 		await expect(w.page.locator("li[data-terminal-row] .terminal-badge")).toHaveAttribute(
 			"title",
-			"Session ended",
+			"Ended",
 			{ timeout: T },
 		);
 		await w.page.mouse.move(700, 500);
@@ -650,7 +650,7 @@ flow(
 		await w.page.keyboard.type("exit");
 		await w.page.keyboard.press("Enter");
 		const note = w.page.locator("[data-terminal-ended-note]");
-		await expect(note).toContainText("This session ended. Press Enter to close, or R to restart.", {
+		await expect(note).toContainText("This terminal has ended. Press Enter to close, or R to restart.", {
 			timeout: T,
 		});
 		// The label is dimmed in the tab and in the sidebar, not only a ring beside it.

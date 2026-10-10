@@ -137,7 +137,7 @@ flow("About says versions and system in plain words, with paths only under Data 
 	await openProject(w);
 	await openSettings(w, "About");
 	await expect(w.page.getByText("Namzu command line (bundled with this app)", { exact: true })).toBeVisible();
-	await expect(w.page.getByText("Namzu engine (SDK)", { exact: true })).toBeVisible();
+	await expect(w.page.getByText("Namzu engine", { exact: true })).toBeVisible();
 	await expect(w.page.getByText("Linux (64-bit Intel or AMD)")).toBeVisible();
 	const text = await pageText(w);
 	const beforeFolders = text.slice(0, text.indexOf("Data folders"));
@@ -161,7 +161,7 @@ flow("Speech before the download says what it does and offers one Download voice
 		assert.ok(!text.includes(jargon), `the Speech page does not say "${jargon}" before a download`);
 	assert.ok(!text.includes(w.home) && !text.includes(w.osHome), "no raw path on the Speech page");
 	await expect(w.page.getByRole("button", { name: "Download voice" })).toHaveCount(1);
-	await expect(w.page.getByText(/MiB to download/)).toBeVisible();
+	await expect(w.page.getByText(/MB to download/)).toBeVisible();
 	await shootBoth(w, "settings-speech");
 });
 

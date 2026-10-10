@@ -149,7 +149,7 @@ test("a row's hover glyph, its status dot and its title share one centre", {
 		await w.page.keyboard.press("Enter");
 		await expect(w.page.locator("li[data-terminal-row] .terminal-badge")).toHaveAttribute(
 			"title",
-			"Session ended",
+			"Ended",
 			{ timeout: T },
 		);
 

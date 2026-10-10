@@ -15,6 +15,10 @@ describe('the engine starting label', () => {
 		expect(startingLabel('Claude Code', 12_000)).toBe('Starting Claude Code… 12s')
 	})
 
+	it('writes a long wait as minutes and seconds, like every other duration', () => {
+		expect(startingLabel('Codex CLI', 83_000)).toBe('Starting Codex… 1m 23s')
+	})
+
 	it('only external engines start a process', () => {
 		expect(startsAProcess('codex-cli')).toBe(true)
 		expect(startsAProcess('claude-code')).toBe(true)

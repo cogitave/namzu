@@ -244,7 +244,7 @@ it('retains Pal attachments, queue editing and complete approval while composing
 	expect(html).toContain('aria-label="Tool approval"')
 	expect(html).toContain('pwd')
 	expect(html).toContain('Accept')
-	expect(button(html, 'Stop turn')).not.toMatch(/\bdisabled=/)
+	expect(button(html, 'Stop reply')).not.toMatch(/\bdisabled=/)
 	expect(button(html, 'Queue message')).not.toMatch(/\bdisabled=/)
 })
 
@@ -262,7 +262,7 @@ it('keeps restored work readable without admitting queue or turn mutations durin
 	}
 	const pending = render({ ...work, draftDisabled: true })
 	expect(pending).toContain('Retained queued request')
-	for (const label of ['Remove queued message 1', 'Stop turn', 'Remove notes.txt']) {
+	for (const label of ['Remove queued message 1', 'Stop reply', 'Remove notes.txt']) {
 		expect(button(pending, label)).toMatch(/\bdisabled=/)
 		expect(button(render(work), label)).not.toMatch(/\bdisabled=/)
 	}
@@ -386,7 +386,7 @@ it('retains functional normal attachment, plugin, effort, queue and approval con
 	expect(html).toContain('aria-label="Tool approval"')
 	expect(html).toContain('Accept')
 	expect(html).toContain('data-composer-permission="auto"')
-	expect(button(html, 'Stop turn')).not.toMatch(/\bdisabled=/)
+	expect(button(html, 'Stop reply')).not.toMatch(/\bdisabled=/)
 	expect(button(html, 'Queue message')).not.toMatch(/\bdisabled=/)
 	const offline = render()
 	for (const label of ['Attach files', 'Permissions', 'Plugins', 'Send message'])

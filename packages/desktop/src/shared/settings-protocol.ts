@@ -15,7 +15,7 @@ export interface DesktopSettings {
 	autoDownloadUpdates: boolean
 	/** The shell a plain terminal tab opens. Elsewhere than Windows only `auto` applies. */
 	terminalShell: ShellChoice
-	/** Bring terminal tabs back after a restart, as ended sessions showing their last screen. */
+	/** Bring terminal tabs back after a restart, as ended terminals showing their last screen. */
 	restoreTerminals: boolean
 }
 

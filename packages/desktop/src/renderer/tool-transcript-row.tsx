@@ -115,7 +115,7 @@ export function ToolTranscriptRow({
 	// A clock beside every row is noise; a call that took a second or more says so on hover and to screen readers.
 	const took =
 		tool.durationMs !== undefined && Number.isFinite(tool.durationMs) && tool.durationMs >= 1000
-			? `Took ${tool.durationMs < 60_000 ? `${Math.round(tool.durationMs / 1000)} s` : elapsedLabel(tool.durationMs)}`
+			? `Took ${elapsedLabel(tool.durationMs)}`
 			: undefined
 	// Screen readers get the command or the full path the sighted reader sees in the tooltip.
 	const quietTime = quiet ? timeDescription(tool.startedTime ?? tool.endedTime) : undefined

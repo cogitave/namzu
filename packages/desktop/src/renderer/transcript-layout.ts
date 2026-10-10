@@ -320,7 +320,7 @@ export function terminalNotice(reason?: string, explained = false): string | und
 	if (reason === 'cost_limit') return 'Stopped at the cost limit that was set.'
 	if (reason === 'cost_unmeasurable') return 'Stopped because the cost limit could not be checked.'
 	if (reason === 'timeout') return 'This reply timed out.'
-	if (reason === 'step_refused') return 'Stopped by the configured execution policy.'
+	if (reason === 'step_refused') return 'Stopped by a rule you set.'
 	if (reason === 'refused') return 'The action was declined.'
 	if (reason === 'answer_rejected') return 'The response did not pass the configured review.'
 	if (reason === 'plan_rejected') return 'The plan did not pass the configured review.'

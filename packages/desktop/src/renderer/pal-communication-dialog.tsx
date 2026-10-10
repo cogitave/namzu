@@ -354,7 +354,7 @@ export function PalCommunicationContent({
 									<span>
 										{row.progress.lastSequence === null
 											? 'Nothing shared yet'
-											: `Shared up to activity ${row.progress.lastSequence}`}
+											: 'Updates have been shared'}
 									</span>
 									{row.enabled && (
 										<Button

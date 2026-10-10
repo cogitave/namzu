@@ -35,6 +35,8 @@ export interface TerminalSessionState {
 	phase: 'attaching' | 'live' | 'ended' | 'failed'
 	status: TerminalTabView['status']
 	exitCode?: number
+	/** The signal that stopped the program, when one did (a kill, not an exit). */
+	signal?: number
 	/** This view types into the terminal. */
 	writer: boolean
 	/** Another view held the keyboard when this one asked. */
@@ -307,6 +309,7 @@ export class TerminalSession {
 				status: 'exited',
 				writer: false,
 				...(event.exitCode === undefined ? {} : { exitCode: event.exitCode }),
+				...(event.signal === undefined || event.signal === 0 ? {} : { signal: event.signal }),
 			})
 	}
 

@@ -172,7 +172,7 @@ flow(
 		await openProject(w);
 		await send(w, "Please clean the build");
 		await expect(approvalCard(w)).toBeVisible({ timeout: T });
-		const stop = w.page.getByRole("button", { name: "Stop turn" });
+		const stop = w.page.getByRole("button", { name: "Stop reply" });
 		// The same red button as while a reply runs: waiting does not turn Stop into another control.
 		await expect(stop).toHaveClass(/bg-destructive/);
 		await stop.click();
@@ -212,7 +212,7 @@ flow("the live line says what is happening before the first action", {
 		)
 		.toBe("whole");
 	await w.page.getByRole("textbox", { name: "Message Namzu" }).fill("and then this");
-	await w.page.getByRole("button", { name: "Queue message for next turn" }).hover();
+	await w.page.getByRole("button", { name: "Queue message for the next reply" }).hover();
 	await expect(
 		w.page.getByText("Hold this message and send it when the current reply is done"),
 	).toBeVisible({ timeout: T });
@@ -324,13 +324,13 @@ flow(
 		await send(w, "hello first");
 		await expect(w.page.getByText("Hello back.")).toBeVisible({ timeout: T });
 		await send(w, "slow please");
-		await expect(w.page.getByRole("button", { name: "Stop turn" })).toBeVisible({ timeout: T });
+		await expect(w.page.getByRole("button", { name: "Stop reply" })).toBeVisible({ timeout: T });
 		await answerDialogs(w, 0);
 		await w.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close());
 		await expect
 			.poll(async () => (await dialogsSeen(w)).map((box) => box.title), { timeout: T })
 			.toContain("A reply is still running");
-		assert.equal(await w.page.getByRole("button", { name: "Stop turn" }).count(), 1, "still open");
+		assert.equal(await w.page.getByRole("button", { name: "Stop reply" }).count(), 1, "still open");
 		await shot(w, "close-asks-1280");
 		await answerDialogs(w, 1);
 		await w.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close());

@@ -425,7 +425,7 @@ flow(
 		await expect(w.page.getByText("Codex CLI · project exited with code 3.")).toBeVisible({
 			timeout: T,
 		});
-		await expect(pane(w).getByText("This session ended with code 3.")).toBeVisible();
+		await expect(pane(w).getByText("This terminal has ended with code 3.")).toBeVisible();
 		// The screen it left is still there to read.
 		assert.match(await screen(w), /got:go/);
 		await shot(w, "engine-tab-exited-dark");
@@ -447,7 +447,7 @@ flow("a restart brings a terminal tab back as an ended session with its last scr
 	assert.equal(await frontId(w), id);
 	await expect.poll(() => screen(w), { timeout: T }).toContain("before-the-restart-42");
 	await expect(
-		pane(w).getByText("Namzu was closed, so this session ended."),
+		pane(w).getByText("Namzu was closed, so this terminal ended."),
 	).toBeVisible();
 	await shot(w, "terminal-restored-dark");
 	// An ended tab closes like any other.
