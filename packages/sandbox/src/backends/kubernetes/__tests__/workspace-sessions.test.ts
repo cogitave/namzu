@@ -326,13 +326,36 @@ async function sessionRow(
 	return (await workspace.listSessions()).find((row) => row.sessionId === sessionId)
 }
 
-/** Everything one terminal printed, from the moment it was attached. */
+/**
+ * Everything one terminal printed, from the moment it was attached.
+ *
+ * `until` settles when the printed text first contains the fragment: it is
+ * woken by the terminal's own data events, so it waits on the real output
+ * rather than sampling it against a wall-clock deadline. A fragment that never
+ * arrives is a hang the test's own Vitest timeout reports, not a guess about
+ * how fast this machine is.
+ */
 function collect(terminal: KubernetesWorkspaceTerminal): {
 	readonly text: string
+	until(fragment: string): Promise<void>
 } {
-	const box = { text: '' }
+	const waiters: { fragment: string; resolve: () => void }[] = []
+	const box = {
+		text: '',
+		until(fragment: string): Promise<void> {
+			if (box.text.includes(fragment)) return Promise.resolve()
+			return new Promise<void>((resolve) => waiters.push({ fragment, resolve }))
+		},
+	}
 	terminal.onData((chunk) => {
 		box.text += chunk
+		for (let i = waiters.length - 1; i >= 0; i -= 1) {
+			const waiter = waiters[i]
+			if (waiter && box.text.includes(waiter.fragment)) {
+				waiters.splice(i, 1)
+				waiter.resolve()
+			}
+		}
 	})
 	return box
 }
@@ -386,7 +409,7 @@ describe.skipIf(IS_WINDOWS)('a terminal that outlives the host process', () => {
 		})
 		const seenByA = collect(shell)
 		shell.write('echo FIRST-MARKER\n')
-		await waitUntil(() => seenByA.text.includes('FIRST-MARKER'), 'the first command to echo')
+		await seenByA.until('FIRST-MARKER')
 
 		// Host A dies mid-session: a deploy, a crash, an OOM kill. Nothing
 		// distinguishes them from the guest's side.
@@ -407,14 +430,14 @@ describe.skipIf(IS_WINDOWS)('a terminal that outlives the host process', () => {
 		const rejoined = await hostB.attachTerminal('shell-1', { fromOffset: 0 })
 		const seenByB = collect(rejoined)
 		// The replay: everything the shell printed before this process existed.
-		await waitUntil(() => seenByB.text.includes('FIRST-MARKER'), 'the replayed output')
+		await seenByB.until('FIRST-MARKER')
 		rejoined.write('echo SECOND-MARKER\n')
-		await waitUntil(() => seenByB.text.includes('SECOND-MARKER'), 'the new command to run')
+		await seenByB.until('SECOND-MARKER')
 		// And it is the SAME shell, not a fresh one: resize reaches the real
 		// PTY, which only the process that owns it can answer for.
 		rejoined.resize({ cols: 100, rows: 40 })
 		rejoined.write('stty size\n')
-		await waitUntil(() => seenByB.text.includes('40 100'), 'the resized PTY to report itself')
+		await seenByB.until('40 100')
 
 		rejoined.detach()
 		await hostB.killSession('shell-1')

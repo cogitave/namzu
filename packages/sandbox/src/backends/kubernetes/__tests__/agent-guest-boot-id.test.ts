@@ -28,7 +28,7 @@ import { type AddressInfo, type Server, createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { AGENT_ENV_KEYS } from './fixtures/agent-env.js'
 import { decodeFrames, encodeFrame, sendFramedRequest } from './fixtures/framed-agent-client.js'
@@ -102,8 +102,13 @@ async function openStream(request: unknown): Promise<Record<string, unknown>> {
 	const { connect } = await import('node:net')
 	const socket = connect({ host: '127.0.0.1', port })
 	closers.push(() => socket.destroy())
-	let ready: Record<string, unknown> | undefined
 	let rest: Buffer = Buffer.alloc(0)
+	let onReady: (event: Record<string, unknown>) => void = () => {}
+	// Settled by the frame itself, not by sampling for it: a reply that never
+	// comes is a hang the case's own Vitest timeout reports.
+	const readyFrame = new Promise<Record<string, unknown>>((resolve) => {
+		onReady = resolve
+	})
 	socket.on('error', () => {
 		// A case that closes its own socket mid-stream is normal here.
 	})
@@ -112,14 +117,13 @@ async function openStream(request: unknown): Promise<Record<string, unknown>> {
 		for (const payload of decoded.frames) {
 			if (payload.length === 0) continue
 			const event = JSON.parse(payload) as Record<string, unknown>
-			if (event.type === 'ready') ready ??= event
+			if (event.type === 'ready') onReady(event)
 		}
 		rest = decoded.rest
 	})
 	await new Promise<void>((resolve) => socket.once('connect', () => resolve()))
 	socket.write(encodeFrame(JSON.stringify(request)))
-	await vi.waitFor(() => expect(ready).toBeDefined(), { timeout: 10_000 })
-	if (ready === undefined) throw new Error('the agent never answered ready')
+	const ready = await readyFrame
 	return ready
 }
 
