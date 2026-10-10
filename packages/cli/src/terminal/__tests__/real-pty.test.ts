@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises'
 import { describe, expect, it } from 'vitest'
 import { type TerminalEvent, TerminalManager } from '../manager.js'
 import { loadHostPty } from '../pty.js'
@@ -98,7 +99,9 @@ describe.skipIf(!binding || process.platform === 'win32')('a real pseudo-termina
 		manager.write({
 			terminalId: info.id,
 			viewerId: 'v',
-			data: 'setsid sleep 300 > /dev/null 2>&1 & echo "detached=$!"\r',
+			// The detached program prints its own pid and becomes `sleep` under it: `$!` would name
+			// `setsid`, which forks and exits at once when it leads its job's process group.
+			data: 'setsid sh -c \'echo "detached=$$"; exec sleep 300 < /dev/null > /dev/null 2>&1\' &\r',
 		})
 		await until(() => /detached=\d+\r?\n/u.test(printed()))
 		const pid = Number(/detached=(\d+)/u.exec(printed())?.[1])
@@ -112,11 +115,15 @@ describe.skipIf(!binding || process.platform === 'win32')('a real pseudo-termina
 		}
 		expect(alive()).toBe(true)
 		await manager.close(info.id)
-		// The kill is delivered by the time close returns; a zombie waiting to be reaped is not alive to signal 0 only after reaping.
-		const state = await import('node:fs/promises').then((fs) =>
-			fs.readFile(`/proc/${pid}/stat`, 'utf8').catch(() => 'gone'),
-		)
-		expect(state === 'gone' || state.includes(') Z ')).toBe(true)
+		// SIGKILL is sent by the time close returns, but the kernel ends the program only once it
+		// is next scheduled, which on a loaded machine is later. Wait for the end itself (gone, or
+		// a zombie waiting to be reaped); a program that never ends is caught by the runner's limit.
+		const ended = async () => {
+			const state = await readFile(`/proc/${pid}/stat`, 'utf8').catch(() => 'gone')
+			return state === 'gone' || state.includes(') Z ')
+		}
+		while (!(await ended())) await new Promise((resolve) => setTimeout(resolve, 10))
+		expect(await ended()).toBe(true)
 	})
 
 	it('reports a program that cannot start', async () => {

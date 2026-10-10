@@ -7,6 +7,7 @@ import {
 	descendantsOf,
 	killProcessTree,
 	loadHostPty,
+	processesCarrying,
 	quietConptyHelper,
 } from '../pty.js'
 
@@ -121,6 +122,29 @@ describe.skipIf(process.platform !== 'linux')('descendantsOf', () => {
 			process.kill(child, 'SIGKILL')
 		} finally {
 			shell.kill('SIGKILL')
+		}
+	})
+})
+
+describe.skipIf(process.platform !== 'linux')('processesCarrying', () => {
+	it('finds a program that left the tree at once by the marker it inherited', async () => {
+		const marker = `marker-${process.pid}`
+		// `setsid -f` forks and its parent exits: the program is reparented before anyone can look.
+		const shell = childProcess.spawn(
+			'sh',
+			['-c', "setsid -f sh -c 'echo $$; exec sleep 300 < /dev/null > /dev/null 2>&1'"],
+			{ stdio: ['ignore', 'pipe', 'ignore'], env: { ...process.env, NAMZU_TERMINAL_ID: marker } },
+		)
+		const first = await new Promise<string>((done) =>
+			shell.stdout.once('data', (chunk: Buffer) => done(String(chunk))),
+		)
+		const program = Number.parseInt(first, 10)
+		try {
+			expect(await processesCarrying('NAMZU_TERMINAL_ID', marker)).toContain(program)
+			expect(await processesCarrying('NAMZU_TERMINAL_ID', `${marker}-other`)).toEqual([])
+			expect(await processesCarrying('NAMZU_TERMINAL_ID', marker, 'darwin')).toEqual([])
+		} finally {
+			process.kill(program, 'SIGKILL')
 		}
 	})
 })

@@ -178,6 +178,37 @@ export function killProcessTree(
 }
 
 /**
+ * The variable every program started in a terminal inherits, set to the terminal's id. A program
+ * that leaves the tree early (`setsid` forks and its parent exits at once, so the program is
+ * reparented before anything can walk down to it) still carries it in its environment.
+ */
+export const TERMINAL_MARKER = 'NAMZU_TERMINAL_ID'
+
+/**
+ * The processes whose starting environment holds `name=value`. Linux only, read from
+ * `/proc/<pid>/environ`, which is readable for this user's own processes; elsewhere none.
+ */
+export async function processesCarrying(
+	name: string,
+	value: string,
+	platform: NodeJS.Platform = process.platform,
+): Promise<number[]> {
+	if (platform !== 'linux') return []
+	const entry = `${name}=${value}`
+	const found: number[] = []
+	for (const pid of await readdir('/proc').catch(() => [] as string[])) {
+		if (!/^\d+$/u.test(pid) || Number(pid) === process.pid) continue
+		try {
+			const environ = await readFile(`/proc/${pid}/environ`, 'utf8')
+			if (environ.split('\0').includes(entry)) found.push(Number(pid))
+		} catch {
+			/* Another user's process, or one that ended while the list was read. */
+		}
+	}
+	return found
+}
+
+/**
  * Every process below `root`, by walking parent links. Linux reads `/proc`, one entry at a time so
  * the event loop is never held; elsewhere `ps` lists them. Nothing below a missing pid is found.
  */

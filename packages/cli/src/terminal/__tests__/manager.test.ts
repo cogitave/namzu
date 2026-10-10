@@ -25,6 +25,7 @@ function setup(
 		ringCapacity?: number
 		platform?: NodeJS.Platform
 		descendants?: (pid: number) => Promise<number[]>
+		marked?: (terminalId: string) => Promise<number[]>
 		signalled?: number[]
 		cwd?: string
 	} = {},
@@ -44,6 +45,7 @@ function setup(
 		killGraceMs: 50,
 		// No real process exists for a fake pid; nothing is listed or signalled unless a test says so.
 		descendants: options.descendants ?? (async () => []),
+		marked: options.marked ?? (async () => []),
 		signalProcess: (pid) => void options.signalled?.push(pid),
 		timers: {
 			setTimeout: (run, ms) => {
@@ -416,12 +418,40 @@ describe('ending', () => {
 		expect(signalled).toEqual([2001, 2002])
 	})
 
+	it('marks every program with its terminal, and kills a marked survivor that left the tree early', async () => {
+		const signalled: number[] = []
+		const asked: string[] = []
+		const { manager, spawned } = setup({
+			signalled,
+			descendants: async () => [2001],
+			marked: async (terminalId) => {
+				asked.push(terminalId)
+				return [2001, 3001]
+			},
+		})
+		const info = await manager.create(request({ env: { NAMZU_TERMINAL_ID: 'forged' } }))
+		// The marker is the terminal's own id; a request cannot set it to another.
+		expect(spawned[0]?.options.env?.NAMZU_TERMINAL_ID).toBe(info.id)
+		const closing = manager.close(info.id)
+		await ticks()
+		// Read only once the terminal has ended, when a program reparented early is all that is left.
+		expect(asked).toEqual([])
+		spawned[0]?.end(0, 1)
+		await closing
+		expect(asked).toEqual([info.id])
+		expect(signalled).toEqual([2001, 3001])
+	})
+
 	it('does not look for survivors on Windows, where the console list is the tree', async () => {
-		const listed: number[] = []
+		const listed: (number | string)[] = []
 		const { manager, spawned } = setup({
 			platform: 'win32',
 			descendants: async (pid) => {
 				listed.push(pid)
+				return []
+			},
+			marked: async (terminalId) => {
+				listed.push(terminalId)
 				return []
 			},
 		})

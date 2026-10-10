@@ -13,11 +13,13 @@ import {
 import {
 	type HostPty,
 	type HostPtyModule,
+	TERMINAL_MARKER,
 	buildPtyEnv,
 	defaultShell,
 	defaultTitle,
 	descendantsOf,
 	killProcessTree,
+	processesCarrying,
 } from './pty.js'
 import { OutputRing } from './ring.js'
 import { HeadlessScreen } from './screen.js'
@@ -46,6 +48,8 @@ export interface TerminalManagerOptions {
 	readonly killGraceMs?: number
 	/** The processes below a pid, for the sweep after a terminal ends. Defaults to reading the system. */
 	readonly descendants?: (pid: number) => Promise<number[]>
+	/** The processes still carrying a terminal's marker, for the same sweep. Defaults to reading the system. */
+	readonly marked?: (terminalId: string) => Promise<number[]>
 	/** Sends a signal to one process; defaults to `process.kill`. */
 	readonly signalProcess?: (pid: number, signal: 'SIGKILL') => void
 	readonly ringCapacity?: number
@@ -170,6 +174,7 @@ export class TerminalManager {
 		const binding = await this.binding()
 		if (this.closed) throw new TerminalRequestError('The terminal host is closed.')
 		const command = request.command ?? defaultShell(this.env, this.platform)
+		const id = randomUUID()
 		let pty: HostPty
 		try {
 			pty = binding.spawn(command, [...request.args], {
@@ -177,7 +182,7 @@ export class TerminalManager {
 				cols: request.cols,
 				rows: request.rows,
 				cwd,
-				env: buildPtyEnv(this.env, request.env, this.platform),
+				env: buildPtyEnv(this.env, { ...request.env, [TERMINAL_MARKER]: id }, this.platform),
 			})
 		} catch (error) {
 			throw new TerminalRequestError(
@@ -189,7 +194,7 @@ export class TerminalManager {
 			settle = done
 		})
 		const terminal: Terminal = {
-			id: randomUUID(),
+			id,
 			pty,
 			ring: new OutputRing(this.options.ringCapacity ?? TERMINAL_LIMITS.ringCapacity),
 			screen: new HeadlessScreen(request.cols, request.rows, TERMINAL_LIMITS.screenScrollback),
@@ -467,8 +472,9 @@ export class TerminalManager {
 	/**
 	 * Descendants are listed before the polite stop: a program that detached itself (`nohup`,
 	 * `setsid`) is no longer in the terminal's process group, and once its parent ends it is
-	 * reparented and cannot be found by walking down. What is left after the terminal has ended is
-	 * killed.
+	 * reparented and cannot be found by walking down. A program reparented even earlier (`setsid`
+	 * forks and exits when it leads its job) is found on Linux by the marker it inherited. What is
+	 * left after the terminal has ended is killed.
 	 */
 	private async begin(terminal: Terminal): Promise<void> {
 		const pid = terminal.pty.pid
@@ -487,6 +493,16 @@ export class TerminalManager {
 			}, this.grace)
 		}
 		await terminal.exited
+		if (this.platform !== 'win32') {
+			try {
+				const marked = await (
+					this.options.marked ?? ((id) => processesCarrying(TERMINAL_MARKER, id, this.platform))
+				)(terminal.id)
+				for (const pid of marked) if (!leftovers.includes(pid)) leftovers.push(pid)
+			} catch {
+				/* The sweep is best effort. */
+			}
+		}
 		const signal = this.options.signalProcess ?? ((p, s) => process.kill(p, s))
 		for (const survivor of leftovers) {
 			try {
