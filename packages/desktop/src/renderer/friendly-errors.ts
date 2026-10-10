@@ -81,9 +81,11 @@ export function sanitizeDetails(raw: string): string {
 }
 
 /** The model a vendor says the account cannot use. */
-const MODEL_ACCESS = /(?:access to|use|allowed to use) (?:the )?model[ :`'"]*([\w.:/-]+)/i
+const MODEL_ACCESS = /(?:access to|use|allowed to use) (?:the )?model[ :`'"]*([\w.:/-]*[\w])/i
+/** A quota the account has used up. A free-tier rate limit that merely suggests a payment method is not this. */
 const OUT_OF_CREDIT =
-	/insufficient[_ ]quota|exceeded your current quota|billing|out of credit|credit balance|add (?:a )?payment/i
+	/insufficient[_ ]quota|exceeded your current quota|out of credit|credit balance is too low/i
+const KEY_PROBLEM = /api key|invalid[_ ]key|unauthori[sz]ed|authentication/i
 
 const PROVIDER_FAILURE = /^([a-z0-9][a-z0-9-]*)(?: \(HTTP (\d{3})\))? — ([^:]+?)(?:: ([\s\S]*))?$/i
 
@@ -111,7 +113,8 @@ function groupNumbers(text: string): string {
 	)
 }
 
-const REQUEST_ID = /\b(?:cf[- ]?)?(?:ray id|request[ _-]?id)\s*[:=]?\s*([A-Za-z0-9_-]{8,})/i
+const REQUEST_ID =
+	/,?\s*["']?\b(?:cf[- ]?)?(?:ray id|request[ _-]?id)["']?\s*[:=]?\s*["']?([A-Za-z0-9_-]{8,})["']?/i
 const REQUEST_TOKEN = /\breq_[A-Za-z0-9]{8,}\b/
 
 /**
@@ -130,6 +133,7 @@ function plainProviderDetails(raw: string): string[] {
 		.replace(/\b(?:cloudflare|nginx(?:\/[\d.]+)?)\b/gi, ' ')
 		.replace(/\bstatus code\b/gi, ' ')
 		.replace(/\(\s*no body\s*\)/gi, ' ')
+		.replace(/,\s*([}\]])/g, '$1')
 		.replace(/\s+/g, ' ')
 		.trim()
 	answer = groupNumbers(collapseRepeats(answer))
@@ -193,7 +197,7 @@ export function describeFailure(raw: string, providerLabel?: string): FriendlyFa
 		}
 		if (sentence.includes('rejected the request credentials')) {
 			const model = MODEL_ACCESS.exec(body)
-			if (model || (status === 403 && /\bmodel\b/i.test(body)))
+			if (model || (status === 403 && /\bmodel\b/i.test(body) && !KEY_PROBLEM.test(body)))
 				return withDetails(
 					{
 						kind: 'model-access',

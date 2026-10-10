@@ -222,3 +222,38 @@ describe('names and details', () => {
 		)
 	})
 })
+
+describe('provider reply edge cases', () => {
+	const failure = (status: number, sentence: string, body: string) =>
+		describeFailure(`openai (HTTP ${status}) — the provider ${sentence}: ${body}`, 'OpenAI')
+
+	it('names the model without a trailing full stop', () => {
+		expect(failure(403, 'rejected the request credentials', 'No access to model gpt-5.').text).toBe(
+			'Your OpenAI account can’t use gpt-5. Choose another model.',
+		)
+	})
+	it('still blames the key when a 403 is about the key', () => {
+		expect(
+			failure(403, 'rejected the request credentials', 'Incorrect API key provided for this model')
+				.kind,
+		).toBe('rejected-key')
+	})
+	it('keeps a free-tier rate limit that suggests a payment method as a rate limit', () => {
+		expect(
+			failure(
+				429,
+				'was rate limited',
+				'Rate limit reached. Please add a payment method to your account to increase your rate limit.',
+			).kind,
+		).toBe('rate-limit')
+	})
+	it('leaves no JSON residue where a request ID was', () => {
+		const details = failure(
+			500,
+			'failed to complete the request',
+			'{"error":{"message":"The server had an error","request_id":"req_abcdef123456"}}',
+		).details
+		expect(details).toContain('Request ID: req_abcdef123456')
+		expect(details).not.toMatch(/request_id|""|" "/)
+	})
+})
