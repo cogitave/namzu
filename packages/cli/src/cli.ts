@@ -53,6 +53,7 @@ import {
 	bindTrustedProjectContext,
 	resolveTrustedProjectContext,
 } from './config/trusted-project-context.js'
+import { reportCrash } from './crash-report.js'
 import { EXIT_BAD_CONFIG, EXIT_INTERNAL_ERROR } from './exit-codes.js'
 import {
 	type ZenCatalogueRefresh,
@@ -170,6 +171,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		.addOption(
 			new Option('-v, --verbose', 'Emit debug-level log records to stderr').conflicts('quiet'),
 		)
+		.option('--debug', 'Show technical details when something goes wrong (same as NAMZU_DEBUG=1)')
 		.addOption(
 			new Option(
 				'--log-format <format>',
@@ -255,6 +257,15 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		.enablePositionalOptions(true)
 		.exitOverride()
 		.showHelpAfterError(false)
+		.configureOutput({
+			// Commander's one-paragraph complaint gets a way forward on its own line.
+			outputError: (text, write) =>
+				write(
+					text.trimEnd().includes('\n') || /\bhelp\b/i.test(text)
+						? text
+						: `${text.trimEnd()}\nRun namzu --help to see what is available.\n`,
+				),
+		})
 
 	const buildContext = (
 		load: () => ReturnType<typeof loadConfigWithProvenance>,
@@ -624,9 +635,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			)
 			return EXIT_BAD_CONFIG
 		}
-		process.stderr.write(
-			`Fatal: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}\n`,
-		)
+		process.stderr.write(reportCrash(err))
 		return EXIT_INTERNAL_ERROR
 	} finally {
 		catalogueRefresh?.cancel()

@@ -32,6 +32,7 @@
 import { NOOP_LOGGER, jsonLinesSink, prettySink } from '@namzu/sdk'
 import type { LogRecord, LogSink } from '@namzu/sdk'
 
+import { reportCrash } from '../crash-report.js'
 import { EXIT_INTERNAL_ERROR } from '../exit-codes.js'
 import { contextLogging, installCliLogging } from '../logging.js'
 import type { ResolvedLogging } from '../logging.js'
@@ -87,6 +88,21 @@ export function installTuiLogSink(logging?: ResolvedLogging): TuiLogSinkLifecycl
 		process.removeListener('uncaughtException', onFatal)
 		process.removeListener('unhandledRejection', onFatal)
 	}
+	const collectDiagnostics = (): string => {
+		if (settled) return ''
+		settled = true
+		detach()
+		let text = ''
+		const sink = {
+			write: (chunk: string | Uint8Array) => ((text += String(chunk)), true),
+		}
+		const out: LogSink =
+			resolved.format === 'json'
+				? jsonLinesSink(sink as unknown as NodeJS.WritableStream)
+				: prettySink(sink as unknown as NodeJS.WritableStream)
+		for (const record of ring.drain()) out.emit(record)
+		return text
+	}
 	const flush = (): void => {
 		// Idempotent: a sink error or repeated fatal signal must not re-enter the
 		// same handler or print an empty batch a second time.
@@ -116,8 +132,10 @@ export function installTuiLogSink(logging?: ResolvedLogging): TuiLogSinkLifecycl
 	// place allowed to touch the stream directly on the way out of a
 	// process that is already ending.
 	const onFatal = (err: unknown): void => {
-		flush()
-		process.stderr.write(`${err instanceof Error ? (err.stack ?? err.message) : String(err)}\n`)
+		// The buffered diagnostics and the stack go to a log file; the screen gets
+		// one plain line, and the full text only under NAMZU_DEBUG=1 or --debug.
+		const diagnostics = collectDiagnostics()
+		process.stderr.write(reportCrash(err, { extra: diagnostics }))
 		process.exit(EXIT_INTERNAL_ERROR)
 	}
 	process.once('uncaughtException', onFatal)

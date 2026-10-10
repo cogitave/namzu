@@ -113,11 +113,12 @@ it('refuses before provider work or persistence instead of reviving the conversa
 	await tick()
 	harness.stdin.write('\r')
 	const refusedBy = Date.now() + 4_000
-	while (!(harness.lastFrame() ?? '').includes('This turn was not started') && Date.now() < refusedBy) {
+	while (!(harness.lastFrame() ?? '').includes('Your message was not sent') && Date.now() < refusedBy) {
 		await tick()
 	}
 
-	expect(harness.lastFrame()).toContain('Project prj_closed is archived')
+	expect(harness.lastFrame()).toContain('Your message was not sent.')
+	expect(harness.lastFrame()).not.toContain('turn rejected')
 	expect(harness.frames.join('\n')).not.toContain('MUST_NOT_RUN')
 	expect(observed).toEqual({ admissions: 1, sends: 0, appends: 0 })
 })

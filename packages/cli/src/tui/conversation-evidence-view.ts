@@ -1,3 +1,4 @@
+import { plural } from './person-terms.js'
 /** TUI only: the model and durable tool receipt keep the original JSON. */
 export function conversationEvidenceView(
 	toolName: string,
@@ -54,19 +55,22 @@ function searchRows(value: Record<string, unknown>): string[] | undefined {
 		!count(value.unavailable)
 	)
 		return undefined
-	const rows = [`Conversation search · ${value.matches.length} matches on this page`]
+	const rows = [
+		`Conversation search · ${plural(value.matches.length, 'match', 'matches')} on this page`,
+	]
 	rows.push(
 		value.incomplete || value.nextCursor
 			? `Search incomplete${value.nextCursor ? ' · more to scan' : ''} · absence is inconclusive`
 			: 'Traversal finished within selected sources',
 	)
-	if (value.unavailable > 0) rows.push(`${value.unavailable} record(s) unavailable`)
+	if (value.unavailable > 0) rows.push(`${plural(value.unavailable, 'record')} unavailable`)
 	for (const match of value.matches.slice(0, 3)) {
 		rows.push(
 			`${sourceLabel(match)}${match.retained === 'preview' ? ' · preview flagged' : ''}${match.isError === true ? ' · original reported error' : ''}: ${preview(match.text)}`,
 		)
 	}
-	if (value.matches.length > 3) rows.push(`+${value.matches.length - 3} more matches in details`)
+	if (value.matches.length > 3)
+		rows.push(`+${plural(value.matches.length - 3, 'more match', 'more matches')} in details`)
 	return rows
 }
 

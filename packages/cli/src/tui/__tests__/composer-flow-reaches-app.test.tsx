@@ -1142,7 +1142,7 @@ describe('the external draft editor', () => {
 			screen.press('\x07')
 			await waitUntil(
 				screen,
-				() => screen.scrollback().join('\n').includes('wait for the active turn'),
+				() => screen.scrollback().join('\n').includes('wait for the current reply'),
 				'the unstable editor admission was not refused',
 			)
 

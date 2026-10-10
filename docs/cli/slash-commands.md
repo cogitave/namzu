@@ -84,12 +84,12 @@ the template contains `$ARGUMENTS`. Help does not expand or execute the template
 
 ## Settings and model changes
 
-On exit, the CLI prints `namzu resume <id>` when the executable on PATH resolves
-to the running CLI. Alternate installations and source launches retain their
-explicit executable and loader arguments. A `cd` prefix is included only when
+On exit, the CLI prints `namzu resume <id>`: the product command, never the
+node binary or a build path, even when the app was started from a source
+checkout or an alternate installation. A `cd` prefix is included only when
 the conversation directory differs from the current working directory. Windows
-uses `namzu.cmd` when npm's first matching command wrapper resolves to the
-running CLI; conflicting or unrecognized wrappers retain the explicit executable.
+prints `namzu.cmd` when npm's first matching command wrapper resolves to the
+running CLI.
 Its resume hint explicitly targets PowerShell, with a call operator
 for the quoted executable. When a directory change is needed, it uses a literal
 path and resumes only if that change succeeds, including in Windows PowerShell

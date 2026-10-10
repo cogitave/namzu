@@ -72,7 +72,7 @@ describe('launchTui on a termination signal', () => {
 		expect(unmount).not.toHaveBeenCalled()
 		expect(dispose).toHaveBeenCalledOnce()
 		expect(write).toHaveBeenLastCalledWith(
-			'To resume this conversation, run: cd /workspace && namzu resume 6c43cf3e-5512-4678-9b77-179a4d4daed6\n',
+			'To resume this conversation, run:\ncd /workspace && namzu resume 6c43cf3e-5512-4678-9b77-179a4d4daed6\n',
 		)
 	})
 

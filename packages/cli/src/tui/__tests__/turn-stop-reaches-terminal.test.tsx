@@ -86,7 +86,7 @@ it('shows missing usage rather than exhausted allowance for an unlimited run', a
 	try {
 		await until(screen, () => screen.viewport().join('\n').includes('stop-fixture'))
 		await submit(screen, 'Inspect the current source.')
-		await until(screen, () => screen.viewport().join('\n').includes('could not be confirmed'))
+		await until(screen, () => screen.viewport().join('\n').includes('could not confirm'))
 		expect(screen.viewport().join('\n')).not.toContain('allowance could not cover')
 		expect(screen.viewport().join('\n')).toContain('Type a message')
 	} finally {
@@ -110,9 +110,9 @@ async function submit(screen: Screen, text: string): Promise<void> {
 }
 
 it.each([
-	['token_budget', 'token allowance could not cover further work'],
+	['token_budget', 'token limit for this reply was reached'],
 	['max_iterations', 'step limit was reached'],
-	['cost_unmeasurable', 'missing pricing prevented checking the cost limit'],
+	['cost_unmeasurable', 'no price on file'],
 ] as const)('shows %s with retained partial work and a usable composer', async (reason, notice) => {
 	stopReason = reason
 	const screen = await renderToScreen(
@@ -125,7 +125,7 @@ it.each([
 		await until(screen, () => screen.viewport().join('\n').includes(notice))
 		const stopped = screen.viewport().join('\n')
 		expect(stopped).toContain(partial)
-		expect(stopped).toContain('Turn stopped:')
+		expect(stopped).toContain('Stopped:')
 		expect(stopped).toContain('Type a message')
 		expect(stopped).not.toContain('Working')
 		expect(stopped).not.toContain('tokens spent')
@@ -136,7 +136,7 @@ it.each([
 		expect(sent).toHaveLength(2)
 		expect(JSON.stringify(sent[1])).toContain(partial)
 		expect(JSON.stringify(sent[1])).toContain(followup)
-		expect(screen.scrollback().join('\n').match(/Turn stopped:/g)).toHaveLength(1)
+		expect(screen.scrollback().join('\n').match(/Stopped:/g)).toHaveLength(1)
 	} finally {
 		await screen.unmount()
 	}
@@ -157,7 +157,7 @@ it.each([undefined, 'end_turn', 'cancelled'] as const)(
 			await submit(screen, followup)
 			await until(screen, () => sent.length === 2)
 			expect(screen.scrollback().join('\n')).not.toContain('Turn stopped')
-			expect(screen.scrollback().join('\n')).not.toContain('Turn paused')
+			expect(screen.scrollback().join('\n')).not.toContain('Paused')
 		} finally {
 			await screen.unmount()
 		}

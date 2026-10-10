@@ -166,8 +166,8 @@ describe('the shell jobs child screen', () => {
 	it('bounds a noisy process to its latest output and reports both kinds of omission', () => {
 		const long = `HEAD${'old'.repeat(12_000)}\nTAIL`
 		const rows = backgroundJobOutputRows(output(long, 100), 40)
-		expect(rows.join('')).toContain('Earlier output discarded by the job buffer (100 bytes).')
-		expect(rows.join('')).toContain('Showing the latest 32768 bytes.')
+		expect(rows.join('')).toContain('Earlier output discarded by the job buffer (100 B).')
+		expect(rows.join('')).toContain('Showing the latest 32.0 KB.')
 		expect(rows.join('\n')).toContain('TAIL')
 		expect(rows.join('\n')).not.toContain('HEAD')
 		expect(maxBackgroundJobTailOffset(output('one\ntwo\nthree\nfour\nfive'), 20, 40)).toBe(1)

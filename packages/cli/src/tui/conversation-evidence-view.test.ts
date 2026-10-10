@@ -96,7 +96,7 @@ it('preserves an incomplete no-match search without inventing a continuation or 
 	)!
 	expect(view.content).toContain('0 matches on this page')
 	expect(view.content).toContain('Search incomplete · absence is inconclusive')
-	expect(view.content).toContain('2 record(s) unavailable')
+	expect(view.content).toContain('2 records unavailable')
 	expect(view.content).not.toContain('more to scan')
 })
 

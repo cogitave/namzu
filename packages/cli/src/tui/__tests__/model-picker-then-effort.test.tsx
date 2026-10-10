@@ -200,7 +200,7 @@ function caretStop(screen: Screen): string | undefined {
 it('offers exactly the hydrated model levels and sends the chosen effort on the replacement', async () => {
 	const screen = await open()
 	await submit(screen, '/effort high')
-	await shows(screen, 'Reasoning: high (this session).')
+	await shows(screen, 'Reasoning: high (this conversation).')
 	await chooseNextModel(screen)
 	await shows(screen, `Select Reasoning Level for ${NEXT}`)
 	// The hypermode stop always trails the model's own levels, after a `┆` —
@@ -218,7 +218,7 @@ it('offers exactly the hydrated model levels and sends the chosen effort on the 
 	// Select the exact published level by number rather than End, which now
 	// lands on the trailing hypermode stop instead of the highest level.
 	await press(screen, '3')
-	await shows(screen, 'Reasoning: xhigh (this session).')
+	await shows(screen, 'Reasoning: xhigh (this conversation).')
 	await submit(screen, 'Continue this task')
 	await until(screen, () => sent.length === 1, 'Prompt did not reach replacement')
 	expect(sent[0]?.model).toBe(NEXT)
@@ -287,7 +287,7 @@ it('keeps the vertical list on a terminal too narrow for the slider', async () =
 it('keeps the selected model with provider-default effort when the effort menu is cancelled', async () => {
 	const screen = await open()
 	await submit(screen, '/effort high')
-	await shows(screen, 'Reasoning: high (this session).')
+	await shows(screen, 'Reasoning: high (this conversation).')
 	await chooseNextModel(screen)
 	await shows(screen, `Select Reasoning Level for ${NEXT}`)
 	await press(screen, '\x1b')
@@ -345,7 +345,7 @@ it.each([
 		}
 		const screen = await open()
 		await submit(screen, '/effort high')
-		await shows(screen, 'Reasoning: high (this session).')
+		await shows(screen, 'Reasoning: high (this conversation).')
 		await submit(screen, 'Initial task')
 		await until(screen, () => sent.length === 1, 'Old turn did not start')
 		await submit(screen, 'Dependent queued task')

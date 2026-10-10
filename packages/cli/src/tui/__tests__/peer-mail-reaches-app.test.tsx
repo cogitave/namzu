@@ -215,7 +215,7 @@ it('holds later peer mail after an empty-queue failure, and resumes only on oper
 		releaseFirstTurn()
 		await waitUntil(
 			screen,
-			() => screen.scrollback().some((line) => line.includes('peer failure fixture')),
+			() => screen.scrollback().some((line) => line.includes('Peer failure fixture')),
 			'peer failure was not shown',
 		)
 		// Settle the iterator and the real React queue effects, rather than measuring a timeout.

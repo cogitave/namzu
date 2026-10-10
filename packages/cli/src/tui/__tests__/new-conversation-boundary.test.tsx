@@ -321,7 +321,7 @@ it('leaves the current context and running turn intact when the durable target c
 	failFreshStart = true
 	await submit(harness, '/clear')
 	await until(
-		() => (harness.lastFrame() ?? '').includes('TARGET_CREATE_FAILED'),
+		() => (harness.lastFrame() ?? '').includes('start a new conversation'),
 		'the failed target creation was not reported',
 	)
 

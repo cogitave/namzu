@@ -88,6 +88,7 @@ import {
 	type ProviderId,
 	type SubscriptionLogin,
 	type SubscriptionProviderId,
+	PROVIDER_REGISTRY,
 	beginCodexDeviceLogin,
 	beginSubscriptionLogin,
 	clearAllStoredCredentials,
@@ -301,6 +302,13 @@ import { assistantTranscriptTexts } from './conversation-history.js'
 import { type CopyResponseTarget, copyTargetsForResponse } from './copy-targets.js'
 import { type EditablePrompt, editablePrompts } from './edit-prompts.js'
 import type { TuiExitSummary } from './exit-summary.js'
+import { formatSize, homePath, plural, productName } from './person-terms.js'
+import { explainFailure } from './plain-failure.js'
+import {
+	debugRequested,
+	describePlainInterruption,
+	describeProviderWait,
+} from './plain-interruption.js'
 import { editDraftInExternalEditor } from './external-editor.js'
 import { checklistInView, liveWindow, settledBeforeStreaming } from './live-window.js'
 import { choosesModel, launchPreferences } from './launch-settings.js'
@@ -334,7 +342,6 @@ import {
 } from './permission-review.js'
 import {
 	PAUSED_TURN_LINES,
-	describeTurnInterruption,
 	describeTurnStop,
 	handoffContinuationNote,
 } from './turn-interruption.js'
@@ -1228,6 +1235,9 @@ export function App({
 	 * than as silence. Cleared by the first text or tool call that follows.
 	 */
 	const [thinking, setThinking] = useState<string | null>(null)
+	// Why the reply is quiet while the provider is being waited on or retried.
+	const [providerWaitNotice, setProviderWaitNotice] = useState<string | null>(null)
+	const providerWaitNoticeRef = useRef<string | null>(null)
 	/** Output tokens of the running turn, for the Working row. See `StreamState`. */
 	const [turnTokens, setTurnTokens] = useState(0)
 	const turnTokensShownAt = useRef(0)
@@ -1687,7 +1697,7 @@ export function App({
 	}, [session])
 	useEffect(() => {
 		const source = session?.subagents
-		childMessageLifetimeRef.current.abort(new Error('The owning session changed.'))
+		childMessageLifetimeRef.current.abort(new Error('The conversation changed.'))
 		childMessageLifetimeRef.current = new AbortController()
 		childDraftsRef.current.clear()
 		directChildNoticesRef.current.clear()
@@ -2075,7 +2085,7 @@ export function App({
 			) {
 				return Promise.reject(
 					new Error(
-						'wait for the active turn, queue, compaction, or conversation change to settle',
+						'wait for the current reply and queued messages to finish',
 					),
 				)
 			}
@@ -2644,7 +2654,7 @@ export function App({
 			) {
 				pushMessage(
 					'system',
-					'Reasoning effort was not changed: wait for the active turn, prompt, compaction, and queued work to settle.',
+					'Reasoning effort was not changed: wait for the current reply and queued messages to finish.',
 				)
 				return
 			}
@@ -2661,7 +2671,7 @@ export function App({
 				return
 			}
 			setReasoningEffort(effort)
-			pushMessage('system', `Reasoning: ${effort} (this session).`)
+			pushMessage('system', `Reasoning: ${effort} (this conversation).`)
 		},
 		[hasUnsettledTurn, pushMessage, session, setReasoningEffort, state],
 	)
@@ -2711,7 +2721,7 @@ export function App({
 			) {
 				pushMessage(
 					'system',
-					'Hypermode was not changed: wait for the active turn, prompt, compaction, and queued work to settle.',
+					'Hypermode was not changed: wait for the current reply and queued messages to finish.',
 				)
 				return
 			}
@@ -2804,7 +2814,7 @@ export function App({
 		(sessionId: SessionId, messageIdValue: string, rating: 'good' | 'bad', note?: string) => {
 			const sessions = sessionsRef.current
 			if (!sessions) {
-				pushMessage('system', 'Could not record feedback: conversation persistence is unavailable.')
+				pushMessage('system', 'Could not record feedback: this conversation is not being saved.')
 				return
 			}
 			// Feedback lives beside the conversation's log (`<session-id>/feedback/`)
@@ -2928,7 +2938,7 @@ export function App({
 				'system',
 				!conversationMaterializedRef.current
 					? 'There is no conversation to archive yet — send a message first.'
-					: 'Cannot archive this conversation because durable session persistence is unavailable.',
+					: 'Cannot archive this conversation because it is not being saved.',
 			)
 			return
 		}
@@ -2942,7 +2952,7 @@ export function App({
 		) {
 			pushMessage(
 				'system',
-				'A turn, queued prompt, compaction, or export is still running or settling. Archive waits for a stable durable boundary.',
+				'A reply, queued message, summary or export is still running. Wait for it to finish, then archive.',
 			)
 			return
 		}
@@ -3000,7 +3010,7 @@ export function App({
 				'system',
 				!conversationMaterializedRef.current
 					? 'There is no conversation to export yet — send a message first.'
-					: 'Cannot export this conversation because durable session persistence is unavailable.',
+					: 'Cannot export this conversation because it is not being saved.',
 			)
 			return null
 		}
@@ -3014,7 +3024,7 @@ export function App({
 		) {
 			pushMessage(
 				'system',
-				'A turn, compaction, queued prompt, or export is still running or settling. Export waits for a stable durable boundary; try again when the composer is idle.',
+				'A reply, queued message, summary or export is still running. Wait for it to finish, then export.',
 			)
 			return null
 		}
@@ -3053,7 +3063,7 @@ export function App({
 						scopeRef.current?.sessionId !== source.sessionId
 					) {
 						throw new Error(
-							'The active conversation changed before the export reached its durable boundary.',
+							'The active conversation changed before the export finished.',
 						)
 					}
 
@@ -3066,7 +3076,7 @@ export function App({
 						)
 						pushMessage(
 							'system',
-							`Exported ${projected.turns} turn${projected.turns === 1 ? '' : 's'} to ${written.path} (${written.bytes.toLocaleString()} bytes). Existing files are never overwritten.`,
+							`Exported ${plural(projected.turns, 'reply', 'replies')} to ${homePath(written.path)} (${formatSize(written.bytes)}). Existing files are never overwritten.`,
 						)
 						return
 					}
@@ -3079,7 +3089,7 @@ export function App({
 						case 'request-sent':
 							pushMessage(
 								'system',
-								`Export copy request sent for ${projected.turns} verified turn${projected.turns === 1 ? '' : 's'} (${result.bytes.toLocaleString()} bytes). Terminal, multiplexer or remote-session policy may ignore OSC 52; if the clipboard did not change, enable terminal clipboard access.`,
+								`Export copy request sent for ${plural(projected.turns, 'reply', 'replies')} (${formatSize(result.bytes)}). Terminal, multiplexer or remote-session policy may ignore OSC 52; if the clipboard did not change, enable terminal clipboard access.`,
 							)
 							break
 						case 'unavailable':
@@ -3091,7 +3101,7 @@ export function App({
 						case 'too-large':
 							pushMessage(
 								'system',
-								`Cannot send the verified export to the terminal clipboard — it is ${result.bytes.toLocaleString()} bytes and the OSC 52 safety limit is ${result.limit.toLocaleString()}. Nothing was truncated; choose Save to file instead.`,
+								`Cannot send the verified export to the terminal clipboard — it is ${formatSize(result.bytes)} and the limit for the terminal clipboard is ${formatSize(result.limit)}. Nothing was truncated; choose Save to file instead.`,
 							)
 							break
 						case 'write-failed':
@@ -3140,7 +3150,7 @@ export function App({
 				if (state !== 'idle' || permission) {
 					setChoicePicker({
 						...picker,
-						notice: 'Wait for the active turn and permission prompts to finish.',
+						notice: 'Wait for the current reply and permission prompts to finish.',
 					})
 					return
 				}
@@ -3413,7 +3423,7 @@ export function App({
 				if (!sessionId) {
 					pushMessage(
 						'system',
-						'Cannot export this conversation because durable session persistence is unavailable.',
+						'Cannot export this conversation because it is not being saved.',
 					)
 					return
 				}
@@ -3516,7 +3526,7 @@ export function App({
 				case 'request-sent':
 					pushMessage(
 						'system',
-						`Copy request sent for ${selection} (${result.bytes.toLocaleString()} bytes). Terminal, multiplexer or remote-session policy may ignore OSC 52; if the clipboard did not change, enable terminal clipboard access.`,
+						`Copy request sent for ${selection} (${formatSize(result.bytes)}). Terminal, multiplexer or remote-session policy may ignore OSC 52; if the clipboard did not change, enable terminal clipboard access.`,
 					)
 					break
 				case 'unavailable':
@@ -3528,7 +3538,7 @@ export function App({
 				case 'too-large':
 					pushMessage(
 						'system',
-						`Cannot send this selection to the terminal clipboard — it is ${result.bytes.toLocaleString()} bytes and the OSC 52 safety limit is ${result.limit.toLocaleString()}. Nothing was truncated.`,
+						`Cannot send this selection to the terminal clipboard — it is ${formatSize(result.bytes)} and the limit for the terminal clipboard is ${formatSize(result.limit)}. Nothing was truncated.`,
 					)
 					break
 				case 'write-failed':
@@ -4207,16 +4217,42 @@ export function App({
 						toPicker('--model needs --provider here: no provider is saved to apply it to.')
 						return
 					}
+					const askedFor = requested.providers[0]?.id
+					if (launch.provider && askedFor && !Object.hasOwn(PROVIDER_REGISTRY, askedFor)) {
+						toPicker(
+							`${launch.provider} is not a provider Namzu knows. Choose one from the list below.`,
+						)
+						return
+					}
 					try {
 						// Never persisted: the launch flags choose this session only.
 						await hydrateSession(requested, probe.detected, {
 							signal: admissionSignal,
 							announce,
 						})
+						// A model name the provider does not list would only fail on the
+						// first message, so say so now. Never blocks the launch.
+						const askedModel = launch.model
+						const listed = probe.detected.find((item) => item.entry.id === askedFor)
+						if (askedModel && listed) {
+							void describeProviderModels(listed.entry.id, listed, admissionSignal)
+								.then((listing) => {
+									if (listing.kind === 'ok' && !listing.models.some((m) => m.id === askedModel)) {
+										pushMessage(
+											'system',
+											`${productName(listed.entry.id) ?? 'The provider'} has no model called ${askedModel}. Replies will fail until you pick another with /model.`,
+										)
+									}
+								})
+								.catch(() => undefined)
+						}
 					} catch (error) {
 						if (admissionSignal.aborted) return
 						toPicker(
-							`Could not start with ${launch.provider ?? requested.providers[0]?.id}${launch.model ? ` / ${launch.model}` : ''}: ${error instanceof Error ? error.message : String(error)}`,
+							explainFailure(
+							error,
+							`Could not start with ${productName(launch.provider ?? requested.providers[0]?.id) ?? 'that provider'}${launch.model ? ` and ${launch.model}` : ''}.`,
+						),
 						)
 					}
 					return
@@ -4281,7 +4317,7 @@ export function App({
 						setPickerSelectionKind('provider-and-model')
 						setPickerInitialView('providers')
 						setPickerNotice(
-							`The signed-in ${chosen.entry.label} session could not start: ${error instanceof Error ? error.message : String(error)}`,
+							explainFailure(error, `Couldn’t start with your ${chosen.entry.label} sign-in.`),
 						)
 						setPhase('picker')
 						return
@@ -4527,24 +4563,24 @@ export function App({
 			const sessions = sessionsRef.current
 			const scope = scopeRef.current
 			if (!sessions || !scope || !conversationMaterializedRef.current) {
-				pushMessage('system', 'Nothing to abandon: this conversation has no recorded turn yet.')
+				pushMessage('system', 'Nothing to stop: this conversation has no reply yet.')
 				return
 			}
 			if (abortRef.current || state !== 'idle') {
 				pushMessage(
 					'system',
-					'A turn is running here. Press esc to stop it; /abandon closes a paused or interrupted one.',
+					'A reply is running here. Press Esc to stop it; /abandon closes a paused or interrupted one.',
 				)
 				return
 			}
 			try {
 				const active = await activeConversationTurn(sessions, scope.sessionId)
 				if (!active) {
-					pushMessage('system', 'This conversation has no paused or interrupted turn to abandon.')
+					pushMessage('system', 'This conversation has no paused or interrupted reply to abandon.')
 					return
 				}
 				if (!session?.abandonTurn) {
-					pushMessage('system', 'This session cannot abandon turns.')
+					pushMessage('system', 'This conversation cannot stop a paused reply.')
 					return
 				}
 				await session.abandonTurn(active.turnId as TurnId, reason)
@@ -4552,7 +4588,7 @@ export function App({
 			} catch (err) {
 				pushMessage(
 					'system',
-					`Could not abandon the turn: ${err instanceof Error ? err.message : String(err)}`,
+					explainFailure(err, 'Couldn’t stop the paused reply.'),
 				)
 			}
 		},
@@ -4578,7 +4614,7 @@ export function App({
 		const active = await activeConversationTurn(sessions, resumedSessionId).catch(() => undefined)
 		if (!active) return false
 		if (abortRef.current || state !== 'idle') {
-			pushMessage('system', 'Wait for the running turn to finish before resuming the parked one.')
+			pushMessage('system', 'Wait for the current reply to finish before continuing the paused one.')
 			return true
 		}
 		setHandoffPark(null)
@@ -4674,7 +4710,7 @@ export function App({
 		} catch (err) {
 			pushMessage(
 				'system',
-				`Could not resume the turn: ${err instanceof Error ? err.message : String(err)}`,
+				explainFailure(err, 'Couldn’t continue this reply.'),
 			)
 		} finally {
 			if (abortRef.current === ac) abortRef.current = null
@@ -4750,7 +4786,7 @@ export function App({
 			compactingRef.current ||
 			exportingRef.current
 		) {
-			pushMessage('system', 'Finish the current turn and queued work before restoring a conversation.')
+			pushMessage('system', 'Wait for the current reply and queued messages to finish before restoring a conversation.')
 			return
 		}
 		const sessions = sessionsRef.current ?? (await ensureSessions(), sessionsRef.current)
@@ -4969,7 +5005,7 @@ export function App({
 			}
 			if (palDefinitionRef.current && (abortRef.current || hasUnsettledTurn() || queuedRef.current.length > 0)) {
 				setPhase('ready')
-				pushMessage('system', 'Finish this Pal’s active turn and queued work before opening another conversation.')
+				pushMessage('system', 'Wait for this Pal’s current reply and queued messages to finish before opening another conversation.')
 				return
 			}
 			// The operator has committed; `Esc` no longer cancels from here, or a
@@ -5092,7 +5128,7 @@ export function App({
 				exportingRef.current
 			) {
 				setPhase('ready')
-				pushMessage('system', 'Finish the current turn and queued work before restoring a conversation.')
+				pushMessage('system', 'Wait for the current reply and queued messages to finish before restoring a conversation.')
 				return
 			}
 			resumeCommittedRef.current = true
@@ -5137,7 +5173,7 @@ export function App({
 		async (clearScreen: boolean) => {
 			if (conversationMutationRef.current) return
 			if (palDefinitionRef.current && (abortRef.current || hasUnsettledTurn() || queuedRef.current.length > 0)) {
-				pushMessage('system', 'Finish this Pal’s active turn and queued work before starting another conversation.')
+				pushMessage('system', 'Wait for this Pal’s current reply and queued messages to finish before starting another conversation.')
 				return
 			}
 			conversationMutationRef.current = 'new'
@@ -5226,7 +5262,7 @@ export function App({
 			} catch (err) {
 				pushMessage(
 					'system',
-					`Could not start a fresh conversation: ${err instanceof Error ? err.message : String(err)}. The current conversation and any running turn are unchanged.`,
+					explainFailure(err, 'Couldn’t start a new conversation. The current one and any running reply are unchanged.'),
 				)
 			} finally {
 				conversationMutationRef.current = null
@@ -5437,7 +5473,7 @@ export function App({
 			wakeGoalDriver()
 			pushMessage(
 				'system',
-				`Forked into "${displayConversationTitle(forked.title)}" — ${forked.copied} message(s) copied. This screen continues in the copy; ${original} is unchanged and still in /resume.`,
+				`Forked into "${displayConversationTitle(forked.title)}" — ${plural(forked.copied, 'message')} copied. This screen continues in the copy; ${original} is unchanged and still in /resume.`,
 			)
 		} catch (err) {
 			pushMessage('system', `Could not fork: ${err instanceof Error ? err.message : String(err)}`)
@@ -5491,7 +5527,7 @@ export function App({
 		async (turn: number | undefined) => {
 			const store = session?.checkpoints
 			if (!store) {
-				pushMessage('system', 'This session keeps no file checkpoints.')
+				pushMessage('system', 'File changes are not being saved in this conversation, so there is nothing to restore.')
 				return
 			}
 			// A reopened conversation's history is on disk, not yet in memory.
@@ -5847,6 +5883,21 @@ export function App({
 	const applyEvent = useCallback(
 		(event: AgentEvent, st: StreamState) => {
 			if (st.learning) observeTurnEvent(st.learning, event)
+			// The wait notice lasts until the provider answers with anything else.
+			if (event.kind === 'provider-wait') {
+				const notice = describeProviderWait(event, scheduleLiveRef.current?.model?.provider)
+				providerWaitNoticeRef.current = notice
+				setProviderWaitNotice(notice)
+			} else if (providerWaitNoticeRef.current !== null) {
+				providerWaitNoticeRef.current = null
+				setProviderWaitNotice(null)
+			}
+			const plainOptions = () => ({
+				debug: debugRequested(),
+				...(scheduleLiveRef.current?.model?.model
+					? { model: scheduleLiveRef.current.model.model }
+					: {}),
+			})
 			if (event.kind === 'tool-start' && event.toolName === SKILL_TOOL_NAME) {
 				conversationLearning().skillUsed = true
 			}
@@ -6208,7 +6259,7 @@ export function App({
 					) {
 						pushMessage(
 							'tool',
-							event.isError ? `failed: ${event.summary}` : event.summary,
+							event.isError ? (event.plainFailure ?? `failed: ${event.summary}`) : event.summary,
 							false,
 							'⎿',
 							event.detail,
@@ -6381,18 +6432,16 @@ export function App({
 						pushMessage(
 							'system',
 							browserNotice ??
-								`${describeTurnInterruption(event)}\nWhen that is done, press Enter to continue · Esc to stop.`,
+								`${describePlainInterruption(event, plainOptions())}\nWhen that is done, press Enter to continue · Esc to stop.`,
 							false,
 							'‖',
 						)
 						setHandoffPark({ turnId: event.turnId, reason: event.handoff.reason })
 					} else {
-						pushMessage(
-							'system',
-							`${describeTurnInterruption(event)}\nUse /resume to continue this checkpoint on the selected provider, or /abandon to start a new turn.`,
-							false,
-							'‖',
-						)
+						pushMessage('system', describePlainInterruption(event, plainOptions()), false, '‖')
+						// Enter on an empty composer continues it, like a tool's pause;
+						// typing a new message moves on and /resume stays available.
+						setHandoffPark({ turnId: event.turnId })
 					}
 					break
 				case 'error':
@@ -6401,7 +6450,7 @@ export function App({
 					triggerFollowUpsRef.current?.(st, st.outcome)
 					if (event.message !== 'aborted') {
 						st.notification = { kind: 'turn-settled', outcome: 'failed' }
-						pushMessage('system', describeTurnInterruption(event), false, '!')
+						pushMessage('system', describePlainInterruption(event, plainOptions()), false, '!')
 					} else st.notification = null
 					break
 			}
@@ -6464,7 +6513,7 @@ export function App({
 			} catch (error) {
 				pushMessage(
 					'system',
-					`Conversation persistence could not start: ${error instanceof Error ? error.message : String(error)}. This turn will continue in memory and cannot be resumed.`,
+					explainFailure(error, 'This conversation could not be saved. It will continue, but it cannot be resumed later.'),
 				)
 			}
 			// A conversation can be closed outside this App after it was opened or
@@ -6490,7 +6539,7 @@ export function App({
 					}
 					pushMessage(
 						'system',
-						`This turn was not started: ${err instanceof Error ? err.message : String(err)}`,
+						explainFailure(err, 'Your message was not sent.'),
 					)
 					setState('idle')
 					return
@@ -7229,12 +7278,15 @@ export function App({
 			}
 			try {
 				beforePublish()
-				pushMessage('system', `Model requested: ${query}. Checking available catalogues…`)
+				const lookupNoticeId = pushMessage('system', `Looking up ${query} in the model lists…`)
 				const resolved = await resolveModelSelectionIntent(query, {
 					currentProvider,
 					detected,
 					describeModels: describeProviderModels,
 					signal: pending.signal,
+				}).finally(() => {
+					// The progress line is superseded by the answer under it.
+					setMessages((prev) => prev.filter((message) => message.id !== lookupNoticeId))
 				})
 				if (!owns()) return
 				if (resolved.kind === 'rejected') {
@@ -7486,7 +7538,7 @@ export function App({
 			let skillFlow = false
 			const palHostCommand = operatorText && palDefinitionRef.current && /^\/(?:schedule|loop|worktree|add-dir|browser|mcp|plugins|skills|save-skill|memory|init|review|goal|agents)(?:\s|$)/u.test(dispatch)
 			if (palHostCommand) {
-				pushMessage('system', 'This command is not available in Pal chat. Pal tools use its own computer; host workspace and extension commands remain in ordinary conversations.')
+				pushMessage('system', 'This command is not available in Pal chat. Pal tools use its own computer; workspace and extension commands remain in ordinary conversations.')
 				return
 			}
 			const slash = operatorText ? runSlash(dispatch, slashCtx, hostCommands) : null
@@ -7505,7 +7557,7 @@ export function App({
 						return
 					case 'command-picker': {
 						if (slash.commands.length === 0) {
-							pushMessage('system', 'No slash commands are available in this session.')
+							pushMessage('system', 'No slash commands are available in this conversation.')
 							return
 						}
 						setSelectedChoice(0)
@@ -7536,7 +7588,7 @@ export function App({
 							peers.setEnabled(verb === 'on')
 							pushMessage(
 								'system',
-								`Peer messaging is ${verb}; ${peers.pending} message(s) pending.`,
+								`Peer messaging is ${verb}; ${plural(peers.pending, 'message')} pending.`,
 							)
 						} else if (verb === 'send' && target && words.length) {
 							void peers
@@ -7585,7 +7637,7 @@ export function App({
 					case 'jobs': {
 						const current = session?.jobs?.() ?? []
 						if (!session) {
-							pushMessage('system', 'Shell jobs are available after a session starts.')
+							pushMessage('system', 'Shell jobs are available once the conversation starts.')
 							return
 						}
 						setJobSnapshot({ ownerSession: session, jobs: current })
@@ -7598,7 +7650,7 @@ export function App({
 						return
 					}
 					case 'provider-setup':
-						if (state !== 'idle' || permission || choicePickerRef.current) { pushMessage('system', 'Provider setup is available once the active turn and prompts finish.'); return }
+						if (state !== 'idle' || permission || choicePickerRef.current) { pushMessage('system', 'Provider setup is available once the current reply and prompts finish.'); return }
 						setProviderSetup(true)
 						return
 					case 'turn-limits-set':
@@ -7608,7 +7660,7 @@ export function App({
 						if (slash.kind === 'turn-limit-editor') {
 							const scope = scopeRef.current
 							if (!scope) {
-								pushMessage('system', 'Turn limits are available after the session starts.')
+								pushMessage('system', 'Reply limits are available once the conversation starts.')
 								return
 							}
 							const field = TURN_LIMIT_FIELDS.find((field) => field.key === slash.key)!
@@ -7633,7 +7685,7 @@ export function App({
 						setChoicePicker({
 							kind: 'command',
 							title: 'Turn limits',
-							notice: `${slash.kind === 'turn-limits-set' ? 'Updated. ' : ''}This session · new turns and their agents. Existing turns keep their limits.`,
+							notice: `${slash.kind === 'turn-limits-set' ? 'Updated. ' : ''}This conversation · new replies and their agents. Existing replies keep their limits.`,
 							values: commands,
 							options: commands.map((command) => ({
 								label: command.label,
@@ -7653,7 +7705,7 @@ export function App({
 							{
 								name: 'effort',
 								label: 'Reasoning effort',
-								description: `${reasoningEffortRef.current ?? session?.reasoningEffortDefault ?? 'Model default'} · applies to future turns in this session.`,
+								description: `${reasoningEffortRef.current ?? session?.reasoningEffortDefault ?? 'Model default'} · applies to future replies in this conversation.`,
 								...(session?.reasoningEffortLevels === undefined
 									? { problem: 'This model does not publish reasoning choices.' }
 									: {}),
@@ -7673,7 +7725,7 @@ export function App({
 							},
 							{
 								name: 'status',
-								label: 'Web & session',
+								label: 'Web & usage',
 								description: `${session?.webSearchSummary ?? 'Not resolved'} · view tools, workspace and usage.`,
 							},
 							{ name: 'setup', label: 'Provider setup', description: 'Check installed CLIs and access; connect or install without leaving Namzu.' },
@@ -7694,7 +7746,7 @@ export function App({
 						setChoicePicker({
 							kind: 'command',
 							title: 'Configuration',
-							notice: 'Model, reasoning, permission and turn-limit changes apply to this session.',
+							notice: 'Model, reasoning, permission and turn-limit changes apply to this conversation.',
 							values: commands,
 							options: commands.map((command) => ({
 								label: command.label,
@@ -7838,7 +7890,7 @@ export function App({
 						if (!sessionsRef.current || !scopeRef.current?.sessionId) {
 							pushMessage(
 								'system',
-								'Cannot archive this conversation because durable session persistence is unavailable.',
+								'Cannot archive this conversation because it is not being saved.',
 							)
 							return
 						}
@@ -7852,7 +7904,7 @@ export function App({
 						) {
 							pushMessage(
 								'system',
-								'A turn, queued prompt, compaction, or export is still running or settling. Archive waits for a stable durable boundary.',
+								'A reply, queued message, summary or export is still running. Wait for it to finish, then archive.',
 							)
 							return
 						}
@@ -7866,7 +7918,7 @@ export function App({
 							options: [
 								{
 									label: 'No, keep conversation',
-									description: 'Return without changing durable history',
+									description: 'Return without changing the saved history',
 								},
 								{
 									label: 'Yes, archive and exit',
@@ -8308,7 +8360,7 @@ export function App({
 					case 'add-dir': {
 						const dirs = session?.directories
 						if (!dirs) {
-							pushMessage('system', 'No session yet; /add-dir works once one has started.')
+							pushMessage('system', 'No conversation yet; /add-dir works once one has started.')
 							return
 						}
 						void dirs
@@ -8552,7 +8604,7 @@ export function App({
 					}
 					case 'compact': {
 						if (!session) {
-							pushMessage('system', 'No session yet — nothing to compact.')
+							pushMessage('system', 'Nothing to summarise yet.')
 							return
 						}
 						if (abortRef.current || state !== 'idle' || hasUnsettledTurn()) {
@@ -8610,7 +8662,7 @@ export function App({
 									const summaryRow: TranscriptMessage = {
 										id: `compact-${Date.now()}`,
 										role: 'system',
-										content: `Compacted ${result.shed} earlier message(s) into a summary.${
+										content: `Summarised ${plural(result.shed, 'earlier message')} into a short recap.${
 											result.usage.totalTokens > 0
 												? ` Verifier used ${result.usage.totalTokens.toLocaleString('en-US')} tokens.`
 												: ''
@@ -8762,7 +8814,7 @@ export function App({
 			// turn from being proposed as a skill, and the model would read them
 			// mid-task. They wait in the queue for the turn to end.
 			if (skillFlow && activeTurnInboxRef.current) {
-				pushMessage('system', 'Queued: this runs when the current turn ends.')
+				pushMessage('system', 'Queued: this runs when the current reply ends.')
 			}
 			if (mode === 'submit' && !skillFlow) {
 				const inbox = activeTurnInboxRef.current
@@ -10099,7 +10151,7 @@ export function App({
 			// erasing the only visible account of work that is still changing.
 			if (key.ctrl && input === 'l') {
 				if (state !== 'idle' || abortRef.current || hasUnsettledTurn()) {
-					pushMessage('system', 'Ctrl+L is unavailable while a turn is still in progress.')
+					pushMessage('system', 'Ctrl+L is unavailable while a reply is in progress.')
 					return
 				}
 				setMessages([])
@@ -10458,6 +10510,7 @@ export function App({
 									scheduleReviewPrompt === null
 								}
 								thinking={thinking}
+								waitNotice={providerWaitNotice}
 								tokens={turnTokens}
 								waitingForYou={
 									choicePicker !== null ||
@@ -10973,7 +11026,7 @@ function pluginActionPicker(owner: AgentSession, name: string): ChoicePickerStat
 			},
 			{
 				label: `Keep ${enabled ? 'enabled' : 'disabled'} after restart`,
-				description: 'Remember this state for future sessions and model switches.',
+				description: 'Remember this state for future conversations and model switches.',
 				selectedDescription:
 					plugin.startupError ??
 					'Applies only to this plugin directory. Other running sessions keep their state.',

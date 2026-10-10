@@ -1,5 +1,11 @@
 # Documentation update log
 
+## 2026-10-10
+
+- **Update** [Terminal design](cli/terminal-design.md#plain-words-for-errors-and-status): the terminal app tells a person what happened in plain words. A failed or paused reply is one sentence with the provider's product name and a next step (no catalog ids, checkpoint ids, `Provider:`/`Reason:` rows or raw JSON); Enter continues a paused reply; the exit hint prints `namzu resume <id>` and never the node path; a crash prints one line and saves the stack to `~/.namzu/logs`; `/status`, slash-command messages, command output in a step, sizes and counts follow one glossary; `--debug` / `NAMZU_DEBUG=1` bring the technical text back. Machine-readable modes are unchanged.
+- **Update** [Slash commands](cli/slash-commands.md#settings-and-model-changes): the exit hint is always the product command.
+- **Update** [Launch flags](cli/launch-flags.md#when-a-launch-cannot-be-honoured): `--provider` with an unknown name and `--model` with an unlisted name are explained in plain words at launch; `--debug` / `NAMZU_DEBUG=1` bring the technical detail back.
+
 ## 2026-10-09
 
 - **Update** `packages/cli/src/tui/index.tsx`: the terminal app draws live on a real terminal even when `CI` variables are set, instead of showing a blank screen until exit; the variables are left as they are for the commands the agent runs.

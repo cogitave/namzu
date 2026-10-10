@@ -1,4 +1,6 @@
 import { installationRows } from '../installation.js'
+import { CLI_VERSION } from '../version.js'
+import { homePath, plural, shortId } from './person-terms.js'
 import { statusCard } from './status-card.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { type TurnLimitsAction, turnLimitsAction } from './turn-limits-settings.js'
@@ -1409,14 +1411,14 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 					return {
 						kind: 'message',
 						role: 'system',
-						content: 'No active session — pick a provider with /model before changing effort.',
+						content: 'No provider is active yet. Pick one with /model before changing reasoning.',
 					}
 				}
 				if (ctx.reasoningEffort.levels === undefined) {
 					return {
 						kind: 'message',
 						role: 'system',
-						content: `Reasoning effort cannot be selected here: ${ctx.modelSummary ?? 'the current model'} or one of its usable fallback models does not publish an exact effort menu.`,
+						content: `${ctx.modelSummary ?? 'This model'} has no reasoning levels to choose from.`,
 					}
 				}
 				return { kind: 'reasoning-effort-picker' }
@@ -1425,7 +1427,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				return {
 					kind: 'message',
 					role: 'system',
-					content: 'No active session — pick a provider with /model before changing effort.',
+					content: 'No provider is active yet. Pick one with /model before changing reasoning.',
 				}
 			}
 			const token = args.length === 1 ? args[0]?.toLowerCase() : undefined
@@ -1435,7 +1437,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				return {
 					kind: 'message',
 					role: 'system',
-					content: `Reasoning effort was not changed: ${ctx.modelSummary ?? 'the current model'} or one of its usable fallback models does not publish an exact effort menu. Leave the provider default in force or choose a model/chain that can enumerate its levels.`,
+					content: `Reasoning was not changed: ${ctx.modelSummary ?? 'this model'} has no reasoning levels to choose from. It keeps the provider default.`,
 				}
 			}
 			const effort = offered.find((level) => level === token)
@@ -1617,7 +1619,8 @@ function reportCommand(
 
 function contextMeasurement(usage: SlashContext['usage']): string[] {
 	const context = usage?.context
-	if (!context || context.windowTokens <= 0) return ['No context measurement yet.']
+	if (!context || context.windowTokens <= 0)
+		return ['No context size yet. It appears after the first reply.']
 	const percent = Math.min(999, Math.round((context.tokens / context.windowTokens) * 100))
 	const approx = context.measured && !context.windowAssumed ? '' : '~'
 	return [
@@ -1634,10 +1637,12 @@ export function renderContext(
 	const lines = contextMeasurement(usage)
 	if (usage?.context) lines.push('Latest reported context size; not cumulative token usage.')
 	if (!compaction) {
-		lines.push('Automatic cleanup: unavailable before a session starts.')
+		lines.push('Automatic summarising starts with the conversation.')
 	} else {
 		lines.push(
-			`Cleanup this session: ${compaction.passes} passes, ~${compaction.reclaimedTokens.toLocaleString('en-US')} tokens freed.`,
+			compaction.passes === 0
+				? 'Nothing summarised yet in this conversation.'
+				: `Summarised ${plural(compaction.passes, 'time')} in this conversation, freeing about ${compaction.reclaimedTokens.toLocaleString('en-US')} tokens.`,
 		)
 		if (details) {
 			const pct = (fraction: number) => `${Math.round(fraction * 100)}%`
@@ -1658,7 +1663,7 @@ export function renderContext(
 			)
 		}
 	}
-	if (!details) lines.push('/context details for cleanup history.')
+	if (!details) lines.push('/context details for how the conversation was summarised.')
 	return lines.join('\n')
 }
 
@@ -1692,14 +1697,14 @@ export function renderCost(
 		)
 		if ((usage.budget.unresolvedRequests ?? 0) > 0)
 			lines.push(
-				`${usage.budget.unresolvedRequests} provider receipt(s) unresolved; token totals are measured usage, not a complete spend total.`,
+				`${plural(usage.budget.unresolvedRequests ?? 0, 'request')} without confirmed usage; token totals are measured usage, not a complete spend total.`,
 			)
 		if (usage.budget.poisoned)
-			lines.push('Further spending is blocked until unresolved request usage is reconciled.')
+			lines.push('Further spending is blocked until usage for those requests is confirmed.')
 	}
 	if (details) {
 		lines.push(
-			'Cost covers this turn’s own model calls, excluding delegated calls and earlier turns. These are not conversation totals.',
+			'Cost covers the latest reply’s own model calls, excluding delegated work and earlier replies. These are not conversation totals.',
 		)
 		if (usage.cost.unpricedTokens > 0) {
 			lines.push('Missing prices do not mean those tokens were free.')
@@ -1854,35 +1859,28 @@ export function statusRows(ctx: SlashContext): [string, string][] {
 	const current = ctx.permissions.currentMode()
 	const permissions = effectivePermissionMode(current.mode, ctx.permissions.approvalLatched())
 	const rows: [string, string][] = [
-		...installationRows().map(([key, value]): [string, string] => [key, value]),
+		['Version', CLI_VERSION],
 		['Model', ctx.modelSummary ?? 'Not selected'],
 		['Reasoning', ctx.reasoningEffort.current() ?? 'Model default'],
-		['Provider', ctx.providerSummary ?? 'none — run /model to choose one'],
-		['Directory', ctx.cwd],
+		['Provider', ctx.providerSummary ?? 'None. Run /model to choose one.'],
+		['Folder', homePath(ctx.cwd)],
 		['Permissions', permissionModeLabel(permissions)],
-		[
-			'Sandbox',
-			!ctx.sandbox
-				? 'not resolved yet'
-				: ctx.sandbox.unconfined
-					? 'not confined; host access'
-					: `${ctx.sandbox.environment ?? 'Active'} · ${ctx.sandbox.enforced.join(', ')}`,
-		],
-		['Web search', ctx.webSearchSummary ?? 'not resolved yet'],
+		['Sandbox', sandboxInWords(ctx.sandbox)],
+		['Web search', ctx.webSearchSummary ?? 'Not set up yet'],
 		['Tools', String(ctx.availableTools().length)],
-		['Instructions', ctx.instructionFiles.join(', ') || 'None'],
+		['Instructions', ctx.instructionFiles.map((file) => homePath(file)).join(', ') || 'None'],
 	]
 	if (ctx.sandbox?.workspace)
 		rows.push([
 			'Workspace',
 			ctx.sandbox.workspace === 'ephemeral'
-				? 'temporary files; removed when the turn ends'
-				: 'real project files; edits persist',
+				? 'Temporary files, removed when the reply ends'
+				: 'Your real project files; edits are kept',
 		])
-	if (ctx.sessionId) rows.push(['Session', ctx.sessionId])
+	if (ctx.sessionId) rows.push(['Conversation', shortId(ctx.sessionId)])
 	if (ctx.usage) {
-		rows.push(['Tokens', `${ctx.usage.totalTokens.toLocaleString('en-US')} · current/latest turn`])
-		rows.push(['Spend (current or latest turn, own calls)', costAmount(ctx.usage.cost)])
+		rows.push(['Tokens', `${ctx.usage.totalTokens.toLocaleString('en-US')} · latest reply`])
+		rows.push(['Spend', `${costAmount(ctx.usage.cost)} · latest reply`])
 		if (ctx.usage.context) {
 			const context = ctx.usage.context
 			rows.push([
@@ -1894,13 +1892,24 @@ export function statusRows(ctx: SlashContext): [string, string][] {
 	return rows
 }
 
+/** The sandbox, said the way a person would: what it keeps commands from doing. */
+function sandboxInWords(sandbox: SlashContext['sandbox']): string {
+	if (!sandbox) return 'Not set up yet'
+	if (sandbox.unconfined) return 'Off. Commands run on this computer with your access.'
+	return `${sandbox.environment ?? 'On'}${sandbox.enforced.length > 0 ? ` · limits ${sandbox.enforced.join(', ')}` : ''}`
+}
+
 export function renderStatus(ctx: SlashContext, details = false): string {
 	if (!details)
-		return `${statusCard(statusRows(ctx), ctx.columns)}\n/config to change settings · /status details for full rules`
+		return `${statusCard(statusRows(ctx), ctx.columns)}\n/config changes settings · /status details for the full report`
 	const lines = [
 		`Provider: ${ctx.providerSummary ?? 'none — run /model to choose one'}`,
 		`Model: ${ctx.modelSummary ?? 'not selected'}`,
-		`Working directory: ${ctx.cwd}`,
+		`Working directory: ${homePath(ctx.cwd)}`,
+		...installationRows().map(
+			([key, value]) => `${key}: ${key === 'Executable' ? homePath(value) : value}`,
+		),
+		...(ctx.sessionId ? [`Conversation: ${ctx.sessionId}`] : []),
 		...renderPermissions(ctx.permissions, details).split('\n'),
 	]
 	const sandbox = ctx.sandbox
@@ -1914,7 +1923,7 @@ export function renderStatus(ctx: SlashContext, details = false): string {
 		)
 	}
 	if (sandbox?.workspace === 'ephemeral') {
-		lines.push('Workspace: temporary files; removed when the turn ends.')
+		lines.push('Workspace: temporary files; removed when the reply ends.')
 	} else if (sandbox?.workspace === 'working-directory' || sandbox?.workspace === 'host') {
 		lines.push('Workspace: real project files; edits persist.')
 	}
@@ -1925,12 +1934,11 @@ export function renderStatus(ctx: SlashContext, details = false): string {
 				`Required isolation: ${sandbox.required.length > 0 ? sandbox.required.join(', ') : 'none'}.`,
 			)
 			if (sandbox.required.length > 0)
-				lines.push('A host missing required isolation cannot start the session.')
+				lines.push('Without the required isolation, Namzu will not start.')
 		}
 		lines.push('/status config for setting sources; /status tools for available tools.')
 	}
-	if (ctx.usage)
-		lines.push(`Spend (current or latest turn, own calls): ${costAmount(ctx.usage.cost)}`)
+	if (ctx.usage) lines.push(`Spend (latest reply): ${costAmount(ctx.usage.cost)}`)
 	if (!details) lines.push('/status details for rules and workspace details.')
 	return lines.join('\n')
 }

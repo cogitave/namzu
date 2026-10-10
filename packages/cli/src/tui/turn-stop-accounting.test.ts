@@ -12,10 +12,10 @@ it('distinguishes unmeasured requests from exhaustion even with unlimited execut
 		poisoned: true,
 		unresolvedRequests: 1,
 	}
-	expect(describeTurnStop('token_budget', budget)).toContain('could not be confirmed')
-	expect(describeTurnStop('token_budget', budget)).not.toContain('allowance')
+	expect(describeTurnStop('token_budget', budget)).toContain('could not confirm')
+	expect(describeTurnStop('token_budget', budget)).not.toContain('token limit')
 	expect(describeTurnStop('token_budget', { ...budget, unresolvedRequests: 0 })).toContain(
-		'accounting',
+		'could not be checked',
 	)
 	expect(
 		describeTurnStop('token_budget', {
@@ -24,5 +24,5 @@ it('distinguishes unmeasured requests from exhaustion even with unlimited execut
 			poisoned: false,
 			unresolvedRequests: 0,
 		}),
-	).toContain('allowance')
+	).toContain('token limit')
 })

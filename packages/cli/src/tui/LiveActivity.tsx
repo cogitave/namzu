@@ -62,6 +62,12 @@ export interface LiveActivityProps {
 	 * kept running under "Continue the scheduled run?" read as work being done.
 	 */
 	readonly waitingForYou?: boolean
+	/**
+	 * Why the reply is quiet when the provider asked us to wait or is being
+	 * retried ("<Provider> is limiting requests. Retrying in about 20s."). One row,
+	 * shown under Working, never a countdown.
+	 */
+	readonly waitNotice?: string | null
 }
 
 const MAX_VISIBLE_TOOLS = 3
@@ -76,6 +82,7 @@ export function LiveActivity({
 	thinking = null,
 	tokens,
 	waitingForYou = false,
+	waitNotice = null,
 }: LiveActivityProps) {
 	const { stdout } = useStdout()
 	const screenReader = useIsScreenReaderEnabled()
@@ -141,6 +148,13 @@ export function LiveActivity({
 	const waiting = waitingLine(activeTools)
 	const visibleTools = waiting ? [] : activeTools.slice(0, MAX_VISIBLE_TOOLS)
 	const hiddenTools = waiting ? 0 : activeTools.length - visibleTools.length
+	const noticeRow = waitNotice ? (
+		<Box paddingLeft={2}>
+			<Text color={theme.status.warn}>
+				⏳ {terminalDisplayText(waitNotice)}
+			</Text>
+		</Box>
+	) : null
 	const waitingRow = waiting ? (
 		<Box paddingLeft={2}>
 			<Text color={theme.text.secondary} wrap="truncate-end">
@@ -164,7 +178,7 @@ export function LiveActivity({
 							: ''}
 					</Text>
 				</Box>
-				{waitingRow ? (
+				{noticeRow ?? (waitingRow ? (
 					waitingRow
 				) : current ? (
 					<Box paddingLeft={2}>
@@ -181,7 +195,7 @@ export function LiveActivity({
 							thinking{thinking ? ` · ${terminalDisplayText(thinking)}` : '…'}
 						</Text>
 					</Box>
-				) : null}
+				) : null)}
 			</Box>
 		)
 	}
@@ -203,6 +217,7 @@ export function LiveActivity({
 				</Text>
 			</Box>
 			{waitingRow}
+			{noticeRow}
 			{visibleTools.map((t, index) => {
 				const percent = t.fraction === undefined ? '' : `${Math.round(t.fraction * 100)}% · `
 				return (

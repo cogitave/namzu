@@ -315,7 +315,7 @@ it('puts the compacted summary in the next model request and the durable convers
 	await tick(80)
 	expect(sent, 'input started a turn while compaction owned the history snapshot').toHaveLength(1)
 	releaseReplacement()
-	await frameShows(harness, 'Compacted')
+	await frameShows(harness, 'Summarised')
 
 	expect(replacements, 'the durable conversation was not compacted').toHaveLength(1)
 	expect(replacements[0]?.some((message) => message.content === SUMMARY_TEXT)).toBe(true)
@@ -393,10 +393,10 @@ it('publishes the summary only after durable compaction settles without footer t
 	expect(visibleScreen(screen)).not.toContain('95%')
 	expect(fullScreen(screen)).toContain('question before durable compaction')
 	expect(fullScreen(screen)).toContain('answer-1')
-	expect(fullScreen(screen)).not.toContain('Compacted 1 earlier message')
+	expect(fullScreen(screen)).not.toContain('Summarised 1 earlier message')
 
 	releaseReplacement()
-	await waitForScreen(screen, () => fullScreen(screen).includes('Compacted 1 earlier message'))
+	await waitForScreen(screen, () => fullScreen(screen).includes('Summarised 1 earlier message'))
 	expect(fullScreen(screen)).toContain('Verifier used 1,234 tokens.')
 	expect(visibleScreen(screen)).not.toContain('95%')
 })
@@ -413,13 +413,13 @@ it('keeps footer telemetry quiet while a durable replacement is pending or rejec
 	await submitToScreen(screen, '/compact')
 	await waitForScreen(screen, () => replaceEntered === 1)
 	expect(visibleScreen(screen)).not.toContain('95%')
-	expect(fullScreen(screen)).not.toContain('Compacted 1 earlier message')
+	expect(fullScreen(screen)).not.toContain('Summarised 1 earlier message')
 
 	rejectReplacement(new Error('REPLACEMENT_DID_NOT_LAND'))
 	await waitForScreen(screen, () => fullScreen(screen).includes('REPLACEMENT_DID_NOT_LAND'))
 	expect(visibleScreen(screen)).not.toContain('95%')
 	expect(fullScreen(screen)).toContain('question before rejected compaction')
-	expect(fullScreen(screen)).not.toContain('Compacted 1 earlier message')
+	expect(fullScreen(screen)).not.toContain('Summarised 1 earlier message')
 })
 
 it('keeps footer telemetry quiet when compaction has nothing to replace', async () => {
@@ -436,7 +436,7 @@ it('keeps footer telemetry quiet when compaction has nothing to replace', async 
 
 	expect(visibleScreen(screen)).not.toContain('95%')
 	expect(replaceEntered).toBe(0)
-	expect(fullScreen(screen)).not.toContain('Compacted 1 earlier message')
+	expect(fullScreen(screen)).not.toContain('Summarised 1 earlier message')
 })
 
 it('shows automatic compaction before the next provider settles without footer telemetry', async () => {

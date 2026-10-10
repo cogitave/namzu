@@ -115,10 +115,10 @@ export async function resolveModelSelectionIntent(
 		kind: 'rejected',
 		reason:
 			unique.length > 1
-				? `Model "${query}" is ambiguous. Use /model to choose a provider and exact model.`
+				? `"${query}" matches more than one model, so nothing changed. Use /model to pick one.`
 				: unavailable
-					? `Could not verify all available model catalogues for "${query}". Use /model to choose explicitly.`
-					: `Model "${query}" was not found in authenticated model catalogues. Use /model to choose an available model.`,
+					? `Couldn’t check "${query}" against the model lists right now, so the model was not changed. Use /model to pick one.`
+					: `No model called "${query}" is available to you, so the model was not changed. Use /model to see what is.`,
 		...(unique.length > 0 ? { choices: unique.slice(0, 8) } : {}),
 	}
 }

@@ -100,8 +100,8 @@ describe('/status puts both axes on one page', () => {
 			}),
 		)
 
-		expect(persistent).toMatch(/real project files.*edits persist/i)
-		expect(disposable).toMatch(/temporary files.*removed when the turn ends/i)
+		expect(persistent).toMatch(/real project files.*edits are kept/i)
+		expect(disposable).toMatch(/temporary files.*removed when the reply ends/i)
 	})
 
 	it('says plainly that an unconfined run is unconfined', () => {
@@ -113,7 +113,7 @@ describe('/status puts both axes on one page', () => {
 				sandbox: { unconfined: true, environment: 'basic', enforced: [], required: [] },
 			}),
 		)
-		expect(rendered).toMatch(/not confined/)
+		expect(rendered).toMatch(/Off\. Commands run on this computer/)
 		expect(rendered).not.toMatch(/Confined to this session/)
 	})
 
@@ -134,7 +134,7 @@ describe('/status puts both axes on one page', () => {
 			true,
 		)
 		expect(demanded).toMatch(/Required isolation: filesystem/)
-		expect(demanded).toMatch(/cannot start the session/)
+		expect(demanded).toMatch(/Namzu will not start/)
 
 		const coincidence = renderStatus(
 			context({
@@ -154,12 +154,12 @@ describe('/status puts both axes on one page', () => {
 		// Before a session exists there is no answer, and inventing the
 		// reassuring one is how a page like this becomes worse than absent.
 		const rendered = renderStatus(context({ sandbox: null }))
-		expect(rendered).toMatch(/not resolved yet/)
+		expect(rendered).toMatch(/Not set up yet/)
 		expect(rendered).not.toMatch(/Confined to this session/)
 	})
 
 	it('reports a provider that has not been picked as missing, not as blank', () => {
 		const rendered = renderStatus(context({ providerSummary: null, modelSummary: null }))
-		expect(rendered).toMatch(/none — run \/model/)
+		expect(rendered).toMatch(/None\. Run \/model/)
 	})
 })

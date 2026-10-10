@@ -1,3 +1,4 @@
+import { formatSpan } from './person-terms.js'
 import { terminalDisplayText } from './terminal-display.js'
 
 /**
@@ -406,7 +407,11 @@ function summarizeKnownCall(
 			return {
 				lines: [
 					...commandLines(input.command as string),
-					...(input.timeout !== undefined ? [`timeout: ${String(input.timeout)} ms`] : []),
+					...(input.timeout !== undefined
+						? [
+								`timeout: ${typeof input.timeout === 'number' ? formatSpan(input.timeout) : String(input.timeout)}`,
+							]
+						: []),
 					...(input.run_in_background !== undefined
 						? [`background: ${input.run_in_background ? 'yes' : 'no'}`]
 						: []),

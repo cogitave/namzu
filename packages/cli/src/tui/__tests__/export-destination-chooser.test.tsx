@@ -164,7 +164,7 @@ it('chooses a file, prefills its session filename, and writes the verified proje
 	screen.press('reports/final.md')
 	screen.press('\r')
 	await waitUntil(screen, () => exportState.fileWrites.length === 1)
-	await waitUntil(screen, () => painted(screen).includes('Exported 2 turns'))
+	await waitUntil(screen, () => painted(screen).includes('Exported 2 replies'))
 
 	expect(exportState.projectionCalls).toEqual(['b9ed92cf-8742-4028-ab32-103e762049fe'])
 	expect(exportState.fileWrites).toEqual([
@@ -186,7 +186,9 @@ it('sends the same verified projection as one truthful OSC 52 clipboard request'
 	const writes = screen.writes().join('')
 	expect(writes.split(osc)).toHaveLength(2)
 	expect(painted(screen)).toContain('Terminal, multiplexer or remote-session policy may ignore')
-	expect(painted(screen)).toContain('OSC 52; if the clipboard did not change')
+	expect(painted(screen).replace(/\s+/g, ' ')).toContain(
+		'OSC 52; if the clipboard did not change',
+	)
 	expect(painted(screen)).not.toContain('Copied conversation')
 	expect(exportState.projectionCalls).toEqual(['b9ed92cf-8742-4028-ab32-103e762049fe'])
 	expect(exportState.fileWrites).toEqual([])

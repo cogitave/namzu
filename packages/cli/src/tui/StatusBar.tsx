@@ -233,6 +233,9 @@ export function fitStatusLine(input: {
 		gapWidth = 0
 		leftBudget = columns
 	}
+	// The quiet reminder is only a reminder: cut in half it reads as "shift…cycle".
+	// A real mode badge still truncates, because it is the state itself.
+	if (left().length > leftBudget && mode === QUIET_MODE_HINT) mode = null
 	if (left().length > leftBudget && mode) {
 		mode = shortenRightToFit(mode, leftBudget)
 	}

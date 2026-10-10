@@ -213,7 +213,7 @@ describe('a turn a tool paused for a person', () => {
 		expect(resumed).toHaveLength(0)
 		await until(() => !(harness.lastFrame() ?? '').includes('enter continue'), 'the hint cleared')
 		await until(
-			() => (harness.lastFrame() ?? '').includes('Stopped the paused turn.'),
+			() => (harness.lastFrame() ?? '').includes('Stopped the paused reply.'),
 			'the stopped line',
 		)
 		expect(harness.lastFrame() ?? '').not.toContain(PARKED)

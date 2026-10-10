@@ -528,7 +528,7 @@ describe('first-run signed-in subscriptions', () => {
 		const harness = render(<App ctx={ctx} />)
 		mounted.push(harness)
 
-		await frameShows(harness.lastFrame, 'session could not start')
+		await frameShows(harness.lastFrame, 'sign-in')
 		const frame = harness.lastFrame() ?? ''
 		expect(frame).toContain('The borrowed Claude session was')
 		expect(frame).toContain('refused.')
@@ -596,7 +596,7 @@ describe('publishing a picker selection', () => {
 		harness.stdin.write('\x1b[5~')
 		harness.stdin.write('\x1b[B')
 		harness.stdin.write('\r')
-		await frameShows(harness.lastFrame, 'Reasoning: low (this session).')
+		await frameShows(harness.lastFrame, 'Reasoning: low (this conversation).')
 
 		await submit(harness, '/permissions')
 		await frameShows(harness.lastFrame, 'Ask before changes')
@@ -903,7 +903,7 @@ describe('publishing a picker selection', () => {
 		await tick(80)
 
 		await submit(harness, '/effort max')
-		await frameShows(harness.lastFrame, 'Reasoning: max (this session).')
+		await frameShows(harness.lastFrame, 'Reasoning: max (this conversation).')
 		await submit(harness, 'first turn')
 		await vi.waitFor(() => expect(efforts).toEqual(['max']))
 		await frameShows(harness.lastFrame, 'Type a message')
@@ -934,7 +934,7 @@ describe('publishing a picker selection', () => {
 		await tick(80)
 
 		harness.stdin.write('\x1b[1;2A')
-		await frameShows(harness.lastFrame, 'Reasoning: xhigh (this session).')
+		await frameShows(harness.lastFrame, 'Reasoning: xhigh (this conversation).')
 		harness.stdin.write('\x1b[1;2A')
 		await frameShows(harness.lastFrame, 'already at the highest shortcut level (xhigh)')
 		await submit(harness, 'raised once')
@@ -944,7 +944,7 @@ describe('publishing a picker selection', () => {
 		await submit(harness, '/effort default')
 		await frameShows(harness.lastFrame, 'Reasoning: provider default.')
 		harness.stdin.write('\x1b[1;2B')
-		await frameShows(harness.lastFrame, 'Reasoning: medium (this session).')
+		await frameShows(harness.lastFrame, 'Reasoning: medium (this conversation).')
 		await submit(harness, 'lowered once')
 		await vi.waitFor(() => expect(efforts).toEqual(['xhigh', 'medium']))
 	})
@@ -1011,7 +1011,7 @@ describe('publishing a picker selection', () => {
 		await frameShows(harness.lastFrame, 'Type a message')
 		await tick(80)
 		await submit(harness, '/effort max')
-		await frameShows(harness.lastFrame, 'Reasoning: max (this session).')
+		await frameShows(harness.lastFrame, 'Reasoning: max (this conversation).')
 
 		await submit(harness, 'unsupported premise')
 		await vi.waitFor(() => expect(aSends).toBe(1))
@@ -1163,7 +1163,7 @@ describe('publishing a picker selection', () => {
 		await frameShows(harness.lastFrame, 'Type a message')
 		await tick(80)
 		await submit(harness, '/effort max')
-		await frameShows(harness.lastFrame, 'Reasoning: max (this session).')
+		await frameShows(harness.lastFrame, 'Reasoning: max (this conversation).')
 		await submit(harness, '/model')
 		await frameShows(harness.lastFrame, 'Choose a model')
 		harness.stdin.write('p')
@@ -1518,7 +1518,7 @@ describe('Ctrl+C from a ready conversation', () => {
 		await submit(harness, 'keep working')
 		await started.promise
 		await submit(harness, '/unarchive')
-		expect(harness.lastFrame()).toContain('Finish the current turn and queued work')
+		expect(harness.lastFrame()).toContain('Wait for the current reply and queued messages to finish')
 		expect(archivedListCalls).toBe(0)
 		expect(restoredConversationIds).toEqual([])
 		finish.resolve()

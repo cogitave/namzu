@@ -96,7 +96,7 @@ describe('buildPermissionSummary', () => {
 		const summary = buildPermissionSummary(review.text)
 		expect(summary.complete).toBe(true)
 		expect(summary.text).toContain('$ printf "safe" && git push origin main')
-		expect(summary.text).toContain('timeout: 12000 ms')
+		expect(summary.text).toContain('timeout: 12s')
 		expect(summary.text).toContain('background: no')
 		expect(summary.text).not.toContain('"calls"')
 	})

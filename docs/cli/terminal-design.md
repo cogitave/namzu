@@ -585,6 +585,20 @@ that wait so the parent can respond while children continue. Results arrive in
 the same turn as task notifications. Tab still queues a future turn; Esc still
 interrupts the current turn and its children.
 
+## Plain words for errors and status
+
+The terminal app speaks in the person's terms. `--json`, `namzu exec`, scheduled runs and the ACP host keep the kernel's structured codes unchanged; this applies to what the interactive screen shows.
+
+- **A failed reply** is one sentence naming the provider by product name ("OpenAI did not accept your API key. Check it in /setup, or pick another provider with /model."), plus at most one `OpenAI said: ...` line when the provider's own message adds information. No bracketed catalog ids, no `Provider:` or `Reason:` rows, no raw JSON, status lines, request ids or config-key names. `plain-interruption.ts` builds it.
+- **A paused reply** reads "Paused: OpenAI is having problems on its side. Press Enter to try again, or type a new message." (offline and rate-limited have their own wording; a rate limit names the wait as `20s` or `1m 05s`). Enter on an empty composer continues the reply, as it does for a tool that needs a person; `/resume` and `/abandon` still work. No checkpoint id is shown.
+- **A quiet stretch while the provider is retried** says why under the Working line: "OpenAI is limiting requests. Retrying in about 20s (try 2 of 5)." It comes from the kernel's retry event and is said once, not as a countdown; it goes away when the provider answers.
+- **Failures the app hit itself** (saving a name, forking, archiving) say what could not be done and, for known causes such as a permission or disk error, why; an unknown cause points at `--debug`. `plain-failure.ts` maps them; the raw message is appended only with `NAMZU_DEBUG=1` or `--debug`.
+- **A crash** prints "Namzu stopped because of an unexpected problem. Details were saved to ~/.namzu/logs/crash-<time>.log." The stack and the buffered diagnostics go to that file (the newest ten are kept); they print too only with `NAMZU_DEBUG=1` or `--debug`.
+- **`/status`** shows the conversation by a short id, the folder with `~`, the sandbox in plain words, and "latest reply" where it used to say "current/latest turn". The version build hash, the executable path and the full conversation id are in `/status details`.
+- **Command output in a step** drops the credential note and the exit-status trailer the model sees, renders ANSI as plain text, and says "The command printed binary data, which is not shown." for binary. Long output is collapsed by the transcript as before, with Ctrl+O for the whole text. A failed command reads "Exited with code 2"; a call to a tool that does not exist reads as one sentence. The retained raw output, and Ctrl+O, are untouched. The SDK does not yet carry the exit status as a field, so the exit line is read from the command's text.
+- **Launch flags**: `--provider` with a name Namzu does not know says so above the picker; `--model` with a name the provider does not list warns once the session starts; `/model` with a name it cannot find reads "No model called ... is available to you, so the model was not changed." and leaves only that line in the transcript.
+- **One glossary** (`person-terms.ts`) names the concepts: "reply" where the kernel says turn, "conversation" for session, "summarising the conversation" for compaction, "on this computer" for host. Sizes are `1.2 MB`, spans `20s`, counts are pluralised.
+
 ## Terminal boundaries
 
 A command entered with `!` runs in the operator's shell. Its captured output reaches the next model request as an observation in user-role context; text printed by that command has no system-prompt authority. The CLI still shows the result in the transcript.

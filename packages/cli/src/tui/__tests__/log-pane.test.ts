@@ -1,3 +1,6 @@
+import { existsSync, readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { cliLogger } from '../../logging.js'
@@ -55,15 +58,38 @@ describe('installTuiLogSink', () => {
 		expect(stderr).toContain('kept')
 	})
 
-	it('a simulated crash flushes the buffer to stderr and exits EXIT_INTERNAL_ERROR (70)', () => {
+	it('a simulated crash prints one plain line, saves the stack to a log and exits 70', () => {
 		const exit = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never)
 		installTuiLogSink({ level: 'debug', format: 'json' })
 		cliLogger().error('about to crash')
 		process.emit('uncaughtException', new Error('boom'))
-		expect(stderr).toContain('about to crash')
-		expect(stderr).toContain('boom')
+		expect(stderr).toContain(
+			'Namzu stopped because of an unexpected problem. Details were saved to ',
+		)
+		expect(stderr).not.toContain('boom')
+		expect(stderr).not.toContain('about to crash')
+		expect(stderr).not.toMatch(/\bat .*\(/)
+		const saved = /saved to (\S+)\.\n/.exec(stderr)?.[1]
+		expect(saved).toBeDefined()
+		const path = (saved as string).replace(/^~/, homedir())
+		const log = readFileSync(existsSync(path) ? path : (saved as string), 'utf8')
+		expect(log).toContain('boom')
+		expect(log).toContain('about to crash')
 		expect(exit).toHaveBeenCalledWith(70)
 		exit.mockRestore()
+	})
+
+	it('a simulated crash prints the stack too when NAMZU_DEBUG=1', () => {
+		const exit = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never)
+		vi.stubEnv('NAMZU_DEBUG', '1')
+		try {
+			installTuiLogSink({ level: 'debug', format: 'json' })
+			process.emit('uncaughtException', new Error('boom'))
+			expect(stderr).toContain('boom')
+		} finally {
+			vi.unstubAllEnvs()
+			exit.mockRestore()
+		}
 	})
 
 	it('falls back to a flagless/envless resolution when logging is omitted (a TuiContext built by hand)', () => {

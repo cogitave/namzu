@@ -585,7 +585,7 @@ describe('/cost', () => {
 		)
 		expect(result?.kind).toBe('message')
 		if (result?.kind !== 'message') return
-		expect(result.content).toContain('1 provider receipt(s) unresolved')
+		expect(result.content).toContain('1 request without confirmed usage')
 		expect(result.content).toContain('not a complete spend total')
 		expect(result.content).not.toContain('Further spending is blocked')
 	})
@@ -896,7 +896,7 @@ describe('/effort', () => {
 		const selection = runSlash('/effort high', ctx)
 		expect(selection?.kind).toBe('message')
 		if (selection?.kind === 'message')
-			expect(selection.content).toContain('does not publish an exact')
+			expect(selection.content).toContain('has no reasoning levels to choose from')
 	})
 
 	it('reports an explicit empty menu as unsupported rather than unknown', () => {
@@ -1301,8 +1301,8 @@ describe('/context', () => {
 		const r = runSlash('/context', context({ usage: null }))
 		expect(r?.kind).toBe('message')
 		if (r?.kind !== 'message') return
-		expect(r.content).toContain('No context measurement yet')
-		expect(r.content).toContain('unavailable before a session starts')
+		expect(r.content).toContain('No context size yet')
+		expect(r.content).toContain('starts with the conversation')
 	})
 
 	it('names the strategy, its thresholds and what the passes did', () => {
@@ -1332,10 +1332,10 @@ describe('/context', () => {
 		expect(r.content).toContain('Strategy: salience')
 		expect(r.content).toContain('from 50%')
 		expect(r.content).toContain('summarised at 70%')
-		expect(r.content).toContain('Cleanup this session: 3 passes')
+		expect(r.content).toContain('Summarised 3 times in this conversation')
 		expect(r.content).toContain('Tool results cleared: 4')
 		expect(r.content).toContain('Messages shortened: 2')
-		expect(r.content).toContain('~2,400 tokens freed')
+		expect(r.content).toContain('freeing about 2,400 tokens')
 	})
 })
 

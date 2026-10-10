@@ -16,6 +16,7 @@
  * Pure, and here rather than in `App.tsx`, so every sentence is testable.
  */
 
+import { formatSize } from './person-terms.js'
 import { formatElapsed } from './units.js'
 
 export type WebActivityKind = 'search' | 'fetch'
@@ -102,12 +103,8 @@ export function countListedResults(output: string | undefined): number | undefin
 	return count > 0 ? count : undefined
 }
 
-/** `512B`, `7.5KB`, `1.2MB`. */
-export function formatBytes(bytes: number): string {
-	if (bytes < 1024) return `${bytes}B`
-	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`
-	return `${(bytes / (1024 * 1024)).toFixed(1)}MB`
-}
+/** `512 B`, `7.5 KB`, `1.2 MB`. */
+export const formatBytes = formatSize
 
 function hostOf(target: string): string {
 	try {

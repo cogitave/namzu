@@ -416,7 +416,7 @@ it('keeps ambiguous host requests out of the model and leaves the active selecti
 	describe = async () => ({ kind: 'ok', models: [{ id: 'claude-opus-5', name: 'One' }, { id: 'other-opus-5', name: 'Two' }] })
 	const screen = await open()
 	await submit(screen, '/model opus-5')
-	await until(screen, () => screen.viewport().join('\n').includes('ambiguous'), 'Ambiguity notice missing')
+	await until(screen, () => screen.viewport().join('\n').includes('matches more than one model'), 'Ambiguity notice missing')
 	expect(constructed).toHaveLength(1)
 	expect(sent).toHaveLength(0)
 	expect(closeOld).not.toHaveBeenCalled()
@@ -444,7 +444,7 @@ it('cancels a host intent lookup before a late catalogue can change the model', 
 	describe = () => listing.promise
 	const screen = await open()
 	await submit(screen, `/model ${NEXT}`)
-	await until(screen, () => screen.viewport().join('\n').includes('Checking available catalogues'), 'Lookup not admitted')
+	await until(screen, () => screen.viewport().join('\n').includes('in the model lists'), 'Lookup not admitted')
 	await press(screen, '\x1b')
 	await until(screen, () => screen.viewport().join('\n').includes('Interrupted.'), 'Host selection was not cancelled')
 	listing.resolve({ kind: 'ok', models: [{ id: NEXT, name: NEXT }] })
@@ -459,7 +459,7 @@ it('holds prompts submitted during host selection and sends them once on the sel
 	describe = () => listing.promise
 	const screen = await open()
 	await submit(screen, `/model ${NEXT}`)
-	await until(screen, () => screen.viewport().join('\n').includes('Checking available catalogues'), 'Lookup not admitted')
+	await until(screen, () => screen.viewport().join('\n').includes('in the model lists'), 'Lookup not admitted')
 	await submit(screen, 'Continue the independent task')
 	expect(sent).toHaveLength(0)
 	listing.resolve({ kind: 'ok', models: [{ id: NEXT, name: NEXT }] })
