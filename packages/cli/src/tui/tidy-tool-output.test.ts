@@ -43,7 +43,7 @@ describe('command output in the transcript', () => {
 		expect(tidy.output).toBe("hi\nls: cannot access '/nonexistent'")
 	})
 
-	it('keeps the whole retained text when a stream was windowed, without its labels', () => {
+	it('shows the first and last lines of a long stream with a gap line, never the kernel notice', () => {
 		const lines = Array.from({ length: 200 }, (_, i) => `line ${i + 1}`)
 		const tidy = tidyCommandOutput(
 			{
@@ -58,10 +58,10 @@ describe('command output in the transcript', () => {
 					totalBytes: 1500,
 				},
 			},
-			`STDOUT:\n${lines.join('\n')}`,
+			'STDOUT:\n1\n... 199 similar lines omitted\n\nThe full output was written to: /tmp/x',
 		)
 		expect(tidy.failure).toBeUndefined()
-		expect(tidy.output).toBe(lines.join('\n'))
+		expect(tidy.output).toBe([...lines.slice(0, 80), '… 80 lines not shown', ...lines.slice(-40)].join('\n'))
 	})
 
 	it('names a timeout, a signal and binary output from the fields', () => {

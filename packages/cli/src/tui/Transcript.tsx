@@ -15,6 +15,7 @@ import { ContentWidth, Markdown, WrappedSpans, useContentWidth } from './Markdow
 import { StatusPanel } from './StatusPanel.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
+import { NOT_SHOWN_LINE } from './tidy-tool-output.js'
 import type { TranscriptMessage } from './types.js'
 
 export interface TranscriptProps {
@@ -380,7 +381,14 @@ function splitDetail(
 		lines.length > COLLAPSE_LINES
 			? [...lines.slice(0, fragmentLines), ...lines.slice(-fragmentLines)]
 			: lines
-	const hidden = lines.length - selected.length
+	// A "… N lines not shown" line stands for N lines the kernel kept out of a
+	// long stream, so folding it away hides N lines, not one.
+	const folded =
+		lines.length > COLLAPSE_LINES ? lines.slice(fragmentLines, lines.length - fragmentLines) : []
+	const hidden = folded.reduce((count, line) => {
+		const gap = NOT_SHOWN_LINE.exec(line)
+		return count + (gap ? Number((gap[1] ?? '1').replaceAll(',', '')) : 1)
+	}, 0)
 	const clipped = selected.some((line) => line.length > PREVIEW_LINE_CHARS)
 	const shown = selected.map((line) =>
 		line.length > PREVIEW_LINE_CHARS

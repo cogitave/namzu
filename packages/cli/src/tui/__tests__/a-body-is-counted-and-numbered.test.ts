@@ -74,6 +74,14 @@ describe('renderedDetailLines', () => {
 		])
 	})
 
+	it('counts the lines a gap line stands for among the hidden ones', () => {
+		// 80 first lines, "… 80 lines not shown", 40 last lines: folding the middle hides
+		// 114 shown lines plus the gap's 80.
+		const detail = [...body(80), '… 80 lines not shown', ...body(40)]
+		const lines = renderedDetailLines(row({ detail, detailRef: 1 }))
+		expect(lines[3]).toBe('   … 194 lines not shown · ctrl+o')
+	})
+
 	it('counts the whole body of an expanded row', () => {
 		// Reading only the summary would count a single line for this full body.
 		expect(renderedDetailLines(row({ detail: body(200), detailExpanded: true }))).toHaveLength(200)

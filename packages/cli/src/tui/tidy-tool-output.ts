@@ -2,7 +2,7 @@ import { stripVTControlCharacters } from 'node:util'
 
 import type { ToolFacts, ToolTextWindow } from '@namzu/sdk'
 
-import { formatSize } from './person-terms.js'
+import { formatSize, plural } from './person-terms.js'
 
 export interface TidyOutput {
 	/** What the transcript shows under the step. The retained raw output is untouched. */
@@ -80,21 +80,20 @@ function endedHow(facts: CommandFacts): string | undefined {
 	return undefined
 }
 
-/** A window holds the whole stream when nothing was left out and nothing was clipped. */
-function windowIsComplete(window: ToolTextWindow): boolean {
-	return (
-		window.tail === undefined &&
-		window.omittedLines === undefined &&
-		Buffer.byteLength(window.head, 'utf8') >= window.totalBytes - 1
-	)
-}
+/**
+ * A detail line that stands for lines the kernel kept out of a long stream.
+ * The transcript counts it as that many hidden lines when it collapses a body.
+ */
+export const NOT_SHOWN_LINE = /^… ([\d,]+) lines? not shown$/
 
-/** Drop the `STDOUT:` / `STDERR:` labels the kernel put in the model's copy of the output. */
-function withoutStreamLabels(text: string, has: { stdout: boolean; stderr: boolean }): string {
-	let out = text
-	if (has.stdout) out = out.replace(/^STDOUT:\n/, '')
-	if (has.stderr) out = out.replace(/(^|\n\n?)STDERR:\n/, '$1')
-	return out
+/** One stream's window as lines: the first lines, a gap line, the last lines. */
+function windowLines(window: ToolTextWindow): string[] {
+	const lines = window.head.length > 0 ? window.head.split('\n') : []
+	if (window.omittedLines) {
+		lines.push(`… ${plural(window.omittedLines, 'line')} not shown`)
+	}
+	if (window.tail) lines.push(...window.tail.split('\n'))
+	return lines
 }
 
 /**
@@ -102,10 +101,10 @@ function withoutStreamLabels(text: string, has: { stdout: boolean; stderr: boole
  * reports with the result (`ToolResult.facts`), not from its prose.
  *
  * The exit code, a timeout or a signal come from the fields; a stream that was
- * not text is named. When both streams fit their windows the body is the two
- * windows; otherwise it is the full retained text, so Ctrl+O still has all of
- * it. A conversation saved before facts existed does not reach this function:
- * it keeps `tidyTerminalOutput`.
+ * not text is named; the body is the two streams' windows (first lines, a gap
+ * line saying how many were left out, last lines), so the model's labels and
+ * bookkeeping never reach the screen. A conversation saved before facts
+ * existed does not reach this function: it keeps `tidyTerminalOutput`.
  */
 export function tidyCommandOutput(facts: CommandFacts, raw: string): TidyOutput {
 	const how = endedHow(facts)
@@ -124,18 +123,17 @@ export function tidyCommandOutput(facts: CommandFacts, raw: string): TidyOutput 
 	const streams = [facts.stdout, facts.stderr].filter(
 		(w): w is ToolTextWindow => w !== undefined && w.totalBytes > 0,
 	)
-	if (streams.length > 0 && streams.every(windowIsComplete)) {
-		return withFailure(streams.map((w) => w.head).join('\n'))
+	if (streams.length > 0) {
+		return withFailure(
+			streams
+				.flatMap(windowLines)
+				.map((line) => stripVTControlCharacters(line))
+				.join('\n'),
+		)
 	}
-	// Long output: the retained text is the only complete copy. Its bookkeeping
-	// lines are removed here; the exit status already came from the fields.
-	const tidy = tidyTerminalOutput(
-		withoutStreamLabels(raw, {
-			stdout: (facts.stdout?.totalBytes ?? 0) > 0,
-			stderr: (facts.stderr?.totalBytes ?? 0) > 0,
-		}),
-	)
-	return withFailure(tidy.output)
+	// Nothing was printed, or the call was handed to a background job: the
+	// kernel's own sentence is the answer. Only its bookkeeping is removed.
+	return withFailure(tidyTerminalOutput(raw).output)
 }
 
 /**
