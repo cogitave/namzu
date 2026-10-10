@@ -12,6 +12,7 @@ import type {
 	TerminalEvent,
 } from '../shared/terminal-view.js'
 import { plainErrorText } from './plain-error.js'
+import { applySnapshot } from './terminal-attach.js'
 import { TerminalFeed } from './terminal-feed.js'
 import { terminalKeyAction } from './terminal-keys.js'
 import { pasteLineCount, pasteNeedsConfirmation, sanitizePaste } from './terminal-paste.js'
@@ -344,8 +345,7 @@ export class TerminalSession {
 		}
 		if (token !== this.attachToken || this.disposed) return
 		if (result.mode === 'snapshot') {
-			this.term.reset()
-			this.term.write(result.screen + result.data)
+			applySnapshot(this.term, result)
 			this.feed.reset(result.end)
 		} else {
 			this.term.write(result.data)
@@ -361,6 +361,8 @@ export class TerminalSession {
 			...(result.exitCode === undefined ? {} : { exitCode: result.exitCode }),
 		})
 		if (result.writer) {
+			// The screen was drawn at the host's size; now fit it to this view, which resizes the host.
+			this.refit()
 			this.sentSize = ''
 			this.syncSize()
 		}

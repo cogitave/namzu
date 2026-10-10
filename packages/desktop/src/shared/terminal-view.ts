@@ -67,6 +67,13 @@ export interface TerminalAttachView {
 	end: number
 	writer: boolean
 	truncated: boolean
+	/**
+	 * The size of the host's screen that `screen` and `data` were drawn at. A view sizes its emulator
+	 * to this before it writes them, because a program redraws on a resize relative to where it
+	 * believes the cursor is; a different width here leaves the cursor, and the prompt, in the wrong place.
+	 */
+	cols?: number
+	rows?: number
 	status: TerminalTabView['status']
 	exitCode?: number
 }

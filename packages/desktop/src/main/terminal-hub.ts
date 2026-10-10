@@ -398,6 +398,8 @@ export class TerminalHub {
 				end: result.end,
 				writer: result.writer,
 				truncated: result.truncated,
+				cols: result.terminal.cols,
+				rows: result.terminal.rows,
 				status: entry.view.status,
 				...(entry.view.exitCode === undefined ? {} : { exitCode: entry.view.exitCode }),
 			}
