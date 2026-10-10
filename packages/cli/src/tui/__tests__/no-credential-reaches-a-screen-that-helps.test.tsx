@@ -544,7 +544,7 @@ describe('when something else is running on the machine', () => {
 			expect(text(screen), 'the populated list never drew').toContain('Choose a provider')
 			// Advertised before it is pressed: a key nothing on screen names is a
 			// key nobody presses.
-			expect(text(screen)).toContain('k enter an API key')
+			expect(text(screen)).toMatch(/k (enter an )?API key/)
 
 			screen.press('k')
 			await until(screen, 'Paste an API key')

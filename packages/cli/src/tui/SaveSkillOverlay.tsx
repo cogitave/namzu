@@ -17,6 +17,7 @@ import {
 	type SkillSaveTarget,
 	describeCollision,
 } from '../skills/save.js'
+import { fitHints } from './key-hints.js'
 import { truncateChoiceText } from './terminal-choice-text.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
@@ -169,7 +170,18 @@ export function SaveSkillOverlay({ request, cwd, columns, rows, onAnswer }: Save
 				))}
 			</Box>
 			<Text color={theme.text.muted}>
-				{truncateChoiceText('←/→ choose · enter apply · ↑/↓ PgUp/PgDn scroll · esc cancel', width)}
+				{truncateChoiceText(
+					fitHints(
+						[
+							{ text: '←/→ choose', rank: 5 },
+							{ text: 'enter apply', rank: 5 },
+							{ text: '↑/↓ PgUp/PgDn scroll', short: '↑/↓ scroll', rank: 2 },
+							{ text: 'esc cancel', rank: 5 },
+						],
+						width,
+					),
+					width,
+				)}
 			</Text>
 		</Box>
 	)

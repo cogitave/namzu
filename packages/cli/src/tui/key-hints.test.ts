@@ -28,6 +28,44 @@ describe('fitHints', () => {
 	it('returns the last hint whole when even one is too wide', () => {
 		expect(fitHints(['enter apply'], 4)).toBe('enter apply')
 	})
+
+	describe('short forms', () => {
+		const provider = [
+			{ text: '↑↓ or 1–9 select', short: '↑↓ select', rank: 5 },
+			{ text: 'enter apply', rank: 5 },
+			{ text: 'k enter an API key', short: 'k API key', rank: 3 },
+			{ text: 'l create a Namzu sign-in', short: 'l sign-in', rank: 2 },
+			{ text: 'esc or ctrl+c exit', short: 'esc exit', rank: 5 },
+		]
+
+		it('says a low-ranked hint short before it gives the hint up', () => {
+			const full = fitHints(provider, 200)
+			expect(full).toBe(
+				'↑↓ or 1–9 select · enter apply · k enter an API key · l create a Namzu sign-in · esc or ctrl+c exit',
+			)
+			// One column short: the lowest hint is the one that gets shorter.
+			expect(fitHints(provider, full.length - 1)).toBe(
+				'↑↓ or 1–9 select · enter apply · k enter an API key · l sign-in · esc or ctrl+c exit',
+			)
+		})
+
+		it('never loses the keys that must stay, and says them short when it has to', () => {
+			expect(fitHints(provider, 37)).toBe('↑↓ select · enter apply · esc exit')
+			expect(fitHints(provider, 52)).toBe('↑↓ or 1–9 select · enter apply · esc or ctrl+c exit')
+		})
+
+		it('gives every hint it keeps whole, at every width from 34 up', () => {
+			const known = new Set(provider.flatMap((hint) => [hint.text, hint.short]))
+			for (let width = 34; width <= 140; width++) {
+				const line = fitHints(provider, width)
+				expect(line.length, `width ${width}`).toBeLessThanOrEqual(width)
+				for (const hint of line.split(' · ')) expect(known.has(hint), hint).toBe(true)
+				expect(line).toContain('enter apply')
+				expect(line).toMatch(/esc( or ctrl\+c)? exit/)
+				expect(line).toMatch(/↑↓( or 1–9)? select/)
+			}
+		})
+	})
 })
 
 describe('fitHintText', () => {

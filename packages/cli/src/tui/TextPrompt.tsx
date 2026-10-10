@@ -11,6 +11,7 @@
 import { Box, Text, useInput, useWindowSize } from 'ink'
 import { useCallback, useRef, useState } from 'react'
 
+import { fitHints } from './key-hints.js'
 import {
 	choiceDisplayText,
 	choiceDisplayWidth,
@@ -250,9 +251,14 @@ export function TextPrompt({
 			<Box paddingTop={1}>
 				<Text color={theme.text.muted}>
 					{truncateChoiceText(
-						contentWidth >= 43
-							? 'enter save · esc cancel · Ctrl+W delete word'
-							: 'enter save · esc cancel',
+						fitHints(
+							[
+								{ text: 'enter save', rank: 5 },
+								{ text: 'esc cancel', rank: 5 },
+								{ text: 'Ctrl+W delete word', rank: 1 },
+							],
+							contentWidth,
+						),
 						contentWidth,
 					)}
 				</Text>

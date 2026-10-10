@@ -16,22 +16,27 @@ export interface Hint {
 	readonly text: string
 	/** Higher stays longer when the line is too wide. The default is 1. */
 	readonly rank?: number
+	/**
+	 * A shorter way to say the same key, used before the hint is given up. It is
+	 * a whole hint of its own, never a cut of `text`.
+	 */
+	readonly short?: string
 }
 
 const SEPARATOR = ' · '
 
 /**
  * The hints that fit in `width` columns, joined with ` · `, in the order given.
- * The lowest-ranked hint goes first (the later of two equals), until the line
- * fits or one remains. A single hint wider than `width` is returned whole and
+ * The lowest-ranked hint is shortened (when it has a short form) and then goes
+ * (the later of two equals), until the line fits or one remains. A single hint wider than `width` is returned whole and
  * left to wrap; half of it would be worse than all of it.
  */
 export function fitHints(hints: readonly (string | Hint)[], width: number): string {
-	const kept = hints
+	const kept: { text: string; rank: number; short: string | undefined }[] = hints
 		.map((hint) =>
 			typeof hint === 'string'
-				? { text: hint, rank: 1 }
-				: { text: hint.text, rank: hint.rank ?? 1 },
+				? { text: hint, rank: 1, short: undefined }
+				: { text: hint.text, rank: hint.rank ?? 1, short: hint.short },
 		)
 		.filter((hint) => hint.text.length > 0)
 	const length = () =>
@@ -42,7 +47,26 @@ export function fitHints(hints: readonly (string | Hint)[], width: number): stri
 		for (let i = 1; i < kept.length; i++) {
 			if ((kept[i]?.rank ?? 1) <= (kept[drop]?.rank ?? 1)) drop = i
 		}
-		kept.splice(drop, 1)
+		const victim = kept[drop]
+		const shortens = (hint: (typeof kept)[number] | undefined) =>
+			hint?.short !== undefined && hint.short.length < hint.text.length
+		// Its short form first, then the short form of an equal (the later one
+		// first), and only then is the hint given up: when the hints that must
+		// stay are all of one rank, each one says less before any one is lost.
+		const peers = kept.filter((hint) => hint.rank === victim?.rank && shortens(hint))
+		const shorter = shortens(victim) ? victim : peers.at(-1)
+		if (shorter?.short !== undefined) {
+			shorter.text = shorter.short
+			shorter.short = undefined
+		} else {
+			kept.splice(drop, 1)
+		}
+	}
+	// One hint left and still too wide: its short form, if it has one, before it
+	// is returned whole to wrap.
+	const only = kept[0]
+	if (kept.length === 1 && only !== undefined && only.text.length > width && only.short) {
+		return only.short.length < only.text.length ? only.short : only.text
 	}
 	return kept.map((hint) => hint.text).join(SEPARATOR)
 }

@@ -1,7 +1,8 @@
-import { Box, Text, useInput } from 'ink'
+import { Box, Text, useInput, useWindowSize } from 'ink'
 import { useEffect, useRef, useState } from 'react'
 import { discoverProviders } from '../integrations/providers/discover.js'
 import { type SetupProbe, installHarness, probeHarnesses } from '../integrations/providers/setup.js'
+import { fitHints } from './key-hints.js'
 import { explainFailure } from './plain-failure.js'
 import { choiceDisplayText } from './terminal-choice-text.js'
 import { theme } from './theme.js'
@@ -11,6 +12,7 @@ export function ProviderSetup({
 	onClose,
 	onConnect,
 }: { cwd: string; onClose: () => void; onConnect: () => void }) {
+	const terminal = useWindowSize()
 	const [rows, setRows] = useState<SetupProbe[]>([])
 	const [selected, setSelected] = useState(0)
 	const [confirm, setConfirm] = useState(false)
@@ -141,7 +143,16 @@ export function ProviderSetup({
 				<Text dimColor>
 					{busy
 						? 'Working · esc cancel'
-						: '↑↓ select · i install missing CLI · c connect / select model · r check again · esc back'}
+						: fitHints(
+								[
+									{ text: '↑↓ select', rank: 5 },
+									{ text: 'i install missing CLI', short: 'i install', rank: 3 },
+									{ text: 'c connect / select model', short: 'c connect', rank: 4 },
+									{ text: 'r check again', short: 'r check', rank: 2 },
+									{ text: 'esc back', rank: 5 },
+								],
+								Math.max(1, (terminal.columns ?? 80) - 2),
+							)}
 				</Text>
 			)}
 		</Box>

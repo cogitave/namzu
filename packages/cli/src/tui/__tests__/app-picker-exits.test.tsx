@@ -533,7 +533,7 @@ describe('first-run signed-in subscriptions', () => {
 		expect(frame).toContain('The borrowed Claude session was')
 		expect(frame).toContain('refused.')
 		expect(frame).toContain('Choose a provider')
-		expect(frame).toContain('l create a Namzu sign-in')
+		expect(frame).toMatch(/l (create a Namzu )?sign-in/)
 		expect(close).toHaveBeenCalledTimes(1)
 	})
 })

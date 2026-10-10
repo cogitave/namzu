@@ -17,6 +17,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 
 import { readClipboardImage } from '../integrations/clipboard/image.js'
 import type { UserCommand } from '../user-commands/store.js'
+import { fitHints } from './key-hints.js'
 import { activeFileMention, matchMentionableFiles } from './mentions.js'
 import { parseModelSelectionIntent } from './model-selection-intent.js'
 import { formatSize } from './person-terms.js'
@@ -1452,8 +1453,16 @@ export function Composer({
 						)
 					})}
 					<Text color={theme.text.muted}>
-						{selIdx + 1}/{commandSuggestions.length} · ↑↓ select · PgUp/PgDn jump · enter run · tab
-						complete
+						{fitHints(
+							[
+								{ text: `${selIdx + 1}/${commandSuggestions.length}`, rank: 5 },
+								{ text: '↑↓ select', rank: 5 },
+								{ text: 'PgUp/PgDn jump', short: 'PgUp/PgDn', rank: 1 },
+								{ text: 'enter run', rank: 5 },
+								{ text: 'tab complete', short: 'tab', rank: 3 },
+							],
+							Math.max(1, (terminal.columns ?? 80) - 4),
+						)}
 					</Text>
 				</Box>
 			) : suggestionKind === 'file' ? (
@@ -1471,7 +1480,15 @@ export function Composer({
 						)
 					})}
 					<Text color={theme.text.muted}>
-						{selIdx + 1}/{fileSuggestions.length} · ↑↓ select · PgUp/PgDn jump · enter / tab insert
+						{fitHints(
+							[
+								{ text: `${selIdx + 1}/${fileSuggestions.length}`, rank: 5 },
+								{ text: '↑↓ select', rank: 5 },
+								{ text: 'PgUp/PgDn jump', short: 'PgUp/PgDn', rank: 1 },
+								{ text: 'enter / tab insert', short: 'enter insert', rank: 4 },
+							],
+							Math.max(1, (terminal.columns ?? 80) - 4),
+						)}
 					</Text>
 				</Box>
 			) : null}

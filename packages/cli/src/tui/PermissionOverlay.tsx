@@ -17,6 +17,7 @@ import { basename } from 'node:path'
 import { Box, Text } from 'ink'
 
 import type { PermissionToolCall } from './agent.js'
+import { fitHints } from './key-hints.js'
 import {
 	type PermissionReviewSummary,
 	permissionReviewPageRows,
@@ -422,16 +423,30 @@ export function PermissionOverlay({
 			</Box>
 			<Box flexDirection="column">
 				<Text color={theme.text.muted}>
-					{/* Every key stays: this is the one screen where a missing hint costs an
-					    approval, so the line wraps in its box instead of losing hints. */}
-					{[
-						'↑↓ select',
-						'enter confirm',
-						`${batchOnly || sharing ? 'y / n' : 'y / a / n'} answer`,
-						'esc decline',
-						'ctrl+c decline and stop the reply',
-						`d ${detailsOpen ? 'readable view' : compact ? 'full instructions' : 'exact input'}`,
-					].join(' · ')}
+					{/* The answer keys are the last to go: this is the one screen where a
+					    missing hint costs an approval. Then the key that stops the reply,
+					    which is not `esc` (esc declines and the agent carries on). The
+					    detail toggle says itself short first. The keys still act when
+					    their hint is gone. */}
+					{fitHints(
+						[
+							{ text: '↑↓ select', rank: 5 },
+							{ text: 'enter confirm', short: 'enter ok', rank: 5 },
+							{
+								text: `${batchOnly || sharing ? 'y / n' : 'y / a / n'} answer`,
+								short: batchOnly || sharing ? 'y / n' : 'y / a / n',
+								rank: 5,
+							},
+							{ text: 'esc decline', short: 'esc no', rank: 5 },
+							{ text: 'ctrl+c stop the reply', short: 'ctrl+c stop', rank: 4 },
+							{
+								text: `d ${detailsOpen ? 'readable view' : compact ? 'full instructions' : 'exact input'}`,
+								short: `d ${detailsOpen ? 'readable' : compact ? 'full' : 'input'}`,
+								rank: 3,
+							},
+						],
+						Math.max(1, (columns ?? 80) - 4),
+					)}
 				</Text>
 			</Box>
 		</Box>

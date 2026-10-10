@@ -9,6 +9,7 @@ import { Box, Text, useInput } from 'ink'
 import { useMemo, useState } from 'react'
 
 import { wrapExact } from './SaveSkillOverlay.js'
+import { fitHints } from './key-hints.js'
 import { truncateChoiceText } from './terminal-choice-text.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
@@ -302,9 +303,26 @@ export function ScheduleReviewOverlay({
 			</Box>
 			<Text color={theme.text.muted}>
 				{truncateChoiceText(
-					reviewed
-						? '←/→ choose · enter apply · ↑/↓ PgUp/PgDn · g/G ends · esc cancel'
-						: `Scroll to the end to enable ${request.action === 'confirm' ? 'Confirm' : request.action === 'create' ? 'Create' : 'Save'} · G to end · esc cancel`,
+					fitHints(
+						reviewed
+							? [
+									{ text: '←/→ choose', rank: 5 },
+									{ text: 'enter apply', rank: 5 },
+									{ text: '↑/↓ PgUp/PgDn', short: '↑/↓', rank: 2 },
+									{ text: 'g/G ends', rank: 1 },
+									{ text: 'esc cancel', rank: 5 },
+								]
+							: [
+									{
+										text: `Scroll to the end to enable ${request.action === 'confirm' ? 'Confirm' : request.action === 'create' ? 'Create' : 'Save'}`,
+										short: 'Scroll to the end to enable',
+										rank: 5,
+									},
+									{ text: 'G to end', rank: 4 },
+									{ text: 'esc cancel', rank: 5 },
+								],
+						width,
+					),
 					width,
 				)}
 			</Text>

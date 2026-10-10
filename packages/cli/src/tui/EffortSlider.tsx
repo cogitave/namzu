@@ -22,6 +22,7 @@ import { Box, Text } from 'ink'
 import stringWidth from 'string-width'
 
 import type { ChoicePickerOption } from './ChoicePicker.js'
+import { fitHints } from './key-hints.js'
 import { truncateChoiceText } from './terminal-choice-text.js'
 import { theme } from './theme.js'
 
@@ -209,7 +210,15 @@ export function EffortSlider({
 			))}
 			<Text color={theme.text.muted}>
 				{truncateChoiceText(
-					'←/→ adjust · 1–9 select · enter apply · esc back',
+					fitHints(
+						[
+							{ text: '←/→ adjust', rank: 5 },
+							{ text: '1–9 select', rank: 2 },
+							{ text: 'enter apply', rank: 5 },
+							{ text: 'esc back', rank: 5 },
+						],
+						Math.max(1, columns - 2),
+					),
 					Math.max(1, columns - 2),
 				)}
 			</Text>
