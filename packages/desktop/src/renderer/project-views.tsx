@@ -90,7 +90,7 @@ export function ProjectFolderMissing({
 		<Empty className="welcome project-open-error project-missing" data-project-folder-missing>
 			<EmptyHeader className="max-w-lg px-8">
 				<EmptyTitle>
-					<h1>{name} can’t be found</h1>
+					<h1>“{name}” can’t be found</h1>
 				</EmptyTitle>
 				<EmptyDescription>
 					This folder no longer exists. It may have been moved, renamed or deleted. If you moved or
