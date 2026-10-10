@@ -2,6 +2,10 @@
 
 import { fileURLToPath } from 'node:url'
 
+// First, for its effect: the filter must be in place before anything below can
+// load `node:sqlite`.
+import './warning-filter.js'
+
 import { runCli } from './cli.js'
 import { reportCrash } from './crash-report.js'
 import { EXIT_INTERNAL_ERROR } from './exit-codes.js'
