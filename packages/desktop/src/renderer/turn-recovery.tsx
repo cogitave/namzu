@@ -1,17 +1,21 @@
-import type { DesktopTurnRetry } from '../shared/protocol.js'
+import { useId, useState } from 'react'
+import type { ChatMessage, DesktopTurnRetry } from '../shared/protocol.js'
 import type { FailureAction, FriendlyFailure } from './friendly-errors.js'
+import { MessageActions } from './message-actions.js'
+import { MessageTime } from './message.js'
 import { Button } from './ui/button.js'
 import './turn-recovery.css'
 
-const ACTION_LABEL: Record<FailureAction, string> = {
-	'try-again': 'Try again',
+type OtherAction = Exclude<FailureAction, 'try-again'>
+
+const ACTION_LABEL: Record<OtherAction, string> = {
 	settings: 'Open model settings',
 	'new-conversation': 'Start a new conversation',
 	continue: 'Continue without this reply',
 	'copy-to-new': 'Copy to a new conversation',
 }
 
-/** The actions a set of failures offers, once each, with Try again only where it can really run. */
+/** The actions a set of failures offers, once each, with Retry only where it can really run. */
 export function recoveryActions(
 	failures: readonly FriendlyFailure[],
 	canRetry: boolean,
@@ -24,31 +28,40 @@ export function recoveryActions(
 }
 
 /**
- * What a stopped reply says and what can be done: plain words first, the original message behind
- * "Details". "Try again" appears only when the runtime holds a target it can safely repeat.
+ * What a stopped reply says and what can be done: plain words first, then the same quiet action
+ * row a settled reply ends with (Retry and Copy as icons, other ways on as small text, Details as
+ * a text toggle, the time). Retry appears only when the runtime holds a target it can repeat.
  */
 export function TurnRecovery({
 	retry,
 	failures = [],
 	disabled,
-	retryLabel,
+	model,
+	time,
 	onRetry,
 	onAction,
 }: {
 	retry?: DesktopTurnRetry
 	failures?: readonly FriendlyFailure[]
 	disabled?: boolean
-	/** Names the model Try again will run on when it is not the one that stopped. */
-	retryLabel?: string
+	/** The model a retry will run on, given only when it is not the one that stopped; the icon then reads "Retry with <model>". */
+	model?: string
+	/** When the stop was observed; absent when the time is unknown. */
+	time?: ChatMessage['time']
 	onRetry?: () => void
-	onAction?: (action: Exclude<FailureAction, 'try-again'>) => void
+	onAction?: (action: OtherAction) => void
 }) {
+	const [open, setOpen] = useState(false)
+	const detailsId = useId()
 	const canRetry = Boolean(retry && onRetry)
 	if (failures.length === 0 && !canRetry) return null
 	const actions = recoveryActions(failures, canRetry)
-	// A repeatable reply always offers Try again, even when the words did not name it.
-	if (canRetry && !actions.includes('try-again')) actions.unshift('try-again')
+	const others = actions.filter((action): action is OtherAction => action !== 'try-again')
 	const details = failures.map((failure) => failure.details).filter(Boolean)
+	const copyText = [failures.map((failure) => failure.text).join('\n'), ...details]
+		.filter(Boolean)
+		.join('\n\n')
+	const retryLabel = model ? `Retry with ${model}` : 'Retry'
 	return (
 		<div className="turn-recovery" role={failures.length ? 'alert' : undefined} aria-live="polite">
 			{failures.map((failure) => (
@@ -56,31 +69,55 @@ export function TurnRecovery({
 					{failure.text}
 				</p>
 			))}
-			{actions.length > 0 && (
-				<div className="turn-recovery-actions">
-					{actions.map((action) => (
-						<Button
-							key={action}
-							variant={action === actions[0] ? 'default' : 'outline'}
-							size="sm"
-							disabled={action === 'try-again' ? disabled : false}
-							onClick={() => {
-								if (action === 'try-again') onRetry?.()
-								else onAction?.(action)
-							}}
-						>
-							{action === 'try-again' && retryLabel ? retryLabel : ACTION_LABEL[action]}
-						</Button>
-					))}
-				</div>
-			)}
+			<MessageActions
+				className="message-actions-wrap"
+				text={copyText}
+				copyLabel="Copy"
+				lead={
+					time ? (
+						<span className="message-actions-time">
+							<MessageTime time={time} />
+						</span>
+					) : undefined
+				}
+				onRetry={canRetry ? onRetry : undefined}
+				retryLabel={retryLabel}
+				retryTooltip={retryLabel}
+				retryDisabled={disabled}
+				after={
+					<>
+						{others.map((action) => (
+							<Button
+								key={action}
+								size="xs"
+								variant="ghost-muted"
+								className="message-actions-text"
+								onClick={() => onAction?.(action)}
+							>
+								{ACTION_LABEL[action]}
+							</Button>
+						))}
+						{details.length > 0 && (
+							<Button
+								size="xs"
+								variant="ghost-muted"
+								className="message-actions-text"
+								aria-expanded={open}
+								aria-controls={detailsId}
+								onClick={() => setOpen((value) => !value)}
+							>
+								Details
+							</Button>
+						)}
+					</>
+				}
+			/>
 			{details.length > 0 && (
-				<details className="turn-recovery-details">
-					<summary>Details</summary>
+				<div id={detailsId} className="turn-recovery-details-text" hidden={!open}>
 					{details.map((text) => (
 						<p key={text}>{text}</p>
 					))}
-				</details>
+				</div>
 			)}
 		</div>
 	)

@@ -4396,17 +4396,17 @@ export function App({
 			? { ...failure, actions: [...failure.actions, 'copy-to-new' as const] }
 			: failure,
 	)
-	// Try again runs on the model selected now. When that is not the one that stopped, say which.
+	// Retry runs on the model selected now. When that is not the one that stopped, say which.
 	const selectedModelId =
 		choice.model ||
 		activeProviders.available.find((item) => item.id === choice.provider)?.defaultModel ||
 		''
-	const retryLabel =
+	const retryModel =
 		thread.retry?.original &&
 		selectedModelId &&
 		(thread.retry.original.provider !== choice.provider ||
 			thread.retry.original.model !== selectedModelId)
-			? `Try again with ${selectedModelId}`
+			? selectedModelId
 			: undefined
 	const putMessageBack = (text: string) => {
 		draftsRef.current[sessionId] = text
@@ -6266,8 +6266,9 @@ export function App({
 									)}
 									<TurnRecovery
 										retry={thread.retry}
-										retryLabel={retryLabel}
+										model={retryModel}
 										failures={replyFailures}
+										time={thread.messages.at(-1)?.time}
 										onAction={(action) => {
 											if (action === 'settings') openSettings('models', 'models')
 											else if (action === 'continue') void act(continueWithoutReply)
@@ -6286,7 +6287,7 @@ export function App({
 												? () => {
 														const retry = thread.retry
 														const retryTurn = api.retryTurn
-														// Try again runs on the model chosen now. The choice is applied the way a
+														// Retry runs on the model chosen now. The choice is applied the way a
 														// send applies it, so a switch made after the stop is not lost.
 														const route = { ...choice }
 														if (retry && retryTurn)

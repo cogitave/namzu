@@ -3,7 +3,7 @@
 //   (a) a healthy conversation on the first model, with a tool call and a signed reasoning block,
 //       moves to gpt-6-luna and the history goes with it;
 //   (b) the first reply on the first model stops on a rate limit, the model is switched and a new message sent;
-//   (c) the same, but Try again is pressed after the switch;
+//   (c) the same, but Retry is pressed after the switch;
 //   (d) the reverse direction, healthy and after a stopped reply.
 // Run: pnpm --filter @namzu/desktop build && xvfb-run -a node --test e2e/model-switch.test.mjs
 // Pictures go to research/model-switch-20261010/.
@@ -171,9 +171,9 @@ flow(
 		await openProject(w);
 		await send(w, "hello there");
 		const region = w.page.locator(".turn-recovery");
-		await expect(region.getByRole("button", { name: "Try again" })).toBeVisible({ timeout: T });
+		await expect(region.getByRole("button", { name: "Retry" })).toBeVisible({ timeout: T });
 		await chooseModel(w, "OpenAI", "gpt-6-luna");
-		await expect(region.getByRole("button", { name: "Try again with gpt-6-luna" })).toBeVisible({
+		await expect(region.getByRole("button", { name: "Retry with gpt-6-luna" })).toBeVisible({
 			timeout: T,
 		});
 		await shot(w, "b-1-stopped-then-switched");
@@ -192,7 +192,7 @@ flow(
 );
 
 flow(
-	"(c) a reply that stopped on a rate limit: switch to gpt-6-luna and press Try again, it runs on luna",
+	"(c) a reply that stopped on a rate limit: switch to gpt-6-luna and press Retry, it runs on luna",
 	{
 		messagesRules: [{ match: /hello/i, steps: [THROTTLED] }],
 		rules: [{ match: /hello/i, steps: [{ text: "Luna took it from here." }] }],
@@ -201,13 +201,13 @@ flow(
 		await openProject(w);
 		await send(w, "hello there");
 		const region = w.page.locator(".turn-recovery");
-		await expect(region.getByRole("button", { name: "Try again" })).toBeVisible({ timeout: T });
+		await expect(region.getByRole("button", { name: "Retry" })).toBeVisible({ timeout: T });
 		const firstRequests = w.messages.requests.length;
 		await chooseModel(w, "OpenAI", "gpt-6-luna");
-		await expect(region.getByRole("button", { name: "Try again with gpt-6-luna" })).toBeVisible({
+		await expect(region.getByRole("button", { name: "Retry with gpt-6-luna" })).toBeVisible({
 			timeout: T,
 		});
-		await region.getByRole("button", { name: "Try again with gpt-6-luna" }).click();
+		await region.getByRole("button", { name: "Retry with gpt-6-luna" }).click();
 		await expect(w.page.getByText("Luna took it from here.")).toBeVisible({ timeout: T });
 		assert.equal(w.messages.requests.length, firstRequests, "Claude was not asked again");
 		assert.equal(w.model.requests.at(-1).model, "gpt-6-luna");
@@ -260,7 +260,7 @@ flow(
 		await openProject(w);
 		await send(w, "hello there");
 		const region = w.page.locator(".turn-recovery");
-		await expect(region.getByRole("button", { name: "Try again" })).toBeVisible({ timeout: T });
+		await expect(region.getByRole("button", { name: "Retry" })).toBeVisible({ timeout: T });
 		await chooseModel(w, "Anthropic (Claude)", "claude-sonnet-5-5");
 		await send(w, "hello again");
 		await expect(w.page.getByText("Claude answers.")).toBeVisible({ timeout: T });
@@ -291,7 +291,7 @@ flow(
 );
 
 flow(
-	"(f) Try again on luna that is rate limited again names luna no longer, and a switch back names Claude",
+	"(f) Retry on luna that is rate limited again names luna no longer, and a switch back names Claude",
 	{
 		messagesRules: [{ match: /hello/i, steps: [THROTTLED] }],
 		rules: [{ match: /./, steps: [THROTTLED_CHAT] }],
@@ -300,15 +300,15 @@ flow(
 		await openProject(w);
 		await send(w, "hello there");
 		const region = w.page.locator(".turn-recovery");
-		await expect(region.getByRole("button", { name: "Try again" })).toBeVisible({ timeout: T });
+		await expect(region.getByRole("button", { name: "Retry" })).toBeVisible({ timeout: T });
 		await chooseModel(w, "OpenAI", "gpt-6-luna");
-		await region.getByRole("button", { name: "Try again with gpt-6-luna" }).click();
+		await region.getByRole("button", { name: "Retry with gpt-6-luna" }).click();
 		await expect.poll(() => w.model.requests.length, { timeout: T }).toBeGreaterThan(0);
 		// Luna stopped it this time, so luna is not "another model" any more.
-		await expect(region.getByRole("button", { name: "Try again", exact: true })).toBeVisible({ timeout: T });
+		await expect(region.getByRole("button", { name: "Retry", exact: true })).toBeVisible({ timeout: T });
 		await shot(w, "f-1-luna-stopped-it-again");
 		await chooseModel(w, "Anthropic (Claude)", "claude-sonnet-5-5");
-		await expect(region.getByRole("button", { name: "Try again with claude-sonnet-5-5" })).toBeVisible({
+		await expect(region.getByRole("button", { name: "Retry with claude-sonnet-5-5" })).toBeVisible({
 			timeout: T,
 		});
 		// And the conversation still goes on from here.
@@ -335,10 +335,10 @@ flow(
 		await openProject(w);
 		const region = w.page.locator(".turn-recovery");
 		await send(w, "hello there");
-		await expect(region.getByRole("button", { name: "Try again" })).toBeVisible({ timeout: T });
+		await expect(region.getByRole("button", { name: "Retry" })).toBeVisible({ timeout: T });
 		await chooseModel(w, "OpenAI", "gpt-6-luna");
 		await send(w, "second");
-		await expect(region.getByRole("button", { name: /Try again/ })).toBeVisible({ timeout: T });
+		await expect(region.getByRole("button", { name: /Retry/ })).toBeVisible({ timeout: T });
 		await chooseModel(w, "Anthropic (Claude)", "claude-sonnet-5-5");
 		await send(w, "third");
 		await expect(w.page.getByText("Claude third.")).toBeVisible({ timeout: T });

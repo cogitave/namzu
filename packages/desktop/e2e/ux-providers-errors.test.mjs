@@ -218,9 +218,9 @@ function failureFlow(name, status, extra, expected, shotName) {
 			const shown = await region.innerText();
 			const visible = shown.replace(/Details[\s\S]*$/, "");
 			assert.doesNotMatch(visible, JARGON, "the main text carries no code, markup or receipt wording");
-			await expect(region.getByText("Details")).toBeVisible();
+			await expect(region.getByRole("button", { name: "Details", exact: true })).toBeVisible();
 			await shots(w, shotName);
-			await region.getByText("Details").click();
+			await region.getByRole("button", { name: "Details", exact: true }).click();
 			await shot(w, `${shotName}-details-dark`);
 			// Paused and budget lines never contradict the cause.
 			await expect(w.page.getByText("Paused.", { exact: true })).toHaveCount(0);
@@ -253,14 +253,14 @@ flow(
 			w.page.getByText(`${PROVIDER_NAME} had a problem on its side. Your message is saved.`).first(),
 		).toBeVisible({ timeout: T });
 		const region = w.page.locator(".turn-recovery");
-		await expect(region.getByRole("button", { name: "Try again" })).toBeVisible({ timeout: T });
+		await expect(region.getByRole("button", { name: "Retry", exact: true })).toBeVisible({ timeout: T });
 		await expect(w.page.getByRole("button", { name: "Start a new conversation" })).toHaveCount(0);
 		await expect(w.page.getByRole("button", { name: "Continue without this reply" })).toHaveCount(0);
 		const visible = (await region.innerText()).replace(/Details[\s\S]*$/, "");
 		assert.doesNotMatch(visible, JARGON, "the main text carries no code, markup or receipt wording");
 		await shots(w, "10-fault-502");
-		await region.getByText("Details").click();
-		const details = await region.locator("details").innerText();
+		await region.getByRole("button", { name: "Details", exact: true }).click();
+		const details = await region.locator(".turn-recovery-details-text").innerText();
 		assert.match(details, /Usage for (one request|\d+ requests) is unknown\./);
 		assert.doesNotMatch(details, /502 502|receipt|retained|unresolved/i, "no doubled status or receipt wording");
 		assert.match(
@@ -271,7 +271,7 @@ flow(
 		// The retry is a new request in the same conversation, and it is answered.
 		const before = w.model.requests.length;
 		w.model.rules[0].steps = [{ text: "The provider is back." }];
-		await region.getByRole("button", { name: "Try again" }).click();
+		await region.getByRole("button", { name: "Retry", exact: true }).click();
 		await expect(w.page.getByText("The provider is back.")).toBeVisible({ timeout: T });
 		assert.ok(w.model.requests.length > before, "the retry reached the model as a new request");
 		await expect(w.page.locator(".turn-recovery")).toHaveCount(0);
@@ -301,7 +301,7 @@ flow(
 		await openProject(w);
 		await sendText(w, "please go wrong");
 		const region = w.page.locator(".turn-recovery");
-		await expect(region.getByRole("button", { name: "Try again" })).toBeVisible({ timeout: T });
+		await expect(region.getByRole("button", { name: "Retry", exact: true })).toBeVisible({ timeout: T });
 		// A Desktop conversation has no limit of its own. Give this turn's ledger one, the way a turn
 		// begun under a configured limit would carry it, and open the conversation again.
 		const ledgers = budgetFiles(w.home);
@@ -314,14 +314,14 @@ flow(
 		await expect(region.getByRole("button", { name: "Continue without this reply" })).toBeVisible({
 			timeout: T,
 		});
-		await expect(region.getByRole("button", { name: "Try again" })).toHaveCount(0);
+		await expect(region.getByRole("button", { name: "Retry", exact: true })).toHaveCount(0);
 		await expect(w.page.getByRole("button", { name: "Start a new conversation" })).toHaveCount(0);
 		const visible = (await region.innerText()).replace(/Details[\s\S]*$/, "");
 		assert.doesNotMatch(visible, JARGON, "the main text carries no code, markup or receipt wording");
 		assert.doesNotMatch(visible, /receipt|unresolved|retained|token/i);
 		await shots(w, "10-fault-502-limited");
-		await region.getByText("Details").click();
-		assert.match(await region.locator("details").innerText(), /Usage for (one request|\d+ requests) is unknown\./);
+		await region.getByRole("button", { name: "Details", exact: true }).click();
+		assert.match(await region.locator(".turn-recovery-details-text").innerText(), /Usage for (one request|\d+ requests) is unknown\./);
 		await shot(w, "10-fault-502-limited-details-dark");
 		const tabs = await w.page.getByRole("tab").count();
 		await region.getByRole("button", { name: "Continue without this reply" }).click();
