@@ -30,6 +30,12 @@ export interface StatusBarProps {
 	readonly permissionMode?: PermissionMode
 	/** Whether Shift+Tab actually reaches `permissionMode` here, so the footer never advertises a dead key. */
 	readonly canCycleMode?: boolean
+	/**
+	 * Whether a composer is on screen. Shift+Tab is the composer's key, so with
+	 * none mounted (a picker, the trust prompt, a stopped start) the footer
+	 * names no cycle key; the active mode and the folder are still facts.
+	 */
+	readonly composerMounted?: boolean
 }
 
 /**
@@ -66,6 +72,7 @@ export function StatusBar({
 	hint,
 	permissionMode,
 	canCycleMode,
+	composerMounted = true,
 }: StatusBarProps) {
 	const terminal = useWindowSize()
 	const activeMode =
@@ -81,8 +88,12 @@ export function StatusBar({
 		effort: effort ?? null,
 		hint,
 		goal,
-		modeLabel: activeMode ? `${activeMode.icon} ${activeMode.label}` : QUIET_MODE_HINT,
-		cycleSuffix: activeMode && canCycleMode ? CYCLE_SUFFIX : null,
+		modeLabel: activeMode
+			? `${activeMode.icon} ${activeMode.label}`
+			: composerMounted
+				? QUIET_MODE_HINT
+				: '',
+		cycleSuffix: activeMode && canCycleMode && composerMounted ? CYCLE_SUFFIX : null,
 	})
 	return (
 		<Text wrap="truncate-end">
@@ -92,13 +103,13 @@ export function StatusBar({
 			{layout.cycleSuffix ? <Text color={theme.text.muted}>{layout.cycleSuffix}</Text> : null}
 			{layout.effort ? (
 				<>
-					<Text color={theme.text.muted}> · </Text>
+					{layout.mode ? <Text color={theme.text.muted}> · </Text> : null}
 					<Text color={theme.text.secondary}>{layout.effort}</Text>
 				</>
 			) : null}
 			{layout.cwd ? (
 				<>
-					<Text color={theme.text.muted}> · </Text>
+					{layout.mode || layout.effort ? <Text color={theme.text.muted}> · </Text> : null}
 					<Text color={theme.text.secondary}>{layout.cwd}</Text>
 				</>
 			) : null}
@@ -208,7 +219,7 @@ export function fitStatusLine(input: {
 	let gapWidth = right().length > 0 ? 1 : 0
 	let leftBudget = Math.max(0, columns - right().length - gapWidth)
 
-	let mode: string | null = input.modeLabel
+	let mode: string | null = input.modeLabel.length > 0 ? input.modeLabel : null
 	let cycleSuffix: string | null = input.cycleSuffix ?? null
 	let effort: string | null = input.effort ? `effort ${input.effort}` : null
 	let cwd: string | null = input.cwd.length > 0 ? input.cwd : null

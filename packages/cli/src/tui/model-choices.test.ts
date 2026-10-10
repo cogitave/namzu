@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { canSelectModel } from '../integrations/providers/access.js'
 import { PROVIDER_REGISTRY } from '../integrations/providers/registry.js'
 
+import { type ModelListingCause, modelListingCause } from './agent.js'
 import { hasBothGroups, modelStep, rowSection, sectionHeading } from './model-choices.js'
 
 const DEFAULT = 'claude-sonnet-4-5'
@@ -362,9 +363,15 @@ describe('modelStep', () => {
 			expect(step.notice).toContain('does not publish a model list')
 		})
 
-		it('carries the provider’s own reason when it errored', () => {
-			const step = modelStep(DEFAULT, { kind: 'failed', reason: 'HTTP 503' })
-			expect(step.notice).toContain('HTTP 503')
+		it('keeps the provider’s own reason for --debug, not the screen', () => {
+			const plain = modelStep(DEFAULT, { kind: 'failed', reason: 'HTTP 503' }, undefined, {
+				debug: false,
+			})
+			expect(plain.notice).not.toContain('HTTP 503')
+			const debug = modelStep(DEFAULT, { kind: 'failed', reason: 'HTTP 503' }, undefined, {
+				debug: true,
+			})
+			expect(debug.notice).toContain('HTTP 503')
 		})
 
 		it('never tells the operator the fallback is the provider’s own default', () => {
@@ -504,5 +511,77 @@ describe('Zen group headings', () => {
 		})
 		expect(hasBothGroups(step.choices)).toBe(false)
 		expect(step.choices[0]?.note).toBe('(namzu default · free)')
+	})
+})
+
+describe('a failed model list is said in plain words', () => {
+	const RAW =
+		'401 Authentication Fails, Your api key: ****real is invalid (request_id: req_abc123def456)'
+	const base = { providerId: 'openai', keyEntryReachable: true, debug: false } as const
+	const cases: [ModelListingCause, string][] = [
+		[
+			'rejected',
+			'OpenAI rejected the saved API key. Press Esc, then k to enter a new key. Showing namzu’s pick for it.',
+		],
+		[
+			'forbidden',
+			'OpenAI does not let this key list models. Press Esc, then k to enter a new key. Showing namzu’s pick for it.',
+		],
+		[
+			'limited',
+			'OpenAI is limiting requests right now. Wait a moment, then open the list again. Showing namzu’s pick for it.',
+		],
+		[
+			'server',
+			'OpenAI is having problems on its side. Try again in a minute. Showing namzu’s pick for it.',
+		],
+		[
+			'network',
+			'Namzu could not reach OpenAI. Check your internet connection, then try again. Showing namzu’s pick for it.',
+		],
+		[
+			'unknown',
+			'Namzu could not list models from OpenAI. Run with --debug for details. Showing namzu’s pick for it.',
+		],
+	]
+	for (const [cause, expected] of cases) {
+		it(`says ${cause} without the driver's text`, () => {
+			const step = modelStep(DEFAULT, { kind: 'failed', reason: RAW, cause }, undefined, base)
+			expect(step.notice).toBe(expected)
+			expect(step.notice).not.toMatch(/request_id|\*\*\*\*|401|Authentication Fails/)
+		})
+	}
+
+	it('shows the driver text, with the request ID labelled, only with --debug', () => {
+		const step = modelStep(DEFAULT, { kind: 'failed', reason: RAW, cause: 'rejected' }, undefined, {
+			...base,
+			debug: true,
+		})
+		expect(step.notice).toContain(' Details: 401 Authentication Fails')
+		expect(step.notice).toContain('Request ID: req_abc123def456')
+		expect(step.notice).not.toContain('request_id')
+		expect(step.notice).not.toContain('((')
+		expect(step.notice).toMatch(/\. Showing namzu’s pick for it\.$/)
+	})
+
+	it('points at /setup when the provider list is not reachable', () => {
+		const step = modelStep(DEFAULT, { kind: 'failed', reason: RAW, cause: 'rejected' }, undefined, {
+			...base,
+			keyEntryReachable: false,
+		})
+		expect(step.notice).toContain('Check the key in /setup.')
+	})
+
+	it('classifies errors by status, then by message', () => {
+		const status = (n: number) => Object.assign(new Error('x'), { status: n })
+		expect(modelListingCause(status(401))).toBe('rejected')
+		expect(modelListingCause(status(403))).toBe('forbidden')
+		expect(modelListingCause(status(429))).toBe('limited')
+		expect(modelListingCause(status(503))).toBe('server')
+		expect(modelListingCause(status(400))).toBe('unknown')
+		expect(modelListingCause(new Error('fetch failed'))).toBe('network')
+		expect(modelListingCause(new Error('Request timed out.'))).toBe('network')
+		expect(modelListingCause(new Error('Connection error.'))).toBe('network')
+		expect(modelListingCause(new Error('boom'))).toBe('unknown')
 	})
 })

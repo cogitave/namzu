@@ -1,8 +1,11 @@
-import { Box, Text, useInput } from 'ink'
+import { Box, Text, useInput, useWindowSize } from 'ink'
 import { useEffect, useRef, useState } from 'react'
 import { discoverProviders } from '../integrations/providers/discover.js'
 import { type SetupProbe, installHarness, probeHarnesses } from '../integrations/providers/setup.js'
+import { boxedHintWidth, fitHints } from './key-hints.js'
 import { explainFailure } from './plain-failure.js'
+import { debugRequested } from './plain-interruption.js'
+import { setupInstallFailed, setupInstalling, setupRowStatus } from './setup-text.js'
 import { choiceDisplayText } from './terminal-choice-text.js'
 import { theme } from './theme.js'
 
@@ -11,6 +14,7 @@ export function ProviderSetup({
 	onClose,
 	onConnect,
 }: { cwd: string; onClose: () => void; onConnect: () => void }) {
+	const terminal = useWindowSize()
 	const [rows, setRows] = useState<SetupProbe[]>([])
 	const [selected, setSelected] = useState(0)
 	const [confirm, setConfirm] = useState(false)
@@ -51,14 +55,13 @@ export function ProviderSetup({
 		setBusy(true)
 		const controller = new AbortController()
 		operation.current = controller
-		setOutput(`Running npm install --global ${target.harness.npmPackage}`)
+		setOutput(setupInstalling(target.harness))
 		try {
 			const result = await installHarness(target.harness, {
 				cwd,
 				signal: controller.signal,
-				onOutput: (text) => {
-					if (!lifetime.current?.signal.aborted) setOutput(text)
-				},
+				// npm's progress lines are the program's output, not screen text.
+				onOutput: () => {},
 			})
 			if (lifetime.current?.signal.aborted) return
 			await refresh(lifetime.current!.signal)
@@ -67,7 +70,7 @@ export function ProviderSetup({
 					? 'Installation stopped. Files already installed may remain; state was checked again.'
 					: result.code === 0
 						? 'Installer exited successfully. Check installation above, then press c to connect; installation alone does not sign you in.'
-						: `Installation failed (exit ${result.code ?? 'unknown'}).\n${result.output}`,
+						: setupInstallFailed(target.harness, result.output, debugRequested()),
 			)
 		} catch (error) {
 			if (!lifetime.current?.signal.aborted)
@@ -114,11 +117,22 @@ export function ProviderSetup({
 			<Text dimColor>Namzu connects directly. External CLIs are optional credential owners.</Text>
 			{rows.map((row, index) => (
 				<Box key={row.harness.id} flexDirection="column" marginTop={1}>
-					<Text color={index === selected ? theme.border.focus : undefined}>
-						{index === selected ? '›' : ' '} {row.harness.label} ·{' '}
-						{row.installed ? `Installed · ${choiceDisplayText(row.version)}` : 'Not installed'}
-					</Text>
-					<Text dimColor> {row.access}</Text>
+					{/* A hanging indent: a wrapped line lines up under the name, not under the marker. */}
+					<Box>
+						<Box width={2} flexShrink={0}>
+							<Text color={index === selected ? theme.border.focus : undefined}>
+								{index === selected ? '›' : ' '}
+							</Text>
+						</Box>
+						<Box flexShrink={1}>
+							<Text color={index === selected ? theme.border.focus : undefined}>
+								{row.harness.label} · {choiceDisplayText(setupRowStatus(row, debugRequested()))}
+							</Text>
+						</Box>
+					</Box>
+					<Box paddingLeft={2}>
+						<Text dimColor>{row.access}</Text>
+					</Box>
 				</Box>
 			))}
 			<Box marginTop={1} flexDirection="column">
@@ -141,7 +155,16 @@ export function ProviderSetup({
 				<Text dimColor>
 					{busy
 						? 'Working · esc cancel'
-						: '↑↓ select · i install missing CLI · c connect / select model · r check again · esc back'}
+						: fitHints(
+								[
+									{ text: '↑↓ select', rank: 5 },
+									{ text: 'i install missing CLI', short: 'i install', rank: 3 },
+									{ text: 'c connect / select model', short: 'c connect', rank: 4 },
+									{ text: 'r check again', short: 'r check', rank: 2 },
+									{ text: 'esc back', rank: 5 },
+								],
+								boxedHintWidth(terminal.columns),
+							)}
 				</Text>
 			)}
 		</Box>

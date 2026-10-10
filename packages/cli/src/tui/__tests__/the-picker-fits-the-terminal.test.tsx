@@ -209,7 +209,7 @@ it('says what esc does where there is nothing behind the picker', async () => {
 	expect(staying.viewport().join('\n')).toContain('esc keep current')
 })
 
-it.each([40, 80, 160])(
+it.each([120, 160])(
 	'carries the setup key in its bottom key line at %i columns, with no hint line of its own',
 	async (columns) => {
 		const screen = await open(columns, 40, { onSetup: vi.fn(), notice: undefined })
@@ -225,8 +225,18 @@ it.each([40, 80, 160])(
 	},
 )
 
+it('gives up the setup key before the keys that leave the screen when the line is too narrow', async () => {
+	// At 40 columns only `↑↓ select · enter apply · esc …` fit one row; the setup
+	// key is one of the hints that goes, and nothing is left wrapping under it.
+	const screen = await open(40, 40, { onSetup: vi.fn(), notice: undefined })
+	const text = screen.viewport().join('\n')
+	expect(text).not.toContain('setup')
+	expect(text).toContain('↑↓')
+	expect(text).toContain('enter apply')
+})
+
 it('keeps every row visible on a short terminal now that the setup hint is not a line of its own', async () => {
-	const screen = await open(80, 14, { onSetup: vi.fn() })
+	const screen = await open(120, 14, { onSetup: vi.fn() })
 
 	expect(screen.viewport().join('\n')).toContain('s provider setup')
 	expect(rowLines(screen).length).toBeGreaterThan(0)

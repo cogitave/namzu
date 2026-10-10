@@ -1,7 +1,7 @@
 import { Box, Text, useWindowSize } from 'ink'
 
 import type { CopyResponseTarget } from './copy-targets.js'
-import { fitHints } from './key-hints.js'
+import { boxedHintWidth, fitHints } from './key-hints.js'
 import { selectionWindow } from './selection-window.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
@@ -63,9 +63,9 @@ export function CopyPicker({ targets, selected }: CopyPickerProps) {
 							{ text: 'Home/End', rank: 1 },
 							{ text: '1–9 select', rank: 2 },
 							{ text: 'enter copy', rank: 5 },
-							{ text: 'esc cancel', rank: 4 },
+							{ text: 'esc cancel', short: 'esc', rank: 5 },
 						],
-						Math.max(1, (terminal.columns ?? 80) - 4),
+						boxedHintWidth(terminal.columns),
 					)}
 				</Text>
 			</Box>

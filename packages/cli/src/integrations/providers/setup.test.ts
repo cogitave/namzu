@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { runSetupCommand } from './setup.js'
+import { runSetupCommand, versionFromProbe } from './setup.js'
 
 describe('setup process ownership', () => {
 	it('passes arguments literally and bounds output', async () => {
@@ -42,5 +42,23 @@ describe('setup process ownership', () => {
 				timeoutMs: 100,
 			}),
 		).toThrow('cancelled')
+	})
+})
+
+describe('versionFromProbe', () => {
+	it('skips warnings printed before the number', () => {
+		expect(
+			versionFromProbe(
+				'WARNING: proceeding, even though we could not create PATH aliases: no such file 1.2.3\ncodex-cli 0.46.0\n',
+			),
+		).toBe('0.46.0')
+	})
+	it('reads a plain number, with or without v', () => {
+		expect(versionFromProbe('1.0.31 (Claude Code)')).toBe('1.0.31')
+		expect(versionFromProbe('v2.4')).toBe('2.4')
+	})
+	it('returns nothing when no line carries a number', () => {
+		expect(versionFromProbe('WARNING: something\nready')).toBeUndefined()
+		expect(versionFromProbe('')).toBeUndefined()
 	})
 })

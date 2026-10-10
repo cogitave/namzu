@@ -80,6 +80,33 @@ export function homePath(path: string, home: string = homedir()): string {
 	return path
 }
 
+/**
+ * A path for a sentence: `~` for home, and when it is longer than `max` cells,
+ * a middle ellipsis that keeps the first segment and the last folder whole
+ * (`~/…/packages/cli`). The leaf is what says where you are, so it is dropped
+ * last; only a leaf wider than `max` on its own is cut, from its start.
+ */
+export function displayPath(path: string, max: number, home: string = homedir()): string {
+	const shown = homePath(path, home)
+	if (max <= 0) return ''
+	if (shown.length <= max) return shown
+	const sep = shown.includes('\\') && !shown.includes('/') ? '\\' : '/'
+	const parts = shown.split(sep)
+	const head = parts[0] === '~' || /^[A-Za-z]:$/.test(parts[0] ?? '') ? (parts[0] ?? '') : ''
+	const rest = head ? parts.slice(1) : parts.filter((part, i) => part !== '' || i === 0).slice(1)
+	const lead = head ? `${head}${sep}…` : '…'
+	// Keep as many trailing folders as fit beside the lead and an ellipsis.
+	for (let keep = rest.length; keep >= 1; keep--) {
+		const tail = rest.slice(-keep).join(sep)
+		const candidate = keep === rest.length && head ? `${head}${sep}${tail}` : `${lead}${sep}${tail}`
+		if (candidate.length <= max) return candidate
+	}
+	const leaf = rest[rest.length - 1] ?? shown
+	const bare = `…${sep}${leaf}`
+	if (bare.length <= max) return bare
+	return max === 1 ? '…' : `…${leaf.slice(-(max - 1))}`
+}
+
 /** The short form of a conversation id, for places where a whole UUID is noise. */
 export function shortId(id: string): string {
 	return id.length > 8 ? id.slice(0, 8) : id

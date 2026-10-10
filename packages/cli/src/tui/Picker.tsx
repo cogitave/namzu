@@ -28,6 +28,7 @@ import {
 	type ModelGroup,
 	type ModelListing,
 	describeProviderModels,
+	modelListingCause,
 	verifyCredential,
 } from './agent.js'
 import {
@@ -541,6 +542,9 @@ export function Picker({
 				finishOperation(operation)
 				const step = modelStep(current.entry.defaultModel, listing, activeModel, {
 					allowModel: (id) => canSelectModel(current.entry, current.apiKey, id),
+					providerId: current.entry.id,
+					keyEntryReachable:
+						keyEntryOffered && returnToProviders && current.entry.acceptsTypedCredential === true,
 				})
 				const experimentalNotice =
 					current.entry.id === 'zen' && !hasApiCredential(current.entry, current.apiKey)
@@ -560,7 +564,8 @@ export function Picker({
 				.catch((error: unknown) =>
 					showListing({
 						kind: 'failed',
-						reason: explainFailure(error, 'Could not load the list.'),
+						reason: error instanceof Error ? error.message : String(error),
+						cause: modelListingCause(error),
 					}),
 				)
 		},
@@ -570,6 +575,7 @@ export function Picker({
 			currentProvider,
 			describeModels,
 			finishOperation,
+			keyEntryOffered,
 			ownsOperation,
 			setCursor,
 		],
@@ -1139,14 +1145,17 @@ export function Picker({
 					Complete {loginEntry.entry.label} sign-in
 				</Text>
 				{waitsForDeviceApproval ? (
-					<Text color={theme.text.muted}>
-						Approve the code shown above in your browser · esc cancel
-					</Text>
+					<>
+						<Text color={theme.text.muted}>Approve the code shown above in your browser.</Text>
+						<Text color={theme.text.muted}>{fitHints(['esc cancel'], contentWidth)}</Text>
+					</>
 				) : (
 					<>
 						<Text color={theme.text.muted}>
-							Paste the authorization code, or the finished browser address, then press enter. esc
-							cancels.
+							Paste the authorization code, or the finished browser address.
+						</Text>
+						<Text color={theme.text.muted}>
+							{fitHints(['enter apply', 'esc cancel'], contentWidth)}
 						</Text>
 						<Box paddingTop={1}>
 							<Text color={loginEntry.value ? theme.text.primary : theme.text.muted}>
@@ -1188,8 +1197,9 @@ export function Picker({
 					{/* Both kinds are named because both are accepted, and someone
 					    holding a subscription token has no way to guess that a field
 					    labelled "key" wants it. */}
+					<Text color={theme.text.muted}>An API key or a subscription token. Type or paste.</Text>
 					<Text color={theme.text.muted}>
-						An API key or a subscription token. Type or paste, then enter · esc cancel
+						{fitHints(['enter apply', 'esc cancel'], contentWidth)}
 					</Text>
 				</Box>
 				{/* The mask, never the value. */}
@@ -1286,7 +1296,14 @@ export function Picker({
 				</Box>
 				<Box paddingTop={1} flexDirection="column">
 					<Text color={theme.text.muted}>
-						↑↓ or 1–{pathRow.paths.length} select · enter apply · esc back
+						{fitHints(
+							[
+								{ text: `↑↓ or 1–${pathRow.paths.length} select`, short: '↑↓ select', rank: 5 },
+								{ text: 'enter apply', rank: 5 },
+								{ text: 'esc back', rank: 5 },
+							],
+							contentWidth,
+						)}
 					</Text>
 					{errorHint ? <Text color={theme.status.warn}>{errorHint}</Text> : null}
 				</Box>
@@ -1327,7 +1344,14 @@ export function Picker({
 				</Box>
 				<Box paddingTop={1} flexDirection="column">
 					<Text color={theme.text.muted}>
-						↑↓ or 1–{choices.length} select · enter apply · esc back
+						{fitHints(
+							[
+								{ text: `↑↓ or 1–${choices.length} select`, short: '↑↓ select', rank: 5 },
+								{ text: 'enter apply', rank: 5 },
+								{ text: 'esc back', rank: 5 },
+							],
+							contentWidth,
+						)}
 					</Text>
 					{errorHint ? <Text color={theme.status.warn}>{errorHint}</Text> : null}
 				</Box>
@@ -1364,9 +1388,24 @@ export function Picker({
 	// count has to be the height the row actually draws, which is why the sources
 	// are wrapped here rather than by the renderer.
 	const oneLine = (text: string) => wrapChoiceText(text, contentWidth).length
-	const emptyScreenFooter = `${onLogin ? 'l sign in · ' : ''}${onSetup ? 's setup · ' : ''}↑↓ or 1–9 select · enter or k enter an API key · ${
-		cancelExits ? 'esc or ctrl+c exit' : 'esc back · ctrl+c exit'
-	}`
+	// The footer is built from separate hints, in the order they are given up,
+	// and fitted to the box before anything counts it: a hint is dropped or said
+	// in its short form, never broken across two rows, so the footer is one row at
+	// every width and the budget below counts exactly that row. `↑↓ select`,
+	// `enter apply` and the way off the screen are the last to go.
+	const emptyScreenFooter = fitHints(
+		[
+			...(onLogin ? [{ text: 'l sign in', rank: 3 }] : []),
+			...(onSetup ? [{ text: 's setup', rank: 3 }] : []),
+			{ text: '↑↓ or 1–9 select', short: '↑↓ select', rank: 5 },
+			{ text: 'enter or k enter an API key', short: 'enter or k API key', rank: 4 },
+			cancelExits
+				? { text: 'esc or ctrl+c exit', short: 'esc exit', rank: 5 }
+				: { text: 'esc back', rank: 5 },
+			...(cancelExits ? [] : [{ text: 'ctrl+c exit', rank: 1 }]),
+		],
+		contentWidth,
+	)
 	// Everything the screen draws that is not a row, in the order it is drawn:
 	// the box's two borders, the notice and its blank, the title, the blank and
 	// the intro, the sources, then the two or three ways off the screen with the
@@ -1407,11 +1446,30 @@ export function Picker({
 		selectionKind === 'signed-in-subscription'
 			? `${detected.length} already usable · no API key required`
 			: `${detected.length} detected · existing sign-ins / Namzu sign-ins / optional keys / local servers`
-	const listFooter = `↑↓ or 1–9 select · enter apply${
-		entryTarget ? ` · k enter an API key${namesAnotherRow ? ` for ${entryTarget.label}` : ''}` : ''
-	}${
-		onLogin && selectionKind !== 'signed-in-subscription' ? ' · l create a Namzu sign-in' : ''
-	}${onSetup ? ' · s provider setup' : ''} · ${cancelExits ? 'esc or ctrl+c exit' : 'esc keep current · ctrl+c exit'}`
+	const listFooter = fitHints(
+		[
+			{ text: '↑↓ or 1–9 select', short: '↑↓ select', rank: 5 },
+			{ text: 'enter apply', rank: 5 },
+			...(entryTarget
+				? [
+						{
+							text: `k enter an API key${namesAnotherRow ? ` for ${entryTarget.label}` : ''}`,
+							short: 'k API key',
+							rank: 4,
+						},
+					]
+				: []),
+			...(onLogin && selectionKind !== 'signed-in-subscription'
+				? [{ text: 'l create a Namzu sign-in', short: 'l sign-in', rank: 3 }]
+				: []),
+			...(onSetup ? [{ text: 's provider setup', short: 's setup', rank: 3 }] : []),
+			cancelExits
+				? { text: 'esc or ctrl+c exit', short: 'esc exit', rank: 5 }
+				: { text: 'esc keep current', short: 'esc keep', rank: 5 },
+			...(cancelExits ? [] : [{ text: 'ctrl+c exit', rank: 1 }]),
+		],
+		contentWidth,
+	)
 	// What the screen keeps, in the order it gives things up.
 	//
 	// Overflow cuts the TOP of the box, and the top is where the notice sits —
@@ -1449,7 +1507,7 @@ export function Picker({
 		1,
 		screenRows - (detected.length === 0 ? emptyScreenChromeRows : listChromeRows),
 	)
-	const listWindow = rowWindow(rows, cursor, rowBudget, contentWidth)
+	const listWindow = rowWindowWithMarkers(rows, cursor, rowBudget, contentWidth)
 
 	if (detected.length === 0) {
 		return (
@@ -1646,7 +1704,7 @@ function ModelStepView({
 	const headed = sections.size > 0
 	const headings = new Map([...sections].map(([id, section]) => [id, sectionHeading(section)]))
 	const choices = step ? filterModelChoices(step.choices, query ?? '', headings) : []
-	const noticeRows = step?.notice ? Math.ceil(choiceDisplayWidth(step.notice) / width) : 0
+	const noticeRows = step?.notice ? wrapChoiceText(step.notice, width).length : 0
 	// "Free" and "API key" headings are lines between rows, never rows: the cursor and the digit
 	// shortcuts count choices only. They take screen lines, so the window gives them room: up to three at once (the repeated one, "API key", "Other models").
 	const rowBudget = Math.max(
@@ -1724,7 +1782,7 @@ function ModelStepView({
 						{truncateChoiceText(`Search: ${query ?? 'type or / to filter'}`, width)}
 					</Text>
 					{step.notice ? (
-						<Text color={theme.status.warn}>{terminalDisplayText(step.notice)}</Text>
+						<WrappedLines text={step.notice} width={width} color={theme.status.warn} />
 					) : null}
 					<Box flexDirection="column">
 						{choices.length === 0 ? (
@@ -1780,18 +1838,22 @@ function ModelStepView({
 							{ text: 'PgUp/PgDn', rank: 1 },
 							{ text: 'Home/End', rank: 1 },
 							{ text: 'enter apply', rank: 5 },
+							// Ranked with the other keys that must stay, and said short
+							// before anything is dropped: at 40 columns the line is
+							// `↑↓ select · enter apply · esc keep`.
 							{
 								text: returnToProviders
 									? 'esc back'
 									: cancelExits
 										? 'esc or ctrl+c exit'
 										: 'esc keep current',
-								rank: 4,
+								short: returnToProviders ? undefined : cancelExits ? 'esc exit' : 'esc keep',
+								rank: 5,
 							},
 							...(returnToProviders || cancelExits ? [] : [{ text: 'ctrl+c exit', rank: 1 }]),
 							query === null ? { text: '1–9 select', rank: 2 } : { text: 'ctrl+u clears', rank: 2 },
 						],
-						Math.max(1, columns - 4),
+						pickerContentWidth(columns),
 					)}
 				</Text>
 				{errorHint ? <Text color={theme.status.warn}>{errorHint}</Text> : null}
@@ -1843,8 +1905,11 @@ function ProviderSetupRows({
 	// state now — whether this machine has anything for it — rather than which
 	// arm of a union it is in.
 	const firstUndetected = rows.findIndex((row) => row.detected.length === 0)
+	const hiddenAbove = visible.start
+	const hiddenBelow = rows.length - (visible.start + visible.items.length)
 	return (
 		<Box flexDirection="column">
+			{hiddenAbove > 0 ? <Text color={theme.text.muted}>{`↑ ${hiddenAbove} more`}</Text> : null}
 			{visible.items.map((row, offset) => {
 				const index = visible.start + offset
 				// The heading is drawn above the first not-detected row, or at the
@@ -1881,6 +1946,7 @@ function ProviderSetupRows({
 					</Fragment>
 				)
 			})}
+			{hiddenBelow > 0 ? <Text color={theme.text.muted}>{`↓ ${hiddenBelow} more`}</Text> : null}
 		</Box>
 	)
 }
@@ -2222,6 +2288,33 @@ function rowHeight(row: VendorRow, contentWidth: number, currentMark = ''): numb
  * cannot explain — and the rows around it fill what is left, half the budget
  * above it when there is that much to show.
  */
+/**
+ * The rows that fit, once the lines that say how many are hidden are paid for.
+ *
+ * A list that shows three of seven rows without saying so reads as a list of
+ * three. Each side that is cut gets one quiet line (`↓ 3 more`), and the lines
+ * come out of the budget, so the box is still no taller than the terminal. The
+ * marker lines are settled by trying: the window is cut for the whole budget,
+ * the sides it cuts are paid for, and it is cut again for what is left.
+ */
+function rowWindowWithMarkers(
+	rows: readonly VendorRow[],
+	cursor: number,
+	budget: number,
+	contentWidth: number,
+): SelectionWindow<VendorRow> {
+	let reserved = 0
+	let window = rowWindow(rows, cursor, budget, contentWidth)
+	for (let pass = 0; pass < 3; pass++) {
+		const above = window.start > 0 ? 1 : 0
+		const below = window.start + window.items.length < rows.length ? 1 : 0
+		if (above + below === reserved) break
+		reserved = above + below
+		window = rowWindow(rows, cursor, Math.max(1, budget - reserved), contentWidth)
+	}
+	return window
+}
+
 function rowWindow(
 	rows: readonly VendorRow[],
 	cursor: number,
@@ -2247,6 +2340,13 @@ function rowWindow(
 	while (end < rows.length && used + (heights[end] ?? 1) <= budget) {
 		used += heights[end] ?? 1
 		end += 1
+	}
+	// Near the end of the list there is nothing below to fill the other half of
+	// the budget, so what is left goes above the cursor: a row is hidden only
+	// when it does not fit, never because the cursor is centred.
+	while (start > 0 && used + (heights[start - 1] ?? 1) <= budget) {
+		start -= 1
+		used += heights[start] ?? 1
 	}
 	return { start, items: rows.slice(start, end) }
 }

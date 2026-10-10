@@ -1,5 +1,6 @@
 import { Box, Text, useInput } from 'ink'
 import { useMemo, useState } from 'react'
+import { boxedHintWidth, fitHints } from './key-hints.js'
 import { permissionReviewRows } from './permission-review.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
@@ -62,8 +63,20 @@ export function ToolOutputViewer({
 				</Text>
 			))}
 			<Text color={theme.text.muted} wrap="truncate-end">
-				{start + 1}–{Math.min(start + pageSize, wrapped.length)}/{wrapped.length} · ←→ outputs · ↑↓
-				scroll · PgUp/PgDn · g/G · esc close
+				{fitHints(
+					[
+						{
+							text: `${start + 1}–${Math.min(start + pageSize, wrapped.length)}/${wrapped.length}`,
+							rank: 5,
+						},
+						{ text: '←→ outputs', rank: 3 },
+						{ text: '↑↓ scroll', rank: 5 },
+						{ text: 'PgUp/PgDn', rank: 2 },
+						{ text: 'g/G', rank: 1 },
+						{ text: 'esc close', rank: 5 },
+					],
+					boxedHintWidth(columns),
+				)}
 			</Text>
 		</Box>
 	)

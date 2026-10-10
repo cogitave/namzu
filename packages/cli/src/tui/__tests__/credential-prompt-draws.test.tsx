@@ -270,7 +270,7 @@ describe('the credential prompt', () => {
 		unmount()
 	})
 
-	it('surfaces the provider’s own reason when a key is rejected', async () => {
+	it('says a rejected key is rejected, without the provider’s own text', async () => {
 		const { lastFrame, stdin, unmount, onCredential } = open({
 			verify: async () => ({
 				kind: 'rejected',
@@ -285,8 +285,9 @@ describe('the credential prompt', () => {
 		await flush()
 
 		const frame = lastFrame() ?? ''
-		// The provider's words, not "could not verify key".
-		expect(frame).toContain('HTTP 401')
+		// Plain words, not the provider's status line (that is for --debug).
+		expect(frame).toContain('rejected that API key')
+		expect(frame).not.toContain('HTTP 401')
 		expect(frame).toContain('Nothing was stored')
 		// Still on the screen, so a one-character slip is fixable...
 		expect(frame).toContain('Paste an API key')

@@ -262,6 +262,7 @@ import {
 	hypermodeEffort,
 	hypermodeStopLabel,
 } from './hypermode.js'
+import { fitHints } from './key-hints.js'
 import { choosesModel, launchPreferences } from './launch-settings.js'
 import { checklistInView, liveWindow, settledBeforeStreaming } from './live-window.js'
 import {
@@ -1034,6 +1035,9 @@ export function App({
 	const stateRef = useRef(state)
 	stateRef.current = state
 	const [phase, setPhase] = useState<LifecyclePhase>('probing')
+	// True when the sentence that stopped startup already says what to do next, so
+	// the screen adds no second line of advice under it.
+	const [startupExplained, setStartupExplained] = useState(false)
 	const phaseRef = useRef(phase)
 	phaseRef.current = phase
 	const [session, setSession] = useState<AgentSession | null>(null)
@@ -1951,7 +1955,7 @@ export function App({
 				}),
 			saved: ({ name, path }) =>
 				scheduleLiveRef.current?.say(
-					`Saved skill ${name} to ${path}. The model is offered it from the next reply; /skills ${name} activates it now.`,
+					`Saved skill ${name} to ${homePath(path)}. The model is offered it from the next reply; /skills ${name} activates it now.`,
 				),
 		})
 	}
@@ -2976,7 +2980,7 @@ export function App({
 				else if (target === 'codex') clearStoredCodexCredential()
 				else clearStoredGoogleApiKey()
 			} catch (error) {
-				pushMessage('system', explainFailure(error, `Could not remove ${path}.`))
+				pushMessage('system', explainFailure(error, `Could not remove ${homePath(path)}.`))
 				return
 			}
 			pushMessage(
@@ -4073,7 +4077,7 @@ export function App({
 				}
 			} else {
 				setPhase('unhealthy')
-				if (s.errorHint) pushMessage('system', s.errorHint)
+				if (s.errorHint) pushMessage('system', s.errorHint, false, STARTUP_STOP_GLYPH)
 			}
 		},
 		[
@@ -4287,6 +4291,8 @@ export function App({
 									? 'Could not resume that conversation.'
 									: 'Could not open this Pal.',
 							),
+							false,
+							STARTUP_STOP_GLYPH,
 						)
 						return
 					}
@@ -4442,6 +4448,7 @@ export function App({
 			} catch (err) {
 				if (signal?.aborted) return
 				setPhase('unhealthy')
+				setStartupExplained(err instanceof ConfigLoadError && err.complete)
 				pushMessage(
 					'system',
 					// A startup refusal is Namzu's own repair instruction ("split histories … run
@@ -4449,6 +4456,8 @@ export function App({
 					err instanceof Error && err.message
 						? err.message
 						: 'Could not check which agents are available.',
+					false,
+					STARTUP_STOP_GLYPH,
 				)
 			}
 		},
@@ -4468,7 +4477,8 @@ export function App({
 				void runProbe()
 			} catch (err) {
 				setPhase('unhealthy')
-				pushMessage('system', projectSettingsFailure(err))
+				setStartupExplained(err instanceof ConfigLoadError && err.complete)
+				pushMessage('system', projectSettingsFailure(err), false, STARTUP_STOP_GLYPH)
 			}
 		} else {
 			setPhase('trust')
@@ -4493,7 +4503,8 @@ export function App({
 			void runProbe()
 		} catch (err) {
 			setPhase('unhealthy')
-			pushMessage('system', projectSettingsFailure(err))
+			setStartupExplained(err instanceof ConfigLoadError && err.complete)
+			pushMessage('system', projectSettingsFailure(err), false, STARTUP_STOP_GLYPH)
 		}
 	}, [activateTrustedProject, pushMessage, runProbe])
 
@@ -5222,7 +5233,12 @@ export function App({
 					await hydrateSession(savedPrefsRef.current, detected)
 				} catch (error) {
 					setPhase('unhealthy')
-					pushMessage('system', explainFailure(error, 'Could not start this Pal conversation.'))
+					pushMessage(
+						'system',
+						explainFailure(error, 'Could not start this Pal conversation.'),
+						false,
+						STARTUP_STOP_GLYPH,
+					)
 				}
 			}
 			// The scope now names the resumed conversation, so its finished
@@ -5394,7 +5410,12 @@ export function App({
 							await hydrateSession(savedPrefsRef.current, detected)
 						} catch (error) {
 							setPhase('unhealthy')
-							pushMessage('system', explainFailure(error, 'Could not start this Pal conversation.'))
+							pushMessage(
+								'system',
+								explainFailure(error, 'Could not start this Pal conversation.'),
+								false,
+								STARTUP_STOP_GLYPH,
+							)
 						}
 					}
 				}
@@ -7446,7 +7467,7 @@ export function App({
 						if (ownsSwitch()) {
 							pushMessage(
 								'system',
-								`Model switch failed: ${error instanceof Error ? error.message : String(error)} The current model is unchanged.`,
+								`${explainFailure(error, 'Could not switch the model.')} The current model is unchanged.`,
 							)
 						}
 					} finally {
@@ -7593,7 +7614,7 @@ export function App({
 				if (owns())
 					pushMessage(
 						'system',
-						`Model selection failed: ${error instanceof Error ? error.message : String(error)} The current model is unchanged.`,
+						`${explainFailure(error, 'Could not switch the model.')} The current model is unchanged.`,
 					)
 			} finally {
 				if (pendingModelSwitchRef.current === pending) {
@@ -9797,7 +9818,7 @@ export function App({
 				}
 				pushMessage(
 					'system',
-					`Gemini API key saved privately at ${path} for future launches. Run /logout gemini to remove it.`,
+					`Gemini API key saved privately at ${homePath(path)} for future launches. Run /logout gemini to remove it.`,
 				)
 			})()
 		},
@@ -10831,12 +10852,17 @@ export function App({
 				) : phase === 'trust' ? (
 					<TrustPrompt cwd={ctx.cwd} />
 				) : phase === 'unhealthy' ? (
-					<Box flexDirection="column" marginTop={1}>
-						<Text color={theme.status.error} bold>
-							Startup stopped
-						</Text>
-						<Text color={theme.text.secondary}>Resolve the error above, then restart Namzu.</Text>
-					</Box>
+					// The sentence above already says what to do when it is a complete
+					// one; saying "resolve the error above" under it is the same advice
+					// twice.
+					startupExplained ? null : (
+						<Box flexDirection="column" marginTop={1}>
+							<Text color={theme.status.error} bold>
+								Startup stopped
+							</Text>
+							<Text color={theme.text.secondary}>Resolve the error above, then restart Namzu.</Text>
+						</Box>
+					)
 				) : phase === 'resume' || phase === 'unarchive' ? (
 					<ResumePicker
 						conversations={resumeList}
@@ -11124,6 +11150,7 @@ export function App({
 						hint={statusHint}
 						permissionMode={displayedPermissionMode}
 						canCycleMode
+						composerMounted={showComposerSurface}
 					/>
 				)}
 				{showComposerSurface &&
@@ -11195,7 +11222,15 @@ export function App({
 						compact={childComposerAvailable && terminal.rows < 24}
 						navigationHint={
 							childComposerAvailable
-								? 'PgUp/PgDn scroll · tab message · esc agents · q parent'
+								? fitHints(
+										[
+											{ text: 'PgUp/PgDn scroll', short: 'PgUp/PgDn', rank: 2 },
+											{ text: 'tab message', rank: 4 },
+											{ text: 'esc agents', short: 'esc list', rank: 5 },
+											{ text: 'q parent', rank: 5 },
+										],
+										Math.max(1, terminal.columns - 4),
+									)
 								: undefined
 						}
 					/>
@@ -11278,6 +11313,13 @@ export function App({
  * that is not valid JSON has Namzu's own sentence already (file, line, column,
  * what to do); the parser's wording follows it only under `--debug`.
  */
+/**
+ * The gutter glyph of the sentence that stops startup: blank, so the sentence
+ * starts at the same column as the rest without a dot in front of it. The
+ * system dot marks a note between turns, and this is not one.
+ */
+const STARTUP_STOP_GLYPH = ' '
+
 function projectSettingsFailure(err: unknown): string {
 	if (err instanceof ConfigLoadError && err.complete) {
 		const raw = err.cause instanceof Error ? err.cause.message : undefined

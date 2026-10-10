@@ -10,6 +10,7 @@ import {
 	type SubagentNarrationLine,
 } from '../integrations/subagents/activity.js'
 import { formatElapsed } from './LiveActivity.js'
+import { fitHints } from './key-hints.js'
 import { selectionWindow } from './selection-window.js'
 import { truncateChoiceText } from './terminal-choice-text.js'
 import { terminalDisplayText } from './terminal-display.js'
@@ -530,22 +531,30 @@ export function AgentCockpit({
 				</Box>
 				<Box paddingTop={compact ? 0 : 1}>
 					<Text color={theme.text.muted} wrap="truncate-end">
-						{terminalColumns >= 60
-							? '↑↓ select · PgUp/PgDn jump · enter select · esc return'
-							: '↑↓ · enter select · esc return'}
+						{fitHints(
+							[
+								{ text: '↑↓ select', short: '↑↓', rank: 4 },
+								{ text: 'PgUp/PgDn jump', rank: 1 },
+								{ text: 'enter select', rank: 5 },
+								{ text: 'esc return', rank: 5 },
+							],
+							Math.max(1, terminalColumns - 4),
+						)}
 					</Text>
 				</Box>
 			</Box>
 		)
 	}
-	const navigation =
-		terminalColumns >= 90
-			? '←→ pane · ↑↓ select · PgUp/PgDn jump · enter select · esc return'
-			: terminalColumns >= 60
-				? '←→ pane · ↑↓ select · enter select · esc return'
-				: terminalColumns >= 38
-					? '←→ pane · ↑↓ · enter · esc return'
-					: 'enter · esc return'
+	const navigation = fitHints(
+		[
+			{ text: '←→ pane', rank: 3 },
+			{ text: '↑↓ select', short: '↑↓', rank: 4 },
+			{ text: 'PgUp/PgDn jump', rank: 1 },
+			{ text: 'enter select', short: 'enter', rank: 5 },
+			{ text: 'esc return', rank: 5 },
+		],
+		Math.max(1, terminalColumns - 4),
+	)
 	const totalWorkflowAgents = workflow?.agents.length ?? 0
 	// Same rule as the automatic rail's title: an explicit label names this
 	// workflow, an absent one (the unlabelled default) gets a neutral count
@@ -981,13 +990,16 @@ export function AgentTranscript({
 	})
 	const navigation =
 		navigationHint ??
-		(terminalColumns >= 70
-			? `PgUp/PgDn · Home oldest · End ${tailLabel.toLowerCase()} · esc agents · q parent`
-			: terminalColumns >= 40
-				? '↑↓ scroll · esc agents · q parent'
-				: terminalColumns >= 30
-					? '↑↓ · esc list · q parent'
-					: 'esc list · q parent')
+		fitHints(
+			[
+				{ text: 'PgUp/PgDn', short: '↑↓ scroll', rank: 2 },
+				{ text: 'Home oldest', rank: 1 },
+				{ text: `End ${tailLabel.toLowerCase()}`, rank: 1 },
+				{ text: 'esc agents', short: 'esc list', rank: 5 },
+				{ text: 'q parent', rank: 5 },
+			],
+			Math.max(1, terminalColumns - 4),
+		)
 
 	return (
 		<Box

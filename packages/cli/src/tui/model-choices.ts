@@ -20,7 +20,10 @@
  * can retry that, and cannot retry a provider that genuinely has one model.
  */
 
-import type { ModelGroup, ModelListing } from './agent.js'
+import type { ModelGroup, ModelListing, ModelListingCause } from './agent.js'
+import { productName } from './person-terms.js'
+import { debugRequested } from './plain-interruption.js'
+import { terminalDisplayText } from './terminal-display.js'
 
 export interface ModelChoice {
 	readonly id: string
@@ -100,7 +103,15 @@ export function modelStep(
 	defaultModel: string,
 	suppliedListing: ModelListing,
 	suppliedCurrentModel?: string,
-	options: { readonly allowModel?: (id: string) => boolean } = {},
+	options: {
+		readonly allowModel?: (id: string) => boolean
+		/** The provider's id, so the notice can name it by its product name. */
+		readonly providerId?: string
+		/** Whether the provider list (where `k` enters a key) is one Esc away. */
+		readonly keyEntryReachable?: boolean
+		/** Show the driver's own text too (`--debug`). */
+		readonly debug?: boolean
+	} = {},
 ): ModelStep {
 	const defaultAllowed = options.allowModel?.(defaultModel) !== false
 	// A saved pin does not grant access. In particular, losing a Zen account
@@ -154,7 +165,13 @@ export function modelStep(
 		)
 	}
 	if (listing.kind === 'failed') {
-		return fallback(`Could not list models: ${listing.reason}. Showing namzu’s pick for it.`)
+		const sentence = plainListingFailure(listing.cause ?? 'unknown', {
+			name: productName(options.providerId) ?? 'The provider',
+			keyEntryReachable: options.keyEntryReachable === true,
+			credentialGone: listing.failure === 'credential-unavailable',
+		})
+		const raw = (options.debug ?? debugRequested()) ? ` Details: ${rawDetail(listing.reason)}` : ''
+		return fallback(`${sentence}${raw} Showing namzu’s pick for it.`)
 	}
 	if (listing.models.length === 0) {
 		return fallback('The provider returned no models. Showing namzu’s pick for it.')
@@ -236,4 +253,49 @@ export function withKeyNote(note: string | undefined): string {
 	const at = parts.indexOf('Limits not published yet')
 	parts.splice(at < 0 ? parts.length : at, 0, 'API key')
 	return `(${parts.join(' · ')})`
+}
+
+/**
+ * The driver's own text for `--debug`: one line, a request ID labelled as one,
+ * and ending in a full stop so the next sentence starts cleanly.
+ */
+export function rawDetail(reason: string): string {
+	const flat = terminalSafe(reason)
+		.replace(/\s*\(?\brequest[_ -]?id[:=]?\s*([\w.-]+)\)?/gi, ' Request ID: $1')
+		.replace(/\s+/g, ' ')
+		.trim()
+	const cut = flat.length > 300 ? `${flat.slice(0, 299)}…` : flat
+	return /[.!?…]$/.test(cut) ? cut : `${cut}.`
+}
+
+function terminalSafe(text: string): string {
+	return terminalDisplayText(text).replace(/\s+/g, ' ').trim()
+}
+
+/** One sentence, with a next step, for a model list that could not be fetched. */
+export function plainListingFailure(
+	cause: ModelListingCause,
+	context: { name: string; keyEntryReachable: boolean; credentialGone?: boolean },
+): string {
+	const { name } = context
+	const newKey = context.keyEntryReachable
+		? 'Press Esc, then k to enter a new key.'
+		: 'Check the key in /setup.'
+	if (context.credentialGone) {
+		return `Namzu can no longer read the saved ${name} key. ${newKey}`
+	}
+	switch (cause) {
+		case 'rejected':
+			return `${name} rejected the saved API key. ${newKey}`
+		case 'forbidden':
+			return `${name} does not let this key list models. ${newKey}`
+		case 'limited':
+			return `${name} is limiting requests right now. Wait a moment, then open the list again.`
+		case 'server':
+			return `${name} is having problems on its side. Try again in a minute.`
+		case 'network':
+			return `Namzu could not reach ${name}. Check your internet connection, then try again.`
+		case 'unknown':
+			return `Namzu could not list models from ${name}. Run with --debug for details.`
+	}
 }

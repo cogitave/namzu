@@ -1,7 +1,7 @@
 import { Box, Text, useWindowSize } from 'ink'
 
 import type { EditablePrompt } from './edit-prompts.js'
-import { fitHints } from './key-hints.js'
+import { boxedHintWidth, fitHints } from './key-hints.js'
 import { selectionWindow } from './selection-window.js'
 import { theme } from './theme.js'
 
@@ -55,14 +55,13 @@ export function EditPromptPicker({ prompts, selected }: EditPromptPickerProps) {
 				<Text color={theme.text.muted}>
 					{fitHints(
 						[
-							{ text: '← older', rank: 5 },
-							{ text: '→ newer', rank: 5 },
+							{ text: '← older · → newer', short: '← → move', rank: 5 },
 							{ text: 'PgUp/PgDn jump', rank: 1 },
 							{ text: 'Home/End', rank: 1 },
-							{ text: 'enter fork and edit', rank: 5 },
-							{ text: 'esc cancel', rank: 4 },
+							{ text: 'enter fork and edit', short: 'enter edit', rank: 5 },
+							{ text: 'esc cancel', short: 'esc', rank: 5 },
 						],
-						Math.max(1, (terminal.columns ?? 80) - 4),
+						boxedHintWidth(terminal.columns),
 					)}
 				</Text>
 			</Box>
