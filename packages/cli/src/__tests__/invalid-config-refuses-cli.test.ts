@@ -52,7 +52,7 @@ describe('invalid explicit config reaches the real CLI refusal', () => {
 
 		expect(result.status).toBe(64)
 		expect(result.stdout).toBe('')
-		expect(result.stderr).toContain('Allowed choices are text, json, yaml')
+		expect(result.stderr).toContain('Choose one of text, json, yaml.')
 	})
 
 	it('maps an invalid environment setting to EX_CONFIG and names the variable', () => {

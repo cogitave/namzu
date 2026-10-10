@@ -9,6 +9,7 @@
 
 import { resolve } from 'node:path'
 import { loadOutputSchema } from './output-schema.js'
+import { formatUsageError } from './usage-error.js'
 
 import { Command, CommanderError, Option } from 'commander'
 
@@ -258,13 +259,8 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		.exitOverride()
 		.showHelpAfterError(false)
 		.configureOutput({
-			// Commander's one-paragraph complaint gets a way forward on its own line.
-			outputError: (text, write) =>
-				write(
-					text.trimEnd().includes('\n') || /\bhelp\b/i.test(text)
-						? text
-						: `${text.trimEnd()}\nRun namzu --help to see what is available.\n`,
-				),
+			// Commander's one-line complaint becomes sentences, wrapped, with a way forward.
+			outputError: (text, write) => write(formatUsageError(text, process.stderr.columns)),
 		})
 
 	const buildContext = (
@@ -582,7 +578,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			const elsewhere = scheduledSessionElsewhere(resolveNamzuHome(), conversationId, process.cwd())
 			if (elsewhere) {
 				process.stderr.write(
-					`namzu: ${conversationId} is a run of the scheduled job ${elsewhere.job.name}, and its conversation is stored with the job's folder, ${elsewhere.job.folder.canonical}. Open it there:\n  ${elsewhere.command}\n`,
+					`namzu: ${conversationId} is a run of the scheduled job ${elsewhere.job.name}, and its conversation is stored with the job’s folder, ${elsewhere.job.folder.canonical}. Open it there:\n  ${elsewhere.command}\n`,
 				)
 				setExitCode(EX_USAGE)
 				return
