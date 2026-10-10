@@ -137,7 +137,7 @@ it('draws one row for a vendor whose subscription and key are two registry ids',
 	// One row, and it is the detected one: the session this machine has, not a
 	// request for the key it does not need. Both of those are the same vendor.
 	expect(rowLines(screen).filter((line) => line.includes('OpenAI'))).toHaveLength(1)
-	expect(viewport).toContain('Codex session · this device')
+	expect(viewport).toContain('Codex sign-in · this computer')
 	expect(viewport).not.toContain('needs OPENAI_API_KEY')
 	// Two detected vendors and the six that can still be set up: the second id of
 	// this vendor did not add a row of its own.
@@ -152,9 +152,9 @@ it('offers both ways in when the vendor row is entered, detected one first', asy
 
 	expect(viewport).toContain('Choose a way to use OpenAI')
 	expect(viewport).toContain(
-		'1. Use existing OpenAI (Codex subscription) · Codex session · this device',
+		'1. Use existing OpenAI (Codex subscription) · Codex sign-in · this computer',
 	)
-	expect(viewport).toContain('2. Enter a credential for OpenAI · needs OPENAI_API_KEY')
+	expect(viewport).toContain('2. Enter an API key for OpenAI · needs OPENAI_API_KEY')
 })
 
 it('takes the session choice to the model step of that provider', async () => {
@@ -179,7 +179,7 @@ it('takes the key choice to the paste field, whose value travels the session pat
 	await press(screen, '2')
 	await press(screen, '\r')
 
-	expect(screen.viewport().join('\n')).toContain('Paste a credential for OpenAI')
+	expect(screen.viewport().join('\n')).toContain('Paste an API key for OpenAI')
 
 	await press(screen, KEY)
 	await press(screen, '\r')
@@ -202,8 +202,8 @@ it('asks for the key where nothing is detected, and still offers the sign-in', a
 
 	await press(screen, '\r')
 	const viewport = screen.viewport().join('\n')
-	expect(viewport).toContain('1. Enter a credential for OpenAI · needs OPENAI_API_KEY')
-	expect(viewport).toContain('2. Sign in to OpenAI (Codex subscription) · device code')
+	expect(viewport).toContain('1. Enter an API key for OpenAI · needs OPENAI_API_KEY')
+	expect(viewport).toContain('2. Sign in to OpenAI (Codex subscription) · uses a one-time code')
 
 	await press(screen, '2')
 	await press(screen, '\r')
@@ -227,7 +227,7 @@ it('keeps Enter going straight through where a row has one provider behind it', 
 	const unconfigured = await open({ detected: [LOCAL_OLLAMA] })
 	await selectRow(unconfigured, 'DeepSeek')
 	await press(unconfigured, '\r')
-	expect(unconfigured.viewport().join('\n')).toContain('Paste a credential for DeepSeek')
+	expect(unconfigured.viewport().join('\n')).toContain('Paste an API key for DeepSeek')
 	expect(unconfigured.viewport().join('\n')).not.toContain('Choose a way to use')
 	// And a key discovery already hands over is that one way: the row it found is
 	// the answer, and nothing asks how the operator meant to use it.
@@ -249,13 +249,13 @@ it('asks how a one-id vendor is meant to be used, when it has two ways in', asyn
 	const chooser = screen.viewport().join('\n')
 
 	expect(chooser).toContain('Choose a way to use Anthropic (Claude)')
-	expect(chooser).toContain('1. Use existing Anthropic (Claude) · Claude session · this device')
-	expect(chooser).toContain('2. Enter a credential for Anthropic (Claude) · needs ANTHROPIC_API_KEY')
+	expect(chooser).toContain('1. Use existing Anthropic (Claude) · Claude sign-in · this computer')
+	expect(chooser).toContain('2. Enter an API key for Anthropic (Claude) · needs ANTHROPIC_API_KEY')
 
 	// The key answer opens the field, the same field every other row opens.
 	await press(screen, '2')
 	await press(screen, '\r')
-	expect(screen.viewport().join('\n')).toContain('Paste a credential for Anthropic (Claude)')
+	expect(screen.viewport().join('\n')).toContain('Paste an API key for Anthropic (Claude)')
 })
 
 it('leads to the models from the session answer of that same row', async () => {
@@ -278,7 +278,7 @@ it('offers experimental Zen free models beside credentialed access', async () =>
 
 	expect(chooser).toContain('Choose a way to use Zen')
 	expect(chooser).toContain('1. Use existing Zen · Zen free models · experimental; gateway may refuse')
-	expect(chooser).toContain('2. Enter a credential for Zen · OPENCODE_API_KEY for credentialed access')
+	expect(chooser).toContain('2. Enter an API key for Zen · OPENCODE_API_KEY for credentialed access')
 	expect(chooser).toContain('OpenCode installation is recommended')
 	expect(chooser).toContain('Namzu sends requests directly')
 })
@@ -292,7 +292,7 @@ it('keeps the key choice when an environment marker explicitly selects public Ze
 	await press(screen, '\r')
 	const chooser = screen.viewport().join('\n')
 	expect(chooser).toContain('Use existing Zen · Zen free models · experimental; gateway may refuse')
-	expect(chooser).toContain('Enter a credential for Zen · OPENCODE_API_KEY for credentialed access')
+	expect(chooser).toContain('Enter an API key for Zen · OPENCODE_API_KEY for credentialed access')
 })
 
 it('returns to the row it came from when the ways-in screen is left', async () => {

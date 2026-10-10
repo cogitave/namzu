@@ -3,7 +3,7 @@
  * Ink `useInput` covers all keys we need; no extra `ink-text-input` dep.
  *
  * Keys: Enter submits/steers (or runs the highlighted command while the
- * autocomplete dropdown is open), Tab completes that command or queues the
+ * autocomplete dropdown is open), tab completes that command or queues the
  * draft, Esc clears / closes the dropdown, ↑/↓ navigate the dropdown when open
  * else browse history, Ctrl+R/Ctrl+S search history, Ctrl+W rubs out a word,
  * Ctrl+G edits the draft in VISUAL/EDITOR, Alt+Up recalls the latest queued
@@ -41,6 +41,8 @@ import {
 	shiftOverrides,
 } from './triggers/provenance.js'
 import type { TriggerId, TriggerRegistry } from './triggers/registry.js'
+import { formatSize } from './person-terms.js'
+import { explainFailure } from './plain-failure.js'
 
 export interface ComposerProps {
 	readonly disabled?: boolean
@@ -1140,7 +1142,10 @@ export function Composer({
 					})
 					.catch((error: unknown) => {
 						onNotice?.(
-							`Cannot open external editor: ${error instanceof Error ? error.message : String(error)}`,
+							// The editor module words its own refusals for a person ("set VISUAL or EDITOR…").
+							error instanceof Error && error.name === 'ExternalEditorError'
+								? `Cannot open your editor: ${error.message}.`
+								: explainFailure(error, 'Cannot open your editor.'),
 						)
 					})
 				return
@@ -1392,8 +1397,8 @@ export function Composer({
 						)
 					})}
 					<Text color={theme.text.muted}>
-						{selIdx + 1}/{commandSuggestions.length} · ↑↓ navigate · PgUp/PgDn jump · Enter run ·
-						Tab complete
+						{selIdx + 1}/{commandSuggestions.length} · ↑↓ select · PgUp/PgDn jump · enter run ·
+						tab complete
 					</Text>
 				</Box>
 			) : suggestionKind === 'file' ? (
@@ -1411,7 +1416,7 @@ export function Composer({
 						)
 					})}
 					<Text color={theme.text.muted}>
-						{selIdx + 1}/{fileSuggestions.length} · ↑↓ navigate · PgUp/PgDn jump · Enter/Tab insert
+						{selIdx + 1}/{fileSuggestions.length} · ↑↓ select · PgUp/PgDn jump · enter / tab insert
 					</Text>
 				</Box>
 			) : null}
@@ -1424,7 +1429,7 @@ function attachmentLabel(attachment: MessageAttachment, index: number): string {
 		const kind = attachment.kind === 'image' ? 'Image' : 'Document'
 		return `${kind} #${index + 1}${attachment.name ? ` — ${attachment.name}` : ''} (stored)`
 	}
-	const size = `${Math.round((attachment.data.length * 3) / 4 / 1024)} KB`
+	const size = formatSize((attachment.data.length * 3) / 4)
 	if (attachment.type === 'document') {
 		return `Document #${index + 1}${attachment.name ? ` — ${attachment.name}` : ''} (${size})`
 	}

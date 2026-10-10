@@ -549,7 +549,7 @@ it('does not let an abnormal automatic goal round pause queued human work', asyn
 	await until(() => order.length === 2, 'the failed goal round paused independent human work')
 
 	expect(order).toEqual(['goal', 'human'])
-	expect(harness.frames.join('\n')).not.toContain('paused after a failed turn')
+	expect(harness.frames.join('\n')).not.toContain('paused after a failed reply')
 }, 30_000)
 
 it('durably blocks at the configured cap instead of starting an unbounded turn', async () => {

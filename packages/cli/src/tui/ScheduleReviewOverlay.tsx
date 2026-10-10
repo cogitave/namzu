@@ -65,7 +65,7 @@ export function scheduleReviewSummary(request: ScheduleReviewRequest): readonly 
 		preview.warnings.filter(
 			(warning) =>
 				warning !== 'This run can reach the network.' &&
-				warning !== 'The folder is outside this session’s working directory and added directories.' &&
+				warning !== 'The folder is outside this conversation’s working directory and added directories.' &&
 				!warning.startsWith('This run drives the browser signed in as you'),
 		),
 	)
@@ -93,7 +93,7 @@ export function scheduleReviewSummary(request: ScheduleReviewRequest): readonly 
 			? ['Notices  Generic success notices off; failures still notify.']
 			: []),
 		...(request.permissionsChange ? ['Permissions change from the next run.'] : []),
-		...(preview.outsideSessionRoots ? ['Warning  Folder is outside this session’s working directory and added directories.'] : []),
+		...(preview.outsideSessionRoots ? ['Warning  Folder is outside this conversation’s working directory and added directories.'] : []),
 		...(browser ? ['Warning  A signed-in browser profile may be used; inspect its sites and access levels below.'] : []),
 		...(findings.size > 0 ? [`Warning  ${findings.size} prompt finding${findings.size === 1 ? '' : 's'}; read the full text below.`] : []),
 		...(otherWarnings.size > 0 ? [`Warning  ${otherWarnings.size} other warning${otherWarnings.size === 1 ? '' : 's'}; read details below.`] : []),

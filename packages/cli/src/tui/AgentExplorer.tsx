@@ -527,7 +527,7 @@ export function AgentCockpit({
 				<Box paddingTop={compact ? 0 : 1}>
 					<Text color={theme.text.muted} wrap="truncate-end">
 						{terminalColumns >= 60
-							? '↑↓ navigate · PgUp/PgDn jump · enter select · esc return'
+							? '↑↓ select · PgUp/PgDn jump · enter select · esc return'
 							: '↑↓ · enter select · esc return'}
 					</Text>
 				</Box>
@@ -536,9 +536,9 @@ export function AgentCockpit({
 	}
 	const navigation =
 		terminalColumns >= 90
-			? '←→ pane · ↑↓ navigate · PgUp/PgDn jump · enter select · esc return'
+			? '←→ pane · ↑↓ select · PgUp/PgDn jump · enter select · esc return'
 			: terminalColumns >= 60
-				? '←→ pane · ↑↓ navigate · enter select · esc return'
+				? '←→ pane · ↑↓ select · enter select · esc return'
 				: terminalColumns >= 38
 					? '←→ pane · ↑↓ · enter · esc return'
 					: 'enter · esc return'

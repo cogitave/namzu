@@ -232,7 +232,7 @@ export function buildJob(
 	// `platform: 'linux'`, since `__fire` there runs inside the distro.
 	if (runKind !== 'agent' && process.platform === 'win32') {
 		throw new JobRequestError(
-			`a ${runKind} job is not supported on native Windows yet: its script would run through cmd.exe, read only as a loose approximation the floor cannot fully verify. Use WSL, where a job's script runs on the Linux side, or an agent job.`,
+			`a ${runKind} job is not supported on native Windows yet: its script would run through cmd.exe, read only as a loose approximation the floor cannot fully verify. Use WSL, where a job’s script runs on the Linux side, or an agent job.`,
 		)
 	}
 	if (
@@ -265,7 +265,7 @@ export function buildJob(
 	}
 	if (runKind !== 'agent' && permissions.execution === 'sandbox') {
 		throw new JobRequestError(
-			`execution: sandbox is not yet supported for a ${runKind} job's script phase; use execution: host (a follow-up may add sandboxed scripts)`,
+			`execution: sandbox is not yet supported for a ${runKind} job’s script phase; use execution: host (a follow-up may add sandboxed scripts)`,
 		)
 	}
 	const id = context.jobId ?? generateScheduleJobId()

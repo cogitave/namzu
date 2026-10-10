@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
 
-import { looksBinary, tidyCommandOutput, tidyTerminalOutput, unknownToolNotice } from './tidy-tool-output.js'
+import {
+	declinedLine,
+	failureFactsLine,
+	looksBinary,
+	tidyCommandOutput,
+	tidyTerminalOutput,
+	unknownToolNotice,
+} from './tidy-tool-output.js'
 
 describe('command output in the transcript', () => {
 	it('drops the credential note and the exit trailer, and names the failure plainly', () => {
@@ -61,7 +68,9 @@ describe('command output in the transcript', () => {
 			'STDOUT:\n1\n... 199 similar lines omitted\n\nThe full output was written to: /tmp/x',
 		)
 		expect(tidy.failure).toBeUndefined()
-		expect(tidy.output).toBe([...lines.slice(0, 80), '… 80 lines not shown', ...lines.slice(-40)].join('\n'))
+		expect(tidy.output).toBe(
+			[...lines.slice(0, 80), '… 80 lines not shown', ...lines.slice(-40)].join('\n'),
+		)
 	})
 
 	it('names a timeout, a signal and binary output from the fields', () => {
@@ -72,9 +81,11 @@ describe('command output in the transcript', () => {
 			tidyCommandOutput({ kind: 'command', command: 'x', signal: 'SIGKILL' }, '').failure,
 		).toBe('Ran x · was stopped before it finished')
 		expect(
-			tidyCommandOutput({ kind: 'command', command: 'cat a.zip', exitCode: 0, binary: { bytes: 2048 } }, '')
-				.output,
-		).toBe('The command printed binary data (2.0 KB), which is not shown.')
+			tidyCommandOutput(
+				{ kind: 'command', command: 'cat a.zip', exitCode: 0, binary: { bytes: 2048 } },
+				'',
+			).output,
+		).toBe('The command printed binary data (2 KB), which is not shown.')
 	})
 
 	it('says one sentence for a tool that does not exist, listing no internal names', () => {
@@ -84,5 +95,28 @@ describe('command output in the transcript', () => {
 		)
 		expect(text).not.toContain('bash')
 		expect(unknownToolNotice('Error: something else')).toBeUndefined()
+	})
+})
+
+describe('a call the person declined', () => {
+	it('says so in one sentence, with their words when they gave any', () => {
+		expect(declinedLine(undefined)).toBe('You declined this, so it did not run.')
+		expect(declinedLine('  not now \n please ')).toBe(
+			'You declined this, so it did not run. You said: “not now please”',
+		)
+	})
+})
+
+describe('a call the kernel refused or could not do', () => {
+	it('reads as a sentence, never as the refusal text the model was given', () => {
+		expect(failureFactsLine({ kind: 'failure', reason: 'blocked', subject: 'bash' })).toBe(
+			'Blocked: Namzu’s rules do not allow this here.',
+		)
+		expect(failureFactsLine({ kind: 'failure', reason: 'not_found', subject: '/srv/x/a.ts' })).toBe(
+			'Couldn’t find /srv/x/a.ts.',
+		)
+		expect(failureFactsLine({ kind: 'failure', reason: 'needs_administrator' })).toBe(
+			'Blocked: this command needs administrator rights.',
+		)
 	})
 })

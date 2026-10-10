@@ -158,7 +158,7 @@ async function credentialText(provider: string): Promise<string> {
 			path?: string
 		}
 		return source.kind === 'env'
-			? `environment variable ${source.envName ?? ''} (a service does not see your shell's variables)`
+			? `environment variable ${source.envName ?? ''} (a service does not see your shell’s variables)`
 			: `${source.kind}${source.path ? ` (${source.path})` : ''}`
 	} catch {
 		return 'unknown'
@@ -373,12 +373,12 @@ export function chosenByTheModel(
 	const limits = config.limits ?? {}
 	const out: string[] = []
 	if (draft.tz !== undefined && draft.tz !== zone)
-		out.push(`time zone ${draft.tz}, not this machine's ${zone}`)
+		out.push(`time zone ${draft.tz}, not this machine’s ${zone}`)
 	const session = resolve(cwd)
 	if (draft.folder !== undefined && resolve(session, draft.folder) !== session)
-		out.push(`folder ${job.folder.canonical}, not this session's`)
+		out.push(`folder ${job.folder.canonical}, not this conversation’s`)
 	if (draft.workspace === 'none')
-		out.push('private no-project workspace instead of this session’s working directory')
+		out.push('private no-project workspace instead of this conversation’s working directory')
 	if (draft.permissions.execution === 'sandbox')
 		out.push('commands run in the sandbox; the default is this machine')
 	const iterations = limits.maxIterations || DEFAULT_MAX_ITERATIONS
@@ -456,7 +456,7 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 			(job.permissions.execution === 'host' && (hasScriptPhase || allowsCommands(job.permissions)))
 		const warnings = [
 			...(outside
-				? ['The folder is outside this session’s working directory and added directories.']
+				? ['The folder is outside this conversation’s working directory and added directories.']
 				: []),
 			...(networkCapable ? ['This run can reach the network.'] : []),
 			...(job.permissions.browser && job.runKind !== 'script'
@@ -542,7 +542,9 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 				)
 			const model = ui.model()
 			if (!model && draft.runKind !== 'script')
-				throw new Error('This session has no model; a scheduled job runs on the session’s model.')
+				throw new Error(
+					'This conversation has no model; a scheduled job runs on the conversation’s model.',
+				)
 			const now = new Date()
 			const folder = draft.workspace === 'none' ? undefined : resolve(ui.cwd(), draft.folder ?? '.')
 			const delivery = ui.sourceConversation?.()
@@ -860,7 +862,7 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 			const state = readState(paths(), job.id)
 			if (state.activeRun || state.deliveryPending?.length)
 				throw new Error(
-					`${job.name} has a run or source result still settling. Let the scheduler finish, or use namzu schedule remove ${job.name} --force to explicitly discard a pending source result.`,
+					`${job.name} has a run or result that is still being saved. Let the scheduler finish, or use namzu schedule remove ${job.name} --force to explicitly discard a pending source result.`,
 				)
 			deleteJob(paths(), job.id)
 			history(job, 'removed')

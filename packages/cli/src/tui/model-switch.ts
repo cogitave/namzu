@@ -62,7 +62,7 @@ export async function resolveModelSwitch(
 	if (providerId && !selected) {
 		return {
 			kind: 'rejected',
-			reason: `Provider "${providerId}" is unavailable in this session. Available providers: ${usable.map(({ entry }) => entry.id).join(', ') || 'none'}.`,
+			reason: `Provider "${providerId}" is unavailable in this conversation. Available providers: ${usable.map(({ entry }) => entry.id).join(', ') || 'none'}.`,
 		}
 	}
 	if (selected && !canSelectModel(selected.entry, selected.apiKey, model)) {

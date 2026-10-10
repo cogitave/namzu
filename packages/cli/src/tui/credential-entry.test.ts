@@ -125,7 +125,7 @@ describe('describeDisposition', () => {
 	it('says the key is not stored, on every accepting branch', () => {
 		for (const v of [{ kind: 'verified' }, { kind: 'unverifiable' }] as const) {
 			const text = describeDisposition(entry, v)
-			expect(text, v.kind).toContain('this session only')
+			expect(text, v.kind).toContain('until you quit')
 			expect(text, v.kind).toContain('not written anywhere')
 		}
 	})

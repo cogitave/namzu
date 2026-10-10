@@ -305,7 +305,7 @@ describe('the tripwire, on text a program runs as code', () => {
 			detail(
 				'powershell.exe -NoProfile -Command "Stop-ScheduledTask -TaskName namzu-scheduler-wsl-archlinux"',
 			),
-		).toContain("`namzu-scheduler-wsl-archlinux` (the scheduler service's name)")
+		).toContain('`namzu-scheduler-wsl-archlinux` (the scheduler service’s name)')
 		expect(detail(`python3 -c "import os; os.system('pkill node')"`)).toMatch(
 			/^`python3` runs text as code, and it holds `pkill` /,
 		)
@@ -320,10 +320,10 @@ describe('the tripwire, on text a program runs as code', () => {
 		// than needing the narrower "unread text" path this test exercised
 		// before that fix.
 		expect(detail('$(echo namzu) schedule stop')).toBe(
-			"`$(echo namzu) schedule stop` has a pattern that could match the scheduler's process",
+			'`$(echo namzu) schedule stop` has a pattern that could match the scheduler’s process',
 		)
 		expect(detail('systemctl --user stop namzu-scheduler')).toBe(
-			"`systemctl --user stop namzu-scheduler` stops or disables the scheduler's service",
+			'`systemctl --user stop namzu-scheduler` stops or disables the scheduler’s service',
 		)
 		expect(detail('namzu schedule remove nightly')).toBe(
 			'`namzu schedule remove nightly` runs `schedule remove`, a `namzu schedule` subcommand other than list, show, status, history, logs',
@@ -335,7 +335,7 @@ describe('the tripwire, on text a program runs as code', () => {
 			'the redirection `>> ~/.namzu/x` names NAMZU_HOME (/home/u/.namzu)',
 		)
 		expect(detail('ls /mnt/c/Users/A/AppData/Local/namzu')).toBe(
-			"the argument `/mnt/c/Users/A/AppData/Local/namzu` names the Windows browser's profile folder (%LOCALAPPDATA%\\namzu)",
+			'the argument `/mnt/c/Users/A/AppData/Local/namzu` names the Windows browser’s profile folder (%LOCALAPPDATA%\\namzu)',
 		)
 		expect(
 			finding({
@@ -376,7 +376,7 @@ describe('the tripwire, on text a program runs as code', () => {
 	})
 })
 
-describe("PowerShell's -EncodedCommand", () => {
+describe('PowerShell’s -EncodedCommand', () => {
 	// Real base64 of UTF-16LE `Write-Host hi`: unreadable text, denied
 	// whatever it decodes to, unlike `-Command '<literal>'`.
 	const ENCODED = 'VwByAGkAdABlAC0ASABvAHMAdAAgAGgAaQA='

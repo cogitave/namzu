@@ -98,7 +98,7 @@ it('renders incomplete search and empty lookup honestly, and leaves retrieval fa
 	const painted = () => s.scrollback().join('\n')
 	await until(() => painted().includes('failed: Cannot read this evidence address.'))
 	expect(painted()).toContain('0 matches on this page')
-	expect(painted()).toContain('Search incomplete · absence is inconclusive')
+	expect(painted()).toContain('Search not finished · a missing result may not have been reached yet')
 	expect(painted()).toContain('1 record unavailable')
 	expect(painted()).toContain('Locating retained text · continue scan')
 	expect(painted()).not.toContain('Selected retained part returned')

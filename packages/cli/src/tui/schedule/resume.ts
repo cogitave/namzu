@@ -217,22 +217,22 @@ export function scheduledResumeMismatch(
 	if (allowsCommands(job.permissions) && environment.sandboxed !== wantsSandbox) {
 		reasons.push(
 			wantsSandbox
-				? 'the job runs commands in a sandbox and this session runs them on the host'
-				: 'the job runs commands on the host and this session runs them in a sandbox',
+				? 'the job runs commands in a sandbox and this conversation runs them on this computer'
+				: 'the job runs commands on this computer and this conversation runs them in a sandbox',
 		)
 	}
 	if (canonical(environment.cwd) !== job.folder.canonical) {
-		reasons.push(`this session's folder is not the job's (${job.folder.canonical})`)
+		reasons.push(`this conversation’s folder is not the job’s (${job.folder.canonical})`)
 	}
 	const jobRoots = new Set((job.permissions.additionalDirectories ?? []).map(canonical))
 	const sessionRoots = new Set(environment.roots.map(canonical))
 	const extra = [...sessionRoots].filter((root) => !jobRoots.has(root))
 	const missing = [...jobRoots].filter((root) => !sessionRoots.has(root))
-	if (extra.length > 0) reasons.push(`this session also reaches ${extra.join(', ')}`)
-	if (missing.length > 0) reasons.push(`this session does not reach ${missing.join(', ')}`)
+	if (extra.length > 0) reasons.push(`this conversation also reaches ${extra.join(', ')}`)
+	if (missing.length > 0) reasons.push(`this conversation does not reach ${missing.join(', ')}`)
 	if (job.permissions.browser && environment.browser === false) {
 		reasons.push(
-			'the job drives the browser and this session has none (check `browser.enabled` and `namzu doctor`)',
+			'the job drives the browser and this conversation has none (check `browser.enabled` and `namzu doctor`)',
 		)
 	}
 	if (job.runKind !== 'script' && !job.model) {
@@ -243,7 +243,7 @@ export function scheduledResumeMismatch(
 		!environment.providers.includes(job.model.provider)
 	) {
 		reasons.push(
-			`the job runs on ${job.model.provider}${job.model.model ? `/${job.model.model}` : ''} and this session has no credential for ${job.model.provider} (sign in with \`namzu login\`, or set its API key)`,
+			`the job runs on ${job.model.provider}${job.model.model ? `/${job.model.model}` : ''} and this conversation has no credential for ${job.model.provider} (sign in with \`namzu login\`, or set its API key)`,
 		)
 	}
 	return reasons
@@ -335,7 +335,7 @@ export async function chooseHandoffContinuation(
 			.map(([key, value]) => `\n  ${safe(key)}: ${safe(value)}`),
 	].join('')
 	say(
-		`The scheduled job ${park.job.name} stopped because it needs you: ${safe(handoff.reason)}${detail}\nContinue once that is done: the turn goes on under the job’s rules and on its model (${describeModel(park.model)}).`,
+		`The scheduled job ${park.job.name} stopped because it needs you: ${safe(handoff.reason)}${detail}\nContinue once that is done: the work goes on under the job’s rules and on its model (${describeModel(park.model)}).`,
 	)
 	if (!choose) return 'leave'
 	const choice = await choose({
@@ -387,7 +387,7 @@ export async function prepareScheduledResume(input: {
 				? ' with `sandbox.enabled: true` in your config'
 				: ' with the sandbox off (`sandbox.enabled: false`)'
 		throw new Error(
-			`the scheduled job ${park.job.name} ${park.handoff ? 'is waiting for you' : 'is waiting for approval'}, but its turn must continue as the job runs: ${mismatch.join('; ')}. ${park.handoff ? 'Continue' : 'Answer'} it from a session that matches: ${resumeCommand(park.job, input.sessionId)}${mismatch.some((reason) => reason.includes('sandbox')) ? execution : ''}.`,
+			`the scheduled job ${park.job.name} ${park.handoff ? 'is waiting for you' : 'is waiting for approval'}, but its work must continue as the job runs: ${mismatch.join('; ')}. ${park.handoff ? 'Continue' : 'Answer'} it from a session that matches: ${resumeCommand(park.job, input.sessionId)}${mismatch.some((reason) => reason.includes('sandbox')) ? execution : ''}.`,
 		)
 	}
 	const ask = scheduledPermission(input.ask)
@@ -439,7 +439,7 @@ export async function prepareScheduledResume(input: {
 		return { leave: true }
 	}
 	input.say(
-		`The scheduled job ${park.job.name} is waiting for your approval. Approve runs exactly this batch; the rest of the turn stays under the job’s rules and on its model (${describeModel(park.model)}), and asks you again, one batch at a time.`,
+		`The scheduled job ${park.job.name} is waiting for your approval. Approve runs exactly this batch; the rest of the work stays under the job’s rules and on its model (${describeModel(park.model)}), and asks you again, one batch at a time.`,
 	)
 	const answer = await ask({
 		sessionId: input.sessionId as never,

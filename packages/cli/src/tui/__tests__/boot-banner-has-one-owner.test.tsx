@@ -138,7 +138,7 @@ it('keeps one banner through readiness and the full subscription login frame', a
 	screen.press('/login')
 	await screen.waitForRender()
 	screen.press('\r')
-	await waitUntil(screen, () => painted(screen).includes('Choose a subscription session'))
+	await waitUntil(screen, () => painted(screen).includes('Choose a subscription sign-in'))
 	screen.press('\r')
 	await waitUntil(screen, () => painted(screen).includes('/oauth/authorize'))
 

@@ -1,3 +1,4 @@
+import { explainFailure } from '../plain-failure.js'
 /**
  * `/schedule` and `/loop` in the TUI.
  *
@@ -282,7 +283,7 @@ async function confirmInTui(
 				: { model: `${job.model.provider}${job.model.model ? `/${job.model.model}` : ''}` }),
 			warnings: [
 				...(outside
-					? ['The folder is outside this session’s working directory and added directories.']
+					? ['The folder is outside this conversation’s working directory and added directories.']
 					: []),
 				...(networkCapable ? ['This run can reach the network.'] : []),
 				...(job.permissions.browser && runKind !== 'script'
@@ -407,7 +408,9 @@ export async function runScheduleCommand(
 					answer
 						? answer.ok
 							? `${job.name} queued; /schedule shows it running.`
-							: String(answer.message ?? 'refused')
+							: typeof answer.message === 'string' && answer.message.length > 0
+								? answer.message
+								: 'The scheduler did not accept that. Run namzu schedule status for details.'
 						: `The scheduler is not running; run it here with: namzu schedule run-now ${job.name}`,
 				)
 				return
@@ -418,7 +421,7 @@ export async function runScheduleCommand(
 					const state = readState(paths, job.id)
 					if (!state.activeRun && !state.deliveryPending?.length) return false
 					say(
-						`${job.name} has a run or source result still settling. Let the scheduler finish, or use namzu schedule remove ${job.name} --force to explicitly discard a pending source result.`,
+						`${job.name} has a run or result that is still being saved. Let the scheduler finish, or use namzu schedule remove ${job.name} --force to explicitly discard a pending source result.`,
 					)
 					return true
 				}
@@ -457,7 +460,7 @@ export async function runScheduleCommand(
 					return
 				}
 				if (!ctx.model) {
-					say('This session has no model yet; pick one first.')
+					say('This conversation has no model yet; pick one first.')
 					return
 				}
 				const now = new Date()
@@ -497,7 +500,11 @@ export async function runScheduleCommand(
 				say(USAGE)
 		}
 	} catch (error) {
-		say(error instanceof JobRequestError || error instanceof Error ? error.message : String(error))
+		say(
+			error instanceof JobRequestError
+				? error.message
+				: explainFailure(error, 'That schedule command did not work.'),
+		)
 	}
 }
 
@@ -537,9 +544,9 @@ export async function runLoopCommand(
 		}
 		const loop = await loops.create({ interval, prompt, createdBy: 'operator' })
 		display(
-			`↻ Loop ${loop.id}: ${loop.schedule}, between turns, for 7 days. /loop stop ${loop.id} ends it.`,
+			`↻ Loop ${loop.id}: ${loop.schedule}, between replies, for 7 days. /loop stop ${loop.id} ends it.`,
 		)
 	} catch (error) {
-		display(error instanceof Error ? error.message : String(error))
+		display(explainFailure(error, 'Could not set up that loop.'))
 	}
 }

@@ -52,10 +52,10 @@ const row = (
 describe('the tag row', () => {
 	it('says what an armed hypermode does, and that it pins the highest effort', () => {
 		expect(row('hypermode fix the flaky test', 116)).toBe(
-			'✦ hypermode · this turn: effort xhigh, delegate to parallel agents · alt+w drop',
+			'✦ hypermode · this reply: effort xhigh, delegate to parallel agents · alt+w drop',
 		)
 		expect(row('hypermode fix the flaky test', 70)).toBe(
-			'✦ hypermode · this turn, effort xhigh · alt+w',
+			'✦ hypermode · this reply, effort xhigh · alt+w',
 		)
 		expect(row('hypermode fix the flaky test', 45)).toBe('✦ hypermode · effort xhigh · alt+w')
 		expect(row('hypermode fix the flaky test', 30)).toBe('✦ hypermode')
@@ -63,19 +63,19 @@ describe('the tag row', () => {
 
 	it('says what save as skill does embedded, standalone, and while a turn runs', () => {
 		expect(row('fix it, then save it as a skill', 116)).toBe(
-			'✦ save as skill · after this turn, if it did work; you confirm the file · alt+w drop',
+			'✦ save as skill · after this reply, if it did work; you confirm the file · alt+w drop',
 		)
 		expect(row('bunu skill olarak kaydet', 116)).toBe(
 			'✦ save as skill · runs /skills save · alt+w drop',
 		)
 		expect(row('fix it, then save it as a skill', 116, { turnActive: true })).toBe(
-			'✦ save as skill · enter: after the running turn · tab: after the next · alt+w drop',
+			'✦ save as skill · enter: after the running reply · tab: after the next · alt+w drop',
 		)
 	})
 
 	it('says Enter steers without a turn trigger while a turn runs', () => {
 		expect(row('hypermode fix it', 116, { turnActive: true })).toBe(
-			'✦ hypermode · enter steers without it · tab: new turn with it · alt+w drop',
+			'✦ hypermode · enter steers without it · tab: new message with it · alt+w drop',
 		)
 	})
 
@@ -153,10 +153,10 @@ describe('the transcript line', () => {
 	it('names what the message carried', () => {
 		expect(
 			transcriptTagLine(['hypermode', 'save-skill'], { effort: 'xhigh', steered: false }),
-		).toBe('hypermode (this turn, effort xhigh) · save as skill (after this turn)')
+		).toBe('hypermode (this reply, effort xhigh) · save as skill (after this reply)')
 		expect(transcriptTagLine(['hypermode'], { effort: undefined, steered: true })).toBeUndefined()
 		expect(transcriptTagLine(['save-skill'], { effort: undefined, steered: true })).toBe(
-			'save as skill (after the running turn)',
+			'save as skill (after the running reply)',
 		)
 	})
 })

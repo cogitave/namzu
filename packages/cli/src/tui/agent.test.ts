@@ -198,6 +198,22 @@ describe('toAgentEvent', () => {
 		})
 	})
 
+	it('marks a call the person answered No to, and keeps the refusal text off the screen', () => {
+		const ev = {
+			type: 'tool_completed',
+			toolUseId,
+			toolName: 'bash',
+			result:
+				'Error: Tool "bash" was not executed. The user declined this. Do not get the same content another way.',
+			isError: true,
+			presentation: { kind: 'generic', label: 'ls /tmp', declined: { note: 'not now' } },
+			...env,
+		} as unknown as SessionEvent
+		const out = toAgentEvent(ev, presenter)
+		expect(out).toMatchObject({ kind: 'tool-end', declined: { note: 'not now' } })
+		expect(out).not.toHaveProperty('detail')
+	})
+
 	it('carries authored standalone calls and hidden acknowledgements across the host seam', () => {
 		const authored = {
 			presentCall: () => ({

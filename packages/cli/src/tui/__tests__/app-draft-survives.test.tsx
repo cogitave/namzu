@@ -307,7 +307,7 @@ describe('a draft while a permission prompt comes and goes', () => {
 		// the frame from before the prompt, which is the state this asserts against.
 		await frameShows(harness.lastFrame, draft, 'the draft was destroyed by the prompt')
 
-		expect(decisions).toEqual([{ kind: 'reject' }])
+		expect(decisions).toEqual([{ kind: 'reject', declined: {} }])
 	})
 
 	it('keeps a pasted attachment across the same cycle', async () => {

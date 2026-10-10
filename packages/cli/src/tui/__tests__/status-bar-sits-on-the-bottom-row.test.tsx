@@ -31,7 +31,7 @@ import { StatusBar } from '../StatusBar.js'
 import { type Screen, renderToScreen } from './support/screen.js'
 
 /** The picker's first-run hint: the only place its exits are named. */
-const HINT = '↑↓ navigate · enter accept · esc or Ctrl+C exit'
+const HINT = '↑↓ select · enter accept · esc or Ctrl+C exit'
 
 /** Deep but unremarkable — a service inside a monorepo inside a work folder. */
 const DEEP_CWD =

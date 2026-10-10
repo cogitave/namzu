@@ -336,7 +336,7 @@ export const drainCommand: CommandDef = {
 	help: [
 		'Usage: namzu drain --store <dir> --tenant <id> --project <id> --session <id>',
 		'',
-		"Take the session's parked or interrupted turn if no worker holds the",
+		'Take the session’s parked or interrupted turn if no worker holds the',
 		'session, continue it from its last checkpoint under the session lease, and',
 		'release the lease. One pass, then exit — this is a command your own',
 		'scheduler runs, not a service. (namzu’s scheduler daemon runs scheduled',

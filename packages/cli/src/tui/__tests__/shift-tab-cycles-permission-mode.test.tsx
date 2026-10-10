@@ -8,7 +8,7 @@
  * after Shift+Tab, names the key, and leaves after a second press.
  *
  * The footer is the key's only reply. Every press used to append
- * "Permissions: <mode> for this session. …" to the transcript, so five presses
+ * "Permissions: <mode> for this conversation. …" to the transcript, so five presses
  * left five lines; the reference terminal rewrites its footer and writes
  * nothing. And the key works while a turn runs: it used to be refused there
  * with "Permissions were not changed. Finish or stop the current work first."
@@ -173,7 +173,7 @@ describe('Shift+Tab in the composer', () => {
 		await frameShows(harness.lastFrame, '‖ Plan (read-only)')
 		const seen = harness.frames.slice(before).join('\n')
 		expect(seen).not.toContain('Permissions:')
-		expect(seen).not.toContain('for this session')
+		expect(seen).not.toContain('for this conversation')
 		expect(seen).not.toContain('⏸')
 		// Five presses from `prompt`, each one recorded and none of them printed.
 		expect(recorded).toEqual(['accept-edits', 'plan', 'prompt', 'accept-edits', 'plan'])

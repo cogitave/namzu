@@ -71,8 +71,8 @@ export function retryAfterMs(event: Interruption): number | undefined {
 }
 
 function duration(ms: number): string {
-	if (ms < 1_000) return `${Math.ceil(ms)} ms`
-	const seconds = Math.ceil(ms / 1_000)
+	// Never milliseconds on screen: under a second reads as one second.
+	const seconds = Math.max(1, Math.ceil(ms / 1_000))
 	if (seconds < 120) return `${seconds} second${seconds === 1 ? '' : 's'}`
 	const minutes = Math.ceil(seconds / 60)
 	if (minutes < 120) return `${minutes} minute${minutes === 1 ? '' : 's'}`
@@ -106,7 +106,7 @@ export function describeTurnInterruption(event: Interruption): string {
 	const rawReason = event.kind === 'paused' ? event.reason : event.message
 	const lead = line(explained?.message || rawReason)
 	const id = explained?.id ? ` [${line(explained.id, 120)}]` : ''
-	const rows = [`${event.kind === 'paused' ? 'Turn paused' : 'Error'}${id}: ${lead}`]
+	const rows = [`${event.kind === 'paused' ? 'Reply paused' : 'Error'}${id}: ${lead}`]
 	const providerId = event.providerError?.providerId ?? event.failure?.details?.providerId
 	if (typeof providerId === 'string' && providerId.trim()) {
 		rows.push(`Provider: ${line(providerId, 120)}`)
@@ -138,7 +138,7 @@ export function describeTurnInterruption(event: Interruption): string {
  */
 function describeHandoff(event: Extract<Interruption, { kind: 'paused' }>): string {
 	const handoff = event.handoff
-	const rows = [`Turn paused — needs you: ${line(handoff?.reason ?? event.reason)}`]
+	const rows = [`Reply paused — needs you: ${line(handoff?.reason ?? event.reason)}`]
 	for (const [key, value] of Object.entries(handoff?.detail ?? {})) {
 		rows.push(`${line(key, 60)}: ${line(value, 240)}`)
 	}

@@ -5,18 +5,18 @@ export const TURN_LIMIT_FIELDS = [
 		name: 'tokens',
 		key: 'tokenBudget',
 		label: 'Token budget',
-		hint: 'Whole tokens across the turn and its children; 0 or unlimited removes the cap.',
+		hint: 'Whole tokens across the reply and its agents; 0 or unlimited removes the cap.',
 	},
 	{
 		name: 'iterations',
 		key: 'maxIterations',
-		label: 'Model turns',
-		hint: 'Whole model calls per turn; 0 or unlimited removes the cap.',
+		label: 'Model calls',
+		hint: 'Whole model calls per reply; 0 or unlimited removes the cap.',
 	},
 	{
 		name: 'time',
 		key: 'timeoutMs',
-		label: 'Turn duration',
+		label: 'Reply duration',
 		hint: 'Duration such as 30m, 2h or 1500ms; a bare number is milliseconds. 0 or unlimited removes the cap.',
 	},
 ] as const
@@ -48,11 +48,14 @@ export function turnLimitsAction(args: readonly string[]): TurnLimitsAction {
 							: Number.NaN
 			resolveTurnGuards({ [field.key]: value })
 			return { kind: 'turn-limits-set', limits: { [field.key]: value } }
-		} catch (error) {
+		} catch {
+			// The kernel's own complaint names a config key; the person typed a value.
 			return {
 				kind: 'message',
 				role: 'system',
-				content: `${error instanceof Error ? error.message : String(error)} ${field.hint}`,
+				content: `${field.label} was not changed: ${
+					field.key === 'timeoutMs' ? 'use a time such as 90s, 5m or 2h' : 'use a whole number'
+				}, or 0 or unlimited for no limit. ${field.hint}`,
 			}
 		}
 	}
@@ -87,8 +90,8 @@ export function turnLimitCommands(limits: TurnGuards) {
 		})),
 		{
 			name: 'config limits unlimited',
-			label: 'Remove all turn caps',
-			description: 'Unlimited tokens, model turns and duration. Usage is still measured.',
+			label: 'Remove all reply limits',
+			description: 'Unlimited tokens, model calls and duration. Usage is still measured.',
 		},
 	]
 }

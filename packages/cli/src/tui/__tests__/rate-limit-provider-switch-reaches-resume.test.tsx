@@ -245,13 +245,13 @@ it('holds a dependent queued prompt through provider switch until the paused tur
 	await press(screen, '\t')
 	await until(
 		screen,
-		() => screen.viewport().join('\n').includes('Queued · next turn') && screen.viewport().join('\n').includes('↳ Dependent queued work'),
+		() => screen.viewport().join('\n').includes('Queued · next reply') && screen.viewport().join('\n').includes('↳ Dependent queued work'),
 		'Dependent prompt was not queued',
 	)
 	releaseFirstSend()
 	await until(
 		screen,
-		() => world.parked && screen.viewport().join('\n').includes('Queued · held after a resumable turn paused') && screen.viewport().join('\n').includes('↳ Dependent queued work'),
+		() => world.parked && screen.viewport().join('\n').includes('Queued · held after a reply paused') && screen.viewport().join('\n').includes('↳ Dependent queued work'),
 		'Rate limit did not hold the dependent queue',
 	)
 	expect(world.requests).toEqual([{ providerId: 'openai', operation: 'send' }])
@@ -270,7 +270,7 @@ it('holds a dependent queued prompt through provider switch until the paused tur
 	await until(screen, () => screen.viewport().join('\n').includes('Gemini Flash'), 'Gemini model was not listed')
 	await press(screen, '\r')
 	await until(screen, () => world.constructed.length === 2 && world.closed.includes('openai'), 'Google session was not activated')
-	await until(screen, () => screen.viewport().join('\n').includes('held after a resumable turn paused'), 'Queue was released before the checkpoint resumed')
+	await until(screen, () => screen.viewport().join('\n').includes('held after a reply paused'), 'Queue was released before the checkpoint resumed')
 	expect(world.requests).toEqual([{ providerId: 'openai', operation: 'send' }])
 
 	await submit(screen, '/resume')

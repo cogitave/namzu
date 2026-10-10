@@ -332,7 +332,7 @@ it('does not let a later conversation command overtake a pending durable goal wr
 	await submit(harness, '/new')
 	expect(scope?.sessionId).toBe(source)
 	expect(harness.frames.join('\n')).toContain(
-		'A goal command is still reaching durable session state',
+		'A goal command is still being saved',
 	)
 
 	release.resolve()

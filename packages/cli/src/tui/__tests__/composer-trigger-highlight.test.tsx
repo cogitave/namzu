@@ -109,7 +109,7 @@ describe('the tag row', () => {
 		expect(mounted.viewport().join('\n')).toContain('✧ hypermode (off) · alt+w restores')
 		mounted.press('\u001bw')
 		await mounted.waitForRender()
-		expect(mounted.viewport().join('\n')).toContain('✦ hypermode · this turn')
+		expect(mounted.viewport().join('\n')).toContain('✦ hypermode · this reply')
 
 		await mounted.unmount()
 		const again = await typed('hypermode')

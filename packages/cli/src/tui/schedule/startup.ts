@@ -17,6 +17,7 @@ import { writeJsonAtomic } from '../../schedule/store/atomic.js'
 import { readHistory } from '../../schedule/store/history.js'
 import { confirmationHolds, listJobs } from '../../schedule/store/jobs.js'
 import { readState } from '../../schedule/store/state.js'
+import { plural } from '../person-terms.js'
 
 function ago(ms: number): string {
 	if (ms < 3_600_000) return `${Math.max(1, Math.round(ms / 60_000))} min`
@@ -104,7 +105,10 @@ export function scheduleStartupLine(
 		}
 	}
 	const suppressed = takeSuppressedCount(join(paths.daemon, 'notify.json'))
-	if (suppressed > 0) parts.push(`${suppressed} scheduled notification(s) were held back`)
+	if (suppressed > 0)
+		parts.push(
+			`${plural(suppressed, 'scheduled notification')} ${suppressed === 1 ? 'was' : 'were'} held back`,
+		)
 	try {
 		writeJsonAtomic(paths.seen, {
 			v: 1,

@@ -144,7 +144,7 @@ export function BackgroundJobsPanel({
 					{truncateChoiceText(`Shell jobs · ${running} running`, innerColumns)}
 				</Text>
 				{jobs.length === 0 ? (
-					<Text color={theme.text.secondary}>No shell jobs in this session.</Text>
+					<Text color={theme.text.secondary}>No shell jobs in this conversation.</Text>
 				) : (
 					shown.map((job) => {
 						const focused = job.id === selected?.id
@@ -219,7 +219,7 @@ export function BackgroundJobsPanel({
 			))}
 			{commandMore ? <Text color={theme.text.muted}>… command continues</Text> : null}
 			<Text color={theme.text.muted} wrap="truncate-end">
-				{truncateChoiceText(earlierOutputOmitted ? 'Output · earlier bytes omitted' : 'Output', innerColumns)}
+				{truncateChoiceText(earlierOutputOmitted ? 'Output · earlier output not shown' : 'Output', innerColumns)}
 			</Text>
 			{shownOutput.map((row) => (
 				<Text key={row.index} color={theme.text.secondary} wrap="truncate-end">{row.text || ' '}</Text>

@@ -74,7 +74,7 @@ export class CallTally {
 			this.#refused++
 			this.#firstRefused ??= {
 				tool: call.toolName,
-				reason: `the job's permissions never let a run use ${call.toolName}, so the run was not given it`,
+				reason: `the job’s permissions never let a run use ${call.toolName}, so the run was not given it`,
 			}
 			return
 		}

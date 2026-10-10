@@ -94,7 +94,7 @@ describe('the host editor process', () => {
 				env: { ...process.env, VISUAL: `${process.execPath} "${script}"` },
 				temporaryRoot: root,
 			}),
-		).rejects.toThrow('the limit is 4,194,304')
+		).rejects.toThrow('the limit is 4 MB')
 		expect(readdirSync(root)).toEqual(['oversized.mjs'])
 	})
 })

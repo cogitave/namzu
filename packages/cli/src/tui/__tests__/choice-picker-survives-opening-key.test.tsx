@@ -283,13 +283,13 @@ it.each([60, 120])(
 		await screen.waitForRender()
 		screen.press('\r')
 		screen.press('\r')
-		await waitUntil(screen, () => screen.viewport().join('\n').includes('Loaded in this session'))
+		await waitUntil(screen, () => screen.viewport().join('\n').includes('Loaded in this conversation'))
 		expect(plugins.changes).toEqual([])
 		screen.press('\r')
-		await waitUntil(screen, () => screen.viewport().join('\n').includes('Disable for this session'))
+		await waitUntil(screen, () => screen.viewport().join('\n').includes('Disable for this conversation'))
 		expect(plugins.changes).toEqual([])
 		screen.press('2')
-		await waitUntil(screen, () => screen.viewport().join('\n').includes('Enable for this session'))
+		await waitUntil(screen, () => screen.viewport().join('\n').includes('Enable for this conversation'))
 		expect(plugins.changes).toEqual([false])
 		expect(screen.viewport().join('\n')).toContain('0 tools')
 		expect(plugins.startupEnabled).toBe(true)
@@ -298,7 +298,7 @@ it.each([60, 120])(
 		expect(plugins.startupEnabled).toBe(false)
 		expect(screen.viewport().join('\n')).toContain('after restart: disabled')
 		screen.press('2')
-		await waitUntil(screen, () => screen.viewport().join('\n').includes('Disable for this session'))
+		await waitUntil(screen, () => screen.viewport().join('\n').includes('Disable for this conversation'))
 		expect(plugins.changes).toEqual([false, true])
 		expect(screen.viewport().join('\n')).toContain('1 tool')
 		expect(plugins.startupEnabled).toBe(false)
@@ -322,14 +322,14 @@ it('keeps the real enabled state when a plugin change fails', async () => {
 	screen.press('/plugins')
 	await screen.waitForRender()
 	screen.press('\r')
-	await waitUntil(screen, () => screen.viewport().join('\n').includes('Loaded in this session'))
+	await waitUntil(screen, () => screen.viewport().join('\n').includes('Loaded in this conversation'))
 	screen.press('\r')
-	await waitUntil(screen, () => screen.viewport().join('\n').includes('Disable for this session'))
+	await waitUntil(screen, () => screen.viewport().join('\n').includes('Disable for this conversation'))
 	plugins.fail = true
 	screen.press('2')
 	await waitUntil(screen, () => screen.viewport().join('\n').includes('Could not change plugin'))
 	expect(plugins.enabled).toBe(true)
-	expect(screen.viewport().join('\n')).toContain('Disable for this session')
+	expect(screen.viewport().join('\n')).toContain('Disable for this conversation')
 	expect(reviewPrompts).toEqual([])
 })
 
@@ -356,20 +356,20 @@ it('paints /permissions choices before a later key can select one', async () => 
 	screen.press('\r')
 	await waitUntil(screen, () => painted(screen).includes('More options'))
 	let output = painted(screen)
-	expect(output).not.toContain('Permissions: Ask before changes for this session.')
+	expect(output).not.toContain('Permissions: Ask before changes for this conversation.')
 
 	// A later key, sent after the menu is visible, does own a choice.
 	// A submenu also waits for its own visible frame before accepting a choice.
 	screen.press('4')
 	screen.press('\r')
 	await waitUntil(screen, () => painted(screen).includes('More permission options'))
-	expect(painted(screen)).not.toContain('Permissions: Auto-approve tools for this session.')
+	expect(painted(screen)).not.toContain('Permissions: Auto-approve tools for this conversation.')
 	screen.press('2')
 	await waitUntil(screen, () =>
-		painted(screen).includes('Permissions: Preapproved tools only for this session.'),
+		painted(screen).includes('Permissions: Preapproved tools only for this conversation.'),
 	)
 	output = painted(screen)
-	expect(output.match(/Permissions: Preapproved tools only for this session\./g)).toHaveLength(1)
+	expect(output.match(/Permissions: Preapproved tools only for this conversation\./g)).toHaveLength(1)
 })
 
 it('opens bare /feedback as a finite chooser for the completed answer', async () => {
@@ -548,7 +548,7 @@ it('asks which Namzu-owned subscription to remove and preserves the sibling', as
 	expect(credentials.cleared).toEqual([])
 
 	screen.press('2')
-	await waitUntil(screen, () => painted(screen).includes("Removed Namzu's stored Codex"))
+	await waitUntil(screen, () => painted(screen).includes("Removed Namzu’s stored Codex"))
 	expect(credentials).toMatchObject({
 		primary: true,
 		codex: false,

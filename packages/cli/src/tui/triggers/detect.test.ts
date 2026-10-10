@@ -249,8 +249,8 @@ describe('where the text came from, and Alt+W', () => {
 
 describe('availability', () => {
 	it.each([
-		[{ sessionHypermode: true }, 'hypermode fix it', 'already on for this session'],
-		[{ agentTool: false }, 'hypermode fix it', 'unavailable: this session cannot delegate'],
+		[{ sessionHypermode: true }, 'hypermode fix it', 'already on for this conversation'],
+		[{ agentTool: false }, 'hypermode fix it', 'unavailable: this conversation cannot delegate'],
 		[{ permissionMode: 'plan' }, 'save it as a skill', 'unavailable in plan mode'],
 		[{ permissionMode: 'strict' }, 'save it as a skill', 'unavailable in strict mode'],
 		[{ skillCreator: false }, 'save it as a skill', 'unavailable: the skill-creator skill is off'],

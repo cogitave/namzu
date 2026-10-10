@@ -333,7 +333,7 @@ export function compileJobPolicy(
 	]
 	const lines = [
 		'dangerous commands (rm -rf /, mkfs, curl | sh, sudo …): deny, always',
-		`the scheduler's commands (but ${READ_ONLY_VERBS.join(', ')}), and anything naming NAMZU_HOME or the browser's profiles: deny`,
+		`the scheduler’s commands (but ${READ_ONLY_VERBS.join(', ')}), and anything naming NAMZU_HOME or the browser’s profiles: deny`,
 		...denyLines,
 		...Object.entries(set.rules).flatMap(([tool, permission]) => lineFor(tool, permission)),
 		...(set.browser ? browserGrantLines(set.browser, siteDenies) : []),

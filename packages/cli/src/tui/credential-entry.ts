@@ -142,7 +142,7 @@ export function describeDisposition(
 	if (entry.id === 'google') {
 		return `${checked}\nIf the provider starts, Namzu will save this Gemini API key privately for future launches. Run /logout gemini to remove it.`
 	}
-	return `${checked}\nHeld in memory for this session only — it is not written anywhere. ${durable}${expiry}`
+	return `${checked}\nHeld in memory until you quit — it is not written anywhere. ${durable}${expiry}`
 }
 
 /**

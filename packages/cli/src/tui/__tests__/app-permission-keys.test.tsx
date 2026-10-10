@@ -329,7 +329,7 @@ describe('the permission prompt', () => {
 
 		stdin.write('\x1b[B')
 		await tick(50)
-		expect(lastFrame()).toContain('❯ 2. Yes, allow all tools for this session')
+		expect(lastFrame()).toContain('❯ 2. Yes, allow all tools for this conversation')
 
 		settle()
 		stdin.write('\r')
@@ -342,7 +342,7 @@ describe('the permission prompt', () => {
 		settle()
 		stdin.write('3')
 		await tick(400)
-		expect(decisions).toEqual([{ kind: 'reject' }])
+		expect(decisions).toEqual([{ kind: 'reject', declined: {} }])
 	})
 
 	it('ignores an approving key that arrives before the prompt can have been read', async () => {
@@ -407,7 +407,7 @@ describe('the permission prompt', () => {
 		expect(approval).toContain('1. API research · files + commands')
 		expect(approval).toContain('4. Delivery plan · files + commands')
 		expect(approval).toContain('❯ 1. Start these 4 agents')
-		expect(approval).toContain('2. Start and allow all tools for this session')
+		expect(approval).toContain('2. Start and allow all tools for this conversation')
 		expect(approval).toContain('3. Do not start')
 		expect(approval).not.toContain('"calls"')
 		expect(approval).not.toContain('agent-call-0')
@@ -432,7 +432,7 @@ describe('the permission prompt', () => {
 		stdin.write('\x1B')
 		await decisionSettles()
 
-		expect(decisions).toEqual([{ kind: 'reject' }])
+		expect(decisions).toEqual([{ kind: 'reject', declined: {} }])
 	})
 
 	it('names every key that decides it, and no key that does not', async () => {
@@ -446,7 +446,7 @@ describe('the permission prompt', () => {
 		// status bar's own hint satisfies from the other side of the screen. Two
 		// assertions that could not fail, guarding the advertisement that four
 		// separate fixes tonight were about.
-		expect(frame).toContain('Yes, allow all tools for this session')
+		expect(frame).toContain('Yes, allow all tools for this conversation')
 		expect(frame).toContain('tell namzu what to do differently')
 		// The advertisement is the contract the handler is held to: Enter
 		// confirms the highlighted answer, and the box says so.
@@ -464,7 +464,7 @@ describe('the permission prompt', () => {
 		const frame = lastFrame() ?? ''
 
 		expect(frame.toLowerCase(), 'the key that stops the turn is unnamed').toContain('ctrl+c')
-		expect(frame, 'named the key without naming what makes it different').toContain('stop the turn')
+		expect(frame, 'named the key without naming what makes it different').toContain('stop the reply')
 	})
 
 	it('toggles the immutable exact envelope without deciding the prompt', async () => {
@@ -578,11 +578,11 @@ describe('/permissions after approve-all', () => {
 		const frame = lastFrame() ?? ''
 		expect(frame, 'the chooser never rendered').toContain('More options')
 		expect(frame).toContain('Current: Auto-approve tools')
-		expect(frame).toContain('this session')
+		expect(frame).toContain('this conversation')
 		expect(frame).not.toContain('Never prompted')
 		stdin.write('1')
 		await tick(120)
-		expect(lastFrame()).toContain('Permissions: Ask before changes for this session.')
+		expect(lastFrame()).toContain('Permissions: Ask before changes for this conversation.')
 		expect(lastFrame()).toContain('Type a message')
 		expect(lastFrame()).not.toContain('⏵⏵ Auto-approve tools')
 		expect(permissionModes).toEqual(['prompt'])
@@ -613,7 +613,7 @@ describe('/permissions session mode', () => {
 
 		expect(lastFrame()).not.toContain('Permissions were not changed')
 		expect(lastFrame(), 'a change asked for by name gets a reply').toContain(
-			'Permissions: Preapproved tools only for this session.',
+			'Permissions: Preapproved tools only for this conversation.',
 		)
 		expect(permissionModes).toEqual(['prompt'])
 	})
@@ -628,7 +628,7 @@ describe('/permissions session mode', () => {
 		await tick(60)
 		stdin.write('\r')
 		await tick(160)
-		expect(lastFrame()).toContain('Permissions: Ask before changes for this session.')
+		expect(lastFrame()).toContain('Permissions: Ask before changes for this conversation.')
 
 		stdin.write('change the file')
 		await tick(60)
@@ -673,7 +673,7 @@ describe('/permissions session mode', () => {
 		await tick(60)
 		stdin.write('\r')
 		await tick(160)
-		expect(lastFrame()).toContain('Permissions: Ask before changes for this session.')
+		expect(lastFrame()).toContain('Permissions: Ask before changes for this conversation.')
 
 		stdin.write('ask again')
 		await tick(60)
@@ -691,7 +691,7 @@ describe('concurrent permission requests', () => {
 		parallelApprovals = true
 		const { stdin, lastFrame } = await promptOpenWithDraftInFlight()
 		expect(lastFrame()).toContain('1 more awaiting approval')
-		expect(lastFrame()).toContain(`Session: ${firstReviewSession}`)
+		expect(lastFrame()).toContain(`Agent: another agent`)
 		expect(lastFrame()).not.toContain(secondReviewSession)
 		expect(lastFrame()).not.toContain('echo second-review')
 		settle()
@@ -700,14 +700,14 @@ describe('concurrent permission requests', () => {
 		await tick(60)
 		expect(decisions).toEqual([{ kind: 'approve' }])
 		expect(lastFrame()).toContain('echo second-review')
-		expect(lastFrame()).toContain(`Session: ${secondReviewSession}`)
+		expect(lastFrame()).toContain(`Agent: another agent`)
 		expect(lastFrame()).not.toContain(firstReviewSession)
 		stdin.write('\r')
 		await tick(60)
 		expect(decisions).toHaveLength(1)
 		stdin.write('n')
 		await tick(100)
-		expect(decisions).toEqual([{ kind: 'approve' }, { kind: 'reject' }])
+		expect(decisions).toEqual([{ kind: 'approve' }, { kind: 'reject', declined: {} }])
 	})
 	it('rejects all waiting requests and aborts the turn on Ctrl+C', async () => {
 		parallelApprovals = true

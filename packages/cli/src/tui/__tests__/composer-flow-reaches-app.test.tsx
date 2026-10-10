@@ -529,7 +529,7 @@ describe('the two composer destinations', () => {
 			await typeAndPress(screen, 'then do this', '\t')
 			await waitUntil(
 				screen,
-				() => screen.viewport().some((line) => line.includes('Queued · next turn')),
+				() => screen.viewport().some((line) => line.includes('Queued · next reply')),
 				'Tab submission never entered the next-turn queue',
 			)
 			expect(screen.viewport().join('\n')).toContain('then do this')
@@ -910,7 +910,7 @@ describe('the two composer destinations', () => {
 				() => screen.viewport().some((line) => line.includes('› keep after stop')),
 				'queued input was not recalled',
 			)
-			expect(screen.viewport().join('\n')).not.toContain('Queued · next turn')
+			expect(screen.viewport().join('\n')).not.toContain('Queued · next reply')
 			expect(sent).toHaveLength(1)
 			screen.press('\r')
 			await waitUntil(screen, () => sent.length === 2, 'recalled input never started')
@@ -1108,7 +1108,7 @@ describe('the external draft editor', () => {
 			screen.press('\x07')
 			await waitUntil(
 				screen,
-				() => screen.scrollback().join('\n').includes('editor refused the file'),
+				() => screen.scrollback().join('\n').includes('Cannot open your editor'),
 				'the editor failure was not reported',
 			)
 			expect(screen.viewport().join('\n')).toContain('keep this draft')

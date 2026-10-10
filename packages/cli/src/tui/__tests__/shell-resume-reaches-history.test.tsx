@@ -216,7 +216,7 @@ describe('the shell resume handoff inside App', () => {
 		try {
 			await waitUntil(
 				screen,
-				() => screen.scrollback().some((line) => line.includes('Could not resume 1ef9ce34-f888-4928-9659-b4f6388670a9')),
+				() => screen.scrollback().some((line) => line.includes('Could not resume that conversation')),
 				'exact resume refusal never reached the terminal',
 			)
 			expect(startConversation).not.toHaveBeenCalled()

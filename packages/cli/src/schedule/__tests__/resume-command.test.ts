@@ -270,7 +270,7 @@ describe('a completed run with refused calls', () => {
 				count: 1,
 				first: {
 					tool: 'write',
-					reason: "the job's permissions never let a run use write, so the run was not given it",
+					reason: 'the job’s permissions never let a run use write, so the run was not given it',
 				},
 			},
 			failedCalls: {

@@ -227,9 +227,9 @@ async function until(screen: Screen, needle: string): Promise<void> {
 	)
 }
 
-async function launch(): Promise<Screen> {
+async function launch(needle = 'No API key found'): Promise<Screen> {
 	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 100, rows: 40 })
-	await until(screen, 'No credential found')
+	await until(screen, needle)
 	return screen
 }
 
@@ -253,11 +253,11 @@ describe('launching with a saved provider and no credential', () => {
 		world.detected = [
 			{ entry: PROVIDER_REGISTRY.zen, source: { kind: 'public' }, alternatives: [] },
 		]
-		const screen = await launch()
+		const screen = await launch('No credential found')
 		try {
 			const notice = text(screen)
 			expect(notice).toContain(pinned)
-			expect(notice).toContain("Zen's experimental free")
+			expect(notice).toContain('Zen’s experimental free')
 			expect(notice).toContain('models, such as')
 			expect(notice).toContain('gateway may refuse')
 			expect(notice).toContain('Space Bunny Free')
@@ -308,7 +308,7 @@ describe('launching with a saved provider and no credential', () => {
 		const screen = await launch()
 		try {
 			screen.press('k')
-			await until(screen, 'Paste a credential')
+			await until(screen, 'Paste an API key')
 			expect(text(screen)).toContain('Saved privately for future launches')
 			screen.press('fixture-gemini-api-key')
 			await until(screen, '••••')
@@ -321,7 +321,7 @@ describe('launching with a saved provider and no credential', () => {
 			await until(screen, '/model')
 			screen.press('\r')
 			await until(screen, 'Choose a model')
-			expect(screen.viewport().join('\n')).toContain('this session and future launches')
+			expect(screen.viewport().join('\n')).toContain('this conversation and future launches')
 			screen.press('\x1b[B')
 			screen.press('\r')
 			await vi.waitFor(async () => {
@@ -340,7 +340,7 @@ describe('launching with a saved provider and no credential', () => {
 		const screen = await launch()
 		try {
 			screen.press('k')
-			await until(screen, 'Paste a credential')
+			await until(screen, 'Paste an API key')
 			screen.press('fixture-gemini-api-key')
 			await until(screen, '••••')
 			screen.press('\r')
@@ -352,7 +352,7 @@ describe('launching with a saved provider and no credential', () => {
 			await until(screen, '/model')
 			screen.press('\r')
 			await until(screen, 'Choose a model')
-			expect(screen.viewport().join('\n')).toContain('this session only (temporary credential)')
+			expect(screen.viewport().join('\n')).toContain('this conversation only (temporary credential)')
 		} finally {
 			await screen.unmount()
 		}
@@ -364,7 +364,7 @@ describe('launching with a saved provider and no credential', () => {
 		const screen = await launch()
 		try {
 			screen.press('k')
-			await until(screen, 'Paste a credential')
+			await until(screen, 'Paste an API key')
 			screen.press('fixture-gemini-api-key')
 			await until(screen, '••••')
 			screen.press('\r')
@@ -380,12 +380,12 @@ describe('launching with a saved provider and no credential', () => {
 		const banner = 'Namzu v0.0.0-test · by Cogitave'
 		try {
 			expect(staticLifecycle).toEqual({ mounts: 1, unmounts: 0 })
-			expect(text(screen)).toContain('No credential found')
+			expect(text(screen)).toContain('No API key found')
 			expect(text(screen)).not.toContain(banner)
 
 			screen.press('k')
-			await until(screen, 'Paste a credential')
-			expect(text(screen)).toContain('Paste a credential')
+			await until(screen, 'Paste an API key')
+			expect(text(screen)).toContain('Paste an API key')
 			expect(text(screen)).not.toContain(banner)
 			expect(staticLifecycle).toEqual({ mounts: 1, unmounts: 0 })
 
@@ -409,13 +409,13 @@ describe('launching with a saved provider and no credential', () => {
 		try {
 			// The refusal, and then the thing that makes it a refusal rather than a
 			// dead end: the picker, which `unhealthy` is not.
-			expect(text(screen)).toContain('No credential found')
+			expect(text(screen)).toContain('No API key found')
 			expect(text(screen), 'landed on the phase with no way out').not.toContain('Ctrl+C ×2 to exit')
 
 			screen.press('k')
-			await until(screen, 'Paste a credential')
+			await until(screen, 'Paste an API key')
 
-			expect(text(screen)).toContain('Paste a credential')
+			expect(text(screen)).toContain('Paste an API key')
 			// For the provider that was actually missing one.
 			expect(text(screen)).toContain(SAVED_LABEL)
 		} finally {
@@ -427,7 +427,7 @@ describe('launching with a saved provider and no credential', () => {
 		const screen = await launch()
 		try {
 			screen.press('k')
-			await until(screen, 'Paste a credential')
+			await until(screen, 'Paste an API key')
 			screen.press('sk-ant-api03-not-a-real-key')
 			await until(screen, '••••')
 			screen.press('\r')
@@ -447,7 +447,7 @@ describe('launching with a saved provider and no credential', () => {
 		const screen = await launch()
 		try {
 			screen.press('k')
-			await until(screen, 'Paste a credential')
+			await until(screen, 'Paste an API key')
 			screen.press('sk-ant-api03-not-a-real-key')
 			await until(screen, '••••')
 			screen.press('\r')
@@ -466,7 +466,7 @@ describe('launching with a saved provider and no credential', () => {
 		const screen = await launch()
 		try {
 			screen.press('k')
-			await until(screen, 'Paste a credential')
+			await until(screen, 'Paste an API key')
 			screen.press('sk-ant-oat01-not-a-real-token')
 			await until(screen, 'Reads as a subscription token')
 
@@ -495,7 +495,7 @@ describe('after the credential has been supplied', () => {
 		const screen = await launch()
 		try {
 			screen.press('k')
-			await until(screen, 'Paste a credential')
+			await until(screen, 'Paste an API key')
 			screen.press('sk-ant-api03-not-a-real-key')
 			await until(screen, '••••')
 			screen.press('\r')
@@ -516,12 +516,12 @@ describe('after the credential has been supplied', () => {
 			const drawn = box.join('\n')
 
 			expect(drawn, 'the picker never reopened').toContain('Choose a model')
-			expect(drawn).toContain('this session only (temporary credential)')
+			expect(drawn).toContain('this conversation only (temporary credential)')
 			expect(drawn, 'a stale launch refusal is drawn on the picker').not.toContain(
-				'No credential found',
+				'No API key found',
 			)
 			expect(drawn, 'still offering to repair a credential that is present').not.toContain(
-				'k enter a credential',
+				'k enter an API key',
 			)
 		} finally {
 			await screen.unmount()
@@ -540,12 +540,12 @@ describe('when something else is running on the machine', () => {
 			expect(text(screen), 'the populated list never drew').toContain('Choose a provider')
 			// Advertised before it is pressed: a key nothing on screen names is a
 			// key nobody presses.
-			expect(text(screen)).toContain('k enter a credential')
+			expect(text(screen)).toContain('k enter an API key')
 
 			screen.press('k')
-			await until(screen, 'Paste a credential')
+			await until(screen, 'Paste an API key')
 
-			expect(text(screen)).toContain('Paste a credential')
+			expect(text(screen)).toContain('Paste an API key')
 			expect(text(screen)).toContain(SAVED_LABEL)
 		} finally {
 			await screen.unmount()
@@ -562,7 +562,7 @@ describe('the credential is for the provider that needed one', () => {
 		const screen = await launch()
 		try {
 			screen.press('k')
-			await until(screen, 'Paste a credential')
+			await until(screen, 'Paste an API key')
 
 			expect(text(screen)).toContain(OTHER_KEY_LABEL)
 			expect(text(screen), 'the credential was offered to the wrong provider').not.toContain(

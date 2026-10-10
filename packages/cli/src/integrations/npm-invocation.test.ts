@@ -51,7 +51,7 @@ describe('npm invocation on native Windows', () => {
 				'win32',
 				join(root, 'missing', 'node.exe'),
 			),
-		).toThrow(/npm's JavaScript entry point is unavailable.*Repair that Node installation/)
+		).toThrow(/npm’s JavaScript entry point is unavailable.*Repair that Node installation/)
 	})
 
 	it('keeps POSIX npm and unrelated Windows commands on their original argv path', () => {

@@ -42,7 +42,7 @@ describe('setSkillSuggestions', () => {
 		expect(result.message).toContain(`project-file ${project}`)
 		expect(result.message).toContain('from the next start skills.suggest will be true')
 		expect(result.message).toContain('Add suggest: false under skills there')
-		expect(result.message).toContain('this session follows your choice')
+		expect(result.message).toContain('this conversation follows your choice')
 	})
 
 	it('names a managed skills block that sets the opposite', () => {

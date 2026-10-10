@@ -8,6 +8,8 @@ import { Box, Text, useStdout } from 'ink'
 
 import { displayConversationTitle } from '../integrations/sessions/display-title.js'
 import type { RecentConversation } from '../integrations/sessions/store.js'
+import { fitHints } from './key-hints.js'
+import { plural } from './person-terms.js'
 import { selectionWindow } from './selection-window.js'
 import { theme } from './theme.js'
 
@@ -69,12 +71,21 @@ export function ResumePicker({ conversations, selected, mode = 'resume' }: Resum
 			{showPreview && conversations[selected] && (
                 <Box flexDirection="column" paddingTop={1}>
                     <Text color={theme.text.secondary} wrap="truncate-end">{conversations[selected]?.preview || 'No saved user prompt available.'}</Text>
-                    <Text color={theme.text.muted} wrap="truncate-end">{conversations[selected]?.count} messages · {conversations[selected]?.id}</Text>
+                    <Text color={theme.text.muted} wrap="truncate-end">{plural(conversations[selected]?.count ?? 0, 'message')}</Text>
                 </Box>
             )}
 			<Box paddingTop={1}>
 				<Text color={theme.text.muted}>
-					{`↑↓ navigate · PgUp/PgDn jump · Home/End boundary · enter ${mode} · esc cancel`}
+					{fitHints(
+						[
+							{ text: '↑↓ select', rank: 5 },
+							{ text: 'PgUp/PgDn jump', rank: 1 },
+							{ text: 'Home/End', rank: 1 },
+							{ text: `enter ${mode}`, rank: 5 },
+							{ text: 'esc cancel', rank: 4 },
+						],
+						Math.max(1, (stdout.columns ?? 80) - 4),
+					)}
 				</Text>
 			</Box>
 		</Box>

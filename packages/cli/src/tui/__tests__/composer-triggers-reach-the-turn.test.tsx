@@ -213,7 +213,7 @@ it('arms hypermode for one turn: xhigh and namzu’s context, then neither', asy
 	const { typeKeys, enter, shown, now } = await mount()
 	await typeKeys('hypermode fix the flaky test')
 	expect(now()).toContain(
-		'✦ hypermode · this turn: effort xhigh, delegate to parallel agents · alt+w drop',
+		'✦ hypermode · this reply: effort xhigh, delegate to parallel agents · alt+w drop',
 	)
 	await enter()
 	await until(() => shown().includes('ANSWER1'), 'the turn never finished')
@@ -221,7 +221,7 @@ it('arms hypermode for one turn: xhigh and namzu’s context, then neither', asy
 	expect(sent[0]?.options?.effort).toBe('xhigh')
 	expect(sent[0]?.options?.hypermode).toBeUndefined()
 	expect(sent[0]?.context.join('\n')).toContain(HYPERMODE_CONTEXT)
-	expect(shown()).toContain('hypermode (this turn, effort xhigh)')
+	expect(shown()).toContain('hypermode (this reply, effort xhigh)')
 	// The session's mode never turned on: the footer does not name it.
 	expect(now()).not.toMatch(/· hypermode(?! \()/u)
 
@@ -275,7 +275,7 @@ it('saves the work as a skill after a turn that did it, ahead of a Tab-queued pr
 	await typeKeys('second task')
 	harness.stdin.write('\t')
 	await until(
-		() => /(?:Queue→next|Queued · next turn).*second task/u.test(plain(harness.lastFrame() ?? '')),
+		() => /(?:Queue→next|Queued · next reply).*second task/u.test(plain(harness.lastFrame() ?? '')),
 		'Tab did not put the authored task in the next-turn queue',
 	)
 
@@ -283,7 +283,7 @@ it('saves the work as a skill after a turn that did it, ahead of a Tab-queued pr
 	await until(() => sent.length === 3, 'the follow-up and the queued prompt did not both run')
 	expect(sent[1]?.prompt).toContain(SKILL_PROMPT)
 	expect(sent[2]?.prompt).toBe('second task')
-	expect(shown()).toContain('save as skill · running /skills save for this turn')
+	expect(shown()).toContain('save as skill · running /skills save for this reply')
 	// Asked for in words, it is not also proposed.
 	expect(shown()).not.toContain(PROPOSAL)
 })
@@ -293,7 +293,7 @@ it('says why a save did not run: no tool work, or the turn was cancelled', async
 	await typeKeys('QUESTION what does this do? then save it as a skill')
 	await enter()
 	await until(
-		() => shown().includes('save as skill · not run: the turn did no tool work'),
+		() => shown().includes('save as skill · not run: the reply did no tool work'),
 		'no row for a turn without tool work',
 	)
 
@@ -308,7 +308,7 @@ it('says why a save did not run: no tool work, or the turn was cancelled', async
 	await tick(50)
 	release()
 	await until(
-		() => shown().includes('save as skill · not run: the turn was cancelled'),
+		() => shown().includes('save as skill · not run: the reply was cancelled'),
 		'no row for a cancelled turn',
 	)
 	await tick(100)
@@ -364,7 +364,7 @@ it('still steers with Enter while a turn runs, and binds the save to that turn',
 	await enter()
 	await until(() => sent.length === 1 && shown().includes('Working'), 'the first turn never started')
 	await typeKeys('also count the FIXMEs and save it as a skill')
-	expect(now()).toContain('enter: after the running turn')
+	expect(now()).toContain('enter: after the running reply')
 	await enter()
 	await tick(50)
 	expect(sent, 'Enter must steer, not start a turn').toHaveLength(1)

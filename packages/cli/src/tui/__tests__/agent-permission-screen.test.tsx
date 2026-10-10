@@ -41,7 +41,7 @@ it('shows the default capability before approving one apparently read-only task'
 		expect(visible).toContain('d full instructions')
 		expect(visible).not.toContain('Instructions: Only inspect src/index.ts.')
 		expect(visible).toContain('❯ 1. Start this agent')
-		expect(visible).toContain('2. Start and allow all tools for this session')
+		expect(visible).toContain('2. Start and allow all tools for this conversation')
 		expect(visible).toContain('3. Do not start')
 		expect(visible).not.toContain('read-only tools')
 	} finally {
@@ -76,10 +76,10 @@ it.each([60, 100])('keeps a ten-agent review and its exact input reachable at %i
 		expect(initial).toContain('read-only')
 		expect(initial).toContain('files + commands')
 		expect(initial).toContain('❯ 1. Start these 10 agents')
-		expect(initial).toContain('2. Start and allow all tools for this session')
+		expect(initial).toContain('2. Start and allow all tools for this conversation')
 		expect(initial).toContain('3. Do not start')
 		expect(initial).toContain('PgUp/PgDn')
-		expect(initial).toContain('ctrl+c decline and stop the turn')
+		expect(initial).toContain('ctrl+c decline and stop the reply')
 		expect(initial).not.toContain('"calls"')
 
 		const collected: string[] = []
@@ -91,7 +91,7 @@ it.each([60, 100])('keeps a ten-agent review and its exact input reachable at %i
 			const visible = screen.viewport().join('\n')
 			collected.push(visible)
 			expect(visible).toContain('3. Do not start')
-			expect(visible).toContain('ctrl+c decline and stop the turn')
+			expect(visible).toContain('ctrl+c decline and stop the reply')
 		}
 		for (let index = 1; index <= 10; index += 1) {
 			expect(collected.join('\n')).toContain(`Inspect package ${index}`)

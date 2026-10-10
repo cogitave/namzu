@@ -304,12 +304,13 @@ import { type EditablePrompt, editablePrompts } from './edit-prompts.js'
 import type { TuiExitSummary } from './exit-summary.js'
 import { formatSize, homePath, plural, productName } from './person-terms.js'
 import { explainFailure } from './plain-failure.js'
+import { declinedLine } from './tidy-tool-output.js'
 import {
 	debugRequested,
 	describePlainInterruption,
 	describeProviderWait,
 } from './plain-interruption.js'
-import { editDraftInExternalEditor } from './external-editor.js'
+import { ExternalEditorError, editDraftInExternalEditor } from './external-editor.js'
 import { checklistInView, liveWindow, settledBeforeStreaming } from './live-window.js'
 import { choosesModel, launchPreferences } from './launch-settings.js'
 import { ViewportBound } from './ViewportBound.js'
@@ -784,7 +785,7 @@ export function projectConversation(
 				{
 					id: nextId(),
 					role: 'system',
-					content: 'Earlier turns are represented by the compacted summary below.',
+					content: 'Earlier replies are summarised below.',
 					glyph: '⌫',
 					detail: summaryDetail(message),
 				},
@@ -889,7 +890,7 @@ function humanPromptMeta(
 	if (attachments && attachments.length > 0) {
 		parts.push(`${attachments.length} attachment${attachments.length > 1 ? 's' : ''}`)
 	}
-	if (live) parts.push('steered current turn')
+	if (live) parts.push('steered the current reply')
 	return parts.length > 0 ? parts.join(' · ') : undefined
 }
 type QueuePauseOutcome = 'failed' | 'stopped' | 'paused'
@@ -1902,7 +1903,7 @@ export function App({
 				}),
 			saved: ({ name, path }) =>
 				scheduleLiveRef.current?.say(
-					`Saved skill ${name} to ${path}. The model is offered it from the next turn; /skills ${name} activates it now.`,
+					`Saved skill ${name} to ${path}. The model is offered it from the next reply; /skills ${name} activates it now.`,
 				),
 		})
 	}
@@ -2084,9 +2085,7 @@ export function App({
 				conversationMutationRef.current !== null
 			) {
 				return Promise.reject(
-					new Error(
-						'wait for the current reply and queued messages to finish',
-					),
+					new ExternalEditorError('wait for the current reply and queued messages to finish'),
 				)
 			}
 			if (externalEditorRequestRef.current) {
@@ -2607,7 +2606,7 @@ export function App({
 			if (!session.resetApprovalLatch) {
 				pushMessage(
 					'system',
-					'This session cannot reset approvals. Reconnect before changing permissions.',
+					'Permissions cannot be changed in this conversation. Start a new conversation and try again.',
 				)
 				return
 			}
@@ -2621,7 +2620,7 @@ export function App({
 			if (announce) {
 				pushMessage(
 					'system',
-					`Permissions: ${permissionModeLabel(mode)} for this session. ${permissionModeDescription(mode)}`,
+					`Permissions: ${permissionModeLabel(mode)} for this conversation. ${permissionModeDescription(mode)}`,
 				)
 			}
 		},
@@ -2633,7 +2632,7 @@ export function App({
 			if (!session?.hasProvider) {
 				pushMessage(
 					'system',
-					'No active session — pick a provider before changing reasoning effort.',
+					'No model is connected yet — pick a provider with /model before changing reasoning effort.',
 				)
 				return
 			}
@@ -2700,7 +2699,7 @@ export function App({
 			if (!session?.hasProvider) {
 				pushMessage(
 					'system',
-					'No active session — pick a provider before turning hypermode on.',
+					'No model is connected yet — pick a provider with /model before turning hypermode on.',
 				)
 				return
 			}
@@ -2755,13 +2754,13 @@ export function App({
 				setReasoningEffort(pinned)
 				pushMessage(
 					'system',
-					`Hypermode is on — effort pinned to ${pinned} for ${session.modelSummary ?? 'this model'}, and delegation guidance is strengthened for this session.`,
+					`Hypermode is on — effort pinned to ${pinned} for ${session.modelSummary ?? 'this model'}, and delegation guidance is strengthened for this conversation.`,
 				)
 				return
 			}
 			pushMessage(
 				'system',
-				`Hypermode is on — ${session.modelSummary ?? 'this model'} does not publish an exact effort menu, so effort was left as is. Delegation guidance is still strengthened for this session.`,
+				`Hypermode is on — ${session.modelSummary ?? 'this model'} does not publish an exact effort menu, so effort was left as is. Delegation guidance is still strengthened for this conversation.`,
 			)
 		},
 		[hasUnsettledTurn, pushMessage, session, setHypermode, setReasoningEffort, state],
@@ -3114,7 +3113,9 @@ export function App({
 				} catch (err) {
 					pushMessage(
 						'system',
-						`Conversation export failed: ${err instanceof Error ? err.message : String(err)}`,
+						err instanceof Error && err.message.startsWith('Export target already exists')
+							? 'That file already exists, so nothing was overwritten. Choose another name.'
+							: explainFailure(err, 'Could not export this conversation.'),
 					)
 				} finally {
 					exportingRef.current = false
@@ -3519,7 +3520,7 @@ export function App({
 			})
 			const origin =
 				picker.provenance === 'persisted'
-					? 'the latest persisted assistant output'
+					? 'the latest saved reply'
 					: 'the latest normally completed answer'
 			const selection = target.kind === 'whole' ? origin : `${target.label} from ${origin}`
 			switch (result.kind) {
@@ -4184,7 +4185,12 @@ export function App({
 						setPhase('unhealthy')
 						pushMessage(
 							'system',
-							`Could not ${initialConversationIdRef.current ? `resume ${initialConversationIdRef.current}` : 'open this Pal'}: ${error instanceof Error ? error.message : String(error)}`,
+							explainFailure(
+								error,
+								initialConversationIdRef.current
+									? 'Could not resume that conversation.'
+									: 'Could not open this Pal.',
+							),
 						)
 						return
 					}
@@ -4328,7 +4334,7 @@ export function App({
 					setPickerSelectionKind('signed-in-subscription')
 					setPickerInitialView('providers')
 					setPickerNotice(
-						'Multiple model sessions are already signed in on this device. Choose which one Namzu should use.',
+						'Several sign-ins are already on this computer. Choose which one Namzu should use.',
 					)
 					setPhase('picker')
 					return
@@ -4342,7 +4348,11 @@ export function App({
 				setPhase('unhealthy')
 				pushMessage(
 					'system',
-					`Failed to probe agents: ${err instanceof Error ? err.message : String(err)}`,
+					// A startup refusal is Namzu's own repair instruction ("split histories … run
+					// namzu state …"), so it is shown as written.
+					err instanceof Error && err.message
+						? err.message
+						: 'Could not check which agents are available.',
 				)
 			}
 		},
@@ -4364,7 +4374,9 @@ export function App({
 				setPhase('unhealthy')
 				pushMessage(
 					'system',
-					`Could not activate project config: ${err instanceof Error ? err.message : String(err)}`,
+					err instanceof Error && err.message
+						? `Could not apply this project’s settings. ${err.message}`
+						: 'Could not apply this project’s settings.',
 				)
 			}
 		} else {
@@ -4392,7 +4404,9 @@ export function App({
 			setPhase('unhealthy')
 			pushMessage(
 				'system',
-				`Could not activate project config: ${err instanceof Error ? err.message : String(err)}`,
+				err instanceof Error && err.message
+						? `Could not apply this project’s settings. ${err.message}`
+						: 'Could not apply this project’s settings.',
 			)
 		}
 	}, [activateTrustedProject, pushMessage, runProbe])
@@ -5022,7 +5036,7 @@ export function App({
 				setPhase('ready')
 				pushMessage(
 					'system',
-					`Could not resume: ${err instanceof Error ? err.message : String(err)}`,
+					explainFailure(err, 'Could not resume that conversation.'),
 				)
 				return
 			}
@@ -5066,7 +5080,7 @@ export function App({
 					await hydrateSession(savedPrefsRef.current, detected)
 				} catch (error) {
 					setPhase('unhealthy')
-					pushMessage('system', `Could not start this Pal conversation: ${error instanceof Error ? error.message : String(error)}`)
+					pushMessage('system', explainFailure(error, 'Could not start this Pal conversation.'))
 				}
 			}
 			// The scope now names the resumed conversation, so its finished
@@ -5090,7 +5104,7 @@ export function App({
 				// the turn says so itself, in the same words `exec --json` uses.
 				pushMessage(
 					'system',
-					'The turn that was running was interrupted. Its reply so far is being saved to the conversation it started in, so it is not in the transcript above. A tool call already dispatched was not undone.',
+					'The reply that was running was stopped. What it had written so far is being saved to the conversation it started in, so it is not in the transcript above. A tool call that had already started was not undone.',
 				)
 			}
 		},
@@ -5141,7 +5155,7 @@ export function App({
 					'system',
 					err instanceof ConversationIndexRefreshError
 						? err.message
-						: `Could not restore: ${err instanceof Error ? err.message : String(err)}`,
+						: explainFailure(err, 'Could not restore that conversation.'),
 				)
 				return
 			}
@@ -5224,7 +5238,7 @@ export function App({
 							await hydrateSession(savedPrefsRef.current, detected)
 						} catch (error) {
 							setPhase('unhealthy')
-							pushMessage('system', `Could not start this Pal conversation: ${error instanceof Error ? error.message : String(error)}`)
+							pushMessage('system', explainFailure(error, 'Could not start this Pal conversation.'))
 						}
 					}
 				}
@@ -5239,12 +5253,12 @@ export function App({
 						? `Started a fresh conversation. The previous conversation is unchanged and remains in /resume.${
 								clearScreen
 									? ''
-									: " Earlier rows above are display only and are not part of this conversation's model context."
+									: " Earlier rows above are display only and are not part of this conversation’s model context."
 							}`
 						: `Started a fresh in-memory conversation because durable session persistence is unavailable.${
 								clearScreen
 									? ''
-									: " Earlier rows above are display only and are not part of this conversation's model context."
+									: " Earlier rows above are display only and are not part of this conversation’s model context."
 							}`,
 				)
 				if (discardedQueued > 0) {
@@ -5256,7 +5270,7 @@ export function App({
 				if (interrupted) {
 					pushMessage(
 						'system',
-						'The turn that was running was interrupted. Its reply so far is being saved to the conversation it started in; a tool call already dispatched was not undone.',
+						'The reply that was running was stopped. What it had written so far is being saved to the conversation it started in; a tool call that had already started was not undone.',
 					)
 				}
 			} catch (err) {
@@ -5426,14 +5440,14 @@ export function App({
 		if (abortRef.current) {
 			pushMessage(
 				'system',
-				'A turn is still running. Forking now would copy a conversation whose last reply is not in it yet — press esc to stop it, then fork.',
+				'A reply is still running. Forking now would copy a conversation whose last reply is not in it yet — press esc to stop it, then fork.',
 			)
 			return
 		}
 		if (hasUnsettledTurn()) {
 			pushMessage(
 				'system',
-				'A turn is still settling after it was interrupted. Wait for its partial reply to be saved before forking.',
+				'A reply was stopped and is still being saved. Wait for it to finish before forking.',
 			)
 			return
 		}
@@ -5503,7 +5517,7 @@ export function App({
 		if (abortRef.current || state !== 'idle' || hasUnsettledTurn()) {
 			pushMessage(
 				'system',
-				'A turn is still running or settling. Wait for its reply to be saved before editing earlier history.',
+				'A reply is still running or being saved. Wait for it to finish before editing earlier messages.',
 			)
 			return
 		}
@@ -5539,7 +5553,7 @@ export function App({
 			if (abortRef.current || state !== 'idle' || hasUnsettledTurn()) {
 				pushMessage(
 					'system',
-					'A turn is still running. Wait for it, or interrupt it, before restoring files.',
+					'A reply is still running. Wait for it, or stop it, before restoring files.',
 				)
 				return
 			}
@@ -5551,7 +5565,7 @@ export function App({
 				// this before its next turn.
 				operatorShellRef.current.push(renderRestoreNote(report, ctxRef.current.cwd))
 			} catch (err) {
-				pushMessage('system', err instanceof Error ? err.message : String(err))
+				pushMessage('system', explainFailure(err, 'Could not restore the files.'))
 			}
 		},
 		[hasUnsettledTurn, pushMessage, session, state],
@@ -6206,6 +6220,21 @@ export function App({
 						if (said.length > 0) {
 							pushMessage('tool', event.isError ? `failed: ${said}` : said, false, '⎿')
 						}
+						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
+						break
+					}
+					if (event.declined) {
+						// The person's own No: neither a failure nor a mystery. The model's
+						// refusal text is for the model and is not shown.
+						pushMessage(
+							'tool',
+							done?.label ?? formatToolCall(event.toolName, event.summary),
+							false,
+							'○',
+							undefined,
+							theme.text.muted,
+						)
+						pushMessage('tool', declinedLine(event.declined.note), false, '⎿')
 						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
 						break
 					}
@@ -7033,7 +7062,7 @@ export function App({
 					// the failure would be discarded along with the turn.
 					flushStream(st)
 					if (st.assistantId) finalizeMessage(st.assistantId)
-					pushMessage('system', `Error: ${err instanceof Error ? err.message : String(err)}`)
+					pushMessage('system', explainFailure(err, 'That reply failed.'))
 				}
 			} finally {
 				if (st.completed && stillHere()) {
@@ -7394,7 +7423,7 @@ export function App({
 			if (turnOnly.length > 0)
 				pushMessage(
 					'system',
-					`${turnOnly.map((id) => triggerDefinition(id).label).join(', ')} · not applied: Enter steered this message into the running turn. Tab queues a message as a new turn with it.`,
+					`${turnOnly.map((id) => triggerDefinition(id).label).join(', ')} · not applied: Enter steered this message into the running reply. Tab queues it as a new message.`,
 					false,
 					'✧',
 					undefined,
@@ -7414,7 +7443,7 @@ export function App({
 			if (goalCommandInFlightRef.current) {
 				pushMessage(
 					'system',
-					'A goal command is still reaching durable session state. Wait for its result before sending another command or prompt.',
+					'A goal command is still being saved. Wait for it to finish before sending another command or prompt.',
 				)
 				return
 			}
@@ -7564,7 +7593,6 @@ export function App({
 						setChoicePicker({
 							kind: 'command',
 							title: 'Choose a command',
-							notice: 'Enter runs the selected command; Esc returns to the composer.',
 							values: slash.commands,
 							options: slash.commands.map((command) => ({
 								label: `/${command.name}`,
@@ -7684,7 +7712,7 @@ export function App({
 						setSelectedChoice(0)
 						setChoicePicker({
 							kind: 'command',
-							title: 'Turn limits',
+							title: 'Reply limits',
 							notice: `${slash.kind === 'turn-limits-set' ? 'Updated. ' : ''}This conversation · new replies and their agents. Existing replies keep their limits.`,
 							values: commands,
 							options: commands.map((command) => ({
@@ -7713,11 +7741,11 @@ export function App({
 							{
 								name: 'permissions',
 								label: 'Permissions',
-								description: `${permissionModeLabel(effectivePermissionMode(permissionModeRef.current, session?.approvalLatched() ?? false))} · this session.`,
+								description: `${permissionModeLabel(effectivePermissionMode(permissionModeRef.current, session?.approvalLatched() ?? false))} · this conversation.`,
 							},
 							{
 								name: 'config limits',
-								label: 'Turn limits',
+								label: 'Reply limits',
 								description: turnLimitCommands(resolveTurnGuards(ctxRef.current.limits, turnLimitsOverrideRef.current))
 									.slice(0, 3)
 									.map((field) => `${field.label}: ${field.description}`)
@@ -7746,7 +7774,7 @@ export function App({
 						setChoicePicker({
 							kind: 'command',
 							title: 'Configuration',
-							notice: 'Model, reasoning, permission and turn-limit changes apply to this conversation.',
+							notice: 'Model, reasoning, permission and reply-limit changes apply to this conversation.',
 							values: commands,
 							options: commands.map((command) => ({
 								label: command.label,
@@ -7768,7 +7796,7 @@ export function App({
 							token: textPromptTokenRef.current,
 							kind: slash.edit ? 'goal-edit' : 'goal-create',
 							title: slash.edit ? 'Edit goal' : 'Set a goal',
-							placeholder: `Up to ${goalStatus?.maxGoalRounds ?? DEFAULT_MAX_GOAL_ROUNDS} automatic turns; /goal pause stops continuation.`,
+							placeholder: `Up to ${goalStatus?.maxGoalRounds ?? DEFAULT_MAX_GOAL_ROUNDS} automatic replies; /goal pause stops continuation.`,
 							emptyNotice: 'Describe the result you want, or press Esc to cancel.',
 							initialValue: slash.edit ? (goalStatus?.objective ?? '') : '',
 							sessionId: scope.sessionId,
@@ -7821,7 +7849,7 @@ export function App({
 															? {
 																	name: 'goal pause',
 																	description:
-																		'Stop automatic continuation after the current turn.',
+																		'Stop automatic continuation after the current reply.',
 																}
 															: {
 																	name: 'goal resume',
@@ -7845,8 +7873,8 @@ export function App({
 									back: choicePickerRef.current?.back,
 									title: 'Goal',
 									notice: goal
-										? `${goal.phase} · ${goal.roundsAdmitted}/${goal.maxGoalRounds} automatic turns · ${goal.objective}`
-										: `No goal set for this conversation. Up to ${DEFAULT_MAX_GOAL_ROUNDS} automatic turns when started.`,
+										? `${goal.phase} · ${goal.roundsAdmitted}/${goal.maxGoalRounds} automatic replies · ${goal.objective}`
+										: `No goal set for this conversation. Up to ${DEFAULT_MAX_GOAL_ROUNDS} automatic replies when started.`,
 									values: commands,
 									options: commands.map((command) => ({
 										label: `/${command.name}`,
@@ -7945,7 +7973,7 @@ export function App({
 						) {
 							pushMessage(
 								'system',
-								'Model choices are unavailable until the active turn, permission prompt, queue, compaction, export, or conversation change reaches a stable boundary.',
+								'Model choices are unavailable while a reply, a question, queued messages or a summary are in progress. Try again when they finish.',
 							)
 							return
 						}
@@ -7980,7 +8008,7 @@ export function App({
 							pushMessage(
 								'system',
 								!session.resetApprovalLatch
-									? 'This session cannot reset approvals. Reconnect before changing permissions.'
+									? 'Permissions cannot be changed in this conversation. Start a new conversation and try again.'
 									: 'Finish or stop the current work before changing permissions.',
 							)
 							return
@@ -8004,7 +8032,7 @@ export function App({
 						if (!session?.hasProvider || levels === undefined) {
 							pushMessage(
 								'system',
-								'No exact reasoning-effort menu is available for the current session.',
+								'No exact reasoning-effort menu is available for the current model.',
 							)
 							return
 						}
@@ -8018,7 +8046,7 @@ export function App({
 						) {
 							pushMessage(
 								'system',
-								'Reasoning-effort choices are unavailable until the active turn, prompt, compaction, and queued work settle.',
+								'Reasoning-effort choices are unavailable while a reply, a question, a summary or queued messages are in progress. Try again when they finish.',
 							)
 							return
 						}
@@ -8061,7 +8089,7 @@ export function App({
 							kind: 'credential-logout',
 							title: 'Choose a stored credential to remove',
 							notice:
-								'Only credentials created by Namzu are listed. Device sessions owned by other tools are left alone.',
+								'Only credentials created by Namzu are listed. Sign-ins owned by other tools are left alone.',
 							values: choices,
 							options: choices.map((choice) => ({
 								label: choice === 'anthropic' ? 'Claude' : choice === 'codex' ? 'Codex' : 'Gemini API key',
@@ -8097,7 +8125,7 @@ export function App({
 						if (!session?.importCuratedNotes) {
 							pushMessage(
 								'system',
-								'Stored memory is not open yet; /memory import-notes works once a session has started.',
+								'Stored memory is not open yet; /memory import-notes works once a conversation has started.',
 							)
 							return
 						}
@@ -8163,7 +8191,7 @@ export function App({
 								'system',
 								plugin
 									? pluginDetails(plugin)
-									: `Plugin "${slash.name}" is not loaded in this session. Use /plugins to inspect availability.`,
+									: `Plugin "${slash.name}" is not loaded in this conversation. Use /plugins to inspect availability.`,
 							)
 						} else if (plugins.length === 0 || !session) {
 							pushMessage('system', emptyPluginReport(ctx.plugins, ctx.cwd))
@@ -8295,7 +8323,7 @@ export function App({
 						) {
 							pushMessage(
 								'system',
-								'Wait for the current turn and queued prompts to finish before forking to a worktree.',
+								'Wait for the current reply and queued messages to finish before forking to a worktree.',
 							)
 							return
 						}
@@ -8343,7 +8371,7 @@ export function App({
 								}
 							} catch (error) {
 								notice(
-									`Worktree: ${error instanceof Error ? error.message : String(error)}`,
+									explainFailure(error, 'Could not set up the worktree.'),
 								)
 							} finally {
 								if (verb === 'fork') {
@@ -8377,14 +8405,14 @@ export function App({
 									}
 									return askQuestion({
 										questionId: `add-dir:${absolute}`,
-										question: `Let the file tools read and write ${absolute} for this session?`,
+										question: `Let the file tools read and write ${absolute} for this conversation?`,
 										header: 'Outside the working directory',
 										options: [
 											{
 												id: 'yes',
 												label: 'Yes, add it',
 												description:
-													'File tools reach it without asking again; a sandboxed turn binds it read-write.',
+													'File tools reach it without asking again; a sandboxed reply binds it read-write.',
 											},
 											{ id: 'no', label: 'No', description: 'Leave it out' },
 										],
@@ -8400,7 +8428,7 @@ export function App({
 							pushMessage(
 								'system',
 								result.added
-									? `Added ${result.path}. The file tools reach it by absolute path from the next turn; a sandboxed turn binds it read-write.`
+									? `Added ${result.path}. The file tools reach it by absolute path from the next reply; a sandboxed reply binds it read-write.`
 									: `Not added: ${result.path} — ${result.reason ?? 'refused'}`,
 							)
 						})
@@ -8441,7 +8469,7 @@ export function App({
 										'system',
 										session?.currentTaskStore
 											? 'No task list is available yet for this conversation.'
-											: 'Task listing is unavailable in this session.',
+											: 'Task listing is unavailable in this conversation.',
 									)
 									return
 								}
@@ -8499,7 +8527,7 @@ export function App({
 									'system',
 									outcome
 										? renderOutcome(outcome)
-										: `/${slash.name} is registered but this session cannot run it.`,
+										: `/${slash.name} is registered but this conversation cannot run it.`,
 								)
 							} catch (error) {
 								if (conversationGenRef.current !== generation) return
@@ -8610,7 +8638,7 @@ export function App({
 						if (abortRef.current || state !== 'idle' || hasUnsettledTurn()) {
 							pushMessage(
 								'system',
-								'A turn is still running or settling. Compacting now would summarize a conversation while its next message is being written — wait for it to finish, or press esc to stop it and wait for its partial reply to be saved.',
+								'A reply is still running or being saved. Summarising now would summarise a conversation while its next message is being written — wait for it to finish, or press esc to stop it and wait for what it wrote to be saved.',
 							)
 							return
 						}
@@ -8669,7 +8697,7 @@ export function App({
 										}${
 											durable
 												? ''
-												: ' Conversation persistence is unavailable, so this compacted history lasts only for this process.'
+												: ' This conversation could not be saved, so the summary lasts only until you quit.'
 										}`,
 										detail: summaryDetail(result.summary),
 									}
@@ -8914,17 +8942,17 @@ export function App({
 		if (!followUps.includes('save-skill')) return false
 		const reason =
 			ending === 'cancelled'
-				? 'the turn was cancelled'
+				? 'the reply was cancelled'
 				: ending === 'failed'
-					? 'the turn failed'
+					? 'the reply failed'
 					: ending === 'paused'
-						? 'the turn paused'
+						? 'the reply paused'
 						: ending === 'stopped'
-							? 'the turn stopped before it finished'
+							? 'the reply stopped before it finished'
 							: !st.learning || st.learning.steps < 1
-								? 'the turn did no tool work'
+								? 'the reply did no tool work'
 								: st.learning.savedSkill
-									? 'the turn already saved a skill'
+									? 'the reply already saved a skill'
 									: triggerUnavailable('save-skill', triggerContextNow())
 		if (reason) {
 			pushMessage(
@@ -8948,7 +8976,7 @@ export function App({
 		])
 		pushMessage(
 			'system',
-			'save as skill · running /skills save for this turn',
+			'save as skill · running /skills save for this reply',
 			false,
 			'✦',
 			undefined,
@@ -9211,7 +9239,7 @@ export function App({
 				} else if (!(error instanceof StaleGoalError)) {
 					pushMessage(
 						'system',
-						`Automatic goal continuation was disarmed because round admission failed: ${error instanceof Error ? error.message : String(error)}. Run /goal resume to retry explicitly.`,
+						`${explainFailure(error, 'Automatic goal continuation stopped.')} Run /goal resume to try again.`,
 					)
 				}
 			} finally {
@@ -9411,8 +9439,12 @@ export function App({
 					setPickerSelectionKind('provider-and-model')
 					setPickerInitialView('providers')
 				}
+				// The construction hint was written by `createAgentSession` through
+				// `explainFailure`, so it is already a sentence for a person.
 				setPickerNotice(
-					`Could not start the selected provider: ${err instanceof Error ? err.message : String(err)}`,
+					err instanceof Error && err.message
+						? `Could not start the selected provider. ${err.message}`
+						: 'Could not start the selected provider.',
 				)
 				return false
 			}
@@ -9447,7 +9479,7 @@ export function App({
 				} catch (error) {
 					pushMessage(
 						'system',
-						`Gemini is connected, but its API key could not be saved privately: ${error instanceof Error ? error.message : String(error)}. It is usable only in this session.`,
+						`${explainFailure(error, 'Gemini is connected, but its API key could not be saved privately.')} It is usable only until you quit Namzu.`,
 					)
 					return
 				}
@@ -9463,10 +9495,8 @@ export function App({
 				try {
 					writePreferences(prefs)
 				} catch (error) {
-					pushMessage(
-						'system',
-						`Gemini API key was saved privately at ${path}, but the provider preference could not be saved: ${error instanceof Error ? error.message : String(error)}. Run /logout gemini to remove the key.`,
-					)
+					const couldNot = `Your Gemini API key was saved at ${homePath(path)}, but your provider choice could not be saved.`
+					pushMessage('system', `${explainFailure(error, couldNot)} Run /logout gemini to remove the key.`)
 					return
 				}
 				pushMessage('system', `Gemini API key saved privately at ${path} for future launches. Run /logout gemini to remove it.`)
@@ -9680,7 +9710,9 @@ export function App({
 					return
 				}
 				if (ch === 'n' || key.escape) {
-					resolvePermission({ kind: 'reject' })
+					// The person's own No is recorded as theirs, so the step reads "You declined
+					// this" and not the refusal text the model was given.
+					resolvePermission({ kind: 'reject', declined: {} })
 					return
 				}
 				// Every approval waits out the settle window: `y`, `a`, a digit and
@@ -9708,7 +9740,7 @@ export function App({
 							: chosen !== null
 								? answers[chosen]?.kind
 								: undefined
-				if (kind) resolvePermission({ kind })
+				if (kind) resolvePermission(kind === 'reject' ? { kind, declined: {} } : { kind })
 				return
 			}
 			// The shell view observes only this AgentSession's jobs. Consent always
@@ -10312,12 +10344,23 @@ export function App({
 					Math.max(1, (terminal.columns ?? 80) - 2),
 				)
 		: undefined
-	const jobStatusHint = jobSurface?.detailJobId
-		? !jobSurface.busyJobId &&
-			backgroundJobs.some((job) => job.id === jobSurface.detailJobId && job.status === 'running')
-			? 'shell output · x stop · esc list'
-			: 'shell output · esc list'
-		: 'shells · enter inspect · esc close'
+	// A screen with its own box (a picker, a prompt, the agents or shells view)
+	// prints its key hints inside that box. The footer stays quiet then, so a
+	// screen never says the same keys twice (see key-hints.ts).
+	const boxOwnsKeys =
+		permission !== null ||
+		scheduleReviewPrompt !== null ||
+		saveSkillPrompt !== null ||
+		agentSurface !== null ||
+		jobSurface !== null ||
+		textPrompt !== null ||
+		choicePicker !== null ||
+		copyPicker !== null ||
+		phase === 'trust' ||
+		phase === 'resume' ||
+		phase === 'unarchive' ||
+		phase === 'edit' ||
+		phase === 'picker'
 	const statusHint =
 		conversationMutation === 'fork'
 			? 'forking conversation — input is paused'
@@ -10329,46 +10372,13 @@ export function App({
 						? 'starting a fresh conversation — input is paused'
 						: compacting
 							? 'compacting conversation — input is paused'
-							: permission
-								? hintForPhase(phase, state, session?.hasProvider === true)
-								: scheduleReviewPrompt
-									? 'review schedule — ↑/↓ scroll · ←/→ choose · enter apply · esc cancel'
-									: saveSkillPrompt
-										? 'save skill — ←/→ choose · enter apply · esc cancel'
-								: agentSurface?.kind === 'cockpit'
-									? agentSurface.focus === 'workflows'
-										? 'workflows — enter select · esc return'
-										: agentSurface.focus === 'phases'
-											? 'agent phases — enter agents · esc return'
-											: 'agents — enter inspect · left phases · esc return'
-							: agentSurface?.kind === 'transcript'
-										? agentSurface.composing
-													? 'message child — enter send · tab scroll · esc agents'
-													: childComposerAvailable
-														? 'observing agent — enter message · esc agents · q parent'
-														: 'observing agent — esc agents · q parent'
-										: jobSurface
-											? jobStatusHint
-										: textPrompt
-											? 'editor open · enter apply · esc cancel'
-											: choicePicker
-												? choicePickerSearchable(choicePicker)
-													? 'type to filter · ↑↓ select · enter apply · esc back'
-													: effortSlider
-														? '←/→ adjust · 1–9 select · enter apply · esc back'
-														: '↑↓ / 1–9 select · enter apply · esc back'
-												: copyPicker
-													? 'copy target open — ↑↓ / 1–9 select · esc cancel'
-													: handoffPark && phase === 'ready' && state === 'idle' && !composerHasDraft
-													? 'enter continue · esc stop'
-													: goalStatus && phase === 'ready' && state === 'idle'
-														? undefined
-														: hintForPhase(
-																phase,
-																state,
-																session?.hasProvider === true,
-																composerHasDraft,
-															)
+							: boxOwnsKeys
+								? undefined
+								: handoffPark && phase === 'ready' && state === 'idle' && !composerHasDraft
+									? 'enter continue · esc stop'
+									: goalStatus && phase === 'ready' && state === 'idle'
+										? undefined
+										: hintForPhase(phase, state, composerHasDraft)
 	const permissionSource = reviewSource(permission, scopeRef.current?.sessionId)
 	const permissionOwner = permissionSource
 		? subagents.find((agent) => agent.sessionId === permissionSource)
@@ -10376,7 +10386,7 @@ export function App({
 	const permissionSourceLabel = permissionSource
 		? permissionOwner
 			? `Agent: ${permissionOwner.description}`
-			: `Session: ${permissionSource}`
+			: 'Agent: another agent'
 		: undefined
 	const displayedPermissionMode = effectivePermissionMode(
 		permissionMode,
@@ -10453,7 +10463,7 @@ export function App({
 							setPickerDetected(null)
 							setPickerSelectionKind('provider-and-model')
 							setPhase('picker')
-							void discoverProviders({ skipProbes: true }).then(setPickerDetected).catch((error) => setPickerNotice(String(error)))
+							void discoverProviders({ skipProbes: true }).then(setPickerDetected).catch((error) => setPickerNotice(explainFailure(error, 'Could not look for providers.')))
 						}}
 					/>
 				) : phase === 'trust' ? (
@@ -10715,17 +10725,22 @@ export function App({
 				    Every panel that can follow (the agent rail, the cockpit, a child
 				    transcript, the tool-output viewer) renders after this line, not
 				    before it. */}
-				<StatusBar
-					cwd={ctx.cwd}
-					provider={session?.providerSummary ?? null}
-					model={session?.modelSummary ?? null}
-					effort={reasoningEffort}
-					goal={statusGoal}
-					state={state}
-					hint={statusHint}
-					permissionMode={displayedPermissionMode}
-					canCycleMode
-				/>
+				{/* The trust screen already names the folder and its own keys; a footer
+				    under it would print the same path and advertise a cycle key that
+				    does nothing before the folder is trusted. */}
+				{phase === 'trust' ? null : (
+					<StatusBar
+						cwd={ctx.cwd}
+						provider={session?.providerSummary ?? null}
+						model={session?.modelSummary ?? null}
+						effort={reasoningEffort}
+						goal={statusGoal}
+						state={state}
+						hint={statusHint}
+						permissionMode={displayedPermissionMode}
+						canCycleMode
+					/>
+				)}
 				{showComposerSurface && !childSurfaceOpen && permission === null && scheduleReviewPrompt === null && runningShellCount > 0 ? (
 					<Box>
 						<Text color={theme.text.secondary} wrap="truncate-end">
@@ -10892,35 +10907,20 @@ function formatToolCall(toolName: string, summary: string, standalone = false): 
 	return summary.length > 0 ? `${display}(${summary})` : display
 }
 
+/**
+ * The footer's key hint for the screens that have no box of their own. A
+ * picker or prompt prints its hints inside its box instead (see `boxOwnsKeys`).
+ */
 function hintForPhase(
 	phase: LifecyclePhase,
 	state: 'idle' | 'thinking' | 'tool' | 'awaiting-permission',
-	/** Whether there is a working session behind the picker to go back to. */
-	canReturn = false,
 	/** Whether the active-turn composer contains text, a paste, or an attachment. */
 	hasDraft = false,
 ): string {
-	// Enter is absent because Enter grants nothing here, deliberately — see the
-	// trust branch in the key handler above.
-	if (phase === 'trust') return 'y trust this folder · n / esc exit'
-	if (phase === 'resume') return '↑↓ navigate · enter resume · esc cancel'
-	if (phase === 'unarchive') return '↑↓ navigate · enter restore · esc cancel'
-	if (phase === 'edit') return '← older · → newer · enter fork and edit · esc cancel'
 	if (phase === 'probing') return 'discovering providers…'
-	// Esc does two different things here depending on how the picker was reached,
-	// so the hint says which. Naming Ctrl+C matters more here than anywhere else:
-	// it is the screen a new user meets before they know the program has keys.
-	if (phase === 'picker') {
-		return canReturn
-			? '↑↓ navigate · enter accept · esc keep current · Ctrl+C exit'
-			: '↑↓ navigate · enter accept · esc or Ctrl+C exit'
-	}
 	if (phase === 'unhealthy') return 'esc or Ctrl+C exit'
-	// Enter is absent because Enter decides nothing here, deliberately — see the
-	// permission gate in the key handler above.
-	if (state === 'awaiting-permission') return '↑↓ select · enter confirm · esc decline'
 	if (state !== 'idle') return hasDraft ? 'enter steer · tab queue · esc interrupt' : ''
-	// The composer already points to /help. Keeping the complete key legend in
+	// The composer already points to /help. Keeping the complete key list in
 	// every idle frame made ordinary conversation read like a permanent setup
 	// screen; only state-specific actions belong in the footer.
 	return ''
@@ -10994,7 +10994,7 @@ function loadedPluginPicker(owner: AgentSession): ChoicePickerState {
 		kind: 'plugin',
 		owner,
 		title: 'Plugins',
-		notice: 'Loaded in this session · select to inspect or change state',
+		notice: 'Loaded in this conversation · select to inspect or change state',
 		values: plugins.map((plugin) => plugin.name),
 		options: plugins.map(pluginOption),
 	}
@@ -11018,18 +11018,18 @@ function pluginActionPicker(owner: AgentSession, name: string): ChoicePickerStat
 				selectedDescription: plugin.description,
 			},
 			{
-				label: enabled ? 'Disable for this session' : 'Enable for this session',
+				label: enabled ? 'Disable for this conversation' : 'Enable for this conversation',
 				description: enabled
 					? 'Remove its tools, skills and hooks; disconnect its MCP servers.'
 					: 'Load this trusted plugin’s tools, skills, hooks and MCP servers.',
-				selectedDescription: 'Resets on restart or model switch. An idle session is required.',
+				selectedDescription: 'Resets on restart or model switch. Wait for the current reply to finish first.',
 			},
 			{
 				label: `Keep ${enabled ? 'enabled' : 'disabled'} after restart`,
 				description: 'Remember this state for future conversations and model switches.',
 				selectedDescription:
 					plugin.startupError ??
-					'Applies only to this plugin directory. Other running sessions keep their state.',
+					'Applies only to this plugin directory. Other open conversations keep their state.',
 				...(plugin.startupEnabled === enabled
 					? { disabledReason: 'Already the startup setting.' }
 					: {}),
@@ -11050,7 +11050,7 @@ function permissionPicker(
 	return {
 		kind: 'permission-mode',
 		title: more ? 'More permission options' : 'Permissions',
-		notice: `Current: ${permissionModeLabel(current)} · this session`,
+		notice: `Current: ${permissionModeLabel(current)} · this conversation`,
 		values,
 		options: values.map((value) => {
 			if (value === 'more')

@@ -344,8 +344,8 @@ function negated(analysis: Analysis, index: number): boolean {
 export function unavailable(id: TriggerId, context: TriggerContext): string | undefined {
 	switch (id) {
 		case 'hypermode':
-			if (context.sessionHypermode) return 'already on for this session'
-			if (!context.agentTool) return 'unavailable: this session cannot delegate'
+			if (context.sessionHypermode) return 'already on for this conversation'
+			if (!context.agentTool) return 'unavailable: this conversation cannot delegate'
 			return undefined
 		case 'save-skill':
 			if (context.permissionMode === 'plan' || context.permissionMode === 'strict')
@@ -354,7 +354,7 @@ export function unavailable(id: TriggerId, context: TriggerContext): string | un
 			return undefined
 		case 'schedule':
 			if (context.permissionMode === 'plan') return 'unavailable in plan mode'
-			if (!context.scheduleTool) return 'unavailable in this session'
+			if (!context.scheduleTool) return 'unavailable in this conversation'
 			return undefined
 		case 'max-effort':
 			if (!context.effortMenu) return 'unavailable: this model publishes no effort levels'

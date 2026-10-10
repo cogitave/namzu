@@ -381,7 +381,7 @@ it('hydrates the copy target from the resumed conversation, not the one left beh
 	await waitUntil(() => requested.length === 1)
 
 	expect(requested).toEqual(['LATEST_RESUMED_RAW_MARKDOWN **here**'])
-	await frameShows(harness, 'latest persisted assistant output')
+	await frameShows(harness, 'latest saved reply')
 })
 
 it('clears a stale target when the resumed conversation has no assistant output', async () => {

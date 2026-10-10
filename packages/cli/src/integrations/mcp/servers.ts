@@ -313,7 +313,7 @@ export function expandEnvRefsInRecord(
 			return value
 		})
 		if (missing !== undefined) {
-			return `references \${${missing}}, which is not set in the operator's environment`
+			return `references \${${missing}}, which is not set in the operator’s environment`
 		}
 		result[key] = expanded
 	}

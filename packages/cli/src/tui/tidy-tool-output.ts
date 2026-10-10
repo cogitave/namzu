@@ -2,7 +2,7 @@ import { stripVTControlCharacters } from 'node:util'
 
 import type { ToolFacts, ToolTextWindow } from '@namzu/sdk'
 
-import { formatSize, plural } from './person-terms.js'
+import { formatSize, homePath, plural } from './person-terms.js'
 
 export interface TidyOutput {
 	/** What the transcript shows under the step. The retained raw output is untouched. */
@@ -145,4 +145,44 @@ export function unknownToolNotice(result: string): string | undefined {
 	return named
 		? `The model asked for a tool that does not exist (${named[1]}). It will try another way.`
 		: undefined
+}
+
+/** What the transcript says under a call the person answered No to. */
+export function declinedLine(note: string | undefined): string {
+	const said = note?.replace(/\s+/g, ' ').trim()
+	return said
+		? `You declined this, so it did not run. You said: “${said}”`
+		: 'You declined this, so it did not run.'
+}
+
+/**
+ * One sentence for a call the kernel refused or that could not do what it was
+ * asked, from `ToolResult.facts` of kind `failure`, so the model's refusal text
+ * ("Blocked by the authorization gate: … rewording it will not help") is never
+ * what a person reads.
+ */
+export function failureFactsLine(facts: Extract<ToolFacts, { kind: 'failure' }>): string {
+	const subject = facts.subject ? homePath(facts.subject) : undefined
+	switch (facts.reason) {
+		case 'not_found':
+			return subject ? `Couldn’t find ${subject}.` : 'Couldn’t find that.'
+		case 'permission_denied':
+			return subject ? `No permission to use ${subject}.` : 'No permission to do that.'
+		case 'not_a_file':
+			return subject ? `${subject} is not a file.` : 'That is not a file.'
+		case 'already_exists':
+			return subject ? `${subject} already exists.` : 'That already exists.'
+		case 'blocked':
+			return 'Blocked: Namzu’s rules do not allow this here.'
+		case 'needs_administrator':
+			return 'Blocked: this command needs administrator rights.'
+		case 'unknown_tool':
+			return subject
+				? `The model asked for a tool that does not exist (${subject}). It will try another way.`
+				: 'The model asked for a tool that does not exist. It will try another way.'
+		case 'timed_out':
+			return 'It took too long and was stopped.'
+		case 'invalid_input':
+			return 'The model sent input this tool could not use.'
+	}
 }

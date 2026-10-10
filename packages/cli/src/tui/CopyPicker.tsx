@@ -1,6 +1,7 @@
-import { Box, Text } from 'ink'
+import { Box, Text, useWindowSize } from 'ink'
 
 import type { CopyResponseTarget } from './copy-targets.js'
+import { fitHints } from './key-hints.js'
 import { selectionWindow } from './selection-window.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
@@ -13,6 +14,7 @@ export interface CopyPickerProps {
 /** Source-target chooser; App owns keys, clipboard output and queue admission. */
 export function CopyPicker({ targets, selected }: CopyPickerProps) {
 	const { start, items: visible } = selectionWindow(targets, selected)
+	const terminal = useWindowSize()
 	return (
 		<Box
 			flexDirection="column"
@@ -59,8 +61,17 @@ export function CopyPicker({ targets, selected }: CopyPickerProps) {
 			</Box>
 			<Box paddingTop={1}>
 				<Text color={theme.text.muted}>
-					↑↓ navigate · PgUp/PgDn jump · Home/End boundary · 1–9 select · enter send request ·
-					esc cancel
+					{fitHints(
+						[
+							{ text: '↑↓ select', rank: 5 },
+							{ text: 'PgUp/PgDn jump', rank: 1 },
+							{ text: 'Home/End', rank: 1 },
+							{ text: '1–9 select', rank: 2 },
+							{ text: 'enter copy', rank: 5 },
+							{ text: 'esc cancel', rank: 4 },
+						],
+						Math.max(1, (terminal.columns ?? 80) - 4),
+					)}
 				</Text>
 			</Box>
 		</Box>

@@ -48,7 +48,7 @@ describe('schedule review overlay', () => {
 		expect(frame).toContain('This run can reach the network.')
 		expect(frame).toContain('folder is cwd, not a write boundary')
 		expect(frame).toContain('Allow, ask and unmatched rules do not limit this script.')
-		expect(frame).toContain('Folder is outside this session')
+		expect(frame).toContain('Folder is outside this conversation')
 		expect(frame).toContain('Full proposal')
 		expect(frame).not.toContain('last exact line: echo done')
 		screen.stdin.write('\r')

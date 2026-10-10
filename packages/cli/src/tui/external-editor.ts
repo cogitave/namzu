@@ -3,6 +3,8 @@ import { lstat, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import { formatSize } from './person-terms.js'
+
 const MAX_EDITED_DRAFT_BYTES = 4 * 1024 * 1024
 
 export class ExternalEditorError extends Error {
@@ -130,7 +132,7 @@ export async function editDraftInExternalEditor(
 		const size = metadata.size
 		if (size > MAX_EDITED_DRAFT_BYTES) {
 			throw new ExternalEditorError(
-				`the edited draft is ${size.toLocaleString()} bytes; the limit is ${MAX_EDITED_DRAFT_BYTES.toLocaleString()}`,
+				`the edited draft is ${formatSize(size)}; the limit is ${formatSize(MAX_EDITED_DRAFT_BYTES)}`,
 			)
 		}
 		edited = await readFile(draftPath, 'utf8')
@@ -172,8 +174,14 @@ async function runEditorProcess(
 			stdio: 'inherit',
 			windowsHide: false,
 		})
-		child.once('error', (error) =>
-			settle(() => reject(new ExternalEditorError(`could not start the editor: ${error.message}`))),
+		child.once('error', () =>
+			settle(() =>
+				reject(
+					new ExternalEditorError(
+						'could not start the editor; check that VISUAL or EDITOR names an installed program',
+					),
+				),
+			),
 		)
 		child.once('exit', (code, signal) =>
 			settle(() => {

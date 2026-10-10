@@ -356,7 +356,7 @@ it('restores a persisted compaction summary as model history', async () => {
 	await frameShows(harness, 'Resume a conversation')
 	harness.stdin.write('\r')
 	await frameShows(harness, 'Resumed: A compacted conversation')
-	await frameShows(harness, 'Earlier turns are represented by the compacted summary below.')
+	await frameShows(harness, 'Earlier replies are summarised below.')
 
 	await submit(harness, 'question after resume')
 	await frameShows(harness, 'answer-1')
@@ -532,5 +532,5 @@ it('refuses to compact a turn that is still producing its next message', async (
 	await tick(80)
 
 	expect(compactCalls, 'the running conversation was summarized from an incomplete snapshot').toBe(0)
-	await frameShows(harness, 'A turn is still running')
+	await frameShows(harness, 'A reply is still running')
 })

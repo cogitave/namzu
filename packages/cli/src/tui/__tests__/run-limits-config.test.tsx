@@ -116,7 +116,7 @@ it(
 		mounted = harness
 		await waitFor(harness, '› Type a message')
 		await command(harness, '/config')
-		await waitFor(harness, 'Turn limits')
+		await waitFor(harness, 'Reply limits')
 		// Model, effort, permissions, then run limits.
 		harness.stdin.write('\u001b[B\u001b[B\u001b[B')
 		await tick()
@@ -177,7 +177,7 @@ it(
 		await tick()
 		await command(harness, '/config limits time')
 		await vi.waitFor(
-			() => expect(harness.lastFrame()).toContain('Turn duration (ms; 0 = unlimited)'),
+			() => expect(harness.lastFrame()).toContain('Reply duration (ms; 0 = unlimited)'),
 			WAIT_TIMEOUT_MS,
 		)
 		harness.stdin.write('\u0015')

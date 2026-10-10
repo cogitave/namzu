@@ -223,7 +223,7 @@ describe('the trust gate', () => {
 		await vi.waitFor(() => expect(harness.lastFrame() ?? '').toContain('malformed project config'))
 
 		expect(lifecycle.events).toEqual(['activate'])
-		expect(harness.lastFrame()).toContain('Could not activate project config')
+		expect(harness.lastFrame()).toContain('Could not apply this project’s settings')
 		expect(harness.lastFrame()).toContain('malformed project config')
 	})
 

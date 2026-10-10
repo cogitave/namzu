@@ -129,10 +129,10 @@ function compactRow(label: string, items: readonly PendingInputItem[], width: nu
 }
 
 function queuedHeading(held: PendingInputPanelProps['held']): string {
-	if (!held) return 'Queued · next turn'
+	if (!held) return 'Queued · next reply'
 	if (held.source === 'operator-interrupt') return 'Queued · held after interruption'
-	if (held.outcome === 'paused') return 'Queued · held after a resumable turn paused'
-	return `Queued · paused after a ${held.outcome} turn`
+	if (held.outcome === 'paused') return 'Queued · held after a reply paused'
+	return `Queued · paused after a ${held.outcome} reply`
 }
 
 export function PendingInputPanel({

@@ -379,7 +379,7 @@ describe('buildPermissionSummary — desktop actions', () => {
 			'   2. Click left at (812, 403)',
 			'   3. Type "Bahadır Arda\\nsecond line"',
 			'   4. Press "ENTER"',
-			'   5. Wait 500 ms',
+			'   5. Wait 1s',
 			'   Coordinates: pixels of the latest screenshot',
 		])
 	})

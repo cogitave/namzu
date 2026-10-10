@@ -187,7 +187,7 @@ export function scheduledRunFloorRule(options: FloorOptions): AuthorizationRule 
 	const floor = new Floor(options)
 	const rule: AuthorizationRule = {
 		type: 'predicate',
-		description: `the scheduled-run floor: a scheduled run may not stop, disable or remove the scheduler, run a \`namzu schedule\` subcommand other than ${READ_ONLY_VERBS.join(', ')}, or name NAMZU_HOME (${options.namzuHome}) or the Windows browser's profile folder (%LOCALAPPDATA%\\namzu) in any argument. It holds for every scheduled run, so rewording the call will not help`,
+		description: `the scheduled-run floor: a scheduled run may not stop, disable or remove the scheduler, run a \`namzu schedule\` subcommand other than ${READ_ONLY_VERBS.join(', ')}, or name NAMZU_HOME (${options.namzuHome}) or the Windows browser’s profile folder (%LOCALAPPDATA%\\namzu) in any argument. It holds for every scheduled run, so rewording the call will not help`,
 		decide: (call) => (floor.find(call) === null ? null : 'deny'),
 		// Asked only after `decide` denied, so the reading is done twice for a
 		// refused call and once for every other.
@@ -400,14 +400,14 @@ function reachesScheduler(
 		const verb = find(systemctl + 1, (w) => w.wild || SYSTEMCTL_VERBS_WITH_UNIT.has(w.text))
 		// systemctl matches unit names against a glob.
 		if (verb >= 0 && find(verb + 1, (u) => namesNamzu(u) || /[*?[]/.test(u.text)) >= 0)
-			return "stops or disables the scheduler's service"
+			return 'stops or disables the scheduler’s service'
 	}
 
 	// launchctl <verb> <label or plist>
 	const launchctl = find(0, named('launchctl'))
 	if (launchctl >= 0) {
 		const verb = find(launchctl + 1, (w) => w.wild || LAUNCHCTL_VERBS.has(w.text))
-		if (verb >= 0 && find(verb + 1, namesNamzu) >= 0) return "removes the scheduler's launchd agent"
+		if (verb >= 0 && find(verb + 1, namesNamzu) >= 0) return 'removes the scheduler’s launchd agent'
 	}
 
 	// schtasks, whose switches come in any order.
@@ -415,13 +415,13 @@ function reachesScheduler(
 	if (schtasks >= 0) {
 		const rest = words.slice(schtasks + 1)
 		if (rest.some((w) => w.wild || SCHTASKS_SWITCH.test(w.text)) && rest.some(namesNamzu))
-			return "deletes, changes or ends the scheduler's task"
+			return 'deletes, changes or ends the scheduler’s task'
 	}
 
 	// pkill / killall: a pattern that could match the daemon's process.
 	const killer = find(0, (w, i) => named('pkill')(w, i) || named('killall')(w, i))
 	if (killer >= 0) {
-		const kills = "has a pattern that could match the scheduler's process"
+		const kills = 'has a pattern that could match the scheduler’s process'
 		const full = words
 			.slice(killer + 1)
 			.some((w) => /^-[a-z]*f/.test(w.text) || w.text === '--full')
@@ -776,7 +776,7 @@ class Floor {
 	private protectedWords(what: FloorProtected): string {
 		return what === 'NAMZU_HOME'
 			? `NAMZU_HOME (${this.homeShown})`
-			: "the Windows browser's profile folder (%LOCALAPPDATA%\\namzu)"
+			: 'the Windows browser’s profile folder (%LOCALAPPDATA%\\namzu)'
 	}
 
 	/** Why the floor denies the call and what matched, or null when it does not. */
@@ -968,7 +968,7 @@ class Floor {
 			return { token: 'NAMZU_HOME', what: 'the NAMZU_HOME variable' }
 		for (const { name, pattern } of this.homeSegments)
 			if (texts.some((text) => pattern.test(text)))
-				return { token: name, what: "NAMZU_HOME's folder name", pattern }
+				return { token: name, what: 'NAMZU_HOME’s folder name', pattern }
 		if (this.textNamesHome(line) || this.textNamesHome(decoded))
 			return { token: this.homeShown, what: 'a path into NAMZU_HOME' }
 
@@ -976,18 +976,18 @@ class Floor {
 		if (textNamesProfile(line) || textNamesProfile(decoded))
 			return {
 				token: '%LOCALAPPDATA%\\namzu',
-				what: "a path into the Windows browser's profile folder",
+				what: 'a path into the Windows browser’s profile folder',
 			}
 		const appData = first(LOCAL_APP_DATA_IN_TEXT)
 		if (appData !== null && texts.some((text) => NAMZU_SEGMENT.test(text)))
 			return {
 				token: `${appData} … namzu`,
-				what: "together, the Windows browser's profile folder",
+				what: 'together, the Windows browser’s profile folder',
 			}
 
 		// The service.
 		const service = first(SERVICE_NAME_IN_TEXT)
-		if (service !== null) return { token: service, what: "the scheduler service's name" }
+		if (service !== null) return { token: service, what: 'the scheduler service’s name' }
 		const tool = first(SERVICE_TOOL_IN_TEXT)
 		if (tool !== null) {
 			if (texts.some((text) => text.includes('namzu')))
@@ -1506,7 +1506,7 @@ class Floor {
 					.map((w) => w.text)
 					.join(' ')
 				const why = toolIsSchedulerTool
-					? "its clause's own program can stop or remove a service"
+					? 'its clause’s own program can stop or remove a service'
 					: filterMatchesHome
 						? 'a -name/-iname/-path/-ipath pattern could match NAMZU_HOME’s own folder name'
 						: 'its search root is unknown, is NAMZU_HOME, or is an ancestor of it'
@@ -1724,7 +1724,7 @@ function fedTexts(readings: readonly ShellLexResult[]): string[] {
 /** A command the lexer listed whose name or payload it could not read, in words, or null. */
 function unreadCommand(command: ShellCommand): string | null {
 	const head = command.words[command.assignments]
-	if (head?.expands) return `the command's name ${shown(head.text)} expands at runtime`
+	if (head?.expands) return `the command’s name ${shown(head.text)} expands at runtime`
 	return runsUnreadText(command)
 }
 

@@ -551,7 +551,7 @@ describe('/resume while a turn is running', () => {
 		await tick(60)
 		await submit(harness, 'go')
 		await queue(harness, 'FOLLOWUP')
-		await untilFrame(harness, 'Queued · next turn', 'the follow-up was not queued')
+		await untilFrame(harness, 'Queued · next reply', 'the follow-up was not queued')
 		expect(harness.lastFrame()).toContain('↳ FOLLOWUP')
 
 		harness.stdin.write('/resume')
@@ -575,7 +575,7 @@ describe('/resume while a turn is running', () => {
 		await tick(60)
 		await submit(harness, 'go')
 		await queue(harness, 'IDLE_EDGE_FOLLOWUP')
-		await untilFrame(harness, 'Queued · next turn', 'the follow-up was not queued')
+		await untilFrame(harness, 'Queued · next reply', 'the follow-up was not queued')
 		expect(harness.lastFrame()).toContain('↳ IDLE_EDGE_FOLLOWUP')
 
 		harness.stdin.write('/resume')
@@ -635,7 +635,7 @@ describe('/resume while a turn is running', () => {
 		const harness = await pickerOpenMidTurn()
 
 		harness.stdin.write('\r')
-		await untilFrame(harness, 'DISKUNREADABLE', 'the failure was never reported')
+		await untilFrame(harness, 'Could not resume that conversation.', 'the failure was never reported')
 
 		gates[0]?.release()
 		await appendsReach(1)
@@ -683,7 +683,7 @@ describe('/fork after an interrupted turn', () => {
 		await submit(harness, '/compact')
 		expect(compactCalls, 'compaction read history before the interrupted turn settled').toBe(0)
 		expect(said(harness), 'the compaction refusal did not explain the unsettled write').toContain(
-			'still running or settling',
+			'still running or being saved',
 		)
 		await submit(harness, '/fork')
 
@@ -692,7 +692,7 @@ describe('/fork after an interrupted turn', () => {
 			'fork reached the store before the interrupted iterator scheduled its append',
 		).toEqual([])
 		expect(said(harness), 'the unsettled refusal did not explain what remains').toContain(
-			'still settling after it was interrupted',
+			'was stopped and is still being saved',
 		)
 
 		// While the old turn is still being recorded its iterator has not

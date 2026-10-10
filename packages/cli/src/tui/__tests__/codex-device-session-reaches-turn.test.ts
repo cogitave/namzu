@@ -150,7 +150,7 @@ it('offers the admitted account, adopts rotations, and refuses deletion before m
 			.send([createUserMessage('must not use a withdrawn token')])
 			[Symbol.asyncIterator]()
 			.next(),
-	).rejects.toThrow(/Codex session Namzu borrowed is no longer available/)
+	).rejects.toThrow(/Codex sign-in Namzu borrowed is no longer available/)
 	expect(runCalls.queries).toHaveLength(before)
 })
 

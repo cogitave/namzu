@@ -475,7 +475,7 @@ describe('first-run signed-in subscriptions', () => {
 		// stands for is named by its source column instead, which is where a row
 		// has always said what it found.
 		expect(choiceFrame).toContain('OpenAI')
-		expect(choiceFrame).toContain('Codex session · this device')
+		expect(choiceFrame).toContain('Codex sign-in · this computer')
 		expect(choiceFrame).not.toContain('A Provider')
 
 		// The frame can be committed before Ink's input effect is installed. Let
@@ -558,7 +558,7 @@ describe('publishing a picker selection', () => {
 		await submit(harness, 'keep this provider alive')
 		await vi.waitFor(() => expect(sends).toBe(1))
 		await submit(harness, '/model')
-		await frameShows(harness.lastFrame, 'stable boundary')
+		await frameShows(harness.lastFrame, 'unavailable while a reply')
 		expect(harness.lastFrame()).not.toContain('Choose a provider')
 
 		release.resolve()
@@ -604,14 +604,14 @@ describe('publishing a picker selection', () => {
 		expect(harness.lastFrame()).toContain('Plan (read-only)')
 		expect(harness.lastFrame()).not.toContain('Preapproved tools only')
 		harness.stdin.write('2')
-		await frameShows(harness.lastFrame, 'Permissions: Auto-approve edits for this session.')
+		await frameShows(harness.lastFrame, 'Permissions: Auto-approve edits for this conversation.')
 		await submit(harness, 'use automatic file edits')
 		await vi.waitFor(() => expect(modes).toEqual(['accept-edits']))
 
 		await submit(harness, '/permissions')
 		await frameShows(harness.lastFrame, 'More options')
 		harness.stdin.write('3')
-		await frameShows(harness.lastFrame, 'Permissions: Plan (read-only) for this session.')
+		await frameShows(harness.lastFrame, 'Permissions: Plan (read-only) for this conversation.')
 		await submit(harness, 'plan the next change')
 		await vi.waitFor(() => expect(modes).toEqual(['accept-edits', 'plan']))
 
@@ -623,7 +623,7 @@ describe('publishing a picker selection', () => {
 		expect(harness.lastFrame()).toContain('View rules')
 		harness.stdin.write('\x1b[B')
 		harness.stdin.write('\r')
-		await frameShows(harness.lastFrame, 'Permissions: Preapproved tools only for this session.')
+		await frameShows(harness.lastFrame, 'Permissions: Preapproved tools only for this conversation.')
 		await submit(harness, '/permissions')
 		await frameShows(harness.lastFrame, 'More options')
 		harness.stdin.write('4')
@@ -841,7 +841,7 @@ describe('publishing a picker selection', () => {
 		harness.stdin.write('\r')
 		await frameShows(harness.lastFrame, 'Ask before changes')
 		harness.stdin.write('1')
-		await frameShows(harness.lastFrame, 'Permissions: Ask before changes for this session.')
+		await frameShows(harness.lastFrame, 'Permissions: Ask before changes for this conversation.')
 		expect(resetApprovals).toHaveBeenCalledTimes(1)
 		await submit(harness, 'continue with approvals')
 		await vi.waitFor(() => expect(modes).toEqual([{ mode: 'prompt', approvedAll: false }]))
@@ -868,7 +868,7 @@ describe('publishing a picker selection', () => {
 			await frameShows(harness.lastFrame, 'Type a message')
 			await tick(80)
 			await submit(harness, `/permissions ${mode}`)
-			await frameShows(harness.lastFrame, `Permissions: ${label} for this session.`)
+			await frameShows(harness.lastFrame, `Permissions: ${label} for this conversation.`)
 			await submit(harness, '/permissions')
 			await frameShows(harness.lastFrame, `Current: ${label}`)
 			expect(harness.lastFrame()).toMatch(/More options\s+\[current\]/)
@@ -1018,7 +1018,7 @@ describe('publishing a picker selection', () => {
 		expect(aEfforts).toEqual(['max'])
 		await submit(harness, 'dependent queue')
 		releaseFailure.resolve()
-		await frameShows(harness.lastFrame, 'paused after a failed turn')
+		await frameShows(harness.lastFrame, 'paused after a failed reply')
 		expect(bHistories).toEqual([])
 
 		await submit(harness, '/model')
@@ -1068,7 +1068,7 @@ describe('publishing a picker selection', () => {
 		await vi.waitFor(() => expect(aSends).toBe(1))
 		await submit(harness, 'must remain paused')
 		releaseFailure.resolve()
-		await frameShows(harness.lastFrame, 'paused after a failed turn')
+		await frameShows(harness.lastFrame, 'paused after a failed reply')
 
 		await submit(harness, '/model')
 		await frameShows(harness.lastFrame, 'Choose a model')
@@ -1084,7 +1084,7 @@ describe('publishing a picker selection', () => {
 		harness.stdin.write('\x1B')
 		await frameShows(harness.lastFrame, 'Choose a provider')
 		harness.stdin.write('\x1B')
-		await frameShows(harness.lastFrame, 'paused after a failed turn')
+		await frameShows(harness.lastFrame, 'paused after a failed reply')
 		await tick(100)
 
 		expect(aSends).toBe(1)
@@ -1262,7 +1262,7 @@ describe('publishing a picker selection', () => {
 		const { stdin, lastFrame } = await pickerOnFirstRun('No providers detected')
 
 		stdin.write('k')
-		await frameShows(lastFrame, 'Paste a credential')
+		await frameShows(lastFrame, 'Paste an API key')
 		stdin.write('sk-ant-api03-notarealkey-0123beef')
 		await tick()
 		stdin.write('\r')
@@ -1496,7 +1496,7 @@ describe('Ctrl+C from a ready conversation', () => {
 		await submit(harness, '/unarchive')
 		await frameShows(harness.lastFrame, 'Restore an archived conversation')
 		harness.stdin.write('\r')
-		await frameShows(harness.lastFrame, 'Could not resume: history read failed')
+		await frameShows(harness.lastFrame, 'Could not resume that conversation')
 		expect(restoredConversationIds).toEqual([id])
 		expect(harness.lastFrame()).toContain('Restored: Archived example')
 	})
@@ -1530,7 +1530,7 @@ describe('the picker hint', () => {
 		const { lastFrame } = await pickerOnFirstRun()
 		const frame = lastFrame() ?? ''
 
-		expect(frame).toContain('Ctrl+C')
+		expect(frame).toContain('ctrl+c')
 		expect(frame).toContain('exit')
 	})
 
@@ -1539,7 +1539,7 @@ describe('the picker hint', () => {
 		const frame = lastFrame() ?? ''
 
 		expect(frame).toContain('keep current')
-		expect(frame).toContain('Ctrl+C')
+		expect(frame).toContain('ctrl+c')
 	})
 })
 
@@ -1556,11 +1556,11 @@ describe('subscription selection from the ready TUI', () => {
 		await tick(80)
 
 		await submit(harness, '/login')
-		await frameShows(harness.lastFrame, 'Choose a subscription session')
+		await frameShows(harness.lastFrame, 'Choose a subscription sign-in')
 		expect(harness.lastFrame()).toContain(
-			'Use existing OpenAI (Codex subscription) · Codex session · this device',
+			'Use existing OpenAI (Codex subscription) · Codex sign-in · this computer',
 		)
-		expect(harness.lastFrame()).toContain('Sign in to Anthropic (Claude) · browser')
+		expect(harness.lastFrame()).toContain('Sign in to Anthropic (Claude) · opens your browser')
 
 		harness.stdin.write('\r')
 		await vi.waitFor(() => expect(create).toHaveBeenCalledTimes(2))

@@ -13,6 +13,7 @@
 import { Text, useWindowSize } from 'ink'
 
 import { type PermissionMode, permissionModeLabel } from '../permissions/mode.js'
+import { fitHintText } from './key-hints.js'
 import { theme } from './theme.js'
 
 export interface StatusBarProps {
@@ -196,9 +197,8 @@ export function fitStatusLine(input: {
 	// wired up) — `??` does not treat that as absent, and an empty string
 	// would otherwise win the slot a model needs to fall through to.
 	let rightText: string | null = input.hint || input.goal || null
-	// Prefer the familiar Return symbol before cutting an action word in half.
-	if (input.hint && rightText && rightText.length > columns) rightText = rightText.replace(/\benter\b/g, '↵')
-	if (rightText !== null && rightText.length > columns) rightText = shortenRightToFit(rightText, columns)
+	// A line too wide for its room loses whole hints, never half of one.
+	if (rightText !== null) rightText = fitHintText(rightText, columns)
 
 	let modelLabel: string | null = input.model ?? input.provider
 	const right = (): string => (rightText !== null ? rightText : (modelLabel ?? ''))

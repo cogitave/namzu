@@ -368,7 +368,7 @@ describe('modelStep', () => {
 		})
 
 		it('never tells the operator the fallback is the provider’s own default', () => {
-			// The row is labelled `(namzu default)` because it is namzu's pick out
+			// The row is labelled `(namzu default)` because it is namzu’s pick out
 			// of its own registry. These four sentences sit beside that label and
 			// said "showing ITS default" — contradicting it on the same screen,
 			// and pointing an operator who did not expect this model at the
@@ -382,7 +382,7 @@ describe('modelStep', () => {
 			] as const) {
 				const notice = modelStep(DEFAULT, listing).notice ?? ''
 				expect(notice, JSON.stringify(listing)).not.toMatch(/its default|the provider's default/i)
-				expect(notice, JSON.stringify(listing)).toContain("namzu's pick")
+				expect(notice, JSON.stringify(listing)).toContain('namzu’s pick')
 			}
 		})
 

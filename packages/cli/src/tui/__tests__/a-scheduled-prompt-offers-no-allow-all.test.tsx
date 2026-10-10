@@ -34,7 +34,7 @@ describe('the answers a prompt offers', () => {
 
 	it('keep "allow all" on a live prompt', () => {
 		expect(permissionAnswers(bash).map((a) => a.kind)).toEqual(['approve', 'approve-all', 'reject'])
-		expect(permissionChoices(bash)[1]).toBe('Yes, allow all tools for this session')
+		expect(permissionChoices(bash)[1]).toBe('Yes, allow all tools for this conversation')
 	})
 })
 

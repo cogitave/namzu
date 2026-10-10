@@ -1,6 +1,3 @@
-/** Host-owned scheduled results for the conversation currently on screen. */
-
-import { sanitizeLine } from '../../integrations/notifications/desktop/sanitize.js'
 import {
 	DELIVERY_READ_LIMIT,
 	type SourceConversationBinding,
@@ -10,6 +7,7 @@ import {
 } from '../../schedule/delivery.js'
 import type { SchedulePaths } from '../../schedule/paths.js'
 import { visibleScheduleMessage } from '../../schedule/visible-source.js'
+import { explainFailure } from '../plain-failure.js'
 
 interface SourceSession {
 	readonly slug: string
@@ -58,15 +56,13 @@ export function sourceDeliveryLine(entry: SourceDelivery): string {
 			`Scheduled: ${entry.jobName} · ${entry.status} · ${entry.at}`,
 			...(entry.summary ? [`Result: ${entry.summary}`] : []),
 			...(entry.reason ? [`Reason: ${entry.reason}`] : []),
-			...(entry.runSessionId ? [`Run conversation: ${entry.runSessionId}`] : []),
 		].join('\n'),
 	)
 }
 
 export function sourceDeliveryReadError(error: unknown): string {
-	const reason = sanitizeLine(error instanceof Error ? error.message : String(error), 300)
 	return visibleScheduleMessage(
-		`Scheduled results could not be read: ${reason || 'unknown error'}. Unread results remain in the source inbox under NAMZU_HOME.`,
+		`${explainFailure(error, 'Scheduled results could not be read.')} Unread results are kept for next time.`,
 	)
 }
 

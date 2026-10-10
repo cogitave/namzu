@@ -93,7 +93,7 @@ export function decideHeadlessTrust(check: TrustCheck): TrustDecision {
 		message: [
 			`refusing to run in a folder nobody has trusted: ${cwd}`,
 			'',
-			"namzu reads this folder's files, runs commands in it and executes its",
+			'namzu reads this folder’s files, runs commands in it and executes its',
 			'code, and a headless turn approves those tools without asking because',
 			'there is nobody to ask.',
 			'',

@@ -140,29 +140,29 @@ function credentialSource(source: {
 			}
 		case 'claude-file':
 			return {
-				text: `Claude Code's sign-in (${source.path ?? ''})`,
+				text: `Claude Code’s sign-in (${source.path ?? ''})`,
 				borrowed: true,
 			}
 		case 'codex-file':
-			return { text: `Codex's sign-in (${source.path ?? ''})`, borrowed: true }
+			return { text: `Codex’s sign-in (${source.path ?? ''})`, borrowed: true }
 		case 'gemini-file':
 			return {
-				text: `Gemini CLI's sign-in (${source.path ?? ''})`,
+				text: `Gemini CLI’s sign-in (${source.path ?? ''})`,
 				borrowed: true,
 			}
 		case 'stored-gemini-key':
 			return {
-				text: `namzu's saved Gemini API key (${source.path ?? ''})`,
+				text: `namzu’s saved Gemini API key (${source.path ?? ''})`,
 				borrowed: false,
 			}
 		case 'stored-api-key':
 			return {
-				text: `namzu's saved API key (${source.path ?? ''})`,
+				text: `namzu’s saved API key (${source.path ?? ''})`,
 				borrowed: false,
 			}
 		case 'stored':
 			return {
-				text: `namzu's credential store (${source.path ?? ''})`,
+				text: `namzu’s credential store (${source.path ?? ''})`,
 				borrowed: false,
 			}
 		case 'keychain':
@@ -173,7 +173,7 @@ function credentialSource(source: {
 }
 
 export const BORROWED_CREDENTIAL_WARNING =
-	"This run used another program's sign-in. Refreshing it here can race that program's own refresh; store a credential with `namzu login` or daemon.env for unattended runs."
+	'This run used another program’s sign-in. Refreshing it here can race that program’s own refresh; store a credential with `namzu login` or daemon.env for unattended runs.'
 
 export interface FireDependencies {
 	/** The environment the service gave this process; read, never modified. */
@@ -381,7 +381,7 @@ export async function runFire(
 	// the same way the dialect-mismatch check below refuses a changed shell.
 	if (runKind !== 'agent' && process.platform === 'win32') {
 		return blocked(
-			`a ${runKind} job cannot run on native Windows: its script would run through cmd.exe, read only as a loose approximation the floor cannot fully verify. Use WSL, where a job's script runs on the Linux side, or an agent job.`,
+			`a ${runKind} job cannot run on native Windows: its script would run through cmd.exe, read only as a loose approximation the floor cannot fully verify. Use WSL, where a job’s script runs on the Linux side, or an agent job.`,
 		)
 	}
 	const selectedScriptShell =
@@ -497,7 +497,7 @@ export async function runFire(
 	const detected = probe.detected.find((d) => d.entry.id === model.provider)
 	if (!detected) {
 		return blocked(
-			`no credential for ${model.provider} in the scheduler's environment; run namzu login, or put the key in ${paths.daemonEnv}`,
+			`no credential for ${model.provider} in the scheduler’s environment; run namzu login, or put the key in ${paths.daemonEnv}`,
 		)
 	}
 	const source = credentialSource(detected.source as { kind: string })

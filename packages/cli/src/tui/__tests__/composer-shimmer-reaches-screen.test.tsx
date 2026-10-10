@@ -305,7 +305,7 @@ it('keeps the working border still through prompts and resizing and preserves th
 			() => screen.viewport().join('\n').includes(firstLine),
 			'Prompt discarded the draft',
 		)
-		expect(decisions).toEqual([{ kind: 'reject' }])
+		expect(decisions).toEqual([{ kind: 'reject', declined: {} }])
 
 		// A wrapping draft changes geometry; the border must remain intact.
 		await border.read()

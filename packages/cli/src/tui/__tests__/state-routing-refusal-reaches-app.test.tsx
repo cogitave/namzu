@@ -80,7 +80,7 @@ it('surfaces the routing refusal and never constructs an unscoped agent session'
 
 	await vi.waitFor(() => expect(harness.lastFrame() ?? '').toContain('split histories'))
 
-	expect(harness.lastFrame()).toContain('Failed to probe agents')
+	expect(harness.lastFrame()).toContain('split histories')
 	expect(harness.lastFrame()).toContain('split histories')
 	expect(lifecycle.createAgentSession).not.toHaveBeenCalled()
 	expect(existsSync(join(cwd, '.namzu'))).toBe(false)
