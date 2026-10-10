@@ -75,7 +75,7 @@ export function hoverCardModel(input: {
 		...(preview ? { preview } : {}),
 		age: relativeAge(conversation.updatedAt, now),
 		environment: pal
-			? { kind: 'pal-computer', label: "A Pal's computer" }
+			? { kind: 'pal-computer', label: 'A Pal’s computer' }
 			: { kind: 'this-computer', label: 'This computer' },
 		...(folder ? { folder } : {}),
 		...(branch ? { branch } : {}),

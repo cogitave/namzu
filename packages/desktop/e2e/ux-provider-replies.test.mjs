@@ -112,7 +112,7 @@ headlineFlow(
 	json(403, "Project proj_abc123 does not have access to model gpt-5", { code: "model_not_found" }),
 	"Your OpenAI account can’t use gpt-5. Choose another model.",
 	["Open model settings"],
-	new RegExp(`${PROVIDER_NAME}: the provider rejected the request credentials`),
+	new RegExp(`${PROVIDER_NAME}: access was refused`),
 	"403-model-access",
 );
 

@@ -26,8 +26,8 @@ export function decidePaste({
 	return {
 		action: 'notice',
 		notice: attachmentsSupported
-			? "Files can't be attached here."
-			: "This engine doesn't take attachments yet.",
+			? 'Files can’t be attached here.'
+			: 'This engine doesn’t take attachments yet.',
 	}
 }
 
@@ -50,7 +50,7 @@ export function stopTooltip(input: {
 	if (input.waitingOnPerson)
 		return 'Stop this reply · Esc. The action waiting for you will not run.'
 	if (!input.liveInputSupported)
-		return "Stop · Esc. This engine can't take a new message while it works."
+		return 'Stop · Esc. This engine can’t take a new message while it works.'
 	if (input.queueDisabled)
 		return input.attachmentsStranded
 			? 'Stop · Esc. Queue is off: remove the attachments first, this engine cannot take them.'

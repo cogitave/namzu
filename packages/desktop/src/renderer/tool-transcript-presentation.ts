@@ -154,7 +154,7 @@ function diffLead(operation: Operation, state: ToolTranscriptState): string {
 		waiting: 'Waiting to edit',
 		running: 'Editing',
 		completed: done,
-		failed: "Couldn't edit",
+		failed: 'Couldn’t edit',
 		cancelled: 'Cancelled edit of',
 		interrupted: 'Interrupted edit of',
 		skipped: 'Skipped edit of',
@@ -168,7 +168,7 @@ function readLead(state: ToolTranscriptState): string {
 		waiting: 'Waiting to read',
 		running: 'Reading',
 		completed: 'Read',
-		failed: "Couldn't read",
+		failed: 'Couldn’t read',
 		cancelled: 'Cancelled read of',
 		interrupted: 'Interrupted read of',
 		skipped: 'Skipped read of',
@@ -226,7 +226,7 @@ function searchLead(
 		waiting: 'Waiting to search for',
 		running: 'Searching for',
 		completed: 'Searched for',
-		failed: "Couldn't search for",
+		failed: 'Couldn’t search for',
 		cancelled: 'Cancelled search for',
 		interrupted: 'Interrupted search for',
 		skipped: 'Skipped search for',
@@ -237,7 +237,7 @@ function searchLead(
 				waiting: 'Waiting to list',
 				running: 'Listing',
 				completed: 'Listed',
-				failed: "Couldn't list",
+				failed: 'Couldn’t list',
 				cancelled: 'Cancelled listing',
 				interrupted: 'Interrupted listing',
 				skipped: 'Skipped listing',
@@ -247,7 +247,7 @@ function searchLead(
 				waiting: 'Waiting to list files in',
 				running: 'Listing files in',
 				completed: 'Listed files in',
-				failed: "Couldn't list files in",
+				failed: 'Couldn’t list files in',
 				cancelled: 'Cancelled listing files in',
 				interrupted: 'Interrupted listing files in',
 				skipped: 'Skipped listing files in',
@@ -386,12 +386,12 @@ const FAILURE_TEXT: Record<ToolFailureReason, string> = {
 
 function failureLead(kind: ActionKind): string {
 	return kind === 'read'
-		? "Couldn't read"
+		? 'Couldn’t read'
 		: kind === 'edit'
-			? "Couldn't change"
+			? 'Couldn’t change'
 			: kind === 'search'
-				? "Couldn't search"
-				: "Couldn't open"
+				? 'Couldn’t search'
+				: 'Couldn’t open'
 }
 
 /** The facts the call itself carried, before it ran. */
@@ -496,7 +496,7 @@ function failureRow(
 	const name = tool.title.toLowerCase()
 	const command = COMMAND_TOOLS.has(name) || call?.kind === 'command'
 	if (facts.reason === 'unknown_tool') {
-		const main = `Namzu tried a tool it doesn't have${facts.subject ? ` (${facts.subject})` : ''}`
+		const main = `Namzu tried a tool it doesn’t have${facts.subject ? ` (${facts.subject})` : ''}`
 		return { label: main, main, kind: 'other' }
 	}
 	if (facts.reason === 'blocked' || facts.reason === 'needs_administrator') {
@@ -504,7 +504,7 @@ function failureRow(
 		const main =
 			facts.reason === 'needs_administrator'
 				? `Blocked: ${what} needs administrator rights`
-				: `Blocked: ${what} isn't allowed`
+				: `Blocked: ${what} isn’t allowed`
 		const typed = call?.kind === 'command' ? nonBlank(call.command) : undefined
 		return {
 			label: main,
@@ -631,7 +631,7 @@ export function palMessageName(tool: ProjectedToolCall): string | undefined {
 	const label = named.kind === 'generic' ? firstLine(named.label) : ''
 	const call = /^Message to (.+)$/.exec(label)?.[1]?.trim()
 	if (call && call !== 'a Pal') return call
-	const receipt = /^Sent to (.+)'s inbox$/.exec(label)?.[1]?.trim()
+	const receipt = /^Sent to (.+)['’]s inbox$/.exec(label)?.[1]?.trim()
 	return receipt || undefined
 }
 
@@ -640,7 +640,7 @@ function palMessageLabel(name: string, state: ToolTranscriptState): string {
 		waiting: `Waiting to message ${name}`,
 		running: `Messaging ${name}`,
 		completed: `Messaged ${name}`,
-		failed: `Couldn't message ${name}`,
+		failed: `Couldn’t message ${name}`,
 		cancelled: `Cancelled message to ${name}`,
 		interrupted: `Interrupted message to ${name}`,
 		skipped: `Skipped message to ${name}`,

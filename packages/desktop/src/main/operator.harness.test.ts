@@ -305,7 +305,7 @@ it('rejects a delayed previous-engine read instead of overwriting the acknowledg
 	expect(selection.selected).toBe('codex-cli')
 	expect(await staleRead).toEqual({
 		error: expect.objectContaining({
-			message: expect.stringContaining('changed while they were loading'),
+			message: expect.stringContaining('changed while this conversation was opening'),
 		}),
 	})
 	await rm(f.delayedDiscovery)
@@ -326,7 +326,7 @@ it('rejects a delayed previous-model read and retains the newly acknowledged mod
 	await f.owner.selectProvider(session.id, 'codex-cli', 'newly-selected-model')
 	expect(await staleRead).toEqual({
 		error: expect.objectContaining({
-			message: expect.stringContaining('changed while they were loading'),
+			message: expect.stringContaining('changed while this conversation was opening'),
 		}),
 	})
 	await rm(f.delayedDiscovery)

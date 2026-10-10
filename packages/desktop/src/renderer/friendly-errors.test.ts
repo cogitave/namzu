@@ -4,6 +4,7 @@ import {
 	describeFailure,
 	providerName,
 	sanitizeDetails,
+	unknownUsageDetail,
 	withUnknownUsage,
 } from './friendly-errors.js'
 
@@ -75,7 +76,7 @@ describe('provider replies', () => {
 		)
 		expect(context.details).toContain('131,452')
 		expect(withUnknownUsage([html])[0]?.details).toMatch(
-			/\nThe provider did not report how much this reply used\.$/,
+			/\nNo usage was reported for the failed attempts\.$/,
 		)
 	})
 })
@@ -168,7 +169,7 @@ describe('describeBlockedRetry', () => {
 		expect(blocked.text).not.toMatch(JARGON)
 		expect(blocked.actions).toEqual(['continue'])
 		expect(blocked.text).toContain('Continue without this reply')
-		expect(blocked.details).toBe('The provider did not report how much this reply used.')
+		expect(blocked.details).toBe('No usage was reported for the failed attempts.')
 	})
 
 	it('offers to continue when the allowance is used up, and never shows the runtime wording', () => {
@@ -189,7 +190,7 @@ describe('describeBlockedRetry', () => {
 		)
 		expect(failure.details).not.toMatch(/502 502/)
 		expect(withUnknownUsage([failure])[0]?.details).toBe(
-			'OpenAI: the provider failed to complete the request (502 Bad Gateway)\nThe provider did not report how much this reply used.',
+			'OpenAI: the provider failed to complete the request (502 Bad Gateway)\nNo usage was reported for the failed attempts.',
 		)
 		expect(withUnknownUsage([])).toEqual([])
 	})
@@ -255,5 +256,20 @@ describe('provider reply edge cases', () => {
 		).details
 		expect(details).toContain('Request ID: req_abcdef123456')
 		expect(details).not.toMatch(/request_id|""|" "/)
+	})
+})
+
+describe('Details wording', () => {
+	it('words a refused 403 without the runtime sentence and labels the vendor project', () => {
+		const failure = describeFailure(
+			'openai (HTTP 403) — the provider rejected the request credentials: Project proj_abc123 does not have access to model gpt-5',
+		)
+		expect(failure.details).toBe(
+			'OpenAI: access was refused (403 Your project does not have access to model gpt-5)\nOpenAI project: proj_abc123',
+		)
+		expect(failure.details).not.toMatch(/rejected the request credentials/)
+	})
+	it('does not say a reply went unreported when none arrived', () => {
+		expect(unknownUsageDetail()).not.toMatch(/\breply\b/)
 	})
 })

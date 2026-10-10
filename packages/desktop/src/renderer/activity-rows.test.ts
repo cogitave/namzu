@@ -227,7 +227,7 @@ describe('action row labels', () => {
 		})
 		expect(row(thread, 'e')?.label).toBe('Waiting to edit app.css')
 		thread = tool(thread, 'e', 'edit', edit('src/app.css'), 'failed')
-		expect(row(thread, 'e')?.label).toBe("Couldn't edit app.css")
+		expect(row(thread, 'e')?.label).toBe('Couldn’t edit app.css')
 	})
 	it('never offers the Before and After block for an edit', () => {
 		const thread = tool(begin(), 'e', 'edit', edit('src/app.css'))

@@ -425,7 +425,7 @@ describe('a message to a Pal from an ordinary conversation', () => {
 			state: 'running',
 		})
 		const sent = toolTranscriptPresentation(
-			call('completed', "Sent to Review's inbox", 'Message to Review'),
+			call('completed', 'Sent to Review’s inbox', 'Message to Review'),
 			key,
 		)
 		expect(sent).toMatchObject({
@@ -440,6 +440,9 @@ describe('a message to a Pal from an ordinary conversation', () => {
 		expect(
 			toolTranscriptPresentation(call('completed', "Sent to Review's inbox"), key),
 		).toMatchObject({ label: 'Messaged Review', tooltip: 'Sent to inbox' })
+		expect(
+			toolTranscriptPresentation(call('completed', 'Sent to Review’s inbox'), key)?.label,
+		).toBe('Messaged Review')
 		expect(toolTranscriptPresentation(call('completed', 'Message to Review'), key)?.label).toBe(
 			'Messaged Review',
 		)
@@ -447,7 +450,7 @@ describe('a message to a Pal from an ordinary conversation', () => {
 
 	it('does not claim the message was sent when it failed or was declined', () => {
 		const failed = toolTranscriptPresentation(call('failed', 'Message to Review'), key)
-		expect(failed).toMatchObject({ label: "Couldn't message Review", state: 'failed' })
+		expect(failed).toMatchObject({ label: 'Couldn’t message Review', state: 'failed' })
 		expect(failed?.tooltip).toBeUndefined()
 		const declined = result(
 			start({ kind: 'generic', label: 'Message to Review' }, 'send_pal_message'),

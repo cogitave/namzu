@@ -557,10 +557,10 @@ flow(
 		await expect(toolRow(w, "Searched for export")).toContainText("matches in");
 		await expect(toolRow(w, "Listed **/*.ts")).toBeVisible();
 		await expect(
-			toolRow(w, "Couldn't read missing.txt: file not found"),
+			toolRow(w, "Couldn’t read missing.txt: file not found"),
 		).toBeVisible();
 		await expect(
-			toolRow(w, "Namzu tried a tool it doesn't have (ls)"),
+			toolRow(w, "Namzu tried a tool it doesn’t have (ls)"),
 		).toBeVisible();
 		await expect(toolRow(w, "Edited a.ts")).toBeVisible();
 		await expect(toolRow(w, "Edited a.ts")).toContainText("+2");

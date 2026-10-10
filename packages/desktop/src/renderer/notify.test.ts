@@ -8,24 +8,106 @@ import { undoNotice, undoneFileCount } from './undo-model.js'
 function recordingSink() {
 	const added: Parameters<ToastSink['add']>[0][] = []
 	const closed: (string | undefined)[] = []
+	const leaving = new Map<string, () => void>()
 	const sink: ToastSink = {
 		add: (options) => {
 			added.push(options)
+			if (options.onClose) leaving.set(options.id, options.onClose)
 			return options.id
 		},
 		close: (id) => void closed.push(id),
 	}
-	return { sink, added, closed }
+	/** The toast's time is up, or the person dismissed it. */
+	const leave = (id: string) => leaving.get(id)?.()
+	return { sink, added, closed, leave }
 }
 
 describe('notify routing', () => {
+	describe('errors are not closed by a newer notice', () => {
+		it('holds an info notice until the error has left', () => {
+			const hub = createToastHub()
+			const { sink, added, closed, leave } = recordingSink()
+			hub.register(sink)
+			const error = hub.notify("Couldn't save.", { tone: 'error' })
+			hub.notify('Copied.')
+			expect(added.map((item) => item.title)).toEqual(["Couldn't save."])
+			expect(closed).toEqual([])
+			leave(error)
+			expect(added.map((item) => item.title)).toEqual(["Couldn't save.", 'Copied.'])
+		})
+
+		it('queues a second error behind the first and ahead of info', () => {
+			const hub = createToastHub()
+			const { sink, added, leave } = recordingSink()
+			hub.register(sink)
+			const first = hub.notify('First problem.', { tone: 'error' })
+			hub.notify('Copied.')
+			hub.notify('Second problem.', { tone: 'error' })
+			expect(added).toHaveLength(1)
+			leave(first)
+			expect(added.map((item) => item.title)).toEqual(['First problem.', 'Second problem.'])
+			leave(added[1]?.id ?? '')
+			expect(added.map((item) => item.title)).toEqual([
+				'First problem.',
+				'Second problem.',
+				'Copied.',
+			])
+		})
+
+		it('keeps only the newest of several waiting info notices', () => {
+			const hub = createToastHub()
+			const { sink, added, leave } = recordingSink()
+			hub.register(sink)
+			const error = hub.notify('Problem.', { tone: 'error' })
+			hub.notify('one')
+			hub.notify('two')
+			leave(error)
+			expect(added.map((item) => item.title)).toEqual(['Problem.', 'two'])
+		})
+
+		it('shows an error at once over an info notice', () => {
+			const hub = createToastHub()
+			const { sink, added, closed } = recordingSink()
+			hub.register(sink)
+			const info = hub.notify('Copied.')
+			hub.notify('Problem.', { tone: 'error' })
+			expect(closed).toEqual([info])
+			expect(added.map((item) => item.title)).toEqual(['Copied.', 'Problem.'])
+		})
+
+		it('does not repeat the same words, on screen or waiting', () => {
+			const hub = createToastHub()
+			const { sink, added, leave } = recordingSink()
+			hub.register(sink)
+			const first = hub.notify('Problem.', { tone: 'error' })
+			expect(hub.notify('Problem.', { tone: 'error' })).toBe(first)
+			hub.notify('Other problem.', { tone: 'error' })
+			hub.notify('Other problem.', { tone: 'error' })
+			leave(first)
+			leave(added[1]?.id ?? '')
+			expect(added.map((item) => item.title)).toEqual(['Problem.', 'Other problem.'])
+		})
+
+		it('lets a dismissed waiting notice go', () => {
+			const hub = createToastHub()
+			const { sink, added, leave } = recordingSink()
+			hub.register(sink)
+			const error = hub.notify('Problem.', { tone: 'error' })
+			const info = hub.notify('Copied.')
+			hub.dismiss(info)
+			leave(error)
+			expect(added.map((item) => item.title)).toEqual(['Problem.'])
+		})
+	})
+
 	it('maps tone to type, priority and lifetime', () => {
 		const hub = createToastHub()
-		const { sink, added } = recordingSink()
+		const { sink, added, leave } = recordingSink()
 		hub.register(sink)
 		hub.notify('Saved.')
-		hub.notify('Could not copy.', { tone: 'error' })
+		const error = hub.notify('Could not copy.', { tone: 'error' })
 		hub.notify('Check this.', { tone: 'warning', timeoutMs: 0 })
+		leave(error)
 		expect(added.map((item) => [item.title, item.type, item.priority, item.timeout])).toEqual([
 			['Saved.', 'neutral', 'low', 4000],
 			['Could not copy.', 'error', 'high', 8000],

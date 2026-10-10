@@ -400,3 +400,28 @@ export async function pickOfferedPalModel({
 	}
 	return undefined
 }
+
+/**
+ * Why the model chip has nothing to name, in words a person can act on. The chip never reads
+ * "Not available" without this beside it.
+ */
+export function chipUnavailableReason({
+	engineName,
+	providerLabel,
+	connected,
+	catalogue,
+}: {
+	engineName: string
+	/** The provider the conversation points at, when it has one. */
+	providerLabel?: string
+	/** Whether that provider is among the connected ones. */
+	connected: boolean
+	catalogue: 'idle' | 'loading' | 'error' | 'ready'
+}): string {
+	if (providerLabel && !connected)
+		return `${providerLabel} isn’t connected. Connect it in Settings.`
+	if (catalogue === 'error')
+		return `${providerLabel ?? engineName} didn’t send its models. Open this to choose another model or engine.`
+	if (catalogue === 'ready') return 'This engine offers no models right now.'
+	return `${engineName} isn’t answering yet. Open this to choose another engine.`
+}

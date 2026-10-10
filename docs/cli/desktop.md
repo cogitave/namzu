@@ -665,7 +665,8 @@ What it holds, and where each value lives (one source of truth per value):
   check that could not finish names its cause: one note above the list, "Namzu can't reach the update server. Check your internet connection, then choose Check for updates.", with each installed program reading "Could not check", or
   "*name* didn't answer when asked for its version". And
   *Download updates automatically* (default on; not drawn where the app cannot update itself).
-- **Speech** — what the voice does and its size before the download; after it the voice status,
+- **Speech** — its subtitle says what the voice does, so the section itself says only the language
+  ("Available in Turkish for now.") and the size before the download; after it the voice status,
   Preview, Remove and the existing options (see [Local Turkish speech](#local-turkish-speech)).
 - **About** — "Namzu Desktop", "Namzu command line (bundled with this app)" and "Namzu engine"
   versions (read from the `package.json` files beside the bundled runtime; unreadable ones read "Not
@@ -762,8 +763,9 @@ details, and the details text opens under the row on the sentence's left edge. T
 conversation has no token limit of its own (the ACP session is opened without `limits`), so after a
 5xx the stopped request is recorded as unknown usage and **Retry** sends a new request in the
 same conversation; **Details** then reads "OpenAI: the provider failed to complete the request (502
-Bad Gateway)", a labelled "Request ID: …" when the vendor sent one, and "The provider did not report
-how much this reply used." (one line however many attempts the driver made). Details say each thing
+Bad Gateway)", a labelled "Request ID: …" when the vendor sent one, a labelled vendor project ("OpenAI project: proj_…"; a 403
+reads "access was refused", never the runtime's own sentence about credentials), and "No usage was
+reported for the failed attempts." (one line however many attempts the driver made). Details say each thing
 once: a repeated HTML title, "(no body)" and a duplicated status are dropped, and token counts are
 grouped ("131,452"). The status comes from `namzu/sessions/retry-status` as
 `{ retry, unknownUsage: <count> }`. A Pal conversation shows the same provider wait line and countdown
@@ -835,7 +837,7 @@ reopens the host once by itself ("Namzu lost its connection. Reconnecting…"). 
 notice reads "Namzu couldn't reconnect. Your conversation is safe." with **Reconnect**. When the
 connection is back the line that said it was lost (the failure shown for a turn the crash cut short,
 and the banner's stale error) is cleared; a failed *first* open still shows the old full-pane
-"Couldn't open this folder" with **Try again**.
+"Couldn’t open this folder" with **Try again**.
 
 **An engine that cannot start.** When Codex or `claude-code` does not answer, the banner names the
 engine ("… could not start. Check that it is installed on this computer and that you are signed in to it,
@@ -1558,7 +1560,7 @@ installed" once. An engine that is installed but signed out fails with its own e
 needs you to sign in with its own account."); the banner then adds "Sign in to Codex in a terminal
 first" with the command to run (`codex login`; the second engine asks on its first run),
 **Copy**, **Open terminal** (a shell tab in the project) and **Retry setup**, and the model trigger
-reads "Sign in to Codex" (or "Not available" when the cause is not a missing account) instead of staying a grey bar. When the engine is not Namzu, the
+reads "Sign in to Codex" (or "Not available" when the cause is not a missing account) instead of staying a grey bar. "Not available" always carries its reason in the tooltip and the accessible name ("OpenAI isn’t connected. Connect it in Settings.", "This engine offers no models right now.", or that the list did not arrive). When the engine is not Namzu, the
 model trigger shows its small icon before the model name.
 
 The popup keeps one width in all three views (effort, models, engine), so a step never changes its
@@ -1568,7 +1570,7 @@ what the side in force means ("Desktop: you chat with this engine in this window
 opens this engine in a terminal tab."). The provider column's icons carry their name as a tooltip
 and as their accessible name.
 
-The model list is compact: 30px rows, 11px group headings, and a height of at most 60% of the window, scrolling inside. Its heading carries the engine chip and, on a long list, a search button (or the `/` key); there is no refresh button, no Retry button and no "Use a model ID" row. Opening the list re-reads a catalogue that failed or has gone stale (older than two minutes) once in the background, showing the last good list meanwhile; if that read fails the list shows one muted line, "Couldn't load the model list. It will try again next time you open this." The list ends with the models; it has no "Current model" section for a model outside the visible list. The provider column marks the provider in use with a small dot, whichever provider's tab is open. GPT names written "GPT-5.6-Sol" by an API provider's catalogue read "GPT-5.6 Sol", as Codex rows do; ids are unchanged. A Zen list shows its free models under a "Free" heading and the models with a stated non-zero price under an "API key" heading (a model with no published price follows under "Other models"); each catalogue row carries an optional `group: 'free' | 'key'`, set for Zen only and stored with the row in `model-lists.json` (an older stored row without it still reads). The headings use the 11px group-heading style, are not rows (arrow keys skip them), are read out as part of each row's name, and appear only when the list holds both groups: a list with only free models shows none, and one with only key models keeps the per-row "(API key)" note. Search keeps a heading only while a row under it still matches.
+The model list is compact: 30px rows, 11px group headings, and a height of at most 60% of the window, scrolling inside. Its heading carries the engine chip and, on a long list, a search button (or the `/` key); there is no refresh button, no Retry button and no "Use a model ID" row. Opening the list re-reads a catalogue that failed or has gone stale (older than two minutes) once in the background, showing the last good list meanwhile; if that read fails the list shows one muted line, "Couldn’t load the model list. It will try again next time you open this." The list ends with the models; it has no "Current model" section for a model outside the visible list. The provider column marks the provider in use with a small dot, whichever provider's tab is open. GPT names written "GPT-5.6-Sol" by an API provider's catalogue read "GPT-5.6 Sol", as Codex rows do; ids are unchanged. A Zen list shows its free models under a "Free" heading and the models with a stated non-zero price under an "API key" heading (a model with no published price follows under "Other models"); each catalogue row carries an optional `group: 'free' | 'key'`, set for Zen only and stored with the row in `model-lists.json` (an older stored row without it still reads). The headings use the 11px group-heading style, are not rows (arrow keys skip them), are read out as part of each row's name, and appear only when the list holds both groups: a list with only free models shows none, and one with only key models keeps the per-row "(API key)" note. Search keeps a heading only while a row under it still matches.
 
 Starting an engine is cheap to the person and cheap to the machine. Choosing Codex or the second external engine in the engine view never waits for the engine to answer: the host starts reading its models in the background and the choice is acknowledged at once. While an engine process is actually being waited for (a build never read before, so no stored list can be shown) the model trigger reads **Starting Codex…** (or the second engine's name in the same form), with the seconds waited (`Starting Codex… 3s`) once it takes a second, instead of a blank or the previous model; it is announced as "Model, Starting Codex". A stored list shows at once and is revalidated in the background, so nothing is shown while it is. Behind that the CLI host spawns the engine's executable once per use: the Codex app-server that listed the models stays running (closed after two idle minutes, and when the connection closes) and the conversation's first message takes it over, so opening the picker, choosing the engine and sending a message start one process, not two or three. A model list read less than ten minutes ago is served from memory; an older one, or one read in the previous run, is read again in the background, and the last good list of each installed build is kept in `engine-models.json` in the CLI home so a later launch names the default model without waiting. A model the person chose that an older list lacks is looked for once more in a list read now before it is refused.
 
@@ -1578,8 +1580,8 @@ The filled effort track is a WebGL2 ordered-dither surface in the accent ramp (d
 
 Pasting keeps text: when the clipboard carries text, the text is inserted and any
 accompanying image rendering is ignored. Files alone are attached when attaching is
-allowed; otherwise the composer says "Files can't be attached here." or, for an
-engine without attachment support, "This engine doesn't take attachments yet."
+allowed; otherwise the composer says "Files can’t be attached here." or, for an
+engine without attachment support, "This engine doesn’t take attachments yet."
 Attached files stay removable on such an engine, but Send is disabled with "Remove
 attachments to send with this engine." Removing a chip moves focus to the next chip,
 else the previous one, else the editor, and a button-initiated Send returns focus to
@@ -1616,7 +1618,10 @@ sent with `notify(text, { action?, tone?, timeoutMs? })` from `renderer/notify.t
 which any code path can call. The tone is `neutral`, `success`, `warning` or `error`;
 an error is announced assertively and the others politely. A toast lasts 4 seconds, 6
 for a warning, 8 with an action or for an error, and `timeoutMs: 0` keeps it until it is
-dismissed. One shows at a time: a newer notice replaces the one on screen, and archiving
+dismissed. One shows at a time: a newer notice replaces the one on screen, unless that one is an
+error, which is never closed by a newer notice before it has gone: the newer notice waits its turn
+(errors wait ahead of the rest, only the newest of the others waits, and the same words are never
+shown twice). Archiving
 several conversations in a row merges into one notice, "3 conversations archived", whose one
 **Undo** restores all of them. `notify` also takes `tooltip` (the full text a sentence
 shortened). Hovering or focusing the toast pauses its timer; reduced motion removes the
@@ -2129,7 +2134,7 @@ terminal route, `namzu pal dispatch`, is developer detail and is not shown. Afte
 *name*'s messages**, which opens that Pal's settings on **Messages**. It offers the usual Reject, Edit and Accept
 only: there is no "allow for this conversation" choice. The action row reads
 **Messaging *name*** while it runs and **Messaged *name*** once accepted, with the
-hover text **Sent to inbox**; a failure reads "Couldn't message *name*" and a No
+hover text **Sent to inbox**; a failure reads "Couldn’t message *name*" and a No
 reads "Declined message to *name*". The name comes from the tool's own call and
 receipt labels, which a reload keeps, so a reloaded conversation keeps the wording.
 A Pal's own `send_pal_message` row, which names no Pal, is unchanged. The Pal's
@@ -2444,10 +2449,10 @@ rows inside the same run.
 | Action | Row | On hover or focus | On click |
 | --- | --- | --- | --- |
 | Command | Running *command*, Ran *command*, then ` · failed (exit 3)`, ` · timed out` or ` · stopped` when it did not succeed (the first line of the command, 60 characters at most, ending in …) | the whole command | opens its output |
-| Edit | Editing, Edited, Updated, Created or Deleted *name* with the lines added and removed (`+2 −1`); Waiting to edit; Couldn't change | the full path | the Changes panel on that file for that reply |
+| Edit | Editing, Edited, Updated, Created or Deleted *name* with the lines added and removed (`+2 −1`); Waiting to edit; Couldn’t change | the full path | the Changes panel on that file for that reply |
 | Read | Reading, Read *name*; ` · Binary file, 4 KB` for a file that is not text | the full path | the file in a tab |
 | Search | Searched for *pattern* · 2 matches in 2 files; Listed *pattern* · 5 files (` in src` for a folder other than the project's, ", more not shown" when the tool stopped early) | the whole text, "in this folder" for the project's own | nothing; the counts are the answer |
-| Failure | Couldn't read *name*: file not found; Blocked: this command needs administrator rights; Blocked: this command isn't allowed; Namzu tried a tool it doesn't have (*name*); Couldn't change *name*: it already exists | the full path or the command | nothing |
+| Failure | Couldn’t read *name*: file not found; Blocked: this command needs administrator rights; Blocked: this command isn’t allowed; Namzu tried a tool it doesn’t have (*name*); Couldn’t change *name*: it already exists | the full path or the command | nothing |
 
 Every word of these rows comes from typed fields the tools report beside their text, never from the text itself.
 `ToolResult.facts` (see [Tool execution](../sdk/tool-execution.md#what-a-call-did-as-fields)) carries the exit code and
@@ -2762,7 +2767,8 @@ check on the one in front, and says how many are out of sight (a small number be
 chevron, "Show all tabs (3 hidden)" for a screen reader). The divider before the first tab in view
 is dropped so none hangs at the strip's edge. A Pal has one tab: opening its newest conversation (**Open
 *name*** under a message sent to it, or its row in the sidebar) replaces an older tab of the same
-Pal instead of adding a second one beside it. A caret beside **+** ("More ways to add a tab") opens the same menu as the
+Pal instead of adding a second one beside it, unless that older tab holds an unsent draft or
+attachments (or cannot be read), in which case it stays open so nothing the person wrote is lost. A caret beside **+** ("More ways to add a tab") opens the same menu as the
 right-click on **+**. The menu of a terminal tab also offers **New terminal to the right** and **New
 terminal below**. When a split needs more room than the pane has, the docked sidebar closes first
 (remembered, like the toggle) and, if even that is not enough, the window says it is too narrow; the page
@@ -2956,7 +2962,7 @@ A new protocol session alone never grants trust. Cancel keeps the folder
 untrusted, with an explicit action to review access again. Folder trust is
 separate from the selected conversation's tool permissions and execution engine.
 The composer project menu searches existing ordinary projects by name or path;
-Don't work in a project opens the app-owned ordinary chat context. Neither
+Don’t work in a project opens the app-owned ordinary chat context. Neither
 project navigation nor opening the permission menu grants folder access.
 
 Choose a saved conversation, or type directly in the selected project’s blank

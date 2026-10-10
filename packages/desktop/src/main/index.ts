@@ -302,6 +302,23 @@ const operator = new Operator(
 				})
 			}
 		}
+		// A project whose folder is gone restores its unnamed conversations as one tab, not a row of
+		// identical ones. The conversations and their drafts stay.
+		if (event.kind === 'connection' && event.project.missing) {
+			try {
+				const layout = workspace.snapshot()
+				const extra = operator
+					.untitledConversationIds(event.project.id)
+					.filter((id) => locateWorkspaceTab(layout, id))
+					.slice(1)
+				if (extra.length > 0) {
+					workspace.retireTabs(extra)
+					discardAbortedWindows()
+				}
+			} catch (error) {
+				diagnostics.record('ipc_failed', { operation: 'workspaceAction', error })
+			}
+		}
 		// A folder that is no longer trusted keeps no running terminal.
 		const untrusted =
 			event.kind === 'connection' && !event.project.trusted ? event.project.id : undefined

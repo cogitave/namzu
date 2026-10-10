@@ -89,9 +89,9 @@ const KEY_PROBLEM = /api key|invalid[_ ]key|unauthori[sz]ed|authentication/i
 
 const PROVIDER_FAILURE = /^([a-z0-9][a-z0-9-]*)(?: \(HTTP (\d{3})\))? — ([^:]+?)(?:: ([\s\S]*))?$/i
 
-/** What Details says about usage the provider never reported. One send is one reply, however often it was retried. */
+/** What Details says about usage nobody reported for a request that failed. One send is one reply, however often it was retried. */
 export function unknownUsageDetail(): string {
-	return 'The provider did not report how much this reply used.'
+	return 'No usage was reported for the failed attempts.'
 }
 export const UNKNOWN_USAGE_DETAIL = unknownUsageDetail()
 
@@ -115,6 +115,11 @@ function groupNumbers(text: string): string {
 
 const REQUEST_ID =
 	/,?\s*["']?\b(?:cf[- ]?)?(?:ray id|request[ _-]?id)["']?\s*[:=]?\s*["']?([A-Za-z0-9_-]{8,})["']?/i
+const PROJECT_ID = /\bproj_[A-Za-z0-9]{4,}\b/
+/** The runtime's own wording for a kind of failure, as a person reads it in Details. */
+const DETAIL_SENTENCE: Record<string, string> = {
+	'the provider rejected the request credentials': 'access was refused',
+}
 const REQUEST_TOKEN = /\breq_[A-Za-z0-9]{8,}\b/
 
 /**
@@ -127,7 +132,11 @@ function plainProviderDetails(raw: string): string[] {
 	const name = providerName(matched[1]?.toLowerCase())
 	let answer = sanitizeDetails(matched[4] ?? '')
 	const requestId = REQUEST_ID.exec(answer)?.[1] ?? REQUEST_TOKEN.exec(answer)?.[0]
+	const projectId = PROJECT_ID.exec(answer)?.[0]
 	answer = answer
+		.replace(/\b(?:project\s+)?proj_[A-Za-z0-9]{4,}\b/gi, (hit) =>
+			/^project/i.test(hit) ? 'Your project' : 'your project',
+		)
 		.replace(REQUEST_ID, ' ')
 		.replace(REQUEST_TOKEN, ' ')
 		.replace(/\b(?:cloudflare|nginx(?:\/[\d.]+)?)\b/gi, ' ')
@@ -138,11 +147,16 @@ function plainProviderDetails(raw: string): string[] {
 		.trim()
 	answer = groupNumbers(collapseRepeats(answer))
 	const status = matched[2] && !answer.startsWith(matched[2]) ? `${matched[2]} ` : ''
-	const sentence = (matched[3] ?? '').trim().replace(/\.$/, '')
+	const rawSentence = (matched[3] ?? '').trim().replace(/\.$/, '')
+	const sentence = DETAIL_SENTENCE[rawSentence.toLowerCase()] ?? rawSentence
 	const head = `${name}: ${sentence}${answer || status.trim() ? ` (${status}${answer})` : ''}`
 		.replace(/\(\s+/g, '(')
 		.replace(/\s+\)/g, ')')
-	return requestId ? [head, `Request ID: ${requestId}`] : [head]
+	return [
+		head,
+		...(projectId ? [`${name} project: ${projectId}`] : []),
+		...(requestId ? [`Request ID: ${requestId}`] : []),
+	]
 }
 
 /** Add what is unknown about usage to the details a failure already carries. */

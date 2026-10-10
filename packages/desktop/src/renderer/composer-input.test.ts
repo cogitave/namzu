@@ -23,11 +23,11 @@ it('imports files when the clipboard has no text', () => {
 it('says why files were refused instead of swallowing them', () => {
 	expect(decidePaste({ ...base, fileCount: 1, importDisabled: true })).toEqual({
 		action: 'notice',
-		notice: "Files can't be attached here.",
+		notice: 'Files can’t be attached here.',
 	})
 	expect(
 		decidePaste({ ...base, fileCount: 1, importDisabled: true, attachmentsSupported: false }),
-	).toEqual({ action: 'notice', notice: "This engine doesn't take attachments yet." })
+	).toEqual({ action: 'notice', notice: 'This engine doesn’t take attachments yet.' })
 })
 
 it('explains in the Stop tooltip why Queue is off', () => {
@@ -37,7 +37,7 @@ it('explains in the Stop tooltip why Queue is off', () => {
 	expect(stopTooltip({ ...open, queueDisabled: true, attachmentsStranded: true })).toContain(
 		'remove the attachments',
 	)
-	expect(stopTooltip({ ...open, liveInputSupported: false })).toContain("can't take a new message")
+	expect(stopTooltip({ ...open, liveInputSupported: false })).toContain('can’t take a new message')
 	expect(stopTooltip({ ...open, waitingOnPerson: true, queueDisabled: true })).toContain(
 		'action waiting for you will not run',
 	)

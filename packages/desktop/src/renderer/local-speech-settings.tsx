@@ -62,7 +62,10 @@ export function LocalSpeechSettingsContent({
 				<span className="local-speech-badge">On this device</span>
 			</header>
 			<p className="local-speech-help">
-				Reads replies aloud in Turkish. The voice runs on this device, so nothing is sent away.
+				{embedded
+					? // The page subtitle already says it reads replies aloud on this computer.
+						'Available in Turkish for now.'
+					: 'Reads replies aloud in Turkish. The voice runs on this device, so nothing is sent away.'}
 			</p>
 			{!speech.supported ? (
 				<p className="local-speech-notice">Local speech is unavailable in this app.</p>
