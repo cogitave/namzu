@@ -1819,7 +1819,7 @@ export async function runAcpCommand(ctx: CommandContext, desktop = false): Promi
 
 export const acpCommand: CommandDef = {
 	name: 'acp',
-	description: "Speak the agent-client protocol over this process's stdio",
+	description: 'Speak the agent-client protocol over this process’s stdio',
 	passThrough: true,
 	help: 'Usage: namzu acp [--desktop]\nSpeak ACP over stdio. --desktop enables scoped operator methods for the Namzu desktop application.',
 	handler: async ({ ctx, rawArgs }) => {

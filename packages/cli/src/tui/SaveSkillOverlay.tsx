@@ -17,8 +17,8 @@ import {
 	type SkillSaveTarget,
 	describeCollision,
 } from '../skills/save.js'
-import { terminalDisplayText } from './terminal-display.js'
 import { truncateChoiceText } from './terminal-choice-text.js'
+import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
 
 export interface SaveSkillOverlayProps {
@@ -81,7 +81,7 @@ export function SaveSkillOverlay({ request, cwd, columns, rows, onAnswer }: Save
 	const [offset, setOffset] = useState(0)
 
 	const header = [
-		`Save skill "${request.draft.name}"? PROPOSED BY THE MODEL — a skill is read by every later session that loads it.`,
+		`Save skill "${request.draft.name}"? PROPOSED BY THE MODEL — a skill is read by every later conversation that loads it.`,
 		`Origin ${request.draft.origin}${request.sessionId ? ` · session ${request.sessionId}` : ''}`,
 		...targetLines(request.targets.user, cwd, request.suggested === 'user'),
 		...targetLines(request.targets.project, cwd, request.suggested === 'project'),

@@ -3,12 +3,12 @@
 import { InMemoryTaskStore, type Message, generateSessionId } from '@namzu/sdk'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import type { Preferences } from '../../integrations/providers/index.js'
-import type { AgentEvent, AgentSession } from '../agent.js'
 import type { LivePeersOptions, PeerMail } from '../../integrations/peers/runtime.js'
+import type { Preferences } from '../../integrations/providers/index.js'
+import { genericPresenter } from '../__fixtures__/generic-presenter.js'
+import type { AgentEvent, AgentSession } from '../agent.js'
 import type { TuiContext } from '../types.js'
 import { renderToScreen } from './support/screen.js'
-import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 
 const PREFS: Preferences = {
 	version: 3,

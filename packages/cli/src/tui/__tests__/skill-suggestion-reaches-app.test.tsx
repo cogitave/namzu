@@ -13,10 +13,10 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import type { Preferences } from '../../integrations/providers/index.js'
+import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 import type { AgentEvent, AgentSession } from '../agent.js'
 import { readSuggestionLedger } from '../skills/suggestion-ledger.js'
 import type { TuiContext } from '../types.js'
-import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 
 const PREFS: Preferences = { version: 3, providers: [{ id: 'openai' }], subagents: { active: [] } }
 
@@ -35,7 +35,7 @@ vi.mock('../../user-commands/store.js', () => ({ discoverUserCommands: () => [] 
 
 /** Seven successful steps across four tools, one of which writes. */
 function* multiStepTurn(n: number): Generator<AgentEvent> {
-	const calls: Array<[string, boolean]> = [
+	const calls: [string, boolean][] = [
 		['glob', true],
 		['grep', true],
 		['read', true],
@@ -135,7 +135,10 @@ afterEach(() => {
 
 const plain = (text: string) =>
 	// biome-ignore lint/suspicious/noControlCharactersInRegex: strips terminal colour codes.
-	text.replace(/\u001b\[[0-9;]*m/g, '').replace(/\s+/g, ' ')
+	text
+		// biome-ignore lint/suspicious/noControlCharactersInRegex: matches the escape character that starts a terminal control sequence, on purpose.
+		.replace(/\u001b\[[0-9;]*m/g, '')
+		.replace(/\s+/g, ' ')
 const PROPOSAL = 'Save it as a reusable skill?'
 
 async function until(check: () => boolean, why: string): Promise<void> {

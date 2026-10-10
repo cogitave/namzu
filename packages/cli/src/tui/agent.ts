@@ -6,7 +6,12 @@ import {
 	webSearchLabel,
 } from '../integrations/web/search.js'
 import { explainFailure } from './plain-failure.js'
-import { tidyTerminalOutput, unknownToolNotice } from './tidy-tool-output.js'
+import {
+	failureFactsLine,
+	tidyCommandOutput,
+	tidyTerminalOutput,
+	unknownToolNotice,
+} from './tidy-tool-output.js'
 import {
 	type WebActivity,
 	countListedResults,
@@ -443,6 +448,12 @@ export type AgentEvent =
 			 * needs.
 			 */
 			readonly resultLabel?: string
+			/**
+			 * The person answered No to this call at review, so it never ran. `note`
+			 * is what they said, in their own words. The model's refusal text is not
+			 * shown for it.
+			 */
+			readonly declined?: { readonly note?: string }
 			/**
 			 * The person declined on the tool's own screen: the call did not
 			 * succeed, and nothing failed. Drawn neutrally with `resultLabel`.
@@ -1572,7 +1583,7 @@ function credentialGap(
 		entry.id === 'zen' &&
 		primary.model !== undefined &&
 		!requiresCredentialForModel(entry, entry.defaultModel)
-			? `No credential found for saved Zen model "${primary.model}". Select Zen's experimental free models, such as Space Bunny Free (${entry.defaultModel}), to try without a key. OpenCode installation is recommended; Namzu sends requests directly, and the gateway may refuse them. Press "k" to enter a Zen API key and try the saved model.`
+			? `No credential found for saved Zen model "${primary.model}". Select Zen’s experimental free models, such as Space Bunny Free (${entry.defaultModel}), to try without a key. OpenCode installation is recommended; Namzu sends requests directly, and the gateway may refuse them. Press "k" to enter a Zen API key and try the saved model.`
 			: missingCredentialMessage(entry)
 	return { providerId: primary.id, reason }
 }
@@ -2262,12 +2273,12 @@ export async function createAgentSession(
 		const credential = readCodexCredentialFile(borrowedCodexPath)
 		if (!credential) {
 			throw new CredentialWithdrawnError(
-				'The Codex session Namzu borrowed is no longer available. Run `codex login` or choose another provider.',
+				'The Codex sign-in Namzu borrowed is no longer available. Run `codex login` or choose another provider.',
 			)
 		}
 		if (credential.expiresAt !== undefined && credential.expiresAt - Date.now() <= 60_000) {
 			throw new CredentialWithdrawnError(
-				'The Codex session on this device has expired. Run `codex login` to let its owner refresh the session, then retry in Namzu.',
+				'The Codex sign-in on this computer has expired. Run `codex login` to refresh it, then retry in Namzu.',
 			)
 		}
 		if (credential.accessToken === currentToken && credential.accountId === currentCodexAccount) {
@@ -2297,12 +2308,12 @@ export async function createAgentSession(
 		const credential = readSubscriptionCredential(credentialOrigin, credentialPath)
 		if (!credential) {
 			throw new CredentialWithdrawnError(
-				'The Claude session Namzu borrowed is no longer available. Run `claude login` or choose another provider.',
+				'The Claude sign-in Namzu borrowed is no longer available. Run `claude login` or choose another provider.',
 			)
 		}
 		if (credential.expiresAt !== undefined && credential.expiresAt - Date.now() <= 60_000) {
 			throw new CredentialWithdrawnError(
-				'The Claude session on this device has expired. Run `claude login` to let its owner refresh the session, then retry in Namzu.',
+				'The Claude sign-in on this computer has expired. Run `claude login` to refresh it, then retry in Namzu.',
 			)
 		}
 		if (credential.accessToken === currentToken) return
@@ -3532,7 +3543,7 @@ export async function createAgentSession(
 		const found = findDetected(detected, providerId)
 		if (!found)
 			throw new Error(
-				`the turn runs on ${pin.provider}${pin.model ? `/${pin.model}` : ''} and this session has no credential for ${pin.provider}`,
+				`the reply runs on ${pin.provider}${pin.model ? `/${pin.model}` : ''} and this conversation has no credential for ${pin.provider}`,
 			)
 		const pinnedModel = pin.model ?? found.entry.defaultModel
 		await ensureRegistered(providerId)
@@ -6006,11 +6017,22 @@ export function toAgentEvent(
 					},
 				)
 			// Command output is cleaned for display only; `output` below stays verbatim.
-			const tidy = presented.kind === 'terminal' ? tidyTerminalOutput(presented.output) : undefined
+			// A kernel that reported typed facts is read from them; a conversation
+			// saved before facts existed keeps the text-based fallback.
+			const tidy =
+				presented.kind === 'terminal'
+					? event.facts?.kind === 'command'
+						? tidyCommandOutput(event.facts, presented.output)
+						: tidyTerminalOutput(presented.output)
+					: undefined
 			const view =
 				presented.kind === 'terminal' && tidy ? { ...presented, output: tidy.output } : presented
 			const unknownTool = event.isError ? unknownToolNotice(event.result) : undefined
-			const detail = unknownTool ? undefined : viewToLines(view)
+			const declined = view.kind === 'generic' && view.declined !== undefined
+			// A refusal or failure the kernel classed says so in a sentence of its own.
+			const classed =
+				event.isError && event.facts?.kind === 'failure' ? failureFactsLine(event.facts) : undefined
+			const detail = unknownTool || declined || classed ? undefined : viewToLines(view)
 			// The first line is the summary row. It leaves the body only when
 			// the row says all of it: a shortened summary cannot replace the
 			// first line's evidence in expanded or raw output. A first line
@@ -6025,7 +6047,7 @@ export function toAgentEvent(
 				unknownTool ?? (first !== undefined ? resultSummaryLine(first) : firstLine(event.result))
 			// A plain failure line replaces the summary row, so the first output
 			// line is no longer said above and stays in the body.
-			const plainFailure = unknownTool ?? tidy?.failure
+			const plainFailure = unknownTool ?? classed ?? tidy?.failure
 			const withoutRepeatedSummary =
 				plainFailure === undefined &&
 				first !== undefined &&
@@ -6047,6 +6069,7 @@ export function toAgentEvent(
 				...(event.isError && view.kind === 'generic' && view.outcome === 'cancelled'
 					? { cancelled: true }
 					: {}),
+				...(view.kind === 'generic' && view.declined ? { declined: view.declined } : {}),
 				...(view.kind === 'generic' && view.label.length > 0 ? { resultLabel: view.label } : {}),
 				...(withoutRepeatedSummary && withoutRepeatedSummary.length > 0
 					? { detail: withoutRepeatedSummary }
@@ -6286,7 +6309,7 @@ function describeCompactionFailure(event: {
  * the logs use.
  */
 const FALLBACK_REASONS: Readonly<Record<string, string>> = {
-	rate_limit: 'it rate limited this turn and the retries did not clear it',
+	rate_limit: 'it rate limited this reply and the retries did not clear it',
 	overloaded: 'it was overloaded and the retries did not clear it',
 	server_error: 'it kept failing and the retries did not clear it',
 	timeout: 'it did not answer in time',
@@ -6322,7 +6345,7 @@ function describeFallback(event: {
 	return (
 		`Provider chain: ${name(event.fromIndex, event.fromProviderId, event.fromModel)} — could not serve:` +
 		`${status} ${why} (${event.code}). ` +
-		`${name(event.toIndex, event.toProviderId, event.toModel)} — is serving the rest of this turn.`
+		`${name(event.toIndex, event.toProviderId, event.toModel)} — is serving the rest of this reply.`
 	)
 }
 

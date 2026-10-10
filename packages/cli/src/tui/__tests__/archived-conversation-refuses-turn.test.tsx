@@ -4,9 +4,9 @@ import { render } from 'ink-testing-library'
 import { afterEach, expect, it, vi } from 'vitest'
 
 import type { Preferences } from '../../integrations/providers/index.js'
+import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 import type { AgentEvent, AgentSession } from '../agent.js'
 import type { TuiContext } from '../types.js'
-import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 
 const PREFS: Preferences = {
 	version: 3,
@@ -113,7 +113,10 @@ it('refuses before provider work or persistence instead of reviving the conversa
 	await tick()
 	harness.stdin.write('\r')
 	const refusedBy = Date.now() + 4_000
-	while (!(harness.lastFrame() ?? '').includes('Your message was not sent') && Date.now() < refusedBy) {
+	while (
+		!(harness.lastFrame() ?? '').includes('Your message was not sent') &&
+		Date.now() < refusedBy
+	) {
 		await tick()
 	}
 

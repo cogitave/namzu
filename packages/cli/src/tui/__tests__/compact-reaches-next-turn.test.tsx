@@ -12,15 +12,15 @@
  * `session.send` and to conversation persistence.
  */
 
-import { createSystemMessage, type Message, type TurnId } from '@namzu/sdk'
+import { type Message, type TurnId, createSystemMessage } from '@namzu/sdk'
 import { render } from 'ink-testing-library'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import type { Preferences } from '../../integrations/providers/index.js'
+import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 import type { AgentEvent, AgentSession } from '../agent.js'
 import type { TuiContext } from '../types.js'
 import { type Screen, renderToScreen } from './support/screen.js'
-import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 
 const PREFS: Preferences = { version: 3, providers: [{ id: 'openai' }], subagents: { active: [] } }
 const SUMMARY_TEXT = 'SUMMARY_ONLY_FROM_COMPACTION'
@@ -29,7 +29,8 @@ const PERSISTED_SUMMARY_TEXT =
 const sent: Message[][] = []
 const replacements: Message[][] = []
 const recorded: Message[] = []
-let mentionExpansion: { readonly sendText: string; readonly attached: readonly string[] } | null = null
+let mentionExpansion: { readonly sendText: string; readonly attached: readonly string[] } | null =
+	null
 let loadedConversation: Message[] = []
 let recentConversations: Array<{
 	id: string
@@ -356,7 +357,7 @@ it('restores a persisted compaction summary as model history', async () => {
 	await frameShows(harness, 'Resume a conversation')
 	harness.stdin.write('\r')
 	await frameShows(harness, 'Resumed: A compacted conversation')
-	await frameShows(harness, 'Earlier turns are represented by the compacted summary below.')
+	await frameShows(harness, 'Earlier replies are summarised below.')
 
 	await submit(harness, 'question after resume')
 	await frameShows(harness, 'answer-1')
@@ -432,7 +433,9 @@ it('keeps footer telemetry quiet when compaction has nothing to replace', async 
 	await submitToScreen(screen, 'short conversation')
 	await waitForScreen(screen, () => fullScreen(screen).includes('answer-1'))
 	await submitToScreen(screen, '/compact')
-	await waitForScreen(screen, () => fullScreen(screen).includes('adding a summary would save no messages'))
+	await waitForScreen(screen, () =>
+		fullScreen(screen).includes('adding a summary would save no messages'),
+	)
 
 	expect(visibleScreen(screen)).not.toContain('95%')
 	expect(replaceEntered).toBe(0)
@@ -500,7 +503,8 @@ it('keeps the live history unchanged when its durable replacement fails', async 
 })
 
 it('persists and reuses the model-visible form of a file mention', async () => {
-	const expanded = 'inspect @note.txt\n\n<file path="note.txt">\nBODY_ONLY_IN_MODEL_HISTORY\n</file>'
+	const expanded =
+		'inspect @note.txt\n\n<file path="note.txt">\nBODY_ONLY_IN_MODEL_HISTORY\n</file>'
 	mentionExpansion = { sendText: expanded, attached: ['note.txt'] }
 	const harness = render(<App ctx={ctx} />)
 	mounted.push(harness)
@@ -531,6 +535,8 @@ it('refuses to compact a turn that is still producing its next message', async (
 	await submit(harness, '/compact')
 	await tick(80)
 
-	expect(compactCalls, 'the running conversation was summarized from an incomplete snapshot').toBe(0)
-	await frameShows(harness, 'A turn is still running')
+	expect(compactCalls, 'the running conversation was summarized from an incomplete snapshot').toBe(
+		0,
+	)
+	await frameShows(harness, 'A reply is still running')
 })

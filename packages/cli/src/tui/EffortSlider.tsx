@@ -30,7 +30,8 @@ export const EFFORT_SLIDER_MIN_COLUMNS = 60
 
 const SIDE_MARGIN = 2
 const SEPARATOR = '┆'
-const WARNING = 'Spends the most tokens and time; use it for work that splits into independent parts.'
+const WARNING =
+	'Spends the most tokens and time; use it for work that splits into independent parts.'
 
 export interface EffortSliderLayout {
 	/** Column each stop's label starts at, relative to the slider's left edge. */
@@ -130,7 +131,9 @@ export function EffortSlider({
 				{truncateChoiceText(title, Math.max(1, columns - 2))}
 			</Text>
 			{notice ? (
-				<Text color={theme.status.warn}>{truncateChoiceText(notice, Math.max(1, columns - 2))}</Text>
+				<Text color={theme.status.warn}>
+					{truncateChoiceText(notice, Math.max(1, columns - 2))}
+				</Text>
 			) : null}
 			<Text> </Text>
 			<Text color={theme.text.muted}>
@@ -164,7 +167,9 @@ export function EffortSlider({
 				{options.map((option, index) => {
 					const start = layout.starts[index] ?? 0
 					const previousEnd =
-						index === 0 ? 0 : (layout.starts[index - 1] ?? 0) + stringWidth(options[index - 1]?.label ?? '')
+						index === 0
+							? 0
+							: (layout.starts[index - 1] ?? 0) + stringWidth(options[index - 1]?.label ?? '')
 					const separatorHere = layout.separator !== undefined && index === last
 					const lead = separatorHere
 						? `${' '.repeat(Math.max(0, (layout.separator ?? 0) - previousEnd))}${SEPARATOR} `
@@ -203,7 +208,10 @@ export function EffortSlider({
 				</Text>
 			))}
 			<Text color={theme.text.muted}>
-				{truncateChoiceText('←/→ adjust · 1–9 select · enter apply · esc back', Math.max(1, columns - 2))}
+				{truncateChoiceText(
+					'←/→ adjust · 1–9 select · enter apply · esc back',
+					Math.max(1, columns - 2),
+				)}
 			</Text>
 		</Box>
 	)

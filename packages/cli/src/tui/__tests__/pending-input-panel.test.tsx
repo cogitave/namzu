@@ -29,7 +29,14 @@ describe('pending input on the terminal screen', () => {
 		expect(visible).toContain('then write the summary')
 		expect(visible).toContain('Alt+Up edit last message')
 		expect(screen.viewport().filter((row) => row.length > 0)).toHaveLength(3)
-		expect(pendingInputPanelRows({ pendingSteers: [{ text: 'steer' }], queued: [{ text: 'next' }], rows: 14, canRecall: true })).toBe(3)
+		expect(
+			pendingInputPanelRows({
+				pendingSteers: [{ text: 'steer' }],
+				queued: [{ text: 'next' }],
+				rows: 14,
+				canRecall: true,
+			}),
+		).toBe(3)
 		expect(screen.bufferType()).toBe('normal')
 		for (const row of screen.viewport()) expect(stringWidth(row)).toBeLessThanOrEqual(40)
 	})

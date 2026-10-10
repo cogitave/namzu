@@ -1,3 +1,4 @@
+import { explainFailure } from './plain-failure.js'
 /**
  * What the terminal says about the browser: the handoff notice when a page
  * needs the operator, the site-rule line on the review screen, and
@@ -80,7 +81,7 @@ export function browserSiteNotes(
 }
 
 export const BROWSER_SLASH_USAGE = [
-	'/browser                 which browser, profile and site rules this session uses',
+	'/browser                 which browser, profile and site rules this conversation uses',
 	'/browser profile <name>  use another profile from the next browser call on',
 ].join('\n')
 
@@ -95,7 +96,7 @@ export async function runBrowserSlash(
 ): Promise<{ readonly text: string; readonly profile?: string }> {
 	if (!control) {
 		return {
-			text: 'This session has no browser. It is on by default in the interactive terminal; check `browser.enabled` in your config and `namzu doctor` (browser.installed, browser.engine).',
+			text: 'This conversation has no browser. It is on by default in the interactive terminal; check `browser.enabled` in your config and `namzu doctor` (browser.installed, browser.engine).',
 		}
 	}
 	const [verb, name, ...rest] = args
@@ -109,16 +110,22 @@ export async function runBrowserSlash(
 			}
 		}
 		if (options.busy) {
-			return { text: 'The profile cannot change while a turn is running. Try again when it ends.' }
+			return { text: 'The profile cannot change while a reply is running. Try again when it ends.' }
 		}
 		try {
 			const status = await control.switchProfile(name)
 			return {
-				text: `The browser uses profile ${status.profile} from the next browser call on, in this session. Sign in to a site once with \`namzu browser login ${status.profile} <url>\`.`,
+				text: `The browser uses profile ${status.profile} from the next browser call on, in this conversation. Sign in to a site once with \`namzu browser login ${status.profile} <url>\`.`,
 				profile: status.profile,
 			}
 		} catch (error) {
-			return { text: error instanceof Error ? error.message : String(error) }
+			// A profile name Namzu refuses is explained in its own words ("… is not a profile name").
+			return {
+				text:
+					error instanceof Error && error.message
+						? error.message
+						: explainFailure(error, 'Could not switch the browser profile.'),
+			}
 		}
 	}
 	return { text: `Usage:\n${BROWSER_SLASH_USAGE}` }

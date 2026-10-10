@@ -5,7 +5,10 @@ import { renderToScreen } from './support/screen.js'
 
 it('assembles a fragmented terminal paste once, counts characters and never submits its newlines', async () => {
 	const onSubmit = vi.fn()
-	const screen = await renderToScreen(<Composer onSubmit={onSubmit} history={[]} />, { cols: 100, rows: 24 })
+	const screen = await renderToScreen(<Composer onSubmit={onSubmit} history={[]} />, {
+		cols: 100,
+		rows: 24,
+	})
 	const prefix = 'İki subagent ile '
 	const text = `${prefix}${'incele '.repeat(20)}\r\nSonuçları yaz 😀`
 	const normalized = text.replace(/\r\n?/g, '\n')
@@ -36,7 +39,10 @@ it('assembles a fragmented terminal paste once, counts characters and never subm
 
 it('inserts a short paste at the cursor without interpreting a pasted return as submit', async () => {
 	const onSubmit = vi.fn()
-	const screen = await renderToScreen(<Composer onSubmit={onSubmit} history={[]} />, { cols: 100, rows: 24 })
+	const screen = await renderToScreen(<Composer onSubmit={onSubmit} history={[]} />, {
+		cols: 100,
+		rows: 24,
+	})
 	try {
 		await screen.waitForRender()
 		screen.press('ab')
@@ -61,7 +67,10 @@ it('inserts a short paste at the cursor without interpreting a pasted return as 
 
 it('submits a long paste even when Enter arrives before the next render', async () => {
 	const onSubmit = vi.fn()
-	const screen = await renderToScreen(<Composer onSubmit={onSubmit} history={[]} />, { cols: 100, rows: 24 })
+	const screen = await renderToScreen(<Composer onSubmit={onSubmit} history={[]} />, {
+		cols: 100,
+		rows: 24,
+	})
 	const pasted = `first line\nsecond line ${'x'.repeat(80)}`
 	try {
 		await screen.waitForRender()
@@ -81,7 +90,10 @@ it('submits a long paste even when Enter arrives before the next render', async 
 
 it('keeps type-ahead that arrives in one long read as typed text, not a chip that splits a word', async () => {
 	const onSubmit = vi.fn()
-	const screen = await renderToScreen(<Composer onSubmit={onSubmit} history={[]} />, { cols: 100, rows: 24 })
+	const screen = await renderToScreen(<Composer onSubmit={onSubmit} history={[]} />, {
+		cols: 100,
+		rows: 24,
+	})
 	const typed = 'Delegate this to subag'
 	const burst =
 		'ents in two phases. Phase 1: two agents in parallel, each names one colour in a single word. Çok kısa tut.'

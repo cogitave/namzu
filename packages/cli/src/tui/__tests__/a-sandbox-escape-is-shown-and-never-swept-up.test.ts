@@ -51,12 +51,12 @@ describe('the prompt for a boundary crossing', () => {
 
 	it('does not offer "allow all tools" as if it covered the escape', () => {
 		expect(permissionChoices([escapeCall])[1]).toBe(
-			'Yes, and allow other tools for this session (not sandbox escapes)',
+			'Yes, and allow other tools for this conversation (not sandbox escapes)',
 		)
 		expect(permissionChoices([outsideRead])[1]).toBe(
-			'Yes, and allow other tools for this session (not paths outside it)',
+			'Yes, and allow other tools for this conversation (not paths outside it)',
 		)
-		expect(permissionChoices([ordinary])[1]).toBe('Yes, allow all tools for this session')
+		expect(permissionChoices([ordinary])[1]).toBe('Yes, allow all tools for this conversation')
 	})
 
 	it('shows the escape in the readable view instead of dropping to the exact one', () => {

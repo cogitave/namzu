@@ -209,7 +209,9 @@ describe('a browser job parked because a page needs the operator', () => {
 		})
 		expect(
 			scheduledResumeMismatch(shell, { cwd: sb.project, roots: [], sandboxed: false }),
-		).toEqual([expect.stringMatching(/in a sandbox and this session runs them on the host/)])
+		).toEqual([
+			expect.stringMatching(/in a sandbox and this conversation runs them on this computer/),
+		])
 	})
 
 	it('cannot continue in a session without the browser', async () => {
@@ -223,7 +225,7 @@ describe('a browser job parked because a page needs the operator', () => {
 				sandboxed: false,
 				browser: false,
 			}),
-		).toEqual([expect.stringMatching(/drives the browser and this session has none/)])
+		).toEqual([expect.stringMatching(/drives the browser and this conversation has none/)])
 	})
 })
 
@@ -318,7 +320,7 @@ describe('the model proposing a browser job', () => {
 		)
 		const shown = chose.said[0] ?? ''
 		expect(shown).toContain(
-			`Warning     Chosen by the model, not the default: time zone America/New_York, not this machine's ${hostTimeZone()}`,
+			`Warning     Chosen by the model, not the default: time zone America/New_York, not this machine’s ${hostTimeZone()}`,
 		)
 		expect(shown).toContain(
 			'Chosen by the model, not the default: commands run in the sandbox; the default is this machine',

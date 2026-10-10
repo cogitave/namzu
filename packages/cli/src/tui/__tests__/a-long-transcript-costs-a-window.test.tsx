@@ -180,13 +180,7 @@ describe('a session with a thousand rows', () => {
 			settled: 0,
 		})
 		const screen = await renderToScreen(
-			<Transcript
-				messages={messages}
-				pending={null}
-				state="idle"
-				settled={settled}
-				resetKey={0}
-			/>,
+			<Transcript messages={messages} pending={null} state="idle" settled={settled} resetKey={0} />,
 			{ cols: TERMINAL_COLS, rows: TERMINAL_ROWS, scrollback: 400 },
 		)
 		try {

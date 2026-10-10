@@ -15,6 +15,7 @@ import { ContentWidth, Markdown, WrappedSpans, useContentWidth } from './Markdow
 import { StatusPanel } from './StatusPanel.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
+import { NOT_SHOWN_LINE } from './tidy-tool-output.js'
 import type { TranscriptMessage } from './types.js'
 
 export interface TranscriptProps {
@@ -137,36 +138,36 @@ export function Transcript({
 	const { columns } = useWindowSize()
 	return (
 		<ContentWidth.Provider value={Math.max(10, columns - 2 * staticIndent - 2)}>
-		<Box flexDirection="column">
-			<Static key={resetKey} items={rows}>
-				{(row) => (
-					<Box
-						key={row.kind === 'header' ? 'header' : row.message.id}
-						flexDirection="column"
-						paddingLeft={staticIndent}
-						paddingRight={staticIndent}
-					>
-						{row.kind === 'header' ? (
-							<Box>{header}</Box>
-						) : raw ? (
-							<RawMessageRow message={row.message} prev={row.prev} />
-						) : (
-							<MessageRow message={row.message} prev={row.prev} hyperlinks={hyperlinks} />
-						)}
-					</Box>
-				)}
-			</Static>
-			{showLive
-				? drawn.map((message, i) => {
-						const prev = i > 0 ? drawn[i - 1] : messages[inScrollback - 1]
-						return raw ? (
-							<RawMessageRow key={message.id} message={message} prev={prev} />
-						) : (
-							<LiveRow key={message.id} message={message} prev={prev} hyperlinks={hyperlinks} />
-						)
-					})
-				: null}
-		</Box>
+			<Box flexDirection="column">
+				<Static key={resetKey} items={rows}>
+					{(row) => (
+						<Box
+							key={row.kind === 'header' ? 'header' : row.message.id}
+							flexDirection="column"
+							paddingLeft={staticIndent}
+							paddingRight={staticIndent}
+						>
+							{row.kind === 'header' ? (
+								<Box>{header}</Box>
+							) : raw ? (
+								<RawMessageRow message={row.message} prev={row.prev} />
+							) : (
+								<MessageRow message={row.message} prev={row.prev} hyperlinks={hyperlinks} />
+							)}
+						</Box>
+					)}
+				</Static>
+				{showLive
+					? drawn.map((message, i) => {
+							const prev = i > 0 ? drawn[i - 1] : messages[inScrollback - 1]
+							return raw ? (
+								<RawMessageRow key={message.id} message={message} prev={prev} />
+							) : (
+								<LiveRow key={message.id} message={message} prev={prev} hyperlinks={hyperlinks} />
+							)
+						})
+					: null}
+			</Box>
 		</ContentWidth.Provider>
 	)
 }
@@ -262,7 +263,11 @@ function MessageRow({
 		!prev || message.glyph === '⎿' || (exploration && !startsExploration) || continuesWeb ? 0 : 1
 	return (
 		<Box flexDirection="column" marginTop={gap}>
-			{startsExploration ? <Text bold color={theme.text.secondary}>Explored</Text> : null}
+			{startsExploration ? (
+				<Text bold color={theme.text.secondary}>
+					Explored
+				</Text>
+			) : null}
 			<Box flexDirection="row">
 				<Box width={2} flexShrink={0}>
 					<Text color={glyphColor} bold>
@@ -309,7 +314,9 @@ function MessageRow({
 					<Checklist items={message.checklist} />
 				</Box>
 			) : null}
-			{message.detail && message.detail.length > 0 && (!message.activity || message.detailExpanded) ? (
+			{message.detail &&
+			message.detail.length > 0 &&
+			(!message.activity || message.detailExpanded) ? (
 				<DetailBlock
 					lines={message.detail}
 					expanded={message.detailExpanded === true}
@@ -380,7 +387,14 @@ function splitDetail(
 		lines.length > COLLAPSE_LINES
 			? [...lines.slice(0, fragmentLines), ...lines.slice(-fragmentLines)]
 			: lines
-	const hidden = lines.length - selected.length
+	// A "… N lines not shown" line stands for N lines the kernel kept out of a
+	// long stream, so folding it away hides N lines, not one.
+	const folded =
+		lines.length > COLLAPSE_LINES ? lines.slice(fragmentLines, lines.length - fragmentLines) : []
+	const hidden = folded.reduce((count, line) => {
+		const gap = NOT_SHOWN_LINE.exec(line)
+		return count + (gap ? Number((gap[1] ?? '1').replaceAll(',', '')) : 1)
+	}, 0)
 	const clipped = selected.some((line) => line.length > PREVIEW_LINE_CHARS)
 	const shown = selected.map((line) =>
 		line.length > PREVIEW_LINE_CHARS
@@ -389,7 +403,7 @@ function splitDetail(
 	)
 	const action = detailRef === undefined ? '' : ' · ctrl+o'
 	if (hidden > 0) {
-		const hint = `… ${hidden} line${hidden === 1 ? '' : 's'} omitted${action}${clipped ? ' · shortened preview' : ''}`
+		const hint = `… ${hidden} line${hidden === 1 ? '' : 's'} not shown${action}${clipped ? ' · shortened preview' : ''}`
 		return [...shown.slice(0, fragmentLines), hint, ...shown.slice(fragmentLines)]
 	}
 	return clipped ? [...shown, `… line shortened${action}`] : shown
@@ -413,7 +427,8 @@ export function renderedDetailLines(message: TranscriptMessage): readonly string
 
 function renderedBodyLines(message: TranscriptMessage): readonly string[] {
 	const lines = message.detail
-	if (!lines || lines.length === 0 || (message.activity !== undefined && !message.detailExpanded)) return []
+	if (!lines || lines.length === 0 || (message.activity !== undefined && !message.detailExpanded))
+		return []
 	const shown = splitDetail(
 		lines.map(terminalDisplayText),
 		message.detailExpanded === true,

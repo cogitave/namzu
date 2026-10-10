@@ -86,7 +86,7 @@ site rule: https://tr.wikipedia.org (any other site) → ask · profile work · 
 
 Do you want to open this page?
 ❯ 1. Yes
-  2. Yes, allow all tools for this session
+  2. Yes, allow all tools for this conversation
   3. No, and tell namzu what to do differently (esc)
 ```
 

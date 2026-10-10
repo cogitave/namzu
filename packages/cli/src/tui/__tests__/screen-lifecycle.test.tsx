@@ -5,7 +5,11 @@ import { renderToScreen } from './support/screen.js'
 
 function Dimensions() {
 	const { columns, rows } = useWindowSize()
-	return <Text>{columns}x{rows}</Text>
+	return (
+		<Text>
+			{columns}x{rows}
+		</Text>
+	)
 }
 
 it('resizes stdout, the emulator and subscribed components as one operation', async () => {

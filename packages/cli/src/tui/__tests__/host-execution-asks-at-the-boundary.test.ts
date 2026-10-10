@@ -170,7 +170,7 @@ describe('by default the CLI runs tools on the host', () => {
 		expect(onPermission).toHaveBeenCalledTimes(1)
 	})
 
-	it('asks about a path outside after "allow all tools for this session"', async () => {
+	it('asks about a path outside after "allow all tools for this conversation"', async () => {
 		const onPermission = vi.fn<PermissionFn>(async () => ({ kind: 'approve-all' }))
 		const { handler } = await turn({ onPermission })
 		const ordinary: ToolCallSummary = {

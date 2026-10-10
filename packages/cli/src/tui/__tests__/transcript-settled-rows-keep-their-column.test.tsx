@@ -25,25 +25,35 @@ function row(id: string, content: string, glyph: string): TranscriptMessage {
 	return { id, role: 'tool', content, glyph }
 }
 
-it.each([40, 100])('draws a settled row in the column and at the width it had live, at %i columns', async (cols) => {
-	const long = Array.from({ length: 40 }, (_, i) => `sözcük${i}`).join(' ')
-	const messages = [row('settled', long, '✓'), row('live', long, '✓')]
-	mounted = await renderToScreen(
-		<Box flexDirection="column" paddingX={1}>
-			<Transcript messages={messages} pending={null} state="idle" settled={1} resetKey={0} staticIndent={1} />
-		</Box>,
-		{ cols, rows: 40 },
-	)
-	const rows = mounted.viewport().filter((line) => line.trim().length > 0)
-	const half = rows.length / 2
-	const settled = rows.slice(0, half)
-	const live = rows.slice(half)
-	// Same rows, same wrap, same column: the settled copy is indistinguishable.
-	expect(settled).toEqual(live)
-	expect(settled[0]).toMatch(/^ ✓ sözcük0 /u)
-	// And nothing reaches the last column, where a terminal would wrap it again.
-	for (const line of rows) expect([...line].length).toBeLessThanOrEqual(cols - 1)
-})
+it.each([40, 100])(
+	'draws a settled row in the column and at the width it had live, at %i columns',
+	async (cols) => {
+		const long = Array.from({ length: 40 }, (_, i) => `sözcük${i}`).join(' ')
+		const messages = [row('settled', long, '✓'), row('live', long, '✓')]
+		mounted = await renderToScreen(
+			<Box flexDirection="column" paddingX={1}>
+				<Transcript
+					messages={messages}
+					pending={null}
+					state="idle"
+					settled={1}
+					resetKey={0}
+					staticIndent={1}
+				/>
+			</Box>,
+			{ cols, rows: 40 },
+		)
+		const rows = mounted.viewport().filter((line) => line.trim().length > 0)
+		const half = rows.length / 2
+		const settled = rows.slice(0, half)
+		const live = rows.slice(half)
+		// Same rows, same wrap, same column: the settled copy is indistinguishable.
+		expect(settled).toEqual(live)
+		expect(settled[0]).toMatch(/^ ✓ sözcük0 /u)
+		// And nothing reaches the last column, where a terminal would wrap it again.
+		for (const line of rows) expect([...line].length).toBeLessThanOrEqual(cols - 1)
+	},
+)
 
 it.each([40, 80, 120, 160])(
 	'starts every wrapped row of a notice in the column of its first word, at %i columns',
@@ -57,13 +67,20 @@ it.each([40, 80, 120, 160])(
 		]
 		mounted = await renderToScreen(
 			<Box flexDirection="column" paddingX={1}>
-				<Transcript messages={messages} pending={null} state="idle" settled={1} resetKey={0} staticIndent={1} />
+				<Transcript
+					messages={messages}
+					pending={null}
+					state="idle"
+					settled={1}
+					resetKey={0}
+					staticIndent={1}
+				/>
 			</Box>,
 			{ cols, rows: 60 },
 		)
 		const rows = mounted.viewport().filter((line) => line.trim().length > 0)
 		for (const line of rows) {
-			expect(line).toMatch(/^ (?:[·›] |  )\S/u)
+			expect(line).toMatch(/^ (?:[·›] | {2})\S/u)
 			expect([...line].length).toBeLessThanOrEqual(cols - 1)
 		}
 	},

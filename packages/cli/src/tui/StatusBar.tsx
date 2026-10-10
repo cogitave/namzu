@@ -13,6 +13,7 @@
 import { Text, useWindowSize } from 'ink'
 
 import { type PermissionMode, permissionModeLabel } from '../permissions/mode.js'
+import { fitHintText } from './key-hints.js'
 import { theme } from './theme.js'
 
 export interface StatusBarProps {
@@ -40,9 +41,11 @@ export interface StatusBarProps {
 export const MODE_MARK = { moving: '⏵⏵', held: '‖' } as const
 
 /** Icon, color and label for an active (non-default) permission mode. */
-function modeGlyph(
-	mode: PermissionMode,
-): { readonly icon: string; readonly color: string; readonly label: string } {
+function modeGlyph(mode: PermissionMode): {
+	readonly icon: string
+	readonly color: string
+	readonly label: string
+} {
 	return {
 		icon: mode === 'accept-edits' || mode === 'auto' ? MODE_MARK.moving : MODE_MARK.held,
 		color: mode === 'strict' ? theme.status.warn : theme.accent.user,
@@ -196,9 +199,8 @@ export function fitStatusLine(input: {
 	// wired up) — `??` does not treat that as absent, and an empty string
 	// would otherwise win the slot a model needs to fall through to.
 	let rightText: string | null = input.hint || input.goal || null
-	// Prefer the familiar Return symbol before cutting an action word in half.
-	if (input.hint && rightText && rightText.length > columns) rightText = rightText.replace(/\benter\b/g, '↵')
-	if (rightText !== null && rightText.length > columns) rightText = shortenRightToFit(rightText, columns)
+	// A line too wide for its room loses whole hints, never half of one.
+	if (rightText !== null) rightText = fitHintText(rightText, columns)
 
 	let modelLabel: string | null = input.model ?? input.provider
 	const right = (): string => (rightText !== null ? rightText : (modelLabel ?? ''))
@@ -213,9 +215,7 @@ export function fitStatusLine(input: {
 
 	const left = (): string => {
 		const withMode = `${mode ?? ''}${cycleSuffix ?? ''}`
-		return [withMode, effort, cwd]
-			.filter((value): value is string => Boolean(value))
-			.join(' · ')
+		return [withMode, effort, cwd].filter((value): value is string => Boolean(value)).join(' · ')
 	}
 
 	if (left().length > leftBudget && cwd) {

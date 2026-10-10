@@ -33,7 +33,7 @@ const HOST_INSET = 1
 const KEY_LOST_AT_60 = 'needs DEEPSEEK_API_KEY'
 
 const NOTICE =
-	'No credential found for DeepSeek, your saved provider. Namzu looked for DEEPSEEK_API_KEY and found none. Choose an option below to add a key, or pick another provider.'
+	'No API key found for DeepSeek, your saved provider. Namzu looked for DEEPSEEK_API_KEY and found none. Choose “Enter an API key” below, or pick another provider.'
 
 function detected(): readonly DetectedProvider[] {
 	return [
@@ -93,7 +93,8 @@ it('measures the content area it actually has, not two columns more', async () =
 	// the width the box really has, and the text area inside it is that minus
 	// the two borders and the two padding columns.
 	const columns = 60
-	const screen = await open(columns, 20)
+	// An unbreakable notice fills the whole text area, so the box is as wide as it can be.
+	const screen = await open(columns, 20, { notice: 'x'.repeat(80) })
 	const border = screen.viewport().find((line) => line.includes('╭'))
 	expect(border, 'no box was drawn').toBeDefined()
 	const interior = (border ?? '').length - HOST_INSET - 2
@@ -185,8 +186,8 @@ it('draws the notice and the title at 60x20 instead of scrolling them away', asy
 	const viewport = screen.viewport().join('\n')
 
 	expect(viewport).toContain('Choose a provider')
-	expect(viewport).toContain('No credential found for DeepSeek')
-	expect(viewport).toContain('Choose an option below to add a key')
+	expect(viewport).toContain('No API key found for DeepSeek')
+	expect(viewport).toContain('Choose “Enter an API key” below')
 })
 
 it('wraps its own sentences so no continuation starts one column in', async () => {
@@ -202,10 +203,10 @@ it('wraps its own sentences so no continuation starts one column in', async () =
 
 it('says what esc does where there is nothing behind the picker', async () => {
 	const exiting = await open(80, 24, { cancelExits: true })
-	expect(exiting.viewport().join('\n')).toContain('esc exit namzu')
+	expect(exiting.viewport().join('\n')).toContain('esc or ctrl+c exit')
 
 	const staying = await open(80, 24)
-	expect(staying.viewport().join('\n')).toContain('esc cancel')
+	expect(staying.viewport().join('\n')).toContain('esc keep current')
 })
 
 /** The number the cursor row printed, so the assertion is about its spacing. */

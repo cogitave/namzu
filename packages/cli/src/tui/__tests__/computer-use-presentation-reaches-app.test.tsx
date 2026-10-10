@@ -3,10 +3,10 @@
 import { afterEach, expect, it, vi } from 'vitest'
 
 import type { Preferences } from '../../integrations/providers/index.js'
+import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 import type { AgentEvent, AgentSession } from '../agent.js'
 import type { TuiContext } from '../types.js'
 import { type Screen, renderToScreen } from './support/screen.js'
-import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 
 const PREFS: Preferences = {
 	version: 3,
@@ -70,19 +70,19 @@ vi.mock('../agent.js', async (importOriginal) => {
 					summary: 'Capture screenshot',
 					standalone: true,
 				}
-					yield {
-						kind: 'tool-end',
-						toolUseId: 'shot',
-						toolName: 'computer_use',
-						summary: 'Screenshot captured (5120x1440, image/png).',
-						isError: false,
-					}
-					yield {
-						kind: 'capability-warning',
-						capability: 'vision',
-						contentSource: 'tool-result',
-						text: 'The active provider will receive an explicit text fallback.',
-					}
+				yield {
+					kind: 'tool-end',
+					toolUseId: 'shot',
+					toolName: 'computer_use',
+					summary: 'Screenshot captured (5120x1440, image/png).',
+					isError: false,
+				}
+				yield {
+					kind: 'capability-warning',
+					capability: 'vision',
+					contentSource: 'tool-result',
+					text: 'The active provider will receive an explicit text fallback.',
+				}
 				yield {
 					kind: 'tool-start',
 					toolUseId: 'key-ok',

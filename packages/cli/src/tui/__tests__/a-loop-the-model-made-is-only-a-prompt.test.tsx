@@ -17,10 +17,10 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import type { Preferences } from '../../integrations/providers/index.js'
+import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 import type { AgentEvent, AgentSession } from '../agent.js'
 import type { ScheduleIntegrationDeps } from '../schedule/integration.js'
 import type { TuiContext } from '../types.js'
-import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 
 const PREFS: Preferences = { version: 3, providers: [{ id: 'openai' }], subagents: { active: [] } }
 
@@ -116,7 +116,10 @@ afterEach(() => {
 
 const plain = (text: string) =>
 	// biome-ignore lint/suspicious/noControlCharactersInRegex: strips terminal colour codes.
-	text.replace(/\u001b\[[0-9;]*m/g, '').replace(/\s+/g, ' ')
+	text
+		// biome-ignore lint/suspicious/noControlCharactersInRegex: matches the escape character that starts a terminal control sequence, on purpose.
+		.replace(/\u001b\[[0-9;]*m/g, '')
+		.replace(/\s+/g, ' ')
 
 async function until(check: () => boolean, why: string): Promise<void> {
 	const by = Date.now() + 5_000
@@ -126,7 +129,9 @@ async function until(check: () => boolean, why: string): Promise<void> {
 
 async function mount() {
 	const harness = render(
-		<App ctx={{ cwd: home, version: '0.0.0-test', rules: [], skipPermissions: false } as TuiContext} />,
+		<App
+			ctx={{ cwd: home, version: '0.0.0-test', rules: [], skipPermissions: false } as TuiContext}
+		/>,
 	)
 	mounted.push(harness)
 	await until(() => (harness.lastFrame() ?? '').includes('test-model'), 'App never became ready')

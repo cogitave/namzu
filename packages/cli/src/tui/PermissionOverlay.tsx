@@ -62,8 +62,8 @@ export interface PermissionOverlayProps {
 /** What the box says when the question is whether to share the screen. */
 export function screenConsentNotes(provider: string | null): readonly string[] {
 	return [
-		`namzu will see your screen and send it to ${provider ?? 'the model provider'} for this session: screenshots, the titles of open windows and the controls of the windows it reads.`,
-		'Asked once per session. Clicks, typing and other changes are still asked about.',
+		`namzu will see your screen and send it to ${provider ?? 'the model provider'} for this conversation: screenshots, the titles of open windows and the controls of the windows it reads.`,
+		'Asked once per conversation. Clicks, typing and other changes are still asked about.',
 	]
 }
 
@@ -244,7 +244,7 @@ export function permissionAnswers(
 	// same box would be a second, wider one given in passing.
 	if (options.screenConsent)
 		return [
-			{ label: 'Yes, share my screen for this session', kind: 'approve' },
+			{ label: 'Yes, share my screen for this conversation', kind: 'approve' },
 			{ label: 'No, and tell namzu what to do differently (esc)', kind: 'reject' },
 		]
 	const agents = toolCalls.length > 0 && toolCalls.every((call) => call.name === 'Agent')
@@ -261,12 +261,12 @@ export function permissionAnswers(
 		]
 	}
 	const approveAll = agents
-		? 'Start and allow all tools for this session'
+		? 'Start and allow all tools for this conversation'
 		: toolCalls.some((call) => call.escalation?.sandboxEscape === true)
-			? 'Yes, and allow other tools for this session (not sandbox escapes)'
+			? 'Yes, and allow other tools for this conversation (not sandbox escapes)'
 			: toolCalls.some((call) => (call.escalation?.outsidePaths?.length ?? 0) > 0)
-				? 'Yes, and allow other tools for this session (not paths outside it)'
-				: 'Yes, allow all tools for this session'
+				? 'Yes, and allow other tools for this conversation (not paths outside it)'
+				: 'Yes, allow all tools for this conversation'
 	return [
 		{ label: approve, kind: 'approve' },
 		{ label: approveAll, kind: 'approve-all' },
@@ -358,7 +358,13 @@ export function PermissionOverlay({
 				{queuedCount > 0 ? (
 					<Text color={theme.text.muted}> · {queuedCount} more awaiting approval</Text>
 				) : null}
-				{destructive ? <Text color={theme.status.error}>{toolCalls.every((call) => call.name === 'write') ? ' · may overwrite' : ' · destructive'}</Text> : null}
+				{destructive ? (
+					<Text color={theme.status.error}>
+						{toolCalls.every((call) => call.name === 'write')
+							? ' · may overwrite'
+							: ' · destructive'}
+					</Text>
+				) : null}
 			</Text>
 			{sourceLabel ? (
 				<Text color={theme.text.secondary} wrap="truncate-end">
@@ -391,7 +397,7 @@ export function PermissionOverlay({
 			</Box>
 			{paged ? (
 				<Text color={theme.text.muted}>
-					rows {first}-{last}/{rows.length} · PgUp/PgDn page · Home/End boundary
+					rows {first}-{last}/{rows.length} · PgUp/PgDn page · Home/End
 				</Text>
 			) : null}
 			<Box flexDirection="column" paddingTop={1}>
@@ -399,7 +405,7 @@ export function PermissionOverlay({
 					<Text color={theme.text.primary} bold>
 						{terminalDisplayText(
 							sharing
-								? `Let namzu see your screen for the rest of this session?`
+								? 'Let namzu see your screen for the rest of this conversation?'
 								: permissionQuestion(toolCalls),
 						)}
 					</Text>
@@ -416,10 +422,17 @@ export function PermissionOverlay({
 			</Box>
 			<Box flexDirection="column">
 				<Text color={theme.text.muted}>
-					↑↓ select · enter confirm · {batchOnly || sharing ? 'y / n' : 'y / a / n'} answer · d{' '}
-					{detailsOpen ? 'readable view' : compact ? 'full instructions' : 'exact input'}
+					{/* Every key stays: this is the one screen where a missing hint costs an
+					    approval, so the line wraps in its box instead of losing hints. */}
+					{[
+						'↑↓ select',
+						'enter confirm',
+						`${batchOnly || sharing ? 'y / n' : 'y / a / n'} answer`,
+						'esc decline',
+						'ctrl+c decline and stop the reply',
+						`d ${detailsOpen ? 'readable view' : compact ? 'full instructions' : 'exact input'}`,
+					].join(' · ')}
 				</Text>
-				<Text color={theme.text.muted}>esc decline · ctrl+c decline and stop the turn</Text>
 			</Box>
 		</Box>
 	)

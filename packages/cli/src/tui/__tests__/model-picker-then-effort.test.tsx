@@ -350,7 +350,7 @@ it.each([
 		await until(screen, () => sent.length === 1, 'Old turn did not start')
 		await submit(screen, 'Dependent queued task')
 		releaseFailure.resolve()
-		await shows(screen, 'paused after a failed turn')
+		await shows(screen, 'paused after a failed reply')
 		await chooseNextModel(screen)
 		await shows(screen, `Select Reasoning Level for ${NEXT}`)
 		await screen.waitForRender()

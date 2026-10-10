@@ -303,7 +303,11 @@ it('keeps live work, a multiline draft and controls reachable across terminal si
 it('rewraps settled prose on expansion while keeping the draft and one history copy', async () => {
 	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 80, rows: 24, scrollback: 2_000 })
 	try {
-		await waitUntil(screen, () => screen.scrollback().join('\n').includes('fixture-model'), 'App did not become ready')
+		await waitUntil(
+			screen,
+			() => screen.scrollback().join('\n').includes('fixture-model'),
+			'App did not become ready',
+		)
 		await submit(screen, 'A reply to reflow')
 		await waitUntil(
 			screen,
@@ -322,7 +326,12 @@ it('rewraps settled prose on expansion while keeping the draft and one history c
 		)
 		const viewport = screen.viewport().join('\n')
 		expect(viewport).toContain('draft survives resize')
-		expect(screen.viewport().find((line) => line.includes('MESSAGE'))?.lastIndexOf('┐')).toBe(158)
+		expect(
+			screen
+				.viewport()
+				.find((line) => line.includes('MESSAGE'))
+				?.lastIndexOf('┐'),
+		).toBe(158)
 		expect(screen.scrollback().join('\n').split(historyMarker)).toHaveLength(2)
 	} finally {
 		await screen.unmount()

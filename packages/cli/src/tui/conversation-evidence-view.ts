@@ -60,8 +60,8 @@ function searchRows(value: Record<string, unknown>): string[] | undefined {
 	]
 	rows.push(
 		value.incomplete || value.nextCursor
-			? `Search incomplete${value.nextCursor ? ' · more to scan' : ''} · absence is inconclusive`
-			: 'Traversal finished within selected sources',
+			? `Search not finished${value.nextCursor ? ' · more to scan' : ''} · a missing result may not have been reached yet`
+			: 'Search finished',
 	)
 	if (value.unavailable > 0) rows.push(`${plural(value.unavailable, 'record')} unavailable`)
 	for (const match of value.matches.slice(0, 3)) {

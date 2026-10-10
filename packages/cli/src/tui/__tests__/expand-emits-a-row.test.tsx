@@ -4,9 +4,9 @@ import { render } from 'ink-testing-library'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { Preferences } from '../../integrations/providers/index.js'
+import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 import type { AgentEvent, AgentSession } from '../agent.js'
 import type { TuiContext } from '../types.js'
-import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 
 const PREFS: Preferences = { version: 3, providers: [{ id: 'openai' }], subagents: { active: [] } }
 
@@ -178,7 +178,9 @@ describe('a collapsed body advertises how to read it', () => {
 
 		const frame = lastFrame() ?? ''
 		// Both blocks hide six lines, and each points at the same key.
-		expect(frame.split('… 6 lines omitted · ctrl+o').length - 1, 'both bodies name the key').toBe(2)
+		expect(frame.split('… 6 lines not shown · ctrl+o').length - 1, 'both bodies name the key').toBe(
+			2,
+		)
 		// The command this replaced must not still be advertised anywhere.
 		expect(frame, 'a removed command is still advertised').not.toContain('/expand')
 	})

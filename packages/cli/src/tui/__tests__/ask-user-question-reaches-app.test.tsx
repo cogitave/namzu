@@ -13,9 +13,9 @@ import { render } from 'ink-testing-library'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { Preferences } from '../../integrations/providers/index.js'
+import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 import type { AgentEvent, AgentSession, SendOptions } from '../agent.js'
 import type { TuiContext } from '../types.js'
-import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 
 const PREFS: Preferences = { version: 3, providers: [{ id: 'openai' }], subagents: { active: [] } }
 
@@ -137,7 +137,9 @@ async function askedOnScreen() {
 	expect(recommendedRow).toContain('[recommended]')
 	const otherRow = frame.split('\n').find((row) => row.includes('Engineers'))
 	expect(otherRow).not.toContain('[recommended]')
-	expect(frame, 'free text was allowed, so the escape hatch is offered').toContain('Something else…')
+	expect(frame, 'free text was allowed, so the escape hatch is offered').toContain(
+		'Something else…',
+	)
 	return harness
 }
 

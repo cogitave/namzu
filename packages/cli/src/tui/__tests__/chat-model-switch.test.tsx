@@ -406,33 +406,55 @@ it('previews and applies a standalone Turkish model intent without a model turn'
 	expect(screen.viewport().join('\n')).toContain('Model: opus-5 · requested')
 	await press(screen, '\r')
 	await until(screen, () => constructed.length === 2, 'Host did not select model')
-	await until(screen, () => screen.viewport().join('\n').includes('Switched to codex · claude-opus-5'), 'Host did not confirm model')
+	await until(
+		screen,
+		() => screen.viewport().join('\n').includes('Switched to codex · claude-opus-5'),
+		'Host did not confirm model',
+	)
 	expect(sent).toHaveLength(0)
 	expect(constructed[1]?.prefs.providers[0]?.model).toBe('claude-opus-5')
 	expect(readFileSync(preferencesPath(home), 'utf8')).toBe(saved)
 })
 
 it('keeps ambiguous host requests out of the model and leaves the active selection intact', async () => {
-	describe = async () => ({ kind: 'ok', models: [{ id: 'claude-opus-5', name: 'One' }, { id: 'other-opus-5', name: 'Two' }] })
+	describe = async () => ({
+		kind: 'ok',
+		models: [
+			{ id: 'claude-opus-5', name: 'One' },
+			{ id: 'other-opus-5', name: 'Two' },
+		],
+	})
 	const screen = await open()
 	await submit(screen, '/model opus-5')
-	await until(screen, () => screen.viewport().join('\n').includes('matches more than one model'), 'Ambiguity notice missing')
+	await until(
+		screen,
+		() => screen.viewport().join('\n').includes('matches more than one model'),
+		'Ambiguity notice missing',
+	)
 	expect(constructed).toHaveLength(1)
 	expect(sent).toHaveLength(0)
 	expect(closeOld).not.toHaveBeenCalled()
 })
 
 it('keeps the old session when standalone host selection activation fails', async () => {
-	activate = async () => { throw new Error('activation fixture refusal') }
+	activate = async () => {
+		throw new Error('activation fixture refusal')
+	}
 	const screen = await open()
 	await submit(screen, `/model ${NEXT}`)
-	await until(screen, () => screen.viewport().join('\n').includes('activation fixture refusal'), 'Failure notice missing')
+	await until(
+		screen,
+		() => screen.viewport().join('\n').includes('activation fixture refusal'),
+		'Failure notice missing',
+	)
 	expect(sent).toHaveLength(0)
 	expect(closeOld).not.toHaveBeenCalled()
 })
 
 it('sends mixed work requests through the ordinary model path', async () => {
-	sendOld = async function* () { yield { kind: 'done', stopReason: 'end_turn' } }
+	sendOld = async function* () {
+		yield { kind: 'done', stopReason: 'end_turn' }
+	}
 	const screen = await open()
 	await submit(screen, 'modeli opus-5 yapar mısın ve testleri çalıştır')
 	await until(screen, () => sent.length === 1, 'Mixed work was not sent')
@@ -444,9 +466,17 @@ it('cancels a host intent lookup before a late catalogue can change the model', 
 	describe = () => listing.promise
 	const screen = await open()
 	await submit(screen, `/model ${NEXT}`)
-	await until(screen, () => screen.viewport().join('\n').includes('in the model lists'), 'Lookup not admitted')
+	await until(
+		screen,
+		() => screen.viewport().join('\n').includes('in the model lists'),
+		'Lookup not admitted',
+	)
 	await press(screen, '\x1b')
-	await until(screen, () => screen.viewport().join('\n').includes('Interrupted.'), 'Host selection was not cancelled')
+	await until(
+		screen,
+		() => screen.viewport().join('\n').includes('Interrupted.'),
+		'Host selection was not cancelled',
+	)
 	listing.resolve({ kind: 'ok', models: [{ id: NEXT, name: NEXT }] })
 	await screen.waitForRender()
 	expect(constructed).toHaveLength(1)
@@ -459,13 +489,19 @@ it('holds prompts submitted during host selection and sends them once on the sel
 	describe = () => listing.promise
 	const screen = await open()
 	await submit(screen, `/model ${NEXT}`)
-	await until(screen, () => screen.viewport().join('\n').includes('in the model lists'), 'Lookup not admitted')
+	await until(
+		screen,
+		() => screen.viewport().join('\n').includes('in the model lists'),
+		'Lookup not admitted',
+	)
 	await submit(screen, 'Continue the independent task')
 	expect(sent).toHaveLength(0)
 	listing.resolve({ kind: 'ok', models: [{ id: NEXT, name: NEXT }] })
 	await until(screen, () => sent.length === 1, 'Queued prompt was not released')
 	expect(sent[0]?.model).toBe(NEXT)
-	expect(sent[0]?.messages).toContainEqual(expect.objectContaining({ role: 'user', content: 'Continue the independent task' }))
+	expect(sent[0]?.messages).toContainEqual(
+		expect.objectContaining({ role: 'user', content: 'Continue the independent task' }),
+	)
 })
 
 it('previews supported effort as requested and unsupported effort as unavailable without inference', async () => {
@@ -473,7 +509,11 @@ it('previews supported effort as requested and unsupported effort as unavailable
 	await press(screen, '/effort high')
 	expect(screen.viewport().join('\n')).toContain('Effort: high · requested')
 	await press(screen, '\r')
-	await until(screen, () => screen.viewport().join('\n').includes('Reasoning: high'), 'Effort command did not execute')
+	await until(
+		screen,
+		() => screen.viewport().join('\n').includes('Reasoning: high'),
+		'Effort command did not execute',
+	)
 	expect(sent).toHaveLength(0)
 	await press(screen, '/effort ultracode')
 	expect(screen.viewport().join('\n')).toContain('Effort: ultracode · unavailable for this model')
@@ -522,15 +562,19 @@ it('puts the effort back when hypermode turns off, unless it was changed meanwhi
 	await submit(screen, '/effort default')
 	await until(screen, () => screen.viewport().join('\n').includes('provider default'), 'default')
 	await submit(screen, '/hypermode on')
-	await until(screen, () => screen.viewport().join('\n').split('Hypermode is on').length > 2, 'on again')
-	await submit(screen, '/effort low')
-	await until(screen, () => screen.viewport().join('\n').split('Reasoning: low').length > 2, 'low again')
-	await submit(screen, '/hypermode off')
 	await until(
 		screen,
-		() => screen.viewport().join('\n').includes('Hypermode is off.'),
-		'off again',
+		() => screen.viewport().join('\n').split('Hypermode is on').length > 2,
+		'on again',
 	)
+	await submit(screen, '/effort low')
+	await until(
+		screen,
+		() => screen.viewport().join('\n').split('Reasoning: low').length > 2,
+		'low again',
+	)
+	await submit(screen, '/hypermode off')
+	await until(screen, () => screen.viewport().join('\n').includes('Hypermode is off.'), 'off again')
 	await submit(screen, 'again')
 	await until(screen, () => sent.length === 2, 'Second turn was not sent')
 	expect(sent[1]?.options?.effort).toBe('low')
@@ -545,7 +589,9 @@ it('keeps /orchestrate working as a deprecated alias that says so', async () => 
 		'/orchestrate on did not turn hypermode on',
 	)
 	const text = screen.viewport().join('\n').replace(/\s+/g, ' ')
-	expect(text).toContain('/orchestrate is deprecated: the mode is now called hypermode. Use /hypermode')
+	expect(text).toContain(
+		'/orchestrate is deprecated: the mode is now called hypermode. Use /hypermode',
+	)
 	// The line comes before the mode's own confirmation, not after it.
 	expect(text.indexOf('/orchestrate is deprecated')).toBeLessThan(text.indexOf('Hypermode is on'))
 	await submit(screen, 'go')
@@ -569,7 +615,10 @@ it('pins xhigh, not the top level, on a model whose menu goes up to max', async 
 
 it("hypermode survives a model switch and re-pins to the new model's xhigh", async () => {
 	activate = async (model) =>
-		fakeAgentSession({ ...makeSession(model), reasoningEffortLevels: ['low', 'medium', 'high', 'xhigh'] })
+		fakeAgentSession({
+			...makeSession(model),
+			reasoningEffortLevels: ['low', 'medium', 'high', 'xhigh'],
+		})
 	const screen = await open()
 	await submit(screen, '/hypermode on')
 	await until(
@@ -612,18 +661,35 @@ it('accepts hypermode without pinning when the model publishes no effort menu, a
 it('routes the original spaced Turkish Luna request directly to the host', async () => {
 	const screen = await open()
 	await submit(screen, 'gpt-5.6 lunaya geçer misin')
-	await until(screen, () => screen.viewport().join('\n').includes(`Switched to codex · ${NEXT}`), 'Turkish Luna request did not select the catalogue model')
+	await until(
+		screen,
+		() => screen.viewport().join('\n').includes(`Switched to codex · ${NEXT}`),
+		'Turkish Luna request did not select the catalogue model',
+	)
 	expect(sent).toHaveLength(0)
 	expect(constructed[1]?.prefs.providers[0]?.model).toBe(NEXT)
 })
 
- it.each([false, true])('announces instruction files only when the model switch changes the set (changed=%s)', async changed => {
- oldOverrides = { instructionFiles: ['/work/AGENTS.md'] }
- activate = async model => fakeAgentSession({ ...makeSession(model), instructionFiles: changed ? ['/work/AGENTS.md', '/work/team/AGENTS.md'] : ['/work/AGENTS.md'] })
- const screen = await open()
- await submit(screen, `/model ${NEXT}`)
- await until(screen, () => screen.viewport().join('\n').includes(`Switched to codex · ${NEXT}`), 'Switch did not finish')
- const text = screen.scrollback().join('\n')
- expect(text.match(/Project instructions:/g)).toHaveLength(changed ? 2 : 1)
- if (changed) expect(text).toContain('team/AGENTS.md')
- })
+it.each([false, true])(
+	'announces instruction files only when the model switch changes the set (changed=%s)',
+	async (changed) => {
+		oldOverrides = { instructionFiles: ['/work/AGENTS.md'] }
+		activate = async (model) =>
+			fakeAgentSession({
+				...makeSession(model),
+				instructionFiles: changed
+					? ['/work/AGENTS.md', '/work/team/AGENTS.md']
+					: ['/work/AGENTS.md'],
+			})
+		const screen = await open()
+		await submit(screen, `/model ${NEXT}`)
+		await until(
+			screen,
+			() => screen.viewport().join('\n').includes(`Switched to codex · ${NEXT}`),
+			'Switch did not finish',
+		)
+		const text = screen.scrollback().join('\n')
+		expect(text.match(/Project instructions:/g)).toHaveLength(changed ? 2 : 1)
+		if (changed) expect(text).toContain('team/AGENTS.md')
+	},
+)

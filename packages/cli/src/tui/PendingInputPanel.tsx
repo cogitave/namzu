@@ -34,7 +34,10 @@ export interface PendingInputPanelProps {
 	/** One-line summary of armed queued composer triggers. */
 	readonly queuedTags?: string
 	/** A stopped or failed turn keeps the next-turn queue until the operator continues. */
-	readonly held?: { readonly outcome: 'failed' | 'stopped' | 'paused'; readonly source?: 'operator-interrupt' } | null
+	readonly held?: {
+		readonly outcome: 'failed' | 'stopped' | 'paused'
+		readonly source?: 'operator-interrupt'
+	} | null
 }
 
 const MAX_PREVIEW_CODEPOINTS = 400
@@ -108,13 +111,20 @@ export function pendingInputPanelRows({
 	canRecall = false,
 }: Pick<PendingInputPanelProps, 'pendingSteers' | 'queued' | 'rows' | 'canRecall'>): number {
 	if (rows < COMPACT_BELOW_ROWS) {
-		return Number(pendingSteers.length > 0) + Number(queued.length > 0) +
+		return (
+			Number(pendingSteers.length > 0) +
+			Number(queued.length > 0) +
 			Number(canRecall && queued.length > 0)
+		)
 	}
 	const limit = previewLimit(rows)
-	const sectionRows = (count: number) => count === 0 ? 0 : 1 + Math.min(limit, count) + Number(count > limit)
-	return sectionRows(pendingSteers.length) + sectionRows(queued.length) +
+	const sectionRows = (count: number) =>
+		count === 0 ? 0 : 1 + Math.min(limit, count) + Number(count > limit)
+	return (
+		sectionRows(pendingSteers.length) +
+		sectionRows(queued.length) +
 		Number(canRecall && queued.length > 0)
+	)
 }
 
 function compactRow(label: string, items: readonly PendingInputItem[], width: number): string {
@@ -124,15 +134,16 @@ function compactRow(label: string, items: readonly PendingInputItem[], width: nu
 	const suffix = `${attachmentSuffix(first)}${items.length > 1 ? ` (+${items.length - 1})` : ''}`
 	const available = Math.max(0, width - choiceDisplayWidth(prefix))
 	const shownSuffix = truncateChoiceText(suffix, available)
-	const shownText = previewText(first.text) || (first.attachmentCount ? '(attachment only)' : '(empty message)')
+	const shownText =
+		previewText(first.text) || (first.attachmentCount ? '(attachment only)' : '(empty message)')
 	return `${prefix}${truncateChoiceText(shownText, Math.max(0, available - choiceDisplayWidth(shownSuffix)))}${shownSuffix}`
 }
 
 function queuedHeading(held: PendingInputPanelProps['held']): string {
-	if (!held) return 'Queued · next turn'
+	if (!held) return 'Queued · next reply'
 	if (held.source === 'operator-interrupt') return 'Queued · held after interruption'
-	if (held.outcome === 'paused') return 'Queued · held after a resumable turn paused'
-	return `Queued · paused after a ${held.outcome} turn`
+	if (held.outcome === 'paused') return 'Queued · held after a reply paused'
+	return `Queued · paused after a ${held.outcome} reply`
 }
 
 export function PendingInputPanel({
@@ -154,14 +165,21 @@ export function PendingInputPanel({
 		return (
 			<Box flexDirection="column" paddingX={1}>
 				{pendingSteers.length > 0 ? (
-					<Text color={theme.accent.user} wrap="truncate-end">{fit(compactRow('Steer→turn', pendingSteers, width), columns)}</Text>
+					<Text color={theme.accent.user} wrap="truncate-end">
+						{fit(compactRow('Steer→turn', pendingSteers, width), columns)}
+					</Text>
 				) : null}
 				{queued.length > 0 ? (
-					<Text color={theme.text.secondary} wrap="truncate-end">{fit(compactRow(held ? 'Queue held' : 'Queue→next', queued, width), columns)}</Text>
+					<Text color={theme.text.secondary} wrap="truncate-end">
+						{fit(compactRow(held ? 'Queue held' : 'Queue→next', queued, width), columns)}
+					</Text>
 				) : null}
 				{canRecall && recalled ? (
 					<Text color={theme.text.muted} wrap="truncate-end">
-						{fit(`Alt+Up edit last message: ${previewText(recalled.text) || '(attachment only)'}`, columns)}
+						{fit(
+							`Alt+Up edit last message: ${previewText(recalled.text) || '(attachment only)'}`,
+							columns,
+						)}
 					</Text>
 				) : null}
 			</Box>
@@ -197,9 +215,12 @@ export function PendingInputPanel({
 					</Box>
 				),
 			)}
-		{canRecall && recalled ? (
-			<Text color={theme.text.muted} wrap="truncate-end">
-				{fit(`Alt+Up edit last message: ${previewText(recalled.text) || '(attachment only)'}`, columns)}
+			{canRecall && recalled ? (
+				<Text color={theme.text.muted} wrap="truncate-end">
+					{fit(
+						`Alt+Up edit last message: ${previewText(recalled.text) || '(attachment only)'}`,
+						columns,
+					)}
 				</Text>
 			) : null}
 		</Box>

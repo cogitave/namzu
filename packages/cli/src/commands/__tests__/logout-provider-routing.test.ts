@@ -75,7 +75,7 @@ describe('namzu logout provider routing', () => {
 
 		expect(code).toBe(EXIT_OK)
 		expect(credentials).toMatchObject({ primary: true, codex: false, clears: ['codex'] })
-		expect(lines.join('\n')).toContain("Removed Namzu's stored Codex")
+		expect(lines.join('\n')).toContain('Removed Namzu’s stored Codex')
 		expect(lines.join('\n')).not.toContain('codex-secret')
 	})
 
@@ -103,7 +103,7 @@ describe('namzu logout provider routing', () => {
 			googleKey: false,
 			clears: ['gemini'],
 		})
-		expect(lines.join('\n')).toContain("Removed Namzu's saved Gemini API key")
+		expect(lines.join('\n')).toContain('Removed Namzu’s saved Gemini API key')
 		expect(lines.join('\n')).not.toContain('gemini-secret')
 	})
 
@@ -119,7 +119,7 @@ describe('namzu logout provider routing', () => {
 			clears: ['all', 'gemini'],
 		})
 		expect(lines.join('\n')).toContain('Some stored credentials could not be removed')
-		expect(lines.join('\n')).not.toContain("Removed Namzu's stored credentials")
+		expect(lines.join('\n')).not.toContain('Removed Namzu’s stored credentials')
 	})
 
 	it('refuses an unknown target before mutating either credential', async () => {

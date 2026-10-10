@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest'
+import { installHarness, probeHarnesses } from '../../integrations/providers/setup.js'
 import { ProviderSetup } from '../ProviderSetup.js'
 import { type Screen, renderToScreen } from './support/screen.js'
-import { installHarness, probeHarnesses } from '../../integrations/providers/setup.js'
 
 vi.mock('../../integrations/providers/discover.js', () => ({
 	discoverProviders: vi.fn(async () => []),
@@ -12,7 +12,8 @@ vi.mock('../../integrations/providers/setup.js', () => ({
 			harness: { id: 'opencode', label: 'OpenCode', npmPackage: 'opencode-ai' },
 			installed: false,
 			version: '',
-			access: 'Zen free models · experimental; OpenCode installation recommended; gateway may refuse',
+			access:
+				'Zen free models · experimental; OpenCode installation recommended; gateway may refuse',
 		},
 	]),
 	installHarness: vi.fn(async () => ({ code: 0, output: 'installed' })),

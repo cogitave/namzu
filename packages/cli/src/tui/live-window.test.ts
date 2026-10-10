@@ -183,12 +183,12 @@ describe('transcriptLines', () => {
 		const rich = transcriptLines([message])
 		const raw = transcriptLines([message], true)
 
-		expect(rich).toContain('   … 6 lines omitted · ctrl+o')
+		expect(rich).toContain('   … 6 lines not shown · ctrl+o')
 		expect(rich).toContain('   raw-detail-12')
 		expect(rich).not.toContain('   raw-detail-7')
 		expect(raw).toContain('raw-detail-7')
 		expect(raw).toContain('raw-detail-12')
-		expect(raw).not.toContain('   … 6 lines omitted · ctrl+o')
+		expect(raw).not.toContain('   … 6 lines not shown · ctrl+o')
 	})
 
 	it('uses the complete raw body when bounding the redrawable window', () => {

@@ -10,8 +10,8 @@ import {
 	MockLLMProvider,
 	type SessionEvent,
 	type TaskHandle,
-	ToolManager,
 	type ToolContext,
+	ToolManager,
 	createToolPresenter,
 	query,
 } from '@namzu/sdk'
@@ -21,10 +21,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import type { Preferences } from '../../integrations/providers/index.js'
-import type { SubagentActivity } from '../../integrations/subagents/activity.js'
 import { subagentParentFixture } from '../../integrations/subagents/__fixtures__/parent.js'
-import { createSubagentRuntime } from '../../integrations/subagents/runtime.js'
+import type { SubagentActivity } from '../../integrations/subagents/activity.js'
 import type { Batch } from '../../integrations/subagents/batches.js'
+import { createSubagentRuntime } from '../../integrations/subagents/runtime.js'
+import { testToolset } from '../../test-support/toolset.js'
 import {
 	AgentCockpit,
 	AgentTaskPanel,
@@ -37,11 +38,10 @@ import {
 	agentWorkflows,
 	maxAgentTranscriptTailOffset,
 } from '../AgentExplorer.js'
+import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 import { type AgentEvent, type AgentSession, type SessionScope, toAgentEvent } from '../agent.js'
 import type { TuiContext } from '../types.js'
 import { type Screen, renderToScreen } from './support/screen.js'
-import { testToolset } from '../../test-support/toolset.js'
-import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 
 const PREFS: Preferences = {
 	version: 3,
@@ -141,9 +141,11 @@ const savedChildren: {
  * listing reads it. `gate` holds one open so a test can put the read in
  * flight underneath a key press, the same shape as `savedChildren.gate`.
  */
-const orchestrationBatches: { current: readonly Batch[]; gate?: Promise<void> } = vi.hoisted(() => ({
-	current: [],
-}))
+const orchestrationBatches: { current: readonly Batch[]; gate?: Promise<void> } = vi.hoisted(
+	() => ({
+		current: [],
+	}),
+)
 
 vi.mock('../../integrations/trust/store.js', () => ({
 	isTrusted: () => true,
@@ -184,7 +186,11 @@ vi.mock('../agent.js', async (importOriginal) => {
 			needsRepickReason: null,
 			detected: [],
 		}),
-		createAgentSession: async (_preferences: Preferences, _detected: unknown, options?: { scope?: SessionScope }): Promise<AgentSession> => ({
+		createAgentSession: async (
+			_preferences: Preferences,
+			_detected: unknown,
+			options?: { scope?: SessionScope },
+		): Promise<AgentSession> => ({
 			...prepareChildMessageBridge(options?.scope),
 			hasProvider: true,
 			sandbox: { unconfined: true, enforced: [], required: [] },
@@ -293,11 +299,13 @@ function agent(
 		batchId: input.batchId ?? 'batch-live',
 		...(input.toolUseId ? { toolUseId: input.toolUseId } : {}),
 		workflowId: input.workflowId ?? 'turn-parent',
-		workflowGroupId: input.workflowGroupId ?? JSON.stringify([
-			input.workflowId ?? 'turn-parent',
-			input.workflow ? 'workflow' : 'batch',
-			input.workflow ?? input.batchId ?? 'batch-live',
-		]),
+		workflowGroupId:
+			input.workflowGroupId ??
+			JSON.stringify([
+				input.workflowId ?? 'turn-parent',
+				input.workflow ? 'workflow' : 'batch',
+				input.workflow ?? input.batchId ?? 'batch-live',
+			]),
 		phaseId:
 			input.phaseId ??
 			JSON.stringify([
@@ -378,16 +386,22 @@ afterEach(async () => {
 describe('Ctrl+T', () => {
 	it('targets the selected child, keeps the parent draft, and supplies a host notice on the next parent turn', async () => {
 		let created!: () => void
-		const ready = new Promise<void>((resolve) => { created = resolve })
+		const ready = new Promise<void>((resolve) => {
+			created = resolve
+		})
 		childMessageBridge.onCreated = created
 		const messageSubagent = vi.fn<NonNullable<AgentSession['messageSubagent']>>(async () => ({
-			kind: 'queued' as const, taskId: 'child-task', state: 'running',
+			kind: 'queued' as const,
+			taskId: 'child-task',
+			state: 'running',
 			parentNotice: 'Host admitted operator text for child-task: "q stays inside this child".',
 		}))
 		childMessageBridge.current = messageSubagent
 		activity.set([agent({ viewId: 'selected-child', description: 'Selected reviewer' })])
 		let parentStarted!: () => void
-		const parentTurn = new Promise<void>((resolve) => { parentStarted = resolve })
+		const parentTurn = new Promise<void>((resolve) => {
+			parentStarted = resolve
+		})
 		let hostContext: readonly string[] = []
 		const parentSend = vi.fn()
 		sendOverride.current = async function* (_messages, opts) {
@@ -415,16 +429,29 @@ describe('Ctrl+T', () => {
 		screen.press('\r')
 		await screen.waitForRender()
 		expect(messageSubagent).toHaveBeenCalledTimes(1)
-		expect(messageSubagent).toHaveBeenCalledWith('selected-child', 'q stays inside this child', expect.objectContaining({
-			permissionMode: 'prompt', currentPermissionMode: expect.any(Function), onPermission: expect.any(Function), signal: expect.any(AbortSignal),
-		}))
+		expect(messageSubagent).toHaveBeenCalledWith(
+			'selected-child',
+			'q stays inside this child',
+			expect.objectContaining({
+				permissionMode: 'prompt',
+				currentPermissionMode: expect.any(Function),
+				onPermission: expect.any(Function),
+				signal: expect.any(AbortSignal),
+			}),
+		)
 		const admissionOptions = messageSubagent.mock.calls[0]?.[2]
 		screen.press('\x1b[Z')
 		await screen.waitForRender()
 		expect(admissionOptions?.currentPermissionMode?.()).toBe('accept-edits')
 		expect(parentSend).not.toHaveBeenCalled()
-		childMessageBridge.onReport?.({ parentSessionId: 'other-conversation', text: 'Unrelated report must stay out.' })
-		childMessageBridge.onReport?.({ parentSessionId: childMessageBridge.scope!.sessionId, text: 'Host follow-up result: untrusted child output is quoted.' })
+		childMessageBridge.onReport?.({
+			parentSessionId: 'other-conversation',
+			text: 'Unrelated report must stay out.',
+		})
+		childMessageBridge.onReport?.({
+			parentSessionId: childMessageBridge.scope!.sessionId,
+			text: 'Host follow-up result: untrusted child output is quoted.',
+		})
 		// A complete enhanced-keyboard Escape has no ambiguity timeout to race.
 		screen.press('\x1b[27u')
 		await screen.waitForRender()
@@ -433,28 +460,43 @@ describe('Ctrl+T', () => {
 		expect(screen.viewport().join('\n')).toContain('parent draft')
 		screen.press('\r')
 		await parentTurn
-		expect(hostContext).toContain('Host admitted operator text for child-task: "q stays inside this child".')
+		expect(hostContext).toContain(
+			'Host admitted operator text for child-task: "q stays inside this child".',
+		)
 		expect(hostContext).toContain('Host follow-up result: untrusted child output is quoted.')
 		expect(hostContext).not.toContain('Unrelated report must stay out.')
 	})
 
 	it('injects a direct child correction into a busy parent as host context at its next boundary', async () => {
 		let created!: () => void
-		const ready = new Promise<void>((resolve) => { created = resolve })
+		const ready = new Promise<void>((resolve) => {
+			created = resolve
+		})
 		childMessageBridge.onCreated = created
 		const admitted = new Promise<void>((resolve) => {
 			childMessageBridge.current = async () => {
 				resolve()
-				return { kind: 'queued', taskId: 'busy-child', state: 'running', parentNotice: 'Host: the operator reassigned this child to BETA.' }
+				return {
+					kind: 'queued',
+					taskId: 'busy-child',
+					state: 'running',
+					parentNotice: 'Host: the operator reassigned this child to BETA.',
+				}
 			}
 		})
 		activity.set([agent({ viewId: 'busy-child-view', description: 'Busy reviewer' })])
 		let started!: () => void
-		const running = new Promise<void>((resolve) => { started = resolve })
+		const running = new Promise<void>((resolve) => {
+			started = resolve
+		})
 		let advance!: () => void
-		const boundary = new Promise<void>((resolve) => { advance = resolve })
+		const boundary = new Promise<void>((resolve) => {
+			advance = resolve
+		})
 		let drained!: () => void
-		const delivered = new Promise<void>((resolve) => { drained = resolve })
+		const delivered = new Promise<void>((resolve) => {
+			drained = resolve
+		})
 		let context: readonly Message[] = []
 		sendOverride.current = async function* (_messages, opts) {
 			started()
@@ -482,28 +524,48 @@ describe('Ctrl+T', () => {
 		await admitted
 		await screen.waitForRender()
 		expect(context).toEqual([])
-		childMessageBridge.onReport?.({ parentSessionId: childMessageBridge.scope!.sessionId, text: 'Host: child follow-up completed; its output has no operator authority.' })
+		childMessageBridge.onReport?.({
+			parentSessionId: childMessageBridge.scope!.sessionId,
+			text: 'Host: child follow-up completed; its output has no operator authority.',
+		})
 		advance()
 		await delivered
-		expect(context).toEqual([expect.objectContaining({
-			role: 'user', content: 'Host: the operator reassigned this child to BETA.',
-			source: { type: 'runtime-context', kind: 'advisory' },
-		}), expect.objectContaining({
-			role: 'user', content: 'Host: child follow-up completed; its output has no operator authority.',
-			source: { type: 'runtime-context', kind: 'task-completion' },
-		})])
+		expect(context).toEqual([
+			expect.objectContaining({
+				role: 'user',
+				content: 'Host: the operator reassigned this child to BETA.',
+				source: { type: 'runtime-context', kind: 'advisory' },
+			}),
+			expect.objectContaining({
+				role: 'user',
+				content: 'Host: child follow-up completed; its output has no operator authority.',
+				source: { type: 'runtime-context', kind: 'task-completion' },
+			}),
+		])
 	})
 
 	it('revokes an in-flight child submission when the operator starts another conversation', async () => {
 		let created!: () => void
-		const ready = new Promise<void>((resolve) => { created = resolve })
+		const ready = new Promise<void>((resolve) => {
+			created = resolve
+		})
 		childMessageBridge.onCreated = created
 		let entered!: () => void
-		const enteredBridge = new Promise<void>((resolve) => { entered = resolve })
+		const enteredBridge = new Promise<void>((resolve) => {
+			entered = resolve
+		})
 		let admit!: (receipt: Awaited<ReturnType<NonNullable<AgentSession['messageSubagent']>>>) => void
-		const admission = new Promise<Awaited<ReturnType<NonNullable<AgentSession['messageSubagent']>>>>((resolve) => { admit = resolve })
+		const admission = new Promise<
+			Awaited<ReturnType<NonNullable<AgentSession['messageSubagent']>>>
+		>((resolve) => {
+			admit = resolve
+		})
 		let signal: AbortSignal | undefined
-		childMessageBridge.current = (_viewId, _message, opts) => { signal = opts?.signal; entered(); return admission }
+		childMessageBridge.current = (_viewId, _message, opts) => {
+			signal = opts?.signal
+			entered()
+			return admission
+		}
 		activity.set([agent({ viewId: 'old-child', description: 'Old reviewer' })])
 		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 100, rows: 28 })
 		mounted = screen
@@ -517,30 +579,54 @@ describe('Ctrl+T', () => {
 		await screen.waitForRender()
 		await submit(screen, 'old assignment')
 		await enteredBridge
-		const revoked = new Promise<void>((resolve) => signal!.addEventListener('abort', () => resolve(), { once: true }))
+		const revoked = new Promise<void>((resolve) =>
+			signal!.addEventListener('abort', () => resolve(), { once: true }),
+		)
 		screen.press('\x1b[27u')
 		await screen.waitForRender()
 		screen.press('q')
 		await screen.waitForRender()
 		await submit(screen, '/new')
 		await revoked
-		admit({ kind: 'started', taskId: 'old-task', state: 'pending', parentNotice: 'Old assignment must not enter the new conversation.' })
+		admit({
+			kind: 'started',
+			taskId: 'old-task',
+			state: 'pending',
+			parentNotice: 'Old assignment must not enter the new conversation.',
+		})
 		await admission
 		let sent!: () => void
-		const next = new Promise<void>((resolve) => { sent = resolve })
+		const next = new Promise<void>((resolve) => {
+			sent = resolve
+		})
 		let hostContext: readonly string[] = []
-		sendOverride.current = async function* (_messages, opts) { hostContext = opts?.hostContext?.() ?? []; sent(); yield { kind: 'done', stopReason: 'end_turn' } }
+		sendOverride.current = async function* (_messages, opts) {
+			hostContext = opts?.hostContext?.() ?? []
+			sent()
+			yield { kind: 'done', stopReason: 'end_turn' }
+		}
 		await submit(screen, 'fresh parent prompt')
 		await next
 		expect(signal?.aborted).toBe(true)
 		expect(hostContext).not.toContain('Old assignment must not enter the new conversation.')
 	})
 
-	it.each([[100, 28], [60, 14], [35, 20]])('keeps child messages inside a %i × %i terminal', async (cols, rows) => {
+	it.each([
+		[100, 28],
+		[60, 14],
+		[35, 20],
+	])('keeps child messages inside a %i × %i terminal', async (cols, rows) => {
 		let created!: () => void
-		const ready = new Promise<void>((resolve) => { created = resolve })
+		const ready = new Promise<void>((resolve) => {
+			created = resolve
+		})
 		childMessageBridge.onCreated = created
-		childMessageBridge.current = async () => ({ kind: 'queued', taskId: 'child', state: 'running', parentNotice: 'admitted' })
+		childMessageBridge.current = async () => ({
+			kind: 'queued',
+			taskId: 'child',
+			state: 'running',
+			parentNotice: 'admitted',
+		})
 		activity.set([agent({ viewId: 'visible-child', description: 'Reviewer' })])
 		const screen = await renderToScreen(<App ctx={ctx} />, { cols, rows })
 		mounted = screen
@@ -554,18 +640,34 @@ describe('Ctrl+T', () => {
 		expect(frame).toContain('Message · Reviewer')
 		expect(frame).toContain('prompt for visible-child')
 		expect(screen.row(-1).trim()).toBe('')
-		const bottom = rows - 1 - [...screen.viewport()].reverse().findIndex((line) => line.trim().length > 0)
+		const bottom =
+			rows - 1 - [...screen.viewport()].reverse().findIndex((line) => line.trim().length > 0)
 		expect(bottom).toBeLessThan(rows - 1)
 		expect(screen.row(bottom)).toContain('┘')
 	})
 
 	it('keeps replayed children read only even when direct messaging is available', async () => {
 		let created!: () => void
-		const ready = new Promise<void>((resolve) => { created = resolve })
+		const ready = new Promise<void>((resolve) => {
+			created = resolve
+		})
 		childMessageBridge.onCreated = created
-		const send = vi.fn(async () => ({ kind: 'started' as const, taskId: 'unused', state: 'running', parentNotice: 'unused' }))
+		const send = vi.fn(async () => ({
+			kind: 'started' as const,
+			taskId: 'unused',
+			state: 'running',
+			parentNotice: 'unused',
+		}))
 		childMessageBridge.current = send
-		activity.set([agent({ viewId: 'saved-child', description: 'Saved reviewer', replayed: true, status: 'completed', completedAt: 2 })])
+		activity.set([
+			agent({
+				viewId: 'saved-child',
+				description: 'Saved reviewer',
+				replayed: true,
+				status: 'completed',
+				completedAt: 2,
+			}),
+		])
 		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 100, rows: 28 })
 		mounted = screen
 		await ready
@@ -582,10 +684,24 @@ describe('Ctrl+T', () => {
 
 	it('keeps the selected conversation and its draft when a follow-up changes its run and phase', async () => {
 		let created!: () => void
-		const ready = new Promise<void>((resolve) => { created = resolve })
+		const ready = new Promise<void>((resolve) => {
+			created = resolve
+		})
 		childMessageBridge.onCreated = created
-		childMessageBridge.current = async () => ({ kind: 'started', taskId: 'follow-up', state: 'running', parentNotice: 'new task' })
-		activity.set([agent({ viewId: 'retained-reviewer', description: 'Retained reviewer', workflowId: 'old-run', phase: 'Original' })])
+		childMessageBridge.current = async () => ({
+			kind: 'started',
+			taskId: 'follow-up',
+			state: 'running',
+			parentNotice: 'new task',
+		})
+		activity.set([
+			agent({
+				viewId: 'retained-reviewer',
+				description: 'Retained reviewer',
+				workflowId: 'old-run',
+				phase: 'Original',
+			}),
+		])
 		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 100, rows: 28 })
 		mounted = screen
 		await ready
@@ -599,8 +715,20 @@ describe('Ctrl+T', () => {
 		screen.press('draft for the retained child')
 		await screen.waitForRender()
 		activity.set([
-			agent({ viewId: 'retained-reviewer', description: 'Retained reviewer', workflowId: 'new-run', phase: 'Follow-up' }),
-			agent({ viewId: 'old-sibling', description: 'Archived other task', workflowId: 'old-run', phase: 'Original', status: 'completed', completedAt: 2 }),
+			agent({
+				viewId: 'retained-reviewer',
+				description: 'Retained reviewer',
+				workflowId: 'new-run',
+				phase: 'Follow-up',
+			}),
+			agent({
+				viewId: 'old-sibling',
+				description: 'Archived other task',
+				workflowId: 'old-run',
+				phase: 'Original',
+				status: 'completed',
+				completedAt: 2,
+			}),
 		])
 		await screen.waitForRender()
 		screen.press('\x1b[27u')
@@ -1046,10 +1174,26 @@ describe('Ctrl+T', () => {
 	})
 
 	it('opens on the phase whose agent is still working, titled by that phase', async () => {
-		const settled = { status: 'completed' as const, completedAt: 3, workflow: 'Two-phase colour sentence' }
+		const settled = {
+			status: 'completed' as const,
+			completedAt: 3,
+			workflow: 'Two-phase colour sentence',
+		}
 		activity.set([
-			agent({ viewId: 'first', description: 'Choose first colour', phase: 'Phase 1', phaseOrder: 0, ...settled }),
-			agent({ viewId: 'second', description: 'Choose second colour', phase: 'Phase 1', phaseOrder: 0, ...settled }),
+			agent({
+				viewId: 'first',
+				description: 'Choose first colour',
+				phase: 'Phase 1',
+				phaseOrder: 0,
+				...settled,
+			}),
+			agent({
+				viewId: 'second',
+				description: 'Choose second colour',
+				phase: 'Phase 1',
+				phaseOrder: 0,
+				...settled,
+			}),
 			agent({
 				viewId: 'join',
 				description: 'Join the two colours',
@@ -1091,7 +1235,11 @@ describe('Ctrl+T', () => {
 		expect(frame).toContain('1 agent')
 		expect(frame).not.toContain('draft remains visible')
 		screen.press('\x14')
-		await waitUntil(screen, () => screen.viewport().join('\n').includes('draft remains visible'), 'draft was not restored')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('draft remains visible'),
+			'draft was not restored',
+		)
 		// Back at idle with no interaction hint active, the footer's right side
 		// falls through to the model again — it was displaced by the cockpit's
 		// own hint a moment ago, exactly as an interaction hint displaces it.
@@ -1138,7 +1286,9 @@ describe('Ctrl+T', () => {
 				startedAt: 1,
 				completedAt: 2,
 				replayed: true,
-				transcript: [{ id: 'saved-row', kind: 'tool', text: 'Read(src/a.ts)', status: 'completed' }],
+				transcript: [
+					{ id: 'saved-row', kind: 'tool', text: 'Read(src/a.ts)', status: 'completed' },
+				],
 			}),
 		]
 		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
@@ -1196,7 +1346,9 @@ describe('Ctrl+T', () => {
 				startedAt: 1,
 				completedAt: 2,
 				replayed: true,
-				transcript: [{ id: 'saved-row-2', kind: 'tool', text: 'Read(src/b.ts)', status: 'completed' }],
+				transcript: [
+					{ id: 'saved-row-2', kind: 'tool', text: 'Read(src/b.ts)', status: 'completed' },
+				],
 			}),
 		]
 
@@ -1394,54 +1546,115 @@ describe('Ctrl+T', () => {
 		expect(screen.viewport().join('\n')).toContain('Contract critic')
 	})
 
-	it.each([{ cols: 110, rows: 28 }, { cols: 60, rows: 18 }])(
-		'keeps two eight-agent actions as separate workflows at $cols×$rows', async ({ cols, rows }) => {
-		const first = Array.from({ length: 8 }, (_, index) => agent({
-			viewId: `first-${index}`, description: `First agent ${index + 1}`,
-			workflowId: 'run-one', workflow: 'Capacity review', phase: 'Inspect', phaseOrder: 0,
-			status: 'completed', startedAt: 1, completedAt: 2,
-			transcript: [{ id: `first-result-${index}`, kind: 'assistant', text: 'first workflow evidence' }],
-		}))
-		const second = Array.from({ length: 8 }, (_, index) => agent({
-			viewId: `second-${index}`, description: `Second agent ${index + 1}`,
-			workflowId: 'run-two', workflow: 'Capacity review', phase: 'Inspect', phaseOrder: 0,
-			status: 'cancelled', startedAt: 3, completedAt: 4,
-			transcript: [{ id: `second-result-${index}`, kind: 'assistant', text: 'second workflow cancellation' }],
-		}))
-		activity.set([...first, ...second])
-		const screen = await renderToScreen(<App ctx={ctx} />, { cols, rows })
-		mounted = screen
-		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
-		screen.press('preserved draft')
-		await screen.waitForRender()
-		screen.press('\x14')
-		await waitUntil(screen, () => screen.viewport().join('\n').includes('Workflows · 2/2'), 'workflow picker missing')
-		expect(screen.viewport().join('\n')).not.toContain('Phases')
-		screen.press('\r')
-		await waitUntil(screen, () => screen.viewport().join('\n').includes('Second agent 1'), 'latest workflow missing')
-		let frame = screen.viewport().join('\n')
-		expect(frame).toContain('Phases')
-		// The header names the pane; a count here would read as phases done.
-		expect(frame).not.toMatch(/Phases · \d/)
-		expect(frame).toContain('8/8 agents')
-		expect(frame).not.toContain('First agent')
-		screen.press('\r')
-		await waitUntil(screen, () => screen.viewport().join('\n').includes('second workflow cancellation'), 'cancelled transcript missing')
-		screen.press('\x1b')
-		await waitUntil(screen, () => screen.viewport().join('\n').includes('Phases'), 'did not return to agents')
-		screen.press('\x1b')
-		await waitUntil(screen, () => screen.viewport().join('\n').includes('Workflows · 2/2'), 'did not return to workflows')
-		screen.press('\x1b[A')
-		screen.press('\r')
-		await waitUntil(screen, () => screen.viewport().join('\n').includes('First agent 1'), 'previous workflow missing')
-		frame = screen.viewport().join('\n')
-		expect(frame).toContain('8/8 agents')
-		expect(frame).not.toContain('Second agent')
-		screen.press('q')
-		await waitUntil(screen, () => screen.viewport().join('\n').includes('preserved draft'), 'draft not restored')
-		screen.press('\x14')
-		await waitUntil(screen, () => screen.viewport().join('\n').includes('Workflows · 2/2'), 'retained workflows did not reopen')
-	})
+	it.each([
+		{ cols: 110, rows: 28 },
+		{ cols: 60, rows: 18 },
+	])(
+		'keeps two eight-agent actions as separate workflows at $cols×$rows',
+		async ({ cols, rows }) => {
+			const first = Array.from({ length: 8 }, (_, index) =>
+				agent({
+					viewId: `first-${index}`,
+					description: `First agent ${index + 1}`,
+					workflowId: 'run-one',
+					workflow: 'Capacity review',
+					phase: 'Inspect',
+					phaseOrder: 0,
+					status: 'completed',
+					startedAt: 1,
+					completedAt: 2,
+					transcript: [
+						{ id: `first-result-${index}`, kind: 'assistant', text: 'first workflow evidence' },
+					],
+				}),
+			)
+			const second = Array.from({ length: 8 }, (_, index) =>
+				agent({
+					viewId: `second-${index}`,
+					description: `Second agent ${index + 1}`,
+					workflowId: 'run-two',
+					workflow: 'Capacity review',
+					phase: 'Inspect',
+					phaseOrder: 0,
+					status: 'cancelled',
+					startedAt: 3,
+					completedAt: 4,
+					transcript: [
+						{
+							id: `second-result-${index}`,
+							kind: 'assistant',
+							text: 'second workflow cancellation',
+						},
+					],
+				}),
+			)
+			activity.set([...first, ...second])
+			const screen = await renderToScreen(<App ctx={ctx} />, { cols, rows })
+			mounted = screen
+			await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+			screen.press('preserved draft')
+			await screen.waitForRender()
+			screen.press('\x14')
+			await waitUntil(
+				screen,
+				() => screen.viewport().join('\n').includes('Workflows · 2/2'),
+				'workflow picker missing',
+			)
+			expect(screen.viewport().join('\n')).not.toContain('Phases')
+			screen.press('\r')
+			await waitUntil(
+				screen,
+				() => screen.viewport().join('\n').includes('Second agent 1'),
+				'latest workflow missing',
+			)
+			let frame = screen.viewport().join('\n')
+			expect(frame).toContain('Phases')
+			// The header names the pane; a count here would read as phases done.
+			expect(frame).not.toMatch(/Phases · \d/)
+			expect(frame).toContain('8/8 agents')
+			expect(frame).not.toContain('First agent')
+			screen.press('\r')
+			await waitUntil(
+				screen,
+				() => screen.viewport().join('\n').includes('second workflow cancellation'),
+				'cancelled transcript missing',
+			)
+			screen.press('\x1b')
+			await waitUntil(
+				screen,
+				() => screen.viewport().join('\n').includes('Phases'),
+				'did not return to agents',
+			)
+			screen.press('\x1b')
+			await waitUntil(
+				screen,
+				() => screen.viewport().join('\n').includes('Workflows · 2/2'),
+				'did not return to workflows',
+			)
+			screen.press('\x1b[A')
+			screen.press('\r')
+			await waitUntil(
+				screen,
+				() => screen.viewport().join('\n').includes('First agent 1'),
+				'previous workflow missing',
+			)
+			frame = screen.viewport().join('\n')
+			expect(frame).toContain('8/8 agents')
+			expect(frame).not.toContain('Second agent')
+			screen.press('q')
+			await waitUntil(
+				screen,
+				() => screen.viewport().join('\n').includes('preserved draft'),
+				'draft not restored',
+			)
+			screen.press('\x14')
+			await waitUntil(
+				screen,
+				() => screen.viewport().join('\n').includes('Workflows · 2/2'),
+				'retained workflows did not reopen',
+			)
+		},
+	)
 
 	it('keeps the selected child while the mounted cockpit crosses its responsive breakpoint', async () => {
 		activity.set([
@@ -1737,7 +1950,9 @@ describe('/agents batches', () => {
 				startedAt: 1,
 				completedAt: 2,
 				replayed: true,
-				transcript: [{ id: 'saved-row', kind: 'tool', text: 'Read(src/a.ts)', status: 'completed' }],
+				transcript: [
+					{ id: 'saved-row', kind: 'tool', text: 'Read(src/a.ts)', status: 'completed' },
+				],
 			}),
 		]
 		orchestrationBatches.current = [
@@ -1935,7 +2150,8 @@ describe('agent explorer projection', () => {
 	// activity text) down first, to zero once the deficit is large enough.
 	// These three cases pin one long id at each of the three required render
 	// sites and assert the description survives rather than vanishing.
-	const REALISTIC_LONG_MODEL = 'gateway/production/anthropic/claude-opus-4-1-20250805-experimental-v3'
+	const REALISTIC_LONG_MODEL =
+		'gateway/production/anthropic/claude-opus-4-1-20250805-experimental-v3'
 
 	it('a long model id never erases the description in the automatic rail', async () => {
 		const busy = agent({
@@ -2032,8 +2248,11 @@ describe('agent explorer projection', () => {
 			agent({ viewId: 'first', batchId: 'one', phase: 'Inspect', startedAt: 1 }),
 			agent({ viewId: 'second', batchId: 'two', phase: 'Inspect', startedAt: 2 }),
 		])
-		expect(workflows.map((workflow) => workflow.phases.map((phase) => phase.agents.map((entry) => entry.viewId))))
-			.toEqual([[['first']], [['second']]])
+		expect(
+			workflows.map((workflow) =>
+				workflow.phases.map((phase) => phase.agents.map((entry) => entry.viewId)),
+			),
+		).toEqual([[['first']], [['second']]])
 	})
 
 	it('names an unlabelled group by its own lead agent instead of the generic default', () => {
@@ -2063,11 +2282,24 @@ describe('agent explorer projection', () => {
 	})
 
 	it('shows queued children as active without claiming that they are working', async () => {
-		const queued = agent({ viewId: 'queued', description: 'Ninth review', status: 'queued', latestActivity: 'Queued' })
+		const queued = agent({
+			viewId: 'queued',
+			description: 'Ninth review',
+			status: 'queued',
+			latestActivity: 'Queued',
+		})
 		const running = agent({ viewId: 'running', description: 'Running review' })
-		const screen = await renderToScreen(<AgentCockpit agents={[running, queued]}
-			selectedPhaseId={queued.phaseId} selectedId={queued.viewId} focus="agents"
-			terminalRows={24} terminalColumns={110} />, { cols: 110, rows: 24 })
+		const screen = await renderToScreen(
+			<AgentCockpit
+				agents={[running, queued]}
+				selectedPhaseId={queued.phaseId}
+				selectedId={queued.viewId}
+				focus="agents"
+				terminalRows={24}
+				terminalColumns={110}
+			/>,
+			{ cols: 110, rows: 24 },
+		)
 		mounted = screen
 		await screen.waitForRender()
 		const frame = screen.viewport().join('\n')
@@ -2080,46 +2312,49 @@ describe('agent explorer projection', () => {
 		{ cols: 120, rows: 28 },
 		{ cols: 60, rows: 20 },
 		{ cols: 40, rows: 14 },
-	])('separates cockpit panes and names a settled status once at $cols×$rows', async ({ cols, rows }) => {
-		const research = agent({
-			viewId: 'research',
-			workflow: 'Narrow workflow',
-			phase: 'Research',
-			phaseOrder: 0,
-			description: 'Research worker',
-			status: 'completed',
-			startedAt: 1_000,
-			completedAt: 59_000,
-			latestActivity: 'Completed',
-		})
-		const screen = await renderToScreen(
-			<AgentCockpit
-				agents={[research]}
-				selectedPhaseId={research.phaseId}
-				selectedId={research.viewId}
-				focus="phases"
-				terminalRows={rows}
-				terminalColumns={cols}
-			/>,
-			{ cols, rows },
-		)
-		mounted = screen
-		const viewport = screen.viewport()
-		const phaseHeading = viewport.findIndex((line) => line.includes('Phases'))
-		const agentHeading = viewport.findIndex((line) => line.includes('Research · 1 agent'))
-		const worker = viewport.find((line) => line.includes('Research worker')) ?? ''
-		expect(phaseHeading).toBeGreaterThanOrEqual(0)
-		expect(agentHeading).toBeGreaterThanOrEqual(0)
-		expect(worker).toMatch(/Research worker\s+Completed · 58s/)
-		expect(worker.match(/Completed/g)).toHaveLength(1)
-		if (cols >= 88) {
-			expect(agentHeading).toBe(phaseHeading)
-			expect(viewport[phaseHeading]).toMatch(/Phases.*│\s+Research · 1 agent/)
-		} else {
-			expect(agentHeading).toBeGreaterThan(phaseHeading)
-		}
-		expect(viewport.join('\n')).toContain('esc return')
-	})
+	])(
+		'separates cockpit panes and names a settled status once at $cols×$rows',
+		async ({ cols, rows }) => {
+			const research = agent({
+				viewId: 'research',
+				workflow: 'Narrow workflow',
+				phase: 'Research',
+				phaseOrder: 0,
+				description: 'Research worker',
+				status: 'completed',
+				startedAt: 1_000,
+				completedAt: 59_000,
+				latestActivity: 'Completed',
+			})
+			const screen = await renderToScreen(
+				<AgentCockpit
+					agents={[research]}
+					selectedPhaseId={research.phaseId}
+					selectedId={research.viewId}
+					focus="phases"
+					terminalRows={rows}
+					terminalColumns={cols}
+				/>,
+				{ cols, rows },
+			)
+			mounted = screen
+			const viewport = screen.viewport()
+			const phaseHeading = viewport.findIndex((line) => line.includes('Phases'))
+			const agentHeading = viewport.findIndex((line) => line.includes('Research · 1 agent'))
+			const worker = viewport.find((line) => line.includes('Research worker')) ?? ''
+			expect(phaseHeading).toBeGreaterThanOrEqual(0)
+			expect(agentHeading).toBeGreaterThanOrEqual(0)
+			expect(worker).toMatch(/Research worker\s+Completed · 58s/)
+			expect(worker.match(/Completed/g)).toHaveLength(1)
+			if (cols >= 88) {
+				expect(agentHeading).toBe(phaseHeading)
+				expect(viewport[phaseHeading]).toMatch(/Phases.*│\s+Research · 1 agent/)
+			} else {
+				expect(agentHeading).toBeGreaterThan(phaseHeading)
+			}
+			expect(viewport.join('\n')).toContain('esc return')
+		},
+	)
 
 	it('the focused phase reveals its detail and the others do not', async () => {
 		const research = agent({
@@ -2356,8 +2591,11 @@ describe('agent explorer projection', () => {
 
 	it('wraps prose at word boundaries and retains every original character', () => {
 		const text = 'Microsoft stratejisini araştır ve resmi kaynakları karşılaştır.'
-		const rows = agentTranscriptRows(agent({ viewId: 'word-wrap', prompt: text, transcript: [] }), 35)
-		expect(rows.map(row => row.text).join('')).toBe(text)
+		const rows = agentTranscriptRows(
+			agent({ viewId: 'word-wrap', prompt: text, transcript: [] }),
+			35,
+		)
+		expect(rows.map((row) => row.text).join('')).toBe(text)
 		expect(rows[0]?.text).toBe('Microsoft stratejisini ')
 		for (const row of rows) expect(row.text.length).toBeLessThanOrEqual(25)
 	})
@@ -2411,8 +2649,16 @@ describe('agent completion presentation', () => {
 	it('Ctrl+O still reaches a completion row once it has settled into history', async () => {
 		// A settled row cannot be repainted, so its `ctrl+o result` stays on
 		// screen; the key has to keep reaching the answer behind it.
-		const first = agent({ viewId: 'child-first', taskId: 'task-first', description: 'Choose first colour' })
-		const second = agent({ viewId: 'child-second', taskId: 'task-second', description: 'Join the two colours' })
+		const first = agent({
+			viewId: 'child-first',
+			taskId: 'task-first',
+			description: 'Choose first colour',
+		})
+		const second = agent({
+			viewId: 'child-second',
+			taskId: 'task-second',
+			description: 'Join the two colours',
+		})
 		const done = (child: SubagentActivity, text: string): SubagentActivity => ({
 			...child,
 			transcript: [{ id: `${child.viewId}-answer`, kind: 'assistant' as const, text }],
@@ -2428,118 +2674,149 @@ describe('agent completion presentation', () => {
 		mounted = screen
 		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
 		activity.set([done(first, 'FIRST_ANSWER'), second])
-		await waitUntil(screen, () => painted(screen).includes('✓ Choose first colour · '), 'first row missing')
+		await waitUntil(
+			screen,
+			() => painted(screen).includes('✓ Choose first colour · '),
+			'first row missing',
+		)
 		// Enough later rows that the first completion leaves the live region.
 		for (const prompt of ['one', 'two', 'three', 'four']) {
 			await submit(screen, prompt)
 			await waitUntil(
 				screen,
-				() => painted(screen).split('noted').length > ['one', 'two', 'three', 'four'].indexOf(prompt) + 1,
+				() =>
+					painted(screen).split('noted').length >
+					['one', 'two', 'three', 'four'].indexOf(prompt) + 1,
 				`reply to ${prompt} missing`,
 			)
 		}
 		activity.set([done(first, 'FIRST_ANSWER'), done(second, 'SECOND_ANSWER')])
-		await waitUntil(screen, () => painted(screen).includes('✓ Join the two colours · '), 'second row missing')
+		await waitUntil(
+			screen,
+			() => painted(screen).includes('✓ Join the two colours · '),
+			'second row missing',
+		)
 		await screen.waitForRender()
 		expect(screen.viewport().join('\n')).not.toContain('FIRST_ANSWER')
 		// First press: the live answer opens in place.
 		screen.press('\x0f')
-		await waitUntil(screen, () => screen.viewport().join('\n').includes('SECOND_ANSWER'), 'live answer not opened')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('SECOND_ANSWER'),
+			'live answer not opened',
+		)
 		expect(screen.viewport().join('\n')).not.toContain('FIRST_ANSWER')
 		// Second press: the settled one, in the viewer.
 		screen.press('\x0f')
-		await waitUntil(screen, () => screen.viewport().join('\n').includes('FIRST_ANSWER'), 'settled answer never reachable')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('FIRST_ANSWER'),
+			'settled answer never reachable',
+		)
 		expect(screen.viewport().join('\n')).toContain('Choose first colour')
 		screen.press('\x1b')
-		await waitUntil(screen, () => !screen.viewport().join('\n').includes('←→ outputs'), 'viewer did not close')
+		await waitUntil(
+			screen,
+			() => !screen.viewport().join('\n').includes('←→ outputs'),
+			'viewer did not close',
+		)
 		// Closed, the live answer is folded again, and the next press reopens it.
 		expect(screen.viewport().join('\n')).not.toContain('SECOND_ANSWER')
 		screen.press('\x0f')
-		await waitUntil(screen, () => screen.viewport().join('\n').includes('SECOND_ANSWER'), 'live answer not reopened')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('SECOND_ANSWER'),
+			'live answer not reopened',
+		)
 	})
 
-	it.each([true, false])('shows all three outcomes, retaining wait evidence when inspection is unavailable (inspectable=%s)', async (inspectable) => {
-		const children = ['CLI review', 'SDK review', 'Package review'].map((description, i) =>
-			agent({ viewId: `child-${i}`, taskId: `task-${i}`, description }),
-		)
-		activity.set(children)
-		let finishWaits!: () => void
-		const waits = new Promise<void>((resolve) => {
-			finishWaits = resolve
-		})
-		sendOverride.current = async function* () {
-			for (let i = 0; i < 2; i++)
-				yield {
-					kind: 'tool-start',
-					toolUseId: `wait-${i}`,
-					toolName: 'wait_for_task',
-					taskId: `task-${i}`,
-					turnId: 'turn-parent',
-					summary: `{"task_id":"task-${i}"}`,
-				}
-			await waits
-			for (let i = 0; i < 2; i++)
-				yield {
-					kind: 'tool-end',
-					toolUseId: `wait-${i}`,
-					toolName: 'wait_for_task',
-					turnId: 'turn-parent',
-					isError: false,
-					summary: `task_id: task-${i}`,
-					detail: ['status: completed', 'Agent result:', 'full report from child'],
-				}
-			await parentGate
-			yield { kind: 'done', stopReason: 'end_turn' }
-		}
-		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 36 })
-		mounted = screen
-		try {
-			await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
-			await submit(screen, 'review')
-			await waitUntil(
-				screen,
-				() => screen.viewport().join('\n').includes('✻ Waiting for 2 agents to finish'),
-				'folded wait line missing',
+	it.each([true, false])(
+		'shows all three outcomes, retaining wait evidence when inspection is unavailable (inspectable=%s)',
+		async (inspectable) => {
+			const children = ['CLI review', 'SDK review', 'Package review'].map((description, i) =>
+				agent({ viewId: `child-${i}`, taskId: `task-${i}`, description }),
 			)
-			const finished = children.map((child) => ({
-				...child,
-				transcript: inspectable ? [{ id: 'answer', kind: 'assistant' as const, text: 'full report from child' }] : [],
-				status: 'completed' as const,
-				completedAt: 30,
-			}))
-			activity.set(finished)
-			finishWaits()
-			await waitUntil(
-				screen,
-				() => painted(screen).includes('✓ Package review · '),
-				'unwaited child completion missing',
-			)
-			activity.set([...finished])
-			await screen.waitForRender()
-			const output = painted(screen)
-			for (const child of children)
-				expect(output.split(`✓ ${child.description} · `)).toHaveLength(2)
-			if (inspectable) {
-				expect(output).not.toContain('task_id:')
-				expect(output).not.toContain('Agent result:')
-				// The answer rides on the completion row, collapsed; Ctrl+O opens it.
-				expect(output).not.toContain('full report from child')
-				expect(output).toContain('ctrl+o result · ctrl+t details')
-				screen.press('\x0f')
+			activity.set(children)
+			let finishWaits!: () => void
+			const waits = new Promise<void>((resolve) => {
+				finishWaits = resolve
+			})
+			sendOverride.current = async function* () {
+				for (let i = 0; i < 2; i++)
+					yield {
+						kind: 'tool-start',
+						toolUseId: `wait-${i}`,
+						toolName: 'wait_for_task',
+						taskId: `task-${i}`,
+						turnId: 'turn-parent',
+						summary: `{"task_id":"task-${i}"}`,
+					}
+				await waits
+				for (let i = 0; i < 2; i++)
+					yield {
+						kind: 'tool-end',
+						toolUseId: `wait-${i}`,
+						toolName: 'wait_for_task',
+						turnId: 'turn-parent',
+						isError: false,
+						summary: `task_id: task-${i}`,
+						detail: ['status: completed', 'Agent result:', 'full report from child'],
+					}
+				await parentGate
+				yield { kind: 'done', stopReason: 'end_turn' }
+			}
+			const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 36 })
+			mounted = screen
+			try {
+				await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+				await submit(screen, 'review')
 				await waitUntil(
 					screen,
-					() => screen.viewport().join('\n').includes('full report from child'),
-					'Ctrl+O did not open the agent result',
+					() => screen.viewport().join('\n').includes('✻ Waiting for 2 agents to finish'),
+					'folded wait line missing',
 				)
-			} else {
-				expect(output).toContain('task_id:')
-				expect(output).toContain('full report from child')
+				const finished = children.map((child) => ({
+					...child,
+					transcript: inspectable
+						? [{ id: 'answer', kind: 'assistant' as const, text: 'full report from child' }]
+						: [],
+					status: 'completed' as const,
+					completedAt: 30,
+				}))
+				activity.set(finished)
+				finishWaits()
+				await waitUntil(
+					screen,
+					() => painted(screen).includes('✓ Package review · '),
+					'unwaited child completion missing',
+				)
+				activity.set([...finished])
+				await screen.waitForRender()
+				const output = painted(screen)
+				for (const child of children)
+					expect(output.split(`✓ ${child.description} · `)).toHaveLength(2)
+				if (inspectable) {
+					expect(output).not.toContain('task_id:')
+					expect(output).not.toContain('Agent result:')
+					// The answer rides on the completion row, collapsed; Ctrl+O opens it.
+					expect(output).not.toContain('full report from child')
+					expect(output).toContain('ctrl+o result · ctrl+t details')
+					screen.press('\x0f')
+					await waitUntil(
+						screen,
+						() => screen.viewport().join('\n').includes('full report from child'),
+						'Ctrl+O did not open the agent result',
+					)
+				} else {
+					expect(output).toContain('task_id:')
+					expect(output).toContain('full report from child')
+				}
+				expect(output).toContain('ctrl+t details')
+			} finally {
+				finishWaits()
 			}
-			expect(output).toContain('ctrl+t details')
-		} finally {
-			finishWaits()
-		}
-	})
+		},
+	)
 })
 
 describe('the rail while a review is open', () => {

@@ -1,5 +1,6 @@
 import { Box, Text } from 'ink'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { explainFailure } from './plain-failure.js'
 
 import { Composer, type ComposerDraft } from './Composer.js'
 import { truncateChoiceText } from './terminal-choice-text.js'
@@ -89,7 +90,7 @@ export function ChildComposer({
 					setNotice(receipt.auditWarning ? `${label} ${receipt.auditWarning}` : label)
 				} catch (error) {
 					if (!owner.active) return
-					restoreRejected(error instanceof Error ? error.message : String(error))
+					restoreRejected(explainFailure(error, 'The message was not sent.'))
 				} finally {
 					pending.current = false
 					if (owner.active) setSending(false)

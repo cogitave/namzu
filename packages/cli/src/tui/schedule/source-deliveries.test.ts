@@ -138,8 +138,8 @@ describe('source delivery transcript projection', () => {
 
 	it('makes a damaged inbox visible without including terminal controls', () => {
 		const line = sourceDeliveryReadError(new Error('bad file\u001b[2J'))
-		expect(line).toContain('Scheduled results could not be read: bad file')
-		expect(line).toContain('Unread results remain')
+		expect(line).toContain('Scheduled results could not be read.')
+		expect(line).toContain('Unread results are kept for next time')
 		expect(line).not.toContain('\u001b')
 	})
 })

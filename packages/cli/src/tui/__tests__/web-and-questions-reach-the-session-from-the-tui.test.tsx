@@ -13,9 +13,9 @@ import { render } from 'ink-testing-library'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { Preferences } from '../../integrations/providers/index.js'
+import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 import type { AgentEvent, AgentSession } from '../agent.js'
 import type { TuiContext } from '../types.js'
-import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 
 const PREFS: Preferences = { version: 3, providers: [{ id: 'openai' }], subagents: { active: [] } }
 
@@ -126,9 +126,12 @@ describe('the App creating its session', () => {
 		expect(options).not.toHaveProperty('limits')
 	})
 
-	it.each([0, 1_000])('passes explicit token allowance %s and iteration limit to the session', async (tokenBudget) => {
-		const limits = { tokenBudget, maxIterations: 3 }
-		const options = await openWith(undefined, { limits })
-		expect(options.limits).toEqual(limits)
-	})
+	it.each([0, 1_000])(
+		'passes explicit token allowance %s and iteration limit to the session',
+		async (tokenBudget) => {
+			const limits = { tokenBudget, maxIterations: 3 }
+			const options = await openWith(undefined, { limits })
+			expect(options.limits).toEqual(limits)
+		},
+	)
 })

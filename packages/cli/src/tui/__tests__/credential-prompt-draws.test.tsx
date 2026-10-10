@@ -95,7 +95,7 @@ describe('the no-credential screen', () => {
 	it('offers the sign-in, which is the only exit that needs no credential at all', async () => {
 		const onLogin = vi.fn(awaitPastedCode)
 		const { lastFrame, stdin, unmount } = open({ onLogin })
-		expect(lastFrame()).toMatch(/press .*l.* to sign in|l: sign in/s)
+		expect(lastFrame()).toMatch(/press .*l.* to sign in|l sign in/s)
 		stdin.write('l')
 		await flush()
 		expect(lastFrame()).toContain('Choose a subscription')
@@ -116,17 +116,16 @@ describe('the no-credential screen', () => {
 			onLogin,
 		})
 
-		expect(lastFrame()).toContain('Use existing Anthropic (Claude) · Claude session · this device')
-		expect(lastFrame()).toContain('Sign in to Anthropic (Claude) · browser')
-		expect(lastFrame()).toContain('Sign in to OpenAI (Codex subscription) · device code')
+		expect(lastFrame()).toContain(
+			'Use existing Anthropic (Claude) · Claude sign-in · this computer',
+		)
+		expect(lastFrame()).toContain('Sign in to Anthropic (Claude) · opens your browser')
+		expect(lastFrame()).toContain('Sign in to OpenAI (Codex subscription) · uses a one-time code')
 
 		stdin.write('\r')
 		await flush()
 
-		expect(onSubmit).toHaveBeenCalledWith(
-			{ provider: 'anthropic' },
-			expect.any(AbortSignal),
-		)
+		expect(onSubmit).toHaveBeenCalledWith({ provider: 'anthropic' }, expect.any(AbortSignal))
 		expect(onLogin).not.toHaveBeenCalled()
 		unmount()
 	})
@@ -161,7 +160,7 @@ describe('the no-credential screen', () => {
 		// nothing is worse than no hint: it spends the one attempt an operator
 		// makes before concluding the screen is broken.
 		const { lastFrame, unmount } = open()
-		expect(lastFrame()).not.toMatch(/l: sign in/)
+		expect(lastFrame()).not.toMatch(/l sign in/)
 		unmount()
 	})
 
@@ -223,7 +222,7 @@ describe('the credential prompt', () => {
 		const { lastFrame, stdin, unmount } = open()
 		stdin.write('k')
 		await flush()
-		expect(lastFrame()).toContain('Paste a credential')
+		expect(lastFrame()).toContain('Paste an API key')
 		unmount()
 	})
 
@@ -233,7 +232,7 @@ describe('the credential prompt', () => {
 		const { lastFrame, stdin, unmount } = open()
 		stdin.write('k')
 		await flush()
-		expect(lastFrame()).toContain('this session only')
+		expect(lastFrame()).toContain('until you quit')
 		expect(lastFrame()).toContain('not written anywhere')
 		unmount()
 	})
@@ -290,7 +289,7 @@ describe('the credential prompt', () => {
 		expect(frame).toContain('HTTP 401')
 		expect(frame).toContain('Nothing was stored')
 		// Still on the screen, so a one-character slip is fixable...
-		expect(frame).toContain('Paste a credential')
+		expect(frame).toContain('Paste an API key')
 		// ...and the key is still not on it.
 		expect(frame).not.toContain(KEY)
 		expect(onCredential).not.toHaveBeenCalled()
@@ -315,7 +314,7 @@ describe('the credential prompt', () => {
 		expect(cred.apiKey).toBe(KEY)
 		expect(cred.source).toEqual({ kind: 'session' })
 		// The sentence the operator reads afterwards says it again.
-		expect(disposition).toContain('this session only')
+		expect(disposition).toContain('until you quit')
 		expect(disposition).not.toContain(KEY)
 		expect(signal.aborted).toBe(false)
 		unmount()

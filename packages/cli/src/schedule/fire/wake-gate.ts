@@ -65,7 +65,7 @@ export function parseWakeGateOutput(stdout: string, maxContextChars: number): Wa
 	if (!isJson(last)) {
 		return {
 			ok: false,
-			reason: `the wake-gate script's stdout does not end with JSON: ${shown(last)}`,
+			reason: `the wake-gate script’s stdout does not end with JSON: ${shown(last)}`,
 		}
 	}
 	const earlierJsonLines = lines.slice(0, -1).filter((line) => line.trim() !== '' && isJson(line))
@@ -80,20 +80,20 @@ export function parseWakeGateOutput(stdout: string, maxContextChars: number): Wa
 	if (typeof value !== 'object' || value === null || Array.isArray(value)) {
 		return {
 			ok: false,
-			reason: `the wake-gate script's JSON line is not an object: ${shown(last)}`,
+			reason: `the wake-gate script’s JSON line is not an object: ${shown(last)}`,
 		}
 	}
 	const record = value as Record<string, unknown>
 	if (typeof record.wake !== 'boolean') {
 		return {
 			ok: false,
-			reason: `the wake-gate script's JSON has no boolean "wake": ${shown(last)}`,
+			reason: `the wake-gate script’s JSON has no boolean "wake": ${shown(last)}`,
 		}
 	}
 	if (typeof record.context !== 'string') {
 		return {
 			ok: false,
-			reason: `the wake-gate script's JSON has no string "context": ${shown(last)}`,
+			reason: `the wake-gate script’s JSON has no string "context": ${shown(last)}`,
 		}
 	}
 	const context =

@@ -66,6 +66,6 @@ describe('web activity rows', () => {
 	it('size a fetched body the way a person reads it', () => {
 		expect(formatBytes(512)).toBe('512 B')
 		expect(formatBytes(1_536)).toBe('1.5 KB')
-		expect(formatBytes(3 * 1024 * 1024)).toBe('3.0 MB')
+		expect(formatBytes(3 * 1024 * 1024)).toBe('3 MB')
 	})
 })

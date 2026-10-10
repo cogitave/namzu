@@ -31,11 +31,10 @@ import { StatusBar } from '../StatusBar.js'
 import { type Screen, renderToScreen } from './support/screen.js'
 
 /** The picker's first-run hint: the only place its exits are named. */
-const HINT = '↑↓ navigate · enter accept · esc or Ctrl+C exit'
+const HINT = '↑↓ select · enter accept · esc or Ctrl+C exit'
 
 /** Deep but unremarkable — a service inside a monorepo inside a work folder. */
-const DEEP_CWD =
-	'/home/dev/work/acme-platform/services/payments-api/packages/core'
+const DEEP_CWD = '/home/dev/work/acme-platform/services/payments-api/packages/core'
 
 const COLS = 100
 const ROWS = 24
@@ -247,9 +246,7 @@ describe('counting what was written', () => {
 			// One bar on the screen, not two. A renderer that printed the new
 			// frame BELOW the old one would leave both, and the scrollback is
 			// where that shows up.
-			const drawn = screen
-				.scrollback()
-				.filter((line) => line.includes('Ctrl+C'))
+			const drawn = screen.scrollback().filter((line) => line.includes('Ctrl+C'))
 			expect(drawn.length).toBe(1)
 			const viewport = screen.viewport()
 			expect(viewport[frameBottomBorder(screen) + 1]).toContain('/b')

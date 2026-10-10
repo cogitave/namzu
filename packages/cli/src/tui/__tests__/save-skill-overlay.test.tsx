@@ -104,7 +104,9 @@ describe('the save-skill screen', () => {
 		const flat = frame.replace(/[│\s]/g, '')
 		expect(flat).toContain('(suggested)')
 		expect(flat).toMatch(/replacesbuilt-inskill\S*packages\/cli\/skills\/skill-creator\/SKILL\.md/)
-		expect(frame).toContain('Warning  The skill contains invisible or direction-changing characters.')
+		expect(frame).toContain(
+			'Warning  The skill contains invisible or direction-changing characters.',
+		)
 		expect(frame).toContain('Save to user')
 		expect(frame).toContain('Save to project')
 		expect(frame).toContain('Cancel')

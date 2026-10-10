@@ -33,7 +33,9 @@ describe('the glossary and humanisers', () => {
 		expect(formatSpan(65_000)).toBe('1m 05s')
 		expect(formatSpan(120_000)).toBe('2m 00s')
 		expect(formatSize(512)).toBe('512 B')
-		expect(formatSize(48_213)).toBe('47.1 KB')
+		expect(formatSize(48_213)).toBe('47 KB')
+		expect(formatSize(7_680)).toBe('7.5 KB')
+		expect(formatSize(1_048_576)).toBe('1 MB')
 		expect(formatSize(1_258_291)).toBe('1.2 MB')
 	})
 

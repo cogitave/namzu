@@ -174,6 +174,46 @@ describe('toAgentEvent', () => {
 		})
 	})
 
+	it('headlines a failed command from its facts and keeps the retained output whole', () => {
+		const ev = {
+			type: 'tool_completed',
+			toolUseId,
+			toolName: 'bash',
+			result: 'STDOUT:\nhi\n\nSTDERR:\nno such file\nError: Command exited with code 2',
+			isError: true,
+			facts: {
+				kind: 'command',
+				command: 'echo hi && ls /x',
+				exitCode: 2,
+				stdout: { head: 'hi', totalLines: 1, totalBytes: 3 },
+				stderr: { head: 'no such file', totalLines: 1, totalBytes: 13 },
+			},
+			...env,
+		} as unknown as SessionEvent
+		const out = toAgentEvent(ev, presenter)
+		expect(out).toMatchObject({
+			kind: 'tool-end',
+			plainFailure: 'Ran echo hi && ls /x · exited with code 2',
+			detail: ['hi', 'no such file'],
+		})
+	})
+
+	it('marks a call the person answered No to, and keeps the refusal text off the screen', () => {
+		const ev = {
+			type: 'tool_completed',
+			toolUseId,
+			toolName: 'bash',
+			result:
+				'Error: Tool "bash" was not executed. The user declined this. Do not get the same content another way.',
+			isError: true,
+			presentation: { kind: 'generic', label: 'ls /tmp', declined: { note: 'not now' } },
+			...env,
+		} as unknown as SessionEvent
+		const out = toAgentEvent(ev, presenter)
+		expect(out).toMatchObject({ kind: 'tool-end', declined: { note: 'not now' } })
+		expect(out).not.toHaveProperty('detail')
+	})
+
 	it('carries authored standalone calls and hidden acknowledgements across the host seam', () => {
 		const authored = {
 			presentCall: () => ({

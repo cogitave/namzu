@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest'
 
-import { type SessionEvent, type TurnId, ToolManager, createToolPresenter } from '@namzu/sdk'
+import { type SessionEvent, ToolManager, type TurnId, createToolPresenter } from '@namzu/sdk'
 
 import { Transcript, renderedDetailLines, willCollapse } from '../Transcript.js'
 import { fakeAgentSession } from '../__fixtures__/agent-session.js'
@@ -137,7 +137,7 @@ it.each([40, 80])(
 		}
 		const projected = renderedDetailLines(message)
 		expect(projected).toHaveLength(7)
-		expect(projected[3]).toBe('   … 200 lines omitted · ctrl+o · shortened preview')
+		expect(projected[3]).toBe('   … 200 lines not shown · ctrl+o · shortened preview')
 		expect(projected.every((line) => line.length <= 243)).toBe(true)
 		expect(projected.join('\n')).not.toMatch(/\p{Surrogate}/u)
 		const screen = await renderToScreen(
@@ -182,7 +182,7 @@ it.each(['\u000f', '/raw'])(
 		screen.press('\r')
 		await until(screen, () => text().includes('ctrl+o'))
 		expect(text()).toContain('FINAL_DIAGNOSTIC')
-		expect(text()).toContain('235 lines omitted')
+		expect(text()).toContain('235 lines not shown')
 		expect(text()).not.toContain('MIDDLE_DIAGNOSTIC')
 		screen.press(command)
 		await screen.waitForRender()
@@ -191,7 +191,7 @@ it.each(['\u000f', '/raw'])(
 		if (command === '\u000f') {
 			await until(screen, () => screen.viewport().join('\n').includes('Tool output'))
 			const pages = [screen.viewport().join('\n')]
-			for (let page=0; page<20 && !pages.at(-1)!.includes('FINAL_DIAGNOSTIC'); page++) {
+			for (let page = 0; page < 20 && !pages.at(-1)!.includes('FINAL_DIAGNOSTIC'); page++) {
 				const previous = screen.viewport().join('\n')
 				screen.press(' ')
 				await until(screen, () => screen.viewport().join('\n') !== previous)

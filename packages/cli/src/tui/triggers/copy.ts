@@ -68,31 +68,31 @@ function armed(hit: TriggerHit, detection: Detection, context: TagCopyContext): 
 	const detail = ((): { full: string; short: string; tiny?: string } => {
 		if (turnActive && TURN_SCOPED.has(hit.id))
 			return {
-				full: 'enter steers without it · tab: new turn with it',
-				short: 'tab: new turn with it',
+				full: 'enter steers without it · tab: new message with it',
+				short: 'tab: new message with it',
 			}
 		switch (hit.id) {
 			case 'hypermode':
 				if (detection.onlyTriggers)
 					return { full: 'type the task in the same message', short: 'add the task' }
 				return {
-					full: `this turn: ${effort ? `${effort}, ` : ''}delegate to parallel agents`,
-					short: `this turn${effort ? `, ${effort}` : ''}`,
+					full: `this reply: ${effort ? `${effort}, ` : ''}delegate to parallel agents`,
+					short: `this reply${effort ? `, ${effort}` : ''}`,
 					...(effort ? { tiny: effort } : {}),
 				}
 			case 'save-skill':
 				if (detection.onlyTriggers && context.standaloneAllowed)
 					return turnActive
-						? { full: 'runs /skills save after the running turn', short: 'runs /skills save' }
+						? { full: 'runs /skills save after the running reply', short: 'runs /skills save' }
 						: { full: 'runs /skills save', short: 'runs /skills save' }
 				if (turnActive)
 					return {
-						full: 'enter: after the running turn · tab: after the next',
-						short: 'after the running turn',
+						full: 'enter: after the running reply · tab: after the next',
+						short: 'after the running reply',
 					}
 				return {
-					full: 'after this turn, if it did work; you confirm the file',
-					short: 'after this turn',
+					full: 'after this reply, if it did work; you confirm the file',
+					short: 'after this reply',
 				}
 			case 'schedule':
 				return {
@@ -101,8 +101,8 @@ function armed(hit: TriggerHit, detection: Detection, context: TagCopyContext): 
 				}
 			case 'max-effort':
 				return {
-					full: `this turn: ${effort ?? 'effort as is'}`,
-					short: `this turn${effort ? `, ${effort}` : ''}`,
+					full: `this reply: ${effort ?? 'effort as is'}`,
+					short: `this reply${effort ? `, ${effort}` : ''}`,
 					...(effort ? { tiny: effort } : {}),
 				}
 		}
@@ -172,13 +172,15 @@ export function transcriptTagLine(
 	const parts = ids.flatMap((id) => {
 		switch (id) {
 			case 'hypermode':
-				return context.steered ? [] : [`hypermode (this turn${effort})`]
+				return context.steered ? [] : [`hypermode (this reply${effort})`]
 			case 'save-skill':
-				return [`save as skill (${context.steered ? 'after the running turn' : 'after this turn'})`]
+				return [
+					`save as skill (${context.steered ? 'after the running reply' : 'after this reply'})`,
+				]
 			case 'schedule':
 				return context.steered ? [] : ['schedule (the agent proposes a job)']
 			case 'max-effort':
-				return context.steered ? [] : [`max effort (this turn${effort})`]
+				return context.steered ? [] : [`max effort (this reply${effort})`]
 		}
 	})
 	return parts.length > 0 ? parts.join(' · ') : undefined

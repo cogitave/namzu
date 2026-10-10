@@ -62,6 +62,6 @@ export function setSkillSuggestions(
 	return {
 		file,
 		effective,
-		message: `${saved} But ${winner} sets its own skills block, which replaces the user file's, so from the next start skills.suggest will be ${effective ? 'true' : 'false'}. Add suggest: ${value} under skills there to make it stick; this session follows your choice.`,
+		message: `${saved} But ${winner} sets its own skills block, which replaces the user file’s, so from the next start skills.suggest will be ${effective ? 'true' : 'false'}. Add suggest: ${value} under skills there to make it stick; this conversation follows your choice.`,
 	}
 }

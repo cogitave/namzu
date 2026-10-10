@@ -43,11 +43,19 @@ export function formatSpan(ms: number): string {
 	return `${hours}h ${String(minutes % 60).padStart(2, '0')}m`
 }
 
-/** `512 B`, `7.5 KB`, `1.2 MB`: one format, with a space. */
+/** One figure of a size: a decimal under ten (`7.5`), a whole number from ten up (`48`). */
+function figure(value: number): number {
+	return value >= 10 ? Math.round(value) : Math.round(value * 10) / 10
+}
+
+/** `512 B`, `7.5 KB`, `48 KB`, `1.2 MB`: one format everywhere, with a space. */
 export function formatSize(bytes: number): string {
-	if (bytes < 1024) return `${bytes} B`
-	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+	if (bytes < 1024) return `${Math.max(0, Math.round(bytes))} B`
+	const kilobytes = figure(bytes / 1024)
+	if (kilobytes < 1024) return `${kilobytes} KB`
+	const megabytes = figure(bytes / (1024 * 1024))
+	if (megabytes < 1024) return `${megabytes} MB`
+	return `${figure(bytes / (1024 * 1024 * 1024))} GB`
 }
 
 /** The product name a person knows a provider by, from the provider registry. */

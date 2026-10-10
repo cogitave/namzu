@@ -31,7 +31,7 @@ describe('renderedDetailLines', () => {
 			'   line-1',
 			'   line-2',
 			'   line-3',
-			'   … 6 lines omitted',
+			'   … 6 lines not shown',
 			'   line-10',
 			'   line-11',
 			'   line-12',
@@ -42,7 +42,7 @@ describe('renderedDetailLines', () => {
 		// The complete hint can wrap on a narrow terminal, so measurement must
 		// include both the omission count and the available action.
 		const lines = renderedDetailLines(row({ detail: body(12), detailRef: 3 }))
-		expect(lines[3]).toBe('   … 6 lines omitted · ctrl+o')
+		expect(lines[3]).toBe('   … 6 lines not shown · ctrl+o')
 	})
 
 	it('measures a body against the width it has, not the width of the terminal', () => {
@@ -67,11 +67,19 @@ describe('renderedDetailLines', () => {
 			'   line-1',
 			'   line-2',
 			'   line-3',
-			'   … 1 line omitted · ctrl+o',
+			'   … 1 line not shown · ctrl+o',
 			'   line-5',
 			'   line-6',
 			'   line-7',
 		])
+	})
+
+	it('counts the lines a gap line stands for among the hidden ones', () => {
+		// 80 first lines, "… 80 lines not shown", 40 last lines: folding the middle hides
+		// 114 shown lines plus the gap's 80.
+		const detail = [...body(80), '… 80 lines not shown', ...body(40)]
+		const lines = renderedDetailLines(row({ detail, detailRef: 1 }))
+		expect(lines[3]).toBe('   … 194 lines not shown · ctrl+o')
 	})
 
 	it('counts the whole body of an expanded row', () => {

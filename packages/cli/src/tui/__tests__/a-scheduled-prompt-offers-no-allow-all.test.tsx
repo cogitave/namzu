@@ -10,7 +10,9 @@ import { PermissionOverlay, permissionAnswers, permissionChoices } from '../Perm
 import { buildPermissionReview, buildPermissionSummary } from '../permission-review.js'
 import { renderToScreen } from './support/screen.js'
 
-const bash = [{ id: 'call_1', name: 'bash', input: { command: 'date >> stamp.txt' }, isDestructive: true }]
+const bash = [
+	{ id: 'call_1', name: 'bash', input: { command: 'date >> stamp.txt' }, isDestructive: true },
+]
 const agent = [
 	{
 		id: 'agent-one',
@@ -34,7 +36,7 @@ describe('the answers a prompt offers', () => {
 
 	it('keep "allow all" on a live prompt', () => {
 		expect(permissionAnswers(bash).map((a) => a.kind)).toEqual(['approve', 'approve-all', 'reject'])
-		expect(permissionChoices(bash)[1]).toBe('Yes, allow all tools for this session')
+		expect(permissionChoices(bash)[1]).toBe('Yes, allow all tools for this conversation')
 	})
 })
 

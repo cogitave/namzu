@@ -9,10 +9,10 @@ import { DiskSessionGoalStore, type SessionGoalStore } from '@namzu/sdk'
 
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import type { Preferences } from '../../integrations/providers/index.js'
+import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 import type { AgentSession, SessionScope } from '../agent.js'
 import type { TuiContext } from '../types.js'
 import { type Screen, renderToScreen } from './support/screen.js'
-import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 
 const PREFS: Preferences = {
 	version: 3,
@@ -331,9 +331,7 @@ it('does not let a later conversation command overtake a pending durable goal wr
 	if (!source) throw new Error('fixture requires a source conversation')
 	await submit(harness, '/new')
 	expect(scope?.sessionId).toBe(source)
-	expect(harness.frames.join('\n')).toContain(
-		'A goal command is still reaching durable session state',
-	)
+	expect(harness.frames.join('\n')).toContain('A goal command is still being saved')
 
 	release.resolve()
 	await until(

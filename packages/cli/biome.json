@@ -52,11 +52,11 @@
     }
   },
   "files": {
-    "include": ["src/**/*.ts"]
+    "include": ["src/**/*.ts", "src/**/*.tsx"]
   },
   "overrides": [
     {
-      "include": ["src/**/*.test.ts"],
+      "include": ["src/**/*.test.ts", "src/**/*.test.tsx"],
       "linter": {
         "rules": {
           "complexity": {

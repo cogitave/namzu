@@ -1,3 +1,4 @@
+import { explainFailure } from '../plain-failure.js'
 /**
  * Everything the TUI's App needs from the scheduler, behind one object so
  * the App changes by a few lines: the `schedule` and `session_loop` tools for
@@ -147,7 +148,7 @@ export function createScheduleIntegration(deps: ScheduleIntegrationDeps): Schedu
 			try {
 				ctxHome = home()
 			} catch (error) {
-				deps.say(error instanceof Error ? error.message : String(error))
+				deps.say(explainFailure(error, 'Scheduling is not available right now.'))
 				return true
 			}
 			const model = deps.model()

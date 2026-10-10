@@ -21,9 +21,9 @@ import { render } from 'ink-testing-library'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { Preferences } from '../../integrations/providers/index.js'
+import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 import type { AgentEvent, AgentSession } from '../agent.js'
 import type { TuiContext } from '../types.js'
-import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 
 const PREFS: Preferences = { version: 3, providers: [{ id: 'openai' }], subagents: { active: [] } }
 
@@ -66,8 +66,8 @@ vi.mock('../agent.js', async (importOriginal) => {
 		}),
 		createAgentSession: async (): Promise<AgentSession> => ({
 			hasProvider: true,
-				sandbox: { unconfined: true, enforced: [], required: [] },
-				compact: async () => null,
+			sandbox: { unconfined: true, enforced: [], required: [] },
+			compact: async () => null,
 			providerSummary: 'a-provider',
 			modelSummary: 'a-model',
 			toolNames: () => ['bash'],
@@ -180,7 +180,9 @@ describe('a streamed reply', () => {
 		// different product decision, and this pins the one that was chosen: a
 		// completed block is released while the rest is still arriving.
 		const { frames } = await runTurnCapturing()
-		const partway = frames.filter((f) => f.includes('First paragraph here.') && !f.includes('the tail.'))
+		const partway = frames.filter(
+			(f) => f.includes('First paragraph here.') && !f.includes('the tail.'),
+		)
 		expect(partway.length, 'the first block was never shown on its own').toBeGreaterThan(0)
 	})
 
@@ -215,7 +217,6 @@ describe('a streamed reply', () => {
 		expect(occurrences, 'the first block was rendered more than once').toBe(1)
 	})
 })
-
 
 it('separates a completion follow-up from the earlier status answer without dropping either tail', async () => {
 	separateMessages = true

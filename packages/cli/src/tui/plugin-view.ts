@@ -30,7 +30,7 @@ export function pluginDetails(plugin: CliPluginInfo): string {
 		`Registered skills: ${plugin.skills.join(', ') || 'none'}`,
 		`Declared hook modules: ${plugin.hookModules.join(', ') || 'none'}`,
 		`Declared MCP servers: ${plugin.mcpServers.join(', ') || 'none'}`,
-		'Use /plugins to remember the current state for future sessions.',
+		'Use /plugins to remember the current state for future conversations.',
 	]
 	return rows.map(choiceDisplayText).join('\n')
 }
@@ -53,7 +53,7 @@ export function emptyPluginReport(config: PluginConfig | undefined, cwd: string)
 				? 'Plugin discovery is off (plugins.autoDiscovery: false).'
 				: scopes.length === 0
 					? 'No plugin scopes are allowed (plugins.allowedScopes: []).'
-					: 'No plugins are loaded in this session.'
+					: 'No plugins are loaded in this conversation.'
 	return [
 		reason,
 		`Configuration: ${join(home, 'config.yaml')}`,

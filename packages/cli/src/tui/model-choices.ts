@@ -144,20 +144,20 @@ export function modelStep(
 	// did not expect: whose default it is decides whether they go looking at the
 	// provider, or pin `model` on this member in `preferences.json`.
 	if (listing.kind === 'unsupported') {
-		return fallback("This provider does not publish a model list. Showing namzu's pick for it.")
+		return fallback('This provider does not publish a model list. Showing namzu’s pick for it.')
 	}
 	if (listing.kind === 'timeout') {
 		// Deliberately not "no models". The provider may have hundreds; it just
 		// did not answer inside 3s, and that is a retryable condition.
 		return fallback(
-			"The provider did not answer in time. Showing namzu's pick for it — try again to list.",
+			'The provider did not answer in time. Showing namzu’s pick for it — try again to list.',
 		)
 	}
 	if (listing.kind === 'failed') {
-		return fallback(`Could not list models: ${listing.reason}. Showing namzu's pick for it.`)
+		return fallback(`Could not list models: ${listing.reason}. Showing namzu’s pick for it.`)
 	}
 	if (listing.models.length === 0) {
-		return fallback("The provider returned no models. Showing namzu's pick for it.")
+		return fallback('The provider returned no models. Showing namzu’s pick for it.')
 	}
 
 	// A real list. Make sure the default is in it and marked, because a list

@@ -701,7 +701,7 @@ function computerUseAction(
 			return fields() ? { line: 'List the open windows', coordinates: false } : null
 		case 'wait':
 			return fields('ms') && Number.isInteger(item.ms)
-				? { line: `Wait ${item.ms as number} ms`, coordinates: false }
+				? { line: `Wait ${formatSpan(item.ms as number)}`, coordinates: false }
 				: null
 		case 'focus_window':
 			return fields('window_id') && text(item.window_id)

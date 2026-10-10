@@ -19,7 +19,7 @@ import { describe, expect, it } from 'vitest'
 import { StatusBar } from '../StatusBar.js'
 
 /** The picker's first-run hint: the only place its exits are named. */
-const HINT = '↑↓ navigate · enter accept · esc or Ctrl+C exit'
+const HINT = '↑↓ select · enter accept · esc or Ctrl+C exit'
 
 /** Deep but unremarkable — a service inside a monorepo inside a work folder. */
 const DEEP_CWD = '/home/dev/work/acme-platform/services/payments-api/packages/core'

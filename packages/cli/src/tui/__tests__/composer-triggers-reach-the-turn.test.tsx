@@ -22,10 +22,10 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import type { Preferences } from '../../integrations/providers/index.js'
+import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 import type { AgentEvent, AgentSession, SendOptions } from '../agent.js'
 import type { ScheduleIntegrationDeps } from '../schedule/integration.js'
 import type { TuiContext } from '../types.js'
-import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 
 const PREFS: Preferences = { version: 3, providers: [{ id: 'openai' }], subagents: { active: [] } }
 
@@ -67,7 +67,7 @@ let hold: Promise<void> | null = null
 
 /** Seven successful steps across four tools, one of which writes. */
 function* work(n: number): Generator<AgentEvent> {
-	const calls: Array<[string, boolean]> = [
+	const calls: [string, boolean][] = [
 		['glob', true],
 		['grep', true],
 		['read', true],
@@ -173,7 +173,10 @@ afterEach(() => {
 
 const plain = (text: string) =>
 	// biome-ignore lint/suspicious/noControlCharactersInRegex: strips terminal colour codes.
-	text.replace(/\u001b\[[0-9;]*m/g, '').replace(/\s+/g, ' ')
+	text
+		// biome-ignore lint/suspicious/noControlCharactersInRegex: matches the escape character that starts a terminal control sequence, on purpose.
+		.replace(/\u001b\[[0-9;]*m/g, '')
+		.replace(/\s+/g, ' ')
 
 async function until(check: () => boolean, why: string): Promise<void> {
 	const by = Date.now() + 5_000
@@ -188,7 +191,9 @@ const PROPOSAL = 'Save it as a reusable skill?'
 
 async function mount() {
 	const harness = render(
-		<App ctx={{ cwd: home, version: '0.0.0-test', rules: [], skipPermissions: false } as TuiContext} />,
+		<App
+			ctx={{ cwd: home, version: '0.0.0-test', rules: [], skipPermissions: false } as TuiContext}
+		/>,
 	)
 	mounted.push(harness)
 	await until(() => (harness.lastFrame() ?? '').includes('test-model'), 'App never became ready')
@@ -213,7 +218,7 @@ it('arms hypermode for one turn: xhigh and namzu’s context, then neither', asy
 	const { typeKeys, enter, shown, now } = await mount()
 	await typeKeys('hypermode fix the flaky test')
 	expect(now()).toContain(
-		'✦ hypermode · this turn: effort xhigh, delegate to parallel agents · alt+w drop',
+		'✦ hypermode · this reply: effort xhigh, delegate to parallel agents · alt+w drop',
 	)
 	await enter()
 	await until(() => shown().includes('ANSWER1'), 'the turn never finished')
@@ -221,7 +226,7 @@ it('arms hypermode for one turn: xhigh and namzu’s context, then neither', asy
 	expect(sent[0]?.options?.effort).toBe('xhigh')
 	expect(sent[0]?.options?.hypermode).toBeUndefined()
 	expect(sent[0]?.context.join('\n')).toContain(HYPERMODE_CONTEXT)
-	expect(shown()).toContain('hypermode (this turn, effort xhigh)')
+	expect(shown()).toContain('hypermode (this reply, effort xhigh)')
 	// The session's mode never turned on: the footer does not name it.
 	expect(now()).not.toMatch(/· hypermode(?! \()/u)
 
@@ -254,7 +259,10 @@ it('does nothing for a hypermode dropped with Alt+W, pasted, talked about, or th
 	expect(now()).not.toContain('✦')
 	expect(now()).not.toContain('✧')
 	await enter()
-	await until(() => sent.length === 4 && shown().includes('ANSWER4'), 'the last turn never finished')
+	await until(
+		() => sent.length === 4 && shown().includes('ANSWER4'),
+		'the last turn never finished',
+	)
 
 	for (const turn of sent) {
 		expect(turn.options?.effort, turn.prompt).toBeUndefined()
@@ -270,12 +278,15 @@ it('saves the work as a skill after a turn that did it, ahead of a Tab-queued pr
 	const { harness, typeKeys, enter, shown } = await mount()
 	await typeKeys("HOLD şu repodaki TODO'ları say ve bunu skill olarak kaydet")
 	await enter()
-	await until(() => sent.length === 1 && shown().includes('Working'), 'the first turn never started')
+	await until(
+		() => sent.length === 1 && shown().includes('Working'),
+		'the first turn never started',
+	)
 	expect(sent[0]?.context.join('\n')).toContain(SAVE_CONTEXT)
 	await typeKeys('second task')
 	harness.stdin.write('\t')
 	await until(
-		() => /(?:Queue→next|Queued · next turn).*second task/u.test(plain(harness.lastFrame() ?? '')),
+		() => /(?:Queue→next|Queued · next reply).*second task/u.test(plain(harness.lastFrame() ?? '')),
 		'Tab did not put the authored task in the next-turn queue',
 	)
 
@@ -283,7 +294,7 @@ it('saves the work as a skill after a turn that did it, ahead of a Tab-queued pr
 	await until(() => sent.length === 3, 'the follow-up and the queued prompt did not both run')
 	expect(sent[1]?.prompt).toContain(SKILL_PROMPT)
 	expect(sent[2]?.prompt).toBe('second task')
-	expect(shown()).toContain('save as skill · running /skills save for this turn')
+	expect(shown()).toContain('save as skill · running /skills save for this reply')
 	// Asked for in words, it is not also proposed.
 	expect(shown()).not.toContain(PROPOSAL)
 })
@@ -293,7 +304,7 @@ it('says why a save did not run: no tool work, or the turn was cancelled', async
 	await typeKeys('QUESTION what does this do? then save it as a skill')
 	await enter()
 	await until(
-		() => shown().includes('save as skill · not run: the turn did no tool work'),
+		() => shown().includes('save as skill · not run: the reply did no tool work'),
 		'no row for a turn without tool work',
 	)
 
@@ -303,12 +314,15 @@ it('says why a save did not run: no tool work, or the turn was cancelled', async
 	})
 	await typeKeys('HOLD fix the tests, then save it as a skill')
 	await enter()
-	await until(() => sent.length === 2 && shown().includes('Working'), 'the second turn never started')
+	await until(
+		() => sent.length === 2 && shown().includes('Working'),
+		'the second turn never started',
+	)
 	harness.stdin.write('\u001b')
 	await tick(50)
 	release()
 	await until(
-		() => shown().includes('save as skill · not run: the turn was cancelled'),
+		() => shown().includes('save as skill · not run: the reply was cancelled'),
 		'no row for a cancelled turn',
 	)
 	await tick(100)
@@ -362,9 +376,12 @@ it('still steers with Enter while a turn runs, and binds the save to that turn',
 	const { typeKeys, enter, shown, now } = await mount()
 	await typeKeys('HOLD find every TODO')
 	await enter()
-	await until(() => sent.length === 1 && shown().includes('Working'), 'the first turn never started')
+	await until(
+		() => sent.length === 1 && shown().includes('Working'),
+		'the first turn never started',
+	)
 	await typeKeys('also count the FIXMEs and save it as a skill')
-	expect(now()).toContain('enter: after the running turn')
+	expect(now()).toContain('enter: after the running reply')
 	await enter()
 	await tick(50)
 	expect(sent, 'Enter must steer, not start a turn').toHaveLength(1)
@@ -387,7 +404,10 @@ it('turns every trigger off with /config triggers off, in the user file', async 
 	const { typeKeys, enter, shown, now } = await mount()
 	await typeKeys('/config triggers off')
 	await enter()
-	await until(() => shown().includes('Composer triggers are off'), '/config triggers off said nothing')
+	await until(
+		() => shown().includes('Composer triggers are off'),
+		'/config triggers off said nothing',
+	)
 	expect(readFileSync(join(home, 'config.yaml'), 'utf8')).toMatch(
 		/composerTriggers:\s*\n\s+enabled: false/,
 	)

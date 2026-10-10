@@ -443,7 +443,7 @@ describe('answering a parked scheduled run', () => {
 				say: () => {},
 			})
 		await expect(attempt({ cwd: sb.project, roots: [], sandboxed: true })).rejects.toThrow(
-			/runs commands on the host and this session runs them in a sandbox.*namzu resume/,
+			/runs commands on this computer and this conversation runs them in a sandbox.*namzu resume/,
 		)
 		await expect(attempt({ cwd: sb.project, roots: [sb.root], sandboxed: false })).rejects.toThrow(
 			/also reaches/,
@@ -456,7 +456,7 @@ describe('answering a parked scheduled run', () => {
 				providers: ['anthropic'],
 			}),
 		).rejects.toThrow(
-			/runs on deepseek\/deepseek-chat and this session has no credential for deepseek/,
+			/runs on deepseek\/deepseek-chat and this conversation has no credential for deepseek/,
 		)
 		expect(asked).toHaveLength(0)
 	})
@@ -552,7 +552,7 @@ describe('answering a parked scheduled run', () => {
 			sandboxed: false,
 		})
 		expect(reasons).toEqual([
-			expect.stringMatching(/in a sandbox and this session runs them on the host/),
+			expect.stringMatching(/in a sandbox and this conversation runs them on this computer/),
 			expect.stringMatching(/folder is not the job/),
 			expect.stringMatching(/does not reach/),
 		])
@@ -1048,10 +1048,10 @@ describe('the schedule tool’s host', () => {
 			},
 		})
 		expect(asked).toBe(false)
-		expect(said.join('\n')).toContain('source result still settling')
+		expect(said.join('\n')).toContain('result that is still being saved')
 		const blocked = await host('yes').tool.execute({ action: 'delete', job: job.name }, {} as never)
 		expect(blocked.success).toBe(false)
-		expect(blocked.error).toContain('source result still settling')
+		expect(blocked.error).toContain('result that is still being saved')
 		expect(listJobs(sb.paths).jobs).toContainEqual(expect.objectContaining({ id: job.id }))
 	})
 

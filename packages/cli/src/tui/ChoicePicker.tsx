@@ -1,6 +1,7 @@
 import { Box, Text, useWindowSize } from 'ink'
 
 import { choicePickerWindowSize } from './choice-selection.js'
+import { fitHints } from './key-hints.js'
 import { selectionWindow } from './selection-window.js'
 import { choiceDisplayWidth, truncateChoiceText } from './terminal-choice-text.js'
 import { theme } from './theme.js'
@@ -92,14 +93,23 @@ export function ChoicePicker({
 		rowWidth - labelWidth - markerWidth - (markerWidth > 0 ? 2 : 1),
 	)
 	const footer = busy
-		? 'Ctrl+C exit'
-		: columns >= 100
-			? query !== undefined
-				? 'Type to filter · ↑↓ navigate · PgUp/PgDn jump · enter apply · esc back'
-				: '↑↓ navigate · PgUp/PgDn jump · Home/End · 1–9 select · enter apply · esc back'
-			: query !== undefined
-				? 'Type to filter · ↑↓ · enter · esc'
-				: '↑↓ move · enter apply · esc back'
+		? 'ctrl+c exit'
+		: fitHints(
+				[
+					...(query !== undefined ? [{ text: 'type to filter', rank: 3 }] : []),
+					{ text: '↑↓ select', rank: 5 },
+					...(columns >= 100 ? [{ text: 'PgUp/PgDn jump', rank: 1 }] : []),
+					...(columns >= 100 && query === undefined
+						? [
+								{ text: 'Home/End', rank: 1 },
+								{ text: '1–9 select', rank: 2 },
+							]
+						: []),
+					{ text: 'enter apply', rank: 5 },
+					{ text: 'esc back', rank: 4 },
+				],
+				contentWidth,
+			)
 	return (
 		<Box
 			flexDirection="column"

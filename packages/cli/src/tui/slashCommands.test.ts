@@ -594,7 +594,7 @@ describe('/cost', () => {
 		// without naming which it is invites the same misreading back.
 		const r = runSlash('/cost', context({ usage: { totalTokens: 10, cost: cost(1) } }))
 		if (r?.kind === 'message') {
-			expect(r.content).toContain('Current or latest turn')
+			expect(r.content).toContain('Current or latest reply')
 			expect(r.content).toContain('own model calls')
 			expect(r.content).not.toContain('across every turn')
 		}
@@ -680,7 +680,7 @@ describe('/permissions', () => {
 		)
 		if (r?.kind === 'message') {
 			expect(r.content).toContain('approved automatically')
-			expect(r.content).toContain('for this session')
+			expect(r.content).toContain('for this conversation')
 			expect(r.content, 'still claims calls are reviewed').not.toContain('Ask before changes')
 		}
 	})
@@ -1348,7 +1348,7 @@ describe('/jobs', () => {
 		const r = runSlash('/jobs list', context())
 		expect(r?.kind).toBe('message')
 		if (r?.kind !== 'message') return
-		expect(r.content).toContain('No background jobs this session')
+		expect(r.content).toContain('No background jobs in this conversation')
 	})
 
 	it('lists each job with its state', () => {
@@ -1369,7 +1369,7 @@ describe('/jobs', () => {
 		)
 		expect(r?.kind).toBe('message')
 		if (r?.kind !== 'message') return
-		expect(r.content).toContain('2 background jobs this session')
+		expect(r.content).toContain('2 background jobs in this conversation')
 		expect(r.content).toMatch(/job_1\s+running for \d+s\s+npm run dev/)
 		expect(r.content).toMatch(/job_2\s+exited 0\s+npm test/)
 	})

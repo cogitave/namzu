@@ -3,7 +3,7 @@
  * Ink `useInput` covers all keys we need; no extra `ink-text-input` dep.
  *
  * Keys: Enter submits/steers (or runs the highlighted command while the
- * autocomplete dropdown is open), Tab completes that command or queues the
+ * autocomplete dropdown is open), tab completes that command or queues the
  * draft, Esc clears / closes the dropdown, ↑/↓ navigate the dropdown when open
  * else browse history, Ctrl+R/Ctrl+S search history, Ctrl+W rubs out a word,
  * Ctrl+G edits the draft in VISUAL/EDITOR, Alt+Up recalls the latest queued
@@ -19,6 +19,8 @@ import { readClipboardImage } from '../integrations/clipboard/image.js'
 import type { UserCommand } from '../user-commands/store.js'
 import { activeFileMention, matchMentionableFiles } from './mentions.js'
 import { parseModelSelectionIntent } from './model-selection-intent.js'
+import { formatSize } from './person-terms.js'
+import { explainFailure } from './plain-failure.js'
 import { type SlashCommand, matchSlashCommands } from './slashCommands.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
@@ -243,7 +245,11 @@ function displaySegments(
 	source: string,
 	from: number,
 	to: number,
-	styled: readonly { readonly start: number; readonly end: number; readonly style: 'armed' | 'unavailable' }[],
+	styled: readonly {
+		readonly start: number
+		readonly end: number
+		readonly style: 'armed' | 'unavailable'
+	}[],
 ): DisplaySegment[] {
 	const segments: DisplaySegment[] = []
 	let at = from
@@ -389,7 +395,9 @@ function verticalCursor(
 	}
 }
 
-function composerDisplayValue(source: string, cursor: number,
+function composerDisplayValue(
+	source: string,
+	cursor: number,
 	codeUnits = COMPOSER_DISPLAY_CODE_UNITS,
 	lines = COMPOSER_DISPLAY_LINES,
 ): ComposerDisplay {
@@ -546,20 +554,30 @@ export function Composer({
 	// dumped into the input, then folded into the message on submit.
 	const [pastes, setPastes] = useState<readonly string[]>([])
 	const pastesRef = useRef<readonly string[]>([])
-	const replacePastes = useCallback((next: readonly string[] | ((previous: readonly string[]) => readonly string[])) => {
-		const resolved = typeof next === 'function' ? next(pastesRef.current) : next
-		pastesRef.current = resolved
-		setPastes(resolved)
-	}, [])
+	const replacePastes = useCallback(
+		(next: readonly string[] | ((previous: readonly string[]) => readonly string[])) => {
+			const resolved = typeof next === 'function' ? next(pastesRef.current) : next
+			pastesRef.current = resolved
+			setPastes(resolved)
+		},
+		[],
+	)
 	// Pasted images and restored durable attachments, shown as chips and sent
 	// back in the exact SDK union on submit.
 	const [attachments, setAttachments] = useState<readonly MessageAttachment[]>([])
 	const attachmentsRef = useRef<readonly MessageAttachment[]>([])
-	const replaceAttachments = useCallback((next: readonly MessageAttachment[] | ((previous: readonly MessageAttachment[]) => readonly MessageAttachment[])) => {
-		const resolved = typeof next === 'function' ? next(attachmentsRef.current) : next
-		attachmentsRef.current = resolved
-		setAttachments(resolved)
-	}, [])
+	const replaceAttachments = useCallback(
+		(
+			next:
+				| readonly MessageAttachment[]
+				| ((previous: readonly MessageAttachment[]) => readonly MessageAttachment[]),
+		) => {
+			const resolved = typeof next === 'function' ? next(attachmentsRef.current) : next
+			attachmentsRef.current = resolved
+			setAttachments(resolved)
+		},
+		[],
+	)
 	const [editPreviousArmed, setEditPreviousArmed] = useState(false)
 	const restoredTokenRef = useRef<number | null>(null)
 	const draftPresenceRef = useRef(false)
@@ -607,7 +625,12 @@ export function Composer({
 		suggestionStart + suggestionWindow,
 	)
 	const displayValue = plainText
-		? composerDisplayValue(value, cursor, Math.max(1, Math.floor(((terminal.columns ?? 80) - 12) / 2)), 2)
+		? composerDisplayValue(
+				value,
+				cursor,
+				Math.max(1, Math.floor(((terminal.columns ?? 80) - 12) / 2)),
+				2,
+			)
 		: composerDisplayValue(value, cursor)
 	const commandColumnWidth = Math.min(
 		24,
@@ -716,31 +739,49 @@ export function Composer({
 		replacePastes([])
 		replaceAttachments([])
 		setEditPreviousArmed(false)
-	}, [replaceAttachments, replacePastes, setBuffer, setHistoryIndex, setHistorySearch, setSelectedIndex])
+	}, [
+		replaceAttachments,
+		replacePastes,
+		setBuffer,
+		setHistoryIndex,
+		setHistorySearch,
+		setSelectedIndex,
+	])
 
 	/** Restore synchronously when Alt+Up is pressed, before the next typed key. */
-	const restoreDraft = useCallback((draft: Omit<ComposerDraft, 'token'>) => {
-		setBuffer(draft.text, draft.text.length, 'restored')
-		if (triggers && draft.triggers?.length) {
-			const selected = new Set(draft.triggers)
-			const hits = detectTriggers(draft.text, triggers.registry, triggers.context, {
-				nonTyped: spansRef.current,
-				suggest: true,
-			}).hits
-			overridesRef.current = hits
-				.filter((hit) => selected.has(hit.id))
-				.map((hit) => ({ id: hit.id, start: hit.start, end: hit.end, state: 'armed' as const }))
-			setTriggerVersion((version) => version + 1)
-		}
-		setHistoryIndex(-1)
-		setSelectedIndex(0)
-		verticalColumnRef.current = null
-		historyDraftRef.current = null
-		setHistorySearch(null)
-		replacePastes([])
-		replaceAttachments(draft.attachments ? [...draft.attachments] : [])
-		setEditPreviousArmed(false)
-	}, [replaceAttachments, replacePastes, setBuffer, setHistoryIndex, setHistorySearch, setSelectedIndex, triggers])
+	const restoreDraft = useCallback(
+		(draft: Omit<ComposerDraft, 'token'>) => {
+			setBuffer(draft.text, draft.text.length, 'restored')
+			if (triggers && draft.triggers?.length) {
+				const selected = new Set(draft.triggers)
+				const hits = detectTriggers(draft.text, triggers.registry, triggers.context, {
+					nonTyped: spansRef.current,
+					suggest: true,
+				}).hits
+				overridesRef.current = hits
+					.filter((hit) => selected.has(hit.id))
+					.map((hit) => ({ id: hit.id, start: hit.start, end: hit.end, state: 'armed' as const }))
+				setTriggerVersion((version) => version + 1)
+			}
+			setHistoryIndex(-1)
+			setSelectedIndex(0)
+			verticalColumnRef.current = null
+			historyDraftRef.current = null
+			setHistorySearch(null)
+			replacePastes([])
+			replaceAttachments(draft.attachments ? [...draft.attachments] : [])
+			setEditPreviousArmed(false)
+		},
+		[
+			replaceAttachments,
+			replacePastes,
+			setBuffer,
+			setHistoryIndex,
+			setHistorySearch,
+			setSelectedIndex,
+			triggers,
+		],
+	)
 
 	useLayoutEffect(() => {
 		if (!draftToRestore || restoredTokenRef.current === draftToRestore.token) return
@@ -819,7 +860,11 @@ export function Composer({
 				return false
 			}
 			if (key.meta && key.upArrow && onRecallQueued) {
-				if (valueRef.current.length > 0 || pastesRef.current.length > 0 || attachmentsRef.current.length > 0) {
+				if (
+					valueRef.current.length > 0 ||
+					pastesRef.current.length > 0 ||
+					attachmentsRef.current.length > 0
+				) {
 					onNotice?.('Send or clear the current draft before recalling a queued message.')
 					return
 				}
@@ -863,7 +908,10 @@ export function Composer({
 					source: 'composer',
 					triggers: armed,
 					onlyTriggers:
-						armed.length > 0 && detection.onlyTriggers && pastesRef.current.length === 0 && currentAttachments.length === 0,
+						armed.length > 0 &&
+						detection.onlyTriggers &&
+						pastesRef.current.length === 0 &&
+						currentAttachments.length === 0,
 				})
 				reset()
 				return true
@@ -950,7 +998,9 @@ export function Composer({
 					return
 				}
 				const empty =
-					valueRef.current.length === 0 && pastesRef.current.length === 0 && attachmentsRef.current.length === 0
+					valueRef.current.length === 0 &&
+					pastesRef.current.length === 0 &&
+					attachmentsRef.current.length === 0
 				if (empty && onEditPrevious) {
 					if (editPreviousArmed) {
 						setEditPreviousArmed(false)
@@ -1101,7 +1151,11 @@ export function Composer({
 				}
 				verticalColumnRef.current = null
 				if (historyIndexRef.current < 0) {
-					if (valueRef.current.length === 0 && pastesRef.current.length === 0 && attachmentsRef.current.length === 0) {
+					if (
+						valueRef.current.length === 0 &&
+						pastesRef.current.length === 0 &&
+						attachmentsRef.current.length === 0
+					) {
 						onOpenAgentPanel?.()
 					}
 					return
@@ -1140,7 +1194,10 @@ export function Composer({
 					})
 					.catch((error: unknown) => {
 						onNotice?.(
-							`Cannot open external editor: ${error instanceof Error ? error.message : String(error)}`,
+							// The editor module words its own refusals for a person ("set VISUAL or EDITOR…").
+							error instanceof Error && error.name === 'ExternalEditorError'
+								? `Cannot open your editor: ${error.message}.`
+								: explainFailure(error, 'Cannot open your editor.'),
 						)
 					})
 				return
@@ -1257,7 +1314,9 @@ export function Composer({
 	if (hidden) return null
 
 	const modelIntent =
-		!plainText && !attachments.length && !pastes.length ? parseModelSelectionIntent(value) : undefined
+		!plainText && !attachments.length && !pastes.length
+			? parseModelSelectionIntent(value)
+			: undefined
 	const effortIntent =
 		!plainText && !attachments.length && !pastes.length
 			? /^\/effort\s+([a-z]+)$/.exec(value.trim())?.[1]
@@ -1266,8 +1325,7 @@ export function Composer({
 		effortIntent === 'default' ||
 		(effortIntent !== undefined && reasoningEffortLevels?.includes(effortIntent))
 	void triggerVersion
-	const detection =
-		!modelIntent && !effortIntent && !disabled ? detect(value) : EMPTY_DETECTION
+	const detection = !modelIntent && !effortIntent && !disabled ? detect(value) : EMPTY_DETECTION
 	const triggerRow = triggers
 		? tagRow(detection, {
 				columns: Math.max(1, (terminal.columns ?? 80) - 4),
@@ -1324,11 +1382,13 @@ export function Composer({
 			) : pastes.length > 0 || attachments.length > 0 ? (
 				<Box flexDirection="column" paddingX={1} paddingBottom={1}>
 					{attachments.map((attachment, i) => (
+						// biome-ignore lint/suspicious/noArrayIndexKey: these rows have no identity of their own and hold no state, so the index is the key.
 						<Text key={`attachment-${i}`} color={theme.accent.tool}>
 							⎘ {attachmentLabel(attachment, i)}
 						</Text>
 					))}
 					{pastes.map((p, i) => (
+						// biome-ignore lint/suspicious/noArrayIndexKey: these rows have no identity of their own and hold no state, so the index is the key.
 						<Text key={`paste-${i}`} color={theme.text.secondary}>
 							⎘ Pasted text #{i + 1} · {Array.from(p).length} chars
 						</Text>
@@ -1392,8 +1452,8 @@ export function Composer({
 						)
 					})}
 					<Text color={theme.text.muted}>
-						{selIdx + 1}/{commandSuggestions.length} · ↑↓ navigate · PgUp/PgDn jump · Enter run ·
-						Tab complete
+						{selIdx + 1}/{commandSuggestions.length} · ↑↓ select · PgUp/PgDn jump · enter run · tab
+						complete
 					</Text>
 				</Box>
 			) : suggestionKind === 'file' ? (
@@ -1411,7 +1471,7 @@ export function Composer({
 						)
 					})}
 					<Text color={theme.text.muted}>
-						{selIdx + 1}/{fileSuggestions.length} · ↑↓ navigate · PgUp/PgDn jump · Enter/Tab insert
+						{selIdx + 1}/{fileSuggestions.length} · ↑↓ select · PgUp/PgDn jump · enter / tab insert
 					</Text>
 				</Box>
 			) : null}
@@ -1424,7 +1484,7 @@ function attachmentLabel(attachment: MessageAttachment, index: number): string {
 		const kind = attachment.kind === 'image' ? 'Image' : 'Document'
 		return `${kind} #${index + 1}${attachment.name ? ` — ${attachment.name}` : ''} (stored)`
 	}
-	const size = `${Math.round((attachment.data.length * 3) / 4 / 1024)} KB`
+	const size = formatSize((attachment.data.length * 3) / 4)
 	if (attachment.type === 'document') {
 		return `Document #${index + 1}${attachment.name ? ` — ${attachment.name}` : ''} (${size})`
 	}

@@ -815,17 +815,14 @@ describe('the composer on a production-shaped terminal', () => {
 
 			const viewport = screen.viewport().join('\n')
 			expect(viewport).toContain(`› /${eighth.name}`)
-			expect(viewport).toContain(`8/${matches.length} · ↑↓ navigate`)
+			expect(viewport).toContain(`8/${matches.length} · ↑↓ select`)
 			expect(viewport).not.toContain(`› /${matches[0]?.name}`)
 
 			screen.press('\r')
 			await screen.waitForRender()
-			expect(submit).toHaveBeenCalledWith(
-				`/${eighth.name}`,
-				undefined,
-				'submit',
-				{ source: 'composer-dropdown' },
-			)
+			expect(submit).toHaveBeenCalledWith(`/${eighth.name}`, undefined, 'submit', {
+				source: 'composer-dropdown',
+			})
 		} finally {
 			await screen.unmount()
 		}
@@ -851,7 +848,7 @@ describe('the composer on a production-shaped terminal', () => {
 
 			const viewport = screen.viewport().join('\n')
 			expect(viewport).toContain('› @src/f07.ts')
-			expect(viewport).toContain('8/12 · ↑↓ navigate')
+			expect(viewport).toContain('8/12 · ↑↓ select')
 
 			screen.press('\r')
 			await screen.waitForRender()

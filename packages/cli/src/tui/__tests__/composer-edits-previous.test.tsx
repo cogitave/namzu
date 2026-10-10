@@ -118,7 +118,7 @@ describe('restoring a selected prompt', () => {
 describe('bounded recalled source display', () => {
 	it('bounds and escapes the Ink view while resubmitting the exact edited source', async () => {
 		const hiddenHead = 'HEAD-MUST-STAY-IN-SOURCE-BUT-NOT-IN-THE-FRAME'
-		const unsafeTail = `tail-before\u0007direction\u202eTAIL-MUST-BE-VISIBLE`
+		const unsafeTail = 'tail-before\u0007direction\u202eTAIL-MUST-BE-VISIBLE'
 		const source = `${hiddenHead}${'x'.repeat(100_000)}\n${unsafeTail}`
 		const harness = open({ history: [source] })
 

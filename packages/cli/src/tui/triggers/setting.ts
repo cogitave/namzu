@@ -41,7 +41,7 @@ export function setComposerTriggers(on: boolean, opts: CascadeOptions = {}): str
 	if (effective === on) return saved
 	const source = resolved.provenance.composerTriggers
 	const winner = source ? formatConfigSource(source) : 'another config layer'
-	return `${saved} But ${winner} turns them ${effective ? 'on' : 'off'}, so from the next start they will be ${effective ? 'on' : 'off'}; this session follows your choice.`
+	return `${saved} But ${winner} turns them ${effective ? 'on' : 'off'}, so from the next start they will be ${effective ? 'on' : 'off'}; this conversation follows your choice.`
 }
 
 /** `/config triggers list`: what is in force, one line per setting. */
@@ -54,7 +54,7 @@ export function describeComposerTriggers(enabledNow: boolean, opts: CascadeOptio
 	}
 	const settings = resolveComposerTriggers(config)
 	return [
-		`Composer triggers: ${enabledNow ? 'on' : 'off'} in this session${enabledNow === settings.enabled ? '' : ` (the config files say ${settings.enabled ? 'on' : 'off'})`}.`,
+		`Composer triggers: ${enabledNow ? 'on' : 'off'} in this conversation${enabledNow === settings.enabled ? '' : ` (the config files say ${settings.enabled ? 'on' : 'off'})`}.`,
 		`Suggestions: ${settings.suggest ? 'on' : 'off'} · languages: ${settings.languages.join(', ')}`,
 		...COMPOSER_TRIGGER_IDS.map((id) => `  ${id}: ${settings.arming[id]}`),
 		'Change them under composerTriggers in ~/.namzu/config.yaml; /config triggers on|off switches all of them.',

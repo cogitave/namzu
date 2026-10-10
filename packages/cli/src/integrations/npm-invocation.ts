@@ -24,6 +24,6 @@ export function resolveNpmInvocation(
 		// Give the same actionable refusal for absent or unreadable bundles.
 	}
 	throw new Error(
-		`npm's JavaScript entry point is unavailable at ${npmCli}. Namzu uses the npm bundled with its Node runtime on Windows. Repair that Node installation or run npm manually; custom PATH wrappers are not used.`,
+		`npm’s JavaScript entry point is unavailable at ${npmCli}. Namzu uses the npm bundled with its Node runtime on Windows. Repair that Node installation or run npm manually; custom PATH wrappers are not used.`,
 	)
 }

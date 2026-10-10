@@ -52,14 +52,14 @@ it('keeps badges, search, selected detail and controls visible on a narrow termi
 	expect(viewport).toContain('[current] [default]')
 	expect(viewport).toContain('Selected description')
 	expect(viewport).toContain('Applies to future turns')
-	expect(viewport).toContain('enter · esc')
+	expect(viewport).toContain('enter apply')
 	expect(viewport).not.toContain('option 0')
 	expect(mounted.scrollback().filter((row) => row.trim().length > 0)).toEqual(
 		rows.filter((row) => row.trim().length > 0),
 	)
 })
 
-it('draws a recommended option\'s badge on its own row only', async () => {
+it("draws a recommended option's badge on its own row only", async () => {
 	mounted = await renderToScreen(
 		<ChoicePicker
 			title="Which audience is this for?"
@@ -116,7 +116,7 @@ it('honors the parent width inside a padded 40-column App region', async () => {
 	const rows = mounted.viewport().filter((row) => row.trim().length > 0)
 	expect(rows).toHaveLength(9)
 	expect(rows.join('\n')).toContain('[current] [default]')
-	expect(rows.join('\n')).toContain('enter · esc')
+	expect(rows.join('\n')).toContain('enter apply')
 	expect(
 		rows.every(
 			(row) => (row.startsWith(' ') && row.endsWith('│')) || row.endsWith('┐') || row.endsWith('┘'),

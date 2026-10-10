@@ -83,7 +83,7 @@ describe('renderMcp', () => {
 	it('distinguishes "no session yet" from "no servers"', () => {
 		// Two different facts. Reporting the second for the first tells an
 		// operator their config is empty when it has simply not been read.
-		expect(renderMcp(null)).toMatch(/No session yet/)
+		expect(renderMcp(null)).toMatch(/Not connected yet/)
 		expect(renderMcp(null)).not.toMatch(/No tool servers configured/)
 	})
 })

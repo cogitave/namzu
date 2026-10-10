@@ -19,9 +19,9 @@ import type {
 	TerminalNotificationResult,
 } from '../../integrations/notifications/terminal.js'
 import type { Preferences } from '../../integrations/providers/index.js'
+import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 import type { AgentEvent, AgentSession, PermissionRequest } from '../agent.js'
 import type { TuiContext } from '../types.js'
-import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 
 const PREFS: Preferences = {
 	version: 3,
@@ -260,10 +260,7 @@ async function frameShows(
 	timeoutMs = 3_000,
 ): Promise<void> {
 	const expected = text.replace(/\s+/g, '')
-	await waitUntil(
-		() => harness.frames.join('\n').replace(/\s+/g, '').includes(expected),
-		timeoutMs,
-	)
+	await waitUntil(() => harness.frames.join('\n').replace(/\s+/g, '').includes(expected), timeoutMs)
 }
 
 async function submit(harness: { stdin: { write: (value: string) => void } }, text: string) {
@@ -371,7 +368,7 @@ it.each([
 		await waitUntil(() => gates.length === 1)
 		await submit(harness, 'depends on first')
 		gates[0]?.release()
-		await frameShows(harness, `paused after a ${label} turn`)
+		await frameShows(harness, `paused after a ${label} reply`)
 		await tick(100)
 
 		expect(sendCalls, 'the dependent prompt ran after its premise failed').toBe(1)
@@ -393,7 +390,7 @@ it('explains a resumable pause and holds dependent queued work', async () => {
 	await frameShows(harness, 'OpenAI said: organization window exhausted')
 	expect(harness.lastFrame()).not.toContain('[provider.rate_limit]')
 	expect(harness.lastFrame()).not.toContain('7f6bf1c5-d9f6-4443-be52-d4c01f4f405b')
-	await frameShows(harness, 'held after a resumable turn paused')
+	await frameShows(harness, 'held after a reply paused')
 	await tick(100)
 
 	expect(sendCalls, 'the dependent prompt ran after a resumable stop').toBe(1)
@@ -429,7 +426,7 @@ it('lets a post-error human continuation release the earlier FIFO before finally
 		'queued before failure',
 		'continue after seeing failure',
 	])
-	expect(harness.lastFrame()).not.toContain('paused after a failed turn')
+	expect(harness.lastFrame()).not.toContain('paused after a failed reply')
 })
 
 // The durable half of a failed turn is the kernel's: a turn that began records
@@ -452,7 +449,7 @@ it('pauses a pre-event throw, keeps its attachment in the history, and resumes F
 	await waitUntil(() => gates.length === 1)
 	await submit(harness, 'queued before throw')
 	gates[0]?.release()
-	await frameShows(harness, 'paused after a failed turn')
+	await frameShows(harness, 'paused after a failed reply')
 
 	expect(sendCalls).toBe(1)
 	expect(requests).toEqual([

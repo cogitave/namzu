@@ -12,7 +12,11 @@ import { type Screen, renderToScreen } from './support/screen.js'
 const STARTED = 1_000
 const NOW = 31_000
 
-function job(id: string, command: string, status: BackgroundJob['status'] = 'running'): BackgroundJob {
+function job(
+	id: string,
+	command: string,
+	status: BackgroundJob['status'] = 'running',
+): BackgroundJob {
 	return {
 		id,
 		owner: 'session',
@@ -125,16 +129,16 @@ describe('the shell jobs child screen', () => {
 				columns: columns - 2, // App's one-cell padding on each side.
 				now: NOW,
 			}
-			screen = await renderToScreen(
-				<BackgroundJobsPanel {...base} detailJobId={null} />,
-				{ cols: columns, rows: 20 },
-			)
+			screen = await renderToScreen(<BackgroundJobsPanel {...base} detailJobId={null} />, {
+				cols: columns,
+				rows: 20,
+			})
 			expect(screen.viewport().join('\n')).toContain('esc')
 			await screen.unmount()
-			screen = await renderToScreen(
-				<BackgroundJobsPanel {...base} detailJobId="job_1" />,
-				{ cols: columns, rows: 20 },
-			)
+			screen = await renderToScreen(<BackgroundJobsPanel {...base} detailJobId="job_1" />, {
+				cols: columns,
+				rows: 20,
+			})
 			const detail = screen.viewport().join('\n')
 			expect(detail).toContain('x stop · esc jobs')
 			expect(detail).not.toContain('esc jo…')
@@ -156,10 +160,16 @@ describe('the shell jobs child screen', () => {
 			now: NOW,
 			busyJobId: 'job_1',
 		}
-		screen = await renderToScreen(<BackgroundJobsPanel {...base} detailJobId={null} />, { cols: 80, rows: 24 })
+		screen = await renderToScreen(<BackgroundJobsPanel {...base} detailJobId={null} />, {
+			cols: 80,
+			rows: 24,
+		})
 		expect(screen.viewport().join('\n')).not.toContain('x stop')
 		await screen.unmount()
-		screen = await renderToScreen(<BackgroundJobsPanel {...base} detailJobId="job_2" />, { cols: 80, rows: 24 })
+		screen = await renderToScreen(<BackgroundJobsPanel {...base} detailJobId="job_2" />, {
+			cols: 80,
+			rows: 24,
+		})
 		expect(screen.viewport().join('\n')).not.toContain('x stop')
 	})
 
@@ -167,7 +177,7 @@ describe('the shell jobs child screen', () => {
 		const long = `HEAD${'old'.repeat(12_000)}\nTAIL`
 		const rows = backgroundJobOutputRows(output(long, 100), 40)
 		expect(rows.join('')).toContain('Earlier output discarded by the job buffer (100 B).')
-		expect(rows.join('')).toContain('Showing the latest 32.0 KB.')
+		expect(rows.join('')).toContain('Showing the latest 32 KB.')
 		expect(rows.join('\n')).toContain('TAIL')
 		expect(rows.join('\n')).not.toContain('HEAD')
 		expect(maxBackgroundJobTailOffset(output('one\ntwo\nthree\nfour\nfive'), 20, 40)).toBe(1)

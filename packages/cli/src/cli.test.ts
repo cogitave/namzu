@@ -7,6 +7,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { removeTempDir } from './__fixtures__/temp-dir.js'
 import { runCli } from './cli.js'
 
+/** Error text is wrapped at word boundaries; compare it as a sentence. */
+const flat = (text: string) => text.replace(/\s+/g, ' ')
+
 describe('runCli', () => {
 	let stdout: string
 	let stderr: string
@@ -56,7 +59,7 @@ describe('runCli', () => {
 
 	it('refuses --message on resume: a resumed conversation never gets a first message', async () => {
 		expect(await invoke(['--message', 'hi', 'resume', 'abc'])).toBe(64)
-		expect(stderr).toContain('not sent when resuming')
+		expect(flat(stderr)).toContain('not sent when resuming')
 	})
 
 	it('points the launch flags at their place after exec', async () => {
@@ -69,7 +72,7 @@ describe('runCli', () => {
 		expect(stderr).toContain('enormous')
 		stderr = ''
 		expect(await invoke(['--permission-mode', 'yolo'])).toBe(64)
-		expect(stderr).toContain('prompt, accept-edits, auto, strict, plan')
+		expect(flat(stderr)).toContain('Choose one of prompt, accept-edits, auto, strict, plan.')
 	})
 
 	it('lists the launch flags in --help', async () => {
@@ -141,7 +144,7 @@ describe('runCli', () => {
 		// Commander chooses between "unknown command" and "too many arguments"
 		// depending on whether a default action is registered. Either wording
 		// is acceptable — the contract is the sysexit code, not the message.
-		expect(stderr).toMatch(/unknown command|too many arguments/)
+		expect(stderr).toMatch(/unknown command|too many arguments/i)
 	})
 
 	it.each([
@@ -156,10 +159,12 @@ describe('runCli', () => {
 		expect(code).toBe(64)
 		// Commander's own wording, not "too many arguments", which is what the
 		// root command's default action would otherwise make of the name.
-		expect(stderr).toContain(`error: unknown command '${name}'`)
+		expect(stderr).toContain(`Unknown command '${name}'.`)
 		expect(stderr).not.toContain('too many arguments')
-		expect(stderr).toContain(hint)
-		expect(stderr.trim().split('\n')).toHaveLength(2)
+		expect(flat(stderr)).toContain(hint)
+		// The sentence, then the replacement command. No second pointer to --help.
+		expect(stderr.trim().split('\n')[0]).toBe(`Unknown command '${name}'.`)
+		expect(stderr).not.toContain('--help')
 	})
 
 	it('lists exec with its alias, and neither removed command', async () => {
@@ -331,7 +336,7 @@ describe('runCli', () => {
 	it('--log-format rejects a value that is not pretty or json (EX_USAGE)', async () => {
 		const code = await invoke(['--log-format', 'xml', 'doctor'])
 		expect(code).toBe(64)
-		expect(stderr).toContain('Allowed choices are pretty, json')
+		expect(flat(stderr)).toContain('Choose one of pretty, json.')
 	})
 
 	it('--verbose alone and --log-format json alone both parse (no conflict, a real value)', async () => {

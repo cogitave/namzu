@@ -717,7 +717,7 @@ function restrictToOwnerWindows(path: string, once: boolean): void {
 	const sid = currentUserSid()
 	if (!sid) {
 		throw new CredentialStoreError(
-			`could not determine the current account's security identifier, so the protection of ${path} cannot be established.`,
+			`could not determine the current account’s security identifier, so the protection of ${path} cannot be established.`,
 		)
 	}
 

@@ -70,7 +70,9 @@ export function backgroundJobOutputRows(
 	// This wrapper preserves shell spacing and splits long lines before Ink can
 	// wrap them below the panel's row budget. It also makes terminal controls
 	// visible instead of letting process output move the cursor.
-	return permissionReviewRows(lines.join('\n').replace(/\t/gu, '    '), columns).map((row) => row.text)
+	return permissionReviewRows(lines.join('\n').replace(/\t/gu, '    '), columns).map(
+		(row) => row.text,
+	)
 }
 
 export function maxBackgroundJobTailOffset(
@@ -78,7 +80,10 @@ export function maxBackgroundJobTailOffset(
 	rows: number,
 	columns: number,
 ): number {
-	return Math.max(0, backgroundJobOutputRows(output, columns).length - backgroundJobOutputPageSize(rows))
+	return Math.max(
+		0,
+		backgroundJobOutputRows(output, columns).length - backgroundJobOutputPageSize(rows),
+	)
 }
 
 function readOutput(
@@ -123,28 +128,37 @@ export function BackgroundJobsPanel({
 	if (!detailJobId || !detailed) {
 		const pageSize = backgroundJobsPageSize(rows)
 		const selectedIndex = selected ? jobs.findIndex((job) => job.id === selected.id) : 0
-		const start = Math.max(0, Math.min(selectedIndex - Math.floor(pageSize / 2), jobs.length - pageSize))
+		const start = Math.max(
+			0,
+			Math.min(selectedIndex - Math.floor(pageSize / 2), jobs.length - pageSize),
+		)
 		const shown = jobs.slice(start, start + pageSize)
 		const stop = selected?.status === 'running' && !busyJobId ? ' · x stop' : ''
-		const listHint = jobs.length === 0
-			? 'esc close'
-			: fitClosingHint(
-				[
-					`↑↓ select · enter details${stop} · esc close`,
-					`↑↓ move · enter${stop} · esc`,
-					`enter${stop} · esc`,
-					`${stop ? 'x stop · ' : ''}esc`,
-					'esc',
-				],
-				innerColumns,
-			)
+		const listHint =
+			jobs.length === 0
+				? 'esc close'
+				: fitClosingHint(
+						[
+							`↑↓ select · enter details${stop} · esc close`,
+							`↑↓ move · enter${stop} · esc`,
+							`enter${stop} · esc`,
+							`${stop ? 'x stop · ' : ''}esc`,
+							'esc',
+						],
+						innerColumns,
+					)
 		return (
-			<Box flexDirection="column" borderStyle="single" borderColor={theme.border.default} paddingX={1}>
+			<Box
+				flexDirection="column"
+				borderStyle="single"
+				borderColor={theme.border.default}
+				paddingX={1}
+			>
 				<Text bold color={theme.accent.system} wrap="truncate-end">
 					{truncateChoiceText(`Shell jobs · ${running} running`, innerColumns)}
 				</Text>
 				{jobs.length === 0 ? (
-					<Text color={theme.text.secondary}>No shell jobs in this session.</Text>
+					<Text color={theme.text.secondary}>No shell jobs in this conversation.</Text>
 				) : (
 					shown.map((job) => {
 						const focused = job.id === selected?.id
@@ -152,7 +166,11 @@ export function BackgroundJobsPanel({
 							? `${focused ? '>' : ' '} ${job.id} · ${job.status} · ${job.command}`
 							: `${focused ? '>' : ' '} ${job.id} · ${jobState(job, now)} · ${job.command}`
 						return (
-							<Text key={job.id} color={focused ? theme.accent.user : theme.text.secondary} wrap="truncate-end">
+							<Text
+								key={job.id}
+								color={focused ? theme.accent.user : theme.text.secondary}
+								wrap="truncate-end"
+							>
 								{truncateChoiceText(label, innerColumns)}
 							</Text>
 						)
@@ -163,8 +181,14 @@ export function BackgroundJobsPanel({
 						{`${start + 1}–${Math.min(start + pageSize, jobs.length)}/${jobs.length}`}
 					</Text>
 				) : null}
-				{notice ? <Text color={theme.status.warn} wrap="truncate-end">{truncateChoiceText(notice, innerColumns)}</Text> : null}
-				<Text color={theme.text.muted} wrap="truncate-end">{listHint}</Text>
+				{notice ? (
+					<Text color={theme.status.warn} wrap="truncate-end">
+						{truncateChoiceText(notice, innerColumns)}
+					</Text>
+				) : null}
+				<Text color={theme.text.muted} wrap="truncate-end">
+					{listHint}
+				</Text>
 			</Box>
 		)
 	}
@@ -207,7 +231,10 @@ export function BackgroundJobsPanel({
 			<Text bold color={theme.accent.system} wrap="truncate-end">
 				{truncateChoiceText(`Shell details · ${detailed.id}`, innerColumns)}
 			</Text>
-			<Text color={detailed.status === 'running' ? theme.status.ok : theme.text.secondary} wrap="truncate-end">
+			<Text
+				color={detailed.status === 'running' ? theme.status.ok : theme.text.secondary}
+				wrap="truncate-end"
+			>
 				{truncateChoiceText(
 					busyJobId === detailed.id ? 'Stopping…' : jobState(detailed, now),
 					innerColumns,
@@ -215,17 +242,30 @@ export function BackgroundJobsPanel({
 			</Text>
 			<Text color={theme.text.muted}>Command</Text>
 			{commandRows.map((row) => (
-				<Text key={row.index} color={theme.text.primary} wrap="truncate-end">{row.text || ' '}</Text>
+				<Text key={row.index} color={theme.text.primary} wrap="truncate-end">
+					{row.text || ' '}
+				</Text>
 			))}
 			{commandMore ? <Text color={theme.text.muted}>… command continues</Text> : null}
 			<Text color={theme.text.muted} wrap="truncate-end">
-				{truncateChoiceText(earlierOutputOmitted ? 'Output · earlier bytes omitted' : 'Output', innerColumns)}
+				{truncateChoiceText(
+					earlierOutputOmitted ? 'Output · earlier output not shown' : 'Output',
+					innerColumns,
+				)}
 			</Text>
 			{shownOutput.map((row) => (
-				<Text key={row.index} color={theme.text.secondary} wrap="truncate-end">{row.text || ' '}</Text>
+				<Text key={row.index} color={theme.text.secondary} wrap="truncate-end">
+					{row.text || ' '}
+				</Text>
 			))}
-			{notice ? <Text color={theme.status.warn} wrap="truncate-end">{truncateChoiceText(notice, innerColumns)}</Text> : null}
-			<Text color={theme.text.muted} wrap="truncate-end">{footer}</Text>
+			{notice ? (
+				<Text color={theme.status.warn} wrap="truncate-end">
+					{truncateChoiceText(notice, innerColumns)}
+				</Text>
+			) : null}
+			<Text color={theme.text.muted} wrap="truncate-end">
+				{footer}
+			</Text>
 		</Box>
 	)
 }

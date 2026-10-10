@@ -72,11 +72,7 @@ function open(overrides: Partial<Parameters<typeof Picker>[0]> = {}) {
 
 /** The row the cursor is on, by the marker the screen puts in front of it. */
 function highlighted(frame: string | undefined): string {
-	return (
-		(frame ?? '')
-			.split('\n')
-			.find((line) => line.includes('›')) ?? ''
-	)
+	return (frame ?? '').split('\n').find((line) => line.includes('›')) ?? ''
 }
 
 /** Move the cursor down until `label` is the highlighted row. */
@@ -115,7 +111,7 @@ describe('the provider list', () => {
 
 		expect(highlighted(frame)).toMatch(/› 1\. Ollama \(local\)\s+local · localhost:11434/)
 		expect(frame).toContain(
-			'1 detected · device sessions / Namzu sign-ins / optional keys / local probes',
+			'1 detected · existing sign-ins / Namzu sign-ins / optional keys / local servers',
 		)
 		unmount()
 	})
@@ -165,7 +161,7 @@ describe('picking a provider that has no credential yet', () => {
 		stdin.write('\r')
 		await flush()
 
-		expect(lastFrame()).toContain(`Paste a credential for ${PROVIDER_REGISTRY.openrouter.label}`)
+		expect(lastFrame()).toContain(`Paste an API key for ${PROVIDER_REGISTRY.openrouter.label}`)
 		expect(onSubmit).not.toHaveBeenCalled()
 		unmount()
 	})
@@ -198,7 +194,7 @@ describe('picking a provider that has no credential yet', () => {
 		stdin.write('k')
 		await flush()
 
-		expect(lastFrame()).toContain(`Paste a credential for ${PROVIDER_REGISTRY.deepseek.label}`)
+		expect(lastFrame()).toContain(`Paste an API key for ${PROVIDER_REGISTRY.deepseek.label}`)
 		unmount()
 	})
 
@@ -213,7 +209,7 @@ describe('picking a provider that has no credential yet', () => {
 		// Row 1 is the local server: `k` has nothing to open for it, and says so
 		// without pretending something happened.
 		expect(lastFrame()).toContain('does not take a typed credential')
-		expect(lastFrame()).not.toContain('Paste a credential')
+		expect(lastFrame()).not.toContain('Paste an API key')
 		unmount()
 	})
 
@@ -225,7 +221,7 @@ describe('picking a provider that has no credential yet', () => {
 		stdin.write('k')
 		await flush()
 
-		expect(lastFrame()).toContain(`Paste a credential for ${PROVIDER_REGISTRY.anthropic.label}`)
+		expect(lastFrame()).toContain(`Paste an API key for ${PROVIDER_REGISTRY.anthropic.label}`)
 		unmount()
 	})
 })

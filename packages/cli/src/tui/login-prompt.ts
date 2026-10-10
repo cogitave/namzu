@@ -66,7 +66,7 @@ export function describeCodexDeviceLoginStart(start: {
 		'',
 		start.url,
 		'',
-		'Enter this one-time device code:',
+		'Enter this one-time code:',
 		`  ${start.userCode}`,
 		'',
 		'Continue only if you started this sign-in in Namzu. The code expires after 15 minutes.',
@@ -101,8 +101,8 @@ export function describeLoginOutcome(
 /** What the operator reads after asking namzu to forget the credential. */
 export function describeLogout(path: string, removed: boolean): string {
 	return removed
-		? `Removed the stored credential at ${path}. An active turn is not interrupted; a later turn may ask you to sign in again.\n\nSigning out here does not revoke anything at the provider — do that in your account settings if you need to.`
-		: "There was no stored credential to remove. If namzu is using one, it came from your environment or from another tool on this machine, and neither is namzu's to delete."
+		? `Removed the stored credential at ${path}. A reply that is running is not interrupted; a later reply may ask you to sign in again.\n\nSigning out here does not revoke anything at the provider — do that in your account settings if you need to.`
+		: 'There was no stored credential to remove. If namzu is using one, it came from your environment or from another tool on this machine, and neither is namzu’s to delete.'
 }
 
 /** A provider-specific logout result for a store that may hold two siblings. */
@@ -113,12 +113,12 @@ export function describeProviderLogout(
 ): string {
 	if (provider === 'google') {
 		return removed
-			? `Removed Namzu's saved Gemini API key at ${path} for future launches. A Google session already running in this Namzu process can still use its in-memory key until Namzu exits. Environment variables and Gemini CLI's session were not changed.`
-			: `There was no Namzu-owned Gemini API key to remove at ${path}. Environment variables and Gemini CLI's session were not changed.`
+			? `Removed Namzu’s saved Gemini API key at ${path} for future launches. A Google sign-in already open in Namzu can still use its key until Namzu exits. Environment variables and Gemini CLI’s sign-in were not changed.`
+			: `There was no Namzu-owned Gemini API key to remove at ${path}. Environment variables and Gemini CLI’s sign-in were not changed.`
 	}
 	const label = provider === 'anthropic' ? 'Claude' : 'Codex'
 	return removed
-		? `Removed Namzu's stored ${label} subscription credential at ${path}. Other stored subscriptions were kept. An active turn is not interrupted; a later turn using ${label} may ask you to sign in again.\n\nSigning out here does not revoke anything at the provider, and credentials owned by other tools on this machine were not changed.`
+		? `Removed Namzu’s stored ${label} subscription credential at ${path}. Other stored subscriptions were kept. A reply that is running is not interrupted; a later reply using ${label} may ask you to sign in again.\n\nSigning out here does not revoke anything at the provider, and credentials owned by other tools on this machine were not changed.`
 		: `There was no Namzu-owned ${label} subscription credential to remove. Credentials from the environment or another tool on this machine were not changed.`
 }
 
@@ -129,7 +129,7 @@ export function describeAllCredentialsLogout(
 	removed: boolean,
 ): string {
 	return removed
-		? `Removed Namzu's stored credentials from ${credentialsPath} and ${googleKeyPath} for future launches. An active turn is not interrupted; a Google session already running in this Namzu process can still use its in-memory key until Namzu exits. Credentials from the environment or other tools were not changed.`
+		? `Removed Namzu’s stored credentials from ${credentialsPath} and ${googleKeyPath} for future launches. A reply that is running is not interrupted; a Google sign-in already open in Namzu can still use its key until Namzu exits. Credentials from the environment or other tools were not changed.`
 		: `There were no Namzu-owned credentials to remove from ${credentialsPath} or ${googleKeyPath}. Credentials from the environment or other tools were not changed.`
 }
 

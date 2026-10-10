@@ -1,14 +1,22 @@
 /** Real tool presenters and event adapter reach the rendered transcript. */
 
+import {
+	GrepTool,
+	JobTool,
+	ReadFileTool,
+	type SessionEvent,
+	ToolManager,
+	createToolPresenter,
+	generateTurnId,
+} from '@namzu/sdk'
 import { afterEach, expect, it, vi } from 'vitest'
-import { ReadFileTool, GrepTool, JobTool, createToolPresenter, generateTurnId, type SessionEvent , ToolManager } from '@namzu/sdk'
 
 import type { Preferences } from '../../integrations/providers/index.js'
+import { testToolset } from '../../test-support/toolset.js'
+import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 import type { AgentEvent, AgentSession } from '../agent.js'
 import type { TuiContext } from '../types.js'
 import { type Screen, renderToScreen } from './support/screen.js'
-import { testToolset } from '../../test-support/toolset.js'
-import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 
 const PREFS: Preferences = {
 	version: 3,
@@ -65,19 +73,48 @@ vi.mock('../agent.js', async (importOriginal) => {
 			approvalLatched: () => false,
 			promptExemptTools: () => [],
 			send: async function* (): AsyncIterable<AgentEvent> {
-				const registry = new ToolManager({ toolsets: [testToolset(...[ReadFileTool, GrepTool, JobTool])], messages: () => [] })
+				const registry = new ToolManager({
+					toolsets: [testToolset(...[ReadFileTool, GrepTool, JobTool])],
+					messages: () => [],
+				})
 				const presenter = createToolPresenter(registry)
 				const turnId = generateTurnId()
 				const calls = [
-					{ toolName: 'read', input: { path: 'one.ts' }, result: 'FIRST evidence  \nSECOND evidence' },
-					{ toolName: 'grep', input: { pattern: 'needle', path: 'src' }, result: 'SEARCH evidence' },
+					{
+						toolName: 'read',
+						input: { path: 'one.ts' },
+						result: 'FIRST evidence  \nSECOND evidence',
+					},
+					{
+						toolName: 'grep',
+						input: { pattern: 'needle', path: 'src' },
+						result: 'SEARCH evidence',
+					},
 					{ toolName: 'job', input: { action: 'read', id: 'job-one' }, result: 'no new output' },
-					{ toolName: 'read', input: { path: 'missing.ts' }, result: 'missing file', isError: true },
+					{
+						toolName: 'read',
+						input: { path: 'missing.ts' },
+						result: 'missing file',
+						isError: true,
+					},
 				]
 				for (const [index, call] of calls.entries()) {
 					for (const event of [
-						{ type: 'tool_executing', turnId, toolUseId: `call-${index}`, toolName: call.toolName, input: call.input },
-						{ type: 'tool_completed', turnId, toolUseId: `call-${index}`, toolName: call.toolName, result: call.result, isError: call.isError ?? false },
+						{
+							type: 'tool_executing',
+							turnId,
+							toolUseId: `call-${index}`,
+							toolName: call.toolName,
+							input: call.input,
+						},
+						{
+							type: 'tool_completed',
+							turnId,
+							toolUseId: `call-${index}`,
+							toolName: call.toolName,
+							result: call.result,
+							isError: call.isError ?? false,
+						},
 					]) {
 						const mapped = actual.toAgentEvent(event as unknown as SessionEvent, presenter)
 						if (mapped) yield mapped

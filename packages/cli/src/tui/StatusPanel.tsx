@@ -22,6 +22,7 @@ export function StatusPanel({ rows }: { readonly rows: readonly (readonly [strin
 			</Box>
 			{layout.rows.map((row, index) => (
 				<Box
+					// biome-ignore lint/suspicious/noArrayIndexKey: these rows have no identity of their own and hold no state, so the index is the key.
 					key={index}
 					marginTop={row.gap ? 1 : 0}
 					flexDirection={layout.stacked ? 'column' : 'row'}
@@ -32,6 +33,7 @@ export function StatusPanel({ rows }: { readonly rows: readonly (readonly [strin
 					<Box flexDirection="column" flexGrow={1}>
 						{row.lines.map((line, lineIndex) => (
 							<Text
+								// biome-ignore lint/suspicious/noArrayIndexKey: these rows have no identity of their own and hold no state, so the index is the key.
 								key={lineIndex}
 								color={row.label === 'Model' ? theme.text.primary : theme.text.secondary}
 								bold={row.label === 'Model'}

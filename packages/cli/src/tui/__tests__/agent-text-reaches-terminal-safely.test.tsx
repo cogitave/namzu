@@ -3,15 +3,12 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import type { Preferences } from '../../integrations/providers/index.js'
+import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 import type { AgentEvent, AgentSession, PermissionRequest } from '../agent.js'
 import { APPROVAL_SETTLE_MS } from '../consent-timing.js'
-import {
-	MAX_PERMISSION_REVIEW_BYTES,
-	PERMISSION_REVIEW_PAGE_ROWS,
-} from '../permission-review.js'
+import { MAX_PERMISSION_REVIEW_BYTES, PERMISSION_REVIEW_PAGE_ROWS } from '../permission-review.js'
 import type { TuiContext } from '../types.js'
 import { type Screen, renderToScreen } from './support/screen.js'
-import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 
 const BEL = String.fromCodePoint(0x07)
 const CSI = String.fromCodePoint(0x9b)
@@ -228,9 +225,7 @@ it('escapes permission, live-tool and transcript output while preserving the req
 
 it('pages a single long JSON string by physical rows in a narrow terminal', async () => {
 	const suffix = 'DANGER_TAIL'
-	activeRequest = permissionRequest(
-		Object.freeze({ command: 'x'.repeat(480), tail: suffix }),
-	)
+	activeRequest = permissionRequest(Object.freeze({ command: 'x'.repeat(480), tail: suffix }))
 	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 40, rows: 24 })
 	mounted = screen
 	await waitUntil(screen, () => painted(screen).includes('a-model'))
@@ -256,9 +251,9 @@ it('pages a single long JSON string by physical rows in a narrow terminal', asyn
 	const lastRows = screen.viewport()
 	const lastStart = lastRows.findIndex((row) => row.includes('Exact prepared input'))
 	const lastEnd = lastRows.findIndex((row) => /rows \d+-\d+\/\d+/u.test(row))
-	expect(
-		lastRows.slice(lastStart + 1, lastEnd).filter((row) => row.trim().length > 0).length,
-	).toBe(PERMISSION_REVIEW_PAGE_ROWS)
+	expect(lastRows.slice(lastStart + 1, lastEnd).filter((row) => row.trim().length > 0).length).toBe(
+		PERMISSION_REVIEW_PAGE_ROWS,
+	)
 	let commandCloseRow = lastRows.find((row) => row.includes('",'))
 	for (let row = 0; row < 20 && !commandCloseRow; row += 1) {
 		screen.press('\u001b[5~')

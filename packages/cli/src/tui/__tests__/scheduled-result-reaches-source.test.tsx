@@ -8,8 +8,8 @@ import {
 	openSessions,
 	startConversation,
 } from '../../integrations/sessions/store.js'
-import { deliverRunToSource } from '../../schedule/delivery.js'
 import { confirmedJob, sandbox } from '../../schedule/__tests__/fixtures.js'
+import { deliverRunToSource } from '../../schedule/delivery.js'
 import { fakeAgentSession } from '../__fixtures__/agent-session.js'
 import { type Screen, renderToScreen } from './support/screen.js'
 

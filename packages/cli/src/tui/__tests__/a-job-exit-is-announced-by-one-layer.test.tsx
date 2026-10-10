@@ -10,10 +10,10 @@ import type { BackgroundJob } from '@namzu/sdk'
 import { afterEach, expect, it, vi } from 'vitest'
 
 import type { Preferences } from '../../integrations/providers/index.js'
+import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 import type { AgentEvent, AgentSession, SendOptions } from '../agent.js'
 import type { TuiContext } from '../types.js'
 import { type Screen, renderToScreen } from './support/screen.js'
-import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 
 const PREFS: Preferences = {
 	version: 3,
@@ -99,9 +99,16 @@ vi.mock('../agent.js', async (importOriginal) => {
 				if (sends.length === 1) {
 					if (acknowledgeBeforeListener) opts?.onJobNoticeDelivered?.(['job_1'])
 					announce?.(exited('job_1', 'pnpm build'))
-					if (acknowledgeFirstExit && !acknowledgeBeforeListener) opts?.onJobNoticeDelivered?.(['job_1'])
+					if (acknowledgeFirstExit && !acknowledgeBeforeListener)
+						opts?.onJobNoticeDelivered?.(['job_1'])
 					if (failFirstSend) throw new Error('provider failed before accepting context')
-					yield { kind: 'job', jobId: 'job_1', command: 'pnpm build', status: 'exited', exitCode: 0 }
+					yield {
+						kind: 'job',
+						jobId: 'job_1',
+						command: 'pnpm build',
+						status: 'exited',
+						exitCode: 0,
+					}
 				}
 				yield { kind: 'delta', text: 'ok' }
 				yield { kind: 'done', stopReason: 'end_turn' }
@@ -152,7 +159,9 @@ it('does not re-announce a job exit that landed while a turn was open', async ()
 	// The next turn must not open by announcing it a second time.
 	expect(contextAt(1)).not.toContain('job_1')
 	expect(contextAt(1)).not.toContain('Background jobs that ended')
-	expect(screen.scrollback().filter((line) => line.includes('background job job_1 (pnpm build) exited'))).toHaveLength(1)
+	expect(
+		screen.scrollback().filter((line) => line.includes('background job job_1 (pnpm build) exited')),
+	).toHaveLength(1)
 
 	// The control, and the reason the guard is not simply "never announce": an
 	// exit with no turn open reaches nobody else, so the session carries it.
@@ -203,7 +212,9 @@ it('does not requeue an exit acknowledged before the CLI exit listener runs', as
 	await say(screen, 'first', 1)
 	await say(screen, 'second', 2)
 	expect(contextAt(1)).not.toContain('job_1')
-	expect(screen.scrollback().filter((line) => line.includes('background job job_1 (pnpm build) exited'))).toHaveLength(1)
+	expect(
+		screen.scrollback().filter((line) => line.includes('background job job_1 (pnpm build) exited')),
+	).toHaveLength(1)
 })
 
 it('delivers operator shell output as request context, not as a system instruction', async () => {

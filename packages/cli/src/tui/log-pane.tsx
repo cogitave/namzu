@@ -29,7 +29,7 @@
  * should import the SDK's instead, per `read-the-neighbour`.
  */
 
-import { NOOP_LOGGER, jsonLinesSink, prettySink } from '@namzu/sdk'
+import { jsonLinesSink, prettySink } from '@namzu/sdk'
 import type { LogRecord, LogSink } from '@namzu/sdk'
 
 import { reportCrash } from '../crash-report.js'
@@ -94,7 +94,10 @@ export function installTuiLogSink(logging?: ResolvedLogging): TuiLogSinkLifecycl
 		detach()
 		let text = ''
 		const sink = {
-			write: (chunk: string | Uint8Array) => ((text += String(chunk)), true),
+			write: (chunk: string | Uint8Array) => {
+				text += String(chunk)
+				return true
+			},
 		}
 		const out: LogSink =
 			resolved.format === 'json'

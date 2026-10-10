@@ -1,5 +1,5 @@
 import { Box, Text, useAnimation, useIsScreenReaderEnabled, useStdout, useWindowSize } from 'ink'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 
 import { theme } from './theme.js'
 
@@ -42,7 +42,10 @@ export function ComposerFrame({
 	const showCaption = !showMode || frameColumns >= 28
 	const ruleColumns = Math.max(
 		1,
-		frameColumns - 2 - (showCaption ? MESSAGE_CAPTION_COLUMNS : 0) - (showMode ? mode.length + 3 : 0),
+		frameColumns -
+			2 -
+			(showCaption ? MESSAGE_CAPTION_COLUMNS : 0) -
+			(showMode ? mode.length + 3 : 0),
 	)
 	// Below this width the caption yields its space to the label, leaving the
 	// rule on the left of the input center. A pulse there would appear off-center.
@@ -79,15 +82,12 @@ export function ComposerFrame({
 						</Text>
 					</Box>
 				) : null}
-				{glowTime !== undefined ? (
-					<GlowRule columns={ruleColumns} time={glowTime} />
-				) : (
-					<Rule />
-				)}
+				{glowTime !== undefined ? <GlowRule columns={ruleColumns} time={glowTime} /> : <Rule />}
 				{showMode ? (
 					<Box flexShrink={0}>
 						<Text color={theme.accent.hypermode} bold>
-							{' '}{mode}{' '}
+							{' '}
+							{mode}{' '}
 						</Text>
 						<Text color={theme.border.default}>─</Text>
 					</Box>

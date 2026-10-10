@@ -33,7 +33,7 @@ it('says it waits for you instead of counting, and leaves the wait out of the ti
 		view.rerender(<LiveActivity activeTools={[]} working interruptible animate={false} />)
 		const after = view.lastFrame() ?? ''
 		expect(after).toContain('Working')
-		expect(after).toContain("(7.0s")
+		expect(after).toContain('(7.0s')
 	} finally {
 		view.unmount()
 	}

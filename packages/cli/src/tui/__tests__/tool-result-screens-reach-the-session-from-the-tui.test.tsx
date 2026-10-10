@@ -26,9 +26,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import type { Preferences } from '../../integrations/providers/index.js'
+import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 import type { AgentEvent, AgentSession } from '../agent.js'
 import type { TuiContext } from '../types.js'
-import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 
 const PREFS: Preferences = { version: 3, providers: [{ id: 'openai' }], subagents: { active: [] } }
 
@@ -162,11 +162,7 @@ async function sessionOptionsFor(config: unknown): Promise<Record<string, unknow
 
 describe('toolResultScreens from the config file', () => {
 	it.each([
-		[
-			'an empty list, which is the off switch',
-			{ toolResultScreens: [] },
-			[] as readonly unknown[],
-		],
+		['an empty list, which is the off switch', { toolResultScreens: [] }, [] as readonly unknown[]],
 		[
 			'a list of names',
 			{ toolResultScreens: ['injection', 'correspondence'] },
@@ -174,7 +170,9 @@ describe('toolResultScreens from the config file', () => {
 		],
 		[
 			'an entry carrying the screen options',
-			{ toolResultScreens: [{ name: 'correspondence', passthroughTools: ['mcp_login-echo_echo'] }] },
+			{
+				toolResultScreens: [{ name: 'correspondence', passthroughTools: ['mcp_login-echo_echo'] }],
+			},
 			[{ name: 'correspondence', passthroughTools: ['mcp_login-echo_echo'] }],
 		],
 	])('reaches the interactive session: %s', async (_label, config, expected) => {

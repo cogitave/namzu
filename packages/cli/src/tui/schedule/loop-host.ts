@@ -116,7 +116,7 @@ export class SessionLoopScheduler implements SessionLoopHost {
 		// beside the log once the first turn creates it.
 		this.#sync()
 		if (this.#loops.length >= MAX_LOOPS)
-			throw new Error(`A session holds at most ${MAX_LOOPS} loops.`)
+			throw new Error(`A conversation holds at most ${MAX_LOOPS} loops.`)
 		const now = new Date(this.#now())
 		const spec = loopSpec(request.interval, now)
 		const loop: StoredLoop = {

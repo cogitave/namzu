@@ -146,7 +146,7 @@ describe('/browser', () => {
 	it('refuses a switch during a turn, and a bad name', async () => {
 		const c = control()
 		expect((await runBrowserSlash(c, ['profile', 'x'], { busy: true })).text).toMatch(
-			/while a turn is running/,
+			/while a reply is running/,
 		)
 		const bad = await runBrowserSlash(c, ['profile', 'Bad Name'], { busy: false })
 		expect(bad.profile).toBeUndefined()
@@ -156,7 +156,7 @@ describe('/browser', () => {
 
 	it('explains a session without a browser, and prints usage for anything else', async () => {
 		expect((await runBrowserSlash(undefined, [], { busy: false })).text).toMatch(
-			/This session has no browser/,
+			/This conversation has no browser/,
 		)
 		expect((await runBrowserSlash(control(), ['open'], { busy: false })).text).toMatch(/^Usage:/)
 	})

@@ -21,11 +21,11 @@
 import { render } from 'ink-testing-library'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { APPROVAL_SETTLE_MS } from '../consent-timing.js'
 import type { Preferences } from '../../integrations/providers/index.js'
-import type { AgentEvent, AgentSession, PermissionDecision, PermissionRequest } from '../agent.js'
-import type { TuiContext } from '../types.js'
 import { genericPresenter } from '../__fixtures__/generic-presenter.js'
+import type { AgentEvent, AgentSession, PermissionDecision, PermissionRequest } from '../agent.js'
+import { APPROVAL_SETTLE_MS } from '../consent-timing.js'
+import type { TuiContext } from '../types.js'
 
 const PREFS: Preferences = { version: 3, providers: [{ id: 'openai' }], subagents: { active: [] } }
 
@@ -58,8 +58,8 @@ vi.mock('../agent.js', async (importOriginal) => {
 		}),
 		createAgentSession: async (): Promise<AgentSession> => ({
 			hasProvider: true,
-				sandbox: { unconfined: true, enforced: [], required: [] },
-				compact: async () => null,
+			sandbox: { unconfined: true, enforced: [], required: [] },
+			compact: async () => null,
 			providerSummary: 'a-provider',
 			modelSummary: 'a-model',
 			toolNames: () => ['bash'],
@@ -307,7 +307,7 @@ describe('a draft while a permission prompt comes and goes', () => {
 		// the frame from before the prompt, which is the state this asserts against.
 		await frameShows(harness.lastFrame, draft, 'the draft was destroyed by the prompt')
 
-		expect(decisions).toEqual([{ kind: 'reject' }])
+		expect(decisions).toEqual([{ kind: 'reject', declined: {} }])
 	})
 
 	it('keeps a pasted attachment across the same cycle', async () => {
@@ -365,11 +365,7 @@ describe('esc while a turn is running', () => {
 		harness.stdin.write('throwaway')
 		// The keystrokes landing is an event; polling for it is what makes this a
 		// statement about the composer rather than about the machine's load.
-		await frameShows(
-			() => said(harness),
-			'throwaway',
-			'the keystrokes never reached the composer',
-		)
+		await frameShows(() => said(harness), 'throwaway', 'the keystrokes never reached the composer')
 
 		harness.stdin.write('\x1B')
 		// An empty composer draws the placeholder again, in the same render that
@@ -394,7 +390,9 @@ describe('while the prompt is up', () => {
 		const draft = 'untouched'
 		const harness = await turnRunningWithDraft(draft)
 		await frameShows(harness.lastFrame, 'Do you want to', 'the prompt never opened')
-		expect(harness.lastFrame(), 'the composer is still drawing under the prompt').not.toContain(draft)
+		expect(harness.lastFrame(), 'the composer is still drawing under the prompt').not.toContain(
+			draft,
+		)
 
 		// `q` decides nothing at the prompt; it must not reach the composer. Both
 		// keys go in now, in order, with nothing waited for between them: the

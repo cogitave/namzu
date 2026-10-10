@@ -105,9 +105,9 @@ else, and the state is always also a word or a mark, never only the glyph:
 
 ```text
 ✦ hypermode · this turn: effort xhigh, delegate to parallel agents · alt+w drop
-✦ hypermode · enter steers without it · tab: new turn with it · alt+w drop     (a turn is running)
-✦ save as skill · after this turn, if it did work; you confirm the file · alt+w drop
-✦ save as skill · enter: after the running turn · tab: after the next · alt+w drop
+✦ hypermode · enter steers without it · tab: new message with it · alt+w drop     (a turn is running)
+✦ save as skill · after this reply, if it did work; you confirm the file · alt+w drop
+✦ save as skill · enter: after the running reply · tab: after the next · alt+w drop
 ✦ save as skill · runs /skills save · alt+w drop                                (the whole message)
 ✧ hypermode? · alt+w arms                                                       (a suggestion)
 ✧ hypermode (off) · alt+w restores                                             (dropped)

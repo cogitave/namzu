@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Preferences } from '../../integrations/providers/index.js'
 import type { UserCommand } from '../../user-commands/store.js'
+import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 import type { AgentEvent, AgentSession, SendOptions } from '../agent.js'
 import {
 	initPrompt,
@@ -14,7 +15,6 @@ import {
 } from '../slashCommands.js'
 import type { TuiContext } from '../types.js'
 import { renderToScreen } from './support/screen.js'
-import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 
 const PREFS: Preferences = {
 	version: 3,
@@ -529,7 +529,7 @@ describe('the two composer destinations', () => {
 			await typeAndPress(screen, 'then do this', '\t')
 			await waitUntil(
 				screen,
-				() => screen.viewport().some((line) => line.includes('Queued · next turn')),
+				() => screen.viewport().some((line) => line.includes('Queued · next reply')),
 				'Tab submission never entered the next-turn queue',
 			)
 			expect(screen.viewport().join('\n')).toContain('then do this')
@@ -667,19 +667,30 @@ describe('the two composer destinations', () => {
 		drainFirstTurn = false
 		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
 		try {
-			await waitUntil(screen, () => screen.viewport().join('\n').includes('Type a message'), 'App never became ready')
+			await waitUntil(
+				screen,
+				() => screen.viewport().join('\n').includes('Type a message'),
+				'App never became ready',
+			)
 			await typeAndPress(screen, 'active work', '\r')
 			await waitUntil(screen, () => sent.length === 1, 'active turn did not start')
 			await typeAndPress(screen, 'queued A', '\t')
 			await typeAndPress(screen, 'steer S', '\r')
 			screen.press('\x1b[1;3A')
-			await waitUntil(screen, () => screen.viewport().join('\n').includes('› queued A'), 'earlier queued item was not recalled')
+			await waitUntil(
+				screen,
+				() => screen.viewport().join('\n').includes('› queued A'),
+				'earlier queued item was not recalled',
+			)
 			screen.press('\x15') // Ctrl+U clears the recalled draft.
 			await screen.waitForRender()
 			await typeAndPress(screen, 'queued B', '\t')
 			releaseFirstTurn()
 			await waitUntil(screen, () => sent.length === 3, 'undelivered input was not requeued')
-			expect(sent.slice(1).map((messages) => messages.at(-1)?.content)).toEqual(['steer S', 'queued B'])
+			expect(sent.slice(1).map((messages) => messages.at(-1)?.content)).toEqual([
+				'steer S',
+				'queued B',
+			])
 		} finally {
 			releaseFirstTurn()
 			await screen.unmount()
@@ -772,7 +783,11 @@ describe('the two composer destinations', () => {
 	it('keeps typing that arrives immediately after Alt+Up and submits the restored image', async () => {
 		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
 		try {
-			await waitUntil(screen, () => screen.viewport().join('\n').includes('Type a message'), 'App never became ready')
+			await waitUntil(
+				screen,
+				() => screen.viewport().join('\n').includes('Type a message'),
+				'App never became ready',
+			)
 			await typeAndPress(screen, 'active work', '\r')
 			await waitUntil(screen, () => sent.length === 1, 'active turn did not start')
 			screen.press('\x1bv')
@@ -780,11 +795,23 @@ describe('the two composer destinations', () => {
 			await typeAndPress(screen, 'queued text', '\t')
 			screen.press('\x1b[1;3A')
 			screen.press(' suffix')
-			await waitUntil(screen, () => screen.viewport().join('\n').includes('queued text suffix'), 'typing after recall was lost')
+			await waitUntil(
+				screen,
+				() => screen.viewport().join('\n').includes('queued text suffix'),
+				'typing after recall was lost',
+			)
 			screen.press('\r')
 			releaseFirstTurn()
-			await waitUntil(screen, () => delivered[0]?.length === 1, 'the recalled steer was not delivered')
-			expect(delivered[0]?.[0]).toMatchObject({ role: 'user', content: 'queued text suffix', attachments: [image] })
+			await waitUntil(
+				screen,
+				() => delivered[0]?.length === 1,
+				'the recalled steer was not delivered',
+			)
+			expect(delivered[0]?.[0]).toMatchObject({
+				role: 'user',
+				content: 'queued text suffix',
+				attachments: [image],
+			})
 		} finally {
 			releaseFirstTurn()
 			await screen.unmount()
@@ -795,7 +822,11 @@ describe('the two composer destinations', () => {
 		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
 		const pasted = 'first pasted line\nsecond pasted line'
 		try {
-			await waitUntil(screen, () => screen.viewport().join('\n').includes('Type a message'), 'App never became ready')
+			await waitUntil(
+				screen,
+				() => screen.viewport().join('\n').includes('Type a message'),
+				'App never became ready',
+			)
 			await typeAndPress(screen, 'active work', '\r')
 			await waitUntil(screen, () => sent.length === 1, 'active turn did not start')
 			await typeAndPress(screen, 'queued original', '\t')
@@ -819,13 +850,25 @@ describe('the two composer destinations', () => {
 	it('recalls a queued slash command as typed while keeping its model prompt expanded', async () => {
 		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
 		try {
-			await waitUntil(screen, () => screen.viewport().join('\n').includes('Type a message'), 'App never became ready')
+			await waitUntil(
+				screen,
+				() => screen.viewport().join('\n').includes('Type a message'),
+				'App never became ready',
+			)
 			await typeAndPress(screen, 'active work', '\r')
 			await waitUntil(screen, () => sent.length === 1, 'active turn did not start')
 			await typeAndPress(screen, '/init ', '\t')
-			await waitUntil(screen, () => screen.viewport().join('\n').includes('↳ /init'), 'the authored command was not previewed')
+			await waitUntil(
+				screen,
+				() => screen.viewport().join('\n').includes('↳ /init'),
+				'the authored command was not previewed',
+			)
 			screen.press('\x1b[1;3A')
-			await waitUntil(screen, () => screen.viewport().join('\n').includes('› /init'), 'the authored command was not recalled')
+			await waitUntil(
+				screen,
+				() => screen.viewport().join('\n').includes('› /init'),
+				'the authored command was not recalled',
+			)
 			screen.press(' ')
 			screen.press('\t')
 			releaseFirstTurn()
@@ -910,7 +953,7 @@ describe('the two composer destinations', () => {
 				() => screen.viewport().some((line) => line.includes('› keep after stop')),
 				'queued input was not recalled',
 			)
-			expect(screen.viewport().join('\n')).not.toContain('Queued · next turn')
+			expect(screen.viewport().join('\n')).not.toContain('Queued · next reply')
 			expect(sent).toHaveLength(1)
 			screen.press('\r')
 			await waitUntil(screen, () => sent.length === 2, 'recalled input never started')
@@ -965,11 +1008,19 @@ describe('the two composer destinations', () => {
 			await waitUntil(screen, () => sent.length === 1, 'active turn did not start')
 			await typeAndPress(screen, 'revise after stop', '\t')
 			screen.press('\x1b[27u')
-			await waitUntil(screen, () => screen.scrollback().join('\n').includes('Interrupted.'), 'Esc did not interrupt')
+			await waitUntil(
+				screen,
+				() => screen.scrollback().join('\n').includes('Interrupted.'),
+				'Esc did not interrupt',
+			)
 			releaseFirstTurn()
 			await waitUntil(screen, () => delivered.length === 1, 'interrupted turn never settled')
 			screen.press('\x1b[1;3A')
-			await waitUntil(screen, () => screen.viewport().join('\n').includes('› revise after stop'), 'recall did not restore the draft')
+			await waitUntil(
+				screen,
+				() => screen.viewport().join('\n').includes('› revise after stop'),
+				'recall did not restore the draft',
+			)
 			screen.press('\t')
 			await waitUntil(screen, () => sent.length === 2, 'the resubmitted prompt remained held')
 			expect(sent[1]?.at(-1)).toMatchObject({ role: 'user', content: 'revise after stop' })
@@ -1108,7 +1159,7 @@ describe('the external draft editor', () => {
 			screen.press('\x07')
 			await waitUntil(
 				screen,
-				() => screen.scrollback().join('\n').includes('editor refused the file'),
+				() => screen.scrollback().join('\n').includes('Cannot open your editor'),
 				'the editor failure was not reported',
 			)
 			expect(screen.viewport().join('\n')).toContain('keep this draft')

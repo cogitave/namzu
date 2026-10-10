@@ -1,8 +1,8 @@
-import { explainFailure } from './plain-failure.js'
 import { Box, Text, useInput } from 'ink'
 import { useEffect, useRef, useState } from 'react'
 import { discoverProviders } from '../integrations/providers/discover.js'
-import { installHarness, probeHarnesses, type SetupProbe } from '../integrations/providers/setup.js'
+import { type SetupProbe, installHarness, probeHarnesses } from '../integrations/providers/setup.js'
+import { explainFailure } from './plain-failure.js'
 import { choiceDisplayText } from './terminal-choice-text.js'
 import { theme } from './theme.js'
 
@@ -23,6 +23,7 @@ export function ProviderSetup({
 		const next = await probeHarnesses(detected, cwd, signal)
 		if (!signal.aborted) setRows(next)
 	}
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
 	useEffect(() => {
 		const controller = new AbortController()
 		lifetime.current = controller
@@ -32,7 +33,8 @@ export function ProviderSetup({
 					setOutput('Choose a provider. Installation and sign-in are separate steps.')
 			})
 			.catch((error) => {
-				if (!controller.signal.aborted) setOutput(explainFailure(error, 'Could not check this provider.'))
+				if (!controller.signal.aborted)
+					setOutput(explainFailure(error, 'Could not check this provider.'))
 			})
 			.finally(() => {
 				if (!controller.signal.aborted) setBusy(false)
@@ -68,7 +70,8 @@ export function ProviderSetup({
 						: `Installation failed (exit ${result.code ?? 'unknown'}).\n${result.output}`,
 			)
 		} catch (error) {
-			if (!lifetime.current?.signal.aborted) setOutput(explainFailure(error, 'Could not check this provider.'))
+			if (!lifetime.current?.signal.aborted)
+				setOutput(explainFailure(error, 'Could not check this provider.'))
 		} finally {
 			operation.current = null
 			if (!lifetime.current?.signal.aborted) setBusy(false)
@@ -123,6 +126,7 @@ export function ProviderSetup({
 					.split('\n')
 					.slice(-8)
 					.map((line, index) => (
+						// biome-ignore lint/suspicious/noArrayIndexKey: these rows have no identity of their own and hold no state, so the index is the key.
 						<Text key={index}>{choiceDisplayText(line).slice(-200)}</Text>
 					))}
 			</Box>

@@ -30,15 +30,15 @@ import type {
 } from '../../integrations/notifications/terminal.js'
 import type { Preferences } from '../../integrations/providers/index.js'
 import type { CliSessions } from '../../integrations/sessions/store.js'
+import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 import type {
 	AgentEvent,
 	AgentSession,
 	AgentSessionOptions,
-	SessionScope,
 	SendOptions,
+	SessionScope,
 } from '../agent.js'
 import type { TuiContext } from '../types.js'
-import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 
 const PREFS: Preferences = {
 	version: 3,
@@ -140,12 +140,9 @@ vi.mock('../agent.js', async (importOriginal) => {
 					if (event.kind === 'done' && conversations) {
 						const user = messages.at(-1)
 						if (user) {
-							await recordTurn(
-								conversations,
-								sessionId,
-								[user, createAssistantMessage(text)],
-								{ originKind: sendOptions?.goalRound ? 'goal-round' : 'prompt' },
-							)
+							await recordTurn(conversations, sessionId, [user, createAssistantMessage(text)], {
+								originKind: sendOptions?.goalRound ? 'goal-round' : 'prompt',
+							})
 						}
 					}
 					yield event
@@ -467,7 +464,10 @@ it('rechecks ownership after the turn-boundary await and before creating the pro
 	await evidenceEntered.promise
 	const source = scope!.sessionId
 	await submit(harness, '/new')
-	await until(() => scope?.sessionId !== source, 'the conversation did not switch during the boundary')
+	await until(
+		() => scope?.sessionId !== source,
+		'the conversation did not switch during the boundary',
+	)
 	releaseEvidence.resolve()
 	await tick(160)
 
@@ -549,7 +549,7 @@ it('does not let an abnormal automatic goal round pause queued human work', asyn
 	await until(() => order.length === 2, 'the failed goal round paused independent human work')
 
 	expect(order).toEqual(['goal', 'human'])
-	expect(harness.frames.join('\n')).not.toContain('paused after a failed turn')
+	expect(harness.frames.join('\n')).not.toContain('paused after a failed reply')
 }, 30_000)
 
 it('durably blocks at the configured cap instead of starting an unbounded turn', async () => {
@@ -632,26 +632,52 @@ it('suppresses per-round settled notifications while automatic work continues', 
 	expect(notificationRequests).toEqual([])
 }, 30_000)
 
-it.each(['resume', 'later'] as const)('asks before activating a resumed goal: %s', async (decision) => {
- const root = await mkdtemp(join(tmpdir(), 'namzu-goal-resume-choice-'))
- roots.push(root)
- const sessions = await openSessions(root)
- const sessionId = await startConversation(sessions)
- await recordTurn(sessions, sessionId, [createUserMessage('remember this work')])
- await sessions.goals.createGoal({ sessionId, objective: 'Finish the saved objective' }, sessions.tenantId)
- let resumedRounds = 0
- sendImplementation = async function* (_messages: readonly Message[], options: SendOptions | undefined, bound: BoundSession) {
-  if (options?.goalRound) { resumedRounds++; await complete(bound, options.goalRound) }
-  yield { kind: 'done', stopReason: 'end_turn' }
- }
- const harness = render(<App ctx={{ cwd: root, version: 'test', initialConversationId: sessionId }} />)
- mounted.push(harness)
- await until(() => harness.lastFrame()?.includes('Continue the saved goal?') === true, 'goal decision missing')
- expect(harness.lastFrame()).toContain('Finish the saved objective')
- expect(resumedRounds).toBe(0)
- await tick(40)
- if (decision === 'later') { harness.stdin.write('\x1b[B'); await tick(40) }
- harness.stdin.write('\r')
- if (decision === 'resume') await until(() => resumedRounds === 1, 'goal did not resume')
- else { await tick(100); expect(resumedRounds).toBe(0); expect(harness.lastFrame()).toContain('Goal paused (/goal resume)') }
-}, 30_000)
+it.each(['resume', 'later'] as const)(
+	'asks before activating a resumed goal: %s',
+	async (decision) => {
+		const root = await mkdtemp(join(tmpdir(), 'namzu-goal-resume-choice-'))
+		roots.push(root)
+		const sessions = await openSessions(root)
+		const sessionId = await startConversation(sessions)
+		await recordTurn(sessions, sessionId, [createUserMessage('remember this work')])
+		await sessions.goals.createGoal(
+			{ sessionId, objective: 'Finish the saved objective' },
+			sessions.tenantId,
+		)
+		let resumedRounds = 0
+		sendImplementation = async function* (
+			_messages: readonly Message[],
+			options: SendOptions | undefined,
+			bound: BoundSession,
+		) {
+			if (options?.goalRound) {
+				resumedRounds++
+				await complete(bound, options.goalRound)
+			}
+			yield { kind: 'done', stopReason: 'end_turn' }
+		}
+		const harness = render(
+			<App ctx={{ cwd: root, version: 'test', initialConversationId: sessionId }} />,
+		)
+		mounted.push(harness)
+		await until(
+			() => harness.lastFrame()?.includes('Continue the saved goal?') === true,
+			'goal decision missing',
+		)
+		expect(harness.lastFrame()).toContain('Finish the saved objective')
+		expect(resumedRounds).toBe(0)
+		await tick(40)
+		if (decision === 'later') {
+			harness.stdin.write('\x1b[B')
+			await tick(40)
+		}
+		harness.stdin.write('\r')
+		if (decision === 'resume') await until(() => resumedRounds === 1, 'goal did not resume')
+		else {
+			await tick(100)
+			expect(resumedRounds).toBe(0)
+			expect(harness.lastFrame()).toContain('Goal paused (/goal resume)')
+		}
+	},
+	30_000,
+)

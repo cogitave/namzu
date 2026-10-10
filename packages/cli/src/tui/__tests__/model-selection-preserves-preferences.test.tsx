@@ -201,7 +201,7 @@ it('opens the active models and commits only the selected primary after activati
 		})
 	const bytes = readFileSync(preferencesPath(home), 'utf8')
 	const screen = await openModels()
-	expect(screen.viewport().join('\n')).toContain('this session and future launches')
+	expect(screen.viewport().join('\n')).toContain('this conversation and future launches')
 	expect(screen.viewport().find((line) => line.includes('❯'))).toContain('Current model')
 	await chooseNext(screen)
 	expect(readFileSync(preferencesPath(home), 'utf8')).toBe(bytes)
@@ -359,7 +359,7 @@ it('keeps a temporary credential model change session-only as advertised', async
 	temporaryCredential = true
 	const bytes = readFileSync(preferencesPath(home), 'utf8')
 	const screen = await openModels()
-	expect(screen.viewport().join('\n')).toContain('this session only (temporary credential)')
+	expect(screen.viewport().join('\n')).toContain('this conversation only (temporary credential)')
 	await chooseNext(screen)
 	await until(
 		screen,

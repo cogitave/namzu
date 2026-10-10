@@ -8,7 +8,7 @@
  * after Shift+Tab, names the key, and leaves after a second press.
  *
  * The footer is the key's only reply. Every press used to append
- * "Permissions: <mode> for this session. …" to the transcript, so five presses
+ * "Permissions: <mode> for this conversation. …" to the transcript, so five presses
  * left five lines; the reference terminal rewrites its footer and writes
  * nothing. And the key works while a turn runs: it used to be refused there
  * with "Permissions were not changed. Finish or stop the current work first."
@@ -18,9 +18,9 @@ import { render } from 'ink-testing-library'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { Preferences } from '../../integrations/providers/index.js'
+import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 import type { AgentEvent, AgentSession } from '../agent.js'
 import type { TuiContext } from '../types.js'
-import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 
 const PREFS: Preferences = { version: 3, providers: [{ id: 'openai' }], subagents: { active: [] } }
 
@@ -86,7 +86,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 			send: async function* (_messages, opts): AsyncIterable<AgentEvent> {
 				readMode = opts?.currentPermissionMode as (() => string) | undefined
 				if (holdTurn) {
-										await new Promise<void>((resolve) => {
+					await new Promise<void>((resolve) => {
 						releaseTurn = resolve
 					})
 				}
@@ -173,7 +173,7 @@ describe('Shift+Tab in the composer', () => {
 		await frameShows(harness.lastFrame, '‖ Plan (read-only)')
 		const seen = harness.frames.slice(before).join('\n')
 		expect(seen).not.toContain('Permissions:')
-		expect(seen).not.toContain('for this session')
+		expect(seen).not.toContain('for this conversation')
 		expect(seen).not.toContain('⏸')
 		// Five presses from `prompt`, each one recorded and none of them printed.
 		expect(recorded).toEqual(['accept-edits', 'plan', 'prompt', 'accept-edits', 'plan'])
@@ -198,7 +198,10 @@ describe('Shift+Tab in the composer', () => {
 		harness.stdin.write(SHIFT_TAB)
 		await frameShows(harness.lastFrame, '‖ Plan (read-only)')
 		expect(readMode?.()).toBe('plan')
-		expect(recorded, 'each change is recorded for the running turn').toEqual(['accept-edits', 'plan'])
+		expect(recorded, 'each change is recorded for the running turn').toEqual([
+			'accept-edits',
+			'plan',
+		])
 		expect(harness.lastFrame() ?? '').not.toContain('Permissions were not changed')
 		expect(harness.lastFrame() ?? '').not.toContain('Permissions:')
 

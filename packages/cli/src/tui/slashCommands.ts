@@ -720,7 +720,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'config',
-		description: 'View configuration and change model, reasoning, permissions and turn limits.',
+		description: 'View configuration and change model, reasoning, permissions and reply limits.',
 		help: {
 			usage: [
 				'/config',
@@ -789,7 +789,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 			],
 			details: [
 				'Set and edit open an editor when no objective is supplied. Direct /goal <objective> also creates a goal.',
-				'Creating or resuming a goal enables automatic work. Pausing or clearing stops future automatic turns.',
+				'Creating or resuming a goal enables automatic work. Pausing or clearing stops future automatic replies.',
 			],
 		},
 		action: (_ctx, args) => {
@@ -821,7 +821,8 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'browser',
-		description: 'The browser this session drives: engine, profile, site rules; switch profile.',
+		description:
+			'The browser this conversation drives: engine, profile, site rules; switch profile.',
 		help: {
 			usage: ['/browser', '/browser profile <name>'],
 			details: [
@@ -833,7 +834,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'loop',
-		description: 'Re-send a prompt to this conversation on an interval, between turns.',
+		description: 'Re-send a prompt to this conversation on an interval, between replies.',
 		help: {
 			usage: ['/loop <interval> <prompt or /command>', '/loop list', '/loop stop <id>|all'],
 			details: [
@@ -892,7 +893,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 					: {
 							kind: 'message',
 							role: 'system',
-							content: 'Nothing to rate yet — /feedback applies to the last answer in this turn.',
+							content: 'Nothing to rate yet — /feedback applies to the last answer in this reply.',
 						}
 			}
 			const [rating, ...rest] = args
@@ -913,7 +914,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				return {
 					kind: 'message',
 					role: 'system',
-					content: 'Nothing to rate yet — /feedback applies to the last answer in this turn.',
+					content: 'Nothing to rate yet — /feedback applies to the last answer in this reply.',
 				}
 			}
 
@@ -973,7 +974,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 			details: ['Without a path, lists added directories. Paths may contain spaces.'],
 		},
 		description:
-			'Let the file tools reach another directory this session: /add-dir <path>. Alone, list them.',
+			'Let the file tools reach another directory in this conversation: /add-dir <path>. Alone, list them.',
 		action: (ctx, args) => {
 			const path = args.join(' ').trim()
 			if (path.length === 0) {
@@ -983,7 +984,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 					role: 'system',
 					content:
 						dirs.length === 0
-							? 'No added directories. The file tools reach the working directory without asking; a path elsewhere is asked about call by call (refused inside the sandbox). /add-dir <path> adds one for this session, after asking when it is outside the working directory; `additionalDirectories` in the config file adds one for every session.'
+							? 'No added directories. The file tools reach the working directory without asking; a path elsewhere is asked about call by call (refused inside the sandbox). /add-dir <path> adds one for this conversation, after asking when it is outside the working directory; `additionalDirectories` in the config file adds one for every session.'
 							: `Added directories (reachable by absolute path, bound into the sandbox):\n${dirs.map((d) => `  ${d}`).join('\n')}`,
 				}
 			}
@@ -993,11 +994,11 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	{
 		name: 'restore',
 		help: {
-			usage: ['/restore [turn]'],
-			details: ['Run /restore to list checkpoints before choosing a turn to restore.'],
+			usage: ['/restore [number]'],
+			details: ['Run /restore to list restore points before choosing one.'],
 		},
 		description:
-			'Put files back to before a turn: /restore lists the checkpoints, /restore N restores.',
+			'Put files back to how they were before a reply: /restore lists the restore points, /restore N restores.',
 		action: (_ctx, args) => {
 			const raw = args[0]?.trim()
 			if (!raw) return { kind: 'restore' }
@@ -1006,7 +1007,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				return {
 					kind: 'message',
 					role: 'system',
-					content: `/restore takes a turn number from the list: /restore 3. Not: ${raw}`,
+					content: `/restore takes a number from the list: /restore 3. Not: ${raw}`,
 				}
 			}
 			return { kind: 'restore', turn }
@@ -1024,7 +1025,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 			details: [
 				'Show and list read stored and curated memory, with what turns recorded on their own in a section of its own. Add saves a typed memory file for this project (type project unless --type says otherwise); --user appends a note to the curated file for all projects.',
 				'Direct /memory <text> also saves a project note. To save a reserved word as a note, use /memory add show.',
-				"import-notes copies every top-level bullet of the project's curated MEMORY.md, where #note used to append, into typed memory files, skipping any already stored. The curated file is never changed; delete bullets from it yourself.",
+				'import-notes copies every top-level bullet of the project’s curated MEMORY.md, where #note used to append, into typed memory files, skipping any already stored. The curated file is never changed; delete bullets from it yourself.',
 			],
 		},
 		description:
@@ -1127,11 +1128,12 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'plugins',
-		description: 'Inspect plugins, change their session state, or remember it after restart.',
+		description:
+			'Inspect plugins, turn them on or off for this conversation, or remember it after restart.',
 		help: {
 			usage: ['/plugins', '/plugins list', '/plugins <name>'],
 			details: [
-				'Choose a plugin to inspect its contributions or change its session state. Changes require an idle session. Use Keep enabled/disabled after restart to remember its state for future sessions and model switches. Plugin loading must first be enabled in configuration.',
+				'Choose a plugin to inspect its contributions or turn it on or off for this conversation. Changes wait until the current reply has finished. Use Keep enabled/disabled after restart to remember its state for future conversations and model switches. Plugin loading must first be enabled in configuration.',
 			],
 		},
 		action: (_ctx, args) =>
@@ -1150,13 +1152,13 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	{
 		name: 'resume',
 		description:
-			'Continue this conversation’s paused turn, or, when it has none, resume a past conversation in this folder.',
+			'Continue this conversation’s paused reply, or, when it has none, resume a past conversation in this folder.',
 		action: () => ({ kind: 'resume' }),
 	},
 	{
 		name: 'abandon',
 		description:
-			'Close this conversation’s paused or interrupted turn without resuming it, so the next prompt starts a new one.',
+			'Close this conversation’s paused or stopped reply without resuming it, so the next prompt starts a new one.',
 		help: { usage: ['/abandon [reason]'] },
 		action: (_ctx, args) => ({
 			kind: 'abandon',
@@ -1170,7 +1172,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 			usage: ['/model', '/model <model-or-provider/model>'],
 			details: [
 				'Pass a model ID to change only this conversation, without a model request. Without an ID, open the searchable picker; press / to search names starting with a reserved shortcut.',
-				'Press p in the model picker to change providers. Normal selections are saved for future launches; temporary credentials keep the selection in this session.',
+				'Press p in the model picker to change providers. Normal selections are saved for future launches; temporary credentials keep the selection in this conversation.',
 			],
 		},
 		action: () => ({ kind: 'repick' }),
@@ -1212,7 +1214,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	{
 		name: 'cost',
 		help: { usage: ['/cost [details]'] },
-		description: 'Show usage and cost for the current or latest turn.',
+		description: 'Show usage and cost for the current or latest reply.',
 		action: (ctx, args) =>
 			reportCommand('cost', args, (details) => renderCost(ctx.usage, ctx.compaction, details)),
 	},
@@ -1239,7 +1241,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'hooks',
-		description: 'List the shell hooks this session runs, by event.',
+		description: 'List the shell hooks this conversation runs, by event.',
 		action: (ctx) => ({
 			kind: 'message',
 			role: 'system',
@@ -1286,7 +1288,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		description: 'Summarise the older half of this conversation to free up context.',
 		help: {
 			usage: ['/compact'],
-			details: ['Compaction uses a model call to summarise older context.'],
+			details: ['Summarising uses a model call to condense older messages.'],
 		},
 		action: () => ({ kind: 'compact' }),
 	},
@@ -1345,7 +1347,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 					role: 'system',
 					content:
 						tools.length === 0
-							? 'No tools registered yet — the agent session may still be connecting.'
+							? 'No tools registered yet — the model may still be connecting.'
 							: `Registered tools (${tools.length}):\n  ${tools.join('\n  ')}`,
 				}
 			}
@@ -1374,7 +1376,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				...(['prompt', 'accept-edits', 'plan', 'auto', 'strict'] as const).map(
 					(mode) => `  ${mode}: ${permissionModeLabel(mode)}`,
 				),
-				'Changes apply to this session. Explicit deny rules and sandbox restrictions still apply.',
+				'Changes apply to this conversation. Explicit deny rules and sandbox restrictions still apply.',
 			],
 		},
 		action: (ctx, args) => {
@@ -1401,10 +1403,10 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		help: {
 			usage: ['/effort [level|default]'],
 			details: [
-				'Run /effort to see the levels supported by the selected model and usable fallbacks. Changes affect future main-query turns in this session.',
+				'Run /effort to see the levels supported by the selected model and usable fallbacks. Changes affect future replies in this conversation.',
 			],
 		},
-		description: 'Choose reasoning effort for future turns: /effort [level|default].',
+		description: 'Choose reasoning effort for future replies: /effort [level|default].',
 		action: (ctx, args) => {
 			if (args.length === 0) {
 				if (!ctx.providerSummary) {
@@ -1455,11 +1457,11 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		help: {
 			usage: ['/hypermode [on|off]'],
 			details: [
-				'A session setting, not a reasoning-effort level — see /effort, where it is the last stop. On, effort pins to xhigh (the highest level below it when this model or usable fallback publishes no xhigh) and delegation guidance strengthens toward delegating by default, so independent work goes to parallel agents; off, both revert. With no argument, toggles the current state. When no exact effort menu is published, effort is left as is and the session is told so.',
-				'For one message only, start or end that message with the word hypermode: effort pinned the same way for that turn, then back.',
+				'A setting for this conversation, not a reasoning-effort level — see /effort, where it is the last stop. On, effort pins to xhigh (the highest level below it when this model or usable fallback publishes no xhigh) and delegation guidance strengthens toward delegating by default, so independent work goes to parallel agents; off, both revert. With no argument, toggles the current state. When no exact effort menu is published, effort is left as is and the model is told so.',
+				'For one message only, start or end that message with the word hypermode: effort pinned the same way for that reply, then back.',
 			],
 		},
-		description: 'Toggle hypermode for this session: /hypermode [on|off].',
+		description: 'Toggle hypermode for this conversation: /hypermode [on|off].',
 		action: (_ctx, args) => hypermodeAction(args),
 	},
 	{
@@ -1582,7 +1584,7 @@ export function renderHooks(hooks: HooksConfig | undefined): string {
 /** The session's background jobs, as an operator would ask about them. */
 export function renderJobs(jobs: ReturnType<SlashContext['jobs']>): string {
 	if (jobs.length === 0) {
-		return 'No background jobs this session. The agent starts one with `run_in_background` on bash.'
+		return 'No background jobs in this conversation. The agent starts one with `run_in_background` on bash.'
 	}
 	const lines = jobs.map((job) => {
 		const state =
@@ -1594,7 +1596,7 @@ export function renderJobs(jobs: ReturnType<SlashContext['jobs']>): string {
 		return `${job.id}  ${state.padEnd(16)}  ${job.command}`
 	})
 	return [
-		`${jobs.length} background job${jobs.length === 1 ? '' : 's'} this session:`,
+		`${jobs.length} background job${jobs.length === 1 ? '' : 's'} in this conversation:`,
 		...lines,
 		'',
 		'Use /jobs to inspect output or stop a running shell; /exit stops them all.',
@@ -1682,7 +1684,7 @@ export function renderCost(
 ): string {
 	if (usage === null) return 'No usage reported yet. Send a message to begin.'
 	const lines = [
-		'Current or latest turn',
+		'Current or latest reply',
 		`Tokens: ${usage.totalTokens.toLocaleString('en-US')} (own model calls)`,
 		`Cost: ${costAmount(usage.cost)}`,
 	]
@@ -1716,7 +1718,7 @@ export function renderCost(
 		if (usage.context && usage.context.windowTokens > 0) {
 			lines.push('', ...contextMeasurement(usage), '/context details for automatic cleanup.')
 		}
-		if (compaction) lines.push(`Cleanup passes this session: ${compaction.passes}.`)
+		if (compaction) lines.push(`Cleanup passes in this conversation: ${compaction.passes}.`)
 	} else {
 		lines.push('/cost details for scope and pricing; /context for context size.')
 	}
@@ -1823,7 +1825,7 @@ function reviewTargetPrompt(target: readonly string[]): string {
 }
 
 export function renderMcp(mcp: ReturnType<SlashContext['mcp']>, details = false): string {
-	if (mcp === null) return 'No session yet. Tool servers have not been checked.'
+	if (mcp === null) return 'Not connected yet. Tool servers have not been checked.'
 	if (mcp.connected.length === 0 && mcp.failed.length === 0) {
 		return 'No tool servers configured. Add mcpServers to namzu.config.json.'
 	}
@@ -1951,7 +1953,7 @@ export function renderPermissions(
 	const effective = effectivePermissionMode(current.mode, permissions.approvalLatched())
 	const approvedAll = effective !== current.mode
 	const lines = [
-		`Permissions: ${permissionModeLabel(effective)}. ${approvedAll ? 'Tools are approved automatically for this session.' : permissionModeDescription(effective)}`,
+		`Permissions: ${permissionModeLabel(effective)}. ${approvedAll ? 'Tools are approved automatically for this conversation.' : permissionModeDescription(effective)}`,
 	]
 	if (approvedAll) lines.push('Choose a preset in /permissions to change this.')
 	if (!details) return lines.join('\n')
@@ -1970,7 +1972,7 @@ export function renderPermissions(
 	}
 	if (effective === 'prompt' || effective === 'accept-edits' || effective === 'plan') {
 		lines.push(
-			'Read-only agents (explore, or an agent file with readOnly: true) on the session model start without asking; each call they make is still reviewed. A permissions rule Agent: "ask" asks about every launch.',
+			'Read-only agents (explore, or an agent file with readOnly: true) on the conversation’s model start without asking; each call they make is still reviewed. A permissions rule Agent: "ask" asks about every launch.',
 		)
 	}
 	if (permissions.rules.length > 0) {
@@ -1987,7 +1989,7 @@ export function renderPermissions(
 /** Render the exact session control without inventing a global effort menu. */
 export function renderReasoningEffort(ctx: SlashContext): string {
 	if (!ctx.providerSummary) {
-		return 'No active session — pick a provider with /model before selecting reasoning effort.'
+		return 'No model is connected yet — pick a provider with /model before selecting reasoning effort.'
 	}
 	const current = ctx.reasoningEffort.current()
 	const lines = [
@@ -2006,7 +2008,7 @@ export function renderReasoningEffort(ctx: SlashContext): string {
 		lines.push(`Use /effort <${offered.join('|')}> or /effort default.`)
 	}
 	lines.push(
-		'Applies to future main-query turns in this TUI session; /model resets it. Subagents and manual compaction keep their own provider defaults.',
+		'Applies to future replies in this conversation; /model resets it. Agents and manual summarising keep their own provider defaults.',
 	)
 	return lines.join('\n')
 }
@@ -2079,7 +2081,7 @@ function describeRule(rule: AuthorizationRule): string {
  */
 export function renderAgents(ids: readonly string[]): string {
 	if (ids.length === 0) {
-		return 'No delegates. This session has no delegation tool mounted, so it does the work itself.'
+		return 'No delegates. This conversation has no delegation tool, so it does the work itself.'
 	}
 	return [
 		`Delegates (${ids.length}):`,
