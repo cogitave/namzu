@@ -744,6 +744,30 @@ files in its composer, not sent). When a failure message is shown, the "Paused."
 not (they named a cause the person never hit; the stop reason `token_budget` is also what an
 unmeasured request leaves behind, which is not a spent budget).
 
+**Changing the model after a stopped reply.** Choosing another model is an explicit decision, so a reply
+that stopped on a provider failure (a rate limit, a 5xx, a rejected key, no connection) never holds the
+conversation. `namzu/sessions/retry-status` adds `closable: true` when the paused turn stopped on a provider
+error and waits for no decision (an approval or a handoff is never closable). Then:
+
+- **Send** is enabled. Sending a new message closes the stopped turn through the same durable path as
+  **Continue without this reply** (`namzu/sessions/abandon-paused`; its unknown usage stays recorded, never as
+  zero, and a configured limit still refuses a repeat), the transcript keeps "You continued without this reply."
+  under it, and the message runs on the model selected now. A turn waiting for an approval still refuses the
+  message and says why.
+- **Try again** runs the same turn on the model selected now. The renderer applies the selection first
+  (`selectProvider`, as a send does), and the host keeps the approval settings the turn began under across the
+  model change (`retryCarry`), so the repeat is not refused as "settings unavailable after reconnection". When
+  the selected model is not the one that stopped, the button reads "Try again with *model*"; the status carries
+  the model that stopped as `retry.original` (`{provider, model}`).
+- The history crosses providers by the SDK's rules: reasoning and signatures are replayed only to the route that
+  produced them, tool calls and results stay paired. `e2e/model-switch.test.mjs` runs a signed-reasoning model and gpt-6-luna
+  against two scripted services, one per wire, that refuse an unpaired tool result or an unsigned thinking
+  block.
+
+The browser's own "ResizeObserver loop completed with undelivered notifications" (raised by popups that follow
+their content's height, such as the model picker) is not a failure; it is no longer recorded as
+`renderer_failed`.
+
 **Waiting on a rate limit.** The provider driver retries a transient failure after a delay. The SDK
 already emitted `provider_retry`; the ACP bridge now maps it to a `provider_retry` session update
 (attempt, `maxRetries`, `delayMs`, optional HTTP `status`, `serverDirected`, no body or header) and the

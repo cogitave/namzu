@@ -2,8 +2,8 @@ import { type Server, createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 
 /**
- * Two local services for a process-level test: one speaks the Anthropic Messages wire and one the
- * OpenAI chat-completions wire. No network, no model, no timing: each answers the request it gets
+ * Two local services for a process-level test: one speaks the Messages wire and one the
+ * chat-completions wire. No network, no model, no timing: each answers the request it gets
  * with what its script says, and records the request for the test to read.
  */
 
@@ -61,7 +61,7 @@ function service(
 	return handle
 }
 
-export async function anthropicService(script: ScriptedStep[]): Promise<ScriptedService> {
+export async function messagesService(script: ScriptedStep[]): Promise<ScriptedService> {
 	const requests: Record<string, any>[] = []
 	const live = { script }
 	const server = await listen(async (req, res) => {
@@ -113,7 +113,7 @@ export async function anthropicService(script: ScriptedStep[]): Promise<Scripted
 	return service(server, requests, live)
 }
 
-export async function openaiService(script: ScriptedStep[]): Promise<ScriptedService> {
+export async function chatService(script: ScriptedStep[]): Promise<ScriptedService> {
 	const requests: Record<string, any>[] = []
 	const live = { script }
 	const server = await listen(async (req, res) => {

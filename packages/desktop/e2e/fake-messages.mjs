@@ -1,4 +1,4 @@
-// A scripted Anthropic Messages server. No network, no model.
+// A scripted Messages-wire server (signed reasoning blocks, tool_use / tool_result pairs). No network, no model.
 // Same shape as fake-model.mjs: a rule matches the newest user text; its steps are consumed by the
 // number of tool results already present after that message, so replay is a pure function of the
 // request and never depends on timing.
@@ -9,7 +9,7 @@ import { createServer } from "node:http";
 
 /** @typedef {{ text?: string, thinking?: string, tool?: string, args?: object } | { status: number, body?: string, headers?: object, contentType?: string }} Step */
 
-export async function startFakeAnthropic(rules = [], options = {}) {
+export async function startFakeMessages(rules = [], options = {}) {
 	const requests = [];
 	const server = createServer((req, res) => {
 		let body = "";

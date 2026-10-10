@@ -6,13 +6,13 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
 	type ScriptedService,
-	anthropicService,
-	openaiService,
+	chatService,
+	messagesService,
 } from './support/scripted-wire-servers.js'
 
 /**
  * The owner's flow, on the real binary over real pipes (`namzu acp --desktop`, the process the
- * desktop application spawns) and two local scripted services: a conversation starts on Claude, the
+ * desktop application spawns) and two local scripted services: a conversation starts on one model, the
  * first reply stops on a rate limit, the model is switched to gpt-6-luna, and the conversation must
  * go on, either by sending a new message or by Try again. Nothing here waits on a clock: the test
  * awaits the frames the process writes, and the test runner's own timeout catches a real hang.
@@ -87,13 +87,13 @@ class Wire {
 
 let dir: string
 let wire: Wire | undefined
-let anthropic: ScriptedService | undefined
-let openai: ScriptedService | undefined
+let messagesWire: ScriptedService | undefined
+let chatWire: ScriptedService | undefined
 afterEach(async () => {
 	wire?.child.kill()
-	await anthropic?.close()
-	await openai?.close()
-	wire = anthropic = openai = undefined
+	await messagesWire?.close()
+	await chatWire?.close()
+	wire = messagesWire = chatWire = undefined
 	rmSync(dir, { recursive: true, force: true })
 })
 
@@ -113,8 +113,8 @@ async function start() {
 			subagents: { active: [] },
 		}),
 	)
-	anthropic = await anthropicService([{ status: 429 }])
-	openai = await openaiService([{ text: 'Luna answers.' }])
+	messagesWire = await messagesService([{ status: 429 }])
+	chatWire = await chatService([{ text: 'Luna answers.' }])
 	const env: Record<string, string> = {}
 	for (const [key, value] of Object.entries(process.env))
 		if (value !== undefined && !/^(WSL_|ANTHROPIC_|OPENAI_|OPENCODE_|NAMZU_)/.test(key))
@@ -129,9 +129,9 @@ async function start() {
 			NAMZU_HOME: home,
 			NAMZU_MODEL_CATALOGUE_REFRESH: '0',
 			ANTHROPIC_API_KEY: 'not-a-secret-anthropic',
-			ANTHROPIC_BASE_URL: anthropic.url,
+			ANTHROPIC_BASE_URL: messagesWire.url,
 			OPENAI_API_KEY: 'not-a-secret-openai',
-			OPENAI_BASE_URL: `${openai.url}/v1`,
+			OPENAI_BASE_URL: `${chatWire.url}/v1`,
 		},
 	})
 	wire = new Wire(child)
@@ -186,7 +186,7 @@ describe.skipIf(!existsSync(BIN) || process.platform === 'win32')(
 				options: { permissionMode: 'prompt' },
 			})
 			expect(answered.stopReason).toBe('end_turn')
-			const sent = openai?.requests.at(-1) as Record<string, any>
+			const sent = chatWire?.requests.at(-1) as Record<string, any>
 			expect(sent.model).toBe('gpt-6-luna')
 			expect(lastText(sent)).toBe('hello again')
 		}, 60_000)
@@ -201,7 +201,7 @@ describe.skipIf(!existsSync(BIN) || process.platform === 'win32')(
 			})
 			const { retry } = await wire.request('namzu/sessions/retry-status', { sessionId })
 			expect(retry).toMatchObject({ original: { provider: 'anthropic' } })
-			const claudeRequests = anthropic?.requests.length
+			const firstWireRequests = messagesWire?.requests.length
 
 			await wire.request('namzu/providers/select', {
 				sessionId,
@@ -218,8 +218,8 @@ describe.skipIf(!existsSync(BIN) || process.platform === 'win32')(
 				checkpointId: retry?.checkpointId,
 			})
 			expect(repeated.stopReason).toBe('end_turn')
-			expect(anthropic?.requests.length).toBe(claudeRequests)
-			const sent = openai?.requests.at(-1) as Record<string, any>
+			expect(messagesWire?.requests.length).toBe(firstWireRequests)
+			const sent = chatWire?.requests.at(-1) as Record<string, any>
 			expect(sent.model).toBe('gpt-6-luna')
 			expect(lastText(sent)).toBe('hello there')
 		}, 60_000)

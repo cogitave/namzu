@@ -1,8 +1,8 @@
 // Switching the model, against the real Electron app, the real CLI host and two scripted services:
-// one on the Anthropic wire, one on the OpenAI chat wire (gpt-6-luna).
-//   (a) a healthy conversation on Claude, with a tool call and a reasoning block in its history,
+// one on the Messages wire (signed reasoning), one on the chat-completions wire (gpt-6-luna).
+//   (a) a healthy conversation on the first model, with a tool call and a signed reasoning block,
 //       moves to gpt-6-luna and the history goes with it;
-//   (b) the first reply on Claude stops on a rate limit, the model is switched and a new message sent;
+//   (b) the first reply on the first model stops on a rate limit, the model is switched and a new message sent;
 //   (c) the same, but Try again is pressed after the switch;
 //   (d) the reverse direction, healthy and after a stopped reply.
 // Run: pnpm --filter @namzu/desktop build && xvfb-run -a node --test e2e/model-switch.test.mjs
@@ -21,7 +21,7 @@ const THROTTLED = {
 	headers: { "retry-after": "0" },
 	body: JSON.stringify({ type: "error", error: { type: "rate_limit_error", message: "slow down" } }),
 };
-const THROTTLED_OPENAI = {
+const THROTTLED_CHAT = {
 	status: 429,
 	headers: { "retry-after": "0" },
 	body: JSON.stringify({ error: { message: "slow down", type: "rate_limit_error" } }),
@@ -32,7 +32,7 @@ function flow(name, options, body) {
 	test(name, { timeout: 300000 }, async () => {
 		const world = await createWorld({
 			models: ["gpt-6-luna", "gpt-5.6-luna"],
-			anthropicModels: ["claude-sonnet-5-5", "claude-haiku-5-5"],
+			messagesModels: ["claude-sonnet-5-5", "claude-haiku-5-5"],
 			strictHistory: true,
 			providers: [{ id: "anthropic", model: "claude-sonnet-5-5" }],
 			...options,
@@ -83,7 +83,10 @@ function flow(name, options, body) {
 	});
 }
 
+/** A picture of the settled window: the reply is in and nothing is still working. */
 async function shot(w, name) {
+	if (!name.startsWith("b-1"))
+		await expect(w.page.getByText("Working").locator("visible=true")).toHaveCount(0, { timeout: T });
 	mkdirSync(SHOTS, { recursive: true });
 	await w.page.screenshot({ path: join(SHOTS, `${name}.png`) });
 }
@@ -119,7 +122,7 @@ const history = (request) =>
 flow(
 	"(a) a healthy conversation on Claude, with a tool call and reasoning, moves to gpt-6-luna and back with its history",
 	{
-		anthropicRules: [
+		messagesRules: [
 			{
 				match: /make a plan/i,
 				steps: [
@@ -127,7 +130,7 @@ flow(
 					{ text: "Plan is ready." },
 				],
 			},
-			{ match: /back to claude/i, steps: [{ text: "Claude again, with everything so far." }] },
+			{ match: /return to the first/i, steps: [{ text: "Claude again, with everything so far." }] },
 		],
 		rules: [{ match: /luna/i, steps: [{ text: "Luna here, with the plan in view." }] }],
 	},
@@ -135,7 +138,7 @@ flow(
 		await openProject(w);
 		await send(w, "make a plan");
 		await expect(w.page.getByText("Plan is ready.")).toBeVisible({ timeout: T });
-		assert.equal(w.anthropic.requests.length, 2, "the plan took two requests on Claude");
+		assert.equal(w.messages.requests.length, 2, "the plan took two requests on Claude");
 		await shot(w, "a-1-claude-answered");
 
 		await chooseModel(w, "OpenAI", "gpt-6-luna");
@@ -149,11 +152,11 @@ flow(
 		await shot(w, "a-2-luna-answered");
 
 		await chooseModel(w, "Anthropic (Claude)", "claude-sonnet-5-5");
-		await send(w, "and back to claude");
+		await send(w, "return to the first model");
 		await expect(w.page.getByText("Claude again, with everything so far.")).toBeVisible({ timeout: T });
-		const claude = w.anthropic.requests.at(-1);
-		assert.equal(claude.model, "claude-sonnet-5-5");
-		assert.equal(lastUser(claude), "and back to claude");
+		const signed = w.messages.requests.at(-1);
+		assert.equal(signed.model, "claude-sonnet-5-5");
+		assert.equal(lastUser(signed), "return to the first model");
 		await shot(w, "a-3-back-on-claude");
 	},
 );
@@ -161,7 +164,7 @@ flow(
 flow(
 	"(b) a reply that stopped on a rate limit: switch to gpt-6-luna, send a new message, it is answered",
 	{
-		anthropicRules: [{ match: /hello/i, steps: [THROTTLED] }],
+		messagesRules: [{ match: /hello/i, steps: [THROTTLED] }],
 		rules: [{ match: /again/i, steps: [{ text: "Luna answers." }] }],
 	},
 	async (w) => {
@@ -191,7 +194,7 @@ flow(
 flow(
 	"(c) a reply that stopped on a rate limit: switch to gpt-6-luna and press Try again, it runs on luna",
 	{
-		anthropicRules: [{ match: /hello/i, steps: [THROTTLED] }],
+		messagesRules: [{ match: /hello/i, steps: [THROTTLED] }],
 		rules: [{ match: /hello/i, steps: [{ text: "Luna took it from here." }] }],
 	},
 	async (w) => {
@@ -199,14 +202,14 @@ flow(
 		await send(w, "hello there");
 		const region = w.page.locator(".turn-recovery");
 		await expect(region.getByRole("button", { name: "Try again" })).toBeVisible({ timeout: T });
-		const claudeRequests = w.anthropic.requests.length;
+		const firstRequests = w.messages.requests.length;
 		await chooseModel(w, "OpenAI", "gpt-6-luna");
 		await expect(region.getByRole("button", { name: "Try again with gpt-6-luna" })).toBeVisible({
 			timeout: T,
 		});
 		await region.getByRole("button", { name: "Try again with gpt-6-luna" }).click();
 		await expect(w.page.getByText("Luna took it from here.")).toBeVisible({ timeout: T });
-		assert.equal(w.anthropic.requests.length, claudeRequests, "Claude was not asked again");
+		assert.equal(w.messages.requests.length, firstRequests, "Claude was not asked again");
 		assert.equal(w.model.requests.at(-1).model, "gpt-6-luna");
 		assert.equal(lastUser(w.model.requests.at(-1)), "hello there", "the same message, now on luna");
 		await expect(w.page.locator(".turn-recovery")).toHaveCount(0);
@@ -224,22 +227,22 @@ flow(
 				steps: [{ tool: "task_create", args: PLAN_ARGS }, { text: "Plan is ready." }],
 			},
 		],
-		anthropicRules: [{ match: /claude/i, steps: [{ text: "Claude picks it up." }] }],
+		messagesRules: [{ match: /signed model/i, steps: [{ text: "Claude picks it up." }] }],
 	},
 	async (w) => {
 		await openProject(w);
 		await send(w, "make a plan");
 		await expect(w.page.getByText("Plan is ready.")).toBeVisible({ timeout: T });
 		await chooseModel(w, "Anthropic (Claude)", "claude-sonnet-5-5");
-		await send(w, "continue on claude");
+		await send(w, "continue on the signed model");
 		await expect(w.page.getByText("Claude picks it up.")).toBeVisible({ timeout: T });
-		const claude = w.anthropic.requests.at(-1);
-		assert.equal(claude.model, "claude-sonnet-5-5");
-		assert.equal(lastUser(claude), "continue on claude");
-		assert.deepEqual(typed(claude).slice(0, 2), ["make a plan", "continue on claude"]);
+		const signed = w.messages.requests.at(-1);
+		assert.equal(signed.model, "claude-sonnet-5-5");
+		assert.equal(lastUser(signed), "continue on the signed model");
+		assert.deepEqual(typed(signed).slice(0, 2), ["make a plan", "continue on the signed model"]);
 		assert.ok(
-			JSON.stringify(claude.messages).includes("tool_use") &&
-				JSON.stringify(claude.messages).includes("tool_result"),
+			JSON.stringify(signed.messages).includes("tool_use") &&
+				JSON.stringify(signed.messages).includes("tool_result"),
 			"the earlier tool call and its result went along",
 		);
 		await shot(w, "d-1-claude-picked-up");
@@ -250,8 +253,8 @@ flow(
 	"(d) the reverse after a stop: gpt-6-luna is rate limited, switch to Claude, send, it is answered",
 	{
 		providers: [{ id: "openai", model: "gpt-6-luna" }],
-		rules: [{ match: /hello/i, steps: [THROTTLED_OPENAI] }],
-		anthropicRules: [{ match: /again/i, steps: [{ text: "Claude answers." }] }],
+		rules: [{ match: /hello/i, steps: [THROTTLED_CHAT] }],
+		messagesRules: [{ match: /again/i, steps: [{ text: "Claude answers." }] }],
 	},
 	async (w) => {
 		await openProject(w);
@@ -261,7 +264,7 @@ flow(
 		await chooseModel(w, "Anthropic (Claude)", "claude-sonnet-5-5");
 		await send(w, "hello again");
 		await expect(w.page.getByText("Claude answers.")).toBeVisible({ timeout: T });
-		assert.equal(w.anthropic.requests.at(-1).model, "claude-sonnet-5-5");
+		assert.equal(w.messages.requests.at(-1).model, "claude-sonnet-5-5");
 		await shot(w, "d-2-claude-answered-after-stop");
 	},
 );
