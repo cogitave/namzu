@@ -100,12 +100,57 @@ export interface WorkspaceGeometry extends WorkspaceSize {
 	dividers: WorkspaceDividerRect[]
 }
 
+/**
+ * Side-by-side panes whose two minimums do not fit the width are stacked instead, the same way at
+ * every width, so the canvas never grows sideways past the window. Stacking keeps both panes in
+ * view, with the same divider, tabs and drag targets, and needs no extra control; the other choice,
+ * showing one pane with a switch, would hide a terminal that may be running. The saved direction
+ * and ratio are untouched: widening the window puts the panes side by side again.
+ */
+export function fitWorkspaceDirections(
+	root: WorkspaceNode | null,
+	width: number,
+	ratios: Readonly<Record<string, number>> = {},
+): WorkspaceNode | null {
+	if (!root || !Number.isFinite(width) || width <= 0) return root
+	const visit = (node: WorkspaceNode, available: number): WorkspaceNode => {
+		if (node.kind === 'group') return node
+		if (node.direction === 'horizontal' && workspaceMinimumSize(node).width > available) {
+			return {
+				...node,
+				direction: 'vertical',
+				first: visit(node.first, available),
+				second: visit(node.second, available),
+			}
+		}
+		if (node.direction === 'vertical')
+			return {
+				...node,
+				first: visit(node.first, available),
+				second: visit(node.second, available),
+			}
+		const ratio =
+			constrainWorkspaceSplitRatio(node, ratios[node.id] ?? node.ratio, {
+				width: available,
+				height: Number.MAX_SAFE_INTEGER,
+			}) ?? node.ratio
+		const length = available - WORKSPACE_DIVIDER_SIZE
+		return {
+			...node,
+			first: visit(node.first, length * ratio),
+			second: visit(node.second, length * (1 - ratio)),
+		}
+	}
+	return visit(root, width)
+}
+
 /** Flat group siblings retain their React identity when a split wraps or collapses their tree. */
 export function workspaceGeometry(
-	root: WorkspaceNode | null,
+	saved: WorkspaceNode | null,
 	viewport: WorkspaceSize,
 	ratios: Readonly<Record<string, number>> = {},
 ): WorkspaceGeometry {
+	const root = fitWorkspaceDirections(saved, viewport.width, ratios)
 	const minimum = workspaceMinimumSize(root)
 	const geometry: WorkspaceGeometry = {
 		width: Math.max(minimum.width, Number.isFinite(viewport.width) ? viewport.width : 0),

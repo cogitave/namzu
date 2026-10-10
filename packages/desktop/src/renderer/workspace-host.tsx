@@ -302,16 +302,26 @@ export function WorkspaceHost() {
 		[action, prepare, report],
 	)
 	const split = useCallback(
-		(groupId: string, tabId: string, position: 'right' | 'bottom') => {
+		(groupId: string, tabId: string, requested: 'right' | 'bottom') => {
 			const owner = current.current
 			if (!owner) return
 			const canvas = document.querySelector<HTMLElement>('.workspace-canvas')
 			const sidebar = document.querySelector<HTMLElement>('[data-app-sidebar]')
-			const room = workspaceSplitRoom(
-				{ width: canvas?.clientWidth ?? 0, height: canvas?.clientHeight ?? 0 },
-				position,
-				sideCollapsedRef.current ? 0 : (sidebar?.offsetWidth ?? 0),
-			)
+			// Below 768 px the sidebar is a drawer over the page: closing it gives the panes no room.
+			const docked = !window.matchMedia('(max-width: 767px)').matches
+			const sidebarWidth = sideCollapsedRef.current || !docked ? 0 : (sidebar?.offsetWidth ?? 0)
+			const available = { width: canvas?.clientWidth ?? 0, height: canvas?.clientHeight ?? 0 }
+			let position = requested
+			let room = workspaceSplitRoom(available, position, sidebarWidth)
+			// Two panes side by side need more width than this window has: stack them, as the canvas
+			// does for any side-by-side panes that stop fitting.
+			if (position === 'right' && room === 'too-small') {
+				const stacked = workspaceSplitRoom(available, 'bottom', sidebarWidth)
+				if (stacked === 'fits') {
+					position = 'bottom'
+					room = stacked
+				}
+			}
 			if (room === 'too-small') {
 				report(
 					new Error('This window is too narrow to split. Make it wider, or open a new window.'),
