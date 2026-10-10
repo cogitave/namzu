@@ -5,6 +5,9 @@
 	grid-column: 3;
 	grid-row: 2;
 	position: relative;
+	/* The window's notice is a row of its own above the panes, never an overlay on a tab strip. */
+	display: flex;
+	flex-direction: column;
 	min-width: 0;
 	min-height: 0;
 	overflow: clip;
@@ -16,22 +19,29 @@
 	> .sidebar:not(.settings-navigation-sidebar) {
 	display: none;
 }
+.workspace-stage > .workspace-canvas {
+	flex: 1 1 0;
+	height: auto;
+}
 .workspace-window-error {
-	position: absolute;
-	top: 8px;
-	left: 16px;
-	right: 16px;
-	z-index: 50;
+	position: relative;
+	flex: none;
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
 	gap: 16px;
+	margin: 8px 16px;
 	padding: 10px 14px;
 	border: 1px solid var(--border);
 	border-radius: 10px;
 	background: var(--popover);
 	color: var(--popover-foreground);
 	font-size: 12px;
+}
+.workspace-window-error-actions {
+	display: flex;
+	flex: none;
+	gap: 12px;
 }
 .workspace-window-error button {
 	white-space: nowrap;

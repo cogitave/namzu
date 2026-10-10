@@ -917,16 +917,11 @@ pre {
 	outline-offset: 2px;
 }
 .connection-error {
-	/* Laid over the page, at the spot it would have taken: showing or clearing it moves nothing. */
-	position: absolute;
-	/* Below the tab strip, never over it: the tabs and + stay reachable while a notice shows. */
-	top: var(--workspace-topbar-height);
-	z-index: 30;
-	padding: 12px 20px;
-	pointer-events: none;
-}
-.connection-error > * {
-	pointer-events: auto;
+	/* In the column, between the tab strip and the page: it takes its own height, so it never
+	   covers the first row of the transcript at any width. */
+	position: relative;
+	flex: none;
+	padding: 12px 20px 4px;
 }
 .jobs-panel {
 	position: absolute;
@@ -1653,7 +1648,9 @@ pre {
 }
 .workspace[data-page="computer"] {
 	display: grid;
-	grid-template-rows: var(--workspace-topbar-height) minmax(0, 1fr);
+	/* The middle row is the page's notice: it takes its own height, so it covers nothing and gives
+	   the row back when it closes. */
+	grid-template-rows: var(--workspace-topbar-height) auto minmax(0, 1fr);
 	grid-template-columns: minmax(0, 1fr);
 }
 .workspace[data-page="computer"] > .workspace-conversation-header {
@@ -1661,7 +1658,7 @@ pre {
 	grid-column: 1 / -1;
 }
 .workspace[data-page="computer"] > .pal-computer-view {
-	grid-row: 2;
+	grid-row: 3;
 	grid-column: 1;
 }
 .workspace[data-page="computer"] > .chat-stage {
@@ -1678,7 +1675,7 @@ pre {
 }
 .workspace[data-page="computer"][data-computer-chat="split"] > .chat-stage {
 	display: flex;
-	grid-row: 2;
+	grid-row: 3;
 	grid-column: 1;
 	border-right: 1px solid var(--border);
 }
@@ -1730,11 +1727,8 @@ pre {
 	z-index: 5;
 }
 .workspace[data-page="computer"] > .connection-error {
-	position: absolute;
-	top: 52px;
-	left: 12px;
-	right: 12px;
-	z-index: 6;
+	grid-row: 2;
+	grid-column: 1 / -1;
 	width: auto;
 }
 @container workspace (max-width: 719px) {

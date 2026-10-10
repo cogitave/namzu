@@ -119,6 +119,80 @@ function groupNumbers(text: string): string {
 const REQUEST_ID =
 	/,?\s*["']?\b(?:cf[- ]?)?(?:ray id|request[ _-]?id)["']?\s*[:=]?\s*["']?([A-Za-z0-9_-]{8,})["']?/i
 const PROJECT_ID = /\bproj_[A-Za-z0-9]{4,}\b/
+
+interface VendorBody {
+	message: string
+	type?: string
+	code?: string
+	param?: string
+	requestId?: string
+}
+
+const asText = (value: unknown): string | undefined =>
+	typeof value === 'string' && value.trim()
+		? value.trim()
+		: typeof value === 'number'
+			? String(value)
+			: undefined
+
+function findKey(value: unknown, names: string[], depth = 0): string | undefined {
+	if (!value || typeof value !== 'object' || depth > 3) return undefined
+	for (const [key, item] of Object.entries(value)) {
+		if (names.includes(key.toLowerCase())) {
+			const text = asText(item)
+			if (text) return text
+		}
+	}
+	for (const item of Object.values(value)) {
+		const found = findKey(item, names, depth + 1)
+		if (found) return found
+	}
+	return undefined
+}
+
+/**
+ * A vendor's error body as labelled fields. Read: {type, error: {type, message}},
+ * {error: {message, type, code, param}}, {error: {code, message, status}} and a bare JSON string; any other shape gives undefined and the caller falls back to an excerpt.
+ */
+function vendorBody(body: string): VendorBody | undefined {
+	const start = body.indexOf('{')
+	const end = body.lastIndexOf('}')
+	let parsed: unknown
+	try {
+		parsed = JSON.parse(start >= 0 && end > start ? body.slice(start, end + 1) : body.trim())
+	} catch {
+		return undefined
+	}
+	if (typeof parsed === 'string') return parsed.trim() ? { message: parsed.trim() } : undefined
+	if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined
+	const root = parsed as Record<string, unknown>
+	const inner =
+		root.error && typeof root.error === 'object' ? (root.error as Record<string, unknown>) : root
+	const message = asText(inner.message) ?? asText(root.message) ?? asText(root.error)
+	if (!message) return undefined
+	const requestId = findKey(parsed, ['request_id', 'requestid'])
+	const type = asText(inner.type) ?? asText(inner.status)
+	const code = asText(inner.code)
+	const param = asText(inner.param)
+	return {
+		message,
+		...(type && type !== 'error' ? { type } : {}),
+		...(code && code !== type ? { code } : {}),
+		...(param ? { param } : {}),
+		...(requestId ? { requestId } : {}),
+	}
+}
+
+/** Unknown shapes: the braces and quotes go, what is left is one capped line. */
+function plainExcerpt(text: string): string {
+	const flat = text
+		.replace(/[{}[\]"]/g, ' ')
+		.replace(/\s*,\s*/g, ' · ')
+		.replace(/\s*:\s*/g, ': ')
+		.replace(/\s+/g, ' ')
+		.replace(/^[\s·]+|[\s·]+$/g, '')
+	return flat.length > 200 ? `${flat.slice(0, 199)}…` : flat
+}
 /** The runtime's own wording for a kind of failure, as a person reads it in Details. */
 const DETAIL_SENTENCE: Record<string, string> = {
 	'the provider rejected the request credentials': 'access was refused',
@@ -133,7 +207,34 @@ function plainProviderDetails(raw: string): string[] {
 	const matched = PROVIDER_FAILURE.exec(raw.trim())
 	if (!matched) return [raw]
 	const name = providerName(matched[1]?.toLowerCase())
+	const vendor = vendorBody(matched[4] ?? '')
+	if (vendor) {
+		const sentenceText = (matched[3] ?? '').trim().replace(/\.$/, '')
+		const lead = DETAIL_SENTENCE[sentenceText.toLowerCase()] ?? sentenceText
+		const said = sanitizeDetails(
+			vendor.message
+				.replace(/\b(?:project\s+)?proj_[A-Za-z0-9]{4,}\b/gi, (hit) =>
+					/^project/i.test(hit) ? 'Your project' : 'your project',
+				)
+				.replace(REQUEST_ID, ' '),
+		)
+		const vendorProject = PROJECT_ID.exec(vendor.message)?.[0]
+		const fields = [
+			...(matched[2] ? [`Status: ${matched[2]}`] : []),
+			`Provider said: “${said.replace(/\.$/, '')}”`,
+			...(vendor.type ? [`Type: ${sanitizeDetails(vendor.type)}`] : []),
+			...(vendor.code ? [`Code: ${sanitizeDetails(vendor.code)}`] : []),
+			...(vendor.param ? [`Field: ${sanitizeDetails(vendor.param)}`] : []),
+		]
+		return [
+			`${name}: ${lead}`,
+			fields.join(' · '),
+			...(vendorProject ? [`${name} project: ${vendorProject}`] : []),
+			...(vendor.requestId ? [`Request ID: ${vendor.requestId}`] : []),
+		]
+	}
 	let answer = sanitizeDetails(matched[4] ?? '')
+	if (/[{}]/.test(answer)) answer = plainExcerpt(answer)
 	const requestId = REQUEST_ID.exec(answer)?.[1] ?? REQUEST_TOKEN.exec(answer)?.[0]
 	const projectId = PROJECT_ID.exec(answer)?.[0]
 	answer = answer
@@ -145,6 +246,7 @@ function plainProviderDetails(raw: string): string[] {
 		.replace(/\b(?:cloudflare|nginx(?:\/[\d.]+)?)\b/gi, ' ')
 		.replace(/\bstatus code\b/gi, ' ')
 		.replace(/\(\s*no body\s*\)/gi, ' ')
+		.replace(/\(\s*\)/g, ' ')
 		.replace(/,\s*([}\]])/g, '$1')
 		.replace(/\s+/g, ' ')
 		.trim()
@@ -364,6 +466,36 @@ export function describeBlockedRetry(notice: string): FriendlyFailure {
 		text: 'Namzu can’t repeat this reply. Continue without this reply to put your message back in the message box and keep working here.',
 		actions: ['continue'],
 	}
+}
+
+/**
+ * What a stopped reply shows when it has both a cause and a refusal to repeat it. They are one
+ * event, so they are one message: what happened, then the one way on. The cause's own next step
+ * ("Try again", "Your message is saved") is dropped because repeating is refused, and its Details
+ * stay. A refusal that is only "still finishing" or "waiting" is not a second cause and stays alone.
+ */
+export function combineStopped(
+	cause: FriendlyFailure | undefined,
+	blocked: FriendlyFailure | undefined,
+): FriendlyFailure[] {
+	if (!cause) return blocked ? [blocked] : []
+	if (!blocked) return [cause]
+	if (blocked.kind !== 'cannot-repeat') return [blocked]
+	const what = cause.text
+		.replace(/\s*Your message is saved\.?/i, '')
+		.replace(/\s*Try again\.?\s*$/i, '')
+		.replace(/,?\s*then send again\.?\s*$/i, '.')
+		.trim()
+	const actions: FailureAction[] = cause.actions.filter((action) => action !== 'try-again')
+	for (const action of blocked.actions) if (!actions.includes(action)) actions.push(action)
+	return [
+		{
+			kind: cause.kind,
+			text: `${what} Namzu can’t repeat this reply, so continue without it to put your message back in the message box.`,
+			actions,
+			...(cause.details ? { details: cause.details } : {}),
+		},
+	]
 }
 
 /** Seconds left in a provider's requested wait, rounded up so it never reads 0 while time remains. */

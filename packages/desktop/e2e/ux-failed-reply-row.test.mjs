@@ -115,7 +115,7 @@ flow(
 	"a failed reply's row shares one centre line and the spacing of a settled reply's row",
 	{
 		rules: [
-			{ match: /hello/i, steps: [{ text: "Scripted hello back." }] },
+			{ match: /^hello there$/i, steps: [{ text: "Scripted hello back." }] },
 			{ match: /go wrong/i, steps: [BAD_GATEWAY] },
 		],
 	},
@@ -171,6 +171,19 @@ flow(
 		await shots(w, "502-details");
 		await w.page.keyboard.press("Space");
 		await expect(details).toHaveAttribute("aria-expanded", "false");
+
+		// Details left open on one failure does not stay open on the next conversation's failure.
+		await w.page.keyboard.press("Enter");
+		await expect(details).toHaveAttribute("aria-expanded", "true");
+		await w.page.getByRole("button", { name: "New conversation" }).first().click();
+		await expect(w.page.locator(".turn-recovery")).toHaveCount(0, { timeout: T });
+		await sendText(w, "please go wrong");
+		const next = w.page.locator(".turn-recovery");
+		await expect(next.getByRole("button", { name: "Details", exact: true })).toHaveAttribute(
+			"aria-expanded",
+			"false",
+			{ timeout: T },
+		);
 	},
 );
 
@@ -223,6 +236,17 @@ flow(
 		const action = region.getByRole("button", { name: "Continue without this reply" });
 		await expect(action).toBeVisible({ timeout: T });
 		assertOneLine(await rowItems(region.locator(".message-actions")), "limited row");
+		// One message, not a failure stacked on a refusal; no Retry where repeating is refused.
+		await expect(region.locator(".turn-recovery-text")).toHaveCount(1);
+		const sentence = (await region.locator(".turn-recovery-text").innerText()).trim();
+		assert.match(sentence, /can’t repeat this reply/, "it says why Retry is not offered");
+		assert.doesNotMatch(sentence, /Your message is saved|Try again|receipt|unresolved|retained/i);
+		assert.equal(sentence.match(/can’t repeat/g)?.length, 1, "the refusal is said once");
+		await expect(region.getByRole("button", { name: "Retry", exact: true })).toHaveCount(0);
+		// Details still holds the labelled fields, closed until asked for.
+		await region.getByRole("button", { name: "Details", exact: true }).click();
+		const details = (await region.locator(".turn-recovery-details-text").innerText()).trim();
+		assert.doesNotMatch(details, /[<{]|\b502 502\b/, "Details carry no markup or raw JSON");
 		await shots(w, "limited");
 	},
 );

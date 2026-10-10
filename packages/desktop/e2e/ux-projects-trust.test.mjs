@@ -312,7 +312,7 @@ for (const scheme of ["dark", "light"]) {
 			await expect(row).toContainText("project");
 			await expect(row).toContainText("Folder not found");
 			// The open tab says the same thing, not "saved message settings could not be loaded".
-			await expect(w.page.locator("[data-project-folder-missing]")).toContainText("can’t be found");
+			await expect(w.page.locator("[data-project-folder-missing]")).toContainText("“project” can’t be found");
 			await expect(w.page.getByText(/Saved message settings/)).toHaveCount(0);
 			// The tab keeps the conversation's own name, and Pals is not stuck on Loading.
 			await expect(w.page.getByRole("tab", { name: /hello there/ })).toBeVisible({ timeout: T });
@@ -323,7 +323,7 @@ for (const scheme of ["dark", "light"]) {
 			await expect(w.page.locator("[data-project-missing]")).toBeVisible({ timeout: T });
 			// Locate points it at the folder's new place; the conversation comes along.
 			await pickNext(w, moved);
-			await w.page.getByRole("button", { name: /Locate the folder for project/ }).click();
+			await w.page.getByRole("button", { name: /Locate the folder for “project”/ }).click();
 			await w.page
 				.getByRole("dialog", { name: "Trust this folder?" })
 				.getByRole("button", { name: "Trust and open" })

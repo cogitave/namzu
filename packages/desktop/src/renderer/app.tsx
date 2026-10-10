@@ -118,6 +118,7 @@ import { ProjectFilesContext } from './file-panel/project-files.js'
 import { createLinkCache } from './file-panel/project-refs.js'
 import { FolderAccessDialog } from './folder-access-dialog.js'
 import {
+	combineStopped,
 	describeBlockedRetry,
 	describeEngineFailure,
 	describeFailure,
@@ -213,7 +214,7 @@ import { engineTerminalRequest, shellTerminalRequest } from './terminal-request.
 import type { ThreadRowActions } from './thread-card.js'
 import { PaneToasts } from './toast.js'
 import { Transcript } from './transcript.js'
-import { TurnRecovery } from './turn-recovery.js'
+import { TurnRecovery, recoveryKey } from './turn-recovery.js'
 import { Button } from './ui/button.js'
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from './ui/empty.js'
 import { UndoDialog } from './undo-dialog.js'
@@ -4453,10 +4454,10 @@ export function App({
 	)?.label
 	// "Continue without this reply" failed: the conversation itself cannot take the message back,
 	// so the same words offer to carry it to a new conversation instead.
-	const baseFailures = [
-		...(thread.error ? [describeFailure(thread.error, failedProviderLabel)] : []),
-		...(thread.retryNotice ? [describeBlockedRetry(thread.retryNotice)] : []),
-	]
+	const baseFailures = combineStopped(
+		thread.error ? describeFailure(thread.error, failedProviderLabel) : undefined,
+		thread.retryNotice ? describeBlockedRetry(thread.retryNotice) : undefined,
+	)
 	const replyFailures = baseFailures.map((failure) =>
 		continueFailed === sessionId && failure.actions.includes('continue')
 			? { ...failure, actions: [...failure.actions, 'copy-to-new' as const] }
@@ -6344,6 +6345,7 @@ export function App({
 										</ProviderNameContext.Provider>
 									)}
 									<TurnRecovery
+										key={recoveryKey(sessionId, replyFailures)}
 										retry={thread.retry}
 										model={retryModel}
 										failures={replyFailures}

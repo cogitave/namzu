@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { WorkspaceAction, WorkspaceView } from '../shared/protocol.js'
 import { isTerminalTabId } from '../shared/terminal-tabs.js'
-import { workspaceGroups } from '../shared/workspace-layout.js'
+import { workspaceGroups, workspaceSplitFits } from '../shared/workspace-layout.js'
 import type { WorkspaceWindowBounds } from '../shared/workspace-layout.js'
 import { App } from './app.js'
 import type { Appearance } from './sidebar.js'
@@ -32,6 +32,8 @@ export function WorkspaceHost() {
 	const [shell, setShell] = useState<HTMLDivElement | null>(null)
 	const [page, setPage] = useState('chat')
 	const [error, setError] = useState('')
+	// A size refusal is final until the window changes: there is nothing to retry, only to dismiss.
+	const [retryable, setRetryable] = useState(true)
 	const [localFocus, setLocalFocus] = useState<string>()
 	const controllers = useRef(new Map<string, WorkspacePaneController>())
 	const terminalTabs = useTerminalTabs(api)
@@ -59,7 +61,14 @@ export function WorkspaceHost() {
 		setView(next)
 		setLocalFocus(undefined)
 	}, [])
-	const report = useCallback((failure: unknown) => setError(message(failure)), [])
+	const report = useCallback((failure: unknown) => {
+		setRetryable(true)
+		setError(message(failure))
+	}, [])
+	const tell = useCallback((text: string) => {
+		setRetryable(false)
+		setError(text)
+	}, [])
 	const updateState = useUpdateState(api)
 	const engineUpdates = useEngineUpdatesController(api, report)
 	const [updateOpen, setUpdateOpen] = useState(false)
@@ -302,21 +311,51 @@ export function WorkspaceHost() {
 		[action, prepare, report],
 	)
 	const split = useCallback(
-		(groupId: string, tabId: string, position: 'right' | 'bottom') => {
+		(groupId: string, tabId: string, requested: 'right' | 'bottom') => {
 			const owner = current.current
 			if (!owner) return
 			const canvas = document.querySelector<HTMLElement>('.workspace-canvas')
 			const sidebar = document.querySelector<HTMLElement>('[data-app-sidebar]')
-			const room = workspaceSplitRoom(
-				{ width: canvas?.clientWidth ?? 0, height: canvas?.clientHeight ?? 0 },
-				position,
-				sideCollapsedRef.current ? 0 : (sidebar?.offsetWidth ?? 0),
-			)
+			// Below 768 px the sidebar is a drawer over the page: closing it gives the panes no room.
+			const docked = !window.matchMedia('(max-width: 767px)').matches
+			const sidebarWidth = sideCollapsedRef.current || !docked ? 0 : (sidebar?.offsetWidth ?? 0)
+			const available = { width: canvas?.clientWidth ?? 0, height: canvas?.clientHeight ?? 0 }
+			let position = requested
+			let room = workspaceSplitRoom(available, position, sidebarWidth)
+			// Two panes side by side need more width than this window has: stack them, as the canvas
+			// does for any side-by-side panes that stop fitting.
+			if (position === 'right' && room === 'too-small') {
+				const stacked = workspaceSplitRoom(available, 'bottom', sidebarWidth)
+				if (stacked === 'fits') {
+					position = 'bottom'
+					room = stacked
+				}
+			}
 			if (room === 'too-small') {
-				report(
-					new Error('This window is too narrow to split. Make it wider, or open a new window.'),
-				)
+				tell('This window is too narrow to split. Make it wider, or open a new window.')
 				return
+			}
+			// The canvas has room for two panes, but the pane being split may not: judge the pane itself,
+			// as the main process will, so a refusal reads as "too small" and not as a changed workspace.
+			const root = owner.layout.windows.find((item) => item.id === owner.windowId)?.root ?? null
+			const canvasSize = {
+				width:
+					(canvas?.clientWidth ?? 0) +
+					(room === 'collapse-sidebar' ? (sidebar?.offsetWidth ?? 0) : 0),
+				height: canvas?.clientHeight ?? 0,
+			}
+			if (!workspaceSplitFits(root, groupId, position, canvasSize)) {
+				const stacked = workspaceSplitFits(root, groupId, 'bottom', {
+					width: canvas?.clientWidth ?? 0,
+					height: canvasSize.height,
+				})
+				if (position === 'right' && stacked) {
+					position = 'bottom'
+					room = 'fits'
+				} else {
+					tell('This window is too small to split here. Make it larger, or open a new window.')
+					return
+				}
 			}
 			// The panes keep a readable width, so a docked sidebar steps aside instead of the page scrolling sideways.
 			if (room === 'collapse-sidebar') {
@@ -348,7 +387,7 @@ export function WorkspaceHost() {
 					controllers.current.get(groupId)?.resume()
 				})
 		},
-		[action, prepare, report],
+		[action, prepare, report, tell],
 	)
 	const paneFocus = useCallback(
 		(groupId: string) => {
@@ -397,15 +436,22 @@ export function WorkspaceHost() {
 				{error && (
 					<div className="workspace-window-error" role="alert">
 						<span>{error}</span>
-						<button
-							type="button"
-							onClick={() => {
-								setError('')
-								void refresh().catch(report)
-							}}
-						>
-							Try again
-						</button>
+						<span className="workspace-window-error-actions">
+							{retryable && (
+								<button
+									type="button"
+									onClick={() => {
+										setError('')
+										void refresh().catch(report)
+									}}
+								>
+									Try again
+								</button>
+							)}
+							<button type="button" aria-label="Dismiss error" onClick={() => setError('')}>
+								Dismiss
+							</button>
+						</span>
 					</div>
 				)}
 				{view && preview && (

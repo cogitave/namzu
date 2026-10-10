@@ -1,8 +1,8 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, it } from 'vitest'
-import { describeBlockedRetry, describeFailure } from './friendly-errors.js'
-import { TurnRecovery, recoveryActions } from './turn-recovery.js'
+import { combineStopped, describeBlockedRetry, describeFailure } from './friendly-errors.js'
+import { TurnRecovery, recoveryActions, recoveryKey } from './turn-recovery.js'
 
 const retry = { turnId: 'turn', checkpointId: 'checkpoint' }
 const render = (props: Parameters<typeof TurnRecovery>[0]) =>
@@ -104,4 +104,70 @@ it('puts the time, Retry, Copy, the quiet actions and Details on one row, in a s
 	expect(html).not.toMatch(/bg-primary|bg-popover|border-input/)
 	// The row is MessageActions' own row, not a copy of it.
 	expect(html).toContain('class="message-actions message-actions-wrap"')
+})
+
+it('keys the Details toggle on the conversation and the failure, so a new failure starts closed', () => {
+	const bad = describeFailure(
+		'openai (HTTP 502) — the provider failed to complete the request: 502 <html><body>502 Bad Gateway</body></html>',
+	)
+	const other = describeFailure('openai (HTTP 429) — rate limited: 429 too many requests')
+	expect(recoveryKey('a', [bad])).toBe(recoveryKey('a', [bad]))
+	expect(recoveryKey('a', [bad])).not.toBe(recoveryKey('b', [bad]))
+	expect(recoveryKey('a', [bad])).not.toBe(recoveryKey('a', [other]))
+	expect(recoveryKey('a', [])).not.toBe(recoveryKey('a', [bad]))
+})
+
+it('shows a cause and a refusal to repeat as one message with one row and no Retry', () => {
+	const cause = describeFailure(
+		'openai (HTTP 500) — the provider failed to complete the request: 500 Internal Server Error',
+	)
+	const blocked = describeBlockedRetry(
+		'This provider request has unresolved token usage. Retry requires its actual provider usage receipt; the original turn is retained.',
+	)
+	const failures = combineStopped(cause, blocked)
+	expect(failures).toHaveLength(1)
+	const html = render({
+		failures,
+		onAction: () => {},
+		time: { at: Date.UTC(2026, 9, 10, 12, 0), source: 'host' },
+	})
+	const main = sentenceOf(html)
+	expect(main.match(/<p /g)).toHaveLength(1)
+	expect(main).toContain('OpenAI had a problem on its side.')
+	expect(main).toContain('can’t repeat this reply')
+	expect(main).not.toMatch(/Your message is saved|Try again|receipt|retained|token/i)
+	expect(html).not.toContain('aria-label="Retry')
+	expect(html).toContain('aria-label="Copy"')
+	expect(html).toContain('>Continue without this reply<')
+	expect(html).toContain('<time')
+	expect(html).toMatch(/aria-expanded="false" aria-controls="[^"]+">Details<\/button>/)
+	// Details keep the labelled fields of the cause.
+	expect(html).toContain(
+		'OpenAI: the provider failed to complete the request (500 Internal Server Error)',
+	)
+})
+
+it('keeps a still-finishing notice alone and a lone failure untouched', () => {
+	const cause = describeFailure(
+		'openai (HTTP 500) — the provider failed to complete the request: x',
+	)
+	const busy = describeBlockedRetry('Wait for this conversation’s active turn to settle.')
+	expect(combineStopped(cause, busy)).toEqual([busy])
+	expect(combineStopped(cause, undefined)).toEqual([cause])
+	expect(combineStopped(undefined, undefined)).toEqual([])
+})
+
+it('never tells the person to send again when the reply cannot be repeated', () => {
+	const blocked = describeBlockedRetry('Retry requires its actual provider usage receipt.')
+	for (const raw of [
+		'openai (HTTP 401) — the provider rejected the API key',
+		'openai (HTTP 402) — insufficient credit: you exceeded your current quota',
+		'openai (HTTP 413) — request too large',
+		'no api key configured for openai',
+	]) {
+		const [one] = combineStopped(describeFailure(raw), blocked)
+		expect(one?.text, raw).not.toMatch(/send again|Try again|Your message is saved/i)
+		expect(one?.text, raw).toContain('can’t repeat this reply')
+		expect(one?.text, raw).not.toMatch(/\.\./)
+	}
 })

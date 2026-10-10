@@ -576,6 +576,50 @@ export const workspaceMinimumSize = (
 		: { width: Math.max(first.width, second.width), height: first.height + second.height + divider }
 }
 
+/**
+ * Side-by-side panes whose two minimums do not fit the width are stacked instead, the same way at
+ * every width, so the canvas never grows sideways past the window. Stacking keeps both panes in
+ * view, with the same divider, tabs and drag targets, and needs no extra control; the other choice,
+ * showing one pane with a switch, would hide a terminal that may be running. The saved direction
+ * and ratio are untouched: widening the window puts the panes side by side again.
+ */
+export function fitWorkspaceDirections(
+	root: WorkspaceNode | null,
+	width: number,
+	ratios: Readonly<Record<string, number>> = {},
+): WorkspaceNode | null {
+	if (!root || !Number.isFinite(width) || width <= 0) return root
+	const visit = (node: WorkspaceNode, available: number): WorkspaceNode => {
+		if (node.kind === 'group') return node
+		if (node.direction === 'horizontal' && workspaceMinimumSize(node).width > available) {
+			return {
+				...node,
+				direction: 'vertical',
+				first: visit(node.first, available),
+				second: visit(node.second, available),
+			}
+		}
+		if (node.direction === 'vertical')
+			return {
+				...node,
+				first: visit(node.first, available),
+				second: visit(node.second, available),
+			}
+		const ratio =
+			constrainWorkspaceSplitRatio(node, ratios[node.id] ?? node.ratio, {
+				width: available,
+				height: Number.MAX_SAFE_INTEGER,
+			}) ?? node.ratio
+		const length = available - WORKSPACE_DIVIDER_SIZE
+		return {
+			...node,
+			first: visit(node.first, length * ratio),
+			second: visit(node.second, length * (1 - ratio)),
+		}
+	}
+	return visit(root, width)
+}
+
 /** Find the usable size of an existing pane under the tree's current split ratios. */
 export const workspaceGroupSize = (
 	root: WorkspaceNode | null,
@@ -613,7 +657,14 @@ export const workspaceSplitFits = (
 	divider = WORKSPACE_DIVIDER_SIZE,
 ): boolean => {
 	if (!validSize(minimum) || !Number.isFinite(divider) || divider < 0) return false
-	const group = workspaceGroupSize(root, groupId, size, divider, minimum)
+	// The panes are drawn with side-by-side splits that no longer fit stacked, so they are judged that way.
+	const group = workspaceGroupSize(
+		fitWorkspaceDirections(root, size.width),
+		groupId,
+		size,
+		divider,
+		minimum,
+	)
 	if (!group) return false
 	if (position === 'center') return true
 	if (position === 'left' || position === 'right')
