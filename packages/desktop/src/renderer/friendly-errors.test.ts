@@ -5,7 +5,6 @@ import {
 	providerName,
 	sanitizeDetails,
 	unknownUsageDetail,
-	withUnknownUsage,
 } from './friendly-errors.js'
 
 const JARGON = /HTTP|\b[45]\d\d\b|receipt|retained|token|unresolved|<|JSON/i
@@ -75,9 +74,7 @@ describe('provider replies', () => {
 			'openai (HTTP 400) — the request exceeded the model context window: maximum context length is 128000 tokens, you sent 131452 tokens',
 		)
 		expect(context.details).toContain('131,452')
-		expect(withUnknownUsage([html])[0]?.details).toMatch(
-			/\nNo usage was reported for the failed attempts\.$/,
-		)
+		expect(html.details).not.toMatch(/usage/i)
 	})
 })
 
@@ -169,7 +166,7 @@ describe('describeBlockedRetry', () => {
 		expect(blocked.text).not.toMatch(JARGON)
 		expect(blocked.actions).toEqual(['continue'])
 		expect(blocked.text).toContain('Continue without this reply')
-		expect(blocked.details).toBe('No usage was reported for the failed attempts.')
+		expect(blocked.details).toBeUndefined()
 	})
 
 	it('offers to continue when the allowance is used up, and never shows the runtime wording', () => {
@@ -181,18 +178,23 @@ describe('describeBlockedRetry', () => {
 		expect(used.text).not.toMatch(JARGON)
 	})
 
-	it('adds what is unknown about usage to the details of a repeatable failure', () => {
-		const failure = describeFailure(
+	it.each([
+		[
+			'openai (HTTP 500) — the provider failed to complete the request: 500 Internal Server Error',
+			'OpenAI: the provider failed to complete the request (500 Internal Server Error)',
+		],
+		[
 			'openai (HTTP 502) — the provider failed to complete the request: 502 502 Bad Gateway',
-		)
-		expect(failure.details).toBe(
 			'OpenAI: the provider failed to complete the request (502 Bad Gateway)',
-		)
-		expect(failure.details).not.toMatch(/502 502/)
-		expect(withUnknownUsage([failure])[0]?.details).toBe(
-			'OpenAI: the provider failed to complete the request (502 Bad Gateway)\nNo usage was reported for the failed attempts.',
-		)
-		expect(withUnknownUsage([])).toEqual([])
+		],
+		[
+			'openai (HTTP 503) — the provider failed to complete the request: <html><head><title>503 Service Unavailable</title></head><body><h1>503 Service Unavailable</h1></body></html>',
+			'OpenAI: the provider failed to complete the request (503 Service Unavailable)',
+		],
+	])('a 5xx before any reply carries labelled details and no usage line: %s', (raw, details) => {
+		const failure = describeFailure(raw)
+		expect(failure.details).toBe(details)
+		expect(failure.details).not.toMatch(/usage|[{}<]/i)
 	})
 
 	it.each([

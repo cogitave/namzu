@@ -101,6 +101,8 @@ function headlineFlow(name, step, headline, buttons, detailsPattern, shotName) {
 			await region.getByRole("button", { name: "Details", exact: true }).click();
 			const details = await region.locator(".turn-recovery-details-text").innerText();
 			assert.match(details, detailsPattern);
+			assert.doesNotMatch(details, /usage/i, "no reply arrived, so Details carry no usage line");
+			assert.doesNotMatch(details, /[{}]|<\/?\w+>/, "labelled fields only, no JSON or markup");
 			assert.doesNotMatch(details, /unresolved|reservation|(\b\d{3})\s+\1\b|\(no body\)/i);
 			await shots(w, shotName);
 		},
@@ -168,6 +170,28 @@ headlineFlow(
 	["Retry"],
 	new RegExp(`${PROVIDER_NAME}: the provider failed to complete the request \\(502 Bad Gateway\\)\\nRequest ID: 8f2a1b3c4d5e6f70`),
 	"502-bad-gateway",
+);
+
+headlineFlow(
+	"an internal server error (500) is plain, with labelled Details and no usage line",
+	json(500, "The server had an error while processing your request.", { type: "server_error" }),
+	"OpenAI had a problem on its side. Your message is saved.",
+	["Retry"],
+	new RegExp(`${PROVIDER_NAME}: the provider failed to complete the request \\(500`),
+	"500-server-error",
+);
+
+headlineFlow(
+	"a service unavailable page (503) is summarised, with no usage line",
+	{
+		status: 503,
+		contentType: "text/html",
+		body: "<html><head><title>503 Service Unavailable</title></head><body><h1>503 Service Unavailable</h1></body></html>",
+	},
+	"OpenAI had a problem on its side. Your message is saved.",
+	["Retry"],
+	new RegExp(`${PROVIDER_NAME}: the provider failed to complete the request \\(503 Service Unavailable\\)`),
+	"503-unavailable",
 );
 
 flow(
@@ -323,3 +347,34 @@ flow(
 		await shots(w, "pal-rate-limit-wait");
 	},
 );
+
+for (const [status, contentType, body, tail, shotName] of [
+	[500, "application/json", JSON.stringify({ error: { message: "The server had an error.", type: "server_error" } }), "\\(500", "pal-500"],
+	[502, "text/html", "<html><body>502 Bad Gateway</body></html>", "\\(502 Bad Gateway\\)", "pal-502"],
+	[503, "text/html", "<html><head><title>503 Service Unavailable</title></head><body><h1>503 Service Unavailable</h1></body></html>", "\\(503 Service Unavailable\\)", "pal-503"],
+]) {
+	flow(
+		`a Pal conversation that fails with ${status} before any reply shows the same row and Details, with no usage line`,
+		{
+			env: { NAMZU_E2E_PAL_COMPUTER: "fake" },
+			rules: [{ match: /go wrong/i, steps: [{ status, contentType, body }] }],
+		},
+		async (w) => {
+			await openProject(w);
+			await createKiro(w);
+			await send(w, "please go wrong");
+			const region = w.page.locator(".turn-recovery");
+			await expect(
+				region.getByText("OpenAI had a problem on its side. Your message is saved.", { exact: true }),
+			).toBeVisible({ timeout: T });
+			const visible = (await region.innerText()).replace(/Details[\s\S]*$/, "");
+			assert.doesNotMatch(visible, JARGON, "the headline carries no code, markup or accounting words");
+			await region.getByRole("button", { name: "Details", exact: true }).click();
+			const details = await region.locator(".turn-recovery-details-text").innerText();
+			assert.match(details, new RegExp(`${PROVIDER_NAME}: the provider failed to complete the request ${tail}`));
+			assert.doesNotMatch(details, /usage/i, "no reply arrived, so Details carry no usage line");
+			assert.doesNotMatch(details, /[{}]|<\/?\w+>/, "labelled fields only, no JSON or markup");
+			await shots(w, shotName);
+		},
+	);
+}

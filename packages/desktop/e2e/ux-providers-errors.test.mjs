@@ -244,7 +244,7 @@ const BAD_GATEWAY = {
 };
 
 flow(
-	"a provider fault (502) in a conversation with no limit is tried again in place, with the unknown usage kept in Details",
+	"a provider fault (502) in a conversation with no limit is tried again in place, with no usage line in Details",
 	{ rules: [{ match: /go wrong/i, steps: [BAD_GATEWAY] }] },
 	async (w) => {
 		await openProject(w);
@@ -261,7 +261,7 @@ flow(
 		await shots(w, "10-fault-502");
 		await region.getByRole("button", { name: "Details", exact: true }).click();
 		const details = await region.locator(".turn-recovery-details-text").innerText();
-		assert.match(details, /No usage was reported for the failed attempts\./);
+		assert.doesNotMatch(details, /usage/i, "no reply arrived, so Details carry no usage line");
 		assert.doesNotMatch(details, /502 502|receipt|retained|unresolved/i, "no doubled status or receipt wording");
 		assert.match(
 			details,
@@ -321,7 +321,7 @@ flow(
 		assert.doesNotMatch(visible, /receipt|unresolved|retained|token/i);
 		await shots(w, "10-fault-502-limited");
 		await region.getByRole("button", { name: "Details", exact: true }).click();
-		assert.match(await region.locator(".turn-recovery-details-text").innerText(), /No usage was reported for the failed attempts\./);
+		assert.doesNotMatch(await region.locator(".turn-recovery-details-text").innerText(), /usage/i);
 		await shot(w, "10-fault-502-limited-details-dark");
 		const tabs = await w.page.getByRole("tab").count();
 		await region.getByRole("button", { name: "Continue without this reply" }).click();

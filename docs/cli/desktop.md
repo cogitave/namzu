@@ -764,8 +764,9 @@ conversation has no token limit of its own (the ACP session is opened without `l
 5xx the stopped request is recorded as unknown usage and **Retry** sends a new request in the
 same conversation; **Details** then reads "OpenAI: the provider failed to complete the request (502
 Bad Gateway)", a labelled "Request ID: …" when the vendor sent one, a labelled vendor project ("OpenAI project: proj_…"; a 403
-reads "access was refused", never the runtime's own sentence about credentials), and "No usage was
-reported for the failed attempts." (one line however many attempts the driver made). Details say each thing
+reads "access was refused", never the runtime's own sentence about credentials). A request that
+failed before any reply arrived carries no usage line in Details; "No usage was reported for the
+failed attempts." appears only when a reply did arrive without a usage count. Details say each thing
 once: a repeated HTML title, "(no body)" and a duplicated status are dropped, and token counts are
 grouped ("131,452"). The status comes from `namzu/sessions/retry-status` as
 `{ retry, unknownUsage: <count> }`. A Pal conversation shows the same provider wait line and countdown
