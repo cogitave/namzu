@@ -66,7 +66,7 @@ lines.on('line', (line) => {
 	else if (method === 'namzu/providers/connections') reply(id, { providers: ['openai', 'anthropic'].map((provider) => ({ id: provider, label: provider, state: savedKeys.has(provider) ? 'connected' : 'not-connected', ...(savedKeys.has(provider) ? { how: 'saved-key' } : {}), canSaveKey: true, hasSavedKey: savedKeys.has(provider), secret: 'MUST_NOT_REACH_THE_WINDOW' })) })
 	else if (method === 'namzu/providers/save_key') { if (typeof params.apiKey !== 'string' || !params.apiKey.trim()) send({ id, error: { code: -32603, message: 'Paste an API key.' } }); else { savedKeys.add(params.provider); reply(id, { saved: true }) } }
 	else if (method === 'namzu/providers/remove_key') { savedKeys.delete(params.provider); reply(id, { removed: true }) }
-	else if (method === 'namzu/providers/test') reply(id, { status: !savedKeys.has(params.provider) ? 'missing' : params.provider === 'anthropic' ? 'rejected' : 'ok' })
+	else if (method === 'namzu/providers/test') reply(id, { status: !savedKeys.has(params.provider) ? 'missing' : params.provider === 'anthropic' ? 'rejected' : params.provider === 'google' ? 'unchecked' : 'ok', ...(params.provider === 'google' ? { cause: 'quota' } : {}) })
 	else if (method === 'namzu/providers/refresh') reply(id, { refreshed: true })
 	else if (method === 'namzu/conversations/list') reply(id, process.env.FIXTURE_LIST_ROWS ? JSON.parse(process.env.FIXTURE_LIST_ROWS) : [])
 	else if (method === 'namzu/conversations/rename') reply(id, { title: params.title || 'Derived title' })

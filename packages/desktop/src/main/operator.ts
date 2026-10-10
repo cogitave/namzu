@@ -750,13 +750,19 @@ export class Operator {
 		const client = await this.providerHost()
 		const result = (await client.request('namzu/providers/test', { provider }, 45_000)) as {
 			status?: unknown
+			cause?: unknown
 		}
-		return result?.status === 'ok' ||
-			result?.status === 'rejected' ||
-			result?.status === 'missing' ||
-			result?.status === 'unchecked'
-			? result.status
-			: 'unchecked'
+		if (result?.status === 'ok' || result?.status === 'rejected' || result?.status === 'missing')
+			return result.status
+		if (
+			result?.status === 'unchecked' &&
+			(result.cause === 'quota' ||
+				result.cause === 'busy' ||
+				result.cause === 'down' ||
+				result.cause === 'no-answer')
+		)
+			return result.cause
+		return 'unchecked'
 	}
 	/** Every open project host and every window must see the new set of providers. */
 	private async providersChanged(registry: RuntimeClient): Promise<ProviderConnectionView[]> {

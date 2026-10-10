@@ -110,7 +110,7 @@ describe('picker provider operations', () => {
 			() => true,
 		)
 		expect(result.models).toEqual([])
-		expect(result.notice).toContain('no longer available on this device')
+		expect(result.notice).toContain('no longer available on this computer')
 		expect(result.notice).not.toContain('rejected')
 		expect(JSON.stringify(result)).not.toContain('SYNTHETIC_OWNER_DETAIL')
 	})
@@ -135,7 +135,7 @@ describe('picker provider operations', () => {
 			() => true,
 		)
 		expect(result.models).toEqual([])
-		expect(result.notice).toContain('rejected its credential')
+		expect(result.notice).toContain('didn’t accept your key or sign-in')
 		expect(JSON.stringify(result)).not.toContain('SYNTHETIC_CREDENTIAL')
 	})
 
@@ -158,7 +158,7 @@ describe('picker provider operations', () => {
 			() => true,
 		)
 		expect(result.models).toEqual([])
-		expect(result.notice).toContain('could not be loaded')
+		expect(result.notice).toContain('couldn’t reach')
 		expect(JSON.stringify(result)).not.toContain('SYNTHETIC_TLS')
 	})
 
@@ -327,7 +327,7 @@ describe('picker provider operations', () => {
 		const pending = verifyCredential(providerId, detected)
 		await vi.advanceTimersByTimeAsync(3_000)
 
-		await expect(pending).resolves.toEqual({ kind: 'unverifiable' })
+		await expect(pending).resolves.toEqual({ kind: 'unverifiable', cause: 'no-answer' })
 		expect(seen?.aborted).toBe(true)
 		expect(vi.getTimerCount()).toBe(0)
 	})

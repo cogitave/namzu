@@ -5075,7 +5075,11 @@ export async function verifyCredential(
 	id: ProviderId,
 	det: DetectedProvider,
 	signal?: AbortSignal,
-): Promise<{ kind: 'verified' } | { kind: 'unverifiable' } | { kind: 'rejected'; reason: string }> {
+): Promise<
+	| { kind: 'verified' }
+	| { kind: 'unverifiable'; cause?: CredentialCheckCause }
+	| { kind: 'rejected'; reason: string }
+> {
 	try {
 		signal?.throwIfAborted()
 		await ensureRegistered(id)
@@ -5095,14 +5099,37 @@ export async function verifyCredential(
 		return { kind: 'verified' }
 	} catch (err) {
 		if (signal?.aborted) throw signal.reason
-		if (err instanceof PickerProviderTimeoutError) return { kind: 'unverifiable' }
+		if (err instanceof PickerProviderTimeoutError)
+			return { kind: 'unverifiable', cause: 'no-answer' }
 		// The server answered and said no, versus nothing was learned. Collapsing
 		// these would tell an operator on broken wifi to rotate a key that is fine.
 		if (isCredentialRejection(err)) {
 			return { kind: 'rejected', reason: describeError(err).slice(0, 200) }
 		}
-		return { kind: 'unverifiable' }
+		return { kind: 'unverifiable', cause: credentialCheckCause(err) }
 	}
+}
+
+/** Why a key check learned nothing: the provider is out of quota, busy, down or did not answer. */
+export type CredentialCheckCause = 'quota' | 'busy' | 'down' | 'no-answer'
+
+function credentialCheckCause(err: unknown): CredentialCheckCause | undefined {
+	const status =
+		(err as { status?: unknown; statusCode?: unknown } | null)?.status ??
+		(err as { statusCode?: unknown } | null)?.statusCode
+	if (status === 429)
+		return /insufficient[_ ]quota|exceeded your current quota|billing|credit/i.test(
+			describeError(err),
+		)
+			? 'quota'
+			: 'busy'
+	if (typeof status === 'number' && status >= 500) return 'down'
+	if (typeof status === 'number') return undefined
+	return /fetch failed|ECONN|ENOTFOUND|EAI_AGAIN|network|timed? ?out|socket|connection/i.test(
+		describeError(err),
+	)
+		? 'no-answer'
+		: undefined
 }
 
 function describeError(err: unknown): string {

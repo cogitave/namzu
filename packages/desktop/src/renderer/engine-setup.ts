@@ -31,7 +31,7 @@ export function setupPlatform(userAgent: string): SetupPlatform {
 export function engineSetup(engine: ExternalEngine, platform: SetupPlatform): EngineSetup {
 	if (engine === 'codex-cli')
 		return {
-			name: 'Codex CLI',
+			name: 'Codex',
 			program: 'codex',
 			install: [{ label: 'With npm', command: 'npm install -g @openai/codex' }],
 			signIn: { command: 'codex login', hint: 'Follow the steps it shows.' },

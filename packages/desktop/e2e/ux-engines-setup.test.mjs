@@ -121,14 +121,14 @@ flow(
 		await picker(w).click();
 		await w.page.getByRole("button", { name: /^Engine:/ }).click();
 		await w.page.getByRole("radio", { name: /Codex CLI/ }).click();
-		const banner = w.page.getByRole("alert").filter({ hasText: "signed-in account" });
+		const banner = w.page.getByRole("alert").filter({ hasText: "sign in with its own account" });
 		await expect(banner).toBeVisible({ timeout: T });
-		await expect(banner).toContainText("Sign in to Codex CLI in a terminal first");
+		await expect(banner).toContainText("Sign in to Codex in a terminal first");
 		await expect(banner.locator("code")).toHaveText("codex login");
 		await expect(banner.getByRole("button", { name: "Retry setup" })).toBeVisible();
 		// The pill says so in words, and nothing of it is a placeholder bar.
-		const pill = w.page.getByRole("button", { name: /^Model, (not available|.+ unavailable)/ });
-		await expect(pill).toContainText(/Not available| unavailable/);
+		const pill = w.page.getByRole("button", { name: /^Model, (not available|Sign in to .+|.+ unavailable)/ });
+		await expect(pill).toContainText(/Not available|Sign in to Codex| unavailable/);
 		await expect(w.page.locator(".model-picker-trigger-skeleton")).toHaveCount(0);
 		await shot(w, "04-signed-out");
 		await banner.getByRole("button", { name: "Open terminal" }).click();

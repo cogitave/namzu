@@ -20,6 +20,12 @@ export interface FriendlyFailure {
 		| 'rejected-key'
 		| 'missing-key'
 		| 'rate-limit'
+		| 'out-of-credit'
+		| 'model-access'
+		| 'model-missing'
+		| 'timeout'
+		| 'too-large'
+		| 'bad-reply'
 		| 'server'
 		| 'too-long'
 		| 'rejected-request'
@@ -74,37 +80,71 @@ export function sanitizeDetails(raw: string): string {
 	return text.length > 500 ? `${text.slice(0, 499)}…` : text
 }
 
+/** The model a vendor says the account cannot use. */
+const MODEL_ACCESS = /(?:access to|use|allowed to use) (?:the )?model[ :`'"]*([\w.:/-]+)/i
+const OUT_OF_CREDIT =
+	/insufficient[_ ]quota|exceeded your current quota|billing|out of credit|credit balance|add (?:a )?payment/i
+
 const PROVIDER_FAILURE = /^([a-z0-9][a-z0-9-]*)(?: \(HTTP (\d{3})\))? — ([^:]+?)(?:: ([\s\S]*))?$/i
 
-/** What Details says about the requests whose cost the provider never reported. */
-export function unknownUsageDetail(count = 1): string {
-	return count === 1
-		? 'Usage for one request is unknown.'
-		: `Usage for ${count} requests is unknown.`
+/** What Details says about usage the provider never reported. One send is one reply, however often it was retried. */
+export function unknownUsageDetail(): string {
+	return 'The provider did not report how much this reply used.'
 }
 export const UNKNOWN_USAGE_DETAIL = unknownUsageDetail()
 
-/** The provider's own wording as one plain sentence: who answered, and with what. */
-function plainProviderDetails(raw: string): string {
-	const matched = PROVIDER_FAILURE.exec(raw.trim())
-	if (!matched) return raw
-	const name = providerName(matched[1]?.toLowerCase())
-	const answer = sanitizeDetails(matched[4] ?? '')
-	const status = matched[2] && !answer.startsWith(matched[2]) ? `${matched[2]} ` : ''
-	const sentence = (matched[3] ?? '').trim().replace(/\.$/, '')
-	return `${name}: ${sentence}${answer || status ? ` (${status}${answer})` : ''}`.replace(
-		/\(\s+/g,
-		'(',
+/** Repeated runs of words (an HTML title and its heading) read once. */
+function collapseRepeats(text: string): string {
+	let previous = ''
+	let current = text
+	while (current !== previous) {
+		previous = current
+		current = current.replace(/\b((?:\S+\s+){0,5}\S+)\s+\1\b/gi, '$1')
+	}
+	return current
+}
+
+/** Thousands grouped, so a token count reads as 131,452. Short numbers (statuses, years) stay. */
+function groupNumbers(text: string): string {
+	return text.replace(/(?<![\d.,])\d{5,}(?![\d.,])/g, (digits) =>
+		Number(digits).toLocaleString('en-US'),
 	)
 }
 
+const REQUEST_ID = /\b(?:cf[- ]?)?(?:ray id|request[ _-]?id)\s*[:=]?\s*([A-Za-z0-9_-]{8,})/i
+const REQUEST_TOKEN = /\breq_[A-Za-z0-9]{8,}\b/
+
+/**
+ * The provider's own wording as plain lines: who answered and with what, then a labelled request
+ * ID when the vendor sent one. Nothing is said twice and no accounting words appear.
+ */
+function plainProviderDetails(raw: string): string[] {
+	const matched = PROVIDER_FAILURE.exec(raw.trim())
+	if (!matched) return [raw]
+	const name = providerName(matched[1]?.toLowerCase())
+	let answer = sanitizeDetails(matched[4] ?? '')
+	const requestId = REQUEST_ID.exec(answer)?.[1] ?? REQUEST_TOKEN.exec(answer)?.[0]
+	answer = answer
+		.replace(REQUEST_ID, ' ')
+		.replace(REQUEST_TOKEN, ' ')
+		.replace(/\b(?:cloudflare|nginx(?:\/[\d.]+)?)\b/gi, ' ')
+		.replace(/\bstatus code\b/gi, ' ')
+		.replace(/\(\s*no body\s*\)/gi, ' ')
+		.replace(/\s+/g, ' ')
+		.trim()
+	answer = groupNumbers(collapseRepeats(answer))
+	const status = matched[2] && !answer.startsWith(matched[2]) ? `${matched[2]} ` : ''
+	const sentence = (matched[3] ?? '').trim().replace(/\.$/, '')
+	const head = `${name}: ${sentence}${answer || status.trim() ? ` (${status}${answer})` : ''}`
+		.replace(/\(\s+/g, '(')
+		.replace(/\s+\)/g, ')')
+	return requestId ? [head, `Request ID: ${requestId}`] : [head]
+}
+
 /** Add what is unknown about usage to the details a failure already carries. */
-export function withUnknownUsage(
-	failures: readonly FriendlyFailure[],
-	count = 1,
-): FriendlyFailure[] {
+export function withUnknownUsage(failures: readonly FriendlyFailure[]): FriendlyFailure[] {
 	if (failures.length === 0) return []
-	const sentence = unknownUsageDetail(count)
+	const sentence = unknownUsageDetail()
 	return failures.map((failure, index) =>
 		index === failures.length - 1
 			? {
@@ -116,7 +156,10 @@ export function withUnknownUsage(
 }
 
 function withDetails(failure: Omit<FriendlyFailure, 'details'>, raw: string): FriendlyFailure {
-	const details = sanitizeDetails(plainProviderDetails(raw))
+	const details = plainProviderDetails(raw)
+		.map((line) => sanitizeDetails(line))
+		.filter(Boolean)
+		.join('\n')
 	return details ? { ...failure, details } : failure
 }
 
@@ -127,7 +170,18 @@ export function describeFailure(raw: string, providerLabel?: string): FriendlyFa
 	if (matched) {
 		const name = providerName(matched[1]?.toLowerCase(), providerLabel)
 		const sentence = (matched[3] ?? '').toLowerCase()
-		if (sentence.includes('could not reach'))
+		const status = matched[2] ? Number(matched[2]) : undefined
+		const body = matched[4] ?? ''
+		if (sentence.includes('could not reach')) {
+			if (status === 408 || /time[ds]? ?out/i.test(body))
+				return withDetails(
+					{
+						kind: 'timeout',
+						text: `${name} took too long to answer. Try again.`,
+						actions: ['try-again'],
+					},
+					message,
+				)
 			return withDetails(
 				{
 					kind: 'connection',
@@ -136,7 +190,18 @@ export function describeFailure(raw: string, providerLabel?: string): FriendlyFa
 				},
 				message,
 			)
-		if (sentence.includes('rejected the request credentials'))
+		}
+		if (sentence.includes('rejected the request credentials')) {
+			const model = MODEL_ACCESS.exec(body)
+			if (model || (status === 403 && /\bmodel\b/i.test(body)))
+				return withDetails(
+					{
+						kind: 'model-access',
+						text: `Your ${name} account can’t use ${model?.[1] ?? 'this model'}. Choose another model.`,
+						actions: ['settings'],
+					},
+					message,
+				)
 			return withDetails(
 				{
 					kind: 'rejected-key',
@@ -145,7 +210,17 @@ export function describeFailure(raw: string, providerLabel?: string): FriendlyFa
 				},
 				message,
 			)
-		if (sentence.includes('rate limited'))
+		}
+		if (sentence.includes('rate limited')) {
+			if (OUT_OF_CREDIT.test(body))
+				return withDetails(
+					{
+						kind: 'out-of-credit',
+						text: `Your ${name} account is out of credit. Add credit in your ${name} billing page, then send again.`,
+						actions: ['settings'],
+					},
+					message,
+				)
 			return withDetails(
 				{
 					kind: 'rate-limit',
@@ -154,6 +229,7 @@ export function describeFailure(raw: string, providerLabel?: string): FriendlyFa
 				},
 				message,
 			)
+		}
 		if (sentence.includes('failed to complete'))
 			return withDetails(
 				{
@@ -172,7 +248,25 @@ export function describeFailure(raw: string, providerLabel?: string): FriendlyFa
 				},
 				message,
 			)
-		if (sentence.includes('rejected the request as invalid'))
+		if (sentence.includes('rejected the request as invalid')) {
+			if (status === 404)
+				return withDetails(
+					{
+						kind: 'model-missing',
+						text: `${name} doesn’t offer that model to your account. Choose another model.`,
+						actions: ['settings'],
+					},
+					message,
+				)
+			if (status === 413)
+				return withDetails(
+					{
+						kind: 'too-large',
+						text: `This message is too large for ${name}. Shorten it or remove an attachment, then send again.`,
+						actions: [],
+					},
+					message,
+				)
 			return withDetails(
 				{
 					kind: 'rejected-request',
@@ -181,7 +275,15 @@ export function describeFailure(raw: string, providerLabel?: string): FriendlyFa
 				},
 				message,
 			)
+		}
 	}
+	if (/without (?:reporting )?token usage|budget reservation/i.test(message))
+		return {
+			kind: 'bad-reply',
+			text: `${providerLabel ? providerName(undefined, providerLabel) : 'The provider'} sent a reply Namzu couldn’t read. Try again.`,
+			actions: ['try-again'],
+			details: UNKNOWN_USAGE_DETAIL,
+		}
 	if (
 		/no (?:api )?(?:key|credential)|requires a credential|not configured|set it up in namzu/i.test(
 			message,
@@ -211,7 +313,7 @@ export function describeFailure(raw: string, providerLabel?: string): FriendlyFa
 	return withDetails(
 		{
 			kind: 'other',
-			text: 'Something went wrong and this reply could not finish. Your message is saved.',
+			text: 'Something went wrong and this reply could not finish. Your message is saved. Try again.',
 			actions: ['try-again'],
 		},
 		message,
@@ -253,7 +355,7 @@ export function describeBlockedRetry(notice: string): FriendlyFailure {
 		}
 	return {
 		kind: 'cannot-repeat',
-		text: 'Namzu can’t safely repeat this reply. Continue without this reply to put your message back in the message box and keep working here.',
+		text: 'Namzu can’t repeat this reply. Continue without this reply to put your message back in the message box and keep working here.',
 		actions: ['continue'],
 	}
 }

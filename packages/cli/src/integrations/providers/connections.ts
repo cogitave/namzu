@@ -105,9 +105,9 @@ function howOf(detected: DetectedProvider): {
 function helpFor(id: ProviderId): string | undefined {
 	switch (id) {
 		case 'anthropic':
-			return 'Or sign in with Claude Code, or from the Namzu tab, and Namzu uses that sign-in.'
+			return 'Or sign in with Claude Code and Namzu will use that sign-in.'
 		case 'codex':
-			return 'Sign in with Codex, or from the Namzu tab, and Namzu uses that sign-in.'
+			return 'Sign in with Codex and Namzu will use that sign-in.'
 		default:
 			return undefined
 	}

@@ -14,6 +14,7 @@ import {
 	useState,
 	useSyncExternalStore,
 } from 'react'
+import type { EngineUpdateId } from '../shared/engine-update-protocol.js'
 import type {
 	ComposerModelSettings,
 	HarnessView,
@@ -22,6 +23,7 @@ import type {
 } from '../shared/protocol.js'
 import { ComposerControl, ComposerControlChevron } from './composer-control.js'
 import { ComposerEffortPanel } from './composer-effort-panel.js'
+import { useSignedOutEngines } from './engine-sign-in.js'
 import { engineStartName, startingLabel, startsAProcess, useElapsed } from './engine-starting.js'
 import {
 	EngineChip,
@@ -90,7 +92,7 @@ export type EngineControl = {
 }
 /** A list longer than this gets a search icon; a shorter one is read at a glance. */
 const SEARCH_FROM = 7
-const LOAD_FAILED = "Couldn't load the model list. It will try again next time you open this."
+const LOAD_FAILED = "Couldn't load the model list. Check your connection, then try again."
 
 function ProviderMark({ provider }: { provider: Provider }) {
 	const Icon =
@@ -219,6 +221,11 @@ export function ModelPicker({
 	const triggerPending = trigger.pending && !label
 	// The engine never answered: the trigger says so instead of a skeleton that never resolves.
 	const engineUnavailable = triggerPending && Boolean(startFailed) && startsAProcess(engine)
+	// An engine that reported no account says what to do, not just that it is unavailable.
+	const signedOutEngines = useSignedOutEngines()
+	const engineUnavailableText = `${
+		signedOutEngines.has(engine as EngineUpdateId) ? 'Sign in to ' : ''
+	}${engineStartName(engineName)}${signedOutEngines.has(engine as EngineUpdateId) ? '' : ' unavailable'}`
 	// A process is being awaited: the engine being chosen, or the selected one while its list loads.
 	const starting =
 		startingEngine && startsAProcess(startingEngine)
@@ -283,7 +290,7 @@ export function ModelPicker({
 		: startingText
 			? `Model, ${startingText.replace('\u2026', '')}`
 			: engineUnavailable
-				? `Model, ${engineStartName(engineName)} unavailable`
+				? `Model, ${engineUnavailableText}`
 				: label
 					? `Model: ${label}${shownEffort?.value ? `, effort: ${effortLabel(shownEffort.value)}` : ''}`
 					: triggerPending && startFailed
@@ -350,9 +357,7 @@ export function ModelPicker({
 						{startingText}
 					</span>
 				) : engineUnavailable ? (
-					<span className="model-picker-trigger-model truncate">
-						{engineStartName(engineName)} unavailable
-					</span>
+					<span className="model-picker-trigger-model truncate">{engineUnavailableText}</span>
 				) : triggerPending && startFailed ? (
 					// The engine did not start (signed out, say): a word, never a grey bar that waits forever.
 					<span className="model-picker-trigger-model model-picker-trigger-starting truncate">
@@ -1061,7 +1066,20 @@ function ModelBrowser({
 			{(errors.length > 0 || notices.length > 0 || sharedNotes.size > 0 || settingsNotice) && (
 				<div className="model-picker-feedback" aria-label="Model catalogue information">
 					{settingsNotice && <p className="model-picker-settings-notice">{settingsNotice}</p>}
-					{errors.length > 0 && <p className="model-picker-quiet">{LOAD_FAILED}</p>}
+					{errors.length > 0 && (
+						<div className="model-picker-notice">
+							<span>{LOAD_FAILED}</span>
+							<button
+								type="button"
+								className="model-picker-retry"
+								onClick={() => {
+									for (const provider of errors) load(provider, true)
+								}}
+							>
+								Try again
+							</button>
+						</div>
+					)}
 					{shownProviders.map((provider) => {
 						const note = sharedNotes.get(provider.id)
 						if (!note || note === shownCatalogues.get(provider.id)?.value?.notice?.trim())
@@ -1079,6 +1097,15 @@ function ModelBrowser({
 								{searching && `${provider.label}: `}
 								{notice}
 							</span>
+							{(shownCatalogues.get(provider.id)?.value?.models.length ?? 0) === 0 && (
+								<button
+									type="button"
+									className="model-picker-retry"
+									onClick={() => load(provider, true)}
+								>
+									Try again
+								</button>
+							)}
 						</div>
 					))}
 				</div>

@@ -43,6 +43,15 @@
 .models-row-status[data-state="connected"] {
 	color: var(--foreground);
 }
+.models-row-status[data-state="rejected"] {
+	color: var(--error, var(--destructive-foreground));
+}
+.models-key-hint {
+	margin: 0;
+	color: var(--muted-foreground);
+	font-size: 13px;
+	line-height: 20px;
+}
 .models-row-actions {
 	display: flex;
 	flex-wrap: wrap;

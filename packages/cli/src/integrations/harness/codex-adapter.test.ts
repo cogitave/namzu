@@ -636,7 +636,7 @@ describe('Codex owned external engine adapter', () => {
 			return true
 		}
 		await expect(discoverCodexHarnessModels({ cwd: '/workspace' })).rejects.toThrow(
-			'own signed-in account',
+			'sign in with its own account',
 		)
 		fixture.onWrite = async (frame, emit) => {
 			if (frame.method !== 'model/list') return false

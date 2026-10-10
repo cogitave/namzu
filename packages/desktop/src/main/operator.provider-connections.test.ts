@@ -51,10 +51,13 @@ it('lists providers, saves a key, checks it and removes it without the key ever 
 	expect(await owner.testProvider('anthropic')).toBe('missing')
 	await owner.saveProviderKey('anthropic', SECRET)
 	expect(await owner.testProvider('anthropic')).toBe('rejected')
+	// Why a check learned nothing reaches the window as its own result.
+	await owner.saveProviderKey('google', SECRET)
+	expect(await owner.testProvider('google')).toBe('quota')
 
 	const removed = await owner.removeProviderKey('openai')
 	expect(removed.find((row) => row.id === 'openai')?.hasSavedKey).toBe(false)
-	expect(recorded.filter((event) => event.kind === 'providers-changed')).toHaveLength(3)
+	expect(recorded.filter((event) => event.kind === 'providers-changed')).toHaveLength(4)
 	// Nothing the operator emitted or returned holds the key.
 	expect(JSON.stringify(recorded)).not.toContain(SECRET)
 })

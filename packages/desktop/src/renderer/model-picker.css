@@ -567,3 +567,19 @@
 		transition: none;
 	}
 }
+.model-picker-retry {
+	flex: none;
+	min-height: 24px;
+	padding: 0 8px;
+	border: 0;
+	border-radius: 6px;
+	background: transparent;
+	color: var(--foreground);
+	font: inherit;
+	text-decoration: underline;
+	cursor: pointer;
+}
+.model-picker-retry:focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: 1px;
+}

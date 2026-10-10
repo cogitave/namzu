@@ -366,6 +366,23 @@ describe('delivered Pal chat rows', () => {
 })
 
 describe('actual Pal chat activity', () => {
+	it('shows the provider wait line a project conversation shows', () => {
+		const waiting = {
+			...started(),
+			providerWait: {
+				at: 1000,
+				delayMs: 8000,
+				attempt: 1,
+				maxRetries: 3,
+				throttled: true,
+			},
+		}
+		expect(palChatStatus(waiting, { now: 1000, provider: 'OpenAI' })).toBe(
+			'Waiting for OpenAI to accept more requests… retrying in 8s',
+		)
+		expect(palChatStatus(waiting)).toBe('Working…')
+	})
+
 	it('uses the admitted reasoning and answer-stream phases for typing, without showing their body', () => {
 		const thinking = update(started(), { kind: 'agent_thought_chunk', text: 'Hidden thoughts' })
 		expect(palChatStatus(thinking)).toBe('Typing…')

@@ -79,4 +79,12 @@ it('tests a saved key with the provider check and maps the answer', async () => 
 	expect(await runtime.testProvider('openai')).toEqual({ status: 'rejected' })
 	verify.mockResolvedValueOnce({ kind: 'unverifiable' } as never)
 	expect(await runtime.testProvider('openai')).toEqual({ status: 'unchecked' })
+	verify.mockResolvedValueOnce({
+		kind: 'unverifiable',
+		cause: 'quota',
+	} as never)
+	expect(await runtime.testProvider('openai')).toEqual({
+		status: 'unchecked',
+		cause: 'quota',
+	})
 })
