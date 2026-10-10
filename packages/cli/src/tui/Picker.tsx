@@ -261,8 +261,6 @@ const CURRENT_MARK = '  ← current'
  */
 const MIN_SOURCE_COLUMNS = 20
 
-/** What `s` does, printed above the list on the screens that offer it. */
-
 /**
  * What the screen that found nothing says, and the reason it says it.
  *

@@ -11273,7 +11273,6 @@ export function App({
 	)
 }
 
-/** One line for a background job that ended, for the transcript and the next turn. */
 /**
  * The notice for a project whose settings could not be applied. A config file
  * that is not valid JSON has Namzu's own sentence already (file, line, column,
@@ -11289,6 +11288,7 @@ function projectSettingsFailure(err: unknown): string {
 		: 'Could not apply this project’s settings.'
 }
 
+/** One line for a background job that ended, for the transcript and the next turn. */
 function describeJobExit(job: {
 	readonly jobId: string
 	readonly command: string
