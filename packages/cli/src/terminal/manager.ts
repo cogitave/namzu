@@ -182,7 +182,12 @@ export class TerminalManager {
 				cols: request.cols,
 				rows: request.rows,
 				cwd,
-				env: buildPtyEnv(this.env, { ...request.env, [TERMINAL_MARKER]: id }, this.platform),
+				// Windows ends the console session's own list, which needs no marker: its programs see no new variable.
+				env: buildPtyEnv(
+					this.env,
+					this.platform === 'win32' ? request.env : { ...request.env, [TERMINAL_MARKER]: id },
+					this.platform,
+				),
 			})
 		} catch (error) {
 			throw new TerminalRequestError(

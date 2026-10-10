@@ -196,14 +196,22 @@ export async function processesCarrying(
 	if (platform !== 'linux') return []
 	const entry = `${name}=${value}`
 	const found: number[] = []
-	for (const pid of await readdir('/proc').catch(() => [] as string[])) {
-		if (!/^\d+$/u.test(pid) || Number(pid) === process.pid) continue
-		try {
-			const environ = await readFile(`/proc/${pid}/environ`, 'utf8')
-			if (environ.split('\0').includes(entry)) found.push(Number(pid))
-		} catch {
-			/* Another user's process, or one that ended while the list was read. */
-		}
+	const pids = (await readdir('/proc').catch(() => [] as string[])).filter(
+		(pid) => /^\d+$/u.test(pid) && Number(pid) !== process.pid,
+	)
+	// A bounded number of reads at a time: a machine with thousands of processes costs a few
+	// round trips, and the event loop is released between batches.
+	for (let from = 0; from < pids.length; from += 64) {
+		await Promise.all(
+			pids.slice(from, from + 64).map(async (pid) => {
+				try {
+					const environ = await readFile(`/proc/${pid}/environ`, 'utf8')
+					if (environ.split('\0').includes(entry)) found.push(Number(pid))
+				} catch {
+					/* Another user's process, or one that ended while the list was read. */
+				}
+			}),
+		)
 	}
 	return found
 }

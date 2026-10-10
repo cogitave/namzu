@@ -135,16 +135,18 @@ describe.skipIf(process.platform !== 'linux')('processesCarrying', () => {
 			['-c', "setsid -f sh -c 'echo $$; exec sleep 300 < /dev/null > /dev/null 2>&1'"],
 			{ stdio: ['ignore', 'pipe', 'ignore'], env: { ...process.env, NAMZU_TERMINAL_ID: marker } },
 		)
-		const first = await new Promise<string>((done) =>
-			shell.stdout.once('data', (chunk: Buffer) => done(String(chunk))),
-		)
-		const program = Number.parseInt(first, 10)
+		let program = Number.NaN
 		try {
+			const first = await new Promise<string>((done) =>
+				shell.stdout.once('data', (chunk: Buffer) => done(String(chunk))),
+			)
+			program = Number.parseInt(first, 10)
 			expect(await processesCarrying('NAMZU_TERMINAL_ID', marker)).toContain(program)
 			expect(await processesCarrying('NAMZU_TERMINAL_ID', `${marker}-other`)).toEqual([])
 			expect(await processesCarrying('NAMZU_TERMINAL_ID', marker, 'darwin')).toEqual([])
 		} finally {
-			process.kill(program, 'SIGKILL')
+			// The program must not outlive a failed expectation either.
+			if (Number.isInteger(program)) process.kill(program, 'SIGKILL')
 		}
 	})
 })
