@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-10-10
+
+- **Update** [Desktop](cli/desktop.md#sidebar-tabs-and-the-command-palette) stops a Recents row's Pin and Archive buttons from drawing over the row's project name: on hover the name, the state slot and the pin mark are hidden, the row's text fades out before the first button for one or two buttons, and each button's tooltip opens beside the row; `sidebar-row-geometry.test.mjs` now asserts no overlap on project and Recents rows.
+
 ## 2026-10-09
 
 - **Update** `packages/cli/src/tui/index.tsx`: the terminal app draws live on a real terminal even when `CI` variables are set, instead of showing a blank screen until exit; the variables are left as they are for the commands the agent runs.
