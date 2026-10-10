@@ -2,7 +2,7 @@
 	display: flex;
 	flex-direction: column;
 	align-items: flex-start;
-	gap: 8px;
+	gap: 4px;
 	margin: 8px 0;
 }
 .turn-recovery-text {
@@ -12,27 +12,15 @@
 	line-height: 20px;
 	overflow-wrap: anywhere;
 }
-.turn-recovery-actions {
-	display: flex;
-	flex-wrap: wrap;
-	gap: 8px;
-}
-.turn-recovery-details {
+.turn-recovery-details-text {
+	align-self: stretch;
 	color: var(--muted-foreground);
 	font-size: 12px;
 	line-height: 18px;
+	user-select: text;
 }
-.turn-recovery-details summary {
-	cursor: pointer;
-	width: fit-content;
-}
-.turn-recovery-details summary:focus-visible {
-	outline: 2px solid var(--ring);
-	outline-offset: 2px;
-	border-radius: 4px;
-}
-.turn-recovery-details p {
-	margin: 4px 0 0;
+.turn-recovery-details-text p {
+	margin: 0 0 4px;
 	overflow-wrap: anywhere;
 	white-space: pre-line;
 }

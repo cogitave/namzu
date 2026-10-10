@@ -6234,6 +6234,7 @@ export function App({
 									<TurnRecovery
 										retry={thread.retry}
 										failures={replyFailures}
+										time={thread.messages.at(-1)?.time}
 										onAction={(action) => {
 											if (action === 'settings') openSettings('models', 'models')
 											else if (action === 'continue') void act(continueWithoutReply)

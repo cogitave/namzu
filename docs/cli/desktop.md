@@ -714,16 +714,27 @@ removed, key-shaped text hidden, at most 500 characters): `src/renderer/friendly
 
 | What happened | What the person reads | Action |
 |---|---|---|
-| Cannot reach the provider | Namzu couldn't reach OpenAI. Check your internet connection. | Try again |
+| Cannot reach the provider | Namzu couldn't reach OpenAI. Check your internet connection. | Retry |
 | 401 / 403 | OpenAI didn't accept your key. Check it in Settings, then send again. | Open model settings |
-| 429 | OpenAI asked Namzu to slow down… (and, while waiting, the countdown below) | Try again |
-| 5xx | OpenAI had a problem on its side. Your message is saved. | Try again |
+| 429 | OpenAI asked Namzu to slow down… (and, while waiting, the countdown below) | Retry |
+| 5xx | OpenAI had a problem on its side. Your message is saved. | Retry |
 | Context window | This conversation is too long for the model… | Start a new conversation |
 | No key | There is no API key for Anthropic. Add one in Settings, then send again. | Open model settings |
 
-**Try again** appears only when the runtime holds a reply it can safely repeat. A Desktop
+The sentence is followed by the same quiet row a settled reply ends with
+(`MessageActions`, `turn-recovery.tsx`): **Retry** and **Copy** as icon buttons (Retry reads "Retry
+with <model>" when the host names the model), then any other way on as small muted text (**Open
+model settings**, **Continue without this reply**, **Copy to a new conversation**, **Start a new
+conversation**), then **Details** as a text toggle with no leading symbol (`aria-expanded`), then
+the time as a settled reply shows it. Every item sits on one centre line with the settled row's
+spacing, the row wraps at the same gaps in a narrow window, Copy copies the sentence and the
+details, and the details text opens under the row on the sentence's left edge. The e2e
+`ux-failed-reply-row.test.mjs` measures the centre line and the spacing and saves pictures to
+`research/ux-20261010/failed-reply-row/`.
+
+**Retry** appears only when the runtime holds a reply it can safely repeat. A Desktop
 conversation has no token limit of its own (the ACP session is opened without `limits`), so after a
-5xx the stopped request is recorded as unknown usage and **Try again** sends a new request in the
+5xx the stopped request is recorded as unknown usage and **Retry** sends a new request in the
 same conversation; **Details** then reads "OpenAI: the provider failed to complete the request (502
 Bad Gateway)" and "Usage for one request is unknown." (or "Usage for N requests is unknown.": the
 driver retries a 5xx before the turn pauses, and each failed attempt is recorded). The status comes

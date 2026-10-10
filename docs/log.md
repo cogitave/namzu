@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-10-10
+
+- **Update** [Desktop](cli/desktop.md#what-a-failed-reply-says): a failed reply ends with the same quiet action row as a settled reply: Retry and Copy as icons, other recovery actions as small muted text, Details as a text toggle without a marker, then the time, all on one centre line; no filled or outlined buttons.
+
 ## 2026-10-09
 
 - **Update** `packages/cli/src/tui/index.tsx`: the terminal app draws live on a real terminal even when `CI` variables are set, instead of showing a blank screen until exit; the variables are left as they are for the commands the agent runs.
