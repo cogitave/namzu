@@ -1,3 +1,4 @@
+import { ConfigLoadError } from '../config/load.js'
 import { type TurnGuardKey, type TurnGuards, resolveTurnGuards } from '../config/turn-guards.js'
 import { TURN_LIMIT_FIELDS, turnLimitCommands } from './turn-limits-settings.js'
 /**
@@ -4467,12 +4468,7 @@ export function App({
 				void runProbe()
 			} catch (err) {
 				setPhase('unhealthy')
-				pushMessage(
-					'system',
-					err instanceof Error && err.message
-						? `Could not apply this project’s settings. ${err.message}`
-						: 'Could not apply this project’s settings.',
-				)
+				pushMessage('system', projectSettingsFailure(err))
 			}
 		} else {
 			setPhase('trust')
@@ -4497,12 +4493,7 @@ export function App({
 			void runProbe()
 		} catch (err) {
 			setPhase('unhealthy')
-			pushMessage(
-				'system',
-				err instanceof Error && err.message
-					? `Could not apply this project’s settings. ${err.message}`
-					: 'Could not apply this project’s settings.',
-			)
+			pushMessage('system', projectSettingsFailure(err))
 		}
 	}, [activateTrustedProject, pushMessage, runProbe])
 
@@ -6338,7 +6329,7 @@ export function App({
 								: [...(event.summary ? [event.summary] : []), ...(event.detail ?? [])]
 						pushMessage(
 							'tool',
-							done.label,
+							event.headline ?? done.label,
 							false,
 							'└',
 							output,
@@ -11283,6 +11274,21 @@ export function App({
 }
 
 /** One line for a background job that ended, for the transcript and the next turn. */
+/**
+ * The notice for a project whose settings could not be applied. A config file
+ * that is not valid JSON has Namzu's own sentence already (file, line, column,
+ * what to do); the parser's wording follows it only under `--debug`.
+ */
+function projectSettingsFailure(err: unknown): string {
+	if (err instanceof ConfigLoadError && err.complete) {
+		const raw = err.cause instanceof Error ? err.cause.message : undefined
+		return raw && debugRequested() ? `${err.message}\n${raw}` : err.message
+	}
+	return err instanceof Error && err.message
+		? `Could not apply this project’s settings. ${err.message}`
+		: 'Could not apply this project’s settings.'
+}
+
 function describeJobExit(job: {
 	readonly jobId: string
 	readonly command: string

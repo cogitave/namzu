@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 
 import {
 	declinedLine,
+	editedLineCounts,
+	factsHeadline,
 	failureFactsLine,
 	looksBinary,
 	tidyCommandOutput,
@@ -118,5 +120,82 @@ describe('a call the kernel refused or could not do', () => {
 		expect(failureFactsLine({ kind: 'failure', reason: 'needs_administrator' })).toBe(
 			'Blocked: this command needs administrator rights.',
 		)
+	})
+})
+
+describe('the headline of a read, search, write or edit', () => {
+	it('reads a file by its name, whatever folder it is in', () => {
+		expect(factsHeadline({ kind: 'read', path: '/home/me/app/src/a.ts' })).toBe('Read a.ts')
+		expect(factsHeadline({ kind: 'read', path: 'C:\\app\\a.ts' })).toBe('Read a.ts')
+		expect(factsHeadline({ kind: 'read', path: 'logo.png', binary: true })).toBe(
+			'Read logo.png · not text',
+		)
+		expect(
+			factsHeadline({
+				kind: 'read',
+				path: 'big.log',
+				partial: true,
+				returnedLines: 200,
+				totalLines: 12400,
+			}),
+		).toBe('Read big.log · 200 of 12,400 lines')
+	})
+
+	it('counts matches and files for a search', () => {
+		expect(
+			factsHeadline({
+				kind: 'search',
+				pattern: 'x',
+				matches: 2,
+				filesMatched: 2,
+				filesSearched: 9,
+			}),
+		).toBe('Searched for x · 2 matches in 2 files')
+		expect(factsHeadline({ kind: 'search', pattern: 'x', matches: 1, filesMatched: 1 })).toBe(
+			'Searched for x · 1 match in 1 file',
+		)
+		expect(factsHeadline({ kind: 'search', pattern: 'x', matches: 0 })).toBe(
+			'Searched for x · no matches',
+		)
+		expect(factsHeadline({ kind: 'search', pattern: 'x', matches: 5, truncated: true })).toBe(
+			'Searched for x · 5 matches, more not shown',
+		)
+		expect(factsHeadline({ kind: 'search', pattern: 'x' })).toBe('Searched for x')
+	})
+
+	it('says what a write did, with the lines it added and removed', () => {
+		expect(
+			factsHeadline({
+				kind: 'write',
+				path: '/p/n.txt',
+				operation: 'created',
+				added: 2,
+				removed: 0,
+			}),
+		).toBe('Created n.txt +2')
+		expect(
+			factsHeadline({ kind: 'write', path: 'a.ts', operation: 'updated', added: 2, removed: 1 }),
+		).toBe('Updated a.ts +2 −1')
+		expect(factsHeadline({ kind: 'write', path: 'a.ts', operation: 'unchanged' })).toBe(
+			'No changes to a.ts',
+		)
+	})
+
+	it('counts an edit from its receipt, leaving out the lines both sides share', () => {
+		expect(editedLineCounts('a\nb\nc', 'a\nX\nY\nc')).toEqual({ added: 2, removed: 1 })
+		expect(editedLineCounts('', 'one\ntwo')).toEqual({ added: 2, removed: 0 })
+		expect(
+			factsHeadline(
+				{ kind: 'edit', path: '/p/a.ts', replacements: 1 },
+				{ before: 'a\nb', after: 'a\nX\nY' },
+			),
+		).toBe('Edited a.ts +2 −1')
+		expect(factsHeadline({ kind: 'edit', path: 'a.ts' })).toBe('Edited a.ts')
+	})
+
+	it('has no opinion on anything else, so a saved conversation keeps its text', () => {
+		expect(factsHeadline(undefined)).toBeUndefined()
+		expect(factsHeadline({ kind: 'failure', reason: 'not_found' })).toBeUndefined()
+		expect(factsHeadline({ kind: 'command' })).toBeUndefined()
 	})
 })

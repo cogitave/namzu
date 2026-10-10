@@ -7,6 +7,7 @@ import {
 } from '../integrations/web/search.js'
 import { explainFailure } from './plain-failure.js'
 import {
+	factsHeadline,
 	failureFactsLine,
 	tidyCommandOutput,
 	tidyTerminalOutput,
@@ -440,6 +441,8 @@ export type AgentEvent =
 			readonly detail?: readonly string[]
 			/** A plain sentence for why a failed step failed, to show in place of `failed: <summary>`. */
 			readonly plainFailure?: string
+			/** One line for what a finished read, search, write or edit did, from its typed facts; `summary` carries it too. */
+			readonly headline?: string
 			/**
 			 * The tool's own one-line account of its result, when it gave one (a
 			 * `generic` result view). `summary` is the first line of the MODEL's
@@ -5959,6 +5962,7 @@ export function toAgentEvent(
 				toolName: event.toolName,
 				...(() => {
 					const view = presenter.presentCall(event.toolName, event.input)
+					if (view.kind === 'diff') rememberCallDiff(event.toolUseId, view)
 					return {
 						summary: viewToSummary(view),
 						...(view.kind === 'generic' && view.activity ? { activity: view.activity } : {}),
@@ -6048,6 +6052,12 @@ export function toAgentEvent(
 			// A plain failure line replaces the summary row, so the first output
 			// line is no longer said above and stays in the body.
 			const plainFailure = unknownTool ?? classed ?? tidy?.failure
+			// A read, search, write or edit the kernel described in fields is headlined
+			// from them. A conversation saved before facts existed has none and keeps
+			// the receipt's own first line.
+			const headline = event.isError
+				? undefined
+				: factsHeadline(event.facts, view.kind === 'diff' ? view : takeCallDiff(event.toolUseId))
 			const withoutRepeatedSummary =
 				plainFailure === undefined &&
 				first !== undefined &&
@@ -6062,7 +6072,8 @@ export function toAgentEvent(
 				toolUseId: event.toolUseId,
 				toolName: event.toolName,
 				isError: event.isError,
-				summary,
+				summary: headline ?? summary,
+				...(headline ? { headline } : {}),
 				...(plainFailure ? { plainFailure } : {}),
 				...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),
 				...(view.kind === 'generic' && view.visibility === 'hidden' ? { hidden: true } : {}),
@@ -6383,6 +6394,29 @@ export function viewToLines(view: ToolResultView): readonly string[] | undefined
 				: lines
 		}
 	}
+}
+
+/**
+ * The text an edit replaced and what replaced it, from the call's own view, kept
+ * until the call finishes: the finished result carries no diff, and the headline
+ * "Edited a.ts +2 −1" counts lines from this. A call that never finishes leaves
+ * its entry behind, so the oldest are dropped past a small bound.
+ */
+const callDiffs = new Map<string, { readonly before: string; readonly after: string }>()
+const CALL_DIFFS_KEPT = 64
+
+function rememberCallDiff(toolUseId: string, view: { before: string; after: string }): void {
+	callDiffs.set(toolUseId, { before: view.before, after: view.after })
+	if (callDiffs.size > CALL_DIFFS_KEPT) {
+		const oldest = callDiffs.keys().next().value
+		if (oldest !== undefined) callDiffs.delete(oldest)
+	}
+}
+
+function takeCallDiff(toolUseId: string): { before: string; after: string } | undefined {
+	const diff = callDiffs.get(toolUseId)
+	callDiffs.delete(toolUseId)
+	return diff
 }
 
 /** The tool call row: one line naming what the call is about. */
