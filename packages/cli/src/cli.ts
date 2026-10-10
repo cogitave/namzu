@@ -73,6 +73,7 @@ import { type FormatName, createFormatter, isFormatName } from './output/index.j
 import { compileBrowserSites, withBrowserSiteRules } from './permissions/browser-sites.js'
 import { PERMISSION_MODES } from './permissions/mode.js'
 import { compilePermissions, warnLegacyMcpPermissionNames } from './permissions/rules.js'
+import { debugRequested } from './tui/plain-interruption.js'
 import { CLI_VERSION } from './version.js'
 
 /** sysexits EX_USAGE — command-line argument error. */
@@ -616,9 +617,15 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		// what is wrong with it; a stack trace would only point at the reader
 		// that noticed, which is not where the problem is.
 		if (err instanceof ConfigLoadError) {
-			process.stderr.write(
-				`${err.message}\nnamzu will not start with a config it cannot read. Fix the file or remove it.\n`,
-			)
+			const next = err.complete
+				? ''
+				: 'namzu will not start with a config it cannot read. Fix the file or remove it.\n'
+			// The parser's own wording is for whoever asked for detail.
+			const detail =
+				err.complete && err.cause instanceof Error && debugRequested(process.env, opts.argv)
+					? `${err.cause.message}\n`
+					: ''
+			process.stderr.write(`${err.message}\n${next}${detail}`)
 			return EXIT_BAD_CONFIG
 		}
 		if (err instanceof ConfigValueError) {

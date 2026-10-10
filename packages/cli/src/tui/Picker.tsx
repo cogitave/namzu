@@ -261,9 +261,6 @@ const CURRENT_MARK = '  ← current'
  */
 const MIN_SOURCE_COLUMNS = 20
 
-/** What `s` does, printed above the list on the screens that offer it. */
-const SETUP_HINT = 's provider setup · check installations and access'
-
 /**
  * What the screen that found nothing says, and the reason it says it.
  *
@@ -1089,19 +1086,13 @@ export function Picker({
 	})
 
 	// Above every screen this picker draws, so the reason is on the same frame as
-	// the choice it is asking for. Whether the setup hint fits beside it is
-	// decided below, where the screen's line budget is; the screens that return
-	// early cannot be showing it in any case, so they ask for it unconditionally.
-	const buildNoticeBox = (withSetupHint: boolean) =>
-		notice || onSetup ? (
+	// the choice it is asking for. The setup key lives in the footer line, not
+	// in a line of its own.
+	const buildNoticeBox = () =>
+		notice ? (
 			<Box paddingBottom={1}>
 				<Box flexDirection="column">
-					{notice ? (
-						<WrappedLines text={notice} width={contentWidth} color={theme.status.warn} />
-					) : null}
-					{onSetup && withSetupHint && !modelPhase && !loginPhase && !loginEntry && !keyEntry ? (
-						<Text dimColor>{SETUP_HINT}</Text>
-					) : null}
+					<WrappedLines text={notice} width={contentWidth} color={theme.status.warn} />
 				</Box>
 			</Box>
 		) : null
@@ -1113,7 +1104,7 @@ export function Picker({
 			: '(nothing pasted yet)'
 		return (
 			<Box flexDirection="column" borderStyle="round" borderColor={theme.border.focus} paddingX={1}>
-				{buildNoticeBox(true)}
+				{buildNoticeBox()}
 				<Text color={theme.accent.system} bold>
 					Complete {loginEntry.entry.label} sign-in
 				</Text>
@@ -1159,7 +1150,7 @@ export function Picker({
 		const kind = classifyCredential(entry, keyEntry.value)
 		return (
 			<Box flexDirection="column" borderStyle="round" borderColor={theme.border.focus} paddingX={1}>
-				{buildNoticeBox(true)}
+				{buildNoticeBox()}
 				<Box flexDirection="column" paddingBottom={1}>
 					<Text color={theme.accent.system} bold>
 						Paste an API key for {entry.label}
@@ -1200,7 +1191,7 @@ export function Picker({
 	if (modelPhase) {
 		return (
 			<Box flexDirection="column">
-				{buildNoticeBox(true)}
+				{buildNoticeBox()}
 				<ModelStepView
 					providerLabel={modelPhase.provider.entry.label}
 					otherProviders={detected
@@ -1238,7 +1229,7 @@ export function Picker({
 		)
 		return (
 			<Box flexDirection="column" borderStyle="round" borderColor={theme.border.focus} paddingX={1}>
-				{buildNoticeBox(true)}
+				{buildNoticeBox()}
 				<Text color={theme.accent.system} bold>
 					Choose a way to use {pathRow.label}
 				</Text>
@@ -1278,7 +1269,7 @@ export function Picker({
 		const existingCount = choices.filter((choice) => choice.kind === 'existing').length
 		return (
 			<Box flexDirection="column" borderStyle="round" borderColor={theme.border.focus} paddingX={1}>
-				{buildNoticeBox(true)}
+				{buildNoticeBox()}
 				<Text color={theme.accent.system} bold>
 					Choose a subscription sign-in
 				</Text>
@@ -1343,7 +1334,7 @@ export function Picker({
 	// count has to be the height the row actually draws, which is why the sources
 	// are wrapped here rather than by the renderer.
 	const oneLine = (text: string) => wrapChoiceText(text, contentWidth).length
-	const emptyScreenFooter = `${onLogin ? 'l sign in · ' : ''}↑↓ or 1–9 select · enter or k enter an API key · ${
+	const emptyScreenFooter = `${onLogin ? 'l sign in · ' : ''}${onSetup ? 's setup · ' : ''}↑↓ or 1–9 select · enter or k enter an API key · ${
 		cancelExits ? 'esc or ctrl+c exit' : 'esc back · ctrl+c exit'
 	}`
 	// Everything the screen draws that is not a row, in the order it is drawn:
@@ -1358,8 +1349,7 @@ export function Picker({
 	const emptyScreenChromeRows =
 		2 +
 		(notice ? noticeLines : 0) +
-		(notice || onSetup ? 1 : 0) +
-		(onSetup ? oneLine(SETUP_HINT) : 0) +
+		(notice ? 1 : 0) +
 		1 +
 		1 +
 		oneLine(EMPTY_SCREEN_INTRO) +
@@ -1388,7 +1378,7 @@ export function Picker({
 		entryTarget ? ` · k enter an API key${namesAnotherRow ? ` for ${entryTarget.label}` : ''}` : ''
 	}${
 		onLogin && selectionKind !== 'signed-in-subscription' ? ' · l create a Namzu sign-in' : ''
-	} · ${cancelExits ? 'esc or ctrl+c exit' : 'esc keep current · ctrl+c exit'}`
+	}${onSetup ? ' · s provider setup' : ''} · ${cancelExits ? 'esc or ctrl+c exit' : 'esc keep current · ctrl+c exit'}`
 	// What the screen keeps, in the order it gives things up.
 	//
 	// Overflow cuts the TOP of the box, and the top is where the notice sits —
@@ -1398,7 +1388,7 @@ export function Picker({
 	// the screen are what go when the terminal is too short to hold them all.
 	// `5 detected · device sessions / Namzu sign-ins / optional keys / local
 	// probes` is a summary of what is already listed beneath it, and
-	// `s provider setup` advertises a key that works from other screens too.
+	// the footer carries the setup key, so no hint line is left to give up.
 	const headingRows = rows.some((row) => row.detected.length === 0)
 		? 1 + oneLine(NOT_DETECTED_HEADING)
 		: 0
@@ -1406,7 +1396,7 @@ export function Picker({
 	const listCoreRows =
 		2 +
 		(notice ? noticeLines : 0) +
-		(notice || onSetup ? 1 : 0) +
+		(notice ? 1 : 0) +
 		1 +
 		headingRows +
 		1 +
@@ -1414,18 +1404,14 @@ export function Picker({
 		1 +
 		TRANSCRIPT_LINE_ABOVE
 	const subtitleRows = 1 + oneLine(listSubtitle)
-	const setupHintRows = onSetup ? oneLine(SETUP_HINT) : 0
 	const screenRows = terminal.rows ?? 24
 	// The row under the cursor is the one the window will not drop, so it is the
 	// height the gives-way tests are measured against — a row is one line only
 	// while its source column fits, and at 50 columns a variable name is three.
 	const cursorRow = rows[Math.max(0, Math.min(cursor, rows.length - 1))]
 	const mustKeep = cursorRow ? rowHeight(cursorRow, contentWidth, CURRENT_MARK) : 1
-	const showSubtitle = screenRows - listCoreRows - setupHintRows - subtitleRows >= mustKeep
-	const showSetupHint =
-		screenRows - listCoreRows - (showSubtitle ? subtitleRows : 0) - setupHintRows >= mustKeep
-	const listChromeRows =
-		listCoreRows + (showSubtitle ? subtitleRows : 0) + (showSetupHint ? setupHintRows : 0)
+	const showSubtitle = screenRows - listCoreRows - subtitleRows >= mustKeep
+	const listChromeRows = listCoreRows + (showSubtitle ? subtitleRows : 0)
 	const rowBudget = Math.max(
 		1,
 		screenRows - (detected.length === 0 ? emptyScreenChromeRows : listChromeRows),
@@ -1435,7 +1421,7 @@ export function Picker({
 	if (detected.length === 0) {
 		return (
 			<Box flexDirection="column" borderStyle="round" borderColor={theme.status.warn} paddingX={1}>
-				{buildNoticeBox(showSetupHint)}
+				{buildNoticeBox()}
 				<Text color={theme.status.warn} bold>
 					No providers detected
 				</Text>
@@ -1494,7 +1480,7 @@ export function Picker({
 
 	return (
 		<Box flexDirection="column" borderStyle="round" borderColor={theme.border.focus} paddingX={1}>
-			{buildNoticeBox(showSetupHint)}
+			{buildNoticeBox()}
 			<Box flexDirection="column" paddingBottom={1}>
 				<Text color={theme.accent.system} bold>
 					{selectionKind === 'signed-in-subscription'

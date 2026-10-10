@@ -186,3 +186,109 @@ export function failureFactsLine(facts: Extract<ToolFacts, { kind: 'failure' }>)
 			return 'The model sent input this tool could not use.'
 	}
 }
+
+/** The file's own name: a headline names the file, and the full path is not for the transcript. */
+function fileName(path: string): string {
+	const trimmed = path.replace(/[\\/]+$/, '')
+	return trimmed.split(/[\\/]/).pop() || trimmed
+}
+
+function clipped(text: string, max: number): string {
+	const flat = text.replace(/\s+/g, ' ').trim()
+	return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat
+}
+
+/** `+2 −1`; a side with nothing is left out, and no change at all gives ''. */
+function changeStats(added: number | undefined, removed: number | undefined): string {
+	const parts: string[] = []
+	if (added) parts.push(`+${added.toLocaleString('en-US')}`)
+	if (removed) parts.push(`−${removed.toLocaleString('en-US')}`)
+	return parts.join(' ')
+}
+
+/**
+ * Lines a replacement added and removed. The receipt of an edit holds only the
+ * text it replaced, so the lines both sides share at the start and the end are
+ * not counted as changes.
+ */
+export function editedLineCounts(
+	before: string,
+	after: string,
+): { readonly added: number; readonly removed: number } {
+	const a = before === '' ? [] : before.split('\n')
+	const b = after === '' ? [] : after.split('\n')
+	let head = 0
+	while (head < a.length && head < b.length && a[head] === b[head]) head++
+	let tail = 0
+	while (
+		tail < a.length - head &&
+		tail < b.length - head &&
+		a[a.length - 1 - tail] === b[b.length - 1 - tail]
+	)
+		tail++
+	return { removed: a.length - head - tail, added: b.length - head - tail }
+}
+
+/**
+ * The one-line account of a finished read, search, write or edit, from the typed
+ * facts the kernel reports (`ToolResult.facts`), not from the model's receipt:
+ * "Read a.ts", "Searched for x · 2 matches in 2 files", "Edited a.ts +2 −1",
+ * "Created n.txt +2". Undefined when the facts do not describe one of those, so
+ * the caller keeps the text it already had (a conversation saved before facts
+ * existed, or any other tool).
+ */
+export function factsHeadline(
+	facts: ToolFacts | undefined,
+	edit?: { readonly before: string; readonly after: string },
+): string | undefined {
+	if (!facts) return undefined
+	switch (facts.kind) {
+		case 'read': {
+			const name = fileName(facts.path)
+			if (facts.binary) return `Read ${name} · not text`
+			if (facts.partial && facts.returnedLines !== undefined && facts.totalLines !== undefined) {
+				return `Read ${name} · ${facts.returnedLines.toLocaleString('en-US')} of ${plural(facts.totalLines, 'line')}`
+			}
+			return `Read ${name}`
+		}
+		case 'search': {
+			const lead = `Searched for ${clipped(facts.pattern, 60)}`
+			if (facts.matches === undefined) return lead
+			let found =
+				facts.matches === 0
+					? 'no matches'
+					: `${plural(facts.matches, 'match', 'matches')}${
+							facts.filesMatched !== undefined ? ` in ${plural(facts.filesMatched, 'file')}` : ''
+						}`
+			if (facts.truncated) found = `${found}, more not shown`
+			return `${lead} · ${found}`
+		}
+		case 'list': {
+			const lead = `Listed ${clipped(facts.pattern, 60)}`
+			if (facts.count === undefined) return lead
+			const found = facts.count === 0 ? 'no files' : plural(facts.count, 'file')
+			return `${lead} · ${facts.truncated ? `${found}, more not shown` : found}`
+		}
+		case 'write': {
+			const name = fileName(facts.path)
+			const lead =
+				facts.operation === 'created'
+					? 'Created'
+					: facts.operation === 'updated'
+						? 'Updated'
+						: facts.operation === 'unchanged'
+							? 'No changes to'
+							: 'Wrote'
+			const stats = changeStats(facts.added, facts.removed)
+			return `${lead} ${name}${stats ? ` ${stats}` : ''}`
+		}
+		case 'edit': {
+			if (!facts.path) return undefined
+			const counts = edit ? editedLineCounts(edit.before, edit.after) : undefined
+			const stats = counts ? changeStats(counts.added, counts.removed) : ''
+			return `Edited ${fileName(facts.path)}${stats ? ` ${stats}` : ''}`
+		}
+		default:
+			return undefined
+	}
+}

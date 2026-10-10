@@ -99,4 +99,24 @@ describe('invalid explicit config reaches the real CLI refusal', () => {
 		expect(result.status).toBe(0)
 		expect(result.stderr).toContain('namzu needs no central server')
 	})
+
+	const BROKEN = '{\n  "format": "json",\n  oops: 1\n}'
+
+	it("says in its own words that namzu.config.json isn't valid JSON, with line and column", () => {
+		const result = runCliProcess(['serve'], { config: BROKEN })
+
+		expect(result.status).toBe(78)
+		expect(result.stderr).toBe(
+			"namzu.config.json isn't valid JSON (line 3, column 3). Fix it, then start Namzu again.\n",
+		)
+	})
+
+	it('shows the parser text only with --debug', () => {
+		const result = runCliProcess(['--debug', 'serve'], { config: BROKEN })
+
+		expect(result.status).toBe(78)
+		expect(result.stderr).toContain("namzu.config.json isn't valid JSON (line 3, column 3).")
+		expect(result.stderr).toContain('JSON')
+		expect(result.stderr.split('\n').length).toBeGreaterThan(2)
+	})
 })

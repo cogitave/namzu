@@ -386,11 +386,14 @@ export function loadConfig(opts: LoadConfigOptions = {}): NamzuCliConfig {
 export class ConfigLoadError extends Error {
 	/** The file whose contents could not be established. */
 	readonly path: string
+	/** The message already says what to do next, so the caller adds no second line. */
+	readonly complete: boolean
 
-	constructor(path: string, message: string, options?: { cause?: unknown }) {
-		super(message, options)
+	constructor(path: string, message: string, options?: { cause?: unknown; complete?: boolean }) {
+		super(message, options?.cause === undefined ? undefined : { cause: options.cause })
 		this.name = 'ConfigLoadError'
 		this.path = path
+		this.complete = options?.complete === true
 	}
 }
 
@@ -443,9 +446,38 @@ function readJsonIfExists(path: string): MutableConfig {
 	try {
 		parsed = JSON.parse(raw)
 	} catch (cause) {
-		throw new ConfigLoadError(path, `${path} is not valid JSON: ${reasonOf(cause)}`, { cause })
+		throw new ConfigLoadError(path, invalidJsonSentence(path, raw, cause), {
+			cause,
+			complete: true,
+		})
 	}
 	return asConfigObject(path, parsed)
+}
+
+/**
+ * Namzu's own sentence for a config file that is not JSON: the file's name, the
+ * line and column the parser stopped at, and what to do. The parser's wording is
+ * not part of it; it stays on the error's `cause` for `--debug`.
+ */
+function invalidJsonSentence(path: string, raw: string, cause: unknown): string {
+	const name = path.split(/[\\/]/).pop() || path
+	const position = jsonErrorPosition(raw, cause)
+	let where = ''
+	if (position !== undefined) {
+		const before = raw.slice(0, position)
+		const line = before.split('\n').length
+		const column = position - (before.lastIndexOf('\n') + 1) + 1
+		where = ` (line ${line}, column ${column})`
+	}
+	return `${name} isn't valid JSON${where}. Fix it, then start Namzu again.`
+}
+
+function jsonErrorPosition(raw: string, cause: unknown): number | undefined {
+	const text = cause instanceof Error ? cause.message : String(cause)
+	const at = /position (\d+)/.exec(text)
+	if (at) return Math.min(Number(at[1]), raw.length)
+	if (/end of JSON input/i.test(text)) return raw.length
+	return undefined
 }
 
 /**
