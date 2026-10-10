@@ -601,7 +601,7 @@ offering a first Pal.
 A folder that vanishes while its project is open gets the same screen ("can’t be found", **Locate folder…**,
 **Remove project…**), and **Locate folder…** relinks it the same way.
 
-A restored tab whose project folder is gone closes and leaves that project's own page (its name, **Locate folder…**, **Remove project…**); restored tabs of a missing project never pile up as identical blank ones, and no "could not be loaded" banner sits over another project's page.
+A restored tab whose project folder is gone shows that project's own page (its name, **Locate folder…**, **Remove project…**) and keeps its own title; no "could not be loaded" banner sits over another project's page.
 
 ## Errors that reach the screen
 

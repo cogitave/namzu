@@ -55,6 +55,17 @@ describe('plainError', () => {
 		expect(plainError(new Error(named))).toEqual({ text: named })
 	})
 
+	it.each([
+		'Request failed with status code 500.',
+		'Win32 error 5 at C:\\Users\\a\\x.',
+		'Fetch to https://api.example.com/v1/chat failed.',
+		'Could not open /home/a/b/c.',
+	])('keeps a path, URL or status code behind Details: %j', (raw) => {
+		const result = plainError(new Error(raw), 'load the models')
+		expect(result.text).toBe('Couldn’t load the models. Try again.')
+		expect(result.details).toBe(raw)
+	})
+
 	it('has a sentence for a value that is not an Error', () => {
 		expect(plainError(undefined, 'open the folder').text).toBe(
 			'Couldn’t open the folder. Try again.',

@@ -36,7 +36,7 @@ const KNOWN: { match: RegExp; text: string }[] = [
 		text: 'That file or folder no longer exists. Choose another one.',
 	},
 	{
-		match: /\b(?:EACCES|EPERM)\b|permission denied|operation not permitted/i,
+		match: /\b(?:EACCES|EPERM)\b|permission denied|access is denied|operation not permitted/i,
 		text: 'Namzu isn’t allowed to open that. Check its permissions, then try again.',
 	},
 	{
@@ -67,6 +67,8 @@ const KNOWN: { match: RegExp; text: string }[] = [
 const DEVELOPER_WORDS =
 	/\b(?:undefined|null|NaN|json|stack|errno|syscall|protocol|frame|pipe|descendants?|ownership|handshake|socket|spawn|exit code|namzu\/[a-z]|harness|ledger|ingress|dispatch|checkpoint)\b|\[object|[a-z]+_[a-z_]+|\bat [^ ]+:\d+|0x[0-9a-f]{4,}|\b[0-9a-f]{8}-[0-9a-f]{4}-/i
 /** Operating-system and library codes are upper case; matching them case-sensitively spares "Every". */
+/** A path, URL or status-code phrase is a developer's detail; it belongs behind Details. */
+const TECHNICAL = /[A-Za-z]:[\\/]|\\\\|(?:^|\s)\/[\w.-]+\/|https?:\/\/|status code|\bwin32\b/i
 const CODES = /\b(?:E[A-Z]{3,}|ERR_[A-Z_]+|SIG[A-Z]+|RPC|IPC|ACP|JSON)\b/
 
 /** True when the message reads as a sentence the product wrote for a person. */
@@ -77,7 +79,7 @@ export function isPlainMessage(whole: string): boolean {
 	if (!/^[A-Z“"‘']/.test(text)) return false
 	if (!/[.!?”’)]$/.test(text)) return false
 	if (/\bError\b/.test(text)) return false
-	return !DEVELOPER_WORDS.test(text) && !CODES.test(text)
+	return !DEVELOPER_WORDS.test(text) && !CODES.test(text) && !TECHNICAL.test(text)
 }
 
 function fallback(context: string | undefined): string {
