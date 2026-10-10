@@ -18,14 +18,21 @@ const rail = (state?: UpdateState) =>
 		}),
 	)
 
+/** The aria-label of every <button>, in document order. */
+const labels = (markup: string) =>
+	[...markup.matchAll(/<button\b[^>]*>/g)].map((m) => /aria-label="([^"]*)"/.exec(m[0])?.[1])
+
 describe('the rail update badge', () => {
-	it('is a labelled button above the profile control only when an update is ready', () => {
+	it('is a labelled button directly above Settings, the last item, only when an update is ready', () => {
 		const markup = rail({ status: 'ready', version: '0.2.0' })
 		const badge = markup.indexOf(
 			'aria-label="Update ready. Restart Namzu to install version 0.2.0"',
 		)
 		expect(badge).toBeGreaterThan(-1)
-		expect(badge).toBeLessThan(markup.indexOf('aria-label="Profile"'))
+		expect(labels(markup).slice(-2)).toEqual([
+			'Update ready. Restart Namzu to install version 0.2.0',
+			'Settings',
+		])
 		expect(markup).toContain('rail-update-button')
 		expect(markup).toContain('aria-hidden="true"')
 	})
@@ -41,6 +48,15 @@ describe('the rail update badge', () => {
 			expect(rail(state)).not.toContain('rail-update-button')
 		expect(rail()).not.toContain('rail-update-button')
 		expect(rail()).not.toContain('<output')
+	})
+
+	it('has no profile control, and Settings is last with or without an update', () => {
+		for (const markup of [rail(), rail({ status: 'ready', version: '0.2.0' })]) {
+			expect(markup).not.toContain('Profile')
+			expect(markup).not.toContain('rail-profile')
+			expect(labels(markup).at(-1)).toBe('Settings')
+		}
+		expect(labels(rail())).toEqual(['Home', 'Spaces', 'Scheduled', 'Plugins', 'More', 'Settings'])
 	})
 
 	it('keeps a polite live region for the one announcement', () => {

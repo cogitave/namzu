@@ -11,7 +11,6 @@ import {
 	updateAnnouncement,
 	updateBadge,
 	updateDialogModel,
-	updateMenuEntry,
 } from './update-model.js'
 
 const ready: UpdateState = { status: 'ready', version: '0.2.0' }
@@ -114,19 +113,6 @@ describe('dialog model', () => {
 		expect(model?.body).toBe('It stopped. Namzu is still running.')
 		expect(model?.actions).toEqual(['retry', 'close'])
 	})
-
-	it('puts only quiet entries in the profile menu', () => {
-		expect(updateMenuEntry({ status: 'idle' })).toEqual({
-			label: 'Check for updates',
-			action: 'check',
-		})
-		expect(updateMenuEntry({ status: 'error', message: 'x' })?.label).toBe(
-			'Update check failed. Retry',
-		)
-		expect(updateMenuEntry({ status: 'disabled' })).toBeUndefined()
-		expect(updateMenuEntry({ status: 'checking' })).toBeUndefined()
-		expect(updateMenuEntry(ready)?.action).toBe('open')
-	})
 })
 
 describe('rendered dialog', () => {
@@ -206,10 +192,6 @@ describe('an offered update (automatic download off)', () => {
 			title: 'Update available',
 			actions: ['download', 'later'],
 			dismissible: true,
-		})
-		expect(updateMenuEntry(available)).toEqual({
-			label: 'Download update (version 0.3.0)',
-			action: 'open',
 		})
 	})
 })

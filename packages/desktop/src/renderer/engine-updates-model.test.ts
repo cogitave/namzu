@@ -295,13 +295,13 @@ describe('the rail badge for programs that are behind', () => {
 				}),
 			),
 		)
-	it('is a labelled button above the profile control when a program is behind', () => {
+	it('is a labelled button directly above Settings when a program is behind', () => {
 		const markup = rail(controls(state(codex)), { status: 'idle' })
 		const badge = markup.indexOf(
 			'aria-label="Updates available. Open Settings to update Codex CLI"',
 		)
 		expect(badge).toBeGreaterThan(-1)
-		expect(badge).toBeLessThan(markup.indexOf('aria-label="Profile"'))
+		expect(badge).toBeLessThan(markup.indexOf('aria-label="Settings"'))
 	})
 	it('shows without an app updater at all', () => {
 		expect(rail(controls(state(codex)))).toContain('rail-update-button')

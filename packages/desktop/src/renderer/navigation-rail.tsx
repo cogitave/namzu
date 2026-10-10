@@ -16,11 +16,10 @@ import {
 	PuzzleFilledIcon,
 	PuzzleIcon,
 	SettingsIcon,
-	UserRoundIcon,
 } from './icons.js'
 import { Button } from './ui/button.js'
 import { Tooltip, TooltipPopup, TooltipTrigger } from './ui/tooltip.js'
-import { updateAnnouncement, updateBadge, updateMenuEntry } from './update-model.js'
+import { updateAnnouncement, updateBadge } from './update-model.js'
 import { useEngineUpdates } from './use-engine-updates.js'
 import './navigation-rail.css'
 
@@ -53,7 +52,6 @@ export function NavigationRail({
 }) {
 	const engines = useEngineUpdates()
 	const moreTrigger = useRef<HTMLButtonElement>(null)
-	const profileTrigger = useRef<HTMLButtonElement>(null)
 	return (
 		<nav className="navigation-rail" aria-label="Main navigation">
 			<RailButton label="Home" active={section === 'home'} onClick={onHome}>
@@ -90,14 +88,6 @@ export function NavigationRail({
 				</RailMenuPopup>
 			</RailMenuRoot>
 			<div className="rail-spacer" />
-			<RailButton
-				label="Settings"
-				tooltip={`Settings (${typeof navigator !== 'undefined' && /Mac/.test(navigator.platform) ? '⌘,' : 'Ctrl+,'})`}
-				active={section === 'settings'}
-				onClick={onSettings}
-			>
-				<SettingsIcon />
-			</RailButton>
 			{(update || (engines && onOpenUpdates)) && (
 				<UpdateRailButton
 					state={update?.state ?? { status: 'disabled' }}
@@ -106,50 +96,20 @@ export function NavigationRail({
 					onOpenEngines={onOpenUpdates}
 				/>
 			)}
-			<RailMenuRoot triggerRef={profileTrigger}>
-				<RailMenuTrigger label="Profile" profile triggerRef={profileTrigger}>
-					<span className="rail-profile-avatar" aria-hidden="true">
-						<UserRoundIcon />
-					</span>
-				</RailMenuTrigger>
-				<RailMenuPopup label="Profile" align="end" triggerRef={profileTrigger}>
-					<div className="rail-profile-copy">Namzu on this device</div>
-					<Menu.Item className="rail-menu-item" onClick={onSettings}>
-						<SettingsIcon />
-						Settings…
-					</Menu.Item>
-					{update && <UpdateMenuItem state={update.state} update={update} />}
-				</RailMenuPopup>
-			</RailMenuRoot>
+			<RailButton
+				label="Settings"
+				tooltip={`Settings (${typeof navigator !== 'undefined' && /Mac/.test(navigator.platform) ? '⌘,' : 'Ctrl+,'})`}
+				active={section === 'settings'}
+				onClick={onSettings}
+			>
+				<SettingsIcon />
+			</RailButton>
 		</nav>
 	)
 }
 
-function UpdateMenuItem({
-	state,
-	update,
-}: {
-	state: UpdateState
-	update: { onOpen: () => void; onCheck: () => void }
-}) {
-	const entry = updateMenuEntry(state)
-	if (!entry) return null
-	return (
-		<>
-			<Menu.Separator className="rail-menu-separator" />
-			<Menu.Item
-				className="rail-menu-item"
-				onClick={entry.action === 'check' ? update.onCheck : update.onOpen}
-			>
-				<DownloadIcon />
-				{entry.label}
-			</Menu.Item>
-		</>
-	)
-}
-
 /**
- * A real button above the avatar for an installable update, announced once when it appears. The app's
+ * A real button directly above Settings for an installable update, announced once when it appears. The app's
  * own update comes first (it is a restart); programs that are behind show the same button otherwise.
  */
 function UpdateRailButton({
@@ -273,12 +233,10 @@ function RailButton({
 
 function RailMenuTrigger({
 	label,
-	profile,
 	triggerRef,
 	children,
 }: {
 	label: string
-	profile?: boolean
 	triggerRef: RefObject<HTMLButtonElement | null>
 	children: ReactNode
 }) {
@@ -292,7 +250,7 @@ function RailMenuTrigger({
 								ref={triggerRef}
 								variant="ghost-muted"
 								size="icon"
-								className={`rail-button${profile ? ' rail-profile-button' : ''}`}
+								className="rail-button"
 								aria-label={label}
 							/>
 						}
@@ -308,18 +266,16 @@ function RailMenuTrigger({
 
 function RailMenuPopup({
 	label,
-	align = 'start',
 	triggerRef,
 	children,
 }: {
 	label: string
-	align?: 'start' | 'end'
 	triggerRef: RefObject<HTMLButtonElement | null>
 	children: ReactNode
 }) {
 	return (
 		<Menu.Portal>
-			<Menu.Positioner className="rail-menu-positioner" side="right" align={align} sideOffset={8}>
+			<Menu.Positioner className="rail-menu-positioner" side="right" align="start" sideOffset={8}>
 				<Menu.Popup className="rail-menu" aria-label={label} finalFocus={triggerRef}>
 					{children}
 				</Menu.Popup>

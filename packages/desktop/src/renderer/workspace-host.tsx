@@ -479,7 +479,9 @@ export function WorkspaceHost() {
 					state={updateState}
 					onAction={updateAction}
 					onClose={() => setUpdateOpen(false)}
-					returnFocus={() => document.querySelector<HTMLElement>('.rail-profile-button')}
+					returnFocus={() =>
+						document.querySelector<HTMLElement>('.navigation-rail [aria-label="Settings"]')
+					}
 				/>
 			)}
 		</div>
