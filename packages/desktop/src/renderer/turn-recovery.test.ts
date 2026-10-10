@@ -156,3 +156,18 @@ it('keeps a still-finishing notice alone and a lone failure untouched', () => {
 	expect(combineStopped(cause, undefined)).toEqual([cause])
 	expect(combineStopped(undefined, undefined)).toEqual([])
 })
+
+it('never tells the person to send again when the reply cannot be repeated', () => {
+	const blocked = describeBlockedRetry('Retry requires its actual provider usage receipt.')
+	for (const raw of [
+		'openai (HTTP 401) — the provider rejected the API key',
+		'openai (HTTP 402) — insufficient credit: you exceeded your current quota',
+		'openai (HTTP 413) — request too large',
+		'no api key configured for openai',
+	]) {
+		const [one] = combineStopped(describeFailure(raw), blocked)
+		expect(one?.text, raw).not.toMatch(/send again|Try again|Your message is saved/i)
+		expect(one?.text, raw).toContain('can’t repeat this reply')
+		expect(one?.text, raw).not.toMatch(/\.\./)
+	}
+})

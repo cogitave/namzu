@@ -484,6 +484,7 @@ export function combineStopped(
 	const what = cause.text
 		.replace(/\s*Your message is saved\.?/i, '')
 		.replace(/\s*Try again\.?\s*$/i, '')
+		.replace(/,?\s*then send again\.?\s*$/i, '.')
 		.trim()
 	const actions: FailureAction[] = cause.actions.filter((action) => action !== 'try-again')
 	for (const action of blocked.actions) if (!actions.includes(action)) actions.push(action)
