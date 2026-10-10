@@ -213,7 +213,7 @@ import { engineTerminalRequest, shellTerminalRequest } from './terminal-request.
 import type { ThreadRowActions } from './thread-card.js'
 import { PaneToasts } from './toast.js'
 import { Transcript } from './transcript.js'
-import { TurnRecovery } from './turn-recovery.js'
+import { TurnRecovery, recoveryKey } from './turn-recovery.js'
 import { Button } from './ui/button.js'
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from './ui/empty.js'
 import { UndoDialog } from './undo-dialog.js'
@@ -6344,6 +6344,7 @@ export function App({
 										</ProviderNameContext.Provider>
 									)}
 									<TurnRecovery
+										key={recoveryKey(sessionId, replyFailures)}
 										retry={thread.retry}
 										model={retryModel}
 										failures={replyFailures}

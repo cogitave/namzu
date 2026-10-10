@@ -917,16 +917,11 @@ pre {
 	outline-offset: 2px;
 }
 .connection-error {
-	/* Laid over the page, at the spot it would have taken: showing or clearing it moves nothing. */
-	position: absolute;
-	/* Below the tab strip, never over it: the tabs and + stay reachable while a notice shows. */
-	top: var(--workspace-topbar-height);
-	z-index: 30;
-	padding: 12px 20px;
-	pointer-events: none;
-}
-.connection-error > * {
-	pointer-events: auto;
+	/* In the column, between the tab strip and the page: it takes its own height, so it never
+	   covers the first row of the transcript at any width. */
+	position: relative;
+	flex: none;
+	padding: 12px 20px 4px;
 }
 .jobs-panel {
 	position: absolute;

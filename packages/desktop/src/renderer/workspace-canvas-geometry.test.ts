@@ -44,7 +44,7 @@ describe('workspace canvas geometry', () => {
 		expect(after.groups[0]?.rect.width).toBe(598)
 	})
 
-	it('retains readable eight-pane geometry after the native window becomes smaller', () => {
+	it('stacks eight readable panes, never sideways, after the native window becomes smaller', () => {
 		const columns = Array.from({ length: 4 }, (_, index) =>
 			split(`column-${index}`, group(`${index}-top`), group(`${index}-bottom`), 'vertical'),
 		)
@@ -55,8 +55,8 @@ describe('workspace canvas geometry', () => {
 		)
 		const geometry = workspaceGeometry(tree, { width: 560, height: 460 })
 		expect(geometry.groups).toHaveLength(8)
-		expect(geometry.width).toBe(1532)
-		expect(geometry.height).toBe(604)
+		expect(geometry.width).toBe(560)
+		expect(geometry.height).toBe(2428)
 		for (const { rect } of geometry.groups) {
 			expect(rect.width).toBeGreaterThanOrEqual(380)
 			expect(rect.height).toBeGreaterThanOrEqual(300)

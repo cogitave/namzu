@@ -7,6 +7,7 @@ import {
 	type WorkspaceSize,
 	type WorkspaceSplit,
 	constrainWorkspaceSplitRatio,
+	fitWorkspaceDirections,
 	workspaceMinimumSize,
 } from '../shared/workspace-layout.js'
 
@@ -100,12 +101,15 @@ export interface WorkspaceGeometry extends WorkspaceSize {
 	dividers: WorkspaceDividerRect[]
 }
 
+export { fitWorkspaceDirections } from '../shared/workspace-layout.js'
+
 /** Flat group siblings retain their React identity when a split wraps or collapses their tree. */
 export function workspaceGeometry(
-	root: WorkspaceNode | null,
+	saved: WorkspaceNode | null,
 	viewport: WorkspaceSize,
 	ratios: Readonly<Record<string, number>> = {},
 ): WorkspaceGeometry {
+	const root = fitWorkspaceDirections(saved, viewport.width, ratios)
 	const minimum = workspaceMinimumSize(root)
 	const geometry: WorkspaceGeometry = {
 		width: Math.max(minimum.width, Number.isFinite(viewport.width) ? viewport.width : 0),

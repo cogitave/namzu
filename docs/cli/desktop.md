@@ -601,8 +601,8 @@ The open tab keeps the conversation's own title from its saved view (not "Conver
 section of the sidebar says "Couldn’t load your Pals." with **Retry** if the list cannot be read instead of
 offering a first Pal.
 
-A folder that vanishes while its project is open gets the same screen ("can’t be found", **Locate folder…**,
-**Remove project…**), and **Locate folder…** relinks it the same way.
+A folder that vanishes while its project is open gets the same screen (“*name*” can’t be found, **Locate folder…**,
+**Remove project…**), and **Locate folder…** relinks it the same way. A name a person gave sits in curly quotes wherever it is inside a sentence on that page, and in the accessible names of the sidebar row's **Locate folder** and **Remove** buttons.
 
 A restored tab whose project folder is gone shows that project's own page (its name, **Locate folder…**, **Remove project…**) and keeps its own title; no "could not be loaded" banner sits over another project's page.
 
@@ -753,7 +753,9 @@ The sentence is followed by the same quiet row a settled reply ends with
 (`MessageActions`, `turn-recovery.tsx`): the time first, as a settled reply shows it, then **Retry** and **Copy** as icon buttons (Retry reads "Retry
 with *model*" when the model selected now is not the one that stopped), then any other way on as small muted text (**Open
 model settings**, **Continue without this reply**, **Copy to a new conversation**, **Start a new
-conversation**), then **Details** as a text toggle with no leading symbol (`aria-expanded`). Every item sits on one centre line with the settled row's
+conversation**), then **Details** as a text toggle with no leading symbol (`aria-expanded`). Details start closed for every failure
+the row has not shown before: the toggle is keyed on the conversation and the failure it describes (`recoveryKey`), so
+Details left open on one failure do not open on the next conversation's. Every item sits on one centre line with the settled row's
 spacing, the row wraps at the same gaps in a narrow window, Copy copies the sentence and the
 details, and the details text opens under the row on the sentence's left edge. The e2e
 `ux-failed-reply-row.test.mjs` measures the centre line and the spacing and saves pictures to
@@ -843,8 +845,10 @@ and the banner's stale error) is cleared; a failed *first* open still shows the 
 **An engine that cannot start.** When Codex or `claude-code` does not answer, the banner names the
 engine ("… could not start. Check that it is installed on this computer and that you are signed in to it,
 then choose Retry setup."), the model button reads "… unavailable" (or "Sign in to Codex" when the engine reported no account)
-instead of a skeleton that never resolves, and the banner no longer pushes the page down (banners are laid over the page, starting
-below the tab strip so the tabs and + stay visible and reachable while it shows).
+instead of a skeleton that never resolves. A conversation's banner takes its own row between the tab strip and the transcript
+(`.connection-error` is in the column, not laid over it), so at every width it never covers the first row or the date line, and the
+transcript starts where the tab strip ends again once it is dismissed; `e2e/ux-layout-geometry.test.mjs` measures the banner against the
+conversation at 1280, 960, 900 and 760 px.
 
 **Approval cards.** A write whose "before" cannot be shown reads "Namzu couldn't show what's in
 *file* now. This is what it wants to write." and the caution names the file: "This replaces *file*,
@@ -1791,8 +1795,10 @@ Splits form a recursive layout rather than a fixed two- or four-panel grid.
 Each pane has a minimum width of 380px and height of 300px, with a 4px divider.
 The available area determines how many additional splits fit; there is no
 four- or eight-pane product limit. Existing splits remain readable after a
-window shrinks by retaining the recursive minimum size and allowing workspace
-scrolling. Drag a divider to resize its branches, or focus it and use the
+window shrinks: side-by-side panes whose two minimums no longer fit the width are stacked, one above the other, the
+same way at every width (`fitWorkspaceDirections`; the saved direction and ratio are untouched, so widening the window puts them
+side by side again), because stacking keeps both panes in view with the same dividers and tabs while a one-pane switch would hide a
+running terminal; the page never scrolls sideways. Stacked panes still scroll vertically when their minimum heights exceed the window. Drag a divider to resize its branches, or focus it and use the
 appropriate arrow keys; Shift makes a larger step, and Home/End reach the
 readable bounds. Keyboard and pointer changes preserve both branches' minimums.
 Group controllers keep stable identities when the tree gains or loses a split.
@@ -2772,8 +2778,9 @@ Pal instead of adding a second one beside it, unless that older tab holds an uns
 attachments (or cannot be read), in which case it stays open so nothing the person wrote is lost. A caret beside **+** ("More ways to add a tab") opens the same menu as the
 right-click on **+**. The menu of a terminal tab also offers **New terminal to the right** and **New
 terminal below**. When a split needs more room than the pane has, the docked sidebar closes first
-(remembered, like the toggle) and, if even that is not enough, the window says it is too narrow; the page
-never scrolls sideways. A split made while a terminal is in front leaves that terminal in front.
+(remembered, like the toggle) and, if even that is not enough, **to the right** opens the new pane below instead (the window
+says it is too small to split only when neither fits; the pane being split is judged as it is drawn, stacked or not, in the window and in the main process alike, so a refusal never reads as a changed workspace); the page never scrolls sideways. Below 768 px the sidebar is a drawer, so closing it
+never counts as room. A split made while a terminal is in front leaves that terminal in front.
 
 **Keyboard.** Ctrl+W closes the tab in front (⌘+W on a Mac), Ctrl+Tab and Ctrl+Shift+Tab (or Ctrl+PageDown
 and Ctrl+PageUp) go to the next and previous tab, wrapping; Ctrl+1 to Ctrl+8 pick a tab by position and

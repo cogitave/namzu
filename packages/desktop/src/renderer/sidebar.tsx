@@ -467,7 +467,7 @@ function MissingProjectRow({
 					<Button
 						variant="outline"
 						size="xs"
-						aria-label={`Locate the folder for ${project.name}`}
+						aria-label={`Locate the folder for “${project.name}”`}
 						onClick={() => onLocate(project)}
 					>
 						Locate folder
@@ -477,7 +477,7 @@ function MissingProjectRow({
 					<Button
 						variant="ghost-muted"
 						size="xs"
-						aria-label={`Remove ${project.name}`}
+						aria-label={`Remove “${project.name}”`}
 						onClick={(event) => onRemove(project, event.currentTarget)}
 					>
 						Remove
