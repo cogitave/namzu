@@ -378,3 +378,41 @@ for (const [status, contentType, body, tail, shotName] of [
 		},
 	);
 }
+
+flow(
+	"an Anthropic 403 body is read into labelled fields, never printed as JSON",
+	{
+		messagesModels: ["claude-sonnet-5-5"],
+		providers: [{ id: "anthropic", model: "claude-sonnet-5-5" }],
+		messagesRules: [
+			{
+				match: /go wrong/i,
+				steps: [
+					{
+						status: 403,
+						contentType: "application/json",
+						body: JSON.stringify({
+							type: "error",
+							error: { type: "permission_error", message: "Your account cannot use this model." },
+						}),
+					},
+				],
+			},
+		],
+	},
+	async (w) => {
+		await openProject(w);
+		await expect(box(w)).toBeVisible({ timeout: T });
+		await sendText(w, "please go wrong");
+		const region = w.page.locator(".turn-recovery");
+		await expect(region.getByRole("button", { name: "Details", exact: true })).toBeVisible({ timeout: T });
+		await region.getByRole("button", { name: "Details", exact: true }).click();
+		const details = await region.locator(".turn-recovery-details-text").innerText();
+		assert.match(
+			details,
+			/\w+: access was refused\nStatus: 403 · Provider said: “Your account cannot use this model” · Type: permission_error/,
+		);
+		assert.doesNotMatch(details, /[{}"]|"type"/, "no JSON in Details");
+		await shots(w, "403-anthropic-body");
+	},
+);

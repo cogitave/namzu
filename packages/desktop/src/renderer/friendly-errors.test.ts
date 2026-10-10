@@ -275,3 +275,45 @@ describe('Details wording', () => {
 		expect(unknownUsageDetail()).not.toMatch(/\breply\b/)
 	})
 })
+
+describe('Details read the vendor body into labelled fields', () => {
+	const details = (line: string) => describeFailure(line, 'OpenAI').details ?? ''
+	it('reads the Anthropic shape', () => {
+		const text = details(
+			'anthropic (HTTP 403) — the provider rejected the request credentials: {"type":"error","error":{"type":"permission_error","message":"Your account cannot use this model."},"request_id":"req_011CabcdEFGH1234"}',
+		)
+		expect(text).toBe(
+			'Anthropic: access was refused\nStatus: 403 · Provider said: “Your account cannot use this model” · Type: permission_error\nRequest ID: req_011CabcdEFGH1234',
+		)
+		expect(text).not.toMatch(/[{}]/)
+	})
+	it('reads the OpenAI shape with its code', () => {
+		const text = details(
+			'openai (HTTP 429) — the provider was rate limited: {"error":{"message":"Rate limit reached for gpt-5","type":"requests","code":"rate_limit_exceeded","param":null}}',
+		)
+		expect(text).toContain('Status: 429 · Provider said: “Rate limit reached for gpt-5”')
+		expect(text).toContain('Type: requests · Code: rate_limit_exceeded')
+		expect(text).not.toMatch(/[{}"]|null/)
+	})
+	it('reads the Google shape', () => {
+		const text = details(
+			'google (HTTP 500) — the provider failed to complete the request: {"error":{"code":500,"message":"Internal error encountered.","status":"INTERNAL"}}',
+		)
+		expect(text).toContain(
+			'Status: 500 · Provider said: “Internal error encountered” · Type: INTERNAL',
+		)
+		expect(text).not.toMatch(/[{}]/)
+	})
+	it('reads a plain JSON string', () => {
+		expect(
+			details('openai (HTTP 429) — the provider was rate limited: "Slow down, please."'),
+		).toContain('Status: 429 · Provider said: “Slow down, please”')
+	})
+	it('falls back to one capped line without braces for an unknown shape', () => {
+		const text = details(
+			`openai (HTTP 500) — the provider failed to complete the request: {"detail":{"info":[1,2]},"note":"${'x '.repeat(300)}"}`,
+		)
+		expect(text).not.toMatch(/[{}[\]"]/)
+		expect(text.split('\n').every((line) => line.length <= 520)).toBe(true)
+	})
+})
