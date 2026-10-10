@@ -474,7 +474,7 @@ function readJsonIfExists(path: string, label: string): MutableConfig {
 			complete: true,
 		})
 	}
-	return asConfigObject(path, parsed)
+	return asConfigObject(path, parsed, label)
 }
 
 /**
@@ -544,12 +544,19 @@ function readIfPresent(path: string): string | null {
  * `{}` is the same fail-open as the unreadable file one function up, reached by
  * a different route.
  */
-function asConfigObject(path: string, parsed: unknown): MutableConfig {
+function asConfigObject(
+	path: string,
+	parsed: unknown,
+	label: string = shortHomePath(path),
+): MutableConfig {
 	if (parsed === null || parsed === undefined) return {}
 	if (typeof parsed !== 'object' || Array.isArray(parsed)) {
+		// Named the way the invalid-JSON sentence names it, and one sentence a
+		// person can act on: the file, what is wrong, and what to do.
 		throw new ConfigLoadError(
 			path,
-			`${path} must contain a mapping of settings, but its top level is ${describe(parsed)}`,
+			`${label} must be a set of named settings, not ${describe(parsed)}. Fix it, then start Namzu again.`,
+			{ complete: true },
 		)
 	}
 	return sanitize(parsed, { kind: 'file', path })

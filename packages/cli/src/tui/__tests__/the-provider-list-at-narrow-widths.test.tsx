@@ -235,3 +235,33 @@ describe.each(WIDTHS)('the model list at %i columns', (cols) => {
 		expect(title).toMatch(/\S +\d+\/\d+ *│/)
 	})
 })
+
+describe.each(WIDTHS)(
+	'a current model whose marks would squeeze its name, at %i columns',
+	(cols) => {
+		it('keeps the whole model name and draws the marks on the line under it when they do not fit', async () => {
+			const models = [
+				{ id: 'deepseek-v4-flash', name: 'deepseek-v4-flash', inputPrice: 1, outputPrice: 2 },
+				{ id: 'deepseek-v4-pro', name: 'deepseek-v4-pro', inputPrice: 3, outputPrice: 4 },
+			]
+			const screen = await open(cols, 24, {
+				notice: null,
+				currentModel: 'deepseek-v4-flash',
+				describeModels: async () => ({ kind: 'ok', models }),
+			})
+			screen.press('\r')
+			await vi.waitFor(async () => {
+				await screen.waitForRender()
+				expect(screen.viewport().join('\n')).toContain('Search:')
+			})
+			for (const line of screen.viewport()) expect([...line].length).toBeLessThanOrEqual(cols)
+			const text = screen.viewport().join('\n')
+			expect(text).toContain('deepseek-v4-flash')
+			expect(text).not.toContain('deepseek…')
+			expect(text).toContain('(current)')
+			// The title is still the first line the box drew.
+			const lines = inside(screen)
+			expect(lines[0]).toContain('Choose a model')
+		})
+	},
+)

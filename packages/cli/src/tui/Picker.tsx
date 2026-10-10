@@ -1560,6 +1560,53 @@ export function Picker({
 	)
 }
 
+/** Columns a model's name keeps beside its marks before the marks move under it. */
+const MIN_MODEL_NAME_COLUMNS = 16
+
+/**
+ * The marks a model row carries, and whether they go on a line under the id.
+ *
+ * Beside the id when they fit. When they would squeeze the id (`deepseek-v4-flash
+ * (current) (default)` at 40 columns drew as `deepseek… (current) (default)`, a
+ * row that no longer said which model it was) they move under it, indented to the
+ * id. One function for the renderer and for the window, because a row that takes
+ * two lines the window did not count is the header scrolled off the top.
+ */
+function modelRowNote(
+	c: ModelStep['choices'][number],
+	index: number,
+	columns: number,
+	currentModel: string | null | undefined,
+	width: number,
+): { readonly note: string; readonly wraps: boolean } {
+	const notes =
+		columns < 70
+			? [
+					c.id === currentModel ? '(current)' : '',
+					c.note?.includes('namzu default') ? '(default)' : '',
+					c.note?.includes('image input') ? '(image)' : '',
+					// Rebuilt from a fixed vocabulary, so a word
+					// missing from it is DROPPED rather than
+					// shortened — and a `(free)` that vanishes on a
+					// narrow terminal is a marker the operator
+					// cannot rely on. Listed here for the same
+					// reason the other two are: the note is prose
+					// the model step built, and this branch has to
+					// know which of it still fits. `free` is read
+					// off `c.note` rather than off the prices,
+					// which the choice does not carry.
+					c.note?.includes('free') ? '(free)' : '',
+				]
+			: [c.note, c.id === currentModel && !c.note?.includes('current') ? '(current)' : '']
+	const note = notes.filter(Boolean).join(' ')
+	const prefixWidth = 2 + String(index + 1).length + 2
+	const room = width - prefixWidth - choiceDisplayWidth(note) - 1
+	// A name cut a little to keep its marks on its line is still the name; cut
+	// to a stub it is not, which is when the marks move.
+	const wraps = note !== '' && choiceDisplayWidth(c.label) > room && room < MIN_MODEL_NAME_COLUMNS
+	return { note, wraps }
+}
+
 function ModelStepView({
 	providerLabel,
 	otherProviders,
@@ -1602,10 +1649,17 @@ function ModelStepView({
 	const noticeRows = step?.notice ? Math.ceil(choiceDisplayWidth(step.notice) / width) : 0
 	// "Free" and "API key" headings are lines between rows, never rows: the cursor and the digit
 	// shortcuts count choices only. They take screen lines, so the window gives them room: up to three at once (the repeated one, "API key", "Other models").
+	const rowBudget = Math.max(
+		1,
+		Math.min(7, (terminal.rows ?? 24) - 7 - noticeRows - (headed ? 3 : 0)),
+	)
+	// A row whose marks go under its id takes two lines, so when any would, the
+	// window holds half as many rows and still fits the lines it was given.
+	const anyWraps = choices.some((c, i) => modelRowNote(c, i, columns, currentModel, width).wraps)
 	const window = selectionWindow(
 		choices,
 		cursor,
-		Math.max(1, Math.min(7, (terminal.rows ?? 24) - 7 - noticeRows - (headed ? 3 : 0))),
+		anyWraps ? Math.max(1, Math.floor(rowBudget / 2)) : rowBudget,
 	)
 	const hiddenAbove = window.start
 	const hiddenBelow = choices.length - window.start - window.items.length
@@ -1683,29 +1737,7 @@ function ModelStepView({
 						{window.items.map((c, visibleIndex) => {
 							const index = window.start + visibleIndex
 							const prefix = `${index === cursor ? '❯ ' : '  '}${index + 1}. `
-							const notes =
-								columns < 70
-									? [
-											c.id === currentModel ? '(current)' : '',
-											c.note?.includes('namzu default') ? '(default)' : '',
-											c.note?.includes('image input') ? '(image)' : '',
-											// Rebuilt from a fixed vocabulary, so a word
-											// missing from it is DROPPED rather than
-											// shortened — and a `(free)` that vanishes on a
-											// narrow terminal is a marker the operator
-											// cannot rely on. Listed here for the same
-											// reason the other two are: the note is prose
-											// the model step built, and this branch has to
-											// know which of it still fits. `free` is read
-											// off `c.note` rather than off the prices,
-											// which the choice does not carry.
-											c.note?.includes('free') ? '(free)' : '',
-										]
-									: [
-											c.note,
-											c.id === currentModel && !c.note?.includes('current') ? '(current)' : '',
-										]
-							const note = notes.filter(Boolean).join(' ')
+							const { note, wraps } = modelRowNote(c, index, columns, currentModel, width)
 							const labelWidth = width - choiceDisplayWidth(prefix) - choiceDisplayWidth(note) - 1
 							// A heading opens each section, and the first visible row repeats its
 							// section's so a scrolled window still says where it is.
@@ -1724,9 +1756,16 @@ function ModelStepView({
 									) : null}
 									<Text color={index === cursor ? theme.accent.system : theme.text.primary}>
 										{prefix}
-										{truncateChoiceText(c.label, labelWidth)}
-										{note ? ` ${note}` : ''}
+										{wraps
+											? truncateChoiceText(c.label, Math.max(1, width - choiceDisplayWidth(prefix)))
+											: truncateChoiceText(c.label, labelWidth)}
+										{note && !wraps ? ` ${note}` : ''}
 									</Text>
+									{wraps ? (
+										<Text color={index === cursor ? theme.accent.system : theme.text.muted}>
+											{`${' '.repeat(choiceDisplayWidth(prefix))}${note}`}
+										</Text>
+									) : null}
 								</Box>
 							)
 						})}

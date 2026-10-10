@@ -814,6 +814,21 @@ describe('a config file that is not valid', () => {
 		)
 	})
 
+	it('names a project file whose top level is a list the same way, not by its absolute path', () => {
+		const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
+		const cwd = projectWith('[1, 2]')
+		let error: unknown
+		try {
+			loadConfig({ home, cwd, env: {} })
+		} catch (cause) {
+			error = cause
+		}
+		expect((error as Error).message).toBe(
+			'namzu.config.json in this project must be a set of named settings, not a list. Fix it, then start Namzu again.',
+		)
+		expect((error as { complete?: boolean }).complete).toBe(true)
+	})
+
 	it('writes the home folder as ~', () => {
 		expect(shortHomePath(join(homedir(), '.namzu', 'config.yaml'))).toBe('~/.namzu/config.yaml')
 		expect(shortHomePath('/etc/namzu/config.json')).toBe('/etc/namzu/config.json')
