@@ -163,6 +163,7 @@ import {
 } from './new-tab-menu.js'
 import { normalConversationProject } from './normal-conversation.js'
 import { notify } from './notify.js'
+import { OVERTAKEN_READ_LIMIT, isOvertakenRead } from './overtaken-read.js'
 import { PalChatTranscript } from './pal-chat-transcript.js'
 import { PalCommunicationDialog, type PalSettingsTab } from './pal-communication-dialog.js'
 import { computerSetupMissing, presentComputerNotice } from './pal-computer-notice.js'
@@ -346,6 +347,14 @@ export function App({
 		}>(),
 	)
 	const [metadataEpoch, setMetadataEpoch] = useState(0)
+	// A read of the model or engine list that a change of model overtook is not a failure: it is read
+	// again, a few times at most, instead of leaving a raw error and an unusable model button.
+	const overtakenReads = useRef(0)
+	const readAgainIfOvertaken = useCallback((failure: unknown): boolean => {
+		if (!isOvertakenRead(failure)) return false
+		if (overtakenReads.current++ < OVERTAKEN_READ_LIMIT) setMetadataEpoch((epoch) => epoch + 1)
+		return true
+	}, [])
 	const lostProjects = useRef(new Set<string>())
 	warmSessions.current.synchronizeMembers([...group.tabs, ...createdSessions.current])
 	const openFlights = useRef(new Map<string, { generation: number; promise: Promise<void> }>())
@@ -2084,16 +2093,18 @@ export function App({
 			.then((available) => {
 				if (!current || providerReadOwner.current !== owner || providerGeneration.current !== epoch)
 					return
+				overtakenReads.current = 0
 				setProviders(available)
 				setProviderOwner(owner)
 			})
 			.catch((failure) => {
-				if (current && providerReadOwner.current === owner) setError(errorText(failure))
+				if (current && providerReadOwner.current === owner && !readAgainIfOvertaken(failure))
+					setError(errorText(failure))
 			})
 		return () => {
 			current = false
 		}
-	}, [project, sessionId, api, metadataEpoch, historyPending])
+	}, [project, sessionId, api, metadataEpoch, historyPending, readAgainIfOvertaken])
 	useEffect(() => {
 		if (!projectId || !api) return
 		let current = true
@@ -2235,12 +2246,22 @@ export function App({
 					setHarnessState({ owner, view })
 			})
 			.catch((failure) => {
-				if (current) setError(errorText(failure))
+				if (current && !readAgainIfOvertaken(failure)) setError(errorText(failure))
 			})
 		return () => {
 			current = false
 		}
-	}, [project, pal, sessionId, providerKey, api, metadataEpoch, historyPending, restoringTabs])
+	}, [
+		project,
+		pal,
+		sessionId,
+		providerKey,
+		api,
+		metadataEpoch,
+		historyPending,
+		restoringTabs,
+		readAgainIfOvertaken,
+	])
 	const newConversation = useCallback(async () => {
 		abandonTabRestore()
 		const generation = ++navigation.current
@@ -4375,6 +4396,18 @@ export function App({
 			? { ...failure, actions: [...failure.actions, 'copy-to-new' as const] }
 			: failure,
 	)
+	// Try again runs on the model selected now. When that is not the one that stopped, say which.
+	const selectedModelId =
+		choice.model ||
+		activeProviders.available.find((item) => item.id === choice.provider)?.defaultModel ||
+		''
+	const retryLabel =
+		thread.retry?.original &&
+		selectedModelId &&
+		(thread.retry.original.provider !== choice.provider ||
+			thread.retry.original.model !== selectedModelId)
+			? `Try again with ${selectedModelId}`
+			: undefined
 	const putMessageBack = (text: string) => {
 		draftsRef.current[sessionId] = text
 		setDrafts((all) => ({ ...all, [sessionId]: text }))
@@ -4421,7 +4454,7 @@ export function App({
 			await openEngineTerminal()
 			return
 		}
-		if (thread.retry || thread.retryNotice || thread.reason === 'paused')
+		if (!thread.retryClosable && (thread.retry || thread.retryNotice || thread.reason === 'paused'))
 			throw new Error(
 				thread.retryNotice
 					? describeBlockedRetry(thread.retryNotice).text
@@ -6233,6 +6266,7 @@ export function App({
 									)}
 									<TurnRecovery
 										retry={thread.retry}
+										retryLabel={retryLabel}
 										failures={replyFailures}
 										onAction={(action) => {
 											if (action === 'settings') openSettings('models', 'models')
@@ -6252,8 +6286,15 @@ export function App({
 												? () => {
 														const retry = thread.retry
 														const retryTurn = api.retryTurn
+														// Try again runs on the model chosen now. The choice is applied the way a
+														// send applies it, so a switch made after the stop is not lost.
+														const route = { ...choice }
 														if (retry && retryTurn)
-															void act(() => retryTurn(sessionId, retry.turnId, retry.checkpointId))
+															void act(async () => {
+																if (route.provider)
+																	await api.selectProvider(sessionId, route.provider, route.model)
+																await retryTurn(sessionId, retry.turnId, retry.checkpointId)
+															})
 													}
 												: undefined
 										}
@@ -6334,9 +6375,10 @@ export function App({
 								}
 								connected={
 									project.status === 'ready' &&
-									!thread.retry &&
-									!thread.retryNotice &&
-									thread.reason !== 'paused' &&
+									// A reply that stopped on a provider failure does not hold the conversation: sending
+									// closes it and runs on the model selected now.
+									(thread.retryClosable ||
+										(!thread.retry && !thread.retryNotice && thread.reason !== 'paused')) &&
 									palCanChat &&
 									providerReady &&
 									attached.loaded &&

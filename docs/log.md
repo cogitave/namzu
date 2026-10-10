@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-10-10
+
+- **Update** [Desktop](cli/desktop.md#what-a-failed-reply-says) and [Agent Client Protocol](sdk/agent-client-protocol.md): a reply that stopped on a provider failure no longer blocks the conversation after the model is changed. `namzu/sessions/retry-status` adds `closable` and `retry.original`; sending a new message closes the stopped turn (the `abandon-paused` path) and runs on the selected model, Try again runs on the selected model and reads "Try again with *model*" when it differs, the turn's approval settings survive a model change, a model or engine list read that a model change overtakes is read again instead of showing a raw error beside a stuck model button, and the browser's harmless resize-observer note is no longer logged as `renderer_failed`. Covered by `e2e/model-switch.test.mjs` (a signed-reasoning model and gpt-6-luna against two scripted services) and a process-level CLI test. After a retried turn stops again, the button names the model it was last retried on (or none, when only the first attempt's model is on record) instead of the first attempt's, and the window hears that a turn was closed even when the send that closed it went stale.
+
 ## 2026-10-09
 
 - **Update** `packages/cli/src/tui/index.tsx`: the terminal app draws live on a real terminal even when `CI` variables are set, instead of showing a blank screen until exit; the variables are left as they are for the commands the agent runs.

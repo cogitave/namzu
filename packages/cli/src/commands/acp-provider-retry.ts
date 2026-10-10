@@ -11,8 +11,22 @@ import { sessionLogCheckpointView } from '../integrations/sessions/checkpoint-vi
 import { type CliSessionScope, readConversationFacts } from '../integrations/sessions/store.js'
 
 export interface ProviderRetryStatus {
-	retry?: { turnId: string; checkpointId: string }
+	/**
+	 * The paused turn a Retry would repeat. `original` is the provider and model that failed; Retry
+	 * runs on whichever model the conversation has selected now, which may be another one.
+	 */
+	retry?: {
+		turnId: string
+		checkpointId: string
+		original?: { provider: string; model: string }
+	}
 	notice?: string
+	/**
+	 * The turn stopped on a provider failure and waits for no human decision, so sending a new message
+	 * may close it first (the same durable close as "Continue without this reply"). Absent when the
+	 * turn is waiting for an approval or a handoff: those are the person's to answer, not to skip.
+	 */
+	closable?: true
 	/** How many earlier requests have a cost nobody reported; a retry is a new request. */
 	unknownUsage?: number
 }
@@ -40,16 +54,26 @@ export async function readProviderRetryStatus(
 		.find((record) => record.type === 'turn_paused' && record.turnId === active.turnId)
 	if (!pause || pause.type !== 'turn_paused')
 		throw new Error('This paused turn has no durable pause record.')
+	// Human decisions are not provider retries, even if another failure was recorded later.
+	const pending = new Set<string>()
+	for (const record of facts.records) {
+		if (record.type === 'decision_requested' && record.turnId === active.turnId)
+			pending.add(record.decisionId)
+		if (record.type === 'decision_resolved' || record.type === 'decision_expired')
+			pending.delete(record.decisionId)
+	}
+	const closable: Pick<ProviderRetryStatus, 'closable'> =
+		!pause.handoff && pause.providerError && pending.size === 0 ? { closable: true } : {}
+	const blocked = (notice: string): ProviderRetryStatus => ({ notice, ...closable })
 	if (
 		pause.handoff ||
 		pause.failure?.retryable !== true ||
 		!pause.providerError ||
 		!['network', 'server', 'throttle'].includes(pause.providerError.kind)
 	)
-		return {
-			notice:
-				'This turn is paused. Resolve its recorded decision or failure before sending another message.',
-		}
+		return blocked(
+			'This turn is paused. Resolve its recorded decision or failure before sending another message.',
+		)
 	const scope = {
 		tenantId: state.tenantId,
 		projectId: state.projectId,
@@ -63,52 +87,55 @@ export async function readProviderRetryStatus(
 	})
 	const checkpoint = await checkpoints.restore(scope, asCheckpointId(pause.checkpointId))
 	if (!checkpoint)
-		return { notice: 'The paused turn’s checkpoint is unavailable. Its conversation is retained.' }
-	// Human decisions are not provider retries, even if another failure was recorded later.
-	const pending = new Set<string>()
-	for (const record of facts.records) {
-		if (record.type === 'decision_requested' && record.turnId === active.turnId)
-			pending.add(record.decisionId)
-		if (record.type === 'decision_resolved' || record.type === 'decision_expired')
-			pending.delete(record.decisionId)
-	}
+		return blocked('The paused turn’s checkpoint is unavailable. Its conversation is retained.')
 	if (pending.size)
-		return {
-			notice: 'This turn is waiting for a recorded human decision; Retry cannot approve it.',
-		}
+		return blocked('This turn is waiting for a recorded human decision; Retry cannot approve it.')
 	const binding = checkpoint.budget?.binding
 	if (!binding || binding.rootSessionId !== id || binding.rootTurnId !== active.turnId)
-		return {
-			notice:
-				'This turn’s original token accounting cannot be verified. Its checkpoint is retained.',
-		}
+		return blocked(
+			'This turn’s original token accounting cannot be verified. Its checkpoint is retained.',
+		)
 	const budget = await new DiskSessionTokenBudgetStore({ paths: state.paths }).load(binding)
 	const account = budget?.accounts.find((account) => account.id === binding.accountId)
 	if (!budget || !account)
-		return {
-			notice: 'This turn’s original token accounting is unavailable. Its checkpoint is retained.',
-		}
+		return blocked(
+			'This turn’s original token accounting is unavailable. Its checkpoint is retained.',
+		)
 	// Unknown spend stops a retry only where a finite limit could already be exceeded by it.
 	// Without a limit it stays recorded (never as zero) and the retry is a new request.
 	const live = SessionTokenBudget.restore(budget).account(binding.accountId)
 	// A request still in flight under a finite limit was never settled either way.
 	if (live.summary().poisoned || live.summary().inFlightRequests > 0)
-		return {
-			notice:
-				'This provider request has unresolved token usage. Retry requires its actual provider usage receipt; the original turn is retained.',
-		}
+		return blocked(
+			'This provider request has unresolved token usage. Retry requires its actual provider usage receipt; the original turn is retained.',
+		)
 	if (account.turn?.sessionId !== id || account.turn.turnId !== active.turnId || account.settled)
-		return {
-			notice:
-				'This paused turn’s original token account is not active. Its checkpoint is retained.',
-		}
+		return blocked(
+			'This paused turn’s original token account is not active. Its checkpoint is retained.',
+		)
 	if (live.remaining <= 0)
-		return {
-			notice:
-				'This turn’s original token allowance is exhausted. Retry cannot change that allowance.',
-		}
+		return blocked(
+			'This turn’s original token allowance is exhausted. Retry cannot change that allowance.',
+		)
+	const started = facts.records.find(
+		(record) => record.type === 'turn_started' && record.turnId === active.turnId,
+	)
+	// `turn_started` names the model of the first attempt only. Once the turn was resumed, the pause
+	// that stopped it belongs to a later attempt whose model no record carries, so none is claimed.
+	const resumed = facts.records.some(
+		(record) => record.type === 'turn_resuming' && record.turnId === active.turnId,
+	)
+	const original =
+		!resumed && started?.type === 'turn_started' && started.config.model && pause.providerError
+			? { provider: pause.providerError.providerId, model: started.config.model }
+			: undefined
 	return {
-		retry: { turnId: active.turnId, checkpointId: pause.checkpointId },
+		retry: {
+			turnId: active.turnId,
+			checkpointId: pause.checkpointId,
+			...(original ? { original } : {}),
+		},
+		...closable,
 		...(live.summary().unresolvedRequests > 0
 			? { unknownUsage: live.summary().unresolvedRequests }
 			: {}),

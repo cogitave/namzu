@@ -31,6 +31,7 @@ import {
 	replyClock,
 	runDefaultOpen,
 	splitActivity,
+	terminalNotice,
 	toolGroupLabel,
 	transcriptTurns,
 	turnNotice,
@@ -603,6 +604,8 @@ interface TurnGroupProps {
 		? Value | undefined
 		: never
 	live: boolean
+	/** The person went on without this turn's reply, and a later turn follows; its notice stays under it. */
+	abandoned: boolean
 	/** A finished turn away from the end; the browser may skip drawing it while it is off screen. */
 	deferred: boolean
 	animate: boolean
@@ -646,6 +649,7 @@ const TurnGroupView = memo(function TurnGroupView({
 	actions,
 	changes,
 	live,
+	abandoned,
 	deferred,
 	animate,
 	now,
@@ -750,6 +754,7 @@ const TurnGroupView = memo(function TurnGroupView({
 						{...turnUndo(thread, group.turn, onUndoTurn, undoKept)}
 					/>
 				)}
+				{abandoned && <p className="notice">{terminalNotice('abandoned')}</p>}
 			</div>
 		</ActivityActionsContext.Provider>
 	)
@@ -758,6 +763,7 @@ const TurnGroupView = memo(function TurnGroupView({
 function turnGroupPropsEqual(previous: TurnGroupProps, next: TurnGroupProps): boolean {
 	if (
 		previous.live !== next.live ||
+		previous.abandoned !== next.abandoned ||
 		previous.deferred !== next.deferred ||
 		previous.animate !== next.animate ||
 		previous.now !== next.now ||
@@ -922,6 +928,9 @@ export function Transcript({
 						actions={actions}
 						changes={changes.get(group.turn)}
 						live={live}
+						abandoned={
+							group.turn !== thread.turn && thread.turns[group.turn]?.reason === 'abandoned'
+						}
 						deferred={position < groups.length - 2}
 						animate={animate}
 						// Only the turn being written shows an elapsed clock.

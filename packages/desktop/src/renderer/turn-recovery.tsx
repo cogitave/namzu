@@ -31,12 +31,15 @@ export function TurnRecovery({
 	retry,
 	failures = [],
 	disabled,
+	retryLabel,
 	onRetry,
 	onAction,
 }: {
 	retry?: DesktopTurnRetry
 	failures?: readonly FriendlyFailure[]
 	disabled?: boolean
+	/** Names the model Try again will run on when it is not the one that stopped. */
+	retryLabel?: string
 	onRetry?: () => void
 	onAction?: (action: Exclude<FailureAction, 'try-again'>) => void
 }) {
@@ -66,7 +69,7 @@ export function TurnRecovery({
 								else onAction?.(action)
 							}}
 						>
-							{ACTION_LABEL[action]}
+							{action === 'try-again' && retryLabel ? retryLabel : ACTION_LABEL[action]}
 						</Button>
 					))}
 				</div>

@@ -17,6 +17,7 @@ const unreadByTurns: ReadonlySet<keyof ThreadState> = new Set([
 	'liveInputSupported',
 	'retry',
 	'retryNotice',
+	'retryClosable',
 	'retryUnknownUsage',
 	'result',
 	'partial',

@@ -59,3 +59,13 @@ it('lists each action once, with the first one drawn as the primary', () => {
 	const html = render({ failures: [rejected], onAction: () => {} })
 	expect(html).toContain('Open model settings')
 })
+
+it('names the model Try again will run on when it is not the one that stopped', () => {
+	const html = render({
+		retry: { ...retry, original: { provider: 'anthropic', model: 'claude-sonnet-5-5' } },
+		retryLabel: 'Try again with gpt-6-luna',
+		onRetry: () => {},
+	})
+	expect(html).toContain('Try again with gpt-6-luna')
+	expect(render({ retry, onRetry: () => {} })).not.toContain('Try again with')
+})

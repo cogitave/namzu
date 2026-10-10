@@ -237,7 +237,7 @@ checkpoint and authority before its runtime resumes it.
 
 | Method | Request and result |
 | --- | --- |
-| `namzu/sessions/retry-status` | `{sessionId}` returns `{retry?: {turnId, checkpointId}, notice?: string}`. Truly idle conversations return `{}`; an active turn without a safe Retry has a notice. |
+| `namzu/sessions/retry-status` | `{sessionId}` returns `{retry?: {turnId, checkpointId, original?: {provider, model}}, notice?: string, closable?: true, unknownUsage?: number}`. Truly idle conversations return `{}`; an active turn without a safe Retry has a notice. `original` is the provider and model that stopped; a retry runs on the model the conversation has selected now. `closable` says the turn stopped on a provider failure and waits for no decision, so `namzu/sessions/abandon-paused` may close it before a new message. |
 | `namzu/sessions/retry` | `{sessionId, turnId, checkpointId, options?}` returns `AcpSessionPromptResult` while streaming existing `session/update` notifications. Extra prompt/attachment fields are refused. |
 | `namzu/turns/undo-status`, `namzu/turns/undo-preview`, `namzu/turns/undo` | Per-reply file undo; see [Turn undo](../cli/turn-undo.md#acp-methods). |
 
