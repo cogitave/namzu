@@ -123,7 +123,6 @@ import {
 	describeFailure,
 	lostConnectionText,
 	providerName,
-	withUnknownUsage,
 } from './friendly-errors.js'
 import { type EngineSurface, type EngineSurfaceControl, engineLabel } from './harness-picker.js'
 import {
@@ -4458,9 +4457,7 @@ export function App({
 		...(thread.error ? [describeFailure(thread.error, failedProviderLabel)] : []),
 		...(thread.retryNotice ? [describeBlockedRetry(thread.retryNotice)] : []),
 	]
-	const replyFailures = (
-		thread.retry && thread.retryUnknownUsage ? withUnknownUsage(baseFailures) : baseFailures
-	).map((failure) =>
+	const replyFailures = baseFailures.map((failure) =>
 		continueFailed === sessionId && failure.actions.includes('continue')
 			? { ...failure, actions: [...failure.actions, 'copy-to-new' as const] }
 			: failure,

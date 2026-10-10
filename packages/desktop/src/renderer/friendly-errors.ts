@@ -89,7 +89,10 @@ const KEY_PROBLEM = /api key|invalid[_ ]key|unauthori[sz]ed|authentication/i
 
 const PROVIDER_FAILURE = /^([a-z0-9][a-z0-9-]*)(?: \(HTTP (\d{3})\))? — ([^:]+?)(?:: ([\s\S]*))?$/i
 
-/** What Details says about usage nobody reported for a request that failed. One send is one reply, however often it was retried. */
+/**
+ * What Details says when a reply did arrive but its provider never reported what it used. A
+ * request that failed before any reply came has nothing to report, so its Details carry no usage line.
+ */
 export function unknownUsageDetail(): string {
 	return 'No usage was reported for the failed attempts.'
 }
@@ -157,20 +160,6 @@ function plainProviderDetails(raw: string): string[] {
 		...(projectId ? [`${name} project: ${projectId}`] : []),
 		...(requestId ? [`Request ID: ${requestId}`] : []),
 	]
-}
-
-/** Add what is unknown about usage to the details a failure already carries. */
-export function withUnknownUsage(failures: readonly FriendlyFailure[]): FriendlyFailure[] {
-	if (failures.length === 0) return []
-	const sentence = unknownUsageDetail()
-	return failures.map((failure, index) =>
-		index === failures.length - 1
-			? {
-					...failure,
-					details: failure.details ? `${failure.details}\n${sentence}` : sentence,
-				}
-			: failure,
-	)
 }
 
 function withDetails(failure: Omit<FriendlyFailure, 'details'>, raw: string): FriendlyFailure {
@@ -369,7 +358,6 @@ export function describeBlockedRetry(notice: string): FriendlyFailure {
 			kind: 'cannot-repeat',
 			text: 'Namzu can’t repeat this reply, because this conversation has a limit and it can’t tell how much the provider counted before it stopped. Continue without this reply to put your message back in the message box and keep working here.',
 			actions: ['continue'],
-			details: UNKNOWN_USAGE_DETAIL,
 		}
 	return {
 		kind: 'cannot-repeat',
