@@ -5,8 +5,8 @@ import { describe, expect, it } from 'vitest'
 
 import {
 	type ScheduleReviewAnswer,
-	type ScheduleReviewRequest,
 	ScheduleReviewOverlay,
+	type ScheduleReviewRequest,
 	scheduleReviewSummary,
 } from '../ScheduleReviewOverlay.js'
 import { ViewportBound } from '../ViewportBound.js'
@@ -40,7 +40,14 @@ describe('schedule review overlay', () => {
 	it('opens on Cancel and keeps the real script consequences visible', () => {
 		let answer: ScheduleReviewAnswer | undefined
 		const screen = render(
-			<ScheduleReviewOverlay request={request} columns={80} rows={24} onAnswer={(value) => { answer = value }} />,
+			<ScheduleReviewOverlay
+				request={request}
+				columns={80}
+				rows={24}
+				onAnswer={(value) => {
+					answer = value
+				}}
+			/>,
 		)
 		const frame = screen.lastFrame() ?? ''
 		expect(frame).toContain('proposed by the model')
@@ -80,7 +87,14 @@ describe('schedule review overlay', () => {
 			fullText: 'Changed since it was last confirmed\n- When every minute\n+ When every 5 minutes',
 		}
 		const screen = render(
-			<ScheduleReviewOverlay request={update} columns={80} rows={24} onAnswer={(value) => { answer = value }} />,
+			<ScheduleReviewOverlay
+				request={update}
+				columns={80}
+				rows={24}
+				onAnswer={(value) => {
+					answer = value
+				}}
+			/>,
 		)
 		expect(screen.lastFrame()).toContain('Permissions change from the next run.')
 		screen.stdin.write('2')
@@ -94,7 +108,14 @@ describe('schedule review overlay', () => {
 		let answer: ScheduleReviewAnswer | undefined
 		const confirm: ScheduleReviewRequest = { ...request, action: 'confirm' }
 		const screen = render(
-			<ScheduleReviewOverlay request={confirm} columns={80} rows={24} onAnswer={(value) => { answer = value }} />,
+			<ScheduleReviewOverlay
+				request={confirm}
+				columns={80}
+				rows={24}
+				onAnswer={(value) => {
+					answer = value
+				}}
+			/>,
 		)
 		const first = screen.lastFrame() ?? ''
 		expect(first).toContain('review this saved job')
@@ -120,26 +141,37 @@ describe('schedule review overlay', () => {
 		expect(lines.join('\n')).toContain('permission set governs its tools')
 	})
 
-	it.each(['agent', 'script+agent'] as const)('shows unlimited %s model use as no token limit before scrolling', (runKind) => {
-		const unlimited: ScheduleReviewRequest = {
-			...request,
-			preview: {
-				...preview,
-				runKind,
-				budget: { maxIterations: 50, tokenBudget: 0, timeoutMs: 1_800_000 },
-			},
-		}
-		expect(scheduleReviewSummary(unlimited).join('\n')).toContain('Tokens  No token limit per run')
-		const screen = render(<ScheduleReviewOverlay request={unlimited} columns={100} rows={40} onAnswer={() => {}} />)
-		expect(screen.lastFrame()).toContain('No token limit per run')
-		expect(screen.lastFrame()).not.toContain('0 tokens')
-		screen.unmount()
-	})
+	it.each(['agent', 'script+agent'] as const)(
+		'shows unlimited %s model use as no token limit before scrolling',
+		(runKind) => {
+			const unlimited: ScheduleReviewRequest = {
+				...request,
+				preview: {
+					...preview,
+					runKind,
+					budget: { maxIterations: 50, tokenBudget: 0, timeoutMs: 1_800_000 },
+				},
+			}
+			expect(scheduleReviewSummary(unlimited).join('\n')).toContain(
+				'Tokens  No token limit per run',
+			)
+			const screen = render(
+				<ScheduleReviewOverlay request={unlimited} columns={100} rows={40} onAnswer={() => {}} />,
+			)
+			expect(screen.lastFrame()).toContain('No token limit per run')
+			expect(screen.lastFrame()).not.toContain('0 tokens')
+			screen.unmount()
+		},
+	)
 
 	it('preserves a finite opt-in and distinguishes a pure script from unlimited model use', () => {
 		const finite = scheduleReviewSummary({
 			...request,
-			preview: { ...preview, runKind: 'agent', budget: { ...preview.budget, tokenBudget: 125_000 } },
+			preview: {
+				...preview,
+				runKind: 'agent',
+				budget: { ...preview.budget, tokenBudget: 125_000 },
+			},
 		}).join('\n')
 		expect(finite).toContain('Tokens  Up to 125,000 per run')
 		expect(finite).not.toContain('No token limit')
@@ -196,7 +228,14 @@ describe('schedule review overlay', () => {
 	it('does not apply a selected creation until the full proposal has been reached', async () => {
 		let answer: ScheduleReviewAnswer | undefined
 		const screen = render(
-			<ScheduleReviewOverlay request={request} columns={80} rows={24} onAnswer={(value) => { answer = value }} />,
+			<ScheduleReviewOverlay
+				request={request}
+				columns={80}
+				rows={24}
+				onAnswer={(value) => {
+					answer = value
+				}}
+			/>,
 		)
 		screen.stdin.write('3')
 		await flush()
@@ -239,7 +278,14 @@ describe('schedule review overlay', () => {
 	it('fails closed when terminal rows cannot show review and actions together', () => {
 		let answer: ScheduleReviewAnswer | undefined
 		const screen = render(
-			<ScheduleReviewOverlay request={request} columns={80} rows={12} onAnswer={(value) => { answer = value }} />,
+			<ScheduleReviewOverlay
+				request={request}
+				columns={80}
+				rows={12}
+				onAnswer={(value) => {
+					answer = value
+				}}
+			/>,
 		)
 		expect(screen.lastFrame()).toContain('Resize the terminal')
 		expect(screen.lastFrame()).not.toContain('3 Create')

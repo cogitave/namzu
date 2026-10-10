@@ -19,9 +19,9 @@ import type {
 	TerminalNotificationResult,
 } from '../../integrations/notifications/terminal.js'
 import type { Preferences } from '../../integrations/providers/index.js'
+import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 import type { AgentEvent, AgentSession, PermissionRequest } from '../agent.js'
 import type { TuiContext } from '../types.js'
-import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 
 const PREFS: Preferences = {
 	version: 3,
@@ -260,10 +260,7 @@ async function frameShows(
 	timeoutMs = 3_000,
 ): Promise<void> {
 	const expected = text.replace(/\s+/g, '')
-	await waitUntil(
-		() => harness.frames.join('\n').replace(/\s+/g, '').includes(expected),
-		timeoutMs,
-	)
+	await waitUntil(() => harness.frames.join('\n').replace(/\s+/g, '').includes(expected), timeoutMs)
 }
 
 async function submit(harness: { stdin: { write: (value: string) => void } }, text: string) {

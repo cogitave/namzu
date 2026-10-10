@@ -18,7 +18,8 @@ interface BrandHeaderProps {
 /** Printed once by the transcript's Static owner; active model state lives in the footer. */
 export function BrandHeader({ version, permissionMode }: BrandHeaderProps) {
 	const { columns, rows } = useWindowSize()
-	const wordmark = columns >= NAMZU_WORDMARK_MIN_WIDTH && rows >= 20 ? NAMZU_WORDMARK : NAMZU_COMPACT_WORDMARK
+	const wordmark =
+		columns >= NAMZU_WORDMARK_MIN_WIDTH && rows >= 20 ? NAMZU_WORDMARK : NAMZU_COMPACT_WORDMARK
 	const shownVersion = `v${terminalDisplayText(version)}`
 	const attribution =
 		columns >= 52
@@ -45,8 +46,8 @@ export function BrandHeader({ version, permissionMode }: BrandHeaderProps) {
 			{permissionMode === 'auto' ? (
 				<Box marginTop={1}>
 					<Text color={theme.status.warn}>
-						Warning: {permissionModeLabel(permissionMode)} — tools run without asking. Use /permissions to
-						change this.
+						Warning: {permissionModeLabel(permissionMode)} — tools run without asking. Use
+						/permissions to change this.
 					</Text>
 				</Box>
 			) : null}

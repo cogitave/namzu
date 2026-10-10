@@ -7,9 +7,9 @@
  * live agent session lives in `agent.ts`.
  */
 
-import { explainFailure } from './plain-failure.js'
 import { Box, Text, useInput, useWindowSize } from 'ink'
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
+import { explainFailure } from './plain-failure.js'
 
 import { canSelectModel, hasApiCredential } from '../integrations/providers/access.js'
 
@@ -20,11 +20,16 @@ import {
 	type ProviderId,
 	type ProviderRegistryEntry,
 	type SubscriptionProviderId,
+	type VendorId,
 	signedInSubscriptionProviders,
 	unsupportedProviderMessage,
-	type VendorId,
 } from '../integrations/providers/index.js'
-import { type ModelGroup, type ModelListing, describeProviderModels, verifyCredential } from './agent.js'
+import {
+	type ModelGroup,
+	type ModelListing,
+	describeProviderModels,
+	verifyCredential,
+} from './agent.js'
 import {
 	classifyCredential,
 	describeDisposition,
@@ -32,6 +37,7 @@ import {
 	maskKey,
 	sessionCredential,
 } from './credential-entry.js'
+import { fitHints } from './key-hints.js'
 import {
 	type ModelStep,
 	hasBothGroups,
@@ -41,6 +47,8 @@ import {
 } from './model-choices.js'
 import { filterModelChoices } from './model-search.js'
 import {
+	type VendorPath,
+	type VendorRow,
 	credentialNeed,
 	initialProviderRow,
 	pathProviderId,
@@ -51,14 +59,8 @@ import {
 	rowIsUsable,
 	rowNeedsChoice,
 	typedCredentialEntry,
-	type VendorPath,
-	type VendorRow,
 } from './provider-list.js'
-import {
-	moveSelection,
-	type SelectionWindow,
-	selectionWindow,
-} from './selection-window.js'
+import { type SelectionWindow, moveSelection, selectionWindow } from './selection-window.js'
 import {
 	capChoiceLines,
 	choiceDisplayWidth,
@@ -66,7 +68,6 @@ import {
 	truncateChoiceText,
 	wrapChoiceText,
 } from './terminal-choice-text.js'
-import { fitHints } from './key-hints.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
 import { useSelectionIndex } from './use-selection-index.js'
@@ -511,20 +512,20 @@ export function Picker({
 			const showListing = (listing: ModelListing) => {
 				if (!ownsOperation(operation)) return
 				finishOperation(operation)
-			const step = modelStep(current.entry.defaultModel, listing, activeModel, {
-				allowModel: (id) => canSelectModel(current.entry, current.apiKey, id),
-			})
-			const experimentalNotice =
-				current.entry.id === 'zen' && !hasApiCredential(current.entry, current.apiKey)
-					? 'Zen free models are experimental. OpenCode installation is recommended; Namzu sends requests directly, and the gateway may refuse them.'
-					: null
-			setModelPhase({
-				provider: current,
-				step: experimentalNotice
-					? { ...step, notice: [experimentalNotice, step.notice].filter(Boolean).join(' ') }
-					: step,
-				returnToProviders,
-			})
+				const step = modelStep(current.entry.defaultModel, listing, activeModel, {
+					allowModel: (id) => canSelectModel(current.entry, current.apiKey, id),
+				})
+				const experimentalNotice =
+					current.entry.id === 'zen' && !hasApiCredential(current.entry, current.apiKey)
+						? 'Zen free models are experimental. OpenCode installation is recommended; Namzu sends requests directly, and the gateway may refuse them.'
+						: null
+				setModelPhase({
+					provider: current,
+					step: experimentalNotice
+						? { ...step, notice: [experimentalNotice, step.notice].filter(Boolean).join(' ') }
+						: step,
+					returnToProviders,
+				})
 				setCursor(step.initialIndex)
 			}
 			void describeModels(current.entry.id, current, operation.controller.signal)
@@ -680,9 +681,7 @@ export function Picker({
 				if (!ownsOperation(operation)) return
 				finishOperation(operation)
 				setLoginEntry(null)
-				setErrorHint(
-					explainFailure(error, 'Could not start sign-in.'),
-				)
+				setErrorHint(explainFailure(error, 'Could not start sign-in.'))
 			})
 	}
 
@@ -784,7 +783,12 @@ export function Picker({
 			if (key.escape) {
 				invalidateOperation()
 				setPathVendor(null)
-				setCursor(Math.max(0, rows.findIndex((row) => row.vendor === pathRow.vendor)))
+				setCursor(
+					Math.max(
+						0,
+						rows.findIndex((row) => row.vendor === pathRow.vendor),
+					),
+				)
 				return
 			}
 			if (key.home || key.end || key.pageUp || key.pageDown) {
@@ -857,15 +861,14 @@ export function Picker({
 			return
 		}
 
-		if (!modelPhase && !loginPhase && input === 's' && onSetup) { invalidateOperation(); onSetup(); return }
+		if (!modelPhase && !loginPhase && input === 's' && onSetup) {
+			invalidateOperation()
+			onSetup()
+			return
+		}
 
 		const highlighted = rows[cursorRef.current]
-		if (
-			!loginPhase &&
-			modelPhase === null &&
-			keyEntryOffered &&
-			(input === 'k' || input === 'K')
-		) {
+		if (!loginPhase && modelPhase === null && keyEntryOffered && (input === 'k' || input === 'K')) {
 			const target = keyEntryTarget(highlighted, keyEntryFor)
 			if (target) {
 				invalidateOperation()
@@ -1246,7 +1249,8 @@ export function Picker({
 				</Text>
 				{experimentalZen ? (
 					<Text color={theme.status.warn}>
-						OpenCode installation is recommended. Namzu sends requests directly; the gateway may refuse free models.
+						OpenCode installation is recommended. Namzu sends requests directly; the gateway may
+						refuse free models.
 					</Text>
 				) : null}
 				<Box flexDirection="column" paddingTop={1}>
@@ -1293,7 +1297,9 @@ export function Picker({
 							{choice.kind === 'existing'
 								? `Use existing ${choice.detected.entry.label} · ${describeSource(choice.detected)}`
 								: `Sign in to ${choice.entry.label} · ${
-										choice.entry.subscriptionLogin === 'device' ? 'uses a one-time code' : 'opens your browser'
+										choice.entry.subscriptionLogin === 'device'
+											? 'uses a one-time code'
+											: 'opens your browser'
 									}`}
 						</Text>
 					))}
@@ -1379,9 +1385,7 @@ export function Picker({
 			? `${detected.length} already usable · no API key required`
 			: `${detected.length} detected · existing sign-ins / Namzu sign-ins / optional keys / local servers`
 	const listFooter = `↑↓ or 1–9 select · enter apply${
-		entryTarget
-			? ` · k enter an API key${namesAnotherRow ? ` for ${entryTarget.label}` : ''}`
-			: ''
+		entryTarget ? ` · k enter an API key${namesAnotherRow ? ` for ${entryTarget.label}` : ''}` : ''
 	}${
 		onLogin && selectionKind !== 'signed-in-subscription' ? ' · l create a Namzu sign-in' : ''
 	} · ${cancelExits ? 'esc or ctrl+c exit' : 'esc keep current · ctrl+c exit'}`
@@ -1395,8 +1399,9 @@ export function Picker({
 	// `5 detected · device sessions / Namzu sign-ins / optional keys / local
 	// probes` is a summary of what is already listed beneath it, and
 	// `s provider setup` advertises a key that works from other screens too.
-	const headingRows =
-		rows.some((row) => row.detected.length === 0) ? 1 + oneLine(NOT_DETECTED_HEADING) : 0
+	const headingRows = rows.some((row) => row.detected.length === 0)
+		? 1 + oneLine(NOT_DETECTED_HEADING)
+		: 0
 	// Everything above and below the rows except those two blocks.
 	const listCoreRows =
 		2 +
@@ -1715,9 +1720,7 @@ function ModelStepView({
 								rank: 4,
 							},
 							...(returnToProviders || cancelExits ? [] : [{ text: 'ctrl+c exit', rank: 1 }]),
-							query === null
-								? { text: '1–9 select', rank: 2 }
-								: { text: 'ctrl+u clears', rank: 2 },
+							query === null ? { text: '1–9 select', rank: 2 } : { text: 'ctrl+u clears', rank: 2 },
 						],
 						Math.max(1, columns - 4),
 					)}
@@ -1917,9 +1920,7 @@ function RowLine({
 			<Text color={sourceColor} dimColor={dim}>
 				{source}
 			</Text>
-			{currentMark && markInline ? (
-				<Text color={theme.accent.system}>{currentMark}</Text>
-			) : null}
+			{currentMark && markInline ? <Text color={theme.accent.system}>{currentMark}</Text> : null}
 		</Text>
 	)
 }
@@ -1960,7 +1961,9 @@ function DetectedVendorRow({
 				cursor={selected ? '›' : ' '}
 				number={`${index + 1}.`}
 				label={row.label}
-				labelColor={usable ? (selected ? theme.border.focus : theme.text.primary) : theme.text.muted}
+				labelColor={
+					usable ? (selected ? theme.border.focus : theme.text.primary) : theme.text.muted
+				}
 				labelBold={usable && selected}
 				numberColor={selected ? theme.border.focus : theme.text.muted}
 				source={source[0] ?? ''}
@@ -2041,6 +2044,7 @@ function HintLines({
 				if (key < 0) {
 					// biome-ignore lint/suspicious/noArrayIndexKey: wrapped lines have no identity beyond their order.
 					return (
+						// biome-ignore lint/suspicious/noArrayIndexKey: these rows have no identity of their own and hold no state, so the index is the key.
 						<Text key={at} color={color}>
 							{line}
 						</Text>
@@ -2048,6 +2052,7 @@ function HintLines({
 				}
 				// biome-ignore lint/suspicious/noArrayIndexKey: wrapped lines have no identity beyond their order.
 				return (
+					// biome-ignore lint/suspicious/noArrayIndexKey: these rows have no identity of their own and hold no state, so the index is the key.
 					<Text key={at} color={color}>
 						{`${words.slice(0, key).join(' ')}${key > 0 ? ' ' : ''}`}
 						<Text color={theme.accent.system}>{keyLetter}</Text>
@@ -2068,11 +2073,7 @@ function HintLines({
  * terminal and pushed its own header off the top. The count below draws the
  * same lines it measures, so the two cannot disagree.
  */
-function rowSourceLines(
-	row: VendorRow,
-	contentWidth: number,
-	currentMark = '',
-): readonly string[] {
+function rowSourceLines(row: VendorRow, contentWidth: number, currentMark = ''): readonly string[] {
 	const text = row.detected.length > 0 ? rowSourceText(row) : (rowCredentialNeed(row) ?? '')
 	const available = Math.max(1, rowMarkPlacement(contentWidth, currentMark).sourceColumns)
 	return capChoiceLines(wrapChoiceText(text, available), MAX_SOURCE_LINES, available)

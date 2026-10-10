@@ -1,6 +1,6 @@
 import { Box, Text } from 'ink'
-import { explainFailure } from './plain-failure.js'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { explainFailure } from './plain-failure.js'
 
 import { Composer, type ComposerDraft } from './Composer.js'
 import { truncateChoiceText } from './terminal-choice-text.js'

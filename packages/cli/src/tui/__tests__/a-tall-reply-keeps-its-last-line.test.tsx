@@ -46,6 +46,7 @@ function View({
 			</Static>
 			<Box flexDirection="column">
 				{streaming.map((line, i) => (
+					// biome-ignore lint/suspicious/noArrayIndexKey: these rows have no identity of their own and hold no state, so the index is the key.
 					<Text key={`l${i}`}>{line}</Text>
 				))}
 			</Box>

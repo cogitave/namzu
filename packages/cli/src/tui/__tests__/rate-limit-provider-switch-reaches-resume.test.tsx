@@ -105,7 +105,8 @@ vi.mock('../../integrations/trust/store.js', () => ({ isTrusted: () => true, tru
 vi.mock('../../integrations/updates.js', () => ({ checkUpdates: async () => [] }))
 vi.mock('../../user-commands/store.js', () => ({ discoverUserCommands: () => [] }))
 vi.mock('../../integrations/sessions/store.js', () => ({
-	activeConversationTurn: async () => (world.parked ? { turnId: TURN_ID, paused: true } : undefined),
+	activeConversationTurn: async () =>
+		world.parked ? { turnId: TURN_ID, paused: true } : undefined,
 	openSessions: async () => ({ tenantId: '29b3a0cc-469e-4536-8e4d-ac3301a586a6' }),
 	startConversation: async () => CONVERSATION_ID,
 	requireWritableConversation: async () => {},
@@ -180,45 +181,86 @@ it('resumes a rate-limited GPT checkpoint and sends the next turn through the se
 		{ cols: 100, rows: 40 },
 	)
 	screens.push(screen)
-	await until(screen, () => screen.viewport().join('\n').includes('Type a message'), 'App not ready')
+	await until(
+		screen,
+		() => screen.viewport().join('\n').includes('Type a message'),
+		'App not ready',
+	)
 	await submit(screen, 'Help me with this task')
 	await until(
 		screen,
-		() => world.parked && screen.scrollback().join('\n').includes('Paused: OpenAI is limiting requests right now.'),
+		() =>
+			world.parked &&
+			screen.scrollback().join('\n').includes('Paused: OpenAI is limiting requests right now.'),
 		'GPT turn did not pause with a rate limit',
 	)
 	expect(world.requests).toEqual([{ providerId: 'openai', operation: 'send' }])
 
 	await submit(screen, '/model')
-	await until(screen, () => screen.viewport().join('\n').includes('p change provider'), 'Model picker did not open')
+	await until(
+		screen,
+		() => screen.viewport().join('\n').includes('p change provider'),
+		'Model picker did not open',
+	)
 	await press(screen, 'p')
-	await until(screen, () => screen.viewport().join('\n').includes('Choose a provider'), 'Provider list did not open')
+	await until(
+		screen,
+		() => screen.viewport().join('\n').includes('Choose a provider'),
+		'Provider list did not open',
+	)
 	for (let position = 0; position < 12; position += 1) {
 		const highlighted = screen.viewport().find((line) => line.includes('›')) ?? ''
 		if (highlighted.includes(PROVIDER_REGISTRY.google.label)) break
 		await press(screen, '\x1b[B')
 	}
-	expect(screen.viewport().find((line) => line.includes('›'))).toContain(PROVIDER_REGISTRY.google.label)
+	expect(screen.viewport().find((line) => line.includes('›'))).toContain(
+		PROVIDER_REGISTRY.google.label,
+	)
 	await press(screen, '\r')
 	await until(
 		screen,
-		() => screen.viewport().join('\n').includes(`Choose a model · ${PROVIDER_REGISTRY.google.label}`),
+		() =>
+			screen.viewport().join('\n').includes(`Choose a model · ${PROVIDER_REGISTRY.google.label}`),
 		'Gemini model list did not open',
 	)
-	await until(screen, () => screen.viewport().join('\n').includes('Gemini Flash'), 'Gemini model was not listed')
+	await until(
+		screen,
+		() => screen.viewport().join('\n').includes('Gemini Flash'),
+		'Gemini model was not listed',
+	)
 	await press(screen, '\r')
-	await until(screen, () => world.constructed.length === 2 && world.closed.includes('openai'), 'Google session was not activated')
+	await until(
+		screen,
+		() => world.constructed.length === 2 && world.closed.includes('openai'),
+		'Google session was not activated',
+	)
 	expect(world.constructed.map(({ providerId }) => providerId)).toEqual(['openai', 'google'])
 	expect(world.constructed[1]?.prefs.providers[0]).toEqual({ id: 'google', model: GEMINI_MODEL })
-	expect(world.constructed[1]?.detected.find((provider) => provider.entry.id === 'google')?.apiKey).toBe('fixture-gemini-key')
-	expect(world.constructed[1]?.options.scope?.sessionId).toBe(world.constructed[0]?.options.scope?.sessionId)
+	expect(
+		world.constructed[1]?.detected.find((provider) => provider.entry.id === 'google')?.apiKey,
+	).toBe('fixture-gemini-key')
+	expect(world.constructed[1]?.options.scope?.sessionId).toBe(
+		world.constructed[0]?.options.scope?.sessionId,
+	)
 	expect(world.saved.at(-1)?.providers[0]?.id).toBe('google')
 
-	await until(screen, () => screen.viewport().join('\n').includes('Type a message'), 'Composer did not return')
+	await until(
+		screen,
+		() => screen.viewport().join('\n').includes('Type a message'),
+		'Composer did not return',
+	)
 	await submit(screen, '/resume')
-	await until(screen, () => world.requests.some((request) => request.operation === 'resume'), 'Paused turn was not resumed')
+	await until(
+		screen,
+		() => world.requests.some((request) => request.operation === 'resume'),
+		'Paused turn was not resumed',
+	)
 	expect(world.requests[1]).toEqual({ providerId: 'google', operation: 'resume', turnId: TURN_ID })
-	await until(screen, () => !world.parked && screen.viewport().join('\n').includes('Type a message'), 'Resumed turn did not settle')
+	await until(
+		screen,
+		() => !world.parked && screen.viewport().join('\n').includes('Type a message'),
+		'Resumed turn did not settle',
+	)
 	await submit(screen, 'Continue the task')
 	await until(screen, () => world.requests.length === 3, 'Next turn was not sent')
 	expect(world.requests.map(({ providerId, operation }) => `${providerId}:${operation}`)).toEqual([
@@ -238,43 +280,78 @@ it('holds a dependent queued prompt through provider switch until the paused tur
 		{ cols: 100, rows: 40 },
 	)
 	screens.push(screen)
-	await until(screen, () => screen.viewport().join('\n').includes('Type a message'), 'App not ready')
+	await until(
+		screen,
+		() => screen.viewport().join('\n').includes('Type a message'),
+		'App not ready',
+	)
 	await submit(screen, 'Rate-limited premise')
 	await until(screen, () => world.requests.length === 1, 'First turn did not start')
 	await press(screen, 'Dependent queued work')
 	await press(screen, '\t')
 	await until(
 		screen,
-		() => screen.viewport().join('\n').includes('Queued · next reply') && screen.viewport().join('\n').includes('↳ Dependent queued work'),
+		() =>
+			screen.viewport().join('\n').includes('Queued · next reply') &&
+			screen.viewport().join('\n').includes('↳ Dependent queued work'),
 		'Dependent prompt was not queued',
 	)
 	releaseFirstSend()
 	await until(
 		screen,
-		() => world.parked && screen.viewport().join('\n').includes('Queued · held after a reply paused') && screen.viewport().join('\n').includes('↳ Dependent queued work'),
+		() =>
+			world.parked &&
+			screen.viewport().join('\n').includes('Queued · held after a reply paused') &&
+			screen.viewport().join('\n').includes('↳ Dependent queued work'),
 		'Rate limit did not hold the dependent queue',
 	)
 	expect(world.requests).toEqual([{ providerId: 'openai', operation: 'send' }])
 
 	await submit(screen, '/model')
-	await until(screen, () => screen.viewport().join('\n').includes('p change provider'), 'Model picker did not open')
+	await until(
+		screen,
+		() => screen.viewport().join('\n').includes('p change provider'),
+		'Model picker did not open',
+	)
 	await press(screen, 'p')
-	await until(screen, () => screen.viewport().join('\n').includes('Choose a provider'), 'Provider list did not open')
+	await until(
+		screen,
+		() => screen.viewport().join('\n').includes('Choose a provider'),
+		'Provider list did not open',
+	)
 	for (let position = 0; position < 12; position += 1) {
 		const highlighted = screen.viewport().find((line) => line.includes('›')) ?? ''
 		if (highlighted.includes(PROVIDER_REGISTRY.google.label)) break
 		await press(screen, '\x1b[B')
 	}
-	expect(screen.viewport().find((line) => line.includes('›'))).toContain(PROVIDER_REGISTRY.google.label)
+	expect(screen.viewport().find((line) => line.includes('›'))).toContain(
+		PROVIDER_REGISTRY.google.label,
+	)
 	await press(screen, '\r')
-	await until(screen, () => screen.viewport().join('\n').includes('Gemini Flash'), 'Gemini model was not listed')
+	await until(
+		screen,
+		() => screen.viewport().join('\n').includes('Gemini Flash'),
+		'Gemini model was not listed',
+	)
 	await press(screen, '\r')
-	await until(screen, () => world.constructed.length === 2 && world.closed.includes('openai'), 'Google session was not activated')
-	await until(screen, () => screen.viewport().join('\n').includes('held after a reply paused'), 'Queue was released before the checkpoint resumed')
+	await until(
+		screen,
+		() => world.constructed.length === 2 && world.closed.includes('openai'),
+		'Google session was not activated',
+	)
+	await until(
+		screen,
+		() => screen.viewport().join('\n').includes('held after a reply paused'),
+		'Queue was released before the checkpoint resumed',
+	)
 	expect(world.requests).toEqual([{ providerId: 'openai', operation: 'send' }])
 
 	await submit(screen, '/resume')
-	await until(screen, () => world.requests.length === 3, 'Resumed turn did not release the dependent prompt')
+	await until(
+		screen,
+		() => world.requests.length === 3,
+		'Resumed turn did not release the dependent prompt',
+	)
 	expect(world.requests).toEqual([
 		{ providerId: 'openai', operation: 'send' },
 		{ providerId: 'google', operation: 'resume', turnId: TURN_ID },

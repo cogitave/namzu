@@ -22,10 +22,10 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import type { Preferences } from '../../integrations/providers/index.js'
+import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 import type { AgentEvent, AgentSession, SendOptions } from '../agent.js'
 import type { ScheduleIntegrationDeps } from '../schedule/integration.js'
 import type { TuiContext } from '../types.js'
-import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 
 const PREFS: Preferences = { version: 3, providers: [{ id: 'openai' }], subagents: { active: [] } }
 
@@ -67,7 +67,7 @@ let hold: Promise<void> | null = null
 
 /** Seven successful steps across four tools, one of which writes. */
 function* work(n: number): Generator<AgentEvent> {
-	const calls: Array<[string, boolean]> = [
+	const calls: [string, boolean][] = [
 		['glob', true],
 		['grep', true],
 		['read', true],
@@ -173,7 +173,10 @@ afterEach(() => {
 
 const plain = (text: string) =>
 	// biome-ignore lint/suspicious/noControlCharactersInRegex: strips terminal colour codes.
-	text.replace(/\u001b\[[0-9;]*m/g, '').replace(/\s+/g, ' ')
+	text
+		// biome-ignore lint/suspicious/noControlCharactersInRegex: matches the escape character that starts a terminal control sequence, on purpose.
+		.replace(/\u001b\[[0-9;]*m/g, '')
+		.replace(/\s+/g, ' ')
 
 async function until(check: () => boolean, why: string): Promise<void> {
 	const by = Date.now() + 5_000
@@ -188,7 +191,9 @@ const PROPOSAL = 'Save it as a reusable skill?'
 
 async function mount() {
 	const harness = render(
-		<App ctx={{ cwd: home, version: '0.0.0-test', rules: [], skipPermissions: false } as TuiContext} />,
+		<App
+			ctx={{ cwd: home, version: '0.0.0-test', rules: [], skipPermissions: false } as TuiContext}
+		/>,
 	)
 	mounted.push(harness)
 	await until(() => (harness.lastFrame() ?? '').includes('test-model'), 'App never became ready')
@@ -254,7 +259,10 @@ it('does nothing for a hypermode dropped with Alt+W, pasted, talked about, or th
 	expect(now()).not.toContain('✦')
 	expect(now()).not.toContain('✧')
 	await enter()
-	await until(() => sent.length === 4 && shown().includes('ANSWER4'), 'the last turn never finished')
+	await until(
+		() => sent.length === 4 && shown().includes('ANSWER4'),
+		'the last turn never finished',
+	)
 
 	for (const turn of sent) {
 		expect(turn.options?.effort, turn.prompt).toBeUndefined()
@@ -270,7 +278,10 @@ it('saves the work as a skill after a turn that did it, ahead of a Tab-queued pr
 	const { harness, typeKeys, enter, shown } = await mount()
 	await typeKeys("HOLD şu repodaki TODO'ları say ve bunu skill olarak kaydet")
 	await enter()
-	await until(() => sent.length === 1 && shown().includes('Working'), 'the first turn never started')
+	await until(
+		() => sent.length === 1 && shown().includes('Working'),
+		'the first turn never started',
+	)
 	expect(sent[0]?.context.join('\n')).toContain(SAVE_CONTEXT)
 	await typeKeys('second task')
 	harness.stdin.write('\t')
@@ -303,7 +314,10 @@ it('says why a save did not run: no tool work, or the turn was cancelled', async
 	})
 	await typeKeys('HOLD fix the tests, then save it as a skill')
 	await enter()
-	await until(() => sent.length === 2 && shown().includes('Working'), 'the second turn never started')
+	await until(
+		() => sent.length === 2 && shown().includes('Working'),
+		'the second turn never started',
+	)
 	harness.stdin.write('\u001b')
 	await tick(50)
 	release()
@@ -362,7 +376,10 @@ it('still steers with Enter while a turn runs, and binds the save to that turn',
 	const { typeKeys, enter, shown, now } = await mount()
 	await typeKeys('HOLD find every TODO')
 	await enter()
-	await until(() => sent.length === 1 && shown().includes('Working'), 'the first turn never started')
+	await until(
+		() => sent.length === 1 && shown().includes('Working'),
+		'the first turn never started',
+	)
 	await typeKeys('also count the FIXMEs and save it as a skill')
 	expect(now()).toContain('enter: after the running reply')
 	await enter()
@@ -387,7 +404,10 @@ it('turns every trigger off with /config triggers off, in the user file', async 
 	const { typeKeys, enter, shown, now } = await mount()
 	await typeKeys('/config triggers off')
 	await enter()
-	await until(() => shown().includes('Composer triggers are off'), '/config triggers off said nothing')
+	await until(
+		() => shown().includes('Composer triggers are off'),
+		'/config triggers off said nothing',
+	)
 	expect(readFileSync(join(home, 'config.yaml'), 'utf8')).toMatch(
 		/composerTriggers:\s*\n\s+enabled: false/,
 	)

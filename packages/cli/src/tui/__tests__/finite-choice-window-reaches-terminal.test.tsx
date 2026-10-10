@@ -11,11 +11,11 @@ import { fixtureUuid } from '../../../../sdk/src/test-support/ids.js'
 import { afterEach, expect, it, vi } from 'vitest'
 
 import type { DetectedProvider, Preferences } from '../../integrations/providers/index.js'
-import type { AgentSession, ModelListing } from '../agent.js'
 import { Picker } from '../Picker.js'
+import { genericPresenter } from '../__fixtures__/generic-presenter.js'
+import type { AgentSession, ModelListing } from '../agent.js'
 import type { TuiContext } from '../types.js'
 import { type Screen, renderToScreen } from './support/screen.js'
-import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 
 const PREFS: Preferences = {
 	version: 3,
@@ -126,7 +126,11 @@ afterEach(async () => {
 	for (const screen of mounted.splice(0)) await screen.unmount()
 })
 
-async function waitUntil(_screen: Screen, predicate: () => boolean, timeoutMs?: number): Promise<void> {
+async function waitUntil(
+	_screen: Screen,
+	predicate: () => boolean,
+	timeoutMs?: number,
+): Promise<void> {
 	await vi.waitFor(() => expect(predicate()).toBe(true), timeoutMs)
 }
 

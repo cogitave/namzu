@@ -39,9 +39,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cancelCauseOf } from '@namzu/sdk'
 
 import type { Preferences } from '../../integrations/providers/index.js'
+import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 import type { AgentEvent, AgentSession, SessionScope } from '../agent.js'
 import type { TuiContext } from '../types.js'
-import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 
 const PREFS: Preferences = { version: 3, providers: [{ id: 'openai' }], subagents: { active: [] } }
 
@@ -127,7 +127,12 @@ vi.mock('../../integrations/sessions/store.js', () => ({
 	startConversation: async () => STARTED_IN,
 	requireWritableConversation: async () => {},
 	listRecent: async () => [
-		{ id: RESUMED, title: 'An earlier conversation', updatedAt: new Date().toISOString(), count: 2 },
+		{
+			id: RESUMED,
+			title: 'An earlier conversation',
+			updatedAt: new Date().toISOString(),
+			count: 2,
+		},
 	],
 	loadConversation: async () => {
 		if (readHeld) await readHeld
@@ -159,62 +164,62 @@ vi.mock('../agent.js', async (importOriginal) => {
 		): Promise<AgentSession> => {
 			sessionScope = options.scope
 			return {
-			hasProvider: true,
+				hasProvider: true,
 				sandbox: { unconfined: true, enforced: [], required: [] },
 				compact: async () => {
 					compactCalls += 1
 					return null
 				},
-			providerSummary: 'a-provider',
-			modelSummary: 'a-model',
-			toolNames: () => ['bash'],
-			presenter: genericPresenter,
-			errorHint: null,
-			// Required since #329 made the session say WHY it has no provider.
-			// Absent here because main does not build without it: this stub and
-			// that field landed in two PRs that each passed CI without seeing the
-			// other.
-			errorKind: null,
-			instructionFiles: [],
-			skippedInstructionFiles: [],
-			mcpConnected: [],
-			mcpFailed: [],
-			agentIds: [],
-			configNotices: [],
-			// The TUI never resumes a durable turn; a stub that answered would make
-			// a resume look reachable from here.
-			resumeDurable: async () => {
-				throw new Error('not used by the TUI')
-			},
-			resumePaused: () => {
-				throw new Error('resumePaused is not part of this test')
-			},
-			close: async () => {},
-			approvalLatched: () => false,
-			promptExemptTools: () => [],
-			// One row before the operator can act, then the wait, then the events
-			// that must land in the right place — or nowhere.
-			//
-			// It goes on yielding AFTER the abort on purpose. That is what a real
-			// one does — `abort()` returns and the loop unwinds whenever it gets
-			// there — and a generator that stopped politely on the signal would
-			// close the very window the other two halves of this defect live in.
-			send: async function* (_messages, opts): AsyncIterable<AgentEvent> {
-				const turn = signals.length
-				signals.push(opts?.signal)
-				const gate = nextGate()
-				// Copied when the turn begins, as the real session copies its scope:
-				// the turn is recorded there however the scope moves afterwards.
-				const recordInto = sessionScope?.sessionId ?? 'no-scope'
-				const said: string[] = []
-				try {
-					yield* turnEvents(turn, gate, opts, said)
-				} finally {
-					// The recorder settles every turn — completed, cancelled or failed.
-					appended.push({ sessionId: recordInto, contents: said })
-					if (appendHeld) await appendHeld
-				}
-			},
+				providerSummary: 'a-provider',
+				modelSummary: 'a-model',
+				toolNames: () => ['bash'],
+				presenter: genericPresenter,
+				errorHint: null,
+				// Required since #329 made the session say WHY it has no provider.
+				// Absent here because main does not build without it: this stub and
+				// that field landed in two PRs that each passed CI without seeing the
+				// other.
+				errorKind: null,
+				instructionFiles: [],
+				skippedInstructionFiles: [],
+				mcpConnected: [],
+				mcpFailed: [],
+				agentIds: [],
+				configNotices: [],
+				// The TUI never resumes a durable turn; a stub that answered would make
+				// a resume look reachable from here.
+				resumeDurable: async () => {
+					throw new Error('not used by the TUI')
+				},
+				resumePaused: () => {
+					throw new Error('resumePaused is not part of this test')
+				},
+				close: async () => {},
+				approvalLatched: () => false,
+				promptExemptTools: () => [],
+				// One row before the operator can act, then the wait, then the events
+				// that must land in the right place — or nowhere.
+				//
+				// It goes on yielding AFTER the abort on purpose. That is what a real
+				// one does — `abort()` returns and the loop unwinds whenever it gets
+				// there — and a generator that stopped politely on the signal would
+				// close the very window the other two halves of this defect live in.
+				send: async function* (_messages, opts): AsyncIterable<AgentEvent> {
+					const turn = signals.length
+					signals.push(opts?.signal)
+					const gate = nextGate()
+					// Copied when the turn begins, as the real session copies its scope:
+					// the turn is recorded there however the scope moves afterwards.
+					const recordInto = sessionScope?.sessionId ?? 'no-scope'
+					const said: string[] = []
+					try {
+						yield* turnEvents(turn, gate, opts, said)
+					} finally {
+						// The recorder settles every turn — completed, cancelled or failed.
+						appended.push({ sessionId: recordInto, contents: said })
+						if (appendHeld) await appendHeld
+					}
+				},
 			}
 		},
 	}
@@ -226,48 +231,48 @@ async function* turnEvents(
 	opts: Parameters<AgentSession['send']>[1],
 	said: string[],
 ): AsyncIterable<AgentEvent> {
-				const yielded = (event: AgentEvent): AgentEvent => {
-					if (event.kind === 'delta') said.push(event.text)
-					return event
-				}
-				// A delta BEFORE the wait, so the turn owns a streaming assistant row
-				// in the transcript that `/resume` then throws away. That is the shape
-				// where a late `appendToMessage` would target an id belonging to the
-				// discarded array and no-op in silence — invisible to a turn whose
-				// first event is a tool call.
-				yield yielded({ kind: 'delta', text: `EARLY${turn} ` } as AgentEvent)
-				yield {
-					kind: 'tool-start',
-					toolUseId: 'c1',
-					toolName: 'bash',
-					summary: `RUNNING${turn}`,
-				} as AgentEvent
-				await gate.wait
-				if (askPermission && turn === 0) {
-					permissionAsked = true
-					const decision = await opts?.onPermission?.({
-						toolCalls: [
-							{
-								id: 'call-1',
-								name: 'bash',
-								input: { command: 'rm -rf build' },
-								isDestructive: true,
-							},
-						],
-					})
-					if (decision) decisions.push(decision)
-				}
-				if (turn === 0) abortSeenAtRelease = opts?.signal?.aborted === true
-				yield {
-					kind: 'tool-end',
-					toolUseId: 'c1',
-					toolName: 'bash',
-					summary: `LEAKEDTOOL${turn}`,
-					isError: false,
-				} as AgentEvent
-				yield yielded({ kind: 'delta', text: `LEAKEDREPLY${turn}` } as AgentEvent)
-				if (throwAtEnd && turn === 0) throw new Error('TURNBLEWUP')
-				yield { kind: 'done' } as AgentEvent
+	const yielded = (event: AgentEvent): AgentEvent => {
+		if (event.kind === 'delta') said.push(event.text)
+		return event
+	}
+	// A delta BEFORE the wait, so the turn owns a streaming assistant row
+	// in the transcript that `/resume` then throws away. That is the shape
+	// where a late `appendToMessage` would target an id belonging to the
+	// discarded array and no-op in silence — invisible to a turn whose
+	// first event is a tool call.
+	yield yielded({ kind: 'delta', text: `EARLY${turn} ` } as AgentEvent)
+	yield {
+		kind: 'tool-start',
+		toolUseId: 'c1',
+		toolName: 'bash',
+		summary: `RUNNING${turn}`,
+	} as AgentEvent
+	await gate.wait
+	if (askPermission && turn === 0) {
+		permissionAsked = true
+		const decision = await opts?.onPermission?.({
+			toolCalls: [
+				{
+					id: 'call-1',
+					name: 'bash',
+					input: { command: 'rm -rf build' },
+					isDestructive: true,
+				},
+			],
+		})
+		if (decision) decisions.push(decision)
+	}
+	if (turn === 0) abortSeenAtRelease = opts?.signal?.aborted === true
+	yield {
+		kind: 'tool-end',
+		toolUseId: 'c1',
+		toolName: 'bash',
+		summary: `LEAKEDTOOL${turn}`,
+		isError: false,
+	} as AgentEvent
+	yield yielded({ kind: 'delta', text: `LEAKEDREPLY${turn}` } as AgentEvent)
+	if (throwAtEnd && turn === 0) throw new Error('TURNBLEWUP')
+	yield { kind: 'done' } as AgentEvent
 }
 
 const { App } = await import('../App.js')
@@ -425,9 +430,10 @@ describe('/resume while a turn is running', () => {
 		// across every frame and collapses the wrapping; see its docblock for why
 		// both halves of that matter.
 		const everything = said(harness)
-		expect(everything, "the abandoned turn's tool row landed in the resumed transcript").not.toContain(
-			'LEAKEDTOOL0',
-		)
+		expect(
+			everything,
+			"the abandoned turn's tool row landed in the resumed transcript",
+		).not.toContain('LEAKEDTOOL0')
 		expect(everything, "the abandoned turn's reply landed in the resumed transcript").not.toContain(
 			'LEAKEDREPLY0',
 		)
@@ -438,9 +444,10 @@ describe('/resume while a turn is running', () => {
 		// And whole: the events after the switch are consumed even though they are
 		// not rendered, so the saved reply is not truncated at the moment the
 		// operator happened to leave.
-		expect(appended[0]?.contents.join(' '), 'the saved reply stops where the operator left').toContain(
-			'LEAKEDREPLY0',
-		)
+		expect(
+			appended[0]?.contents.join(' '),
+			'the saved reply stops where the operator left',
+		).toContain('LEAKEDREPLY0')
 
 		// The reply the operator watched begin, before the switch, is part of what
 		// is saved — and its row is gone from the screen, so a late write against
@@ -592,7 +599,11 @@ describe('/resume while a turn is running', () => {
 
 		harness.stdin.write('\r')
 		await untilFrame(harness, 'RESTOREDANSWER', 'the conversation never loaded')
-		await untilFrame(harness, 'Discarded 1 queued prompt', 'the dropped prompt was not accounted for')
+		await untilFrame(
+			harness,
+			'Discarded 1 queued prompt',
+			'the dropped prompt was not accounted for',
+		)
 		await tick(200)
 
 		expect(gates.length, 'the idle-edge prompt crossed into the resumed conversation').toBe(1)
@@ -635,7 +646,11 @@ describe('/resume while a turn is running', () => {
 		const harness = await pickerOpenMidTurn()
 
 		harness.stdin.write('\r')
-		await untilFrame(harness, 'Could not resume that conversation.', 'the failure was never reported')
+		await untilFrame(
+			harness,
+			'Could not resume that conversation.',
+			'the failure was never reported',
+		)
 
 		gates[0]?.release()
 		await appendsReach(1)
@@ -643,7 +658,9 @@ describe('/resume while a turn is running', () => {
 
 		expect(abortSeenAtRelease, 'a failed resume aborted the turn anyway').toBe(false)
 		const everything = said(harness)
-		expect(everything, 'the turn stopped rendering into its own transcript').toContain('LEAKEDREPLY0')
+		expect(everything, 'the turn stopped rendering into its own transcript').toContain(
+			'LEAKEDREPLY0',
+		)
 		expect(appended.map((a) => a.sessionId)).toEqual([STARTED_IN])
 	})
 
@@ -662,7 +679,9 @@ describe('/resume while a turn is running', () => {
 
 		expect(abortSeenAtRelease, 'cancelling the picker aborted the turn').toBe(false)
 		const everything = said(harness)
-		expect(everything, 'the turn stopped rendering into its own transcript').toContain('LEAKEDREPLY0')
+		expect(everything, 'the turn stopped rendering into its own transcript').toContain(
+			'LEAKEDREPLY0',
+		)
 		expect(appended.map((a) => a.sessionId)).toEqual([STARTED_IN])
 	})
 })

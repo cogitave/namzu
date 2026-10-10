@@ -51,9 +51,9 @@ describe('checklist marks', () => {
 	})
 
 	it('writes a row as mark, one space, the subject on one line', () => {
-		expect(checklistLine({ id: 'x', subject: '  Çalışma\n alanını   incele ', status: 'pending' })).toBe(
-			'□ Çalışma alanını incele',
-		)
+		expect(
+			checklistLine({ id: 'x', subject: '  Çalışma\n alanını   incele ', status: 'pending' }),
+		).toBe('□ Çalışma alanını incele')
 		for (const item of PLAN) {
 			expect(checklistLine(item)).toMatch(/^[□■✓✗] \S/)
 		}

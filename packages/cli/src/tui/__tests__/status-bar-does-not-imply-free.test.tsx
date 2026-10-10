@@ -7,7 +7,13 @@ import { StatusBar } from '../StatusBar.js'
 
 function frame(hint?: string): string {
 	const harness = render(
-		<StatusBar cwd="/work/project" provider="provider" model="model" state="thinking" hint={hint} />,
+		<StatusBar
+			cwd="/work/project"
+			provider="provider"
+			model="model"
+			state="thinking"
+			hint={hint}
+		/>,
 	)
 	const result = harness.lastFrame() ?? ''
 	harness.unmount()

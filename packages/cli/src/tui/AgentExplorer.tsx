@@ -10,11 +10,11 @@ import {
 	type SubagentNarrationLine,
 } from '../integrations/subagents/activity.js'
 import { formatElapsed } from './LiveActivity.js'
-import { formatCompactCount } from './units.js'
 import { selectionWindow } from './selection-window.js'
-import { terminalDisplayText } from './terminal-display.js'
 import { truncateChoiceText } from './terminal-choice-text.js'
+import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
+import { formatCompactCount } from './units.js'
 
 const MAX_PICKER_ROWS = 9
 const COCKPIT_FRAME_COLUMNS = 4
@@ -152,9 +152,7 @@ export function AgentTaskPanel({
 	// of several distinct labels falls back to a neutral count instead of the
 	// generic default name, which named nothing about THESE agents.
 	const labelled = workflowLabel !== undefined && workflowLabel !== DEFAULT_AGENT_WORKFLOW
-	const title = labelled
-		? workflowLabel
-		: `${agents.length} agent${agents.length === 1 ? '' : 's'}`
+	const title = labelled ? workflowLabel : `${agents.length} agent${agents.length === 1 ? '' : 's'}`
 	const narrow = terminalColumns < 64
 	const showModel = !narrow && terminalColumns >= 76
 	const showCounters = !narrow && terminalColumns >= 96
@@ -460,7 +458,9 @@ export function AgentCockpit({
 	const workflows = agentWorkflows(agents)
 	const workflowIndex = Math.max(
 		0,
-		workflows.findIndex((workflow) => workflow.phases.some((phase) => phase.id === selectedPhaseId)),
+		workflows.findIndex((workflow) =>
+			workflow.phases.some((phase) => phase.id === selectedPhaseId),
+		),
 	)
 	const workflow = workflows[workflowIndex]
 	const phases = workflow?.phases ?? []
@@ -509,7 +509,11 @@ export function AgentCockpit({
 								</Text>
 							</Box>
 							<Box flexGrow={1} minWidth={0}>
-								<Text color={theme.text.primary} bold={item.id === workflow?.id} wrap="truncate-end">
+								<Text
+									color={theme.text.primary}
+									bold={item.id === workflow?.id}
+									wrap="truncate-end"
+								>
 									{oneLine(item.name)}
 								</Text>
 							</Box>
@@ -622,7 +626,10 @@ export function AgentCockpit({
 						detailWidth={Math.floor(
 							Math.max(
 								2,
-								terminalColumns - COCKPIT_FRAME_COLUMNS - (phasePaneWidth ?? 0) - (sideBySide ? 3 : 0),
+								terminalColumns -
+									COCKPIT_FRAME_COLUMNS -
+									(phasePaneWidth ?? 0) -
+									(sideBySide ? 3 : 0),
 							) / 2,
 						)}
 					/>
@@ -762,7 +769,11 @@ function AgentPane({
 	const showCounters = wide && terminalColumns >= 120
 	return (
 		<>
-			<Text color={focused ? theme.accent.assistant : theme.text.secondary} bold wrap="truncate-end">
+			<Text
+				color={focused ? theme.accent.assistant : theme.text.secondary}
+				bold
+				wrap="truncate-end"
+			>
 				{/* Titled by the phase it lists, as the reference's panel is: the
 				    operator reads which phase these are without looking left. */}
 				{phaseName !== undefined ? `${oneLine(phaseName)} · ` : ''}
@@ -792,8 +803,7 @@ function AgentPane({
 						<Box marginLeft={1} flexShrink={0} width={wide ? detailWidth : undefined}>
 							<Box flexGrow={1} flexShrink={1} minWidth={0}>
 								<Text color={theme.text.secondary} wrap="truncate-end">
-									{statusLabel(agent.status)} ·{' '}
-									{elapsed}
+									{statusLabel(agent.status)} · {elapsed}
 									{wide && distinctActivity(agent) ? ` · ${distinctActivity(agent)}` : ''}
 								</Text>
 							</Box>
@@ -955,7 +965,10 @@ export function AgentTranscript({
 	navigationHint,
 }: AgentTranscriptProps) {
 	const page = agentTranscriptPage(
-		agent, tailOffset, terminalRows + (compact ? 3 : 0), terminalColumns,
+		agent,
+		tailOffset,
+		terminalRows + (compact ? 3 : 0),
+		terminalColumns,
 	)
 	// A replayed child whose saved record never got an ending still has no
 	// clock running: ticking one would be the same claim the banner denies.
@@ -1170,8 +1183,8 @@ export function agentTranscriptRows(
 					// Prefer a word boundary, retaining whitespace so paging never
 					// drops content. Unbroken URLs/code still split at graphemes.
 					const boundary = text.lastIndexOf(' ') + 1
-					const split = boundary > 0 && text.slice(0, boundary).trim().length > 0
-						? boundary : text.length
+					const split =
+						boundary > 0 && text.slice(0, boundary).trim().length > 0 ? boundary : text.length
 					const rest = text.slice(split)
 					lines.push({
 						id: `${source.id}:${sourceLine++}`,
@@ -1282,7 +1295,8 @@ function workflowProgress(workflow: AgentWorkflow, now: number, columns: number)
 	const ending = workflow.status === 'completed' ? 'done' : workflow.status
 	// The title beside this keeps its room: below 60 columns only the count
 	// and the ending, then the time from 70, the spend from 100.
-	if (columns < 60) return running > 0 ? `${done}/${agents.length} done` : `${done}/${agents.length} · ${ending}`
+	if (columns < 60)
+		return running > 0 ? `${done}/${agents.length} done` : `${done}/${agents.length} · ${ending}`
 	const ends = agents.map((agent) => agent.completedAt ?? now)
 	const elapsed = formatElapsed(Math.max(0, Math.max(...ends) - workflow.startedAt))
 	const spent = agents.reduce<number | undefined>(
@@ -1389,8 +1403,8 @@ function lineGlyph(line: AgentTranscriptLine): string {
 
 function rowGlyph(row: SubagentActivity['transcript'][number]): string {
 	if (row.kind === 'assistant') return '∴'
-	if (row.kind === 'system') return row.direction === 'to-child' || row.direction === 'operator-to-child'
-		? '←' : '·'
+	if (row.kind === 'system')
+		return row.direction === 'to-child' || row.direction === 'operator-to-child' ? '←' : '·'
 	return row.status === 'working' ? '◌' : row.status === 'failed' ? '✗' : '✓'
 }
 
@@ -1401,7 +1415,8 @@ function rowGlyph(row: SubagentActivity['transcript'][number]): string {
  */
 function transcriptRowText(row: SubagentActivity['transcript'][number]): string {
 	if (row.kind === 'tool' && row.detail) return `${row.text}\n${row.detail}`
-	if (row.kind === 'system' && row.direction === 'to-child') return `queued from parent: ${row.text}`
+	if (row.kind === 'system' && row.direction === 'to-child')
+		return `queued from parent: ${row.text}`
 	if (row.kind === 'system' && row.direction === 'operator-to-child') return `from you: ${row.text}`
 	return row.text
 }

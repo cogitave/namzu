@@ -4,16 +4,18 @@ import type { Message } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { Preferences } from '../../integrations/providers/index.js'
+import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 import type { AgentEvent, AgentSession } from '../agent.js'
 import { renderToScreen } from './support/screen.js'
-import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 
 const existing: readonly Message[] = [
 	{ role: 'user', content: 'remember the blue door', timestamp: 1 },
 	{ role: 'assistant', content: 'I will remember it.', timestamp: 2 },
 ]
 const sent: Message[][] = []
-const startConversation = vi.hoisted(() => vi.fn(async () => '0ac90d46-4041-4402-8bc7-89c9a8c75f73'))
+const startConversation = vi.hoisted(() =>
+	vi.fn(async () => '0ac90d46-4041-4402-8bc7-89c9a8c75f73'),
+)
 const loadResumableConversation = vi.hoisted(() => vi.fn())
 const probeAgentSessionCall = vi.hoisted(() => vi.fn())
 const createAgentSessionCall = vi.hoisted(() => vi.fn())
@@ -143,7 +145,10 @@ describe('the shell resume handoff inside App', () => {
 				() => screen.scrollback().some((line) => line.includes('model')),
 				'App never became ready',
 			)
-			expect(loadResumableConversation).toHaveBeenCalledWith(expect.anything(), 'b74ac146-4b6d-45b8-b04b-e019792facf9')
+			expect(loadResumableConversation).toHaveBeenCalledWith(
+				expect.anything(),
+				'b74ac146-4b6d-45b8-b04b-e019792facf9',
+			)
 			expect(startConversation).not.toHaveBeenCalled()
 			expect(screen.scrollback().join('\n')).toContain('remember the blue door')
 
@@ -216,7 +221,8 @@ describe('the shell resume handoff inside App', () => {
 		try {
 			await waitUntil(
 				screen,
-				() => screen.scrollback().some((line) => line.includes('Could not resume that conversation')),
+				() =>
+					screen.scrollback().some((line) => line.includes('Could not resume that conversation')),
 				'exact resume refusal never reached the terminal',
 			)
 			expect(startConversation).not.toHaveBeenCalled()

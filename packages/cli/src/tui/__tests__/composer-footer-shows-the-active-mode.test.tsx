@@ -105,7 +105,14 @@ const planWithLongCwd = (
 	/>
 )
 const planNoEffort = (
-	<StatusBar cwd={CWD} provider="a-provider" model="gpt-5.6-terra" state="idle" permissionMode="plan" canCycleMode />
+	<StatusBar
+		cwd={CWD}
+		provider="a-provider"
+		model="gpt-5.6-terra"
+		state="idle"
+		permissionMode="plan"
+		canCycleMode
+	/>
 )
 
 describe('the composer footer at 80 columns', () => {
@@ -186,7 +193,10 @@ describe('the composer footer at 40 columns', () => {
 
 describe('the composer footer under width pressure', () => {
 	it('keeps the full mode, effort, path and model when they fit', async () => {
-		const screen = await renderToScreen(belowMessageFrame(planWithEffort), { cols: 100, rows: ROWS })
+		const screen = await renderToScreen(belowMessageFrame(planWithEffort), {
+			cols: 100,
+			rows: ROWS,
+		})
 		try {
 			const row = footerRow(screen)
 			expect(row).toContain(`‖ Plan (read-only) (shift+tab to cycle) · effort high · ${CWD}`)
@@ -197,7 +207,10 @@ describe('the composer footer under width pressure', () => {
 	})
 
 	it('drops a long working directory before the mode badge', async () => {
-		const screen = await renderToScreen(belowMessageFrame(planWithLongCwd), { cols: 40, rows: ROWS })
+		const screen = await renderToScreen(belowMessageFrame(planWithLongCwd), {
+			cols: 40,
+			rows: ROWS,
+		})
 		try {
 			const row = footerRow(screen)
 			expect(row).toContain('‖ Plan (read-only)')

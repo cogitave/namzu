@@ -820,12 +820,9 @@ describe('the composer on a production-shaped terminal', () => {
 
 			screen.press('\r')
 			await screen.waitForRender()
-			expect(submit).toHaveBeenCalledWith(
-				`/${eighth.name}`,
-				undefined,
-				'submit',
-				{ source: 'composer-dropdown' },
-			)
+			expect(submit).toHaveBeenCalledWith(`/${eighth.name}`, undefined, 'submit', {
+				source: 'composer-dropdown',
+			})
 		} finally {
 			await screen.unmount()
 		}

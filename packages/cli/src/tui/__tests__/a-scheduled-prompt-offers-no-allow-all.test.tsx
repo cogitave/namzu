@@ -10,7 +10,9 @@ import { PermissionOverlay, permissionAnswers, permissionChoices } from '../Perm
 import { buildPermissionReview, buildPermissionSummary } from '../permission-review.js'
 import { renderToScreen } from './support/screen.js'
 
-const bash = [{ id: 'call_1', name: 'bash', input: { command: 'date >> stamp.txt' }, isDestructive: true }]
+const bash = [
+	{ id: 'call_1', name: 'bash', input: { command: 'date >> stamp.txt' }, isDestructive: true },
+]
 const agent = [
 	{
 		id: 'agent-one',

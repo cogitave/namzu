@@ -10,10 +10,10 @@ import type { Message } from '@namzu/sdk'
 import { afterEach, expect, it, vi } from 'vitest'
 
 import type { Preferences } from '../../integrations/providers/index.js'
+import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 import type { AgentEvent, AgentSession } from '../agent.js'
 import type { TuiContext } from '../types.js'
 import { type Screen, renderToScreen } from './support/screen.js'
-import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 
 const PREFS: Preferences = {
 	version: 3,
@@ -283,13 +283,19 @@ it.each([60, 120])(
 		await screen.waitForRender()
 		screen.press('\r')
 		screen.press('\r')
-		await waitUntil(screen, () => screen.viewport().join('\n').includes('Loaded in this conversation'))
+		await waitUntil(screen, () =>
+			screen.viewport().join('\n').includes('Loaded in this conversation'),
+		)
 		expect(plugins.changes).toEqual([])
 		screen.press('\r')
-		await waitUntil(screen, () => screen.viewport().join('\n').includes('Disable for this conversation'))
+		await waitUntil(screen, () =>
+			screen.viewport().join('\n').includes('Disable for this conversation'),
+		)
 		expect(plugins.changes).toEqual([])
 		screen.press('2')
-		await waitUntil(screen, () => screen.viewport().join('\n').includes('Enable for this conversation'))
+		await waitUntil(screen, () =>
+			screen.viewport().join('\n').includes('Enable for this conversation'),
+		)
 		expect(plugins.changes).toEqual([false])
 		expect(screen.viewport().join('\n')).toContain('0 tools')
 		expect(plugins.startupEnabled).toBe(true)
@@ -298,7 +304,9 @@ it.each([60, 120])(
 		expect(plugins.startupEnabled).toBe(false)
 		expect(screen.viewport().join('\n')).toContain('after restart: disabled')
 		screen.press('2')
-		await waitUntil(screen, () => screen.viewport().join('\n').includes('Disable for this conversation'))
+		await waitUntil(screen, () =>
+			screen.viewport().join('\n').includes('Disable for this conversation'),
+		)
 		expect(plugins.changes).toEqual([false, true])
 		expect(screen.viewport().join('\n')).toContain('1 tool')
 		expect(plugins.startupEnabled).toBe(false)
@@ -322,9 +330,13 @@ it('keeps the real enabled state when a plugin change fails', async () => {
 	screen.press('/plugins')
 	await screen.waitForRender()
 	screen.press('\r')
-	await waitUntil(screen, () => screen.viewport().join('\n').includes('Loaded in this conversation'))
+	await waitUntil(screen, () =>
+		screen.viewport().join('\n').includes('Loaded in this conversation'),
+	)
 	screen.press('\r')
-	await waitUntil(screen, () => screen.viewport().join('\n').includes('Disable for this conversation'))
+	await waitUntil(screen, () =>
+		screen.viewport().join('\n').includes('Disable for this conversation'),
+	)
 	plugins.fail = true
 	screen.press('2')
 	await waitUntil(screen, () => screen.viewport().join('\n').includes('Could not change plugin'))
@@ -369,7 +381,9 @@ it('paints /permissions choices before a later key can select one', async () => 
 		painted(screen).includes('Permissions: Preapproved tools only for this conversation.'),
 	)
 	output = painted(screen)
-	expect(output.match(/Permissions: Preapproved tools only for this conversation\./g)).toHaveLength(1)
+	expect(output.match(/Permissions: Preapproved tools only for this conversation\./g)).toHaveLength(
+		1,
+	)
 })
 
 it('opens bare /feedback as a finite chooser for the completed answer', async () => {
@@ -548,7 +562,7 @@ it('asks which Namzu-owned subscription to remove and preserves the sibling', as
 	expect(credentials.cleared).toEqual([])
 
 	screen.press('2')
-	await waitUntil(screen, () => painted(screen).includes("Removed Namzu’s stored Codex"))
+	await waitUntil(screen, () => painted(screen).includes('Removed Namzu’s stored Codex'))
 	expect(credentials).toMatchObject({
 		primary: true,
 		codex: false,

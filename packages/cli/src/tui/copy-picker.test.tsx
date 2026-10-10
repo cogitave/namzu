@@ -4,10 +4,10 @@ import { expect, it } from 'vitest'
 import { CopyPicker } from './CopyPicker.js'
 
 it('renders bounded source previews through the terminal-safe projection', () => {
-	const source = `safe\u0007\u009b\u202etext\nsecond line`
+	const source = 'safe\u0007\u009b\u202etext\nsecond line'
 	const targets = [
 		{ kind: 'whole' as const, label: 'Whole response' as const, text: 'whole' },
-		{ kind: 'code' as const, label: `js\u202e code`, text: source },
+		{ kind: 'code' as const, label: 'js\u202e code', text: source },
 	]
 	const original = structuredClone(targets)
 	const harness = render(<CopyPicker targets={targets} selected={1} />)

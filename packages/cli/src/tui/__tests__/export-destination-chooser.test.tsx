@@ -4,10 +4,10 @@ import type { Message } from '@namzu/sdk'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import type { Preferences } from '../../integrations/providers/index.js'
+import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 import type { AgentEvent, AgentSession } from '../agent.js'
 import type { TuiContext } from '../types.js'
 import { type Screen, renderToScreen } from './support/screen.js'
-import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 
 const PREFS: Preferences = {
 	version: 3,
@@ -186,9 +186,7 @@ it('sends the same verified projection as one truthful OSC 52 clipboard request'
 	const writes = screen.writes().join('')
 	expect(writes.split(osc)).toHaveLength(2)
 	expect(painted(screen)).toContain('Terminal, multiplexer or remote-session policy may ignore')
-	expect(painted(screen).replace(/\s+/g, ' ')).toContain(
-		'OSC 52; if the clipboard did not change',
-	)
+	expect(painted(screen).replace(/\s+/g, ' ')).toContain('OSC 52; if the clipboard did not change')
 	expect(painted(screen)).not.toContain('Copied conversation')
 	expect(exportState.projectionCalls).toEqual(['b9ed92cf-8742-4028-ab32-103e762049fe'])
 	expect(exportState.fileWrites).toEqual([])

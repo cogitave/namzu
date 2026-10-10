@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest'
 
-import { type SessionEvent, type TurnId, ToolManager, createToolPresenter } from '@namzu/sdk'
+import { type SessionEvent, ToolManager, type TurnId, createToolPresenter } from '@namzu/sdk'
 
 import { Transcript, renderedDetailLines, willCollapse } from '../Transcript.js'
 import { fakeAgentSession } from '../__fixtures__/agent-session.js'
@@ -191,7 +191,7 @@ it.each(['\u000f', '/raw'])(
 		if (command === '\u000f') {
 			await until(screen, () => screen.viewport().join('\n').includes('Tool output'))
 			const pages = [screen.viewport().join('\n')]
-			for (let page=0; page<20 && !pages.at(-1)!.includes('FINAL_DIAGNOSTIC'); page++) {
+			for (let page = 0; page < 20 && !pages.at(-1)!.includes('FINAL_DIAGNOSTIC'); page++) {
 				const previous = screen.viewport().join('\n')
 				screen.press(' ')
 				await until(screen, () => screen.viewport().join('\n') !== previous)

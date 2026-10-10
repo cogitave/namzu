@@ -31,7 +31,9 @@ vi.mock('../../integrations/sessions/store.js', () => ({
 		topicId: '4bd72c65-bcc9-475c-8d7c-27d622df04e8',
 	}),
 	startConversation: async () => CONVERSATION,
-	loadResumableConversation: async () => [{ role: 'user', content: 'stamp the date', timestamp: 1 }],
+	loadResumableConversation: async () => [
+		{ role: 'user', content: 'stamp the date', timestamp: 1 },
+	],
 	requireWritableConversation: async () => {},
 	appendMessages: async () => {},
 	replaceConversation: async () => {},
@@ -45,16 +47,22 @@ vi.mock('../schedule/resume.js', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('../schedule/resume.js')>()
 	return {
 		...actual,
-		findScheduledPark: async () => (facts.scheduled ? { job: {}, runId: 'r', turnId: PARKED, toolCalls: [] } : undefined),
+		findScheduledPark: async () =>
+			facts.scheduled ? { job: {}, runId: 'r', turnId: PARKED, toolCalls: [] } : undefined,
 		prepareScheduledResume: async (input: Parameters<typeof actual.prepareScheduledResume>[0]) => {
 			const answer = await input.ask({
 				sessionId: input.sessionId as never,
 				turnId: PARKED as never,
-				toolCalls: [{ id: 'call_1', name: 'bash', input: { command: COMMAND }, isDestructive: true }],
+				toolCalls: [
+					{ id: 'call_1', name: 'bash', input: { command: COMMAND }, isDestructive: true },
+				],
 				batchOnly: true,
 			} as never)
 			return {
-				pendingDecision: answer.kind === 'reject' ? { action: 'reject_tools', feedback: 'no' } : { action: 'approve_tools' },
+				pendingDecision:
+					answer.kind === 'reject'
+						? { action: 'reject_tools', feedback: 'no' }
+						: { action: 'approve_tools' },
 				onPermission: input.ask,
 				rules: [],
 				permissionMode: 'prompt',
@@ -75,39 +83,40 @@ vi.mock('../agent.js', async (importOriginal) => {
 			credentialGap: null,
 			detected: [],
 		}),
-		createAgentSession: async (): Promise<AgentSession> => ({
-			hasProvider: true,
-			sandbox: { unconfined: true, enforced: [], required: [], workspace: 'host' },
-			compact: async () => null,
-			providerSummary: 'a-provider',
-			modelSummary: 'a-model',
-			toolNames: () => ['bash'],
-			errorHint: null,
-			errorKind: null,
-			agentIds: [],
-			configNotices: [],
-			instructionFiles: [],
-			skippedInstructionFiles: [],
-			mcpConnected: [],
-			mcpFailed: [],
-			resumeDurable: async () => {
-				throw new Error('not used by the TUI')
-			},
-			resumePaused: (params: ResumePausedParams) => {
-				resumed.push(params)
-				return (async function* (): AsyncIterable<AgentEvent> {
+		createAgentSession: async (): Promise<AgentSession> =>
+			({
+				hasProvider: true,
+				sandbox: { unconfined: true, enforced: [], required: [], workspace: 'host' },
+				compact: async () => null,
+				providerSummary: 'a-provider',
+				modelSummary: 'a-model',
+				toolNames: () => ['bash'],
+				errorHint: null,
+				errorKind: null,
+				agentIds: [],
+				configNotices: [],
+				instructionFiles: [],
+				skippedInstructionFiles: [],
+				mcpConnected: [],
+				mcpFailed: [],
+				resumeDurable: async () => {
+					throw new Error('not used by the TUI')
+				},
+				resumePaused: (params: ResumePausedParams) => {
+					resumed.push(params)
+					return (async function* (): AsyncIterable<AgentEvent> {
+						yield { kind: 'done' } as AgentEvent
+					})()
+				},
+				close: async () => {},
+				approvalLatched: () => false,
+				resetApprovalLatch: () => {},
+				setPermissionMode: async () => {},
+				promptExemptTools: () => [],
+				send: async function* (): AsyncIterable<AgentEvent> {
 					yield { kind: 'done' } as AgentEvent
-				})()
-			},
-			close: async () => {},
-			approvalLatched: () => false,
-			resetApprovalLatch: () => {},
-			setPermissionMode: async () => {},
-			promptExemptTools: () => [],
-			send: async function* (): AsyncIterable<AgentEvent> {
-				yield { kind: 'done' } as AgentEvent
-			},
-		}) as unknown as AgentSession,
+				},
+			}) as unknown as AgentSession,
 	}
 })
 

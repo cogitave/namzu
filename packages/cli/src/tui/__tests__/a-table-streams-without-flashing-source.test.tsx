@@ -7,8 +7,8 @@
 import { Box } from 'ink'
 import { afterEach, expect, it } from 'vitest'
 
-import { splitSafeCut } from '../stream-blocks.js'
 import { Transcript } from '../Transcript.js'
+import { splitSafeCut } from '../stream-blocks.js'
 import type { TranscriptMessage } from '../types.js'
 import { type Screen, renderToScreen } from './support/screen.js'
 
@@ -32,30 +32,40 @@ async function draw(content: string, cols: number): Promise<string[]> {
 	await mounted?.unmount()
 	mounted = await renderToScreen(
 		<Box flexDirection="column" paddingX={1}>
-			<Transcript messages={[]} pending={pending} state="thinking" settled={0} resetKey={0} staticIndent={1} />
+			<Transcript
+				messages={[]}
+				pending={pending}
+				state="thinking"
+				settled={0}
+				resetKey={0}
+				staticIndent={1}
+			/>
 		</Box>,
 		{ cols, rows: 40 },
 	)
 	return mounted.viewport()
 }
 
-it.each([160, 120, 80, 40])('never shows a table row as source while it streams, at %i columns', async (cols) => {
-	// Every prefix the stream could release, as the release rule releases it.
-	let shown = ''
-	let buffer = ''
-	for (const char of REPLY) {
-		buffer += char
-		const { ready, rest } = splitSafeCut(buffer)
-		if (ready.length === 0) continue
-		shown += ready
-		buffer = rest
-		const lines = await draw(shown, cols)
-		for (const line of lines) expect(line.trimStart().startsWith('|')).toBe(false)
-		for (const line of lines) expect([...line].length).toBeLessThanOrEqual(cols)
-	}
-	const final = await draw(REPLY, cols)
-	const text = final.join('\n')
-	expect(text).toContain('Katman')
-	expect(text).toContain('@openclaw/llm-core')
-	expect(text).not.toMatch(/\*\*|`/)
-})
+it.each([160, 120, 80, 40])(
+	'never shows a table row as source while it streams, at %i columns',
+	async (cols) => {
+		// Every prefix the stream could release, as the release rule releases it.
+		let shown = ''
+		let buffer = ''
+		for (const char of REPLY) {
+			buffer += char
+			const { ready, rest } = splitSafeCut(buffer)
+			if (ready.length === 0) continue
+			shown += ready
+			buffer = rest
+			const lines = await draw(shown, cols)
+			for (const line of lines) expect(line.trimStart().startsWith('|')).toBe(false)
+			for (const line of lines) expect([...line].length).toBeLessThanOrEqual(cols)
+		}
+		const final = await draw(REPLY, cols)
+		const text = final.join('\n')
+		expect(text).toContain('Katman')
+		expect(text).toContain('@openclaw/llm-core')
+		expect(text).not.toMatch(/\*\*|`/)
+	},
+)

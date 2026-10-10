@@ -1,6 +1,6 @@
 /** A resource stop must not look like the agent quietly forgot the conversation. */
 
-import type { Message, StopReason, SessionTokenBudgetSummary } from '@namzu/sdk'
+import type { Message, SessionTokenBudgetSummary, StopReason } from '@namzu/sdk'
 import { beforeEach, expect, it, vi } from 'vitest'
 
 import type { Preferences } from '../../integrations/providers/index.js'
@@ -136,30 +136,32 @@ it.each([
 		expect(sent).toHaveLength(2)
 		expect(JSON.stringify(sent[1])).toContain(partial)
 		expect(JSON.stringify(sent[1])).toContain(followup)
-		expect(screen.scrollback().join('\n').match(/Stopped:/g)).toHaveLength(1)
+		expect(
+			screen
+				.scrollback()
+				.join('\n')
+				.match(/Stopped:/g),
+		).toHaveLength(1)
 	} finally {
 		await screen.unmount()
 	}
 })
 
-it.each([undefined, 'end_turn', 'cancelled'] as const)(
-	'keeps %s endings quiet',
-	async (reason) => {
-		stopReason = reason
-		const screen = await renderToScreen(
-			<App ctx={{ cwd: '/workspace/namzu', version: '0.0.0-test' }} />,
-			{ cols: 100, rows: 30 },
-		)
-		try {
-			await until(screen, () => screen.viewport().join('\n').includes('stop-fixture'))
-			await submit(screen, 'Inspect this repository.')
-			await until(screen, () => screen.viewport().join('\n').includes(partial))
-			await submit(screen, followup)
-			await until(screen, () => sent.length === 2)
-			expect(screen.scrollback().join('\n')).not.toContain('Turn stopped')
-			expect(screen.scrollback().join('\n')).not.toContain('Paused')
-		} finally {
-			await screen.unmount()
-		}
-	},
-)
+it.each([undefined, 'end_turn', 'cancelled'] as const)('keeps %s endings quiet', async (reason) => {
+	stopReason = reason
+	const screen = await renderToScreen(
+		<App ctx={{ cwd: '/workspace/namzu', version: '0.0.0-test' }} />,
+		{ cols: 100, rows: 30 },
+	)
+	try {
+		await until(screen, () => screen.viewport().join('\n').includes('stop-fixture'))
+		await submit(screen, 'Inspect this repository.')
+		await until(screen, () => screen.viewport().join('\n').includes(partial))
+		await submit(screen, followup)
+		await until(screen, () => sent.length === 2)
+		expect(screen.scrollback().join('\n')).not.toContain('Turn stopped')
+		expect(screen.scrollback().join('\n')).not.toContain('Paused')
+	} finally {
+		await screen.unmount()
+	}
+})

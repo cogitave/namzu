@@ -8,10 +8,10 @@
 import { Box, Text, useAnimation, useIsScreenReaderEnabled, useStdout } from 'ink'
 import { useRef } from 'react'
 
-import { formatCompactCount, formatElapsed } from './units.js'
-import type { WebActivity } from './web-activity.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
+import { formatCompactCount, formatElapsed } from './units.js'
+import type { WebActivity } from './web-activity.js'
 
 export interface ActiveTool {
 	readonly id: string
@@ -126,6 +126,7 @@ export function LiveActivity({
 		<Text>
 			{Array.from(label, (char, column) => (
 				<Text
+					// biome-ignore lint/suspicious/noArrayIndexKey: these rows have no identity of their own and hold no state, so the index is the key.
 					key={column}
 					color={
 						!motion
@@ -144,15 +145,14 @@ export function LiveActivity({
 	)
 	const now = Date.now()
 	const elapsed = formatElapsed(now - (startedAtRef.current ?? now) - pausedRef.current.total)
-	const spent = tokens !== undefined && tokens > 0 ? ` · ↓ ${formatCompactCount(tokens)} tokens` : ''
+	const spent =
+		tokens !== undefined && tokens > 0 ? ` · ↓ ${formatCompactCount(tokens)} tokens` : ''
 	const waiting = waitingLine(activeTools)
 	const visibleTools = waiting ? [] : activeTools.slice(0, MAX_VISIBLE_TOOLS)
 	const hiddenTools = waiting ? 0 : activeTools.length - visibleTools.length
 	const noticeRow = waitNotice ? (
 		<Box paddingLeft={2}>
-			<Text color={theme.status.warn}>
-				⏳ {terminalDisplayText(waitNotice)}
-			</Text>
+			<Text color={theme.status.warn}>⏳ {terminalDisplayText(waitNotice)}</Text>
 		</Box>
 	) : null
 	const waitingRow = waiting ? (
@@ -178,24 +178,25 @@ export function LiveActivity({
 							: ''}
 					</Text>
 				</Box>
-				{noticeRow ?? (waitingRow ? (
-					waitingRow
-				) : current ? (
-					<Box paddingLeft={2}>
-						<Text color={theme.text.secondary} wrap="truncate-end">
-							{terminalDisplayText(current.label)}
-							{current.progress ? (
-								<Text color={theme.text.muted}> · {terminalDisplayText(current.progress)}</Text>
-							) : null}
-						</Text>
-					</Box>
-				) : thinking !== null ? (
-					<Box paddingLeft={2}>
-						<Text color={theme.text.muted} wrap="truncate-end">
-							thinking{thinking ? ` · ${terminalDisplayText(thinking)}` : '…'}
-						</Text>
-					</Box>
-				) : null)}
+				{noticeRow ??
+					(waitingRow ? (
+						waitingRow
+					) : current ? (
+						<Box paddingLeft={2}>
+							<Text color={theme.text.secondary} wrap="truncate-end">
+								{terminalDisplayText(current.label)}
+								{current.progress ? (
+									<Text color={theme.text.muted}> · {terminalDisplayText(current.progress)}</Text>
+								) : null}
+							</Text>
+						</Box>
+					) : thinking !== null ? (
+						<Box paddingLeft={2}>
+							<Text color={theme.text.muted} wrap="truncate-end">
+								thinking{thinking ? ` · ${terminalDisplayText(thinking)}` : '…'}
+							</Text>
+						</Box>
+					) : null)}
 			</Box>
 		)
 	}
@@ -269,7 +270,9 @@ export function LiveActivity({
 export function waitingLine(tools: readonly ActiveTool[]): string | undefined {
 	if (tools.length === 0 || !tools.every((tool) => tool.waitingOn !== undefined)) return undefined
 	const names = [...new Set(tools.map((tool) => tool.waitingOn as string))]
-	return names.length === 1 ? `Waiting for ${names[0]}` : `Waiting for ${names.length} agents to finish`
+	return names.length === 1
+		? `Waiting for ${names[0]}`
+		: `Waiting for ${names.length} agents to finish`
 }
 
 export { formatElapsed } from './units.js'

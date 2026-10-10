@@ -191,7 +191,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 						const result = await answer
 						yield {
 							kind: 'delta',
-							text: `MODEL GOT: ${result?.kind === 'answer' ? result.selectedOptionIds.join(',') : result?.kind ?? 'nothing'}`,
+							text: `MODEL GOT: ${result?.kind === 'answer' ? result.selectedOptionIds.join(',') : (result?.kind ?? 'nothing')}`,
 						}
 					} else if (sendOptions.length === 1) {
 						const previous = jobs[0]!
@@ -328,7 +328,11 @@ it('clears the shell count and shows one exit row when the kernel delivered the 
 	await turnSettled
 	await screen.waitForRender()
 	expect(screen.viewport().join('\n')).not.toContain('1 shell running · /jobs to manage')
-	expect(screen.scrollback().filter((line) => line.includes('background job job_1 (npm run dev) exited'))).toHaveLength(1)
+	expect(
+		screen
+			.scrollback()
+			.filter((line) => line.includes('background job job_1 (npm run dev) exited')),
+	).toHaveLength(1)
 
 	await submit(screen, 'next turn')
 	expect(sendOptions).toHaveLength(2)

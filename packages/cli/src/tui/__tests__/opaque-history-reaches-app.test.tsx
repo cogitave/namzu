@@ -10,22 +10,22 @@ import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+	type Message,
+	type SessionGoalStore,
 	createAssistantMessage,
 	createToolMessage,
 	createUserMessage,
-	type Message,
-	type SessionGoalStore,
 } from '@namzu/sdk'
 import { render } from 'ink-testing-library'
 import { afterEach, expect, it, vi } from 'vitest'
 
 import { recordTurn } from '../../__fixtures__/session-log.js'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
-import type { CliSessions } from '../../integrations/sessions/store.js'
 import type { Preferences } from '../../integrations/providers/index.js'
-import type { AgentEvent, AgentSession, SessionScope, SendOptions } from '../agent.js'
-import type { TuiContext } from '../types.js'
+import type { CliSessions } from '../../integrations/sessions/store.js'
 import { genericPresenter } from '../__fixtures__/generic-presenter.js'
+import type { AgentEvent, AgentSession, SendOptions, SessionScope } from '../agent.js'
+import type { TuiContext } from '../types.js'
 
 const PREFS: Preferences = {
 	version: 3,

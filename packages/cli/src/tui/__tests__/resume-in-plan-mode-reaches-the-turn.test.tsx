@@ -13,9 +13,9 @@ import { render } from 'ink-testing-library'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { Preferences } from '../../integrations/providers/index.js'
+import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 import type { AgentEvent, AgentSession, ResumePausedParams } from '../agent.js'
 import type { TuiContext } from '../types.js'
-import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 
 const PREFS: Preferences = { version: 3, providers: [{ id: 'openai' }], subagents: { active: [] } }
 const CONVERSATION = '0ac90d46-4041-4402-8bc7-89c9a8c75f73'
@@ -128,10 +128,7 @@ describe('/resume on a parked turn', () => {
 
 		// prompt → accept-edits → plan
 		harness.stdin.write(SHIFT_TAB)
-		await until(
-			() => (harness.lastFrame() ?? '').includes('Auto-approve edits'),
-			'accept-edits',
-		)
+		await until(() => (harness.lastFrame() ?? '').includes('Auto-approve edits'), 'accept-edits')
 		harness.stdin.write(SHIFT_TAB)
 		await until(() => (harness.lastFrame() ?? '').includes('Plan (read-only)'), 'plan mode')
 

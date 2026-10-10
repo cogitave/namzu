@@ -109,54 +109,57 @@ it.each([
 		key: '\x03',
 		persistedIdentity: true,
 	},
-])('shows an actionable startup refusal and exits on one $keyName', async ({ key, persistedIdentity }) => {
-	const cwd = mkdtempSync(join(tmpdir(), 'namzu-app-startup-exit-'))
-	dirs.push(cwd)
-	const identityBytes = Buffer.from(
-		'{"tenantId":"tnt_previous_installation","createdAt":"2026-01-01T00:00:00Z"}\n',
-	)
-	let identityPath: string | undefined
-	if (persistedIdentity) {
-		const stateRoot = mkdtempSync(join(tmpdir(), 'namzu-app-prefixed-identity-'))
-		dirs.push(stateRoot)
-		lifecycle.stateRoot = stateRoot
-		identityPath = join(stateRoot, 'identity.json')
-		writeFileSync(identityPath, identityBytes)
-	}
-	const onExitSummary = vi.fn()
-	const screen = await renderToScreen(
-		<App ctx={{ cwd, version: '0.0.0-test' }} onExitSummary={onExitSummary} />,
-		{ cols: 60, rows: 14 },
-	)
-	try {
-		await waitForScreen(screen, () => screen.viewport().join('\n').includes('Startup stopped'))
-		const viewport = screen.viewport().join('\n')
-		expect(viewport).toContain('Resolve the error above, then restart Namzu.')
-		expect(viewport).toContain('esc or Ctrl+C exit')
-		expect(viewport).not.toContain('Type a message')
-		const refusal = screen.scrollback().join('\n').replace(/\n\s*/g, ' ')
-		if (identityPath) {
-			expect(refusal.replace(/\s/g, '')).toContain(identityPath)
-			expect(refusal).toContain('must be a UUID')
-			expect(refusal).toContain('Prefixed IDs are not supported')
-		} else {
-			expect(refusal).toContain('split histories require an explicit repair')
+])(
+	'shows an actionable startup refusal and exits on one $keyName',
+	async ({ key, persistedIdentity }) => {
+		const cwd = mkdtempSync(join(tmpdir(), 'namzu-app-startup-exit-'))
+		dirs.push(cwd)
+		const identityBytes = Buffer.from(
+			'{"tenantId":"tnt_previous_installation","createdAt":"2026-01-01T00:00:00Z"}\n',
+		)
+		let identityPath: string | undefined
+		if (persistedIdentity) {
+			const stateRoot = mkdtempSync(join(tmpdir(), 'namzu-app-prefixed-identity-'))
+			dirs.push(stateRoot)
+			lifecycle.stateRoot = stateRoot
+			identityPath = join(stateRoot, 'identity.json')
+			writeFileSync(identityPath, identityBytes)
 		}
-		expect(screen.rawMode()).toBe(true)
-		expect(lifecycle.createAgentSession).not.toHaveBeenCalled()
-		expect(existsSync(join(cwd, '.namzu'))).toBe(false)
+		const onExitSummary = vi.fn()
+		const screen = await renderToScreen(
+			<App ctx={{ cwd, version: '0.0.0-test' }} onExitSummary={onExitSummary} />,
+			{ cols: 60, rows: 14 },
+		)
+		try {
+			await waitForScreen(screen, () => screen.viewport().join('\n').includes('Startup stopped'))
+			const viewport = screen.viewport().join('\n')
+			expect(viewport).toContain('Resolve the error above, then restart Namzu.')
+			expect(viewport).toContain('esc or Ctrl+C exit')
+			expect(viewport).not.toContain('Type a message')
+			const refusal = screen.scrollback().join('\n').replace(/\n\s*/g, ' ')
+			if (identityPath) {
+				expect(refusal.replace(/\s/g, '')).toContain(identityPath)
+				expect(refusal).toContain('must be a UUID')
+				expect(refusal).toContain('Prefixed IDs are not supported')
+			} else {
+				expect(refusal).toContain('split histories require an explicit repair')
+			}
+			expect(screen.rawMode()).toBe(true)
+			expect(lifecycle.createAgentSession).not.toHaveBeenCalled()
+			expect(existsSync(join(cwd, '.namzu'))).toBe(false)
 
-		screen.press(key)
-		await waitForScreen(screen, () => !screen.rawMode())
-		expect(onExitSummary).toHaveBeenCalledTimes(1)
-		expect(onExitSummary).toHaveBeenCalledWith({})
-		expect(screen.scrollback().join('\n')).not.toContain('Press Ctrl+C again')
-		if (identityPath && lifecycle.stateRoot) {
-			expect(readFileSync(identityPath)).toEqual(identityBytes)
-			expect(readdirSync(lifecycle.stateRoot)).toEqual(['identity.json'])
-			expect(existsSync(join(lifecycle.stateRoot, 'projects'))).toBe(false)
+			screen.press(key)
+			await waitForScreen(screen, () => !screen.rawMode())
+			expect(onExitSummary).toHaveBeenCalledTimes(1)
+			expect(onExitSummary).toHaveBeenCalledWith({})
+			expect(screen.scrollback().join('\n')).not.toContain('Press Ctrl+C again')
+			if (identityPath && lifecycle.stateRoot) {
+				expect(readFileSync(identityPath)).toEqual(identityBytes)
+				expect(readdirSync(lifecycle.stateRoot)).toEqual(['identity.json'])
+				expect(existsSync(join(lifecycle.stateRoot, 'projects'))).toBe(false)
+			}
+		} finally {
+			await screen.unmount()
 		}
-	} finally {
-		await screen.unmount()
-	}
-})
+	},
+)

@@ -231,7 +231,10 @@ it('keeps Enter going straight through where a row has one provider behind it', 
 	expect(unconfigured.viewport().join('\n')).not.toContain('Choose a way to use')
 	// And a key discovery already hands over is that one way: the row it found is
 	// the answer, and nothing asks how the operator meant to use it.
-	const withKey = await open({ detected: [OPENROUTER_KEY], describeModels: vi.fn(async () => ONE_MODEL) })
+	const withKey = await open({
+		detected: [OPENROUTER_KEY],
+		describeModels: vi.fn(async () => ONE_MODEL),
+	})
 	await press(withKey, '\r')
 	await vi.waitFor(async () => {
 		await withKey.waitForRender()
@@ -244,7 +247,10 @@ it('asks how a one-id vendor is meant to be used, when it has two ways in', asyn
 	// The owner's rule: the chooser follows the WAYS, not the ids. This vendor is
 	// ONE id with a session on this machine and a key it can take, so the row has
 	// something to ask — and each answer leads where that way in always led.
-	const screen = await open({ detected: [CLAUDE_DEVICE], describeModels: vi.fn(async () => ONE_MODEL) })
+	const screen = await open({
+		detected: [CLAUDE_DEVICE],
+		describeModels: vi.fn(async () => ONE_MODEL),
+	})
 	await press(screen, '\r')
 	const chooser = screen.viewport().join('\n')
 
@@ -277,8 +283,12 @@ it('offers experimental Zen free models beside credentialed access', async () =>
 	const chooser = screen.viewport().join('\n')
 
 	expect(chooser).toContain('Choose a way to use Zen')
-	expect(chooser).toContain('1. Use existing Zen · Zen free models · experimental; gateway may refuse')
-	expect(chooser).toContain('2. Enter an API key for Zen · OPENCODE_API_KEY for credentialed access')
+	expect(chooser).toContain(
+		'1. Use existing Zen · Zen free models · experimental; gateway may refuse',
+	)
+	expect(chooser).toContain(
+		'2. Enter an API key for Zen · OPENCODE_API_KEY for credentialed access',
+	)
 	expect(chooser).toContain('OpenCode installation is recommended')
 	expect(chooser).toContain('Namzu sends requests directly')
 })

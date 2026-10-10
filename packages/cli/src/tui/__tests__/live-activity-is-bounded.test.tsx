@@ -6,7 +6,13 @@ import { LiveActivity } from '../LiveActivity.js'
 describe('the redrawable Working region', () => {
 	it('names only controls and child observation that are actually available', () => {
 		const quiet = render(
-			<LiveActivity activeTools={[]} working agentCount={2} interruptible={false} animate={false} />,
+			<LiveActivity
+				activeTools={[]}
+				working
+				agentCount={2}
+				interruptible={false}
+				animate={false}
+			/>,
 		)
 		try {
 			const frame = quiet.lastFrame() ?? ''
@@ -29,14 +35,20 @@ describe('the redrawable Working region', () => {
 	})
 
 	it('counts the turn’s output tokens beside its time, and keeps the interrupt key', () => {
-		const harness = render(<LiveActivity activeTools={[]} working interruptible animate={false} tokens={1_100} />)
+		const harness = render(
+			<LiveActivity activeTools={[]} working interruptible animate={false} tokens={1_100} />,
+		)
 		try {
-			expect(harness.lastFrame()).toMatch(/Working \(\d+\.\ds · ↓ 1\.1k tokens · esc to interrupt\)/u)
+			expect(harness.lastFrame()).toMatch(
+				/Working \(\d+\.\ds · ↓ 1\.1k tokens · esc to interrupt\)/u,
+			)
 		} finally {
 			harness.unmount()
 		}
 		// Nothing written yet reads as nothing, not as `↓ 0 tokens`.
-		const silent = render(<LiveActivity activeTools={[]} working interruptible animate={false} tokens={0} />)
+		const silent = render(
+			<LiveActivity activeTools={[]} working interruptible animate={false} tokens={0} />,
+		)
 		try {
 			expect(silent.lastFrame()).not.toContain('tokens')
 		} finally {

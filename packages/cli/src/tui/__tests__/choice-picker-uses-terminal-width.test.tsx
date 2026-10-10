@@ -59,7 +59,7 @@ it('keeps badges, search, selected detail and controls visible on a narrow termi
 	)
 })
 
-it('draws a recommended option\'s badge on its own row only', async () => {
+it("draws a recommended option's badge on its own row only", async () => {
 	mounted = await renderToScreen(
 		<ChoicePicker
 			title="Which audience is this for?"

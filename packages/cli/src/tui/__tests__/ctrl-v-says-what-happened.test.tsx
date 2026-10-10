@@ -19,9 +19,9 @@ import { render } from 'ink-testing-library'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Preferences } from '../../integrations/providers/index.js'
+import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 import type { AgentEvent, AgentSession, SendOptions } from '../agent.js'
 import type { TuiContext } from '../types.js'
-import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 
 const PREFS: Preferences = { version: 3, providers: [{ id: 'openai' }], subagents: { active: [] } }
 
@@ -68,8 +68,8 @@ vi.mock('../agent.js', async (importOriginal) => {
 		}),
 		createAgentSession: async (): Promise<AgentSession> => ({
 			hasProvider: true,
-				sandbox: { unconfined: true, enforced: [], required: [] },
-				compact: async () => null,
+			sandbox: { unconfined: true, enforced: [], required: [] },
+			compact: async () => null,
 			providerSummary: 'a-provider',
 			modelSummary: 'a-model',
 			toolNames: () => [],
@@ -144,7 +144,6 @@ async function ready() {
 async function sendsReach(count: number, timeoutMs?: number): Promise<void> {
 	await vi.waitFor(() => expect(sent.length).toBeGreaterThanOrEqual(count), timeoutMs)
 }
-
 
 async function submit(harness: { stdin: { write: (value: string) => void } }, text: string) {
 	harness.stdin.write(text)

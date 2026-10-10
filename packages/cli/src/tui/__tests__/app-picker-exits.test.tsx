@@ -24,21 +24,21 @@ import { render } from 'ink-testing-library'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Message } from '@namzu/sdk'
-import type { RecentConversation } from '../../integrations/sessions/store.js'
 import {
 	type DetectedProvider,
 	PROVIDER_REGISTRY,
 	type Preferences,
 	VENDOR_NAMES,
 } from '../../integrations/providers/index.js'
+import type { RecentConversation } from '../../integrations/sessions/store.js'
 import * as memoryStore from '../../memory/store.js'
 import * as userCommandStore from '../../user-commands/store.js'
 
+import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 import type { AgentEvent, AgentSession, SendOptions } from '../agent.js'
 import type { TuiExitSummary } from '../exit-summary.js'
 import type { TuiContext } from '../types.js'
 import { type Screen, renderToScreen } from './support/screen.js'
-import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 
 const PREFS: Preferences = {
 	version: 3,
@@ -623,7 +623,10 @@ describe('publishing a picker selection', () => {
 		expect(harness.lastFrame()).toContain('View rules')
 		harness.stdin.write('\x1b[B')
 		harness.stdin.write('\r')
-		await frameShows(harness.lastFrame, 'Permissions: Preapproved tools only for this conversation.')
+		await frameShows(
+			harness.lastFrame,
+			'Permissions: Preapproved tools only for this conversation.',
+		)
 		await submit(harness, '/permissions')
 		await frameShows(harness.lastFrame, 'More options')
 		harness.stdin.write('4')
@@ -660,7 +663,12 @@ describe('publishing a picker selection', () => {
 		]
 		vi.spyOn(userCommandStore, 'discoverUserCommands').mockReturnValue(customCommands)
 		const expand = vi.spyOn(userCommandStore, 'expandCommand')
-		const remember = vi.spyOn(memoryStore, 'appendMemoryWithStatus').mockReturnValue({ path: '/w/.namzu/MEMORY.md', scope: 'project', appended: true, includedInPrompt: true })
+		const remember = vi.spyOn(memoryStore, 'appendMemoryWithStatus').mockReturnValue({
+			path: '/w/.namzu/MEMORY.md',
+			scope: 'project',
+			appended: true,
+			includedInPrompt: true,
+		})
 		const read = vi.spyOn(memoryStore, 'readMemory').mockReturnValue({
 			user: null,
 			memory: null,
@@ -719,7 +727,9 @@ describe('publishing a picker selection', () => {
 	it('shows saved memory to the operator without prompt instructions or inspection writes', async () => {
 		const fact = 'Use pnpm for this project'
 		const path = '/w/.namzu/MEMORY.md'
-		const remember = vi.spyOn(memoryStore, 'appendMemoryWithStatus').mockReturnValue({ path, scope: 'project', appended: true, includedInPrompt: true })
+		const remember = vi
+			.spyOn(memoryStore, 'appendMemoryWithStatus')
+			.mockReturnValue({ path, scope: 'project', appended: true, includedInPrompt: true })
 		const read = vi.spyOn(memoryStore, 'readMemory').mockReturnValue({
 			user: null,
 			memory: null,
@@ -750,49 +760,74 @@ describe('publishing a picker selection', () => {
 	it.each([
 		['#STAGING_IS_READ_ONLY', undefined],
 		['/memory add --type feedback STAGING_IS_READ_ONLY', 'feedback'],
-	] as const)('writes %s as a typed memory through the session, not the curated file', async (command, type) => {
-		const append = vi.spyOn(memoryStore, 'appendMemoryWithStatus')
-		const rememberNote = vi.fn(async (_text: string, noteType?: string) => ({
-			saved: true,
-			type: (noteType ?? 'project') as 'project',
-			name: 'staging-is-read-only',
-			path: '/state/memory/staging-is-read-only.md',
-		}))
-		const storedMemoryIndex = vi.fn(async () => ({
-			directory: '/state/memory',
-			index: { text: '- [staging-is-read-only](staging-is-read-only.md) — STAGING_IS_READ_ONLY', total: 1, omitted: 0 },
-			derived: { text: '- [fixed-the-flake](fixed-the-flake.md) — RUN_RECORDED', total: 1, omitted: 0 },
-		}))
-		vi.spyOn(memoryStore, 'readMemory').mockReturnValue({ user: null, memory: null, project: null })
-		createSession = async () => ({ ...sessionFixture(), rememberNote, storedMemoryIndex })
-		const harness = render(<App ctx={ctx} />)
-		mounted.push(harness)
-		await frameShows(harness.lastFrame, 'Type a message')
-		await tick(80)
-		await submit(harness, command)
-		await vi.waitFor(() => expect(rememberNote).toHaveBeenCalledWith('STAGING_IS_READ_ONLY', type))
-		await frameShows(harness.lastFrame, '/state/memory/staging-is-read-only.md')
-		expect(append).not.toHaveBeenCalled()
-		await submit(harness, '/memory show')
-		await frameShows(harness.lastFrame, 'Stored memories (1)')
-		expect(harness.lastFrame() ?? '').toContain('[staging-is-read-only](staging-is-read-only.md)')
-		await frameShows(harness.lastFrame, 'Recorded by turns (1)')
-		expect(harness.lastFrame() ?? '').toContain('RUN_RECORDED')
-	})
+	] as const)(
+		'writes %s as a typed memory through the session, not the curated file',
+		async (command, type) => {
+			const append = vi.spyOn(memoryStore, 'appendMemoryWithStatus')
+			const rememberNote = vi.fn(async (_text: string, noteType?: string) => ({
+				saved: true,
+				type: (noteType ?? 'project') as 'project',
+				name: 'staging-is-read-only',
+				path: '/state/memory/staging-is-read-only.md',
+			}))
+			const storedMemoryIndex = vi.fn(async () => ({
+				directory: '/state/memory',
+				index: {
+					text: '- [staging-is-read-only](staging-is-read-only.md) — STAGING_IS_READ_ONLY',
+					total: 1,
+					omitted: 0,
+				},
+				derived: {
+					text: '- [fixed-the-flake](fixed-the-flake.md) — RUN_RECORDED',
+					total: 1,
+					omitted: 0,
+				},
+			}))
+			vi.spyOn(memoryStore, 'readMemory').mockReturnValue({
+				user: null,
+				memory: null,
+				project: null,
+			})
+			createSession = async () => ({ ...sessionFixture(), rememberNote, storedMemoryIndex })
+			const harness = render(<App ctx={ctx} />)
+			mounted.push(harness)
+			await frameShows(harness.lastFrame, 'Type a message')
+			await tick(80)
+			await submit(harness, command)
+			await vi.waitFor(() =>
+				expect(rememberNote).toHaveBeenCalledWith('STAGING_IS_READ_ONLY', type),
+			)
+			await frameShows(harness.lastFrame, '/state/memory/staging-is-read-only.md')
+			expect(append).not.toHaveBeenCalled()
+			await submit(harness, '/memory show')
+			await frameShows(harness.lastFrame, 'Stored memories (1)')
+			expect(harness.lastFrame() ?? '').toContain('[staging-is-read-only](staging-is-read-only.md)')
+			await frameShows(harness.lastFrame, 'Recorded by turns (1)')
+			expect(harness.lastFrame() ?? '').toContain('RUN_RECORDED')
+		},
+	)
 
-	it.each(['/memory add NEW_NOTE', '#NEW_NOTE'])('reports saved but clipped memory for %s', async (command) => {
-		const path = '/w/.namzu/MEMORY.md'
-		const remember = vi.spyOn(memoryStore, 'appendMemoryWithStatus').mockReturnValue({ path, scope: 'project', appended: true, includedInPrompt: false })
-		const harness = render(<App ctx={ctx} />)
-		mounted.push(harness)
-		await frameShows(harness.lastFrame, 'Type a message')
-		await tick(80)
-		await submit(harness, command)
-		await frameShows(harness.lastFrame, 'not be fully included')
-		expect(harness.lastFrame()).toContain(path)
-		expect(harness.lastFrame()).not.toContain('Remembered')
-		expect(remember).toHaveBeenCalledExactlyOnceWith('NEW_NOTE', { scope: 'project', cwd: ctx.cwd })
-	})
+	it.each(['/memory add NEW_NOTE', '#NEW_NOTE'])(
+		'reports saved but clipped memory for %s',
+		async (command) => {
+			const path = '/w/.namzu/MEMORY.md'
+			const remember = vi
+				.spyOn(memoryStore, 'appendMemoryWithStatus')
+				.mockReturnValue({ path, scope: 'project', appended: true, includedInPrompt: false })
+			const harness = render(<App ctx={ctx} />)
+			mounted.push(harness)
+			await frameShows(harness.lastFrame, 'Type a message')
+			await tick(80)
+			await submit(harness, command)
+			await frameShows(harness.lastFrame, 'not be fully included')
+			expect(harness.lastFrame()).toContain(path)
+			expect(harness.lastFrame()).not.toContain('Remembered')
+			expect(remember).toHaveBeenCalledExactlyOnceWith('NEW_NOTE', {
+				scope: 'project',
+				cwd: ctx.cwd,
+			})
+		},
+	)
 
 	it('shows effective session approval in Settings and clears it only when a preset is applied', async () => {
 		let approvedAll = true
@@ -1488,7 +1523,15 @@ describe('Ctrl+C from a ready conversation', () => {
 
 	it('restores a selected archived conversation and says when the subsequent resume fails', async () => {
 		const id = 'b2326129-f3ee-43c2-9b3b-16b340886cbe'
-		archivedRows = [{ id: id as never, title: 'Archived example', named: true, updatedAt: new Date().toISOString(), count: 1 }]
+		archivedRows = [
+			{
+				id: id as never,
+				title: 'Archived example',
+				named: true,
+				updatedAt: new Date().toISOString(),
+				count: 1,
+			},
+		]
 		failRestoredLoad = true
 		const harness = render(<App ctx={ctx} />)
 		mounted.push(harness)
@@ -1518,7 +1561,9 @@ describe('Ctrl+C from a ready conversation', () => {
 		await submit(harness, 'keep working')
 		await started.promise
 		await submit(harness, '/unarchive')
-		expect(harness.lastFrame()).toContain('Wait for the current reply and queued messages to finish')
+		expect(harness.lastFrame()).toContain(
+			'Wait for the current reply and queued messages to finish',
+		)
 		expect(archivedListCalls).toBe(0)
 		expect(restoredConversationIds).toEqual([])
 		finish.resolve()

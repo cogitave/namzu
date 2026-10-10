@@ -41,9 +41,11 @@ export interface StatusBarProps {
 export const MODE_MARK = { moving: '⏵⏵', held: '‖' } as const
 
 /** Icon, color and label for an active (non-default) permission mode. */
-function modeGlyph(
-	mode: PermissionMode,
-): { readonly icon: string; readonly color: string; readonly label: string } {
+function modeGlyph(mode: PermissionMode): {
+	readonly icon: string
+	readonly color: string
+	readonly label: string
+} {
 	return {
 		icon: mode === 'accept-edits' || mode === 'auto' ? MODE_MARK.moving : MODE_MARK.held,
 		color: mode === 'strict' ? theme.status.warn : theme.accent.user,
@@ -213,9 +215,7 @@ export function fitStatusLine(input: {
 
 	const left = (): string => {
 		const withMode = `${mode ?? ''}${cycleSuffix ?? ''}`
-		return [withMode, effort, cwd]
-			.filter((value): value is string => Boolean(value))
-			.join(' · ')
+		return [withMode, effort, cwd].filter((value): value is string => Boolean(value)).join(' · ')
 	}
 
 	if (left().length > leftBudget && cwd) {

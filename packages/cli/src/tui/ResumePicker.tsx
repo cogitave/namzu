@@ -24,12 +24,7 @@ export function ResumePicker({ conversations, selected, mode = 'resume' }: Resum
 	const showPreview = (stdout.rows ?? 24) >= 20
 	const { start, items: visible } = selectionWindow(conversations, selected)
 	return (
-		<Box
-			flexDirection="column"
-			borderStyle="round"
-			borderColor={theme.border.focus}
-			paddingX={1}
-		>
+		<Box flexDirection="column" borderStyle="round" borderColor={theme.border.focus} paddingX={1}>
 			<Box justifyContent="space-between">
 				<Text color={theme.accent.user} bold>
 					{mode === 'restore' ? 'Restore an archived conversation' : 'Resume a conversation'}
@@ -60,7 +55,9 @@ export function ResumePicker({ conversations, selected, mode = 'resume' }: Resum
 									 * and without the mark they are one column of text
 									 * that reads as if every row were chosen.
 									 */}
-									{c.named ? `"${displayConversationTitle(c.title)}"` : displayConversationTitle(c.title)}
+									{c.named
+										? `"${displayConversationTitle(c.title)}"`
+										: displayConversationTitle(c.title)}
 								</Text>
 							</Box>
 							<Text color={theme.text.muted}> {relativeTime(c.updatedAt)}</Text>
@@ -69,11 +66,15 @@ export function ResumePicker({ conversations, selected, mode = 'resume' }: Resum
 				})}
 			</Box>
 			{showPreview && conversations[selected] && (
-                <Box flexDirection="column" paddingTop={1}>
-                    <Text color={theme.text.secondary} wrap="truncate-end">{conversations[selected]?.preview || 'No saved user prompt available.'}</Text>
-                    <Text color={theme.text.muted} wrap="truncate-end">{plural(conversations[selected]?.count ?? 0, 'message')}</Text>
-                </Box>
-            )}
+				<Box flexDirection="column" paddingTop={1}>
+					<Text color={theme.text.secondary} wrap="truncate-end">
+						{conversations[selected]?.preview || 'No saved user prompt available.'}
+					</Text>
+					<Text color={theme.text.muted} wrap="truncate-end">
+						{plural(conversations[selected]?.count ?? 0, 'message')}
+					</Text>
+				</Box>
+			)}
 			<Box paddingTop={1}>
 				<Text color={theme.text.muted}>
 					{fitHints(

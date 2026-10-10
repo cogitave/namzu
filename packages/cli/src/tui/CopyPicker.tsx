@@ -16,12 +16,7 @@ export function CopyPicker({ targets, selected }: CopyPickerProps) {
 	const { start, items: visible } = selectionWindow(targets, selected)
 	const terminal = useWindowSize()
 	return (
-		<Box
-			flexDirection="column"
-			borderStyle="round"
-			borderColor={theme.border.focus}
-			paddingX={1}
-		>
+		<Box flexDirection="column" borderStyle="round" borderColor={theme.border.focus} paddingX={1}>
 			<Box justifyContent="space-between">
 				<Text color={theme.accent.user} bold>
 					Copy from response
@@ -80,6 +75,10 @@ export function CopyPicker({ targets, selected }: CopyPickerProps) {
 
 function preview(source: string): string {
 	const safe = terminalDisplayText(source)
-	const first = safe.split('\n').find((line) => line.trim().length > 0)?.trim() ?? '(empty)'
+	const first =
+		safe
+			.split('\n')
+			.find((line) => line.trim().length > 0)
+			?.trim() ?? '(empty)'
 	return [...first].slice(0, 72).join('')
 }

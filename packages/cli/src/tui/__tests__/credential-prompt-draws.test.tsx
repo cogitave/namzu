@@ -116,17 +116,16 @@ describe('the no-credential screen', () => {
 			onLogin,
 		})
 
-		expect(lastFrame()).toContain('Use existing Anthropic (Claude) · Claude sign-in · this computer')
+		expect(lastFrame()).toContain(
+			'Use existing Anthropic (Claude) · Claude sign-in · this computer',
+		)
 		expect(lastFrame()).toContain('Sign in to Anthropic (Claude) · opens your browser')
 		expect(lastFrame()).toContain('Sign in to OpenAI (Codex subscription) · uses a one-time code')
 
 		stdin.write('\r')
 		await flush()
 
-		expect(onSubmit).toHaveBeenCalledWith(
-			{ provider: 'anthropic' },
-			expect.any(AbortSignal),
-		)
+		expect(onSubmit).toHaveBeenCalledWith({ provider: 'anthropic' }, expect.any(AbortSignal))
 		expect(onLogin).not.toHaveBeenCalled()
 		unmount()
 	})

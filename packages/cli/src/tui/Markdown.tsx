@@ -21,7 +21,12 @@ import { Fragment, createContext, memo, useContext, useRef } from 'react'
 
 import { type BlockCache, createBlockCache } from './markdown-block-cache.js'
 import { type TableSource, type TableSpan, layoutTable } from './markdown-table.js'
-import { type DisplayLine, type DisplaySpan, inlineDisplaySpans, wrapSpans } from './markdown-wrap.js'
+import {
+	type DisplayLine,
+	type DisplaySpan,
+	inlineDisplaySpans,
+	wrapSpans,
+} from './markdown-wrap.js'
 import type { MdBlock } from './markdownParser.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { terminalWebHyperlink } from './terminal-hyperlinks.js'
@@ -75,6 +80,7 @@ export function Markdown({ text, color = theme.text.primary, hyperlinks = false 
 		<Box flexDirection="column">
 			{blocks.map((block, i) => (
 				<BlockView
+					// biome-ignore lint/suspicious/noArrayIndexKey: these rows have no identity of their own and hold no state, so the index is the key.
 					key={`b-${i}`}
 					block={block}
 					prev={blocks[i - 1]}
@@ -118,7 +124,12 @@ const BlockView = memo(function BlockView({
 			return (
 				<Box marginTop={gap}>
 					<Text bold color={block.level <= 2 ? theme.accent.user : color}>
-						<WrappedInline source={block.text} width={width} color={color} hyperlinks={hyperlinks} />
+						<WrappedInline
+							source={block.text}
+							width={width}
+							color={color}
+							hyperlinks={hyperlinks}
+						/>
 					</Text>
 				</Box>
 			)
@@ -163,6 +174,7 @@ const BlockView = memo(function BlockView({
 				>
 					{block.lang ? <Text color={theme.text.muted}>{block.lang}</Text> : null}
 					{(block.lines.length > 0 ? block.lines : ['']).map((line, i) => (
+						// biome-ignore lint/suspicious/noArrayIndexKey: these rows have no identity of their own and hold no state, so the index is the key.
 						<Text key={`c-${i}`} color={CODE_COLOR}>
 							{line.length > 0 ? line : ' '}
 						</Text>
@@ -173,7 +185,12 @@ const BlockView = memo(function BlockView({
 			return (
 				<Box marginTop={gap}>
 					<Text color={color} wrap="wrap">
-						<WrappedInline source={block.text} width={width} color={color} hyperlinks={hyperlinks} />
+						<WrappedInline
+							source={block.text}
+							width={width}
+							color={color}
+							hyperlinks={hyperlinks}
+						/>
 					</Text>
 				</Box>
 			)

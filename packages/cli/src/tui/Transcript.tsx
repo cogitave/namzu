@@ -138,36 +138,36 @@ export function Transcript({
 	const { columns } = useWindowSize()
 	return (
 		<ContentWidth.Provider value={Math.max(10, columns - 2 * staticIndent - 2)}>
-		<Box flexDirection="column">
-			<Static key={resetKey} items={rows}>
-				{(row) => (
-					<Box
-						key={row.kind === 'header' ? 'header' : row.message.id}
-						flexDirection="column"
-						paddingLeft={staticIndent}
-						paddingRight={staticIndent}
-					>
-						{row.kind === 'header' ? (
-							<Box>{header}</Box>
-						) : raw ? (
-							<RawMessageRow message={row.message} prev={row.prev} />
-						) : (
-							<MessageRow message={row.message} prev={row.prev} hyperlinks={hyperlinks} />
-						)}
-					</Box>
-				)}
-			</Static>
-			{showLive
-				? drawn.map((message, i) => {
-						const prev = i > 0 ? drawn[i - 1] : messages[inScrollback - 1]
-						return raw ? (
-							<RawMessageRow key={message.id} message={message} prev={prev} />
-						) : (
-							<LiveRow key={message.id} message={message} prev={prev} hyperlinks={hyperlinks} />
-						)
-					})
-				: null}
-		</Box>
+			<Box flexDirection="column">
+				<Static key={resetKey} items={rows}>
+					{(row) => (
+						<Box
+							key={row.kind === 'header' ? 'header' : row.message.id}
+							flexDirection="column"
+							paddingLeft={staticIndent}
+							paddingRight={staticIndent}
+						>
+							{row.kind === 'header' ? (
+								<Box>{header}</Box>
+							) : raw ? (
+								<RawMessageRow message={row.message} prev={row.prev} />
+							) : (
+								<MessageRow message={row.message} prev={row.prev} hyperlinks={hyperlinks} />
+							)}
+						</Box>
+					)}
+				</Static>
+				{showLive
+					? drawn.map((message, i) => {
+							const prev = i > 0 ? drawn[i - 1] : messages[inScrollback - 1]
+							return raw ? (
+								<RawMessageRow key={message.id} message={message} prev={prev} />
+							) : (
+								<LiveRow key={message.id} message={message} prev={prev} hyperlinks={hyperlinks} />
+							)
+						})
+					: null}
+			</Box>
 		</ContentWidth.Provider>
 	)
 }
@@ -263,7 +263,11 @@ function MessageRow({
 		!prev || message.glyph === '⎿' || (exploration && !startsExploration) || continuesWeb ? 0 : 1
 	return (
 		<Box flexDirection="column" marginTop={gap}>
-			{startsExploration ? <Text bold color={theme.text.secondary}>Explored</Text> : null}
+			{startsExploration ? (
+				<Text bold color={theme.text.secondary}>
+					Explored
+				</Text>
+			) : null}
 			<Box flexDirection="row">
 				<Box width={2} flexShrink={0}>
 					<Text color={glyphColor} bold>
@@ -310,7 +314,9 @@ function MessageRow({
 					<Checklist items={message.checklist} />
 				</Box>
 			) : null}
-			{message.detail && message.detail.length > 0 && (!message.activity || message.detailExpanded) ? (
+			{message.detail &&
+			message.detail.length > 0 &&
+			(!message.activity || message.detailExpanded) ? (
 				<DetailBlock
 					lines={message.detail}
 					expanded={message.detailExpanded === true}
@@ -421,7 +427,8 @@ export function renderedDetailLines(message: TranscriptMessage): readonly string
 
 function renderedBodyLines(message: TranscriptMessage): readonly string[] {
 	const lines = message.detail
-	if (!lines || lines.length === 0 || (message.activity !== undefined && !message.detailExpanded)) return []
+	if (!lines || lines.length === 0 || (message.activity !== undefined && !message.detailExpanded))
+		return []
 	const shown = splitDetail(
 		lines.map(terminalDisplayText),
 		message.detailExpanded === true,

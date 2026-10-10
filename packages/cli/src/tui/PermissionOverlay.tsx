@@ -358,7 +358,13 @@ export function PermissionOverlay({
 				{queuedCount > 0 ? (
 					<Text color={theme.text.muted}> · {queuedCount} more awaiting approval</Text>
 				) : null}
-				{destructive ? <Text color={theme.status.error}>{toolCalls.every((call) => call.name === 'write') ? ' · may overwrite' : ' · destructive'}</Text> : null}
+				{destructive ? (
+					<Text color={theme.status.error}>
+						{toolCalls.every((call) => call.name === 'write')
+							? ' · may overwrite'
+							: ' · destructive'}
+					</Text>
+				) : null}
 			</Text>
 			{sourceLabel ? (
 				<Text color={theme.text.secondary} wrap="truncate-end">
@@ -399,7 +405,7 @@ export function PermissionOverlay({
 					<Text color={theme.text.primary} bold>
 						{terminalDisplayText(
 							sharing
-								? `Let namzu see your screen for the rest of this conversation?`
+								? 'Let namzu see your screen for the rest of this conversation?'
 								: permissionQuestion(toolCalls),
 						)}
 					</Text>

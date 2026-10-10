@@ -35,8 +35,8 @@ import type {
 	ProviderId,
 } from '../../integrations/providers/index.js'
 import { PROVIDER_REGISTRY } from '../../integrations/providers/registry.js'
-import type { AgentEvent, AgentSession } from '../agent.js'
 import { genericPresenter } from '../__fixtures__/generic-presenter.js'
+import type { AgentEvent, AgentSession } from '../agent.js'
 import type { TuiContext } from '../types.js'
 import { type Screen, renderToScreen } from './support/screen.js'
 
@@ -135,7 +135,9 @@ vi.mock('../../integrations/providers/index.js', async (importOriginal) => {
 		...actual,
 		readPreferences: () => ({ status: 'ok' as const, prefs: world.prefs }),
 		discoverProviders: async () => world.detected,
-		writePreferences: (prefs: Preferences) => { world.savedPrefs.push(prefs) },
+		writePreferences: (prefs: Preferences) => {
+			world.savedPrefs.push(prefs)
+		},
 		writeStoredGeminiApiKey: (key: string) => {
 			if (world.keySaveError) throw world.keySaveError
 			world.savedKeys.push(key)
@@ -352,7 +354,9 @@ describe('launching with a saved provider and no credential', () => {
 			await until(screen, '/model')
 			screen.press('\r')
 			await until(screen, 'Choose a model')
-			expect(screen.viewport().join('\n')).toContain('this conversation only (temporary credential)')
+			expect(screen.viewport().join('\n')).toContain(
+				'this conversation only (temporary credential)',
+			)
 		} finally {
 			await screen.unmount()
 		}

@@ -4,9 +4,9 @@ import { render } from 'ink-testing-library'
 import { afterEach, expect, it, vi } from 'vitest'
 
 import type { Preferences } from '../../integrations/providers/index.js'
+import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 import type { AgentEvent, AgentSession } from '../agent.js'
 import type { TuiContext } from '../types.js'
-import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 
 const PREFS: Preferences = { version: 3, providers: [{ id: 'openai' }], subagents: { active: [] } }
 
@@ -94,9 +94,7 @@ it('renders the repair warning before the assistant reply', async () => {
 	while (!(harness.lastFrame() ?? '').includes('test-model') && Date.now() < readyBy) {
 		await tick()
 	}
-	expect(harness.lastFrame(), 'App never reached its connected composer').toContain(
-		'test-model',
-	)
+	expect(harness.lastFrame(), 'App never reached its connected composer').toContain('test-model')
 	harness.stdin.write('continue')
 	await tick()
 	harness.stdin.write('\r')

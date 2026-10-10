@@ -8,15 +8,20 @@
  * clipboard adapter have to agree end to end.
  */
 
-import { createAssistantMessage, createUserMessage, type Message, type StopReason } from '@namzu/sdk'
+import {
+	type Message,
+	type StopReason,
+	createAssistantMessage,
+	createUserMessage,
+} from '@namzu/sdk'
 import { render } from 'ink-testing-library'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { ClipboardWriteResult } from '../../integrations/clipboard/text.js'
 import type { Preferences } from '../../integrations/providers/index.js'
+import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 import type { AgentEvent, AgentSession } from '../agent.js'
 import type { TuiContext } from '../types.js'
-import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 
 const PREFS: Preferences = { version: 3, providers: [{ id: 'openai' }], subagents: { active: [] } }
 
@@ -138,8 +143,7 @@ async function frameShows(
 ): Promise<void> {
 	const normalizedExpected = text.replace(/\s+/g, ' ')
 	await vi.waitFor(
-		() =>
-			expect(harness.frames.join('\n').replace(/\s+/g, ' ')).toContain(normalizedExpected),
+		() => expect(harness.frames.join('\n').replace(/\s+/g, ' ')).toContain(normalizedExpected),
 		timeoutMs,
 	)
 }
@@ -284,10 +288,7 @@ it('copies exact fenced-code and prose-quote source regions', async () => {
 	harness.stdin.write('3')
 	await waitUntil(() => requested.length === 2)
 
-	expect(requested).toEqual([
-		"print('hi')  \r\n",
-		'quoted **source**\r\n> nested marker\r\n',
-	])
+	expect(requested).toEqual(["print('hi')  \r\n", 'quoted **source**\r\n> nested marker\r\n'])
 })
 
 it('holds queued work until the source picker closes', async () => {
@@ -359,7 +360,12 @@ it('does not promote partial text from an abnormal done event', async () => {
 it('hydrates the copy target from the resumed conversation, not the one left behind', async () => {
 	turns = [{ text: 'OUTPUT FROM OLD CONVERSATION', stopReason: 'end_turn' }]
 	recentConversations = [
-		{ id: 'resumed', title: 'A resumed conversation', updatedAt: new Date().toISOString(), count: 4 },
+		{
+			id: 'resumed',
+			title: 'A resumed conversation',
+			updatedAt: new Date().toISOString(),
+			count: 4,
+		},
 	]
 	loadedConversation = [
 		createUserMessage('old question'),
@@ -411,10 +417,7 @@ describe('clipboard adapter results reach the operator', () => {
 			{ kind: 'unavailable', detail: 'stdout is not an interactive terminal' } as const,
 			'Cannot send a copy request here — stdout is not an interactive terminal',
 		],
-		[
-			{ kind: 'too-large', bytes: 100_001, limit: 100_000 } as const,
-			'Nothing was truncated',
-		],
+		[{ kind: 'too-large', bytes: 100_001, limit: 100_000 } as const, 'Nothing was truncated'],
 		[
 			{ kind: 'write-failed', detail: 'stream closed' } as const,
 			'Could not send the terminal copy request: stream closed',

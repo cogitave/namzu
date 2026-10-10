@@ -17,8 +17,8 @@ import {
 	type SkillSaveTarget,
 	describeCollision,
 } from '../skills/save.js'
-import { terminalDisplayText } from './terminal-display.js'
 import { truncateChoiceText } from './terminal-choice-text.js'
+import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
 
 export interface SaveSkillOverlayProps {

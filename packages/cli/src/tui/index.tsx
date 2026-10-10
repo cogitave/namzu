@@ -8,24 +8,28 @@ import { resolve } from 'node:path'
 import { render } from 'ink'
 import React from 'react'
 
+import { type TerminationSignal, handleTerminationSignals } from '../termination.js'
 import { App } from './App.js'
+import { openConsoleInput } from './console-input.js'
 import {
 	type TuiExitSummary,
 	type TuiResumeInvocation,
 	formatTuiExitSummary,
 } from './exit-summary.js'
-import { type TerminationSignal, handleTerminationSignals } from '../termination.js'
-import { openConsoleInput } from './console-input.js'
+import { installTuiLogSink } from './log-pane.js'
 import { watchOutputSize } from './output-size-watch.js'
 import { liveRenderOption } from './render-mode.js'
-import { installTuiLogSink } from './log-pane.js'
 import type { TuiContext } from './types.js'
 
 export async function launchTui(
 	ctx: TuiContext,
 	options: { readonly resumeCommand?: readonly [string, ...string[]] } = {},
 ): Promise<void> {
-	const invocation: TuiResumeInvocation = { cwd: resolve(ctx.cwd), command: options.resumeCommand, ...(ctx.palId ? { palId: ctx.palId } : {}) }
+	const invocation: TuiResumeInvocation = {
+		cwd: resolve(ctx.cwd),
+		command: options.resumeCommand,
+		...(ctx.palId ? { palId: ctx.palId } : {}),
+	}
 	// Ink owns the terminal for the life of this function: it repaints the
 	// screen from its own virtual buffer, and any other write to
 	// stdout/stderr while it holds the terminal corrupts the frame

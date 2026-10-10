@@ -72,11 +72,7 @@ function open(overrides: Partial<Parameters<typeof Picker>[0]> = {}) {
 
 /** The row the cursor is on, by the marker the screen puts in front of it. */
 function highlighted(frame: string | undefined): string {
-	return (
-		(frame ?? '')
-			.split('\n')
-			.find((line) => line.includes('›')) ?? ''
-	)
+	return (frame ?? '').split('\n').find((line) => line.includes('›')) ?? ''
 }
 
 /** Move the cursor down until `label` is the highlighted row. */

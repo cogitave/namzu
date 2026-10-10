@@ -18,9 +18,9 @@ import { render } from 'ink-testing-library'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { Preferences } from '../../integrations/providers/index.js'
+import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 import type { AgentEvent, AgentSession } from '../agent.js'
 import type { TuiContext } from '../types.js'
-import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 
 const PREFS: Preferences = { version: 3, providers: [{ id: 'openai' }], subagents: { active: [] } }
 
@@ -86,7 +86,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 			send: async function* (_messages, opts): AsyncIterable<AgentEvent> {
 				readMode = opts?.currentPermissionMode as (() => string) | undefined
 				if (holdTurn) {
-										await new Promise<void>((resolve) => {
+					await new Promise<void>((resolve) => {
 						releaseTurn = resolve
 					})
 				}
@@ -198,7 +198,10 @@ describe('Shift+Tab in the composer', () => {
 		harness.stdin.write(SHIFT_TAB)
 		await frameShows(harness.lastFrame, '‖ Plan (read-only)')
 		expect(readMode?.()).toBe('plan')
-		expect(recorded, 'each change is recorded for the running turn').toEqual(['accept-edits', 'plan'])
+		expect(recorded, 'each change is recorded for the running turn').toEqual([
+			'accept-edits',
+			'plan',
+		])
 		expect(harness.lastFrame() ?? '').not.toContain('Permissions were not changed')
 		expect(harness.lastFrame() ?? '').not.toContain('Permissions:')
 

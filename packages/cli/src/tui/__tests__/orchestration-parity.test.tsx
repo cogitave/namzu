@@ -10,8 +10,8 @@
 import { createRequire } from 'node:module'
 
 import { Box } from 'ink'
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import stringWidth from 'string-width'
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 
 import type { SubagentActivity } from '../../integrations/subagents/activity.js'
 import { AgentCockpit, AgentTaskPanel, activeSubagentCohorts } from '../AgentExplorer.js'
@@ -40,7 +40,9 @@ afterEach(async () => {
 	mounted = undefined
 })
 
-function agent(input: Partial<SubagentActivity> & Pick<SubagentActivity, 'viewId'>): SubagentActivity {
+function agent(
+	input: Partial<SubagentActivity> & Pick<SubagentActivity, 'viewId'>,
+): SubagentActivity {
 	return {
 		agentId: 'general-purpose',
 		description: input.viewId,
@@ -62,8 +64,20 @@ function agent(input: Partial<SubagentActivity> & Pick<SubagentActivity, 'viewId
 describe('launch receipt', () => {
 	it('names every agent of one batch under one line, in start order', () => {
 		const receipt = launchReceipt([
-			agent({ viewId: 'b', description: 'İkinci rengi seç', startedAt: 2_000, workflow: 'İki aşamalı cümle', phase: 'Aşama 1' }),
-			agent({ viewId: 'a', description: 'Birinci rengi seç', startedAt: 1_000, workflow: 'İki aşamalı cümle', phase: 'Aşama 1' }),
+			agent({
+				viewId: 'b',
+				description: 'İkinci rengi seç',
+				startedAt: 2_000,
+				workflow: 'İki aşamalı cümle',
+				phase: 'Aşama 1',
+			}),
+			agent({
+				viewId: 'a',
+				description: 'Birinci rengi seç',
+				startedAt: 1_000,
+				workflow: 'İki aşamalı cümle',
+				phase: 'Aşama 1',
+			}),
 		])
 		expect(receipt.content.split('\n')).toEqual([
 			'Launched 2 agents · İki aşamalı cümle / Aşama 1 (ctrl+t to manage)',
@@ -73,9 +87,9 @@ describe('launch receipt', () => {
 	})
 
 	it('names one agent inline, and leaves the unlabelled defaults out', () => {
-		expect(launchReceipt([agent({ viewId: 'solo', description: 'Join the colours' })]).content).toBe(
-			'Launched Join the colours (ctrl+t to manage)',
-		)
+		expect(
+			launchReceipt([agent({ viewId: 'solo', description: 'Join the colours' })]).content,
+		).toBe('Launched Join the colours (ctrl+t to manage)')
 	})
 
 	it('never carries a line break or tab a model put in a label', () => {
@@ -124,7 +138,9 @@ describe('completion row', () => {
 			}),
 		)
 		expect(failed.ok).toBe(false)
-		expect(failed.content).toBe('Choose second colour · failed after 2.9s · Provider refused the request')
+		expect(failed.content).toBe(
+			'Choose second colour · failed after 2.9s · Provider refused the request',
+		)
 		expect(failed.hint).toBe('ctrl+t details')
 		const cancelled = completionRow(
 			agent({ viewId: 'c', description: 'x', status: 'cancelled', startedAt: 0, completedAt: 500 }),
@@ -183,7 +199,12 @@ describe('the rail tree', () => {
 			tokens: 4_100,
 			model: 'gpt-5.6-luna',
 		}),
-		agent({ viewId: 'two', description: 'İkinci rengi seç', workflow: 'İki aşamalı cümle', status: 'queued' }),
+		agent({
+			viewId: 'two',
+			description: 'İkinci rengi seç',
+			workflow: 'İki aşamalı cümle',
+			status: 'queued',
+		}),
 	]
 
 	it('draws a header and one branch per agent with its activity beneath, and no box', async () => {
@@ -312,7 +333,13 @@ describe('the rail tree', () => {
 				'join',
 			])
 			const unlabelled = [
-				agent({ viewId: 'old', batchId: 'b1', workflowGroupId: 'b1', status: 'completed', completedAt: 2 }),
+				agent({
+					viewId: 'old',
+					batchId: 'b1',
+					workflowGroupId: 'b1',
+					status: 'completed',
+					completedAt: 2,
+				}),
 				agent({ viewId: 'new', batchId: 'b2', workflowGroupId: 'b2' }),
 			]
 			expect(activeSubagentCohorts(unlabelled).map((member) => member.viewId)).toEqual(['new'])
@@ -333,13 +360,17 @@ describe('the rail tree', () => {
 				{ cols: 120, rows: 24 },
 			)
 			const frame = mounted.viewport().join('\n')
-			expect(frame).toMatch(/Two-phase colour sentence\s+2\/3 agents done · 1 running · \S+ · 18\.0k tokens │/u)
+			expect(frame).toMatch(
+				/Two-phase colour sentence\s+2\/3 agents done · 1 running · \S+ · 18\.0k tokens │/u,
+			)
 			expect(frame).toMatch(/✓ 1 Phase 1\s+2\/2 · 3\.9s\s/u)
 			expect(frame).toMatch(/│ Phase 2 · 1 agent\s/u)
 			await mounted.unmount()
 
 			const finished = phased.map((member) =>
-				member.viewId === 'join' ? { ...member, status: 'completed' as const, completedAt: at, tokens: 9_000 } : member,
+				member.viewId === 'join'
+					? { ...member, status: 'completed' as const, completedAt: at, tokens: 9_000 }
+					: member,
 			)
 			mounted = await renderToScreen(
 				<AgentCockpit
@@ -384,10 +415,17 @@ describe('the rail tree', () => {
 })
 
 describe('the waiting line', () => {
-	const wait = (id: string, on: string) => ({ id, label: `Waiting · ${on}`, startedAt: Date.now(), waitingOn: on })
+	const wait = (id: string, on: string) => ({
+		id,
+		label: `Waiting · ${on}`,
+		startedAt: Date.now(),
+		waitingOn: on,
+	})
 
 	it('folds waits on agents into one line, and never hides real work behind them', () => {
-		expect(waitingLine([wait('a', 'Birinci'), wait('b', 'İkinci')])).toBe('Waiting for 2 agents to finish')
+		expect(waitingLine([wait('a', 'Birinci'), wait('b', 'İkinci')])).toBe(
+			'Waiting for 2 agents to finish',
+		)
 		expect(waitingLine([wait('a', 'Birinci')])).toBe('Waiting for Birinci')
 		expect(
 			waitingLine([wait('a', 'Birinci'), { id: 'bash', label: 'Bash(ls)', startedAt: Date.now() }]),
@@ -424,7 +462,18 @@ describe('the effort slider', () => {
 		expect(layout?.separator).toBeGreaterThan(layout?.starts[5] ?? 0)
 		expect(layout?.starts[6]).toBe((layout?.separator ?? 0) + 2)
 		expect(effortSliderLayout(labels, 59)).toBeUndefined()
-		const eight = ['default', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'ultra + hypermode (workflows)']
+		const eight = [
+			'default',
+			'none',
+			'minimal',
+			'low',
+			'medium',
+			'high',
+			'xhigh',
+			'max',
+			'ultra',
+			'ultra + hypermode (workflows)',
+		]
 		expect(effortSliderLayout(eight, 60)).toBeUndefined()
 		expect(effortSliderLayout(eight, 100)).toBeDefined()
 	})
@@ -436,7 +485,13 @@ describe('the effort slider', () => {
 		const layout = effortSliderLayout(labels, 98)
 		if (!layout) throw new Error('fixture must fit')
 		mounted = await renderToScreen(
-			<EffortSlider title="Reasoning for gpt-5.6-luna" options={options} selected={selected} layout={layout} columns={98} />,
+			<EffortSlider
+				title="Reasoning for gpt-5.6-luna"
+				options={options}
+				selected={selected}
+				layout={layout}
+				columns={98}
+			/>,
 			{ cols: 100, rows: 12 },
 		)
 		const rows = mounted.viewport()
@@ -461,7 +516,13 @@ describe('the effort slider', () => {
 		const heights: number[] = []
 		for (const selected of [0, 6]) {
 			mounted = await renderToScreen(
-				<EffortSlider title="t" options={options} selected={selected} layout={layout} columns={columns} />,
+				<EffortSlider
+					title="t"
+					options={options}
+					selected={selected}
+					layout={layout}
+					columns={columns}
+				/>,
 				{ cols: 80, rows: 16 },
 			)
 			const rows = mounted.viewport()
@@ -471,7 +532,9 @@ describe('the effort slider', () => {
 			expect(rows.every((row) => stringWidth(row.trimEnd()) <= 78)).toBe(true)
 			if (selected === 6) {
 				const flat = rows.map((row) => row.trim()).join(' ')
-				expect(flat).toContain('Spends the most tokens and time; use it for work that splits into independent parts.')
+				expect(flat).toContain(
+					'Spends the most tokens and time; use it for work that splits into independent parts.',
+				)
 				expect(text).not.toContain('…')
 			}
 			heights.push(rows.findIndex((row) => row.includes('←/→ adjust')))
@@ -487,9 +550,12 @@ describe('the effort slider', () => {
 		if (!layout) throw new Error('fixture must fit')
 		mounted = await renderToScreen(
 			<EffortSlider title="t" options={options} selected={0} layout={layout} columns={98} />,
-			{ cols: 100, rows: 12},
+			{ cols: 100, rows: 12 },
 		)
-		expect(mounted.writes().join('')).toMatch(/\u001b\[38;5;141m[^\u001b]*max \+ hypermode \(workflows\)/u)
+		expect(mounted.writes().join('')).toMatch(
+			// biome-ignore lint/suspicious/noControlCharactersInRegex: matches the escape character that starts a terminal control sequence, on purpose.
+			/\u001b\[38;5;141m[^\u001b]*max \+ hypermode \(workflows\)/u,
+		)
 	})
 })
 
@@ -499,7 +565,7 @@ describe('hypermode on the message box', () => {
 			mounted = await renderToScreen(
 				<Box flexDirection="column">
 					<ComposerFrame focus mode="hypermode">
-						<></>
+						{null}
 					</ComposerFrame>
 					<StatusBar cwd="/x" provider={null} model={null} state="idle" />
 				</Box>,
@@ -508,7 +574,9 @@ describe('hypermode on the message box', () => {
 			const visible = mounted.viewport().join('\n')
 			expect(visible.match(/hypermode/gu)).toHaveLength(1)
 			expect(visible.split('\n').find((row) => row.startsWith('┌'))).toContain('hypermode')
-			expect(visible.split('\n').find((row) => row.includes('shift+tab'))).not.toContain('hypermode')
+			expect(visible.split('\n').find((row) => row.includes('shift+tab'))).not.toContain(
+				'hypermode',
+			)
 			await mounted.unmount()
 			mounted = undefined
 		}
@@ -517,17 +585,18 @@ describe('hypermode on the message box', () => {
 	it('keeps both corners and prioritizes the mode label on narrow screens', async () => {
 		mounted = await renderToScreen(
 			<ComposerFrame focus mode="hypermode">
-				<></>
+				{null}
 			</ComposerFrame>,
 			{ cols: 60, rows: 6 },
 		)
-		const top = mounted.viewport().find((row) => row.includes('MESSAGE')) ?? mounted.viewport().join('\n')
+		const top =
+			mounted.viewport().find((row) => row.includes('MESSAGE')) ?? mounted.viewport().join('\n')
 		expect(top).toMatch(/^┌─ MESSAGE ─+ hypermode ─┐$/u)
 		expect([...top]).toHaveLength(60)
 		await mounted.unmount()
 		mounted = await renderToScreen(
 			<ComposerFrame focus mode="hypermode">
-				<></>
+				{null}
 			</ComposerFrame>,
 			{ cols: 24, rows: 6 },
 		)
@@ -543,7 +612,7 @@ describe('hypermode on the message box', () => {
 		try {
 			mounted = await renderToScreen(
 				<ComposerFrame focus mode="hypermode">
-					<></>
+					{null}
 				</ComposerFrame>,
 				{ cols: 80, rows: 6 },
 			)
@@ -554,7 +623,7 @@ describe('hypermode on the message box', () => {
 			vi.stubEnv('NO_COLOR', '1')
 			mounted = await renderToScreen(
 				<ComposerFrame focus mode="hypermode">
-					<></>
+					{null}
 				</ComposerFrame>,
 				{ cols: 80, rows: 6 },
 			)
@@ -568,9 +637,12 @@ describe('hypermode on the message box', () => {
 
 	it('names the mode in violet at the composer top right', async () => {
 		mounted = await renderToScreen(
-			<ComposerFrame focus mode="hypermode"><></></ComposerFrame>,
+			<ComposerFrame focus mode="hypermode">
+				{null}
+			</ComposerFrame>,
 			{ cols: 100, rows: 4 },
 		)
+		// biome-ignore lint/suspicious/noControlCharactersInRegex: matches the escape character that starts a terminal control sequence, on purpose.
 		expect(mounted.writes().join('')).toMatch(/\u001b\[38;5;141m hypermode /u)
 	})
 })

@@ -19,8 +19,8 @@ import { describe, expect, it, vi } from 'vitest'
 import type { DetectedProvider } from '../../integrations/providers/index.js'
 import { PROVIDER_REGISTRY, VENDOR_NAMES } from '../../integrations/providers/registry.js'
 
-import type { ModelListing } from '../agent.js'
 import { Picker } from '../Picker.js'
+import type { ModelListing } from '../agent.js'
 
 const flush = () => new Promise((r) => setTimeout(r, 20))
 

@@ -26,10 +26,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { Preferences } from '../../integrations/providers/index.js'
+import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 import type { AgentEvent, AgentSession } from '../agent.js'
 import type { TuiContext } from '../types.js'
 import { type Screen, renderToScreen } from './support/screen.js'
-import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 
 const PREFS: Preferences = { version: 3, providers: [{ id: 'openai' }], subagents: { active: [] } }
 
@@ -245,7 +245,11 @@ describe('the expand key, on a body that is still on screen', () => {
 				screen.scrollback().filter(call),
 				'resize printed a second durable tool row',
 			).toHaveLength(1)
-			expect(screen.scrollback().filter((line) => line.includes('█▄ █ ▄▀█ █▀▄▀█ ▀█ █ █') || line.includes('∴ namzu'))).toHaveLength(1)
+			expect(
+				screen
+					.scrollback()
+					.filter((line) => line.includes('█▄ █ ▄▀█ █▀▄▀█ ▀█ █ █') || line.includes('∴ namzu')),
+			).toHaveLength(1)
 			expect(screen.scrollback().join('\n')).toContain('result-line-12')
 		},
 		30_000,
@@ -298,40 +302,40 @@ describe('the expand key, on a body that is still on screen', () => {
 	}, 30_000)
 })
 
-
 describe('older output in a small terminal', () => {
- it('keeps the open output viewer while the terminal expands', async () => {
-  const screen = await aCollapsedBody()
-  await screen.resize(COLS, 18)
-  screen.press('\x0f')
-  await screenShows(screen, 'Tool output')
-  screen.press('G')
-  await screenShows(screen, 'result-line-12')
+	it('keeps the open output viewer while the terminal expands', async () => {
+		const screen = await aCollapsedBody()
+		await screen.resize(COLS, 18)
+		screen.press('\x0f')
+		await screenShows(screen, 'Tool output')
+		screen.press('G')
+		await screenShows(screen, 'result-line-12')
 
-  await screen.resize(160, 18)
-  expect(screen.viewport().join('\n')).toContain('Tool output')
-  expect(screen.viewport().join('\n')).toContain('result-line-12')
-  expect(screen.bufferType()).toBe('normal')
- })
+		await screen.resize(160, 18)
+		expect(screen.viewport().join('\n')).toContain('Tool output')
+		expect(screen.viewport().join('\n')).toContain('result-line-12')
+		expect(screen.bufferType()).toBe('normal')
+	})
 
- it('opens, pages and closes repeatedly without adding full copies to scrollback', async () => {
-  const screen = await aCollapsedBody()
-  await screen.resize(COLS, 18)
-  screen.press('draft stays here')
-  await screen.waitForRender()
-  const before = screen.scrollback().filter(line => line.includes('result-line-1')).length
-  for (let attempt=0; attempt<3; attempt++) {
-   screen.press('\x0f')
-   await screenShows(screen, 'Tool output')
-   expect(screen.viewport().join('\n')).not.toContain('in full (')
-   screen.press('G')
-   await screenShows(screen, 'result-line-12')
-   screen.press(attempt === 1 ? '\x0f' : 'q')
-   for (let i = 0; i < 100 && screen.viewport().join('\n').includes('Tool output'); i++) await screen.waitForRender()
-   expect(screen.viewport().join('\n')).not.toContain('Tool output')
-   expect(screen.viewport().join('\n')).toContain('draft stays here')
-  }
-  expect(screen.scrollback().filter(line => line.includes('result-line-1')).length).toBe(before)
-  expect(screen.scrollback().join('\n')).not.toContain('in full (')
- })
+	it('opens, pages and closes repeatedly without adding full copies to scrollback', async () => {
+		const screen = await aCollapsedBody()
+		await screen.resize(COLS, 18)
+		screen.press('draft stays here')
+		await screen.waitForRender()
+		const before = screen.scrollback().filter((line) => line.includes('result-line-1')).length
+		for (let attempt = 0; attempt < 3; attempt++) {
+			screen.press('\x0f')
+			await screenShows(screen, 'Tool output')
+			expect(screen.viewport().join('\n')).not.toContain('in full (')
+			screen.press('G')
+			await screenShows(screen, 'result-line-12')
+			screen.press(attempt === 1 ? '\x0f' : 'q')
+			for (let i = 0; i < 100 && screen.viewport().join('\n').includes('Tool output'); i++)
+				await screen.waitForRender()
+			expect(screen.viewport().join('\n')).not.toContain('Tool output')
+			expect(screen.viewport().join('\n')).toContain('draft stays here')
+		}
+		expect(screen.scrollback().filter((line) => line.includes('result-line-1')).length).toBe(before)
+		expect(screen.scrollback().join('\n')).not.toContain('in full (')
+	})
 })

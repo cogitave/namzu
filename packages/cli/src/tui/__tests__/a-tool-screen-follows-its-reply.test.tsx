@@ -15,10 +15,10 @@ import { join } from 'node:path'
 import type { ToolDefinition } from '@namzu/sdk'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { Preferences } from '../../integrations/providers/index.js'
+import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 import type { AgentEvent, AgentSession, SendOptions } from '../agent.js'
 import type { TuiContext } from '../types.js'
 import { type Screen, renderToScreen } from './support/screen.js'
-import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 
 const root = mkdtempSync(join(tmpdir(), 'namzu-tool-screen-'))
 const home = join(root, 'home')

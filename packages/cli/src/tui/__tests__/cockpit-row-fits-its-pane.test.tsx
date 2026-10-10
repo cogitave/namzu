@@ -42,24 +42,27 @@ const child = (viewId: string, description: string): SubagentActivity => ({
 })
 
 describe('a wide cockpit agent row', () => {
-	it.each([120, 119, 100, 99])('leaves the padding cell before the border blank at %i columns', async (cols) => {
-		mounted = await renderToScreen(
-			<AgentCockpit
-				agents={[child('first', 'Choose first colour'), child('second', 'Choose second colour')]}
-				selectedPhaseId="phase-1"
-				selectedId="first"
-				focus="agents"
-				terminalRows={16}
-				terminalColumns={cols}
-			/>,
-			{ cols, rows: 16 },
-		)
-		const rows = mounted.viewport().filter((row) => row.includes('Choose'))
-		expect(rows.length).toBeGreaterThan(0)
-		for (const row of rows) {
-			const cells = [...row]
-			expect(cells[cols - 1], row).toBe('│')
-			expect(cells[cols - 2], row).toBe(' ')
-		}
-	})
+	it.each([120, 119, 100, 99])(
+		'leaves the padding cell before the border blank at %i columns',
+		async (cols) => {
+			mounted = await renderToScreen(
+				<AgentCockpit
+					agents={[child('first', 'Choose first colour'), child('second', 'Choose second colour')]}
+					selectedPhaseId="phase-1"
+					selectedId="first"
+					focus="agents"
+					terminalRows={16}
+					terminalColumns={cols}
+				/>,
+				{ cols, rows: 16 },
+			)
+			const rows = mounted.viewport().filter((row) => row.includes('Choose'))
+			expect(rows.length).toBeGreaterThan(0)
+			for (const row of rows) {
+				const cells = [...row]
+				expect(cells[cols - 1], row).toBe('│')
+				expect(cells[cols - 2], row).toBe(' ')
+			}
+		},
+	)
 })

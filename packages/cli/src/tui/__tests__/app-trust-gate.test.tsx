@@ -20,9 +20,9 @@
 import { render } from 'ink-testing-library'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { bindTrustedProjectContext } from '../../config/trusted-project-context.js'
 import { APPROVAL_SETTLE_MS } from '../consent-timing.js'
 import type { TuiContext } from '../types.js'
-import { bindTrustedProjectContext } from '../../config/trusted-project-context.js'
 
 /** Folders handed to `trustDir`, in order. The durable side effect. */
 const trusted: string[] = []

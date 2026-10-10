@@ -6,7 +6,13 @@ import { theme } from './theme.js'
 
 /** A bounded view of retained output; opening it never appends transcript rows. */
 export function ToolOutputViewer({
-	title, lines, rows, columns, onClose, onPrevious, onNext,
+	title,
+	lines,
+	rows,
+	columns,
+	onClose,
+	onPrevious,
+	onNext,
 }: {
 	readonly title: string
 	readonly lines: readonly string[]
@@ -37,15 +43,27 @@ export function ToolOutputViewer({
 	})
 	return (
 		<Box flexDirection="column" borderStyle="single" borderColor={theme.text.muted} paddingX={1}>
-			<Text bold color={theme.status.ok} wrap="truncate-end">Tool output · {terminalDisplayText(title).split('\n')[0]}</Text>
-			{wrapped.slice(start, start + pageSize).map(row => (
-				<Text key={row.index} wrap="truncate-end" color={
-					row.text.trimStart().startsWith('+ ') ? theme.status.ok
-						: row.text.trimStart().startsWith('- ') ? theme.status.error : undefined
-				}>{row.text || ' '}</Text>
+			<Text bold color={theme.status.ok} wrap="truncate-end">
+				Tool output · {terminalDisplayText(title).split('\n')[0]}
+			</Text>
+			{wrapped.slice(start, start + pageSize).map((row) => (
+				<Text
+					key={row.index}
+					wrap="truncate-end"
+					color={
+						row.text.trimStart().startsWith('+ ')
+							? theme.status.ok
+							: row.text.trimStart().startsWith('- ')
+								? theme.status.error
+								: undefined
+					}
+				>
+					{row.text || ' '}
+				</Text>
 			))}
 			<Text color={theme.text.muted} wrap="truncate-end">
-				{start + 1}–{Math.min(start + pageSize, wrapped.length)}/{wrapped.length} · ←→ outputs · ↑↓ scroll · PgUp/PgDn · g/G · esc close
+				{start + 1}–{Math.min(start + pageSize, wrapped.length)}/{wrapped.length} · ←→ outputs · ↑↓
+				scroll · PgUp/PgDn · g/G · esc close
 			</Text>
 		</Box>
 	)

@@ -9,15 +9,21 @@
  * markdown drawn rather than shown.
  */
 
+import {
+	type SessionEvent,
+	ToolManager,
+	WebFetchTool,
+	createToolPresenter,
+	generateTurnId,
+} from '@namzu/sdk'
 import { afterEach, expect, it, vi } from 'vitest'
-import { WebFetchTool, createToolPresenter, generateTurnId, type SessionEvent , ToolManager } from '@namzu/sdk'
 
 import type { Preferences } from '../../integrations/providers/index.js'
+import { testToolset } from '../../test-support/toolset.js'
+import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 import type { AgentEvent, AgentSession } from '../agent.js'
 import type { TuiContext } from '../types.js'
 import { type Screen, renderToScreen } from './support/screen.js'
-import { testToolset } from '../../test-support/toolset.js'
-import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 
 const PREFS: Preferences = {
 	version: 3,
@@ -92,14 +98,23 @@ vi.mock('../agent.js', async (importOriginal) => {
 					yield { kind: 'done', stopReason: 'end_turn' }
 					return
 				}
-				const registry = new ToolManager({ toolsets: [testToolset(...[WebFetchTool])], messages: () => [] })
+				const registry = new ToolManager({
+					toolsets: [testToolset(...[WebFetchTool])],
+					messages: () => [],
+				})
 				const presenter = createToolPresenter(registry)
 				const turnId = generateTurnId()
 				const hosted = (id: string, status: string, query?: string, results?: number) => ({
 					type: 'hosted_tool',
 					turnId,
 					iteration: 1,
-					tool: { id, name: 'web_search', status, ...(query ? { query } : {}), ...(results !== undefined ? { results } : {}) },
+					tool: {
+						id,
+						name: 'web_search',
+						status,
+						...(query ? { query } : {}),
+						...(results !== undefined ? { results } : {}),
+					},
 				})
 				const events = [
 					// The provider names the query only when the call completes.
@@ -107,8 +122,22 @@ vi.mock('../agent.js', async (importOriginal) => {
 					hosted('s1', 'completed', QUERY),
 					hosted('s2', 'running', 'OpenClaw embedded runtime'),
 					hosted('s2', 'completed', 'OpenClaw embedded runtime', 3),
-					{ type: 'tool_executing', turnId, toolUseId: 'f1', toolName: 'web_fetch', input: { url: 'https://docs.openclaw.ai/agent-runtime' } },
-					{ type: 'tool_completed', turnId, toolUseId: 'f1', toolName: 'web_fetch', result: 'x'.repeat(2048), isError: false, durationMs: 1_200 },
+					{
+						type: 'tool_executing',
+						turnId,
+						toolUseId: 'f1',
+						toolName: 'web_fetch',
+						input: { url: 'https://docs.openclaw.ai/agent-runtime' },
+					},
+					{
+						type: 'tool_completed',
+						turnId,
+						toolUseId: 'f1',
+						toolName: 'web_fetch',
+						result: 'x'.repeat(2048),
+						isError: false,
+						durationMs: 1_200,
+					},
 					{ type: 'text_delta', turnId, text: ANSWER },
 				]
 				for (const event of events) {
@@ -164,25 +193,28 @@ async function research(cols: number): Promise<string[]> {
 	return screen.scrollback()
 }
 
-it.each([160, 120, 80, 40])('names each web call and settles it under its row at %i columns', async (cols) => {
-	const lines = await research(cols)
-	// Nothing the renderer drew reaches the last column, where a terminal
-	// would wrap it a second time.
-	for (const line of lines) expect([...line].length).toBeLessThanOrEqual(cols)
-	const first = lines.findIndex((line) => line.includes('✓ Web search("OpenClaw agent'))
-	expect(first).toBeGreaterThan(-1)
-	// The query is cut at the terminal's width with an ellipsis, never wrapped.
-	if (cols < 100) expect(lines[first]).toMatch(/…$/u)
-	else expect(lines[first]).toContain(`Web search("${QUERY}")`)
-	expect(lines[first + 1]).toMatch(/⎿ Did 1 search in \d/u)
-	// The next search follows at once: no blank line between consecutive calls.
-	expect(lines[first + 2]).toContain('✓ Web search("OpenClaw embedded')
-	expect(lines[first + 3]).toMatch(/⎿ Found 3 results in \d/u)
-	expect(lines[first + 4]).toContain('✓ Web fetch(https://docs.openclaw.ai/')
-	expect(lines[first + 5]).toMatch(/⎿ Received 2 KB in 1\.2s/u)
-	// The fetched body waits behind Ctrl+O rather than filling the screen.
-	expect(lines.join('\n')).not.toContain('xxxxxxxx')
-})
+it.each([160, 120, 80, 40])(
+	'names each web call and settles it under its row at %i columns',
+	async (cols) => {
+		const lines = await research(cols)
+		// Nothing the renderer drew reaches the last column, where a terminal
+		// would wrap it a second time.
+		for (const line of lines) expect([...line].length).toBeLessThanOrEqual(cols)
+		const first = lines.findIndex((line) => line.includes('✓ Web search("OpenClaw agent'))
+		expect(first).toBeGreaterThan(-1)
+		// The query is cut at the terminal's width with an ellipsis, never wrapped.
+		if (cols < 100) expect(lines[first]).toMatch(/…$/u)
+		else expect(lines[first]).toContain(`Web search("${QUERY}")`)
+		expect(lines[first + 1]).toMatch(/⎿ Did 1 search in \d/u)
+		// The next search follows at once: no blank line between consecutive calls.
+		expect(lines[first + 2]).toContain('✓ Web search("OpenClaw embedded')
+		expect(lines[first + 3]).toMatch(/⎿ Found 3 results in \d/u)
+		expect(lines[first + 4]).toContain('✓ Web fetch(https://docs.openclaw.ai/')
+		expect(lines[first + 5]).toMatch(/⎿ Received 2 KB in 1\.2s/u)
+		// The fetched body waits behind Ctrl+O rather than filling the screen.
+		expect(lines.join('\n')).not.toContain('xxxxxxxx')
+	},
+)
 
 /** The rows of the answer's table: from its top rule to its bottom one. */
 function tableRows(lines: readonly string[]): string[] {
@@ -223,22 +255,25 @@ it('stacks the answer’s table as records at 40 columns', async () => {
 	expect(prose.filter((line) => /^ {4}\S/u.test(line))).toEqual([])
 })
 
-it.each([160, 120, 80, 40])('counts the running turn’s output tokens on the Working row at %i columns', async (cols) => {
-	const screen = await renderToScreen(<App ctx={ctx} />, { cols, rows: 40, scrollback: 200 })
-	mounted = screen
-	const painted = () => screen.viewport().join('\n')
-	await waitUntil(screen, () => painted().includes('a-model'))
-	screen.press('count')
-	await screen.waitForRender()
-	screen.press('\r')
-	// The provider's 1,000 plus 400 characters of reasoning since: 1.1k. The
-	// count is redrawn at most five times a second, so the last one of the
-	// burst lands when the interval ends.
-	await waitUntil(screen, () => painted().includes('↓ 1.0k tokens'))
-	await new Promise((resolve) => setTimeout(resolve, 250))
-	await waitUntil(screen, () => painted().includes('↓ 1.1k tokens'))
-	const row = screen.viewport().find((line) => line.includes('↓ 1.1k tokens')) ?? ''
-	expect(row).toContain('Working')
-	expect([...row].length).toBeLessThanOrEqual(cols)
-	release?.()
-})
+it.each([160, 120, 80, 40])(
+	'counts the running turn’s output tokens on the Working row at %i columns',
+	async (cols) => {
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols, rows: 40, scrollback: 200 })
+		mounted = screen
+		const painted = () => screen.viewport().join('\n')
+		await waitUntil(screen, () => painted().includes('a-model'))
+		screen.press('count')
+		await screen.waitForRender()
+		screen.press('\r')
+		// The provider's 1,000 plus 400 characters of reasoning since: 1.1k. The
+		// count is redrawn at most five times a second, so the last one of the
+		// burst lands when the interval ends.
+		await waitUntil(screen, () => painted().includes('↓ 1.0k tokens'))
+		await new Promise((resolve) => setTimeout(resolve, 250))
+		await waitUntil(screen, () => painted().includes('↓ 1.1k tokens'))
+		const row = screen.viewport().find((line) => line.includes('↓ 1.1k tokens')) ?? ''
+		expect(row).toContain('Working')
+		expect([...row].length).toBeLessThanOrEqual(cols)
+		release?.()
+	},
+)

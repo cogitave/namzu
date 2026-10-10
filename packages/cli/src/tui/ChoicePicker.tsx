@@ -100,7 +100,10 @@ export function ChoicePicker({
 					{ text: '↑↓ select', rank: 5 },
 					...(columns >= 100 ? [{ text: 'PgUp/PgDn jump', rank: 1 }] : []),
 					...(columns >= 100 && query === undefined
-						? [{ text: 'Home/End', rank: 1 }, { text: '1–9 select', rank: 2 }]
+						? [
+								{ text: 'Home/End', rank: 1 },
+								{ text: '1–9 select', rank: 2 },
+							]
 						: []),
 					{ text: 'enter apply', rank: 5 },
 					{ text: 'esc back', rank: 4 },

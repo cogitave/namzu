@@ -4,8 +4,8 @@ import { render } from 'ink-testing-library'
 import { afterEach, expect, it, vi } from 'vitest'
 
 import type { Preferences } from '../../integrations/providers/index.js'
-import type { AgentSession, SendOptions } from '../agent.js'
 import { genericPresenter } from '../__fixtures__/generic-presenter.js'
+import type { AgentSession, SendOptions } from '../agent.js'
 
 const sent = vi.hoisted(() => ({ options: [] as SendOptions[] }))
 
@@ -109,93 +109,93 @@ async function command(harness: ReturnType<typeof render>, text: string) {
 	await tick(80)
 }
 
-it(
-	'opens limits from /config, edits a field, and forwards the next turn without recreating its session',
-	async () => {
-		const harness = render(<App ctx={{ cwd: '/w', version: '0.0.0-test', limits: { tokenBudget: 2000, maxIterations: 3, timeoutMs: 1000 } }} />)
-		mounted = harness
-		await waitFor(harness, '› Type a message')
-		await command(harness, '/config')
-		await waitFor(harness, 'Reply limits')
-		// Model, effort, permissions, then run limits.
-		harness.stdin.write('\u001b[B\u001b[B\u001b[B')
-		await tick()
-		harness.stdin.write('\r')
-		await tick(80)
-		expect(harness.lastFrame()).toContain('Token budget')
-		expect(harness.lastFrame()).toContain('2,000')
-		harness.stdin.write('\r')
-		await tick(80)
-		expect(harness.lastFrame()).toContain('0 = unlimited')
-		harness.stdin.write('\u0015')
-		await tick()
-		harness.stdin.write('0')
-		await tick()
-		harness.stdin.write('\r')
-		await tick(80)
-		expect(harness.lastFrame()).toContain('Updated.')
-		expect(harness.lastFrame()).toContain('Unlimited')
-		harness.stdin.write('\u001b')
-		await vi.waitFor(() => expect(harness.lastFrame()).toContain('› Type a message'), WAIT_TIMEOUT_MS)
-		await command(harness, 'hello')
-		await vi.waitFor(
-			() =>
-				expect(sent.options.at(-1)?.limits).toEqual({
-					tokenBudget: 0,
-					maxIterations: 3,
-					timeoutMs: 1000,
-				}),
-			WAIT_TIMEOUT_MS,
-		)
-		await command(harness, '/config limits unlimited')
-		harness.stdin.write('\u001b')
-		await tick()
-		await command(harness, 'hello again')
-		await vi.waitFor(
-			() =>
-				expect(sent.options.at(-1)?.limits).toEqual({
-					tokenBudget: 0,
-					maxIterations: 0,
-					timeoutMs: 0,
-				}),
-			WAIT_TIMEOUT_MS,
-		)
-		expect(sent.options[0]?.limits).toEqual({ tokenBudget: 0, maxIterations: 3, timeoutMs: 1000 })
-	},
-	45_000,
-)
+it('opens limits from /config, edits a field, and forwards the next turn without recreating its session', async () => {
+	const harness = render(
+		<App
+			ctx={{
+				cwd: '/w',
+				version: '0.0.0-test',
+				limits: { tokenBudget: 2000, maxIterations: 3, timeoutMs: 1000 },
+			}}
+		/>,
+	)
+	mounted = harness
+	await waitFor(harness, '› Type a message')
+	await command(harness, '/config')
+	await waitFor(harness, 'Reply limits')
+	// Model, effort, permissions, then run limits.
+	harness.stdin.write('\u001b[B\u001b[B\u001b[B')
+	await tick()
+	harness.stdin.write('\r')
+	await tick(80)
+	expect(harness.lastFrame()).toContain('Token budget')
+	expect(harness.lastFrame()).toContain('2,000')
+	harness.stdin.write('\r')
+	await tick(80)
+	expect(harness.lastFrame()).toContain('0 = unlimited')
+	harness.stdin.write('\u0015')
+	await tick()
+	harness.stdin.write('0')
+	await tick()
+	harness.stdin.write('\r')
+	await tick(80)
+	expect(harness.lastFrame()).toContain('Updated.')
+	expect(harness.lastFrame()).toContain('Unlimited')
+	harness.stdin.write('\u001b')
+	await vi.waitFor(() => expect(harness.lastFrame()).toContain('› Type a message'), WAIT_TIMEOUT_MS)
+	await command(harness, 'hello')
+	await vi.waitFor(
+		() =>
+			expect(sent.options.at(-1)?.limits).toEqual({
+				tokenBudget: 0,
+				maxIterations: 3,
+				timeoutMs: 1000,
+			}),
+		WAIT_TIMEOUT_MS,
+	)
+	await command(harness, '/config limits unlimited')
+	harness.stdin.write('\u001b')
+	await tick()
+	await command(harness, 'hello again')
+	await vi.waitFor(
+		() =>
+			expect(sent.options.at(-1)?.limits).toEqual({
+				tokenBudget: 0,
+				maxIterations: 0,
+				timeoutMs: 0,
+			}),
+		WAIT_TIMEOUT_MS,
+	)
+	expect(sent.options[0]?.limits).toEqual({ tokenBudget: 0, maxIterations: 3, timeoutMs: 1000 })
+}, 45_000)
 
-it(
-	'opens with unlimited values when no file sets limits and leaves them unchanged on cancel',
-	async () => {
-		const harness = render(<App ctx={{ cwd: '/w', version: '0.0.0-test' }} />)
-		mounted = harness
-		await waitFor(harness, '› Type a message')
-		await command(harness, '/config limits')
-		expect(harness.lastFrame()?.match(/Unlimited/g)).toHaveLength(4)
-		harness.stdin.write('\u001b')
-		await tick()
-		await command(harness, '/config limits time')
-		await vi.waitFor(
-			() => expect(harness.lastFrame()).toContain('Reply duration (ms; 0 = unlimited)'),
-			WAIT_TIMEOUT_MS,
-		)
-		harness.stdin.write('\u0015')
-		await tick()
-		harness.stdin.write('2h')
-		await vi.waitFor(() => expect(harness.lastFrame()).toContain('2h'), WAIT_TIMEOUT_MS)
-		harness.stdin.write('\u001b')
-		await vi.waitFor(() => expect(harness.lastFrame()).toContain('› Type a message'), WAIT_TIMEOUT_MS)
-		await command(harness, 'hello')
-		await vi.waitFor(
-			() =>
-				expect(sent.options.at(-1)?.limits).toEqual({
-					tokenBudget: 0,
-					maxIterations: 0,
-					timeoutMs: 0,
-				}),
-			WAIT_TIMEOUT_MS,
-		)
-	},
-	45_000,
-)
+it('opens with unlimited values when no file sets limits and leaves them unchanged on cancel', async () => {
+	const harness = render(<App ctx={{ cwd: '/w', version: '0.0.0-test' }} />)
+	mounted = harness
+	await waitFor(harness, '› Type a message')
+	await command(harness, '/config limits')
+	expect(harness.lastFrame()?.match(/Unlimited/g)).toHaveLength(4)
+	harness.stdin.write('\u001b')
+	await tick()
+	await command(harness, '/config limits time')
+	await vi.waitFor(
+		() => expect(harness.lastFrame()).toContain('Reply duration (ms; 0 = unlimited)'),
+		WAIT_TIMEOUT_MS,
+	)
+	harness.stdin.write('\u0015')
+	await tick()
+	harness.stdin.write('2h')
+	await vi.waitFor(() => expect(harness.lastFrame()).toContain('2h'), WAIT_TIMEOUT_MS)
+	harness.stdin.write('\u001b')
+	await vi.waitFor(() => expect(harness.lastFrame()).toContain('› Type a message'), WAIT_TIMEOUT_MS)
+	await command(harness, 'hello')
+	await vi.waitFor(
+		() =>
+			expect(sent.options.at(-1)?.limits).toEqual({
+				tokenBudget: 0,
+				maxIterations: 0,
+				timeoutMs: 0,
+			}),
+		WAIT_TIMEOUT_MS,
+	)
+}, 45_000)
