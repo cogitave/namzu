@@ -2841,7 +2841,7 @@ export function App({
 				} catch (error) {
 					pushMessage(
 						'system',
-						`Could not record feedback: ${error instanceof Error ? error.message : String(error)}`,
+						explainFailure(error, 'Could not record feedback.'),
 					)
 				}
 			})()
@@ -2870,7 +2870,7 @@ export function App({
 			} catch (error) {
 				pushMessage(
 					'system',
-					`Could not load skill "${name}": ${error instanceof Error ? error.message : String(error)}`,
+					explainFailure(error, `Could not load skill "${name}".`),
 				)
 			}
 		},
@@ -2888,12 +2888,12 @@ export function App({
 				try {
 					clearAllStoredCredentials()
 				} catch (error) {
-					failures.push(`${credentialsPath()}: ${error instanceof Error ? error.message : String(error)}`)
+					failures.push(explainFailure(error, `${credentialsPath()}.`))
 				}
 				try {
 					clearStoredGoogleApiKey()
 				} catch (error) {
-					failures.push(`${googleApiKeyPath()}: ${error instanceof Error ? error.message : String(error)}`)
+					failures.push(explainFailure(error, `${googleApiKeyPath()}.`))
 				}
 				if (failures.length > 0) {
 					pushMessage('system', `Some stored credentials could not be removed: ${failures.join('; ')}. Check both stores before retrying.`)
@@ -2912,7 +2912,7 @@ export function App({
 			} catch (error) {
 				pushMessage(
 					'system',
-					`Could not remove ${path}: ${error instanceof Error ? error.message : String(error)}`,
+					explainFailure(error, `Could not remove ${path}.`),
 				)
 				return
 			}
@@ -2982,7 +2982,7 @@ export function App({
 					'system',
 					error instanceof ConversationIndexRefreshError
 						? error.message
-						: `Could not archive this conversation: ${error instanceof Error ? error.message : String(error)}`,
+						: explainFailure(error, 'Could not archive this conversation.'),
 				)
 			} finally {
 				if (!archived && conversationMutationRef.current === 'archive') {
@@ -3195,7 +3195,7 @@ export function App({
 								? {
 										...updated,
 										back: loadedPluginPicker(picker.owner),
-										notice: `Could not change plugin: ${error instanceof Error ? error.message : String(error)}`,
+										notice: explainFailure(error, 'Could not change plugin.'),
 									}
 								: null,
 						)
@@ -4073,7 +4073,7 @@ export function App({
 				} catch (error) {
 					if (!signal.aborted) {
 						setPickerNotice(
-							`Could not start Codex sign-in: ${error instanceof Error ? error.message : String(error)}`,
+							explainFailure(error, 'Could not start Codex sign-in.'),
 						)
 					}
 					return 'failed'
@@ -4107,7 +4107,7 @@ export function App({
 			} catch (err) {
 				if (signal.aborted) return 'failed'
 				setPickerNotice(
-					`Could not start a sign-in: ${err instanceof Error ? err.message : String(err)}`,
+					explainFailure(err, 'Could not start a sign-in.'),
 				)
 				return 'failed'
 			}
@@ -4768,7 +4768,7 @@ export function App({
 		} catch (err) {
 			pushMessage(
 				'system',
-				`Could not list conversations: ${err instanceof Error ? err.message : String(err)}`,
+				explainFailure(err, 'Could not list conversations.'),
 			)
 		}
 	}, [ensureSessions, pushMessage, resumeActiveTurn])
@@ -4804,7 +4804,7 @@ export function App({
 			setSelectedResume(0)
 			setPhase('unarchive')
 		} catch (err) {
-			pushMessage('system', `Could not list archived conversations: ${err instanceof Error ? err.message : String(err)}`)
+			pushMessage('system', explainFailure(err, 'Could not list archived conversations.'))
 		}
 	}, [ensureSessions, hasUnsettledTurn, pushMessage, state])
 
@@ -5327,7 +5327,7 @@ export function App({
 			} catch (err) {
 				pushMessage(
 					'system',
-					`Could not save the name: ${err instanceof Error ? err.message : String(err)}`,
+					explainFailure(err, 'Could not save the name.'),
 				)
 			}
 		},
@@ -5389,7 +5389,7 @@ export function App({
 				(error: unknown) =>
 					pushMessage(
 						'system',
-						`Could not save the name: ${error instanceof Error ? error.message : String(error)}`,
+						explainFailure(error, 'Could not save the name.'),
 					),
 			)
 		},
@@ -5476,7 +5476,7 @@ export function App({
 				`Forked into "${displayConversationTitle(forked.title)}" — ${plural(forked.copied, 'message')} copied. This screen continues in the copy; ${original} is unchanged and still in /resume.`,
 			)
 		} catch (err) {
-			pushMessage('system', `Could not fork: ${err instanceof Error ? err.message : String(err)}`)
+			pushMessage('system', explainFailure(err, 'Could not fork.'))
 		} finally {
 			conversationMutationRef.current = null
 			setConversationMutation(null)
@@ -5640,7 +5640,7 @@ export function App({
 				setPhase('ready')
 				pushMessage(
 					'system',
-					`Could not edit the selected prompt: ${err instanceof Error ? err.message : String(err)}`,
+					explainFailure(err, 'Could not edit the selected prompt.'),
 				)
 			} finally {
 				editCommittedRef.current = false
@@ -6768,7 +6768,7 @@ export function App({
 						kind: 'rejected',
 						reason: pending.signal.aborted
 							? 'The model switch was cancelled.'
-							: `Could not resolve the requested model: ${error instanceof Error ? error.message : String(error)}`,
+							: explainFailure(error, 'Could not resolve the requested model.'),
 					}
 				} finally {
 					if (!pending.selection && pendingModelSwitchRef.current === pending) {
@@ -7364,7 +7364,7 @@ export function App({
 			} catch (err) {
 				pushMessage(
 					'system',
-					`Could not save memory: ${err instanceof Error ? err.message : String(err)}`,
+					explainFailure(err, 'Could not save memory.'),
 				)
 			}
 		},
@@ -7599,7 +7599,7 @@ export function App({
 										`Peer message ${receipt.status}: ${receipt.reason ?? 'accepted in the receiving inbox'}`,
 									),
 								)
-								.catch((error) => pushMessage('system', `Peer message failed: ${String(error)}`))
+								.catch((error) => pushMessage('system', explainFailure(error, 'Peer message failed.')))
 						} else if (!verb || verb === 'list') {
 							void peers
 								.list()
@@ -7609,7 +7609,7 @@ export function App({
 										`Peer messaging ${peers.enabled ? 'on' : 'off'} · ${peers.pending} pending\n${peersList.map((peer) => `${peer.self ? 'This terminal' : peer.title} [${peer.ref}] · ${peer.state} · ${peer.permission_mode}${peer.accepts_messages ? '' : ' · not accepting messages'}`).join('\n')}`,
 									),
 								)
-								.catch((error) => pushMessage('system', `Peer discovery failed: ${String(error)}`))
+								.catch((error) => pushMessage('system', explainFailure(error, 'Peer discovery failed.')))
 						} else pushMessage('system', 'Usage: /peers [list|on|off|send <ref> <message>]')
 						return
 					}
@@ -7863,7 +7863,7 @@ export function App({
 									setChoicePicker(null)
 									pushMessage(
 										'system',
-										`Could not load goal: ${error instanceof Error ? error.message : String(error)}`,
+										explainFailure(error, 'Could not load goal.'),
 									)
 								}
 							} finally {
@@ -8089,7 +8089,7 @@ export function App({
 						} catch (err) {
 							pushMessage(
 								'system',
-								`Could not save memory: ${err instanceof Error ? err.message : String(err)}`,
+								explainFailure(err, 'Could not save memory.'),
 							)
 						}
 						return
@@ -8106,7 +8106,7 @@ export function App({
 							(err: unknown) =>
 								pushMessage(
 									'system',
-									`Notes were not copied: ${err instanceof Error ? err.message : String(err)}`,
+									explainFailure(err, 'Notes were not copied.'),
 								),
 						)
 						return
@@ -8133,7 +8133,7 @@ export function App({
 							(err: unknown) =>
 								pushMessage(
 									'system',
-									`${curated}\n\nStored memories not loaded: ${err instanceof Error ? err.message : String(err)}`,
+									explainFailure(err, `${curated}\n\nStored memories not loaded.`),
 								),
 						)
 						return
@@ -8505,7 +8505,7 @@ export function App({
 								if (conversationGenRef.current !== generation) return
 								pushMessage(
 									'system',
-									`Could not run /${slash.name}: ${error instanceof Error ? error.message : String(error)}`,
+									explainFailure(error, `Could not run /${slash.name}.`),
 								)
 							} finally {
 								releaseGoalCommand()
@@ -8678,7 +8678,7 @@ export function App({
 							} catch (err) {
 								pushMessage(
 									'system',
-									`Compaction failed: ${err instanceof Error ? err.message : String(err)}`,
+									explainFailure(err, 'Couldn’t summarise the conversation.'),
 								)
 							} finally {
 								compactingRef.current = false
@@ -9320,7 +9320,7 @@ export function App({
 			.catch((error) => {
 				peersStartingRef.current = false
 				appLifetime.signal.removeEventListener('abort', onClose)
-				if (!disposed) pushMessage('system', `Peer messaging unavailable: ${String(error)}`)
+				if (!disposed) pushMessage('system', explainFailure(error, 'Peer messaging unavailable.'))
 			})
 	}, [phase, appLifetime.signal, pushMessage])
 
@@ -9757,7 +9757,7 @@ export function App({
 							if (previousSessionRef.current !== owner) return
 							const current = jobSurfaceRef.current
 							if (current?.busyJobId === selectedJob.id)
-								setJobSurface({ ...current, busyJobId: undefined, notice: `Could not stop ${selectedJob.id}: ${error instanceof Error ? error.message : String(error)}` })
+								setJobSurface({ ...current, busyJobId: undefined, notice: explainFailure(error, `Could not stop ${selectedJob.id}.`) })
 						},
 					)
 					return

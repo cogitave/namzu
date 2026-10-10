@@ -5,6 +5,7 @@ import {
 	resolveWebSearch,
 	webSearchLabel,
 } from '../integrations/web/search.js'
+import { explainFailure } from './plain-failure.js'
 import { tidyTerminalOutput, unknownToolNotice } from './tidy-tool-output.js'
 import {
 	type WebActivity,
@@ -2155,9 +2156,7 @@ export async function createAgentSession(
 			sessionId: scope.sessionId,
 		})
 	} catch (err) {
-		return emptySession(
-			`Failed to construct ${entry.label}: ${err instanceof Error ? err.message : String(err)}`,
-		)
+		return emptySession(explainFailure(err, `Failed to construct ${entry.label}.`))
 	}
 	// OAuth access tokens on this path are short-lived (~8h). They rarely lapse
 	// *during* a turn, but they do between turns — an idle session that sends
@@ -2505,9 +2504,7 @@ export async function createAgentSession(
 		cwd,
 	})
 		.then((report) => describeMemoryMigration(report, memoryDirectory))
-		.catch((error: unknown) => [
-			`Stored memory migration did not run: ${error instanceof Error ? error.message : String(error)}`,
-		])
+		.catch((error: unknown) => [explainFailure(error, 'Stored memory migration did not run.')])
 	/**
 	 * The stored-memory index for this turn's prompt, or null. A store that
 	 * refuses to read (a malformed memory file) costs the turn its index and
@@ -2524,7 +2521,7 @@ export async function createAgentSession(
 		} catch (error) {
 			return {
 				prompt: null,
-				notice: `Stored memory index not loaded: ${error instanceof Error ? error.message : String(error)}`,
+				notice: explainFailure(error, 'Stored memory index not loaded.'),
 			}
 		}
 	}

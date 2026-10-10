@@ -2,6 +2,7 @@
 
 ## 2026-10-10
 
+- **Update**: The terminal app's remaining failures (feedback, skills, memory, archive, fork, peers, plugins, saved settings and similar) now say a plain sentence and point at `--debug`, instead of pasting the error text. Startup refusals that carry their own instructions still show them.
 - **Update** [Terminal design](cli/terminal-design.md#plain-words-for-errors-and-status): the terminal app tells a person what happened in plain words. A failed or paused reply is one sentence with the provider's product name and a next step (no catalog ids, checkpoint ids, `Provider:`/`Reason:` rows or raw JSON); Enter continues a paused reply; the exit hint prints `namzu resume <id>` and never the node path; a crash prints one line and saves the stack to `~/.namzu/logs`; `/status`, slash-command messages, command output in a step, sizes and counts follow one glossary; `--debug` / `NAMZU_DEBUG=1` bring the technical text back. Machine-readable modes are unchanged.
 - **Update** [Slash commands](cli/slash-commands.md#settings-and-model-changes): the exit hint is always the product command.
 - **Update** [Launch flags](cli/launch-flags.md#when-a-launch-cannot-be-honoured): `--provider` with an unknown name and `--model` with an unlisted name are explained in plain words at launch; `--debug` / `NAMZU_DEBUG=1` bring the technical detail back.

@@ -75,7 +75,7 @@ describe('setSkillSuggestions', () => {
 		writeFileSync(join(home, 'config.yaml'), 'skills: [\n')
 		const result = setSkillSuggestions(false, opts)
 		expect(result.file).toBeUndefined()
-		expect(result.message).toContain('Could not save skills.suggest')
+		expect(result.message).toContain('Could not save that setting')
 		expect(readFileSync(join(home, 'config.yaml'), 'utf8')).toBe('skills: [\n')
 	})
 })

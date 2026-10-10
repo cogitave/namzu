@@ -416,7 +416,7 @@ it('keeps footer telemetry quiet while a durable replacement is pending or rejec
 	expect(fullScreen(screen)).not.toContain('Summarised 1 earlier message')
 
 	rejectReplacement(new Error('REPLACEMENT_DID_NOT_LAND'))
-	await waitForScreen(screen, () => fullScreen(screen).includes('REPLACEMENT_DID_NOT_LAND'))
+	await waitForScreen(screen, () => fullScreen(screen).includes('summarise the conversation'))
 	expect(visibleScreen(screen)).not.toContain('95%')
 	expect(fullScreen(screen)).toContain('question before rejected compaction')
 	expect(fullScreen(screen)).not.toContain('Summarised 1 earlier message')
@@ -472,7 +472,7 @@ it('keeps the original conversation on screen and in the next turn when retentio
 	await submit(harness, 'ORIGINAL_USER_FACT')
 	await frameShows(harness, 'answer-1')
 	await submit(harness, '/compact')
-	await frameShows(harness, 'Compaction failed: ORIGINALS_COULD_NOT_BE_RETAINED')
+	await frameShows(harness, 'Couldn’t summarise the conversation.')
 	expect(replacements).toHaveLength(0)
 	await submit(harness, 'Continue')
 	await frameShows(harness, 'answer-2')
@@ -489,7 +489,7 @@ it('keeps the live history unchanged when its durable replacement fails', async 
 	await submit(harness, 'question before failed compaction')
 	await frameShows(harness, 'answer-1')
 	await submit(harness, '/compact')
-	await frameShows(harness, 'Compaction failed: REPLACEMENT_DID_NOT_LAND')
+	await frameShows(harness, 'Couldn’t summarise the conversation.')
 
 	await submit(harness, 'question after failed compaction')
 	await frameShows(harness, 'answer-2')
