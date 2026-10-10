@@ -179,7 +179,7 @@ import {
 } from './pal-navigation.js'
 import { palRecentActivity } from './pal-recent-activity.js'
 import { palMarker, palStartCard, palWaitingLine } from './pal-start-model.js'
-import { stalePalTabs } from './pal-tab-siblings.js'
+import { closableStaleTabs, stalePalTabs } from './pal-tab-siblings.js'
 import { unreadAfterOpen, unreadAfterSends } from './pal-unread.js'
 import { PalCustomizeDialog, type PalOpening, PalSidebarSection, PalsPage } from './pals-page.js'
 import { plainError, plainErrorText } from './plain-error.js'
@@ -2704,16 +2704,17 @@ export function App({
 						return
 					abandonTabRestore()
 					// A Pal has one tab: opening its newest conversation replaces an older one.
-					for (const stale of stalePalTabs(
+					const stale = stalePalTabs(
 						view,
 						context.current.group.tabs,
 						catalogueRows.current.conversations,
-					))
-						void onAction({
-							kind: 'close',
-							groupId: context.current.group.id,
-							tabId: stale,
-						}).catch(() => undefined)
+					)
+					// An older tab that holds an unsent draft or attachments stays open.
+					const groupId = context.current.group.id
+					void closableStaleTabs(stale, api).then((closable) => {
+						for (const tabId of closable)
+							void onAction({ kind: 'close', groupId, tabId }).catch(() => undefined)
+					})
 				}
 				closedTabs.current.delete(view.id)
 				setPalScreen(undefined)

@@ -23,6 +23,8 @@ export interface ToastSink {
 		timeout: number
 		actionProps?: { children: string; onClick: () => void }
 		data?: { tooltip?: string }
+		/** Called when the toast starts to leave, by timeout, dismissal or an action. */
+		onClose?: () => void
 	}): string
 	close(id?: string): void
 }
@@ -55,14 +57,37 @@ export function createToastHub() {
 	let pending: Pending[] = []
 	let counter = 0
 
+	// What is on screen now, and what waits for it to leave. An error the person has not seen
+	// for its full time is never closed by a newer notice: the newer one waits its turn. Errors
+	// wait ahead of everything else; of the others only the newest waits.
+	let active: { id: string; text: string; tone: ToastTone; sink: ToastSink } | undefined
+	let waiting: Pending[] = []
+
+	const toneOf = (item: Pending): ToastTone => item.options.tone ?? 'neutral'
+
+	const enqueue = (item: Pending) => {
+		if (waiting.some((other) => other.text === item.text && toneOf(other) === toneOf(item))) return
+		const errors = waiting.filter((other) => toneOf(other) === 'error')
+		const others = waiting.filter((other) => toneOf(other) !== 'error')
+		waiting = toneOf(item) === 'error' ? [...errors, item, ...others] : [...errors, item]
+	}
+
+	const showNext = () => {
+		const next = waiting.shift()
+		const sink = target()
+		if (next && sink) show(sink, next)
+	}
+
 	const show = (sink: ToastSink, item: Pending) => {
 		const { id, text, options } = item
-		const tone = options.tone ?? 'neutral'
+		const tone = toneOf(item)
 		const action = options.action
-		// One notice at a time: a new one takes the place of whatever is still on screen.
-		for (const [earlier, owner] of shownBy) {
-			owner.close(earlier)
-			shownBy.delete(earlier)
+		// One notice at a time: a new one takes the place of an earlier one that is not an error.
+		const earlier = active
+		active = { id, text, tone, sink }
+		if (earlier) {
+			earlier.sink.close(earlier.id)
+			shownBy.delete(earlier.id)
 		}
 		shownBy.set(id, sink)
 		sink.add({
@@ -72,6 +97,12 @@ export function createToastHub() {
 			// Base UI announces `high` through an assertive live region.
 			priority: tone === 'error' ? 'high' : 'low',
 			timeout: options.timeoutMs ?? defaultTimeoutMs(tone, Boolean(action)),
+			onClose: () => {
+				shownBy.delete(id)
+				if (active?.id !== id) return
+				active = undefined
+				showNext()
+			},
 			...(options.tooltip ? { data: { tooltip: options.tooltip } } : {}),
 			...(action
 				? {
@@ -92,17 +123,35 @@ export function createToastHub() {
 
 	const target = () => current ?? [...panes].at(-1)
 
+	/** Show a notice now, or hold it behind an error that is still on screen. Returns the id it answers to. */
+	const deliver = (sink: ToastSink, item: Pending): string => {
+		if (!active) {
+			show(sink, item)
+			return item.id
+		}
+		// The same words already on screen or waiting are one notice, not two.
+		if (active.text === item.text && active.tone === toneOf(item)) return active.id
+		if (active.tone === 'error') enqueue(item)
+		else {
+			// A newer notice takes the place of an older one that is not an error.
+			waiting = waiting.filter((other) => toneOf(other) === 'error')
+			show(sink, item)
+		}
+		return item.id
+	}
+
 	return {
 		notify(text: string, options: NotifyOptions = {}): string {
 			const id = `notice-${++counter}`
 			const item = { id, text, options }
 			const sink = target()
-			if (sink) show(sink, item)
-			else pending = [...pending, item].slice(-PENDING_LIMIT)
+			if (sink) return deliver(sink, item)
+			pending = [...pending, item].slice(-PENDING_LIMIT)
 			return id
 		},
 		dismiss(id: string) {
 			pending = pending.filter((item) => item.id !== id)
+			waiting = waiting.filter((item) => item.id !== id)
 			shownBy.get(id)?.close(id)
 			shownBy.delete(id)
 		},
@@ -110,9 +159,11 @@ export function createToastHub() {
 		register(sink: ToastSink) {
 			panes.add(sink)
 			current ??= sink
-			const waiting = pending
+			const early = pending
 			pending = []
-			for (const item of waiting) show(target() ?? sink, item)
+			// Notices sent before any pane existed go through the same queue: an early error is not
+			// closed unseen by the notice sent after it.
+			for (const item of early) deliver(target() ?? sink, item)
 			return {
 				focus() {
 					current = sink
@@ -121,6 +172,10 @@ export function createToastHub() {
 					panes.delete(sink)
 					for (const [id, owner] of shownBy) if (owner === sink) shownBy.delete(id)
 					if (current === sink) current = [...panes].at(-1)
+					if (active?.sink === sink) {
+						active = undefined
+						showNext()
+					}
 				},
 			}
 		},

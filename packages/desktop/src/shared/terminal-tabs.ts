@@ -351,7 +351,7 @@ export function buildEngineLaunch(
 	const program = host.resolve(name)
 	if (!program)
 		throw new Error(
-			`${TERMINAL_ENGINE_LABELS[choices.engine]} is not installed, or is not on this app's PATH.`,
+			`${TERMINAL_ENGINE_LABELS[choices.engine]} is not installed, or is not on this app’s PATH.`,
 		)
 	const args: string[] = []
 	if (choices.engine === 'codex-cli') {

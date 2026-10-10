@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ProviderView } from '../shared/protocol.js'
 import {
+	chipUnavailableReason,
 	effortLabel,
 	effortOrder,
 	effortToSend,
@@ -476,5 +477,35 @@ describe('the model a new Pal starts with', () => {
 				loadModels: async () => catalogue(['x']),
 			}),
 		).toBeUndefined()
+	})
+})
+
+describe('chipUnavailableReason', () => {
+	const base = { engineName: 'Codex CLI', catalogue: 'idle' as const }
+	it('says a provider is not connected and where to connect it', () => {
+		expect(chipUnavailableReason({ ...base, providerLabel: 'OpenAI', connected: false })).toBe(
+			'OpenAI isn’t connected. Connect it in Settings.',
+		)
+	})
+	it('says an engine offers no models', () => {
+		expect(chipUnavailableReason({ ...base, connected: true, catalogue: 'ready' })).toBe(
+			'This engine offers no models right now.',
+		)
+	})
+	it('says the list did not arrive, naming the provider or engine', () => {
+		expect(
+			chipUnavailableReason({
+				...base,
+				providerLabel: 'OpenAI',
+				connected: true,
+				catalogue: 'error',
+			}),
+		).toContain('OpenAI didn’t send its models')
+		expect(chipUnavailableReason({ ...base, connected: true, catalogue: 'error' })).toContain(
+			'Codex CLI didn’t send its models',
+		)
+	})
+	it('always carries a reason', () => {
+		expect(chipUnavailableReason({ ...base, connected: true })).toMatch(/\S/)
 	})
 })

@@ -222,7 +222,7 @@ describe('reads, searches and listings', () => {
 			undefined,
 			'failed',
 		)
-		expect(row(thread)?.label).toBe("Couldn't list **/*.ts")
+		expect(row(thread)?.label).toBe('Couldn’t list **/*.ts')
 	})
 })
 
@@ -469,8 +469,8 @@ describe('failures', () => {
 			},
 		)
 		expect(row(thread)).toMatchObject({
-			label: "Couldn't read missing.txt: file not found",
-			lead: "Couldn't read",
+			label: 'Couldn’t read missing.txt: file not found',
+			lead: 'Couldn’t read',
 			file: { name: 'missing.txt', path: '/tmp/proj/nope/missing.txt' },
 			state: 'failed',
 		})
@@ -484,7 +484,7 @@ describe('failures', () => {
 			{ kind: 'generic', label: 'ls' },
 			{ kind: 'failure', reason: 'unknown_tool', subject: 'ls' },
 		)
-		expect(row(thread)?.label).toBe("Namzu tried a tool it doesn't have (ls)")
+		expect(row(thread)?.label).toBe('Namzu tried a tool it doesn’t have (ls)')
 	})
 
 	it('says a command needing administrator rights was blocked, and why', () => {
@@ -506,7 +506,7 @@ describe('failures', () => {
 			reason: 'blocked',
 			subject: 'bash',
 		})
-		expect(row(thread)?.label).toBe("Blocked: this command isn't allowed")
+		expect(row(thread)?.label).toBe('Blocked: this command isn’t allowed')
 	})
 
 	it('explains a write that would have replaced a file nobody read', () => {
@@ -515,7 +515,7 @@ describe('failures', () => {
 			{ kind: 'generic', label: 'out.txt' },
 			{ kind: 'failure', reason: 'already_exists', subject: '/p/out.txt' },
 		)
-		expect(row(thread)?.label).toBe("Couldn't change out.txt: it already exists")
+		expect(row(thread)?.label).toBe('Couldn’t change out.txt: it already exists')
 	})
 })
 

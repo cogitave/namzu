@@ -25,6 +25,7 @@ import { ComposerControl, ComposerControlChevron } from './composer-control.js'
 import { ComposerEffortPanel } from './composer-effort-panel.js'
 import { useSignedOutEngines } from './engine-sign-in.js'
 import { engineStartName, startingLabel, startsAProcess, useElapsed } from './engine-starting.js'
+import { providerName } from './friendly-errors.js'
 import {
 	EngineChip,
 	EnginePanel,
@@ -50,6 +51,7 @@ import {
 import {
 	type ModelChoice,
 	SECTION_HEADINGS,
+	chipUnavailableReason,
 	effortLabel,
 	followCatalogue,
 	modelSections,
@@ -92,7 +94,7 @@ export type EngineControl = {
 }
 /** A list longer than this gets a search icon; a shorter one is read at a glance. */
 const SEARCH_FROM = 7
-const LOAD_FAILED = "Couldn't load the model list. Check your connection, then try again."
+const LOAD_FAILED = 'Couldn’t load the model list. Check your connection, then try again.'
 
 function ProviderMark({ provider }: { provider: Provider }) {
 	const Icon =
@@ -285,6 +287,15 @@ export function ModelPicker({
 			setOpen(false)
 		}
 	}, [scope])
+	const unavailableReason = chipUnavailableReason({
+		engineName,
+		providerLabel:
+			engine === 'namzu' && choice.provider
+				? providerName(choice.provider, provider?.label)
+				: undefined,
+		connected: Boolean(provider),
+		catalogue: catalogueState,
+	})
 	const accessibleName = unconnected
 		? 'Model: no provider connected'
 		: startingText
@@ -294,7 +305,7 @@ export function ModelPicker({
 				: label
 					? `Model: ${label}${shownEffort?.value ? `, effort: ${effortLabel(shownEffort.value)}` : ''}`
 					: triggerPending && startFailed
-						? 'Model, not available. Open to choose another engine'
+						? `Model, not available. ${unavailableReason}`
 						: triggerPending
 							? 'Model, loading'
 							: 'Select model'
@@ -360,7 +371,10 @@ export function ModelPicker({
 					<span className="model-picker-trigger-model truncate">{engineUnavailableText}</span>
 				) : triggerPending && startFailed ? (
 					// The engine did not start (signed out, say): a word, never a grey bar that waits forever.
-					<span className="model-picker-trigger-model model-picker-trigger-starting truncate">
+					<span
+						className="model-picker-trigger-model model-picker-trigger-starting truncate"
+						title={unavailableReason}
+					>
 						Not available
 					</span>
 				) : triggerPending ? (

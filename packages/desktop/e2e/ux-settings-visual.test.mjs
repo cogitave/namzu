@@ -155,7 +155,7 @@ flow("About says versions and system in plain words, with paths only under Data 
 flow("Speech before the download says what it does and offers one Download voice action, with no placeholders", {}, async (w) => {
 	await openProject(w);
 	await openSettings(w, "Speech");
-	await expect(w.page.getByText("Reads replies aloud in Turkish")).toBeVisible();
+	await expect(w.page.getByText("Available in Turkish for now.")).toBeVisible();
 	const text = await pageText(w);
 	for (const jargon of ["Not measured", "EMA Lightning", "worker", "RAM", "VRAM", "Enable voice", "Free memory when idle"])
 		assert.ok(!text.includes(jargon), `the Speech page does not say "${jargon}" before a download`);

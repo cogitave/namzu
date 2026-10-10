@@ -217,7 +217,7 @@ export function ComposerProjectPicker({
 								onLeaveProject()
 							}}
 						>
-							<XIcon aria-hidden="true" /> Don't work in a project
+							<XIcon aria-hidden="true" /> Don’t work in a project
 						</Button>
 					)}
 				</div>

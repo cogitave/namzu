@@ -1636,6 +1636,21 @@ export class Operator {
 		const view = this.missingProjects.get(id) ?? (open?.missing ? open : undefined)
 		return view && { ...view }
 	}
+	/**
+	 * The saved conversations of a project that were never named, oldest first. When the project's
+	 * folder is gone they would restore as a row of identical tabs; the window keeps one. The
+	 * conversations themselves, and what is typed in them, stay.
+	 */
+	untitledConversationIds(projectId: string): string[] {
+		return (this.savedDesktop?.conversations ?? [])
+			.filter(
+				(item) =>
+					item.view.projectId === projectId &&
+					!item.view.palId &&
+					item.view.title === 'New conversation',
+			)
+			.map((item) => item.view.id)
+	}
 	missingProjectPaths(): string[] {
 		return [...this.missingProjects.values()].map((item) => item.path)
 	}
@@ -3224,7 +3239,7 @@ export class Operator {
 					: session.providerSelection
 		const stillOwned = () => {
 			if ((session.selectionRevision ?? 0) !== selectionRevision)
-				throw new Error('The conversation settings changed while loading. Retry this request.')
+				throw new SupersededConversationSettingsError()
 			if (session.client !== client || project.view.status !== 'ready')
 				throw new Error('The connection changed while reopening this conversation.')
 		}

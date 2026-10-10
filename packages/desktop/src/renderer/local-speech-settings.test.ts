@@ -90,6 +90,15 @@ describe('local speech settings display', () => {
 		expect(html).toContain('0.2s')
 	})
 
+	it('inside Settings does not repeat the page subtitle', () => {
+		const html = renderToStaticMarkup(
+			createElement(LocalSpeechSettingsContent, { speech: controls(), embedded: true }),
+		)
+		expect(html).toContain('Available in Turkish for now.')
+		expect(html).not.toContain('Read replies aloud with a voice that stays on this computer')
+		expect(html).not.toContain('Reads replies aloud')
+	})
+
 	it('before the download says what it does and offers one Download voice action', () => {
 		const html = renderToStaticMarkup(
 			createElement(LocalSpeechSettingsContent, { speech: controls() }),

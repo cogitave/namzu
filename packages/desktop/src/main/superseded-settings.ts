@@ -2,7 +2,7 @@
 export class SupersededConversationSettingsError extends Error {
 	override readonly name = 'SupersededConversationSettingsError'
 	constructor() {
-		super('The settings for this conversation changed while they were loading.')
+		super('The model changed while this conversation was opening. Try again.')
 	}
 }
 

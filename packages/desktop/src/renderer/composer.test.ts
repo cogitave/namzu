@@ -460,7 +460,7 @@ it('offers only actual ordinary projects with current selection and connection/t
 	expect(html).toContain('Connecting…')
 	expect(html).toContain('Connection error')
 	expect(html).not.toContain('An ordinary chat')
-	expect(html).toContain('Don&#x27;t work in a project')
+	expect(html).toContain('Don’t work in a project')
 	expect(html).toContain('Use an existing folder')
 	expect(html).toContain('Start from scratch')
 	expect(html).toContain('aria-label="Search projects"')

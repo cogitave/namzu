@@ -36,6 +36,7 @@ const palRequests = (world) =>
 	});
 const shot = (world, name) => world.page.screenshot({ path: join(SHOTS, `${name}.png`) });
 
+const DRAFT = "A line I have not sent yet.";
 const BODY = "Check the note in your workspace and tell me what it says.";
 
 async function createKiro(world) {
@@ -185,6 +186,48 @@ test(
 				false,
 				"a Pal that could not be started read nothing",
 			);
+			assert.deepEqual(world.faults, [], "the renderer raised no uncaught errors");
+			failed = false;
+		} finally {
+			await dispose(world, { failed });
+		}
+	},
+);
+
+test(
+	"Open Kiro keeps an older Kiro tab that holds an unsent draft, and the draft with it",
+	{ timeout: 280000 },
+	async () => {
+		const scripted = [];
+		const world = await createWorld({ rules: scripted, env: { NAMZU_E2E_PAL_COMPUTER: "fake" } });
+		let failed = true;
+		try {
+			await launch(world);
+			await size(world, 1440, 900);
+			await openProject(world);
+			const page = world.page;
+			const palId = await createKiro(world);
+			scripted.push(...rules(palId));
+			const receipt = await messageKiro(world);
+			await expect(receipt.getByRole("button", { name: "Start Kiro" })).toBeVisible({ timeout: 60000 });
+			await receipt.getByRole("button", { name: "Start Kiro" }).click();
+			await expect(receipt).toContainText("Kiro read your message.", { timeout: 90000 });
+
+			// Kiro's first tab holds a line the person has not sent.
+			await page.getByRole("tab", { name: "Kiro", exact: true }).click();
+			const composer = page.getByRole("textbox", { name: /Message Kiro|Message Namzu/ });
+			await composer.fill(DRAFT);
+			await expect(composer).toHaveValue(DRAFT);
+			await shot(world, "06-draft-in-kiro-tab-1440");
+			// Back to the message that was sent, and open Kiro's newest conversation.
+			await page.getByRole("tab", { name: /Ask Kiro/ }).click();
+			await receipt.getByRole("button", { name: "Open Kiro" }).click();
+			await expect(page.getByText("The note says: all clear.")).toBeVisible({ timeout: 60000 });
+			// Both Kiro tabs stay, and the draft is where it was left.
+			await expect(page.getByRole("tab", { name: "Kiro", exact: true })).toHaveCount(2);
+			await page.getByRole("tab", { name: "Kiro", exact: true }).first().click();
+			await expect(page.getByRole("textbox", { name: /Message Kiro|Message Namzu/ })).toHaveValue(DRAFT);
+			await shot(world, "07-draft-kept-1440");
 			assert.deepEqual(world.faults, [], "the renderer raised no uncaught errors");
 			failed = false;
 		} finally {
