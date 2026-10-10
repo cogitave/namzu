@@ -38,7 +38,7 @@ function sha(text: string | Buffer): string {
 function configSections(folder: string): string {
 	let raw: string
 	try {
-		raw = readFileSync(join(folder, 'namzu.config.json'), 'utf8')
+		raw = readFileSync(join(folder, 'namzu.config.json'), 'utf8').replace(/^\uFEFF/, '')
 	} catch {
 		return 'absent'
 	}

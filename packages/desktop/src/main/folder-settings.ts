@@ -253,7 +253,7 @@ export async function inspectAutoRunSettings(folder: string): Promise<AutoRunFin
 		})
 	if (configKind === 'file') {
 		try {
-			const text = await readFile(config, 'utf8')
+			const text = (await readFile(config, 'utf8')).replace(/^\uFEFF/, '')
 			if (text.length > CONFIG_LIMIT) throw new Error('too large')
 			const parsed: unknown = JSON.parse(text)
 			const sections: AutoRunFinding[] = []

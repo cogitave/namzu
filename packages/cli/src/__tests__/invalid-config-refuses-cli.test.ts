@@ -107,7 +107,7 @@ describe('invalid explicit config reaches the real CLI refusal', () => {
 
 		expect(result.status).toBe(78)
 		expect(result.stderr).toBe(
-			"namzu.config.json isn't valid JSON (line 3, column 3). Fix it, then start Namzu again.\n",
+			"namzu.config.json in this project isn't valid JSON (line 3, column 3). Fix it, then start Namzu again.\n",
 		)
 	})
 
@@ -115,7 +115,9 @@ describe('invalid explicit config reaches the real CLI refusal', () => {
 		const result = runCliProcess(['--debug', 'serve'], { config: BROKEN })
 
 		expect(result.status).toBe(78)
-		expect(result.stderr).toContain("namzu.config.json isn't valid JSON (line 3, column 3).")
+		expect(result.stderr).toContain(
+			"namzu.config.json in this project isn't valid JSON (line 3, column 3).",
+		)
 		expect(result.stderr).toContain('JSON')
 		expect(result.stderr.split('\n').length).toBeGreaterThan(2)
 	})

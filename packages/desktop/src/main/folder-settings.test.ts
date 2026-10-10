@@ -37,6 +37,13 @@ describe('findAutoRunSettings', () => {
 			'2 tools it can start (MCP servers)',
 		])
 	})
+	it('reads a config saved with a byte-order mark as the CLI does', async () => {
+		await config(`\uFEFF${JSON.stringify({ hooks: { PreToolUse: [] }, model: 'x' })}`)
+		expect(await findAutoRunSettings(folder)).toEqual([
+			'a Namzu settings file that can start programs (namzu.config.json)',
+			'commands that run by themselves at set moments (hooks)',
+		])
+	})
 	it('says one server in the singular and skips empty sections', async () => {
 		await config({ mcpServers: { a: {} }, hooks: {}, plugins: null })
 		expect(await findAutoRunSettings(folder)).toEqual([

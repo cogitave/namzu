@@ -23,6 +23,15 @@ describe('folderFingerprint', () => {
 		const two = await folder({ model: 'y', hooks: { b: 2, a: 1 } })
 		expect((await folderFingerprint(one)).digest).toBe((await folderFingerprint(two)).digest)
 	})
+	it('reads a config saved with a byte-order mark as the same config', async () => {
+		const plain = await folder({ hooks: { a: 1 } })
+		const marked = await folder()
+		await writeFile(
+			join(marked, 'namzu.config.json'),
+			`\uFEFF${JSON.stringify({ hooks: { a: 1 } })}`,
+		)
+		expect((await folderFingerprint(marked)).digest).toBe((await folderFingerprint(plain)).digest)
+	})
 	it('names which section changed, was added or was removed', async () => {
 		const path = await folder({ hooks: { a: 1 }, sandbox: { mode: 'on' } })
 		const before = await folderFingerprint(path)
