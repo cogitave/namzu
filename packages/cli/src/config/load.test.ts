@@ -1,5 +1,5 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
@@ -11,6 +11,8 @@ import {
 	loadBootstrapConfigWithProvenance,
 	loadConfig,
 	loadConfigWithProvenance,
+	shortHomePath,
+	stripByteOrderMark,
 } from './load.js'
 import type { NamzuCliConfig } from './schema.js'
 
@@ -741,4 +743,94 @@ it('preserves identifier grounding opt-out and rejects nonboolean values', () =>
 	})
 	const invalid = userConfig('memory:\n  identifierGrounding: sometimes\n')
 	expect(() => loadConfig({ home: invalid, cwd: tmpdir(), env: {} })).toThrow(ConfigValueError)
+})
+
+describe('a config file that is not valid', () => {
+	const BOM = '﻿'
+
+	function projectWith(contents: string): string {
+		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		writeFileSync(join(cwd, 'namzu.config.json'), contents)
+		return cwd
+	}
+
+	function managedWith(contents: string): string {
+		const dir = mkdtempSync(join(tmpdir(), 'namzu-managed-'))
+		const path = join(dir, 'config.json')
+		writeFileSync(path, contents)
+		return path
+	}
+
+	it('loads a project file saved with a byte-order mark as if it were absent', () => {
+		const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
+		const cwd = projectWith(`${BOM}${JSON.stringify({ format: 'json' })}`)
+		expect(loadConfig({ home, cwd, env: {} }).format).toBe('json')
+	})
+
+	it('loads a user file saved with a byte-order mark', () => {
+		const home = userConfig(`${BOM}format: yaml\n`)
+		expect(loadConfig({ home, cwd: tmpdir(), env: {} }).format).toBe('yaml')
+	})
+
+	it('loads a managed file saved with a byte-order mark', () => {
+		const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
+		const managedPath = managedWith(`${BOM}{"format":"yaml"}`)
+		expect(loadConfig({ home, cwd: tmpdir(), env: {}, managedPath }).format).toBe('yaml')
+	})
+
+	it('strips exactly one leading mark and nothing else', () => {
+		expect(stripByteOrderMark(`${BOM}a`)).toBe('a')
+		expect(stripByteOrderMark(`${BOM}${BOM}a`)).toBe(`${BOM}a`)
+		expect(stripByteOrderMark(`a${BOM}`)).toBe(`a${BOM}`)
+	})
+
+	it('still names a broken project file after the mark is removed', () => {
+		const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
+		const cwd = projectWith(`${BOM}{\n  oops: 1\n}`)
+		expect(() => loadConfig({ home, cwd, env: {} })).toThrow(
+			"namzu.config.json in this project isn't valid JSON (line 2, column 3). Fix it, then start Namzu again.",
+		)
+	})
+
+	it('names a broken user file with its line and column and no parser text', () => {
+		const home = userConfig('skills: [\n')
+		const path = join(home, '.namzu', 'config.yaml')
+		let message = ''
+		try {
+			loadConfig({ home, cwd: tmpdir(), env: {} })
+		} catch (cause) {
+			message = (cause as Error).message
+		}
+		expect(message.startsWith(`${path} isn't valid YAML (line `)).toBe(true)
+		expect(message.endsWith('. Fix it, then start Namzu again.')).toBe(true)
+		expect(message).not.toContain('\n')
+	})
+
+	it('names a broken managed file by its path', () => {
+		const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
+		const managedPath = managedWith('{ nope')
+		expect(() => loadConfig({ home, cwd: tmpdir(), env: {}, managedPath })).toThrow(
+			`${managedPath} isn't valid JSON`,
+		)
+	})
+
+	it('names a project file whose top level is a list the same way, not by its absolute path', () => {
+		const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
+		const cwd = projectWith('[1, 2]')
+		let error: unknown
+		try {
+			loadConfig({ home, cwd, env: {} })
+		} catch (cause) {
+			error = cause
+		}
+		expect((error as Error).message).toBe(
+			'namzu.config.json in this project must be a set of named settings, not a list. Fix it, then start Namzu again.',
+		)
+		expect((error as { complete?: boolean }).complete).toBe(true)
+	})
+
+	it('writes the home folder as ~', () => {
+		expect(shortHomePath(join(homedir(), '.namzu', 'config.yaml'))).toBe('~/.namzu/config.yaml')
+		expect(shortHomePath('/etc/namzu/config.json')).toBe('/etc/namzu/config.json')
+	})
 })

@@ -222,6 +222,25 @@ const ROW_LABEL_WIDTH = 28
 const ROW_PREFIX_WIDTH = ROW_MARKER_WIDTH + ROW_NUMBER_WIDTH + ROW_LABEL_WIDTH
 /** What a wrapped source line is indented by, so it lines up under the name. */
 const ROW_INDENT = ' '.repeat(ROW_PREFIX_WIDTH)
+/**
+ * What a source drawn on its own lines is indented by: the marker and the
+ * number, so it lines up under the first letter of the name.
+ */
+const STACKED_INDENT_WIDTH = ROW_MARKER_WIDTH + ROW_NUMBER_WIDTH
+const STACKED_INDENT = ' '.repeat(STACKED_INDENT_WIDTH)
+/**
+ * Columns the source column needs beside a padded name before the row gives up
+ * on sharing a line and draws the source under the name instead.
+ *
+ * Twenty-four is `needs OPENCODE_GO_API_KEY` less its two longest words' worth
+ * of slack: the longest ordinary source is twenty-five columns and the next is
+ * `local · localhost:11434` at twenty-three, so below it the commonest sources
+ * broke at their middle dot (`env ·` over `OPENROUTER_API_KEY`) and below
+ * sixteen they broke a word apart. With the name padded to 28 columns a
+ * 40-column terminal left the source one column, and it came out one letter per
+ * line.
+ */
+const MIN_ROW_SOURCE_COLUMNS = 24
 
 /**
  * Lines a row's source column may take before the rest is cut.
@@ -285,6 +304,17 @@ function emptyScreenSourceLines(): readonly string[] {
 		' · env vars / API keys (optional alternatives: ANTHROPIC_API_KEY, OPENAI_API_KEY, …)',
 		' · local servers (Ollama localhost:11434, LM Studio localhost:1234)',
 	]
+}
+
+/**
+ * One source of the empty screen as a bullet whose continuation lines hang under
+ * its text, so a wrapped source is not mistaken for the next one.
+ */
+function bulletLines(item: string, width: number): readonly string[] {
+	const body = item.replace(/^\s*·\s*/, '')
+	return wrapChoiceText(body, Math.max(1, width - 2)).map((line, at) =>
+		at === 0 ? `· ${line}` : `  ${line}`,
+	)
 }
 
 function subscriptionProviders(): ProviderRegistryEntry[] {
@@ -1353,7 +1383,10 @@ export function Picker({
 		1 +
 		1 +
 		oneLine(EMPTY_SCREEN_INTRO) +
-		emptyScreenSourceLines().reduce((rows, line) => rows + oneLine(line), 0) +
+		emptyScreenSourceLines().reduce(
+			(rows, line) => rows + bulletLines(line, contentWidth).length,
+			0,
+		) +
 		(onLogin ? 1 + oneLine(`Press l ${EMPTY_SCREEN_HINTS.signIn}`) : 0) +
 		1 +
 		oneLine(`Or press k ${EMPTY_SCREEN_HINTS.paste}`) +
@@ -1433,7 +1466,14 @@ export function Picker({
 					    here is a source they are never told to try — which is exactly
 					    what happened to the store below when the sign-in shipped. */}
 					{emptyScreenSourceLines().map((line) => (
-						<WrappedLines key={line} text={line} width={contentWidth} color={theme.text.muted} />
+						<Box key={line} flexDirection="column">
+							{bulletLines(line, contentWidth).map((part, at) => (
+								// biome-ignore lint/suspicious/noArrayIndexKey: wrapped lines have no identity beyond their order.
+								<Text key={at} color={theme.text.muted}>
+									{part}
+								</Text>
+							))}
+						</Box>
 					))}
 				</Box>
 				{onLogin ? (
@@ -1454,7 +1494,7 @@ export function Picker({
 						color={theme.text.primary}
 					/>
 				</Box>
-				<Box paddingTop={1}>
+				<Box paddingTop={1} flexDirection="column">
 					<WrappedLines
 						text={EMPTY_SCREEN_HINTS.durable}
 						width={contentWidth}
@@ -1520,6 +1560,53 @@ export function Picker({
 	)
 }
 
+/** Columns a model's name keeps beside its marks before the marks move under it. */
+const MIN_MODEL_NAME_COLUMNS = 16
+
+/**
+ * The marks a model row carries, and whether they go on a line under the id.
+ *
+ * Beside the id when they fit. When they would squeeze the id (`deepseek-v4-flash
+ * (current) (default)` at 40 columns drew as `deepseek… (current) (default)`, a
+ * row that no longer said which model it was) they move under it, indented to the
+ * id. One function for the renderer and for the window, because a row that takes
+ * two lines the window did not count is the header scrolled off the top.
+ */
+function modelRowNote(
+	c: ModelStep['choices'][number],
+	index: number,
+	columns: number,
+	currentModel: string | null | undefined,
+	width: number,
+): { readonly note: string; readonly wraps: boolean } {
+	const notes =
+		columns < 70
+			? [
+					c.id === currentModel ? '(current)' : '',
+					c.note?.includes('namzu default') ? '(default)' : '',
+					c.note?.includes('image input') ? '(image)' : '',
+					// Rebuilt from a fixed vocabulary, so a word
+					// missing from it is DROPPED rather than
+					// shortened — and a `(free)` that vanishes on a
+					// narrow terminal is a marker the operator
+					// cannot rely on. Listed here for the same
+					// reason the other two are: the note is prose
+					// the model step built, and this branch has to
+					// know which of it still fits. `free` is read
+					// off `c.note` rather than off the prices,
+					// which the choice does not carry.
+					c.note?.includes('free') ? '(free)' : '',
+				]
+			: [c.note, c.id === currentModel && !c.note?.includes('current') ? '(current)' : '']
+	const note = notes.filter(Boolean).join(' ')
+	const prefixWidth = 2 + String(index + 1).length + 2
+	const room = width - prefixWidth - choiceDisplayWidth(note) - 1
+	// A name cut a little to keep its marks on its line is still the name; cut
+	// to a stub it is not, which is when the marks move.
+	const wraps = note !== '' && choiceDisplayWidth(c.label) > room && room < MIN_MODEL_NAME_COLUMNS
+	return { note, wraps }
+}
+
 function ModelStepView({
 	providerLabel,
 	otherProviders,
@@ -1562,10 +1649,17 @@ function ModelStepView({
 	const noticeRows = step?.notice ? Math.ceil(choiceDisplayWidth(step.notice) / width) : 0
 	// "Free" and "API key" headings are lines between rows, never rows: the cursor and the digit
 	// shortcuts count choices only. They take screen lines, so the window gives them room: up to three at once (the repeated one, "API key", "Other models").
+	const rowBudget = Math.max(
+		1,
+		Math.min(7, (terminal.rows ?? 24) - 7 - noticeRows - (headed ? 3 : 0)),
+	)
+	// A row whose marks go under its id takes two lines, so when any would, the
+	// window holds half as many rows and still fits the lines it was given.
+	const anyWraps = choices.some((c, i) => modelRowNote(c, i, columns, currentModel, width).wraps)
 	const window = selectionWindow(
 		choices,
 		cursor,
-		Math.max(1, Math.min(7, (terminal.rows ?? 24) - 7 - noticeRows - (headed ? 3 : 0))),
+		anyWraps ? Math.max(1, Math.floor(rowBudget / 2)) : rowBudget,
 	)
 	const hiddenAbove = window.start
 	const hiddenBelow = choices.length - window.start - window.items.length
@@ -1597,10 +1691,14 @@ function ModelStepView({
 					</Text>
 				</Box>
 				{step ? (
-					<Text color={theme.text.muted}>
-						{position}
-						{overflowHint ? `${columns < 70 ? '' : ' · '}${overflowHint}` : ''}
-					</Text>
+					// A column of its own, so a title that fills the line still leaves one
+					// between itself and the count ("Ollama (local)3/3" was the capture).
+					<Box flexShrink={0} marginLeft={1}>
+						<Text color={theme.text.muted}>
+							{position}
+							{overflowHint ? `${columns < 70 ? '' : ' · '}${overflowHint}` : ''}
+						</Text>
+					</Box>
 				) : null}
 			</Box>
 			{/* Use the former header spacer for a visible provider action. */}
@@ -1639,29 +1737,7 @@ function ModelStepView({
 						{window.items.map((c, visibleIndex) => {
 							const index = window.start + visibleIndex
 							const prefix = `${index === cursor ? '❯ ' : '  '}${index + 1}. `
-							const notes =
-								columns < 70
-									? [
-											c.id === currentModel ? '(current)' : '',
-											c.note?.includes('namzu default') ? '(default)' : '',
-											c.note?.includes('image input') ? '(image)' : '',
-											// Rebuilt from a fixed vocabulary, so a word
-											// missing from it is DROPPED rather than
-											// shortened — and a `(free)` that vanishes on a
-											// narrow terminal is a marker the operator
-											// cannot rely on. Listed here for the same
-											// reason the other two are: the note is prose
-											// the model step built, and this branch has to
-											// know which of it still fits. `free` is read
-											// off `c.note` rather than off the prices,
-											// which the choice does not carry.
-											c.note?.includes('free') ? '(free)' : '',
-										]
-									: [
-											c.note,
-											c.id === currentModel && !c.note?.includes('current') ? '(current)' : '',
-										]
-							const note = notes.filter(Boolean).join(' ')
+							const { note, wraps } = modelRowNote(c, index, columns, currentModel, width)
 							const labelWidth = width - choiceDisplayWidth(prefix) - choiceDisplayWidth(note) - 1
 							// A heading opens each section, and the first visible row repeats its
 							// section's so a scrolled window still says where it is.
@@ -1680,9 +1756,16 @@ function ModelStepView({
 									) : null}
 									<Text color={index === cursor ? theme.accent.system : theme.text.primary}>
 										{prefix}
-										{truncateChoiceText(c.label, labelWidth)}
-										{note ? ` ${note}` : ''}
+										{wraps
+											? truncateChoiceText(c.label, Math.max(1, width - choiceDisplayWidth(prefix)))
+											: truncateChoiceText(c.label, labelWidth)}
+										{note && !wraps ? ` ${note}` : ''}
 									</Text>
+									{wraps ? (
+										<Text color={index === cursor ? theme.accent.system : theme.text.muted}>
+											{`${' '.repeat(choiceDisplayWidth(prefix))}${note}`}
+										</Text>
+									) : null}
 								</Box>
 							)
 						})}
@@ -1830,7 +1913,8 @@ function UnconfiguredVendorRow({
 	// the work still to do on a screen that is otherwise all done.
 	const mark = isCurrent ? CURRENT_MARK : ''
 	const source = rowSourceLines(row, contentWidth, mark)
-	const markInline = rowMarkPlacement(contentWidth, mark).inline
+	const shape = rowShape(row, contentWidth, mark)
+	const markInline = shape.inline
 	return (
 		<Box flexDirection="column">
 			<RowLine
@@ -1840,19 +1924,22 @@ function UnconfiguredVendorRow({
 				labelColor={selected ? theme.border.focus : theme.text.primary}
 				labelBold={selected}
 				numberColor={selected ? theme.border.focus : theme.text.muted}
-				source={source[0] ?? ''}
+				source={shape.stacked ? '' : (source[0] ?? '')}
+				stacked={shape.stacked}
 				sourceColor={theme.status.warn}
 				currentMark={mark}
 				markInline={markInline}
 			/>
-			{source.slice(1).map((line, at) => (
+			{(shape.stacked ? source : source.slice(1)).map((line, at) => (
 				// biome-ignore lint/suspicious/noArrayIndexKey: wrapped lines have no identity beyond their order.
 				<Text key={at} color={theme.status.warn}>
-					{`${ROW_INDENT}${line}`}
+					{`${shape.stacked ? STACKED_INDENT : ROW_INDENT}${line}`}
 				</Text>
 			))}
 			{mark !== '' && !markInline ? (
-				<Text color={theme.accent.system}>{`${ROW_INDENT}${mark.trimStart()}`}</Text>
+				<Text
+					color={theme.accent.system}
+				>{`${shape.stacked ? STACKED_INDENT : ROW_INDENT}${mark.trimStart()}`}</Text>
 			) : null}
 		</Box>
 	)
@@ -1882,6 +1969,7 @@ function RowLine({
 	sourceColor,
 	currentMark,
 	markInline = true,
+	stacked = false,
 	dim = false,
 }: {
 	readonly cursor: string
@@ -1895,13 +1983,15 @@ function RowLine({
 	readonly currentMark: string
 	/** False when the mark is drawn on a line of its own, below the source. */
 	readonly markInline?: boolean
+	/** True when the source is drawn under the name, so the name keeps its own width. */
+	readonly stacked?: boolean
 	readonly dim?: boolean
 }) {
 	return (
 		<Text>
 			<Text color={numberColor}>{cursor}</Text> <Text color={numberColor}>{number}</Text>{' '}
 			<Text color={labelColor} bold={labelBold} dimColor={dim}>
-				{label.padEnd(ROW_LABEL_WIDTH)}
+				{stacked ? label : label.padEnd(ROW_LABEL_WIDTH)}
 			</Text>
 			<Text color={sourceColor} dimColor={dim}>
 				{source}
@@ -1940,7 +2030,8 @@ function DetectedVendorRow({
 	const usable = rowIsUsable(row)
 	const mark = isCurrent ? CURRENT_MARK : ''
 	const source = rowSourceLines(row, contentWidth, mark)
-	const markInline = rowMarkPlacement(contentWidth, mark).inline
+	const shape = rowShape(row, contentWidth, mark)
+	const markInline = shape.inline
 	return (
 		<Box flexDirection="column">
 			<RowLine
@@ -1952,21 +2043,22 @@ function DetectedVendorRow({
 				}
 				labelBold={usable && selected}
 				numberColor={selected ? theme.border.focus : theme.text.muted}
-				source={source[0] ?? ''}
+				source={shape.stacked ? '' : (source[0] ?? '')}
+				stacked={shape.stacked}
 				sourceColor={usable ? theme.text.muted : theme.status.warn}
 				currentMark={mark}
 				markInline={markInline}
 				dim={!usable}
 			/>
-			{source.slice(1).map((line, at) => (
+			{(shape.stacked ? source : source.slice(1)).map((line, at) => (
 				// biome-ignore lint/suspicious/noArrayIndexKey: wrapped lines have no identity beyond their order.
 				<Text key={at} color={usable ? theme.text.muted : theme.status.warn} dimColor={!usable}>
-					{`${ROW_INDENT}${line}`}
+					{`${shape.stacked ? STACKED_INDENT : ROW_INDENT}${line}`}
 				</Text>
 			))}
 			{mark !== '' && !markInline ? (
 				<Text color={theme.accent.system} dimColor={!usable}>
-					{`${ROW_INDENT}${mark.trimStart()}`}
+					{`${shape.stacked ? STACKED_INDENT : ROW_INDENT}${mark.trimStart()}`}
 				</Text>
 			) : null}
 		</Box>
@@ -2061,44 +2153,63 @@ function HintLines({
  */
 function rowSourceLines(row: VendorRow, contentWidth: number, currentMark = ''): readonly string[] {
 	const text = row.detected.length > 0 ? rowSourceText(row) : (rowCredentialNeed(row) ?? '')
-	const available = Math.max(1, rowMarkPlacement(contentWidth, currentMark).sourceColumns)
-	return capChoiceLines(wrapChoiceText(text, available), MAX_SOURCE_LINES, available)
+	const shape = rowShape(row, contentWidth, currentMark)
+	const lines = capChoiceLines(
+		wrapChoiceText(text, Math.max(1, shape.sourceColumns)),
+		MAX_SOURCE_LINES,
+		Math.max(1, shape.sourceColumns),
+	)
+	// Drawn under the name, a source with nothing to say is no line at all: the
+	// name's own line is not shared with it, so an empty one would be a blank row.
+	return shape.stacked ? lines.filter((line) => line !== '') : lines
 }
 
 /**
- * Where a row's `← current` mark goes at this width, and what it leaves the
- * source.
+ * How one row is laid out at this width: its source beside the name, or under it.
  *
- * Inline while the source keeps enough columns to be readable, and on a line of
- * its own when it does not. The mark is twelve columns, and at 60 columns
- * sharing the line with it left the source nine — which broke
- * `DEEPSEEK_API_KEY` across three lines to say what the operator already knew
- * from choosing this row.
+ * Beside the name while the source keeps a readable column. When it would not
+ * (the name is padded to a fixed 28 columns, so a 40-column terminal left the
+ * source one), the source moves under the name, indented to line up with it, and
+ * the name is not padded at all. The mark follows the same rule: inline when the
+ * line it shares has room, on a line of its own when it does not.
+ *
+ * One function, called by the renderer and by the measurement, because a height
+ * the box did not reserve is the header scrolled off the top of the terminal.
  */
-function rowMarkPlacement(
+function rowShape(
+	row: VendorRow,
 	contentWidth: number,
 	currentMark: string,
-): { readonly inline: boolean; readonly sourceColumns: number } {
-	const width = contentWidth - ROW_PREFIX_WIDTH
-	if (currentMark === '') return { inline: false, sourceColumns: width }
-	const shares = width - choiceDisplayWidth(currentMark) >= MIN_SOURCE_COLUMNS
+): { readonly stacked: boolean; readonly inline: boolean; readonly sourceColumns: number } {
+	const beside = contentWidth - ROW_PREFIX_WIDTH
+	if (beside < MIN_ROW_SOURCE_COLUMNS) {
+		const nameLine = STACKED_INDENT_WIDTH + choiceDisplayWidth(row.label)
+		return {
+			stacked: true,
+			inline: currentMark !== '' && nameLine + choiceDisplayWidth(currentMark) <= contentWidth,
+			sourceColumns: Math.max(1, contentWidth - STACKED_INDENT_WIDTH),
+		}
+	}
+	if (currentMark === '') return { stacked: false, inline: false, sourceColumns: beside }
+	const shares = beside - choiceDisplayWidth(currentMark) >= MIN_SOURCE_COLUMNS
 	return {
+		stacked: false,
 		inline: shares,
-		sourceColumns: Math.max(1, width - (shares ? choiceDisplayWidth(currentMark) : 0)),
+		sourceColumns: Math.max(1, beside - (shares ? choiceDisplayWidth(currentMark) : 0)),
 	}
 }
 
 /**
  * The lines one row occupies at this width.
  *
- * A row that carries the mark on a line below its source is one line taller,
- * which is why the placement is decided by a function both the measurement and
- * the renderer call: a height the box did not reserve is the header scrolled off
- * the top of the terminal.
+ * A row that carries the mark on a line below is one line taller, and a row
+ * whose source is drawn under its name is one line taller than the source.
  */
 function rowHeight(row: VendorRow, contentWidth: number, currentMark = ''): number {
-	const lines = rowSourceLines(row, contentWidth, currentMark).length
-	const below = currentMark !== '' && !rowMarkPlacement(contentWidth, currentMark).inline
+	const shape = rowShape(row, contentWidth, currentMark)
+	const source = rowSourceLines(row, contentWidth, currentMark).length
+	const lines = shape.stacked ? 1 + source : source
+	const below = currentMark !== '' && !shape.inline
 	return below ? lines + 1 : lines
 }
 

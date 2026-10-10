@@ -185,7 +185,7 @@ export async function folderFingerprint(folder: string): Promise<FolderFingerpri
 			parts.config = walk.over ? uncheckable() : `link:${hash.digest('hex')}`
 		}
 		try {
-			const text = await readFile(config, 'utf8')
+			const text = (await readFile(config, 'utf8')).replace(/^\uFEFF/, '')
 			if (Buffer.byteLength(text) > CONFIG_BYTES) parts.config = uncheckable()
 			else {
 				let parsed: unknown

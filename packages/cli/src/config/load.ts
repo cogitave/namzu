@@ -23,6 +23,7 @@
  */
 
 import { readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 import { RENAMED_PLUGIN_HOOK_EVENTS, SHELL_HOOK_EVENTS } from '@namzu/sdk'
 
@@ -213,8 +214,8 @@ function resolveConfigWithProvenance(
 	const managedPath = opts.managedPath ?? MANAGED_CONFIG_PATH
 
 	const userCfg = readYamlIfExists(userPath)
-	const projectCfg = mode.includeProject ? readJsonIfExists(projectPath) : {}
-	const managedCfg = readJsonIfExists(managedPath)
+	const projectCfg = mode.includeProject ? readJsonIfExists(projectPath, PROJECT_FILE_LABEL) : {}
+	const managedCfg = readJsonIfExists(managedPath, shortHomePath(managedPath))
 	const { config: envCfg, variables: envVariables } = readEnv(env)
 
 	// The command line first, then the environment. A flag is this turn; a
@@ -300,9 +301,9 @@ export function readPermissionLayers(
 		[
 			'project-file',
 			projectPath,
-			opts.includeProject === false ? {} : readJsonIfExists(projectPath),
+			opts.includeProject === false ? {} : readJsonIfExists(projectPath, PROJECT_FILE_LABEL),
 		],
-		['managed', managedPath, readJsonIfExists(managedPath)],
+		['managed', managedPath, readJsonIfExists(managedPath, shortHomePath(managedPath))],
 	] as const) {
 		const browserDenies = Object.entries(config.browser?.sites ?? {})
 			.filter(([site, level]) => site !== '*' && level === 'deny')
@@ -434,24 +435,46 @@ function readYamlIfExists(path: string): MutableConfig {
 	try {
 		parsed = yamlParse(raw)
 	} catch (cause) {
-		throw new ConfigLoadError(path, `${path} is not valid YAML: ${reasonOf(cause)}`, { cause })
+		const at = (cause as { linePos?: ReadonlyArray<{ line: number; col: number }> } | null)
+			?.linePos?.[0]
+		const where = at === undefined ? '' : ` (line ${at.line}, column ${at.col})`
+		throw new ConfigLoadError(
+			path,
+			`${shortHomePath(path)} isn't valid YAML${where}. Fix it, then start Namzu again.`,
+			{ cause, complete: true },
+		)
 	}
 	return asConfigObject(path, parsed)
 }
 
-function readJsonIfExists(path: string): MutableConfig {
+/** How the project's own file is named to a person: it is the one in the folder they are in. */
+const PROJECT_FILE_LABEL = 'namzu.config.json in this project'
+
+/** A path for a person to read: home as `~`, the way every other path on screen is shown. */
+export function shortHomePath(path: string): string {
+	const home = homedir()
+	if (
+		home !== '' &&
+		(path === home || path.startsWith(`${home}/`) || path.startsWith(`${home}\\`))
+	) {
+		return `~${path.slice(home.length).replaceAll('\\', '/')}`
+	}
+	return path
+}
+
+function readJsonIfExists(path: string, label: string): MutableConfig {
 	const raw = readIfPresent(path)
 	if (raw === null) return {}
 	let parsed: unknown
 	try {
 		parsed = JSON.parse(raw)
 	} catch (cause) {
-		throw new ConfigLoadError(path, invalidJsonSentence(path, raw, cause), {
+		throw new ConfigLoadError(path, invalidJsonSentence(label, raw, cause), {
 			cause,
 			complete: true,
 		})
 	}
-	return asConfigObject(path, parsed)
+	return asConfigObject(path, parsed, label)
 }
 
 /**
@@ -459,8 +482,7 @@ function readJsonIfExists(path: string): MutableConfig {
  * line and column the parser stopped at, and what to do. The parser's wording is
  * not part of it; it stays on the error's `cause` for `--debug`.
  */
-function invalidJsonSentence(path: string, raw: string, cause: unknown): string {
-	const name = path.split(/[\\/]/).pop() || path
+function invalidJsonSentence(name: string, raw: string, cause: unknown): string {
 	const position = jsonErrorPosition(raw, cause)
 	let where = ''
 	if (position !== undefined) {
@@ -503,7 +525,9 @@ function jsonErrorPosition(raw: string, cause: unknown): number | undefined {
  */
 function readIfPresent(path: string): string | null {
 	try {
-		return readFileSync(path, 'utf8')
+		// Windows editors save UTF-8 with a leading byte-order mark, which JSON.parse
+		// and the YAML parser both refuse as a stray character. It is not content.
+		return stripByteOrderMark(readFileSync(path, 'utf8'))
 	} catch (cause) {
 		const code = (cause as NodeJS.ErrnoException | null)?.code
 		if (code === 'ENOENT' || code === 'ENOTDIR') return null
@@ -520,12 +544,19 @@ function readIfPresent(path: string): string | null {
  * `{}` is the same fail-open as the unreadable file one function up, reached by
  * a different route.
  */
-function asConfigObject(path: string, parsed: unknown): MutableConfig {
+function asConfigObject(
+	path: string,
+	parsed: unknown,
+	label: string = shortHomePath(path),
+): MutableConfig {
 	if (parsed === null || parsed === undefined) return {}
 	if (typeof parsed !== 'object' || Array.isArray(parsed)) {
+		// Named the way the invalid-JSON sentence names it, and one sentence a
+		// person can act on: the file, what is wrong, and what to do.
 		throw new ConfigLoadError(
 			path,
-			`${path} must contain a mapping of settings, but its top level is ${describe(parsed)}`,
+			`${label} must be a set of named settings, not ${describe(parsed)}. Fix it, then start Namzu again.`,
+			{ complete: true },
 		)
 	}
 	return sanitize(parsed, { kind: 'file', path })
@@ -533,6 +564,11 @@ function asConfigObject(path: string, parsed: unknown): MutableConfig {
 
 function describe(value: unknown): string {
 	return Array.isArray(value) ? 'a list' : `a ${typeof value}`
+}
+
+/** The text without one leading U+FEFF. */
+export function stripByteOrderMark(text: string): string {
+	return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text
 }
 
 function reasonOf(cause: unknown): string {
