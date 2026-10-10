@@ -24,9 +24,7 @@ describe('engineSetup', () => {
 
 describe('signInHelpFor', () => {
 	it('recognises the signed-out Codex error and names the command', () => {
-		expect(
-			signInHelpFor('Codex needs you to sign in with its own account.'),
-		).toMatchObject({
+		expect(signInHelpFor('Codex needs you to sign in with its own account.')).toMatchObject({
 			engine: 'codex-cli',
 			name: 'Codex',
 			command: 'codex login',
