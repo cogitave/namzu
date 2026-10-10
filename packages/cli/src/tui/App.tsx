@@ -7467,7 +7467,7 @@ export function App({
 						if (ownsSwitch()) {
 							pushMessage(
 								'system',
-								`Model switch failed: ${error instanceof Error ? error.message : String(error)} The current model is unchanged.`,
+								`${explainFailure(error, 'Could not switch the model.')} The current model is unchanged.`,
 							)
 						}
 					} finally {
@@ -7614,7 +7614,7 @@ export function App({
 				if (owns())
 					pushMessage(
 						'system',
-						`Model selection failed: ${error instanceof Error ? error.message : String(error)} The current model is unchanged.`,
+						`${explainFailure(error, 'Could not switch the model.')} The current model is unchanged.`,
 					)
 			} finally {
 				if (pendingModelSwitchRef.current === pending) {

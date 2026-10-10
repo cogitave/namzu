@@ -10,6 +10,7 @@ import {
 	type ProviderRegistryEntry,
 	isAnthropicOAuthToken,
 } from '../integrations/providers/index.js'
+import { rawDetail } from './model-choices.js'
 import { debugRequested } from './plain-interruption.js'
 
 /**
@@ -116,7 +117,7 @@ export function describeDisposition(
 	if (verification.kind === 'rejected') {
 		// The provider's own text is data: it can carry a request ID or an echo of
 		// the key. It is shown only when detail was asked for (`--debug`).
-		const detail = debugRequested() ? ` (${verification.reason})` : ''
+		const detail = debugRequested() ? ` Details: ${rawDetail(verification.reason)}` : ''
 		return `${entry.label} rejected that ${noun}. Check it and try again.${detail}\nNothing was stored.`
 	}
 

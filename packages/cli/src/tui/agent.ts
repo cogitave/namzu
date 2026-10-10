@@ -5042,7 +5042,7 @@ export async function describeProviderReasoning(
 		)
 	} catch (error) {
 		if (signal?.aborted) throw signal.reason
-		return { notice: `Reasoning effort could not be checked: ${describeError(error)}` }
+		return { notice: explainFailure(error, 'Reasoning effort could not be checked.') }
 	}
 }
 

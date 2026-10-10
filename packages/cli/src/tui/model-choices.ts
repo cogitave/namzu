@@ -170,7 +170,7 @@ export function modelStep(
 			keyEntryReachable: options.keyEntryReachable === true,
 			credentialGone: listing.failure === 'credential-unavailable',
 		})
-		const raw = (options.debug ?? debugRequested()) ? ` (${rawDetail(listing.reason)})` : ''
+		const raw = (options.debug ?? debugRequested()) ? ` Details: ${rawDetail(listing.reason)}` : ''
 		return fallback(`${sentence}${raw} Showing namzu’s pick for it.`)
 	}
 	if (listing.models.length === 0) {
@@ -255,9 +255,17 @@ export function withKeyNote(note: string | undefined): string {
 	return `(${parts.join(' · ')})`
 }
 
-function rawDetail(reason: string): string {
+/**
+ * The driver's own text for `--debug`: one line, a request ID labelled as one,
+ * and ending in a full stop so the next sentence starts cleanly.
+ */
+export function rawDetail(reason: string): string {
 	const flat = terminalSafe(reason)
-	return flat.length > 300 ? `${flat.slice(0, 299)}…` : flat
+		.replace(/\s*\(?\brequest[_ -]?id[:=]?\s*([\w.-]+)\)?/gi, ' Request ID: $1')
+		.replace(/\s+/g, ' ')
+		.trim()
+	const cut = flat.length > 300 ? `${flat.slice(0, 299)}…` : flat
+	return /[.!?…]$/.test(cut) ? cut : `${cut}.`
 }
 
 function terminalSafe(text: string): string {

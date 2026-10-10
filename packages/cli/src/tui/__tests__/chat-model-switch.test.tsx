@@ -228,7 +228,7 @@ it('keeps the old session usable when replacement construction fails', async () 
 	await submit(screen, 'switch to gpt-5.6-luna')
 	await until(
 		screen,
-		() => screen.viewport().join('\n').includes('Model switch failed: Candidate unavailable'),
+		() => screen.viewport().join('\n').includes('Could not switch the model. Run with --debug'),
 		'Refusal missing',
 	)
 	expect(closeOld).not.toHaveBeenCalled()
@@ -444,7 +444,7 @@ it('keeps the old session when standalone host selection activation fails', asyn
 	await submit(screen, `/model ${NEXT}`)
 	await until(
 		screen,
-		() => screen.viewport().join('\n').includes('activation fixture refusal'),
+		() => screen.viewport().join('\n').includes('Could not switch the model.'),
 		'Failure notice missing',
 	)
 	expect(sent).toHaveLength(0)

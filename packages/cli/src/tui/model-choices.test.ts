@@ -557,8 +557,11 @@ describe('a failed model list is said in plain words', () => {
 			...base,
 			debug: true,
 		})
-		expect(step.notice).toContain('(401 Authentication Fails')
-		expect(step.notice).toContain('request_id: req_abc123def456')
+		expect(step.notice).toContain(' Details: 401 Authentication Fails')
+		expect(step.notice).toContain('Request ID: req_abc123def456')
+		expect(step.notice).not.toContain('request_id')
+		expect(step.notice).not.toContain('((')
+		expect(step.notice).toMatch(/\. Showing namzu’s pick for it\.$/)
 	})
 
 	it('points at /setup when the provider list is not reachable', () => {
