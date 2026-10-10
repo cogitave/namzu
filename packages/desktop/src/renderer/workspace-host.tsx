@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { WorkspaceAction, WorkspaceView } from '../shared/protocol.js'
 import { isTerminalTabId } from '../shared/terminal-tabs.js'
-import { workspaceGroups } from '../shared/workspace-layout.js'
+import { workspaceGroups, workspaceSplitFits } from '../shared/workspace-layout.js'
 import type { WorkspaceWindowBounds } from '../shared/workspace-layout.js'
 import { App } from './app.js'
 import type { Appearance } from './sidebar.js'
@@ -327,6 +327,32 @@ export function WorkspaceHost() {
 					new Error('This window is too narrow to split. Make it wider, or open a new window.'),
 				)
 				return
+			}
+			// The canvas has room for two panes, but the pane being split may not: judge the pane itself,
+			// as the main process will, so a refusal reads as "too small" and not as a changed workspace.
+			const root = owner.layout.windows.find((item) => item.id === owner.windowId)?.root ?? null
+			const canvasSize = {
+				width:
+					(canvas?.clientWidth ?? 0) +
+					(room === 'collapse-sidebar' ? (sidebar?.offsetWidth ?? 0) : 0),
+				height: canvas?.clientHeight ?? 0,
+			}
+			if (!workspaceSplitFits(root, groupId, position, canvasSize)) {
+				const stacked = workspaceSplitFits(root, groupId, 'bottom', {
+					width: canvas?.clientWidth ?? 0,
+					height: canvasSize.height,
+				})
+				if (position === 'right' && stacked) {
+					position = 'bottom'
+					room = 'fits'
+				} else {
+					report(
+						new Error(
+							'This window is too small to split here. Make it larger, or open a new window.',
+						),
+					)
+					return
+				}
 			}
 			// The panes keep a readable width, so a docked sidebar steps aside instead of the page scrolling sideways.
 			if (room === 'collapse-sidebar') {

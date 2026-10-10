@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { WorkspaceGroup, WorkspaceNode, WorkspaceSplit } from '../shared/workspace-layout.js'
+import { workspaceSplitFits } from '../shared/workspace-layout.js'
 import { fitWorkspaceDirections, workspaceGeometry } from './workspace-canvas-geometry.js'
 
 const group = (id: string): WorkspaceGroup => ({
@@ -50,5 +51,11 @@ describe('side-by-side panes that no longer fit', () => {
 		const tree = split('outer', group('a'), split('inner', group('b'), group('c')), 'vertical')
 		expect(directions(tree, 800)).toEqual(['vertical', 'horizontal'])
 		expect(directions(tree, 700)).toEqual(['vertical', 'vertical'])
+	})
+	it('judges a further split on the stacked panes, as they are drawn', () => {
+		// 618 px is too narrow for two side by side, so each pane is 618 wide and half the height.
+		expect(workspaceSplitFits(pair(), 'a', 'bottom', { width: 618, height: 1400 })).toBe(true)
+		expect(workspaceSplitFits(pair(), 'a', 'bottom', { width: 618, height: 900 })).toBe(false)
+		expect(workspaceSplitFits(pair(), 'a', 'right', { width: 618, height: 1400 })).toBe(false)
 	})
 })

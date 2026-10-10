@@ -2778,7 +2778,7 @@ attachments (or cannot be read), in which case it stays open so nothing the pers
 right-click on **+**. The menu of a terminal tab also offers **New terminal to the right** and **New
 terminal below**. When a split needs more room than the pane has, the docked sidebar closes first
 (remembered, like the toggle) and, if even that is not enough, **to the right** opens the new pane below instead (the window
-says it is too narrow only when neither fits); the page never scrolls sideways. Below 768 px the sidebar is a drawer, so closing it
+says it is too small to split only when neither fits; the pane being split is judged as it is drawn, stacked or not, in the window and in the main process alike, so a refusal never reads as a changed workspace); the page never scrolls sideways. Below 768 px the sidebar is a drawer, so closing it
 never counts as room. A split made while a terminal is in front leaves that terminal in front.
 
 **Keyboard.** Ctrl+W closes the tab in front (⌘+W on a Mac), Ctrl+Tab and Ctrl+Shift+Tab (or Ctrl+PageDown

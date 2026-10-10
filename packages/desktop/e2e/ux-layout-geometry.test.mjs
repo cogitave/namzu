@@ -256,3 +256,23 @@ flow("a split made in a narrow window stacks instead of overflowing", {}, async 
 	await sidebar(w, true);
 	await assertContained(w, "960 sidebar open");
 });
+
+flow("a further split in stacked panes opens when the pane has room, and says so when it has not", {}, async (w) => {
+	await openProject(w);
+	await enableTerminalDebug(w);
+	await resize(w, 1280, 1500);
+	await openSplit(w);
+	// Narrower, the two panes stack; each is tall enough for another below it.
+	await resize(w, 960, 1500);
+	await settled(w);
+	await w.page.getByRole("button", { name: "New conversation tab" }).first().click({ button: "right" });
+	await w.page.getByRole("menu", { name: "New tab" }).getByRole("menuitem", { name: "New terminal below" }).click();
+	await expect(w.page.locator(".workspace-canvas-pane")).toHaveCount(3, { timeout: T });
+	await expect(w.page.locator(".workspace-window-error")).toHaveCount(0);
+	// A short window has no room for a fourth: it says so, in words about size.
+	await resize(w, 760, 700);
+	await w.page.getByRole("button", { name: "New conversation tab" }).first().click({ button: "right" });
+	await w.page.getByRole("menu", { name: "New tab" }).getByRole("menuitem", { name: "New terminal to the right" }).click();
+	await expect(w.page.locator(".workspace-window-error")).toContainText("too small to split", { timeout: T });
+	await expect(w.page.locator(".workspace-canvas-pane")).toHaveCount(3);
+});
