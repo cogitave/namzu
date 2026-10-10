@@ -4,7 +4,10 @@
  * is missing and how to get it, so those messages are replaced here and never shown.
  */
 export const COMPUTER_SETUP_NOTICE =
-	'A Pal’s computer needs Docker Desktop or Podman, with the Namzu computer image added. Install Docker Desktop, add the image (see “Local Pal computers” in the Namzu docs), then start your Pal again. Chatting works without a computer.'
+	'A Pal’s computer needs Docker Desktop or Podman, installed and running. Once it is, start your Pal again.'
+
+/** Where to get one of the two; the help offers it as a button, never as text to look up. */
+export const DOCKER_DESKTOP_URL = 'https://www.docker.com/products/docker-desktop/'
 
 const SETUP =
 	/local (?:docker|podman)[^.]*required|image is not installed|dockerfile|namzu-local-computer|local pal computer image|rebuild the shipped|docker did not provide|current docker context|containers|container engine/i

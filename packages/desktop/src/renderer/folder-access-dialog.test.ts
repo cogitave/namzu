@@ -1,7 +1,7 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { FolderAccessDialog, folderAccessCopy } from './folder-access-dialog.js'
+import { FolderAccessDialog, folderAccessCopy, splitDetailLine } from './folder-access-dialog.js'
 
 describe('folderAccessCopy', () => {
 	it('names the whole-drive risk and offers a way out', () => {
@@ -77,5 +77,17 @@ describe('folderAccessCopy for changed settings', () => {
 		expect(copy.description).toContain('\u201cdocs\u201d changed since you last trusted it')
 		expect(copy.items).toEqual(['hooks changed', 'plugin a.js added'])
 		expect(copy.confirm).toBe('Trust and open')
+	})
+})
+
+describe('splitDetailLine', () => {
+	it('turns "Name: value" into a labelled field and leaves other lines whole', () => {
+		expect(splitDetailLine('Enabled: off')).toEqual({ name: 'Enabled', value: 'off' })
+		expect(splitDetailLine('pre tool use: curl a: b')).toEqual({
+			name: 'pre tool use',
+			value: 'curl a: b',
+		})
+		expect(splitDetailLine('npx -y files-server')).toEqual({ value: 'npx -y files-server' })
+		expect(splitDetailLine('…and 3 more')).toEqual({ value: '…and 3 more' })
 	})
 })

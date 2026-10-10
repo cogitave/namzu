@@ -1,4 +1,5 @@
 import type { ProjectView } from '../shared/protocol.js'
+import { middleEllipsis, tildePath } from './path-display.js'
 
 export const DEFAULT_HOME_HEADING = 'What would you like to work on?'
 
@@ -29,10 +30,14 @@ export function newProjectFailure(failure: unknown): Error {
 	return new Error(`Couldn't create a new project: ${cause}`)
 }
 
-/** Where a project made from scratch lives, said once when it is created. */
-export function createdProjectNotice(project: Pick<ProjectView, 'name' | 'path'>): string {
+/** Where a project made from scratch lives, said once when it is created, in one short line. */
+export function createdProjectNotice(project: Pick<ProjectView, 'name' | 'path'>): {
+	text: string
+	tooltip: string
+} {
 	const parent = project.path.endsWith(project.name)
 		? project.path.slice(0, project.path.length - project.name.length).replace(/[\\/]+$/, '')
 		: project.path
-	return `Created \u201c${project.name}\u201d in ${parent}.`
+	const shown = middleEllipsis(tildePath(parent), 28)
+	return { text: `Created \u201c${project.name}\u201d in ${shown}.`, tooltip: parent }
 }

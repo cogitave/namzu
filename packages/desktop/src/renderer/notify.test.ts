@@ -42,6 +42,18 @@ describe('notify routing', () => {
 		expect(added.map((item) => item.title)).toEqual(['n3', 'n4', 'n5', 'n6', 'n7'])
 	})
 
+	it('closes the earlier notice when a later one arrives, on whichever pane showed it', () => {
+		const hub = createToastHub()
+		const first = recordingSink()
+		const second = recordingSink()
+		hub.register(first.sink)
+		const two = hub.register(second.sink)
+		const a = hub.notify('a')
+		two.focus()
+		hub.notify('b')
+		expect(first.closed).toEqual([a])
+	})
+
 	it('runs the action, then closes its toast', () => {
 		const hub = createToastHub()
 		const { sink, added, closed } = recordingSink()
@@ -136,7 +148,7 @@ describe('lifetime in the real Base UI store', () => {
 		return { manager, store, live, toasts }
 	}
 
-	it('keeps several toasts and lets each one go on its own timeout', () => {
+	it('shows one toast at a time: a newer notice replaces the one on screen', () => {
 		const hub = createToastHub()
 		const { manager, live } = paneStore()
 		hub.register(manager)
@@ -144,13 +156,9 @@ describe('lifetime in the real Base UI store', () => {
 		vi.advanceTimersByTime(1000)
 		hub.notify('second')
 		hub.notify('third', { tone: 'error' })
-		expect(live().map((item) => item.title)).toEqual(['third', 'second', 'first'])
-		// 4 s toasts: the first is gone at t=4000, the second at t=5000; the error lasts 8 s.
-		vi.advanceTimersByTime(3000)
-		expect(live().map((item) => item.title)).toEqual(['third', 'second'])
-		vi.advanceTimersByTime(1000)
 		expect(live().map((item) => item.title)).toEqual(['third'])
-		vi.advanceTimersByTime(3999)
+		// The error lasts 8 s on its own timeout.
+		vi.advanceTimersByTime(7999)
 		expect(live().map((item) => item.title)).toEqual(['third'])
 		vi.advanceTimersByTime(1)
 		expect(live()).toEqual([])
@@ -196,18 +204,6 @@ describe('lifetime in the real Base UI store', () => {
 		props?.onClick?.({} as never)
 		expect(onClick).toHaveBeenCalledOnce()
 		expect(live()).toEqual([])
-	})
-
-	it('marks the oldest toast limited past the stack limit', () => {
-		const hub = createToastHub()
-		const { manager, toasts } = paneStore(2)
-		hub.register(manager)
-		for (const text of ['a', 'b', 'c']) hub.notify(text)
-		expect(toasts().map((item) => [item.title, item.limited])).toEqual([
-			['c', false],
-			['b', false],
-			['a', true],
-		])
 	})
 })
 

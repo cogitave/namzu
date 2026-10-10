@@ -619,6 +619,9 @@ describe('the rendered row', () => {
 		const html = renderToStaticMarkup(createElement(ToolTranscriptRow, { thread, id: key() }))
 		expect(html).toContain('Ran exit 3')
 		expect(html).toContain('failed (exit 3)')
+		// The failure is said once, beside the headline: the separate badge is for screen readers only.
+		expect(html).toMatch(/class="tool-status transcript-visually-hidden">Failed</)
+		expect(html).not.toMatch(/class="tool-status">Failed</)
 		for (const hidden of ['STDERR', 'NOTE:', 'withheld', 'Error:', 'credential']) {
 			expect(html).not.toContain(hidden)
 		}

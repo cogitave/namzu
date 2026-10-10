@@ -167,6 +167,14 @@
 .approval-details summary:focus-visible {
 	outline: 2px solid var(--ring);
 }
+.approval-detail-group {
+	margin-top: 6px;
+}
+.approval-detail-title {
+	margin: 0 0 2px;
+	font-weight: 600;
+	color: var(--foreground);
+}
 .approval-details pre {
 	max-height: 140px;
 	margin: 6px 0 0;

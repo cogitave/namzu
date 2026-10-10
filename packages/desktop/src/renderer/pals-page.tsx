@@ -140,7 +140,12 @@ function PalModelChoice({
 				/>
 			) : (
 				<span className="pal-model-placeholder">
-					{providers ? 'Choose a model later' : error ? 'Choose a model later' : 'Loading models…'}
+					{providers || error ? (
+						'Choose a model later'
+					) : (
+						// Nothing to read while the list loads: a quiet bar where the picker will be.
+						<span className="pal-model-skeleton" aria-hidden="true" />
+					)}
 				</span>
 			)}
 			{value && (
@@ -162,6 +167,11 @@ function PalModelChoice({
 			)}
 		</div>
 	)
+}
+
+/** A quoted name stays on one line: the number of "Işık 2" never wraps away from its name. */
+export function keepQuotedTogether(text: string): string {
+	return text.replace(/“[^”]*”/g, (quoted) => quoted.replace(/ /g, '\u00a0'))
 }
 
 /** The name a person typed, compared the way they would read it: case and edge spaces do not count. */
@@ -391,16 +401,15 @@ export function PalCustomizeDialog({
 											setAttempted(true)
 									}}
 								/>
-								{hint && (
-									<p
-										id={`${id}-hint`}
-										className="pal-name-hint"
-										data-tone={hint.tone}
-										role={hint.tone === 'empty' && attempted ? 'alert' : 'status'}
-									>
-										{hint.text}
-									</p>
-								)}
+								{/* Always present, so a refusal appearing or going never moves the page below it. */}
+								<p
+									id={`${id}-hint`}
+									className="pal-name-hint"
+									data-tone={hint?.tone}
+									role={hint?.tone === 'empty' && attempted ? 'alert' : 'status'}
+								>
+									{hint ? keepQuotedTogether(hint.text) : null}
+								</p>
 								<div className="pal-customize-character" key={appearance.character}>
 									<PalCharacter3D appearance={appearance} />
 								</div>
@@ -408,7 +417,8 @@ export function PalCustomizeDialog({
 									<Button
 										type="submit"
 										className="pal-customize-save"
-										disabled={saving || !name.trim()}
+										disabled={saving || !name.trim() || named?.tone === 'duplicate'}
+										title={named?.tone === 'duplicate' ? 'That name is already taken.' : undefined}
 									>
 										{saving && <LoaderCircleIcon className="pal-loading" />}
 										{saving ? 'Saving…' : 'Save'}

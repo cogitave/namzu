@@ -6,7 +6,13 @@ import type { PalView } from '../shared/protocol.js'
 import { PalComputerView } from './pal-computer-view.js'
 import { PalContextCard, type PalContextProps } from './pal-context.js'
 import { PalMessageReceipts, palMessageRecipients } from './pal-message-receipts.js'
-import { PalSidebarSection, PalsPage, nameKey, palNameHint } from './pals-page.js'
+import {
+	PalSidebarSection,
+	PalsPage,
+	keepQuotedTogether,
+	nameKey,
+	palNameHint,
+} from './pals-page.js'
 
 const pal: PalView = {
 	id: 'pal',
@@ -229,4 +235,10 @@ it('shows the message Start switched off, with how to set up, when the computer 
 	expect(html).toMatch(/<button\b[^>]*disabled=""[^>]*>Start Işık<\/button>/)
 	expect(html).toContain('Işık’s computer cannot start yet.')
 	expect(html).toContain('How to set up')
+})
+
+it('keeps a quoted name together so its number never wraps away', () => {
+	expect(keepQuotedTogether('You already have a Pal called “Işık”. Try “Işık 2”.')).toBe(
+		'You already have a Pal called “Işık”. Try “Işık\u00a02”.',
+	)
 })

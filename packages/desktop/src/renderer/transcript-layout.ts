@@ -127,7 +127,7 @@ function categoryPhrase(category: RunCategory, count: number, live: boolean): st
  * The summary of a run of consecutive actions: counted, in the order each kind first appears.
  * "Edited a file, ran 2 commands"; while the run is live, "Editing a file, running 2 commands".
  */
-export function actionRunLabel(actions: RunAction[], live: boolean): string {
+export function actionRunLabel(actions: RunAction[], live: boolean, full = false): string {
 	const subjects = new Map<RunCategory, Set<string>>()
 	const counts = new Map<RunCategory, number>()
 	let declined = 0
@@ -146,7 +146,10 @@ export function actionRunLabel(actions: RunAction[], live: boolean): string {
 			counts.set(category, seen.size)
 		} else counts.set(category, (counts.get(category) ?? 0) + 1)
 	}
-	const phrases = [...counts].map(([category, count]) => categoryPhrase(category, count, live))
+	let phrases = [...counts].map(([category, count]) => categoryPhrase(category, count, live))
+	// Many kinds of step stay one short line: the first two, then how many more. `full` lists them all.
+	if (!full && phrases.length > 3)
+		phrases = [...phrases.slice(0, 2), `and ${phrases.length - 2} more`]
 	// A folded run must not read as all done when some of it failed.
 	if (declined) phrases.push(declined === 1 ? 'declined an action' : `declined ${declined} actions`)
 	const failed = actions.filter((action) => action.state === 'failed').length

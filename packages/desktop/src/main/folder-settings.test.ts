@@ -7,6 +7,7 @@ import {
 	inspectAutoRunSettings,
 	safeLine,
 	sandboxSentence,
+	settingName,
 } from './folder-settings.js'
 
 let folder: string
@@ -93,6 +94,13 @@ describe('findAutoRunSettings', () => {
 	})
 })
 
+describe('settingName', () => {
+	it('writes a setting key as words', () => {
+		expect(settingName('allowUnattendedEscape')).toBe('Allow unattended escape')
+		expect(settingName('pre_tool-use')).toBe('Pre tool use')
+	})
+})
+
 describe('inspectAutoRunSettings details', () => {
 	it('shows the real command of a hook and the real command of a server', async () => {
 		await config({
@@ -112,7 +120,8 @@ describe('inspectAutoRunSettings details', () => {
 			lines[
 				'This folder’s settings turn off the sandbox, so commands would run directly on your computer.'
 			],
-		).toEqual(['enabled: false'])
+		).toEqual(['Enabled: off'])
+		expect(found.find((item) => item.title === 'Sandbox')?.lines).toEqual(['Enabled: off'])
 		expect(JSON.stringify(found)).not.toContain('sekret')
 	})
 	it('lists the names in .namzu/plugins and caps long lists', async () => {

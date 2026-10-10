@@ -1,7 +1,7 @@
 import { type ComponentProps, createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, it, vi } from 'vitest'
-import { ConversationTabs } from './conversation-tabs.js'
+import { ConversationTabs, showAllTabsLabel } from './conversation-tabs.js'
 import { Wordmark, WordmarkInitial } from './wordmark.js'
 
 function render(overrides: Partial<ComponentProps<typeof ConversationTabs>> = {}) {
@@ -90,4 +90,9 @@ it('shows only fresh ordinary Namzu shell status without replacing the tab ident
 	expect(
 		render({ backgroundWork: { ordinary: { ...fresh, expiresAt: Date.now() - 1 } } }),
 	).not.toContain('data-background-work=')
+})
+
+it('names the overflow control with how many tabs are hidden', () => {
+	expect(showAllTabsLabel(0)).toBe('Show all tabs')
+	expect(showAllTabsLabel(3)).toBe('Show all tabs (3 hidden)')
 })

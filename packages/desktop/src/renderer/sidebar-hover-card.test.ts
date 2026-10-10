@@ -28,12 +28,13 @@ const project: ProjectView = {
 }
 
 describe('relativeAge', () => {
-	it('uses the short form the sidebar always showed', () => {
+	it('reads the same plain words in the row and the card', () => {
 		const at = (ms: number) => relativeAge(new Date(NOW - ms).toISOString(), NOW)
-		expect(at(5_000)).toBe('now')
-		expect(at(5 * 60_000)).toBe('5m')
-		expect(at(3 * 3_600_000)).toBe('3h')
-		expect(at(2 * 86_400_000)).toBe('2d')
+		expect(at(5_000)).toBe('just now')
+		expect(at(5 * 60_000)).toBe('5 min ago')
+		expect(at(30 * 3_600_000)).toBe('Yesterday')
+		expect(at(3 * 3_600_000)).toBe('3 h ago')
+		expect(at(2 * 86_400_000)).toBe('2 d ago')
 		expect(relativeAge('not a date', NOW)).toBe('')
 	})
 })
@@ -48,7 +49,7 @@ describe('hoverCardModel', () => {
 		})
 		expect(model).toMatchObject({
 			title: conversation.title,
-			age: '3h',
+			age: '3 h ago',
 			environment: { kind: 'this-computer', label: 'This computer' },
 			folder: 'Cogitave',
 			branch: 'main',

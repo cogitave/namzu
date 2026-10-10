@@ -7,6 +7,8 @@ export interface NotifyOptions {
 	/** One button on the toast, for a step the person can take back or follow up on. */
 	action?: { label: string; onClick: () => void }
 	tone?: ToastTone
+	/** Text for the hover tooltip, e.g. the full path a sentence shortened. */
+	tooltip?: string
 	/** How long the toast stays before it leaves; 0 keeps it until it is dismissed. */
 	timeoutMs?: number
 }
@@ -20,6 +22,7 @@ export interface ToastSink {
 		priority: 'low' | 'high'
 		timeout: number
 		actionProps?: { children: string; onClick: () => void }
+		data?: { tooltip?: string }
 	}): string
 	close(id?: string): void
 }
@@ -56,6 +59,11 @@ export function createToastHub() {
 		const { id, text, options } = item
 		const tone = options.tone ?? 'neutral'
 		const action = options.action
+		// One notice at a time: a new one takes the place of whatever is still on screen.
+		for (const [earlier, owner] of shownBy) {
+			owner.close(earlier)
+			shownBy.delete(earlier)
+		}
 		shownBy.set(id, sink)
 		sink.add({
 			id,
@@ -64,6 +72,7 @@ export function createToastHub() {
 			// Base UI announces `high` through an assertive live region.
 			priority: tone === 'error' ? 'high' : 'low',
 			timeout: options.timeoutMs ?? defaultTimeoutMs(tone, Boolean(action)),
+			...(options.tooltip ? { data: { tooltip: options.tooltip } } : {}),
 			...(action
 				? {
 						actionProps: {

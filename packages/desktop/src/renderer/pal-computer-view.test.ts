@@ -115,7 +115,7 @@ it('shows the host row only for actual supplied metadata, and puts the real capt
 		onOpenComputer: () => {},
 	}
 	const withoutHost = renderToStaticMarkup(createElement(PalContextCard, props))
-	expect(withoutHost).not.toContain('Your computer')
+	expect(withoutHost).not.toContain('This computer')
 	expect(withoutHost).toContain('pal-computer-thumbnail')
 	expect(withoutHost).toContain(screen.source)
 	expect(withoutHost).toContain('Open Palu’s computer')
@@ -125,6 +125,8 @@ it('shows the host row only for actual supplied metadata, and puts the real capt
 			hostComputer: { name: 'ACTUAL-HOST' },
 		}),
 	)
-	expect(withHost).toContain('ACTUAL-HOST')
-	expect(withHost).toContain('Your computer')
+	// The hostname is only a tooltip; the row reads "This computer".
+	expect(withHost).toContain('title="ACTUAL-HOST"')
+	expect(withHost).toContain('>This computer<')
+	expect(withHost).not.toContain('>ACTUAL-HOST<')
 })

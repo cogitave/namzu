@@ -992,6 +992,7 @@ function register(): void {
 	const folderAccess = new FolderAccess({
 		openProject: (path) => operator.openProject(path),
 		findProject: (id) => operator.listProjects().find((item) => item.id === id),
+		listProjects: () => operator.listProjects(),
 		trust: (id) => operator.trust(id),
 	})
 	handleWindow('openProject', async ({ id: windowId, window }) => {

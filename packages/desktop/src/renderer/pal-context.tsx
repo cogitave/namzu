@@ -2,6 +2,7 @@ import { type ReactNode, useLayoutEffect, useRef, useState } from 'react'
 import type { ThreadState } from '../shared/projection.js'
 import type { PalScreenView, PalView } from '../shared/protocol.js'
 import { ConversationTasks } from './conversation-tasks.js'
+import { GetDockerButton } from './get-docker-button.js'
 import {
 	ChevronRightIcon,
 	ConversationIcon,
@@ -105,6 +106,7 @@ function SetupHelp({ text, help }: { text?: string; help: string }) {
 			<details className="pal-setup-help">
 				<summary>How to set up</summary>
 				<p>{help}</p>
+				<GetDockerButton />
 			</details>
 		</>
 	)
@@ -285,8 +287,9 @@ function PalContextBody({
 							<MonitorIcon aria-hidden="true" />
 						</span>
 						<div className="pal-context-copy">
-							<strong title={hostComputer.name}>{hostComputer.name}</strong>
-							<span className="pal-computer-status">Your computer</span>
+							{/* The machine's own hostname is a label for developers; it stays in the tooltip. */}
+							<strong title={hostComputer.name}>This computer</strong>
+							<span className="pal-computer-status">Where Namzu is open</span>
 						</div>
 					</div>
 				)}

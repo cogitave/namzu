@@ -366,5 +366,53 @@ export function palMessageNote(name: string | undefined, running = false): strin
 	return `Goes to ${owner} inbox. You can start ${pal} after sending, and it will read the message on its own computer.`
 }
 
-/** The terminal route to the same start, kept out of the main sentence and shown under Details. */
-export const PAL_TERMINAL_START = 'namzu pal dispatch'
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+export interface ApprovalDetailGroup {
+	/** Names the call when a request carries several; absent for a single call. */
+	title?: string
+	entries: { label: string; value: string }[]
+}
+
+function detailValue(value: unknown): string {
+	if (typeof value === 'boolean') return value ? 'Yes' : 'No'
+	if (typeof value === 'string') return clip(value)
+	if (typeof value === 'number') return String(value)
+	if (Array.isArray(value)) return `${value.length} ${value.length === 1 ? 'item' : 'items'}`
+	if (record(value)) {
+		const count = Object.keys(value).length
+		return `${count} ${count === 1 ? 'setting' : 'settings'}`
+	}
+	return ''
+}
+
+/**
+ * What Details shows for a request: one labelled field per argument, never the raw keys and JSON.
+ * An identifier carries no meaning for a person, so it is dropped, and a Pal's id reads as its name.
+ */
+export function approvalDetails(
+	calls: readonly Call[],
+	palNames?: ReadonlyMap<string, string>,
+): ApprovalDetailGroup[] {
+	return calls.map((call) => {
+		const entries: ApprovalDetailGroup['entries'] = []
+		const input = call.input
+		if (record(input)) {
+			for (const [key, value] of Object.entries(input).slice(0, 12)) {
+				const label = sentenceCase(plainName(key.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase()))
+				if (key === 'palId' && typeof value === 'string') {
+					const name = palNames?.get(value)
+					if (name) entries.push({ label: 'To', value: name })
+					continue
+				}
+				if (typeof value === 'string' && UUID.test(value)) continue
+				if (/^id$|\bid$/i.test(label) && typeof value === 'string') continue
+				const shown = detailValue(value)
+				if (shown !== '') entries.push({ label: key === 'body' ? 'Message' : label, value: shown })
+			}
+		} else if (input !== undefined && input !== null) {
+			entries.push({ label: 'Input', value: clip(String(input)) })
+		}
+		return calls.length > 1 ? { title: cardTitle(call, palNames), entries } : { entries }
+	})
+}

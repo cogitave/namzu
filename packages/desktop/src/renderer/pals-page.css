@@ -126,6 +126,14 @@
 	color: var(--muted-foreground);
 	font-size: 13px;
 }
+.pal-model-skeleton {
+	display: inline-block;
+	width: 120px;
+	height: 14px;
+	border-radius: 7px;
+	background: var(--muted);
+	vertical-align: middle;
+}
 .pal-model-error {
 	display: flex;
 	align-items: center;
@@ -331,7 +339,9 @@
 }
 .pal-name-hint {
 	width: 100%;
+	min-height: 18px;
 	margin: 6px 0 0;
+	text-wrap: balance;
 	text-align: center;
 	color: var(--muted-foreground);
 	font-size: 13px;

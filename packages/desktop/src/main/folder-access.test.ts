@@ -249,17 +249,58 @@ describe('FolderAccess for a folder whose settings changed', () => {
 				trusted.push(id)
 				return { ...(views.get(id) as ProjectView), trusted: true }
 			},
-			findSettings: async () => [{ label: 'hooks', lines: ['pre tool use: ./check.sh'] }],
+			findSettings: async () => [
+				{ label: 'hooks', title: 'Hook commands', lines: ['pre tool use: ./check.sh'] },
+			],
 		})
 		const asked = await access.confirm('w', 'a')
 		expect(asked.trusted).toBe(false)
 		expect(asked.riskySettings?.found).toEqual(['hooks changed', 'hooks'])
 		expect(asked.riskySettings?.details).toEqual([
-			{ label: 'hooks', lines: ['pre tool use: ./check.sh'] },
+			{ label: 'Hook commands', lines: ['pre tool use: ./check.sh'] },
 		])
 		expect(trusted).toEqual([])
 		expect((await access.confirm('w', 'a', asked.riskySettings?.token)).trusted).toBe(true)
 		expect((await access.confirm('w', 'b')).broadFolder?.kind).toBe('home')
 		expect(trusted).toEqual(['a'])
+	})
+})
+
+describe('picking a folder that is already a project', () => {
+	const project: ProjectView = {
+		id: 'p1',
+		path: '/home/arda/work/app',
+		name: 'app',
+		trusted: true,
+		status: 'ready',
+	}
+	function access(list: ProjectView[], risky = false) {
+		return new FolderAccess({
+			env: linux,
+			canonical: (path) => path,
+			openProject: async () => {
+				throw new Error('must not open it again')
+			},
+			findProject: () => undefined,
+			listProjects: () => list,
+			findSettings: async () => (risky ? [{ label: 'hooks', lines: [] }] : []),
+			trust: async () => {
+				throw new Error('must not ask for trust again')
+			},
+		})
+	}
+	it('returns the project it already holds, marked, with no new trust question', async () => {
+		const answer = await access([project], true).picked('w', '/home/arda/work/app')
+		expect(answer).toMatchObject({ id: 'p1', trusted: true, alreadyAdded: true })
+		expect(answer.riskySettings).toBeUndefined()
+		expect(answer.pending).toBeUndefined()
+	})
+	it('treats a project that is not trusted yet as a new pick', async () => {
+		const answer = await access([{ ...project, trusted: false }], true).picked(
+			'w',
+			'/home/arda/work/app',
+		)
+		expect(answer.alreadyAdded).toBeUndefined()
+		expect(answer.riskySettings).toBeDefined()
 	})
 })

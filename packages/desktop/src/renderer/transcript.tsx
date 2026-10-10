@@ -248,6 +248,8 @@ function ToolRun({
 				states,
 			)
 		: actionRunLabel(actions, live)
+	// The short line hides some kinds; the tooltip lists them all.
+	const fullLabel = lookups ? label : actionRunLabel(actions, live, true)
 	const Icon = actionIcon(actionRunKind(actions))
 	// A run the person watched work stays open when it ends, however long it grew.
 	const watched = useRef(false)
@@ -266,7 +268,7 @@ function ToolRun({
 		>
 			<CollapsibleTrigger className="tool-trigger tool-run-trigger">
 				<Icon className="tool-icon" aria-hidden="true" />
-				<span className="tool-label" title={label}>
+				<span className="tool-label" title={fullLabel}>
 					{label}
 				</span>
 				<ChevronRightIcon className="disclosure-chevron" aria-hidden="true" />

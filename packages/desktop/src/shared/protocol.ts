@@ -229,6 +229,8 @@ export interface ProjectView {
 	 * `broadFolder` or `riskySettings`, whose token is what `trustFolder` takes.
 	 */
 	pending?: true
+	/** The picked folder was already one of the projects: it is opened as it is, with no new trust prompt. */
+	alreadyAdded?: true
 }
 export interface ConversationView {
 	id: string

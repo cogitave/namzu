@@ -68,3 +68,16 @@ it('unpinning returns a conversation to its recency position', () => {
 	const unpinned = rows.map(({ pinned: _pinned, ...row }) => row)
 	expect([...unpinned].sort(compareConversationOrder).map((row) => row.id)).toEqual(['a', 'b'])
 })
+
+it('puts the later conversation (the larger time-ordered id) first when timestamps tie', () => {
+	const tied = (id: string): ConversationView => ({
+		id,
+		projectId: 'p',
+		title: id,
+		updatedAt: '2026-10-01T09:00:00Z',
+	})
+	const welcome = tied('01a125db-6143-70f7-bd57-abffeb6e0c3a')
+	const run = tied('01a125db-67d0-7366-8a7f-f653bb8342db')
+	expect([welcome, run].sort(compareConversationRecency)[0]).toBe(run)
+	expect([run, welcome].sort(compareConversationRecency)[0]).toBe(run)
+})

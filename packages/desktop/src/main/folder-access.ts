@@ -189,6 +189,8 @@ export class FolderAccessTokens {
 export interface FolderAccessDeps {
 	openProject(path: string): Promise<ProjectView>
 	findProject(id: string): ProjectView | undefined
+	/** Every project the app holds, so a picked folder that is one of them is recognised. */
+	listProjects?(): readonly ProjectView[]
 	trust(id: string): Promise<ProjectView>
 	canonical?: (path: string) => string
 	env?: BroadFolderEnv
@@ -214,7 +216,9 @@ function risky(
 	changed: readonly string[] = [],
 ): NonNullable<ProjectView['riskySettings']> {
 	const labels = found.map((item) => item.label)
-	const details = found.filter((item) => item.lines.length > 0)
+	const details = found
+		.filter((item) => item.lines.length > 0)
+		.map((item) => ({ label: item.title ?? item.label, lines: item.lines }))
 	return {
 		found: [...changed, ...labels.filter((label) => !changed.includes(label))],
 		...(details.length > 0 ? { details } : {}),
@@ -240,6 +244,19 @@ export class FolderAccess {
 	/** The person chose this folder in the native picker. */
 	async picked(windowId: string, path: string): Promise<ProjectView> {
 		const canonical = this.canonical(path)
+		// A folder that is already a trusted project opens as it is: nothing new to consent to.
+		const windows = this.env.platform === 'win32'
+		const known = this.deps
+			.listProjects?.()
+			.find(
+				(item) =>
+					item.trusted &&
+					item.status === 'ready' &&
+					!item.palId &&
+					!item.isChat &&
+					same(this.canonical(item.path), canonical, windows),
+			)
+		if (known) return { ...known, alreadyAdded: true }
 		const pending = {
 			id: PENDING_FOLDER_ID,
 			path,

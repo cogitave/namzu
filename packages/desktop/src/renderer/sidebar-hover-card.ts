@@ -3,14 +3,15 @@ import type { ConversationView, ProjectGitView, ProjectView } from '../shared/pr
 /** How long the pointer rests on a row before its card opens. */
 export const HOVER_CARD_DELAY_MS = 450
 
-/** "now", "5m", "3h" or "2d": the same short form the sidebar has always used. */
+/** "just now", "5 min ago", "2 h ago", "Yesterday" or "3 d ago": the same words in the row and the card. */
 export function relativeAge(updatedAt: string, now: number): string {
 	const age = now - Date.parse(updatedAt)
 	if (!Number.isFinite(age)) return ''
-	if (age < 60_000) return 'now'
-	if (age < 3_600_000) return `${Math.floor(age / 60_000)}m`
-	if (age < 86_400_000) return `${Math.floor(age / 3_600_000)}h`
-	return `${Math.floor(age / 86_400_000)}d`
+	if (age < 60_000) return 'just now'
+	if (age < 3_600_000) return `${Math.floor(age / 60_000)} min ago`
+	if (age < 86_400_000) return `${Math.floor(age / 3_600_000)} h ago`
+	if (age < 2 * 86_400_000) return 'Yesterday'
+	return `${Math.floor(age / 86_400_000)} d ago`
 }
 
 export interface HoverCardModel {

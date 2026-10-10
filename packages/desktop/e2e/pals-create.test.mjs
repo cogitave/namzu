@@ -123,10 +123,12 @@ flow("a double click on Save makes one Pal, and Customize stays usable while it 
 
 	// Trying the same name again (any case) is refused with a suggestion, and makes no Pal.
 	await nameBox(again).fill(" PAMIR ");
-	await again.getByRole("button", { name: "Save" }).click();
-	await expect(again.getByRole("alert")).toContainText(
+	// The refusal is said once, under the name, and Save is off while it stands: no jump, no second answer.
+	await expect(again.locator(".pal-name-hint")).toContainText(
 		"You already have a Pal called “PAMIR”. Try “PAMIR 2”.",
 	);
+	await expect(again.getByRole("button", { name: "Save" })).toBeDisabled();
+	await expect(again.getByRole("alert")).toHaveCount(0);
 	await w.page.screenshot({ path: join(SHOTS, "linux-duplicate-name.png") });
 	assert.equal(palsOnDisk(w), 1, "exactly one Pal exists");
 	assert.equal(await gateCalls(w), 1, "the Pal was opened once");

@@ -49,6 +49,7 @@ import {
 	START_FROM_SCRATCH_LABEL,
 	USE_EXISTING_FOLDER_LABEL,
 } from './add-project-menu.js'
+import { type ArchiveBatch, addToArchiveBatch, archiveNoticeText } from './archive-notice.js'
 import { ArchivedConversationsDialog } from './archived-conversations-dialog.js'
 import { applyCachedAttachmentPreviewEviction } from './attachment-preview-events.js'
 import { ChangesPanel } from './changes-panel.js'
@@ -179,6 +180,7 @@ import {
 } from './pal-navigation.js'
 import { palRecentActivity } from './pal-recent-activity.js'
 import { palMarker, palStartCard, palWaitingLine } from './pal-start-model.js'
+import { stalePalTabs } from './pal-tab-siblings.js'
 import { unreadAfterOpen, unreadAfterSends } from './pal-unread.js'
 import { PalCustomizeDialog, type PalOpening, PalSidebarSection, PalsPage } from './pals-page.js'
 import { PluginsPage, PluginsSidebar } from './plugins-page.js'
@@ -2542,7 +2544,12 @@ export function App({
 					broad: item.broadFolder,
 					pending: { name: item.name, path: item.path },
 				})
-			} else if (item) await landOnProject(item, generation)
+			} else if (item) {
+				const { alreadyAdded, ...project } = item
+				await landOnProject(project, generation)
+				// Said once, so a pick that adds nothing does not look like a silent failure.
+				if (alreadyAdded) notify(`“${item.name}” is already in your projects, so it was opened.`)
+			}
 		},
 		[landOnProject],
 	)
@@ -2589,8 +2596,10 @@ export function App({
 			}
 			await landOnProject(item, generation)
 			// Nothing else says where a project made from scratch lives.
-			notify(createdProjectNotice(item), {
+			const created = createdProjectNotice(item)
+			notify(created.text, {
 				tone: 'success',
+				tooltip: created.tooltip,
 				timeoutMs: 12_000,
 				action: api.openProjectPath
 					? {
@@ -2682,6 +2691,17 @@ export function App({
 					)
 						return
 					abandonTabRestore()
+					// A Pal has one tab: opening its newest conversation replaces an older one.
+					for (const stale of stalePalTabs(
+						view,
+						context.current.group.tabs,
+						catalogueRows.current.conversations,
+					))
+						void onAction({
+							kind: 'close',
+							groupId: context.current.group.id,
+							tabId: stale,
+						}).catch(() => undefined)
 				}
 				closedTabs.current.delete(view.id)
 				setPalScreen(undefined)
@@ -2971,6 +2991,10 @@ export function App({
 			activation.current === target
 		)
 			return
+		// A deliberate navigation is under way (opening a Pal, adding a project): re-opening the
+		// tab in front now would start a newer navigation and silently abandon that one. The
+		// effect runs again when it ends.
+		if (loading) return
 		const view = conversations.find((item) => item.id === target)
 		if (!view) {
 			const savedOwner = projects.find(
@@ -3158,25 +3182,33 @@ export function App({
 		setRemovingConversation(value)
 	}
 	// Archives and offers Undo through the same host path whether the dialog or a row button asked.
+	const archiveBatch = useRef<ArchiveBatch | undefined>(undefined)
 	const archiveConversation = async (value: ConversationView) => {
 		if (!api.removeConversation) throw new Error('Conversation removal is unavailable.')
 		const result = await api.removeConversation(value.id)
 		if (result.sessionId !== value.id || result.removed !== true)
 			throw new Error('Conversation removal was not confirmed. Try again.')
-		const archivedId = value.id
-		notify('Conversation archived. Find it under Archived conversations in the sidebar.', {
+		// Archiving again while the notice is up merges into it: one notice, one Undo for all.
+		const batch = addToArchiveBatch(archiveBatch.current, value.id, Date.now(), ARCHIVE_UNDO_MS)
+		archiveBatch.current = batch
+		const archivedIds = batch.ids
+		notify(archiveNoticeText(archivedIds.length), {
 			tone: 'success',
 			timeoutMs: ARCHIVE_UNDO_MS,
 			action: api.restoreConversation
 				? {
 						label: 'Undo',
-						onClick: () =>
+						onClick: () => {
+							archiveBatch.current = undefined
 							void act(async () => {
-								const restored = await api.restoreConversation?.(archivedId)
-								if (!restored) return
-								unblockRestoredConversation(restored.id)
-								upsertConversation(restored)
-							}),
+								for (const archivedId of archivedIds) {
+									const restored = await api.restoreConversation?.(archivedId)
+									if (!restored) continue
+									unblockRestoredConversation(restored.id)
+									upsertConversation(restored)
+								}
+							})
+						},
 					}
 				: undefined,
 		})

@@ -5,11 +5,15 @@ function updatedTime(view: ConversationView) {
 	return Number.isFinite(time) ? time : 0
 }
 
-/** Saved recency with a stable identity order when timestamps tie. */
+/**
+ * Saved recency. Timestamps that tie keep a stable order that puts the newer conversation first:
+ * ids are time-ordered, so the larger id is the later one. The older one winning a tie once made
+ * "open the Pal" land on its first conversation instead of the one it had just written.
+ */
 export function compareConversationRecency(left: ConversationView, right: ConversationView) {
 	const difference = updatedTime(right) - updatedTime(left)
 	if (difference !== 0) return difference
-	return left.id < right.id ? -1 : left.id > right.id ? 1 : 0
+	return left.id > right.id ? -1 : left.id < right.id ? 1 : 0
 }
 
 /** Pinned conversations lead; each side then keeps its recency order. */

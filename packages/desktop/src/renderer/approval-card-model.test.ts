@@ -1,7 +1,8 @@
-import { expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import type { PermissionView } from '../shared/protocol.js'
 import {
 	FEEDBACK_NOTE_MAX,
+	approvalDetails,
 	approvalWarning,
 	baseName,
 	buildApprovalCard,
@@ -276,4 +277,52 @@ it('says there is no change when the file already holds what the call writes', (
 		]),
 	)
 	expect(created.unchanged).toBeUndefined()
+})
+
+describe('approvalDetails', () => {
+	it('shows a message to a Pal as labelled fields, with the Pal named and no id or JSON', () => {
+		const groups = approvalDetails(
+			[
+				call('send_pal_message', {
+					palId: 'b83320cc-1e36-4a75-a715-eb802057d9ba',
+					body: 'Please summarise.',
+				}),
+			],
+			new Map([['b83320cc-1e36-4a75-a715-eb802057d9ba', 'Işık']]),
+		)
+		expect(groups).toEqual([
+			{
+				entries: [
+					{ label: 'To', value: 'Işık' },
+					{ label: 'Message', value: 'Please summarise.' },
+				],
+			},
+		])
+		expect(JSON.stringify(groups)).not.toMatch(/b83320cc|palId/)
+	})
+	it('drops identifiers, words booleans and counts nested values', () => {
+		const [group] = approvalDetails([
+			call('web_fetch', {
+				requestId: '0a1b2c3d-1111-2222-3333-444455556666',
+				url: 'https://example.com',
+				followRedirects: true,
+				headers: { a: 1, b: 2 },
+				tags: ['x'],
+			}),
+		])
+		expect(group?.entries).toEqual([
+			{ label: 'Url', value: 'https://example.com' },
+			{ label: 'Follow redirects', value: 'Yes' },
+			{ label: 'Headers', value: '2 settings' },
+			{ label: 'Tags', value: '1 item' },
+		])
+	})
+	it('titles each call when a request carries several', () => {
+		const groups = approvalDetails([
+			call('bash', { command: 'ls' }),
+			call('bash', { command: 'pwd' }),
+		])
+		expect(groups).toHaveLength(2)
+		expect(groups.every((group) => typeof group.title === 'string')).toBe(true)
+	})
 })

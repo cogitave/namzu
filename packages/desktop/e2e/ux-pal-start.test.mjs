@@ -135,6 +135,8 @@ test(
 			// Kiro's own tab shows what it did, in Kiro's own conversation.
 			await receipt.getByRole("button", { name: "Open Kiro" }).click();
 			await expect(page.getByText("The note says: all clear.")).toBeVisible({ timeout: 60000 });
+			// Kiro has one tab: opening it shows its newest conversation in place of the older one.
+			await expect(page.getByRole("tab", { name: "Kiro", exact: true })).toHaveCount(1);
 			await shot(world, "03-kiro-tab-1440");
 			assert.deepEqual(world.faults, [], "the renderer raised no uncaught errors");
 			failed = false;
@@ -164,7 +166,7 @@ test(
 			await expect(receipt).toContainText("needs Docker Desktop or Podman");
 			await expect(receipt.getByRole("button", { name: "Start Kiro" })).toBeDisabled();
 			await receipt.getByText("How to set up", { exact: true }).click();
-			await expect(receipt.locator(".pal-setup-help p")).toContainText("Namzu computer image");
+			await expect(receipt.locator(".pal-setup-help p")).toContainText("Docker Desktop or Podman");
 			await shot(world, "04-blocked-offer-1440");
 
 			// The Pal's own page says the same, with the same single Start.

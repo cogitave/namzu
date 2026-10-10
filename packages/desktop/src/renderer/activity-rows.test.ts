@@ -118,6 +118,20 @@ describe('run summary labels', () => {
 			'Edited a file, declined an action',
 		)
 	})
+	it('keeps a run of many kinds on one short line and lists them all in full', () => {
+		const run = [
+			a('edit', 'a.ts'),
+			a('command'),
+			a('read', 'b.ts'),
+			a('search'),
+			a('web'),
+			{ ...a('command'), state: 'failed' as const },
+		]
+		expect(actionRunLabel(run, false)).toBe('Edited a file, ran 2 commands, and 3 more, 1 failed')
+		expect(actionRunLabel(run, false, true)).toBe(
+			'Edited a file, ran 2 commands, read a file, searched, searched the web, 1 failed',
+		)
+	})
 	it('counts each kind in the order it first appears', () => {
 		expect(actionRunLabel([a('edit', 'a.ts'), a('command'), a('command')], false)).toBe(
 			'Edited a file, ran 2 commands',
