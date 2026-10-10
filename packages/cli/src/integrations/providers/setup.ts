@@ -2,7 +2,7 @@ import { execFile, spawn } from 'node:child_process'
 import { join } from 'node:path'
 import { resolveNpmInvocation } from '../npm-invocation.js'
 import { hasApiCredential } from './access.js'
-import type { DetectedProvider } from './discover.js'
+import type { DetectedProvider, DetectionSource } from './discover.js'
 
 export const SETUP_HARNESSES = [
 	{ id: 'codex', label: 'Codex', binary: 'codex', npmPackage: '@openai/codex', provider: 'codex' },
@@ -21,6 +21,34 @@ export const SETUP_HARNESSES = [
 		provider: 'zen',
 	},
 ] as const
+/** How a found credential reads on the setup screen: plain words, never the source's identifier. */
+export function describeAccess(source: DetectionSource): string {
+	switch (source.kind) {
+		case 'env':
+			return 'Key from your computer’s settings'
+		case 'public':
+			return 'Free models · experimental'
+		case 'opencode-file':
+			return 'Key from OpenCode'
+		case 'probe':
+			return 'Running on this computer'
+		case 'keychain':
+		case 'claude-file':
+			return 'Signed in with Claude'
+		case 'codex-file':
+			return 'Signed in with Codex'
+		case 'gemini-file':
+			return 'Signed in with Gemini'
+		case 'stored-gemini-key':
+		case 'stored-api-key':
+			return 'Saved API key'
+		case 'stored':
+			return 'Signed in with Namzu'
+		case 'session':
+			return 'Key typed for this session'
+	}
+}
+
 export type SetupHarness = (typeof SETUP_HARNESSES)[number]
 export interface SetupProbe {
 	readonly harness: SetupHarness
@@ -186,7 +214,7 @@ export async function probeHarnesses(
 					!hasApiCredential(provider.entry, provider.apiKey)
 						? 'Zen free models · experimental; OpenCode installation recommended; gateway may refuse'
 						: source
-							? `Credential detected · ${source.kind}`
+							? describeAccess(source)
 							: harness.id === 'claude'
 								? 'No Claude Code session · Desktop sign-in may not supply one; run namzu login claude'
 								: 'Not connected · sign in or add an API key',

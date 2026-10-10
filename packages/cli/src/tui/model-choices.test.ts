@@ -544,6 +544,34 @@ describe('a failed model list is said in plain words', () => {
 			'Namzu could not list models from OpenAI. Run with --debug for details. Showing namzu’s pick for it.',
 		],
 	]
+	it('names a local server and says to start it, not to check the internet', () => {
+		const step = modelStep(DEFAULT, { kind: 'failed', reason: RAW, cause: 'network' }, undefined, {
+			...base,
+			providerId: 'ollama',
+		})
+		expect(step.notice).toBe(
+			'Namzu could not reach Ollama at localhost:11434. Start it, then try again. Showing namzu’s pick for it.',
+		)
+		expect(step.notice).not.toMatch(/internet/)
+		const custom = modelStep(
+			DEFAULT,
+			{ kind: 'failed', reason: RAW, cause: 'network' },
+			undefined,
+			{
+				...base,
+				baseUrl: 'http://192.168.1.20:8000/v1',
+			},
+		)
+		expect(custom.notice).toContain('could not reach OpenAI at 192.168.1.20:8000. Start it')
+	})
+
+	it('names the provider when it did not answer in time', () => {
+		const step = modelStep(DEFAULT, { kind: 'timeout' }, undefined, base)
+		expect(step.notice).toBe(
+			'OpenAI did not answer in time. Showing namzu’s pick for it — try again to list.',
+		)
+	})
+
 	for (const [cause, expected] of cases) {
 		it(`says ${cause} without the driver's text`, () => {
 			const step = modelStep(DEFAULT, { kind: 'failed', reason: RAW, cause }, undefined, base)

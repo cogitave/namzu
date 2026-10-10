@@ -42,7 +42,7 @@ describe('a failure the app hit itself', () => {
 			'Could not fork. Run with --debug for details.',
 		)
 		expect(explainFailure(new Error('SQLITE_BUSY'), 'Could not fork.', true)).toBe(
-			'Could not fork. Run with --debug for details. (SQLITE_BUSY)',
+			'Could not fork. Details: SQLITE_BUSY',
 		)
 		expect(explainFailure('plain string', 'Could not fork.', false)).not.toContain('plain string')
 	})

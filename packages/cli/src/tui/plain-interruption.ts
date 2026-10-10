@@ -1,4 +1,4 @@
-import { formatSpan, productName } from './person-terms.js'
+import { formatSpan, localEndpoint, productName } from './person-terms.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { type Interruption, describeTurnInterruption, retryAfterMs } from './turn-interruption.js'
 
@@ -106,9 +106,13 @@ function sameIdea(a: string, b: string): boolean {
 	return x.length === 0 || y.length === 0 || x === y || x.includes(y) || y.includes(x)
 }
 
-function providerOf(event: Interruption): string | undefined {
+function providerIdOf(event: Interruption): string | undefined {
 	const id = event.providerError?.providerId ?? event.failure?.details?.providerId
-	return productName(typeof id === 'string' ? id : undefined)
+	return typeof id === 'string' ? id : undefined
+}
+
+function providerOf(event: Interruption): string | undefined {
+	return productName(providerIdOf(event))
 }
 
 function modelOf(event: Interruption): string | undefined {
@@ -130,6 +134,7 @@ function copyFor(
 	name: string,
 	event: Interruption,
 	modelId: string | undefined,
+	localAt?: string,
 ): Copy {
 	switch (kind) {
 		case 'auth':
@@ -158,10 +163,15 @@ function copyFor(
 				next: 'Try again in a minute.',
 			}
 		case 'network':
-			return {
-				what: `Namzu could not reach ${name}.`,
-				next: 'Check your internet connection, then try again.',
-			}
+			return localAt
+				? {
+						what: `Namzu could not reach ${name} at ${localAt}.`,
+						next: 'Start it, then try again.',
+					}
+				: {
+						what: `Namzu could not reach ${name}.`,
+						next: 'Check your internet connection, then try again.',
+					}
 		case 'model_not_found':
 			return {
 				what: modelId
@@ -216,6 +226,8 @@ export interface PlainInterruptionOptions {
 	readonly debug?: boolean
 	/** The model the person chose, for "no model called ..." (the event does not name it reliably). */
 	readonly model?: string
+	/** The provider's configured base URL, so a local server is named as one. */
+	readonly baseUrl?: string
 }
 
 /** Whether detail was asked for: `NAMZU_DEBUG=1` or `--debug` on the command line. */
@@ -258,6 +270,7 @@ export function describePlainInterruption(
 		name,
 		event,
 		kind === 'model_not_found' ? (options.model ?? modelOf(event)) : undefined,
+		kind === 'network' ? localEndpoint(providerIdOf(event), options.baseUrl) : undefined,
 	)
 	const rawReason = event.kind === 'paused' ? event.reason : event.message
 	// The provider's own sentence: its detail field, or a message inside a JSON
@@ -309,14 +322,16 @@ export function describeProviderWait(
 		readonly status?: number
 	},
 	providerId?: string,
+	baseUrl?: string,
 ): string {
 	const name = productName(providerId) ?? 'The provider'
+	const localAt = localEndpoint(providerId, baseUrl)
 	const limited = event.code === 'rate_limit' || event.status === 429
 	const offline = event.code === 'network' || event.code === 'timeout'
 	const what = limited
 		? `${name} is limiting requests.`
 		: offline
-			? `Namzu could not reach ${name}.`
+			? `Namzu could not reach ${name}${localAt ? ` at ${localAt}` : ''}.`
 			: `${name} is having problems on its side.`
 	return `${what} Retrying in about ${formatSpan(event.delayMs)} (try ${event.attempt + 1} of ${event.maxRetries + 1}).`
 }

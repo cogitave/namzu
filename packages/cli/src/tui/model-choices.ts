@@ -21,7 +21,7 @@
  */
 
 import type { ModelGroup, ModelListing, ModelListingCause } from './agent.js'
-import { productName } from './person-terms.js'
+import { localEndpoint, productName } from './person-terms.js'
 import { debugRequested } from './plain-interruption.js'
 import { terminalDisplayText } from './terminal-display.js'
 
@@ -111,6 +111,8 @@ export function modelStep(
 		readonly keyEntryReachable?: boolean
 		/** Show the driver's own text too (`--debug`). */
 		readonly debug?: boolean
+		/** The provider's configured base URL, so a local server is named as one. */
+		readonly baseUrl?: string
 	} = {},
 ): ModelStep {
 	const defaultAllowed = options.allowModel?.(defaultModel) !== false
@@ -160,15 +162,18 @@ export function modelStep(
 	if (listing.kind === 'timeout') {
 		// Deliberately not "no models". The provider may have hundreds; it just
 		// did not answer inside 3s, and that is a retryable condition.
+		const who = productName(options.providerId) ?? 'The provider'
 		return fallback(
-			'The provider did not answer in time. Showing namzu’s pick for it — try again to list.',
+			`${who} did not answer in time. Showing namzu’s pick for it — try again to list.`,
 		)
 	}
 	if (listing.kind === 'failed') {
+		const localAt = localEndpoint(options.providerId, options.baseUrl)
 		const sentence = plainListingFailure(listing.cause ?? 'unknown', {
 			name: productName(options.providerId) ?? 'The provider',
 			keyEntryReachable: options.keyEntryReachable === true,
 			credentialGone: listing.failure === 'credential-unavailable',
+			...(localAt !== undefined ? { localAt } : {}),
 		})
 		const raw = (options.debug ?? debugRequested()) ? ` Details: ${rawDetail(listing.reason)}` : ''
 		return fallback(`${sentence}${raw} Showing namzu’s pick for it.`)
@@ -275,7 +280,13 @@ function terminalSafe(text: string): string {
 /** One sentence, with a next step, for a model list that could not be fetched. */
 export function plainListingFailure(
 	cause: ModelListingCause,
-	context: { name: string; keyEntryReachable: boolean; credentialGone?: boolean },
+	context: {
+		name: string
+		keyEntryReachable: boolean
+		credentialGone?: boolean
+		/** `host:port` when the provider is a server on this computer or network. */
+		localAt?: string
+	},
 ): string {
 	const { name } = context
 	const newKey = context.keyEntryReachable
@@ -294,7 +305,9 @@ export function plainListingFailure(
 		case 'server':
 			return `${name} is having problems on its side. Try again in a minute.`
 		case 'network':
-			return `Namzu could not reach ${name}. Check your internet connection, then try again.`
+			return context.localAt
+				? `Namzu could not reach ${name} at ${context.localAt}. Start it, then try again.`
+				: `Namzu could not reach ${name}. Check your internet connection, then try again.`
 		case 'unknown':
 			return `Namzu could not list models from ${name}. Run with --debug for details.`
 	}

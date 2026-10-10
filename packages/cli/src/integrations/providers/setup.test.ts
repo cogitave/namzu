@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { runSetupCommand, versionFromProbe } from './setup.js'
+import { describeAccess, runSetupCommand, versionFromProbe } from './setup.js'
 
 describe('setup process ownership', () => {
 	it('passes arguments literally and bounds output', async () => {
@@ -60,5 +60,22 @@ describe('versionFromProbe', () => {
 	it('returns nothing when no line carries a number', () => {
 		expect(versionFromProbe('WARNING: something\nready')).toBeUndefined()
 		expect(versionFromProbe('')).toBeUndefined()
+	})
+})
+
+describe('describeAccess', () => {
+	it('says how a credential was found in plain words, never the source identifier', () => {
+		expect(describeAccess({ kind: 'codex-file', path: '/x/auth.json' })).toBe(
+			'Signed in with Codex',
+		)
+		expect(describeAccess({ kind: 'claude-file', path: '/x' })).toBe('Signed in with Claude')
+		expect(describeAccess({ kind: 'gemini-file', path: '/x' })).toBe('Signed in with Gemini')
+		expect(describeAccess({ kind: 'stored', path: '/x' })).toBe('Signed in with Namzu')
+		expect(describeAccess({ kind: 'env', envName: 'OPENAI_API_KEY' })).toBe(
+			'Key from your computer’s settings',
+		)
+		for (const kind of ['codex-file', 'claude-file', 'stored-api-key', 'opencode-file'] as const) {
+			expect(describeAccess({ kind, path: '/x' })).not.toMatch(/-file|stored-|\//)
+		}
 	})
 })

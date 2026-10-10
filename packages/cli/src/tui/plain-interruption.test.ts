@@ -153,6 +153,33 @@ describe('an error in the terminal app', () => {
 	})
 })
 
+describe('a local server that cannot be reached', () => {
+	it('is not blamed on the internet connection', () => {
+		const text = describePlainInterruption(
+			failed({
+				explanation: { id: 'provider.network', message: 'x', hint: 'y' },
+				providerError: { kind: 'network', providerId: 'ollama' },
+			}),
+		)
+		expect(text).toBe('Namzu could not reach Ollama at localhost:11434. Start it, then try again.')
+	})
+	it('uses the configured address when one is given', () => {
+		const text = describePlainInterruption(
+			failed({ providerError: { kind: 'network', providerId: 'openai' } }),
+			{ baseUrl: 'http://127.0.0.1:8080/v1' },
+		)
+		expect(text).toBe('Namzu could not reach OpenAI at 127.0.0.1:8080. Start it, then try again.')
+	})
+	it('says so while it retries', () => {
+		expect(
+			describeProviderWait(
+				{ delayMs: 2_000, attempt: 0, maxRetries: 2, code: 'network' },
+				'lmstudio',
+			),
+		).toBe('Namzu could not reach LM Studio at localhost:1234. Retrying in about 2s (try 1 of 3).')
+	})
+})
+
 describe('a paused reply in the terminal app', () => {
 	const unavailable = {
 		explanation: { id: 'provider.unavailable', message: 'x', hint: 'y' },

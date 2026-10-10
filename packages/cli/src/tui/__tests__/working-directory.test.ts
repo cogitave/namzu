@@ -289,7 +289,8 @@ describe('createAgentSession runs where it is told to', () => {
 
 		expect(session.hasProvider).toBe(false)
 		expect(session.errorKind).toBe('invocation')
-		expect(session.errorHint).toContain('Working directory is unavailable')
+		expect(session.errorHint).toContain('could not open the folder')
+		expect(session.errorHint).toContain('It does not exist')
 		expect(queryCalls).toHaveLength(0)
 	})
 
@@ -301,7 +302,7 @@ describe('createAgentSession runs where it is told to', () => {
 		})
 
 		expect(session.hasProvider).toBe(false)
-		expect(session.errorHint).toContain('refuses filesystem root')
+		expect(session.errorHint).toContain('top-level folder of the disk')
 		expect(queryCalls).toHaveLength(0)
 	})
 })

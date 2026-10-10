@@ -1,3 +1,4 @@
+import { homePath } from './person-terms.js'
 import { debugRequested } from './plain-interruption.js'
 
 /**
@@ -31,8 +32,25 @@ export function explainFailure(
 	// A sentence Namzu itself wrote for a person ("Delegated agents are still
 	// active; ...") is shown as it is; anything that reads as machine output is not.
 	if (err instanceof Error && isAuthoredSentence(err)) return `${couldNot} ${err.message}`
-	const detail = debug && err instanceof Error && err.message ? ` (${err.message})` : ''
-	return `${couldNot} Run with --debug for details.${detail}`
+	if (debug && err instanceof Error && err.message) return `${couldNot} Details: ${err.message}`
+	return `${couldNot} Run with --debug for details.`
+}
+
+/** The sentence for a working directory Namzu cannot start in; the folder is written with `~`. */
+export function workingDirectoryProblem(
+	path: string,
+	err: unknown,
+	debug: boolean = debugRequested(),
+): string {
+	const couldNot = `Namzu could not open the folder ${homePath(path)}.`
+	const code = codeOf(err)
+	if (code === 'ENOENT' || code === 'ENOTDIR') {
+		return `${couldNot} It does not exist. Check the path, then try again.`
+	}
+	if (code === 'EACCES' || code === 'EPERM') {
+		return `${couldNot} Namzu does not have permission to read it. Choose another folder.`
+	}
+	return `${explainFailure(err, couldNot, debug)} Choose another folder.`
 }
 
 function codeOf(err: unknown): string | undefined {

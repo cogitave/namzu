@@ -1,5 +1,7 @@
 import { homedir } from 'node:os'
 
+import stringWidth from 'string-width'
+
 import { PROVIDER_REGISTRY, VENDOR_NAMES } from '../integrations/providers/registry.js'
 import type { ProviderId } from '../integrations/providers/registry.js'
 
@@ -89,7 +91,7 @@ export function homePath(path: string, home: string = homedir()): string {
 export function displayPath(path: string, max: number, home: string = homedir()): string {
 	const shown = homePath(path, home)
 	if (max <= 0) return ''
-	if (shown.length <= max) return shown
+	if (stringWidth(shown) <= max) return shown
 	const sep = shown.includes('\\') && !shown.includes('/') ? '\\' : '/'
 	const parts = shown.split(sep)
 	const head = parts[0] === '~' || /^[A-Za-z]:$/.test(parts[0] ?? '') ? (parts[0] ?? '') : ''
@@ -99,12 +101,70 @@ export function displayPath(path: string, max: number, home: string = homedir())
 	for (let keep = rest.length; keep >= 1; keep--) {
 		const tail = rest.slice(-keep).join(sep)
 		const candidate = keep === rest.length && head ? `${head}${sep}${tail}` : `${lead}${sep}${tail}`
-		if (candidate.length <= max) return candidate
+		if (stringWidth(candidate) <= max) return candidate
 	}
 	const leaf = rest[rest.length - 1] ?? shown
 	const bare = `…${sep}${leaf}`
-	if (bare.length <= max) return bare
-	return max === 1 ? '…' : `…${leaf.slice(-(max - 1))}`
+	if (stringWidth(bare) <= max) return bare
+	return max === 1 ? '…' : `…${lastCells(leaf, max - 1)}`
+}
+
+/** The longest end of `text` that fits in `cells` display cells, never splitting a character. */
+function lastCells(text: string, cells: number): string {
+	const chars = Array.from(text)
+	let used = 0
+	let from = chars.length
+	while (from > 0) {
+		const width = stringWidth(chars[from - 1] ?? '')
+		if (used + width > cells) break
+		used += width
+		from--
+	}
+	return chars.slice(from).join('')
+}
+
+/**
+ * `host:port` when a provider's endpoint is on this computer or its local
+ * network (localhost, a loopback or private address, a `.local` name), else
+ * undefined. A local server that is down is not an internet problem, and the
+ * message says where Namzu looked. `baseUrl` wins over the provider's default.
+ */
+export function localEndpoint(
+	providerId: string | undefined,
+	baseUrl?: string,
+): string | undefined {
+	const id = providerId?.trim()
+	const entry =
+		id && Object.hasOwn(PROVIDER_REGISTRY, id) ? PROVIDER_REGISTRY[id as ProviderId] : undefined
+	const raw = baseUrl?.trim() || entry?.defaultBaseUrl
+	if (!raw) return undefined
+	let url: URL
+	try {
+		url = new URL(raw.includes('://') ? raw : `http://${raw}`)
+	} catch {
+		return undefined
+	}
+	const host = url.hostname.replace(/^\[|\]$/g, '').toLowerCase()
+	if (!isLocalHost(host)) return undefined
+	const shownHost = host.includes(':') ? `[${host}]` : host
+	return url.port ? `${shownHost}:${url.port}` : shownHost
+}
+
+function isLocalHost(host: string): boolean {
+	if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) return true
+	if (host === '::1' || host === '::' || /^f[cd][0-9a-f]{2}:/.test(host) || /^fe80:/.test(host))
+		return true
+	const v4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/)
+	if (!v4) return false
+	const [a, b] = [Number(v4[1]), Number(v4[2])]
+	return (
+		a === 127 ||
+		a === 10 ||
+		a === 0 ||
+		(a === 172 && b >= 16 && b <= 31) ||
+		(a === 192 && b === 168) ||
+		(a === 169 && b === 254)
+	)
 }
 
 /** The short form of a conversation id, for places where a whole UUID is noise. */

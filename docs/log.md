@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-10-11
+
+- **Update** [Terminal design](cli/terminal-design.md#plain-words-for-errors-and-status): a provider on this computer or network (Ollama, LM Studio, a loopback or private address) that cannot be reached is "Namzu could not reach Ollama at localhost:11434. Start it, then try again." instead of an internet-connection hint, in the model list, the reply error and the retry notice; the list timeout names the provider; startup failures (working folder, saved data, plugins, computer use, browser, provider construction) are one plain sentence with the error text behind `--debug` as "Details:"; the setup screen says "Signed in with Codex" instead of "Credential detected · codex-file"; `displayPath` measures display cells (CJK and emoji folder names); and the CLI test setup removes `NAMZU_DEBUG` and gives each suite an empty `HOME`. Covered by `person-terms.test.ts`, `model-choices.test.ts`, `plain-interruption.test.ts`, `plain-failure.test.ts`, `setup.test.ts`, `working-directory.test.ts` and `computer-use-reaches-session.test.ts`.
+
 ## 2026-10-10
 
 - **Update** [Terminal design](cli/terminal-design.md#plain-words-for-errors-and-status): a failed model list is one plain sentence with a next step (401, 403, 429, 5xx, network and other each have their own), a rejected key on the key screen no longer prints the provider's text, provider setup shows a version or "Couldn’t check Codex. Details: --debug" instead of the program's own lines, and a folder in a sentence is written with `~` and a middle ellipsis that keeps the last folder whole (the trust prompt at 40, 60 and 80 columns). `packages/cli/biome.json` and `packages/desktop/biome.json` are formatted; no rule changed. Covered by `model-choices.test.ts`, `setup-text.test.ts`, `setup.test.ts`, `credential-entry.test.ts`, `person-terms.test.ts` and `trust-prompt-path-width.test.tsx`.
