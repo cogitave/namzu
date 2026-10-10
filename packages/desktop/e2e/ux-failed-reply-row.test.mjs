@@ -115,7 +115,7 @@ flow(
 	"a failed reply's row shares one centre line and the spacing of a settled reply's row",
 	{
 		rules: [
-			{ match: /hello/i, steps: [{ text: "Scripted hello back." }] },
+			{ match: /^hello there$/i, steps: [{ text: "Scripted hello back." }] },
 			{ match: /go wrong/i, steps: [BAD_GATEWAY] },
 		],
 	},
@@ -171,6 +171,19 @@ flow(
 		await shots(w, "502-details");
 		await w.page.keyboard.press("Space");
 		await expect(details).toHaveAttribute("aria-expanded", "false");
+
+		// Details left open on one failure does not stay open on the next conversation's failure.
+		await w.page.keyboard.press("Enter");
+		await expect(details).toHaveAttribute("aria-expanded", "true");
+		await w.page.getByRole("button", { name: "New conversation" }).first().click();
+		await expect(w.page.locator(".turn-recovery")).toHaveCount(0, { timeout: T });
+		await sendText(w, "please go wrong");
+		const next = w.page.locator(".turn-recovery");
+		await expect(next.getByRole("button", { name: "Details", exact: true })).toHaveAttribute(
+			"aria-expanded",
+			"false",
+			{ timeout: T },
+		);
 	},
 );
 

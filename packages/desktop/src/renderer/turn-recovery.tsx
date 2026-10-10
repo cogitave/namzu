@@ -28,6 +28,18 @@ export function recoveryActions(
 }
 
 /**
+ * What identifies one stopped reply: the conversation and the failures it shows. The component
+ * stays mounted across conversations, so its Details toggle is keyed on this and starts closed for
+ * every failure it has not shown before.
+ */
+export function recoveryKey(conversationId: string, failures: readonly FriendlyFailure[]): string {
+	return JSON.stringify([
+		conversationId,
+		failures.map((failure) => [failure.text, failure.details]),
+	])
+}
+
+/**
  * What a stopped reply says and what can be done: plain words first, then the same quiet action
  * row a settled reply ends with (Retry and Copy as icons, other ways on as small text, Details as
  * a text toggle, the time). Retry appears only when the runtime holds a target it can repeat.

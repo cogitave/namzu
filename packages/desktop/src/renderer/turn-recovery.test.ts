@@ -2,7 +2,7 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, it } from 'vitest'
 import { describeBlockedRetry, describeFailure } from './friendly-errors.js'
-import { TurnRecovery, recoveryActions } from './turn-recovery.js'
+import { TurnRecovery, recoveryActions, recoveryKey } from './turn-recovery.js'
 
 const retry = { turnId: 'turn', checkpointId: 'checkpoint' }
 const render = (props: Parameters<typeof TurnRecovery>[0]) =>
@@ -104,4 +104,15 @@ it('puts the time, Retry, Copy, the quiet actions and Details on one row, in a s
 	expect(html).not.toMatch(/bg-primary|bg-popover|border-input/)
 	// The row is MessageActions' own row, not a copy of it.
 	expect(html).toContain('class="message-actions message-actions-wrap"')
+})
+
+it('keys the Details toggle on the conversation and the failure, so a new failure starts closed', () => {
+	const bad = describeFailure(
+		'openai (HTTP 502) — the provider failed to complete the request: 502 <html><body>502 Bad Gateway</body></html>',
+	)
+	const other = describeFailure('openai (HTTP 429) — rate limited: 429 too many requests')
+	expect(recoveryKey('a', [bad])).toBe(recoveryKey('a', [bad]))
+	expect(recoveryKey('a', [bad])).not.toBe(recoveryKey('b', [bad]))
+	expect(recoveryKey('a', [bad])).not.toBe(recoveryKey('a', [other]))
+	expect(recoveryKey('a', [])).not.toBe(recoveryKey('a', [bad]))
 })
