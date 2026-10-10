@@ -58,8 +58,7 @@ it('projects real configured model rows without credential envelopes or a model 
 		const result = await runtime.models('anthropic')
 		expect(result).toEqual({
 			models: [{ id: 'listed-model', label: 'Listed model', note: '(image input)' }],
-			notice:
-				'The selected model is not in this catalogue. Choose a listed model or another provider.',
+			notice: 'The selected model isn’t offered any more. Choose one from the list.',
 		})
 		expect(await runtime.providerStatus()).toMatchObject({
 			selected: { id: 'anthropic', model: 'custom-pinned' },
@@ -89,8 +88,7 @@ it('filters credential-required Zen models and an inaccessible saved pin from an
 	try {
 		expect(await runtime.models('zen')).toEqual({
 			models: [{ id: 'space-bunny-free', label: 'Space Bunny Free', default: true }],
-			notice:
-				'The selected model is not in this catalogue. Choose a listed model or another provider.',
+			notice: 'The selected model isn’t offered any more. Choose one from the list.',
 		})
 	} finally {
 		await runtime.close()
@@ -141,7 +139,7 @@ it('does not invent a catalogue on failure and excludes raw driver diagnostics',
 	try {
 		const result = await runtime.models('openai')
 		expect(result.models).toEqual([])
-		expect(result.notice).toContain('could not be loaded')
+		expect(result.notice).toContain('couldn’t reach')
 		expect(JSON.stringify(result)).not.toContain('SYNTHETIC_SECRET_MUST_NOT_REACH_UI')
 	} finally {
 		await runtime.close()

@@ -173,7 +173,7 @@ class CodexWire {
 		)
 		this.initializeMs = whole(clock() - began)
 		if (!response || (response.requiresOpenaiAuth === true && !response.account))
-			throw new Error('Codex CLI requires its own signed-in account.')
+			throw new Error('Codex needs you to sign in with its own account.')
 	}
 	async models(signal?: AbortSignal): Promise<readonly HarnessModel[]> {
 		const began = clock()

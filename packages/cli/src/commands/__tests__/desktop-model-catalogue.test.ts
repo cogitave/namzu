@@ -11,8 +11,7 @@ it('never treats an absent default or saved pin as a published model', () => {
 		),
 	).toEqual({
 		models: [{ id: 'served', label: 'Served model' }],
-		notice:
-			'The selected model is not in this catalogue. Choose a listed model or another provider.',
+		notice: 'The selected model isn’t offered any more. Choose one from the list.',
 	})
 })
 
@@ -28,7 +27,7 @@ it('distinguishes credential rejection without exposing a remote error or invent
 		() => true,
 	)
 	expect(result.models).toEqual([])
-	expect(result.notice).toContain('rejected its credential')
+	expect(result.notice).toContain('didn’t accept your key or sign-in')
 	expect(JSON.stringify(result)).not.toContain('SYNTHETIC_CREDENTIAL')
 })
 
@@ -44,7 +43,7 @@ it('reports a missing admitted credential without treating it as a server reject
 		() => true,
 	)
 	expect(result.models).toEqual([])
-	expect(result.notice).toContain('no longer available on this device')
+	expect(result.notice).toContain('no longer available on this computer')
 	expect(result.notice).not.toContain('rejected')
 	expect(JSON.stringify(result)).not.toContain('SYNTHETIC_PRIVATE_OWNER_PATH')
 })
@@ -83,6 +82,39 @@ it('filters inaccessible and malformed identities, retaining honest free and ima
 		],
 		notice: null,
 	})
+})
+
+it('names the provider and says why the list is empty, with no catalogue or credential wording', () => {
+	const rejected = desktopModelCatalogue(
+		{ kind: 'failed', failure: 'authentication', reason: 'denied' },
+		'default',
+		undefined,
+		() => true,
+		'OpenAI',
+	)
+	expect(rejected.notice).toBe(
+		'OpenAI didn’t accept your key or sign-in, so its models can’t be listed. Check it in Settings.',
+	)
+	const unreachable = desktopModelCatalogue(
+		{ kind: 'failed', reason: 'offline' },
+		'default',
+		undefined,
+		() => true,
+		'Anthropic (Claude)',
+	)
+	expect(unreachable.notice).toBe(
+		'Namzu couldn’t reach Anthropic to list its models. Check your connection, then try again.',
+	)
+	const empty = desktopModelCatalogue(
+		{ kind: 'ok', models: [] },
+		'default',
+		'gone',
+		() => true,
+		'OpenAI',
+	)
+	expect(empty.notice).toBe('OpenAI doesn’t offer any models to this account right now.')
+	for (const result of [rejected, unreachable, empty])
+		expect(result.notice).not.toMatch(/catalogue|credential/i)
 })
 
 it('keeps empty, unsupported and timeout catalogues distinct without adding registry rows', () => {

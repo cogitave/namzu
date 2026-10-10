@@ -9,6 +9,77 @@ import {
 
 const JARGON = /HTTP|\b[45]\d\d\b|receipt|retained|token|unresolved|<|JSON/i
 
+describe('provider replies', () => {
+	const cases: [string, string, string][] = [
+		[
+			'openai (HTTP 403) — the provider rejected the request credentials: Project proj_abc123 does not have access to model gpt-5',
+			'model-access',
+			'Your OpenAI account can’t use gpt-5. Choose another model.',
+		],
+		[
+			'openai (HTTP 429) — rate limited by the provider: You exceeded your current quota, please check your plan and billing details.',
+			'out-of-credit',
+			'Your OpenAI account is out of credit. Add credit in your OpenAI billing page, then send again.',
+		],
+		[
+			'openai (HTTP 408) — could not reach the provider: Request timed out.',
+			'timeout',
+			'OpenAI took too long to answer. Try again.',
+		],
+		[
+			'openai (HTTP 404) — the provider rejected the request as invalid: The model gpt-9 does not exist',
+			'model-missing',
+			'OpenAI doesn’t offer that model to your account. Choose another model.',
+		],
+		[
+			'openai (HTTP 413) — the provider rejected the request as invalid: 413 Request Entity Too Large',
+			'too-large',
+			'This message is too large for OpenAI. Shorten it or remove an attachment, then send again.',
+		],
+	]
+	it.each(cases)('%j', (raw, kind, text) => {
+		const failure = describeFailure(raw)
+		expect(failure.kind).toBe(kind)
+		expect(failure.text).toBe(text)
+	})
+
+	it('does not blame the key for a model the account cannot use', () => {
+		const failure = describeFailure(cases[0]?.[0] ?? '')
+		expect(failure.text).not.toMatch(/key/i)
+	})
+
+	it('says a usage-less reply could not be read and offers Try again, with no accounting words', () => {
+		const failure = describeFailure(
+			'Provider ended without token usage; the budget reservation remains unresolved.',
+			'OpenAI',
+		)
+		expect(failure.kind).toBe('bad-reply')
+		expect(failure.text).toBe('OpenAI sent a reply Namzu couldn’t read. Try again.')
+		expect(failure.actions).toEqual(['try-again'])
+		expect(failure.details).not.toMatch(/budget|reservation|unresolved/i)
+	})
+
+	it('cleans Details: status once, labelled request ID, no repeated title, grouped counts', () => {
+		const html = describeFailure(
+			'openai (HTTP 502) — the provider failed to complete the request: 502 Bad Gateway Bad Gateway cloudflare Ray ID: 8f2a1b3c4d5e6f70',
+		)
+		expect(html.details).toBe(
+			'OpenAI: the provider failed to complete the request (502 Bad Gateway)\nRequest ID: 8f2a1b3c4d5e6f70',
+		)
+		const empty = describeFailure(
+			'openai (HTTP 500) — the provider failed to complete the request: 500 status code (no body)',
+		)
+		expect(empty.details).toBe('OpenAI: the provider failed to complete the request (500)')
+		const context = describeFailure(
+			'openai (HTTP 400) — the request exceeded the model context window: maximum context length is 128000 tokens, you sent 131452 tokens',
+		)
+		expect(context.details).toContain('131,452')
+		expect(withUnknownUsage([html])[0]?.details).toMatch(
+			/\nThe provider did not report how much this reply used\.$/,
+		)
+	})
+})
+
 describe('describeFailure', () => {
 	it.each([
 		[
@@ -97,7 +168,7 @@ describe('describeBlockedRetry', () => {
 		expect(blocked.text).not.toMatch(JARGON)
 		expect(blocked.actions).toEqual(['continue'])
 		expect(blocked.text).toContain('Continue without this reply')
-		expect(blocked.details).toBe('Usage for one request is unknown.')
+		expect(blocked.details).toBe('The provider did not report how much this reply used.')
 	})
 
 	it('offers to continue when the allowance is used up, and never shows the runtime wording', () => {
@@ -118,9 +189,8 @@ describe('describeBlockedRetry', () => {
 		)
 		expect(failure.details).not.toMatch(/502 502/)
 		expect(withUnknownUsage([failure])[0]?.details).toBe(
-			'OpenAI: the provider failed to complete the request (502 Bad Gateway)\nUsage for one request is unknown.',
+			'OpenAI: the provider failed to complete the request (502 Bad Gateway)\nThe provider did not report how much this reply used.',
 		)
-		expect(withUnknownUsage([failure], 4)[0]?.details).toMatch(/Usage for 4 requests is unknown\.$/)
 		expect(withUnknownUsage([])).toEqual([])
 	})
 
@@ -150,5 +220,40 @@ describe('names and details', () => {
 		expect(sanitizeDetails('token abcdefghijklmnopqrstuvwxyz0123456789ABCD here')).toContain(
 			'[hidden]',
 		)
+	})
+})
+
+describe('provider reply edge cases', () => {
+	const failure = (status: number, sentence: string, body: string) =>
+		describeFailure(`openai (HTTP ${status}) — the provider ${sentence}: ${body}`, 'OpenAI')
+
+	it('names the model without a trailing full stop', () => {
+		expect(failure(403, 'rejected the request credentials', 'No access to model gpt-5.').text).toBe(
+			'Your OpenAI account can’t use gpt-5. Choose another model.',
+		)
+	})
+	it('still blames the key when a 403 is about the key', () => {
+		expect(
+			failure(403, 'rejected the request credentials', 'Incorrect API key provided for this model')
+				.kind,
+		).toBe('rejected-key')
+	})
+	it('keeps a free-tier rate limit that suggests a payment method as a rate limit', () => {
+		expect(
+			failure(
+				429,
+				'was rate limited',
+				'Rate limit reached. Please add a payment method to your account to increase your rate limit.',
+			).kind,
+		).toBe('rate-limit')
+	})
+	it('leaves no JSON residue where a request ID was', () => {
+		const details = failure(
+			500,
+			'failed to complete the request',
+			'{"error":{"message":"The server had an error","request_id":"req_abcdef123456"}}',
+		).details
+		expect(details).toContain('Request ID: req_abcdef123456')
+		expect(details).not.toMatch(/request_id|""|" "/)
 	})
 })

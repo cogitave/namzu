@@ -9,6 +9,8 @@ import { createServer } from "node:http";
 export async function startFakeModel(rules = [], options = {}) {
 	const requests = [];
 	const holds = new Map();
+	/** Set `api.listing = { status, contentType, body }` to make the model list (and key checks) answer so. */
+	const state = { listing: undefined };
 	const server = createServer((req, res) => {
 		let body = "";
 		req.on("data", (c) => {
@@ -16,6 +18,13 @@ export async function startFakeModel(rules = [], options = {}) {
 		});
 		req.on("end", () => {
 			const url = new URL(req.url, "http://x");
+			if (url.pathname.endsWith("/models") && state.listing) {
+				res.writeHead(state.listing.status, {
+					"content-type": state.listing.contentType ?? "application/json",
+				});
+				res.end(state.listing.body ?? "");
+				return;
+			}
 			if (url.pathname.endsWith("/models")) {
 				res.setHeader("content-type", "application/json");
 				res.end(
@@ -63,6 +72,10 @@ export async function startFakeModel(rules = [], options = {}) {
 	return {
 		url: `http://127.0.0.1:${port}`,
 		requests,
+		/** Change how the model list answers; `undefined` restores the normal list. */
+		answerListing(listing) {
+			state.listing = listing;
+		},
 		/** The live rules: a flow may change a rule's steps between two sends. */
 		rules,
 		/** Release a reply parked with `hold: name`. */

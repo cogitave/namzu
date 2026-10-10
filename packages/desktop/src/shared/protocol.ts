@@ -320,7 +320,19 @@ export interface ProviderConnectionView {
 	hasSavedKey: boolean
 	help?: string
 }
-export type ProviderTestResult = 'ok' | 'rejected' | 'unchecked' | 'missing'
+/**
+ * `unchecked` means the provider offers no cheap check; `quota`, `busy`, `down` and `no-answer`
+ * say why a check learned nothing.
+ */
+export type ProviderTestResult =
+	| 'ok'
+	| 'rejected'
+	| 'unchecked'
+	| 'missing'
+	| 'quota'
+	| 'busy'
+	| 'down'
+	| 'no-answer'
 
 export interface ModelCatalogueView {
 	/** `default` marks this engine's own recommended default model. */

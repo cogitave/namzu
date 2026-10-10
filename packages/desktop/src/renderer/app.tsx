@@ -4419,9 +4419,7 @@ export function App({
 		...(thread.retryNotice ? [describeBlockedRetry(thread.retryNotice)] : []),
 	]
 	const replyFailures = (
-		thread.retry && thread.retryUnknownUsage
-			? withUnknownUsage(baseFailures, thread.retryUnknownUsage)
-			: baseFailures
+		thread.retry && thread.retryUnknownUsage ? withUnknownUsage(baseFailures) : baseFailures
 	).map((failure) =>
 		continueFailed === sessionId && failure.actions.includes('continue')
 			? { ...failure, actions: [...failure.actions, 'copy-to-new' as const] }
@@ -6234,6 +6232,7 @@ export function App({
 											key={sessionId}
 											thread={thread}
 											name={pal.name}
+											providerName={providerName(choice.provider, failedProviderLabel)}
 											intro={conversation?.palGreeting}
 											received={palOperatorMessages}
 											renderMessageAction={(message, key) => (

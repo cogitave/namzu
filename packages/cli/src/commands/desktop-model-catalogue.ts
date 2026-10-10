@@ -11,6 +11,11 @@ export function modelListLabel(name: string, id: string): string {
 	return name !== id && name.startsWith('GPT-') ? codexModelLabel(name) : name
 }
 
+/** A label with a trailing parenthesis reads without it. */
+function productName(label: string): string {
+	return label.replace(/\s*\(.*\)\s*$/, '').trim() || 'The provider'
+}
+
 export interface DesktopModelRow {
 	id: string
 	label: string
@@ -28,21 +33,25 @@ export function desktopModelCatalogue(
 	defaultModel: string,
 	currentModel: string | undefined,
 	allowModel: (id: string) => boolean,
+	/** The provider's product name, for the sentence a person reads. */
+	providerLabel = 'The provider',
 ): {
 	models: DesktopModelRow[]
 	notice: string | null
 } {
 	if (listing.kind !== 'ok') {
+		const name = productName(providerLabel)
+		const object = providerLabel === 'The provider' ? 'the provider' : name
 		const notice =
 			listing.kind === 'unsupported'
-				? 'This provider does not publish a model list.'
+				? `${name} doesn’t publish a list of its models.`
 				: listing.kind === 'timeout'
-					? 'The provider catalogue did not answer in time. Refresh the list to retry.'
+					? `${name} didn’t answer in time, so its models can’t be listed. Try again.`
 					: listing.failure === 'authentication'
-						? 'The provider rejected its credential. Sign in or configure this provider, then refresh the list.'
+						? `${name} didn’t accept your key or sign-in, so its models can’t be listed. Check it in Settings.`
 						: listing.failure === 'credential-unavailable'
-							? 'The selected sign-in is no longer available on this device. Refresh provider discovery or choose another provider.'
-							: 'The provider catalogue could not be loaded. Refresh the list to retry.'
+							? `The sign-in for ${object} is no longer available on this computer. Sign in again or choose another provider.`
+							: `Namzu couldn’t reach ${object} to list its models. Check your connection, then try again.`
 		return { models: [], notice }
 	}
 	const seen = new Set<string>()
@@ -84,10 +93,10 @@ export function desktopModelCatalogue(
 		notice:
 			models.length > 4096
 				? 'Showing the first 4,096 models.'
-				: selectedUnavailable
-					? 'The selected model is not in this catalogue. Choose a listed model or another provider.'
-					: models.length === 0
-						? 'This provider returned no selectable models for this access path.'
+				: models.length === 0
+					? `${productName(providerLabel)} doesn’t offer any models to this account right now.`
+					: selectedUnavailable
+						? 'The selected model isn’t offered any more. Choose one from the list.'
 						: null,
 	}
 }

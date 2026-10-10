@@ -2,11 +2,14 @@ import { LoaderCircle } from 'lucide-react'
 import { useId, useRef, useState } from 'react'
 import type { ProviderConnectionView } from '../shared/protocol.js'
 import {
+	REJECTED_KEY_STATUS,
 	ZEN_KEY_URL,
 	connectedCount,
+	connectionSource,
 	connectionStatus,
 	keyProblem,
 	testOutcome,
+	unconnectedHint,
 } from './provider-connections-model.js'
 import { Button } from './ui/button.js'
 import type { ProviderConnectionsControls } from './use-provider-connections.js'
@@ -64,6 +67,9 @@ function ProviderRow({
 	const [draft, setDraft] = useState('')
 	const [problem, setProblem] = useState<string>()
 	const [outcome, setOutcome] = useState<{ text: string; tone: 'good' | 'bad' | 'quiet' }>()
+	// A check showed the provider turns this key down: the row stops saying "Connected".
+	const [rejected, setRejected] = useState(false)
+	const item = useRef<HTMLLIElement>(null)
 	const busy = connections.busy === row.id
 	const anyBusy = connections.busy !== undefined
 	const connected = row.state === 'connected'
@@ -78,7 +84,10 @@ function ProviderRow({
 	const check = async () => {
 		setOutcome(undefined)
 		const result = await connections.test(row.id)
-		if (result) setOutcome(testOutcome(result, row.label))
+		if (result) {
+			setRejected(result === 'rejected')
+			setOutcome(testOutcome(result, row.label, row.how))
+		}
 	}
 	const submit = async () => {
 		const found = keyProblem(draft)
@@ -92,6 +101,7 @@ function ProviderRow({
 		setDraft('')
 		setProblem(undefined)
 		setOutcome(undefined)
+		setRejected(false)
 		const saved = await connections.save(row.id, key)
 		if (!saved) {
 			// The error line says why; the box stays so the person can paste again.
@@ -99,17 +109,23 @@ function ProviderRow({
 			return
 		}
 		close()
+		// The list reorders after a save; keep the changed row in view.
+		requestAnimationFrame(() => item.current?.scrollIntoView?.({ block: 'nearest' }))
 		await check()
 	}
 	return (
-		<li className="models-row" data-state={row.state}>
+		<li ref={item} className="models-row" data-state={rejected ? 'rejected' : row.state}>
 			<div className="models-row-main">
 				<div className="models-row-copy">
 					<h3 className="models-row-name">{row.label}</h3>
-					<p className="models-row-status" data-state={row.state}>
-						{connectionStatus(row)}
+					<p
+						className="models-row-status"
+						data-state={rejected ? 'rejected' : row.state}
+						title={connectionSource(row)}
+					>
+						{rejected ? REJECTED_KEY_STATUS : connectionStatus(row)}
 					</p>
-					{row.state !== 'connected' && row.help && <p className="models-row-help">{row.help}</p>}
+					{unconnectedHint(row) && <p className="models-row-help">{unconnectedHint(row)}</p>}
 				</div>
 				<div className="models-row-actions">
 					{connected && (
@@ -133,7 +149,7 @@ function ProviderRow({
 						<Button
 							ref={opener}
 							size="sm"
-							variant={connected ? 'outline' : 'default'}
+							variant={connected && !rejected ? 'outline' : 'default'}
 							disabled={anyBusy}
 							aria-label={
 								row.hasSavedKey
@@ -215,7 +231,12 @@ function ProviderRow({
 								}
 							}}
 						/>
-						<Button type="submit" size="sm" disabled={busy || draft.length === 0}>
+						<Button
+							type="submit"
+							size="sm"
+							disabled={busy || draft.length === 0}
+							title={draft.length === 0 ? 'Paste your API key first.' : undefined}
+						>
 							{busy ? (
 								<LoaderCircle
 									aria-hidden="true"
@@ -228,6 +249,9 @@ function ProviderRow({
 							Cancel
 						</Button>
 					</div>
+					{draft.length === 0 && !problem && !busy && (
+						<p className="models-key-hint">Paste your API key to save it.</p>
+					)}
 					{problem && (
 						<p id={messageId} role="alert" className="models-key-problem">
 							{problem}

@@ -24,9 +24,11 @@ describe('engineSetup', () => {
 
 describe('signInHelpFor', () => {
 	it('recognises the signed-out Codex error and names the command', () => {
-		expect(signInHelpFor('Codex CLI requires its own signed-in account.')).toMatchObject({
+		expect(
+			signInHelpFor('Codex needs you to sign in with its own account.'),
+		).toMatchObject({
 			engine: 'codex-cli',
-			name: 'Codex CLI',
+			name: 'Codex',
 			command: 'codex login',
 		})
 	})
@@ -39,7 +41,7 @@ describe('signInHelpFor', () => {
 
 describe('ChatErrorBanner sign-in help', () => {
 	it('says what to run, offers Copy and Open terminal, and keeps Retry setup', () => {
-		const message = 'Codex CLI requires its own signed-in account.'
+		const message = 'Codex needs you to sign in with its own account.'
 		const html = renderToStaticMarkup(
 			createElement(ChatErrorBanner, {
 				message,
@@ -49,7 +51,7 @@ describe('ChatErrorBanner sign-in help', () => {
 				retryLabel: 'Retry setup',
 			}),
 		)
-		expect(html).toContain('Sign in to Codex CLI in a terminal first')
+		expect(html).toContain('Sign in to Codex in a terminal first')
 		expect(html).toContain('<code>codex login</code>')
 		expect(html).toContain('Open terminal')
 		expect(html).toContain('Retry setup')

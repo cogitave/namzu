@@ -1,7 +1,8 @@
-import type { ReactNode } from 'react'
+import { type ReactNode, useEffect, useState } from 'react'
 import { type ThreadState, threadPhase } from '../shared/projection.js'
 import type { ChatMessage } from '../shared/protocol.js'
 import { AttachmentList } from './attachment-list.js'
+import { providerWaitText } from './friendly-errors.js'
 import { Message, MessageContent, MessageFooter, MessageTime, timeRoleOf } from './message.js'
 import { messageStatus } from './pal-communication-dialog.js'
 import { type PalOperatorMessage, interleavePalChat } from './pal-operator-messages.js'
@@ -60,9 +61,15 @@ export function palChatRows(thread: ThreadState): PalChatRow[] {
 	})
 }
 
-export function palChatStatus(thread: ThreadState): string | undefined {
+export function palChatStatus(
+	thread: ThreadState,
+	wait?: { now: number; provider: string },
+): string | undefined {
 	const phase = threadPhase(thread)
 	if (phase === 'idle') return undefined
+	// A provider that makes Namzu wait reads the same here as in a project conversation.
+	if (wait && thread.running && thread.stopReason === undefined && thread.providerWait)
+		return providerWaitText(thread.providerWait, wait.now, wait.provider)
 	if (phase === 'waiting') return 'Waiting for your decision'
 	return phase === 'thinking' || phase === 'responding' ? 'Typing…' : 'Working…'
 }
@@ -74,15 +81,26 @@ export function PalChatTranscript({
 	intro,
 	renderMessageAction,
 	received = [],
+	providerName = 'the provider',
 }: {
 	thread: ThreadState
 	name: string
+	/** The product name of the provider answering, for the wait line. */
+	providerName?: string
 	intro?: { id: string; text: string }
 	/** What the person sent this Pal from their own conversations, with where each one stands. */
 	received?: readonly PalOperatorMessage[]
 	renderMessageAction?: (message: ChatMessage, key: string) => ReactNode
 }) {
-	const status = palChatStatus(thread)
+	const waiting = thread.running && thread.stopReason === undefined && thread.providerWait
+	const [now, setNow] = useState(Date.now)
+	useEffect(() => {
+		if (!waiting) return
+		setNow(Date.now())
+		const timer = window.setInterval(() => setNow(Date.now()), 1000)
+		return () => window.clearInterval(timer)
+	}, [waiting])
+	const status = palChatStatus(thread, { now, provider: providerName })
 	const notice = !thread.running ? turnNotice(thread) : undefined
 	return (
 		<div

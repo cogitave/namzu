@@ -698,13 +698,19 @@ empty state.
 
 **Settings ▸ Models** lists every provider this build can drive, connected ones first. A row says in
 plain words how it is connected ("Connected with the key you saved", "…with your Codex sign-in",
-"…the key in your computer's `ANTHROPIC_API_KEY` setting") and offers **Add key** or **Replace key**
+"…a key from your computer's settings"; the variable's name is only the status line's tooltip) and offers **Add key** or **Replace key**
 (a password-type field, focused, Esc cancels and returns focus to the button that opened it),
 **Check**, and **Remove key** for a key Namzu holds. A provider that signs in rather than takes a key
-(the Codex subscription) says how to sign in. After a key is saved Namzu checks it with the
-provider's own credential probe (a cheap authenticated call, never a model turn) and says
-"OpenAI accepted the key.", "…did not accept this key…", or, when the provider has no probe, that the
-key is saved but not confirmed.
+(the Codex subscription) says how to sign in, and every other unconnected row says what to do ("Add an
+API key to use …", or "Start Ollama on this computer and Namzu will find it."). After a key is saved
+Namzu checks it with the provider's own credential probe (a cheap authenticated call, never a model
+turn) and says "OpenAI accepted the key.", "…did not accept this key…" (the row then reads **Key not
+accepted** instead of "Connected" and leads with **Replace key**), that the account is out of credit,
+that the provider is busy or had a problem on its side, that it did not answer, or, when the provider
+has no probe, that Namzu can't check it ahead of time (a sign-in says so without mentioning a key).
+`namzu/providers/test` answers `{ status, cause? }` where `cause` is `quota`, `busy`, `down` or
+`no-answer` for an `unchecked` result. **Save key** is off while the field is empty and a line beside
+it says to paste the key first; after a save the page scrolls to the changed row.
 
 Where the key goes: main forwards it to the CLI host (`namzu/providers/save_key`), which writes it to
 `api-keys.json` in the Namzu home with the same verified-private protection as the other credential
@@ -727,8 +733,14 @@ removed, key-shaped text hidden, at most 500 characters): `src/renderer/friendly
 | What happened | What the person reads | Action |
 |---|---|---|
 | Cannot reach the provider | Namzu couldn't reach OpenAI. Check your internet connection. | Retry |
-| 401 / 403 | OpenAI didn't accept your key. Check it in Settings, then send again. | Open model settings |
+| 401 | OpenAI didn't accept your key. Check it in Settings, then send again. | Open model settings |
+| 403 naming a model | Your OpenAI account can't use gpt-5. Choose another model. | Open model settings |
+| 404 | OpenAI doesn't offer that model to your account. Choose another model. | Open model settings |
+| 408 / timeout | OpenAI took too long to answer. Try again. | Retry |
+| 413 | This message is too large for OpenAI. Shorten it or remove an attachment, then send again. | none |
+| 429, out of credit | Your OpenAI account is out of credit. Add credit in your OpenAI billing page, then send again. | Open model settings |
 | 429 | OpenAI asked Namzu to slow down… (and, while waiting, the countdown below) | Retry |
+| A reply with no usage or unreadable | OpenAI sent a reply Namzu couldn't read. Try again. | Retry |
 | 5xx | OpenAI had a problem on its side. Your message is saved. | Retry |
 | Context window | This conversation is too long for the model… | Start a new conversation |
 | No key | There is no API key for Anthropic. Add one in Settings, then send again. | Open model settings |
@@ -747,9 +759,12 @@ details, and the details text opens under the row on the sentence's left edge. T
 conversation has no token limit of its own (the ACP session is opened without `limits`), so after a
 5xx the stopped request is recorded as unknown usage and **Retry** sends a new request in the
 same conversation; **Details** then reads "OpenAI: the provider failed to complete the request (502
-Bad Gateway)" and "Usage for one request is unknown." (or "Usage for N requests is unknown.": the
-driver retries a 5xx before the turn pauses, and each failed attempt is recorded). The status comes
-from `namzu/sessions/retry-status` as `{ retry, unknownUsage: <count> }`.
+Bad Gateway)", a labelled "Request ID: …" when the vendor sent one, and "The provider did not report
+how much this reply used." (one line however many attempts the driver made). Details say each thing
+once: a repeated HTML title, "(no body)" and a duplicated status are dropped, and token counts are
+grouped ("131,452"). The status comes from `namzu/sessions/retry-status` as
+`{ retry, unknownUsage: <count> }`. A Pal conversation shows the same provider wait line and countdown
+as a project one ("Waiting for OpenAI to accept more requests… retrying in 8s").
 
 When a finite limit applies (a turn begun under one), the runtime refuses to repeat the reply
 because the unknown amount may already exceed the limit, and also refuses new messages in that
@@ -821,8 +836,8 @@ and the banner's stale error) is cleared; a failed *first* open still shows the 
 
 **An engine that cannot start.** When Codex or `claude-code` does not answer, the banner names the
 engine ("… could not start. Check that it is installed on this computer and that you are signed in to it,
-then choose Retry setup."), the model button reads "… unavailable" instead of a skeleton that never
-resolves, and the banner no longer pushes the page down (banners are laid over the page, starting
+then choose Retry setup."), the model button reads "… unavailable" (or "Sign in to Codex" when the engine reported no account)
+instead of a skeleton that never resolves, and the banner no longer pushes the page down (banners are laid over the page, starting
 below the tab strip so the tabs and + stay visible and reachable while it shows).
 
 **Approval cards.** A write whose "before" cannot be shown reads "Namzu couldn't show what's in
@@ -1536,10 +1551,10 @@ on Windows, a PowerShell one, and its npm package as the other way), each with *
 since turns into a choice without restarting the app ("Still not found." otherwise). Settings ▸
 Updates shows the same commands and a **Check again** for a program that is missing, and says "Not
 installed" once. An engine that is installed but signed out fails with its own error (Codex: "Codex
-CLI requires its own signed-in account."); the banner then adds "Sign in to Codex CLI in a terminal
+needs you to sign in with its own account."); the banner then adds "Sign in to Codex in a terminal
 first" with the command to run (`codex login`; the second engine asks on its first run),
 **Copy**, **Open terminal** (a shell tab in the project) and **Retry setup**, and the model trigger
-reads "Not available" instead of staying a grey bar. When the engine is not Namzu, the
+reads "Sign in to Codex" (or "Not available" when the cause is not a missing account) instead of staying a grey bar. When the engine is not Namzu, the
 model trigger shows its small icon before the model name.
 
 The popup keeps one width in all three views (effort, models, engine), so a step never changes its

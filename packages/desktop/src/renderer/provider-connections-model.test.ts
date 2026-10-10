@@ -22,7 +22,7 @@ describe('connectionStatus', () => {
 		[{ state: 'free' as const, how: 'free' as const }, 'Free models. Needs a free Zen key.'],
 		[
 			{ how: 'environment' as const, envName: 'OPENAI_API_KEY' },
-			'Connected with the key in your computer’s OPENAI_API_KEY setting',
+			'Connected with a key from your computer’s settings',
 		],
 		[{ how: 'saved-key' as const }, 'Connected with the key you saved'],
 		[{ how: 'claude-sign-in' as const }, 'Connected with your Claude sign-in'],
@@ -41,7 +41,7 @@ describe('testOutcome', () => {
 		expect(testOutcome('missing', 'OpenAI').tone).toBe('bad')
 		const unchecked = testOutcome('unchecked', 'OpenAI')
 		expect(unchecked.tone).toBe('quiet')
-		expect(unchecked.text).toContain('not confirmed')
+		expect(unchecked.text).toContain('Send a message to try it')
 	})
 })
 

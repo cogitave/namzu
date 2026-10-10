@@ -7,9 +7,7 @@ export function connectionStatus(row: ProviderConnectionView): string {
 	if (row.state === 'free') return 'Free models. Needs a free Zen key.'
 	switch (row.how) {
 		case 'environment':
-			return row.envName
-				? `Connected with the key in your computer’s ${row.envName} setting`
-				: 'Connected with a key from your computer’s settings'
+			return 'Connected with a key from your computer’s settings'
 		case 'saved-key':
 			return 'Connected with the key you saved'
 		case 'claude-sign-in':
@@ -29,10 +27,29 @@ export function connectionStatus(row: ProviderConnectionView): string {
 	}
 }
 
+/** Where an environment key comes from, for a tooltip; the status line keeps plain words. */
+export function connectionSource(row: ProviderConnectionView): string | undefined {
+	return row.how === 'environment' && row.envName
+		? `The key comes from the ${row.envName} setting on this computer.`
+		: undefined
+}
+
+/** What an unconnected row tells the person to do. */
+export function unconnectedHint(row: ProviderConnectionView): string | undefined {
+	if (row.state !== 'not-connected') return undefined
+	if (row.help) return row.help
+	if (row.canSaveKey) return `Add an API key to use ${row.label}.`
+	return `Start ${row.label} on this computer and Namzu will find it.`
+}
+
+/** The row's status once a check or reply showed the saved key is no good. */
+export const REJECTED_KEY_STATUS = 'Key not accepted'
+
 /** What the person is told after a check. */
 export function testOutcome(
 	result: ProviderTestResult,
 	label: string,
+	how?: ProviderConnectionView['how'],
 ): { text: string; tone: 'good' | 'bad' | 'quiet' } {
 	switch (result) {
 		case 'ok':
@@ -44,11 +61,36 @@ export function testOutcome(
 			}
 		case 'missing':
 			return { text: `There is no key for ${label} to check.`, tone: 'bad' }
-		default:
+		case 'quota':
 			return {
-				text: `${label} can’t be checked without sending a message, so the key is saved but not confirmed.`,
+				text: `${label} says this account is out of credit. Add credit with ${label}, then check again.`,
+				tone: 'bad',
+			}
+		case 'busy':
+			return {
+				text: `${label} is busy right now. Check again in a minute.`,
 				tone: 'quiet',
 			}
+		case 'down':
+			return {
+				text: `${label} had a problem on its side. Check again in a few minutes.`,
+				tone: 'quiet',
+			}
+		case 'no-answer':
+			return {
+				text: `${label} didn’t answer. Check your internet connection, then check again.`,
+				tone: 'quiet',
+			}
+		default:
+			return how?.endsWith('-sign-in')
+				? {
+						text: 'Namzu can’t check this sign-in ahead of time. Send a message to try it.',
+						tone: 'quiet',
+					}
+				: {
+						text: `Namzu can’t check ${label} keys ahead of time. Send a message to try it.`,
+						tone: 'quiet',
+					}
 	}
 }
 

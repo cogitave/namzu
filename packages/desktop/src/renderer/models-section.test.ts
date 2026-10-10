@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
 import type { ProviderConnectionView } from '../shared/protocol.js'
 import { ModelsSection } from './models-section.js'
+import { REJECTED_KEY_STATUS, testOutcome } from './provider-connections-model.js'
 import type { ProviderConnectionsControls } from './use-provider-connections.js'
 
 const row = (over: Partial<ProviderConnectionView>): ProviderConnectionView => ({
@@ -60,7 +61,12 @@ describe('Settings ▸ Models', () => {
 		const html = render({
 			rows: [row({ state: 'connected', how: 'environment', envName: 'OPENAI_API_KEY' })],
 		})
-		expect(html).toContain('OPENAI_API_KEY')
+		expect(html).toContain('Connected with a key from your computer’s settings')
+		// The variable name is for a tooltip, not the status line.
+		expect(html).toContain(
+			'title="The key comes from the OPENAI_API_KEY setting on this computer."',
+		)
+		expect(html).not.toContain('>Connected with the key in')
 		expect(html).not.toContain('Remove the saved API key')
 		expect(html).not.toContain('type="password"')
 	})
@@ -70,6 +76,43 @@ describe('Settings ▸ Models', () => {
 		const failed = render({ rows: [row({})], error: 'Namzu could not save the key.' })
 		expect(failed).toContain('role="alert"')
 		expect(failed).toContain('Namzu could not save the key.')
+	})
+
+	it('tells an unconnected row what to do, including one that takes no key', () => {
+		const html = render({
+			rows: [
+				row({ id: 'ollama', label: 'Ollama (local)', canSaveKey: false }),
+				row({ id: 'openai', label: 'OpenAI' }),
+			],
+		})
+		expect(html).toContain('Start Ollama (local) on this computer and Namzu will find it.')
+		expect(html).toContain('Add an API key to use OpenAI.')
+	})
+
+	it('says plainly what each check found', () => {
+		expect(testOutcome('quota', 'OpenAI').text).toBe(
+			'OpenAI says this account is out of credit. Add credit with OpenAI, then check again.',
+		)
+		expect(testOutcome('busy', 'OpenAI').text).toBe(
+			'OpenAI is busy right now. Check again in a minute.',
+		)
+		expect(testOutcome('down', 'OpenAI').text).toBe(
+			'OpenAI had a problem on its side. Check again in a few minutes.',
+		)
+		expect(testOutcome('no-answer', 'OpenAI').text).toBe(
+			'OpenAI didn’t answer. Check your internet connection, then check again.',
+		)
+		expect(testOutcome('unchecked', 'Anthropic (Claude)', 'claude-sign-in').text).toBe(
+			'Namzu can’t check this sign-in ahead of time. Send a message to try it.',
+		)
+		const keyed = testOutcome('unchecked', 'OpenAI', 'saved-key').text
+		expect(keyed).toBe('Namzu can’t check OpenAI keys ahead of time. Send a message to try it.')
+		expect(keyed).not.toMatch(/saved but not confirmed/)
+	})
+
+	it('explains the disabled Save key button next to it', () => {
+		// The key box is closed until Add key is pressed; the hint text comes with the open form.
+		expect(REJECTED_KEY_STATUS).toBe('Key not accepted')
 	})
 
 	it('lists the free tier as free, not as a connection', () => {

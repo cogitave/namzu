@@ -366,7 +366,11 @@ export interface CliAcpRuntime {
 	/** A cheap authenticated call; never a model turn. */
 	/** Forget the cached provider list so the next read sees keys saved by another connection. */
 	refreshProviders(): Promise<{ refreshed: true }>
-	testProvider(provider: string): Promise<{ status: 'ok' | 'rejected' | 'unchecked' | 'missing' }>
+	testProvider(provider: string): Promise<{
+		status: 'ok' | 'rejected' | 'unchecked' | 'missing'
+		/** Why an unchecked key learned nothing, when the provider's answer says. */
+		cause?: 'quota' | 'busy' | 'down' | 'no-answer'
+	}>
 	/** The optional scope is a host-authenticated handoff, never a wire-supplied ownership claim. */
 	providerRetryStatus?(
 		sessionId: string,
@@ -1578,6 +1582,7 @@ export function createCliAcpRuntime(
 			return {
 				status:
 					result.kind === 'verified' ? 'ok' : result.kind === 'rejected' ? 'rejected' : 'unchecked',
+				...(result.kind === 'unverifiable' && result.cause ? { cause: result.cause } : {}),
 			}
 		},
 		providerStatus: async (sessionId) => {
@@ -1624,6 +1629,7 @@ export function createCliAcpRuntime(
 				(model) =>
 					canSelectModel(detected.entry, detected.apiKey, model) &&
 					isOfferableModel(provider, model),
+				detected.entry.label,
 			)
 		},
 		selectProvider: async (sessionId, provider, model) => {
