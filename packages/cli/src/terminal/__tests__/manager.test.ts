@@ -461,6 +461,8 @@ describe('ending', () => {
 		spawned[0]?.end(0)
 		await closing
 		expect(listed).toEqual([])
+		// Windows keeps its environment as it was: no marker is added.
+		expect(spawned[0]?.options.env?.NAMZU_TERMINAL_ID).toBeUndefined()
 	})
 
 	it('is idempotent and does not signal an ended program', async () => {
