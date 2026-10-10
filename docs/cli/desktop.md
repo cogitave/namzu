@@ -722,11 +722,10 @@ removed, key-shaped text hidden, at most 500 characters): `src/renderer/friendly
 | No key | There is no API key for Anthropic. Add one in Settings, then send again. | Open model settings |
 
 The sentence is followed by the same quiet row a settled reply ends with
-(`MessageActions`, `turn-recovery.tsx`): **Retry** and **Copy** as icon buttons (Retry reads "Retry
+(`MessageActions`, `turn-recovery.tsx`): the time first, as a settled reply shows it, then **Retry** and **Copy** as icon buttons (Retry reads "Retry
 with <model>" when the host names the model), then any other way on as small muted text (**Open
 model settings**, **Continue without this reply**, **Copy to a new conversation**, **Start a new
-conversation**), then **Details** as a text toggle with no leading symbol (`aria-expanded`), then
-the time as a settled reply shows it. Every item sits on one centre line with the settled row's
+conversation**), then **Details** as a text toggle with no leading symbol (`aria-expanded`). Every item sits on one centre line with the settled row's
 spacing, the row wraps at the same gaps in a narrow window, Copy copies the sentence and the
 details, and the details text opens under the row on the sentence's left edge. The e2e
 `ux-failed-reply-row.test.mjs` measures the centre line and the spacing and saves pictures to

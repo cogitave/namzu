@@ -15,6 +15,7 @@ export function MessageActions({
 	retryDisabled,
 	copyLabel,
 	after,
+	lead,
 	className,
 }: {
 	text: string
@@ -29,10 +30,13 @@ export function MessageActions({
 	copyLabel?: string
 	/** Quiet items that follow Copy on the same row and share its baseline. */
 	after?: ReactNode
+	/** Leads the row, as a settled reply's time does. */
+	lead?: ReactNode
 	className?: string
 }) {
 	return (
 		<div className={className ? `message-actions ${className}` : 'message-actions'}>
+			{lead}
 			{children}
 			{onRetry && (
 				<Tooltip>

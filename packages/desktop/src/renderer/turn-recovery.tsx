@@ -73,6 +73,13 @@ export function TurnRecovery({
 				className="message-actions-wrap"
 				text={copyText}
 				copyLabel="Copy"
+				lead={
+					time ? (
+						<span className="message-actions-time">
+							<MessageTime time={time} />
+						</span>
+					) : undefined
+				}
 				onRetry={canRetry ? onRetry : undefined}
 				retryLabel={retryLabel}
 				retryTooltip={retryLabel}
@@ -101,11 +108,6 @@ export function TurnRecovery({
 							>
 								Details
 							</Button>
-						)}
-						{time && (
-							<span className="message-actions-time">
-								<MessageTime time={time} />
-							</span>
 						)}
 					</>
 				}

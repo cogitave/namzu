@@ -71,7 +71,7 @@ it('lists each action once, as quiet text after the icons', () => {
 	expect(html).toContain('Open model settings')
 })
 
-it('puts Retry, Copy, the quiet actions, Details and the time on one row, in that order', () => {
+it('puts the time, Retry, Copy, the quiet actions and Details on one row, in a settled reply’s order', () => {
 	const blocked = describeBlockedRetry('The paused turn’s checkpoint is unavailable.')
 	const html = render({
 		retry,
@@ -81,11 +81,11 @@ it('puts Retry, Copy, the quiet actions, Details and the time on one row, in tha
 		failures: [{ ...blocked, actions: ['try-again', ...blocked.actions], details: 'Raw text' }],
 	})
 	const order = [
+		'<time',
 		'aria-label="Retry"',
 		'aria-label="Copy"',
 		'>Continue without this reply<',
 		'>Details<',
-		'<time',
 	]
 	const at = order.map((needle) => html.indexOf(needle))
 	expect(at.every((index) => index >= 0)).toBe(true)

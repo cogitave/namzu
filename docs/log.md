@@ -2,7 +2,7 @@
 
 ## 2026-10-10
 
-- **Update** [Desktop](cli/desktop.md#what-a-failed-reply-says): a failed reply ends with the same quiet action row as a settled reply: Retry and Copy as icons, other recovery actions as small muted text, Details as a text toggle without a marker, then the time, all on one centre line; no filled or outlined buttons.
+- **Update** [Desktop](cli/desktop.md#what-a-failed-reply-says): a failed reply ends with the same quiet action row as a settled reply: Retry and Copy as icons, other recovery actions as small muted text, Details as a text toggle without a marker, with the time leading the row as a settled reply's does, all on one centre line; no filled or outlined buttons.
 
 ## 2026-10-09
 

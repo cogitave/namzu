@@ -141,11 +141,11 @@ flow(
 		const names = (await rowItems(row)).map((item) => item.name);
 		assert.deepEqual(
 			names.map((name) => (/^\d|^[A-Z][a-z]+ at/.test(name) ? "time" : name)).slice(0, 3),
-			["Retry", "Copy", "Details"],
+			["time", "Retry", "Copy"],
 		);
 		const items = await rowItems(row);
 		assertOneLine(items, "failed 502 row");
-		const gap = items[1].left - items[0].right;
+		const gap = items[2].left - items[1].right;
 		assert.ok(Math.abs(gap - settledGap) <= 0.5, `icon spacing ${gap} equals the settled row's ${settledGap}`);
 		const text = region.locator(".turn-recovery-text");
 		const details = region.getByRole("button", { name: "Details", exact: true });
