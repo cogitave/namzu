@@ -85,7 +85,7 @@ test(
 			await expect(page.getByRole("tab", { name: /New conversation/ })).toHaveCount(0);
 			await expect(page.getByRole("heading", { name: "Pals", exact: true })).toHaveCount(0);
 			await expect(palTab.locator(".pal-character")).toHaveCount(1);
-			await expect(page.getByText("Ready to chat")).toBeVisible();
+			await expect(page.locator(".pal-status-rest").filter({ hasText: "Ready to chat" })).toBeVisible();
 			await shot(world, "03-pal-opened-1440");
 
 			// The computer panel never shows build instructions or repository paths.
@@ -99,7 +99,7 @@ test(
 			});
 			await expect(card.getByRole("button", { name: "Start Işık" })).toHaveCount(0);
 			await expect(card.getByRole("button", { name: "Start computer" })).toHaveCount(0);
-			await expect(card.locator(".pal-status-action")).toHaveCount(0);
+			await expect(card.locator(".pal-computer-action")).toHaveCount(0);
 			await expect(card.getByText("How to set up", { exact: true })).toBeVisible();
 			const note = (await card.locator(".pal-context-note").allInnerTexts()).join(" ");
 			assert.doesNotMatch(note, /Dockerfile|packages\/|namzu-local-computer/);
@@ -117,17 +117,19 @@ test(
 			await shot(world, "05-computer-page-1440");
 			await page.getByRole("tab", { name: "Işık" }).first().click();
 
-			// Pause: the status says Paused, the one action says Resume, and typing says why it is blocked.
+			// Pause: the status says Paused at rest, the action is Resume in the same place, and typing
+			// says why it is blocked.
+			const headerStatus = card.locator(".pal-context-identity .pal-status-rest");
 			await card.getByRole("button", { name: "Pause Işık" }).click();
-			await expect(card.locator(".pal-context-status")).toHaveText("Paused");
-			await expect(card.getByRole("button", { name: "Resume Işık" })).toHaveText("Resume");
+			await expect(headerStatus).toHaveText("Paused");
+			await expect(card.getByRole("button", { name: "Resume Işık" })).toBeVisible();
 			const composer = page.getByRole("textbox", { name: "Message Namzu" });
 			await composer.fill("hello");
 			await expect(page.getByText("Işık is paused. Resume Işık to chat.")).toBeVisible();
 			await shot(world, "06-paused-1440");
 			await card.getByRole("button", { name: "Resume Işık" }).click();
 			// Offline computer: the card says chatting needs none, right under the computer.
-			await expect(card.locator(".pal-context-status")).toHaveText("Ready to chat");
+			await expect(headerStatus).toHaveText("Ready to chat");
 			await expect(card).toContainText("Chatting works without a computer.");
 			await composer.fill("");
 

@@ -116,7 +116,7 @@ test("Pals have no group up to three, a foldable one at four, and Recents never 
 		await name.fill("Işık");
 		await name.press("Enter");
 		await expect(page.getByRole("tab", { name: "Işık" })).toBeVisible({ timeout: T });
-		await expect(page.getByText("Ready to chat")).toBeVisible({ timeout: T });
+		await expect(page.locator(".pal-status-rest").filter({ hasText: "Ready to chat" })).toBeVisible({ timeout: T });
 		await noPalsGroup(w, 1);
 		await shoot(w, "1-pal");
 

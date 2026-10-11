@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { type ComponentProps, createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, it } from 'vitest'
@@ -70,13 +71,36 @@ it('says Starting while the computer starts and offers no second Start', () => {
 	expect(html).not.toContain('>Start Işık<')
 })
 
-it('shows Paused as the status and Resume as the action for a paused Pal', () => {
+it('shows Paused at rest and Resume in the same place for a paused Pal', () => {
 	const html = card({ pal: { ...pal, paused: true }, status: 'paused' })
-	expect(html).toMatch(/<output[^>]*pal-context-status[^>]*>Paused<\/output>/)
-	expect(html).toMatch(/<button\b[^>]*aria-label="Resume Işık"[^>]*>Resume<\/button>/)
-	// The status line never holds the action's name.
-	expect(html).not.toMatch(/pal-context-status[^>]*>[^<]*Resume/)
-	expect(card({}).match(/>Pause<\/button>/)).not.toBeNull()
+	expect(html).toMatch(/<output[^>]*sr-only[^>]*>Paused<\/output>/)
+	expect(html).toMatch(/<button\b[^>]*aria-label="Resume Işık"/)
+	expect(html).toMatch(/pal-status-rest[^>]*><span>Paused<\/span>/)
+	expect(html).toMatch(/pal-status-hover[^>]*><span>Resume Işık<\/span>/)
+})
+
+it('shows the status at rest and Pause on hover, with no visible Pause button', () => {
+	const html = card({})
+	expect(html).toMatch(/pal-status-rest[^>]*><span>Ready to chat<\/span>/)
+	expect(html).toMatch(/pal-status-hover[^>]*><span>Pause Işık<\/span>/)
+	expect(html).not.toContain('pal-pause-action')
+	expect(html).not.toMatch(/>Pause<\/button>/)
+})
+
+it('disables the status action while the Pal is busy and keeps the hover swap off', () => {
+	const html = card({ pauseDisabled: true })
+	expect(html).toMatch(/<button\b[^>]*pal-status-action[^>]*disabled/)
+	const css = readFileSync(new URL('./pal-context.css', import.meta.url), 'utf8')
+	expect(css).toContain(
+		'.pal-status-action:not(:disabled):is(:hover, :focus-visible) .pal-status-hover',
+	)
+	expect(css).toMatch(/\.pal-context-identity \.pal-status-action:disabled \{\s*opacity: 1/)
+})
+
+it('is a plain status with no action when the Pal cannot be paused', () => {
+	const html = card({ onPause: undefined })
+	expect(html).toMatch(/<output[^>]*pal-context-status[^>]*>Ready to chat<\/output>/)
+	expect(html).not.toContain('Pause Işık')
 })
 
 it('never shows a build instruction or repository path in the computer panel', () => {
@@ -228,7 +252,7 @@ it('has one Start: it starts the computer too, and is switched off with a way to
 		computer: { ...base.computer, setupMissing: true },
 	})
 	expect(blocked).not.toContain('Start Işık')
-	expect(blocked).not.toContain('pal-status-action')
+	expect(blocked).not.toContain('pal-computer-action')
 	expect(blocked).toContain('How to set up')
 	expect(blocked).toContain('Chatting works without a computer')
 	// An offline computer always says that chatting needs none; a connected one does not.

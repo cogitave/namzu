@@ -165,21 +165,32 @@ function PalContextBody({
 				</div>
 				<div className="pal-context-identity">
 					<h2 title={pal.name}>{pal.name}</h2>
-					<output className="pal-context-status" aria-live="polite">
-						{status === 'working' && <LoaderCircleIcon className="pal-context-loading" />}
-						{statusLabels[status]}
-					</output>
-					{onPause && (
-						<Button
-							variant="outline"
-							size="xs"
-							className="pal-pause-action"
-							aria-label={pauseLabel}
-							disabled={pauseDisabled}
-							onClick={onPause}
-						>
-							{pal.paused ? 'Resume' : 'Pause'}
-						</Button>
+					{onPause ? (
+						<>
+							<output className="sr-only" aria-live="polite">
+								{statusLabels[status]}
+							</output>
+							<Button
+								variant="ghost-muted"
+								className="pal-context-status pal-status-action"
+								aria-label={pauseLabel}
+								disabled={pauseDisabled}
+								onClick={onPause}
+							>
+								<span className="pal-status-rest" aria-hidden="true">
+									{status === 'working' && <LoaderCircleIcon className="pal-context-loading" />}
+									<span>{statusLabels[status]}</span>
+								</span>
+								<span className="pal-status-hover" aria-hidden="true">
+									<span>{pauseLabel}</span>
+								</span>
+							</Button>
+						</>
+					) : (
+						<output className="pal-context-status" aria-live="polite">
+							{status === 'working' && <LoaderCircleIcon className="pal-context-loading" />}
+							{statusLabels[status]}
+						</output>
 					)}
 				</div>
 				{onCommunication && (

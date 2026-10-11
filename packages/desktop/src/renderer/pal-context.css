@@ -167,9 +167,6 @@
 	width: 13px;
 	height: 13px;
 }
-.pal-pause-action {
-	margin-top: 6px;
-}
 .pal-context-section + .pal-context-section {
 	margin-top: 22px;
 }
@@ -463,6 +460,10 @@
 .pal-status-hover {
 	opacity: 0;
 	color: var(--foreground);
+}
+.pal-context-identity .pal-status-action:disabled {
+	opacity: 1;
+	cursor: default;
 }
 .pal-status-action:not(:disabled):is(:hover, :focus-visible) .pal-status-rest {
 	opacity: 0;
