@@ -37,6 +37,7 @@ import * as userCommandStore from '../../user-commands/store.js'
 import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 import type { AgentEvent, AgentSession, SendOptions } from '../agent.js'
 import type { TuiExitSummary } from '../exit-summary.js'
+import { StartupRefusal } from '../plain-failure.js'
 import type { TuiContext } from '../types.js'
 import { type Screen, renderToScreen } from './support/screen.js'
 
@@ -1091,7 +1092,7 @@ describe('publishing a picker selection', () => {
 			},
 		}
 		createSession = async (prefs) => {
-			if (prefs.providers[0]?.id === 'deepseek') throw new Error('B unavailable')
+			if (prefs.providers[0]?.id === 'deepseek') throw new StartupRefusal('B unavailable.')
 			return a
 		}
 		const harness = render(<App ctx={ctx} />)
@@ -1115,7 +1116,7 @@ describe('publishing a picker selection', () => {
 		await frameShows(harness.lastFrame, 'Choose a model')
 		await tick(60)
 		harness.stdin.write('\r')
-		await frameShows(harness.lastFrame, 'B unavailable')
+		await frameShows(harness.lastFrame, 'B unavailable.')
 		harness.stdin.write('\x1B')
 		await frameShows(harness.lastFrame, 'Choose a provider')
 		harness.stdin.write('\x1B')
@@ -1187,7 +1188,7 @@ describe('publishing a picker selection', () => {
 				yield { kind: 'done', stopReason: 'end_turn' }
 			},
 		}
-		const failure = new Error('required sandbox unavailable')
+		const failure = new StartupRefusal('Required sandbox unavailable.')
 		createSession = async (prefs) => {
 			const id = prefs.providers[0]?.id
 			if (id === 'deepseek') throw failure
