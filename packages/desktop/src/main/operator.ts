@@ -4241,6 +4241,8 @@ export class Operator {
 					this.assertPalAdmission(session.view.palId)
 					await session.client.request('namzu/sessions/abandon-paused', {
 						sessionId: session.runtimeSessionId,
+						// The failed message stays in the transcript and in what the provider is shown.
+						withdrawMessages: false,
 					})
 					// The turn is closed durably now, so the window must hear it even when this send is stale.
 					this.emit({ kind: 'turn-closed', sessionId })
@@ -5227,10 +5229,18 @@ export class Operator {
 		const session = this.session(sessionId)
 		if (session.running || (session.admitting && !this.continuing.has(sessionId)))
 			throw new Error('Wait for this conversation’s active work to finish.')
+		const last = this.lastUserMessage(session)
+		return this.putBack(sessionId, last, this.restorableFiles(sessionId, last))
+	}
+	private lastUserMessage(session: Conversation): ChatMessage {
 		const last = [...session.projection.messages]
 			.reverse()
 			.find((message) => message.role === 'user')
 		if (!last) throw new Error('This conversation has no message to put back.')
+		return last
+	}
+	/** The message's own files, checked against what the composer already holds. */
+	private restorableFiles(sessionId: string, last: ChatMessage): OwnedAttachment[] {
 		const files = (last.attachments ?? [])
 			.map((view) => this.attachmentFiles.get(view.id))
 			.filter((file): file is OwnedAttachment => file !== undefined && file.ownerId === sessionId)
@@ -5238,6 +5248,14 @@ export class Operator {
 			(file) => file.ownerId === sessionId && file.draft,
 		)
 		validateAttachmentBatch([...new Set([...existing, ...files])])
+		return files
+	}
+	private putBack(
+		sessionId: string,
+		last: ChatMessage,
+		files: OwnedAttachment[],
+	): { text: string; attachments: AttachmentView[] } {
+		const session = this.session(sessionId)
 		const text = session.draft.trim() ? `${last.text}\n\n${session.draft}` : last.text
 		this.saveDraft(sessionId, text)
 		for (const file of files) file.draft = true
@@ -5256,8 +5274,9 @@ export class Operator {
 			throw new Error('Wait for this conversation’s active work to finish.')
 		if (!session.client.supportsAbandonPaused())
 			throw new Error('Update Namzu to continue without this reply.')
-		if (!session.projection.messages.some((message) => message.role === 'user'))
-			throw new Error('This conversation has no message to put back.')
+		// Taken before the turn closes: closing drops the message from the transcript.
+		const last = this.lastUserMessage(session)
+		const files = this.restorableFiles(sessionId, last)
 		this.assertPalAdmission(session.view.palId, true)
 		const admission = Symbol('continue admission')
 		session.admitting = admission
@@ -5266,11 +5285,13 @@ export class Operator {
 			await this.reattach(session)
 			await session.client.request('namzu/sessions/abandon-paused', {
 				sessionId: session.runtimeSessionId,
+				withdrawMessages: true,
 			})
-			this.emit({ kind: 'turn-closed', sessionId })
+			// The message goes back to the box, so the transcript drops it here as the history does.
+			this.emit({ kind: 'turn-closed', sessionId, withdrawn: true })
 			await this.refreshRetry(session).catch(() => undefined)
 			this.state(session, undefined, undefined, true)
-			return this.reopenLastMessage(sessionId)
+			return this.putBack(sessionId, last, files)
 		} finally {
 			this.continuing.delete(sessionId)
 			if (session.admitting === admission) session.admitting = undefined
