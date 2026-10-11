@@ -381,7 +381,12 @@ function failed(outcomes: readonly Outcome[]): string[] {
 	return outcomes.filter((o) => o.failure !== undefined).map((o) => o.name)
 }
 
-describe.skipIf(IS_WINDOWS)('the sandbox conformance suite', () => {
+// Every case runs the whole conformance contract against real child processes,
+// so none is a unit test and vitest's 5000 ms default is the wrong budget.
+// Measured per case: about 3.5 s on an idle 32-core host and 4.4 s pinned to
+// two cores (`taskset -c 0,1`), where the default failed all five 3 of 3 times.
+// 30 s is a hang guard well clear of that, not a tuned margin.
+describe.skipIf(IS_WINDOWS)('the sandbox conformance suite', { timeout: 30_000 }, () => {
 	it('passes a correct implementation', async () => {
 		// The control, and not a formality. Every case below reads a FAILURE
 		// as evidence that the suite caught the named defect; a harness that
