@@ -120,11 +120,15 @@ export class GoogleProvider implements LLMProvider {
 			signal,
 		})
 		if (!res.ok) {
-			await res.body?.cancel()
+			// The body is read for the provider's own sentence, status and code; the error keeps
+			// those scrubbed and drops the rest.
+			const body = await res.text().catch(() => '')
 			throw providerHttpError({
 				providerId: this.id,
 				status: res.status,
+				body,
 				retryAfter: res.headers.get('retry-after'),
+				requestId: res.headers.get('x-request-id') ?? res.headers.get('x-goog-request-id'),
 			})
 		}
 		return res

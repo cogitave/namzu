@@ -267,9 +267,25 @@ describe('Details wording', () => {
 			'openai (HTTP 403) — the provider rejected the request credentials: Project proj_abc123 does not have access to model gpt-5',
 		)
 		expect(failure.details).toBe(
-			'OpenAI: access was refused\nStatus: 403 · Provider said: “Your project does not have access to model gpt-5”\nOpenAI project: proj_abc123',
+			'OpenAI: access was refused\nStatus: 403 · Provider said: “Your project does not have access to model gpt-5”\nProject: proj_abc123',
 		)
 		expect(failure.details).not.toMatch(/rejected the request credentials/)
+	})
+	it('shows the OpenAI type, code and request ID the driver carries, with the project on its own line', () => {
+		const failure = describeFailure(
+			'openai (HTTP 403) — the provider rejected the request credentials: {"error":{"message":"Project proj_abc123 does not have access to model gpt-6-luna","type":"invalid_request_error","code":"model_not_found"},"request_id":"req_9f8e7d"}',
+		)
+		expect(failure.details).toBe(
+			'OpenAI: access was refused\nStatus: 403 · Provider said: “Your project does not have access to model gpt-6-luna” · Type: invalid_request_error · Code: model_not_found\nProject: proj_abc123\nRequest ID: req_9f8e7d',
+		)
+	})
+	it('shows the type and code of a 429 the same way', () => {
+		const failure = describeFailure(
+			'openai (HTTP 429) — rate limited by the provider: {"error":{"message":"Rate limit reached for gpt-6-luna","type":"rate_limit_error","code":"rate_limit_exceeded"},"request_id":"req_429aa11"}',
+		)
+		expect(failure.details).toBe(
+			'OpenAI: rate limited by the provider\nStatus: 429 · Provider said: “Rate limit reached for gpt-6-luna” · Type: rate_limit_error · Code: rate_limit_exceeded\nRequest ID: req_429aa11',
+		)
 	})
 	it('does not say a reply went unreported when none arrived', () => {
 		expect(unknownUsageDetail()).not.toMatch(/\breply\b/)
@@ -369,7 +385,7 @@ describe('Details are the same labelled fields on every wire', () => {
 	}
 	const expected: Record<string, string> = {
 		'openai.403':
-			'OpenAI: access was refused\nStatus: 403 · Provider said: “Your project does not have access to model gpt-6-luna”\nOpenAI project: proj_abc123',
+			'OpenAI: access was refused\nStatus: 403 · Provider said: “Your project does not have access to model gpt-6-luna”\nProject: proj_abc123',
 		'openai.429':
 			'OpenAI: rate limited by the provider\nStatus: 429 · Provider said: “Rate limit reached for gpt-6-luna in organization org-x on requests per min. Limit: 3, Used: 3”',
 		'openai.quota':

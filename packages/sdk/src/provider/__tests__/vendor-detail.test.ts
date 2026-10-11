@@ -141,3 +141,70 @@ describe('a credential never rides along', () => {
 		expect(err.message).not.toContain('AbCdEfGhIjKlMnOpQrStUv')
 	})
 })
+
+describe('the provider type, code and request ID travel beside its sentence', () => {
+	const openai403 = () =>
+		Object.assign(new Error('403 Your project does not have access to model gpt-6-luna'), {
+			name: 'PermissionDeniedError',
+			status: 403,
+			type: 'invalid_request_error',
+			code: 'model_not_found',
+			param: null,
+			requestID: 'req_9f8e7d',
+		})
+
+	it('reads them off the vendor SDK error fields', () => {
+		const err = providerVendorError({ providerId: 'openai', error: openai403() })
+		expect(JSON.parse(err.detail ?? '')).toEqual({
+			error: {
+				message: 'Your project does not have access to model gpt-6-luna',
+				type: 'invalid_request_error',
+				code: 'model_not_found',
+			},
+			request_id: 'req_9f8e7d',
+		})
+		expect(err.providerCode).toBe('model_not_found')
+	})
+
+	it('falls back to the x-request-id response header', () => {
+		const vendor = Object.assign(openai403(), {
+			requestID: undefined,
+			headers: new Headers({ 'x-request-id': 'req_from_header' }),
+		})
+		const err = providerVendorError({ providerId: 'openai', error: vendor })
+		expect(JSON.parse(err.detail ?? '').request_id).toBe('req_from_header')
+	})
+
+	it('leaves a message that already carries its body, and a bare sentence, as they were', () => {
+		const anthropic = Object.assign(
+			new Error('403 {"type":"error","error":{"type":"permission_error","message":"nope"}}'),
+			{ status: 403, type: 'permission_error' },
+		)
+		expect(providerVendorError({ providerId: 'anthropic', error: anthropic }).detail).toContain(
+			'permission_error',
+		)
+		const bare = Object.assign(new Error('boom'), { status: 500 })
+		expect(providerVendorError({ providerId: 'x', error: bare }).detail).toBe('boom')
+	})
+
+	it('never lets a credential-shaped field value ride along', () => {
+		const vendor = Object.assign(openai403(), { requestID: 'sk-ant-api03-AbCdEfGhIjKlMnOpQrStUv' })
+		const err = providerVendorError({ providerId: 'openai', error: vendor })
+		expect(err.detail).not.toContain('sk-ant')
+	})
+
+	it('keeps the status of a Google body as the type, and the response request ID', () => {
+		const err = providerHttpError({
+			providerId: 'google',
+			status: 403,
+			requestId: 'goog_req_1',
+			body: JSON.stringify({
+				error: { code: 403, message: 'Denied for this project', status: 'PERMISSION_DENIED' },
+			}),
+		})
+		expect(JSON.parse(err.detail ?? '')).toEqual({
+			error: { message: 'Denied for this project', type: 'PERMISSION_DENIED' },
+			request_id: 'goog_req_1',
+		})
+	})
+})
