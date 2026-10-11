@@ -187,6 +187,20 @@ describe('the provider type, code and request ID travel beside its sentence', ()
 		expect(providerVendorError({ providerId: 'x', error: bare }).detail).toBe('boom')
 	})
 
+	it('keeps the fields when the sentence itself holds a brace', () => {
+		const vendor = Object.assign(openai403(), {
+			message: '403 The model {gpt-6-luna} does not exist or you do not have access to it.',
+		})
+		const detail = JSON.parse(
+			providerVendorError({ providerId: 'openai', error: vendor }).detail ?? '',
+		)
+		expect(detail.error).toMatchObject({
+			type: 'invalid_request_error',
+			code: 'model_not_found',
+		})
+		expect(detail.request_id).toBe('req_9f8e7d')
+	})
+
 	it('never lets a credential-shaped field value ride along', () => {
 		const vendor = Object.assign(openai403(), { requestID: 'sk-ant-api03-AbCdEfGhIjKlMnOpQrStUv' })
 		const err = providerVendorError({ providerId: 'openai', error: vendor })

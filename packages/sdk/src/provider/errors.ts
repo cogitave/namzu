@@ -528,7 +528,7 @@ export function providerVendorError(input: {
 	const fields = error as { type?: unknown; param?: unknown; requestID?: unknown } | null
 	// A message that already carries its body (Anthropic's) has the fields; one that is only the
 	// parsed sentence (OpenAI's) gets them from the SDK error's own properties.
-	const detail = message.includes('{')
+	const detail = carriesBody(message)
 		? vendorDetail(message)
 		: structuredVendorDetail({
 				message,
@@ -545,6 +545,18 @@ export function providerVendorError(input: {
 		...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
 		...(detail !== undefined ? { detail } : {}),
 	})
+}
+
+/** Anthropic's SDK words a failure "<status> <JSON body>"; OpenAI's is "<status> <sentence>", which may itself hold a brace. */
+function carriesBody(message: string): boolean {
+	const rest = message.replace(/^\d{3}\s+/, '').trim()
+	if (!rest.startsWith('{')) return false
+	try {
+		const parsed: unknown = JSON.parse(rest)
+		return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+	} catch {
+		return false
+	}
 }
 
 function parsedBody(body: unknown): Record<string, unknown> | undefined {
