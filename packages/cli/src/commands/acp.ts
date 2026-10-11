@@ -1043,7 +1043,9 @@ export function createCliAcpRuntime(
 		retry: async ({ sessionId, turnId, checkpointId, options, cwd, signal, onEvent, ask }) => {
 			const record = await ensureSession(sessionId, cwd, signal)
 			if (!record.conversations || !record.session.resumePaused)
-				throw new Error('This connection cannot resume durable paused turns.')
+				throw new Error(
+					'Namzu can’t repeat this reply in this conversation. Continue without it, or send your message again.',
+				)
 			if (record.route) throw new Error('This conversation already has active work.')
 			const target = await deps.resolveSession(sessionId)
 			const status = await (deps.readRetryStatus ?? readProviderRetryStatus)(
@@ -1411,7 +1413,9 @@ export function createCliAcpRuntime(
 		abandonPausedTurn: async (sessionId, requestedCwd, turnId) => {
 			const record = await ensureSession(sessionId, requestedCwd, new AbortController().signal)
 			if (!record.conversations || !record.session.abandonTurn)
-				throw new Error('This connection cannot close paused turns.')
+				throw new Error(
+					'Namzu can’t close this reply in this conversation. Copy your message to a new conversation instead.',
+				)
 			if (record.route) throw new Error('This conversation already has active work.')
 			const target = await deps.resolveSession(sessionId)
 			const facts = await readConversationFacts(record.conversations, target.sessionId)

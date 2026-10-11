@@ -22,6 +22,7 @@ import {
 	type ToolDefinition,
 	ToolManager,
 	type Toolset,
+	abandonTurn,
 	asCheckpointId,
 	asTurnId,
 	bindOwner,
@@ -984,6 +985,17 @@ export async function createPalAgentSession(
 		},
 		resumeDurable: kernelResume,
 		resumePaused,
+		// A Pal's paused turn is closed the way any conversation's is: one append to the
+		// conversation's own log, which needs no computer and runs nothing. Without it the host
+		// could not offer "Continue without this reply" in a Pal.
+		abandonTurn: async (turnId, reason) => {
+			if (closed) throw new Error('This Pal conversation is closed.')
+			await assertOwnedConversation()
+			await abandonTurn(scope.sessionId, turnId, reason, {
+				log: DiskSessionLog.at(conversations.paths, { sessionId: scope.sessionId }),
+				index: conversations.index,
+			})
+		},
 		send: async function* (messages, opts) {
 			const work = beginWork(opts?.signal, opts?.assertExecutionAllowed, permissionReader(opts))
 			const { controller } = work
