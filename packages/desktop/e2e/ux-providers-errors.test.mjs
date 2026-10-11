@@ -22,6 +22,7 @@ import {
 	createWorld,
 	dispose,
 	expect,
+	historySeenBy,
 	launch,
 	openProject,
 	repoRoot,
@@ -342,6 +343,11 @@ flow(
 		await expect(w.page.getByText("The provider is back.")).toBeVisible({ timeout: T });
 		assert.ok(w.model.requests.length > sent);
 		assert.equal(await w.page.getByRole("tab").count(), tabs, "the same conversation took it");
+		// The closed turn is not history: the provider receives the person's message once (the
+		// restored one), and no empty or partial assistant message stands where the reply was.
+		const seen = historySeenBy(w.model.requests.at(-1), "please go wrong");
+		assert.equal(seen.copies, 1, `the provider saw the message once; it received ${seen.roles.join(", ")}`);
+		assert.ok(!seen.roles.some((role) => role.startsWith("assistant")), `no assistant message from the abandoned turn: ${seen.roles.join(", ")}`);
 	},
 );
 

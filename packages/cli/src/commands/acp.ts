@@ -380,7 +380,9 @@ export interface CliAcpRuntime {
 	/**
 	 * Close the conversation's paused provider turn without repeating it (`turn_failed`, code
 	 * `abandoned`), so the next message starts a new turn. Whatever the stopped request may have
-	 * cost stays recorded as unknown. Refuses a turn that waits for a person's decision.
+	 * cost stays recorded as unknown. Refuses a turn that waits for a person's decision. The turn's
+	 * messages leave the context the next turn carries (the client puts the person's message back
+	 * in its message box), while the log keeps them.
 	 */
 	abandonPausedTurn?(sessionId: string, cwd: string, turnId?: string): Promise<{ closed: true }>
 	modelSettings(provider: string, model: string, sessionId?: string): Promise<ComposerModelSettings>
@@ -1439,6 +1441,9 @@ export function createCliAcpRuntime(
 			await record.session.abandonTurn(
 				asTurnId(pausedTurn),
 				'The person continued without the reply that stopped on a provider error.',
+				// The message goes back to the person's message box: the closed turn must not also
+				// reach the provider with it when they send it again.
+				{ withdrawMessages: true },
 			)
 			return { closed: true as const }
 		},

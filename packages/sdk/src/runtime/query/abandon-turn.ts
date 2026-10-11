@@ -20,6 +20,18 @@ export interface SessionLocatorOptions {
 	readonly lease?: SessionLease
 }
 
+/** Options for {@link abandonTurn}. */
+export interface AbandonTurnOptions extends SessionLocatorOptions {
+	/**
+	 * The caller gives the turn's messages back to the person, for instance by
+	 * putting the prompt back in a message box to send again. The abandoned
+	 * turn then contributes no message to the next turn's context, so the
+	 * provider does not see that prompt twice. The records stay in the log.
+	 * Absent (the default): the turn's messages stay in the context.
+	 */
+	readonly withdrawMessages?: boolean
+}
+
 /** Lease time-to-live for a lease a session-level operation claims for one append. */
 const OPERATION_LEASE_TTL_MS = 30_000
 
@@ -103,8 +115,12 @@ export async function abandonTurn(
 	sessionId: SessionId,
 	turnId: TurnId,
 	reason: string,
-	options: SessionLocatorOptions = {},
+	options: AbandonTurnOptions = {},
 ): Promise<void> {
 	const log = await locateSessionLog(sessionId, options)
-	await withSessionLease(log, options.lease, (lease) => log.abandonTurn(lease, turnId, reason))
+	await withSessionLease(log, options.lease, (lease) =>
+		log.abandonTurn(lease, turnId, reason, {
+			...(options.withdrawMessages ? { withdrawMessages: true } : {}),
+		}),
+	)
 }

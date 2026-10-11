@@ -988,12 +988,13 @@ export async function createPalAgentSession(
 		// A Pal's paused turn is closed the way any conversation's is: one append to the
 		// conversation's own log, which needs no computer and runs nothing. Without it the host
 		// could not offer "Continue without this reply" in a Pal.
-		abandonTurn: async (turnId, reason) => {
+		abandonTurn: async (turnId, reason, abandonOptions) => {
 			if (closed) throw new Error('This Pal conversation is closed.')
 			await assertOwnedConversation()
 			await abandonTurn(scope.sessionId, turnId, reason, {
 				log: DiskSessionLog.at(conversations.paths, { sessionId: scope.sessionId }),
 				index: conversations.index,
+				...(abandonOptions?.withdrawMessages ? { withdrawMessages: true } : {}),
 			})
 		},
 		send: async function* (messages, opts) {

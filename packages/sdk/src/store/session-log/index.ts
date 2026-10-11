@@ -19,6 +19,7 @@ export {
 export {
 	type ActiveTurn,
 	type ActiveTurnOptions,
+	type AbandonTurnLogOptions,
 	type BeginTurnOptions,
 	InvalidSessionRecordError,
 	type LogMedium,
@@ -51,6 +52,7 @@ export {
 	type SpilledSummary,
 	SpillUnavailableError,
 	TurnRuleError,
+	MESSAGES_WITHDRAWN_DETAIL,
 	foldSessionMessages,
 	withMessageId,
 } from './fold.js'

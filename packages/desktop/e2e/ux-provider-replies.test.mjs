@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
-import { createWorld, dispose, expect, launch, openProject, repoRoot, send } from "./harness.mjs";
+import { createWorld, dispose, expect, historySeenBy, launch, openProject, repoRoot, send } from "./harness.mjs";
 
 const T = 60000;
 const SHOTS = resolve(repoRoot, "research/hygiene-20261010/provider-replies");
@@ -408,6 +408,14 @@ for (const [status, contentType, body, tail, shotName] of [
 			await expect(w.page.getByText(/cannot close paused turns|Copy to a new conversation/)).toHaveCount(0);
 			assert.doesNotMatch(await w.page.locator("body").innerText(), /cannot close paused turns/i);
 			await shots(w, `${shotName}-continued`);
+			// Send the restored message; the provider answers this time. It receives the message
+			// once, and nothing of the closed turn stands in its place.
+			w.model.rules[0].steps = [{ text: "The provider is back." }];
+			await w.page.getByRole("button", { name: "Send message" }).click();
+			await expect(w.page.getByText("The provider is back.")).toBeVisible({ timeout: T });
+			const seen = historySeenBy(w.model.requests.at(-1), "please go wrong");
+			assert.equal(seen.copies, 1, `the provider saw the message once; it received ${seen.roles.join(", ")}`);
+			assert.ok(!seen.roles.some((role) => role.startsWith("assistant")), `no assistant message from the abandoned turn: ${seen.roles.join(", ")}`);
 		},
 	);
 }

@@ -1237,8 +1237,16 @@ export interface AgentSession {
 	 * Close this conversation's paused or interrupted turn without resuming it
 	 * (`turn_failed{ error.code: 'abandoned' }`), so the next prompt can begin a
 	 * turn. What `/abandon` does. A running turn is refused by the kernel.
+	 *
+	 * `withdrawMessages` is for a caller that puts the person's message back in
+	 * a message box to send again: the closed turn then contributes no message
+	 * to the next request, so the provider does not receive the prompt twice.
 	 */
-	abandonTurn?(turnId: TurnId, reason: string): Promise<void>
+	abandonTurn?(
+		turnId: TurnId,
+		reason: string,
+		options?: { readonly withdrawMessages?: boolean },
+	): Promise<void>
 	/**
 	 * Cancel and settle live sends, compactions and durable resumes, then release
 	 * what the session holds — today, the external tool servers.
@@ -4674,11 +4682,12 @@ export async function createAgentSession(
 			),
 		resumeDurable: (params) => kernelResume(params),
 		resumePaused: (params) => resumePausedStream(params),
-		abandonTurn: (turnId, reason) =>
+		abandonTurn: (turnId, reason, abandonOptions) =>
 			operations.promise(undefined, async () => {
 				if (options.ephemeral) throw new Error('An ephemeral session keeps no turn to abandon.')
 				await abandonTurn(scope.sessionId, turnId, reason, {
 					log: DiskSessionLog.at(paths, { sessionId: scope.sessionId }),
+					...(abandonOptions?.withdrawMessages ? { withdrawMessages: true } : {}),
 					...(options.conversationSessions ? { index: options.conversationSessions.index } : {}),
 				})
 			}),

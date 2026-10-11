@@ -789,7 +789,11 @@ your message back in the message box and keep working here." with **Continue wit
 That calls `continueWithoutReply` in main, which sends `namzu/sessions/abandon-paused` (the CLI
 closes the paused turn with `turn_failed`, code `abandoned`, through the SDK's `abandonTurn`; the
 unknown usage stays on the ledger), emits `turn-closed`, and puts the last message and its files
-back in the composer, not sent (text already typed stays after it). The line under the empty slot
+back in the composer, not sent (text already typed stays after it). The closed turn is withdrawn
+from the history the next request carries (`withdrawMessages`), so sending the restored message shows the
+provider that message once, with no copy of the closed turn and no empty or partial assistant message; the
+log still holds the turn's records. `e2e/ux-providers-errors.test.mjs` and `e2e/ux-provider-replies.test.mjs`
+assert it from the requests the scripted provider received. The line under the empty slot
 reads "You continued without this reply." If closing the turn fails, the same card also offers **Copy
 to a new conversation** (`reopenLastMessage`, a new tab in the same project with the message and its
 files in its composer, not sent). When a failure message is shown, the "Paused." and limit lines are
