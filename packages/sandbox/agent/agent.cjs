@@ -2979,8 +2979,20 @@ async function findPtySlave(scriptPid) {
 	throw ptySlaveFailure(attempts, startedAt, childrenError, fdError, statError, probed, scriptState)
 }
 
+// The longest input waits behind one resize. `stty` on a PTY slave takes
+// milliseconds; a resize still pending after this is treated as lost, so a
+// person's keystrokes are delayed by at most this long per resize, never held
+// indefinitely.
+const RESIZE_MAX_WAIT_MS = 2_000
+
 function resizePty(slavePath, cols, rows) {
 	return new Promise((resolve, reject) => {
+		// A resize that never finishes must not outlive RESIZE_MAX_WAIT_MS: it is
+		// killed, and the input queued behind it is released the same moment.
+		const timer = setTimeout(() => {
+			child.kill('SIGKILL')
+		}, RESIZE_MAX_WAIT_MS)
+		timer.unref()
 		const child = spawn(
 			'/usr/bin/stty',
 			['-F', slavePath, 'rows', String(rows), 'cols', String(cols)],
@@ -2991,8 +3003,12 @@ function resizePty(slavePath, cols, rows) {
 				stdio: 'ignore',
 			},
 		)
-		child.once('error', reject)
+		child.once('error', (err) => {
+			clearTimeout(timer)
+			reject(err)
+		})
 		child.once('close', (code) => {
+			clearTimeout(timer)
 			if (code === 0) resolve()
 			else reject(new Error(`stty resize failed with code ${String(code)}`))
 		})
@@ -3556,7 +3572,17 @@ function orderedWithResize(slavePath, task, isResize = false) {
 		task()
 		return
 	}
-	const next = (tail ?? Promise.resolve()).then(task).catch(() => {})
+	const run = () => {
+		const done = Promise.resolve().then(task)
+		if (!isResize) return done
+		let timer
+		const lost = new Promise((resolve) => {
+			timer = setTimeout(resolve, RESIZE_MAX_WAIT_MS)
+			timer.unref()
+		})
+		return Promise.race([done, lost]).finally(() => clearTimeout(timer))
+	}
+	const next = (tail ?? Promise.resolve()).then(run).catch(() => {})
 	ptyEventTails.set(slavePath, next)
 	next.then(() => {
 		if (ptyEventTails.get(slavePath) === next) ptyEventTails.delete(slavePath)
@@ -5591,6 +5617,8 @@ async function main() {
 // agent in-process without spawning a separate node binary.
 module.exports = {
 	AGENT_FEATURES,
+	orderedWithResize,
+	RESIZE_MAX_WAIT_MS,
 	advertisedFeatures,
 	sessions,
 	FIRECRACKER_AGENT_PROTOCOL_VERSION,
