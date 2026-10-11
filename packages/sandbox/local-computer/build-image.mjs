@@ -190,7 +190,12 @@ export async function compressFile({ run, source, destination, format, level }) 
 		if (typeof zlib.createZstdCompress !== 'function')
 			throw new BuildImageError('zstd needs Node 22.15 or newer, or use --format gz or xz')
 		codec = zlib.createZstdCompress({
-			params: { [zlib.constants.ZSTD_c_compressionLevel]: level },
+			params: {
+				[zlib.constants.ZSTD_c_compressionLevel]: level,
+				// No worker threads: Node's zstd stream fails with "stream.push() after EOF" when they
+				// are on (checked on Node 22.20 and 24.19). One thread takes about 7 minutes at level 19.
+				[zlib.constants.ZSTD_c_checksumFlag]: 1,
+			},
 		})
 	}
 	await pipeline(createReadStream(source), codec, createWriteStream(destination))

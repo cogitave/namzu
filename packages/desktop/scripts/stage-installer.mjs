@@ -1,15 +1,19 @@
 // Assemble the flat project that electron-builder packages into the Windows installer.
 //
 //   node scripts/stage-installer.mjs <out-dir> [--python-archive <file.tar.gz>]
+//                                    [--pal-computer-image <file> [--pal-computer-manifest <file>]]
 //
 // <out-dir> receives: build/ (the app icon), package.json (generated from this package, same version), dist/ (the built
 // desktop), node_modules/ (the main process's runtime dependencies), electron-builder.yml,
 // extra/cli (the CLI and its dependencies as a flat, real-file node_modules: no links, no absolute
-// paths) and extra/python (a standalone CPython with venv and pip, for local speech).
+// paths), extra/python (a standalone CPython with venv and pip, for local speech) and
+// extra/pal-computer (the Pal computer image archive and its manifest, from
+// packages/sandbox/local-computer/build-image.mjs; the archive is stored as given, never recompressed).
 // Nothing is written inside the repository. Run `pnpm -r build` first.
 import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import {
+	copyFileSync,
 	cpSync,
 	existsSync,
 	mkdirSync,
@@ -19,7 +23,7 @@ import {
 	statSync,
 	writeFileSync,
 } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const pkgRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -60,15 +64,94 @@ async function pythonArchive(explicit, scratch) {
 	return file
 }
 
+/** Arguments of this script. Pure, so the flags are tested without staging anything. */
+export function parseArguments(args) {
+	const options = {
+		out: undefined,
+		pythonArchive: undefined,
+		palComputerImage: undefined,
+		palComputerManifest: undefined,
+	}
+	const flags = {
+		'--python-archive': 'pythonArchive',
+		'--pal-computer-image': 'palComputerImage',
+		'--pal-computer-manifest': 'palComputerManifest',
+	}
+	const positional = []
+	for (let index = 0; index < args.length; index += 1) {
+		const key = flags[args[index]]
+		if (!key) {
+			positional.push(args[index])
+			continue
+		}
+		const value = args[index + 1]
+		if (value === undefined || value.startsWith('--')) throw new Error(`${args[index]} needs a file.`)
+		options[key] = resolve(value)
+		index += 1
+	}
+	if (positional.length !== 1)
+		throw new Error(
+			'Usage: stage-installer.mjs <out-dir> [--python-archive <file>] [--pal-computer-image <file> [--pal-computer-manifest <file>]]',
+		)
+	if (options.palComputerManifest && !options.palComputerImage)
+		throw new Error('--pal-computer-manifest needs --pal-computer-image.')
+	options.out = resolve(positional[0])
+	if (options.palComputerImage && !options.palComputerManifest)
+		options.palComputerManifest = join(dirname(options.palComputerImage), 'manifest.json')
+	return options
+}
+
+const MANIFEST_KEYS = [
+	'revision',
+	'imageRef',
+	'imageId',
+	'protocol',
+	'sha256',
+	'sizeBytes',
+	'compressedBytes',
+	'format',
+	'file',
+]
+
+/**
+ * Copy the Pal computer image archive and its manifest into <out>/extra/pal-computer, after
+ * checking the manifest describes this very archive (name, size and SHA-256). The archive is
+ * already compressed and is copied byte for byte; the installer carries the image so a Pal's
+ * computer never needs a download.
+ */
+export function stagePalComputer(out, imageFile, manifestFile) {
+	const target = join(out, 'extra/pal-computer')
+	mkdirSync(target, { recursive: true })
+	if (!imageFile) {
+		writeFileSync(
+			join(target, 'README.txt'),
+			'This build carries no Pal computer image (stage-installer ran without --pal-computer-image).\n',
+		)
+		return undefined
+	}
+	if (!existsSync(imageFile)) throw new Error(`${imageFile} does not exist.`)
+	if (!existsSync(manifestFile)) throw new Error(`${manifestFile} does not exist.`)
+	const manifest = JSON.parse(readFileSync(manifestFile, 'utf8'))
+	for (const key of MANIFEST_KEYS)
+		if (manifest[key] === undefined) throw new Error(`The Pal computer manifest has no "${key}".`)
+	if (manifest.file !== basename(imageFile))
+		throw new Error(`The manifest describes ${manifest.file}, not ${basename(imageFile)}.`)
+	if (statSync(imageFile).size !== manifest.compressedBytes)
+		throw new Error(`${basename(imageFile)} is not ${manifest.compressedBytes} bytes, as its manifest says.`)
+	if (sha256(imageFile) !== manifest.sha256)
+		throw new Error(`${basename(imageFile)} does not match the manifest sha256 ${manifest.sha256}.`)
+	copyFileSync(imageFile, join(target, manifest.file))
+	copyFileSync(manifestFile, join(target, 'manifest.json'))
+	return manifest
+}
+
 async function main() {
-	const args = process.argv.slice(2)
-	const archiveFlag = args.indexOf('--python-archive')
-	const explicitArchive = archiveFlag === -1 ? undefined : resolve(args[archiveFlag + 1] ?? '')
-	const positional = args.filter(
-		(_, index) => archiveFlag === -1 || (index !== archiveFlag && index !== archiveFlag + 1),
-	)
-	if (positional.length !== 1) throw new Error('Usage: stage-installer.mjs <out-dir>')
-	const out = resolve(positional[0])
+	const {
+		out,
+		pythonArchive: explicitArchive,
+		palComputerImage,
+		palComputerManifest,
+	} = parseArguments(process.argv.slice(2))
 	if (out === repoRoot || out.startsWith(`${repoRoot}/`) || out.startsWith(`${repoRoot}\\`))
 		throw new Error('Stage outside the repository; build output does not belong in Git.')
 	const desktop = JSON.parse(readFileSync(join(pkgRoot, 'package.json'), 'utf8'))
@@ -126,7 +209,10 @@ async function main() {
 	if (!existsSync(join(cli, 'node_modules/node-pty/prebuilds/win32-x64/pty.node')))
 		throw new Error('The staged CLI runtime has no node-pty win32-x64 binary; terminals would not work.')
 
-	// 3. Python.
+	// 3. The Pal computer image, when this build carries one.
+	const palComputer = stagePalComputer(out, palComputerImage, palComputerManifest)
+
+	// 4. Python.
 	const scratch = join(out, '.download')
 	mkdirSync(scratch)
 	const archive = await pythonArchive(explicitArchive, scratch)
@@ -142,7 +228,10 @@ async function main() {
 	const archiveMb = (statSync(archive).size / 1e6).toFixed(1)
 	rmSync(scratch, { recursive: true, force: true })
 
-	console.log(`Staged ${out} (version ${desktop.version}); python archive ${archiveMb} MB`)
+	const imageMb = palComputer
+		? `; pal computer image ${(palComputer.compressedBytes / 1e6).toFixed(1)} MB`
+		: ''
+	console.log(`Staged ${out} (version ${desktop.version}); python archive ${archiveMb} MB${imageMb}`)
 }
 
-await main()
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await main()

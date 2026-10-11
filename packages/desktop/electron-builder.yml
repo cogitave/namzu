@@ -27,6 +27,9 @@ extraResources:
     to: cli
   - from: extra/python
     to: python
+  # The Pal computer image archive and manifest. The archive is already compressed.
+  - from: extra/pal-computer
+    to: pal-computer
 win:
   icon: build/icon.ico
   target:
