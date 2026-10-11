@@ -1,7 +1,7 @@
 const { spawn } = require('node:child_process')
 const { randomBytes } = require('node:crypto')
 const { writeFileSync } = require('node:fs')
-const { APPLICATIONS } = require('./app-catalog.cjs')
+const { activeApplications } = require('./app-catalog.cjs')
 const { EXTENSION_ORIGIN } = require('./app-native-host.cjs')
 
 const HOME_URL = `${EXTENSION_ORIGIN}home.html`
@@ -150,7 +150,7 @@ async function bootstrapBrowserHome(marker, options = {}) {
 				value?.url === HOME_URL &&
 				value.ready === 'complete' &&
 				value.clock === true &&
-				value.apps === APPLICATIONS.length
+				value.apps === activeApplications().length
 			) {
 				if (nativeNewTab) return
 				// Activate this trusted extension, then use Chromium's native route

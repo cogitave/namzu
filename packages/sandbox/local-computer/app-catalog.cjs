@@ -1,12 +1,19 @@
-const { constants, accessSync } = require('node:fs')
+const { constants, accessSync, readFileSync } = require('node:fs')
+const { join } = require('node:path')
+
+// The image is built in stages and each stage advertises only what it installed.
+// `base` is the light Pal computer; `creative` is built FROM it and adds the heavy
+// applications, so its catalogue is every application of both stages.
+const STAGES = Object.freeze(['base', 'creative'])
 
 // Application ids never become commands, paths, argv or environment variables.
-// The reference image installs every entry and fails its build if an executable
+// Each stage installs its own entries and fails its build if an executable
 // or icon is absent. No id is advertised as a simulated application.
 const APPLICATIONS = Object.freeze(
 	[
 		{
 			id: 'blender',
+			stage: 'creative',
 			name: 'Blender',
 			binary: '/usr/local/bin/blender',
 			args: [],
@@ -16,6 +23,7 @@ const APPLICATIONS = Object.freeze(
 		},
 		{
 			id: 'freecad',
+			stage: 'creative',
 			name: 'FreeCAD',
 			binary: '/usr/bin/freecad',
 			args: [],
@@ -25,6 +33,7 @@ const APPLICATIONS = Object.freeze(
 		},
 		{
 			id: 'gimp',
+			stage: 'creative',
 			name: 'GIMP',
 			binary: '/usr/bin/gimp',
 			args: [],
@@ -33,6 +42,7 @@ const APPLICATIONS = Object.freeze(
 		},
 		{
 			id: 'inkscape',
+			stage: 'creative',
 			name: 'Inkscape',
 			binary: '/usr/bin/inkscape',
 			args: [],
@@ -41,6 +51,7 @@ const APPLICATIONS = Object.freeze(
 		},
 		{
 			id: 'draw',
+			stage: 'creative',
 			name: 'LibreOffice Draw',
 			binary: '/usr/bin/libreoffice',
 			args: ['--draw'],
@@ -49,6 +60,7 @@ const APPLICATIONS = Object.freeze(
 		},
 		{
 			id: 'editor',
+			stage: 'base',
 			name: 'Text Editor',
 			binary: '/usr/bin/mousepad',
 			args: [],
@@ -57,6 +69,7 @@ const APPLICATIONS = Object.freeze(
 		},
 		{
 			id: 'files',
+			stage: 'base',
 			name: 'Files',
 			binary: '/usr/bin/pcmanfm',
 			args: ['/home/namzu/workspace'],
@@ -65,6 +78,7 @@ const APPLICATIONS = Object.freeze(
 		},
 		{
 			id: 'terminal',
+			stage: 'base',
 			name: 'Terminal',
 			binary: '/usr/bin/xterm',
 			args: [
@@ -82,11 +96,13 @@ const APPLICATIONS = Object.freeze(
 				'Terminal',
 			],
 			desktop: ['debian-xterm.desktop', 'xterm.desktop'],
-			fallbackIcon: 'utilities-terminal',
+			// The dock's own terminal glyph, not the plain xterm pixmap.
+			icon: 'utilities-terminal',
 			required: true,
 		},
 		{
 			id: 'openscad',
+			stage: 'creative',
 			name: 'OpenSCAD',
 			binary: '/usr/bin/openscad',
 			args: [],
@@ -95,6 +111,7 @@ const APPLICATIONS = Object.freeze(
 		},
 		{
 			id: 'kdenlive',
+			stage: 'creative',
 			name: 'Kdenlive',
 			binary: '/usr/bin/kdenlive',
 			args: [],
@@ -103,6 +120,7 @@ const APPLICATIONS = Object.freeze(
 		},
 		{
 			id: 'godot',
+			stage: 'creative',
 			name: 'Godot',
 			binary: '/usr/local/bin/godot4',
 			args: ['--rendering-method', 'gl_compatibility'],
@@ -111,6 +129,7 @@ const APPLICATIONS = Object.freeze(
 		},
 		{
 			id: 'solitaire',
+			stage: 'creative',
 			name: 'Solitaire',
 			binary: '/usr/games/sol',
 			args: [],
@@ -118,6 +137,7 @@ const APPLICATIONS = Object.freeze(
 		},
 		{
 			id: 'qgis',
+			stage: 'creative',
 			name: 'QGIS',
 			binary: '/usr/bin/qgis',
 			args: [],
@@ -126,6 +146,7 @@ const APPLICATIONS = Object.freeze(
 		},
 		{
 			id: 'kicad',
+			stage: 'creative',
 			name: 'KiCad',
 			binary: '/usr/bin/kicad',
 			args: [],
@@ -134,6 +155,7 @@ const APPLICATIONS = Object.freeze(
 		},
 		{
 			id: 'paraview',
+			stage: 'creative',
 			name: 'ParaView',
 			binary: '/usr/bin/paraview',
 			args: [],
@@ -145,8 +167,36 @@ const APPLICATIONS = Object.freeze(
 	),
 )
 
-function installedApplication(id, access = (binary) => accessSync(binary, constants.X_OK)) {
-	const app = APPLICATIONS.find((entry) => entry.id === id)
+/** Applications a stage installs: its own and those of every stage it is built FROM. */
+function applicationsForStage(stage) {
+	const rank = STAGES.indexOf(stage)
+	if (rank < 0) throw new Error(`Unknown image stage: ${stage}`)
+	return APPLICATIONS.filter((app) => STAGES.indexOf(app.stage) <= rank)
+}
+
+/**
+ * The stage this image was built as, written by prepare-home at build time. A tree
+ * without the marker (a source checkout, a test) is the whole catalogue.
+ */
+function activeStage(read = () => readFileSync(join(__dirname, 'stage'), 'utf8')) {
+	try {
+		const stage = read().trim()
+		return STAGES.includes(stage) ? stage : STAGES[STAGES.length - 1]
+	} catch {
+		return STAGES[STAGES.length - 1]
+	}
+}
+
+function activeApplications(read) {
+	return applicationsForStage(activeStage(read))
+}
+
+function installedApplication(
+	id,
+	access = (binary) => accessSync(binary, constants.X_OK),
+	applications = activeApplications(),
+) {
+	const app = applications.find((entry) => entry.id === id)
 	if (!app) return undefined
 	try {
 		access(app.binary)
@@ -179,4 +229,12 @@ function applicationEnvironment(app, inherited = process.env) {
 	return env
 }
 
-module.exports = { APPLICATIONS, installedApplication, applicationEnvironment }
+module.exports = {
+	APPLICATIONS,
+	STAGES,
+	applicationsForStage,
+	activeStage,
+	activeApplications,
+	installedApplication,
+	applicationEnvironment,
+}
