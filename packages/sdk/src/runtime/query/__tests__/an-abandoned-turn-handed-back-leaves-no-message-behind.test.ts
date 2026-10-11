@@ -28,16 +28,22 @@ const turnConfig = {
 const PROMPT = 'please summarise the quarter'
 
 /** Refuses the first request with a retryable 503, then answers. */
-function unavailableOnce(): LLMProvider & { requests: ChatCompletionParams[] } {
-	const answers = new MockLLMProvider({ turns: [{ text: 'done' }] })
+function unavailableOnce(answered = 0): LLMProvider & { requests: ChatCompletionParams[] } {
+	const answers = new MockLLMProvider({
+		turns: [
+			...Array.from({ length: answered }, () => ({ text: 'earlier answer' })),
+			{ text: 'done' },
+		],
+	})
 	let refused = false
+	let calls = 0
 	return {
 		id: 'mock',
 		name: 'Mock',
 		capabilities: answers.capabilities,
 		requests: answers.requests,
 		async *chatStream(params: ChatCompletionParams) {
-			if (!refused) {
+			if (!refused && calls++ >= answered) {
 				refused = true
 				throw new ProviderError({
 					code: 'server_error',
@@ -124,5 +130,56 @@ describe('an abandoned turn whose prompt went back to the message box', () => {
 	it('keeps the abandoned turn’s messages in the context when the caller did not hand them back', async () => {
 		const { sent } = await sendAgainAfterClosing(false)
 		expect(copiesOf(sent, PROMPT)).toBe(2)
+	})
+})
+
+describe('a conversation with earlier turns', () => {
+	it.each([
+		['a cache that carries message ids', true],
+		['a cache that carries none', false],
+	])('sends the restored prompt once on %s', async (_label, withIds) => {
+		const session = memorySession()
+		const provider = unavailableOnce(1)
+		const base = {
+			provider,
+			toolsets: [],
+			...session,
+			agentId: 'agent_continue_without',
+			agentName: 'Continue without',
+			workingDirectory: process.cwd(),
+			retry: false,
+			turnConfig,
+		}
+		const first = await drainQuery({
+			...base,
+			messages: [{ role: 'user', content: 'an earlier question' }],
+			turnId: generateTurnId(),
+		} as unknown as QueryParams)
+		expect(first.status).toBe('completed')
+		const records = async () => (await session.sessionLog.readAll()).entries.map((e) => e.record)
+		const cacheBefore = await foldSessionMessages(await records())
+		const stoppedTurn = generateTurnId()
+		const stopped = await drainQuery({
+			...base,
+			messages: [...cacheBefore, { role: 'user', content: PROMPT }],
+			turnId: stoppedTurn,
+		} as unknown as QueryParams)
+		expect(stopped.stopReason).toBe('paused')
+		await abandonTurn(session.sessionId, stoppedTurn, 'the person continued', {
+			log: session.sessionLog,
+			withdrawMessages: true,
+		})
+		// The host's cache is what it held before the stopped turn.
+		const cache = withIds
+			? cacheBefore
+			: cacheBefore.map(({ id: _id, ...rest }) => rest as (typeof cacheBefore)[number])
+		const next = await drainQuery({
+			...base,
+			messages: [...cache, { role: 'user', content: PROMPT }],
+			turnId: generateTurnId(),
+		} as unknown as QueryParams)
+		expect(next.status).toBe('completed')
+		expect(copiesOf(provider.requests.at(-1), PROMPT)).toBe(1)
+		expect(copiesOf(provider.requests.at(-1), 'an earlier question')).toBe(1)
 	})
 })
