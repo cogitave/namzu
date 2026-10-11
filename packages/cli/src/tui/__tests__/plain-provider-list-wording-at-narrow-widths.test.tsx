@@ -52,7 +52,7 @@ describe.each([40, 50, 54, 80])('at %i columns', (cols) => {
 		const inner = screen.viewport().map((line) => line.replace(/[│╭╮╰╯─]/g, '').trim())
 		for (const [start, last] of [
 			['found ·', 'servers'],
-			['Zen free models', 'Namzu'],
+			['Zen free models', 'them'],
 		] as const) {
 			const first = inner.findIndex((line) => line.includes(start))
 			expect(first, `${start} is drawn at ${cols} columns`).toBeGreaterThanOrEqual(0)
@@ -63,7 +63,7 @@ describe.each([40, 50, 54, 80])('at %i columns', (cols) => {
 		}
 		const text = words(screen)
 		expect(text).toContain('2 found · sign-ins, API keys and local servers')
-		expect(text).toContain('Zen free models · only work inside OpenCode, not Namzu')
+		expect(text).toContain('Zen free models · experimental, and Zen may refuse them')
 		expect(text).not.toMatch(/existing sign-ins|optional keys|gateway may refuse/)
 	})
 })

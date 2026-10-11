@@ -12,7 +12,7 @@ vi.mock('../../integrations/providers/setup.js', () => ({
 			harness: { id: 'opencode', label: 'OpenCode', npmPackage: 'opencode-ai' },
 			installed: false,
 			version: '',
-			access: 'Zen free models · only work inside OpenCode, not Namzu',
+			access: 'Zen free models · experimental, and Zen may refuse them',
 		},
 	]),
 	installHarness: vi.fn(async () => ({ code: 0, output: 'installed' })),
@@ -32,9 +32,11 @@ it('requires a separate confirmation, rechecks installation and keeps connection
 		await screen!.waitForRender()
 		expect(screen!.viewport().join('\n')).toContain('Not installed')
 	})
-	expect(screen.viewport().join('\n')).toContain('Zen free models · only work inside OpenCode')
+	expect(screen.viewport().join('\n')).toContain(
+		'Zen free models · experimental, and Zen may refuse them',
+	)
 	expect(screen.viewport().join('\n')).not.toContain('OpenCode installation recommended')
-	expect(screen.viewport().join('\n')).toContain('not Namzu')
+	expect(screen.viewport().join('\n')).toContain('Zen may refuse them')
 	expect(screen.viewport().join('\n')).toContain('Namzu can reuse their sign-ins')
 	screen.press('i')
 	await screen.waitForRender()

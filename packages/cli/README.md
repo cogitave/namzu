@@ -224,10 +224,9 @@ namzu exec --provider zen --model big-pickle "Explain this project"
 namzu exec --provider zen-go --model glm-5.3-flash "Explain this project"
 ```
 
-The Zen commands attempt anonymous access when no key is available; the
-Zen may refuse that request. Go requires its own credential. All use the
-existing folder-trust rules. The same
-provider/model flags work with `exec --json`.
+The Zen commands attempt anonymous access when no key is available; Zen may refuse that
+request. Go requires its own credential. All use the existing folder-trust
+rules. The same provider/model flags work with `exec --json`.
 The picker lists each service's supported models from the provider catalogue;
 an explicit model selection is saved using the existing preferences flow.
 Go requests carry the actual Namzu conversation ID in `x-opencode-session`,

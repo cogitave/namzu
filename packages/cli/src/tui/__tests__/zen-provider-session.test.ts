@@ -223,7 +223,7 @@ it.each([undefined, 'public'])(
 			)
 			try {
 				expect(session.hasProvider).toBe(false)
-				expect(session.errorHint).toContain('free models only work inside OpenCode’s own app')
+				expect(session.errorHint).toContain('need no key, though Zen may refuse them')
 			} finally {
 				await session.close()
 			}

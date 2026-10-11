@@ -25,7 +25,7 @@ vi.mock('../../integrations/providers/setup.js', () => ({
 			harness: { id: 'opencode', label: 'OpenCode', npmPackage: 'opencode-ai' },
 			installed: false,
 			version: '',
-			access: 'Zen free models · only work inside OpenCode, not Namzu',
+			access: 'Zen free models · experimental, and Zen may refuse them',
 		},
 	]),
 	installHarness: vi.fn(async () => ({ code: 0, output: 'installed' })),
@@ -63,7 +63,7 @@ describe.each([40, 50, 54, 80])('at %i columns', (cols) => {
 			'Codex, Claude Code and OpenCode are optional; Namzu can reuse their sign-ins.',
 		)
 		expect(text).toContain('Not signed in for Namzu · run namzu login claude')
-		expect(text).toContain('Zen free models · only work inside OpenCode, not Namzu')
+		expect(text).toContain('Zen free models · experimental, and Zen may refuse them')
 		expect(text).toContain('Choose one. Installing and signing in are separate steps.')
 		// Ink keeps the space it broke a line at, so a continuation would start one
 		// column in. Inside the box a line starts at the margin (one space), or at

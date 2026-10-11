@@ -1603,7 +1603,7 @@ function credentialGap(
 		entry.id === 'zen' &&
 		primary.model !== undefined &&
 		!requiresCredentialForModel(entry, entry.defaultModel)
-			? `No credential found for saved Zen model "${primary.model}". Zen’s free models only work inside OpenCode’s own app. Press “k” to enter a Zen API key and use the saved model.`
+			? `No credential found for saved Zen model "${primary.model}". To try without a key, pick a Zen free model such as Space Bunny Free; they are experimental and Zen may refuse them. Press “k” to enter a Zen API key and use the saved model.`
 			: missingCredentialMessage(entry)
 	return { providerId: primary.id, reason }
 }
@@ -2139,7 +2139,7 @@ export async function createAgentSession(
 		// `--provider`. Keeping the refusal is what makes those turns fail rather
 		// than quietly start on something else.
 		return emptySession(
-			`No credential found for ${entry.label}${entry.id === 'zen' ? ' with the selected model. Zen’s free models only work inside OpenCode’s own app' : ''}. Set one of: ${entry.envVars.join(', ')} — or pass --provider with one that is configured.`,
+			`No credential found for ${entry.label}${entry.id === 'zen' ? ' with the selected model. Free models such as space-bunny-free need no key, though Zen may refuse them' : ''}. Set one of: ${entry.envVars.join(', ')} — or pass --provider with one that is configured.`,
 		)
 	}
 	try {
@@ -5963,7 +5963,7 @@ function failedTurnMessage(event: Extract<SessionEvent, { type: 'turn_failed' }>
 		provider.status === 403 &&
 		detail.includes("OpenCode's free tier can only be used from within OpenCode")
 	) {
-		return `${event.error}\nZen refused this free-model request. Free models only work inside OpenCode’s own app, and installing OpenCode does not change that for Namzu. To use Zen with your own key, set OPENCODE_API_KEY, or choose another provider.`
+		return `${event.error}\nZen refused this free-model request and said its free tier only works inside OpenCode’s own app. Installing OpenCode does not change that for Namzu. To use Zen, set OPENCODE_API_KEY, or choose another provider.`
 	}
 	return event.error
 }

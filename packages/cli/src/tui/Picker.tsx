@@ -550,7 +550,7 @@ export function Picker({
 				})
 				const experimentalNotice =
 					current.entry.id === 'zen' && !hasApiCredential(current.entry, current.apiKey)
-						? 'Zen’s free models only work inside OpenCode’s own app. Add a Zen API key to use Zen here.'
+						? 'Zen’s free models are experimental, and Zen may refuse them. If it does, add a Zen API key.'
 						: null
 				setModelPhase({
 					provider: current,
@@ -1282,8 +1282,8 @@ export function Picker({
 				</Text>
 				{experimentalZen ? (
 					<Text color={theme.status.warn}>
-						Zen’s free models only work inside OpenCode’s own app. Add a Zen API key to use Zen
-						here.
+						Zen’s free models are experimental, and Zen may refuse them. If it does, add a Zen API
+						key.
 					</Text>
 				) : null}
 				<Box flexDirection="column" paddingTop={1}>
@@ -2401,10 +2401,10 @@ function describeSource(d: DetectedProvider): string {
 	switch (d.source.kind) {
 		case 'env':
 			if (d.entry.id === 'zen' && !hasApiCredential(d.entry, d.apiKey))
-				return 'Zen free models · only work inside OpenCode, not Namzu'
+				return 'Zen free models · experimental, and Zen may refuse them'
 			return `env · ${d.source.envName}`
 		case 'public':
-			return 'Zen free models · only work inside OpenCode, not Namzu'
+			return 'Zen free models · experimental, and Zen may refuse them'
 		case 'opencode-file':
 			return 'OpenCode API key · this device'
 		case 'probe':
