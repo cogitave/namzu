@@ -295,27 +295,21 @@ function isAlive(pid: number): boolean {
 	}
 }
 
-/** The same wait, for a condition that has to ask the guest. */
-async function waitForReply(
-	condition: () => Promise<boolean>,
-	what: string,
-	timeoutMs = 8_000,
-): Promise<void> {
-	const deadline = Date.now() + timeoutMs
-	while (Date.now() < deadline) {
-		if (await condition()) return
-		await delay(25)
-	}
-	throw new Error(`timed out waiting for ${what}`)
+/**
+ * Wait for a condition that has to ask the guest.
+ *
+ * There is no deadline: a condition that never becomes true is a hang, and the
+ * calling test's own Vitest timeout reports it. A wall-clock limit here would
+ * measure how fast the machine is instead. `_what` names the condition for the
+ * reader of the call site.
+ */
+async function waitForReply(condition: () => Promise<boolean>, _what: string): Promise<void> {
+	while (!(await condition())) await delay(25)
 }
 
-async function waitUntil(condition: () => boolean, what: string, timeoutMs = 8_000): Promise<void> {
-	const deadline = Date.now() + timeoutMs
-	while (Date.now() < deadline) {
-		if (condition()) return
-		await delay(25)
-	}
-	throw new Error(`timed out waiting for ${what}`)
+/** The same wait, for a condition that can be read synchronously. */
+async function waitUntil(condition: () => boolean, _what: string): Promise<void> {
+	while (!condition()) await delay(25)
 }
 
 /** One session's row, or nothing if the guest is not holding it. */
@@ -337,13 +331,15 @@ async function sessionRow(
  */
 function collect(terminal: KubernetesWorkspaceTerminal): {
 	readonly text: string
-	until(fragment: string): Promise<void>
+	until(fragment: string | RegExp): Promise<void>
 } {
-	const waiters: { fragment: string; resolve: () => void }[] = []
+	const waiters: { fragment: string | RegExp; resolve: () => void }[] = []
+	const has = (text: string, fragment: string | RegExp): boolean =>
+		typeof fragment === 'string' ? text.includes(fragment) : fragment.test(text)
 	const box = {
 		text: '',
-		until(fragment: string): Promise<void> {
-			if (box.text.includes(fragment)) return Promise.resolve()
+		until(fragment: string | RegExp): Promise<void> {
+			if (has(box.text, fragment)) return Promise.resolve()
 			return new Promise<void>((resolve) => waiters.push({ fragment, resolve }))
 		},
 	}
@@ -351,7 +347,7 @@ function collect(terminal: KubernetesWorkspaceTerminal): {
 		box.text += chunk
 		for (let i = waiters.length - 1; i >= 0; i -= 1) {
 			const waiter = waiters[i]
-			if (waiter && box.text.includes(waiter.fragment)) {
+			if (waiter && has(box.text, waiter.fragment)) {
 				waiters.splice(i, 1)
 				waiter.resolve()
 			}
@@ -454,7 +450,7 @@ describe.skipIf(IS_WINDOWS)('a terminal that outlives the host process', () => {
 		})
 		const seen = collect(shell)
 		shell.write(HUP_IMMUNE_JOB)
-		await waitUntil(() => /JOBPID (\d+)/.test(seen.text), 'the backgrounded job to report its pid')
+		await seen.until(/JOBPID (\d+)/)
 		const jobPid = Number(/JOBPID (\d+)/.exec(seen.text)?.[1])
 		expect(isAlive(jobPid)).toBe(true)
 
@@ -475,7 +471,7 @@ describe.skipIf(IS_WINDOWS)('a terminal that outlives the host process', () => {
 		const shell = await workspace.openTerminal({ size: SIZE })
 		const seen = collect(shell)
 		shell.write(HUP_IMMUNE_JOB)
-		await waitUntil(() => /JOBPID (\d+)/.test(seen.text), 'the backgrounded job to report its pid')
+		await seen.until(/JOBPID (\d+)/)
 		const jobPid = Number(/JOBPID (\d+)/.exec(seen.text)?.[1])
 		expect(isAlive(jobPid)).toBe(true)
 
@@ -620,7 +616,7 @@ describe.skipIf(IS_WINDOWS)('reading a session is not attaching to it', () => {
 		})
 		const seen = collect(shell)
 		shell.write('echo BEFORE-READ\n')
-		await waitUntil(() => seen.text.includes('BEFORE-READ'), 'the first command to echo')
+		await seen.until('BEFORE-READ')
 
 		// What a host polling a shell's tail does, in the loop the docs
 		// describe: read, come back with the offset, read again.
@@ -637,7 +633,7 @@ describe.skipIf(IS_WINDOWS)('reading a session is not attaching to it', () => {
 		expect(rows[0]?.attached).toBe(true)
 		expect(rows[0]?.state).toBe('running')
 		shell.write('echo AFTER-READ\n')
-		await waitUntil(() => seen.text.includes('AFTER-READ'), 'the shell to answer after the read')
+		await seen.until('AFTER-READ')
 		expect(ended).toBeUndefined()
 
 		shell.detach?.()

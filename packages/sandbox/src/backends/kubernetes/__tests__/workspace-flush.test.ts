@@ -722,7 +722,13 @@ describe.skipIf(!IS_LINUX)('a 5 MiB write, suspended at once, read back after a 
 			},
 			stdio: ['ignore', 'ignore', 'pipe'],
 		})
-		const deadline = Date.now() + 20_000
+		// No wall-clock deadline: the agent either answers or exits. An agent
+		// that exits before it listens is reported as that; one that neither
+		// answers nor exits is a hang the case's own Vitest timeout reports.
+		let exitedEarly = false
+		agent.once('exit', () => {
+			exitedEarly = true
+		})
 		for (;;) {
 			try {
 				const health = await sendFramedRequest(agentPort, { op: 'healthz' }, 2_000)
@@ -733,7 +739,7 @@ describe.skipIf(!IS_LINUX)('a 5 MiB write, suspended at once, read back after a 
 			} catch {
 				// Not listening yet.
 			}
-			if (Date.now() > deadline) throw new Error('the agent never came up')
+			if (exitedEarly) throw new Error('the agent exited before it came up')
 			await delay(25)
 		}
 	}
