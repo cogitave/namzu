@@ -295,27 +295,21 @@ function isAlive(pid: number): boolean {
 	}
 }
 
-/** The same wait, for a condition that has to ask the guest. */
-async function waitForReply(
-	condition: () => Promise<boolean>,
-	what: string,
-	timeoutMs = 8_000,
-): Promise<void> {
-	const deadline = Date.now() + timeoutMs
-	while (Date.now() < deadline) {
-		if (await condition()) return
-		await delay(25)
-	}
-	throw new Error(`timed out waiting for ${what}`)
+/**
+ * Wait for a condition that has to ask the guest.
+ *
+ * There is no deadline: a condition that never becomes true is a hang, and the
+ * calling test's own Vitest timeout reports it. A wall-clock limit here would
+ * measure how fast the machine is instead. `_what` names the condition for the
+ * reader of the call site.
+ */
+async function waitForReply(condition: () => Promise<boolean>, _what: string): Promise<void> {
+	while (!(await condition())) await delay(25)
 }
 
-async function waitUntil(condition: () => boolean, what: string, timeoutMs = 8_000): Promise<void> {
-	const deadline = Date.now() + timeoutMs
-	while (Date.now() < deadline) {
-		if (condition()) return
-		await delay(25)
-	}
-	throw new Error(`timed out waiting for ${what}`)
+/** The same wait, for a condition that can be read synchronously. */
+async function waitUntil(condition: () => boolean, _what: string): Promise<void> {
+	while (!condition()) await delay(25)
 }
 
 /** One session's row, or nothing if the guest is not holding it. */
@@ -326,13 +320,38 @@ async function sessionRow(
 	return (await workspace.listSessions()).find((row) => row.sessionId === sessionId)
 }
 
-/** Everything one terminal printed, from the moment it was attached. */
+/**
+ * Everything one terminal printed, from the moment it was attached.
+ *
+ * `until` settles when the printed text first contains the fragment: it is
+ * woken by the terminal's own data events, so it waits on the real output
+ * rather than sampling it against a wall-clock deadline. A fragment that never
+ * arrives is a hang the test's own Vitest timeout reports, not a guess about
+ * how fast this machine is.
+ */
 function collect(terminal: KubernetesWorkspaceTerminal): {
 	readonly text: string
+	until(fragment: string | RegExp): Promise<void>
 } {
-	const box = { text: '' }
+	const waiters: { fragment: string | RegExp; resolve: () => void }[] = []
+	const has = (text: string, fragment: string | RegExp): boolean =>
+		typeof fragment === 'string' ? text.includes(fragment) : fragment.test(text)
+	const box = {
+		text: '',
+		until(fragment: string | RegExp): Promise<void> {
+			if (has(box.text, fragment)) return Promise.resolve()
+			return new Promise<void>((resolve) => waiters.push({ fragment, resolve }))
+		},
+	}
 	terminal.onData((chunk) => {
 		box.text += chunk
+		for (let i = waiters.length - 1; i >= 0; i -= 1) {
+			const waiter = waiters[i]
+			if (waiter && has(box.text, waiter.fragment)) {
+				waiters.splice(i, 1)
+				waiter.resolve()
+			}
+		}
 	})
 	return box
 }
@@ -386,7 +405,7 @@ describe.skipIf(IS_WINDOWS)('a terminal that outlives the host process', () => {
 		})
 		const seenByA = collect(shell)
 		shell.write('echo FIRST-MARKER\n')
-		await waitUntil(() => seenByA.text.includes('FIRST-MARKER'), 'the first command to echo')
+		await seenByA.until('FIRST-MARKER')
 
 		// Host A dies mid-session: a deploy, a crash, an OOM kill. Nothing
 		// distinguishes them from the guest's side.
@@ -407,14 +426,14 @@ describe.skipIf(IS_WINDOWS)('a terminal that outlives the host process', () => {
 		const rejoined = await hostB.attachTerminal('shell-1', { fromOffset: 0 })
 		const seenByB = collect(rejoined)
 		// The replay: everything the shell printed before this process existed.
-		await waitUntil(() => seenByB.text.includes('FIRST-MARKER'), 'the replayed output')
+		await seenByB.until('FIRST-MARKER')
 		rejoined.write('echo SECOND-MARKER\n')
-		await waitUntil(() => seenByB.text.includes('SECOND-MARKER'), 'the new command to run')
+		await seenByB.until('SECOND-MARKER')
 		// And it is the SAME shell, not a fresh one: resize reaches the real
 		// PTY, which only the process that owns it can answer for.
 		rejoined.resize({ cols: 100, rows: 40 })
 		rejoined.write('stty size\n')
-		await waitUntil(() => seenByB.text.includes('40 100'), 'the resized PTY to report itself')
+		await seenByB.until('40 100')
 
 		rejoined.detach()
 		await hostB.killSession('shell-1')
@@ -431,7 +450,7 @@ describe.skipIf(IS_WINDOWS)('a terminal that outlives the host process', () => {
 		})
 		const seen = collect(shell)
 		shell.write(HUP_IMMUNE_JOB)
-		await waitUntil(() => /JOBPID (\d+)/.test(seen.text), 'the backgrounded job to report its pid')
+		await seen.until(/JOBPID (\d+)/)
 		const jobPid = Number(/JOBPID (\d+)/.exec(seen.text)?.[1])
 		expect(isAlive(jobPid)).toBe(true)
 
@@ -452,7 +471,7 @@ describe.skipIf(IS_WINDOWS)('a terminal that outlives the host process', () => {
 		const shell = await workspace.openTerminal({ size: SIZE })
 		const seen = collect(shell)
 		shell.write(HUP_IMMUNE_JOB)
-		await waitUntil(() => /JOBPID (\d+)/.test(seen.text), 'the backgrounded job to report its pid')
+		await seen.until(/JOBPID (\d+)/)
 		const jobPid = Number(/JOBPID (\d+)/.exec(seen.text)?.[1])
 		expect(isAlive(jobPid)).toBe(true)
 
@@ -597,7 +616,7 @@ describe.skipIf(IS_WINDOWS)('reading a session is not attaching to it', () => {
 		})
 		const seen = collect(shell)
 		shell.write('echo BEFORE-READ\n')
-		await waitUntil(() => seen.text.includes('BEFORE-READ'), 'the first command to echo')
+		await seen.until('BEFORE-READ')
 
 		// What a host polling a shell's tail does, in the loop the docs
 		// describe: read, come back with the offset, read again.
@@ -614,7 +633,7 @@ describe.skipIf(IS_WINDOWS)('reading a session is not attaching to it', () => {
 		expect(rows[0]?.attached).toBe(true)
 		expect(rows[0]?.state).toBe('running')
 		shell.write('echo AFTER-READ\n')
-		await waitUntil(() => seen.text.includes('AFTER-READ'), 'the shell to answer after the read')
+		await seen.until('AFTER-READ')
 		expect(ended).toBeUndefined()
 
 		shell.detach?.()

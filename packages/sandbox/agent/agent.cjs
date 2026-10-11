@@ -2979,8 +2979,20 @@ async function findPtySlave(scriptPid) {
 	throw ptySlaveFailure(attempts, startedAt, childrenError, fdError, statError, probed, scriptState)
 }
 
+// The longest input waits behind one resize. `stty` on a PTY slave takes
+// milliseconds; a resize still pending after this is treated as lost, so a
+// person's keystrokes are delayed by at most this long per resize, never held
+// indefinitely.
+const RESIZE_MAX_WAIT_MS = 2_000
+
 function resizePty(slavePath, cols, rows) {
 	return new Promise((resolve, reject) => {
+		// A resize that never finishes must not outlive RESIZE_MAX_WAIT_MS: it is
+		// killed, and the input queued behind it is released the same moment.
+		const timer = setTimeout(() => {
+			child.kill('SIGKILL')
+		}, RESIZE_MAX_WAIT_MS)
+		timer.unref()
 		const child = spawn(
 			'/usr/bin/stty',
 			['-F', slavePath, 'rows', String(rows), 'cols', String(cols)],
@@ -2991,8 +3003,12 @@ function resizePty(slavePath, cols, rows) {
 				stdio: 'ignore',
 			},
 		)
-		child.once('error', reject)
+		child.once('error', (err) => {
+			clearTimeout(timer)
+			reject(err)
+		})
 		child.once('close', (code) => {
+			clearTimeout(timer)
 			if (code === 0) resolve()
 			else reject(new Error(`stty resize failed with code ${String(code)}`))
 		})
@@ -3535,6 +3551,44 @@ function createSessionRecord(sessionId, kind, command, args) {
 	return record
 }
 
+// Per PTY slave: the tail of the chain of resizes and the input queued behind
+// them. Present only while a resize is still in flight.
+const ptyEventTails = new Map()
+
+/**
+ * Run `task` in arrival order with the resizes on one PTY.
+ *
+ * A resize is a spawned `stty`, which finishes some time after the frame that
+ * asked for it was read; a keystroke is a synchronous write. Left alone, input
+ * the host sent AFTER a resize could reach the shell BEFORE the new winsize
+ * did, so `stty size` or a full-screen program's first redraw would report the
+ * old geometry, and how often depends only on how busy the machine is. So
+ * while a resize is pending, later input waits behind it, and with none
+ * pending input is written immediately as it always was.
+ */
+function orderedWithResize(slavePath, task, isResize = false) {
+	const tail = slavePath === undefined ? undefined : ptyEventTails.get(slavePath)
+	if (tail === undefined && !isResize) {
+		task()
+		return
+	}
+	const run = () => {
+		const done = Promise.resolve().then(task)
+		if (!isResize) return done
+		let timer
+		const lost = new Promise((resolve) => {
+			timer = setTimeout(resolve, RESIZE_MAX_WAIT_MS)
+			timer.unref()
+		})
+		return Promise.race([done, lost]).finally(() => clearTimeout(timer))
+	}
+	const next = (tail ?? Promise.resolve()).then(run).catch(() => {})
+	ptyEventTails.set(slavePath, next)
+	next.then(() => {
+		if (ptyEventTails.get(slavePath) === next) ptyEventTails.delete(slavePath)
+	})
+}
+
 /**
  * Apply one host to guest terminal event to whatever process is behind it.
  *
@@ -3552,16 +3606,22 @@ function applyTerminalEvent(event, context) {
 		const child = context.child()
 		if (typeof event.data === 'string' && child?.stdin?.writable) {
 			context.onInput?.()
-			if (!child.stdin.write(event.data)) {
-				context.pause()
-				// Nothing is read while this is paused, so the watchdog must
-				// not read that as the host having gone away.
-				context.heartbeat()?.suspend()
-				child.stdin.once('drain', () => {
-					context.resume()
-					context.heartbeat()?.resume()
-				})
+			const write = () => {
+				if (!child.stdin.writable) return
+				if (!child.stdin.write(event.data)) {
+					context.pause()
+					// Nothing is read while this is paused, so the watchdog must
+					// not read that as the host having gone away.
+					context.heartbeat()?.suspend()
+					child.stdin.once('drain', () => {
+						context.resume()
+						context.heartbeat()?.resume()
+					})
+				}
 			}
+			// Keystrokes sent after a resize must reach the program AFTER the
+			// winsize does. See {@link orderedWithResize}.
+			orderedWithResize(context.slavePath(), write)
 		}
 		return
 	}
@@ -3570,7 +3630,9 @@ function applyTerminalEvent(event, context) {
 			const cols = terminalDimension(event.cols, MAX_TERMINAL_COLS, 'cols')
 			const rows = terminalDimension(event.rows, MAX_TERMINAL_ROWS, 'rows')
 			const slavePath = context.slavePath()
-			if (slavePath) void resizePty(slavePath, cols, rows).catch(() => {})
+			if (slavePath) {
+				orderedWithResize(slavePath, () => resizePty(slavePath, cols, rows), true)
+			}
 		} catch {}
 		return
 	}
@@ -5555,6 +5617,8 @@ async function main() {
 // agent in-process without spawning a separate node binary.
 module.exports = {
 	AGENT_FEATURES,
+	orderedWithResize,
+	RESIZE_MAX_WAIT_MS,
 	advertisedFeatures,
 	sessions,
 	FIRECRACKER_AGENT_PROTOCOL_VERSION,

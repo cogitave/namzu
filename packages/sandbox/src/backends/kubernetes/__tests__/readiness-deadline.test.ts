@@ -51,8 +51,14 @@ describe('a claim that never becomes Ready', () => {
 		})
 
 		const startedAt = performance.now()
+		// Two typed ways the same 100 ms budget can run out, and which one
+		// happens depends on how fast the machine is: in the poll (the claim
+		// "never became Ready") or already in the initial POST, before any
+		// poll starts (the acquire "ran out of readiness budget"). Both are
+		// the clock expiring, and both must clean up, which is what this
+		// asserts; the poll's own message is pinned by the next case.
 		await expect(backend().create({ workingDirectory: '/workspace' })).rejects.toThrow(
-			/never became Ready \(100ms\)/,
+			/never became Ready \(100ms\)|ran out of readiness budget/,
 		)
 		// The DELETE is already recorded when the promise rejects — cleanup is
 		// awaited inside the catch, not fired and forgotten.

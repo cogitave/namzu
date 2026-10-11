@@ -28,7 +28,7 @@ import { createRequire } from 'node:module'
 import net, { type AddressInfo, type Server, type Socket } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { setTimeout as delay } from 'node:timers/promises'
+import { setTimeout as delay, setImmediate as nextTurn } from 'node:timers/promises'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -344,6 +344,8 @@ interface Upstream {
 	read(): number
 	/** Start reading again, releasing the guest's write backpressure. */
 	drain(): void
+	/** Resolves once at least `total` bytes have been read; a hang is the case's timeout. */
+	whenRead(total: number): Promise<void>
 }
 
 /**
@@ -358,12 +360,20 @@ async function startUpstream(options: { readonly read?: boolean } = {}): Promise
 	const sockets = new Set<Socket>()
 	let bytes = 0
 	let paused = options.read === false
+	const readWaiters: { total: number; resolve: () => void }[] = []
 	const server = net.createServer((socket) => {
 		sockets.add(socket)
 		socket.on('error', () => {})
 		socket.on('close', () => sockets.delete(socket))
 		socket.on('data', (chunk: Buffer) => {
 			bytes += chunk.byteLength
+			for (let i = readWaiters.length - 1; i >= 0; i -= 1) {
+				const waiter = readWaiters[i]
+				if (waiter && bytes >= waiter.total) {
+					readWaiters.splice(i, 1)
+					waiter.resolve()
+				}
+			}
 		})
 		if (paused) socket.pause()
 	})
@@ -383,6 +393,10 @@ async function startUpstream(options: { readonly read?: boolean } = {}): Promise
 			paused = false
 			for (const socket of sockets) socket.resume()
 		},
+		whenRead: (total) =>
+			bytes >= total
+				? Promise.resolve()
+				: new Promise<void>((resolve) => readWaiters.push({ total, resolve })),
 	}
 }
 
@@ -397,6 +411,68 @@ async function raceSettled(promise: Promise<unknown>, ms: number): Promise<'sett
 	])
 }
 
+/**
+ * Run the liveness clock by hand.
+ *
+ * The agent runs in THIS process, so one fake `Date` and one fake pair of
+ * interval timers drive BOTH watchdogs (the host's and the guest's); socket
+ * I/O stays real. Time then moves only when a case moves it: a loaded machine
+ * that stalls the event loop for half a second can no longer be read as three
+ * missed 150 ms heartbeats, which is what a real-time version of the
+ * backpressure cases measured instead of the property it names.
+ *
+ * It advances in small steps and yields one real event-loop turn after each
+ * (a turn includes the poll phase, so bytes already in the kernel are read and
+ * bump the watchdogs before the next step). A watchdog therefore dies here
+ * only if it sees no byte for the whole limit AND is not suspended, which is
+ * exactly the condition the cases forbid.
+ */
+const CLOCK_STEP_MS = 25
+
+/**
+ * Put both watchdogs on the fake clock and make the wire keep up with it.
+ *
+ * The clock moves far faster than real I/O, so a heartbeat that the kernel
+ * holds back for a few real milliseconds (Nagle waiting on a delayed ACK,
+ * with the other direction jammed) would look like hundreds of milliseconds
+ * of silence. Both ends therefore get `TCP_NODELAY`: the host's socket
+ * through `Socket.connect`, the guest's through the listener's `connection`
+ * event. A heartbeat written during a step is then in the peer's kernel
+ * buffer when the step returns, and the next event-loop turn reads it.
+ *
+ * Call it after the agent is listening and before the stream is opened,
+ * because both watchdogs arm at `ready` and must be on the fake clock.
+ */
+function useFakeLivenessClock(): void {
+	vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
+	const connect = net.Socket.prototype.connect
+	vi.spyOn(net.Socket.prototype, 'connect').mockImplementation(function (
+		this: Socket,
+		...args: unknown[]
+	) {
+		this.setNoDelay(true)
+		return (connect as (...a: unknown[]) => Socket).apply(this, args)
+	})
+	listener?.on('connection', (socket: Socket) => socket.setNoDelay(true))
+}
+
+async function advanceClock(ms: number): Promise<void> {
+	for (let elapsed = 0; elapsed < ms; elapsed += CLOCK_STEP_MS) {
+		vi.advanceTimersByTime(CLOCK_STEP_MS)
+		await nextTurn()
+	}
+}
+
+/** A flag that flips when the promise settles, however it settles. */
+function watchSettled(promise: Promise<unknown>): { readonly settled: boolean } {
+	const state = { settled: false }
+	const mark = () => {
+		state.settled = true
+	}
+	promise.then(mark, mark)
+	return state
+}
+
 beforeEach(() => {
 	saved = Object.fromEntries(AGENT_ENV_KEYS.map((key) => [key, process.env[key]]))
 	clearEnv(AGENT_ENV_KEYS)
@@ -405,6 +481,8 @@ beforeEach(() => {
 })
 
 afterEach(async () => {
+	vi.useRealTimers()
+	vi.restoreAllMocks()
 	for (const close of closers.splice(0)) await close()
 	if (listener) {
 		await new Promise<void>((resolve) => listener?.close(() => resolve()))
@@ -517,13 +595,17 @@ describe.skipIf(IS_WINDOWS)('backpressure is not silence', () => {
 	it('does not end a stream the HOST paused for five intervals', async () => {
 		const port = await startAgent()
 		const upstream = await startUpstream()
+		useFakeLivenessClock()
 		const connection = await transportTo(port, INTERVAL_MS).openTcpConnection({
 			port: upstream.port,
 		})
+		const closed = watchSettled(connection.closed)
 		connection.pause()
-		expect(await raceSettled(connection.closed, INTERVAL_MS * 5)).toBe('open')
+		await advanceClock(INTERVAL_MS * 5)
+		expect(closed.settled).toBe(false)
 		connection.resume()
-		expect(await raceSettled(connection.closed, INTERVAL_MS * 2)).toBe('open')
+		await advanceClock(INTERVAL_MS * 2)
+		expect(closed.settled).toBe(false)
 		connection.destroy()
 	}, 30_000)
 
@@ -532,21 +614,26 @@ describe.skipIf(IS_WINDOWS)('backpressure is not silence', () => {
 		// A service that accepts and never reads: the guest's write to it
 		// returns false, which is what makes the guest pause the host socket.
 		const upstream = await startUpstream({ read: false })
+		useFakeLivenessClock()
 		const connection = await transportTo(port, INTERVAL_MS).openTcpConnection({
 			port: upstream.port,
 		})
+		const closed = watchSettled(connection.closed)
 		const megabyte = Buffer.alloc(1024 * 1024, 0x61)
 		const total = 16 * megabyte.byteLength
 		for (let i = 0; i < 16; i += 1) connection.write(megabyte)
 
-		expect(await raceSettled(connection.closed, INTERVAL_MS * 5)).toBe('open')
-		// The service has not been reading, so the guest is holding back what
-		// it could not hand on — which is the state the watchdog must not
-		// mistake for a host that went away.
+		// Far past the watchdog limit on the fake clock, with the guest holding
+		// back what it could not hand on and the host's own heartbeats queued
+		// behind the unread bytes: the state the watchdog must not mistake for
+		// a host that went away.
+		await advanceClock(INTERVAL_MS * (STREAM_HEARTBEAT_MISS_LIMIT + 3))
+		expect(closed.settled).toBe(false)
 		expect(upstream.read()).toBeLessThan(total)
 		upstream.drain()
-		await vi.waitFor(() => expect(upstream.read()).toBe(total), { timeout: 20_000 })
-		expect(await raceSettled(connection.closed, INTERVAL_MS * 3)).toBe('open')
+		await upstream.whenRead(total)
+		await advanceClock(INTERVAL_MS * 3)
+		expect(closed.settled).toBe(false)
 		connection.destroy()
 	}, 30_000)
 })

@@ -179,6 +179,10 @@ describe('agent listen modes', () => {
 			frames.push(...decoded.frames)
 			rest = decoded.rest
 		})
+		// The agent answers a write-file and then ends the connection, so the
+		// close IS the end of the exchange; waiting on it rather than on a
+		// fixed grace period keeps the outcome independent of machine speed.
+		const closed = new Promise<void>((resolve) => socket.once('close', () => resolve()))
 		await new Promise<void>((resolve) => socket.once('connect', () => resolve()))
 		// Boundaries mid-prefix, on the newline, just past it, and mid-body.
 		let written = 0
@@ -187,7 +191,7 @@ describe('agent listen modes', () => {
 			written = boundary
 			await delay(5)
 		}
-		await delay(200)
+		await closed
 		socket.destroy()
 
 		expect(frames.map((f) => JSON.parse(f))).toEqual([

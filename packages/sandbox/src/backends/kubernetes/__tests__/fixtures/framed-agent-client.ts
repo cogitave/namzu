@@ -60,22 +60,32 @@ export interface FramedExchange {
  * Dial the agent on loopback, write one request frame, and read until
  * the agent closes the connection. Every op these suites use answers
  * and then ends, so "until close" is the whole exchange.
+ *
+ * There is NO deadline unless a caller passes `timeoutMs`. A default one
+ * raced real time: on a loaded runner the agent can legitimately take longer
+ * than any number picked here, and the guard then fails a correct run. A
+ * request that really never completes is caught by the calling test's own
+ * Vitest timeout. A caller that polls a listener which may not be up yet
+ * (a readiness probe) passes `timeoutMs` for the attempt, as it always did.
  */
 export async function sendFramedRequest(
 	port: number,
 	request: unknown,
-	timeoutMs = 10_000,
+	timeoutMs?: number,
 ): Promise<FramedExchange> {
 	return await new Promise<FramedExchange>((resolve, reject) => {
 		const socket = connect({ host: '127.0.0.1', port })
 		const frames: string[] = []
 		let rest: Buffer = Buffer.alloc(0)
 		let closedByAgent = false
-		const timer = setTimeout(() => {
-			socket.destroy()
-			reject(new Error(`framed request timed out after ${timeoutMs}ms`))
-		}, timeoutMs)
-		timer.unref()
+		const timer =
+			timeoutMs === undefined
+				? undefined
+				: setTimeout(() => {
+						socket.destroy()
+						reject(new Error(`framed request timed out after ${timeoutMs}ms`))
+					}, timeoutMs)
+		timer?.unref()
 		socket.on('connect', () => socket.write(encodeFrame(JSON.stringify(request))))
 		socket.on('data', (chunk) => {
 			const decoded = decodeFrames(rest.length === 0 ? chunk : Buffer.concat([rest, chunk]))

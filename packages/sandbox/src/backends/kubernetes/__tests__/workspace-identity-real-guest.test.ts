@@ -31,7 +31,7 @@
 
 import { chmodSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { type AddressInfo, type Server, type Socket, createServer } from 'node:net'
+import type { AddressInfo, Server, Socket } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -129,14 +129,6 @@ let replacementPodUid: string | undefined
 let replaceAfterPodRead: number | undefined
 let podReads = 0
 
-async function freePort(): Promise<number> {
-	const probe = createServer()
-	await new Promise<void>((resolve) => probe.listen(0, '127.0.0.1', () => resolve()))
-	const { port } = probe.address() as AddressInfo
-	await new Promise<void>((resolve) => probe.close(() => resolve()))
-	return port
-}
-
 beforeEach(async () => {
 	savedEnv = Object.fromEntries(AGENT_ENV_KEYS.map((key) => [key, process.env[key]]))
 	for (const key of AGENT_ENV_KEYS) delete process.env[key]
@@ -158,7 +150,8 @@ beforeEach(async () => {
 	replaceAfterPodRead = undefined
 	podReads = 0
 	guests = []
-	agentPort = await freePort()
+	// 0 until the first guest binds: see `startGuest`.
+	agentPort = 0
 	restoreDns = stubLoopbackDns(() => '127.0.0.1')
 	server = await startFakeApiServer(handleClusterRequest)
 })
@@ -194,6 +187,11 @@ async function startGuest(token: string): Promise<RealGuest> {
 	delete require_.cache[require_.resolve(AGENT_PATH)]
 	const module_ = require_(AGENT_PATH) as AgentModule
 	const listener = await module_.startListening()
+	// The first guest asks the kernel for a port and keeps it, so the port is
+	// never probed, released and then bound by someone else in between (which
+	// is what a free-port probe does on a busy machine). Later guests are
+	// REPLACEMENT pods and must come up on the same address, so they rebind it.
+	agentPort = (listener.address() as AddressInfo).port
 	const sockets = new Set<Socket>()
 	listener.on('connection', (socket: Socket) => {
 		sockets.add(socket)

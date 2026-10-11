@@ -381,11 +381,15 @@ function failed(outcomes: readonly Outcome[]): string[] {
 	return outcomes.filter((o) => o.failure !== undefined).map((o) => o.name)
 }
 
-// Every case runs the whole conformance contract against real child processes,
-// so none is a unit test and vitest's 5000 ms default is the wrong budget.
-// Measured per case: about 3.5 s on an idle 32-core host and 4.4 s pinned to
-// two cores (`taskset -c 0,1`), where the default failed all five 3 of 3 times.
-// 30 s is a hang guard well clear of that, not a tuned margin.
+// Every case here runs the WHOLE conformance kit against one sandbox, and the
+// kit deliberately holds real sleeps (a 900 ms and a 1.8 s window in which a
+// wrongly surviving process would have written its marker) beside real
+// spawned and killed processes. Measured with `vitest --reporter=verbose`:
+// 3.3-3.9 s per case alone, 3.9-5.7 s per case with four `yes` processes
+// sharing the same two cores (`taskset -c 0,1`), against Vitest's 5 s default,
+// which a loaded run therefore crossed with nothing wrong. The sleeps are the
+// proof (a negative assertion needs a window to observe), so the budget is
+// raised rather than the kit changed; 30 s is several times the loaded cost.
 describe.skipIf(IS_WINDOWS)('the sandbox conformance suite', { timeout: 30_000 }, () => {
 	it('passes a correct implementation', async () => {
 		// The control, and not a formality. Every case below reads a FAILURE

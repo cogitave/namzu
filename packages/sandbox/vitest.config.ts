@@ -36,6 +36,15 @@ export default defineConfig({
 		// fail valid lifecycle assertions. Keep useful parallelism without that
 		// unrelated scheduling pressure.
 		maxWorkers: Math.min(4, availableParallelism()),
+		// Vitest's 5 s default is not a budget these suites can promise. Almost
+		// every case drives a real agent process, PTY or socket, and a case that
+		// takes 40 ms alone (the firecracker conformance file IO round-trips,
+		// measured) timed out at 5 s in one of five whole-package runs with
+		// four CPU-bound processes sharing the same two cores
+		// (`taskset -c 0,1`), where the package took ~490 s against ~150 s
+		// unloaded; the conformance mutation cases, ~3.5 s alone, measured
+		// 3.9-5.7 s in the same conditions. A genuine hang still fails, at 30 s.
+		testTimeout: 30_000,
 		exclude: ['**/node_modules/**', '**/dist/**', '**/*.smoke.test.ts'],
 	},
 })
