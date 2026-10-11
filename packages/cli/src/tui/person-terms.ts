@@ -1,4 +1,5 @@
 import { homedir } from 'node:os'
+import nodePath from 'node:path'
 
 import stringWidth from 'string-width'
 
@@ -72,14 +73,29 @@ export function productName(providerId: string | undefined): string | undefined 
 	return id.charAt(0).toUpperCase() + id.slice(1)
 }
 
-/** A path with the home folder written as `~`, so it stays short and private. */
-export function homePath(path: string, home: string = homedir()): string {
+/** The part of a path module a spelling depends on; injectable so both can be tested anywhere. */
+export type PathFlavor = Pick<typeof nodePath, 'sep'>
+
+/**
+ * A path with the home folder written as `~`, so it stays short and private,
+ * spelled with the platform's separator: `~\Work\app` on Windows, `~/work/app`
+ * elsewhere. `flavor` is the path module whose separator to use.
+ */
+export function homePath(
+	path: string,
+	home: string = homedir(),
+	flavor: PathFlavor = nodePath,
+): string {
+	const windows = flavor.sep === '\\'
 	const normalized = path.replaceAll('\\', '/')
 	const base = home.replaceAll('\\', '/').replace(/\/$/, '')
-	if (base && (normalized === base || normalized.startsWith(`${base}/`))) {
-		return `~${normalized.slice(base.length)}`
-	}
-	return path
+	const same = (a: string, b: string): boolean =>
+		windows ? a.toLowerCase() === b.toLowerCase() : a === b
+	const inHome =
+		base !== '' &&
+		(same(normalized, base) || same(normalized.slice(0, base.length + 1), `${base}/`))
+	const shown = inHome ? `~${normalized.slice(base.length)}` : path
+	return windows ? shown.replaceAll('/', '\\') : shown
 }
 
 /**
@@ -88,11 +104,16 @@ export function homePath(path: string, home: string = homedir()): string {
  * (`~/…/packages/cli`). The leaf is what says where you are, so it is dropped
  * last; only a leaf wider than `max` on its own is cut, from its start.
  */
-export function displayPath(path: string, max: number, home: string = homedir()): string {
-	const shown = homePath(path, home)
+export function displayPath(
+	path: string,
+	max: number,
+	home: string = homedir(),
+	flavor: PathFlavor = nodePath,
+): string {
+	const shown = homePath(path, home, flavor)
 	if (max <= 0) return ''
 	if (stringWidth(shown) <= max) return shown
-	const sep = shown.includes('\\') && !shown.includes('/') ? '\\' : '/'
+	const sep = flavor.sep === '\\' || (shown.includes('\\') && !shown.includes('/')) ? '\\' : '/'
 	const parts = shown.split(sep)
 	const head = parts[0] === '~' || /^[A-Za-z]:$/.test(parts[0] ?? '') ? (parts[0] ?? '') : ''
 	const rest = head ? parts.slice(1) : parts.filter((part, i) => part !== '' || i === 0).slice(1)

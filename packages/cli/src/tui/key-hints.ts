@@ -31,7 +31,16 @@ export interface Hint {
  * wrapped.
  */
 export function boxedHintWidth(columns: number | undefined): number {
-	return Math.max(1, (columns ?? 80) - 6)
+	return boxedContentWidth(columns, 1)
+}
+
+/**
+ * Columns of text inside a bordered box with `paddingX` columns of padding on
+ * each side, drawn inside the host's two-column inset. Every hand wrap inside
+ * a box uses this, so it breaks where the box would, not two columns later.
+ */
+export function boxedContentWidth(columns: number | undefined, paddingX: number): number {
+	return Math.max(1, (columns ?? 80) - 4 - 2 * paddingX)
 }
 
 const SEPARATOR = ' · '
