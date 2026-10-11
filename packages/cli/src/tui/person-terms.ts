@@ -87,8 +87,11 @@ export function homePath(
 	flavor: PathFlavor = nodePath,
 ): string {
 	const windows = flavor.sep === '\\'
-	const normalized = path.replaceAll('\\', '/')
-	const base = home.replaceAll('\\', '/').replace(/\/$/, '')
+	// A web address or anything else that is not a file path keeps its slashes.
+	if (/^[A-Za-z][A-Za-z0-9+.-]+:\/\//.test(path)) return path
+	// Only Windows treats a backslash as a separator; on POSIX it is a letter in a name.
+	const normalized = windows ? path.replaceAll('\\', '/') : path
+	const base = (windows ? home.replaceAll('\\', '/') : home).replace(/\/$/, '')
 	const same = (a: string, b: string): boolean =>
 		windows ? a.toLowerCase() === b.toLowerCase() : a === b
 	const inHome =

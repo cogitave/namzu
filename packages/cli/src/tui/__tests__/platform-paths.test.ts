@@ -42,4 +42,20 @@ describe('paths use the platform separator', () => {
 		const cwd = 'C:\\Users\\ada\\Work\\clients\\leaf-folder'
 		expect(displayPath(cwd, 80, 'C:\\Users\\ada', win)).toBe(homePath(cwd, 'C:\\Users\\ada', win))
 	})
+
+	it('handles a UNC share, a drive root and a web address on Windows', () => {
+		expect(homePath('\\\\server\\share\\a\\leaf', 'C:\\Users\\ada', win)).toBe(
+			'\\\\server\\share\\a\\leaf',
+		)
+		expect(homePath('//server/share/a', 'C:\\Users\\ada', win)).toBe('\\\\server\\share\\a')
+		expect(displayPath('C:\\', 40, 'C:\\Users\\ada', win)).toBe('C:\\')
+		expect(homePath('https://example.com/a/b', 'C:\\Users\\ada', win)).toBe(
+			'https://example.com/a/b',
+		)
+	})
+
+	it('keeps a backslash that is part of a POSIX file name', () => {
+		expect(homePath('/home/ada/a\\b/c', '/home/ada', posix)).toBe('~/a\\b/c')
+		expect(homePath('/srv/a\\b', '/home/ada', posix)).toBe('/srv/a\\b')
+	})
 })

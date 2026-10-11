@@ -376,19 +376,20 @@ export function discoverSkills(opts: SkillDiscoveryOptions = {}): SkillInfo[] {
 
 /** How a tier reads in a listing: where the file lives, in the operator's words. */
 export function skillTierLabel(tier: SkillTier): string {
+	const at = (...parts: string[]): string => parts.join(sep)
 	switch (tier) {
 		case 'system':
 			return 'built-in'
 		case 'agents-user':
-			return '~/.agents/skills'
+			return at('~', '.agents', 'skills')
 		case 'user':
-			return '~/.namzu/skills'
+			return at('~', '.namzu', 'skills')
 		case 'legacy-project':
-			return './skills'
+			return at('.', 'skills')
 		case 'agents-project':
-			return '.agents/skills'
+			return at('.agents', 'skills')
 		case 'project':
-			return './.namzu/skills'
+			return at('.', '.namzu', 'skills')
 	}
 }
 

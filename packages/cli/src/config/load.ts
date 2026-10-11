@@ -23,7 +23,6 @@
  */
 
 import { readFileSync } from 'node:fs'
-import { homedir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 import { RENAMED_PLUGIN_HOOK_EVENTS, SHELL_HOOK_EVENTS } from '@namzu/sdk'
 
@@ -40,6 +39,7 @@ import {
 } from '../permissions/browser-sites.js'
 import type { PermissionChecksConfig } from '../permissions/checks.js'
 import type { PermissionsConfig } from '../permissions/rules.js'
+import { homePath } from '../tui/person-terms.js'
 import {
 	COMPOSER_TRIGGER_IDS,
 	COMPOSER_TRIGGER_LANGUAGES,
@@ -452,14 +452,7 @@ const PROJECT_FILE_LABEL = 'namzu.config.json in this project'
 
 /** A path for a person to read: home as `~`, the way every other path on screen is shown. */
 export function shortHomePath(path: string): string {
-	const home = homedir()
-	if (
-		home !== '' &&
-		(path === home || path.startsWith(`${home}/`) || path.startsWith(`${home}\\`))
-	) {
-		return `~${path.slice(home.length).replaceAll('\\', '/')}`
-	}
-	return path
+	return homePath(path)
 }
 
 function readJsonIfExists(path: string, label: string): MutableConfig {
