@@ -688,9 +688,26 @@ describe('cost', () => {
 				bash(command)
 				return performance.now() - started
 			}
-			time(16_000)
-			const small = Math.max(time(16_000), 0.5)
-			const large = time(160_000)
+			// The slow end of this ratio is steady; the fast end is not. A shape
+			// that costs 2 ms at 16 000 characters swings between 2 and 30 ms on a
+			// loaded or two-core host (JIT, GC), so dividing by one such sample
+			// reads 60x for code that is linear. Take the least of up to five
+			// samples (noise only ever adds time), and grow the small input until that
+			// least is long enough to measure, so a cheap shape is compared at a
+			// size where a millisecond of noise no longer decides the ratio.
+			// A sample past 20 ms is already steady, so a slow shape is timed once.
+			const least = (length: number): number => {
+				let best = time(length)
+				for (let sample = 1; sample < 5 && best < 20; sample++) best = Math.min(best, time(length))
+				return best
+			}
+			let length = 16_000
+			let small = least(length)
+			while (small < 20 && length < 160_000) {
+				length *= 2
+				small = least(length)
+			}
+			const large = time(length * 10)
 			// Ten times the input: linear is about ten times the time, quadratic
 			// a hundred. The absolute bound is loose because CI machines run
 			// this several times slower than a developer's: the slowest shape,
