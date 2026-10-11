@@ -711,6 +711,14 @@ describe.skipIf(!IS_LINUX)('a 5 MiB write, suspended at once, read back after a 
 				NAMZU_AGENT_TCP_PORT: String(agentPort),
 				NAMZU_AGENT_BIND_TOKEN: token,
 				NAMZU_SANDBOX_WORKSPACE: workDir,
+				// The agent's flush is a real `sync` of the whole filesystem, which
+				// writes back whatever every other process on the host has dirty
+				// too. It takes ~0.2 s here alone, but one of five loaded
+				// whole-package runs (four CPU-bound processes on two cores, other
+				// suites writing) ran past the agent's 10 s default and answered
+				// `flush_unconfirmed`. That is the guest being correct about a slow
+				// disk, not a defect, so this case gives the I/O room.
+				NAMZU_AGENT_FLUSH_TIMEOUT_MS: '120000',
 			},
 			stdio: ['ignore', 'ignore', 'pipe'],
 		})
