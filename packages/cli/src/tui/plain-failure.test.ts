@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { explainFailure } from './plain-failure.js'
+import {
+	StartupRefusal,
+	explainFailure,
+	isMachineError,
+	workingDirectoryProblem,
+} from './plain-failure.js'
 
 describe('a failure the app hit itself', () => {
 	it('maps known causes to a sentence', () => {
@@ -45,5 +50,40 @@ describe('a failure the app hit itself', () => {
 			'Could not fork. Details: SQLITE_BUSY',
 		)
 		expect(explainFailure('plain string', 'Could not fork.', false)).not.toContain('plain string')
+	})
+})
+
+describe('startup sentences', () => {
+	it('keeps a refusal that is already a sentence, even with a path in it', () => {
+		const refusal = new StartupRefusal('Namzu could not open the folder ~/x. It does not exist.')
+		expect(explainFailure(refusal, 'Could not start the selected provider.', false)).toBe(
+			'Could not start the selected provider. Namzu could not open the folder ~/x. It does not exist.',
+		)
+	})
+	it('tells a system error from a sentence', () => {
+		expect(
+			isMachineError(Object.assign(new Error('EEXIST: file already exists'), { code: 'EEXIST' })),
+		).toBe(true)
+		expect(isMachineError(new TypeError('x is not a function'))).toBe(true)
+		expect(isMachineError('text')).toBe(true)
+		expect(isMachineError(new Error('Run namzu state to repair the split histories.'))).toBe(false)
+	})
+	it('words a missing or unreadable working folder with the next step', () => {
+		const missing = Object.assign(new Error('ENOENT: no such file'), { code: 'ENOENT' })
+		expect(workingDirectoryProblem('/srv/none', missing, false)).toBe(
+			'Namzu could not open the folder /srv/none. It does not exist. Check the path, then try again.',
+		)
+		const denied = Object.assign(new Error('EACCES'), { code: 'EACCES' })
+		expect(workingDirectoryProblem('/srv/none', denied, false)).toContain(
+			'does not have permission',
+		)
+		expect(workingDirectoryProblem('/srv/none', new Error('weird'), false)).toBe(
+			'Namzu could not open the folder /srv/none. Run with --debug for details. Choose another folder.',
+		)
+	})
+	it('shows the error text only as labelled Details with --debug', () => {
+		expect(
+			explainFailure(new Error('weird'), 'Computer use is unavailable on this device.', true),
+		).toBe('Computer use is unavailable on this device. Details: weird')
 	})
 })

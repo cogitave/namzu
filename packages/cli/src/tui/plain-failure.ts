@@ -7,6 +7,20 @@ import { debugRequested } from './plain-interruption.js'
  * words; everything else says what could not be done, and points at
  * `--debug` for the technical text.
  */
+/**
+ * A refusal whose message is already the sentence for a person (startup wrote it
+ * through `explainFailure` itself), so wrapping it again keeps it whole instead of
+ * hiding it behind `--debug`.
+ */
+export class StartupRefusal extends Error {
+	override readonly name = 'StartupRefusal'
+}
+
+/** Whether an error is machine output (a system code or a built-in type), never a sentence for a person. */
+export function isMachineError(err: unknown): boolean {
+	return !(err instanceof Error) || BUILT_IN_ERRORS.has(err.name) || codeOf(err) !== undefined
+}
+
 export function explainFailure(
 	err: unknown,
 	couldNot: string,
@@ -29,6 +43,7 @@ export function explainFailure(
 		cause = 'It was stopped.'
 	}
 	if (cause) return `${couldNot} ${cause}`
+	if (err instanceof StartupRefusal) return `${couldNot} ${err.message}`
 	// A sentence Namzu itself wrote for a person ("Delegated agents are still
 	// active; ...") is shown as it is; anything that reads as machine output is not.
 	if (err instanceof Error && isAuthoredSentence(err)) return `${couldNot} ${err.message}`

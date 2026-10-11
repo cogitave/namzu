@@ -281,7 +281,7 @@ import {
 } from './model-switch.js'
 import { isRepeatedNotice } from './notices.js'
 import { formatSize, homePath, plural, productName } from './person-terms.js'
-import { explainFailure } from './plain-failure.js'
+import { StartupRefusal, explainFailure, isMachineError } from './plain-failure.js'
 import {
 	debugRequested,
 	describePlainInterruption,
@@ -3927,7 +3927,7 @@ export function App({
 					// The construction refusal is the actionable cause. A failed cleanup
 					// must not turn it into a commit of this unusable candidate.
 				}
-				throw new Error(reason)
+				throw new StartupRefusal(reason)
 			}
 			let commands: ReturnType<typeof discoverUserCommands>
 			try {
@@ -4453,9 +4453,9 @@ export function App({
 					'system',
 					// A startup refusal is Namzu's own repair instruction ("split histories … run
 					// namzu state …"), so it is shown as written.
-					err instanceof Error && err.message
+					err instanceof Error && err.message && !isMachineError(err)
 						? err.message
-						: 'Could not check which agents are available.',
+						: explainFailure(err, 'Could not check which agents are available.'),
 					false,
 					STARTUP_STOP_GLYPH,
 				)
@@ -9753,13 +9753,9 @@ export function App({
 					setPickerSelectionKind('provider-and-model')
 					setPickerInitialView('providers')
 				}
-				// The construction hint was written by `createAgentSession` through
-				// `explainFailure`, so it is already a sentence for a person.
-				setPickerNotice(
-					err instanceof Error && err.message
-						? `Could not start the selected provider. ${err.message}`
-						: 'Could not start the selected provider.',
-				)
+				// A construction refusal is already a sentence for a person
+				// (`StartupRefusal`); anything else is described, never pasted.
+				setPickerNotice(explainFailure(err, 'Could not start the selected provider.'))
 				return false
 			}
 		},
@@ -11325,9 +11321,9 @@ function projectSettingsFailure(err: unknown): string {
 		const raw = err.cause instanceof Error ? err.cause.message : undefined
 		return raw && debugRequested() ? `${err.message}\n${raw}` : err.message
 	}
-	return err instanceof Error && err.message
+	return err instanceof Error && err.message && !isMachineError(err)
 		? `Could not apply this project’s settings. ${err.message}`
-		: 'Could not apply this project’s settings.'
+		: explainFailure(err, 'Could not apply this project’s settings.')
 }
 
 /** One line for a background job that ended, for the transcript and the next turn. */

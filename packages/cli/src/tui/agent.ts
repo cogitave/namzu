@@ -2129,7 +2129,11 @@ export async function createAgentSession(
 	try {
 		await ensureRegistered(primary.id)
 	} catch (err) {
-		return emptySession(err instanceof Error ? err.message : String(err))
+		return emptySession(
+			explainFailure(err, `Namzu could not load ${entry.label}.`),
+			'environment',
+			describeError(err),
+		)
 	}
 
 	// Does the chain agree with itself about what it can do? Asked before the

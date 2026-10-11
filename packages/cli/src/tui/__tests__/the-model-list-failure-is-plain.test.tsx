@@ -61,3 +61,45 @@ describe.each([40, 60, 80])('a rejected key at %i columns', (cols) => {
 		expect(frame).not.toMatch(/request_id|\*\*\*\*|Authentication Fails|401/)
 	})
 })
+
+const ollama: readonly DetectedProvider[] = [
+	{
+		entry: PROVIDER_REGISTRY.ollama,
+		source: { kind: 'probe', url: 'http://localhost:11434/api/tags' },
+		apiKey: '',
+		baseUrl: 'http://localhost:11434',
+		alternatives: [],
+	},
+]
+
+describe.each([40, 60, 80])('a local server that is not running at %i columns', (cols) => {
+	it('names the server and says to start it, not to check the internet', async () => {
+		const screen = await renderToScreen(
+			<Box paddingX={1}>
+				<Picker
+					detected={ollama}
+					onSubmit={vi.fn()}
+					onCancel={vi.fn()}
+					onCredential={vi.fn()}
+					describeModels={async () => ({
+						kind: 'failed',
+						reason: 'ECONNREFUSED',
+						cause: 'network',
+					})}
+				/>
+			</Box>,
+			{ cols, rows: 30 },
+		)
+		mounted = screen
+		await screen.waitForRender()
+		screen.press('\r')
+		await screen.waitForRender()
+		const frame = screen.viewport().join('\n')
+		if (process.env.PROBE) appendFileSync(process.env.PROBE, `--- ollama ${cols}\n${frame}\n`)
+		const flat = frame.replace(/[│\s]+/g, ' ')
+		expect(flat).toContain(
+			'Namzu could not reach Ollama at localhost:11434. Start it, then try again.',
+		)
+		expect(flat).not.toMatch(/internet|ECONNREFUSED/)
+	})
+})
