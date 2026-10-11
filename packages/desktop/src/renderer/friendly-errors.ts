@@ -242,7 +242,7 @@ function plainProviderDetails(raw: string): string[] {
 	const requestId =
 		vendor?.requestId ?? REQUEST_ID.exec(vendor ? '' : body)?.[1] ?? REQUEST_TOKEN.exec(body)?.[0]
 	const tail = [
-		...(projectId ? [`${name} project: ${projectId}`] : []),
+		...(projectId ? [`Project: ${projectId}`] : []),
 		...(requestId ? [`Request ID: ${requestId}`] : []),
 	]
 	const fields = [

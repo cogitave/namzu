@@ -772,13 +772,16 @@ conversation has no token limit of its own (the ACP session is opened without `l
 same conversation; **Details** then reads the same labelled fields whichever wire answered
 (`plainProviderDetails` in `friendly-errors.ts`): "OpenAI: the provider failed to complete the request"
 then "Status: 502 · Provider said: “Bad Gateway”", a labelled "Request ID: …" when the vendor sent one and a
-labelled vendor project ("OpenAI project: proj_…"; a 403 reads "access was refused", never the runtime's
-own sentence about credentials). The OpenAI driver hands the message over already parsed ("403 Your project
-does not have access to model …"), Anthropic's arrives as JSON and Google's driver keeps no body; all three
-read as "Status: 403 · Provider said: “…”", with **Type**, **Code** and **Field** where the vendor sent them
-as JSON (Anthropic `{type, error: {type, message}}`, OpenAI `{error: {message, type, code, param}}`, Google
-`{error: {code, message, status}}` and a bare JSON string), and with the status alone when no body was kept
-("Google: access was refused" then "Status: 403"). An unknown shape becomes one capped excerpt with no braces or quotes (`friendly-errors.ts`). A request that
+labelled vendor project ("Project: proj_…", the same as "Request ID"; a 403 reads "access was refused", never the runtime's
+own sentence about credentials). Every wire reads as "Status: 403 · Provider said: “…” · Type: invalid_request_error · Code: model_not_found",
+with **Type**, **Code** and **Field** wherever the vendor sent them. Anthropic's message carries its whole JSON body, so the host reads
+them from it. The OpenAI SDK's own message is only the parsed sentence ("403 Your project does not have access to model …"),
+but its error holds `type`, `code`, `param` and `requestID` (or the `x-request-id` header) as fields; the driver error
+(`providerVendorError` in `@namzu/sdk`) now writes those, scrubbed and bounded, beside the sentence in the same
+`{error: {message, type, code, param}, request_id}` body shape, so a 403 or 429 on the OpenAI wire shows the Type, Code
+and Request ID Anthropic's does. Google's driver now reads its refusal body (`{error: {code, message, status}}`, its
+`status` is the Type) and the `x-goog-request-id` header the same way (`providerHttpError`); a bare JSON string and a
+reply with no body keep the status alone ("Google: access was refused" then "Status: 403"). An unknown shape becomes one capped excerpt with no braces or quotes (`friendly-errors.ts`). A request that
 failed before any reply arrived carries no usage line in Details; "No usage was reported for the
 failed attempts." appears only when a reply did arrive without a usage count. Details say each thing
 once: a repeated HTML title, "(no body)" and a duplicated status are dropped, and token counts are

@@ -386,6 +386,71 @@ function vendorRetryAfter(err: unknown): string | undefined {
 	return undefined
 }
 
+/** Response headers that name the request, as the vendors that send one spell it. */
+const REQUEST_ID_HEADERS = ['x-request-id', 'request-id', 'x-goog-request-id'] as const
+
+/** A header off an SDK error's captured response headers (a `Headers` or a plain object). */
+function vendorHeader(err: unknown, names: readonly string[]): string | undefined {
+	if (typeof err !== 'object' || err === null) return undefined
+	const headers =
+		(err as { headers?: unknown }).headers ??
+		(err as { $response?: { headers?: unknown } }).$response?.headers
+	if (!headers) return undefined
+	for (const name of names) {
+		if (typeof (headers as Headers).get === 'function') {
+			const value = (headers as Headers).get(name)
+			if (value) return value
+			continue
+		}
+		const value = (headers as Record<string, unknown>)[name]
+		if (typeof value === 'string' && value) return value
+	}
+	return undefined
+}
+
+const FIELD_VALUE = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/
+
+function fieldValue(value: unknown): string | undefined {
+	return typeof value === 'string' && FIELD_VALUE.test(value) && redactSecrets(value) === value
+		? value
+		: undefined
+}
+
+/**
+ * The provider's structured fields beside its sentence, in the one body shape every host already
+ * reads (`{"error":{"message","type","code","param"},"request_id"}`).
+ *
+ * A vendor SDK whose error message is only the parsed sentence (OpenAI's "403 <message>") still
+ * holds the body's `type`, `code`, `param` and the response's request ID as fields; a host that
+ * receives the message alone cannot show them, while Anthropic's message carries its whole body
+ * and so shows them. The fields are bounded identifiers (never a body), so nothing echoed can ride
+ * along. With nothing but a sentence the result is that sentence unchanged.
+ */
+export function structuredVendorDetail(input: {
+	readonly message: string | undefined
+	readonly type?: unknown
+	readonly code?: unknown
+	readonly param?: unknown
+	readonly requestId?: unknown
+}): string | undefined {
+	const message = vendorDetail(input.message?.replace(/^\d{3}\s+/, ''))
+	const type = fieldValue(input.type)
+	const code = fieldValue(input.code)
+	const param = fieldValue(input.param)
+	const requestId = fieldValue(input.requestId)
+	if (!type && !code && !param && !requestId) return message
+	if (!message) return undefined
+	return JSON.stringify({
+		error: {
+			message,
+			...(type ? { type } : {}),
+			...(code ? { code } : {}),
+			...(param ? { param } : {}),
+		},
+		...(requestId ? { request_id: requestId } : {}),
+	})
+}
+
 /**
  * Classify an error thrown by a vendor SDK and replace it.
  *
@@ -460,7 +525,18 @@ export function providerVendorError(input: {
 		input.retryAfter ?? vendorRetryAfter(error),
 		input.now ?? Date.now(),
 	)
-	const detail = vendorDetail(message)
+	const fields = error as { type?: unknown; param?: unknown; requestID?: unknown } | null
+	// A message that already carries its body (Anthropic's) has the fields; one that is only the
+	// parsed sentence (OpenAI's) gets them from the SDK error's own properties.
+	const detail = carriesBody(message)
+		? vendorDetail(message)
+		: structuredVendorDetail({
+				message,
+				type: fields?.type,
+				code: exactProviderCode,
+				param: fields?.param,
+				requestId: fields?.requestID ?? vendorHeader(error, REQUEST_ID_HEADERS),
+			})
 	return new ProviderRequestError({
 		kind,
 		providerId: input.providerId,
@@ -469,6 +545,51 @@ export function providerVendorError(input: {
 		...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
 		...(detail !== undefined ? { detail } : {}),
 	})
+}
+
+/** Anthropic's SDK words a failure "<status> <JSON body>"; OpenAI's is "<status> <sentence>", which may itself hold a brace. */
+function carriesBody(message: string): boolean {
+	const rest = message.replace(/^\d{3}\s+/, '').trim()
+	if (!rest.startsWith('{')) return false
+	try {
+		const parsed: unknown = JSON.parse(rest)
+		return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+	} catch {
+		return false
+	}
+}
+
+function parsedBody(body: unknown): Record<string, unknown> | undefined {
+	let decoded = body
+	if (typeof decoded === 'string') {
+		try {
+			decoded = JSON.parse(decoded)
+		} catch {
+			return undefined
+		}
+	}
+	return typeof decoded === 'object' && decoded !== null && !Array.isArray(decoded)
+		? (decoded as Record<string, unknown>)
+		: undefined
+}
+
+/** `type`/`status`, `code` and `param` of a `{ error: {...} }` body, only where it spells them. */
+function bodyErrorFields(body: Record<string, unknown> | undefined): {
+	type?: unknown
+	code?: unknown
+	param?: unknown
+} {
+	const inner =
+		body && typeof body.error === 'object' && body.error !== null
+			? (body.error as Record<string, unknown>)
+			: undefined
+	if (!inner) return {}
+	// Google names its type `status` ("PERMISSION_DENIED") and sends a numeric `code` that is the HTTP status.
+	return {
+		type: inner.type ?? (typeof inner.status === 'string' ? inner.status : undefined),
+		code: typeof inner.code === 'string' ? inner.code : undefined,
+		param: inner.param,
+	}
 }
 
 /**
@@ -482,11 +603,23 @@ export function providerHttpError(input: {
 	readonly status: number
 	readonly body?: string | null
 	readonly retryAfter?: string | null
+	/** The response's request ID header, when the driver read one. */
+	readonly requestId?: string | null
 	readonly now?: number
 }): ProviderRequestError {
 	const kind = classifyProviderHttpStatus(input.status, input.body)
 	const retryAfterMs = parseRetryAfterMs(input.retryAfter, input.now ?? Date.now())
-	const detail = vendorDetail(input.body)
+	const body = parsedBody(input.body)
+	const bodyError = bodyErrorFields(body)
+	const detail = body
+		? structuredVendorDetail({
+				message: vendorDetail(input.body),
+				type: bodyError.type,
+				code: bodyError.code,
+				param: bodyError.param,
+				requestId: input.requestId,
+			})
+		: vendorDetail(input.body)
 	const exactProviderCode = providerCode(input.body)
 	return new ProviderRequestError({
 		kind,

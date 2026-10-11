@@ -146,6 +146,24 @@ describe('native Gemini transport', () => {
 			status: 401,
 		})
 	})
+	it('keeps the status, type and request ID Google sent with a refusal', async () => {
+		const failure = (await collect(
+			new GoogleProvider({
+				apiKey: 'key',
+				fetch: async () =>
+					new Response(
+						JSON.stringify({
+							error: { code: 403, message: 'Denied for this project', status: 'PERMISSION_DENIED' },
+						}),
+						{ status: 403, headers: { 'x-goog-request-id': 'goog_req_1' } },
+					),
+			}),
+		).catch((err: unknown) => err as { detail?: string })) as { detail?: string }
+		expect(JSON.parse(failure.detail ?? '')).toEqual({
+			error: { message: 'Denied for this project', type: 'PERMISSION_DENIED' },
+			request_id: 'goog_req_1',
+		})
+	})
 	it('cancels before obtaining credentials or fetching', async () => {
 		const controller = new AbortController()
 		controller.abort()

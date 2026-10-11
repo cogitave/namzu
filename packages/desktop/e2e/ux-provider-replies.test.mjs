@@ -79,8 +79,9 @@ const providerRow = (w) =>
 const JARGON =
 	/HTTP|\b[45]\d\d\b|receipt|unresolved|budget|reservation|<html|\{"error"|Error invoking|insufficient_quota|proj_[a-z0-9]+/i;
 
-const json = (status, message, extra = {}) => ({
+const json = (status, message, extra = {}, headers = {}) => ({
 	status,
+	headers,
 	contentType: "application/json",
 	body: JSON.stringify({ error: { message, ...extra } }),
 });
@@ -111,11 +112,16 @@ function headlineFlow(name, step, headline, buttons, detailsPattern, shotName) {
 
 headlineFlow(
 	"a model the account cannot use does not blame the key",
-	json(403, "Project proj_abc123 does not have access to model gpt-5", { code: "model_not_found" }),
+	json(
+		403,
+		"Project proj_abc123 does not have access to model gpt-5",
+		{ type: "invalid_request_error", code: "model_not_found" },
+		{ "x-request-id": "req_9f8e7d" },
+	),
 	"Your OpenAI account can’t use gpt-5. Choose another model.",
 	["Open model settings"],
 	new RegExp(
-		`${PROVIDER_NAME}: access was refused\\nStatus: 403 · Provider said: “Your project does not have access to model gpt-5”\\n${PROVIDER_NAME} project: proj_abc123`,
+		`${PROVIDER_NAME}: access was refused\\nStatus: 403 · Provider said: “Your project does not have access to model gpt-5” · Type: invalid_request_error · Code: model_not_found\\nProject: proj_abc123\\nRequest ID: req_9f8e7d`,
 	),
 	"403-model-access",
 );
@@ -125,11 +131,11 @@ headlineFlow(
 	json(429, "You exceeded your current quota, please check your plan and billing details.", {
 		type: "insufficient_quota",
 		code: "insufficient_quota",
-	}),
+	}, { "x-request-id": "req_quota01" }),
 	"Your OpenAI account is out of credit. Add credit in your OpenAI billing page, then send again.",
 	["Open model settings"],
 	new RegExp(
-		`${PROVIDER_NAME}: rate limited by the provider\\nStatus: 429 · Provider said: “You exceeded your current quota, please check your plan and billing details”`,
+		`${PROVIDER_NAME}: rate limited by the provider\\nStatus: 429 · Provider said: “You exceeded your current quota, please check your plan and billing details” · Type: insufficient_quota\\nRequest ID: req_quota01`,
 	),
 	"429-quota",
 );
@@ -137,13 +143,13 @@ headlineFlow(
 headlineFlow(
 	"a rate limit on the OpenAI wire reads as the same labelled fields as every other wire",
 	json(429, "Rate limit reached for gpt-5 on requests per min. Limit: 3, Used: 3.", {
-		type: "requests",
+		type: "rate_limit_error",
 		code: "rate_limit_exceeded",
-	}),
+	}, { "x-request-id": "req_9f8e7e" }),
 	"OpenAI asked Namzu to slow down. Give it a minute.",
 	["Retry"],
 	new RegExp(
-		`${PROVIDER_NAME}: rate limited by the provider\\nStatus: 429 · Provider said: “Rate limit reached for gpt-5 on requests per min. Limit: 3, Used: 3”`,
+		`${PROVIDER_NAME}: rate limited by the provider\\nStatus: 429 · Provider said: “Rate limit reached for gpt-5 on requests per min. Limit: 3, Used: 3” · Type: rate_limit_error · Code: rate_limit_exceeded\\nRequest ID: req_9f8e7e`,
 	),
 	"429-rate-limit",
 );

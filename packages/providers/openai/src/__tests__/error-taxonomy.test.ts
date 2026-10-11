@@ -165,6 +165,32 @@ describe('@namzu/openai — provider error taxonomy', () => {
 		})
 	}, 30_000)
 
+	it('carries the provider type, code and request ID the SDK error holds, not only its message', async () => {
+		const err = (await captureChatStreamError({
+			status: 403,
+			headers: { 'x-request-id': 'req_9f8e7d' },
+			body: JSON.stringify({
+				error: {
+					message: 'Your project does not have access to model gpt-6-luna',
+					type: 'invalid_request_error',
+					code: 'model_not_found',
+					param: null,
+				},
+			}),
+		})) as Error & { detail?: string }
+
+		expect(JSON.parse(err.detail?.replace(/^\d{3}\s+/, '') ?? 'null')).toEqual({
+			error: {
+				message: 'Your project does not have access to model gpt-6-luna',
+				type: 'invalid_request_error',
+				code: 'model_not_found',
+			},
+			request_id: 'req_9f8e7d',
+		})
+		expect(err.message).toContain('model_not_found')
+		expect(err.message).toContain('req_9f8e7d')
+	}, 30_000)
+
 	it('(d) SECURITY: a credential echoed back in a 401 body never reaches the thrown message', async () => {
 		const err = await captureChatStreamError({
 			status: 401,
