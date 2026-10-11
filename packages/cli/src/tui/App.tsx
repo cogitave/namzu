@@ -243,6 +243,11 @@ import {
 	probeAgentSession,
 } from './agent.js'
 import {
+	describeCapabilityNotice,
+	describeHistoryRepairNotice,
+	withDebugDetail,
+} from './capability-notice.js'
+import {
 	choicePickerWindowSize,
 	filterChoiceOptions,
 	moveChoiceSelection,
@@ -6625,13 +6630,41 @@ export function App({
 				case 'capability-warning':
 					pushMessage(
 						'system',
-						`Capability warning (${event.capability}${event.contentSource === 'tool-result' ? ' tool result' : ''}): ${event.text}`,
+						withDebugDetail(
+							describeCapabilityNotice({
+								capability: event.capability,
+								...(event.contentSource ? { contentSource: event.contentSource } : {}),
+								providerId: event.providerId,
+							}),
+							event.text,
+							debugRequested(),
+						),
 						false,
 						'!',
 					)
 					break
 				case 'history-repair':
-					pushMessage('system', `History warning (${event.source}): ${event.text}`, false, '!')
+					pushMessage(
+						'system',
+						withDebugDetail(
+							describeHistoryRepairNotice({
+								source: event.source,
+								duplicateResults: event.duplicateResults,
+								orphanedResults: event.orphanedResults,
+								interruptedCalls: event.interruptedCalls,
+								...(event.rejectedImages !== undefined
+									? { rejectedImages: event.rejectedImages }
+									: {}),
+								...(scheduleLiveRef.current?.model?.provider
+									? { providerId: scheduleLiveRef.current.model.provider }
+									: {}),
+							}),
+							event.text,
+							debugRequested(),
+						),
+						false,
+						'!',
+					)
 					break
 				case 'done': {
 					// Persistence and memory use the settled answer, not concatenated

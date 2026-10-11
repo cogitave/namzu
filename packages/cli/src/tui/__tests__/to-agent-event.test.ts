@@ -66,6 +66,7 @@ describe('toAgentEvent carries the stop reason across', () => {
 			expect(mapped).toEqual({
 				kind: 'capability-warning',
 				capability,
+				providerId: 'deepseek',
 				text: `cannot serve ${capability}`,
 			})
 			expect(mapped?.kind).not.toBe('error')
@@ -90,6 +91,7 @@ describe('toAgentEvent carries the stop reason across', () => {
 			kind: 'capability-warning',
 			capability: 'vision',
 			contentSource: 'tool-result',
+			providerId: 'text-only',
 			text: 'image tool result will use a text fallback',
 		})
 	})
@@ -111,6 +113,9 @@ describe('toAgentEvent carries the stop reason across', () => {
 		expect(mapped).toEqual({
 			kind: 'history-repair',
 			source: 'abandoned-checkpoint',
+			duplicateResults: 1,
+			orphanedResults: 2,
+			interruptedCalls: 3,
 			text: 'Tool history repaired before the model call: 1 duplicate result removed; 2 orphaned results removed; 3 interrupted calls closed with unknown outcome. Verify external state before retrying non-idempotent tools.',
 		})
 		expect(mapped?.kind).not.toBe('error')
@@ -134,6 +139,10 @@ describe('toAgentEvent carries the stop reason across', () => {
 		expect(mapped).toEqual({
 			kind: 'history-repair',
 			source: 'provider-rejected-image',
+			duplicateResults: 0,
+			orphanedResults: 0,
+			interruptedCalls: 0,
+			rejectedImages: 2,
 			text: 'The provider rejected 2 image occurrences. The original attachment bytes were kept, but that image will be omitted from later model requests; attach a corrected copy to try again.',
 		})
 	})
@@ -269,8 +278,8 @@ describe('toAgentEvent carries the stop reason across', () => {
 		)
 		expect(refused).toMatchObject({ kind: 'error', providerError })
 		if (refused?.kind !== 'error') throw new Error('Expected an error event')
-		expect(refused.message).toContain('gateway refused this experimental free-model request')
-		expect(refused.message).toContain('installing it does not change this session')
+		expect(refused.message).toContain('Zen refused this free-model request')
+		expect(refused.message).toContain('Installing OpenCode does not change that for Namzu')
 		expect(refused.message).toContain('OPENCODE_API_KEY')
 		for (const unrelated of [
 			{ ...providerError, providerId: 'zen-go' },

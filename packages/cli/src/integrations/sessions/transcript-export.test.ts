@@ -69,6 +69,65 @@ describe('exporting a conversation from its session log', () => {
 		expect(exported.markdown).toContain('## Assistant\n\nThere are two files.')
 	})
 
+	it('writes capability and history notices as plain sentences, not the kernel wording', async () => {
+		const s = await project()
+		const id = await startConversation(s)
+		await recordTurn(s, id, [createUserMessage('hello'), assistant('Hi.')], {
+			records: [
+				{
+					type: 'capability_warning',
+					sessionId: id,
+					capability: 'tools',
+					providerId: 'ollama',
+					message:
+						"Provider 'ollama' does not support tools — 42 registered tool(s) were stripped.",
+				},
+				{
+					type: 'message_history_repaired',
+					sessionId: id,
+					source: 'abandoned-checkpoint',
+					duplicateToolResultsRemoved: 0,
+					orphanedToolResultsRemoved: 0,
+					syntheticToolResultsInserted: 2,
+				},
+				{
+					type: 'message_history_repaired',
+					sessionId: id,
+					source: 'provider-rejected-image',
+					duplicateToolResultsRemoved: 0,
+					orphanedToolResultsRemoved: 0,
+					syntheticToolResultsInserted: 0,
+					providerRejectedImagesSuppressed: 1,
+				},
+				{
+					type: 'provider_fallback',
+					sessionId: id,
+					fromIndex: 0,
+					fromProviderId: 'anthropic',
+					fromModel: 'claude-x',
+					toIndex: 1,
+					toProviderId: 'openai',
+					reason: 'rate_limit',
+				},
+			],
+		})
+
+		const { markdown } = await conversationMarkdown(s, id)
+
+		expect(markdown).toContain('Ollama can’t use tools, so Namzu will only chat')
+		expect(markdown).toContain('Your last reply was cut off before its steps finished')
+		expect(markdown).not.toMatch(/interrupted step|orphan/)
+		expect(markdown).toContain('A picture you attached wasn’t accepted.')
+		expect(markdown).not.toContain('The provider didn’t')
+		expect(markdown).toContain(
+			'Anthropic was too busy, so Namzu used OpenAI for the rest of that reply.',
+		)
+		expect(markdown).not.toMatch(/rate_limit|claude-x|Provider fallback/)
+		expect(markdown).not.toContain('Capability warning')
+		expect(markdown).not.toContain("'ollama'")
+		expect(markdown).not.toContain('42 registered')
+	})
+
 	it('shows an answer the runtime replaced, never the raw one', async () => {
 		const s = await project()
 		const id = await startConversation(s)

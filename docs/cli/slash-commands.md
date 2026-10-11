@@ -379,8 +379,8 @@ Provider setup is also reachable with `s` in the provider picker. Namzu does not
 require an external CLI for its own Codex/Claude sign-in or anonymous Zen models.
 The setup screen probes `--version` with bounded subprocesses and displays only
 credential source kinds, never credentials. When no Claude credential is found,
-it explains that Desktop sign-in may not supply a reusable Code CLI session
-and points to `namzu login claude`. `i` proposes the exact npm global
+it says "Not signed in for Namzu" (Claude Desktop's sign-in does not always give
+Namzu a reusable session) and points to `namzu login claude`. `i` proposes the exact npm global
 install command for a missing CLI; only `y` on that confirmation runs it.
 Installation can execute third-party package scripts. Escape cancels the owned
 installer process group; files already installed may remain. After it finishes,

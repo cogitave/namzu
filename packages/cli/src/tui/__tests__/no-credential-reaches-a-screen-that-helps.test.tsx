@@ -259,11 +259,12 @@ describe('launching with a saved provider and no credential', () => {
 		try {
 			const notice = text(screen)
 			expect(notice).toContain(pinned)
-			expect(notice).toContain('Zen’s experimental free')
-			expect(notice).toContain('models, such as')
-			expect(notice).toContain('gateway may refuse')
-			expect(notice).toContain('Space Bunny Free')
-			expect(notice).toContain('"k" to enter a Zen API key and try the saved model')
+			expect(notice.replace(/[│\s]+/g, ' ')).toContain(
+				'To try without a key, pick a Zen free model such as Space Bunny Free',
+			)
+			expect(notice.replace(/[│\s]+/g, ' ')).toContain(
+				'“k” to enter a Zen API key and use the saved model',
+			)
 			expect(world.built).toBeNull()
 			expect(world.savedPrefs).toEqual([])
 

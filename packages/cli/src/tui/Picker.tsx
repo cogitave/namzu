@@ -67,6 +67,7 @@ import {
 	choiceDisplayWidth,
 	eraseLastChoiceGrapheme,
 	truncateChoiceText,
+	wrapBalancedText,
 	wrapChoiceText,
 } from './terminal-choice-text.js'
 import { terminalDisplayText } from './terminal-display.js'
@@ -549,7 +550,7 @@ export function Picker({
 				})
 				const experimentalNotice =
 					current.entry.id === 'zen' && !hasApiCredential(current.entry, current.apiKey)
-						? 'Zen free models are experimental. OpenCode installation is recommended; Namzu sends requests directly, and the gateway may refuse them.'
+						? 'Zen’s free models are experimental, and Zen may refuse them. If it does, add a Zen API key.'
 						: null
 				setModelPhase({
 					provider: current,
@@ -1281,8 +1282,8 @@ export function Picker({
 				</Text>
 				{experimentalZen ? (
 					<Text color={theme.status.warn}>
-						OpenCode installation is recommended. Namzu sends requests directly; the gateway may
-						refuse free models.
+						Zen’s free models are experimental, and Zen may refuse them. If it does, add a Zen API
+						key.
 					</Text>
 				) : null}
 				<Box flexDirection="column" paddingTop={1}>
@@ -1446,7 +1447,7 @@ export function Picker({
 	const listSubtitle =
 		selectionKind === 'signed-in-subscription'
 			? `${detected.length} already usable · no API key required`
-			: `${detected.length} detected · existing sign-ins / Namzu sign-ins / optional keys / local servers`
+			: `${detected.length} found · sign-ins, API keys and local servers`
 	const listFooter = fitHints(
 		[
 			{ text: '↑↓ or 1–9 select', short: '↑↓ select', rank: 5 },
@@ -1590,7 +1591,12 @@ export function Picker({
 				    the line drawn — and the line it gave up when the terminal could
 				    not hold both it and the notice above. */}
 				{showSubtitle ? (
-					<WrappedLines text={listSubtitle} width={contentWidth} color={theme.text.muted} />
+					<WrappedLines
+						text={listSubtitle}
+						width={contentWidth}
+						color={theme.text.muted}
+						balanced
+					/>
 				) : null}
 			</Box>
 			<ProviderSetupRows
@@ -2146,14 +2152,17 @@ function WrappedLines({
 	text,
 	width,
 	color,
+	balanced = false,
 }: {
 	readonly text: string
 	readonly width: number
 	readonly color: string
+	/** Break evenly, so the last line is never a lone word. */
+	readonly balanced?: boolean
 }) {
 	return (
 		<>
-			{wrapChoiceText(text, width).map((line, at) => (
+			{(balanced ? wrapBalancedText(text, width) : wrapChoiceText(text, width)).map((line, at) => (
 				// biome-ignore lint/suspicious/noArrayIndexKey: wrapped lines have no identity beyond their order.
 				<Text key={at} color={color}>
 					{line || ' '}
@@ -2392,10 +2401,10 @@ function describeSource(d: DetectedProvider): string {
 	switch (d.source.kind) {
 		case 'env':
 			if (d.entry.id === 'zen' && !hasApiCredential(d.entry, d.apiKey))
-				return 'Zen free models · experimental; gateway may refuse'
+				return 'Zen free models · experimental, and Zen may refuse them'
 			return `env · ${d.source.envName}`
 		case 'public':
-			return 'Zen free models · experimental; gateway may refuse'
+			return 'Zen free models · experimental, and Zen may refuse them'
 		case 'opencode-file':
 			return 'OpenCode API key · this device'
 		case 'probe':

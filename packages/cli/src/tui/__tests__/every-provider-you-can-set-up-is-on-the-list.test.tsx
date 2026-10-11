@@ -110,9 +110,7 @@ describe('the provider list', () => {
 		const frame = lastFrame() ?? ''
 
 		expect(highlighted(frame)).toMatch(/› 1\. Ollama \(local\)\s+local · localhost:11434/)
-		expect(frame).toContain(
-			'1 detected · existing sign-ins / Namzu sign-ins / optional keys / local servers',
-		)
+		expect(frame).toContain('1 found · sign-ins, API keys and local servers')
 		unmount()
 	})
 

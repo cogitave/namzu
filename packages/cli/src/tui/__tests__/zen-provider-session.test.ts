@@ -223,7 +223,7 @@ it.each([undefined, 'public'])(
 			)
 			try {
 				expect(session.hasProvider).toBe(false)
-				expect(session.errorHint).toContain('experimental free model')
+				expect(session.errorHint).toContain('need no key, though Zen may refuse them')
 			} finally {
 				await session.close()
 			}

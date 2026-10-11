@@ -104,7 +104,7 @@ it('renders the real DeepSeek text-model refusal without a false driver warning'
 	// The terminal owns line wrapping. Assert the authored message rather than
 	// coupling the observer to whichever word happened to cross this width.
 	const rendered = harness.frames.join('\n').replace(/\s+/g, ' ')
-	expect(rendered).not.toContain('Capability warning (vision)')
+	expect(rendered).not.toContain('Capability warning')
 	expect(rendered).toContain("Model 'deepseek-v4-flash' does not accept image input")
 	expect(rendered).toContain("Select 'deepseek-v4-flash-vision-exp'")
 	expect(network).not.toHaveBeenCalled()

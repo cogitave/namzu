@@ -15,6 +15,11 @@ import type {
 import { visibleProjectInstructionPath } from '../../context/project-path.js'
 import { runtimeContextLabel } from '../../context/runtime-message.js'
 import {
+	describeCapabilityNotice,
+	describeHistoryRepairNotice,
+	describeProviderFallbackNotice,
+} from '../../tui/capability-notice.js'
+import {
 	type ConversationContext,
 	type ConversationFacts,
 	openConversationLog,
@@ -354,22 +359,34 @@ function renderRecordedActivity(record: SessionRecord, produced: readonly Messag
 			break
 		case 'provider_fallback':
 			activity(
-				`Provider fallback: ${record.fromProviderId}${record.fromModel ? `/${record.fromModel}` : ''} → ${record.toProviderId}${record.toModel ? `/${record.toModel}` : ''} (${record.reason})`,
+				describeProviderFallbackNotice({
+					fromProviderId: record.fromProviderId,
+					toProviderId: record.toProviderId,
+					reason: record.reason,
+				}),
 			)
 			break
 		case 'capability_warning':
-			activity(`Capability warning (${record.capability}): ${record.message}`)
+			activity(
+				describeCapabilityNotice({
+					capability: record.capability,
+					...(record.contentSource ? { contentSource: record.contentSource } : {}),
+					providerId: record.providerId,
+				}),
+			)
 			break
 		case 'message_history_repaired':
-			if (record.source === 'provider-rejected-image') {
-				activity(
-					`Provider-rejected image delivery repaired: ${record.providerRejectedImagesSuppressed ?? 0} occurrence(s) retained in history and omitted from later model requests.`,
-				)
-			} else {
-				activity(
-					`Tool history repaired (${record.source}): ${record.duplicateToolResultsRemoved} duplicate result(s) removed, ${record.orphanedToolResultsRemoved} orphaned result(s) removed, ${record.syntheticToolResultsInserted} interrupted call(s) closed with unknown outcome.`,
-				)
-			}
+			activity(
+				describeHistoryRepairNotice({
+					source: record.source,
+					duplicateResults: record.duplicateToolResultsRemoved,
+					orphanedResults: record.orphanedToolResultsRemoved,
+					interruptedCalls: record.syntheticToolResultsInserted,
+					...(record.providerRejectedImagesSuppressed !== undefined
+						? { rejectedImages: record.providerRejectedImagesSuppressed }
+						: {}),
+				}),
+			)
 			break
 		case 'compaction_tool_results_cleared':
 			activity(

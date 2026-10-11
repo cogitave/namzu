@@ -81,7 +81,7 @@ With no Zen API key, the picker and headless `--provider zen --model <id>` can
 select the free models in Namzu's bundled Zen catalogue. The selected model
 must resolve against the active catalogue or its bundled fallback at zero price;
 an unknown model, a paid Zen model, or any Zen Go model needs its own API key.
-This is an experimental path. The Zen gateway may refuse a direct request even
+This is an experimental path. Zen may refuse a direct request even
 when its catalogue lists the model as free. Space Bunny Free has been verified
 for direct anonymous access; the other free models have not. The
 `supportsAnonymousAccess` flag continues to mean verified direct access, not
@@ -89,7 +89,7 @@ experimental eligibility.
 
 The chooser and `/setup` recommend installing OpenCode for its own client.
 Namzu sends Zen requests directly and does not invoke that binary, so installing
-OpenCode does not change a Namzu session's request or guarantee that the gateway
+OpenCode does not change a Namzu session's request or guarantee that Zen
 will accept it. Set `OPENCODE_API_KEY` for credentialed Zen access if a free
 request is refused. `OPENCODE_GO_API_KEY` is separate and does not authorize
 Zen requests.

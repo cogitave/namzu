@@ -70,7 +70,8 @@ export function productName(providerId: string | undefined): string | undefined 
 		: undefined
 	const full = entry ? VENDOR_NAMES[entry.vendor] : undefined
 	if (full) return full.replace(/\s*\(.*\)\s*$/, '')
-	return id.charAt(0).toUpperCase() + id.slice(1)
+	// An id nobody here named is not a product name; callers say "the provider".
+	return undefined
 }
 
 /** The part of a path module a spelling depends on; injectable so both can be tested anywhere. */

@@ -81,6 +81,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 					kind: 'capability-warning',
 					capability: 'vision',
 					contentSource: 'tool-result',
+					providerId: 'ollama',
 					text: 'The active provider will receive an explicit text fallback.',
 				}
 				yield {
@@ -150,8 +151,8 @@ it('shows authored desktop actions, screenshot dimensions and failures without e
 	const transcript = painted()
 	expect(transcript).toContain('✓ Capture screenshot')
 	expect(transcript).toContain('Screenshot captured (5120x1440, image/png).')
-	expect(transcript).toContain('Capability warning (vision tool result)')
-	expect(transcript).toContain('The active provider will receive an explicit text fallback.')
+	expect(transcript).not.toContain('Capability warning')
+	expect(transcript).toContain('can’t see images, so Namzu gave it a text note')
 	expect(transcript).toContain('✓ Press WIN')
 	expect(transcript).toContain('✗ Press CTRL+R')
 	expect(transcript).toContain('failed: desktop bridge failed')
