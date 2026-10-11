@@ -144,13 +144,19 @@ export function localEndpoint(
 	} catch {
 		return undefined
 	}
-	const host = url.hostname.replace(/^\[|\]$/g, '').toLowerCase()
+	const host = url.hostname
+		.replace(/^\[|\]$/g, '')
+		.replace(/\.$/, '')
+		.toLowerCase()
 	if (!isLocalHost(host)) return undefined
 	const shownHost = host.includes(':') ? `[${host}]` : host
 	return url.port ? `${shownHost}:${url.port}` : shownHost
 }
 
 function isLocalHost(host: string): boolean {
+	// A name with no dot ("gpu-box") resolves on the local network, never on the internet.
+	if (host.length > 0 && !host.includes('.') && !host.includes(':')) return true
+	if (/^::ffff:7f[0-9a-f]{2}:/.test(host)) return true
 	if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) return true
 	if (host === '::1' || host === '::' || /^f[cd][0-9a-f]{2}:/.test(host) || /^fe80:/.test(host))
 		return true
@@ -163,7 +169,8 @@ function isLocalHost(host: string): boolean {
 		a === 0 ||
 		(a === 172 && b >= 16 && b <= 31) ||
 		(a === 192 && b === 168) ||
-		(a === 169 && b === 254)
+		(a === 169 && b === 254) ||
+		(a === 100 && b >= 64 && b <= 127)
 	)
 }
 

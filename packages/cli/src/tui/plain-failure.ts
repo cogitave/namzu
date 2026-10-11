@@ -47,7 +47,8 @@ export function explainFailure(
 	// A sentence Namzu itself wrote for a person ("Delegated agents are still
 	// active; ...") is shown as it is; anything that reads as machine output is not.
 	if (err instanceof Error && isAuthoredSentence(err)) return `${couldNot} ${err.message}`
-	if (debug && err instanceof Error && err.message) return `${couldNot} Details: ${err.message}`
+	if (debug && err instanceof Error && err.message)
+		return `${couldNot} Details: ${err.message}${/[.!?]$/.test(err.message) ? '' : '.'}`
 	return `${couldNot} Run with --debug for details.`
 }
 

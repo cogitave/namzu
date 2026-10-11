@@ -121,6 +121,9 @@ describe('localEndpoint', () => {
 		['http://10.0.0.5', '10.0.0.5'],
 		['http://172.20.0.2:8000', '172.20.0.2:8000'],
 		['http://my-box.local:1234', 'my-box.local:1234'],
+		['http://gpu-box:11434', 'gpu-box:11434'],
+		['http://100.101.1.2:8080', '100.101.1.2:8080'],
+		['http://localhost.:81', 'localhost:81'],
 	])('treats %s as local', (url, shown) => {
 		expect(localEndpoint('openai', url)).toBe(shown)
 	})

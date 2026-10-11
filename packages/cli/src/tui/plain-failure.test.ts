@@ -47,7 +47,7 @@ describe('a failure the app hit itself', () => {
 			'Could not fork. Run with --debug for details.',
 		)
 		expect(explainFailure(new Error('SQLITE_BUSY'), 'Could not fork.', true)).toBe(
-			'Could not fork. Details: SQLITE_BUSY',
+			'Could not fork. Details: SQLITE_BUSY.',
 		)
 		expect(explainFailure('plain string', 'Could not fork.', false)).not.toContain('plain string')
 	})
@@ -84,6 +84,6 @@ describe('startup sentences', () => {
 	it('shows the error text only as labelled Details with --debug', () => {
 		expect(
 			explainFailure(new Error('weird'), 'Computer use is unavailable on this device.', true),
-		).toBe('Computer use is unavailable on this device. Details: weird')
+		).toBe('Computer use is unavailable on this device. Details: weird.')
 	})
 })
