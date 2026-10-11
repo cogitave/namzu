@@ -1,5 +1,10 @@
 # Documentation update log
 
+## 2026-10-12
+
+- **Update** [Local Pal computers](sdk/local-pal-computer.md#image-stages-and-the-bundled-light-image): the guest image Dockerfile is two stages, `base` (the light computer, 1.18 GB, tagged `namzu-local-computer:2`) and `creative` (FROM base, the heavy applications); each stage's home catalogue and build check list only the applications it installed. `local-computer/build-image.mjs` builds, saves and compresses a stage and writes a manifest; the measured sizes, formats `wslc load -i` accepts, load and build times are in the page. The guest browser has no "Sign in to Chromium?" button, Terminal has its own icon, setuid bits are stripped. The provider's default image is unchanged. Covered by `catalogue-stages.test.ts` and `build-image.test.ts`.
+- **Update** [Desktop](cli/desktop.md#installing-and-updating): `stage-installer.mjs --pal-computer-image` puts the image archive and its manifest in `resources/pal-computer` of the installer (180 MB to 503 MB); an app-only update still downloads about 3 MB. Covered by `stage-installer.test.ts`.
+
 ## 2026-10-11
 
 - **Update** [Desktop](cli/desktop.md): the Pal panel header's Pause is quiet again: the status under the Pal's name ("Ready to chat", "Paused") reads "Pause *name*" or "Resume *name*" in the same place on hover or keyboard focus, with the same size and no visible button, and the status is still announced. The visible outline Pause/Resume button is gone. Covered by `pal-ux.test.ts` and `e2e/ux-pal-pause-hover.test.mjs`.

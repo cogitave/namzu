@@ -111,6 +111,17 @@ The installed app is self-contained under `resources/`:
   copies its DLLs into torch's own `lib` folder (the wheel alone is not enough, because the
   venv's `python.exe` is a launcher for the bundled interpreter).
 
+- `pal-computer/` is the light Pal computer image (the `base` stage of
+  `packages/sandbox/local-computer/Dockerfile`, see [Local Pal computers](../sdk/local-pal-computer.md#image-stages-and-the-bundled-light-image)):
+  `namzu-local-computer-2.tar.zst` (323 MB, loads directly with `wslc load -i`) and its
+  `manifest.json` (`revision`, `imageRef`, `imageId`, `protocol`, `sha256`, `sizeBytes`,
+  `compressedBytes`, `format`). `stage-installer.mjs --pal-computer-image <archive>` checks the manifest
+  against the archive and stages both; without the flag a `README.txt` stands there. The installer is
+  503 MB with it (180 MB without). The archive is already compressed, so the installer stores it
+  as given, and an app update that leaves the image unchanged still downloads only the changed blocks
+  (about 3 MB measured, the update feed must keep the previous version's blockmap). Nothing in the
+  app loads the image yet.
+
 Build it with a staged copy, which `scripts/stage-installer.mjs` writes outside the
 repository (it refuses a folder inside it). Run `pnpm -r build` first.
 
@@ -126,7 +137,7 @@ node tools\node_modules\electron-builder\cli.js --win nsis --x64 --publish never
 `--config.extraMetadata.version=<n>` builds a test version for update tests; never edit the
 version by hand. electron-builder drops a `node_modules` folder given to `extraResources`,
 so `scripts/installer-after-pack.cjs` copies the CLI's after packing. The result for 0.1.0 is
-`Namzu-Setup-0.1.0.exe` (about 179 MB) with its blockmap.
+`Namzu-Setup-0.1.0.exe` (about 179 MB, 503 MB with the Pal computer image) with its blockmap.
 
 ### App updates
 
