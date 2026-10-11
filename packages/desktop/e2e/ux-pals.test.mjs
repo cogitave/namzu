@@ -92,19 +92,14 @@ test(
 			const card = page.getByRole("complementary", { name: "Pal context" });
 			await expect(card).toBeVisible();
 			await expect(card.getByText("Offline", { exact: true })).toBeVisible();
-			// One Start, named for the Pal. With no container engine here it is switched off and says why,
-			// with the setup steps one click away, instead of offering a start that would fail.
-			const start = card.getByRole("button", { name: "Start Işık" });
-			await expect(start).toBeVisible();
-			await expect(start).toBeDisabled({ timeout: 60000 });
-			await expect(card.getByRole("button", { name: "Start computer" })).toHaveCount(0);
-			// Starting never replaces the status with the action's name.
-			await expect(
-				card.locator(".pal-computer-open .pal-computer-status", { hasText: "Start" }),
-			).toHaveCount(0);
+			// With no container engine here the row offers no Start at all: it says why, with the setup
+			// steps one click away, instead of offering a start that would fail.
 			await expect(card.locator(".pal-context-note").first()).toContainText("Docker Desktop or Podman", {
 				timeout: 60000,
 			});
+			await expect(card.getByRole("button", { name: "Start Işık" })).toHaveCount(0);
+			await expect(card.getByRole("button", { name: "Start computer" })).toHaveCount(0);
+			await expect(card.locator(".pal-status-action")).toHaveCount(0);
 			await expect(card.getByText("How to set up", { exact: true })).toBeVisible();
 			const note = (await card.locator(".pal-context-note").allInnerTexts()).join(" ");
 			assert.doesNotMatch(note, /Dockerfile|packages\/|namzu-local-computer/);

@@ -135,20 +135,17 @@ function PalContextBody({
 }: PalContextProps) {
 	const pauseLabel = `${pal.paused ? 'Resume' : 'Pause'} ${pal.name}`
 	const computerStatus = computerStatusLabel(computer.status)
-	// The status line always says what the computer is. The action is its own button, so choosing
-	// it can never replace the status with the action's name.
+	// The status text is the quiet action: it reads the status at rest and the action on hover or
+	// focus, in the same place. A computer that cannot start, or whose Start is offered with the
+	// waiting messages, shows its status only.
 	// There is one Start. It starts the computer when that is needed, and reads waiting messages when
 	// there are some, so the Pal's own page never offers a second start next to the message one.
 	const messageStart = waiting?.action === 'start'
 	const computerAction =
 		computer.status !== 'connecting' && onStopComputer
 			? { label: 'Stop computer', onClick: onStopComputer, disabled: stopComputerDisabled }
-			: computer.status === 'error' && onStartComputer && !messageStart
-				? {
-						label: `Start ${pal.name}`,
-						onClick: onStartComputer,
-						disabled: Boolean(computer.setupMissing),
-					}
+			: computer.status === 'error' && onStartComputer && !messageStart && !computer.setupMissing
+				? { label: `Start ${pal.name}`, onClick: onStartComputer, disabled: false }
 				: undefined
 	return (
 		<div className="pal-context-body">
@@ -242,7 +239,12 @@ function PalContextBody({
 						</span>
 						<span className="pal-context-copy">
 							<strong title={computer.name}>{computer.name}</strong>
-							<span className="pal-computer-status">{computerStatus}</span>
+							<span
+								className={`pal-computer-status${computerAction ? ' pal-computer-status-placeholder' : ''}`}
+								aria-hidden={!!computerAction || undefined}
+							>
+								{computerStatus}
+							</span>
 						</span>
 						<span className="pal-computer-thumbnail" aria-hidden="true">
 							{computer.screen && computer.status === 'ready' ? (
@@ -255,32 +257,27 @@ function PalContextBody({
 						</span>
 					</Button>
 					{computerAction && (
-						<Button
-							variant="outline"
-							size="xs"
-							className="pal-computer-action"
-							disabled={computerAction.disabled}
-							onClick={computerAction.onClick}
-						>
-							{computerAction.label}
-						</Button>
+						<>
+							<output className="sr-only" aria-live="polite">
+								{computerStatus}
+							</output>
+							<Button
+								variant="ghost-muted"
+								className="pal-status-action pal-computer-action"
+								aria-label={computerAction.label}
+								disabled={computerAction.disabled}
+								onClick={computerAction.onClick}
+							>
+								<span className="pal-status-rest" aria-hidden="true">
+									<span>{computerStatus}</span>
+								</span>
+								<span className="pal-status-hover" aria-hidden="true">
+									<span>{computerAction.label}</span>
+								</span>
+							</Button>
+						</>
 					)}
 				</div>
-				{computerAction?.disabled && computerAction.label !== 'Stop computer' && (
-					<SetupHelp help={COMPUTER_SETUP_NOTICE} />
-				)}
-				{computer.notice && !computer.setupMissing && (
-					<p className="pal-context-note">{computer.notice}</p>
-				)}
-				{computer.notice && computer.setupMissing && !waiting?.blocked && (
-					<p className="pal-context-note">
-						{computer.name} cannot start yet: it needs Docker Desktop or Podman, and neither is
-						ready on this computer.
-					</p>
-				)}
-				{computer.status !== 'ready' && (
-					<p className="pal-context-note">Chatting works without a computer.</p>
-				)}
 				{hostComputer?.name.trim() && (
 					<div className="pal-computer-row pal-host-computer">
 						<span className="pal-computer-icon">
@@ -292,6 +289,22 @@ function PalContextBody({
 							<span className="pal-computer-status">Where Namzu is open</span>
 						</div>
 					</div>
+				)}
+				{computer.notice && !computer.setupMissing && (
+					<p className="pal-context-note">{computer.notice}</p>
+				)}
+				{computer.setupMissing && computer.status === 'error' && !waiting?.blocked && (
+					<SetupHelp
+						text={
+							computer.notice
+								? `${computer.name} cannot start yet: it needs Docker Desktop or Podman, and neither is ready on this computer.`
+								: undefined
+						}
+						help={COMPUTER_SETUP_NOTICE}
+					/>
+				)}
+				{computer.status !== 'ready' && (
+					<p className="pal-context-note">Chatting works without a computer.</p>
 				)}
 			</section>
 			{tasks && (tasks.tasks.length > 0 || tasks.tasksNotice) && (

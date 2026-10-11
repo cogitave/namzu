@@ -420,8 +420,66 @@
 	display: block;
 	color: var(--muted-foreground);
 }
+.pal-computer-status-placeholder {
+	opacity: 0;
+}
+.pal-status-action {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+	justify-content: start;
+	width: max-content;
+	max-width: 100%;
+	height: 20px;
+	padding: 0;
+	border: 0;
+	border-radius: 3px;
+	background: transparent;
+	color: var(--muted-foreground);
+	text-align: left;
+	font-size: 13px;
+	line-height: 20px;
+	font-weight: 400;
+}
+.pal-status-action:hover,
+.pal-status-action:active {
+	background: transparent;
+	scale: 1;
+}
+.pal-status-rest,
+.pal-status-hover {
+	grid-area: 1 / 1;
+	display: flex;
+	align-items: center;
+	min-width: 0;
+	pointer-events: none;
+	transition: opacity 120ms var(--motion-ease);
+}
+.pal-status-rest > span,
+.pal-status-hover > span {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.pal-status-hover {
+	opacity: 0;
+	color: var(--foreground);
+}
+.pal-status-action:not(:disabled):is(:hover, :focus-visible) .pal-status-rest {
+	opacity: 0;
+}
+.pal-status-action:not(:disabled):is(:hover, :focus-visible) .pal-status-hover {
+	opacity: 1;
+}
 .pal-computer-entry .pal-computer-action {
-	margin: 2px 0 4px 38px;
+	position: absolute;
+	top: 25px;
+	left: 32px;
+	z-index: 1;
+	max-width: calc(100% - 96px);
+}
+.pal-computer-action:disabled {
+	pointer-events: auto;
+	cursor: default;
 }
 .pal-context-note {
 	margin: 10px 0 0;

@@ -348,10 +348,15 @@ When a Pal's computer cannot start, the app never shows the host's developer wor
 computer needs Docker Desktop or Podman, installed and running (the help offers **Get
 Docker Desktop**; it never points at a document or names an image), and chatting works
 without one. A stopped Podman machine, a remote or unregistered engine
-and any other failure that names a path get their own plain sentence. The computer row
-keeps its status (**Offline**, **Starting…**, **Connected**) and shows **Start *name***
-or **Stop computer** as a separate button, so choosing it never replaces the status;
-**Take over** on the computer page says "Offline. Start the computer to take over."
+and any other failure that names a path get their own plain sentence. The computer row's
+status text (**Offline**, **Starting…**, **Connected**) is itself the quiet action: at rest
+it reads the status, and on hover or keyboard focus the same spot reads **Start *name***
+or **Stop computer**, with the same font and footprint (no layout shift) and no outline
+button; its accessible name is the action and a hidden live region keeps announcing the
+status. The row offers no Start while messages waiting already offer one, when Docker
+Desktop or Podman is missing, or while the computer starts; the status is then plain text.
+**This computer** ("Where Namzu is open") sits directly under the Pal's computer, and the
+notes follow both rows. **Take over** on the computer page says "Offline. Start the computer to take over."
 while the computer is off. There is one Start, named for the Pal: with messages waiting it
 reads them, and it starts the computer first when that is needed (the host's
 `namzu/pals/inbox/start` does both), so the page never offers "Start computer" beside "Start
@@ -362,7 +367,7 @@ sentence ("*name*'s computer cannot start yet: it needs Docker Desktop or Podman
 ready on this computer.") and **How to set up** opens the setup steps. The state is read again
 when the window is focused, so installing or starting Docker or Podman and coming back switches
 Start on without reopening the Pal. A card that is not
-connected also says "Chatting works without a computer." directly under the computer.
+connected also says "Chatting works without a computer." under the two computer rows.
 
 Pal computers inherit the CLI's local-engine settings from this native host.
 The default is Docker. If this device uses an existing local Podman machine,
