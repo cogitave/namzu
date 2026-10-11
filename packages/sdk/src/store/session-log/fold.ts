@@ -47,6 +47,14 @@ export function withMessageId<M extends Message>(message: M, id: MessageId | und
 	return { ...message, id }
 }
 
+/**
+ * The key in an `abandoned` `turn_failed`'s `failure.details` that withdraws
+ * the turn's messages from the fold. A detail, not a record field: a log that
+ * carries it still validates for a reader that predates it, which then keeps
+ * the messages, as it always did.
+ */
+export const MESSAGES_WITHDRAWN_DETAIL = 'messagesWithdrawn'
+
 /** One message of the folded context. */
 export interface FoldedMessage {
 	/** Absent for a compaction summary message, which has no record of its own. */
@@ -61,6 +69,7 @@ export interface FoldedMessage {
 }
 
 interface Slot {
+	turnId?: TurnId
 	messageId?: MessageId
 	seq: number
 	message: Message
@@ -128,6 +137,12 @@ export class SessionMessageFold {
 			case 'compaction':
 				this.#compaction(record as CompactionRecord)
 				return
+			case 'turn_failed': {
+				const failure = record.failure
+				if (failure?.code === 'abandoned' && failure.details?.[MESSAGES_WITHDRAWN_DETAIL] === true)
+					this.#withdraw(record.turnId)
+				return
+			}
 			default:
 				return
 		}
@@ -137,6 +152,7 @@ export class SessionMessageFold {
 		const replaced = this.#replacements.get(record.messageId)
 		const existing = this.#byId.get(record.messageId)
 		const slot: Slot = {
+			turnId: record.turnId,
 			messageId: record.messageId,
 			seq: record.seq,
 			message: replaced?.message ?? record.content,
@@ -161,6 +177,12 @@ export class SessionMessageFold {
 		}
 		this.#slots.push(slot)
 		this.#byId.set(record.messageId, slot)
+	}
+
+	/** An abandoned turn handed back to the person: its messages leave the context. */
+	#withdraw(turnId: TurnId): void {
+		this.#slots = this.#slots.filter((slot) => slot.turnId !== turnId)
+		for (const [id, slot] of this.#byId) if (slot.turnId === turnId) this.#byId.delete(id)
 	}
 
 	#compaction(record: CompactionRecord): void {

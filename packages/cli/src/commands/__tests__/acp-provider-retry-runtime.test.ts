@@ -130,8 +130,11 @@ async function fixture({ ownedPal = false, unresolved = false, limit = 0 } = {})
 				close: async () => {},
 				send,
 				resumePaused: resume,
-				abandonTurn: (turnId: TurnId, reason: string) =>
-					abandonTurn(f.sessionId, turnId, reason, { log: f.log }),
+				abandonTurn: (
+					turnId: TurnId,
+					reason: string,
+					options?: { readonly withdrawMessages?: boolean },
+				) => abandonTurn(f.sessionId, turnId, reason, { log: f.log, ...options }),
 				reasoningEffortLevels: ['low', 'high'],
 				reasoningEffortDefault: 'low',
 				presenter: {
@@ -343,9 +346,18 @@ describe('CLI explicit provider retry composition', () => {
 			await expect(
 				f.runtime.abandonPausedTurn!(f.sessionId, root, generateTurnId()),
 			).rejects.toThrow('no paused turn')
+			expect(await loadConversation(state, f.sessionId)).toHaveLength(1)
 			expect(await f.runtime.abandonPausedTurn!(f.sessionId, root, f.turnId)).toEqual({
 				closed: true,
 			})
+			// The message went back to the person's message box: the closed turn is not history,
+			// so the provider is not shown it again when it is sent, while the log still holds it.
+			expect(await loadConversation(state, f.sessionId)).toEqual([])
+			expect(
+				(await f.log.readAll()).entries.filter(
+					({ record }) => record.type === 'message' && record.role === 'user',
+				),
+			).toHaveLength(1)
 			expect(await f.runtime.providerRetryStatus!(f.sessionId, root)).toEqual({})
 			expect(f.resume).not.toHaveBeenCalled()
 			const store = new DiskSessionTokenBudgetStore({ paths: state.paths })

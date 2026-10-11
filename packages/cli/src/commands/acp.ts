@@ -380,7 +380,9 @@ export interface CliAcpRuntime {
 	/**
 	 * Close the conversation's paused provider turn without repeating it (`turn_failed`, code
 	 * `abandoned`), so the next message starts a new turn. Whatever the stopped request may have
-	 * cost stays recorded as unknown. Refuses a turn that waits for a person's decision.
+	 * cost stays recorded as unknown. Refuses a turn that waits for a person's decision. The turn's
+	 * messages leave the context the next turn carries (the client puts the person's message back
+	 * in its message box), while the log keeps them.
 	 */
 	abandonPausedTurn?(sessionId: string, cwd: string, turnId?: string): Promise<{ closed: true }>
 	modelSettings(provider: string, model: string, sessionId?: string): Promise<ComposerModelSettings>
@@ -1043,7 +1045,9 @@ export function createCliAcpRuntime(
 		retry: async ({ sessionId, turnId, checkpointId, options, cwd, signal, onEvent, ask }) => {
 			const record = await ensureSession(sessionId, cwd, signal)
 			if (!record.conversations || !record.session.resumePaused)
-				throw new Error('This connection cannot resume durable paused turns.')
+				throw new Error(
+					'Namzu can’t repeat this reply in this conversation. Continue without it, or send your message again.',
+				)
 			if (record.route) throw new Error('This conversation already has active work.')
 			const target = await deps.resolveSession(sessionId)
 			const status = await (deps.readRetryStatus ?? readProviderRetryStatus)(
@@ -1411,7 +1415,9 @@ export function createCliAcpRuntime(
 		abandonPausedTurn: async (sessionId, requestedCwd, turnId) => {
 			const record = await ensureSession(sessionId, requestedCwd, new AbortController().signal)
 			if (!record.conversations || !record.session.abandonTurn)
-				throw new Error('This connection cannot close paused turns.')
+				throw new Error(
+					'Namzu can’t close this reply in this conversation. Copy your message to a new conversation instead.',
+				)
 			if (record.route) throw new Error('This conversation already has active work.')
 			const target = await deps.resolveSession(sessionId)
 			const facts = await readConversationFacts(record.conversations, target.sessionId)
@@ -1435,6 +1441,9 @@ export function createCliAcpRuntime(
 			await record.session.abandonTurn(
 				asTurnId(pausedTurn),
 				'The person continued without the reply that stopped on a provider error.',
+				// The message goes back to the person's message box: the closed turn must not also
+				// reach the provider with it when they send it again.
+				{ withdrawMessages: true },
 			)
 			return { closed: true as const }
 		},

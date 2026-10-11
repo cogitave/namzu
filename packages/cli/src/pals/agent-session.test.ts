@@ -25,7 +25,11 @@ import {
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../__fixtures__/temp-dir.js'
 import { PROVIDER_REGISTRY, type Preferences } from '../integrations/providers/index.js'
-import { closeSessions, openSessions } from '../integrations/sessions/store.js'
+import {
+	closeSessions,
+	openSessions,
+	readConversationFacts,
+} from '../integrations/sessions/store.js'
 import type { PermissionMode } from '../permissions/mode.js'
 import { type AgentEvent, createAgentSession } from '../tui/agent.js'
 import {
@@ -2093,6 +2097,32 @@ it('records an authenticated rejection without executing the reviewed guest chan
 				decision: { action: 'reject_tools', feedback: 'Do not write this reviewed file.' },
 			}),
 		])
+	} finally {
+		await f.agent.close()
+		await f.runtime.close()
+		closeSessions(f.state)
+	}
+})
+
+it('closes a turn that stopped on a provider failure, so a Pal can continue without that reply', async () => {
+	const provider = new MockLLMProvider({
+		turns: [{ error: { message: 'The server had an error.', status: 503 } }],
+	})
+	const f = await fixture(provider, undefined, true)
+	try {
+		for await (const _event of f.agent.send([createUserMessage('please go wrong')])) {
+		}
+		const paused = (await records(f)).find((record) => record.type === 'turn_paused')
+		if (paused?.type !== 'turn_paused')
+			throw new Error('The provider failure did not pause the turn.')
+		// The host closes a paused turn through the session; a Pal session used to have no such method.
+		expect(f.agent.abandonTurn).toBeTypeOf('function')
+		await f.agent.abandonTurn?.(paused.turnId, 'The person continued without this reply.')
+		const after = await records(f)
+		expect(
+			after.some((record) => record.type === 'turn_failed' && record.turnId === paused.turnId),
+		).toBe(true)
+		expect((await readConversationFacts(f.state, f.id))?.activeTurn).toBeUndefined()
 	} finally {
 		await f.agent.close()
 		await f.runtime.close()

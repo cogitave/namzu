@@ -764,13 +764,16 @@ details, and the details text opens under the row on the sentence's left edge. T
 **Retry** appears only when the runtime holds a reply it can safely repeat. A Desktop
 conversation has no token limit of its own (the ACP session is opened without `limits`), so after a
 5xx the stopped request is recorded as unknown usage and **Retry** sends a new request in the
-same conversation; **Details** then reads "OpenAI: the provider failed to complete the request (502
-Bad Gateway)", a labelled "Request ID: …" when the vendor sent one, a labelled vendor project ("OpenAI project: proj_…"; a 403
-reads "access was refused", never the runtime's own sentence about credentials). A vendor's JSON error body is read into
-labelled fields on one line, never printed: "Anthropic: access was refused" then "Status: 403 · Provider said: “Your account cannot use
-this model” · Type: permission_error" (Anthropic `{type, error: {type, message}}`, OpenAI `{error: {message, type, code, param}}`,
-Google `{error: {code, message, status}}` and a bare JSON string are read, with **Code** and **Field** where present; the request ID
-keeps its own line). An unknown shape becomes one capped excerpt with no braces or quotes (`friendly-errors.ts`). A request that
+same conversation; **Details** then reads the same labelled fields whichever wire answered
+(`plainProviderDetails` in `friendly-errors.ts`): "OpenAI: the provider failed to complete the request"
+then "Status: 502 · Provider said: “Bad Gateway”", a labelled "Request ID: …" when the vendor sent one and a
+labelled vendor project ("OpenAI project: proj_…"; a 403 reads "access was refused", never the runtime's
+own sentence about credentials). The OpenAI driver hands the message over already parsed ("403 Your project
+does not have access to model …"), Anthropic's arrives as JSON and Google's driver keeps no body; all three
+read as "Status: 403 · Provider said: “…”", with **Type**, **Code** and **Field** where the vendor sent them
+as JSON (Anthropic `{type, error: {type, message}}`, OpenAI `{error: {message, type, code, param}}`, Google
+`{error: {code, message, status}}` and a bare JSON string), and with the status alone when no body was kept
+("Google: access was refused" then "Status: 403"). An unknown shape becomes one capped excerpt with no braces or quotes (`friendly-errors.ts`). A request that
 failed before any reply arrived carries no usage line in Details; "No usage was reported for the
 failed attempts." appears only when a reply did arrive without a usage count. Details say each thing
 once: a repeated HTML title, "(no body)" and a duplicated status are dropped, and token counts are
@@ -786,7 +789,11 @@ your message back in the message box and keep working here." with **Continue wit
 That calls `continueWithoutReply` in main, which sends `namzu/sessions/abandon-paused` (the CLI
 closes the paused turn with `turn_failed`, code `abandoned`, through the SDK's `abandonTurn`; the
 unknown usage stays on the ledger), emits `turn-closed`, and puts the last message and its files
-back in the composer, not sent (text already typed stays after it). The line under the empty slot
+back in the composer, not sent (text already typed stays after it). The closed turn is withdrawn
+from the history the next request carries (`withdrawMessages`), so sending the restored message shows the
+provider that message once, with no copy of the closed turn and no empty or partial assistant message; the
+log still holds the turn's records. `e2e/ux-providers-errors.test.mjs` and `e2e/ux-provider-replies.test.mjs`
+assert it from the requests the scripted provider received. The line under the empty slot
 reads "You continued without this reply." If closing the turn fails, the same card also offers **Copy
 to a new conversation** (`reopenLastMessage`, a new tab in the same project with the message and its
 files in its composer, not sent). When a failure message is shown, the "Paused." and limit lines are
@@ -798,6 +805,14 @@ joined (`combineStopped`), so a project or Pal conversation reads "OpenAI had a 
 can't repeat this reply, so continue without it to put your message back in the message box." in the
 same row as any failed reply (time, Copy, **Continue without this reply**, Details), with no Retry. The
 cause's own "Try again" and "Your message is saved" are dropped, and its labelled Details stay.
+
+**Continue without this reply** works in a Pal as in any conversation: the Pal's session closes a
+paused turn with `abandonTurn` on its own conversation log (it needs no computer and runs nothing), then
+the message is back in the message box. A host that cannot close the turn says "Namzu can’t close this
+reply in this conversation. Copy your message to a new conversation instead." and the row adds **Copy to a
+new conversation**; the engine's own wording ("This connection cannot close paused turns") never reaches
+the screen. Covered by `e2e/ux-provider-replies.test.mjs` (a Pal fails with 500, 502 and 503, then the action
+is clicked).
 
 **Changing the model after a stopped reply.** Choosing another model is an explicit decision, so a reply
 that stopped on a provider failure (a rate limit, a 5xx, a rejected key, no connection) never holds the

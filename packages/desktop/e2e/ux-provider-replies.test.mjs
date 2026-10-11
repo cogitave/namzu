@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
-import { createWorld, dispose, expect, launch, openProject, repoRoot, send } from "./harness.mjs";
+import { createWorld, dispose, expect, historySeenBy, launch, openProject, repoRoot, send } from "./harness.mjs";
 
 const T = 60000;
 const SHOTS = resolve(repoRoot, "research/hygiene-20261010/provider-replies");
@@ -114,7 +114,9 @@ headlineFlow(
 	json(403, "Project proj_abc123 does not have access to model gpt-5", { code: "model_not_found" }),
 	"Your OpenAI account can’t use gpt-5. Choose another model.",
 	["Open model settings"],
-	new RegExp(`${PROVIDER_NAME}: access was refused`),
+	new RegExp(
+		`${PROVIDER_NAME}: access was refused\\nStatus: 403 · Provider said: “Your project does not have access to model gpt-5”\\n${PROVIDER_NAME} project: proj_abc123`,
+	),
 	"403-model-access",
 );
 
@@ -126,8 +128,24 @@ headlineFlow(
 	}),
 	"Your OpenAI account is out of credit. Add credit in your OpenAI billing page, then send again.",
 	["Open model settings"],
-	/exceeded your current quota/,
+	new RegExp(
+		`${PROVIDER_NAME}: rate limited by the provider\\nStatus: 429 · Provider said: “You exceeded your current quota, please check your plan and billing details”`,
+	),
 	"429-quota",
+);
+
+headlineFlow(
+	"a rate limit on the OpenAI wire reads as the same labelled fields as every other wire",
+	json(429, "Rate limit reached for gpt-5 on requests per min. Limit: 3, Used: 3.", {
+		type: "requests",
+		code: "rate_limit_exceeded",
+	}),
+	"OpenAI asked Namzu to slow down. Give it a minute.",
+	["Retry"],
+	new RegExp(
+		`${PROVIDER_NAME}: rate limited by the provider\\nStatus: 429 · Provider said: “Rate limit reached for gpt-5 on requests per min. Limit: 3, Used: 3”`,
+	),
+	"429-rate-limit",
 );
 
 headlineFlow(
@@ -155,7 +173,7 @@ headlineFlow(
 	{ status: 413, contentType: "text/html", body: "<html><body>413 Request Entity Too Large</body></html>" },
 	"This message is too large for OpenAI. Shorten it or remove an attachment, then send again.",
 	[],
-	new RegExp(`${PROVIDER_NAME}: the provider rejected the request as invalid \\(413 Request Entity Too Large\\)`),
+	new RegExp(`${PROVIDER_NAME}: the provider rejected the request as invalid\\nStatus: 413 · Provider said: “Request Entity Too Large”`),
 	"413-too-large",
 );
 
@@ -168,7 +186,7 @@ headlineFlow(
 	},
 	"OpenAI had a problem on its side. Your message is saved.",
 	["Retry"],
-	new RegExp(`${PROVIDER_NAME}: the provider failed to complete the request \\(502 Bad Gateway\\)\\nRequest ID: 8f2a1b3c4d5e6f70`),
+	new RegExp(`${PROVIDER_NAME}: the provider failed to complete the request\\nStatus: 502 · Provider said: “Bad Gateway”\\nRequest ID: 8f2a1b3c4d5e6f70`),
 	"502-bad-gateway",
 );
 
@@ -177,7 +195,9 @@ headlineFlow(
 	json(500, "The server had an error while processing your request.", { type: "server_error" }),
 	"OpenAI had a problem on its side. Your message is saved.",
 	["Retry"],
-	new RegExp(`${PROVIDER_NAME}: the provider failed to complete the request \\(500`),
+	new RegExp(
+		`${PROVIDER_NAME}: the provider failed to complete the request\\nStatus: 500 · Provider said: “The server had an error while processing your request”`,
+	),
 	"500-server-error",
 );
 
@@ -190,7 +210,7 @@ headlineFlow(
 	},
 	"OpenAI had a problem on its side. Your message is saved.",
 	["Retry"],
-	new RegExp(`${PROVIDER_NAME}: the provider failed to complete the request \\(503 Service Unavailable\\)`),
+	new RegExp(`${PROVIDER_NAME}: the provider failed to complete the request\\nStatus: 503 · Provider said: “Service Unavailable”`),
 	"503-unavailable",
 );
 
@@ -349,9 +369,9 @@ flow(
 );
 
 for (const [status, contentType, body, tail, shotName] of [
-	[500, "application/json", JSON.stringify({ error: { message: "The server had an error.", type: "server_error" } }), "\\(500", "pal-500"],
-	[502, "text/html", "<html><body>502 Bad Gateway</body></html>", "\\(502 Bad Gateway\\)", "pal-502"],
-	[503, "text/html", "<html><head><title>503 Service Unavailable</title></head><body><h1>503 Service Unavailable</h1></body></html>", "\\(503 Service Unavailable\\)", "pal-503"],
+	[500, "application/json", JSON.stringify({ error: { message: "The server had an error.", type: "server_error" } }), "Status: 500 · Provider said: “The server had an error”", "pal-500"],
+	[502, "text/html", "<html><body>502 Bad Gateway</body></html>", "Status: 502 · Provider said: “Bad Gateway”", "pal-502"],
+	[503, "text/html", "<html><head><title>503 Service Unavailable</title></head><body><h1>503 Service Unavailable</h1></body></html>", "Status: 503 · Provider said: “Service Unavailable”", "pal-503"],
 ]) {
 	flow(
 		`a Pal conversation that fails with ${status} before any reply shows the same row and Details, with no usage line`,
@@ -376,10 +396,26 @@ for (const [status, contentType, body, tail, shotName] of [
 			assert.doesNotMatch(visible, JARGON, "the headline carries no code, markup or accounting words");
 			await region.getByRole("button", { name: "Details", exact: true }).click();
 			const details = await region.locator(".turn-recovery-details-text").innerText();
-			assert.match(details, new RegExp(`${PROVIDER_NAME}: the provider failed to complete the request ${tail}`));
+			assert.match(details, new RegExp(`${PROVIDER_NAME}: the provider failed to complete the request\\n${tail}`));
 			assert.doesNotMatch(details, /usage/i, "no reply arrived, so Details carry no usage line");
 			assert.doesNotMatch(details, /[{}]|<\/?\w+>/, "labelled fields only, no JSON or markup");
 			await shots(w, shotName);
+			// The one way on works in a Pal: the paused turn is closed, the message is back in the
+			// message box and the failed reply is gone, with no refusal in its place.
+			await region.getByRole("button", { name: "Continue without this reply" }).click();
+			await expect(w.page.locator(".turn-recovery")).toHaveCount(0, { timeout: T });
+			await expect(w.page.getByRole("textbox", { name: "Message Namzu" })).toHaveValue("please go wrong");
+			await expect(w.page.getByText(/cannot close paused turns|Copy to a new conversation/)).toHaveCount(0);
+			assert.doesNotMatch(await w.page.locator("body").innerText(), /cannot close paused turns/i);
+			await shots(w, `${shotName}-continued`);
+			// Send the restored message; the provider answers this time. It receives the message
+			// once, and nothing of the closed turn stands in its place.
+			w.model.rules[0].steps = [{ text: "The provider is back." }];
+			await w.page.getByRole("button", { name: "Send message" }).click();
+			await expect(w.page.getByText("The provider is back.")).toBeVisible({ timeout: T });
+			const seen = historySeenBy(w.model.requests.at(-1), "please go wrong");
+			assert.equal(seen.copies, 1, `the provider saw the message once; it received ${seen.roles.join(", ")}`);
+			assert.ok(!seen.roles.some((role) => role.startsWith("assistant")), `no assistant message from the abandoned turn: ${seen.roles.join(", ")}`);
 		},
 	);
 }

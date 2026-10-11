@@ -30,6 +30,7 @@ import {
 } from './chain.js'
 import {
 	type ActiveTurnRecord,
+	MESSAGES_WITHDRAWN_DETAIL,
 	SessionTurnState,
 	TurnRuleError,
 	foldSessionMessages,
@@ -124,6 +125,16 @@ export interface BeginTurnOptions {
 	readonly abandonInterrupted?: boolean
 }
 
+export interface AbandonTurnLogOptions {
+	/**
+	 * The caller hands the turn's messages back to the person (a client that
+	 * puts the prompt back in its message box). The fold then leaves them out
+	 * of the next turn's context; the records stay in the log. Absent: the
+	 * abandoned turn's messages remain in the context, as they always have.
+	 */
+	readonly withdrawMessages?: boolean
+}
+
 export interface ActiveTurnOptions {
 	/** The lease the caller holds; the default asks the store for the current one. */
 	readonly lease?: SessionLease
@@ -177,8 +188,18 @@ export interface SessionLog {
 		draft: TurnStartedDraft,
 		options?: BeginTurnOptions,
 	): Promise<SessionLogEntry>
-	/** Close a paused or interrupted turn with `turn_failed{failure.code:'abandoned'}`. */
-	abandonTurn(lease: SessionLease, turnId: TurnId, reason: string): Promise<SessionLogEntry>
+	/**
+	 * Close a paused or interrupted turn with `turn_failed{failure.code:'abandoned'}`.
+	 * With `withdrawMessages` the closing record also says so
+	 * ({@link MESSAGES_WITHDRAWN_DETAIL}), and the fold then leaves the turn's
+	 * messages out of the context the next turn carries. The records stay.
+	 */
+	abandonTurn(
+		lease: SessionLease,
+		turnId: TurnId,
+		reason: string,
+		options?: AbandonTurnLogOptions,
+	): Promise<SessionLogEntry>
 	/** The active turn, if any, and whether it is running, paused or interrupted. */
 	activeTurn(options?: ActiveTurnOptions): Promise<ActiveTurn | null>
 
@@ -515,7 +536,12 @@ export class SessionLogCore implements SessionLog {
 		})
 	}
 
-	abandonTurn(lease: SessionLease, turnId: TurnId, reason: string): Promise<SessionLogEntry> {
+	abandonTurn(
+		lease: SessionLease,
+		turnId: TurnId,
+		reason: string,
+		options: AbandonTurnLogOptions = {},
+	): Promise<SessionLogEntry> {
 		return this.#mutex.run(async () => {
 			await this.#requireCurrent(lease)
 			await this.#catchUp()
@@ -528,7 +554,15 @@ export class SessionLogCore implements SessionLog {
 			if (state === 'running') {
 				throw new TurnInProgressError({ sessionId: this.sessionId, activeTurnId: turnId, state })
 			}
-			return this.#write(lease, this.#failedDraft(active, 'abandoned', reason))
+			return this.#write(
+				lease,
+				this.#failedDraft(
+					active,
+					'abandoned',
+					reason,
+					options.withdrawMessages ? { [MESSAGES_WITHDRAWN_DETAIL]: true } : undefined,
+				),
+			)
 		})
 	}
 
@@ -537,7 +571,12 @@ export class SessionLogCore implements SessionLog {
 		return active.ownerGen === fence ? 'running' : 'interrupted'
 	}
 
-	#failedDraft(active: ActiveTurnRecord, code: string, message: string): SessionRecordDraft {
+	#failedDraft(
+		active: ActiveTurnRecord,
+		code: string,
+		message: string,
+		details?: Record<string, unknown>,
+	): SessionRecordDraft {
 		const settlement: TurnSettlement = {
 			status: 'failed',
 			iterations: 0,
@@ -552,7 +591,7 @@ export class SessionLogCore implements SessionLog {
 			type: 'turn_failed',
 			turnId: active.turnId,
 			error: message,
-			failure: { code, message, retryable: false },
+			failure: { code, message, retryable: false, ...(details ? { details } : {}) },
 			settlement,
 		} as SessionRecordDraft
 	}

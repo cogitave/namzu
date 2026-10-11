@@ -199,45 +199,11 @@ const DETAIL_SENTENCE: Record<string, string> = {
 }
 const REQUEST_TOKEN = /\breq_[A-Za-z0-9]{8,}\b/
 
-/**
- * The provider's own wording as plain lines: who answered and with what, then a labelled request
- * ID when the vendor sent one. Nothing is said twice and no accounting words appear.
- */
-function plainProviderDetails(raw: string): string[] {
-	const matched = PROVIDER_FAILURE.exec(raw.trim())
-	if (!matched) return [raw]
-	const name = providerName(matched[1]?.toLowerCase())
-	const vendor = vendorBody(matched[4] ?? '')
-	if (vendor) {
-		const sentenceText = (matched[3] ?? '').trim().replace(/\.$/, '')
-		const lead = DETAIL_SENTENCE[sentenceText.toLowerCase()] ?? sentenceText
-		const said = sanitizeDetails(
-			vendor.message
-				.replace(/\b(?:project\s+)?proj_[A-Za-z0-9]{4,}\b/gi, (hit) =>
-					/^project/i.test(hit) ? 'Your project' : 'your project',
-				)
-				.replace(REQUEST_ID, ' '),
-		)
-		const vendorProject = PROJECT_ID.exec(vendor.message)?.[0]
-		const fields = [
-			...(matched[2] ? [`Status: ${matched[2]}`] : []),
-			`Provider said: “${said.replace(/\.$/, '')}”`,
-			...(vendor.type ? [`Type: ${sanitizeDetails(vendor.type)}`] : []),
-			...(vendor.code ? [`Code: ${sanitizeDetails(vendor.code)}`] : []),
-			...(vendor.param ? [`Field: ${sanitizeDetails(vendor.param)}`] : []),
-		]
-		return [
-			`${name}: ${lead}`,
-			fields.join(' · '),
-			...(vendorProject ? [`${name} project: ${vendorProject}`] : []),
-			...(vendor.requestId ? [`Request ID: ${vendor.requestId}`] : []),
-		]
-	}
-	let answer = sanitizeDetails(matched[4] ?? '')
-	if (/[{}]/.test(answer)) answer = plainExcerpt(answer)
-	const requestId = REQUEST_ID.exec(answer)?.[1] ?? REQUEST_TOKEN.exec(answer)?.[0]
-	const projectId = PROJECT_ID.exec(answer)?.[0]
-	answer = answer
+/** A vendor's message as one plain phrase: ids named by their role, no markup, no echoed status. */
+function plainSaid(text: string, status: string | undefined): string {
+	let said = sanitizeDetails(text.replace(/`/g, ''))
+	if (/[{}]/.test(said)) said = plainExcerpt(said)
+	said = said
 		.replace(/\b(?:project\s+)?proj_[A-Za-z0-9]{4,}\b/gi, (hit) =>
 			/^project/i.test(hit) ? 'Your project' : 'your project',
 		)
@@ -247,21 +213,46 @@ function plainProviderDetails(raw: string): string[] {
 		.replace(/\bstatus code\b/gi, ' ')
 		.replace(/\(\s*no body\s*\)/gi, ' ')
 		.replace(/\(\s*\)/g, ' ')
-		.replace(/,\s*([}\]])/g, '$1')
 		.replace(/\s+/g, ' ')
 		.trim()
-	answer = groupNumbers(collapseRepeats(answer))
-	const status = matched[2] && !answer.startsWith(matched[2]) ? `${matched[2]} ` : ''
-	const rawSentence = (matched[3] ?? '').trim().replace(/\.$/, '')
-	const sentence = DETAIL_SENTENCE[rawSentence.toLowerCase()] ?? rawSentence
-	const head = `${name}: ${sentence}${answer || status.trim() ? ` (${status}${answer})` : ''}`
-		.replace(/\(\s+/g, '(')
-		.replace(/\s+\)/g, ')')
-	return [
-		head,
+	said = groupNumbers(collapseRepeats(said))
+	// Some vendor SDKs word their error "403 <message>"; the status already has its own field.
+	if (status) said = said.replace(new RegExp(`^${status}(?:\\s+|$)`), '').trim()
+	return said.replace(/\.$/, '')
+}
+
+/**
+ * The provider's own wording as plain lines, the same labelled fields whichever wire answered:
+ * who answered and with what, then Status, what the provider said, its type, code and field when
+ * it sent them, the project it named and a labelled request ID. One driver hands over the message
+ * already parsed and another's arrives as JSON; both end up here. Nothing is said twice
+ * and no accounting words appear.
+ */
+function plainProviderDetails(raw: string): string[] {
+	const matched = PROVIDER_FAILURE.exec(raw.trim())
+	if (!matched) return [raw]
+	const name = providerName(matched[1]?.toLowerCase())
+	const body = matched[4] ?? ''
+	const vendor = vendorBody(body)
+	const sentenceText = (matched[3] ?? '').trim().replace(/\.$/, '')
+	const sentence = DETAIL_SENTENCE[sentenceText.toLowerCase()] ?? sentenceText
+	const status = matched[2]
+	const said = plainSaid(vendor ? vendor.message : body, status)
+	const projectId = PROJECT_ID.exec(vendor ? vendor.message : body)?.[0]
+	const requestId =
+		vendor?.requestId ?? REQUEST_ID.exec(vendor ? '' : body)?.[1] ?? REQUEST_TOKEN.exec(body)?.[0]
+	const tail = [
 		...(projectId ? [`${name} project: ${projectId}`] : []),
 		...(requestId ? [`Request ID: ${requestId}`] : []),
 	]
+	const fields = [
+		...(status ? [`Status: ${status}`] : []),
+		...(said ? [`Provider said: “${said}”`] : []),
+		...(vendor?.type ? [`Type: ${sanitizeDetails(vendor.type)}`] : []),
+		...(vendor?.code ? [`Code: ${sanitizeDetails(vendor.code)}`] : []),
+		...(vendor?.param ? [`Field: ${sanitizeDetails(vendor.param)}`] : []),
+	]
+	return [`${name}: ${sentence}`, ...(fields.length ? [fields.join(' · ')] : []), ...tail]
 }
 
 function withDetails(failure: Omit<FriendlyFailure, 'details'>, raw: string): FriendlyFailure {

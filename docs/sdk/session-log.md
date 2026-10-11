@@ -355,7 +355,14 @@ removed in the log for audit and undo.
   permanent fault (a bad key, a malformed request) fails it at any point.
 - **A paused turn is never closed implicitly.** It continues under the same
   `turnId` through `resumeSession`, or is closed by `abandonTurn`, which
-  appends `turn_failed` with `failure.code: 'abandoned'`.
+  appends `turn_failed` with `failure.code: 'abandoned'`. By default the
+  turn's messages stay in the fold, as a record of what happened and as context
+  for the next turn. A caller that hands the prompt back to a person to send
+  again passes `abandonTurn(..., { withdrawMessages: true })`: the closing
+  record then carries `failure.details.messagesWithdrawn: true`, and the fold
+  leaves that turn's messages out of the context the next turn carries (the
+  records stay in the log, and a host's cached copy of them is dropped by id).
+  Without it the provider would see the re-sent prompt twice.
 - **What is a new turn:** a user prompt, a goal round, a resident step and a
   verification step (`origin.kind` says which). Steering and automatic
   continuation are `message` records inside the current turn. The prompt that

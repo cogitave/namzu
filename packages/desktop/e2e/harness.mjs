@@ -246,3 +246,22 @@ export const answerDialogs = (world, index) =>
 	}, index);
 export const dialogsSeen = (world) =>
 	world.app.evaluate(() => globalThis.__e2eDialog.boxes);
+
+/**
+ * What a scripted provider received for one request, reduced to what a flow asserts about history:
+ * how many messages carry `text`, and each message's role with its length, so a leftover empty or
+ * partial assistant message from an abandoned turn shows in the failure.
+ */
+export function historySeenBy(request, text) {
+	const flat = (content) =>
+		typeof content === "string"
+			? content
+			: Array.isArray(content)
+				? content.map((part) => part.text ?? "").join("")
+				: "";
+	const messages = request?.messages ?? [];
+	return {
+		copies: messages.filter((message) => flat(message.content).includes(text)).length,
+		roles: messages.map((message) => `${message.role}:${flat(message.content).length}`),
+	};
+}

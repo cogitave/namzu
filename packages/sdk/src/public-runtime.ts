@@ -357,7 +357,7 @@ export type {
 // Closing a paused or interrupted turn without resuming it, and compacting a
 // session between turns.
 export { abandonTurn } from './runtime/query/abandon-turn.js'
-export type { SessionLocatorOptions } from './runtime/query/abandon-turn.js'
+export type { AbandonTurnOptions, SessionLocatorOptions } from './runtime/query/abandon-turn.js'
 export { compactSession } from './runtime/query/compact-session.js'
 export type { CompactSessionParams } from './runtime/query/compact-session.js'
 export { prepareForkState } from './runtime/query/fork/prepare.js'
