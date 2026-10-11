@@ -163,7 +163,7 @@ matter), so no decompression step sits between the installer's file and the engi
 | Archive formats | zstd -19 323.3 MB (default), zstd -19 `--long=27` 316.0 MB, xz -9e 294.7 MB, gzip -9 435.4 MB, zstd -3 410.0 MB |
 | Compress | zstd -19 through Node's `zlib` about 5 minutes on one thread (Node's zstd stream fails with worker threads on), xz -9e about 3 minutes with threads |
 | `wslc load -i` | accepts `.tar`, `.tar.gz`, `.tar.xz`, `.tar.zst` and `.tar.bz2` directly and detects the format from the content (a `.zst` file named without an extension loads too); a truncated archive fails with `unexpected EOF` and exit 1, junk with `invalid tar header` |
-| Load time | 2.4 to 2.8 s for the zstd archive, 12.6 s for xz (layers shared with another image already present, so a first load on an empty store takes longer) |
+| Load time | 2.4 to 2.8 s for the zstd archive, 12.6 s for xz; warm-store figures (layers shared with another image already present), so a first load on an empty store takes longer and is not yet measured |
 | Start | the guest answers `/healthz` in under a second and the desktop worker is ready 1.8 s later on a warm VM |
 
 zstd is the default because Node and Electron decompress it natively and it loads five times faster
@@ -180,7 +180,11 @@ update that does not change the image downloads about 3 MB: electron-updater's d
 compares the installer's content-defined blocks, the default `nsis.differentialPackage` compresses
 each file on its own (non-solid), and an unchanged image compresses to identical bytes, so its blocks
 are all reused (measured on two real installers 0.1.0 and 0.1.1, 156 of 24,003 blocks changed, 3.2 MB).
-A new image revision downloads the whole archive once. Nothing loads the image at run time yet.
+A new image revision downloads the whole archive once (323 MB). The 3 MB figure is for an app-only
+change and needs the previous version's blockmap in the update feed. `stage-installer.mjs` refuses a
+manifest whose `imageRef` is not `namzu-local-computer:<revision>`. The release workflow does not pass
+`--pal-computer-image` yet, so CI-built installers carry only a `README.txt` in `pal-computer/` until
+the image is wired into the pipeline. Nothing loads the image at run time yet.
 
 
 ## Ownership and lifecycle

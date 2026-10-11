@@ -136,6 +136,19 @@ describe('stage-installer Pal computer image', () => {
 		expect(readdirSync(join(out, 'extra/pal-computer'))).toEqual([])
 	})
 
+	it('refuses a manifest whose image reference is a test tag', () => {
+		const source = scratch()
+		const out = scratch()
+		const test = image(source, { imageRef: 'namzu-t2-base:2' })
+		expect(() => staging.stagePalComputer(out, test.file, test.manifestFile)).toThrow(
+			'is never bundled',
+		)
+		const creative = image(source, { imageRef: 'namzu-local-computer:2-creative' })
+		expect(staging.stagePalComputer(out, creative.file, creative.manifestFile).imageRef).toBe(
+			'namzu-local-computer:2-creative',
+		)
+	})
+
 	it('names a missing file', () => {
 		const out = scratch()
 		const missing = join(scratch(), 'none.tar.zst')

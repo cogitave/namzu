@@ -101,6 +101,9 @@ export function parseArguments(args) {
 	return options
 }
 
+/** The reference the Pal computer provider is told to run; anything else is a test build. */
+const PAL_IMAGE_REF = /^namzu-local-computer:\d+(-[A-Za-z0-9._]+)?$/
+
 const MANIFEST_KEYS = [
 	'revision',
 	'imageRef',
@@ -134,6 +137,10 @@ export function stagePalComputer(out, imageFile, manifestFile) {
 	const manifest = JSON.parse(readFileSync(manifestFile, 'utf8'))
 	for (const key of MANIFEST_KEYS)
 		if (manifest[key] === undefined) throw new Error(`The Pal computer manifest has no "${key}".`)
+	if (!PAL_IMAGE_REF.test(manifest.imageRef))
+		throw new Error(
+			`The Pal computer manifest names the image ${manifest.imageRef}; an installer carries only namzu-local-computer:<revision> (a test tag such as namzu-t2-base:2 is never bundled).`,
+		)
 	if (manifest.file !== basename(imageFile))
 		throw new Error(`The manifest describes ${manifest.file}, not ${basename(imageFile)}.`)
 	if (statSync(imageFile).size !== manifest.compressedBytes)

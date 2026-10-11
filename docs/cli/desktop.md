@@ -119,8 +119,12 @@ The installed app is self-contained under `resources/`:
   against the archive and stages both; without the flag a `README.txt` stands there. The installer is
   503 MB with it (180 MB without). The archive is already compressed, so the installer stores it
   as given, and an app update that leaves the image unchanged still downloads only the changed blocks
-  (about 3 MB measured, the update feed must keep the previous version's blockmap). Nothing in the
-  app loads the image yet.
+  (about 3 MB measured for an app-only change, the update feed must keep the previous version's
+  blockmap; a new image revision downloads the whole 323 MB once). `stage-installer.mjs` refuses a
+  manifest whose `imageRef` is not `namzu-local-computer:<revision>`, so a test-tagged build is never
+  bundled. The release workflow (`.github/workflows/desktop-release.yml`) does not yet pass
+  `--pal-computer-image`, so installers it builds carry only the `README.txt` until the image is wired
+  into the pipeline; the 503 MB installer is hand-built. Nothing in the app loads the image yet.
 
 Build it with a staged copy, which `scripts/stage-installer.mjs` writes outside the
 repository (it refuses a folder inside it). Run `pnpm -r build` first.
