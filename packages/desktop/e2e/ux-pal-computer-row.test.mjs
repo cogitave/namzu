@@ -226,7 +226,7 @@ for (const [label, env] of [
 				await expect(status).toHaveText("Offline");
 				// Hovering the status shows no action: it is status text, not a button.
 				await status.hover();
-				await expect(context.locator(".pal-status-action")).toHaveCount(0);
+				await expect(context.locator(".pal-computer-action")).toHaveCount(0);
 				await expect(status).toHaveText("Offline");
 				await expect(context.locator(".pal-computer-entry").getByRole("button")).toHaveCount(1);
 				if (env) {

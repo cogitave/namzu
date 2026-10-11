@@ -322,7 +322,7 @@ flow("every popup of a Pal's composer stays inside the window", async (w) => {
 	await name.fill("Işık");
 	await name.press("Enter");
 	await expect(w.page.getByRole("tab", { name: "Işık" })).toBeVisible({ timeout: T });
-	await expect(w.page.getByText("Ready to chat")).toBeVisible({ timeout: T });
+	await expect(w.page.locator(".pal-status-rest").filter({ hasText: "Ready to chat" })).toBeVisible({ timeout: T });
 	await sweep(w, PAL_POPUPS, "pal");
 });
 

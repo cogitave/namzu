@@ -1350,7 +1350,8 @@ folder in the file manager and leaves the dialog open: the window names only the
 (`openPalFolder`), and main takes the path from its own record of that Pal and reveals it
 only when it is an existing absolute directory. The saved conversations, workspace files, profile revisions
 and persistent volume remain; this is not a storage purge.
-A paused Pal shows **Paused** as its status with **Resume** as the one action, and its
+A paused Pal shows **Paused** under its name and reads **Resume *name*** in the same place
+on hover or keyboard focus (there is no separate Pause or Resume button), and its
 composer says "*name* is paused. Resume *name* to chat." above whatever was typed.
 Main validates the exact profile revision, refuses active/queued/review/recovery
 work and confirms cleanup through the actual owning computer client before
@@ -1395,7 +1396,10 @@ by the operator without allowing model work. Providers without the optional
 arbitration port remain view-only. The [SDK and local provider](../sdk/local-pal-computer.md#exclusive-operator-control)
 document the boundary, including guest-process limitations.
 
-The top Pal status reveals Pause/Resume on hover or keyboard focus. The computer
+The top Pal status reveals Pause *name* or Resume *name* on hover or keyboard focus, in the
+same place and with the same footprint; it is a quiet action, never an outline or filled
+button, and it shows no action while the Pal is busy or its change is being saved. A card
+without a pause action shows the status as plain text. The computer
 status reveals Start *name* over Offline, or Stop computer over Connected,
 in the same position; there is no separate start/stop button row in the card.
 Connecting is a status without a lifecycle action. A computer requiring stop

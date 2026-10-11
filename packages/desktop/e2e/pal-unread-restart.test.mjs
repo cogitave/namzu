@@ -54,7 +54,7 @@ test("a Pal's New message marker survives a restart until its conversation is op
 		await name.fill("Işık");
 		await name.press("Enter");
 		await expect(page.getByRole("tab", { name: "Işık" })).toBeVisible({ timeout: T });
-		await expect(page.getByText("Ready to chat")).toBeVisible({ timeout: T });
+		await expect(page.locator(".pal-status-rest").filter({ hasText: "Ready to chat" })).toBeVisible({ timeout: T });
 
 		const palId = readdirSync(join(w.home, "pals"))[0];
 		rules.push({
