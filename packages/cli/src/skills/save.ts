@@ -229,10 +229,10 @@ export function composeSkillMarkdown(
 
 function displayPath(path: string, cwd: string): string {
 	const rel = relative(cwd, path)
-	if (rel && !rel.startsWith('..') && !rel.startsWith(sep)) return `./${rel.split(sep).join('/')}`
+	if (rel && !rel.startsWith('..') && !rel.startsWith(sep)) return `.${sep}${rel}`
 	const home = homedir()
 	const fromHome = relative(home, path)
-	if (fromHome && !fromHome.startsWith('..')) return `~/${fromHome.split(sep).join('/')}`
+	if (fromHome && !fromHome.startsWith('..')) return `~${sep}${fromHome}`
 	return path
 }
 

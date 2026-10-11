@@ -14,6 +14,7 @@ import { Text, useWindowSize } from 'ink'
 
 import { type PermissionMode, permissionModeLabel } from '../permissions/mode.js'
 import { fitHintText } from './key-hints.js'
+import { homePath } from './person-terms.js'
 import { theme } from './theme.js'
 
 export interface StatusBarProps {
@@ -141,10 +142,7 @@ function colorForState(state: StatusBarProps['state']): string {
 
 function shortenCwd(cwd: string): string {
 	const home = process.env.HOME ?? process.env.USERPROFILE
-	if (home && cwd.startsWith(home)) {
-		return `~${cwd.slice(home.length)}`
-	}
-	return cwd
+	return home ? homePath(cwd, home) : cwd
 }
 
 /**

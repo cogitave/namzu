@@ -1,3 +1,4 @@
+import stringWidth from 'string-width'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -6,6 +7,7 @@ import {
 	formatSize,
 	formatSpan,
 	homePath,
+	localEndpoint,
 	plural,
 	productName,
 	shortId,
@@ -79,5 +81,60 @@ describe('displayPath', () => {
 		expect(displayPath('C:\\Users\\arda\\work\\namzu\\packages\\cli', 20, 'D:\\none')).toBe(
 			'C:\\…\\packages\\cli',
 		)
+	})
+})
+
+describe('displayPath measures display cells', () => {
+	const home = '/home/arda'
+	it('counts a CJK folder name as two cells a character', () => {
+		const path = '/home/arda/プロジェクト/日本語のフォルダ/最後'
+		for (const width of [10, 16, 24, 30]) {
+			const shown = displayPath(path, width, home)
+			expect(stringWidth(shown)).toBeLessThanOrEqual(width)
+			expect(shown.endsWith('最後')).toBe(true)
+		}
+	})
+	it('counts an emoji as two cells', () => {
+		const path = '/home/arda/🚀/launch-pad/🛰️-station'
+		for (const width of [12, 18, 24]) {
+			expect(stringWidth(displayPath(path, width, home))).toBeLessThanOrEqual(width)
+		}
+		expect(displayPath('/home/arda/🚀🚀🚀', 5, home)).toBe('…🚀🚀')
+	})
+	it('cuts a wide leaf on a character boundary', () => {
+		const shown = displayPath('/home/arda/日本語日本語日本語', 8, home)
+		expect(stringWidth(shown)).toBeLessThanOrEqual(8)
+		expect(shown.startsWith('…')).toBe(true)
+		expect(shown).not.toContain('\uFFFD')
+	})
+})
+
+describe('localEndpoint', () => {
+	it('knows the local servers from the provider list', () => {
+		expect(localEndpoint('ollama')).toBe('localhost:11434')
+		expect(localEndpoint('lmstudio')).toBe('localhost:1234')
+	})
+	it.each([
+		['http://127.0.0.1:8080/v1', '127.0.0.1:8080'],
+		['http://[::1]:9000', '[::1]:9000'],
+		['http://192.168.1.20:11434', '192.168.1.20:11434'],
+		['http://10.0.0.5', '10.0.0.5'],
+		['http://172.20.0.2:8000', '172.20.0.2:8000'],
+		['http://my-box.local:1234', 'my-box.local:1234'],
+		['http://gpu-box:11434', 'gpu-box:11434'],
+		['http://100.101.1.2:8080', '100.101.1.2:8080'],
+		['http://localhost.:81', 'localhost:81'],
+	])('treats %s as local', (url, shown) => {
+		expect(localEndpoint('openai', url)).toBe(shown)
+	})
+	it.each(['https://api.openai.com/v1', 'http://172.32.0.1', 'http://8.8.8.8'])(
+		'treats %s as the internet',
+		(url) => {
+			expect(localEndpoint('openai', url)).toBeUndefined()
+		},
+	)
+	it('is not local for a hosted provider without a base URL', () => {
+		expect(localEndpoint('openai')).toBeUndefined()
+		expect(localEndpoint(undefined)).toBeUndefined()
 	})
 })

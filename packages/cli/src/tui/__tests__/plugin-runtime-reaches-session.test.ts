@@ -356,7 +356,7 @@ describe('the CLI owns a real plugin runtime', () => {
 		})
 		try {
 			expect(enabled.hasProvider).toBe(false)
-			expect(enabled.errorHint).toMatch(/Plugin runtime could not start/i)
+			expect(enabled.errorHint).toMatch(/could not load your plugins/i)
 		} finally {
 			await enabled.close()
 		}

@@ -63,6 +63,26 @@ export function wrapChoiceText(source: string, columns: number): readonly string
 }
 
 /**
+ * `wrapChoiceText` for a short paragraph that should read evenly: the same
+ * number of lines, broken at the narrowest width that still gives that many,
+ * so the last line is never one stray word ("files", "exit") under a line with
+ * room for it. A paragraph that fits on one line is returned as it is.
+ */
+export function wrapBalancedText(source: string, columns: number): readonly string[] {
+	const width = Math.max(1, Math.floor(columns))
+	const greedy = wrapChoiceText(source, width)
+	if (greedy.length < 2) return greedy
+	let low = 1
+	let high = width
+	while (low < high) {
+		const middle = Math.floor((low + high) / 2)
+		if (wrapChoiceText(source, middle).length <= greedy.length) high = middle
+		else low = middle + 1
+	}
+	return wrapChoiceText(source, high)
+}
+
+/**
  * Split one word that cannot fit on a line of its own.
  *
  * Length-preserving in terminal cells: the pieces rejoin to the same text, so

@@ -107,7 +107,7 @@ describe('plugin startup owns the resources around it', () => {
 			plugins: { enabled: true, allowedScopes: ['project'] },
 		})
 		expect(session.hasProvider).toBe(false)
-		expect(session.errorHint).toMatch(/Plugin runtime could not start/i)
+		expect(session.errorHint).toMatch(/could not load your plugins/i)
 		expect(mcp.close).toHaveBeenCalledOnce()
 	})
 })

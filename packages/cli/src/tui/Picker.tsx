@@ -543,6 +543,7 @@ export function Picker({
 				const step = modelStep(current.entry.defaultModel, listing, activeModel, {
 					allowModel: (id) => canSelectModel(current.entry, current.apiKey, id),
 					providerId: current.entry.id,
+					...(current.baseUrl !== undefined ? { baseUrl: current.baseUrl } : {}),
 					keyEntryReachable:
 						keyEntryOffered && returnToProviders && current.entry.acceptsTypedCredential === true,
 				})

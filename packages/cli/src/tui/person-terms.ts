@@ -1,4 +1,7 @@
 import { homedir } from 'node:os'
+import nodePath from 'node:path'
+
+import stringWidth from 'string-width'
 
 import { PROVIDER_REGISTRY, VENDOR_NAMES } from '../integrations/providers/registry.js'
 import type { ProviderId } from '../integrations/providers/registry.js'
@@ -70,14 +73,32 @@ export function productName(providerId: string | undefined): string | undefined 
 	return id.charAt(0).toUpperCase() + id.slice(1)
 }
 
-/** A path with the home folder written as `~`, so it stays short and private. */
-export function homePath(path: string, home: string = homedir()): string {
-	const normalized = path.replaceAll('\\', '/')
-	const base = home.replaceAll('\\', '/').replace(/\/$/, '')
-	if (base && (normalized === base || normalized.startsWith(`${base}/`))) {
-		return `~${normalized.slice(base.length)}`
-	}
-	return path
+/** The part of a path module a spelling depends on; injectable so both can be tested anywhere. */
+export type PathFlavor = Pick<typeof nodePath, 'sep'>
+
+/**
+ * A path with the home folder written as `~`, so it stays short and private,
+ * spelled with the platform's separator: `~\Work\app` on Windows, `~/work/app`
+ * elsewhere. `flavor` is the path module whose separator to use.
+ */
+export function homePath(
+	path: string,
+	home: string = homedir(),
+	flavor: PathFlavor = nodePath,
+): string {
+	const windows = flavor.sep === '\\'
+	// A web address or anything else that is not a file path keeps its slashes.
+	if (/^[A-Za-z][A-Za-z0-9+.-]+:\/\//.test(path)) return path
+	// Only Windows treats a backslash as a separator; on POSIX it is a letter in a name.
+	const normalized = windows ? path.replaceAll('\\', '/') : path
+	const base = (windows ? home.replaceAll('\\', '/') : home).replace(/\/$/, '')
+	const same = (a: string, b: string): boolean =>
+		windows ? a.toLowerCase() === b.toLowerCase() : a === b
+	const inHome =
+		base !== '' &&
+		(same(normalized, base) || same(normalized.slice(0, base.length + 1), `${base}/`))
+	const shown = inHome ? `~${normalized.slice(base.length)}` : path
+	return windows ? shown.replaceAll('/', '\\') : shown
 }
 
 /**
@@ -86,11 +107,16 @@ export function homePath(path: string, home: string = homedir()): string {
  * (`~/…/packages/cli`). The leaf is what says where you are, so it is dropped
  * last; only a leaf wider than `max` on its own is cut, from its start.
  */
-export function displayPath(path: string, max: number, home: string = homedir()): string {
-	const shown = homePath(path, home)
+export function displayPath(
+	path: string,
+	max: number,
+	home: string = homedir(),
+	flavor: PathFlavor = nodePath,
+): string {
+	const shown = homePath(path, home, flavor)
 	if (max <= 0) return ''
-	if (shown.length <= max) return shown
-	const sep = shown.includes('\\') && !shown.includes('/') ? '\\' : '/'
+	if (stringWidth(shown) <= max) return shown
+	const sep = flavor.sep === '\\' || (shown.includes('\\') && !shown.includes('/')) ? '\\' : '/'
 	const parts = shown.split(sep)
 	const head = parts[0] === '~' || /^[A-Za-z]:$/.test(parts[0] ?? '') ? (parts[0] ?? '') : ''
 	const rest = head ? parts.slice(1) : parts.filter((part, i) => part !== '' || i === 0).slice(1)
@@ -99,12 +125,77 @@ export function displayPath(path: string, max: number, home: string = homedir())
 	for (let keep = rest.length; keep >= 1; keep--) {
 		const tail = rest.slice(-keep).join(sep)
 		const candidate = keep === rest.length && head ? `${head}${sep}${tail}` : `${lead}${sep}${tail}`
-		if (candidate.length <= max) return candidate
+		if (stringWidth(candidate) <= max) return candidate
 	}
 	const leaf = rest[rest.length - 1] ?? shown
 	const bare = `…${sep}${leaf}`
-	if (bare.length <= max) return bare
-	return max === 1 ? '…' : `…${leaf.slice(-(max - 1))}`
+	if (stringWidth(bare) <= max) return bare
+	return max === 1 ? '…' : `…${lastCells(leaf, max - 1)}`
+}
+
+/** The longest end of `text` that fits in `cells` display cells, never splitting a character. */
+function lastCells(text: string, cells: number): string {
+	const chars = Array.from(text)
+	let used = 0
+	let from = chars.length
+	while (from > 0) {
+		const width = stringWidth(chars[from - 1] ?? '')
+		if (used + width > cells) break
+		used += width
+		from--
+	}
+	return chars.slice(from).join('')
+}
+
+/**
+ * `host:port` when a provider's endpoint is on this computer or its local
+ * network (localhost, a loopback or private address, a `.local` name), else
+ * undefined. A local server that is down is not an internet problem, and the
+ * message says where Namzu looked. `baseUrl` wins over the provider's default.
+ */
+export function localEndpoint(
+	providerId: string | undefined,
+	baseUrl?: string,
+): string | undefined {
+	const id = providerId?.trim()
+	const entry =
+		id && Object.hasOwn(PROVIDER_REGISTRY, id) ? PROVIDER_REGISTRY[id as ProviderId] : undefined
+	const raw = baseUrl?.trim() || entry?.defaultBaseUrl
+	if (!raw) return undefined
+	let url: URL
+	try {
+		url = new URL(raw.includes('://') ? raw : `http://${raw}`)
+	} catch {
+		return undefined
+	}
+	const host = url.hostname
+		.replace(/^\[|\]$/g, '')
+		.replace(/\.$/, '')
+		.toLowerCase()
+	if (!isLocalHost(host)) return undefined
+	const shownHost = host.includes(':') ? `[${host}]` : host
+	return url.port ? `${shownHost}:${url.port}` : shownHost
+}
+
+function isLocalHost(host: string): boolean {
+	// A name with no dot ("gpu-box") resolves on the local network, never on the internet.
+	if (host.length > 0 && !host.includes('.') && !host.includes(':')) return true
+	if (/^::ffff:7f[0-9a-f]{2}:/.test(host)) return true
+	if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) return true
+	if (host === '::1' || host === '::' || /^f[cd][0-9a-f]{2}:/.test(host) || /^fe80:/.test(host))
+		return true
+	const v4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/)
+	if (!v4) return false
+	const [a, b] = [Number(v4[1]), Number(v4[2])]
+	return (
+		a === 127 ||
+		a === 10 ||
+		a === 0 ||
+		(a === 172 && b >= 16 && b <= 31) ||
+		(a === 192 && b === 168) ||
+		(a === 169 && b === 254) ||
+		(a === 100 && b >= 64 && b <= 127)
+	)
 }
 
 /** The short form of a conversation id, for places where a whole UUID is noise. */

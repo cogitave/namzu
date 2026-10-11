@@ -5,7 +5,8 @@ import {
 	resolveWebSearch,
 	webSearchLabel,
 } from '../integrations/web/search.js'
-import { explainFailure } from './plain-failure.js'
+import { homePath } from './person-terms.js'
+import { explainFailure, workingDirectoryProblem } from './plain-failure.js'
 import {
 	factsHeadline,
 	failureFactsLine,
@@ -2045,13 +2046,17 @@ export async function createAgentSession(
 	try {
 		const entry = await stat(requestedCwd)
 		if (!entry.isDirectory()) {
-			return emptySession(`Working directory is not a directory: ${requestedCwd}`, 'invocation')
+			return emptySession(
+				`${homePath(requestedCwd)} is a file, not a folder. Choose a project folder.`,
+				'invocation',
+			)
 		}
 		cwd = await realpath(requestedCwd)
 	} catch (error) {
 		return emptySession(
-			`Working directory is unavailable: ${requestedCwd} — ${describeError(error)}`,
+			workingDirectoryProblem(requestedCwd, error),
 			'invocation',
+			describeError(error),
 		)
 	}
 	const sandboxWorkspace = options.sandbox?.workspace ?? 'working-directory'
@@ -2061,7 +2066,7 @@ export async function createAgentSession(
 		cwd === parse(cwd).root
 	) {
 		return emptySession(
-			`Working-directory sandboxing refuses filesystem root ${cwd}; choose a project directory so confinement has a boundary, or explicitly select an ephemeral workspace.`,
+			'Namzu will not run in the top-level folder of the disk with the sandbox on. Choose a project folder, or use a temporary workspace.',
 			'invocation',
 		)
 	}
@@ -2088,7 +2093,11 @@ export async function createAgentSession(
 		ensurePrivateStateDirectory(resolve(paths.projectDir(), '..'), paths.slug)
 		ensurePrivateStateDirectory(paths.projectDir(), 'memory')
 	} catch (error) {
-		return emptySession(`Project state is unavailable: ${describeError(error)}`, 'environment')
+		return emptySession(
+			explainFailure(error, 'Namzu could not open its saved data for this folder.'),
+			'environment',
+			describeError(error),
+		)
 	}
 	const scope = options.scope ?? mintScope(projectId, options.sessionId)
 	// The head serves; the tail is fallen over to, in order, when it cannot.
@@ -2120,7 +2129,11 @@ export async function createAgentSession(
 	try {
 		await ensureRegistered(primary.id)
 	} catch (err) {
-		return emptySession(err instanceof Error ? err.message : String(err))
+		return emptySession(
+			explainFailure(err, `Namzu could not load ${entry.label}.`),
+			'environment',
+			describeError(err),
+		)
 	}
 
 	// Does the chain agree with itself about what it can do? Asked before the
@@ -2170,7 +2183,11 @@ export async function createAgentSession(
 			sessionId: scope.sessionId,
 		})
 	} catch (err) {
-		return emptySession(explainFailure(err, `Failed to construct ${entry.label}.`))
+		return emptySession(
+			explainFailure(err, `Namzu could not start ${entry.label}.`),
+			'environment',
+			describeError(err),
+		)
 	}
 	// OAuth access tokens on this path are short-lived (~8h). They rarely lapse
 	// *during* a turn, but they do between turns — an idle session that sends
@@ -3334,7 +3351,11 @@ export async function createAgentSession(
 		pluginRuntime = await createCliPluginRuntime(options.plugins, cwd, options.hooks)
 	} catch (error) {
 		await Promise.allSettled([mcp.close(), computerUseHost?.dispose(), browserControl?.dispose()])
-		return emptySession(describeError(error))
+		return emptySession(
+			explainFailure(error, 'Namzu could not load your plugins.'),
+			'environment',
+			describeError(error),
+		)
 	}
 	// A session that can save a skill, or whose plugins contribute one, loads
 	// it through this same tool, even when it started with no file skills —
@@ -4171,13 +4192,17 @@ export async function createAgentSession(
 			...(effortNotice ? [effortNotice] : []),
 			...(passthroughNotice ? [passthroughNotice] : []),
 			...(computerUseError
-				? [`Computer use is unavailable on this device: ${describeError(computerUseError)}`]
+				? [explainFailure(computerUseError, 'Computer use is unavailable on this device.')]
 				: []),
 			// A provider that cannot return images is not a fault to announce at the top of
 			// every session. The roster's computer_use tool carries the reason, and the model
 			// tells the person the moment computer use is actually asked for.
 			...(browserUnavailable !== undefined
-				? [`The browser is unavailable: ${browserUnavailable}`]
+				? [
+						browserError !== undefined
+							? explainFailure(browserError, 'The browser is unavailable.')
+							: `The browser is unavailable: ${browserUnavailable}`,
+					]
 				: []),
 			...unresolvedNotice.map(
 				(line) => `Provider chain: capabilities could not be established for ${line}.`,
@@ -6663,6 +6688,8 @@ function logCapabilities(
 function emptySession(
 	errorHint: string,
 	errorKind: 'invocation' | 'environment' = 'environment',
+	/** The raw text behind a plain hint: logged, never shown. */
+	rawDetail?: string,
 ): AgentSession {
 	// Every path into this function is a boot refusal — `createAgentSession`
 	// is the whole extent of the session-construction half of the boot
@@ -6673,6 +6700,7 @@ function emptySession(
 	cliLogger().error(errorHint, {
 		[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.BOOT_REFUSED,
 		'namzu.refusal.kind': errorKind,
+		...(rawDetail !== undefined ? { 'exception.message': rawDetail } : {}),
 	})
 	return {
 		hasProvider: false,

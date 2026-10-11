@@ -291,3 +291,20 @@ afterAll(() => {
 			`tests reached the real application home ${realApplicationHome}; give the code under test an owned NAMZU_HOME:\n${[...new Set(leaks)].join('\n')}`,
 		)
 })
+
+// A test's outcome must not depend on who runs it. `NAMZU_DEBUG=1` in a
+// contributor's shell turns on the raw-detail lines that plain-language
+// assertions forbid, and the caller's real HOME carries their own sign-ins,
+// skills and config. Each suite starts with debug off and an empty HOME of its
+// own; a test about either sets it itself. (`realApplicationHome` above was
+// resolved from the real HOME first, so the leak guard still names it.)
+// biome-ignore lint/performance/noDelete: assigning undefined creates the string "undefined" in process.env.
+delete process.env.NAMZU_DEBUG
+{
+	const ownedUserHome = mkdtempSync(join(inject('namzuTestHomeRoot'), 'user-'))
+	process.env.HOME = ownedUserHome
+	process.env.USERPROFILE = ownedUserHome
+	afterAll(() => {
+		removeTempDir(ownedUserHome)
+	})
+}

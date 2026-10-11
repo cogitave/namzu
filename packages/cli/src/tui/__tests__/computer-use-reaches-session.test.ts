@@ -344,7 +344,7 @@ describe('computer use session reachability', () => {
 		// on the roster at all.
 		expect(session.toolNames()).toContain('computer_use')
 		expect(session.configNotices).toContain(
-			'Computer use is unavailable on this device: desktop bridge unavailable',
+			'Computer use is unavailable on this device. Run with --debug for details.',
 		)
 		expect(desktop.dispose).toHaveBeenCalledTimes(1)
 	})
