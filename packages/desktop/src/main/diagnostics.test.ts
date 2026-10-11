@@ -393,3 +393,29 @@ it('records engine start timings as numbers only, with the engine and step, and 
 	})
 	expect(JSON.stringify(second)).not.toContain('Private')
 })
+
+it('names the wslc engine and classifies its setup failures without keeping their text', () => {
+	const { sink } = create()
+	sink.record('started', { engine: 'wslc', platform: 'win32' })
+	expect(records(sink).at(-1).attributes['namzu.desktop.engine']).toBe('wslc')
+	const reasons = [
+		[
+			'Windows Linux container support (wslc) is not installed on this PC.',
+			'wslc-engine-missing-or-old',
+		],
+		[
+			'This PC has virtualization switched off. Turn it on in the PC startup settings, then try again.',
+			'wslc-virtualization-off',
+		],
+		['Your organisation does not allow Linux containers on this PC.', 'wslc-blocked-by-policy'],
+		[
+			"Namzu needs an update to work with this version of Windows' Linux support.",
+			'wslc-sdk-mismatch',
+		],
+		[
+			'The Pal computer is not set up on this PC yet. Namzu sets it up; finish the setup from the Pal computer and try again.',
+			'wslc-computer-not-set-up',
+		],
+	] as const
+	for (const [error, reason] of reasons) expect(desktopFailure(error)).toMatchObject({ reason })
+})

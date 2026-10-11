@@ -3,6 +3,15 @@ import type { PalEnvironmentLease, PalEnvironmentProvider, PalEnvironmentRequest
 import { OperationDeadline } from '../backends/readiness.js'
 import { localComputerClients } from './client.js'
 import {
+	containerIdQuery,
+	ensureVolume,
+	hardeningFlags,
+	parsePublishedPorts,
+	portsQuery,
+	resourceFlags,
+} from './dialect.js'
+import {
+	type EngineDialect,
 	type LocalComputerCommandRunner,
 	LocalComputerSetupError,
 	type LocalEngine,
@@ -11,8 +20,14 @@ import {
 } from './engine.js'
 import { resolveLocalPodmanEngine } from './podman-machine.js'
 import { LocalForwardCleanupError } from './ssh-forward.js'
+import { resolveLocalWslcEngine, wslcSetupError } from './wslc-engine.js'
 
 export type { LocalComputerCommandRunner } from './engine.js'
+export {
+	type EngineDialect,
+	LocalComputerSetupError,
+	type LocalComputerSetupCode,
+} from './engine.js'
 
 export const LOCAL_COMPUTER_IMAGE = 'namzu-local-computer:1'
 export const LOCAL_COMPUTER_PROTOCOL_LABEL = 'org.namzu.local-computer.protocol'
@@ -23,9 +38,15 @@ export interface LocalVirtualComputerOptions {
 	readonly image?: string
 	/** Foreground applications normally belong to the computer after a successful launcher. */
 	readonly normalExitPolicy?: 'strict' | 'computer-lifetime'
-	/** Docker remains the default. Podman requires an explicitly selected local Windows WSL machine. */
-	readonly engine?: 'docker' | 'podman'
+	/**
+	 * Docker remains the default. Podman requires an explicitly selected local
+	 * Windows WSL machine. wslc is Windows' own container CLI for WSL and must be
+	 * selected explicitly; it is never chosen automatically.
+	 */
+	readonly engine?: EngineDialect
 	readonly dockerBinary?: string
+	/** Path to wslc.exe; defaults to the WSL install directory, then PATH. */
+	readonly wslcBinary?: string
 	readonly podmanBinary?: string
 	readonly podmanMachine?: string
 	readonly podmanConnection?: string
@@ -59,8 +80,13 @@ async function verifyImage(
 	}[]
 	try {
 		images = JSON.parse(await engine.run(['image', 'inspect', image], { signal })) as typeof images
-	} catch {
+		if (engine.dialect === 'wslc' && images.length === 0) throw wslcSetupError('image-missing')
+	} catch (error) {
 		signal?.throwIfAborted()
+		if (engine.dialect === 'wslc')
+			throw error instanceof LocalComputerSetupError
+				? error
+				: wslcSetupError('image-missing', error)
 		throw new LocalComputerSetupError(
 			`The ${image} image is not installed on this local engine. Build packages/sandbox/local-computer/Dockerfile explicitly; Namzu does not pull or build it automatically.`,
 		)
@@ -95,8 +121,13 @@ function portFor(
 export function createLocalVirtualComputerProvider(
 	options: LocalVirtualComputerOptions = {},
 ): PalEnvironmentProvider {
-	if (options.engine !== undefined && options.engine !== 'docker' && options.engine !== 'podman')
-		throw new Error('Choose the Docker or Podman local computer engine')
+	if (
+		options.engine !== undefined &&
+		options.engine !== 'docker' &&
+		options.engine !== 'podman' &&
+		options.engine !== 'wslc'
+	)
+		throw new Error('Choose the Docker, Podman or wslc local computer engine')
 	const image = options.image ?? LOCAL_COMPUTER_IMAGE
 	const normalExitPolicy = options.normalExitPolicy ?? 'computer-lifetime'
 	if (normalExitPolicy !== 'strict' && normalExitPolicy !== 'computer-lifetime')
@@ -115,10 +146,14 @@ export function createLocalVirtualComputerProvider(
 		const engine =
 			options.engine === 'podman'
 				? await resolveLocalPodmanEngine(options, signal)
-				: await resolveLocalEngine(options, signal)
+				: options.engine === 'wslc'
+					? await resolveLocalWslcEngine(options, signal)
+					: await resolveLocalEngine(options, signal)
 		await verifyImage(engine, image, signal)
 		return engine
 	}
+	const dialectOf = (engine: LocalEngine): EngineDialect =>
+		engine.dialect ?? options.engine ?? 'docker'
 	return {
 		async probe() {
 			try {
@@ -132,7 +167,9 @@ export function createLocalVirtualComputerProvider(
 					reason:
 						error instanceof LocalComputerSetupError
 							? error.message
-							: `A local ${options.engine === 'podman' ? 'Podman machine' : 'Docker engine'} running Linux containers and the ${image} image are required. Build packages/sandbox/local-computer/Dockerfile explicitly; Namzu does not install or pull it automatically.`,
+							: options.engine === 'wslc'
+								? 'Windows Linux container support and the Pal computer image are required. Namzu sets them up; finish the setup from the Pal computer and try again.'
+								: `A local ${options.engine === 'podman' ? 'Podman machine' : 'Docker engine'} running Linux containers and the ${image} image are required. Build packages/sandbox/local-computer/Dockerfile explicitly; Namzu does not install or pull it automatically.`,
 				}
 			}
 		},
@@ -197,25 +234,16 @@ export function createLocalVirtualComputerProvider(
 				)
 				const connected = await deadline.run(async (signal) => {
 					engine = await prepare(signal)
+					const dialect = dialectOf(engine)
 					const occupied = await engine.run(
-						['ps', '--all', '--filter', `name=^/${name}$`, '--format', '{{.ID}}'],
+						containerIdQuery(dialect, `name=^/${name}$`, { full: false }),
 						{ signal },
 					)
 					if (occupied.trim())
 						throw new Error(
 							'An earlier Pal computer allocation still exists; stop it explicitly before reconnecting',
 						)
-					await engine.run(
-						[
-							'volume',
-							'create',
-							...(options.engine === 'podman' ? ['--ignore'] : []),
-							'--label',
-							`${OWNER_LABEL}=${owner}`,
-							volume,
-						],
-						{ signal },
-					)
+					await ensureVolume(engine, dialect, volume, `${OWNER_LABEL}=${owner}`, signal)
 					const volumes = JSON.parse(
 						await engine.run(['volume', 'inspect', volume], { signal }),
 					) as { Labels?: Record<string, string> }[]
@@ -229,7 +257,7 @@ export function createLocalVirtualComputerProvider(
 							'--pull=never',
 							// WSL machines can lack delegated cgroup controllers.
 							// This adapter provides no per-container resource quotas.
-							...(options.engine === 'podman' ? ['--cgroups=disabled'] : []),
+							...resourceFlags(dialect),
 							'--name',
 							name,
 							'--label',
@@ -240,10 +268,7 @@ export function createLocalVirtualComputerProvider(
 							`org.namzu.pal.allocation=${allocationId}`,
 							'--user',
 							'1001:1001',
-							'--cap-drop=ALL',
-							'--security-opt=no-new-privileges',
-							'--read-only',
-							'--ipc=private',
+							...hardeningFlags(dialect),
 							'--network=bridge',
 							'--shm-size=256m',
 							'--tmpfs',
@@ -270,11 +295,10 @@ export function createLocalVirtualComputerProvider(
 					containerId = started.trim()
 					if (!/^[0-9a-f]{64}$/.test(containerId))
 						throw new Error('The Pal computer engine did not return a valid allocation identifier')
-					const ports = JSON.parse(
-						await engine.run(['inspect', '--format', '{{json .NetworkSettings.Ports}}', name], {
-							signal,
-						}),
-					) as Record<string, { HostIp?: string; HostPort?: string }[]>
+					const ports = parsePublishedPorts(
+						dialect,
+						await engine.run(portsQuery(dialect, name), { signal }),
+					)
 					const guestPorts = [portFor(ports, 2024), portFor(ports, 2025)]
 					forwarding = await engine.forwardPorts?.(guestPorts, {
 						signal,
@@ -362,15 +386,11 @@ export function createLocalVirtualComputerProvider(
 						// Reconcile an unacknowledged start by this attempt's unique
 						// label, never by a name another process may have acquired.
 						const owned = await ownedEngine.run(
-							[
-								'ps',
-								'--all',
-								'--filter',
+							containerIdQuery(
+								dialectOf(ownedEngine),
 								`label=org.namzu.pal.allocation=${allocationId}`,
-								'--no-trunc',
-								'--format',
-								'{{.ID}}',
-							],
+								{ full: true },
+							),
 							{ signal },
 						)
 						for (const id of owned.trim().split(/\s+/).filter(Boolean)) {

@@ -49,7 +49,7 @@ export interface DesktopDiagnosticContext {
 	bytes?: number
 	exitCode?: number | null
 	rpcCode?: number
-	engine?: 'default-docker' | 'docker' | 'podman' | 'invalid'
+	engine?: 'default-docker' | 'docker' | 'podman' | 'wslc' | 'invalid'
 	platform?: 'win32' | 'linux' | 'darwin' | 'other'
 	line?: number
 	column?: number
@@ -299,6 +299,15 @@ export function desktopFailure(error: unknown): {
 			reason = 'docker-engine-or-image-required'
 		else if (/local Podman machine.*required/i.test(message))
 			reason = 'podman-engine-or-image-required'
+		else if (/Windows Linux container support.*(?:not installed|too old)/i.test(message))
+			reason = 'wslc-engine-missing-or-old'
+		else if (/virtualization switched off/i.test(message)) reason = 'wslc-virtualization-off'
+		else if (/organisation does not allow Linux containers/i.test(message))
+			reason = 'wslc-blocked-by-policy'
+		else if (/work with this version of Windows' Linux support/i.test(message))
+			reason = 'wslc-sdk-mismatch'
+		else if (/Pal computer is not set up|Pal computer image are required/i.test(message))
+			reason = 'wslc-computer-not-set-up'
 		else if (/Podman machine.*stopped or unavailable|machine pipe is unavailable/i.test(message))
 			reason = 'podman-machine-stopped'
 		else if (
@@ -472,7 +481,7 @@ export class DesktopDiagnostics implements DesktopDiagnosticSink {
 			const attributes: Record<string, string | number> = {}
 			if (
 				context.engine &&
-				['default-docker', 'docker', 'podman', 'invalid'].includes(context.engine)
+				['default-docker', 'docker', 'podman', 'wslc', 'invalid'].includes(context.engine)
 			)
 				attributes['namzu.desktop.engine'] = context.engine
 			if (context.platform && ['win32', 'linux', 'darwin', 'other'].includes(context.platform))

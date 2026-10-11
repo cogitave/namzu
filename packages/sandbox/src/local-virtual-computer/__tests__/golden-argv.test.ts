@@ -190,6 +190,8 @@ describe('engine command lines recorded before wslc', () => {
 			conversationId: 'golden',
 		})
 		await lease.release()
-		expect(calls.map((call) => normalize(call.args.slice(2)))).toEqual(lifecycle(['--ignore']).slice(1))
+		expect(calls.map((call) => normalize(call.args.slice(2)))).toEqual(
+			lifecycle(['--ignore']).slice(1),
+		)
 	})
 })
