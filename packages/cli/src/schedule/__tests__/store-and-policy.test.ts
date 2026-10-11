@@ -20,6 +20,7 @@ import {
 	readJob,
 	updateJob,
 } from '../store/jobs.js'
+import { mustFinishWithin } from './finishes.js'
 import { type Sandbox, confirmedJob, jobRequest, sandbox } from './fixtures.js'
 
 let sb: Sandbox
@@ -737,9 +738,7 @@ describe('what a scheduled run may do', () => {
 		])
 			for (const prefix of [`cat ${user}`, 'cat ~/.nam', 'cat ~']) {
 				const command = `${prefix}${filler.repeat(20_000)}x`
-				const started = performance.now()
-				decide(g, 'bash', { command })
-				expect(performance.now() - started, `${prefix} + ${filler}`).toBeLessThan(500)
+				mustFinishWithin(10_000, `${prefix} + ${filler}`, () => decide(g, 'bash', { command }))
 			}
 	})
 
@@ -759,9 +758,7 @@ describe('what a scheduled run may do', () => {
 			'\\\n',
 		]) {
 			const command = `${filler.repeat(Math.ceil(160_000 / filler.length))}x`
-			const started = performance.now()
-			decide(g, 'bash', { command })
-			expect(performance.now() - started, filler).toBeLessThan(500)
+			mustFinishWithin(10_000, filler, () => decide(g, 'bash', { command }))
 		}
 	})
 
@@ -777,9 +774,7 @@ describe('what a scheduled run may do', () => {
 			['write', { path: 'notes.md', content: blank }],
 			['bash', { command: blank }],
 		] as const) {
-			const started = performance.now()
-			decide(g, tool, input)
-			expect(performance.now() - started, tool).toBeLessThan(500)
+			mustFinishWithin(10_000, tool, () => decide(g, tool, input))
 		}
 	})
 

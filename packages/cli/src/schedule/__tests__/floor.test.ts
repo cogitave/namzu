@@ -17,6 +17,7 @@ import {
 	scheduledRunFloorRule,
 	scheduledRunFloorVerdict,
 } from '../floor.js'
+import { mustFinishWithin } from './finishes.js'
 
 const USER = '/home/u'
 const HOME = '/home/u/.namzu'
@@ -668,37 +669,34 @@ describe('the Windows browser’s profiles', () => {
 })
 
 describe('cost', () => {
-	it('stays linear on long lines of the shapes it follows', () => {
-		for (const filler of [
-			'cd x; ',
-			'X=a; ',
-			"echo 'a b' | sh; ",
-			'for d in a; do :; done; ',
-			'ls $X$Y; ',
-			'sh -c "sh -c \\"a b\\""; ',
-			'namzu schedule list; ',
-			'~/',
-			'$HOME/',
-			'AppData/Local/',
-			'*/Local/',
-		]) {
-			const time = (length: number): number => {
-				const command = `${filler.repeat(Math.ceil(length / filler.length))}x`
-				const started = performance.now()
-				bash(command)
-				return performance.now() - started
-			}
-			time(16_000)
-			const small = Math.max(time(16_000), 0.5)
-			const large = time(160_000)
-			// Ten times the input: linear is about ten times the time, quadratic
-			// a hundred. The absolute bound is loose because CI machines run
-			// this several times slower than a developer's: the slowest shape,
-			// a line of `cd`s, takes about 500 ms here and 1.8 s on CI.
-			expect(large / small, filler).toBeLessThan(40)
-			expect(large, filler).toBeLessThan(6000)
-		}
-	})
+	// 320 KB of the shape. Linear takes 25 ms to 1.2 s here (the slowest, a
+	// line of `cd`s, 4 µs a repeat). A scan that rereads what it has read is
+	// quadratic: a bare nested loop over the characters takes about 80 s at
+	// this size (20 s at 160 KB, which is why it is not smaller), a
+	// backtracking regex far longer. The budget sits between, at 30 s, and
+	// no clock is compared; see `finishes.ts`. The test timeout is raised to
+	// 60 s only because Vitest checks it after a synchronous test returns, and a
+	// busy two-core runner can take several times the unloaded 1.2 s.
+	it.each([
+		'cd x; ',
+		'X=a; ',
+		"echo 'a b' | sh; ",
+		'for d in a; do :; done; ',
+		'ls $X$Y; ',
+		'sh -c "sh -c \\"a b\\""; ',
+		'namzu schedule list; ',
+		'~/',
+		'$HOME/',
+		'AppData/Local/',
+		'*/Local/',
+	])(
+		'stays linear on a long line of %j',
+		(filler) => {
+			const command = `${filler.repeat(Math.ceil(320_000 / filler.length))}x`
+			mustFinishWithin(30_000, JSON.stringify(filler), () => bash(command))
+		},
+		60_000,
+	)
 
 	it('denies rather than enumerate a word with too many spellings', () => {
 		const assignments = Array.from({ length: 8 }, (_, i) => `A=${i}; B=${i}; C=${i}`).join('; ')
