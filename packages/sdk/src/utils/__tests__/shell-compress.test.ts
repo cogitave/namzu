@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { mustFinishWithin } from '../../__fixtures__/finishes.js'
 import { compressShellOutputFull } from '../shell-compress.js'
 
 /**
@@ -20,14 +21,10 @@ describe('compressShellOutputFull', () => {
 		const poison = ' '.repeat(4000)
 		const raw = [poison, ...Array.from({ length: 19 }, (_, i) => `line ${i}`)].join('\n')
 
-		const start = Date.now()
-		compressShellOutputFull(raw)
-		const elapsedMs = Date.now() - start
-
 		// The vulnerable regex takes ~20s on a line this size; a fixed one
-		// finishes in low single-digit milliseconds. 1s leaves headroom for a
-		// loaded CI box while still failing hard on a regression.
-		expect(elapsedMs).toBeLessThan(1000)
+		// finishes in low single-digit milliseconds. The 5s budget is between
+		// them and compares no clock: see `finishes.ts`.
+		mustFinishWithin(5_000, 'a 4000-space line', () => compressShellOutputFull(raw))
 	})
 
 	it('still recognizes and suppresses repeated PASS markers', () => {

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { mustFinishWithin } from '../../__fixtures__/finishes.js'
 import { NOOP_LOGGER } from '../../utils/log/create-logger.js'
 import { DecisionParser } from './parser.js'
 
@@ -30,17 +31,16 @@ describe('DecisionParser', () => {
 	// run of blank lines between them. The trailing non-whitespace `x`
 	// keeps `.trim()` from stripping the blank-line run before the regex
 	// ever runs. A ~1KB unterminated fence (well within a single routing
-	// completion) used to take multiple seconds; this pins it to
-	// comfortably sub-second.
+	// completion) used to take multiple seconds. The fixed regex scans
+	// it once; 100,000 blank lines keep a regression from slipping under the
+	// budget below by being merely quadratic (about 10^10 steps).
 	it('does not exhibit super-linear backtracking on an unterminated fence with many blank lines', () => {
 		const parser = makeParser()
-		const raw = `\`\`\`json${'\n'.repeat(1000)}x`
+		const raw = `\`\`\`json${'\n'.repeat(100_000)}x`
 
-		const start = Date.now()
-		const result = parser.parse(raw)
-		const elapsed = Date.now() - start
-
-		expect(elapsed).toBeLessThan(500)
+		// The vulnerable regex took multiple seconds on this; the fixed one
+		// takes well under a millisecond. The 5s budget compares no clock.
+		const result = mustFinishWithin(5_000, 'an unterminated fence', () => parser.parse(raw))
 		expect(result.ok).toBe(false)
 	})
 })
