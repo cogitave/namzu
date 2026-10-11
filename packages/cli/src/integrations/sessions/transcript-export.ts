@@ -17,6 +17,7 @@ import { runtimeContextLabel } from '../../context/runtime-message.js'
 import {
 	describeCapabilityNotice,
 	describeHistoryRepairNotice,
+	describeProviderFallbackNotice,
 } from '../../tui/capability-notice.js'
 import {
 	type ConversationContext,
@@ -358,7 +359,11 @@ function renderRecordedActivity(record: SessionRecord, produced: readonly Messag
 			break
 		case 'provider_fallback':
 			activity(
-				`Provider fallback: ${record.fromProviderId}${record.fromModel ? `/${record.fromModel}` : ''} → ${record.toProviderId}${record.toModel ? `/${record.toModel}` : ''} (${record.reason})`,
+				describeProviderFallbackNotice({
+					fromProviderId: record.fromProviderId,
+					toProviderId: record.toProviderId,
+					reason: record.reason,
+				}),
 			)
 			break
 		case 'capability_warning':

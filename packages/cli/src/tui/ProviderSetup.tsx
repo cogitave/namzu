@@ -2,12 +2,18 @@ import { Box, Text, useInput, useWindowSize } from 'ink'
 import { useEffect, useRef, useState } from 'react'
 import { discoverProviders } from '../integrations/providers/discover.js'
 import { type SetupProbe, installHarness, probeHarnesses } from '../integrations/providers/setup.js'
-import { boxedHintWidth, fitHints } from './key-hints.js'
+import { boxedContentWidth, boxedHintWidth, fitHints } from './key-hints.js'
 import { explainFailure } from './plain-failure.js'
 import { debugRequested } from './plain-interruption.js'
 import { setupInstallFailed, setupInstalling, setupRowStatus } from './setup-text.js'
-import { choiceDisplayText } from './terminal-choice-text.js'
+import { choiceDisplayText, wrapBalancedText } from './terminal-choice-text.js'
 import { theme } from './theme.js'
+
+const INTRO = 'Codex, Claude Code and OpenCode are optional; Namzu can reuse their sign-ins.'
+
+function wrap(text: string, width: number): readonly string[] {
+	return wrapBalancedText(text, Math.max(8, width))
+}
 
 export function ProviderSetup({
 	cwd,
@@ -34,7 +40,7 @@ export function ProviderSetup({
 		void refresh(controller.signal)
 			.then(() => {
 				if (!controller.signal.aborted)
-					setOutput('Choose a provider. Installing it and signing in are separate steps.')
+					setOutput('Choose one. Installing and signing in are separate steps.')
 			})
 			.catch((error) => {
 				if (!controller.signal.aborted)
@@ -111,13 +117,19 @@ export function ProviderSetup({
 		}
 	})
 	const target = rows[selected]
+	// Ink keeps the space it broke a line at and starts the next line with it, so
+	// text that can wrap is broken here, where a continuation starts at the margin.
+	const inner = boxedContentWidth(terminal.columns, 1)
+	const hanging = inner - 2
 	return (
 		<Box borderStyle="round" borderColor={theme.border.focus} flexDirection="column" paddingX={1}>
 			<Text bold>Provider setup</Text>
-			<Text dimColor>
-				Namzu talks to providers itself. Codex, Claude Code and OpenCode are optional; Namzu can
-				reuse their sign-ins.
-			</Text>
+			{wrap(INTRO, inner).map((line, index) => (
+				// biome-ignore lint/suspicious/noArrayIndexKey: wrapped lines have no identity of their own.
+				<Text key={index} dimColor>
+					{line}
+				</Text>
+			))}
 			{rows.map((row, index) => (
 				<Box key={row.harness.id} flexDirection="column" marginTop={1}>
 					{/* A hanging indent: a wrapped line lines up under the name, not under the marker. */}
@@ -127,14 +139,25 @@ export function ProviderSetup({
 								{index === selected ? '›' : ' '}
 							</Text>
 						</Box>
-						<Box flexShrink={1}>
-							<Text color={index === selected ? theme.border.focus : undefined}>
-								{row.harness.label} · {choiceDisplayText(setupRowStatus(row, debugRequested()))}
-							</Text>
+						<Box flexShrink={1} flexDirection="column">
+							{wrap(
+								`${row.harness.label} · ${choiceDisplayText(setupRowStatus(row, debugRequested()))}`,
+								hanging,
+							).map((line, lineIndex) => (
+								// biome-ignore lint/suspicious/noArrayIndexKey: wrapped lines have no identity of their own.
+								<Text key={lineIndex} color={index === selected ? theme.border.focus : undefined}>
+									{line}
+								</Text>
+							))}
 						</Box>
 					</Box>
-					<Box paddingLeft={2}>
-						<Text dimColor>{row.access}</Text>
+					<Box paddingLeft={2} flexDirection="column">
+						{wrap(row.access, hanging).map((line, lineIndex) => (
+							// biome-ignore lint/suspicious/noArrayIndexKey: wrapped lines have no identity of their own.
+							<Text key={lineIndex} dimColor>
+								{line}
+							</Text>
+						))}
 					</Box>
 				</Box>
 			))}
@@ -142,16 +165,23 @@ export function ProviderSetup({
 				{output
 					.split('\n')
 					.slice(-8)
+					.flatMap((line) => wrap(choiceDisplayText(line).slice(-200), inner))
 					.map((line, index) => (
 						// biome-ignore lint/suspicious/noArrayIndexKey: these rows have no identity of their own and hold no state, so the index is the key.
-						<Text key={index}>{choiceDisplayText(line).slice(-200)}</Text>
+						<Text key={index}>{line}</Text>
 					))}
 			</Box>
 			{confirm && target ? (
 				<Box flexDirection="column" marginTop={1}>
 					<Text bold>Install {target.harness.label}?</Text>
 					<Text>npm install --global {target.harness.npmPackage}</Text>
-					<Text>Downloads packages and runs their installation scripts on this device.</Text>
+					{wrap(
+						'Downloads packages and runs their installation scripts on this device.',
+						inner,
+					).map((line, index) => (
+						// biome-ignore lint/suspicious/noArrayIndexKey: wrapped lines have no identity of their own.
+						<Text key={index}>{line}</Text>
+					))}
 					<Text>y install · n cancel</Text>
 				</Box>
 			) : (

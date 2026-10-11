@@ -46,7 +46,7 @@ describe('the glossary and humanisers', () => {
 		expect(productName('openai')).toBe('OpenAI')
 		expect(productName('codex')).toBe('OpenAI')
 		expect(productName('anthropic')).toBe('Anthropic')
-		expect(productName('nopeai')).toBe('Nopeai')
+		expect(productName('nopeai')).toBeUndefined()
 		expect(productName(undefined)).toBeUndefined()
 		expect(homePath('/home/ada/work/app', '/home/ada')).toBe('~/work/app')
 		expect(homePath('/srv/app', '/home/ada')).toBe('/srv/app')

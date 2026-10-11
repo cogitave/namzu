@@ -13,7 +13,7 @@ describe('capability notices', () => {
 	it('says a provider without tools will only chat, and what to do', () => {
 		const text = describeCapabilityNotice({ capability: 'tools', providerId: 'ollama' })
 		expect(text).toBe(
-			'Ollama can’t use tools, so Namzu will only chat in this conversation. Pick another model to let it work with files and commands.',
+			'Ollama can’t use tools, so Namzu will only chat while you use it. Switch to another provider to let Namzu work with files and commands.',
 		)
 		expect(text).not.toContain('ollama')
 		expect(text).not.toMatch(/\d/)
@@ -21,13 +21,13 @@ describe('capability notices', () => {
 
 	it('says a provider without vision will not see the picture', () => {
 		expect(describeCapabilityNotice({ capability: 'vision', providerId: 'ollama' })).toBe(
-			'Ollama can’t see images, so it won’t see the picture you attached. Pick a model that reads images to include it.',
+			'Ollama can’t see images, so it won’t see the picture you attached. Switch to a provider that reads images to include it.',
 		)
 	})
 
 	it('says a provider without document support will not see the file', () => {
 		expect(describeCapabilityNotice({ capability: 'documents', providerId: 'deepseek' })).toBe(
-			'DeepSeek can’t read documents, so it won’t see the file you attached. Pick a model that reads documents to include it.',
+			'DeepSeek can’t read documents, so it won’t see the file you attached. Switch to a provider that reads documents to include it.',
 		)
 	})
 
@@ -48,7 +48,7 @@ describe('capability notices', () => {
 				providerId: 'ollama',
 			}),
 		).toBe(
-			'Ollama can’t see images, so Namzu gave it a text note in place of a picture a tool returned. Pick a model that reads images to include it.',
+			'Ollama can’t see images, so Namzu gave it a text note in place of a picture a tool returned. Switch to a provider that reads images to include it.',
 		)
 		expect(
 			describeCapabilityNotice({
@@ -57,7 +57,7 @@ describe('capability notices', () => {
 				providerId: 'ollama',
 			}),
 		).toBe(
-			'Ollama can’t read documents, so Namzu gave it a text note in place of a document a tool returned. Pick a model that reads documents to include it.',
+			'Ollama can’t read documents, so Namzu gave it a text note in place of a document a tool returned. Switch to a provider that reads documents to include it.',
 		)
 	})
 
@@ -82,7 +82,7 @@ describe('capability notices', () => {
 })
 
 describe('history repair notices', () => {
-	it('explains a cleaned-up fresh history with the measured changes', () => {
+	it('says unfinished steps were marked, and what to check, for a fresh history', () => {
 		const text = describeHistoryRepairNotice({
 			source: 'fresh-history',
 			duplicateResults: 1,
@@ -90,9 +90,9 @@ describe('history repair notices', () => {
 			interruptedCalls: 3,
 		})
 		expect(text).toBe(
-			'Some earlier steps in this conversation were unfinished, so Namzu tidied them before replying (1 repeated result removed; 2 results without a matching step removed; 3 interrupted steps marked as unfinished). Check anything those steps touched before running them again.',
+			'Some steps in this conversation never finished, so Namzu marked them as unfinished. Check any files or commands they touched before asking again.',
 		)
-		expect(text).not.toMatch(/History warning|fresh-history|orphan|idempotent/)
+		expect(text).not.toMatch(/History warning|fresh-history|orphan|idempotent|\d/)
 	})
 
 	it('explains a cut-off earlier reply', () => {
@@ -101,9 +101,25 @@ describe('history repair notices', () => {
 			interruptedCalls: 1,
 		})
 		expect(text).toBe(
-			'An earlier reply was cut off, so Namzu tidied its unfinished steps before going on (1 interrupted step marked as unfinished). Check anything those steps touched before running them again.',
+			'Your last reply was cut off before its steps finished, so Namzu marked them as unfinished. Check any files or commands they touched before asking again.',
 		)
 		expect(text).not.toContain('abandoned-checkpoint')
+	})
+
+	it('does not claim unfinished steps when only leftovers were removed', () => {
+		for (const source of ['fresh-history', 'abandoned-checkpoint'] as const) {
+			for (const counts of [
+				{ duplicateResults: 2 },
+				{ orphanedResults: 1 },
+				{ duplicateResults: 1, orphanedResults: 1 },
+				{},
+			]) {
+				const text = describeHistoryRepairNotice({ source, ...counts })
+				expect(text).toBe(
+					'Namzu cleaned up some leftover steps from earlier in this conversation. Nothing you need to do.',
+				)
+			}
+		}
 	})
 
 	it('says which provider turned a picture down, and what to do', () => {
@@ -118,7 +134,7 @@ describe('history repair notices', () => {
 		)
 		expect(
 			describeHistoryRepairNotice({ source: 'provider-rejected-image', rejectedImages: 1 }),
-		).toMatch(/^The provider didn’t accept a picture you attached\./)
+		).toMatch(/^A picture you attached wasn’t accepted\. Namzu kept the file/)
 	})
 
 	it('names no source id', () => {

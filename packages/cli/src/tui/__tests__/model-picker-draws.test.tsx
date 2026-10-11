@@ -100,7 +100,7 @@ describe('the model step', () => {
 			}),
 		})
 		try {
-			expect(lastFrame()).toContain('Zen free models · experimental')
+			expect(lastFrame()).toContain('Zen free models · only work inside OpenCode')
 			// Two ways in, because a public Zen catalogue is one and an API key is
 			// another — so the row asks, and the free way it found is the first
 			// answer.
@@ -111,7 +111,7 @@ describe('the model step', () => {
 			await flush()
 			expect(lastFrame()).toContain('Space Bunny Free')
 			expect(lastFrame()).toContain('Muse Spark Free')
-			expect(lastFrame()).toContain('experimental, and Zen may refuse them')
+			expect(lastFrame()).toContain('free models only work inside OpenCode’s own app')
 			expect(lastFrame()).not.toContain('Paid GLM')
 			expect(lastFrame()).not.toContain('glm-5.3-flash')
 			stdin.write('\r')

@@ -284,12 +284,12 @@ it('offers experimental Zen free models beside credentialed access', async () =>
 
 	expect(chooser).toContain('Choose a way to use Zen')
 	expect(chooser).toContain(
-		'1. Use existing Zen · Zen free models · experimental, Zen may refuse them',
+		'1. Use existing Zen · Zen free models · only work inside OpenCode, not Namzu',
 	)
 	expect(chooser).toContain(
 		'2. Enter an API key for Zen · OPENCODE_API_KEY for credentialed access',
 	)
-	expect(chooser).toContain('Zen may refuse them')
+	expect(chooser).toContain('Zen’s free models only work inside OpenCode’s own app')
 	expect(chooser).not.toContain('OpenCode installation')
 })
 
@@ -302,7 +302,7 @@ it('keeps the key choice when an environment marker explicitly selects public Ze
 	await press(screen, '\r')
 	const chooser = screen.viewport().join('\n')
 	expect(chooser).toContain(
-		'Use existing Zen · Zen free models · experimental, Zen may refuse them',
+		'Use existing Zen · Zen free models · only work inside OpenCode, not Namzu',
 	)
 	expect(chooser).toContain('Enter an API key for Zen · OPENCODE_API_KEY for credentialed access')
 })

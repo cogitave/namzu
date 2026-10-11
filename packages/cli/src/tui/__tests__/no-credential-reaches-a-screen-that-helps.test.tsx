@@ -259,10 +259,10 @@ describe('launching with a saved provider and no credential', () => {
 		try {
 			const notice = text(screen)
 			expect(notice).toContain(pinned)
-			expect(notice).toContain('Zen’s experimental free')
-			expect(notice).toContain('models, such as')
-			expect(notice).toContain('Zen may refuse them')
-			expect(notice).toContain('Space Bunny Free')
+			expect(notice.replace(/[│\s]+/g, ' ')).toContain(
+				'Zen’s free models only work inside OpenCode’s own app',
+			)
+			expect(notice).not.toContain('experimental')
 			expect(notice).toContain('“k” to enter a Zen API key and use the saved model')
 			expect(world.built).toBeNull()
 			expect(world.savedPrefs).toEqual([])

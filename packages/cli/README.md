@@ -194,7 +194,7 @@ Zen and Zen Go appear as separate providers in `/model` (press
 `p` to change providers). Without a key, Zen defaults to `space-bunny-free`,
 which completed keyless text and tool-continuation turns through Namzu on
 2026-09-28. The other seven bundled free models are also selectable without a
-key through an experimental request path; the gateway may refuse them.
+key through an experimental request path; Zen may refuse them.
 Selecting the anonymous option does not open a login or key prompt. Installing
 OpenCode is recommended for comparing results in its own client; Namzu sends
 requests directly and does not use that installation. Use a Zen API key for
@@ -225,7 +225,7 @@ namzu exec --provider zen-go --model glm-5.3-flash "Explain this project"
 ```
 
 The Zen commands attempt anonymous access when no key is available; the
-gateway may refuse that request. Go requires its own credential. All use the
+Zen may refuse that request. Go requires its own credential. All use the
 existing folder-trust rules. The same
 provider/model flags work with `exec --json`.
 The picker lists each service's supported models from the provider catalogue;

@@ -1,5 +1,5 @@
 /**
- * The provider list's plain wording at 50 and 80 columns: the subtitle and the
+ * The provider list's plain wording at 40 to 80 columns: the subtitle and the
  * Zen row must still wrap inside the terminal.
  */
 
@@ -24,7 +24,7 @@ function words(screen: Screen): string {
 		.replace(/\s+/g, ' ')
 }
 
-describe.each([50, 80])('at %i columns', (cols) => {
+describe.each([40, 50, 54, 80])('at %i columns', (cols) => {
 	it('draws the list subtitle and the Zen row in plain words, inside the terminal', async () => {
 		const screen = await renderToScreen(
 			<Box paddingX={1}>
@@ -47,9 +47,23 @@ describe.each([50, 80])('at %i columns', (cols) => {
 		mounted = screen
 		await screen.waitForRender()
 		for (const line of screen.viewport()) expect([...line].length).toBeLessThanOrEqual(cols)
+		// A wrapped line is never one short orphan word ("servers", "them"): check
+		// the lines of the subtitle and of the Zen row, not the screen's other copy.
+		const inner = screen.viewport().map((line) => line.replace(/[│╭╮╰╯─]/g, '').trim())
+		for (const [start, last] of [
+			['found ·', 'servers'],
+			['Zen free models', 'Namzu'],
+		] as const) {
+			const first = inner.findIndex((line) => line.includes(start))
+			expect(first, `${start} is drawn at ${cols} columns`).toBeGreaterThanOrEqual(0)
+			for (let row = first; row < inner.length && inner[row] !== ''; row++) {
+				expect(inner[row], `an orphan word at ${cols} columns`).not.toMatch(/^\S{1,8}$/)
+				if (inner[row]?.endsWith(last)) break
+			}
+		}
 		const text = words(screen)
 		expect(text).toContain('2 found · sign-ins, API keys and local servers')
-		expect(text).toContain('Zen free models · experimental, Zen may refuse them')
+		expect(text).toContain('Zen free models · only work inside OpenCode, not Namzu')
 		expect(text).not.toMatch(/existing sign-ins|optional keys|gateway may refuse/)
 	})
 })

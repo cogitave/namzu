@@ -67,6 +67,7 @@ import {
 	choiceDisplayWidth,
 	eraseLastChoiceGrapheme,
 	truncateChoiceText,
+	wrapBalancedText,
 	wrapChoiceText,
 } from './terminal-choice-text.js'
 import { terminalDisplayText } from './terminal-display.js'
@@ -549,7 +550,7 @@ export function Picker({
 				})
 				const experimentalNotice =
 					current.entry.id === 'zen' && !hasApiCredential(current.entry, current.apiKey)
-						? 'Zen’s free models are experimental, and Zen may refuse them.'
+						? 'Zen’s free models only work inside OpenCode’s own app. Add a Zen API key to use Zen here.'
 						: null
 				setModelPhase({
 					provider: current,
@@ -1281,7 +1282,8 @@ export function Picker({
 				</Text>
 				{experimentalZen ? (
 					<Text color={theme.status.warn}>
-						Free models are experimental, and Zen may refuse them.
+						Zen’s free models only work inside OpenCode’s own app. Add a Zen API key to use Zen
+						here.
 					</Text>
 				) : null}
 				<Box flexDirection="column" paddingTop={1}>
@@ -1589,7 +1591,12 @@ export function Picker({
 				    the line drawn — and the line it gave up when the terminal could
 				    not hold both it and the notice above. */}
 				{showSubtitle ? (
-					<WrappedLines text={listSubtitle} width={contentWidth} color={theme.text.muted} />
+					<WrappedLines
+						text={listSubtitle}
+						width={contentWidth}
+						color={theme.text.muted}
+						balanced
+					/>
 				) : null}
 			</Box>
 			<ProviderSetupRows
@@ -2145,14 +2152,17 @@ function WrappedLines({
 	text,
 	width,
 	color,
+	balanced = false,
 }: {
 	readonly text: string
 	readonly width: number
 	readonly color: string
+	/** Break evenly, so the last line is never a lone word. */
+	readonly balanced?: boolean
 }) {
 	return (
 		<>
-			{wrapChoiceText(text, width).map((line, at) => (
+			{(balanced ? wrapBalancedText(text, width) : wrapChoiceText(text, width)).map((line, at) => (
 				// biome-ignore lint/suspicious/noArrayIndexKey: wrapped lines have no identity beyond their order.
 				<Text key={at} color={color}>
 					{line || ' '}
@@ -2391,10 +2401,10 @@ function describeSource(d: DetectedProvider): string {
 	switch (d.source.kind) {
 		case 'env':
 			if (d.entry.id === 'zen' && !hasApiCredential(d.entry, d.apiKey))
-				return 'Zen free models · experimental, Zen may refuse them'
+				return 'Zen free models · only work inside OpenCode, not Namzu'
 			return `env · ${d.source.envName}`
 		case 'public':
-			return 'Zen free models · experimental, Zen may refuse them'
+			return 'Zen free models · only work inside OpenCode, not Namzu'
 		case 'opencode-file':
 			return 'OpenCode API key · this device'
 		case 'probe':

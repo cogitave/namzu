@@ -81,7 +81,7 @@ With no Zen API key, the picker and headless `--provider zen --model <id>` can
 select the free models in Namzu's bundled Zen catalogue. The selected model
 must resolve against the active catalogue or its bundled fallback at zero price;
 an unknown model, a paid Zen model, or any Zen Go model needs its own API key.
-This is an experimental path. The Zen gateway may refuse a direct request even
+This is an experimental path. Zen may refuse a direct request even
 when its catalogue lists the model as free. Space Bunny Free has been verified
 for direct anonymous access; the other free models have not. The
 `supportsAnonymousAccess` flag continues to mean verified direct access, not

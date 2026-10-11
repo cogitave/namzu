@@ -212,7 +212,7 @@ export async function probeHarnesses(
 					harness.provider === 'zen' &&
 					provider !== undefined &&
 					!hasApiCredential(provider.entry, provider.apiKey)
-						? 'Zen free models · experimental, Zen may refuse them'
+						? 'Zen free models · only work inside OpenCode, not Namzu'
 						: source
 							? describeAccess(source)
 							: harness.id === 'claude'

@@ -1,5 +1,5 @@
 /**
- * The setup screen and the provider list, in plain words, at 50 and 80 columns.
+ * The setup screen and the provider list, in plain words, at 40 to 80 columns.
  *
  * The sentences were rewritten for people, and a longer sentence is only a
  * gain if it still wraps inside the terminal instead of running off it.
@@ -25,7 +25,7 @@ vi.mock('../../integrations/providers/setup.js', () => ({
 			harness: { id: 'opencode', label: 'OpenCode', npmPackage: 'opencode-ai' },
 			installed: false,
 			version: '',
-			access: 'Zen free models · experimental, Zen may refuse them',
+			access: 'Zen free models · only work inside OpenCode, not Namzu',
 		},
 	]),
 	installHarness: vi.fn(async () => ({ code: 0, output: 'installed' })),
@@ -46,7 +46,7 @@ function words(screen: Screen): string {
 		.replace(/\s+/g, ' ')
 }
 
-describe.each([50, 80])('at %i columns', (cols) => {
+describe.each([40, 50, 54, 80])('at %i columns', (cols) => {
 	it('draws the setup screen in plain words, inside the terminal', async () => {
 		const screen = await renderToScreen(
 			<ProviderSetup cwd="/tmp" onClose={() => {}} onConnect={() => {}} />,
@@ -60,11 +60,21 @@ describe.each([50, 80])('at %i columns', (cols) => {
 		for (const line of screen.viewport()) expect([...line].length).toBeLessThanOrEqual(cols)
 		const text = words(screen)
 		expect(text).toContain(
-			'Namzu talks to providers itself. Codex, Claude Code and OpenCode are optional; Namzu can reuse their sign-ins.',
+			'Codex, Claude Code and OpenCode are optional; Namzu can reuse their sign-ins.',
 		)
 		expect(text).toContain('Not signed in for Namzu · run namzu login claude')
-		expect(text).toContain('Zen free models · experimental, Zen may refuse them')
-		expect(text).toContain('Choose a provider. Installing it and signing in are separate steps.')
+		expect(text).toContain('Zen free models · only work inside OpenCode, not Namzu')
+		expect(text).toContain('Choose one. Installing and signing in are separate steps.')
+		// Ink keeps the space it broke a line at, so a continuation would start one
+		// column in. Inside the box a line starts at the margin (one space), or at
+		// the rows' hanging indent (three); two or four is the quirk. A wrapped line
+		// is never one short orphan word.
+		for (const line of screen.viewport()) {
+			const inside = line.replace(/^│/, '').replace(/│\s*$/, '')
+			if (inside.trim() === '' || /^[─╭╮╰╯]/.test(line)) continue
+			expect(inside, `a wrapped line at ${cols} columns: "${line}"`).toMatch(/^( \S| {3}\S)/)
+			expect(inside.trim(), `an orphan word at ${cols} columns`).not.toMatch(/^\S{1,7}$/)
+		}
 		expect(text).not.toMatch(/credential owners|gateway|OpenCode installation recommended/)
 	})
 })

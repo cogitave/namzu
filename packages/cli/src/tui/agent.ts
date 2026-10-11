@@ -1603,7 +1603,7 @@ function credentialGap(
 		entry.id === 'zen' &&
 		primary.model !== undefined &&
 		!requiresCredentialForModel(entry, entry.defaultModel)
-			? `No credential found for saved Zen model "${primary.model}". Select Zen’s experimental free models, such as Space Bunny Free (${entry.defaultModel}), to try without a key. Zen may refuse them. Press “k” to enter a Zen API key and use the saved model.`
+			? `No credential found for saved Zen model "${primary.model}". Zen’s free models only work inside OpenCode’s own app. Press “k” to enter a Zen API key and use the saved model.`
 			: missingCredentialMessage(entry)
 	return { providerId: primary.id, reason }
 }
@@ -2139,7 +2139,7 @@ export async function createAgentSession(
 		// `--provider`. Keeping the refusal is what makes those turns fail rather
 		// than quietly start on something else.
 		return emptySession(
-			`No credential found for ${entry.label}${entry.id === 'zen' ? ' with the selected model. Try a listed experimental free model, such as space-bunny-free; Zen may refuse free models' : ''}. Set one of: ${entry.envVars.join(', ')} — or pass --provider with one that is configured.`,
+			`No credential found for ${entry.label}${entry.id === 'zen' ? ' with the selected model. Zen’s free models only work inside OpenCode’s own app' : ''}. Set one of: ${entry.envVars.join(', ')} — or pass --provider with one that is configured.`,
 		)
 	}
 	try {

@@ -223,7 +223,7 @@ it.each([undefined, 'public'])(
 			)
 			try {
 				expect(session.hasProvider).toBe(false)
-				expect(session.errorHint).toContain('experimental free model')
+				expect(session.errorHint).toContain('free models only work inside OpenCode’s own app')
 			} finally {
 				await session.close()
 			}
