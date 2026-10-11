@@ -308,13 +308,24 @@ it('closes a paused turn it cannot repeat, puts the message and its file back in
 	expect(thread?.error).toBeUndefined()
 	expect(
 		requests().filter((request) => request.method === 'namzu/sessions/abandon-paused'),
-	).toEqual([expect.objectContaining({ params: { sessionId: expect.any(String) } })])
+	).toEqual([
+		expect.objectContaining({
+			params: { sessionId: expect.any(String), withdrawMessages: true },
+		}),
+	])
+	// The message is in the box now, so it is no longer in the transcript.
+	expect(thread?.messages.filter((message) => message.role === 'user')).toEqual([])
 	// The message was only put back; the same conversation takes the next send.
 	const again = wait(settled)
 	await owner.send(session.id, owner.draft(session.id), {
 		attachmentIds: files.map((file) => file.id),
 	})
 	await again
+	expect(
+		(await owner.openConversation(project.id, session.id)).thread?.messages.filter(
+			(message) => message.role === 'user' && message.text === 'Build with the proof',
+		),
+	).toHaveLength(1)
 	expect(requests().filter((request) => request.method === 'session/prompt')).toHaveLength(2)
 })
 
@@ -338,6 +349,13 @@ it('closes a reply that stopped on a provider failure and sends the new message 
 	const close = methods.indexOf('namzu/sessions/abandon-paused')
 	expect(close).toBeGreaterThan(-1)
 	expect(methods.indexOf('session/prompt', close)).toBeGreaterThan(close)
+	// A different message goes on: the first stays in the transcript and in what the provider sees.
+	expect(requests()[close]?.params).toMatchObject({ withdrawMessages: false })
+	const kept = (await owner.openConversation(project.id, session.id)).thread
+	expect(kept?.messages.filter((message) => message.role === 'user').map((m) => m.text)).toEqual([
+		'First message',
+		'Second message, on another model',
+	])
 	expect(
 		requests()
 			.filter((request) => request.method === 'session/prompt')

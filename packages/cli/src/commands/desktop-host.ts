@@ -5,6 +5,7 @@ import {
 	type AcpSessionPromptResult,
 	type AssistantMessage,
 	DiskTaskStore,
+	MESSAGES_WITHDRAWN_DETAIL,
 	type PalComputerInput,
 	type SessionRecord,
 	type ToolCallView,
@@ -232,6 +233,19 @@ interface CancelledReply {
  * `cancelledPalReplies`: one start in the same turn before the completion, no committed
  * message, no later replacement. `turnOf`/`seqOf` locate committed rows by turn and seq.
  */
+/** Turns closed with `messagesWithdrawn`: the fold leaves their messages out of the history. */
+function withdrawnTurns(records: readonly SessionRecord[]): ReadonlySet<string> {
+	const turns = new Set<string>()
+	for (const record of records)
+		if (
+			record.type === 'turn_failed' &&
+			record.failure?.code === 'abandoned' &&
+			record.failure.details?.[MESSAGES_WITHDRAWN_DETAIL] === true
+		)
+			turns.add(record.turnId)
+	return turns
+}
+
 function cancelledAssistantReplies(records: readonly SessionRecord[]) {
 	const committed = new Map<string, { turnId: string; seq: number; ambiguous: boolean }>()
 	const starts = new Map<string, { turnId: string; seq: number; ts: string; ambiguous: boolean }>()
@@ -1046,13 +1060,26 @@ export function createDesktopHostExtensions(
 		...(abandonPaused
 			? {
 					'namzu/sessions/abandon-paused': async (params: Record<string, unknown>) => {
-						if (Object.keys(params).some((key) => !['sessionId', 'turnId'].includes(key)))
-							throw new Error('Closing a paused turn accepts only the conversation and its turn.')
+						if (
+							Object.keys(params).some(
+								(key) => !['sessionId', 'turnId', 'withdrawMessages'].includes(key),
+							)
+						)
+							throw new Error(
+								'Closing a paused turn accepts only the conversation, its turn and whether its message goes back to the person.',
+							)
 						const id = await ownedSession(params)
 						const turnId = params.turnId === undefined ? undefined : text(params, 'turnId')
 						if (turnId !== undefined && !isEntityId(turnId, 'turn'))
 							throw new Error('Invalid turn.')
-						return abandonPaused(id, cwd, turnId)
+						if (
+							params.withdrawMessages !== undefined &&
+							typeof params.withdrawMessages !== 'boolean'
+						)
+							throw new Error('Invalid choice for the message.')
+						return abandonPaused(id, cwd, turnId, {
+							withdrawMessages: params.withdrawMessages !== false,
+						})
 					},
 				}
 			: {}),
@@ -1303,7 +1330,10 @@ export function createDesktopHostExtensions(
 				if (!ownedPal) {
 					// Display-only: a stopped partial reply has no committed message to fold.
 					const stopped = cancelledAssistantReplies(snapshot.records)
+					// A turn whose message went back to the person leaves nothing behind, partial reply included.
+					const withdrawn = withdrawnTurns(snapshot.records)
 					for (const reply of stopped.replies) {
+						if (withdrawn.has(reply.turnId)) continue
 						let at = -1
 						for (let index = 0; index < shown.length; index++)
 							if (

@@ -371,6 +371,20 @@ describe('CLI explicit provider retry composition', () => {
 			await f.runtime.close()
 		}
 	})
+	it('keeps the stopped message in what the provider is shown when the person goes on with a different one', async () => {
+		const f = await fixture({ unresolved: true, limit: 1_000_000 })
+		try {
+			await f.pause({ permissionMode: 'auto' })
+			expect(
+				await f.runtime.abandonPausedTurn!(f.sessionId, root, f.turnId, {
+					withdrawMessages: false,
+				}),
+			).toEqual({ closed: true })
+			expect(await loadConversation(state, f.sessionId)).toHaveLength(1)
+		} finally {
+			await f.runtime.close()
+		}
+	})
 	it('retains automatic own-computer approval without restoring an ordinary default', async () => {
 		const f = await fixture({ ownedPal: true })
 		try {

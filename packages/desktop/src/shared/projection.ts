@@ -220,6 +220,66 @@ function messageIndices(thread: ThreadState, turn: number, messageId?: string): 
 			: [],
 	)
 }
+/**
+ * A turn whose message went back to the message box is no longer a sent message: nothing of it
+ * stays, as in the history a reload reads, where the runtime leaves a withdrawn turn out.
+ */
+function withdrawTurn(thread: ThreadState, turn: number): ThreadState {
+	const dropped = thread.timeline.filter((entry) => entry.turn === turn)
+	const droppedMessages = new Set(
+		dropped.flatMap((entry) => (entry.kind === 'message' ? [entry.index] : [])),
+	)
+	const droppedIds = new Set(
+		dropped.flatMap((entry) => (entry.kind === 'message' ? [] : [entry.id])),
+	)
+	const messages = thread.messages.filter((_, index) => !droppedMessages.has(index))
+	const moved = (index: number) => {
+		let before = 0
+		for (const gone of droppedMessages) if (gone < index) before++
+		return index - before
+	}
+	const timeline = thread.timeline
+		.filter((entry) => entry.turn !== turn)
+		.map(
+			(entry): TimelineEntry =>
+				entry.kind === 'message' ? { ...entry, index: moved(entry.index) } : entry,
+		)
+	const { [turn]: _gone, ...turns } = thread.turns
+	const tools = Object.fromEntries(
+		Object.entries(thread.tools).filter(([id]) => !droppedIds.has(id)),
+	)
+	const reasoning = Object.fromEntries(
+		Object.entries(thread.reasoning).filter(([id]) => !droppedIds.has(id)),
+	)
+	const { unanswered } = thread
+	return {
+		...thread,
+		messages,
+		timeline,
+		turns,
+		// The next message takes this turn's number again, as a reload numbers them.
+		turn: turn === thread.turn ? turn - 1 : thread.turn,
+		tools,
+		reasoning,
+		activeToolIds: thread.activeToolIds.filter((id) => !droppedIds.has(id)),
+		activeReasoningId:
+			thread.activeReasoningId && droppedIds.has(thread.activeReasoningId)
+				? undefined
+				: thread.activeReasoningId,
+		unanswered: unanswered?.turn === turn ? undefined : unanswered,
+		permissions: [],
+		liveInputs: [],
+		error: undefined,
+		stopReason: undefined,
+		reason: undefined,
+		result: undefined,
+		retry: undefined,
+		retryNotice: undefined,
+		retryClosable: undefined,
+		retryUnknownUsage: undefined,
+		running: false,
+	}
+}
 function appendMessage(thread: ThreadState, turn: number, message: ChatMessage): ThreadState {
 	return {
 		...thread,
@@ -500,6 +560,7 @@ export function applyEvent(previous: ThreadState, event: DesktopEvent): ThreadSt
 			retryClosable: event.closable,
 			retryUnknownUsage: event.unknownUsage,
 		}
+	if (event.kind === 'turn-closed' && event.withdrawn) return withdrawTurn(thread, thread.turn)
 	if (event.kind === 'turn-closed')
 		return {
 			...thread,

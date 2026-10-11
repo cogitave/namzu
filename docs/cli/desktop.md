@@ -798,8 +798,15 @@ back in the composer, not sent (text already typed stays after it). The closed t
 from the history the next request carries (`withdrawMessages`), so sending the restored message shows the
 provider that message once, with no copy of the closed turn and no empty or partial assistant message; the
 log still holds the turn's records. `e2e/ux-providers-errors.test.mjs` and `e2e/ux-provider-replies.test.mjs`
-assert it from the requests the scripted provider received. The line under the empty slot
-reads "You continued without this reply." If closing the turn fails, the same card also offers **Copy
+assert it from the requests the scripted provider received. The message is back in the message box, so it
+is no longer a sent message: its bubble leaves the transcript the moment the turn closes (`turn-closed` with
+`withdrawn`, folded by `withdrawTurn` in `shared/projection.ts`, which removes the turn's messages, tools and
+reasoning), no "You continued without this reply." stays for it, and once it is sent again the transcript shows
+it once. A reload agrees: the history is read from the log's fold, which leaves a withdrawn turn out, and the
+host also leaves out a stopped partial reply of that turn. A turn the person went on without by sending a
+**different** message keeps its bubble and its "You continued without this reply." note, and the provider keeps
+seeing it: that send passes `withdrawMessages: false` to `abandon-paused`. Covered by
+`e2e/ux-message-put-back.test.mjs` (a Pal and a project conversation, live and after a restart). If closing the turn fails, the same card also offers **Copy
 to a new conversation** (`reopenLastMessage`, a new tab in the same project with the message and its
 files in its composer, not sent). When a failure message is shown, the "Paused." and limit lines are
 not (they named a cause the person never hit; the stop reason `token_budget` is also what an
@@ -826,8 +833,8 @@ error and waits for no decision (an approval or a handoff is never closable). Th
 
 - **Send** is enabled. Sending a new message closes the stopped turn through the same durable path as
   **Continue without this reply** (`namzu/sessions/abandon-paused`; its unknown usage stays recorded, never as
-  zero, and a configured limit still refuses a repeat), the transcript keeps "You continued without this reply."
-  under it, and the message runs on the model selected now. A turn waiting for an approval still refuses the
+  zero, and a configured limit still refuses a repeat; with `withdrawMessages: false`, so the failed message
+  stays in what the provider is shown), the transcript keeps "You continued without this reply." under it, and the message runs on the model selected now. A turn waiting for an approval still refuses the
   message and says why.
 - **Retry** runs the same turn on the model selected now. The renderer applies the selection first
   (`selectProvider`, as a send does), and the host keeps the approval settings the turn began under across the

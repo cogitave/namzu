@@ -384,7 +384,12 @@ export interface CliAcpRuntime {
 	 * messages leave the context the next turn carries (the client puts the person's message back
 	 * in its message box), while the log keeps them.
 	 */
-	abandonPausedTurn?(sessionId: string, cwd: string, turnId?: string): Promise<{ closed: true }>
+	abandonPausedTurn?(
+		sessionId: string,
+		cwd: string,
+		turnId?: string,
+		options?: { readonly withdrawMessages?: boolean },
+	): Promise<{ closed: true }>
 	modelSettings(provider: string, model: string, sessionId?: string): Promise<ComposerModelSettings>
 	plugins(cwd: string, sessionId?: string): Promise<PluginInventoryView>
 	setPluginEnabled(
@@ -1412,7 +1417,7 @@ export function createCliAcpRuntime(
 				reading.close()
 			}
 		},
-		abandonPausedTurn: async (sessionId, requestedCwd, turnId) => {
+		abandonPausedTurn: async (sessionId, requestedCwd, turnId, options) => {
 			const record = await ensureSession(sessionId, requestedCwd, new AbortController().signal)
 			if (!record.conversations || !record.session.abandonTurn)
 				throw new Error(
@@ -1441,9 +1446,9 @@ export function createCliAcpRuntime(
 			await record.session.abandonTurn(
 				asTurnId(pausedTurn),
 				'The person continued without the reply that stopped on a provider error.',
-				// The message goes back to the person's message box: the closed turn must not also
-				// reach the provider with it when they send it again.
-				{ withdrawMessages: true },
+				// Unless the person goes on with a different message, theirs goes back to the message
+				// box: the closed turn must not also reach the provider with it when they send it again.
+				{ withdrawMessages: options?.withdrawMessages !== false },
 			)
 			return { closed: true as const }
 		},

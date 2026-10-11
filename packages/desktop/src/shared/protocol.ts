@@ -576,8 +576,12 @@ export type DesktopEvent = (
 	  }
 	| ({ kind: 'retry-status'; sessionId: string } & DesktopRetryStatus)
 	| { kind: 'retry'; sessionId: string; turnId: string }
-	/** The paused turn was closed without being repeated; the conversation takes new messages. */
-	| { kind: 'turn-closed'; sessionId: string }
+	/**
+	 * The paused turn was closed without being repeated; the conversation takes new messages.
+	 * `withdrawn` means its message went back to the message box, so nothing of the turn stays in
+	 * the transcript; without it the turn stays, marked as one the person went on without.
+	 */
+	| { kind: 'turn-closed'; sessionId: string; withdrawn?: true }
 	| { kind: 'undo-status'; sessionId: string; turns: DesktopTurnUndo[] }
 	| {
 			kind: 'state'
