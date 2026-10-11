@@ -12,6 +12,7 @@ import {
 } from './dialect.js'
 import {
 	type EngineDialect,
+	LocalCommandError,
 	type LocalComputerCommandRunner,
 	LocalComputerSetupError,
 	type LocalEngine,
@@ -20,7 +21,7 @@ import {
 } from './engine.js'
 import { resolveLocalPodmanEngine } from './podman-machine.js'
 import { LocalForwardCleanupError } from './ssh-forward.js'
-import { resolveLocalWslcEngine, wslcSetupError } from './wslc-engine.js'
+import { mapWslcFailure, resolveLocalWslcEngine, wslcSetupError } from './wslc-engine.js'
 
 export type { LocalComputerCommandRunner } from './engine.js'
 export {
@@ -69,6 +70,12 @@ function ownerFor(palId: string): string {
 	return createHash('sha256').update(palId).digest('hex')
 }
 
+/**
+ * One readiness probe must not outlive its turn: a published-port relay can
+ * accept a connection before the guest listens and then never answer it.
+ */
+const READINESS_ATTEMPT_MS = 3000
+
 async function verifyImage(
 	engine: LocalEngine,
 	image: string,
@@ -83,10 +90,21 @@ async function verifyImage(
 		if (engine.dialect === 'wslc' && images.length === 0) throw wslcSetupError('image-missing')
 	} catch (error) {
 		signal?.throwIfAborted()
-		if (engine.dialect === 'wslc')
-			throw error instanceof LocalComputerSetupError
-				? error
-				: wslcSetupError('image-missing', error)
+		if (engine.dialect === 'wslc') {
+			if (error instanceof LocalComputerSetupError) throw error
+			// A missing image makes `image inspect` exit non-zero carrying either
+			// the not-found code or no code at all (observed on wslc 3.0.1). Any
+			// other code (an HRESULT, a spawn errno) or a non-command failure
+			// surfaces as itself, so a crash is not mistaken for missing setup.
+			const mapped = mapWslcFailure(error)
+			if (mapped) throw mapped
+			if (
+				error instanceof LocalCommandError &&
+				(error.errorCodes.length === 0 || error.errorCodes.includes('WSLC_E_IMAGE_NOT_FOUND'))
+			)
+				throw wslcSetupError('image-missing', error)
+			throw error
+		}
 		throw new LocalComputerSetupError(
 			`The ${image} image is not installed on this local engine. Build packages/sandbox/local-computer/Dockerfile explicitly; Namzu does not pull or build it automatically.`,
 		)
@@ -314,10 +332,13 @@ export function createLocalVirtualComputerProvider(
 					for (;;) {
 						signal.throwIfAborted()
 						forwarding?.assertAlive()
+						const attempt = new AbortController()
+						const attemptTimer = setTimeout(() => attempt.abort(), READINESS_ATTEMPT_MS)
+						const attemptSignal = AbortSignal.any([signal, attempt.signal])
 						try {
 							const response = await fetch(`${desktopUrl}/readyz`, {
 								headers: { authorization: `Bearer ${token}` },
-								signal,
+								signal: attemptSignal,
 							})
 							const desktop = response.ok
 								? ((await response.json()) as {
@@ -329,7 +350,7 @@ export function createLocalVirtualComputerProvider(
 										heldKeyboard?: { version?: unknown }
 									})
 								: undefined
-							const execution = await fetch(`${executionUrl}/healthz`, { signal })
+							const execution = await fetch(`${executionUrl}/healthz`, { signal: attemptSignal })
 							const worker = execution.ok
 								? ((await execution.json()) as { protocolVersion?: number })
 								: undefined
@@ -348,6 +369,8 @@ export function createLocalVirtualComputerProvider(
 								}
 						} catch {
 							signal.throwIfAborted()
+						} finally {
+							clearTimeout(attemptTimer)
 						}
 						await new Promise<void>((resolve, reject) => {
 							const timer = setTimeout(() => {

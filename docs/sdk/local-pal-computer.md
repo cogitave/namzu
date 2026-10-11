@@ -486,6 +486,13 @@ parsing prose:
 | `sdk-mismatch` | the installed runtime does not fit this Namzu | `0x8004060B` |
 | `image-missing` | the Pal computer image is not loaded | `WSLC_E_IMAGE_NOT_FOUND` |
 
+The three HRESULT rows are mapped from the engine's documented codes and have
+not yet been observed on a real policy-blocked or virtualization-off PC; they
+are pinned only by tests with synthetic stderr. A missing image has been
+observed: `image inspect` exits non-zero with no code, and the provider reads
+that (or `WSLC_E_IMAGE_NOT_FOUND`) as `image-missing`. Any other failure of
+that command, such as a timeout or an engine crash, is reported as itself.
+
 The codes come from the engine's stderr. The command runner keeps only
 recognised machine-readable tokens (HRESULTs, `WSLC_E_*` and `HCS_E_*` names,
 spawn error names) on the thrown `LocalCommandError`; no stderr text, path or
@@ -515,8 +522,11 @@ as the unprivileged user 1001 from the image, but with the engine's default
 capability set, `NoNewPrivs` off and a writable root file system. The
 boundary is therefore the per-user virtual machine (nothing from Windows is
 mounted into it), the non-root guest user, and what the image leaves behind.
-Mitigations that do not need a flag: the image must keep no setuid or setgid
-binaries beyond the ones it needs, no `sudo`, the worker and every launcher run
+Mitigations that do not need a flag: the image should keep no setuid or setgid
+binaries beyond the ones it needs (the current development image does not yet
+meet this: it still ships `su`, `mount`, `passwd` and similar setuid-root
+files, and stripping them is an acceptance item for the shipped image), no
+`sudo`, the worker and every launcher run
 as 1001, and the `/tmp` and `/run` tmpfs mounts keep `nosuid,nodev`. The VM is
 shared by every Pal computer of the same Windows user. Use Docker or Podman
 for any use that gives a Pal code you do not trust to run with its own

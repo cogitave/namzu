@@ -24,7 +24,7 @@ const pal: PalDefinition = {
 const owner = createHash('sha256').update(pal.id).digest('hex')
 const containerId = 'a'.repeat(64)
 
-function recorder() {
+function recorder(options: { badPorts?: boolean } = {}) {
 	const calls: { binary: string; args: string[]; env?: NodeJS.ProcessEnv }[] = []
 	let allocated = false
 	const runner: LocalComputerCommandRunner = {
@@ -53,10 +53,12 @@ function recorder() {
 				return containerId
 			}
 			if (op[0] === 'inspect')
-				return JSON.stringify({
-					'2024/tcp': [{ HostIp: '127.0.0.1', HostPort: '41124' }],
-					'2025/tcp': [{ HostIp: '127.0.0.1', HostPort: '41125' }],
-				})
+				return options.badPorts
+					? 'null'
+					: JSON.stringify({
+							'2024/tcp': [{ HostIp: '127.0.0.1', HostPort: '41124' }],
+							'2025/tcp': [{ HostIp: '127.0.0.1', HostPort: '41125' }],
+						})
 			if (op[0] === 'rm') {
 				allocated = false
 				return containerId
@@ -90,7 +92,10 @@ function normalize(args: readonly string[]): string[] {
 	return args.map((arg) =>
 		arg
 			.replace(/^org\.namzu\.pal\.generation=\d+$/, 'org.namzu.pal.generation=<generation>')
-			.replace(/^org\.namzu\.pal\.allocation=[0-9a-f-]{36}$/, 'org.namzu.pal.allocation=<id>'),
+			.replace(
+				/^(label=)?org\.namzu\.pal\.allocation=[0-9a-f-]{36}$/,
+				'$1org.namzu.pal.allocation=<id>',
+			),
 	)
 }
 
@@ -193,5 +198,92 @@ describe('engine command lines recorded before wslc', () => {
 		expect(calls.map((call) => normalize(call.args.slice(2)))).toEqual(
 			lifecycle(['--ignore']).slice(1),
 		)
+	})
+
+	// A start that fails after `run` is reconciled by its allocation label.
+	const failedStart = (volumeCreateFlags: readonly string[]) => [
+		...lifecycle(volumeCreateFlags).slice(0, 6),
+		['inspect', '--format', '{{json .NetworkSettings.Ports}}', name],
+		[
+			'ps',
+			'--all',
+			'--filter',
+			'label=org.namzu.pal.allocation=<id>',
+			'--no-trunc',
+			'--format',
+			'{{.ID}}',
+		],
+		['rm', '-f', containerId],
+	]
+	it('docker keeps its exact failed-start cleanup argv', async () => {
+		stubReadiness()
+		const { runner, calls } = recorder({ badPorts: true })
+		await expect(
+			createLocalVirtualComputerProvider({ runner }).acquire({ pal, conversationId: 'golden' }),
+		).rejects.toThrow()
+		expect(calls.slice(2).map((call) => normalize(call.args.slice(2)))).toEqual(failedStart([]))
+	})
+	it('podman keeps its exact failed-start cleanup argv', async () => {
+		stubReadiness()
+		const { runner, calls } = recorder({ badPorts: true })
+		vi.spyOn(podman, 'resolveLocalPodmanEngine').mockResolvedValue({
+			endpoint: 'npipe:////./pipe/local-machine',
+			run: (args, options) => runner.run('podman', ['--host', 'local-fixture', ...args], options),
+		})
+		await expect(
+			createLocalVirtualComputerProvider({ engine: 'podman' }).acquire({
+				pal,
+				conversationId: 'golden',
+			}),
+		).rejects.toThrow()
+		expect(calls.map((call) => normalize(call.args.slice(2)))).toEqual(
+			failedStart(['--ignore']).slice(1),
+		)
+	})
+})
+
+describe('readiness attempts', () => {
+	it('abandons a probe that the port relay accepted but never answers, then retries', async () => {
+		vi.useFakeTimers()
+		try {
+			let calls = 0
+			vi.stubGlobal(
+				'fetch',
+				vi.fn(async (url: string, init?: { signal?: AbortSignal }) => {
+					calls += 1
+					// The first attempt hangs until its own signal fires.
+					if (calls === 1)
+						return await new Promise<Response>((_resolve, reject) => {
+							init?.signal?.addEventListener('abort', () => reject(init.signal?.reason))
+						})
+					return new Response(
+						JSON.stringify(
+							url.endsWith('/readyz')
+								? { protocol: 1, width: 1280, height: 800, browserReady: true }
+								: { protocolVersion: 2 },
+						),
+						{ status: 200 },
+					)
+				}),
+			)
+			const { runner } = recorder()
+			const pending = createLocalVirtualComputerProvider({ runner }).acquire({
+				pal,
+				conversationId: 'golden',
+			})
+			const settled = pending.then(
+				(lease) => lease,
+				(error) => {
+					throw error
+				},
+			)
+			await vi.advanceTimersByTimeAsync(3000)
+			await vi.advanceTimersByTimeAsync(400)
+			const lease = await settled
+			expect(calls).toBe(3)
+			await lease.release()
+		} finally {
+			vi.useRealTimers()
+		}
 	})
 })

@@ -264,6 +264,16 @@ const OPERATIONS = new Set([
 	'namzu/pals/computer/input',
 ])
 
+/** The typed setup codes of the Windows Linux container engine, mapped to fixed reasons. */
+const WSLC_SETUP_REASONS: Record<string, string | undefined> = {
+	'engine-missing': 'wslc-engine-missing-or-old',
+	'engine-too-old': 'wslc-engine-missing-or-old',
+	'virtualization-off': 'wslc-virtualization-off',
+	'blocked-by-policy': 'wslc-blocked-by-policy',
+	'sdk-mismatch': 'wslc-sdk-mismatch',
+	'image-missing': 'wslc-computer-not-set-up',
+}
+
 /** Arbitrary errors can contain prompts, headers and paths. Only fixed reasons survive. */
 export function desktopFailure(error: unknown): {
 	reason: string
@@ -293,8 +303,13 @@ export function desktopFailure(error: unknown): {
 							? 'Error'
 							: 'Unknown'
 		let reason = 'unclassified'
+		const setupReason =
+			error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
+				? WSLC_SETUP_REASONS[error.code]
+				: undefined
 		if (error instanceof SupersededConversationSettingsError)
 			reason = 'conversation-settings-superseded'
+		else if (setupReason) reason = setupReason
 		else if (/local Docker engine.*required|local Docker.*required/i.test(message))
 			reason = 'docker-engine-or-image-required'
 		else if (/local Podman machine.*required/i.test(message))

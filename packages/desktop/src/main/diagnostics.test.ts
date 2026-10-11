@@ -419,3 +419,16 @@ it('names the wslc engine and classifies its setup failures without keeping thei
 	] as const
 	for (const [error, reason] of reasons) expect(desktopFailure(error)).toMatchObject({ reason })
 })
+
+it('classifies a typed setup error by its code, whatever its wording', () => {
+	for (const [code, reason] of [
+		['engine-too-old', 'wslc-engine-missing-or-old'],
+		['virtualization-off', 'wslc-virtualization-off'],
+		['blocked-by-policy', 'wslc-blocked-by-policy'],
+		['sdk-mismatch', 'wslc-sdk-mismatch'],
+		['image-missing', 'wslc-computer-not-set-up'],
+	] as const)
+		expect(desktopFailure(Object.assign(new Error('reworded message'), { code }))).toMatchObject({
+			reason,
+		})
+})

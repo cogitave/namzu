@@ -255,6 +255,40 @@ describe('typed setup errors from captured stderr', () => {
 		expect(probe).toMatchObject({ ready: false, reason: expect.stringContaining('not set up') })
 		expect(JSON.stringify(probe)).not.toMatch(/Dockerfile|docker build/i)
 	})
+	it.each([
+		['exits non-zero without any code, as a missing image does on wslc 3.0.1', []],
+		['carries the not-found code', ['WSLC_E_IMAGE_NOT_FOUND']],
+	])('treats an image inspect that %s as image-missing', async (_label, codes) => {
+		const runner: LocalComputerCommandRunner = {
+			async run(_binary, args) {
+				if (args[0] === 'version') return 'wslc 3.0.1.0'
+				if (args[0] === 'ps') return ''
+				throw new LocalCommandError('failed (1)', codes)
+			},
+		}
+		await expect(
+			createLocalVirtualComputerProvider({ engine: 'wslc', runner }).acquire({
+				pal,
+				conversationId: 'x',
+			}),
+		).rejects.toMatchObject({ code: 'image-missing' })
+	})
+	it('does not tell the person to set up when image inspect fails for another reason', async () => {
+		const crash = new LocalCommandError('failed (1)', ['0x80004005'])
+		const runner: LocalComputerCommandRunner = {
+			async run(_binary, args) {
+				if (args[0] === 'version') return 'wslc 3.0.1.0'
+				if (args[0] === 'ps') return ''
+				throw crash
+			},
+		}
+		await expect(
+			createLocalVirtualComputerProvider({ engine: 'wslc', runner }).acquire({
+				pal,
+				conversationId: 'x',
+			}),
+		).rejects.toBe(crash)
+	})
 	it('rejects an unknown engine name', () => {
 		expect(() => createLocalVirtualComputerProvider({ engine: 'lxc' as 'wslc' })).toThrow(
 			'Docker, Podman or wslc',
