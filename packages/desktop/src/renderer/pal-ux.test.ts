@@ -39,15 +39,29 @@ const base: PalContextProps = {
 const card = (overrides: Partial<PalContextProps>) =>
 	renderToStaticMarkup(createElement(PalContextCard, { ...base, ...overrides }))
 
-it('keeps the computer status a status and the action its own button', () => {
+it('makes the computer status the quiet action: status at rest, action on hover', () => {
 	const html = card({})
-	expect(html).toContain('Offline')
-	// The action is a visible button, never a hover layer that replaces the status.
+	// The button is named for the action, shows the status at rest and the action on hover, and a
+	// live region keeps announcing the status.
 	expect(html).toMatch(
-		/<button\b[^>]*class="[^"]*pal-computer-action[^"]*"[^>]*>Start Işık<\/button>/,
+		/<button\b[^>]*class="[^"]*pal-status-action[^"]*"[^>]*aria-label="Start Işık"[^>]*>/,
 	)
-	expect(html).not.toContain('pal-status-hover')
-	expect(html).not.toContain('pal-status-rest')
+	expect(html).toMatch(/pal-status-rest[^>]*><span>Offline<\/span>/)
+	expect(html).toMatch(/pal-status-hover[^>]*><span>Start Işık<\/span>/)
+	expect(html).toMatch(/<output[^>]*sr-only[^>]*>Offline<\/output>/)
+	// No visible outline button.
+	expect(html).not.toMatch(/<button\b[^>]*variant="outline"/)
+	// This computer sits directly under the Pal's computer, before any note.
+	expect(html.indexOf('pal-host-computer')).toBeLessThan(html.indexOf('pal-context-note'))
+})
+
+it('reads Stop computer on hover for a connected computer', () => {
+	const html = card({
+		computer: { ...base.computer, status: 'ready' },
+		onStopComputer: () => {},
+	})
+	expect(html).toMatch(/pal-status-rest[^>]*><span>Connected<\/span>/)
+	expect(html).toMatch(/pal-status-hover[^>]*><span>Stop computer<\/span>/)
 })
 
 it('says Starting while the computer starts and offers no second Start', () => {
@@ -209,11 +223,12 @@ it('has one Start: it starts the computer too, and is switched off with a way to
 	const withMessage = card({ waiting, onWaitingAction: () => {} })
 	expect(withMessage.match(/>Start Işık</g)).toHaveLength(1)
 	expect(withMessage).not.toContain('Start computer')
-	// A Pal computer that cannot start: Start is disabled and the setup help is one click away.
+	// A Pal computer that cannot start: the row offers no Start and the setup help is one click away.
 	const blocked = card({
 		computer: { ...base.computer, setupMissing: true },
 	})
-	expect(blocked).toMatch(/<button\b[^>]*disabled=""[^>]*>Start Işık<\/button>/)
+	expect(blocked).not.toContain('Start Işık')
+	expect(blocked).not.toContain('pal-status-action')
 	expect(blocked).toContain('How to set up')
 	expect(blocked).toContain('Chatting works without a computer')
 	// An offline computer always says that chatting needs none; a connected one does not.
