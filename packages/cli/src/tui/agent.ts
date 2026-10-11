@@ -572,11 +572,19 @@ export type AgentEvent =
 				SessionEvent,
 				{ type: 'capability_warning' }
 			>['contentSource']
+			/** The provider's id: the screen names it by product name, never by id. */
+			readonly providerId: string
+			/** The kernel's own wording. Shown only under `--debug`; the screen writes its own sentence. */
 			readonly text: string
 	  }
 	| {
 			readonly kind: 'history-repair'
 			readonly source: Extract<SessionEvent, { type: 'message_history_repaired' }>['source']
+			readonly duplicateResults: number
+			readonly orphanedResults: number
+			readonly interruptedCalls: number
+			readonly rejectedImages?: number
+			/** The wording the kernel's counts produce. Shown only under `--debug`. */
 			readonly text: string
 	  }
 	/**
@@ -1595,7 +1603,7 @@ function credentialGap(
 		entry.id === 'zen' &&
 		primary.model !== undefined &&
 		!requiresCredentialForModel(entry, entry.defaultModel)
-			? `No credential found for saved Zen model "${primary.model}". Select Zen’s experimental free models, such as Space Bunny Free (${entry.defaultModel}), to try without a key. OpenCode installation is recommended; Namzu sends requests directly, and the gateway may refuse them. Press "k" to enter a Zen API key and try the saved model.`
+			? `No credential found for saved Zen model "${primary.model}". Select Zen’s experimental free models, such as Space Bunny Free (${entry.defaultModel}), to try without a key. Zen may refuse them. Press “k” to enter a Zen API key and use the saved model.`
 			: missingCredentialMessage(entry)
 	return { providerId: primary.id, reason }
 }
@@ -2131,7 +2139,7 @@ export async function createAgentSession(
 		// `--provider`. Keeping the refusal is what makes those turns fail rather
 		// than quietly start on something else.
 		return emptySession(
-			`No credential found for ${entry.label}${entry.id === 'zen' ? ' with the selected model. Try a listed experimental free model, such as space-bunny-free; OpenCode installation is recommended, and the gateway may refuse direct requests' : ''}. Set one of: ${entry.envVars.join(', ')} — or pass --provider with one that is configured.`,
+			`No credential found for ${entry.label}${entry.id === 'zen' ? ' with the selected model. Try a listed experimental free model, such as space-bunny-free; Zen may refuse free models' : ''}. Set one of: ${entry.envVars.join(', ')} — or pass --provider with one that is configured.`,
 		)
 	}
 	try {
@@ -5955,7 +5963,7 @@ function failedTurnMessage(event: Extract<SessionEvent, { type: 'turn_failed' }>
 		provider.status === 403 &&
 		detail.includes("OpenCode's free tier can only be used from within OpenCode")
 	) {
-		return `${event.error}\nThe Zen gateway refused this experimental free-model request. OpenCode installation is recommended to use its client; Namzu sends requests directly, so installing it does not change this session. To try credentialed Zen access, set OPENCODE_API_KEY, or choose another provider.`
+		return `${event.error}\nZen refused this free-model request. Free models only work inside OpenCode’s own app, and installing OpenCode does not change that for Namzu. To use Zen with your own key, set OPENCODE_API_KEY, or choose another provider.`
 	}
 	return event.error
 }
@@ -6200,6 +6208,7 @@ export function toAgentEvent(
 				kind: 'capability-warning',
 				capability: event.capability,
 				...(event.contentSource ? { contentSource: event.contentSource } : {}),
+				providerId: event.providerId,
 				text: event.message,
 			}
 		case 'message_history_repaired': {
@@ -6208,6 +6217,10 @@ export function toAgentEvent(
 				return {
 					kind: 'history-repair',
 					source: event.source,
+					duplicateResults: event.duplicateToolResultsRemoved,
+					orphanedResults: event.orphanedToolResultsRemoved,
+					interruptedCalls: event.syntheticToolResultsInserted,
+					rejectedImages: count,
 					text: `The provider rejected ${count} image occurrence${count === 1 ? '' : 's'}. The original attachment bytes were kept, but that image will be omitted from later model requests; attach a corrected copy to try again.`,
 				}
 			}
@@ -6225,6 +6238,9 @@ export function toAgentEvent(
 			return {
 				kind: 'history-repair',
 				source: event.source,
+				duplicateResults: event.duplicateToolResultsRemoved,
+				orphanedResults: event.orphanedToolResultsRemoved,
+				interruptedCalls: event.syntheticToolResultsInserted,
 				text: `Tool history repaired before the model call: ${changes.join('; ')}. Verify external state before retrying non-idempotent tools.`,
 			}
 		}

@@ -212,11 +212,11 @@ export async function probeHarnesses(
 					harness.provider === 'zen' &&
 					provider !== undefined &&
 					!hasApiCredential(provider.entry, provider.apiKey)
-						? 'Zen free models · experimental; OpenCode installation recommended; gateway may refuse'
+						? 'Zen free models · experimental, Zen may refuse them'
 						: source
 							? describeAccess(source)
 							: harness.id === 'claude'
-								? 'No Claude Code session · Desktop sign-in may not supply one; run namzu login claude'
+								? 'Not signed in for Namzu · run namzu login claude'
 								: 'Not connected · sign in or add an API key',
 			}
 		}),

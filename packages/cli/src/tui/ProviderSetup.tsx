@@ -34,7 +34,7 @@ export function ProviderSetup({
 		void refresh(controller.signal)
 			.then(() => {
 				if (!controller.signal.aborted)
-					setOutput('Choose a provider. Installation and sign-in are separate steps.')
+					setOutput('Choose a provider. Installing it and signing in are separate steps.')
 			})
 			.catch((error) => {
 				if (!controller.signal.aborted)
@@ -114,7 +114,10 @@ export function ProviderSetup({
 	return (
 		<Box borderStyle="round" borderColor={theme.border.focus} flexDirection="column" paddingX={1}>
 			<Text bold>Provider setup</Text>
-			<Text dimColor>Namzu connects directly. External CLIs are optional credential owners.</Text>
+			<Text dimColor>
+				Namzu talks to providers itself. Codex, Claude Code and OpenCode are optional; Namzu can
+				reuse their sign-ins.
+			</Text>
 			{rows.map((row, index) => (
 				<Box key={row.harness.id} flexDirection="column" marginTop={1}>
 					{/* A hanging indent: a wrapped line lines up under the name, not under the marker. */}

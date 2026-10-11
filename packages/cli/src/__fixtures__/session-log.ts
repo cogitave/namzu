@@ -29,6 +29,8 @@ export async function recordTurn(
 		readonly result?: string
 		readonly status?: 'completed' | 'cancelled' | 'failed' | 'paused'
 		readonly originKind?: 'prompt' | 'goal-round' | 'resident-step' | 'verification'
+		/** Records appended after the messages, before the turn settles (without `turnId`). */
+		readonly records?: readonly Record<string, unknown>[]
 	} = {},
 ): Promise<TurnId> {
 	const log = openConversationLog(s, sessionId)
@@ -53,6 +55,9 @@ export async function recordTurn(
 				...(message.role === 'user' && index === userIndex ? { kind: 'prompt' as const } : {}),
 				content: message,
 			})
+		}
+		for (const record of options.records ?? []) {
+			await log.append(lease, { ...record, turnId } as Parameters<typeof log.append>[1])
 		}
 		const assistant = [...messages].reverse().find((message) => message.role === 'assistant')
 		const result =

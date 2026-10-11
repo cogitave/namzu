@@ -549,7 +549,7 @@ export function Picker({
 				})
 				const experimentalNotice =
 					current.entry.id === 'zen' && !hasApiCredential(current.entry, current.apiKey)
-						? 'Zen free models are experimental. OpenCode installation is recommended; Namzu sends requests directly, and the gateway may refuse them.'
+						? 'Zen’s free models are experimental, and Zen may refuse them.'
 						: null
 				setModelPhase({
 					provider: current,
@@ -1281,8 +1281,7 @@ export function Picker({
 				</Text>
 				{experimentalZen ? (
 					<Text color={theme.status.warn}>
-						OpenCode installation is recommended. Namzu sends requests directly; the gateway may
-						refuse free models.
+						Free models are experimental, and Zen may refuse them.
 					</Text>
 				) : null}
 				<Box flexDirection="column" paddingTop={1}>
@@ -1446,7 +1445,7 @@ export function Picker({
 	const listSubtitle =
 		selectionKind === 'signed-in-subscription'
 			? `${detected.length} already usable · no API key required`
-			: `${detected.length} detected · existing sign-ins / Namzu sign-ins / optional keys / local servers`
+			: `${detected.length} found · sign-ins, API keys and local servers`
 	const listFooter = fitHints(
 		[
 			{ text: '↑↓ or 1–9 select', short: '↑↓ select', rank: 5 },
@@ -2392,10 +2391,10 @@ function describeSource(d: DetectedProvider): string {
 	switch (d.source.kind) {
 		case 'env':
 			if (d.entry.id === 'zen' && !hasApiCredential(d.entry, d.apiKey))
-				return 'Zen free models · experimental; gateway may refuse'
+				return 'Zen free models · experimental, Zen may refuse them'
 			return `env · ${d.source.envName}`
 		case 'public':
-			return 'Zen free models · experimental; gateway may refuse'
+			return 'Zen free models · experimental, Zen may refuse them'
 		case 'opencode-file':
 			return 'OpenCode API key · this device'
 		case 'probe':

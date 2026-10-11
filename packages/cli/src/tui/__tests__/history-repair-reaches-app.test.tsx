@@ -58,6 +58,9 @@ vi.mock('../agent.js', async (importOriginal) => {
 				yield {
 					kind: 'history-repair',
 					source: 'fresh-history',
+					duplicateResults: 0,
+					orphanedResults: 0,
+					interruptedCalls: 1,
 					text: 'Tool history repaired before the model call: 1 interrupted call closed with unknown outcome. Verify external state before retrying non-idempotent tools.',
 				}
 				yield { kind: 'delta', text: 'SAFEANSWER' }
@@ -103,10 +106,40 @@ it('renders the repair warning before the assistant reply', async () => {
 	while (!harness.frames.join('\n').includes('SAFEANSWER') && Date.now() < doneBy) await tick()
 	const rendered = harness.frames.join('\n')
 	expect(rendered, 'turn never reached the rendered transcript').toContain('SAFEANSWER')
-	const warningIndex = rendered.indexOf('History warning (fresh-history)')
+	const warningIndex = rendered.indexOf('Some earlier steps in this conversation were unfinished')
 	const answerIndex = rendered.indexOf('SAFEANSWER')
 	expect(warningIndex).toBeGreaterThanOrEqual(0)
-	expect(rendered).toContain('unknown outcome')
-	expect(rendered).toContain('non-idempotent')
+	expect(rendered.replace(/\s+/g, ' ')).toContain('1 interrupted step marked as unfinished')
+	expect(rendered).not.toContain('History warning')
+	expect(rendered).not.toContain('non-idempotent')
 	expect(answerIndex).toBeGreaterThan(warningIndex)
+})
+
+it('shows the kernel wording under the plain sentence only with --debug', async () => {
+	vi.stubEnv('NAMZU_DEBUG', '1')
+	try {
+		const harness = render(
+			<App
+				ctx={
+					{
+						cwd: process.cwd(),
+						version: '0.0.0-test',
+						rules: [],
+						skipPermissions: false,
+					} as TuiContext
+				}
+			/>,
+		)
+		mounted.push(harness)
+		await vi.waitFor(() => expect(harness.lastFrame() ?? '').toContain('test-model'))
+		harness.stdin.write('continue')
+		await tick()
+		harness.stdin.write('\r')
+		await vi.waitFor(() => expect(harness.frames.join('\n')).toContain('SAFEANSWER'))
+		const rendered = harness.frames.join('\n').replace(/\s+/g, ' ')
+		expect(rendered).toContain('Some earlier steps in this conversation were unfinished')
+		expect(rendered).toContain('Verify external state before retrying non-idempotent tools')
+	} finally {
+		vi.unstubAllEnvs()
+	}
 })

@@ -69,6 +69,39 @@ describe('exporting a conversation from its session log', () => {
 		expect(exported.markdown).toContain('## Assistant\n\nThere are two files.')
 	})
 
+	it('writes capability and history notices as plain sentences, not the kernel wording', async () => {
+		const s = await project()
+		const id = await startConversation(s)
+		await recordTurn(s, id, [createUserMessage('hello'), assistant('Hi.')], {
+			records: [
+				{
+					type: 'capability_warning',
+					sessionId: id,
+					capability: 'tools',
+					providerId: 'ollama',
+					message:
+						"Provider 'ollama' does not support tools — 42 registered tool(s) were stripped.",
+				},
+				{
+					type: 'message_history_repaired',
+					sessionId: id,
+					source: 'abandoned-checkpoint',
+					duplicateToolResultsRemoved: 0,
+					orphanedToolResultsRemoved: 0,
+					syntheticToolResultsInserted: 2,
+				},
+			],
+		})
+
+		const { markdown } = await conversationMarkdown(s, id)
+
+		expect(markdown).toContain('Ollama can’t use tools, so Namzu will only chat')
+		expect(markdown).toContain('2 interrupted steps marked as unfinished')
+		expect(markdown).not.toContain('Capability warning')
+		expect(markdown).not.toContain("'ollama'")
+		expect(markdown).not.toContain('42 registered')
+	})
+
 	it('shows an answer the runtime replaced, never the raw one', async () => {
 		const s = await project()
 		const id = await startConversation(s)
