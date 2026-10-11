@@ -143,7 +143,7 @@ describe('a credential never rides along', () => {
 })
 
 describe('the provider type, code and request ID travel beside its sentence', () => {
-	const openai403 = () =>
+	const structured403 = () =>
 		Object.assign(new Error('403 Your project does not have access to model gpt-6-luna'), {
 			name: 'PermissionDeniedError',
 			status: 403,
@@ -154,7 +154,7 @@ describe('the provider type, code and request ID travel beside its sentence', ()
 		})
 
 	it('reads them off the vendor SDK error fields', () => {
-		const err = providerVendorError({ providerId: 'openai', error: openai403() })
+		const err = providerVendorError({ providerId: 'openai', error: structured403() })
 		expect(JSON.parse(err.detail ?? '')).toEqual({
 			error: {
 				message: 'Your project does not have access to model gpt-6-luna',
@@ -167,7 +167,7 @@ describe('the provider type, code and request ID travel beside its sentence', ()
 	})
 
 	it('falls back to the x-request-id response header', () => {
-		const vendor = Object.assign(openai403(), {
+		const vendor = Object.assign(structured403(), {
 			requestID: undefined,
 			headers: new Headers({ 'x-request-id': 'req_from_header' }),
 		})
@@ -176,11 +176,11 @@ describe('the provider type, code and request ID travel beside its sentence', ()
 	})
 
 	it('leaves a message that already carries its body, and a bare sentence, as they were', () => {
-		const anthropic = Object.assign(
+		const bodyInMessage = Object.assign(
 			new Error('403 {"type":"error","error":{"type":"permission_error","message":"nope"}}'),
 			{ status: 403, type: 'permission_error' },
 		)
-		expect(providerVendorError({ providerId: 'anthropic', error: anthropic }).detail).toContain(
+		expect(providerVendorError({ providerId: 'anthropic', error: bodyInMessage }).detail).toContain(
 			'permission_error',
 		)
 		const bare = Object.assign(new Error('boom'), { status: 500 })
@@ -188,7 +188,7 @@ describe('the provider type, code and request ID travel beside its sentence', ()
 	})
 
 	it('keeps the fields when the sentence itself holds a brace', () => {
-		const vendor = Object.assign(openai403(), {
+		const vendor = Object.assign(structured403(), {
 			message: '403 The model {gpt-6-luna} does not exist or you do not have access to it.',
 		})
 		const detail = JSON.parse(
@@ -202,7 +202,9 @@ describe('the provider type, code and request ID travel beside its sentence', ()
 	})
 
 	it('never lets a credential-shaped field value ride along', () => {
-		const vendor = Object.assign(openai403(), { requestID: 'sk-ant-api03-AbCdEfGhIjKlMnOpQrStUv' })
+		const vendor = Object.assign(structured403(), {
+			requestID: 'sk-ant-api03-AbCdEfGhIjKlMnOpQrStUv',
+		})
 		const err = providerVendorError({ providerId: 'openai', error: vendor })
 		expect(err.detail).not.toContain('sk-ant')
 	})

@@ -32,8 +32,8 @@ describe('capability notices', () => {
 	})
 
 	it('names the product, never the id, for a registry provider', () => {
-		expect(describeCapabilityNotice({ capability: 'tools', providerId: 'anthropic' })).toMatch(
-			/^Anthropic can’t use tools/,
+		expect(describeCapabilityNotice({ capability: 'tools', providerId: 'anthropic' })).toBe(
+			'Anthropic can’t use tools, so Namzu will only chat while you use it. Switch to another provider to let Namzu work with files and commands.',
 		)
 		expect(describeCapabilityNotice({ capability: 'tools', providerId: 'lmstudio' })).toMatch(
 			/^LM Studio can’t use tools/,
