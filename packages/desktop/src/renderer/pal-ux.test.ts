@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { type ComponentProps, createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, it } from 'vitest'
@@ -84,6 +85,16 @@ it('shows the status at rest and Pause on hover, with no visible Pause button', 
 	expect(html).toMatch(/pal-status-hover[^>]*><span>Pause Işık<\/span>/)
 	expect(html).not.toContain('pal-pause-action')
 	expect(html).not.toMatch(/>Pause<\/button>/)
+})
+
+it('disables the status action while the Pal is busy and keeps the hover swap off', () => {
+	const html = card({ pauseDisabled: true })
+	expect(html).toMatch(/<button\b[^>]*pal-status-action[^>]*disabled/)
+	const css = readFileSync(new URL('./pal-context.css', import.meta.url), 'utf8')
+	expect(css).toContain(
+		'.pal-status-action:not(:disabled):is(:hover, :focus-visible) .pal-status-hover',
+	)
+	expect(css).toMatch(/\.pal-context-identity \.pal-status-action:disabled \{\s*opacity: 1/)
 })
 
 it('is a plain status with no action when the Pal cannot be paused', () => {

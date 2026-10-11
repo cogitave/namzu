@@ -48,7 +48,7 @@ async function shots(world, name, prepare) {
 	await size(world, 1440, 900);
 }
 
-async function createKiro(world) {
+async function createKiro(world, name = "Kiro") {
 	const page = world.page;
 	await expect(async () => {
 		await page.getByRole("button", { name: "Create your first Pal" }).click({ timeout: 2000 });
@@ -68,9 +68,9 @@ async function createKiro(world) {
 		});
 	}).toPass({ timeout: 60000 });
 	const customize = page.getByRole("dialog", { name: "Customize your Pal" });
-	await customize.getByRole("textbox", { name: "Pal name" }).fill("Kiro");
+	await customize.getByRole("textbox", { name: "Pal name" }).fill(name);
 	await customize.getByRole("textbox", { name: "Pal name" }).press("Enter");
-	await expect(page.getByRole("tab", { name: "Kiro" })).toBeVisible({ timeout: 60000 });
+	await expect(page.getByRole("tab", { name })).toBeVisible({ timeout: 60000 });
 	return readdirSync(join(world.home, "pals"))[0];
 }
 
@@ -130,12 +130,19 @@ test(
 			await shots(world, "hover", () => action.hover());
 			await page.mouse.move(0, 0);
 
-			// (b) Keyboard focus shows the action, and Enter pauses.
-			await page.keyboard.press("Shift");
-			await action.focus();
+			// (b) Keyboard focus shows the action, and Enter pauses. The pointer must be gone first, or
+			// :hover would satisfy the check and hide a missing :focus-visible rule.
+			await page.mouse.move(0, 0);
+			await expect(hover).toHaveCSS("opacity", "0");
+			await expect(rest).toHaveCSS("opacity", "1");
+			// Reach the button with Shift+Tab from the composer (bounded, no timing).
+			await page.getByRole("textbox", { name: "Message Namzu" }).focus();
+			for (let i = 0; i < 40 && !(await action.evaluate((el) => el === document.activeElement)); i++)
+				await page.keyboard.press("Shift+Tab");
 			await expect(action).toBeFocused();
 			await expect(hover).toHaveText("Pause Kiro");
 			await expect(hover).toHaveCSS("opacity", "1");
+			await expect(rest).toHaveCSS("opacity", "0");
 			assert.deepEqual(await box(action), restAction, "focus does not move the status button");
 			await shots(world, "focus", async () => {
 				await page.keyboard.press("Shift");
@@ -146,8 +153,11 @@ test(
 			// Paused: the status reads Paused, hover reads Resume Kiro.
 			const resume = identity.getByRole("button", { name: "Resume Kiro" });
 			await expect(resume).toBeVisible({ timeout: 60000 });
+			// Enter left keyboard focus on the button; drop it so only hover can show the action.
+			await resume.evaluate((el) => el.blur());
 			await page.mouse.move(0, 0);
 			await expect(resume.locator(".pal-status-rest")).toHaveText("Paused");
+			await expect(resume.locator(".pal-status-hover")).toHaveCSS("opacity", "0");
 			await expect(identity.getByRole("status").filter({ hasText: "Paused" })).toHaveCount(1);
 			await expect(context.getByText("Resume", { exact: true })).toHaveCount(0);
 			await shots(world, "paused-rest", () => page.mouse.move(0, 0));
@@ -174,3 +184,32 @@ test(
 		}
 	},
 );
+
+test("a long Pal name keeps the status and its hover text inside the header", { timeout: 280000 }, async () => {
+	const world = await createWorld({ rules: [], env: { NAMZU_E2E_PAL_COMPUTER: "fake" } });
+	let failed = true;
+	try {
+		await launch(world);
+		await size(world, 1440, 900);
+		await openProject(world);
+		const name = "Bartholomew-Alexandria";
+		await createKiro(world, name);
+		const context = card(world);
+		await expect(context).toBeVisible({ timeout: 60000 });
+		const identity = context.locator(".pal-context-identity");
+		const action = identity.getByRole("button", { name: `Pause ${name}` });
+		await expect(action).toBeVisible({ timeout: 60000 });
+		await action.hover();
+		await expect(action.locator(".pal-status-hover")).toHaveCSS("opacity", "1");
+		const inside = await action.evaluate((el) => {
+			const outer = el.closest(".pal-context-identity").getBoundingClientRect();
+			const own = el.getBoundingClientRect();
+			return { within: own.left >= outer.left - 0.5 && own.right <= outer.right + 0.5, overflow: el.scrollWidth > el.clientWidth + 1 };
+		});
+		assert.deepEqual(inside, { within: true, overflow: false });
+		assert.deepEqual(world.faults, []);
+		failed = false;
+	} finally {
+		await dispose(world, { failed });
+	}
+});
