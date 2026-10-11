@@ -265,7 +265,7 @@ flow(
 		assert.doesNotMatch(details, /502 502|receipt|retained|unresolved/i, "no doubled status or receipt wording");
 		assert.match(
 			details,
-			new RegExp(`${PROVIDER_NAME}: the provider failed to complete the request \\(502 Bad Gateway\\)`),
+			new RegExp(`${PROVIDER_NAME}: the provider failed to complete the request\\nStatus: 502 · Provider said: “Bad Gateway”`),
 		);
 		await shot(w, "10-fault-502-details-dark");
 		// The retry is a new request in the same conversation, and it is answered.

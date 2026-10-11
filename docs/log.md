@@ -2,6 +2,7 @@
 
 ## 2026-10-11
 
+- **Update** [Desktop](cli/desktop.md#what-a-failed-reply-says): **Continue without this reply** works in a Pal (the Pal's session had no `abandonTurn`, so the host answered "This connection cannot close paused turns"; it now closes the paused turn on the Pal's own log, and a remaining refusal is one plain sentence), and Details use the same labelled fields on every wire ("Status: 403 · Provider said: “…”" for the OpenAI driver's already-parsed message and for Google's bodiless errors, not only for Anthropic's JSON; a status-line-only reply reads "Status: 502 · Provider said: “Bad Gateway”"). Covered by `pals/agent-session.test.ts`, `friendly-errors.test.ts`, `plain-error.test.ts` and `e2e/ux-provider-replies.test.mjs`.
 - **Update** [Desktop](cli/desktop.md#what-a-failed-reply-says) and [Desktop](cli/desktop.md#conversation-panes-and-windows): a failed reply that cannot be repeated is one message (`combineStopped`) in the usual row, with no Retry and its Details intact, in project and Pal conversations; a pane at its minimum height drops the large welcome heading instead of drawing it over the tab strip, and its message box scrolls inside the pane. Covered by `e2e/ux-failed-reply-row.test.mjs` and `e2e/ux-layout-geometry.test.mjs`.
 
 ## 2026-10-10

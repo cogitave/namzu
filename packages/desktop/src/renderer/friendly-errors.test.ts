@@ -64,12 +64,12 @@ describe('provider replies', () => {
 			'openai (HTTP 502) — the provider failed to complete the request: 502 Bad Gateway Bad Gateway cloudflare Ray ID: 8f2a1b3c4d5e6f70',
 		)
 		expect(html.details).toBe(
-			'OpenAI: the provider failed to complete the request (502 Bad Gateway)\nRequest ID: 8f2a1b3c4d5e6f70',
+			'OpenAI: the provider failed to complete the request\nStatus: 502 · Provider said: “Bad Gateway”\nRequest ID: 8f2a1b3c4d5e6f70',
 		)
 		const empty = describeFailure(
 			'openai (HTTP 500) — the provider failed to complete the request: 500 status code (no body)',
 		)
-		expect(empty.details).toBe('OpenAI: the provider failed to complete the request (500)')
+		expect(empty.details).toBe('OpenAI: the provider failed to complete the request\nStatus: 500')
 		const context = describeFailure(
 			'openai (HTTP 400) — the request exceeded the model context window: maximum context length is 128000 tokens, you sent 131452 tokens',
 		)
@@ -128,7 +128,7 @@ describe('describeFailure', () => {
 			'openai (HTTP 502) — the provider failed to complete the request: <html><body>502 Bad Gateway</body></html>',
 		)
 		expect(html.details).not.toContain('<')
-		expect(html.details).toContain('502 Bad Gateway')
+		expect(html.details).toContain('Status: 502 · Provider said: “Bad Gateway”')
 	})
 
 	it('names a missing key and points at Settings', () => {
@@ -181,15 +181,15 @@ describe('describeBlockedRetry', () => {
 	it.each([
 		[
 			'openai (HTTP 500) — the provider failed to complete the request: 500 Internal Server Error',
-			'OpenAI: the provider failed to complete the request (500 Internal Server Error)',
+			'OpenAI: the provider failed to complete the request\nStatus: 500 · Provider said: “Internal Server Error”',
 		],
 		[
 			'openai (HTTP 502) — the provider failed to complete the request: 502 502 Bad Gateway',
-			'OpenAI: the provider failed to complete the request (502 Bad Gateway)',
+			'OpenAI: the provider failed to complete the request\nStatus: 502 · Provider said: “Bad Gateway”',
 		],
 		[
 			'openai (HTTP 503) — the provider failed to complete the request: <html><head><title>503 Service Unavailable</title></head><body><h1>503 Service Unavailable</h1></body></html>',
-			'OpenAI: the provider failed to complete the request (503 Service Unavailable)',
+			'OpenAI: the provider failed to complete the request\nStatus: 503 · Provider said: “Service Unavailable”',
 		],
 	])('a 5xx before any reply carries labelled details and no usage line: %s', (raw, details) => {
 		const failure = describeFailure(raw)
@@ -267,7 +267,7 @@ describe('Details wording', () => {
 			'openai (HTTP 403) — the provider rejected the request credentials: Project proj_abc123 does not have access to model gpt-5',
 		)
 		expect(failure.details).toBe(
-			'OpenAI: access was refused (403 Your project does not have access to model gpt-5)\nOpenAI project: proj_abc123',
+			'OpenAI: access was refused\nStatus: 403 · Provider said: “Your project does not have access to model gpt-5”\nOpenAI project: proj_abc123',
 		)
 		expect(failure.details).not.toMatch(/rejected the request credentials/)
 	})
@@ -335,5 +335,69 @@ describe('Details tidy leftovers', () => {
 				'Anthropic',
 			).details ?? ''
 		expect(text).toContain('unexpected: a: 1')
+	})
+})
+
+/**
+ * The exact messages the real drivers of three vendors throw, captured by pointing each driver at a
+ * local server that answers with that vendor's own body (one SDK words its error "<status>
+ * <message>", another appends the body as JSON, the third driver keeps no body). Every wire reads as
+ * the same labelled fields.
+ */
+describe('Details are the same labelled fields on every wire', () => {
+	const driver: Record<string, string> = {
+		'openai.403':
+			'openai (HTTP 403) — the provider rejected the request credentials: 403 Project `proj_abc123` does not have access to model `gpt-6-luna`',
+		'openai.429':
+			'openai (HTTP 429) — rate limited by the provider: 429 Rate limit reached for gpt-6-luna in organization org-x on requests per min. Limit: 3, Used: 3.',
+		'openai.quota':
+			'openai (HTTP 429) — rate limited by the provider: 429 You exceeded your current quota, please check your plan and billing details.',
+		'openai.500':
+			'openai (HTTP 500) — the provider failed to complete the request: 500 The server had an error while processing your request.',
+		'anthropic.403':
+			'anthropic (HTTP 403) — the provider rejected the request credentials: 403 {"type":"error","error":{"type":"permission_error","message":"Your account cannot use this model."},"request_id":"req_011CXabcdef12345"}',
+		'anthropic.429':
+			'anthropic (HTTP 429) — rate limited by the provider: 429 {"type":"error","error":{"type":"rate_limit_error","message":"Number of request tokens has exceeded your per-minute rate limit."},"request_id":"req_011CXabcdef12346"}',
+		'anthropic.quota':
+			'anthropic (HTTP 429) — rate limited by the provider: 429 {"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API."},"request_id":"req_011CXabcdef12347"}',
+		'anthropic.500':
+			'anthropic (HTTP 500) — the provider failed to complete the request: 500 {"type":"error","error":{"type":"api_error","message":"Internal server error"},"request_id":"req_011CXabcdef12348"}',
+		'google.403': 'google (HTTP 403) — the provider rejected the request credentials',
+		'google.429': 'google (HTTP 429) — rate limited by the provider',
+		'google.quota': 'google (HTTP 429) — rate limited by the provider',
+		'google.500': 'google (HTTP 500) — the provider failed to complete the request',
+	}
+	const expected: Record<string, string> = {
+		'openai.403':
+			'OpenAI: access was refused\nStatus: 403 · Provider said: “Your project does not have access to model gpt-6-luna”\nOpenAI project: proj_abc123',
+		'openai.429':
+			'OpenAI: rate limited by the provider\nStatus: 429 · Provider said: “Rate limit reached for gpt-6-luna in organization org-x on requests per min. Limit: 3, Used: 3”',
+		'openai.quota':
+			'OpenAI: rate limited by the provider\nStatus: 429 · Provider said: “You exceeded your current quota, please check your plan and billing details”',
+		'openai.500':
+			'OpenAI: the provider failed to complete the request\nStatus: 500 · Provider said: “The server had an error while processing your request”',
+		'anthropic.403':
+			'Anthropic: access was refused\nStatus: 403 · Provider said: “Your account cannot use this model” · Type: permission_error\nRequest ID: req_011CXabcdef12345',
+		'anthropic.429':
+			'Anthropic: rate limited by the provider\nStatus: 429 · Provider said: “Number of request tokens has exceeded your per-minute rate limit” · Type: rate_limit_error\nRequest ID: req_011CXabcdef12346',
+		'anthropic.quota':
+			'Anthropic: rate limited by the provider\nStatus: 429 · Provider said: “Your credit balance is too low to access the Anthropic API” · Type: invalid_request_error\nRequest ID: req_011CXabcdef12347',
+		'anthropic.500':
+			'Anthropic: the provider failed to complete the request\nStatus: 500 · Provider said: “Internal server error” · Type: api_error\nRequest ID: req_011CXabcdef12348',
+		'google.403': 'Google: access was refused\nStatus: 403',
+		'google.429': 'Google: rate limited by the provider\nStatus: 429',
+		'google.quota': 'Google: rate limited by the provider\nStatus: 429',
+		'google.500': 'Google: the provider failed to complete the request\nStatus: 500',
+	}
+	it.each(Object.keys(driver))('%s', (key) => {
+		const details = describeFailure(driver[key] ?? '').details ?? ''
+		expect(details).toBe(expected[key])
+		expect(details).not.toMatch(/[{}"`]|rejected the request credentials|usage/)
+	})
+	it('keeps the OpenAI headline the same as before', () => {
+		expect(describeFailure(driver['openai.403'] ?? '').text).toBe(
+			'Your OpenAI account can’t use gpt-6-luna. Choose another model.',
+		)
+		expect(describeFailure(driver['openai.quota'] ?? '').kind).toBe('out-of-credit')
 	})
 })

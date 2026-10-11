@@ -143,7 +143,7 @@ it('shows a cause and a refusal to repeat as one message with one row and no Ret
 	expect(html).toMatch(/aria-expanded="false" aria-controls="[^"]+">Details<\/button>/)
 	// Details keep the labelled fields of the cause.
 	expect(html).toContain(
-		'OpenAI: the provider failed to complete the request (500 Internal Server Error)',
+		'OpenAI: the provider failed to complete the request\nStatus: 500 · Provider said: “Internal Server Error”',
 	)
 })
 

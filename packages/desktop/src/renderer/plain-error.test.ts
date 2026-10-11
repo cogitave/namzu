@@ -97,3 +97,21 @@ describe('isPlainMessage', () => {
 		expect(isPlainMessage('no capital and no stop')).toBe(false)
 	})
 })
+
+describe('a refusal to close a paused reply', () => {
+	it.each([
+		'This connection cannot close paused turns.',
+		'This connection cannot resume durable paused turns.',
+	])('an older host’s %j reads as one plain sentence', (raw) => {
+		const { text } = plainError(new Error(raw), 'continue without this reply')
+		expect(text).toBe(
+			'Namzu can’t close this reply in this conversation. Copy your message to a new conversation instead.',
+		)
+		expect(text).not.toMatch(/connection|turn/i)
+	})
+	it('the host’s own sentence passes through unchanged', () => {
+		const own =
+			'Namzu can’t close this reply in this conversation. Copy your message to a new conversation instead.'
+		expect(plainError(new Error(own), 'continue without this reply')).toEqual({ text: own })
+	})
+})

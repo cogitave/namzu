@@ -57,6 +57,11 @@ const KNOWN: { match: RegExp; text: string }[] = [
 			/protocol (?:frame|response|pipe)|oversized .*frame|different terminal|descendants retained|ownership check|playback acknowledged|owned Namzu process|process tree|invalid workspace action|invalid terminal tab/i,
 		text: 'Namzu ran into a problem and stopped that. Try again, or restart Namzu if it keeps happening.',
 	},
+	// An older host words a refusal to close or repeat a paused reply as a statement about the connection.
+	{
+		match: /connection cannot (?:close|resume)[a-z ]* paused turns/i,
+		text: 'Namzu can’t close this reply in this conversation. Copy your message to a new conversation instead.',
+	},
 	{
 		match: /\bunknown (?:project|conversation|pal)\b|does not belong to this (?:project|pal)/i,
 		text: 'That is no longer available. Pick it again from the sidebar.',
