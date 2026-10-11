@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 
 import { atomicWriteFile, temporaryPathFor } from '../atomic-write.js'
@@ -102,8 +102,14 @@ describe('a contended rename', () => {
 	it('does not retry a failure that is not contention', async () => {
 		// A missing directory is a permanent condition; retrying it would
 		// turn a clear failure into a delay and then the same failure.
-		const started = Date.now()
-		await expect(atomicWriteFile(join(dir, 'nope', 'record.json'), 'x')).rejects.toThrow()
-		expect(Date.now() - started).toBeLessThan(50)
+		// A retry sleeps between attempts (`setTimeout`); a first-attempt failure
+		// never reaches that. Counting the sleeps needs no clock.
+		const sleeps = vi.spyOn(globalThis, 'setTimeout')
+		try {
+			await expect(atomicWriteFile(join(dir, 'nope', 'record.json'), 'x')).rejects.toThrow()
+			expect(sleeps).not.toHaveBeenCalled()
+		} finally {
+			sleeps.mockRestore()
+		}
 	})
 })

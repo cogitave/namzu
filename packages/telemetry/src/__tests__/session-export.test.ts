@@ -141,27 +141,25 @@ describe('the redaction chain', () => {
 })
 
 describe('export cannot stall the turn', () => {
-	it('returns immediately from a sink whose emit takes 200ms', async () => {
-		let released!: () => void
+	it('returns at once from a sink whose emit never finishes', () => {
+		let reached = 0
 		const slow: SessionExportSink = {
 			emit: () => {
-				// A sink that batches, retries or dials a network. The listener
-				// must not be waiting on any of it.
-				void new Promise<void>((resolve) => {
-					released = resolve
-					setTimeout(resolve, 200)
-				})
+				// A sink that batches, retries or dials a network, and is still at it
+				// when the turn moves on. The listener must not be waiting on any of
+				// it. Nothing resolves this promise, so a listener that awaited it
+				// would be async and return a promise, which the assertion below
+				// refuses; no clock is involved.
+				reached++
+				void new Promise<void>(() => {})
 			},
 			shutdown: async () => {},
 		}
 		const listener = createSessionExportListener(configFor({ sink: slow }))
 
-		const started = performance.now()
-		listener(textDelta('body'))
-		const elapsed = performance.now() - started
-
-		expect(elapsed).toBeLessThan(20)
-		released?.()
+		expect(listener(textDelta('body'))).toBeUndefined()
+		expect(reached).toBe(1)
+		expect(listener.failed).toBe(0)
 	})
 })
 

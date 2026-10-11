@@ -30,6 +30,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { mustFinishWithin } from '../../__fixtures__/finishes.js'
 import { HttpConnector } from './http.js'
 
 function makeResponse(init: {
@@ -104,13 +105,16 @@ describe('HttpConnector', () => {
 			// A long run of slashes followed by one more character is the
 			// pathological case for a `/+$` regex: the tail never matches, so a
 			// backtracking engine retries the quantifier at every start position.
-			// This must stay well under the ~500ms the vulnerable regex took at
-			// this size (see connect() history) to prove the O(n) fix held.
+			// The vulnerable regex took ~500ms at 30,000 slashes and grows with
+			// the square, so 300,000 is ~50s; the fixed loop takes milliseconds.
 			const c = new HttpConnector()
-			const hostile = `https://api.example.com/${'/'.repeat(30_000)}a`
-			const start = Date.now()
-			await c.connect({ baseUrl: hostile, timeoutMs: 30_000 })
-			expect(Date.now() - start).toBeLessThan(200)
+			const hostile = `https://api.example.com/${'/'.repeat(300_000)}a`
+			// The strip runs while `connect` validates its input, before the first
+			// await, so the budget covers it; the 5s compares no clock (`finishes.ts`).
+			const connecting = mustFinishWithin(5_000, 'a run of 300000 slashes', () =>
+				c.connect({ baseUrl: hostile, timeoutMs: 30_000 }),
+			)
+			await connecting
 		})
 
 		it('disconnect clears internal state; execute after disconnect treats baseUrl as empty', async () => {

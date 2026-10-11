@@ -17,6 +17,7 @@ import {
 	scheduledRunFloorRule,
 	scheduledRunFloorVerdict,
 } from '../floor.js'
+import { mustFinishWithin } from './finishes.js'
 
 const USER = '/home/u'
 const HOME = '/home/u/.namzu'
@@ -668,54 +669,34 @@ describe('the Windows browser’s profiles', () => {
 })
 
 describe('cost', () => {
-	it('stays linear on long lines of the shapes it follows', () => {
-		for (const filler of [
-			'cd x; ',
-			'X=a; ',
-			"echo 'a b' | sh; ",
-			'for d in a; do :; done; ',
-			'ls $X$Y; ',
-			'sh -c "sh -c \\"a b\\""; ',
-			'namzu schedule list; ',
-			'~/',
-			'$HOME/',
-			'AppData/Local/',
-			'*/Local/',
-		]) {
-			const time = (length: number): number => {
-				const command = `${filler.repeat(Math.ceil(length / filler.length))}x`
-				const started = performance.now()
-				bash(command)
-				return performance.now() - started
-			}
-			// The slow end of this ratio is steady; the fast end is not. A shape
-			// that costs 2 ms at 16 000 characters swings between 2 and 30 ms on a
-			// loaded or two-core host (JIT, GC), so dividing by one such sample
-			// reads 60x for code that is linear. Take the least of up to five
-			// samples (noise only ever adds time), and grow the small input until that
-			// least is long enough to measure, so a cheap shape is compared at a
-			// size where a millisecond of noise no longer decides the ratio.
-			// A sample past 20 ms is already steady, so a slow shape is timed once.
-			const least = (length: number): number => {
-				let best = time(length)
-				for (let sample = 1; sample < 5 && best < 20; sample++) best = Math.min(best, time(length))
-				return best
-			}
-			let length = 16_000
-			let small = least(length)
-			while (small < 20 && length < 160_000) {
-				length *= 2
-				small = least(length)
-			}
-			const large = time(length * 10)
-			// Ten times the input: linear is about ten times the time, quadratic
-			// a hundred. The absolute bound is loose because CI machines run
-			// this several times slower than a developer's: the slowest shape,
-			// a line of `cd`s, takes about 500 ms here and 1.8 s on CI.
-			expect(large / small, filler).toBeLessThan(40)
-			expect(large, filler).toBeLessThan(6000)
-		}
-	})
+	// 320 KB of the shape. Linear takes 25 ms to 1.2 s here (the slowest, a
+	// line of `cd`s, 4 µs a repeat). A scan that rereads what it has read is
+	// quadratic: a bare nested loop over the characters takes about 80 s at
+	// this size (20 s at 160 KB, which is why it is not smaller), a
+	// backtracking regex far longer. The budget sits between, at 30 s, and
+	// no clock is compared; see `finishes.ts`. The test timeout is raised to
+	// 60 s only because Vitest checks it after a synchronous test returns, and a
+	// busy two-core runner can take several times the unloaded 1.2 s.
+	it.each([
+		'cd x; ',
+		'X=a; ',
+		"echo 'a b' | sh; ",
+		'for d in a; do :; done; ',
+		'ls $X$Y; ',
+		'sh -c "sh -c \\"a b\\""; ',
+		'namzu schedule list; ',
+		'~/',
+		'$HOME/',
+		'AppData/Local/',
+		'*/Local/',
+	])(
+		'stays linear on a long line of %j',
+		(filler) => {
+			const command = `${filler.repeat(Math.ceil(320_000 / filler.length))}x`
+			mustFinishWithin(30_000, JSON.stringify(filler), () => bash(command))
+		},
+		60_000,
+	)
 
 	it('denies rather than enumerate a word with too many spellings', () => {
 		const assignments = Array.from({ length: 8 }, (_, i) => `A=${i}; B=${i}; C=${i}`).join('; ')

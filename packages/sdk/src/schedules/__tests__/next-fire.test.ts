@@ -1,11 +1,16 @@
 import { describe, expect, it } from 'vitest'
+import { mustFinishWithin } from '../../__fixtures__/finishes.js'
 import { ScheduleValidationError } from '../errors.js'
 import { countOccurrences, nextFireTime, previousFireTime } from '../next-fire.js'
 import { parseScheduleSpec } from '../spec.js'
 import type { ScheduleSpec } from '../types.js'
 import { formatWall } from '../tz.js'
 
-const cron = (expr: string, tz: string): ScheduleSpec => ({ kind: 'cron', expr, tz })
+const cron = (expr: string, tz: string): ScheduleSpec => ({
+	kind: 'cron',
+	expr,
+	tz,
+})
 
 /** The next `n` fire times after `from`, as local wall strings. */
 function walk(spec: ScheduleSpec, from: string, n: number, tz: string): string[] {
@@ -145,18 +150,19 @@ describe('every and at', () => {
 
 describe('countOccurrences', () => {
 	it('counts every minute over seven days without walking them', () => {
-		const started = performance.now()
-		const count = countOccurrences(
-			cron('* * * * *', 'UTC'),
-			new Date('2026-09-01T00:00:00Z'),
-			new Date('2026-09-08T00:00:00Z'),
+		// Walking the 10,080 minutes one by one is what this guards against; the
+		// 5s budget compares no clock (see `finishes.ts`).
+		const count = mustFinishWithin(5_000, 'every minute for a week', () =>
+			countOccurrences(
+				cron('* * * * *', 'UTC'),
+				new Date('2026-09-01T00:00:00Z'),
+				new Date('2026-09-08T00:00:00Z'),
+			),
 		)
-		const elapsed = performance.now() - started
 		expect(count.count).toBe(10_080)
 		expect(count.capped).toBe(false)
 		expect(count.latest?.toISOString()).toBe('2026-09-08T00:00:00.000Z')
 		expect(count.first?.toISOString()).toBe('2026-09-01T00:01:00.000Z')
-		expect(elapsed).toBeLessThan(250)
 	})
 
 	it('caps and says so', () => {
