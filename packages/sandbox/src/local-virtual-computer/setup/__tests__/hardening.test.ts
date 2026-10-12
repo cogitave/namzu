@@ -222,15 +222,15 @@ describe('a restart marker that cannot be trusted', () => {
 		expect(later.restart).toBeUndefined()
 	})
 
-	it('cannot decide when the marker can neither be read nor dated, and says where it is', async () => {
+	it('reads restart-pending, without throwing, when the marker can neither be read nor dated', async () => {
 		// A path with a NUL byte fails every file call with something other than ENOENT.
 		const stateDirectory = `${directory}\0x`
-		const error = await inspectWslcReadiness({
+		const readiness = await inspectWslcReadiness({
 			imageRef: IMAGE_REF,
 			host: fakeHost({ stateDirectory, runner: windowsRunner() }),
-		}).catch((caught: unknown) => caught)
-		expect(error).toBeInstanceOf(LocalComputerSetupError)
-		expect((error as Error).message).toContain('restart.json')
+		})
+		expect(readiness.state).toBe('restart-pending')
+		expect(readiness.restart).toBeUndefined()
 	})
 
 	it('does not read a missing marker as a pending restart', async () => {

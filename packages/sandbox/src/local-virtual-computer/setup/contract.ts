@@ -17,7 +17,9 @@ import type { LocalComputerCommandRunner } from '../engine.js'
  *   runs yet, and Windows itself reports a restart pending (no marker then).
  *   A marker that cannot be read, or a boot time that cannot be fetched while
  *   a marker exists, also reads `restart-pending`: the steps still to run
- *   after the restart are then unknown and treated as none.
+ *   after the restart are then unknown and treated as none. So does a marker
+ *   that can be neither read nor dated (no file date): `restart` is then
+ *   absent, since there is no record time to report.
  * - `platform-off`: Virtual Machine Platform is off, or (Windows 10 only) the
  *   Windows Subsystem for Linux optional component is.
  * - `wsl-missing`: no WSL package with wslc.
