@@ -752,10 +752,14 @@ Namzu Desktop does it from the Pal computer row; the CLI from
   a plan shown from an inspection without a probe can differ from the one
   `runWslcSetup` sees (the engine may disagree with the record), and the
   application shows the new plan then. It then runs the steps in order and
-  reports progress; the elevated steps go in one call. A refused permission
+  reports progress; the elevated steps go in one call. Before that call only
+  the first elevated step is announced as started; each later one is announced
+  as the elevated script reaches it, and when the call ends every elevated step
+  is reported complete and in order. A refused permission
   prompt ends as `cancelled`, an account that cannot elevate as
   `needs-administrator`, a failed step as `failed` with the step, a stable
-  code and a plain detail. When setup finishes it inspects once more:
+  code, the exit code Windows gave and a plain detail that names the step
+  ("Turning on Windows features stopped with exit code 1."). When setup finishes it inspects once more:
   `ready`, or `blocked` for virtualization, policy or an engine mismatch the
   last inspection found, or `failed` with `engine-failed`.
 - **Restart.** When the elevated process says Windows needs a restart, setup

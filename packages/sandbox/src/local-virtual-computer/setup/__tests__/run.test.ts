@@ -276,7 +276,7 @@ describe('runWslcSetup: WSL is missing', () => {
 				outcome: 'failed',
 				step: 'install-wsl',
 				code: 'wsl-install-failed',
-				detail: 'Windows could not finish this step.',
+				detail: 'Installing Linux support stopped with exit code 1603.',
 				exitCode: 1603,
 			},
 		],
@@ -287,7 +287,33 @@ describe('runWslcSetup: WSL is missing', () => {
 				outcome: 'failed',
 				step: 'install-wsl',
 				code: 'elevation-failed',
-				detail: 'Windows could not finish this step.',
+				detail: 'Installing Linux support did not finish.',
+			},
+		],
+		[
+			'failed in the features step with a code',
+			{
+				outcome: 'failed',
+				step: 'enable-windows-features',
+				code: 'feature-enable-failed',
+				exitCode: 1,
+			},
+			{
+				outcome: 'failed',
+				step: 'enable-windows-features',
+				code: 'feature-enable-failed',
+				detail: 'Turning on Windows features stopped with exit code 1.',
+				exitCode: 1,
+			},
+		],
+		[
+			'failed in the features step without a code',
+			{ outcome: 'failed', step: 'enable-windows-features', code: 'elevation-failed' },
+			{
+				outcome: 'failed',
+				step: 'enable-windows-features',
+				code: 'elevation-failed',
+				detail: 'Turning on Windows features did not finish.',
 			},
 		],
 	] as const)('maps an elevated outcome of %s', async (_label, outcome, expected) => {
@@ -361,6 +387,57 @@ describe('runWslcSetup: features and a restart', () => {
 		const o = options(runner)
 		const result = await runWslcSetup(await consentTo(o), o)
 		expect(result).toEqual({ outcome: 'ready' })
+	})
+})
+
+describe('runWslcSetup: features and Linux support in one elevated call', () => {
+	function both(): FakeRunner {
+		const runner = engine({ vmp: false, wsl: null, wslc: null })
+		download.mockImplementation(async (request) => ({
+			outcome: 'ok',
+			path: `${request.directory}/wsl.msi`,
+		}))
+		return runner
+	}
+
+	it('announces only the first elevated step before the call', async () => {
+		const runner = both()
+		const o = options(runner)
+		const progress: WslcSetupProgress[] = []
+		const key = (p: WslcSetupProgress) => `${p.step}:${p.phase}`
+		let before: string[] = []
+		elevated.mockImplementation(async () => {
+			// The runner itself reports nothing.
+			before = progress.map(key).filter((k) => !k.startsWith('download'))
+			return { outcome: 'restart-required' }
+		})
+		await runWslcSetup(await consentTo(o), { ...o, onProgress: (p) => progress.push(p) })
+		expect(elevated.mock.calls[0]?.[0].steps).toEqual(['enable-windows-features', 'install-wsl'])
+		expect(before).toEqual(['enable-windows-features:started'])
+		expect(progress.map(key).filter((k) => !k.startsWith('download'))).toEqual([
+			'enable-windows-features:started',
+			'enable-windows-features:finished',
+			'install-wsl:started',
+			'install-wsl:finished',
+		])
+	})
+
+	it('never reports install-wsl as started when the features step fails', async () => {
+		const runner = both()
+		const o = options(runner)
+		const progress: WslcSetupProgress[] = []
+		elevated.mockResolvedValue({
+			outcome: 'failed',
+			step: 'enable-windows-features',
+			code: 'feature-enable-failed',
+			exitCode: 1,
+		})
+		const result = await runWslcSetup(await consentTo(o), {
+			...o,
+			onProgress: (p) => progress.push(p),
+		})
+		expect(result).toMatchObject({ outcome: 'failed', step: 'enable-windows-features' })
+		expect(progress.some((p) => p.step === 'install-wsl')).toBe(false)
 	})
 })
 

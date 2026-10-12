@@ -21,6 +21,18 @@ type Elevated = 'enable-windows-features' | 'install-wsl'
 const isElevated = (kind: WslcSetupStepKind): kind is Elevated =>
 	kind === 'enable-windows-features' || kind === 'install-wsl'
 
+const ELEVATED_WORDS: Record<Elevated, string> = {
+	'enable-windows-features': 'Turning on Windows features',
+	'install-wsl': 'Installing Linux support',
+}
+
+const elevatedFailureDetail = (step: WslcSetupStepKind, exitCode?: number): string => {
+	const words = isElevated(step) ? ELEVATED_WORDS[step] : 'This step'
+	return exitCode === undefined
+		? `${words} did not finish.`
+		: `${words} stopped with exit code ${exitCode}.`
+}
+
 /**
  * Run the plan the person agreed to. Inspects again first, with the session
  * probe, and refuses with `plan-changed` when the plan it would run is not the
@@ -111,7 +123,9 @@ export const runWslcSetup: RunWslcSetup = async (consent, options) => {
 			// All elevated steps share one call, made at the first of them.
 			if (step.kind !== kinds.find(isElevated)) continue
 			const elevated = kinds.filter(isElevated)
-			for (const kind of elevated) started(kind)
+			// Only the first step is announced now; the tail of the elevated progress file announces
+			// each later one when the script reaches it, so a failure never shows a step that did not start.
+			started(elevated[0] as Elevated)
 			const outcome = await (options.runElevated ?? runElevatedWslcSteps)({
 				steps: elevated,
 				...(elevated.includes('install-wsl') && packagePath
@@ -130,12 +144,15 @@ export const runWslcSetup: RunWslcSetup = async (consent, options) => {
 					return failed(
 						outcome.step,
 						outcome.code,
-						'Windows could not finish this step.',
+						elevatedFailureDetail(outcome.step, outcome.exitCode),
 						outcome.exitCode,
 					)
 				case 'restart-required': {
 					const last = elevated[elevated.length - 1] as Elevated
-					for (const kind of elevated) finished(kind, kind === last ? 'restart-required' : 'ok')
+					for (const kind of elevated) {
+						started(kind)
+						finished(kind, kind === last ? 'restart-required' : 'ok')
+					}
 					const after = kinds.slice(kinds.lastIndexOf(last) + 1)
 					await writeRestartMarker(host, {
 						recordedAt: host.now().toISOString(),
@@ -146,7 +163,10 @@ export const runWslcSetup: RunWslcSetup = async (consent, options) => {
 					return { outcome: 'restart-required' }
 				}
 				case 'ok':
-					for (const kind of elevated) finished(kind, 'ok')
+					for (const kind of elevated) {
+						started(kind)
+						finished(kind, 'ok')
+					}
 					elevatedOk = true
 					break
 			}
