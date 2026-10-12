@@ -519,7 +519,24 @@ it('reads the Windows engine readiness without probing, which would start the Li
 	expect(probe).not.toHaveBeenCalled()
 })
 
-it('probes as before for any other engine or platform, and when readiness cannot be read', async () => {
+it('does not probe, which would start the Linux machine, when Windows readiness cannot be read', async () => {
+	const probe = vi.fn(async () => ({ ready: true }))
+	const result = await quietComputerProbe(
+		{ probe, acquire: vi.fn() },
+		{
+			platform: 'win32',
+			env: { NAMZU_PAL_COMPUTER_ENGINE: 'wslc' },
+			loadSetup: (async () => {
+				throw new Error('no setup module')
+			}) as never,
+		},
+	)
+	expect(result.ready).toBe(false)
+	expect(result.reason).toContain(RUN_COMPUTER_SETUP_LINE)
+	expect(probe).not.toHaveBeenCalled()
+})
+
+it('probes as before for any other engine or platform', async () => {
 	const probe = vi.fn(async () => ({ ready: false, reason: 'engine says no' }))
 	const provider = { probe, acquire: vi.fn() }
 	const loadSetup = vi.fn(async () => {
@@ -529,7 +546,6 @@ it('probes as before for any other engine or platform, and when readiness cannot
 		['linux', { NAMZU_PAL_COMPUTER_ENGINE: 'wslc' }],
 		['win32', {}],
 		['win32', { NAMZU_PAL_COMPUTER_ENGINE: 'docker' }],
-		['win32', { NAMZU_PAL_COMPUTER_ENGINE: 'wslc' }],
 	] as const) {
 		probe.mockClear()
 		expect(
