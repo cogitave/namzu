@@ -37,6 +37,8 @@ export const emptyPalStart: PalStartEntry = {
 export type PalStartCard =
 	| { kind: 'none' }
 	| { kind: 'ask'; text: string }
+	/** A sentence that points at the Pal computer row, which carries the only action. */
+	| { kind: 'pointer'; text: string }
 	/** Start is switched off: the Pal's computer cannot start yet. `help` says how to set it up. */
 	| { kind: 'blocked'; text: string; help: string; windows?: boolean }
 	| { kind: 'resume'; text: string }

@@ -362,12 +362,12 @@ export class PalComputerSetupService {
 		return outcome
 	}
 
-	/** Whether "Restart now" may do anything: only while a restart is what setup waits for. */
 	/** A setup is running: the Linux machine is in use even though no Pal computer is. */
 	isRunning(): boolean {
 		return this.running
 	}
 
+	/** Whether "Restart now" may do anything: only while a restart is what setup waits for. */
 	restartIsDue(): boolean {
 		return this.state.phase === 'restart-pending'
 	}

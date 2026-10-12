@@ -299,10 +299,12 @@ Desktop action (no outline or filled buttons, no dialog):
 "How to set up" is the explanation and recovery place on Windows, collapsed by default: what Namzu
 does, why Windows asks permission and may restart, how to turn virtualization on in the startup
 settings, and the organisation-policy text. The Docker help and its "Get Docker Desktop" button do not
-appear on Windows. A toast appears once when setup completes ("Kiro's computer is ready") or when a
-failure needs an action, never per step. The waiting-message Start follows the same states: with only
-the image to add it runs setup and then starts the Pal; otherwise it opens the Pal's page where the
-row says what is needed.
+appear on Windows. A toast appears once when setup completes ("Kiro's computer is ready"), when a
+failure needs an action, or when a restart is required ("Restart your PC to finish setting up Kiro's
+computer.", a plain sentence with no button: the row keeps the one "Restart now"), never per step.
+The waiting-message Start follows the same states: with only the image to add it runs setup and then
+starts the Pal. When setup is needed, the receipt under the message offers no Start of its own; it
+points at "Set up and start Kiro" on the Pal computer row.
 
 "Restart now" runs `shutdown.exe /r /t 0` only on that click, and only while the state says a restart
 is what setup waits for. Before a run that may restart, Desktop passes

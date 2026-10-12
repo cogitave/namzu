@@ -307,18 +307,18 @@ export const inspectWslcReadiness: InspectWslcReadiness = async (options) => {
 	}
 
 	let restart: WslcReadiness['restart']
+	let restartUnrecorded = false
 	const { marker } = markerRead
 	let recordedAt: string | undefined = marker?.recordedAt
 	if ('unreadable' in markerRead) {
 		// A marker that cannot be read still has a file date, and a restart since
 		// then ends it like any other. With no date either, the state cannot be
-		// decided and the person is told where the record is.
+		// decided: it reads as restart-pending with no record to compare against
+		// and no remaining steps, rather than failing the inspection.
 		try {
 			recordedAt = (await stat(markerPath(host.stateDirectory))).mtime.toISOString()
 		} catch {
-			throw new LocalComputerSetupError(
-				`Namzu could not read its setup record in ${host.stateDirectory}. Delete the restart.json file there and try again.`,
-			)
+			restartUnrecorded = true
 		}
 	}
 	if (recordedAt !== undefined) {
@@ -365,7 +365,7 @@ export const inspectWslcReadiness: InspectWslcReadiness = async (options) => {
 	})
 
 	if (!policy.allowWsl || !policy.allowWslContainer) return result('blocked-by-policy')
-	if (restart) return result('restart-pending')
+	if (restart || restartUnrecorded) return result('restart-pending')
 	if (vmp === false || lxss === false) return result('platform-off')
 	if (!wslcUsable) return result(wslVersion ? 'wsl-outdated' : 'wsl-missing')
 	if (vmp === true && hypervisor === false && options.probeSession !== true) {

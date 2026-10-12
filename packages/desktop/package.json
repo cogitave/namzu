@@ -9,8 +9,8 @@
 	"scripts": {
 		"build": "tsc --build && vite build && node scripts/retain-notices.mjs",
 		"typecheck": "tsc --noEmit",
-		"lint": "biome check src/",
-		"test": "vitest run",
+		"lint": "biome check src/ scripts/check-pal-image.mjs scripts/__tests__",
+		"test": "vitest run && node --test scripts/__tests__/*.test.mjs",
 		"test:e2e": "xvfb-run -a node --test --test-concurrency=1 e2e/*.test.mjs",
 		"start": "electron .",
 		"dev": "node scripts/dev.mjs",

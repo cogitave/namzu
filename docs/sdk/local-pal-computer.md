@@ -706,8 +706,8 @@ Namzu Desktop does it from the Pal computer row; the CLI from
   A restart record that exists but cannot be read (anything but "not there")
   is dated by its file instead: a boot after that date ends it like any record,
   and an earlier one leaves `restart-pending` with no remaining steps known. If
-  the file cannot even be dated, the inspection throws a plain error naming the
-  state folder, and the record there (`restart.json`) is to be deleted by hand.
+  the file cannot even be dated, the inspection does not throw: it reads
+  `restart-pending`, with no `restart` record to report and no remaining steps.
   A record that exists while the boot time cannot be fetched stays
   `restart-pending`; a record that cannot be
   deleted after a restart is ignored. On the verified PC an inspection without a
