@@ -9,7 +9,7 @@ import './conversation-actions-menu.css'
 export interface ProjectRowActions {
 	/** Show the folder in the system's file manager. */
 	onOpenFolder?: () => void
-	/** Show every archived conversation, grouped by project. */
+	/** Switch the sidebar to its archived conversations, from every project. */
 	onArchived?: () => void
 	/** Change the name Namzu shows for the project; the folder keeps its name. */
 	onRename?: () => void

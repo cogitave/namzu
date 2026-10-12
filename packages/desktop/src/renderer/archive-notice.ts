@@ -21,6 +21,6 @@ export function addToArchiveBatch(
 
 export function archiveNoticeText(count: number): string {
 	return count <= 1
-		? 'Conversation archived. Find it under Archived conversations in the sidebar.'
-		: `${count} conversations archived. Find them under Archived conversations in the sidebar.`
+		? 'Conversation archived. Find it with the archive button next to Recents.'
+		: `${count} conversations archived. Find them with the archive button next to Recents.`
 }

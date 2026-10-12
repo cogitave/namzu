@@ -296,7 +296,7 @@ flow(
 );
 
 flow(
-	"archive says what it does, keeps Undo long, and Archived is in the sidebar",
+	"archive says what it does, keeps Undo long, and Archived is next to Recents",
 	{ rules: CHATS },
 	async (w) => {
 		await twoChats(w);
@@ -305,17 +305,18 @@ flow(
 		await expect(w.page.getByRole("menuitem", { name: "Archive", exact: true })).toBeVisible();
 		assert.equal(await w.page.getByRole("menuitem", { name: /Archive…/ }).count(), 0);
 		await w.page.getByRole("menuitem", { name: "Archive", exact: true }).click();
-		const toast = w.page.getByText(/Conversation archived\. Find it under Archived conversations/);
+		const toast = w.page.getByText(/Conversation archived\. Find it with the archive button next to Recents\./);
 		await expect(toast).toBeVisible({ timeout: T });
 		await expect(w.page.getByRole("button", { name: "Undo", exact: true })).toBeVisible();
 		await shot(w, "archive-toast");
-		await sidebar(w).getByRole("button", { name: "Archived conversations" }).click();
-		const dialog = w.page.getByRole("dialog", { name: "Archived conversations" });
-		await expect(dialog.getByText("alpha chat")).toBeVisible({ timeout: T });
-		await expect(dialog.getByRole("heading", { name: "project" })).toBeVisible();
+		await w.page.getByRole("button", { name: "Show archived conversations" }).click();
+		const list = w.page.locator("[data-archive-list]");
+		await expect(list.getByText("alpha chat")).toBeVisible({ timeout: T });
 		await shot(w, "archived-from-sidebar");
-		await dialog.getByRole("button", { name: "Restore alpha chat" }).click();
-		await expect(dialog.getByText("Nothing is archived.")).toBeVisible({ timeout: T });
+		// Restore shows while the pointer is on the row.
+		await list.getByText("alpha chat").hover();
+		await list.getByRole("button", { name: "Restore alpha chat" }).click();
+		await expect(list.getByText("Nothing is archived.")).toBeVisible({ timeout: T });
 	},
 );
 
@@ -612,17 +613,8 @@ flow(
 		}).toPass({ timeout: T });
 		assert.doesNotMatch(await card.innerText(), /alpha chat/i, "the title is not repeated");
 		await expect(card).toContainText("Reply alpha.");
-		// The glyph beside the age has words, and the card never covers the Archived row.
+		// The glyph beside the age has words.
 		await expect(card.locator(".thread-hover-card-environment")).toContainText("This computer");
-		const onArchived = await w.page.evaluate(() => {
-			const card = document.querySelector('[data-slot="thread-hover-card"]')?.getBoundingClientRect();
-			const link = document.querySelector(".sidebar-archived-link")?.getBoundingClientRect();
-			if (!card || !link) return "missing";
-			return card.left < link.right && card.right > link.left && card.top < link.bottom && card.bottom > link.top
-				? "covers"
-				: "clear";
-		});
-		assert.equal(onArchived, "clear");
 		const covered = await w.page.evaluate(() => {
 			const card = document.querySelector('[data-slot="thread-hover-card"]')?.getBoundingClientRect();
 			const transcript = document.querySelector(".transcript, [data-transcript]")?.getBoundingClientRect();

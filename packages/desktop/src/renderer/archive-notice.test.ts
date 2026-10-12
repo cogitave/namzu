@@ -22,4 +22,10 @@ describe('archive notice batches', () => {
 		expect(archiveNoticeText(1)).toContain('Conversation archived')
 		expect(archiveNoticeText(3)).toMatch(/^3 conversations archived/)
 	})
+	it('points at the archive button next to Recents, in plain words', () => {
+		expect(archiveNoticeText(1)).toBe(
+			'Conversation archived. Find it with the archive button next to Recents.',
+		)
+		expect(archiveNoticeText(2)).toContain('Find them with the archive button next to Recents.')
+	})
 })

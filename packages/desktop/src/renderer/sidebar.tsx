@@ -1,11 +1,12 @@
 import { Menu } from '@base-ui/react/menu'
-import { type ReactNode, useLayoutEffect, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { BackgroundWorkStatus } from '../shared/background-work-protocol.js'
 import type { ThreadState } from '../shared/projection.js'
 import type { ConversationView, ProjectView } from '../shared/protocol.js'
 import type { SidebarSectionId } from '../shared/sidebar-sections.js'
 import type { TerminalTabView } from '../shared/terminal-tabs.js'
 import { ADD_PROJECT_LABEL, AddProjectMenu } from './add-project-menu.js'
+import { ArchivedThreadRow } from './archived-thread-row.js'
 import { BrandDither } from './brand-dither.js'
 import { compareConversationOrder } from './conversation-order.js'
 import {
@@ -14,11 +15,21 @@ import {
 	FolderIcon,
 	FolderOpenIcon,
 	PlusIcon,
+	RefreshIcon,
 	SearchIcon,
 	SquarePenIcon,
 	XIcon,
 } from './icons.js'
 import { ProjectContextMenu, ProjectMoreMenu } from './project-row-actions.js'
+import {
+	type ArchiveLoad,
+	type ArchiveView,
+	archiveEmptyText,
+	archiveHeading,
+	archiveSectionVisible,
+	archiveToggleLabel,
+	nextArchiveView,
+} from './sidebar-archive.js'
 import { createSidebarListMotion } from './sidebar-motion.js'
 import { conversationsAttention, hasVisibleBackgroundWork } from './sidebar-section-attention.js'
 import { SidebarSection } from './sidebar-section.js'
@@ -32,6 +43,18 @@ import './sidebar-navigation.css'
 
 export type Appearance = 'system' | 'light' | 'dark'
 export type ConversationCollection = 'projects' | 'recents'
+
+/** The archived view of the Recents section: what the host lists and what the rows can do. */
+export interface SidebarArchive {
+	view: ArchiveView
+	onViewChange: (view: ArchiveView) => void
+	load: ArchiveLoad
+	/** Reads the archive again after a failed read. */
+	onRetry: () => void
+	/** Id of the conversation being restored, or an empty string. */
+	restoringId: string
+	onRestore: (view: ConversationView) => void
+}
 /** The rows a project's list shows: the first five, the open one, and any that are busy; or all. */
 function visibleProjectRows(
 	rows: readonly ConversationView[],
@@ -74,7 +97,7 @@ export function Sidebar({
 	onRenameProject,
 	onLocateProject,
 	onOpenProjectFolder,
-	onOpenArchived,
+	archive,
 	pals,
 	terminals = [],
 	activeTerminalId,
@@ -113,8 +136,8 @@ export function Sidebar({
 	onLocateProject?: (project: ProjectView) => void
 	/** Absent when the host cannot show a folder in the file manager. */
 	onOpenProjectFolder?: (project: ProjectView) => void
-	/** Absent when the host keeps no archive; the Archived entry is then not offered. */
-	onOpenArchived?: () => void
+	/** Absent when the host keeps no archive; the archive button and the Archived entries are then not offered. */
+	archive?: SidebarArchive
 	pals?: ReactNode
 	/** Open terminal tabs; each is listed under its project with a terminal mark. */
 	terminals?: readonly TerminalTabView[]
@@ -166,6 +189,29 @@ export function Sidebar({
 		),
 	)
 	const recent = recentCandidates.filter((item) => !listedUnderProject.has(item.id))
+	const archiveView = archive?.view ?? 'recents'
+	const previousView = useRef(archiveView)
+	const swapped = useRef(false)
+	if (previousView.current !== archiveView) swapped.current = true
+	useEffect(() => {
+		previousView.current = archiveView
+	})
+	// An archived conversation of a project that is gone or missing has nowhere to return to.
+	const archiveRows =
+		archive?.load.status === 'ready'
+			? archive.load.rows.filter((item) => {
+					const project = projectById.get(item.projectId)
+					return project && !project.missing
+				})
+			: []
+	const emptyText = archive
+		? archiveEmptyText({
+				view: archiveView,
+				load:
+					archive.load.status === 'ready' ? { ...archive.load, rows: archiveRows } : archive.load,
+				recents: recent.length,
+			})
+		: ''
 	const activeProjectId = sessionId
 		? (conversations.find((item) => item.id === sessionId)?.projectId ?? projectId)
 		: projectId
@@ -321,7 +367,7 @@ export function Sidebar({
 											onRemoveProject={onRemoveProject}
 											onRenameProject={onRenameProject}
 											onOpenProjectFolder={onOpenProjectFolder}
-											onOpenArchived={onOpenArchived}
+											onOpenArchived={archive ? () => archive.onViewChange('archived') : undefined}
 										>
 											<CollapsibleTrigger
 												aria-label={`${collapsedProjects[project.id] === false ? 'Collapse' : 'Expand'} ${project.name} conversations`}
@@ -411,26 +457,85 @@ export function Sidebar({
 							)}
 						</nav>
 					</SidebarSection>
-					{recent.length > 0 && (
-						<section className="sidebar-recents" aria-label="Recent conversations">
-							<h2 className="sidebar-section-title">Recents</h2>
-							<RecentList
-								rows={recent}
-								projects={projectById}
-								threads={threads}
-								backgroundWork={backgroundWork}
-								sessionId={sessionId}
-								active={conversationCollection === 'recents'}
-								onConversation={(view) => onConversation(view, 'recents')}
-								rowActions={rowActions}
-							/>
+					{archiveSectionVisible({
+						view: archiveView,
+						recents: recent.length,
+						archived: archiveRows.length,
+					}) && (
+						<section
+							className="sidebar-recents"
+							aria-label={
+								archiveView === 'archived' ? 'Archived conversations' : 'Recent conversations'
+							}
+							data-archive-view={archiveView}
+							data-swapped={swapped.current || undefined}
+						>
+							<div className="sidebar-recents-head">
+								<h2 className="sidebar-section-title">
+									<span
+										key={archiveView}
+										className="sidebar-recents-label"
+										data-direction={archiveView === 'archived' ? 'forward' : 'back'}
+									>
+										{archiveHeading(archiveView)}
+									</span>
+								</h2>
+								{archive && (
+									<Tooltip>
+										<TooltipTrigger
+											render={
+												<Button
+													variant="ghost-muted"
+													size="icon-xs"
+													className="sidebar-archive-toggle"
+													aria-label={archiveToggleLabel(archiveView)}
+													aria-pressed={archiveView === 'archived'}
+													data-archive-toggle
+													onClick={() => archive.onViewChange(nextArchiveView(archiveView))}
+												/>
+											}
+										>
+											<ArchiveIcon aria-hidden="true" />
+										</TooltipTrigger>
+										<TooltipPopup side="top">{archiveToggleLabel(archiveView)}</TooltipPopup>
+									</Tooltip>
+								)}
+							</div>
+							<div
+								key={archiveView}
+								className="sidebar-recents-body"
+								data-archive-list
+								tabIndex={-1}
+							>
+								{archiveView === 'archived' && archive ? (
+									<ArchivedList
+										load={archive.load}
+										rows={archiveRows}
+										projects={projectById}
+										restoringId={archive.restoringId}
+										emptyText={emptyText}
+										onRestore={archive.onRestore}
+										onRetry={archive.onRetry}
+									/>
+								) : (
+									<>
+										{recent.length > 0 && (
+											<RecentList
+												rows={recent}
+												projects={projectById}
+												threads={threads}
+												backgroundWork={backgroundWork}
+												sessionId={sessionId}
+												active={conversationCollection === 'recents'}
+												onConversation={(view) => onConversation(view, 'recents')}
+												rowActions={rowActions}
+											/>
+										)}
+										{emptyText && <p className="sidebar-empty-note">{emptyText}</p>}
+									</>
+								)}
+							</div>
 						</section>
-					)}
-					{onOpenArchived && (
-						<button type="button" className="sidebar-archived-link" onClick={onOpenArchived}>
-							<ArchiveIcon aria-hidden="true" />
-							Archived conversations
-						</button>
 					)}
 				</div>
 			</aside>
@@ -734,6 +839,108 @@ function RecentList({
 						onClick={() => onConversation(item)}
 						rowActions={rowActions}
 						projectLabel={project.name}
+					/>
+				) : null
+			})}
+		</ul>
+	)
+}
+
+/** The archived conversations of every project: placeholders while they load, a sentence when they cannot. */
+function ArchivedList({
+	load,
+	rows,
+	projects,
+	restoringId,
+	emptyText,
+	onRestore,
+	onRetry,
+}: {
+	load: ArchiveLoad
+	rows: ConversationView[]
+	projects: ReadonlyMap<string, ProjectView>
+	restoringId: string
+	emptyText: string
+	onRestore: (view: ConversationView) => void
+	onRetry: () => void
+}) {
+	if (load.status === 'idle' || load.status === 'loading')
+		return (
+			<output className="sidebar-archive-loading" aria-busy="true">
+				<span className="sr-only">Loading archived conversations</span>
+				<span className="sidebar-archive-placeholder" />
+				<span className="sidebar-archive-placeholder" />
+				<span className="sidebar-archive-placeholder" />
+			</output>
+		)
+	if (load.status === 'error')
+		return (
+			<div className="sidebar-archive-failure" role="alert">
+				<p className="sidebar-empty-note">{load.message}</p>
+				<Tooltip>
+					<TooltipTrigger
+						render={
+							<Button
+								variant="ghost-muted"
+								size="icon-xs"
+								aria-label="Try again"
+								onClick={onRetry}
+							/>
+						}
+					>
+						<RefreshIcon aria-hidden="true" />
+					</TooltipTrigger>
+					<TooltipPopup side="top">Try again</TooltipPopup>
+				</Tooltip>
+			</div>
+		)
+	return (
+		<>
+			<ArchivedRows
+				rows={rows}
+				projects={projects}
+				restoringId={restoringId}
+				onRestore={onRestore}
+			/>
+			{emptyText && <p className="sidebar-empty-note">{emptyText}</p>}
+			{load.unreadable > 0 && rows.length > 0 && (
+				<p className="sidebar-empty-note">
+					{load.unreadable === 1
+						? 'One project could not be read, so its archive is missing here.'
+						: `${load.unreadable} projects could not be read, so their archives are missing here.`}
+				</p>
+			)}
+		</>
+	)
+}
+
+function ArchivedRows({
+	rows,
+	projects,
+	restoringId,
+	onRestore,
+}: {
+	rows: ConversationView[]
+	projects: ReadonlyMap<string, ProjectView>
+	restoringId: string
+	onRestore: (view: ConversationView) => void
+}) {
+	const list = useThreadListMotion()
+	return (
+		<ul
+			ref={list}
+			className="sidebar-recent-list relative flex flex-col gap-px"
+			aria-label="Archived conversations"
+		>
+			{rows.map((item) => {
+				const project = projects.get(item.projectId)
+				return project ? (
+					<ArchivedThreadRow
+						key={item.id}
+						conversation={item}
+						project={project}
+						busy={restoringId !== ''}
+						onRestore={onRestore}
 					/>
 				) : null
 			})}

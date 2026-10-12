@@ -65,7 +65,7 @@ export interface ConversationDetailsProps {
 	onOpenChanges: () => void
 	onOpenWork: () => void
 	onAttach: () => void
-	/** Opens the project's archived conversations; absent when the host cannot list them. */
+	/** Switches the sidebar to its archived conversations; absent when the host cannot list them. */
 	onOpenArchived?: () => void
 }
 

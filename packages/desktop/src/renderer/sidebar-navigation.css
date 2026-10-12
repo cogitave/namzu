@@ -227,6 +227,88 @@
 .sidebar-recents .sidebar-section-title {
 	margin: 6px 8px 6px;
 }
+/* The archive button closes the Recents heading on the right, in the Projects "+" button's place. */
+.sidebar-recents-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+}
+.sidebar-recents-head .sidebar-section-title {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+}
+.sidebar-recents-head .sidebar-archive-toggle {
+	flex: none;
+	color: var(--sidebar-muted-foreground);
+}
+.sidebar-recents-head .sidebar-archive-toggle[aria-pressed="true"] {
+	background: var(--sidebar-row-active);
+	color: var(--sidebar-foreground);
+}
+/* The heading and the list arrive from the side the person is moving to; the first paint is still. */
+.sidebar-recents-label {
+	display: inline-block;
+}
+.sidebar-recents[data-swapped] .sidebar-recents-label {
+	animation: sidebar-heading-forward 180ms ease-out both;
+}
+.sidebar-recents[data-swapped] .sidebar-recents-label[data-direction="back"] {
+	animation-name: sidebar-heading-back;
+}
+.sidebar-recents[data-swapped] .sidebar-recents-body {
+	animation: sidebar-list-in 180ms ease-out both;
+}
+.sidebar-recents-body:focus {
+	outline: none;
+}
+@keyframes sidebar-heading-forward {
+	from {
+		opacity: 0;
+		transform: translateY(6px);
+	}
+}
+@keyframes sidebar-heading-back {
+	from {
+		opacity: 0;
+		transform: translateY(-6px);
+	}
+}
+@keyframes sidebar-list-in {
+	from {
+		opacity: 0;
+	}
+}
+.sidebar-archived-row .sidebar-conversation-button {
+	cursor: default;
+}
+/* Placeholder rows keep the height of a conversation row, so the list does not jump when it arrives. */
+.sidebar-archive-loading {
+	display: block;
+}
+.sidebar-archive-placeholder {
+	display: flex;
+	align-items: center;
+	height: 28px;
+	padding: 0 8px;
+}
+.sidebar-archive-placeholder::before {
+	content: "";
+	height: 10px;
+	width: 55%;
+	border-radius: 999px;
+	background: color-mix(in srgb, var(--sidebar-muted-foreground) 22%, transparent);
+	animation: sidebar-skeleton-pulse 1.4s ease-in-out infinite;
+}
+.sidebar-archive-failure {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 4px;
+}
+.sidebar-archive-failure .sidebar-empty-note {
+	padding: 4px 8px;
+}
 .sidebar-recent-list {
 	margin: 0;
 	padding: 0;
@@ -256,6 +338,11 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+	.sidebar-recents[data-swapped] .sidebar-recents-label,
+	.sidebar-recents[data-swapped] .sidebar-recents-body,
+	.sidebar-archive-placeholder::before {
+		animation: none;
+	}
 	.sidebar-project-heading,
 	.sidebar-project-list .sidebar-conversation-button,
 	.sidebar-project-list .conversation-age,
@@ -363,34 +450,6 @@
 	font-size: 11px;
 	text-overflow: ellipsis;
 	white-space: nowrap;
-}
-.sidebar-archived-link {
-	display: flex;
-	align-items: center;
-	gap: 8px;
-	width: calc(100% - 8px - var(--sidebar-scroll-end));
-	margin: 10px var(--sidebar-scroll-end) 12px 8px;
-	padding: 6px 8px;
-	border: 0;
-	border-radius: 8px;
-	background: transparent;
-	color: var(--sidebar-muted-foreground);
-	font-size: 12.5px;
-	text-align: left;
-	cursor: pointer;
-}
-.sidebar-archived-link:hover {
-	background: var(--sidebar-row-hover);
-	color: var(--sidebar-foreground);
-}
-.sidebar-archived-link:focus-visible {
-	outline: 2px solid var(--ring);
-	outline-offset: -2px;
-}
-.sidebar-archived-link > svg {
-	width: 14px;
-	height: 14px;
-	flex: none;
 }
 /* With no project yet the section offers the same Add new project choice as the + beside its title, as a row. */
 .sidebar-navigation .sidebar-add-project-row,
