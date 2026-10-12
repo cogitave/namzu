@@ -537,7 +537,7 @@ flow(
 			const list = document.querySelector(".conversation-tab-list")?.getBoundingClientRect();
 			if (!list) return ["no strip"];
 			return [...document.querySelectorAll(".conversation-tab")]
-				.filter((tab) => getComputedStyle(tab).visibility !== "hidden")
+				.filter((tab) => getComputedStyle(tab).display !== "none")
 				.map((tab) => tab.getBoundingClientRect())
 				.filter((box) => box.left < list.left - 1 || box.right > list.right + 1)
 				.map((box) => `${box.left}..${box.right}`);

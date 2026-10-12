@@ -2930,12 +2930,17 @@ Tools it can start, Sandbox …) with labelled fields ("Enabled: off"), not raw 
 is already a trusted project opens it and says so ("“*name*” is already in your projects, so it was
 opened."), with no second trust prompt.
 
-**Tab strip.** The tab in front scrolls into view when it changes and when the pane is resized; tabs
-shrink to 160 px before the strip scrolls; when it scrolls, a tab the strip's edge would cut is hidden whole
-(never shown without its first letters) and a **Show all tabs** button lists every tab with a
+**Tab strip.** The strip never scrolls and never leaves an empty band in front of the first tab: tabs
+share the width and shrink to 136 px, and only then does a tab leave the strip (hidden whole, so none shows
+half a letter or an empty slice). The tab in front always stays, the tabs that stay are contiguous from the
+start of the strip, and any spare width, always less than one minimum tab, sits after the last one,
+before the overflow control. The fit is worked out again after every render and whenever the pane is
+resized (sidebar or panel opened or closed, window resized, tabs opened, closed or switched), each
+pane for its own strip. A **Show all tabs** button lists every tab with a
 check on the one in front, and says how many are out of sight (a small number beside the
 chevron, "Show all tabs (3 hidden)" for a screen reader). The divider before the first tab in view
-is dropped so none hangs at the strip's edge. A Pal has one tab: opening its newest conversation (**Open
+is dropped so none hangs at the strip's edge (`e2e/tab-strip-fill.test.mjs`, 900, 1180 and 1440 px,
+sidebar and panel open and closed, front tab first, middle and last). A Pal has one tab: opening its newest conversation (**Open
 *name*** under a message sent to it, or its row in the sidebar) replaces an older tab of the same
 Pal instead of adding a second one beside it, unless that older tab holds an unsent draft or
 attachments (or cannot be read), in which case it stays open so nothing the person wrote is lost. A caret beside **+** ("More ways to add a tab") opens the same menu as the
