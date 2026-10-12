@@ -1,0 +1,95 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`script generation > builds the Windows 11 enable script (snapshot) 1`] = `
+"$ErrorActionPreference = 'Stop'
+$log = 'C:\\Users\\Ali Veli\\AppData\\Local\\Namzu\\setup\\elevated-progress.jsonl'
+function Note($step, $phase, $extra) {
+  $o = [ordered]@{ step = $step; phase = $phase }
+  if ($extra) { foreach ($k in $extra.Keys) { $o[$k] = $extra[$k] } }
+  $line = (ConvertTo-Json -InputObject $o -Compress) + "\`n"
+  [IO.File]::AppendAllText($log, $line, (New-Object Text.UTF8Encoding $false))
+}
+$code = 0
+$restart = $false
+$cur = ''
+try {
+  $cur = 'enable-windows-features'
+  Note $cur 'started'
+  $dismRestart = $false
+  foreach ($name in @('VirtualMachinePlatform')) {
+    & (Join-Path $env:SystemRoot 'System32\\dism.exe') /online /enable-feature "/featurename:$name" /all /norestart | Out-Null
+    $c = $LASTEXITCODE
+    if ($c -eq 3010) { $dismRestart = $true }
+    elseif ($c -ne 0) { Note $cur 'failed' @{ exitCode = $c }; $code = 20; break }
+  }
+  if ($code -eq 0) {
+    if ($dismRestart) { $restart = $true; Note $cur 'finished' @{ result = 'restart-required' } }
+    else { Note $cur 'finished' @{ result = 'ok' } }
+  }
+} catch {
+  if ($cur -eq 'install-wsl') { $code = 21 } else { $code = 20 }
+  try { Note $cur 'failed' @{ exitCode = 1 } } catch {}
+}
+if ($code -eq 0 -and $restart) { $code = 3010 }
+exit $code"
+`;
+
+exports[`script generation > builds the install script with the digest check inside the elevated process (snapshot) 1`] = `
+"$ErrorActionPreference = 'Stop'
+$log = 'C:\\Users\\Ali Veli\\AppData\\Local\\Namzu\\setup\\elevated-progress.jsonl'
+function Note($step, $phase, $extra) {
+  $o = [ordered]@{ step = $step; phase = $phase }
+  if ($extra) { foreach ($k in $extra.Keys) { $o[$k] = $extra[$k] } }
+  $line = (ConvertTo-Json -InputObject $o -Compress) + "\`n"
+  [IO.File]::AppendAllText($log, $line, (New-Object Text.UTF8Encoding $false))
+}
+$code = 0
+$restart = $false
+$cur = ''
+try {
+  if ($code -eq 0) {
+    $cur = 'install-wsl'
+    Note $cur 'started'
+    $src = 'C:\\Users\\Ali Veli\\AppData\\Local\\Namzu\\setup\\wsl.3.0.1.0.x64.msi'
+    $want = 'abababababababababababababababababababababababababababababababab'
+    $msilog = 'C:\\Users\\Ali Veli\\AppData\\Local\\Namzu\\setup\\wsl-install.log'
+    $dir = Join-Path $env:SystemRoot ('Temp\\namzu-wsl-' + [guid]::NewGuid().ToString('N'))
+    try {
+      $acl = New-Object Security.AccessControl.DirectorySecurity
+      $acl.SetAccessRuleProtection($true, $false)
+      foreach ($sid in 'S-1-5-32-544', 'S-1-5-18') {
+        $id = New-Object Security.Principal.SecurityIdentifier $sid
+        $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($id, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')))
+      }
+      (New-Object IO.DirectoryInfo $dir).Create($acl)
+      $msi = Join-Path $dir 'wsl.msi'
+      Copy-Item -LiteralPath $src -Destination $msi
+      $got = (Get-FileHash -LiteralPath $msi -Algorithm SHA256).Hash
+      if ($got -ine $want) {
+        Note $cur 'failed' @{ exitCode = 22 }
+        $code = 22
+      } else {
+        $args2 = @('/i', ('"' + $msi + '"'), '/qn', '/norestart', '/l*v', ('"' + $msilog + '"'))
+        $p = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\\msiexec.exe') -ArgumentList $args2 -Wait -PassThru
+        $c = $p.ExitCode
+        if ($c -eq 0) {
+          Note $cur 'finished' @{ result = 'ok' }
+        } elseif ($c -eq 3010 -or $c -eq 1641) {
+          $restart = $true
+          Note $cur 'finished' @{ result = 'restart-required' }
+        } else {
+          Note $cur 'failed' @{ exitCode = $c }
+          $code = 21
+        }
+      }
+    } finally {
+      Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+  }
+} catch {
+  if ($cur -eq 'install-wsl') { $code = 21 } else { $code = 20 }
+  try { Note $cur 'failed' @{ exitCode = 1 } } catch {}
+}
+if ($code -eq 0 -and $restart) { $code = 3010 }
+exit $code"
+`;

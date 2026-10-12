@@ -659,6 +659,51 @@ they land each one throws "not implemented yet".
 - **Restart.** When Windows needs a restart, setup records the steps still to
   run and asks Windows to open Namzu once at the next sign-in, where setup
   continues.
+- **The elevated step.** Turning on Windows features and installing WSL need
+  an administrator, so `runElevatedWslcSteps` runs both in one process. It
+  starts Windows PowerShell, a Microsoft-signed program, with
+  `Start-Process -Verb RunAs`, and gives it a fixed script through
+  `-EncodedCommand`; there is no script file or helper program anyone could
+  edit or that Windows would name as an unknown publisher. Windows shows its
+  own permission prompt once (a standard user is asked for an administrator's
+  password), and the prompt names Windows PowerShell. Inside, only Microsoft
+  tools run: `dism.exe /online /enable-feature /featurename:VirtualMachinePlatform
+  /all /norestart` (plus `Microsoft-Windows-Subsystem-Linux` on Windows 10,
+  build below 22000), and `msiexec.exe /i ... /qn /norestart /l*v` for the
+  package. The steps, the package path (absolute, inside the setup directory,
+  ending `.msi`, no quotes or line breaks) and its digest are checked before the
+  script is built, and reach it only as single-quoted literals. The elevated
+  process copies the package into a folder only administrators can write, checks
+  its SHA-256 there against the pinned digest and installs that copy, so the
+  file cannot change after the check. It writes progress lines to
+  `<state directory>\elevated-progress.jsonl`, which the caller reads while it
+  waits and turns into progress events. Exit codes of the elevated script:
+  0 done, 3010 Windows needs a restart, 20 enabling features failed, 21 the
+  install failed, 22 the package did not match the pinned digest. They map to
+  `ok`, `restart-required`, and `failed` with `feature-enable-failed` or
+  `wsl-install-failed` and the Windows exit code for a Details fold; a launch
+  that does not start is `elevation-failed`. Declining the prompt (Windows
+  error 1223) is `cancelled`, except for an account that is not an
+  administrator at all (`whoami /groups` lists no `S-1-5-32-544`, not even as
+  deny-only), which is `needs-administrator`. Stopping the signal stops waiting
+  and reading progress; the elevated process cannot be stopped from here and
+  finishes its steps once the person has approved.
+- **The WSL package.** Setup installs Microsoft's `wsl.3.0.1.0.x64.msi` from
+  the 3.0.1 release on GitHub: 367,669,248 bytes (350.6 MB), SHA-256
+  `28b1a0d013640a2ac95898ea705fa186e5b4ff767a1c1b49257161bc106599c6`, the
+  digest the release reports and the one recomputed from a download.
+  `downloadWslPackage` writes `<name>.part`, resumes it with a `Range` request
+  after an interruption, retries network trouble and 5xx answers after 1, 2, 4
+  and 8 seconds (five attempts), fails at once on other 4xx answers, checks size
+  and digest, renames on success and deletes a file that does not match
+  (`download-corrupt`). The image is not downloaded; it ships inside the
+  installer.
+- **Resume at sign-in.** `registerResumeAtSignIn` writes the value
+  `NamzuPalComputerSetup` (REG_SZ) under `host.resumeRegistryKey` with
+  `reg.exe add ... /f`, refusing a command that is empty, has a line break or
+  is over 2048 characters; no administrator is needed for the default per-user
+  `RunOnce` key. Windows removes a RunOnce value as it runs it.
+  `clearResumeAtSignIn` deletes it, and a value that is not there is fine.
 - **Idle.** `stopIdleWslcSession` stops the wslc session's virtual machine only
   when nothing runs in it, Namzu's or not.
 
