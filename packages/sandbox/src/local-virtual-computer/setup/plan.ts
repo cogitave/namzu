@@ -15,8 +15,8 @@ const INSTALL_WSL_SECONDS = 60
 const RESTART_SECONDS = 90
 /** Bytes per second assumed for a download and for loading the image. */
 const DOWNLOAD_BYTES_PER_SECOND = 8_000_000
-const LOAD_BYTES_PER_SECOND = 25_000_000
-const LOAD_FIXED_SECONDS = 15
+const LOAD_BYTES_PER_SECOND = 50_000_000
+const LOAD_FIXED_SECONDS = 12
 
 const BLOCKED: Partial<Record<WslcReadiness['state'], WslcSetupBlock>> = {
 	unsupported: 'unsupported',
