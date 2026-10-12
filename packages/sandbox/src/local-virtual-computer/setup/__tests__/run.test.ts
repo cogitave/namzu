@@ -439,6 +439,30 @@ describe('runWslcSetup: features and Linux support in one elevated call', () => 
 		expect(result).toMatchObject({ outcome: 'failed', step: 'enable-windows-features' })
 		expect(progress.some((p) => p.step === 'install-wsl')).toBe(false)
 	})
+
+	it('reports the features step finished and install-wsl started when install-wsl fails', async () => {
+		const runner = both()
+		const o = options(runner)
+		const progress: WslcSetupProgress[] = []
+		elevated.mockResolvedValue({
+			outcome: 'failed',
+			step: 'install-wsl',
+			code: 'wsl-install-failed',
+			exitCode: 1603,
+		})
+		const result = await runWslcSetup(await consentTo(o), {
+			...o,
+			onProgress: (p) => progress.push(p),
+		})
+		expect(result).toMatchObject({ outcome: 'failed', step: 'install-wsl' })
+		expect(
+			progress.map((p) => `${p.step}:${p.phase}`).filter((k) => !k.startsWith('download')),
+		).toEqual([
+			'enable-windows-features:started',
+			'enable-windows-features:finished',
+			'install-wsl:started',
+		])
+	})
 })
 
 describe('runWslcSetup: a restart is already pending', () => {
@@ -525,5 +549,38 @@ describe('runWslcSetup: the image step fails', () => {
 		const o = options(runner)
 		const result = await runWslcSetup(await consentTo(o), o)
 		expect(result).toEqual({ outcome: 'blocked', blocked: 'virtualization-off' })
+	})
+
+	const tally = (progress: WslcSetupProgress[]) =>
+		progress.map((p) => `${p.step}:${p.phase}`).filter((k) => !k.startsWith('download'))
+
+	it('announces started and finished once for a plan of only the features step', async () => {
+		const runner = engine({ vmp: false })
+		elevated.mockResolvedValue({ outcome: 'ok' })
+		const o = options(runner)
+		const progress: WslcSetupProgress[] = []
+		await runWslcSetup(await consentTo(o), { ...o, onProgress: (p) => progress.push(p) })
+		expect(elevated.mock.calls[0]?.[0].steps).toEqual(['enable-windows-features'])
+		expect(tally(progress).filter((k) => k.startsWith('enable'))).toEqual([
+			'enable-windows-features:started',
+			'enable-windows-features:finished',
+		])
+	})
+
+	it('announces started and finished once for a plan of only install-wsl', async () => {
+		const runner = engine({ wsl: null, wslc: null })
+		download.mockImplementation(async (request) => ({
+			outcome: 'ok',
+			path: `${request.directory}/wsl.msi`,
+		}))
+		elevated.mockResolvedValue({ outcome: 'ok' })
+		const o = options(runner)
+		const progress: WslcSetupProgress[] = []
+		await runWslcSetup(await consentTo(o), { ...o, onProgress: (p) => progress.push(p) })
+		expect(elevated.mock.calls[0]?.[0].steps).toEqual(['install-wsl'])
+		expect(tally(progress).filter((k) => k.startsWith('install'))).toEqual([
+			'install-wsl:started',
+			'install-wsl:finished',
+		])
 	})
 })

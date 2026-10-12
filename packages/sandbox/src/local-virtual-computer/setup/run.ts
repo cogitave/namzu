@@ -140,13 +140,24 @@ export const runWslcSetup: RunWslcSetup = async (consent, options) => {
 					return { outcome: 'cancelled' }
 				case 'needs-administrator':
 					return { outcome: 'needs-administrator' }
-				case 'failed':
+				case 'failed': {
+					// The steps before the failing one finished, and the failing one started, whether or
+					// not the progress tail saw it; the later steps never began.
+					const at = elevated.indexOf(outcome.step as Elevated)
+					if (at >= 0) {
+						for (const kind of elevated.slice(0, at)) {
+							started(kind)
+							finished(kind, 'ok')
+						}
+						started(elevated[at] as Elevated)
+					}
 					return failed(
 						outcome.step,
 						outcome.code,
 						elevatedFailureDetail(outcome.step, outcome.exitCode),
 						outcome.exitCode,
 					)
+				}
 				case 'restart-required': {
 					const last = elevated[elevated.length - 1] as Elevated
 					for (const kind of elevated) {
