@@ -184,7 +184,7 @@ test("the sidebar's first frame is its final layout, on a second launch, a reloa
 		}
 		// Only gamma's conversation stays open as a tab, so on the next start gamma connects first.
 		const closers = w.page.getByRole("button", { name: /^Close tab chat (alpha|beta)/ });
-		while ((await closers.count()) > 0) await closers.first().click();
+		while ((await closers.count()) > 0) await closers.first().click({ timeout: T });
 		await w.page.evaluate(() => window.namzu.createPal({ name: "Kiro" }));
 		await w.page.reload();
 		await w.page.waitForLoadState("domcontentloaded");
@@ -401,6 +401,90 @@ test("a click on a remembered row before its project connects opens it, and an a
 // decided which tab is in front. If main refuses that first read (the window is still being set up),
 // nothing has failed for the person: no frame shows an error banner, the read is made again once the
 // start settles, and the composer comes up with its choices.
+/** The next start's preload refuses the calls `condition` (a page expression over name and args) names. */
+function refuse(w, condition) {
+	const preload = join(freezeApp(w.root), "dist/preload.cjs");
+	const source = readFileSync(preload, "utf8");
+	const call = "electron_1.ipcRenderer.invoke(`namzu:${name}`, ...args)";
+	assert.ok(source.includes(call), "the preload still has the invoke the test replaces");
+	writeFileSync(
+		preload,
+		source.replace(
+			call,
+			`((${condition}) ? Promise.reject(new Error("refused while the window starts")) : ${call})`,
+		),
+	);
+}
+
+/** The window's first read of something is refused once; the same call is answered afterwards. */
+const once = (name) =>
+	`name === ${JSON.stringify(name)} && !(globalThis.__refused ??= {})[${JSON.stringify(name)}] && ((globalThis.__refused[${JSON.stringify(name)}] = true))`;
+
+for (const name of ["conversations"]) {
+	test(`a first refusal of ${name} while the window starts is never shown as an error`, {
+		timeout: 300000,
+	}, async () => {
+		const w = await createWorld({ rules: CHATS });
+		instrument(w);
+		let failed = true;
+		try {
+			await launch(w);
+			await addProject(w, "alpha");
+			await say(w, "chat alpha");
+			await w.app.close();
+			refuse(w, once(name));
+			await relaunch(w);
+			await expect(w.page.locator("#namzu-sidebar")).toHaveAttribute("data-start-settled", "true", {
+				timeout: T,
+			});
+			await expect(w.page.getByRole("textbox", { name: "Message Namzu" })).toBeVisible({
+				timeout: T,
+			});
+			await expect(w.page.getByText("Reply.", { exact: true })).toHaveCount(1, { timeout: T });
+			noBanner(`a first refusal of ${name}`, await frames(w));
+			await expect(w.page.locator(".connection-error")).toHaveCount(0);
+			assert.deepEqual(w.faults, [], "the renderer raised no uncaught errors");
+			failed = false;
+		} finally {
+			await dispose(w, { failed });
+		}
+	});
+}
+
+test("a read that keeps failing after the start settled is shown, with a way to retry", {
+	timeout: 300000,
+}, async () => {
+	const w = await createWorld({ rules: CHATS });
+	instrument(w);
+	let failed = true;
+	try {
+		await launch(w);
+		await addProject(w, "alpha");
+		await say(w, "chat alpha");
+		await w.app.close();
+		refuse(w, 'name === "draftSettings"');
+		await relaunch(w);
+		await expect(w.page.locator("#namzu-sidebar")).toHaveAttribute("data-start-settled", "true", {
+			timeout: T,
+		});
+		const banner = w.page.locator(".connection-error");
+		await expect(banner).toContainText("Saved message settings could not be loaded", {
+			timeout: T,
+		});
+		await expect(banner.getByRole("button", { name: "Retry setup" })).toBeVisible();
+		// Nothing was said before the start had settled.
+		const early = (await frames(w)).filter((frame) => frame.banner && !frame.settled);
+		assert.deepEqual(
+			early.map((frame) => `t=${frame.t}: ${frame.banner}`),
+			[],
+			"no banner before the start settled",
+		);
+		failed = false;
+	} finally {
+		await dispose(w, { failed });
+	}
+});
+
 test("a refused first read of the saved message choices is never shown as an error", {
 	timeout: 300000,
 }, async () => {

@@ -1390,37 +1390,38 @@ export function App({
 	)
 	const draftOwner = sessionId || `project:${projectId}:workspace:${windowId}:${group.id}`
 	const draft = drafts[draftOwner] ?? ''
+	// While the start is still deciding which tab is in front, the pane's own draft (its attached
+	// files, its saved choices) is one the tab about to open replaces, and main may not have
+	// registered the project yet: those reads wait for the start to settle, so a refusal of one is
+	// never shown for a state that has not failed.
+	const decidingFront = restoringTabs && !sessionId
 	const attached = useAttachments(
 		draftOwner,
-		Boolean(project) && !historyPending,
+		Boolean(project) && !historyPending && !decidingFront,
 		(failure) => showError(failure, 'attach the file'),
 		api,
 	)
-	// The pane in front reads its saved choices at once. While the start is still deciding which tab
-	// is in front, that first read is for a draft the tab about to open replaces, so a refusal of it
-	// is not the person's problem and is not shown; it is read once more when the start settles.
-	const decidingFront = restoringTabs && !sessionId
+	// The pane in front reads its saved choices at once; a refusal of that first read while the
+	// start is deciding is not shown and the read is made again when the start settles.
+	// A refused read of the saved choices is read once more, silently, before anything is said:
+	// it is shown only once that second read has failed too, never on the frame that first sees it.
+	const [settingsRetried, setSettingsRetried] = useState('')
 	const savedSettings = useDraftSettings(
 		draftOwner,
 		Boolean(project) && !historyPending,
 		(failure) => {
-			if (!decidingFront) showError(failure, 'save your message settings')
+			if (!decidingFront && settingsRetried === draftOwner)
+				showError(failure, 'save your message settings')
 		},
 		api,
 	)
-	const settingsRetried = useRef('')
-	const settingsError = decidingFront ? undefined : savedSettings.error
+	const settingsError =
+		decidingFront || settingsRetried !== draftOwner ? undefined : savedSettings.error
 	useEffect(() => {
-		if (
-			restoringTabs ||
-			sessionId ||
-			!savedSettings.error ||
-			settingsRetried.current === draftOwner
-		)
-			return
-		settingsRetried.current = draftOwner
+		if (restoringTabs || !savedSettings.error || settingsRetried === draftOwner) return
+		setSettingsRetried(draftOwner)
 		savedSettings.retry()
-	}, [restoringTabs, sessionId, savedSettings.error, savedSettings.retry, draftOwner])
+	}, [restoringTabs, savedSettings.error, savedSettings.retry, draftOwner, settingsRetried])
 	const settings = resolveComposerSendOptions(savedSettings.value.options, pal?.id)
 	const choice = resolveComposerModelChoice({
 		providers: activeProviders,
@@ -2235,12 +2236,14 @@ export function App({
 				setDrafts((all) => ({ ...all, [owner]: all[owner] ?? saved }))
 			})
 			.catch((failure) => {
-				if (current) showError(failure, 'restore your draft')
+				// While the start is still deciding which tab is in front, main may not have registered
+				// the project yet: the read is made again when the start settles, and said only if it fails then.
+				if (current && !restoringTabs) showError(failure, 'restore your draft')
 			})
 		return () => {
 			current = false
 		}
-	}, [projectId, windowId, group.id, api, showError])
+	}, [projectId, windowId, group.id, api, showError, restoringTabs])
 	useEffect(() => {
 		if (
 			!sessionId ||
@@ -3046,14 +3049,19 @@ export function App({
 		inflight: 0,
 		latest: { projects: [] as ProjectView[], tabsKey: '' },
 		attempt: 0,
+		// A project whose list was refused is read once more, silently, before anything is said.
+		retried: new Set<string>(),
 	})
+	const [listingRetry, setListingRetry] = useState(0)
 	useEffect(() => {
 		void tabRestoreAttempt
+		void listingRetry
 		const state = listing.current
 		// A retry of the restore reads everything again.
 		if (state.attempt !== tabRestoreAttempt) {
 			state.attempt = tabRestoreAttempt
 			state.listed.clear()
+			state.retried.clear()
 		}
 		const readable = projects.filter((item) => item.trusted && item.status === 'ready')
 		// A project that dropped is listed again when it comes back.
@@ -3093,10 +3101,20 @@ export function App({
 			const refreshed = targets
 				.filter((_item, index) => results[index]?.status === 'fulfilled')
 				.map((item) => item.id)
-			noteListing(targets, results)
+			const again = targets.filter(
+				(item, index) => results[index]?.status === 'rejected' && !state.retried.has(item.id),
+			)
+			for (const item of again) state.retried.add(item.id)
+			const said = targets.map((_item, index) => !again.includes(targets[index] as ProjectView))
+			noteListing(
+				targets.filter((_item, index) => said[index]),
+				results.filter((_result, index) => said[index]),
+			)
 			setConversations((all) => mergeConversationCatalogues(all, rows, refreshed))
-			// The catalogue is ready, and the restore may act on it, only when no listing is in flight.
-			if (state.inflight === 0) {
+			// The catalogue is ready, and the restore may act on it, only when no listing is in flight
+			// and none is about to be read again.
+			if (again.length > 0) setListingRetry((count) => count + 1)
+			else if (state.inflight === 0) {
 				catalogueOwner.current = state.latest
 				setCatalogueReady(true)
 			}
@@ -3106,6 +3124,7 @@ export function App({
 		projects,
 		catalogueTabsKey,
 		tabRestoreAttempt,
+		listingRetry,
 		conversations,
 		group.tabs,
 		catalogueReady,
@@ -3173,6 +3192,9 @@ export function App({
 			}
 			if (loading || operations.current.size > 0) return
 			if (missingActivation.current === target) return
+			// Its project is connected but its list has not been answered yet (a refused first read is
+			// read once more): the conversation is not missing, it has not been listed.
+			if (savedOwner?.status === 'ready' && savedOwner.trusted && !lists.has(savedOwner.id)) return
 			if (projects.every((item) => item.status === 'ready' || item.status === 'error')) {
 				missingActivation.current = target
 				setRestoringTabs(true)
@@ -3249,6 +3271,7 @@ export function App({
 		onAction,
 		api,
 		showError,
+		lists,
 	])
 	useEffect(() => {
 		void metadataEpoch
