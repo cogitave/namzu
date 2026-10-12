@@ -70,27 +70,55 @@ export interface ConversationPalWorkspace extends ComputerWorkspaceToolbarProps 
 }
 
 /** Computer/chat switches retain the current session; other tabs change its owner. */
+/** The narrowest a tab gets before another one moves to "Show all tabs". Keep in step with the CSS. */
+export const MIN_TAB_WIDTH = 136
+const TAB_GAP = 4
+
 /**
- * A tab cut by the strip's edge is hidden whole, so no tab ever shows half a letter; the tab in
- * front is never hidden, and "Show all tabs" still lists every one.
+ * Fits the strip: tabs share the width and shrink to their minimum, and only then does a tab leave
+ * the strip (hidden whole, so none shows half a letter or an empty slice; "Show all tabs" still
+ * lists every one). The tab in front always stays, the tabs that stay are contiguous from the
+ * start of the strip, and any spare width ends up after the last one. Returns how many are out.
  */
 export function hideClippedTabs(list: HTMLElement): number {
-	const edge = list.getBoundingClientRect()
+	const tabs = [...list.querySelectorAll<HTMLElement>('.conversation-tab')]
+	for (const tab of tabs) {
+		delete tab.dataset.clipped
+		delete tab.dataset.firstShown
+	}
+	list.scrollLeft = 0
 	let hidden = 0
-	let first = true
-	for (const tab of list.querySelectorAll<HTMLElement>('.conversation-tab')) {
-		const box = tab.getBoundingClientRect()
-		const clipped = box.width > 0 && (box.left < edge.left - 0.5 || box.right > edge.right + 0.5)
-		if (clipped && tab.dataset.active !== 'true') {
+	if (list.scrollWidth > list.clientWidth + 1) {
+		const widths = tabs.map((tab) =>
+			Math.max(MIN_TAB_WIDTH, Number.parseFloat(getComputedStyle(tab).minWidth) || 0),
+		)
+		const front = Math.max(
+			0,
+			tabs.findIndex((tab) => tab.dataset.active === 'true'),
+		)
+		const room = list.clientWidth
+		const span = (from: number, to: number) => {
+			let total = 0
+			for (let index = from; index <= to; index++)
+				total += widths[index] + (index > from ? TAB_GAP : 0)
+			return total
+		}
+		let from = 0
+		let to = front
+		if (span(0, front) <= room) {
+			while (to + 1 < tabs.length && span(0, to + 1) <= room) to++
+		} else {
+			from = front
+			while (from > 0 && span(from - 1, front) <= room) from--
+		}
+		tabs.forEach((tab, index) => {
+			if (index >= from && index <= to) return
 			tab.dataset.clipped = 'true'
 			hidden++
-		} else delete tab.dataset.clipped
-		// The divider before the first tab in view would hang at the strip's edge, so it is dropped.
-		if (!(clipped && tab.dataset.active !== 'true') && box.width > 0 && first) {
-			tab.dataset.firstShown = 'true'
-			first = false
-		} else delete tab.dataset.firstShown
+		})
 	}
+	// The divider before the first tab in view would hang at the strip's edge, so it is dropped.
+	tabs.find((tab) => tab.dataset.clipped !== 'true')?.setAttribute('data-first-shown', 'true')
 	return hidden
 }
 
@@ -587,35 +615,27 @@ export function ConversationTabs({
 	const [overflowing, setOverflowing] = useState(false)
 	// How many tabs are out of sight right now, so the overflow control can say so.
 	const [hiddenTabs, setHiddenTabs] = useState(0)
-	// The tab in front is always on screen: it scrolls into view when it changes, when the strip
-	// changes, and when the window is resized.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: the strip's length and the selected id are the triggers.
+	// The strip is fitted again after every render (a tab opened, closed, renamed or moved, a new
+	// front tab) and whenever the pane is resized, so the tab in front is always on screen.
 	useLayoutEffect(() => {
 		const element = list.current
 		if (!element) return
-		const reveal = () => {
-			setOverflowing(element.scrollWidth > element.clientWidth + 1)
-			element
-				.querySelector<HTMLElement>('.conversation-tab[data-active="true"]')
-				?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
-			setHiddenTabs(hideClippedTabs(element))
-		}
-		const clip = () => setHiddenTabs(hideClippedTabs(element))
-		reveal()
-		element.addEventListener('scroll', clip, { passive: true })
-		if (typeof ResizeObserver === 'undefined')
-			return () => element.removeEventListener('scroll', clip)
-		const observer = new ResizeObserver(reveal)
-		observer.observe(element)
-		return () => {
-			observer.disconnect()
-			element.removeEventListener('scroll', clip)
-		}
-	}, [selected, strip.length])
-	// Tabs move when the strip re-renders (a reorder, a rename), so the hidden ones are worked out again.
-	useLayoutEffect(() => {
-		if (list.current) setHiddenTabs(hideClippedTabs(list.current))
+		const hidden = hideClippedTabs(element)
+		setHiddenTabs(hidden)
+		setOverflowing(hidden > 0)
 	})
+	useLayoutEffect(() => {
+		const element = list.current
+		const root = element?.parentElement
+		if (!element || !root || typeof ResizeObserver === 'undefined') return
+		const observer = new ResizeObserver(() => {
+			const hidden = hideClippedTabs(element)
+			setHiddenTabs(hidden)
+			setOverflowing(hidden > 0)
+		})
+		observer.observe(root)
+		return () => observer.disconnect()
+	}, [])
 	const stripLabel = (item: StripItem) =>
 		item.kind === 'terminal'
 			? item.tab.title

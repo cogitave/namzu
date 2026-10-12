@@ -10,11 +10,7 @@
 	align-items: center;
 	gap: 4px;
 	min-width: 0;
-	overflow-x: auto;
-	scrollbar-width: none;
-}
-.conversation-tab-list {
-	scroll-padding-inline: 8px;
+	overflow: hidden;
 }
 .conversation-tab-new-more {
 	width: 18px;
@@ -52,7 +48,7 @@
 	display: flex;
 	align-items: center;
 	width: 220px;
-	min-width: 160px;
+	min-width: 136px;
 	height: 32px;
 	/* Tabs give way down to their minimum before the strip scrolls, so none is cut mid-letter early. */
 	flex: 0 1 auto;
@@ -170,9 +166,13 @@
 }
 /* A tab that does not fit in the strip is hidden whole; "Show all tabs" lists it. */
 .conversation-tab[data-clipped="true"] {
-	visibility: hidden;
+	display: none;
 }
 /* An ended terminal reads as ended at a glance: its label is dimmed. */
 .terminal-strip-tab[data-ended] .fitted-title {
 	opacity: 0.55;
+}
+/* The Pal's computer tab sits in the same strip, so it gives way no further than the others. */
+.conversation-tab.computer-workspace-tab {
+	min-width: 136px;
 }
