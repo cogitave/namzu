@@ -1,4 +1,4 @@
-import { appendFile, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -6,15 +6,18 @@ import type { LocalComputerCommandRunner } from '../engine.js'
 import type { WslcSetupHost, WslcSetupProgress } from '../setup/contract.js'
 import {
 	buildElevatedScripts,
+	encodeCommand,
 	isAdministratorAccount,
 	mapElevatedExit,
 	parseProgressLine,
+	runElevatedWith,
 	runElevatedWslcSteps,
 } from '../setup/elevated.js'
 
 const SHA = 'ab'.repeat(32)
 const STATE = 'C:\\Users\\Ali Veli\\AppData\\Local\\Namzu\\setup'
 const MSI = `${STATE}\\wsl.3.0.1.0.x64.msi`
+const RUN_ID = '0123456789abcdef0123456789abcdef'
 
 /** `whoami /groups /fo csv /nh` for an administrator whose token is filtered (not elevated). */
 const ADMIN_FILTERED_TOKEN = [
@@ -67,6 +70,7 @@ describe('script generation', () => {
 				wslPackage: undefined,
 				host: { windowsBuild: 22631 },
 			}),
+			{ runId: RUN_ID, windowsDirectory: 'C:\\Windows' },
 		)
 		expect(scripts.isWindows11).toBe(true)
 		expect(scripts.inner).toMatchSnapshot()
@@ -92,7 +96,10 @@ describe('script generation', () => {
 	})
 
 	it('builds the install script with the digest check inside the elevated process (snapshot)', () => {
-		const scripts = buildElevatedScripts(request({ steps: ['install-wsl'] }))
+		const scripts = buildElevatedScripts(request({ steps: ['install-wsl'] }), {
+			runId: RUN_ID,
+			windowsDirectory: 'C:\\Windows',
+		})
 		expect(scripts.inner).not.toContain('dism.exe')
 		expect(scripts.inner).toContain(`$want = '${SHA}'`)
 		expect(scripts.inner).toContain('Get-FileHash')
@@ -125,13 +132,62 @@ describe('script generation', () => {
 			'-EncodedCommand',
 		])
 		expect(decode(scripts.launcherArgs[5] as string)).toBe(scripts.launcher)
-		const embedded = /'-EncodedCommand', '([A-Za-z0-9+/=]+)'/.exec(scripts.launcher)?.[1]
-		expect(decode(embedded as string)).toBe(scripts.inner)
-		expect(scripts.launcher).toContain('-Verb RunAs')
-		expect(scripts.launcher).toContain('-Wait -PassThru -WindowStyle Hidden')
-		expect(scripts.launcher).toContain('1223')
-		expect(scripts.progressFile).toBe(`${STATE}\\elevated-progress.jsonl`)
+		// The launcher carries the inner script as one literal and encodes it itself.
+		expect(scripts.launcher).toContain(`.Replace('@@USER_SID@@', $sid)`)
+		expect(scripts.launcher).toContain(scripts.inner.replace(/'/g, "''"))
+		expect(scripts.launcher).toContain("$psi.Verb = 'runas'")
+		expect(scripts.launcher).toContain('$psi.UseShellExecute = $true')
+		expect(scripts.launcher).toContain("$psi.WindowStyle = 'Hidden'")
+		expect(scripts.launcher).toContain('[Diagnostics.Process]::Start($psi)')
+		expect(scripts.launcher).not.toContain('-Verb RunAs')
 		expect(scripts.launcherArgs.join(' ').length).toBeLessThan(30000)
+	})
+
+	it('takes tools and folders from the operating system, never from the environment', () => {
+		const { inner, launcher } = buildElevatedScripts(request({}))
+		for (const script of [inner, launcher]) {
+			expect(script).not.toMatch(/\$env:(SystemRoot|windir|TEMP|TMP|ProgramFiles)/i)
+			expect(script).toContain('[Environment]::SystemDirectory')
+			expect(script).toContain('$env:PSModulePath = Join-Path $sys')
+		}
+		expect(inner).toContain('$env:PATH = $sys')
+	})
+
+	it('writes only inside a new folder only administrators can write', () => {
+		const scripts = buildElevatedScripts(request({}), {
+			runId: RUN_ID,
+			windowsDirectory: 'C:\\Windows',
+		})
+		expect(scripts.progressFile).toBe(
+			`C:\\Windows\\Temp\\namzu-wsl-${RUN_ID}\\elevated-progress.jsonl`,
+		)
+		expect(scripts.inner).toContain(`Join-Path $win ('Temp\\namzu-wsl-${RUN_ID}')`)
+		expect(scripts.inner).toContain('if (Test-Path -LiteralPath $dir) { throw "exists" }')
+		expect(scripts.inner).toContain('SetAccessRuleProtection($true, $false)')
+		expect(scripts.inner).toContain('$acl.AddAccessRule((Rule $userSid "Read"')
+		// The log and the progress file live in that folder; the user's own folder is only read.
+		expect(scripts.inner).toContain("$msilog = Join-Path $dir 'wsl-install.log'")
+		expect(scripts.inner).toContain("$log = Join-Path $dir 'elevated-progress.jsonl'")
+		expect(scripts.inner).not.toContain(`${STATE}\\elevated`)
+		expect(scripts.inner).not.toContain(`${STATE}\\wsl-install`)
+		expect(scripts.inner).toContain('ReparsePoint')
+		// The copy of the package sits where even the person who started setup cannot read it.
+		expect(scripts.inner).toContain("$pkg = Join-Path $dir 'pkg'")
+		expect(scripts.inner.indexOf("$pkg = Join-Path $dir 'pkg'")).toBeLessThan(
+			scripts.inner.indexOf('Copy-Item'),
+		)
+	})
+
+	it('refuses a run id that is not 32 hex characters', () => {
+		for (const runId of ['', 'abc', "a'b".padEnd(32, 'a'), 'g'.repeat(32)]) {
+			expect(() => buildElevatedScripts(request({}), { runId })).toThrow(/run id/)
+		}
+	})
+
+	it('keeps the encoded elevated script under half of what ShellExecute accepts', () => {
+		const { inner } = buildElevatedScripts(request({}))
+		const longest = inner.replace('@@USER_SID@@', 'S-1-5-21'.padEnd(184, '1'))
+		expect(encodeCommand(longest).length).toBeLessThan(16000)
 	})
 
 	it('keeps shell metacharacters inside single-quoted literals', () => {
@@ -143,7 +199,6 @@ describe('script generation', () => {
 			}),
 		)
 		expect(scripts.inner).toContain(`$src = '${state}\\wsl.msi'`)
-		expect(scripts.inner).toContain(`$log = '${state}\\elevated-progress.jsonl'`)
 	})
 })
 
@@ -267,6 +322,15 @@ describe('isAdministratorAccount', () => {
 	it('sees the Administrators group of an administrator even with a filtered token', () => {
 		expect(isAdministratorAccount(ADMIN_FILTERED_TOKEN)).toBe(true)
 	})
+	it('compares the SID column exactly, not as text anywhere in the output', () => {
+		const lookalike = [
+			'"Contoso\\S-1-5-32-544 admins","Group","S-1-5-21-1-2-3-1001","Mandatory group"',
+			'"BUILTIN\\Users","Alias","S-1-5-32-545","Mandatory group"',
+			'"Group S-1-5-32-5445","Alias","S-1-5-32-5445","Mandatory group"',
+		].join('\r\n')
+		expect(isAdministratorAccount(lookalike)).toBe(false)
+		expect(isAdministratorAccount('S-1-5-32-544')).toBe(false)
+	})
 	it('does not see it for a standard user', () => {
 		expect(isAdministratorAccount(STANDARD_USER)).toBe(false)
 		expect(isAdministratorAccount('')).toBe(false)
@@ -318,7 +382,14 @@ describe('runElevatedWslcSteps', () => {
 		binary: string
 		args: readonly string[]
 		signal?: AbortSignal
+		env?: NodeJS.ProcessEnv
 	}
+
+	const runId = RUN_ID
+	const progressFile = () =>
+		join(directory, 'Temp', `namzu-wsl-${runId}`, 'elevated-progress.jsonl')
+	const pinned = () => ({ runId, windowsDirectory: directory })
+	const run = (request: Parameters<typeof runElevatedWith>[0]) => runElevatedWith(request, pinned())
 
 	function setup(
 		launcher: (call: Call, progressFile: string) => Promise<string>,
@@ -328,20 +399,21 @@ describe('runElevatedWslcSteps', () => {
 		const events: WslcSetupProgress[] = []
 		const runner: LocalComputerCommandRunner = {
 			async run(binary, args, options) {
-				const call = { binary, args, signal: options?.signal }
+				const call = { binary, args, signal: options?.signal, env: options?.env }
+				await mkdir(join(directory, 'Temp', `namzu-wsl-${runId}`), { recursive: true })
 				calls.push(call)
 				if (binary.endsWith('whoami.exe')) {
 					if (whoami instanceof Error) throw whoami
 					return whoami
 				}
-				return launcher(call, join(directory, 'elevated-progress.jsonl'))
+				return launcher(call, progressFile())
 			},
 		}
 		const host = {
 			platform: 'win32',
 			arch: 'x64',
 			windowsBuild: 22631,
-			// A real directory stands in for the setup directory, so the progress file can be read back.
+			// A real directory stands in for the setup directory and the Windows folder, so the progress file can be read back.
 			stateDirectory: directory,
 			env: { SystemRoot: 'C:\\Windows' },
 			runner,
@@ -360,28 +432,26 @@ describe('runElevatedWslcSteps', () => {
 
 	it('starts a hidden-window launcher of Windows PowerShell with the encoded script', async () => {
 		const { calls, host } = setup(async () => 'NAMZU_EXIT=0\r\n')
-		const outcome = await runElevatedWslcSteps({ ...both(), host })
+		const outcome = await run({ ...both(), host })
 		expect(outcome).toEqual({ outcome: 'ok' })
 		expect(calls).toHaveLength(1)
-		expect(calls[0]?.binary).toBe('C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe')
-		const scripts = buildElevatedScripts({ ...both(), host })
+		expect(calls[0]?.binary).toBe(`${directory}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`)
+		const scripts = buildElevatedScripts({ ...both(), host }, pinned())
 		expect(calls[0]?.args).toEqual(scripts.launcherArgs)
 	})
 
 	it('maps 0 and 3010', async () => {
-		expect(
-			await runElevatedWslcSteps({ ...both(), host: setup(async () => 'NAMZU_EXIT=0').host }),
-		).toEqual({ outcome: 'ok' })
-		expect(
-			await runElevatedWslcSteps({ ...both(), host: setup(async () => 'NAMZU_EXIT=3010').host }),
-		).toEqual({
+		expect(await run({ ...both(), host: setup(async () => 'NAMZU_EXIT=0').host })).toEqual({
+			outcome: 'ok',
+		})
+		expect(await run({ ...both(), host: setup(async () => 'NAMZU_EXIT=3010').host })).toEqual({
 			outcome: 'restart-required',
 		})
 	})
 
 	it('reports an administrator who declined the prompt as cancelled', async () => {
 		const { host, calls } = setup(async () => 'NAMZU_EXIT=1223')
-		expect(await runElevatedWslcSteps({ ...both(), host })).toEqual({ outcome: 'cancelled' })
+		expect(await run({ ...both(), host })).toEqual({ outcome: 'cancelled' })
 		expect(calls.map((call) => call.binary.split('\\').pop())).toEqual([
 			'powershell.exe',
 			'whoami.exe',
@@ -391,18 +461,18 @@ describe('runElevatedWslcSteps', () => {
 
 	it('reports a standard user who did not get an administrator to approve as needs-administrator', async () => {
 		const { host } = setup(async () => 'NAMZU_EXIT=1223', STANDARD_USER)
-		expect(await runElevatedWslcSteps({ ...both(), host })).toEqual({
+		expect(await run({ ...both(), host })).toEqual({
 			outcome: 'needs-administrator',
 		})
 		const failedLaunch = setup(async () => 'NAMZU_LAUNCH_FAILED', STANDARD_USER)
-		expect(await runElevatedWslcSteps({ ...both(), host: failedLaunch.host })).toEqual({
+		expect(await run({ ...both(), host: failedLaunch.host })).toEqual({
 			outcome: 'needs-administrator',
 		})
 	})
 
 	it('does not ask whoami when the elevated steps ran', async () => {
 		const { host, calls } = setup(async () => 'NAMZU_EXIT=21', STANDARD_USER)
-		await runElevatedWslcSteps({ ...both(), host })
+		await run({ ...both(), host })
 		expect(calls).toHaveLength(1)
 	})
 
@@ -415,7 +485,7 @@ describe('runElevatedWslcSteps', () => {
 			async () => 'NAMZU_LAUNCH_FAILED',
 		]) {
 			const { host } = setup(launcher)
-			expect(await runElevatedWslcSteps({ ...both(), host })).toEqual({
+			expect(await run({ ...both(), host })).toEqual({
 				outcome: 'failed',
 				step: 'enable-windows-features',
 				code: 'elevation-failed',
@@ -432,7 +502,7 @@ describe('runElevatedWslcSteps', () => {
 			)
 			return 'NAMZU_EXIT=20'
 		})
-		expect(await runElevatedWslcSteps({ ...both(), host })).toEqual({
+		expect(await run({ ...both(), host })).toEqual({
 			outcome: 'failed',
 			step: 'enable-windows-features',
 			code: 'feature-enable-failed',
@@ -443,7 +513,7 @@ describe('runElevatedWslcSteps', () => {
 	it('maps install failures and a digest mismatch to wsl-install-failed', async () => {
 		for (const code of [21, 22]) {
 			const { host } = setup(async () => `NAMZU_EXIT=${code}`)
-			expect(await runElevatedWslcSteps({ ...both(), host })).toMatchObject({
+			expect(await run({ ...both(), host })).toMatchObject({
 				outcome: 'failed',
 				step: 'install-wsl',
 				code: 'wsl-install-failed',
@@ -460,7 +530,7 @@ describe('runElevatedWslcSteps', () => {
 			)
 			return 'NAMZU_EXIT=3010'
 		})
-		await runElevatedWslcSteps({ ...both(), host, onProgress })
+		await run({ ...both(), host, onProgress })
 		expect(events).toEqual([
 			{ step: 'enable-windows-features', phase: 'started' },
 			{ step: 'enable-windows-features', phase: 'finished', result: 'restart-required' },
@@ -493,9 +563,9 @@ describe('runElevatedWslcSteps', () => {
 			onProgress(event)
 			notify()
 		}
-		const pending = runElevatedWslcSteps({ ...both(), host, onProgress: watched })
+		const pending = run({ ...both(), host, onProgress: watched })
 		await hasStarted
-		const file = join(directory, 'elevated-progress.jsonl')
+		const file = progressFile()
 		await writeFile(file, '{"step":"enable-windows-features","phase":"started"}\n')
 		const first = seen(1)
 		await vi.advanceTimersByTimeAsync(250)
@@ -512,13 +582,43 @@ describe('runElevatedWslcSteps', () => {
 		expect(events).toHaveLength(2)
 	})
 
-	it('discards a progress file left by an earlier run', async () => {
+	it('ignores a progress file of another run', async () => {
+		const other = join(directory, 'Temp', `namzu-wsl-${'f'.repeat(32)}`)
+		await mkdir(other, { recursive: true })
 		await writeFile(
-			join(directory, 'elevated-progress.jsonl'),
+			join(other, 'elevated-progress.jsonl'),
 			'{"step":"install-wsl","phase":"failed","exitCode":1603}\n',
 		)
 		const { host } = setup(async () => 'NAMZU_EXIT=20')
-		expect(await runElevatedWslcSteps({ ...both(), host })).toMatchObject({ exitCode: 20 })
+		expect(await run({ ...both(), host })).toMatchObject({ exitCode: 20 })
+	})
+
+	it('launches the real Windows PowerShell with a clean environment whatever the host environment says', async () => {
+		const { calls, host } = setup(async () => 'NAMZU_EXIT=0')
+		const hostile = {
+			...host,
+			env: {
+				SystemRoot: 'C:\\Users\\evil',
+				windir: 'D:\\evil',
+				Path: 'C:\\evil',
+				PSModulePath: 'C:\\evil\\modules',
+				KEEP: 'yes',
+			},
+		} as unknown as WslcSetupHost
+		const outcome = await runElevatedWslcSteps({ ...both(), host: hostile })
+		expect(outcome).toEqual({ outcome: 'ok' })
+		expect(calls[0]?.binary).toBe('C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe')
+		expect(calls[0]?.env).toEqual({
+			KEEP: 'yes',
+			SystemRoot: 'C:\\Windows',
+			windir: 'C:\\Windows',
+			PATH: 'C:\\Windows\\System32',
+		})
+		const standard = await runElevatedWslcSteps({
+			...both(),
+			host: setup(async () => 'NAMZU_EXIT=1223', STANDARD_USER).host,
+		})
+		expect(standard).toEqual({ outcome: 'needs-administrator' })
 	})
 
 	it('stops waiting when the signal aborts, and passes the signal to the launcher', async () => {
@@ -534,7 +634,7 @@ describe('runElevatedWslcSteps', () => {
 			return new Promise<string>(() => {})
 		})
 		vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
-		const pending = runElevatedWslcSteps({ ...both(), host, signal: controller.signal })
+		const pending = run({ ...both(), host, signal: controller.signal })
 		const settled = pending.then(
 			() => 'resolved',
 			(error: unknown) => error,
@@ -548,7 +648,7 @@ describe('runElevatedWslcSteps', () => {
 	it('does not start anything for a request that fails validation', async () => {
 		const { host, calls } = setup(async () => 'NAMZU_EXIT=0')
 		await expect(
-			runElevatedWslcSteps({
+			run({
 				steps: ['install-wsl'],
 				wslPackage: { path: 'C:\\x.msi', sha256: SHA },
 				host,

@@ -661,8 +661,10 @@ they land each one throws "not implemented yet".
   continues.
 - **The elevated step.** Turning on Windows features and installing WSL need
   an administrator, so `runElevatedWslcSteps` runs both in one process. It
-  starts Windows PowerShell, a Microsoft-signed program, with
-  `Start-Process -Verb RunAs`, and gives it a fixed script through
+  starts Windows PowerShell, a Microsoft-signed program, through
+  a launcher that asks Windows for administrator rights (`ProcessStartInfo`
+  with the `runas` verb, so a declined prompt surfaces as a Windows error 1223
+  directly), and gives the elevated copy a fixed script through
   `-EncodedCommand`; there is no script file or helper program anyone could
   edit or that Windows would name as an unknown publisher. Windows shows its
   own permission prompt once (a standard user is asked for an administrator's
@@ -672,31 +674,47 @@ they land each one throws "not implemented yet".
   build below 22000), and `msiexec.exe /i ... /qn /norestart /l*v` for the
   package. The steps, the package path (absolute, inside the setup directory,
   ending `.msi`, no quotes or line breaks) and its digest are checked before the
-  script is built, and reach it only as single-quoted literals. The elevated
-  process copies the package into a folder only administrators can write, checks
-  its SHA-256 there against the pinned digest and installs that copy, so the
-  file cannot change after the check. It writes progress lines to
-  `<state directory>\elevated-progress.jsonl`, which the caller reads while it
-  waits and turns into progress events. Exit codes of the elevated script:
+  script is built, and reach it only as single-quoted literals. Both scripts
+  take the system folder from the operating system (`[Environment]::SystemDirectory`),
+  reset `PATH` and `PSModulePath` first, and the launcher is started with
+  `SystemRoot`, `windir` and `PATH` set to the real Windows folder, so an
+  environment the caller inherited cannot choose which program runs elevated.
+  The elevated process never writes where a standard user can write: it creates
+  a new folder `<Windows>\Temp\namzu-wsl-<random id>` that only administrators
+  can change (the person who started setup may read it), refuses to continue if
+  that folder already exists or is a link, copies the package into a
+  subfolder nobody but administrators can enter (and refuses a package that is
+  a link), checks its SHA-256 there against the pinned digest and installs that
+  copy, so the file cannot change after the check. The progress lines
+  (`elevated-progress.jsonl`) and the installer log (`wsl-install.log`) are
+  written into that folder; the caller reads progress from it while it waits
+  and turns it into progress events. The folder, small unless the installer log
+  is, stays after the run because the caller cannot delete it. The encoded
+  elevated script is held under 16,000 characters (about 8 KB today), well
+  under what a RunAs launch accepts. Exit codes of the elevated script:
   0 done, 3010 Windows needs a restart, 20 enabling features failed, 21 the
-  install failed, 22 the package did not match the pinned digest. They map to
+  install failed, 22 the package did not match the pinned digest, 23 the
+  protected folder could not be created. They map to
   `ok`, `restart-required`, and `failed` with `feature-enable-failed` or
   `wsl-install-failed` and the Windows exit code for a Details fold; a launch
-  that does not start is `elevation-failed`. Declining the prompt (Windows
-  error 1223) is `cancelled`, except for an account that is not an
-  administrator at all (`whoami /groups` lists no `S-1-5-32-544`, not even as
-  deny-only), which is `needs-administrator`. Stopping the signal stops waiting
-  and reading progress; the elevated process cannot be stopped from here and
-  finishes its steps once the person has approved.
+  that does not start, or code 23, is `elevation-failed`. Declining the prompt
+  (Windows error 1223, or a message saying the operation was canceled by the
+  user) is `cancelled`, except for an account that is not an
+  administrator at all (the SID column of `whoami /groups` has no
+  `S-1-5-32-544` row, not even as deny-only), which is `needs-administrator`.
+  When `whoami` cannot run the account is not called a standard user. Stopping
+  the signal stops waiting and reading progress; the elevated process cannot be
+  stopped from here and finishes its steps once the person has approved.
 - **The WSL package.** Setup installs Microsoft's `wsl.3.0.1.0.x64.msi` from
   the 3.0.1 release on GitHub: 367,669,248 bytes (350.6 MB), SHA-256
   `28b1a0d013640a2ac95898ea705fa186e5b4ff767a1c1b49257161bc106599c6`, the
   digest the release reports and the one recomputed from a download.
   `downloadWslPackage` writes `<name>.part`, resumes it with a `Range` request
-  after an interruption, retries network trouble and 5xx answers after 1, 2, 4
-  and 8 seconds (five attempts), fails at once on other 4xx answers, checks size
-  and digest, renames on success and deletes a file that does not match
-  (`download-corrupt`). The image is not downloaded; it ships inside the
+  after an interruption (only when the answer's `Content-Range` starts at the
+  byte asked for; otherwise it starts again from zero), retries network trouble
+  and 5xx answers after 1, 2, 4 and 8 seconds (five attempts), fails at once on
+  other 4xx answers, checks the digest, renames on success and deletes a file
+  that does not match (`download-corrupt`). The image is not downloaded; it ships inside the
   installer.
 - **Resume at sign-in.** `registerResumeAtSignIn` writes the value
   `NamzuPalComputerSetup` (REG_SZ) under `host.resumeRegistryKey` with

@@ -1,4 +1,5 @@
-import { mkdir, readFile, rm } from 'node:fs/promises'
+import { randomBytes } from 'node:crypto'
+import { mkdir, readFile } from 'node:fs/promises'
 import { posix, win32 } from 'node:path'
 import type {
 	RunElevatedWslcSteps,
@@ -37,6 +38,7 @@ export const ELEVATED_EXIT = {
 	enableFeaturesFailed: 20,
 	installWslFailed: 21,
 	packageMismatch: 22,
+	folderFailed: 23,
 	cancelled: 1223,
 } as const
 
@@ -49,7 +51,6 @@ const POLL_MS = 250
 /** Windows refuses a command line longer than 32,767 characters. */
 const MAX_COMMAND_LINE = 30000
 const PROGRESS_FILE = 'elevated-progress.jsonl'
-const MSI_LOG_FILE = 'wsl-install.log'
 
 type Request = Parameters<RunElevatedWslcSteps>[0]
 type PathApi = typeof win32
@@ -86,14 +87,37 @@ function inside(api: PathApi, directory: string, candidate: string): boolean {
 }
 
 export interface ElevatedScripts {
-	/** The script that runs elevated. */
+	/** The script that runs elevated (the user's SID is filled in by the launcher). */
 	readonly inner: string
 	/** The script the non-elevated launcher runs; it starts `inner`. */
 	readonly launcher: string
 	/** `powershell.exe` arguments that run the launcher. */
 	readonly launcherArgs: readonly string[]
+	/** Where the elevated process writes progress, under the protected folder. */
 	readonly progressFile: string
 	readonly isWindows11: boolean
+}
+
+export interface ElevatedBuildOptions {
+	/** 32 hex characters naming the protected folder; random per run. */
+	readonly runId?: string
+	/** The Windows folder as the host reports it, used only to locate the progress file. */
+	readonly windowsDirectory?: string
+}
+
+const RUN_ID = /^[0-9a-f]{32}$/
+const USER_SID_PLACEHOLDER = '@@USER_SID@@'
+/** The encoded elevated script must stay well under what ShellExecute accepts for a RunAs launch. */
+const MAX_INNER_ENCODED = 16000
+
+/** The Windows folder as a path this code may use: the real one, never an environment-chosen one. */
+function trustedWindowsDirectory(env: NodeJS.ProcessEnv): string {
+	const claimed = (env.SystemRoot ?? env.windir ?? '').replace(/[\\/]+$/, '')
+	return /^[A-Za-z]:\\(Windows|WINNT)$/i.test(claimed) ? claimed : 'C:\\Windows'
+}
+
+function joinFor(base: string, ...parts: string[]): string {
+	return (usesWindowsPaths(base) ? win32 : posix).join(base, ...parts)
 }
 
 /**
@@ -101,7 +125,10 @@ export interface ElevatedScripts {
  * entry point is {@link runElevatedWslcSteps}. Throws on any request that
  * could put a foreign value into a script.
  */
-export function buildElevatedScripts(request: Request): ElevatedScripts {
+export function buildElevatedScripts(
+	request: Request,
+	options: ElevatedBuildOptions = {},
+): ElevatedScripts {
 	const { steps, wslPackage, host } = request
 	if (host.platform !== 'win32') throw new Error('Elevated setup runs only on Windows.')
 	if (!Array.isArray(steps) || steps.length === 0) {
@@ -127,8 +154,11 @@ export function buildElevatedScripts(request: Request): ElevatedScripts {
 	if (!api.isAbsolute(stateDirectory))
 		throw new Error('The setup directory is not an absolute path.')
 	checkLiteralPath('The setup directory', stateDirectory)
-	const progressFile = api.join(stateDirectory, PROGRESS_FILE)
-	const msiLog = api.join(stateDirectory, MSI_LOG_FILE)
+
+	const runId = options.runId ?? randomBytes(16).toString('hex')
+	if (!RUN_ID.test(runId)) throw new Error('The run id is not 32 hex characters.')
+	const windowsDirectory = options.windowsDirectory ?? trustedWindowsDirectory(host.env)
+	const progressFile = joinFor(windowsDirectory, 'Temp', `namzu-wsl-${runId}`, PROGRESS_FILE)
 
 	let installBlock = ''
 	if (wanted.has('install-wsl')) {
@@ -146,20 +176,24 @@ export function buildElevatedScripts(request: Request): ElevatedScripts {
 		}
 		if (!/^[0-9a-fA-F]{64}$/.test(sha256))
 			throw new Error('The WSL package digest is not a SHA-256.')
-		installBlock = installBlockFor(path, sha256.toLowerCase(), msiLog)
+		installBlock = installBlockFor(path, sha256.toLowerCase())
 	} else if (wslPackage !== undefined) {
 		throw new Error('A WSL package was given but install-wsl was not requested.')
 	}
 
 	const inner = innerScript({
-		progressFile,
+		runId,
 		enable: wanted.has('enable-windows-features'),
 		install: wanted.has('install-wsl'),
 		isWindows11,
 		installBlock,
 	})
-	const innerEncoded = encodeCommand(inner)
-	const launcher = launcherScript(innerEncoded)
+	// A real SID is at most 184 characters; budget for the longest.
+	const sample = inner.replace(USER_SID_PLACEHOLDER, 'S-1-5-21'.padEnd(184, '1'))
+	if (encodeCommand(sample).length > MAX_INNER_ENCODED) {
+		throw new Error('The elevated script is too long.')
+	}
+	const launcher = launcherScript(inner)
 	const launcherArgs = [
 		'-NoProfile',
 		'-NonInteractive',
@@ -178,33 +212,32 @@ export function encodeCommand(script: string): string {
 	return Buffer.from(script, 'utf16le').toString('base64')
 }
 
-function installBlockFor(msi: string, sha256: string, msiLog: string): string {
+function installBlockFor(msi: string, sha256: string): string {
 	return [
 		"$cur = 'install-wsl'",
 		"Note $cur 'started'",
 		`$src = ${psLiteral(msi)}`,
 		`$want = ${psLiteral(sha256)}`,
-		`$msilog = ${psLiteral(msiLog)}`,
-		// The package is copied into a folder only administrators can write, then
+		// The package is copied into a folder only administrators can enter, then
 		// hashed and installed from there, so nothing can swap it after the check.
-		"$dir = Join-Path $env:SystemRoot ('Temp\\namzu-wsl-' + [guid]::NewGuid().ToString('N'))",
+		"$pkg = Join-Path $dir 'pkg'",
 		'try {',
-		'  $acl = New-Object Security.AccessControl.DirectorySecurity',
-		'  $acl.SetAccessRuleProtection($true, $false)',
-		"  foreach ($sid in 'S-1-5-32-544', 'S-1-5-18') {",
-		'    $id = New-Object Security.Principal.SecurityIdentifier $sid',
-		"    $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($id, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')))",
-		'  }',
-		'  (New-Object IO.DirectoryInfo $dir).Create($acl)',
-		"  $msi = Join-Path $dir 'wsl.msi'",
+		'  $item = Get-Item -LiteralPath $src -Force',
+		'  if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "link" }',
+		'  $pacl = New-Object Security.AccessControl.DirectorySecurity',
+		'  $pacl.SetAccessRuleProtection($true, $false)',
+		'  foreach ($sid in $adminSids) { $pacl.AddAccessRule((Rule $sid "FullControl" "ContainerInherit,ObjectInherit")) }',
+		'  (New-Object IO.DirectoryInfo $pkg).Create($pacl)',
+		"  $msi = Join-Path $pkg 'wsl.msi'",
 		'  Copy-Item -LiteralPath $src -Destination $msi',
 		'  $got = (Get-FileHash -LiteralPath $msi -Algorithm SHA256).Hash',
 		'  if ($got -ine $want) {',
 		"    Note $cur 'failed' @{ exitCode = 22 }",
 		`    $code = ${ELEVATED_EXIT.packageMismatch}`,
 		'  } else {',
+		"    $msilog = Join-Path $dir 'wsl-install.log'",
 		"    $args2 = @('/i', ('\"' + $msi + '\"'), '/qn', '/norestart', '/l*v', ('\"' + $msilog + '\"'))",
-		"    $p = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\\msiexec.exe') -ArgumentList $args2 -Wait -PassThru",
+		"    $p = Start-Process -FilePath (Join-Path $sys 'msiexec.exe') -ArgumentList $args2 -Wait -PassThru",
 		'    $c = $p.ExitCode',
 		'    if ($c -eq 0) {',
 		"      Note $cur 'finished' @{ result = 'ok' }",
@@ -217,13 +250,13 @@ function installBlockFor(msi: string, sha256: string, msiLog: string): string {
 		'    }',
 		'  }',
 		'} finally {',
-		'  Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue',
+		'  Remove-Item -LiteralPath $pkg -Recurse -Force -ErrorAction SilentlyContinue',
 		'}',
 	].join('\n')
 }
 
 function innerScript(parts: {
-	progressFile: string
+	runId: string
 	enable: boolean
 	install: boolean
 	isWindows11: boolean
@@ -234,17 +267,42 @@ function innerScript(parts: {
 		: ["'VirtualMachinePlatform'", "'Microsoft-Windows-Subsystem-Linux'"]
 	const lines: string[] = [
 		"$ErrorActionPreference = 'Stop'",
-		`$log = ${psLiteral(parts.progressFile)}`,
-		'function Note($step, $phase, $extra) {',
-		'  $o = [ordered]@{ step = $step; phase = $phase }',
-		'  if ($extra) { foreach ($k in $extra.Keys) { $o[$k] = $extra[$k] } }',
-		'  $line = (ConvertTo-Json -InputObject $o -Compress) + "`n"',
-		'  [IO.File]::AppendAllText($log, $line, (New-Object Text.UTF8Encoding $false))',
+		// Tools and modules come from the operating system, never from the environment.
+		'$sys = [Environment]::SystemDirectory',
+		'$win = [Environment]::GetFolderPath([Environment+SpecialFolder]::Windows)',
+		'$env:PATH = $sys',
+		"$env:PSModulePath = Join-Path $sys 'WindowsPowerShell\\v1.0\\Modules'",
+		`$userSid = '${USER_SID_PLACEHOLDER}'`,
+		"$adminSids = @('S-1-5-32-544', 'S-1-5-18')",
+		'function Rule($sid, $rights, $inherit) {',
+		'  $id = New-Object Security.Principal.SecurityIdentifier $sid',
+		"  New-Object Security.AccessControl.FileSystemAccessRule($id, $rights, $inherit, 'None', 'Allow')",
 		'}',
 		'$code = 0',
 		'$restart = $false',
 		"$cur = ''",
+		'$log = $null',
+		'function Note($step, $phase, $extra) {',
+		'  try {',
+		'    $o = [ordered]@{ step = $step; phase = $phase }',
+		'    if ($extra) { foreach ($k in $extra.Keys) { $o[$k] = $extra[$k] } }',
+		'    $line = (ConvertTo-Json -InputObject $o -Compress) + "`n"',
+		'    [IO.File]::AppendAllText($log, $line, (New-Object Text.UTF8Encoding $false))',
+		'  } catch {}',
+		'}',
 		'try {',
+		// The folder for progress and logs: new, owned by administrators, readable
+		// (not writable) by the person who started setup. Elevated code writes
+		// nowhere a standard user can write.
+		`  $dir = Join-Path $win ('Temp\\namzu-wsl-${parts.runId}')`,
+		'  if (Test-Path -LiteralPath $dir) { throw "exists" }',
+		'  $acl = New-Object Security.AccessControl.DirectorySecurity',
+		'  $acl.SetAccessRuleProtection($true, $false)',
+		'  foreach ($sid in $adminSids) { $acl.AddAccessRule((Rule $sid "FullControl" "ContainerInherit,ObjectInherit")) }',
+		'  $acl.AddAccessRule((Rule $userSid "Read" "ContainerInherit,ObjectInherit"))',
+		'  (New-Object IO.DirectoryInfo $dir).Create($acl)',
+		'  if ((Get-Item -LiteralPath $dir -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "link" }',
+		"  $log = Join-Path $dir 'elevated-progress.jsonl'",
 	]
 	if (parts.enable) {
 		lines.push(
@@ -252,7 +310,7 @@ function innerScript(parts: {
 			"  Note $cur 'started'",
 			'  $dismRestart = $false',
 			`  foreach ($name in @(${features.join(', ')})) {`,
-			'    & (Join-Path $env:SystemRoot \'System32\\dism.exe\') /online /enable-feature "/featurename:$name" /all /norestart | Out-Null',
+			'    & (Join-Path $sys \'dism.exe\') /online /enable-feature "/featurename:$name" /all /norestart | Out-Null',
 			'    $c = $LASTEXITCODE',
 			'    if ($c -eq 3010) { $dismRestart = $true }',
 			"    elseif ($c -ne 0) { Note $cur 'failed' @{ exitCode = $c }; $code = " +
@@ -274,8 +332,8 @@ function innerScript(parts: {
 	}
 	lines.push(
 		'} catch {',
-		`  if ($cur -eq 'install-wsl') { $code = ${ELEVATED_EXIT.installWslFailed} } else { $code = ${ELEVATED_EXIT.enableFeaturesFailed} }`,
-		"  try { Note $cur 'failed' @{ exitCode = 1 } } catch {}",
+		`  if ($cur -eq 'install-wsl') { $code = ${ELEVATED_EXIT.installWslFailed} } elseif ($cur -eq '') { $code = ${ELEVATED_EXIT.folderFailed} } else { $code = ${ELEVATED_EXIT.enableFeaturesFailed} }`,
+		"  Note $cur 'failed' @{ exitCode = 1 }",
 		'}',
 		`if ($code -eq 0 -and $restart) { $code = ${ELEVATED_EXIT.restartRequired} }`,
 		'exit $code',
@@ -283,21 +341,35 @@ function innerScript(parts: {
 	return lines.join('\n')
 }
 
-function launcherScript(innerEncoded: string): string {
+function launcherScript(inner: string): string {
 	return [
 		"$ErrorActionPreference = 'Stop'",
+		'$sys = [Environment]::SystemDirectory',
+		'$env:PATH = $sys',
+		"$env:PSModulePath = Join-Path $sys 'WindowsPowerShell\\v1.0\\Modules'",
 		'try {',
-		"  $ps = Join-Path $env:SystemRoot 'System32\\WindowsPowerShell\\v1.0\\powershell.exe'",
-		`  $a = @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', ${psLiteral(innerEncoded)})`,
-		'  $p = Start-Process -FilePath $ps -ArgumentList $a -Verb RunAs -Wait -PassThru -WindowStyle Hidden',
+		"  $ps = Join-Path $sys 'WindowsPowerShell\\v1.0\\powershell.exe'",
+		'  $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value',
+		`  $inner = ${psLiteral(inner)}.Replace('${USER_SID_PLACEHOLDER}', $sid)`,
+		'  $enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($inner))',
+		'  $psi = New-Object Diagnostics.ProcessStartInfo',
+		'  $psi.FileName = $ps',
+		"  $psi.Arguments = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ' + $enc",
+		"  $psi.Verb = 'runas'",
+		'  $psi.UseShellExecute = $true',
+		"  $psi.WindowStyle = 'Hidden'",
+		// ShellExecute raises a Win32Exception straight from the declined prompt.
+		'  $p = [Diagnostics.Process]::Start($psi)',
+		'  $p.WaitForExit()',
 		"  Write-Output ('NAMZU_EXIT=' + $p.ExitCode)",
 		'} catch {',
 		'  $e = $_.Exception',
-		'  $n = $null',
-		'  while ($e -ne $null -and $n -eq $null) {',
-		'    if ($e -is [ComponentModel.Win32Exception]) { $n = $e.NativeErrorCode } else { $e = $e.InnerException }',
+		'  $declined = $false',
+		'  while ($e -ne $null) {',
+		`    if (($e -is [ComponentModel.Win32Exception] -and $e.NativeErrorCode -eq ${ELEVATED_EXIT.cancelled}) -or $e.Message -match 'cancel+ed by the user') { $declined = $true }`,
+		'    $e = $e.InnerException',
 		'  }',
-		`  if ($n -eq ${ELEVATED_EXIT.cancelled}) { Write-Output 'NAMZU_EXIT=${ELEVATED_EXIT.cancelled}'; exit 0 }`,
+		`  if ($declined) { Write-Output 'NAMZU_EXIT=${ELEVATED_EXIT.cancelled}'; exit 0 }`,
 		"  Write-Output 'NAMZU_LAUNCH_FAILED'",
 		'}',
 	].join('\n')
@@ -305,7 +377,11 @@ function launcherScript(innerEncoded: string): string {
 
 /** What `whoami /groups` lists for an account: an administrator, even with a filtered token, has the group. */
 export function isAdministratorAccount(whoamiGroupsOutput: string): boolean {
-	return whoamiGroupsOutput.includes(STANDARD_ADMIN_GROUP_SID)
+	for (const row of whoamiGroupsOutput.split(/\r?\n/)) {
+		const cells = [...row.matchAll(/"((?:[^"]|"")*)"/g)].map((m) => m[1] ?? '')
+		if (cells[2] === STANDARD_ADMIN_GROUP_SID) return true
+	}
+	return false
 }
 
 interface ProgressLine {
@@ -424,22 +500,47 @@ class ProgressTail {
 	}
 }
 
-export const runElevatedWslcSteps: RunElevatedWslcSteps = async (request) => {
+/** The launcher runs with the host's environment, except for the variables that pick tools and modules. */
+function launcherEnvironment(host: WslcSetupHost, windowsDirectory: string): NodeJS.ProcessEnv {
+	const env: NodeJS.ProcessEnv = { ...host.env }
+	for (const name of Object.keys(env)) {
+		if (/^(PSModulePath|PSExecutionPolicyPreference|PATH|SystemRoot|windir)$/i.test(name)) {
+			delete env[name]
+		}
+	}
+	return {
+		...env,
+		SystemRoot: windowsDirectory,
+		windir: windowsDirectory,
+		PATH: `${windowsDirectory}\\System32`,
+	}
+}
+
+export const runElevatedWslcSteps: RunElevatedWslcSteps = (request) => runElevatedWith(request, {})
+
+/** {@link runElevatedWslcSteps} with the run id and Windows folder a test pins. */
+export async function runElevatedWith(
+	request: Request,
+	options: ElevatedBuildOptions,
+): Promise<WslcElevatedOutcome> {
 	const { host, signal, onProgress } = request
-	const scripts = buildElevatedScripts(request)
+	const scripts = buildElevatedScripts(request, options)
 	const steps = request.steps as readonly ElevatedStep[]
 	signal?.throwIfAborted()
 
 	await mkdir(host.stateDirectory, { recursive: true })
-	await rm(scripts.progressFile, { force: true })
 
-	const powershell = `${(host.env.SystemRoot ?? host.env.windir ?? 'C:\\Windows').replace(/[\\/]+$/, '')}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`
+	const windowsDirectory = options.windowsDirectory ?? trustedWindowsDirectory(host.env)
+	const powershell = `${windowsDirectory}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`
 	const tail = new ProgressTail(scripts.progressFile, onProgress)
 
 	type Settled = { ok: true; output: string } | { ok: false }
 	let finished = false
 	const launched: Promise<Settled> = host.runner
-		.run(powershell, scripts.launcherArgs, { signal })
+		.run(powershell, scripts.launcherArgs, {
+			signal,
+			env: launcherEnvironment(host, windowsDirectory),
+		})
 		.then(
 			(output): Settled => ({ ok: true, output }),
 			(): Settled => ({ ok: false }),
@@ -477,25 +578,27 @@ export const runElevatedWslcSteps: RunElevatedWslcSteps = async (request) => {
 	if (mapped === 'cancelled' || mapped === 'launch-failed') {
 		// A standard user who cannot supply an administrator's approval reads
 		// differently from an administrator who said no.
-		const standard = await isStandardUser(host, signal)
+		const standard = await isStandardUser(host, windowsDirectory, signal)
 		if (standard) return { outcome: 'needs-administrator' }
 		return mapped === 'cancelled' ? { outcome: 'cancelled' } : failed()
 	}
 	return mapped
 }
 
-async function isStandardUser(host: WslcSetupHost, signal?: AbortSignal): Promise<boolean> {
-	const root = (host.env.SystemRoot ?? host.env.windir ?? 'C:\\Windows').replace(/[\\/]+$/, '')
+async function isStandardUser(
+	host: WslcSetupHost,
+	root: string,
+	signal?: AbortSignal,
+): Promise<boolean> {
 	try {
 		const output = await host.runner.run(
 			`${root}\\System32\\whoami.exe`,
 			['/groups', '/fo', 'csv', '/nh'],
-			{
-				signal,
-			},
+			{ signal, env: launcherEnvironment(host, root) },
 		)
 		return !isAdministratorAccount(output)
 	} catch {
+		// Not knowing is not a reason to tell an administrator they are not one.
 		return false
 	}
 }

@@ -120,6 +120,19 @@ describe('downloadWslPackage against a local server', () => {
 		expect(first?.phase === 'progress' && first.done).toBeGreaterThanOrEqual(700_000)
 	})
 
+	it('discards a partial file longer than the package and asks for the whole file', async () => {
+		const { url, requests } = await serve(rangeHandler(payload))
+		await writeFile(
+			join(directory, 'wsl.3.0.1.0.x64.msi.part'),
+			Buffer.concat([payload, randomBytes(50)]),
+		)
+		const result = await downloadWslPackage({ pinned: pinnedFor(url), directory })
+		expect(result.outcome).toBe('ok')
+		expect(requests).toHaveLength(1)
+		expect(requests[0]?.headers.range).toBeUndefined()
+		expect(sha(await readFile(join(directory, 'wsl.3.0.1.0.x64.msi')))).toBe(sha(payload))
+	})
+
 	it('starts over when the server ignores the Range header', async () => {
 		const { url } = await serve((_request, response) => {
 			response.writeHead(200, { 'content-length': payload.length })
@@ -139,7 +152,7 @@ describe('downloadWslPackage against a local server', () => {
 		expect(await readdir(directory)).toEqual([])
 	})
 
-	it('deletes a file of the wrong size and says it is corrupt', async () => {
+	it('deletes a longer file than expected and says it is corrupt', async () => {
 		const longer = Buffer.concat([payload, randomBytes(10)])
 		const { url } = await serve(rangeHandler(longer))
 		const result = await downloadWslPackage({ pinned: pinnedFor(url, payload), directory })
@@ -177,6 +190,13 @@ describe('downloadWslPackage against a local server', () => {
 /** Wait, event by event and without a clock, until the code under test has set a timer. */
 async function untilTimerExists(): Promise<void> {
 	while (vi.getTimerCount() === 0) await new Promise((resolve) => setImmediate(resolve))
+}
+
+/** The delays of the backoff waits (the only timers over 100 ms this code sets). */
+function waits(spy: { mock: { calls: unknown[][] } }): number[] {
+	return spy.mock.calls
+		.map((call) => call[1])
+		.filter((delay): delay is number => typeof delay === 'number' && delay >= 1000)
 }
 
 function fakeFetch(answers: (number | Error | 'ok')[], bytes: Uint8Array = payload) {
@@ -219,6 +239,7 @@ describe('downloadWslPackage retries', () => {
 
 	it('backs off 1 s, 2 s, 4 s and then succeeds', async () => {
 		vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+		const spy = vi.spyOn(globalThis, 'setTimeout')
 		const stub = fakeFetch([503, new Error('connection reset'), 429, 'ok'])
 		const pending = downloadWslPackage({
 			pinned: pinnedFor('https://example.invalid/wsl.3.0.1.0.x64.msi'),
@@ -233,15 +254,18 @@ describe('downloadWslPackage retries', () => {
 		] as const) {
 			await untilTimerExists()
 			await vi.advanceTimersByTimeAsync(delay - 1)
+			for (let i = 0; i < 20; i++) await Promise.resolve()
 			expect(stub.calls).toHaveLength(calls - 1)
 			await vi.advanceTimersByTimeAsync(1)
 			await stub.called(calls)
 		}
 		expect((await pending).outcome).toBe('ok')
+		expect(waits(spy)).toEqual([1000, 2000, 4000])
 	})
 
 	it('gives up after five attempts with download-failed', async () => {
 		vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+		const spy = vi.spyOn(globalThis, 'setTimeout')
 		const stub = fakeFetch([new Error('offline')])
 		const pending = downloadWslPackage({
 			pinned: pinnedFor('https://example.invalid/wsl.3.0.1.0.x64.msi'),
@@ -262,6 +286,35 @@ describe('downloadWslPackage retries', () => {
 		const result = await pending
 		expect(result).toMatchObject({ outcome: 'failed', code: 'download-failed' })
 		expect(stub.calls).toHaveLength(5)
+		expect(waits(spy)).toEqual([1000, 2000, 4000, 8000])
+	})
+
+	it('starts over when a 206 answers for another offset', async () => {
+		await writeFile(join(directory, 'wsl.3.0.1.0.x64.msi.part'), payload.subarray(0, 1000))
+		vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+		const calls: RequestInit['headers'][] = []
+		const waiters: (() => void)[] = []
+		const impl = (async (_url: string | URL | Request, init?: RequestInit) => {
+			calls.push(init?.headers)
+			for (const waiter of waiters.splice(0)) waiter()
+			if (calls.length === 1) {
+				return new Response(payload.subarray(0, payload.length - 1000), {
+					status: 206,
+					headers: { 'content-range': `bytes 0-${payload.length - 1001}/${payload.length}` },
+				})
+			}
+			return new Response(payload, { status: 200 })
+		}) as typeof fetch
+		const pending = downloadWslPackage({
+			pinned: pinnedFor('https://example.invalid/wsl.3.0.1.0.x64.msi'),
+			directory,
+			fetch: impl,
+		})
+		while (calls.length < 1) await new Promise<void>((resolve) => waiters.push(resolve))
+		await untilTimerExists()
+		await vi.advanceTimersByTimeAsync(1000)
+		expect((await pending).outcome).toBe('ok')
+		expect(calls).toEqual([{ Range: 'bytes=1000-' }, {}])
 	})
 
 	it('stops waiting when the signal aborts during a backoff', async () => {

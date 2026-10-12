@@ -112,8 +112,20 @@ async function attempt(
 		throw new FatalError(message)
 	}
 	if (!response.body) throw new RetryableError('The server sent no data.')
-	const resumed = response.status === 206 && have > 0
-	if (!resumed) have = 0
+	let resumed = response.status === 206 && have > 0
+	if (resumed) {
+		// A 206 for another offset would append misaligned bytes: drop the
+		// partial file and fetch again from zero.
+		const start = /^bytes (\d+)-/.exec(response.headers.get('content-range') ?? '')?.[1]
+		if (start === undefined || Number(start) !== have) {
+			await response.body.cancel().catch(() => undefined)
+			await rm(part, { force: true })
+			throw new RetryableError('The server answered for a different part of the file.')
+		}
+	} else {
+		resumed = false
+		have = 0
+	}
 	const handle = await open(part, resumed ? 'a' : 'w')
 	let done = have
 	let reported = have
@@ -155,7 +167,7 @@ async function attempt(
 
 /**
  * Fetch the pinned package into `directory/<file name>.part` (resuming it with
- * a Range request when a partial file exists), check size and SHA-256, and
+ * a Range request when a partial file exists), check the SHA-256, and
  * rename it to `directory/<file name>`. A file that fails the check is
  * deleted. Network trouble and 5xx answers retry with exponential backoff; a
  * 4xx answer fails at once. Emits only `progress` events; the caller owns
@@ -204,8 +216,8 @@ export const downloadWslPackage: DownloadWslPackage = async (options) => {
 				detail: 'The package could not be written to disk.',
 			}
 		}
-		const size = await sizeOf(part)
-		if (size !== pinned.sizeBytes || (await sha256Of(part, signal)) !== pinned.sha256) {
+		// The digest decides; a file of the wrong length cannot have the right one.
+		if ((await sha256Of(part, signal)) !== pinned.sha256) {
 			await rm(part, { force: true })
 			return {
 				outcome: 'failed',
