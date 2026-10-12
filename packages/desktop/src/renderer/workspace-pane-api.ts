@@ -460,6 +460,12 @@ export function createWorkspacePaneApi(
 				}
 			: {}),
 		startPalComputer: (id) => invoke(() => base.startPalComputer(id), [], { global: true }),
+		...(base.runPalComputerSetup
+			? {
+					runPalComputerSetup: (planId: string, palId?: string) =>
+						invoke(() => base.runPalComputerSetup?.(planId, palId) as never, [], { global: true }),
+				}
+			: {}),
 		...(base.palInboxStart && base.startPalInbox
 			? {
 					palInboxStart: (palId: string) =>

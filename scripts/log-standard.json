@@ -18,6 +18,18 @@
 	],
 	"streamWriteAllowlist": [
 		{
+			"file": "packages/cli/src/computer/run.ts",
+			"symbol": "process.stdout.write",
+			"count": 1,
+			"reason": "`namzu computer` prints its answer (a sentence, or one JSON object per line for Namzu Desktop) on stdout: it is the command's output, not a log."
+		},
+		{
+			"file": "packages/cli/src/computer/run.ts",
+			"symbol": "process.stderr.write",
+			"count": 1,
+			"reason": "`namzu computer` prints a refusal or failure sentence on stderr, as every command does: it is the command's diagnostic output for the person, not a log."
+		},
+		{
 			"file": "packages/sandbox/src/local-virtual-computer/detached-worker.ts",
 			"symbol": "process.stdout.write",
 			"count": 1,

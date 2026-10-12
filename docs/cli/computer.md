@@ -18,7 +18,7 @@ the agent runtime never calls it, so a model cannot cause an install.
 
 ```bash
 namzu computer status [--json] [--bundle <dir>]
-namzu computer setup  [--json] [--plan <id>] [--yes] [--bundle <dir>]
+namzu computer setup  [--json] [--plan <id>] [--yes] [--bundle <dir>] [--resume-command <command>]
 namzu computer stop-idle [--json]
 ```
 
@@ -89,6 +89,10 @@ now. The run refuses a plan that no longer matches the machine and answers
 `{"result":{"outcome":"plan-changed","plan":{...}}}` (exit 1). Its exit code
 follows the result: 0 for `ready` and `restart-required`, 69 for `blocked`, 1
 for the rest. Without `--plan` it prints the `plan-required` error and exits 64.
+
+`--resume-command <command>` is handed to the setup as the command Windows runs once at the next
+sign-in when a step needs a restart; Namzu Desktop passes its own executable with
+`--continue-pal-computer-setup`. Only `setup` takes it.
 
 ## When the engine or image is missing
 

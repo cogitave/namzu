@@ -1,10 +1,11 @@
+import type * as SetupModule from '@namzu/sandbox/local-virtual-computer/setup'
 import {
 	type PalComputerInput,
 	type PalEnvironmentProvider,
 	type PalEnvironmentRequest,
 	PalRuntime,
 } from '@namzu/sdk'
-import { readPalComputerBundle } from '../computer/bundle.js'
+import { DEFAULT_PAL_COMPUTER_IMAGE, readPalComputerBundle } from '../computer/bundle.js'
 import { getCliPalStore } from './store.js'
 
 interface LocalComputerProvider extends PalEnvironmentProvider {
@@ -173,6 +174,52 @@ function readyComputer(runtime: PalRuntime, palId: string) {
 		: null
 }
 
+export interface QuietProbeDeps {
+	readonly platform: NodeJS.Platform
+	readonly env: NodeJS.ProcessEnv
+	readonly loadSetup: () => Promise<typeof SetupModule>
+}
+
+const realQuietProbeDeps: QuietProbeDeps = {
+	platform: process.platform,
+	env: process.env,
+	// The optional leaf is composed here, never imported by the SDK.
+	loadSetup: async () =>
+		(await import('@namzu/sandbox/local-virtual-computer/setup' as string)) as typeof SetupModule,
+}
+
+const NOT_READY_REASON =
+	'Windows Linux container support and the Pal computer image are required. Namzu sets them up; finish the setup from the Pal computer and try again.'
+
+/**
+ * Whether the computer could start, asked without starting anything. With the Windows engine the
+ * engine's own probe starts the Linux machine (about 2 GB), and status is read every few seconds
+ * while a Pal's panel is open: that would bring the machine back right after it was stopped for
+ * being idle. Readiness comes from what setup recorded instead; any other engine probes as before.
+ */
+export async function quietComputerProbe(
+	provider: LocalComputerProvider,
+	deps: QuietProbeDeps = realQuietProbeDeps,
+): Promise<{ ready: boolean; reason?: string }> {
+	if (deps.platform !== 'win32' || deps.env.NAMZU_PAL_COMPUTER_ENGINE !== 'wslc')
+		return provider.probe()
+	try {
+		const setup = await deps.loadSetup()
+		const bundle = readPalComputerBundle(deps.env.NAMZU_PAL_COMPUTER_BUNDLE)
+		const readiness = await setup.inspectWslcReadiness({
+			imageRef: deps.env.NAMZU_PAL_COMPUTER_IMAGE || bundle?.imageRef || DEFAULT_PAL_COMPUTER_IMAGE,
+			...(bundle ? { bundledManifestPath: bundle.manifestPath } : {}),
+		})
+		return readiness.state === 'ready'
+			? { ready: true }
+			: { ready: false, reason: withSetupHint(NOT_READY_REASON, deps.platform) }
+	} catch {
+		// Probing here would start the Linux machine, right after it may have been stopped for
+		// being idle. An unreadable check is "not ready"; the setup hint is the way forward.
+		return { ready: false, reason: withSetupHint(NOT_READY_REASON, deps.platform) }
+	}
+}
+
 export async function cliPalComputerStatus(palId: string) {
 	if (!getCliPalStore().get(palId)) throw new Error('This Pal is unavailable.')
 	try {
@@ -186,7 +233,7 @@ export async function cliPalComputerStatus(palId: string) {
 				status: 'unavailable' as const,
 				notice: 'This Pal computer is still changing state. Wait for the operation to finish.',
 			}
-		const probe = await provider.probe()
+		const probe = await quietComputerProbe(provider)
 		return probe.ready
 			? { status: 'stopped' as const }
 			: {

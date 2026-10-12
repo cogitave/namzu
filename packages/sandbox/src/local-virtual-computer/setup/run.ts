@@ -14,7 +14,7 @@ import { inspectWslcReadiness } from './readiness.js'
 import { clearRestartMarker, readRestartMarker, writeRestartMarker } from './restart.js'
 import { clearResumeAtSignIn, registerResumeAtSignIn } from './resume.js'
 import { PINNED_WSL_PACKAGE, downloadWslPackage } from './wsl-package.js'
-import { readManifest } from './wslc-shared.js'
+import { readManifest, writeImageRecord } from './wslc-shared.js'
 
 type Elevated = 'enable-windows-features' | 'install-wsl'
 
@@ -43,7 +43,19 @@ export const runWslcSetup: RunWslcSetup = async (consent, options) => {
 		}
 	}
 	const plan = planWslcSetup(readiness, { wslPackage: options.wslPackage, manifest })
-	if (plan.id !== consent.planId) return { outcome: 'plan-changed', plan }
+	if (plan.id !== consent.planId) {
+		// The PC is already ready (for example the image was loaded before Namzu kept a record of
+		// it): nothing is left to do, but the next quiet status must say so, so record it now.
+		if (readiness.state === 'ready' && manifest) {
+			await writeImageRecord(host, {
+				imageRef: manifest.imageRef,
+				imageId: manifest.imageId,
+				loadedAt: host.now().toISOString(),
+			})
+			return { outcome: 'ready' }
+		}
+		return { outcome: 'plan-changed', plan }
+	}
 	if (plan.blocked) return { outcome: 'blocked', blocked: plan.blocked }
 
 	// Each step reports started and finished once, whoever emits it.

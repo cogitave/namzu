@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { EngineUpdateNotice, EngineUpdatesState } from './shared/engine-update-protocol.js'
 import type { LocalSpeechEvent } from './shared/local-speech-protocol.js'
+import type { PalComputerSetupState } from './shared/pal-computer-setup.js'
 import type { DesktopApi, DesktopBoot, DesktopEvent } from './shared/protocol.js'
 import type { TerminalEvent } from './shared/terminal-view.js'
 import type { UpdateState } from './shared/update-protocol.js'
@@ -84,6 +85,14 @@ const api: DesktopApi = {
 	openPal: (id) => invoke('openPal', id),
 	palComputer: (id) => invoke('palComputer', id),
 	startPalComputer: (id) => invoke('startPalComputer', id),
+	palComputerSetup: (fresh) => invoke('palComputerSetup', fresh),
+	runPalComputerSetup: (planId, palId) => invoke('runPalComputerSetup', planId, palId),
+	restartPc: () => invoke('restartPc'),
+	onPalComputerSetup: (listener) => {
+		const handler = (_event: unknown, state: PalComputerSetupState) => listener(state)
+		ipcRenderer.on('namzu:pal-computer-setup', handler)
+		return () => ipcRenderer.removeListener('namzu:pal-computer-setup', handler)
+	},
 	palInboxStart: (palId) => invoke('palInboxStart', palId),
 	startPalInbox: (palId) => invoke('startPalInbox', palId),
 	stopPalComputer: (id) => invoke('stopPalComputer', id),

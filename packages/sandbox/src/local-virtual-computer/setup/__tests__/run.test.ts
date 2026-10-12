@@ -140,13 +140,26 @@ describe('runWslcSetup: only the image is missing', () => {
 })
 
 describe('runWslcSetup: consent', () => {
-	it('refuses a consent for a plan that is gone and hands back the new one', async () => {
+	it('ends ready, and records the image, when the plan is gone because the image is already loaded', async () => {
 		const runner = engine()
 		const o = options(runner)
 		const stale = await consentTo(o)
 		runner.set('wslc image inspect -f json namzu-local-computer:2', inspectJson(IMAGE_ID))
 		const result = await runWslcSetup(stale, o)
-		expect(result).toMatchObject({ outcome: 'plan-changed', plan: { steps: [] } })
+		expect(result).toEqual({ outcome: 'ready' })
+		expect(runner.calls.some((c) => c.startsWith('wslc load'))).toBe(false)
+		// The next quiet status (no session probe) now agrees.
+		const quiet = await inspectWslcReadiness(o)
+		expect(quiet.state).toBe('ready')
+	})
+
+	it('refuses a consent for a plan that is gone for another reason and hands back the new one', async () => {
+		const runner = engine()
+		const o = options(runner)
+		const stale = await consentTo(o)
+		const blocked = options(runner, {}, { AllowWSLContainer: 0 })
+		const result = await runWslcSetup(stale, { ...o, host: blocked.host })
+		expect(result).toMatchObject({ outcome: 'plan-changed' })
 		expect(runner.calls.some((c) => c.startsWith('wslc load'))).toBe(false)
 	})
 

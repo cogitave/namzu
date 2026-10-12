@@ -469,6 +469,34 @@ describe('namzu computer', () => {
 		expect(setupApi.inspectWslcReadiness).not.toHaveBeenCalled()
 	})
 
+	it('setup --resume-command is handed to the setup run, and only setup takes it', async () => {
+		setupApi.runWslcSetup.mockResolvedValue({ outcome: 'restart-required' })
+		const { deps } = harness({ interactive: false })
+		expect(
+			await runComputerCommand(
+				['setup', '--json', '--plan', 'plan-1', '--resume-command', '"C:\\Namzu.exe" --continue'],
+				deps,
+			),
+		).toBe(0)
+		expect(setupApi.runWslcSetup.mock.calls.at(-1)?.[1]).toMatchObject({
+			resumeCommand: '"C:\\Namzu.exe" --continue',
+		})
+		const other = harness({ interactive: false })
+		expect(await runComputerCommand(['status', '--resume-command', 'x'], other.deps)).toBe(64)
+	})
+
+	it('hands a resume command whose program path has spaces over byte for byte', async () => {
+		setupApi.runWslcSetup.mockResolvedValue({ outcome: 'restart-required' })
+		const { deps } = harness({ interactive: false })
+		const command =
+			'"C:\\Users\\Ana Maria\\AppData\\Local\\Programs\\Namzu\\Namzu.exe" --continue-pal-computer-setup'
+		await runComputerCommand(
+			['setup', '--json', '--plan', 'plan-1', '--resume-command', command],
+			deps,
+		)
+		expect(setupApi.runWslcSetup.mock.calls.at(-1)?.[1]).toMatchObject({ resumeCommand: command })
+	})
+
 	it('setup --json reports a changed plan as a result, with exit 1', async () => {
 		setupApi.runWslcSetup.mockResolvedValue({ outcome: 'plan-changed', plan: WSL_MISSING_PLAN })
 		const { deps, out } = harness()

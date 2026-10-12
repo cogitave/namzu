@@ -38,7 +38,7 @@ export type PalStartCard =
 	| { kind: 'none' }
 	| { kind: 'ask'; text: string }
 	/** Start is switched off: the Pal's computer cannot start yet. `help` says how to set it up. */
-	| { kind: 'blocked'; text: string; help: string }
+	| { kind: 'blocked'; text: string; help: string; windows?: boolean }
 	| { kind: 'resume'; text: string }
 	| { kind: 'starting'; text: string }
 	| { kind: 'reading'; text: string; openable: boolean }
@@ -94,7 +94,7 @@ export function palWaitingLine(
 	text: string
 	action: 'start' | 'resume' | 'retry' | null
 	/** Start is switched off, with how to set the computer up. */
-	blocked?: { text: string; help: string }
+	blocked?: { text: string; help: string; windows?: boolean }
 } | null {
 	const view = entry?.view
 	if (!entry || !view) return null

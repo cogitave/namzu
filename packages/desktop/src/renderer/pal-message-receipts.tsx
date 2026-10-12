@@ -114,11 +114,13 @@ function PalSentLine({
 							See it in {name}’s messages
 						</Button>
 					)}
-					<details className="pal-setup-help">
-						<summary>How to set up</summary>
-						<p>{card.help}</p>
-						<GetDockerButton />
-					</details>
+					{!card.windows && (
+						<details className="pal-setup-help">
+							<summary>How to set up</summary>
+							<p>{card.help}</p>
+							<GetDockerButton />
+						</details>
+					)}
 				</>
 			)}
 			{card.kind === 'ask' && (

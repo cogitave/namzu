@@ -616,3 +616,27 @@
 	margin: 6px 0 0;
 	overflow-wrap: anywhere;
 }
+
+/* The one sentence before this PC is set up, with two quiet text actions: no modal, no buttons. */
+.pal-setup-consent-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 2px 12px;
+	margin-top: 4px;
+}
+.pal-setup-text-action {
+	height: 20px;
+	padding: 0;
+	border: 0;
+	background: transparent;
+	color: var(--muted-foreground);
+	font-size: 12px;
+	line-height: 18px;
+	font-weight: 400;
+}
+.pal-setup-text-action:hover,
+.pal-setup-text-action:focus-visible {
+	background: transparent;
+	color: var(--foreground);
+	scale: 1;
+}
