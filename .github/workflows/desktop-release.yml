@@ -4,7 +4,8 @@
 # only: it runs none of ci.yml's or release.yml's gates and is not part of their gate parity
 # (.github/scripts/check-workflow-gate-parity.mjs reads those two files only).
 #
-# Three jobs, the same split docs/cli/desktop.md documents for a local build:
+# Four jobs, the same split docs/cli/desktop.md documents for a local build:
+#   image    (Linux, read-only token)  builds the light Pal computer image with docker
 #   stage    (Linux, read-only token)  builds the workspace and stages the installer project
 #   package  (Windows, read-only token) runs electron-builder on the staged copy
 #   publish  (Linux, the only job with contents: write) checks the files, then uploads them
@@ -37,8 +38,46 @@ env:
   ELECTRON_BUILDER_VERSION: 26.17.0
 
 jobs:
+  # The light Pal computer image: the `base` stage of packages/sandbox/local-computer/Dockerfile,
+  # tagged namzu-local-computer:2 (the reference the app and `namzu computer` load). docker save
+  # writes an OCI layout with a Docker manifest.json and a repositories file, the same shape
+  # `wslc save` writes, and `wslc load -i` reads the zstd archive directly.
+  image:
+    name: Build the Pal computer image
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      # build-image.mjs compresses with Node's own zstd, which needs Node 22.15 or newer.
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 24
+
+      - name: Build and save the base stage
+        run: |
+          node packages/sandbox/local-computer/build-image.mjs --engine docker --stage base \
+            --tag namzu-local-computer:2 --format zst --out "$RUNNER_TEMP/pal-computer"
+          ls -l "$RUNNER_TEMP/pal-computer"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pal-computer-image
+          path: |
+            ${{ runner.temp }}/pal-computer/manifest.json
+            ${{ runner.temp }}/pal-computer/namzu-local-computer-2.tar.zst
+          retention-days: 1
+          if-no-files-found: error
+          # The archive is already compressed.
+          compression-level: 0
+
   stage:
     name: Stage the installer project
+    needs: image
     # A dispatch from another branch would publish that branch's code to every install.
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
@@ -76,9 +115,46 @@ jobs:
 
       - run: pnpm -r build
 
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: pal-computer-image
+          path: ${{ runner.temp }}/pal-computer
+
       - name: Stage the installer project
         run: |
-          node packages/desktop/scripts/stage-installer.mjs "$RUNNER_TEMP/stage"
+          node packages/desktop/scripts/stage-installer.mjs "$RUNNER_TEMP/stage" \
+            --pal-computer-image "$RUNNER_TEMP/pal-computer/namzu-local-computer-2.tar.zst" \
+            --pal-computer-manifest "$RUNNER_TEMP/pal-computer/manifest.json"
+
+      # stage-installer.mjs checks the manifest against the archive; this proves the staged folder
+      # that goes into the installer holds both, byte for byte, and no README placeholder.
+      - name: The staged project carries the Pal computer image
+        env:
+          IMAGE_DIR: ${{ runner.temp }}/stage/extra/pal-computer
+        run: |
+          node --input-type=module -e "
+          import { createHash } from 'node:crypto'
+          import { readFileSync, readdirSync, statSync } from 'node:fs'
+          import { join } from 'node:path'
+          const dir = process.env.IMAGE_DIR
+          const fail = (m) => { console.error(m); process.exit(1) }
+          let manifest
+          try { manifest = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8')) }
+          catch { fail('The installer has no pal-computer/manifest.json at ' + dir + '.') }
+          if (manifest.imageRef !== 'namzu-local-computer:2') fail('The image is ' + manifest.imageRef + ', the app expects namzu-local-computer:2.')
+          const archive = join(dir, String(manifest.file))
+          let size
+          try { size = statSync(archive).size } catch { fail('The installer has no ' + manifest.file + ' at ' + dir + '.') }
+          if (size !== manifest.compressedBytes) fail(manifest.file + ' is ' + size + ' bytes, the manifest says ' + manifest.compressedBytes + '.')
+          const sum = createHash('sha256').update(readFileSync(archive)).digest('hex')
+          if (sum !== manifest.sha256) fail(manifest.file + ' sha256 is ' + sum + ', the manifest says ' + manifest.sha256 + '.')
+          const files = readdirSync(dir).sort().join(',')
+          if (files !== ['manifest.json', manifest.file].sort().join(',')) fail('unexpected files in ' + dir + ': ' + files)
+          console.log('Pal computer image ok: ' + manifest.file + ' ' + size + ' bytes sha256 ' + sum)
+          "
+
+      - name: Pack the staged project
+        run: |
           tar -czf "$RUNNER_TEMP/stage.tgz" -C "$RUNNER_TEMP/stage" .
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -129,6 +205,35 @@ jobs:
           foreach ($f in "Namzu-Setup-$env:VERSION.exe", "Namzu-Setup-$env:VERSION.exe.blockmap", 'latest.yml') {
             if (-not (Test-Path "out\$f")) { throw "missing out\$f" }
           }
+
+      # electron-builder copies extra/pal-computer to resources/pal-computer. The installer is
+      # compressed, so the unpacked build is what proves the image went in.
+      - name: The unpacked build carries the Pal computer image
+        shell: bash
+        working-directory: ${{ runner.temp }}/stage
+        env:
+          IMAGE_DIR: out/win-unpacked/resources/pal-computer
+        run: |
+          node --input-type=module -e "
+          import { createHash } from 'node:crypto'
+          import { readFileSync, readdirSync, statSync } from 'node:fs'
+          import { join } from 'node:path'
+          const dir = process.env.IMAGE_DIR
+          const fail = (m) => { console.error(m); process.exit(1) }
+          let manifest
+          try { manifest = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8')) }
+          catch { fail('The installer has no pal-computer/manifest.json at ' + dir + '.') }
+          if (manifest.imageRef !== 'namzu-local-computer:2') fail('The image is ' + manifest.imageRef + ', the app expects namzu-local-computer:2.')
+          const archive = join(dir, String(manifest.file))
+          let size
+          try { size = statSync(archive).size } catch { fail('The installer has no ' + manifest.file + ' at ' + dir + '.') }
+          if (size !== manifest.compressedBytes) fail(manifest.file + ' is ' + size + ' bytes, the manifest says ' + manifest.compressedBytes + '.')
+          const sum = createHash('sha256').update(readFileSync(archive)).digest('hex')
+          if (sum !== manifest.sha256) fail(manifest.file + ' sha256 is ' + sum + ', the manifest says ' + manifest.sha256 + '.')
+          const files = readdirSync(dir).sort().join(',')
+          if (files !== ['manifest.json', manifest.file].sort().join(',')) fail('unexpected files in ' + dir + ': ' + files)
+          console.log('Pal computer image ok: ' + manifest.file + ' ' + size + ' bytes sha256 ' + sum)
+          "
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:

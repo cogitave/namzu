@@ -123,12 +123,16 @@ The installed app is self-contained under `resources/`:
   measured yet), the update feed must keep the previous version's blockmap, and a new image revision
   downloads the whole 323 MB once. `stage-installer.mjs` refuses a
   manifest whose `imageRef` is not `namzu-local-computer:<revision>`, so a test-tagged build is never
-  bundled. The release workflow (`.github/workflows/desktop-release.yml`) does not yet pass
-  `--pal-computer-image`, so installers it builds carry only the `README.txt` until the image is wired
-  into the pipeline; the 503 MB installer is hand-built. Before the app loads the image, the workflow must
-  take the archive as an input and fail unless `resources/pal-computer/manifest.json` is in the
-  installer, and a cold-store load (not only the warm 2.4 to 6.6 s) must be measured before a first-run
-  time is promised. Nothing in the app loads the image yet.
+  bundled. The release workflow (`.github/workflows/desktop-release.yml`) carries the image: its `image` job
+runs `build-image.mjs --engine docker --stage base --tag namzu-local-computer:2 --format zst` on a Linux runner and
+uploads the archive and `manifest.json`; the `stage` job passes both to `stage-installer.mjs --pal-computer-image`, then
+fails unless `extra/pal-computer` holds exactly the manifest and the archive with a matching size and SHA-256;
+and the `package` job repeats that check on `out/win-unpacked/resources/pal-computer` before the installer is
+uploaded, so an installer without the image is never published. `docker save` writes the same hybrid layout
+as `wslc save` (an OCI layout with `index.json` and `blobs/`, plus a Docker `manifest.json` and `repositories`), which
+`wslc load -i` reads; the first release run is what proves that on a real Windows machine (see the
+[Local Pal computers](../sdk/local-pal-computer.md#image-stages-and-the-bundled-light-image) notes). A cold-store
+load (not only the warm 2.4 to 6.6 s) must still be measured before a first-run time is promised.
 
 Build it with a staged copy, which `scripts/stage-installer.mjs` writes outside the
 repository (it refuses a folder inside it). Run `pnpm -r build` first.
