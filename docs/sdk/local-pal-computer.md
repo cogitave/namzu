@@ -639,11 +639,7 @@ image. Setting up a machine is a separate, consented operation owned by the
 application: `@namzu/sandbox/local-virtual-computer/setup` inspects the PC,
 plans what is missing and runs that plan only after the person agrees.
 Namzu Desktop does it from the Pal computer row; the CLI from
-`namzu computer setup`. The contract is `setup/contract.ts`. Inspecting,
-planning, running a plan, loading the image, stopping an idle session and the
-restart record are implemented; downloading the WSL package, the one elevated
-process and the resume entry at sign-in are separate pieces, and until they
-land each throws "not implemented yet".
+`namzu computer setup`. The contract is `setup/contract.ts`.
 
 - **Readiness.** `inspectWslcReadiness` answers one state, the first that
   applies, in this order: `unsupported` (not Windows x64 build 19041 or newer),
@@ -711,6 +707,92 @@ land each throws "not implemented yet".
   `resumeCommand`, and returns `restart-required`. Readiness holds the state
   at `restart-pending` until Windows reports a boot later than the record,
   then deletes it.
+- **The elevated step.** Turning on Windows features and installing WSL need
+  an administrator, so `runElevatedWslcSteps` runs both in one process. It
+  starts Windows PowerShell, a Microsoft-signed program, through
+  a launcher that asks Windows for administrator rights (`ProcessStartInfo`
+  with the `runas` verb, so a declined prompt surfaces as a Windows error 1223
+  directly), and gives the elevated copy a fixed script through
+  `-EncodedCommand`; there is no script file or helper program anyone could
+  edit or that Windows would name as an unknown publisher. Windows shows its
+  own permission prompt once (a standard user is asked for an administrator's
+  password), and the prompt names Windows PowerShell. Inside, only Microsoft
+  tools run: `dism.exe /online /enable-feature /featurename:VirtualMachinePlatform
+  /all /norestart` (plus `Microsoft-Windows-Subsystem-Linux` on Windows 10,
+  build below 22000), and `msiexec.exe /i ... /qn /norestart /l*v` for the
+  package. The steps, the package path (absolute, inside the setup directory,
+  ending `.msi`, no quotes or line breaks) and its digest are checked before the
+  script is built, and reach it only as single-quoted literals. Both scripts
+  take the system folder from the operating system (`[Environment]::SystemDirectory`),
+  reset `PATH` and `PSModulePath` first, and the launcher is started with an
+  allow-listed environment: `SystemRoot`, `windir` and a `PATH` of the real
+  `System32` folder, plus `ComSpec`, the user and profile names and folders,
+  `ProgramData`, `ProgramFiles*`, `PROCESSOR_*`, `NUMBER_OF_PROCESSORS`, `OS`,
+  and `TEMP`/`TMP` only when they point under the user profile. Every other
+  variable (runtime profiler and startup-hook variables, `__COMPAT_LAYER`,
+  `PATHEXT`, module paths) is dropped, so an environment the caller inherited
+  cannot choose which program or library runs elevated. A value stored for the
+  person in the registry (`HKCU\Environment`) reaches every process they start
+  and cannot be defended against from Node. The Windows folder must be a drive
+  root followed by `Windows` or `WINNT`; on a PC where it is named otherwise the
+  launch fails (`elevation-failed`) rather than run a program from a folder the
+  environment named.
+  The elevated process never writes where a standard user can write: it creates
+  a new folder `<Windows>\Temp\namzu-wsl-<random id>` with `New-Item` and no
+  `-Force`, so a name that already exists fails (code 23) instead of being
+  adopted. It then applies an access list only administrators can change (the
+  person who started setup may read it) and reads it back before writing
+  anything: the owner must be Administrators or the system account, the list
+  must be protected from inheritance, and nobody else may hold more than read.
+  It refuses a package that is a link and a `pkg`, log or progress file that
+  already exists, copies the package into a subfolder nobody but
+  administrators can enter, checks its SHA-256 there against the pinned digest
+  and installs that copy, so the file cannot change after the check. The progress lines
+  (`elevated-progress.jsonl`) and the installer log (`wsl-install.log`) are
+  written into that folder; the caller reads progress from it while it waits
+  and turns it into progress events. The folder, small unless the installer log
+  is, stays after the run because the caller cannot delete it. The encoded
+  elevated script is held under 16,000 characters (about 13,600 today). A launch with the full-size argument and
+  no `runas` verb was measured to start (up to 30,000 characters); the `runas`
+  launch itself, a real decline and the exit codes still need a run on a clean
+  Windows VM. A launch that fails for any reason is `elevation-failed`, and
+  `needs-administrator` is reported only when `whoami /groups` lists groups and
+  none is Administrators. Exit codes of the elevated script:
+  0 done, 3010 Windows needs a restart, 20 enabling features failed, 21 the
+  install failed, 22 the package did not match the pinned digest, 23 the
+  protected folder could not be created. They map to
+  `ok`, `restart-required`, and `failed` with `feature-enable-failed` or
+  `wsl-install-failed` and the Windows exit code for a Details fold; a launch
+  that does not start, or code 23, is `elevation-failed`. Declining the prompt
+  (Windows error 1223, or a message saying the operation was canceled by the
+  user) is `cancelled`, except for an account that is not an
+  administrator at all (the SID column of `whoami /groups` has no
+  `S-1-5-32-544` row, not even as deny-only), which is `needs-administrator`.
+  When `whoami` cannot run the account is not called a standard user. Stopping
+  the signal stops waiting and reading progress; the elevated process cannot be
+  stopped from here and finishes its steps once the person has approved.
+  The trade-off against a separately signed helper program: Windows' prompt
+  names Windows PowerShell whatever command it is asked to run, so the prompt
+  itself cannot tell setup's fixed script from another PowerShell command a
+  process of the same user might start. A signed helper that runs only its own
+  steps would. This is accepted until Namzu's code signing is decided.
+- **The WSL package.** Setup installs Microsoft's `wsl.3.0.1.0.x64.msi` from
+  the 3.0.1 release on GitHub: 367,669,248 bytes (350.6 MB), SHA-256
+  `28b1a0d013640a2ac95898ea705fa186e5b4ff767a1c1b49257161bc106599c6`, the
+  digest the release reports and the one recomputed from a download.
+  `downloadWslPackage` writes `<name>.part`, resumes it with a `Range` request
+  after an interruption (only when the answer's `Content-Range` starts at the
+  byte asked for; otherwise it starts again from zero), retries network trouble
+  and 5xx answers after 1, 2, 4 and 8 seconds (five attempts), fails at once on
+  other 4xx answers, checks the digest, renames on success and deletes a file
+  that does not match (`download-corrupt`). The image is not downloaded; it ships inside the
+  installer.
+- **Resume at sign-in.** `registerResumeAtSignIn` writes the value
+  `NamzuPalComputerSetup` (REG_SZ) under `host.resumeRegistryKey` with
+  `reg.exe add ... /f`, refusing a command that is empty, has a line break or
+  is over 2048 characters; no administrator is needed for the default per-user
+  `RunOnce` key. Windows removes a RunOnce value as it runs it.
+  `clearResumeAtSignIn` deletes it, and a value that is not there is fine.
 - **Idle.** `stopIdleWslcSession` asks `wslc system session list` (which does
   not start a session) whether the default session, the one wslc names
   `wslc-cli-<user>`, runs; if not it answers `not-running`. Otherwise it lists
