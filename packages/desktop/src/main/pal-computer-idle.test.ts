@@ -87,6 +87,24 @@ describe('IdleStopper', () => {
 		expect(stop).toHaveBeenCalledTimes(1)
 	})
 
+	it('does not stop the machine while a setup runs, and looks again later', async () => {
+		const time = clock()
+		let busy = true
+		const stop = vi.fn(async () => 'stopped' as const)
+		const idle = new IdleStopper({
+			delayMs: 600_000,
+			stop,
+			schedule: time.schedule,
+			busy: () => busy,
+		})
+		idle.start()
+		await time.advance(600_000)
+		expect(stop).not.toHaveBeenCalled()
+		busy = false
+		await time.advance(600_000)
+		expect(stop).toHaveBeenCalledTimes(1)
+	})
+
 	it('stops once on quit when nothing runs, and never when something does', async () => {
 		const quiet = make()
 		quiet.idle.start()

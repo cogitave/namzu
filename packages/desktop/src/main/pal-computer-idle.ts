@@ -9,6 +9,8 @@ export interface IdleStopperOptions {
 	stop: () => Promise<'stopped' | 'busy' | 'not-running' | 'failed'>
 	/** Runs `run` after `ms`; returns the way to cancel it. */
 	schedule: (ms: number, run: () => void) => () => void
+	/** True while Desktop itself is setting a PC up: the machine is in use even with no computer running. */
+	busy?: () => boolean
 }
 
 export class IdleStopper {
@@ -65,6 +67,10 @@ export class IdleStopper {
 
 	private async fire(): Promise<void> {
 		if (this.running.size > 0) return
+		if (this.options.busy?.()) {
+			this.arm()
+			return
+		}
 		const outcome = await this.options.stop()
 		// Something still runs that Desktop did not see: look again after another quiet period.
 		if (outcome === 'busy' && this.started && this.running.size === 0) this.arm()

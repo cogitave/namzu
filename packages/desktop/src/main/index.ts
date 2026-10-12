@@ -343,6 +343,7 @@ const palComputerSetup = new PalComputerSetupService({
 const palComputerIdle = new IdleStopper({
 	delayMs: palComputerSettings.idleMs,
 	stop: () => palComputerSetup.stopIdle(),
+	busy: () => palComputerSetup.isRunning(),
 	schedule: (ms, run) => {
 		const timer = setTimeout(run, ms)
 		timer.unref()
@@ -1054,9 +1055,16 @@ function register(): void {
 	handle('palInboxStart', (palId: string) => operator.palInboxStart(palId))
 	handle('startPalInbox', (palId: string) => operator.startPalInbox(palId))
 	handle('startPalComputer', async (id: string) => {
-		const state = await operator.startPalComputer(id)
-		palComputerIdle.observe(id, state.status === 'ready')
-		return state
+		// A computer that is starting is in use: the machine must not be stopped under it.
+		palComputerIdle.observe(id, true)
+		try {
+			const state = await operator.startPalComputer(id)
+			palComputerIdle.observe(id, state.status === 'ready' || state.requiresStop === true)
+			return state
+		} catch (error) {
+			palComputerIdle.observe(id, false)
+			throw error
+		}
 	})
 	handle('stopPalComputer', async (id: string) => {
 		const state = await operator.stopPalComputer(id)
