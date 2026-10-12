@@ -267,12 +267,13 @@ Desktop action (no outline or filled buttons, no dialog):
 |---|---|---|---|
 | Ready | unchanged ("Offline", then "Starting…", "Connected") | "Start Kiro" | none |
 | Only the bundled Pal computer has to be added | "Offline" | "Start Kiro": pressing it is the consent | none; status reads "Preparing Kiro's computer…", then "Starting…" |
-| Something downloads or needs Windows' permission | "Needs setup" | "Set up and start Kiro" | one sentence (what Windows will add, the download size, about how long, that Windows asks permission once, that a restart may be needed) with the text actions "Set up and start" and "Not now" |
+| Something downloads or needs Windows' permission | "Needs setup" | "Set up and start Kiro" | one sentence (what Windows will add, the download size and about how long in brackets, then that Windows asks permission once and that a restart may be needed) with the text actions "Set up and start" and "Not now" |
 | Running | "Checking this PC…", "Downloading Linux support · 120 MB of 351 MB", "Turning on Windows features…", "Installing Linux support…", "Preparing Kiro's computer…", "Continuing setup…" (one at a time) | none | none |
 | Restart needed | "Restart to finish setup" | "Restart now" | "Namzu continues by itself after you sign in again." |
 | Permission declined | "Needs your permission" | "Try again" | "Setup needs your permission." |
 | No administrator | "Needs an administrator" | "Try again" | "Setup needs an administrator. Ask one to approve, or try again." |
 | Failed | "Setup did not finish" | "Try again" | a plain sentence and a Details fold with the plain detail |
+| A start that did not work out (setup ended with no answer, or the computer could not start after setup) | "Offline" | "Try again" (or "Start Kiro" when only setup stopped) | "Setup stopped before it finished." or "Kiro's computer could not start. Try again.", a Details fold, and one failure toast |
 | Blocked (virtualization off in the startup settings, an organisation policy, the Windows version, the processor, Namzu needs an update, the image missing from this copy) | "Offline" | none | a plain sentence, and a Details fold when there is one |
 
 "How to set up" is the explanation and recovery place on Windows, collapsed by default: what Namzu
@@ -291,10 +292,20 @@ instance path) opens the window, checks the PC and continues without asking agai
 step of the new plan is in the consent record and none of them is elevated or downloads; anything else
 shows the ordinary row states. The row reads "Continuing setup…" meanwhile.
 
-The Linux machine for Pal computers stops by itself: when no Pal computer has run for 10 minutes
+If the Pal computer was added to Linux support before Desktop kept a record of it (a reinstall, or a wiped profile folder), pressing Start does not stall: the setup run notices the PC is already ready,
+writes the record, and the Start goes on. A setup that finds the PC changed under its plan checks again
+and either goes on (ready) or says "Setup stopped before it finished."; the row never falls back to a silent "Offline".
+
+Restart and resume are covered by unit tests and a scripted CLI only. Neither the "Restart now" click nor the sign-in
+resume has been run on a real Windows PC yet (a restart or a Windows permission prompt was out of bounds
+for the trials so far); treat both as unproven until someone runs them on a disposable machine. What a
+resume command with spaces in the program path looks like when it reaches the setup is checked by `computer/run.test.ts`.
+
+The consent record is a one-day agreement: an older record, or one left by a run that was declined or
+failed, never lets Desktop continue by itself. The Linux machine for Pal computers stops by itself: when no Pal computer has run for 10 minutes
 (Desktop watches the computer states it shows) it calls `computer stop-idle`, which refuses while
-anything runs, and it calls it once when the app quits and no Pal computer runs. Reading a Pal computer's status never starts that machine on Windows (readiness comes from what
-setup recorded, not from a probe), so a Pal panel that polls while open cannot bring it back. Only an end-to-end run
+anything runs, and it calls it once when the app quits and no Pal computer runs and no setup is running (the quit-time call gives up after 5 seconds and stops the child, so a Linux machine that does not answer never holds the app from quitting or updating). Reading a Pal computer's status never starts that machine on Windows (readiness comes from what
+setup recorded, not from a probe), so a Pal panel that polls while open cannot bring it back. Only an end-to-end run of an unpackaged build
 may shorten the delay, through `NAMZU_E2E_PAL_COMPUTER_IDLE_MS`; `NAMZU_E2E_PAL_COMPUTER_SETUP=1` lets
 such a run stand in for Windows with a scripted CLI (`e2e/computer-stand-in.mjs`,
 `e2e/ux-pal-computer-setup.test.mjs`).

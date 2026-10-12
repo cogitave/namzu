@@ -6,12 +6,15 @@
 export interface IdleStopperOptions {
 	delayMs: number
 	/** Calls `computer stop-idle`; resolves to what it answered. */
-	stop: () => Promise<'stopped' | 'busy' | 'not-running' | 'failed'>
+	stop: (timeoutMs?: number) => Promise<'stopped' | 'busy' | 'not-running' | 'failed'>
 	/** Runs `run` after `ms`; returns the way to cancel it. */
 	schedule: (ms: number, run: () => void) => () => void
 	/** True while Desktop itself is setting a PC up: the machine is in use even with no computer running. */
 	busy?: () => boolean
 }
+
+/** How long quitting waits for the idle stop before it goes on without it. */
+export const QUIT_STOP_TIMEOUT_MS = 5000
 
 export class IdleStopper {
 	private readonly running = new Set<string>()
@@ -43,8 +46,9 @@ export class IdleStopper {
 	/** On quit: stop the machine now when no Pal computer runs. */
 	async stopForQuit(): Promise<void> {
 		this.disarm()
-		if (this.running.size > 0) return
-		await this.options.stop()
+		if (this.running.size > 0 || this.options.busy?.()) return
+		// Quitting must not wait on a Linux machine that does not answer.
+		await this.options.stop(QUIT_STOP_TIMEOUT_MS)
 	}
 
 	dispose(): void {

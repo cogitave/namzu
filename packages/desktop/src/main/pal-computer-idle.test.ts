@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { IdleStopper } from './pal-computer-idle.js'
+import { IdleStopper, QUIT_STOP_TIMEOUT_MS } from './pal-computer-idle.js'
 
 /** A clock the test moves by hand: `advance` runs what became due. */
 function clock() {
@@ -129,6 +129,28 @@ describe('IdleStopper', () => {
 		idle.start()
 		idle.dispose()
 		await time.advance(6_000_000)
+		expect(stop).not.toHaveBeenCalled()
+	})
+})
+
+describe('IdleStopper on quit', () => {
+	it('asks for the stop with a bound, so quitting never waits on a Linux machine that hangs', async () => {
+		const { stop, idle } = make()
+		await idle.stopForQuit()
+		expect(stop).toHaveBeenCalledWith(QUIT_STOP_TIMEOUT_MS)
+		expect(QUIT_STOP_TIMEOUT_MS).toBeLessThanOrEqual(10_000)
+	})
+
+	it('does not stop the machine under a setup that is running', async () => {
+		const time = clock()
+		const stop = vi.fn(async () => 'stopped' as const)
+		const idle = new IdleStopper({
+			delayMs: 600_000,
+			stop,
+			schedule: time.schedule,
+			busy: () => true,
+		})
+		await idle.stopForQuit()
 		expect(stop).not.toHaveBeenCalled()
 	})
 })

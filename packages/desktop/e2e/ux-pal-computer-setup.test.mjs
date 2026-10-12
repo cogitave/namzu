@@ -160,10 +160,9 @@ test(
 			// One inline sentence; two quiet text actions; no dialog.
 			await action.click();
 			await expect(context).toContainText("Namzu will add Linux support to Windows");
-			await expect(context).toContainText("It downloads 351 MB.");
-			await expect(context).toContainText("This takes about 3 minutes.");
-			await expect(context).toContainText("Windows will ask your permission once.");
-			await expect(context).toContainText("Your PC may need to restart");
+			await expect(context).toContainText("351 MB to download, about 3 minutes");
+			await expect(context).toContainText("Windows will ask your permission once");
+			await expect(context).toContainText("your PC may need to restart");
 			await expect(page.getByRole("dialog")).toHaveCount(0);
 			const yes = context.getByRole("button", { name: "Set up and start", exact: true });
 			const no = context.getByRole("button", { name: "Not now" });
@@ -300,7 +299,7 @@ test("cancelled: Setup needs your permission, with a quiet Try again", { timeout
 		await shot(flow, "cancelled");
 		// Trying again shows the one sentence again rather than asking Windows at once.
 		await again.click();
-		await expect(context).toContainText("Windows will ask your permission once.");
+		await expect(context).toContainText("Windows will ask your permission once");
 		assert.deepEqual(flow.world.faults, []);
 		failed = false;
 	} finally {

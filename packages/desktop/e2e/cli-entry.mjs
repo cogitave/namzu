@@ -16,7 +16,7 @@ createRequire(import.meta.url)("./redirect-fetch.cjs");
 // A flow that needs a Pal computer on a machine with no container engine asks for a stand-in:
 // the optional sandbox package is answered by a small module whose guest is a recorder. Nothing
 // else about the CLI changes; without the variable the real package is used.
-if (process.env.NAMZU_E2E_PAL_COMPUTER === "fake")
+if (process.env.NAMZU_E2E_PAL_COMPUTER === "fake" || process.env.NAMZU_E2E_PAL_COMPUTER === "fake-fails")
 	register(pathToFileURL(join(here, "fake-pal-computer-hooks.mjs")).href);
 // A flow that needs a slow answer asks for it: the first per-conversation provider read is held back, as
 // a busy machine holds it, so a change of model made meanwhile overtakes it. Nothing else changes.

@@ -71,7 +71,7 @@ function make(cli: ComputerCli, consent?: ConsentStore) {
 		write: vi.fn(),
 		clear: vi.fn(),
 	}
-	let now = 1_000
+	let now = Date.parse('2026-10-12T10:00:00Z')
 	const service = new PalComputerSetupService({
 		enabled: true,
 		cli,
@@ -197,6 +197,61 @@ describe('PalComputerSetupService', () => {
 			await expect(service.run(bad, 'kiro')).rejects.toThrow(/changed/)
 		expect(calls.every((call) => call[1] === 'status')).toBe(true)
 		expect(store.write).not.toHaveBeenCalled()
+	})
+
+	it('treats a plan that changed because the PC is ready by now as a finished run', async () => {
+		let checks = 0
+		const { cli } = scripted({
+			status: () =>
+				++checks === 1
+					? [statusLine('image-missing', IMAGE)]
+					: [statusLine('ready', plan('none', []))],
+			setup: () => [{ kind: 'result', result: { outcome: 'plan-changed' } }],
+		})
+		const { service } = make(cli)
+		await service.view()
+		const final = await service.run('image', 'kiro')
+		expect(final).toMatchObject({ phase: 'ready', completed: { palId: 'kiro', ranSetup: false } })
+		expect(final.outcome).toBeUndefined()
+	})
+
+	it('never falls back to silence when the plan changed and the PC is still not ready', async () => {
+		const { cli } = scripted({
+			status: () => [statusLine('image-missing', IMAGE)],
+			setup: () => [{ kind: 'result', result: { outcome: 'plan-changed' } }],
+		})
+		const { service, store } = make(cli)
+		await service.view()
+		const final = await service.run('image', 'kiro')
+		expect(final.phase).toBe('image-only')
+		expect(final.outcome).toMatchObject({ kind: 'failed' })
+		expect(store.clear).toHaveBeenCalled()
+	})
+
+	it('says so when the setup run ended with no result at all', async () => {
+		const { cli } = scripted({
+			status: () => [statusLine('image-missing', IMAGE)],
+			setup: () => [],
+		})
+		const { service } = make(cli)
+		await service.view()
+		expect((await service.run('image', 'kiro')).outcome).toMatchObject({ kind: 'failed' })
+	})
+
+	it('forgets what was agreed when a run is cancelled or fails', async () => {
+		for (const result of [
+			{ outcome: 'cancelled' as const },
+			{ outcome: 'needs-administrator' as const },
+		]) {
+			const { cli } = scripted({
+				status: () => [statusLine('wsl-missing', FULL)],
+				setup: () => [{ kind: 'result', result }],
+			})
+			const { service, store } = make(cli)
+			await service.view()
+			await service.run('full', 'kiro')
+			expect(store.clear).toHaveBeenCalled()
+		}
 	})
 
 	it('refuses to run before any check, and a blocked or restart plan', async () => {
@@ -420,7 +475,7 @@ describe('continuing after a restart', () => {
 
 	it('shows Continuing while it does', async () => {
 		const consent = store()
-		consent.write(consentFor(FULL, new Date(), 'kiro'))
+		consent.write(consentFor(FULL, new Date('2026-10-12T10:00:00Z'), 'kiro'))
 		const rest = plan('rest', [step('load-image')])
 		const { cli } = scripted({
 			status: () => [statusLine('image-missing', rest)],
@@ -436,7 +491,7 @@ describe('continuing after a restart', () => {
 
 	it('asks again for anything new: a download, a permission, or no record', async () => {
 		const consent = store()
-		consent.write(consentFor(FULL, new Date()))
+		consent.write(consentFor(FULL, new Date('2026-10-12T10:00:00Z')))
 		const newer = plan('newer', [step('download-wsl', { downloadBytes: MB }), step('load-image')])
 		const asked = scripted({ status: () => [statusLine('wsl-missing', newer)] })
 		const first = make(asked.cli, consent)
@@ -456,7 +511,7 @@ describe('continuing after a restart', () => {
 
 	it('shows the restart row, not a run, while a restart is still due', async () => {
 		const consent = store()
-		consent.write(consentFor(FULL, new Date()))
+		consent.write(consentFor(FULL, new Date('2026-10-12T10:00:00Z')))
 		const { cli, calls } = scripted({
 			status: () => [
 				statusLine('restart-pending', plan('rs', [step('restart'), step('load-image')])),
@@ -486,6 +541,19 @@ describe('canAutoContinue', () => {
 		)
 		expect(canAutoContinue(record, plan('a', [step('enable-windows-features')]))).toBe(false)
 		expect(canAutoContinue(undefined, plan('a', [step('load-image')]))).toBe(false)
+		// An agreement is for one setup: a day later it is no longer the person's word.
+		const dayAndMore = new Date(record.at).getTime() + 25 * 60 * 60 * 1000
+		expect(canAutoContinue(record, plan('a', [step('load-image')]), dayAndMore)).toBe(false)
+		expect(
+			canAutoContinue(
+				record,
+				plan('a', [step('load-image')]),
+				new Date(record.at).getTime() + 1000,
+			),
+		).toBe(true)
+		expect(canAutoContinue({ ...record, at: 'not a date' }, plan('a', [step('load-image')]))).toBe(
+			false,
+		)
 		expect(canAutoContinue(record, plan('a', []))).toBe(false)
 		expect(
 			canAutoContinue(record, plan('a', [step('load-image')], { blocked: 'unsupported' })),
@@ -544,6 +612,26 @@ describe('createComputerCli', () => {
 			['--use-system-ca', 'cli.js', 'computer', 'stop-idle', '--json'],
 			expect.objectContaining({ env: { A: '1' }, windowsHide: true }),
 		)
+	})
+
+	it('stops waiting, and stops the child, when a timeout is given and the child never answers', async () => {
+		vi.useFakeTimers()
+		try {
+			const { child, spawnProcess } = fakeSpawn()
+			const kill = vi.fn()
+			Object.assign(child, { kill })
+			const done = createComputerCli(
+				{ program: 'x', prefix: [], env: {} },
+				spawnProcess as never,
+			).run(['computer', 'stop-idle', '--json'], () => {}, { timeoutMs: 5000 })
+			await vi.advanceTimersByTimeAsync(4999)
+			expect(kill).not.toHaveBeenCalled()
+			await vi.advanceTimersByTimeAsync(1)
+			expect(await done).toEqual({ exitCode: null })
+			expect(kill).toHaveBeenCalledTimes(1)
+		} finally {
+			vi.useRealTimers()
+		}
 	})
 
 	it('rejects when the process cannot start', async () => {

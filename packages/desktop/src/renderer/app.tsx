@@ -899,6 +899,9 @@ export function App({
 	const palSetup = usePalComputerSetup(api)
 	const [setupConsentPal, setSetupConsentPal] = useState<string | null>(null)
 	const startMessagesAfterSetup = useRef(new Set<string>())
+	const [startFailures, setStartFailures] = useState<Record<string, { details?: string }>>({})
+	const setupActive = useRef(false)
+	setupActive.current = palSetup.state?.available === true
 	const palMarkers = useMemo(
 		() => new Map(pals.map((item) => [item.id, palMarker(item.name, palStarts.entries[item.id])])),
 		[pals, palStarts.entries],
@@ -3811,9 +3814,20 @@ export function App({
 		return () => document.removeEventListener('visibilitychange', wake)
 	}, [])
 
+	/** A Start on a set-up Windows PC ended without a running computer: say so once, plainly. */
+	const noteStartFailure = (value: PalView, raw: string | undefined) => {
+		const details = raw?.trim().slice(0, 400)
+		setStartFailures((all) => ({ ...all, [value.id]: details ? { details } : {} }))
+		notify(`${value.name}’s computer could not start`, { tone: 'error' })
+	}
 	const startPalComputer = async (value: PalView) => {
 		if (startingComputers.current.has(value.id)) return
 		startingComputers.current.add(value.id)
+		setStartFailures((all) => {
+			if (!(value.id in all)) return all
+			const { [value.id]: _cleared, ...rest } = all
+			return rest
+		})
 		computerReadEpoch.current += 1
 		setScreenRefresh((value) => value + 1)
 		setPalComputers((all) => ({
@@ -3824,7 +3838,12 @@ export function App({
 			const computer = await api.startPalComputer(value.id)
 			setPalComputers((all) => ({ ...all, [value.id]: computer }))
 			setScreenRefresh((value) => value + 1)
+			if (computer.status === 'unavailable' && setupActive.current) {
+				noteStartFailure(value, computer.notice)
+			}
 		} catch (failure) {
+			if (setupActive.current)
+				noteStartFailure(value, errorText(failure, 'start the Pal’s computer'))
 			setPalComputers((all) => ({
 				...all,
 				[value.id]: {
@@ -3888,6 +3907,7 @@ export function App({
 		const setup = palSetup.state
 		if (!pal || !setup) return
 		if (kind === 'restart') void palSetup.restart()
+		else if (kind === 'retry-start') void startComputerRef.current(pal)
 		else if (kind === 'start') {
 			if (setup.plan) void palSetup.run(setup.plan.id, pal.id)
 		} else setSetupConsentPal(pal.id)
@@ -4361,6 +4381,7 @@ export function App({
 						setup: palSetup.state,
 						consenting: setupConsentPal === pal.id,
 						paused: pal.paused,
+						...(startFailures[pal.id] ? { startFailure: startFailures[pal.id] } : {}),
 					}),
 					screen: currentScreen,
 					loading: computerCapture?.loading,
@@ -4369,6 +4390,7 @@ export function App({
 							(palComputer?.status === 'stopped'
 								? 'Start your Pal’s local computer to use apps and tools.'
 								: undefined),
+						{ setupRan: palSetup.state?.phase === 'ready' },
 					),
 				},
 				hostComputer: humanComputer,
@@ -5976,7 +5998,10 @@ export function App({
 						palName={pal.name}
 						computer={{
 							...palContextProps.computer,
-							notice: presentComputerNotice(liveStream?.error) ?? palContextProps.computer.notice,
+							notice:
+								presentComputerNotice(liveStream?.error, {
+									setupRan: palSetup.state?.phase === 'ready',
+								}) ?? palContextProps.computer.notice,
 						}}
 						screen={null}
 						stream={activeStream}

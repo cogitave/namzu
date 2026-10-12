@@ -21,7 +21,7 @@ export function createComputerCli(
 	spawnProcess: Spawn = spawn,
 ): ComputerCli {
 	return {
-		run: (args, onLine) =>
+		run: (args, onLine, options) =>
 			new Promise((resolve, reject) => {
 				const child = spawnProcess(command.program, [...command.prefix, ...args], {
 					env: command.env,
@@ -33,11 +33,35 @@ export function createComputerCli(
 				child.stdout?.on('data', (chunk: string | Buffer) => {
 					for (const line of parser.push(String(chunk))) onLine(line)
 				})
-				child.once('error', reject)
-				child.once('close', (exitCode: number | null) => {
-					for (const line of parser.end()) onLine(line)
-					resolve({ exitCode })
-				})
+				let timer: ReturnType<typeof setTimeout> | undefined
+				let settled = false
+				const settle = (finish: () => void) => {
+					if (settled) return
+					settled = true
+					if (timer) clearTimeout(timer)
+					finish()
+				}
+				if (options?.timeoutMs !== undefined) {
+					// A wedged child must never hold the caller: stop waiting and stop the child.
+					timer = setTimeout(() => {
+						settle(() => {
+							try {
+								child.kill()
+							} catch {
+								// Already gone.
+							}
+							resolve({ exitCode: null })
+						})
+					}, options.timeoutMs)
+					timer.unref?.()
+				}
+				child.once('error', (error) => settle(() => reject(error)))
+				child.once('close', (exitCode: number | null) =>
+					settle(() => {
+						for (const line of parser.end()) onLine(line)
+						resolve({ exitCode })
+					}),
+				)
 			}),
 	}
 }

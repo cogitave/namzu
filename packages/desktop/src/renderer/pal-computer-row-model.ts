@@ -33,17 +33,17 @@ export function consentSentence(plan: PalComputerSetupPlanView, palName: string)
 	if (plan.steps.includes('download') || plan.steps.includes('install'))
 		doing.push('add Linux support to Windows')
 	if (plan.steps.includes('load-image')) doing.push(`prepare ${palName}’s computer`)
-	return [
-		`Namzu will ${join(doing)}.`,
-		plan.downloadBytes > 0 ? `It downloads ${humanSize(plan.downloadBytes)}.` : '',
-		`This takes ${humanTime(plan.seconds)}.`,
-		plan.elevationPrompts > 0
-			? 'Windows will ask your permission once.'
-			: 'Windows will not ask for permission.',
-		plan.mayRestart ? 'Your PC may need to restart, and Namzu continues by itself afterwards.' : '',
-	]
-		.filter(Boolean)
-		.join(' ')
+	const cost = [
+		plan.downloadBytes > 0 ? `${humanSize(plan.downloadBytes)} to download` : '',
+		humanTime(plan.seconds),
+	].filter(Boolean)
+	const after = [
+		plan.elevationPrompts > 0 ? 'Windows will ask your permission once' : '',
+		plan.mayRestart ? 'your PC may need to restart (Namzu then continues by itself)' : '',
+	].filter(Boolean)
+	const head = `Namzu will ${join(doing)} (${cost.join(', ')})`
+	if (after.length === 0) return `${head}; Windows will not ask for permission.`
+	return `${head}; ${after.join(', and ')}.`
 }
 
 /** The label of the step in flight, one at a time. */
@@ -106,7 +106,7 @@ export function windowsHelp(
 	return { paragraphs }
 }
 
-export type PalComputerRowAction = 'start' | 'ask' | 'restart' | 'retry'
+export type PalComputerRowAction = 'start' | 'ask' | 'restart' | 'retry' | 'retry-start'
 
 /** What the Pal computer row shows when this PC needs setup. Absent: the row keeps its ordinary states. */
 export interface PalComputerRowView {
@@ -131,6 +131,8 @@ export interface PalComputerRowInput {
 	consenting: boolean
 	/** The Pal is paused: nothing starts. */
 	paused?: boolean
+	/** A Start that Desktop drove ended with the computer not running. */
+	startFailure?: { details?: string }
 }
 
 export function palComputerRowView(input: PalComputerRowInput): PalComputerRowView | undefined {
@@ -158,6 +160,15 @@ export function palComputerRowView(input: PalComputerRowInput): PalComputerRowVi
 			busy: false,
 			note: BLOCK_SENTENCE[setup.blocked.reason](name),
 			...(setup.blocked.details ? { details: setup.blocked.details } : {}),
+			help,
+		}
+	if (setup.phase === 'ready' && input.startFailure)
+		return {
+			status: 'Offline',
+			action: input.paused ? undefined : { kind: 'retry-start', label: 'Try again' },
+			busy: false,
+			note: `${name}’s computer could not start. Try again.`,
+			...(input.startFailure.details ? { details: input.startFailure.details } : {}),
 			help,
 		}
 	if (setup.phase === 'image-only')

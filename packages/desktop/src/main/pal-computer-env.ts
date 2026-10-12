@@ -43,9 +43,11 @@ export interface PalComputerSetupSettings {
 export function palComputerSetupSettings(
 	platform: NodeJS.Platform,
 	env: NodeJS.ProcessEnv,
+	packaged = false,
 ): PalComputerSetupSettings {
-	const e2e = env.NAMZU_E2E_PAL_COMPUTER_SETUP === '1'
-	const override = Number(env.NAMZU_E2E_PAL_COMPUTER_IDLE_MS)
+	// A packaged build is what people run: the end-to-end overrides do nothing there.
+	const e2e = !packaged && env.NAMZU_E2E_PAL_COMPUTER_SETUP === '1'
+	const override = packaged ? Number.NaN : Number(env.NAMZU_E2E_PAL_COMPUTER_IDLE_MS)
 	return {
 		enabled: e2e || (platform === 'win32' && env.NAMZU_PAL_COMPUTER_ENGINE === 'wslc'),
 		idleMs:
@@ -67,4 +69,43 @@ export function restartCommand(
 	platform: NodeJS.Platform,
 ): { program: string; args: string[] } | undefined {
 	return platform === 'win32' ? { program: 'shutdown.exe', args: ['/r', '/t', '0'] } : undefined
+}
+
+export interface RestartHost {
+	platform: NodeJS.Platform
+	/** Whether setup is waiting for a restart: the only time "Restart now" does anything. */
+	due: boolean
+	spawn: (
+		program: string,
+		args: string[],
+		options: { detached: true; stdio: 'ignore'; windowsHide: true },
+	) => {
+		once(event: 'error', listener: (error: Error) => void): unknown
+		unref(): unknown
+	}
+	/** Called when the restart command could not start. */
+	onError: (error: Error) => void
+}
+
+/** The handler behind "Restart now". Never runs unless the person pressed it and a restart is due. */
+export function restartPc(host: RestartHost): void {
+	const restart = restartCommand(host.platform)
+	if (!restart || !host.due)
+		throw new Error('Windows does not need a restart for Pal computers right now.')
+	let child: ReturnType<RestartHost['spawn']>
+	try {
+		child = host.spawn(restart.program, restart.args, {
+			detached: true,
+			stdio: 'ignore',
+			windowsHide: true,
+		})
+	} catch (error) {
+		host.onError(error instanceof Error ? error : new Error(String(error)))
+		throw new Error(
+			'Windows could not be restarted from here. Restart it yourself from the Start menu.',
+		)
+	}
+	// A command that cannot start must not crash the app; the person restarts from the Start menu.
+	child.once('error', host.onError)
+	child.unref()
 }

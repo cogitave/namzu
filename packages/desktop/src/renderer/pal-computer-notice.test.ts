@@ -55,3 +55,14 @@ it('never shows the command line or the engine name from Windows', () => {
 		expect(shown).not.toMatch(/namzu computer|wslc/i)
 	}
 })
+
+it('does not send the person back to the setup once this PC has been set up', () => {
+	const shown = presentComputerNotice(
+		'Windows Linux container support and the Pal computer image are required. Run namzu computer setup to set this up.',
+		{ setupRan: true },
+	)
+	expect(shown).toBe(
+		'The Pal computer did not start on this PC. Use Try again in the Pal computer row, or open Details there.',
+	)
+	expect(shown).not.toMatch(/sets it up|namzu computer|wslc/i)
+})

@@ -12,13 +12,24 @@ export interface ConsentRecord {
 	palId?: string
 }
 
+/** How long an agreed plan can still be continued after a restart. */
+export const CONSENT_LIFETIME_MS = 24 * 60 * 60 * 1000
+
 /**
  * Desktop may continue without asking again when every step of the new plan was agreed to and none
  * of them asks Windows' permission or downloads anything: that is the rest of what the person
  * accepted, not something new.
  */
-export function canAutoContinue(record: ConsentRecord | undefined, plan: ComputerPlan): boolean {
+export function canAutoContinue(
+	record: ConsentRecord | undefined,
+	plan: ComputerPlan,
+	now: number = Date.now(),
+): boolean {
 	if (!record || plan.blocked || plan.steps.length === 0) return false
+	// A record is the person's word for one setup, not a standing permission.
+	const agreedAt = Date.parse(record.at)
+	if (!Number.isFinite(agreedAt) || now - agreedAt > CONSENT_LIFETIME_MS || agreedAt > now + 60_000)
+		return false
 	const agreed = new Set(record.steps)
 	return plan.steps.every(
 		(step) => agreed.has(step.kind) && !step.elevated && (step.downloadBytes ?? 0) === 0,

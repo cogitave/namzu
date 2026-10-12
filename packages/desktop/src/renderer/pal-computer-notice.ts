@@ -20,13 +20,19 @@ const WINDOWS_SETUP = /namzu computer setup|linux container support/i
 const DEVELOPER_DETAIL =
 	/packages[\\/]|\.ts\b|\bnode_modules\b|[A-Za-z]:\\|(?:^|\s)\/(?:usr|home|var|opt)\//i
 
-export function presentComputerNotice(raw: string | undefined): string | undefined {
+export function presentComputerNotice(
+	raw: string | undefined,
+	options: { setupRan?: boolean } = {},
+): string | undefined {
 	const text = raw?.trim()
 	if (!text) return undefined
 	if (PODMAN_STOPPED.test(text))
 		return 'Your Podman machine is not running. Start it, then start your Pal again.'
+	// Once this PC is set up, pointing back at the setup would send the person round in a circle.
 	if (WINDOWS_SETUP.test(text))
-		return 'Linux support for Pal computers is not ready on this PC. Namzu sets it up from the Pal computer.'
+		return options.setupRan
+			? 'The Pal computer did not start on this PC. Use Try again in the Pal computer row, or open Details there.'
+			: 'Linux support for Pal computers is not ready on this PC. Namzu sets it up from the Pal computer.'
 	if (SETUP.test(text)) return COMPUTER_SETUP_NOTICE
 	if (NOT_LOCAL.test(text))
 		return 'A Pal’s computer can only use Docker or Podman running on this computer. Check that it is set up and running, then start your Pal again.'

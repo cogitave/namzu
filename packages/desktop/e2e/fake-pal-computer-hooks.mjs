@@ -7,6 +7,8 @@ export function createLocalVirtualComputerProvider() {
 	return {
 		probe: async () => ({ ready: true }),
 		acquire: async (request) => {
+			// "fake-fails": the engine reports ready and then cannot start the computer.
+			if (process.env.NAMZU_E2E_PAL_COMPUTER === 'fake-fails') throw new Error('The computer exited with code 125.');
 			generation += 1;
 			const sandbox = {
 				id: 'e2e-guest-' + generation,

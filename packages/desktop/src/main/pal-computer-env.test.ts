@@ -1,5 +1,5 @@
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
 	CONTINUE_SETUP_FLAG,
 	PAL_COMPUTER_IDLE_MS,
@@ -7,6 +7,7 @@ import {
 	palComputerEnvironment,
 	palComputerSetupSettings,
 	restartCommand,
+	restartPc,
 } from './pal-computer-env.js'
 
 const resourcesPath = join('res', 'ources')
@@ -99,6 +100,78 @@ describe('palComputerSetupSettings', () => {
 					NAMZU_E2E_PAL_COMPUTER_IDLE_MS: value,
 				}).idleMs,
 			).toBe(PAL_COMPUTER_IDLE_MS)
+	})
+})
+
+describe('packaged builds', () => {
+	it('ignore both end-to-end overrides', () => {
+		expect(
+			palComputerSetupSettings(
+				'linux',
+				{ NAMZU_E2E_PAL_COMPUTER_SETUP: '1', NAMZU_E2E_PAL_COMPUTER_IDLE_MS: '4000' },
+				true,
+			),
+		).toEqual({ enabled: false, idleMs: PAL_COMPUTER_IDLE_MS })
+		expect(
+			palComputerSetupSettings(
+				'win32',
+				{ NAMZU_PAL_COMPUTER_ENGINE: 'wslc', NAMZU_E2E_PAL_COMPUTER_IDLE_MS: '4000' },
+				true,
+			),
+		).toEqual({ enabled: true, idleMs: PAL_COMPUTER_IDLE_MS })
+	})
+})
+
+describe('restartPc', () => {
+	const child = () => {
+		const listeners: Array<(error: Error) => void> = []
+		return {
+			listeners,
+			once: (_event: 'error', listener: (error: Error) => void) => void listeners.push(listener),
+			unref: vi.fn(),
+		}
+	}
+
+	it('starts shutdown.exe /r /t 0 only on Windows when a restart is due', () => {
+		const spawned = child()
+		const spawn = vi.fn(() => spawned)
+		restartPc({ platform: 'win32', due: true, spawn, onError: vi.fn() })
+		expect(spawn).toHaveBeenCalledWith('shutdown.exe', ['/r', '/t', '0'], {
+			detached: true,
+			stdio: 'ignore',
+			windowsHide: true,
+		})
+		expect(spawned.unref).toHaveBeenCalled()
+	})
+
+	it('refuses when no restart is due or off Windows, without spawning', () => {
+		const spawn = vi.fn(() => child())
+		expect(() => restartPc({ platform: 'win32', due: false, spawn, onError: vi.fn() })).toThrow(
+			/does not need a restart/,
+		)
+		expect(() => restartPc({ platform: 'linux', due: true, spawn, onError: vi.fn() })).toThrow()
+		expect(spawn).not.toHaveBeenCalled()
+	})
+
+	it('records, and does not crash, when the command cannot start', () => {
+		const spawned = child()
+		const onError = vi.fn()
+		restartPc({ platform: 'win32', due: true, spawn: () => spawned, onError })
+		const failure = new Error('ENOENT')
+		for (const listener of spawned.listeners) listener(failure)
+		expect(onError).toHaveBeenCalledWith(failure)
+		const thrown = vi.fn()
+		expect(() =>
+			restartPc({
+				platform: 'win32',
+				due: true,
+				spawn: () => {
+					throw new Error('EACCES')
+				},
+				onError: thrown,
+			}),
+		).toThrow(/Start menu/)
+		expect(thrown).toHaveBeenCalled()
 	})
 })
 

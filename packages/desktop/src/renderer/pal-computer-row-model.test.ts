@@ -94,6 +94,29 @@ describe('palComputerRowView', () => {
 		).toBe('Preparing Kiro’s computer…')
 	})
 
+	it('says plainly that a start did not work and offers a quiet Try again', () => {
+		const view = palComputerRowView({
+			palName: 'Kiro',
+			setup: { available: true, phase: 'ready' },
+			consenting: false,
+			startFailure: { details: 'exit 125' },
+		})
+		expect(view).toMatchObject({
+			status: 'Offline',
+			action: { kind: 'retry-start', label: 'Try again' },
+			note: 'Kiro’s computer could not start. Try again.',
+			details: 'exit 125',
+		})
+		expect(texts(view).join(' ')).not.toMatch(JARGON)
+		expect(
+			palComputerRowView({
+				palName: 'Kiro',
+				setup: { available: true, phase: 'ready' },
+				consenting: false,
+			}),
+		).toBeUndefined()
+	})
+
 	it('says Needs setup, and offers Set up and start on hover', () => {
 		expect(row(state({}))).toMatchObject({
 			status: 'Needs setup',
@@ -105,14 +128,14 @@ describe('palComputerRowView', () => {
 	it('shows one sentence with what, how much, how long and what Windows asks', () => {
 		const view = row(state({}), true)
 		expect(view?.consent?.sentence).toBe(
-			'Namzu will add Linux support to Windows and prepare Kiro’s computer. It downloads 351 MB. This takes about 3 minutes. Windows will ask your permission once. Your PC may need to restart, and Namzu continues by itself afterwards.',
+			'Namzu will add Linux support to Windows and prepare Kiro’s computer (351 MB to download, about 3 minutes); Windows will ask your permission once, and your PC may need to restart (Namzu then continues by itself).',
 		)
 		expect(view?.action).toBeUndefined()
 	})
 
 	it('words a plan with no download and no permission', () => {
 		expect(consentSentence({ ...image, steps: ['turn-on-features', 'load-image'] }, 'Kiro')).toBe(
-			'Namzu will turn on the Windows features it needs and prepare Kiro’s computer. This takes about 1 minute. Windows will not ask for permission.',
+			'Namzu will turn on the Windows features it needs and prepare Kiro’s computer (about 1 minute); Windows will not ask for permission.',
 		)
 	})
 

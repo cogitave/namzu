@@ -79,7 +79,7 @@ import {
 	continueSetupCommand,
 	palComputerEnvironment,
 	palComputerSetupSettings,
-	restartCommand,
+	restartPc,
 } from './pal-computer-env.js'
 import { IdleStopper } from './pal-computer-idle.js'
 import { PalComputerSetupService } from './pal-computer-setup.js'
@@ -312,7 +312,7 @@ const command = cliEntry
 				args: ['/d', '/s', '/c', 'namzu acp --desktop'],
 			}
 		: { program: 'namzu', args: ['acp', '--desktop'] }
-const palComputerSettings = palComputerSetupSettings(process.platform, process.env)
+const palComputerSettings = palComputerSetupSettings(process.platform, process.env, app.isPackaged)
 // The same CLI as the runtime, as its own short process: `computer status | setup | stop-idle`.
 const computerCli = createComputerCli(
 	cliEntry
@@ -342,7 +342,7 @@ const palComputerSetup = new PalComputerSetupService({
 })
 const palComputerIdle = new IdleStopper({
 	delayMs: palComputerSettings.idleMs,
-	stop: () => palComputerSetup.stopIdle(),
+	stop: (timeoutMs) => palComputerSetup.stopIdle(timeoutMs),
 	busy: () => palComputerSetup.isRunning(),
 	schedule: (ms, run) => {
 		const timer = setTimeout(run, ms)
@@ -1076,16 +1076,14 @@ function register(): void {
 	handle('runPalComputerSetup', (planId: unknown, palId?: unknown) =>
 		palComputerSetup.run(planId, typeof palId === 'string' ? palId : undefined),
 	)
-	handle('restartPc', () => {
-		const restart = restartCommand(process.platform)
-		if (!restart || !palComputerSetup.restartIsDue())
-			throw new Error('Windows does not need a restart for Pal computers right now.')
-		spawn(restart.program, restart.args, {
-			detached: true,
-			stdio: 'ignore',
-			windowsHide: true,
-		}).unref()
-	})
+	handle('restartPc', () =>
+		restartPc({
+			platform: process.platform,
+			due: palComputerSetup.restartIsDue(),
+			spawn: (program, args, options) => spawn(program, args, options),
+			onError: (error) => diagnostics.record('restart_failed', { error }),
+		}),
+	)
 	handle('rebootPalComputer', (id: string, generation: string) =>
 		operator.rebootPalComputer(id, generation),
 	)

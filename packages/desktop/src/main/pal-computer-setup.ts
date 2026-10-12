@@ -10,7 +10,11 @@ import type { ComputerLine, ComputerPlan, ComputerResult } from './pal-computer-
 
 /** Runs `namzu computer <args>` and hands over each JSON line as it arrives. */
 export interface ComputerCli {
-	run(args: string[], onLine: (line: ComputerLine) => void): Promise<{ exitCode: number | null }>
+	run(
+		args: string[],
+		onLine: (line: ComputerLine) => void,
+		options?: { timeoutMs?: number },
+	): Promise<{ exitCode: number | null }>
 }
 
 export interface PalComputerSetupDeps {
@@ -204,7 +208,7 @@ export class PalComputerSetupService {
 		if (
 			plan &&
 			(this.state.phase === 'image-only' || this.state.phase === 'needs-setup') &&
-			canAutoContinue(record, plan)
+			canAutoContinue(record, plan, this.deps.now())
 		)
 			await this.start(plan, record?.palId, true)
 	}
@@ -294,16 +298,24 @@ export class PalComputerSetupService {
 			}
 		}
 		if (result?.outcome === 'ready') {
-			this.deps.consent.clear()
-			this.seq += 1
+			this.complete(ranSetup, palId)
+			return
+		}
+		if (result?.outcome === 'plan-changed' || result?.outcome === 'blocked') {
+			// The PC is not what the plan was made for. It may simply be ready by now (for example
+			// the Pal computer was already added), so look again before saying anything.
 			const { outcome: _past, ...rest } = this.state
-			this.checkedAt = this.deps.now()
-			this.set({
-				...rest,
-				available: true,
-				phase: 'ready',
-				completed: { seq: this.seq, ...(palId ? { palId } : {}), ranSetup },
-			})
+			this.state = rest
+			await this.refresh()
+			if (this.state.phase === 'ready') {
+				this.complete(ranSetup, palId)
+				return
+			}
+			// A blocked PC has its own sentence; anything else must not fall back to silence.
+			if (this.state.phase !== 'blocked') {
+				this.deps.consent.clear()
+				this.set({ ...this.state, outcome: { kind: 'failed', sentence: STOPPED_SENTENCE } })
+			}
 			return
 		}
 		const ended = outcome()
@@ -313,18 +325,37 @@ export class PalComputerSetupService {
 			this.set({ ...rest, phase: 'restart-pending', outcome: { kind: 'restart-required' } })
 			return
 		}
+		// A run that ended without finishing leaves no consent behind; only a restart goes on by itself.
+		this.deps.consent.clear()
 		const { outcome: _past, ...rest } = this.state
 		this.state = { ...rest, ...(ended ? { outcome: ended } : {}) }
 		await this.refresh()
 	}
 
-	async stopIdle(): Promise<'stopped' | 'busy' | 'not-running' | 'failed'> {
+	private complete(ranSetup: boolean, palId: string | undefined): void {
+		this.deps.consent.clear()
+		this.seq += 1
+		const { outcome: _past, ...rest } = this.state
+		this.checkedAt = this.deps.now()
+		this.set({
+			...rest,
+			available: true,
+			phase: 'ready',
+			completed: { seq: this.seq, ...(palId ? { palId } : {}), ranSetup },
+		})
+	}
+
+	async stopIdle(timeoutMs?: number): Promise<'stopped' | 'busy' | 'not-running' | 'failed'> {
 		if (!this.deps.enabled) return 'not-running'
 		let outcome: 'stopped' | 'busy' | 'not-running' | 'failed' = 'failed'
 		try {
-			await this.deps.cli.run(['computer', 'stop-idle', '--json'], (line) => {
-				if (line.kind === 'stop-idle') outcome = line.outcome
-			})
+			await this.deps.cli.run(
+				['computer', 'stop-idle', '--json'],
+				(line) => {
+					if (line.kind === 'stop-idle') outcome = line.outcome
+				},
+				timeoutMs === undefined ? undefined : { timeoutMs },
+			)
 		} catch {
 			outcome = 'failed'
 		}
