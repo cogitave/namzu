@@ -19,6 +19,20 @@ export function addToArchiveBatch(
 	return { ids: live.includes(id) ? live : [...live, id], until: now + lifetimeMs }
 }
 
+/**
+ * A conversation that came back is no longer part of the notice: it leaves the batch, and a
+ * batch with nothing left to undo is gone. The clock does not restart.
+ */
+export function removeFromArchiveBatch(
+	batch: ArchiveBatch | undefined,
+	id: string,
+	now: number,
+): ArchiveBatch | undefined {
+	if (!batch || batch.until <= now) return undefined
+	const ids = batch.ids.filter((other) => other !== id)
+	return ids.length === 0 ? undefined : { ids, until: batch.until }
+}
+
 export function archiveNoticeText(count: number): string {
 	return count <= 1
 		? 'Conversation archived. Find it with the archive button next to Recents.'

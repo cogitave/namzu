@@ -29,6 +29,8 @@
 			rows,
 			settled: aside?.getAttribute('data-start-settled') === 'true',
 			mark: window.__sidebarMark ?? '',
+			// The error banner of the main pane, if one is drawn on this frame.
+			banner: document.querySelector('.connection-error')?.textContent ?? '',
 		}
 		const key = JSON.stringify(state)
 		if (key !== last) {

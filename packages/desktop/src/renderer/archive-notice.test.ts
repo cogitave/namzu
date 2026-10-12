@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addToArchiveBatch, archiveNoticeText } from './archive-notice.js'
+import { addToArchiveBatch, archiveNoticeText, removeFromArchiveBatch } from './archive-notice.js'
 
 describe('archive notice batches', () => {
 	it('starts a batch with one conversation', () => {
@@ -27,5 +27,26 @@ describe('archive notice batches', () => {
 			'Conversation archived. Find it with the archive button next to Recents.',
 		)
 		expect(archiveNoticeText(2)).toContain('Find them with the archive button next to Recents.')
+	})
+	it('drops a restored conversation from the batch and keeps the clock', () => {
+		const batch = addToArchiveBatch(addToArchiveBatch(undefined, 'a', 0, 100), 'b', 10, 100)
+		expect(removeFromArchiveBatch(batch, 'a', 20)).toEqual({ ids: ['b'], until: 110 })
+	})
+	it('has no batch once every conversation in it was restored', () => {
+		const batch = addToArchiveBatch(undefined, 'a', 0, 100)
+		expect(removeFromArchiveBatch(batch, 'a', 5)).toBeUndefined()
+	})
+	it('leaves the batch alone when a conversation outside it is restored', () => {
+		const batch = addToArchiveBatch(undefined, 'a', 0, 100)
+		expect(removeFromArchiveBatch(batch, 'z', 5)).toEqual(batch)
+	})
+	it('has no batch once its notice is gone', () => {
+		const batch = addToArchiveBatch(undefined, 'a', 0, 100)
+		expect(removeFromArchiveBatch(batch, 'b', 100)).toBeUndefined()
+		expect(removeFromArchiveBatch(undefined, 'a', 0)).toBeUndefined()
+	})
+	it('does not carry restored conversations into the next count', () => {
+		const restored = removeFromArchiveBatch(addToArchiveBatch(undefined, 'a', 0, 100), 'a', 5)
+		expect(addToArchiveBatch(restored, 'a', 10, 100).ids).toEqual(['a'])
 	})
 })

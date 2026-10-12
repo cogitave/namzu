@@ -201,3 +201,104 @@ flow(
 		).toBeVisible({ timeout: T });
 	},
 );
+
+// The notice after archiving names only what is still archived: a conversation restored from the
+// archived list leaves it, the count follows, and Undo restores only what is left.
+flow(
+	"restoring a conversation takes it out of the archive notice",
+	{ rules: CHATS },
+	async (w) => {
+		await twoChats(w);
+		const notice = (text) => w.page.getByText(text).first();
+		const archiveRow = async (title) => {
+			const row = projectRow(w, title);
+			await row.hover();
+			await row.getByRole("button", { name: "Archive", exact: true }).click();
+			await expect(projectRow(w, title)).toHaveCount(0, { timeout: T });
+		};
+		await archiveRow("alpha chat");
+		await expect(notice(/^Conversation archived\./)).toBeVisible({ timeout: T });
+		await archiveRow("beta chat");
+		await expect(notice(/^2 conversations archived\./)).toBeVisible({ timeout: T });
+
+		await section(w).getByRole("button", { name: "Show archived conversations" }).click();
+		await expect(archivedRow(w, "alpha chat")).toHaveCount(1, { timeout: T });
+		await archivedRow(w, "alpha chat").hover();
+		await archivedRow(w, "alpha chat").getByRole("button", { name: "Restore alpha chat" }).click();
+		await expect(archivedRow(w, "alpha chat")).toHaveCount(0, { timeout: T });
+		// One is back: the notice is about the one that is still archived.
+		await expect(notice(/^Conversation archived\./)).toBeVisible({ timeout: T });
+		await expect(w.page.getByText(/^2 conversations archived\./)).toHaveCount(0);
+
+		// Undo restores what is still archived, and only that.
+		await w.page.getByRole("button", { name: "Undo", exact: true }).click();
+		await expect(archivedRow(w, "beta chat")).toHaveCount(0, { timeout: T });
+		await expect(projectRow(w, "beta chat")).toHaveCount(1, { timeout: T });
+		await expect(projectRow(w, "alpha chat")).toHaveCount(1);
+		await expect(w.page.getByText(/conversations? archived\./)).toHaveCount(0, { timeout: T });
+		await section(w).getByRole("button", { name: "Back to recents" }).click();
+
+		// Archive again and restore it: nothing is left to undo, so the notice goes away, and the next
+		// archive starts a count of one.
+		await archiveRow("alpha chat");
+		await expect(notice(/^Conversation archived\./)).toBeVisible({ timeout: T });
+		await section(w).getByRole("button", { name: "Show archived conversations" }).click();
+		await archivedRow(w, "alpha chat").hover();
+		await archivedRow(w, "alpha chat").getByRole("button", { name: "Restore alpha chat" }).click();
+		await expect(w.page.getByText(/conversations? archived\./)).toHaveCount(0, { timeout: T });
+		await section(w).getByRole("button", { name: "Back to recents" }).click();
+		await archiveRow("alpha chat");
+		await expect(notice(/^Conversation archived\./)).toBeVisible({ timeout: T });
+		await expect(w.page.getByText(/^[0-9]+ conversations archived\./)).toHaveCount(0);
+	},
+);
+
+// A note under the Recents heading starts where the row titles start, and the project menu's
+// "Archived conversations" lands on the list like the palette does.
+flow(
+	"the notes in the archive list line up with the row titles and the project menu focuses the list",
+	{ rules: CHATS },
+	async (w) => {
+		await twoChats(w);
+		const row = projectRow(w, "alpha chat");
+		await row.hover();
+		await row.getByRole("button", { name: "Archive", exact: true }).click();
+		await expect(heading(w)).toHaveText("Recents", { timeout: T });
+		await expect(section(w).getByText("No recent conversations.")).toBeVisible({ timeout: T });
+		const contentLeft = (selector) =>
+			w.page.evaluate((sel) => {
+				const el = document.querySelector(sel);
+				return el
+					? el.getBoundingClientRect().left + Number.parseFloat(getComputedStyle(el).paddingLeft)
+					: null;
+			}, selector);
+		const noteLeft = await contentLeft(".sidebar-recents-body .sidebar-empty-note");
+
+		// The project menu switches the view and puts focus on the list.
+		const project = w.page.locator(".sidebar-project-heading").first();
+		await project.hover();
+		await project.getByRole("button", { name: /^Actions for / }).click();
+		await w.page.getByRole("menuitem", { name: "Archived conversations" }).click();
+		await expect(heading(w)).toHaveText("Archived", { timeout: T });
+		await expect(archivedRow(w, "alpha chat")).toHaveCount(1, { timeout: T });
+		await expect(w.page.locator("[data-archive-list]")).toBeFocused();
+
+		const titleLeft = await w.page.evaluate(() =>
+			document.querySelector("li[data-archived-row] .conversation-row-title")?.getBoundingClientRect().left,
+		);
+		assert.ok(noteLeft !== null && titleLeft !== undefined, "the note and a title were measured");
+		assert.ok(
+			Math.abs(noteLeft - titleLeft) <= 1,
+			`the note starts at ${noteLeft} and the row title at ${titleLeft}`,
+		);
+		// The same holds for the empty archived list.
+		await archivedRow(w, "alpha chat").hover();
+		await archivedRow(w, "alpha chat").getByRole("button", { name: "Restore alpha chat" }).click();
+		await expect(section(w).getByText("Nothing is archived.")).toBeVisible({ timeout: T });
+		const emptyLeft = await contentLeft(".sidebar-recents-body .sidebar-empty-note");
+		assert.ok(
+			emptyLeft !== null && Math.abs(emptyLeft - titleLeft) <= 1,
+			`the empty note starts at ${emptyLeft}, the row title at ${titleLeft}`,
+		);
+	},
+);

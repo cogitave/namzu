@@ -1687,7 +1687,10 @@ a conversation that a list newly delivers appears only where it moves no shown r
 and it otherwise appears when the start ends or when the person acts; a conversation the person makes,
 pins or renames moves at once. Rows that change because a background list arrived never slide; the
 150 ms list motion is for the person's own actions. The project in front is open in the first render
-and its panel is open without travel; the expand and collapse animation stays for a click. Rows carry a
+and its panel is open without travel; the expand and collapse animation stays for a click. The pane in front reads its
+saved message choices on that first frame; while the start is still deciding which tab is in front, a refusal of that read is not
+shown as an error (no frame carries the banner, `e2e/sidebar-startup-stability.test.mjs` refuses it once on purpose), and the read is
+made again when the start settles, where a real failure is shown. Rows carry a
 `data-sidebar-key` (`project:`, `conversation:`, `pal:` and `heading:` plus the id) so a test can follow
 them frame by frame (`e2e/sidebar-startup-stability.test.mjs`). Scheduled is currently unavailable in the desktop
 preview; its disabled control never opens a conversation's background shells.
@@ -1819,7 +1822,9 @@ error, which is never closed by a newer notice before it has gone: the newer not
 (errors wait ahead of the rest, only the newest of the others waits, and the same words are never
 shown twice). Archiving
 several conversations in a row merges into one notice, "3 conversations archived", whose one
-**Undo** restores all of them. `notify` also takes `tooltip` (the full text a sentence
+**Undo** restores all of them. A conversation restored meanwhile (from the archived list, or by that Undo) leaves the notice: the count
+follows ("3" becomes "2", and "2" becomes the singular form), the notice keeps the time it had left, a notice with nothing left to undo goes away,
+and Undo restores only the conversations that are still archived (`archive-notice.ts`). `notify` also takes `tooltip` (the full text a sentence
 shortened). Hovering or focusing the toast pauses its timer; reduced motion removes the
 animation. Each pane has its own stack, centred in its conversation lane just above the
 composer (the lane's `--composer-height`), so the side panel stays clear; `notify` goes
@@ -2922,7 +2927,9 @@ an archived conversation without bringing it back, so an archived row is not a l
 with a tooltip where the pin and archive icons sit on a Recents row, is its one action, and the restored
 conversation returns to Recents and its project. While the list loads there are placeholder rows; a read
 that fails is one plain sentence with a retry icon; with nothing archived the list says "Nothing is
-archived."; a project that cannot be read says so and does not hide the others. The section shows whenever
+archived."; the notes ("Nothing is archived.", "No recent conversations.", a failed read) start where the row titles
+start; a project that cannot be read says so and does not hide the others. The project menu's "Archived conversations" switches the view and moves
+focus to the list, as the palette entry and the details menu do. The section shows whenever
 there is a recent or an archived conversation (with only archived ones, the Recents view says "No recent
 conversations."), and always while the archived view is on. Each project's archive is read once, as that project
 connects (a project that is still connecting cannot answer), so the button knows whether to appear, and every project

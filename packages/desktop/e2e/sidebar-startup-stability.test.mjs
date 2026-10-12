@@ -16,8 +16,8 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 import { createWorld, dispose, expect, freezeApp, launch, relaunch } from "./harness.mjs";
 
 const T = 60000;
@@ -93,6 +93,16 @@ const frames = (w) => w.page.evaluate(() => window.__sidebarFrames);
 const kind = (key) => key.slice(0, key.indexOf(":"));
 const withRows = (list) => list.filter((frame) => Object.keys(frame.rows).length > 0);
 
+/** A state that has not failed never shows as failed: no frame of a start carries an error banner. */
+function noBanner(label, list) {
+	const shown = list.filter((frame) => frame.banner);
+	assert.deepEqual(
+		shown.map((frame) => `t=${frame.t}: ${frame.banner}`),
+		[],
+		`${label}: no frame shows an error banner`,
+	);
+}
+
 /** The ids of the three projects, in the order the app lists them now. */
 const listedProjects = (w) =>
 	w.page.evaluate(async () => (await window.namzu.projects()).map((p) => [p.id, p.path, p.name]));
@@ -107,6 +117,7 @@ function assertStable(label, list, { projectOrder, expectedKeys, record }) {
 	record?.(label, list);
 	const shown = withRows(list);
 	assert.ok(shown.length > 0, `${label}: the sidebar drew rows`);
+	noBanner(label, list);
 	const first = shown[0].rows;
 	const keys = Object.keys(first);
 	for (const key of expectedKeys)
@@ -304,6 +315,7 @@ test("a fresh profile starts from its placeholders", { timeout: 300000 }, async 
 		});
 		// Nothing is remembered, so the first frame draws no conversation row (checked below).
 		const list = await frames(w);
+		noBanner("fresh profile", list);
 		const keys = new Set(withRows(list).flatMap((frame) => Object.keys(frame.rows)));
 		assert.equal([...keys].some((key) => kind(key) === "conversation"), false);
 		failed = false;
@@ -378,6 +390,51 @@ test("a click on a remembered row before its project connects opens it, and an a
 		rmSync(join(gates, "alpha.list.hold"));
 		await expect(w.page.getByText("Conversation archived.")).toBeVisible({ timeout: T });
 		await expect(row("beta chat")).toHaveCount(0, { timeout: T });
+		assert.deepEqual(w.faults, [], "the renderer raised no uncaught errors");
+		failed = false;
+	} finally {
+		await dispose(w, { failed });
+	}
+});
+
+// The pane in front reads its saved message choices as the first frame is drawn, before the start has
+// decided which tab is in front. If main refuses that first read (the window is still being set up),
+// nothing has failed for the person: no frame shows an error banner, the read is made again once the
+// start settles, and the composer comes up with its choices.
+test("a refused first read of the saved message choices is never shown as an error", {
+	timeout: 300000,
+}, async () => {
+	const w = await createWorld({ rules: CHATS });
+	instrument(w);
+	let failed = true;
+	try {
+		await launch(w);
+		await addProject(w, "alpha");
+		await say(w, "chat alpha");
+		await w.app.close();
+		// The next start's first read of a project-level draft is refused once, as an early start can.
+		const preload = join(freezeApp(w.root), "dist/preload.cjs");
+		const source = readFileSync(preload, "utf8");
+		const call = "electron_1.ipcRenderer.invoke(`namzu:${name}`, ...args)";
+		assert.ok(source.includes(call), "the preload still has the invoke the test replaces");
+		writeFileSync(
+			preload,
+			source.replace(
+				call,
+				`(name === "draftSettings" && String(args[0]).startsWith("project:") && !globalThis.__refusedOnce
+				? ((globalThis.__refusedOnce = true), Promise.reject(new Error("refused while the window starts")))
+				: ${call})`,
+			),
+		);
+		await relaunch(w);
+		await expect(w.page.locator("#namzu-sidebar")).toHaveAttribute("data-start-settled", "true", {
+			timeout: T,
+		});
+		await expect(w.page.getByRole("textbox", { name: "Message Namzu" })).toBeVisible({
+			timeout: T,
+		});
+		noBanner("a refused first read", await frames(w));
+		await expect(w.page.locator(".connection-error")).toHaveCount(0);
 		assert.deepEqual(w.faults, [], "the renderer raised no uncaught errors");
 		failed = false;
 	} finally {

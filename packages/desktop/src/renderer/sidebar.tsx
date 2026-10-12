@@ -48,6 +48,8 @@ export type ConversationCollection = 'projects' | 'recents'
 export interface SidebarArchive {
 	view: ArchiveView
 	onViewChange: (view: ArchiveView) => void
+	/** Shows the archived list from a menu item elsewhere, and moves focus onto it. */
+	onShowArchived: () => void
 	load: ArchiveLoad
 	/** Reads the archive again after a failed read. */
 	onRetry: () => void
@@ -402,7 +404,7 @@ export function Sidebar({
 											onRemoveProject={onRemoveProject}
 											onRenameProject={onRenameProject}
 											onOpenProjectFolder={onOpenProjectFolder}
-											onOpenArchived={archive ? () => archive.onViewChange('archived') : undefined}
+											onOpenArchived={archive?.onShowArchived}
 										>
 											<CollapsibleTrigger
 												aria-label={`${collapsedProjects[project.id] === false ? 'Collapse' : 'Expand'} ${project.name} conversations`}

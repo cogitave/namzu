@@ -50,7 +50,12 @@ import {
 	START_FROM_SCRATCH_LABEL,
 	USE_EXISTING_FOLDER_LABEL,
 } from './add-project-menu.js'
-import { type ArchiveBatch, addToArchiveBatch, archiveNoticeText } from './archive-notice.js'
+import {
+	type ArchiveBatch,
+	addToArchiveBatch,
+	archiveNoticeText,
+	removeFromArchiveBatch,
+} from './archive-notice.js'
 import { applyCachedAttachmentPreviewEviction } from './attachment-preview-events.js'
 import { ChangesPanel } from './changes-panel.js'
 import { type ChangeTotals, changeTotals } from './changes-totals.js'
@@ -163,7 +168,7 @@ import {
 	terminalUnavailableReason,
 } from './new-tab-menu.js'
 import { normalConversationProject } from './normal-conversation.js'
-import { notify } from './notify.js'
+import { dismissNotice, notify } from './notify.js'
 import { PalChatTranscript } from './pal-chat-transcript.js'
 import { PalCommunicationDialog, type PalSettingsTab } from './pal-communication-dialog.js'
 import { computerSetupMissing, presentComputerNotice } from './pal-computer-notice.js'
@@ -1391,12 +1396,31 @@ export function App({
 		(failure) => showError(failure, 'attach the file'),
 		api,
 	)
+	// The pane in front reads its saved choices at once. While the start is still deciding which tab
+	// is in front, that first read is for a draft the tab about to open replaces, so a refusal of it
+	// is not the person's problem and is not shown; it is read once more when the start settles.
+	const decidingFront = restoringTabs && !sessionId
 	const savedSettings = useDraftSettings(
 		draftOwner,
 		Boolean(project) && !historyPending,
-		(failure) => showError(failure, 'save your message settings'),
+		(failure) => {
+			if (!decidingFront) showError(failure, 'save your message settings')
+		},
 		api,
 	)
+	const settingsRetried = useRef('')
+	const settingsError = decidingFront ? undefined : savedSettings.error
+	useEffect(() => {
+		if (
+			restoringTabs ||
+			sessionId ||
+			!savedSettings.error ||
+			settingsRetried.current === draftOwner
+		)
+			return
+		settingsRetried.current = draftOwner
+		savedSettings.retry()
+	}, [restoringTabs, sessionId, savedSettings.error, savedSettings.retry, draftOwner])
 	const settings = resolveComposerSendOptions(savedSettings.value.options, pal?.id)
 	const choice = resolveComposerModelChoice({
 		providers: activeProviders,
@@ -3325,28 +3349,25 @@ export function App({
 	}
 	// Archives and offers Undo through the same host path whether a menu, a shortcut or a row button asked.
 	const archiveBatch = useRef<ArchiveBatch | undefined>(undefined)
-	const archiveConversation = async (value: ConversationView) => {
-		if (!api.removeConversation) throw new Error('Conversation removal is unavailable.')
-		const result = await api.removeConversation(value.id)
-		if (result.sessionId !== value.id || result.removed !== true)
-			throw new Error('Conversation removal was not confirmed. Try again.')
-		archived.add(value)
-		// Archiving again while the notice is up merges into it: one notice, one Undo for all.
-		const batch = addToArchiveBatch(archiveBatch.current, value.id, Date.now(), ARCHIVE_UNDO_MS)
+	const archiveNoticeId = useRef('')
+	const showArchiveNotice = (batch: ArchiveBatch) => {
 		archiveBatch.current = batch
-		const archivedIds = batch.ids
-		notify(archiveNoticeText(archivedIds.length), {
+		archiveNoticeId.current = notify(archiveNoticeText(batch.ids.length), {
 			tone: 'success',
-			timeoutMs: ARCHIVE_UNDO_MS,
+			// A notice rebuilt after a restore keeps the time that was left, not a fresh window.
+			timeoutMs: Math.max(batch.until - Date.now(), 1000),
 			action: api.restoreConversation
 				? {
 						label: 'Undo',
 						onClick: () => {
+							// Only what is still archived comes back: restored ones left the batch.
+							const stillArchived = archiveBatch.current?.ids ?? []
 							archiveBatch.current = undefined
+							archiveNoticeId.current = ''
 							void act(async () => {
 								// One that cannot come back must not strand the others.
 								let failure: unknown
-								for (const archivedId of archivedIds) {
+								for (const archivedId of stillArchived) {
 									try {
 										const restored = await api.restoreConversation?.(archivedId)
 										if (!restored) continue
@@ -3364,6 +3385,29 @@ export function App({
 				: undefined,
 		})
 	}
+	// A conversation that came back no longer belongs to the archive notice: the count follows,
+	// and a notice with nothing left to undo goes away.
+	const withdrawFromArchiveNotice = (id: string) => {
+		const before = archiveBatch.current
+		if (!before) return
+		const after = removeFromArchiveBatch(before, id, Date.now())
+		if (after === before) return
+		archiveBatch.current = after
+		if (after) showArchiveNotice(after)
+		else if (archiveNoticeId.current) dismissNotice(archiveNoticeId.current)
+		if (!after) archiveNoticeId.current = ''
+	}
+	const archiveConversation = async (value: ConversationView) => {
+		if (!api.removeConversation) throw new Error('Conversation removal is unavailable.')
+		const result = await api.removeConversation(value.id)
+		if (result.sessionId !== value.id || result.removed !== true)
+			throw new Error('Conversation removal was not confirmed. Try again.')
+		archived.add(value)
+		// Archiving again while the notice is up merges into it: one notice, one Undo for all.
+		showArchiveNotice(
+			addToArchiveBatch(archiveBatch.current, value.id, Date.now(), ARCHIVE_UNDO_MS),
+		)
+	}
 	// A row's Restore in the archived view: the conversation returns to Recents and its project.
 	const restoreArchivedConversation = (value: ConversationView) => {
 		if (restoringArchived || !api.restoreConversation) return
@@ -3375,6 +3419,7 @@ export function App({
 				unblockRestoredConversation(restored.id)
 				upsertConversation(restored)
 				archived.remove(restored.id)
+				withdrawFromArchiveNotice(restored.id)
 			} finally {
 				setRestoringArchived('')
 			}
@@ -5527,9 +5572,7 @@ export function App({
 	)
 	// An engine that says it needs an account is remembered as signed out, so Settings > Updates can
 	// say so. It is forgotten only on proof: a finished reply from a conversation on that engine.
-	const signInEngine = signInHelpFor(
-		savedSettings.error || rawError || project?.error || '',
-	)?.engine
+	const signInEngine = signInHelpFor(settingsError || rawError || project?.error || '')?.engine
 	const repliedEngine = thread.messages.some(
 		(message) => message.role === 'assistant' && message.status !== 'pending' && message.text,
 	)
@@ -6073,6 +6116,7 @@ export function App({
 											view: archiveView,
 											rememberedCount: sidebarStart?.snapshot?.archivedCount,
 											onViewChange: setArchiveView,
+											onShowArchived: showArchivedConversations,
 											load: archived.load,
 											onRetry: archived.refresh,
 											restoringId: restoringArchived,
@@ -6485,7 +6529,7 @@ export function App({
 				{/* A trust dialog for the folder is the explanation; the banner behind it would repeat it. */}
 				{!folderAccess &&
 					!project?.missing &&
-					(error || (project?.error && !openErrorStage) || savedSettings.error) && (
+					(error || (project?.error && !openErrorStage) || settingsError) && (
 						<div className="connection-error">
 							<ChatErrorBanner
 								details={
@@ -6496,15 +6540,15 @@ export function App({
 										? lostConnectionText(project)
 										: (externalHarness &&
 												describeEngineFailure(
-													savedSettings.error || rawError || project?.error || '',
+													settingsError || rawError || project?.error || '',
 													engineLabel(harnessView, permissionEngine),
 												)) ||
-											savedSettings.error ||
+											settingsError ||
 											error ||
 											project?.error ||
 											''
 								}
-								signIn={signInHelpFor(savedSettings.error || rawError || project?.error || '')}
+								signIn={signInHelpFor(settingsError || rawError || project?.error || '')}
 								onOpenTerminal={
 									terminalReady ? () => void act(() => openShellTerminal()) : undefined
 								}
@@ -6530,7 +6574,7 @@ export function App({
 														void act(async () =>
 															updateProject(await api.reconnectProject(project.id)),
 														)
-												: savedSettings.error ||
+												: settingsError ||
 														(project?.trusted &&
 															(!providerReady || (!pal && api.harnesses && !harnessView)))
 													? () => void act(retryConversationSetup)
@@ -6538,7 +6582,7 @@ export function App({
 								}
 								retryLabel={project?.status === 'error' ? 'Reconnect' : 'Retry setup'}
 								onDismiss={
-									!restoringTabs && project?.status !== 'error' && !savedSettings.error
+									!restoringTabs && project?.status !== 'error' && !settingsError
 										? () => setError('')
 										: undefined
 								}

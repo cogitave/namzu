@@ -440,6 +440,10 @@
 	color: var(--sidebar-muted-foreground);
 	font-size: 12px;
 }
+/* A note under the Recents heading starts where the row titles do: a row's own padding is 8px. */
+.sidebar-recents-body .sidebar-empty-note {
+	padding-inline: 8px;
+}
 /* The project a Recents row belongs to, so the same title in two projects is two rows. */
 .conversation-row-project {
 	flex: 0 1 auto;
