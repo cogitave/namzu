@@ -51,9 +51,11 @@ async function addProject(w, name) {
 	const add = w.page.getByRole("button", { name: "Add new project", exact: true });
 	await add.last().click();
 	await w.page.getByRole("menuitem", { name: "Use an existing folder" }).click();
-	await expect(w.page.locator("[data-project-group]").filter({ hasText: name })).toHaveCount(1, {
-		timeout: T,
-	});
+	const group = w.page.locator("[data-project-group]").filter({ hasText: name });
+	await expect(group).toHaveCount(1, { timeout: T });
+	// The app opens the project it just added a moment after the row appears. Wait for that, or a
+	// test that folds everything first is overtaken by the opening and finds a panel it did not expect.
+	await expect(group.locator(TOGGLE)).toHaveAttribute("aria-expanded", "true", { timeout: T });
 }
 
 /**
