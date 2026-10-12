@@ -22,7 +22,7 @@
  * host uses to decide whether it may require the field.
  */
 
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { type AddressInfo, type Server, createServer } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -124,6 +124,38 @@ async function openStream(request: unknown): Promise<Record<string, unknown>> {
 }
 
 describe('the guest reports which agent process answered', () => {
+	it('enforces guest-bound operations before every side effect', async () => {
+		const path = join(workDir, 'guarded.txt')
+		const write = {
+			op: 'write-file',
+			body: { path, content: Buffer.from('pinned').toString('base64'), encoding: 'base64' },
+		}
+		const guard = (request: unknown, guestBootId = agent.GUEST_BOOT_ID) => ({
+			op: 'guest-bound',
+			token: POD_UID,
+			guestBootId,
+			request,
+		})
+		for (const request of [
+			write,
+			{ op: 'execute', body: { command: '/bin/sh', args: ['-c', `touch '${path}'`] } },
+			{ op: 'terminal', body: { command: '/bin/sh', args: ['-c', `touch '${path}'`] } },
+			{ op: 'reserve-execution' },
+			{
+				op: 'write-file',
+				body: { path, content: '', part: { final: true, renameTo: join(workDir, 'target.txt') } },
+			},
+		]) {
+			const refused = await sendFramedRequest(port, guard(request, 'departed-guest'))
+			expect(refused.reply.error).toBe('guest_changed')
+			expect(existsSync(path)).toBe(false)
+		}
+		const accepted = await sendFramedRequest(port, guard(write))
+		expect(accepted.reply.ok).toBe(true)
+		expect(readFileSync(path, 'utf8')).toBe('pinned')
+		const unauthenticated = await sendFramedRequest(port, { ...guard(write), token: 'wrong-token' })
+		expect(unauthenticated.reply.error).toBe('unauthorized')
+	})
 	it('advertises the capability so a host may require the field', () => {
 		// Advertised rather than version-fenced: a host that wants to insist
 		// on the evidence asks `healthz` first, and every host that does not

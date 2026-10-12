@@ -508,6 +508,8 @@ export type {
 	KubernetesGuestRestartReason,
 	KubernetesWorkspaceIdentity,
 } from './backends/kubernetes/identity.js'
+export type { KubernetesPinnedGuest } from './backends/kubernetes/guest-pin.js'
+export { KubernetesGuestPinError } from './backends/kubernetes/guest-pin.js'
 export {
 	// The command's outcome is unknown AND the guest it ran in is gone. A
 	// subclass of `RemoteCancellationUnknownError`, so a host catching the
@@ -1428,7 +1430,9 @@ function pickBackend(
 			standbyPoolResourceId: backend.standbyPoolResourceId,
 			containerGroupProfileResourceId: backend.containerGroupProfileResourceId,
 			...(backend.containerGroupProfileRevision !== undefined
-				? { containerGroupProfileRevision: backend.containerGroupProfileRevision }
+				? {
+						containerGroupProfileRevision: backend.containerGroupProfileRevision,
+					}
 				: {}),
 			layout: resolved,
 			getArmToken: backend.getArmToken,

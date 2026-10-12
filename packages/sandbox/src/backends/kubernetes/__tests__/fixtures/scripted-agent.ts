@@ -139,6 +139,7 @@ export interface ScriptedAgentOptions {
 	 * the pod, and therefore the token, staying exactly as it was.
 	 */
 	readonly guestBootId?: string
+	readonly guestBound?: boolean
 }
 
 /** One accepted connection: where the client aimed it. */
@@ -355,7 +356,7 @@ export async function startScriptedAgent(
 		socket.on('data', (chunk: Buffer) => {
 			for (const payload of reader.push(chunk)) {
 				if (payload.length === 0) continue
-				const request = JSON.parse(payload) as Record<string, unknown>
+				let request = JSON.parse(payload) as Record<string, unknown>
 				if (streaming !== undefined) {
 					// The only event a case needs answered: a host reaping a
 					// terminal waits on `exited`, and the real agent's PTY
@@ -371,7 +372,7 @@ export async function startScriptedAgent(
 					continue
 				}
 				requests.push(request)
-				const op = request.op
+				let op = request.op
 				if (op === 'healthz' && healthzRefusal !== undefined) {
 					// The gate's answer, not `dispatch`'s: a named reason and
 					// no fence flag, because the frame never reached the code
@@ -406,6 +407,19 @@ export async function startScriptedAgent(
 						socket.end()
 					}
 					continue
+				}
+				if (op === 'guest-bound') {
+					if (!options.guestBound || request.guestBootId !== guestBootId) {
+						send(socket, {
+							ok: false,
+							error: options.guestBound ? 'guest_changed' : 'unknown_op',
+							...identity(),
+						})
+						socket.end()
+						continue
+					}
+					request = request.request as Record<string, unknown>
+					op = request.op
 				}
 				// `dispatch`'s own gate: `cancel-execution` goes through a
 				// fence (it is how a host asks about the command that raised

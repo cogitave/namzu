@@ -1257,6 +1257,35 @@ the execution controller's generic defaults (a five-minute observation, then a
 cancel-confirm and a drain) and a one-minute acquire budget would become a
 six-minute hang.
 
+## Bind work to one prepared guest
+
+`workspace.pinGuest(workspace.identity)` returns a non-owning data-plane view
+with `exec`, `readFile`, `writeFile`, `listFiles`, `openTerminal`, and
+`openTcpConnection`. The identity must include the Sandbox, every known PVC,
+pod, and agent boot ID; missing or changed identity is refused. Capture the
+identity after preparing the guest, then retain the returned view for work
+that depends on that preparation.
+
+The view uses an independent snapshot of the transport address and token and
+does not rebind. Workspace lifecycle admission, execution cancellation and
+terminal cleanup still belong to the original workspace. Ordinary calls can
+continue following replacement pods without changing a pinned call's wire.
+
+Every authenticated request uses the `guest-bound` operation carrying the
+expected boot ID and the original operation. The guest authenticates it and
+checks its boot ID before dispatch. This includes command reservation,
+execution and cancellation, each multipart write and final rename, and
+terminal/TCP opens. A restarted agent in the same pod refuses before doing
+the work. Older agents refuse the unknown operation rather than ignoring an
+optional condition; there is no unguarded fallback. Deploy the matching
+agent image before using the view. The guest advertises `guest-bound` in its
+feature list, and the ordinary wire protocol remains unchanged.
+
+The pin proves where a request is admitted. It does not lock the disk or
+stop other writers; the caller must still own any required exclusion. A
+request already dispatched when a connection fails retains the existing
+uncertain-outcome and cancellation semantics.
+
 ## The lease
 
 The absolute `shutdownTime` acquire stamps is the leak guard, and unrenewed

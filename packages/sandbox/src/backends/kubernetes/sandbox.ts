@@ -240,8 +240,14 @@ function detectEnvironment(): SandboxEnvironment {
  * `workspace.ts` wraps this handle — does not have to re-check for a method
  * this file always defines.
  */
+type KubernetesSandboxDataPlane = Pick<Sandbox, 'exec' | 'writeFile' | 'readFile' | 'listFiles'> &
+	Required<Pick<Sandbox, 'openTerminal' | 'openTcpConnection' | 'readFileStream'>>
+
 export type KubernetesSandboxHandle = Sandbox &
-	Required<Pick<Sandbox, 'openTerminal' | 'openTcpConnection' | 'walkFiles' | 'readFileStream'>>
+	Required<Pick<Sandbox, 'openTerminal' | 'openTcpConnection' | 'walkFiles' | 'readFileStream'>> & {
+		/** Select a wire while preserving this owner's lifecycle and execution accounting. */
+		withTransport(transport: KubernetesAgentTransport): KubernetesSandboxDataPlane
+	}
 
 /**
  * Build the handle. It does NOT run the acquire-time privilege probe — that
@@ -391,18 +397,9 @@ export function buildKubernetesSandbox(options: KubernetesSandboxOptions): Kuber
 		}
 	}
 
-	return {
-		id,
-		get status(): SandboxStatus {
-			// Four members, and no new one: a cluster-side disappearance and a
-			// host-side destroy both read as 'destroyed' here and are told
-			// apart by the error a later call throws.
-			if (lifecycle !== 'active') return 'destroyed'
-			return activeExecutions > 0 ? 'busy' : 'ready'
-		},
-		rootDir: options.rootDir,
-		environment: detectEnvironment(),
-
+	// Every facade shares this owner; selecting a wire never creates a second
+	// lifecycle, execution counter or terminal registry.
+	const dataPlane = (transport: KubernetesAgentTransport): KubernetesSandboxDataPlane => ({
 		async exec(
 			command: string,
 			argv?: string[],
@@ -457,21 +454,6 @@ export function buildKubernetesSandbox(options: KubernetesSandboxOptions): Kuber
 			return transport.readFileStream(path, readOptions)
 		},
 
-		// Present only when the backend was configured for per-sandbox egress
-		// — see {@link KubernetesSandboxBaseOptions.setNetworkPolicy}. The
-		// admissibility gate is this file's, not the writer's, so a destroyed
-		// or cluster-removed sandbox refuses BY NAME here, exactly as every
-		// other method does, rather than failing at the API server one round
-		// trip later.
-		...(setNetworkPolicy !== undefined
-			? {
-					setNetworkPolicy: async (policy: SandboxNetworkPolicy): Promise<void> => {
-						assertAdmissible('setNetworkPolicy')
-						await setNetworkPolicy(policy)
-					},
-				}
-			: {}),
-
 		async openTerminal(terminalOptions: OpenTerminalOptions): Promise<TerminalSession> {
 			assertAdmissible('openTerminal')
 			const terminal = await transport.openTerminal(terminalOptions)
@@ -507,6 +489,36 @@ export function buildKubernetesSandbox(options: KubernetesSandboxOptions): Kuber
 				return entries
 			})
 		},
+	})
+
+	return {
+		id,
+		get status(): SandboxStatus {
+			// Four members, and no new one: a cluster-side disappearance and a
+			// host-side destroy both read as 'destroyed' here and are told
+			// apart by the error a later call throws.
+			if (lifecycle !== 'active') return 'destroyed'
+			return activeExecutions > 0 ? 'busy' : 'ready'
+		},
+		rootDir: options.rootDir,
+		environment: detectEnvironment(),
+		...dataPlane(transport),
+		withTransport: dataPlane,
+
+		// Present only when the backend was configured for per-sandbox egress
+		// — see {@link KubernetesSandboxBaseOptions.setNetworkPolicy}. The
+		// admissibility gate is this file's, not the writer's, so a destroyed
+		// or cluster-removed sandbox refuses BY NAME here, exactly as every
+		// other method does, rather than failing at the API server one round
+		// trip later.
+		...(setNetworkPolicy !== undefined
+			? {
+					setNetworkPolicy: async (policy: SandboxNetworkPolicy): Promise<void> => {
+						assertAdmissible('setNetworkPolicy')
+						await setNetworkPolicy(policy)
+					},
+				}
+			: {}),
 
 		/**
 		 * Bounded, lazy file discovery — the method the SDK's `glob` and

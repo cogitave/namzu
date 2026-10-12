@@ -184,6 +184,12 @@ import {
 	egressProfileLabel,
 } from './egress-policy.js'
 import {
+	KubernetesGuestPinError,
+	type KubernetesPinnedGuest,
+	assertGuestPin,
+	captureGuestPin,
+} from './guest-pin.js'
+import {
 	type KubernetesGuestEvidence,
 	type KubernetesGuestRestart,
 	KubernetesWorkspaceGuestGoneError,
@@ -977,6 +983,8 @@ export interface KubernetesWorkspace extends Sandbox {
 	 * (better) subscribes with {@link onGuestRestart} and is told.
 	 */
 	readonly identity: KubernetesWorkspaceIdentity
+	/** Bind data operations to this exact guest. Replacements refuse before dispatch. */
+	pinGuest(expected: KubernetesWorkspaceIdentity): KubernetesPinnedGuest
 	/**
 	 * Be told when the guest behind this handle is replaced, and get back the
 	 * function that stops being told.
@@ -2310,7 +2318,9 @@ async function readDrainingPodUid(
 function operatingModePatch(mode: 'Running' | 'Suspended'): Record<string, unknown> {
 	return {
 		metadata: {
-			annotations: { [OPERATING_MODE_CHANGED_AT_ANNOTATION_KEY]: new Date().toISOString() },
+			annotations: {
+				[OPERATING_MODE_CHANGED_AT_ANNOTATION_KEY]: new Date().toISOString(),
+			},
 		},
 		spec: { operatingMode: mode },
 	}
@@ -2448,7 +2458,10 @@ async function writeOperatingMode(
 			reading,
 			epoch,
 			...(mode !== undefined
-				? { operatingMode: mode, operatingModeChangedAt: new Date().toISOString() }
+				? {
+						operatingMode: mode,
+						operatingModeChangedAt: new Date().toISOString(),
+					}
 				: {}),
 		})
 		try {
@@ -4160,7 +4173,13 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 			guestGoneEvidence.set(error, { evidence, previous, current })
 		}
 		try {
-			options.onCancellationUnconfirmed?.({ error, agent, guest: evidence, previous, current })
+			options.onCancellationUnconfirmed?.({
+				error,
+				agent,
+				guest: evidence,
+				previous,
+				current,
+			})
 		} catch {
 			// A host's callback is not allowed to change the error the caller
 			// is already receiving, and a throwing one must not become an
@@ -4237,11 +4256,17 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 				// about a foreign suspend BEFORE it renames anything, so this
 				// answer never pre-empts `KubernetesWorkspaceSuspendedError`.
 				if (operatingModeOf(sandbox) === 'Suspended') {
-					return { evidence: 'pod-gone' as const, current: guestSeen(undefined) }
+					return {
+						evidence: 'pod-gone' as const,
+						current: guestSeen(undefined),
+					}
 				}
 				const binding = bindingFromSandbox(sandbox)
 				if (binding === undefined) {
-					return { evidence: 'pod-gone' as const, current: guestSeen(undefined) }
+					return {
+						evidence: 'pod-gone' as const,
+						current: guestSeen(undefined),
+					}
 				}
 				const pod = await readBoundPod(client, namespace, binding, deadlineSignal)
 				// A DIFFERENT pod outranks the boot id. Both say the command's
@@ -4249,10 +4274,16 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 				// a replacement a restarted container would tell a host the
 				// address and the token still work when neither does.
 				if (pod.uid !== bound) {
-					return { evidence: 'pod-replaced' as const, current: guestSeen(pod.uid) }
+					return {
+						evidence: 'pod-replaced' as const,
+						current: guestSeen(pod.uid),
+					}
 				}
 				if (restartedInPlace) {
-					return { evidence: 'container-restarted' as const, current: guestSeen(pod.uid) }
+					return {
+						evidence: 'container-restarted' as const,
+						current: guestSeen(pod.uid),
+					}
 				}
 				return { evidence: 'same-guest' as const, current: guestSeen(pod.uid) }
 			})
@@ -4600,7 +4631,11 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 				awaitReplacement: replacing !== undefined,
 				...(replacing !== undefined ? { retiring: replacing } : {}),
 			},
-			{ woke, policy: onStartFailure, ...(heldEpoch !== undefined ? { epoch: heldEpoch } : {}) },
+			{
+				woke,
+				policy: onStartFailure,
+				...(heldEpoch !== undefined ? { epoch: heldEpoch } : {}),
+			},
 			signal,
 		)
 		state = 'running'
@@ -5291,7 +5326,18 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 	// handle it came from away.
 	const environment: SandboxEnvironment = session.environment
 
-	return {
+	const trackTerminal = <T extends KubernetesWorkspaceTerminal>(terminal: T): T => {
+		// Workspace transitions own both ordinary and pinned terminal facades.
+		terminals.add(terminal)
+		void terminal.exited
+			.finally(() => {
+				terminals.delete(terminal)
+			})
+			.catch(() => undefined)
+		return terminal
+	}
+
+	const workspace: KubernetesWorkspace = {
 		id,
 		origin: options.origin,
 		get templateRevision(): string | undefined {
@@ -5306,6 +5352,40 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		},
 		get identity(): KubernetesWorkspaceIdentity {
 			return identityNow()
+		},
+		pinGuest(expected: KubernetesWorkspaceIdentity): KubernetesPinnedGuest {
+			const captured = captureGuestPin(expected)
+			const owner = admit('pinGuest')
+			assertGuestPin(captured.key, identityNow())
+			const wire = admittedTransport('pinGuest', owner).pinGuest(captured.guestBootId)
+			const data = owner.withTransport(wire)
+			const invoke = <T>(operation: string, run: () => Promise<T>): Promise<T> =>
+				admitted(operation, async (current) => {
+					if (current !== owner) throw new KubernetesGuestPinError()
+					assertGuestPin(captured.key, identityNow())
+					return await run()
+				})
+			return {
+				exec: (command, argv, execOptions) =>
+					invoke('exec', () =>
+						execOptions?.detach === true || execOptions?.executionId !== undefined
+							? wire.execDetached(command, argv, execOptions)
+							: data.exec(command, argv, execOptions),
+					),
+				readFile: (path, readOptions) => invoke('readFile', () => data.readFile(path, readOptions)),
+				writeFile: (path, content) => invoke('writeFile', () => data.writeFile(path, content)),
+				listFiles: (path) => invoke('listFiles', () => data.listFiles(path)),
+				openTerminal: (terminalOptions) =>
+					invoke('openTerminal', async () =>
+						trackTerminal(
+							terminalOptions.sessionId !== undefined || terminalOptions.persistent === true
+								? await wire.openTerminal(terminalOptions)
+								: await data.openTerminal(terminalOptions),
+						),
+					),
+				openTcpConnection: (connectOptions) =>
+					invoke('openTcpConnection', () => data.openTcpConnection(connectOptions)),
+			}
 		},
 		onGuestRestart(listener: (event: KubernetesGuestRestart) => void): () => void {
 			restartListeners.add(listener)
@@ -5469,17 +5549,7 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 			// reaps terminals without going through the inner handle's
 			// `destroy()` — the pod is being deleted, and a caller left holding
 			// a session whose exit resolves only when TCP notices is a leak.
-			terminals.add(terminal)
-			// `.catch` after `.finally`, not `void` alone: `exited` belongs to
-			// the CALLER, who may well let it reject, and a bookkeeping chain
-			// hung off it would then reject with no handler and take the host
-			// process down on an unhandled rejection.
-			void terminal.exited
-				.finally(() => {
-					terminals.delete(terminal)
-				})
-				.catch(() => undefined)
-			return terminal
+			return trackTerminal(terminal)
 		},
 
 		async attachTerminal(
@@ -5637,4 +5707,5 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 			await deleteShared(destroyOptions)
 		},
 	}
+	return workspace
 }

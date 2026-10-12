@@ -209,7 +209,7 @@ export type WireSandboxAgentHandle =
  * used the URL path (`/execute`, `/read-file`, `/write-file`,
  * `/healthz`) — over vsock the same selector rides in the framed JSON.
  */
-export type AgentRequest = (
+export type AgentOperation =
 	| { readonly op: 'execute'; readonly body: ExecRequest }
 	// `body` is optional and additive: the reservation the shared execution
 	// controller sends carries none and is byte-for-byte what it always
@@ -243,6 +243,15 @@ export type AgentRequest = (
 	// whose `healthz` named {@link FLUSH_FEATURE}.
 	| { readonly op: 'flush'; readonly body: FlushRequest }
 	| { readonly op: 'healthz' }
+
+/** Old agents reject this operation instead of ignoring a new optional field. */
+export type AgentRequest = (
+	| AgentOperation
+	| {
+			readonly op: 'guest-bound'
+			readonly guestBootId: string
+			readonly request: AgentOperation
+	  }
 ) &
 	// Intersected, not repeated per arm: the credential is orthogonal to
 	// the op, and every arm may carry it. Optional and additive, so a host
@@ -339,6 +348,8 @@ export interface FirecrackerTransportTiming {
 }
 
 export interface VsockTransportOptions {
+	/** Every authenticated request is refused before dispatch by another agent process. */
+	readonly expectedGuestBootId?: string
 	/** Per-attempt connect + handshake timeout. Default 5000ms. */
 	readonly connectTimeoutMs?: number
 	/** Total time budget for connect retries (resume survival). Default 30000ms. */
@@ -893,6 +904,7 @@ class FrameReader {
  * file I/O and heartbeat all use independent calls through this dialer.
  */
 export class VsockAgentTransport {
+	private readonly expectedGuestBootId?: string
 	private readonly handle: SandboxAgentHandle
 	private readonly connectTimeoutMs: number
 	private readonly connectRetryBudgetMs: number
@@ -918,6 +930,7 @@ export class VsockAgentTransport {
 
 	constructor(handle: SandboxAgentHandle, options: VsockTransportOptions = {}) {
 		this.handle = handle
+		this.expectedGuestBootId = options.expectedGuestBootId
 		this.connectTimeoutMs = options.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS
 		this.connectRetryBudgetMs = options.connectRetryBudgetMs ?? DEFAULT_CONNECT_RETRY_BUDGET_MS
 		this.connectRetryIntervalMs =
@@ -1271,10 +1284,19 @@ export class VsockAgentTransport {
 	 * a request built for those arms passes through unchanged.
 	 */
 	private withCredential(req: AgentRequest): AgentRequest {
-		if (this.handle.kind === 'tcp' && this.handle.token !== undefined) {
-			return { ...req, token: this.handle.token }
+		let envelope = req
+		if (this.expectedGuestBootId !== undefined && req.op !== 'healthz') {
+			if (req.op === 'guest-bound') throw new Error('guest-bound requests cannot be nested')
+			envelope = {
+				op: 'guest-bound',
+				guestBootId: this.expectedGuestBootId,
+				request: req,
+			}
 		}
-		return req
+		if (this.handle.kind === 'tcp' && this.handle.token !== undefined) {
+			return { ...envelope, token: this.handle.token }
+		}
+		return envelope
 	}
 
 	/**
@@ -1419,7 +1441,10 @@ export class VsockAgentTransport {
 		signal?: AbortSignal,
 		ledger?: ExecTimingLedger,
 	): Promise<SandboxExecResult> {
-		const envelope = this.withCredential({ op: 'execute', body } satisfies AgentRequest)
+		const envelope = this.withCredential({
+			op: 'execute',
+			body,
+		} satisfies AgentRequest)
 		const payload = JSON.stringify(envelope)
 		this.assertPreauthBudget(payload)
 		const socket = await this.dial(signal, ledger)
@@ -1905,7 +1930,10 @@ export class VsockAgentTransport {
 	 * will actually be serialized.
 	 */
 	private writeFileEnvelopeBytes(body: WriteFileRequest, contentBytes: number): number {
-		const envelope = this.withCredential({ op: 'write-file', body } satisfies AgentRequest)
+		const envelope = this.withCredential({
+			op: 'write-file',
+			body,
+		} satisfies AgentRequest)
 		return Buffer.byteLength(JSON.stringify(envelope), 'utf8') + base64Length(contentBytes)
 	}
 
@@ -2145,7 +2173,12 @@ export class VsockAgentTransport {
 			await this.request<WriteFileResponse>(
 				{
 					op: 'write-file',
-					body: { path: tempPath, content: '', encoding: 'base64', part: { discard: true } },
+					body: {
+						path: tempPath,
+						content: '',
+						encoding: 'base64',
+						part: { discard: true },
+					},
 				},
 				AbortSignal.timeout(WRITE_FILE_DISCARD_TIMEOUT_MS),
 			)
@@ -2340,7 +2373,10 @@ export class VsockAgentTransport {
 			...(options?.length !== undefined ? { length: options.length } : {}),
 		}
 		const payload = JSON.stringify(
-			this.withCredential({ op: 'read-file-stream', body } satisfies AgentRequest),
+			this.withCredential({
+				op: 'read-file-stream',
+				body,
+			} satisfies AgentRequest),
 		)
 		this.assertPreauthBudget(payload)
 		const socket = await this.dial(signal)
@@ -2410,7 +2446,11 @@ export class VsockAgentTransport {
 						fail(new Error('vsock transport: read-file-stream sent a second meta frame'))
 						return
 					}
-					meta = { sizeBytes: event.sizeBytes, offset: event.offset, length: event.length }
+					meta = {
+						sizeBytes: event.sizeBytes,
+						offset: event.offset,
+						length: event.length,
+					}
 					declared = event.length
 					try {
 						onMeta?.(meta)
@@ -2795,6 +2835,7 @@ export class VsockAgentTransport {
 						finish(new Error(`the guest ended this attachment (${event.reason})`))
 						return
 					}
+					this.observeGuestReply(event)
 					finish(new Error(event.error))
 					return
 				}
@@ -2847,7 +2888,10 @@ export class VsockAgentTransport {
 			...(askedHeartbeatMs !== undefined ? { heartbeatMs: askedHeartbeatMs } : {}),
 		}
 		const openPayload = JSON.stringify(
-			this.withCredential({ op: 'tcp-connect', body: request } satisfies AgentRequest),
+			this.withCredential({
+				op: 'tcp-connect',
+				body: request,
+			} satisfies AgentRequest),
 		)
 		this.assertPreauthBudget(openPayload)
 		const socket = await this.dial()
@@ -2983,6 +3027,7 @@ export class VsockAgentTransport {
 						finish(null)
 						continue
 					}
+					this.observeGuestReply(event)
 					finish(new Error(event.error))
 				}
 			})

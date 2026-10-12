@@ -114,6 +114,7 @@ beforeEach(async () => {
 		host: '0.0.0.0',
 		token: FIRST_POD_UID,
 		guestBootId: FIRST_BOOT_ID,
+		guestBound: true,
 	})
 	restoreDns = stubLoopbackDns(() => '127.0.0.1')
 	server = await startFakeApiServer(handleClusterRequest)
@@ -253,6 +254,124 @@ async function waitForRequest(op: string, from: number, timeoutMs = 5_000): Prom
 }
 
 describe('what a handle reports it is bound to', () => {
+	it('pins data calls to one guest while ordinary calls can rebind independently', async () => {
+		const workspace = await openWorkspace()
+		const pin = workspace.pinGuest(workspace.identity)
+		await pin.writeFile('/workspace/pinned.txt', 'first')
+		const terminal = await pin.openTerminal({
+			command: '/bin/sh',
+			args: [],
+			size: { cols: 80, rows: 24 },
+		})
+		terminal.kill()
+		await terminal.exited
+		replacePod()
+		await expect(pin.writeFile('/workspace/no.txt', 'refused')).rejects.toThrow()
+		expect(workspace.identity.podUid).toBe(FIRST_POD_UID)
+		expect(agent!.requests.at(-1)).toMatchObject({
+			op: 'guest-bound',
+			token: FIRST_POD_UID,
+			guestBootId: FIRST_BOOT_ID,
+		})
+		await workspace.writeFile('/workspace/ordinary.txt', 'new guest')
+		expect(workspace.identity.podUid).toBe(SECOND_POD_UID)
+		await expect(pin.writeFile('/workspace/no.txt', 'still refused')).rejects.toThrow()
+	}, 20_000)
+
+	it('keeps ordinary calls from an output callback independent of the pinned execution', async () => {
+		const workspace = await openWorkspace()
+		const pin = workspace.pinGuest(workspace.identity)
+		let nested: Promise<void> | undefined
+		await pin.exec('echo', ['ready'], {
+			onOutput: () => {
+				expect(workspace.status).toBe('busy')
+				if (nested) return
+				replacePod()
+				nested = workspace.writeFile('/workspace/from-callback.txt', 'replacement guest')
+			},
+		})
+		expect(nested).toBeDefined()
+		await nested
+		expect(workspace.identity.podUid).toBe(SECOND_POD_UID)
+		expect(workspace.status).toBe('ready')
+		expect(agent!.requests.at(-1)).toMatchObject({ op: 'write-file', token: SECOND_POD_UID })
+		await expect(pin.writeFile('/workspace/no.txt', 'stale')).rejects.toThrow()
+	}, 20_000)
+
+	it('keeps ownership of a pinned terminal when the workspace suspends', async () => {
+		const workspace = await openWorkspace()
+		const pin = workspace.pinGuest(workspace.identity)
+		const terminal = await pin.openTerminal({
+			command: '/bin/sh',
+			args: [],
+			size: { cols: 80, rows: 24 },
+		})
+		await workspace.suspend()
+		await terminal.exited
+		expect(workspace.suspended).toBe(true)
+		await expect(pin.writeFile('/workspace/no.txt', 'suspended')).rejects.toThrow()
+	}, 20_000)
+
+	it('refuses a same-pod restart at guest dispatch, before a file mutation', async () => {
+		const workspace = await openWorkspace()
+		const pin = workspace.pinGuest(workspace.identity)
+		agent!.setGuestBootId(SECOND_BOOT_ID)
+		await expect(pin.writeFile('/workspace/no.txt', 'refused')).rejects.toThrow('guest_changed')
+		expect(agent!.requests.at(-1)?.op).toBe('guest-bound')
+		expect(workspace.identity.guestBootId).toBe(SECOND_BOOT_ID)
+	}, 20_000)
+
+	it.each(['terminal', 'tcp'] as const)(
+		'reports a same-pod restart first seen by a pinned %s refusal',
+		async (kind) => {
+			const workspace = await openWorkspace()
+			const events = watch(workspace)
+			const pin = workspace.pinGuest(workspace.identity)
+			agent!.setGuestBootId(SECOND_BOOT_ID)
+			await expect(
+				kind === 'terminal'
+					? pin.openTerminal({ command: '/bin/sh', args: [], size: { cols: 80, rows: 24 } })
+					: pin.openTcpConnection({ host: '127.0.0.1', port: 3000 }),
+			).rejects.toThrow('guest_changed')
+			expect(events).toHaveLength(1)
+			expect(events[0]?.current.guestBootId).toBe(SECOND_BOOT_ID)
+			expect(workspace.identity.guestBootId).toBe(SECOND_BOOT_ID)
+			expect(agent!.requests.at(-1)?.op).toBe('guest-bound')
+		},
+		20_000,
+	)
+
+	it('refuses a pin without the complete disk and guest identity', async () => {
+		const workspace = await openWorkspace()
+		expect(() => workspace.pinGuest({ ...workspace.identity, volumeClaimUids: {} })).toThrow()
+	}, 20_000)
+
+	it('refuses an object whose JSON value could change between identity check and dispatch', async () => {
+		const workspace = await openWorkspace()
+		let serializations = 0
+		const unstable = { toJSON: () => (++serializations === 1 ? FIRST_BOOT_ID : SECOND_BOOT_ID) }
+		expect(() =>
+			workspace.pinGuest({
+				...workspace.identity,
+				guestBootId: unstable as unknown as string,
+			}),
+		).toThrow('complete guest identity')
+		expect(serializations).toBe(0)
+	}, 20_000)
+
+	it('captures the identity once before building its pinned transport', async () => {
+		const workspace = await openWorkspace()
+		let reads = 0
+		const pin = workspace.pinGuest({
+			...workspace.identity,
+			get guestBootId() {
+				return ++reads === 1 ? FIRST_BOOT_ID : SECOND_BOOT_ID
+			},
+		})
+		expect(reads).toBe(1)
+		agent!.setGuestBootId(SECOND_BOOT_ID)
+		await expect(pin.writeFile('/workspace/no.txt', 'refused')).rejects.toThrow('guest_changed')
+	}, 20_000)
 	it('names the Sandbox, its disk, its pod and its agent process', async () => {
 		const workspace = await openWorkspace()
 

@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-10-12
+
+- **Update** [Kubernetes sandboxes](sdk/kubernetes-sandbox.md#bind-work-to-one-prepared-guest): a non-owning guest pin uses an independent transport and a guest-enforced boot identity before every data operation. Older agents refuse the new operation. This is preparation identity, not disk exclusion.
+
 ## 2026-09-29
 
 - **Update** [CLI peer audit](cli/competitive-gaps.md#mcp-plugins-and-memory-2026-09-29): a real CLI compaction regression now checks that curated files and the stored-memory index reach the next provider request only as user-role step context, outside system guidance, the compaction summary and durable history.

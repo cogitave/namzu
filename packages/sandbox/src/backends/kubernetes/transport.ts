@@ -1544,6 +1544,21 @@ export class KubernetesAgentTransport {
 		return { host: this.handle.host, port: this.handle.port }
 	}
 
+	/** An independent wire snapshot; it never follows a replacement pod. */
+	pinGuest(guestBootId: string): KubernetesAgentTransport {
+		if (typeof guestBootId !== 'string' || guestBootId.length === 0)
+			throw new Error('A guest pin requires a guest boot identity')
+		return new KubernetesAgentTransport(
+			{ ...this.handle },
+			{
+				...this.transportOptions,
+				onTiming: this.onTiming,
+				onGuestReply: this.onGuestReply,
+				expectedGuestBootId: guestBootId,
+			},
+		)
+	}
+
 	/**
 	 * Run one operation, and give the handle exactly one chance to follow a
 	 * pod that was replaced underneath it.
@@ -2102,7 +2117,10 @@ export class KubernetesAgentTransport {
 		await this.withRebind(
 			async () =>
 				await this.wire.streamFramedRequest(
-					{ op: 'attach-session', body: { sessionId, fromOffset, follow: false } },
+					{
+						op: 'attach-session',
+						body: { sessionId, fromOffset, follow: false },
+					},
 					(event) => {
 						if (isUnauthorized(event)) throw new KubernetesAgentUnauthorizedError()
 						if (event.type === 'ready') {
@@ -2143,7 +2161,10 @@ export class KubernetesAgentTransport {
 			chunk,
 			nextOffset,
 			droppedBytes,
-			status: sessionStatus({ state, ...(exitSignal !== undefined ? { signal: exitSignal } : {}) }),
+			status: sessionStatus({
+				state,
+				...(exitSignal !== undefined ? { signal: exitSignal } : {}),
+			}),
 			...(exitCode !== undefined ? { exitCode } : {}),
 		}
 	}
@@ -2174,7 +2195,9 @@ export class KubernetesAgentTransport {
 					this.wire,
 					{
 						op: 'quiesce',
-						body: { ...(options.graceMs !== undefined ? { graceMs: options.graceMs } : {}) },
+						body: {
+							...(options.graceMs !== undefined ? { graceMs: options.graceMs } : {}),
+						},
 					},
 					signal,
 				),
@@ -2222,7 +2245,9 @@ export class KubernetesAgentTransport {
 					this.wire,
 					{
 						op: 'flush',
-						body: { ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}) },
+						body: {
+							...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
+						},
 					},
 					signal,
 				),
@@ -2336,7 +2361,11 @@ export class KubernetesAgentTransport {
 		// and hands back its own timer's Error, so a dial still inside its
 		// connect-retry budget is reported as a reservation that took too
 		// long, with the connect failure discarded. See {@link DialWatch}.
-		const dials: DialWatch = { attempted: false, failed: false, connected: false }
+		const dials: DialWatch = {
+			attempted: false,
+			failed: false,
+			connected: false,
+		}
 
 		// Built per ATTEMPT, from `this.handle` as it stands when the attempt
 		// starts: a retry that follows a replaced pod has to dial the new
@@ -2484,7 +2513,9 @@ export class KubernetesAgentTransport {
 				`kubernetes: the guest refused the reservation for ${executionId}: ${String(response.error ?? 'no reason given')}`,
 			)
 		}
-		return { state: typeof response.state === 'string' ? response.state : 'reserved' }
+		return {
+			state: typeof response.state === 'string' ? response.state : 'reserved',
+		}
 	}
 
 	/**
@@ -2619,7 +2650,12 @@ export class KubernetesAgentTransport {
 		}
 		await this.assertExecutionAttachSupported(opts.signal)
 
-		const cursor: OutputCursor = { offset: 0, stdout: '', stderr: '', droppedBytes: 0 }
+		const cursor: OutputCursor = {
+			offset: 0,
+			stdout: '',
+			stderr: '',
+			droppedBytes: 0,
+		}
 		const observationTimeoutMs = Math.min(
 			MAX_TIMER_DELAY_MS,
 			(typeof opts.timeout === 'number' && Number.isFinite(opts.timeout) && opts.timeout > 0
@@ -2802,7 +2838,10 @@ export class KubernetesAgentTransport {
 				? MAX_TIMER_DELAY_MS
 				: Math.max(1, Math.min(MAX_TIMER_DELAY_MS, deadlineAt - Date.now()))
 		await this.wire.streamFramedRequest(
-			{ op: 'attach-execution', body: { executionId, fromOffset: cursor.offset } },
+			{
+				op: 'attach-execution',
+				body: { executionId, fromOffset: cursor.offset },
+			},
 			(event) => {
 				if (isUnauthorized(event)) throw new KubernetesAgentUnauthorizedError()
 				const type = event.type
@@ -2813,7 +2852,11 @@ export class KubernetesAgentTransport {
 					const dropped = Number(event.droppedBytes ?? 0)
 					if (Number.isFinite(dropped) && dropped > 0) {
 						cursor.droppedBytes += dropped
-						opts.onGap?.({ executionId, fromOffset: cursor.offset, droppedBytes: dropped })
+						opts.onGap?.({
+							executionId,
+							fromOffset: cursor.offset,
+							droppedBytes: dropped,
+						})
 					}
 					return
 				}

@@ -228,6 +228,7 @@ const AGENT_FEATURES = [
 	'quiesce',
 	'flush',
 	'guest-boot-id',
+	'guest-bound',
 ]
 
 // --- config (mirrors worker/server.js env contract) -----------------------
@@ -5051,6 +5052,26 @@ function handleConnection(socket) {
 					release()
 					reader.maxFrameBytes = MAX_FRAME_BYTES
 					socket.setTimeout(0)
+				}
+				if (req?.op === 'guest-bound') {
+					if (req.guestBootId !== GUEST_BOOT_ID) {
+						refuse({ ok: false, error: 'guest_changed', ...guestIdentity() })
+						return
+					}
+					if (
+						!req.request ||
+						typeof req.request.op !== 'string' ||
+						req.request.op === 'guest-bound' ||
+						req.request.op === 'healthz'
+					) {
+						refuse({
+							ok: false,
+							error: 'invalid_guest_bound_request',
+							...guestIdentity(),
+						})
+						return
+					}
+					req = req.request
 				}
 				activeStream = dispatch(socket, req)
 			}
