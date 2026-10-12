@@ -18,6 +18,7 @@ import {
 import { PalCharacter3D } from './pal-character-3d.js'
 import { PalCharacter, type PalCharacterAppearance } from './pal-character.js'
 import { COMPUTER_SETUP_NOTICE } from './pal-computer-notice.js'
+import type { PalComputerRowAction, PalComputerRowView } from './pal-computer-row-model.js'
 import type { PalRecentAction } from './pal-recent-activity.js'
 import { Button } from './ui/button.js'
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from './ui/collapsible.js'
@@ -36,6 +37,8 @@ export interface PalContextProps {
 		setupMissing?: boolean
 		screen?: PalScreenView | null
 		loading?: boolean
+		/** What this PC needs before the computer can start (Windows); absent when nothing does. */
+		setup?: PalComputerRowView
 	}
 	/** Supplied only when the native host has reported its actual identity. */
 	hostComputer?: { name: string }
@@ -51,12 +54,16 @@ export interface PalContextProps {
 	waiting?: {
 		text: string
 		action: 'start' | 'resume' | 'retry' | null
-		blocked?: { text: string; help: string }
+		blocked?: { text: string; help: string; windows?: boolean }
 	} | null
 	onWaitingAction?: (action: 'start' | 'resume' | 'retry') => void
 	/** Hides a failed start that is no longer current; the messages keep waiting. */
 	onDismissWaiting?: () => void
 	onStartComputer?: () => void
+	/** The action the status turns into while this PC is being set up. */
+	onSetupAction?: (kind: PalComputerRowAction) => void
+	/** The answer to the one sentence about what setup does. */
+	onSetupAnswer?: (agreed: boolean) => void
 	onOpenComputer?: () => void
 	onStopComputer?: () => void
 	stopComputerDisabled?: boolean
@@ -99,7 +106,9 @@ function computerStatusLabel(status: PalContextProps['computer']['status']) {
 }
 
 /** What is missing, and a way to read how to set it up without leaving the page. */
-function SetupHelp({ text, help }: { text?: string; help: string }) {
+function SetupHelp({ text, help, windows }: { text?: string; help: string; windows?: boolean }) {
+	// On Windows the Pal computer row carries the one "How to set up" fold; Docker has no part in it.
+	if (windows) return text ? <p className="pal-context-note">{text}</p> : null
 	return (
 		<>
 			{text && <p className="pal-context-note">{text}</p>}
@@ -129,20 +138,31 @@ function PalContextBody({
 	onWaitingAction,
 	onDismissWaiting,
 	onStartComputer,
+	onSetupAction,
+	onSetupAnswer,
 	onOpenComputer,
 	onStopComputer,
 	stopComputerDisabled,
 }: PalContextProps) {
 	const pauseLabel = `${pal.paused ? 'Resume' : 'Pause'} ${pal.name}`
-	const computerStatus = computerStatusLabel(computer.status)
+	const setupRow = computer.setup
+	const computerStatus = setupRow?.status ?? computerStatusLabel(computer.status)
 	// The status text is the quiet action: it reads the status at rest and the action on hover or
 	// focus, in the same place. A computer that cannot start, or whose Start is offered with the
 	// waiting messages, shows its status only.
 	// There is one Start. It starts the computer when that is needed, and reads waiting messages when
 	// there are some, so the Pal's own page never offers a second start next to the message one.
 	const messageStart = waiting?.action === 'start'
-	const computerAction =
-		computer.status !== 'connecting' && onStopComputer
+	const setupAction = setupRow?.action
+	const computerAction = setupRow
+		? setupAction && onSetupAction
+			? {
+					label: setupAction.label,
+					onClick: () => onSetupAction(setupAction.kind),
+					disabled: false,
+				}
+			: undefined
+		: computer.status !== 'connecting' && onStopComputer
 			? { label: 'Stop computer', onClick: onStopComputer, disabled: stopComputerDisabled }
 			: computer.status === 'error' && onStartComputer && !messageStart && !computer.setupMissing
 				? { label: `Start ${pal.name}`, onClick: onStartComputer, disabled: false }
@@ -232,7 +252,13 @@ function PalContextBody({
 							Dismiss
 						</Button>
 					)}
-					{waiting.blocked && <SetupHelp text={waiting.blocked.text} help={waiting.blocked.help} />}
+					{waiting.blocked && (
+						<SetupHelp
+							text={waiting.blocked.text}
+							help={waiting.blocked.help}
+							windows={waiting.blocked.windows}
+						/>
+					)}
 				</section>
 			)}
 			<section className="pal-context-section" aria-label="Pal computers">
@@ -260,7 +286,7 @@ function PalContextBody({
 						<span className="pal-computer-thumbnail" aria-hidden="true">
 							{computer.screen && computer.status === 'ready' ? (
 								<img src={computer.screen.source} alt="" draggable={false} />
-							) : computer.loading || computer.status === 'connecting' ? (
+							) : computer.loading || computer.status === 'connecting' || setupRow?.busy ? (
 								<LoaderCircleIcon className="pal-context-loading" />
 							) : (
 								<MonitorIcon />
@@ -301,7 +327,45 @@ function PalContextBody({
 						</div>
 					</div>
 				)}
-				{computer.notice && !computer.setupMissing && (
+				{setupRow?.consent && (
+					<div className="pal-setup-consent">
+						<p className="pal-context-note">{setupRow.consent.sentence}</p>
+						<div className="pal-setup-consent-actions">
+							<Button
+								variant="ghost-muted"
+								size="xs"
+								className="pal-setup-text-action"
+								onClick={() => onSetupAnswer?.(true)}
+							>
+								Set up and start
+							</Button>
+							<Button
+								variant="ghost-muted"
+								size="xs"
+								className="pal-setup-text-action"
+								onClick={() => onSetupAnswer?.(false)}
+							>
+								Not now
+							</Button>
+						</div>
+					</div>
+				)}
+				{setupRow?.note && <p className="pal-context-note">{setupRow.note}</p>}
+				{setupRow?.details && (
+					<details className="pal-setup-help">
+						<summary>Details</summary>
+						<p>{setupRow.details}</p>
+					</details>
+				)}
+				{setupRow?.help && (
+					<details className="pal-setup-help">
+						<summary>How to set up</summary>
+						{setupRow.help.paragraphs.map((paragraph) => (
+							<p key={paragraph}>{paragraph}</p>
+						))}
+					</details>
+				)}
+				{computer.notice && !computer.setupMissing && !setupRow && (
 					<p className="pal-context-note">{computer.notice}</p>
 				)}
 				{computer.setupMissing && computer.status === 'error' && !waiting?.blocked && (

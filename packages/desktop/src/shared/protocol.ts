@@ -22,6 +22,7 @@ import type {
 	PalSubscriptionCreate,
 	PalSubscriptionDisable,
 } from './pal-communication-protocol.js'
+import type { PalComputerSetupState } from './pal-computer-setup.js'
 import type {
 	DataFolderKind,
 	DesktopInfo,
@@ -828,6 +829,19 @@ export interface DesktopApi {
 	 */
 	startPalInbox?(palId: string): Promise<PalInboxStartView>
 	startPalComputer(id: string): Promise<PalComputerView>
+	/**
+	 * What this PC needs before a Pal's computer can run (Windows), checked again when `fresh`.
+	 * Absent where the app has no host to ask.
+	 */
+	palComputerSetup?(fresh?: boolean): Promise<PalComputerSetupState>
+	/**
+	 * Run the setup plan the person agreed to, for the Pal whose Start began it. Main refuses a plan
+	 * id it did not compute itself.
+	 */
+	runPalComputerSetup?(planId: string, palId?: string): Promise<PalComputerSetupState>
+	/** Restart Windows. Only for the click on "Restart now", and only while setup waits for one. */
+	restartPc?(): Promise<void>
+	onPalComputerSetup?(listener: (state: PalComputerSetupState) => void): () => void
 	stopPalComputer(id: string): Promise<PalComputerView>
 	rebootPalComputer?(id: string, generation: string): Promise<PalComputerView>
 	palScreen(id: string, generation?: string): Promise<PalScreenView>

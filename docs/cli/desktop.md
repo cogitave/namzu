@@ -240,6 +240,64 @@ The workflow is not part of the `ci.yml`/`release.yml` gate parity.
 The installer is unsigned, so anyone who can write to that release can ship an update to every
 install; restrict who has `contents: write`, and sign the installer before wide distribution.
 
+### Pal computer on Windows
+
+On Windows a Pal's computer runs on Microsoft's Linux container support, as Namzu's own light
+Linux, and Namzu sets the PC up by itself; the person never installs an engine. At start Desktop
+sets `NAMZU_PAL_COMPUTER_ENGINE=wslc` unless the person already chose an engine, and, when
+`resources/pal-computer/manifest.json` exists, `NAMZU_PAL_COMPUTER_BUNDLE` to that folder, so the
+runtime takes the image from the manifest (`packages/desktop/src/main/pal-computer-env.ts`). Off
+Windows nothing is set: Docker stays the default and the Docker help stays as it was.
+
+Main drives the same CLI as the runtime (`ELECTRON_RUN_AS_NODE`, as its own short process) with
+[`namzu computer status | setup | stop-idle --json`](computer.md), parses the JSON lines (partial lines,
+noise and unknown fields are skipped) and publishes one `PalComputerSetupState` to every window
+(`namzu:pal-computer-setup`; `palComputerSetup(fresh?)`, `runPalComputerSetup(planId, palId?)` and
+`restartPc()` on the desktop API). The state is read when the app starts, when a Pal's panel opens
+and after a run, and reused for five seconds otherwise. The renderer never supplies what runs:
+`runPalComputerSetup` takes a plan id only as a confirmation, and main runs it only when it is the id
+of main's own latest check; any other id is refused, the plan is checked again and nothing is passed
+to the CLI. Desktop keeps a record of the plan the person accepted (its steps and the time, in
+`pal-computer-setup.json` in the profile folder) and clears it once the PC is ready.
+
+What the Pal computer row says follows the state; the status text is the quiet action, as for every
+Desktop action (no outline or filled buttons, no dialog):
+
+| State | Status at rest | On hover or focus | Under the row |
+|---|---|---|---|
+| Ready | unchanged ("Offline", then "Starting…", "Connected") | "Start Kiro" | none |
+| Only the bundled Pal computer has to be added | "Offline" | "Start Kiro": pressing it is the consent | none; status reads "Preparing Kiro's computer…", then "Starting…" |
+| Something downloads or needs Windows' permission | "Needs setup" | "Set up and start Kiro" | one sentence (what Windows will add, the download size, about how long, that Windows asks permission once, that a restart may be needed) with the text actions "Set up and start" and "Not now" |
+| Running | "Checking this PC…", "Downloading Linux support · 120 MB of 351 MB", "Turning on Windows features…", "Installing Linux support…", "Preparing Kiro's computer…", "Continuing setup…" (one at a time) | none | none |
+| Restart needed | "Restart to finish setup" | "Restart now" | "Namzu continues by itself after you sign in again." |
+| Permission declined | "Needs your permission" | "Try again" | "Setup needs your permission." |
+| No administrator | "Needs an administrator" | "Try again" | "Setup needs an administrator. Ask one to approve, or try again." |
+| Failed | "Setup did not finish" | "Try again" | a plain sentence and a Details fold with the plain detail |
+| Blocked (virtualization off in the startup settings, an organisation policy, the Windows version, the processor, Namzu needs an update, the image missing from this copy) | "Offline" | none | a plain sentence, and a Details fold when there is one |
+
+"How to set up" is the explanation and recovery place on Windows, collapsed by default: what Namzu
+does, why Windows asks permission and may restart, how to turn virtualization on in the startup
+settings, and the organisation-policy text. The Docker help and its "Get Docker Desktop" button do not
+appear on Windows. A toast appears once when setup completes ("Kiro's computer is ready") or when a
+failure needs an action, never per step. The waiting-message Start follows the same states: with only
+the image to add it runs setup and then starts the Pal; otherwise it opens the Pal's page where the
+row says what is needed.
+
+"Restart now" runs `shutdown.exe /r /t 0` only on that click, and only while the state says a restart
+is what setup waits for. Before a run that may restart, Desktop passes
+`--resume-command "<Namzu.exe>" --continue-pal-computer-setup` to the CLI, which registers it to run
+once at the next sign-in. A launch with `--continue-pal-computer-setup` (also through the single
+instance path) opens the window, checks the PC and continues without asking again only when every
+step of the new plan is in the consent record and none of them is elevated or downloads; anything else
+shows the ordinary row states. The row reads "Continuing setup…" meanwhile.
+
+The Linux machine for Pal computers stops by itself: when no Pal computer has run for 10 minutes
+(Desktop watches the computer states it shows) it calls `computer stop-idle`, which refuses while
+anything runs, and it calls it once when the app quits and no Pal computer runs. Only an end-to-end run
+may shorten the delay, through `NAMZU_E2E_PAL_COMPUTER_IDLE_MS`; `NAMZU_E2E_PAL_COMPUTER_SETUP=1` lets
+such a run stand in for Windows with a scripted CLI (`e2e/computer-stand-in.mjs`,
+`e2e/ux-pal-computer-setup.test.mjs`).
+
 ### Updates to the programs Namzu works with
 
 Namzu Desktop updates through the state machine above. Codex CLI, the second external engine

@@ -42,13 +42,14 @@ export const COMPUTER_HELP = [
 	'Usage: namzu computer <command> [options]',
 	'',
 	'  status [--json] [--bundle <dir>]',
-	'  setup [--json] [--plan <id>] [--yes] [--bundle <dir>]',
+	'  setup [--json] [--plan <id>] [--yes] [--bundle <dir>] [--resume-command <command>]',
 	'  stop-idle [--json]',
 	'',
 	'Pal computers on Windows run on Microsoft’s Linux container support. status says whether this PC',
 	'is ready; setup installs what is missing after you agree; stop-idle shuts the idle Linux machine down.',
 	'--bundle <dir> (or NAMZU_PAL_COMPUTER_BUNDLE) names the folder that comes with the Pal computer.',
 	'setup asks "Continue? [y/N]". Without a terminal it prints the plan and exits 75 unless --yes or --plan is given.',
+	'--resume-command <command> is run once at the next sign-in when setup needs a restart (Namzu Desktop passes its own).',
 	'--json prints one JSON object per line, for Namzu Desktop; setup --json needs --plan <id> as the consent.',
 ].join('\n')
 
@@ -72,6 +73,7 @@ interface Parsed {
 	readonly yes: boolean
 	readonly plan: string | undefined
 	readonly bundle: string | undefined
+	readonly resumeCommand: string | undefined
 }
 
 function parse(args: readonly string[]): Parsed | string {
@@ -82,21 +84,24 @@ function parse(args: readonly string[]): Parsed | string {
 	let yes = false
 	let plan: string | undefined
 	let bundle: string | undefined
+	let resumeCommand: string | undefined
 	for (let i = 0; i < rest.length; i++) {
 		const arg = rest[i]
 		if (arg === '--json') json = true
 		else if (arg === '--yes' && verb === 'setup') yes = true
 		else if (
 			(arg === '--plan' && verb === 'setup') ||
+			(arg === '--resume-command' && verb === 'setup') ||
 			(arg === '--bundle' && verb !== 'stop-idle')
 		) {
 			const value = rest[++i]
 			if (value === undefined || value.startsWith('--')) return `Expected one value for ${arg}.`
 			if (arg === '--plan') plan = value
+			else if (arg === '--resume-command') resumeCommand = value
 			else bundle = value
 		} else return `namzu computer ${verb} does not take ${arg}.`
 	}
-	return { verb, json, yes, plan, bundle }
+	return { verb, json, yes, plan, bundle, resumeCommand }
 }
 
 function emit(deps: ComputerDeps, line: Record<string, unknown>): void {
@@ -195,6 +200,7 @@ async function runPlan(
 			imageRef: bundle?.imageRef ?? DEFAULT_PAL_COMPUTER_IMAGE,
 			...(bundle ? { bundledManifestPath: bundle.manifestPath } : {}),
 			onProgress,
+			...(parsed.resumeCommand ? { resumeCommand: parsed.resumeCommand } : {}),
 			...(deps.signal ? { signal: deps.signal } : {}),
 		},
 	)

@@ -43,6 +43,14 @@ export function desktopRuntimeNodeFlags(runtime: RuntimeNodeOptions = processRun
 	return useSystemCa ? ['--use-system-ca'] : []
 }
 
+/** What goes before a CLI command that is not the runtime: the same flags, then the entry. */
+export function desktopCliPrefix(
+	cliEntry: string,
+	runtime: RuntimeNodeOptions = processRuntime(),
+): string[] {
+	return [...desktopRuntimeNodeFlags(runtime), cliEntry]
+}
+
 /** Node flags must precede the CLI entry; inherited trust options remain authoritative. */
 export function desktopRuntimeNodeArgs(
 	cliEntry: string,

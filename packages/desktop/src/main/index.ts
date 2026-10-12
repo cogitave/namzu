@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -71,13 +72,28 @@ import { LocalSpeechService } from './local-speech.js'
 import { createNewProject } from './new-project.js'
 import { OpenIn, systemOpenInHost } from './open-in.js'
 import { Operator } from './operator.js'
+import { createComputerCli } from './pal-computer-cli.js'
+import { ConsentStore } from './pal-computer-consent.js'
+import {
+	CONTINUE_SETUP_FLAG,
+	continueSetupCommand,
+	palComputerEnvironment,
+	palComputerSetupSettings,
+	restartCommand,
+} from './pal-computer-env.js'
+import { IdleStopper } from './pal-computer-idle.js'
+import { PalComputerSetupService } from './pal-computer-setup.js'
 import { PalStreamProxy } from './pal-stream-proxy.js'
 import { projectDraftOwner } from './project-draft-owner.js'
 import { setFileSortLocale } from './project-files.js'
 import { ProjectNameStore } from './project-names.js'
 import { selectRendererPage } from './renderer-page.js'
 import { RunningReplyGuard } from './running-reply-guard.js'
-import { desktopRuntimeNodeArgs, desktopRuntimeNodeFlags } from './runtime-node-args.js'
+import {
+	desktopCliPrefix,
+	desktopRuntimeNodeArgs,
+	desktopRuntimeNodeFlags,
+} from './runtime-node-args.js'
 import { readRuntimeVersions } from './runtime-versions.js'
 import { SettingsConfirmation } from './settings-confirmation.js'
 import { installStreamRendererPolicy, withStreamRendererPort } from './stream-renderer-policy.js'
@@ -112,6 +128,17 @@ import {
 if (!app.requestSingleInstanceLock()) app.exit(0)
 
 const here = dirname(fileURLToPath(import.meta.url))
+// The Pal computer's engine and image are decided before anything reads the environment, so the
+// runtime, the setup commands and the diagnostics all see the same ones.
+Object.assign(
+	process.env,
+	palComputerEnvironment({
+		platform: process.platform,
+		env: process.env,
+		resourcesPath: process.resourcesPath,
+		exists: existsSync,
+	}),
+)
 const diagnostics = new DesktopDiagnostics(app.getPath('userData'))
 diagnostics.record('started', {
 	engine:
@@ -259,7 +286,8 @@ function watchTransfer(id: string): void {
 	timer.unref()
 	transferTimers.set(id, timer)
 }
-app.on('second-instance', () => {
+app.on('second-instance', (_event, argv) => {
+	if (argv.includes(CONTINUE_SETUP_FLAG)) void palComputerSetup.continueAfterRestart()
 	const pending = new Set(workspace.pendingNativeWindows())
 	const target = windows
 		.entries()
@@ -284,6 +312,43 @@ const command = cliEntry
 				args: ['/d', '/s', '/c', 'namzu acp --desktop'],
 			}
 		: { program: 'namzu', args: ['acp', '--desktop'] }
+const palComputerSettings = palComputerSetupSettings(process.platform, process.env)
+// The same CLI as the runtime, as its own short process: `computer status | setup | stop-idle`.
+const computerCli = createComputerCli(
+	cliEntry
+		? {
+				program: process.execPath,
+				prefix: desktopCliPrefix(cliEntry),
+				env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+			}
+		: process.platform === 'win32'
+			? {
+					program: process.env.ComSpec ?? 'cmd.exe',
+					prefix: ['/d', '/s', '/c', 'namzu'],
+					env: process.env,
+				}
+			: { program: 'namzu', prefix: [], env: process.env },
+)
+const palComputerConsent = new ConsentStore(
+	join(app.getPath('userData'), 'pal-computer-setup.json'),
+)
+const palComputerSetup = new PalComputerSetupService({
+	enabled: palComputerSettings.enabled,
+	cli: computerCli,
+	consent: palComputerConsent,
+	resumeCommand: continueSetupCommand(process.execPath),
+	now: () => Date.now(),
+	publish: (state) => sendToWindow(undefined, 'namzu:pal-computer-setup', state),
+})
+const palComputerIdle = new IdleStopper({
+	delayMs: palComputerSettings.idleMs,
+	stop: () => palComputerSetup.stopIdle(),
+	schedule: (ms, run) => {
+		const timer = setTimeout(run, ms)
+		timer.unref()
+		return () => clearTimeout(timer)
+	},
+})
 const operator = new Operator(
 	command,
 	(event: DesktopEvent) => {
@@ -981,11 +1046,38 @@ function register(): void {
 	handle('archivedConversations', (id: string) => operator.archivedConversations(id))
 	handle('restoreConversation', (sessionId: string) => operator.restoreConversation(sessionId))
 	handle('openPal', (id: string) => operator.openPal(id))
-	handle('palComputer', (id: string) => operator.palComputer(id))
+	handle('palComputer', async (id: string) => {
+		const state = await operator.palComputer(id)
+		palComputerIdle.observe(id, state.status === 'ready')
+		return state
+	})
 	handle('palInboxStart', (palId: string) => operator.palInboxStart(palId))
 	handle('startPalInbox', (palId: string) => operator.startPalInbox(palId))
-	handle('startPalComputer', (id: string) => operator.startPalComputer(id))
-	handle('stopPalComputer', (id: string) => operator.stopPalComputer(id))
+	handle('startPalComputer', async (id: string) => {
+		const state = await operator.startPalComputer(id)
+		palComputerIdle.observe(id, state.status === 'ready')
+		return state
+	})
+	handle('stopPalComputer', async (id: string) => {
+		const state = await operator.stopPalComputer(id)
+		palComputerIdle.observe(id, state.status === 'ready' || state.requiresStop === true)
+		return state
+	})
+	handle('palComputerSetup', (fresh?: boolean) => palComputerSetup.view(fresh === true))
+	// Main runs only the plan it computed in its own latest check; the id is a confirmation, not an input.
+	handle('runPalComputerSetup', (planId: unknown, palId?: unknown) =>
+		palComputerSetup.run(planId, typeof palId === 'string' ? palId : undefined),
+	)
+	handle('restartPc', () => {
+		const restart = restartCommand(process.platform)
+		if (!restart || !palComputerSetup.restartIsDue())
+			throw new Error('Windows does not need a restart for Pal computers right now.')
+		spawn(restart.program, restart.args, {
+			detached: true,
+			stdio: 'ignore',
+			windowsHide: true,
+		}).unref()
+	})
 	handle('rebootPalComputer', (id: string, generation: string) =>
 		operator.rebootPalComputer(id, generation),
 	)
@@ -1572,6 +1664,11 @@ function shutdown(): Promise<void> {
 		.shutdown()
 		.catch((error: unknown) => diagnostics.record('shutdown_failed', { error }))
 		.then(() => Promise.all([operator.close(), localSpeech.dispose()]))
+		.then(() =>
+			palComputerIdle
+				.stopForQuit()
+				.catch((error: unknown) => diagnostics.record('shutdown_failed', { error })),
+		)
 		.then(async () => {
 			await streamProxy.shutdown()
 			stopped = true
@@ -1705,6 +1802,7 @@ void app
 			]),
 		)
 		register()
+		palComputerIdle.start()
 		updates.start()
 		engineUpdates.start()
 		const layoutTabs = (): string[] =>
@@ -1752,6 +1850,7 @@ void app
 		if (saved.length) {
 			for (const layout of saved) await createWindow(layout.id, layout.bounds)
 		} else await createWindow()
+		if (process.argv.includes(CONTINUE_SETUP_FLAG)) void palComputerSetup.continueAfterRestart()
 		void (async () => {
 			for (const path of restorePaths) {
 				if (quitting) return

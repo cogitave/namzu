@@ -167,6 +167,13 @@ import { notify } from './notify.js'
 import { PalChatTranscript } from './pal-chat-transcript.js'
 import { PalCommunicationDialog, type PalSettingsTab } from './pal-communication-dialog.js'
 import { computerSetupMissing, presentComputerNotice } from './pal-computer-notice.js'
+import {
+	type PalComputerRowAction,
+	palComputerRowView,
+	setupStartCard,
+	setupWaitingLine,
+	withoutDockerHelp,
+} from './pal-computer-row-model.js'
 import { PalComputerView } from './pal-computer-view.js'
 import { PalContextCard, type PalContextProps } from './pal-context.js'
 import { palDeletionCopy } from './pal-deletion-copy.js'
@@ -224,6 +231,7 @@ import { useDesktopInfo, useDesktopSettings, useUpdateInfo } from './use-desktop
 import { useDraftSettings } from './use-draft-settings.js'
 import { useEngineUpdates } from './use-engine-updates.js'
 import { useLocalSpeech } from './use-local-speech.js'
+import { usePalComputerSetup } from './use-pal-computer-setup.js'
 import { usePalOperatorMessages } from './use-pal-operator-messages.js'
 import { usePalStarts } from './use-pal-starts.js'
 import { useTranscriptScroll } from './use-transcript-scroll.js'
@@ -887,6 +895,10 @@ export function App({
 		if (pal?.id) setUnreadPals((previous) => unreadAfterOpen(previous, pal.id))
 	}, [pal?.id])
 	const palStarts = usePalStarts(api, threads, pals, pal?.id)
+	// What this PC needs before a Pal's computer can run (Windows only; otherwise nothing changes).
+	const palSetup = usePalComputerSetup(api)
+	const [setupConsentPal, setSetupConsentPal] = useState<string | null>(null)
+	const startMessagesAfterSetup = useRef(new Set<string>())
 	const palMarkers = useMemo(
 		() => new Map(pals.map((item) => [item.id, palMarker(item.name, palStarts.entries[item.id])])),
 		[pals, palStarts.entries],
@@ -3825,6 +3837,90 @@ export function App({
 			setScreenRefresh((value) => value + 1)
 		}
 	}
+	const setupAvailable = palSetup.state?.available === true
+	const refreshSetup = palSetup.refresh
+	// The Pal panel asks again when it opens: the person may have changed this PC meanwhile.
+	useEffect(() => {
+		if (pal?.id && setupAvailable) void refreshSetup()
+	}, [pal?.id, setupAvailable, refreshSetup])
+	const handledSetupRun = useRef<number | undefined>(undefined)
+	const startComputerRef = useRef(startPalComputer)
+	startComputerRef.current = startPalComputer
+	const setupCompleted = palSetup.state?.completed
+	useEffect(() => {
+		if (!palSetup.state) return
+		// A run that finished before this window looked is not this window's to act on.
+		if (handledSetupRun.current === undefined) {
+			handledSetupRun.current = setupCompleted?.seq ?? 0
+			return
+		}
+		if (!setupCompleted || setupCompleted.seq <= handledSetupRun.current) return
+		handledSetupRun.current = setupCompleted.seq
+		const target = pals.find((item) => item.id === setupCompleted.palId)
+		if (setupCompleted.ranSetup)
+			notify(target ? `${target.name}’s computer is ready` : 'The Pal computer is ready', {
+				tone: 'success',
+			})
+		if (!target || target.paused) return
+		if (startMessagesAfterSetup.current.delete(target.id)) void palStarts.start(target.id)
+		else void startComputerRef.current(target)
+	}, [palSetup.state, setupCompleted, pals, palStarts.start])
+	const setupOutcome = palSetup.state?.outcome
+	const toastedSetupOutcome = useRef('')
+	useEffect(() => {
+		const key = setupOutcome ? JSON.stringify(setupOutcome) : ''
+		if (key === toastedSetupOutcome.current) return
+		toastedSetupOutcome.current = key
+		if (!setupOutcome) return
+		if (setupOutcome.kind === 'failed') notify(setupOutcome.sentence, { tone: 'error' })
+		else if (setupOutcome.kind === 'needs-administrator')
+			notify('Setup needs an administrator. Ask one to approve, or try again.', {
+				tone: 'warning',
+			})
+		else if (setupOutcome.kind === 'restart-required')
+			notify('Restart your PC to finish setting up the Pal computer.', {
+				tone: 'warning',
+				action: { label: 'Restart now', onClick: () => void palSetup.restart() },
+			})
+	}, [setupOutcome, palSetup.restart])
+	/** The row's own actions while this PC is being set up. */
+	const onSetupAction = (kind: PalComputerRowAction) => {
+		const setup = palSetup.state
+		if (!pal || !setup) return
+		if (kind === 'restart') void palSetup.restart()
+		else if (kind === 'start') {
+			if (setup.plan) void palSetup.run(setup.plan.id, pal.id)
+		} else setSetupConsentPal(pal.id)
+	}
+	const onSetupAnswer = (agreed: boolean) => {
+		const plan = palSetup.state?.plan
+		setSetupConsentPal(null)
+		if (agreed && plan && pal) void palSetup.run(plan.id, pal.id)
+	}
+	/** Start from a waiting message: it follows the same states as the Pal computer row. */
+	const startFromMessages = (target: PalView) => {
+		const setup = palSetup.state
+		if (!setup?.available) return void palStarts.start(target.id)
+		if (setup.running) return
+		switch (setup.phase) {
+			case 'image-only':
+				if (setup.plan) {
+					startMessagesAfterSetup.current.add(target.id)
+					void palSetup.run(setup.plan.id, target.id)
+				}
+				return
+			case 'needs-setup':
+				setSetupConsentPal(target.id)
+				void act(() => openPal(target))
+				return
+			case 'restart-pending':
+			case 'blocked':
+				void act(() => openPal(target))
+				return
+			default:
+				return void palStarts.start(target.id)
+		}
+	}
 	const openPalScreen = (value: PalView) => {
 		if (palScreen?.palId === value.id && palScreen.activeTab === 'computer') return
 		invalidateComputerInput()
@@ -4198,11 +4294,19 @@ export function App({
 			card: (name, sendId) => {
 				const target = byName(name)
 				if (!target || newestPalSends.get(name) !== sendId) return { kind: 'none' }
-				return palStartCard(name, target.paused, palStarts.entries[target.id])
+				return setupStartCard(
+					name,
+					palSetup.state,
+					palStartCard(
+						name,
+						target.paused,
+						withoutDockerHelp(palStarts.entries[target.id], palSetup.state),
+					),
+				)
 			},
 			onStart: (name) => {
 				const target = byName(name)
-				if (target) void palStarts.start(target.id)
+				if (target) startFromMessages(target)
 			},
 			onNotNow: (name) => {
 				const target = byName(name)
@@ -4249,7 +4353,15 @@ export function App({
 								? 'connecting'
 								: 'error',
 					setupMissing:
-						palComputer?.status === 'unavailable' && computerSetupMissing(palComputer.notice),
+						!setupAvailable &&
+						palComputer?.status === 'unavailable' &&
+						computerSetupMissing(palComputer.notice),
+					setup: palComputerRowView({
+						palName: pal.name,
+						setup: palSetup.state,
+						consenting: setupConsentPal === pal.id,
+						paused: pal.paused,
+					}),
 					screen: currentScreen,
 					loading: computerCapture?.loading,
 					notice: presentComputerNotice(
@@ -4290,13 +4402,23 @@ export function App({
 				customizeDisabled: palBusy || palsSaving,
 				onPause: () => togglePalPaused(pal),
 				pauseDisabled: palBusy || palsSaving,
-				waiting: palWaitingLine(pal.name, pal.paused, palStarts.entries[pal.id]),
+				waiting: setupWaitingLine(
+					pal.name,
+					palSetup.state,
+					palWaitingLine(
+						pal.name,
+						pal.paused,
+						withoutDockerHelp(palStarts.entries[pal.id], palSetup.state),
+					),
+				),
 				onWaitingAction: (action) => {
 					if (action === 'resume') {
 						togglePalPaused(pal)
 						void palStarts.refresh(pal.id)
-					} else void palStarts.start(pal.id)
+					} else startFromMessages(pal)
 				},
+				onSetupAction,
+				onSetupAnswer,
 				onDismissWaiting: () => palStarts.clearFailure(pal.id),
 				onStartComputer: pal.paused ? undefined : () => void startPalComputer(pal),
 				onOpenComputer: () => void openPalScreen(pal),
