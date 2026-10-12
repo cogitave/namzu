@@ -16,7 +16,7 @@ const STEP_KINDS: readonly WslcSetupStepKind[] = [
 	'load-image',
 ]
 
-function markerPath(directory: string): string {
+export function markerPath(directory: string): string {
 	return join(directory, 'restart.json')
 }
 

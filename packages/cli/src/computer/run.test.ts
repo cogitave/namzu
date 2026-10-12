@@ -418,9 +418,19 @@ describe('namzu computer', () => {
 		)
 		const { deps, out, err } = harness({ interactive: true, ask: vi.fn(async () => 'y') })
 		expect(await runComputerCommand(['setup'], deps)).toBe(0)
-		expect(out.join('')).toBe('Restart your PC to finish setting up Pal computers.\n')
+		expect(out.join('')).toBe(
+			'Restart your PC to finish setting up Pal computers.\nAfter it restarts, run namzu computer setup again.\n',
+		)
 		expect(err.join('')).toBe('')
 		expect(setupApi.runWslcSetup).not.toHaveBeenCalled()
+	})
+
+	it('adds no "run setup again" when the restart is all that is left', async () => {
+		setupApi.inspectWslcReadiness.mockResolvedValue(readiness('restart-pending'))
+		setupApi.planWslcSetup.mockReturnValue(plan('restart-pending', [step('restart')]))
+		const { deps, out } = harness({ interactive: false })
+		expect(await runComputerCommand(['setup'], deps)).toBe(0)
+		expect(out.join('')).toBe('Restart your PC to finish setting up Pal computers.\n')
 	})
 
 	it('setup --json needs --plan and prints progress lines then one result', async () => {

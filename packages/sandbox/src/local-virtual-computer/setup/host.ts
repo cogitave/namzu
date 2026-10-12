@@ -3,6 +3,7 @@ import { join, win32 } from 'node:path'
 import { LocalCommandError, nodeCommandRunner } from '../engine.js'
 import { type CreateWslcSetupHost, RESUME_AT_SIGN_IN_KEY } from './contract.js'
 import { PROBE_LIMIT_MS, ProbeTimeoutError, runLimited } from './limits.js'
+import { queryRegistryKey } from './registry.js'
 
 /** `10.0.19045` becomes 19045; undefined when the release string has no build. */
 function windowsBuildOf(platform: NodeJS.Platform): number | undefined {
@@ -66,11 +67,15 @@ export const createWslcSetupHost: CreateWslcSetupHost = (overrides = {}) => {
 		},
 		async keyExists(key: string): Promise<boolean | 'unknown'> {
 			try {
-				await runLimited(runner, 'reg.exe', ['query', key], PROBE_LIMIT_MS.command)
-				return true
+				const listing = await queryRegistryKey(
+					(args) => runLimited(runner, 'reg.exe', args, PROBE_LIMIT_MS.command),
+					key,
+				)
+				return listing !== undefined
 			} catch (error) {
-				if (error instanceof LocalCommandError) return error.exitCode === 1 ? false : 'unknown'
-				if (error instanceof ProbeTimeoutError) return 'unknown'
+				// Denied, a failed parent or no answer in time: not known, never "absent".
+				if (error instanceof LocalCommandError || error instanceof ProbeTimeoutError)
+					return 'unknown'
 				throw error
 			}
 		},

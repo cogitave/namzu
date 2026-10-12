@@ -1,5 +1,5 @@
-import { LocalCommandError } from '../engine.js'
 import type { ClearResumeAtSignIn, RegisterResumeAtSignIn, WslcSetupHost } from './contract.js'
+import { listingHasValue, queryRegistryKey } from './registry.js'
 import { trustedWindowsDirectory } from './windows-folder.js'
 
 /** The registry value the resume command is stored under. */
@@ -49,18 +49,17 @@ export const registerResumeAtSignIn: RegisterResumeAtSignIn = async (host, comma
 	])
 }
 
-/** Take the command back. A value that is not there is not an error. */
+/**
+ * Take the command back. A value that is not there is not an error; a key
+ * that cannot be read is, because the command might still be registered.
+ */
 export const clearResumeAtSignIn: ClearResumeAtSignIn = async (host) => {
 	checkKey(host.resumeRegistryKey)
 	const reg = regBinary(host)
-	try {
-		await host.runner.run(reg, ['query', host.resumeRegistryKey, '/v', RESUME_VALUE_NAME])
-	} catch (error) {
-		// `reg query` exits 1 when the key or the value is absent: nothing to
-		// delete. Any other failure (access denied, a timeout, a missing tool) is
-		// not "absent" and is the caller's to see.
-		if (error instanceof LocalCommandError && error.exitCode === 1) return
-		throw error
-	}
+	const listing = await queryRegistryKey(
+		(args) => host.runner.run(reg, [...args]),
+		host.resumeRegistryKey,
+	)
+	if (listing === undefined || !listingHasValue(listing, RESUME_VALUE_NAME)) return
 	await host.runner.run(reg, ['delete', host.resumeRegistryKey, '/v', RESUME_VALUE_NAME, '/f'])
 }

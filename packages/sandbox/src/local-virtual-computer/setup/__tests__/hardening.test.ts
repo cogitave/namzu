@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { LocalComputerSetupError } from '../../engine.js'
+import { LocalCommandError, LocalComputerSetupError } from '../../engine.js'
 import { createWslcSetupHost, windowsArchitectureOf } from '../host.js'
 import { loadWslcImage } from '../image.js'
 import { PROBE_LIMIT_MS, ProbeTimeoutError, runLimited } from '../limits.js'
@@ -208,12 +208,29 @@ describe('a restart marker that cannot be trusted', () => {
 		expect(readiness.restart).toEqual({ recordedAt: marker.recordedAt })
 	})
 
-	it('reads a marker that fails for any reason but "not there" as restart-pending', async () => {
+	it('ends an unreadable marker with the next boot, by the file date', async () => {
 		// A directory where the file should be: reading it fails with EISDIR.
 		await mkdir(join(directory, 'restart.json'), { recursive: true })
-		const readiness = await inspectWith(windowsRunner())
-		expect(readiness.state).toBe('restart-pending')
-		expect(readiness.restart?.recordedAt).toBe(readiness.checkedAt)
+		const pending = await inspectWith(windowsRunner(), { bootTime: async () => new Date(0) })
+		expect(pending.state).toBe('restart-pending')
+		expect(pending.restart?.recordedAt).not.toBe(pending.checkedAt)
+		// The same unreadable marker, seen after the PC restarted, no longer holds.
+		const later = await inspectWith(windowsRunner(), {
+			bootTime: async () => new Date(Date.now() + 60_000),
+		})
+		expect(later.state).toBe('image-missing')
+		expect(later.restart).toBeUndefined()
+	})
+
+	it('cannot decide when the marker can neither be read nor dated, and says where it is', async () => {
+		// A path with a NUL byte fails every file call with something other than ENOENT.
+		const stateDirectory = `${directory}\0x`
+		const error = await inspectWslcReadiness({
+			imageRef: IMAGE_REF,
+			host: fakeHost({ stateDirectory, runner: windowsRunner() }),
+		}).catch((caught: unknown) => caught)
+		expect(error).toBeInstanceOf(LocalComputerSetupError)
+		expect((error as Error).message).toContain('restart.json')
 	})
 
 	it('does not read a missing marker as a pending restart', async () => {
@@ -240,10 +257,36 @@ describe('virtualization-off without a probe', () => {
 		expect(readiness.state).toBe('virtualization-off')
 	})
 
-	it('treats a pending-restart check that fails as no pending restart', async () => {
+	it('does not call it virtualization-off when a restart marker cannot be read', async () => {
+		// reg.exe exits 1 for "denied" as well as "absent": the parent decides.
 		const runner = windowsRunner(noHypervisor)
-		runner.set(REBOOT_PENDING, failure(5))
-		expect((await inspectWith(runner)).state).toBe('virtualization-off')
+		runner.set(REBOOT_PENDING, failure(1))
+		runner.set(
+			'reg query HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Component Based Servicing',
+			failure(1),
+		)
+		const error = await inspectWith(runner).catch((caught: unknown) => caught)
+		expect(error).toBeInstanceOf(LocalComputerSetupError)
+	})
+
+	it('does not call it virtualization-off when a marker is listed but denied', async () => {
+		const runner = windowsRunner(noHypervisor)
+		runner.set(REBOOT_PENDING, failure(1))
+		runner.set(
+			'reg query HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Component Based Servicing',
+			'HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Component Based Servicing\\RebootPending\r\n',
+		)
+		const error = await inspectWith(runner).catch((caught: unknown) => caught)
+		expect(error).toBeInstanceOf(LocalComputerSetupError)
+	})
+
+	it('does not call it virtualization-off when the registry does not answer in time', async () => {
+		vi.useFakeTimers()
+		const { runner, started } = hanging(windowsRunner(noHypervisor), [REBOOT_PENDING])
+		const pending = inspectWith(runner).catch((error: unknown) => error)
+		await started.get(REBOOT_PENDING)
+		await vi.advanceTimersByTimeAsync(PROBE_LIMIT_MS.command)
+		expect(await pending).toBeInstanceOf(LocalComputerSetupError)
 	})
 
 	it('leaves the answer to the session with a probe: 0x80370102 stays virtualization-off', async () => {
@@ -253,23 +296,36 @@ describe('virtualization-off without a probe', () => {
 		expect(runner.calls).toContain(INSPECT)
 	})
 
-	it('still reports a pending restart with a probe, without starting the session', async () => {
-		const runner = windowsRunner(noHypervisor)
+	it('does not consult the restart markers with a probe: the session decides', async () => {
+		const runner = windowsRunner({ ...noHypervisor, imageInspect: failure(1, ['0x80370102']) })
 		runner.set(REBOOT_PENDING, 'HKEY_LOCAL_MACHINE\\...')
 		const readiness = await inspectWith(runner, { probe: true })
-		expect(readiness.state).toBe('restart-pending')
-		expect(runner.calls).not.toContain(INSPECT)
+		expect(readiness.state).toBe('virtualization-off')
+		expect(runner.calls).not.toContain(REBOOT_PENDING)
 	})
 })
 
 describe('a failure the engine does not explain', () => {
 	it('is not read as a missing image: the check could not be made', async () => {
-		const runner = windowsRunner({ imageInspect: failure(7) })
+		const runner = windowsRunner({ imageInspect: failure(7, ['0x80004005']) })
 		const error = await inspectWith(runner, { probe: true }).catch((caught: unknown) => caught)
 		expect(error).toBeInstanceOf(LocalComputerSetupError)
 		expect((error as Error).message).toBe(
 			'Linux container support did not answer, so Namzu could not check this PC. Try again in a moment.',
 		)
+	})
+
+	it('reads a bare non-zero exit as a missing image, as wslc 3.0.1 answers', async () => {
+		const runner = windowsRunner({ imageInspect: failure(1) })
+		expect((await inspectWith(runner, { probe: true })).state).toBe('image-missing')
+	})
+
+	it('does not read a command that never started as a missing image', async () => {
+		const runner = windowsRunner({
+			imageInspect: new LocalCommandError('could not be started', ['ENOENT']),
+		})
+		const error = await inspectWith(runner, { probe: true }).catch((caught: unknown) => caught)
+		expect(error).toBeInstanceOf(LocalComputerSetupError)
 	})
 
 	it('still reads the engine saying the image is not there as image-missing', async () => {

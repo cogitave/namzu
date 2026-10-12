@@ -552,6 +552,23 @@ describe('wslc through a stand-in executable and worker', () => {
 		})
 	})
 
+	it('gives a failure that is not a setup error no setup code', async () => {
+		const h = await harness()
+		const provider = createLocalVirtualComputerProvider({
+			engine: 'wslc',
+			wslcBinary: h.fake,
+			runner: {
+				run: async () => {
+					throw new Error('The engine response exceeded its size limit')
+				},
+			},
+		})
+		const probe = await provider.probe?.()
+		expect(probe?.ready).toBe(false)
+		expect((probe as { setupCode?: string }).setupCode).toBeUndefined()
+		expect(probe?.reason).toContain('Windows Linux container support')
+	})
+
 	it('says engine-missing when the binary does not exist', async () => {
 		const provider = createLocalVirtualComputerProvider({
 			engine: 'wslc',

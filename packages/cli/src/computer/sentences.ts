@@ -12,6 +12,7 @@ import type {
 	WslcSetupStepKind,
 } from '@namzu/sandbox/local-virtual-computer/setup'
 
+export const AFTER_RESTART_SENTENCE = 'After it restarts, run namzu computer setup again.'
 export const RESTART_SENTENCE = 'Restart your PC to finish setting up Pal computers.'
 
 export const NO_MACHINE_SENTENCE =

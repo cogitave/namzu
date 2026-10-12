@@ -14,7 +14,7 @@ import type {
 } from './contract.js'
 import { createWslcSetupHost } from './host.js'
 import { PROBE_LIMIT_MS, ProbeTimeoutError, runLimited } from './limits.js'
-import { clearRestartMarker, readRestartMarker } from './restart.js'
+import { clearRestartMarker, markerPath, readRestartMarker } from './restart.js'
 import {
 	archivePathOf,
 	parseImageInspect,
@@ -134,12 +134,19 @@ function couldNotCheck(cause: unknown): LocalComputerSetupError {
 	)
 }
 
-/** Windows' own markers that a restart is pending. */
-async function windowsWantsRestart(host: WslcSetupHost): Promise<boolean> {
+/**
+ * Windows' own markers that a restart is pending. A marker that cannot be
+ * read is neither set nor clear: say so, because guessing "clear" would send a
+ * PC that only needs a restart to the firmware settings.
+ */
+async function windowsWantsRestart(host: WslcSetupHost): Promise<boolean | 'unknown'> {
+	let unknown = false
 	for (const key of PENDING_RESTART_KEYS) {
-		if ((await host.keyExists(key)) === true) return true
+		const set = await host.keyExists(key)
+		if (set === true) return true
+		if (set === 'unknown') unknown = true
 	}
-	return false
+	return unknown ? 'unknown' : false
 }
 
 async function bundledOf(
@@ -188,7 +195,15 @@ async function probeImage(
 		if (mapped?.code === 'blocked-by-policy') return { kind: 'state', state: 'blocked-by-policy' }
 		if (mapped?.code === 'sdk-mismatch') return { kind: 'state', state: 'sdk-mismatch' }
 		if (mapped?.code === 'image-missing') return { kind: 'absent' }
-		// Anything else is the engine failing, not the image being absent.
+		// A missing image makes the command exit non-zero with the not-found code
+		// or with no code at all (observed on wslc 3.0.1, where the PC answers
+		// "not found" and nothing else). A command that ran and failed with any
+		// other code, or did not start, is the engine failing.
+		if (
+			error instanceof LocalCommandError &&
+			(error.errorCodes.length === 0 || error.errorCodes.includes('WSLC_E_IMAGE_NOT_FOUND'))
+		)
+			return { kind: 'absent' }
 		throw couldNotCheck(error)
 	}
 }
@@ -282,25 +297,34 @@ export const inspectWslcReadiness: InspectWslcReadiness = async (options) => {
 
 	let restart: WslcReadiness['restart']
 	const { marker } = markerRead
+	let recordedAt: string | undefined = marker?.recordedAt
 	if ('unreadable' in markerRead) {
-		// A marker that cannot be read (anything but "not there") leaves a restart
-		// pending with no steps known to follow it.
-		restart = { recordedAt: checkedAt }
-	} else if (marker !== undefined) {
+		// A marker that cannot be read still has a file date, and a restart since
+		// then ends it like any other. With no date either, the state cannot be
+		// decided and the person is told where the record is.
+		try {
+			recordedAt = (await stat(markerPath(host.stateDirectory))).mtime.toISOString()
+		} catch {
+			throw new LocalComputerSetupError(
+				`Namzu could not read its setup record in ${host.stateDirectory}. Delete the restart.json file there and try again.`,
+			)
+		}
+	}
+	if (recordedAt !== undefined) {
 		let boot: Date | undefined
 		try {
 			boot = await host.bootTime()
 		} catch {
 			signal?.throwIfAborted()
 		}
-		if (boot === undefined) restart = { recordedAt: marker.recordedAt }
-		else if (boot.getTime() > Date.parse(marker.recordedAt)) {
+		if (boot === undefined) restart = { recordedAt }
+		else if (boot.getTime() > Date.parse(recordedAt)) {
 			try {
 				await clearRestartMarker(host)
 			} catch {
 				// A marker that stays is checked again next time; the PC has restarted.
 			}
-		} else restart = { recordedAt: marker.recordedAt, bootTime: boot.toISOString() }
+		} else restart = { recordedAt, bootTime: boot.toISOString() }
 	}
 
 	const wsl = {
@@ -333,12 +357,13 @@ export const inspectWslcReadiness: InspectWslcReadiness = async (options) => {
 	if (restart) return result('restart-pending')
 	if (vmp === false || lxss === false) return result('platform-off')
 	if (!wslcUsable) return result(wslVersion ? 'wsl-outdated' : 'wsl-missing')
-	if (vmp === true && hypervisor === false) {
+	if (vmp === true && hypervisor === false && options.probeSession !== true) {
 		// Turning the platform on outside Namzu leaves no hypervisor until the PC
-		// restarts; Windows says so in its own markers. Only without one is it
-		// the firmware setting. With a probe the session's own failure decides.
-		if (await windowsWantsRestart(host)) return result('restart-pending')
-		if (options.probeSession !== true) return result('virtualization-off')
+		// restarts; Windows says so in its own markers. Only without one is it the
+		// firmware setting. With a probe the session's own failure decides.
+		const pending = await windowsWantsRestart(host)
+		if (pending === 'unknown') throw couldNotCheck(undefined)
+		return result(pending ? 'restart-pending' : 'virtualization-off')
 	}
 
 	if (options.probeSession === true) {

@@ -75,6 +75,12 @@ export function windowsRunner(scenario: Scenario = {}): FakeRunner {
 		'sc query vmcompute': vmp ? 'SERVICE_NAME: vmcompute' : MISSING_SERVICE,
 		'sc query LxssManager': (scenario.lxss ?? true) ? 'SERVICE_NAME: LxssManager' : MISSING_SERVICE,
 		'powershell -NoProfile -NonInteractive -Command (Get-CimInstance Win32_ComputerSystem).HypervisorPresent': `${scenario.hypervisor ?? 'True'}\r\n`,
+		// The parents of Windows' pending-restart markers list their subkeys; a
+		// key that is not listed is absent (the key itself answers exit 1).
+		'reg query HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Component Based Servicing':
+			'HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Component Based Servicing\\Packages\r\n',
+		'reg query HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update':
+			'HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update\\Results\r\n',
 		...(wsl === null ? {} : { 'wsl --version': wsl }),
 		...(wslc === null ? {} : { 'wslc version': wslc }),
 		'wslc image inspect -f json namzu-local-computer:2':

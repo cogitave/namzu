@@ -104,7 +104,8 @@ an update) keep their own sentence.
 
 When a restart has to come first, `setup` prints "Restart your PC to finish
 setting up Pal computers." and exits 0 without asking to continue; the rest of
-the plan (loading the image) waits for that restart. A failed setup ends with the
+the plan (loading the image) waits for that restart, and when steps remain it adds
+"After it restarts, run namzu computer setup again." A failed setup ends with the
 sentence for what failed and a `Details:` line that is a sentence too, with the
 Windows error number when Windows gave one ("Windows reported a problem while
 installing Linux support. Windows error 1603."), never the internal code. The

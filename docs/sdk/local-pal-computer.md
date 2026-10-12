@@ -666,13 +666,15 @@ Namzu Desktop does it from the Pal computer row; the CLI from
   boot-time checks) 15, and the command that starts the wslc session 60. The
   limit aborts the runner's signal and stops waiting, so a stuck tool cannot
   hold an inspection. A timed-out service, hypervisor or `wsl.exe` check
-  becomes an `unknown` fact, a timed-out registry read is "not set". Where the
+  becomes an `unknown` fact, and so does a timed-out registry read of a policy
+  value (read as "not set"). Where the
   state cannot be decided (`wslc version` or the session probe timed out, or
   the engine failed with something unmapped) the inspection throws a
   `LocalComputerSetupError` with a plain message and no code, which the CLI and
   Desktop show as "could not check" with Details. An unmapped failure of the
   session probe is never read as `image-missing`; only the engine's own
-  not-found answer is.
+  not-found answer is (the not-found code, or a non-zero exit with no code at
+  all, which is how wslc 3.0.1 says it; a command that did not start is not).
 - **Without a probe it never starts a virtual machine.** `wslc version` does
   not start the session; `wslc list`, `ps` and `image` do. So by default
   `image.loaded` comes from `<stateDirectory>/image.json`, which setup writes
@@ -688,13 +690,23 @@ Namzu Desktop does it from the Pal computer row; the CLI from
   Servicing\RebootPending` and `...\WindowsUpdate\Auto Update\RebootRequired`)
   and reports `restart-pending` (with no `restart` record of Namzu's own) when
   either exists, because a PC that has not restarted since the platform was
-  turned on outside Namzu has no hypervisor yet. With a probe a pending
-  restart still wins, and otherwise the session's own failure decides.
-  A restart record that cannot be read (anything but "not there") is treated
-  as `restart-pending` with no remaining steps known, and the same holds when
-  a record exists and the boot time cannot be fetched; a record that cannot be
-  deleted after a restart is ignored. On the verified PC an inspection without a probe takes
-  about 0.3 seconds (three runs: 287, 249 and 257 ms); with a probe, 10.2
+  turned on outside Namzu has no hypervisor yet. `reg.exe` exits 1 both for an
+  absent key and for one it may not read, in every language, so a key is only
+  "absent" when its parent's listing does not name it; a marker that cannot be
+  read (denied, or no answer in time) makes the inspection throw the plain
+  "could not check" error rather than claim `virtualization-off`. With a probe
+  the markers are not consulted at all: the session's own failure decides, and
+  `0x80370102` stays `virtualization-off` even while Windows has a restart
+  pending.
+  A restart record that exists but cannot be read (anything but "not there")
+  is dated by its file instead: a boot after that date ends it like any record,
+  and an earlier one leaves `restart-pending` with no remaining steps known. If
+  the file cannot even be dated, the inspection throws a plain error naming the
+  state folder, and the record there (`restart.json`) is to be deleted by hand.
+  A record that exists while the boot time cannot be fetched stays
+  `restart-pending`; a record that cannot be
+  deleted after a restart is ignored. On the verified PC an inspection without a
+  probe takes about 0.3 seconds (three runs: 287, 249 and 257 ms); with a probe, 10.2
   seconds for the first one (the session was stopped) and 0.3 seconds once it
   runs.
 - **Plan.** `planWslcSetup` turns the facts into steps (`download-wsl`,

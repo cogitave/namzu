@@ -183,14 +183,9 @@ export function createLocalVirtualComputerProvider(
 				return {
 					ready: false,
 					// The code lets an application choose its words by what failed, not
-					// by matching the message. The fallback below is the wslc engine's
-					// "required but unreadable" answer, which setup can fix.
-					setupCode:
-						error instanceof LocalComputerSetupError
-							? error.code
-							: options.engine === 'wslc'
-								? ('image-missing' as const)
-								: undefined,
+					// by matching the message. A failure that is not a setup error (a
+					// timeout, say) carries no code: it is not known to be fixable by setup.
+					setupCode: error instanceof LocalComputerSetupError ? error.code : undefined,
 					reason:
 						error instanceof LocalComputerSetupError
 							? error.message

@@ -10,3 +10,5 @@ internal code. A pending restart reads "Restart your PC to finish setting up Pal
 computers." instead of "Nothing needs to be set up.", and `namzu computer setup`
 says it once without asking to continue. `--json` results from a failed setup gain
 an optional `exitCode`.
+
+`namzu computer setup` now also says to run it again after the restart when setup steps are still waiting, and the setup hint no longer appears for a failure that setup cannot fix.

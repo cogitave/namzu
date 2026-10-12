@@ -102,27 +102,60 @@ describe('registerResumeAtSignIn', () => {
 	})
 })
 
+const RUN_ONCE = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce'
+const CURRENT_VERSION = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion'
+const WITH_VALUE =
+	'HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce\r\n    NamzuPalComputerSetup    REG_SZ    namzu.exe computer setup\r\n'
+const OTHER_VALUE =
+	'HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce\r\n    SomethingElse    REG_SZ    x\r\n'
+const PARENT_WITH_RUN_ONCE =
+	'HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\r\nHKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce\r\n'
+const PARENT_WITHOUT_RUN_ONCE =
+	'HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\r\n'
+
 describe('clearResumeAtSignIn', () => {
-	it('queries the value and then deletes it', async () => {
-		const { host, calls } = hostWith(() => '')
+	it('lists the key and then deletes the value', async () => {
+		const { host, calls } = hostWith((call) => (call.args[0] === 'query' ? WITH_VALUE : ''))
 		await clearResumeAtSignIn(host)
-		const key = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce'
 		expect(calls.map((call) => call.args)).toEqual([
-			['query', key, '/v', 'NamzuPalComputerSetup'],
-			['delete', key, '/v', 'NamzuPalComputerSetup', '/f'],
+			['query', RUN_ONCE],
+			['delete', RUN_ONCE, '/v', 'NamzuPalComputerSetup', '/f'],
 		])
 		expect(calls.every((call) => call.binary === 'C:\\Windows\\System32\\reg.exe')).toBe(true)
 	})
 
-	it('treats an absent value as nothing to do', async () => {
-		const { host, calls } = hostWith((call) =>
-			call.args[0] === 'query' ? new LocalCommandError('absent', [], 1) : '',
-		)
-		await expect(clearResumeAtSignIn(host)).resolves.toBeUndefined()
+	it('has nothing to delete when the key lists other values only', async () => {
+		const { host, calls } = hostWith(() => OTHER_VALUE)
+		await clearResumeAtSignIn(host)
 		expect(calls.map((call) => call.args[0])).toEqual(['query'])
 	})
 
-	it('rethrows a query that failed for any reason but "not found"', async () => {
+	it('treats a key its parent does not list as absent', async () => {
+		const { host, calls } = hostWith((call) =>
+			call.args[1] === RUN_ONCE ? new LocalCommandError('absent', [], 1) : PARENT_WITHOUT_RUN_ONCE,
+		)
+		await expect(clearResumeAtSignIn(host)).resolves.toBeUndefined()
+		expect(calls.map((call) => call.args)).toEqual([
+			['query', RUN_ONCE],
+			['query', CURRENT_VERSION],
+		])
+	})
+
+	it('rethrows a denied key: exit 1 is also what "Access is denied" gives', async () => {
+		const denied = new LocalCommandError('access denied', [], 1)
+		const { host, calls } = hostWith((call) =>
+			call.args[1] === RUN_ONCE ? denied : PARENT_WITH_RUN_ONCE,
+		)
+		await expect(clearResumeAtSignIn(host)).rejects.toBe(denied)
+		expect(calls.map((call) => call.args[0])).toEqual(['query', 'query'])
+	})
+
+	it('rethrows when the parent cannot be listed either', async () => {
+		const { host } = hostWith(() => new LocalCommandError('denied', [], 1))
+		await expect(clearResumeAtSignIn(host)).rejects.toBeInstanceOf(LocalCommandError)
+	})
+
+	it('rethrows a query that failed for any reason but exit 1', async () => {
 		for (const failure of [
 			new LocalCommandError('access denied', [], 5),
 			new LocalCommandError('could not start', ['ENOENT']),
@@ -135,12 +168,14 @@ describe('clearResumeAtSignIn', () => {
 	})
 
 	it('reports a delete that fails after the value was found', async () => {
-		const { host } = hostWith((call) => (call.args[0] === 'delete' ? new Error('exit 5') : ''))
+		const { host } = hostWith((call) =>
+			call.args[0] === 'delete' ? new Error('exit 5') : WITH_VALUE,
+		)
 		await expect(clearResumeAtSignIn(host)).rejects.toThrow('exit 5')
 	})
 
 	it('finds reg.exe through windir when SystemRoot is not set', async () => {
-		const { host, calls } = hostWith(() => '', { env: { windir: 'D:\\Windows\\' } })
+		const { host, calls } = hostWith(() => WITH_VALUE, { env: { windir: 'D:\\Windows\\' } })
 		await clearResumeAtSignIn(host)
 		expect(calls[0]?.binary).toBe('D:\\Windows\\System32\\reg.exe')
 	})
@@ -152,7 +187,7 @@ describe('clearResumeAtSignIn', () => {
 			'\\\\server\\share\\Windows',
 			'C:\\Windows\\..\\evil',
 		]) {
-			const { host, calls } = hostWith(() => '', { env: { SystemRoot: root } })
+			const { host, calls } = hostWith(() => WITH_VALUE, { env: { SystemRoot: root } })
 			await clearResumeAtSignIn(host)
 			expect(calls[0]?.binary).toBe('C:\\Windows\\System32\\reg.exe')
 		}
