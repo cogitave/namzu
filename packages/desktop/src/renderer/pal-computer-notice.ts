@@ -15,6 +15,8 @@ const PODMAN_STOPPED =
 	/podman machine[^.]*(?:stopped|unavailable|start)|machine pipe is unavailable/i
 const NOT_LOCAL =
 	/remote engines are refused|local unix socket|registered (?:locally|machine)|operator profile|arbitrary engine endpoint|requires an existing|select an existing podman/i
+// Windows' own container support: the runtime names a command line, which is not for the screen.
+const WINDOWS_SETUP = /namzu computer setup|linux container support/i
 const DEVELOPER_DETAIL =
 	/packages[\\/]|\.ts\b|\bnode_modules\b|[A-Za-z]:\\|(?:^|\s)\/(?:usr|home|var|opt)\//i
 
@@ -23,6 +25,8 @@ export function presentComputerNotice(raw: string | undefined): string | undefin
 	if (!text) return undefined
 	if (PODMAN_STOPPED.test(text))
 		return 'Your Podman machine is not running. Start it, then start your Pal again.'
+	if (WINDOWS_SETUP.test(text))
+		return 'Linux support for Pal computers is not ready on this PC. Namzu sets it up from the Pal computer.'
 	if (SETUP.test(text)) return COMPUTER_SETUP_NOTICE
 	if (NOT_LOCAL.test(text))
 		return 'A Pal’s computer can only use Docker or Podman running on this computer. Check that it is set up and running, then start your Pal again.'

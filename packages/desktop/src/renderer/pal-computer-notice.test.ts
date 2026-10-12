@@ -42,3 +42,16 @@ it('keeps a plain sentence that carries no developer detail', () => {
 	expect(presentComputerNotice(undefined)).toBeUndefined()
 	expect(presentComputerNotice('  ')).toBeUndefined()
 })
+
+it('never shows the command line or the engine name from Windows', () => {
+	for (const raw of [
+		'Windows Linux container support and the Pal computer image are required. Namzu sets them up; finish the setup from the Pal computer and try again. Run namzu computer setup to set this up.',
+		'Windows Linux container support on this PC is too old for Namzu. Run namzu computer setup to set this up.',
+	]) {
+		const shown = presentComputerNotice(raw)
+		expect(shown).toBe(
+			'Linux support for Pal computers is not ready on this PC. Namzu sets it up from the Pal computer.',
+		)
+		expect(shown).not.toMatch(/namzu computer|wslc/i)
+	}
+})
