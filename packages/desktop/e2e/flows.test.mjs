@@ -195,14 +195,18 @@ async function archive(w, title) {
 	});
 	await expect(sidebarRow(w, title)).toHaveCount(0, { timeout: T });
 }
+/** Switches the sidebar's Recents section to its archived conversations from the details menu. */
 async function openArchived(w) {
 	await w.page.getByRole("button", { name: "Conversation details" }).click();
 	await w.page.getByRole("button", { name: "Project actions" }).click();
 	await w.page
 		.getByRole("menuitem", { name: "Archived conversations" })
 		.click();
-	return w.page.getByRole("dialog", { name: "Archived conversations" });
+	const list = w.page.locator("[data-archive-list]");
+	await expect(w.page.locator(".sidebar-recents-label")).toHaveText("Archived", { timeout: T });
+	return list;
 }
+const backToRecents = (w) => w.page.getByRole("button", { name: "Back to recents" }).click();
 
 flow(
 	"archive, find it under Archived, restore it, then archive it again",
@@ -213,11 +217,13 @@ flow(
 		await expect(sidebarRow(w, "beta chat")).toBeVisible();
 		let list = await openArchived(w);
 		await expect(list.getByText("alpha chat")).toBeVisible({ timeout: T });
+		// Restore shows while the pointer is on the row.
+		await list.getByText("alpha chat").hover();
 		await list.getByRole("button", { name: "Restore alpha chat" }).click();
 		await expect(
 			list.getByText("Nothing is archived."),
 		).toBeVisible({ timeout: T });
-		await list.getByRole("button", { name: "Close", exact: true }).click();
+		await backToRecents(w);
 		await expect(sidebarRow(w, "alpha chat")).toBeVisible({ timeout: T });
 		// The restored row must be removable again: this is the path that used to fail.
 		await archive(w, "alpha chat");

@@ -51,7 +51,6 @@ import {
 	USE_EXISTING_FOLDER_LABEL,
 } from './add-project-menu.js'
 import { type ArchiveBatch, addToArchiveBatch, archiveNoticeText } from './archive-notice.js'
-import { ArchivedConversationsDialog } from './archived-conversations-dialog.js'
 import { applyCachedAttachmentPreviewEviction } from './attachment-preview-events.js'
 import { ChangesPanel } from './changes-panel.js'
 import { type ChangeTotals, changeTotals } from './changes-totals.js'
@@ -213,6 +212,7 @@ import { RestoreSkeleton } from './restore-skeleton.js'
 import { retryableReply } from './retry-reply.js'
 import { projectRemovalCopy, removalNotice, settingsRoute } from './settings-model.js'
 import { SettingsPage, SettingsSidebar } from './settings-page.js'
+import type { ArchiveView } from './sidebar-archive.js'
 import {
 	type ListOutcome,
 	replaceProject,
@@ -242,6 +242,7 @@ import { Button } from './ui/button.js'
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from './ui/empty.js'
 import { UndoDialog } from './undo-dialog.js'
 import { undoNotice } from './undo-model.js'
+import { useArchivedConversations } from './use-archived-conversations.js'
 import { useAttachments } from './use-attachments.js'
 import { useDesktopInfo, useDesktopSettings, useUpdateInfo } from './use-desktop-settings.js'
 import { useDraftSettings } from './use-draft-settings.js'
@@ -859,7 +860,14 @@ export function App({
 	const [detailsPopoverOpen, setDetailsPopoverOpen] = useState(false)
 	const [renamingConversation, setRenamingConversation] = useState<ConversationView>()
 	const [undoingTurn, setUndoingTurn] = useState<{ sessionId: string; turnId: string }>()
-	const [archivedOpen, setArchivedOpen] = useState(false)
+	// The sidebar's Recents section shows its archived conversations for this window only.
+	const [archiveView, setArchiveView] = useState<ArchiveView>('recents')
+	const [restoringArchived, setRestoringArchived] = useState('')
+	const archived = useArchivedConversations(
+		api,
+		projects.filter((item) => !item.palId && !item.isChat),
+		archiveView,
+	)
 	const renameTrigger = useRef<HTMLElement | null>(null)
 	const announce = useCallback((text: string) => void notify(text), [])
 	const [git, setGit] = useState<{ projectId: string; value: ProjectGitView | null }>()
@@ -3311,13 +3319,14 @@ export function App({
 		removalTrigger.current = trigger
 		setRemovingConversation(value)
 	}
-	// Archives and offers Undo through the same host path whether the dialog or a row button asked.
+	// Archives and offers Undo through the same host path whether a menu, a shortcut or a row button asked.
 	const archiveBatch = useRef<ArchiveBatch | undefined>(undefined)
 	const archiveConversation = async (value: ConversationView) => {
 		if (!api.removeConversation) throw new Error('Conversation removal is unavailable.')
 		const result = await api.removeConversation(value.id)
 		if (result.sessionId !== value.id || result.removed !== true)
 			throw new Error('Conversation removal was not confirmed. Try again.')
+		archived.add(value)
 		// Archiving again while the notice is up merges into it: one notice, one Undo for all.
 		const batch = addToArchiveBatch(archiveBatch.current, value.id, Date.now(), ARCHIVE_UNDO_MS)
 		archiveBatch.current = batch
@@ -3339,6 +3348,7 @@ export function App({
 										if (!restored) continue
 										unblockRestoredConversation(restored.id)
 										upsertConversation(restored)
+										archived.remove(restored.id)
 									} catch (error) {
 										failure ??= error
 									}
@@ -3348,6 +3358,22 @@ export function App({
 						},
 					}
 				: undefined,
+		})
+	}
+	// A row's Restore in the archived view: the conversation returns to Recents and its project.
+	const restoreArchivedConversation = (value: ConversationView) => {
+		if (restoringArchived || !api.restoreConversation) return
+		setRestoringArchived(value.id)
+		void act(async () => {
+			try {
+				const restored = await api.restoreConversation?.(value.id)
+				if (!restored) return
+				unblockRestoredConversation(restored.id)
+				upsertConversation(restored)
+				archived.remove(restored.id)
+			} finally {
+				setRestoringArchived('')
+			}
 		})
 	}
 	// A row's Archive button: with an Undo path there is nothing to confirm, so it archives at once.
@@ -4615,6 +4641,11 @@ export function App({
 			setHistoryLoading(false)
 		}
 	}
+	// Opens the sidebar (its drawer when the window is narrow) on the archived list and moves focus there.
+	const showArchivedConversations = () => {
+		setArchiveView('archived')
+		revealSidebar('[data-archive-list]')
+	}
 	const revealSidebar = (selector: string) => {
 		setSideOpen(window.matchMedia('(max-width: 767px)').matches)
 		setSideCollapsed(false)
@@ -5244,7 +5275,8 @@ export function App({
 						group: 'Actions',
 						icon: <ArchiveIcon aria-hidden="true" />,
 						keywords: ['restore', 'archive', 'old'],
-						onAction: () => setArchivedOpen(true),
+						onAction: () =>
+							archiveView === 'archived' ? setArchiveView('recents') : showArchivedConversations(),
 					},
 				]
 			: []),
@@ -5549,6 +5581,14 @@ export function App({
 			setExpandedProjects((previous) => (previous.join('\n') === ids.join('\n') ? previous : ids)),
 		[],
 	)
+	// What the archive held when last read, else what the last run remembered.
+	const archivedCount =
+		archived.load.status === 'ready'
+			? archived.load.rows.filter((item) => {
+					const project = projects.find((entry) => entry.id === item.projectId)
+					return project && !project.missing
+				}).length
+			: sidebarStart?.snapshot?.archivedCount
 	// The picture for the next start, once the lists have settled; main keeps it on disk.
 	const snapshotText =
 		sidebarSettled.current && !palsLoading
@@ -5562,9 +5602,7 @@ export function App({
 					})),
 					conversations: snapshotConversations(sidebarRows, projects),
 					expandedProjects,
-					...(sidebarStart?.snapshot?.archivedCount !== undefined
-						? { archivedCount: sidebarStart.snapshot.archivedCount }
-						: {}),
+					...(archivedCount !== undefined ? { archivedCount } : {}),
 				} satisfies SidebarSnapshot)
 			: ''
 	useEffect(() => {
@@ -5852,21 +5890,6 @@ export function App({
 								}}
 							/>
 						)}
-						{archivedOpen && api.archivedConversations && (
-							<ArchivedConversationsDialog
-								key="archived"
-								api={api}
-								projects={projects
-									.filter((item) => !item.palId && !item.isChat)
-									.map((item) => ({ id: item.id, name: item.name }))}
-								onClose={() => setArchivedOpen(false)}
-								returnFocus={() => detailsTrigger.current ?? input.current}
-								onRestored={(view) => {
-									unblockRestoredConversation(view.id)
-									upsertConversation(view)
-								}}
-							/>
-						)}
 						{removingConversation && (
 							<ConfirmRemovalDialog
 								key={`remove-conversation:${removingConversation.id}`}
@@ -5998,7 +6021,19 @@ export function App({
 											)
 									: undefined
 							}
-							onOpenArchived={api.archivedConversations ? () => setArchivedOpen(true) : undefined}
+							archive={
+								api.archivedConversations
+									? {
+											view: archiveView,
+											rememberedCount: sidebarStart?.snapshot?.archivedCount,
+											onViewChange: setArchiveView,
+											load: archived.load,
+											onRetry: archived.refresh,
+											restoringId: restoringArchived,
+											onRestore: restoreArchivedConversation,
+										}
+									: undefined
+							}
 							collapsed={sideCollapsed}
 							opening={loading}
 							onClose={() => setSideOpen(false)}
@@ -6217,7 +6252,7 @@ export function App({
 								}}
 								onOpenArchived={
 									project && !project.isChat && api.archivedConversations
-										? () => setArchivedOpen(true)
+										? showArchivedConversations
 										: undefined
 								}
 								onAttach={() => {

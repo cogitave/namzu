@@ -13,7 +13,7 @@ export interface SidebarSnapshot {
 	conversations: SidebarConversationRow[]
 	/** Projects whose conversations were open in the list. */
 	expandedProjects: string[]
-	/** Archived conversations, for the entry that lists them. */
+	/** Archived conversations, so the Recents section and its archive button are there on the first frame. */
 	archivedCount?: number
 }
 export interface SidebarPalRow {
