@@ -41,6 +41,7 @@ import type {
 } from '../shared/protocol.js'
 import { usableProviders } from '../shared/provider-connections.js'
 import type { DataFolderKind, SettingsSection } from '../shared/settings-protocol.js'
+import type { SidebarSnapshot } from '../shared/sidebar-snapshot.js'
 import { PROMPT_NOT_PASSED, TERMINAL_ENGINE_LABELS } from '../shared/terminal-tabs.js'
 import type { UpdateState } from '../shared/update-protocol.js'
 import {
@@ -49,8 +50,12 @@ import {
 	START_FROM_SCRATCH_LABEL,
 	USE_EXISTING_FOLDER_LABEL,
 } from './add-project-menu.js'
-import { type ArchiveBatch, addToArchiveBatch, archiveNoticeText } from './archive-notice.js'
-import { ArchivedConversationsDialog } from './archived-conversations-dialog.js'
+import {
+	type ArchiveBatch,
+	addToArchiveBatch,
+	archiveNoticeText,
+	removeFromArchiveBatch,
+} from './archive-notice.js'
 import { applyCachedAttachmentPreviewEviction } from './attachment-preview-events.js'
 import { ChangesPanel } from './changes-panel.js'
 import { type ChangeTotals, changeTotals } from './changes-totals.js'
@@ -81,7 +86,7 @@ import {
 	lastReplyText,
 } from './conversation-actions.js'
 import { ConversationDetailsPopover, type DetailsWork } from './conversation-details-popover.js'
-import { compareConversationOrder, compareConversationRecency } from './conversation-order.js'
+import { compareConversationRecency } from './conversation-order.js'
 import {
 	type ConversationPalWorkspace,
 	type ConversationTabActions,
@@ -163,7 +168,7 @@ import {
 	terminalUnavailableReason,
 } from './new-tab-menu.js'
 import { normalConversationProject } from './normal-conversation.js'
-import { notify } from './notify.js'
+import { dismissNotice, notify } from './notify.js'
 import { PalChatTranscript } from './pal-chat-transcript.js'
 import { PalCommunicationDialog, type PalSettingsTab } from './pal-communication-dialog.js'
 import { computerSetupMissing, presentComputerNotice } from './pal-computer-notice.js'
@@ -212,9 +217,24 @@ import { RestoreSkeleton } from './restore-skeleton.js'
 import { retryableReply } from './retry-reply.js'
 import { projectRemovalCopy, removalNotice, settingsRoute } from './settings-model.js'
 import { SettingsPage, SettingsSidebar } from './settings-page.js'
+import type { ArchiveView } from './sidebar-archive.js'
+import {
+	type ListOutcome,
+	replaceProject,
+	rowsToRemember,
+	snapshotConversations,
+	stableConversationRows,
+	withRememberedRows,
+} from './sidebar-catalogue.js'
 import { useSidebarSections } from './sidebar-section.js'
 import { type ConversationCollection, Sidebar } from './sidebar.js'
-import { launchSeed, restoreDecision, settleLaunchSeed } from './startup-restore.js'
+import {
+	launchSeed,
+	rememberSidebar,
+	restoreDecision,
+	settleLaunchSeed,
+	sidebarSeed,
+} from './startup-restore.js'
 import { createSubmitGuard } from './submit-guard.js'
 import { type TabChord, movedTabIndex, selectedTabIndex, tabChord } from './tab-keys.js'
 import { TerminalPane } from './terminal-pane.js'
@@ -228,6 +248,7 @@ import { Button } from './ui/button.js'
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from './ui/empty.js'
 import { UndoDialog } from './undo-dialog.js'
 import { undoNotice } from './undo-model.js'
+import { useArchivedConversations } from './use-archived-conversations.js'
 import { useAttachments } from './use-attachments.js'
 import { useDesktopInfo, useDesktopSettings, useUpdateInfo } from './use-desktop-settings.js'
 import { useDraftSettings } from './use-draft-settings.js'
@@ -346,6 +367,35 @@ export function App({
 	const api = facade.current.api
 	const [projectsLoaded, setProjectsLoaded] = useState(false)
 	const [catalogueReady, setCatalogueReady] = useState(false)
+	// How each project's own conversation list went this session, and the sort keys those lists
+	// delivered. The sidebar draws remembered rows until a project's list arrives, and keeps what
+	// it shows in place while the start settles; nothing else reads either.
+	const [lists, setLists] = useState<ReadonlyMap<string, ListOutcome>>(() => new Map())
+	const deliveredKeys = useRef(new Map<string, { pinned: boolean; updatedAt: string }>())
+	// True for the render that a background list caused, so nothing in the sidebar slides.
+	const quietSidebarMotion = useRef(false)
+	const noteListing = useCallback(
+		(
+			targets: readonly ProjectView[],
+			results: readonly PromiseSettledResult<ConversationView[]>[],
+		) => {
+			quietSidebarMotion.current = true
+			for (const result of results)
+				if (result.status === 'fulfilled')
+					for (const row of result.value)
+						deliveredKeys.current.set(row.id, {
+							pinned: row.pinned === true,
+							updatedAt: row.updatedAt,
+						})
+			setLists((previous) => {
+				const next = new Map(previous)
+				for (const [index, target] of targets.entries())
+					next.set(target.id, results[index]?.status === 'fulfilled' ? 'listed' : 'failed')
+				return next
+			})
+		},
+		[],
+	)
 	const catalogueTabsKey = JSON.stringify(group.tabs)
 	const catalogueOwner = useRef<{ projects: unknown; tabsKey: string } | null>(null)
 	const activation = useRef<string | null>(null)
@@ -494,7 +544,10 @@ export function App({
 	// asynchronous reads below replace all of it.
 	const [seed] = useState(() => launchSeed())
 	useEffect(() => settleLaunchSeed(), [])
-	const [projectRecords, setProjects] = useState<ProjectView[]>(() => seed?.projects ?? [])
+	// What the sidebar draws before anything is read: main's picture of the projects (in their saved
+	// order) and how the lists looked when the app last closed. Live reads replace them in place.
+	const [sidebarStart] = useState(() => sidebarSeed())
+	const [projectRecords, setProjects] = useState<ProjectView[]>(() => sidebarStart?.projects ?? [])
 	const projects = useMemo(
 		() =>
 			projectRecords.filter(
@@ -504,7 +557,20 @@ export function App({
 			),
 		[projectRecords, removedCatalogue],
 	)
-	const [projectId, setProjectId] = useState('')
+	// The project in front is known before the first render, so its panel is open on the first frame.
+	const [projectId, setProjectId] = useState(() => {
+		const listed = (sidebarStart?.projects ?? []).filter((item) => !item.palId)
+		const tabbed = startAtHome
+			? undefined
+			: sidebarStart?.tabs.find((view) => view.id === group.activeTabId)?.projectId
+		return listed.find((item) => item.id === tabbed)?.id ?? listed[0]?.id ?? ''
+	})
+	const [initialExpanded] = useState(() => {
+		const listed = new Set((sidebarStart?.projects ?? []).map((item) => item.id))
+		return [...new Set([...(sidebarStart?.snapshot?.expandedProjects ?? []), projectId])].filter(
+			(id) => listed.has(id),
+		)
+	})
 	const [conversationRecords, setConversations] = useState<ConversationView[]>([])
 	// Saved views of the launch tabs. They are never listed: a row is actionable only once its
 	// folder is connected. They tell the restore which folder a tab belongs to before the
@@ -534,6 +600,7 @@ export function App({
 	const [, setTabsRestored] = useState(false)
 	const [restoringTabs, setRestoringTabs] = useState(true)
 	const [tabRestoreAttempt, setTabRestoreAttempt] = useState(0)
+	const restoreNavigation = useRef(-1)
 	const abandonTabRestore = useCallback(() => {
 		// Deliberate navigation also retires the previous view's pending load.
 		setLoading(false)
@@ -678,6 +745,7 @@ export function App({
 			const refreshed = readable
 				.filter((_item, index) => results[index]?.status === 'fulfilled')
 				.map((item) => item.id)
+			noteListing(readable, results)
 			setConversations((previous) => mergeConversationCatalogues(previous, rows, refreshed))
 			const partial =
 				readable.length < projects.length || results.some((result) => result.status === 'rejected')
@@ -686,7 +754,7 @@ export function App({
 				notice: partial ? 'Some conversations could not be loaded.' : '',
 			})
 		})
-	}, [projects, api])
+	}, [projects, api, noteListing])
 	useEffect(() => {
 		if (!commandOpen) return
 		refreshCommands()
@@ -799,7 +867,19 @@ export function App({
 	const [detailsPopoverOpen, setDetailsPopoverOpen] = useState(false)
 	const [renamingConversation, setRenamingConversation] = useState<ConversationView>()
 	const [undoingTurn, setUndoingTurn] = useState<{ sessionId: string; turnId: string }>()
-	const [archivedOpen, setArchivedOpen] = useState(false)
+	// The sidebar's Recents section shows its archived conversations for this window only.
+	const [archiveView, setArchiveView] = useState<ArchiveView>('recents')
+	const [restoringArchived, setRestoringArchived] = useState('')
+	// Only a connected, trusted project can answer (main refuses the others); the rest are read as
+	// each one connects and is trusted.
+	const archivedProjects = useMemo(
+		() =>
+			projects.filter(
+				(item) => !item.palId && !item.isChat && item.trusted && item.status === 'ready',
+			),
+		[projects],
+	)
+	const archived = useArchivedConversations(api, archivedProjects, archiveView)
 	const renameTrigger = useRef<HTMLElement | null>(null)
 	const announce = useCallback((text: string) => void notify(text), [])
 	const [git, setGit] = useState<{ projectId: string; value: ProjectGitView | null }>()
@@ -1314,15 +1394,20 @@ export function App({
 	)
 	const draftOwner = sessionId || `project:${projectId}:workspace:${windowId}:${group.id}`
 	const draft = drafts[draftOwner] ?? ''
+	// Main answers a draft only for a project it has registered. A project the window is told about
+	// before main has reached it (the start opens them one at a time) is still `connecting`, and the
+	// pane shows the connecting stage instead of a composer: the draft is read once it has connected,
+	// so a read that cannot succeed yet is never made, and never shown as a failure.
+	const draftReadable = Boolean(project) && project?.status !== 'connecting' && !project?.missing
 	const attached = useAttachments(
 		draftOwner,
-		Boolean(project) && !historyPending,
+		draftReadable && !historyPending,
 		(failure) => showError(failure, 'attach the file'),
 		api,
 	)
 	const savedSettings = useDraftSettings(
 		draftOwner,
-		Boolean(project) && !historyPending,
+		draftReadable && !historyPending,
 		(failure) => showError(failure, 'save your message settings'),
 		api,
 	)
@@ -1652,9 +1737,9 @@ export function App({
 			savedSettings.save(draftOwner, { choice, options: { ...settings, effort: undefined } }),
 		)
 	}, [effortIsStale, modelSettingsBusy, providerReady, draftOwner])
+	// A project stays where it is whatever its connection does; only a new one is added, at the end.
 	const updateProject = useCallback(
-		(item: ProjectView) =>
-			setProjects((items) => [...items.filter((row) => row.id !== item.id), item]),
+		(item: ProjectView) => setProjects((items) => replaceProject(items, item)),
 		[],
 	)
 	// A refreshed row replaces the old one in place; a copy that is new to this window leads.
@@ -2128,7 +2213,7 @@ export function App({
 		}
 	}, [project, sessionId, api, metadataEpoch, historyPending, showError])
 	useEffect(() => {
-		if (!projectId || !api) return
+		if (!projectId || !api || !draftReadable) return
 		let current = true
 		const owner = `project:${projectId}:workspace:${windowId}:${group.id}`
 		if (draftsRef.current[owner] !== undefined) return
@@ -2145,7 +2230,7 @@ export function App({
 		return () => {
 			current = false
 		}
-	}, [projectId, windowId, group.id, api, showError])
+	}, [projectId, windowId, group.id, api, showError, draftReadable])
 	useEffect(() => {
 		if (
 			!sessionId ||
@@ -2943,52 +3028,94 @@ export function App({
 			current = false
 		}
 	}, [api, tabRestoreAttempt, onLoadFailure, showError])
+	// Only a project that has not been listed yet is listed: a project that connects after the
+	// others adds its own rows and leaves the rest of the catalogue as it is. A tab this window does
+	// not know yet still asks every readable project.
+	const listing = useRef({
+		listed: new Set<string>(),
+		inflight: 0,
+		latest: { projects: [] as ProjectView[], tabsKey: '' },
+		attempt: 0,
+		// A project whose list was refused is read once more, silently, before anything is said.
+		retried: new Set<string>(),
+	})
+	const [listingRetry, setListingRetry] = useState(0)
 	useEffect(() => {
-		let current = true
 		void tabRestoreAttempt
-		// Opening an indexed Recent only changes membership, not the catalogue.
-		// Unknown transferred/restored IDs still require an authoritative listing.
-		if (
-			catalogueReady &&
-			catalogueOwner.current?.projects === projects &&
-			(catalogueOwner.current.tabsKey === catalogueTabsKey ||
-				group.tabs.every((id) => conversations.some((item) => item.id === id)))
-		) {
-			catalogueOwner.current = { projects, tabsKey: catalogueTabsKey }
-			return
+		void listingRetry
+		const state = listing.current
+		// A retry of the restore reads everything again.
+		if (state.attempt !== tabRestoreAttempt) {
+			state.attempt = tabRestoreAttempt
+			state.listed.clear()
+			state.retried.clear()
 		}
 		const readable = projects.filter((item) => item.trusted && item.status === 'ready')
-		const activities = readable.map((item) =>
+		// A project that dropped is listed again when it comes back.
+		for (const id of state.listed)
+			if (!readable.some((item) => item.id === id)) state.listed.delete(id)
+		state.latest = { projects, tabsKey: catalogueTabsKey }
+		// Opening an indexed Recent only changes membership, not the catalogue.
+		// Unknown transferred/restored IDs still require an authoritative listing.
+		const tabsKnown =
+			catalogueOwner.current?.tabsKey === catalogueTabsKey ||
+			group.tabs.every((id) => conversations.some((item) => item.id === id))
+		const targets =
+			catalogueReady && !tabsKnown
+				? readable
+				: readable.filter((item) => !state.listed.has(item.id))
+		if (catalogueReady && targets.length === 0) {
+			if (state.inflight === 0) catalogueOwner.current = { projects, tabsKey: catalogueTabsKey }
+			return
+		}
+		const activities = targets.map((item) =>
 			item.palId ? palCatalogueActivity.current.ticket(item.palId) : undefined,
 		)
-		void Promise.allSettled(readable.map((item) => api.conversations(item.id))).then((results) => {
-			if (!current) return
+		for (const item of targets) state.listed.add(item.id)
+		state.inflight += 1
+		void Promise.allSettled(targets.map((item) => api.conversations(item.id))).then((results) => {
+			state.inflight -= 1
+			if (!mounted.current) return
 			for (const [index, result] of results.entries()) {
-				const palId = readable[index]?.palId
+				const palId = targets[index]?.palId
 				const activity = activities[index]
+				if (result.status === 'rejected') state.listed.delete(targets[index]?.id ?? '')
 				if (!palId || activity === undefined) continue
 				if (result.status === 'fulfilled') palCatalogueActivity.current.confirm(palId, activity)
 				else palCatalogueActivity.current.changed(palId)
 			}
-			catalogueOwner.current = { projects, tabsKey: catalogueTabsKey }
 			const rows = results.flatMap((result) => (result.status === 'fulfilled' ? result.value : []))
-			const refreshed = readable
+			const refreshed = targets
 				.filter((_item, index) => results[index]?.status === 'fulfilled')
 				.map((item) => item.id)
+			const again = targets.filter(
+				(item, index) => results[index]?.status === 'rejected' && !state.retried.has(item.id),
+			)
+			for (const item of again) state.retried.add(item.id)
+			const said = targets.map((_item, index) => !again.includes(targets[index] as ProjectView))
+			noteListing(
+				targets.filter((_item, index) => said[index]),
+				results.filter((_result, index) => said[index]),
+			)
 			setConversations((all) => mergeConversationCatalogues(all, rows, refreshed))
-			setCatalogueReady(true)
+			// The catalogue is ready, and the restore may act on it, only when no listing is in flight
+			// and none is about to be read again.
+			if (again.length > 0) setListingRetry((count) => count + 1)
+			else if (state.inflight === 0) {
+				catalogueOwner.current = state.latest
+				setCatalogueReady(true)
+			}
 		})
-		return () => {
-			current = false
-		}
 	}, [
 		api,
 		projects,
 		catalogueTabsKey,
 		tabRestoreAttempt,
+		listingRetry,
 		conversations,
 		group.tabs,
 		catalogueReady,
+		noteListing,
 	])
 	useEffect(() => {
 		void metadataEpoch
@@ -3052,6 +3179,9 @@ export function App({
 			}
 			if (loading || operations.current.size > 0) return
 			if (missingActivation.current === target) return
+			// Its project is connected but its list has not been answered yet (a refused first read is
+			// read once more): the conversation is not missing, it has not been listed.
+			if (savedOwner?.status === 'ready' && savedOwner.trusted && !lists.has(savedOwner.id)) return
 			if (projects.every((item) => item.status === 'ready' || item.status === 'error')) {
 				missingActivation.current = target
 				setRestoringTabs(true)
@@ -3077,6 +3207,7 @@ export function App({
 		setRestoringTabs(true)
 		const opening = openConversation(view, 'projects', true)
 		const generation = navigation.current
+		restoreNavigation.current = generation
 		const current = () =>
 			generation === navigation.current &&
 			activation.current === target &&
@@ -3127,6 +3258,7 @@ export function App({
 		onAction,
 		api,
 		showError,
+		lists,
 	])
 	useEffect(() => {
 		void metadataEpoch
@@ -3225,34 +3357,39 @@ export function App({
 		removalTrigger.current = trigger
 		setRemovingConversation(value)
 	}
-	// Archives and offers Undo through the same host path whether the dialog or a row button asked.
+	// Archives and offers Undo through the same host path whether a menu, a shortcut or a row button asked.
 	const archiveBatch = useRef<ArchiveBatch | undefined>(undefined)
-	const archiveConversation = async (value: ConversationView) => {
-		if (!api.removeConversation) throw new Error('Conversation removal is unavailable.')
-		const result = await api.removeConversation(value.id)
-		if (result.sessionId !== value.id || result.removed !== true)
-			throw new Error('Conversation removal was not confirmed. Try again.')
-		// Archiving again while the notice is up merges into it: one notice, one Undo for all.
-		const batch = addToArchiveBatch(archiveBatch.current, value.id, Date.now(), ARCHIVE_UNDO_MS)
+	const archiveNoticeId = useRef('')
+	const showArchiveNotice = (batch: ArchiveBatch) => {
 		archiveBatch.current = batch
-		const archivedIds = batch.ids
-		notify(archiveNoticeText(archivedIds.length), {
+		const mine = { id: '' }
+		mine.id = notify(archiveNoticeText(batch.ids.length), {
 			tone: 'success',
-			timeoutMs: ARCHIVE_UNDO_MS,
+			// A notice rebuilt after a restore keeps the time that was left, not a fresh window.
+			timeoutMs: Math.max(batch.until - Date.now(), 1000),
+			// Once it has gone (timed out, closed, or taken over by another notice) a later restore
+			// has nothing to update, and must not bring it back.
+			onClose: () => {
+				if (archiveNoticeId.current === mine.id) archiveNoticeId.current = ''
+			},
 			action: api.restoreConversation
 				? {
 						label: 'Undo',
 						onClick: () => {
+							// Only what is still archived comes back: restored ones left the batch.
+							const stillArchived = archiveBatch.current?.ids ?? []
 							archiveBatch.current = undefined
+							archiveNoticeId.current = ''
 							void act(async () => {
 								// One that cannot come back must not strand the others.
 								let failure: unknown
-								for (const archivedId of archivedIds) {
+								for (const archivedId of stillArchived) {
 									try {
 										const restored = await api.restoreConversation?.(archivedId)
 										if (!restored) continue
 										unblockRestoredConversation(restored.id)
 										upsertConversation(restored)
+										archived.remove(restored.id)
 									} catch (error) {
 										failure ??= error
 									}
@@ -3262,6 +3399,48 @@ export function App({
 						},
 					}
 				: undefined,
+		})
+		archiveNoticeId.current = mine.id
+	}
+	// A conversation that came back no longer belongs to the archive notice: the count follows,
+	// and a notice with nothing left to undo goes away.
+	const withdrawFromArchiveNotice = (id: string) => {
+		const before = archiveBatch.current
+		if (!before) return
+		const after = removeFromArchiveBatch(before, id, Date.now())
+		if (after === before) return
+		archiveBatch.current = after
+		// A notice that is gone (timed out, closed, replaced by another) is not brought back.
+		if (after && archiveNoticeId.current) showArchiveNotice(after)
+		else if (!after && archiveNoticeId.current) dismissNotice(archiveNoticeId.current)
+		if (!after) archiveNoticeId.current = ''
+	}
+	const archiveConversation = async (value: ConversationView) => {
+		if (!api.removeConversation) throw new Error('Conversation removal is unavailable.')
+		const result = await api.removeConversation(value.id)
+		if (result.sessionId !== value.id || result.removed !== true)
+			throw new Error('Conversation removal was not confirmed. Try again.')
+		archived.add(value)
+		// Archiving again while the notice is up merges into it: one notice, one Undo for all.
+		showArchiveNotice(
+			addToArchiveBatch(archiveBatch.current, value.id, Date.now(), ARCHIVE_UNDO_MS),
+		)
+	}
+	// A row's Restore in the archived view: the conversation returns to Recents and its project.
+	const restoreArchivedConversation = (value: ConversationView) => {
+		if (restoringArchived || !api.restoreConversation) return
+		setRestoringArchived(value.id)
+		void act(async () => {
+			try {
+				const restored = await api.restoreConversation?.(value.id)
+				if (!restored) return
+				unblockRestoredConversation(restored.id)
+				upsertConversation(restored)
+				archived.remove(restored.id)
+				withdrawFromArchiveNotice(restored.id)
+			} finally {
+				setRestoringArchived('')
+			}
 		})
 	}
 	// A row's Archive button: with an Undo path there is nothing to confirm, so it archives at once.
@@ -3496,15 +3675,41 @@ export function App({
 		input: conversationActionInput,
 		run: runConversationAction,
 	}
+	// A row that is only remembered (its project has not listed it yet) has nothing to act on: it
+	// does nothing for the moments until its project lists it, rather than fail against it.
+	const isListed = (view: ConversationView) => conversations.some((item) => item.id === view.id)
+	// It is carried out once the project lists the row, or says so if the row turns out not to be there.
+	const afterListed = (view: ConversationView, run: (live: ConversationView) => void) => {
+		sidebarTouched.current = true
+		waitingToOpen.current = { view, collection: 'projects', navigation: null, run }
+		setWaitingTick((value) => value + 1)
+	}
 	const sidebarRowActions: ThreadRowActions = {
 		mac: macPlatform,
 		input: conversationActionInput,
-		run: (id, view, trigger) =>
-			id === 'archive'
+		run: (id, view, trigger) => {
+			if (!isListed(view))
+				return afterListed(view, (live) =>
+					id === 'archive'
+						? archiveConversationNow(live, null)
+						: runConversationAction(id, live, null),
+				)
+			return id === 'archive'
 				? archiveConversationNow(view, trigger)
-				: runConversationAction(id, view, trigger),
-		archive: api.removeConversation ? archiveConversationNow : undefined,
-		pin: api.setConversationPinned ? (view) => runConversationAction('pin', view, null) : undefined,
+				: runConversationAction(id, view, trigger)
+		},
+		archive: api.removeConversation
+			? (view, trigger) => {
+					if (isListed(view)) return archiveConversationNow(view, trigger)
+					afterListed(view, (live) => archiveConversationNow(live, null))
+				}
+			: undefined,
+		pin: api.setConversationPinned
+			? (view) => {
+					if (isListed(view)) return runConversationAction('pin', view, null)
+					afterListed(view, (live) => runConversationAction('pin', live, null))
+				}
+			: undefined,
 		loadGit: api.projectGit,
 	}
 	// The key handler is registered once per state change; it reads the latest runner here.
@@ -4516,6 +4721,11 @@ export function App({
 			setHistoryLoading(false)
 		}
 	}
+	// Opens the sidebar (its drawer when the window is narrow) on the archived list and moves focus there.
+	const showArchivedConversations = () => {
+		setArchiveView('archived')
+		revealSidebar('[data-archive-list]')
+	}
 	const revealSidebar = (selector: string) => {
 		setSideOpen(window.matchMedia('(max-width: 767px)').matches)
 		setSideCollapsed(false)
@@ -5145,7 +5355,8 @@ export function App({
 						group: 'Actions',
 						icon: <ArchiveIcon aria-hidden="true" />,
 						keywords: ['restore', 'archive', 'old'],
-						onAction: () => setArchivedOpen(true),
+						onAction: () =>
+							archiveView === 'archived' ? setArchiveView('recents') : showArchivedConversations(),
 					},
 				]
 			: []),
@@ -5392,6 +5603,163 @@ export function App({
 		if (signInEngine) setEngineSignedOut(signInEngine, true)
 		else if (repliedEngine && repliedEngine !== 'namzu') setEngineSignedOut(repliedEngine, false)
 	}, [signInEngine, repliedEngine])
+	// What the sidebar draws. Until a project's own list arrives it shows that project's remembered
+	// rows; the live state above is never mixed with them, so nothing that decides whether a
+	// conversation or a tab exists can be fooled by a picture of last time.
+	const sidebarSettled = useRef(false)
+	// A project that stays slow must not hide a new row for good: once the person acts on the
+	// sidebar, what is listed is what they are looking at. The snapshot still waits for the lists.
+	const sidebarTouched = useRef(false)
+	if (
+		!sidebarSettled.current &&
+		projectsLoaded &&
+		catalogueReady &&
+		projects.every((item) => item.status !== 'connecting') &&
+		projects.every((item) => !(item.trusted && item.status === 'ready') || lists.has(item.id))
+	) {
+		sidebarSettled.current = true
+		quietSidebarMotion.current = true
+	}
+	const rememberedRows = sidebarStart?.snapshot?.conversations
+	const shownRows = useRef<ConversationView[]>([])
+	const sidebarRows = stableConversationRows(
+		withRememberedRows(
+			conversations.filter(
+				(view) =>
+					view.palId || view.title !== 'New conversation' || threads[view.id]?.messages.length,
+			),
+			rememberedRows ?? [],
+			lists,
+			projects,
+			removedCatalogue,
+		),
+		shownRows.current,
+		deliveredKeys.current,
+		sidebarSettled.current || sidebarTouched.current,
+	)
+	useLayoutEffect(() => {
+		shownRows.current = sidebarRows
+		quietSidebarMotion.current = false
+	})
+	// Pals the same way: the remembered ones stand in until the live list answers.
+	const rememberedPals = sidebarStart?.snapshot?.pals
+	const sidebarPals = useMemo<PalView[]>(
+		() =>
+			(palsLoading || palsLoadFailed) && rememberedPals
+				? rememberedPals.map((item) => ({
+						...item,
+						purpose: '',
+						revision: 0,
+						workspace: '',
+						model: null,
+						createdAt: '',
+						updatedAt: '',
+					}))
+				: pals,
+		[palsLoading, palsLoadFailed, rememberedPals, pals],
+	)
+	const [expandedProjects, setExpandedProjects] = useState(initialExpanded)
+	const reportExpanded = useCallback(
+		(ids: string[]) =>
+			setExpandedProjects((previous) => (previous.join('\n') === ids.join('\n') ? previous : ids)),
+		[],
+	)
+	// What the archive held when last read, else what the last run remembered.
+	// A read that left a project out is a partial count and is never taken for the whole.
+	const archiveComplete = projects
+		.filter((item) => !item.palId && !item.isChat && !item.missing && item.status !== 'error')
+		.every((item) => archived.read.has(item.id))
+	const archivedCount =
+		archived.load.status === 'ready' && archiveComplete
+			? archived.load.rows.filter((item) => {
+					const project = projects.find((entry) => entry.id === item.projectId)
+					return project && !project.missing
+				}).length
+			: sidebarStart?.snapshot?.archivedCount
+	// The picture for the next start, once the lists have settled; main keeps it on disk.
+	const snapshotText =
+		sidebarSettled.current && !palsLoading
+			? JSON.stringify({
+					v: 1,
+					// A Pals read that failed says nothing about which Pals exist; last time's stand.
+					pals: palsLoadFailed
+						? (rememberedPals ?? [])
+						: pals.map(({ id, name, appearance, paused }) => ({
+								id,
+								name,
+								...(appearance ? { appearance } : {}),
+								paused,
+							})),
+					conversations: snapshotConversations(
+						rowsToRemember(sidebarRows, rememberedRows ?? [], lists, removedCatalogue),
+						projects,
+					),
+					expandedProjects,
+					...(archivedCount !== undefined ? { archivedCount } : {}),
+				} satisfies SidebarSnapshot)
+			: ''
+	useEffect(() => {
+		if (!snapshotText) return
+		const value = JSON.parse(snapshotText) as SidebarSnapshot
+		rememberSidebar({ snapshot: value })
+		void api.setSidebarSnapshot?.(value).catch(() => undefined)
+	}, [snapshotText, api])
+	useEffect(() => rememberSidebar({ projects: projectRecords }), [projectRecords])
+	// A remembered row that is clicked before its project has connected opens once the project
+	// lists it, or says so if it turns out not to be there. A remembered Pal waits the same way.
+	const waitingToOpen = useRef<{
+		view: ConversationView
+		collection: ConversationCollection
+		// Null for an action on the row, which holds whatever the person opens meanwhile.
+		navigation: number | null
+		run?: (live: ConversationView) => void
+	} | null>(null)
+	const waitingPal = useRef<{ id: string; navigation: number } | null>(null)
+	// Opening the tab in front on start is the app's doing, not the person's: a click made
+	// before it began is still wanted after it, and only the person's own navigation retires it.
+	const navigationSuperseded = useCallback(
+		(since: number) =>
+			navigation.current !== since && navigation.current !== restoreNavigation.current,
+		[],
+	)
+	const [waitingTick, setWaitingTick] = useState(0)
+	const openPalRef = useRef(openPal)
+	openPalRef.current = openPal
+	useEffect(() => {
+		void waitingTick
+		const waiting = waitingToOpen.current
+		if (!waiting) return
+		if (waiting.navigation !== null && navigationSuperseded(waiting.navigation)) {
+			waitingToOpen.current = null
+			return
+		}
+		const live = conversations.find((item) => item.id === waiting.view.id)
+		if (live) {
+			waitingToOpen.current = null
+			if (waiting.run) waiting.run(live)
+			else void act(() => openConversation(live, waiting.collection))
+			return
+		}
+		const owner = projects.find((item) => item.id === waiting.view.projectId)
+		if (
+			lists.has(waiting.view.projectId) ||
+			!owner ||
+			owner.missing ||
+			owner.status === 'error' ||
+			(owner.status === 'ready' && !owner.trusted)
+		) {
+			waitingToOpen.current = null
+			setError('This conversation is no longer available.')
+		}
+	}, [conversations, lists, projects, act, openConversation, waitingTick, navigationSuperseded])
+	useEffect(() => {
+		const waiting = waitingPal.current
+		if (!waiting || palsLoading) return
+		waitingPal.current = null
+		if (navigationSuperseded(waiting.navigation)) return
+		const live = pals.find((item) => item.id === waiting.id)
+		if (live) void act(() => openPalRef.current(live))
+	}, [palsLoading, pals, act, navigationSuperseded])
 	return (
 		<PaneToasts focused={focused} pane={paneRoot}>
 			{focused &&
@@ -5631,21 +5999,6 @@ export function App({
 								}}
 							/>
 						)}
-						{archivedOpen && api.archivedConversations && (
-							<ArchivedConversationsDialog
-								key="archived"
-								api={api}
-								projects={projects
-									.filter((item) => !item.palId && !item.isChat)
-									.map((item) => ({ id: item.id, name: item.name }))}
-								onClose={() => setArchivedOpen(false)}
-								returnFocus={() => detailsTrigger.current ?? input.current}
-								onRestored={(view) => {
-									unblockRestoredConversation(view.id)
-									upsertConversation(view)
-								}}
-							/>
-						)}
 						{removingConversation && (
 							<ConfirmRemovalDialog
 								key={`remove-conversation:${removingConversation.id}`}
@@ -5730,32 +6083,32 @@ export function App({
 							activeProject={project}
 							collapsedSections={collapsedSections}
 							onSectionCollapsedChange={setSectionCollapsed}
+							initialExpandedProjects={initialExpanded}
+							onExpandedProjectsChange={reportExpanded}
+							quietMotion={() => quietSidebarMotion.current}
+							startSettled={sidebarSettled.current}
 							projects={projects.filter((item) => !item.palId)}
 							pals={
 								<PalSidebarSection
-									pals={pals}
+									pals={sidebarPals}
 									selectedId={palsPage ? undefined : pal?.id}
 									unreadIds={unreadPals}
 									markers={palMarkers}
 									creating={palsPage}
 									openingId={palOpening && !palOpening.failure ? palOpening.palId : undefined}
-									loading={palsLoading}
+									loading={palsLoading && !rememberedPals}
 									failed={palsLoadFailed}
 									onRetry={() => setPalsRetry((value) => value + 1)}
 									collapsed={collapsedSections.has('pals')}
 									onCollapsedChange={(next) => setSectionCollapsed('pals', next)}
 									onCreate={showPalOnboarding}
-									onOpen={(value) => void act(() => openPal(value))}
+									onOpen={(value) => {
+										if (!palsLoading) return void act(() => openPal(value))
+										waitingPal.current = { id: value.id, navigation: navigation.current }
+									}}
 								/>
 							}
-							conversations={conversations
-								.filter(
-									(view) =>
-										view.palId ||
-										view.title !== 'New conversation' ||
-										threads[view.id]?.messages.length,
-								)
-								.sort(compareConversationOrder)}
+							conversations={sidebarRows}
 							projectId={palsPage ? '' : projectId}
 							sessionId={palsPage ? '' : sessionId}
 							conversationCollection={conversationCollection}
@@ -5777,7 +6130,20 @@ export function App({
 											)
 									: undefined
 							}
-							onOpenArchived={api.archivedConversations ? () => setArchivedOpen(true) : undefined}
+							archive={
+								api.archivedConversations
+									? {
+											view: archiveView,
+											rememberedCount: sidebarStart?.snapshot?.archivedCount,
+											onViewChange: setArchiveView,
+											onShowArchived: showArchivedConversations,
+											load: archived.load,
+											onRetry: archived.refresh,
+											restoringId: restoringArchived,
+											onRestore: restoreArchivedConversation,
+										}
+									: undefined
+							}
 							collapsed={sideCollapsed}
 							opening={loading}
 							onClose={() => setSideOpen(false)}
@@ -5786,9 +6152,14 @@ export function App({
 							onNewConversation={() => void act(newConversation)}
 							onSearch={openCommands}
 							onProject={(id) => void act(() => selectProject(id))}
-							onConversation={(view, collection) =>
-								void act(() => openConversation(view, collection))
-							}
+							onConversation={(view, collection) => {
+								if (conversations.some((item) => item.id === view.id))
+									return void act(() => openConversation(view, collection))
+								sidebarTouched.current = true
+								waitingToOpen.current = { view, collection, navigation: navigation.current }
+								// Nothing is listed yet for this project: the effect above opens it when it is.
+								setWaitingTick((value) => value + 1)
+							}}
 							terminals={terminalGroup?.tabs}
 							activeTerminalId={activeTerminal?.id}
 							onTerminal={(tab) =>
@@ -5992,7 +6363,7 @@ export function App({
 								}}
 								onOpenArchived={
 									project && !project.isChat && api.archivedConversations
-										? () => setArchivedOpen(true)
+										? showArchivedConversations
 										: undefined
 								}
 								onAttach={() => {

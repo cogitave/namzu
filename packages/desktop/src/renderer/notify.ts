@@ -11,6 +11,8 @@ export interface NotifyOptions {
 	tooltip?: string
 	/** How long the toast stays before it leaves; 0 keeps it until it is dismissed. */
 	timeoutMs?: number
+	/** Called once when the toast has gone, for any reason (timeout, dismissal, action, replaced). */
+	onClose?: () => void
 }
 
 /** The two calls a pane's toast manager has to answer. */
@@ -99,6 +101,7 @@ export function createToastHub() {
 			timeout: options.timeoutMs ?? defaultTimeoutMs(tone, Boolean(action)),
 			onClose: () => {
 				shownBy.delete(id)
+				options.onClose?.()
 				if (active?.id !== id) return
 				active = undefined
 				showNext()

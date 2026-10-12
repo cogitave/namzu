@@ -5,12 +5,13 @@
 // Run: pnpm --filter @namzu/desktop build && xvfb-run -a node --test --test-concurrency=1 e2e/sidebar-expand-stability.test.mjs
 import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
-import { createWorld, dispose, expect, launch, openProject, repoRoot, send } from "./harness.mjs";
+import { createWorld, dispose, expect, launch, openProject, send } from "./harness.mjs";
 
 const T = 60000;
-const SHOTS = resolve(repoRoot, process.env.SHOTS ?? "research/sidebar-expand-stability-20261010");
+const SHOTS = resolve(process.env.SHOTS ?? join(tmpdir(), "sidebar-expand-stability"));
 const TOLERANCE = 0.5;
 const FRAMES = 60;
 const TOGGLE = ".sidebar-project-toggle";
@@ -34,7 +35,7 @@ async function dumpIdle(w, file) {
 		pick("project more", ".sidebar-project-more");
 		pick("recents title", ".sidebar-recents .sidebar-section-title");
 		pick("recent row", ".sidebar-recent-list li");
-		pick("archived link", ".sidebar-archived-link");
+		pick("archive toggle", ".sidebar-archive-toggle");
 		pick("pals create", ".sidebar-pal-create");
 		return out;
 	});
@@ -51,9 +52,13 @@ async function addProject(w, name) {
 	const add = w.page.getByRole("button", { name: "Add new project", exact: true });
 	await add.last().click();
 	await w.page.getByRole("menuitem", { name: "Use an existing folder" }).click();
-	await expect(w.page.locator("[data-project-group]").filter({ hasText: name })).toHaveCount(1, {
-		timeout: T,
-	});
+	const group = w.page.locator("[data-project-group]").filter({ hasText: name });
+	await expect(group).toHaveCount(1, { timeout: T });
+	// The row appears when main announces the project; the app opens it (aria-expanded) when the
+	// answer to the pick arrives, a moment later and on a loaded machine a long one. Wait for that,
+	// or a test that folds everything first is overtaken by the opening: under load the failing
+	// panel was a project nobody had clicked, opened by the app after the fold had been checked.
+	await expect(group.locator(TOGGLE)).toHaveAttribute("aria-expanded", "true", { timeout: T });
 }
 
 /**
@@ -187,6 +192,47 @@ test("expanding and collapsing a project in an overflowing sidebar moves no row 
 			});
 			assert.ok(overflowing, `${appearance}: expanded, the list overflows`);
 			analyse(`collapse ${appearance}`, await sample(w));
+		}
+		assert.deepEqual(w.faults, [], "the renderer raised no uncaught errors");
+		failed = false;
+	} finally {
+		await dispose(w, { failed });
+	}
+});
+
+test("a project that opened by itself folds on the very next click, however fast the click comes", {
+	timeout: 600000,
+}, async () => {
+	const w = await createWorld({ rules: CHATS });
+	let failed = true;
+	try {
+		await launch(w);
+		await openProject(w);
+		for (let n = 0; n < 6; n++) {
+			const name = `quick${n}`;
+			const dir = join(w.root, name);
+			mkdirSync(join(dir, ".git"), { recursive: true });
+			await w.app.evaluate((_e, path) => {
+				globalThis.__e2eDialog.open = [path];
+			}, dir);
+			await w.page.getByRole("button", { name: "Add new project", exact: true }).last().click();
+			await w.page.getByRole("menuitem", { name: "Use an existing folder" }).click();
+			const toggle = w.page
+				.locator("[data-project-group]")
+				.filter({ hasText: name })
+				.locator(TOGGLE);
+			// The project opens by itself a moment after its row appears. Fold it the instant it reports
+			// open, then open and fold it again without waiting for any animation to end.
+			await expect(toggle).toHaveAttribute("aria-expanded", "true", { timeout: T });
+			await toggle.click();
+			await toggle.click();
+			await toggle.click();
+			await expect(toggle).toHaveAttribute("aria-expanded", "false", { timeout: T });
+			const panel = w.page
+				.locator("[data-project-group]")
+				.filter({ hasText: name })
+				.locator(".sidebar-project-panel");
+			await expect(panel).toHaveCount(0);
 		}
 		assert.deepEqual(w.faults, [], "the renderer raised no uncaught errors");
 		failed = false;

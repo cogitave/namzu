@@ -97,6 +97,7 @@ import {
 } from './runtime-node-args.js'
 import { readRuntimeVersions } from './runtime-versions.js'
 import { SettingsConfirmation } from './settings-confirmation.js'
+import { SidebarSnapshotStore } from './sidebar-snapshot-store.js'
 import { installStreamRendererPolicy, withStreamRendererPort } from './stream-renderer-policy.js'
 import { SupersededConversationSettingsError } from './superseded-settings.js'
 import { tabMenuItems } from './tab-menu.js'
@@ -441,18 +442,26 @@ function saveProjects(): void {
 	const file = join(app.getPath('userData'), 'projects.json')
 	writeFileSync(
 		`${file}.tmp`,
-		JSON.stringify(
-			operator
-				.listProjects()
-				.filter((project) => !project.palId)
-				.map((project) => project.path)
-				// A folder that is gone stays listed (Locate or Remove), so it must come back next launch.
-				.concat(operator.missingProjectPaths()),
-		),
+		JSON.stringify([
+			...new Set(
+				operator
+					.projectsForWindow()
+					.filter((project) => !project.palId)
+					// A folder that is gone stays listed (Locate or Remove), so it must come back next launch.
+					.map((project) => project.path),
+			),
+		]),
 		{ mode: 0o600 },
 	)
 	renameSync(`${file}.tmp`, file)
 }
+const sidebarSnapshot = new SidebarSnapshotStore(
+	join(app.getPath('userData'), 'sidebar-snapshot.json'),
+	{
+		onError: (error) =>
+			diagnostics.record('ipc_failed', { operation: 'setSidebarSnapshot', error }),
+	},
+)
 /** Windows created by this app start that have not read their pre-paint snapshot yet. */
 const launchWindows = new Set<string>()
 const settingsStore = new DesktopSettingsStore({
@@ -800,6 +809,8 @@ function register(): void {
 				projects: operator.projectsForWindow(),
 				conversations: operator.savedConversationViews(tabs),
 				launch,
+				sidebar: sidebarSnapshot.get(),
+				collapsedSections: operator.sidebarCollapsed(),
 			} satisfies DesktopBoot
 		} catch (error) {
 			diagnostics.record('ipc_failed', { operation: 'boot', error })
@@ -963,6 +974,9 @@ function register(): void {
 	handle('projects', () => operator.projectsForWindow())
 	handle('pals', () => operator.listPals())
 	handle('sidebarCollapsed', () => operator.sidebarCollapsed())
+	handle('setSidebarSnapshot', (value: unknown) => {
+		if (!sidebarSnapshot.set(value)) throw new Error('Invalid sidebar snapshot.')
+	})
 	handle('setSidebarSectionCollapsed', (id: unknown, collapsed: unknown) =>
 		operator.setSidebarSectionCollapsed(id, collapsed),
 	)
@@ -1670,6 +1684,7 @@ function shutdown(): Promise<void> {
 	if (stopped) return Promise.resolve()
 	if (shutdownRun) return shutdownRun
 	quitting = true
+	sidebarSnapshot.flush()
 	// The terminals' last screens are read from their hosts, so they go before the hosts do.
 	shutdownRun = terminals
 		.shutdown()
@@ -1858,6 +1873,8 @@ void app
 		// Told before any window can ask, so no first read sees "no projects" for a folder that
 		// is only waiting its turn.
 		operator.expectProjects(restorePaths)
+		// The list keeps projects.json's order; the restore below may take them in another.
+		operator.setProjectOrder([...priorPaths, ...restorePaths])
 		if (saved.length) {
 			for (const layout of saved) await createWindow(layout.id, layout.bounds)
 		} else await createWindow()

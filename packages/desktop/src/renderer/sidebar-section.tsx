@@ -1,7 +1,8 @@
-import { type ReactNode, useCallback, useEffect, useId, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useId, useRef, useState } from 'react'
 import type { DesktopApi } from '../shared/protocol.js'
 import { type SidebarSectionId, collapsedSectionsFrom } from '../shared/sidebar-sections.js'
 import { ChevronDownIcon } from './icons.js'
+import { rememberSidebar, sidebarSeed } from './startup-restore.js'
 import './sidebar-section.css'
 
 /**
@@ -43,7 +44,10 @@ export function SidebarSection({
 	}
 	return (
 		<section className={className} aria-label={ariaLabel ?? label} data-sidebar-section={label}>
-			<div className={`sidebar-section-head ${headingClassName ?? ''}`.trim()}>
+			<div
+				className={`sidebar-section-head ${headingClassName ?? ''}`.trim()}
+				data-sidebar-key={`heading:${label.toLowerCase()}`}
+			>
 				<h2 className={titleClassName}>
 					<button
 						type="button"
@@ -71,20 +75,31 @@ export function SidebarSection({
 }
 
 /**
- * Which sidebar sections are folded. Main keeps the answer, so a restart brings it back; a
- * failed read leaves every section open, and a failed save keeps the choice for this window.
+ * Which sidebar sections are folded. Main keeps the answer, so a restart brings it back. The
+ * first frame already has it (main hands it over with the page), so a folded section never
+ * paints open first; the read then confirms it. A failed read keeps what the page started with,
+ * and a failed save keeps the choice for this window.
  */
 export function useSidebarSections(
 	api: Pick<DesktopApi, 'sidebarCollapsed' | 'setSidebarSectionCollapsed'>,
 ) {
-	const [collapsed, setCollapsed] = useState<ReadonlySet<SidebarSectionId>>(() => new Set())
+	const [collapsed, setCollapsed] = useState<ReadonlySet<SidebarSectionId>>(
+		() => new Set(collapsedSectionsFrom(sidebarSeed()?.collapsedSections)),
+	)
+	// The set as last chosen, so a quick second toggle builds on the first before a render.
+	const latest = useRef(collapsed)
+	latest.current = collapsed
 	useEffect(() => {
 		if (!api.sidebarCollapsed) return
 		let current = true
 		void api
 			.sidebarCollapsed()
 			.then((ids) => {
-				if (current) setCollapsed(new Set(collapsedSectionsFrom(ids)))
+				if (!current) return
+				const next = collapsedSectionsFrom(ids)
+				rememberSidebar({ collapsedSections: next })
+				latest.current = new Set(next)
+				setCollapsed(latest.current)
 			})
 			.catch(() => {})
 		return () => {
@@ -93,12 +108,12 @@ export function useSidebarSections(
 	}, [api])
 	const setSectionCollapsed = useCallback(
 		(id: SidebarSectionId, next: boolean) => {
-			setCollapsed((previous) => {
-				const copy = new Set(previous)
-				if (next) copy.add(id)
-				else copy.delete(id)
-				return copy
-			})
+			const copy = new Set(latest.current)
+			if (next) copy.add(id)
+			else copy.delete(id)
+			latest.current = copy
+			rememberSidebar({ collapsedSections: [...copy] })
+			setCollapsed(copy)
 			void api.setSidebarSectionCollapsed?.(id, next).catch(() => {})
 		},
 		[api],

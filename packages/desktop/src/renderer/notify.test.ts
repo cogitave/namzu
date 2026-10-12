@@ -148,6 +148,17 @@ describe('notify routing', () => {
 		expect(first.closed).toEqual([a])
 	})
 
+	it('tells the sender when its toast has left, so it does not update one that is gone', () => {
+		const hub = createToastHub()
+		const { sink, added, leave } = recordingSink()
+		hub.register(sink)
+		const onClose = vi.fn()
+		hub.notify('Archived.', { onClose })
+		expect(onClose).not.toHaveBeenCalled()
+		leave(added[0]?.id ?? '')
+		expect(onClose).toHaveBeenCalledTimes(1)
+	})
+
 	it('runs the action, then closes its toast', () => {
 		const hub = createToastHub()
 		const { sink, added, closed } = recordingSink()

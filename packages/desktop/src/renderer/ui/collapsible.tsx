@@ -18,12 +18,20 @@ function CollapsibleTrigger({ className, ...props }: CollapsiblePrimitive.Trigge
 	)
 }
 
-function CollapsiblePanel({ className, ...props }: CollapsiblePrimitive.Panel.Props) {
+function CollapsiblePanel({
+	className,
+	instant,
+	...props
+}: CollapsiblePrimitive.Panel.Props & {
+	/** Opens and closes without travel: for a panel that is already open when it first appears. */
+	instant?: boolean
+}) {
 	// Skip height travel when the operator requests reduced motion.
 	return (
 		<CollapsiblePrimitive.Panel
 			className={cn(
 				'h-(--collapsible-panel-height) overflow-hidden transition-[height] duration-200 motion-reduce:transition-none data-ending-style:h-0 data-starting-style:h-0 data-open:data-ending-style:[height:var(--collapsible-panel-height)]',
+				instant && 'transition-none data-starting-style:h-auto',
 				className,
 			)}
 			data-slot="collapsible-panel"

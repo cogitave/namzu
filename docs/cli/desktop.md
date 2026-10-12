@@ -662,7 +662,10 @@ command or address. Details never carry environment values; a URL loses its
 query and credentials, anything that looks like a token or password is shown as
 `…`, and a list stops at eight lines (`safeLine` in `src/main/folder-settings.ts`).
 **Trust and open** sends the token to `trustFolder`, and only then does main open
-the folder, trust it and save the project list. **Cancel** adds nothing. A known
+the folder, trust it and save the project list. Every trust (`trustFolder`, `trustProject`, a folder
+made from scratch) also ends with a `connection` event carrying the trusted view, to every window: an
+answer can reach the asking window before the connection event main sent while opening the folder,
+and the window keeps the view of the last event it applied. **Cancel** adds nothing. A known
 untrusted folder with such settings answers its confirmation with a token the
 same way, and a broad folder keeps the broad dialog. An ordinary folder is
 still trusted at once.
@@ -721,6 +724,8 @@ offering a first Pal.
 
 A folder that vanishes while its project is open gets the same screen (“*name*” can’t be found, **Locate folder…**,
 **Remove project…**), and **Locate folder…** relinks it the same way. A name a person gave sits in curly quotes wherever it is inside a sentence on that page, and in the accessible names of the sidebar row's **Locate folder** and **Remove** buttons.
+
+Main answers a draft (attached files, saved message choices, text draft) only for a project it has registered, and the start opens projects one at a time, so a project the window is told about first is still `connecting`. The pane reads none of its drafts until its project has connected (it shows the connecting stage meanwhile), so no read is made that cannot succeed and no banner is drawn for it; a read that fails after that shows **Saved message settings could not be loaded** with **Retry setup** at once. A conversation list that is refused is read once more before anything is said, and a restored tab waits for its project's list.
 
 A restored tab whose project folder is gone shows that project's own page (its name, **Locate folder…**, **Remove project…**) and keeps its own title; no "could not be loaded" banner sits over another project's page.
 
@@ -1661,7 +1666,38 @@ only while there is something to install: an installable update, an offered one 
 automatic download is off, or a program that is behind. The manual **Check for updates** is
 in Settings ▸ Updates. The sidebar list keeps a scrollbar lane (`scrollbar-gutter: stable`)
 and gives it back to the rows through a smaller end inset, so opening or closing a project
-never narrows or shifts a row, whether or not the list overflows. Scheduled is currently unavailable in the desktop
+never narrows or shifts a row, whether or not the list overflows.
+
+The sidebar paints its final layout on the first frame, and nothing on screen moves because data
+arrived. Projects keep their saved order (`projects.json`, the order main lists them in for the first
+render, `projects()` and every connection or trust event), so a project that connects, fails, turns
+missing or is trusted stays where it is. Main keeps a small picture of the sidebar per profile
+(`sidebar-snapshot.json` under the app's user data folder: Pals with their avatar, the newest rows of
+each project's conversations with no message content, the projects that were open, the archived count),
+written atomically a moment after the lists settle or change and on quit (a Pals read or a project list that failed leaves what was remembered for it in place), and hands it to the page with
+the synchronous boot read together with the folded sections. The first frame therefore shows the Pals, the
+projects, the open project's conversations, Recents (with its archive button, kept there by the remembered archived count until the archive is read) and the folds as they were left, on a second launch, a
+reload and a page that comes back from Settings; a fresh profile has no picture and keeps its
+placeholders. The live reads then replace that picture in place: a project's own list replaces its
+remembered rows when it arrives (rows that are gone leave, titles change in place) and the rows of a
+project that is still connecting stay. The picture is only drawn: nothing that decides whether a
+conversation, a Pal or a tab exists reads it, and a remembered row that is clicked before its project
+has connected opens when the project lists it (or says it is no longer available), even while the
+start is restoring the tab that was in front; only the person's own navigation retires that click, and a
+remembered Pal, an archive or a pin asked for on such a row waits the same way. Once the person acts on the
+sidebar, a conversation a list delivers is no longer held back by a project that is slow to answer. A project that
+becomes ready is listed alone; the others are not listed again. While the start settles (`data-start-settled`
+on the sidebar), a row that is shown keeps its place when a background list repeats it with another time,
+a conversation that a list newly delivers appears only where it moves no shown row (below the last one),
+and it otherwise appears when the start ends or when the person acts; a conversation the person makes,
+pins or renames moves at once. Rows that change because a background list arrived never slide; the
+150 ms list motion is for the person's own actions. The project in front is open in the first render
+and its panel is open without travel; the expand and collapse animation stays for a click. The pane in front reads its
+saved message choices on that first frame; while the start is still deciding which tab is in front, a refusal of that read is not
+shown as an error (no frame carries the banner, `e2e/sidebar-startup-stability.test.mjs` refuses it once on purpose), and the read is
+made again when the start settles, where a real failure is shown. Rows carry a
+`data-sidebar-key` (`project:`, `conversation:`, `pal:` and `heading:` plus the id) so a test can follow
+them frame by frame (`e2e/sidebar-startup-stability.test.mjs`). Scheduled is currently unavailable in the desktop
 preview; its disabled control never opens a conversation's background shells.
 The sidebar brand (the wordmark with a small green "Beta" badge after it) opens its
 workspace menu. The labelled New conversation row is the primary
@@ -1791,7 +1827,9 @@ error, which is never closed by a newer notice before it has gone: the newer not
 (errors wait ahead of the rest, only the newest of the others waits, and the same words are never
 shown twice). Archiving
 several conversations in a row merges into one notice, "3 conversations archived", whose one
-**Undo** restores all of them. `notify` also takes `tooltip` (the full text a sentence
+**Undo** restores all of them. A conversation restored meanwhile (from the archived list, or by that Undo) leaves the notice: the count
+follows ("3" becomes "2", and "2" becomes the singular form), the notice keeps the time it had left, a notice with nothing left to undo goes away,
+and Undo restores only the conversations that are still archived (`archive-notice.ts`). `notify` also takes `tooltip` (the full text a sentence
 shortened). Hovering or focusing the toast pauses its timer; reduced motion removes the
 animation. Each pane has its own stack, centred in its conversation lane just above the
 composer (the lane's `--composer-height`), so the side panel stays clear; `notify` goes
@@ -2884,16 +2922,35 @@ of the file, and a saved `pals` only applies while the group exists (more than t
 the dot for a Pal message while folded and stays folded after a restart, Projects folds from the keyboard
 with its + separate, and Recents has no toggle.
 Clicking a project row reuses the project's untouched "New conversation" (also after a restart) instead of
-adding another empty tab. **Archived conversations** is a row at the bottom of the sidebar (and in the
-palette and the project menu): one dialog for every project, grouped by project, newest first, with
-**Restore**. A project that cannot be read says so and does not hide the others. Row titles are cut at a
+adding another empty tab. **Archived conversations** are a view of the Recents section, not a dialog. The Recents heading
+carries one quiet icon button at its right edge, on the same right edge as the Projects **+**
+(`e2e/ux-sidebar-archive-toggle.test.mjs` measures it to 1px). Its tooltip reads "Show archived
+conversations"; pressing it changes the heading to **Archived** (a short slide, none under reduced motion)
+and the list to the archived conversations of every project, newest first, each drawn like a Recents row
+with its project's name. The button stays, pressed, with the tooltip "Back to recents". The app cannot open
+an archived conversation without bringing it back, so an archived row is not a link: **Restore**, a quiet icon
+with a tooltip where the pin and archive icons sit on a Recents row, is its one action, and the restored
+conversation returns to Recents and its project. While the list loads there are placeholder rows; a read
+that fails is one plain sentence with a retry icon; with nothing archived the list says "Nothing is
+archived."; the notes ("Nothing is archived.", "No recent conversations.", a failed read) start where the row titles
+start; a project that cannot be read says so and does not hide the others. The project menu's "Archived conversations" switches the view and moves
+focus to the list, as the palette entry and the details menu do. The section shows whenever
+there is a recent or an archived conversation (with only archived ones, the Recents view says "No recent
+conversations."), and always while the archived view is on. Each project's archive is read once, as that project
+connects and is trusted (main refuses the archive of a folder that is still connecting or not trusted), so the button
+knows whether to appear; a project that drops or stops being trusted is read again when it can answer once more, and every project
+is read again each time the view is switched on. The remembered archived count is replaced only by a read that
+covered every project; a partial read is shown but never saved. The view lasts
+for the window and starts as Recents on the next launch. The palette entry **Archived conversations** and the
+entry in the conversation details menu and the project menu switch to the archived view (opening the sidebar
+first when it is hidden or a drawer) and move focus to the list; the palette entry again goes back. Row titles are cut at a
 word with `…` (34 characters in a row; a tab measures the room it has and keeps whole words, dropping
 a terminal's ` · project` suffix before the part that tells tabs apart), and the full title is the tooltip.
 The row and its hover card write the age the same way: "just now", "5 min ago", "2 h ago", "Yesterday", "3 d ago".
 The hover card under a row says which engine answers, where it runs ("This computer" or "A Pal's
 computer", in words beside the glyph), the last message when this window has it,
 the project and the branch; it opens below the row, inside the sidebar, so it never covers the
-conversation, and above the row instead when below would cover **Archived conversations**. The close, pin, archive and menu buttons at the end of a row are centred on the row
+conversation. The close, pin, archive and menu buttons at the end of a row are centred on the row
 (`e2e/ux-sidebar-tabs-terminals.test.mjs` measures them at 100, 125 and 150% zoom, dark and light).
 On hover the glyph replaces the row's status mark, so it is drawn on the mark's own centre: the 28px button ends on
 the row's edge (centre 14px in) and each mark in the row's state slot is centred on that line (the 8px terminal
@@ -2920,7 +2977,7 @@ asserts that no button shares pixels with the title's visible text (where its ma
 the state slot, that the buttons are evenly spaced and end on the row's edge, and that no tooltip covers a control.
 
 **Archiving.** The menu entry reads **Archive** (no ellipsis: it acts at once). The toast says
-"Conversation archived. Find it under Archived conversations in the sidebar." and stays 20 seconds with
+"Conversation archived. Find it with the archive button next to Recents." and stays 20 seconds with
 **Undo**; the Undo works at once, without opening the archived list first, and archiving
 another conversation while it shows turns it into "*N* conversations archived" with one Undo for all.
 
@@ -2963,7 +3020,8 @@ and Linux the menu only shows the shortcut and the window handles the key, so a 
 (the five newest conversations), **Conversations**, **Actions**, **Tabs** and **Projects**, and nothing is
 listed twice: a conversation never written in (a new draft) is not a conversation. Actions: new
 conversation and terminal, the four split entries, **Find in terminal** (while a terminal is in front),
-rename, pin and archive the conversation in front, **Archived conversations**, **Settings**, **Add
+rename, pin and archive the conversation in front, **Archived conversations** (switches the sidebar's
+Recents to the archive, and back), **Settings**, **Add
 project: start from scratch** and **Add project: use an existing folder**; Tabs: close, next, previous,
 move left and right. A chord shows as one keycap, written as the menus write it (Ctrl+Shift+backtick). Closing
 the palette puts focus back where it was, or in the composer.

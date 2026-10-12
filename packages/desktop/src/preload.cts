@@ -63,6 +63,7 @@ const api: DesktopApi = {
 	sidebarCollapsed: () => invoke('sidebarCollapsed'),
 	setSidebarSectionCollapsed: (id, collapsed) =>
 		invoke('setSidebarSectionCollapsed', id, collapsed),
+	setSidebarSnapshot: (snapshot) => invoke('setSidebarSnapshot', snapshot),
 	palUnread: () => invoke('palUnread'),
 	setPalUnread: (id, unread) => invoke('setPalUnread', id, unread),
 	palProviders: () => invoke('palProviders'),

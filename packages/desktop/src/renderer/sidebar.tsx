@@ -1,11 +1,12 @@
 import { Menu } from '@base-ui/react/menu'
-import { type ReactNode, useLayoutEffect, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { BackgroundWorkStatus } from '../shared/background-work-protocol.js'
 import type { ThreadState } from '../shared/projection.js'
 import type { ConversationView, ProjectView } from '../shared/protocol.js'
 import type { SidebarSectionId } from '../shared/sidebar-sections.js'
 import type { TerminalTabView } from '../shared/terminal-tabs.js'
 import { ADD_PROJECT_LABEL, AddProjectMenu } from './add-project-menu.js'
+import { ArchivedThreadRow } from './archived-thread-row.js'
 import { BrandDither } from './brand-dither.js'
 import { compareConversationOrder } from './conversation-order.js'
 import {
@@ -14,11 +15,21 @@ import {
 	FolderIcon,
 	FolderOpenIcon,
 	PlusIcon,
+	RefreshIcon,
 	SearchIcon,
 	SquarePenIcon,
 	XIcon,
 } from './icons.js'
 import { ProjectContextMenu, ProjectMoreMenu } from './project-row-actions.js'
+import {
+	type ArchiveLoad,
+	type ArchiveView,
+	archiveEmptyText,
+	archiveHeading,
+	archiveSectionVisible,
+	archiveToggleLabel,
+	nextArchiveView,
+} from './sidebar-archive.js'
 import { createSidebarListMotion } from './sidebar-motion.js'
 import { conversationsAttention, hasVisibleBackgroundWork } from './sidebar-section-attention.js'
 import { SidebarSection } from './sidebar-section.js'
@@ -32,6 +43,22 @@ import './sidebar-navigation.css'
 
 export type Appearance = 'system' | 'light' | 'dark'
 export type ConversationCollection = 'projects' | 'recents'
+
+/** The archived view of the Recents section: what the host lists and what the rows can do. */
+export interface SidebarArchive {
+	view: ArchiveView
+	onViewChange: (view: ArchiveView) => void
+	/** Shows the archived list from a menu item elsewhere, and moves focus onto it. */
+	onShowArchived: () => void
+	load: ArchiveLoad
+	/** Reads the archive again after a failed read. */
+	onRetry: () => void
+	/** Id of the conversation being restored, or an empty string. */
+	restoringId: string
+	onRestore: (view: ConversationView) => void
+	/** Archived conversations remembered from the last run, so the section is there on the first frame. */
+	rememberedCount?: number
+}
 /** The rows a project's list shows: the first five, the open one, and any that are busy; or all. */
 function visibleProjectRows(
 	rows: readonly ConversationView[],
@@ -74,7 +101,7 @@ export function Sidebar({
 	onRenameProject,
 	onLocateProject,
 	onOpenProjectFolder,
-	onOpenArchived,
+	archive,
 	pals,
 	terminals = [],
 	activeTerminalId,
@@ -83,6 +110,10 @@ export function Sidebar({
 	projectsLoaded = true,
 	collapsedSections,
 	onSectionCollapsedChange,
+	initialExpandedProjects,
+	onExpandedProjectsChange,
+	quietMotion,
+	startSettled,
 }: {
 	/** False until the first list of projects has arrived; the empty hint waits for it. */
 	projectsLoaded?: boolean
@@ -113,8 +144,8 @@ export function Sidebar({
 	onLocateProject?: (project: ProjectView) => void
 	/** Absent when the host cannot show a folder in the file manager. */
 	onOpenProjectFolder?: (project: ProjectView) => void
-	/** Absent when the host keeps no archive; the Archived entry is then not offered. */
-	onOpenArchived?: () => void
+	/** Absent when the host keeps no archive; the archive button and the Archived entries are then not offered. */
+	archive?: SidebarArchive
 	pals?: ReactNode
 	/** Open terminal tabs; each is listed under its project with a terminal mark. */
 	terminals?: readonly TerminalTabView[]
@@ -124,8 +155,31 @@ export function Sidebar({
 	/** Sections the person folded away; absent keeps each section's state inside the sidebar. */
 	collapsedSections?: ReadonlySet<SidebarSectionId>
 	onSectionCollapsedChange?: (id: SidebarSectionId, collapsed: boolean) => void
+	/** Projects that are open in the very first render, so no panel opens after the first paint. */
+	initialExpandedProjects?: readonly string[]
+	/** Told which projects are open, for the next start's first frame. */
+	onExpandedProjectsChange?: (ids: string[]) => void
+	/** True while rows change because data arrived, not because a person acted: nothing slides. */
+	quietMotion?: () => boolean
+	/** True once every project has answered; until then remembered rows may stand in for live ones. */
+	startSettled?: boolean
 }) {
-	const [collapsedProjects, setCollapsedProjects] = useState<Record<string, boolean>>({})
+	const [collapsedProjects, setCollapsedProjects] = useState<Record<string, boolean>>(() =>
+		Object.fromEntries((initialExpandedProjects ?? []).map((id) => [id, false])),
+	)
+	// A panel that is open from the first frame appears open. Travel is for a person's own click.
+	// A panel animates its height only once the person has used that project's own toggle.
+	const [travelling, setTravelling] = useState<ReadonlySet<string>>(() => new Set())
+	const panelTravels = (id: string) =>
+		setTravelling((current) => (current.has(id) ? current : new Set(current).add(id)))
+	const expandedKey = Object.entries(collapsedProjects)
+		.filter(([, folded]) => folded === false)
+		.map(([id]) => id)
+		.sort()
+		.join('\n')
+	useEffect(() => {
+		onExpandedProjectsChange?.(expandedKey ? expandedKey.split('\n') : [])
+	}, [expandedKey, onExpandedProjectsChange])
 	const [expandedLists, setExpandedLists] = useState<Record<string, boolean>>({})
 	const newConversationDisabled = opening
 	const sectionProps = (id: SidebarSectionId) => ({
@@ -166,6 +220,32 @@ export function Sidebar({
 		),
 	)
 	const recent = recentCandidates.filter((item) => !listedUnderProject.has(item.id))
+	const archiveView = archive?.view ?? 'recents'
+	const previousView = useRef(archiveView)
+	const swapped = useRef(false)
+	if (previousView.current !== archiveView) swapped.current = true
+	useEffect(() => {
+		previousView.current = archiveView
+	})
+	// An archived conversation of a project that is gone or missing has nowhere to return to.
+	const archiveRows =
+		archive?.load.status === 'ready'
+			? archive.load.rows.filter((item) => {
+					const project = projectById.get(item.projectId)
+					return project && !project.missing
+				})
+			: []
+	// Until the archive has been read, the count from the last run decides whether the section is there.
+	const archivedKnown =
+		archive?.load.status === 'ready' ? archiveRows.length : (archive?.rememberedCount ?? 0)
+	const emptyText = archive
+		? archiveEmptyText({
+				view: archiveView,
+				load:
+					archive.load.status === 'ready' ? { ...archive.load, rows: archiveRows } : archive.load,
+				recents: recent.length,
+			})
+		: ''
 	const activeProjectId = sessionId
 		? (conversations.find((item) => item.id === sessionId)?.projectId ?? projectId)
 		: projectId
@@ -184,6 +264,7 @@ export function Sidebar({
 				id="namzu-sidebar"
 				className={`sidebar ${open ? 'open' : ''}`}
 				data-app-sidebar
+				data-start-settled={startSettled ? 'true' : 'false'}
 				inert={collapsed && !open}
 				aria-hidden={collapsed && !open}
 				aria-label="Projects and conversations"
@@ -307,13 +388,15 @@ export function Sidebar({
 										key={project.id}
 										className="sidebar-project-group"
 										data-project-group={project.id}
+										data-sidebar-key={`project:${project.id}`}
 										open={collapsedProjects[project.id] === false}
-										onOpenChange={(expanded) =>
+										onOpenChange={(expanded) => {
+											panelTravels(project.id)
 											setCollapsedProjects((current) => ({
 												...current,
 												[project.id]: !expanded,
 											}))
-										}
+										}}
 									>
 										<ProjectHeading
 											project={project}
@@ -321,7 +404,7 @@ export function Sidebar({
 											onRemoveProject={onRemoveProject}
 											onRenameProject={onRenameProject}
 											onOpenProjectFolder={onOpenProjectFolder}
-											onOpenArchived={onOpenArchived}
+											onOpenArchived={archive?.onShowArchived}
 										>
 											<CollapsibleTrigger
 												aria-label={`${collapsedProjects[project.id] === false ? 'Collapse' : 'Expand'} ${project.name} conversations`}
@@ -344,6 +427,7 @@ export function Sidebar({
 												aria-label={`Open ${project.name}`}
 												aria-current={!sessionId && projectId === project.id ? 'page' : undefined}
 												onClick={() => {
+													panelTravels(project.id)
 													setCollapsedProjects((current) => ({
 														...current,
 														[project.id]: false,
@@ -354,7 +438,10 @@ export function Sidebar({
 												<span className="sidebar-project-name">{project.name}</span>
 											</button>
 										</ProjectHeading>
-										<CollapsiblePanel className="sidebar-project-panel">
+										<CollapsiblePanel
+											className="sidebar-project-panel"
+											instant={!travelling.has(project.id)}
+										>
 											<TerminalList
 												tabs={terminals.filter((tab) => tab.projectId === project.id)}
 												project={project}
@@ -378,6 +465,7 @@ export function Sidebar({
 												}
 												onConversation={(view) => onConversation(view, 'projects')}
 												rowActions={rowActions}
+												quietMotion={quietMotion}
 											/>
 										</CollapsiblePanel>
 									</Collapsible>
@@ -411,26 +499,87 @@ export function Sidebar({
 							)}
 						</nav>
 					</SidebarSection>
-					{recent.length > 0 && (
-						<section className="sidebar-recents" aria-label="Recent conversations">
-							<h2 className="sidebar-section-title">Recents</h2>
-							<RecentList
-								rows={recent}
-								projects={projectById}
-								threads={threads}
-								backgroundWork={backgroundWork}
-								sessionId={sessionId}
-								active={conversationCollection === 'recents'}
-								onConversation={(view) => onConversation(view, 'recents')}
-								rowActions={rowActions}
-							/>
+					{archiveSectionVisible({
+						view: archiveView,
+						recents: recent.length,
+						archived: archivedKnown,
+					}) && (
+						<section
+							className="sidebar-recents"
+							aria-label={
+								archiveView === 'archived' ? 'Archived conversations' : 'Recent conversations'
+							}
+							data-archive-view={archiveView}
+							data-swapped={swapped.current || undefined}
+						>
+							<div className="sidebar-recents-head">
+								<h2 className="sidebar-section-title" data-sidebar-key="heading:recents">
+									<span
+										key={archiveView}
+										className="sidebar-recents-label"
+										data-direction={archiveView === 'archived' ? 'forward' : 'back'}
+									>
+										{archiveHeading(archiveView)}
+									</span>
+								</h2>
+								{archive && (
+									<Tooltip>
+										<TooltipTrigger
+											render={
+												<Button
+													variant="ghost-muted"
+													size="icon-xs"
+													className="sidebar-archive-toggle"
+													aria-label={archiveToggleLabel(archiveView)}
+													aria-pressed={archiveView === 'archived'}
+													data-archive-toggle
+													onClick={() => archive.onViewChange(nextArchiveView(archiveView))}
+												/>
+											}
+										>
+											<ArchiveIcon aria-hidden="true" />
+										</TooltipTrigger>
+										<TooltipPopup side="top">{archiveToggleLabel(archiveView)}</TooltipPopup>
+									</Tooltip>
+								)}
+							</div>
+							<div
+								key={archiveView}
+								className="sidebar-recents-body"
+								data-archive-list
+								tabIndex={-1}
+							>
+								{archiveView === 'archived' && archive ? (
+									<ArchivedList
+										load={archive.load}
+										rows={archiveRows}
+										projects={projectById}
+										restoringId={archive.restoringId}
+										emptyText={emptyText}
+										onRestore={archive.onRestore}
+										onRetry={archive.onRetry}
+										quietMotion={quietMotion}
+									/>
+								) : (
+									<>
+										{recent.length > 0 && (
+											<RecentList
+												rows={recent}
+												projects={projectById}
+												threads={threads}
+												backgroundWork={backgroundWork}
+												sessionId={sessionId}
+												active={conversationCollection === 'recents'}
+												onConversation={(view) => onConversation(view, 'recents')}
+												rowActions={rowActions}
+												quietMotion={quietMotion}
+											/>
+										)}
+										{emptyText && <p className="sidebar-empty-note">{emptyText}</p>}
+									</>
+								)}
+							</div>
 						</section>
-					)}
-					{onOpenArchived && (
-						<button type="button" className="sidebar-archived-link" onClick={onOpenArchived}>
-							<ArchiveIcon aria-hidden="true" />
-							Archived conversations
-						</button>
 					)}
 				</div>
 			</aside>
@@ -455,6 +604,7 @@ function MissingProjectRow({
 		<div
 			className="sidebar-project-group sidebar-project-missing"
 			data-project-group={project.id}
+			data-sidebar-key={`project:${project.id}`}
 			data-project-missing
 		>
 			<div className="sidebar-project-missing-name" title={project.path}>
@@ -640,6 +790,7 @@ function ThreadList({
 	onExpandedChange,
 	onConversation,
 	rowActions,
+	quietMotion,
 }: {
 	rows: ConversationView[]
 	project: ProjectView
@@ -651,6 +802,7 @@ function ThreadList({
 	onExpandedChange: (expanded: boolean) => void
 	onConversation: (view: ConversationView) => void
 	rowActions?: ThreadRowActions
+	quietMotion?: () => boolean
 }) {
 	const limitedRows = visibleProjectRows(rows, {
 		expanded: false,
@@ -660,7 +812,7 @@ function ThreadList({
 	})
 	const shownRows = expanded ? rows : limitedRows
 	const hasExtra = limitedRows.length < rows.length
-	const list = useThreadListMotion()
+	const list = useThreadListMotion(quietMotion)
 	return (
 		<ul
 			ref={list}
@@ -704,6 +856,7 @@ function RecentList({
 	active,
 	onConversation,
 	rowActions,
+	quietMotion,
 }: {
 	rows: ConversationView[]
 	projects: ReadonlyMap<string, ProjectView>
@@ -713,8 +866,9 @@ function RecentList({
 	active: boolean
 	onConversation: (view: ConversationView) => void
 	rowActions?: ThreadRowActions
+	quietMotion?: () => boolean
 }) {
-	const list = useThreadListMotion()
+	const list = useThreadListMotion(quietMotion)
 	return (
 		<ul
 			ref={list}
@@ -741,7 +895,114 @@ function RecentList({
 	)
 }
 
-function useThreadListMotion() {
+/** The archived conversations of every project: placeholders while they load, a sentence when they cannot. */
+function ArchivedList({
+	load,
+	rows,
+	projects,
+	restoringId,
+	emptyText,
+	onRestore,
+	onRetry,
+	quietMotion,
+}: {
+	load: ArchiveLoad
+	rows: ConversationView[]
+	projects: ReadonlyMap<string, ProjectView>
+	restoringId: string
+	emptyText: string
+	onRestore: (view: ConversationView) => void
+	onRetry: () => void
+	quietMotion?: () => boolean
+}) {
+	if (load.status === 'idle' || load.status === 'loading')
+		return (
+			<output className="sidebar-archive-loading" aria-busy="true">
+				<span className="sr-only">Loading archived conversations</span>
+				<span className="sidebar-archive-placeholder" />
+				<span className="sidebar-archive-placeholder" />
+				<span className="sidebar-archive-placeholder" />
+			</output>
+		)
+	if (load.status === 'error')
+		return (
+			<div className="sidebar-archive-failure" role="alert">
+				<p className="sidebar-empty-note">{load.message}</p>
+				<Tooltip>
+					<TooltipTrigger
+						render={
+							<Button
+								variant="ghost-muted"
+								size="icon-xs"
+								aria-label="Try again"
+								onClick={onRetry}
+							/>
+						}
+					>
+						<RefreshIcon aria-hidden="true" />
+					</TooltipTrigger>
+					<TooltipPopup side="top">Try again</TooltipPopup>
+				</Tooltip>
+			</div>
+		)
+	return (
+		<>
+			<ArchivedRows
+				rows={rows}
+				projects={projects}
+				restoringId={restoringId}
+				onRestore={onRestore}
+				quietMotion={quietMotion}
+			/>
+			{emptyText && <p className="sidebar-empty-note">{emptyText}</p>}
+			{load.unreadable > 0 && rows.length > 0 && (
+				<p className="sidebar-empty-note">
+					{load.unreadable === 1
+						? 'One project could not be read, so its archive is missing here.'
+						: `${load.unreadable} projects could not be read, so their archives are missing here.`}
+				</p>
+			)}
+		</>
+	)
+}
+
+function ArchivedRows({
+	rows,
+	projects,
+	restoringId,
+	onRestore,
+	quietMotion,
+}: {
+	rows: ConversationView[]
+	projects: ReadonlyMap<string, ProjectView>
+	restoringId: string
+	onRestore: (view: ConversationView) => void
+	quietMotion?: () => boolean
+}) {
+	const list = useThreadListMotion(quietMotion)
+	return (
+		<ul
+			ref={list}
+			className="sidebar-recent-list relative flex flex-col gap-px"
+			aria-label="Archived conversations"
+		>
+			{rows.map((item) => {
+				const project = projects.get(item.projectId)
+				return project ? (
+					<ArchivedThreadRow
+						key={item.id}
+						conversation={item}
+						project={project}
+						busy={restoringId !== ''}
+						onRestore={onRestore}
+					/>
+				) : null
+			})}
+		</ul>
+	)
+}
+
+function useThreadListMotion(quiet?: () => boolean) {
 	const list = useRef<HTMLUListElement>(null)
 	const motion = useRef<ReturnType<typeof createSidebarListMotion> | null>(null)
 	useLayoutEffect(() => {
@@ -755,7 +1016,7 @@ function useThreadListMotion() {
 		}
 	}, [])
 	useLayoutEffect(() => {
-		motion.current?.update(true)
+		motion.current?.update(!quiet?.())
 	})
 	return list
 }
