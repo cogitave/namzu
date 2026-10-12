@@ -2940,7 +2940,7 @@ conversations."), and always while the archived view is on. Each project's archi
 connects and is trusted (main refuses the archive of a folder that is still connecting or not trusted), so the button
 knows whether to appear; a project that drops or stops being trusted is read again when it can answer once more, and every project
 is read again each time the view is switched on. The remembered archived count is replaced only by a read that
-covered every project; a partial read is shown but never saved. The view lasts
+covered every project that can be read (a connected folder that is not trusted is left out; one still connecting is waited for); a partial read is shown but never saved. The view lasts
 for the window and starts as Recents on the next launch. The palette entry **Archived conversations** and the
 entry in the conversation details menu and the project menu switch to the archived view (opening the sidebar
 first when it is hidden or a drawer) and move focus to the list; the palette entry again goes back. Row titles are cut at a

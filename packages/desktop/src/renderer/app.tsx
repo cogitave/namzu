@@ -5665,9 +5665,18 @@ export function App({
 		[],
 	)
 	// What the archive held when last read, else what the last run remembered.
-	// A read that left a project out is a partial count and is never taken for the whole.
+	// A read that left a project out is a partial count and is never taken for the whole. A
+	// connected folder that is not trusted is never read (main refuses it), so it does not hold
+	// the count back; one that is still connecting does, until it can be read.
 	const archiveComplete = projects
-		.filter((item) => !item.palId && !item.isChat && !item.missing && item.status !== 'error')
+		.filter(
+			(item) =>
+				!item.palId &&
+				!item.isChat &&
+				!item.missing &&
+				item.status !== 'error' &&
+				!(item.status === 'ready' && !item.trusted),
+		)
 		.every((item) => archived.read.has(item.id))
 	const archivedCount =
 		archived.load.status === 'ready' && archiveComplete
