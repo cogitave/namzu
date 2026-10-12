@@ -4,6 +4,7 @@ import {
 	CONTINUE_SETUP_FLAG,
 	PAL_COMPUTER_IDLE_MS,
 	continueSetupCommand,
+	isEverydayLaunch,
 	palComputerEnvironment,
 	palComputerSetupSettings,
 	restartCommand,
@@ -100,6 +101,14 @@ describe('palComputerSetupSettings', () => {
 					NAMZU_E2E_PAL_COMPUTER_IDLE_MS: value,
 				}).idleMs,
 			).toBe(PAL_COMPUTER_IDLE_MS)
+	})
+})
+
+describe('isEverydayLaunch', () => {
+	it('is a packaged app without its own profile folder', () => {
+		expect(isEverydayLaunch(true, ['Namzu.exe'])).toBe(true)
+		expect(isEverydayLaunch(true, ['Namzu.exe', '--user-data-dir=C:\\Temp\\trial'])).toBe(false)
+		expect(isEverydayLaunch(false, ['electron', '.'])).toBe(false)
 	})
 })
 

@@ -305,7 +305,7 @@ The consent record is a one-day agreement: an older record, or one left by a run
 failed, never lets Desktop continue by itself. The Linux machine for Pal computers stops by itself: when no Pal computer has run for 10 minutes
 (Desktop watches the computer states it shows) it calls `computer stop-idle`, which refuses while
 anything runs, and it calls it once when the app quits and no Pal computer runs and no setup is running (the quit-time call gives up after 5 seconds and stops the child, so a Linux machine that does not answer never holds the app from quitting or updating). Reading a Pal computer's status never starts that machine on Windows (readiness comes from what
-setup recorded, not from a probe), so a Pal panel that polls while open cannot bring it back. Only an end-to-end run of an unpackaged build
+setup recorded, not from a probe), so a Pal panel that polls while open cannot bring it back. Only an end-to-end run or a trial started with its own `--user-data-dir` (an installed app never has one)
 may shorten the delay, through `NAMZU_E2E_PAL_COMPUTER_IDLE_MS`; `NAMZU_E2E_PAL_COMPUTER_SETUP=1` lets
 such a run stand in for Windows with a scripted CLI (`e2e/computer-stand-in.mjs`,
 `e2e/ux-pal-computer-setup.test.mjs`).

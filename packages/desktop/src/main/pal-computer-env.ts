@@ -26,6 +26,15 @@ export function palComputerEnvironment(options: {
 	return added
 }
 
+/**
+ * Whether this launch is a person's own app. An installed Namzu runs from its default profile folder;
+ * a trial or end-to-end run names its own with `--user-data-dir`, and only such a run may use the
+ * `NAMZU_E2E_*` overrides, even from a packaged build.
+ */
+export function isEverydayLaunch(packaged: boolean, argv: readonly string[]): boolean {
+	return packaged && !argv.some((arg) => arg.startsWith('--user-data-dir='))
+}
+
 /** How long no Pal computer has to run before the Linux machine is shut down. */
 export const PAL_COMPUTER_IDLE_MS = 10 * 60 * 1000
 
@@ -45,7 +54,7 @@ export function palComputerSetupSettings(
 	env: NodeJS.ProcessEnv,
 	packaged = false,
 ): PalComputerSetupSettings {
-	// A packaged build is what people run: the end-to-end overrides do nothing there.
+	// A person's own app ignores the end-to-end overrides (see `isEverydayLaunch`).
 	const e2e = !packaged && env.NAMZU_E2E_PAL_COMPUTER_SETUP === '1'
 	const override = packaged ? Number.NaN : Number(env.NAMZU_E2E_PAL_COMPUTER_IDLE_MS)
 	return {

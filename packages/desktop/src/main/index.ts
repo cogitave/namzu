@@ -77,6 +77,7 @@ import { ConsentStore } from './pal-computer-consent.js'
 import {
 	CONTINUE_SETUP_FLAG,
 	continueSetupCommand,
+	isEverydayLaunch,
 	palComputerEnvironment,
 	palComputerSetupSettings,
 	restartPc,
@@ -312,7 +313,11 @@ const command = cliEntry
 				args: ['/d', '/s', '/c', 'namzu acp --desktop'],
 			}
 		: { program: 'namzu', args: ['acp', '--desktop'] }
-const palComputerSettings = palComputerSetupSettings(process.platform, process.env, app.isPackaged)
+const palComputerSettings = palComputerSetupSettings(
+	process.platform,
+	process.env,
+	isEverydayLaunch(app.isPackaged, process.argv),
+)
 // The same CLI as the runtime, as its own short process: `computer status | setup | stop-idle`.
 const computerCli = createComputerCli(
 	cliEntry
