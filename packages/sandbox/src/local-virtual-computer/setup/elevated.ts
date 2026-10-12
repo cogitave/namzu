@@ -7,6 +7,7 @@ import type {
 	WslcSetupHost,
 	WslcSetupProgress,
 } from './contract.js'
+import { trustedWindowsDirectory } from './windows-folder.js'
 
 /**
  * The one elevated process of a setup plan.
@@ -50,6 +51,8 @@ const WINDOWS_11_FIRST_BUILD = 22000
 const POLL_MS = 250
 /** Windows refuses a command line longer than 32,767 characters. */
 const MAX_COMMAND_LINE = 30000
+/** Write, append, delete, delete-children, attribute and extended-attribute writes, change permissions, take ownership. */
+const WRITE_RIGHTS_MASK = 0xd0156
 const PROGRESS_FILE = 'elevated-progress.jsonl'
 
 type Request = Parameters<RunElevatedWslcSteps>[0]
@@ -109,12 +112,6 @@ const RUN_ID = /^[0-9a-f]{32}$/
 const USER_SID_PLACEHOLDER = '@@USER_SID@@'
 /** The encoded elevated script must stay well under what ShellExecute accepts for a RunAs launch. */
 const MAX_INNER_ENCODED = 16000
-
-/** The Windows folder as a path this code may use: the real one, never an environment-chosen one. */
-function trustedWindowsDirectory(env: NodeJS.ProcessEnv): string {
-	const claimed = (env.SystemRoot ?? env.windir ?? '').replace(/[\\/]+$/, '')
-	return /^[A-Za-z]:\\(Windows|WINNT)$/i.test(claimed) ? claimed : 'C:\\Windows'
-}
 
 function joinFor(base: string, ...parts: string[]): string {
 	return (usesWindowsPaths(base) ? win32 : posix).join(base, ...parts)
@@ -221,13 +218,16 @@ function installBlockFor(msi: string, sha256: string): string {
 		// The package is copied into a folder only administrators can enter, then
 		// hashed and installed from there, so nothing can swap it after the check.
 		"$pkg = Join-Path $dir 'pkg'",
+		'if (Test-Path -LiteralPath $pkg) { throw "pkg exists" }',
 		'try {',
 		'  $item = Get-Item -LiteralPath $src -Force',
 		'  if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "link" }',
+		'  New-Item -ItemType Directory -Path $pkg | Out-Null',
 		'  $pacl = New-Object Security.AccessControl.DirectorySecurity',
 		'  $pacl.SetAccessRuleProtection($true, $false)',
 		'  foreach ($sid in $adminSids) { $pacl.AddAccessRule((Rule $sid "FullControl" "ContainerInherit,ObjectInherit")) }',
-		'  (New-Object IO.DirectoryInfo $pkg).Create($pacl)',
+		'  Set-Acl -LiteralPath $pkg -AclObject $pacl',
+		'  Test-Folder $pkg $false',
 		"  $msi = Join-Path $pkg 'wsl.msi'",
 		'  Copy-Item -LiteralPath $src -Destination $msi',
 		'  $got = (Get-FileHash -LiteralPath $msi -Algorithm SHA256).Hash',
@@ -236,6 +236,7 @@ function installBlockFor(msi: string, sha256: string): string {
 		`    $code = ${ELEVATED_EXIT.packageMismatch}`,
 		'  } else {',
 		"    $msilog = Join-Path $dir 'wsl-install.log'",
+		'    if (Test-Path -LiteralPath $msilog) { throw "log exists" }',
 		"    $args2 = @('/i', ('\"' + $msi + '\"'), '/qn', '/norestart', '/l*v', ('\"' + $msilog + '\"'))",
 		"    $p = Start-Process -FilePath (Join-Path $sys 'msiexec.exe') -ArgumentList $args2 -Wait -PassThru",
 		'    $c = $p.ExitCode',
@@ -278,6 +279,20 @@ function innerScript(parts: {
 		'  $id = New-Object Security.Principal.SecurityIdentifier $sid',
 		"  New-Object Security.AccessControl.FileSystemAccessRule($id, $rights, $inherit, 'None', 'Allow')",
 		'}',
+		'function Test-Folder($path, $allowUser) {',
+		'  $item = Get-Item -LiteralPath $path -Force',
+		'  if (-not $item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw "link" }',
+		'  $a = Get-Acl -LiteralPath $path',
+		'  $owner = $a.GetOwner([Security.Principal.SecurityIdentifier]).Value',
+		'  if ($adminSids -notcontains $owner) { throw "owner" }',
+		'  if (-not $a.AreAccessRulesProtected) { throw "inherited" }',
+		'  foreach ($r in $a.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])) {',
+		'    $who = $r.IdentityReference.Value',
+		'    if ($adminSids -contains $who) { continue }',
+		`    if ($allowUser -and $who -eq $userSid -and $r.AccessControlType -eq 'Allow' -and (([int]$r.FileSystemRights -band ${WRITE_RIGHTS_MASK}) -eq 0)) { continue }`,
+		'    throw "access"',
+		'  }',
+		'}',
 		'$code = 0',
 		'$restart = $false',
 		"$cur = ''",
@@ -295,14 +310,20 @@ function innerScript(parts: {
 		// (not writable) by the person who started setup. Elevated code writes
 		// nowhere a standard user can write.
 		`  $dir = Join-Path $win ('Temp\\namzu-wsl-${parts.runId}')`,
-		'  if (Test-Path -LiteralPath $dir) { throw "exists" }',
+		// Exclusive creation: New-Item without -Force fails when the name exists,
+		// so a folder someone else prepared is never adopted. The ACL is applied
+		// and then READ BACK: the owner must be an administrator account, the
+		// access list must be protected, and nobody but administrators may hold
+		// more than read.
+		'  New-Item -ItemType Directory -Path $dir | Out-Null',
 		'  $acl = New-Object Security.AccessControl.DirectorySecurity',
 		'  $acl.SetAccessRuleProtection($true, $false)',
 		'  foreach ($sid in $adminSids) { $acl.AddAccessRule((Rule $sid "FullControl" "ContainerInherit,ObjectInherit")) }',
 		'  $acl.AddAccessRule((Rule $userSid "Read" "ContainerInherit,ObjectInherit"))',
-		'  (New-Object IO.DirectoryInfo $dir).Create($acl)',
-		'  if ((Get-Item -LiteralPath $dir -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "link" }',
+		'  Set-Acl -LiteralPath $dir -AclObject $acl',
+		'  Test-Folder $dir $true',
 		"  $log = Join-Path $dir 'elevated-progress.jsonl'",
+		'  if (Test-Path -LiteralPath $log) { throw "log exists" }',
 	]
 	if (parts.enable) {
 		lines.push(
@@ -382,6 +403,10 @@ export function isAdministratorAccount(whoamiGroupsOutput: string): boolean {
 		if (cells[2] === STANDARD_ADMIN_GROUP_SID) return true
 	}
 	return false
+}
+
+function isGroupListing(output: string): boolean {
+	return output.split(/\r?\n/).some((row) => /^"[^"]*","[^"]*","S-1-[0-9-]+",/.test(row))
 }
 
 interface ProgressLine {
@@ -500,13 +525,33 @@ class ProgressTail {
 	}
 }
 
-/** The launcher runs with the host's environment, except for the variables that pick tools and modules. */
+/**
+ * Names the launcher may inherit. Everything else (runtime hooks such as the
+ * profiler, startup-hook and compatibility-layer variables, PATHEXT, module
+ * paths, anything a caller or a registry value added) is dropped, because the
+ * elevated copy of Windows PowerShell inherits what the launcher has.
+ * Values set for the person in the registry (`HKCU\Environment`) reach every
+ * process they start and cannot be defended against from here.
+ */
+const LAUNCHER_ENV_ALLOW =
+	/^(ComSpec|USERNAME|USERDOMAIN|USERPROFILE|APPDATA|LOCALAPPDATA|ProgramData|ProgramFiles(\(x86\)|W6432)?|CommonProgramFiles(\(x86\)|W6432)?|PROCESSOR_[A-Z]+|NUMBER_OF_PROCESSORS|OS)$/i
+
+function underProfile(profile: string | undefined, value: string): boolean {
+	if (!profile || !/^[A-Za-z]:\\/.test(profile)) return false
+	const fold = (text: string) => text.replace(/[\\/]+$/, '').toLowerCase()
+	return fold(value).startsWith(`${fold(profile)}\\`)
+}
+
 function launcherEnvironment(host: WslcSetupHost, windowsDirectory: string): NodeJS.ProcessEnv {
-	const env: NodeJS.ProcessEnv = { ...host.env }
-	for (const name of Object.keys(env)) {
-		if (/^(PSModulePath|PSExecutionPolicyPreference|PATH|SystemRoot|windir)$/i.test(name)) {
-			delete env[name]
-		}
+	const env: NodeJS.ProcessEnv = {}
+	let profile: string | undefined
+	for (const [name, value] of Object.entries(host.env)) {
+		if (/^USERPROFILE$/i.test(name)) profile = value
+	}
+	for (const [name, value] of Object.entries(host.env)) {
+		if (value === undefined) continue
+		if (LAUNCHER_ENV_ALLOW.test(name)) env[name] = value
+		else if (/^(TEMP|TMP)$/i.test(name) && underProfile(profile, value)) env[name] = value
 	}
 	return {
 		...env,
@@ -596,7 +641,9 @@ async function isStandardUser(
 			['/groups', '/fo', 'csv', '/nh'],
 			{ signal, env: launcherEnvironment(host, root) },
 		)
-		return !isAdministratorAccount(output)
+		// Only a listing that parses and lacks the group shows a standard user;
+		// empty or garbled output shows nothing.
+		return isGroupListing(output) && !isAdministratorAccount(output)
 	} catch {
 		// Not knowing is not a reason to tell an administrator they are not one.
 		return false

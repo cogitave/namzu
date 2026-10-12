@@ -112,6 +112,19 @@ describe('script generation', () => {
 		expect(scripts.inner).toMatchSnapshot()
 	})
 
+	it('compares the package digest before msiexec and sets exit 22 on a mismatch', () => {
+		const { inner } = buildElevatedScripts(request({ steps: ['install-wsl'] }))
+		const compare = inner.indexOf('if ($got -ine $want) {')
+		const install = inner.indexOf("Start-Process -FilePath (Join-Path $sys 'msiexec.exe')")
+		expect(compare).toBeGreaterThan(inner.indexOf('Get-FileHash'))
+		expect(install).toBeGreaterThan(compare)
+		// The mismatch branch sets 22 and holds no msiexec; msiexec sits only in the else branch.
+		const mismatch = inner.slice(compare, inner.indexOf('} else {', compare))
+		expect(mismatch).toContain('$code = 22')
+		expect(mismatch).not.toContain('msiexec')
+		expect(inner.match(/msiexec\.exe/g)).toHaveLength(1)
+	})
+
 	it('runs only Microsoft tools', () => {
 		const { inner } = buildElevatedScripts(request({}))
 		const programs = inner.match(/[A-Za-z0-9_-]+\.exe/g) ?? []
@@ -162,7 +175,21 @@ describe('script generation', () => {
 			`C:\\Windows\\Temp\\namzu-wsl-${RUN_ID}\\elevated-progress.jsonl`,
 		)
 		expect(scripts.inner).toContain(`Join-Path $win ('Temp\\namzu-wsl-${RUN_ID}')`)
-		expect(scripts.inner).toContain('if (Test-Path -LiteralPath $dir) { throw "exists" }')
+		// Exclusive creation (no -Force, so an existing name fails), then the result is read back.
+		expect(scripts.inner).toContain('New-Item -ItemType Directory -Path $dir | Out-Null')
+		expect(scripts.inner).not.toMatch(/New-Item[^\n]*-Force/)
+		expect(scripts.inner).not.toContain('IO.DirectoryInfo')
+		expect(scripts.inner).toContain('Test-Folder $dir $true')
+		expect(scripts.inner).toContain('if ($adminSids -notcontains $owner) { throw "owner" }')
+		expect(scripts.inner).toContain('if (-not $a.AreAccessRulesProtected) { throw "inherited" }')
+		expect(scripts.inner).toContain('Test-Folder $pkg $false')
+		expect(scripts.inner).toContain('if (Test-Path -LiteralPath $pkg) { throw "pkg exists" }')
+		expect(scripts.inner).toContain('if (Test-Path -LiteralPath $log) { throw "log exists" }')
+		expect(scripts.inner).toContain('if (Test-Path -LiteralPath $msilog) { throw "log exists" }')
+		// The owner check runs before anything is written into the folder.
+		expect(scripts.inner.indexOf('Test-Folder $dir $true')).toBeLessThan(
+			scripts.inner.indexOf("$log = Join-Path $dir 'elevated-progress.jsonl'"),
+		)
 		expect(scripts.inner).toContain('SetAccessRuleProtection($true, $false)')
 		expect(scripts.inner).toContain('$acl.AddAccessRule((Rule $userSid "Read"')
 		// The log and the progress file live in that folder; the user's own folder is only read.
@@ -609,7 +636,6 @@ describe('runElevatedWslcSteps', () => {
 		expect(outcome).toEqual({ outcome: 'ok' })
 		expect(calls[0]?.binary).toBe('C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe')
 		expect(calls[0]?.env).toEqual({
-			KEEP: 'yes',
 			SystemRoot: 'C:\\Windows',
 			windir: 'C:\\Windows',
 			PATH: 'C:\\Windows\\System32',
@@ -619,6 +645,54 @@ describe('runElevatedWslcSteps', () => {
 			host: setup(async () => 'NAMZU_EXIT=1223', STANDARD_USER).host,
 		})
 		expect(standard).toEqual({ outcome: 'needs-administrator' })
+	})
+
+	it('forwards only an allow-list of environment variables to the launcher', async () => {
+		const { calls, host } = setup(async () => 'NAMZU_EXIT=0')
+		const loaded = {
+			...host,
+			env: {
+				COR_ENABLE_PROFILING: '1',
+				COR_PROFILER: '{evil}',
+				COR_PROFILER_PATH: 'C:\\evil\\p.dll',
+				CORECLR_ENABLE_PROFILING: '1',
+				COMPLUS_Version: 'v1.0',
+				DOTNET_STARTUP_HOOKS: 'C:\\evil\\h.dll',
+				DOTNET_gcServer: '1',
+				__COMPAT_LAYER: 'RunAsInvoker',
+				PATHEXT: '.EVIL;.EXE',
+				PSModulePath: 'C:\\evil',
+				USERPROFILE: 'C:\\Users\\Ali',
+				APPDATA: 'C:\\Users\\Ali\\AppData\\Roaming',
+				PROCESSOR_ARCHITECTURE: 'AMD64',
+				'ProgramFiles(x86)': 'C:\\Program Files (x86)',
+				TEMP: 'C:\\Users\\Ali\\AppData\\Local\\Temp',
+				TMP: 'D:\\evil',
+			},
+		} as unknown as WslcSetupHost
+		await runElevatedWslcSteps({ ...both(), host: loaded })
+		expect(calls[0]?.env).toEqual({
+			USERPROFILE: 'C:\\Users\\Ali',
+			APPDATA: 'C:\\Users\\Ali\\AppData\\Roaming',
+			PROCESSOR_ARCHITECTURE: 'AMD64',
+			'ProgramFiles(x86)': 'C:\\Program Files (x86)',
+			TEMP: 'C:\\Users\\Ali\\AppData\\Local\\Temp',
+			SystemRoot: 'C:\\Windows',
+			windir: 'C:\\Windows',
+			PATH: 'C:\\Windows\\System32',
+		})
+	})
+
+	it('does not call a failed launch a standard user unless whoami shows one', async () => {
+		for (const answer of ['', 'garbage', 'ERROR: Access is denied']) {
+			const { host } = setup(async () => 'NAMZU_LAUNCH_FAILED', answer)
+			const outcome = await runElevatedWslcSteps({ ...both(), host })
+			expect(outcome).toMatchObject({ outcome: 'failed', code: 'elevation-failed' })
+		}
+		const { host } = setup(async () => 'NAMZU_LAUNCH_FAILED', STANDARD_USER)
+		expect(await runElevatedWslcSteps({ ...both(), host })).toEqual({
+			outcome: 'needs-administrator',
+		})
 	})
 
 	it('stops waiting when the signal aborts, and passes the signal to the launcher', async () => {

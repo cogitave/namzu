@@ -128,8 +128,21 @@ describe('clearResumeAtSignIn', () => {
 	})
 
 	it('finds reg.exe through windir when SystemRoot is not set', async () => {
-		const { host, calls } = hostWith(() => '', { env: { windir: 'D:\\Win\\' } })
+		const { host, calls } = hostWith(() => '', { env: { windir: 'D:\\Windows\\' } })
 		await clearResumeAtSignIn(host)
-		expect(calls[0]?.binary).toBe('D:\\Win\\System32\\reg.exe')
+		expect(calls[0]?.binary).toBe('D:\\Windows\\System32\\reg.exe')
+	})
+
+	it('never takes reg.exe from an environment-chosen folder', async () => {
+		for (const root of [
+			'C:\\Users\\evil',
+			'D:\\Win',
+			'\\\\server\\share\\Windows',
+			'C:\\Windows\\..\\evil',
+		]) {
+			const { host, calls } = hostWith(() => '', { env: { SystemRoot: root } })
+			await clearResumeAtSignIn(host)
+			expect(calls[0]?.binary).toBe('C:\\Windows\\System32\\reg.exe')
+		}
 	})
 })

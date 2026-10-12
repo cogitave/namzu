@@ -12,6 +12,20 @@ function Rule($sid, $rights, $inherit) {
   $id = New-Object Security.Principal.SecurityIdentifier $sid
   New-Object Security.AccessControl.FileSystemAccessRule($id, $rights, $inherit, 'None', 'Allow')
 }
+function Test-Folder($path, $allowUser) {
+  $item = Get-Item -LiteralPath $path -Force
+  if (-not $item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw "link" }
+  $a = Get-Acl -LiteralPath $path
+  $owner = $a.GetOwner([Security.Principal.SecurityIdentifier]).Value
+  if ($adminSids -notcontains $owner) { throw "owner" }
+  if (-not $a.AreAccessRulesProtected) { throw "inherited" }
+  foreach ($r in $a.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])) {
+    $who = $r.IdentityReference.Value
+    if ($adminSids -contains $who) { continue }
+    if ($allowUser -and $who -eq $userSid -and $r.AccessControlType -eq 'Allow' -and (([int]$r.FileSystemRights -band 852310) -eq 0)) { continue }
+    throw "access"
+  }
+}
 $code = 0
 $restart = $false
 $cur = ''
@@ -26,14 +40,15 @@ function Note($step, $phase, $extra) {
 }
 try {
   $dir = Join-Path $win ('Temp\\namzu-wsl-0123456789abcdef0123456789abcdef')
-  if (Test-Path -LiteralPath $dir) { throw "exists" }
+  New-Item -ItemType Directory -Path $dir | Out-Null
   $acl = New-Object Security.AccessControl.DirectorySecurity
   $acl.SetAccessRuleProtection($true, $false)
   foreach ($sid in $adminSids) { $acl.AddAccessRule((Rule $sid "FullControl" "ContainerInherit,ObjectInherit")) }
   $acl.AddAccessRule((Rule $userSid "Read" "ContainerInherit,ObjectInherit"))
-  (New-Object IO.DirectoryInfo $dir).Create($acl)
-  if ((Get-Item -LiteralPath $dir -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "link" }
+  Set-Acl -LiteralPath $dir -AclObject $acl
+  Test-Folder $dir $true
   $log = Join-Path $dir 'elevated-progress.jsonl'
+  if (Test-Path -LiteralPath $log) { throw "log exists" }
   $cur = 'enable-windows-features'
   Note $cur 'started'
   $dismRestart = $false
@@ -67,6 +82,20 @@ function Rule($sid, $rights, $inherit) {
   $id = New-Object Security.Principal.SecurityIdentifier $sid
   New-Object Security.AccessControl.FileSystemAccessRule($id, $rights, $inherit, 'None', 'Allow')
 }
+function Test-Folder($path, $allowUser) {
+  $item = Get-Item -LiteralPath $path -Force
+  if (-not $item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw "link" }
+  $a = Get-Acl -LiteralPath $path
+  $owner = $a.GetOwner([Security.Principal.SecurityIdentifier]).Value
+  if ($adminSids -notcontains $owner) { throw "owner" }
+  if (-not $a.AreAccessRulesProtected) { throw "inherited" }
+  foreach ($r in $a.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])) {
+    $who = $r.IdentityReference.Value
+    if ($adminSids -contains $who) { continue }
+    if ($allowUser -and $who -eq $userSid -and $r.AccessControlType -eq 'Allow' -and (([int]$r.FileSystemRights -band 852310) -eq 0)) { continue }
+    throw "access"
+  }
+}
 $code = 0
 $restart = $false
 $cur = ''
@@ -81,27 +110,31 @@ function Note($step, $phase, $extra) {
 }
 try {
   $dir = Join-Path $win ('Temp\\namzu-wsl-0123456789abcdef0123456789abcdef')
-  if (Test-Path -LiteralPath $dir) { throw "exists" }
+  New-Item -ItemType Directory -Path $dir | Out-Null
   $acl = New-Object Security.AccessControl.DirectorySecurity
   $acl.SetAccessRuleProtection($true, $false)
   foreach ($sid in $adminSids) { $acl.AddAccessRule((Rule $sid "FullControl" "ContainerInherit,ObjectInherit")) }
   $acl.AddAccessRule((Rule $userSid "Read" "ContainerInherit,ObjectInherit"))
-  (New-Object IO.DirectoryInfo $dir).Create($acl)
-  if ((Get-Item -LiteralPath $dir -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "link" }
+  Set-Acl -LiteralPath $dir -AclObject $acl
+  Test-Folder $dir $true
   $log = Join-Path $dir 'elevated-progress.jsonl'
+  if (Test-Path -LiteralPath $log) { throw "log exists" }
   if ($code -eq 0) {
     $cur = 'install-wsl'
     Note $cur 'started'
     $src = 'C:\\Users\\Ali Veli\\AppData\\Local\\Namzu\\setup\\wsl.3.0.1.0.x64.msi'
     $want = 'abababababababababababababababababababababababababababababababab'
     $pkg = Join-Path $dir 'pkg'
+    if (Test-Path -LiteralPath $pkg) { throw "pkg exists" }
     try {
       $item = Get-Item -LiteralPath $src -Force
       if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "link" }
+      New-Item -ItemType Directory -Path $pkg | Out-Null
       $pacl = New-Object Security.AccessControl.DirectorySecurity
       $pacl.SetAccessRuleProtection($true, $false)
       foreach ($sid in $adminSids) { $pacl.AddAccessRule((Rule $sid "FullControl" "ContainerInherit,ObjectInherit")) }
-      (New-Object IO.DirectoryInfo $pkg).Create($pacl)
+      Set-Acl -LiteralPath $pkg -AclObject $pacl
+      Test-Folder $pkg $false
       $msi = Join-Path $pkg 'wsl.msi'
       Copy-Item -LiteralPath $src -Destination $msi
       $got = (Get-FileHash -LiteralPath $msi -Algorithm SHA256).Hash
@@ -110,6 +143,7 @@ try {
         $code = 22
       } else {
         $msilog = Join-Path $dir 'wsl-install.log'
+        if (Test-Path -LiteralPath $msilog) { throw "log exists" }
         $args2 = @('/i', ('"' + $msi + '"'), '/qn', '/norestart', '/l*v', ('"' + $msilog + '"'))
         $p = Start-Process -FilePath (Join-Path $sys 'msiexec.exe') -ArgumentList $args2 -Wait -PassThru
         $c = $p.ExitCode

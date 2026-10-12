@@ -1,4 +1,5 @@
 import type { ClearResumeAtSignIn, RegisterResumeAtSignIn, WslcSetupHost } from './contract.js'
+import { trustedWindowsDirectory } from './windows-folder.js'
 
 /** The registry value the resume command is stored under. */
 const RESUME_VALUE_NAME = 'NamzuPalComputerSetup'
@@ -6,8 +7,7 @@ const RESUME_VALUE_NAME = 'NamzuPalComputerSetup'
 const MAX_COMMAND_LENGTH = 2048
 
 function regBinary(host: WslcSetupHost): string {
-	const root = host.env.SystemRoot ?? host.env.windir ?? 'C:\\Windows'
-	return `${root.replace(/[\\/]+$/, '')}\\System32\\reg.exe`
+	return `${trustedWindowsDirectory(host.env)}\\System32\\reg.exe`
 }
 
 function checkKey(key: string): void {

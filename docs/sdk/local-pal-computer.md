@@ -676,22 +676,41 @@ they land each one throws "not implemented yet".
   ending `.msi`, no quotes or line breaks) and its digest are checked before the
   script is built, and reach it only as single-quoted literals. Both scripts
   take the system folder from the operating system (`[Environment]::SystemDirectory`),
-  reset `PATH` and `PSModulePath` first, and the launcher is started with
-  `SystemRoot`, `windir` and `PATH` set to the real Windows folder, so an
-  environment the caller inherited cannot choose which program runs elevated.
+  reset `PATH` and `PSModulePath` first, and the launcher is started with an
+  allow-listed environment: `SystemRoot`, `windir` and a `PATH` of the real
+  `System32` folder, plus `ComSpec`, the user and profile names and folders,
+  `ProgramData`, `ProgramFiles*`, `PROCESSOR_*`, `NUMBER_OF_PROCESSORS`, `OS`,
+  and `TEMP`/`TMP` only when they point under the user profile. Every other
+  variable (runtime profiler and startup-hook variables, `__COMPAT_LAYER`,
+  `PATHEXT`, module paths) is dropped, so an environment the caller inherited
+  cannot choose which program or library runs elevated. A value stored for the
+  person in the registry (`HKCU\Environment`) reaches every process they start
+  and cannot be defended against from Node. The Windows folder must be a drive
+  root followed by `Windows` or `WINNT`; on a PC where it is named otherwise the
+  launch fails (`elevation-failed`) rather than run a program from a folder the
+  environment named.
   The elevated process never writes where a standard user can write: it creates
-  a new folder `<Windows>\Temp\namzu-wsl-<random id>` that only administrators
-  can change (the person who started setup may read it), refuses to continue if
-  that folder already exists or is a link, copies the package into a
-  subfolder nobody but administrators can enter (and refuses a package that is
-  a link), checks its SHA-256 there against the pinned digest and installs that
-  copy, so the file cannot change after the check. The progress lines
+  a new folder `<Windows>\Temp\namzu-wsl-<random id>` with `New-Item` and no
+  `-Force`, so a name that already exists fails (code 23) instead of being
+  adopted. It then applies an access list only administrators can change (the
+  person who started setup may read it) and reads it back before writing
+  anything: the owner must be Administrators or the system account, the list
+  must be protected from inheritance, and nobody else may hold more than read.
+  It refuses a package that is a link and a `pkg`, log or progress file that
+  already exists, copies the package into a subfolder nobody but
+  administrators can enter, checks its SHA-256 there against the pinned digest
+  and installs that copy, so the file cannot change after the check. The progress lines
   (`elevated-progress.jsonl`) and the installer log (`wsl-install.log`) are
   written into that folder; the caller reads progress from it while it waits
   and turns it into progress events. The folder, small unless the installer log
   is, stays after the run because the caller cannot delete it. The encoded
   elevated script is held under 16,000 characters (about 8 KB today), well
-  under what a RunAs launch accepts. Exit codes of the elevated script:
+  under what a RunAs launch accepts. A launch with the full-size argument and
+  no `runas` verb was measured to start (up to 30,000 characters); the `runas`
+  launch itself, a real decline and the exit codes still need a run on a clean
+  Windows VM. A launch that fails for any reason is `elevation-failed`, and
+  `needs-administrator` is reported only when `whoami /groups` lists groups and
+  none is Administrators. Exit codes of the elevated script:
   0 done, 3010 Windows needs a restart, 20 enabling features failed, 21 the
   install failed, 22 the package did not match the pinned digest, 23 the
   protected folder could not be created. They map to

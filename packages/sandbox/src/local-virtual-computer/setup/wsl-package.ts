@@ -72,6 +72,16 @@ function sha256Of(path: string, signal?: AbortSignal): Promise<string> {
 	})
 }
 
+/** Like {@link sha256Of}, but an abort rejects with the signal's reason, as everywhere else here. */
+async function hashOrAbort(path: string, signal?: AbortSignal): Promise<string> {
+	try {
+		return await sha256Of(path, signal)
+	} catch (error) {
+		if (signal?.aborted) throw signal.reason
+		throw error
+	}
+}
+
 /**
  * One attempt: continue `part` from its current size when the server honours
  * the range, or start over when it does not. Resolves when `part` holds
@@ -189,7 +199,7 @@ export const downloadWslPackage: DownloadWslPackage = async (options) => {
 	// A previous run may have left a finished, verified file.
 	if (
 		(await sizeOf(target)) === pinned.sizeBytes &&
-		(await sha256Of(target, signal)) === pinned.sha256
+		(await hashOrAbort(target, signal)) === pinned.sha256
 	) {
 		return { outcome: 'ok', path: target }
 	}
@@ -217,7 +227,7 @@ export const downloadWslPackage: DownloadWslPackage = async (options) => {
 			}
 		}
 		// The digest decides; a file of the wrong length cannot have the right one.
-		if ((await sha256Of(part, signal)) !== pinned.sha256) {
+		if ((await hashOrAbort(part, signal)) !== pinned.sha256) {
 			await rm(part, { force: true })
 			return {
 				outcome: 'failed',

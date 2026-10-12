@@ -338,6 +338,24 @@ describe('downloadWslPackage retries', () => {
 		expect(stub.calls).toHaveLength(1)
 	})
 
+	it('rejects with the signal reason when aborted while hashing an existing file', async () => {
+		const url = 'https://example.invalid/wsl.3.0.1.0.x64.msi'
+		await mkdir(directory, { recursive: true })
+		await writeFile(join(directory, 'wsl.3.0.1.0.x64.msi'), payload)
+		const controller = new AbortController()
+		const stub = fakeFetch([200])
+		const pending = downloadWslPackage({
+			pinned: pinnedFor(url),
+			directory,
+			fetch: stub.impl,
+			signal: controller.signal,
+		})
+		// The abort lands synchronously after the call started: the first awaited step is the size check.
+		controller.abort(new Error('stopped'))
+		await expect(pending).rejects.toEqual(new Error('stopped'))
+		expect(stub.calls).toHaveLength(0)
+	})
+
 	it('keeps the partial file when it is interrupted', async () => {
 		await mkdir(directory, { recursive: true })
 		const controller = new AbortController()
