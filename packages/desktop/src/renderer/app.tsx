@@ -595,6 +595,7 @@ export function App({
 	const [, setTabsRestored] = useState(false)
 	const [restoringTabs, setRestoringTabs] = useState(true)
 	const [tabRestoreAttempt, setTabRestoreAttempt] = useState(0)
+	const restoreNavigation = useRef(-1)
 	const abandonTabRestore = useCallback(() => {
 		// Deliberate navigation also retires the previous view's pending load.
 		setLoading(false)
@@ -3173,6 +3174,7 @@ export function App({
 		setRestoringTabs(true)
 		const opening = openConversation(view, 'projects', true)
 		const generation = navigation.current
+		restoreNavigation.current = generation
 		const current = () =>
 			generation === navigation.current &&
 			activation.current === target &&
@@ -3613,11 +3615,22 @@ export function App({
 	// A row that is only remembered (its project has not listed it yet) has nothing to act on: it
 	// does nothing for the moments until its project lists it, rather than fail against it.
 	const isListed = (view: ConversationView) => conversations.some((item) => item.id === view.id)
+	// It is carried out once the project lists the row, or says so if the row turns out not to be there.
+	const afterListed = (view: ConversationView, run: (live: ConversationView) => void) => {
+		sidebarTouched.current = true
+		waitingToOpen.current = { view, collection: 'projects', navigation: null, run }
+		setWaitingTick((value) => value + 1)
+	}
 	const sidebarRowActions: ThreadRowActions = {
 		mac: macPlatform,
 		input: conversationActionInput,
 		run: (id, view, trigger) => {
-			if (!isListed(view)) return
+			if (!isListed(view))
+				return afterListed(view, (live) =>
+					id === 'archive'
+						? archiveConversationNow(live, null)
+						: runConversationAction(id, live, null),
+				)
 			return id === 'archive'
 				? archiveConversationNow(view, trigger)
 				: runConversationAction(id, view, trigger)
@@ -3625,11 +3638,13 @@ export function App({
 		archive: api.removeConversation
 			? (view, trigger) => {
 					if (isListed(view)) return archiveConversationNow(view, trigger)
+					afterListed(view, (live) => archiveConversationNow(live, null))
 				}
 			: undefined,
 		pin: api.setConversationPinned
 			? (view) => {
-					if (isListed(view)) runConversationAction('pin', view, null)
+					if (isListed(view)) return runConversationAction('pin', view, null)
+					afterListed(view, (live) => runConversationAction('pin', live, null))
 				}
 			: undefined,
 		loadGit: api.projectGit,
@@ -5529,6 +5544,9 @@ export function App({
 	// rows; the live state above is never mixed with them, so nothing that decides whether a
 	// conversation or a tab exists can be fooled by a picture of last time.
 	const sidebarSettled = useRef(false)
+	// A project that stays slow must not hide a new row for good: once the person acts on the
+	// sidebar, what is listed is what they are looking at. The snapshot still waits for the lists.
+	const sidebarTouched = useRef(false)
 	if (
 		!sidebarSettled.current &&
 		projectsLoaded &&
@@ -5554,7 +5572,7 @@ export function App({
 		),
 		shownRows.current,
 		deliveredKeys.current,
-		sidebarSettled.current,
+		sidebarSettled.current || sidebarTouched.current,
 	)
 	useLayoutEffect(() => {
 		shownRows.current = sidebarRows
@@ -5629,9 +5647,18 @@ export function App({
 	const waitingToOpen = useRef<{
 		view: ConversationView
 		collection: ConversationCollection
-		navigation: number
+		// Null for an action on the row, which holds whatever the person opens meanwhile.
+		navigation: number | null
+		run?: (live: ConversationView) => void
 	} | null>(null)
 	const waitingPal = useRef<{ id: string; navigation: number } | null>(null)
+	// Opening the tab in front on start is the app's doing, not the person's: a click made
+	// before it began is still wanted after it, and only the person's own navigation retires it.
+	const navigationSuperseded = useCallback(
+		(since: number) =>
+			navigation.current !== since && navigation.current !== restoreNavigation.current,
+		[],
+	)
 	const [waitingTick, setWaitingTick] = useState(0)
 	const openPalRef = useRef(openPal)
 	openPalRef.current = openPal
@@ -5639,14 +5666,15 @@ export function App({
 		void waitingTick
 		const waiting = waitingToOpen.current
 		if (!waiting) return
-		if (waiting.navigation !== navigation.current) {
+		if (waiting.navigation !== null && navigationSuperseded(waiting.navigation)) {
 			waitingToOpen.current = null
 			return
 		}
 		const live = conversations.find((item) => item.id === waiting.view.id)
 		if (live) {
 			waitingToOpen.current = null
-			void act(() => openConversation(live, waiting.collection))
+			if (waiting.run) waiting.run(live)
+			else void act(() => openConversation(live, waiting.collection))
 			return
 		}
 		const owner = projects.find((item) => item.id === waiting.view.projectId)
@@ -5660,15 +5688,15 @@ export function App({
 			waitingToOpen.current = null
 			setError('This conversation is no longer available.')
 		}
-	}, [conversations, lists, projects, act, openConversation, waitingTick])
+	}, [conversations, lists, projects, act, openConversation, waitingTick, navigationSuperseded])
 	useEffect(() => {
 		const waiting = waitingPal.current
 		if (!waiting || palsLoading) return
 		waitingPal.current = null
-		if (waiting.navigation !== navigation.current) return
+		if (navigationSuperseded(waiting.navigation)) return
 		const live = pals.find((item) => item.id === waiting.id)
 		if (live) void act(() => openPalRef.current(live))
-	}, [palsLoading, pals, act])
+	}, [palsLoading, pals, act, navigationSuperseded])
 	return (
 		<PaneToasts focused={focused} pane={paneRoot}>
 			{focused &&
@@ -6063,6 +6091,7 @@ export function App({
 							onConversation={(view, collection) => {
 								if (conversations.some((item) => item.id === view.id))
 									return void act(() => openConversation(view, collection))
+								sidebarTouched.current = true
 								waitingToOpen.current = { view, collection, navigation: navigation.current }
 								// Nothing is listed yet for this project: the effect above opens it when it is.
 								setWaitingTick((value) => value + 1)

@@ -1677,7 +1677,10 @@ placeholders. The live reads then replace that picture in place: a project's own
 remembered rows when it arrives (rows that are gone leave, titles change in place) and the rows of a
 project that is still connecting stay. The picture is only drawn: nothing that decides whether a
 conversation, a Pal or a tab exists reads it, and a remembered row that is clicked before its project
-has connected opens when the project lists it (or says it is no longer available). A project that
+has connected opens when the project lists it (or says it is no longer available), even while the
+start is restoring the tab that was in front; only the person's own navigation retires that click, and a
+remembered Pal, an archive or a pin asked for on such a row waits the same way. Once the person acts on the
+sidebar, a conversation a list delivers is no longer held back by a project that is slow to answer. A project that
 becomes ready is listed alone; the others are not listed again. While the start settles (`data-start-settled`
 on the sidebar), a row that is shown keeps its place when a background list repeats it with another time,
 a conversation that a list newly delivers appears only where it moves no shown row (below the last one),

@@ -166,7 +166,10 @@ export function Sidebar({
 		Object.fromEntries((initialExpandedProjects ?? []).map((id) => [id, false])),
 	)
 	// A panel that is open from the first frame appears open. Travel is for a person's own click.
-	const [panelsTravel, setPanelsTravel] = useState(false)
+	// A panel animates its height only once the person has used that project's own toggle.
+	const [travelling, setTravelling] = useState<ReadonlySet<string>>(() => new Set())
+	const panelTravels = (id: string) =>
+		setTravelling((current) => (current.has(id) ? current : new Set(current).add(id)))
 	const expandedKey = Object.entries(collapsedProjects)
 		.filter(([, folded]) => folded === false)
 		.map(([id]) => id)
@@ -386,7 +389,7 @@ export function Sidebar({
 										data-sidebar-key={`project:${project.id}`}
 										open={collapsedProjects[project.id] === false}
 										onOpenChange={(expanded) => {
-											setPanelsTravel(true)
+											panelTravels(project.id)
 											setCollapsedProjects((current) => ({
 												...current,
 												[project.id]: !expanded,
@@ -422,7 +425,7 @@ export function Sidebar({
 												aria-label={`Open ${project.name}`}
 												aria-current={!sessionId && projectId === project.id ? 'page' : undefined}
 												onClick={() => {
-													setPanelsTravel(true)
+													panelTravels(project.id)
 													setCollapsedProjects((current) => ({
 														...current,
 														[project.id]: false,
@@ -433,7 +436,10 @@ export function Sidebar({
 												<span className="sidebar-project-name">{project.name}</span>
 											</button>
 										</ProjectHeading>
-										<CollapsiblePanel className="sidebar-project-panel" instant={!panelsTravel}>
+										<CollapsiblePanel
+											className="sidebar-project-panel"
+											instant={!travelling.has(project.id)}
+										>
 											<TerminalList
 												tabs={terminals.filter((tab) => tab.projectId === project.id)}
 												project={project}

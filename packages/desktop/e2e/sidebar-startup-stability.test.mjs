@@ -311,3 +311,76 @@ test("a fresh profile starts from its placeholders", { timeout: 300000 }, async 
 		await dispose(w, { failed });
 	}
 });
+
+// A remembered row can be clicked before its project has connected. The click is kept while the
+// start restores the tab that was in front, and carried out when the project lists the row.
+test("a click on a remembered row before its project connects opens it, and an archive waits the same way", {
+	timeout: 600000,
+}, async () => {
+	const rules = [
+		{ match: /alpha/, steps: [{ text: "Reply alpha." }] },
+		{ match: /beta/, steps: [{ text: "Reply beta." }] },
+	];
+	const w = await createWorld({ rules });
+	const gates = join(w.root, "gates");
+	mkdirSync(gates, { recursive: true });
+	instrument(w);
+	let failed = true;
+	try {
+		await launch(w);
+		await addProject(w, "alpha");
+		const box = w.page.getByRole("textbox", { name: "Message Namzu" });
+		const send = async (text) => {
+			await expect(box).toBeVisible({ timeout: T });
+			await box.fill(text);
+			await w.page.getByRole("button", { name: "Send message" }).click();
+		};
+		await send("alpha chat");
+		await expect(w.page.getByText("Reply alpha.")).toBeVisible({ timeout: T });
+		await w.page.getByRole("button", { name: "New conversation tab" }).click();
+		await send("beta chat");
+		await expect(w.page.getByText("Reply beta.")).toBeVisible({ timeout: T });
+		await expect
+			.poll(() => savedPicture(w)?.conversations.length === 2)
+			.toBe(true);
+
+		await w.app.close();
+		w.env = { NAMZU_E2E_GATE_DIR: gates };
+		writeFileSync(join(gates, "alpha.connect.hold"), "");
+		writeFileSync(join(gates, "alpha.list.hold"), "");
+		await relaunch(w);
+		const row = (title) =>
+			w.page.locator("nav.conversations").getByRole("button", { name: title, exact: true });
+		// Remembered, and the project has not answered: the row is there and the start is not settled.
+		await expect(row("alpha chat")).toBeVisible({ timeout: T });
+		await expect(w.page.locator("#namzu-sidebar")).toHaveAttribute("data-start-settled", "false");
+		await row("alpha chat").click();
+		await untilFiles(gates, (files) => files.includes("alpha.connect.held"));
+		rmSync(join(gates, "alpha.connect.hold"));
+		await untilFiles(gates, (files) => files.includes("alpha.list.held"));
+		rmSync(join(gates, "alpha.list.hold"));
+		await expect(w.page.getByText("Reply alpha.")).toBeVisible({ timeout: T });
+		await expect(w.page.getByText("Reply beta.")).toHaveCount(0);
+
+		// An archive asked for on a remembered row is carried out once the project lists it.
+		await w.app.close();
+		writeFileSync(join(gates, "alpha.connect.hold"), "");
+		writeFileSync(join(gates, "alpha.list.hold"), "");
+		for (const file of ["alpha.connect.held", "alpha.connect.done", "alpha.list.held", "alpha.list.done"])
+			rmSync(join(gates, file), { force: true });
+		await relaunch(w);
+		await expect(row("beta chat")).toBeVisible({ timeout: T });
+		await row("beta chat").click({ button: "right" });
+		await w.page.getByRole("menuitem", { name: /^Archive/ }).click();
+		await untilFiles(gates, (files) => files.includes("alpha.connect.held"));
+		rmSync(join(gates, "alpha.connect.hold"));
+		await untilFiles(gates, (files) => files.includes("alpha.list.held"));
+		rmSync(join(gates, "alpha.list.hold"));
+		await expect(w.page.getByText("Conversation archived.")).toBeVisible({ timeout: T });
+		await expect(row("beta chat")).toHaveCount(0, { timeout: T });
+		assert.deepEqual(w.faults, [], "the renderer raised no uncaught errors");
+		failed = false;
+	} finally {
+		await dispose(w, { failed });
+	}
+});
