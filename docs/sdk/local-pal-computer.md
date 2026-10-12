@@ -632,6 +632,36 @@ The unit and integration tests drive this engine with a stand-in `wslc`
 executable and a local HTTP worker, pinned to output recorded from wslc
 3.0.1.0.
 
+## Setting up a Windows PC
+
+The provider never installs an engine, starts a machine, builds or pulls an
+image. Setting up a machine is a separate, consented operation owned by the
+application: `@namzu/sandbox/local-virtual-computer/setup` inspects the PC,
+plans what is missing and runs that plan only after the person agrees.
+Namzu Desktop does it from the Pal computer row; the CLI from
+`namzu computer setup`. This section describes the contract
+(`setup/contract.ts`); the functions behind it are being built, and until
+they land each one throws "not implemented yet".
+
+- **Readiness.** `inspectWslcReadiness` answers one state, the first that
+  applies, in this order: `unsupported` (not Windows x64 build 19041 or newer),
+  `blocked-by-policy`, `restart-pending`, `platform-off`, `wsl-missing`,
+  `wsl-outdated`, `sdk-mismatch`, `virtualization-off`, `image-missing`, `ready`.
+- **Plan.** `planWslcSetup` turns a state into steps (`download-wsl`,
+  `enable-windows-features`, `install-wsl`, `restart`, `load-image`), each with
+  its download size, rough time, whether it is elevated and whether it may need
+  a restart. Every elevated step of a plan runs in one elevated process, so a
+  plan causes at most one Windows permission prompt. A plan Namzu cannot carry
+  out says why in `blocked` and has no steps.
+- **Consent.** `runWslcSetup` takes `{ planId, approvedAt }`, inspects the PC
+  again and refuses with `plan-changed` when the plan it would run is not the
+  one the person saw.
+- **Restart.** When Windows needs a restart, setup records the steps still to
+  run and asks Windows to open Namzu once at the next sign-in, where setup
+  continues.
+- **Idle.** `stopIdleWslcSession` stops the wslc session's virtual machine only
+  when nothing runs in it, Namzu's or not.
+
 ## Owned guest stdio services
 
 `Sandbox.openStdio` is an optional host API on the local computer lease. It

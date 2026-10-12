@@ -22,6 +22,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./local-virtual-computer/setup": {
+      "types": "./dist/local-virtual-computer/setup/index.d.ts",
+      "import": "./dist/local-virtual-computer/setup/index.js"
     }
   },
   "files": [
