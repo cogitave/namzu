@@ -40,7 +40,7 @@ Off Windows it says "Pal computers on this system use Docker or Podman. Setup is
 automatic only on Windows."
 
 `setup` prints what it will install, the download size, about how long it
-takes, whether Windows will ask permission (at most once per plan) and whether
+takes, whether Windows will ask permission (at most once per plan; the sentence says when it will not) and whether
 a restart may be needed, then asks `Continue? [y/N]`. It runs with one progress
 line per step and ends with a sentence. Windows' own permission prompt cannot
 be skipped. A blocked plan (policy, virtualization off, unsupported, update
@@ -76,7 +76,8 @@ Types are those of the setup contract (`WslcReadiness`, `WslcSetupPlan`,
 
 // an argument or check failure: one line
 {"version":1,"error":{"code":"plan-required"}}
-{"version":1,"error":{"message":"Could not check this PC for Pal computers."}}
+{"version":1,"error":{"code":"check-failed"}}      // the check itself failed
+{"version":1,"error":{"code":"bundle-unreadable"}} // --bundle has no readable manifest
 ```
 
 `setup --json` requires `--plan <id>`: the id of a plan the caller showed and
@@ -93,3 +94,5 @@ is missing ends its message with "Run namzu computer setup to set this up."
 The model is told only "The computer is not set up; the person can set it up
 from Namzu." Other setup failures that Namzu cannot fix (policy, virtualization,
 an update) keep their own sentence.
+
+Ctrl-C, Ctrl-D or a closed terminal at `Continue?` count as no: `Nothing was changed.` and exit 0. Off Windows `stop-idle` says there is no Linux machine to stop.

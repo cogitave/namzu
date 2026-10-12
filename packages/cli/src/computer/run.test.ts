@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { PassThrough } from 'node:stream'
 import type {
 	WslcReadiness,
 	WslcSetupPlan,
@@ -11,7 +12,7 @@ import type {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../__fixtures__/temp-dir.js'
 import { EXIT_NEEDS_CONSENT, EXIT_UNAVAILABLE, EXIT_USAGE } from '../exit-codes.js'
-import { type ComputerDeps, runComputerCommand } from './run.js'
+import { type ComputerDeps, askQuestion, runComputerCommand } from './run.js'
 import {
 	humanBytes,
 	humanDuration,
@@ -98,7 +99,7 @@ describe('sentences', () => {
 			[
 				readiness('blocked-by-policy'),
 				plan('blocked-by-policy', [], { blocked: 'blocked-by-policy' }),
-				"Your organisation does not allow Linux containers on this PC. Ask your IT team to allow 'WSL containers'.",
+				'Your organisation does not allow the Linux support Pal computers need on this PC. Ask your IT team to allow it.',
 			],
 			[
 				readiness('unsupported', { unsupportedReason: 'windows-build' }),
@@ -154,7 +155,7 @@ describe('sentences', () => {
 			'To set up Pal computers, Namzu will download Linux support, install Linux support and add the Pal computer. It downloads about 350 MB. This takes about 5 minutes. Windows will ask your permission once. Your PC may need to restart afterwards.',
 		)
 		expect(planSentence(plan('image-missing', [step('load-image')]))).toBe(
-			'To set up Pal computers, Namzu will add the Pal computer. This takes about 1 minute.',
+			'To set up Pal computers, Namzu will add the Pal computer. This takes about 1 minute. Windows will not ask for permission.',
 		)
 	})
 
@@ -177,7 +178,7 @@ describe('sentences', () => {
 			detail: 'connection reset',
 		})
 		expect(failed.sentence).toBe('Could not download Linux support. Check the internet connection.')
-		expect(failed.details).toBe('download-wsl, download-failed: connection reset')
+		expect(failed.details).toBe('download-failed: connection reset')
 	})
 })
 
@@ -355,7 +356,7 @@ describe('namzu computer', () => {
 		)
 		const blocked = harness()
 		expect(await runComputerCommand(['setup'], blocked.deps)).toBe(EXIT_UNAVAILABLE)
-		expect(blocked.err.join('')).toContain('Your organisation does not allow Linux containers')
+		expect(blocked.err.join('')).toContain('Your organisation does not allow the Linux support')
 		setupApi.inspectWslcReadiness.mockResolvedValue(readiness('ready'))
 		setupApi.planWslcSetup.mockReturnValue(plan('ready', []))
 		const ready = harness()
@@ -372,7 +373,7 @@ describe('namzu computer', () => {
 		const { deps, err } = harness()
 		expect(await runComputerCommand(['setup', '--yes'], deps)).toBe(1)
 		expect(err.join('')).toBe(
-			'Windows could not install Linux support.\nDetails: install-wsl, wsl-install-failed\n',
+			'Windows could not install Linux support.\nDetails: wsl-install-failed\n',
 		)
 	})
 
@@ -448,7 +449,61 @@ describe('namzu computer', () => {
 		expect(await runComputerCommand(['status', '--json'], json.deps)).toBe(70)
 		expect(JSON.parse(json.out.join(''))).toEqual({
 			version: 1,
-			error: { message: 'Could not check this PC for Pal computers.' },
+			error: { code: 'check-failed' },
 		})
+		const bundle = harness()
+		expect(
+			await runComputerCommand(['status', '--json', '--bundle', join(root, 'none')], bundle.deps),
+		).toBe(EXIT_USAGE)
+		expect(JSON.parse(bundle.out.join(''))).toEqual({
+			version: 1,
+			error: { code: 'bundle-unreadable' },
+		})
+	})
+
+	it('stop-idle off Windows says there is nothing to stop', async () => {
+		const { deps, out } = harness({ platform: 'linux' })
+		expect(await runComputerCommand(['stop-idle'], deps)).toBe(0)
+		expect(out.join('')).toBe(
+			'There is no Linux machine for Pal computers to stop on this system.\n',
+		)
+	})
+
+	it('the plan sentence handles every number of Windows prompts', () => {
+		const base = plan('wsl-missing', [step('install-wsl')])
+		expect(planSentence({ ...base, elevationPrompts: 0 })).toContain(
+			'Windows will not ask for permission.',
+		)
+		expect(planSentence({ ...base, elevationPrompts: 2 as 0 | 1 })).toContain(
+			'Windows will ask your permission 2 times.',
+		)
+	})
+
+	it('treats Ctrl-D at Continue as no, and a PassThrough that ends before an answer settles', async () => {
+		const input = new PassThrough()
+		const output = new PassThrough()
+		const answer = askQuestion('Continue? [y/N] ', undefined, input, output)
+		input.end()
+		expect(await answer).toBe('')
+		const typed = new PassThrough()
+		const pending = askQuestion('Continue? [y/N] ', undefined, typed, new PassThrough())
+		typed.write('y\n')
+		expect(await pending).toBe('y')
+		const controller = new AbortController()
+		const aborted = askQuestion(
+			'Continue? [y/N] ',
+			controller.signal,
+			new PassThrough(),
+			new PassThrough(),
+		)
+		controller.abort()
+		expect(await aborted).toBe('')
+	})
+
+	it('an unanswered prompt changes nothing and exits 0', async () => {
+		const { deps, out } = harness({ ask: vi.fn(async () => '') })
+		expect(await runComputerCommand(['setup'], deps)).toBe(0)
+		expect(out.join('')).toContain('Nothing was changed.')
+		expect(setupApi.runWslcSetup).not.toHaveBeenCalled()
 	})
 })

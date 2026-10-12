@@ -3,7 +3,7 @@
  * from a terminal. The agent runtime never calls this; setup runs only when a
  * person asks for it here, or when Namzu Desktop drives `--json`.
  */
-import { createInterface } from 'node:readline/promises'
+import { createInterface } from 'node:readline'
 import type * as SetupModule from '@namzu/sandbox/local-virtual-computer/setup'
 import type {
 	WslcImageManifest,
@@ -28,6 +28,7 @@ import {
 } from './bundle.js'
 import {
 	NOT_WINDOWS_SENTENCE,
+	NO_MACHINE_SENTENCE,
 	planSentence,
 	progressLine,
 	readinessSentence,
@@ -46,7 +47,7 @@ export const COMPUTER_HELP = [
 	'',
 	'Pal computers on Windows run on Microsoft’s Linux container support. status says whether this PC',
 	'is ready; setup installs what is missing after you agree; stop-idle shuts the idle Linux machine down.',
-	'--bundle <dir> (or NAMZU_PAL_COMPUTER_BUNDLE) names the folder with the Pal computer and its manifest.json.',
+	'--bundle <dir> (or NAMZU_PAL_COMPUTER_BUNDLE) names the folder that comes with the Pal computer.',
 	'setup asks "Continue? [y/N]". Without a terminal it prints the plan and exits 75 unless --yes or --plan is given.',
 	'--json prints one JSON object per line, for Namzu Desktop; setup --json needs --plan <id> as the consent.',
 ].join('\n')
@@ -263,7 +264,7 @@ async function stopIdle(parsed: Parsed, deps: ComputerDeps): Promise<number> {
 		emit(deps, { outcome })
 		return EXIT_OK
 	}
-	if (deps.platform !== 'win32') say(deps, NOT_WINDOWS_SENTENCE)
+	if (deps.platform !== 'win32') say(deps, NO_MACHINE_SENTENCE)
 	else if (outcome === 'stopped')
 		say(deps, 'The Linux machine for Pal computers was stopped to free memory.')
 	else if (outcome === 'busy') say(deps, 'A Pal computer is still running, so nothing was stopped.')
@@ -285,15 +286,14 @@ export async function runComputerCommand(
 		if (parsed.verb === 'setup') return await setupCommand(parsed, deps)
 		return await stopIdle(parsed, deps)
 	} catch (error) {
-		const message =
-			error instanceof PalComputerBundleError
-				? error.message
-				: 'Could not check this PC for Pal computers.'
+		const bundleProblem = error instanceof PalComputerBundleError
+		const message = bundleProblem ? error.message : 'Could not check this PC for Pal computers.'
 		const code = error instanceof PalComputerBundleError ? EXIT_USAGE : EXIT_INTERNAL_ERROR
-		if (parsed.json) emit(deps, { error: { message } })
+		if (parsed.json)
+			emit(deps, { error: { code: bundleProblem ? 'bundle-unreadable' : 'check-failed' } })
 		else {
 			deps.err(`${message}\n`)
-			if (!(error instanceof PalComputerBundleError))
+			if (!bundleProblem)
 				deps.err(`Details: ${error instanceof Error ? error.message : String(error)}\n`)
 		}
 		return code
@@ -311,15 +311,37 @@ export function realComputerDeps(signal?: AbortSignal): ComputerDeps {
 		out: (text) => void process.stdout.write(text),
 		err: (text) => void process.stderr.write(text),
 		interactive: Boolean(process.stdin.isTTY && process.stdout.isTTY),
-		ask: async (question) => {
-			const rl = createInterface({ input: process.stdin, output: process.stdout })
-			try {
-				return await rl.question(question)
-			} finally {
-				rl.close()
-			}
-		},
+		ask: (question) => askQuestion(question, signal),
 		now: () => new Date(),
 		...(signal ? { signal } : {}),
 	}
+}
+
+/**
+ * Ask on this process's terminal. Ctrl-C, Ctrl-D, a closed input or an abort
+ * answer "" (no), so the person is never left at a prompt that cannot end.
+ */
+export function askQuestion(
+	question: string,
+	signal?: AbortSignal,
+	input: NodeJS.ReadableStream = process.stdin,
+	output: NodeJS.WritableStream = process.stdout,
+): Promise<string> {
+	return new Promise((resolve) => {
+		const rl = createInterface({ input, output })
+		let settled = false
+		const onAbort = () => finish('')
+		const finish = (answer: string) => {
+			if (settled) return
+			settled = true
+			signal?.removeEventListener('abort', onAbort)
+			rl.close()
+			resolve(answer)
+		}
+		rl.on('close', () => finish(''))
+		rl.on('SIGINT', () => finish(''))
+		if (signal?.aborted) return finish('')
+		signal?.addEventListener('abort', onAbort, { once: true })
+		rl.question(question, (answer) => finish(answer))
+	})
 }

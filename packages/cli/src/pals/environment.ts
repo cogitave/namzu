@@ -37,14 +37,34 @@ export function modelFacingComputerError(error: unknown): unknown {
 	return error
 }
 
+/**
+ * The probe returns prose, not a code, so the hint is anchored to the exact
+ * texts the sandbox gives for the three setups Namzu can do (engine missing,
+ * engine too old, image missing). This couples to the sandbox's wording on
+ * purpose: a reworded message loses the hint, never gains it on a policy or
+ * virtualization block. The test pins these strings.
+ */
+const SETTABLE_UP_REASONS = new Set([
+	'Windows Linux container support (wslc) is not installed on this PC.',
+	'Windows Linux container support on this PC is too old for Namzu.',
+])
+const SETUP_FROM_PAL_TAIL =
+	' Namzu sets it up; finish the setup from the Pal computer and try again.'
+const SETTABLE_UP_WITH_TAIL = new Set([
+	`The Pal computer is not set up on this PC yet.${SETUP_FROM_PAL_TAIL}`,
+	`Windows Linux container support and the Pal computer image are required.${SETUP_FROM_PAL_TAIL}`,
+])
+
 /** On Windows an unready engine or image ends with where to fix it. */
 export function withSetupHint(
 	reason: string | undefined,
 	platform: NodeJS.Platform = process.platform,
 ): string | undefined {
 	if (platform !== 'win32' || reason === undefined) return reason
-	if (/virtualization|organisation|update to work|namzu computer setup/i.test(reason)) return reason
-	return `${reason} ${RUN_COMPUTER_SETUP_LINE}`
+	if (SETTABLE_UP_REASONS.has(reason)) return `${reason} ${RUN_COMPUTER_SETUP_LINE}`
+	if (SETTABLE_UP_WITH_TAIL.has(reason))
+		return `${reason.slice(0, -SETUP_FROM_PAL_TAIL.length)} ${RUN_COMPUTER_SETUP_LINE}`
+	return reason
 }
 
 let host: Promise<{ runtime: PalRuntime; provider: LocalComputerProvider }> | undefined

@@ -12,6 +12,9 @@ import type {
 	WslcSetupStepKind,
 } from '@namzu/sandbox/local-virtual-computer/setup'
 
+export const NO_MACHINE_SENTENCE =
+	'There is no Linux machine for Pal computers to stop on this system.'
+
 export const NOT_WINDOWS_SENTENCE =
 	'Pal computers on this system use Docker or Podman. Setup is automatic only on Windows.'
 
@@ -43,7 +46,9 @@ function sizeClause(plan: WslcSetupPlan): string {
 }
 
 function permissionClause(plan: WslcSetupPlan): string {
-	return plan.elevationPrompts === 1 ? 'Windows will ask your permission once.' : ''
+	if (plan.elevationPrompts <= 0) return 'Windows will not ask for permission.'
+	if (plan.elevationPrompts === 1) return 'Windows will ask your permission once.'
+	return `Windows will ask your permission ${plan.elevationPrompts} times.`
 }
 
 function blockedSentence(block: WslcSetupBlock): string {
@@ -51,7 +56,7 @@ function blockedSentence(block: WslcSetupBlock): string {
 		case 'unsupported':
 			return 'This version of Windows cannot run a Pal computer.'
 		case 'blocked-by-policy':
-			return "Your organisation does not allow Linux containers on this PC. Ask your IT team to allow 'WSL containers'."
+			return 'Your organisation does not allow the Linux support Pal computers need on this PC. Ask your IT team to allow it.'
 		case 'virtualization-off':
 			return "This PC has virtualization switched off. Turn on Intel VT-x or AMD-V in the PC's startup settings, then run namzu computer status again."
 		case 'sdk-mismatch':
@@ -187,7 +192,7 @@ export function resultSentence(result: WslcSetupResult): ResultText {
 		case 'failed':
 			return {
 				sentence: FAILURE_SENTENCE[result.code],
-				details: `${result.step}, ${result.code}${result.detail ? `: ${result.detail}` : ''}`,
+				details: `${result.code}${result.detail ? `: ${result.detail}` : ''}`,
 			}
 	}
 }

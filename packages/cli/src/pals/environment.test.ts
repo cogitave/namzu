@@ -425,10 +425,64 @@ it('tells the model a computer that can be set up from Namzu is not set up', asy
 	await expect(startCliPalComputer(pal.id)).rejects.toThrow(COMPUTER_NOT_SET_UP_FOR_MODEL)
 })
 
-it('ends an unready Windows reason with where to set it up', () => {
-	expect(withSetupHint('The Pal computer is not set up on this PC yet.', 'win32')).toBe(
+it('keeps the setup hint to the exact sandbox texts and drops the doubled instruction', () => {
+	const tail = ' Namzu sets it up; finish the setup from the Pal computer and try again.'
+	expect(withSetupHint(`The Pal computer is not set up on this PC yet.${tail}`, 'win32')).toBe(
 		`The Pal computer is not set up on this PC yet. ${RUN_COMPUTER_SETUP_LINE}`,
 	)
+	expect(
+		withSetupHint('Windows Linux container support (wslc) is not installed on this PC.', 'win32'),
+	).toBe(
+		`Windows Linux container support (wslc) is not installed on this PC. ${RUN_COMPUTER_SETUP_LINE}`,
+	)
+	for (const reason of [
+		'This PC has virtualization switched off. Turn it on in the PC startup settings, then try again.',
+		'Your organisation does not allow Linux containers on this PC.',
+		"Namzu needs an update to work with this version of Windows' Linux support.",
+		'Something about virtualization in another sense.',
+	])
+		expect(withSetupHint(reason, 'win32')).toBe(reason)
+})
+
+it('the wrapped provider probe ends an unready Windows reason with the setup line', async () => {
+	const probe = vi.fn(async () => ({
+		ready: false,
+		reason: 'Windows Linux container support on this PC is too old for Namzu.',
+	}))
+	createProvider.mockReturnValue({ acquire: vi.fn(), probe })
+	const pal = createPal({ name: 'Probe hint' })
+	const platform = Object.getOwnPropertyDescriptor(process, 'platform')
+	Object.defineProperty(process, 'platform', { value: 'win32' })
+	try {
+		expect(await cliPalComputerStatus(pal.id)).toEqual({
+			status: 'unavailable',
+			notice: `Windows Linux container support on this PC is too old for Namzu. ${RUN_COMPUTER_SETUP_LINE}`,
+		})
+	} finally {
+		if (platform) Object.defineProperty(process, 'platform', platform)
+	}
+})
+
+it('a bad bundle with the wslc engine fails the host in plain words and retries next call', async () => {
+	vi.stubEnv('NAMZU_PAL_COMPUTER_ENGINE', 'wslc')
+	vi.stubEnv('NAMZU_PAL_COMPUTER_IMAGE', undefined)
+	vi.stubEnv('NAMZU_PAL_COMPUTER_BUNDLE', join(root, 'missing-bundle'))
+	createProvider.mockReturnValue({ acquire: vi.fn(), probe: vi.fn() })
+	await expect(getCliPalRuntime()).rejects.toThrow(/manifest\.json/)
+	const bundle = join(root, 'late-bundle')
+	mkdirSync(bundle)
+	writeFileSync(
+		join(bundle, 'manifest.json'),
+		JSON.stringify({ imageRef: 'namzu-local-computer:4' }),
+	)
+	vi.stubEnv('NAMZU_PAL_COMPUTER_BUNDLE', bundle)
+	await getCliPalRuntime()
+	expect((createProvider.mock.calls[0]?.[0] as { image?: string }).image).toBe(
+		'namzu-local-computer:4',
+	)
+})
+
+it('ends an unready Windows reason with where to set it up', () => {
 	expect(withSetupHint('This PC has virtualization switched off.', 'win32')).toBe(
 		'This PC has virtualization switched off.',
 	)
