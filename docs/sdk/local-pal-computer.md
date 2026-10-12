@@ -759,8 +759,8 @@ Namzu Desktop does it from the Pal computer row; the CLI from
   prompt ends as `cancelled`, an account that cannot elevate as
   `needs-administrator`, a failed step as `failed` with the step, a stable
   code, the exit code Windows gave and a plain detail that names the step
-  ("Turning on Windows features stopped with exit code 1."). When setup finishes it inspects once more:
-  `ready`, or `blocked` for virtualization, policy or an engine mismatch the
+  ("Turning on Windows features stopped with exit code 1."). When setup
+  finishes it inspects once more: `ready`, or `blocked` for virtualization, policy or an engine mismatch the
   last inspection found, or `failed` with `engine-failed`.
 - **Restart.** When the elevated process says Windows needs a restart, setup
   writes `<stateDirectory>/restart.json` (a temporary file renamed over it, so

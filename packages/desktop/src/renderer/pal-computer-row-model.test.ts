@@ -285,26 +285,60 @@ describe('palComputerRowView', () => {
 	})
 })
 
-describe('failed and needs-administrator toast', () => {
+describe('setup outcome toast', () => {
 	const failedOutcome = { kind: 'failed' as const, sentence: 'Setup did not finish.' }
 	const admin = { kind: 'needs-administrator' as const }
+	const restart = { kind: 'restart-required' as const }
+	const adminSentence = 'Setup needs an administrator. Ask one to approve, or try again.'
 
-	it('speaks only when the row that already says it is not on screen', () => {
-		expect(setupOutcomeToast(failedOutcome, false)).toEqual({
+	it('speaks when the row is off screen', () => {
+		expect(setupOutcomeToast(failedOutcome, undefined, 'Kiro')).toEqual({
 			message: 'Setup did not finish.',
 			tone: 'error',
 		})
-		expect(setupOutcomeToast(admin, false)).toEqual({
-			message: 'Setup needs an administrator. Ask one to approve, or try again.',
+		expect(setupOutcomeToast(admin, undefined, 'Kiro')).toEqual({
+			message: adminSentence,
 			tone: 'warning',
 		})
-		expect(setupOutcomeToast(failedOutcome, true)).toBeUndefined()
-		expect(setupOutcomeToast(admin, true)).toBeUndefined()
+		expect(setupOutcomeToast(restart, undefined, 'Kiro')).toEqual({
+			message: 'Restart your PC to finish setting up Kiro’s computer.',
+			tone: 'warning',
+		})
 	})
 
-	it('leaves the other outcomes and no outcome to their own handling', () => {
-		expect(setupOutcomeToast({ kind: 'restart-required' }, false)).toBeUndefined()
-		expect(setupOutcomeToast(undefined, false)).toBeUndefined()
+	it('stays quiet when the row on screen already says it', () => {
+		expect(
+			setupOutcomeToast(failedOutcome, { note: 'Setup did not finish.', action: 'ask' }, 'Kiro'),
+		).toBeUndefined()
+		expect(setupOutcomeToast(admin, { note: adminSentence, action: 'ask' }, 'Kiro')).toBeUndefined()
+		expect(setupOutcomeToast(restart, { action: 'restart' }, 'Kiro')).toBeUndefined()
+	})
+
+	it('speaks when the row on screen shows something else', () => {
+		// For example the check after the run could not be made, and the row fell back to its
+		// ordinary state without the sentence.
+		expect(setupOutcomeToast(failedOutcome, {}, 'Kiro')?.message).toBe('Setup did not finish.')
+		expect(setupOutcomeToast(admin, { note: 'Something else.' }, 'Kiro')?.message).toBe(
+			adminSentence,
+		)
+		expect(setupOutcomeToast(restart, { action: 'ask' }, undefined)?.message).toBe(
+			'Restart your PC to finish setting up the Pal computer.',
+		)
+	})
+
+	it('agrees with the row the model builds for each outcome', () => {
+		for (const outcome of [failedOutcome, admin, restart]) {
+			const view = row(state({ outcome }))
+			expect(view).toBeDefined()
+			expect(
+				setupOutcomeToast(outcome, { note: view?.note, action: view?.action?.kind }, 'Kiro'),
+			).toBeUndefined()
+		}
+	})
+
+	it('has nothing to say without an outcome or after a cancel', () => {
+		expect(setupOutcomeToast(undefined, undefined, 'Kiro')).toBeUndefined()
+		expect(setupOutcomeToast({ kind: 'cancelled' }, undefined, 'Kiro')).toBeUndefined()
 	})
 })
 

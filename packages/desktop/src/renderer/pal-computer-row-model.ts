@@ -136,6 +136,8 @@ export interface PalComputerRowInput {
 	startFailure?: { details?: string }
 }
 
+const ADMINISTRATOR_SENTENCE = 'Setup needs an administrator. Ask one to approve, or try again.'
+
 export function palComputerRowView(input: PalComputerRowInput): PalComputerRowView | undefined {
 	const { palName: name, setup, consenting } = input
 	if (!setup?.available) return undefined
@@ -206,7 +208,7 @@ export function palComputerRowView(input: PalComputerRowInput): PalComputerRowVi
 					status: 'Needs an administrator',
 					action: retry,
 					busy: false,
-					note: 'Setup needs an administrator. Ask one to approve, or try again.',
+					note: ADMINISTRATOR_SENTENCE,
 					help,
 				}
 			case 'failed':
@@ -320,21 +322,30 @@ export function setupRowVisible(input: SetupRowVisibilityInput): boolean {
 }
 
 /**
- * The toast for a setup that failed or needs an administrator. The Pal computer row already
- * carries the same sentence, with Details and Try again, so a toast is only for the person who
- * cannot see that row.
+ * The toast for how a setup ended. The Pal computer row usually carries the same sentence, with
+ * Details and the next action, so a toast is only for the person who cannot see the row saying
+ * it: the row is off screen, or it is showing something else (for example a check after the run
+ * could not be made).
  */
 export function setupOutcomeToast(
 	outcome: PalComputerSetupOutcome | undefined,
-	rowVisible: boolean,
+	/** What the row on screen shows: its note and the kind of its action; nothing when off screen. */
+	shownRow: { note?: string; action?: PalComputerRowAction } | undefined,
+	palName: string | undefined,
 ): { message: string; tone: 'error' | 'warning' } | undefined {
-	if (rowVisible || !outcome) return undefined
-	if (outcome.kind === 'failed') return { message: outcome.sentence, tone: 'error' }
+	if (!outcome) return undefined
+	if (outcome.kind === 'failed')
+		return shownRow?.note === outcome.sentence
+			? undefined
+			: { message: outcome.sentence, tone: 'error' }
 	if (outcome.kind === 'needs-administrator')
-		return {
-			message: 'Setup needs an administrator. Ask one to approve, or try again.',
-			tone: 'warning',
-		}
+		return shownRow?.note === ADMINISTRATOR_SENTENCE
+			? undefined
+			: { message: ADMINISTRATOR_SENTENCE, tone: 'warning' }
+	if (outcome.kind === 'restart-required')
+		return shownRow?.action === 'restart'
+			? undefined
+			: { message: restartRequiredToast(palName), tone: 'warning' }
 	return undefined
 }
 
