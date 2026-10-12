@@ -18,6 +18,7 @@ import { BOOT_EVENT_NAMES, EVENT_NAME_ATTRIBUTE, VERSION as SDK_VERSION } from '
 import { acpCommand } from './commands/acp.js'
 import { archiveCommand } from './commands/archive.js'
 import { browserCommand } from './commands/browser.js'
+import { computerCommand } from './commands/computer.js'
 import { doctorCommand } from './commands/doctor.js'
 import { drainCommand } from './commands/drain.js'
 import { evalCommand } from './commands/eval.js'
@@ -408,6 +409,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 	for (const def of [
 		acpCommand,
 		palCommand,
+		computerCommand,
 		archiveCommand,
 		doctorCommand,
 		execCommand,
@@ -438,6 +440,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 							def === archiveCommand
 						? getRecoveryContext
 						: def === palCommand ||
+								def === computerCommand ||
 								def === acpCommand ||
 								def === execCommand ||
 								def === drainCommand ||

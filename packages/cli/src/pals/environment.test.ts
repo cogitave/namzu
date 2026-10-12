@@ -1,10 +1,12 @@
-import { mkdirSync, mkdtempSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ComputerUseHost, PalComputerControl, PalEnvironmentLease, Sandbox } from '@namzu/sdk'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../__fixtures__/temp-dir.js'
 import {
+	COMPUTER_NOT_SET_UP_FOR_MODEL,
+	RUN_COMPUTER_SETUP_LINE,
 	cliPalComputerStatus,
 	cliPalScreen,
 	cliPalScreenStream,
@@ -12,10 +14,12 @@ import {
 	executeCliPalComputerInput,
 	existingCliPalRuntime,
 	getCliPalRuntime,
+	modelFacingComputerError,
 	returnCliPalComputerControl,
 	startCliPalComputer,
 	stopCliPalComputer,
 	takeOverCliPalComputer,
+	withSetupHint,
 } from './environment.js'
 import { createPal } from './store.js'
 
@@ -350,4 +354,84 @@ it('refuses rotated host credentials and invalid dimensions without including se
 	} catch (error) {
 		expect(String(error)).not.toContain('private-fixture-credential')
 	}
+})
+
+it('uses the bundle manifest image for wslc only when no image is named', async () => {
+	const bundle = join(root, 'bundle')
+	mkdirSync(bundle)
+	writeFileSync(
+		join(bundle, 'manifest.json'),
+		JSON.stringify({ imageRef: 'namzu-local-computer:7' }),
+	)
+	const imageFor = async (env: Record<string, string | undefined>) => {
+		createProvider.mockReset()
+		createProvider.mockReturnValue({ acquire: vi.fn(), probe: vi.fn() })
+		for (const [key, value] of Object.entries(env)) vi.stubEnv(key, value)
+		await getCliPalRuntime()
+		const first = createProvider.mock.calls[0]?.[0] as { image?: string }
+		await closeCliPalRuntime()
+		return first.image
+	}
+	expect(
+		await imageFor({
+			NAMZU_PAL_COMPUTER_ENGINE: 'wslc',
+			NAMZU_PAL_COMPUTER_BUNDLE: bundle,
+			NAMZU_PAL_COMPUTER_IMAGE: undefined,
+		}),
+	).toBe('namzu-local-computer:7')
+	expect(
+		await imageFor({
+			NAMZU_PAL_COMPUTER_ENGINE: 'wslc',
+			NAMZU_PAL_COMPUTER_BUNDLE: bundle,
+			NAMZU_PAL_COMPUTER_IMAGE: 'mine:1',
+		}),
+	).toBe('mine:1')
+	expect(
+		await imageFor({
+			NAMZU_PAL_COMPUTER_ENGINE: 'docker',
+			NAMZU_PAL_COMPUTER_BUNDLE: bundle,
+			NAMZU_PAL_COMPUTER_IMAGE: undefined,
+		}),
+	).toBeUndefined()
+})
+
+it('tells the model a computer that can be set up from Namzu is not set up', async () => {
+	const failure = Object.assign(new Error('Windows Linux container support is not installed.'), {
+		name: 'LocalComputerSetupError',
+		code: 'engine-missing',
+	})
+	const policy = Object.assign(new Error('Your organisation does not allow it.'), {
+		name: 'LocalComputerSetupError',
+		code: 'blocked-by-policy',
+	})
+	expect(modelFacingComputerError(failure)).toMatchObject({
+		message: 'The computer is not set up; the person can set it up from Namzu.',
+	})
+	expect(modelFacingComputerError(Object.assign(failure, { code: 'image-missing' }))).toMatchObject(
+		{
+			message: COMPUTER_NOT_SET_UP_FOR_MODEL,
+		},
+	)
+	expect(modelFacingComputerError(policy)).toBe(policy)
+	const other = new Error('boom')
+	expect(modelFacingComputerError(other)).toBe(other)
+	createProvider.mockReturnValue({
+		acquire: vi.fn(async () => {
+			throw failure
+		}),
+		probe: vi.fn(),
+	})
+	const pal = createPal({ name: 'Needs setup' })
+	await expect(startCliPalComputer(pal.id)).rejects.toThrow(COMPUTER_NOT_SET_UP_FOR_MODEL)
+})
+
+it('ends an unready Windows reason with where to set it up', () => {
+	expect(withSetupHint('The Pal computer is not set up on this PC yet.', 'win32')).toBe(
+		`The Pal computer is not set up on this PC yet. ${RUN_COMPUTER_SETUP_LINE}`,
+	)
+	expect(withSetupHint('This PC has virtualization switched off.', 'win32')).toBe(
+		'This PC has virtualization switched off.',
+	)
+	expect(withSetupHint('Docker is missing.', 'linux')).toBe('Docker is missing.')
+	expect(withSetupHint(undefined, 'win32')).toBeUndefined()
 })
