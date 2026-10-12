@@ -13,6 +13,7 @@ import {
 	palComputerRowView,
 	progressLabel,
 	restartRequiredToast,
+	setupOutcomeToast,
 	setupStartCard,
 	windowsHelp,
 } from './pal-computer-row-model.js'
@@ -280,6 +281,29 @@ describe('palComputerRowView', () => {
 			).map((reason) => row(state({ phase: 'blocked', plan: undefined, blocked: { reason } }))),
 		]
 		for (const view of views) for (const text of texts(view)) expect(text).not.toMatch(JARGON)
+	})
+})
+
+describe('failed and needs-administrator toast', () => {
+	const failedOutcome = { kind: 'failed' as const, sentence: 'Setup did not finish.' }
+	const admin = { kind: 'needs-administrator' as const }
+
+	it('speaks only when the row that already says it is not on screen', () => {
+		expect(setupOutcomeToast(failedOutcome, false)).toEqual({
+			message: 'Setup did not finish.',
+			tone: 'error',
+		})
+		expect(setupOutcomeToast(admin, false)).toEqual({
+			message: 'Setup needs an administrator. Ask one to approve, or try again.',
+			tone: 'warning',
+		})
+		expect(setupOutcomeToast(failedOutcome, true)).toBeUndefined()
+		expect(setupOutcomeToast(admin, true)).toBeUndefined()
+	})
+
+	it('leaves the other outcomes and no outcome to their own handling', () => {
+		expect(setupOutcomeToast({ kind: 'restart-required' }, false)).toBeUndefined()
+		expect(setupOutcomeToast(undefined, false)).toBeUndefined()
 	})
 })
 

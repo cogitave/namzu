@@ -171,6 +171,7 @@ import {
 	type PalComputerRowAction,
 	palComputerRowView,
 	restartRequiredToast,
+	setupOutcomeToast,
 	setupStartCard,
 	setupWaitingLine,
 	withoutDockerHelp,
@@ -3886,22 +3887,6 @@ export function App({
 		else void startComputerRef.current(target)
 	}, [palSetup.state, setupCompleted, pals, palStarts.start])
 	const setupOutcome = palSetup.state?.outcome
-	const toastedSetupOutcome = useRef('')
-	useEffect(() => {
-		const key = setupOutcome ? JSON.stringify(setupOutcome) : ''
-		if (key === toastedSetupOutcome.current) return
-		toastedSetupOutcome.current = key
-		if (!setupOutcome) return
-		if (setupOutcome.kind === 'failed') notify(setupOutcome.sentence, { tone: 'error' })
-		else if (setupOutcome.kind === 'needs-administrator')
-			notify('Setup needs an administrator. Ask one to approve, or try again.', {
-				tone: 'warning',
-			})
-		else if (setupOutcome.kind === 'restart-required')
-			notify(restartRequiredToast(pal?.name), {
-				tone: 'warning',
-			})
-	}, [setupOutcome, pal?.name])
 	/** The row's own actions while this PC is being set up. */
 	const onSetupAction = (kind: PalComputerRowAction) => {
 		const setup = palSetup.state
@@ -3974,6 +3959,27 @@ export function App({
 	const palWorkspace = !!pal && !palsPage && railSection === null
 	const computerTabOpen = palWorkspace && palScreen?.palId === pal.id
 	const computerPage = computerTabOpen && palScreen?.activeTab === 'computer'
+	const toastedSetupOutcome = useRef('')
+	// The Pal computer row lives in the Pal's context card; it is on screen only while that card
+	// is open for the Pal the setup ran for, and the person is looking at this window.
+	const setupRowVisible =
+		focused &&
+		palWorkspace &&
+		!!pal &&
+		(palSetup.state?.palId === undefined || palSetup.state.palId === pal.id) &&
+		(computerPage ? computerProfileOpen : palProfileOpen)
+	useEffect(() => {
+		const key = setupOutcome ? JSON.stringify(setupOutcome) : ''
+		if (key === toastedSetupOutcome.current) return
+		toastedSetupOutcome.current = key
+		if (!setupOutcome) return
+		const toast = setupOutcomeToast(setupOutcome, setupRowVisible)
+		if (toast) notify(toast.message, { tone: toast.tone })
+		else if (setupOutcome.kind === 'restart-required')
+			notify(restartRequiredToast(pal?.name), {
+				tone: 'warning',
+			})
+	}, [setupOutcome, setupRowVisible, pal?.name])
 	useEffect(() => {
 		if (focused)
 			onShellState({

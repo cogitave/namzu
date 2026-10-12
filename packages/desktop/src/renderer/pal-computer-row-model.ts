@@ -1,5 +1,6 @@
 import type {
 	PalComputerBlock,
+	PalComputerSetupOutcome,
 	PalComputerSetupPlanView,
 	PalComputerSetupRunning,
 	PalComputerSetupState,
@@ -286,6 +287,25 @@ export function setupWaitingLine(
 	// The Pal computer row carries the sentence and the fold; the messages just wait.
 	if (setup.phase === 'blocked') return { text: base.text, action: null }
 	return base
+}
+
+/**
+ * The toast for a setup that failed or needs an administrator. The Pal computer row already
+ * carries the same sentence, with Details and Try again, so a toast is only for the person who
+ * cannot see that row.
+ */
+export function setupOutcomeToast(
+	outcome: PalComputerSetupOutcome | undefined,
+	rowVisible: boolean,
+): { message: string; tone: 'error' | 'warning' } | undefined {
+	if (rowVisible || !outcome) return undefined
+	if (outcome.kind === 'failed') return { message: outcome.sentence, tone: 'error' }
+	if (outcome.kind === 'needs-administrator')
+		return {
+			message: 'Setup needs an administrator. Ask one to approve, or try again.',
+			tone: 'warning',
+		}
+	return undefined
 }
 
 /** The one toast for restart-required: a sentence only, the row keeps the "Restart now" action. */
