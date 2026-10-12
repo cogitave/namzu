@@ -2,608 +2,271 @@
 type: Index
 title: Namzu
 description: >-
-  An agent kernel for TypeScript. Ships a reusable SDK, a terminal application
-  and optional capabilities for supervised agents with explicit
-  identity, budgets, permissions and pluggable durability. FSL-1.1-MIT,
-  converting to MIT two years after each release.
+  A terminal AI agent you can use on real projects, and the open TypeScript
+  SDK it is built on. It asks before it acts, keeps its records on your
+  machine, and can run jobs while you are away. The SDK and most packages are
+  FSL-1.1-MIT, converting to MIT two years after each release; the terminal app
+  and the files package are MIT.
 tags: [readme, index, typescript, agent-kernel]
 status: stable
-generated: { by: human:bahadirarda, at: 2026-08-07T00:00:00Z }
+generated: { by: human:bahadirarda, at: 2026-10-13T00:00:00Z }
 -->
 
 <div align="center">
 
 <h1>Namzu</h1>
 
-**The kernel for AI agents. A TypeScript SDK. A runtime you control.**
+**An AI agent for your terminal that asks before it acts, keeps its records on your machine, and can run jobs while you are away.**
 
-[![License: FSL-1.1-MIT](https://img.shields.io/badge/license-FSL--1.1--MIT-blue.svg)](./LICENSE.md)
-[![npm @namzu/sdk](https://img.shields.io/npm/v/@namzu/sdk.svg?label=%40namzu%2Fsdk)](https://www.npmjs.com/package/@namzu/sdk)
+[![License: FSL-1.1-MIT or MIT](https://img.shields.io/badge/license-FSL--1.1--MIT%20%7C%20MIT-blue.svg)](./LICENSE.md)
 [![npm @namzu/cli](https://img.shields.io/npm/v/@namzu/cli.svg?label=%40namzu%2Fcli)](https://www.npmjs.com/package/@namzu/cli)
+[![npm @namzu/sdk](https://img.shields.io/npm/v/@namzu/sdk.svg?label=%40namzu%2Fsdk)](https://www.npmjs.com/package/@namzu/sdk)
+[![CI](https://github.com/cogitave/namzu/actions/workflows/ci.yml/badge.svg)](https://github.com/cogitave/namzu/actions/workflows/ci.yml)
 
-[Install](#install) · [An agent is a folder](#or-dont-write-any-of-that--make-a-folder) · [What is inside](#what-is-inside-that-is-independently-hard) · [Packages](#the-packages) · [Docs](./docs/)
+[Install](#install) · [Terminal app](#the-terminal-app) · [Namzu Desktop](#namzu-desktop) · [For developers](#for-developers) · [Docs](#docs) · [Status](#status)
 
 </div>
 
 ---
 
-## What this is
-
-An agent that works in a demo is a loop around a model call. An agent that
-works in production is that loop plus everything around it — a budget that
-stops it, an identity that attributes it, a boundary it cannot talk its way
-past, a record that can survive the process when durable stores are configured,
-and a way to shrink a conversation that is about to overflow without corrupting
-it.
-
-Namzu is the kernel for those other things. Its `@namzu/sdk` package runs an
-agent the way an operating system runs a process: it is given an identity and a
-budget, scheduled, checkpointed, and optionally confined by the sandbox a host
-supplies. The kernel renders no UI, requires no database, hosts no service, and
-has no preferred model vendor. Direct SDK consumers install only the driver
-packages they use; the CLI bundles its supported set.
-
-`@namzu/cli` is a terminal coding agent built entirely on that kernel, in this
-repository, from the same public API you get. It exists as much to prove the
-kernel as to be used: every gap in the SDK showed up first as something the
-CLI had to work around.
-
-## Terminal application
-
-![Namzu CLI creating a small TypeScript greeting function](docs/assets/cli-greeting.png)
-
-A real CLI session in an isolated demonstration directory, using a small model
-at low reasoning effort. The terminal capture contains only example code.
-
-## Who it is for
-
-Read on if any of these is your afternoon:
-
-- The work has to be **attributable** — a tenant, a project, a session, and an
-  auditable trail of what it did and what it cost.
-- The work has to be **bounded** — tokens, money, wall clock, and iterations,
-  enforced rather than hoped for.
-- The work has to **survive** — a process restart, a deploy, an operator
-  pressing Ctrl-C, a question that needs a human before it can continue.
-- One agent has to **delegate** to another, and that is where it broke.
-- The model gets **tools**, and you would rather it not get your machine.
-- You are **multi-tenant**, and "two customers in one process" has to be a
-  property of the type system rather than a code review.
-
-Read something else if you want a chat interface by the end of the day. There
-is no UI here, no dashboard, no hosted anything. This is the layer underneath
-that.
-
 ## Install
 
-The kernel runs standalone against a scriptable mock driver, so the first turn
-needs no key and no network:
+On macOS, Linux or WSL:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/cogitave/namzu/main/install.sh | sh
+```
+
+On Windows, in PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/cogitave/namzu/main/install.ps1 | iex
+```
+
+Then run `namzu doctor` to check your sign-in and sandboxing, and `namzu` to
+open the terminal app. You need Node.js 22.13 or newer. Every shell, and what
+to do when an install fails, is covered in [installing Namzu](docs/cli/installation.md).
+
+## The terminal app
+
+Namzu in your terminal is a coding agent for the project you are working in.
+It reads your code, runs commands and edits files, and it does this in the open.
+
+![Namzu terminal app greeting in a demonstration folder](docs/assets/cli-greeting.png)
+
+- **It asks before it reaches outside your folder.** Commands and file tools run
+  on your machine under a permission system. A path outside the working folder
+  becomes an approval request you can answer. [Where tools run](docs/cli/tool-boundary.md)
+- **You can undo a turn.** Before a tool changes a file, the app records that
+  file for the turn, so `/restore` puts the tree back as it was. [File checkpoints](docs/cli/file-checkpoints.md)
+- **Work can happen in a separate checkout.** Managed Git worktrees give a task
+  its own copy of the project, and you can reopen that project later. [Worktrees](docs/cli/worktrees.md)
+- **It drives a browser for you and hands over when a page needs you.** Site
+  rules apply, and the app pauses when a page asks for a person. [The browser](docs/cli/browser.md)
+- **It remembers what you ask it to keep.** Notes you curate are read into every
+  conversation, and stored memories are recalled when they are relevant. [Memory](docs/cli/memory.md)
+- **It follows your conventions.** Skills are loaded when the work needs them,
+  and the project's `AGENTS.md` is read as instructions. [Skills](docs/cli/skills.md)
+- **It connects to the tool servers you declare.** External tool servers, by
+  command or URL, are authorized per project. [Tool servers](docs/cli/mcp-servers.md)
+- **It keeps working when you are away.** Scheduled tasks run later while Namzu
+  is closed, with approvals, missed-run handling and a history. [Scheduled tasks](docs/cli/scheduled-tasks.md)
+- **It runs in scripts too.** `namzu exec` runs one prompt without a screen,
+  `namzu exec --json` streams events to another program, and `namzu history`
+  prints a conversation's messages as JSON. [Exec JSON](docs/cli/exec-json.md)
+
+### Choose a model
+
+- **Reuse a sign-in you already have.** Existing provider sessions on your
+  machine are found, so you do not paste a key. [Credentials](docs/cli/credentials.md)
+- **Sign in from inside Namzu.** Start a sign-in from the model picker, or run
+  `namzu login`. [Credentials](docs/cli/credentials.md)
+- **Use an API key.** Set the provider's key in your environment, for example
+  `OPENROUTER_API_KEY`.
+- **Run local models with no key.** Local models are reached through
+  `@namzu/ollama`. [Model catalogue](docs/cli/model-catalogue.md)
+
+## Namzu Desktop
+
+**Coming soon.** Namzu Desktop is a desktop app for Windows that puts your
+conversations, projects, Pals (named agents, see below), terminal tabs and
+approvals in windows of their own. It is in preview and is not published yet, so there is no installer to
+download. When it ships, it runs on the same runtime as the terminal app.
+
+- Conversations open in panes and windows, with terminal tabs beside them.
+- Switch between the desktop app and the terminal app from one place.
+- Folder trust, approvals, model choice and background work are handled in the same app.
+
+Details of the preview are in [the desktop guide](docs/cli/desktop.md).
+
+## Pals
+
+A Pal is a named agent that keeps its name, its purpose and its conversations
+between sessions. You can create one from the terminal app or from Namzu Desktop:
+
+```sh
+namzu pal create Research --purpose "Reads papers and writes short summaries"
+namzu pal list
+```
+
+A Pal can also have its own Linux desktop, a persistent guest computer with a
+browser and a files app. Namzu never silently installs the container engine or pulls
+its image; you turn the computer on explicitly. You can pause a Pal at
+any time, and an operator can take over its computer, which is checked before
+each action. See [Pals in the terminal app](docs/cli/pals.md),
+[Pal computers](docs/cli/computer.md) and [local Pal computers](docs/sdk/local-pal-computer.md).
+
+## For developers
+
+`@namzu/sdk` is the TypeScript kernel the terminal app is built on. It runs an
+agent the way an operating system runs a process: it gives the agent an
+identity and a budget, schedules its tool calls, and checkpoints its turns. The
+kernel renders no UI and requires no database. You install only the drivers you use.
+
+### Build an agent with the SDK
+
+Install the kernel. Pin `zod` to v3, because the kernel is built against it and
+a bare `pnpm add zod` installs v4:
 
 ```bash
 pnpm add @namzu/sdk zod@^3
 ```
 
-<sub>`zod`, `zod-to-json-schema` and `@opentelemetry/api` are peer-declared
-so your lockfile owns their versions.
-Pin `zod` to v3: that is the range the kernel is built against, and a bare
-`pnpm add zod` installs v4.</sub>
+Save this as `agent.ts` and run it with `pnpm exec tsx agent.ts`. It needs no key
+and no network, because the mock provider plays a scripted answer:
 
-```typescript
+```ts
 import { ProviderRegistry, runAgent } from '@namzu/sdk'
 
 const { provider } = ProviderRegistry.create({ type: 'mock', responseText: 'Paris.' })
-
 const { output, turn, identity } = await runAgent({
   provider,
   model: 'mock-model',
   prompt: 'What is the capital of France?',
 })
 
-console.log(output)          // 'Paris.'
-console.log(turn.stopReason) // 'end_turn'
-console.log(identity)        // { sessionId, topicId, projectId, tenantId }
+console.log(output)
+console.log(turn.stopReason)
+console.log(identity)
 ```
 
-That is not a chat call with extra steps. It generated a session identity,
-applied the default budgets, ran the tool scheduler, and recorded the turn in
-the session's log: one append-only, hash-chained JSONL file at
-`~/.namzu/projects/<slug>/<session-id>.jsonl` (`NAMZU_HOME` moves the root),
-where the slug is the working directory's path with every character outside
-`[A-Za-z0-9]` replaced by `-`. Nothing is written into the working directory
-itself. A `<session-id>/checkpoints/` directory joins the log once an
-iteration's tool batch is accepted and the turn goes on to another iteration —
-one JSON per checkpoint — so the tool loop below writes them and the quickstart
-above, which ends on its first iteration, writes none.
+The turn ran through the normal lifecycle: budgets, the tool scheduler and the
+session log. Spread `identity` into the next `runAgent` call to continue the
+same session. To give the agent tools, and to swap in a real provider, see the
+[SDK quick start](docs/sdk/quick-start.md) and the
+[tool example in the SDK README](packages/sdk/README.md#run-a-tool).
 
-`identity` comes back so the next turn continues the same session:
+### What the kernel does for you
 
-```typescript
-import { createUserMessage } from '@namzu/sdk'
+- **Stops runaway work.** Token, cost, time and iteration budgets are enforced
+  on every turn, with a warning before the hard stop. [Token budgets](docs/sdk/token-budgets.md)
+- **Survives a restart.** Each session is written to one append-only,
+  hash-chained log, so a crash loses at most the line being written, and a
+  paused turn can be picked up later. [Session log](docs/sdk/session-log.md)
+- **Attributes every action.** Tenant, project, topic and session identities
+  travel with the work, so you can tell who did what. [Identifiers](docs/sdk/ids.md)
+- **Shrinks long conversations without breaking them.** Compaction never cuts a
+  tool call away from its result, which would be a hard error at the provider.
+  [Compaction](packages/sdk/src/compaction/dangling.ts)
+- **Refuses rather than pretends.** If a turn needs an isolation control the host
+  cannot supply, it does not start unconfined. [Sandboxes](docs/sdk/kubernetes-sandbox.md)
+- **Makes tools declare what they are.** Each tool states whether it is read-only,
+  destructive, safe to run concurrently and which permissions it needs, so the
+  scheduler and the permission gate can decide. [Tool execution](docs/sdk/tool-execution.md)
+- **Delegates within a budget.** A child agent gets a slice of the parent's
+  remaining tokens, and the unused part comes back when it finishes. [Token budgets](docs/sdk/token-budgets.md)
+- **Turns a folder into an agent.** A folder with `instructions.md`, `tools/`
+  and `skills/` loads into the same options `runAgent` takes. A load can list
+  the folder without running any of its code. [Directory loader](packages/sdk/src/directory/load.ts)
 
-const second = await runAgent({
-  provider,
-  model: 'mock-model',
-  ...identity,
-  prompt: [...turn.messages, createUserMessage('And of Japan?')],
-})
-```
-
-Give it tools and a scripted turn that asks for one, and the same call runs a
-tool loop — the model requests `get_weather`, the kernel executes it, and the
-result goes back for the next turn:
-
-```typescript
-import { defineTool, ProviderRegistry, runAgent, ToolRegistry } from '@namzu/sdk'
-import { z } from 'zod'
-
-const { provider } = ProviderRegistry.create({
-  type: 'mock',
-  turns: [
-    { toolCalls: [{ name: 'get_weather', args: { city: 'Paris' } }] },
-    { text: 'It is 17C in Paris.' },
-  ],
-})
-
-const tools = new ToolRegistry()
-
-tools.register(
-  defineTool({
-    name: 'get_weather',
-    description: 'Current weather for a city.',
-    inputSchema: z.object({ city: z.string() }),
-    category: 'network',
-    permissions: ['network_access'],
-    readOnly: true,
-    destructive: false,
-    concurrencySafe: true,
-    execute: async ({ city }) => ({
-      success: true,
-      output: `It is 17C and raining in ${city}.`,
-    }),
-  }),
-)
-
-const { output, turn } = await runAgent({
-  provider,
-  model: 'mock-model',
-  tools,
-  prompt: 'What is the weather in Paris?',
-})
-
-console.log(output)                                        // 'It is 17C in Paris.'
-console.log(turn.messages.filter((m) => m.role === 'tool')) // the executed tool result
-```
-
-The mock plays its turns in order, so a tool loop is scripted rather than
-inferred: the quickstart's single `responseText` turn above never asks for a
-tool, and the same `runAgent` call with it returns a plain answer.
-
-A tool declares what it *is* — read-only or not, destructive or not, safe to
-run concurrently or not, and which permissions it needs — because the
-scheduler, the permission gate and the operator prompt all have to ask those
-questions, and a tool that will not answer them forces every one of them to
-assume the worst.
-
-To talk to a real service, install a driver and swap the two lines that
-construct the provider. Nothing below them changes.
-
-```bash
-pnpm add @namzu/sdk @namzu/ollama    # local, no key
-```
-
-### Or don't write any of that — make a folder
-
-An agent can be a directory. `loadDirectory` reads a conventional folder into
-exactly the options `runAgent` already takes, so there is no second engine and
-nothing reachable only this way.
-
-The smallest one that works is a folder with a file in it:
-
-```
+```text
 agent/
-└── instructions.md
+├── instructions.md     the system prompt
+├── agent.ts            optional settings: model, budgets, name
+├── tools/              one file per tool
+└── skills/             one folder per skill
 ```
 
-```typescript
-import { deriveTurnOptions, loadDirectory, runAgent } from '@namzu/sdk'
+### Packages
 
-const { manifest } = await loadDirectory('./agent')
-const { output } = await runAgent(
-  deriveTurnOptions(manifest, { provider, model: 'mock-model', prompt: 'Hi' }),
-)
-```
-
-Everything else is optional, and each slot buys one thing:
-
-```
-agent/
-├── instructions.md     the system prompt, used verbatim
-├── agent.ts            export default { model, temperature, maxIterations,
-│                         tokenBudget, timeoutMs, name, metadata } — all optional
-├── tools/              one file per tool, each default-exporting defineTool(...)
-├── skills/             one folder per skill
-└── agents/             one folder per delegate, same shape, one level deep
-```
-
-`instructions.md` is used verbatim, and it is one of **two** ways to shape an
-agent here. The other is the structured persona assembler, and the two are not
-rival subsystems — they fill one slot, with a plain system prompt taking
-precedence over a persona. `assembleSystemPrompt(persona)` returns a string, so
-its output can simply be what `instructions.md` contains. A folder does not lose
-its skills by taking the simple route: the skills section is rendered either way.
-What the two routes trade is where that section lands — a persona places it
-among its own sections, after constraints and tool guidance, while a plain
-prompt gets it immediately after the prompt — and how much of the prompt you
-can address one piece at a time. Nothing else about the folder depends on
-which you pick.
-
-A tool file is a normal module:
-
-```typescript
-// agent/tools/weather.ts
-import { defineTool } from '@namzu/sdk'
-import { z } from 'zod'
-
-export default defineTool({
-  name: 'get_weather',
-  description: 'Current weather for a city.',
-  inputSchema: z.object({ city: z.string() }),
-  category: 'network',
-  permissions: ['network_access'],
-  readOnly: true,
-  destructive: false,
-  concurrencySafe: true,
-  execute: async ({ city }) => ({ success: true, output: `It is 17C in ${city}.` }),
-})
-```
-
-That is the whole convention. A recent runtime imports the `.ts` directly, so
-there is no build step; a project whose syntax it cannot read passes its own
-`importModule`.
-
-**Loading a folder does not have to run it.** Importing a module executes it —
-a top-level side effect in `tools/search.ts` happens during the load, in your
-process, with your privileges. So the loader has a mode:
-`loadDirectory(dir, { modules: 'skip' })` imports **nothing**, and still returns
-the full structure: every path, the instructions, the skills, duplicate
-detection, and each file marked `not_loaded`. That is the mode for a CI check,
-a file tree, or triage of a directory whose author is not you. Symlinks inside
-a slot are refused rather than followed, for the same reason — the file that
-gets imported would not be the file that was listed.
-
-Nothing is silently dropped. Every refusal comes back as a diagnostic naming
-its file and reason: a tool file with no default export, two tools claiming one
-name (neither is registered), an empty `instructions.md`, a nested directory
-that was not scanned. `ok` tells you whether any of them was an error — scoped
-to the slots you asked for, so it never means more than it checked.
-
-**What the folder form does not do**, so you find out here rather than later:
-
-- **It is SDK-only today.** The terminal agent does not read an `agent/`
-  folder — it has its own project instructions and trust gate, and the two are
-  unrelated. Nothing auto-discovers: you pass the path.
-- **Config is static.** `agent.ts` exports a plain object, not a factory. Read
-  an environment variable inside it if you need to; there is no hook.
-- **Delegates go one level.** A delegate may not declare delegates of its own.
-- **A skipped load cannot be run.** `deriveTurnOptions` throws on a
-  `modules: 'skip'` manifest rather than handing back an agent whose tools are
-  all missing for a reason unrelated to the project.
-- **The working directory becomes the folder itself**, not its parent, so file
-  tools are contained to the agent. Widening that is an explicit override.
-
-### The terminal agent
-
-For macOS, Linux, or WSL, run the POSIX installer in a shell:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/cogitave/namzu/main/install.sh | sh
-```
-
-For native Windows PowerShell, run the PowerShell installer:
-
-```powershell
-irm https://raw.githubusercontent.com/cogitave/namzu/main/install.ps1 | iex
-```
-
-For native Windows Command Prompt (`cmd.exe`), use npm's command shim:
-
-```bat
-npm.cmd install --global @namzu/cli
-namzu.cmd --version
-```
-
-On macOS, Linux, or WSL, you can also run Namzu once without installing:
-
-```sh
-npx @namzu/cli
-```
-
-The CLI requires Node 22.13 or newer. Both installers check the version and
-verify the binary answers. The POSIX installer retries an unwritable global
-prefix under `~/.namzu` and tells you the line to add to your shell profile.
-Failed npm attempts retain their diagnostic output. In native Windows
-PowerShell, use `namzu.cmd` to avoid selecting a `.ps1` wrapper under Restricted
-execution policy. See [Installing and reopening Namzu](docs/cli/installation.md)
-for troubleshooting and conversation resume commands.
-
-Bare `namzu` opens an interactive terminal agent. The same binary is
-scriptable: `namzu exec` for a single headless prompt, `namzu exec --json` for
-newline-delimited events a host UI can consume, `namzu history`,
-`namzu doctor`, `namzu upgrade`, `namzu skills`, and `namzu eval`, plus `namzu providers-json`
-and `namzu skills-json` for a host UI that wants the rosters as JSON. Run
-`namzu --help` for the current list.
-
-The TUI names `namzu upgrade` when npm reports a newer version. The command
-updates the npm-global prefix that owns the running package and verifies that
-exact package before claiming success; `namzu upgrade --check` is read-only.
-
-Three things it does on the way in are worth knowing, because they are the
-difference between a toy and something you point at a real repository:
-
-- **A folder nobody has trusted is not one it runs in.** On launch in an
-  unfamiliar working directory it stops and asks, because reading, running
-  commands and editing files there is what it is about to be able to do.
-- **The repository gets to state how it wants work done.** An `AGENTS.md` is
-  read from the working directory upward to the repository root, outermost
-  first, so the file nearest the work has the final word. Before this existed
-  everything the agent was told was about the *user* and global to the
-  machine; a project that had written its conventions down had no way to be
-  heard short of pasting the file in every session.
-- **It connects to the tool servers you declare**, so the tools available in a
-  given checkout are that checkout's business rather than the binary's.
-
-## What is inside that is independently hard
-
-The reason this repository is larger than a loop is that each of the following
-is a problem you hit at a specific hour of building an agent product, and each
-one is a thing you would otherwise stop and solve yourself. Every item names
-the file that implements it, because a README is a claim and the code is the
-evidence.
-
-**Shrinking a conversation without corrupting it.**
-The window fills and something has to go, but you cannot simply drop the
-oldest messages. An assistant turn that asked for a tool and the result that
-answers it are a matched pair, and a provider rejects a conversation
-containing one without the other — so the naive trim turns a context problem
-into a hard API error. `findDanglingMessages` scans for both halves of that
-break, and `findSafeTrimIndex` picks a cut that does not create one. The
-window size itself is resolved by longest-prefix match on the model id, with
-a deliberately conservative default for an unrecognised model: compacting too
-early costs one summarisation pass, and compacting too late ends the turn with
-nothing recoverable.
-→ `packages/sdk/src/compaction/dangling.ts`, `compaction/context-window.ts`
-
-**A turn that outlives the process that started it.**
-Every message, tool call and decision is appended to the session's log as it
-happens, each line hash-chained to the one before it, so a crash loses at most
-the line being written — and a torn last line is repaired on the next open.
-The turn writes a checkpoint carrying the budgets, the working state and the
-trace context, and the log position its context folds from, at the end of each
-iteration it continues past. `resumeSession` joins one of those checkpoints
-back onto a live loop in a *different* process, under the same turn id. It
-returns three outcomes rather than a nullable turn, because the two failures
-mean opposite things: "no checkpoint" is a dead end, while "parked awaiting a
-decision" is the turn working exactly as designed and waiting for a human. A
-session has one active turn at a time, so a second process cannot start a
-turn that interleaves with a parked or interrupted one; it is refused with
-`TurnInProgressError` until the turn is resumed or `abandonTurn` closes it.
-→ `store/session-log/`, `runtime/query/resume-session.ts`, `store/checkpoint/`
-
-**Delegation that cannot quietly corrupt itself.**
-Work is a hierarchy — project, topic, session, child session, turn — and each
-layer's opaque UUID has its own nominal type, so handing a session id to
-something expecting a turn id does not compile. Depth and width
-caps are checked *before* any write, and the width check plus the write that
-invalidates it are held in one critical section keyed on the parent: without
-that, two concurrent spawns both read the same count, both saw room, and a cap
-of N admitted N+1. Session ownership is a compare-and-set against the version
-the *store* holds — previously two concurrent handoffs could both pass, both
-provision a workspace, and one silently erase the other. Archiving a project
-refuses rather than cascades while live sessions are attached, because closing
-a workspace under a running agent abandons work whose owner is still watching.
-And a delegated task whose launching call already timed out still produced a
-result somebody should see; the completion inbox is what stops it being
-dropped on the floor.
-→ `session/handoff/capacity.ts`, `manager/agent/lifecycle.ts`, `session/errors.ts`, `gateway/completion-inbox.ts`
-
-**A budget that survives being divided.**
-Five dimensions are checked every iteration — cancellation, wall clock, token
-budget, cost, and iteration count — each producing a named stop reason rather
-than an exception, with a warning tier before the hard stop so a turn can react
-while it still can. Dividing that budget across a delegation tree is where it
-gets interesting.
-A child gets a slice of its parent's remaining tokens, computed inside the
-spawn lock so siblings queue instead of all reading the same untouched number,
-debited only once provisioning commits so a rejected spawn costs nothing, and
-*refunded* on settle. The refund is the part that is easy to miss and
-expensive to omit: without it the pool shrinks by the full allocation
-regardless of what the child spent, and ten delegations leave a parent with a
-thousandth of its budget. A spawn whose allocation rounds to zero is refused
-outright rather than granted, because zero means *unlimited* downstream — so
-the naive arithmetic hands the most depleted parent in the tree an unbounded
-child.
-→ `manager/agent/lifecycle.ts`, `turn/LimitChecker.ts`
-
-**A refusal the model can actually act on.**
-A permission gate that answers only "denied" produces thrashing: the model
-rewords the same call and tries again, because nothing told it that retrying
-is pointless. Every rule here can describe itself in a sentence — which rule
-matched, which argument, whether a different input could ever get through — and
-that sentence goes back to the model inside the tool result. Approvals are
-scoped by the approver rather than fixed: a grant can cover one exact
-invocation or an entire tool, and the key is built from arguments serialised
-with sorted properties, so the same call never gets asked about twice merely
-because two fields swapped order. Grants live for the turn and are never
-persisted.
-→ `verification/gate.ts`, `runtime/query/tool-grants.ts`
-
-**Content the agent must read but must not obey.**
-Anything a tool returns — a fetched page, another agent's output, a connector's
-prompt — is wrapped in an envelope that says whose words these are and that
-they are material rather than instruction. Two details separate a boundary
-from a decoration, and both were missing the first time: the closing token is
-neutralised inside the body, so content carrying the delimiter cannot end the
-block early and have the rest read as unlabelled instructions; and there is no
-"already wrapped" fast path, because that check is forgeable by text that
-merely starts with the opening tag.
-→ `tools/untrusted-envelope.ts`
-
-**Isolation that tells you what it is not enforcing.**
-Sandbox tiers do not all provide the same controls, and the honest table is
-kept in code: one environment enforces filesystem, network and process
-isolation; another enforces network and process only and reports
-`filesystem: false` **on purpose**, because it unshares a mount namespace
-without remounting anything and a private mount table is not confinement. If a
-turn requires a control the host cannot supply, the kernel refuses to start it
-rather than proceeding while the caller believes it is confined. A security
-control that is accepted and silently not applied is worse than one that was
-never offered.
-→ `sandbox/isolation.ts`
-
-**Provider differences that are really latent bugs.**
-Several services spell a model id the same way, ending in either a minor
-version or an eight-digit release date. Three drivers had each written the
-same matcher and all three read the date as the minor, so an id naming no
-minor compared as enormously *newer* — and every capability check keyed on
-that comparison inverted, telling a model it supported features it does not.
-There is now one parser, given the vocabulary by the driver that knows it.
-Alongside it: strict tool schemas are a *subset* of JSON Schema, and a single
-keyword outside that subset makes a service reject the whole request rather
-than degrade one field, so violations are found before the call; one tool
-schema is rendered once and converted per dialect at the driver; and a driver
-that cannot honour a requested capability must refuse rather than drop it.
-→ `provider/model-version.ts`, `provider/strict-schema.ts`, `registry/tool/dialect.ts`, `provider/thinking-support.ts`
-
-**Correcting a turn that is already going.**
-Watching an agent head the wrong way, the two obvious options are both bad:
-cancelling discards every tool result already paid for, and rejecting through
-the review gate only works if a call happens to be pending and can only say
-"no" when you meant "yes, but look at this first". There is also no legal
-place to insert a user message mid-batch — a tool call must be answered by its
-matching result. So guidance rides on the tool result itself, the slot the
-model already reads for outcomes. It does not interrupt; the batch in flight
-finishes and the note lands where the model looks next.
-→ `runtime/query/steering.ts`
-
-**Reading an agent directory you did not write.**
-A conventional `agent/` folder can contribute instructions, tools, skills and
-sub-agents. Loading one has a mode, because importing a module *runs* it — a
-top-level side effect executes in your process with your privileges. `'skip'`
-imports nothing and still returns the full structural truth: every path, the
-instructions, the skills, and duplicate detection. That is what a CI check, a
-file tree, and triage of somebody else's directory all actually want.
-→ `directory/types.ts`, `directory/load.ts`
-
-## The packages
-
-`@namzu/sdk` is the kernel and has no workspace dependencies. Runtime extension
-packages depend on it through `peerDependencies`; the CLI is the composition
-root and owns direct dependencies on the extensions it ships. `@namzu/files`
-is standalone. Nothing in the kernel depends back on any leaf package.
-
-| Package | What it is |
+| Package | What it is for |
 |---|---|
-| `@namzu/sdk` | The kernel: turn loop, session log, tools, budgets, compaction, checkpoints, permission gate, connectors, telemetry |
-| `@namzu/cli` | The terminal agent, and the operator commands. Also importable as a library |
-| `@namzu/sandbox` | Sandbox providers beyond the in-kernel one |
-| `@namzu/telemetry` | The exporter pipeline, kept separate so consumers who emit nothing install nothing |
-| `@namzu/computer-use` | Screenshot, mouse and keyboard control through platform-native tools |
-| `@namzu/live` | Transport-agnostic live sessions orchestrating caller-supplied speech and audio-output drivers |
-| `@namzu/lsp` | Language-server-backed code navigation and symbol resolution |
-| `@namzu/ag-ui` | AG-UI adapter for streamed text, backend tools and application state; Fetch/SSE integration for host UIs |
-| `@namzu/zen` | Zen and Go model access with native API routing and stable conversation identity |
-| `@namzu/files` | File registry contracts, with in-memory, local-disk, Azure Blob and HTTP backends. Pre-1.0 |
-| `@namzu/evals` | The kernel's own behaviour suites, runnable against an installed kernel |
+| `@namzu/sdk` | The kernel: turns, sessions, tools, budgets, compaction, checkpoints and the permission gate. [Guide](docs/sdk/index.md) |
+| `@namzu/cli` | The terminal app, which is also scriptable. [Guide](docs/cli/index.md) |
+| `@namzu/browser` | A browser host for agents, with site rules and a human handoff. [Guide](docs/sdk/browser-host.md) |
+| `@namzu/sandbox` | Isolation providers beyond the kernel's own, including container-cluster and microVM sandboxes. [Guide](docs/sdk/kubernetes-sandbox.md) |
+| `@namzu/computer-use` | Screenshots, mouse and keyboard control through platform-native tools. |
+| `@namzu/ag-ui` | An AG-UI adapter for streamed text, tools and interrupts in a host interface. [Guide](docs/sdk/ag-ui.md) |
+| `@namzu/live` | Live sessions that run the speech and audio drivers you supply. |
+| `@namzu/lsp` | Code navigation and symbol lookup through language servers. Pre-1.0. |
+| `@namzu/telemetry` | Telemetry exporters, kept apart so that a host that emits nothing installs nothing. |
+| `@namzu/files` | A file registry with in-memory, local-disk and cloud-blob backends, plus an HTTP download router. |
+| `@namzu/evals` | Behaviour suites that run against an installed kernel. |
 
-Model drivers, one per service. Direct SDK consumers install only what they
-use; the CLI bundles the selected drivers named in its package README:
+### Model drivers
+
+Each driver implements the same `LLMProvider` contract and registers through
+`ProviderRegistry`, so switching models does not change the code around them.
 
 | Package | Notes |
 |---|---|
-| `@namzu/anthropic` | Streaming, tool use, extended thinking |
-| `@namzu/openai` | Chat Completions, streaming, tool use |
-| `@namzu/deepseek` | Chat Completions, streaming, tool use, thinking mode |
-| `@namzu/bedrock` | Converse API, streaming, tool use |
-| `@namzu/openrouter` | Aggregated model access |
-| `@namzu/ollama` | Local models |
-| `@namzu/lmstudio` | Local models, GUI-managed |
-| `@namzu/http` | Zero-dependency driver for any compatible HTTP endpoint |
+| `@namzu/anthropic` | Streaming, tool use and extended thinking |
+| `@namzu/openai` | Chat completions, streaming and tool use |
+| `@namzu/deepseek` | Chat completions, streaming, tool use and thinking mode |
+| `@namzu/bedrock` | Converse API, streaming and tool use |
+| `@namzu/openrouter` | Many hosted models behind one key |
+| `@namzu/google` | Sign-in reuse or an API key |
+| `@namzu/ollama` | Local models, no key needed |
+| `@namzu/lmstudio` | Local models through a desktop model server. Not yet selectable in the terminal app. |
+| `@namzu/zen` | Hosted models, with native wire routing. The free tier is experimental. |
+| `@namzu/http` | A dependency-free driver for any compatible HTTP endpoint |
 
-Every driver implements the same `LLMProvider` contract and registers itself
-through `ProviderRegistry`, extending the config union by module augmentation
-so `ProviderRegistry.create({ type: 'ollama', ... })` is fully type-narrowed.
-A mock driver ships in the kernel, pre-registered, and is scriptable turn by
-turn — including malformed and truncated tool calls — so you can test the loop
-without the network.
+## Requirements
 
-## How this repository is kept honest
+- **Terminal app:** Node.js 22.13 or newer, on macOS, Linux, WSL, or native
+  Windows through PowerShell or the Command Prompt.
+- **SDK:** Node.js 20 or newer, in an ESM project.
+- **Namzu Desktop:** Windows, in preview. Not yet published.
+- **Pal computers:** a local container engine that runs Linux containers, or the
+  Windows WSL setup described in [local Pal computers](docs/sdk/local-pal-computer.md).
 
-Two design rules run through the code, and you will meet both within an hour
-of reading it:
-
-- **Refuse, do not silently degrade.** A capability that is accepted and then
-  quietly not applied is worse than one that errors, because the caller stops
-  looking. A host that cannot supply a requested isolation control gets a
-  refusal, not a weaker sandbox; a driver that cannot honour a requested
-  capability must say so rather than drop the field.
-- **A declaration nothing drives is a defect.** A field no code reads and a
-  check that cannot fail are treated as bugs rather than as roadmap. Where a
-  thing genuinely is not built yet, the honest state is written down next to
-  it rather than implied away.
-
-Alongside those, the pull-request gate runs more than the usual four. Besides
-lint, typecheck, build and tests on two Node versions, every change also has
-to pass: a **public-surface baseline diff** (a symbol cannot vanish from the
-package barrel unnoticed); **per-module coverage floors** plus a rule that
-every source folder is explicitly classified for test presence; a
-**behaviour-regression eval suite**; **process-level tests** run in a real
-separate process, because an in-process test cannot prove a turn survives on
-its own event-loop footprint; a **consumer-install check** that catches
-peer-range drift before a publish rather than at the registry; package-manifest
-validation; and an audit that refuses a list of third-party product names in
-prose and identifiers, exempting the paths and the published vocabulary whose
-job is to speak somebody else's protocol — a driver package has to name the
-service it drives, and a page telling an operator what namzu connects to has
-to name it too.
-
-## Next
-
-- [`docs/`](./docs/) — the knowledge bundle, an [OKF v0.2](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)
-  directory of concept pages that grows as the code they describe changes.
-  Read it here in the repository: there is no documentation site yet.
-- [`packages/sdk/README.md`](./packages/sdk/README.md) — the kernel's
-  subsystem map.
-- `AGENTS.md` — the working contract any coding agent in this repository
-  follows.
-
-Some pages under `docs/` predate recent kernel changes, and an audit of them is
-partly done rather than finished. Where a page and the code disagree, the code
-is correct; please open an issue.
+The project's tests run on Node.js 22 and 24.
 
 ## Status
 
-Releases are driven by Changesets, so a package newly added on `main` can
-appear in this table before its first registry release. Two things a reader
-should weigh honestly:
+- **Published now:** the terminal app (`@namzu/cli`), the SDK (`@namzu/sdk`), and
+  the capability packages and model drivers listed above.
+- **Not published yet:** Namzu Desktop. It is in preview and is coming.
+- **Pre-1.0:** only `@namzu/lsp`. Its API still moves.
+- **Major versions move quickly.** Any backward-incompatible change to a public
+  API is released as a major version, however small it is. Pin your dependency
+  and read the changelogs: [SDK](packages/sdk/CHANGELOG.md) and [terminal app](packages/cli/CHANGELOG.md).
 
-- **Majors move quickly.** This project treats *any* backward-incompatible
-  change to a public API as a major, however small the diff — so the version
-  number tracks the surface rather than the size of the work, and it climbs
-  faster than you may expect. Pin your dependency and read the changelog.
-- **`@namzu/cli`, `@namzu/files`, `@namzu/evals`, `@namzu/live` and
-  `@namzu/lsp` are pre-1.0** and their APIs still move. The kernel itself is
-  the stable surface.
+## Docs
 
-The SDK declares Node 20 or newer; the CLI requires Node 22.13 or newer. CI
-exercises 22 and 24.
+- [Documentation index](docs/index.md): the knowledge bundle, kept in the repository
+  next to the code it describes.
+- [Terminal app guide](docs/cli/index.md): installation, models, Pals, skills and
+  the rest of the app.
+- [SDK guide](docs/sdk/index.md) and the [quick start](docs/sdk/quick-start.md).
+- [SDK package README](packages/sdk/README.md): a map of the kernel's subsystems.
 
 ## Contributing
 
-Issues and pull requests welcome at
-[cogitave/namzu](https://github.com/cogitave/namzu). See
-[`packages/sdk/CONTRIBUTING.md`](./packages/sdk/CONTRIBUTING.md).
+Issues and pull requests are welcome at [cogitave/namzu](https://github.com/cogitave/namzu).
+Start with the [SDK contributing guide](packages/sdk/CONTRIBUTING.md). The
+[working contract for coding agents](AGENTS.md) describes the checks every change
+must pass.
+
+## Security
+
+Report security issues privately, as described in the
+[SDK security policy](packages/sdk/SECURITY.md).
 
 ## License
 
-[FSL-1.1-MIT](./LICENSE.md) — every published version becomes MIT-licensed two
-years after its release.
+The SDK and most packages are [FSL-1.1-MIT](./LICENSE.md). You can use, modify
+and redistribute them for any purpose except a Competing Use. Every published
+version of those packages becomes MIT-licensed two years after its release.
+
+`@namzu/cli` and `@namzu/files` are published under the MIT license.
