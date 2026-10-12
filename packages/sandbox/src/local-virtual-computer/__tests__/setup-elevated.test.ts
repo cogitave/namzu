@@ -271,6 +271,14 @@ describe('request validation', () => {
 		reject({ wslPackage: { path: MSI, sha256 } }, /digest/)
 	})
 
+	it('rejects an MSI path equal to the setup directory', () => {
+		const same = 'C:\\Users\\Someone\\AppData\\Local\\Namzu\\setup\\wsl.msi'
+		reject(
+			{ host: { stateDirectory: same }, wslPackage: { path: same, sha256: SHA } },
+			/not inside the setup directory/,
+		)
+	})
+
 	it('rejects a setup directory with a quote or a line break', () => {
 		reject(
 			{
@@ -410,6 +418,7 @@ describe('runElevatedWslcSteps', () => {
 		args: readonly string[]
 		signal?: AbortSignal
 		env?: NodeJS.ProcessEnv
+		cwd?: string
 	}
 
 	const runId = RUN_ID
@@ -426,7 +435,13 @@ describe('runElevatedWslcSteps', () => {
 		const events: WslcSetupProgress[] = []
 		const runner: LocalComputerCommandRunner = {
 			async run(binary, args, options) {
-				const call = { binary, args, signal: options?.signal, env: options?.env }
+				const call = {
+					binary,
+					args,
+					signal: options?.signal,
+					env: options?.env,
+					cwd: options?.cwd,
+				}
 				await mkdir(join(directory, 'Temp', `namzu-wsl-${runId}`), { recursive: true })
 				calls.push(call)
 				if (binary.endsWith('whoami.exe')) {
@@ -465,6 +480,19 @@ describe('runElevatedWslcSteps', () => {
 		expect(calls[0]?.binary).toBe(`${directory}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`)
 		const scripts = buildElevatedScripts({ ...both(), host }, pinned())
 		expect(calls[0]?.args).toEqual(scripts.launcherArgs)
+	})
+
+	it('runs the launcher and whoami from the Windows System32 folder, never the caller directory', async () => {
+		const standard = setup(async () => 'NAMZU_EXIT=1223', STANDARD_USER)
+		await run({ ...both(), host: standard.host })
+		expect(standard.calls.map((call) => call.cwd)).toEqual([
+			`${directory}\\System32`,
+			`${directory}\\System32`,
+		])
+		expect(standard.calls[1]?.binary).toBe(`${directory}\\System32\\whoami.exe`)
+		expect(buildElevatedScripts({ ...both(), host: standard.host }, pinned()).launcher).toContain(
+			'$psi.WorkingDirectory = $sys',
+		)
 	})
 
 	it('maps 0 and 3010', async () => {

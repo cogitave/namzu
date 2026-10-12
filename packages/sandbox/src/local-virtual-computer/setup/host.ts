@@ -2,12 +2,26 @@ import { homedir, release } from 'node:os'
 import { join, win32 } from 'node:path'
 import { LocalCommandError, nodeCommandRunner } from '../engine.js'
 import { type CreateWslcSetupHost, RESUME_AT_SIGN_IN_KEY } from './contract.js'
+import { PROBE_LIMIT_MS, ProbeTimeoutError, runLimited } from './limits.js'
+import { queryRegistryKey } from './registry.js'
 
 /** `10.0.19045` becomes 19045; undefined when the release string has no build. */
 function windowsBuildOf(platform: NodeJS.Platform): number | undefined {
 	if (platform !== 'win32') return undefined
 	const build = Number(release().split('.')[2])
 	return Number.isInteger(build) ? build : undefined
+}
+
+/**
+ * The processor type of the PC. On Windows a 32-bit process sees its own
+ * type in `PROCESSOR_ARCHITECTURE`; the PC's is in `PROCESSOR_ARCHITEW6432`.
+ * Neither is `process.arch`, which names the Node build, not the machine.
+ */
+export function windowsArchitectureOf(env: NodeJS.ProcessEnv): string {
+	const claimed = (env.PROCESSOR_ARCHITEW6432 ?? env.PROCESSOR_ARCHITECTURE ?? '').toUpperCase()
+	if (claimed === 'AMD64') return 'x64'
+	if (claimed === 'ARM64') return 'arm64'
+	return claimed === '' ? process.arch : claimed.toLowerCase()
 }
 
 function defaultStateDirectory(env: NodeJS.ProcessEnv, platform: NodeJS.Platform): string {
@@ -31,7 +45,7 @@ export const createWslcSetupHost: CreateWslcSetupHost = (overrides = {}) => {
 	const runner = overrides.runner ?? nodeCommandRunner
 	const host = {
 		platform,
-		arch: process.arch,
+		arch: platform === 'win32' ? windowsArchitectureOf(env) : process.arch,
 		windowsBuild: windowsBuildOf(platform),
 		env,
 		runner,
@@ -40,20 +54,43 @@ export const createWslcSetupHost: CreateWslcSetupHost = (overrides = {}) => {
 		now: () => new Date(),
 		async readDword(key: string, name: string): Promise<number | undefined> {
 			try {
-				return parseRegDword(await runner.run('reg.exe', ['query', key, '/v', name]))
+				return parseRegDword(
+					await runLimited(runner, 'reg.exe', ['query', key, '/v', name], PROBE_LIMIT_MS.command),
+				)
 			} catch (error) {
-				// reg.exe exits 1 for an absent key or value; that is "not set".
+				// reg.exe exits 1 for an absent key or value; that is "not set". A
+				// check that did not answer in time is not known: it propagates, so a
+				// policy read that timed out never reads as "not set" (allowed).
 				if (error instanceof LocalCommandError) return undefined
 				throw error
 			}
 		},
+		async keyExists(key: string): Promise<boolean | 'unknown'> {
+			try {
+				const listing = await queryRegistryKey(
+					(args) => runLimited(runner, 'reg.exe', args, PROBE_LIMIT_MS.command),
+					key,
+				)
+				return listing !== undefined
+			} catch (error) {
+				// Denied, a failed parent or no answer in time: not known, never "absent".
+				if (error instanceof LocalCommandError || error instanceof ProbeTimeoutError)
+					return 'unknown'
+				throw error
+			}
+		},
 		async bootTime(): Promise<Date> {
-			const output = await runner.run('powershell.exe', [
-				'-NoProfile',
-				'-NonInteractive',
-				'-Command',
-				"(Get-CimInstance Win32_OperatingSystem).LastBootUpTime.ToUniversalTime().ToString('o')",
-			])
+			const output = await runLimited(
+				runner,
+				'powershell.exe',
+				[
+					'-NoProfile',
+					'-NonInteractive',
+					'-Command',
+					"(Get-CimInstance Win32_OperatingSystem).LastBootUpTime.ToUniversalTime().ToString('o')",
+				],
+				PROBE_LIMIT_MS.powershell,
+			)
 			const parsed = new Date(output.trim())
 			if (Number.isNaN(parsed.getTime())) throw new Error('Windows did not report its boot time')
 			return parsed

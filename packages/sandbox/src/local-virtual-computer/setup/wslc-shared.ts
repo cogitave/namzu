@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, join, win32 } from 'node:path'
 import type { WslcImageManifest, WslcSetupHost } from './contract.js'
 
@@ -7,7 +7,8 @@ export const PROTOCOL_LABEL = 'org.namzu.local-computer.protocol'
 
 /** Where the WSL package puts wslc. */
 export function wslcBinaryOf(host: Pick<WslcSetupHost, 'env'>): string {
-	const programFiles = host.env.ProgramFiles ?? 'C:\\Program Files'
+	// A 32-bit process sees its own Program Files; WSL installs into the 64-bit one.
+	const programFiles = host.env.ProgramW6432 ?? host.env.ProgramFiles ?? 'C:\\Program Files'
 	return win32.join(programFiles, 'WSL', 'wslc.exe')
 }
 
@@ -137,5 +138,10 @@ export async function writeImageRecord(
 	const target = recordPath(host)
 	const temp = `${target}.${process.pid}.tmp`
 	await writeFile(temp, `${JSON.stringify(record)}\n`, 'utf8')
-	await rename(temp, target)
+	try {
+		await rename(temp, target)
+	} catch (error) {
+		await rm(temp, { force: true })
+		throw error
+	}
 }

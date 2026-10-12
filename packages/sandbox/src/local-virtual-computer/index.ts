@@ -182,11 +182,15 @@ export function createLocalVirtualComputerProvider(
 			} catch (error) {
 				return {
 					ready: false,
+					// The code lets an application choose its words by what failed, not
+					// by matching the message. A failure that is not a setup error (a
+					// timeout, say) carries no code: it is not known to be fixable by setup.
+					setupCode: error instanceof LocalComputerSetupError ? error.code : undefined,
 					reason:
 						error instanceof LocalComputerSetupError
 							? error.message
 							: options.engine === 'wslc'
-								? 'Windows Linux container support and the Pal computer image are required. Namzu sets them up; finish the setup from the Pal computer and try again.'
+								? 'Linux container support and the Pal computer image are required. Namzu sets them up; finish the setup from the Pal computer and try again.'
 								: `A local ${options.engine === 'podman' ? 'Podman machine' : 'Docker engine'} running Linux containers and the ${image} image are required. Build packages/sandbox/local-computer/Dockerfile explicitly; Namzu does not install or pull it automatically.`,
 				}
 			}

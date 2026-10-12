@@ -27,6 +27,7 @@ import {
 	readPalComputerBundle,
 } from './bundle.js'
 import {
+	AFTER_RESTART_SENTENCE,
 	NOT_WINDOWS_SENTENCE,
 	NO_MACHINE_SENTENCE,
 	planSentence,
@@ -235,6 +236,13 @@ async function setupCommand(parsed: Parsed, deps: ComputerDeps): Promise<number>
 		return EXIT_OK
 	}
 	say(deps, planSentence(plan))
+	// A restart comes first and Windows does it: there is nothing to confirm yet.
+	if (readiness.state === 'restart-pending') {
+		// Steps that follow the restart do not run by themselves unless the
+		// sign-in entry was registered, so say what to do afterwards.
+		if (plan.steps.some((step) => step.kind !== 'restart')) say(deps, AFTER_RESTART_SENTENCE)
+		return EXIT_OK
+	}
 	if (parsed.plan !== undefined && parsed.plan !== plan.id) {
 		deps.err(`${resultSentence({ outcome: 'plan-changed', plan }).sentence}\n`)
 		return EXIT_FAIL

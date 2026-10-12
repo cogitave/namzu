@@ -94,8 +94,21 @@ for the rest. Without `--plan` it prints the `plan-required` error and exits 64.
 
 On Windows, a Pal computer that cannot start because Linux support or the image
 is missing ends its message with "Run namzu computer setup to set this up."
-The model is told only "The computer is not set up; the person can set it up
+Which message is chosen by the sandbox's setup `code` (`engine-missing`,
+`engine-too-old`, `image-missing`), never by matching the sandbox's wording; the
+words are Namzu's own ("Linux container support is not installed on this PC.",
+"Linux container support on this PC is too old for Namzu.", "The Pal computer is
+not set up on this PC yet."). The model is told only "The computer is not set up; the person can set it up
 from Namzu." The hint applies to the `wslc` engine's messages only; with the Docker or Podman engine on Windows the message keeps its own build instruction. Other setup failures that Namzu cannot fix (policy, virtualization,
 an update) keep their own sentence.
+
+When a restart has to come first, `setup` prints "Restart your PC to finish
+setting up Pal computers." and exits 0 without asking to continue; the rest of
+the plan (loading the image) waits for that restart, and when steps remain it adds
+"After it restarts, run namzu computer setup again." A failed setup ends with the
+sentence for what failed and a `Details:` line that is a sentence too, with the
+Windows error number when Windows gave one ("Windows reported a problem while
+installing Linux support. Windows error 1603."), never the internal code. The
+`--json` result keeps the code, a plain `detail` and `exitCode`.
 
 Ctrl-C, Ctrl-D or a closed terminal at `Continue?` count as no: `Nothing was changed.` and exit 0. Off Windows `stop-idle` says there is no Linux machine to stop.

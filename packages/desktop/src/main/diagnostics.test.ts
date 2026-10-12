@@ -399,10 +399,7 @@ it('names the wslc engine and classifies its setup failures without keeping thei
 	sink.record('started', { engine: 'wslc', platform: 'win32' })
 	expect(records(sink).at(-1).attributes['namzu.desktop.engine']).toBe('wslc')
 	const reasons = [
-		[
-			'Windows Linux container support (wslc) is not installed on this PC.',
-			'wslc-engine-missing-or-old',
-		],
+		['Linux container support is not installed on this PC.', 'wslc-engine-missing-or-old'],
 		[
 			'This PC has virtualization switched off. Turn it on in the PC startup settings, then try again.',
 			'wslc-virtualization-off',

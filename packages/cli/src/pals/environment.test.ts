@@ -396,7 +396,7 @@ it('uses the bundle manifest image for wslc only when no image is named', async 
 })
 
 it('tells the model a computer that can be set up from Namzu is not set up', async () => {
-	const failure = Object.assign(new Error('Windows Linux container support is not installed.'), {
+	const failure = Object.assign(new Error('Linux container support is not installed.'), {
 		name: 'LocalComputerSetupError',
 		code: 'engine-missing',
 	})
@@ -425,37 +425,36 @@ it('tells the model a computer that can be set up from Namzu is not set up', asy
 	await expect(startCliPalComputer(pal.id)).rejects.toThrow(COMPUTER_NOT_SET_UP_FOR_MODEL)
 })
 
-it('keeps the setup hint to the exact sandbox texts and drops the doubled instruction', () => {
-	const tail = ' Namzu sets it up; finish the setup from the Pal computer and try again.'
-	expect(withSetupHint(`The Pal computer is not set up on this PC yet.${tail}`, 'win32')).toBe(
-		`The Pal computer is not set up on this PC yet. ${RUN_COMPUTER_SETUP_LINE}`,
-	)
-	expect(
-		withSetupHint('Windows Linux container support (wslc) is not installed on this PC.', 'win32'),
-	).toBe(
-		`Windows Linux container support (wslc) is not installed on this PC. ${RUN_COMPUTER_SETUP_LINE}`,
-	)
-	expect(
-		withSetupHint(
-			'Windows Linux container support and the Pal computer image are required. Namzu sets them up; finish the setup from the Pal computer and try again.',
-			'win32',
-		),
-	).toBe(
-		`Windows Linux container support and the Pal computer image are required. ${RUN_COMPUTER_SETUP_LINE}`,
-	)
+it('chooses the setup hint by the sandbox code, never by the message text', () => {
+	// The words are Namzu's own; whatever the sandbox wrote is replaced.
+	for (const [setupCode, text] of [
+		['engine-missing', 'Linux container support is not installed on this PC.'],
+		['engine-too-old', 'Linux container support on this PC is too old for Namzu.'],
+		['image-missing', 'The Pal computer is not set up on this PC yet.'],
+	] as const)
+		expect(
+			withSetupHint({ reason: 'Reworded by the sandbox, version 9.', setupCode }, 'win32'),
+		).toBe(`${text} ${RUN_COMPUTER_SETUP_LINE}`)
+	// The old exact texts without a code get no hint: the message is not the key.
 	for (const reason of [
-		'This PC has virtualization switched off. Turn it on in the PC startup settings, then try again.',
-		'Your organisation does not allow Linux containers on this PC.',
-		"Namzu needs an update to work with this version of Windows' Linux support.",
-		'Something about virtualization in another sense.',
+		'Linux container support is not installed on this PC.',
+		'The Pal computer is not set up on this PC yet. Namzu sets it up; finish the setup from the Pal computer and try again.',
 	])
-		expect(withSetupHint(reason, 'win32')).toBe(reason)
+		expect(withSetupHint({ reason }, 'win32')).toBe(reason)
+	// Codes setup cannot fix, and other platforms, keep their own words.
+	for (const setupCode of ['virtualization-off', 'blocked-by-policy', 'sdk-mismatch', undefined]) {
+		const reason = 'This PC has virtualization switched off.'
+		expect(withSetupHint({ reason, setupCode }, 'win32')).toBe(reason)
+	}
+	expect(withSetupHint({ reason: 'x', setupCode: 'engine-missing' }, 'linux')).toBe('x')
+	expect(withSetupHint({ setupCode: 'engine-missing' }, 'win32')).toBeUndefined()
 })
 
 it('the wrapped provider probe ends an unready Windows reason with the setup line', async () => {
 	const probe = vi.fn(async () => ({
 		ready: false,
-		reason: 'Windows Linux container support on this PC is too old for Namzu.',
+		reason: 'Linux container support on this PC (3.0.0) is too old; 3.0.1 is required.',
+		setupCode: 'engine-too-old',
 	}))
 	createProvider.mockReturnValue({ acquire: vi.fn(), probe })
 	const pal = createPal({ name: 'Probe hint' })
@@ -464,7 +463,7 @@ it('the wrapped provider probe ends an unready Windows reason with the setup lin
 	try {
 		expect(await cliPalComputerStatus(pal.id)).toEqual({
 			status: 'unavailable',
-			notice: `Windows Linux container support on this PC is too old for Namzu. ${RUN_COMPUTER_SETUP_LINE}`,
+			notice: `Linux container support on this PC is too old for Namzu. ${RUN_COMPUTER_SETUP_LINE}`,
 		})
 	} finally {
 		if (platform) Object.defineProperty(process, 'platform', platform)
@@ -491,9 +490,9 @@ it('a bad bundle with the wslc engine fails the host in plain words and retries 
 })
 
 it('ends an unready Windows reason with where to set it up', () => {
-	expect(withSetupHint('This PC has virtualization switched off.', 'win32')).toBe(
+	expect(withSetupHint({ reason: 'This PC has virtualization switched off.' }, 'win32')).toBe(
 		'This PC has virtualization switched off.',
 	)
-	expect(withSetupHint('Docker is missing.', 'linux')).toBe('Docker is missing.')
-	expect(withSetupHint(undefined, 'win32')).toBeUndefined()
+	expect(withSetupHint({ reason: 'Docker is missing.' }, 'linux')).toBe('Docker is missing.')
+	expect(withSetupHint({}, 'win32')).toBeUndefined()
 })

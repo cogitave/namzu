@@ -213,6 +213,37 @@ describe('wslc engine probe', () => {
 			'wslc',
 		])
 	})
+
+	it('looks in the 64-bit Program Files when a 32-bit process sees its own', async () => {
+		const seen: string[] = []
+		const runner: LocalComputerCommandRunner = {
+			async run(binary) {
+				seen.push(binary)
+				return 'wslc 3.0.1.0'
+			},
+		}
+		await resolveLocalWslcEngine({ runner }, undefined, {
+			platform: 'win32',
+			env: { ProgramFiles: 'C:\\Program Files (x86)', ProgramW6432: 'C:\\Program Files' },
+			exists: async (path) => path === 'C:\\Program Files\\WSL\\wslc.exe',
+		})
+		expect(seen[0]).toBe('C:\\Program Files\\WSL\\wslc.exe')
+	})
+
+	it('says Linux container support is missing without naming the tool', async () => {
+		const runner: LocalComputerCommandRunner = {
+			async run() {
+				throw new LocalCommandError('could not start', ['ENOENT'])
+			},
+		}
+		const error = await resolveLocalWslcEngine({ runner }, undefined, { platform: 'linux' }).catch(
+			(caught: unknown) => caught,
+		)
+		expect(error).toMatchObject({
+			code: 'engine-missing',
+			message: 'Linux container support is not installed on this PC.',
+		})
+	})
 })
 
 describe('typed setup errors from captured stderr', () => {
@@ -252,7 +283,11 @@ describe('typed setup errors from captured stderr', () => {
 			},
 		}
 		const probe = await createLocalVirtualComputerProvider({ engine: 'wslc', runner }).probe?.()
-		expect(probe).toMatchObject({ ready: false, reason: expect.stringContaining('not set up') })
+		expect(probe).toMatchObject({
+			ready: false,
+			setupCode: 'image-missing',
+			reason: expect.stringContaining('not set up'),
+		})
 		expect(JSON.stringify(probe)).not.toMatch(/Dockerfile|docker build/i)
 	})
 	it.each([
@@ -510,9 +545,28 @@ describe('wslc through a stand-in executable and worker', () => {
 		const provider = createLocalVirtualComputerProvider({ engine: 'wslc', wslcBinary: h.fake })
 		const probe = await provider.probe?.()
 		expect(probe?.ready).toBe(false)
+		// The probe carries the code, so an application chooses its words by it.
+		expect(probe).toMatchObject({ setupCode: expected })
 		await expect(provider.acquire({ pal, conversationId: 'x' })).rejects.toMatchObject({
 			code: expected,
 		})
+	})
+
+	it('gives a failure that is not a setup error no setup code', async () => {
+		const h = await harness()
+		const provider = createLocalVirtualComputerProvider({
+			engine: 'wslc',
+			wslcBinary: h.fake,
+			runner: {
+				run: async () => {
+					throw new Error('The engine response exceeded its size limit')
+				},
+			},
+		})
+		const probe = await provider.probe?.()
+		expect(probe?.ready).toBe(false)
+		expect((probe as { setupCode?: string }).setupCode).toBeUndefined()
+		expect(probe?.reason).toContain('Linux container support')
 	})
 
 	it('says engine-missing when the binary does not exist', async () => {

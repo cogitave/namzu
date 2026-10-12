@@ -178,7 +178,41 @@ describe('sentences', () => {
 			detail: 'connection reset',
 		})
 		expect(failed.sentence).toBe('Could not download Linux support. Check the internet connection.')
-		expect(failed.details).toBe('download-failed: connection reset')
+		// The Details line is a sentence, never the code and never the raw reason.
+		expect(failed.details).toBe('The download of Linux support did not finish.')
+		const withExit = resultSentence({
+			outcome: 'failed',
+			step: 'install-wsl',
+			code: 'wsl-install-failed',
+			exitCode: 1603,
+		})
+		expect(withExit.details).toBe(
+			'Windows reported a problem while installing Linux support. Windows error 1603.',
+		)
+		for (const code of [
+			'download-failed',
+			'download-corrupt',
+			'elevation-failed',
+			'feature-enable-failed',
+			'wsl-install-failed',
+			'image-corrupt',
+			'image-load-failed',
+			'image-mismatch',
+			'engine-failed',
+		] as const) {
+			const text = resultSentence({ outcome: 'failed', step: 'load-image', code }).details
+			expect(text).not.toContain(code)
+			expect(text).toMatch(/^[A-Z].*\.$/)
+		}
+	})
+
+	it('reads a pending restart as one ask, whether or not steps follow it', () => {
+		const restart = 'Restart your PC to finish setting up Pal computers.'
+		expect(planSentence(plan('restart-pending', [step('restart')]))).toBe(restart)
+		expect(planSentence(plan('restart-pending', [step('restart'), step('load-image')]))).toBe(
+			restart,
+		)
+		expect(planSentence(plan('restart-pending', []))).toBe(restart)
 	})
 })
 
@@ -373,8 +407,30 @@ describe('namzu computer', () => {
 		const { deps, err } = harness()
 		expect(await runComputerCommand(['setup', '--yes'], deps)).toBe(1)
 		expect(err.join('')).toBe(
-			'Windows could not install Linux support.\nDetails: wsl-install-failed\n',
+			'Windows could not install Linux support.\nDetails: Windows reported a problem while installing Linux support.\n',
 		)
+	})
+
+	it('says a pending restart once and does not ask to continue', async () => {
+		setupApi.inspectWslcReadiness.mockResolvedValue(readiness('restart-pending'))
+		setupApi.planWslcSetup.mockReturnValue(
+			plan('restart-pending', [step('restart'), step('load-image')]),
+		)
+		const { deps, out, err } = harness({ interactive: true, ask: vi.fn(async () => 'y') })
+		expect(await runComputerCommand(['setup'], deps)).toBe(0)
+		expect(out.join('')).toBe(
+			'Restart your PC to finish setting up Pal computers.\nAfter it restarts, run namzu computer setup again.\n',
+		)
+		expect(err.join('')).toBe('')
+		expect(setupApi.runWslcSetup).not.toHaveBeenCalled()
+	})
+
+	it('adds no "run setup again" when the restart is all that is left', async () => {
+		setupApi.inspectWslcReadiness.mockResolvedValue(readiness('restart-pending'))
+		setupApi.planWslcSetup.mockReturnValue(plan('restart-pending', [step('restart')]))
+		const { deps, out } = harness({ interactive: false })
+		expect(await runComputerCommand(['setup'], deps)).toBe(0)
+		expect(out.join('')).toBe('Restart your PC to finish setting up Pal computers.\n')
 	})
 
 	it('setup --json needs --plan and prints progress lines then one result', async () => {

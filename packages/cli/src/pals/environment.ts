@@ -8,7 +8,8 @@ import { readPalComputerBundle } from '../computer/bundle.js'
 import { getCliPalStore } from './store.js'
 
 interface LocalComputerProvider extends PalEnvironmentProvider {
-	probe(): Promise<{ ready: boolean; reason?: string }>
+	/** `setupCode` is the sandbox's own code for a failure that setup can fix. */
+	probe(): Promise<{ ready: boolean; reason?: string; setupCode?: string }>
 }
 
 /** What the model is told when the person has not set the computer up. */
@@ -38,39 +39,24 @@ export function modelFacingComputerError(error: unknown): unknown {
 }
 
 /**
- * The probe returns prose, not a code, so the hint is anchored to the exact
- * texts the sandbox gives for the three setups Namzu can do (engine missing,
- * engine too old, image missing). This couples to the sandbox's wording on
- * purpose: a reworded message loses the hint, never gains it on a policy or
- * virtualization block. The test pins these strings.
+ * What the person reads for each setup the sandbox reports by code. The words
+ * are Namzu's own, so the hint never depends on how the sandbox phrases its
+ * message; a setup error with any other code, or none, keeps its own words.
  */
-const SETTABLE_UP_REASONS = new Set([
-	'Windows Linux container support (wslc) is not installed on this PC.',
-	'Windows Linux container support on this PC is too old for Namzu.',
-])
-const FINISH_FROM_PAL = ' finish the setup from the Pal computer and try again.'
-// Each sandbox text carries its own tail, singular or plural, removed as written.
-const SETTABLE_UP_WITH_TAIL = new Map([
-	[
-		`The Pal computer is not set up on this PC yet. Namzu sets it up;${FINISH_FROM_PAL}`,
-		' Namzu sets it up;' + FINISH_FROM_PAL,
-	],
-	[
-		`Windows Linux container support and the Pal computer image are required. Namzu sets them up;${FINISH_FROM_PAL}`,
-		' Namzu sets them up;' + FINISH_FROM_PAL,
-	],
-])
+const SETTABLE_UP_TEXT: Record<string, string> = {
+	'engine-missing': 'Linux container support is not installed on this PC.',
+	'engine-too-old': 'Linux container support on this PC is too old for Namzu.',
+	'image-missing': 'The Pal computer is not set up on this PC yet.',
+}
 
 /** On Windows an unready engine or image ends with where to fix it. */
 export function withSetupHint(
-	reason: string | undefined,
+	probe: { readonly reason?: string; readonly setupCode?: string },
 	platform: NodeJS.Platform = process.platform,
 ): string | undefined {
-	if (platform !== 'win32' || reason === undefined) return reason
-	if (SETTABLE_UP_REASONS.has(reason)) return `${reason} ${RUN_COMPUTER_SETUP_LINE}`
-	const tail = SETTABLE_UP_WITH_TAIL.get(reason)
-	if (tail !== undefined) return `${reason.slice(0, -tail.length)} ${RUN_COMPUTER_SETUP_LINE}`
-	return reason
+	if (platform !== 'win32' || probe.reason === undefined) return probe.reason
+	const text = probe.setupCode === undefined ? undefined : SETTABLE_UP_TEXT[probe.setupCode]
+	return text === undefined ? probe.reason : `${text} ${RUN_COMPUTER_SETUP_LINE}`
 }
 
 let host: Promise<{ runtime: PalRuntime; provider: LocalComputerProvider }> | undefined
@@ -141,7 +127,7 @@ async function environment(): Promise<{
 			const guarded: LocalComputerProvider = Object.assign(Object.create(provider), {
 				probe: async () => {
 					const probe = await provider.probe()
-					return probe.ready ? probe : { ...probe, reason: withSetupHint(probe.reason) }
+					return probe.ready ? probe : { ...probe, reason: withSetupHint(probe) }
 				},
 				acquire: async (request: PalEnvironmentRequest) => {
 					try {

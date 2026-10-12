@@ -27,9 +27,12 @@ export class LocalComputerSetupError extends Error {
 export class LocalCommandError extends Error {
 	override readonly name = 'LocalCommandError'
 	readonly errorCodes: readonly string[]
-	constructor(message: string, errorCodes: readonly string[] = []) {
+	/** The process exit status, when the command ran and failed. */
+	readonly exitCode?: number
+	constructor(message: string, errorCodes: readonly string[] = [], exitCode?: number) {
 		super(message)
 		this.errorCodes = errorCodes
+		if (exitCode !== undefined) this.exitCode = exitCode
 	}
 }
 
@@ -106,6 +109,7 @@ export const nodeCommandRunner: LocalComputerCommandRunner = {
 						new LocalCommandError(
 							`The local container engine command failed (${code})`,
 							extractErrorCodes(Buffer.concat(diagnostics).toString('utf8')),
+							code ?? undefined,
 						),
 					)
 				else {
