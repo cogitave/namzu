@@ -1,6 +1,7 @@
 # CLI
 
 * [Pals in the CLI](pals.md) - Saved identities, local guest computers, terminal chat and exact conversation ownership.
+* [namzu computer](computer.md) - Check, set up and stop the Windows Pal computer, in plain words and as JSON lines for Desktop.
 * [Local authenticated Pal channel adapters](pal-channels.md) - Private local fixture verification, shared SDK inboxes and native recorded reply/review-action routing.
 
 * [Installing and reopening Namzu](installation.md) - Correct shell commands, installer diagnostics and portable conversation resume handoffs.

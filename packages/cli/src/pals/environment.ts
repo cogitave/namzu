@@ -1,8 +1,76 @@
-import { type PalComputerInput, type PalEnvironmentProvider, PalRuntime } from '@namzu/sdk'
+import {
+	type PalComputerInput,
+	type PalEnvironmentProvider,
+	type PalEnvironmentRequest,
+	PalRuntime,
+} from '@namzu/sdk'
+import { readPalComputerBundle } from '../computer/bundle.js'
 import { getCliPalStore } from './store.js'
 
 interface LocalComputerProvider extends PalEnvironmentProvider {
 	probe(): Promise<{ ready: boolean; reason?: string }>
+}
+
+/** What the model is told when the person has not set the computer up. */
+export const COMPUTER_NOT_SET_UP_FOR_MODEL =
+	'The computer is not set up; the person can set it up from Namzu.'
+
+/** The line Windows people read after an engine or image failure. */
+export const RUN_COMPUTER_SETUP_LINE = 'Run namzu computer setup to set this up.'
+
+const SETTABLE_UP = new Set(['engine-missing', 'engine-too-old', 'image-missing'])
+
+/**
+ * Setup the person can do from Namzu surfaces to the model as one sentence;
+ * every other failure, including a setup error nothing in Namzu can fix, keeps
+ * its own words. Matches by name and code so the optional leaf stays a dynamic
+ * import.
+ */
+export function modelFacingComputerError(error: unknown): unknown {
+	if (
+		error instanceof Error &&
+		error.name === 'LocalComputerSetupError' &&
+		SETTABLE_UP.has(String((error as { code?: unknown }).code))
+	) {
+		return new Error(COMPUTER_NOT_SET_UP_FOR_MODEL, { cause: error })
+	}
+	return error
+}
+
+/**
+ * The probe returns prose, not a code, so the hint is anchored to the exact
+ * texts the sandbox gives for the three setups Namzu can do (engine missing,
+ * engine too old, image missing). This couples to the sandbox's wording on
+ * purpose: a reworded message loses the hint, never gains it on a policy or
+ * virtualization block. The test pins these strings.
+ */
+const SETTABLE_UP_REASONS = new Set([
+	'Windows Linux container support (wslc) is not installed on this PC.',
+	'Windows Linux container support on this PC is too old for Namzu.',
+])
+const FINISH_FROM_PAL = ' finish the setup from the Pal computer and try again.'
+// Each sandbox text carries its own tail, singular or plural, removed as written.
+const SETTABLE_UP_WITH_TAIL = new Map([
+	[
+		`The Pal computer is not set up on this PC yet. Namzu sets it up;${FINISH_FROM_PAL}`,
+		' Namzu sets it up;' + FINISH_FROM_PAL,
+	],
+	[
+		`Windows Linux container support and the Pal computer image are required. Namzu sets them up;${FINISH_FROM_PAL}`,
+		' Namzu sets them up;' + FINISH_FROM_PAL,
+	],
+])
+
+/** On Windows an unready engine or image ends with where to fix it. */
+export function withSetupHint(
+	reason: string | undefined,
+	platform: NodeJS.Platform = process.platform,
+): string | undefined {
+	if (platform !== 'win32' || reason === undefined) return reason
+	if (SETTABLE_UP_REASONS.has(reason)) return `${reason} ${RUN_COMPUTER_SETUP_LINE}`
+	const tail = SETTABLE_UP_WITH_TAIL.get(reason)
+	if (tail !== undefined) return `${reason.slice(0, -tail.length)} ${RUN_COMPUTER_SETUP_LINE}`
+	return reason
 }
 
 let host: Promise<{ runtime: PalRuntime; provider: LocalComputerProvider }> | undefined
@@ -27,6 +95,12 @@ async function environment(): Promise<{
 				engineValue === 'podman' || engineValue === 'wslc' || engineValue === 'docker'
 					? engineValue
 					: undefined
+			// A bundled image is named by its manifest; an explicit image wins.
+			const image =
+				process.env.NAMZU_PAL_COMPUTER_IMAGE ||
+				(engine === 'wslc'
+					? readPalComputerBundle(process.env.NAMZU_PAL_COMPUTER_BUNDLE)?.imageRef
+					: undefined)
 			const exitPolicy = process.env.NAMZU_PAL_COMPUTER_NORMAL_EXIT_POLICY ?? 'computer-lifetime'
 			if (exitPolicy !== 'strict' && exitPolicy !== 'computer-lifetime')
 				throw new Error(
@@ -47,9 +121,7 @@ async function environment(): Promise<{
 			const provider = module.createLocalVirtualComputerProvider({
 				normalExitPolicy: exitPolicy,
 				...(engine ? { engine } : {}),
-				...(process.env.NAMZU_PAL_COMPUTER_IMAGE
-					? { image: process.env.NAMZU_PAL_COMPUTER_IMAGE }
-					: {}),
+				...(image ? { image } : {}),
 				...(process.env.NAMZU_PAL_DOCKER_BINARY
 					? { dockerBinary: process.env.NAMZU_PAL_DOCKER_BINARY }
 					: {}),
@@ -66,12 +138,25 @@ async function environment(): Promise<{
 					? { podmanConnection: process.env.NAMZU_PAL_PODMAN_CONNECTION }
 					: {}),
 			})
+			const guarded: LocalComputerProvider = Object.assign(Object.create(provider), {
+				probe: async () => {
+					const probe = await provider.probe()
+					return probe.ready ? probe : { ...probe, reason: withSetupHint(probe.reason) }
+				},
+				acquire: async (request: PalEnvironmentRequest) => {
+					try {
+						return await provider.acquire(request)
+					} catch (error) {
+						throw modelFacingComputerError(error)
+					}
+				},
+			})
 			return {
 				runtime: new PalRuntime({
 					store: getCliPalStore(),
-					environments: provider,
+					environments: guarded,
 				}),
-				provider,
+				provider: guarded,
 			}
 		})().catch((error) => {
 			host = undefined

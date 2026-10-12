@@ -28,6 +28,13 @@
  *                             the invocation is, and reporting one as the other
  *                             sends the reader looking in the wrong place.
  *   70  EXIT_INTERNAL_ERROR — sysexits EX_SOFTWARE; internal CLI error
+ *   75  EXIT_NEEDS_CONSENT — sysexits EX_TEMPFAIL; `namzu computer setup` printed
+ *                             its plan and stopped because nobody can answer
+ *                             "Continue?" (no terminal) and neither `--yes` nor
+ *                             `--plan` gave the consent. Retrying with the
+ *                             consent succeeds, which is what EX_TEMPFAIL
+ *                             means. Distinct from 1 (setup ran and failed)
+ *                             and from 64 (the arguments are wrong).
  *   77  EXIT_UNTRUSTED      — sysexits EX_NOPERM; the working directory has
  *                             not been trusted, so a headless run refused to
  *                             start. Its own code because a caller has to be
@@ -57,6 +64,7 @@ export const EXIT_NO_CONFIG = 2
 export const EXIT_USAGE = 64
 export const EXIT_UNAVAILABLE = 69
 export const EXIT_INTERNAL_ERROR = 70
+export const EXIT_NEEDS_CONSENT = 75
 export const EXIT_UNTRUSTED = 77
 export const EXIT_BAD_CONFIG = 78
 
@@ -67,5 +75,6 @@ export type CliExitCode =
 	| typeof EXIT_USAGE
 	| typeof EXIT_UNAVAILABLE
 	| typeof EXIT_INTERNAL_ERROR
+	| typeof EXIT_NEEDS_CONSENT
 	| typeof EXIT_UNTRUSTED
 	| typeof EXIT_BAD_CONFIG
