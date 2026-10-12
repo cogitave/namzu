@@ -152,7 +152,10 @@ The output is `<tag>.tar.zst` (or `.tar.xz`, `.tar.gz`, `.tar`) and `manifest.js
 `{ revision, imageRef, imageId, protocol, sha256, sizeBytes, compressedBytes, format }`, where `sha256`
 is the archive's, `sizeBytes` the uncompressed tar's; `file`, `stage` and `tarSha256` are added. Windows'
 `wslc load -i` reads the compressed archive directly (it sniffs the content, so the extension does not
-matter), so no decompression step sits between the installer's file and the engine.
+matter), so no decompression step sits between the installer's file and the engine. The manifest's
+`imageId` and `sha256` identify the archive that shipped; the build is not byte-reproducible (apt and
+layer timestamps differ per build, the size matches to the byte but the digests do not), so they are not
+a reproducible-build claim.
 
 ### Measured (base stage, wslc 3.0.1 on Windows 10 build 19045)
 
@@ -160,7 +163,7 @@ matter), so no decompression step sits between the installer's file and the engi
 |---|---|
 | Cold `wslc build` (`--no-cache`, apt over the network) | 92 s; 103 s with `save` |
 | Image on disk | 1.18 GB (1,200,803,328 bytes as a tar) |
-| Archive formats | zstd -19 323.3 MB (default), zstd -19 `--long=27` 316.0 MB, xz -9e 294.7 MB, gzip -9 435.4 MB, zstd -3 410.0 MB |
+| Archive formats | zstd -19 323.3 MB (default), zstd -19 `--long=27` 316.0 MB, zstd `--ultra -22 --long=27` 311.6 MB (230 s; passes `zstd -t`, Node's zlib and `wslc load -i` in 6.6 s, but needs a 128 MB decoder window for 11.6 MB less, so it is not used), xz -9e 294.7 MB, gzip -9 435.4 MB, zstd -3 410.0 MB |
 | Compress | zstd -19 through Node's `zlib` about 5 minutes on one thread (Node's zstd stream fails with worker threads on), xz -9e about 3 minutes with threads |
 | `wslc load -i` | accepts `.tar`, `.tar.gz`, `.tar.xz`, `.tar.zst` and `.tar.bz2` directly and detects the format from the content (a `.zst` file named without an extension loads too); a truncated archive fails with `unexpected EOF` and exit 1, junk with `invalid tar header` |
 | Load time | 2.4 to 2.8 s for the zstd archive, 12.6 s for xz; warm-store figures (layers shared with another image already present), so a first load on an empty store takes longer and is not yet measured |
@@ -176,11 +179,14 @@ program on the build machine). A caller loads `file` from `manifest.json` with
 `packages/desktop/scripts/stage-installer.mjs --pal-computer-image <archive>` (the manifest defaults
 to `manifest.json` beside it) copies both into `resources/pal-computer/` of the installed app. The
 archive is stored as built. With the base image the installer grows from 180 MB to 503 MB. An app
-update that does not change the image downloads about 3 MB: electron-updater's differential download
+update that does not change the image downloads about 1.4 MB: electron-updater's differential download
 compares the installer's content-defined blocks, the default `nsis.differentialPackage` compresses
 each file on its own (non-solid), and an unchanged image compresses to identical bytes, so its blocks
-are all reused (measured on two real installers 0.1.0 and 0.1.1, 156 of 24,003 blocks changed, 3.2 MB).
-A new image revision downloads the whole archive once (323 MB). The 3 MB figure is for an app-only
+are all reused. Measured on two real image-carrying installers built from the same stage, 0.1.0 and
+0.1.1 (the version is the only app change, `--config.extraMetadata.version=0.1.1`): 68 of 24,128
+blocks differ, 1.36 MB (0.27 percent of 502.6 MB; electron-updater merges neighbouring ranges, so
+expect a little more). The blockmaps are 525,711 and 525,797 bytes and the installers 502,554,887
+and 502,554,874 bytes. A real app change touches more blocks than a version bump. A new image revision downloads the whole archive once (323 MB). The figure is for an app-only
 change and needs the previous version's blockmap in the update feed. `stage-installer.mjs` refuses a
 manifest whose `imageRef` is not `namzu-local-computer:<revision>`. The release workflow does not pass
 `--pal-computer-image` yet, so CI-built installers carry only a `README.txt` in `pal-computer/` until
