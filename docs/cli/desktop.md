@@ -111,6 +111,25 @@ The installed app is self-contained under `resources/`:
   copies its DLLs into torch's own `lib` folder (the wheel alone is not enough, because the
   venv's `python.exe` is a launcher for the bundled interpreter).
 
+- `pal-computer/` is the light Pal computer image (the `base` stage of
+  `packages/sandbox/local-computer/Dockerfile`, see [Local Pal computers](../sdk/local-pal-computer.md#image-stages-and-the-bundled-light-image)):
+  `namzu-local-computer-2.tar.zst` (323 MB, loads directly with `wslc load -i`) and its
+  `manifest.json` (`revision`, `stage`, `imageRef`, `imageId`, `protocol`, `file`, `sha256`,
+  `tarSha256`, `sizeBytes`, `compressedBytes`, `format`; the stager requires `file`). `stage-installer.mjs --pal-computer-image <archive>` checks the manifest
+  against the archive and stages both; without the flag a `README.txt` stands there. The installer is
+  503 MB with it (180 MB without). The archive is already compressed, so the installer stores it
+  as given, and an update downloads only the changed blocks: 1.4 MB measured between two
+  image-carrying installers that differ only in version (an update with a real app change is not
+  measured yet), the update feed must keep the previous version's blockmap, and a new image revision
+  downloads the whole 323 MB once. `stage-installer.mjs` refuses a
+  manifest whose `imageRef` is not `namzu-local-computer:<revision>`, so a test-tagged build is never
+  bundled. The release workflow (`.github/workflows/desktop-release.yml`) does not yet pass
+  `--pal-computer-image`, so installers it builds carry only the `README.txt` until the image is wired
+  into the pipeline; the 503 MB installer is hand-built. Before the app loads the image, the workflow must
+  take the archive as an input and fail unless `resources/pal-computer/manifest.json` is in the
+  installer, and a cold-store load (not only the warm 2.4 to 6.6 s) must be measured before a first-run
+  time is promised. Nothing in the app loads the image yet.
+
 Build it with a staged copy, which `scripts/stage-installer.mjs` writes outside the
 repository (it refuses a folder inside it). Run `pnpm -r build` first.
 
@@ -126,7 +145,7 @@ node tools\node_modules\electron-builder\cli.js --win nsis --x64 --publish never
 `--config.extraMetadata.version=<n>` builds a test version for update tests; never edit the
 version by hand. electron-builder drops a `node_modules` folder given to `extraResources`,
 so `scripts/installer-after-pack.cjs` copies the CLI's after packing. The result for 0.1.0 is
-`Namzu-Setup-0.1.0.exe` (about 179 MB) with its blockmap.
+`Namzu-Setup-0.1.0.exe` (about 179 MB, 503 MB with the Pal computer image) with its blockmap.
 
 ### App updates
 

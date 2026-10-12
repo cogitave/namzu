@@ -38,6 +38,9 @@ From a source checkout:
 docker build -f packages/sandbox/local-computer/Dockerfile -t namzu-local-computer:1 packages/sandbox
 ```
 
+That builds the last stage, the full image. The Dockerfile has two stages, described
+under [Image stages](#image-stages-and-the-bundled-light-image).
+
 The npm package also includes `local-computer/` and `worker/server.js`. Use the
 installed `@namzu/sandbox` package directory as the build context and
 `local-computer/Dockerfile` as the Dockerfile. Building downloads the base image
@@ -45,7 +48,7 @@ and operating-system packages and is an explicit operator action. The provider
 never installs an engine, starts a machine, changes a default connection,
 builds an image or pulls an image.
 
-The image installs Blender 5.2.2 LTS, FreeCAD, GIMP, Inkscape, LibreOffice Draw, Mousepad,
+The creative stage installs Blender 5.2.2 LTS, FreeCAD, GIMP, Inkscape, LibreOffice Draw, Mousepad,
 OpenSCAD, Kdenlive, Godot 4.7.2, Solitaire, QGIS, KiCad and ParaView, alongside
 Terminal and Files. Its 15 home launchers and icons are generated from actual
 installed executables and Debian desktop entries; missing entries fail the image
@@ -76,7 +79,7 @@ The guest launcher disables Chromium's separate stock New Tab footer with
 `--disable-features=NtpFooter`, removing its **Customize Chromium** button from
 the bundled home. Startup, native new tabs and dock reopen use the same browser
 configuration; normal website address bars and the application grid remain.
-No browser policy or user profile file is rewritten. The desktop worker starts
+The image carries one managed browser policy (`/etc/chromium/policies/managed/namzu.json`: browser sign-in, sync and promotions off), so the toolbar never offers "Sign in to Chromium?"; no user profile file is rewritten. The desktop worker starts
 after that page and its real application catalogue are ready. Existing user
 tabs and literal website arguments are retained.
 Its fixed extension ID is the sole allowed origin
@@ -115,6 +118,83 @@ startup deadline, and 1280 by 800 pixels. Dimensions must be integers between
 320 and 3840. A probe verifies the engine and installed image, without creating
 a computer. A successful allocation additionally verifies real display geometry,
 PNG capture, a running browser and the execution worker's exact protocol.
+
+## Image stages and the bundled light image
+
+`local-computer/Dockerfile` is two stages. Each stage lists on the Pal's home page, and checks when
+it is built, only the applications it installed: `app-catalog.cjs` tags every application with
+its stage, `prepare-home.cjs --stage <name>` generates `apps.json` and the icons for that stage's
+applications, and records the stage in `/opt/namzu-computer/stage`, which the browser launcher and
+the native host read at run time. There is no hand-kept list per stage.
+
+| Stage | Tag | Contents | Size on disk |
+|---|---|---|---|
+| `base` | `namzu-local-computer:2` | Debian bookworm-slim, Xvfb, Openbox, tint2 dock, Chromium with the bundled New Tab page, Terminal, Files (pcmanfm), Text Editor (Mousepad), Node and the guest worker, Mesa software rendering | 1.18 GB |
+| `creative` | `namzu-local-computer:2-creative` | `FROM base`, plus Blender, FreeCAD, GIMP, Inkscape, LibreOffice Draw, OpenSCAD, Kdenlive, Godot, Solitaire, QGIS, KiCad, ParaView and their launchers | about 7 GB |
+
+Building without `--target` builds the last stage (`creative`), the same image as before the split.
+`LOCAL_COMPUTER_IMAGE` stays `namzu-local-computer:1`; the light image is reached by passing
+`image: 'namzu-local-computer:2'`. Every stage keeps the image label `org.namzu.local-computer.protocol`
+and `USER 1001:1001` that the provider checks, and strips setuid and setgid bits (nothing in the guest
+needs them; the container engine on Windows does not offer `no-new-privileges`).
+
+`local-computer/build-image.mjs` builds one stage with a chosen engine binary, saves it, compresses
+it and writes a manifest:
+
+```sh
+node packages/sandbox/local-computer/build-image.mjs --engine docker --stage base --out ./image
+node packages/sandbox/local-computer/build-image.mjs --engine "C:\Program Files\WSL\wslc.exe" \
+  --stage base --tag namzu-local-computer:2 --out .\image --format zst
+```
+
+`--engine` is any binary that has `build`, `image inspect` and `save` (`docker`, `podman`, `wslc`).
+The output is `<tag>.tar.zst` (or `.tar.xz`, `.tar.gz`, `.tar`) and `manifest.json`:
+`{ revision, stage, imageRef, imageId, protocol, file, sha256, tarSha256, sizeBytes, compressedBytes, format }`,
+where `file` is the archive's name beside the manifest (the installer stager requires it), `sha256` the
+archive's digest, `tarSha256` the uncompressed tar's and `sizeBytes` its size. Windows'
+`wslc load -i` reads the compressed archive directly (it sniffs the content, so the extension does not
+matter), so no decompression step sits between the installer's file and the engine. The manifest's
+`imageId` and `sha256` identify the archive that shipped; the build is not byte-reproducible (apt and
+layer timestamps differ per build, the size matches to the byte but the digests do not), so they are not
+a reproducible-build claim.
+
+### Measured (base stage, wslc 3.0.1 on Windows 10 build 19045)
+
+| Step | Result |
+|---|---|
+| Cold `wslc build` (`--no-cache`, apt over the network) | 92 s; 103 s with `save` |
+| Image on disk | 1.18 GB (1,200,803,328 bytes as a tar) |
+| Archive formats | zstd -19 323.3 MB (default), zstd -19 `--long=27` 316.0 MB, zstd `--ultra -22 --long=27` 311.6 MB (230 s; passes `zstd -t`, Node's zlib and `wslc load -i` in 6.6 s, but needs a 128 MB decoder window for 11.6 MB less, so it is not used), xz -9e 294.7 MB, gzip -9 435.4 MB, zstd -3 410.0 MB |
+| Compress | zstd -19 through Node's `zlib` about 5 minutes on one thread (Node's zstd stream fails with worker threads on), xz -9e about 3 minutes with threads |
+| `wslc load -i` | accepts `.tar`, `.tar.gz`, `.tar.xz`, `.tar.zst` and `.tar.bz2` directly and detects the format from the content (a `.zst` file named without an extension loads too); a truncated archive fails with `unexpected EOF` and exit 1, junk with `invalid tar header` |
+| Load time | 2.4 to 2.8 s for the zstd archive, 12.6 s for xz; warm-store figures (layers shared with another image already present), so a first load on an empty store takes longer and is not yet measured |
+| Start | the guest answers `/healthz` in under a second and the desktop worker is ready 1.8 s later on a warm VM |
+
+zstd is the default because Node and Electron decompress it natively and it loads five times faster
+than xz; xz is 9 percent smaller if the installer size matters more (`--format xz`, needs the `xz`
+program on the build machine). A caller loads `file` from `manifest.json` with
+`wslc load -i <path>`, then checks `wslc image inspect` against `imageId` and `protocol`.
+
+### In the Windows installer
+
+`packages/desktop/scripts/stage-installer.mjs --pal-computer-image <archive>` (the manifest defaults
+to `manifest.json` beside it) copies both into `resources/pal-computer/` of the installed app. The
+archive is stored as built. With the base image the installer grows from 180 MB to 503 MB. An
+update that changes only the version downloads about 1.4 MB: electron-updater's differential download
+compares the installer's content-defined blocks, the default `nsis.differentialPackage` compresses
+each file on its own (non-solid), and an unchanged image compresses to identical bytes, so its blocks
+are all reused. Measured on two real image-carrying installers built from the same stage, 0.1.0 and
+0.1.1 (the version is the only app change, `--config.extraMetadata.version=0.1.1`): 68 of 24,128
+blocks differ, 1.36 MB (0.27 percent of 502.6 MB; electron-updater merges neighbouring ranges, so
+expect a little more). The blockmaps are 525,711 and 525,797 bytes and the installers 502,554,887
+and 502,554,874 bytes. An update with a real app change (a new `app.asar` or CLI) touches more
+blocks and has not been measured yet, and whether the image's blocks stay reused when a large file
+before it changes is unproven until it is. A new image revision downloads the whole archive once
+(323 MB). Every figure needs the previous version's blockmap in the update feed. `stage-installer.mjs` refuses a
+manifest whose `imageRef` is not `namzu-local-computer:<revision>`. The release workflow does not pass
+`--pal-computer-image` yet, so CI-built installers carry only a `README.txt` in `pal-computer/` until
+the image is wired into the pipeline. Nothing loads the image at run time yet.
+
 
 ## Ownership and lifecycle
 

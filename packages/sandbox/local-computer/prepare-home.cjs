@@ -1,6 +1,6 @@
 const { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } = require('node:fs')
-const { basename, extname, join } = require('node:path')
-const { APPLICATIONS, installedApplication } = require('./app-catalog.cjs')
+const { basename, dirname, extname, join } = require('node:path')
+const { STAGES, applicationsForStage, installedApplication } = require('./app-catalog.cjs')
 const { EXTENSION_ORIGIN, HOST_NAME } = require('./app-native-host.cjs')
 
 function findIcon(name, root = '/usr/share') {
@@ -42,18 +42,23 @@ function desktopIcon(source) {
 function prepareHome(options = {}) {
 	const root = options.shareRoot ?? '/usr/share'
 	const destination = options.destination ?? join(__dirname, 'new-tab')
-	const applicationExists = options.applicationExists ?? ((app) => installedApplication(app.id))
+	const stage = options.stage ?? STAGES[STAGES.length - 1]
+	const applications = applicationsForStage(stage)
+	const applicationExists =
+		options.applicationExists ?? ((app) => installedApplication(app.id, undefined, applications))
 	const catalogue = []
 	mkdirSync(join(destination, 'icons'), { recursive: true })
-	for (const app of APPLICATIONS) {
+	for (const app of applications) {
 		if (!applicationExists(app)) {
 			throw new Error(`Required guest application is missing: ${app.id}`)
 		}
 		const desktop = app.desktop.map((name) => join(root, 'applications', name)).find(existsSync)
 		if (!desktop) throw new Error(`Installed guest application entry is missing: ${app.id}`)
-		const iconName = desktopIcon(readFileSync(desktop, 'utf8'))
+		// A catalogue icon wins over the desktop entry's (the entry may name a plain pixmap).
+		const entryIcon = desktopIcon(readFileSync(desktop, 'utf8'))
 		const icon =
-			(iconName && findIcon(iconName, root)) ||
+			(app.icon && findIcon(app.icon, root)) ||
+			(entryIcon && findIcon(entryIcon, root)) ||
 			(app.fallbackIcon && findIcon(app.fallbackIcon, root))
 		if (!icon) throw new Error(`Installed guest application icon is missing: ${app.id}`)
 		const path = `icons/${app.id}${extname(icon)}`
@@ -61,6 +66,8 @@ function prepareHome(options = {}) {
 		catalogue.push({ id: app.id, name: app.name, icon: path })
 	}
 	writeFileSync(join(destination, 'apps.json'), JSON.stringify(catalogue))
+	// Runtime readers (the browser launcher, the native host) trust this marker, not a list of their own.
+	writeFileSync(options.stageFile ?? join(dirname(destination), 'stage'), `${stage}\n`)
 	return catalogue
 }
 
@@ -79,8 +86,36 @@ function installNativeManifest() {
 	)
 }
 
-module.exports = { findIcon, desktopIcon, prepareHome }
+// Managed policy, so the guest browser never offers to sign in to a browser account. BrowserSignin
+// alone leaves the toolbar's "Sign in to Chromium?" button; with the promotions off it is gone.
+const BROWSER_POLICY = Object.freeze({
+	BrowserSignin: 0,
+	SyncDisabled: true,
+	PromotionsEnabled: false,
+})
+
+function installBrowserPolicy(directory = '/etc/chromium/policies/managed') {
+	mkdirSync(directory, { recursive: true })
+	writeFileSync(join(directory, 'namzu.json'), JSON.stringify(BROWSER_POLICY))
+}
+
+function stageArgument(argv) {
+	const index = argv.indexOf('--stage')
+	const stage = index < 0 ? STAGES[STAGES.length - 1] : argv[index + 1]
+	if (!STAGES.includes(stage)) throw new Error(`Unknown image stage: ${stage}`)
+	return stage
+}
+
+module.exports = {
+	findIcon,
+	desktopIcon,
+	prepareHome,
+	installBrowserPolicy,
+	stageArgument,
+	BROWSER_POLICY,
+}
 if (require.main === module) {
-	prepareHome()
+	prepareHome({ stage: stageArgument(process.argv.slice(2)) })
 	installNativeManifest()
+	installBrowserPolicy()
 }
