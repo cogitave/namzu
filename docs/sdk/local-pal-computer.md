@@ -639,28 +639,87 @@ image. Setting up a machine is a separate, consented operation owned by the
 application: `@namzu/sandbox/local-virtual-computer/setup` inspects the PC,
 plans what is missing and runs that plan only after the person agrees.
 Namzu Desktop does it from the Pal computer row; the CLI from
-`namzu computer setup`. This section describes the contract
-(`setup/contract.ts`); the functions behind it are being built, and until
-they land each one throws "not implemented yet".
+`namzu computer setup`. The contract is `setup/contract.ts`. Inspecting,
+planning, running a plan, loading the image, stopping an idle session and the
+restart record are implemented; downloading the WSL package, the one elevated
+process and the resume entry at sign-in are separate pieces, and until they
+land each throws "not implemented yet".
 
 - **Readiness.** `inspectWslcReadiness` answers one state, the first that
   applies, in this order: `unsupported` (not Windows x64 build 19041 or newer),
-  `blocked-by-policy`, `restart-pending`, `platform-off`, `wsl-missing`,
-  `wsl-outdated`, `sdk-mismatch`, `virtualization-off`, `image-missing`, `ready`.
-- **Plan.** `planWslcSetup` turns a state into steps (`download-wsl`,
+  `blocked-by-policy` (`AllowWSL` or `AllowWSLContainer` is 0 under
+  `HKLM\Software\Policies\WSL`; absent means allowed), `restart-pending`,
+  `platform-off` (Virtual Machine Platform: the `HNS` and `vmcompute` services
+  exist; on Windows 10 also the `LxssManager` service), `wsl-missing`,
+  `wsl-outdated`, `sdk-mismatch`, `virtualization-off`, `image-missing`,
+  `ready`. It reads the WSL version from the first `x.y.z.w` on the first line
+  of `wsl.exe --version`, which is UTF-16 and localised, never from a label.
+  It also reports every fact it read, so a plan can use them all.
+- **Without a probe it never starts a virtual machine.** `wslc version` does
+  not start the session; `wslc list`, `ps` and `image` do. So by default
+  `image.loaded` comes from `<stateDirectory>/image.json`, which setup writes
+  after a successful load, and `sdk-mismatch` and `virtualization-off` from a
+  failed session start cannot be seen yet. With `probeSession: true` it runs
+  `wslc image inspect`, which starts the session if it is stopped, and maps
+  the engine's refusal to those states. Without a probe, `virtualization-off`
+  means only that no hypervisor runs although the platform is on and the PC
+  has restarted since. On the verified PC an inspection without a probe takes
+  about 0.3 seconds (three runs: 287, 249 and 257 ms); with a probe, 10.2
+  seconds for the first one (the session was stopped) and 0.3 seconds once it
+  runs.
+- **Plan.** `planWslcSetup` turns the facts into steps (`download-wsl`,
   `enable-windows-features`, `install-wsl`, `restart`, `load-image`), each with
   its download size, rough time, whether it is elevated and whether it may need
-  a restart. Every elevated step of a plan runs in one elevated process, so a
-  plan causes at most one Windows permission prompt. A plan Namzu cannot carry
-  out says why in `blocked` and has no steps.
+  a restart. It looks at every fact, not only the headline state: WSL missing
+  or below the floor gives download and install, Virtual Machine Platform (or
+  on Windows 10 the optional component) off gives the enable step and a
+  restart after the elevated steps, an image that is not loaded gives
+  `load-image` last. A pending restart gives `restart` first, then what is
+  left. A state Namzu cannot change (`unsupported`, `blocked-by-policy`,
+  `virtualization-off`, `sdk-mismatch`) and a missing image with no bundled
+  archive (`image-unavailable`) give no steps and say why in `blocked`. Every
+  elevated step of a plan runs in one elevated process, so a plan causes at
+  most one Windows permission prompt. The plan `id` is a SHA-256 of the state,
+  the steps, the pinned WSL version and the manifest digest, not of the time.
+- **The image ships with Namzu.** The application carries
+  `resources/pal-computer/manifest.json` and the archive named in it
+  (`local-computer/build-image.mjs` writes both); nothing is downloaded for
+  the image. `loadWslcImage` validates the manifest (an `imageRef` of
+  `namzu-local-computer:<revision>`, a file name with no path), skips
+  everything when the engine already holds the image, checks the archive's size
+  and SHA-256 (reporting bytes as it reads), runs `wslc load -i`, then checks
+  that the loaded image's id and its `org.namzu.local-computer.protocol` label
+  are the manifest's and records `{ imageRef, imageId, loadedAt }` in
+  `image.json`. On the verified PC loading the 323 MB archive into an empty
+  store took 3.2 seconds including the checks.
 - **Consent.** `runWslcSetup` takes `{ planId, approvedAt }`, inspects the PC
-  again and refuses with `plan-changed` when the plan it would run is not the
-  one the person saw.
-- **Restart.** When Windows needs a restart, setup records the steps still to
-  run and asks Windows to open Namzu once at the next sign-in, where setup
-  continues.
-- **Idle.** `stopIdleWslcSession` stops the wslc session's virtual machine only
-  when nothing runs in it, Namzu's or not.
+  again with the probe and refuses with `plan-changed` (carrying the new plan)
+  when the plan it would run is not the one the person saw. Because it probes,
+  a plan shown from an inspection without a probe can differ from the one
+  `runWslcSetup` sees (the engine may disagree with the record), and the
+  application shows the new plan then. It then runs the steps in order and
+  reports progress; the elevated steps go in one call. A refused permission
+  prompt ends as `cancelled`, an account that cannot elevate as
+  `needs-administrator`, a failed step as `failed` with the step, a stable
+  code and a plain detail. When setup finishes it inspects once more:
+  `ready`, or `blocked` for virtualization, policy or an engine mismatch the
+  last inspection found, or `failed` with `engine-failed`.
+- **Restart.** When the elevated process says Windows needs a restart, setup
+  writes `<stateDirectory>/restart.json` (a temporary file renamed over it, so
+  a reader never sees half of one) with the steps still to run, asks Windows
+  to open Namzu once at the next sign-in when the caller gave a
+  `resumeCommand`, and returns `restart-required`. Readiness holds the state
+  at `restart-pending` until Windows reports a boot later than the record,
+  then deletes it.
+- **Idle.** `stopIdleWslcSession` asks `wslc system session list` (which does
+  not start a session) whether the default session, the one wslc names
+  `wslc-cli-<user>`, runs; if not it answers `not-running`. Otherwise it lists
+  running containers (`wslc list -q`, Namzu's or not) and answers `busy` when
+  there is one; only an empty list ends in `wslc system session terminate`.
+  When it cannot tell what runs it throws and leaves the session alone. A
+  container started in the milliseconds between the list and the terminate is
+  not caught. On the verified PC stopping an idle session took 0.9 seconds
+  and a repeat answered `not-running` in 34 ms.
 
 ## Owned guest stdio services
 
