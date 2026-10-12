@@ -13,15 +13,19 @@ import type { LocalComputerCommandRunner } from '../engine.js'
  * - `blocked-by-policy`: `AllowWSL` or `AllowWSLContainer` is 0 under
  *   `HKLM\Software\Policies\WSL`.
  * - `restart-pending`: setup recorded that Windows needs a restart, and the PC
- *   has not restarted since.
+ *   has not restarted since; or Virtual Machine Platform is on, no hypervisor
+ *   runs yet, and Windows itself reports a restart pending (no marker then).
+ *   A marker that cannot be read, or a boot time that cannot be fetched while
+ *   a marker exists, also reads `restart-pending`: the steps still to run
+ *   after the restart are then unknown and treated as none.
  * - `platform-off`: Virtual Machine Platform is off, or (Windows 10 only) the
  *   Windows Subsystem for Linux optional component is.
  * - `wsl-missing`: no WSL package with wslc.
  * - `wsl-outdated`: WSL is present, but wslc is missing or below the floor.
  * - `sdk-mismatch`: the installed WSL refuses this client (`0x8004060B`).
  * - `virtualization-off`: the session's virtual machine cannot start
- *   (`0x80370102`), or no hypervisor runs although the platform is on and the
- *   PC has restarted since.
+ *   (`0x80370102`), or (without a session probe) no hypervisor runs although
+ *   the platform is on and Windows reports no restart pending.
  * - `image-missing`: wslc works, but the Pal computer image is not loaded.
  * - `ready`: wslc works and the image is loaded and matches its manifest.
  */
@@ -226,6 +230,8 @@ export type WslcSetupResult =
 			readonly code: WslcSetupFailureCode
 			/** Plain words for a Details fold. Never engine output or paths with user names. */
 			readonly detail?: string
+			/** The Windows exit code of the failed step, when Windows gave one. */
+			readonly exitCode?: number
 	  }
 
 /**
@@ -268,6 +274,8 @@ export interface WslcSetupHost {
 	readonly runner: LocalComputerCommandRunner
 	/** A DWORD from the registry; undefined when the value or key is absent. */
 	readDword(key: string, name: string): Promise<number | undefined>
+	/** Whether a registry key exists; `unknown` when the check failed or timed out. */
+	keyExists(key: string): Promise<boolean | 'unknown'>
 	/** The last boot time of Windows. */
 	bootTime(): Promise<Date>
 	now(): Date

@@ -534,7 +534,7 @@ import { createLocalVirtualComputerProvider } from '@namzu/sandbox'
 
 const environments = createLocalVirtualComputerProvider({
   engine: 'wslc',
-  // Optional. Defaults to %ProgramFiles%\WSL\wslc.exe, then wslc on PATH.
+  // Optional. Defaults to %ProgramW6432%\WSL\wslc.exe (%ProgramFiles% when that is unset), then wslc on PATH.
   wslcBinary: 'C:\\Program Files\\WSL\\wslc.exe',
 })
 ```
@@ -572,6 +572,12 @@ are pinned only by tests with synthetic stderr. A missing image has been
 observed: `image inspect` exits non-zero with no code, and the provider reads
 that (or `WSLC_E_IMAGE_NOT_FOUND`) as `image-missing`. Any other failure of
 that command, such as a timeout or an engine crash, is reported as itself.
+
+`probe()` returns the same code beside its `reason` as `setupCode` (for the
+wslc engine's catch-all "required" answer it is `image-missing`), so an
+application picks its words by the code and not by the message. The
+`engine-missing` message reads "Linux container support is not installed on
+this PC." and names no tool.
 
 The codes come from the engine's stderr. The command runner keeps only
 recognised machine-readable tokens (HRESULTs, `WSLC_E_*` and `HCS_E_*` names,
@@ -650,16 +656,44 @@ Namzu Desktop does it from the Pal computer row; the CLI from
   `wsl-outdated`, `sdk-mismatch`, `virtualization-off`, `image-missing`,
   `ready`. It reads the WSL version from the first `x.y.z.w` on the first line
   of `wsl.exe --version`, which is UTF-16 and localised, never from a label.
-  It also reports every fact it read, so a plan can use them all.
+  It also reports every fact it read, so a plan can use them all. The
+  processor type is the PC's (`PROCESSOR_ARCHITEW6432`, else
+  `PROCESSOR_ARCHITECTURE`: `AMD64` is x64, `ARM64` is arm64), not the Node
+  build's `process.arch`, and wslc is looked for under `ProgramW6432` before
+  `ProgramFiles`.
+- **Every probe has its own time limit.** `reg.exe`, `sc.exe`, `wsl.exe
+  --version` and `wslc version` get 10 seconds, PowerShell (the hypervisor and
+  boot-time checks) 15, and the command that starts the wslc session 60. The
+  limit aborts the runner's signal and stops waiting, so a stuck tool cannot
+  hold an inspection. A timed-out service, hypervisor or `wsl.exe` check
+  becomes an `unknown` fact, a timed-out registry read is "not set". Where the
+  state cannot be decided (`wslc version` or the session probe timed out, or
+  the engine failed with something unmapped) the inspection throws a
+  `LocalComputerSetupError` with a plain message and no code, which the CLI and
+  Desktop show as "could not check" with Details. An unmapped failure of the
+  session probe is never read as `image-missing`; only the engine's own
+  not-found answer is.
 - **Without a probe it never starts a virtual machine.** `wslc version` does
   not start the session; `wslc list`, `ps` and `image` do. So by default
   `image.loaded` comes from `<stateDirectory>/image.json`, which setup writes
   after a successful load, and `sdk-mismatch` and `virtualization-off` from a
   failed session start cannot be seen yet. With `probeSession: true` it runs
   `wslc image inspect`, which starts the session if it is stopped, and maps
-  the engine's refusal to those states. Without a probe, `virtualization-off`
-  means only that no hypervisor runs although the platform is on and the PC
-  has restarted since. On the verified PC an inspection without a probe takes
+  the engine's refusal to those states (`0x80370102` is `virtualization-off`).
+  Without a probe, `virtualization-off` means that no hypervisor runs although
+  the platform is on and Windows reports no restart pending: when the
+  hypervisor is absent and Virtual Machine Platform is on, readiness first
+  reads Windows' own markers that need no administrator
+  (`HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based
+  Servicing\RebootPending` and `...\WindowsUpdate\Auto Update\RebootRequired`)
+  and reports `restart-pending` (with no `restart` record of Namzu's own) when
+  either exists, because a PC that has not restarted since the platform was
+  turned on outside Namzu has no hypervisor yet. With a probe a pending
+  restart still wins, and otherwise the session's own failure decides.
+  A restart record that cannot be read (anything but "not there") is treated
+  as `restart-pending` with no remaining steps known, and the same holds when
+  a record exists and the boot time cannot be fetched; a record that cannot be
+  deleted after a restart is ignored. On the verified PC an inspection without a probe takes
   about 0.3 seconds (three runs: 287, 249 and 257 ms); with a probe, 10.2
   seconds for the first one (the session was stopped) and 0.3 seconds once it
   runs.
@@ -687,7 +721,14 @@ Namzu Desktop does it from the Pal computer row; the CLI from
   that the loaded image's id and its `org.namzu.local-computer.protocol` label
   are the manifest's and records `{ imageRef, imageId, loadedAt }` in
   `image.json`. On the verified PC loading the 323 MB archive into an empty
-  store took 3.2 seconds including the checks.
+  store took 3.2 seconds including the checks, so the plan's estimate is about
+  5 seconds plus the archive at 150 MB/s. The size is compared with the
+  manifest before a byte is hashed, so a short file fails at once. There is a
+  gap between the hash and `wslc load`: a process of the same user could swap
+  the archive in between. The check after the load (the loaded image's id and
+  protocol label must be the manifest's) catches a different image, but the
+  swap is not prevented, and this is accepted because anything running as the
+  person can already run `wslc` itself.
 - **Consent.** `runWslcSetup` takes `{ planId, approvedAt }`, inspects the PC
   again with the probe and refuses with `plan-changed` (carrying the new plan)
   when the plan it would run is not the one the person saw. Because it probes,
@@ -702,7 +743,8 @@ Namzu Desktop does it from the Pal computer row; the CLI from
   last inspection found, or `failed` with `engine-failed`.
 - **Restart.** When the elevated process says Windows needs a restart, setup
   writes `<stateDirectory>/restart.json` (a temporary file renamed over it, so
-  a reader never sees half of one) with the steps still to run, asks Windows
+  a reader never sees half of one; `image.json` is written the same way, and a
+  write that dies before the rename leaves the old file whole) with the steps still to run, asks Windows
   to open Namzu once at the next sign-in when the caller gave a
   `resumeCommand`, and returns `restart-required`. Readiness holds the state
   at `restart-pending` until Windows reports a boot later than the record,
@@ -716,7 +758,10 @@ Namzu Desktop does it from the Pal computer row; the CLI from
   `-EncodedCommand`; there is no script file or helper program anyone could
   edit or that Windows would name as an unknown publisher. Windows shows its
   own permission prompt once (a standard user is asked for an administrator's
-  password), and the prompt names Windows PowerShell. Inside, only Microsoft
+  password), and the prompt names Windows PowerShell. The launcher and the
+  `whoami` check run with the Windows `System32` folder as their working
+  directory (and the launcher sets the elevated process's `WorkingDirectory`
+  to it), so nothing is loaded from the folder the caller happened to start in. Inside, only Microsoft
   tools run: `dism.exe /online /enable-feature /featurename:VirtualMachinePlatform
   /all /norestart` (plus `Microsoft-Windows-Subsystem-Linux` on Windows 10,
   build below 22000), and `msiexec.exe /i ... /qn /norestart /l*v` for the
@@ -762,7 +807,8 @@ Namzu Desktop does it from the Pal computer row; the CLI from
   install failed, 22 the package did not match the pinned digest, 23 the
   protected folder could not be created. They map to
   `ok`, `restart-required`, and `failed` with `feature-enable-failed` or
-  `wsl-install-failed` and the Windows exit code for a Details fold; a launch
+  `wsl-install-failed`; the failed result carries the Windows exit code as
+  `exitCode` for a Details fold; a launch
   that does not start, or code 23, is `elevation-failed`. Declining the prompt
   (Windows error 1223, or a message saying the operation was canceled by the
   user) is `cancelled`, except for an account that is not an
@@ -782,7 +828,8 @@ Namzu Desktop does it from the Pal computer row; the CLI from
   digest the release reports and the one recomputed from a download.
   `downloadWslPackage` writes `<name>.part`, resumes it with a `Range` request
   after an interruption (only when the answer's `Content-Range` starts at the
-  byte asked for; otherwise it starts again from zero), retries network trouble
+  byte asked for; otherwise it starts again from zero; a plain 200 answer to a
+  resume request overwrites the partial file in that one request), retries network trouble
   and 5xx answers after 1, 2, 4 and 8 seconds (five attempts), fails at once on
   other 4xx answers, checks the digest, renames on success and deletes a file
   that does not match (`download-corrupt`). The image is not downloaded; it ships inside the
@@ -792,7 +839,9 @@ Namzu Desktop does it from the Pal computer row; the CLI from
   `reg.exe add ... /f`, refusing a command that is empty, has a line break or
   is over 2048 characters; no administrator is needed for the default per-user
   `RunOnce` key. Windows removes a RunOnce value as it runs it.
-  `clearResumeAtSignIn` deletes it, and a value that is not there is fine.
+  `clearResumeAtSignIn` deletes it. Only `reg.exe`'s "not found" exit (1) means
+  the value is not there; any other failure of the query is thrown, and setup
+  treats a leftover entry as harmless.
 - **Idle.** `stopIdleWslcSession` asks `wslc system session list` (which does
   not start a session) whether the default session, the one wslc names
   `wslc-cli-<user>`, runs; if not it answers `not-running`. Otherwise it lists

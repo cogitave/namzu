@@ -263,7 +263,8 @@ describe('runWslcSetup: WSL is missing', () => {
 				outcome: 'failed',
 				step: 'install-wsl',
 				code: 'wsl-install-failed',
-				detail: 'Windows could not finish this step (error 1603).',
+				detail: 'Windows could not finish this step.',
+				exitCode: 1603,
 			},
 		],
 		[
@@ -421,13 +422,16 @@ describe('runWslcSetup: the image step fails', () => {
 			loaded = true
 			return ''
 		})
-		runner.set('wslc image inspect -f json namzu-local-computer:2', () =>
-			loaded ? inspectJson(IMAGE_ID) : NOT_FOUND,
-		)
-		runner.set(
-			'powershell -NoProfile -NonInteractive -Command (Get-CimInstance Win32_ComputerSystem).HypervisorPresent',
-			() => (loaded ? 'False' : 'True'),
-		)
+		// The first inspection finds nothing; after the load the session's virtual
+		// machine refuses to start, which is what a PC with virtualization off does.
+		let verified = false
+		runner.set('wslc image inspect -f json namzu-local-computer:2', () => {
+			if (!loaded) return NOT_FOUND
+			// The check right after the load passes; the inspection after the plan fails.
+			if (verified) return failure(1, ['0x80370102'])
+			verified = true
+			return inspectJson(IMAGE_ID)
+		})
 		const o = options(runner)
 		const result = await runWslcSetup(await consentTo(o), o)
 		expect(result).toEqual({ outcome: 'blocked', blocked: 'virtualization-off' })

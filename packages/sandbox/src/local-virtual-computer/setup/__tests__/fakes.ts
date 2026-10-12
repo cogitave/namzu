@@ -28,7 +28,7 @@ function keyOf(binary: string, args: readonly string[]): string {
 }
 
 export function failure(code: number, codes: string[] = []): LocalCommandError {
-	return new LocalCommandError(`The local container engine command failed (${code})`, codes)
+	return new LocalCommandError(`The local container engine command failed (${code})`, codes, code)
 }
 
 /** A runner that answers by `name arg arg`; anything unlisted fails with status 1. */

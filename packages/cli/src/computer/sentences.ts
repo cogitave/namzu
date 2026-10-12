@@ -12,6 +12,8 @@ import type {
 	WslcSetupStepKind,
 } from '@namzu/sandbox/local-virtual-computer/setup'
 
+export const RESTART_SENTENCE = 'Restart your PC to finish setting up Pal computers.'
+
 export const NO_MACHINE_SENTENCE =
 	'There is no Linux machine for Pal computers to stop on this system.'
 
@@ -130,6 +132,8 @@ function joinClauses(parts: readonly string[]): string {
 /** What setup will do, what it costs, and what Windows will ask. */
 export function planSentence(plan: WslcSetupPlan): string {
 	if (plan.blocked) return blockedSentence(plan.blocked)
+	// Whatever follows the restart waits for it; the restart is the one ask.
+	if (plan.state === 'restart-pending') return RESTART_SENTENCE
 	const doing = plan.steps.filter((s) => s.kind !== 'restart').map((s) => STEP_CLAUSE[s.kind])
 	if (doing.length === 0) return 'Nothing needs to be set up.'
 	const seconds = plan.steps.reduce((sum, s) => sum + s.estimatedSeconds, 0)
@@ -165,6 +169,19 @@ const FAILURE_SENTENCE: Record<WslcSetupFailureCode, string> = {
 	'engine-failed': 'Linux support did not start.',
 }
 
+/** A sentence per failure code, for the Details line: never the code itself. */
+const FAILURE_DETAIL: Record<WslcSetupFailureCode, string> = {
+	'download-failed': 'The download of Linux support did not finish.',
+	'download-corrupt': 'The downloaded file is not the one Namzu expects.',
+	'elevation-failed': 'Windows did not start the step that needs your permission.',
+	'feature-enable-failed': 'Windows reported a problem while turning on a feature.',
+	'wsl-install-failed': 'Windows reported a problem while installing Linux support.',
+	'image-corrupt': 'The Pal computer file is missing or damaged.',
+	'image-load-failed': 'Windows could not load the Pal computer file.',
+	'image-mismatch': 'The Pal computer that loaded is not the one this version of Namzu expects.',
+	'engine-failed': 'Linux support was set up but did not answer afterwards.',
+}
+
 export interface ResultText {
 	readonly sentence: string
 	/** For a Details line; absent when there is nothing more to say. */
@@ -192,7 +209,9 @@ export function resultSentence(result: WslcSetupResult): ResultText {
 		case 'failed':
 			return {
 				sentence: FAILURE_SENTENCE[result.code],
-				details: `${result.code}${result.detail ? `: ${result.detail}` : ''}`,
+				details: `${FAILURE_DETAIL[result.code]}${
+					result.exitCode === undefined ? '' : ` Windows error ${result.exitCode}.`
+				}`,
 			}
 	}
 }

@@ -182,6 +182,15 @@ export function createLocalVirtualComputerProvider(
 			} catch (error) {
 				return {
 					ready: false,
+					// The code lets an application choose its words by what failed, not
+					// by matching the message. The fallback below is the wslc engine's
+					// "required but unreadable" answer, which setup can fix.
+					setupCode:
+						error instanceof LocalComputerSetupError
+							? error.code
+							: options.engine === 'wslc'
+								? ('image-missing' as const)
+								: undefined,
 					reason:
 						error instanceof LocalComputerSetupError
 							? error.message

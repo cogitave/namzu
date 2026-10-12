@@ -133,14 +133,18 @@ describe('downloadWslPackage against a local server', () => {
 		expect(sha(await readFile(join(directory, 'wsl.3.0.1.0.x64.msi')))).toBe(sha(payload))
 	})
 
-	it('starts over when the server ignores the Range header', async () => {
-		const { url } = await serve((_request, response) => {
+	it('overwrites the partial file from a 200 answer, in the one request it made', async () => {
+		const { url, requests } = await serve((_request, response) => {
 			response.writeHead(200, { 'content-length': payload.length })
 			response.end(payload)
 		})
 		await writeFile(join(directory, 'wsl.3.0.1.0.x64.msi.part'), payload.subarray(0, 300_000))
 		const result = await downloadWslPackage({ pinned: pinnedFor(url), directory })
 		expect(result.outcome).toBe('ok')
+		// It asked to resume once, was answered with the whole file, and used it:
+		// no second request was needed to start over.
+		expect(requests).toHaveLength(1)
+		expect(requests[0]?.headers.range).toBe('bytes=300000-')
 		expect(sha(await readFile(join(directory, 'wsl.3.0.1.0.x64.msi')))).toBe(sha(payload))
 	})
 

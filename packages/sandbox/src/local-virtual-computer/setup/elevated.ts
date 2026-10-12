@@ -376,6 +376,9 @@ function launcherScript(inner: string): string {
 		'  $psi = New-Object Diagnostics.ProcessStartInfo',
 		'  $psi.FileName = $ps',
 		"  $psi.Arguments = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ' + $enc",
+		// Windows looks for DLLs in the working directory before the system ones;
+		// never let that be a folder the person can write to.
+		'  $psi.WorkingDirectory = $sys',
 		"  $psi.Verb = 'runas'",
 		'  $psi.UseShellExecute = $true',
 		"  $psi.WindowStyle = 'Hidden'",
@@ -585,6 +588,7 @@ export async function runElevatedWith(
 		.run(powershell, scripts.launcherArgs, {
 			signal,
 			env: launcherEnvironment(host, windowsDirectory),
+			cwd: `${windowsDirectory}\\System32`,
 		})
 		.then(
 			(output): Settled => ({ ok: true, output }),
@@ -639,7 +643,7 @@ async function isStandardUser(
 		const output = await host.runner.run(
 			`${root}\\System32\\whoami.exe`,
 			['/groups', '/fo', 'csv', '/nh'],
-			{ signal, env: launcherEnvironment(host, root) },
+			{ signal, env: launcherEnvironment(host, root), cwd: `${root}\\System32` },
 		)
 		// Only a listing that parses and lacks the group shows a standard user;
 		// empty or garbled output shows nothing.

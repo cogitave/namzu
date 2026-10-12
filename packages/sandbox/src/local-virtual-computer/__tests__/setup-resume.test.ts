@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { LocalComputerCommandRunner } from '../engine.js'
+import { LocalCommandError, type LocalComputerCommandRunner } from '../engine.js'
 import { RESUME_AT_SIGN_IN_KEY, type WslcSetupHost } from '../setup/contract.js'
 import { clearResumeAtSignIn, registerResumeAtSignIn } from '../setup/resume.js'
 
@@ -116,10 +116,22 @@ describe('clearResumeAtSignIn', () => {
 
 	it('treats an absent value as nothing to do', async () => {
 		const { host, calls } = hostWith((call) =>
-			call.args[0] === 'query' ? new Error('exit 1') : '',
+			call.args[0] === 'query' ? new LocalCommandError('absent', [], 1) : '',
 		)
 		await expect(clearResumeAtSignIn(host)).resolves.toBeUndefined()
 		expect(calls.map((call) => call.args[0])).toEqual(['query'])
+	})
+
+	it('rethrows a query that failed for any reason but "not found"', async () => {
+		for (const failure of [
+			new LocalCommandError('access denied', [], 5),
+			new LocalCommandError('could not start', ['ENOENT']),
+			new Error('timed out'),
+		]) {
+			const { host, calls } = hostWith((call) => (call.args[0] === 'query' ? failure : ''))
+			await expect(clearResumeAtSignIn(host)).rejects.toBe(failure)
+			expect(calls.map((call) => call.args[0])).toEqual(['query'])
+		}
 	})
 
 	it('reports a delete that fails after the value was found', async () => {

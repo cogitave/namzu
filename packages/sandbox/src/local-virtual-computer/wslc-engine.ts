@@ -19,7 +19,7 @@ export interface LocalWslcEngineOptions {
 }
 
 const MESSAGES: Record<LocalComputerSetupCode, string> = {
-	'engine-missing': 'Windows Linux container support (wslc) is not installed on this PC.',
+	'engine-missing': 'Linux container support is not installed on this PC.',
 	'engine-too-old': 'Windows Linux container support on this PC is too old for Namzu.',
 	'virtualization-off':
 		'This PC has virtualization switched off. Turn it on in the PC startup settings, then try again.',
@@ -83,7 +83,8 @@ export interface WslcHost {
 async function resolveBinary(options: LocalWslcEngineOptions, host: WslcHost): Promise<string> {
 	if (options.wslcBinary) return options.wslcBinary
 	const platform = host.platform ?? process.platform
-	const programFiles = (host.env ?? process.env).ProgramFiles
+	const env = host.env ?? process.env
+	const programFiles = env.ProgramW6432 ?? env.ProgramFiles
 	if (platform === 'win32' && programFiles) {
 		const installed = win32.join(programFiles, 'WSL', 'wslc.exe')
 		if (await (host.exists ?? exists)(installed)) return installed

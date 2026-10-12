@@ -235,6 +235,8 @@ async function setupCommand(parsed: Parsed, deps: ComputerDeps): Promise<number>
 		return EXIT_OK
 	}
 	say(deps, planSentence(plan))
+	// A restart comes first and Windows does it: there is nothing to confirm yet.
+	if (readiness.state === 'restart-pending') return EXIT_OK
 	if (parsed.plan !== undefined && parsed.plan !== plan.id) {
 		deps.err(`${resultSentence({ outcome: 'plan-changed', plan }).sentence}\n`)
 		return EXIT_FAIL

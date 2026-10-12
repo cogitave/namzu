@@ -51,7 +51,12 @@ export const writeRestartMarker: WriteRestartMarker = async (host, marker) => {
 	const target = markerPath(host.stateDirectory)
 	const temp = `${target}.${process.pid}.tmp`
 	await writeFile(temp, `${JSON.stringify(marker)}\n`, 'utf8')
-	await rename(temp, target)
+	try {
+		await rename(temp, target)
+	} catch (error) {
+		await rm(temp, { force: true })
+		throw error
+	}
 }
 
 export const clearRestartMarker: ClearRestartMarker = async (host) => {

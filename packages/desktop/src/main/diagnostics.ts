@@ -314,7 +314,7 @@ export function desktopFailure(error: unknown): {
 			reason = 'docker-engine-or-image-required'
 		else if (/local Podman machine.*required/i.test(message))
 			reason = 'podman-engine-or-image-required'
-		else if (/Windows Linux container support.*(?:not installed|too old)/i.test(message))
+		else if (/Linux container support.*(?:not installed|too old)/i.test(message))
 			reason = 'wslc-engine-missing-or-old'
 		else if (/virtualization switched off/i.test(message)) reason = 'wslc-virtualization-off'
 		else if (/organisation does not allow Linux containers/i.test(message))

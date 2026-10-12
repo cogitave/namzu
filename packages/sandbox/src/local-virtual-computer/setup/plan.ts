@@ -15,8 +15,9 @@ const INSTALL_WSL_SECONDS = 60
 const RESTART_SECONDS = 90
 /** Bytes per second assumed for a download and for loading the image. */
 const DOWNLOAD_BYTES_PER_SECOND = 8_000_000
-const LOAD_BYTES_PER_SECOND = 50_000_000
-const LOAD_FIXED_SECONDS = 12
+/** Measured on a real PC: 3.2 s for the 323 MB archive, so about 5 s plus 150 MB/s. */
+const LOAD_BYTES_PER_SECOND = 150_000_000
+const LOAD_FIXED_SECONDS = 5
 
 const BLOCKED: Partial<Record<WslcReadiness['state'], WslcSetupBlock>> = {
 	unsupported: 'unsupported',

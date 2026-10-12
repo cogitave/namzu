@@ -63,7 +63,14 @@ export const runWslcSetup: RunWslcSetup = async (consent, options) => {
 		step: WslcSetupStepKind,
 		code: WslcSetupFailureCode,
 		detail?: string,
-	): WslcSetupResult => ({ outcome: 'failed', step, code, ...(detail ? { detail } : {}) })
+		exitCode?: number,
+	): WslcSetupResult => ({
+		outcome: 'failed',
+		step,
+		code,
+		...(detail ? { detail } : {}),
+		...(exitCode === undefined ? {} : { exitCode }),
+	})
 
 	const kinds = plan.steps.map((step) => step.kind)
 	let packagePath: string | undefined
@@ -111,9 +118,8 @@ export const runWslcSetup: RunWslcSetup = async (consent, options) => {
 					return failed(
 						outcome.step,
 						outcome.code,
-						outcome.exitCode === undefined
-							? 'Windows could not finish this step.'
-							: `Windows could not finish this step (error ${outcome.exitCode}).`,
+						'Windows could not finish this step.',
+						outcome.exitCode,
 					)
 				case 'restart-required': {
 					const last = elevated[elevated.length - 1] as Elevated

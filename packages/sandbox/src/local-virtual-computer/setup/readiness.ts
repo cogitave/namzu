@@ -1,5 +1,9 @@
 import { stat } from 'node:fs/promises'
-import { LocalCommandError, type LocalComputerCommandRunner } from '../engine.js'
+import {
+	LocalCommandError,
+	type LocalComputerCommandRunner,
+	LocalComputerSetupError,
+} from '../engine.js'
 import { WSLC_MINIMUM_VERSION, mapWslcFailure, parseWslcVersion } from '../wslc-engine.js'
 import type {
 	InspectWslcReadiness,
@@ -9,6 +13,7 @@ import type {
 	WslcUnsupportedReason,
 } from './contract.js'
 import { createWslcSetupHost } from './host.js'
+import { PROBE_LIMIT_MS, ProbeTimeoutError, runLimited } from './limits.js'
 import { clearRestartMarker, readRestartMarker } from './restart.js'
 import {
 	archivePathOf,
@@ -19,6 +24,11 @@ import {
 } from './wslc-shared.js'
 
 const POLICY_KEY = 'HKLM\\Software\\Policies\\WSL'
+/** Windows' own pending-restart markers; both can be read without administrator rights. */
+const PENDING_RESTART_KEYS = [
+	'HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Component Based Servicing\\RebootPending',
+	'HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update\\RebootRequired',
+] as const
 const MINIMUM_BUILD = 19041
 const WINDOWS_11_BUILD = 22000
 
@@ -46,7 +56,7 @@ async function serviceExists(
 	signal: AbortSignal | undefined,
 ): Promise<boolean | 'unknown'> {
 	try {
-		await runner.run('sc.exe', ['query', name], { signal })
+		await runLimited(runner, 'sc.exe', ['query', name], PROBE_LIMIT_MS.command, { signal })
 		return true
 	} catch (error) {
 		signal?.throwIfAborted()
@@ -60,7 +70,8 @@ async function hypervisorPresent(
 	signal: AbortSignal | undefined,
 ): Promise<boolean | 'unknown'> {
 	try {
-		const output = await runner.run(
+		const output = await runLimited(
+			runner,
 			'powershell.exe',
 			[
 				'-NoProfile',
@@ -68,6 +79,7 @@ async function hypervisorPresent(
 				'-Command',
 				'(Get-CimInstance Win32_ComputerSystem).HypervisorPresent',
 			],
+			PROBE_LIMIT_MS.powershell,
 			{ signal },
 		)
 		const answer = output.trim().toLowerCase()
@@ -85,7 +97,9 @@ async function wslVersionOf(
 	signal: AbortSignal | undefined,
 ): Promise<string | undefined> {
 	try {
-		return parseWslVersion(await runner.run('wsl.exe', ['--version'], { signal }))
+		return parseWslVersion(
+			await runLimited(runner, 'wsl.exe', ['--version'], PROBE_LIMIT_MS.command, { signal }),
+		)
 	} catch {
 		signal?.throwIfAborted()
 		return undefined
@@ -98,12 +112,34 @@ async function wslcVersionOf(
 	signal: AbortSignal | undefined,
 ): Promise<string | undefined> {
 	try {
-		const parsed = parseWslcVersion(await runner.run(binary, ['version'], { signal }))
+		const parsed = parseWslcVersion(
+			await runLimited(runner, binary, ['version'], PROBE_LIMIT_MS.command, { signal }),
+		)
 		return parsed?.join('.')
-	} catch {
+	} catch (error) {
 		signal?.throwIfAborted()
+		// Without an answer there is no telling "not installed" from "slow": the
+		// state cannot be decided, so say so rather than plan an install.
+		if (error instanceof ProbeTimeoutError) throw couldNotCheck(error)
 		return undefined
 	}
+}
+
+/** The state cannot be decided: a plain message the CLI and Desktop show with Details. */
+function couldNotCheck(cause: unknown): LocalComputerSetupError {
+	return new LocalComputerSetupError(
+		'Linux container support did not answer, so Namzu could not check this PC. Try again in a moment.',
+		undefined,
+		{ cause },
+	)
+}
+
+/** Windows' own markers that a restart is pending. */
+async function windowsWantsRestart(host: WslcSetupHost): Promise<boolean> {
+	for (const key of PENDING_RESTART_KEYS) {
+		if ((await host.keyExists(key)) === true) return true
+	}
+	return false
 }
 
 async function bundledOf(
@@ -133,9 +169,13 @@ async function probeImage(
 	signal: AbortSignal | undefined,
 ): Promise<ProbeResult> {
 	try {
-		const output = await host.runner.run(binary, ['image', 'inspect', '-f', 'json', ref], {
-			signal,
-		})
+		const output = await runLimited(
+			host.runner,
+			binary,
+			['image', 'inspect', '-f', 'json', ref],
+			PROBE_LIMIT_MS.session,
+			{ signal },
+		)
 		const found = parseImageInspect(output)
 		if (found === undefined) return { kind: 'absent' }
 		return expectedId === undefined || found.id === expectedId
@@ -147,7 +187,9 @@ async function probeImage(
 		if (mapped?.code === 'virtualization-off') return { kind: 'state', state: 'virtualization-off' }
 		if (mapped?.code === 'blocked-by-policy') return { kind: 'state', state: 'blocked-by-policy' }
 		if (mapped?.code === 'sdk-mismatch') return { kind: 'state', state: 'sdk-mismatch' }
-		return { kind: 'absent' }
+		if (mapped?.code === 'image-missing') return { kind: 'absent' }
+		// Anything else is the engine failing, not the image being absent.
+		throw couldNotCheck(error)
 	}
 }
 
@@ -201,7 +243,7 @@ export const inspectWslcReadiness: InspectWslcReadiness = async (options) => {
 	const [
 		allowWsl,
 		allowContainer,
-		marker,
+		markerRead,
 		hns,
 		vmcompute,
 		lxss,
@@ -211,7 +253,10 @@ export const inspectWslcReadiness: InspectWslcReadiness = async (options) => {
 	] = await Promise.all([
 		host.readDword(POLICY_KEY, 'AllowWSL'),
 		host.readDword(POLICY_KEY, 'AllowWSLContainer'),
-		readRestartMarker(host),
+		readRestartMarker(host).then(
+			(marker) => ({ marker }),
+			() => ({ marker: undefined, unreadable: true as const }),
+		),
 		serviceExists(runner, 'HNS', signal),
 		serviceExists(runner, 'vmcompute', signal),
 		isWindows11
@@ -236,10 +281,26 @@ export const inspectWslcReadiness: InspectWslcReadiness = async (options) => {
 	}
 
 	let restart: WslcReadiness['restart']
-	if (marker !== undefined) {
-		const boot = await host.bootTime()
-		if (boot.getTime() > Date.parse(marker.recordedAt)) await clearRestartMarker(host)
-		else restart = { recordedAt: marker.recordedAt, bootTime: boot.toISOString() }
+	const { marker } = markerRead
+	if ('unreadable' in markerRead) {
+		// A marker that cannot be read (anything but "not there") leaves a restart
+		// pending with no steps known to follow it.
+		restart = { recordedAt: checkedAt }
+	} else if (marker !== undefined) {
+		let boot: Date | undefined
+		try {
+			boot = await host.bootTime()
+		} catch {
+			signal?.throwIfAborted()
+		}
+		if (boot === undefined) restart = { recordedAt: marker.recordedAt }
+		else if (boot.getTime() > Date.parse(marker.recordedAt)) {
+			try {
+				await clearRestartMarker(host)
+			} catch {
+				// A marker that stays is checked again next time; the PC has restarted.
+			}
+		} else restart = { recordedAt: marker.recordedAt, bootTime: boot.toISOString() }
 	}
 
 	const wsl = {
@@ -272,7 +333,13 @@ export const inspectWslcReadiness: InspectWslcReadiness = async (options) => {
 	if (restart) return result('restart-pending')
 	if (vmp === false || lxss === false) return result('platform-off')
 	if (!wslcUsable) return result(wslVersion ? 'wsl-outdated' : 'wsl-missing')
-	if (vmp === true && hypervisor === false) return result('virtualization-off')
+	if (vmp === true && hypervisor === false) {
+		// Turning the platform on outside Namzu leaves no hypervisor until the PC
+		// restarts; Windows says so in its own markers. Only without one is it
+		// the firmware setting. With a probe the session's own failure decides.
+		if (await windowsWantsRestart(host)) return result('restart-pending')
+		if (options.probeSession !== true) return result('virtualization-off')
+	}
 
 	if (options.probeSession === true) {
 		const probe = await probeImage(host, binary, options.imageRef, bundled?.imageId, signal)
