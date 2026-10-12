@@ -144,7 +144,7 @@ describe('stage-installer Pal computer image', () => {
 			'is never bundled',
 		)
 		const creative = image(source, { imageRef: 'namzu-local-computer:2-creative' })
-		expect(staging.stagePalComputer(out, creative.file, creative.manifestFile).imageRef).toBe(
+		expect(staging.stagePalComputer(out, creative.file, creative.manifestFile)?.imageRef).toBe(
 			'namzu-local-computer:2-creative',
 		)
 	})

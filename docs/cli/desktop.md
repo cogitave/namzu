@@ -114,13 +114,14 @@ The installed app is self-contained under `resources/`:
 - `pal-computer/` is the light Pal computer image (the `base` stage of
   `packages/sandbox/local-computer/Dockerfile`, see [Local Pal computers](../sdk/local-pal-computer.md#image-stages-and-the-bundled-light-image)):
   `namzu-local-computer-2.tar.zst` (323 MB, loads directly with `wslc load -i`) and its
-  `manifest.json` (`revision`, `imageRef`, `imageId`, `protocol`, `sha256`, `sizeBytes`,
-  `compressedBytes`, `format`). `stage-installer.mjs --pal-computer-image <archive>` checks the manifest
+  `manifest.json` (`revision`, `stage`, `imageRef`, `imageId`, `protocol`, `file`, `sha256`,
+  `tarSha256`, `sizeBytes`, `compressedBytes`, `format`; the stager requires `file`). `stage-installer.mjs --pal-computer-image <archive>` checks the manifest
   against the archive and stages both; without the flag a `README.txt` stands there. The installer is
   503 MB with it (180 MB without). The archive is already compressed, so the installer stores it
-  as given, and an app update that leaves the image unchanged still downloads only the changed blocks
-  (1.4 MB measured between two image-carrying installers that differ only in version, the update feed must keep the previous version's
-  blockmap; a new image revision downloads the whole 323 MB once). `stage-installer.mjs` refuses a
+  as given, and an update downloads only the changed blocks: 1.4 MB measured between two
+  image-carrying installers that differ only in version (an update with a real app change is not
+  measured yet), the update feed must keep the previous version's blockmap, and a new image revision
+  downloads the whole 323 MB once. `stage-installer.mjs` refuses a
   manifest whose `imageRef` is not `namzu-local-computer:<revision>`, so a test-tagged build is never
   bundled. The release workflow (`.github/workflows/desktop-release.yml`) does not yet pass
   `--pal-computer-image`, so installers it builds carry only the `README.txt` until the image is wired

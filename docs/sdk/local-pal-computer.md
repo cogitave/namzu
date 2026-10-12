@@ -149,8 +149,9 @@ node packages/sandbox/local-computer/build-image.mjs --engine "C:\Program Files\
 
 `--engine` is any binary that has `build`, `image inspect` and `save` (`docker`, `podman`, `wslc`).
 The output is `<tag>.tar.zst` (or `.tar.xz`, `.tar.gz`, `.tar`) and `manifest.json`:
-`{ revision, imageRef, imageId, protocol, sha256, sizeBytes, compressedBytes, format }`, where `sha256`
-is the archive's, `sizeBytes` the uncompressed tar's; `file`, `stage` and `tarSha256` are added. Windows'
+`{ revision, stage, imageRef, imageId, protocol, file, sha256, tarSha256, sizeBytes, compressedBytes, format }`,
+where `file` is the archive's name beside the manifest (the installer stager requires it), `sha256` the
+archive's digest, `tarSha256` the uncompressed tar's and `sizeBytes` its size. Windows'
 `wslc load -i` reads the compressed archive directly (it sniffs the content, so the extension does not
 matter), so no decompression step sits between the installer's file and the engine. The manifest's
 `imageId` and `sha256` identify the archive that shipped; the build is not byte-reproducible (apt and
@@ -178,16 +179,18 @@ program on the build machine). A caller loads `file` from `manifest.json` with
 
 `packages/desktop/scripts/stage-installer.mjs --pal-computer-image <archive>` (the manifest defaults
 to `manifest.json` beside it) copies both into `resources/pal-computer/` of the installed app. The
-archive is stored as built. With the base image the installer grows from 180 MB to 503 MB. An app
-update that does not change the image downloads about 1.4 MB: electron-updater's differential download
+archive is stored as built. With the base image the installer grows from 180 MB to 503 MB. An
+update that changes only the version downloads about 1.4 MB: electron-updater's differential download
 compares the installer's content-defined blocks, the default `nsis.differentialPackage` compresses
 each file on its own (non-solid), and an unchanged image compresses to identical bytes, so its blocks
 are all reused. Measured on two real image-carrying installers built from the same stage, 0.1.0 and
 0.1.1 (the version is the only app change, `--config.extraMetadata.version=0.1.1`): 68 of 24,128
 blocks differ, 1.36 MB (0.27 percent of 502.6 MB; electron-updater merges neighbouring ranges, so
 expect a little more). The blockmaps are 525,711 and 525,797 bytes and the installers 502,554,887
-and 502,554,874 bytes. A real app change touches more blocks than a version bump. A new image revision downloads the whole archive once (323 MB). The figure is for an app-only
-change and needs the previous version's blockmap in the update feed. `stage-installer.mjs` refuses a
+and 502,554,874 bytes. An update with a real app change (a new `app.asar` or CLI) touches more
+blocks and has not been measured yet, and whether the image's blocks stay reused when a large file
+before it changes is unproven until it is. A new image revision downloads the whole archive once
+(323 MB). Every figure needs the previous version's blockmap in the update feed. `stage-installer.mjs` refuses a
 manifest whose `imageRef` is not `namzu-local-computer:<revision>`. The release workflow does not pass
 `--pal-computer-image` yet, so CI-built installers carry only a `README.txt` in `pal-computer/` until
 the image is wired into the pipeline. Nothing loads the image at run time yet.
