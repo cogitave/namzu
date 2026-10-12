@@ -293,15 +293,17 @@ Desktop action (no outline or filled buttons, no dialog):
 | Permission declined | "Needs your permission" | "Try again" | "Setup needs your permission." |
 | No administrator | "Needs an administrator" | "Try again" | "Setup needs an administrator. Ask one to approve, or try again." |
 | Failed | "Setup did not finish" | "Try again" | a plain sentence and a Details fold with the plain detail |
-| A start that did not work out (setup ended with no answer, or the computer could not start after setup) | "Offline" | "Try again" (or "Start Kiro" when only setup stopped) | "Setup stopped before it finished." or "Kiro's computer could not start. Try again.", a Details fold, and one failure toast |
+| A start that did not work out (setup ended with no answer, or the computer could not start after setup) | "Offline" | "Try again" (or "Start Kiro" when only setup stopped) | "Setup stopped before it finished." or "Kiro's computer could not start. Try again.", a Details fold, and one failure toast ("Kiro's computer could not start" always; "Setup stopped before it finished." only when the row is not showing it) |
 | Blocked (virtualization off in the startup settings, an organisation policy, the Windows version, the processor, Namzu needs an update, the image missing from this copy) | "Offline" | none | a plain sentence, and a Details fold when there is one |
 
 "How to set up" is the explanation and recovery place on Windows, collapsed by default: what Namzu
 does, why Windows asks permission and may restart, how to turn virtualization on in the startup
 settings, and the organisation-policy text. The Docker help and its "Get Docker Desktop" button do not
-appear on Windows. A toast appears once when setup completes ("Kiro's computer is ready"), when a
-failure needs an action, or when a restart is required ("Restart your PC to finish setting up Kiro's
-computer.", a plain sentence with no button: the row keeps the one "Restart now"), never per step.
+appear on Windows. A toast appears once when setup completes ("Kiro's computer is ready"), never per
+step. A failed setup, a missing administrator or a required restart ("Restart your PC to finish
+setting up Kiro's computer.", a plain sentence with no button: the row keeps the one "Restart now")
+is toasted only when the person cannot see the row saying it: the Pal's card is closed, another page
+or tab is in front, the window is not focused, or the row shows something else at that moment.
 The waiting-message Start follows the same states: with only the image to add it runs setup and then
 starts the Pal. When setup is needed, the receipt under the message offers no Start of its own; it
 points at "Set up and start Kiro" on the Pal computer row.

@@ -1,5 +1,6 @@
 import type {
 	PalComputerBlock,
+	PalComputerSetupOutcome,
 	PalComputerSetupPlanView,
 	PalComputerSetupRunning,
 	PalComputerSetupState,
@@ -135,6 +136,8 @@ export interface PalComputerRowInput {
 	startFailure?: { details?: string }
 }
 
+const ADMINISTRATOR_SENTENCE = 'Setup needs an administrator. Ask one to approve, or try again.'
+
 export function palComputerRowView(input: PalComputerRowInput): PalComputerRowView | undefined {
 	const { palName: name, setup, consenting } = input
 	if (!setup?.available) return undefined
@@ -205,7 +208,7 @@ export function palComputerRowView(input: PalComputerRowInput): PalComputerRowVi
 					status: 'Needs an administrator',
 					action: retry,
 					busy: false,
-					note: 'Setup needs an administrator. Ask one to approve, or try again.',
+					note: ADMINISTRATOR_SENTENCE,
 					help,
 				}
 			case 'failed':
@@ -286,6 +289,64 @@ export function setupWaitingLine(
 	// The Pal computer row carries the sentence and the fold; the messages just wait.
 	if (setup.phase === 'blocked') return { text: base.text, action: null }
 	return base
+}
+
+export interface SetupRowVisibilityInput {
+	focused: boolean
+	/** The Pal workspace is showing (not the Pals list, plugins or settings). */
+	palWorkspace: boolean
+	hasPal: boolean
+	/** The Computer tab is the active tab. */
+	computerPage: boolean
+	palProfileOpen: boolean
+	computerProfileOpen: boolean
+	computerChat: 'hidden' | 'split' | 'floating'
+	floatingChatMinimized: boolean
+}
+
+/**
+ * Whether the Pal computer row is on screen right now. It lives in the Pal context card: on the
+ * Chat tab that is the profile card, on the Computer tab it is the profile overlay, drawn over the
+ * screen when the chat is hidden and inside the chat stage otherwise, where a minimized floating
+ * chat is not shown.
+ */
+export function setupRowVisible(input: SetupRowVisibilityInput): boolean {
+	if (!input.focused || !input.palWorkspace || !input.hasPal) return false
+	if (!input.computerPage) return input.palProfileOpen
+	if (!input.computerProfileOpen) return false
+	return (
+		input.computerChat === 'hidden' ||
+		input.computerChat === 'split' ||
+		!input.floatingChatMinimized
+	)
+}
+
+/**
+ * The toast for how a setup ended. The Pal computer row usually carries the same sentence, with
+ * Details and the next action, so a toast is only for the person who cannot see the row saying
+ * it: the row is off screen, or it is showing something else (for example a check after the run
+ * could not be made).
+ */
+export function setupOutcomeToast(
+	outcome: PalComputerSetupOutcome | undefined,
+	/** What the row on screen shows: its note and the kind of its action; nothing when off screen. */
+	shownRow: { note?: string; action?: PalComputerRowAction } | undefined,
+	palName: string | undefined,
+): { message: string; tone: 'error' | 'warning' } | undefined {
+	if (!outcome) return undefined
+	if (outcome.kind === 'failed')
+		return shownRow?.note === outcome.sentence
+			? undefined
+			: { message: outcome.sentence, tone: 'error' }
+	if (outcome.kind === 'needs-administrator')
+		return shownRow?.note === ADMINISTRATOR_SENTENCE
+			? undefined
+			: { message: ADMINISTRATOR_SENTENCE, tone: 'warning' }
+	if (outcome.kind === 'restart-required')
+		return shownRow?.action === 'restart'
+			? undefined
+			: { message: restartRequiredToast(palName), tone: 'warning' }
+	return undefined
 }
 
 /** The one toast for restart-required: a sentence only, the row keeps the "Restart now" action. */

@@ -170,7 +170,8 @@ import { computerSetupMissing, presentComputerNotice } from './pal-computer-noti
 import {
 	type PalComputerRowAction,
 	palComputerRowView,
-	restartRequiredToast,
+	setupOutcomeToast,
+	setupRowVisible,
 	setupStartCard,
 	setupWaitingLine,
 	withoutDockerHelp,
@@ -3886,22 +3887,6 @@ export function App({
 		else void startComputerRef.current(target)
 	}, [palSetup.state, setupCompleted, pals, palStarts.start])
 	const setupOutcome = palSetup.state?.outcome
-	const toastedSetupOutcome = useRef('')
-	useEffect(() => {
-		const key = setupOutcome ? JSON.stringify(setupOutcome) : ''
-		if (key === toastedSetupOutcome.current) return
-		toastedSetupOutcome.current = key
-		if (!setupOutcome) return
-		if (setupOutcome.kind === 'failed') notify(setupOutcome.sentence, { tone: 'error' })
-		else if (setupOutcome.kind === 'needs-administrator')
-			notify('Setup needs an administrator. Ask one to approve, or try again.', {
-				tone: 'warning',
-			})
-		else if (setupOutcome.kind === 'restart-required')
-			notify(restartRequiredToast(pal?.name), {
-				tone: 'warning',
-			})
-	}, [setupOutcome, pal?.name])
 	/** The row's own actions while this PC is being set up. */
 	const onSetupAction = (kind: PalComputerRowAction) => {
 		const setup = palSetup.state
@@ -3974,6 +3959,41 @@ export function App({
 	const palWorkspace = !!pal && !palsPage && railSection === null
 	const computerTabOpen = palWorkspace && palScreen?.palId === pal.id
 	const computerPage = computerTabOpen && palScreen?.activeTab === 'computer'
+	const setupRow = pal
+		? palComputerRowView({
+				palName: pal.name,
+				setup: palSetup.state,
+				consenting: setupConsentPal === pal.id,
+				paused: pal.paused,
+				...(startFailures[pal.id] ? { startFailure: startFailures[pal.id] } : {}),
+			})
+		: undefined
+	const toastedSetupOutcome = useRef('')
+	// The Pal computer row lives in the Pal's context card; it is on screen only while that card
+	// is rendered (see setupRowVisible), and the person is looking at this window.
+	const rowVisible = setupRowVisible({
+		focused,
+		palWorkspace,
+		hasPal: !!pal,
+		computerPage,
+		palProfileOpen,
+		computerProfileOpen,
+		computerChat,
+		floatingChatMinimized,
+	})
+	const shownSetupNote = rowVisible ? setupRow?.note : undefined
+	const shownSetupAction = rowVisible ? setupRow?.action?.kind : undefined
+	useEffect(() => {
+		const key = setupOutcome ? JSON.stringify(setupOutcome) : ''
+		if (key === toastedSetupOutcome.current) return
+		toastedSetupOutcome.current = key
+		const toast = setupOutcomeToast(
+			setupOutcome,
+			{ note: shownSetupNote, action: shownSetupAction },
+			pal?.name,
+		)
+		if (toast) notify(toast.message, { tone: toast.tone })
+	}, [setupOutcome, shownSetupNote, shownSetupAction, pal?.name])
 	useEffect(() => {
 		if (focused)
 			onShellState({
@@ -4376,13 +4396,7 @@ export function App({
 						!setupAvailable &&
 						palComputer?.status === 'unavailable' &&
 						computerSetupMissing(palComputer.notice),
-					setup: palComputerRowView({
-						palName: pal.name,
-						setup: palSetup.state,
-						consenting: setupConsentPal === pal.id,
-						paused: pal.paused,
-						...(startFailures[pal.id] ? { startFailure: startFailures[pal.id] } : {}),
-					}),
+					setup: setupRow,
 					screen: currentScreen,
 					loading: computerCapture?.loading,
 					notice: presentComputerNotice(

@@ -13,6 +13,8 @@ import {
 	palComputerRowView,
 	progressLabel,
 	restartRequiredToast,
+	setupOutcomeToast,
+	setupRowVisible,
 	setupStartCard,
 	windowsHelp,
 } from './pal-computer-row-model.js'
@@ -283,6 +285,63 @@ describe('palComputerRowView', () => {
 	})
 })
 
+describe('setup outcome toast', () => {
+	const failedOutcome = { kind: 'failed' as const, sentence: 'Setup did not finish.' }
+	const admin = { kind: 'needs-administrator' as const }
+	const restart = { kind: 'restart-required' as const }
+	const adminSentence = 'Setup needs an administrator. Ask one to approve, or try again.'
+
+	it('speaks when the row is off screen', () => {
+		expect(setupOutcomeToast(failedOutcome, undefined, 'Kiro')).toEqual({
+			message: 'Setup did not finish.',
+			tone: 'error',
+		})
+		expect(setupOutcomeToast(admin, undefined, 'Kiro')).toEqual({
+			message: adminSentence,
+			tone: 'warning',
+		})
+		expect(setupOutcomeToast(restart, undefined, 'Kiro')).toEqual({
+			message: 'Restart your PC to finish setting up Kiro’s computer.',
+			tone: 'warning',
+		})
+	})
+
+	it('stays quiet when the row on screen already says it', () => {
+		expect(
+			setupOutcomeToast(failedOutcome, { note: 'Setup did not finish.', action: 'ask' }, 'Kiro'),
+		).toBeUndefined()
+		expect(setupOutcomeToast(admin, { note: adminSentence, action: 'ask' }, 'Kiro')).toBeUndefined()
+		expect(setupOutcomeToast(restart, { action: 'restart' }, 'Kiro')).toBeUndefined()
+	})
+
+	it('speaks when the row on screen shows something else', () => {
+		// For example the check after the run could not be made, and the row fell back to its
+		// ordinary state without the sentence.
+		expect(setupOutcomeToast(failedOutcome, {}, 'Kiro')?.message).toBe('Setup did not finish.')
+		expect(setupOutcomeToast(admin, { note: 'Something else.' }, 'Kiro')?.message).toBe(
+			adminSentence,
+		)
+		expect(setupOutcomeToast(restart, { action: 'ask' }, undefined)?.message).toBe(
+			'Restart your PC to finish setting up the Pal computer.',
+		)
+	})
+
+	it('agrees with the row the model builds for each outcome', () => {
+		for (const outcome of [failedOutcome, admin, restart]) {
+			const view = row(state({ outcome }))
+			expect(view).toBeDefined()
+			expect(
+				setupOutcomeToast(outcome, { note: view?.note, action: view?.action?.kind }, 'Kiro'),
+			).toBeUndefined()
+		}
+	})
+
+	it('has nothing to say without an outcome or after a cancel', () => {
+		expect(setupOutcomeToast(undefined, undefined, 'Kiro')).toBeUndefined()
+		expect(setupOutcomeToast({ kind: 'cancelled' }, undefined, 'Kiro')).toBeUndefined()
+	})
+})
+
 describe('restart-required toast', () => {
 	it('is one plain sentence naming the Pal', () => {
 		expect(restartRequiredToast('Kiro')).toBe(
@@ -309,5 +368,48 @@ describe('setupStartCard in needs-setup', () => {
 		const card = setupStartCard('Kiro', setup, { kind: 'ask', text: 'Start Kiro to read.' })
 		expect(card.kind).toBe('pointer')
 		expect(card.kind === 'pointer' && card.text).toContain('Set up and start Kiro')
+	})
+})
+
+describe('setupRowVisible', () => {
+	const base = {
+		focused: true,
+		palWorkspace: true,
+		hasPal: true,
+		computerPage: false,
+		palProfileOpen: true,
+		computerProfileOpen: false,
+		computerChat: 'hidden' as const,
+		floatingChatMinimized: false,
+	}
+	const computer = { ...base, computerPage: true, palProfileOpen: false, computerProfileOpen: true }
+
+	it('follows the profile card on the Chat tab', () => {
+		expect(setupRowVisible(base)).toBe(true)
+		expect(setupRowVisible({ ...base, palProfileOpen: false })).toBe(false)
+	})
+
+	it('is hidden when the window is unfocused, there is no Pal, or another page shows', () => {
+		expect(setupRowVisible({ ...base, focused: false })).toBe(false)
+		expect(setupRowVisible({ ...base, hasPal: false })).toBe(false)
+		expect(setupRowVisible({ ...base, palWorkspace: false })).toBe(false)
+		expect(setupRowVisible({ ...computer, palWorkspace: false })).toBe(false)
+	})
+
+	it('on the Computer tab needs the profile card open', () => {
+		expect(setupRowVisible(computer)).toBe(true)
+		expect(setupRowVisible({ ...computer, computerProfileOpen: false })).toBe(false)
+	})
+
+	it('on the Computer tab shows with a hidden, split or open floating chat', () => {
+		expect(setupRowVisible({ ...computer, computerChat: 'hidden' })).toBe(true)
+		expect(setupRowVisible({ ...computer, computerChat: 'split' })).toBe(true)
+		expect(setupRowVisible({ ...computer, computerChat: 'floating' })).toBe(true)
+	})
+
+	it('on the Computer tab does not show under a minimized floating chat', () => {
+		expect(
+			setupRowVisible({ ...computer, computerChat: 'floating', floatingChatMinimized: true }),
+		).toBe(false)
 	})
 })
