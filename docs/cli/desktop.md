@@ -123,12 +123,32 @@ The installed app is self-contained under `resources/`:
   measured yet), the update feed must keep the previous version's blockmap, and a new image revision
   downloads the whole 323 MB once. `stage-installer.mjs` refuses a
   manifest whose `imageRef` is not `namzu-local-computer:<revision>`, so a test-tagged build is never
-  bundled. The release workflow (`.github/workflows/desktop-release.yml`) does not yet pass
-  `--pal-computer-image`, so installers it builds carry only the `README.txt` until the image is wired
-  into the pipeline; the 503 MB installer is hand-built. Before the app loads the image, the workflow must
-  take the archive as an input and fail unless `resources/pal-computer/manifest.json` is in the
-  installer, and a cold-store load (not only the warm 2.4 to 6.6 s) must be measured before a first-run
-  time is promised. Nothing in the app loads the image yet.
+  bundled. The release workflow (`.github/workflows/desktop-release.yml`) carries the image:
+  - Its `image` job selects Docker's classic image store (proving it from `docker info`), runs
+    `build-image.mjs --engine docker --stage base --tag namzu-local-computer:2 --format zst`, and then reads the saved
+    archive back with `packages/desktop/scripts/check-pal-image.mjs archive`. That check fails unless the archive is an
+    OCI layout (`oci-layout`, `index.json` with one manifest, Docker `manifest.json`) tagged `namzu-local-computer:2`,
+    the digest of its config blob equals `manifest.imageId`, and the config carries `manifest.protocol`. The app refuses
+    a loaded image whose id differs from `manifest.imageId`, and Docker's containerd image store reports a manifest or
+    index digest as the id, so without this a published installer could be rejected on every PC.
+  - The `stage` job passes the archive and manifest to `stage-installer.mjs --pal-computer-image`, then repeats the
+    archive check on `extra/pal-computer`, which must hold exactly the manifest and the archive.
+  - The `package` job runs the file check (size and SHA-256, no stray files) on `out/win-unpacked/resources/pal-computer`
+    before the installer is uploaded, so an installer without the image is never published. That path is derived from
+    `electron-builder.yml` and has not been seen on a runner; the job lists `resources/` first so the log shows the
+    real layout.
+  - A dispatch with `dry_run` builds and checks everything, keeps the installer as a seven-day artifact and skips
+    `publish`. Dispatch a dry run first and install that installer on a Windows PC before the first real release.
+  - Each release rebuilds the image from the moving `node:22-bookworm-slim` tag and unpinned `apt` packages, so its
+    id changes every time and no two releases are byte-identical. The checks prove an archive matches its own
+    manifest and is structurally what the app loads; they do not prove it matches an image tested earlier. The job
+    log prints `docker version`, `docker info` and the base image digest, and the manifest it writes is the record.
+  - The first dry run has to show what reasoning cannot: that `wslc load -i` accepts a Docker-saved archive (the
+    format matches `wslc save` output, which the check enforces, but no run has loaded one), that the loaded image
+    id equals `manifest.imageId` and its protocol label equals `manifest.protocol`, that the runner's Docker really
+    used the classic store, and that `win-unpacked/resources/pal-computer` is where the check looks. See the
+    [Local Pal computers](../sdk/local-pal-computer.md#image-stages-and-the-bundled-light-image) notes. A cold-store
+    load (not only the warm 2.4 to 6.6 s) must still be measured before a first-run time is promised.
 
 Build it with a staged copy, which `scripts/stage-installer.mjs` writes outside the
 repository (it refuses a folder inside it). Run `pnpm -r build` first.

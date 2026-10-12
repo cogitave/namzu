@@ -4,7 +4,13 @@
 # only: it runs none of ci.yml's or release.yml's gates and is not part of their gate parity
 # (.github/scripts/check-workflow-gate-parity.mjs reads those two files only).
 #
-# Three jobs, the same split docs/cli/desktop.md documents for a local build:
+# A dispatch with dry_run set builds everything, uploads the installer as a seven-day artifact and
+# stops before `publish`. The first dispatch of a new image should be a dry run: download the
+# installer artifact, install it on a Windows PC and let the app load the image, then dispatch again
+# without dry_run. The feed reaches every installed app, so a published image is never an experiment.
+#
+# Four jobs, the same split docs/cli/desktop.md documents for a local build, after the image job:
+#   image    (Linux, read-only token)  builds the light Pal computer image with docker
 #   stage    (Linux, read-only token)  builds the workspace and stages the installer project
 #   package  (Windows, read-only token) runs electron-builder on the staged copy
 #   publish  (Linux, the only job with contents: write) checks the files, then uploads them
@@ -24,6 +30,11 @@ on:
         description: Must equal the version in packages/desktop/package.json
         required: true
         type: string
+      dry_run:
+        description: Build and check everything but do not publish (the installer stays a seven-day artifact)
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -37,8 +48,77 @@ env:
   ELECTRON_BUILDER_VERSION: 26.17.0
 
 jobs:
+  # The light Pal computer image: the `base` stage of packages/sandbox/local-computer/Dockerfile,
+  # tagged namzu-local-computer:2 (the reference the app and `namzu computer` load). The app loads
+  # the archive with `wslc load -i` and refuses it unless the loaded image id equals
+  # manifest.imageId, which is the digest of the image config. Docker's default store on some
+  # runners is the containerd one, where `docker image inspect` reports a manifest digest instead,
+  # so the job selects the classic store, proves it, and then reads the saved archive back
+  # (check-pal-image.mjs archive) instead of trusting the engine. That an archive of this shape
+  # loads in wslc is expected, not yet observed: see "Installing and updating" in docs/cli/desktop.md.
+  image:
+    name: Build the Pal computer image
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      # build-image.mjs compresses with Node's own zstd, which needs Node 22.15 or newer.
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 24
+
+      # The classic image store reports the config digest as the image id, which is what the app
+      # compares after loading. Select it, then fail if the daemon is not using it.
+      - name: Use Docker's classic image store
+        run: |
+          sudo mkdir -p /etc/docker
+          if [ -s /etc/docker/daemon.json ]; then
+            sudo jq '. + {features: ((.features // {}) + {"containerd-snapshotter": false})}' /etc/docker/daemon.json | sudo tee /etc/docker/daemon.json.new >/dev/null
+            sudo mv /etc/docker/daemon.json.new /etc/docker/daemon.json
+          else
+            echo '{"features":{"containerd-snapshotter":false}}' | sudo tee /etc/docker/daemon.json >/dev/null
+          fi
+          sudo systemctl restart docker
+          docker version
+          docker info
+          if docker info -f '{{.DriverStatus}}' | grep -q 'io.containerd.snapshotter'; then
+            echo "Docker still uses the containerd image store; its image ids are not config digests." >&2
+            exit 1
+          fi
+          echo "Base image: $(docker pull -q docker.io/library/node:22-bookworm-slim) $(docker image inspect --format '{{index .RepoDigests 0}}' docker.io/library/node:22-bookworm-slim)"
+
+      - name: Build and save the base stage
+        run: |
+          node packages/sandbox/local-computer/build-image.mjs --engine docker --stage base \
+            --tag namzu-local-computer:2 --format zst --out "$RUNNER_TEMP/pal-computer"
+          ls -l "$RUNNER_TEMP/pal-computer"
+          cat "$RUNNER_TEMP/pal-computer/manifest.json"
+
+      # Read the archive back: one image, its config digest is manifest.imageId, its config carries
+      # manifest.protocol, and it is tagged namzu-local-computer:2. This is the check the app's own
+      # load-time comparison would otherwise fail on a PC.
+      - name: The saved archive is the image the manifest describes
+        run: node packages/desktop/scripts/check-pal-image.mjs archive "$RUNNER_TEMP/pal-computer"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pal-computer-image
+          path: |
+            ${{ runner.temp }}/pal-computer/manifest.json
+            ${{ runner.temp }}/pal-computer/namzu-local-computer-2.tar.zst
+          retention-days: 1
+          if-no-files-found: error
+          # The archive is already compressed.
+          compression-level: 0
+
   stage:
     name: Stage the installer project
+    needs: image
     # A dispatch from another branch would publish that branch's code to every install.
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
@@ -76,9 +156,25 @@ jobs:
 
       - run: pnpm -r build
 
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: pal-computer-image
+          path: ${{ runner.temp }}/pal-computer
+
       - name: Stage the installer project
         run: |
-          node packages/desktop/scripts/stage-installer.mjs "$RUNNER_TEMP/stage"
+          node packages/desktop/scripts/stage-installer.mjs "$RUNNER_TEMP/stage" \
+            --pal-computer-image "$RUNNER_TEMP/pal-computer/namzu-local-computer-2.tar.zst" \
+            --pal-computer-manifest "$RUNNER_TEMP/pal-computer/manifest.json"
+
+      # stage-installer.mjs checks the manifest against the archive; this proves the staged folder
+      # that goes into the installer holds both, byte for byte, no README placeholder, and that the
+      # archive is the image the manifest describes.
+      - name: The staged project carries the Pal computer image
+        run: node packages/desktop/scripts/check-pal-image.mjs archive "$RUNNER_TEMP/stage/extra/pal-computer"
+
+      - name: Pack the staged project
+        run: |
           tar -czf "$RUNNER_TEMP/stage.tgz" -C "$RUNNER_TEMP/stage" .
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -98,6 +194,14 @@ jobs:
       VERSION: ${{ needs.stage.outputs.version }}
       ELECTRON: ${{ needs.stage.outputs.electron }}
     steps:
+      # Only the check script: the staged project does not carry it.
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: packages/desktop/scripts/check-pal-image.mjs
+          sparse-checkout-cone-mode: false
+
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
           node-version: 24
@@ -130,6 +234,16 @@ jobs:
             if (-not (Test-Path "out\$f")) { throw "missing out\$f" }
           }
 
+      # electron-builder copies extra/pal-computer to resources/pal-computer. The installer is
+      # compressed, so the unpacked build is what proves the image went in. The path is derived from
+      # electron-builder.yml and not yet observed on a runner, so the log lists the real layout first.
+      - name: The unpacked build carries the Pal computer image
+        shell: bash
+        working-directory: ${{ runner.temp }}/stage
+        run: |
+          find out/win-unpacked/resources -maxdepth 3 | head -50
+          node "$GITHUB_WORKSPACE/packages/desktop/scripts/check-pal-image.mjs" files out/win-unpacked/resources/pal-computer
+
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: desktop-installer
@@ -137,12 +251,14 @@ jobs:
             ${{ runner.temp }}/stage/out/Namzu-Setup-${{ needs.stage.outputs.version }}.exe
             ${{ runner.temp }}/stage/out/Namzu-Setup-${{ needs.stage.outputs.version }}.exe.blockmap
             ${{ runner.temp }}/stage/out/latest.yml
-          retention-days: 1
+          # A dry run keeps the installer long enough to install it by hand.
+          retention-days: ${{ inputs.dry_run && 7 || 1 }}
           if-no-files-found: error
 
   publish:
     name: Publish to the rolling release
     needs: [stage, package]
+    if: ${{ !inputs.dry_run }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
