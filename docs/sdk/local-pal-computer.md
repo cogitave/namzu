@@ -602,12 +602,12 @@ as the unprivileged user 1001 from the image, but with the engine's default
 capability set, `NoNewPrivs` off and a writable root file system. The
 boundary is therefore the per-user virtual machine (nothing from Windows is
 mounted into it), the non-root guest user, and what the image leaves behind.
-Mitigations that do not need a flag: the image should keep no setuid or setgid
-binaries beyond the ones it needs (the current development image does not yet
-meet this: it still ships `su`, `mount`, `passwd` and similar setuid-root
-files, and stripping them is an acceptance item for the shipped image), no
-`sudo`, the worker and every launcher run
-as 1001, and the `/tmp` and `/run` tmpfs mounts keep `nosuid,nodev`. The VM is
+Mitigations that do not need a flag: every stage of the image strips setuid
+and setgid bits at build time (`su`, `mount`, `passwd` and the rest lose them;
+see [image stages](#image-stages-and-the-bundled-light-image)), there is no
+`sudo`, the worker and every launcher run as 1001, and the `/tmp` and `/run`
+tmpfs mounts keep `nosuid,nodev`. Nothing at run time checks that an image
+passed by a caller was built this way. The VM is
 shared by every Pal computer of the same Windows user. Use Docker or Podman
 for any use that gives a Pal code you do not trust to run with its own
 privileges. The adapter sets no CPU, memory or process quotas, as with Podman.
