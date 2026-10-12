@@ -2014,6 +2014,9 @@ export class Operator {
 		project.view.trusted = true
 		project.view.settingsChanged = undefined
 		await this.recordTrustedSettings(project.view.path)
+		// Every window hears it, the asking one included: a window's last word on a project is its
+		// latest event, and an answer may reach the window before the event that preceded it.
+		this.emit({ kind: 'connection', project: { ...project.view } })
 		return { ...project.view }
 	}
 	/** Fail open on a read error: the host's own trust still applies, and the error is recorded. */

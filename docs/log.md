@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-10-13
+
+- **Update** [Desktop](cli/desktop.md#sidebar-tabs-and-the-command-palette): two review fixes to the first-frame sidebar. Trusting a folder now ends with a `connection` event carrying the trusted view, to every window: Electron delivered the `trustFolder` answer before the earlier connection event (trusted: false) on a loaded machine, which left the pane on "Make this your workspace" with the folder trusted in main, and other windows never heard of the trust at all. The archive is read only for a connected, trusted project (main refuses the others with "Trust this folder first."), and a project that drops or stops being trusted is read again when it can answer; a refused early read used to leave the archived count unsaved for the whole run. Covered by `operator.config-change.test.ts` and `e2e/ux-sidebar-archive-toggle.test.mjs`.
+
 ## 2026-10-12
 
 - **Update** [Desktop](cli/desktop.md#sidebar-tabs-and-the-command-palette): the first-frame error banner ("Saved message settings could not be loaded") came from reading the pane's drafts for a project the window had been told about before main had registered it; main refuses those reads with "Unknown project.". The reads now wait until the project has connected, and the earlier retry-once and suppress-while-restoring handling of that read is removed. An archive notice that has gone (timed out, closed, replaced by another notice) is no longer brought back when a conversation is restored. Covered by `notify.test.ts` and `e2e/sidebar-startup-stability.test.mjs`.

@@ -870,9 +870,13 @@ export function App({
 	// The sidebar's Recents section shows its archived conversations for this window only.
 	const [archiveView, setArchiveView] = useState<ArchiveView>('recents')
 	const [restoringArchived, setRestoringArchived] = useState('')
-	// Only a connected project can answer; the others are read as each one connects.
+	// Only a connected, trusted project can answer (main refuses the others); the rest are read as
+	// each one connects and is trusted.
 	const archivedProjects = useMemo(
-		() => projects.filter((item) => !item.palId && !item.isChat && item.status === 'ready'),
+		() =>
+			projects.filter(
+				(item) => !item.palId && !item.isChat && item.trusted && item.status === 'ready',
+			),
 		[projects],
 	)
 	const archived = useArchivedConversations(api, archivedProjects, archiveView)

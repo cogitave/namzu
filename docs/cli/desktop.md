@@ -662,7 +662,10 @@ command or address. Details never carry environment values; a URL loses its
 query and credentials, anything that looks like a token or password is shown as
 `…`, and a list stops at eight lines (`safeLine` in `src/main/folder-settings.ts`).
 **Trust and open** sends the token to `trustFolder`, and only then does main open
-the folder, trust it and save the project list. **Cancel** adds nothing. A known
+the folder, trust it and save the project list. Every trust (`trustFolder`, `trustProject`, a folder
+made from scratch) also ends with a `connection` event carrying the trusted view, to every window: an
+answer can reach the asking window before the connection event main sent while opening the folder,
+and the window keeps the view of the last event it applied. **Cancel** adds nothing. A known
 untrusted folder with such settings answers its confirmation with a token the
 same way, and a broad folder keeps the broad dialog. An ordinary folder is
 still trusted at once.
@@ -2934,7 +2937,8 @@ start; a project that cannot be read says so and does not hide the others. The p
 focus to the list, as the palette entry and the details menu do. The section shows whenever
 there is a recent or an archived conversation (with only archived ones, the Recents view says "No recent
 conversations."), and always while the archived view is on. Each project's archive is read once, as that project
-connects (a project that is still connecting cannot answer), so the button knows whether to appear, and every project
+connects and is trusted (main refuses the archive of a folder that is still connecting or not trusted), so the button
+knows whether to appear; a project that drops or stops being trusted is read again when it can answer once more, and every project
 is read again each time the view is switched on. The remembered archived count is replaced only by a read that
 covered every project; a partial read is shown but never saved. The view lasts
 for the window and starts as Recents on the next launch. The palette entry **Archived conversations** and the

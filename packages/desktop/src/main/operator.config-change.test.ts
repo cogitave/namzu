@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, expect, it } from 'vitest'
+import type { DesktopEvent } from '../shared/protocol.js'
 import { Operator } from './operator.js'
 import type { FolderTrustGuard } from './trusted-folders.js'
 
@@ -13,7 +14,7 @@ afterEach(async () => {
 	await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true })))
 })
 
-async function setup(guard: FolderTrustGuard) {
+async function setup(guard: FolderTrustGuard, events: DesktopEvent[] = []) {
 	const root = await mkdtemp(join(tmpdir(), 'namzu-config-change-'))
 	const path = await mkdtemp(join(tmpdir(), 'namzu-config-change-folder-'))
 	directories.push(root, path)
@@ -23,7 +24,7 @@ async function setup(guard: FolderTrustGuard) {
 			args: [fileURLToPath(new URL('./__fixtures__/rpc-process.mjs', import.meta.url))],
 			env: { ...process.env },
 		},
-		() => {},
+		(event) => events.push(event),
 		root,
 		undefined,
 		undefined,
@@ -53,6 +54,21 @@ it('treats a trusted folder whose settings changed as untrusted until trust is c
 	expect(trusted.trusted).toBe(true)
 	expect(trusted.settingsChanged).toBeUndefined()
 	expect(recorded).toEqual([path])
+})
+
+it('tells every window a folder is trusted, after anything it said about the folder before', async () => {
+	const events: DesktopEvent[] = []
+	const { owner, path } = await setup(
+		{ check: async () => ['hooks changed'], record: async () => {} },
+		events,
+	)
+	const project = await owner.openProject(path)
+	await owner.trust(project.id)
+	const said = events.flatMap((event) =>
+		event.kind === 'connection' && event.project.id === project.id ? [event.project.trusted] : [],
+	)
+	expect(said.at(-1)).toBe(true)
+	expect(said).toContain(false)
 })
 
 it('leaves an unchanged folder trusted', async () => {

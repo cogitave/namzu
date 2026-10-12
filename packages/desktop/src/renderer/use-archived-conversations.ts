@@ -12,8 +12,9 @@ import {
 
 /**
  * Every archived conversation of the given projects, for the sidebar's archived view. Pass the
- * projects that can answer: a project that has not connected rejects its read. Each project is
- * read once, as soon as it is among them, so the section knows whether there is anything to show,
+ * projects that can answer: a project that has not connected, or is not trusted, rejects its read.
+ * Each project is read once, as soon as it is among them (again after it left them and came back),
+ * so the section knows whether there is anything to show,
  * and every project is read again each time the view is switched on; rows already on screen stay
  * while that read runs. `read` names the projects whose archive the list holds in full.
  */
@@ -61,6 +62,10 @@ export function useArchivedConversations(
 	// archive yet, and extra reads at that moment only slow the host's answers the person waits for.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the ids in `key` are the whole input.
 	useEffect(() => {
+		// A project that stopped answering (dropped, or no longer trusted) is read again when it
+		// can answer once more.
+		const current = new Set(projectsRef.current.map((project) => project.id))
+		for (const id of requested.current) if (!current.has(id)) requested.current.delete(id)
 		const fresh = projectsRef.current.filter((project) => !requested.current.has(project.id))
 		readProjects(fresh, false)
 	}, [readProjects, key])
