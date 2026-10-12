@@ -125,6 +125,16 @@ async function wslcVersionOf(
 	}
 }
 
+/** A policy value; a read that did not answer in time cannot be taken as "not set". */
+async function readPolicy(host: WslcSetupHost, name: string): Promise<number | undefined> {
+	try {
+		return await host.readDword(POLICY_KEY, name)
+	} catch (error) {
+		if (error instanceof ProbeTimeoutError) throw couldNotCheck(error)
+		throw error
+	}
+}
+
 /** The state cannot be decided: a plain message the CLI and Desktop show with Details. */
 function couldNotCheck(cause: unknown): LocalComputerSetupError {
 	return new LocalComputerSetupError(
@@ -196,12 +206,13 @@ async function probeImage(
 		if (mapped?.code === 'sdk-mismatch') return { kind: 'state', state: 'sdk-mismatch' }
 		if (mapped?.code === 'image-missing') return { kind: 'absent' }
 		// A missing image makes the command exit non-zero with the not-found code
-		// or with no code at all (observed on wslc 3.0.1, where the PC answers
+		// or with a bare exit status 1 and no code (observed on wslc 3.0.1, where the PC answers
 		// "not found" and nothing else). A command that ran and failed with any
 		// other code, or did not start, is the engine failing.
 		if (
 			error instanceof LocalCommandError &&
-			(error.errorCodes.length === 0 || error.errorCodes.includes('WSLC_E_IMAGE_NOT_FOUND'))
+			(error.errorCodes.includes('WSLC_E_IMAGE_NOT_FOUND') ||
+				(error.errorCodes.length === 0 && error.exitCode === 1))
 		)
 			return { kind: 'absent' }
 		throw couldNotCheck(error)
@@ -266,8 +277,8 @@ export const inspectWslcReadiness: InspectWslcReadiness = async (options) => {
 		wslVersion,
 		wslcVersion,
 	] = await Promise.all([
-		host.readDword(POLICY_KEY, 'AllowWSL'),
-		host.readDword(POLICY_KEY, 'AllowWSLContainer'),
+		readPolicy(host, 'AllowWSL'),
+		readPolicy(host, 'AllowWSLContainer'),
 		readRestartMarker(host).then(
 			(marker) => ({ marker }),
 			() => ({ marker: undefined, unreadable: true as const }),

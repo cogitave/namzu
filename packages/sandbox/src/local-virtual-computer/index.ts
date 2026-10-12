@@ -190,7 +190,7 @@ export function createLocalVirtualComputerProvider(
 						error instanceof LocalComputerSetupError
 							? error.message
 							: options.engine === 'wslc'
-								? 'Windows Linux container support and the Pal computer image are required. Namzu sets them up; finish the setup from the Pal computer and try again.'
+								? 'Linux container support and the Pal computer image are required. Namzu sets them up; finish the setup from the Pal computer and try again.'
 								: `A local ${options.engine === 'podman' ? 'Podman machine' : 'Docker engine'} running Linux containers and the ${image} image are required. Build packages/sandbox/local-computer/Dockerfile explicitly; Namzu does not install or pull it automatically.`,
 				}
 			}

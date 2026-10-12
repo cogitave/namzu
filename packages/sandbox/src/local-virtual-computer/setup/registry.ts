@@ -12,8 +12,10 @@ function parentOf(key: string): string | undefined {
  * `reg query` exits 1 both for a key that is not there and for one the caller
  * may not read, and its words are localised, so the exit status alone cannot
  * tell them apart. Ask the parent instead: its listing of subkeys names the
- * key in every language. A key the parent lists but the query cannot read is
- * not absent, and neither is a parent that cannot be read.
+ * key in every language. When the parent is absent too, the same test climbs
+ * to the grandparent, and so on. A key an ancestor lists but the query cannot
+ * read is not absent, and neither is an ancestor that cannot be read or a
+ * climb that reaches a hive root without an answer.
  *
  * Returns the key's listing, or undefined when the key is provably absent.
  * Anything else rethrows the failure.
@@ -25,7 +27,10 @@ export async function queryRegistryKey(run: RegistryRun, key: string): Promise<s
 		if (!(error instanceof LocalCommandError) || error.exitCode !== 1) throw error
 		const parent = parentOf(key)
 		if (parent === undefined) throw error
-		const listing = await run(['query', parent])
+		// The parent may itself be absent (no Windows Update key on an offline or
+		// managed image): walk up until an ancestor answers.
+		const listing = await queryRegistryKey(run, parent)
+		if (listing === undefined) return undefined
 		const leaf = key.slice(parent.length + 1).toLowerCase()
 		const listed = listing
 			.split(/\r?\n/)

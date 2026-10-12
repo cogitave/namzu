@@ -566,7 +566,7 @@ describe('wslc through a stand-in executable and worker', () => {
 		const probe = await provider.probe?.()
 		expect(probe?.ready).toBe(false)
 		expect((probe as { setupCode?: string }).setupCode).toBeUndefined()
-		expect(probe?.reason).toContain('Windows Linux container support')
+		expect(probe?.reason).toContain('Linux container support')
 	})
 
 	it('says engine-missing when the binary does not exist', async () => {

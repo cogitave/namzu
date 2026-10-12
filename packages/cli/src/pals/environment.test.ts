@@ -396,7 +396,7 @@ it('uses the bundle manifest image for wslc only when no image is named', async 
 })
 
 it('tells the model a computer that can be set up from Namzu is not set up', async () => {
-	const failure = Object.assign(new Error('Windows Linux container support is not installed.'), {
+	const failure = Object.assign(new Error('Linux container support is not installed.'), {
 		name: 'LocalComputerSetupError',
 		code: 'engine-missing',
 	})
@@ -453,7 +453,7 @@ it('chooses the setup hint by the sandbox code, never by the message text', () =
 it('the wrapped provider probe ends an unready Windows reason with the setup line', async () => {
 	const probe = vi.fn(async () => ({
 		ready: false,
-		reason: 'Windows Linux container support on this PC (3.0.0) is too old; 3.0.1 is required.',
+		reason: 'Linux container support on this PC (3.0.0) is too old; 3.0.1 is required.',
 		setupCode: 'engine-too-old',
 	}))
 	createProvider.mockReturnValue({ acquire: vi.fn(), probe })

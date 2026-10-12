@@ -174,15 +174,15 @@ describe('every probe has its own time limit', () => {
 		expect(await pending).toBeInstanceOf(LocalComputerSetupError)
 	})
 
-	it('limits the real host: a registry read is unset, a key unknown, a boot time an error', async () => {
+	it('limits the real host: a registry read is an error, a key unknown, a boot time an error', async () => {
 		vi.useFakeTimers()
 		const never = { run: () => new Promise<string>(() => {}) }
 		const host = createWslcSetupHost({ runner: never, platform: 'win32', env: {} })
-		const dword = host.readDword('HKLM\\x', 'y')
+		const dword = host.readDword('HKLM\\x', 'y').catch((error: unknown) => error)
 		const key = host.keyExists('HKLM\\x')
 		const boot = host.bootTime().catch((error: unknown) => error)
 		await vi.advanceTimersByTimeAsync(PROBE_LIMIT_MS.command)
-		expect(await dword).toBeUndefined()
+		expect(await dword).toBeInstanceOf(ProbeTimeoutError)
 		expect(await key).toBe('unknown')
 		await vi.advanceTimersByTimeAsync(PROBE_LIMIT_MS.powershell - PROBE_LIMIT_MS.command)
 		expect(await boot).toBeInstanceOf(ProbeTimeoutError)
@@ -320,6 +320,27 @@ describe('a failure the engine does not explain', () => {
 		expect((await inspectWith(runner, { probe: true })).state).toBe('image-missing')
 	})
 
+	it('does not read a bare exit that is not status 1 as a missing image', async () => {
+		for (const code of [2, 137]) {
+			const runner = windowsRunner({ imageInspect: failure(code) })
+			const error = await inspectWith(runner, { probe: true }).catch((caught: unknown) => caught)
+			expect(error).toBeInstanceOf(LocalComputerSetupError)
+		}
+	})
+
+	it('does not read a policy check that timed out as "not set"', async () => {
+		const error = await inspectWslcReadiness({
+			imageRef: IMAGE_REF,
+			host: {
+				...fakeHost({ stateDirectory: directory, runner: windowsRunner() }),
+				readDword: async () => {
+					throw new ProbeTimeoutError()
+				},
+			},
+		}).catch((caught: unknown) => caught)
+		expect(error).toBeInstanceOf(LocalComputerSetupError)
+	})
+
 	it('does not read a command that never started as a missing image', async () => {
 		const runner = windowsRunner({
 			imageInspect: new LocalCommandError('could not be started', ['ENOENT']),
@@ -427,5 +448,42 @@ describe('loadWslcImage checks the size before it reads the archive', () => {
 		})
 		expect(result).toMatchObject({ outcome: 'failed', code: 'image-mismatch' })
 		expect(IMAGE_ID).not.toBe(`sha256:${'d'.repeat(64)}`)
+	})
+})
+
+describe('keyExists climbs past absent parents', () => {
+	const listing = (key: string, child: string) => `${key}\\${child}\r\n`
+	const host = (replies: Record<string, string | LocalCommandError>) =>
+		createWslcSetupHost({ runner: fakeRunner(replies), platform: 'win32', env: {} })
+
+	it('is absent when the parent and the grandparent are absent too', async () => {
+		const replies = {
+			'reg query HKLM\\SOFTWARE\\Microsoft\\Nope\\Missing': failure(1),
+			'reg query HKLM\\SOFTWARE\\Microsoft\\Nope': failure(1),
+			'reg query HKLM\\SOFTWARE\\Microsoft': listing(
+				'HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft',
+				'Windows',
+			),
+		}
+		expect(await host(replies).keyExists('HKLM\\SOFTWARE\\Microsoft\\Nope\\Missing')).toBe(false)
+	})
+
+	it('is unknown when the climb reaches the hive root without an answer', async () => {
+		const replies = {
+			'reg query HKLM\\SOFTWARE\\Nope\\Missing': failure(1),
+			'reg query HKLM\\SOFTWARE\\Nope': failure(1),
+			'reg query HKLM\\SOFTWARE': failure(1),
+			'reg query HKLM': failure(1),
+		}
+		expect(await host(replies).keyExists('HKLM\\SOFTWARE\\Nope\\Missing')).toBe('unknown')
+	})
+
+	it('is unknown when an ancestor lists the next key but it cannot be read', async () => {
+		const replies = {
+			'reg query HKLM\\SOFTWARE\\Nope\\Missing': failure(1),
+			'reg query HKLM\\SOFTWARE\\Nope': failure(1),
+			'reg query HKLM\\SOFTWARE': listing('HKEY_LOCAL_MACHINE\\SOFTWARE', 'Nope'),
+		}
+		expect(await host(replies).keyExists('HKLM\\SOFTWARE\\Nope\\Missing')).toBe('unknown')
 	})
 })

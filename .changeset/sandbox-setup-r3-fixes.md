@@ -19,3 +19,5 @@ number. `LocalCommandError` gains an optional `exitCode`, and the provider's
 match on `code`, not on the text.
 
 A registry key that Windows would not let the setup read is no longer taken for one that is not there. That applies to the sign-in resume entry and to the pending-restart markers, so a PC that only needs a restart is no longer told its virtualization is off. An unreadable restart record now ends with the next restart instead of never. With a session probe, the pending-restart markers are not consulted and `0x80370102` stays `virtualization-off`. The Pal computer probe reports a setup code only for a setup failure.
+
+A registry key whose parent is also absent is now reported absent instead of unknown, so a PC with virtualization off and no Windows Update key reaches `virtualization-off`. A policy read that times out is "could not check" rather than "not set". A bare `wslc` exit is read as a missing image only for status 1. The leading "Windows " is dropped from the Linux container support messages (engine-missing, engine-too-old and the catch-all); match on `code`, not on the text.

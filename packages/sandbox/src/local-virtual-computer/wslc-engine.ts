@@ -20,7 +20,7 @@ export interface LocalWslcEngineOptions {
 
 const MESSAGES: Record<LocalComputerSetupCode, string> = {
 	'engine-missing': 'Linux container support is not installed on this PC.',
-	'engine-too-old': 'Windows Linux container support on this PC is too old for Namzu.',
+	'engine-too-old': 'Linux container support on this PC is too old for Namzu.',
 	'virtualization-off':
 		'This PC has virtualization switched off. Turn it on in the PC startup settings, then try again.',
 	'blocked-by-policy': 'Your organisation does not allow Linux containers on this PC.',
@@ -114,7 +114,7 @@ export async function resolveLocalWslcEngine(
 	if (!version) throw wslcSetupError('engine-missing')
 	if (!atLeast(version, WSLC_MINIMUM_VERSION))
 		throw new LocalComputerSetupError(
-			`Windows Linux container support on this PC (${version.join('.')}) is too old; ${WSLC_MINIMUM_VERSION.join('.')} or newer is required.`,
+			`Linux container support on this PC (${version.join('.')}) is too old; ${WSLC_MINIMUM_VERSION.join('.')} or newer is required.`,
 			'engine-too-old',
 		)
 	// The first command that needs the session starts its virtual machine, so

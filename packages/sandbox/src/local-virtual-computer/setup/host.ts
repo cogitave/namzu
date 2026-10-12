@@ -59,9 +59,9 @@ export const createWslcSetupHost: CreateWslcSetupHost = (overrides = {}) => {
 				)
 			} catch (error) {
 				// reg.exe exits 1 for an absent key or value; that is "not set". A
-				// check that did not answer in time is not known, which reads the same.
-				if (error instanceof LocalCommandError || error instanceof ProbeTimeoutError)
-					return undefined
+				// check that did not answer in time is not known: it propagates, so a
+				// policy read that timed out never reads as "not set" (allowed).
+				if (error instanceof LocalCommandError) return undefined
 				throw error
 			}
 		},

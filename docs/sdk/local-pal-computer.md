@@ -673,8 +673,9 @@ Namzu Desktop does it from the Pal computer row; the CLI from
   `LocalComputerSetupError` with a plain message and no code, which the CLI and
   Desktop show as "could not check" with Details. An unmapped failure of the
   session probe is never read as `image-missing`; only the engine's own
-  not-found answer is (the not-found code, or a non-zero exit with no code at
-  all, which is how wslc 3.0.1 says it; a command that did not start is not).
+  not-found answer is (the not-found code, or a bare exit status 1 with no code,
+  which is how wslc 3.0.1 says it; a signal kill, another status or a command
+  that did not start is not).
 - **Without a probe it never starts a virtual machine.** `wslc version` does
   not start the session; `wslc list`, `ps` and `image` do. So by default
   `image.loaded` comes from `<stateDirectory>/image.json`, which setup writes
@@ -692,12 +693,16 @@ Namzu Desktop does it from the Pal computer row; the CLI from
   either exists, because a PC that has not restarted since the platform was
   turned on outside Namzu has no hypervisor yet. `reg.exe` exits 1 both for an
   absent key and for one it may not read, in every language, so a key is only
-  "absent" when its parent's listing does not name it; a marker that cannot be
+  "absent" when an ancestor's listing does not name it (the check climbs past
+  parents that are absent too, such as a missing `Auto Update` key, and gives
+  up only at a hive root or an ancestor it cannot read); a marker that cannot be
   read (denied, or no answer in time) makes the inspection throw the plain
   "could not check" error rather than claim `virtualization-off`. With a probe
   the markers are not consulted at all: the session's own failure decides, and
   `0x80370102` stays `virtualization-off` even while Windows has a restart
   pending.
+  A policy read (`AllowWSL`, `AllowWSLContainer`) that does not answer in time
+  is "could not check", never "not set".
   A restart record that exists but cannot be read (anything but "not there")
   is dated by its file instead: a boot after that date ends it like any record,
   and an earlier one leaves `restart-pending` with no remaining steps known. If
@@ -851,9 +856,11 @@ Namzu Desktop does it from the Pal computer row; the CLI from
   `reg.exe add ... /f`, refusing a command that is empty, has a line break or
   is over 2048 characters; no administrator is needed for the default per-user
   `RunOnce` key. Windows removes a RunOnce value as it runs it.
-  `clearResumeAtSignIn` deletes it. Only `reg.exe`'s "not found" exit (1) means
-  the value is not there; any other failure of the query is thrown, and setup
-  treats a leftover entry as harmless.
+  `clearResumeAtSignIn` deletes it. The value is absent only when the key is
+  provably absent (an ancestor's listing does not name it) or the key's listing
+  lacks the value; a key the parent lists but the query cannot read, or an
+  unreadable ancestor, is thrown, and setup treats a leftover entry as
+  harmless.
 - **Idle.** `stopIdleWslcSession` asks `wslc system session list` (which does
   not start a session) whether the default session, the one wslc names
   `wslc-cli-<user>`, runs; if not it answers `not-running`. Otherwise it lists
