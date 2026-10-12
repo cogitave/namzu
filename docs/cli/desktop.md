@@ -722,7 +722,7 @@ offering a first Pal.
 A folder that vanishes while its project is open gets the same screen (“*name*” can’t be found, **Locate folder…**,
 **Remove project…**), and **Locate folder…** relinks it the same way. A name a person gave sits in curly quotes wherever it is inside a sentence on that page, and in the accessible names of the sidebar row's **Locate folder** and **Remove** buttons.
 
-While the start is still deciding which tab is in front, the pane reads nothing of its own draft (attached files, saved message choices, text draft), because main may not have registered the project yet; a refused conversation list or saved-choices read is made once more before any banner is shown, and a restored tab waits for its project's list. Only a second failure shows the banner with **Retry setup**.
+Main answers a draft (attached files, saved message choices, text draft) only for a project it has registered, and the start opens projects one at a time, so a project the window is told about first is still `connecting`. The pane reads none of its drafts until its project has connected (it shows the connecting stage meanwhile), so no read is made that cannot succeed and no banner is drawn for it; a read that fails after that shows **Saved message settings could not be loaded** with **Retry setup** at once. A conversation list that is refused is read once more before anything is said, and a restored tab waits for its project's list.
 
 A restored tab whose project folder is gone shows that project's own page (its name, **Locate folder…**, **Remove project…**) and keeps its own title; no "could not be loaded" banner sits over another project's page.
 

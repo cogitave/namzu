@@ -54,8 +54,10 @@ async function addProject(w, name) {
 	await w.page.getByRole("menuitem", { name: "Use an existing folder" }).click();
 	const group = w.page.locator("[data-project-group]").filter({ hasText: name });
 	await expect(group).toHaveCount(1, { timeout: T });
-	// The app opens the project it just added a moment after the row appears. Wait for that, or a
-	// test that folds everything first is overtaken by the opening and finds a panel it did not expect.
+	// The row appears when main announces the project; the app opens it (aria-expanded) when the
+	// answer to the pick arrives, a moment later and on a loaded machine a long one. Wait for that,
+	// or a test that folds everything first is overtaken by the opening: under load the failing
+	// panel was a project nobody had clicked, opened by the app after the fold had been checked.
 	await expect(group.locator(TOGGLE)).toHaveAttribute("aria-expanded", "true", { timeout: T });
 }
 

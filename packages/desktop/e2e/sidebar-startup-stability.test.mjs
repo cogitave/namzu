@@ -472,23 +472,24 @@ test("a read that keeps failing after the start settled is shown, with a way to 
 			timeout: T,
 		});
 		await expect(banner.getByRole("button", { name: "Retry setup" })).toBeVisible();
-		// Nothing was said before the start had settled.
-		const early = (await frames(w)).filter((frame) => frame.banner && !frame.settled);
-		assert.deepEqual(
-			early.map((frame) => `t=${frame.t}: ${frame.banner}`),
-			[],
-			"no banner before the start settled",
-		);
 		failed = false;
 	} finally {
 		await dispose(w, { failed });
 	}
 });
 
-test("a refused first read of the saved message choices is never shown as an error", {
+// The window is told about a project before main has reached it (the start opens them one at a
+// time, and a slow disk makes the wait long), and main refuses every draft read for a project it has
+// not registered ("Unknown project."). Nothing has failed then, so the pane must not ask: no read of
+// a draft is made while its project is still connecting, and no frame shows an error banner.
+// The preload stands in for main's refusal while the page's `main-has-not-registered` flag is set;
+// every call it saw is kept in localStorage, so the test knows the stand-in ran.
+test("no draft is read before its project is registered, so no first frame shows a failed read", {
 	timeout: 300000,
 }, async () => {
 	const w = await createWorld({ rules: CHATS });
+	const gates = join(w.root, "gates");
+	mkdirSync(gates, { recursive: true });
 	instrument(w);
 	let failed = true;
 	try {
@@ -496,7 +497,6 @@ test("a refused first read of the saved message choices is never shown as an err
 		await addProject(w, "alpha");
 		await say(w, "chat alpha");
 		await w.app.close();
-		// The next start's first read of a project-level draft is refused once, as an early start can.
 		const preload = join(freezeApp(w.root), "dist/preload.cjs");
 		const source = readFileSync(preload, "utf8");
 		const call = "electron_1.ipcRenderer.invoke(`namzu:${name}`, ...args)";
@@ -505,19 +505,56 @@ test("a refused first read of the saved message choices is never shown as an err
 			preload,
 			source.replace(
 				call,
-				`(name === "draftSettings" && String(args[0]).startsWith("project:") && !globalThis.__refusedOnce
-				? ((globalThis.__refusedOnce = true), Promise.reject(new Error("refused while the window starts")))
-				: ${call})`,
+				`(() => {
+					const note = (entry) => {
+						const all = JSON.parse(localStorage.getItem("e2e-calls") || "[]");
+						all.push(entry);
+						localStorage.setItem("e2e-calls", JSON.stringify(all));
+					};
+					const draftRead = ["draft", "draftSettings", "attachments"].includes(name) && String(args[0]).startsWith("project:");
+					note(name);
+					if (draftRead && localStorage.getItem("main-has-not-registered") === "1") {
+						note("refused " + name);
+						return Promise.reject(new Error("Unknown project."));
+					}
+					return ${call};
+				})()`,
 			),
 		);
+		w.env = { NAMZU_E2E_GATE_DIR: gates };
+		writeFileSync(join(gates, "alpha.connect.hold"), "");
+		writeFileSync(join(gates, "alpha.list.hold"), "");
 		await relaunch(w);
+		await w.page.evaluate(() => {
+			localStorage.removeItem("e2e-calls");
+			localStorage.setItem("main-has-not-registered", "1");
+		});
+		await w.page.reload();
+		await w.page.waitForLoadState("domcontentloaded");
+		await untilFiles(gates, (files) => files.includes("alpha.connect.held"));
+		await expect(w.page.locator("#namzu-sidebar")).toHaveAttribute("data-start-settled", "false");
+		// The stand-in saw the page start (so it is in the path), and refused nothing the page asked.
+		const calls = () => w.page.evaluate(() => JSON.parse(localStorage.getItem("e2e-calls") || "[]"));
+		assert.ok((await calls()).includes("projects"), "the stand-in saw the page's own calls");
+		assert.deepEqual(
+			(await calls()).filter((entry) => entry.startsWith("refused ")),
+			[],
+			"no draft was read for a project main has not registered",
+		);
+		noBanner("while the project connects", await frames(w));
+		// Main registers the project: the reads are made now and answered.
+		await w.page.evaluate(() => localStorage.setItem("main-has-not-registered", "0"));
+		rmSync(join(gates, "alpha.connect.hold"));
+		await untilFiles(gates, (files) => files.includes("alpha.list.held"));
+		rmSync(join(gates, "alpha.list.hold"));
 		await expect(w.page.locator("#namzu-sidebar")).toHaveAttribute("data-start-settled", "true", {
 			timeout: T,
 		});
 		await expect(w.page.getByRole("textbox", { name: "Message Namzu" })).toBeVisible({
 			timeout: T,
 		});
-		noBanner("a refused first read", await frames(w));
+		assert.ok((await calls()).includes("draftSettings"), "the choices were read once the project connected");
+		noBanner("a start whose project connects late", await frames(w));
 		await expect(w.page.locator(".connection-error")).toHaveCount(0);
 		assert.deepEqual(w.faults, [], "the renderer raised no uncaught errors");
 		failed = false;

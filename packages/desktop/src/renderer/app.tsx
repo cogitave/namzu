@@ -1390,38 +1390,23 @@ export function App({
 	)
 	const draftOwner = sessionId || `project:${projectId}:workspace:${windowId}:${group.id}`
 	const draft = drafts[draftOwner] ?? ''
-	// While the start is still deciding which tab is in front, the pane's own draft (its attached
-	// files, its saved choices) is one the tab about to open replaces, and main may not have
-	// registered the project yet: those reads wait for the start to settle, so a refusal of one is
-	// never shown for a state that has not failed.
-	const decidingFront = restoringTabs && !sessionId
+	// Main answers a draft only for a project it has registered. A project the window is told about
+	// before main has reached it (the start opens them one at a time) is still `connecting`, and the
+	// pane shows the connecting stage instead of a composer: the draft is read once it has connected,
+	// so a read that cannot succeed yet is never made, and never shown as a failure.
+	const draftReadable = Boolean(project) && project?.status !== 'connecting' && !project?.missing
 	const attached = useAttachments(
 		draftOwner,
-		Boolean(project) && !historyPending && !decidingFront,
+		draftReadable && !historyPending,
 		(failure) => showError(failure, 'attach the file'),
 		api,
 	)
-	// The pane in front reads its saved choices at once; a refusal of that first read while the
-	// start is deciding is not shown and the read is made again when the start settles.
-	// A refused read of the saved choices is read once more, silently, before anything is said:
-	// it is shown only once that second read has failed too, never on the frame that first sees it.
-	const [settingsRetried, setSettingsRetried] = useState('')
 	const savedSettings = useDraftSettings(
 		draftOwner,
-		Boolean(project) && !historyPending,
-		(failure) => {
-			if (!decidingFront && settingsRetried === draftOwner)
-				showError(failure, 'save your message settings')
-		},
+		draftReadable && !historyPending,
+		(failure) => showError(failure, 'save your message settings'),
 		api,
 	)
-	const settingsError =
-		decidingFront || settingsRetried !== draftOwner ? undefined : savedSettings.error
-	useEffect(() => {
-		if (restoringTabs || !savedSettings.error || settingsRetried === draftOwner) return
-		setSettingsRetried(draftOwner)
-		savedSettings.retry()
-	}, [restoringTabs, savedSettings.error, savedSettings.retry, draftOwner, settingsRetried])
 	const settings = resolveComposerSendOptions(savedSettings.value.options, pal?.id)
 	const choice = resolveComposerModelChoice({
 		providers: activeProviders,
@@ -2224,7 +2209,7 @@ export function App({
 		}
 	}, [project, sessionId, api, metadataEpoch, historyPending, showError])
 	useEffect(() => {
-		if (!projectId || !api) return
+		if (!projectId || !api || !draftReadable) return
 		let current = true
 		const owner = `project:${projectId}:workspace:${windowId}:${group.id}`
 		if (draftsRef.current[owner] !== undefined) return
@@ -2236,14 +2221,12 @@ export function App({
 				setDrafts((all) => ({ ...all, [owner]: all[owner] ?? saved }))
 			})
 			.catch((failure) => {
-				// While the start is still deciding which tab is in front, main may not have registered
-				// the project yet: the read is made again when the start settles, and said only if it fails then.
-				if (current && !restoringTabs) showError(failure, 'restore your draft')
+				if (current) showError(failure, 'restore your draft')
 			})
 		return () => {
 			current = false
 		}
-	}, [projectId, windowId, group.id, api, showError, restoringTabs])
+	}, [projectId, windowId, group.id, api, showError, draftReadable])
 	useEffect(() => {
 		if (
 			!sessionId ||
@@ -3375,10 +3358,16 @@ export function App({
 	const archiveNoticeId = useRef('')
 	const showArchiveNotice = (batch: ArchiveBatch) => {
 		archiveBatch.current = batch
-		archiveNoticeId.current = notify(archiveNoticeText(batch.ids.length), {
+		const mine = { id: '' }
+		mine.id = notify(archiveNoticeText(batch.ids.length), {
 			tone: 'success',
 			// A notice rebuilt after a restore keeps the time that was left, not a fresh window.
 			timeoutMs: Math.max(batch.until - Date.now(), 1000),
+			// Once it has gone (timed out, closed, or taken over by another notice) a later restore
+			// has nothing to update, and must not bring it back.
+			onClose: () => {
+				if (archiveNoticeId.current === mine.id) archiveNoticeId.current = ''
+			},
 			action: api.restoreConversation
 				? {
 						label: 'Undo',
@@ -3407,6 +3396,7 @@ export function App({
 					}
 				: undefined,
 		})
+		archiveNoticeId.current = mine.id
 	}
 	// A conversation that came back no longer belongs to the archive notice: the count follows,
 	// and a notice with nothing left to undo goes away.
@@ -3416,8 +3406,9 @@ export function App({
 		const after = removeFromArchiveBatch(before, id, Date.now())
 		if (after === before) return
 		archiveBatch.current = after
-		if (after) showArchiveNotice(after)
-		else if (archiveNoticeId.current) dismissNotice(archiveNoticeId.current)
+		// A notice that is gone (timed out, closed, replaced by another) is not brought back.
+		if (after && archiveNoticeId.current) showArchiveNotice(after)
+		else if (!after && archiveNoticeId.current) dismissNotice(archiveNoticeId.current)
 		if (!after) archiveNoticeId.current = ''
 	}
 	const archiveConversation = async (value: ConversationView) => {
@@ -5595,7 +5586,9 @@ export function App({
 	)
 	// An engine that says it needs an account is remembered as signed out, so Settings > Updates can
 	// say so. It is forgotten only on proof: a finished reply from a conversation on that engine.
-	const signInEngine = signInHelpFor(settingsError || rawError || project?.error || '')?.engine
+	const signInEngine = signInHelpFor(
+		savedSettings.error || rawError || project?.error || '',
+	)?.engine
 	const repliedEngine = thread.messages.some(
 		(message) => message.role === 'assistant' && message.status !== 'pending' && message.text,
 	)
@@ -6552,7 +6545,7 @@ export function App({
 				{/* A trust dialog for the folder is the explanation; the banner behind it would repeat it. */}
 				{!folderAccess &&
 					!project?.missing &&
-					(error || (project?.error && !openErrorStage) || settingsError) && (
+					(error || (project?.error && !openErrorStage) || savedSettings.error) && (
 						<div className="connection-error">
 							<ChatErrorBanner
 								details={
@@ -6563,15 +6556,15 @@ export function App({
 										? lostConnectionText(project)
 										: (externalHarness &&
 												describeEngineFailure(
-													settingsError || rawError || project?.error || '',
+													savedSettings.error || rawError || project?.error || '',
 													engineLabel(harnessView, permissionEngine),
 												)) ||
-											settingsError ||
+											savedSettings.error ||
 											error ||
 											project?.error ||
 											''
 								}
-								signIn={signInHelpFor(settingsError || rawError || project?.error || '')}
+								signIn={signInHelpFor(savedSettings.error || rawError || project?.error || '')}
 								onOpenTerminal={
 									terminalReady ? () => void act(() => openShellTerminal()) : undefined
 								}
@@ -6597,7 +6590,7 @@ export function App({
 														void act(async () =>
 															updateProject(await api.reconnectProject(project.id)),
 														)
-												: settingsError ||
+												: savedSettings.error ||
 														(project?.trusted &&
 															(!providerReady || (!pal && api.harnesses && !harnessView)))
 													? () => void act(retryConversationSetup)
@@ -6605,7 +6598,7 @@ export function App({
 								}
 								retryLabel={project?.status === 'error' ? 'Reconnect' : 'Retry setup'}
 								onDismiss={
-									!restoringTabs && project?.status !== 'error' && !settingsError
+									!restoringTabs && project?.status !== 'error' && !savedSettings.error
 										? () => setError('')
 										: undefined
 								}
