@@ -72,6 +72,30 @@ export function withRememberedRows(
 	return [...live, ...waiting]
 }
 
+/**
+ * The rows to write for the next start: those drawn, plus the remembered rows of a project whose
+ * list failed this session. A failed read says nothing about what the project holds, so what was
+ * remembered stays instead of vanishing from the next first frame.
+ */
+export function rowsToRemember(
+	drawn: readonly ConversationView[],
+	remembered: readonly ConversationView[],
+	lists: ReadonlyMap<string, ListOutcome>,
+	gone: { conversations: ReadonlySet<string>; projects: ReadonlySet<string> },
+): ConversationView[] {
+	const ids = new Set(drawn.map((item) => item.id))
+	return [
+		...drawn,
+		...remembered.filter(
+			(row) =>
+				lists.get(row.projectId) === 'failed' &&
+				!ids.has(row.id) &&
+				!gone.conversations.has(row.id) &&
+				!gone.projects.has(row.projectId),
+		),
+	]
+}
+
 /** The sort keys a background list delivered, by conversation. */
 export type DeliveredKeys = ReadonlyMap<string, { pinned: boolean; updatedAt: string }>
 

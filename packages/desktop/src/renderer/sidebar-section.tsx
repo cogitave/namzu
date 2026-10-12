@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useEffect, useId, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useId, useRef, useState } from 'react'
 import type { DesktopApi } from '../shared/protocol.js'
 import { type SidebarSectionId, collapsedSectionsFrom } from '../shared/sidebar-sections.js'
 import { ChevronDownIcon } from './icons.js'
@@ -86,6 +86,9 @@ export function useSidebarSections(
 	const [collapsed, setCollapsed] = useState<ReadonlySet<SidebarSectionId>>(
 		() => new Set(collapsedSectionsFrom(sidebarSeed()?.collapsedSections)),
 	)
+	// The set as last chosen, so a quick second toggle builds on the first before a render.
+	const latest = useRef(collapsed)
+	latest.current = collapsed
 	useEffect(() => {
 		if (!api.sidebarCollapsed) return
 		let current = true
@@ -95,7 +98,8 @@ export function useSidebarSections(
 				if (!current) return
 				const next = collapsedSectionsFrom(ids)
 				rememberSidebar({ collapsedSections: next })
-				setCollapsed(new Set(next))
+				latest.current = new Set(next)
+				setCollapsed(latest.current)
 			})
 			.catch(() => {})
 		return () => {
@@ -104,13 +108,12 @@ export function useSidebarSections(
 	}, [api])
 	const setSectionCollapsed = useCallback(
 		(id: SidebarSectionId, next: boolean) => {
-			setCollapsed((previous) => {
-				const copy = new Set(previous)
-				if (next) copy.add(id)
-				else copy.delete(id)
-				rememberSidebar({ collapsedSections: [...copy] })
-				return copy
-			})
+			const copy = new Set(latest.current)
+			if (next) copy.add(id)
+			else copy.delete(id)
+			latest.current = copy
+			rememberSidebar({ collapsedSections: [...copy] })
+			setCollapsed(copy)
 			void api.setSidebarSectionCollapsed?.(id, next).catch(() => {})
 		},
 		[api],

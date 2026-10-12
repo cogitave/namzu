@@ -1669,7 +1669,7 @@ render, `projects()` and every connection or trust event), so a project that con
 missing or is trusted stays where it is. Main keeps a small picture of the sidebar per profile
 (`sidebar-snapshot.json` under the app's user data folder: Pals with their avatar, the newest rows of
 each project's conversations with no message content, the projects that were open, the archived count),
-written atomically a moment after the lists settle or change and on quit, and hands it to the page with
+written atomically a moment after the lists settle or change and on quit (a Pals read or a project list that failed leaves what was remembered for it in place), and hands it to the page with
 the synchronous boot read together with the folded sections. The first frame therefore shows the Pals, the
 projects, the open project's conversations, Recents (with its archive button, kept there by the remembered archived count until the archive is read) and the folds as they were left, on a second launch, a
 reload and a page that comes back from Settings; a fresh profile has no picture and keeps its
@@ -2921,8 +2921,10 @@ conversation returns to Recents and its project. While the list loads there are 
 that fails is one plain sentence with a retry icon; with nothing archived the list says "Nothing is
 archived."; a project that cannot be read says so and does not hide the others. The section shows whenever
 there is a recent or an archived conversation (with only archived ones, the Recents view says "No recent
-conversations."), and always while the archived view is on. The archive is read once after the projects
-arrive, so the button knows whether to appear, and again each time the view is switched on. The view lasts
+conversations."), and always while the archived view is on. Each project's archive is read once, as that project
+connects (a project that is still connecting cannot answer), so the button knows whether to appear, and every project
+is read again each time the view is switched on. The remembered archived count is replaced only by a read that
+covered every project; a partial read is shown but never saved. The view lasts
 for the window and starts as Recents on the next launch. The palette entry **Archived conversations** and the
 entry in the conversation details menu and the project menu switch to the archived view (opening the sidebar
 first when it is hidden or a drawer) and move focus to the list; the palette entry again goes back. Row titles are cut at a

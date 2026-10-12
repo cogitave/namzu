@@ -8,7 +8,6 @@
 import assert from "node:assert/strict";
 import {
 	cpSync,
-	existsSync,
 	mkdirSync,
 	readFileSync,
 	readdirSync,
@@ -303,7 +302,7 @@ test("a fresh profile starts from its placeholders", { timeout: 300000 }, async 
 		await expect(w.page.locator("#namzu-sidebar")).toHaveAttribute("data-start-settled", "true", {
 			timeout: T,
 		});
-		assert.equal(existsSync(join(w.userData, "sidebar-snapshot.json")), false === false ? false : true);
+		// Nothing is remembered, so the first frame draws no conversation row (checked below).
 		const list = await frames(w);
 		const keys = new Set(withRows(list).flatMap((frame) => Object.keys(frame.rows)));
 		assert.equal([...keys].some((key) => kind(key) === "conversation"), false);

@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 import type { ConversationView, ProjectView } from '../shared/protocol.js'
 import {
 	type DeliveredKeys,
+	type ListOutcome,
 	replaceProject,
+	rowsToRemember,
 	snapshotConversations,
 	stableConversationRows,
 	withRememberedRows,
@@ -181,5 +183,35 @@ describe('stableConversationRows', () => {
 			'b',
 			'd',
 		])
+	})
+})
+
+describe('rows to remember', () => {
+	const gone = { conversations: new Set<string>(), projects: new Set<string>() }
+	const mk = (id: string, projectId: string) => chat(id, projectId, '2026-10-01T00:00:00Z')
+	it('keeps the remembered rows of a project whose list failed', () => {
+		const rows = rowsToRemember(
+			[mk('a1', 'a')],
+			[mk('a1', 'a'), mk('b1', 'b'), mk('c1', 'c')],
+			new Map<string, ListOutcome>([
+				['a', 'listed'],
+				['b', 'failed'],
+				['c', 'listed'],
+			]),
+			gone,
+		)
+		expect(rows.map((item) => item.id)).toEqual(['a1', 'b1'])
+	})
+	it('drops a conversation that was removed here', () => {
+		const rows = rowsToRemember(
+			[],
+			[mk('b1', 'b')],
+			new Map<string, ListOutcome>([['b', 'failed']]),
+			{
+				conversations: new Set(['b1']),
+				projects: new Set(),
+			},
+		)
+		expect(rows).toEqual([])
 	})
 })

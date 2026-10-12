@@ -7,7 +7,9 @@ import {
 	archiveSectionVisible,
 	archiveToggleLabel,
 	archivedRows,
+	combineArchived,
 	loadArchived,
+	mergeArchived,
 	nextArchiveView,
 	withArchived,
 	withoutArchived,
@@ -94,6 +96,35 @@ describe('reading the archive', () => {
 			rows: [],
 			unreadable: 0,
 		})
+	})
+})
+
+describe('reading the archive project by project', () => {
+	const ready = (rows: ConversationView[], unreadable = 0): ArchiveLoad => ({
+		status: 'ready',
+		rows,
+		unreadable,
+	})
+	it('combines the projects that answered and counts the ones that did not', () => {
+		const combined = combineArchived([
+			ready([row('a1', 'a', '2026-10-01T00:00:00Z')]),
+			{ status: 'error', message: 'x' },
+		])
+		expect(combined).toEqual(ready([row('a1', 'a', '2026-10-01T00:00:00Z')], 1))
+	})
+	it('is an error only when no project answered', () => {
+		expect(combineArchived([{ status: 'error', message: 'x' }]).status).toBe('error')
+	})
+	it('adds a project that connected later to the list already shown', () => {
+		const merged = mergeArchived(
+			ready([row('a1', 'a', '2026-10-01T00:00:00Z')]),
+			ready([row('b1', 'b', '2026-10-02T00:00:00Z')]),
+		)
+		expect(merged.status === 'ready' && merged.rows.map((item) => item.id)).toEqual(['b1', 'a1'])
+	})
+	it('keeps the list shown when a later read fails', () => {
+		const shown = ready([row('a1', 'a', '2026-10-01T00:00:00Z')])
+		expect(mergeArchived(shown, { status: 'error', message: 'x' })).toBe(shown)
 	})
 })
 

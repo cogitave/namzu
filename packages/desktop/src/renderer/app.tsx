@@ -216,6 +216,7 @@ import type { ArchiveView } from './sidebar-archive.js'
 import {
 	type ListOutcome,
 	replaceProject,
+	rowsToRemember,
 	snapshotConversations,
 	stableConversationRows,
 	withRememberedRows,
@@ -863,11 +864,12 @@ export function App({
 	// The sidebar's Recents section shows its archived conversations for this window only.
 	const [archiveView, setArchiveView] = useState<ArchiveView>('recents')
 	const [restoringArchived, setRestoringArchived] = useState('')
-	const archived = useArchivedConversations(
-		api,
-		projects.filter((item) => !item.palId && !item.isChat),
-		archiveView,
+	// Only a connected project can answer; the others are read as each one connects.
+	const archivedProjects = useMemo(
+		() => projects.filter((item) => !item.palId && !item.isChat && item.status === 'ready'),
+		[projects],
 	)
+	const archived = useArchivedConversations(api, archivedProjects, archiveView)
 	const renameTrigger = useRef<HTMLElement | null>(null)
 	const announce = useCallback((text: string) => void notify(text), [])
 	const [git, setGit] = useState<{ projectId: string; value: ProjectGitView | null }>()
@@ -5562,7 +5564,7 @@ export function App({
 	const rememberedPals = sidebarStart?.snapshot?.pals
 	const sidebarPals = useMemo<PalView[]>(
 		() =>
-			palsLoading && rememberedPals
+			(palsLoading || palsLoadFailed) && rememberedPals
 				? rememberedPals.map((item) => ({
 						...item,
 						purpose: '',
@@ -5573,7 +5575,7 @@ export function App({
 						updatedAt: '',
 					}))
 				: pals,
-		[palsLoading, rememberedPals, pals],
+		[palsLoading, palsLoadFailed, rememberedPals, pals],
 	)
 	const [expandedProjects, setExpandedProjects] = useState(initialExpanded)
 	const reportExpanded = useCallback(
@@ -5582,8 +5584,12 @@ export function App({
 		[],
 	)
 	// What the archive held when last read, else what the last run remembered.
+	// A read that left a project out is a partial count and is never taken for the whole.
+	const archiveComplete = projects
+		.filter((item) => !item.palId && !item.isChat && !item.missing && item.status !== 'error')
+		.every((item) => archived.read.has(item.id))
 	const archivedCount =
-		archived.load.status === 'ready'
+		archived.load.status === 'ready' && archiveComplete
 			? archived.load.rows.filter((item) => {
 					const project = projects.find((entry) => entry.id === item.projectId)
 					return project && !project.missing
@@ -5594,13 +5600,19 @@ export function App({
 		sidebarSettled.current && !palsLoading
 			? JSON.stringify({
 					v: 1,
-					pals: pals.map(({ id, name, appearance, paused }) => ({
-						id,
-						name,
-						...(appearance ? { appearance } : {}),
-						paused,
-					})),
-					conversations: snapshotConversations(sidebarRows, projects),
+					// A Pals read that failed says nothing about which Pals exist; last time's stand.
+					pals: palsLoadFailed
+						? (rememberedPals ?? [])
+						: pals.map(({ id, name, appearance, paused }) => ({
+								id,
+								name,
+								...(appearance ? { appearance } : {}),
+								paused,
+							})),
+					conversations: snapshotConversations(
+						rowsToRemember(sidebarRows, rememberedRows ?? [], lists, removedCatalogue),
+						projects,
+					),
 					expandedProjects,
 					...(archivedCount !== undefined ? { archivedCount } : {}),
 				} satisfies SidebarSnapshot)
@@ -5638,7 +5650,13 @@ export function App({
 			return
 		}
 		const owner = projects.find((item) => item.id === waiting.view.projectId)
-		if (lists.has(waiting.view.projectId) || !owner || owner.status === 'error') {
+		if (
+			lists.has(waiting.view.projectId) ||
+			!owner ||
+			owner.missing ||
+			owner.status === 'error' ||
+			(owner.status === 'ready' && !owner.trusted)
+		) {
 			waitingToOpen.current = null
 			setError('This conversation is no longer available.')
 		}

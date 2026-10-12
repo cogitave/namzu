@@ -40,6 +40,32 @@ export async function loadArchived(
 	return { status: 'ready', rows: archivedRows(rows), unreadable }
 }
 
+/** Reads taken project by project, as one list: an error only when none could be read. */
+export function combineArchived(parts: readonly ArchiveLoad[]): ArchiveLoad {
+	const ready = parts.filter((part) => part.status === 'ready')
+	if (ready.length === 0) {
+		const failed = parts.find((part) => part.status === 'error')
+		return failed ?? { status: 'idle' }
+	}
+	return {
+		status: 'ready',
+		rows: archivedRows(ready.flatMap((part) => part.rows)),
+		unreadable:
+			ready.reduce((sum, part) => sum + part.unreadable, 0) + (parts.length - ready.length),
+	}
+}
+
+/** What a later read of more projects adds to the list already shown. */
+export function mergeArchived(current: ArchiveLoad, next: ArchiveLoad): ArchiveLoad {
+	if (next.status !== 'ready') return current.status === 'ready' ? current : next
+	if (current.status !== 'ready') return next
+	return {
+		status: 'ready',
+		rows: archivedRows([...next.rows, ...current.rows]),
+		unreadable: current.unreadable + next.unreadable,
+	}
+}
+
 /** The list after a conversation was archived here: it leads, without waiting for another read. */
 export function withArchived(load: ArchiveLoad, view: ConversationView): ArchiveLoad {
 	const rows = load.status === 'ready' ? load.rows : []

@@ -4,6 +4,8 @@
 // Scripted model, no paid call, no owner data.
 // Run: pnpm --filter @namzu/desktop build && xvfb-run -a node --test e2e/ux-sidebar-archive-toggle.test.mjs
 import assert from "node:assert/strict";
+import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { test } from "node:test";
 import { createWorld, dispose, expect, launch, openProject, send } from "./harness.mjs";
 
@@ -157,5 +159,45 @@ flow(
 		await w.page.getByRole("combobox", { name: "Search conversations and actions" }).fill("Archived");
 		await w.page.getByRole("option", { name: /Archived conversations/ }).click();
 		await expect(heading(w)).toHaveText("Recents", { timeout: T });
+	},
+);
+
+// The archive is read as each project connects. A start with no remembered count and nothing in
+// Recents used to read it before any project had connected, fail, and never ask again.
+flow(
+	"the archive is found on a start that remembers nothing about it",
+	{ rules: CHATS },
+	async (w) => {
+		await twoChats(w);
+		for (const title of ["alpha chat", "beta chat"]) {
+			const row = projectRow(w, title);
+			await row.hover();
+			await row.getByRole("button", { name: "Archive", exact: true }).click();
+			await expect(projectRow(w, title)).toHaveCount(0, { timeout: T });
+		}
+		// Let the picture of this run reach the disk, then forget the count and the rows.
+		const file = join(w.userData, "sidebar-snapshot.json");
+		await expect
+			.poll(
+				() => {
+					try {
+						return JSON.parse(readFileSync(file, "utf8")).archivedCount;
+					} catch {
+						return undefined;
+					}
+				},
+				{ timeout: T },
+			)
+			.toBe(2);
+		await w.app.close();
+		const saved = JSON.parse(readFileSync(file, "utf8"));
+		saved.archivedCount = undefined;
+		saved.conversations = [];
+		writeFileSync(file, JSON.stringify(saved));
+		await launch(w);
+		// Nothing is in Recents and nothing is remembered: only the archive can bring the section.
+		await expect(
+			section(w).getByRole("button", { name: "Show archived conversations" }),
+		).toBeVisible({ timeout: T });
 	},
 );
