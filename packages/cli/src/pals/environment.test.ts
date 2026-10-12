@@ -435,6 +435,14 @@ it('keeps the setup hint to the exact sandbox texts and drops the doubled instru
 	).toBe(
 		`Windows Linux container support (wslc) is not installed on this PC. ${RUN_COMPUTER_SETUP_LINE}`,
 	)
+	expect(
+		withSetupHint(
+			'Windows Linux container support and the Pal computer image are required. Namzu sets them up; finish the setup from the Pal computer and try again.',
+			'win32',
+		),
+	).toBe(
+		`Windows Linux container support and the Pal computer image are required. ${RUN_COMPUTER_SETUP_LINE}`,
+	)
 	for (const reason of [
 		'This PC has virtualization switched off. Turn it on in the PC startup settings, then try again.',
 		'Your organisation does not allow Linux containers on this PC.',

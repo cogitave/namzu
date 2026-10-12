@@ -48,11 +48,17 @@ const SETTABLE_UP_REASONS = new Set([
 	'Windows Linux container support (wslc) is not installed on this PC.',
 	'Windows Linux container support on this PC is too old for Namzu.',
 ])
-const SETUP_FROM_PAL_TAIL =
-	' Namzu sets it up; finish the setup from the Pal computer and try again.'
-const SETTABLE_UP_WITH_TAIL = new Set([
-	`The Pal computer is not set up on this PC yet.${SETUP_FROM_PAL_TAIL}`,
-	`Windows Linux container support and the Pal computer image are required.${SETUP_FROM_PAL_TAIL}`,
+const FINISH_FROM_PAL = ' finish the setup from the Pal computer and try again.'
+// Each sandbox text carries its own tail, singular or plural, removed as written.
+const SETTABLE_UP_WITH_TAIL = new Map([
+	[
+		`The Pal computer is not set up on this PC yet. Namzu sets it up;${FINISH_FROM_PAL}`,
+		' Namzu sets it up;' + FINISH_FROM_PAL,
+	],
+	[
+		`Windows Linux container support and the Pal computer image are required. Namzu sets them up;${FINISH_FROM_PAL}`,
+		' Namzu sets them up;' + FINISH_FROM_PAL,
+	],
 ])
 
 /** On Windows an unready engine or image ends with where to fix it. */
@@ -62,8 +68,8 @@ export function withSetupHint(
 ): string | undefined {
 	if (platform !== 'win32' || reason === undefined) return reason
 	if (SETTABLE_UP_REASONS.has(reason)) return `${reason} ${RUN_COMPUTER_SETUP_LINE}`
-	if (SETTABLE_UP_WITH_TAIL.has(reason))
-		return `${reason.slice(0, -SETUP_FROM_PAL_TAIL.length)} ${RUN_COMPUTER_SETUP_LINE}`
+	const tail = SETTABLE_UP_WITH_TAIL.get(reason)
+	if (tail !== undefined) return `${reason.slice(0, -tail.length)} ${RUN_COMPUTER_SETUP_LINE}`
 	return reason
 }
 

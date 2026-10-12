@@ -74,6 +74,9 @@ Types are those of the setup contract (`WslcReadiness`, `WslcSetupPlan`,
 // stop-idle --json: one line
 {"version":1,"outcome":"stopped"}   // or "busy" or "not-running"
 
+// setup --json off Windows (exit 69)
+{"version":1,"result":{"outcome":"blocked","blocked":"unsupported"}}
+
 // an argument or check failure: one line
 {"version":1,"error":{"code":"plan-required"}}
 {"version":1,"error":{"code":"check-failed"}}      // the check itself failed
@@ -92,7 +95,7 @@ for the rest. Without `--plan` it prints the `plan-required` error and exits 64.
 On Windows, a Pal computer that cannot start because Linux support or the image
 is missing ends its message with "Run namzu computer setup to set this up."
 The model is told only "The computer is not set up; the person can set it up
-from Namzu." Other setup failures that Namzu cannot fix (policy, virtualization,
+from Namzu." The hint applies to the `wslc` engine's messages only; with the Docker or Podman engine on Windows the message keeps its own build instruction. Other setup failures that Namzu cannot fix (policy, virtualization,
 an update) keep their own sentence.
 
 Ctrl-C, Ctrl-D or a closed terminal at `Continue?` count as no: `Nothing was changed.` and exit 0. Off Windows `stop-idle` says there is no Linux machine to stop.
