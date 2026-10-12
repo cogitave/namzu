@@ -117,11 +117,13 @@ diagnostics.record('started', {
 	engine:
 		process.env.NAMZU_PAL_COMPUTER_ENGINE === undefined
 			? 'default-docker'
-			: process.env.NAMZU_PAL_COMPUTER_ENGINE === 'podman'
-				? 'podman'
-				: process.env.NAMZU_PAL_COMPUTER_ENGINE === 'docker'
-					? 'docker'
-					: 'invalid',
+			: process.env.NAMZU_PAL_COMPUTER_ENGINE === 'wslc'
+				? 'wslc'
+				: process.env.NAMZU_PAL_COMPUTER_ENGINE === 'podman'
+					? 'podman'
+					: process.env.NAMZU_PAL_COMPUTER_ENGINE === 'docker'
+						? 'docker'
+						: 'invalid',
 	platform:
 		process.platform === 'win32' || process.platform === 'darwin' || process.platform === 'linux'
 			? process.platform

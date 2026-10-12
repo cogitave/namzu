@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Local Pal computers
-description: A persistent Linux guest desktop for SDK Pals, provided by a local Docker engine or an explicitly selected Windows WSL Podman machine and shared by CLI and desktop clients.
+description: A persistent Linux guest desktop for SDK Pals, provided by a local Docker engine, an explicitly selected Windows WSL Podman machine, or Windows' own wslc container CLI, and shared by CLI and desktop clients.
 resource: packages/sandbox/src/local-virtual-computer/index.ts
 tags: [sdk, pals, sandbox, desktop, local]
 status: stable
@@ -101,9 +101,9 @@ const environments = createLocalVirtualComputerProvider({
 const availability = await environments.probe?.()
 ```
 
-Options are `image`, `engine`, `dockerBinary`, `engineEndpoint`, `podmanBinary`,
+Options are `image`, `engine`, `dockerBinary`, `engineEndpoint`, `podmanBinary`, `wslcBinary`,
 `podmanMachine`, `podmanConnection`, `readyTimeoutMs`, `width`, `height` and an
-optional host `runner`. `engine` is `docker` or `podman`; omitting it keeps Docker
+optional host `runner`. `engine` is `docker`, `podman` or `wslc`; omitting it keeps Docker
 behavior unchanged. Podman requires both machine and connection names and
 refuses `engineEndpoint`. The runner is an embedding and
 test transport with daemon authority; it must never come from model input.
@@ -431,9 +431,126 @@ is unchanged. The image uses Chromium `--no-sandbox`; the browser's inner
 process sandbox is absent. The container and local engine/WSL boundary are the
 isolation boundary, not a dedicated-kernel VM per Pal.
 
-The CLI composition accepts `NAMZU_PAL_COMPUTER_ENGINE`,
-`NAMZU_PAL_PODMAN_MACHINE`, `NAMZU_PAL_PODMAN_CONNECTION` and
-`NAMZU_PAL_PODMAN_BINARY`. SDK embedders set factory options directly.
+The CLI composition accepts `NAMZU_PAL_COMPUTER_ENGINE` (`docker`, `podman` or
+`wslc`), `NAMZU_PAL_PODMAN_MACHINE`, `NAMZU_PAL_PODMAN_CONNECTION`,
+`NAMZU_PAL_PODMAN_BINARY` and `NAMZU_PAL_WSLC_BINARY`. SDK embedders set factory
+options directly.
+
+## Windows: wslc engine
+
+`wslc` is Microsoft's container CLI for WSL (WSL 2.9.3 or newer; 3.0.1 is the
+version this adapter was verified on). Each Windows user gets one private
+session with its own lightweight virtual machine. It is not a distribution in
+`wsl -l -v`, it does not share a machine with the person's other WSL
+distributions, and the container sees no Windows drive: only the Pal's named
+volume is mounted. The adapter needs no administrator rights to run. It is
+the engine Namzu intends to set up for people on Windows, using a Linux image
+that ships inside the Namzu installer; that setup is a separate, consented
+operation owned by the application. The provider itself still never installs
+an engine, starts a machine, builds an image or pulls an image.
+
+```ts
+import { createLocalVirtualComputerProvider } from '@namzu/sandbox'
+
+const environments = createLocalVirtualComputerProvider({
+  engine: 'wslc',
+  // Optional. Defaults to %ProgramFiles%\WSL\wslc.exe, then wslc on PATH.
+  wslcBinary: 'C:\\Program Files\\WSL\\wslc.exe',
+})
+```
+
+The engine is chosen only when asked for: `engine: 'wslc'`, or
+`NAMZU_PAL_COMPUTER_ENGINE=wslc` with the optional `NAMZU_PAL_WSLC_BINARY` for
+the CLI and desktop. It is never selected automatically. Run the host process
+as a native Windows process, not from inside a WSL distribution. The worker
+token reaches the container by inheriting the host process environment by name
+(`--env NAMZU_SANDBOX_TOKEN`), never on a command line.
+
+The engine probe runs `wslc version` (it must print `wslc <major>.<minor>.<patch>`
+at or above 2.9.3), then `wslc ps -a -q`, the cheapest command that starts the
+session. A missing image is detected with `image inspect`, which on wslc means
+the Pal computer has not been set up yet.
+
+### Typed setup errors
+
+Failures that a person can act on are `LocalComputerSetupError` instances with
+a stable `code`, so an application can choose its own words and actions without
+parsing prose:
+
+| `code` | Meaning | Source |
+|---|---|---|
+| `engine-missing` | `wslc` is not installed or did not print a version | spawn failure, unreadable `wslc version` |
+| `engine-too-old` | the runtime is older than 2.9.3 | `wslc version` |
+| `virtualization-off` | virtualization is off in firmware, or the hypervisor is not available | `0x80370102` |
+| `blocked-by-policy` | the organisation disabled WSL containers | `0x8004060C` |
+| `sdk-mismatch` | the installed runtime does not fit this Namzu | `0x8004060B` |
+| `image-missing` | the Pal computer image is not loaded | `WSLC_E_IMAGE_NOT_FOUND` |
+
+The three HRESULT rows are mapped from the engine's documented codes and have
+not yet been observed on a real policy-blocked or virtualization-off PC; they
+are pinned only by tests with synthetic stderr. A missing image has been
+observed: `image inspect` exits non-zero with no code, and the provider reads
+that (or `WSLC_E_IMAGE_NOT_FOUND`) as `image-missing`. Any other failure of
+that command, such as a timeout or an engine crash, is reported as itself.
+
+The codes come from the engine's stderr. The command runner keeps only
+recognised machine-readable tokens (HRESULTs, `WSLC_E_*` and `HCS_E_*` names,
+spawn error names) on the thrown `LocalCommandError`; no stderr text, path or
+environment reaches a message. Messages are plain sentences with no codes.
+
+### How the command line differs
+
+The lifecycle is the same as for Docker and Podman. Each place the dialects
+differ lives in one module (`dialect.ts`) and the argument lists of Docker and
+Podman are pinned byte for byte by a golden test.
+
+| Step | Docker and Podman | wslc |
+|---|---|---|
+| Hardening flags | `--cap-drop=ALL`, `--security-opt=no-new-privileges`, `--read-only`, `--ipc=private` | none, wslc has no such options |
+| Resource flag | Podman adds `--cgroups=disabled` | none |
+| Find containers | `ps --all --filter F --format '{{.ID}}'` | `ps -a --filter F -q --no-trunc` (`-q` alone cuts ids to 12 characters; `--format` takes only `json`) |
+| Published ports | `inspect --format '{{json .NetworkSettings.Ports}}'` | `inspect -f json`, read `[0].Ports`, falling back to `[0].NetworkSettings.Ports` |
+| Volume | `volume create` (Podman adds `--ignore`) | `volume inspect`, then `volume create` only if absent |
+| Engine endpoint | context or `--host` | none; the binary is called directly, no forwarding is needed because wslc publishes loopback ports on Windows |
+
+### Hardening differences, stated plainly
+
+On Docker the guest container drops every capability, forbids privilege
+gain, mounts the root file system read-only and uses a private IPC namespace.
+**On wslc none of those four controls can be requested.** The container runs
+as the unprivileged user 1001 from the image, but with the engine's default
+capability set, `NoNewPrivs` off and a writable root file system. The
+boundary is therefore the per-user virtual machine (nothing from Windows is
+mounted into it), the non-root guest user, and what the image leaves behind.
+Mitigations that do not need a flag: the image should keep no setuid or setgid
+binaries beyond the ones it needs (the current development image does not yet
+meet this: it still ships `su`, `mount`, `passwd` and similar setuid-root
+files, and stripping them is an acceptance item for the shipped image), no
+`sudo`, the worker and every launcher run
+as 1001, and the `/tmp` and `/run` tmpfs mounts keep `nosuid,nodev`. The VM is
+shared by every Pal computer of the same Windows user. Use Docker or Podman
+for any use that gives a Pal code you do not trust to run with its own
+privileges. The adapter sets no CPU, memory or process quotas, as with Podman.
+
+### Behaviour worth knowing
+
+- Cold start of the session's virtual machine takes about 10 seconds after a
+  restart; a warm start is about one second. The default 60-second readiness
+  deadline covers it.
+- `stop --time 10` waits up to 10 seconds for a process that ignores SIGTERM.
+- Space freed inside the session is reused, not returned to Windows
+  (`storage.vhdx` does not shrink).
+- Exec-style bidirectional stdin is unreliable above a few megabytes on wslc.
+  The provider never uses it: all guest traffic is HTTP on the published ports.
+- wslc depends on the organisation allowing WSL containers
+  (`AllowWSLContainer`). Where that is off, the provider reports
+  `blocked-by-policy` and nothing else; there is no fallback engine.
+- Only 64-bit x86 Windows has been verified. Windows 10 (build 19045) works
+  on the verified machine; Microsoft gives no support guarantee for it.
+
+The unit and integration tests drive this engine with a stand-in `wslc`
+executable and a local HTTP worker, pinned to output recorded from wslc
+3.0.1.0.
 
 ## Owned guest stdio services
 

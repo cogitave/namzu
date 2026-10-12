@@ -16,10 +16,17 @@ async function environment(): Promise<{
 			// The optional leaf is composed here, never imported by the SDK.
 			const packageName = '@namzu/sandbox'
 			const engineValue = process.env.NAMZU_PAL_COMPUTER_ENGINE
-			if (engineValue && engineValue !== 'docker' && engineValue !== 'podman')
-				throw new Error('NAMZU_PAL_COMPUTER_ENGINE must be docker or podman.')
+			if (
+				engineValue &&
+				engineValue !== 'docker' &&
+				engineValue !== 'podman' &&
+				engineValue !== 'wslc'
+			)
+				throw new Error('NAMZU_PAL_COMPUTER_ENGINE must be docker, podman or wslc.')
 			const engine =
-				engineValue === 'podman' ? 'podman' : engineValue === 'docker' ? 'docker' : undefined
+				engineValue === 'podman' || engineValue === 'wslc' || engineValue === 'docker'
+					? engineValue
+					: undefined
 			const exitPolicy = process.env.NAMZU_PAL_COMPUTER_NORMAL_EXIT_POLICY ?? 'computer-lifetime'
 			if (exitPolicy !== 'strict' && exitPolicy !== 'computer-lifetime')
 				throw new Error(
@@ -30,8 +37,9 @@ async function environment(): Promise<{
 					image?: string
 					normalExitPolicy?: 'strict' | 'computer-lifetime'
 					dockerBinary?: string
-					engine?: 'docker' | 'podman'
+					engine?: 'docker' | 'podman' | 'wslc'
 					podmanBinary?: string
+					wslcBinary?: string
 					podmanMachine?: string
 					podmanConnection?: string
 				}): LocalComputerProvider
@@ -47,6 +55,9 @@ async function environment(): Promise<{
 					: {}),
 				...(process.env.NAMZU_PAL_PODMAN_BINARY
 					? { podmanBinary: process.env.NAMZU_PAL_PODMAN_BINARY }
+					: {}),
+				...(process.env.NAMZU_PAL_WSLC_BINARY
+					? { wslcBinary: process.env.NAMZU_PAL_WSLC_BINARY }
 					: {}),
 				...(process.env.NAMZU_PAL_PODMAN_MACHINE
 					? { podmanMachine: process.env.NAMZU_PAL_PODMAN_MACHINE }

@@ -1,5 +1,10 @@
 # Documentation update log
 
+## 2026-10-12
+
+- **Update** [Local Pal computers](sdk/local-pal-computer.md#windows-wslc-engine): each readiness probe of a starting computer now has its own 3 second limit, because wslc's published-port relay can accept a connection and never answer it; a missing image on wslc is told apart from a crashed engine; the setuid gap of the current image and the unobserved HRESULT mappings are stated. Desktop diagnostics read the typed setup `code` before falling back to message text. Covered by `golden-argv.test.ts` (failed-start cleanup argv, hung readiness probe), `wslc.test.ts` and `diagnostics.test.ts`.
+- **Update** [Local Pal computers](sdk/local-pal-computer.md#windows-wslc-engine): new "Windows: wslc engine" section for the third local computer engine (`engine: 'wslc'`, `wslcBinary`, `NAMZU_PAL_COMPUTER_ENGINE=wslc`, `NAMZU_PAL_WSLC_BINARY`): what it is, the typed setup error codes (`engine-missing`, `engine-too-old`, `virtualization-off`, `blocked-by-policy`, `image-missing`, `sdk-mismatch`), how its command line differs, and the hardening gap (no capability drop, no-new-privileges, read-only root or private IPC) with its mitigations. Covered by `golden-argv.test.ts` (Docker and Podman argv unchanged) and `wslc.test.ts` (dialect parsing, error mapping and a stand-in `wslc` executable driving allocate, stdio, cancel and destroy). [Desktop](cli/desktop.md) names the new environment value.
+
 ## 2026-10-11
 
 - **Update** [Desktop](cli/desktop.md): the Pal panel header's Pause is quiet again: the status under the Pal's name ("Ready to chat", "Paused") reads "Pause *name*" or "Resume *name*" in the same place on hover or keyboard focus, with the same size and no visible button, and the status is still announced. The visible outline Pause/Resume button is gone. Covered by `pal-ux.test.ts` and `e2e/ux-pal-pause-hover.test.mjs`.

@@ -372,7 +372,7 @@ connected also says "Chatting works without a computer." under the two computer 
 Pal computers inherit the CLI's local-engine settings from this native host.
 The default is Docker. If this device uses an existing local Podman machine,
 set `NAMZU_PAL_COMPUTER_ENGINE=podman` and its verified local machine/connection
-settings before launching, as described in [Local Pal computer](../sdk/local-pal-computer.md).
+settings before launching, or `NAMZU_PAL_COMPUTER_ENGINE=wslc` for Windows' own container CLI, as described in [Local Pal computer](../sdk/local-pal-computer.md).
 Starting a renderer development server alone does not configure that native
 host or start a Pal computer.
 

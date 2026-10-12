@@ -49,7 +49,7 @@ export interface DesktopDiagnosticContext {
 	bytes?: number
 	exitCode?: number | null
 	rpcCode?: number
-	engine?: 'default-docker' | 'docker' | 'podman' | 'invalid'
+	engine?: 'default-docker' | 'docker' | 'podman' | 'wslc' | 'invalid'
 	platform?: 'win32' | 'linux' | 'darwin' | 'other'
 	line?: number
 	column?: number
@@ -264,6 +264,16 @@ const OPERATIONS = new Set([
 	'namzu/pals/computer/input',
 ])
 
+/** The typed setup codes of the Windows Linux container engine, mapped to fixed reasons. */
+const WSLC_SETUP_REASONS: Record<string, string | undefined> = {
+	'engine-missing': 'wslc-engine-missing-or-old',
+	'engine-too-old': 'wslc-engine-missing-or-old',
+	'virtualization-off': 'wslc-virtualization-off',
+	'blocked-by-policy': 'wslc-blocked-by-policy',
+	'sdk-mismatch': 'wslc-sdk-mismatch',
+	'image-missing': 'wslc-computer-not-set-up',
+}
+
 /** Arbitrary errors can contain prompts, headers and paths. Only fixed reasons survive. */
 export function desktopFailure(error: unknown): {
 	reason: string
@@ -293,12 +303,26 @@ export function desktopFailure(error: unknown): {
 							? 'Error'
 							: 'Unknown'
 		let reason = 'unclassified'
+		const setupReason =
+			error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
+				? WSLC_SETUP_REASONS[error.code]
+				: undefined
 		if (error instanceof SupersededConversationSettingsError)
 			reason = 'conversation-settings-superseded'
+		else if (setupReason) reason = setupReason
 		else if (/local Docker engine.*required|local Docker.*required/i.test(message))
 			reason = 'docker-engine-or-image-required'
 		else if (/local Podman machine.*required/i.test(message))
 			reason = 'podman-engine-or-image-required'
+		else if (/Windows Linux container support.*(?:not installed|too old)/i.test(message))
+			reason = 'wslc-engine-missing-or-old'
+		else if (/virtualization switched off/i.test(message)) reason = 'wslc-virtualization-off'
+		else if (/organisation does not allow Linux containers/i.test(message))
+			reason = 'wslc-blocked-by-policy'
+		else if (/work with this version of Windows' Linux support/i.test(message))
+			reason = 'wslc-sdk-mismatch'
+		else if (/Pal computer is not set up|Pal computer image are required/i.test(message))
+			reason = 'wslc-computer-not-set-up'
 		else if (/Podman machine.*stopped or unavailable|machine pipe is unavailable/i.test(message))
 			reason = 'podman-machine-stopped'
 		else if (
@@ -472,7 +496,7 @@ export class DesktopDiagnostics implements DesktopDiagnosticSink {
 			const attributes: Record<string, string | number> = {}
 			if (
 				context.engine &&
-				['default-docker', 'docker', 'podman', 'invalid'].includes(context.engine)
+				['default-docker', 'docker', 'podman', 'wslc', 'invalid'].includes(context.engine)
 			)
 				attributes['namzu.desktop.engine'] = context.engine
 			if (context.platform && ['win32', 'linux', 'darwin', 'other'].includes(context.platform))

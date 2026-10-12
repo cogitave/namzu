@@ -62,10 +62,13 @@ import type {
 export {
 	LOCAL_COMPUTER_IMAGE,
 	LOCAL_COMPUTER_PROTOCOL_LABEL,
+	LocalComputerSetupError,
 	createLocalVirtualComputerProvider,
 } from './local-virtual-computer/index.js'
 export type {
+	EngineDialect,
 	LocalComputerCommandRunner,
+	LocalComputerSetupCode,
 	LocalVirtualComputerOptions,
 } from './local-virtual-computer/index.js'
 

@@ -1,9 +1,51 @@
 import { spawn } from 'node:child_process'
 
+/** Stable reasons a caller can branch on without parsing prose. */
+export type LocalComputerSetupCode =
+	| 'engine-missing'
+	| 'engine-too-old'
+	| 'virtualization-off'
+	| 'blocked-by-policy'
+	| 'image-missing'
+	| 'sdk-mismatch'
+
 /** Safe operator-facing diagnosis, without daemon output or credentials. */
 export class LocalComputerSetupError extends Error {
 	override readonly name = 'LocalComputerSetupError'
+	readonly code?: LocalComputerSetupCode
+	constructor(message: string, code?: LocalComputerSetupCode, options?: { cause?: unknown }) {
+		super(message, options)
+		this.code = code
+	}
 }
+
+/**
+ * A failed engine command. The message never carries engine output; only
+ * recognised machine-readable codes (HRESULTs, WSLC_E_* names, spawn errno
+ * names) survive, so a typed diagnosis can be made without leaking text.
+ */
+export class LocalCommandError extends Error {
+	override readonly name = 'LocalCommandError'
+	readonly errorCodes: readonly string[]
+	constructor(message: string, errorCodes: readonly string[] = []) {
+		super(message)
+		this.errorCodes = errorCodes
+	}
+}
+
+const ERROR_CODE_PATTERN = /WSLC_E_[A-Z0-9_]+|HCS_E_[A-Z0-9_]+|0x[0-9A-Fa-f]{8}/g
+
+/** Extract the codes worth keeping from a command's stderr. */
+export function extractErrorCodes(text: string): string[] {
+	const found = new Set<string>()
+	for (const match of text.match(ERROR_CODE_PATTERN) ?? []) {
+		found.add(match.startsWith('0x') ? `0x${match.slice(2).toUpperCase()}` : match)
+	}
+	return [...found]
+}
+
+/** Which command-line dialect an engine speaks. */
+export type EngineDialect = 'docker' | 'podman' | 'wslc'
 
 /** A host-controlled transport. Never pass this or its environment to an agent. */
 export interface LocalComputerCommandRunner {
@@ -30,6 +72,8 @@ export const nodeCommandRunner: LocalComputerCommandRunner = {
 				stdio: ['ignore', 'pipe', 'pipe'],
 			})
 			const output: Buffer[] = []
+			const diagnostics: Buffer[] = []
+			let diagnosticBytes = 0
 			let outputBytes = 0
 			let failed = false
 			child.stdout.on('data', (chunk: Buffer) => {
@@ -42,14 +86,28 @@ export const nodeCommandRunner: LocalComputerCommandRunner = {
 			})
 			// Docker's error text can echo worker configuration. Preserve the exit
 			// code, never stdout/stderr or the environment in a failure message.
-			child.stderr.resume()
-			child.once('error', () =>
-				reject(new Error('The local container engine could not be started')),
+			child.stderr.on('data', (chunk: Buffer) => {
+				if (diagnosticBytes >= 64 * 1024) return
+				diagnostics.push(chunk)
+				diagnosticBytes += chunk.byteLength
+			})
+			child.once('error', (error: NodeJS.ErrnoException) =>
+				reject(
+					new LocalCommandError(
+						'The local container engine could not be started',
+						error.code ? [error.code] : [],
+					),
+				),
 			)
 			child.once('close', (code) => {
 				if (failed) reject(new Error('The local container engine response exceeded its size limit'))
 				else if (code !== 0)
-					reject(new Error(`The local container engine command failed (${code})`))
+					reject(
+						new LocalCommandError(
+							`The local container engine command failed (${code})`,
+							extractErrorCodes(Buffer.concat(diagnostics).toString('utf8')),
+						),
+					)
 				else {
 					const bytes = Buffer.concat(output)
 					// Native wsl.exe emits UTF-16LE through a redirected pipe.
@@ -78,6 +136,8 @@ export interface LocalEngineOptions {
 
 export interface LocalEngine {
 	readonly endpoint: string
+	/** Command-line dialect. Absent means the engine was selected as Docker. */
+	readonly dialect?: EngineDialect
 	forwardPorts?(
 		ports: readonly number[],
 		options: { readonly signal?: AbortSignal; readonly onLost: () => void },
