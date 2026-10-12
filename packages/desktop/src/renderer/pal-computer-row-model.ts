@@ -289,6 +289,36 @@ export function setupWaitingLine(
 	return base
 }
 
+export interface SetupRowVisibilityInput {
+	focused: boolean
+	/** The Pal workspace is showing (not the Pals list, plugins or settings). */
+	palWorkspace: boolean
+	hasPal: boolean
+	/** The Computer tab is the active tab. */
+	computerPage: boolean
+	palProfileOpen: boolean
+	computerProfileOpen: boolean
+	computerChat: 'hidden' | 'split' | 'floating'
+	floatingChatMinimized: boolean
+}
+
+/**
+ * Whether the Pal computer row is on screen right now. It lives in the Pal context card: on the
+ * Chat tab that is the profile card, on the Computer tab it is the profile overlay, drawn over the
+ * screen when the chat is hidden and inside the chat stage otherwise, where a minimized floating
+ * chat is not shown.
+ */
+export function setupRowVisible(input: SetupRowVisibilityInput): boolean {
+	if (!input.focused || !input.palWorkspace || !input.hasPal) return false
+	if (!input.computerPage) return input.palProfileOpen
+	if (!input.computerProfileOpen) return false
+	return (
+		input.computerChat === 'hidden' ||
+		input.computerChat === 'split' ||
+		!input.floatingChatMinimized
+	)
+}
+
 /**
  * The toast for a setup that failed or needs an administrator. The Pal computer row already
  * carries the same sentence, with Details and Try again, so a toast is only for the person who

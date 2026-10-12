@@ -14,6 +14,7 @@ import {
 	progressLabel,
 	restartRequiredToast,
 	setupOutcomeToast,
+	setupRowVisible,
 	setupStartCard,
 	windowsHelp,
 } from './pal-computer-row-model.js'
@@ -333,5 +334,48 @@ describe('setupStartCard in needs-setup', () => {
 		const card = setupStartCard('Kiro', setup, { kind: 'ask', text: 'Start Kiro to read.' })
 		expect(card.kind).toBe('pointer')
 		expect(card.kind === 'pointer' && card.text).toContain('Set up and start Kiro')
+	})
+})
+
+describe('setupRowVisible', () => {
+	const base = {
+		focused: true,
+		palWorkspace: true,
+		hasPal: true,
+		computerPage: false,
+		palProfileOpen: true,
+		computerProfileOpen: false,
+		computerChat: 'hidden' as const,
+		floatingChatMinimized: false,
+	}
+	const computer = { ...base, computerPage: true, palProfileOpen: false, computerProfileOpen: true }
+
+	it('follows the profile card on the Chat tab', () => {
+		expect(setupRowVisible(base)).toBe(true)
+		expect(setupRowVisible({ ...base, palProfileOpen: false })).toBe(false)
+	})
+
+	it('is hidden when the window is unfocused, there is no Pal, or another page shows', () => {
+		expect(setupRowVisible({ ...base, focused: false })).toBe(false)
+		expect(setupRowVisible({ ...base, hasPal: false })).toBe(false)
+		expect(setupRowVisible({ ...base, palWorkspace: false })).toBe(false)
+		expect(setupRowVisible({ ...computer, palWorkspace: false })).toBe(false)
+	})
+
+	it('on the Computer tab needs the profile card open', () => {
+		expect(setupRowVisible(computer)).toBe(true)
+		expect(setupRowVisible({ ...computer, computerProfileOpen: false })).toBe(false)
+	})
+
+	it('on the Computer tab shows with a hidden, split or open floating chat', () => {
+		expect(setupRowVisible({ ...computer, computerChat: 'hidden' })).toBe(true)
+		expect(setupRowVisible({ ...computer, computerChat: 'split' })).toBe(true)
+		expect(setupRowVisible({ ...computer, computerChat: 'floating' })).toBe(true)
+	})
+
+	it('on the Computer tab does not show under a minimized floating chat', () => {
+		expect(
+			setupRowVisible({ ...computer, computerChat: 'floating', floatingChatMinimized: true }),
+		).toBe(false)
 	})
 })

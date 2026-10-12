@@ -172,6 +172,7 @@ import {
 	palComputerRowView,
 	restartRequiredToast,
 	setupOutcomeToast,
+	setupRowVisible,
 	setupStartCard,
 	setupWaitingLine,
 	withoutDockerHelp,
@@ -3961,25 +3962,29 @@ export function App({
 	const computerPage = computerTabOpen && palScreen?.activeTab === 'computer'
 	const toastedSetupOutcome = useRef('')
 	// The Pal computer row lives in the Pal's context card; it is on screen only while that card
-	// is open for the Pal the setup ran for, and the person is looking at this window.
-	const setupRowVisible =
-		focused &&
-		palWorkspace &&
-		!!pal &&
-		(palSetup.state?.palId === undefined || palSetup.state.palId === pal.id) &&
-		(computerPage ? computerProfileOpen : palProfileOpen)
+	// is rendered (see setupRowVisible), and the person is looking at this window.
+	const rowVisible = setupRowVisible({
+		focused,
+		palWorkspace,
+		hasPal: !!pal,
+		computerPage,
+		palProfileOpen,
+		computerProfileOpen,
+		computerChat,
+		floatingChatMinimized,
+	})
 	useEffect(() => {
 		const key = setupOutcome ? JSON.stringify(setupOutcome) : ''
 		if (key === toastedSetupOutcome.current) return
 		toastedSetupOutcome.current = key
 		if (!setupOutcome) return
-		const toast = setupOutcomeToast(setupOutcome, setupRowVisible)
+		const toast = setupOutcomeToast(setupOutcome, rowVisible)
 		if (toast) notify(toast.message, { tone: toast.tone })
 		else if (setupOutcome.kind === 'restart-required')
 			notify(restartRequiredToast(pal?.name), {
 				tone: 'warning',
 			})
-	}, [setupOutcome, setupRowVisible, pal?.name])
+	}, [setupOutcome, rowVisible, pal?.name])
 	useEffect(() => {
 		if (focused)
 			onShellState({
