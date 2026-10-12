@@ -123,6 +123,11 @@ function PalSentLine({
 					)}
 				</>
 			)}
+			{card.kind === 'pointer' && onOpen && (
+				<Button variant="ghost-muted" size="xs" onClick={() => onOpen(name)}>
+					See it in {name}’s messages
+				</Button>
+			)}
 			{card.kind === 'ask' && (
 				<>
 					<Button variant="outline" size="xs" onClick={() => starts?.onStart(name)}>

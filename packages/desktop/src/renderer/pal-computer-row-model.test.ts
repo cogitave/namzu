@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import type {
 	PalComputerBlock,
@@ -11,6 +12,8 @@ import {
 	humanTime,
 	palComputerRowView,
 	progressLabel,
+	restartRequiredToast,
+	setupStartCard,
 	windowsHelp,
 } from './pal-computer-row-model.js'
 
@@ -277,5 +280,34 @@ describe('palComputerRowView', () => {
 			).map((reason) => row(state({ phase: 'blocked', plan: undefined, blocked: { reason } }))),
 		]
 		for (const view of views) for (const text of texts(view)) expect(text).not.toMatch(JARGON)
+	})
+})
+
+describe('restart-required toast', () => {
+	it('is one plain sentence naming the Pal', () => {
+		expect(restartRequiredToast('Kiro')).toBe(
+			'Restart your PC to finish setting up Kiro’s computer.',
+		)
+		expect(restartRequiredToast(undefined)).toBe(
+			'Restart your PC to finish setting up the Pal computer.',
+		)
+	})
+
+	it('carries no button of its own: the row keeps Restart now', () => {
+		const source = readFileSync(new URL('./app.tsx', import.meta.url), 'utf8')
+		expect(source).not.toMatch(/action:\s*\{\s*label:\s*'Restart now'/)
+	})
+})
+
+describe('setupStartCard in needs-setup', () => {
+	it('points at the row instead of offering its own Start', () => {
+		const setup = {
+			available: true,
+			phase: 'needs-setup',
+			plan: full,
+		} as unknown as PalComputerSetupState
+		const card = setupStartCard('Kiro', setup, { kind: 'ask', text: 'Start Kiro to read.' })
+		expect(card.kind).toBe('pointer')
+		expect(card.kind === 'pointer' && card.text).toContain('Set up and start Kiro')
 	})
 })

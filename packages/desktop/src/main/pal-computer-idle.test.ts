@@ -153,4 +153,24 @@ describe('IdleStopper on quit', () => {
 		await idle.stopForQuit()
 		expect(stop).not.toHaveBeenCalled()
 	})
+
+	it('does not stop the machine when a computer started running after the countdown was armed', async () => {
+		// A scheduler whose cancel does nothing models the timer already being due when the Pal starts.
+		let due: (() => void) | undefined
+		const stop = vi.fn(async () => 'stopped' as const)
+		const idle = new IdleStopper({
+			delayMs: 1,
+			stop,
+			schedule: (_ms, run) => {
+				due = run
+				return () => {}
+			},
+		})
+		idle.start()
+		idle.observe('kiro', true)
+		due?.()
+		await Promise.resolve()
+		await Promise.resolve()
+		expect(stop).not.toHaveBeenCalled()
+	})
 })

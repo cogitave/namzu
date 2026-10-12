@@ -170,6 +170,7 @@ import { computerSetupMissing, presentComputerNotice } from './pal-computer-noti
 import {
 	type PalComputerRowAction,
 	palComputerRowView,
+	restartRequiredToast,
 	setupStartCard,
 	setupWaitingLine,
 	withoutDockerHelp,
@@ -3897,11 +3898,10 @@ export function App({
 				tone: 'warning',
 			})
 		else if (setupOutcome.kind === 'restart-required')
-			notify('Restart your PC to finish setting up the Pal computer.', {
+			notify(restartRequiredToast(pal?.name), {
 				tone: 'warning',
-				action: { label: 'Restart now', onClick: () => void palSetup.restart() },
 			})
-	}, [setupOutcome, palSetup.restart])
+	}, [setupOutcome, pal?.name])
 	/** The row's own actions while this PC is being set up. */
 	const onSetupAction = (kind: PalComputerRowAction) => {
 		const setup = palSetup.state

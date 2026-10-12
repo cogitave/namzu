@@ -183,6 +183,8 @@ jobs:
           path: ${{ runner.temp }}/stage.tgz
           retention-days: 1
           if-no-files-found: error
+          # The tarball is already gzip-compressed.
+          compression-level: 0
 
   package:
     name: Windows installer

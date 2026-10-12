@@ -129,6 +129,10 @@ it('draws the question under the send row with Start and Not now, and a quiet li
 	expect(reading).not.toContain('Not now')
 	const failed = html({ kind: 'failed', text: 'Kiro could not be started. Try again in a moment.' })
 	expect(failed).toContain('Retry')
+	const pointer = html({ kind: 'pointer', text: 'Kiro needs setup. Use the row.' })
+	expect(pointer).toContain('Use the row.')
+	expect(pointer).not.toContain('>Start Kiro<')
+	expect(pointer).not.toContain('Not now')
 	// Without the question the original line stays.
 	expect(html({ kind: 'none' })).toContain(
 		'Sent to Kiro’s inbox. Kiro reads it the next time it runs.',

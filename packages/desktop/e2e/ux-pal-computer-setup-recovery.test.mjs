@@ -240,7 +240,7 @@ test(
 );
 
 test(
-	"the Start under a waiting message opens the Pal and its one sentence when setup is needed",
+	"the receipt under a waiting message points at the row instead of its own Start when setup is needed",
 	{ timeout: 280000 },
 	async () => {
 		const scripted = [];
@@ -249,13 +249,9 @@ test(
 		try {
 			scripted.push(...rules(flow.palId));
 			const receipt = await messageKiro(flow);
-			const start = receipt.getByRole("button", { name: "Start Kiro" });
-			await expect(start).toBeVisible({ timeout: 60000 });
-			await start.click();
-			await expect(flow.context).toContainText("Namzu will add Linux support to Windows", {
-				timeout: 60000,
-			});
-			await expect(flow.context.getByRole("button", { name: "Not now" })).toBeVisible();
+			await expect(receipt).toContainText("Set up and start Kiro", { timeout: 60000 });
+			// The row says "Set up and start"; a second Start here would name the same step twice.
+			await expect(receipt.getByRole("button", { name: "Start Kiro" })).toHaveCount(0);
 			assert.equal(
 				flow.calls().some((call) => call[0] === "setup"),
 				false,

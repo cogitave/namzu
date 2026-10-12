@@ -252,9 +252,10 @@ export function setupStartCard(
 		return { kind: 'starting', text: progressLabel(setup.running, name, setup.plan) }
 	switch (setup.phase) {
 		case 'needs-setup':
+			// The row says "Set up and start"; a second Start here would name the same step twice.
 			return {
-				kind: 'ask',
-				text: `${name}’s computer needs a one-time setup before it can start. Start ${name} to see what it involves.`,
+				kind: 'pointer',
+				text: `${name}’s computer needs a one-time setup before it can start. Use “Set up and start ${name}” on its computer row.`,
 			}
 		case 'restart-pending':
 			return { kind: 'ask', text: `Restart your PC to finish setting up ${name}’s computer.` }
@@ -285,4 +286,11 @@ export function setupWaitingLine(
 	// The Pal computer row carries the sentence and the fold; the messages just wait.
 	if (setup.phase === 'blocked') return { text: base.text, action: null }
 	return base
+}
+
+/** The one toast for restart-required: a sentence only, the row keeps the "Restart now" action. */
+export function restartRequiredToast(palName: string | undefined): string {
+	return palName
+		? `Restart your PC to finish setting up ${palName}’s computer.`
+		: 'Restart your PC to finish setting up the Pal computer.'
 }
