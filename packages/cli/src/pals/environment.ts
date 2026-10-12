@@ -212,11 +212,11 @@ export async function quietComputerProbe(
 		})
 		return readiness.state === 'ready'
 			? { ready: true }
-			: { ready: false, reason: withSetupHint(NOT_READY_REASON, deps.platform) }
+			: { ready: false, reason: withSetupHint({ reason: NOT_READY_REASON, setupCode: 'image-missing' }, deps.platform) }
 	} catch {
 		// Probing here would start the Linux machine, right after it may have been stopped for
 		// being idle. An unreadable check is "not ready"; the setup hint is the way forward.
-		return { ready: false, reason: withSetupHint(NOT_READY_REASON, deps.platform) }
+		return { ready: false, reason: withSetupHint({ reason: NOT_READY_REASON, setupCode: 'image-missing' }, deps.platform) }
 	}
 }
 
