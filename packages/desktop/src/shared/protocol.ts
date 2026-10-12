@@ -31,6 +31,7 @@ import type {
 	SettingsSection,
 } from './settings-protocol.js'
 import type { SidebarSectionId } from './sidebar-sections.js'
+import type { SidebarSnapshot } from './sidebar-snapshot.js'
 import type { TerminalTabView } from './terminal-tabs.js'
 import type {
 	TerminalAttachOptions,
@@ -698,6 +699,10 @@ export interface DesktopBoot {
 	conversations: ConversationView[]
 	/** True for a window created by this app start, once; false for one opened later or reloaded. */
 	launch: boolean
+	/** How the sidebar looked when the app last closed, for its first frame only; absent on a fresh profile. */
+	sidebar?: SidebarSnapshot
+	/** The sections the person folded, so the first frame already shows them folded. */
+	collapsedSections?: SidebarSectionId[]
 }
 
 export interface DesktopApi {
@@ -781,6 +786,8 @@ export interface DesktopApi {
 	/** Sidebar sections the person folded away; kept by main across restarts. */
 	sidebarCollapsed?(): Promise<SidebarSectionId[]>
 	setSidebarSectionCollapsed?(id: SidebarSectionId, collapsed: boolean): Promise<SidebarSectionId[]>
+	/** Reports how the sidebar looks now; main keeps it for the next start's first frame. */
+	setSidebarSnapshot?(snapshot: SidebarSnapshot): Promise<void>
 	/** Ids of the Pals with an unread "New message" marker; kept by main across restarts. */
 	palUnread?(): Promise<string[]>
 	setPalUnread?(id: string, unread: boolean): Promise<string[]>

@@ -1,5 +1,5 @@
 import { Menu } from '@base-ui/react/menu'
-import { type ReactNode, useLayoutEffect, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { BackgroundWorkStatus } from '../shared/background-work-protocol.js'
 import type { ThreadState } from '../shared/projection.js'
 import type { ConversationView, ProjectView } from '../shared/protocol.js'
@@ -83,6 +83,10 @@ export function Sidebar({
 	projectsLoaded = true,
 	collapsedSections,
 	onSectionCollapsedChange,
+	initialExpandedProjects,
+	onExpandedProjectsChange,
+	quietMotion,
+	startSettled,
 }: {
 	/** False until the first list of projects has arrived; the empty hint waits for it. */
 	projectsLoaded?: boolean
@@ -124,8 +128,28 @@ export function Sidebar({
 	/** Sections the person folded away; absent keeps each section's state inside the sidebar. */
 	collapsedSections?: ReadonlySet<SidebarSectionId>
 	onSectionCollapsedChange?: (id: SidebarSectionId, collapsed: boolean) => void
+	/** Projects that are open in the very first render, so no panel opens after the first paint. */
+	initialExpandedProjects?: readonly string[]
+	/** Told which projects are open, for the next start's first frame. */
+	onExpandedProjectsChange?: (ids: string[]) => void
+	/** True while rows change because data arrived, not because a person acted: nothing slides. */
+	quietMotion?: () => boolean
+	/** True once every project has answered; until then remembered rows may stand in for live ones. */
+	startSettled?: boolean
 }) {
-	const [collapsedProjects, setCollapsedProjects] = useState<Record<string, boolean>>({})
+	const [collapsedProjects, setCollapsedProjects] = useState<Record<string, boolean>>(() =>
+		Object.fromEntries((initialExpandedProjects ?? []).map((id) => [id, false])),
+	)
+	// A panel that is open from the first frame appears open. Travel is for a person's own click.
+	const [panelsTravel, setPanelsTravel] = useState(false)
+	const expandedKey = Object.entries(collapsedProjects)
+		.filter(([, folded]) => folded === false)
+		.map(([id]) => id)
+		.sort()
+		.join('\n')
+	useEffect(() => {
+		onExpandedProjectsChange?.(expandedKey ? expandedKey.split('\n') : [])
+	}, [expandedKey, onExpandedProjectsChange])
 	const [expandedLists, setExpandedLists] = useState<Record<string, boolean>>({})
 	const newConversationDisabled = opening
 	const sectionProps = (id: SidebarSectionId) => ({
@@ -184,6 +208,7 @@ export function Sidebar({
 				id="namzu-sidebar"
 				className={`sidebar ${open ? 'open' : ''}`}
 				data-app-sidebar
+				data-start-settled={startSettled ? 'true' : 'false'}
 				inert={collapsed && !open}
 				aria-hidden={collapsed && !open}
 				aria-label="Projects and conversations"
@@ -307,13 +332,15 @@ export function Sidebar({
 										key={project.id}
 										className="sidebar-project-group"
 										data-project-group={project.id}
+										data-sidebar-key={`project:${project.id}`}
 										open={collapsedProjects[project.id] === false}
-										onOpenChange={(expanded) =>
+										onOpenChange={(expanded) => {
+											setPanelsTravel(true)
 											setCollapsedProjects((current) => ({
 												...current,
 												[project.id]: !expanded,
 											}))
-										}
+										}}
 									>
 										<ProjectHeading
 											project={project}
@@ -344,6 +371,7 @@ export function Sidebar({
 												aria-label={`Open ${project.name}`}
 												aria-current={!sessionId && projectId === project.id ? 'page' : undefined}
 												onClick={() => {
+													setPanelsTravel(true)
 													setCollapsedProjects((current) => ({
 														...current,
 														[project.id]: false,
@@ -354,7 +382,7 @@ export function Sidebar({
 												<span className="sidebar-project-name">{project.name}</span>
 											</button>
 										</ProjectHeading>
-										<CollapsiblePanel className="sidebar-project-panel">
+										<CollapsiblePanel className="sidebar-project-panel" instant={!panelsTravel}>
 											<TerminalList
 												tabs={terminals.filter((tab) => tab.projectId === project.id)}
 												project={project}
@@ -378,6 +406,7 @@ export function Sidebar({
 												}
 												onConversation={(view) => onConversation(view, 'projects')}
 												rowActions={rowActions}
+												quietMotion={quietMotion}
 											/>
 										</CollapsiblePanel>
 									</Collapsible>
@@ -413,7 +442,9 @@ export function Sidebar({
 					</SidebarSection>
 					{recent.length > 0 && (
 						<section className="sidebar-recents" aria-label="Recent conversations">
-							<h2 className="sidebar-section-title">Recents</h2>
+							<h2 className="sidebar-section-title" data-sidebar-key="heading:recents">
+								Recents
+							</h2>
 							<RecentList
 								rows={recent}
 								projects={projectById}
@@ -423,6 +454,7 @@ export function Sidebar({
 								active={conversationCollection === 'recents'}
 								onConversation={(view) => onConversation(view, 'recents')}
 								rowActions={rowActions}
+								quietMotion={quietMotion}
 							/>
 						</section>
 					)}
@@ -455,6 +487,7 @@ function MissingProjectRow({
 		<div
 			className="sidebar-project-group sidebar-project-missing"
 			data-project-group={project.id}
+			data-sidebar-key={`project:${project.id}`}
 			data-project-missing
 		>
 			<div className="sidebar-project-missing-name" title={project.path}>
@@ -640,6 +673,7 @@ function ThreadList({
 	onExpandedChange,
 	onConversation,
 	rowActions,
+	quietMotion,
 }: {
 	rows: ConversationView[]
 	project: ProjectView
@@ -651,6 +685,7 @@ function ThreadList({
 	onExpandedChange: (expanded: boolean) => void
 	onConversation: (view: ConversationView) => void
 	rowActions?: ThreadRowActions
+	quietMotion?: () => boolean
 }) {
 	const limitedRows = visibleProjectRows(rows, {
 		expanded: false,
@@ -660,7 +695,7 @@ function ThreadList({
 	})
 	const shownRows = expanded ? rows : limitedRows
 	const hasExtra = limitedRows.length < rows.length
-	const list = useThreadListMotion()
+	const list = useThreadListMotion(quietMotion)
 	return (
 		<ul
 			ref={list}
@@ -704,6 +739,7 @@ function RecentList({
 	active,
 	onConversation,
 	rowActions,
+	quietMotion,
 }: {
 	rows: ConversationView[]
 	projects: ReadonlyMap<string, ProjectView>
@@ -713,8 +749,9 @@ function RecentList({
 	active: boolean
 	onConversation: (view: ConversationView) => void
 	rowActions?: ThreadRowActions
+	quietMotion?: () => boolean
 }) {
-	const list = useThreadListMotion()
+	const list = useThreadListMotion(quietMotion)
 	return (
 		<ul
 			ref={list}
@@ -741,7 +778,7 @@ function RecentList({
 	)
 }
 
-function useThreadListMotion() {
+function useThreadListMotion(quiet?: () => boolean) {
 	const list = useRef<HTMLUListElement>(null)
 	const motion = useRef<ReturnType<typeof createSidebarListMotion> | null>(null)
 	useLayoutEffect(() => {
@@ -755,7 +792,7 @@ function useThreadListMotion() {
 		}
 	}, [])
 	useLayoutEffect(() => {
-		motion.current?.update(true)
+		motion.current?.update(!quiet?.())
 	})
 	return list
 }

@@ -1,4 +1,6 @@
-import type { DesktopBoot } from '../shared/protocol.js'
+import type { ConversationView, DesktopBoot, ProjectView } from '../shared/protocol.js'
+import type { SidebarSectionId } from '../shared/sidebar-sections.js'
+import type { SidebarSnapshot } from '../shared/sidebar-snapshot.js'
 
 /**
  * The pre-paint snapshot main handed to this page, and the one-time right to seed state from
@@ -10,12 +12,39 @@ let seedable = false
 export function adoptBoot(value: DesktopBoot | undefined): void {
 	boot = value
 	seedable = value?.launch === true
+	sidebar = value && {
+		projects: value.projects,
+		tabs: value.conversations,
+		snapshot: value.sidebar,
+		collapsedSections: value.collapsedSections ?? [],
+	}
 }
 export function launchSeed(): DesktopBoot | undefined {
 	return seedable ? boot : undefined
 }
 export function settleLaunchSeed(): void {
 	seedable = false
+}
+
+/**
+ * What the sidebar draws on its very first frame. Unlike the launch seed it is offered to every
+ * pane that mounts, a reload and a page that comes back from Settings included, because it
+ * follows the live lists: the pane that last changed them leaves its picture here. It only
+ * ever fills the sidebar; the live reads reconcile it in place and nothing else reads it.
+ */
+export interface SidebarSeed {
+	projects: ProjectView[]
+	/** The saved views of the conversations open as tabs, which say which project is in front. */
+	tabs: ConversationView[]
+	snapshot?: SidebarSnapshot
+	collapsedSections: SidebarSectionId[]
+}
+let sidebar: SidebarSeed | undefined
+export function sidebarSeed(): SidebarSeed | undefined {
+	return sidebar
+}
+export function rememberSidebar(update: Partial<SidebarSeed>): void {
+	sidebar = { projects: [], tabs: [], collapsedSections: [], ...sidebar, ...update }
 }
 
 export type RestoreDecision = 'restore' | 'home'

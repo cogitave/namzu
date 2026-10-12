@@ -1,6 +1,13 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import type { DesktopBoot } from '../shared/protocol.js'
-import { adoptBoot, launchSeed, restoreDecision, settleLaunchSeed } from './startup-restore.js'
+import {
+	adoptBoot,
+	launchSeed,
+	rememberSidebar,
+	restoreDecision,
+	settleLaunchSeed,
+	sidebarSeed,
+} from './startup-restore.js'
 
 const base = {
 	startupHome: false,
@@ -64,5 +71,41 @@ describe('launch seed', () => {
 		expect(launchSeed()).toBeUndefined()
 		adoptBoot(undefined)
 		expect(launchSeed()).toBeUndefined()
+	})
+})
+
+describe('sidebar seed', () => {
+	afterEach(() => adoptBoot(undefined))
+	const boot = (launch: boolean): DesktopBoot => ({
+		launch,
+		settings: {
+			startup: 'continue',
+			retrustOnConfigChange: true,
+			autoDownloadUpdates: true,
+			terminalShell: 'auto',
+			restoreTerminals: true,
+		},
+		workspace: {} as DesktopBoot['workspace'],
+		projects: [{ id: 'p', path: '/p', name: 'p', trusted: true, status: 'ready' }],
+		conversations: [],
+		collapsedSections: ['projects'],
+		sidebar: { v: 1, pals: [], conversations: [], expandedProjects: ['p'] },
+	})
+	it('is offered to a reloaded window too, with the folds and the picture', () => {
+		adoptBoot(boot(false))
+		expect(launchSeed()).toBeUndefined()
+		expect(sidebarSeed()?.projects.map((item) => item.id)).toEqual(['p'])
+		expect(sidebarSeed()?.collapsedSections).toEqual(['projects'])
+		expect(sidebarSeed()?.snapshot?.expandedProjects).toEqual(['p'])
+	})
+	it('follows what a pane last drew, so a pane that mounts later starts from it', () => {
+		adoptBoot(boot(true))
+		rememberSidebar({ collapsedSections: [] })
+		expect(sidebarSeed()?.collapsedSections).toEqual([])
+		expect(sidebarSeed()?.projects).toHaveLength(1)
+	})
+	it('is absent when main did not answer', () => {
+		adoptBoot(undefined)
+		expect(sidebarSeed()).toBeUndefined()
 	})
 })

@@ -1698,12 +1698,30 @@ export class Operator {
 		// It never had a connection this session, so there is no trust entry to take back.
 		return { projectId, sessionIds: retired, trust: { state: 'not-connected' } }
 	}
-	/** What a window reads: the connected projects, then the ones still to be reopened. */
+	/**
+	 * The saved order of the project list, by project id. A project keeps its place whatever its
+	 * connection does: connecting, failing, turning missing or being trusted never moves it.
+	 */
+	private projectOrder: string[] = []
+	/** Fixes the list order to the saved one (`paths`, as `projects.json` wrote them). */
+	setProjectOrder(paths: readonly string[]): void {
+		const byPath = new Map((this.savedDesktop?.projects ?? []).map((item) => [item.path, item.id]))
+		const ids = paths.flatMap((path) => byPath.get(path) ?? [])
+		this.projectOrder = [...new Set([...ids, ...this.projectOrder])]
+	}
+	private rememberProjectOrder(id: string): void {
+		if (!this.projectOrder.includes(id)) this.projectOrder.push(id)
+	}
+	/**
+	 * What a window reads, in the saved order. The first render, `projects()` and the
+	 * connection events all read this one order; a project that is not saved yet follows the
+	 * saved ones, in the order it arrived.
+	 */
 	projectsForWindow(): ProjectView[] {
 		const listed = this.listProjects()
 		const known = new Set(listed.map((item) => item.path))
 		const connected = new Set(listed.map((item) => item.id))
-		return [
+		const all = [
 			...listed,
 			...[...this.missingProjects.values()]
 				.filter((item) => !connected.has(item.id))
@@ -1712,6 +1730,14 @@ export class Operator {
 				.filter((item) => !known.has(item.path))
 				.map((item) => ({ ...item })),
 		]
+		const rank = (item: ProjectView): number => {
+			const index = this.projectOrder.indexOf(item.id)
+			return index < 0 ? this.projectOrder.length : index
+		}
+		return all
+			.map((item, index) => ({ item, index }))
+			.sort((a, b) => rank(a.item) - rank(b.item) || a.index - b.index)
+			.map(({ item }) => item)
 	}
 	/** Saved views of the given conversations (open tabs), for the pre-paint snapshot. */
 	savedConversationViews(ids: readonly string[]): ConversationView[] {
@@ -1869,6 +1895,7 @@ export class Operator {
 			session.needsLoad = true
 		}
 		this.projects.set(view.id, project)
+		this.rememberProjectOrder(view.id)
 		this.relocations.delete(cwd)
 		this.missingProjects.delete(view.id)
 		client.on('frame', (frame) => {

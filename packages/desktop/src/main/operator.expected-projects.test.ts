@@ -169,3 +169,30 @@ it('removes a missing project without a connection, forgetting its saved convers
 	expect(owner.savedConversationViews(['saved'])).toEqual([])
 	expect(events).toContainEqual(expect.objectContaining({ kind: 'project-removed' }))
 })
+
+it('keeps the saved order whichever project connects, fails or goes missing first', async () => {
+	const { owner, path, palPath } = await setup()
+	const order = () => owner.projectsForWindow().map((item) => item.id)
+	owner.expectProjects([path, palPath])
+	owner.setProjectOrder([palPath, path])
+	expect(order()).toEqual(['pal-project', 'project'])
+	// The later one in the list connects first and the earlier one is still waiting.
+	await owner.openProject(path)
+	expect(order()).toEqual(['pal-project', 'project'])
+	await owner.openProject(palPath)
+	expect(order()).toEqual(['pal-project', 'project'])
+	owner.settleExpectedProject(path)
+	owner.settleExpectedProject(palPath)
+	expect(order()).toEqual(['pal-project', 'project'])
+})
+
+it('lists a folder that turns missing where it was', async () => {
+	const { owner, path, palPath } = await setup()
+	await rm(path, { recursive: true, force: true })
+	owner.expectProjects([path, palPath])
+	owner.setProjectOrder([path, palPath])
+	await owner.openProject(palPath)
+	expect(owner.projectsForWindow().map((item) => item.id)).toEqual(['project', 'pal-project'])
+	owner.settleExpectedProject(path)
+	expect(owner.projectsForWindow().map((item) => item.id)).toEqual(['project', 'pal-project'])
+})

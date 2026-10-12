@@ -120,6 +120,7 @@ const OPERATIONS = new Set([
 	'pals',
 	'sidebarCollapsed',
 	'setSidebarSectionCollapsed',
+	'setSidebarSnapshot',
 	'palUnread',
 	'setPalUnread',
 	'palProviders',

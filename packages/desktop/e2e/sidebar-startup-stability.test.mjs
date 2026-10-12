@@ -1,0 +1,314 @@
+// The sidebar paints its final layout on the first frame and nothing already on screen moves
+// because data arrived. A profile with three projects (one open, with its conversations), one Pal
+// and conversations in each is closed and started again with the projects answering at times the
+// test controls: a project's connection status and its conversation list wait on a file the test
+// deletes (see cli-entry.mjs), so no step depends on how fast the machine is. Every animation
+// frame is recorded from before the first paint (sidebar-frame-probe.js), keyed by id.
+// Run: pnpm --filter @namzu/desktop build && xvfb-run -a node --test e2e/sidebar-startup-stability.test.mjs
+import assert from "node:assert/strict";
+import {
+	cpSync,
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	readdirSync,
+	rmSync,
+	watch,
+	writeFileSync,
+} from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { test } from "node:test";
+import { createWorld, dispose, expect, freezeApp, launch, relaunch } from "./harness.mjs";
+
+const T = 60000;
+const TOLERANCE = 0.5;
+const here = dirname(fileURLToPath(import.meta.url));
+const CHATS = [{ match: /chat/, steps: [{ text: "Reply." }] }];
+const NAMES = ["alpha", "beta", "gamma"];
+
+/** The frozen copy loads the probe before the bundle, so the very first frame is recorded. */
+function instrument(world) {
+	const renderer = join(freezeApp(world.root), "dist/renderer");
+	cpSync(join(here, "sidebar-frame-probe.js"), join(renderer, "sidebar-frame-probe.js"));
+	const index = join(renderer, "index.html");
+	const html = readFileSync(index, "utf8");
+	if (!html.includes("sidebar-frame-probe.js"))
+		writeFileSync(
+			index,
+			html.replace("<title>", '<script src="./sidebar-frame-probe.js"></script><title>'),
+		);
+}
+
+/** Resolves when `predicate` holds for the folder; re-checked on every file-system event. */
+function untilFiles(directory, predicate) {
+	return new Promise((resolve) => {
+		const check = () => {
+			const found = predicate(readdirSync(directory));
+			if (found === undefined || found === false) return false;
+			watcher.close();
+			resolve(found);
+			return true;
+		};
+		const watcher = watch(directory, check);
+		check();
+	});
+}
+
+async function addProject(w, name) {
+	const dir = join(w.root, name);
+	mkdirSync(join(dir, ".git"), { recursive: true });
+	await w.app.evaluate((_e, path) => {
+		globalThis.__e2eDialog.open = [path];
+	}, dir);
+	const add = w.page.getByRole("button", { name: "Add new project", exact: true });
+	await add.last().click();
+	await w.page.getByRole("menuitem", { name: "Use an existing folder" }).click();
+	await expect(w.page.locator("[data-project-group]").filter({ hasText: name })).toHaveCount(1, {
+		timeout: T,
+	});
+	return dir;
+}
+
+async function say(w, text) {
+	const box = w.page.getByRole("textbox", { name: "Message Namzu" });
+	await expect(box).toBeVisible({ timeout: T });
+	await box.fill(text);
+	await w.page.getByRole("button", { name: "Send message" }).click();
+	await expect(w.page.getByText("Reply.", { exact: true })).toHaveCount(1, { timeout: T });
+}
+
+const savedPicture = (w) => {
+	try {
+		return JSON.parse(readFileSync(join(w.userData, "sidebar-snapshot.json"), "utf8"));
+	} catch {
+		return null;
+	}
+};
+
+const recorder = (w) => (label, list) => {
+	mkdirSync(w.shots, { recursive: true });
+	writeFileSync(join(w.shots, `frames-${label.replace(/ /g, "-")}.json`), JSON.stringify(list));
+};
+const frames = (w) => w.page.evaluate(() => window.__sidebarFrames);
+const kind = (key) => key.slice(0, key.indexOf(":"));
+const withRows = (list) => list.filter((frame) => Object.keys(frame.rows).length > 0);
+
+/** The ids of the three projects, in the order the app lists them now. */
+const listedProjects = (w) =>
+	w.page.evaluate(async () => (await window.namzu.projects()).map((p) => [p.id, p.path, p.name]));
+
+/**
+ * The stability of a recorded run. `expectedKeys` are the rows the first frame must already hold
+ * (the picture of last time); nothing the person did happens in these runs, so no row may move,
+ * disappear, or be inserted above another one in its section.
+ */
+function assertStable(label, list, { projectOrder, expectedKeys, record }) {
+	// Kept beside the failure screenshot, for reading what moved.
+	record?.(label, list);
+	const shown = withRows(list);
+	assert.ok(shown.length > 0, `${label}: the sidebar drew rows`);
+	const first = shown[0].rows;
+	const keys = Object.keys(first);
+	for (const key of expectedKeys)
+		assert.ok(key in first, `${label}: ${key} is on the first frame (has ${keys.join(", ")})`);
+	// The order of the projects on the first frame is the saved order.
+	const order = keys
+		.filter((key) => kind(key) === "project")
+		.sort((a, b) => first[a][0] - first[b][0])
+		.map((key) => key.slice("project:".length));
+	assert.deepEqual(order, projectOrder, `${label}: projects on the first frame are in the saved order`);
+	let moved = 0;
+	for (const frame of shown) {
+		for (const key of keys) {
+			const row = frame.rows[key];
+			assert.ok(row, `${label}: ${key} stays on screen on every frame (t=${frame.t})`);
+			const drift = Math.abs(row[0] - first[key][0]);
+			if (drift > TOLERANCE)
+				assert.fail(`${label}: ${key} moved ${drift}px at t=${frame.t} (first ${first[key][0]})`);
+			moved += drift;
+		}
+	}
+	// Nothing new is inserted above a row that was already there, in the same section.
+	for (let i = 1; i < shown.length; i++) {
+		const before = shown[i - 1].rows;
+		const now = shown[i].rows;
+		for (const key of Object.keys(now)) {
+			if (key in before) continue;
+			const [top, section] = now[key];
+			for (const other of Object.keys(before))
+				if (now[other]?.[1] === section && now[other][0] > top)
+					assert.fail(`${label}: ${key} was inserted above ${other} in ${section}`);
+		}
+	}
+	const last = shown.at(-1).rows;
+	assert.deepEqual(
+		Object.keys(last).sort(),
+		keys.slice().sort(),
+		`${label}: the settled sidebar holds the rows of the first frame, no more and no fewer`,
+	);
+	console.log(
+		JSON.stringify({ label, frames: shown.length, rows: keys.length, projects: order.length, moved }),
+	);
+}
+
+test("the sidebar's first frame is its final layout, on a second launch, a reload and back from Settings", {
+	timeout: 900000,
+}, async () => {
+	const w = await createWorld({ rules: CHATS });
+	const gates = join(w.root, "gates");
+	mkdirSync(gates, { recursive: true });
+	instrument(w);
+	let failed = true;
+	try {
+		// First launch: three projects, conversations in each, one Pal; only the last project open.
+		await launch(w);
+		const dirs = [];
+		for (const name of NAMES) {
+			dirs.push(await addProject(w, name));
+			await say(w, `chat ${name} one`);
+			if (name === "alpha") {
+				await w.page.getByRole("button", { name: "New conversation", exact: true }).first().click();
+				await say(w, "chat alpha two");
+			}
+		}
+		// Only gamma's conversation stays open as a tab, so on the next start gamma connects first.
+		const closers = w.page.getByRole("button", { name: /^Close tab chat (alpha|beta)/ });
+		while ((await closers.count()) > 0) await closers.first().click();
+		await w.page.evaluate(() => window.namzu.createPal({ name: "Kiro" }));
+		await w.page.reload();
+		await w.page.waitForLoadState("domcontentloaded");
+		await expect(w.page.getByRole("button", { name: "Kiro" })).toBeVisible({ timeout: T });
+		const toggles = w.page.getByRole("button", { name: /^Collapse (alpha|beta) conversations$/ });
+		while ((await toggles.count()) > 0) await toggles.first().click();
+		await expect(w.page.locator("[data-project-group]")).toHaveCount(3);
+		const projects = await listedProjects(w);
+		const idOf = Object.fromEntries(projects.map(([id, , name]) => [name, id]));
+		const savedOrder = NAMES.map((name) => idOf[name]);
+		assert.deepEqual(
+			projects.map(([id]) => id),
+			savedOrder,
+			"the projects are listed in the order they were added",
+		);
+		// The picture of this run is on disk before the app closes.
+		await expect
+			.poll(() => {
+				const picture = savedPicture(w);
+				return (
+					picture?.conversations.length === 4 &&
+					picture.pals.length === 1 &&
+					picture.expandedProjects.length === 1
+				);
+			})
+			.toBe(true);
+		const picture = savedPicture(w);
+		assert.deepEqual(picture.expandedProjects, [idOf.gamma]);
+		const expectedKeys = [
+			...savedOrder.map((id) => `project:${id}`),
+			...picture.pals.map((pal) => `pal:${pal.id}`),
+			...picture.conversations.map((row) => `conversation:${row.id}`),
+			"heading:projects",
+			"heading:recents",
+		];
+
+		// Second launch: gamma's tab opens first, so the projects connect in the order gamma, alpha,
+		// beta, not in the order they are listed. Every status and every list waits for the test.
+		await w.app.close();
+		w.env = { NAMZU_E2E_GATE_DIR: gates };
+		for (const name of NAMES) {
+			writeFileSync(join(gates, `${name}.connect.hold`), "");
+			writeFileSync(join(gates, `${name}.list.hold`), "");
+		}
+		await relaunch(w);
+		await w.page.waitForFunction(() =>
+			window.__sidebarFrames?.some((frame) => Object.keys(frame.rows).length > 0),
+		);
+		// Nothing has answered yet, and the sidebar already shows how it was left.
+		const quiet = withRows(await frames(w));
+		assert.equal(quiet.at(-1).settled, false, "nothing has answered, so the start is not settled");
+		for (const key of expectedKeys)
+			assert.ok(key in quiet[0].rows, `second launch: ${key} is on the very first frame`);
+		const connected = [];
+		for (let step = 0; step < NAMES.length; step++) {
+			const held = await untilFiles(gates, (files) =>
+				files.find((file) => file.endsWith(".connect.held") && !connected.includes(file)),
+			);
+			connected.push(held);
+			const name = held.slice(0, held.indexOf("."));
+			rmSync(join(gates, `${name}.connect.hold`));
+			await untilFiles(gates, (files) => files.includes(`${name}.connect.done`));
+		}
+		assert.deepEqual(
+			connected.map((file) => file.slice(0, file.indexOf("."))),
+			["gamma", "alpha", "beta"],
+			"the projects connected in a different order from the one they are listed in",
+		);
+		for (const name of NAMES) rmSync(join(gates, `${name}.list.hold`));
+		await expect(w.page.locator("#namzu-sidebar")).toHaveAttribute("data-start-settled", "true", {
+			timeout: T,
+		});
+		assertStable("second launch", await frames(w), { projectOrder: savedOrder, expectedKeys, record: recorder(w) });
+
+		// A reload: the page starts again from what main holds, and still draws the final layout.
+		const before = withRows(await frames(w)).at(-1).rows;
+		await w.page.reload();
+		await w.page.waitForLoadState("domcontentloaded");
+		await expect(w.page.locator("#namzu-sidebar")).toHaveAttribute("data-start-settled", "true", {
+			timeout: T,
+		});
+		const reloaded = await frames(w);
+		assertStable("reload", reloaded, { projectOrder: savedOrder, expectedKeys, record: recorder(w) });
+		for (const [key, [top]] of Object.entries(before))
+			assert.ok(
+				Math.abs(withRows(reloaded)[0].rows[key][0] - top) <= TOLERANCE,
+				`reload: ${key} is where it was before the reload`,
+			);
+
+		// To Settings and back: every row returns where it was.
+		const resting = withRows(await frames(w)).at(-1).rows;
+		const sections = w.page.getByRole("navigation", { name: "Settings sections" });
+		await w.page.getByRole("button", { name: "Settings", exact: true }).click();
+		await expect(sections).toBeVisible({ timeout: T });
+		await w.page.evaluate(() => {
+			window.__sidebarMark = "back";
+		});
+		await w.page.getByRole("button", { name: "Home", exact: true }).click();
+		await expect(sections).toHaveCount(0, { timeout: T });
+		recorder(w)("settings", await frames(w));
+		const back = withRows(await frames(w)).filter((frame) => frame.mark === "back");
+		assert.ok(back.length > 0, "the sidebar came back");
+		for (const frame of back)
+			for (const [key, [top]] of Object.entries(resting)) {
+				const row = frame.rows[key];
+				assert.ok(row, `settings: ${key} is back on every frame (t=${frame.t})`);
+				assert.ok(
+					Math.abs(row[0] - top) <= TOLERANCE,
+					`settings: ${key} moved ${row[0] - top}px (t=${frame.t})`,
+				);
+			}
+		assert.deepEqual(w.faults, [], "the renderer raised no uncaught errors");
+		failed = false;
+	} finally {
+		await dispose(w, { failed });
+	}
+});
+
+// A fresh profile has no picture: it keeps its placeholders, and nothing is invented.
+test("a fresh profile starts from its placeholders", { timeout: 300000 }, async () => {
+	const w = await createWorld({ rules: CHATS });
+	instrument(w);
+	let failed = true;
+	try {
+		await launch(w);
+		await expect(w.page.locator("#namzu-sidebar")).toHaveAttribute("data-start-settled", "true", {
+			timeout: T,
+		});
+		assert.equal(existsSync(join(w.userData, "sidebar-snapshot.json")), false === false ? false : true);
+		const list = await frames(w);
+		const keys = new Set(withRows(list).flatMap((frame) => Object.keys(frame.rows)));
+		assert.equal([...keys].some((key) => kind(key) === "conversation"), false);
+		failed = false;
+	} finally {
+		await dispose(w, { failed });
+	}
+});

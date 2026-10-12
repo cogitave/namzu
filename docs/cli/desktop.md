@@ -1661,7 +1661,32 @@ only while there is something to install: an installable update, an offered one 
 automatic download is off, or a program that is behind. The manual **Check for updates** is
 in Settings ▸ Updates. The sidebar list keeps a scrollbar lane (`scrollbar-gutter: stable`)
 and gives it back to the rows through a smaller end inset, so opening or closing a project
-never narrows or shifts a row, whether or not the list overflows. Scheduled is currently unavailable in the desktop
+never narrows or shifts a row, whether or not the list overflows.
+
+The sidebar paints its final layout on the first frame, and nothing on screen moves because data
+arrived. Projects keep their saved order (`projects.json`, the order main lists them in for the first
+render, `projects()` and every connection or trust event), so a project that connects, fails, turns
+missing or is trusted stays where it is. Main keeps a small picture of the sidebar per profile
+(`sidebar-snapshot.json` under the app's user data folder: Pals with their avatar, the newest rows of
+each project's conversations with no message content, the projects that were open, the archived count),
+written atomically a moment after the lists settle or change and on quit, and hands it to the page with
+the synchronous boot read together with the folded sections. The first frame therefore shows the Pals, the
+projects, the open project's conversations, Recents and the folds as they were left, on a second launch, a
+reload and a page that comes back from Settings; a fresh profile has no picture and keeps its
+placeholders. The live reads then replace that picture in place: a project's own list replaces its
+remembered rows when it arrives (rows that are gone leave, titles change in place) and the rows of a
+project that is still connecting stay. The picture is only drawn: nothing that decides whether a
+conversation, a Pal or a tab exists reads it, and a remembered row that is clicked before its project
+has connected opens when the project lists it (or says it is no longer available). A project that
+becomes ready is listed alone; the others are not listed again. While the start settles (`data-start-settled`
+on the sidebar), a row that is shown keeps its place when a background list repeats it with another time,
+a conversation that a list newly delivers appears only where it moves no shown row (below the last one),
+and it otherwise appears when the start ends or when the person acts; a conversation the person makes,
+pins or renames moves at once. Rows that change because a background list arrived never slide; the
+150 ms list motion is for the person's own actions. The project in front is open in the first render
+and its panel is open without travel; the expand and collapse animation stays for a click. Rows carry a
+`data-sidebar-key` (`project:`, `conversation:`, `pal:` and `heading:` plus the id) so a test can follow
+them frame by frame (`e2e/sidebar-startup-stability.test.mjs`). Scheduled is currently unavailable in the desktop
 preview; its disabled control never opens a conversation's background shells.
 The sidebar brand (the wordmark with a small green "Beta" badge after it) opens its
 workspace menu. The labelled New conversation row is the primary

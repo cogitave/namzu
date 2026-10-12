@@ -131,8 +131,9 @@ export function ThreadCard({
 	const rowProps = {
 		'data-thread-item': true,
 		'data-session-id': conversation.id,
+		'data-sidebar-key': `conversation:${conversation.id}`,
 		className:
-			'sidebar-thread-item relative list-none [content-visibility:auto] [contain-intrinsic-size:auto_32px]',
+			'sidebar-thread-item relative list-none [content-visibility:auto] [contain-intrinsic-size:auto_28px]',
 		'data-removable': actions ? true : undefined,
 		'data-action-count': actions ? (archiveButton && pinButton ? 2 : 1) : undefined,
 		'data-menu-open': menuOpen || undefined,

@@ -610,6 +610,7 @@ export function PalSidebarSection({
 					key={pal.id}
 					variant="ghost"
 					className="sidebar-pal-row"
+					data-sidebar-key={`pal:${pal.id}`}
 					aria-current={!creating && selectedId === pal.id ? 'page' : undefined}
 					onClick={() => onOpen(pal)}
 				>

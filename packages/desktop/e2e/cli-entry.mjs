@@ -1,8 +1,9 @@
 // NAMZU_DESKTOP_CLI for the e2e world: patch fetch so the chat-completions driver talks to
 // the scripted local server, then hand over to the real CLI. Electron strips
 // NODE_OPTIONS from its own environment, so a --require preload cannot be used.
+import { existsSync, watch, writeFileSync } from "node:fs";
 import { createRequire, register } from "node:module";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 // A flow that walks the Pal computer row through its setup states answers `namzu computer ...` from a
@@ -29,6 +30,38 @@ if (holdMs > 0) {
 		if (!held && /namzu\/providers\/status/.test(text) && /sessionId/.test(text)) {
 			held = true;
 			setTimeout(() => emit(event, ...args), holdMs);
+			return true;
+		}
+		return emit(event, ...args);
+	};
+}
+// A flow that needs projects to answer at times it controls asks for gates: a request for this
+// folder's connection status (`connect`) or conversation list (`list`) waits while the file
+// `<gate dir>/<folder>.<kind>.hold` exists, and goes through the moment the flow deletes it. The
+// wait is a file-system event, never a timer. `.held` and `.done` files tell the flow where the
+// request is. Nothing else changes.
+const gateDir = process.env.NAMZU_E2E_GATE_DIR;
+if (gateDir) {
+	const folder = basename(process.cwd());
+	const kinds = { connect: /namzu\/project\/status/, list: /namzu\/conversations\/list/ };
+	const emit = process.stdin.emit.bind(process.stdin);
+	process.stdin.emit = (event, ...args) => {
+		const text = event === "data" ? String(args[0]) : "";
+		for (const [kind, pattern] of Object.entries(kinds)) {
+			const hold = join(gateDir, `${folder}.${kind}.hold`);
+			if (!pattern.test(text) || !existsSync(hold)) continue;
+			// Watching starts before the request is announced, so a release cannot slip past it.
+			let released = false;
+			const release = () => {
+				if (released || existsSync(hold)) return;
+				released = true;
+				watcher.close();
+				writeFileSync(join(gateDir, `${folder}.${kind}.done`), "");
+				emit(event, ...args);
+			};
+			const watcher = watch(gateDir, release);
+			writeFileSync(join(gateDir, `${folder}.${kind}.held`), "");
+			release();
 			return true;
 		}
 		return emit(event, ...args);

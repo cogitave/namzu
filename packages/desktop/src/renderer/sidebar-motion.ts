@@ -132,6 +132,12 @@ export function createSidebarListMotion(parent: HTMLUListElement) {
 	return {
 		update(animate: boolean) {
 			if (disposed) return
+			// A list that is not on screen has no layout to glide from: the next update that sees it
+			// takes its rows where they stand instead of sliding them in from nowhere.
+			if (parent.getClientRects().length === 0) {
+				suspend()
+				return
+			}
 			const next = new Map(
 				Array.from(parent.children)
 					.filter((node): node is HTMLElement => node instanceof HTMLElement && !exiting.has(node))
