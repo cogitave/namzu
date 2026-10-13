@@ -78,7 +78,7 @@
 			"reason": "YamlFormatter.info/error."
 		},
 		{
-			"file": "packages/cli/src/bin.ts",
+			"file": "packages/cli/src/bin-main.ts",
 			"symbol": "process.stderr.write",
 			"count": 1,
 			"reason": "the process entrypoint's fatal-error handler, reached when runCli's own promise rejects — before any Logger exists to write through."
