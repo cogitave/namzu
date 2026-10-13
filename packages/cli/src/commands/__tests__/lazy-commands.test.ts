@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { lazyCommand } from '../lazy.js'
 import * as manifest from '../manifest.js'
-import { registerCommand } from '../registry.js'
+import { registerCommandOrLazy } from '../registry.js'
 import type { CommandContext, CommandDef } from '../types.js'
 
 /**
@@ -26,7 +26,7 @@ function run(def: ReturnType<typeof lazyCommand>, argv: string[]) {
 		},
 		config: {},
 	} as unknown as CommandContext
-	registerCommand(program, def, {
+	registerCommandOrLazy(program, def, {
 		getContext: () => ctx,
 		setExitCode: (code) => {
 			exit = code

@@ -37,7 +37,7 @@ import {
 	stateCommand,
 	upgradeCommand,
 } from './commands/manifest.js'
-import { registerAll } from './commands/registry.js'
+import { registerCommandOrLazy } from './commands/registry.js'
 import type { CommandContext } from './commands/types.js'
 import type { ConfigDebugSnapshot } from './config/debug.js'
 import type { loadConfigWithProvenance } from './config/load.js'
@@ -422,7 +422,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		browserCommand,
 		worktreeCommand,
 	]) {
-		registerAll(program, [def], {
+		registerCommandOrLazy(program, def, {
 			getContext:
 				def === residentCommand
 					? getResidentContext

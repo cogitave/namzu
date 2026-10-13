@@ -10,12 +10,19 @@ export interface RegisterOptions {
 	readonly setExitCode: (code: number) => void
 }
 
+export function registerCommand(program: Command, def: CommandDef, opts: RegisterOptions): void {
+	registerCommandOrLazy(program, def, opts)
+}
+
 /**
  * Register `def` on `program`. A lazy definition carries only what commander
  * lists; its module is imported when the command runs, so `--version`,
  * `--help` and a usage error never load it.
+ *
+ * Kept apart from `registerCommand` so the package's public signature does
+ * not name the lazy definition, which is the command shell's own business.
  */
-export function registerCommand(
+export function registerCommandOrLazy(
 	program: Command,
 	def: CommandDef | LazyCommandDef,
 	opts: RegisterOptions,
@@ -61,7 +68,7 @@ export function registerCommand(
 
 export function registerAll(
 	program: Command,
-	defs: readonly (CommandDef | LazyCommandDef)[],
+	defs: readonly CommandDef[],
 	opts: RegisterOptions,
 ): void {
 	for (const def of defs) registerCommand(program, def, opts)

@@ -153,26 +153,22 @@ function findPackageDir(specifier: string, fromFile: string): string | null {
 	}
 }
 
-export interface ProbeOptions {
-	/**
-	 * Import the package to prove it loads. Default `true`, which is what the
-	 * doctor and the telemetry export need: a verdict of `broken` exists only
-	 * because something imported it.
-	 *
-	 * `false` answers from the disk alone: the package directory is found, its
-	 * manifest read, and nothing is imported, so the answer costs a stat and a
-	 * small file read instead of compiling the package and everything it pulls
-	 * in (measured: about 165 ms for `playwright-core` through `@namzu/browser`
-	 * on every launch). `broken` then means only "on disk with an unreadable
-	 * manifest"; a package that is present and fails to load is found where it
-	 * is first used, or by `namzu doctor`, which keeps the full probe.
-	 */
-	readonly load?: boolean
-}
-
+/**
+ * `options.load` says whether to import the package to prove it loads. The
+ * default is `true`, which is what the doctor and the telemetry export need: a
+ * verdict of `broken` exists only because something imported it.
+ *
+ * `false` answers from the disk alone: the package directory is found, its
+ * manifest read, and nothing is imported, so the answer costs a stat and a
+ * small file read instead of compiling the package and everything it pulls
+ * in (measured: about 165 ms for `playwright-core` through `@namzu/browser`
+ * on every launch). `broken` then means only "on disk with an unreadable
+ * manifest"; a package that is present and fails to load is found where it
+ * is first used, or by `namzu doctor`, which keeps the full probe.
+ */
 export async function probeOptionalPackage(
 	specifier: string,
-	options: ProbeOptions = {},
+	options: { readonly load?: boolean } = {},
 ): Promise<CapabilityProbe> {
 	const load = options.load !== false
 	// A test drives all three states with a fixture FILE, because there is no
@@ -253,7 +249,7 @@ export async function probeOptionalPackage(
  * the boot narrative SAYS, never abort the boot itself.
  */
 export async function probeCapabilities(
-	options: ProbeOptions = { load: false },
+	options: { readonly load?: boolean } = { load: false },
 ): Promise<readonly CapabilityProbe[]> {
 	return Promise.all(
 		NAMZU_OPTIONAL_CAPABILITIES.map((specifier) => probeOptionalPackage(specifier, options)),
