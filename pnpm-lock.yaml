@@ -92,6 +92,9 @@ importers:
 
   packages/cli:
     dependencies:
+      '@jitl/quickjs-wasmfile-release-sync':
+        specifier: 0.32.0
+        version: 0.32.0
       '@modelcontextprotocol/client':
         specifier: ^2.1.0
         version: 2.1.0
@@ -143,6 +146,9 @@ importers:
       ink:
         specifier: 7.0.3
         version: 7.0.3(@types/react@19.2.15)(react@19.2.6)
+      quickjs-emscripten-core:
+        specifier: 0.32.0
+        version: 0.32.0
       react:
         specifier: 19.2.6
         version: 19.2.6
@@ -162,6 +168,9 @@ importers:
       '@types/react':
         specifier: ^19.2.15
         version: 19.2.15
+      esbuild:
+        specifier: 0.28.1
+        version: 0.28.1
       ink-testing-library:
         specifier: ^4.0.0
         version: 4.0.0(@types/react@19.2.15)
@@ -6018,7 +6027,7 @@ snapshots:
       obug: 2.2.1
       std-env: 4.2.0
       tinyrainbow: 3.1.1
-      vitest: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@24.19.0)(@vitest/coverage-v8@4.1.11)(vite@8.3.1(@types/node@24.19.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.1))
+      vitest: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@22.19.17)(@vitest/coverage-v8@4.1.11)(vite@8.3.1(@types/node@22.19.17)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.1))
 
   '@vitest/expect@4.1.11':
     dependencies:

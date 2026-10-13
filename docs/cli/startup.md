@@ -119,6 +119,62 @@ tools and 78,428 bytes (16,980 o200k tokens) to 37 tools and 73,149 bytes
 machine whose browser cannot run drops the two browser tools as well (35 tools,
 69,137 bytes).
 
+## The bundled build
+
+`@namzu/cli` ships as a code-split bundle, not one file per source module. `pnpm --filter @namzu/cli
+build` runs `tsc --build`, which now writes only the type declarations (`emitDeclarationOnly`), and then
+`packages/cli/scripts/bundle.mjs` (esbuild, ESM, Node 22 target), which writes every runtime file under
+`dist/`: `bin.js` (the published `bin`, unchanged name and path), `index.js` (the package export), the
+resident runner worker, and the shared chunks in `dist/chunks/`. Every `import()` stays its own chunk,
+so the lazy command list above still loads lazily; only what a launch needs is read.
+
+- `bin.js` is a few lines: it turns on the compile cache and the warning filter, then imports
+  `bin-main.js` (the old body of `bin.ts`). The split is the point of the file: a static import is read
+  with the file that holds it, and the bundler merges static imports into one file, so the cache would
+  have covered everything except the one file that holds the code.
+- Kept outside the bundle, because they are native, optional, or found by name or path:
+  `@namzu/browser`, `@namzu/sandbox`, `@namzu/telemetry`, `@namzu/computer-use`, `node-pty`,
+  `playwright-core`, `react-devtools-core` (an optional peer of the terminal library), and the two
+  QuickJS packages the SDK resolves by path (`quickjs-emscripten-core`,
+  `@jitl/quickjs-wasmfile-release-sync`, now direct dependencies of the CLI so that resolution does not
+  depend on how a package manager lays out the SDK's dependencies). The SDK, the provider packages and
+  the other npm dependencies are inside the bundle.
+- A source that finds its neighbours with `import.meta.url` (`version.ts`, `skills/store.ts`, the
+  scheduler's `installedBin`, `commands/acp.ts`, the resident runner's worker) still sees the place it
+  had in the old layout: the build rewrites the expression to the dist root plus the old path, so
+  `../package.json`, `../../skills/` and `bin.js` resolve as before. The SDK's own `VERSION` is written
+  into the bundle at build time.
+- One consequence: a package kept outside the bundle that imports `@namzu/sdk` (the browser, the
+  sandbox, telemetry) loads the installed SDK package, a second copy next to the bundled one. They
+  share nothing but plain data and `@opentelemetry/api`'s process-wide registry, and nothing in the
+  CLI checks `instanceof` across that boundary. `exec` and the terminal load none of them until used.
+- `dist/` no longer holds one `.js` file per source file. Deep imports into `@namzu/cli/dist/...` were
+  never part of the package's `exports`; `scripts/benchmarks/memory-recall.mjs` is the one script in this
+  repository that read such a file.
+
+Reference numbers, the same machine and method as above, baseline = the unbundled build of the commit
+before this change, median of 7, two interleaved rounds (a loaded machine, so read the proportions):
+
+| Metric | Unbundled | Bundled | Unbundled, cold compile cache | Bundled, cold compile cache |
+|---|---|---|---|---|
+| `namzu --version` | 49 ms | 36 ms | 57 ms | 35 ms |
+| `namzu --help` | 50 ms | 40 ms | 60 ms | 36 ms |
+| Files loaded at `--version` | 26 | 13 | 26 | 13 |
+| Terminal, first byte | 500 ms | 195 ms | 833 ms | 259 ms |
+| Terminal, first frame | 555 ms | 265 ms | 896 ms | 316 ms |
+| Terminal, ready | 695 ms | 637 ms | 1,062 ms | 763 ms |
+| Files loaded at the first frame | 1,720 | 85 | 1,720 | 85 |
+| `exec` to request, stdin a terminal | 730 ms | 518 ms | 872 ms | 603 ms |
+| `exec` to request, stdin `/dev/null` | 646 ms | 525 ms | 776 ms | 557 ms |
+| `exec` to request, stdin an idle pipe | 719 ms | 615 ms | 805 ms | 702 ms |
+| Terminal peak memory | 213 MB | 208 MB | 208 MB | 205 MB |
+| `exec` peak memory | 193 MB | 157 MB | 198 MB | 158 MB |
+
+The terminal is ready later than it paints because the session behind it (the SDK, the provider
+discovery, the first-turn state) is loaded after the first frame in both builds; bundling does not
+shorten that work. The published package is 5.1 MB packed (22 MB unpacked, source maps without
+embedded sources); the SDK stays a dependency, so an install holds it twice.
+
 ## Measuring it
 
 ```

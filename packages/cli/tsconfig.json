@@ -5,6 +5,7 @@
 		"rootDir": "./src",
 		"composite": true,
 		"declaration": true,
+		"emitDeclarationOnly": true,
 		"declarationMap": true,
 		"sourceMap": true,
 		"jsx": "react-jsx",
