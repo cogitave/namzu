@@ -1,7 +1,12 @@
 export {
 	type DetectedProvider,
 	type DetectionSource,
+	type AutomaticKind,
 	type DiscoverOptions,
+	automaticChoice,
+	automaticKind,
+	describeAutomaticChoice,
+	isAnonymousZen,
 	discoverProviders,
 	findDetected,
 	signedInSubscriptionProviders,

@@ -265,3 +265,43 @@ describe('the quiet stretch while a request is retried', () => {
 		).toBe('The provider is having problems on its side. Retrying in about 1m 05s (try 2 of 3).')
 	})
 })
+
+describe('Zen declining a free model that carried no key', () => {
+	const refusal = {
+		providerError: {
+			kind: 'auth',
+			providerId: 'zen',
+			status: 403,
+			detail: 'FreeTierError: free tier is not available to this client',
+		},
+		explanation: { id: 'provider.permission', message: 'm', hint: 'h' },
+	}
+
+	it('says a true plain sentence, with the ways on and no claim about a key', () => {
+		const text = describePlainInterruption(failed(refusal))
+		expect(text).toBe(
+			'Zen didn’t accept the free model right now. Try again in a while, or choose another provider with /model. A Zen API key also works.',
+		)
+		expect(text).not.toMatch(/authenticated|OpenCode|imitat|impersonat|policy|free tier/i)
+		expectPlain(text)
+	})
+
+	it('keeps the service’s own words for debug only', () => {
+		const text = describePlainInterruption(failed(refusal), { debug: true })
+		expect(text).toContain('Provider detail: FreeTierError')
+	})
+
+	it('leaves other 403s and other providers on their own copy', () => {
+		const other = describePlainInterruption(
+			failed({
+				providerError: { ...refusal.providerError, detail: 'Forbidden for this account' },
+				explanation: refusal.explanation,
+			}),
+		)
+		expect(other).toContain('does not allow this account to use that model')
+		const goKey = describePlainInterruption(
+			failed({ providerError: { ...refusal.providerError, providerId: 'zen-go' } }),
+		)
+		expect(goKey).not.toContain('free model')
+	})
+})

@@ -4,6 +4,11 @@ import { currentTimeLine } from '../schedule/fire/unattended-note.js'
 
 import type { AgentEvent } from './agent.js'
 import { terminalDisplayText } from './terminal-display.js'
+import {
+	ZEN_FREE_REFUSED_NEXT,
+	ZEN_FREE_REFUSED_WHAT,
+	isZenFreeTierRefusal,
+} from './zen-free-refusal.js'
 
 export type Interruption = Extract<AgentEvent, { kind: 'error' | 'paused' }>
 
@@ -70,6 +75,10 @@ export function retryAfterMs(event: Interruption): number | undefined {
 	return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined
 }
 
+function stringOf(value: unknown): string | undefined {
+	return typeof value === 'string' ? value : undefined
+}
+
 function duration(ms: number): string {
 	// Never milliseconds on screen: under a second reads as one second.
 	const seconds = Math.max(1, Math.ceil(ms / 1_000))
@@ -104,7 +113,12 @@ export function describeTurnInterruption(event: Interruption): string {
 	if (event.kind === 'paused' && event.handoff) return describeHandoff(event)
 	const explained = event.explanation
 	const rawReason = event.kind === 'paused' ? event.reason : event.message
-	const lead = line(explained?.message || rawReason)
+	const freeRefused = isZenFreeTierRefusal({
+		providerId: event.providerError?.providerId ?? stringOf(event.failure?.details?.providerId),
+		status: event.providerError?.status,
+		detail: event.providerError?.detail ?? rawReason,
+	})
+	const lead = line(freeRefused ? ZEN_FREE_REFUSED_WHAT : explained?.message || rawReason)
 	const id = explained?.id ? ` [${line(explained.id, 120)}]` : ''
 	const rows = [`${event.kind === 'paused' ? 'Reply paused' : 'Error'}${id}: ${lead}`]
 	const providerId = event.providerError?.providerId ?? event.failure?.details?.providerId
@@ -124,7 +138,8 @@ export function describeTurnInterruption(event: Interruption): string {
 	if (retryAfter !== undefined) {
 		rows.push(`Provider retry delay: at least ${duration(retryAfter)} from this failure.`)
 	}
-	if (explained?.hint) rows.push(`Next: ${line(explained.hint, 720)}`)
+	if (freeRefused) rows.push(`Next: ${ZEN_FREE_REFUSED_NEXT}`)
+	else if (explained?.hint) rows.push(`Next: ${line(explained.hint, 720)}`)
 	if (event.kind === 'paused') {
 		rows.push(`Checkpoint preserved: ${line(event.checkpointId, 180)}`)
 	}

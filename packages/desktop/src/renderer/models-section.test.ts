@@ -119,7 +119,8 @@ describe('Settings ▸ Models', () => {
 		const html = render({
 			rows: [row({ id: 'zen', label: 'OpenCode Zen', state: 'free', how: 'free' })],
 		})
-		expect(html).toContain('Free models. Needs a free Zen key.')
-		expect(html).toContain('Namzu needs one connected provider')
+		expect(html).toContain('Free models, experimental. Zen may refuse them.')
+		expect(html).toContain('Namzu is using the free Zen models for now')
+		expect(html).not.toContain('Namzu needs one connected provider')
 	})
 })

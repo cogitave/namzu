@@ -578,14 +578,48 @@ it('draws no model prompt or raw id while the model choice is still resolving', 
 
 const freeOnly = {
 	available: [
-		{ id: 'zen', label: 'Zen', defaultModel: 'space-bunny-free', anonymous: true as const },
+		{
+			id: 'zen',
+			label: 'Zen',
+			defaultModel: 'space-bunny-free',
+			anonymous: true as const,
+			via: 'free' as const,
+		},
 	],
 	selected: null,
 }
 
-it('tells a first-timer to add a key or sign in, with one action, before a send can fail', () => {
+it('is ready on first open with only the free Zen models: no card, Send enabled, a plain note', () => {
 	const html = render({
-		providers: freeOnly,
+		providers: { ...freeOnly, selected: { id: 'zen', automatic: true as const } },
+		connected: true,
+		empty: true,
+		choiceUnchosen: true,
+		draft: 'make me a small website',
+		onOpenModelSettings: () => {},
+	})
+	expect(html).not.toContain('Add an API key or sign in to start')
+	expect(html).not.toContain('Connect a provider')
+	expect(button(html, 'Send message')).not.toMatch(/\bdisabled=/)
+	expect(button(html, 'Send message')).not.toMatch(/aria-disabled=/)
+	expect(html).toContain('Using Zen&#x27;s free models (experimental).')
+	expect(html).not.toContain('space-bunny-free</p>')
+})
+
+it('shows the starter ideas on first open with only the free models and an empty box', () => {
+	const html = render({
+		providers: { ...freeOnly, selected: { id: 'zen', automatic: true as const } },
+		connected: true,
+		empty: true,
+		draft: '',
+	})
+	expect(html).toContain('Ideas to get started')
+	expect(html).not.toContain('Add an API key or sign in to start')
+})
+
+it('still tells a first-timer to add a key or sign in when truly nothing is available', () => {
+	const html = render({
+		providers: { available: [], selected: null },
 		connected: true,
 		empty: true,
 		draft: 'make me a small website',
@@ -602,6 +636,10 @@ it('keeps the empty state away once a provider is connected, and while providers
 	const connected = render({ connected: true, empty: true, draft: '' })
 	expect(connected).not.toContain('Add an API key or sign in to start')
 	expect(connected).toContain('Ideas to get started')
-	const loading = render({ providers: freeOnly, providersLoading: true, empty: true })
+	const loading = render({
+		providers: { available: [], selected: null },
+		providersLoading: true,
+		empty: true,
+	})
 	expect(loading).not.toContain('Add an API key or sign in to start')
 })

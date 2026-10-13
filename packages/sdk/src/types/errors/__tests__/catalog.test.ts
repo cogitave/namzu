@@ -44,6 +44,15 @@ describe('explaining a failure', () => {
 		expect(explainError(providerError('auth', 401))?.id).toBe('provider.auth')
 	})
 
+	it('does not claim a key authenticated: a 403 only says the request was refused', () => {
+		// A keyless request to a free tier is refused with the same status, so the generic
+		// explanation cannot say the credentials were valid.
+		const explanation = explainError(providerError('auth', 403))
+		expect(explanation?.id).toBe('provider.permission')
+		expect(`${explanation?.message} ${explanation?.hint}`).not.toMatch(/authenticated|valid/i)
+		expect(explanation?.hint).toContain('If no key was sent')
+	})
+
 	it('recognises the failures an operator hits first', () => {
 		expect(explainError(providerError('rate_limit', 429))?.id).toBe('provider.rate_limit')
 		expect(explainError(providerError('context_length_exceeded'))?.id).toBe(

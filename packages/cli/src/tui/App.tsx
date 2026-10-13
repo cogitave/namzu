@@ -97,6 +97,8 @@ import {
 	type ProviderId,
 	type SubscriptionLogin,
 	type SubscriptionProviderId,
+	automaticChoice,
+	automaticKind,
 	beginCodexDeviceLogin,
 	beginSubscriptionLogin,
 	clearAllStoredCredentials,
@@ -104,6 +106,7 @@ import {
 	clearStoredGeminiApiKey as clearStoredGoogleApiKey,
 	clearStoredSubscriptionCredential,
 	credentialsPath,
+	describeAutomaticChoice,
 	googleApiKeyPath,
 	parsePastedInput,
 	primaryProvider,
@@ -4423,6 +4426,11 @@ export function App({
 							signal: admissionSignal,
 							announce,
 						})
+						if (!admissionSignal.aborted)
+							pushMessage(
+								'system',
+								describeAutomaticChoice({ provider: chosen, kind: automaticKind(chosen) }),
+							)
 						return
 					} catch (error) {
 						if (admissionSignal.aborted) return
@@ -4445,6 +4453,34 @@ export function App({
 					)
 					setPhase('picker')
 					return
+				}
+				// No sign-in to prefer: start with what else this computer offers (a key, a local
+				// server, then the free Zen models) so a first open works with nothing to set up.
+				// Nothing is saved; /model changes it, and a later key or sign-in wins next time.
+				const automatic = automaticChoice(probe.detected)
+				if (automatic) {
+					const admissionSignal = signal ?? appLifetime.signal
+					try {
+						await hydrateSession(
+							{
+								version: 3,
+								providers: [{ id: automatic.provider.entry.id }],
+								subagents: { active: [] },
+							},
+							probe.detected,
+							{ signal: admissionSignal, announce },
+						)
+						if (!admissionSignal.aborted) pushMessage('system', describeAutomaticChoice(automatic))
+						return
+					} catch (error) {
+						if (admissionSignal.aborted) return
+						setPickerDetected(null)
+						setPickerSelectionKind('provider-and-model')
+						setPickerInitialView('providers')
+						setPickerNotice(explainFailure(error, 'Couldn’t start with what Namzu found.'))
+						setPhase('picker')
+						return
+					}
 				}
 				setPickerDetected(null)
 				setPickerSelectionKind('provider-and-model')

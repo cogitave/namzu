@@ -469,3 +469,11 @@
 	font-size: 13px;
 	line-height: 20px;
 }
+
+.provider-auto-note {
+	margin: 8px 0 0;
+	color: var(--muted-foreground);
+	font-size: 12px;
+	line-height: 18px;
+	text-align: center;
+}

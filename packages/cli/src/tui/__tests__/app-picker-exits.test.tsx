@@ -421,6 +421,21 @@ async function submit(
 /** First run: no saved provider, so the picker is the first screen. */
 async function pickerOnFirstRun(expected = 'Choose a provider') {
 	withSession = false
+	if (!emptyDetection) {
+		// With a provider on the computer the app starts on it by itself, so the picker is the
+		// first screen only when that automatic start cannot run. Refuse it once.
+		const build = createSession
+		let refused = false
+		createSession = async (...args) => {
+			if (refused) return build(...args)
+			refused = true
+			return {
+				...sessionFixture('unusable-automatic-session'),
+				hasProvider: false,
+				errorHint: 'The automatic start was refused in this test.',
+			}
+		}
+	}
 	const harness = render(<App ctx={ctx} />)
 	mounted.push(harness)
 	await frameShows(harness.lastFrame, expected)
@@ -536,6 +551,68 @@ describe('first-run signed-in subscriptions', () => {
 		expect(frame).toContain('Choose a provider')
 		expect(frame).toMatch(/l (create a Namzu )?sign-in/)
 		expect(close).toHaveBeenCalledTimes(1)
+	})
+})
+
+describe('first-run automatic start with nothing saved', () => {
+	const PUBLIC_ZEN: DetectedProvider = {
+		entry: PROVIDER_REGISTRY.zen,
+		source: { kind: 'public' },
+		alternatives: [],
+	}
+	const OLLAMA: DetectedProvider = {
+		entry: PROVIDER_REGISTRY.ollama,
+		source: { kind: 'probe', url: 'http://localhost:11434/api/tags' },
+		alternatives: [],
+	}
+
+	async function startsOn(detected: readonly DetectedProvider[], id: string, said: string) {
+		withSession = false
+		detectedProviders = detected
+		const constructed: Preferences[] = []
+		createSession = async (prefs) => {
+			constructed.push(prefs)
+			return sessionFixture(`${id}-session`)
+		}
+		const harness = render(<App ctx={ctx} />)
+		mounted.push(harness)
+		await frameShows(harness.lastFrame, said)
+		expect(constructed).toEqual([{ version: 3, providers: [{ id }], subagents: { active: [] } }])
+		// Nothing is saved: a key or sign-in found later still wins on the next open.
+		expect(writePrefs).not.toHaveBeenCalled()
+		expect(harness.lastFrame()).not.toContain('Choose a provider')
+	}
+
+	it('starts on the free Zen models when they are all there is, and says so', async () => {
+		await startsOn([PUBLIC_ZEN], 'zen', "Using Zen's free models (experimental).")
+	})
+
+	it('starts on a local server before the free models', async () => {
+		await startsOn([OLLAMA, PUBLIC_ZEN], 'ollama', 'Using Ollama running on this computer.')
+	})
+
+	it('starts on a key found on the computer without asking', async () => {
+		await startsOn(
+			[...DETECTED, PUBLIC_ZEN],
+			'openai',
+			'Using your A Provider key, found on this computer.',
+		)
+	})
+
+	it('says which sign-in it used', async () => {
+		await startsOn(
+			[CLAUDE_DEVICE, PUBLIC_ZEN],
+			'anthropic',
+			'Using your Claude sign-in, found on this computer.',
+		)
+	})
+
+	it('still shows the picker when nothing at all is available', async () => {
+		withSession = false
+		emptyDetection = true
+		const harness = render(<App ctx={ctx} />)
+		mounted.push(harness)
+		await frameShows(harness.lastFrame, 'No providers detected')
 	})
 })
 

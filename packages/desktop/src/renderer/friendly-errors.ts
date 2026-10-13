@@ -22,6 +22,8 @@ export interface FriendlyFailure {
 		| 'rate-limit'
 		| 'out-of-credit'
 		| 'model-access'
+		/** Zen declined a free-model request that carried no key. */
+		| 'free-refused'
 		| 'model-missing'
 		| 'timeout'
 		| 'too-large'
@@ -292,6 +294,16 @@ export function describeFailure(raw: string, providerLabel?: string): FriendlyFa
 			)
 		}
 		if (sentence.includes('rejected the request credentials')) {
+			// No key was sent for a free model, so there is no key to blame.
+			if (matched[1]?.toLowerCase() === 'zen' && status === 403 && /free[- ]?tier/i.test(body))
+				return withDetails(
+					{
+						kind: 'free-refused',
+						text: 'Zen didn’t accept the free model right now. Try again in a while, or choose another provider. A Zen API key also works.',
+						actions: ['try-again', 'settings'],
+					},
+					message,
+				)
 			const model = MODEL_ACCESS.exec(body)
 			if (model || (status === 403 && /\bmodel\b/i.test(body) && !KEY_PROBLEM.test(body)))
 				return withDetails(

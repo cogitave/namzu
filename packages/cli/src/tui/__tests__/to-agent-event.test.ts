@@ -259,7 +259,7 @@ describe('toAgentEvent carries the stop reason across', () => {
 		).toEqual({ kind: 'error', message: 'slow down', failure, explanation })
 	})
 
-	it('explains OpenCode free-tier refusal without changing its auth metadata or other 403s', () => {
+	it('passes the free-tier refusal through untouched so each screen can word it', () => {
 		const providerError = {
 			kind: 'auth',
 			providerId: 'zen',
@@ -276,11 +276,7 @@ describe('toAgentEvent carries the stop reason across', () => {
 			} as SessionEvent,
 			presenter,
 		)
-		expect(refused).toMatchObject({ kind: 'error', providerError })
-		if (refused?.kind !== 'error') throw new Error('Expected an error event')
-		expect(refused.message).toContain('Zen refused this free-model request')
-		expect(refused.message).toContain('Installing OpenCode does not change that for Namzu')
-		expect(refused.message).toContain('OPENCODE_API_KEY')
+		expect(refused).toMatchObject({ kind: 'error', providerError, message: 'Zen request failed' })
 		for (const unrelated of [
 			{ ...providerError, providerId: 'zen-go' },
 			{ ...providerError, status: 401 },

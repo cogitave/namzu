@@ -1,8 +1,12 @@
 import type { ProviderConnectionView, ProviderView } from './protocol.js'
 
-/** Only providers a person connected can answer a message; the keyless free tier is offered, not counted. */
+/**
+ * Every provider that can answer a message now. The keyless Zen free models count, as they do
+ * in the terminal app: a new person's first message works with nothing to set up. Only an
+ * empty list means there is truly nothing to answer with.
+ */
 export function usableProviders(view: ProviderView): ProviderView['available'] {
-	return view.available.filter((provider) => provider.anonymous !== true)
+	return view.available
 }
 
 const STATES = new Set(['connected', 'free', 'not-connected'])

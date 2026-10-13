@@ -75,6 +75,17 @@ list can draw — the seven that can be set up with a typed credential plus the
 two local servers discovery can add — so the digit shortcut reaches every row
 there can be, one keystroke each, and the arrows reach the rest of what fits.
 
+### What a first run starts with
+
+With nothing saved, the terminal app and Desktop do not stop at the picker when something usable
+is on the computer. They start on the best thing found, in this order: a sign-in Namzu already
+reuses (Claude Code, Codex), an API key in the environment, a local server (Ollama, LM Studio; each
+probe waits at most 300 ms and all run together), then the keyless Zen free models (experimental; Zen may refuse them, see below). `discoverProviders`
+returns the list already in that order, so the first entry is the default for `exec`, the ACP host
+and Desktop too. The terminal app says what it picked in one line ("Using your Claude sign-in, found
+on this computer."), saves nothing, and `/model` changes it; the picker still opens first when nothing
+at all is available, or when the automatic start cannot run.
+
 ### Experimental Zen free models
 
 With no Zen API key, the picker and headless `--provider zen --model <id>` can
@@ -93,6 +104,13 @@ OpenCode does not change a Namzu session's request or guarantee that Zen
 will accept it. Set `OPENCODE_API_KEY` for credentialed Zen access if a free
 request is refused. `OPENCODE_GO_API_KEY` is separate and does not authorize
 Zen requests.
+
+When Zen declines a free-model request that carried no key (HTTP 403, the free tier is not available
+to this client), the terminal app says "Zen didn’t accept the free model right now. Try again in a
+while, or choose another provider with /model. A Zen API key also works." and keeps the service's own
+words for `--debug`; the structured text of `exec` and scheduled runs says the same. The generic
+`provider.permission` catalogue entry no longer claims a key authenticated: a 403 only says the
+request was refused.
 
 On a terminal too short for the whole screen, the list is scrolled rather than
 drawn past the bottom of it: the rows that do not fit are reached with the arrow

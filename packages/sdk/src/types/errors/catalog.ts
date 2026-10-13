@@ -144,8 +144,10 @@ export const DEFAULT_ERROR_RULES: readonly ErrorCatalogRule[] = [
 		// separates them when the provider sent it.
 		id: 'provider.permission',
 		when: (facts) => facts.status === 403,
-		message: 'The credentials are valid but not permitted to use this model.',
-		hint: 'The key authenticated, so this is an entitlement rather than a secret problem: check the model name and whether the account has access to it.',
+		// A 403 says the request was refused, not that a key was accepted: some providers answer
+		// a request that carried no key at all (a keyless free tier) with the same status.
+		message: 'The provider refused this request.',
+		hint: 'Check the model name and whether the account behind your key has access to it. If no key was sent, add one or choose another provider.',
 	},
 	{
 		id: 'provider.auth',

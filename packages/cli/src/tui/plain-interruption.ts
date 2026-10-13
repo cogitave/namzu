@@ -2,6 +2,7 @@ export { debugRequested } from '../debug-requested.js'
 import { formatSpan, localEndpoint, productName } from './person-terms.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { type Interruption, describeTurnInterruption, retryAfterMs } from './turn-interruption.js'
+import { ZEN_FREE_REFUSED_WHAT, isZenFreeTierRefusal } from './zen-free-refusal.js'
 
 /**
  * What the terminal app tells a person when a reply fails or pauses.
@@ -114,6 +115,11 @@ function providerIdOf(event: Interruption): string | undefined {
 
 function providerOf(event: Interruption): string | undefined {
 	return productName(providerIdOf(event))
+}
+
+function statusOf(event: Interruption): number | undefined {
+	const status = event.failure?.details?.status
+	return typeof status === 'number' ? status : undefined
 }
 
 function modelOf(event: Interruption): string | undefined {
@@ -255,7 +261,7 @@ export function describePlainInterruption(
 	}
 	const kind = classifyInterruption(event)
 	const name = providerOf(event) ?? 'The provider'
-	const copy = copyFor(
+	let copy = copyFor(
 		kind,
 		name,
 		event,
@@ -263,12 +269,25 @@ export function describePlainInterruption(
 		kind === 'network' ? localEndpoint(providerIdOf(event), options.baseUrl) : undefined,
 	)
 	const rawReason = event.kind === 'paused' ? event.reason : event.message
+	// Zen's keyless free tier was refused: no key was sent, so nothing was wrong with one.
+	const freeRefused = isZenFreeTierRefusal({
+		providerId: providerIdOf(event),
+		status: event.providerError?.status ?? statusOf(event),
+		detail: event.providerError?.detail ?? rawReason,
+	})
+	if (freeRefused) {
+		copy = {
+			what: ZEN_FREE_REFUSED_WHAT,
+			next: 'Try again in a while, or choose another provider with /model. A Zen API key also works.',
+		}
+	}
 	// The provider's own sentence: its detail field, or a message inside a JSON
 	// body in the raw reason. A raw reason with no body is only our own wrapper.
 	const vendor =
 		cleanVendorMessage(event.providerError?.detail) ??
 		(rawReason.includes('{') || kind === 'unknown' ? cleanVendorMessage(rawReason) : undefined)
 	const informative =
+		!freeRefused &&
 		vendor !== undefined &&
 		!sameIdea(vendor, copy.what) &&
 		!sameIdea(vendor, copy.next) &&
