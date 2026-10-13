@@ -141,15 +141,79 @@ async function startAgent(extra: Record<string, string> = {}): Promise<{ port: n
  * and handing it over is a race. `-e` runs the agent's own exported
  * `startListening`, so what is measured is the shipped file.
  */
+/**
+ * Observe the real guest's async file work and socket close events. The probe
+ * neither closes a resource nor changes the agent's ownership. Its publication
+ * runs after promise continuations have registered their next filesystem call.
+ */
+const DESCRIPTOR_PROBE_BOOT = `
+const fsProbe = require('node:fs/promises');
+const probe = { pending: 0, connections: 0, closedConnections: 0, opened: 0, closed: 0 };
+const trackedPath = process.argv[2];
+let publicationQueued = false;
+function publishProbe() {
+ if (publicationQueued) return;
+ publicationQueued = true;
+ setImmediate(() => {
+  publicationQueued = false;
+  console.log(JSON.stringify({ descriptorProbe: { ...probe } }));
+ });
+}
+function observe(operation) {
+ probe.pending++;
+ return operation.finally(() => { probe.pending--; publishProbe(); });
+}
+for (const name of ['realpath', 'stat', 'lstat']) {
+ const original = fsProbe[name].bind(fsProbe);
+ fsProbe[name] = (...args) => observe(original(...args));
+}
+const originalOpen = fsProbe.open.bind(fsProbe);
+fsProbe.open = (...args) => observe(originalOpen(...args).then(handle => {
+ if (args[0] === trackedPath) {
+  probe.opened++;
+  let closed = false;
+  for (const name of ['stat', 'read', 'readFile', 'close']) {
+   const original = handle[name].bind(handle);
+   handle[name] = (...values) => observe(original(...values).then(value => {
+    if (name === 'close' && !closed) { closed = true; probe.closed++; }
+    return value;
+   }));
+  }
+ }
+ return handle;
+}));
+`
+
+type DescriptorProbe = {
+	pending: number
+	connections: number
+	closedConnections: number
+	opened: number
+	closed: number
+}
+
 async function startChildAgent(
 	extra: Record<string, string> = {},
 	entryFile: string = AGENT_ENTRY_FILE,
+	trackedPath?: string,
 ): Promise<{
 	port: number
 	pid: number
+	waitForDescriptorsSettled: (
+		connections: number,
+		requireFileClose?: boolean,
+	) => Promise<DescriptorProbe>
 }> {
-	const boot =
-		'require(process.argv[1]).startListening().then((s) => console.log(JSON.stringify({ port: s.address().port })))'
+	const boot = trackedPath
+		? `${DESCRIPTOR_PROBE_BOOT}
+require(process.argv[1]).startListening().then(s => {
+ s.on('connection', socket => {
+  probe.connections++;
+  socket.once('close', () => { probe.closedConnections++; publishProbe(); });
+ });
+ console.log(JSON.stringify({ port: s.address().port }));
+})`
+		: 'require(process.argv[1]).startListening().then((s) => console.log(JSON.stringify({ port: s.address().port })))'
 	const env: NodeJS.ProcessEnv = {
 		PATH: process.env.PATH,
 		NAMZU_AGENT_TCP_PORT: '0',
@@ -157,11 +221,51 @@ async function startChildAgent(
 		NAMZU_SANDBOX_WORKSPACE: workDir,
 		...extra,
 	}
-	const spawned = spawn(process.execPath, ['-e', boot, entryFile], {
-		env,
-		stdio: ['ignore', 'pipe', 'pipe'],
-	})
+	const spawned = spawn(
+		process.execPath,
+		['-e', boot, entryFile, ...(trackedPath ? [trackedPath] : [])],
+		{
+			env,
+			stdio: ['ignore', 'pipe', 'pipe'],
+		},
+	)
 	children.push(spawned)
+	let latestProbe: DescriptorProbe | undefined
+	const probeWaiters = new Set<() => void>()
+	let probeLines = ''
+	spawned.stdout?.on('data', (chunk: Buffer) => {
+		probeLines += chunk.toString('utf8')
+		const lines = probeLines.split('\n')
+		probeLines = lines.pop() ?? ''
+		for (const line of lines) {
+			if (!line.includes('"descriptorProbe"')) continue
+			latestProbe = (JSON.parse(line) as { descriptorProbe: DescriptorProbe }).descriptorProbe
+			for (const notify of probeWaiters) notify()
+		}
+	})
+	const waitForDescriptorsSettled = (connections: number, requireFileClose = false) => {
+		if (!trackedPath) throw new Error('descriptor observation was not requested')
+		return new Promise<DescriptorProbe>((resolve, reject) => {
+			const exited = () => reject(new Error('the child exited before descriptor settlement'))
+			const inspect = () => {
+				if (
+					!latestProbe ||
+					latestProbe.connections !== connections ||
+					latestProbe.closedConnections !== connections ||
+					latestProbe.pending !== 0 ||
+					(requireFileClose &&
+						(latestProbe.opened === 0 || latestProbe.closed !== latestProbe.opened))
+				)
+					return
+				probeWaiters.delete(inspect)
+				spawned.off('exit', exited)
+				resolve(latestProbe)
+			}
+			probeWaiters.add(inspect)
+			spawned.once('exit', exited)
+			inspect()
+		})
+	}
 	const port = await new Promise<number>((resolve, reject) => {
 		let out = ''
 		let errors = ''
@@ -190,7 +294,7 @@ async function startChildAgent(
 		})
 	})
 	if (spawned.pid === undefined) throw new Error('the child agent has no pid')
-	return { port, pid: spawned.pid }
+	return { port, pid: spawned.pid, waitForDescriptorsSettled }
 }
 
 /** Peak resident set size of one process, in bytes. Linux only. */
@@ -202,10 +306,46 @@ async function peakResidentBytes(pid: number): Promise<number> {
 	return kb * 1024
 }
 
-/** How many descriptors a process holds. Linux only. */
-function openDescriptorCount(pid: number): number {
-	return readdirSync(`/proc/${pid}/fd`).length
+/** An unrelated baseline descriptor may close; it cannot cancel a new leak. */
+function descriptorIdentities(pid: number): Record<string, string> {
+	const result: Record<string, string> = {}
+	for (const fd of readdirSync(`/proc/${pid}/fd`)) {
+		try {
+			result[fd] = readlinkSync(`/proc/${pid}/fd/${fd}`)
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+		}
+	}
+	return result
 }
+
+function addedDescriptorIdentities(
+	before: Readonly<Record<string, string>>,
+	after: Readonly<Record<string, string>>,
+): Record<string, string> {
+	return Object.fromEntries(Object.entries(after).filter(([fd, target]) => before[fd] !== target))
+}
+
+it('detects new descriptor identities even when a baseline descriptor closes', () => {
+	const baseline = {
+		'18': 'socket:[listener]',
+		'19': '/unrelated-bootstrap-file',
+	}
+	expect(addedDescriptorIdentities(baseline, { '18': 'socket:[listener]' })).toEqual({})
+	// Same total count, but a leaked file or socket must never cancel a close.
+	expect(
+		addedDescriptorIdentities(baseline, {
+			'18': 'socket:[listener]',
+			'20': '/leaked-stream',
+		}),
+	).toEqual({ '20': '/leaked-stream' })
+	expect(
+		addedDescriptorIdentities(baseline, {
+			'18': 'socket:[listener]',
+			'19': 'socket:[leak]',
+		}),
+	).toEqual({ '19': 'socket:[leak]' })
+})
 
 function transportFor(port: number, options = {}): KubernetesAgentTransport {
 	return new KubernetesAgentTransport(
@@ -302,7 +442,10 @@ describe.skipIf(IS_WINDOWS)('readFile, ranged', () => {
 		const payload = deterministicBytes(64 * 1024)
 		writeFileSync(join(workDir, 'ranged.bin'), payload)
 
-		const slice = await transportFor(port).readFile('ranged.bin', { offset: 1_000, length: 256 })
+		const slice = await transportFor(port).readFile('ranged.bin', {
+			offset: 1_000,
+			length: 256,
+		})
 		expect(slice.equals(payload.subarray(1_000, 1_256))).toBe(true)
 
 		// `sizeBytes` describes the FILE, not the slice — it is how a caller
@@ -310,7 +453,12 @@ describe.skipIf(IS_WINDOWS)('readFile, ranged', () => {
 		const framed = await sendFramedRequest(port, {
 			op: 'read-file',
 			token: POD_UID,
-			body: { path: 'ranged.bin', encoding: 'base64', offset: 1_000, length: 256 },
+			body: {
+				path: 'ranged.bin',
+				encoding: 'base64',
+				offset: 1_000,
+				length: 256,
+			},
 		})
 		expect(framed.reply).toMatchObject({
 			ok: true,
@@ -326,18 +474,26 @@ describe.skipIf(IS_WINDOWS)('readFile, ranged', () => {
 		writeFileSync(join(workDir, 'short.bin'), payload)
 		const transport = transportFor(port)
 
-		const straddling = await transport.readFile('short.bin', { offset: 900, length: 500 })
+		const straddling = await transport.readFile('short.bin', {
+			offset: 900,
+			length: 500,
+		})
 		expect(straddling.equals(payload.subarray(900))).toBe(true)
 
 		// Wholly past the end is an empty answer, not a failure: a caller
 		// resuming from a remembered offset has to be able to ask without
 		// knowing the answer first.
-		const beyond = await transport.readFile('short.bin', { offset: 5_000, length: 100 })
+		const beyond = await transport.readFile('short.bin', {
+			offset: 5_000,
+			length: 100,
+		})
 		expect(beyond.length).toBe(0)
 	})
 
 	it('refuses a range above the guest’s per-frame ceiling, naming the variable', async () => {
-		const { port } = await startAgent({ NAMZU_AGENT_READ_FILE_RANGE_BYTES: '4096' })
+		const { port } = await startAgent({
+			NAMZU_AGENT_READ_FILE_RANGE_BYTES: '4096',
+		})
 		writeFileSync(join(workDir, 'capped.bin'), deterministicBytes(64 * 1024))
 
 		await expect(
@@ -349,11 +505,15 @@ describe.skipIf(IS_WINDOWS)('readFile, ranged', () => {
 	// ceiling above exists to refuse — so the transport sends it to the
 	// stream instead of to a `read-file` the guest would turn down.
 	it('serves an offset with no length through the stream', async () => {
-		const { port } = await startAgent({ NAMZU_AGENT_READ_FILE_RANGE_BYTES: '4096' })
+		const { port } = await startAgent({
+			NAMZU_AGENT_READ_FILE_RANGE_BYTES: '4096',
+		})
 		const payload = deterministicBytes(256 * 1024)
 		writeFileSync(join(workDir, 'tail.bin'), payload)
 
-		const tail = await transportFor(port).readFile('tail.bin', { offset: 200_000 })
+		const tail = await transportFor(port).readFile('tail.bin', {
+			offset: 200_000,
+		})
 		expect(tail.equals(payload.subarray(200_000))).toBe(true)
 	})
 
@@ -385,7 +545,10 @@ describe.skipIf(IS_WINDOWS)('readFile, ranged', () => {
 		expect(expected.length).toBeGreaterThan(8)
 
 		const { port } = await startAgent({ NAMZU_SANDBOX_READ_ROOTS: '/proc' })
-		const slice = await transportFor(port).readFile('/proc/version', { offset: 2, length: 6 })
+		const slice = await transportFor(port).readFile('/proc/version', {
+			offset: 2,
+			length: 6,
+		})
 		expect(slice.equals(expected.subarray(2, 8))).toBe(true)
 
 		// `sizeBytes` describes the whole file here too, which is the only
@@ -393,7 +556,12 @@ describe.skipIf(IS_WINDOWS)('readFile, ranged', () => {
 		const framed = await sendFramedRequest(port, {
 			op: 'read-file',
 			token: POD_UID,
-			body: { path: '/proc/version', encoding: 'base64', offset: 0, length: 4096 },
+			body: {
+				path: '/proc/version',
+				encoding: 'base64',
+				offset: 0,
+				length: 4096,
+			},
 		})
 		expect(framed.reply).toMatchObject({
 			ok: true,
@@ -460,7 +628,9 @@ describe.skipIf(IS_WINDOWS)('readFileStream', () => {
 	})
 
 	it('streams a range when one is asked for', async () => {
-		const { port } = await startAgent({ NAMZU_AGENT_READ_FILE_STREAM_CHUNK_BYTES: '4096' })
+		const { port } = await startAgent({
+			NAMZU_AGENT_READ_FILE_STREAM_CHUNK_BYTES: '4096',
+		})
 		const payload = deterministicBytes(64 * 1024)
 		writeFileSync(join(workDir, 'sliced.bin'), payload)
 
@@ -587,7 +757,11 @@ describe.skipIf(IS_WINDOWS || !IS_LINUX)('what a stream costs the guest', () => 
 
 		const reply = await sendFramedRequest(
 			port,
-			{ op: 'read-file', token: POD_UID, body: { path: 'measured.bin', encoding: 'base64' } },
+			{
+				op: 'read-file',
+				token: POD_UID,
+				body: { path: 'measured.bin', encoding: 'base64' },
+			},
 			120_000,
 		)
 		expect(reply.reply.ok).toBe(true)
@@ -625,10 +799,16 @@ describe.skipIf(IS_WINDOWS || !IS_LINUX)('what a stream costs the guest', () => 
 
 	it('gives every descriptor back when the caller aborts mid-stream', async () => {
 		writeLargeFile('aborted.bin', MEMORY_CASE_BYTES)
-		const { port, pid } = await startChildAgent({
-			NAMZU_AGENT_READ_FILE_STREAM_CHUNK_BYTES: String(64 * 1024),
-		})
-		const baseline = openDescriptorCount(pid)
+		const path = join(workDir, 'aborted.bin')
+		const { port, pid, waitForDescriptorsSettled } = await startChildAgent(
+			{
+				NAMZU_AGENT_READ_FILE_STREAM_CHUNK_BYTES: String(64 * 1024),
+			},
+			AGENT_ENTRY_FILE,
+			path,
+		)
+		const baseline = descriptorIdentities(pid)
+		expect(Object.values(baseline)).not.toContain(path)
 
 		const controller = new AbortController()
 		let taken = 0
@@ -641,36 +821,37 @@ describe.skipIf(IS_WINDOWS || !IS_LINUX)('what a stream costs the guest', () => 
 			}
 		}).rejects.toThrow(/caller stopped reading/)
 
-		// The abort is what the caller sees; the descriptor is what the
-		// guest owes back. Poll rather than sleep once: the close follows
-		// the socket teardown, which is one event loop turn away, not zero.
-		let descriptors = openDescriptorCount(pid)
-		for (let attempt = 0; attempt < 100 && descriptors > baseline; attempt += 1) {
-			await new Promise((resolve) => setTimeout(resolve, 50))
-			descriptors = openDescriptorCount(pid)
-		}
-		expect(descriptors).toBe(baseline)
+		// Wait for the real file-close promise and both capability/stream sockets.
+		await waitForDescriptorsSettled(2, true)
+		const after = descriptorIdentities(pid)
+		expect(addedDescriptorIdentities(baseline, after)).toEqual({})
+		expect(Object.values(after)).not.toContain(path)
 	}, 120_000)
 
 	// Leaving the loop is not an abort, and it must release just as much:
 	// a `break` is what a caller that has seen enough actually writes.
 	it('gives every descriptor back when the caller simply stops iterating', async () => {
 		writeLargeFile('abandoned.bin', MEMORY_CASE_BYTES)
-		const { port, pid } = await startChildAgent({
-			NAMZU_AGENT_READ_FILE_STREAM_CHUNK_BYTES: String(64 * 1024),
-		})
-		const baseline = openDescriptorCount(pid)
+		const path = join(workDir, 'abandoned.bin')
+		const { port, pid, waitForDescriptorsSettled } = await startChildAgent(
+			{
+				NAMZU_AGENT_READ_FILE_STREAM_CHUNK_BYTES: String(64 * 1024),
+			},
+			AGENT_ENTRY_FILE,
+			path,
+		)
+		const baseline = descriptorIdentities(pid)
+		expect(Object.values(baseline)).not.toContain(path)
 
 		for await (const _chunk of transportFor(port).readFileStream('abandoned.bin')) {
 			break
 		}
 
-		let descriptors = openDescriptorCount(pid)
-		for (let attempt = 0; attempt < 100 && descriptors > baseline; attempt += 1) {
-			await new Promise((resolve) => setTimeout(resolve, 50))
-			descriptors = openDescriptorCount(pid)
-		}
-		expect(descriptors).toBe(baseline)
+		// Wait for the real file-close promise and both capability/stream sockets.
+		await waitForDescriptorsSettled(2, true)
+		const after = descriptorIdentities(pid)
+		expect(addedDescriptorIdentities(baseline, after)).toEqual({})
+		expect(Object.values(after)).not.toContain(path)
 	}, 120_000)
 })
 
@@ -790,7 +971,11 @@ describe.skipIf(IS_WINDOWS || !IS_LINUX)('a peer that hangs up before the open r
 			const socket = connect({ host: '127.0.0.1', port }, () => {
 				socket.write(
 					encodeFrame(
-						JSON.stringify({ op: 'read-file-stream', token: POD_UID, body: { path: 'slow.fifo' } }),
+						JSON.stringify({
+							op: 'read-file-stream',
+							token: POD_UID,
+							body: { path: 'slow.fifo' },
+						}),
 					),
 				)
 				socket.destroy()
@@ -936,26 +1121,27 @@ describe.skipIf(IS_WINDOWS || !IS_LINUX)('a peer that hangs up before the open r
 				})
 				socket.once('error', reject)
 			})
-			await new Promise((resolve) => setTimeout(resolve, 5))
 		}
 
-		const shippedAgent = await startChildAgent()
-		const baseline = openDescriptorCount(shippedAgent.pid)
+		const path = join(workDir, 'burst.bin')
+		const shippedAgent = await startChildAgent({}, AGENT_ENTRY_FILE, path)
+		const baseline = descriptorIdentities(shippedAgent.pid)
+		expect(Object.values(baseline)).not.toContain(path)
 		for (let attempt = 0; attempt < attempts; attempt += 1) await hangUpOnce(shippedAgent.port)
-		let descriptors = openDescriptorCount(shippedAgent.pid)
-		for (let attempt = 0; attempt < 100 && descriptors > baseline; attempt += 1) {
-			await new Promise((resolve) => setTimeout(resolve, 50))
-			descriptors = openDescriptorCount(shippedAgent.pid)
-		}
-		expect(descriptors).toBe(baseline)
+		await shippedAgent.waitForDescriptorsSettled(attempts)
+		const after = descriptorIdentities(shippedAgent.pid)
+		expect(addedDescriptorIdentities(baseline, after)).toEqual({})
+		expect(Object.values(after)).not.toContain(path)
 
-		const brokenAgent = await startChildAgent({}, broken)
-		const brokenBaseline = openDescriptorCount(brokenAgent.pid)
+		const brokenAgent = await startChildAgent({}, broken, path)
+		const brokenBaseline = descriptorIdentities(brokenAgent.pid)
+		expect(Object.values(brokenBaseline)).not.toContain(path)
 		for (let attempt = 0; attempt < attempts; attempt += 1) await hangUpOnce(brokenAgent.port)
-		await new Promise((resolve) => setTimeout(resolve, 1_000))
-		// Not `attempts` exactly: the control's job is to prove the burst
-		// reaches the window at all, and how often it does is scheduling.
-		expect(openDescriptorCount(brokenAgent.pid)).toBeGreaterThan(brokenBaseline)
+		// Observe async work and socket settlement, never await a broken close.
+		const observed = await brokenAgent.waitForDescriptorsSettled(attempts)
+		expect(observed.opened).toBeGreaterThan(0)
+		const leaked = addedDescriptorIdentities(brokenBaseline, descriptorIdentities(brokenAgent.pid))
+		expect(Object.values(leaked)).toContain(path)
 	}, 120_000)
 })
 
@@ -1011,7 +1197,9 @@ describe.skipIf(IS_WINDOWS)('a whole-file readFile is built on the stream', () =
 		const expected = readFileSync('/proc/version')
 		expect(expected.length).toBeGreaterThan(0)
 
-		const { port } = await startAgent({ NAMZU_SANDBOX_READ_ROOTS: '/proc' })
+		const { port } = await startAgent({
+			NAMZU_SANDBOX_READ_ROOTS: '/proc',
+		})
 		const streamed = await transportFor(port).readFile('/proc/version')
 		expect(streamed.toString('utf8')).toBe(expected.toString('utf8'))
 
@@ -1095,7 +1283,12 @@ describe('a guest that does not advertise the capability', () => {
 
 	function transport(): VsockAgentTransport {
 		const { port } = server?.address() as AddressInfo
-		return new VsockAgentTransport({ kind: 'tcp', host: '127.0.0.1', port, token: POD_UID })
+		return new VsockAgentTransport({
+			kind: 'tcp',
+			host: '127.0.0.1',
+			port,
+			token: POD_UID,
+		})
 	}
 
 	it('still serves a whole-file read on the unchanged single-frame path', async () => {

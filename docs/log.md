@@ -2,6 +2,8 @@
 
 ## 2026-10-13
 
+- **Update** Stream descriptor controls compare fd number and target identities, so an unrelated baseline close cannot hide a new file/socket leak. A test-only observer awaits actual guest filesystem promises and socket closure; the broken-owner control uses the same identity detector without awaiting its missing file close. This replaces process-wide count equality and timed cleanup polling without changing guest behavior.
+
 - **Update** [Original workspace allocation](sdk/kubernetes-sandbox.md#allocate-an-original-workspace-without-adopting-by-name): one creation-only POST atomically records allocation provenance and epoch. Every collision refuses adoption; lost acknowledgements retain the original allocation for read-only recovery. Volume and strict live opening can require the captured marker through final owner verification. The receipt is creation evidence, not ready guest or writer exclusion. `.changeset/sandbox-original-allocation.md`, **minor** for `@namzu/sandbox`.
 
 - **Update** [Existing-volume preservation](sdk/kubernetes-sandbox.md#preserve-an-existing-volume-before-a-closure) and [Reopen the original live guest](sdk/kubernetes-sandbox.md#reopen-the-original-live-guest-for-closure): optional configured-profile checks guard wake and guest access. Exact retirement reply identity permits bound cleanup without an execution probe; missing/mismatched boots refuse, and unavailable flush remains explicit. Retain the bound transition across ambiguous stop acknowledgement. `.changeset/sandbox-closure-profile.md`, **minor** for `@namzu/sandbox`.
