@@ -65,6 +65,27 @@ describe('composer settings use the executing provider chain', () => {
 		expect(chat).not.toHaveBeenCalled()
 	})
 
+	it('answers from what the provider knows, without its listing, when told to skip', async () => {
+		const selected = Object.assign(provider(), { listModels: vi.fn(async () => []) })
+		const skipped = await resolveProviderReasoning(
+			[{ provider: selected, model: 'x' }],
+			undefined,
+			{
+				catalogue: 'skip',
+			},
+		)
+		expect(selected.listModels).not.toHaveBeenCalled()
+		expect(skipped).toMatchObject({ catalogueSkipped: true })
+		expect(skipped.effortLevels).toBeUndefined()
+		const known = await resolveProviderReasoning(
+			[{ provider: provider(['low']), model: 'x' }],
+			undefined,
+			{ catalogue: 'skip' },
+		)
+		expect(known.catalogueSkipped).toBeUndefined()
+		expect(known.effortLevels).toEqual(['low'])
+	})
+
 	it('does not fetch another catalogue for an exact known empty menu', async () => {
 		const selected = Object.assign(provider([]), { listModels: vi.fn(async () => []) })
 		expect(

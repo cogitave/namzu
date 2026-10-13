@@ -692,9 +692,12 @@ For the local engine/image requirements, including the supported Windows Podman 
 
 In the Namzu engine's ordinary conversation (Desktop or terminal, not inside a
 Pal and not an external engine) the agent has `list_pals` and `send_pal_message`.
-They are mounted in every such session, so a Pal created mid-conversation is usable
-at once; the roster never changes, and the system prompt names Pals only while the
-owner has some. The block names them, separates them from sub-agents and says a
+They are mounted in every such session but offered to the model only while the
+owner has a Pals registry (`<namzu home>/pals` exists): with none, `list_pals` could
+only answer an empty list and `send_pal_message` has nobody to reach, so their
+schemas are left out of the model request. The check is live, so a Pal created
+mid-conversation makes both tools available from the next model step. The system
+prompt names Pals only while the owner has some. The block names them, separates them from sub-agents and says a
 sent message only reaches the inbox and a Pal's later report is a claim to check.
 Names are clipped to one plain line and purposes never enter the prompt. A session
 of an owner without Pals creates no Pal files.

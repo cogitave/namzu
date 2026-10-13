@@ -159,6 +159,7 @@ import {
 	isTurnInProgressError,
 	mapTools,
 	query,
+	readyWhen,
 	resolveContextWindow,
 	resumeSession,
 	seedObservationLedger,
@@ -960,6 +961,14 @@ export interface AgentSession {
 	 * always publishes the field.
 	 */
 	readonly reasoningEffortLevels?: readonly ReasoningEffort[]
+	/**
+	 * Present only on a session opened with `deferEffortCatalogue` whose levels
+	 * were not final at open. Resolves, never rejects, once the model listing has
+	 * been consulted: `reasoningEffortLevels` and `reasoningEffortDefault` then
+	 * hold their final values, and `notice` carries what the listing could not
+	 * establish, in plain words.
+	 */
+	readonly reasoningSettled?: Promise<{ readonly notice?: string }>
 	/**
 	 * The exact level used when this model receives no explicit effort.
 	 *
@@ -1793,6 +1802,17 @@ function buildBaseToolsets(paths: SessionPaths, backgroundJobs: boolean): BaseTo
 }
 
 export interface AgentSessionOptions {
+	/**
+	 * Open the session without waiting for the provider's model listing. A
+	 * provider that cannot name a model's reasoning-effort levels from what it
+	 * already knows is asked for its listing; by default the session waits for
+	 * that answer. With this set the session opens at once with the levels the
+	 * provider knows, `reasoningEffortLevels` and `reasoningEffortDefault` change
+	 * in place when the listing arrives, and the session's `reasoningSettled`
+	 * says when. The terminal sets it; a host that publishes the levels in its
+	 * first answer (ACP, `exec`) leaves it off.
+	 */
+	readonly deferEffortCatalogue?: boolean
 	/** Actual owned virtual computer; this branches before all ordinary host capability setup. */
 	readonly palEnvironment?: import('../pals/agent-session.js').PalSessionEnvironment
 	readonly structuredOutput?: StructuredOutputConfig
@@ -2651,19 +2671,34 @@ export async function createAgentSession(
 			? computerUseUnavailableReason(provider)
 			: undefined
 	if (computerUseProviderRefusal !== undefined) {
+		// Mounted so the roster still names it, but never offered to the model:
+		// every call is refused, and its schema is about 900 tokens on every
+		// request. `readyWhen` suspends it; the provider is fixed for this
+		// session object, so the refusal cannot lift.
 		toolsets.push(
-			toolset('computer-use', [
-				createComputerUseTool(new SubprocessComputerUseHost(), {
-					unavailableReason: computerUseProviderRefusal,
-				}),
-			]),
+			readyWhen(
+				toolset('computer-use', [
+					createComputerUseTool(new SubprocessComputerUseHost(), {
+						unavailableReason: computerUseProviderRefusal,
+					}),
+				]),
+				() => false,
+			),
 		)
 	} else if (options.enableComputerUse === true && computerUsePackage?.state === 'present') {
 		const candidate = new SubprocessComputerUseHost()
 		try {
 			await candidate.initialize()
 			computerUseTool = createComputerUseTool(candidate)
-			toolsets.push(toolset('computer-use', [computerUseTool]))
+			// A host that loaded but reports no control at all (no screenshot,
+			// mouse, keyboard, clipboard or window access) would answer every
+			// call with its limitation. Read live, so the tool appears once the
+			// host reports a control.
+			toolsets.push(
+				readyWhen(toolset('computer-use', [computerUseTool]), () =>
+					computerUseHasControl(candidate.capabilities),
+				),
+			)
 			computerUseHost = candidate
 		} catch (error) {
 			computerUseError = error instanceof Error ? error : new Error(String(error))
@@ -2672,27 +2707,33 @@ export async function createAgentSession(
 			// A tool that is absent is a tool the model reasons about from the
 			// wrong premise; a tool that says "this desktop did not answer, and
 			// why" is one call the model reads once and does not repeat.
+			// Suspended, not unmounted: the host did not answer, nothing in this
+			// session retries it, and the request should not carry a schema for a
+			// tool that can only refuse.
 			toolsets.push(
-				toolset('computer-use', [
-					createComputerUseTool({
-						id: candidate.id,
-						capabilities: {
-							...candidate.capabilities,
-							screenshot: false,
-							mouse: false,
-							keyboard: false,
-							cursorPosition: false,
-							clipboard: false,
-							unavailableReason: describeError(computerUseError),
-						},
-						getDisplayGeometry: async () => {
-							throw computerUseError
-						},
-						execute: async () => {
-							throw computerUseError
-						},
-					}),
-				]),
+				readyWhen(
+					toolset('computer-use', [
+						createComputerUseTool({
+							id: candidate.id,
+							capabilities: {
+								...candidate.capabilities,
+								screenshot: false,
+								mouse: false,
+								keyboard: false,
+								cursorPosition: false,
+								clipboard: false,
+								unavailableReason: describeError(computerUseError),
+							},
+							getDisplayGeometry: async () => {
+								throw computerUseError
+							},
+							execute: async () => {
+								throw computerUseError
+							},
+						}),
+					]),
+					() => false,
+				),
 			)
 		}
 	}
@@ -2706,8 +2747,18 @@ export async function createAgentSession(
 	if (options.browser && browserPackage?.state === 'present') {
 		try {
 			const { PlaywrightBrowserHost } = await import('@namzu/browser')
-			browserControl = createBrowserControl(PlaywrightBrowserHost, options.browser)
-			toolsets.push(toolset('browser', createBrowserTools(browserControl.host)))
+			const control = createBrowserControl(PlaywrightBrowserHost, options.browser)
+			browserControl = control
+			// With no usable engine every browser call is refused, so the two
+			// schemas (about 940 tokens) are not sent. The host's capabilities
+			// are read live, so they appear when a profile switch or release
+			// finds an engine.
+			toolsets.push(
+				readyWhen(
+					toolset('browser', createBrowserTools(control.host)),
+					() => control.host.capabilities.unavailableReason === undefined,
+				),
+			)
 		} catch (error) {
 			browserError = error instanceof Error ? error : new Error(String(error))
 		}
@@ -3255,13 +3306,20 @@ export async function createAgentSession(
 	// usable at once (the roster never changes, so the cached prefix does not); the
 	// prompt names Pals only while some exist. A Pal's own session branches off above.
 	const operatorPals = await import('../pals/operator-tools.js')
+	// Offered only while the owner has a Pals registry: with none, `list_pals`
+	// answers an empty list and `send_pal_message` has nobody to reach, so their
+	// schemas are not sent. Read live (one `existsSync`), so a Pal created
+	// mid-conversation makes both usable at the next step.
 	toolsets.push(
-		toolset(
-			'pals',
-			operatorPals.createCliOperatorPalTools({
-				tenantId: scope.tenantId,
-				...(options.stateRoot ? { home: options.stateRoot } : {}),
-			}).tools,
+		readyWhen(
+			toolset(
+				'pals',
+				operatorPals.createCliOperatorPalTools({
+					tenantId: scope.tenantId,
+					...(options.stateRoot ? { home: options.stateRoot } : {}),
+				}).tools,
+			),
+			() => operatorPals.operatorPalsPresent(options.stateRoot),
 		),
 	)
 	const palPromptBlock = (): string | undefined =>
@@ -3525,7 +3583,10 @@ export async function createAgentSession(
 	cliLogger().info('agent session ready', {
 		[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.BOOT_READY,
 	})
+	// Owns the background model-listing lookup below, so closing the session ends it.
+	const reasoningLookup = new AbortController()
 	const operations = new SessionOperationOwner(async () => {
+		reasoningLookup.abort()
 		const results = await Promise.allSettled([
 			Promise.resolve().then(() => manager.dispose()),
 			options.conversationSessions
@@ -3552,13 +3613,32 @@ export async function createAgentSession(
 			.map((result) => result.reason)
 		if (failures.length > 0) throw new AggregateError(failures, 'Session cleanup failed.')
 	})
-	const reasoning = await resolveProviderReasoning([
+	const reasoningMembers = [
 		{ provider, model },
 		...fallbackPlan.build(currentToken, scope.sessionId),
-	])
-	const reasoningEffortLevels = reasoning.effortLevels
-	const reasoningEffortDefault = reasoning.effortDefault
-	const effortNotice = reasoning.notice
+	]
+	// A provider that cannot name a model's effort levels is asked for its model
+	// listing. The terminal does not wait for that round trip to show a composer:
+	// it opens on what the provider knows and the levels follow.
+	const reasoning = await resolveProviderReasoning(
+		reasoningMembers,
+		undefined,
+		options.deferEffortCatalogue ? { catalogue: 'skip' } : {},
+	)
+	let reasoningEffortLevels = reasoning.effortLevels
+	let reasoningEffortDefault = reasoning.effortDefault
+	const effortNotice = reasoning.catalogueSkipped ? undefined : reasoning.notice
+	const reasoningSettled = reasoning.catalogueSkipped
+		? resolveProviderReasoning(reasoningMembers, reasoningLookup.signal).then(
+				(settled) => {
+					if (reasoningLookup.signal.aborted) return {}
+					reasoningEffortLevels = settled.effortLevels
+					reasoningEffortDefault = settled.effortDefault
+					return settled.notice ? { notice: settled.notice } : {}
+				},
+				() => ({}),
+			)
+		: undefined
 
 	/**
 	 * The provider a resumed turn runs on when its caller pinned one (a
@@ -3960,8 +4040,13 @@ export async function createAgentSession(
 		get documentAttachmentsSupported() {
 			return providerForSession(scope.sessionId).capabilities?.supportsDocuments
 		},
-		reasoningEffortLevels,
-		reasoningEffortDefault,
+		get reasoningEffortLevels() {
+			return reasoningEffortLevels
+		},
+		get reasoningEffortDefault() {
+			return reasoningEffortDefault
+		},
+		...(reasoningSettled ? { reasoningSettled } : {}),
 		compact: (messages) =>
 			operations.promise(undefined, async (signal) => {
 				const sessionId = scope.sessionId
@@ -5239,6 +5324,25 @@ function credentialCheckCause(err: unknown): CredentialCheckCause | undefined {
 	)
 		? 'no-answer'
 		: undefined
+}
+
+/**
+ * Whether a computer-use host offers any control at all. A host that loaded but
+ * found no desktop answers every call with its limitation, so the tool is not
+ * offered. Any one control counts, window-only hosts included.
+ */
+export function computerUseHasControl(caps: SubprocessComputerUseHost['capabilities']): boolean {
+	return (
+		caps.screenshot ||
+		caps.mouse ||
+		caps.keyboard ||
+		caps.cursorPosition ||
+		caps.clipboard ||
+		caps.windows === true ||
+		caps.windowCapture === true ||
+		caps.regionCapture === true ||
+		caps.uiTree === true
+	)
 }
 
 function describeError(err: unknown): string {

@@ -7,13 +7,31 @@ export interface ComposerModelSettings {
 	readonly effortLevels?: readonly ReasoningEffort[]
 	readonly effortDefault?: ReasoningEffort
 	readonly notice?: string
+	/**
+	 * Set only on a `catalogue: 'skip'` answer: at least one member would have
+	 * been asked for its model listing, so the levels above are what the provider
+	 * itself knows and a full answer needs the listing.
+	 */
+	readonly catalogueSkipped?: boolean
+}
+
+export interface ResolveProviderReasoningOptions {
+	/**
+	 * `'wait'` (the default) asks a provider that cannot name a model's effort
+	 * levels for its model listing and waits for the answer. `'skip'` answers
+	 * from what each provider already knows, without a network round trip, and
+	 * sets `catalogueSkipped` when the listing would have changed the answer.
+	 */
+	readonly catalogue?: 'wait' | 'skip'
 }
 
 /** Resolve the same usable provider chain's menu without creating an agent or running a turn. */
 export async function resolveProviderReasoning(
 	members: readonly ProviderChainMember[],
 	signal?: AbortSignal,
+	options: ResolveProviderReasoningOptions = {},
 ): Promise<ComposerModelSettings> {
+	let catalogueSkipped = false
 	try {
 		signal?.throwIfAborted()
 		const primaryModel = members[0]?.model
@@ -24,8 +42,10 @@ export async function resolveProviderReasoning(
 					const known = member.provider.reasoningEffortLevelsFor
 						? member.provider.reasoningEffortLevelsFor(memberModel)
 						: member.provider.effortLevelsFor?.(memberModel)
+					if (known === undefined && member.provider.listModels && options.catalogue === 'skip')
+						catalogueSkipped = true
 					const catalogue =
-						known === undefined && member.provider.listModels
+						known === undefined && member.provider.listModels && options.catalogue !== 'skip'
 							? await runPickerProviderOperation(
 									signal,
 									(operationSignal) =>
@@ -47,6 +67,7 @@ export async function resolveProviderReasoning(
 			? capabilityView.reasoningEffortLevelsFor(primaryModel ?? '')
 			: capabilityView.effortLevelsFor?.(primaryModel ?? '')
 		const effortLevels = offered === undefined ? undefined : Object.freeze([...offered])
+		const skipped = catalogueSkipped ? { catalogueSkipped: true as const } : {}
 		try {
 			const effortDefault = capabilityView.reasoningEffortDefaultFor?.(primaryModel ?? '')
 			if (
@@ -56,19 +77,22 @@ export async function resolveProviderReasoning(
 			) {
 				return {
 					effortLevels,
+					...skipped,
 					notice: `The provider published default effort "${effortDefault}" outside its exact menu. Directional effort shortcuts require an explicit selection.`,
 				}
 			}
-			return { effortLevels, effortDefault }
+			return { effortLevels, effortDefault, ...skipped }
 		} catch (error) {
 			return {
 				effortLevels,
+				...skipped,
 				notice: `The default reasoning effort could not be established for this session: ${describeError(error)}`,
 			}
 		}
 	} catch (error) {
 		if (signal?.aborted) throw signal.reason
 		return {
+			...(catalogueSkipped ? { catalogueSkipped: true as const } : {}),
 			notice: `Reasoning effort levels could not be established for this session: ${describeError(error)}`,
 		}
 	}
