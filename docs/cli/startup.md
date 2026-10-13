@@ -98,6 +98,27 @@ producer writes promptly, if you depend on it.
 `exec --json` still reads its optional history from stdin before it opens the
 session, and still waits the quarter second there.
 
+## Tools that cannot work are not sent
+
+The first model request is mostly tool schemas (about 74% of 16k tokens in the
+terminal). A tool that can only refuse is mounted in the session, so `/tools` and
+the notices still name it, but it is *suspended* (`readyWhen`) and its schema is
+left out of every request until it can work:
+
+| Tool | Not sent when | Sent again when |
+|---|---|---|
+| `computer_use` | the provider cannot return images in tool results, the desktop host failed to start, or the host reports no control (screenshot, mouse, keyboard, clipboard, windows) | the host reports a control |
+| `browser`, `browser_act` | the browser has no usable engine here | a profile switch or release finds one |
+| `list_pals`, `send_pal_message` | the owner has no Pals registry | one exists |
+
+Tools that work are untouched: nothing is shortened and the system prompt is
+unchanged. Measured with the benchmark's fake server on a machine with no
+vision-capable provider and no Pals, the terminal's first request went from 40
+tools and 78,428 bytes (16,980 o200k tokens) to 37 tools and 73,149 bytes
+(15,827 tokens), and `exec` from 29 to 27 tools and 52,904 to 51,666 bytes. A
+machine whose browser cannot run drops the two browser tools as well (35 tools,
+69,137 bytes).
+
 ## Measuring it
 
 ```

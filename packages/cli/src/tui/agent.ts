@@ -159,6 +159,7 @@ import {
 	isTurnInProgressError,
 	mapTools,
 	query,
+	readyWhen,
 	resolveContextWindow,
 	resumeSession,
 	seedObservationLedger,
@@ -2651,19 +2652,34 @@ export async function createAgentSession(
 			? computerUseUnavailableReason(provider)
 			: undefined
 	if (computerUseProviderRefusal !== undefined) {
+		// Mounted so the roster still names it, but never offered to the model:
+		// every call is refused, and its schema is about 900 tokens on every
+		// request. `readyWhen` suspends it; the provider is fixed for this
+		// session object, so the refusal cannot lift.
 		toolsets.push(
-			toolset('computer-use', [
-				createComputerUseTool(new SubprocessComputerUseHost(), {
-					unavailableReason: computerUseProviderRefusal,
-				}),
-			]),
+			readyWhen(
+				toolset('computer-use', [
+					createComputerUseTool(new SubprocessComputerUseHost(), {
+						unavailableReason: computerUseProviderRefusal,
+					}),
+				]),
+				() => false,
+			),
 		)
 	} else if (options.enableComputerUse === true && computerUsePackage?.state === 'present') {
 		const candidate = new SubprocessComputerUseHost()
 		try {
 			await candidate.initialize()
 			computerUseTool = createComputerUseTool(candidate)
-			toolsets.push(toolset('computer-use', [computerUseTool]))
+			// A host that loaded but reports no control at all (no screenshot,
+			// mouse, keyboard, clipboard or window access) would answer every
+			// call with its limitation. Read live, so the tool appears once the
+			// host reports a control.
+			toolsets.push(
+				readyWhen(toolset('computer-use', [computerUseTool]), () =>
+					computerUseHasControl(candidate.capabilities),
+				),
+			)
 			computerUseHost = candidate
 		} catch (error) {
 			computerUseError = error instanceof Error ? error : new Error(String(error))
@@ -2672,27 +2688,33 @@ export async function createAgentSession(
 			// A tool that is absent is a tool the model reasons about from the
 			// wrong premise; a tool that says "this desktop did not answer, and
 			// why" is one call the model reads once and does not repeat.
+			// Suspended, not unmounted: the host did not answer, nothing in this
+			// session retries it, and the request should not carry a schema for a
+			// tool that can only refuse.
 			toolsets.push(
-				toolset('computer-use', [
-					createComputerUseTool({
-						id: candidate.id,
-						capabilities: {
-							...candidate.capabilities,
-							screenshot: false,
-							mouse: false,
-							keyboard: false,
-							cursorPosition: false,
-							clipboard: false,
-							unavailableReason: describeError(computerUseError),
-						},
-						getDisplayGeometry: async () => {
-							throw computerUseError
-						},
-						execute: async () => {
-							throw computerUseError
-						},
-					}),
-				]),
+				readyWhen(
+					toolset('computer-use', [
+						createComputerUseTool({
+							id: candidate.id,
+							capabilities: {
+								...candidate.capabilities,
+								screenshot: false,
+								mouse: false,
+								keyboard: false,
+								cursorPosition: false,
+								clipboard: false,
+								unavailableReason: describeError(computerUseError),
+							},
+							getDisplayGeometry: async () => {
+								throw computerUseError
+							},
+							execute: async () => {
+								throw computerUseError
+							},
+						}),
+					]),
+					() => false,
+				),
 			)
 		}
 	}
@@ -2706,8 +2728,18 @@ export async function createAgentSession(
 	if (options.browser && browserPackage?.state === 'present') {
 		try {
 			const { PlaywrightBrowserHost } = await import('@namzu/browser')
-			browserControl = createBrowserControl(PlaywrightBrowserHost, options.browser)
-			toolsets.push(toolset('browser', createBrowserTools(browserControl.host)))
+			const control = createBrowserControl(PlaywrightBrowserHost, options.browser)
+			browserControl = control
+			// With no usable engine every browser call is refused, so the two
+			// schemas (about 940 tokens) are not sent. The host's capabilities
+			// are read live, so they appear when a profile switch or release
+			// finds an engine.
+			toolsets.push(
+				readyWhen(
+					toolset('browser', createBrowserTools(control.host)),
+					() => control.host.capabilities.unavailableReason === undefined,
+				),
+			)
 		} catch (error) {
 			browserError = error instanceof Error ? error : new Error(String(error))
 		}
@@ -3255,13 +3287,20 @@ export async function createAgentSession(
 	// usable at once (the roster never changes, so the cached prefix does not); the
 	// prompt names Pals only while some exist. A Pal's own session branches off above.
 	const operatorPals = await import('../pals/operator-tools.js')
+	// Offered only while the owner has a Pals registry: with none, `list_pals`
+	// answers an empty list and `send_pal_message` has nobody to reach, so their
+	// schemas are not sent. Read live (one `existsSync`), so a Pal created
+	// mid-conversation makes both usable at the next step.
 	toolsets.push(
-		toolset(
-			'pals',
-			operatorPals.createCliOperatorPalTools({
-				tenantId: scope.tenantId,
-				...(options.stateRoot ? { home: options.stateRoot } : {}),
-			}).tools,
+		readyWhen(
+			toolset(
+				'pals',
+				operatorPals.createCliOperatorPalTools({
+					tenantId: scope.tenantId,
+					...(options.stateRoot ? { home: options.stateRoot } : {}),
+				}).tools,
+			),
+			() => operatorPals.operatorPalsPresent(options.stateRoot),
 		),
 	)
 	const palPromptBlock = (): string | undefined =>
@@ -5239,6 +5278,25 @@ function credentialCheckCause(err: unknown): CredentialCheckCause | undefined {
 	)
 		? 'no-answer'
 		: undefined
+}
+
+/**
+ * Whether a computer-use host offers any control at all. A host that loaded but
+ * found no desktop answers every call with its limitation, so the tool is not
+ * offered. Any one control counts, window-only hosts included.
+ */
+export function computerUseHasControl(caps: SubprocessComputerUseHost['capabilities']): boolean {
+	return (
+		caps.screenshot ||
+		caps.mouse ||
+		caps.keyboard ||
+		caps.cursorPosition ||
+		caps.clipboard ||
+		caps.windows === true ||
+		caps.windowCapture === true ||
+		caps.regionCapture === true ||
+		caps.uiTree === true
+	)
 }
 
 function describeError(err: unknown): string {
