@@ -25,7 +25,10 @@ import type { ReasoningEffort, ReviewAnswer } from '@namzu/sdk'
 
 import type { SkillsConfig } from '../config/schema.js'
 import type { Preferences, ProviderChoice, ProviderId } from '../integrations/providers/index.js'
+import { REASONING_EFFORT_LEVELS } from './effort-levels.js'
 import { durationMs } from './provider-wait.js'
+
+export { REASONING_EFFORT_LEVELS }
 
 /** A nonnegative safe integer; zero disables the corresponding turn limit. */
 function turnLimit(value: string, flag: string): number {
@@ -34,18 +37,6 @@ function turnLimit(value: string, flag: string): number {
 		throw new Error(`${flag} takes a safe whole number at least 0 (unlimited), got ${value}`)
 	return n
 }
-
-/** Every effort level a flag accepts; a provider offers the subset its model supports. */
-export const REASONING_EFFORT_LEVELS = [
-	'none',
-	'minimal',
-	'low',
-	'medium',
-	'high',
-	'xhigh',
-	'max',
-	'ultra',
-] as const satisfies readonly ReasoningEffort[]
 
 /** The level a `--effort` value names, or an error that lists the levels. */
 export function parseReasoningEffort(value: string, flag: string): ReasoningEffort {

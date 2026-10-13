@@ -32,9 +32,14 @@ import { constants } from 'node:os'
 
 import { releaseHeldSessionLeases } from '@namzu/sdk'
 
-/** The signals a turn-running command answers by giving its conversation back. */
-export const TERMINATION_SIGNALS = ['SIGTERM', 'SIGHUP', 'SIGINT'] as const
-export type TerminationSignal = (typeof TERMINATION_SIGNALS)[number]
+import {
+	TERMINATION_SIGNALS,
+	type TerminationSignal,
+	setTerminating,
+	terminationInProgress,
+} from './termination-state.js'
+
+export { TERMINATION_SIGNALS, type TerminationSignal, terminationInProgress }
 
 /** How long step 1 may take. Local lease files; a release that has not landed by then is left to expiry. */
 const LEASE_RELEASE_MS = 2_000
@@ -42,17 +47,6 @@ const LEASE_RELEASE_MS = 2_000
 const CLEANUP_MS = 6_000
 /** If a re-raised signal does not end the process (a listener swallowed it), exit anyway after this. */
 const RERAISE_GRACE_MS = 1_000
-
-let terminating: TerminationSignal | null = null
-
-/**
- * The signal this process is stopping for, or `null`. The binary's own exit
- * path consults it: once a signal is being handled, the handler ends the
- * process, and a command that returns meanwhile must not exit ahead of it.
- */
-export function terminationInProgress(): TerminationSignal | null {
-	return terminating
-}
 
 export interface TerminationHandling {
 	/** Add a cleanup step (run in the order added, after the leases are released). */
@@ -126,12 +120,12 @@ export function handleTerminationSignals(
 	}
 
 	const handle = async (signal: TerminationSignal): Promise<void> => {
-		if (terminating !== null) {
+		if (terminationInProgress() !== null) {
 			// The second signal: the operator is not waiting for the cleanup.
 			proc.exit(signalExitCode(signal))
 			return
 		}
-		terminating = signal
+		setTerminating(signal)
 		await releaseHeldSessionLeases({ timeoutMs: options.leaseReleaseMs ?? LEASE_RELEASE_MS })
 		await bounded(
 			(async () => {
@@ -161,7 +155,7 @@ export function handleTerminationSignals(
 			if (disposed) return
 			disposed = true
 			// Once a signal is being handled, the handler owns the exit.
-			if (terminating === null) detach()
+			if (terminationInProgress() === null) detach()
 		},
 	}
 }
@@ -185,5 +179,5 @@ export function withTerminationHandling<A>(
 
 /** @internal For tests: forget a handled signal. */
 export function resetTerminationForTests(): void {
-	terminating = null
+	setTerminating(null)
 }

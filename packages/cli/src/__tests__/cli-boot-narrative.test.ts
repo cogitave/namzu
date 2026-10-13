@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { LogRecord } from '@namzu/sdk'
 
-import { emitBootNarrative } from '../cli.js'
+import { emitBootNarrative } from '../boot-narrative.js'
 import type { ConfigProvenance } from '../config/load.js'
 import { DEFAULT_CONFIG } from '../config/schema.js'
 import { installCliLogging } from '../logging.js'

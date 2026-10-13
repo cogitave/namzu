@@ -21,12 +21,17 @@ describe('namzu acp bootstrap', () => {
 		try {
 			process.chdir(project)
 			const { runCli } = await import('../cli.js')
+			const listening = process.stdin.listenerCount('end')
 			const running = runCli({ argv: ['node', 'namzu', 'acp'] })
-			// Let the command attach its stdio owner, then emulate the client
-			// closing the pipe without ever opening a session. If ACP were still
-			// dispatched through the project-aware context, the malformed attacker
-			// config above would win before this point with EXIT_BAD_CONFIG.
-			await new Promise((resolve) => setImmediate(resolve))
+			// Wait for the command to attach its stdio owner (its module is
+			// imported when it runs), then emulate the client closing the pipe
+			// without ever opening a session. If ACP were still dispatched through
+			// the project-aware context, the malformed attacker config above would
+			// win before this point with EXIT_BAD_CONFIG. No deadline here: a
+			// command that never attaches fails on the test's own timeout.
+			while (process.stdin.listenerCount('end') === listening) {
+				await new Promise((resolve) => setImmediate(resolve))
+			}
 			process.stdin.emit('end')
 
 			expect(await running).toBe(0)

@@ -1,3 +1,4 @@
+export { debugRequested } from '../debug-requested.js'
 import { formatSpan, localEndpoint, productName } from './person-terms.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { type Interruption, describeTurnInterruption, retryAfterMs } from './turn-interruption.js'
@@ -228,17 +229,6 @@ export interface PlainInterruptionOptions {
 	readonly model?: string
 	/** The provider's configured base URL, so a local server is named as one. */
 	readonly baseUrl?: string
-}
-
-/** Whether detail was asked for: `NAMZU_DEBUG=1` or `--debug` on the command line. */
-export function debugRequested(
-	env: Record<string, string | undefined> = process.env,
-	argv: readonly string[] = process.argv,
-): boolean {
-	const flag = env.NAMZU_DEBUG
-	if (flag !== undefined && flag !== '' && flag !== '0' && flag.toLowerCase() !== 'false')
-		return true
-	return argv.includes('--debug')
 }
 
 /**

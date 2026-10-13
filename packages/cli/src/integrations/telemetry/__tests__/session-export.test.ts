@@ -6,7 +6,7 @@ import type { LogRecord } from '@namzu/sdk'
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { emitBootNarrative } from '../../../cli.js'
+import { emitBootNarrative } from '../../../boot-narrative.js'
 import { ConfigValueError, loadConfigWithProvenance } from '../../../config/load.js'
 import { DEFAULT_CONFIG } from '../../../config/schema.js'
 import { describeSessionExportStatus } from '../../../doctor/checks/session-export.js'

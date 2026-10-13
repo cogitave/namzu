@@ -1,5 +1,6 @@
 import type { Command } from 'commander'
 
+import { type LazyCommandDef, isLazyCommand } from './lazy.js'
 import type { CommandContext, CommandDef } from './types.js'
 
 export interface RegisterOptions {
@@ -9,7 +10,17 @@ export interface RegisterOptions {
 	readonly setExitCode: (code: number) => void
 }
 
-export function registerCommand(program: Command, def: CommandDef, opts: RegisterOptions): void {
+/**
+ * Register `def` on `program`. A lazy definition carries only what commander
+ * lists; its module is imported when the command runs, so `--version`,
+ * `--help` and a usage error never load it.
+ */
+export function registerCommand(
+	program: Command,
+	def: CommandDef | LazyCommandDef,
+	opts: RegisterOptions,
+): void {
+	const resolve = async (): Promise<CommandDef> => (isLazyCommand(def) ? def.load() : def)
 	const cmd = program.command(def.name).description(def.description)
 	if (def.aliases) cmd.aliases([...def.aliases])
 
@@ -29,18 +40,20 @@ export function registerCommand(program: Command, def: CommandDef, opts: Registe
 				// something got a credential error or an empty result list.
 				// Three commands did this. Handling it here rather than in
 				// each one is what stops the fourth from doing it too.
-				if (def.help !== undefined && rawArgs.some((a) => a === '--help' || a === '-h')) {
-					opts.getContext().formatter.print({ text: def.help })
+				const real = await resolve()
+				if (real.help !== undefined && rawArgs.some((a) => a === '--help' || a === '-h')) {
+					opts.getContext().formatter.print({ text: real.help })
 					opts.setExitCode(0)
 					return
 				}
 
-				const code = await def.handler({ ctx: opts.getContext(), rawArgs })
+				const code = await real.handler({ ctx: opts.getContext(), rawArgs })
 				opts.setExitCode(code)
 			})
 	} else {
 		cmd.action(async () => {
-			const code = await def.handler({ ctx: opts.getContext(), rawArgs: [] })
+			const real = await resolve()
+			const code = await real.handler({ ctx: opts.getContext(), rawArgs: [] })
 			opts.setExitCode(code)
 		})
 	}
@@ -48,7 +61,7 @@ export function registerCommand(program: Command, def: CommandDef, opts: Registe
 
 export function registerAll(
 	program: Command,
-	defs: readonly CommandDef[],
+	defs: readonly (CommandDef | LazyCommandDef)[],
 	opts: RegisterOptions,
 ): void {
 	for (const def of defs) registerCommand(program, def, opts)
