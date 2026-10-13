@@ -1,4 +1,4 @@
-import { type Browser, type BrowserContext, type CDPSession, chromium } from 'playwright-core'
+import type { Browser, BrowserContext, CDPSession } from 'playwright-core'
 import type { WindowsCdpBrowserPlan } from './detect.js'
 import { type CdpRelay, startCdpRelay } from './relay.js'
 import { type StartWindowsBridgeOptions, WindowsCdpBridge } from './windows-bridge.js'
@@ -63,6 +63,9 @@ export async function connectWindowsBrowser(
 ): Promise<WindowsBrowserConnection> {
 	const { plan } = options
 	const timeoutMs = options.timeoutMs ?? 60_000
+	// Loaded on the first Windows-browser launch, not when this module is, and
+	// before the bridge starts so a failed load leaves nothing running.
+	const { chromium } = await import('playwright-core')
 	const bridge = await WindowsCdpBridge.start({
 		powershell: plan.powershell,
 		env: windowsBridgeEnv(plan, options.env),

@@ -13,15 +13,7 @@ import type {
 	BrowserTabInfo,
 } from '@namzu/sdk'
 import { canonicalizeBrowserOrigin, canonicalizeBrowserUrl, resolveNamzuHome } from '@namzu/sdk'
-import {
-	type BrowserContext,
-	type CDPSession,
-	type Dialog,
-	type Locator,
-	type Page,
-	type Route,
-	chromium,
-} from 'playwright-core'
+import type { BrowserContext, CDPSession, Dialog, Locator, Page, Route } from 'playwright-core'
 import {
 	type BrowserHumanClassifierOptions,
 	classifyHumanRequired,
@@ -322,6 +314,10 @@ export class PlaywrightBrowserHost implements BrowserHost {
 		})
 		let context: BrowserContext
 		try {
+			// Loaded here, on the first browser launch: playwright-core is several
+			// megabytes of source that a session which never opens a browser must
+			// not compile at startup.
+			const { chromium } = await import('playwright-core')
 			context = await chromium.launchPersistentContext(descriptor.userDataDir, {
 				headless: plan.headless,
 				...(plan.channel ? { channel: plan.channel } : {}),

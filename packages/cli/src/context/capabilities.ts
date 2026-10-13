@@ -153,10 +153,36 @@ function findPackageDir(specifier: string, fromFile: string): string | null {
 	}
 }
 
-export async function probeOptionalPackage(specifier: string): Promise<CapabilityProbe> {
+export interface ProbeOptions {
+	/**
+	 * Import the package to prove it loads. Default `true`, which is what the
+	 * doctor and the telemetry export need: a verdict of `broken` exists only
+	 * because something imported it.
+	 *
+	 * `false` answers from the disk alone: the package directory is found, its
+	 * manifest read, and nothing is imported, so the answer costs a stat and a
+	 * small file read instead of compiling the package and everything it pulls
+	 * in (measured: about 165 ms for `playwright-core` through `@namzu/browser`
+	 * on every launch). `broken` then means only "on disk with an unreadable
+	 * manifest"; a package that is present and fails to load is found where it
+	 * is first used, or by `namzu doctor`, which keeps the full probe.
+	 */
+	readonly load?: boolean
+}
+
+export async function probeOptionalPackage(
+	specifier: string,
+	options: ProbeOptions = {},
+): Promise<CapabilityProbe> {
+	const load = options.load !== false
 	// A test drives all three states with a fixture FILE, because there is no
 	// way to uninstall or break a real optional package inside a test run.
 	if (isAbsolute(specifier)) {
+		if (!load) {
+			return existsSync(specifier)
+				? { state: 'present', specifier, version: readVersionNear(specifier) }
+				: { state: 'absent', specifier }
+		}
 		try {
 			await import(pathToFileURL(specifier).href)
 			return { state: 'present', specifier, version: readVersionNear(specifier) }
@@ -171,6 +197,24 @@ export async function probeOptionalPackage(specifier: string): Promise<Capabilit
 
 	const packageDir = findPackageDir(specifier, fileURLToPath(import.meta.url))
 	if (!packageDir) return { state: 'absent', specifier }
+	if (!load) {
+		try {
+			const manifest = JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf8')) as {
+				version?: unknown
+			}
+			return {
+				state: 'present',
+				specifier,
+				version: typeof manifest.version === 'string' ? manifest.version : '0.0.0',
+			}
+		} catch (err) {
+			return {
+				state: 'broken',
+				specifier,
+				error: err instanceof Error ? err : new Error(String(err)),
+			}
+		}
+	}
 	try {
 		await import(specifier)
 		return { state: 'present', specifier, version: readVersionNear(join(packageDir, 'index.js')) }
@@ -197,13 +241,21 @@ export async function probeOptionalPackage(specifier: string): Promise<Capabilit
  * the shape `declared-but-undriven` is about — and joins the public surface
  * in the same commit that consumes it, per that convention's own remedy.
  *
+ * Resolves each package from the disk and imports none of them, by default:
+ * the boot narrative asks "is it installed", and answering by importing made
+ * every launch compile the browser, sandbox and telemetry stacks first. Pass
+ * `{ load: true }` for the old behaviour, which also detects a package that is
+ * present and fails to load.
+ *
  * Never rejects: `probeOptionalPackage` already turns every resolve/import
  * failure into a `broken` record rather than a thrown one, so this
  * `Promise.all` has nothing to catch — a broken package can degrade what
  * the boot narrative SAYS, never abort the boot itself.
  */
-export async function probeCapabilities(): Promise<readonly CapabilityProbe[]> {
+export async function probeCapabilities(
+	options: ProbeOptions = { load: false },
+): Promise<readonly CapabilityProbe[]> {
 	return Promise.all(
-		NAMZU_OPTIONAL_CAPABILITIES.map((specifier) => probeOptionalPackage(specifier)),
+		NAMZU_OPTIONAL_CAPABILITIES.map((specifier) => probeOptionalPackage(specifier, options)),
 	)
 }
