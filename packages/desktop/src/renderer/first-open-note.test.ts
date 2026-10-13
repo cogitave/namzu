@@ -29,7 +29,7 @@ it('says in plain words what Namzu picked, per way it was found', () => {
 		],
 		[
 			{ id: 'zen', label: 'Zen', defaultModel: 'x', via: 'free', anonymous: true },
-			'Using a free Zen model, so there is nothing to set up. You can connect your own provider in Settings.',
+			"Using Zen's free models (experimental). You can connect your own provider in Settings.",
 		],
 	]
 	for (const [provider, sentence] of cases) {

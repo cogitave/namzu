@@ -80,7 +80,7 @@ there can be, one keystroke each, and the arrows reach the rest of what fits.
 With nothing saved, the terminal app and Desktop do not stop at the picker when something usable
 is on the computer. They start on the best thing found, in this order: a sign-in Namzu already
 reuses (Claude Code, Codex), an API key in the environment, a local server (Ollama, LM Studio; each
-probe waits at most 300 ms and all run together), then the keyless Zen free models. `discoverProviders`
+probe waits at most 300 ms and all run together), then the keyless Zen free models (experimental; Zen may refuse them, see below). `discoverProviders`
 returns the list already in that order, so the first entry is the default for `exec`, the ACP host
 and Desktop too. The terminal app says what it picked in one line ("Using your Claude sign-in, found
 on this computer."), saves nothing, and `/model` changes it; the picker still opens first when nothing

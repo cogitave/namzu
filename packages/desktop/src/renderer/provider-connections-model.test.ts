@@ -21,7 +21,7 @@ describe('connectionStatus', () => {
 		[{ state: 'not-connected' as const }, 'Not connected'],
 		[
 			{ state: 'free' as const, how: 'free' as const },
-			'Free models, no key needed. Limits may apply.',
+			'Free models, experimental. Zen may refuse them.',
 		],
 		[
 			{ how: 'environment' as const, envName: 'OPENAI_API_KEY' },

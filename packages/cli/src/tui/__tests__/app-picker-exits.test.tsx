@@ -584,7 +584,7 @@ describe('first-run automatic start with nothing saved', () => {
 	}
 
 	it('starts on the free Zen models when they are all there is, and says so', async () => {
-		await startsOn([PUBLIC_ZEN], 'zen', 'Using a free Zen model, so there is nothing to set up.')
+		await startsOn([PUBLIC_ZEN], 'zen', "Using Zen's free models (experimental).")
 	})
 
 	it('starts on a local server before the free models', async () => {

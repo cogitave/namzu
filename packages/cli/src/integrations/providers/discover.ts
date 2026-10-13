@@ -489,7 +489,7 @@ export function describeAutomaticChoice(choice: {
 		case 'local':
 			return `Using ${product} running on this computer.`
 		case 'free':
-			return 'Using a free Zen model, so there is nothing to set up. Connect your own provider any time.'
+			return "Using Zen's free models (experimental)."
 	}
 }
 

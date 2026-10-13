@@ -90,7 +90,7 @@ const JARGON = /HTTP|\b[45]\d\d\b|receipt|retained|usage receipt|<html|\{"error"
 
 flow(
 	"a first-timer is told to connect a provider, pastes a key in Settings and can then send",
-	{ noKey: true, rules: [{ match: /hello/i, steps: [{ text: "Scripted hello back." }] }] },
+	{ noKey: true, noPrefs: true, rules: [{ match: /hello/i, steps: [{ text: "Scripted hello back." }] }] },
 	async (w) => {
 		await openProject(w);
 		// With nothing connected Namzu starts on the free Zen models, so the box is ready at once:
@@ -104,14 +104,14 @@ flow(
 		await expect(send).toBeEnabled({ timeout: T });
 		await expect(send).not.toHaveAttribute("aria-disabled", "true");
 		await expect(
-			w.page.getByText("Using a free Zen model, so there is nothing to set up."),
+			w.page.getByText("Using Zen's free models (experimental)."),
 		).toBeVisible({ timeout: T });
 		assert.equal(w.model.requests.length, 0, "nothing was sent to a model");
 		await shots(w, "01-free-models-ready");
 
 		await openModels(w);
 		await expect(w.page.getByText("Not connected").first()).toBeVisible({ timeout: T });
-		await expect(w.page.getByText("Free models, no key needed. Limits may apply.")).toBeVisible();
+		await expect(w.page.getByText("Free models, experimental. Zen may refuse them.")).toBeVisible();
 		await shots(w, "02-models-section-before");
 
 		const add = w.page.getByRole("button", { name: "Add an API key for OpenAI", exact: true });

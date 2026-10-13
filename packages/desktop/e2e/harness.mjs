@@ -71,7 +71,7 @@ export async function createWorld(opts = {}) {
 		mkdirSync(dirname(join(dirs.project, name)), { recursive: true });
 		writeFileSync(join(dirs.project, name), body);
 	}
-	if (!existsSync(join(dirs.home, "preferences.json"))) {
+	if (!opts.noPrefs && !existsSync(join(dirs.home, "preferences.json"))) {
 		writeFileSync(
 			join(dirs.home, "preferences.json"),
 			JSON.stringify({

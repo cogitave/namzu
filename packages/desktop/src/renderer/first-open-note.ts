@@ -33,7 +33,7 @@ export function automaticChoiceNote(
 		case 'local':
 			return `Using ${product(picked.label)} running on this computer.`
 		case 'free':
-			return 'Using a free Zen model, so there is nothing to set up. You can connect your own provider in Settings.'
+			return "Using Zen's free models (experimental). You can connect your own provider in Settings."
 		default:
 			return undefined
 	}

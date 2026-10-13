@@ -176,7 +176,7 @@ describe('the sentence that says what was picked', () => {
 			'Using your Claude sign-in, found on this computer.',
 			'Using your OpenAI key, found on this computer.',
 			'Using Ollama running on this computer.',
-			'Using a free Zen model, so there is nothing to set up. Connect your own provider any time.',
+			"Using Zen's free models (experimental).",
 		])
 		for (const sentence of words) {
 			expect(sentence).not.toMatch(/OPENAI_API_KEY|space-bunny|11434|localhost|sk-/)

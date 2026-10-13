@@ -812,7 +812,7 @@ renderer API is `settings()`, `setSettings(patch)`, `desktopInfo()` and `openDat
 
 ## Connecting a provider
 
-Models work on first open, with nothing to set up. When the project connects, the CLI host looks at
+Models work on first open when something usable is found, and the free Zen models are experimental, so Zen may refuse them. When the project connects, the CLI host looks at
 the computer (`discoverProviders`, the same discovery the terminal app runs) and the window starts on
 the best thing it found, in this order when nothing is saved: a sign-in Namzu already reuses (see
 [Provider credentials](credentials.md)), then an API key in the environment, then a local server
@@ -822,8 +822,8 @@ terminal app offers them. A saved choice always wins over all of these. `namzu/p
 carries `via` on each provider (`sign-in`, `key`, `local` or `free`) and `selected.automatic` while
 the pick is Namzu's own; the composer then shows one quiet line under the box, in plain words and
 only while nothing was chosen: "Using your Codex sign-in, found on this computer.", "Using your
-OpenAI key, found on this computer.", "Using Ollama running on this computer." or "Using a free Zen
-model, so there is nothing to set up. You can connect your own provider in Settings." The keyless free
+OpenAI key, found on this computer.", "Using Ollama running on this computer." or "Using Zen's free
+models (experimental). You can connect your own provider in Settings." The keyless free
 models count as usable, so the starter ideas show and Send works at once; the automatic pick is never
 saved, so a key or sign-in added later wins on the next open.
 
@@ -832,7 +832,7 @@ API key or sign in to start** with one button, **Connect a provider**, which ope
 Models**. Send is visibly disabled (`aria-disabled`, so its tooltip "Connect a provider to send" can
 still be read) and it, like Enter in the message box, only moves focus to that card and sends
 nothing; the starter chips are hidden and the model trigger reads "No provider connected". In
-Settings ▸ Models the free tier is listed as "Free models, no key needed. Limits may apply." with
+Settings ▸ Models the free tier is listed as "Free models, experimental. Zen may refuse them." with
 **Add key** and **Get a free key** (opens opencode.ai/zen). Zen may decline a free request; see
 [What a failed reply says](#what-a-failed-reply-says).
 

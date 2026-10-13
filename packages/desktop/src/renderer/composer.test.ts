@@ -602,7 +602,7 @@ it('is ready on first open with only the free Zen models: no card, Send enabled,
 	expect(html).not.toContain('Connect a provider')
 	expect(button(html, 'Send message')).not.toMatch(/\bdisabled=/)
 	expect(button(html, 'Send message')).not.toMatch(/aria-disabled=/)
-	expect(html).toContain('Using a free Zen model, so there is nothing to set up.')
+	expect(html).toContain('Using Zen&#x27;s free models (experimental).')
 	expect(html).not.toContain('space-bunny-free</p>')
 })
 
