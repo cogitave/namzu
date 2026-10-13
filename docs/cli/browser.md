@@ -12,7 +12,7 @@ generated: { by: process:claude-code, at: 2026-09-23T00:00:00Z }
 
 In the interactive terminal the model has two browser tools: `browser`, which opens and reads pages, and `browser_act`, which clicks, types and fills forms. They drive a real browser on a profile namzu owns, with its own cookies, never your everyday profile. You sign in to a site once, in a visible window, and the agent reuses that sign-in. The model never signs in, never types a password or a one-time code, and never chooses the profile.
 
-The tools are the SDK's [browser tools](../sdk/browser-tools.md) over the [`@namzu/browser` host](../sdk/browser-host.md), which the CLI installs as a regular dependency. Nothing starts when namzu starts: the browser launches on the model's first browser call, and closes when the session ends (unless `browser.keepOpen`).
+The tools are the SDK's [browser tools](../sdk/browser-tools.md) over the [`@namzu/browser` host](../sdk/browser-host.md), which the CLI installs as a regular dependency. Nothing starts when namzu starts: the browser launches on the model's first browser call, and closes when the session ends (unless `browser.keepOpen`). When no browser engine can run here (for example `browser.headless: never` with no display), the two tools are mounted but not sent to the model, because every call would only be refused; they are sent once a profile switch finds a usable engine.
 
 `namzu exec`, `exec --json`, `drain`, `acp` and the resident step never get the browser: nobody is at a window there to sign in or to answer a review. A scheduled job gets one only through its own grant: see [Scheduled jobs](#scheduled-jobs).
 

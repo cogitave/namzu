@@ -120,12 +120,13 @@ const send = (palId: string, body: string) => ({
 })
 
 describe('a normal conversation and the owner’s Pals', () => {
-	it('always carries the two tools, and says nothing about Pals while there are none', async () => {
+	it('mounts the two tools but does not send them, and says nothing about Pals while there are none', async () => {
 		const { session, provider } = await conversation([{ text: 'No Pals here.' }])
 		expect(session.toolNames()).toEqual(expect.arrayContaining(['list_pals', 'send_pal_message']))
 		await run(session)
 		const offered = provider.requests[0]?.tools?.map((tool) => tool.function.name) ?? []
-		expect(offered).toEqual(expect.arrayContaining(['list_pals', 'send_pal_message']))
+		expect(offered).not.toContain('list_pals')
+		expect(offered).not.toContain('send_pal_message')
 		expect(systemText(provider)).not.toContain('Pals are the owner')
 		// A session of an owner without Pals leaves no Pal state behind.
 		expect(existsSync(join(home, 'pals'))).toBe(false)
@@ -271,6 +272,7 @@ describe('a normal conversation and the owner’s Pals', () => {
 	})
 
 	it('refuses an unknown Pal ID', async () => {
+		createPal({ name: 'Somebody else' })
 		const { session, provider } = await conversation([
 			{ toolCalls: [send('00000000-0000-4000-8000-000000000000', 'Nobody.')] },
 			{ text: 'No such Pal.' },
