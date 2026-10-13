@@ -1,9 +1,0 @@
----
-"@namzu/sdk": major
----
-
-Add an owner-conversation source to the shared Pal input ledger, so an ordinary conversation (not a Pal) can leave a message in a Pal's durable inbox. `PalOperatorMessageBroker` and `createPalOperatorMessagingTools` (`list_pals` and an always-approved `send_pal_message` that takes only `palId` and `body`) are new; the host fixes the tenant and the executing call supplies the conversation, so the model cannot choose or forge the sender, and the source carries no Pal address. Acceptance is a receipt, never delivery or an answer, and the existing Pal-to-Pal rows, route hashes, IDs and receipt namespaces are unchanged.
-
-Why this is a major release: the exported unions `PalIngressIntent`, `PalIngressInboxMessage`, `PalIngressRouteKey`, `PalIngressAuthorizationRequest` and the `acceptIngress`/`readIngress` results gain an `operator` member (`kind: 'operator'`, source `operator-conversation`), and `ingressMessageRef` can return the new `namzu-pal-operator/1` namespace. TypeScript code that narrows these unions with `kind === 'observation' ? … : <channel fields>` no longer compiles; handle `kind === 'operator'` (its source is `{ kind: 'operator-conversation', tenantId, sessionId }`) before reading channel fields. A custom `authorize` callback must also return a decision for an `operator` request: allow `accept` and `deliver` only for a host that has already shown the owner a review, and refuse `wake` unless the owner started the Pal. The public `RuntimeContextMessageKind` union is not widened: a delivery is recorded as `peer-message`, and its rendered envelope names the owner's conversation and says it is untrusted context, not an approval.
-
-An older SDK process sharing a communication store that holds an owner-conversation message fails to read that recipient's record rather than overwriting it; stop older processes before sharing the path.

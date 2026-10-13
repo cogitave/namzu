@@ -1,5 +1,279 @@
 # @namzu/sandbox
 
+## 25.0.0
+
+### Major Changes
+
+- c82b951: Change the local Pal provider's default foreground ownership from strict command
+  lifetime to computer lifetime. Rebuild the shipped local-computer image from this
+  release to use the new default. To retain the previous behavior and continue using
+  an existing strict image, set `normalExitPolicy: 'strict'` when calling
+  `createLocalVirtualComputerProvider`. A successful
+  foreground launcher can leave Blender or another application open without retiring
+  the entire computer; the application remains owned by that guest allocation until
+  the computer stops. An authenticated execution-reservation acknowledgment prevents
+  an upgraded host from silently admitting this policy against an older image.
+
+  Generic workers and registered background jobs retain strict process ownership.
+  Failed launchers and timed-out or cancelled commands cannot transfer live descendants;
+  if termination cannot be confirmed, the worker retires the allocation.
+  A completed launcher does not claim its surviving application has terminated.
+
+  CLI Pal computers use the same new default. Set
+  `NAMZU_PAL_COMPUTER_NORMAL_EXIT_POLICY=strict` before starting the CLI or desktop
+  host to retain their previous command lifetime and use an older strict image.
+
+- 7f5ac50: Update the bundled local Pal computer's normal Blender launcher from the
+  distribution Blender 3.4 to checksum-pinned Blender 5.2.2 LTS and its Godot
+  launcher from Godot 3.2 to checksum-pinned Godot 4.7.2. Godot 3 projects must be
+  converted and tested before opening with the new default. Preserve the original
+  project and use `/usr/bin/godot3` for explicit legacy work; `/usr/bin/blender`
+  also remains available. A custom older image retains its own application versions.
+
+  Normal Godot launches use the guest's OpenGL compatibility renderer. Blender MCP
+  startup addon update checks and telemetry are disabled for guest launches. These
+  settings do not install a server or addon automatically. Rebuild the local image
+  explicitly, then stop and reopen an idle Pal computer to select it; rebuilding a
+  tag does not replace a running allocation or change saved guest files.
+
+### Minor Changes
+
+- 7f5ac50: Add optional `MCPClientConfig.transportFactory` for caller-owned transports,
+  preserving built-in transport configurations and the existing MCP protocol
+  lifecycle without launching a host subprocess as fallback.
+
+  Add optional `Sandbox.openStdio` with allocation-owned interactive guest pipes,
+  byte streaming, confirmed process-group shutdown and explicit per-request device
+  operation barriers. Idle services permit operator takeover; an unknown issued
+  application operation permanently fences the allocation until computer stop and
+  cannot be cleared by a late response or closing an external application's MCP
+  server. The local Pal worker must be rebuilt alongside the runtime to advertise
+  interactive support. Older workers refuse this capability before spawning;
+  ordinary foreground, background, file and desktop APIs remain available.
+
+  Keep quiet interactive services alive with bounded worker heartbeat frames,
+  discarded by the matching runtime before application output and without
+  changing request ownership or uncertain-effect barriers. Rebuild the worker
+  and load the matching runtime together for the interactive protocol.
+
+- 0f5aa96: Ready-computer Pal prompts now default to general application work guidance:
+  understand references and acceptance criteria, make reversible changes,
+  observe and correct the actual result, and validate saved files and requested
+  exports before delivery. SDK hosts that need the previous prompt behavior can
+  pass `workGuidance: 'basic'` to `buildPalSystemPrompt`. This guidance shapes
+  model behavior; it does not certify semantic correctness.
+
+  The SDK `read` tool now refuses real PNG, JPEG and WebP bytes as text. Mount
+  the optional `view_image` / `createViewImageTool` for saved-image inspection,
+  or use a format-aware binary reader when pixels are not the desired result.
+  `getBuiltinTools()` retains its previous tool roster. Saved artifact images
+  provide no GUI screenshot authority.
+
+  The CLI and desktop Pal runtime now explicitly mount `view_image` and
+  `import_reference_images`. Image import is a reviewed file-write operation
+  using only the current operator input and admitted guest. Original image
+  bytes and manifests survive durable review; current plan, pause and control
+  guards remain in force. Ordinary chat and unavailable-computer sessions do
+  not acquire guest tool access.
+
+  The local Pal sandbox adds authenticated, acknowledged bounded byte reads.
+  Rebuild the local Pal image from this release to inspect saved images; an
+  older worker fails explicitly before file contents are requested. Existing
+  whole-file requests and generic worker defaults are unchanged.
+
+  The Pal image also includes the standard `file` utility for format checks.
+  This reports file type; it does not establish application or visual quality.
+
+- 2d5d18d: The Pal computer image is built in two stages. `local-computer/Dockerfile` now has `base` (the light computer: desktop, Chromium with the Namzu New Tab page, Terminal, Files, Text Editor and the guest worker, about 1.2 GB) and `creative` (built FROM `base`, adding Blender, GIMP, Inkscape, FreeCAD, KiCad and the other heavy applications). Building the Dockerfile without `--target` still produces the last stage, the same full image as before, so existing build commands are unaffected; pass `--target base` for the light one. Each stage lists on the home page, and checks at build time, only the applications it installed (`app-catalog.cjs` tags every application with its stage and `prepare-home.cjs --stage` records the built stage in `/opt/namzu-computer/stage`). The guest browser no longer shows a "Sign in to Chromium?" button (a managed policy turns browser sign-in, sync and promotions off), the Terminal tile on the home page uses the dock's terminal icon, and setuid and setgid bits are stripped from the image because nothing in the guest needs them.
+
+  `local-computer/build-image.mjs` builds one stage with a chosen engine binary (`docker`, `podman` or `wslc`), saves it, compresses it (zstd by default; xz, gzip or plain tar also load directly with `wslc load -i`) and writes a `manifest.json` (`revision`, `stage`, `imageRef`, `imageId`, `protocol`, `file`, `sha256`, `tarSha256`, `sizeBytes`, `compressedBytes`, `format`) that the Windows installer carries beside the archive.
+
+  The default image reference of the provider is unchanged: `LOCAL_COMPUTER_IMAGE` is still `namzu-local-computer:1`, the full image. The light base is tagged `namzu-local-computer:2`; a caller that wants it (the desktop app, from the image bundled in its installer) passes `image: 'namzu-local-computer:2'`. Nothing is renamed or removed.
+
+- 81d1721: The optional local computer image now includes 15 real application launchers,
+  including Blender, FreeCAD, GIMP, Inkscape and LibreOffice Draw. Normal Chromium
+  home and new tabs use the bundled Namzu New Tab page with a blank omnibox;
+  navigated sites retain their normal address bar. Launchers use a guest-only
+  native messaging host with a fixed extension origin and fixed application commands.
+  The image activates its bundled New Tab extension and waits for its own startup
+  tab to become ready, without rewriting browser policies or the saved profile.
+  Application launches discard Chromium's disabled D-Bus session address.
+  Kdenlive includes its video effects and uses a virtual audio driver so its editor
+  can start without a host sound device.
+
+  Rebuild the optional local image and restart the owning computer to use the new
+  applications and New Tab page. Existing running images are unchanged, and the
+  persistent home volume and browser profile are retained. The bundled Godot is
+  Debian's Godot 3; no unavailable reference apps are advertised.
+
+- ce52b90: Add optional host-only `PalComputerScreenStream`, `PalEnvironmentLease.screenStream`
+  and `PalRuntime.computerScreenStream(palId, generation)` for observing an exact
+  current Pal computer over read-only RFB. Existing providers remain compatible;
+  providers without the optional capability explicitly refuse live observation.
+  Keep allocation authorization private in the embedding host and enforce read-only
+  observation server-side; the stream does not grant operator input authority.
+
+  The CLI exposes the owning desktop ACP stream method with geometry and generation
+  rechecks, and reuses initialized registry roots to avoid repeated Windows ACL
+  subprocesses while retaining fresh Pal definitions and directory identity checks.
+  The local computer image adds x11vnc and authenticated binary WebSocket transport.
+  Rebuild the installed image explicitly and restart the owning computer to enable
+  live observation; older images retain screenshot/input behavior and advertise no
+  stream capability. Persistent workspace and browser profile volumes survive.
+
+  The guest desktop includes a themed wallpaper, a real dock, Files, terminal and
+  browser launchers, plus a local browser home page. Normal browser-window closure
+  keeps the desktop alive; owned profile shutdown retains browser flush ordering.
+
+- 84a9472: Add optional exclusive operator control to local Pal computer leases. Hosts can
+  transfer an idle guest desktop to human mouse/keyboard input while all agent
+  sandbox and desktop mutation calls are fenced, then return control without
+  starting a query. Pending work refuses transfer; unknown input or file-write
+  outcomes require stopping the owned computer. A fresh agent screen capture is
+  required after returning control. This local container boundary does not hide
+  same-user guest files or credentials from arbitrary Pal commands.
+- f7f48f9: Add `createLocalVirtualComputerProvider` for SDK Pals. Each Pal receives its own local Linux container desktop, visible Chromium browser, terminal command and file access, guest background processes with confirmed tree cancellation, and a persistent private volume. The provider requires an explicitly installed local Docker engine (the unchanged default) or an explicitly selected registered Windows WSL Podman machine, and a prebuilt Namzu computer image; it refuses remote engines and never installs, builds, or pulls images automatically. This is container isolation with a shared kernel, rather than a dedicated virtual machine. The Podman adapter verifies the local machine and pins owned loopback SSH forwards without changing machine settings or default connections; it has no per-container CPU, memory, or PID quota. Native Podman commands use a validated Windows profile directory even when an SDK caller starts in a WSL UNC directory. Custom command runners receive an optional `cwd` and must honor it. Graceful lease shutdown flushes Chromium's persistent profile before removing the guest. Existing sandbox providers remain available.
+- 4367edc: Add opt-in held keyboard input for a Pal's operator-controlled guest. Providers
+  advertise `heldKeyboard: true` only after negotiating the owned guest's support;
+  `PalComputerInput` then accepts session-scoped `key_down`, `key_up` and
+  `release_keys`. Providers must release their tracked held keys before confirming
+  returned Pal authority. Existing complete `key` taps and AI `computer_use`
+  actions keep their behavior, and older local images do not advertise holds.
+
+  The desktop captures a new keyboard lifetime for each focus session, forwards
+  press and release events without replaying browser key repeats, and releases
+  only that lifetime on focus/view loss. Cleanup retains exact Pal/generation and
+  operator authority checks and cannot release another lifetime's keys. Rebuild
+  the local Pal image to enable this capability; a runtime update alone retains
+  the older image's tap input.
+
+- ad2273f: `@namzu/sandbox/local-virtual-computer/setup` gains the pieces that need Windows' permission: `runElevatedWslcSteps` turns on Virtual Machine Platform (and, on Windows 10, the WSL optional component) and installs the pinned WSL package in one elevated Windows PowerShell process, so a plan shows Windows' permission prompt at most once; `PINNED_WSL_PACKAGE` names Microsoft's WSL 3.0.1.0 x64 package with its size and SHA-256; `downloadWslPackage` fetches it with resume, retry and a digest check; `registerResumeAtSignIn` and `clearResumeAtSignIn` ask Windows to continue setup once at the next sign-in. Nothing existing changes. These functions did not work before this release (they threw "not implemented yet"), so no caller relies on an earlier behaviour.
+- f9f672b: Add the Windows Pal computer setup core under `@namzu/sandbox/local-virtual-computer/setup`: `inspectWslcReadiness` (reads policy, Virtual Machine Platform, WSL and wslc versions and the loaded image without starting a virtual machine unless `probeSession` is set), `planWslcSetup`, `runWslcSetup` (refuses a consent whose plan no longer matches the PC), `loadWslcImage` (checks the bundled archive's size and SHA-256 and the loaded image's id and protocol before recording it), `stopIdleWslcSession` and the restart record. Nothing existing changes; the download of the WSL package, the elevated process and the sign-in resume entry arrive separately.
+- fc86c05: The local Pal computer provider accepts a third engine, `engine: 'wslc'`, for Windows' own container CLI, with an optional `wslcBinary` path. Nothing changes for Docker and Podman: their command lines are byte for byte as before, and `wslc` is never chosen unless you ask for it.
+
+  wslc cannot take `--cap-drop`, `--security-opt`, `--read-only` or `--ipc`, so a computer on this engine runs without those four controls; its boundary is the per-user virtual machine and the unprivileged guest user. Keep using Docker or Podman for a Pal that runs code you do not trust.
+
+  `LocalComputerSetupError` is now exported and carries an optional `code` (`engine-missing`, `engine-too-old`, `virtualization-off`, `blocked-by-policy`, `image-missing`, `sdk-mismatch`) so an application can react without parsing the message. `EngineDialect` and `LocalComputerSetupCode` are exported as types. No existing export changes.
+
+  Each readiness probe of a starting local Pal computer now times out after 3 seconds and is retried inside the startup deadline, so a published port that accepts a connection and never answers no longer stalls startup. On wslc, an image check that fails for a reason other than a missing image is reported as itself rather than as "not set up".
+
+### Patch Changes
+
+- a5dbeb2: Remove Chromium's separate stock New Tab footer and its Customize Chromium
+  button from the local Pal browser home. The guest-only launcher disables
+  `NtpFooter`; the native blank home omnibox, installed application launchers,
+  normal website address bars and existing browser profile are preserved.
+  The home header uses the same block-letter wordmark as the desktop and CLI,
+  bundled as font-independent SVG geometry.
+
+  Rebuild the installed local computer image and restart its owning computer to
+  apply the change. Running containers keep their previous image; the persistent
+  workspace and browser profile volume survives the restart.
+
+- 4367498: Setting up a Pal computer on Windows now names the step Windows is actually working on. While Windows asks for permission and turns Windows features on, the row reads "Turning on Windows features…" instead of "Installing Linux support…"; the next step is shown only once the elevated script reaches it. `runWslcSetup` announces just the first elevated step before the elevated call and reports every elevated step, in order, when the call ends, so a progress listener sees each step start and finish once.
+
+  A setup step that Windows could not finish now has a Details line that says which step stopped and with which exit code ("Turning on Windows features stopped with exit code 1."), or that it did not finish when Windows gave no code, instead of repeating the main sentence. The `detail` text of a `failed` result from an elevated step changes accordingly; match on `code`, `step` and `exitCode` rather than on the text.
+
+  Namzu Desktop no longer says the same thing twice. A failed setup, a setup that needs an administrator and a setup waiting for a restart are toasted only when the Pal computer row is not on screen saying it already.
+
+- 42ef5e4: Harden the Windows Pal computer setup (`@namzu/sandbox/local-virtual-computer/setup`).
+  Every readiness probe now has its own time limit and a stuck one no longer hangs
+  `inspectWslcReadiness`: it becomes an unknown fact, or a `LocalComputerSetupError`
+  with a plain message when the state cannot be decided. An unexpected `wslc` failure
+  during a session probe is now that error instead of `image-missing`. A PC that has
+  not restarted since Virtual Machine Platform was turned on reads `restart-pending`
+  (not `virtualization-off`), and an unreadable restart record reads `restart-pending`.
+  The processor type comes from the PC, wslc is found under `ProgramW6432`, and the
+  image-load estimate is shorter. `WslcSetupHost` gains `keyExists`; implement it if
+  you pass a complete host (a partial `host` override is unaffected). A failed
+  `runWslcSetup` result may carry `exitCode`, and its `detail` no longer includes the
+  number. `LocalCommandError` gains an optional `exitCode`, and the provider's
+  `probe()` returns `setupCode` beside `reason`. The engine-missing message now reads
+  "Linux container support is not installed on this PC." (it no longer names wslc);
+  match on `code`, not on the text.
+
+  A registry key that Windows would not let the setup read is no longer taken for one that is not there. That applies to the sign-in resume entry and to the pending-restart markers, so a PC that only needs a restart is no longer told its virtualization is off. An unreadable restart record now ends with the next restart instead of never. With a session probe, the pending-restart markers are not consulted and `0x80370102` stays `virtualization-off`. The Pal computer probe reports a setup code only for a setup failure.
+
+  A registry key whose parent is also absent is now reported absent instead of unknown, so a PC with virtualization off and no Windows Update key reaches `virtualization-off`. A policy read that times out is "could not check" rather than "not set". A bare `wslc` exit is read as a missing image only for status 1. The leading "Windows " is dropped from the Linux container support messages (engine-missing, engine-too-old and the catch-all); match on `code`, not on the text.
+
+- 9d422c6: `runWslcSetup` now answers `{ outcome: 'ready' }` and records the image when the plan it was asked to run is gone only because the PC is already ready (the image was loaded before any record existed). It used to answer `plan-changed` and leave the record unwritten, so the next `inspectWslcReadiness` without a session probe still said `image-missing`. A caller that treated `plan-changed` as the only answer for that case now also sees `ready`; any other changed plan still answers `plan-changed`.
+- eddf7aa: A Windows restart record that cannot be read and has no readable file date no
+  longer makes the readiness inspection throw `LocalComputerSetupError`. The
+  inspection now reports `restart-pending` with no `restart` field and no
+  remaining steps. Callers that caught that error to show "delete restart.json"
+  now receive a normal readiness result.
+- a2a4b17: In a Kubernetes terminal, keystrokes typed right after a resize now reach the program after the new window size does. Before, the resize was applied by a separate process that could finish after the input was written, so a command such as `stty size`, or a full-screen program's first redraw, could report the old size, depending only on how busy the pod was. Input sent while no resize is pending is written immediately, as before.
+
+  A resize that cannot be applied (the `stty` fails, or has not finished after 2 seconds) no longer holds typing back: the keystrokes queued behind it are written once it fails or the 2 seconds pass, so a stuck resize delays input by at most that long.
+
+- Updated dependencies [dd7ee4b]
+- Updated dependencies [4314f90]
+- Updated dependencies [b8852a1]
+- Updated dependencies [7f5ac50]
+- Updated dependencies [7f5ac50]
+- Updated dependencies [56d88dc]
+- Updated dependencies [3727e2b]
+- Updated dependencies [1af4531]
+- Updated dependencies [efb7b06]
+- Updated dependencies [84452ec]
+- Updated dependencies [53aed2a]
+- Updated dependencies [6194bda]
+- Updated dependencies [301f5b3]
+- Updated dependencies [6194bda]
+- Updated dependencies [56d88dc]
+- Updated dependencies [f7f48f9]
+- Updated dependencies [9ef6506]
+- Updated dependencies [56e846c]
+- Updated dependencies [2057fd6]
+- Updated dependencies [c8613e0]
+- Updated dependencies [6f46da3]
+- Updated dependencies [be9f8b6]
+- Updated dependencies [c1027fb]
+- Updated dependencies [24cb6b4]
+- Updated dependencies [b6ea5ca]
+- Updated dependencies [bb0ad2e]
+- Updated dependencies [d5030ca]
+- Updated dependencies [7f5ac50]
+- Updated dependencies [7473449]
+- Updated dependencies [6194bda]
+- Updated dependencies [6f46da3]
+- Updated dependencies [f4b7d1d]
+- Updated dependencies [6ff961f]
+- Updated dependencies [023224a]
+- Updated dependencies [56d88dc]
+- Updated dependencies [7f5ac50]
+- Updated dependencies [6f46da3]
+- Updated dependencies [5e2fb3a]
+- Updated dependencies [0f5aa96]
+- Updated dependencies [84a9472]
+- Updated dependencies [c1027fb]
+- Updated dependencies [d8d562e]
+- Updated dependencies [53aed2a]
+- Updated dependencies [ce52b90]
+- Updated dependencies [815433f]
+- Updated dependencies [4367edc]
+- Updated dependencies [6ff961f]
+- Updated dependencies [6f46da3]
+- Updated dependencies [f7f48f9]
+- Updated dependencies [846557b]
+- Updated dependencies [56d88dc]
+- Updated dependencies [53aed2a]
+- Updated dependencies [12b5af9]
+- Updated dependencies [e447a47]
+- Updated dependencies [093d657]
+- Updated dependencies [57c99b2]
+- Updated dependencies [c590142]
+- Updated dependencies [1fa60b9]
+- Updated dependencies [f0aeb9b]
+- Updated dependencies [5a0a1f7]
+- Updated dependencies [3727e2b]
+- Updated dependencies [e447a47]
+- Updated dependencies [56d88dc]
+- Updated dependencies [98e8469]
+- Updated dependencies [bebe135]
+- Updated dependencies [f7f48f9]
+  - @namzu/sdk@50.0.0
+
 ## 24.0.0
 
 ### Patch Changes
