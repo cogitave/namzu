@@ -25,7 +25,7 @@ generated: { by: human:bahadirarda, at: 2026-10-13T00:00:00Z }
 <a href="LICENSE.md"><img alt="License: FSL-1.1-MIT or MIT" src="https://img.shields.io/badge/license-FSL--1.1--MIT%20%7C%20MIT-blue.svg?style=flat-square"></a>
 <a href="https://www.npmjs.com/package/@namzu/cli"><img alt="npm @namzu/cli" src="https://img.shields.io/npm/v/@namzu/cli.svg?label=%40namzu%2Fcli&style=flat-square"></a>
 <a href="https://www.npmjs.com/package/@namzu/sdk"><img alt="npm @namzu/sdk" src="https://img.shields.io/npm/v/@namzu/sdk.svg?label=%40namzu%2Fsdk&style=flat-square"></a>
-<a href="https://github.com/cogitave/namzu/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/cogitave/namzu/actions/workflows/ci.yml/badge.svg"></a>
+<a href="https://github.com/cogitave/namzu/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/cogitave/namzu/ci.yml?branch=main&label=CI&style=flat-square"></a>
 </p>
 
 [Desktop](#what-namzu-desktop-does) · [Terminal](#install-the-terminal-agent) · [Pals](#pals) · [For developers](#for-developers) · [Docs](#docs)
@@ -41,14 +41,14 @@ generated: { by: human:bahadirarda, at: 2026-10-13T00:00:00Z }
   <img alt="Namzu Desktop showing a conversation about a rounding bug, with the changed file beside it" src="docs/assets/desktop-hero-light.png" width="100%">
 </picture>
 
-**Namzu Desktop**: Windows app.<br>**[Download for Windows](https://github.com/cogitave/namzu/releases/tag/desktop-latest)**
+**Namzu Desktop** · Windows<br>**[Download for Windows](https://github.com/cogitave/namzu/releases/tag/desktop-latest)**
 
 </td>
 <td width="50%" valign="top" align="center">
 
 <img alt="Namzu in a terminal asking for approval before it edits a file" src="docs/assets/terminal-hero.png" width="100%">
 
-**Namzu Terminal**: macOS, Linux, WSL, Windows.<br>**[Install the terminal agent](#install-the-terminal-agent)**
+**Namzu Terminal** · macOS, Linux, Windows<br>**[Install the terminal agent](#install-the-terminal-agent)**
 
 </td>
 </tr>
@@ -58,35 +58,7 @@ Namzu keeps its records on your machine, and the terminal agent can keep working
 
 ## What Namzu Desktop does
 
-A Windows app. Conversations, projects, Pals and approvals in windows of their own.
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/desktop-hero-dark.png">
-  <img alt="Namzu Desktop showing a conversation about a rounding bug, with the changed file beside it" src="docs/assets/desktop-hero-light.png" width="100%">
-</picture>
-
-**[Download for Windows](https://github.com/cogitave/namzu/releases/tag/desktop-latest)**
-
-</td>
-<td width="50%" valign="top" align="center">
-
-### Namzu in your terminal
-
-macOS, Linux, WSL and Windows. A coding agent for the project you are in.
-
-<img alt="Namzu in a terminal asking for approval before it edits a file" src="docs/assets/terminal-hero.png" width="100%">
-
-**[Install the terminal agent](#install-the-terminal-agent)**
-
-</td>
-</tr>
-</table>
-
-<p align="center"><sub>Same runtime in both. Desktop is an unsigned preview for Windows today; everywhere else, start with the terminal agent.</sub></p>
-
-## What Namzu Desktop does
-
-Namzu Desktop puts your conversations, projects, Pals (named agents, see below), terminal tabs and approvals in windows of their own. It runs on the same runtime as the terminal agent, so folder trust, model choice and background work behave the same in both.
+Namzu Desktop puts your conversations, projects, Pals (named agents, see below), terminal tabs and approvals in windows of their own. It runs on the same runtime as the terminal agent, so folder trust, model choice and approvals behave the same in both.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/desktop-approval-dark.png">
