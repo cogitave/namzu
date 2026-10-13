@@ -151,10 +151,11 @@ console.log(identity)
 ```
 
 The turn ran through the normal lifecycle: budgets, the tool scheduler and the
-session log. Spread `identity` into the next `runAgent` call to continue the
-same session. To give the agent tools, and to swap in a real provider, see the
+session log. To continue the same session, spread `identity` into the next
+`runAgent` call and pass the earlier `turn.messages`; identity alone does not
+load history. To give the agent tools, and to swap in a real provider, see the
 [SDK quick start](docs/sdk/quick-start.md) and the
-[tool example in the SDK README](packages/sdk/README.md#run-a-tool).
+[tool example in the SDK README](packages/sdk/README.md#give-the-agent-a-tool).
 
 ### What the kernel does for you
 
