@@ -124,9 +124,33 @@ directory by default), with `WSL_DISTRO_NAME`, `WSL_INTEROP` and `CI` unset and
 directory is a link to one shared folder, as a person's cache outlives a launch;
 `--cold-cache` gives every run an empty one. Options: `--runs N`, `--build
 <bin.js>` (compare two builds), `--only version,help,tui,exec`, `--out
-<file.json>`. The interactive screen needs `node-pty` from `@namzu/cli`. Each
+<file.json>`, `--models-delay <ms>` (hold the fake server's `GET /models` back that
+long, to show that nothing waits for it). The interactive screen needs `node-pty` from `@namzu/cli`. Each
 metric is reported as median and range over the runs, after one warm-up run.
 Nothing in CI runs it yet.
+
+### The model list does not hold the composer
+
+The terminal opens its composer as soon as the saved or automatic model is
+known. A provider that cannot name a model's reasoning-effort levels from what
+it already knows (most gateways and local servers) is asked for its model
+listing, and that round trip used to sit between the first frame and a usable
+composer. Now the session opens on the chosen model at once; the listing is
+fetched in the background and the effort menu appears when it arrives. A message
+sent before then goes to the chosen model with the provider's default effort. If
+the listing fails, the effort menu simply does not appear; sending is
+unaffected. `/model` reads its own listing when opened and says plainly when it
+cannot. `namzu exec` and the ACP host (Desktop) still wait, because they publish
+the effort levels in their first answer.
+
+Terminal ready with the fake server's `/models` delayed (median of 7, quiet
+machine):
+
+| `/models` delay | Before | After |
+|---|---|---|
+| 0 ms | 678 ms | 678 ms |
+| 300 ms | 973 ms | 696 ms |
+| 1,000 ms | 1,734 ms | 716 ms |
 
 ### Reference numbers
 
