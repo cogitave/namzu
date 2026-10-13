@@ -4,7 +4,7 @@ title: Namzu
 description: >-
   Namzu Desktop for Windows, a terminal AI agent you can use on real
   projects, and the open TypeScript SDK they are built on. It asks before it
-  acts, keeps its records on your machine, and can run jobs while you are away. The SDK and most packages are
+  acts, keeps its records on your machine, and, in the terminal agent, can run jobs while you are away. The SDK and most packages are
   FSL-1.1-MIT, converting to MIT two years after each release; the terminal app
   and the files package are MIT.
 tags: [readme, index, typescript, agent-kernel]
@@ -19,7 +19,7 @@ generated: { by: human:bahadirarda, at: 2026-10-13T00:00:00Z }
   <img alt="Namzu" src="docs/assets/namzu-wordmark-light.svg" width="280">
 </picture>
 
-### An AI agent that asks before it acts, keeps its records on your machine, and works while you are away. On the desktop and in your terminal.
+### An AI agent that asks before it acts. On your desktop and in your terminal.
 
 <p>
 <a href="LICENSE.md"><img alt="License: FSL-1.1-MIT or MIT" src="https://img.shields.io/badge/license-FSL--1.1--MIT%20%7C%20MIT-blue.svg?style=flat-square"></a>
@@ -28,7 +28,7 @@ generated: { by: human:bahadirarda, at: 2026-10-13T00:00:00Z }
 <a href="https://github.com/cogitave/namzu/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/cogitave/namzu/actions/workflows/ci.yml/badge.svg"></a>
 </p>
 
-[Desktop](#what-namzu-desktop-does) · [Terminal](#install-the-terminal-agent) · [Pals](#pals) · [For developers](#for-developers) · [Docs](#docs) · [Status](#status)
+[Desktop](#what-namzu-desktop-does) · [Terminal](#install-the-terminal-agent) · [Pals](#pals) · [For developers](#for-developers) · [Docs](#docs)
 
 </div>
 
@@ -36,7 +36,27 @@ generated: { by: human:bahadirarda, at: 2026-10-13T00:00:00Z }
 <tr>
 <td width="50%" valign="top" align="center">
 
-### What Namzu Desktop does
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/desktop-hero-dark.png">
+  <img alt="Namzu Desktop showing a conversation about a rounding bug, with the changed file beside it" src="docs/assets/desktop-hero-light.png" width="100%">
+</picture>
+
+**Namzu Desktop**: Windows app.<br>**[Download for Windows](https://github.com/cogitave/namzu/releases/tag/desktop-latest)**
+
+</td>
+<td width="50%" valign="top" align="center">
+
+<img alt="Namzu in a terminal asking for approval before it edits a file" src="docs/assets/terminal-hero.png" width="100%">
+
+**Namzu Terminal**: macOS, Linux, WSL, Windows.<br>**[Install the terminal agent](#install-the-terminal-agent)**
+
+</td>
+</tr>
+</table>
+
+Namzu keeps its records on your machine, and the terminal agent can keep working while you are away. Both run on the same runtime. Desktop is an unsigned preview for Windows today; everywhere else, start with the terminal agent.
+
+## What Namzu Desktop does
 
 A Windows app. Conversations, projects, Pals and approvals in windows of their own.
 
@@ -70,38 +90,28 @@ Namzu Desktop puts your conversations, projects, Pals (named agents, see below),
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/desktop-approval-dark.png">
-  <img alt="Namzu Desktop asking whether to edit a file, with the change shown and Reject and Accept buttons" src="docs/assets/desktop-approval-light.png" width="100%">
+  <img alt="Namzu Desktop asking whether to edit a file, with the change shown and Reject and Accept buttons" src="docs/assets/desktop-approval-light.png" width="780">
 </picture>
 
 Before it changes a file, Namzu shows the change and waits for your answer. Accept it, reject it, or tell Namzu what to do instead.
 
 <table>
 <tr>
-<td width="33%" valign="top">
+<td width="50%" valign="top">
 
 **Asks before it acts**<br>A path outside your folder becomes an approval request.
 
 </td>
-<td width="33%" valign="top">
+<td width="50%" valign="top">
 
 **Undo a turn**<br>A change Namzu made can be taken back.
-
-</td>
-<td width="33%" valign="top">
-
-**Your records stay yours**<br>Sessions live on your machine.
 
 </td>
 </tr>
 <tr>
 <td valign="top">
 
-**Works while you are away**<br>Scheduled tasks run with approvals and a history.
-
-</td>
-<td valign="top">
-
-**Drives a browser**<br>It hands over when a page needs a person.
+**Your records stay yours**<br>Sessions live on your machine.
 
 </td>
 <td valign="top">
@@ -110,33 +120,34 @@ Before it changes a file, Namzu shows the change and waits for your answer. Acce
 
 </td>
 </tr>
+<tr>
+<td valign="top">
+
+**Remembers what it learns**<br>Notes you curate are read into every conversation.
+
+</td>
+<td valign="top">
+
+**Drives a browser**<br>A Pal's own computer has a browser, and you can take over.
+
+</td>
+</tr>
 </table>
 
 ### A computer for each Pal
 
-<table>
-<tr>
-<td width="40%" valign="middle">
-
 A Pal can have its own Linux desktop, a guest computer with a browser and a files app. You see what it is doing, you can pause it at any time, and you can take over. [Pal computers](docs/cli/computer.md)
-
-</td>
-<td width="60%" valign="middle">
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/desktop-pal-computer-dark.png">
   <img alt="A Pal's own computer in Namzu Desktop, with a browser open and a Take over button" src="docs/assets/desktop-pal-computer-light.png" width="100%">
 </picture>
 
-</td>
-</tr>
-</table>
-
 ### Download Namzu Desktop
 
 | Platform | Namzu Desktop |
 |---|---|
-| Windows 10 or 11 (64-bit) | [Preview download](https://github.com/cogitave/namzu/releases/tag/desktop-latest) |
+| Windows 10 or 11 (64-bit) | **[Preview download](https://github.com/cogitave/namzu/releases/tag/desktop-latest)** |
 | macOS | Not yet. Use the [terminal agent](#install-the-terminal-agent). |
 | Linux | Not yet. Use the [terminal agent](#install-the-terminal-agent). |
 
@@ -164,8 +175,6 @@ irm https://raw.githubusercontent.com/cogitave/namzu/main/install.ps1 | iex
 ```
 
 Then run `namzu doctor` to check your sign-in and sandboxing, and `namzu` to open the terminal app. You need Node.js 22.13 or newer, and `curl` for the first command (on a minimal Debian or Ubuntu, `wget -qO- <url> | sh` does the same, with the same URL). Every shell, and what to do when an install fails, is covered in [installing Namzu](docs/cli/installation.md).
-
-![Namzu terminal app greeting in a demonstration folder](docs/assets/cli-greeting.png)
 
 ### What the terminal agent does
 
