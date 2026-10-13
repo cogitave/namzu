@@ -1,6 +1,7 @@
 import { getModelCapabilities as getMessagesCapabilities } from '@ai-sdk/anthropic/internal'
 import type { LanguageModelV3CallOptions, SharedV3ProviderOptions } from '@ai-sdk/provider'
 import { type ChatCompletionParams, ProviderRequestError, type ProviderRoute } from '@namzu/sdk'
+import { ZEN_FREE_TIER_TOOL_NAMES } from './experimental-identity.js'
 import type { ZenModel, ZenProtocol, ZenService } from './models.js'
 import { isMuseSparkResponsesModel, toModelPrompt } from './prompt.js'
 
@@ -311,5 +312,85 @@ export function createCallOptions(
 				}
 			: {}),
 		providerOptions: options,
+	}
+}
+
+/**
+ * The tool definitions the Zen free-tier gate requires on the wire.
+ *
+ * The gate admits a request only when its `tools` carry all four of `bash`,
+ * `glob`, `grep` and `read`, so a caller that registers none of them — a text
+ * turn, or an agent whose tools happen to use other names — would be refused
+ * before the model ever saw the prompt. These are the gap-fillers, and only
+ * the gaps: a name the caller already registered keeps its own definition,
+ * description and schema untouched.
+ */
+function zenFreeTierTools(): readonly NonNullable<LanguageModelV3CallOptions['tools']>[number][] {
+	return ZEN_FREE_TIER_TOOL_NAMES.map((name) => ({
+		type: 'function' as const,
+		name,
+		description:
+			name === 'bash'
+				? 'Execute a shell command and return its standard output and error.'
+				: name === 'glob'
+					? 'List filesystem paths matching a glob pattern.'
+					: name === 'grep'
+						? 'Search file contents for a regular expression and return the matches.'
+						: 'Read a UTF-8 text file and return its contents.',
+		inputSchema: {
+			type: 'object' as const,
+			properties:
+				name === 'bash'
+					? { command: { type: 'string' as const, description: 'The shell command to run.' } }
+					: name === 'glob'
+						? { pattern: { type: 'string' as const, description: 'The glob pattern to match.' } }
+						: name === 'grep'
+							? {
+									pattern: {
+										type: 'string' as const,
+										description: 'The regular expression to search for.',
+									},
+								}
+							: { path: { type: 'string' as const, description: 'The file to read.' } },
+			required: [
+				name === 'bash'
+					? 'command'
+					: name === 'glob'
+						? 'pattern'
+						: name === 'grep'
+							? 'pattern'
+							: 'path',
+			],
+		},
+	}))
+}
+
+/**
+ * Admit an anonymous Zen request through the free-tier gate.
+ *
+ * `enabled` is the gate path — anonymous access on the official host. When a
+ * caller registered no tool at all, the injected names also pin tool choice to
+ * `none`: the four names are present because the gate reads them, and the
+ * model is still told not to call any of them, so a turn that never asked for
+ * tools never receives one it cannot execute. `honoursNone` is false on a wire
+ * that rejects the choice — Muse Spark's Answers endpoint accepts only
+ * `auto` — where the tools travel without a choice and the kernel's ordinary
+ * unknown-tool answer covers a call to a name it does not hold.
+ * A caller that did register tools keeps its own choice.
+ */
+export function withZenFreeTierTools(
+	options: LanguageModelV3CallOptions,
+	enabled: boolean,
+	honoursNone = true,
+): LanguageModelV3CallOptions {
+	if (!enabled) return options
+	const existing = options.tools ?? []
+	const held = new Set(existing.flatMap((tool) => (tool.type === 'function' ? [tool.name] : [])))
+	const missing = zenFreeTierTools().filter((tool) => !held.has(tool.name))
+	if (missing.length === 0) return options
+	return {
+		...options,
+		tools: [...existing, ...missing],
+		...(existing.length === 0 && honoursNone ? { toolChoice: { type: 'none' as const } } : {}),
 	}
 }

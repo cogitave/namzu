@@ -15,11 +15,13 @@ own the agent loop, tools, permissions, budgets, retries, persistence and
 delegation.
 
 Zen publishes a free-model catalogue. Namzu defaults requests without a key to
-`space-bunny-free`, which completed keyless text and tool-continuation checks
-through the real driver on 2026-09-28. Every Zen model the catalogue prices at
-zero can be selected without a key through an experimental request path; the
-Zen gateway may still refuse them. Models that need an API key are listed
-after the free ones, under their own "Free" and "API key" headings in the
+`space-bunny-free`. Every Zen model the catalogue prices at zero can be selected
+without a key through an experimental request path that reproduces the OpenCode
+client the free-tier gateway admits: an OpenCode User-Agent at 1.18 or newer, a
+descending `ses_` session id, and the four tool names `bash`, `glob`, `grep` and
+`read` in every request body (injected only where the caller has not registered
+them). The Zen gateway may still refuse a model. Models that need an API key are
+listed after the free ones, under their own "Free" and "API key" headings in the
 pickers (a list with only one group keeps an "(API key)" note on those rows
 instead). Zen Go requires its own API key.
 
@@ -75,12 +77,12 @@ and model ID: `chat` uses Chat Completions, `responses` uses Responses,
 `messages` uses Anthropic Messages, and `google` uses streaming
 `generateContent`. The same model family can use different wires on Zen
 and Go. Unknown IDs require an explicit `protocol` configuration; model
-names are never used to guess a wire format. The direct keyless path is verified
-for `space-bunny-free`. Every other zero-price Zen model uses an experimental
-OpenCode-shaped request identity on the official Zen endpoint. Installing
-OpenCode is recommended for comparison, but Namzu sends its own requests and
-does not invoke the installed binary. A protocol override does not grant access
-to paid or unknown models.
+names are never used to guess a wire format. Every zero-price Zen model,
+including `space-bunny-free`, uses the experimental OpenCode-shaped request
+identity on the official Zen endpoint. Installing OpenCode is recommended for
+comparison, and its installed version supplies the advertised User-Agent when
+one is found; Namzu sends its own requests and does not invoke the installed
+binary. A protocol override does not grant access to paid or unknown models.
 
 A missing, blank or `public` Zen `apiKey` selects anonymous access. Public
 availability and service limits can change. For credentialed access, the CLI
@@ -97,7 +99,9 @@ its model listing does not verify inference access or prompt for a key.
 and `protocol`, all optional. `ZenGoConfig` requires `apiKey` for Go.
 Timeout defaults to 120,000 milliseconds. A missing
 `sessionId` generates an ID once per instance. Every request carries
-`x-opencode-session` plus Namzu's current attribution headers.
+`x-opencode-session` plus Namzu's current attribution headers, except on the
+official Zen host where an anonymous free-model call replaces them with the
+OpenCode identity described above.
 
 Registry-based applications call `registerZen()` and/or
 `registerZenGo()` once, then use `ProviderRegistry.create()` with the
@@ -185,7 +189,17 @@ seven bundled free models returned HTTP 403 `FreeTierError`. A later probe with
 the full Namzu request body and experimental OpenCode-shaped identity returned
 HTTP 200 for six more; Ling returned HTTP 400 `Endpoint is unavailable`, as it
 also did in installed OpenCode. Namzu's real CLI completed text requests for
-Big Pickle and Muse Spark, plus a Big Pickle file-tool continuation. All eight
-remain selectable as experimental options; gateway admission can change.
+Big Pickle and Muse Spark, plus a Big Pickle file-tool continuation.
+
+On 2026-10-13 the gateway was re-probed and it had moved: `space-bunny-free`
+now answered `FreeTierError` too, and ablation pinned what it actually reads —
+`stream: true`, the four tool names `bash`, `glob`, `grep` and `read` in the
+request, a User-Agent at `opencode/1.18` or newer (below that, HTTP 426), and a
+descending `ses_` session id. With all four, ten of the thirteen bundled
+models completed text inference (two of them also answered a transient HTTP 429
+on a later run); `exo-free` and `mimo-v2.5-free` answered HTTP
+410 `ModelDeprecated` and `ling-3.0-flash-fin-free` answered HTTP 400, and
+those three stay in the catalogue because their pages still route them.
+Gateway admission can change again.
 
 FSL-1.1-MIT, converting to MIT two years after each release.

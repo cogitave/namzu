@@ -91,11 +91,16 @@ function routeName(cell: string, page: string): string {
 /** A service, its documentation page, and the models.dev provider holding its limits. */
 export const ZEN_SERVICES: readonly {
 	readonly service: ZenService
+	/** Path of the page under the documentation root. */
 	readonly page: string
 	readonly provider: string
 }[] = Object.freeze([
-	{ service: 'zen', page: 'zen.mdx', provider: 'opencode' },
-	{ service: 'go', page: 'go.mdx', provider: 'opencode-go' },
+	// The two pages moved out of `packages/web/src/content/docs` when the site
+	// moved under `services/www`, and Zen's own page was renamed `models.mdx`
+	// inside a `console/` section. The tables the rules read — the route table,
+	// the price tables and the free-model list — are where they always were.
+	{ service: 'zen', page: 'console/models.mdx', provider: 'opencode' },
+	{ service: 'go', page: 'console/go.mdx', provider: 'opencode-go' },
 ])
 
 /**
@@ -125,10 +130,25 @@ export const MODALITIES: Readonly<Record<string, ModelInputModality>> = Object.f
 	pdf: 'document',
 })
 
-/** The service each base host serves, by the path prefix its endpoints carry. */
+/**
+ * The path each service hangs its own `/models` answer off — the URL this
+ * package calls, and the one the driver's base URL carries.
+ */
 export const SERVICE_PREFIX: Readonly<Record<ZenService, string>> = Object.freeze({
 	zen: '/zen/v1/',
 	go: '/zen/go/v1/',
+})
+
+/**
+ * The path prefixes a documentation page may state an endpoint on, per
+ * service. The gateway answers on both: `/zen/v1/…` is what the client and
+ * this package call, and `/inference/v1/…` is the alias the documentation
+ * pages now publish. Both resolve to the same service, so a row on either is
+ * a route on that service.
+ */
+export const DOCUMENTED_PREFIXES: Readonly<Record<ZenService, readonly string[]>> = Object.freeze({
+	zen: Object.freeze(['/zen/v1/', '/inference/v1/']),
+	go: Object.freeze(['/zen/go/v1/', '/inference/go/v1/']),
 })
 
 /** One route-table row. `npm` is undefined when the page states no wire. */
@@ -233,10 +253,11 @@ export function parsePage(
 	// block rather than by scanning for prose that looks like it, because the
 	// same page ends with per-model data-handling notes that are also bullets
 	// and also name models — reading those as free models would be a silent
-	// widening of anonymous access.
+	// widening of anonymous access. The heading was `The free models:` and is
+	// now a `### Free models` section; both open the block.
 	let inFreeSection = false
 	for (const line of text.split('\n')) {
-		if (/^The free models:/.test(line)) {
+		if (/^(The free models:|#{2,4}\s+Free models\s*)$/.test(line.trim())) {
 			inFreeSection = true
 			continue
 		}
@@ -395,9 +416,10 @@ export function protocolFor(
 		return refuse('which is not a URL')
 	}
 	if (url.host !== 'opencode.ai') refuse("whose host is not the service's")
-	const prefix = (SERVICE_PREFIX as Record<string, string | undefined>)[service]
-	if (prefix === undefined) return refuse('on a service this script does not know')
-	if (!url.pathname.startsWith(prefix)) refuse(`which is not on the ${service} service's own path`)
+	const prefixes = (DOCUMENTED_PREFIXES as Record<string, readonly string[] | undefined>)[service]
+	if (prefixes === undefined) return refuse('on a service this script does not know')
+	const prefix = prefixes.find((candidate) => url.pathname.startsWith(candidate))
+	if (prefix === undefined) return refuse(`which is not on the ${service} service's own path`)
 	const route = ROUTES.find((candidate) => candidate.npm === npm)
 	if (!route) {
 		return refuse(

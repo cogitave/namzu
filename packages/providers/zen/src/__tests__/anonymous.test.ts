@@ -2,14 +2,18 @@ import { collectChatCompletion } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ZenCatalogue } from '../catalogue/catalogue.js'
 import { ZenGoProvider, ZenProvider } from '../client.js'
+import {
+	ZEN_FREE_TIER_TOOL_NAMES,
+	experimentalOpenCodeUserAgent,
+} from '../experimental-identity.js'
 import { type ZenProtocol, findZenModel, getZenModels } from '../models.js'
 import type { ZenGoConfig, ZenGoProviderConfig } from '../types.js'
 
 const freeMuse = 'muse-spark-1.3-contributor-free'
 const defaultFree = 'space-bunny-free'
 // Dynamic system: any model with zero input and output price is available anonymously
-const anonymousIds = [defaultFree, freeMuse, 'big-pickle']
-const experimentalAgent = 'opencode/1.18.32 ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.14'
+const anonymousIds = [defaultFree, freeMuse, 'big-pickle', 'cat-jam-free']
+const experimentalAgent = () => experimentalOpenCodeUserAgent()
 const params = {
 	model: '',
 	messages: [{ role: 'user' as const, content: 'Hello' }],
@@ -125,6 +129,36 @@ function expectNamzuIdentity(init: RequestInit | undefined, sessionId: string) {
 	expect(headers.get('x-opencode-request')).toBeNull()
 }
 
+/**
+ * The free-tier gateway admits an anonymous request only when it looks like
+ * the OpenCode client's: an OpenCode User-Agent at 1.18 or newer, and a
+ * session id in the descending `ses_` shape the client emits.
+ */
+function expectGateIdentity(init: RequestInit | undefined) {
+	const headers = new Headers(init?.headers)
+	expect(headers.get('user-agent')).toBe(experimentalAgent())
+	expect(headers.get('user-agent')).toMatch(/^opencode\/1\.(?:1[8-9]|[2-9]\d)\./)
+	expect(headers.get('x-opencode-client')).toBe('cli')
+	expect(headers.get('x-opencode-project')).toBe('global')
+	expect(headers.get('x-opencode-session')).toMatch(/^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/)
+	// The two session headers are the same id whenever both travel.
+	expect(headers.get('x-opencode-session-id')).toBe(headers.get('x-opencode-session'))
+	expect(headers.get('x-opencode-request')).toMatch(/^msg_[0-9a-f]{12}[0-9A-Za-z]{14}$/)
+}
+
+/** A wire tool, in whichever shape the adapter serializes it. */
+type WireTool = { name?: string; function?: { name?: string } }
+
+function wireToolName(tool: WireTool): string | undefined {
+	return tool.function?.name ?? tool.name
+}
+
+/** The four names the gate reads, and only the four, when the caller has none. */
+function expectInjectedTools(body: { tools?: WireTool[] }): void {
+	const names = (body.tools ?? []).map(wireToolName)
+	for (const name of ZEN_FREE_TIER_TOOL_NAMES) expect(names).toContain(name)
+}
+
 afterEach(() => {
 	vi.unstubAllGlobals()
 })
@@ -142,9 +176,19 @@ describe('anonymous Zen access', () => {
 			const request = transport.mock.calls[0]
 			if (!request) throw new Error('Expected a model request')
 			expect(request[0]).toBe('https://opencode.ai/zen/v1/chat/completions')
-			expect(JSON.parse(String(request[1]?.body)).model).toBe(defaultFree)
+			const body = JSON.parse(String(request[1]?.body)) as {
+				model: string
+				tools?: WireTool[]
+				tool_choice?: unknown
+			}
+			expect(body.model).toBe(defaultFree)
 			expect(new Headers(request[1]?.headers).get('authorization')).toBe('Bearer public')
-			expectNamzuIdentity(request[1], provider.sessionId)
+			// The verified model is admitted through the same gateway, so it
+			// carries the same OpenCode identity and the same four tool names.
+			expectGateIdentity(request[1])
+			expectInjectedTools(body)
+			// Nothing asked for tools, so the injected names are told not to be called.
+			expect(body.tool_choice).toBe('none')
 		},
 	)
 
@@ -176,21 +220,51 @@ describe('anonymous Zen access', () => {
 		},
 	)
 
-	it('sends pinned OpenCode identity for any 0-price model on the official Zen host', async () => {
+	it('sends the free-tier gate identity for any 0-price model on the official Zen host', async () => {
 		const transport = mockNativeFetch()
-		// Any model with zero input/output price uses experimental identity
+		// Any model with zero input/output price goes through the gate
 		const provider = new ZenProvider({ model: 'big-pickle', sessionId: 'free-model-test' })
 		const result = await collectChatCompletion(provider.chatStream(params))
 		expect(result.message.content).toBe('Ready.')
 		expect(transport).toHaveBeenCalledTimes(1)
 		const request = transport.mock.calls[0]
 		if (!request) throw new Error('Expected a model request')
-		expect(JSON.parse(String(request[1]?.body)).model).toBe('big-pickle')
-		const headers = new Headers(request[1]?.headers)
-		expect(headers.get('authorization')).toBe('Bearer public')
-		expect(headers.get('user-agent')).toBe(experimentalAgent)
-		expect(headers.get('x-opencode-client')).toBe('cli')
-		expect(headers.get('x-opencode-project')).toBe('global')
+		const body = JSON.parse(String(request[1]?.body)) as { model: string; tools?: WireTool[] }
+		expect(body.model).toBe('big-pickle')
+		expect(new Headers(request[1]?.headers).get('authorization')).toBe('Bearer public')
+		expectGateIdentity(request[1])
+		expectInjectedTools(body)
+	})
+
+	it('does not duplicate a fingerprint tool the caller already registered', async () => {
+		const transport = mockNativeFetch()
+		const provider = new ZenProvider({ model: 'big-pickle', sessionId: 'has-tools' })
+		const own = {
+			type: 'function' as const,
+			function: {
+				name: 'read',
+				description: 'Read a file the host owns.',
+				parameters: { type: 'object' as const, properties: {}, required: [] },
+			},
+		}
+		await collectChatCompletion(
+			provider.chatStream({
+				...params,
+				tools: [own],
+				toolChoice: 'auto',
+			}),
+		)
+		const request = transport.mock.calls[0]
+		if (!request) throw new Error('Expected a model request')
+		const body = JSON.parse(String(request[1]?.body)) as {
+			tools?: { function?: { name?: string; description?: string } }[]
+			tool_choice?: unknown
+		}
+		const read = (body.tools ?? []).filter((tool) => tool.function?.name === 'read')
+		expect(read).toHaveLength(1)
+		expect(read[0]?.function?.description).toBe('Read a file the host owns.')
+		// A caller that did register a tool keeps its own choice.
+		expect(body.tool_choice).toBe('auto')
 	})
 
 	it('keeps the experimental session stable across provider constructions and changes each request ID', async () => {

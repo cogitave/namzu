@@ -32,15 +32,14 @@ import {
 	findZenCatalogueModel,
 	isUnroutedZenModel,
 } from './catalogue/catalogue.js'
-import { isDirectAnonymousZenId } from './catalogue/derive.js'
 import { isExperimentalFreeZenModel } from './catalogue/experimental-free.js'
 import {
-	EXPERIMENTAL_OPENCODE_USER_AGENT,
 	experimentalOpenCodeRequestId,
 	experimentalOpenCodeSessionId,
+	experimentalOpenCodeUserAgent,
 } from './experimental-identity.js'
 import type { ZenModel, ZenService } from './models.js'
-import { createCallOptions } from './options.js'
+import { createCallOptions, withZenFreeTierTools } from './options.js'
 import {
 	createReplayState,
 	isGoDeepSeekV4ResponsesModel,
@@ -369,12 +368,10 @@ export class ZenProvider implements LLMProvider {
 			params.model || this.config.model || (this.anonymous ? 'space-bunny-free' : 'glm-5.3-flash')
 		const catalogue = this.runtimeCatalogue()
 		const info = findZenCatalogueModel(catalogue, this.service, model)
-		const verifiedAnonymous =
-			isDirectAnonymousZenId(model) &&
-			info?.supportsAnonymousAccess === true &&
-			isExperimentalFreeZenModel(this.service, info)
-		const experimentalAnonymous = isExperimentalFreeZenModel(this.service, info)
-		if (this.anonymous && !verifiedAnonymous && !experimentalAnonymous)
+		// Every zero-price Zen model is admitted anonymously; the free-tier
+		// gateway then decides per request. `supportsAnonymousAccess` still
+		// marks the one model whose keyless path was verified directly.
+		if (this.anonymous && !isExperimentalFreeZenModel(this.service, info))
 			throw new ProviderRequestError({
 				providerId: this.id,
 				kind: 'auth',
@@ -402,21 +399,30 @@ export class ZenProvider implements LLMProvider {
 			...(params.signal ? [params.signal] : []),
 		])
 		let reader: ReadableStreamDefaultReader<LanguageModelV3StreamPart> | undefined
-		const experimentalHeaders =
-			this.anonymous && experimentalAnonymous && !verifiedAnonymous && this.baseURL === ZEN_BASE_URL
-				? {
-						'User-Agent': EXPERIMENTAL_OPENCODE_USER_AGENT,
-						'x-opencode-client': 'cli',
-						'x-opencode-project': 'global',
-						'x-opencode-session': experimentalOpenCodeSessionId(this.sessionId),
-					}
-				: undefined
+		// The free-tier gateway admits an anonymous request only when it is
+		// shaped as the OpenCode client shapes it: an OpenCode User-Agent, a
+		// descending `ses_` session id, and the four tool names the client
+		// always registers. A caller-owned base URL is not the gateway, so the
+		// identity stays off it.
+		const freeTierGate = this.anonymous && this.baseURL === ZEN_BASE_URL
+		const gateSession = freeTierGate
+			? experimentalOpenCodeSessionId(this.sessionId)
+			: this.sessionId
+		const gateHeaders = freeTierGate
+			? {
+					'User-Agent': experimentalOpenCodeUserAgent(),
+					'x-opencode-client': 'cli',
+					'x-opencode-project': 'global',
+					'x-opencode-session': gateSession,
+					'x-opencode-session-id': gateSession,
+				}
+			: undefined
 		const modelFetch: typeof fetch = (input, init) =>
 			this.requestFetch(
 				input,
 				init,
-				experimentalHeaders
-					? { ...experimentalHeaders, 'x-opencode-request': experimentalOpenCodeRequestId() }
+				gateHeaders
+					? { ...gateHeaders, 'x-opencode-request': experimentalOpenCodeRequestId() }
 					: undefined,
 			)
 		try {
@@ -432,6 +438,7 @@ export class ZenProvider implements LLMProvider {
 					detail: 'The message history contains content this model protocol cannot encode.',
 				})
 			}
+			options = withZenFreeTierTools(options, freeTierGate, protocol !== 'responses')
 			options.abortSignal = signal
 			const settings = {
 				apiKey: this.apiKey,
