@@ -1,7 +1,0 @@
----
-"@namzu/cli": minor
----
-
-`namzu acp --desktop` now hosts pseudo-terminals for the desktop application: ten `namzu/terminal/*` methods (status, create, list, attach, detach, write, resize, ack, kill, close) and two notifications (`namzu/terminal/data`, `namzu/terminal/exit`). A terminal keeps a bounded replay ring and a headless screen, one view holds the keyboard at a time, output is paused when the viewer falls behind, and killing a terminal ends its whole process tree, including programs that detached themselves with `nohup` or `setsid` (the host lists a terminal's descendants before the polite stop and kills the survivors), and a terminal's folder must be inside the project after links are resolved. Nothing changes for `namzu`, `exec` or any other command, and a host that predates this answers `-32601` for the new methods.
-
-`node-pty@1.1.0` is a new **optional** dependency and `@xterm/headless` (now pinned to 6.0.0, previously a development dependency) and `@xterm/addon-serialize` are new runtime dependencies. node-pty ships Windows and macOS binaries and compiles on Linux at install time; if that fails the install still succeeds, the rest of the CLI is unaffected, and `namzu/terminal/status` answers `available: false` with the reason. With pnpm 10, a workspace that depends on `@namzu/cli` and wants terminals on Linux must allow node-pty's build script (`onlyBuiltDependencies`).

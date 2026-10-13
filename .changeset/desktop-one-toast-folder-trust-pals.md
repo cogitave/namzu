@@ -1,5 +1,0 @@
----
-"@namzu/desktop": patch
----
-
-Notices show one at a time: archiving several conversations in a row becomes "3 conversations archived" with one Undo that restores all of them, and Undo after an archive now works at once (it used to fail until the archived list had been opened). The notice after Start from scratch is one short line with `~` and a tooltip. The folder trust dialog shortens the folder and lists Details as labelled fields, picking a folder that is already a project opens it instead of asking again, "Folder not found" rows line up with the others, ages read "just now", "5 min ago", "Yesterday", and the tab strip says how many tabs are hidden. Opening a Pal no longer leaves a second tab for it, and creating a Pal quickly after adding a project no longer drops you on the project's home instead of the Pal. Pal screens: Details of a message approval are labelled fields, the computer setup help drops the "image" wording and offers Get Docker Desktop, a taken name shows only the refusal with Save off, and a received message is readable. No flag, setting or stored data changes.

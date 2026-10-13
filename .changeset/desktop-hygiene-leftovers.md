@@ -1,5 +1,0 @@
----
-"@namzu/desktop": patch
----
-
-Desktop leftovers from the wording and error pass. Opening a Pal's newest conversation no longer closes an older tab of that Pal that holds an unsent message or attachments; the tab stays. A newer toast no longer closes an error toast before it has been shown for its full time: the newer one waits, errors first, and the same words never show twice. The model button's "Not available" now says why in its tooltip and accessible name. Details for a provider failure no longer carry the runtime's sentence about rejected credentials, label a vendor project ("OpenAI project: proj_…"), and word unknown usage for a failed request plainly. Apostrophes in the app's own wording are typographic. A project whose folder is gone restores its unnamed conversations as one tab instead of a row of identical ones; the conversations and their drafts stay. Settings > Speech no longer repeats the page subtitle. If you wrote your own checks against the old "The provider did not report how much this reply used." Details line or the straight-apostrophe wording, update them.

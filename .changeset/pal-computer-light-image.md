@@ -1,9 +1,0 @@
----
-"@namzu/sandbox": minor
----
-
-The Pal computer image is built in two stages. `local-computer/Dockerfile` now has `base` (the light computer: desktop, Chromium with the Namzu New Tab page, Terminal, Files, Text Editor and the guest worker, about 1.2 GB) and `creative` (built FROM `base`, adding Blender, GIMP, Inkscape, FreeCAD, KiCad and the other heavy applications). Building the Dockerfile without `--target` still produces the last stage, the same full image as before, so existing build commands are unaffected; pass `--target base` for the light one. Each stage lists on the home page, and checks at build time, only the applications it installed (`app-catalog.cjs` tags every application with its stage and `prepare-home.cjs --stage` records the built stage in `/opt/namzu-computer/stage`). The guest browser no longer shows a "Sign in to Chromium?" button (a managed policy turns browser sign-in, sync and promotions off), the Terminal tile on the home page uses the dock's terminal icon, and setuid and setgid bits are stripped from the image because nothing in the guest needs them.
-
-`local-computer/build-image.mjs` builds one stage with a chosen engine binary (`docker`, `podman` or `wslc`), saves it, compresses it (zstd by default; xz, gzip or plain tar also load directly with `wslc load -i`) and writes a `manifest.json` (`revision`, `stage`, `imageRef`, `imageId`, `protocol`, `file`, `sha256`, `tarSha256`, `sizeBytes`, `compressedBytes`, `format`) that the Windows installer carries beside the archive.
-
-The default image reference of the provider is unchanged: `LOCAL_COMPUTER_IMAGE` is still `namzu-local-computer:1`, the full image. The light base is tagged `namzu-local-computer:2`; a caller that wants it (the desktop app, from the image bundled in its installer) passes `image: 'namzu-local-computer:2'`. Nothing is renamed or removed.

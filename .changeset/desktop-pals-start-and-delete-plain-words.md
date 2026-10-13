@@ -1,5 +1,0 @@
----
-'@namzu/desktop': patch
----
-
-Pals read more plainly and no longer offer what cannot work. The approval card for a message to a Pal says "You can start the Pal after sending, and it will read the message on its own computer" and keeps the terminal command under Details. There is one Start, named for the Pal ("Start Işık"), and it starts the computer when that is needed. When no Docker or Podman is ready, Start is switched off in the offer under the sent message and on the Pal's page, with the missing piece in one sentence and a "How to set up" disclosure. A failed start is hidden once you dismiss it or the Pal's computer changes, the sidebar dot says whether your message is waiting, being read or not delivered, and an offline computer says that chatting works without it. Deleting a Pal names its folder ("Işık's files stay in its folder"), with the path only as a tooltip and behind Copy path. A duplicate name shows only the refusal. A new Pal starts from a model a connected provider actually lists, preferring the composer's current choice. The sidebar's "Opening…" goes as soon as the Pal is on screen.
