@@ -70,10 +70,60 @@ node_major() {
 	"$1" -v 2>/dev/null | sed 's/^v//; s/\..*$//'
 }
 
+# Put `$1` on PATH for new terminals, in the profile of the user's login shell.
+#
+# One marked block, written once: rerunning this script finds the marker and
+# leaves the file alone. Says which file it changed. Never touches a profile it
+# has no reason to (an unknown shell gets ~/.profile, which login shells read).
+NAMZU_MARK_BEGIN='# >>> namzu >>>'
+NAMZU_MARK_END='# <<< namzu <<<'
+
+append_block() {
+	# $1 file, $2 directory, $3 style (posix|fish)
+	if [ -f "$1" ] && grep -F "$NAMZU_MARK_BEGIN" "$1" >/dev/null 2>&1; then
+		say "namzu: ${1} already puts it on PATH."
+		return 0
+	fi
+	mkdir -p "$(dirname "$1")" 2>/dev/null || return 1
+	{
+		printf '\n%s\n' "$NAMZU_MARK_BEGIN"
+		if [ "$3" = fish ]; then
+			printf 'set -gx PATH "%s" $PATH\n' "$2"
+		else
+			printf 'export PATH="%s:$PATH"\n' "$2"
+		fi
+		printf '%s\n' "$NAMZU_MARK_END"
+	} >>"$1" 2>/dev/null || return 1
+	say "namzu: added ${2} to PATH in ${1}."
+}
+
+add_to_profile() {
+	case "${SHELL:-}" in
+	*/fish)
+		append_block "$HOME/.config/fish/conf.d/namzu.fish" "$1" fish || say "namzu: could not write the fish profile."
+		;;
+	*/zsh)
+		append_block "${ZDOTDIR:-$HOME}/.zshrc" "$1" posix || say "namzu: could not write ${ZDOTDIR:-$HOME}/.zshrc."
+		;;
+	*/bash)
+		append_block "$HOME/.bashrc" "$1" posix || say "namzu: could not write $HOME/.bashrc."
+		if [ -f "$HOME/.bash_profile" ] || [ "$(uname -s 2>/dev/null)" = Darwin ]; then
+			append_block "$HOME/.bash_profile" "$1" posix || say "namzu: could not write $HOME/.bash_profile."
+		fi
+		;;
+	*)
+		append_block "$HOME/.profile" "$1" posix || say "namzu: could not write $HOME/.profile."
+		;;
+	esac
+}
+
 # ---------------------------------------------------------------- node
 
 have node || die "no Node runtime on PATH.
-  namzu runs on Node ${NAMZU_MIN_NODE}.${NAMZU_MIN_NODE_MINOR} or newer. Install it, then run this again."
+  namzu runs on Node ${NAMZU_MIN_NODE}.${NAMZU_MIN_NODE_MINOR} or newer. Get it from https://nodejs.org (the LTS
+  installer), or with nvm:
+    nvm install 22
+  Then run this again."
 
 NODE_MAJOR="$(node_major node)"
 case "$NODE_MAJOR" in
@@ -86,7 +136,10 @@ esac
 NODE_MINOR="$(node -v | sed 's/^v[0-9]*\.//; s/\..*$//')"
 if [ "$NODE_MAJOR" -lt "$NAMZU_MIN_NODE" ] || { [ "$NODE_MAJOR" -eq "$NAMZU_MIN_NODE" ] && [ "$NODE_MINOR" -lt "$NAMZU_MIN_NODE_MINOR" ]; }; then
 	die "Node $(node -v) is too old.
-  namzu needs Node ${NAMZU_MIN_NODE}.${NAMZU_MIN_NODE_MINOR} or newer."
+  namzu needs Node ${NAMZU_MIN_NODE}.${NAMZU_MIN_NODE_MINOR} or newer. Get a current one from https://nodejs.org
+  (the LTS installer), or with nvm:
+    nvm install 22
+  Then run this again."
 fi
 
 have npm || die "found Node but no npm on PATH.
@@ -102,13 +155,14 @@ say "namzu: Node $(node -v), installing ${NAMZU_PKG}@${NAMZU_VERSION}"
 if NAMZU_NPM_OUTPUT="$(npm install --global --no-fund --no-audit "${NAMZU_PKG}@${NAMZU_VERSION}" 2>&1)"; then
 	INSTALL_MODE=global
 else
-	# Keep the package manager's reason when an attempt fails, including when
-	# the user-owned fallback succeeds. Successful install chatter stays quiet.
-	[ -z "$NAMZU_NPM_OUTPUT" ] || printf '%s\n' "$NAMZU_NPM_OUTPUT" >&2
+	# npm's raw output for this attempt (an EACCES stack trace, an update
+	# banner) is held back: when the user-owned fallback succeeds it is noise,
+	# and it is printed only if that fallback fails too.
+	NAMZU_GLOBAL_OUTPUT="$NAMZU_NPM_OUTPUT"
 	# The common cause is an unwritable global prefix. Retry into a user-owned
 	# one rather than re-running under sudo: a curl-to-shell script that
 	# escalates privilege on failure is a script nobody should pipe into sh.
-	say "namzu: global install failed, retrying into ${NAMZU_PREFIX}"
+	say "namzu: the global npm folder is not writable, installing into ${NAMZU_PREFIX} instead."
 	mkdir -p "$NAMZU_PREFIX"
 	if NAMZU_NPM_OUTPUT="$(npm install --global --prefix "$NAMZU_PREFIX" --no-fund --no-audit \
 		"${NAMZU_PKG}@${NAMZU_VERSION}" 2>&1)"; then
@@ -120,6 +174,7 @@ else
 		PATH="$(bin_dir_under "$NAMZU_PREFIX" || printf '%s' "$NAMZU_PREFIX/bin"):$PATH"
 		export PATH
 	else
+		[ -z "$NAMZU_GLOBAL_OUTPUT" ] || printf '%s\n' "$NAMZU_GLOBAL_OUTPUT" >&2
 		[ -z "$NAMZU_NPM_OUTPUT" ] || printf '%s\n' "$NAMZU_NPM_OUTPUT" >&2
 		die "install failed both globally and into ${NAMZU_PREFIX}.
   Re-run the install by hand to see why:
@@ -159,20 +214,33 @@ if ! have namzu; then
     npm ls --global --parseable ${NAMZU_PKG}"
 fi
 
-if ! NAMZU_INSTALLED="$(namzu --version 2>/dev/null)" || [ -z "$NAMZU_INSTALLED" ]; then
+# stderr is kept, not discarded: when the check fails it is the only reason.
+NAMZU_ERRFILE="$(mktemp 2>/dev/null)" || NAMZU_ERRFILE=/dev/null
+if ! NAMZU_INSTALLED="$(namzu --version 2>"$NAMZU_ERRFILE")" || [ -z "$NAMZU_INSTALLED" ]; then
+	NAMZU_REASON="$(cat "$NAMZU_ERRFILE" 2>/dev/null || true)"
+	[ "$NAMZU_ERRFILE" = /dev/null ] || rm -f "$NAMZU_ERRFILE"
 	die "'namzu' is on PATH but did not answer --version.
-  Run 'namzu doctor' to see what it says about itself."
+${NAMZU_REASON:+  It said:
+$NAMZU_REASON
+}  Run 'namzu doctor' to see what it says about itself."
 fi
+[ "$NAMZU_ERRFILE" = /dev/null ] || rm -f "$NAMZU_ERRFILE"
 
 say "namzu ${NAMZU_INSTALLED} installed."
 
 if [ "$INSTALL_MODE" = prefix ]; then
-	# The directory that was actually put on PATH above, so the line the operator
-	# copies into their profile is the line this run proved works.
+	# The directory that was actually put on PATH above, so the line written to
+	# the profile is the line this run proved works.
 	NAMZU_BIN="$(bin_dir_under "$NAMZU_PREFIX" || printf '%s' "$NAMZU_PREFIX/bin")"
 	say ""
 	say "It went to ${NAMZU_PREFIX}, which is not on your PATH by default."
-	say "Add this to your shell profile:"
+	if [ "${NAMZU_NO_MODIFY_PATH:-}" = 1 ]; then
+		say "NAMZU_NO_MODIFY_PATH=1 is set, so no shell profile was changed."
+		say "Add this to your shell profile:"
+	else
+		add_to_profile "$NAMZU_BIN"
+		say "New terminals will find 'namzu'. For this terminal, run:"
+	fi
 	say ""
 	say "    export PATH=\"${NAMZU_BIN}:\$PATH\""
 fi

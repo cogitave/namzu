@@ -43,8 +43,11 @@ function Test-Have($name) {
 if (-not (Test-Have 'node')) {
     Fail @'
 no Node runtime on PATH.
-  namzu runs on Node 22.13 or newer. Install it, then run this again:
+  namzu runs on Node 22.13 or newer. Get it from https://nodejs.org (the LTS
+  installer), or with winget:
     winget install OpenJS.NodeJS.LTS
+  Then open a NEW PowerShell window (the one you are in will not see the new
+  Node) and run this again.
 '@
 }
 
@@ -59,7 +62,12 @@ $nodeMinor = [int]$Matches[2]
 
 if ($nodeMajor -lt $NamzuMinNode -or
     ($nodeMajor -eq $NamzuMinNode -and $nodeMinor -lt $NamzuMinNodeMinor)) {
-    Fail "Node $nodeVersion is too old. namzu needs Node $NamzuMinNode.$NamzuMinNodeMinor or newer."
+    Fail @"
+Node $nodeVersion is too old. namzu needs Node $NamzuMinNode.$NamzuMinNodeMinor or newer.
+  Get a current one from https://nodejs.org (the LTS installer), or with winget:
+    winget install OpenJS.NodeJS.LTS
+  Then open a NEW PowerShell window and run this again.
+"@
 }
 
 if (-not (Test-Have 'npm.cmd')) {
@@ -124,19 +132,50 @@ installed, but 'namzu' is not on PATH.
 $previousErrorActionPreference = $ErrorActionPreference
 try {
     $ErrorActionPreference = 'Continue'
-    $installed = (& namzu.cmd --version 2>$null)
+    # stderr is kept: when the check fails it is the only reason.
+    $versionOutput = @(& namzu.cmd --version 2>&1)
     $verifyExit = $LASTEXITCODE
+    $installed = ($versionOutput | Where-Object { $_ -isnot [System.Management.Automation.ErrorRecord] } | Out-String).Trim()
+    $versionReason = ($versionOutput | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] } | ForEach-Object { "$_" }) -join "`n"
 } finally {
     $ErrorActionPreference = $previousErrorActionPreference
 }
 if ($verifyExit -ne 0 -or -not $installed) {
-    Fail @'
+    $said = ''
+    if ($versionReason) { $said = "  It said:`n$versionReason`n" }
+    Fail @"
 'namzu' is on PATH but did not answer --version.
-  Run 'namzu.cmd doctor' to see what it says about itself.
-'@
+${said}  Run 'namzu.cmd doctor' to see what it says about itself.
+"@
+}
+
+# npm also writes namzu.ps1 next to namzu.cmd. In PowerShell a bare `namzu`
+# resolves to the .ps1 first, and under the default execution policy
+# ("running scripts is disabled") it refuses to run, so a fresh install would
+# fail on the first command the README gives. Removing our own .ps1 shim makes
+# `namzu` resolve to namzu.cmd under any policy. Only that one file, and only
+# when it sits beside namzu.cmd and names @namzu/cli: never someone else's.
+try {
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        $npmPrefix = (& npm.cmd prefix --global 2>$null | Select-Object -First 1)
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+    if ($npmPrefix) {
+        $shim = Join-Path "$npmPrefix" 'namzu.ps1'
+        $cmdShim = Join-Path "$npmPrefix" 'namzu.cmd'
+        if ((Test-Path -LiteralPath $shim) -and (Test-Path -LiteralPath $cmdShim) -and
+            ((Get-Content -LiteralPath $shim -Raw) -match '@namzu[/\\]cli')) {
+            Remove-Item -LiteralPath $shim -Force
+        }
+    }
+} catch {
+    # Best effort: namzu.cmd still works, and the install itself succeeded.
 }
 
 Write-Step "$installed installed."
 Write-Host ''
-Write-Host "Next: run 'namzu.cmd doctor' to check credentials and sandboxing,"
-Write-Host "or just 'namzu.cmd' to open the terminal agent."
+Write-Host "Next: run 'namzu doctor' to check credentials and sandboxing,"
+Write-Host "or just 'namzu' to open the terminal agent."

@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync, unlinkSync } from 'node:fs'
 import { dirname, join, posix, resolve, win32 } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { stripVTControlCharacters } from 'node:util'
@@ -39,6 +39,31 @@ export interface UpgradeCommandDeps {
 	 * restart on the new code. Best effort; the scheduler also notices by itself.
 	 */
 	readonly afterUpgrade?: () => Promise<void>
+	/**
+	 * After a verified update on Windows: remove the `namzu.ps1` shim npm wrote
+	 * into the global prefix. Defaults to {@link removeOwnPowerShellShim}.
+	 */
+	readonly removePowerShellShim?: (prefix: string) => void
+}
+
+/**
+ * Remove npm's `namzu.ps1` shim from a global prefix so a bare `namzu` in
+ * PowerShell resolves to `namzu.cmd`. PowerShell prefers the `.ps1`, and under
+ * the default execution policy it refuses to run ("running scripts is
+ * disabled"); npm writes it again on every install. Only that one file, and
+ * only when it sits beside `namzu.cmd` and names `@namzu/cli`. Returns whether
+ * a file was removed; never throws.
+ */
+export function removeOwnPowerShellShim(prefix: string): boolean {
+	try {
+		const shim = join(prefix, 'namzu.ps1')
+		if (!existsSync(shim) || !existsSync(join(prefix, 'namzu.cmd'))) return false
+		if (!/@namzu[\\/]cli/.test(readFileSync(shim, 'utf8'))) return false
+		unlinkSync(shim)
+		return true
+	} catch {
+		return false
+	}
 }
 
 /**
@@ -170,7 +195,7 @@ export function createUpgradeCommand(deps: UpgradeCommandDeps): CommandDef {
 			if (!prefix) {
 				ctx.formatter.error({
 					message:
-						'This Namzu process is not running from a recognized npm-global installation, so it will not update a different binary by guessing. Reinstall with the same package manager, or use the installer from https://github.com/cogitave/namzu#the-terminal-agent.',
+						'This Namzu process is not running from a recognized npm-global installation, so it will not update a different binary by guessing. Reinstall with the same package manager, or use the installer from https://github.com/cogitave/namzu/blob/main/docs/cli/installation.md.',
 				})
 				return EXIT_UNAVAILABLE
 			}
@@ -258,6 +283,14 @@ export function createUpgradeCommand(deps: UpgradeCommandDeps): CommandDef {
 						message: `npm exited successfully, but the active installation still reports ${installed} instead of ${latest}. No update is being claimed.`,
 					})
 					return EXIT_FAIL
+				}
+
+				if (deps.platform === 'win32') {
+					try {
+						;(deps.removePowerShellShim ?? removeOwnPowerShellShim)(prefix)
+					} catch {
+						// namzu.cmd still works; the update itself succeeded.
+					}
 				}
 
 				progress?.stop(true)
