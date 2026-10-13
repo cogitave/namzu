@@ -64,7 +64,8 @@ function parseArgs(argv) {
 			process.exit(0)
 		} else throw new Error(`unknown option ${a}`)
 	}
-	if (!Number.isFinite(opts.modelsDelay) || opts.modelsDelay < 0) throw new Error('--models-delay must be a number of milliseconds')
+	if (!Number.isFinite(opts.modelsDelay) || opts.modelsDelay < 0)
+		throw new Error('--models-delay must be a number of milliseconds')
 	if (!Number.isInteger(opts.runs) || opts.runs < 1) throw new Error('--runs must be a positive integer')
 	if (!existsSync(opts.build)) throw new Error(`${opts.build} does not exist; run pnpm -r build first`)
 	return opts

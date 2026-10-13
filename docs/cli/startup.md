@@ -137,11 +137,18 @@ it already knows (most gateways and local servers) is asked for its model
 listing, and that round trip used to sit between the first frame and a usable
 composer. Now the session opens on the chosen model at once; the listing is
 fetched in the background and the effort menu appears when it arrives. A message
-sent before then goes to the chosen model with the provider's default effort. If
-the listing fails, the effort menu simply does not appear; sending is
-unaffected. `/model` reads its own listing when opened and says plainly when it
-cannot. `namzu exec` and the ACP host (Desktop) still wait, because they publish
-the effort levels in their first answer.
+sent before then goes to the chosen model with the provider's default effort,
+and a launch `--effort` is not applied to it: the flag is checked against the
+menu, so it takes effect when the menu arrives (a notice says if the model does
+not offer it). Hypermode keeps working while the menu loads. Turning it on says
+the menu is still loading and pins the highest level when it lands; a `/model`
+switch under hypermode re-pins to the new model's highest level at the same
+point, unless hypermode was switched off or an effort was chosen in between. If
+the listing fails, the effort menu never appears for that session and nothing
+says so; sending is unaffected. `/model` reads its own listing when opened and
+says plainly when it cannot. `namzu exec` and ACP session creation still wait,
+because they publish the effort levels in their first answer; Desktop's composer
+does not wait on the list.
 
 Terminal ready with the fake server's `/models` delayed (median of 7, quiet
 machine):
