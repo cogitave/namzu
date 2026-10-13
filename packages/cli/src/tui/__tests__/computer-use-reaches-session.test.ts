@@ -7,7 +7,7 @@
  * door and observes the same registry a real query receives.
  */
 
-import { mkdtempSync } from 'node:fs'
+import { mkdirSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -19,6 +19,8 @@ import type { DetectedProvider, Preferences } from '../../integrations/providers
 
 const desktop = vi.hoisted(() => ({
 	failInitialize: false,
+	noControl: false,
+	browserUnavailableReason: undefined as string | undefined,
 	windowMethods: true,
 	windowDiscovery: true,
 	initialize: vi.fn<() => Promise<void>>(),
@@ -30,15 +32,18 @@ const desktop = vi.hoisted(() => ({
 vi.mock('@namzu/computer-use', () => ({
 	SubprocessComputerUseHost: class {
 		readonly id = 'test-desktop'
-		readonly capabilities = {
-			displayServer: 'win32',
-			screenshot: true,
-			mouse: true,
-			keyboard: true,
-			cursorPosition: true,
-			clipboard: true,
-			windowCapture: true,
-			windows: true,
+		get capabilities() {
+			const on = !desktop.noControl
+			return {
+				displayServer: 'win32' as const,
+				screenshot: on,
+				mouse: on,
+				keyboard: on,
+				cursorPosition: on,
+				clipboard: on,
+				windowCapture: on,
+				windows: on,
+			}
 		}
 
 		async initialize() {
@@ -73,11 +78,16 @@ vi.mock('@namzu/browser', () => ({
 		readonly plan = { engine: 'windows-cdp', browser: 'chrome', warnings: [] }
 		readonly warnings: string[] = []
 		readonly running = false
-		readonly capabilities = {
-			engine: 'windows-cdp',
-			headless: false,
-			screenshot: true,
-			upload: true,
+		get capabilities() {
+			return {
+				engine: 'windows-cdp',
+				headless: false,
+				screenshot: true,
+				upload: true,
+				...(desktop.browserUnavailableReason !== undefined
+					? { unavailableReason: desktop.browserUnavailableReason }
+					: {}),
+			}
 		}
 		constructor(options: { profile: string }) {
 			this.profile = options.profile
@@ -154,6 +164,8 @@ beforeEach(() => {
 	enforcedToolNames = []
 	querySystemPrompt = ''
 	desktop.failInitialize = false
+	desktop.noControl = false
+	desktop.browserUnavailableReason = undefined
 	desktop.windowMethods = true
 	desktop.windowDiscovery = true
 	desktop.initialize.mockReset().mockResolvedValue(undefined)
@@ -311,9 +323,8 @@ describe('computer use session reachability', () => {
 				'wait_for_task',
 				// The built-in skills are loaded through it.
 				'skill',
-				// The owner's Pals, mounted in every ordinary conversation.
-				'list_pals',
-				'send_pal_message',
+				// The Pal tools are mounted but not sent: this owner has no Pals
+				// (see the Pal case below).
 			].sort(),
 		)
 		const computerUse = queryTools.find((t) => t.function.name === 'computer_use')?.function
@@ -331,11 +342,10 @@ describe('computer use session reachability', () => {
 		expect(desktop.dispose).toHaveBeenCalledTimes(1)
 	})
 
-	it('keeps an adapter that cannot initialize on the roster, unavailable, and says why to both', async () => {
-		// The tool stays: a tool that is absent is one the model reasons about
-		// from the wrong premise, while one that says "this desktop did not
-		// answer, and why" is a result it reads once. The operator is told the
-		// same thing in the notices.
+	it('keeps an adapter that cannot initialize on the roster, out of the request, and says why to the operator', async () => {
+		// The roster still names it (so `/tools` and the notices can say what
+		// happened), but a tool that can only refuse is not sent to the model:
+		// its schema is ~900 tokens on every request.
 		desktop.failInitialize = true
 		const session = await createSession(true)
 
@@ -346,6 +356,10 @@ describe('computer use session reachability', () => {
 		expect(session.configNotices).toContain(
 			'Computer use is unavailable on this device. Run with --debug for details.',
 		)
+		for await (const _ of session.send([{ role: 'user', content: 'see the desktop' } as never])) {
+			// drain into the mocked kernel boundary
+		}
+		expect(queryToolNames).not.toContain('computer_use')
 		expect(desktop.dispose).toHaveBeenCalledTimes(1)
 	})
 
@@ -361,10 +375,61 @@ describe('computer use session reachability', () => {
 		for await (const _ of session.send([{ role: 'user', content: 'see the desktop' } as never])) {
 			// drain into the mocked kernel boundary
 		}
-		const computerUse = queryTools.find((t) => t.function.name === 'computer_use')?.function
-		expect(computerUse?.description).toContain('cannot return images in tool results')
-		expect(computerUse?.description).toContain('Do not retry; tell the user.')
+		// Every call would be refused, so the request does not carry the schema.
+		expect(queryToolNames).not.toContain('computer_use')
 		expect(desktop.execute).not.toHaveBeenCalled()
+	})
+
+	it('sends computer_use only while the host reports a control, and names it again once it does', async () => {
+		desktop.noControl = true
+		const session = await createSession(true)
+		expect(session.toolNames()).toContain('computer_use')
+		for await (const _ of session.send([{ role: 'user', content: 'a' } as never])) {
+			// drain into the mocked kernel boundary
+		}
+		expect(queryToolNames).not.toContain('computer_use')
+
+		desktop.noControl = false
+		for await (const _ of session.send([{ role: 'user', content: 'b' } as never])) {
+			// drain into the mocked kernel boundary
+		}
+		expect(queryToolNames).toContain('computer_use')
+	})
+
+	it('sends the browser tools only while the browser has a usable engine', async () => {
+		desktop.browserUnavailableReason = 'no display for a visible window'
+		const session = await createSession(false, 'anthropic', true)
+		expect(session.toolNames()).toEqual(expect.arrayContaining(['browser', 'browser_act']))
+		for await (const _ of session.send([{ role: 'user', content: 'a' } as never])) {
+			// drain into the mocked kernel boundary
+		}
+		expect(queryToolNames).not.toContain('browser')
+		expect(queryToolNames).not.toContain('browser_act')
+
+		desktop.browserUnavailableReason = undefined
+		for await (const _ of session.send([{ role: 'user', content: 'b' } as never])) {
+			// drain into the mocked kernel boundary
+		}
+		expect(queryToolNames).toEqual(expect.arrayContaining(['browser', 'browser_act']))
+	})
+
+	it('sends the Pal tools only once the owner has a Pals registry', async () => {
+		const { createAgentSession } = await import('../agent.js')
+		const stateRoot = join(workDir, 'state')
+		mkdirSync(stateRoot, { recursive: true })
+		const session = await createAgentSession(prefs, detected, { cwd: workDir, stateRoot })
+		open.push(session)
+		for await (const _ of session.send([{ role: 'user', content: 'a' } as never])) {
+			// drain into the mocked kernel boundary
+		}
+		expect(queryToolNames).not.toContain('list_pals')
+		expect(queryToolNames).not.toContain('send_pal_message')
+
+		mkdirSync(join(stateRoot, 'pals'))
+		for await (const _ of session.send([{ role: 'user', content: 'b' } as never])) {
+			// drain into the mocked kernel boundary
+		}
+		expect(queryToolNames).toEqual(expect.arrayContaining(['list_pals', 'send_pal_message']))
 	})
 
 	it('does not expose host input to a surface that did not claim an interactive permission owner', async () => {

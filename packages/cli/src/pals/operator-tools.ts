@@ -26,6 +26,14 @@ function registryExists(home: string): boolean {
 	return existsSync(join(home, 'pals'))
 }
 
+/**
+ * Whether the owner has ever had a Pal here, which is the only time the
+ * Pal tools can do anything. Looking never creates the registry.
+ */
+export function operatorPalsPresent(home?: string): boolean {
+	return registryExists(home ?? resolveNamzuHome())
+}
+
 export interface CliOperatorPalToolsOptions {
 	/** The installation's tenant, from the session's own scope. */
 	readonly tenantId: TenantId
