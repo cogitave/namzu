@@ -5,7 +5,7 @@
  * reachable through the REAL resolver and the REAL loader, not a stub.
  */
 
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -184,5 +184,49 @@ describe('an ESM-only package that IS installed', () => {
 		const probe = await probeOptionalPackage('@namzu/definitely-not-a-real-package')
 
 		expect(probe.state).toBe('absent')
+	})
+})
+
+describe('probing without importing ({ load: false })', () => {
+	it('reports present for a module that would throw if it were evaluated, and never evaluates it', async () => {
+		writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'fixture', version: '2.0.0' }))
+		const marker = join(root, 'evaluated')
+		const file = join(root, 'effect.mjs')
+		writeFileSync(
+			file,
+			`import { writeFileSync } from 'node:fs'\nwriteFileSync(${JSON.stringify(marker)}, 'x')\nthrow new Error('boom')\n`,
+		)
+
+		const probe = await probeOptionalPackage(file, { load: false })
+
+		expect(probe).toEqual({ state: 'present', specifier: file, version: '2.0.0' })
+		expect(existsSync(marker)).toBe(false)
+		// The default still imports, and so still finds it broken.
+		expect((await probeOptionalPackage(file)).state).toBe('broken')
+		expect(existsSync(marker)).toBe(true)
+	})
+
+	it('reports absent for a file that is not there', async () => {
+		const probe = await probeOptionalPackage(join(root, 'missing.mjs'), { load: false })
+
+		expect(probe.state).toBe('absent')
+	})
+
+	it('reads an installed package by name from its manifest, and reports a missing one absent', async () => {
+		const installed = await probeOptionalPackage('@namzu/files', { load: false })
+		expect(installed.state).toBe('present')
+		if (installed.state === 'present') expect(installed.version).toMatch(/^\d+\./)
+
+		const missing = await probeOptionalPackage('@namzu/definitely-not-a-real-package', {
+			load: false,
+		})
+		expect(missing.state).toBe('absent')
+	})
+
+	it('is what probeCapabilities does by default: one record per capability, none broken', async () => {
+		const probes = await probeCapabilities()
+
+		expect(probes.map((p) => p.specifier)).toEqual([...NAMZU_OPTIONAL_CAPABILITIES])
+		for (const probe of probes) expect(probe.state).not.toBe('broken')
 	})
 })

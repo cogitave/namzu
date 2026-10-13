@@ -8,73 +8,50 @@
  */
 
 import { resolve } from 'node:path'
-import { loadOutputSchema } from './output-schema.js'
 import { formatUsageError } from './usage-error.js'
 
 import { Command, CommanderError, Option } from 'commander'
 
-import { BOOT_EVENT_NAMES, EVENT_NAME_ATTRIBUTE, VERSION as SDK_VERSION } from '@namzu/sdk'
-
-import { acpCommand } from './commands/acp.js'
-import { archiveCommand } from './commands/archive.js'
-import { browserCommand } from './commands/browser.js'
-import { computerCommand } from './commands/computer.js'
-import { doctorCommand } from './commands/doctor.js'
-import { drainCommand } from './commands/drain.js'
-import { evalCommand } from './commands/eval.js'
-import { REASONING_EFFORT_LEVELS } from './commands/exec-flags.js'
-import { execCommand } from './commands/exec.js'
-import { historyCommand, providersJSONCommand, skillsJSONCommand } from './commands/host-queries.js'
-import { loginCommand, logoutCommand } from './commands/login.js'
-import { mcpCommand } from './commands/mcp.js'
-import { createPalCommand } from './commands/pal.js'
-import { registerAll } from './commands/registry.js'
-import { residentCommand } from './commands/resident.js'
-import { scheduleCommand } from './commands/schedule.js'
-import { serveCommand } from './commands/serve.js'
-import { skillsCommand } from './commands/skills.js'
-import { stateCommand } from './commands/state.js'
+import { REASONING_EFFORT_LEVELS } from './commands/effort-levels.js'
+import {
+	acpCommand,
+	archiveCommand,
+	browserCommand,
+	computerCommand,
+	createLazyPalCommand,
+	createLazyWorktreeCommand,
+	doctorCommand,
+	drainCommand,
+	evalCommand,
+	execCommand,
+	historyCommand,
+	loginCommand,
+	logoutCommand,
+	mcpCommand,
+	providersJSONCommand,
+	residentCommand,
+	scheduleCommand,
+	serveCommand,
+	skillsCommand,
+	skillsJSONCommand,
+	stateCommand,
+	upgradeCommand,
+} from './commands/manifest.js'
+import { registerCommandOrLazy } from './commands/registry.js'
 import type { CommandContext } from './commands/types.js'
-import { upgradeCommand } from './commands/upgrade.js'
-import { createWorktreeCommand } from './commands/worktree.js'
-import {
-	type ConfigDebugSnapshot,
-	createConfigDebugSnapshot,
-	formatConfigSource,
-} from './config/debug.js'
-import {
-	ConfigLoadError,
-	type ConfigProvenance,
-	type ConfigSource,
-	ConfigValueError,
-	loadBootstrapConfigWithProvenance,
-	loadConfigWithProvenance,
-} from './config/load.js'
+import type { ConfigDebugSnapshot } from './config/debug.js'
+import type { loadConfigWithProvenance } from './config/load.js'
 import type { NamzuCliConfig } from './config/schema.js'
 import {
 	bindTrustedProjectContext,
 	resolveTrustedProjectContext,
 } from './config/trusted-project-context.js'
-import { reportCrash } from './crash-report.js'
+import { debugRequested } from './debug-requested.js'
 import { EXIT_BAD_CONFIG, EXIT_INTERNAL_ERROR } from './exit-codes.js'
-import {
-	type ZenCatalogueRefresh,
-	startZenCatalogueRefresh,
-} from './integrations/providers/zen-catalogue.js'
-import { resolveNamzuHome } from './integrations/state/home.js'
-import {
-	cliLogger,
-	createStderrSink,
-	installCliLogging,
-	resolveLogFormat,
-	resolveLogLevel,
-} from './logging.js'
+import type { ZenCatalogueRefresh } from './integrations/providers/zen-catalogue.js'
 import type { ResolvedLogging } from './logging.js'
 import { type FormatName, createFormatter, isFormatName } from './output/index.js'
-import { compileBrowserSites, withBrowserSiteRules } from './permissions/browser-sites.js'
-import { PERMISSION_MODES } from './permissions/mode.js'
-import { compilePermissions, warnLegacyMcpPermissionNames } from './permissions/rules.js'
-import { debugRequested } from './tui/plain-interruption.js'
+import { PERMISSION_MODE_NAMES } from './permissions/mode-names.js'
 import { CLI_VERSION } from './version.js'
 
 /** sysexits EX_USAGE — command-line argument error. */
@@ -141,18 +118,29 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 	const beginCatalogueRefresh = (config: NamzuCliConfig): void => {
 		if (catalogueRefresh !== undefined || config.modelCatalogueRefresh === false) return
 		try {
-			catalogueRefresh = startZenCatalogueRefresh({
-				home: resolveNamzuHome(),
+			catalogueRefresh = runtime().startZenCatalogueRefresh({
+				home: runtime().resolveNamzuHome(),
 				// The function, not its current value: see the option's comment.
-				log: cliLogger,
+				log: runtime().cliLogger,
 			})
 		} catch (error) {
 			// An unusable NAMZU_HOME is the command's problem to report, not this
 			// refresh's: the session runs on the bundled catalogue.
-			cliLogger().warn('Zen model catalogue refresh not started', {
-				'namzu.zen_catalogue.reason': error instanceof Error ? error.message : String(error),
-			})
+			runtime()
+				.cliLogger()
+				.warn('Zen model catalogue refresh not started', {
+					'namzu.zen_catalogue.reason': error instanceof Error ? error.message : String(error),
+				})
 		}
+	}
+
+	// What needs the SDK, loaded by the `preAction` hook the first time a command
+	// is really going to run. `namzu --version` and `namzu --help` are answered
+	// by commander before any hook, and so never compile it.
+	let rt: typeof import('./cli-runtime.js') | undefined
+	const runtime = (): typeof import('./cli-runtime.js') => {
+		if (rt === undefined) throw new Error('the CLI runtime is used before a command started')
+		return rt
 	}
 
 	const program = new Command()
@@ -204,7 +192,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			new Option(
 				'--permission-mode <mode>',
 				'Permission mode for this launch only; wins over --yolo. /permissions changes it from inside.',
-			).choices(PERMISSION_MODES),
+			).choices(PERMISSION_MODE_NAMES),
 		)
 		.option(
 			'--message <text>',
@@ -222,7 +210,8 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		)
 		// Required by Commander 14 so subcommands (doctor) can opt into
 		// passThroughOptions for unparsed argument forwarding.
-		.hook('preAction', (command, action) => {
+		.hook('preAction', async (command, action) => {
+			rt ??= await import('./cli-runtime.js')
 			const launchOnly = (
 				['provider', 'model', 'effort', 'permissionMode', 'message'] as const
 			).filter((key) => command.opts()[key] !== undefined)
@@ -294,7 +283,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 				: globalOpts.profile === undefined && envProfile !== undefined && envProfile !== ''
 					? { name: envProfile, selectedBy: 'NAMZU_PROFILE' as const }
 					: undefined
-		const configDebug = createConfigDebugSnapshot(provenance, {
+		const configDebug = runtime().createConfigDebugSnapshot(provenance, {
 			formatFromCli,
 			quietFromCli: globalOpts.quiet !== undefined,
 			...(selectedProfile ? { selectedProfile } : {}),
@@ -306,11 +295,11 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		// can produce `quiet: true` would let NAMZU_QUIET silently override an
 		// operator's own NAMZU_LOG_LEVEL, which neither variable promises.
 		const logging: ResolvedLogging = {
-			level: resolveLogLevel({
+			level: runtime().resolveLogLevel({
 				verbose: globalOpts.verbose,
 				quiet: globalOpts.quiet,
 			}),
-			format: resolveLogFormat({ logFormat: globalOpts.logFormat }),
+			format: runtime().resolveLogFormat({ logFormat: globalOpts.logFormat }),
 		}
 		return {
 			formatter: createFormatter(format, { quiet }),
@@ -335,20 +324,23 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		const target = resolve(cwd)
 		const cached = trustedContexts.get(target)
 		if (cached) return cached
-		const loaded = loadConfigWithProvenance(selectedConfigOpts(target))
+		const loaded = runtime().loadConfigWithProvenance(selectedConfigOpts(target))
 		const trusted = buildContext(() => loaded)
-		emitBootNarrative(loaded.provenance, loaded.config)
+		runtime().emitBootNarrative(loaded.provenance, loaded.config)
 		trustedContexts.set(target, trusted)
 		return trusted
 	}
 	const getBootstrapContext = (): ResolvedCommandContext => {
 		if (bootstrapCtx) return bootstrapCtx
-		const loaded = loadBootstrapConfigWithProvenance(selectedConfigOpts())
+		const loaded = runtime().loadBootstrapConfigWithProvenance(selectedConfigOpts())
 		const bootstrap = buildContext(() => loaded)
 		// Claim stderr before any handler can log. A later TUI launch replaces
 		// this with its ring sink; trusted project activation deliberately does
 		// not replace that owner.
-		installCliLogging(createStderrSink(bootstrap.logging.format), bootstrap.logging.level)
+		runtime().installCliLogging(
+			runtime().createStderrSink(bootstrap.logging.format),
+			bootstrap.logging.level,
+		)
 		bootstrapCtx = bindTrustedProjectContext(bootstrap, getTrustedContext)
 		return bootstrapCtx
 	}
@@ -373,16 +365,16 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		})()
 		const quiet = globalOpts.quiet ?? false
 		const logging: ResolvedLogging = {
-			level: resolveLogLevel({
+			level: runtime().resolveLogLevel({
 				verbose: globalOpts.verbose,
 				quiet: globalOpts.quiet,
 			}),
-			format: resolveLogFormat({ logFormat: globalOpts.logFormat }),
+			format: runtime().resolveLogFormat({ logFormat: globalOpts.logFormat }),
 		}
 		// A recovery inventory has to work when ~/.namzu/config.yaml is the
 		// damaged object being inspected. It therefore derives presentation only
 		// from already-parsed global flags and never enters either config cascade.
-		installCliLogging(createStderrSink(logging.format), logging.level)
+		runtime().installCliLogging(runtime().createStderrSink(logging.format), logging.level)
 		recoveryCtx = {
 			formatter: createFormatter(format, { quiet }),
 			config: { format, quiet },
@@ -396,7 +388,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 	// Its turn action resolves this bridge only after trusting the bound cwd.
 	const getResidentContext = () =>
 		bindTrustedProjectContext(getRecoveryContext(), getTrustedContext)
-	const worktreeCommand = createWorktreeCommand(async (target) => {
+	const worktreeCommand = createLazyWorktreeCommand(async (target) => {
 		const previous = process.cwd()
 		try {
 			process.chdir(target.worktree.path)
@@ -405,7 +397,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			process.chdir(previous)
 		}
 	})
-	const palCommand = createPalCommand(opts.resumeCommand)
+	const palCommand = createLazyPalCommand(opts.resumeCommand)
 	for (const def of [
 		acpCommand,
 		palCommand,
@@ -430,7 +422,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		browserCommand,
 		worktreeCommand,
 	]) {
-		registerAll(program, [def], {
+		registerCommandOrLazy(program, def, {
 			getContext:
 				def === residentCommand
 					? getResidentContext
@@ -464,11 +456,13 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 				provider?: string
 				model?: string
 				effort?: (typeof REASONING_EFFORT_LEVELS)[number]
-				permissionMode?: (typeof PERMISSION_MODES)[number]
+				permissionMode?: (typeof PERMISSION_MODE_NAMES)[number]
 				message?: string
 			}>()
 			const structuredOutput = launchOpts.outputSchema
-				? loadOutputSchema(resolve(process.cwd(), launchOpts.outputSchema))
+				? (await import('./output-schema.js')).loadOutputSchema(
+						resolve(process.cwd(), launchOpts.outputSchema),
+					)
 				: undefined
 			const skipPermissions = Boolean(launchOpts.dangerouslySkipPermissions || launchOpts.yolo)
 			const provider = launchOpts.provider?.trim()
@@ -486,8 +480,8 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			const commandCtx = getBootstrapContext()
 			beginCatalogueRefresh(commandCtx.config)
 			const buildTuiContext = (resolvedCtx: ResolvedCommandContext, cwd: string) => {
-				warnLegacyMcpPermissionNames(resolvedCtx.config.permissions)
-				const permissions = compilePermissions(
+				runtime().warnLegacyMcpPermissionNames(resolvedCtx.config.permissions)
+				const permissions = runtime().compilePermissions(
 					resolvedCtx.config.permissions,
 					resolvedCtx.config.permissionChecks,
 				)
@@ -499,7 +493,9 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 				// table, behind any table deny that names a browser tool.
 				const browserConfig = resolvedCtx.config.browser
 				const browserSites =
-					browserConfig?.enabled === false ? undefined : compileBrowserSites(browserConfig?.sites)
+					browserConfig?.enabled === false
+						? undefined
+						: runtime().compileBrowserSites(browserConfig?.sites)
 				for (const message of browserSites?.diagnostics ?? []) {
 					resolvedCtx.formatter.error({ message })
 				}
@@ -516,7 +512,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					...(Object.keys(launchSettings).length > 0 ? { launchSettings } : {}),
 					...(additionalDirectories.length > 0 ? { additionalDirectories } : {}),
 					rules: browserSites
-						? withBrowserSiteRules(permissions.rules, browserSites.rules)
+						? runtime().withBrowserSiteRules(permissions.rules, browserSites.rules)
 						: permissions.rules,
 					...(browserSites ? { browser: { ...browserConfig, sites: browserSites.sites } } : {}),
 					logging: resolvedCtx.logging,
@@ -579,7 +575,11 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			// Conversations are stored per folder. A scheduled run's id resumed
 			// from elsewhere would only be "not found"; say where it lives.
 			const { scheduledSessionElsewhere } = await import('./schedule/resume-command.js')
-			const elsewhere = scheduledSessionElsewhere(resolveNamzuHome(), conversationId, process.cwd())
+			const elsewhere = scheduledSessionElsewhere(
+				runtime().resolveNamzuHome(),
+				conversationId,
+				process.cwd(),
+			)
 			if (elsewhere) {
 				process.stderr.write(
 					`namzu: ${conversationId} is a run of the scheduled job ${elsewhere.job.name}, and its conversation is stored with the job’s folder, ${elsewhere.job.folder.canonical}. Open it there:\n  ${elsewhere.command}\n`,
@@ -619,7 +619,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		// A config file the operator can fix. The message names the file and
 		// what is wrong with it; a stack trace would only point at the reader
 		// that noticed, which is not where the problem is.
-		if (err instanceof ConfigLoadError) {
+		if (rt !== undefined && err instanceof rt.ConfigLoadError) {
 			const next = err.complete
 				? ''
 				: 'namzu will not start with a config it cannot read. Fix the file or remove it.\n'
@@ -631,7 +631,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			process.stderr.write(`${err.message}\n${next}${detail}`)
 			return EXIT_BAD_CONFIG
 		}
-		if (err instanceof ConfigValueError) {
+		if (rt !== undefined && err instanceof rt.ConfigValueError) {
 			const remediation =
 				err.source.kind === 'file'
 					? 'Fix the named setting or remove it from that file.'
@@ -641,101 +641,14 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			)
 			return EXIT_BAD_CONFIG
 		}
+		// Only now, on the failure path: the report names a log under the Namzu
+		// home, which is the SDK's to resolve.
+		const { reportCrash } = await import('./crash-report.js')
 		process.stderr.write(reportCrash(err))
 		return EXIT_INTERNAL_ERROR
 	} finally {
 		catalogueRefresh?.cancel()
 	}
-}
-
-/**
- * The CLI-process third of the boot narrative — the two other thirds
- * (`namzu.sandbox.resolved`/`.provider.resolved`/`.capability.*`/
- * `.discovery.completed`/`.boot.ready`, and the SDK's own
- * `namzu.migration.completed`) belong to `createAgentSession`
- * (`tui/agent.ts`) and `query()` respectively, because they describe facts
- * an agent session resolves — `doctor` and `login` never reach either.
- *
- * Exported (not re-exported from `./index.ts`) so `__tests__/` can drive it
- * directly with a hand-built `ConfigProvenance` and a capturing sink,
- * without needing a live Commander parse or a real config cascade on disk.
- */
-export function emitBootNarrative(provenance: ConfigProvenance, config: NamzuCliConfig): void {
-	const log = cliLogger()
-	log.info('namzu starting', {
-		[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.BOOT_START,
-		'namzu.boot.cli_version': CLI_VERSION,
-		'namzu.boot.sdk_version': SDK_VERSION,
-		'namzu.boot.node_version': process.version,
-		'namzu.boot.platform': `${process.platform}-${process.arch}`,
-	})
-
-	const counts: Record<ConfigSource['kind'], number> = {
-		default: 0,
-		'user-file': 0,
-		'project-file': 0,
-		profile: 0,
-		env: 0,
-		managed: 0,
-	}
-	for (const source of Object.values(provenance)) {
-		if (source) counts[source.kind]++
-	}
-	const keyCount = Object.keys(provenance).length
-	log.info('Configuration resolved', {
-		[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.CONFIG_RESOLVED,
-		'namzu.config.key_count': keyCount,
-		'namzu.config.default_count': counts.default,
-		'namzu.config.user_file_count': counts['user-file'],
-		'namzu.config.project_file_count': counts['project-file'],
-		'namzu.config.env_count': counts.env,
-	})
-	// Per-key debug rows. The value is handed to the logger as JSON text, not
-	// hand-masked by key name and not omitted — the record-boundary
-	// redaction scan every sink sits behind
-	// (`packages/sdk/src/utils/log/redact.ts`) already screens every
-	// attribute value for a secret shape, the SAME defence `namzu exec`'s
-	// stderr gets. A second, bespoke "these key names are secret" table
-	// here would duplicate that control and go stale the day a
-	// secret-shaped value arrives under a key nobody added to it — exactly
-	// the empty, undriven masking table this session already struck once.
-	for (const key of Object.keys(provenance) as (keyof NamzuCliConfig)[]) {
-		const source = provenance[key]
-		if (!source) continue
-		log.debug('config key resolved', {
-			[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.CONFIG_RESOLVED,
-			'namzu.config.key': key,
-			'namzu.config.value': JSON.stringify((config as Record<string, unknown>)[key]),
-			'namzu.config.source': formatConfigSource(source),
-		})
-	}
-
-	// The CLI never calls `registerTelemetry()` on any path today — this is
-	// therefore not a probe, it is the honest constant truth of the process
-	// that is running. §3.3's falsifiable claim ("every record inside an
-	// active span carries traceId/spanId") is what this line resolves the
-	// ambiguity for: absence of a trace id reads as "off", stated here,
-	// never silently as "dropped".
-	log.info(
-		'no LoggerProvider/TracerProvider registered; trace_id will be absent from every record this process emits',
-		{
-			[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.TELEMETRY_STATUS,
-			'namzu.telemetry.registered': false,
-			// Session CONTENT export, which is a different question from whether
-			// a tracer is registered and is the one an end user cares about: this
-			// is the flag that says whether their conversation leaves the machine.
-			// Always present, so "off" is a stated fact rather than the absence
-			// of a claim.
-			//
-			// The BOOLEAN only. The disclosure sentence is emitted by `exec` at the
-			// moment export is actually attached, under this same event name,
-			// because that sentence describes what was BUILT — the destination
-			// that resolved, the redactors that loaded — and this function is
-			// synchronous by design: `doctor` and `login` call it before anything
-			// async has happened, and neither of them attaches an export at all.
-			'namzu.telemetry.session_export': config.telemetry?.sessionExport !== undefined,
-		},
-	)
 }
 
 /**

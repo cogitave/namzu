@@ -181,7 +181,19 @@ async function execPrint(
 	// material, so it gets the first-byte deadline instead: a caller who
 	// asked a complete question should never be left waiting on a pipe
 	// they did not mean to open.
-	const piped = await readStdin({ deadline: Boolean(fromArgs) })
+	//
+	// The read starts here, and its quarter second runs from here, as it always
+	// has. Whether the command waits for it here depends on what the piped text
+	// can change before the turn is sent. It can change which command a
+	// leading `/` names, and it is the prompt when there is no argument, so
+	// both wait. Otherwise nothing between here and the send looks at it, and
+	// the quarter second runs alongside the rest of the startup instead of
+	// being added to it.
+	const pipedRead = readStdin({ deadline: Boolean(fromArgs) })
+	// A read that fails while nothing is waiting on it is reported when it is.
+	pipedRead.catch(() => {})
+	const pipedAfterStartup = fromArgs !== '' && !fromArgs.startsWith('/')
+	const piped = pipedAfterStartup ? '' : await pipedRead
 	const prompt = composePrompt(fromArgs, piped)
 	if (!prompt) {
 		ctx.formatter.error({
@@ -220,7 +232,7 @@ async function execPrint(
 		ctx.formatter.error({ message: expansion.reason })
 		return EXIT_USAGE
 	}
-	const finalPrompt = expansion.kind === 'expanded' ? expansion.prompt : prompt
+	const promptUntilPiped = expansion.kind === 'expanded' ? expansion.prompt : prompt
 
 	// The CLI owns stderr, not the kernel it drives (LOG-05) — a live sink
 	// at the level --verbose/--quiet/NAMZU_LOG_LEVEL named, instead of
@@ -512,6 +524,11 @@ async function execPrint(
 			}
 		}
 	}
+	// The piped text, if it was left to the end of the startup (see where it is
+	// read): appended to the question exactly as it would have been before.
+	const finalPrompt = pipedAfterStartup
+		? composePrompt(fromArgs, await pipedRead)
+		: promptUntilPiped
 	await consume(
 		session.send([...prior, { role: 'user', content: finalPrompt, timestamp: Date.now() }], {
 			signal: turnAbort.signal,
