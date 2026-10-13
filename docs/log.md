@@ -1,6 +1,28 @@
 # Documentation update log
 
+## 2026-10-13
+
+- **Update** [Original workspace allocation](sdk/kubernetes-sandbox.md#allocate-an-original-workspace-without-adopting-by-name): one creation-only POST atomically records allocation provenance and epoch. Every collision refuses adoption; lost acknowledgements retain the original allocation for read-only recovery. Volume and strict live opening can require the captured marker through final owner verification. The receipt is creation evidence, not ready guest or writer exclusion. `.changeset/sandbox-original-allocation.md`, **minor** for `@namzu/sandbox`.
+
+- **Update** [Existing-volume preservation](sdk/kubernetes-sandbox.md#preserve-an-existing-volume-before-a-closure) and [Reopen the original live guest](sdk/kubernetes-sandbox.md#reopen-the-original-live-guest-for-closure): optional configured-profile checks guard wake and guest access. Exact retirement reply identity permits bound cleanup without an execution probe; missing/mismatched boots refuse, and unavailable flush remains explicit. Retain the bound transition across ambiguous stop acknowledgement. `.changeset/sandbox-closure-profile.md`, **minor** for `@namzu/sandbox`.
+
 ## 2026-10-12
+
+- **Update** [Existing-volume preservation](sdk/kubernetes-sandbox.md#preserve-an-existing-volume-before-a-closure): inspect a real Sandbox/PVC identity without waking it, then conditionally open only that persisted disk under host exclusion. One epoch-tested wake survives lost replies without a second write; bounded repeated inventories reject changed evidence. Authenticated session lists now include the agent boot identity, verified through the real transport. `.changeset/sandbox-volume-closure.md`, **minor** for `@namzu/sandbox`.
+
+- **Update** [Delete a captured suspended workspace](sdk/kubernetes-sandbox.md#delete-a-captured-suspended-workspace-without-waking-it): the optional `suspendedTarget` on `deleteKubernetesWorkspace` validates the retained owner before I/O and makes one UID/resource-version conditional deletion without waking a guest. Invalid provided targets reject; completion still requires retained-target reconciliation. `.changeset/sandbox-captured-suspended-delete.md`, **minor** for `@namzu/sandbox`.
+
+- **Update** [Reopen the original live guest](sdk/kubernetes-sandbox.md#reopen-the-original-live-guest-for-closure): `openKubernetesWorkspaceForClosure` authenticates an exact retained live target without creating, waking or replacing compute. It pins every guest operation and permits only terminal transitions with the original identity and epoch. `.changeset/sandbox-retained-closure-open.md`, **minor** for `@namzu/sandbox`.
+
+- **Update** [Retained workspace closure observation](sdk/kubernetes-sandbox.md#observe-a-retained-closure-after-a-host-restart): `reconcileKubernetesWorkspaceClosure` checks original Sandbox, PVC and Pod evidence after a host restart without acquiring, resuming or mutating resources. A complete bounded inventory and repeated terminal evidence refuse replacement or incomplete observations.
+
+- **Update** [Kubernetes workspace closure](sdk/kubernetes-sandbox.md#bind-a-terminal-transition-to-its-captured-owner): optional captured identity plus explicit epoch fences suspend and disk deletion to fresh Sandbox/PVC ownership, pinned guest checks and UID/resource-version conditional writes. Lost replies retain the same target and completion waits for the original pod. `.changeset/sandbox-bound-lifecycle.md`, **minor** for `@namzu/sandbox`.
+
+- **Fix** The real `/proc` owned-session quiesce test now runs on Linux, whose kernel interface it exercises; mocked admission checks still run on macOS. Previously the real test always failed there because macOS has no `/proc`.
+
+- **Update** Sandbox conformance controls: run every recorded case with its own test deadline, retain the named mutant-failure assertions, and reap the deliberately leaked terminal after observing the failure. The whole contract no longer shares one five-second deadline.
+
+- **Update** [Kubernetes sandboxes](sdk/kubernetes-sandbox.md#confirming-idle-without-stopping-work): an idle-only, guest-bound check refuses running or pending work without signalling it. It requires the additive `quiesce-idle` capability, immutable options, stable whole-namespace process evidence and an explicit idle acknowledgement.
 
 - **Update** [Kubernetes sandboxes](sdk/kubernetes-sandbox.md#bind-work-to-one-prepared-guest): a non-owning guest pin uses an independent transport and a guest-enforced boot identity before every data operation. Older agents refuse the new operation. This is preparation identity, not disk exclusion.
 

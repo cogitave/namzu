@@ -29,6 +29,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { KubernetesAgentTransport } from '../transport.js'
 
 import { AGENT_ENV_KEYS } from './fixtures/agent-env.js'
 import { decodeFrames, encodeFrame, sendFramedRequest } from './fixtures/framed-agent-client.js'
@@ -176,6 +177,27 @@ describe('the guest reports which agent process answered', () => {
 		expect(health.reply.features).toContain('guest-boot-id')
 	})
 
+	it('authenticates the process identity on a read-only session inventory', async () => {
+		const inventory = await sendFramedRequest(port, { op: 'list-sessions', token: POD_UID })
+		expect(inventory.reply.ok).toBe(true)
+		expect(inventory.reply.sessions).toEqual([])
+		expect(inventory.reply.guestBootId).toBe(agent.GUEST_BOOT_ID)
+		const refused = await sendFramedRequest(port, { op: 'list-sessions', token: 'foreign' })
+		expect(refused.reply.error).toBe('unauthorized')
+		expect(refused.reply.guestBootId).toBeUndefined()
+		const observed: unknown[] = []
+		const transport = new KubernetesAgentTransport(
+			{ kind: 'tcp', host: '127.0.0.1', port, token: POD_UID },
+			{
+				onGuestReply: (reply, podUid) => {
+					if (reply.guestBootId) observed.push({ guestBootId: reply.guestBootId, podUid })
+				},
+			},
+		)
+		expect(await transport.listSessions()).toEqual([])
+		expect(observed).toEqual([{ guestBootId: agent.GUEST_BOOT_ID, podUid: POD_UID }])
+	})
+
 	it('carries the same id on every authenticated reply shape', async () => {
 		writeFileSync(join(workDir, 'note.txt'), 'pod network', 'utf8')
 		const seen: Record<string, unknown> = {}
@@ -197,6 +219,8 @@ describe('the guest reports which agent process answered', () => {
 			body: { path: join(workDir, 'note.txt'), encoding: 'base64' },
 		})
 		seen['read-file'] = bootIdOf(read.reply)
+		const listed = await sendFramedRequest(port, { op: 'list-sessions', token: POD_UID })
+		seen['list-sessions'] = bootIdOf(listed.reply)
 
 		const reserved = await sendFramedRequest(port, {
 			op: 'reserve-execution',

@@ -1,10 +1,10 @@
 import type { KubernetesWorkspaceIdentity } from './identity.js'
 import type { KubernetesWorkspace } from './workspace.js'
 
-/** A non-owning view: lifecycle transitions remain on the workspace owner. */
+/** A non-owning view: pod lifecycle transitions remain on the workspace owner. */
 export type KubernetesPinnedGuest = Pick<
 	KubernetesWorkspace,
-	'exec' | 'readFile' | 'writeFile' | 'listFiles' | 'openTerminal' | 'openTcpConnection'
+	'exec' | 'readFile' | 'writeFile' | 'listFiles' | 'openTerminal' | 'openTcpConnection' | 'quiesce'
 >
 
 export class KubernetesGuestPinError extends Error {

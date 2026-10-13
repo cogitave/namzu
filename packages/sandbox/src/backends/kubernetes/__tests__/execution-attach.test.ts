@@ -706,6 +706,10 @@ describe.skipIf(IS_WINDOWS)('a detached command', () => {
 
 	it('refuses an attach in the stream shape when the agent has fenced itself', async () => {
 		await startAgent()
+		const originalBoot = (
+			await sendFramedRequest(agentPort, { op: 'list-sessions', token: POD_UID })
+		).reply.guestBootId
+		expect(originalBoot).toEqual(expect.any(String))
 		// A command whose process group outlives its leader is what fences
 		// the agent: it can no longer say what it owns, so it refuses reuse.
 		// The background process gives up the command's stdio, or the
@@ -730,7 +734,11 @@ describe.skipIf(IS_WINDOWS)('a detached command', () => {
 			token: POD_UID,
 			body: { executionId: EXECUTION_X },
 		})
-		expect(exchange.reply).toEqual({ type: 'error', error: 'agent_retiring' })
+		expect(exchange.reply).toEqual({
+			type: 'error',
+			error: 'agent_retiring',
+			guestBootId: originalBoot,
+		})
 		expect(exchange.frames.at(-1)).toBe('')
 
 		const failure = await transport()

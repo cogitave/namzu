@@ -459,7 +459,11 @@ export interface KillSessionRequest {
  */
 export const QUIESCE_FEATURE = 'quiesce'
 
-/** Stop everything. `graceMs` bounds ONE round's SIGTERM window. */
+/** Supports `onlyIfIdle` without stopping any guest process. Older agents
+ * ignore unknown request fields, so this needs its own capability. */
+export const QUIESCE_IDLE_FEATURE = 'quiesce-idle'
+
+/** Stop everything, or only confirm idle. `graceMs` bounds ONE SIGTERM window. */
 export interface QuiesceRequest {
 	/**
 	 * How long a round waits after `SIGTERM` before it escalates to
@@ -468,6 +472,8 @@ export interface QuiesceRequest {
 	 * 1000ms. It is NOT the pod's `terminationGracePeriodSeconds`.
 	 */
 	readonly graceMs?: number
+	/** Refuse a busy guest without signalling or marking any process. */
+	readonly onlyIfIdle?: boolean
 }
 
 /**

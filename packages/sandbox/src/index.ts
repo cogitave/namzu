@@ -76,15 +76,37 @@ import {
 	releaseKubernetesTaskSandboxes as releaseTaskSandboxesOnCluster,
 } from './backends/kubernetes/index.js'
 import type { KubernetesIngressConfig } from './backends/kubernetes/ingress-policy.js'
+import type {
+	KubernetesWorkspaceAllocateOptions,
+	KubernetesWorkspaceAllocationReceipt,
+} from './backends/kubernetes/workspace-allocation.js'
+import {
+	type KubernetesWorkspaceClosureOptions,
+	type KubernetesWorkspaceClosureState,
+	reconcileKubernetesWorkspaceClosure as reconcileWorkspaceClosureOnCluster,
+} from './backends/kubernetes/workspace-closure.js'
+import type { KubernetesWorkspaceExecutionProfile } from './backends/kubernetes/workspace-profile.js'
+import {
+	type KubernetesWorkspaceVolumeInspectOptions,
+	type KubernetesWorkspaceVolumeObservation,
+	type KubernetesWorkspaceVolumeOpenOptions,
+	inspectKubernetesWorkspaceVolume as inspectWorkspaceVolumeOnCluster,
+	openKubernetesWorkspaceVolumeForClosure as openWorkspaceVolumeForClosureOnCluster,
+} from './backends/kubernetes/workspace-volume.js'
 import {
 	type KubernetesWorkspace,
+	type KubernetesWorkspaceClosureOpenOptions,
+	type KubernetesWorkspaceDeleteOptions,
 	type KubernetesWorkspaceOptions,
 	type KubernetesWorkspaceSummary,
 	type KubernetesWorkspaceSuspendOptions,
 	type KubernetesWorkspaceTransitionOptions,
+	allocateKubernetesWorkspace as allocateWorkspaceOnCluster,
 	createKubernetesWorkspace as buildKubernetesWorkspace,
 	deleteKubernetesWorkspace as deleteWorkspaceOnCluster,
 	listKubernetesWorkspaces as listWorkspacesOnCluster,
+	openKubernetesWorkspaceForClosure as openWorkspaceForClosureOnCluster,
+	resolveKubernetesWorkspaceExecutionProfile as resolveWorkspaceProfileOnCluster,
 	suspendKubernetesWorkspace as suspendWorkspaceOnCluster,
 } from './backends/kubernetes/workspace.js'
 
@@ -358,9 +380,11 @@ export type { KubernetesQuiesceReport } from './backends/kubernetes/transport.js
 export {
 	KubernetesQuiesceUnconfirmedError,
 	KubernetesQuiesceUnsupportedError,
+	KubernetesQuiesceBusyError,
 } from './backends/kubernetes/transport.js'
 export {
 	QUIESCE_FEATURE,
+	QUIESCE_IDLE_FEATURE,
 	type QuiesceScope,
 	type QuiescedProcess,
 } from './backends/firecracker/protocol.js'
@@ -489,6 +513,7 @@ export type {
 	KubernetesWorkspaceAgentState,
 	KubernetesWorkspaceCancellationNotice,
 	KubernetesWorkspaceDestroyOptions,
+	KubernetesWorkspaceDeleteOptions,
 	KubernetesWorkspaceOptions,
 	KubernetesWorkspaceOrigin,
 	KubernetesWorkspaceStartFailurePolicy,
@@ -497,6 +522,29 @@ export type {
 	KubernetesWorkspaceSuspensionNotice,
 	KubernetesWorkspaceTransitionOptions,
 } from './backends/kubernetes/workspace.js'
+export type {
+	KubernetesWorkspaceAllocation,
+	KubernetesWorkspaceAllocateOptions,
+	KubernetesWorkspaceAllocationReceipt,
+} from './backends/kubernetes/workspace-allocation.js'
+export { KubernetesWorkspaceAllocationConflictError } from './backends/kubernetes/workspace-allocation.js'
+export type { KubernetesWorkspaceExecutionProfile } from './backends/kubernetes/workspace-profile.js'
+export {
+	KubernetesWorkspaceProfileConflictError,
+	captureWorkspaceExecutionProfile as captureKubernetesWorkspaceExecutionProfile,
+} from './backends/kubernetes/workspace-profile.js'
+export type {
+	KubernetesWorkspaceClosureOptions,
+	KubernetesWorkspaceClosureState,
+	KubernetesWorkspaceClosureTarget,
+} from './backends/kubernetes/workspace-closure.js'
+export { KubernetesWorkspaceClosureConflictError } from './backends/kubernetes/workspace-closure.js'
+export type {
+	KubernetesWorkspaceVolumeIdentity,
+	KubernetesWorkspaceVolumeInspectOptions,
+	KubernetesWorkspaceVolumeObservation,
+	KubernetesWorkspaceVolumeOpenOptions,
+} from './backends/kubernetes/workspace-volume.js'
 // What a workspace handle is bound to, what it says when the guest behind it
 // is replaced, and the two errors that identity produces. A host that keeps
 // per-workspace state — which processes it started, what is on the disk —
@@ -1217,7 +1265,10 @@ export type EgressPolicy =
 	| { readonly kind: 'deny-all' }
 	| { readonly kind: 'allow-all' }
 	| { readonly kind: 'static'; readonly allowedHosts: readonly string[] }
-	| { readonly kind: 'resolver'; readonly resolve: () => Promise<readonly string[]> }
+	| {
+			readonly kind: 'resolver'
+			readonly resolve: () => Promise<readonly string[]>
+	  }
 
 /**
  * Backend strategy. Each tier × concrete-service combination ships
@@ -1637,6 +1688,39 @@ export async function createKubernetesWorkspace(
 	return await buildKubernetesWorkspace(kubernetesInternalConfig(config), options)
 }
 
+/** Allocate one original workspace resource without adoption or guest access.
+ * Persist allocation id, scope and epoch before dispatch. An unknown create
+ * reply is recoverable only through read-only expectedAllocation inspection. */
+export async function allocateKubernetesWorkspace(
+	config: KubernetesBackendConfig,
+	options: KubernetesWorkspaceAllocateOptions,
+): Promise<KubernetesWorkspaceAllocationReceipt> {
+	return allocateWorkspaceOnCluster(kubernetesInternalConfig(config), options)
+}
+
+/** Qualify copied native template content and current policies without creating
+ * compute. Persist the result in the original allocation before dispatch. */
+export async function resolveKubernetesWorkspaceExecutionProfile(
+	config: KubernetesBackendConfig,
+	options: { readonly signal?: AbortSignal } = {},
+): Promise<KubernetesWorkspaceExecutionProfile> {
+	return resolveWorkspaceProfileOnCluster(kubernetesInternalConfig(config), options)
+}
+
+export type { KubernetesWorkspaceClosureOpenOptions } from './backends/kubernetes/workspace.js'
+
+/**
+ * Open a retained live closure target without creating or waking compute.
+ * Requires an exact physical identity and holder epoch; replacements refuse.
+ * The caller owns durable exclusion. This only authenticates its target.
+ */
+export async function openKubernetesWorkspaceForClosure(
+	config: KubernetesBackendConfig,
+	options: KubernetesWorkspaceClosureOpenOptions,
+): Promise<KubernetesWorkspace> {
+	return await openWorkspaceForClosureOnCluster(kubernetesInternalConfig(config), options)
+}
+
 /**
  * Every workspace this backend owns in the namespace, read off the objects
  * and waking none of them.
@@ -1657,6 +1741,36 @@ export async function listKubernetesWorkspaces(
 	return await listWorkspacesOnCluster(kubernetesInternalConfig(config), options)
 }
 
+/** Observe a retained closure target after restart, without acquiring or creating resources. */
+export async function reconcileKubernetesWorkspaceClosure(
+	config: KubernetesBackendConfig,
+	workspaceId: string,
+	options: KubernetesWorkspaceClosureOptions,
+): Promise<KubernetesWorkspaceClosureState> {
+	return await reconcileWorkspaceClosureOnCluster(
+		kubernetesInternalConfig(config),
+		workspaceId,
+		options,
+	)
+}
+
+/** Read the existing disk's identity without allocating or waking any compute. */
+export async function inspectKubernetesWorkspaceVolume(
+	config: KubernetesBackendConfig,
+	workspaceId: string,
+	options: KubernetesWorkspaceVolumeInspectOptions,
+): Promise<KubernetesWorkspaceVolumeObservation> {
+	return inspectWorkspaceVolumeOnCluster(kubernetesInternalConfig(config), workspaceId, options)
+}
+
+/** Open only a durably excluded existing volume and pin its actual guest. */
+export async function openKubernetesWorkspaceVolumeForClosure(
+	config: KubernetesBackendConfig,
+	options: KubernetesWorkspaceVolumeOpenOptions,
+): Promise<KubernetesWorkspace> {
+	return openWorkspaceVolumeForClosureOnCluster(kubernetesInternalConfig(config), options)
+}
+
 /**
  * Delete a workspace by id — the Sandbox, and with it the Pod, the Service
  * and the PVC — without adopting or resuming it first.
@@ -1673,7 +1787,7 @@ export async function listKubernetesWorkspaces(
 export async function deleteKubernetesWorkspace(
 	config: KubernetesBackendConfig,
 	workspaceId: string,
-	options?: KubernetesWorkspaceTransitionOptions,
+	options?: KubernetesWorkspaceDeleteOptions,
 ): Promise<void> {
 	await deleteWorkspaceOnCluster(kubernetesInternalConfig(config), workspaceId, options)
 }

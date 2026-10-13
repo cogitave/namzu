@@ -45,6 +45,7 @@ import {
 	FLUSH_FEATURE,
 	type GuestReplyIdentity,
 	QUIESCE_FEATURE,
+	QUIESCE_IDLE_FEATURE,
 	type QuiesceScope,
 	type QuiescedProcess,
 	SESSIONS_FEATURE,
@@ -124,6 +125,8 @@ export class KubernetesAgentRetiringError extends Error {
 
 	constructor(
 		message = 'kubernetes tcp transport: the guest agent has fenced itself (agent_retiring) because an earlier process group’s shutdown could not be confirmed. A command of unknown state may still be running in that pod and nothing on this side can end it: only a new pod clears the fence, and until the pod is replaced every call except healthz and cancel-execution meets this same refusal — reads, writes, terminals and tcp connections included. Nothing was changed on the cluster by this refusal and this handle was not retired. On a persistent workspace, call suspend() and then resume() when you are ready for the live terminals and background processes in that pod to go down; on a task sandbox, destroy() it and take another.',
+		/** Fresh identity from the refusal frame, absent on older agents. */
+		readonly guestBootId?: string,
 	) {
 		super(message)
 	}
@@ -461,7 +464,13 @@ async function requestChecked(
 ): Promise<unknown> {
 	const response = await wire.request(request, signal)
 	if (isUnauthorized(response)) throw new KubernetesAgentUnauthorizedError()
-	if (isAgentRetiring(response)) throw new KubernetesAgentRetiringError()
+	if (isAgentRetiring(response)) {
+		const observed = (response as { guestBootId?: unknown }).guestBootId
+		throw new KubernetesAgentRetiringError(
+			undefined,
+			typeof observed === 'string' ? observed : undefined,
+		)
+	}
 	return response
 }
 
@@ -1284,6 +1293,29 @@ export class KubernetesQuiesceUnsupportedError extends Error {
 	) {
 		super(message)
 	}
+}
+
+/** A confirmed idle refusal: the guest did not mark or signal any process. */
+export class KubernetesQuiesceBusyError extends Error {
+	override readonly name = 'KubernetesQuiesceBusyError'
+	constructor() {
+		super('The guest is busy; no process was stopped or changed')
+	}
+}
+
+/** Capture caller-owned options before a queue or capability check can yield. */
+export function captureQuiesceOptions(options?: {
+	readonly graceMs?: number
+	readonly onlyIfIdle?: boolean
+	readonly signal?: AbortSignal
+}) {
+	const graceMs = options?.graceMs
+	const onlyIfIdle = options?.onlyIfIdle
+	const signal = options?.signal
+	if (onlyIfIdle !== undefined && typeof onlyIfIdle !== 'boolean') {
+		throw new TypeError('onlyIfIdle must be a boolean')
+	}
+	return Object.freeze({ graceMs, onlyIfIdle, signal })
 }
 
 /**
@@ -2185,29 +2217,53 @@ export class KubernetesAgentTransport {
 	 * process would not stop, and the reply names its pid.
 	 */
 	async quiesce(
-		options: { readonly graceMs?: number } = {},
+		options: { readonly graceMs?: number; readonly onlyIfIdle?: boolean } = {},
 		signal?: AbortSignal,
 	): Promise<KubernetesQuiesceReport> {
-		await this.assertQuiesceSupported(signal)
-		const reply = (await this.withRebind(
-			async () =>
-				await requestChecked(
-					this.wire,
-					{
-						op: 'quiesce',
-						body: {
-							...(options.graceMs !== undefined ? { graceMs: options.graceMs } : {}),
-						},
+		const { graceMs, onlyIfIdle } = captureQuiesceOptions(options)
+		const reply = (await this.withRebind(async () => {
+			const wire = this.wire
+			const features = await wire.guestFeatures(signal)
+			if (!features.includes(QUIESCE_FEATURE)) throw this.quiesceUnsupported()
+			if (onlyIfIdle && !features.includes(QUIESCE_IDLE_FEATURE)) {
+				throw new KubernetesQuiesceUnsupportedError(
+					QUIESCE_IDLE_FEATURE,
+					'kubernetes: this guest cannot check idle without stopping work; the request was not sent',
+				)
+			}
+			return await requestChecked(
+				wire,
+				{
+					op: 'quiesce',
+					body: {
+						...(graceMs !== undefined ? { graceMs } : {}),
+						...(onlyIfIdle !== undefined ? { onlyIfIdle } : {}),
 					},
-					signal,
-				),
-			signal,
-		)) as Record<string, unknown>
-		if (reply.ok === true) return quiesceReport(reply)
+				},
+				signal,
+			)
+		}, signal)) as Record<string, unknown>
+		if (reply.ok === true) {
+			if (
+				onlyIfIdle &&
+				(reply.idle !== true ||
+					reply.scope !== 'pid-namespace' ||
+					reply.rounds !== 0 ||
+					!Array.isArray(reply.stopped) ||
+					reply.stopped.length !== 0)
+			) {
+				throw new KubernetesQuiesceUnconfirmedError(
+					'quiesce_idle_unconfirmed',
+					'kubernetes: the guest did not confirm whole-namespace idle without stopping work',
+				)
+			}
+			return quiesceReport(reply)
+		}
 		const refusal = typeof reply.error === 'string' ? reply.error : 'no reason given'
+		if (onlyIfIdle && refusal === 'quiesce_busy') throw new KubernetesQuiesceBusyError()
 		// The guest advertised the feature and then did not know the op. That
 		// is one image, not two, so it is the unsupported error rather than a
-		// second name for the same fact — see {@link assertQuiesceSupported}.
+		// second name for the same fact — see {@link quiesceUnsupported}.
 		if (refusal.startsWith('unknown_op')) throw this.quiesceUnsupported()
 		const detail = typeof reply.message === 'string' ? `: ${reply.message}` : ''
 		throw new KubernetesQuiesceUnconfirmedError(
@@ -2297,11 +2353,6 @@ export class KubernetesAgentTransport {
 	 */
 	async supportsQuiesce(signal?: AbortSignal): Promise<boolean> {
 		return (await this.wire.guestFeatures(signal)).includes(QUIESCE_FEATURE)
-	}
-
-	private async assertQuiesceSupported(signal?: AbortSignal): Promise<void> {
-		if (await this.supportsQuiesce(signal)) return
-		throw this.quiesceUnsupported()
 	}
 
 	private quiesceUnsupported(): KubernetesQuiesceUnsupportedError {

@@ -8,6 +8,78 @@ afterEach(async () => {
 })
 
 describe('an immutable guest transport', () => {
+	it('checks the replacement wire before retrying idle against an older agent', async () => {
+		const first = await startScriptedAgent({
+			token: 'first',
+			features: ['quiesce', 'quiesce-idle'],
+		})
+		const old = await startScriptedAgent({
+			token: 'old',
+			features: ['quiesce'],
+			quiesceReply: { ok: true },
+		})
+		agents.push(first, old)
+		let refreshes = 0
+		const transport = new KubernetesAgentTransport(
+			{ kind: 'tcp', host: '127.0.0.1', port: first.port, token: 'wrong' },
+			{
+				refreshHandle: async () => {
+					refreshes++
+					return { kind: 'tcp', host: '127.0.0.1', port: old.port, token: 'old' }
+				},
+			},
+		)
+		const options = { onlyIfIdle: true }
+		const running = transport.quiesce(options)
+		options.onlyIfIdle = false
+		await expect(running).rejects.toMatchObject({ feature: 'quiesce-idle' })
+		expect(refreshes).toBe(1)
+		expect(old.requests.some((request) => request.op === 'quiesce')).toBe(false)
+	})
+
+	it('checks idle on the pinned guest and never follows a replacement', async () => {
+		const agent = await startScriptedAgent({
+			token: 'first-pod',
+			guestBootId: 'first-boot',
+			guestBound: true,
+			features: ['quiesce', 'quiesce-idle'],
+			quiesceReply: {
+				ok: true,
+				idle: true,
+				scope: 'pid-namespace',
+				rounds: 0,
+				stopped: [],
+				graceMs: 1000,
+			},
+		})
+		agents.push(agent)
+		let refreshes = 0
+		const transport = new KubernetesAgentTransport(
+			{
+				kind: 'tcp',
+				host: '127.0.0.1',
+				port: agent.port,
+				token: 'first-pod',
+			},
+			{
+				refreshHandle: async () => {
+					refreshes++
+					return { kind: 'tcp', host: '127.0.0.1', port: agent.port, token: 'second-pod' }
+				},
+			},
+		)
+		const pinned = transport.pinGuest('first-boot')
+		expect((await pinned.quiesce({ onlyIfIdle: true })).stopped).toEqual([])
+		agent.setToken('second-pod')
+		agent.setGuestBootId('second-boot')
+		await expect(pinned.quiesce({ onlyIfIdle: true })).rejects.toThrow()
+		expect(refreshes).toBe(0)
+		const requests = agent.requests.filter((request) => request.op === 'guest-bound')
+		expect(requests).toHaveLength(2)
+		expect(requests[0]?.request).toEqual({ op: 'quiesce', body: { onlyIfIdle: true } })
+		expect(requests.every((request) => request.guestBootId === 'first-boot')).toBe(true)
+	})
+
 	it('does not rebind a pinned mutation while an ordinary call can follow the pod', async () => {
 		const agent = await startScriptedAgent({
 			token: 'first-pod',

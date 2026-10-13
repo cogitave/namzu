@@ -15,6 +15,7 @@
  */
 
 import dns from 'node:dns'
+import { isIP } from 'node:net'
 
 /**
  * `address` is read on every lookup rather than captured once, so a case can
@@ -33,11 +34,13 @@ export function stubLoopbackDns(
 			resolved: unknown,
 			family?: number,
 		) => void
+		const resolved = address(hostname)
+		const family = isIP(resolved)
 		if (options && typeof options === 'object' && (options as { all?: boolean }).all) {
-			done(null, [{ address: address(hostname), family: 4 }])
+			done(null, [{ address: resolved, family }])
 			return
 		}
-		done(null, address(hostname), 4)
+		done(null, resolved, family)
 	}) as unknown as typeof dns.lookup
 	dns.lookup = lookup
 	return () => {

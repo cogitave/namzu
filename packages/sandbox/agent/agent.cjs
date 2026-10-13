@@ -226,6 +226,7 @@ const AGENT_FEATURES = [
 	'read-file-stream',
 	'sessions',
 	'quiesce',
+	'quiesce-idle',
 	'flush',
 	'guest-boot-id',
 	'guest-bound',
@@ -999,9 +1000,18 @@ class OutputLog {
 				continue
 			}
 			const skip = start - chunk.offset
-			chunks.push({ stream: chunk.stream, data: chunk.data.subarray(skip), offset: start })
+			chunks.push({
+				stream: chunk.stream,
+				data: chunk.data.subarray(skip),
+				offset: start,
+			})
 		}
-		return { chunks, droppedBytes, fromOffset: start, nextOffset: this.endOffset }
+		return {
+			chunks,
+			droppedBytes,
+			fromOffset: start,
+			nextOffset: this.endOffset,
+		}
 	}
 }
 
@@ -1142,7 +1152,11 @@ function recordOutput(execution, stream, data) {
 	// offset that was never real.
 	const span = { offset, nextOffset: offset + data.length }
 	if (!execution.attachments || execution.attachments.size === 0) return span
-	const event = { type: `${stream}_delta`, data: data.toString('utf8'), ...span }
+	const event = {
+		type: `${stream}_delta`,
+		data: data.toString('utf8'),
+		...span,
+	}
 	for (const attachment of execution.attachments) {
 		// A reader whose socket has gone away is not this command's problem:
 		// an attach is an observer, and losing one changes nothing about the
@@ -1476,7 +1490,11 @@ async function handleCancelExecution(socket, body) {
 		// inside its pod answers a cancel for a command the previous process
 		// started with exactly this, and the changed id is the only thing on
 		// the wire that says the command died with that process.
-		writeFrame(socket, { ok: false, ...guestIdentity(), error: 'unknown_execution' })
+		writeFrame(socket, {
+			ok: false,
+			...guestIdentity(),
+			error: 'unknown_execution',
+		})
 		return
 	}
 	if (execution.state === 'reserved' || execution.state === 'starting') {
@@ -1518,7 +1536,10 @@ async function handleExecute(socket, body) {
 	// nobody can name is a log nobody can attach to, so asking for one
 	// without an id is a caller mistake, not a silently-ignored field.
 	if (body.retainOutput === true && body.executionId === undefined) {
-		writeFrame(socket, { type: 'error', error: 'retain_requires_execution_id' })
+		writeFrame(socket, {
+			type: 'error',
+			error: 'retain_requires_execution_id',
+		})
 		writeTerminator(socket)
 		socket.end()
 		return
@@ -2069,7 +2090,10 @@ function handleReadFileStream(socket, body) {
 			releaseHandle()
 		}
 	})().catch((err) => {
-		finish({ type: 'error', error: err instanceof Error ? err.message : String(err) })
+		finish({
+			type: 'error',
+			error: err instanceof Error ? err.message : String(err),
+		})
 	})
 
 	return {
@@ -2351,7 +2375,10 @@ async function handleWriteFilePart(socket, body, part) {
 	}
 	const final = part.final === true
 	if (final && !part.renameTo) {
-		writeFrame(socket, { ok: false, error: 'write_part_missing_rename_target' })
+		writeFrame(socket, {
+			ok: false,
+			error: 'write_part_missing_rename_target',
+		})
 		return
 	}
 	// Resolved through the jail BEFORE a byte is written, so a final part
@@ -2630,7 +2657,11 @@ function controllingPtySlave(ttyNr) {
  * it before must keep resolving through it, byte for byte.
  */
 async function probePtySlave(pid) {
-	const probe = { slavePath: undefined, fdError: undefined, statError: undefined }
+	const probe = {
+		slavePath: undefined,
+		fdError: undefined,
+		statError: undefined,
+	}
 	try {
 		const target = await fs.readlink(`/proc/${pid}/fd/0`)
 		if (PTY_SLAVE_PATH.test(target)) return { ...probe, slavePath: target }
@@ -3224,10 +3255,15 @@ function parseProcessStat(pid, raw) {
 	}
 }
 
-async function readProcessStat(pid) {
+async function readProcessStat(pid, strict = false) {
 	try {
-		return parseProcessStat(pid, await fs.readFile(`/proc/${pid}/stat`, 'utf8'))
-	} catch {
+		const stat = parseProcessStat(pid, await fs.readFile(`/proc/${pid}/stat`, 'utf8'))
+		if (strict && (!stat || !/^[RSDZTtXxKWPI]$/.test(stat.state) || stat.sessionId === undefined)) {
+			throw new Error(`could not classify /proc/${pid}/stat`)
+		}
+		return stat
+	} catch (error) {
+		if (strict) throw error
 		return undefined
 	}
 }
@@ -3790,7 +3826,11 @@ async function handleStartDetached(socket, body) {
 
 function handleListSessions(socket) {
 	pruneSessions()
-	writeFrame(socket, { ok: true, sessions: [...sessions.values()].map(sessionSummary) })
+	writeFrame(socket, {
+		ok: true,
+		...guestIdentity(),
+		sessions: [...sessions.values()].map(sessionSummary),
+	})
 }
 
 async function handleKillSession(socket, body) {
@@ -3818,7 +3858,11 @@ async function handleKillSession(socket, body) {
 	// SIGTERM and outlives the wait is answered as still running rather than
 	// answered as dead.
 	await Promise.race([record.done, delay(SESSION_KILL_CONFIRM_TIMEOUT_MS)])
-	writeFrame(socket, { ok: true, ...sessionSummary(record), signalled: signalled.length })
+	writeFrame(socket, {
+		ok: true,
+		...sessionSummary(record),
+		signalled: signalled.length,
+	})
 }
 
 function handleAttachSession(socket, body) {
@@ -3917,6 +3961,19 @@ const QUIESCE_REFUSED_STREAM_OPS = new Set([
 	'attach-session',
 ])
 
+// A start can be waiting for mkdir before it has either a registry row or a
+// PID. Count it at dispatch, before its first await, so an idle check cannot
+// pass in that gap. Running children are subsequently covered by /proc.
+let pendingWorkloadStarts = 0
+async function startingWorkload(start) {
+	pendingWorkloadStarts++
+	try {
+		return await start()
+	} finally {
+		pendingWorkloadStarts--
+	}
+}
+
 /**
  * How wide this agent is allowed to look for processes to stop.
  *
@@ -3982,11 +4039,13 @@ function ownedKernelSessions() {
  * which is all a capture needs — and signalling one would achieve nothing
  * anyway. The uid check is the last fence: every workload process runs
  * under the uid `entrypoint.sh` drops to, so a process that does not is not
- * one of them.
+ * one of them. Idle-only inspection is deliberately stricter: it counts
+ * every PID except init and this agent, including a zombie leader whose
+ * non-leader threads could still be running.
  */
-async function quiesceCandidates(scope) {
-	const own = await ownSessionId()
-	const ownUid = process.getuid?.()
+async function quiesceCandidates(scope, onlyIfIdle = false) {
+	const own = onlyIfIdle ? undefined : await ownSessionId()
+	const ownUid = onlyIfIdle ? undefined : process.getuid?.()
 	const owned = scope === 'owned-sessions' ? ownedKernelSessions() : undefined
 	let entries
 	try {
@@ -3995,11 +4054,18 @@ async function quiesceCandidates(scope) {
 		throw new Error(`quiesce could not read /proc: ${error?.message ?? String(error)}`)
 	}
 	const candidates = []
+	const workloadPids = (names) =>
+		names
+			.filter((name) => {
+				const pid = Number(name)
+				return Number.isInteger(pid) && pid > 1 && pid !== process.pid
+			})
+			.sort()
 	for (const entry of entries) {
 		const pid = Number(entry)
 		if (!Number.isInteger(pid) || pid <= 1 || pid === process.pid) continue
-		const stat = await readProcessStat(pid)
-		if (stat === undefined || stat.state === 'Z') continue
+		const stat = await readProcessStat(pid, onlyIfIdle)
+		if (stat === undefined || (!onlyIfIdle && stat.state === 'Z')) continue
 		if (stat.sessionId !== undefined && stat.sessionId === own) continue
 		if (owned !== undefined && (stat.sessionId === undefined || !owned.has(stat.sessionId)))
 			continue
@@ -4016,6 +4082,14 @@ async function quiesceCandidates(scope) {
 			if (procUid !== ownUid) continue
 		}
 		candidates.push({ pid, command: stat.command })
+	}
+	if (onlyIfIdle && candidates.length === 0) {
+		// Verify that an initially empty workload roster stayed empty while
+		// inspection yielded. Missing reads and zombie leaders already refuse.
+		const after = await fs.readdir('/proc')
+		if (JSON.stringify(workloadPids(entries)) !== JSON.stringify(workloadPids(after))) {
+			throw new Error('process roster changed during idle inspection')
+		}
 	}
 	return candidates
 }
@@ -4164,7 +4238,11 @@ async function runQuiesce(graceMs, budget = {}) {
 		if (left.length > 0) {
 			for (const pid of left) {
 				if (signalPid(pid, 'SIGKILL')) {
-					stopped.set(pid, { pid, command: commands.get(pid) ?? '', signal: 'SIGKILL' })
+					stopped.set(pid, {
+						pid,
+						command: commands.get(pid) ?? '',
+						signal: 'SIGKILL',
+					})
 				}
 			}
 			left = await waitForPidsGone(left, roundEnd())
@@ -4195,6 +4273,10 @@ async function handleQuiesce(socket, body) {
 		writeFrame(socket, { ok: false, error: 'quiesce_unsupported_platform' })
 		return
 	}
+	if (body?.onlyIfIdle !== undefined && typeof body.onlyIfIdle !== 'boolean') {
+		writeFrame(socket, { ok: false, error: 'quiesce_invalid_idle_mode' })
+		return
+	}
 	const requested = body?.graceMs
 	let graceMs = QUIESCE_GRACE_MS
 	if (requested !== undefined) {
@@ -4210,6 +4292,39 @@ async function handleQuiesce(socket, body) {
 	}
 	quiescing = true
 	try {
+		if (body?.onlyIfIdle === true) {
+			const scope = quiesceScope()
+			if (
+				pendingWorkloadStarts > 0 ||
+				[...executions.values()].some((execution) =>
+					['starting', 'running'].includes(execution.state),
+				) ||
+				[...sessions.values()].some((session) => session.state !== 'exited')
+			) {
+				writeFrame(socket, { ok: false, error: 'quiesce_busy' })
+				return
+			}
+			if (scope !== 'pid-namespace') {
+				writeFrame(socket, { ok: false, error: 'quiesce_idle_scope' })
+				return
+			}
+			const candidates = await quiesceCandidates(scope, true)
+			if (candidates.length > 0) {
+				writeFrame(socket, { ok: false, error: 'quiesce_busy' })
+				return
+			}
+			// No marking, signalling, registry settlement or filesystem writes.
+			// The caller must keep its admission fence after this reply.
+			writeFrame(socket, {
+				ok: true,
+				idle: true,
+				scope,
+				graceMs,
+				rounds: 0,
+				stopped: [],
+			})
+			return
+		}
 		writeFrame(socket, await runQuiesce(graceMs))
 	} catch (error) {
 		// Named, and never a resolved call with a shorter list: a host that
@@ -4382,7 +4497,10 @@ async function runFlush(timeoutMs, timeoutSource = 'NAMZU_AGENT_FLUSH_TIMEOUT_MS
 			settled = true
 			clearTimeout(timer)
 			if (code === 0) {
-				resolve({ durationMs: Date.now() - startedAt, workspace: WORKSPACE_ROOT })
+				resolve({
+					durationMs: Date.now() - startedAt,
+					workspace: WORKSPACE_ROOT,
+				})
 				return
 			}
 			const how = signal ? `was killed by ${signal}` : `exited ${code}`
@@ -4639,7 +4757,7 @@ function handleTerminal(socket, body) {
 		for (const event of pending.splice(0)) apply(event)
 	}
 
-	void start().catch((error) => {
+	void startingWorkload(start).catch((error) => {
 		if (settled) return
 		heartbeat?.stop()
 		// A terminal that failed to come up leaves nothing behind: the
@@ -5191,13 +5309,21 @@ function dispatch(socket, req) {
 		// in the stream's own refusal shape — `{type:'error'}` and the
 		// terminator — rather than with a frame that peer has no grammar
 		// for and can only report as a protocol violation.
-		writeFrame(socket, { type: 'error', error: 'agent_retiring' })
+		writeFrame(socket, {
+			type: 'error',
+			error: 'agent_retiring',
+			...guestIdentity(),
+		})
 		writeTerminator(socket)
 		socket.end()
 		return
 	}
 	if (agentRetiring) {
-		writeFrame(socket, { ok: false, error: 'agent_retiring' })
+		writeFrame(socket, {
+			ok: false,
+			error: 'agent_retiring',
+			...guestIdentity(),
+		})
 		socket.end()
 		return
 	}
@@ -5223,7 +5349,7 @@ function dispatch(socket, req) {
 		return
 	}
 	if (op === 'execute') {
-		handleExecute(socket, req.body).catch((error) => {
+		startingWorkload(() => handleExecute(socket, req.body)).catch((error) => {
 			try {
 				writeFrame(socket, { type: 'error', error: error.message })
 				writeTerminator(socket)
@@ -5242,7 +5368,7 @@ function dispatch(socket, req) {
 		return handleAttachSession(socket, req.body)
 	}
 	if (op === 'start-detached') {
-		handleStartDetached(socket, req.body)
+		startingWorkload(() => handleStartDetached(socket, req.body))
 			.catch((error) => writeFrame(socket, { ok: false, error: error.message }))
 			.finally(() => socket.end())
 		return
@@ -5273,7 +5399,7 @@ function dispatch(socket, req) {
 	// predates it answers `unknown_op: flush` and a host that read that as
 	// "the disk is flushed" would take the pod away over unwritten pages.
 	if (op === 'flush') {
-		handleFlush(socket, req.body)
+		startingWorkload(() => handleFlush(socket, req.body))
 			.catch((error) => writeFrame(socket, { ok: false, error: error.message }))
 			.finally(() => socket.end())
 		return
@@ -5576,6 +5702,7 @@ async function main() {
 // agent in-process without spawning a separate node binary.
 module.exports = {
 	AGENT_FEATURES,
+	quiesceCandidates,
 	advertisedFeatures,
 	sessions,
 	FIRECRACKER_AGENT_PROTOCOL_VERSION,

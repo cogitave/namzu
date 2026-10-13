@@ -1311,6 +1311,16 @@ const CLAIM_PATH_SOURCE_EXEMPTIONS: readonly SourceDeclaration[] = [
 			'the WORKSPACE backend: a `Sandbox` a host creates, suspends, resumes and deletes itself, plus the claims, pods and PVCs those transitions read. Workspaces are never pooled (docs/sdk/kubernetes-sandbox.md), so a host whose requests this Role is for never reaches it — the deployment that does needs `rbac.yaml`, whose `sandboxes` writes are exactly what this grant withholds. Scanning it here would demand the pool-only constant cover a path that is deliberately not on it.',
 	},
 	{
+		file: 'workspace-closure.ts',
+		reason:
+			'explicit durable-workspace closure reconciliation and suspended-workspace deletion, reached from the workspace API and `workspace.ts`, never pool acquisition. It reads the retained Sandbox, PVC and Pod identities and conditionally deletes the Sandbox; the required PVC reads and Sandbox deletion belong to `rbac.yaml`, not a pool-only claimant.',
+	},
+	{
+		file: 'workspace-volume.ts',
+		reason:
+			'explicit durable-workspace volume inspection and closure opening, never pool acquisition. It reads the Sandbox, its PVCs and Pods and conditionally changes the retained workspace owner epoch; these workspace lifecycle operations require `rbac.yaml` and cannot run with the pool-only claimant Role.',
+	},
+	{
 		file: 'per-sandbox-policy.ts',
 		reason:
 			'the per-sandbox egress writer, reached only through `Sandbox.setNetworkPolicy` — present when `config.egress.perSandbox` is configured — which writes, patches and deletes one `CiliumNetworkPolicy` for a single sandbox and reads the cluster-scoped admission fence that bounds each write. Writes on a policy resource and the cluster-scoped read that gates them are exactly what this grant withholds: the opt-in file that adds them, `rbac-per-sandbox-egress.yaml`, binds the default Role\'s ServiceAccount rather than a claimant host\'s. A host holding this Role therefore does not configure that capability and never reaches this file, and scanning it here would demand the pool-only constant cover a path that is deliberately not on it.',

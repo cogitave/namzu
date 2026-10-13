@@ -10,7 +10,7 @@
  * changed underneath it. So the fixtures move both:
  *
  *  - the SAME Service FQDN resolves to `127.0.0.1` before the suspend and
- *    `127.0.0.2` after it, and the agent listens on both, recording which
+ *    `::1` after it, and the agent listens on both, recording which
  *    address each connection arrived on;
  *  - the agent binds to the old pod's uid before the suspend and the new
  *    pod's after it, so a handle presenting the stale token is refused by the
@@ -62,7 +62,9 @@ const SELECTOR = 'agents.x-k8s.io/sandbox-name-hash=llv'
 const FIRST_POD_UID = '11111111-1111-4111-8111-111111111111'
 const SECOND_POD_UID = '22222222-2222-4222-8222-222222222222'
 const FIRST_ADDRESS = '127.0.0.1'
-const SECOND_ADDRESS = '127.0.0.2'
+const SECOND_ADDRESS = '::1'
+// A dual-stack listener reports an IPv4 connection as its mapped IPv6 address.
+const FIRST_LOCAL_ADDRESS = '::ffff:127.0.0.1'
 
 const TEMPLATE = {
 	metadata: { name: 'namzu-workspace', namespace: NAMESPACE },
@@ -133,9 +135,10 @@ beforeEach(async () => {
 	refusedSuspendPatches = 0
 	stalePodReads = 0
 	podlessReads = 0
-	// One server on every loopback address, so `localAddress` on an accepted
-	// connection is the address the CLIENT aimed at.
-	agent = await startScriptedAgent({ host: '0.0.0.0', token: FIRST_POD_UID })
+	// Both standard loopback addresses work without a host network alias. macOS
+	// does not route 127.0.0.2 by default; using it would time out every resume.
+	// A dual-stack server still records the genuinely different dial addresses.
+	agent = await startScriptedAgent({ host: '::', token: FIRST_POD_UID })
 	restoreDns = stubLoopbackDns(() => dnsAddress)
 	server = await startFakeApiServer(handleClusterRequest)
 })
@@ -452,7 +455,9 @@ describe('resume', () => {
 		// Everything before the suspend went to the first address with the
 		// first pod's uid.
 		expect(agent.connections.length).toBeGreaterThan(0)
-		expect(new Set(agent.connections.map((c) => c.localAddress))).toEqual(new Set([FIRST_ADDRESS]))
+		expect(new Set(agent.connections.map((c) => c.localAddress))).toEqual(
+			new Set([FIRST_LOCAL_ADDRESS]),
+		)
 		expect(new Set(presentedTokens())).toEqual(new Set([FIRST_POD_UID]))
 
 		await workspace.suspend()

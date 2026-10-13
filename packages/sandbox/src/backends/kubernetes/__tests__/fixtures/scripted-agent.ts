@@ -84,6 +84,8 @@ export interface ScriptedAgentOptions {
 	 * the old path for everything and refuses what only the new one serves.
 	 */
 	readonly features?: readonly string[]
+	/** Raw retirement refusal for old/malformed guest identity controls. */
+	readonly retiringReply?: unknown
 	/**
 	 * The file every `read-file` and `read-file-stream` answers with.
 	 *
@@ -122,6 +124,8 @@ export interface ScriptedAgentOptions {
 	 * mismatch a host has to survive.
 	 */
 	readonly flushReply?: unknown
+	/** Deterministic flush barrier for provider mutation interleavings. */
+	readonly beforeFlush?: () => Promise<void>
 	/**
 	 * Hold a `flush` open this long before replying. A flush that answered
 	 * instantly could not prove that the `Suspended` patch waits for it: both
@@ -140,6 +144,7 @@ export interface ScriptedAgentOptions {
 	 */
 	readonly guestBootId?: string
 	readonly guestBound?: boolean
+	readonly sessionsReply?: unknown
 }
 
 /** One accepted connection: where the client aimed it. */
@@ -425,7 +430,10 @@ export async function startScriptedAgent(
 				// fence (it is how a host asks about the command that raised
 				// it) and everything else is refused by name.
 				if (retiring && op !== 'cancel-execution') {
-					send(socket, { ok: false, error: 'agent_retiring' })
+					send(
+						socket,
+						options.retiringReply ?? { ok: false, error: 'agent_retiring', ...identity() },
+					)
 					socket.end()
 					continue
 				}
@@ -449,7 +457,11 @@ export async function startScriptedAgent(
 						// reaches `ensureTermination`, so `retireAgent` is not
 						// called and no fence goes up — the host is left with an
 						// unconfirmed cancellation and a perfectly healthy agent.
-						send(socket, { ok: false, ...identity(), error: 'unknown_execution' })
+						send(socket, {
+							ok: false,
+							...identity(),
+							error: 'unknown_execution',
+						})
 						socket.end()
 						continue
 					}
@@ -460,13 +472,22 @@ export async function startScriptedAgent(
 						// the real agent FENCES itself on exactly this answer, so
 						// the fixture does too.
 						retiring = true
-						send(socket, { ok: false, ...identity(), error: 'cancellation_unconfirmed' })
+						send(socket, {
+							ok: false,
+							...identity(),
+							error: 'cancellation_unconfirmed',
+						})
 						socket.end()
 						continue
 					}
 					send(
 						socket,
-						options.cancelReply ?? { ok: true, ...identity(), state: 'cancelled', started: false },
+						options.cancelReply ?? {
+							ok: true,
+							...identity(),
+							state: 'cancelled',
+							started: false,
+						},
 					)
 					socket.end()
 					continue
@@ -487,7 +508,12 @@ export async function startScriptedAgent(
 						if (socket.destroyed) return
 						if (stdout.length > 0) send(socket, { type: 'stdout_delta', data: stdout })
 						if (options.stderr) send(socket, { type: 'stderr_delta', data: options.stderr })
-						send(socket, { type: 'result', exitCode, timedOut: false, durationMs: 1 })
+						send(socket, {
+							type: 'result',
+							exitCode,
+							timedOut: false,
+							durationMs: 1,
+						})
 						terminate(socket)
 						socket.end()
 					}
@@ -508,13 +534,18 @@ export async function startScriptedAgent(
 					else answer()
 					continue
 				}
+				if (op === 'list-sessions' && options.sessionsReply !== undefined) {
+					answer(socket, { ...identity(), ...options.sessionsReply })
+					continue
+				}
 				if (op === 'flush' && options.flushReply !== undefined) {
 					const answer = () => {
 						if (socket.destroyed) return
 						send(socket, options.flushReply)
 						socket.end()
 					}
-					if (options.flushDelayMs) setTimeout(answer, options.flushDelayMs).unref?.()
+					if (options.beforeFlush) void options.beforeFlush().then(answer, () => socket.destroy())
+					else if (options.flushDelayMs) setTimeout(answer, options.flushDelayMs).unref?.()
 					else answer()
 					continue
 				}
@@ -554,7 +585,10 @@ export async function startScriptedAgent(
 						})
 						continue
 					}
-					const range = (request.body ?? {}) as { offset?: number; length?: number }
+					const range = (request.body ?? {}) as {
+						offset?: number
+						length?: number
+					}
 					const from = range.offset ?? 0
 					const whole = range.offset === undefined && range.length === undefined
 					const slice = whole
@@ -575,12 +609,18 @@ export async function startScriptedAgent(
 				if (op === 'read-file-stream') {
 					const file = options.readFileContent
 					if (file === undefined) {
-						send(socket, { type: 'error', error: 'read_file_stream_not_scripted' })
+						send(socket, {
+							type: 'error',
+							error: 'read_file_stream_not_scripted',
+						})
 						terminate(socket)
 						socket.end()
 						continue
 					}
-					const range = (request.body ?? {}) as { offset?: number; length?: number }
+					const range = (request.body ?? {}) as {
+						offset?: number
+						length?: number
+					}
 					const from = range.offset ?? 0
 					const slice = file.subarray(
 						from,

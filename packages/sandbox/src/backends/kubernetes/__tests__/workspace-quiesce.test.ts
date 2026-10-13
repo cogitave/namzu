@@ -42,15 +42,17 @@ import { execFileSync } from 'node:child_process'
 import { type ChildProcess, spawn } from 'node:child_process'
 import { once } from 'node:events'
 import { chmodSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { promises as fsPromises } from 'node:fs'
 import { createRequire } from 'node:module'
 import { type AddressInfo, type Server, type Socket, createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
+	KubernetesQuiesceBusyError,
 	type KubernetesQuiesceReport,
 	KubernetesQuiesceUnconfirmedError,
 	KubernetesQuiesceUnsupportedError,
@@ -108,6 +110,16 @@ const CAN_UNSHARE = ((): boolean => {
 	}
 })()
 
+const HAS_PYTHON = ((): boolean => {
+	if (!CAN_UNSHARE) return false
+	try {
+		execFileSync('python3', ['--version'], { stdio: 'ignore' })
+		return true
+	} catch {
+		return false
+	}
+})()
+
 const TEMPLATE = {
 	metadata: { name: 'namzu-workspace', namespace: NAMESPACE },
 	spec: {
@@ -137,6 +149,7 @@ interface AgentModule {
 	AGENT_FEATURES: string[]
 	handleConnection(socket: Socket): void
 	sessions: Map<string, { state: string }>
+	quiesceCandidates(scope: string, onlyIfIdle: boolean): Promise<{ pid: number }[]>
 }
 
 let workDir: string
@@ -351,6 +364,84 @@ describe.skipIf(!CAN_UNSHARE)(
 			}
 			agent = undefined
 		})
+
+		it('refuses an unregistered orphan without stopping it, then confirms idle after explicit cleanup', async () => {
+			await startNamespacedAgent()
+			const workspace = await openWorkspace(agentPort)
+			const started = await workspace.exec('/bin/sh', [
+				'-c',
+				'setsid sleep 120 </dev/null >/dev/null 2>&1 & echo $!',
+			])
+			expect(started.exitCode).toBe(0)
+			const pid = Number(started.stdout.trim())
+			expect(pid).toBeGreaterThan(1)
+			expect(await workspace.listSessions()).toEqual([])
+			await expect(workspace.quiesce({ onlyIfIdle: true })).rejects.toBeInstanceOf(
+				KubernetesQuiesceBusyError,
+			)
+			expect((await workspace.exec('/bin/sh', ['-c', `kill -0 ${pid}`])).exitCode).toBe(0)
+			await workspace.quiesce()
+			const idle = await workspace.quiesce({ onlyIfIdle: true })
+			expect(idle).toMatchObject({
+				scope: 'pid-namespace',
+				rounds: 0,
+				stopped: [],
+			})
+			expect((await workspace.exec('/bin/true')).exitCode).toBe(0)
+		}, 60_000)
+
+		it('refuses a detached named session and preserves its running state', async () => {
+			await startNamespacedAgent()
+			const workspace = await openWorkspace(agentPort)
+			await workspace.startDetached({
+				sessionId: 'keep-running',
+				command: 'sleep',
+				args: ['120'],
+			})
+			await expect(workspace.quiesce({ onlyIfIdle: true })).rejects.toBeInstanceOf(
+				KubernetesQuiesceBusyError,
+			)
+			expect(
+				(await workspace.listSessions()).find((row) => row.sessionId === 'keep-running')?.state,
+			).toBe('running')
+			await workspace.killSession('keep-running')
+			expect((await workspace.quiesce({ onlyIfIdle: true })).stopped).toEqual([])
+		}, 60_000)
+
+		it.skipIf(!HAS_PYTHON)(
+			'refuses a zombie leader while its worker thread still responds',
+			async () => {
+				await startNamespacedAgent()
+				const workspace = await openWorkspace(agentPort)
+				const ready = join(workDir, 'thread-ready')
+				const request = join(workDir, 'thread-request')
+				const response = join(workDir, 'thread-response')
+				execFileSync('mkfifo', [ready, request, response])
+				const readyRead = fsPromises.readFile(ready, 'utf8')
+				const fixture = require_.resolve('./fixtures/idle-thread-worker.py')
+				const started = await workspace.exec('/bin/sh', [
+					'-c',
+					'setsid python3 "$1" "$2" "$3" "$4" </dev/null >/dev/null 2>&1 &',
+					'namzu-idle-thread',
+					fixture,
+					ready,
+					request,
+					response,
+				])
+				expect(started.exitCode).toBe(0)
+				expect(JSON.parse(await readyRead)).toMatchObject({ leaderState: 'Z' })
+				expect(await workspace.listSessions()).toEqual([])
+				await expect(workspace.quiesce({ onlyIfIdle: true })).rejects.toBeInstanceOf(
+					KubernetesQuiesceBusyError,
+				)
+				const [, answered] = await Promise.all([
+					fsPromises.writeFile(request, 'ping\n'),
+					fsPromises.readFile(response, 'utf8'),
+				])
+				expect(answered).toBe('worker still running')
+			},
+			60_000,
+		)
 
 		it('stops a writer that left every session the agent knows about, and keeps serving', async () => {
 			await startNamespacedAgent()
@@ -569,6 +660,7 @@ describe.skipIf(IS_WINDOWS)('an agent that is not the init of its own PID namesp
 	}
 
 	afterEach(async () => {
+		vi.restoreAllMocks()
 		for (const socket of accepted) socket.destroy()
 		accepted = []
 		if (listener) {
@@ -586,38 +678,157 @@ describe.skipIf(IS_WINDOWS)('an agent that is not the init of its own PID namesp
 		bystander = undefined
 	})
 
-	it('narrows itself to the sessions it owns, and leaves everything else running', async () => {
+	it.each(['execute', 'start-detached', 'terminal'])(
+		'refuses idle while %s is admitted but has no PID yet',
+		async (op) => {
+			await startAgent()
+			const blockedCwd = join(workDir, 'blocked')
+			let entered!: () => void
+			let release!: () => void
+			const waiting = new Promise<void>((resolve) => {
+				entered = resolve
+			})
+			const blocked = new Promise<void>((resolve) => {
+				release = resolve
+			})
+			const mkdir = fsPromises.mkdir
+			vi.spyOn(fsPromises, 'mkdir').mockImplementation(async (path, options) => {
+				if (path === blockedCwd) {
+					entered()
+					await blocked
+				}
+				return await mkdir(path, options as { recursive: true })
+			})
+			const request = sendFramedRequest(agentPort, {
+				op,
+				token: POD_UID,
+				body: {
+					cwd: blockedCwd,
+					command: '/bin/true',
+					sessionId: 'pending',
+					cols: 80,
+					rows: 24,
+				},
+			})
+			try {
+				await waiting
+				expect(agent.sessions.size).toBe(0)
+				const refusal = await sendFramedRequest(agentPort, {
+					op: 'quiesce',
+					token: POD_UID,
+					body: { onlyIfIdle: true },
+				})
+				expect(refusal.reply).toEqual({ ok: false, error: 'quiesce_busy' })
+				expect(agent.sessions.size).toBe(0)
+			} finally {
+				release()
+				await request
+			}
+		},
+	)
+
+	it('refuses an idle claim with a narrowed process scope', async () => {
 		await startAgent()
-		// A process this agent did not start, in a session of its own, under
-		// the same uid — exactly what a general scan would sweep up. On a
-		// developer's machine that is the test runner's neighbours; in a pod
-		// there is nothing else to sweep. The agent must not touch it.
-		bystander = spawn('/bin/sh', ['-c', 'while :; do sleep 1; done'], {
-			detached: true,
-			stdio: 'ignore',
-		})
-		expect(bystander.pid).toBeDefined()
-
-		const started = await sendFramedRequest(agentPort, {
-			op: 'start-detached',
+		const refusal = await sendFramedRequest(agentPort, {
+			op: 'quiesce',
 			token: POD_UID,
-			body: { sessionId: 'owned', command: '/bin/sh', args: ['-c', 'while :; do sleep 1; done'] },
+			body: { onlyIfIdle: true },
 		})
-		expect(started.reply.ok).toBe(true)
+		expect(refusal.reply).toEqual({ ok: false, error: 'quiesce_idle_scope' })
+	})
 
-		const report = await sendFramedRequest(agentPort, { op: 'quiesce', token: POD_UID, body: {} })
-		expect(report.reply.ok).toBe(true)
-		// Reported, never silent: a host can tell a narrowed scan from a
-		// complete one.
-		expect(report.reply.scope).toBe('owned-sessions')
-		const stopped = report.reply.stopped as { pid: number }[]
-		expect(stopped.length).toBeGreaterThan(0)
-		expect(stopped.some((row) => row.pid === bystander?.pid)).toBe(false)
-		expect(agent.sessions.get('owned')?.state).toBe('exited')
+	it.each(['EACCES', 'EIO', 'malformed'])(
+		'does not infer idle from %s process evidence',
+		async (failure) => {
+			await startAgent()
+			vi.spyOn(fsPromises, 'readdir').mockResolvedValue(['42'] as never)
+			vi.spyOn(fsPromises, 'readFile').mockImplementation(async () => {
+				if (failure === 'malformed') return 'not a process stat'
+				throw Object.assign(new Error(failure), { code: failure })
+			})
+			await expect(agent.quiesceCandidates('pid-namespace', true)).rejects.toThrow()
+		},
+	)
 
-		// And the bystander is still there, which is the whole assertion.
-		expect(() => process.kill(bystander?.pid ?? 0, 0)).not.toThrow()
-	}, 30_000)
+	it.each(['ENOENT', 'ESRCH'])(
+		'refuses a disappeared PID that could have forked an unseen child (%s)',
+		async (code) => {
+			await startAgent()
+			vi.spyOn(fsPromises, 'readdir').mockResolvedValue(['42'] as never)
+			vi.spyOn(fsPromises, 'readFile').mockRejectedValue(Object.assign(new Error(code), { code }))
+			await expect(agent.quiesceCandidates('pid-namespace', true)).rejects.toThrow(code)
+		},
+	)
+
+	it('refuses a process that appeared after an empty enumeration', async () => {
+		await startAgent()
+		vi.spyOn(fsPromises, 'readdir')
+			.mockResolvedValueOnce([] as never)
+			.mockResolvedValueOnce(['43'] as never)
+		await expect(agent.quiesceCandidates('pid-namespace', true)).rejects.toThrow(
+			'process roster changed',
+		)
+	})
+
+	it('counts namespace PIDs regardless of session, UID or a zombie leader', async () => {
+		await startAgent()
+		vi.spyOn(fsPromises, 'readdir').mockResolvedValue([
+			'1',
+			String(process.pid),
+			'42',
+			'43',
+		] as never)
+		vi.spyOn(fsPromises, 'readFile').mockImplementation(async (path) =>
+			path === '/proc/42/stat' ? '42 (live) S 1 42 1 0' : '43 (zombie) Z 1 43 1 0',
+		)
+		const stat = vi.spyOn(fsPromises, 'stat')
+		const signal = vi.spyOn(process, 'kill')
+		expect(await agent.quiesceCandidates('pid-namespace', true)).toEqual([
+			{ pid: 42, command: 'live' },
+			{ pid: 43, command: 'zombie' },
+		])
+		expect(stat).not.toHaveBeenCalled()
+		expect(signal).not.toHaveBeenCalled()
+	})
+
+	// This case reads real kernel process records from /proc. The surrounding
+	// mocked admission tests run on macOS too; this Linux operation cannot.
+	it.skipIf(process.platform !== 'linux')(
+		'narrows itself to the sessions it owns, and leaves everything else running',
+		async () => {
+			await startAgent()
+			// A process this agent did not start, in a session of its own, under
+			// the same uid — exactly what a general scan would sweep up. On a
+			// developer's machine that is the test runner's neighbours; in a pod
+			// there is nothing else to sweep. The agent must not touch it.
+			bystander = spawn('/bin/sh', ['-c', 'while :; do sleep 1; done'], {
+				detached: true,
+				stdio: 'ignore',
+			})
+			expect(bystander.pid).toBeDefined()
+
+			const started = await sendFramedRequest(agentPort, {
+				op: 'start-detached',
+				token: POD_UID,
+				body: { sessionId: 'owned', command: '/bin/sh', args: ['-c', 'while :; do sleep 1; done'] },
+			})
+			expect(started.reply.ok).toBe(true)
+
+			const report = await sendFramedRequest(agentPort, { op: 'quiesce', token: POD_UID, body: {} })
+			expect(report.reply.ok, JSON.stringify(report.reply)).toBe(true)
+			// Reported, never silent: a host can tell a narrowed scan from a
+			// complete one.
+			expect(report.reply.scope).toBe('owned-sessions')
+			const stopped = report.reply.stopped as { pid: number }[]
+			expect(stopped.length).toBeGreaterThan(0)
+			expect(stopped.some((row) => row.pid === bystander?.pid)).toBe(false)
+			expect(agent.sessions.get('owned')?.state).toBe('exited')
+
+			// And the bystander is still there, which is the whole assertion.
+			expect(() => process.kill(bystander?.pid ?? 0, 0)).not.toThrow()
+		},
+		30_000,
+	)
 })
 
 describe.skipIf(IS_WINDOWS)('a guest whose image cannot quiesce, and one that refuses', () => {
@@ -626,6 +837,59 @@ describe.skipIf(IS_WINDOWS)('a guest whose image cannot quiesce, and one that re
 	afterEach(async () => {
 		await scripted?.close()
 		scripted = undefined
+	})
+
+	it('never sends idle-only to a guest that could ignore it and stop work', async () => {
+		scripted = await startScriptedAgent({
+			token: POD_UID,
+			features: ['quiesce'],
+		})
+		const workspace = await openWorkspace(scripted.port)
+		await expect(workspace.quiesce({ onlyIfIdle: true })).rejects.toMatchObject({
+			name: 'KubernetesQuiesceUnsupportedError',
+			feature: 'quiesce-idle',
+		})
+		expect(scripted.requests.some((request) => request.op === 'quiesce')).toBe(false)
+	})
+
+	it('captures the idle mode before waiting for workspace admission', async () => {
+		scripted = await startScriptedAgent({
+			token: POD_UID,
+			features: ['quiesce', 'quiesce-idle'],
+			quiesceReply: { ok: true, idle: true, scope: 'pid-namespace', rounds: 0, stopped: [] },
+		})
+		const workspace = await openWorkspace(scripted.port)
+		const options = { onlyIfIdle: true }
+		const running = workspace.quiesce(options)
+		options.onlyIfIdle = false
+		await running
+		expect(scripted.requests.find((request) => request.op === 'quiesce')?.body).toEqual({
+			onlyIfIdle: true,
+		})
+	})
+
+	it.each([
+		{ ok: true, scope: 'pid-namespace', rounds: 0, stopped: [] },
+		{ ok: true, idle: true, scope: 'owned-sessions', rounds: 0, stopped: [] },
+		{ ok: true, idle: true, scope: 'pid-namespace', rounds: 1, stopped: [] },
+		{
+			ok: true,
+			idle: true,
+			scope: 'pid-namespace',
+			rounds: 0,
+			stopped: [{}],
+		},
+	])('does not infer idle from an invalid positive reply %j', async (quiesceReply) => {
+		scripted = await startScriptedAgent({
+			token: POD_UID,
+			features: ['quiesce', 'quiesce-idle'],
+			quiesceReply,
+		})
+		const workspace = await openWorkspace(scripted.port)
+		await expect(workspace.quiesce({ onlyIfIdle: true })).rejects.toMatchObject({
+			reason: 'quiesce_idle_unconfirmed',
+		})
+		expect(patchedModes).toEqual([])
 	})
 
 	it('refuses an explicit quiesce by class, before anything is asked of the guest', async () => {

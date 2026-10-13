@@ -20,7 +20,7 @@
 
 import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 
@@ -38,7 +38,7 @@ import type {
 	TerminalSession,
 } from '@namzu/sdk'
 import { walkFilesViaExec } from '@namzu/sdk'
-import { describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it } from 'vitest'
 
 import {
 	type ConformanceDescribe,
@@ -269,6 +269,11 @@ class ReferenceFakeSandbox implements Sandbox {
 		this.terminals.clear()
 	}
 
+	/** Fixture teardown bypasses the deliberate destroy defect, after the case observed it. */
+	async disposeFixture(): Promise<void> {
+		await ReferenceFakeSandbox.prototype.reapTerminals.call(this)
+	}
+
 	async destroy(_options?: SandboxDestroyOptions): Promise<void> {
 		if (this.destroyed) return
 		this.destroyed = true
@@ -334,47 +339,73 @@ interface Outcome {
 }
 
 /**
- * Run the whole contract against `build` and report per case.
- *
- * `expect` is vitest's real one — an assertion still throws, and the throw
- * is what this catches. Only `describe`/`it` are replaced, and `makeSandbox`
- * hands back a fresh temp-rooted instance of whatever class `build` names.
+ * Register every recorded contract case as its own Vitest test. The contract
+ * contains deliberate waits: the whole suite must not share one case's 5s
+ * deadline. Keep every outcome, including named failures from the mutants.
  */
-async function runConformance(build: (rootDir: string) => Sandbox): Promise<Outcome[]> {
-	const cases: { name: string; body: () => Promise<void> }[] = []
-	const path: string[] = []
-	const record: ConformanceDescribe = (name, body) => {
-		path.push(name)
-		body()
-		path.pop()
-	}
-	const collect: ConformanceIt = (name, body) => {
-		cases.push({ name: [...path.slice(1), name].join(' > '), body })
-	}
-
-	const roots: string[] = []
-	const makeSandbox: MakeSandbox = async () => {
-		const root = await mkdtemp(join(tmpdir(), 'fake-sandbox-conformance-'))
-		roots.push(root)
-		return { sandbox: build(root) }
-	}
-
-	defineSandboxConformance({ describe: record, it: collect, expect, makeSandbox })
-
-	const outcomes: Outcome[] = []
-	for (const one of cases) {
-		try {
-			await one.body()
-			outcomes.push({ name: one.name })
-		} catch (error) {
-			outcomes.push({
-				name: one.name,
-				failure: error instanceof Error ? error.message : String(error),
+function registerConformance(
+	name: string,
+	build: (rootDir: string) => ReferenceFakeSandbox,
+	assertOutcomes: (outcomes: readonly Outcome[]) => void,
+): void {
+	describe(name, () => {
+		const cases: { name: string; body: () => Promise<void> }[] = []
+		const cleanupFailures: unknown[] = []
+		const path: string[] = []
+		const record: ConformanceDescribe = (name, body) => {
+			path.push(name)
+			body()
+			path.pop()
+		}
+		const collect: ConformanceIt = (name, body) => {
+			cases.push({ name: [...path.slice(1), name].join(' > '), body })
+		}
+		const makeSandbox: MakeSandbox = async () => {
+			// macOS exposes /var through a symlink; the real sandbox walk rejects
+			// such roots. Give the reference the actual allocated directory.
+			const root = await realpath(await mkdtemp(join(tmpdir(), 'fake-sandbox-conformance-')))
+			const sandbox = build(root)
+			return {
+				sandbox,
+				async dispose() {
+					try {
+						await sandbox.disposeFixture()
+						await rm(root, { recursive: true, force: true })
+					} catch (error) {
+						cleanupFailures.push(error)
+						throw error
+					}
+				},
+			}
+		}
+		defineSandboxConformance({
+			describe: record,
+			it: collect,
+			expect,
+			makeSandbox,
+		})
+		const outcomes: Outcome[] = []
+		for (const one of cases) {
+			it(one.name, async () => {
+				try {
+					await one.body()
+					outcomes.push({ name: one.name })
+				} catch (error) {
+					outcomes.push({
+						name: one.name,
+						failure: error instanceof Error ? error.message : String(error),
+					})
+				}
 			})
 		}
-	}
-	await Promise.all(roots.map((root) => rm(root, { recursive: true, force: true })))
-	return outcomes
+		afterAll(() => {
+			// A missing registration or interrupted case must never pass the control.
+			expect(cases.length).toBeGreaterThan(8)
+			expect(outcomes).toHaveLength(cases.length)
+			expect(cleanupFailures).toEqual([])
+			assertOutcomes(outcomes)
+		})
+	})
 }
 
 function failed(outcomes: readonly Outcome[]): string[] {
@@ -382,70 +413,85 @@ function failed(outcomes: readonly Outcome[]): string[] {
 }
 
 describe.skipIf(IS_WINDOWS)('the sandbox conformance suite', () => {
-	it('passes a correct implementation', async () => {
-		// The control, and not a formality. Every case below reads a FAILURE
-		// as evidence that the suite caught the named defect; a harness that
-		// mis-registers cases or mis-wires the sandbox would fail every
-		// variant below for the wrong reason, including the honest one.
-		const outcomes = await runConformance((root) => new ReferenceFakeSandbox(root))
-		expect(failed(outcomes)).toEqual([])
-		// And it registered a real contract, not an empty shell: a
-		// `defineSandboxConformance` that silently registered nothing would
-		// also report zero failures.
-		expect(outcomes.length).toBeGreaterThan(8)
-	})
+	registerConformance(
+		'passes a correct implementation',
+		(root) => new ReferenceFakeSandbox(root),
+		(outcomes) => {
+			// The control, and not a formality. Every case below reads a FAILURE
+			// as evidence that the suite caught the named defect; a harness that
+			// mis-registers cases or mis-wires the sandbox would fail every
+			// variant below for the wrong reason, including the honest one.
+			expect(outcomes.filter((outcome) => outcome.failure !== undefined)).toEqual([])
+			// And it registered a real contract, not an empty shell: a
+			// `defineSandboxConformance` that silently registered nothing would
+			// also report zero failures.
+			expect(outcomes.length).toBeGreaterThan(8)
+		},
+	)
 
-	it('fails a sandbox that resolves exec after abort instead of terminating it', async () => {
-		const outcomes = await runConformance((root) => new ResolvesAfterAbortSandbox(root))
-		const names = failed(outcomes)
+	registerConformance(
+		'fails a sandbox that resolves exec after abort instead of terminating it',
+		(root) => new ResolvesAfterAbortSandbox(root),
+		(outcomes) => {
+			const names = failed(outcomes)
 
-		expect(names).toContain(
-			'exec > honours an AbortSignal: the process is really terminated, never a partial success',
-		)
-		// Everything else about this sandbox is honest — the failure should
-		// name the abort case and nothing that has nothing to do with it.
-		expect(names).not.toContain('file IO > round-trips a UTF-8 string through writeFile/readFile')
-	})
+			expect(names).toContain(
+				'exec > honours an AbortSignal: the process is really terminated, never a partial success',
+			)
+			// Everything else about this sandbox is honest — the failure should
+			// name the abort case and nothing that has nothing to do with it.
+			expect(names).not.toContain('file IO > round-trips a UTF-8 string through writeFile/readFile')
+		},
+	)
 
-	it('fails a sandbox whose destroy() leaves a terminal running', async () => {
-		const outcomes = await runConformance((root) => new LeaksTerminalOnDestroySandbox(root))
-		const names = failed(outcomes)
+	registerConformance(
+		'fails a sandbox whose destroy() leaves a terminal running',
+		(root) => new LeaksTerminalOnDestroySandbox(root),
+		(outcomes) => {
+			const names = failed(outcomes)
 
-		expect(names).toContain(
-			'openTerminal > is owned by the sandbox: destroy() kills and awaits every terminal it returned',
-		)
-		expect(names).not.toContain(
-			'exec > honours an AbortSignal: the process is really terminated, never a partial success',
-		)
-	})
+			expect(names).toContain(
+				'openTerminal > is owned by the sandbox: destroy() kills and awaits every terminal it returned',
+			)
+			expect(names).not.toContain(
+				'exec > honours an AbortSignal: the process is really terminated, never a partial success',
+			)
+		},
+	)
 
-	it('fails a sandbox that runs one command at a time behind a queue', async () => {
-		const outcomes = await runConformance((root) => new SerialisesExecSandbox(root))
-		const names = failed(outcomes)
+	registerConformance(
+		'fails a sandbox that runs one command at a time behind a queue',
+		(root) => new SerialisesExecSandbox(root),
+		(outcomes) => {
+			const names = failed(outcomes)
 
-		expect(names).toContain(
-			'concurrent exec > runs several commands at once on one sandbox, with no cross-talk between their results',
-		)
-		// Everything about a single command is honest on this sandbox, which is
-		// the point: the concurrency case is the only one that can catch it,
-		// and it does — on the `busy` read, because a command sitting in a
-		// queue is not in flight. A backend that reported `busy` anyway would
-		// go on to fail the marks, whose whole design is that a command run on
-		// its own can only ever see its own.
-		expect(names).not.toContain('file IO > round-trips a UTF-8 string through writeFile/readFile')
-		expect(names).not.toContain(
-			'exec > honours an AbortSignal: the process is really terminated, never a partial success',
-		)
-	})
+			expect(names).toContain(
+				'concurrent exec > runs several commands at once on one sandbox, with no cross-talk between their results',
+			)
+			// Everything about a single command is honest on this sandbox, which is
+			// the point: the concurrency case is the only one that can catch it,
+			// and it does — on the `busy` read, because a command sitting in a
+			// queue is not in flight. A backend that reported `busy` anyway would
+			// go on to fail the marks, whose whole design is that a command run on
+			// its own can only ever see its own.
+			expect(names).not.toContain('file IO > round-trips a UTF-8 string through writeFile/readFile')
+			expect(names).not.toContain(
+				'exec > honours an AbortSignal: the process is really terminated, never a partial success',
+			)
+		},
+	)
 
-	it('fails a sandbox whose readFile returns corrupted bytes', async () => {
-		const outcomes = await runConformance((root) => new CorruptsReadFileSandbox(root))
-		const names = failed(outcomes)
+	registerConformance(
+		'fails a sandbox whose readFile returns corrupted bytes',
+		(root) => new CorruptsReadFileSandbox(root),
+		(outcomes) => {
+			const names = failed(outcomes)
 
-		expect(names).toContain('file IO > round-trips a UTF-8 string through writeFile/readFile')
-		expect(names).toContain('file IO > round-trips arbitrary binary content byte for byte')
-		expect(names).not.toContain(
-			'openTerminal > is owned by the sandbox: destroy() kills and awaits every terminal it returned',
-		)
-	})
+			expect(names).toContain('file IO > round-trips a UTF-8 string through writeFile/readFile')
+			expect(names).toContain('file IO > round-trips arbitrary binary content byte for byte')
+			expect(names).not.toContain(
+				'openTerminal > is owned by the sandbox: destroy() kills and awaits every terminal it returned',
+			)
+		},
+	)
 })

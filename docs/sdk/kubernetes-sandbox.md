@@ -5,7 +5,23 @@ description: Claim VM-isolated sandboxes from an agent-sandbox warm pool on any 
 resource: packages/sandbox/src/backends/kubernetes/index.ts
 tags: [sdk, sandbox, kubernetes, kata, warm-pool]
 status: draft
-generated: { by: human:bahadirarda, at: 2026-09-17T00:00:00Z }
+generated: { by: codex/gpt-6, at: '2026-10-13T03:08:17+03:00' }
+sources:
+  - id: original-execution-profile
+    resource: ../../packages/sandbox/src/backends/kubernetes/workspace-profile.ts
+    title: Captured original execution content and historical admission
+  - id: original-allocation
+    resource: ../../packages/sandbox/src/backends/kubernetes/workspace-allocation.ts
+    title: Original allocation provenance and creation-only acknowledgement
+  - id: volume-closure
+    resource: ../../packages/sandbox/src/backends/kubernetes/workspace-volume.ts
+    title: Existing-volume discovery and conditional closure wake
+  - id: retained-closure
+    resource: ../../packages/sandbox/src/backends/kubernetes/workspace-closure.ts
+    title: Read-only observation of a retained physical workspace target
+  - id: bound-lifecycle
+    resource: ../../packages/sandbox/src/backends/kubernetes/workspace.ts
+    title: Captured workspace lifecycle owner and conditional terminal writes
 ---
 
 # Kubernetes sandboxes
@@ -26,7 +42,7 @@ entrypoint, the manifests and the acceptance scripts — under
 ## Configure a provider
 
 ```ts
-import { createSandboxProvider } from '@namzu/sandbox'
+import { createSandboxProvider } from '@namzu/sandbox';
 
 const provider = createSandboxProvider({
   backend: {
@@ -37,7 +53,7 @@ const provider = createSandboxProvider({
     sandboxTemplateName: 'namzu-task',
     warmPoolName: 'namzu-task-pool',
   },
-})
+});
 ```
 
 The tier is `microvm` because `SandboxTier` names the strength of the boundary,
@@ -52,14 +68,14 @@ configuring it outside a pod fails during wiring rather than on the first
 `create()`. Everything else supplies its own credential:
 
 ```ts
-import { createSandboxProvider } from '@namzu/sandbox'
-import type { KubernetesClusterAccess } from '@namzu/sandbox'
+import { createSandboxProvider } from '@namzu/sandbox';
+import type { KubernetesClusterAccess } from '@namzu/sandbox';
 
 const access: KubernetesClusterAccess = {
   server: 'https://cluster.example:6443',
   ca: process.env.CLUSTER_CA_PEM,
   getToken: async () => await mintClusterToken(),
-}
+};
 
 const provider = createSandboxProvider({
   backend: {
@@ -71,9 +87,9 @@ const provider = createSandboxProvider({
     warmPoolName: 'namzu-task-pool',
     claimTtlSeconds: 1_800,
   },
-})
+});
 
-declare function mintClusterToken(): Promise<string>
+declare function mintClusterToken(): Promise<string>;
 ```
 
 `getToken` is called on every API request, so a rotating token survives a
@@ -84,22 +100,22 @@ this package still declares no runtime dependencies at all. When `ca` is
 supplied the client dials through `node:https` instead of `fetch`, for the same
 reason the Firecracker backend does.
 
-| Field | Default | Notes |
-|---|---|---|
-| `namespace` | — | Claims, sandboxes and pods all live here. |
-| `sandboxTemplateName` | — | Read only on the pool-less path (see below). |
-| `warmPoolName` | unset | Unset means every create is a cold `Sandbox`. |
-| `agentPort` | `1024` | The guest agent's TCP port — same number it uses over vsock on the Firecracker tier. |
-| `agentAddress` | `'service'` | Which address the agent is dialed at. `'pod-ip'` is for a host outside the cluster — see [where the host runs decides the address](#where-the-host-runs-decides-the-address). |
-| `readyPollIntervalMs` | `50` | A pool bind lands in ~120 ms; a half-second poll would sleep through the budget. |
-| `readyTimeoutMs` | `60000` | Whole clock from create to an addressed, Ready sandbox — and then, a second time, the budget the [privilege probe](#the-privilege-probe) may spend on the guest, capped at 15 seconds. A `create()` that goes wrong in both halves therefore takes up to this **plus** `min(this, 15s)`: 75 seconds at the default, 1 second if you set it to 500 ms. |
-| `claimTtlSeconds` | `3600` | Wall-clock lifetime written into every created object, and the amount each [lease renewal](#the-lease) pushes it forward. |
-| `onLeaseRenewalError` | unset | Where a failed lease renewal is reported. Changes no behaviour; see [the lease](#the-lease). |
-| `runtimeClassName` | unset | Pool-less path only — see [refusals](#what-it-refuses). |
-| `egress` | unset | Outbound policy this backend translates and verifies. Unset verifies nothing outbound. Setting it verifies the named object **and** every policy selecting the sandbox pods; `verify: 'named-object-only'` is the opt-out — see [Egress](#egress). |
-| `ingress` | unset, **which means verify** | Whether the agent port's inbound boundary is proved before a sandbox is created. `'unverified'` is the explicit opt-out — see [Ingress](#ingress). |
-| `apiRequestTimeoutMs` | `30000` | How long one API request may take, end to end. Minimum `1000`; **no value disables it** — see [the two bounds this backend sets itself](#the-two-bounds-this-backend-sets-itself). |
-| `streamHeartbeatMs` | `15000` | Liveness heartbeat interval on `openTerminal` and `openTcpConnection` streams. `0` sends none, which is how every release before this one behaved. |
+| Field                 | Default                       | Notes                                                                                                                                                                                                                                                                                                                                                 |
+| --------------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `namespace`           | —                             | Claims, sandboxes and pods all live here.                                                                                                                                                                                                                                                                                                             |
+| `sandboxTemplateName` | —                             | Read only on the pool-less path (see below).                                                                                                                                                                                                                                                                                                          |
+| `warmPoolName`        | unset                         | Unset means every create is a cold `Sandbox`.                                                                                                                                                                                                                                                                                                         |
+| `agentPort`           | `1024`                        | The guest agent's TCP port — same number it uses over vsock on the Firecracker tier.                                                                                                                                                                                                                                                                  |
+| `agentAddress`        | `'service'`                   | Which address the agent is dialed at. `'pod-ip'` is for a host outside the cluster — see [where the host runs decides the address](#where-the-host-runs-decides-the-address).                                                                                                                                                                         |
+| `readyPollIntervalMs` | `50`                          | A pool bind lands in ~120 ms; a half-second poll would sleep through the budget.                                                                                                                                                                                                                                                                      |
+| `readyTimeoutMs`      | `60000`                       | Whole clock from create to an addressed, Ready sandbox — and then, a second time, the budget the [privilege probe](#the-privilege-probe) may spend on the guest, capped at 15 seconds. A `create()` that goes wrong in both halves therefore takes up to this **plus** `min(this, 15s)`: 75 seconds at the default, 1 second if you set it to 500 ms. |
+| `claimTtlSeconds`     | `3600`                        | Wall-clock lifetime written into every created object, and the amount each [lease renewal](#the-lease) pushes it forward.                                                                                                                                                                                                                             |
+| `onLeaseRenewalError` | unset                         | Where a failed lease renewal is reported. Changes no behaviour; see [the lease](#the-lease).                                                                                                                                                                                                                                                          |
+| `runtimeClassName`    | unset                         | Pool-less path only — see [refusals](#what-it-refuses).                                                                                                                                                                                                                                                                                               |
+| `egress`              | unset                         | Outbound policy this backend translates and verifies. Unset verifies nothing outbound. Setting it verifies the named object **and** every policy selecting the sandbox pods; `verify: 'named-object-only'` is the opt-out — see [Egress](#egress).                                                                                                    |
+| `ingress`             | unset, **which means verify** | Whether the agent port's inbound boundary is proved before a sandbox is created. `'unverified'` is the explicit opt-out — see [Ingress](#ingress).                                                                                                                                                                                                    |
+| `apiRequestTimeoutMs` | `30000`                       | How long one API request may take, end to end. Minimum `1000`; **no value disables it** — see [the two bounds this backend sets itself](#the-two-bounds-this-backend-sets-itself).                                                                                                                                                                    |
+| `streamHeartbeatMs`   | `15000`                       | Liveness heartbeat interval on `openTerminal` and `openTcpConnection` streams. `0` sends none, which is how every release before this one behaved.                                                                                                                                                                                                    |
 
 ### Where the host runs decides the address
 
@@ -117,7 +133,7 @@ runs inside the cluster.**
 `agentAddress: 'pod-ip'` dials the bound pod's IP:
 
 ```ts
-import { createSandboxProvider } from '@namzu/sandbox'
+import { createSandboxProvider } from '@namzu/sandbox';
 
 const provider = createSandboxProvider({
   backend: {
@@ -129,9 +145,9 @@ const provider = createSandboxProvider({
     warmPoolName: 'namzu-task-pool',
     agentAddress: 'pod-ip',
   },
-})
+});
 
-declare function getToken(): Promise<string>
+declare function getToken(): Promise<string>;
 ```
 
 For a host **outside** the cluster: a peered VNet, an operator on a node, a CI
@@ -255,7 +271,7 @@ never the bearer token. A caller's own abort behaves exactly as it always did.
 The bound lives in the client rather than at each call site, so it covers the
 workspace verbs, the task path, and anything added later, with no wiring. It
 exists because **a signal is not enough**: `signal` is optional on every one of
-these calls, and several of them are *single-flight* promises that run under
+these calls, and several of them are _single-flight_ promises that run under
 whichever caller arrived first and never consult a later one's signal. A
 workspace `suspend()` is one. A plain `destroy()` joins it; a `resume()` queues
 behind it; and while it is in flight the handle's state is `suspending`, so
@@ -308,7 +324,7 @@ between 100 ms and four times what it asked for; the agent in this repository
 clamps to the same 100 ms floor before echoing, so an honest echo is never
 altered. An agent built before this change ignores the unknown field and
 echoes nothing, so the host behaves exactly as it does today — and, because an
-older *host* ends a stream with an error on any frame type it does not know,
+older _host_ ends a stream with an error on any frame type it does not know,
 such a host is never sent one. The guest
 advertises `stream-heartbeat` in its `healthz` `features`; the guest wire
 protocol version is unchanged, so no host and no image has to roll with this.
@@ -325,7 +341,7 @@ two is still carrying bytes. It does not prove the shell is healthy, that the
 disk is writable, or that a command in flight will finish — and a heartbeat that
 stops is not proof that the guest is gone, only that this connection stopped
 carrying frames. TCP keepalive is enabled on both ends of the routed connection
-as well, but it proves strictly less: only that the peer's *kernel* answers, and
+as well, but it proves strictly less: only that the peer's _kernel_ answers, and
 it stops at the first middlebox that terminates TCP.
 
 ## Two acquire paths
@@ -406,7 +422,7 @@ import {
   createSandboxProvider,
   readKubernetesTaskCapacity,
   releaseKubernetesTaskSandboxes,
-} from '@namzu/sandbox'
+} from '@namzu/sandbox';
 
 const cluster = {
   tier: 'microvm',
@@ -415,36 +431,42 @@ const cluster = {
   access: { inCluster: true },
   sandboxTemplateName: 'namzu-task',
   warmPoolName: 'namzu-task-pool',
-} as const
+} as const;
 
 // On startup, before admitting new work: find and release whatever a
 // crashed predecessor left behind, by this host's own instance id.
-const previousHostId = process.env.NAMZU_PREVIOUS_HOST_INSTANCE_ID
+const previousHostId = process.env.NAMZU_PREVIOUS_HOST_INSTANCE_ID;
 if (previousHostId !== undefined) {
   const { deleted } = await releaseKubernetesTaskSandboxes(cluster, {
     labelSelector: `sandbox.namzu.ai/host-instance=${previousHostId}`,
-  })
-  if (deleted > 0) console.log(`released ${deleted} claim(s) a crashed predecessor left running`)
+  });
+  if (deleted > 0)
+    console.log(
+      `released ${deleted} claim(s) a crashed predecessor left running`,
+    );
 }
 
 // Every claim this process creates from here on carries its own identity.
-const hostId = process.env.NAMZU_HOST_INSTANCE_ID ?? 'unknown'
+const hostId = process.env.NAMZU_HOST_INSTANCE_ID ?? 'unknown';
 const provider = createSandboxProvider({
-  backend: { ...cluster, claimLabels: { 'sandbox.namzu.ai/host-instance': hostId } },
-})
+  backend: {
+    ...cluster,
+    claimLabels: { 'sandbox.namzu.ai/host-instance': hostId },
+  },
+});
 
 // Before admitting more work than the pool can currently back.
-const capacity = await readKubernetesTaskCapacity(cluster)
+const capacity = await readKubernetesTaskCapacity(cluster);
 if (capacity.activeClaims >= capacity.warmPool.desired) {
-  console.log('pool is fully claimed; new work will cold-start')
+  console.log('pool is fully claimed; new work will cold-start');
 }
 ```
 
-| Surface | What it does | What it never does |
-|---|---|---|
-| `claimLabels?: Record<string, string>` (backend config) | Written onto every `SandboxClaim` this backend POSTs, `metadata.labels` only | Never reaches `additionalPodMetadata` — a running Sandbox's pod labels, and any `NetworkPolicy` selecting by them, are unaffected |
-| `releaseKubernetesTaskSandboxes(config, { labelSelector, signal })` | `LIST`s claims by `labelSelector`, `DELETE`s each, returns `{ deleted, names }` | Deletes claims only — the controller's own ownerReferences take the bound Sandbox, Pod and Service down behind each one |
-| `readKubernetesTaskCapacity(config, { signal })` | Three `GET`s — the named `SandboxWarmPool`, the claims collection, the pods collection — into `{ warmPool: { ready, desired }, activeClaims, pendingPods }` | No writes; requires `warmPoolName` (there is no pool to report on for a pool-less backend) |
+| Surface                                                             | What it does                                                                                                                                                | What it never does                                                                                                                |
+| ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `claimLabels?: Record<string, string>` (backend config)             | Written onto every `SandboxClaim` this backend POSTs, `metadata.labels` only                                                                                | Never reaches `additionalPodMetadata` — a running Sandbox's pod labels, and any `NetworkPolicy` selecting by them, are unaffected |
+| `releaseKubernetesTaskSandboxes(config, { labelSelector, signal })` | `LIST`s claims by `labelSelector`, `DELETE`s each, returns `{ deleted, names }`                                                                             | Deletes claims only — the controller's own ownerReferences take the bound Sandbox, Pod and Service down behind each one           |
+| `readKubernetesTaskCapacity(config, { signal })`                    | Three `GET`s — the named `SandboxWarmPool`, the claims collection, the pods collection — into `{ warmPool: { ready, desired }, activeClaims, pendingPods }` | No writes; requires `warmPoolName` (there is no pool to report on for a pool-less backend)                                        |
 
 `labelSelector` is **required** on `releaseKubernetesTaskSandboxes`, and
 refused — before a single request goes out — if it is absent or empty. A
@@ -467,22 +489,22 @@ the original failure as its `cause`. A host deciding between "try another
 cluster", "fail the turn" and "page somebody" reads the field rather than
 matching a message any release is free to reword.
 
-| `reason` | What happened | `retryable` |
-|---|---|---|
-| `api-unreachable` | The API server could not be reached, or kept answering with a status that means *not now* — a connect failure, a 429, a 5xx | `true` |
-| `api-timeout` | Requests were accepted and never answered, until [`apiRequestTimeoutMs`](#apirequesttimeoutms--a-request-the-api-server-never-answers) gave up on them | `true` |
-| `forbidden` | 401 or 403. This host's ServiceAccount cannot do this — see [RBAC](#rbac) | `false` |
-| `claim-rejected` | The controller **refused** the claim and said why. `controllerReason` and `controllerMessage` carry its own words | `false` |
-| `capacity` | The pod exists and cannot be placed: `PodScheduled=False` with reason `Unschedulable` | `true` |
-| `image-pull` | The pod was placed and its container image will not pull | `false` |
-| `not-ready` | None of the above: the budget expired with the cluster reporting nothing wrong — a slow cold start, a webhook, a CNI that never attached the pod | `true` |
+| `reason`          | What happened                                                                                                                                          | `retryable` |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------- |
+| `api-unreachable` | The API server could not be reached, or kept answering with a status that means _not now_ — a connect failure, a 429, a 5xx                            | `true`      |
+| `api-timeout`     | Requests were accepted and never answered, until [`apiRequestTimeoutMs`](#apirequesttimeoutms--a-request-the-api-server-never-answers) gave up on them | `true`      |
+| `forbidden`       | 401 or 403. This host's ServiceAccount cannot do this — see [RBAC](#rbac)                                                                              | `false`     |
+| `claim-rejected`  | The controller **refused** the claim and said why. `controllerReason` and `controllerMessage` carry its own words                                      | `false`     |
+| `capacity`        | The pod exists and cannot be placed: `PodScheduled=False` with reason `Unschedulable`                                                                  | `true`      |
+| `image-pull`      | The pod was placed and its container image will not pull                                                                                               | `false`     |
+| `not-ready`       | None of the above: the budget expired with the cluster reporting nothing wrong — a slow cold start, a webhook, a CNI that never attached the pod       | `true`      |
 
 `retryable` describes **this acquire being worth attempting again**, not
 anything having already been retried. It is not a promise: a `capacity`
 refusal is retryable and stays refused until the cluster has room.
 
 ```ts
-import { KubernetesAcquireError, createSandboxProvider } from '@namzu/sandbox'
+import { KubernetesAcquireError, createSandboxProvider } from '@namzu/sandbox';
 
 const provider = createSandboxProvider({
   backend: {
@@ -493,18 +515,23 @@ const provider = createSandboxProvider({
     sandboxTemplateName: 'namzu-task',
     warmPoolName: 'namzu-task-pool',
   },
-})
+});
 
 try {
-  await provider.create({ workingDirectory: '/workspace' })
+  await provider.create({ workingDirectory: '/workspace' });
 } catch (error) {
-  if (error instanceof KubernetesAcquireError && error.reason === 'claim-rejected') {
+  if (
+    error instanceof KubernetesAcquireError &&
+    error.reason === 'claim-rejected'
+  ) {
     // The controller's own diagnosis, e.g. `WarmPoolNotFound`.
-    console.error(`the cluster refused the claim: ${String(error.controllerReason)}`)
+    console.error(
+      `the cluster refused the claim: ${String(error.controllerReason)}`,
+    );
   } else if (error instanceof KubernetesAcquireError && error.retryable) {
-    console.warn(`transient (${error.reason}); another attempt may succeed`)
+    console.warn(`transient (${error.reason}); another attempt may succeed`);
   } else {
-    throw error
+    throw error;
   }
 }
 ```
@@ -521,7 +548,7 @@ egress refusals.
 
 **A refused claim no longer waits out the clock.** The controller publishes its
 decision as `status.conditions[Ready]` with `status: False` and a reason, and
-four of those reasons mean *decided* rather than *not yet*:
+four of those reasons mean _decided_ rather than _not yet_:
 `WarmPoolNotFound`, `TemplateNotFound`, `InvalidMetadata` and
 `EnvVarsInjectionRejected`. Meeting one ends the acquire on the **first** read
 instead of after the full `readyTimeoutMs` (60 s by default). Measured against
@@ -608,22 +635,22 @@ network. Every call dials a fresh TCP connection to the sandbox's
 new address costs nothing extra — and presents the pod-uid bind token in the
 request envelope.
 
-| `Sandbox` member | Here | Why |
-|---|---|---|
-| `id` | The cluster's own name for the bound Sandbox | An id in a log line is also a `kubectl get sandbox` argument. |
-| `status` | `ready` / `busy` / `destroyed` | `busy` while a command is in flight. Both ways a sandbox ends read as `destroyed` — see below. |
-| `rootDir`, `environment` | The caller's working directory; `linux-namespace` | The enum is the host-facing worker shape, not the isolation technology. |
-| `exec` | Implemented | Through the shared reserve-before-admission controller, so an `AbortSignal` terminates the guest process and the peer confirms it — never abandons the wait. |
-| `writeFile` | Implemented | Base64 over the framed protocol, jailed to the guest workspace. A body larger than one frame is [written in parts](#writing-a-file-larger-than-one-frame). |
-| `readFile` | Implemented | Base64 over the framed protocol, jailed to the guest workspace. Takes an optional `{ offset, length, signal }`; a whole-file read is served by the streamed op, so it is not bounded by one frame. See [reading a file larger than one frame](#reading-a-file-larger-than-one-frame). |
-| `readFileStream` | Implemented | The same read as chunks, so neither the pod nor this process holds the file. See [reading a file larger than one frame](#reading-a-file-larger-than-one-frame). |
-| `listFiles` | Implemented | `find -printf '%p\t%s\n'`, parsed line by line; a root that does not exist is an empty list. |
-| `walkFiles` | Implemented | Bounded, lazy discovery through the SDK's own `walkFilesViaExec` over `exec` — see [bounded search](#bounded-search-and-the-glob-and-grep-builtins). |
-| `openTerminal` | Implemented | A real PTY owned by the guest. `destroy()` kills and awaits every terminal it returned, which is what makes offering it compliant at all. Its teardown reaches [the whole session](#a-terminal-or-a-program-can-outlive-the-host-process), not only `script`'s process group. On a workspace it also takes `sessionId`/`persistent`. |
-| `openTcpConnection` | Implemented | Guest loopback only. |
-| `destroy` | Implemented | DELETEs the object this backend created, which cascades to the Pod, Service and Sandbox. Idempotent; an object already gone counts as released. |
-| `setNetworkPolicy` | Implemented when `egress.perSandbox` is configured | Without that configuration it stays **omitted**: egress is then a `NetworkPolicy` attached to the pool's `SandboxTemplate` and there is no per-running-pod knob, and the SDK's contract says a backend that cannot enforce one must omit it rather than accept it and quietly not apply it. With it, each sandbox gets a claim-owned `CiliumNetworkPolicy` behind an operator-applied admission fence — see [per-sandbox egress](#per-sandbox-egress-setnetworkpolicy-on-a-live-sandbox). Presence follows configuration, never a runtime probe. A `KubernetesWorkspace` handle never carries it, whatever the config says, and `createKubernetesWorkspace` refuses `egress.perSandbox` by name rather than omitting the method it asks for. |
-| `spawnDetached` | **Omitted** | It returns a host `ChildProcess`, which cannot cross a process boundary, so it stays omitted rather than half-implemented. A workspace's [`startDetached`](#a-terminal-or-a-program-can-outlive-the-host-process) is the thing that does exist: it returns a NAME another host process can come back with. |
+| `Sandbox` member         | Here                                               | Why                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ------------------------ | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`                     | The cluster's own name for the bound Sandbox       | An id in a log line is also a `kubectl get sandbox` argument.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `status`                 | `ready` / `busy` / `destroyed`                     | `busy` while a command is in flight. Both ways a sandbox ends read as `destroyed` — see below.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `rootDir`, `environment` | The caller's working directory; `linux-namespace`  | The enum is the host-facing worker shape, not the isolation technology.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `exec`                   | Implemented                                        | Through the shared reserve-before-admission controller, so an `AbortSignal` terminates the guest process and the peer confirms it — never abandons the wait.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `writeFile`              | Implemented                                        | Base64 over the framed protocol, jailed to the guest workspace. A body larger than one frame is [written in parts](#writing-a-file-larger-than-one-frame).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `readFile`               | Implemented                                        | Base64 over the framed protocol, jailed to the guest workspace. Takes an optional `{ offset, length, signal }`; a whole-file read is served by the streamed op, so it is not bounded by one frame. See [reading a file larger than one frame](#reading-a-file-larger-than-one-frame).                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `readFileStream`         | Implemented                                        | The same read as chunks, so neither the pod nor this process holds the file. See [reading a file larger than one frame](#reading-a-file-larger-than-one-frame).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `listFiles`              | Implemented                                        | `find -printf '%p\t%s\n'`, parsed line by line; a root that does not exist is an empty list.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `walkFiles`              | Implemented                                        | Bounded, lazy discovery through the SDK's own `walkFilesViaExec` over `exec` — see [bounded search](#bounded-search-and-the-glob-and-grep-builtins).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `openTerminal`           | Implemented                                        | A real PTY owned by the guest. `destroy()` kills and awaits every terminal it returned, which is what makes offering it compliant at all. Its teardown reaches [the whole session](#a-terminal-or-a-program-can-outlive-the-host-process), not only `script`'s process group. On a workspace it also takes `sessionId`/`persistent`.                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `openTcpConnection`      | Implemented                                        | Guest loopback only.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `destroy`                | Implemented                                        | DELETEs the object this backend created, which cascades to the Pod, Service and Sandbox. Idempotent; an object already gone counts as released.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `setNetworkPolicy`       | Implemented when `egress.perSandbox` is configured | Without that configuration it stays **omitted**: egress is then a `NetworkPolicy` attached to the pool's `SandboxTemplate` and there is no per-running-pod knob, and the SDK's contract says a backend that cannot enforce one must omit it rather than accept it and quietly not apply it. With it, each sandbox gets a claim-owned `CiliumNetworkPolicy` behind an operator-applied admission fence — see [per-sandbox egress](#per-sandbox-egress-setnetworkpolicy-on-a-live-sandbox). Presence follows configuration, never a runtime probe. A `KubernetesWorkspace` handle never carries it, whatever the config says, and `createKubernetesWorkspace` refuses `egress.perSandbox` by name rather than omitting the method it asks for. |
+| `spawnDetached`          | **Omitted**                                        | It returns a host `ChildProcess`, which cannot cross a process boundary, so it stays omitted rather than half-implemented. A workspace's [`startDetached`](#a-terminal-or-a-program-can-outlive-the-host-process) is the thing that does exist: it returns a NAME another host process can come back with.                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 
 A confirmed `exec` cancellation resolves with the terminal signal/exit code
 the shared `RemoteExecutionController` observed, exactly as the Firecracker
@@ -788,10 +815,10 @@ roll together with this release.
 Two optional knobs on `VsockTransportOptions` (which
 `KubernetesTransportOptions` extends) govern the host side:
 
-| Option | Default | What it does |
-|---|---|---|
-| `maxWriteFileBytes` | 1 GiB | The largest body this transport accepts at all, checked before the route is chosen so it bounds a single-frame write too. Above it, `AgentWriteFileTooLargeError` names the bound. Nothing about the wire stops a caller handing over a body larger than the guest's disk; this is the bound that says no first, by a number the caller chose, rather than an out-of-memory or an `ENOSPC` halfway through a sequence. |
-| `writeFilePartBytes` | the largest a frame admits | Raw bytes per part, clamped down to what one frame can carry. Setting it also lowers the size at which a body is split at all, which is how the suites exercise a multi-part write without allocating one. Leave it unset in production. |
+| Option               | Default                    | What it does                                                                                                                                                                                                                                                                                                                                                                                                           |
+| -------------------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `maxWriteFileBytes`  | 1 GiB                      | The largest body this transport accepts at all, checked before the route is chosen so it bounds a single-frame write too. Above it, `AgentWriteFileTooLargeError` names the bound. Nothing about the wire stops a caller handing over a body larger than the guest's disk; this is the bound that says no first, by a number the caller chose, rather than an out-of-memory or an `ENOSPC` halfway through a sequence. |
+| `writeFilePartBytes` | the largest a frame admits | Raw bytes per part, clamped down to what one frame can carry. Setting it also lowers the size at which a body is split at all, which is how the suites exercise a multi-part write without allocating one. Leave it unset in production.                                                                                                                                                                               |
 
 A body that already fits one frame is unaffected by any of this: the same
 single request, byte for byte, with no capability probe. `maxWriteFileBytes`
@@ -929,9 +956,9 @@ the stream and because a slice is a shape this op never had:
 
 Two guest-side knobs, both environment variables on the pod:
 
-| Variable | Default | What it does |
-|---|---|---|
-| `NAMZU_AGENT_READ_FILE_RANGE_BYTES` | 1 MiB | The largest slice one ranged `read-file` may answer with. A larger range is refused, naming this variable; a whole file goes through the stream instead. Never applies to a whole-file read. |
+| Variable                                   | Default | What it does                                                                                                                                                                                                                                                                                                      |
+| ------------------------------------------ | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NAMZU_AGENT_READ_FILE_RANGE_BYTES`        | 1 MiB   | The largest slice one ranged `read-file` may answer with. A larger range is refused, naming this variable; a whole file goes through the stream instead. Never applies to a whole-file read.                                                                                                                      |
 | `NAMZU_AGENT_READ_FILE_STREAM_CHUNK_BYTES` | 256 KiB | Raw bytes per `data` frame. The measurement above chose the default: 1 MiB chunks held a 1 GiB read about 10 MiB above the 64 MiB it is budgeted, and the smaller chunk costs roughly 40% more wall time for a gigabyte. A deployment that would rather have the throughput raises it and pays in resident bytes. |
 
 Two limits this does **not** remove. `request()` still reads exactly one reply
@@ -972,7 +999,7 @@ On a **workspace** it passes the same admission gate every other data-plane
 call passes, once, when the consumer asks for the first entry: a suspended
 workspace refuses a walk exactly as it refuses `readFile` — same error class,
 same `noticedBy: 'admission'`, this operation's own name — and nothing is
-dialed. Admission is not re-checked per entry. A suspend that lands *during* a
+dialed. Admission is not re-checked per entry. A suspend that lands _during_ a
 walk therefore fails it the way the transport failed, and this handle learns
 it was suspended elsewhere on its next data-plane call, which is where that
 one-shot diagnosis lives for every operation on the handle.
@@ -1042,8 +1069,8 @@ monorepo a backend's own test file imports it by relative path, the same way
 `backends/firecracker/__tests__/conformance.test.ts` do:
 
 ```ts sketch
-import { defineSandboxConformance } from '../../../testing/sandbox-conformance.js'
-import { describe, expect, it } from 'vitest'
+import { defineSandboxConformance } from '../../../testing/sandbox-conformance.js';
+import { describe, expect, it } from 'vitest';
 
 defineSandboxConformance({
   describe,
@@ -1058,7 +1085,7 @@ defineSandboxConformance({
       /* close whatever fixtures `makeSandbox` stood up */
     },
   }),
-})
+});
 ```
 
 `SANDBOX_CONTRACT_VERSION` is `3`, raised from `2` by three added sections —
@@ -1121,11 +1148,11 @@ window into the guest's process tree.
 minimal image with no `cat` on `PATH` must be diagnosable as exactly that and
 not read as a hardening failure:
 
-| Situation | `KubernetesPrivilegeProbeError.reason` | Says |
-|---|---|---|
-| The command could not run, or exited non-zero | `probe-failed` | "the privilege probe could not run … a diagnostic failure, not a privilege failure" |
-| It ran, but the output does not parse | `unreadable-output` | which field was missing or unreadable |
-| It ran, it parsed, the guest has capabilities | `privileged` | every offending mask, by name and value |
+| Situation                                     | `KubernetesPrivilegeProbeError.reason` | Says                                                                                |
+| --------------------------------------------- | -------------------------------------- | ----------------------------------------------------------------------------------- |
+| The command could not run, or exited non-zero | `probe-failed`                         | "the privilege probe could not run … a diagnostic failure, not a privilege failure" |
+| It ran, but the output does not parse         | `unreadable-output`                    | which field was missing or unreadable                                               |
+| It ran, it parsed, the guest has capabilities | `privileged`                           | every offending mask, by name and value                                             |
 
 A refusal destroys the instance before `create()` rejects, so no caller ever
 holds a handle to an under-hardened sandbox. **There is no configuration that
@@ -1147,17 +1174,17 @@ rather than assumes, either way.
 The two `SandboxTemplate`s this backend ships (`k8s/manifests/`) do not carry
 the same shape, because only one of them ever needs root:
 
-| Template | `securityContext` | Why |
-|---|---|---|
-| `sandboxtemplate-task.yaml` | `runAsUser: 1001`, `runAsGroup: 1001`, `runAsNonRoot: true`, `allowPrivilegeEscalation: false`, `capabilities: { drop: [ALL] }`, `seccompProfile: { type: RuntimeDefault }` | Sets no `NAMZU_WORKSPACE_DEVICE`, so `entrypoint.sh`'s format/mount branch never runs — the pod needs no root and no capability at any point in its life. This is the container-level shape of the Pod Security Standards `restricted` profile. The uid/gid **must** match the image's `AGENT_UID`/`AGENT_GID` (1001 as shipped). |
-| `sandboxtemplate-workspace.yaml` | `privileged: true` | Names a raw block device and needs `CAP_SYS_ADMIN` to `blkid`/`mkfs.ext4`/`mount` it, as root, before `entrypoint.sh` drops every capability itself. Kubernetes runs a `privileged` container unconfined regardless of any `seccompProfile` named alongside it, so this template requests none. |
+| Template                         | `securityContext`                                                                                                                                                           | Why                                                                                                                                                                                                                                                                                                                               |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sandboxtemplate-task.yaml`      | `runAsUser: 1001`, `runAsGroup: 1001`, `runAsNonRoot: true`, `allowPrivilegeEscalation: false`, `capabilities: { drop: [ALL] }`, `seccompProfile: { type: RuntimeDefault }` | Sets no `NAMZU_WORKSPACE_DEVICE`, so `entrypoint.sh`'s format/mount branch never runs — the pod needs no root and no capability at any point in its life. This is the container-level shape of the Pod Security Standards `restricted` profile. The uid/gid **must** match the image's `AGENT_UID`/`AGENT_GID` (1001 as shipped). |
+| `sandboxtemplate-workspace.yaml` | `privileged: true`                                                                                                                                                          | Names a raw block device and needs `CAP_SYS_ADMIN` to `blkid`/`mkfs.ext4`/`mount` it, as root, before `entrypoint.sh` drops every capability itself. Kubernetes runs a `privileged` container unconfined regardless of any `seccompProfile` named alongside it, so this template requests none.                                   |
 
 The `manifests/kind-overlay/` patches follow the same rule, not the same
 template: `patch-task-no-runtimeclass.yaml` takes the task template's
 restricted shape, and so does `patch-workspace-filesystem-pvc.yaml` — its PVC
 is `Filesystem`-mode and mounted ready by kubelet, so it sets no device
 either and starts non-root exactly like a task pod, even though it patches
-the *workspace* template.
+the _workspace_ template.
 
 Either way, `entrypoint.sh` decides which branch to run from the container's
 **actual** uid (`id -u`), not from which template it believes it is — so a
@@ -1339,7 +1366,7 @@ nobody is using it, resumed days later with yesterday's dependency cache still
 on its disk, and deleted only when someone says so.
 
 ```ts
-import { createKubernetesWorkspace } from '@namzu/sandbox'
+import { createKubernetesWorkspace } from '@namzu/sandbox';
 
 const workspace = await createKubernetesWorkspace(
   {
@@ -1351,13 +1378,13 @@ const workspace = await createKubernetesWorkspace(
     sandboxTemplateName: 'namzu-workspace',
   },
   { workspaceId: 'acme-checkout-7', workingDirectory: '/workspace' },
-)
+);
 
-await workspace.exec('pnpm', ['install'])
-await workspace.suspend() // the pod goes away; the disk does not
-await workspace.resume() // a new pod, a new address, a new agent token
-await workspace.destroy() // suspends — the disk survives
-await workspace.destroy({ deleteDisk: true }) // deletes the Sandbox and the disk
+await workspace.exec('pnpm', ['install']);
+await workspace.suspend(); // the pod goes away; the disk does not
+await workspace.resume(); // a new pod, a new address, a new agent token
+await workspace.destroy(); // suspends — the disk survives
+await workspace.destroy({ deleteDisk: true }); // deletes the Sandbox and the disk
 ```
 
 `createKubernetesWorkspace` returns a `KubernetesWorkspace`: the SDK's
@@ -1399,11 +1426,11 @@ caller's intention.** A create POSTs its own body and knows what is in it; an
 adopt is handed an object whose shape another process — or last month's
 config — decided. Three things about it have to agree before it is woken:
 
-| Checked on the standing object | Refused with |
-|---|---|
-| A block disk, claimed through `volumeDevices`, exactly as on a template | `KubernetesWorkspaceDiskError` |
+| Checked on the standing object                                                                        | Refused with                                                       |
+| ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| A block disk, claimed through `volumeDevices`, exactly as on a template                               | `KubernetesWorkspaceDiskError`                                     |
 | `spec.podTemplate.metadata.labels['sandbox.namzu.ai/template']` is the template this call builds from | `KubernetesWorkspaceMismatchError`, `field: 'sandboxTemplateName'` |
-| `spec.podTemplate.spec.runtimeClassName` is the configured `runtimeClassName`, when one is configured | `KubernetesWorkspaceMismatchError`, `field: 'runtimeClassName'` |
+| `spec.podTemplate.spec.runtimeClassName` is the configured `runtimeClassName`, when one is configured | `KubernetesWorkspaceMismatchError`, `field: 'runtimeClassName'`    |
 
 The label check runs whether or not `config.egress` is set, because that label
 is what an [egress policy](#egress-covers-a-workspace-too)'s `podSelector`
@@ -1446,7 +1473,7 @@ stops two host processes from adopting the same running workspace; each gets
 its own handle over the same pod, and either one's `destroy()` suspends the
 pod the other is executing in. Deciding which process may do that is the
 host's, and always was — what this backend adds is a way to make that decision
-*stick* on the cluster, so the write a superseded process sends is refused
+_stick_ on the cluster, so the write a superseded process sends is refused
 rather than applied. That is the [holder
 epoch](#a-holder-epoch-fences-every-lifecycle-write), and it is opt-in: a call
 that passes none sends exactly the requests it always sent. Independently of
@@ -1480,11 +1507,11 @@ once rather than waited out for the whole budget.
 **`origin` says how the handle was obtained**, because the two adopted values
 mean a pod this process did not start:
 
-| `origin` | What the call found | What is still there |
-|---|---|---|
-| `created` | Nothing of that name; it POSTed the `Sandbox` | Nothing — a fresh pod and an empty disk |
-| `adopted-running` | An object of that name already `Running` | The disk, and whatever is still running inside the pod — but no terminal |
-| `resumed` | An object of that name `Suspended`; it patched back to `Running` | The disk only: the pod is brand new |
+| `origin`          | What the call found                                              | What is still there                                                      |
+| ----------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `created`         | Nothing of that name; it POSTed the `Sandbox`                    | Nothing — a fresh pod and an empty disk                                  |
+| `adopted-running` | An object of that name already `Running`                         | The disk, and whatever is still running inside the pod — but no terminal |
+| `resumed`         | An object of that name `Suspended`; it patched back to `Running` | The disk only: the pod is brand new                                      |
 
 No terminal survives either adopted value. The guest agent kills a terminal's
 process group the moment its connection closes, and a dead host's connections
@@ -1503,12 +1530,12 @@ for; a later `suspend()`/`resume()` cycle does not rewrite it.
 string, and the object behind it can have been deleted and created again since
 this host last wrote its records.
 
-| Field | What it names | When it moves |
-|---|---|---|
-| `sandboxUid` | The `Sandbox` object — and therefore the disk behind it | Never, for the life of a handle: a handle whose object was replaced [refuses rather than following it](#a-handle-follows-a-replaced-pod-and-says-so) |
-| `volumeClaimUids` | Each `volumeClaimTemplates` entry's PVC, keyed by the entry's name | Never, for the same reason — the PVCs belong to the `Sandbox` |
-| `podUid` | The live pod, which is also the agent's [bind token](#the-agent-credential) | Across a `suspend()`/`resume()`, and across a pod the handle rebound to. `undefined` only while the handle holds no pod — a suspended or destroyed workspace — and NOT for the length of a transition: a resume names its pod from the moment it binds it |
-| `guestBootId` | The agent PROCESS inside that pod | When the kubelet restarts the container in place. `undefined` wherever `podUid` is, until the pod it names has answered once, and against a guest that does not report one |
+| Field             | What it names                                                               | When it moves                                                                                                                                                                                                                                             |
+| ----------------- | --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sandboxUid`      | The `Sandbox` object — and therefore the disk behind it                     | Never, for the life of a handle: a handle whose object was replaced [refuses rather than following it](#a-handle-follows-a-replaced-pod-and-says-so)                                                                                                      |
+| `volumeClaimUids` | Each `volumeClaimTemplates` entry's PVC, keyed by the entry's name          | Never, for the same reason — the PVCs belong to the `Sandbox`                                                                                                                                                                                             |
+| `podUid`          | The live pod, which is also the agent's [bind token](#the-agent-credential) | Across a `suspend()`/`resume()`, and across a pod the handle rebound to. `undefined` only while the handle holds no pod — a suspended or destroyed workspace — and NOT for the length of a transition: a resume names its pod from the moment it binds it |
+| `guestBootId`     | The agent PROCESS inside that pod                                           | When the kubelet restarts the container in place. `undefined` wherever `podUid` is, until the pod it names has answered once, and against a guest that does not report one                                                                                |
 
 The first two answer "is the work I did still there"; the last two answer "are
 the processes I started still there". They move independently, and each moving
@@ -1541,12 +1568,12 @@ every entry must be claimed by a container through `volumeDevices` (never
 `volumeMounts`). Anything else throws `KubernetesWorkspaceDiskError` **before
 anything is created**, because every shape it refuses otherwise works:
 
-| Template | What happens without the refusal |
-|---|---|
-| No `volumeClaimTemplates` | A healthy sandbox whose files vanish on the first suspend. |
-| `volumeMode: Filesystem` | Under a VM-isolating RuntimeClass the PVC reaches the guest over a host/guest filesystem passthrough (virtio-fs), paying a round trip per file operation. Nothing fails — a dependency-tree walk or a `git status` over a large checkout is simply several times slower, which no functional test can see. |
-| `Block` with no `volumeDevices` | The PVC is provisioned and attached to nothing. |
-| `Block` through `volumeMounts` | The kubelet refuses the pod. |
+| Template                        | What happens without the refusal                                                                                                                                                                                                                                                                           |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| No `volumeClaimTemplates`       | A healthy sandbox whose files vanish on the first suspend.                                                                                                                                                                                                                                                 |
+| `volumeMode: Filesystem`        | Under a VM-isolating RuntimeClass the PVC reaches the guest over a host/guest filesystem passthrough (virtio-fs), paying a round trip per file operation. Nothing fails — a dependency-tree walk or a `git status` over a large checkout is simply several times slower, which no functional test can see. |
+| `Block` with no `volumeDevices` | The PVC is provisioned and attached to nothing.                                                                                                                                                                                                                                                            |
+| `Block` through `volumeMounts`  | The kubelet refuses the pod.                                                                                                                                                                                                                                                                               |
 
 The rule is **every** entry, not merely the one holding the workspace: nothing
 in the API says which `volumeClaimTemplates` entry is the disk, so a
@@ -1660,12 +1687,12 @@ pod.** The re-read is the same routine a `'pod-ip'` handle already used for a
 dial that could not connect; what changed is that a response-level refusal
 reaches it too, under both address modes. What it decides:
 
-| What the re-read finds | What happens |
-|---|---|
-| `Running`, the same `sandboxUid`, a live pod with a DIFFERENT uid | The handle takes the new address and token, fires `onGuestRestart` with `reason: 'pod-replaced'`, and retries the refused call **once** |
-| `Running`, the same `sandboxUid`, the same pod uid | Nothing. The pod is still there and still refusing, which is a guest problem; the original error stands |
-| `Suspended` | Nothing here. The [suspended-elsewhere re-read](#a-handle-notices-a-suspend-it-did-not-perform) names it and tells the caller to `resume()` |
-| A DIFFERENT `sandboxUid`, or no `Sandbox` at all | `KubernetesWorkspaceReplacedError`, carrying both uids or naming the deletion. **Never** a rebind |
+| What the re-read finds                                            | What happens                                                                                                                                |
+| ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Running`, the same `sandboxUid`, a live pod with a DIFFERENT uid | The handle takes the new address and token, fires `onGuestRestart` with `reason: 'pod-replaced'`, and retries the refused call **once**     |
+| `Running`, the same `sandboxUid`, the same pod uid                | Nothing. The pod is still there and still refusing, which is a guest problem; the original error stands                                     |
+| `Suspended`                                                       | Nothing here. The [suspended-elsewhere re-read](#a-handle-notices-a-suspend-it-did-not-perform) names it and tells the caller to `resume()` |
+| A DIFFERENT `sandboxUid`, or no `Sandbox` at all                  | `KubernetesWorkspaceReplacedError`, carrying both uids or naming the deletion. **Never** a rebind                                           |
 
 The retry is safe for exactly one reason: the guest checks the token **before**
 `dispatch`, so a refused request ran nothing at all — no half-applied write, no
@@ -1696,14 +1723,14 @@ TCP `ready` frames), and a value that differs from the one the handle has been
 seeing is exactly that restart.
 
 ```ts
-import type { KubernetesWorkspace } from '@namzu/sandbox'
+import type { KubernetesWorkspace } from '@namzu/sandbox';
 
 function trackGuest(workspace: KubernetesWorkspace): () => void {
   return workspace.onGuestRestart((event) => {
     // `pod-replaced` or `container-restarted` — either way every process
     // this host started in that guest is gone, and the disk is not.
-    console.warn(event.reason, event.previous.podUid, event.current.podUid)
-  })
+    console.warn(event.reason, event.previous.podUid, event.current.podUid);
+  });
 }
 ```
 
@@ -1757,7 +1784,7 @@ apparent author of a mode change it did not make — which is what decides
 whether a start that then fails may [put the pod back to
 sleep](#nothing-but-an-explicit-delete-deletes). It also keeps
 `sandbox.namzu.ai/operating-mode-changed-at` honest: the annotation says when
-the mode last *changed*, and a no-op patch would restamp it. A resume that
+the mode last _changed_, and a no-op patch would restamp it. A resume that
 finds the workspace already awake sends no patch and binds the pod that is
 there.
 
@@ -1827,7 +1854,10 @@ which takes the disk.
 onto a workspace as it wakes:
 
 ```ts
-import { type KubernetesBackendConfig, createKubernetesWorkspace } from '@namzu/sandbox'
+import {
+  type KubernetesBackendConfig,
+  createKubernetesWorkspace,
+} from '@namzu/sandbox';
 
 const config: KubernetesBackendConfig = {
   tier: 'microvm',
@@ -1835,7 +1865,7 @@ const config: KubernetesBackendConfig = {
   namespace: 'namzu-sandboxes',
   access: { inCluster: true },
   sandboxTemplateName: 'namzu-workspace',
-}
+};
 
 // From a host that restarted and holds no handle: adopt by name, and wake it
 // onto the template as it stands now.
@@ -1843,24 +1873,24 @@ const workspace = await createKubernetesWorkspace(config, {
   workspaceId: 'design-review',
   workingDirectory: '/workspace',
   refreshPodTemplate: true,
-})
+});
 
 // From a handle that has one already.
-await workspace.suspend()
-await workspace.resume({ refreshPodTemplate: true })
+await workspace.suspend();
+await workspace.resume({ refreshPodTemplate: true });
 
-workspace.templateCurrent // true: the bound pod is on the template above
+workspace.templateCurrent; // true: the bound pod is on the template above
 ```
 
 **Only on a Suspended → Running transition**, and the patch is what enforces
 that rather than the read before it:
 
-| | |
-|---|---|
-| `test` | `/spec/operatingMode` is `"Suspended"` |
-| `add` | the annotations: `sandbox.namzu.ai/operating-mode-changed-at`, `sandbox.namzu.ai/pod-template-hash`, and the [holder epoch](#a-holder-epoch-fences-every-lifecycle-write) when the call carries one |
-| `add` | `/spec/podTemplate` — the template's, with the template label and the configured `runtimeClassName` overlaid, exactly as a create builds it |
-| `add` | `/spec/operatingMode`: `"Running"` |
+|        |                                                                                                                                                                                                     |
+| ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `test` | `/spec/operatingMode` is `"Suspended"`                                                                                                                                                              |
+| `add`  | the annotations: `sandbox.namzu.ai/operating-mode-changed-at`, `sandbox.namzu.ai/pod-template-hash`, and the [holder epoch](#a-holder-epoch-fences-every-lifecycle-write) when the call carries one |
+| `add`  | `/spec/podTemplate` — the template's, with the template label and the configured `runtimeClassName` overlaid, exactly as a create builds it                                                         |
+| `add`  | `/spec/operatingMode`: `"Running"`                                                                                                                                                                  |
 
 One request, `application/json-patch+json`. **A JSON Patch rather than the
 merge patch every other lifecycle write sends**, because a merge patch
@@ -1897,11 +1927,11 @@ makes the disks the one part of a template a refresh cannot apply, and two
 checks run before anything is sent — both refusing with
 `KubernetesWorkspaceDiskError` and leaving the workspace `Suspended`:
 
-* The refreshed pod template still claims **this workspace's** disk through
+- The refreshed pod template still claims **this workspace's** disk through
   `volumeDevices`. A template that renamed or dropped it would come up healthy
   with the disk attached to nothing, and the only symptom would be that
   yesterday's files are gone.
-* The template declares **no disk this workspace does not have**. Adding a
+- The template declares **no disk this workspace does not have**. Adding a
   second `volumeClaimTemplates` entry with its matching `volumeDevices` entry
   is the ordinary way to give a workspace another disk, and such a template is
   perfectly valid — a workspace created from it today gets both disks. Written
@@ -1911,7 +1941,7 @@ checks run before anything is sent — both refusing with
   workspace another disk by creating a new one from the new template and
   migrating the data.
 
-Editing an existing entry's *other* fields — its size, its storage class, its
+Editing an existing entry's _other_ fields — its size, its storage class, its
 `volumeMode` — is not refused and does not apply: the disk that entry
 describes is the disk that is already attached.
 
@@ -1921,10 +1951,10 @@ describes is the disk that is already attached.
 the overlays, stamped by the create `POST` itself and rewritten by the refresh
 patch:
 
-| | |
-|---|---|
+|                              |                                                                                               |
+| ---------------------------- | --------------------------------------------------------------------------------------------- |
 | `workspace.templateRevision` | The hash the bound object carries, or `undefined` for a workspace created before this existed |
-| `workspace.templateCurrent` | Whether that hash matches the `SandboxTemplate` this handle read |
+| `workspace.templateCurrent`  | Whether that hash matches the `SandboxTemplate` this handle read                              |
 
 A workspace with no recorded revision reads `templateCurrent: false`: unknown
 is not current. The template is read when the handle is opened and again on
@@ -1956,7 +1986,7 @@ import {
   deleteKubernetesWorkspace,
   listKubernetesWorkspaces,
   suspendKubernetesWorkspace,
-} from '@namzu/sandbox'
+} from '@namzu/sandbox';
 
 const cluster = {
   tier: 'microvm',
@@ -1964,24 +1994,24 @@ const cluster = {
   namespace: 'namzu-sandboxes',
   access: { inCluster: true },
   sandboxTemplateName: 'namzu-workspace',
-} as const
+} as const;
 
-const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000
+const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
 for (const workspace of await listKubernetesWorkspaces(cluster)) {
-  if (workspace.operatingMode !== 'Suspended') continue
-  const asleepSince = workspace.operatingModeChangedAt
-  if (asleepSince === undefined || Date.parse(asleepSince) > cutoff) continue
-  await deleteKubernetesWorkspace(cluster, workspace.workspaceId)
+  if (workspace.operatingMode !== 'Suspended') continue;
+  const asleepSince = workspace.operatingModeChangedAt;
+  if (asleepSince === undefined || Date.parse(asleepSince) > cutoff) continue;
+  await deleteKubernetesWorkspace(cluster, workspace.workspaceId);
 }
 ```
 
 None of the three creates a pod, dials an agent or resumes anything.
 
-| Verb | What it sends | What it never does |
-|---|---|---|
-| `listKubernetesWorkspaces(config, { signal })` | One `GET` of the `sandboxes` collection | No `PATCH`, no `DELETE`, no pod read: a suspended workspace is still suspended afterwards |
-| `deleteKubernetesWorkspace(config, workspaceId, { signal, epoch })` | One `DELETE` of `namzu-ws-<id>` | Never adopts, never resumes — the deterministic name is enough to address the object |
-| `suspendKubernetesWorkspace(config, workspaceId, { signal, epoch })` | The `operatingMode: Suspended` patch, then the pod wait | Never adopts, opens no session, reaps no terminals it does not own |
+| Verb                                                                 | What it sends                                           | What it never does                                                                        |
+| -------------------------------------------------------------------- | ------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `listKubernetesWorkspaces(config, { signal })`                       | One `GET` of the `sandboxes` collection                 | No `PATCH`, no `DELETE`, no pod read: a suspended workspace is still suspended afterwards |
+| `deleteKubernetesWorkspace(config, workspaceId, { signal, epoch })`  | One `DELETE` of `namzu-ws-<id>`                         | Never adopts, never resumes — the deterministic name is enough to address the object      |
+| `suspendKubernetesWorkspace(config, workspaceId, { signal, epoch })` | The `operatingMode: Suspended` patch, then the pod wait | Never adopts, opens no session, reaps no terminals it does not own                        |
 
 Both writing verbs take an optional [holder
 epoch](#a-holder-epoch-fences-every-lifecycle-write), which is where a
@@ -2105,6 +2135,228 @@ pod, reading its token and probing it, which is what `resume()` is. A
 workspace somebody deleted rejects with the client's already-gone error and
 changes nothing on the handle.
 
+### Bind a terminal transition to its captured owner
+
+When a host holds exclusive admission from capture through shutdown, pass
+`expectedIdentity: workspace.identity` and an explicit `epoch` to `suspend()`
+or `destroy({ deleteDisk: true })`. Capture the identity before awaiting other
+work. This additive mode requires complete Sandbox, PVC, pod and guest boot
+identities and the guest's existing `guest-bound` and `sessions` capabilities.
+
+The handle freshly verifies the Sandbox UID, all declared PVC UIDs and their
+controller owner references. It checks the original pod and sends an
+authenticated, read-only session query to the pinned guest. Flush and optional
+quiesce also stay on that guest: unreachable or unsupported is a refusal.
+The terminal write tests UID, resource version and holder epoch together;
+DELETE carries both UID and resource version preconditions. A changed owner
+is refused on every retry.
+
+The handle retains the original target after releasing its session. A retry
+skips guest I/O only after observing the same owner's terminal state; otherwise
+it verifies the original guest again before writing. Successful completion
+waits for the original pod to stop or disappear, including DELETE. A missing
+PVC is a refusal, not evidence of successful Sandbox deletion. A bound call
+cannot join an unbound or differently bound transition, nor add a stronger
+flush or quiesce guarantee to an existing flight.
+
+This is a durable-owner fence, not an atomic pod/guest-boot compare-and-swap:
+the pod and Sandbox are distinct Kubernetes objects. The host must keep its
+own workload admission closed until the terminal operation settles. Calls
+without `expectedIdentity` keep their existing behavior.
+[^bound-lifecycle]
+
+[^bound-lifecycle]: `packages/sandbox/src/backends/kubernetes/workspace.ts`, with fake API and real-agent coverage in `packages/sandbox/src/backends/kubernetes/__tests__/workspace-holder-epoch.test.ts`.
+
+### Allocate an original workspace without adopting by name
+
+Native persistent callers first resolve
+`resolveKubernetesWorkspaceExecutionProfile(config, { signal? })` and retain
+the returned version-1 descriptor in their durable owner record, before
+dispatching creation. It hashes the effective copied pod template and claim
+templates, retaining original locator, template name, agent connection,
+explicit runtime and the no-network verification scope. Source template UID
+and resourceVersion are not copied execution content. Credentials and current
+policy versions are not retained as historical execution evidence.
+`captureKubernetesWorkspaceExecutionProfile(profile)` owns and validates the
+descriptor, including its canonical digest.[^original-execution-profile]
+
+This qualified native path requires an explicit runtime, digest-pinned images,
+an explicit storage class and block workspace claims, no external claim
+binding/data source, and a named no-network policy. Mutable environment
+config/secret references and external volume sources refuse; explicit local
+`emptyDir` and `downwardAPI` sources are supported. `named-object-only`, egress
+profiles/profile keys and unverified ingress cannot qualify. The persisted
+`networkVerificationEngine` distinguishes core-only enumeration from combined
+core/Cilium enumeration; ingress must use the same engine. The no-network named
+object is a core NetworkPolicy in either case. Configure Cilium verification on
+a cluster that also serves Cilium policies.[^original-execution-profile]
+
+Pass the same descriptor as `allocation.executionProfile`. Allocation
+re-resolves current content and refuses a mismatch before POST. A change to
+the source template after its read does not alter the captured CREATE body.
+The original profile marker and allocation marker are written atomically,
+and each authoritative owner read compares actual retained pod/claim content
+with the original hashes. A profile-marked object cannot be accessed by
+stripping `executionProfile` from `expectedAllocation`. Legacy unmarked
+allocation callers keep their existing behavior.[^original-execution-profile]
+
+Historical inspection and exact retirement use the original descriptor with
+current credentials for the same approved cluster and namespace; they do not
+read today's template or require today's fresh-admission policies. Opening
+the original disk independently re-verifies the current policy union and
+ingress before wake, then against actual bound Pod labels before authenticated
+guest contact. Template rollout cannot silently replace original content.
+[^original-execution-profile]
+
+`allocateKubernetesWorkspace(config, { workspaceId, allocation, epoch, signal? })`
+performs creation only. The host first persists `allocation.id`, its immutable
+64-character SHA-256 `scopeFingerprint`, the workspace ID and epoch. One POST
+records the ID, scope fingerprint and holder epoch atomically. The returned
+receipt includes the acknowledged Sandbox UID; it proves neither a ready guest
+nor PVC identity. This call never adopts an existing name, opens a guest, runs
+a privilege probe, wakes compute or cleans up after failure. A 409 always
+throws `KubernetesWorkspaceAllocationConflictError`, including when the
+standing object's marker happens to match.[^original-allocation]
+
+A lost acknowledgement keeps that same unresolved allocation. Recover through
+read-only `inspectKubernetesWorkspaceVolume` with `expectedAllocation` and, when
+the host requires the configured workload boundary, `requireConfiguredProfile:
+true`. Missing or unready resources remain unknown: a delayed original POST
+can still arrive, so absence does not authorize a replacement create. Once the
+original volume identity is durable and admission is excluded, carry the same
+`expectedAllocation` into `openKubernetesWorkspaceVolumeForClosure` or
+`openKubernetesWorkspaceForClosure`. Each owner observation, including the final
+strict opening and the fresh resourceVersion authorizing a terminal lifecycle
+CAS, rejects changed or missing provenance. The configured profile is checked
+on those same bound reads. Changes during a held flush therefore refuse the
+suspend/delete write; a later concurrent change is fenced by the CAS. The expected marker is
+captured before asynchronous work. This establishes original allocation
+identity; lifecycle epochs alone do not fence an old guest's data-plane writes.
+[^original-allocation][^volume-closure][^bound-lifecycle]
+
+[^original-allocation]: `packages/sandbox/src/backends/kubernetes/workspace-allocation.ts` and `workspace.ts`; original creation, lost-reply, collision, mutation and final-owner controls in `workspace-holder-epoch.test.ts`.
+
+[^original-execution-profile]: `packages/sandbox/src/backends/kubernetes/workspace-profile.ts`, `workspace.ts` and `workspace-volume.ts`; adjacent descriptor and holder-epoch suites cover template rollout, stale content, Cilium policies, live Pod labels and historical retirement.
+
+### Preserve an existing volume before a closure
+
+`inspectKubernetesWorkspaceVolume(config, workspaceId, { epoch, signal? })`
+returns the existing Sandbox UID, complete PVC UID map, epoch and operating
+mode using provider reads only. No pod or guest identity is invented for a
+suspended disk. It compares repeated bounded pod inventories and PVC reads
+around an unchanged Sandbox resource version; missing, replaced, deleting,
+ambiguous or incomplete evidence rejects the observation. Each pod page is
+limited to 1,000 items, continuation tokens to 8,192 characters, and the whole
+inventory to ten pages. The inspection deadline is thirty seconds.
+[^volume-closure]
+
+Before calling `openKubernetesWorkspaceVolumeForClosure`, the host must persist
+that identity and exclude ordinary workload admission. The opener accepts
+`workspaceId`, `workingDirectory`, `identity`, `previousEpoch`, `epoch`, and an
+optional abort signal. Equal epochs permit only an already-running owner and
+perform no provider write. Advancing exactly one epoch permits only the old
+epoch's suspended owner: one JSON Patch tests its UID, resource version,
+operating mode and old epoch before recording the new epoch and `Running` mode.
+An already-running owner at the new epoch is a recovery of that same request
+and needs no second patch. Every other epoch or mode combination refuses.
+[^volume-closure]
+
+The same readiness deadline covers provider reads, optional wake, authenticated
+session inventory and the final strict guest opening. The opener reads the
+actual pod UID and agent boot identity, revalidates the volume, and returns the
+restricted handle described below. `list-sessions` now carries the process's
+boot identity on its authenticated reply; older agents that omit it cannot be
+used by this opener. Health and unauthorized replies disclose no boot identity.
+No template lookup, creation, privilege probe, materialization, automatic patch
+retry or compensating stop runs on this path. An uncertain result leaves the
+host's exclusion and disk intact for recovery with the same persisted identity
+and epoch. This primitive does not publish application capture evidence or
+grant permission to delete the volume.
+[^volume-closure]
+
+Inspection, volume opening and strict live closure opening also accept
+`requireConfiguredProfile: true`. This compares the configured template name,
+runtime class and egress profile to the same owner read that guards wake or
+guest access. A mismatch refuses before mutation. It does not refresh a template
+or change the disk, and omitted/false preserves existing callers.
+[^volume-closure][^bound-lifecycle]
+
+[^volume-closure]: `packages/sandbox/src/backends/kubernetes/workspace-volume.ts`; fake-provider controls in `workspace-holder-epoch.test.ts` and real-agent transport checks in `agent-guest-boot-id.test.ts`.
+
+### Observe a retained closure after a host restart
+
+`reconcileKubernetesWorkspaceClosure(config, workspaceId, options)` takes the
+original complete `identity` and exact `epoch`, plus an optional abort signal.
+It returns `live`, `stopping`, `suspended` or `deleted` and performs only GETs:
+it never acquires, resumes or mutates a workspace. The caller must verify its
+persisted cluster locator against the configured backend before calling it.
+[^retained-closure]
+
+The observer compares Sandbox UID, resource version, epoch and operating mode
+around a bounded complete Pod inventory and reads every captured PVC's UID and
+controller owner. It finds the original pod by UID even under an unexpected
+name, and refuses replacement Pods or PVCs. Terminal observations repeat the
+dependent reads. A Sandbox deletion with remaining original dependents is
+`stopping`; a draining Pod never proves suspension. A missing field, truncated
+inventory, changing evidence or API failure rejects the observation. The total
+observation deadline is thirty seconds. These reads do not establish workload
+exclusion or authorize a later by-name mutation: the host must retain its own
+durable closure ownership and capture proof throughout recovery.
+[^retained-closure]
+
+[^retained-closure]: `packages/sandbox/src/backends/kubernetes/workspace-closure.ts`, exercised against a loopback HTTP API in the adjacent `workspace-closure.test.ts`.
+
+### Delete a captured suspended workspace without waking it
+
+`deleteKubernetesWorkspace(config, workspaceId, { suspendedTarget: { identity,
+epoch }, signal })` requires the complete retained identity and epoch. The host
+must already hold durable workload exclusion and a completed capture of that
+same disk. The SDK validates and snapshots a provided target before any I/O;
+an invalid target never falls back to the ordinary by-name delete. Omitting
+`suspendedTarget` preserves the existing standalone operation.
+[^bound-lifecycle]
+
+The operation repeats the retained-owner observations above, refuses a live or
+replacement pod, and sends one DELETE with the verified Sandbox UID and resource
+version as preconditions. It does not retry a conflict or wake a guest. A resolved
+DELETE confirms only acceptance. Keep exclusion and use
+`reconcileKubernetesWorkspaceClosure` until the owner and its original dependents
+are gone. A lost response can be reconciled after restart with the same target;
+remaining dependents continue to report `stopping`.
+[^retained-closure]
+
+### Reopen the original live guest for closure
+
+`openKubernetesWorkspaceForClosure(config, { workspaceId, workingDirectory,
+identity, epoch, signal })` reconnects to a previously acquired guest whose full
+identity the host persisted. The host must publish durable workload exclusion
+before opening and retain it through capture and shutdown. Opening reads the
+Sandbox and all PVC identities, requires the exact stored epoch and live Pod
+owner, and authenticates a session-list request against the original guest boot.
+It repeats the resource checks after authentication and refuses a changed
+resource version. It never creates or resumes a Sandbox, reads a template,
+executes a privilege probe, or mutates provider resources during cleanup.
+[^bound-lifecycle]
+
+The primary transport remains pinned. A new Pod or a restarted guest is refused,
+and an opening failure never falls back to ordinary acquisition. This is recovery
+of an already trusted guest, not a new isolation or template qualification. The
+returned handle rejects `resume()` and unbound lifecycle calls. A terminal call
+must repeat the original `expectedIdentity` and exact `epoch`, using the bound
+transition above. After closure, use ordinary acquisition for future work; this
+restricted handle cannot be reused as a resumable workspace.
+[^bound-lifecycle]
+
+An authenticated retirement refusal also proves the original guest only when
+its reply carries the exact retained `guestBootId`. Missing and mismatched
+identity refuse opening and terminal transitions. This permits a host to stop
+a fenced guest without trying the execution privilege probe it can no longer
+serve. If the fenced guest cannot flush, the bound stop reports
+`onFlushUnreachable`, matching ordinary suspend; no flush is claimed. Retain the
+same bound handle through an ambiguous terminal write and retry its transition,
+since the physical owner may already be suspended and cannot be opened live.
+[^bound-lifecycle]
+
 ### A holder epoch fences every lifecycle write
 
 A host that drives one workspace from more than one process — during a rollout
@@ -2126,7 +2378,7 @@ then travels in the same request as the write:
 import {
   KubernetesWorkspacePreconditionError,
   createKubernetesWorkspace,
-} from '@namzu/sandbox'
+} from '@namzu/sandbox';
 
 const cluster = {
   tier: 'microvm',
@@ -2134,24 +2386,26 @@ const cluster = {
   namespace: 'namzu-sandboxes',
   access: { inCluster: true },
   sandboxTemplateName: 'namzu-workspace',
-} as const
+} as const;
 
 // `epoch` is the host's own number, raised whenever authority moves.
 const workspace = await createKubernetesWorkspace(cluster, {
   workspaceId: 'ada-main',
   workingDirectory: '/workspace',
   epoch: 5,
-})
+});
 
 try {
-  await workspace.suspend()
+  await workspace.suspend();
 } catch (error) {
   if (error instanceof KubernetesWorkspacePreconditionError) {
     // Another process holds this workspace now. Nothing was changed on the
     // cluster, and nothing was changed on this handle either.
-    console.warn(`held at epoch ${String(error.storedEpoch)}, not ${String(error.epoch)}`)
+    console.warn(
+      `held at epoch ${String(error.storedEpoch)}, not ${String(error.epoch)}`,
+    );
   } else {
-    throw error
+    throw error;
   }
 }
 ```
@@ -2165,13 +2419,13 @@ first epoch-carrying write.
 
 **Where an epoch is accepted**, and what each one fences:
 
-| Call | The write it conditions |
-|---|---|
-| `createKubernetesWorkspace(config, { …, epoch })` | The `POST` stamps it. On adopt it is checked **before** any resume patch, like the adopt's other refusals — and then written even when the object was already `Running`, where nothing used to be sent at all |
-| `workspace.suspend({ epoch })` | The `operatingMode: Suspended` patch |
-| `workspace.resume({ epoch })` | The `Running` patch — and on a workspace that is already running, a stamp-only write, where nothing used to be sent |
-| `workspace.destroy({ epoch, deleteDisk })` | The suspend patch, or the `DELETE` |
-| `suspendKubernetesWorkspace` / `deleteKubernetesWorkspace` | The same two, from a process holding no handle |
+| Call                                                       | The write it conditions                                                                                                                                                                                       |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `createKubernetesWorkspace(config, { …, epoch })`          | The `POST` stamps it. On adopt it is checked **before** any resume patch, like the adopt's other refusals — and then written even when the object was already `Running`, where nothing used to be sent at all |
+| `workspace.suspend({ epoch })`                             | The `operatingMode: Suspended` patch                                                                                                                                                                          |
+| `workspace.resume({ epoch })`                              | The `Running` patch — and on a workspace that is already running, a stamp-only write, where nothing used to be sent                                                                                           |
+| `workspace.destroy({ epoch, deleteDisk })`                 | The suspend patch, or the `DELETE`                                                                                                                                                                            |
+| `suspendKubernetesWorkspace` / `deleteKubernetesWorkspace` | The same two, from a process holding no handle                                                                                                                                                                |
 
 A handle **keeps** the epoch it was opened or last resumed with and writes
 under it whenever a call passes none — including the cleanup patch a failed
@@ -2217,8 +2471,8 @@ refusal.
 
 **What the API server tells you, and what it does not.** Measured against a
 real API server (v1.37.0) and the agent-sandbox `Sandbox` CRD: a JSON Patch
-whose `test` does not hold answers **422 `Invalid`** with the message *"the
-server rejected our request due to an error in our request"* — and a patch
+whose `test` does not hold answers **422 `Invalid`** with the message _"the
+server rejected our request due to an error in our request"_ — and a patch
 that is simply malformed answers with the identical status, reason and
 message. The server does not name the operation that failed. So the host does
 not pretend to read it off the reply: an unapplied patch becomes
@@ -2248,7 +2502,7 @@ losing the command:
 import {
   KubernetesExecutionDetachedError,
   createKubernetesWorkspace,
-} from '@namzu/sandbox'
+} from '@namzu/sandbox';
 
 const cluster = {
   tier: 'microvm',
@@ -2256,26 +2510,26 @@ const cluster = {
   namespace: 'namzu-sandboxes',
   access: { inCluster: true },
   sandboxTemplateName: 'namzu-workspace',
-} as const
+} as const;
 
 const workspace = await createKubernetesWorkspace(cluster, {
   workspaceId: 'acme-checkout-7',
   workingDirectory: '/workspace',
-})
+});
 
-const executionId = 'exec_1f2e3d4c-5b6a-4c8d-9e0f-112233445566'
-const shuttingDown = new AbortController()
+const executionId = 'exec_1f2e3d4c-5b6a-4c8d-9e0f-112233445566';
+const shuttingDown = new AbortController();
 try {
   const result = await workspace.exec('pnpm', ['test'], {
     executionId,
     detach: true,
     detachSignal: shuttingDown.signal,
-  })
-  console.log(result.exitCode)
+  });
+  console.log(result.exitCode);
 } catch (error) {
-  if (!(error instanceof KubernetesExecutionDetachedError)) throw error
+  if (!(error instanceof KubernetesExecutionDetachedError)) throw error;
   // The command is still running. Another process picks it up by id.
-  console.log(error.executionId, error.outputOffset)
+  console.log(error.executionId, error.outputOffset);
 }
 ```
 
@@ -2354,12 +2608,12 @@ reservation and the command runs again.
 many executions may retain at once. All four variables live in the workspace
 template's `env` block at their defaults.
 
-| Variable | Default | What it bounds |
-|---|---|---|
-| `NAMZU_AGENT_EXECUTION_LOG_BYTES` | `1048576` (1 MiB) | Retained output per execution; the oldest bytes are evicted first and the loss is reported as a gap. |
-| `NAMZU_AGENT_MAX_RETAINED_OUTPUT_LOGS` | `32` | How many executions may retain at once. Finished executions give up their output first (keeping their result); a guest already retaining this many LIVE commands refuses the next detached one before it starts a process. |
-| `NAMZU_AGENT_EXECUTION_RETAINED_TTL_MS` | `600000` (10 min) | How long a detached command's record and log outlive it. Every other execution keeps the 60 s `NAMZU_AGENT_EXECUTION_TERMINAL_TTL_MS` window it always had. |
-| `NAMZU_SANDBOX_MAX_TIMEOUT_MS` | `1800000` (30 min) | The ceiling on the caller's own `timeout`. |
+| Variable                                | Default            | What it bounds                                                                                                                                                                                                             |
+| --------------------------------------- | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NAMZU_AGENT_EXECUTION_LOG_BYTES`       | `1048576` (1 MiB)  | Retained output per execution; the oldest bytes are evicted first and the loss is reported as a gap.                                                                                                                       |
+| `NAMZU_AGENT_MAX_RETAINED_OUTPUT_LOGS`  | `32`               | How many executions may retain at once. Finished executions give up their output first (keeping their result); a guest already retaining this many LIVE commands refuses the next detached one before it starts a process. |
+| `NAMZU_AGENT_EXECUTION_RETAINED_TTL_MS` | `600000` (10 min)  | How long a detached command's record and log outlive it. Every other execution keeps the 60 s `NAMZU_AGENT_EXECUTION_TERMINAL_TTL_MS` window it always had.                                                                |
+| `NAMZU_SANDBOX_MAX_TIMEOUT_MS`          | `1800000` (30 min) | The ceiling on the caller's own `timeout`.                                                                                                                                                                                 |
 
 **The timeout ceiling is the operator's.** `timeoutMs` traces back to a
 model-authored tool argument, so the guest caps it — and it refuses a request
@@ -2389,7 +2643,7 @@ only widens what a Kubernetes workspace's own `exec()` accepts.
 
 A workspace is built to outlive the host process — it carries no lease for
 exactly that reason, and a second process reattaches to it by name. Until this
-release the processes *inside* it did not.
+release the processes _inside_ it did not.
 
 - A terminal belonged to the framed connection that opened it. When the host
   process went away — a deploy, a crash, an OOM kill — its sockets closed and
@@ -2412,7 +2666,7 @@ not bound to the connection that started them. A second host process finds
 them by name and picks up where the first one left off.
 
 ```ts
-import { createKubernetesWorkspace } from '@namzu/sandbox'
+import { createKubernetesWorkspace } from '@namzu/sandbox';
 
 const cluster = {
   tier: 'microvm',
@@ -2420,46 +2674,56 @@ const cluster = {
   namespace: 'namzu-sandboxes',
   access: { inCluster: true },
   sandboxTemplateName: 'namzu-workspace',
-} as const
+} as const;
 
 // --- the host process that starts them ---
 const host = await createKubernetesWorkspace(cluster, {
   workspaceId: 'acme-checkout-7',
   workingDirectory: '/workspace',
-})
+});
 
 // A shell that belongs to the pod, not to this socket.
 await host.openTerminal({
   sessionId: 'editor-shell',
   persistent: true,
   size: { cols: 120, rows: 40 },
-})
+});
 
 // A preview server with no terminal at all.
 await host.startDetached({
   sessionId: 'preview',
   command: 'node',
   args: ['server.js'],
-})
+});
 
 // --- the host process that replaces it, after a deploy ---
 const successor = await createKubernetesWorkspace(cluster, {
   workspaceId: 'acme-checkout-7',
   workingDirectory: '/workspace',
-})
+});
 
 for (const session of await successor.listSessions()) {
-  console.log(session.sessionId, session.kind, session.state, session.nextOffset)
+  console.log(
+    session.sessionId,
+    session.kind,
+    session.state,
+    session.nextOffset,
+  );
 }
 
-const shell = await successor.attachTerminal('editor-shell', { fromOffset: 0 })
-shell.onData((chunk) => process.stdout.write(chunk))
-shell.write('git status\n')
+const shell = await successor.attachTerminal('editor-shell', { fromOffset: 0 });
+shell.onData((chunk) => process.stdout.write(chunk));
+shell.write('git status\n');
 
-const output = await successor.readSession('preview', { fromOffset: 0 })
-console.log(output.chunk, output.nextOffset, output.droppedBytes, output.status)
+const output = await successor.readSession('preview', { fromOffset: 0 });
+console.log(
+  output.chunk,
+  output.nextOffset,
+  output.droppedBytes,
+  output.status,
+);
 
-await successor.killSession('preview')
+await successor.killSession('preview');
 ```
 
 **A closed connection is a detach, and sends no signal of any kind.** A
@@ -2514,7 +2778,7 @@ reaches it.
 **The registry is the pod's memory.** It is never written to disk. After
 `suspend()` and `resume()` — a new pod, a fresh agent — `listSessions()` is
 empty, and so it is after any eviction, node drain or restart. Nothing here
-makes a program survive the pod; it makes a program survive the *host*.
+makes a program survive the pod; it makes a program survive the _host_.
 
 **`spawnDetached` stays absent.** The SDK's version returns a host
 `ChildProcess` synchronously, which cannot cross a process boundary, and its
@@ -2530,10 +2794,10 @@ same 512Mi the workload shares, so it is bounded twice, exactly as retained
 execution output is. All three are in the shipped workspace template's `env`
 block at their defaults.
 
-| Variable | Default | What it bounds |
-|---|---|---|
-| `NAMZU_AGENT_MAX_SESSIONS` | `16` | How many sessions may exist at once. Exited ones are given up first; a guest already holding this many LIVE sessions refuses the next one before it starts a process. |
-| `NAMZU_AGENT_SESSION_LOG_BYTES` | `1048576` (1 MiB) | Retained output per session. The oldest bytes go first and the loss is reported as `droppedBytes`. |
+| Variable                              | Default           | What it bounds                                                                                                                                                                                                                                                                                                                      |
+| ------------------------------------- | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NAMZU_AGENT_MAX_SESSIONS`            | `16`              | How many sessions may exist at once. Exited ones are given up first; a guest already holding this many LIVE sessions refuses the next one before it starts a process.                                                                                                                                                               |
+| `NAMZU_AGENT_SESSION_LOG_BYTES`       | `1048576` (1 MiB) | Retained output per session. The oldest bytes go first and the loss is reported as `droppedBytes`.                                                                                                                                                                                                                                  |
 | `NAMZU_AGENT_SESSION_TERMINAL_TTL_MS` | `600000` (10 min) | How long an exited session's record and output outlive its program, so a redeployed host can still read the tail and the exit status. Expiry is checked when the next session op arrives rather than on a timer, so a record can outlast its window in a pod nobody is talking to — `NAMZU_AGENT_MAX_SESSIONS` is what bounds that. |
 
 **The guest has to advertise it.** `healthz` answers with a `features` list,
@@ -2579,7 +2843,7 @@ running and **leaves the agent up**, so the very next call reads a filesystem
 nobody is writing to.
 
 ```ts
-import { createKubernetesWorkspace } from '@namzu/sandbox'
+import { createKubernetesWorkspace } from '@namzu/sandbox';
 
 const cluster = {
   tier: 'microvm',
@@ -2587,25 +2851,25 @@ const cluster = {
   namespace: 'namzu-sandboxes',
   access: { inCluster: true },
   sandboxTemplateName: 'namzu-workspace',
-} as const
+} as const;
 
 const workspace = await createKubernetesWorkspace(cluster, {
   workspaceId: 'acme-checkout-7',
   workingDirectory: '/workspace',
-})
+});
 
 // Everything stops. The agent does not.
-const report = await workspace.quiesce({ graceMs: 2_000 })
+const report = await workspace.quiesce({ graceMs: 2_000 });
 for (const stopped of report.stopped) {
-  console.log(stopped.pid, stopped.command, stopped.signal)
+  console.log(stopped.pid, stopped.command, stopped.signal);
 }
 
 // So this reads a disk nobody is writing under.
-const capture = await workspace.readFile('out/state.db')
-console.log(capture.byteLength, report.scope, report.rounds)
+const capture = await workspace.readFile('out/state.db');
+console.log(capture.byteLength, report.scope, report.rounds);
 
 // Or ask the suspend to do it: the patch goes out only once the guest is quiet.
-await workspace.suspend({ quiesce: true })
+await workspace.suspend({ quiesce: true });
 ```
 
 **What the guest does, in the order it does it.**
@@ -2718,6 +2982,45 @@ the shared `KubernetesWorkspaceTransitionOptions`: `resume()`, `refresh()`,
 quiesce could precede, so they do not accept the flag rather than accepting it
 and dropping it.
 
+### Confirming idle without stopping work
+
+`quiesce({ onlyIfIdle: true })` checks the whole guest PID namespace without
+signalling processes or changing execution/session records. A pending start,
+running session, or other live process produces `KubernetesQuiesceBusyError`.
+That typed refusal confirms that this call stopped nothing. Unreadable process
+evidence and a narrowed scan refuse without claiming idle.
+
+The guest closes its process-start gate before inspecting pending starts and
+`/proc`; this covers the interval before an admitted command or terminal has
+created its child. The idle scan excludes only init and the agent itself.
+It also refuses zombie leaders: a main thread may exit while other threads
+in that process keep running. A fully exited but unreaped process therefore
+also prevents an idle claim until it is reaped. Unlike the signal-safety
+scan, idle inspection counts processes in the agent's kernel session or
+under another UID.
+
+Use the immutable guest view when qualifying a particular installed workspace:
+
+```ts
+import type { KubernetesWorkspace } from '@namzu/sandbox';
+
+async function confirmIdle(workspace: KubernetesWorkspace): Promise<void> {
+  const guest = workspace.pinGuest(workspace.identity);
+  await guest.quiesce({ onlyIfIdle: true });
+}
+```
+
+The host must first close admission to all commands, sessions and file writes,
+wait for its already-admitted calls, and keep that fence after the reply. This
+is an idle observation, not a persistent guest reservation. A successful reply
+explicitly confirms idle, `pid-namespace` scope, zero signal rounds and no
+stopped processes. The pinned view does not follow a replacement guest.
+
+This mode requires the additive `quiesce-idle` guest feature. The SDK refuses
+before sending a request to an older image, which could otherwise ignore the
+new field and stop work. Default `quiesce()` and suspend behavior are unchanged.
+Do not send a confirmed busy refusal through cleanup that stops the workspace.
+
 **An image whose agent predates the op.** `healthz` advertises `quiesce`, and
 a host only ever sends the op to a guest that did. An explicit `quiesce()`
 against an image without it is refused with
@@ -2819,7 +3122,7 @@ import {
   type KubernetesFlushUnreachableError,
   type KubernetesFlushUnsupportedError,
   createKubernetesWorkspace,
-} from '@namzu/sandbox'
+} from '@namzu/sandbox';
 
 const cluster = {
   tier: 'microvm',
@@ -2827,7 +3130,7 @@ const cluster = {
   namespace: 'namzu-sandboxes',
   access: { inCluster: true },
   sandboxTemplateName: 'namzu-workspace',
-} as const
+} as const;
 
 const workspace = await createKubernetesWorkspace(cluster, {
   workspaceId: 'build-cache',
@@ -2839,18 +3142,21 @@ const workspace = await createKubernetesWorkspace(cluster, {
   // And when the guest could not be ASKED — crashed, fenced, unreachable.
   // The suspend still goes ahead: nothing will ever flush that guest.
   onFlushUnreachable: (error: KubernetesFlushUnreachableError) =>
-    console.warn('workspace suspended without reaching its guest', error.message),
-})
+    console.warn(
+      'workspace suspended without reaching its guest',
+      error.message,
+    ),
+});
 
-await workspace.exec('/bin/sh', ['-c', 'npm ci'])
+await workspace.exec('/bin/sh', ['-c', 'npm ci']);
 
 // A verb of its own, for the moments that are not a suspend: before a
 // snapshot somebody else takes, before a node is drained.
-const report = await workspace.flush({ timeoutMs: 20_000 })
-console.log(report.durationMs, report.workspace)
+const report = await workspace.flush({ timeoutMs: 20_000 });
+console.log(report.durationMs, report.workspace);
 
 // And what suspend() does by default. `flush: false` is the old behaviour.
-await workspace.suspend()
+await workspace.suspend();
 ```
 
 **What `writeFile` guarantees now.** A reply of `ok` means the bytes are on
@@ -3080,10 +3386,10 @@ early-returning on a recorded state. That makes the moment the state is
 recorded the whole correctness question, because that early return is what
 every later call reads:
 
-| Recorded | When |
-|---|---|
+| Recorded  | When                                                                         |
+| --------- | ---------------------------------------------------------------------------- |
 | suspended | the `operatingMode: Suspended` patch landed AND the pod was observed stopped |
-| deleted | the DELETE resolved, or reported the object already gone |
+| deleted   | the DELETE resolved, or reported the object already gone                     |
 
 Recording either on the way out — before the request that causes it lands —
 turns a failed request into a permanent silent success. A `destroy({
@@ -3127,19 +3433,19 @@ brought the workspace back, moved no mode and have none to put back. The
 failures that reach them are not the workspace's: a caller's `signal` aborting
 during readiness, one 5xx or 429 on a Sandbox or pod GET (the client does not
 retry), a privilege probe that overran its own deadline. Patching `Suspended`
-on those made the controller delete a pod the *first* process was executing
+on those made the controller delete a pod the _first_ process was executing
 in — every terminal, dev server and running command in it — because a
-*second* process failed to come up. A workspace id is a name and not a lock by
+_second_ process failed to come up. A workspace id is a name and not a lock by
 design, so that second process is the normal case: a restart, or a second
 revision during a rollout.
 
 `onStartFailure` is the knob, on `KubernetesWorkspaceOptions` (the handle's
 default) and on `KubernetesWorkspaceTransitionOptions` (one `resume()`):
 
-| Value | What a failed start writes |
-|---|---|
-| `'suspend-if-woken'` (default) | The `Suspended` patch, and only when this call POSTed the object or woke it |
-| `'leave'` | Nothing, on any start failure, without exception — for a host that keeps its own holder record and sweeps idle workspaces itself |
+| Value                          | What a failed start writes                                                                                                       |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| `'suspend-if-woken'` (default) | The `Suspended` patch, and only when this call POSTed the object or woke it                                                      |
+| `'leave'`                      | Nothing, on any start failure, without exception — for a host that keeps its own holder record and sweeps idle workspaces itself |
 
 The read that decides "did this call wake it" and the patch that follows are
 two requests, so another process can change the object between them. With a
@@ -3157,7 +3463,7 @@ so after a failed `resume()` that sent no patch `workspace.suspended` reads
 `true` while `spec.operatingMode` is still `Running` and somebody else's pod
 is serving out of it. That flag is this handle's own state, never a claim
 about the cluster, and `refresh()` will not clear it — `refresh()` reports a
-suspension *somebody else* performed, and this was not one. Another `resume()`
+suspension _somebody else_ performed, and this was not one. Another `resume()`
 is the way back. On the create path it is not observable at all: a create that
 fails returns no handle.
 
@@ -3187,11 +3493,11 @@ What happens instead:
 the transport's boolean `healthz()` — that answers `false` both for a fenced
 agent and for one that never replied:
 
-| `agent` | What it means | What a host does |
-|---|---|---|
-| `'ok'` | The agent answered and is serving normally | Nothing; the command may still be running, and the workspace is fine |
-| `'retiring'` | The agent has **fenced itself**: it could not confirm a process group was gone, and refuses every op but `healthz` and `cancel-execution` until the pod is replaced | `suspend()` then `resume()` — when the host is ready for the live sessions in that pod to go down |
-| `'unreachable'` | No answer at all: the pod is gone, the network is out, or the address stopped resolving | Nothing; the next call finds out, and a foreign suspend is [reported as one](#a-handle-notices-a-suspend-it-did-not-perform) |
+| `agent`         | What it means                                                                                                                                                       | What a host does                                                                                                             |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `'ok'`          | The agent answered and is serving normally                                                                                                                          | Nothing; the command may still be running, and the workspace is fine                                                         |
+| `'retiring'`    | The agent has **fenced itself**: it could not confirm a process group was gone, and refuses every op but `healthz` and `cancel-execution` until the pod is replaced | `suspend()` then `resume()` — when the host is ready for the live sessions in that pod to go down                            |
+| `'unreachable'` | No answer at all: the pod is gone, the network is out, or the address stopped resolving                                                                             | Nothing; the next call finds out, and a foreign suspend is [reported as one](#a-handle-notices-a-suspend-it-did-not-perform) |
 
 A host that wants the old behaviour calls `suspend()` from that callback. One
 that wants it only for a genuinely wedged pod calls it when `agent` is
@@ -3199,15 +3505,15 @@ that wants it only for a genuinely wedged pod calls it when `agent` is
 
 **And `guest` answers the question `agent` cannot**: whether the agent that
 answered is the same one the command was running in. `healthz` only says that
-*some* agent is serving at that address.
+_some_ agent is serving at that address.
 
-| `guest` | What was found | What it means for the command |
-|---|---|---|
-| `'same-guest'` | The bound pod is still the live pod, and — against a guest that reports a boot id — the agent process is the one this command RESERVED against. An older guest can only be identified down to its pod | The command genuinely may still be running |
-| `'pod-replaced'` | A live pod stands under the name with a different uid | The pod that ran it is gone, and its whole pid namespace with it |
-| `'pod-gone'` | No live pod stands under the name | The same, with no replacement up yet |
-| `'container-restarted'` | The same pod, but a `guestBootId` different from the one this command reserved against | The container was restarted in place: the address and token still work and the process tree is gone |
-| `'unknown'` | The look could not be completed | Nothing may be concluded, and nothing is |
+| `guest`                 | What was found                                                                                                                                                                                        | What it means for the command                                                                       |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `'same-guest'`          | The bound pod is still the live pod, and — against a guest that reports a boot id — the agent process is the one this command RESERVED against. An older guest can only be identified down to its pod | The command genuinely may still be running                                                          |
+| `'pod-replaced'`        | A live pod stands under the name with a different uid                                                                                                                                                 | The pod that ran it is gone, and its whole pid namespace with it                                    |
+| `'pod-gone'`            | No live pod stands under the name                                                                                                                                                                     | The same, with no replacement up yet                                                                |
+| `'container-restarted'` | The same pod, but a `guestBootId` different from the one this command reserved against                                                                                                                | The container was restarted in place: the address and token still work and the process tree is gone |
+| `'unknown'`             | The look could not be completed                                                                                                                                                                       | Nothing may be concluded, and nothing is                                                            |
 
 The boot-id comparison is per **command**, not per handle. The baseline is the
 `guestBootId` the command's own `reserve-execution` reply carried — the guest
@@ -3306,7 +3612,7 @@ point is one `NetworkPolicy` object, not something a per-`create()` call could
 rewrite:
 
 ```ts
-import { createSandboxProvider } from '@namzu/sandbox'
+import { createSandboxProvider } from '@namzu/sandbox';
 
 const provider = createSandboxProvider({
   backend: {
@@ -3322,7 +3628,7 @@ const provider = createSandboxProvider({
       // engine defaults to 'core'.
     },
   },
-})
+});
 ```
 
 ### What core `NetworkPolicy` can express, and what it cannot
@@ -3331,22 +3637,22 @@ Core Kubernetes `NetworkPolicy` has exactly three ways to name a destination —
 `ipBlock` (CIDR), `podSelector`, `namespaceSelector` — and no hostname or FQDN
 concept anywhere in the resource. Of the six kinds `policy` takes:
 
-| Kind | Under `engine: 'core'` (default) | Under `engine: 'cilium'` |
-|---|---|---|
-| `deny-all` | A `NetworkPolicy` allowing only the cluster's own DNS (UDP/TCP 53 to `kube-system`) and nothing else. | Same — `engine` only changes the outcome for `static`/`resolver`. |
-| `no-network` | A `NetworkPolicy` with `policyTypes: ['Egress']` and **no rule at all**. Nothing leaves the pod, the cluster resolver included. | Same. |
-| `public-internet` | A `NetworkPolicy` allowing DNS to the resolver's own pods, plus `0.0.0.0/0` and `::/0` minus the ranges that are not the public internet. | Same. |
-| `allow-all` | A `NetworkPolicy` with one unrestricted egress rule. | Same. |
-| `static` / `resolver` | **Refused at construction**, before any API call: core `NetworkPolicy` cannot express a hostname allowlist at all. | A `CiliumNetworkPolicy` with a `toFQDNs` entry for every allowed host, preceded by the DNS-visibility rule Cilium's own `toFQDNs` examples require. |
+| Kind                  | Under `engine: 'core'` (default)                                                                                                          | Under `engine: 'cilium'`                                                                                                                            |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `deny-all`            | A `NetworkPolicy` allowing only the cluster's own DNS (UDP/TCP 53 to `kube-system`) and nothing else.                                     | Same — `engine` only changes the outcome for `static`/`resolver`.                                                                                   |
+| `no-network`          | A `NetworkPolicy` with `policyTypes: ['Egress']` and **no rule at all**. Nothing leaves the pod, the cluster resolver included.           | Same.                                                                                                                                               |
+| `public-internet`     | A `NetworkPolicy` allowing DNS to the resolver's own pods, plus `0.0.0.0/0` and `::/0` minus the ranges that are not the public internet. | Same.                                                                                                                                               |
+| `allow-all`           | A `NetworkPolicy` with one unrestricted egress rule.                                                                                      | Same.                                                                                                                                               |
+| `static` / `resolver` | **Refused at construction**, before any API call: core `NetworkPolicy` cannot express a hostname allowlist at all.                        | A `CiliumNetworkPolicy` with a `toFQDNs` entry for every allowed host, preceded by the DNS-visibility rule Cilium's own `toFQDNs` examples require. |
 
 `no-network` and `public-internet` are Kubernetes-only: they live on
 `KubernetesEgressConfig.policy`, and the tier-wide `EgressPolicy` union is
 unchanged, because no other backend can enforce either one.
 
 ```ts
-import type { KubernetesEgressConfig } from '@namzu/sandbox'
+import type { KubernetesEgressConfig } from '@namzu/sandbox';
 
-const nothingOut: KubernetesEgressConfig = { policy: { kind: 'no-network' } }
+const nothingOut: KubernetesEgressConfig = { policy: { kind: 'no-network' } };
 
 const outButNotSideways: KubernetesEgressConfig = {
   policy: {
@@ -3354,7 +3660,7 @@ const outButNotSideways: KubernetesEgressConfig = {
     // Added to the built-in carve-outs, never replacing them.
     exceptCidrs: ['203.0.113.0/24'],
   },
-}
+};
 ```
 
 #### `deny-all` is not "no network", and is not being changed into one
@@ -3416,7 +3722,7 @@ out. `KubernetesEgressConfig.ciliumNarrowing` closes each of those, opt-in and
 independently:
 
 ```ts
-import type { KubernetesEgressConfig } from '@namzu/sandbox'
+import type { KubernetesEgressConfig } from '@namzu/sandbox';
 
 const narrowed: KubernetesEgressConfig = {
   engine: 'cilium',
@@ -3439,7 +3745,7 @@ const narrowed: KubernetesEgressConfig = {
     // cannot see).
     dnsNames: true,
   },
-}
+};
 ```
 
 emits, for `github.com` in namespace `namzu-sandboxes`:
@@ -3447,9 +3753,13 @@ emits, for `github.com` in namespace `namzu-sandboxes`:
 ```yaml
 egress:
   - toEndpoints:
-      - matchLabels: { "k8s:io.kubernetes.pod.namespace": kube-system, "k8s:k8s-app": kube-dns }
+      - matchLabels:
+          {
+            'k8s:io.kubernetes.pod.namespace': kube-system,
+            'k8s:k8s-app': kube-dns,
+          }
     toPorts:
-      - ports: [{ port: "53", protocol: ANY }]
+      - ports: [{ port: '53', protocol: ANY }]
         rules:
           dns:
             - matchName: github.com
@@ -3458,9 +3768,9 @@ egress:
             - matchName: github.com.cluster.local
   - toFQDNs: [{ matchName: github.com }]
     toPorts:
-      - ports: [{ port: "443", protocol: TCP }]
+      - ports: [{ port: '443', protocol: TCP }]
         serverNames: [github.com]
-      - ports: [{ port: "22", protocol: TCP }]
+      - ports: [{ port: '22', protocol: TCP }]
 ```
 
 **Unset (every field), the translation is byte-for-byte what it always was** —
@@ -3666,7 +3976,7 @@ once:
   `${sandboxTemplateName}-${profile}-egress`.
 
 ```ts
-import { createSandboxProvider } from '@namzu/sandbox'
+import { createSandboxProvider } from '@namzu/sandbox';
 
 // Two providers, ONE warm pool, two enforced network modes.
 const backend = {
@@ -3676,7 +3986,7 @@ const backend = {
   access: { inCluster: true },
   sandboxTemplateName: 'namzu-task',
   warmPoolName: 'namzu-task-pool',
-} as const
+} as const;
 
 const offline = createSandboxProvider({
   backend: {
@@ -3688,14 +3998,14 @@ const offline = createSandboxProvider({
       // sandbox.namzu.ai/template=namzu-task AND the profile label.
     },
   },
-})
+});
 
 const online = createSandboxProvider({
   backend: {
     ...backend,
     egress: { policy: { kind: 'public-internet' }, profile: 'internet' },
   },
-})
+});
 ```
 
 **Labels are the only claim-time metadata that is warm-safe.** `env` and
@@ -3713,15 +4023,15 @@ bounds everything else, in the same pod read that fetches the bind token — and
 the privilege probe does not run until it has been observed. A pod that never
 gets it fails with `KubernetesPodLabelNotObservedError` and the claim is
 released, because admitting it would run the sandbox under whatever policy
-*does* select it while the host believes it is on a narrower profile.
+_does_ select it while the host believes it is on a narrower profile.
 
 Two refusals are thrown, and one class only ever arrives as a `cause`:
 
-| Class | When | What to do |
-|---|---|---|
-| `KubernetesEgressProfileConfigError` | Synchronously, while the host is being wired: the profile is not a DNS-1123 label, `profileLabelKey` is not a label key or is one this backend already uses, or the default policy name the two make is past 253 characters. | Fix the config value the message names. |
-| `KubernetesPodLabelNotObservedError` | The bound pod never carried the label within the readiness budget. | Check that the controller applied the claim's `additionalPodMetadata`. |
-| `KubernetesPodLabelsRejectedError` — **never thrown; it is the `cause`** of the `KubernetesAcquireError` below. | — | — |
+| Class                                                                                                           | When                                                                                                                                                                                                                         | What to do                                                             |
+| --------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `KubernetesEgressProfileConfigError`                                                                            | Synchronously, while the host is being wired: the profile is not a DNS-1123 label, `profileLabelKey` is not a label key or is one this backend already uses, or the default policy name the two make is past 253 characters. | Fix the config value the message names.                                |
+| `KubernetesPodLabelNotObservedError`                                                                            | The bound pod never carried the label within the readiness budget.                                                                                                                                                           | Check that the controller applied the claim's `additionalPodMetadata`. |
+| `KubernetesPodLabelsRejectedError` — **never thrown; it is the `cause`** of the `KubernetesAcquireError` below. | —                                                                                                                                                                                                                            | —                                                                      |
 
 A claim the controller refuses for its metadata is **not** a separate
 taxonomy. `InvalidMetadata` is one of the terminal claim reasons [an acquire
@@ -3789,10 +4099,12 @@ const provider = createSandboxProvider({
       },
     },
   },
-})
+});
 
-const sandbox = await provider.create({ workingDirectory: '/workspace' })
-await sandbox.setNetworkPolicy?.({ allowedHosts: ['registry.npmjs.org', '.example.com'] })
+const sandbox = await provider.create({ workingDirectory: '/workspace' });
+await sandbox.setNetworkPolicy?.({
+  allowedHosts: ['registry.npmjs.org', '.example.com'],
+});
 ```
 
 **The method is PRESENT only when `perSandbox` is configured**, and absent
@@ -4017,20 +4329,20 @@ fixing the cluster and calling `create()` again retries it.
 **Two: every OTHER policy that selects the pod.** A name proves an object
 exists. It does not prove that object is the only thing deciding what leaves
 the pod — and the API server **unions** every policy selecting a pod, so
-traffic leaves if *any* of them allows it. So the check also `LIST`s the
+traffic leaves if _any_ of them allows it. So the check also `LIST`s the
 namespace's `NetworkPolicy` objects (and, under `engine: 'cilium'`, that CNI's
 policy CRD too), evaluates each selector against the pod's **real labels**,
 and refuses with `KubernetesEgressPolicyUnionError` when:
 
 - any selecting policy allows a destination the translation does not — under
-  `no-network`, that is *any* egress rule at all (`refusal:
-  'policy-widens-egress'`);
+  `no-network`, that is _any_ egress rule at all (`refusal:
+'policy-widens-egress'`);
 - nothing selecting the pod puts it in egress default-deny, so the translation
   bounds nothing it sends (`refusal: 'no-enforcing-policy'`); this is skipped
   under `allow-all`, which asks for no boundary;
 - a policy, a peer or a port cannot be read at all — a named container port, an
   unreadable selector, or a collection this Role may not `list` (`refusal:
-  'not-evaluable'`).
+'not-evaluable'`).
 
 The refusal names the pod's labels and **every policy examined with a verdict
 each** (`within`, `widens-egress`, `does-not-select`, `not-egress-scoped`,
@@ -4083,14 +4395,14 @@ perfectly. That is the hole this second check closes, and the shipped
 corrected in the same change.
 
 **Whose subset is decided conservatively.** A second policy passes only when
-the check can *show* it is inside the translation — a narrower CIDR inside an
+the check can _show_ it is inside the translation — a narrower CIDR inside an
 allowed block whose carve-outs it also carves out, or a selector with every
 constraint the translation places plus more. Anything it cannot place inside
 refuses. That is deliberate: the alternative is a checker that reports "close
 enough" about a network boundary.
 
 ```ts
-import type { KubernetesEgressConfig } from '@namzu/sandbox'
+import type { KubernetesEgressConfig } from '@namzu/sandbox';
 
 // Restores exactly the single-object check of every release before this one:
 // one GET of one named object, memoized for the backend's lifetime, and no
@@ -4099,7 +4411,7 @@ import type { KubernetesEgressConfig } from '@namzu/sandbox'
 const singleObject: KubernetesEgressConfig = {
   policy: { kind: 'deny-all' },
   verify: 'named-object-only',
-}
+};
 ```
 
 [`createKubernetesWorkspace`](#egress-covers-a-workspace-too) runs both checks
@@ -4179,7 +4491,7 @@ answers while `example.com` fails — is a statement about a data plane and is
 is that the claim-time label reaches the running pod without a cold start, and
 that the two profiles' claims, policy names and selectors are the ones this
 backend computed. That two pods carrying different profile labels actually
-*reach different networks* is a statement about enforcement, and the only
+_reach different networks_ is a statement about enforcement, and the only
 place to make it is a cluster that enforces, with `egress-check.mjs`'s
 positive controls, run once per profile — `--profile <value>` (and
 `--profile-label-key` where the default key is not the one this deployment
@@ -4197,7 +4509,7 @@ The field is absent in the normal case, because absent means verify. These are
 the only two other spellings:
 
 ```ts
-import { createSandboxProvider } from '@namzu/sandbox'
+import { createSandboxProvider } from '@namzu/sandbox';
 
 // Enumerate that CNI's own policy CRD as well as core NetworkPolicy. `engine`
 // defaults to `egress.engine` when one is configured, and to 'core' otherwise.
@@ -4210,7 +4522,7 @@ const cilium = createSandboxProvider({
     sandboxTemplateName: 'namzu-task',
     ingress: { engine: 'cilium' },
   },
-})
+});
 
 // Read no policy at all: this deployment closes the port somewhere a
 // namespaced Role cannot see, and says so on purpose.
@@ -4223,7 +4535,7 @@ const optedOut = createSandboxProvider({
     sandboxTemplateName: 'namzu-task',
     ingress: 'unverified',
   },
-})
+});
 ```
 
 `engine` decides which resources get **enumerated**, so declare
@@ -4282,9 +4594,9 @@ A rule counts as open when its ports cover the agent port (TCP, an absent or
 empty `ports`, a matching number, or an `endPort` range spanning it) **and** its
 source is unbounded:
 
-| Resource | Wide-open source |
-|---|---|
-| `NetworkPolicy` | `from` absent or empty; a peer with `namespaceSelector: {}` and no narrowing `podSelector`; an `ipBlock` of `0.0.0.0/0` or `::/0` (an `except` list does not narrow it into something closed) |
+| Resource              | Wide-open source                                                                                                                                                                                     |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NetworkPolicy`       | `from` absent or empty; a peer with `namespaceSelector: {}` and no narrowing `podSelector`; an `ipBlock` of `0.0.0.0/0` or `::/0` (an `except` list does not narrow it into something closed)        |
 | `CiliumNetworkPolicy` | `fromEntities` containing `all`, `cluster` or `world`; `fromCIDR`/`fromCIDRSet` of `0.0.0.0/0` or `::/0`; a rule with `toPorts` and no `from…` selector at all, which that CRD reads as every source |
 
 A bare `podSelector: {}` peer — every pod in the sandbox namespace — is
@@ -4575,7 +4887,7 @@ the scan knows, which takes its path as an argument; every half read on text
 with its comments blanked — fails the test until it is scanned or declared off
 the path with its reason, so the four names cannot silently stop covering it.
 The wrapper half is there because the spellings alone were a hole: a file that
-issues its request *through* that wrapper contains no `.request` at all, and
+issues its request _through_ that wrapper contains no `.request` at all, and
 the scan reads call sites in the four scanned files only — and the computed
 spelling is in the predicate because `client['request'](…)` contains no
 `.request` either: the scan refuses that spelling by line, but only for a file
@@ -4704,15 +5016,15 @@ does not have: the shipped `terminationGracePeriodSeconds` is a budget
 nobody has measured, and this row's suspend duration is what says whether it
 is the right one.
 
-| Criterion | Script | Target | Measured | Date | Cluster |
-|---|---|---|---|---|---|
-| 1. The Sandbox contract passes against a live sandbox | `k8s/scripts/contract-suite.mjs` | every case passes | — | — | — |
-| 2. Warm-pool acquire latency | `k8s/scripts/acquire-p50.mjs` | p50 < 1s | — | — | — |
-| 3. A workspace's disk survives suspend/resume, including a 5 MiB `writeFile` and a 100 MiB command-written file issued immediately before it, with the suspend's own duration | `k8s/scripts/suspend-resume.mjs` | pass, and a suspend duration to compare with `terminationGracePeriodSeconds` | — | — | — |
-| 4. Small-file IO on the block PVC vs. host ext4 | `k8s/scripts/io-compare.mjs` | ≤ 1.5x | — | — | — |
-| 5. The guest is genuinely deprivileged | `k8s/scripts/capability-check.mjs` | pass | — | — | — |
-| 6. The agent port is shut to a pod that is not the host | `k8s/scripts/ingress-check.mjs` | the probe fails to connect | — | — | — |
-| 7. Egress is bounded by the configured kind | `k8s/scripts/egress-check.mjs` | every "must be closed" probe fails to connect, and `public-internet` reaches a public address | — | — | — |
+| Criterion                                                                                                                                                                     | Script                             | Target                                                                                        | Measured | Date | Cluster |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- | --------------------------------------------------------------------------------------------- | -------- | ---- | ------- |
+| 1. The Sandbox contract passes against a live sandbox                                                                                                                         | `k8s/scripts/contract-suite.mjs`   | every case passes                                                                             | —        | —    | —       |
+| 2. Warm-pool acquire latency                                                                                                                                                  | `k8s/scripts/acquire-p50.mjs`      | p50 < 1s                                                                                      | —        | —    | —       |
+| 3. A workspace's disk survives suspend/resume, including a 5 MiB `writeFile` and a 100 MiB command-written file issued immediately before it, with the suspend's own duration | `k8s/scripts/suspend-resume.mjs`   | pass, and a suspend duration to compare with `terminationGracePeriodSeconds`                  | —        | —    | —       |
+| 4. Small-file IO on the block PVC vs. host ext4                                                                                                                               | `k8s/scripts/io-compare.mjs`       | ≤ 1.5x                                                                                        | —        | —    | —       |
+| 5. The guest is genuinely deprivileged                                                                                                                                        | `k8s/scripts/capability-check.mjs` | pass                                                                                          | —        | —    | —       |
+| 6. The agent port is shut to a pod that is not the host                                                                                                                       | `k8s/scripts/ingress-check.mjs`    | the probe fails to connect                                                                    | —        | —    | —       |
+| 7. Egress is bounded by the configured kind                                                                                                                                   | `k8s/scripts/egress-check.mjs`     | every "must be closed" probe fails to connect, and `public-internet` reaches a public address | —        | —    | —       |
 
 Rows 6 and 7 need a cluster whose CNI enforces `NetworkPolicy`. On one that
 does not — the stock local `kind` cluster — both scripts report FAIL by

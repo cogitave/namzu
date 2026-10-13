@@ -158,6 +158,27 @@
  * second request into the gap the deferred mark opens.
  */
 
+import {
+	type KubernetesWorkspaceAllocateOptions,
+	type KubernetesWorkspaceAllocation,
+	KubernetesWorkspaceAllocationConflictError,
+	type KubernetesWorkspaceAllocationReceipt,
+	WORKSPACE_ALLOCATION_ID_ANNOTATION,
+	WORKSPACE_ALLOCATION_PROFILE_ANNOTATION,
+	WORKSPACE_ALLOCATION_SCOPE_ANNOTATION,
+	assertWorkspaceAllocationResource,
+	captureWorkspaceAllocation,
+} from './workspace-allocation.js'
+import {
+	type KubernetesWorkspaceExecutionProfile,
+	KubernetesWorkspaceProfileConflictError,
+	assertWorkspaceExecutionContent,
+	assertWorkspaceProfileConfig,
+	captureWorkspaceProfileConfig,
+	describeWorkspaceExecutionProfile,
+	workspaceConfigForOriginalProfile,
+} from './workspace-profile.js'
+
 import type {
 	Sandbox,
 	SandboxDestroyOptions,
@@ -242,11 +263,13 @@ import {
 	type SandboxVolumeClaimTemplate,
 	buildHolderEpochPatch,
 	holderEpochAllows,
+	isPodLive,
 	isPodStopped,
 	persistentVolumeClaimPath,
 	podPath,
 	podTemplateHash,
 	readHolderEpoch,
+	readPodIP,
 	readPodTemplateHash,
 	sandboxCollectionPath,
 	sandboxPath,
@@ -257,6 +280,7 @@ import {
 	buildKubernetesSandbox,
 } from './sandbox.js'
 import {
+	KubernetesAgentRetiringError,
 	KubernetesAgentTransport,
 	type KubernetesAttachExecutionOptions,
 	type KubernetesAttachTerminalOptions,
@@ -276,9 +300,11 @@ import {
 	type KubernetesSessionTerminal,
 	type KubernetesStartDetachedOptions,
 	type KubernetesWorkspaceTerminal,
+	captureQuiesceOptions,
 	flushUnsupportedError,
 	guestWhenReserved,
 } from './transport.js'
+import type { KubernetesWorkspaceClosureTarget } from './workspace-closure.js'
 
 /**
  * Thrown when a workspace's `SandboxTemplate` does not describe a block disk
@@ -689,6 +715,12 @@ export interface KubernetesWorkspaceTransitionOptions {
 	readonly refreshPodTemplate?: boolean
 }
 
+export interface KubernetesWorkspaceDeleteOptions extends KubernetesWorkspaceTransitionOptions {
+	/** Delete only this fully observed suspended owner. Requires unchanged UID,
+	 * PVC identities and exact epoch; conflicts never retry against a new owner. */
+	readonly suspendedTarget?: KubernetesWorkspaceClosureTarget
+}
+
 /**
  * What a SUSPEND takes, which is every transition option plus the one thing
  * only a suspend can do with it.
@@ -702,6 +734,14 @@ export interface KubernetesWorkspaceTransitionOptions {
  * one way this feature could lie.
  */
 export interface KubernetesWorkspaceSuspendOptions extends KubernetesWorkspaceTransitionOptions {
+	/**
+	 * Require this captured workspace owner at the conditional terminal write.
+	 * Requires an explicit epoch and a complete identity. Guest calls use the
+	 * captured session without rebind; Sandbox writes test uid and version.
+	 * A retry after this operation dropped its session retains the same owner.
+	 * This fences the Sandbox and its disk, not guest memory at API commit time.
+	 */
+	readonly expectedIdentity?: KubernetesWorkspaceIdentity
 	/**
 	 * Stop every process in the guest BEFORE the `Suspended` patch goes out —
 	 * see {@link KubernetesWorkspace.quiesce}, which this runs.
@@ -793,6 +833,9 @@ export interface KubernetesFlushOptions {
  * stopped nothing.
  */
 export interface KubernetesQuiesceOptions {
+	/** Check whole-namespace idle without stopping any process. Requires the
+	 * `quiesce-idle` guest capability. The caller owns admission after the reply. */
+	readonly onlyIfIdle?: boolean
 	/**
 	 * How long the guest waits after `SIGTERM` before escalating to
 	 * `SIGKILL`, per round. The guest refuses a value at or above its own
@@ -847,6 +890,8 @@ export interface KubernetesKillSessionOptions {
  * disk survives. See the module comment: the default keeps it.
  */
 export interface KubernetesWorkspaceDestroyOptions extends SandboxDestroyOptions {
+	/** Same captured-owner contract as suspend().expectedIdentity. */
+	readonly expectedIdentity?: KubernetesWorkspaceIdentity
 	/**
 	 * `true` DELETEs the Sandbox, cascading to its Pod, Service and PVC —
 	 * the caller's files are gone and nothing brings them back. Anything else,
@@ -1510,6 +1555,70 @@ export interface KubernetesWorkspaceOptions {
 	readonly refreshPodTemplate?: boolean
 }
 
+/** Open only the recorded, still-running guest; never create, resume or replace it. */
+export interface KubernetesWorkspaceClosureOpenOptions {
+	readonly expectedAllocation?: KubernetesWorkspaceAllocation
+	/** Refuse profile changes before binding an existing live guest. */
+	readonly requireConfiguredProfile?: boolean
+	readonly workspaceId: string
+	readonly workingDirectory: string
+	readonly identity: KubernetesWorkspaceIdentity
+	readonly epoch: number
+	readonly signal?: AbortSignal
+}
+
+/**
+ * Reconnect after a host restart under the caller's durable closure exclusion.
+ * Opening performs only provider reads and an authenticated read of the pinned
+ * guest. The returned handle cannot resume or perform an unbound lifecycle
+ * operation; suspend/destroy must repeat this exact identity and epoch.
+ */
+export async function openKubernetesWorkspaceForClosure(
+	inputConfig: KubernetesBackendInternalConfig,
+	options: KubernetesWorkspaceClosureOpenOptions,
+): Promise<KubernetesWorkspace> {
+	const expectedAllocation =
+		options.expectedAllocation === undefined
+			? undefined
+			: captureWorkspaceAllocation(options.expectedAllocation)
+	const closureTarget = captureLifecycleTarget(options.identity, options.epoch)
+	const workspaceId = options.workspaceId
+	const rootDir = options.workingDirectory
+	const signal = options.signal
+	const config = expectedAllocation?.executionProfile
+		? workspaceConfigForOriginalProfile(inputConfig, expectedAllocation.executionProfile)
+		: inputConfig
+	return await openWorkspaceHandle({
+		client: createKubernetesClient(clientAccess(config), clientOptions(config)),
+		namespace: config.namespace,
+		name: workspaceSandboxName(workspaceId),
+		workspaceId,
+		rootDir,
+		agentPort: config.agentPort ?? DEFAULT_AGENT_PORT,
+		agentAddress: config.agentAddress ?? 'service',
+		streamHeartbeatMs: resolveStreamHeartbeatMs(config.streamHeartbeatMs),
+		readiness: resolveKubernetesReadiness(config),
+		origin: 'adopted-running',
+		sandboxTemplateName: config.sandboxTemplateName,
+		// No template was read, so this handle makes no freshness claim.
+		currentTemplateHash: '',
+		epoch: closureTarget.epoch,
+		onStartFailure: 'leave',
+		closureTarget,
+		...(expectedAllocation ? { requiredAllocation: expectedAllocation } : {}),
+		...(options.requireConfiguredProfile
+			? {
+					requiredProfile: {
+						sandboxTemplateName: config.sandboxTemplateName,
+						profile: egressProfileLabel(config.egress),
+						runtimeClassName: config.runtimeClassName,
+					},
+				}
+			: {}),
+		signal,
+	})
+}
+
 /** Prefix every workspace Sandbox's name carries. */
 export const WORKSPACE_NAME_PREFIX = 'namzu-ws-'
 
@@ -1827,10 +1936,10 @@ type WorkspaceState = 'running' | 'suspending' | 'suspended' | 'deleted'
  * Sandbox standing, which the caller finds again under the same deterministic
  * name and nothing reaps for them — see the docs page.
  */
-export async function createKubernetesWorkspace(
+async function prepareWorkspaceDefinition(
 	config: KubernetesBackendInternalConfig,
 	options: KubernetesWorkspaceOptions,
-): Promise<KubernetesWorkspace> {
+) {
 	options.signal?.throwIfAborted()
 	// `config.egress.perSandbox` is the one part of `config.egress` this path
 	// cannot honour at all, and it is refused FIRST — before readiness, before
@@ -1958,12 +2067,101 @@ export async function createKubernetesWorkspace(
 		config.runtimeClassName,
 		profilePodLabels,
 	)
+	return {
+		client,
+		namespace,
+		name,
+		templateName,
+		agentPort,
+		agentAddress,
+		streamHeartbeatMs,
+		readiness,
+		profilePodLabels,
+		refresh,
+		epoch,
+		template,
+		profile,
+	}
+}
+
+/** Resolve and qualify the actual copied native template without creating a
+ * Sandbox. The host persists this descriptor before original allocation. */
+export async function resolveKubernetesWorkspaceExecutionProfile(
+	inputConfig: KubernetesBackendInternalConfig,
+	options: { readonly signal?: AbortSignal } = {},
+): Promise<KubernetesWorkspaceExecutionProfile> {
+	const config = captureWorkspaceProfileConfig(inputConfig)
+	assertWorkspaceProfileConfig(config)
+	const prepared = await prepareWorkspaceDefinition(config, {
+		workspaceId: 'native-profile-qualification',
+		workingDirectory: '/workspace',
+		signal: options.signal,
+	})
+	return describeWorkspaceExecutionProfile({
+		config,
+		podTemplate: prepared.refresh.podTemplate,
+		volumeClaimTemplates: prepared.refresh.volumeClaimTemplates,
+	})
+}
+
+/** Reopening original compute is new admission even if no current template is
+ * read. Verify policies against the actual retained pod labels on every call;
+ * exact retirement deliberately does not use this admission helper. */
+export async function verifyOriginalWorkspaceAdmission(
+	config: KubernetesBackendInternalConfig,
+	labels: Readonly<Record<string, string>>,
+	signal: AbortSignal,
+): Promise<void> {
+	assertWorkspaceProfileConfig(config)
+	const client = createKubernetesClient(clientAccess(config), clientOptions(config))
+	const boundary = buildEgressBoundary(client, config, config.sandboxTemplateName)
+	const ingress = buildIngressVerifier(client, config)
+	if (!boundary || !ingress) throw new KubernetesWorkspaceProfileConflictError()
+	assertEgressPolicyIsEnforceable(
+		config.egress.policy,
+		config.egress.engine,
+		config.egress.ciliumNarrowing,
+	)
+	await boundary.verifyNamedObject(signal)
+	await ingress(labels, 'to reopen an original native workspace', signal)
+	await boundary.verifyUnion(labels, 'to reopen an original native workspace', signal)
+}
+
+async function prepareWorkspaceResource(
+	config: KubernetesBackendInternalConfig,
+	options: KubernetesWorkspaceOptions,
+	allocation?: KubernetesWorkspaceAllocation,
+) {
+	if (allocation?.executionProfile) assertWorkspaceProfileConfig(config)
+	const {
+		client,
+		namespace,
+		name,
+		templateName,
+		agentPort,
+		agentAddress,
+		streamHeartbeatMs,
+		readiness,
+		profilePodLabels,
+		refresh,
+		epoch,
+		template,
+		profile,
+	} = await prepareWorkspaceDefinition(config, options)
+	if (allocation?.executionProfile) {
+		const current = describeWorkspaceExecutionProfile({
+			config: { ...config, sandboxTemplateName: templateName },
+			podTemplate: refresh.podTemplate,
+			volumeClaimTemplates: refresh.volumeClaimTemplates,
+		})
+		if (current.fingerprint !== allocation.executionProfile.fingerprint)
+			throw new KubernetesWorkspaceProfileConflictError()
+	}
 
 	let adopted: AdoptedWorkspace | undefined
+	let allocatedSandboxUid: string | undefined
 	try {
-		await client.request(
-			'POST',
-			sandboxCollectionPath(namespace),
+		const body =
 			// No shutdownTime: a workspace carries no expiry — see the module
 			// comment.
 			buildSandboxBody({
@@ -1980,17 +2178,43 @@ export async function createKubernetesWorkspace(
 				// object that recorded what it was built from on its second
 				// request would have a window in which it claimed none.
 				annotations: {
+					...(allocation
+						? {
+								[WORKSPACE_ALLOCATION_ID_ANNOTATION]: allocation.id,
+								[WORKSPACE_ALLOCATION_SCOPE_ANNOTATION]: allocation.scopeFingerprint,
+								...(allocation.executionProfile
+									? {
+											[WORKSPACE_ALLOCATION_PROFILE_ANNOTATION]:
+												allocation.executionProfile.fingerprint,
+										}
+									: {}),
+							}
+						: {}),
 					...(epoch !== undefined ? { [HOLDER_EPOCH_ANNOTATION_KEY]: String(epoch) } : {}),
 					[POD_TEMPLATE_HASH_ANNOTATION_KEY]: refresh.hash,
 				},
 				...(config.runtimeClassName !== undefined
 					? { runtimeClassName: config.runtimeClassName }
 					: {}),
-			}),
+			})
+		if (allocation?.executionProfile)
+			assertWorkspaceExecutionContent(allocation.executionProfile, (body as SandboxResource).spec)
+		const created = await client.request<SandboxResource>(
+			'POST',
+			sandboxCollectionPath(namespace),
+			body,
 			options.signal,
 		)
+		if (allocation) {
+			allocatedSandboxUid = created?.metadata?.uid
+			if (!allocatedSandboxUid)
+				throw new KubernetesWorkspaceAllocationConflictError(options.workspaceId)
+			assertWorkspaceAllocationResource(options.workspaceId, allocation, created)
+		}
 	} catch (err) {
 		if (!(err instanceof KubernetesConflictError)) throw err
+		if (allocation)
+			throw new KubernetesWorkspaceAllocationConflictError(options.workspaceId, { cause: err })
 		adopted = await adoptExistingWorkspace(
 			client,
 			namespace,
@@ -2011,6 +2235,81 @@ export async function createKubernetesWorkspace(
 			options.signal,
 		)
 	}
+
+	return {
+		client,
+		namespace,
+		name,
+		templateName,
+		agentPort,
+		agentAddress,
+		streamHeartbeatMs,
+		readiness,
+		adopted,
+		profilePodLabels,
+		refresh,
+		epoch,
+		allocatedSandboxUid,
+	}
+}
+
+/** Allocate exactly once, without adopting an existing object, opening a guest
+ * or running a privilege probe. A failed/unknown acknowledgement leaves the
+ * original resource intact for read-only marker recovery. */
+export async function allocateKubernetesWorkspace(
+	inputConfig: KubernetesBackendInternalConfig,
+	input: KubernetesWorkspaceAllocateOptions,
+): Promise<KubernetesWorkspaceAllocationReceipt> {
+	const allocation = captureWorkspaceAllocation(input.allocation)
+	const workspaceId = input.workspaceId
+	const epoch = input.epoch
+	const signal = input.signal
+	const config = allocation.executionProfile
+		? captureWorkspaceProfileConfig(inputConfig)
+		: inputConfig
+	if (!Number.isSafeInteger(epoch) || epoch < 0 || epoch > 2_147_483_647)
+		throw new Error('kubernetes: allocation requires an explicit valid epoch')
+	const prepared = await prepareWorkspaceResource(
+		config,
+		{
+			workspaceId,
+			workingDirectory: '/workspace',
+			epoch,
+			signal,
+			onStartFailure: 'leave',
+			refreshPodTemplate: false,
+		},
+		allocation,
+	)
+	if (!prepared.allocatedSandboxUid)
+		throw new KubernetesWorkspaceAllocationConflictError(workspaceId)
+	return Object.freeze({
+		workspaceId,
+		allocation,
+		epoch,
+		sandboxUid: prepared.allocatedSandboxUid,
+	})
+}
+
+export async function createKubernetesWorkspace(
+	config: KubernetesBackendInternalConfig,
+	input: KubernetesWorkspaceOptions,
+): Promise<KubernetesWorkspace> {
+	const options = { ...input }
+	const {
+		client,
+		namespace,
+		name,
+		templateName,
+		agentPort,
+		agentAddress,
+		streamHeartbeatMs,
+		readiness,
+		adopted,
+		profilePodLabels,
+		refresh,
+		epoch,
+	} = await prepareWorkspaceResource(config, options)
 
 	return await openWorkspaceHandle({
 		client,
@@ -2347,6 +2646,86 @@ interface WorkspaceWriteTarget {
 	readonly namespace: string
 	readonly name: string
 	readonly workspaceId: string
+	/** Retained opening provenance also guards every later lifecycle owner read. */
+	readonly validateOwner?: (sandbox: SandboxResource | undefined) => void
+}
+
+interface LifecycleTarget {
+	readonly identity: KubernetesWorkspaceIdentity
+	readonly key: string
+	readonly epoch: number
+	readonly guestBootId: string
+}
+
+function captureLifecycleTarget(
+	expected: KubernetesWorkspaceIdentity,
+	epoch: number | undefined,
+): LifecycleTarget {
+	const identity = {
+		...expected,
+		volumeClaimUids: { ...expected.volumeClaimUids },
+	}
+	const { key, guestBootId } = captureGuestPin(identity)
+	const checkedEpoch = assertHolderEpoch(epoch, 'bound lifecycle')
+	if (checkedEpoch === undefined) throw new KubernetesGuestPinError()
+	return { identity, key, epoch: checkedEpoch, guestBootId }
+}
+
+/** Fresh durable-owner checks; cached identity alone cannot authorize a stop. */
+async function assertLifecycleOwner(
+	target: WorkspaceWriteTarget,
+	sandbox: SandboxResource | undefined,
+	expected: KubernetesWorkspaceIdentity,
+	signal?: AbortSignal,
+): Promise<void> {
+	if (sandbox?.metadata?.uid !== expected.sandboxUid) {
+		throw new KubernetesWorkspaceReplacedError(
+			target.workspaceId,
+			target.name,
+			expected.sandboxUid,
+			sandbox?.metadata?.uid,
+		)
+	}
+	if (!sandbox?.metadata?.resourceVersion) throw new KubernetesGuestPinError()
+	const names = sandbox.spec?.volumeClaimTemplates?.map((entry) => entry.metadata?.name)
+	const expectedNames = Object.keys(expected.volumeClaimUids).sort()
+	if (
+		!names ||
+		names.some((name) => !name) ||
+		JSON.stringify([...names].sort()) !== JSON.stringify(expectedNames)
+	)
+		throw new KubernetesGuestPinError()
+	for (const name of expectedNames) {
+		const claim = await target.client
+			.request<{
+				metadata?: {
+					uid?: string
+					ownerReferences?: readonly { uid?: string; controller?: boolean }[]
+				}
+			}>('GET', persistentVolumeClaimPath(target.namespace, target.name, name), undefined, signal)
+			.catch((err: unknown) => {
+				// A missing dependent is not evidence that the Sandbox was deleted.
+				if (err instanceof KubernetesAlreadyGoneError) throw new KubernetesGuestPinError()
+				throw err
+			})
+		if (
+			claim?.metadata?.uid !== expected.volumeClaimUids[name] ||
+			!claim?.metadata?.ownerReferences?.some(
+				(owner) => owner.uid === expected.sandboxUid && owner.controller === true,
+			)
+		)
+			throw new KubernetesGuestPinError()
+	}
+}
+
+async function readLifecycleOwner(
+	target: WorkspaceWriteTarget,
+	expected: KubernetesWorkspaceIdentity,
+	signal?: AbortSignal,
+): Promise<SandboxResource | undefined> {
+	const sandbox = await readSandboxObject(target, signal)
+	await assertLifecycleOwner(target, sandbox, expected, signal)
+	return sandbox
 }
 
 /** One GET of the Sandbox, which is where every condition is read from. */
@@ -2354,12 +2733,14 @@ async function readSandboxObject(
 	target: WorkspaceWriteTarget,
 	signal?: AbortSignal,
 ): Promise<SandboxResource | undefined> {
-	return await target.client.request<SandboxResource>(
+	const sandbox = await target.client.request<SandboxResource>(
 		'GET',
 		sandboxPath(target.namespace, target.name),
 		undefined,
 		signal,
 	)
+	target.validateOwner?.(sandbox)
+	return sandbox
 }
 
 /** `spec.operatingMode`, with the CRD's own default for an absent one. */
@@ -2405,9 +2786,13 @@ async function readHolderEpochGate(
 	operation: string,
 	epoch: number | undefined,
 	signal?: AbortSignal,
+	expected?: KubernetesWorkspaceIdentity,
 ): Promise<HolderEpochReading | undefined> {
 	if (epoch === undefined) return undefined
-	const reading = readHolderEpoch((await readSandboxObject(target, signal))?.metadata)
+	const sandbox = expected
+		? await readLifecycleOwner(target, expected, signal)
+		: await readSandboxObject(target, signal)
+	const reading = readHolderEpoch(sandbox?.metadata)
 	assertHolderEpochAllows(target, operation, epoch, reading)
 	return reading
 }
@@ -2444,6 +2829,7 @@ async function writeOperatingMode(
 	epoch: number | undefined,
 	signal?: AbortSignal,
 	gate?: HolderEpochReading,
+	expected?: KubernetesWorkspaceIdentity,
 ): Promise<void> {
 	const path = sandboxPath(target.namespace, target.name)
 	if (epoch === undefined) {
@@ -2451,12 +2837,35 @@ async function writeOperatingMode(
 		await target.client.request('PATCH', path, operatingModePatch(mode), signal)
 		return
 	}
-	let reading = gate ?? readHolderEpoch((await readSandboxObject(target, signal))?.metadata)
+	const read = async () =>
+		readHolderEpoch(
+			(expected
+				? await readLifecycleOwner(target, expected, signal)
+				: await readSandboxObject(target, signal)
+			)?.metadata,
+		)
+	let reading = gate ?? (await read())
 	for (let attempt = 1; ; attempt += 1) {
 		assertHolderEpochAllows(target, operation, epoch, reading)
 		const patch = buildHolderEpochPatch({
 			reading,
 			epoch,
+			...(expected
+				? {
+						tests: [
+							{
+								op: 'test' as const,
+								path: '/metadata/uid',
+								value: expected.sandboxUid,
+							},
+							{
+								op: 'test' as const,
+								path: '/metadata/resourceVersion',
+								value: reading.resourceVersion,
+							},
+						],
+					}
+				: {}),
 			...(mode !== undefined
 				? {
 						operatingMode: mode,
@@ -2469,8 +2878,11 @@ async function writeOperatingMode(
 			return
 		} catch (err) {
 			if (!(err instanceof KubernetesPatchNotAppliedError)) throw err
+			// A bound caller must re-prove its original guest before another
+			// attempt; this generic retry loop only knows the durable owner.
+			if (expected) throw err
 			if (attempt >= HOLDER_EPOCH_WRITE_ATTEMPTS) throw err
-			const next = readHolderEpoch((await readSandboxObject(target, signal))?.metadata)
+			const next = await read()
 			const unmoved =
 				next.annotation === reading.annotation &&
 				next.resourceVersion === reading.resourceVersion &&
@@ -2657,6 +3069,7 @@ async function deleteSandboxObject(
 	epoch: number | undefined,
 	signal?: AbortSignal,
 	gate?: HolderEpochReading,
+	expected?: KubernetesWorkspaceIdentity,
 ): Promise<void> {
 	const path = sandboxPath(target.namespace, target.name)
 	if (epoch === undefined) {
@@ -2672,7 +3085,9 @@ async function deleteSandboxObject(
 		if (reading === undefined) {
 			let sandbox: SandboxResource | undefined
 			try {
-				sandbox = await readSandboxObject(target, signal)
+				sandbox = expected
+					? await readLifecycleOwner(target, expected, signal)
+					: await readSandboxObject(target, signal)
 			} catch (err) {
 				if (err instanceof KubernetesAlreadyGoneError) return
 				throw err
@@ -2696,7 +3111,10 @@ async function deleteSandboxObject(
 				{
 					apiVersion: 'v1',
 					kind: 'DeleteOptions',
-					preconditions: { resourceVersion: reading.resourceVersion },
+					preconditions: {
+						resourceVersion: reading.resourceVersion,
+						...(expected ? { uid: expected.sandboxUid } : {}),
+					},
 				},
 				signal,
 			)
@@ -2704,6 +3122,7 @@ async function deleteSandboxObject(
 		} catch (err) {
 			if (err instanceof KubernetesAlreadyGoneError) return
 			if (!(err instanceof KubernetesConflictError)) throw err
+			if (expected) throw err
 			if (attempt >= HOLDER_EPOCH_WRITE_ATTEMPTS) throw err
 			reading = undefined
 		}
@@ -2784,6 +3203,7 @@ async function isPodRetired(
 	namespace: string,
 	name: string,
 	signal?: AbortSignal,
+	expectedPodUid?: string,
 ): Promise<boolean> {
 	try {
 		const pod = await client.request<PodResource>(
@@ -2792,7 +3212,9 @@ async function isPodRetired(
 			undefined,
 			signal,
 		)
-		return isPodStopped(pod)
+		return (
+			(expectedPodUid !== undefined && pod?.metadata?.uid !== expectedPodUid) || isPodStopped(pod)
+		)
 	} catch (err) {
 		if (err instanceof KubernetesAlreadyGoneError) return true
 		throw err
@@ -3018,9 +3440,32 @@ export async function listKubernetesWorkspaces(
 export async function deleteKubernetesWorkspace(
 	config: KubernetesBackendInternalConfig,
 	workspaceId: string,
-	options?: KubernetesWorkspaceTransitionOptions,
+	options?: KubernetesWorkspaceDeleteOptions,
 ): Promise<void> {
 	options?.signal?.throwIfAborted()
+	if (options && Object.hasOwn(options, 'suspendedTarget')) {
+		const supplied = options.suspendedTarget
+		if (
+			!supplied ||
+			typeof supplied !== 'object' ||
+			!supplied.identity ||
+			typeof supplied.identity !== 'object' ||
+			!supplied.identity.volumeClaimUids ||
+			typeof supplied.identity.volumeClaimUids !== 'object' ||
+			Array.isArray(supplied.identity.volumeClaimUids)
+		)
+			throw new KubernetesGuestPinError()
+		const { identity, epoch } = captureLifecycleTarget(supplied.identity, supplied.epoch)
+		const signal = options.signal
+		if (options.epoch !== undefined && options.epoch !== epoch)
+			throw new Error('kubernetes: suspended deletion epochs disagree')
+		const { deleteSuspendedWorkspace } = await import('./workspace-closure.js')
+		return deleteSuspendedWorkspace(config, workspaceId, {
+			identity,
+			epoch,
+			signal,
+		})
+	}
 	const namespace = config.namespace
 	const name = workspaceSandboxName(workspaceId)
 	const epoch = assertHolderEpoch(options?.epoch, 'deleteKubernetesWorkspace')
@@ -3088,6 +3533,14 @@ export async function suspendKubernetesWorkspace(
 }
 
 interface WorkspaceHandleOptions {
+	readonly requiredAllocation?: KubernetesWorkspaceAllocation
+	/** A recovery handle stays bound to this target for its entire lifetime. */
+	readonly requiredProfile?: {
+		readonly sandboxTemplateName: string
+		readonly profile?: EgressProfileLabel
+		readonly runtimeClassName?: string
+	}
+	readonly closureTarget?: LifecycleTarget
 	readonly client: KubernetesClient
 	readonly namespace: string
 	readonly name: string
@@ -3101,7 +3554,10 @@ interface WorkspaceHandleOptions {
 	 * already resolved. `0` sends none. See `resolveStreamHeartbeatMs`.
 	 */
 	readonly streamHeartbeatMs: number
-	readonly readiness: { readonly timeoutMs: number; readonly pollIntervalMs: number }
+	readonly readiness: {
+		readonly timeoutMs: number
+		readonly pollIntervalMs: number
+	}
 	/**
 	 * How the object was come by. Reported as the handle's `origin`, and it
 	 * decides how the FIRST bind behaves — see {@link PodBindPolicy}.
@@ -3229,9 +3685,26 @@ interface WakeRecord {
 
 async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<KubernetesWorkspace> {
 	const { client, namespace, name, workspaceId, readiness } = options
+	const closureTarget = options.closureTarget
 	const id = name as SandboxId
 	/** What every fenced write addresses, and what a refusal names. */
-	const target: WorkspaceWriteTarget = { client, namespace, name, workspaceId }
+	const target: WorkspaceWriteTarget = {
+		client,
+		namespace,
+		name,
+		workspaceId,
+		validateOwner: (sandbox) => {
+			if (options.requiredAllocation)
+				assertWorkspaceAllocationResource(workspaceId, options.requiredAllocation, sandbox)
+			if (options.requiredProfile)
+				assertAdoptedWorkspaceMatchesConfig(
+					name,
+					namespace,
+					sandbox?.spec?.podTemplate,
+					options.requiredProfile,
+				)
+		},
+	}
 	/**
 	 * The epoch this handle writes under when a call passes none.
 	 *
@@ -3617,6 +4090,31 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 	 */
 	let pendingSuspendFlushes = false
 	let pendingDelete: Promise<void> | undefined
+	let pendingResumes = 0
+	let pendingBound:
+		| {
+				target: LifecycleTarget
+				action: 'suspend' | 'delete'
+				promise: Promise<void>
+				quiesces: boolean
+				flushes: boolean
+		  }
+		| undefined
+	let boundTransition:
+		| {
+				target: LifecycleTarget
+				action: 'suspend' | 'delete'
+				complete: boolean
+				verifyGuest: (signal?: AbortSignal) => Promise<void>
+		  }
+		| undefined
+
+	const sameLifecycleTarget = (a: LifecycleTarget, b: LifecycleTarget): boolean =>
+		a.key === b.key && a.epoch === b.epoch
+	const refuseBoundTransition = (): void => {
+		if (pendingBound || (boundTransition && !boundTransition.complete))
+			throw new KubernetesGuestPinError()
+	}
 
 	const deleteSandbox = async (
 		signal?: AbortSignal,
@@ -3649,6 +4147,60 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		)
 		lastSandbox = sandbox
 		return bindingFromSandbox(sandbox)
+	}
+
+	const readClosureBinding = async (signal?: AbortSignal) => {
+		if (!closureTarget) throw new KubernetesGuestPinError()
+		const sandbox = await readLifecycleOwner(target, closureTarget.identity, signal)
+		if (options.requiredAllocation)
+			assertWorkspaceAllocationResource(workspaceId, options.requiredAllocation, sandbox)
+		if (options.requiredProfile)
+			assertAdoptedWorkspaceMatchesConfig(
+				name,
+				namespace,
+				sandbox?.spec?.podTemplate,
+				options.requiredProfile,
+			)
+		if (
+			readHolderEpoch(sandbox?.metadata).epoch !== closureTarget.epoch ||
+			sandbox?.metadata?.deletionTimestamp != null ||
+			operatingModeOf(sandbox) !== 'Running'
+		)
+			throw new KubernetesGuestPinError()
+		const binding = bindingFromSandbox(sandbox)
+		if (!binding) throw new KubernetesGuestPinError()
+		const pod = await client.request<
+			PodResource & {
+				metadata?: {
+					ownerReferences?: readonly { uid?: string; controller?: boolean }[]
+				}
+			}
+		>('GET', podPath(namespace, binding.name), undefined, signal)
+		const uid = pod?.metadata?.uid
+		if (
+			typeof uid !== 'string' ||
+			uid !== closureTarget.identity.podUid ||
+			!isPodLive(pod) ||
+			!pod?.metadata?.ownerReferences?.some(
+				(owner) => owner.uid === closureTarget.identity.sandboxUid && owner.controller === true,
+			)
+		)
+			throw new KubernetesGuestPinError()
+		const confirmed = await readSandboxObject(target, signal)
+		if (options.requiredAllocation)
+			assertWorkspaceAllocationResource(workspaceId, options.requiredAllocation, confirmed)
+		if (
+			confirmed?.metadata?.uid !== closureTarget.identity.sandboxUid ||
+			confirmed?.metadata?.resourceVersion !== sandbox?.metadata?.resourceVersion
+		)
+			throw new KubernetesGuestPinError()
+		const podIP = readPodIP(pod)
+		if (options.agentAddress === 'pod-ip' && !podIP) throw new KubernetesGuestPinError()
+		return {
+			binding,
+			pod: { uid, ...(podIP ? { podIP } : {}) },
+			resourceVersion: sandbox?.metadata?.resourceVersion,
+		}
 	}
 
 	/**
@@ -3798,7 +4350,10 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 	const acquireBoundPod = async (
 		deadline: OperationDeadline,
 		policy: PodBindPolicy,
-	): Promise<{ binding: KubernetesSandboxBinding; pod: KubernetesBoundPod }> => {
+	): Promise<{
+		binding: KubernetesSandboxBinding
+		pod: KubernetesBoundPod
+	}> => {
 		const label = `workspace ${workspaceId} (Sandbox ${name})`
 		const needsPodIP = options.agentAddress === 'pod-ip'
 		let lastError: unknown
@@ -4020,13 +4575,16 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		// the name and changes the uid and the IP, so a handle that reused
 		// either would present a token the new agent refuses, at an address
 		// whose pod is being deleted.
-		const { binding, pod } = await acquireBoundPod(deadline, policy)
+		const bound = closureTarget
+			? await deadline.run((readSignal) => readClosureBinding(readSignal))
+			: await acquireBoundPod(deadline, policy)
+		const { binding, pod } = bound
 		const token = pod.uid
 		// From the readiness GET the bind just made, not from a read of its
 		// own — see `lastSandbox`. Fixed for the handle's life: a later bind
 		// that found a DIFFERENT object would have been refused by
 		// `refreshBoundPod` long before it got here.
-		sandboxUid ??= lastSandbox?.metadata?.uid
+		sandboxUid ??= closureTarget?.identity.sandboxUid ?? lastSandbox?.metadata?.uid
 		// Recorded before the probe, not after: a probe that refuses suspends
 		// this pod, and the resume that follows has to know which pod it is
 		// waiting to see replaced.
@@ -4035,7 +4593,7 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		// caller's own suspend/resume silent: the first reply from the new
 		// guest establishes an identity rather than differing from the old
 		// one's.
-		guestBootId = undefined
+		guestBootId = closureTarget?.guestBootId
 		sessionSeq += 1
 		// Written together with the counter, so that `podUid` belongs to THIS
 		// session for as long as this session is the live one — which is what
@@ -4051,7 +4609,7 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		// it belongs to before that handle exists. Nothing can call it in
 		// between: `release` is reachable only THROUGH the handle.
 		const own: { handle?: KubernetesSandboxHandle } = {}
-		const transport = new KubernetesAgentTransport(address, {
+		const baseTransport = new KubernetesAgentTransport(address, {
 			// The backend opts in to the stream heartbeat; the transport
 			// option it sets stays undefined for every other tier.
 			heartbeatMs: options.streamHeartbeatMs,
@@ -4059,7 +4617,7 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 			// follows an address that died with its pod; under the default
 			// `'service'` mode the address is fine and the TOKEN is what
 			// moved — see {@link refreshBoundPod}.
-			refreshHandle: refreshBoundPod(binding, generation, address),
+			...(closureTarget ? {} : { refreshHandle: refreshBoundPod(binding, generation, address) }),
 			// And the one fact no address and no token can carry: which
 			// agent PROCESS answered. The two values beside it say whose
 			// answer it is — this session's, and this session's CURRENT pod's
@@ -4067,6 +4625,9 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 			// rebind left behind stops answering when it stops counting.
 			onGuestReply: (reply, from) => observeGuestReply(generation, from, reply),
 		})
+		const transport = closureTarget
+			? baseTransport.pinGuest(closureTarget.guestBootId)
+			: baseTransport
 		const inner = buildKubernetesSandbox({
 			name,
 			rootDir: options.rootDir,
@@ -4076,6 +4637,7 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 			// disposable; here the same callback would erase the caller's disk
 			// from a path nobody asked to erase anything.
 			release: async (releaseSignal) => {
+				if (closureTarget) return
 				await retireSession(own.handle, releaseSignal)
 			},
 			// And `release` is not reached from the unconfirmed-cancellation
@@ -4087,6 +4649,27 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		})
 		own.handle = inner
 		sessionTransports.set(inner, transport)
+		if (closureTarget) {
+			await deadline.run(async (readSignal) => {
+				try {
+					await transport.listSessions(readSignal)
+				} catch (error) {
+					// A pinned, authenticated retirement refusal still proves this
+					// exact guest. It admits cleanup, never execution or a rebind.
+					if (
+						!(error instanceof KubernetesAgentRetiringError) ||
+						error.guestBootId !== closureTarget.guestBootId
+					)
+						throw error
+				}
+				const confirmed = await readClosureBinding(readSignal)
+				if (!('resourceVersion' in bound) || confirmed.resourceVersion !== bound.resourceVersion)
+					throw new KubernetesGuestPinError()
+			})
+			volumeClaimUids = { ...closureTarget.identity.volumeClaimUids }
+			volumeClaimsRead = true
+			return inner
+		}
 		// The same probe every task acquire runs, on every resume as well as on
 		// create — a resumed pod is a new pod, from a possibly re-pulled image,
 		// and "it was deprivileged last week" is not a check.
@@ -4219,7 +4802,10 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 	const diagnoseGuest = async (
 		previous: KubernetesWorkspaceIdentity,
 		reservedIn: string | undefined,
-	): Promise<{ evidence: KubernetesGuestEvidence; current: KubernetesWorkspaceIdentity }> => {
+	): Promise<{
+		evidence: KubernetesGuestEvidence
+		current: KubernetesWorkspaceIdentity
+	}> => {
 		// A handle that is not RUNNING is inside a transition it asked for:
 		// the pod going away IS that transition, and a caller who typed
 		// `suspend()` under a command of their own is not being told their
@@ -4822,6 +5408,233 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 	}
 
 	/**
+	 * A caller holding external exclusion can stop exactly the owner it captured.
+	 * No admitted() calls here: that path may rebind after a failed guest call.
+	 * The transition record outlives our session, including an ambiguous reply.
+	 */
+	const boundLifecycle = (
+		action: 'suspend' | 'delete',
+		captured: LifecycleTarget,
+		request: KubernetesWorkspaceSuspendOptions,
+	): Promise<void> => {
+		const wantsQuiesce = request.quiesce !== undefined && request.quiesce !== false
+		const wantsFlush = request.flush !== false
+		if (pendingSuspend || pendingDelete || pendingResumes > 0)
+			return Promise.reject(new KubernetesGuestPinError())
+		if (pendingBound) {
+			return pendingBound.action === action &&
+				sameLifecycleTarget(pendingBound.target, captured) &&
+				(!wantsQuiesce || pendingBound.quiesces) &&
+				(!wantsFlush || pendingBound.flushes)
+				? pendingBound.promise
+				: Promise.reject(new KubernetesGuestPinError())
+		}
+		// Capture all mutable caller options before the transition enters the queue.
+		const signal = request.signal
+		const quiesce = typeof request.quiesce === 'object' ? { ...request.quiesce } : request.quiesce
+		const flush = typeof request.flush === 'object' ? { ...request.flush } : request.flush
+		const promise = serialise(async () => {
+			try {
+				if (
+					boundTransition &&
+					(boundTransition.action !== action ||
+						!sameLifecycleTarget(boundTransition.target, captured))
+				)
+					throw new KubernetesGuestPinError()
+				if (!boundTransition || session !== undefined) assertGuestPin(captured.key, identityNow())
+				const readOwner = async (readSignal = signal): Promise<SandboxResource | undefined> => {
+					try {
+						const sandbox = await readLifecycleOwner(target, captured.identity, readSignal)
+						if (closureTarget && readHolderEpoch(sandbox?.metadata).epoch !== captured.epoch)
+							throw new KubernetesGuestPinError()
+						assertHolderEpochAllows(
+							target,
+							action,
+							captured.epoch,
+							readHolderEpoch(sandbox?.metadata),
+						)
+						return sandbox
+					} catch (err) {
+						if (action === 'delete' && boundTransition && err instanceof KubernetesAlreadyGoneError)
+							return undefined
+						throw err
+					}
+				}
+				const sandbox = await readOwner()
+				if (boundTransition?.complete) {
+					if (action === 'suspend' && operatingModeOf(sandbox) !== 'Suspended')
+						throw new KubernetesGuestPinError()
+					return
+				}
+				if (!boundTransition) {
+					// This transport is bound to the captured guest boot, not the current
+					// service address. Unsupported/unreachable is a refusal, never fallback.
+					const owner = admit('bound lifecycle')
+					const wire = admittedTransport('bound lifecycle', owner).pinGuest(captured.guestBootId)
+					const assertCurrentGuest = async (checkSignal?: AbortSignal) => {
+						const pod = await client.request<
+							PodResource & {
+								metadata?: {
+									ownerReferences?: readonly {
+										uid?: string
+										controller?: boolean
+									}[]
+								}
+							}
+						>('GET', podPath(namespace, name), undefined, checkSignal)
+						if (
+							pod?.metadata?.uid !== captured.identity.podUid ||
+							!pod?.metadata?.ownerReferences?.some(
+								(ref) => ref.controller === true && ref.uid === captured.identity.sandboxUid,
+							)
+						)
+							throw new KubernetesGuestPinError()
+						// A read-only authenticated round trip proves the pinned agent
+						// boot even when the caller deliberately disabled flushing.
+						try {
+							await wire.listSessions(checkSignal)
+						} catch (error) {
+							if (
+								!(error instanceof KubernetesAgentRetiringError) ||
+								error.guestBootId !== captured.guestBootId
+							)
+								throw error
+						}
+						if (session !== undefined) assertGuestPin(captured.key, identityNow())
+					}
+					await assertCurrentGuest(signal)
+					await reapTerminals()
+					assertGuestPin(captured.key, identityNow())
+					if (quiesce !== undefined && quiesce !== false) {
+						const report = await wire.quiesce(typeof quiesce === 'object' ? quiesce : {}, signal)
+						if (report.scope !== 'pid-namespace') throw new KubernetesGuestPinError()
+					}
+					if (flush !== false) {
+						try {
+							await wire.flush(typeof flush === 'object' ? flush : {}, signal)
+						} catch (error) {
+							// A fenced agent cannot run sync. Match ordinary suspend's
+							// explicit report while retaining the exact owner/boot proof;
+							// stopping this guest is the only way to clear that fence.
+							if (
+								!(error instanceof KubernetesAgentRetiringError) ||
+								error.guestBootId !== captured.guestBootId ||
+								signal?.aborted
+							)
+								throw error
+							tellHost(
+								options.onFlushUnreachable,
+								new KubernetesFlushUnreachableError(
+									`kubernetes: retired workspace '${workspaceId}' could not flush before its captured pod stopped`,
+									{ cause: error },
+								),
+							)
+						}
+					}
+					await assertCurrentGuest(signal)
+					// Remember the attempted owner BEFORE a request can land and its
+					// response be lost. A later retry never reopens/rebinds a guest.
+					boundTransition = {
+						target: captured,
+						action,
+						complete: false,
+						verifyGuest: assertCurrentGuest,
+					}
+					retiredPodUid = captured.identity.podUid
+					dropSession()
+					state = 'suspending'
+				}
+				const remoteStop =
+					sandbox === undefined ||
+					(action === 'delete'
+						? sandbox.metadata?.deletionTimestamp !== undefined
+						: operatingModeOf(sandbox) === 'Suspended' &&
+							readHolderEpoch(sandbox.metadata).epoch === captured.epoch)
+				if (!remoteStop) {
+					// A local attempted record is not proof the write reached the
+					// cluster. Known/ambiguous failures with no terminal evidence
+					// still have to prove the original guest before another write.
+					await boundTransition.verifyGuest(signal)
+					// Re-read after guest I/O; its old resourceVersion is not authority
+					// for a terminal write made after a potentially long flush.
+					const gate = await readHolderEpochGate(
+						target,
+						action,
+						captured.epoch,
+						signal,
+						captured.identity,
+					)
+					if (action === 'suspend') {
+						await writeOperatingMode(
+							target,
+							action,
+							'Suspended',
+							captured.epoch,
+							signal,
+							gate,
+							captured.identity,
+						)
+					} else {
+						await deleteSandboxObject(
+							target,
+							action,
+							captured.epoch,
+							signal,
+							gate,
+							captured.identity,
+						)
+					}
+				}
+				const deadline = new OperationDeadline(
+					readiness.timeoutMs,
+					`kubernetes workspace ${name} ${action}`,
+					signal,
+				)
+				let retired = false
+				while (deadline.remainingMs() > 0) {
+					try {
+						retired = await deadline.run(async (pollSignal) => {
+							const current = await readOwner(pollSignal)
+							if (action === 'suspend' && operatingModeOf(current) !== 'Suspended')
+								throw new KubernetesGuestPinError()
+							return await isPodRetired(
+								client,
+								namespace,
+								name,
+								pollSignal,
+								captured.identity.podUid,
+							)
+						})
+						if (retired) break
+						await deadline.delay(readiness.pollIntervalMs)
+					} catch (err) {
+						if (err instanceof OperationDeadlineExpired) break
+						throw err
+					}
+				}
+				if (!retired)
+					throw new KubernetesWorkspaceSuspendTimeoutError(workspaceId, name, readiness.timeoutMs)
+				const finalOwner = await readOwner()
+				if (action === 'suspend' && operatingModeOf(finalOwner) !== 'Suspended')
+					throw new KubernetesGuestPinError()
+				heldEpoch = captured.epoch
+				state = action === 'suspend' ? 'suspended' : 'deleted'
+				boundTransition.complete = true
+			} finally {
+				pendingBound = undefined
+			}
+		})
+		pendingBound = {
+			target: captured,
+			action,
+			promise,
+			quiesces: wantsQuiesce,
+			flushes: wantsFlush,
+		}
+		return promise
+	}
+
+	/**
 	 * Bring a session up, and put the workspace back to sleep ONLY if this
 	 * call is the one that woke it.
 	 *
@@ -4906,6 +5719,7 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		if (state !== 'running' || session === undefined) {
 			throw new KubernetesWorkspaceSuspendedError(operation, workspaceId, name)
 		}
+		if (closureTarget) assertGuestPin(closureTarget.key, identityNow())
 		return session
 	}
 
@@ -4979,8 +5793,14 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 	): Promise<T> => {
 		const current = admit(operation)
 		try {
+			// Recovery data calls use the already pinned wire. Provider ownership
+			// is checked when opening and again before a terminal write; the host
+			// retains exclusion throughout. An extra provider await here would
+			// bypass the data call's cancellation and add a race before dispatch.
 			return await run(current)
 		} catch (err) {
+			// A recovery handle never adopts foreign lifecycle or guest state.
+			if (closureTarget) throw err
 			// The diagnosis, if one was taken — read here and ACTED ON last.
 			// A foreign suspend is also a gone guest, and it is the answer
 			// that outranks: #473 promises a caller that somebody else
@@ -5093,7 +5913,12 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 			'quiesce',
 			async (handle) =>
 				await admittedTransport('quiesce', handle).quiesce(
-					quiesceOptions?.graceMs !== undefined ? { graceMs: quiesceOptions.graceMs } : {},
+					{
+						...(quiesceOptions?.graceMs !== undefined ? { graceMs: quiesceOptions.graceMs } : {}),
+						...(quiesceOptions?.onlyIfIdle !== undefined
+							? { onlyIfIdle: quiesceOptions.onlyIfIdle }
+							: {}),
+					},
 					quiesceOptions?.signal,
 				),
 		)
@@ -5366,6 +6191,10 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 					return await run()
 				})
 			return {
+				quiesce: (quiesceOptions) => {
+					const capturedOptions = captureQuiesceOptions(quiesceOptions)
+					return invoke('quiesce', () => wire.quiesce(capturedOptions, capturedOptions.signal))
+				},
 				exec: (command, argv, execOptions) =>
 					invoke('exec', () =>
 						execOptions?.detach === true || execOptions?.executionId !== undefined
@@ -5634,11 +6463,12 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		},
 
 		async quiesce(quiesceOptions?: KubernetesQuiesceOptions): Promise<KubernetesQuiesceReport> {
+			const capturedOptions = captureQuiesceOptions(quiesceOptions)
 			// Serialised, like the transitions it is meant to precede: a quiesce
 			// racing the suspend that follows it would be a quiesce of a pod the
 			// patch has already taken away, and one racing a resume would ask
 			// the old pod to stop the new one's processes.
-			return await serialise(async () => await quiesceNow(quiesceOptions))
+			return await serialise(async () => await quiesceNow(capturedOptions))
 		},
 
 		async flush(flushOptions?: KubernetesFlushOptions): Promise<KubernetesFlushReport> {
@@ -5650,6 +6480,24 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		},
 
 		async suspend(transitionOptions?: KubernetesWorkspaceSuspendOptions): Promise<void> {
+			if (
+				closureTarget &&
+				(!transitionOptions?.expectedIdentity ||
+					!sameLifecycleTarget(
+						closureTarget,
+						captureLifecycleTarget(transitionOptions.expectedIdentity, transitionOptions.epoch),
+					))
+			)
+				throw new KubernetesGuestPinError()
+			if (transitionOptions?.expectedIdentity) {
+				await boundLifecycle(
+					'suspend',
+					captureLifecycleTarget(transitionOptions.expectedIdentity, transitionOptions.epoch),
+					transitionOptions,
+				)
+				return
+			}
+			refuseBoundTransition()
 			// The single flight takes the FIRST caller's epoch, exactly as it
 			// takes the first caller's signal: a second caller arriving
 			// mid-suspend is joining that transition rather than starting one
@@ -5666,6 +6514,9 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		},
 
 		async resume(transitionOptions?: KubernetesWorkspaceTransitionOptions): Promise<void> {
+			if (closureTarget) throw new KubernetesGuestPinError()
+			refuseBoundTransition()
+			pendingResumes += 1
 			// Serialised, and deliberately without a single-flight slot of its
 			// own. The two terminal transitions need one because each commits
 			// its state only after the cluster confirms it, so a second caller
@@ -5675,18 +6526,40 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 			// second caller finds the work done. Give resume a state it
 			// early-returns on before the cluster confirms it and it will need
 			// a slot as much as they do.
-			await serialise(
-				async () =>
+			try {
+				await serialise(async () => {
+					boundTransition = undefined
 					await resumeNow(
 						transitionOptions?.signal,
 						transitionOptions?.onStartFailure ?? defaultStartFailure,
 						assertHolderEpoch(transitionOptions?.epoch, 'resume') ?? heldEpoch,
 						transitionOptions?.refreshPodTemplate === true,
-					),
-			)
+					)
+				})
+			} finally {
+				pendingResumes -= 1
+			}
 		},
 
 		async destroy(destroyOptions?: KubernetesWorkspaceDestroyOptions): Promise<void> {
+			if (
+				closureTarget &&
+				(!destroyOptions?.expectedIdentity ||
+					!sameLifecycleTarget(
+						closureTarget,
+						captureLifecycleTarget(destroyOptions.expectedIdentity, destroyOptions.epoch),
+					))
+			)
+				throw new KubernetesGuestPinError()
+			if (destroyOptions?.expectedIdentity) {
+				await boundLifecycle(
+					destroyOptions.deleteDisk === true ? 'delete' : 'suspend',
+					captureLifecycleTarget(destroyOptions.expectedIdentity, destroyOptions.epoch),
+					destroyOptions,
+				)
+				return
+			}
+			refuseBoundTransition()
 			assertHolderEpoch(destroyOptions?.epoch, 'destroy')
 			if (destroyOptions?.deleteDisk !== true) {
 				// The default, and the whole point of the default: there is no
