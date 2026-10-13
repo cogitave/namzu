@@ -11,7 +11,7 @@ import {
 	type ZenCatalogueSources,
 	buildZenCatalogue,
 } from './catalogue.js'
-import { SERVICE_PREFIX, ZenCatalogueSourceError } from './derive.js'
+import { SERVICE_PREFIX, ZEN_SERVICES, ZenCatalogueSourceError } from './derive.js'
 
 /** The branch of OpenCode's repository the two documentation pages are read from. */
 export const ZEN_DOCS_REF = 'dev'
@@ -50,7 +50,18 @@ const DEFAULT_TIMEOUT_MS = 15_000
 const MIB = 1024 * 1024
 
 function docsBase(ref: string): string {
-	return `https://raw.githubusercontent.com/anomalyco/opencode/${encodeURIComponent(ref)}/packages/web/src/content/docs`
+	// The docs site moved under `services/www`; the two pages are read from
+	// there now. `ZEN_SERVICES` carries each page's path under this root.
+	return `https://raw.githubusercontent.com/anomalyco/opencode/${encodeURIComponent(
+		ref,
+	)}/services/www/src/docs/content`
+}
+
+/** The URL of one service's documentation page. */
+export function zenDocsUrl(service: ZenService, ref = ZEN_DOCS_REF): string {
+	const page = ZEN_SERVICES.find((entry) => entry.service === service)?.page
+	if (page === undefined) throw new Error(`Unknown Zen service ${String(service)}.`)
+	return `${docsBase(ref)}/${page}`
 }
 
 /** The models-list endpoint of one service. */
@@ -184,7 +195,7 @@ export async function fetchZenCatalogueSources(
 ): Promise<ZenCatalogueSources> {
 	const pageLimit = positive(options.limits?.pageBytes, MIB, 'limits.pageBytes')
 	const modelsDevLimit = positive(options.limits?.modelsDevBytes, 32 * MIB, 'limits.modelsDevBytes')
-	const base = docsBase(options.docsRef ?? ZEN_DOCS_REF)
+	const ref = options.docsRef ?? ZEN_DOCS_REF
 	const failFast = new AbortController()
 	const scoped: FetchZenCatalogueOptions = {
 		...options,
@@ -199,8 +210,8 @@ export async function fetchZenCatalogueSources(
 		})
 	try {
 		const [zen, go, modelsDev, served] = await Promise.all([
-			read(readZenSource(`${base}/zen.mdx`, pageLimit, scoped)),
-			read(readZenSource(`${base}/go.mdx`, pageLimit, scoped)),
+			read(readZenSource(zenDocsUrl('zen', ref), pageLimit, scoped)),
+			read(readZenSource(zenDocsUrl('go', ref), pageLimit, scoped)),
 			read(readZenSource(options.modelsDevUrl ?? ZEN_MODELS_DEV_URL, modelsDevLimit, scoped)),
 			read(fetchZenServedRosters(scoped)),
 		])

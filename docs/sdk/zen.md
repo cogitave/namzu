@@ -17,9 +17,9 @@ SDK's Zod v3 peer in a Node.js 20+ application.
 
 Zen publishes a free-model catalogue, but a listing does not guarantee keyless
 access from Namzu. `space-bunny-free` is the verified direct default. Every
-other Zen model the active catalogue prices at zero (twelve in the bundled
+Zen model the active catalogue prices at zero (thirteen in the bundled
 snapshot, listed below) is available through an experimental request path that
-reproduces OpenCode's observed client identity. Zen can still refuse them.
+reproduces OpenCode's client identity. Zen can still refuse them.
 Models that need an API key are listed after the free ones, under their own headings. The Desktop and terminal pickers draw a "Free" heading before the free models (stated price 0/0) and an "API key" heading before the models with a stated non-zero price; a model with no published price follows under "Other models". A list that holds only one of the two groups draws no headings, so its key models keep the "(API key)" note instead. Each catalogue row carries the group as an optional `group: 'free' | 'key'` (Zen only).
 Zen Go is a separate service and requires its own API key.
 
@@ -137,13 +137,14 @@ The CLI supports `--provider zen` and `--provider zen-go`; its
 model picker uses live discovery.
 
 The bundled catalogue records these zero-price Zen IDs (snapshot of
-2026-10-08). Any of them may be selected anonymously as an experiment, and so
+2026-10-13). Any of them may be selected anonymously as an experiment, and so
 may any Zen model a refreshed catalogue prices at zero; the driver still marks
 only `space-bunny-free` with `supportsAnonymousAccess` for verified direct
 access:
 
 - `muse-spark-1.3-contributor-free`
 - `big-pickle`
+- `cat-jam-free`
 - `mimo-v2.5-free`
 - `mimo-v2.6-flash-free`
 - `ling-3.0-flash-fin-free`
@@ -152,8 +153,8 @@ access:
 - `nemotron-3.5-lightning-free`
 - `space-bunny-free`
 - `longcat-2.5-preview-free`
+- `step-5-preview-free`
 - `exo-free`
-- `fledge-alpha-free`
 
 ### Models whose limits are not published yet
 
@@ -184,6 +185,40 @@ seven other models, while Space Bunny completed it. Thus neither headers nor
 the free listing alone establish service: request shape and gateway behavior
 matter, and admission can change. `supportsAnonymousAccess` continues to mark
 only the verified direct Space Bunny path.
+
+On 2026-10-13 the gate was re-derived from the live gateway, and it had
+changed again: Space Bunny itself now answered `FreeTierError` as well. Live
+ablation pinned what the gateway reads, and every item is required:
+
+- `stream: true`. The driver always streams, so this costs nothing.
+- A `tools` array carrying all four of `bash`, `glob`, `grep` and `read` by
+  those exact names. An empty or absent `tools` is refused, and so is a request
+  missing any one of them.
+- A `User-Agent` of `opencode/1.18.0` or newer. Below it the gateway answers
+  HTTP 426 `UpgradeRequired`, naming the floor.
+- An `x-opencode-session` in the descending shape the client emits: `ses_`,
+  12 lowercase hex digits whose low 12 bits carry `0xfff − counter` with the
+  counter inside 0–63, then 14 base62 characters.
+
+`x-opencode-client`, `x-opencode-project` and `x-opencode-session-id` are not
+read by the gate; the driver sends the first two anyway and sends the third
+equal to the second, as the client does. `tool_choice: "none"` is accepted, so
+a text turn that asked for no tool still travels with the four names and never
+receives one. Muse Spark's Responses endpoint accepts only `auto` for that
+field, so on that wire the names travel with no choice at all and a call to a
+name the host does not hold is answered by the kernel's ordinary unknown-tool
+result.
+
+Through that path, ten of the thirteen bundled models completed text inference
+on 2026-10-13: Space Bunny, Big Pickle, Cat Jam, LongCat 2.5 Preview, Step 5
+Preview, MiMo-V2.6-Flash, Ling 3.1 Flash, Nemotron 3 Ultra, Nemotron 3.5
+Lightning and Muse Spark 1.3 Contributor. Two of those ten (`step-5-preview-free`
+and `ling-3.1-flash-free`) also answered HTTP 429 `Endpoint is unavailable` on
+a later run, so a refusal there is throttling rather than the gate. Exo Free and
+MiMo-V2.5 Free answered HTTP 410 `ModelDeprecated`, and Ling 3.0 Flash Fin Free
+answered HTTP 400 `Model is unavailable`. Those three are still routed and still
+priced zero by the page, so they stay in the catalogue and their gateway answer
+is what a caller sees; the pages, not this driver, decide when a model leaves.
 
 The service serves more than the pages document, and the difference is
 recorded rather than ignored. Its own `/models` answer advertises a further
@@ -229,12 +264,16 @@ Credential entry types are defined in OpenCode's
 in milliseconds, defaulting to 120,000. `baseURL` permits an HTTP(S)
 host-owned proxy and rejects embedded credentials, query strings and
 fragments. Model calls normally receive the SDK's current attribution headers;
-anonymous experimental free-model calls to the official Zen endpoint send
+anonymous free-model calls to the official Zen endpoint send
 OpenCode-shaped `User-Agent`, client, project, session and request headers
-instead. This is an experimental compatibility attempt, not an official
-OpenCode integration. It does not invoke an installed OpenCode binary. Other
-model calls and catalogue reads retain Namzu attribution headers;
-redirects are refused.
+instead, and carry the four tool names the gateway reads. The `User-Agent`
+version resolves from `OPENCODE_UA` when set, then from an installed
+`opencode` binary's `--version`, then from a pinned floor of 1.18.35 — the
+gateway requires 1.18.0 or newer, so the pin is never the reason a request is
+refused. This is an experimental compatibility attempt, not an official
+OpenCode integration. It does not invoke an installed OpenCode binary to make
+a model call. Other model calls and catalogue reads retain Namzu attribution
+headers; redirects are refused.
 
 | `ZenProtocol` | Native request |
 | --- | --- |

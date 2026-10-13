@@ -37,7 +37,7 @@ export interface ZenModel {
  * derived is an edit to src/catalogue/derive.ts. Both survive regeneration; a
  * hand edit here does not.
  *
- * Refreshed: 2026-10-09
+ * Refreshed: 2026-10-13
  *
  * This is the BUNDLED snapshot: what the driver knows with no network. A host
  * can derive a fresher roster at run time from the same sources, by the same
@@ -939,6 +939,19 @@ const ZEN_MODELS = freezeModels([
 		effortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
 	},
 	{
+		id: 'cat-jam-free',
+		name: 'Cat Jam Free',
+		protocol: 'chat',
+		contextWindow: 262144,
+		maxOutputTokens: 131072,
+		inputModalities: ['text'],
+		inputPrice: 0,
+		outputPrice: 0,
+		supportsToolUse: true,
+		supportsStreaming: true,
+		effortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+	},
+	{
 		id: 'longcat-2.5-preview-free',
 		name: 'LongCat 2.5 Preview Free',
 		protocol: 'chat',
@@ -1228,32 +1241,6 @@ const GO_MODELS = freezeModels([
 		effortLevels: [],
 	},
 	{
-		id: 'longcat-2.5-preview-free',
-		name: 'LongCat 2.5 Preview Free',
-		protocol: 'chat',
-		contextWindow: 1000000,
-		maxOutputTokens: 131072,
-		inputModalities: ['text', 'image'],
-		inputPrice: 0,
-		outputPrice: 0,
-		supportsToolUse: true,
-		supportsStreaming: true,
-		effortLevels: [],
-	},
-	{
-		id: 'step-5-preview-free',
-		name: 'Step 5 Preview Free',
-		protocol: 'chat',
-		contextWindow: 1000000,
-		maxOutputTokens: 65536,
-		inputModalities: ['text', 'image'],
-		inputPrice: 0,
-		outputPrice: 0,
-		supportsToolUse: true,
-		supportsStreaming: true,
-		effortLevels: ['low', 'medium', 'high'],
-	},
-	{
 		id: 'deepseek-v4.1-flash',
 		name: 'DeepSeek V4.1 Flash',
 		protocol: 'chat',
@@ -1487,6 +1474,45 @@ const GO_MODELS = freezeModels([
 		supportsStreaming: true,
 		effortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
 	},
+	{
+		id: 'longcat-2.5-preview-free',
+		name: 'LongCat 2.5 Preview Free',
+		protocol: 'chat',
+		contextWindow: 1000000,
+		maxOutputTokens: 131072,
+		inputModalities: ['text', 'image'],
+		inputPrice: 0,
+		outputPrice: 0,
+		supportsToolUse: true,
+		supportsStreaming: true,
+		effortLevels: [],
+	},
+	{
+		id: 'step-5-preview-free',
+		name: 'Step 5 Preview Free',
+		protocol: 'chat',
+		contextWindow: 1000000,
+		maxOutputTokens: 65536,
+		inputModalities: ['text', 'image'],
+		inputPrice: 0,
+		outputPrice: 0,
+		supportsToolUse: true,
+		supportsStreaming: true,
+		effortLevels: ['low', 'medium', 'high'],
+	},
+	{
+		id: 'cat-jam-free',
+		name: 'Cat Jam Free',
+		protocol: 'chat',
+		contextWindow: 262144,
+		maxOutputTokens: 131072,
+		inputModalities: ['text'],
+		inputPrice: 0,
+		outputPrice: 0,
+		supportsToolUse: true,
+		supportsStreaming: true,
+		effortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+	},
 ])
 
 /**
@@ -1496,19 +1522,13 @@ const GO_MODELS = freezeModels([
  */
 export const ZEN_OMITTED_MODELS: readonly string[] = Object.freeze([
 	'go/deepseek-flash',
-	'go/glm-5',
 	'go/glm-5.1',
-	'go/grok-4.5',
-	'go/hy3-preview',
-	'go/kimi-k2.5',
-	'go/mimo-v2-omni',
-	'go/mimo-v2-pro',
 	'go/minimax-m2.5',
 	'go/omen-alpha',
-	'go/qwen3.5-plus',
 	'go/qwen3.6-plus',
 	'go/qwen3.7-max',
-	'zen/claude-sonnet-4',
+	'zen/claude-opus-5-5-backup',
+	'zen/gemini-4-argon',
 	'zen/glm-5',
 	'zen/gpt-5-codex',
 	'zen/gpt-5.1-codex',
@@ -1523,6 +1543,7 @@ export const ZEN_OMITTED_MODELS: readonly string[] = Object.freeze([
 	'zen/muse-spark-1.2-contributor-free',
 	'zen/qwen3.7-max',
 	'zen/qwen3.7-plus',
+	'zen/test',
 ])
 
 /** Supported metadata; actual account availability is established by live discovery. */
