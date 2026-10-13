@@ -2825,8 +2825,9 @@ export function App({
 				pushMessage('system', 'Hypermode is off.')
 				return
 			}
-			const pinned = hypermodeEffort(session.reasoningEffortLevels)
-			if (pinned !== undefined) {
+			const pinNow = (): boolean => {
+				const pinned = hypermodeEffort(session.reasoningEffortLevels)
+				if (pinned === undefined) return false
 				// Turning it on twice keeps the effort from before the first time.
 				if (!hypermodePinRef.current)
 					hypermodePinRef.current = { before: reasoningEffortRef.current, pinned }
@@ -2836,6 +2837,25 @@ export function App({
 					'system',
 					`Hypermode is on — effort pinned to ${pinned} for ${session.modelSummary ?? 'this model'}, and delegation guidance is strengthened for this conversation.`,
 				)
+				return true
+			}
+			if (pinNow()) return
+			if (session.reasoningSettled !== undefined && session.reasoningEffortLevels === undefined) {
+				// The model's effort menu is still loading: say so, and pin when it lands
+				// unless the mode was switched off or the session replaced meanwhile.
+				pushMessage(
+					'system',
+					`Hypermode is on — the effort menu for ${session.modelSummary ?? 'this model'} is still loading; effort will be pinned once it arrives. Delegation guidance is strengthened for this conversation.`,
+				)
+				void session.reasoningSettled.then(() => {
+					if (appLifetime.signal.aborted || previousSessionRef.current !== session) return
+					if (!hypermodeRef.current || hypermodePinRef.current !== null) return
+					const pinned = hypermodeEffort(session.reasoningEffortLevels)
+					if (pinned === undefined) return
+					hypermodePinRef.current = { before: reasoningEffortRef.current, pinned }
+					setReasoningEffort(pinned)
+					pushMessage('system', `Effort pinned to ${pinned} for hypermode.`)
+				})
 				return
 			}
 			pushMessage(
@@ -2843,7 +2863,7 @@ export function App({
 				`Hypermode is on — ${session.modelSummary ?? 'this model'} does not publish an exact effort menu, so effort was left as is. Delegation guidance is still strengthened for this conversation.`,
 			)
 		},
-		[hasUnsettledTurn, pushMessage, session, setHypermode, setReasoningEffort, state],
+		[appLifetime, hasUnsettledTurn, pushMessage, session, setHypermode, setReasoningEffort, state],
 	)
 
 	const stepReasoningEffort = useCallback(
@@ -4003,6 +4023,21 @@ export function App({
 							'system',
 							`--effort ${launchEffort} is not offered by ${primaryProvider(prefs).model ?? primaryProvider(prefs).id}; using the provider default.`,
 						)
+				}
+				// A model switch under hypermode cleared the pin above; with the levels
+				// final, pin the new model's highest level, unless the operator turned
+				// the mode off or chose an effort while the list was loading.
+				if (
+					signal !== undefined &&
+					hypermodeRef.current &&
+					hypermodePinRef.current === null &&
+					reasoningEffortRef.current === undefined
+				) {
+					const repin = hypermodeEffort(s.reasoningEffortLevels)
+					if (repin !== undefined) {
+						hypermodePinRef.current = { before: undefined, pinned: repin }
+						setReasoningEffort(repin)
+					}
 				}
 				// Hypermode already re-pinned effort above; reopening this picker
 				// would ask the operator to redo a choice the mode just made for them.

@@ -52,6 +52,7 @@ const screens: Screen[] = []
 let home: string
 let sendOld: AgentSession['send']
 let oldOverrides: Partial<AgentSession>
+let firstSession: AgentSession | undefined
 let activate: (model: string) => Promise<AgentSession>
 let describe: () => Promise<ModelListing>
 
@@ -108,7 +109,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 		) => {
 			constructed.push({ prefs, options })
 			return constructed.length === 1
-				? makeSession(OLD, closeOld)
+				? (firstSession ?? makeSession(OLD, closeOld))
 				: activate(prefs.providers[0]?.model ?? '')
 		},
 	}
@@ -123,6 +124,7 @@ beforeEach(() => {
 	closeOld.mockClear()
 	closeCandidate.mockClear()
 	oldOverrides = {}
+	firstSession = undefined
 	activate = async (model) => makeSession(model)
 	describe = async () => ({
 		kind: 'ok',
@@ -640,6 +642,61 @@ it("hypermode survives a model switch and re-pins to the new model's xhigh", asy
 	expect(sent[0]?.model).toBe(NEXT)
 	expect(sent[0]?.options?.effort).toBe('xhigh')
 	expect(sent[0]?.options?.hypermode).toBe(true)
+})
+
+/** A session whose effort menu arrives later, as with `deferEffortCatalogue`. */
+function deferredMenuSession(model: string, levels: AgentSession['reasoningEffortLevels']) {
+	const listing = deferred<{ readonly notice?: string }>()
+	const session = makeSession(model)
+	Object.assign(session, { reasoningEffortLevels: undefined, reasoningSettled: listing.promise })
+	return {
+		session,
+		arrive: () => {
+			Object.assign(session, { reasoningEffortLevels: levels })
+			listing.resolve({})
+		},
+	}
+}
+
+it("hypermode re-pins after a model switch once the new model's menu has loaded", async () => {
+	const next = deferredMenuSession(NEXT, ['low', 'medium', 'high', 'xhigh'])
+	activate = async () => next.session
+	const screen = await open()
+	await submit(screen, '/hypermode on')
+	await until(screen, () => screen.viewport().join('\n').includes('effort pinned to high'), 'on')
+	await submit(screen, `/model ${NEXT}`)
+	await until(
+		screen,
+		() => screen.viewport().join('\n').includes(`Switched to codex · ${NEXT}`),
+		'Switch did not finish',
+	)
+	next.arrive()
+	await submit(screen, 'continue')
+	await until(screen, () => sent.length === 1, 'Turn was not sent on the new model')
+	expect(sent[0]?.model).toBe(NEXT)
+	expect(sent[0]?.options?.effort).toBe('xhigh')
+	expect(sent[0]?.options?.hypermode).toBe(true)
+})
+
+it('hypermode turned on before the menu loads says so and pins when it arrives', async () => {
+	const first = deferredMenuSession(OLD, ['low', 'medium', 'high', 'xhigh'])
+	firstSession = first.session
+	sendOld = async function* () {
+		yield { kind: 'done', stopReason: 'end_turn' }
+	}
+	const screen = await open()
+	await submit(screen, '/hypermode on')
+	await until(
+		screen,
+		() => screen.viewport().join('\n').includes('is still loading'),
+		'Loading message missing',
+	)
+	expect(screen.viewport().join('\n')).not.toContain('does not publish an exact effort menu')
+	first.arrive()
+	await until(screen, () => screen.viewport().join('\n').includes('Effort pinned to xhigh'), 'pin')
+	await submit(screen, 'go')
+	await until(screen, () => sent.length === 1, 'Turn was not sent')
+	expect(sent[0]?.options?.effort).toBe('xhigh')
 })
 
 it('accepts hypermode without pinning when the model publishes no effort menu, and says so', async () => {
