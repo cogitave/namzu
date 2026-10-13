@@ -2,8 +2,11 @@
 
 import { fileURLToPath } from 'node:url'
 
-// First, for its effect: the filter must be in place before anything below can
-// load `node:sqlite`.
+// First, for its effect: the compile cache covers only the modules loaded after it.
+import './compile-cache-enable.js'
+
+// Then the filter, which must be in place before anything below can load
+// `node:sqlite`.
 import './warning-filter.js'
 
 import { runCli } from './cli.js'

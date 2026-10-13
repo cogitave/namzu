@@ -18,7 +18,15 @@
 // entry removed from PATH. Nothing here touches an installed Namzu.
 
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync,
+} from 'node:fs'
 import { createServer } from 'node:http'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
@@ -35,6 +43,7 @@ function parseArgs(argv) {
 		work: null,
 		only: null,
 		stripMnt: true,
+		sharedCache: true,
 	}
 	for (let i = 0; i < argv.length; i++) {
 		const a = argv[i]
@@ -44,10 +53,11 @@ function parseArgs(argv) {
 		else if (a === '--work') opts.work = resolve(argv[++i])
 		else if (a === '--only') opts.only = new Set(argv[++i].split(','))
 		else if (a === '--no-strip-mnt') opts.stripMnt = false
+		else if (a === '--cold-cache') opts.sharedCache = false
 		else if (a === '--help' || a === '-h') {
 			process.stdout.write(
 				'Usage: node scripts/bench-startup.mjs [--runs N] [--build <bin.js>] [--out <file.json>]\n' +
-					'       [--work <dir>] [--only version,help,tui,exec] [--no-strip-mnt]\n',
+					'       [--work <dir>] [--only version,help,tui,exec] [--no-strip-mnt] [--cold-cache]\n',
 			)
 			process.exit(0)
 		} else throw new Error(`unknown option ${a}`)
@@ -133,6 +143,14 @@ function freshHome(label) {
 	writeFileSync(join(project, 'README.md'), '# proj\n')
 	writeFileSync(join(project, 'src', 'a.ts'), 'export const a = 1\n')
 	spawnSync('git', ['init', '-q', '.'], { cwd: project })
+	if (opts.sharedCache) {
+		// A person's V8 compile cache outlives a launch because it lives in their
+		// Namzu home. Every run here gets a fresh home, so the cache directory is
+		// a link to one shared folder; --cold-cache measures a first run instead.
+		const shared = join(work, 'shared-cache')
+		mkdirSync(shared, { recursive: true })
+		symlinkSync(shared, join(home, '.namzu', 'cache'), 'dir')
+	}
 	writeFileSync(
 		join(home, '.namzu', 'preferences.json'),
 		JSON.stringify({ version: 3, providers: [{ id: 'openai', model: 'claude-sonnet-5-5' }], subagents: { active: [] } }),
