@@ -38,7 +38,7 @@ console.log(identity)
 
 The mock supplies the scripted answer `Paris.` without a key, network request
 or inference charge. The kernel still executes its normal turn lifecycle,
-including budgets and persistence. The [SDK README](../../packages/sdk/README.md#run-a-tool)
+including budgets and persistence. The [SDK README](../../packages/sdk/README.md#give-the-agent-a-tool)
 also contains a complete example that executes a local tool through this loop.
 
 `runAgent` fills in missing identity and returns all four fields as

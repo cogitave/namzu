@@ -2,461 +2,220 @@
 type: Reference
 title: "@namzu/cli"
 description: >-
-  A terminal coding agent with interactive sessions, parallel agents, saved
-  conversations, headless one-shots that stream structured events,
-  and a doctor that reports what the host can actually do.
+  The terminal app for Namzu: install, first run, choosing a model, everyday
+  use, scripts and scheduled jobs, with links into the full guide. Embedding
+  notes for developers come last.
 tags: [readme, package, cli, agent]
 status: stable
 generated: { by: human:bahadirarda, at: 2026-09-01T00:00:00Z }
 -->
 
-<div align="center">
+# Namzu CLI
 
-<img src="https://raw.githubusercontent.com/cogitave/namzu/main/packages/cli/assets/namzu-terminal.svg" alt="Namzu CLI" width="1148" />
-
-**Your work, your agents, your terminal.**
+**An AI coding agent for your terminal. It reads and edits your project, runs commands, and asks before it acts.**
 
 [![npm](https://img.shields.io/npm/v/@namzu/cli.svg)](https://www.npmjs.com/package/@namzu/cli)
-[![build](https://github.com/cogitave/namzu/actions/workflows/ci.yml/badge.svg)](https://github.com/cogitave/namzu/actions/workflows/ci.yml)
-[![license](https://img.shields.io/badge/license-FSL--1.1--MIT-blue.svg)](https://github.com/cogitave/namzu/blob/main/LICENSE.md)
+[![license](https://img.shields.io/badge/license-MIT-blue.svg)](https://www.npmjs.com/package/@namzu/cli)
 
-[Install](#install) · [Usage](#usage) · [Headless](#headless-use-namzu-exec) · [Documentation](#documentation)
+Install it, then start it in the folder you want to work on:
 
-</div>
+```sh
+npm install -g @namzu/cli
+cd your-project
+namzu
+```
 
----
+You need Node.js 22.13 or newer. Other ways to install are under [Install](#install).
 
-## From a request to a visible result
+![Namzu edits a file in the terminal and shows the added lines](https://raw.githubusercontent.com/cogitave/namzu/main/packages/cli/assets/cli-editing.png)
 
-Read and edit files, delegate independent tasks and continue saved conversations.
-The terminal keeps tool results, approvals and progress alongside your messages.
+## What you get
 
-![Namzu creates a TypeScript function and shows the added lines](https://raw.githubusercontent.com/cogitave/namzu/main/packages/cli/assets/cli-editing.png)
+- **Work on real files.** Namzu reads, searches and edits the files in your folder and runs commands there. Tool results, approvals and progress appear next to your messages. [How tools run](https://github.com/cogitave/namzu/blob/main/docs/cli/tool-boundary.md)
+- **Permission before action.** Each shell command goes through your permission rules and mode. A file outside your folder is an approval request, not a silent edit. [Where tools run](https://github.com/cogitave/namzu/blob/main/docs/cli/tool-boundary.md)
+- **Undo a turn.** Namzu records each file before a tool changes it, so `/restore` puts the tree back as it was. [File checkpoints](https://github.com/cogitave/namzu/blob/main/docs/cli/file-checkpoints.md)
+- **Split off independent work.** Start scoped agents for separate tasks, then watch their progress with `Ctrl+T`. [Delegated work](https://github.com/cogitave/namzu/blob/main/docs/cli/delegated-work.md)
 
-## Independent tasks, shared visibility
+![Two read-only agents working in parallel in the terminal](https://raw.githubusercontent.com/cogitave/namzu/main/packages/cli/assets/cli-agents.png)
 
-Start agents with scoped tool access. Review the plan, watch their progress,
-and open an agent's transcript with `Ctrl+T` while the main composer remains
-available.
-
-![Two read-only agents working in parallel](https://raw.githubusercontent.com/cogitave/namzu/main/packages/cli/assets/cli-agents.png)
-
-## Pick up the conversation
-
-Use `/resume` to choose a saved conversation or `namzu resume <id>` to reopen
-one directly. Resume retains conversation history; file tools check the current
-workspace before applying edits based on stale observations.
-
-![A resumed conversation reads an updated file before editing](https://raw.githubusercontent.com/cogitave/namzu/main/packages/cli/assets/cli-resume.png)
-
-Real terminal captures from isolated example projects. The
-[release validation notes](https://github.com/cogitave/namzu/blob/main/docs/cli/release-validation.md)
-describe the checks and their limits.
+- **Pick up where you left off.** Conversations are saved per project. Use `/resume` to choose one, or reopen one directly. [Session storage](https://github.com/cogitave/namzu/blob/main/docs/cli/session-storage.md)
+- **Follow your conventions.** Skills load when the work needs them, and stored memory is recalled when it is relevant. [Skills](https://github.com/cogitave/namzu/blob/main/docs/cli/skills.md) · [Memory](https://github.com/cogitave/namzu/blob/main/docs/cli/memory.md)
+- **Keep working while you are away.** Scheduled jobs run later, while Namzu is closed, under permissions you wrote down. [Scheduled tasks](https://github.com/cogitave/namzu/blob/main/docs/cli/scheduled-tasks.md)
+- **Use it in scripts.** `namzu exec` runs one prompt and prints the answer. `namzu exec --json` streams events as they happen. [Headless exit codes](https://github.com/cogitave/namzu/blob/main/docs/cli/exec-exit-codes.md) · [Event stream](https://github.com/cogitave/namzu/blob/main/docs/cli/exec-json.md)
 
 ## Install
 
-On macOS, Linux, or WSL, npm is also available directly:
+Install with npm, which works on macOS, Linux, WSL and Windows:
 
 ```sh
-npm install -g @namzu/cli     # the binary
-npx @namzu/cli                # or run it once without installing
+npm install -g @namzu/cli
+namzu --version
 ```
 
-Requires Node.js 22.13 or newer.
+Or use the installer for your shell. It checks your Node.js and npm, verifies that the binary answers, and does not install Node.js for you ([details](https://github.com/cogitave/namzu/blob/main/docs/cli/installation.md)).
 
-There are installers that check the Node version and verify the binary answers.
-The POSIX installer retries an unwritable global prefix under `~/.namzu` and
-names the line to add to your shell profile.
-
-On macOS, Linux, or WSL:
+On macOS, Linux or WSL:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/cogitave/namzu/main/install.sh | sh
 ```
 
-In Windows PowerShell:
+On Windows, in PowerShell:
 
 ```powershell
 irm https://raw.githubusercontent.com/cogitave/namzu/main/install.ps1 | iex
 namzu.cmd --version
-namzu.cmd doctor
 ```
 
-In Windows Command Prompt (`cmd.exe`):
+In the Windows Command Prompt, use `npm.cmd install --global @namzu/cli`, then run `namzu.cmd` in place of `namzu`. If an install fails, npm's diagnostic output stays on screen so you can read the cause. The PATH and reopen troubleshooting is in [Installing and reopening Namzu](https://github.com/cogitave/namzu/blob/main/docs/cli/installation.md).
 
-```bat
-npm.cmd install --global @namzu/cli
-namzu.cmd --version
+To update later, `namzu upgrade --check` reports whether npm has a newer version, and `namzu upgrade` installs it.
+
+## First run
+
+Start Namzu in the folder you want it to work in:
+
+```sh
+cd ~/code/your-project
+namzu
 ```
 
-Failed npm attempts retain their diagnostic output. Windows `.cmd` commands
-also work under Restricted PowerShell execution policy, which can refuse the
-`.ps1` wrappers chosen by bare commands. See
-[Installing and reopening Namzu](../../docs/cli/installation.md) for PATH and
-conversation resume troubleshooting.
+The session opens in that folder. Type a request and press Enter. Namzu shows what it reads, what it runs and each edit it proposes, and waits for your answer when a step needs your approval.
 
-The CLI bundles provider drivers, plus `@namzu/files` and
-`@namzu/computer-use`, as ordinary dependencies rather than peers. So a fresh
-install can already reach those services and expose desktop control when the
-device has a supported adapter. `@namzu/telemetry` and `@namzu/sandbox` remain
-optional capabilities that `namzu doctor` probes for.
+Before your first real task, check the host:
 
-## Usage
-
-```bash
-namzu                       # interactive session in the current directory
-namzu resume <session-id>        # reopen the exact interactive conversation printed on exit
-namzu doctor                # what this host can actually do, and what is missing
-namzu state                 # read-only inventory of local and user runtime state
-namzu upgrade --check       # check npm without changing the installation
-namzu upgrade               # update this active npm-global installation
-namzu login claude          # create a Namzu-owned Claude subscription session
-namzu login codex           # create a Namzu-owned ChatGPT subscription session
-namzu logout codex          # remove only Namzu's stored Codex subscription
+```sh
+namzu doctor
 ```
 
-The TUI checks npm briefly after startup and prints `namzu upgrade` when a
-newer CLI is available. Upgrade derives the prefix from the package that is
-actually running, installs the exact registry version there, and reads that
-same package back before reporting success. It refuses local checkouts and
-unknown package-manager layouts instead of guessing at another binary on
-`PATH`; update those with the package manager that installed them.
+`namzu doctor` reports what this machine can do: which providers have a usable sign-in or key, whether optional parts are installed, and what is missing. Add `--category providers` to see only the provider checks, or `--json` for a machine-readable report. [Provider credentials](https://github.com/cogitave/namzu/blob/main/docs/cli/credentials.md)
 
-On native Windows, `namzu upgrade` and provider installation from `/setup` use
-the npm bundled with the Node runtime running Namzu. They execute npm's
-JavaScript entry point directly, preserving paths and arguments without a
-command shell. Custom npm wrappers on PATH are not used; a missing runtime
-bundle produces a repair instruction before installation starts.
+When you leave, Namzu prints a `namzu resume <conversation-id>` command. Run it in the same folder to reopen that conversation.
 
-When upgrading from CLI 23.0.0 on native Windows, its old updater can fail with
-`spawn EINVAL` before npm starts. Run `npm.cmd install --global @namzu/cli@latest`
-once in PowerShell or Git Bash using the Node installation that owns Namzu.
-For a custom global prefix, include `--prefix "<existing-prefix>"`. Restart
-Namzu afterward; the updated CLI includes the corrected npm launcher.
+## Choose a model
 
-Generated CLI state lives below the application home: `~/.namzu` by default,
-or the existing real directory named by `NAMZU_HOME`. Each working directory
-gets `projects/<slug>/`, where the slug is its canonical path with every
-character outside `[A-Za-z0-9]` replaced by `-`; a project id is minted once
-into `projects/<slug>/project.json`. A session is one append-only log,
-`projects/<slug>/<session-id>.jsonl`, with its child sessions, checkpoints,
-tasks and file-history snapshots under `<session-id>/`; memory, resident state
-and worktrees are under `projects/<slug>/` too. `~/.namzu/index.sqlite` is an
-index rebuilt from the logs, so deleting it loses nothing. Bash, Write and
-Edit still use the selected working directory, and nothing generated is
-written there: a local `.namzu` holds only the `agents`, `commands`,
-`plugins`, `skills` and `MEMORY.md` you author. See
-[Session storage](../../docs/cli/session-storage.md) for the layout and
-[Project and session state](../../docs/cli/project-state.md) for identity.
+Pick a model with `/model`. Press `p` in the picker to switch provider. The picker says whether your choice is saved for future launches, or applies only to this session. [Slash commands](https://github.com/cogitave/namzu/blob/main/docs/cli/slash-commands.md)
 
-`namzu state` inventories the application-home tree without loading a config
-cascade or changing anything. It reports authored/configuration/runtime/control
-bytes, sessions and turns, checkpoint files, attachment pairs, privacy
-boundaries and project health, and a `legacy` category (report `version: 2`)
-listing state an earlier CLI wrote — the old top-level `sessions/`, `state/`,
-`checkpoints/` and similar directories, and every `projects/<uuid>/` — which
-this version never reads. JSON and YAML use the global `--format` flag. The
-snapshot is best-effort and unlocked, and the command does not repair, move,
-chmod, or delete anything.
+To start with a specific model for one session, use `--provider` and `--model` on `namzu`. [Launch flags](https://github.com/cogitave/namzu/blob/main/docs/cli/launch-flags.md)
 
-Desktop control is separate from attaching a clipboard image. Ctrl+V/Alt+V
-adds an image to the current prompt; the TUI's `computer_use` tool lets the
-model take a fresh screenshot and, after the normal permission decision, drive
-pointer or keyboard input. Namzu mounts that tool only when the host adapter
-initializes. Unattended `exec` (in either mode) and `drain` do not mount it because
-they have no interactive permission owner. Inside WSL the TUI targets the
-paired Windows desktop through `powershell.exe`, so WSLg display variables do
-not incorrectly select a Linux compositor adapter.
+You can connect a provider in four ways:
 
-On startup, Namzu first reuses usable `Claude` and `Codex` sessions already owned
-by their installed command-line clients, including the paired Windows home from
-WSL. With no saved choice, one signed-in subscription starts directly; if both
-are available, a narrowed picker asks which one to use and proceeds with its
-default model. Codex credentials remain read-only. If an expired `Claude` session
-must rotate its refresh grant, Namzu preserves the complete owner envelope and
-publishes the successor pair back to that exact file so `Claude` is not logged
-out. A Namzu-owned sign-in is needed only when no usable device session exists
-or when you explicitly want a separate login; its `Claude` route uses direct
-subscription authorization rather than API-usage billing, and its returned
-authorization code can be pasted back into the same picker that started it.
-Bare `/login` lists those operations separately: reusable device sessions are
-labelled `Use existing`, while new credentials are labelled `Sign in to`. An
-expired or signed-out owner session is not offered as reusable.
-API keys remain optional alternatives through environment variables or the
-session-only credential picker, and detecting one does not hide the subscription
-sign-in action. That picker lists every provider this build can construct that
-accepts a typed credential, not only the ones found on the machine: the rest are
-listed below the detected rows under `Not detected — enter a credential to use
-these:`, each marked with the variable that sets it up (`needs
-OPENROUTER_API_KEY`), and selecting one opens the paste field for that provider.
+- **Reuse a sign-in you already have.** Namzu looks for sessions that your installed command-line tools already hold, and uses them without asking you to paste anything.
+- **Sign in from Namzu.** Run `namzu login claude` or `namzu login codex`, or type `/login` in a session. `namzu logout codex` removes only the credential Namzu stored for you.
+- **Use an API key.** Set the provider's variable, for example `OPENROUTER_API_KEY` for the `openrouter` provider, or paste a key in the picker. Most keys you paste there last for that session only; a Google key is saved for later launches.
+- **Run a local model.** If a local model server is running on this machine, such as the `ollama` provider on its default port, the picker finds it and lists it. [Provider credentials](https://github.com/cogitave/namzu/blob/main/docs/cli/credentials.md)
 
-Zen and Zen Go appear as separate providers in `/model` (press
-`p` to change providers). Without a key, Zen defaults to `space-bunny-free`,
-which completed keyless text and tool-continuation turns through Namzu on
-2026-09-28. The other seven bundled free models are also selectable without a
-key through an experimental request path; Zen may refuse them.
-Selecting the anonymous option does not open a login or key prompt. Installing
-OpenCode is recommended for comparing results in its own client; Namzu sends
-requests directly and does not use that installation. Use a Zen API key for
-credentialed access to paid models.
+The `zen` and `zen-go` providers appear in `/model` as separate providers.
 
-For paid Zen models, set `OPENCODE_API_KEY` or `OPENCODE_ZEN_API_KEY`; Go
-requires `OPENCODE_GO_API_KEY` or its own installed API credential. When both
-Zen variables are present, `OPENCODE_API_KEY` wins. Environment keys take
-precedence over OpenCode's API-key entries in
-`OPENCODE_AUTH_CONTENT` when set, otherwise
-`$XDG_DATA_HOME/opencode/auth.json` for an absolute XDG path or
-`~/.local/share/opencode/auth.json`. `OPENCODE_AUTH_CONTENT` replaces the
-whole credential store; invalid JSON does not fall back to a disk account.
-Without an absolute XDG override, WSL also checks the paired Windows home's
-file when available.
-Namzu reads the `opencode` entry for Zen and `opencode-go` for Go, accepts
-only API-key entries, and leaves the file unchanged. OAuth entries are not
-converted into API keys, and a Zen key is never reused for Go. Keys entered
-in the picker remain temporary.
-Anonymous Zen is listed after existing accounts and reachable local providers
-and marks its free-model access experimental.
+- Without a key, `zen` lists free models that are meant to work without one. The hosted service may refuse such a request, and then you need a key. This path is experimental.
+- For paid `zen` models, set `OPENCODE_API_KEY` or `OPENCODE_ZEN_API_KEY`. For `zen-go`, set `OPENCODE_GO_API_KEY`. `zen-go` uses `glm-5.3-flash` by default.
+- Keys in the environment are read before any saved key.
 
-```bash
-namzu exec --provider zen "Explain this project"
-namzu exec --provider zen --model space-bunny-free "Explain this project"
-namzu exec --provider zen --model big-pickle "Explain this project"
+```sh
 namzu exec --provider zen-go --model glm-5.3-flash "Explain this project"
 ```
 
-The Zen commands attempt anonymous access when no key is available; Zen may refuse that
-request. Go requires its own credential. All use the existing folder-trust
-rules. The same provider/model flags work with `exec --json`.
-The picker lists each service's supported models from the provider catalogue;
-an explicit model selection is saved using the existing preferences flow.
-Go requests carry the actual Namzu conversation ID in `x-opencode-session`,
-stable across turns and resumed turns. Delegated work shares its invoking
-conversation's upstream session; switching conversations changes that ID.
+The rules for keys, the free-model path and the model list are in [Provider credentials](https://github.com/cogitave/namzu/blob/main/docs/cli/credentials.md) and [The model catalogue](https://github.com/cogitave/namzu/blob/main/docs/cli/model-catalogue.md).
 
-Bare `/help` opens the session's complete command vocabulary as a keyboard
-palette; selecting a row runs that command through the same dispatcher as a
-typed slash command. Refused project command files remain visible with their
-reason. Bare `/effort`, `/permissions`, `/feedback`, `/skills`, and `/review`
-open finite keyboard choosers. Bare `/rename` opens a prefilled conversation-name editor;
-`/rename clear` removes the chosen name. The review
-chooser can target a base branch, uncommitted work, or a recent commit; choosing
-custom instructions restores `/review ` to the composer. When both Namzu-owned
-subscriptions exist, bare `/logout` asks
-which one to remove. `/logout claude|codex|all` and
-`namzu logout claude|codex|all` remain exact non-interactive forms, and never modify device
-sessions owned by another tool. A fully typed
-command is the active completion ahead of longer names with the same prefix.
-`/archive` opens a safe-first confirmation, then makes the current durable
-conversation read-only and exits without advertising it as resumable. Its
-history remains on disk for inspection.
+## Everyday use
 
-When a tool batch needs consent, the TUI derives a readable operation only from
-the immutable prepared JSON. Known, exhaustively formatted calls start in that
-view; unknown or evolved shapes start on the exact envelope. `d` switches
-between them without deciding the prompt. Arrows, PageUp/PageDown and Home/End
-page through six physical content rows, including long single-line values.
-The complete batch is refused above 8,000 UTF-8 bytes or when it cannot be
-represented exactly; approval never covers hidden or truncated input, and
-Enter never approves it.
+Type a request and press Enter. While a turn is running, you can keep typing:
 
-A parallel Agent batch is named as delegated work rather than exposed as a raw
-tool envelope. Its first page lists every child task, later pages retain the
-complete readable instructions, and `d` still opens the exact prepared input.
-After a decision, the prompt hands off immediately to the live Working row; it
-does not retain approval keys while the children are starting.
+- **Enter** sends a message that steers the running turn at its next safe point.
+- **Tab** queues a message to run after the current turn.
+- **Esc** interrupts the running turn. **Ctrl+C** exits.
+- **Shift+Tab** cycles the permission mode between asking before changes, accepting edits, and plan (read-only).
+- **Ctrl+T** opens or closes the view of delegated agents. **Ctrl+O** expands a tool's output, and opens a viewer for long output.
+- **Ctrl+V** and **Alt+V** attach a clipboard image to the prompt.
+- **Alt+W** drops, restores or arms the composer trigger nearest the cursor.
 
-Delegated work appears automatically in a compact panel directly below the
-composer. It shows each active child, elapsed time, current tool or a bounded
-assistant preview; private reasoning text never reaches the panel. A completed
-sibling remains beside its cohort while another sibling is still running, and
-the panel disappears as soon as the cohort settles. The number of rows contracts
-with terminal height so the composer and footer remain visible. The matching raw
-`Agent` tool row is suppressed by its exact tool-call identity rather than by
-parsing its label.
+The full key list is in [Slash commands](https://github.com/cogitave/namzu/blob/main/docs/cli/slash-commands.md#keys-that-are-not-commands). Type `/help` to open the searchable command list, or `/help <command>` to read one command's usage.
 
-Down from an empty composer or Ctrl+T opens the bounded phase-and-agent inspector;
-Enter opens the selected child's live projected transcript. Related calls may declare
-display-only workflow and phase annotations without creating scheduler barriers
-or dependencies. Left/Right moves between panes, arrows navigate, and Enter
-inspects one child's live projected transcript. Escape returns and `q` closes
-the inspector. Selection is tied to monitor-owned phase, batch and child
-identities, so a later delegation wave cannot revive completed rows from an
-earlier one. Ctrl+T is the only way into the inspector; there is no slash
-command for it. Parent output that settles
-while a child is open is published once when the active cohort returns control.
-Interactive Agent calls, their child allocations and the parent turn share a
-one-hour upper deadline instead of the generic two-minute tool limit; operator
-cancellation remains the normal way to stop work that is no longer wanted.
+These commands cover most sessions:
 
-`/skills <name>` activates directly and `/skills list` prints the roster. Long model and resume lists
-keep a seven-row window around the active choice and show its absolute position.
-Finite labels grow into available terminal width, so branch names and commit
-subjects are not forced through the same narrow column. The `/help` palette and
-completion menus keep a
-six-row window on short terminals and grow to twelve rows when height is
-available; arrow navigation still reaches the full roster. The
-footer keeps `model effort · cwd` on the left and reserves the right edge for a
-state-specific interaction or durable goal state. Idle conversation leaves the
-key legend to `/help` instead of repeating it on every frame.
+| Command | What it does |
+|---|---|
+| `/model` | Choose a model, and its reasoning effort where supported. |
+| `/login`, `/logout` | Sign in to, or remove, a Namzu-owned subscription. |
+| `/permissions` | Choose between asking before changes, auto-approving edits, and plan mode. |
+| `/resume` | Choose a saved conversation in this project. |
+| `/fork` | Continue in a copy of this conversation. |
+| `/worktree` | Create a managed Git worktree for a separate checkout. |
+| `/skills` | Activate a skill for this conversation. |
+| `/review` | Review uncommitted work, a branch or a commit. |
+| `/memory` | Show what Namzu remembers for this project. |
+| `/status` | Show the model, permissions, workspace and latest cost. |
+| `/cost` | Show usage and cost for the current or last turn. |
+| `/export` | Save the conversation as Markdown, to the clipboard or a file. |
+| `/archive` | Make this conversation read-only and exit. |
 
-While a turn runs, Return steers that turn at the next model-safe response
-boundary and Tab queues a separate follow-up; at idle either key starts the
-draft. Ctrl+V and Alt+V attach a clipboard image, independently of the optional
-computer-use package. Left/Right and Ctrl+B/Ctrl+F move by complete displayed
-characters, Home/End and Ctrl+A/Ctrl+E move to line boundaries, and
-Ctrl+W/Ctrl+U/Ctrl+K delete around the live cursor, and Ctrl+Y restores the
-last non-empty deletion at the cursor even after submitting. Ctrl+H and
-Backspace each remove one displayed character. Ctrl+J, Shift+Enter and
-Alt+Enter add a newline; Shift+Up/Shift+Down and Alt+period/Alt+comma step the
-active model's exact reasoning menu without wrapping; Up/Down and Ctrl+P/Ctrl+N move between authored lines
-before crossing into prompt history, where returning to the newest entry
-restores the unsent draft. Ctrl+R searches matching prompts from newest to
-oldest, Ctrl+S walks back toward the draft, and Esc restores the exact text and
-cursor that started the search. Direct shell resume and the in-TUI resume
-picker add restored operator-authored prompts to this history while keeping
-runtime context and automatic goal turns out. Ctrl+G opens the complete text
-draft in `$VISUAL`, falling back to `$EDITOR`; the idle TUI releases raw mode
-while the host editor runs, then restores the edited text without dropping
-image/document attachments. Alt+B/F and modified arrows move by words,
-Alt+Backspace/Alt+D delete words, and Ctrl+D deletes the next complete
-displayed character. Conversation rows flow
-downward from the banner while unused viewport
-space stays below the transcript, and the slash palette scrolls through every
-matching command while using the remaining terminal width for descriptions.
-Its position line makes the full result count visible; PageUp/PageDown jump by
-a window and Home/End reach the boundaries. Menu input and selection are
-synchronous, so `/`, navigation and Enter may arrive in one terminal burst
-without losing the chosen command. The same page and boundary keys work in
-model, resume, review, skill, copy and other finite command choosers; their
-Enter action also follows the newest cursor when navigation arrives in the
-same terminal burst. `/status` reports the exact session working directory, and
-typing `@` opens a keyboard-navigable list of tracked and unignored
-project files. Enter or Tab inserts the selected `@path` without sending it;
-exact project-relative tokens remain editable, and symlinks outside the trusted
-root are not inlined. On
-clean exit the CLI prints a copy-pasteable `namzu resume <id>` command; buffered
-boot and sandbox diagnostics are reserved for crashes.
+Every command, with its options, is in [Slash commands](https://github.com/cogitave/namzu/blob/main/docs/cli/slash-commands.md).
 
-Tool-authored activity labels keep implementation names and action JSON out of
-the transcript. Desktop actions read as `Capture screenshot`, `Press CTRL+R`
-or coordinate-aware pointer activity. Successful `ok` acknowledgements add no
-second row, while screenshot dimensions and failures remain visible.
+**Permissions and the sandbox.** By default, tools run on your machine under the permission system. The OS sandbox is opt-in: set `sandbox.enabled: true` in your configuration file. [Where tools run](https://github.com/cogitave/namzu/blob/main/docs/cli/tool-boundary.md). To let file tools reach another folder for one session, start with `--add-dir <path>`.
 
-Markdown web-link labels are clickable on terminals whose OSC 8 support Namzu
-can identify. Unknown terminals, remote shells and multiplexers retain the
-destination beside the label as visible text. Only absolute HTTP(S) targets are
-admitted; local files and other schemes remain non-clickable and visible.
+**Project instructions.** `/init` writes an `AGENTS.md` that describes the project to future agents. [Slash commands](https://github.com/cogitave/namzu/blob/main/docs/cli/slash-commands.md)
 
-The buffered capability summary reports the capabilities attached to the live
-session. In particular, `sandbox yes` describes the local runtime provider that
-will execute tools; it is independent of the optional-package installation row
-reported by `namzu doctor`.
+**Tool servers and plugins.** External tool servers are configured with `mcpServers` and checked with `/mcp`. Plugins are off by default and turn on with `plugins.enabled: true`. [Tool servers](https://github.com/cogitave/namzu/blob/main/docs/cli/mcp-servers.md) · [Plugins](https://github.com/cogitave/namzu/blob/main/docs/cli/plugins.md)
 
-Tools run on the host under the permission system by default: each shell
-command goes through the permission rules and mode, and a file tool's path
-outside the working directory is an approval request rather than a refusal —
-asked every time (`strict` refuses it, `plan` asks only for a read), and
-refused when nobody can be asked (add the directory with `--add-dir` instead). The OS sandbox is opt-in with `sandbox.enabled: true`; a sandboxed `bash` call
-may ask to run one command outside it, and that request is put to you every
-time (`plan` and `strict` refuse it), and refused when nobody can be asked. See
-`docs/cli/tool-boundary.md`.
+**Where Namzu keeps its data.** Namzu keeps its state under `~/.namzu`, or under the directory named by `NAMZU_HOME` if you set it. Its own state and conversation records stay out of your project folder. `namzu state` lists that state without changing it. [Session storage](https://github.com/cogitave/namzu/blob/main/docs/cli/session-storage.md)
 
-With the sandbox on, the provider defaults to the canonical working directory.
-Each turn owns and tears down a fresh sandbox handle, while the caller-owned
-project files survive and remain visible to later turns and delegated agents.
-Set `sandbox.workspace` to `ephemeral` only when a disposable per-turn tree is
-the intended behavior; `/status` reports which mode is active.
+## Scheduled jobs
 
-A sandbox that cannot start a detached process exposes Bash as a foreground,
-serialized operation and refuses `run_in_background`. Use delegated agents for
-independent concurrent work; host execution keeps the background-job
-capability.
+A scheduled job is a prompt that runs later in a folder while Namzu is closed. You choose its permissions when you create it. A call the job does not allow waits for you, or is refused. It is never approved on its own.
 
-Ctrl+L clears only the rendered terminal transcript while idle. It preserves
-model context, durable conversation history and copy/export targets; an active
-turn keeps its visible output and reports that the
-shortcut is temporarily unavailable.
-
-Bare `/export` opens a destination chooser for the complete verified Markdown
-conversation. Copy to clipboard sends one bounded terminal request and reports
-that the request may be ignored by terminal policy; Save to file opens a
-prefilled filename editor and never overwrites an existing file. `/export <path>`
-remains the direct file shortcut. Both routes read the session log rather than
-reconstructing source from the painted transcript.
-
-Repository policy stays live for the whole session. The CLI starts with the
-applicable `AGENTS.md` chain, discovers nested instruction files after
-successful reads, writes and edits, and labels every file with its directory
-scope. The current snapshot is retained in durable model context, while a
-resumed session uses its validated project-relative paths to re-read the files
-from disk instead of trusting stale saved prose.
-
-Executable SDK plugins are available but default off. Opt in from a config file
-with `plugins.enabled: true`, then restrict discovery to `project`, `user`, or
-both scopes. Project plugins are not read before the project trust gate, and
-plugin paths are canonicalized against the trusted project or user-home root;
-links that leave that scope and symlinked manifests are refused. Plugin
-settings cannot be activated by an environment-selected profile. The
-same plugin hooks and skills reach interactive turns, headless turns, durable
-resumes, and ACP sessions; session shutdown settles live work before unloading
-them.
-
-## Scheduled jobs: `namzu schedule`
-
-```bash
+```sh
 namzu schedule install
 namzu schedule add nightly-deps --prompt "Check for outdated dependencies." \
   --when "0 3 * * *" --permissions read-only
 namzu schedule status
 ```
 
-A scheduled job is a prompt that runs later in a folder while namzu is closed,
-under a permission set you write down when you create it; a call it does not
-allow waits for you or is refused, never approved on its own. Each run is its
-own conversation (`/resume` it), a desktop notification and a line in the job's
-history. One small scheduler per `NAMZU_HOME` runs them, installed as a systemd
-user unit, a launchd agent or a Windows scheduled task (WSL included). A job is
-confirmed by a person on a terminal or in the TUI (`/schedule`); `--yes` from a
-script creates it inert until someone does. See
-[Scheduled tasks](../../docs/cli/scheduled-tasks.md) and
-[The scheduler service](../../docs/cli/scheduler-service.md).
+`namzu schedule install` sets up the scheduler service for your user. Each run is a conversation you can open with `/resume`, and it may send a desktop notification and adds a line to the job's history. A job takes effect only after a person confirms it, in a terminal or with `/schedule`. A job created with `--yes` from a script waits, inert, until someone confirms it. The permission presets, the scheduler service on each platform, and how missed runs are handled are in [Scheduled tasks](https://github.com/cogitave/namzu/blob/main/docs/cli/scheduled-tasks.md) and [The scheduler service](https://github.com/cogitave/namzu/blob/main/docs/cli/scheduler-service.md).
 
-## Headless use: `namzu exec`
+## Scripts and headless use
 
-```bash
-namzu --format json exec "fix the failing test"
-namzu exec --json "refactor the parser" | jq -c 'select(.kind == "tool-start")'
+`namzu exec` runs one prompt without the interactive screen. Use it in scripts, cron jobs and CI:
+
+```sh
+namzu exec "fix the failing test"
+namzu --format json exec "list the public exports of this package"
+namzu exec --json "refactor the parser" > events.ndjson
 namzu exec --output-schema answer.schema.json "rate this diff from 1 to 5"
 ```
 
-`namzu exec` (alias `namzu e`) prints a result; `namzu exec --json` emits one
-structured event per line as the turn happens, so a script can act on a tool
-call before the turn is over. `--output-schema <file>` binds the final answer
-to a JSON Schema through the provider's native structured output. Both modes
-take `--verbose`/`--quiet` (before `exec`), and both write logs to stderr so
-stdout stays a clean protocol stream. A session has one active turn at a time:
-either mode aimed at a session whose turn is still running or paused exits 75
-and names that turn. See [Exit codes](../../docs/cli/exec-exit-codes.md) and
-[`exec --json`](../../docs/cli/exec-json.md).
+- `namzu exec` (alias `namzu e`) prints the final answer on stdout. Logs go to stderr, so stdout stays clean for the next command.
+- `--json` writes one JSON event per line as the turn runs, so a script can react before the turn ends. The event kinds are in [namzu exec --json](https://github.com/cogitave/namzu/blob/main/docs/cli/exec-json.md).
+- `--output-schema <file>` makes the final answer match a JSON Schema you provide. Pass it after `exec`.
+- `--format json` (or `yaml`) on the root command switches the output of `namzu state` and `namzu exec` to that format. `--verbose` and `--quiet` also go before the command.
+- `--provider` and `--model` choose the model for one run, as shown in [Choose a model](#choose-a-model).
 
-`namzu run` and `namzu run-stream` were removed: use `namzu exec` and
-`namzu exec --json`, which take the same options.
+Exit codes matter in scripts. The main ones: `1` means the turn failed, `2` means no prompt was given, `64` means a wrong argument, `75` means try again later (the provider paused the turn, or the session already has a turn running), and `77` means the folder is not trusted yet, so trust it once in the interactive session. The full list is in [Exit codes of namzu exec](https://github.com/cogitave/namzu/blob/main/docs/cli/exec-exit-codes.md).
 
-Recoverable provider stops are explicit `paused` events carrying their
-checkpoint and any structured retry guidance. The interactive transcript shows
-the same remedy and holds dependent queued input; `exec` exits non-zero rather
-than treating a paused or failed partial answer as complete.
+`namzu run` and `namzu run-stream` were removed. `namzu exec` and `namzu exec --json` take the same options.
 
-The interactive transcript also shows provider capability mismatches and
-tool-history repairs before the affected answer. A history warning reports the
-source and measured rewrite counts without echoing tool content, and tells the
-operator to verify external state before retrying a non-idempotent interrupted
-call.
+## Requirements
+
+- **Node.js 22.13 or newer.** The package declares this in its `engines` field.
+- **macOS, Linux, WSL, or Windows** through PowerShell or the Command Prompt. Commands for each shell are in [Install](#install).
+- **A sign-in or an API key** for the provider you want to use. `namzu doctor` tells you which are missing.
+
+## Status
+
+The terminal app is published on npm as `@namzu/cli`. Versions follow semantic versioning: a change that breaks the public interface is a major version. Read the [changelog](https://github.com/cogitave/namzu/blob/main/packages/cli/CHANGELOG.md) before you upgrade across a major version. Run `namzu upgrade --check` to see whether a newer version is out.
+
+## For developers
+
+`@namzu/cli` is also a library. It exposes `runCli` and `runDoctorCommand`, the doctor registry (`registerDoctorCheck`, `runDoctor`), `probeCapabilities`, and the command types, so a host can embed the terminal app or add its own checks. The package builds on [`@namzu/sdk`](https://github.com/cogitave/namzu/blob/main/docs/sdk/index.md), the kernel that runs the agents. To build an agent without the terminal app, start with the SDK guide.
 
 ## Documentation
 
-- [All docs](https://github.com/cogitave/namzu/tree/main/docs)
+- [Terminal app guide](https://github.com/cogitave/namzu/blob/main/docs/cli/index.md): every page about the app, one line each.
+- [Installing and reopening Namzu](https://github.com/cogitave/namzu/blob/main/docs/cli/installation.md)
+- [Slash commands](https://github.com/cogitave/namzu/blob/main/docs/cli/slash-commands.md) and [Launch flags](https://github.com/cogitave/namzu/blob/main/docs/cli/launch-flags.md)
+- [Scheduled tasks](https://github.com/cogitave/namzu/blob/main/docs/cli/scheduled-tasks.md)
+- [namzu exec --json](https://github.com/cogitave/namzu/blob/main/docs/cli/exec-json.md)
+- [Project root README](https://github.com/cogitave/namzu/blob/main/README.md)
 
 ## License
 
-FSL-1.1-MIT, converting to MIT two years after each release.
+`@namzu/cli` is published under the MIT license.

@@ -17,6 +17,7 @@ The kernel.
 
 * [Schedules](schedules.md) - The schedule time engine and evaluator (cron, DST, catch-up) and the schedule and session_loop tools over host callbacks.
 * [Manual compaction](manual-compaction.md) - Retain removed originals before publishing a host-requested history replacement.
+* [Host contracts of a turn](host-contracts.md) - Carried-history repair, attachment cancellation, project instructions, session storage paths and topic lifecycle.
 
 * [Automatic conversation evidence recall](evidence-recall.md) - Scoped historical passages ranked within a bounded candidate pool and added only to the current request.
 * [Request-only step context](step-context.md) - Changing observations after history (step context, working memory, `context` contributions), separate from system policy and operator intent.
