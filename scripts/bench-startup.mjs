@@ -44,6 +44,7 @@ function parseArgs(argv) {
 		only: null,
 		stripMnt: true,
 		sharedCache: true,
+		modelsDelay: 0,
 	}
 	for (let i = 0; i < argv.length; i++) {
 		const a = argv[i]
@@ -52,16 +53,19 @@ function parseArgs(argv) {
 		else if (a === '--out') opts.out = resolve(argv[++i])
 		else if (a === '--work') opts.work = resolve(argv[++i])
 		else if (a === '--only') opts.only = new Set(argv[++i].split(','))
+		else if (a === '--models-delay') opts.modelsDelay = Number(argv[++i])
 		else if (a === '--no-strip-mnt') opts.stripMnt = false
 		else if (a === '--cold-cache') opts.sharedCache = false
 		else if (a === '--help' || a === '-h') {
 			process.stdout.write(
 				'Usage: node scripts/bench-startup.mjs [--runs N] [--build <bin.js>] [--out <file.json>]\n' +
-					'       [--work <dir>] [--only version,help,tui,exec] [--no-strip-mnt] [--cold-cache]\n',
+					'       [--work <dir>] [--only version,help,tui,exec] [--no-strip-mnt] [--cold-cache] [--models-delay <ms>]\n',
 			)
 			process.exit(0)
 		} else throw new Error(`unknown option ${a}`)
 	}
+	if (!Number.isFinite(opts.modelsDelay) || opts.modelsDelay < 0)
+		throw new Error('--models-delay must be a number of milliseconds')
 	if (!Number.isInteger(opts.runs) || opts.runs < 1) throw new Error('--runs must be a positive integer')
 	if (!existsSync(opts.build)) throw new Error(`${opts.build} does not exist; run pnpm -r build first`)
 	return opts
@@ -86,13 +90,15 @@ function startFakeModel() {
 		req.on('end', () => {
 			const path = new URL(req.url, 'http://x').pathname
 			if (path.endsWith('/models')) {
-				res.setHeader('content-type', 'application/json')
-				res.end(
-					JSON.stringify({
-						object: 'list',
-						data: [{ id: 'claude-sonnet-5-5', object: 'model', created: 1, owned_by: 'bench' }],
-					}),
-				)
+				const body = JSON.stringify({
+					object: 'list',
+					data: [{ id: 'claude-sonnet-5-5', object: 'model', created: 1, owned_by: 'bench' }],
+				})
+				// --models-delay holds the model listing back, to show whether anything waits for it.
+				setTimeout(() => {
+					res.setHeader('content-type', 'application/json')
+					res.end(body)
+				}, opts.modelsDelay)
 				return
 			}
 			let parsed = {}

@@ -1737,6 +1737,8 @@ export function App({
 	 * server's child process outlives the object that opened it.
 	 */
 	const previousSessionRef = useRef<AgentSession | null>(null)
+	/** Bumped when a session's effort levels arrive after it opened, to redraw what reads them. */
+	const [, setReasoningVersion] = useState(0)
 	/** The profile `/browser profile` chose, kept across session rebuilds. */
 	const browserProfileRef = useRef<string | undefined>(undefined)
 	/** The current session's browser, for notices written from event handlers. */
@@ -2823,8 +2825,9 @@ export function App({
 				pushMessage('system', 'Hypermode is off.')
 				return
 			}
-			const pinned = hypermodeEffort(session.reasoningEffortLevels)
-			if (pinned !== undefined) {
+			const pinNow = (): boolean => {
+				const pinned = hypermodeEffort(session.reasoningEffortLevels)
+				if (pinned === undefined) return false
 				// Turning it on twice keeps the effort from before the first time.
 				if (!hypermodePinRef.current)
 					hypermodePinRef.current = { before: reasoningEffortRef.current, pinned }
@@ -2834,6 +2837,25 @@ export function App({
 					'system',
 					`Hypermode is on — effort pinned to ${pinned} for ${session.modelSummary ?? 'this model'}, and delegation guidance is strengthened for this conversation.`,
 				)
+				return true
+			}
+			if (pinNow()) return
+			if (session.reasoningSettled !== undefined && session.reasoningEffortLevels === undefined) {
+				// The model's effort menu is still loading: say so, and pin when it lands
+				// unless the mode was switched off or the session replaced meanwhile.
+				pushMessage(
+					'system',
+					`Hypermode is on — the effort menu for ${session.modelSummary ?? 'this model'} is still loading; effort will be pinned once it arrives. Delegation guidance is strengthened for this conversation.`,
+				)
+				void session.reasoningSettled.then(() => {
+					if (appLifetime.signal.aborted || previousSessionRef.current !== session) return
+					if (!hypermodeRef.current || hypermodePinRef.current !== null) return
+					const pinned = hypermodeEffort(session.reasoningEffortLevels)
+					if (pinned === undefined) return
+					hypermodePinRef.current = { before: reasoningEffortRef.current, pinned }
+					setReasoningEffort(pinned)
+					pushMessage('system', `Effort pinned to ${pinned} for hypermode.`)
+				})
 				return
 			}
 			pushMessage(
@@ -2841,7 +2863,7 @@ export function App({
 				`Hypermode is on — ${session.modelSummary ?? 'this model'} does not publish an exact effort menu, so effort was left as is. Delegation guidance is still strengthened for this conversation.`,
 			)
 		},
-		[hasUnsettledTurn, pushMessage, session, setHypermode, setReasoningEffort, state],
+		[appLifetime, hasUnsettledTurn, pushMessage, session, setHypermode, setReasoningEffort, state],
 	)
 
 	const stepReasoningEffort = useCallback(
@@ -3865,6 +3887,9 @@ export function App({
 			const s = await createAgentSession(prefs, detectedNow, {
 				scope,
 				cwd: activeCtx.cwd,
+				// The composer opens on the saved or automatic model. The effort menu
+				// waits for the provider's model listing, not the person.
+				deferEffortCatalogue: true,
 				...(palEnvironment
 					? {
 							palEnvironment,
@@ -3985,27 +4010,58 @@ export function App({
 			void previousSessionRef.current?.close()
 			previousSessionRef.current = s
 			setSession(s)
-			const launchEffort = launchEffortPendingRef.current
-			if (launchEffort && s.hasProvider) {
-				launchEffortPendingRef.current = undefined
-				if (s.reasoningEffortLevels?.includes(launchEffort)) setReasoningEffort(launchEffort)
-				else
-					pushMessage(
-						'system',
-						`--effort ${launchEffort} is not offered by ${primaryProvider(prefs).model ?? primaryProvider(prefs).id}; using the provider default.`,
-					)
+			// What the effort menu decides once the levels are final: a launch
+			// `--effort`, and the picker a model change asks for. Run at once when the
+			// provider named its levels, else when its model listing has answered.
+			const settleEffort = () => {
+				const launchEffort = launchEffortPendingRef.current
+				if (launchEffort && s.hasProvider) {
+					launchEffortPendingRef.current = undefined
+					if (s.reasoningEffortLevels?.includes(launchEffort)) setReasoningEffort(launchEffort)
+					else
+						pushMessage(
+							'system',
+							`--effort ${launchEffort} is not offered by ${primaryProvider(prefs).model ?? primaryProvider(prefs).id}; using the provider default.`,
+						)
+				}
+				// A model switch under hypermode cleared the pin above; with the levels
+				// final, pin the new model's highest level, unless the operator turned
+				// the mode off or chose an effort while the list was loading.
+				if (
+					signal !== undefined &&
+					hypermodeRef.current &&
+					hypermodePinRef.current === null &&
+					reasoningEffortRef.current === undefined
+				) {
+					const repin = hypermodeEffort(s.reasoningEffortLevels)
+					if (repin !== undefined) {
+						hypermodePinRef.current = { before: undefined, pinned: repin }
+						setReasoningEffort(repin)
+					}
+				}
+				// Hypermode already re-pinned effort above; reopening this picker
+				// would ask the operator to redo a choice the mode just made for them.
+				if (
+					!hypermodeRef.current &&
+					options.chooseReasoningEffort &&
+					s.reasoningEffortLevels?.length
+				) {
+					// Own input before publishing ready or releasing a paused queue. The
+					// menu closes only after choosing an effort or keeping the new default.
+					setSelectedChoice(0)
+					setChoicePicker(reasoningEffortPicker(s, undefined, true) ?? null)
+				}
 			}
-			// Hypermode already re-pinned effort above; reopening this picker
-			// would ask the operator to redo a choice the mode just made for them.
-			if (
-				!hypermodeRef.current &&
-				options.chooseReasoningEffort &&
-				s.reasoningEffortLevels?.length
-			) {
-				// Own input before publishing ready or releasing a paused queue. The
-				// menu closes only after choosing an effort or keeping the new default.
-				setSelectedChoice(0)
-				setChoicePicker(reasoningEffortPicker(s, undefined, true) ?? null)
+			if (s.reasoningSettled === undefined) settleEffort()
+			else {
+				// The session is usable now; the levels follow the provider's model
+				// listing. A listing that fails costs the effort menu and nothing else.
+				void s.reasoningSettled.then(({ notice }) => {
+					if (appLifetime.signal.aborted || previousSessionRef.current !== s) return
+					setReasoningVersion((version) => version + 1)
+					if (notice) pushMessage('system', notice)
+					settleEffort()
+				})
 			}
 			setUserCommands(commands)
 			const mentionLoadOwner = {}

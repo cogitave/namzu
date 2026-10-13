@@ -962,6 +962,14 @@ export interface AgentSession {
 	 */
 	readonly reasoningEffortLevels?: readonly ReasoningEffort[]
 	/**
+	 * Present only on a session opened with `deferEffortCatalogue` whose levels
+	 * were not final at open. Resolves, never rejects, once the model listing has
+	 * been consulted: `reasoningEffortLevels` and `reasoningEffortDefault` then
+	 * hold their final values, and `notice` carries what the listing could not
+	 * establish, in plain words.
+	 */
+	readonly reasoningSettled?: Promise<{ readonly notice?: string }>
+	/**
 	 * The exact level used when this model receives no explicit effort.
 	 *
 	 * Optional because some provider/model routes cannot publish one. A
@@ -1794,6 +1802,17 @@ function buildBaseToolsets(paths: SessionPaths, backgroundJobs: boolean): BaseTo
 }
 
 export interface AgentSessionOptions {
+	/**
+	 * Open the session without waiting for the provider's model listing. A
+	 * provider that cannot name a model's reasoning-effort levels from what it
+	 * already knows is asked for its listing; by default the session waits for
+	 * that answer. With this set the session opens at once with the levels the
+	 * provider knows, `reasoningEffortLevels` and `reasoningEffortDefault` change
+	 * in place when the listing arrives, and the session's `reasoningSettled`
+	 * says when. The terminal sets it; a host that publishes the levels in its
+	 * first answer (ACP, `exec`) leaves it off.
+	 */
+	readonly deferEffortCatalogue?: boolean
 	/** Actual owned virtual computer; this branches before all ordinary host capability setup. */
 	readonly palEnvironment?: import('../pals/agent-session.js').PalSessionEnvironment
 	readonly structuredOutput?: StructuredOutputConfig
@@ -3564,7 +3583,10 @@ export async function createAgentSession(
 	cliLogger().info('agent session ready', {
 		[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.BOOT_READY,
 	})
+	// Owns the background model-listing lookup below, so closing the session ends it.
+	const reasoningLookup = new AbortController()
 	const operations = new SessionOperationOwner(async () => {
+		reasoningLookup.abort()
 		const results = await Promise.allSettled([
 			Promise.resolve().then(() => manager.dispose()),
 			options.conversationSessions
@@ -3591,13 +3613,32 @@ export async function createAgentSession(
 			.map((result) => result.reason)
 		if (failures.length > 0) throw new AggregateError(failures, 'Session cleanup failed.')
 	})
-	const reasoning = await resolveProviderReasoning([
+	const reasoningMembers = [
 		{ provider, model },
 		...fallbackPlan.build(currentToken, scope.sessionId),
-	])
-	const reasoningEffortLevels = reasoning.effortLevels
-	const reasoningEffortDefault = reasoning.effortDefault
-	const effortNotice = reasoning.notice
+	]
+	// A provider that cannot name a model's effort levels is asked for its model
+	// listing. The terminal does not wait for that round trip to show a composer:
+	// it opens on what the provider knows and the levels follow.
+	const reasoning = await resolveProviderReasoning(
+		reasoningMembers,
+		undefined,
+		options.deferEffortCatalogue ? { catalogue: 'skip' } : {},
+	)
+	let reasoningEffortLevels = reasoning.effortLevels
+	let reasoningEffortDefault = reasoning.effortDefault
+	const effortNotice = reasoning.catalogueSkipped ? undefined : reasoning.notice
+	const reasoningSettled = reasoning.catalogueSkipped
+		? resolveProviderReasoning(reasoningMembers, reasoningLookup.signal).then(
+				(settled) => {
+					if (reasoningLookup.signal.aborted) return {}
+					reasoningEffortLevels = settled.effortLevels
+					reasoningEffortDefault = settled.effortDefault
+					return settled.notice ? { notice: settled.notice } : {}
+				},
+				() => ({}),
+			)
+		: undefined
 
 	/**
 	 * The provider a resumed turn runs on when its caller pinned one (a
@@ -3999,8 +4040,13 @@ export async function createAgentSession(
 		get documentAttachmentsSupported() {
 			return providerForSession(scope.sessionId).capabilities?.supportsDocuments
 		},
-		reasoningEffortLevels,
-		reasoningEffortDefault,
+		get reasoningEffortLevels() {
+			return reasoningEffortLevels
+		},
+		get reasoningEffortDefault() {
+			return reasoningEffortDefault
+		},
+		...(reasoningSettled ? { reasoningSettled } : {}),
 		compact: (messages) =>
 			operations.promise(undefined, async (signal) => {
 				const sessionId = scope.sessionId

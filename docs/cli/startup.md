@@ -145,9 +145,40 @@ directory by default), with `WSL_DISTRO_NAME`, `WSL_INTEROP` and `CI` unset and
 directory is a link to one shared folder, as a person's cache outlives a launch;
 `--cold-cache` gives every run an empty one. Options: `--runs N`, `--build
 <bin.js>` (compare two builds), `--only version,help,tui,exec`, `--out
-<file.json>`. The interactive screen needs `node-pty` from `@namzu/cli`. Each
+<file.json>`, `--models-delay <ms>` (hold the fake server's `GET /models` back that
+long, to show that nothing waits for it). The interactive screen needs `node-pty` from `@namzu/cli`. Each
 metric is reported as median and range over the runs, after one warm-up run.
 Nothing in CI runs it yet.
+
+### The model list does not hold the composer
+
+The terminal opens its composer as soon as the saved or automatic model is
+known. A provider that cannot name a model's reasoning-effort levels from what
+it already knows (most gateways and local servers) is asked for its model
+listing, and that round trip used to sit between the first frame and a usable
+composer. Now the session opens on the chosen model at once; the listing is
+fetched in the background and the effort menu appears when it arrives. A message
+sent before then goes to the chosen model with the provider's default effort,
+and a launch `--effort` is not applied to it: the flag is checked against the
+menu, so it takes effect when the menu arrives (a notice says if the model does
+not offer it). Hypermode keeps working while the menu loads. Turning it on says
+the menu is still loading and pins the highest level when it lands; a `/model`
+switch under hypermode re-pins to the new model's highest level at the same
+point, unless hypermode was switched off or an effort was chosen in between. If
+the listing fails, the effort menu never appears for that session and nothing
+says so; sending is unaffected. `/model` reads its own listing when opened and
+says plainly when it cannot. `namzu exec` and ACP session creation still wait,
+because they publish the effort levels in their first answer; Desktop's composer
+does not wait on the list.
+
+Terminal ready with the fake server's `/models` delayed (median of 7, quiet
+machine):
+
+| `/models` delay | Before | After |
+|---|---|---|
+| 0 ms | 678 ms | 678 ms |
+| 300 ms | 973 ms | 696 ms |
+| 1,000 ms | 1,734 ms | 716 ms |
 
 ### Reference numbers
 
