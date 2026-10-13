@@ -1737,6 +1737,8 @@ export function App({
 	 * server's child process outlives the object that opened it.
 	 */
 	const previousSessionRef = useRef<AgentSession | null>(null)
+	/** Bumped when a session's effort levels arrive after it opened, to redraw what reads them. */
+	const [, setReasoningVersion] = useState(0)
 	/** The profile `/browser profile` chose, kept across session rebuilds. */
 	const browserProfileRef = useRef<string | undefined>(undefined)
 	/** The current session's browser, for notices written from event handlers. */
@@ -3865,6 +3867,9 @@ export function App({
 			const s = await createAgentSession(prefs, detectedNow, {
 				scope,
 				cwd: activeCtx.cwd,
+				// The composer opens on the saved or automatic model. The effort menu
+				// waits for the provider's model listing, not the person.
+				deferEffortCatalogue: true,
 				...(palEnvironment
 					? {
 							palEnvironment,
@@ -3985,27 +3990,43 @@ export function App({
 			void previousSessionRef.current?.close()
 			previousSessionRef.current = s
 			setSession(s)
-			const launchEffort = launchEffortPendingRef.current
-			if (launchEffort && s.hasProvider) {
-				launchEffortPendingRef.current = undefined
-				if (s.reasoningEffortLevels?.includes(launchEffort)) setReasoningEffort(launchEffort)
-				else
-					pushMessage(
-						'system',
-						`--effort ${launchEffort} is not offered by ${primaryProvider(prefs).model ?? primaryProvider(prefs).id}; using the provider default.`,
-					)
+			// What the effort menu decides once the levels are final: a launch
+			// `--effort`, and the picker a model change asks for. Run at once when the
+			// provider named its levels, else when its model listing has answered.
+			const settleEffort = () => {
+				const launchEffort = launchEffortPendingRef.current
+				if (launchEffort && s.hasProvider) {
+					launchEffortPendingRef.current = undefined
+					if (s.reasoningEffortLevels?.includes(launchEffort)) setReasoningEffort(launchEffort)
+					else
+						pushMessage(
+							'system',
+							`--effort ${launchEffort} is not offered by ${primaryProvider(prefs).model ?? primaryProvider(prefs).id}; using the provider default.`,
+						)
+				}
+				// Hypermode already re-pinned effort above; reopening this picker
+				// would ask the operator to redo a choice the mode just made for them.
+				if (
+					!hypermodeRef.current &&
+					options.chooseReasoningEffort &&
+					s.reasoningEffortLevels?.length
+				) {
+					// Own input before publishing ready or releasing a paused queue. The
+					// menu closes only after choosing an effort or keeping the new default.
+					setSelectedChoice(0)
+					setChoicePicker(reasoningEffortPicker(s, undefined, true) ?? null)
+				}
 			}
-			// Hypermode already re-pinned effort above; reopening this picker
-			// would ask the operator to redo a choice the mode just made for them.
-			if (
-				!hypermodeRef.current &&
-				options.chooseReasoningEffort &&
-				s.reasoningEffortLevels?.length
-			) {
-				// Own input before publishing ready or releasing a paused queue. The
-				// menu closes only after choosing an effort or keeping the new default.
-				setSelectedChoice(0)
-				setChoicePicker(reasoningEffortPicker(s, undefined, true) ?? null)
+			if (s.reasoningSettled === undefined) settleEffort()
+			else {
+				// The session is usable now; the levels follow the provider's model
+				// listing. A listing that fails costs the effort menu and nothing else.
+				void s.reasoningSettled.then(({ notice }) => {
+					if (appLifetime.signal.aborted || previousSessionRef.current !== s) return
+					setReasoningVersion((version) => version + 1)
+					if (notice) pushMessage('system', notice)
+					settleEffort()
+				})
 			}
 			setUserCommands(commands)
 			const mentionLoadOwner = {}

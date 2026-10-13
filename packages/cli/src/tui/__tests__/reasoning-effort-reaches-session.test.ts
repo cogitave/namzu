@@ -90,6 +90,103 @@ describe('the TUI reasoning-effort hop', () => {
 			await session.close()
 		}
 	})
+	it('opens without waiting for the model listing, sends to the chosen model, then publishes the menu', async () => {
+		let release: (models: unknown[]) => void = () => undefined
+		const listing = new Promise<unknown[]>((resolve) => {
+			release = resolve
+		})
+		const provider = Object.assign(new MockLLMProvider(), {
+			listModels: vi.fn(() => listing),
+		})
+		vi.spyOn(ProviderRegistry, 'create').mockReturnValue({ provider } as never)
+		const { createAgentSession } = await import('../agent.js')
+		const session = await createAgentSession(
+			{
+				version: 3,
+				providers: [{ id: 'openai', model: 'fixture-model' }],
+				subagents: { active: [] },
+			} as Preferences,
+			detected('openai'),
+			{ cwd, deferEffortCatalogue: true },
+		)
+		try {
+			// The listing has been asked for and has not answered; the session is open.
+			expect(session.hasProvider).toBe(true)
+			expect(provider.listModels).toHaveBeenCalledOnce()
+			expect(session.reasoningEffortLevels).toBeUndefined()
+			expect(session.reasoningSettled).toBeDefined()
+			for await (const _event of session.send([])) {
+				// drain a turn while the listing is still pending
+			}
+			expect(queryCalls[0]?.turnConfig).toMatchObject({ model: 'fixture-model' })
+
+			release([
+				{
+					id: 'fixture-model',
+					name: 'New model',
+					inputPrice: 0,
+					outputPrice: 0,
+					supportsToolUse: true,
+					supportsStreaming: true,
+					reasoningEffortLevels: ['medium', 'max'] as const,
+					reasoningEffortDefault: 'max' as const,
+				},
+			])
+			await session.reasoningSettled
+			expect(session.reasoningEffortLevels).toEqual(['medium', 'max'])
+			expect(session.reasoningEffortDefault).toBe('max')
+		} finally {
+			release([])
+			await session.close()
+		}
+	})
+
+	it('keeps a session usable when the model listing fails', async () => {
+		const provider = Object.assign(new MockLLMProvider(), {
+			listModels: vi.fn(async () => {
+				throw new Error('503 service unavailable')
+			}),
+		})
+		vi.spyOn(ProviderRegistry, 'create').mockReturnValue({ provider } as never)
+		const { createAgentSession } = await import('../agent.js')
+		const session = await createAgentSession(
+			{
+				version: 3,
+				providers: [{ id: 'openai', model: 'fixture-model' }],
+				subagents: { active: [] },
+			} as Preferences,
+			detected('openai'),
+			{ cwd, deferEffortCatalogue: true },
+		)
+		try {
+			await expect(session.reasoningSettled).resolves.toEqual({})
+			expect(session.hasProvider).toBe(true)
+			expect(session.reasoningEffortLevels).toBeUndefined()
+		} finally {
+			await session.close()
+		}
+	})
+
+	it('does not defer the listing unless the host asks', async () => {
+		const provider = Object.assign(new MockLLMProvider(), { listModels: vi.fn(async () => []) })
+		vi.spyOn(ProviderRegistry, 'create').mockReturnValue({ provider } as never)
+		const { createAgentSession } = await import('../agent.js')
+		const session = await createAgentSession(
+			{
+				version: 3,
+				providers: [{ id: 'openai', model: 'fixture-model' }],
+				subagents: { active: [] },
+			} as Preferences,
+			detected('openai'),
+			{ cwd },
+		)
+		try {
+			expect(session.reasoningSettled).toBeUndefined()
+		} finally {
+			await session.close()
+		}
+	})
+
 	it('passes the selected level to query and omits the key at provider default', async () => {
 		const { createAgentSession } = await import('../agent.js')
 		const preferences = {
