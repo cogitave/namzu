@@ -50,6 +50,11 @@ $installCalls = @($global:NpmCalls | Where-Object { $_ -like 'install *' })
 if ($installCalls.Count -ne 1 -or $installCalls[0] -notlike 'install --global*') {
     throw 'Installer did not call npm.cmd once for install'
 }
+# Under irm | iex the script runs in the person's own session: it must leave
+# nothing of itself there, least of all its 'Stop' error preference.
+if ((Get-Command Fail, Test-Have -ErrorAction SilentlyContinue) -or $null -ne $NamzuPkg -or $ErrorActionPreference -ne 'Continue') {
+    throw 'Installer left its functions or variables in the session'
+}
 if ($env:Path -notlike 'C:\\mock-node;*') {
     throw 'Installer discarded the process-local Node path'
 }
@@ -128,14 +133,22 @@ test('PowerShell installer refuses an empty successful version answer', { skip }
 
 // A real folder, on the Windows side: PowerShell cannot see the Linux tmpdir.
 function windowsTempFolder() {
-	const onWsl = process.platform !== 'win32'
-	const base = onWsl ? '/mnt/c/Users/Arda/AppData/Local/Temp' : tmpdir()
-	const dir = mkdtempSync(join(base, 'namzu-inst-'))
-	const name = dir.split('/').pop()
-	return {
-		dir,
-		windows: onWsl ? `C:\\Users\\Arda\\AppData\\Local\\Temp\\${name}` : dir,
+	if (process.platform === 'win32') {
+		const dir = mkdtempSync(join(tmpdir(), 'namzu-inst-'))
+		return { dir, windows: dir }
 	}
+	// On WSL, ask Windows where its temp folder is and reach it through the mount.
+	const windowsTemp = spawnSync(powerShell, ['-NoProfile', '-NonInteractive', '-Command', '[IO.Path]::GetTempPath()'], {
+		encoding: 'utf8',
+		cwd: '/mnt/c',
+		timeout: 30_000,
+		windowsHide: true,
+	})
+		.stdout.trim()
+		.replace(/\\$/, '')
+	const base = spawnSync('wslpath', ['-u', windowsTemp], { encoding: 'utf8' }).stdout.trim()
+	const dir = mkdtempSync(join(base, 'namzu-inst-'))
+	return { dir, windows: `${windowsTemp}\\${dir.split('/').pop()}` }
 }
 
 test('PowerShell installer removes its own namzu.ps1 shim and nobody else\'s', { skip }, () => {

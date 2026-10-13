@@ -58,6 +58,10 @@ disabled"). The PowerShell installer and `namzu upgrade` therefore remove that
 one file (only when it sits beside `namzu.cmd` and names `@namzu/cli`), so a
 bare `namzu` runs `namzu.cmd` under any policy. Use `namzu.cmd` in Command
 Prompt, and for `npm` in PowerShell use `npm.cmd`.
+When the installer stops (no Node, an npm failure), it leaves the window open
+with the reason in it and sets `$LASTEXITCODE` to 1; run as a file, from a
+redirected input or with `-NonInteractive`, it exits with code 1 instead. It
+leaves none of its own variables or functions in the session.
 WSL and native Windows use separate Node installations, npm prefixes and
 Namzu state directories. Installing in one does not install in the other.
 
