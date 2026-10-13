@@ -43,15 +43,11 @@ describe('the startup compile cache', () => {
 		expect(enableCompileCache).toHaveBeenCalledWith(join(root, '.namzu', 'cache', 'compile'))
 	})
 
-	it('does not create a Namzu home that is not there, or follow a link to one', () => {
+	it('does not create a Namzu home that is not there', () => {
 		const enableCompileCache = vi.fn(() => ({ status: ENABLED, directory: 'dir' }))
 		const missing = join(root, 'missing')
-		const target = join(root, 'target')
-		const link = join(root, 'link')
-		mkdirSync(target)
-		symlinkSync(target, link, 'dir')
 
-		for (const env of [{ NAMZU_HOME: missing }, { NAMZU_HOME: link }, {}]) {
+		for (const env of [{ NAMZU_HOME: missing }, {}]) {
 			const outcome = enableStartupCompileCache({
 				env,
 				home: join(root, 'no-home'),
@@ -63,6 +59,19 @@ describe('the startup compile cache', () => {
 		expect(enableCompileCache).not.toHaveBeenCalled()
 		expect(existsSync(missing)).toBe(false)
 		expect(existsSync(join(root, 'no-home'))).toBe(false)
+	})
+
+	it('uses a Namzu home that is a link to a directory', () => {
+		const enableCompileCache = vi.fn(() => ({ status: ENABLED, directory: 'dir' }))
+		const target = join(root, 'target')
+		const link = join(root, 'link')
+		mkdirSync(target)
+		symlinkSync(target, link, 'dir')
+
+		const outcome = enableStartupCompileCache({ env: { NAMZU_HOME: link }, module: { enableCompileCache } })
+
+		expect(outcome.state).toBe('enabled')
+		expect(enableCompileCache).toHaveBeenCalledWith(join(link, 'cache', 'compile'))
 	})
 
 	it('leaves Node’s own switches in charge', () => {

@@ -54,9 +54,8 @@ later; the CLI requires 22.13) as the first thing `bin.js` does, so every
 module loaded after it is covered.
 
 - The cache is `cache/compile` inside the Namzu home (`~/.namzu`, or
-  `NAMZU_HOME`). It is used only when that folder already exists as a real
-  directory: a wrong `NAMZU_HOME` is never created for it, and a link is not
-  followed.
+  `NAMZU_HOME`). It is used only when that folder already exists (a link to a
+  folder counts): a wrong `NAMZU_HOME` is never created for it.
 - It is keyed by the module's content and Node's version, so an upgrade or a
   rebuild never loads stale code, and Node discards an entry it cannot read.
   Deleting the folder is always safe.
@@ -91,11 +90,10 @@ because the text can change what happens next: a prompt that starts with `/`
 (the piped text could change which command it names) and a missing prompt
 argument.
 
-Since a launch is now faster, the point in time at which that quarter second
-ends is earlier than it used to be. A producer that takes most of a second to
-write its first byte (a `curl` to a slow host) used to be caught by accident,
-because the startup took a second; it is not now. Put the text in the prompt,
-or start the producer's output first, if you depend on that.
+Only that quarter second is promised. A producer that is slower to write its
+first byte (a `curl` to a slow host) may or may not be caught, depending on how
+busy the rest of startup is. Put the text in the prompt, or make sure the
+producer writes promptly, if you depend on it.
 
 `exec --json` still reads its optional history from stdin before it opens the
 session, and still waits the quarter second there.

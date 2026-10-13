@@ -1,4 +1,4 @@
-import { lstatSync } from 'node:fs'
+import { statSync } from 'node:fs'
 import nodeModule from 'node:module'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -15,7 +15,7 @@ import { join, resolve } from 'node:path'
  *
  * Where it goes: `<namzu home>/cache/compile`, so it travels with the rest of
  * the state and `NAMZU_HOME` moves it. It is used only when that home already
- * exists as a real directory. An unset `NAMZU_HOME` means `~/.namzu`; a set
+ * exists as a directory (a link to one counts). An unset `NAMZU_HOME` means `~/.namzu`; a set
  * one is the operator's assertion and, as in the SDK's resolver, is not
  * created on the way, so a launch with a wrong path cannot make a directory
  * there. The cache is keyed by the module's content and Node's version, so an
@@ -51,10 +51,11 @@ export interface CompileCacheOptions {
 	}
 }
 
+// A link to a directory counts (a dotfiles setup often links ~/.namzu); only a
+// home that does not exist yet is left alone, so nothing is created here.
 function isRealDirectory(path: string): boolean {
 	try {
-		const entry = lstatSync(path)
-		return entry.isDirectory() && !entry.isSymbolicLink()
+		return statSync(path).isDirectory()
 	} catch {
 		return false
 	}
