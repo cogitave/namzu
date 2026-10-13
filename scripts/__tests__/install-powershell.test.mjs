@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -17,7 +18,7 @@ const powerShell =
 const installer = readFileSync(fileURLToPath(new URL('../../install.ps1', import.meta.url)), 'utf8')
 const skip = !powerShell || !existsSync(powerShell) ? 'Windows PowerShell 5.1 is unavailable' : false
 
-function runInstaller(nodeVersion, npmExit = 0, { versionExit = 0, emptyVersion = false } = {}) {
+function runInstaller(nodeVersion, npmExit = 0, { versionExit = 0, emptyVersion = false, prefix = 'C:\\mock-npm' } = {}) {
 	const env = {
 		...process.env,
 		NAMZU_INSTALLER_TEST_SOURCE: Buffer.from(installer, 'utf8').toString('base64'),
@@ -34,18 +35,25 @@ function npm.cmd {
         return
     }
     $global:LASTEXITCODE = 0
-    if ($args[0] -eq 'prefix') { 'C:\\mock-npm' }
+    if ($args[0] -eq 'prefix') { '${prefix}' }
 }
 function namzu.cmd {
     $global:LASTEXITCODE = ${versionExit}
     ${emptyVersion ? '' : "'test-version'"}
+    ${versionExit === 0 ? '' : "[Console]::Error.WriteLine('version-stderr-fixture'); Write-Error 'version-stderr-fixture' -ErrorAction Continue"}
 }
 $global:NpmCalls = @()
 $env:Path = 'C:\\mock-node;' + $env:Path
 Write-Output "policy=$(Get-ExecutionPolicy)"
 Invoke-Expression ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:NAMZU_INSTALLER_TEST_SOURCE)))
-if ($global:NpmCalls.Count -ne 1 -or $global:NpmCalls[0] -notlike 'install --global*') {
+$installCalls = @($global:NpmCalls | Where-Object { $_ -like 'install *' })
+if ($installCalls.Count -ne 1 -or $installCalls[0] -notlike 'install --global*') {
     throw 'Installer did not call npm.cmd once for install'
+}
+# Under irm | iex the script runs in the person's own session: it must leave
+# nothing of itself there, least of all its 'Stop' error preference.
+if ((Get-Command Fail, Test-Have -ErrorAction SilentlyContinue) -or $null -ne $NamzuPkg -or $ErrorActionPreference -ne 'Continue') {
+    throw 'Installer left its functions or variables in the session'
 }
 if ($env:Path -notlike 'C:\\mock-node;*') {
     throw 'Installer discarded the process-local Node path'
@@ -83,8 +91,8 @@ test('PowerShell installer uses .cmd shims under Restricted policy', { skip }, (
 	assert.match(result.stdout, /policy=Restricted/)
 	assert.match(result.stdout, /test-version installed/)
 	assert.match(result.stdout, /mock-install-complete/)
-	assert.match(result.stdout, /Next: run 'namzu\.cmd doctor'/)
-	assert.match(result.stdout, /or just 'namzu\.cmd'/)
+	assert.match(result.stdout, /Next: run 'namzu doctor'/)
+	assert.match(result.stdout, /or just 'namzu'/)
 	assert.doesNotMatch(result.stdout, /npm-warning/)
 })
 
@@ -111,6 +119,7 @@ test('PowerShell installer refuses failed version verification even with stdout'
 	assert.equal(result.status, 1, result.stderr)
 	assert.match(result.stdout, /did not answer --version/)
 	assert.match(result.stdout, /Run 'namzu\.cmd doctor'/)
+	assert.match(result.stdout, /version-stderr-fixture/)
 	assert.doesNotMatch(result.stdout, /test-version installed|mock-install-complete/)
 })
 
@@ -120,4 +129,51 @@ test('PowerShell installer refuses an empty successful version answer', { skip }
 	assert.equal(result.status, 1, result.stderr)
 	assert.match(result.stdout, /did not answer --version/)
 	assert.doesNotMatch(result.stdout, /mock-install-complete/)
+})
+
+// A real folder, on the Windows side: PowerShell cannot see the Linux tmpdir.
+function windowsTempFolder() {
+	if (process.platform === 'win32') {
+		const dir = mkdtempSync(join(tmpdir(), 'namzu-inst-'))
+		return { dir, windows: dir }
+	}
+	// On WSL, ask Windows where its temp folder is and reach it through the mount.
+	const windowsTemp = spawnSync(powerShell, ['-NoProfile', '-NonInteractive', '-Command', '[IO.Path]::GetTempPath()'], {
+		encoding: 'utf8',
+		cwd: '/mnt/c',
+		timeout: 30_000,
+		windowsHide: true,
+	})
+		.stdout.trim()
+		.replace(/\\$/, '')
+	const base = spawnSync('wslpath', ['-u', windowsTemp], { encoding: 'utf8' }).stdout.trim()
+	const dir = mkdtempSync(join(base, 'namzu-inst-'))
+	return { dir, windows: `${windowsTemp}\\${dir.split('/').pop()}` }
+}
+
+test('PowerShell installer removes its own namzu.ps1 shim and nobody else\'s', { skip }, () => {
+	const ours = windowsTempFolder()
+	const theirs = windowsTempFolder()
+	try {
+		writeFileSync(join(ours.dir, 'namzu.cmd'), '@echo off\r\n')
+		writeFileSync(join(ours.dir, 'namzu.ps1'), '& "$basedir/node_modules/@namzu/cli/dist/bin.js" $args\n')
+		writeFileSync(join(theirs.dir, 'namzu.cmd'), '@echo off\r\n')
+		writeFileSync(join(theirs.dir, 'namzu.ps1'), '# some other tool called namzu\n')
+		const first = runInstaller('v22.13.0', 0, { prefix: ours.windows })
+		assert.equal(first.status, 0, `${first.stdout}${first.stderr}`)
+		assert.equal(existsSync(join(ours.dir, 'namzu.ps1')), false)
+		assert.equal(existsSync(join(ours.dir, 'namzu.cmd')), true)
+		const second = runInstaller('v22.13.0', 0, { prefix: theirs.windows })
+		assert.equal(second.status, 0, `${second.stdout}${second.stderr}`)
+		assert.equal(existsSync(join(theirs.dir, 'namzu.ps1')), true)
+	} finally {
+		rmSync(ours.dir, { recursive: true, force: true })
+		rmSync(theirs.dir, { recursive: true, force: true })
+	}
+})
+
+test('PowerShell installer says where to get Node and to open a new window', { skip }, () => {
+	const result = runInstaller('v22.12.9')
+	assert.match(result.stdout, /https:\/\/nodejs\.org/)
+	assert.match(result.stdout, /NEW PowerShell window/)
 })

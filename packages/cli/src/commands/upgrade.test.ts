@@ -1,3 +1,6 @@
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { Formatter } from '../output/index.js'
@@ -6,6 +9,7 @@ import {
 	type UpgradeCommandDeps,
 	createUpgradeCommand,
 	npmGlobalPrefixFor,
+	removeOwnPowerShellShim,
 } from './upgrade.js'
 
 function harness(overrides: Partial<UpgradeCommandDeps> = {}) {
@@ -138,5 +142,78 @@ describe('namzu upgrade', () => {
 		const h = harness({ latestVersion })
 		expect(await h.invoke(['--force'])).toBe(64)
 		expect(latestVersion).not.toHaveBeenCalled()
+	})
+})
+
+describe('the PowerShell shim after an upgrade', () => {
+	const winRoot = 'C:\\Users\\A\\AppData\\Roaming\\npm\\node_modules\\@namzu\\cli'
+
+	it('is removed from the npm prefix after a verified update on Windows', async () => {
+		const removed: string[] = []
+		const h = harness({
+			platform: 'win32',
+			packageRoot: winRoot,
+			removePowerShellShim: (prefix) => void removed.push(prefix),
+		})
+		expect(await h.invoke()).toBe(0)
+		expect(removed).toEqual(['C:\\Users\\A\\AppData\\Roaming\\npm'])
+	})
+
+	it('is left alone on other platforms and when the update was not verified', async () => {
+		const removed: string[] = []
+		const remove = (prefix: string) => void removed.push(prefix)
+		await harness({ removePowerShellShim: remove }).invoke()
+		await harness({
+			platform: 'win32',
+			packageRoot: winRoot,
+			installedVersion: () => '14.2.1',
+			removePowerShellShim: remove,
+		}).invoke()
+		await harness({
+			platform: 'win32',
+			packageRoot: winRoot,
+			runNpm: async () => 1,
+			removePowerShellShim: remove,
+		}).invoke()
+		expect(removed).toEqual([])
+	})
+
+	it('does not turn a failing removal into a failed update', async () => {
+		const h = harness({
+			platform: 'win32',
+			packageRoot: winRoot,
+			removePowerShellShim: () => {
+				throw new Error('EPERM')
+			},
+		})
+		expect(await h.invoke()).toBe(0)
+	})
+
+	it('removes only our own namzu.ps1, beside namzu.cmd', () => {
+		const dir = mkdtempSync(join(tmpdir(), 'namzu-shim-'))
+		try {
+			const ours = join(dir, 'ours')
+			const theirs = join(dir, 'theirs')
+			const lone = join(dir, 'lone')
+			for (const d of [ours, theirs, lone]) mkdirSync(d)
+			writeFileSync(join(ours, 'namzu.cmd'), '@echo off')
+			writeFileSync(
+				join(ours, 'namzu.ps1'),
+				'& "$basedir/node_modules/@namzu/cli/dist/bin.js" $args',
+			)
+			writeFileSync(join(theirs, 'namzu.cmd'), '@echo off')
+			writeFileSync(join(theirs, 'namzu.ps1'), '# another tool')
+			writeFileSync(join(lone, 'namzu.ps1'), '"@namzu/cli"')
+			expect(removeOwnPowerShellShim(ours)).toBe(true)
+			expect(existsSync(join(ours, 'namzu.ps1'))).toBe(false)
+			expect(existsSync(join(ours, 'namzu.cmd'))).toBe(true)
+			expect(removeOwnPowerShellShim(theirs)).toBe(false)
+			expect(removeOwnPowerShellShim(lone)).toBe(false)
+			expect(removeOwnPowerShellShim(join(dir, 'missing'))).toBe(false)
+			expect(existsSync(join(theirs, 'namzu.ps1'))).toBe(true)
+			expect(existsSync(join(lone, 'namzu.ps1'))).toBe(true)
+		} finally {
+			rmSync(dir, { recursive: true, force: true })
+		}
 	})
 })

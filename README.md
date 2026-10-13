@@ -44,8 +44,10 @@ irm https://raw.githubusercontent.com/cogitave/namzu/main/install.ps1 | iex
 ```
 
 Then run `namzu doctor` to check your sign-in and sandboxing, and `namzu` to
-open the terminal app. You need Node.js 22.13 or newer. Every shell, and what
-to do when an install fails, is covered in [installing Namzu](docs/cli/installation.md).
+open the terminal app. You need Node.js 22.13 or newer, and `curl` for the
+first command (on a minimal Debian or Ubuntu, `wget -qO- <url> | sh` does the
+same, with the same URL). Every shell, and what to do when an install fails, is
+covered in [installing Namzu](docs/cli/installation.md).
 
 ## The terminal app
 
