@@ -34,7 +34,9 @@ export function ModelsSection({ connections }: { connections: ProviderConnection
 			<p className="settings-help" id={heading}>
 				{connectedCount(rows) > 0
 					? 'Namzu answers with the providers marked connected.'
-					: 'Namzu needs one connected provider before it can answer. Paste an API key below, or sign in with Claude Code or Codex and Namzu will find that sign-in.'}{' '}
+					: rows.some((row) => row.state === 'free')
+						? 'Namzu is using the free Zen models for now. Paste an API key below, or sign in with Claude Code or Codex and Namzu will find that sign-in.'
+						: 'Namzu needs one connected provider before it can answer. Paste an API key below, or sign in with Claude Code or Codex and Namzu will find that sign-in.'}{' '}
 				Keys stay on this computer, in Namzu’s private folder.
 			</p>
 			{error && (

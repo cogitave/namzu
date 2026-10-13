@@ -5953,18 +5953,12 @@ export function promptExemptToolNames(
 /** A batch needs explicit approval when any call mutates state. */
 export const batchNeedsPrompt = batchNeedsReview
 
-/** Add a remedy only for OpenCode's exact public-tier refusal. */
+/**
+ * The failure's own sentence. The keyless free-tier refusal is worded for a person by each
+ * screen (`zen-free-refusal.ts`); nothing is appended here, so a host that reads this text for
+ * its Details view sees only what the service said.
+ */
 function failedTurnMessage(event: Extract<SessionEvent, { type: 'turn_failed' }>): string {
-	const provider = event.providerError
-	const detail = provider?.detail ?? event.error
-	if (
-		provider?.providerId === 'zen' &&
-		provider.kind === 'auth' &&
-		provider.status === 403 &&
-		detail.includes("OpenCode's free tier can only be used from within OpenCode")
-	) {
-		return `${event.error}\nZen refused this free-model request and said its free tier only works inside OpenCode’s own app. Installing OpenCode does not change that for Namzu. To use Zen, set OPENCODE_API_KEY, or choose another provider.`
-	}
 	return event.error
 }
 

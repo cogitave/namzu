@@ -417,3 +417,37 @@ describe('Details are the same labelled fields on every wire', () => {
 		expect(describeFailure(driver['openai.quota'] ?? '').kind).toBe('out-of-credit')
 	})
 })
+
+describe('Zen declining a free model that carried no key', () => {
+	const refused = describeFailure(
+		'zen (HTTP 403) — the provider rejected the request credentials: {"type":"error","error":{"type":"FreeTierError","message":"This free tier is not available to this client"}}',
+	)
+
+	it('says a true sentence and never blames a key', () => {
+		expect(refused.kind).toBe('free-refused')
+		expect(refused.text).toBe(
+			'Zen didn’t accept the free model right now. Try again in a while, or choose another provider. A Zen API key also works.',
+		)
+		expect(refused.text).not.toMatch(/your key|OpenCode|imitat|impersonat|policy/i)
+		expect(refused.actions).toEqual(['try-again', 'settings'])
+	})
+
+	it('keeps the technical detail under Details', () => {
+		expect(refused.details).toContain('Status: 403')
+		expect(refused.details).toContain('free tier is not available')
+		expect(refused.details).toContain('FreeTierError')
+	})
+
+	it('leaves a 403 about a key, and other providers, on their own copy', () => {
+		expect(
+			describeFailure(
+				'zen (HTTP 403) — the provider rejected the request credentials: Invalid API key',
+			).kind,
+		).toBe('rejected-key')
+		expect(
+			describeFailure(
+				'openai (HTTP 403) — the provider rejected the request credentials: free tier not available',
+			).kind,
+		).toBe('rejected-key')
+	})
+})

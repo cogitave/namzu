@@ -761,8 +761,8 @@ What it holds, and where each value lives (one source of truth per value):
   not) and *Bring terminal tabs back* (see [Terminal tabs](#terminal-tabs)).
 - **Models** — which providers Namzu can answer with and how each is connected: a key in the
   environment (the variable's name, never its value), a key saved here, an existing `claude-code` or
-  Codex sign-in, an OpenCode key, a local server, or the keyless free tier (listed as free, not
-  as a connection). See [Connecting a provider](#connecting-a-provider).
+  Codex sign-in, an OpenCode key, a local server, or the keyless free tier (listed as free, and
+  used when nothing else is found). See [Connecting a provider](#connecting-a-provider).
 - **Projects** — every project (name, path shortened with `~` and the whole path on hover, trusted state) with **Remove…**; a project whose folder is gone reads "Folder not found" and also offers **Locate folder**, and *Ask again when a
   project's automatic settings change* (default on). See
   [Trust again when automatic settings change](#trust-again-when-automatic-settings-change).
@@ -812,16 +812,29 @@ renderer API is `settings()`, `setSettings(patch)`, `desktopInfo()` and `openDat
 
 ## Connecting a provider
 
-A first-timer has no provider, and Namzu says so before anything is sent instead of letting a message
-fail. While no provider can answer, the composer shows **Add an API key or sign in to start** with one
-button, **Connect a provider**, which opens **Settings ▸ Models**. Send is visibly disabled
-(`aria-disabled`, so its tooltip "Connect a provider to send" can still be read) and it, like Enter in
-the message box, only moves focus to that card and sends nothing; the starter chips are hidden and the
-model trigger reads "No provider connected". Only providers a person connected count: the keyless free
-Zen tier is listed, but as "Free models. Needs a free Zen key." with **Add key** and **Get a free key**
-(opens opencode.ai/zen), because Namzu does not use it without a key (the gateway refuses a direct
-anonymous request outside OpenCode's own client, see [Zen](../sdk/zen.md)), so it does not end the
-empty state.
+Models work on first open, with nothing to set up. When the project connects, the CLI host looks at
+the computer (`discoverProviders`, the same discovery the terminal app runs) and the window starts on
+the best thing it found, in this order when nothing is saved: a sign-in Namzu already reuses (see
+[Provider credentials](credentials.md)), then an API key in the environment, then a local server
+(Ollama on port 11434, LM Studio on port 1234; each probe has a 300 ms deadline, all probes run at
+the same time, and the window never waits on them to paint or to type), then the keyless Zen free models, exactly as the
+terminal app offers them. A saved choice always wins over all of these. `namzu/providers/status`
+carries `via` on each provider (`sign-in`, `key`, `local` or `free`) and `selected.automatic` while
+the pick is Namzu's own; the composer then shows one quiet line under the box, in plain words and
+only while nothing was chosen: "Using your Codex sign-in, found on this computer.", "Using your
+OpenAI key, found on this computer.", "Using Ollama running on this computer." or "Using a free Zen
+model, so there is nothing to set up. You can connect your own provider in Settings." The keyless free
+models count as usable, so the starter ideas show and Send works at once; the automatic pick is never
+saved, so a key or sign-in added later wins on the next open.
+
+Only a computer with nothing at all to answer with shows the card: the composer then shows **Add an
+API key or sign in to start** with one button, **Connect a provider**, which opens **Settings ▸
+Models**. Send is visibly disabled (`aria-disabled`, so its tooltip "Connect a provider to send" can
+still be read) and it, like Enter in the message box, only moves focus to that card and sends
+nothing; the starter chips are hidden and the model trigger reads "No provider connected". In
+Settings ▸ Models the free tier is listed as "Free models, no key needed. Limits may apply." with
+**Add key** and **Get a free key** (opens opencode.ai/zen). Zen may decline a free request; see
+[What a failed reply says](#what-a-failed-reply-says).
 
 **Settings ▸ Models** lists every provider this build can drive, connected ones first. A row says in
 plain words how it is connected ("Connected with the key you saved", "…with your Codex sign-in",
@@ -862,6 +875,7 @@ removed, key-shaped text hidden, at most 500 characters): `src/renderer/friendly
 | Cannot reach the provider | Namzu couldn't reach OpenAI. Check your internet connection. | Retry |
 | 401 | OpenAI didn't accept your key. Check it in Settings, then send again. | Open model settings |
 | 403 naming a model | Your OpenAI account can't use gpt-5. Choose another model. | Open model settings |
+| Zen 403 on a free model (no key was sent) | Zen didn’t accept the free model right now. Try again in a while, or choose another provider. A Zen API key also works. | Retry, open model settings |
 | 404 | OpenAI doesn't offer that model to your account. Choose another model. | Open model settings |
 | 408 / timeout | OpenAI took too long to answer. Try again. | Retry |
 | 413 | This message is too large for OpenAI. Shorten it or remove an attachment, then send again. | none |

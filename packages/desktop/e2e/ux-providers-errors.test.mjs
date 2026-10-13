@@ -93,33 +93,25 @@ flow(
 	{ noKey: true, rules: [{ match: /hello/i, steps: [{ text: "Scripted hello back." }] }] },
 	async (w) => {
 		await openProject(w);
-		// Before anything is typed or sent: one clear sentence and one primary action.
+		// With nothing connected Namzu starts on the free Zen models, so the box is ready at once:
+		// no card, Send is enabled, and one quiet line says what was picked. Nothing is sent here,
+		// so no model is called.
 		await expect(
 			w.page.getByRole("heading", { name: "Add an API key or sign in to start" }),
-		).toBeVisible({ timeout: T });
+		).toHaveCount(0);
 		await box(w).fill("make me a small website");
-		// Send looks and acts disabled, says why, and both it and Enter lead to the card that fixes it.
 		const send = w.page.getByRole("button", { name: "Send message" });
-		await expect(send).toHaveAttribute("aria-disabled", "true");
-		await send.hover();
-		await expect(w.page.getByText("Connect a provider to send")).toBeVisible({ timeout: T });
-		await shot(w, "01-send-tooltip-dark");
-		await box(w).press("Enter");
-		await expect(w.page.getByRole("button", { name: "Connect a provider" })).toBeFocused();
-		await box(w).focus();
-		await send.click({ force: true });
-		await expect(w.page.getByRole("button", { name: "Connect a provider" })).toBeFocused();
+		await expect(send).toBeEnabled({ timeout: T });
+		await expect(send).not.toHaveAttribute("aria-disabled", "true");
+		await expect(
+			w.page.getByText("Using a free Zen model, so there is nothing to set up."),
+		).toBeVisible({ timeout: T });
 		assert.equal(w.model.requests.length, 0, "nothing was sent to a model");
-		assert.equal(await box(w).inputValue(), "make me a small website", "the text is kept");
-		await expect(w.page.getByText("Ideas to get started")).toHaveCount(0);
-		await shots(w, "01-no-provider-empty-state");
+		await shots(w, "01-free-models-ready");
 
-		await w.page.getByRole("button", { name: "Connect a provider" }).click();
-		await expect(w.page.getByRole("heading", { level: 1, name: "Models", exact: true })).toBeVisible({
-			timeout: T,
-		});
+		await openModels(w);
 		await expect(w.page.getByText("Not connected").first()).toBeVisible({ timeout: T });
-		await expect(w.page.getByText("Free models. Needs a free Zen key.")).toBeVisible();
+		await expect(w.page.getByText("Free models, no key needed. Limits may apply.")).toBeVisible();
 		await shots(w, "02-models-section-before");
 
 		const add = w.page.getByRole("button", { name: "Add an API key for OpenAI", exact: true });
@@ -172,9 +164,10 @@ flow(
 		await expect(w.page.getByText("The saved key was removed.")).toBeVisible({ timeout: T });
 		assert.equal(existsSync(stored), false, "the last key leaves no file behind");
 		await w.page.getByRole("button", { name: "Home", exact: true }).click();
+		// The free models are still there, so the box stays ready.
 		await expect(
 			w.page.getByRole("heading", { name: "Add an API key or sign in to start" }),
-		).toBeVisible({ timeout: T });
+		).toHaveCount(0, { timeout: T });
 	},
 );
 
@@ -183,7 +176,7 @@ flow(
 	{ noKey: true, rules: [] },
 	async (w) => {
 		await openProject(w);
-		await w.page.getByRole("button", { name: "Connect a provider" }).click();
+		await openModels(w);
 		await w.page.getByRole("button", { name: "Add an API key for OpenAI", exact: true }).click();
 		const field = w.page.getByLabel("OpenAI API key");
 		await field.fill("two words");

@@ -31,6 +31,7 @@ import {
 	ComposerSettings,
 } from './composer-settings.js'
 import { ComposerSurface } from './composer-surface.js'
+import { automaticChoiceNote } from './first-open-note.js'
 import { type EngineSurfaceControl, engineLabel } from './harness-picker.js'
 import {
 	ArrowUpIcon,
@@ -249,11 +250,15 @@ export function Composer({
 	const hasDraft = draft.length > 0 || attachments.length > 0
 	const [pasteNotice, setPasteNotice] = useState<string>()
 	const cliMode = !compact && surface?.value === 'cli'
-	// Free keyless models are offered but are not a provider the person connected.
+	// Only a computer with nothing to answer with (not even the free models) shows the card.
 	const noProvider = !providersLoading && usableProviders(providers).length === 0 && !cliMode
 	// With nothing connected, Enter and the Send button lead to the card that fixes it.
 	const focusConnectCard = () =>
 		document.getElementById('provider-empty-connect')?.focus({ preventScroll: false })
+	const automaticNote =
+		empty && !compact && !cliMode && !noProvider
+			? automaticChoiceNote(providers, choice, choiceUnchosen === true)
+			: undefined
 	const cliLabel = engineLabel(harnessView, permissionEngine ?? harnessView?.selected ?? 'namzu')
 	const modelControl = (
 		<ModelPicker
@@ -909,6 +914,11 @@ export function Composer({
 								})}
 							</div>
 						)}
+					{automaticNote && (
+						<p className="provider-auto-note" data-slot="provider-auto-note">
+							{automaticNote}
+						</p>
+					)}
 					{noProvider && (
 						<section className="provider-empty" aria-labelledby="provider-empty-title">
 							<h2 id="provider-empty-title">Add an API key or sign in to start</h2>

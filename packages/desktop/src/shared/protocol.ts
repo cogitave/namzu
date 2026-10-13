@@ -296,10 +296,13 @@ export interface ProviderView {
 		defaultModel: string
 		/** An external engine's installed build; a stored model list is keyed by it. */
 		identity?: string
-		/** Free models with no key: listed, but not a connection a person set up. */
+		/** Free models with no key: usable, but not a connection a person set up. */
 		anonymous?: true
+		/** How Namzu found it: a sign-in or key already on this computer, a local server, or the free models. */
+		via?: 'sign-in' | 'key' | 'local' | 'free'
 	}[]
-	selected: { id: string; model?: string } | null
+	/** `automatic`: nothing was saved, so this is what Namzu found and picked by itself. */
+	selected: { id: string; model?: string; automatic?: true } | null
 }
 /** One provider in Settings ▸ Models. Never carries a key. */
 export interface ProviderConnectionView {

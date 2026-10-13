@@ -27,7 +27,7 @@ import { fileURLToPath } from 'node:url'
 import { FileCheckpointStore, type TurnUndoStatus, type UndoPreview } from '../checkpoints/store.js'
 import { resolveTrustedProjectContext } from '../config/trusted-project-context.js'
 import { type PluginInventoryView, readPluginInventory } from '../integrations/plugins/inventory.js'
-import { canSelectModel, hasApiCredential } from '../integrations/providers/access.js'
+import { canSelectModel } from '../integrations/providers/access.js'
 import {
 	type ComposerModelSettings,
 	validateComposerSendSettings,
@@ -39,7 +39,11 @@ import {
 	saveProviderKey,
 	typedKeyProvider,
 } from '../integrations/providers/connections.js'
-import { discoverProviders } from '../integrations/providers/discover.js'
+import {
+	automaticKind,
+	discoverProviders,
+	isAnonymousZen,
+} from '../integrations/providers/discover.js'
 import type { DetectedProvider, Preferences } from '../integrations/providers/index.js'
 import { isOfferableModel } from '../integrations/providers/zen-catalogue.js'
 import {
@@ -1602,16 +1606,25 @@ export function createCliAcpRuntime(
 		providerStatus: async (sessionId) => {
 			const probe = await sharedProbe()
 			const choice = (await preferencesFor(sessionId, probe))?.providers[0]
+			// Nothing saved and no conversation choice: the first entry is what Namzu found on its
+			// own, best first (a sign-in, a key, a local server, then the free Zen models).
+			const automatic =
+				!probe.preferences && !(sessionId && selections.has(sessionId)) && !choice?.model
 			return {
-				available: probe.detected.map(({ entry, apiKey }) => ({
-					id: entry.id,
-					label: entry.label,
-					defaultModel: entry.defaultModel,
-					// Free models without a key: listed, but not a connection a person set up.
-					...(entry.id === 'zen' && !hasApiCredential(entry, apiKey) ? { anonymous: true } : {}),
+				available: probe.detected.map((found) => ({
+					id: found.entry.id,
+					label: found.entry.label,
+					defaultModel: found.entry.defaultModel,
+					// Free models without a key: usable, but not something a person set up.
+					...(isAnonymousZen(found) ? { anonymous: true } : {}),
+					via: automaticKind(found),
 				})),
 				selected: choice
-					? { id: choice.id, ...(choice.model ? { model: choice.model } : {}) }
+					? {
+							id: choice.id,
+							...(choice.model ? { model: choice.model } : {}),
+							...(automatic ? { automatic: true } : {}),
+						}
 					: null,
 			}
 		},

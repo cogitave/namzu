@@ -19,7 +19,10 @@ const row = (over: Partial<ProviderConnectionView>): ProviderConnectionView => (
 describe('connectionStatus', () => {
 	it.each([
 		[{ state: 'not-connected' as const }, 'Not connected'],
-		[{ state: 'free' as const, how: 'free' as const }, 'Free models. Needs a free Zen key.'],
+		[
+			{ state: 'free' as const, how: 'free' as const },
+			'Free models, no key needed. Limits may apply.',
+		],
 		[
 			{ how: 'environment' as const, envName: 'OPENAI_API_KEY' },
 			'Connected with a key from your computer’s settings',

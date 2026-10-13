@@ -3,8 +3,7 @@ import type { ProviderConnectionView, ProviderTestResult } from '../shared/proto
 /** Plain words for how a provider is connected. Never carries a key. */
 export function connectionStatus(row: ProviderConnectionView): string {
 	if (row.state === 'not-connected') return 'Not connected'
-	// Namzu counts a provider only once a key is saved; the free models need a free key from Zen.
-	if (row.state === 'free') return 'Free models. Needs a free Zen key.'
+	if (row.state === 'free') return 'Free models, no key needed. Limits may apply.'
 	switch (row.how) {
 		case 'environment':
 			return 'Connected with a key from your computer’s settings'

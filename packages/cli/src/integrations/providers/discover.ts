@@ -117,7 +117,7 @@ export interface DiscoverOptions {
 	readonly home?: string
 	/** Override the fetch impl for probe URLs (tests inject a mock). */
 	readonly fetch?: typeof fetch
-	/** Probe deadline in ms (default 500). */
+	/** Probe deadline in ms (default 300). */
 	readonly probeTimeoutMs?: number
 	/** Skip network probes entirely (tests, offline mode). */
 	readonly skipProbes?: boolean
@@ -159,7 +159,7 @@ export function signedInSubscriptionProviders(
 	})
 }
 
-const DEFAULT_PROBE_TIMEOUT_MS = 500
+const DEFAULT_PROBE_TIMEOUT_MS = 300
 
 export async function discoverProviders(
 	opts: DiscoverOptions = {},
@@ -235,6 +235,15 @@ export async function discoverProviders(
 			? candidate
 			: current
 	}, null)
+
+	// Local servers are asked at the same moment, so a machine with none costs one deadline
+	// rather than one per server. Each answer is only read for a provider with no other source.
+	const probes = new Map<ProviderId, Promise<boolean>>()
+	if (!opts.skipProbes) {
+		for (const probed of Object.values(PROVIDER_REGISTRY)) {
+			if (probed.probeUrl) probes.set(probed.id, probe(probed.probeUrl, opts))
+		}
+	}
 
 	for (const id of Object.keys(PROVIDER_REGISTRY) as readonly ProviderId[]) {
 		const entry = PROVIDER_REGISTRY[id]
@@ -396,8 +405,8 @@ export async function discoverProviders(
 			if (id === 'zen' && sources.length === 0) sources.push({ kind: 'public' })
 		}
 		if (id === 'zen-go' && anonymousSelected) continue
-		if (sources.length === 0 && entry.probeUrl && !opts.skipProbes) {
-			const reachable = await probe(entry.probeUrl, opts)
+		if (sources.length === 0 && entry.probeUrl && probes.has(id)) {
+			const reachable = await probes.get(id)
 			if (reachable) {
 				sources.push({ kind: 'probe', url: entry.probeUrl })
 			}
@@ -415,12 +424,73 @@ export async function discoverProviders(
 			})
 		}
 	}
-	// A public fallback should not displace an existing account or local server
-	// when a headless caller has no saved provider preference. An explicit
-	// public environment marker retains env provenance but is still anonymous.
-	const anonymous = (provider: DetectedProvider) =>
-		provider.entry.id === 'zen' && !hasApiCredential(provider.entry, provider.apiKey)
-	return detected.sort((left, right) => Number(anonymous(left)) - Number(anonymous(right)))
+	// With nothing saved the first entry is the default: a sign-in already on this computer, then
+	// an API key, then a local server, then the keyless Zen free models. The sort is stable, so
+	// the registry order still decides between two of the same kind. An explicit public
+	// environment marker retains env provenance but is still anonymous.
+	return detected.sort((left, right) => automaticRank(left) - automaticRank(right))
+}
+
+/** Whether this is the keyless Zen free tier: offered, but nothing the person connected. */
+export function isAnonymousZen(provider: DetectedProvider): boolean {
+	return provider.entry.id === 'zen' && !hasApiCredential(provider.entry, provider.apiKey)
+}
+
+/** How a provider was found, in the order a first open prefers them. */
+export type AutomaticKind = 'sign-in' | 'key' | 'local' | 'free'
+
+const AUTOMATIC_ORDER: readonly AutomaticKind[] = ['sign-in', 'key', 'local', 'free']
+
+export function automaticKind(provider: DetectedProvider): AutomaticKind {
+	if (isAnonymousZen(provider)) return 'free'
+	if (signedInSubscriptionProviders([provider]).length > 0) return 'sign-in'
+	if (provider.source?.kind === 'probe') return 'local'
+	return 'key'
+}
+
+function automaticRank(provider: DetectedProvider): number {
+	return AUTOMATIC_ORDER.indexOf(automaticKind(provider))
+}
+
+/**
+ * What to start with when nothing is saved: the best thing found, never something that needs
+ * setting up. Null only when nothing at all is available.
+ */
+export function automaticChoice(
+	detected: readonly DetectedProvider[],
+): { readonly provider: DetectedProvider; readonly kind: AutomaticKind } | null {
+	const ranked = [...detected].sort((left, right) => automaticRank(left) - automaticRank(right))
+	const provider = ranked[0]
+	return provider ? { provider, kind: automaticKind(provider) } : null
+}
+
+/**
+ * The sentence that says what was picked, in plain words: no ids, no variable names.
+ * The person can change it from the model picker.
+ */
+export function describeAutomaticChoice(choice: {
+	readonly provider: DetectedProvider
+	readonly kind: AutomaticKind
+}): string {
+	const { provider, kind } = choice
+	const product = provider.entry.label.replace(/\s*\(.*\)\s*$/, '').trim() || provider.entry.label
+	switch (kind) {
+		case 'sign-in': {
+			const account =
+				provider.entry.id === 'anthropic'
+					? 'Claude'
+					: provider.entry.id === 'codex'
+						? 'ChatGPT or Codex'
+						: product
+			return `Using your ${account} sign-in, found on this computer.`
+		}
+		case 'key':
+			return `Using your ${product} key, found on this computer.`
+		case 'local':
+			return `Using ${product} running on this computer.`
+		case 'free':
+			return 'Using a free Zen model, so there is nothing to set up. Connect your own provider any time.'
+	}
 }
 
 async function probe(url: string, opts: DiscoverOptions): Promise<boolean> {
