@@ -47,7 +47,12 @@ export async function readStdin(opts: { readonly deadline?: boolean } = {}): Pro
 	let settleFirstByte: (() => void) | undefined
 	const firstByte = new Promise<void>((resolve) => {
 		settleFirstByte = resolve
-		timer = setTimeout(settleFirstByte, FIRST_BYTE_DEADLINE_MS)
+		// Not `settleFirstByte` itself: the deadline can expire while the command
+		// is busy with something synchronous (it overlaps this wait with loading
+		// its modules), and timers run before the poll phase that reads the
+		// pipe. Settling at once would call input that is already in the pipe
+		// "silence"; one turn of the loop lets it be read first.
+		timer = setTimeout(() => setImmediate(resolve), FIRST_BYTE_DEADLINE_MS)
 		input.once('readable', settleFirstByte)
 		input.once('end', settleFirstByte)
 	})
