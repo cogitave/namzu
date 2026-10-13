@@ -68,7 +68,10 @@ describe('the startup compile cache', () => {
 		mkdirSync(target)
 		symlinkSync(target, link, 'dir')
 
-		const outcome = enableStartupCompileCache({ env: { NAMZU_HOME: link }, module: { enableCompileCache } })
+		const outcome = enableStartupCompileCache({
+			env: { NAMZU_HOME: link },
+			module: { enableCompileCache },
+		})
 
 		expect(outcome.state).toBe('enabled')
 		expect(enableCompileCache).toHaveBeenCalledWith(join(link, 'cache', 'compile'))
