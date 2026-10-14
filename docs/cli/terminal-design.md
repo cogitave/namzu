@@ -474,7 +474,8 @@ there is no separate "stay at the bottom" state. PgUp does nothing when the
 whole conversation already fits on screen. There is no Ctrl alias: Ctrl+R and
 Ctrl+B are the composer's own keys. The mouse wheel is not read, because the
 terminal keeps it for scrollback and the app does not switch on mouse
-reporting.
+reporting. A permission request, a skill-save screen or a schedule review also
+closes the box, so the screen that needs an answer gets the keys.
 
 While the box is open one quiet row above the composer says how to get back,
 centered, in the longest form that fits the width: `↓ Back to bottom · esc`,

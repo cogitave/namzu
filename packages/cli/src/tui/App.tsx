@@ -4692,6 +4692,13 @@ export function App({
 	useEffect(() => {
 		if (permission !== null) setOutputViewer(null)
 	}, [permission])
+	// The scroll view hides itself under a permission request or a review screen, but
+	// it also swallows the main input handler's keys while it is open, so it has to
+	// close: otherwise the request on screen could not be answered.
+	useEffect(() => {
+		if (permission !== null || saveSkillPrompt !== null || scheduleReviewPrompt !== null)
+			setScrollOpen(false)
+	}, [permission, saveSkillPrompt, scheduleReviewPrompt])
 	// A ref, and mutated during render, because the split has to be MONOTONIC:
 	// a row that has been printed to scrollback can never come back, and `max`
 	// is idempotent, so a repeated render reaches the same answer.
@@ -10010,7 +10017,7 @@ export function App({
 
 	useInput(
 		(input, key) => {
-			if (outputViewer !== null || scrollOpen) return
+			if (outputViewer !== null || (scrollOpen && permission === null)) return
 			// The save-skill screen owns its keys, Esc and Ctrl+C included: neither
 			// may interrupt the turn that is waiting on its answer. A permission
 			// request (an agent's, say) takes the screen over it and gets the keys.

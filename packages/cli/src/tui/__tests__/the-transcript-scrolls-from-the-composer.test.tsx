@@ -20,6 +20,9 @@ const PREFS: Preferences = {
 const sends: (SendOptions | undefined)[] = []
 /** Held open by the test so a reply can be mid-stream while the view is open. */
 let release: (() => void) | undefined
+/** When set, the held turn asks to run a tool as soon as it is released. */
+let askPermission = false
+const decisions: string[] = []
 
 vi.mock('../../integrations/trust/store.js', () => ({ isTrusted: () => true, trustDir: () => {} }))
 vi.mock('../../integrations/updates.js', () => ({ checkUpdates: async () => [] }))
@@ -77,6 +80,15 @@ vi.mock('../agent.js', async (importOriginal) => {
 					await new Promise<void>((resolve) => {
 						release = resolve
 					})
+					if (askPermission) {
+						const decision = await opts?.onPermission?.({
+							toolCalls: [
+								{ id: 'c1', name: 'bash', input: { command: 'echo hi' }, isDestructive: false },
+							],
+							sessionId: 's',
+						} as never)
+						if (decision) decisions.push(decision.kind)
+					}
 					yield { kind: 'delta', text: '\nfresh output' }
 				}
 				yield { kind: 'done', stopReason: 'end_turn' }
@@ -95,6 +107,8 @@ afterEach(async () => {
 	await mounted?.unmount()
 	mounted = null
 	sends.length = 0
+	decisions.length = 0
+	askPermission = false
 	vi.restoreAllMocks()
 })
 
@@ -161,4 +175,30 @@ it('says New activity when a reply streams on while the view is scrolled up', as
 	release?.()
 	await waitUntil(screen, () => shown(screen).includes('New activity · ↓ Back to bottom · esc'))
 	expect(screen.bufferType()).toBe('normal')
+})
+
+it('closes for a permission request, so the request can be answered', async () => {
+	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 80, rows: 30, scrollback: 400 })
+	mounted = screen
+	await waitUntil(screen, () => screen.scrollback().join('\n').includes('a-model'))
+	await say(screen, 'first', 1)
+	await waitUntil(screen, () => screen.scrollback().join('\n').includes('reply row 59'))
+	await say(screen, 'second', 2)
+	await waitUntil(screen, () => release !== undefined)
+	askPermission = true
+
+	screen.press(PAGE_UP)
+	await waitUntil(screen, () => shown(screen).includes('↓ Back to bottom · esc'))
+
+	release?.()
+	await waitUntil(screen, () => shown(screen).includes('Do you want to proceed'))
+	expect(shown(screen)).not.toContain('Back to bottom')
+
+	// An answer inside the prompt's settle window decides nothing, so move the clock past it.
+	const realNow = Date.now.bind(Date)
+	vi.spyOn(Date, 'now').mockImplementation(() => realNow() + 1000)
+	// A key answers the request; with the view still swallowing keys none ever did.
+	screen.press('y')
+	await waitUntil(screen, () => decisions.length === 1)
+	expect(decisions).toEqual(['approve'])
 })
