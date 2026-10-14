@@ -2130,6 +2130,17 @@ export function App({
 		[stdout.isTTY, writeStdout],
 	)
 
+	// The scroll view grows the live frame to nearly the screen height. When it
+	// closes Ink repaints the shorter frame in place, which strands the composer
+	// near the top with blank rows under it. Rebuild the transcript the way a
+	// resize does (clear, remount <Static>, reprint once) so the screen is tidy.
+	const scrollWasOpenRef = useRef(false)
+	useEffect(() => {
+		const wasOpen = scrollWasOpenRef.current
+		scrollWasOpenRef.current = scrollOpen
+		if (wasOpen && !scrollOpen) resetTranscript({ preserveOutputViewer: true })
+	}, [scrollOpen, resetTranscript])
+
 	const previousTerminalRef = useRef(terminal)
 	useEffect(() => {
 		const previous = previousTerminalRef.current

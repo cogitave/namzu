@@ -153,6 +153,14 @@ it('opens on Page Up, hints the way back, and End returns to the composer', asyn
 	await waitUntil(screen, () => !shown(screen).includes('Back to bottom'))
 	expect(screen.bufferType()).toBe('normal')
 	expect(screen.scrollback().join('\n')).toContain(scrollbackBefore.trimEnd().slice(-200))
+	// The shorter frame is repainted straight under the history, not left at the
+	// top of a stale screen, and the history is printed once.
+	const rows = screen.viewport()
+	const last = rows.findIndex((r) => r.includes('reply row 59'))
+	const box = rows.findIndex((r) => r.includes('MESSAGE'))
+	expect(last).toBeGreaterThanOrEqual(0)
+	expect(box - last).toBeLessThanOrEqual(2)
+	expect(screen.scrollback().join('\n').split('reply row 59').length - 1).toBe(1)
 
 	// The composer takes input again, as before.
 	screen.press('hello')
