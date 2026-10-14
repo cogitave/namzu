@@ -97,7 +97,14 @@ describe('the model can emit the idiom the description recommends', () => {
 		// request rather than one field — so the spelling here is load-bearing,
 		// not stylistic. The two are equivalent for disjoint branches.
 		// `minimum` is gone for the same reason; the execution schema keeps it.
-		expect(insert?.anyOf).toEqual([{ type: 'integer' }, { const: 'end' }])
+		//
+		// Every branch states a `type`. A branch that is a bare `{ const:
+		// 'end' }` is also outside the subset: the Zen free-tier gateway
+		// answers `Invalid schema for function 'edit': In context=('properties',
+		// 'insertLine', 'anyOf', '1'), schema must have a 'type' key` and
+		// refuses the whole request, so nothing mounts. Stating the type does
+		// not widen the branch — `"end"` is still the only string it admits.
+		expect(insert?.anyOf).toEqual([{ type: 'integer' }, { type: 'string', const: 'end' }])
 	})
 })
 

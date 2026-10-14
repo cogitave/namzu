@@ -1,6 +1,11 @@
 import { getModelCapabilities as getMessagesCapabilities } from '@ai-sdk/anthropic/internal'
 import type { LanguageModelV3CallOptions, SharedV3ProviderOptions } from '@ai-sdk/provider'
-import { type ChatCompletionParams, ProviderRequestError, type ProviderRoute } from '@namzu/sdk'
+import {
+	type ChatCompletionParams,
+	ProviderRequestError,
+	type ProviderRoute,
+	acceptsStrictSchema,
+} from '@namzu/sdk'
 import { ZEN_FREE_TIER_TOOL_NAMES } from './experimental-identity.js'
 import type { ZenModel, ZenProtocol, ZenService } from './models.js'
 import { isMuseSparkResponsesModel, toModelPrompt } from './prompt.js'
@@ -279,14 +284,25 @@ export function createCallOptions(
 						name: tool.function.name,
 						description: tool.function.description,
 						inputSchema: tool.function.parameters,
-						// Responses strict schemas cannot express Namzu's general
-						// tool contract (including conditional edit shapes). Like
-						// the Codex driver, retain the schema and validate inputs
-						// at execution; enforcement is a capability-dependent hint.
+						// Neither wire here can carry Namzu's general tool
+						// contract. Responses cannot express it at all, so it
+						// is always `strict: false`. The chat wire accepts the
+						// FLAG but applies the subset's structural rules
+						// itself, so claim it only for a schema that would
+						// survive them — the free-tier gateway refuses the
+						// whole request otherwise, taking every other tool in
+						// the call down with it. `edit` carries optional
+						// fields on purpose, so it gets the same answer as
+						// Responses; `write` requires both of its fields and
+						// keeps the guarantee. Like the Codex driver and
+						// OpenCode itself (`strict: false` on every tool), the
+						// schema is retained either way and inputs are
+						// validated at execution; enforcement is a
+						// capability-dependent hint.
 						...(protocol === 'responses'
 							? { strict: false }
 							: enforced.has(tool.function.name)
-								? { strict: true }
+								? { strict: acceptsStrictSchema(tool.function.parameters) }
 								: {}),
 					})),
 				}

@@ -36,6 +36,7 @@ The kernel.
 * [Plugin toolsets and lifecycle](plugins.md) - File and in-code plugins, source ownership, MCP servers, request context and revocation.
 * [Tool metadata and selectors](tool-metadata-and-selectors.md) - ToolDefinition.metadata as a host-only, never-on-the-wire data bag, matchesToolSelector's three selector shapes, and how an MCP server's annotations land in it.
 * [Portable tool schemas](tool-schema-portability.md) - One rendering valid in draft-07 and 2020-12, the profile that defines it, the normaliser that enforces it, and the sibling sweep for an undescribed field.
+* [Strict tool input schemas](strict-tool-schemas.md) - The strict-decoding subset, the two different questions a schema can be asked, and why a driver stops vouching for a guarantee the wire cannot carry.
 * [Registry collisions](registries.md) - One collision policy, one base error class, and which registry chose which policy and why.
 
 * [The computer_use tool](computer-actions.md) - Fitted, numbered screenshots and the coordinate contract, a screenshot after every action, batches, zoom, wait, windows, provider gating and exact per-host action declarations.

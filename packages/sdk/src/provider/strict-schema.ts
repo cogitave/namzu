@@ -157,6 +157,37 @@ export function findStrictSchemaViolations(schema: unknown, path = ''): StrictSc
 			})
 			continue
 		}
+		// Every branch of a union has to state its `type`.
+		//
+		// `anyOf` is in the subset but its BRANCHES are still schemas, and a
+		// branch that says only `{ const: 'end' }` says what value it admits
+		// without saying what kind of value it is. Measured on the Zen
+		// free-tier gateway, which enforces `strict` on every model that
+		// reaches it: the answer is `Invalid schema for function 'edit': In
+		// context=('properties', 'insertLine', 'anyOf', '1'), schema must have
+		// a 'type' key`, and it refuses the whole request — so the tool never
+		// mounts and the turn dies before a single token.
+		//
+		// This is the structural half the deny-list could not see: no keyword
+		// here is banned, only absent. Stating the type costs nothing, because
+		// `{ type: 'string', const: 'end' }` admits exactly the strings the
+		// bare form did.
+		if ((keyword === 'anyOf' || keyword === 'allOf') && Array.isArray(value)) {
+			for (const [index, branch] of value.entries()) {
+				if (
+					typeof branch !== 'object' ||
+					branch === null ||
+					Array.isArray(branch) ||
+					!('type' in branch)
+				) {
+					found.push({
+						path: `${here}[${index}]`,
+						keyword,
+						remedy: 'state a `type` on every branch of a union',
+					})
+				}
+			}
+		}
 		found.push(...findStrictSchemaViolations(value, here))
 	}
 	return found
@@ -179,4 +210,63 @@ export function assertStrictSchema(toolName: string, schema: unknown): void {
 	throw new Error(
 		`Tool "${toolName}" is marked for strict input validation, but its model-facing schema uses ${violations.length} construct(s) the strict subset does not accept. The request would be rejected whole, taking every other tool in it down as well.\n${detail}`,
 	)
+}
+
+/**
+ * Whether a wire enforcing `strict` would actually take this schema.
+ *
+ * Wider than {@link findStrictSchemaViolations}, and the difference is not
+ * redundancy. That function answers "can this schema be SAID in the strict
+ * dialect" — it denies keywords the dialect has no spelling for, and it is
+ * what registration checks, because a schema that fails it could never be
+ * sent anywhere. A schema can pass it and still be REFUSED by a wire that
+ * applies the dialect's structural rules on top, and the two questions have
+ * different owners: registration decides whether a tool may ask for the
+ * guarantee at all, a driver decides whether to claim it on THIS wire.
+ *
+ * The structural rule measured here: every object that declares `properties`
+ * must list all of them in `required`. The Zen free-tier gateway says so in
+ * as many words — `In context=('properties', 'edits', 'items'), 'required' is
+ * required to be supplied and to be an array including every key in
+ * properties` — and it refuses the WHOLE request, so one optional field in one
+ * tool takes every other tool in the call down with it.
+ *
+ * That is why a driver must ask rather than assume. Namzu's tool contracts are
+ * written with optional fields, on purpose: `edit` accepts a find-and-replace
+ * OR an insertion, and saying "either, never both" as `required` on a union
+ * would be a worse schema, not a stricter one. So the schema stays as it is
+ * and the driver stops vouching for a guarantee the wire cannot carry — the
+ * same call the Zen driver already makes for the Responses wire, and the one
+ * OpenCode makes for every tool on this gateway (`strict: false`).
+ */
+export function acceptsStrictSchema(schema: unknown): boolean {
+	// A missing schema cannot be vouched for. `findStrictSchemaViolations`
+	// walks nothing in `undefined` and finds nothing, so without this the
+	// predicate would answer `true` for a tool that declared no schema at all
+	// — and the driver would put `strict: true` on a wire whose `parameters`
+	// came from somewhere else entirely.
+	if (typeof schema !== 'object' || schema === null || Array.isArray(schema)) return false
+	if (findStrictSchemaViolations(schema).length > 0) return false
+	return !hasUngatedProperties(schema)
+}
+
+/**
+ * Whether any object declares `properties` without requiring all of them.
+ */
+function hasUngatedProperties(node: unknown): boolean {
+	if (Array.isArray(node)) return node.some((item) => hasUngatedProperties(item))
+	if (typeof node !== 'object' || node === null) return false
+
+	const record = node as Record<string, unknown>
+	const properties = record.properties
+	if (
+		typeof properties === 'object' &&
+		properties !== null &&
+		!Array.isArray(properties) &&
+		(!Array.isArray(record.required) ||
+			Object.keys(properties).some((key) => !(record.required as unknown[]).includes(key)))
+	)
+		return true
+
+	return Object.values(record).some((value) => hasUngatedProperties(value))
 }

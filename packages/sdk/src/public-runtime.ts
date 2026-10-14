@@ -268,6 +268,7 @@ export {
 // Strict tool input is a SUBSET of JSON Schema, and a keyword outside it makes
 // the vendor reject the whole request rather than degrade one field.
 export {
+	acceptsStrictSchema,
 	assertStrictSchema,
 	findStrictSchemaViolations,
 } from './provider/strict-schema.js'
