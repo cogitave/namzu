@@ -213,11 +213,22 @@ const modelInputSchema: Record<string, unknown> = {
 			// The two branches are disjoint, so `anyOf` and `oneOf` mean the
 			// same thing here — nothing is loosened.
 			//
+			// Every branch carries a `type`. The strict subset does not let a
+			// branch be a bare `{ const: 'end' }`: a validator answers
+			// `Invalid schema for function 'edit': In context=('properties',
+			// 'insertLine', 'anyOf', '1'), schema must have a 'type' key` and
+			// refuses the WHOLE request, so the tool never mounts and the turn
+			// dies before a single token. Stating `{ type: 'string', const:
+			// 'end' }` says the same thing — `"end"` is still the only string
+			// the branch admits — and satisfies the subset. Observed on the
+			// Zen free-tier gateway, which enforces `strict` on every model
+			// that reaches it.
+			//
 			// `minimum` is gone for the same reason: numeric constraints are
 			// outside the strict subset too. The bound is not lost — the
 			// execution schema still enforces it, which is where a value that
 			// crosses a boundary should be checked anyway.
-			anyOf: [{ type: 'integer' }, { const: 'end' }],
+			anyOf: [{ type: 'integer' }, { type: 'string', const: 'end' }],
 			description:
 				'Insert instead of replacing. The new_string goes after this 1-indexed line; 0 inserts before the first line; "end" appends. Omit for a find-and-replace.',
 		},

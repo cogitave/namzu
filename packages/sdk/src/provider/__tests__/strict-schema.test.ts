@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
 import { getBuiltinTools } from '../../tools/builtins/index.js'
-import { assertStrictSchema, findStrictSchemaViolations } from '../strict-schema.js'
+import {
+	acceptsStrictSchema,
+	assertStrictSchema,
+	findStrictSchemaViolations,
+} from '../strict-schema.js'
 
 /**
  * Strict tool input validates against a SUBSET of JSON Schema, and a keyword
@@ -73,11 +77,53 @@ describe('the violation report names the exact path', () => {
 		const schema = {
 			type: 'object',
 			properties: {
-				insertLine: { anyOf: [{ type: 'integer' }, { const: 'end' }] },
+				insertLine: {
+					anyOf: [{ type: 'integer' }, { type: 'string', const: 'end' }],
+				},
 			},
 		}
 
 		expect(findStrictSchemaViolations(schema)).toEqual([])
+	})
+
+	it('refuses a union branch that never states what kind of value it is', () => {
+		// The structural half the deny-list could not see: nothing here is a
+		// banned keyword, one branch is merely missing its `type`. Measured on
+		// the Zen free-tier gateway, which enforces `strict` on every model
+		// that reaches it — the answer refuses the WHOLE request, so no tool
+		// mounts and the turn dies before a token:
+		//
+		//   Invalid schema for function 'edit': In context=('properties',
+		//   'insertLine', 'anyOf', '1'), schema must have a 'type' key.
+		const bare = {
+			type: 'object',
+			properties: {
+				insertLine: { anyOf: [{ type: 'integer' }, { const: 'end' }] },
+			},
+		}
+
+		expect(findStrictSchemaViolations(bare)).toEqual([
+			{
+				path: 'properties.insertLine.anyOf[1]',
+				keyword: 'anyOf',
+				remedy: 'state a `type` on every branch of a union',
+			},
+		])
+	})
+
+	it('checks every branch, and allOf too', () => {
+		const schema = {
+			type: 'object',
+			properties: {
+				a: { anyOf: [{}, { type: 'string' }] },
+				b: { allOf: [{ type: 'string' }, { const: 'x' }] },
+			},
+		}
+
+		expect(findStrictSchemaViolations(schema).map((v) => `${v.path} ${v.remedy}`)).toEqual([
+			'properties.a.anyOf[0] state a `type` on every branch of a union',
+			'properties.b.allOf[1] state a `type` on every branch of a union',
+		])
 	})
 
 	it('reports the bounds the wire refuses, and only those', () => {
@@ -160,7 +206,11 @@ describe('the violation report names the exact path', () => {
 	it('walks into arrays of subschemas', () => {
 		const schema = { anyOf: [{ type: 'string' }, { not: { type: 'null' } }] }
 
-		expect(findStrictSchemaViolations(schema)[0]?.path).toBe('anyOf[1].not')
+		const paths = findStrictSchemaViolations(schema).map((v) => v.path)
+		// That second branch has no `type`, so the union rule reports it first;
+		// the `not` path is what proves the walk happened at all.
+		expect(paths).toContain('anyOf[1]')
+		expect(paths).toContain('anyOf[1].not')
 	})
 
 	it('leaves ordinary annotations alone', () => {
@@ -185,5 +235,84 @@ describe('assertStrictSchema refuses rather than letting the request go', () => 
 
 	it('says nothing about a schema that is expressible', () => {
 		expect(() => assertStrictSchema('edit', { type: 'object' })).not.toThrow()
+	})
+})
+
+describe('acceptsStrictSchema is the wider question a driver asks', () => {
+	it('admits a schema the strict dialect can say and a wire would take', () => {
+		expect(
+			acceptsStrictSchema({
+				type: 'object',
+				properties: { path: { type: 'string' } },
+				required: ['path'],
+				additionalProperties: false,
+			}),
+		).toBe(true)
+	})
+
+	it('refuses a tool that declared no schema at all', () => {
+		// The deny-list walks nothing in `undefined` and finds nothing, so the
+		// guard is what stops a driver vouching for strict on a schema it
+		// never received.
+		expect(acceptsStrictSchema(undefined)).toBe(false)
+		expect(acceptsStrictSchema(null)).toBe(false)
+		expect(acceptsStrictSchema([])).toBe(false)
+		expect(acceptsStrictSchema('object')).toBe(false)
+	})
+
+	it('refuses a schema that fails the deny-list, as registration does', () => {
+		expect(
+			acceptsStrictSchema({
+				type: 'object',
+				properties: { a: { type: 'string', oneOf: [{ type: 'string' }] } },
+				required: ['a'],
+			}),
+		).toBe(false)
+	})
+
+	it('refuses an object that declares properties without requiring all of them', () => {
+		expect(
+			acceptsStrictSchema({
+				type: 'object',
+				properties: { a: { type: 'string' }, b: { type: 'string' } },
+				required: ['a'],
+			}),
+		).toBe(false)
+	})
+
+	it('refuses an object that declares properties with no required at all', () => {
+		expect(acceptsStrictSchema({ type: 'object', properties: { a: { type: 'string' } } })).toBe(
+			false,
+		)
+	})
+
+	it('looks inside nested objects and arrays of subschemas', () => {
+		expect(
+			acceptsStrictSchema({
+				type: 'object',
+				properties: {
+					path: { type: 'string' },
+					items: {
+						type: 'array',
+						items: {
+							type: 'object',
+							properties: { old_string: { type: 'string' }, flag: { type: 'boolean' } },
+							required: ['old_string'],
+						},
+					},
+				},
+				required: ['path', 'items'],
+			}),
+		).toBe(false)
+	})
+
+	it('answers for the builtin tools the built-in gate pairs it with', () => {
+		const byName = new Map(
+			getBuiltinTools().map((tool) => [tool.name, tool.modelInputSchema] as const),
+		)
+
+		expect(byName.get('edit')).toBeDefined()
+		expect(acceptsStrictSchema(byName.get('edit'))).toBe(false)
+		expect(acceptsStrictSchema(byName.get('write'))).toBe(true)
 	})
 })

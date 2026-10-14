@@ -495,9 +495,18 @@ omitted strictness as strict generation and rejecting valid Namzu tool
 schemas, such as an edit tool with optional `edits`. This also applies to
 tools named in `enforceToolInputSchema`: that field is a capability-dependent
 hint, and Responses strict generation cannot represent Namzu's general
-conditional and optional tool schemas. The schemas remain unchanged, and
-Namzu validates tool inputs before execution. Other protocols retain their
-own enforcement behavior.
+conditional and optional tool schemas.
+
+The chat-class wires claim `strict: true` only for a schema that would survive
+the same subset, which is wider than "sayable" — see
+[Strict tool input schemas](strict-tool-schemas.md). `write` requires both of
+its fields and keeps the guarantee; `edit` declares optional fields on purpose
+and sends `strict: false`. The gateway enforces the subset's structural rules
+itself and refuses the whole request when one tool fails, so claiming strict for
+`edit` took `write` down with it on `cat-jam-free`. A tool named in
+`enforceToolInputSchema` that carries no schema is never claimed either. In
+every case the schemas remain unchanged, and Namzu validates tool inputs before
+execution.
 
 Tool call IDs remain unchanged. Tool result names are resolved from the
 preceding assistant calls, and malformed JSON or orphan results are refused

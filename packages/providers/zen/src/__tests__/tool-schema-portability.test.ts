@@ -42,17 +42,19 @@ function toolsFromTheKernel(): NonNullable<ChatCompletionParams['tools']> {
 	return registry.toLLMTools()
 }
 
-function requestTools(protocol: ZenProtocol, model: string) {
+function requestTools(protocol: ZenProtocol, model: string, enforce?: string[]) {
 	const params: ChatCompletionParams = {
 		model,
 		messages: [{ role: 'user', content: 'Read the first line of README.md.' }],
 		tools: toolsFromTheKernel(),
+		...(enforce !== undefined ? { enforceToolInputSchema: enforce } : {}),
 	}
 	const route: ProviderRoute = { providerId: 'zen', model, chainIndex: 0 }
 	const options = createCallOptions(params, route, 'zen', protocol, findZenModel('zen', model))
 	return (options.tools ?? []) as {
 		name: string
 		inputSchema: Record<string, unknown>
+		strict?: boolean
 	}[]
 }
 
@@ -97,5 +99,39 @@ describe('the tool block Zen receives', () => {
 			const source = kernel.find((candidate) => candidate.function.name === tool.name)
 			expect(tool.inputSchema).toEqual(source?.function.parameters)
 		}
+	})
+
+	it.each(['chat', 'responses', 'google'] as const)(
+		'claims `strict` on %s only where the schema would survive it',
+		(protocol) => {
+			// `edit` takes a find-and-replace OR an insertion, so it declares
+			// optional fields and cannot be required in full; `write` requires
+			// both of its fields. The chat-class wires apply the strict
+			// subset's structural rules themselves and refuse the WHOLE
+			// request when one tool fails, so claiming strict for `edit` took
+			// `write` down with it on `cat-jam-free`. Responses never carried
+			// the claim at all.
+			const tools = requestTools(protocol, 'big-pickle', ['edit', 'write'])
+			const strictOf = (name: string) => tools.find((tool) => tool.name === name)?.strict
+
+			expect(strictOf('edit')).toBe(false)
+			expect(strictOf('write')).toBe(protocol !== 'responses')
+		},
+	)
+
+	it('still refuses the whole enforcement request on messages, before any flag is chosen', () => {
+		// The messages protocol cannot enforce at all; it rejects the request
+		// outright rather than claiming strict for some tools and not others.
+		expect(() => requestTools('messages', 'big-pickle', ['edit', 'write'])).toThrow(
+			/cannot enforce strict tool input schemas/,
+		)
+	})
+
+	it('leaves a tool nobody asked to enforce without a strict flag at all', () => {
+		const tools = requestTools('chat', 'big-pickle', ['write'])
+		const read = tools.find((tool) => tool.name === 'read')
+
+		expect(read).toBeDefined()
+		expect('strict' in (read ?? {})).toBe(false)
 	})
 })

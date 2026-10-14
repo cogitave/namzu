@@ -67,12 +67,36 @@ describe('a tool cannot register a schema its own guarantee cannot carry', () =>
 					enforceModelInput: true,
 					modelInputSchema: {
 						type: 'object',
-						properties: { insertLine: { anyOf: [{ type: 'integer' }, { const: 'end' }] } },
+						properties: {
+							insertLine: {
+								anyOf: [{ type: 'integer' }, { type: 'string', const: 'end' }],
+							},
+						},
 						additionalProperties: false,
 					},
 				}),
 			),
 		).not.toThrow()
+	})
+
+	it('refuses a union branch with no `type`, naming it', () => {
+		// The other half of the same offence. `anyOf` is inside the subset, so
+		// the keyword deny-list waved it through while a branch saying only
+		// `{ const: 'end' }` still gets the whole request refused:
+		// `In context=('properties', 'insertLine', 'anyOf', '1'), schema must
+		// have a 'type' key`.
+		expect(
+			admit(
+				tool({
+					enforceModelInput: true,
+					modelInputSchema: {
+						type: 'object',
+						properties: { insertLine: { anyOf: [{ type: 'integer' }, { const: 'end' }] } },
+						additionalProperties: false,
+					},
+				}),
+			),
+		).toThrow(/sample\.properties\.insertLine\.anyOf\[1\]/)
 	})
 
 	it('leaves a tool that never asked for the guarantee alone', () => {
