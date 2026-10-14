@@ -1,19 +1,13 @@
-import { Menu } from '@base-ui/react/menu'
-import { type ReactNode, type RefObject, useEffect, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 import type { EngineUpdatesState } from '../shared/engine-update-protocol.js'
 import type { UpdateState } from '../shared/update-protocol.js'
-import { AddProjectItems } from './add-project-menu.js'
 import { engineAnnouncement, engineBadge } from './engine-updates-model.js'
 import {
 	DownloadIcon,
-	FoldersFilledIcon,
 	FoldersIcon,
 	HistoryIcon,
 	HomeFilledIcon,
 	HomeIcon,
-	MoreHorizontalIcon,
-	PanelLeftIcon,
-	PuzzleFilledIcon,
 	PuzzleIcon,
 	SettingsIcon,
 } from './icons.js'
@@ -26,67 +20,33 @@ import './navigation-rail.css'
 export function NavigationRail({
 	section,
 	onHome,
-	onSpaces,
-	onPlugins,
 	onSettings,
-	onOpenProject,
-	onCreateProject,
-	onToggleSidebar,
-	openProjectDisabled = false,
 	update,
 	onOpenUpdates,
 }: {
 	section: 'home' | 'spaces' | 'plugins' | 'settings'
 	onHome: () => void
-	onSpaces: () => void
-	onPlugins: () => void
 	onSettings: () => void
-	onOpenProject: () => void
-	onCreateProject?: () => void
-	onToggleSidebar: () => void
-	openProjectDisabled?: boolean
 	/** Absent in a window that has no updater. */
 	update?: { state: UpdateState; onOpen: () => void; onCheck: () => void }
 	/** Opens Settings ▸ Updates, for programs that are behind. */
 	onOpenUpdates?: () => void
 }) {
 	const engines = useEngineUpdates()
-	const moreTrigger = useRef<HTMLButtonElement>(null)
 	return (
 		<nav className="navigation-rail" aria-label="Main navigation">
 			<RailButton label="Home" active={section === 'home'} onClick={onHome}>
 				{section === 'home' ? <HomeFilledIcon /> : <HomeIcon />}
 			</RailButton>
-			<RailButton label="Spaces" active={section === 'spaces'} onClick={onSpaces}>
-				{section === 'spaces' ? <FoldersFilledIcon /> : <FoldersIcon />}
+			<RailButton label="Spaces" unavailable tooltip="Spaces — in progress">
+				<FoldersIcon />
 			</RailButton>
-			<RailButton
-				label="Scheduled"
-				unavailable
-				tooltip="Scheduled — not available in the desktop app yet."
-			>
+			<RailButton label="Scheduled" unavailable tooltip="Scheduled — in progress">
 				<HistoryIcon />
 			</RailButton>
-			<RailButton label="Plugins" active={section === 'plugins'} onClick={onPlugins}>
-				{section === 'plugins' ? <PuzzleFilledIcon /> : <PuzzleIcon />}
+			<RailButton label="Plugins" unavailable tooltip="Plugins — in progress">
+				<PuzzleIcon />
 			</RailButton>
-			<RailMenuRoot triggerRef={moreTrigger}>
-				<RailMenuTrigger label="More" triggerRef={moreTrigger}>
-					<MoreHorizontalIcon />
-				</RailMenuTrigger>
-				<RailMenuPopup label="More actions" triggerRef={moreTrigger}>
-					<AddProjectItems
-						itemClassName="rail-menu-item"
-						disabled={openProjectDisabled}
-						onCreate={onCreateProject}
-						onOpen={onOpenProject}
-					/>
-					<Menu.Item className="rail-menu-item" onClick={onToggleSidebar}>
-						<PanelLeftIcon />
-						Toggle sidebar
-					</Menu.Item>
-				</RailMenuPopup>
-			</RailMenuRoot>
 			<div className="rail-spacer" />
 			{(update || (engines && onOpenUpdates)) && (
 				<UpdateRailButton
@@ -167,32 +127,6 @@ function UpdateRailButton({
 	)
 }
 
-function RailMenuRoot({
-	triggerRef,
-	children,
-}: { triggerRef: RefObject<HTMLButtonElement | null>; children: ReactNode }) {
-	const restoreOnClose = useRef(false)
-	return (
-		<Menu.Root
-			onOpenChange={(open, details) => {
-				if (open) restoreOnClose.current = false
-				else if (details.reason === 'item-press' || details.reason === 'escape-key')
-					restoreOnClose.current = true
-			}}
-			onOpenChangeComplete={(open) => {
-				if (open || !restoreOnClose.current) return
-				restoreOnClose.current = false
-				const focused = document.activeElement
-				// An accepted folder action can already have moved to the visible composer.
-				if (focused instanceof HTMLTextAreaElement && focused.getClientRects().length) return
-				triggerRef.current?.focus({ preventScroll: true })
-			}}
-		>
-			{children}
-		</Menu.Root>
-	)
-}
-
 function RailButton({
 	label,
 	tooltip = label,
@@ -228,58 +162,5 @@ function RailButton({
 			</TooltipTrigger>
 			<TooltipPopup side="right">{tooltip}</TooltipPopup>
 		</Tooltip>
-	)
-}
-
-function RailMenuTrigger({
-	label,
-	triggerRef,
-	children,
-}: {
-	label: string
-	triggerRef: RefObject<HTMLButtonElement | null>
-	children: ReactNode
-}) {
-	return (
-		<Tooltip>
-			<TooltipTrigger
-				render={
-					<Menu.Trigger
-						render={
-							<Button
-								ref={triggerRef}
-								variant="ghost-muted"
-								size="icon"
-								className="rail-button"
-								aria-label={label}
-							/>
-						}
-					/>
-				}
-			>
-				{children}
-			</TooltipTrigger>
-			<TooltipPopup side="right">{label}</TooltipPopup>
-		</Tooltip>
-	)
-}
-
-function RailMenuPopup({
-	label,
-	triggerRef,
-	children,
-}: {
-	label: string
-	triggerRef: RefObject<HTMLButtonElement | null>
-	children: ReactNode
-}) {
-	return (
-		<Menu.Portal>
-			<Menu.Positioner className="rail-menu-positioner" side="right" align="start" sideOffset={8}>
-				<Menu.Popup className="rail-menu" aria-label={label} finalFocus={triggerRef}>
-					{children}
-				</Menu.Popup>
-			</Menu.Positioner>
-		</Menu.Portal>
 	)
 }

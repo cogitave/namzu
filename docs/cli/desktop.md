@@ -675,7 +675,7 @@ again on its next connect; see
 [Trust again when automatic settings change](#trust-again-when-automatic-settings-change).
 
 **Add new project** is a two-item menu in the sidebar (empty state and workspace
-menu), the File menu, the rail's More menu, the welcome screen, the composer's
+menu), the File menu, the welcome screen, the composer's
 project chooser and the command palette. **Start from scratch** has main create
 `Documents/Namzu/New project` (`New project 2`, `New project 3`… when the name is
 taken; the folder is made without `recursive`, so two windows cannot share one),
@@ -1652,12 +1652,16 @@ labels and muted icons use `#979797`, at least 4.5:1 on every dark surface.
 The 32px integrated title bar keeps the operating system’s caption controls and
 resize frame. Back and Forward revisit the window’s admitted project and
 conversation views, with no prompt replay; the adjacent panel control toggles
-the sidebar. File provides project and conversation actions; Edit, View and
-Window open native menus. Native caption colours follow the chosen appearance.
+the sidebar. File provides project and conversation actions; Edit and Window open native
+menus. View offers zoom and full screen only: Namzu is an app, not a browser, so
+it carries no Reload, Force Reload or developer-tools item (the tools return in a
+development build). Native caption colours follow the chosen appearance.
 The left icon rail remains available when the conversation sidebar is collapsed.
-The rail contains Home, Spaces, Scheduled, Plugins and More, with Settings as the
-last item at the bottom. Home owns the chat and blank composer; Spaces reveals the actual
-project list. Plugins opens a separate Customize destination with the actual
+The rail contains Home, then Spaces, Scheduled and Plugins, with Settings as the
+last item at the bottom. Home owns the chat and blank composer. Spaces, Scheduled
+and Plugins are shown in progress — each is disabled, with an "— in progress"
+tooltip, and does not open from the rail yet; they return when that work lands.
+When Plugins returns it is a separate Customize destination with the actual
 installed inventory in its sidebar and a searchable two-column list in the main
 area. Public and Personal are separate tabs: Personal includes installed plugins
 from both project and user locations; Public reads separate catalogue entries,
@@ -1681,9 +1685,10 @@ views use one column. Manage opens the full detail page. Try now returns to the
 current conversation only when that plugin is actually enabled there, preserving
 the draft and sending no prompt. Uninstall remains disabled with an explanation
 until a desktop uninstall API exists. The page shares its mutation and ownership guards with
-the composer menu, including the restrictions on live changes. More offers
-Open folder and Toggle sidebar. The rail has no profile control and claims no signed-in
-account. Settings is the last item; the update icon sits directly above it and appears
+the composer menu, including the restrictions on live changes. The rail has no
+overflow menu: **Add new project** lives in the sidebar and the title bar, and the
+sidebar toggles from the title bar's panel control or Ctrl/Cmd+B. The rail has no
+profile control and claims no signed-in account. Settings is the last item; the update icon sits directly above it and appears
 only while there is something to install: an installable update, an offered one when
 automatic download is off, or a program that is behind. The manual **Check for updates** is
 in Settings ▸ Updates. The sidebar list keeps a scrollbar lane (`scrollbar-gutter: stable`)

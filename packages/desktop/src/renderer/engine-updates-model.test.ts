@@ -287,11 +287,7 @@ describe('the rail badge for programs that are behind', () => {
 				createElement(NavigationRail, {
 					section: 'home',
 					onHome: () => {},
-					onSpaces: () => {},
-					onPlugins: () => {},
 					onSettings: () => {},
-					onOpenProject: () => {},
-					onToggleSidebar: () => {},
 					...(withOpen ? { onOpenUpdates: () => {} } : {}),
 					update: update ? { state: update, onOpen: () => {}, onCheck: () => {} } : undefined,
 				}),
