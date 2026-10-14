@@ -6,6 +6,7 @@ import {
 	effortOrder,
 	effortToSend,
 	followCatalogue,
+	followsPalModel,
 	isUnchosen,
 	modelDisplayLabel,
 	modelSections,
@@ -43,6 +44,30 @@ it('uses the saved Pal default for a new conversation independently of host pref
 	expect(
 		resolveComposerModelChoice({ providers: global, palModel: profile, sessionId: '' }),
 	).toEqual(profile)
+})
+
+it('follows the Pal model in its own conversation, but a hand pick wins', () => {
+	expect(
+		resolveComposerModelChoice({
+			providers: global,
+			palModel: profile,
+			sessionId: 'ses_1',
+			palConversation: true,
+		}),
+	).toEqual(profile)
+	const picked = { provider: 'openai', model: 'hand-pick' }
+	expect(
+		resolveComposerModelChoice({
+			providers: global,
+			draftChoice: picked,
+			palModel: profile,
+			sessionId: 'ses_1',
+			palConversation: true,
+		}),
+	).toEqual(picked)
+	expect(followsPalModel(profile, profile)).toBe(true)
+	expect(followsPalModel(profile, picked)).toBe(false)
+	expect(followsPalModel(undefined, picked)).toBe(false)
 })
 
 it('keeps an existing conversation on its own pinned route after the Pal default changes', () => {

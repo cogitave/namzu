@@ -7,9 +7,8 @@
 //      next message carries. (A Pal has one conversation: the "+" tab opens an ordinary one, so there
 //      is no "new conversation" for the Pal model to apply to.)
 //   4. A Pal made without choosing a model (the page fills in the configured default) and then given A.
-// 1 passes. 2, 3 and 4 are one defect and are marked todo: the Pal's conversation pins the Pal's model
-// from the moment it is opened (packages/cli/src/commands/acp.ts, preferencesFor caches it in
-// `selections`), so a later change never reaches it.
+// A Pal's conversation follows the Pal's current model (acp.ts preferencesFor reads it on every call);
+// only a model picked by hand in the composer is pinned.
 // Run: pnpm --filter @namzu/desktop build && cd packages/desktop && xvfb-run -a node --test e2e/pal-model-applies.test.mjs
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
@@ -131,7 +130,7 @@ flow("a Pal's model changed to B before its first message: the first message car
 	assert.equal(savedPalModel(w).model, B, "the Pal was saved with B");
 	assert.match(await composerModel(w), escape(B), "the composer names B");
 	assert.equal(await sendAndRead(w, "first message after change", 1), B);
-}, { todo: "the Pal's model is pinned when its conversation opens, not when the first message is sent" });
+});
 
 // The Pal's conversation is the only one it has (the "+" tab opens an ordinary conversation, and
 // opening a Pal's conversation again is the same one), and it pins the model of its first message.
@@ -149,7 +148,6 @@ flow(
 		const carried = await sendAndRead(w, "second message to Kiro", 2);
 		assert.deepEqual({ shown: shown.replace(/^Model: /, ""), carried }, { shown: B, carried: B });
 	},
-	{ todo: "a Pal's conversation pins its first model; the Pal's later model never reaches it" },
 );
 
 flow("a Pal made on the default and then given A: the next message carries A", async (w) => {
@@ -174,4 +172,4 @@ flow("a Pal made on the default and then given A: the next message carries A", a
 		{ shown: (await composerModel(w)).replace(/^Model: /, ""), carried: await sendAndRead(w, "message after change", 1) },
 		{ shown: A, carried: A },
 	);
-}, { todo: "the Pal's conversation keeps the model the Pal had when it was opened" });
+});

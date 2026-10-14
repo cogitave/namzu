@@ -1219,6 +1219,14 @@ Older profiles without appearance display Pixel in green without changing the
 stored revision. An unavailable model catalogue leaves setup and customization
 usable; the Pal may use the host's configured model when its own model is null.
 
+A Pal's model is the model of its conversation. The conversation reads it from
+the Pal on every message, so changing it in the Pal's settings applies to the
+next message, including in a conversation that was already messaged; the
+composer shows the Pal's current model. Only a model picked by hand in that
+composer is pinned to the conversation, and choosing the Pal's own model there
+goes back to following the Pal. The first message no longer saves the shown
+model as the conversation's choice.
+
 Opening a Pal requires a ready, trusted CLI connection that reports the same
 Pal id and approved workspace. If Windows path resolution changes only letter
 casing, the host preserves the profile's stored spelling after verifying that

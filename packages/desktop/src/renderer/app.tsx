@@ -157,6 +157,7 @@ import {
 } from './model-catalogue-display-cache.js'
 import {
 	effortToSend,
+	followsPalModel,
 	isUnchosen,
 	resolveComposerModelChoice,
 	staleEffort,
@@ -1417,6 +1418,7 @@ export function App({
 		draftChoice: savedSettings.value.choice,
 		palModel: pal?.model,
 		sessionId,
+		palConversation: Boolean(pal),
 	})
 	const composerModel =
 		choice.provider && choice.model ? { provider: choice.provider, model: choice.model } : undefined
@@ -4968,7 +4970,12 @@ export function App({
 				if (savedSettings.get(owner) === originalSettings) await savedSettings.save(owner, {})
 			}
 			// Preserve the actual route even when it came from a provider default.
-			await savedSettings.save(target, { choice: route, options: settings })
+			// A Pal's conversation follows the Pal's model; only a route the person picked by hand
+			// in the composer is pinned.
+			await savedSettings.save(target, {
+				...(followsPalModel(pal?.model, route) ? {} : { choice: route }),
+				options: settings,
+			})
 			const admission = {
 				prompt,
 				editRevision: targetEditRevision,

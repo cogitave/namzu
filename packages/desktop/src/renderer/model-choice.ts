@@ -21,20 +21,26 @@ export interface ModelChoice {
 
 type Row = ModelCatalogueView['models'][number]
 
-/** A landing uses today's Pal default; a conversation owns its pinned route. */
+/**
+ * A landing uses today's Pal default; an ordinary conversation owns its pinned route. A Pal's own
+ * conversation follows the Pal's current model until the person picks another one there by hand.
+ */
 export function resolveComposerModelChoice({
 	providers,
 	draftChoice,
 	palModel,
 	sessionId,
+	palConversation = false,
 }: {
 	providers: ProviderView
 	draftChoice?: ModelChoice
 	palModel?: PalView['model']
 	sessionId: string
+	/** The conversation belongs to a Pal, so the Pal's model applies to it at any time. */
+	palConversation?: boolean
 }): ModelChoice {
 	if (draftChoice) return draftChoice
-	const profile = sessionId ? undefined : palModel
+	const profile = sessionId && !palConversation ? undefined : palModel
 	const provider = profile?.provider ?? providers.selected?.id ?? providers.available[0]?.id ?? ''
 	return {
 		provider,
@@ -44,6 +50,18 @@ export function resolveComposerModelChoice({
 			providers.available.find((item) => item.id === provider)?.defaultModel ||
 			'',
 	}
+}
+
+/** True when `route` is the model the Pal itself uses, so sending on it is not a hand pick. */
+export function followsPalModel(
+	palModel: PalView['model'] | undefined,
+	route: Pick<ModelChoice, 'provider' | 'model'>,
+): boolean {
+	return (
+		Boolean(palModel?.model) &&
+		palModel?.provider === route.provider &&
+		palModel?.model === route.model
+	)
 }
 
 /**

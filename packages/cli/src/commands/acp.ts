@@ -678,12 +678,12 @@ export function createCliAcpRuntime(
 		const profile = binding.definition.model
 		const entry = probe.detected.find(({ entry }) => entry.id === profile.provider)?.entry
 		if (!entry) throw new Error('This Pal provider is not configured. Set it up in Namzu first.')
-		const preferences: Preferences = {
+		// Read from the Pal on every call, never cached in `selections`: the Pal's model is the
+		// source of truth for its conversation until the person picks another one by hand there.
+		return {
 			...(base ?? { version: 3, subagents: { active: [] } }),
 			providers: [{ id: entry.id, model: profile.model }],
-		}
-		selections.set(sessionId as string, preferences)
-		return preferences
+		} satisfies Preferences
 	}
 
 	const ensureSession = async (
@@ -1466,13 +1466,9 @@ export function createCliAcpRuntime(
 			const detected = probe.detected.find(({ entry }) => entry.id === provider)
 			if (!detected) throw new Error('This provider is not configured. Set it up in Namzu first.')
 			const preferences = await preferencesFor(sessionId, probe)
-			const current = preferences?.providers[0]
 			const record = sessionId ? records.get(sessionId) : undefined
-			if (
-				record &&
-				current?.id === provider &&
-				(current.model ?? detected.entry.defaultModel) === model
-			) {
+			// The running session answers only for the model it runs on, which can lag its Pal's.
+			if (record && record.provider === provider && record.model === model) {
 				return {
 					effortLevels: record.session.reasoningEffortLevels,
 					effortDefault: record.session.reasoningEffortDefault,
@@ -1679,7 +1675,10 @@ export function createCliAcpRuntime(
 						'This model requires a credential for the selected provider. Configure it or choose a listed free model.',
 					)
 				const preferences = await preferencesFor(sessionId, probe)
-				const previous = preferences?.providers[0]
+				const live = records.get(sessionId)
+				// A running conversation compares against what it actually runs on, which can be
+				// behind its Pal's model after the Pal was changed.
+				const previous = live ? { id: live.provider, model: live.model } : preferences?.providers[0]
 				if (
 					previous?.id === provider &&
 					(previous.model ?? detected.entry.defaultModel) === (model ?? detected.entry.defaultModel)
@@ -1698,6 +1697,13 @@ export function createCliAcpRuntime(
 					}
 				}
 				if (closed) throw new Error('The connection is closed.')
+				const palModel = (await deps.palBinding?.(live?.cwd ?? process.cwd(), sessionId))
+					?.definition.model
+				// Choosing what the Pal already uses is following the Pal, not a hand pick.
+				if (palModel && palModel.provider === provider && palModel.model === selectedModel) {
+					selections.delete(sessionId)
+					return
+				}
 				selections.set(sessionId, {
 					...(preferences ?? { version: 3, subagents: { active: [] } }),
 					providers: [
