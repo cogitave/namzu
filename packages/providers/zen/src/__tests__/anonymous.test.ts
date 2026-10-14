@@ -175,7 +175,10 @@ describe('anonymous Zen access', () => {
 			expect(transport).toHaveBeenCalledTimes(1)
 			const request = transport.mock.calls[0]
 			if (!request) throw new Error('Expected a model request')
-			expect(request[0]).toBe('https://opencode.ai/zen/v1/chat/completions')
+			// Not `/zen`: the gateway answers `403 FreeTierError` to anonymous
+			// traffic there however the request is shaped. See
+			// ZEN_FREE_TIER_BASE_URL.
+			expect(request[0]).toBe('https://opencode.ai/inference/v1/chat/completions')
 			const body = JSON.parse(String(request[1]?.body)) as {
 				model: string
 				tools?: WireTool[]

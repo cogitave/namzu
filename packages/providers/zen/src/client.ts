@@ -61,6 +61,20 @@ export const ZEN_CAPABILITIES: ProviderCapabilities = {
 
 export const ZEN_BASE_URL = 'https://opencode.ai/zen/v1'
 export const ZEN_GO_BASE_URL = 'https://opencode.ai/zen/go/v1'
+/**
+ * The host the anonymous free tier is served from.
+ *
+ * `ZEN_BASE_URL` remains the route for every keyed request, but the free-tier
+ * gateway refuses anonymous traffic on it: `POST /zen/v1/chat/completions`
+ * answers `403 FreeTierError` ("can only be used from within OpenCode") no
+ * matter how faithfully the request is shaped. The same request against
+ * `/inference/v1/chat/completions` is admitted, and that is the path OpenCode
+ * itself now speaks. Only the chat route is reachable anonymously — `/models`
+ * answers on both, and the Anthropic and Responses routes answer `401 Missing
+ * API key` on either, which is why the gate never offered them free access to
+ * begin with.
+ */
+export const ZEN_FREE_TIER_BASE_URL = 'https://opencode.ai/inference/v1'
 
 function withoutMuseSparkEncryptedReasoning(init?: RequestInit): RequestInit {
 	// The pinned OpenAI adapter adds this include automatically whenever a
@@ -405,6 +419,11 @@ export class ZenProvider implements LLMProvider {
 		// always registers. A caller-owned base URL is not the gateway, so the
 		// identity stays off it.
 		const freeTierGate = this.anonymous && this.baseURL === ZEN_BASE_URL
+		// Shape alone is not enough on `ZEN_BASE_URL`: the gateway turned the
+		// anonymous route away there and answers `403 FreeTierError`. Serve the
+		// gated request from the host that still admits it, and leave every
+		// keyed request on `this.baseURL`.
+		const requestBaseURL = freeTierGate ? ZEN_FREE_TIER_BASE_URL : this.baseURL
 		const gateSession = freeTierGate
 			? experimentalOpenCodeSessionId(this.sessionId)
 			: this.sessionId
@@ -442,7 +461,7 @@ export class ZenProvider implements LLMProvider {
 			options.abortSignal = signal
 			const settings = {
 				apiKey: this.apiKey,
-				baseURL: this.baseURL,
+				baseURL: requestBaseURL,
 				fetch: ((input, init) => {
 					// The pinned Google adapter converts JSON Schema into an OpenAPI subset,
 					// dropping constraints. Use the endpoint's JSON Schema field instead.
