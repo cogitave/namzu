@@ -227,6 +227,7 @@ import { StatusBar } from './StatusBar.js'
 import { TaskList, type TaskListItem, taskListRows } from './TaskList.js'
 import { TextPrompt } from './TextPrompt.js'
 import { Transcript, willCollapse } from './Transcript.js'
+import { TranscriptScrollView } from './TranscriptScrollView.js'
 import { TrustPrompt } from './TrustPrompt.js'
 import { ViewportBound } from './ViewportBound.js'
 import { completionRow, launchReceipt, settleLine } from './agent-transcript-rows.js'
@@ -948,6 +949,12 @@ function goalRoundPrompt(authority: GoalRoundAuthority): string {
 }
 
 /**
+ * Rows the scroll view leaves to the composer frame, the footer and the shell line;
+ * the transcript window takes the rest of the terminal.
+ */
+const SCROLL_VIEW_RESERVED_ROWS = 9
+
+/**
  * Rows the live region occupies apart from the transcript window: the activity
  * line, the composer frame and its padding, the status bar.
  *
@@ -1021,6 +1028,8 @@ export function App({
 	/** Plain, copy-friendly rendering of the same retained transcript rows. */
 	const [rawOutput, setRawOutput] = useState(false)
 	const [outputViewer, setOutputViewer] = useState<TranscriptMessage | null>(null)
+	/** The scrollable transcript, opened by paging up from the composer. */
+	const [scrollOpen, setScrollOpen] = useState(false)
 	/**
 	 * The conversation sent to the model, in the SDK's own lossless shape.
 	 *
@@ -4627,6 +4636,7 @@ export function App({
 		phase === 'ready' &&
 		agentSurface === null &&
 		outputViewer === null &&
+		!scrollOpen &&
 		jobSurface === null &&
 		permission === null &&
 		saveSkillPrompt === null &&
@@ -4702,6 +4712,7 @@ export function App({
 	if (
 		agentSurface === null &&
 		outputViewer === null &&
+		!scrollOpen &&
 		jobSurface === null &&
 		scheduleReviewPrompt === null
 	)
@@ -4709,6 +4720,7 @@ export function App({
 	const renderedSettled =
 		agentSurface === null &&
 		outputViewer === null &&
+		!scrollOpen &&
 		jobSurface === null &&
 		scheduleReviewPrompt === null
 			? nextSettled
@@ -9998,7 +10010,7 @@ export function App({
 
 	useInput(
 		(input, key) => {
-			if (outputViewer !== null) return
+			if (outputViewer !== null || scrollOpen) return
 			// The save-skill screen owns its keys, Esc and Ctrl+C included: neither
 			// may interrupt the turn that is waiting on its answer. A permission
 			// request (an agent's, say) takes the screen over it and gets the keys.
@@ -10813,6 +10825,7 @@ export function App({
 	)
 	const lifecycleOwnsViewport =
 		outputViewer !== null ||
+		scrollOpen ||
 		jobSurface !== null ||
 		scheduleReviewPrompt !== null ||
 		phase === 'trust' ||
@@ -11021,6 +11034,7 @@ export function App({
 						    depend on an estimate of rows Ink has already rendered. */}
 						{agentSurface === null &&
 						outputViewer === null &&
+						!scrollOpen &&
 						jobSurface === null &&
 						scheduleReviewPrompt === null ? (
 							<LiveActivity
@@ -11052,6 +11066,7 @@ export function App({
 						    below stays mounted and usable while it is up. */}
 						{agentSurface === null &&
 						outputViewer === null &&
+						!scrollOpen &&
 						jobSurface === null &&
 						permission === null &&
 						scheduleReviewPrompt === null ? (
@@ -11147,6 +11162,16 @@ export function App({
 							copyPicker ? (
 							<CopyPicker targets={copyPicker.targets} selected={selectedCopy} />
 						) : null}
+						{scrollOpen && permission === null && scheduleReviewPrompt === null ? (
+							<TranscriptScrollView
+								messages={finalized}
+								pending={messages.find((m) => m.pending) ?? null}
+								pendingAt={pendingAt}
+								height={Math.max(3, terminal.rows - SCROLL_VIEW_RESERVED_ROWS)}
+								columns={Math.max(4, terminal.columns - 2)}
+								onClose={() => setScrollOpen(false)}
+							/>
+						) : null}
 						<ComposerFrame
 							columns={Math.max(2, (terminal.columns ?? 80) - 2)}
 							working={state === 'thinking' || state === 'tool' || visibleActiveTools.length > 0}
@@ -11164,6 +11189,7 @@ export function App({
 								copyPicker === null &&
 								saveSkillPrompt === null &&
 								scheduleReviewPrompt === null &&
+								!scrollOpen &&
 								!childSurfaceOpen
 							}
 							hidden={
@@ -11200,6 +11226,7 @@ export function App({
 								onCycleMode={cyclePermissionMode}
 								disabled={
 									outputViewer !== null ||
+									scrollOpen ||
 									jobSurface !== null ||
 									phase !== 'ready' ||
 									state === 'awaiting-permission' ||
@@ -11237,6 +11264,7 @@ export function App({
 								}
 								onDraftPresenceChange={setComposerHasDraft}
 								onOpenAgentPanel={openAgentCockpit}
+								onScrollTranscript={() => setScrollOpen(true)}
 								onRecallQueued={recallQueuedPrompt}
 								userCommands={userCommands}
 								builtins={hostCommands.map((command) => ({
@@ -11298,6 +11326,7 @@ export function App({
 				permission === null &&
 				agentSurface === null &&
 				outputViewer === null &&
+				!scrollOpen &&
 				jobSurface === null &&
 				scheduleReviewPrompt === null ? (
 					<AgentNarrationBand lines={narration} />
@@ -11305,6 +11334,7 @@ export function App({
 				{showComposerSurface &&
 				agentSurface === null &&
 				outputViewer === null &&
+				!scrollOpen &&
 				jobSurface === null &&
 				scheduleReviewPrompt === null &&
 				liveSubagents.length > 0 ? (

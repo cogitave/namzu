@@ -450,7 +450,7 @@ function detailLineColor(line: string): string {
 	return theme.text.muted
 }
 
-function glyphForRole(role: TranscriptMessage['role']): string {
+export function glyphForRole(role: TranscriptMessage['role']): string {
 	switch (role) {
 		case 'user':
 			return '›'
@@ -463,7 +463,7 @@ function glyphForRole(role: TranscriptMessage['role']): string {
 	}
 }
 
-function glyphColorForRole(role: TranscriptMessage['role']): string {
+export function glyphColorForRole(role: TranscriptMessage['role']): string {
 	switch (role) {
 		case 'user':
 			return theme.accent.user
@@ -476,7 +476,7 @@ function glyphColorForRole(role: TranscriptMessage['role']): string {
 	}
 }
 
-function contentColorForRole(role: TranscriptMessage['role']): string {
+export function contentColorForRole(role: TranscriptMessage['role']): string {
 	switch (role) {
 		case 'user':
 			return theme.text.primary
