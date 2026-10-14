@@ -120,6 +120,8 @@ export interface ComposerProps {
 	 * is the host's answer to give, not a value this key press can hold.
 	 */
 	readonly onOpenAgentPanel?: () => void
+	/** Page up at the composer: open the scrollable transcript. */
+	readonly onScrollTranscript?: () => void
 	/** Recall the latest operator-authored next-turn message into an empty draft. */
 	readonly onRecallQueued?: () => Omit<ComposerDraft, 'token'> | null
 	/** Shift+Tab. Absent means the key does nothing, which the composer footer then does not advertise. */
@@ -546,6 +548,7 @@ export function Composer({
 	onDraftRestored,
 	onDraftPresenceChange,
 	onOpenAgentPanel,
+	onScrollTranscript,
 	onRecallQueued,
 	onCycleMode,
 	triggers,
@@ -1102,6 +1105,10 @@ export function Composer({
 				const next = nextGraphemeBoundary(valueRef.current, cursorRef.current)
 				cursorRef.current = next
 				setCursorState(next)
+				return
+			}
+			if (key.pageUp && !hasLiveSuggestions && onScrollTranscript) {
+				onScrollTranscript()
 				return
 			}
 			if (hasLiveSuggestions && (key.home || key.end || key.pageUp || key.pageDown)) {

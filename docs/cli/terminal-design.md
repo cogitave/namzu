@@ -452,6 +452,42 @@ plan's live row is always one line: the current step and the completion count,
 and on a narrow screen the step alone. These panels also reserve
 space before the transcript keeps any older messages in its redrawable tail.
 
+### Scrolling back through the conversation
+
+The conversation stays in the terminal's own scrollback, and the terminal keeps
+owning it. To page back through it without leaving the app, press **PgUp** at
+the composer. A box opens in the live region (never the alternate screen)
+showing the conversation as it stands, with the composer and the footer
+unchanged below it. The reply that is still streaming is part of it. Reply
+text is shown as written, not rendered as Markdown, so every row is a plain
+line.
+
+| Key | Does |
+| --- | --- |
+| PgUp / PgDn | a page up or down, one row less than the window |
+| ↑ / ↓ (or k / j) | one row |
+| Home or g | the first row |
+| End, G or Esc | back to the latest: the box closes and the session is as it was |
+
+Reaching the last page by scrolling down also returns to the latest by itself;
+there is no separate "stay at the bottom" state. PgUp does nothing when the
+whole conversation already fits on screen. There is no Ctrl alias: Ctrl+R and
+Ctrl+B are the composer's own keys. The mouse wheel is not read, because the
+terminal keeps it for scrollback and the app does not switch on mouse
+reporting. A permission request, a skill-save screen or a schedule review also
+closes the box, so the screen that needs an answer gets the keys.
+
+While the box is open one quiet row above the composer says how to get back,
+centered, in the longest form that fits the width: `↓ Back to bottom · esc`,
+then `↓ Bottom · esc`, `↓ Bottom`, `↓`. If the reply grows or something new
+arrives while the window is scrolled up, the window does not move, and the row
+starts with `New activity · ` (`New activity · ↓ Back to bottom · esc`, then
+`New activity · ↓ Bottom · esc`, `New · ↓ Bottom`, `↓ Bottom`, `↓`). It is a
+flag, not a count, and it clears when the view closes. Rows come from
+`transcript-scroll.ts`; `TranscriptScrollView.tsx` draws them; `Composer.tsx`
+opens it. Covered by `the-transcript-scrolls-back-and-returns.test.tsx` and
+`the-transcript-scrolls-from-the-composer.test.tsx`.
+
 ## Commands and settings
 
 Successful reasoning changes receive a short session-scoped confirmation;
