@@ -1,5 +1,17 @@
 # @namzu/desktop
 
+## 0.2.1
+
+### Patch Changes
+
+- f1ca711: Mark the unfinished rail destinations as in progress and make the menu bar read like an app, not a browser.
+
+  Spaces, Scheduled and Plugins in the left icon rail are now shown in progress: each is disabled, carries an "— in progress" tooltip, and no longer opens, because that work has not started yet. They return when it lands. The rail's "More" (⋯) overflow menu is removed — both of its actions already exist elsewhere: **Add new project** is in the sidebar and the title bar, and the sidebar toggles from the title bar's panel control or Ctrl/Cmd+B.
+
+  The native **View** menu no longer offers Reload, Force Reload or Toggle Developer Tools; it keeps zoom and full screen. The developer tools remain in a development build only.
+
+- f86a456: A Pal's conversation now uses the Pal's current model. Before, the model the Pal had when its conversation opened was kept for good, so changing the Pal's model afterwards (or setting it after the page filled in a default) never reached the conversation. Nothing to change on your side; a model picked by hand in the Pal's composer is still kept for that conversation.
+
 ## 0.2.0
 
 ### Minor Changes
