@@ -87,6 +87,7 @@ is attributed to its invoking conversation.
 | Registry type | `zen` | `zen-go` |
 | Registration | `registerZen()` | `registerZenGo()` |
 | Base URL | `https://opencode.ai/zen/v1` | `https://opencode.ai/zen/go/v1` |
+| Anonymous model calls | `https://opencode.ai/inference/v1` | none — Go always needs a credential |
 | CLI key lookup | `OPENCODE_API_KEY`, then `OPENCODE_ZEN_API_KEY` | `OPENCODE_GO_API_KEY` |
 | SDK default model | `space-bunny-free` without a key; `glm-5.3-flash` with a real key | `glm-5.3-flash` |
 | CLI default model | `space-bunny-free` | `glm-5.3-flash` |
@@ -266,7 +267,13 @@ host-owned proxy and rejects embedded credentials, query strings and
 fragments. Model calls normally receive the SDK's current attribution headers;
 anonymous free-model calls to the official Zen endpoint send
 OpenCode-shaped `User-Agent`, client, project, session and request headers
-instead, and carry the four tool names the gateway reads. The `User-Agent`
+instead, and carry the four tool names the gateway reads. Those anonymous
+calls go to `https://opencode.ai/inference/v1` rather than the configured base
+URL: the gateway answers `403 FreeTierError` to anonymous traffic on `/zen/v1`
+however faithfully the request is shaped, and admits the same request on
+`/inference/v1`. Every keyed call stays on the configured base URL. Only the
+chat route is reachable anonymously; the Anthropic and Responses routes answer
+`401 Missing API key` on either host. The `User-Agent`
 version resolves from `OPENCODE_UA` when set, then from an installed
 `opencode` binary's `--version`, then from a pinned floor of 1.18.35 — the
 gateway requires 1.18.0 or newer, so the pin is never the reason a request is
