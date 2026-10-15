@@ -9,11 +9,7 @@ const rail = (state?: UpdateState) =>
 		createElement(NavigationRail, {
 			section: 'home',
 			onHome: () => {},
-			onSpaces: () => {},
-			onPlugins: () => {},
 			onSettings: () => {},
-			onOpenProject: () => {},
-			onToggleSidebar: () => {},
 			update: state ? { state, onOpen: () => {}, onCheck: () => {} } : undefined,
 		}),
 	)
@@ -56,7 +52,7 @@ describe('the rail update badge', () => {
 			expect(markup).not.toContain('rail-profile')
 			expect(labels(markup).at(-1)).toBe('Settings')
 		}
-		expect(labels(rail())).toEqual(['Home', 'Spaces', 'Scheduled', 'Plugins', 'More', 'Settings'])
+		expect(labels(rail())).toEqual(['Home', 'Spaces', 'Scheduled', 'Plugins', 'Settings'])
 	})
 
 	it('keeps a polite live region for the one announcement', () => {

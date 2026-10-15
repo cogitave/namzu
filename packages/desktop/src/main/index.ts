@@ -1798,7 +1798,22 @@ void app
 							: [...tabItems, { type: 'separator' as const }, settingsItem],
 				},
 				{ id: 'edit', role: 'editMenu' },
-				{ id: 'view', role: 'viewMenu' },
+				{
+					id: 'view',
+					label: 'View',
+					// Namzu is an app, not a browser: no Reload / Force Reload, and the
+					// developer tools only in a development build.
+					submenu: [
+						{ role: 'resetZoom' as const },
+						{ role: 'zoomIn' as const },
+						{ role: 'zoomOut' as const },
+						{ type: 'separator' as const },
+						{ role: 'togglefullscreen' as const },
+						...(app.isPackaged
+							? []
+							: [{ type: 'separator' as const }, { role: 'toggleDevTools' as const }]),
+					],
+				},
 				{ id: 'window', role: 'windowMenu' },
 				{
 					label: 'Help',

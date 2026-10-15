@@ -6075,24 +6075,9 @@ export function App({
 							onHome={() => {
 								if (!loading) void act(newConversation)
 							}}
-							onSpaces={showSpaces}
 							onSettings={() => openSettings()}
 							update={update}
 							onOpenUpdates={() => openSettings('updates')}
-							onOpenProject={() => void act(openProject)}
-							onCreateProject={() => void act(createProject)}
-							openProjectDisabled={loading}
-							onToggleSidebar={toggleSidebar}
-							onPlugins={() => {
-								abandonTabRestore()
-								navigation.current += 1
-								setPalScreen(undefined)
-								setPluginSelection(undefined)
-								setPalsPage(false)
-								setRailSection('plugins')
-								setJobsOpen(false)
-								setSideOpen(false)
-							}}
 						/>
 						<Sidebar
 							projectsLoaded={projectsLoaded}
