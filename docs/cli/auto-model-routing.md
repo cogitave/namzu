@@ -11,7 +11,8 @@ tags: [cli, config, decision, routing]
 `model: auto` lets the CLI choose, per task, which of your configured models
 runs it. A short chat can go to a small local model, an ordinary task to your
 usual model, and a large multi-file change to a bigger one. It is off unless
-you set it; without it the saved provider and model run every turn.
+you set it; without it the saved provider and model run every turn. See
+[Choosing Auto](#choosing-auto) for the picker and `/model auto`.
 
 It needs a [`decision` model](../sdk/decision.md) to size tasks. Both keys are
 read from your user config (`~/.namzu/config.yaml`) or the managed file only.
@@ -60,5 +61,31 @@ line with the tier and a short reason.
 - **Delegated children** inherit the model the current turn was routed to.
 - **Pals** resolve `auto` once, when the session starts, to `routing.default`
   (there is no task to size yet), and keep that model; a Pal never re-routes.
-- An explicit choice wins: `--model` at launch turns auto off for that launch,
-  and picking a model in the picker or `/model` turns it off for the rest of it.
+- An explicit choice wins: `--model` at launch turns Auto off for that launch,
+  and picking a model by hand turns it off for that conversation until you
+  choose Auto again.
+
+## Choosing Auto
+
+A `routing` block makes Auto **available**; `model: auto` makes it the
+**default**. Routing alone is valid: Auto then appears as a choice but the saved
+model runs until you pick it.
+
+- **Terminal.** `/model` lists "Auto (picks a model for each task)" as its first
+  row, and it is the row the picker opens on while Auto is on. `/model auto`
+  (also `/model otomatik`, "switch model to auto", "auto'ya geç") does the same
+  without opening the picker. The status line reads `Auto` while it is on. Auto
+  chosen this way lasts for the launch and is not written to your saved model
+  preferences; set `model: auto` in the config to make it the default every
+  time.
+- **Desktop.** When a `routing` block is configured, the composer's model
+  picker shows an "Auto" row at the top and the model label reads "Auto" while it
+  is on. Desktop remembers the choice for each conversation, and picking a model
+  by hand in that conversation turns it off. Pal conversations and external
+  engines (the native command-line engines) are not offered Auto: a Pal keeps its own
+  model.
+- **Without `routing`.** Asking for Auto says that it needs a `routing` block in
+  your user config (`~/.namzu/config.yaml`) and points here; nothing changes.
+
+The picker and the status line show `Auto`, not which model a turn used; the
+per-decision debug log line names the tier.

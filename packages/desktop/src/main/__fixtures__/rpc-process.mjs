@@ -23,7 +23,9 @@ const discovery = (id, kind, result) => {
 const releaseDiscoveries = () => {
 	for (const { id, result } of delayedDiscoveries.splice(0)) reply(id, result)
 }
-const methods = ['namzu/harnesses/list', 'namzu/harnesses/select', 'namzu/project/status', 'namzu/project/trust', ...(process.env.FIXTURE_NO_UNTRUST ? [] : ['namzu/project/untrust']), 'namzu/conversations/list', 'namzu/conversations/history', 'namzu/providers/status', 'namzu/providers/models', 'namzu/providers/select', 'namzu/jobs/list', 'namzu/jobs/read', 'namzu/jobs/stop', ...(process.env.FIXTURE_LIVE_INPUT ? ['namzu/conversations/input/status', 'namzu/conversations/input'] : []), 'namzu/conversations/rename', 'namzu/conversations/fork', 'namzu/conversations/markdown', 'namzu/project/git', ...(process.env.FIXTURE_NO_CHANGES ? [] : ['namzu/project/changes', 'namzu/project/diff']), 'namzu/conversations/archived', 'namzu/conversations/unarchive', ...(process.env.FIXTURE_ARCHIVE ? ['namzu/conversations/archive'] : []), ...(process.env.FIXTURE_PROVIDER_SETUP ? ['connections', 'save_key', 'remove_key', 'test', 'refresh'].map((name) => `namzu/providers/${name}`) : []), ...(process.env.FIXTURE_TERMINALS ? ['status', 'create', 'list', 'attach', 'detach', 'write', 'resize', 'ack', 'kill', 'close'].map((name) => `namzu/terminal/${name}`) : [])]
+const methods = ['namzu/harnesses/list', 'namzu/harnesses/select', 'namzu/project/status', 'namzu/project/trust', ...(process.env.FIXTURE_NO_UNTRUST ? [] : ['namzu/project/untrust']), 'namzu/conversations/list', 'namzu/conversations/history', 'namzu/providers/status', 'namzu/providers/models', 'namzu/providers/select', ...(process.env.FIXTURE_AUTO ? ['namzu/providers/select_auto'] : []), 'namzu/jobs/list', 'namzu/jobs/read', 'namzu/jobs/stop', ...(process.env.FIXTURE_LIVE_INPUT ? ['namzu/conversations/input/status', 'namzu/conversations/input'] : []), 'namzu/conversations/rename', 'namzu/conversations/fork', 'namzu/conversations/markdown', 'namzu/project/git', ...(process.env.FIXTURE_NO_CHANGES ? [] : ['namzu/project/changes', 'namzu/project/diff']), 'namzu/conversations/archived', 'namzu/conversations/unarchive', ...(process.env.FIXTURE_ARCHIVE ? ['namzu/conversations/archive'] : []), ...(process.env.FIXTURE_PROVIDER_SETUP ? ['connections', 'save_key', 'remove_key', 'test', 'refresh'].map((name) => `namzu/providers/${name}`) : []), ...(process.env.FIXTURE_TERMINALS ? ['status', 'create', 'list', 'attach', 'detach', 'write', 'resize', 'ack', 'kill', 'close'].map((name) => `namzu/terminal/${name}`) : [])]
+// Sessions whose conversation runs on Auto; a model picked by hand removes it.
+const autoSessions = new Set()
 const lines = createInterface({ input: process.stdin })
 lines.on('close', () => process.exit(0))
 lines.on('line', (line) => {
@@ -91,6 +93,11 @@ lines.on('line', (line) => {
 		else if (process.env.FIXTURE_HISTORY_MODE === 'wrong-session') send({ id, error: { code: -32603, message: 'Conversation other-session was not found — load conversation history rejected' } })
 		else reply(id, { messages: [], partial: process.env.FIXTURE_HISTORY_MODE === 'partial' })
 	}
+	else if (method === 'namzu/providers/select_auto') {
+		if (process.env.FIXTURE_AUTO === 'refuse') { send({ id, error: { code: -32603, message: 'Auto is not set up. It needs a routing block in your user config.' } }); return }
+		autoSessions.add(params.sessionId)
+		reply(id, { selected: true })
+	}
 	else if (method === 'namzu/providers/status' || method === 'namzu/providers/select') {
 		if (process.env.FIXTURE_ENFORCE_PROVIDER_BINDING && params?.sessionId && !sessions.has(params.sessionId)) {
 			 send({ id, error: { code: -32603, message: 'This conversation is not published by this connection.' } }); return
@@ -109,6 +116,7 @@ lines.on('line', (line) => {
 				send({ id, error: { code: -32603, message: 'Select this engine in the conversation first.' } }); return
 			}
 			models.set(params.sessionId, params.model)
+			autoSessions.delete(params.sessionId)
 			reply(id, {})
 			releaseDiscoveries()
 		} else discovery(id, 'provider', engine && engine !== 'namzu' ? {
@@ -117,6 +125,7 @@ lines.on('line', (line) => {
 		} : process.env.FIXTURE_LIST_PROVIDER ? {
 			available: [{ id: 'fixture', label: process.env.FIXTURE_LIST_PROVIDER, defaultModel: 'fixture-default', ...(process.env.FIXTURE_IDENTITY_FILE && existsSync(process.env.FIXTURE_IDENTITY_FILE) ? { identity: readFileSync(process.env.FIXTURE_IDENTITY_FILE, 'utf8') } : {}) }],
 			selected: null,
+			...(process.env.FIXTURE_AUTO ? { auto: { active: autoSessions.has(params?.sessionId) } } : {}),
 		} : { available: [], selected: null })
 	}
 	else if (method === 'namzu/providers/models' && process.env.FIXTURE_MODELS_FILE && existsSync(process.env.FIXTURE_MODELS_FILE)) {

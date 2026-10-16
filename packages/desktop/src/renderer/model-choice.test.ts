@@ -12,6 +12,7 @@ import {
 	modelSections,
 	pickOfferedPalModel,
 	recommendedRow,
+	resolveAutoRouting,
 	resolveComposerModelChoice,
 	resolveEffort,
 	settleKey,
@@ -532,5 +533,51 @@ describe('chipUnavailableReason', () => {
 	})
 	it('always carries a reason', () => {
 		expect(chipUnavailableReason({ ...base, connected: true })).toMatch(/\S/)
+	})
+})
+
+describe('resolveAutoRouting', () => {
+	const withAuto = (active: boolean): ProviderView => ({ ...global, auto: { active } })
+	const base = { palConversation: false, engine: 'namzu' }
+
+	it('is not offered unless the CLI reported it', () => {
+		expect(resolveAutoRouting({ providers: global, ...base })).toEqual({
+			available: false,
+			active: false,
+		})
+	})
+
+	it('follows the CLI when the person has not chosen', () => {
+		expect(resolveAutoRouting({ providers: withAuto(true), ...base })).toEqual({
+			available: true,
+			active: true,
+		})
+		expect(resolveAutoRouting({ providers: withAuto(false), ...base })).toEqual({
+			available: true,
+			active: false,
+		})
+	})
+
+	it('lets the saved choice win either way', () => {
+		expect(resolveAutoRouting({ providers: withAuto(false), saved: true, ...base }).active).toBe(
+			true,
+		)
+		expect(resolveAutoRouting({ providers: withAuto(true), saved: false, ...base }).active).toBe(
+			false,
+		)
+	})
+
+	it('is never offered for a Pal conversation or an external engine', () => {
+		expect(
+			resolveAutoRouting({
+				providers: withAuto(true),
+				saved: true,
+				...base,
+				palConversation: true,
+			}),
+		).toEqual({ available: false, active: false })
+		expect(
+			resolveAutoRouting({ providers: withAuto(true), saved: true, ...base, engine: 'codex-cli' }),
+		).toEqual({ available: false, active: false })
 	})
 })

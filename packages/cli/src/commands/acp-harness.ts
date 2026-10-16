@@ -758,6 +758,21 @@ export function withCliHarnesses(
 				reserving.delete(id)
 			}
 		},
+		selectAuto: async (id) => {
+			if (!base.selectAuto) throw new Error('Auto is not available here.')
+			if ((deps.isPal ?? ((path) => Boolean(palAtWorkspace(path))))(directory))
+				return await base.selectAuto(id)
+			if (reserving.has(id) || records.get(id)?.route)
+				throw new Error('Stop this conversation before changing its model.')
+			reserving.add(id)
+			try {
+				if (await selectionFor(id, trusted()))
+					throw new Error('This conversation uses its own engine and model catalogue.')
+				return await base.selectAuto(id)
+			} finally {
+				reserving.delete(id)
+			}
+		},
 		plugins: async (cwd, id) =>
 			id && (await selectionFor(id, cwd))
 				? {

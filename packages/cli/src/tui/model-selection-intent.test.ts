@@ -1,6 +1,11 @@
 import { expect, it } from 'vitest'
 import { PROVIDER_REGISTRY } from '../integrations/providers/index.js'
-import { parseModelSelectionIntent, resolveModelSelectionIntent } from './model-selection-intent.js'
+import {
+	autoRefusal,
+	isAutoQuery,
+	parseModelSelectionIntent,
+	resolveModelSelectionIntent,
+} from './model-selection-intent.js'
 
 it('recognizes only standalone selection commands and requests', () => {
 	for (const text of [
@@ -134,4 +139,29 @@ it('prefers exact current-provider IDs and accepts explicit provider selection',
 		selection: { id: 'codex' },
 	})
 	expect(await resolveModelSelectionIntent('opus-5', options)).toMatchObject({ kind: 'rejected' })
+})
+
+it('captures Auto from the same phrasings and reads it as the reserved choice', () => {
+	for (const text of [
+		'/model auto',
+		'/model AUTO',
+		"auto'ya geç",
+		'modeli auto yap',
+		'switch model to auto',
+		'/model otomatik',
+	]) {
+		const intent = parseModelSelectionIntent(text)
+		expect(intent, text).toBeDefined()
+		expect(isAutoQuery(intent?.query ?? ''), text).toBe(true)
+	}
+	expect(isAutoQuery('opus-5')).toBe(false)
+	expect(isAutoQuery('auto-pilot-1')).toBe(false)
+})
+
+it('refuses Auto in plain words when it is not set up or in a Pal', () => {
+	expect(autoRefusal(true, false)).toBeUndefined()
+	const missing = autoRefusal(false, false) ?? ''
+	expect(missing).toContain('routing block')
+	expect(missing).toContain('docs/cli/auto-model-routing.md')
+	expect(autoRefusal(true, true)).toContain('Pal')
 })

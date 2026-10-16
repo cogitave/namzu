@@ -133,6 +133,12 @@ export interface DraftSettings {
 		auto?: true
 	}
 	options?: Omit<DesktopSendOptions, 'attachmentIds'>
+	/**
+	 * Auto routing, as the person left it. `true`: they chose Auto. `false`: they picked a model by
+	 * hand while Auto was available. Absent: follow what the conversation starts with. Not the same
+	 * as `choice.auto`, which only says the picker settled on a model by itself.
+	 */
+	autoRouting?: boolean
 }
 export interface ComposerModelSettings {
 	effortLevels?: readonly ReasoningEffort[]
@@ -303,6 +309,12 @@ export interface ProviderView {
 	}[]
 	/** `automatic`: nothing was saved, so this is what Namzu found and picked by itself. */
 	selected: { id: string; model?: string; automatic?: true } | null
+	/**
+	 * Present only when Auto (Namzu picks a model for each task) is available: the user config has a
+	 * `routing` block, and the conversation is not a Pal's or an external engine's. `active` is
+	 * whether Auto is what this conversation runs on now.
+	 */
+	auto?: { active: boolean }
 }
 /** One provider in Settings ▸ Models. Never carries a key. */
 export interface ProviderConnectionView {
@@ -922,6 +934,8 @@ export interface DesktopApi {
 	plugins(projectId: string, sessionId?: string): Promise<PluginInventoryView>
 	setPluginEnabled(sessionId: string, name: string, enabled: boolean): Promise<PluginInventoryView>
 	selectProvider(sessionId: string, provider: string, model?: string): Promise<void>
+	/** Make Auto (per-task model routing) what the conversation runs on; picking a model ends it. */
+	selectAuto?(sessionId: string): Promise<void>
 	pickAttachments(ownerId: string): Promise<AttachmentView[]>
 	addAttachments(ownerId: string, files: AttachmentInput[]): Promise<AttachmentView[]>
 	attachments(ownerId: string): Promise<AttachmentView[]>

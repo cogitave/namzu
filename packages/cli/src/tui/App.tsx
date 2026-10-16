@@ -282,7 +282,16 @@ import {
 	describeProviderLogout,
 } from './login-prompt.js'
 import { modelCatalogueView } from './model-catalogue-view.js'
-import { parseModelSelectionIntent, resolveModelSelectionIntent } from './model-selection-intent.js'
+import {
+	AUTO_ALREADY_ON,
+	AUTO_MODEL_LABEL,
+	AUTO_ON_NOTICE,
+	AUTO_TURNED_OFF_SUFFIX,
+	autoRefusal,
+	isAutoQuery,
+	parseModelSelectionIntent,
+	resolveModelSelectionIntent,
+} from './model-selection-intent.js'
 import {
 	type ModelSwitchOutcome,
 	type ModelSwitchRequest,
@@ -1090,9 +1099,13 @@ export function App({
 	// `--provider`/`--model`/`--effort` apply to the first session this launch opens and then
 	// step aside, so a later `/model` or a re-login behaves as it always did.
 	const launchModelPendingRef = useRef(choosesModel(initialCtx.launchSettings))
-	// Once the person picks a model by hand (picker or /model), `model: auto`
-	// stops routing for the rest of this launch: an explicit pin always wins.
-	const autoRoutingPinnedRef = useRef(false)
+	// Whether Auto (per-task model routing) is what runs. It starts on when
+	// `model: auto` is the default and no `--model` pinned one; picking a model
+	// by hand turns it off, and choosing Auto in the picker or `/model auto`
+	// turns it back on. Auto needs the configured `routing` block to be
+	// available at all.
+	const autoActiveRef = useRef(initialCtx.routing !== undefined && initialCtx.autoDefault === true)
+	const [autoActive, setAutoActive] = useState(autoActiveRef.current)
 	const launchEffortPendingRef = useRef(initialCtx.launchSettings?.effort)
 	/**
 	 * Why the picker is open, drawn ON the picker.
@@ -3872,11 +3885,20 @@ export function App({
 				readonly chooseReasoningEffort?: boolean
 				/** Revalidate a deferred host action immediately before candidate publication. */
 				readonly beforePublish?: () => void
+				/**
+				 * Whether Auto runs on the rebuilt session. A model the person picked
+				 * by hand passes `false`; choosing Auto passes `true`. Left out, a
+				 * saved pick (`persistSelection`) turns it off and anything else
+				 * keeps it as it is.
+				 */
+				readonly auto?: boolean
 			} = {},
 		) => {
 			const { signal, persistSelection = false, announce = false } = options
 			if (signal?.aborted) return
-			if (persistSelection) autoRoutingPinnedRef.current = true
+			const autoOn =
+				ctxRef.current.routing !== undefined &&
+				(options.auto ?? (persistSelection ? false : autoActiveRef.current))
 			const scope = await ensureSessions()
 			if (signal?.aborted) return
 			const activeCtx = ctxRef.current
@@ -3957,9 +3979,7 @@ export function App({
 							...(activeCtx.limits ? { limits: activeCtx.limits } : {}),
 							...(activeCtx.sandbox ? { sandbox: activeCtx.sandbox } : {}),
 							...(activeCtx.decision ? { decision: activeCtx.decision } : {}),
-							...(activeCtx.routing && !autoRoutingPinnedRef.current
-								? { routing: activeCtx.routing }
-								: {}),
+							...(activeCtx.routing && autoOn ? { routing: activeCtx.routing } : {}),
 							// The operator's screens, on the same terms as every other
 							// config field the App forwards. `!== undefined` rather than a
 							// length test: `[]` is the off switch, and dropping it here
@@ -4008,6 +4028,8 @@ export function App({
 				throw error
 			}
 			const previousPalDefinition = palDefinitionRef.current
+			autoActiveRef.current = autoOn
+			setAutoActive(autoOn)
 			savedPrefsRef.current = prefs
 			palDefinitionRef.current = definition
 			palRouteSessionRef.current = definition ? scope.sessionId : null
@@ -7670,12 +7692,27 @@ export function App({
 	)
 
 	const selectModelIntent = useCallback(
-		async (query: string): Promise<void> => {
+		async (query: string, options: { readonly fromPicker?: boolean } = {}): Promise<void> => {
+			const wantsAuto = isAutoQuery(query)
+			if (wantsAuto) {
+				const refusal = autoRefusal(
+					ctxRef.current.routing !== undefined,
+					!!palDefinitionRef.current,
+				)
+				if (refusal) {
+					pushMessage('system', refusal)
+					return
+				}
+				if (autoActiveRef.current && !options.fromPicker) {
+					pushMessage('system', AUTO_ALREADY_ON)
+					return
+				}
+			}
 			if (
 				!session ||
 				!currentProvider ||
 				state !== 'idle' ||
-				phase !== 'ready' ||
+				(phase !== 'ready' && !options.fromPicker) ||
 				abortRef.current ||
 				hasUnsettledTurn() ||
 				pendingModelSwitchRef.current ||
@@ -7692,6 +7729,7 @@ export function App({
 				)
 				return
 			}
+			const wasAuto = autoActiveRef.current
 			const controller = new AbortController()
 			const pending: PendingModelSwitch = {
 				turnToken: {},
@@ -7730,6 +7768,26 @@ export function App({
 			}
 			try {
 				beforePublish()
+				if (wantsAuto) {
+					const prefs = savedPrefsRef.current
+					if (!prefs) throw new Error('No model is connected yet.')
+					await persistenceTailRef.current
+					beforePublish()
+					await hydrateSession(prefs, detected, {
+						signal: pending.signal,
+						persistSelection: false,
+						auto: true,
+						beforePublish,
+					})
+					if (
+						pendingModelSwitchRef.current === pending &&
+						!pending.signal.aborted &&
+						previousSessionRef.current !== session
+					) {
+						pushMessage('system', AUTO_ON_NOTICE)
+					}
+					return
+				}
 				const lookupNoticeId = pushMessage('system', `Looking up ${query} in the model lists…`)
 				const resolved = await resolveModelSelectionIntent(query, {
 					currentProvider,
@@ -7760,6 +7818,7 @@ export function App({
 					{
 						signal: pending.signal,
 						persistSelection: false,
+						auto: false,
 						beforePublish,
 					},
 				)
@@ -7770,7 +7829,7 @@ export function App({
 				) {
 					pushMessage(
 						'system',
-						`Switched to ${resolved.selection.id} · ${resolved.selection.model} for this conversation.`,
+						`Switched to ${resolved.selection.id} · ${resolved.selection.model} for this conversation.${wasAuto ? AUTO_TURNED_OFF_SUFFIX : ''}`,
 					)
 				}
 			} catch (error) {
@@ -8188,7 +8247,7 @@ export function App({
 							{
 								name: 'model',
 								label: 'Model',
-								description: `${session?.providerSummary ?? 'No provider'} · ${session?.modelSummary ?? 'No model'}. Change model or provider.`,
+								description: `${session?.providerSummary ?? 'No provider'} · ${autoActive && ctx.routing && !palDefinitionRef.current ? AUTO_MODEL_LABEL : (session?.modelSummary ?? 'No model')}. Change model or provider.`,
 							},
 							{
 								name: 'effort',
@@ -9896,6 +9955,7 @@ export function App({
 				readonly revealAllOnFailure?: boolean
 				readonly persistSelection?: boolean
 				readonly chooseReasoningEffort?: boolean
+				readonly auto?: boolean
 			} = {},
 		): Promise<boolean> => {
 			try {
@@ -9904,6 +9964,7 @@ export function App({
 					persistSelection: options.persistSelection,
 					announce: true,
 					chooseReasoningEffort: options.chooseReasoningEffort,
+					...(options.auto !== undefined ? { auto: options.auto } : {}),
 				})
 				return !signal.aborted
 			} catch (err) {
@@ -9995,6 +10056,7 @@ export function App({
 			// Keep a narrowed signed-in roster stable while construction is pending.
 			// Only a real refusal broadens back to the general, sign-in-capable picker.
 			void hydrateFromPicker(prefs, detected, signal, {
+				auto: false,
 				revealAllOnFailure: true,
 				chooseReasoningEffort: selection.model !== undefined,
 				persistSelection:
@@ -10023,6 +10085,15 @@ export function App({
 	 * to return to, so leaving the picker is leaving the program. That is also
 	 * what the empty picker's own footer has always claimed `esc` does.
 	 */
+	/** Auto picked from the model step: leave the picker, then rebuild so the next turn routes. */
+	const handlePickerAuto = useCallback(() => {
+		setPickerInitialView('providers')
+		setPickerDetected(null)
+		setPickerSelectionKind('provider-and-model')
+		setPhase('ready')
+		void selectModelIntent('auto', { fromPicker: true })
+	}, [selectModelIntent])
+
 	const handlePickerCancel = useCallback(() => {
 		setPickerInitialView('providers')
 		setPickerDetected(null)
@@ -11037,6 +11108,9 @@ export function App({
 						currentProvider={currentProvider}
 						selectionKind={pickerSelectionKind}
 						currentModel={session?.modelSummary ?? null}
+						{...(ctx.routing && session?.hasProvider && !palDefinitionRef.current
+							? { auto: { active: autoActive }, onAuto: handlePickerAuto }
+							: {})}
 						initialView={pickerInitialView}
 						onSubmit={handlePickerSubmit}
 						onCancel={handlePickerCancel}
@@ -11318,7 +11392,11 @@ export function App({
 					<StatusBar
 						cwd={ctx.cwd}
 						provider={session?.providerSummary ?? null}
-						model={session?.modelSummary ?? null}
+						model={
+							autoActive && ctx.routing && !palDefinitionRef.current
+								? AUTO_MODEL_LABEL
+								: (session?.modelSummary ?? null)
+						}
 						effort={reasoningEffort}
 						goal={statusGoal}
 						state={state}

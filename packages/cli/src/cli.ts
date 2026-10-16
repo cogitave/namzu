@@ -530,10 +530,14 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					...(resolvedCtx.config.limits ? { limits: resolvedCtx.config.limits } : {}),
 					...(resolvedCtx.config.sandbox ? { sandbox: resolvedCtx.config.sandbox } : {}),
 					...(resolvedCtx.config.decision ? { decision: resolvedCtx.config.decision } : {}),
-					// `model: auto` is on only when nothing pins a model for this
-					// launch: an explicit `--model` always wins over auto routing.
-					...(resolvedCtx.config.model === 'auto' && resolvedCtx.config.routing && !model
-						? { routing: resolvedCtx.config.routing }
+					// A configured `routing` block makes Auto an available choice;
+					// `model: auto` makes it the default, and only when nothing pins a
+					// model for this launch: an explicit `--model` always wins.
+					...(resolvedCtx.config.routing
+						? {
+								routing: resolvedCtx.config.routing,
+								autoDefault: resolvedCtx.config.model === 'auto' && !model,
+							}
 						: {}),
 					// `!== undefined`, never `??`: an empty list is the operator
 					// switching the screens off, and it is the answer this key

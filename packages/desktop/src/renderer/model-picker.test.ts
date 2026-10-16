@@ -405,3 +405,38 @@ it('names a saved choice by its saved label while the catalogue has not been rea
 	expect(html).toContain('Sample balanced')
 	expect(html).not.toContain('model-picker-trigger-skeleton')
 })
+
+it('puts an Auto row first when Auto is offered, and reads Auto on the trigger while it is active', () => {
+	catalogue('codex-cli', [
+		{ id: 'native-first', label: 'Native first' },
+		{ id: 'native-current', label: 'Native selected' },
+	])
+	const providers: ProviderView = {
+		available: [{ id: 'codex-cli', label: 'Codex CLI', defaultModel: 'native-first' }],
+		selected: { id: 'codex-cli', model: 'native-current' },
+	}
+	const off = render(providers, { auto: { active: false, onSelect: vi.fn() } })
+	expect(off.indexOf('aria-label="Auto, picks a model for each task"')).toBeGreaterThan(-1)
+	expect(off.indexOf('Auto, picks a model')).toBeLessThan(off.indexOf('Native first'))
+	expect(off).toContain('Picks a model for each task')
+	const autoRow = off.match(/<button[^>]*aria-label="Auto, picks a model for each task"[^>]*>/)?.[0]
+	expect(autoRow).toContain('aria-checked="false"')
+	expect(off).not.toContain('aria-label="Model: Auto"')
+
+	const on = render(providers, { auto: { active: true, onSelect: vi.fn() } })
+	const checked = on.match(/<button[^>]*aria-label="Auto, picks a model for each task"[^>]*>/)?.[0]
+	expect(checked).toContain('aria-checked="true"')
+	expect(on).toContain('aria-label="Model: Auto"')
+	// The model that was picked is no longer the checked row.
+	const model = on.match(/<button[^>]*aria-label="Codex CLI Native selected"[^>]*>/)?.[0]
+	expect(model).toContain('aria-checked="false"')
+})
+
+it('offers no Auto row when Auto is not offered', () => {
+	catalogue('codex-cli', [{ id: 'native-first', label: 'Native first' }])
+	const html = render({
+		available: [{ id: 'codex-cli', label: 'Codex CLI', defaultModel: 'native-first' }],
+		selected: { id: 'codex-cli', model: 'native-first' },
+	})
+	expect(html).not.toContain('Picks a model for each task')
+})
