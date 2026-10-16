@@ -346,6 +346,7 @@ export async function execJson(
 			? { limits: { ...ctx.config.limits, ...limitsFromFlags } }
 			: {}),
 		...(ctx.config.sandbox ? { sandbox: ctx.config.sandbox } : {}),
+		...(ctx.config.decision ? { decision: ctx.config.decision } : {}),
 		// `!== undefined`, not truthiness: an empty list is the operator
 		// turning the default screen OFF, and a falsy check would drop it.
 		...(ctx.config.toolResultScreens !== undefined

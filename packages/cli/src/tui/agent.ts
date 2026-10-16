@@ -187,6 +187,7 @@ import {
 } from '../checkpoints/wrap.js'
 import type {
 	CompactionCliConfig,
+	DecisionConfig,
 	HooksConfig,
 	MemoryCliConfig,
 	PluginConfig,
@@ -224,6 +225,7 @@ import {
 	sandboxResolvedSeverity,
 } from '../context/sandbox.js'
 import { composeTurnSnapshot, readTurnSnapshot } from '../context/turn-snapshot.js'
+import { maybeCreateDecisionTool } from '../integrations/decision/model.js'
 import {
 	type ConnectedMcpServer,
 	type FailedMcpServer,
@@ -1969,6 +1971,11 @@ export interface AgentSessionOptions {
 	 */
 	readonly enableComputerUse?: boolean
 	/**
+	 * See `NamzuCliConfig.decision`. When set, the optional, advisory
+	 * fail-open `decide` tool is mounted. Absent mounts nothing.
+	 */
+	readonly decision?: DecisionConfig
+	/**
 	 * Mount the browser tools (`browser`, `browser_act`) over
 	 * `@namzu/browser`, with this profile, engine and site policy. Only the
 	 * TUI passes it: `exec`, `exec --json`, `drain` and `acp` have nobody at
@@ -3301,6 +3308,10 @@ export async function createAgentSession(
 		toolsets.push(toolset('extra', options.extraTools))
 	}
 	if (options.openUrl) toolsets.push(toolset('open-url', [createOpenUrlTool()]))
+	// Optional System-1 decision model. Always ready once configured: a model
+	// failure is absorbed inside the tool (fail-open), never a thrown error.
+	const decisionTool = maybeCreateDecisionTool(options.decision, process.env)
+	if (decisionTool) toolsets.push(toolset('decide', [decisionTool]))
 	// The owner's Pals, reachable from an ordinary conversation of the Namzu engine.
 	// Mounted whether or not any Pal exists yet so one created mid-conversation is
 	// usable at once (the roster never changes, so the cached prefix does not); the

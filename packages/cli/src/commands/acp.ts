@@ -802,6 +802,7 @@ export function createCliAcpRuntime(
 					...(projectCtx.config.compaction ? { compaction: projectCtx.config.compaction } : {}),
 					...(projectCtx.config.memory ? { memory: projectCtx.config.memory } : {}),
 					...(projectCtx.config.sandbox ? { sandbox: projectCtx.config.sandbox } : {}),
+					...(projectCtx.config.decision ? { decision: projectCtx.config.decision } : {}),
 					// `!== undefined`, not truthiness: an empty list is the
 					// operator turning the default screen OFF.
 					...(projectCtx.config.toolResultScreens !== undefined

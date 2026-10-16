@@ -3952,6 +3952,7 @@ export function App({
 							...(activeCtx.memory ? { memory: activeCtx.memory } : {}),
 							...(activeCtx.limits ? { limits: activeCtx.limits } : {}),
 							...(activeCtx.sandbox ? { sandbox: activeCtx.sandbox } : {}),
+							...(activeCtx.decision ? { decision: activeCtx.decision } : {}),
 							// The operator's screens, on the same terms as every other
 							// config field the App forwards. `!== undefined` rather than a
 							// length test: `[]` is the off switch, and dropping it here

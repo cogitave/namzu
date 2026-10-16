@@ -296,6 +296,9 @@ const TERMS = FORBIDDEN.flatMap((entry) => {
  */
 const WIRE_VALUE_FILES = [
 	'packages/providers/',
+	// The decision drivers speak one service's wire protocol (route, request and
+	// answer type names), exactly like a provider driver.
+	'packages/decision/',
 	'packages/sdk/src/compaction/context-window.ts',
 	// The model price catalogue: a table keyed by model id, and the resolver
 	// that reads it. Exactly the category the context-window table above is

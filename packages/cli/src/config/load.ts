@@ -214,7 +214,19 @@ function resolveConfigWithProvenance(
 	const managedPath = opts.managedPath ?? MANAGED_CONFIG_PATH
 
 	const userCfg = readYamlIfExists(userPath)
-	const projectCfg = mode.includeProject ? readJsonIfExists(projectPath, PROJECT_FILE_LABEL) : {}
+	// `decision` points the agent at a network endpoint and names the env var
+	// that holds a bearer token. A project's `namzu.config.json` is checked-in,
+	// attacker-reachable config: honouring `decision` from it would let any repo
+	// redirect the agent's decisions to its own endpoint and, for the azure
+	// provider, exfiltrate the operator's Entra token to that endpoint. So it is
+	// dropped from the project layer before validation — accepted only from the
+	// user and managed layers, where where-to-send and which-credential-to-spend
+	// is the operator's call, not the workspace's. (A project profile still
+	// carries it only when the operator selects that profile by name, an explicit
+	// choice, not a drive-by.)
+	const projectCfg = mode.includeProject
+		? readJsonIfExists(projectPath, PROJECT_FILE_LABEL, ['decision'])
+		: {}
 	const managedCfg = readJsonIfExists(managedPath, shortHomePath(managedPath))
 	const { config: envCfg, variables: envVariables } = readEnv(env)
 
@@ -455,7 +467,12 @@ export function shortHomePath(path: string): string {
 	return homePath(path)
 }
 
-function readJsonIfExists(path: string, label: string): MutableConfig {
+function readJsonIfExists(
+	path: string,
+	label: string,
+	/** Top-level keys dropped before validation, for keys a layer must not carry. */
+	drop: readonly string[] = [],
+): MutableConfig {
 	const raw = readIfPresent(path)
 	if (raw === null) return {}
 	let parsed: unknown
@@ -466,6 +483,9 @@ function readJsonIfExists(path: string, label: string): MutableConfig {
 			cause,
 			complete: true,
 		})
+	}
+	if (drop.length > 0 && parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+		for (const key of drop) delete (parsed as Record<string, unknown>)[key]
 	}
 	return asConfigObject(path, parsed, label)
 }
@@ -1227,6 +1247,54 @@ const CONFIG_READERS: ConfigReaders = {
 				: {}),
 		}
 	},
+	decision: (v, context) => {
+		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
+		const raw = v as Record<string, unknown>
+		const requireString = (key: string): string => {
+			const value = raw[key]
+			if (typeof value !== 'string' || value.length === 0) {
+				return invalidConfigValue(context, [key], 'must be a non-empty string')
+			}
+			return value
+		}
+		const optionalString = (key: string): string | undefined => {
+			if (raw[key] === undefined) return undefined
+			return requireString(key)
+		}
+		const allow = (keys: readonly string[], provider: string): void => {
+			for (const key of Object.keys(raw)) {
+				if (!keys.includes(key)) {
+					invalidConfigValue(
+						context,
+						[key],
+						`is not a decision setting for provider "${provider}" (${keys.join(', ')})`,
+					)
+				}
+			}
+		}
+		if (raw.provider === 'azure') {
+			allow(['provider', 'endpoint', 'deployment', 'tokenEnv'], 'azure')
+			const tokenEnv = optionalString('tokenEnv')
+			return {
+				provider: 'azure' as const,
+				endpoint: requireString('endpoint'),
+				deployment: requireString('deployment'),
+				...(tokenEnv !== undefined ? { tokenEnv } : {}),
+			}
+		}
+		if (raw.provider === 'http') {
+			allow(['provider', 'url', 'model', 'apiKeyEnv'], 'http')
+			const model = optionalString('model')
+			const apiKeyEnv = optionalString('apiKeyEnv')
+			return {
+				provider: 'http' as const,
+				url: requireString('url'),
+				...(model !== undefined ? { model } : {}),
+				...(apiKeyEnv !== undefined ? { apiKeyEnv } : {}),
+			}
+		}
+		return invalidConfigValue(context, ['provider'], 'must be "azure" or "http"')
+	},
 	schedule: (v, context) => {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
 		for (const key of Object.keys(v)) {
@@ -1423,6 +1491,8 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	// How many unattended runs a machine starts is the machine owner's to say,
 	// in a file; never a variable a profile could carry invisibly.
 	schedule: undefined,
+	// Names an endpoint conversation context is sent to; a file declares it, never a shell profile.
+	decision: undefined,
 	// A list of names and a switch that decide what reaches the model's prompt;
 	// declared in a file, where a project's runs are reviewed.
 	skills: undefined,

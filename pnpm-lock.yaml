@@ -162,6 +162,9 @@ importers:
       '@biomejs/biome':
         specifier: ^1.9.4
         version: 1.9.4
+      '@namzu/decision':
+        specifier: workspace:*
+        version: link:../decision
       '@namzu/telemetry':
         specifier: workspace:*
         version: link:../telemetry
@@ -204,10 +207,17 @@ importers:
         version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@22.19.17)(@vitest/coverage-v8@4.1.11)(vite@8.3.1(@types/node@22.19.17)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.1))
 
   packages/decision:
+    dependencies:
+      zod:
+        specifier: ^3.23.0
+        version: 3.25.76
     devDependencies:
       '@biomejs/biome':
         specifier: ^1.9.4
         version: 1.9.4
+      '@namzu/sdk':
+        specifier: workspace:^
+        version: link:../sdk
       '@types/node':
         specifier: ^22.19.17
         version: 22.19.17

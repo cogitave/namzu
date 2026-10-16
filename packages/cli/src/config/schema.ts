@@ -256,6 +256,18 @@ export interface NamzuCliConfig {
 	 */
 	readonly browser?: BrowserConfig
 	/**
+	 * A System-1 decision model. When set, the host and Pal agents get an
+	 * optional, advisory `decide` tool (yes/no, choice or score). A failing
+	 * model never fails a turn: the tool reports it unavailable and the
+	 * agent proceeds. Absent means the tool is not mounted.
+	 *
+	 * Accepted only from the user and managed config layers, never a project's
+	 * `namzu.config.json` or the environment: it names a network endpoint and
+	 * the env var holding a bearer token, so where decisions go and which
+	 * credential pays for them is the operator's call, not the workspace's.
+	 */
+	readonly decision?: DecisionConfig
+	/**
 	 * Shell commands to run at points in the agent's loop: before or after a
 	 * tool call, when a turn starts or ends. File-only, never from the
 	 * environment — a hook runs a command with the operator's authority, and
@@ -413,6 +425,30 @@ export interface ScheduleConfig {
 	/** Desktop notifications for scheduled runs. Default true. */
 	readonly notifications?: boolean
 }
+
+/**
+ * See `NamzuCliConfig.decision`. Auth is declarative: the config names the
+ * environment variable that holds a credential, never the credential itself.
+ */
+export type DecisionConfig =
+	| {
+			readonly provider: 'azure'
+			/** Resource endpoint of the Azure AI Foundry deployment. */
+			readonly endpoint: string
+			/** Foundry deployment name. */
+			readonly deployment: string
+			/** Environment variable holding the Entra bearer token. Default `AZURE_FOUNDRY_TOKEN`. */
+			readonly tokenEnv?: string
+	  }
+	| {
+			readonly provider: 'http'
+			/** Endpoint of an HTTP decision service. */
+			readonly url: string
+			/** Model name sent to the service, when it takes one. */
+			readonly model?: string
+			/** Environment variable holding a bearer token. Keyless when unset. */
+			readonly apiKeyEnv?: string
+	  }
 
 export interface TelemetryConfig {
 	/**
