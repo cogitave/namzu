@@ -27,10 +27,16 @@ pnpm add @namzu/decision
 ```ts
 import { AzureFoundryDecisionModel } from '@namzu/decision'
 
+// You supply the Entra bearer token — e.g. from @azure/identity, a managed
+// identity, or `az account get-access-token --resource https://cognitiveservices.azure.com`.
+async function entraToken(): Promise<string> {
+  return process.env.AZURE_FOUNDRY_TOKEN ?? ''
+}
+
 const model = new AzureFoundryDecisionModel({
   endpoint: 'https://my-resource.services.ai.azure.com',
   deployment: 'decision-1',
-  getToken: async () => entraToken(), // you supply the Entra bearer token
+  getToken: entraToken,
 })
 
 const { p } = await model.yesno('The build is red.', 'Should we page the owner?')
