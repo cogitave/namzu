@@ -123,6 +123,8 @@ composer microphone, the one-time agreement, the on-device listening engine and 
 message the scripted model answers. It is opt-in because it needs the ~1 GB of listening models on disk: set
 `NAMZU_LOCAL_LISTENING_MODELS` (the four pinned files; they are hard-linked into the test profile, so the folder
 must be on the same filesystem as the temp directory) and `NAMZU_LOCAL_LISTENING_WAVS` (a folder with
-`cmd02.wav`, 16 kHz mono, "Bugünkü toplantılarımı listele."). Dark and light screenshots, including the
+`cmd02.wav`, 16 kHz mono, "Bugünkü toplantılarımı listele.", and `dur-padded.wav`, one second of silence, "Dur.",
+then silence). Three flows: a spoken command becomes a message the model answers; "Dur." stops a running reply
+and sends nothing; and while a tool approval waits, speech is held, shown back, never sent and approves nothing. Dark and light screenshots, including the
 Settings card, land in `research/voice-input-20261016/`. A real microphone, echo cancellation and Windows
 permissions are not covered: Xvfb has no audio device.

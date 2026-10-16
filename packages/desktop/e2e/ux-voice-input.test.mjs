@@ -123,3 +123,108 @@ test(
 		}
 	},
 );
+
+test(
+	"saying “Dur.” stops a running reply and sends nothing",
+	{
+		timeout: 240000,
+		skip: !models || !wavs ? "set NAMZU_LOCAL_LISTENING_MODELS and NAMZU_LOCAL_LISTENING_WAVS" : false,
+	},
+	async () => {
+		const w = await createWorld({
+			rules: [
+				{ match: /merhaba/i, steps: [{ text: "Merhaba, buradayım." }] },
+				{ match: /uzun/i, steps: [{ hold: "long", text: "Uzun iş bitti." }] },
+			],
+			// One second of silence, "Dur.", then silence: the reply is already running when it is heard.
+			electronArgs: [
+				"--use-fake-device-for-media-stream",
+				`--use-file-for-fake-audio-capture=${join(wavs, "dur-padded.wav")}%noloop`,
+			],
+			seed: (world) => seedListening(world.userData),
+		});
+		let failed = true;
+		try {
+			await launch(w);
+			await openProject(w);
+			await send(w, "merhaba");
+			await expect(w.page.getByText("Merhaba, buradayım.")).toBeVisible({ timeout: T });
+			await send(w, "uzun bir iş yap");
+			const stop = w.page.getByRole("button", { name: "Stop" }).first();
+			await expect(stop).toBeVisible({ timeout: T });
+
+			await w.page.getByRole("button", { name: "Turn on voice input", exact: true }).click();
+			const consent = w.page.getByRole("region", { name: "Turn on voice input?" });
+			await consent.getByRole("button", { name: "Turn on voice input", exact: true }).click();
+
+			// The spoken stop ends the reply the way the Stop button does, and is not a message.
+			await expect(stop).toBeHidden({ timeout: T });
+			await shot(w, "7-stopped-by-voice");
+			await expect(w.page.getByText("Uzun iş bitti.")).toHaveCount(0);
+			const spoken = w.page.locator("[data-message-role='user']", { hasText: /^\s*dur\.?\s*$/i });
+			await expect(spoken).toHaveCount(0);
+			w.model.release("long");
+			assert.deepEqual(w.faults, [], "the renderer raised no uncaught errors");
+			failed = false;
+		} finally {
+			await dispose(w, { failed });
+		}
+	},
+);
+
+test(
+	"while a tool approval waits on screen, speech is held, not sent, and approves nothing",
+	{
+		timeout: 240000,
+		skip: !models || !wavs ? "set NAMZU_LOCAL_LISTENING_MODELS and NAMZU_LOCAL_LISTENING_WAVS" : false,
+	},
+	async () => {
+		const w = await createWorld({
+			rules: [
+				{ match: /merhaba/i, steps: [{ text: "Merhaba, buradayım." }] },
+				{
+					match: /write the file/i,
+					steps: [
+						{ tool: "write", args: { path: "out.txt", content: "hello from the model\n" } },
+						{ text: "Wrote out.txt." },
+					],
+				},
+				{ match: /toplant/i, steps: [{ text: "Bu cevap hiç gelmemeli." }] },
+			],
+			electronArgs: [
+				"--use-fake-device-for-media-stream",
+				`--use-file-for-fake-audio-capture=${join(wavs, "cmd02.wav")}%noloop`,
+			],
+			seed: (world) => seedListening(world.userData),
+		});
+		let failed = true;
+		try {
+			await launch(w);
+			await openProject(w);
+			await send(w, "merhaba");
+			await expect(w.page.getByText("Merhaba, buradayım.")).toBeVisible({ timeout: T });
+			await send(w, "Please write the file");
+			const card = w.page.getByRole("region", { name: "Tool approval" });
+			await expect(card).toBeVisible({ timeout: T });
+
+			await w.page.getByRole("button", { name: "Turn on voice input", exact: true }).click();
+			const consent = w.page.getByRole("region", { name: "Turn on voice input?" });
+			await consent.getByRole("button", { name: "Turn on voice input", exact: true }).click();
+
+			// What was heard is shown back with the reason it was not sent; the question still waits.
+			await expect(w.page.getByText(/A question is waiting on the screen/)).toBeVisible({ timeout: T });
+			await expect(w.page.locator(".voice-notice q")).toContainText(/toplantılarımı listele/i);
+			await shot(w, "8-held-while-approval-waits");
+			await expect(card).toBeVisible();
+			await expect(
+				w.page.locator("[data-message-role='user']", { hasText: /toplantılarımı/i }),
+			).toHaveCount(0);
+			await expect(w.page.getByText("Bu cevap hiç gelmemeli.")).toHaveCount(0);
+			await expect(w.page.getByText("Wrote out.txt.")).toHaveCount(0);
+			assert.deepEqual(w.faults, [], "the renderer raised no uncaught errors");
+			failed = false;
+		} finally {
+			await dispose(w, { failed });
+		}
+	},
+);
