@@ -61,7 +61,12 @@ export interface RouteResult {
 	readonly reason: string
 }
 
-export const DEFAULT_ROUTING_TIMEOUT_MS = 400
+/**
+ * Measured against a hosted decision deployment: 150–200 ms on a warm
+ * connection, 350–480 ms on the cold one most turns get after an idle gap, so
+ * a 400 ms budget fell back to the default on ordinary turns.
+ */
+export const DEFAULT_ROUTING_TIMEOUT_MS = 1500
 export const DEFAULT_ROUTING_THRESHOLD = 0.7
 export const ROUTING_TASK_CHARS = 1500
 /** Conversations longer than this outgrow a small model's window. */
@@ -140,6 +145,23 @@ async function withinBudget<T>(
 	}
 }
 
+/**
+ * One decision call, tried a second time when the first fails on its own
+ * (a pooled connection the server closed while idle fails at once). Never
+ * after an abort: the budget or the caller has already given up.
+ */
+async function askOnce<T>(
+	call: (signal: AbortSignal) => Promise<T>,
+	signal: AbortSignal,
+): Promise<T> {
+	try {
+		return await call(signal)
+	} catch (err) {
+		if (signal.aborted) throw err
+		return await call(signal)
+	}
+}
+
 export async function routeModel(input: RouteInput, deps: RouteDeps = {}): Promise<RouteResult> {
 	const now = deps.now ?? Date.now
 	const started = now()
@@ -149,6 +171,7 @@ export async function routeModel(input: RouteInput, deps: RouteDeps = {}): Promi
 		target: RoutingTarget,
 		confidence: number,
 		reason: string,
+		error?: unknown,
 	): RouteResult => {
 		const routed: RouteResult = {
 			tier,
@@ -165,13 +188,16 @@ export async function routeModel(input: RouteInput, deps: RouteDeps = {}): Promi
 				'namzu.routing.duration_ms': Math.max(0, now() - started),
 				'gen_ai.request.model': target.model,
 				'namzu.provider.id': target.provider,
+				// The class of what made it fall back, never its message: that can carry an endpoint.
+				...(error instanceof Error ? { 'error.type': error.name } : {}),
 			})
 		} catch {
 			// A logger must never be able to fail a turn.
 		}
 		return routed
 	}
-	const fallback = (reason: string): RouteResult => result('default', config.default, 0, reason)
+	const fallback = (reason: string, error?: unknown): RouteResult =>
+		result('default', config.default, 0, reason, error)
 
 	try {
 		if (input.pin) return result('default', input.pin, 1, 'pinned')
@@ -215,7 +241,11 @@ export async function routeModel(input: RouteInput, deps: RouteDeps = {}): Promi
 		let pBig: number | undefined
 		if (config.strategy === 'score') {
 			const decision = await withinBudget(
-				(signal) => model.score(state, '', ROUTING_SCORE_LEVELS, { signal }),
+				(signal) =>
+					askOnce(
+						(inner) => model.score(state, '', ROUTING_SCORE_LEVELS, { signal: inner }),
+						signal,
+					),
 				timeoutMs,
 				input.signal,
 			)
@@ -231,9 +261,17 @@ export async function routeModel(input: RouteInput, deps: RouteDeps = {}): Promi
 				(signal) =>
 					Promise.all([
 						fast
-							? model.yesno(state, ROUTING_FAST_QUESTION, { signal })
+							? askOnce(
+									(inner) => model.yesno(state, ROUTING_FAST_QUESTION, { signal: inner }),
+									signal,
+								)
 							: Promise.resolve(undefined),
-						big ? model.yesno(state, ROUTING_BIG_QUESTION, { signal }) : Promise.resolve(undefined),
+						big
+							? askOnce(
+									(inner) => model.yesno(state, ROUTING_BIG_QUESTION, { signal: inner }),
+									signal,
+								)
+							: Promise.resolve(undefined),
 					]),
 				timeoutMs,
 				input.signal,
@@ -252,8 +290,8 @@ export async function routeModel(input: RouteInput, deps: RouteDeps = {}): Promi
 		return result('default', config.default, Math.max(0, 1 - leaning), 'ordinary-task')
 	} catch (err) {
 		if (err instanceof RouteInterrupted) return fallback(err.reason)
-		if (err instanceof RangeError) return fallback('malformed-decision')
-		return fallback('decision-unavailable')
+		if (err instanceof RangeError) return fallback('malformed-decision', err)
+		return fallback('decision-unavailable', err)
 	}
 }
 

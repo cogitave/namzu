@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-10-17
+
+- **Update** [Auto model routing](cli/auto-model-routing.md): the default `routing.timeoutMs` is 1500 ms (was 400, measured too tight for a hosted decision deployment on a cold connection); a decision call that fails on its own is asked once more; a fallback logs the error class; only a conversation that has called the computer-use tool keeps the `fast` tier out (the tool being mounted no longer does); and the terminal status line shows the tier and model each turn went to. Unreleased, so no changeset of its own: `.changeset/auto-model-routing.md` and `.changeset/auto-model-choice.md` cover it.
+
 ## 2026-10-16
 
 - **Update** [Auto model routing](cli/auto-model-routing.md): Auto is now a visible choice. A `routing` block makes it available and `model: auto` the default; the terminal `/model` picker and `/model auto`, and the Desktop composer model picker, turn it on per conversation, and picking a model by hand turns it off. Desktop sessions now route when Auto is on, and the ACP runtime reports `auto` in the provider status and accepts `namzu/providers/select_auto`. `.changeset/auto-model-choice.md`, **minor** for `@namzu/cli`.

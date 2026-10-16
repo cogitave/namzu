@@ -51,6 +51,7 @@ import {
 	type BackgroundJob,
 	type BackgroundJobOutput,
 	BackgroundJobRegistry,
+	COMPUTER_USE_TOOL_NAME,
 	type CheckpointId,
 	type CompactionConfig,
 	type CompactionResult,
@@ -230,7 +231,7 @@ import {
 	maybeCreateDecisionModel,
 	maybeCreateDecisionTool,
 } from '../integrations/decision/model.js'
-import { routeModel } from '../integrations/decision/routing.js'
+import { type RouteTier, routeModel } from '../integrations/decision/routing.js'
 import {
 	type ConnectedMcpServer,
 	type FailedMcpServer,
@@ -936,6 +937,12 @@ export interface ResumePausedParams {
 	readonly systemNote?: string
 }
 
+/** Where `model: auto` sent a turn: shown beside "Auto" so the choice is visible. */
+export interface AutoRouteSummary {
+	readonly tier: RouteTier
+	readonly model: string
+}
+
 export interface AgentSession {
 	/**
 	 * The browser the `browser` and `browser_act` tools drive, when this
@@ -956,6 +963,8 @@ export interface AgentSession {
 	readonly sandbox: SandboxSummary
 	readonly providerSummary: string | null
 	readonly modelSummary: string | null
+	/** Under `model: auto`, the tier and model the latest top-level turn was routed to. */
+	readonly autoRoute?: AutoRouteSummary
 	/** Exact primary route declarations; absent means support has not been declared. */
 	readonly imageAttachmentsSupported?: boolean
 	readonly documentAttachmentsSupported?: boolean
@@ -2457,6 +2466,8 @@ export async function createAgentSession(
 	// children that turn delegates to. Undefined when auto is off or fell back
 	// to the session's own provider.
 	let turnRouteTarget: { readonly provider: string; readonly model: string } | undefined
+	// What `model: auto` decided for the latest top-level turn, for the status line.
+	let lastAutoRoute: AutoRouteSummary | undefined
 	const providerForSession = (sessionId: SessionId): LLMProvider =>
 		primary.id === 'zen' || primary.id === 'zen-go'
 			? constructProvider(primary.id, det, model, { sessionId })
@@ -3732,7 +3743,10 @@ export async function createAgentSession(
 					config: routing,
 					features: {
 						conversationLength: messages.length,
-						usesComputerUse: options.enableComputerUse === true,
+						// Mounted is not used: the tool is on in every interactive session,
+						// so only a conversation that has driven the desktop keeps the small
+						// tier out.
+						usesComputerUse: options.enableComputerUse === true && conversationDrovePc(messages),
 						usesPal: false,
 					},
 					signal,
@@ -3749,6 +3763,7 @@ export async function createAgentSession(
 					logger: cliLogger(),
 				},
 			)
+			lastAutoRoute = { tier: routed.tier, model: routed.model }
 			if (routed.provider === primary.id && routed.model === model) {
 				turnRouteTarget = undefined
 				return undefined
@@ -3763,6 +3778,7 @@ export async function createAgentSession(
 		} catch (err) {
 			signal.throwIfAborted()
 			turnRouteTarget = undefined
+			lastAutoRoute = undefined
 			cliLogger().warn(
 				'auto model routing failed, using the session model',
 				exceptionAttributes(err),
@@ -4127,6 +4143,9 @@ export async function createAgentSession(
 		},
 		providerSummary: entry.label,
 		modelSummary: model,
+		get autoRoute() {
+			return lastAutoRoute
+		},
 		get imageAttachmentsSupported() {
 			return providerForSession(scope.sessionId).capabilities?.supportsVision
 		},
@@ -5499,6 +5518,22 @@ export interface SessionScope {
 export type { SessionDirectories } from '../context/directories.js'
 
 /** The newest user turn's text, for labels. */
+/** How far back `conversationDrovePc` looks: the current stretch of work, not the whole history. */
+const DESKTOP_USE_LOOKBACK = 20
+
+/** Whether the recent conversation called the computer-use tool, i.e. is driving the desktop. */
+export function conversationDrovePc(messages: readonly Message[]): boolean {
+	for (let i = messages.length - 1; i >= 0 && i >= messages.length - DESKTOP_USE_LOOKBACK; i--) {
+		const m = messages[i]
+		if (
+			m?.role === 'assistant' &&
+			m.toolCalls?.some((call) => call.function.name === COMPUTER_USE_TOOL_NAME)
+		)
+			return true
+	}
+	return false
+}
+
 function lastUserText(messages: readonly Message[]): string {
 	for (let i = messages.length - 1; i >= 0; i--) {
 		const m = messages[i]

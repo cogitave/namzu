@@ -287,6 +287,7 @@ import {
 	AUTO_MODEL_LABEL,
 	AUTO_ON_NOTICE,
 	AUTO_TURNED_OFF_SUFFIX,
+	autoModelLabel,
 	autoRefusal,
 	isAutoQuery,
 	parseModelSelectionIntent,
@@ -11394,7 +11395,7 @@ export function App({
 						provider={session?.providerSummary ?? null}
 						model={
 							autoActive && ctx.routing && !palDefinitionRef.current
-								? AUTO_MODEL_LABEL
+								? autoModelLabel(session?.autoRoute)
 								: (session?.modelSummary ?? null)
 						}
 						effort={reasoningEffort}

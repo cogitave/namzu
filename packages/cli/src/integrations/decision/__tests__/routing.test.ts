@@ -2,6 +2,7 @@ import { DecisionError, type DecisionModel } from '@namzu/decision'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { RoutingConfig } from '../../../config/schema.js'
 import {
+	DEFAULT_ROUTING_TIMEOUT_MS,
 	ROUTING_BIG_QUESTION,
 	ROUTING_FAST_QUESTION,
 	ROUTING_TASK_CHARS,
@@ -174,6 +175,30 @@ describe('routeModel fail-open: only ever the default', () => {
 		}
 	})
 
+	it('asks once more when a call fails on its own, as a stale pooled connection does', async () => {
+		let calls = 0
+		const model = {
+			yesno: vi.fn(async (_state: string, question: string) => {
+				if (question === ROUTING_FAST_QUESTION && calls++ === 0) throw new TypeError('fetch failed')
+				return { p: question === ROUTING_FAST_QUESTION ? 0.9 : 0.1 }
+			}),
+		} as unknown as DecisionModel
+		const r = await routeModel({ task, config }, { model })
+		expect(r).toMatchObject({ tier: 'fast', reason: 'simple-task' })
+		expect(model.yesno).toHaveBeenCalledTimes(3)
+	})
+
+	it('falls back after the second failure and logs only the error class', async () => {
+		const debug = vi.fn()
+		const model = failingModel(new TypeError('fetch failed at https://example.invalid/secret'))
+		const r = await routeModel({ task, config }, { model, logger: { debug } })
+		expect(r).toMatchObject({ tier: 'default', reason: 'decision-unavailable' })
+		expect(model.yesno).toHaveBeenCalledTimes(4)
+		const [, attributes] = debug.mock.calls[0] ?? []
+		expect(attributes).toMatchObject({ 'error.type': 'TypeError' })
+		expect(JSON.stringify(attributes)).not.toContain('example.invalid')
+	})
+
 	it('survives a malformed or NaN probability', async () => {
 		for (const p of [Number.NaN, 2, -0.1, Number.POSITIVE_INFINITY]) {
 			const r = await routeModel({ task, config }, { model: yesnoModel(p, 0.1) })
@@ -278,7 +303,7 @@ describe('routeModel timeout', () => {
 			}),
 		} as unknown as DecisionModel
 		const pending = routeModel({ task, config }, { model })
-		await vi.advanceTimersByTimeAsync(400)
+		await vi.advanceTimersByTimeAsync(DEFAULT_ROUTING_TIMEOUT_MS)
 		await pending
 		expect(seen?.aborted).toBe(true)
 	})

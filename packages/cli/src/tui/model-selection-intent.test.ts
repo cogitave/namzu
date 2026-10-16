@@ -1,6 +1,7 @@
 import { expect, it } from 'vitest'
 import { PROVIDER_REGISTRY } from '../integrations/providers/index.js'
 import {
+	autoModelLabel,
 	autoRefusal,
 	isAutoQuery,
 	parseModelSelectionIntent,
@@ -164,4 +165,11 @@ it('refuses Auto in plain words when it is not set up or in a Pal', () => {
 	expect(missing).toContain('routing block')
 	expect(missing).toContain('docs/cli/auto-model-routing.md')
 	expect(autoRefusal(true, true)).toContain('Pal')
+})
+
+it('labels the status line Auto, then the tier and model the last turn went to', () => {
+	expect(autoModelLabel(undefined)).toBe('Auto')
+	expect(autoModelLabel({ tier: 'fast', model: 'nemotron-3.5-lightning-free' })).toBe(
+		'Auto · fast · nemotron-3.5-lightning-free',
+	)
 })

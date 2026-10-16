@@ -154,3 +154,13 @@ export function autoRefusal(routingConfigured: boolean, inPal: boolean): string 
 }
 
 export const AUTO_MODEL_LABEL = 'Auto'
+
+/**
+ * The model name the status line shows while Auto is on: `Auto` until a turn
+ * has been routed, then the tier and model that turn went to.
+ */
+export function autoModelLabel(
+	route: { readonly tier: string; readonly model: string } | undefined,
+): string {
+	return route ? `${AUTO_MODEL_LABEL} · ${route.tier} · ${route.model}` : AUTO_MODEL_LABEL
+}

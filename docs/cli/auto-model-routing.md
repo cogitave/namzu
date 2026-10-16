@@ -28,15 +28,15 @@ routing:
     big: { provider: anthropic, model: claude-opus-4 }
   strategy: yesno          # yesno (default) or score
   thresholds: { fast: 0.7, big: 0.7 }
-  timeoutMs: 400
+  timeoutMs: 1500
 ```
 
 `model: auto` without `routing.default` is refused when the config loads.
 
 ## How a task is placed
 
-1. Local rules first, with no model call. A task that drives the desktop, runs
-   in a Pal, carries attachments or sits in a long conversation never goes to
+1. Local rules first, with no model call. A task in a conversation that has
+   driven the desktop (called the computer-use tool recently), runs in a Pal, carries attachments or sits in a long conversation never goes to
    `fast` (small models are poor at multi-step tool use). A turn that follows a
    failed one moves up one tier: `fast` to `default`, `default` to `big`.
 2. `yesno` asks two questions in parallel: is this simple enough for a small
@@ -49,10 +49,16 @@ routing:
 ## It fails open to the default
 
 No decision model, a failed or malformed answer, a timeout after `timeoutMs`
-(default 400 ms), an abort, contradictory answers, or a tier whose provider is
-not available on this machine all run `routing.default`. A failure never
-chooses `fast` (quality) or `big` (cost). Each decision writes one debug log
-line with the tier and a short reason.
+(default 1500 ms), an abort, contradictory answers, or a tier whose provider is
+not available on this machine all run `routing.default`. A call that fails on
+its own, as a pooled connection the service closed while idle does, is asked
+once more inside the same budget. A failure never chooses `fast` (quality) or
+`big` (cost). Each decision writes one debug log line with the tier, a short
+reason and, on a fallback, the class of the error.
+
+The default budget comes from measuring a hosted decision deployment: about
+150–200 ms on a warm connection and 350–480 ms on the cold one most turns get
+after an idle gap, so a 400 ms budget sent ordinary turns to the default.
 
 ## Where it applies
 
@@ -74,7 +80,9 @@ model runs until you pick it.
 - **Terminal.** `/model` lists "Auto (picks a model for each task)" as its first
   row, and it is the row the picker opens on while Auto is on. `/model auto`
   (also `/model otomatik`, "switch model to auto", "auto'ya geç") does the same
-  without opening the picker. The status line reads `Auto` while it is on. Auto
+  without opening the picker. The status line reads `Auto` while it is on, and
+  after each turn the tier and model that turn went to, for example
+  `Auto · fast · nemotron-3.5-lightning-free`. Auto
   chosen this way lasts for the launch and is not written to your saved model
   preferences; set `model: auto` in the config to make it the default every
   time.
@@ -87,5 +95,5 @@ model runs until you pick it.
 - **Without `routing`.** Asking for Auto says that it needs a `routing` block in
   your user config (`~/.namzu/config.yaml`) and points here; nothing changes.
 
-The picker and the status line show `Auto`, not which model a turn used; the
-per-decision debug log line names the tier.
+The Desktop label shows `Auto`, not which model a turn used; the terminal's
+status line and the per-decision debug log line name the tier.

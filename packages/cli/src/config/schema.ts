@@ -498,7 +498,7 @@ export interface RoutingConfig {
 		readonly fast?: number
 		readonly big?: number
 	}
-	/** Milliseconds the sizing call may take before the default runs. Default 400. */
+	/** Milliseconds the sizing call may take before the default runs. Default 1500. */
 	readonly timeoutMs?: number
 }
 
