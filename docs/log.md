@@ -2,6 +2,8 @@
 
 ## 2026-10-16
 
+- **Update** [Decision models](sdk/decision.md): `@namzu/decision` gains an HTTP driver, a `createDecisionModel` provider factory and the fail-open `decide` tool; the CLI mounts it on the host and Pal agents when a `decision` provider (`azure` or `http`) is configured. `.changeset/decision-integration.md`, **minor** for `@namzu/cli` and `@namzu/decision`.
+
 - **Creation** [Decision models](sdk/decision.md): new `@namzu/decision` leaf package — a provider-agnostic System-1 decision interface (yes/no, choice, score) with an Azure AI Foundry Microsoft-Decision-1 driver. `.changeset/decision-package.md`, **minor** for `@namzu/decision`.
 
 ## 2026-10-14

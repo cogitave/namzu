@@ -11,6 +11,7 @@ import type {
 	BrowserConfig,
 	CompactionCliConfig,
 	ComposerTriggersConfig,
+	DecisionConfig,
 	HooksConfig,
 	MemoryCliConfig,
 	PluginConfig,
@@ -139,6 +140,8 @@ export interface TuiContext {
 	readonly memory?: MemoryCliConfig
 	/** Configured per-turn limits, also applied when rebuilding a session. */
 	readonly limits?: TurnLimitsConfig
+	/** See `NamzuCliConfig.decision`. */
+	readonly decision?: DecisionConfig
 	/**
 	 * See `NamzuCliConfig.toolResultScreens`.
 	 *

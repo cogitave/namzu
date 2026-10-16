@@ -529,6 +529,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					...(resolvedCtx.config.memory ? { memory: resolvedCtx.config.memory } : {}),
 					...(resolvedCtx.config.limits ? { limits: resolvedCtx.config.limits } : {}),
 					...(resolvedCtx.config.sandbox ? { sandbox: resolvedCtx.config.sandbox } : {}),
+					...(resolvedCtx.config.decision ? { decision: resolvedCtx.config.decision } : {}),
 					// `!== undefined`, never `??`: an empty list is the operator
 					// switching the screens off, and it is the answer this key
 					// exists for. A truthiness test would drop it and the turn

@@ -77,6 +77,7 @@
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^1.9.4",
+		"@namzu/decision": "workspace:*",
 		"@namzu/telemetry": "workspace:*",
 		"@types/react": "^19.2.15",
 		"esbuild": "0.28.1",
