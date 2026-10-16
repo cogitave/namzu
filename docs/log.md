@@ -2,6 +2,8 @@
 
 ## 2026-10-16
 
+- **Update** [Desktop voice input](cli/desktop-listening.md): microphone capture (16 kHz mono through an `AudioWorklet` file), the composer microphone, the in-app agreement and a microphone-only Electron permission handler, the Settings "Voice input" card, and the main-process loop that turns speech into a normal message (800/1600 ms endpointing, stop words, held while a question is waiting, read-aloud of voice replies with 300 ms barge-in). `.changeset/desktop-voice-input.md`, **patch** for `@namzu/desktop`.
+
 - **Creation** [Desktop local listening](cli/desktop-listening.md): the on-device Turkish speech-to-text and voice-activity engine in Namzu Desktop's main process. An explicit, verified 989 MiB download; inference in two worker threads; structural `VoiceActivityDetector` and `SpeechRecognizer` adapters for a live session. No microphone capture or interface yet. `.changeset/desktop-local-listening-engine.md`, **patch** for `@namzu/desktop`.
 
 - **Creation** [Decision models](sdk/decision.md): new `@namzu/decision` leaf package — a provider-agnostic System-1 decision interface (yes/no, choice, score) with an Azure AI Foundry Microsoft-Decision-1 driver. `.changeset/decision-package.md`, **minor** for `@namzu/decision`.

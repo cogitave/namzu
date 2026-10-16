@@ -5219,6 +5219,23 @@ export class Operator {
 			}
 		}
 	}
+	/** What a spoken message must know first: is a reply running, and is a question waiting on the person. */
+	voiceActivity(sessionId: string): { running: boolean; waitingOnPerson: boolean } {
+		const session = this.session(sessionId)
+		return { running: session.running, waitingOnPerson: session.permissions.size > 0 }
+	}
+	/**
+	 * Sends spoken text exactly as the composer sends typed text with nothing attached: the saved
+	 * model choice and message settings of this conversation, a new turn when idle, and current-turn
+	 * input (or the queue) while a reply runs.
+	 */
+	async sendSpoken(sessionId: string, text: string): Promise<'accepted' | 'queued'> {
+		const session = this.session(sessionId)
+		const saved = this.draftSettings(sessionId)
+		if (!session.running && saved.choice)
+			await this.selectProvider(sessionId, saved.choice.provider, saved.choice.model)
+		return this.sendCurrent(sessionId, text, saved.options ? { ...saved.options } : undefined)
+	}
 	async cancel(sessionId: string): Promise<void> {
 		const session = this.session(sessionId)
 		await session.client.request('session/cancel', {

@@ -24,7 +24,7 @@ export const SETTINGS_SECTION_SUBTITLES: Record<SettingsSection, string> = {
 	projects: 'The folders Namzu knows, and when it asks you to trust them again.',
 	appearance: 'Choose how Namzu looks.',
 	updates: 'Keep Namzu and the programs it works with up to date.',
-	speech: 'Read replies aloud with a voice that stays on this computer.',
+	speech: 'Talk to Namzu and have replies read aloud, with voices that stay on this computer.',
 	about: 'Versions, your system, and where Namzu keeps its files.',
 }
 
@@ -142,6 +142,13 @@ export const SETTINGS_ENTRIES: readonly SettingsEntry[] = [
 		label: 'Voice',
 		description: 'Turkish speech that runs on this device: download, remove and options.',
 		keywords: ['speech', 'tts', 'read aloud', 'install', 'remove', 'turkish', 'language'],
+	},
+	{
+		id: 'voice-input',
+		section: 'speech',
+		label: 'Voice input',
+		description: 'Talk to Namzu in Turkish: download, remove and microphone permission.',
+		keywords: ['microphone', 'mic', 'speech to text', 'dictation', 'talk', 'listen', 'turkish'],
 	},
 	{
 		id: 'about',

@@ -24,6 +24,7 @@ import {
 	SunIcon,
 	XIcon,
 } from './icons.js'
+import { LocalListeningSettingsContent } from './local-listening-settings.js'
 import { LocalSpeechSettingsContent } from './local-speech-settings.js'
 import { ModelsSection } from './models-section.js'
 import { middleEllipsis, tildePath } from './path-display.js'
@@ -45,6 +46,7 @@ import type { Appearance } from './sidebar.js'
 import { Button } from './ui/button.js'
 import type { DesktopSettingsControls } from './use-desktop-settings.js'
 import { useEngineUpdates } from './use-engine-updates.js'
+import type { LocalListeningControls } from './use-local-listening.js'
 import type { LocalSpeechControls } from './use-local-speech.js'
 import { useProviderConnections } from './use-provider-connections.js'
 import './settings-page.css'
@@ -116,6 +118,8 @@ export interface SettingsPageProps {
 	/** Where an engine update's terminal tab opens: this pane and the project in front. */
 	engineTarget?: EngineUpdateTarget
 	speech: LocalSpeechControls
+	/** The downloaded voice input engine (speech to text). */
+	listening: LocalListeningControls
 	info?: DesktopInfo
 	infoError?: string
 	onOpenFolder?: (kind: DataFolderKind) => void
@@ -619,10 +623,18 @@ function UpdatesSection({ update, settings, now, engineTarget, hasAppUpdater }: 
 	)
 }
 
-function SpeechSection({ speech }: SettingsPageProps) {
+function SpeechSection({ speech, listening, settings }: SettingsPageProps) {
 	return (
-		<div id="setting-voice" className="settings-speech">
-			<LocalSpeechSettingsContent speech={speech} embedded />
+		<div className="settings-speech">
+			<div id="setting-voice">
+				<LocalSpeechSettingsContent speech={speech} embedded />
+			</div>
+			<LocalListeningSettingsContent
+				listening={listening}
+				accepted={settings.settings?.voiceInputAccepted}
+				onAcceptedChange={(value) => void settings.change({ voiceInputAccepted: value })}
+				embedded
+			/>
 		</div>
 	)
 }
