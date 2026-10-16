@@ -18,8 +18,11 @@ interface. It has no runtime dependencies.
 
 ## Install
 
-```bash
-pnpm add @namzu/decision
+`@namzu/decision` is an internal Namzu package (not published to npm). Depend on
+it from another workspace package with a workspace reference:
+
+```jsonc
+"@namzu/decision": "workspace:*"
 ```
 
 ## Usage

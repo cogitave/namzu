@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "Provider-agnostic System-1 decision models: fast, non-generative yes/no, choice and score decisions with typed probabilities. First driver: Azure AI Foundry Microsoft-Decision-1.",
   "license": "FSL-1.1-MIT",
+  "private": true,
   "engines": {
     "node": ">=20.0.0"
   },
@@ -41,10 +42,6 @@
     "README.md",
     "CHANGELOG.md"
   ],
-  "publishConfig": {
-    "access": "public",
-    "provenance": true
-  },
   "scripts": {
     "build": "tsc --build",
     "dev": "tsc --build --watch",
