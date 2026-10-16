@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-10-16
+
+- **Creation** [Decision models](sdk/decision.md): new `@namzu/decision` leaf package — a provider-agnostic System-1 decision interface (yes/no, choice, score) with an Azure AI Foundry Microsoft-Decision-1 driver. `.changeset/decision-package.md`, **minor** for `@namzu/decision`.
+
 ## 2026-10-14
 
 - **Update** [Desktop](cli/desktop.md): Spaces, Scheduled and Plugins in the icon rail are shown in progress — disabled, with an "— in progress" tooltip — and no longer open, since that work is not started; they return when it lands. The rail's "More" overflow menu is gone: **Add new project** already lives in the sidebar and the title bar, and the sidebar toggles from the title bar's panel control or Ctrl/Cmd+B. The native View menu drops Reload, Force Reload and the developer tools (kept only in a development build) and keeps zoom and full screen, so the app reads as an app, not a browser. `.changeset/desktop-rail-in-progress-app-menu.md`, **patch** for `@namzu/desktop`.
