@@ -114,3 +114,15 @@ the waiting line on the Pal's page, the plain "computer is not available" answer
 `NAMZU_E2E_PAL_COMPUTER=fake`, which `cli-entry.mjs` answers with `fake-pal-computer-hooks.mjs`: `@namzu/sandbox` keeps
 every export but its computer provider, whose guest is a recorder, so the real host and the real dispatch read the
 message with no Docker. Pictures go to `research/pal-wake-20261009/`.
+
+## Voice input
+
+`ux-voice-input.test.mjs` plays a recorded Turkish command into Chromium's fake capture device
+(`--use-file-for-fake-audio-capture`, passed through `createWorld({ electronArgs })`) and checks that the
+composer microphone, the one-time agreement, the on-device listening engine and the send path turn it into a
+message the scripted model answers. It is opt-in because it needs the ~1 GB of listening models on disk: set
+`NAMZU_LOCAL_LISTENING_MODELS` (the four pinned files; they are hard-linked into the test profile, so the folder
+must be on the same filesystem as the temp directory) and `NAMZU_LOCAL_LISTENING_WAVS` (a folder with
+`cmd02.wav`, 16 kHz mono, "Bugünkü toplantılarımı listele."). Dark and light screenshots, including the
+Settings card, land in `research/voice-input-20261016/`. A real microphone, echo cancellation and Windows
+permissions are not covered: Xvfb has no audio device.

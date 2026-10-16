@@ -7071,6 +7071,7 @@ export function App({
 										onOpenSettings={() => openSettings('speech', 'voice-input')}
 									/>
 								}
+								speechStatus={<VoiceInputStatus voice={voice} />}
 								running={thread.running}
 								liveInputSupported={thread.liveInputSupported && !palConversation}
 								liveInputs={thread.liveInputs}
@@ -7085,7 +7086,6 @@ export function App({
 								onEditQueued={(itemId) => void act(() => editQueued(itemId))}
 								onRemoveQueued={(itemId) => void act(() => api.removeQueued(sessionId, itemId))}
 							/>
-							<VoiceInputStatus voice={voice} />
 							{speech.error && (
 								<p className="inline-error" role="alert">
 									{speech.error}

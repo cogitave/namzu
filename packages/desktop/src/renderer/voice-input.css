@@ -68,7 +68,8 @@
 	display: flex;
 	flex-direction: column;
 	gap: 6px;
-	margin: 6px 4px 0;
+	/* Inside the composer stack, above the box: the agreement card takes the box's own width. */
+	padding: 0 0 8px;
 	font-size: 12px;
 	line-height: 1.5;
 	color: var(--muted-foreground);
@@ -78,6 +79,7 @@
 	align-items: center;
 	gap: 6px;
 	margin: 0;
+	padding: 0 12px;
 }
 .voice-listening::before {
 	content: "";
@@ -93,6 +95,7 @@
 	justify-content: space-between;
 	gap: 8px;
 	margin: 0;
+	padding: 0 12px;
 }
 .voice-notice[data-kind="error"] {
 	color: var(--error-foreground);
