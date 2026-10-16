@@ -58,4 +58,5 @@ The operator application.
 * [Tool-result screens](tool-result-screens.md) - The toolResultScreens config key: which screens judge a tool result before the model reads it, the empty list that turns the default off, and the per-tool `passthroughTools` exception.
 
 * [Desktop application](desktop.md) - Native operator workspace using the existing CLI runtime and conversation logs, with terminal tabs and an engine's own command line beside the conversations.
+* [Desktop local listening](desktop-listening.md) - The on-device Turkish speech recognition and voice-activity engine in Desktop: the pinned download, storage, worker threads, bounds and the live-session adapters.
 * [CLI ACP live input](acp.md) - Owned live operator messages, bounded receipt reconciliation and safe delegation wait release.
