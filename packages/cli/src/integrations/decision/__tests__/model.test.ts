@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { buildDecisionProviderConfig, maybeCreateDecisionTool } from '../model.js'
+import {
+	buildDecisionProviderConfig,
+	maybeCreateDecisionModel,
+	maybeCreateDecisionTool,
+} from '../model.js'
 
 describe('buildDecisionProviderConfig', () => {
 	it('maps an azure block and reads the token from the named variable at call time', async () => {
@@ -55,5 +59,17 @@ describe('maybeCreateDecisionTool', () => {
 	it('builds the decide tool from a block', () => {
 		const tool = maybeCreateDecisionTool({ provider: 'http', url: 'https://d' }, {})
 		expect(tool?.name).toBe('decide')
+	})
+})
+
+describe('maybeCreateDecisionModel', () => {
+	it('is undefined without a decision block', () => {
+		expect(maybeCreateDecisionModel(undefined, {})).toBeUndefined()
+	})
+
+	it('returns the model itself, not the fail-open tool', () => {
+		const model = maybeCreateDecisionModel({ provider: 'http', url: 'http://localhost:1/d' }, {})
+		expect(typeof model?.yesno).toBe('function')
+		expect(typeof model?.score).toBe('function')
 	})
 })

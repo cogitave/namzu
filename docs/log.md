@@ -2,6 +2,8 @@
 
 ## 2026-10-16
 
+- **Creation** [Auto model routing](cli/auto-model-routing.md): new `model: auto` and `routing` config keys (user and managed layers only). The CLI sizes each turn with the configured decision model and runs it on a fast, default or big model, always failing open to `routing.default`. `.changeset/auto-model-routing.md`, **minor** for `@namzu/cli`.
+
 - **Update** [Decision models](sdk/decision.md): `@namzu/decision` gains an HTTP driver, a `createDecisionModel` provider factory and the fail-open `decide` tool; the CLI mounts it on the host and Pal agents when a `decision` provider (`azure` or `http`) is configured. `.changeset/decision-integration.md`, **minor** for `@namzu/cli` and `@namzu/decision`.
 
 - **Creation** [Decision models](sdk/decision.md): new `@namzu/decision` leaf package — a provider-agnostic System-1 decision interface (yes/no, choice, score) with an Azure AI Foundry Microsoft-Decision-1 driver. `.changeset/decision-package.md`, **minor** for `@namzu/decision`.

@@ -191,6 +191,7 @@ import type {
 	HooksConfig,
 	MemoryCliConfig,
 	PluginConfig,
+	RoutingConfig,
 	SandboxConfig,
 	SkillsConfig,
 	TurnLimitsConfig,
@@ -225,7 +226,11 @@ import {
 	sandboxResolvedSeverity,
 } from '../context/sandbox.js'
 import { composeTurnSnapshot, readTurnSnapshot } from '../context/turn-snapshot.js'
-import { maybeCreateDecisionTool } from '../integrations/decision/model.js'
+import {
+	maybeCreateDecisionModel,
+	maybeCreateDecisionTool,
+} from '../integrations/decision/model.js'
+import { routeModel } from '../integrations/decision/routing.js'
 import {
 	type ConnectedMcpServer,
 	type FailedMcpServer,
@@ -1976,6 +1981,13 @@ export interface AgentSessionOptions {
 	 */
 	readonly decision?: DecisionConfig
 	/**
+	 * See `NamzuCliConfig.routing`. When set, `model: auto` is in force: each
+	 * top-level turn, and each delegated child that inherits the session's
+	 * model, is routed to a tier by `routeModel`. A Pal resolves it once, to
+	 * `routing.default`. Absent means the saved provider and model run as today.
+	 */
+	readonly routing?: RoutingConfig
+	/**
 	 * Mount the browser tools (`browser`, `browser_act`) over
 	 * `@namzu/browser`, with this profile, engine and site policy. Only the
 	 * TUI passes it: `exec`, `exec --json`, `drain` and `acp` have nobody at
@@ -2441,6 +2453,10 @@ export async function createAgentSession(
 	// The TUI can replace its conversation without replacing this session object.
 	// Bind each admitted run to its captured conversation, including durable resumes;
 	// a Zen client must never generate a fresh Go session for each model call.
+	// The model `model: auto` routed the current top-level turn to, for the
+	// children that turn delegates to. Undefined when auto is off or fell back
+	// to the session's own provider.
+	let turnRouteTarget: { readonly provider: string; readonly model: string } | undefined
 	const providerForSession = (sessionId: SessionId): LLMProvider =>
 		primary.id === 'zen' || primary.id === 'zen-go'
 			? constructProvider(primary.id, det, model, { sessionId })
@@ -3136,8 +3152,12 @@ export async function createAgentSession(
 				})
 			},
 			buildProvider: async (invokingSessionId, selection) => {
-				const providerId = selection ? (selection.provider as ProviderId) : primary.id
-				const selectedModel = selection?.model ?? model
+				// Without an explicit choice a child inherits the model the current
+				// turn was routed to (`model: auto`), else the session's own.
+				const providerId = selection
+					? (selection.provider as ProviderId)
+					: ((turnRouteTarget?.provider as ProviderId | undefined) ?? primary.id)
+				const selectedModel = selection?.model ?? turnRouteTarget?.model ?? model
 				if (!invokingSessionId && (providerId === 'zen' || providerId === 'zen-go'))
 					throw new Error('A delegated provider requires its invoking conversation.')
 				await ensureRegistered(providerId)
@@ -3686,6 +3706,68 @@ export async function createAgentSession(
 			provider: pinnedProvider,
 			model: pinnedModel,
 			...(effort ? { effort } : {}),
+		}
+	}
+	// `model: auto`: the decision model that sizes a task, built once. Absent
+	// without a `decision` block, in which case every turn runs `routing.default`.
+	const routingDecisionModel = options.routing
+		? maybeCreateDecisionModel(options.decision, process.env)
+		: undefined
+	/**
+	 * Where a top-level turn runs under `model: auto`, or `undefined` to run on
+	 * the session's own provider (auto off, the route is the session's model, or
+	 * the routed provider could not be built). Never throws into the turn.
+	 */
+	const autoRouteFor = async (
+		messages: readonly Message[],
+		sessionId: SessionId,
+		signal: AbortSignal,
+	): Promise<{ readonly provider: LLMProvider; readonly model: string } | undefined> => {
+		const routing = options.routing
+		if (!routing) return undefined
+		try {
+			const routed = await routeModel(
+				{
+					task: lastUserText(messages),
+					config: routing,
+					features: {
+						conversationLength: messages.length,
+						usesComputerUse: options.enableComputerUse === true,
+						usesPal: false,
+					},
+					signal,
+				},
+				{
+					...(routingDecisionModel ? { model: routingDecisionModel } : {}),
+					isAvailable: (target) => {
+						const found = findDetected(detected, target.provider as ProviderId)
+						if (!found) return false
+						return (
+							found.entry.constructible && canSelectModel(found.entry, found.apiKey, target.model)
+						)
+					},
+					logger: cliLogger(),
+				},
+			)
+			if (routed.provider === primary.id && routed.model === model) {
+				turnRouteTarget = undefined
+				return undefined
+			}
+			const route = await pinnedResumeRoute(
+				{ provider: routed.provider, model: routed.model },
+				sessionId,
+				signal,
+			)
+			turnRouteTarget = route ? { provider: routed.provider, model: route.model } : undefined
+			return route
+		} catch (err) {
+			signal.throwIfAborted()
+			turnRouteTarget = undefined
+			cliLogger().warn(
+				'auto model routing failed, using the session model',
+				exceptionAttributes(err),
+			)
+			return undefined
 		}
 	}
 	/**
@@ -4457,7 +4539,8 @@ export async function createAgentSession(
 						// runs — midnight passes, and the agent checks out a branch itself.
 						// Its text only changes when a fact changes, so it costs a prompt-cache
 						// miss exactly when a hit would have been a stale claim.
-						const turnSkills = await turnSkillsFor(model)
+						const autoRoute = await autoRouteFor(messages, turnScope.sessionId, signal)
+						const turnSkills = await turnSkillsFor(autoRoute?.model ?? model)
 						// `options.toolLoading === 'deferred'` is already baked into
 						// `sessionToolsets` (see its construction above) — availability
 						// is derived from the turn's own revealed-tool history now, not
@@ -4677,7 +4760,7 @@ export async function createAgentSession(
 						}
 						try {
 							for await (const event of runTurn({
-								provider: providerForSession(turnScope.sessionId),
+								provider: autoRoute?.provider ?? providerForSession(turnScope.sessionId),
 								fileReadTracker: await observationsFor(turnScope.sessionId, messages),
 								compactionConfig: compactionConfigFor(options.compaction),
 								retainedToolPreviewChars: options.conversationSessions
@@ -4697,8 +4780,11 @@ export async function createAgentSession(
 								// that expired hours ago — and a chain whose own members are stale
 								// is a fallback that fails for the reason the fallback exists to
 								// survive. Building a driver is a client object, not a request.
-								fallbackProviders: fallbackPlan.build(currentToken, turnScope.sessionId),
-								model,
+								// A routed turn has no fallback chain, like a pinned resume.
+								fallbackProviders: autoRoute
+									? []
+									: fallbackPlan.build(currentToken, turnScope.sessionId),
+								model: autoRoute?.model ?? model,
 								toolsets: runToolsets,
 								...(screensConfig !== undefined ? { toolResultGuardrails: screensConfig } : {}),
 								pluginManager: pluginRuntime?.manager,

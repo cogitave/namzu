@@ -1,4 +1,5 @@
 import {
+	type DecisionModel,
 	type DecisionProviderConfig,
 	createDecisionModel,
 	createDecisionTool,
@@ -45,4 +46,18 @@ export function maybeCreateDecisionTool(
 ): ToolDefinition | undefined {
 	if (!cfg) return undefined
 	return createDecisionTool(createDecisionModel(buildDecisionProviderConfig(cfg, env)))
+}
+
+/**
+ * The decision model itself, or `undefined` when no provider is configured.
+ * Auto model routing calls this directly (its `yesno` and `score` methods)
+ * and handles failure itself; the fail-open `decide` tool is for the agent
+ * mid-turn, not for the host choosing which model runs the turn.
+ */
+export function maybeCreateDecisionModel(
+	cfg: DecisionConfig | undefined,
+	env: NodeJS.ProcessEnv,
+): DecisionModel | undefined {
+	if (!cfg) return undefined
+	return createDecisionModel(buildDecisionProviderConfig(cfg, env))
 }

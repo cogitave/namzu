@@ -1090,6 +1090,9 @@ export function App({
 	// `--provider`/`--model`/`--effort` apply to the first session this launch opens and then
 	// step aside, so a later `/model` or a re-login behaves as it always did.
 	const launchModelPendingRef = useRef(choosesModel(initialCtx.launchSettings))
+	// Once the person picks a model by hand (picker or /model), `model: auto`
+	// stops routing for the rest of this launch: an explicit pin always wins.
+	const autoRoutingPinnedRef = useRef(false)
 	const launchEffortPendingRef = useRef(initialCtx.launchSettings?.effort)
 	/**
 	 * Why the picker is open, drawn ON the picker.
@@ -3873,6 +3876,7 @@ export function App({
 		) => {
 			const { signal, persistSelection = false, announce = false } = options
 			if (signal?.aborted) return
+			if (persistSelection) autoRoutingPinnedRef.current = true
 			const scope = await ensureSessions()
 			if (signal?.aborted) return
 			const activeCtx = ctxRef.current
@@ -3953,6 +3957,9 @@ export function App({
 							...(activeCtx.limits ? { limits: activeCtx.limits } : {}),
 							...(activeCtx.sandbox ? { sandbox: activeCtx.sandbox } : {}),
 							...(activeCtx.decision ? { decision: activeCtx.decision } : {}),
+							...(activeCtx.routing && !autoRoutingPinnedRef.current
+								? { routing: activeCtx.routing }
+								: {}),
 							// The operator's screens, on the same terms as every other
 							// config field the App forwards. `!== undefined` rather than a
 							// length test: `[]` is the off switch, and dropping it here

@@ -15,6 +15,7 @@ import type {
 	HooksConfig,
 	MemoryCliConfig,
 	PluginConfig,
+	RoutingConfig,
 	SandboxConfig,
 	SkillsConfig,
 	TuiConfig,
@@ -142,6 +143,11 @@ export interface TuiContext {
 	readonly limits?: TurnLimitsConfig
 	/** See `NamzuCliConfig.decision`. */
 	readonly decision?: DecisionConfig
+	/**
+	 * See `NamzuCliConfig.routing`. Present only when `model: auto` is in force
+	 * and no model was pinned for this launch.
+	 */
+	readonly routing?: RoutingConfig
 	/**
 	 * See `NamzuCliConfig.toolResultScreens`.
 	 *
