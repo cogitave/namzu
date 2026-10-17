@@ -21,7 +21,7 @@
  *   `… +N lines (ctrl+o to expand)`. When exactly one line would be hidden it
  *   is shown instead, because the hint row would take the same space.
  * - No output at all is a dim note: `(No output)`, `Exit code N`, or
- *   `Running in the background (↓ to manage)`.
+ *   `Running in the background (/jobs to manage)`.
  */
 
 import stringWidth from 'string-width'
