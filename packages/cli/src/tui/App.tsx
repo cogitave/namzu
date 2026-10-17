@@ -11483,6 +11483,19 @@ export function App({
 						    scrollback, while activity and input follow the visible tail directly.
 						    A viewport-height blank box here creates dead space and makes resize
 						    depend on an estimate of rows Ink has already rendered. */}
+						{/* Messages typed while a reply runs sit directly above the working row,
+						    as in Claude Code: pending rows, the send-now hint, then `Working`. */}
+						{pendingInputVisible ? (
+							<PendingInputPanel
+								pendingSteers={pendingInputItems}
+								queued={queuedInputItems}
+								columns={Math.max(2, (terminal.columns ?? 80) - 2)}
+								rows={terminal.rows}
+								working={abortRef.current !== null}
+								selectedQueued={queueSelection}
+								held={queuePause}
+							/>
+						) : null}
 						{agentSurface === null &&
 						outputViewer === null &&
 						!scrollOpen &&
@@ -11621,17 +11634,6 @@ export function App({
 								height={Math.max(3, terminal.rows - SCROLL_VIEW_RESERVED_ROWS)}
 								columns={Math.max(4, terminal.columns - 2)}
 								onClose={() => setScrollOpen(false)}
-							/>
-						) : null}
-						{pendingInputVisible ? (
-							<PendingInputPanel
-								pendingSteers={pendingInputItems}
-								queued={queuedInputItems}
-								columns={Math.max(2, (terminal.columns ?? 80) - 2)}
-								rows={terminal.rows}
-								working={abortRef.current !== null}
-								selectedQueued={queueSelection}
-								held={queuePause}
 							/>
 						) : null}
 						<ComposerFrame

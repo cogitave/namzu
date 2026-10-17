@@ -535,6 +535,15 @@ describe('the two composer destinations', () => {
 			expect(screen.viewport().join('\n')).toContain('ctrl+x ctrl+s to send now')
 			expect(screen.viewport().join('\n')).toContain('Press up to edit queued messages')
 
+			// Pending rows, then their hint, then the working row, then the input frame.
+			const rows = screen.viewport()
+			const rowOf = (needle: string) => rows.findIndex((line) => line.includes(needle))
+			expect(rowOf('also inspect this')).toBeGreaterThanOrEqual(0)
+			expect(rowOf('also inspect this')).toBeLessThan(rowOf('then do this'))
+			expect(rowOf('then do this')).toBeLessThan(rowOf('ctrl+x ctrl+s to send now'))
+			expect(rowOf('ctrl+x ctrl+s to send now')).toBeLessThan(rowOf('Working'))
+			expect(rowOf('Working')).toBeLessThan(rowOf('Press up to edit queued messages'))
+
 			releaseFirstTurn()
 			await waitUntil(screen, () => delivered[0]?.length === 1, 'SDK never drained the live input')
 			await waitUntil(screen, () => sent.length === 2, 'Tab-queued turn never started')

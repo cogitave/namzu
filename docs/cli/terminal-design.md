@@ -90,8 +90,9 @@ exec mode (they do not mount this screen), and not at all when
 
 While a turn runs, Enter steers a submitted message to that turn's next model
 boundary; Tab holds it for the next turn. Messages typed while Namzu is working
-are rows at the end of the transcript, directly above the input frame and below
-the working line, not inside the frame: each is `❯ <text>` in the grey of a
+are rows at the end of the transcript, directly above the working line (and
+so above the input frame), not inside the frame: pending rows, then the send-now
+hint, then `Working (…)`, then the input. Each is `❯ <text>` in the grey of a
 message not yet read, one row per message in the order it will be used. A
 Tab-queued row ends with a dim `· after this reply`, so it reads apart from a
 steer. Under the last row a dim `ctrl+x ctrl+s to send now` appears while a
