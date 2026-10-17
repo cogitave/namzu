@@ -186,7 +186,7 @@ import {
 	AgentNarrationBand,
 	AgentTaskPanel,
 	AgentTranscript,
-	activeSubagentCohorts,
+	type RailWorkflow,
 	agentCockpitIsWide,
 	agentPhasePageSize,
 	agentPhases,
@@ -195,6 +195,12 @@ import {
 	agentWorkflowPageSize,
 	agentWorkflows,
 	maxAgentTranscriptTailOffset,
+	railActionFor,
+	railAgents,
+	railNextEviction,
+	railWorkflowActionFor,
+	railWorkflows,
+	settledWorkflows,
 } from './AgentExplorer.js'
 import { BrandHeader } from './BrandHeader.js'
 import { checklistProgress } from './Checklist.js'
@@ -230,7 +236,12 @@ import { Transcript, messageCollapses } from './Transcript.js'
 import { TranscriptScrollView } from './TranscriptScrollView.js'
 import { TrustPrompt } from './TrustPrompt.js'
 import { ViewportBound } from './ViewportBound.js'
-import { completionRow, launchReceipt, settleLine } from './agent-transcript-rows.js'
+import {
+	completionRow,
+	launchReceipt,
+	settleLine,
+	workflowNotice,
+} from './agent-transcript-rows.js'
 import {
 	type AgentEvent,
 	type AgentSession,
@@ -473,6 +484,8 @@ type AgentSurface =
 			readonly selectedPhaseId: string
 			readonly selectedId: string
 			readonly focus: AgentCockpitFocus
+			/** Opened from a workflow row on the rail: Esc goes back to that row. */
+			readonly railReturn?: string
 	  }
 	| {
 			readonly kind: 'transcript'
@@ -481,6 +494,10 @@ type AgentSurface =
 			readonly returnFocus: AgentCockpitFocus
 			readonly tailOffset: number
 			readonly composing?: boolean
+			/** Opened from the agents rail: Esc goes back to the rail, not the cockpit. */
+			readonly fromRail?: boolean
+			/** The workflow row the cockpit this came from was opened from. */
+			readonly railReturn?: string
 	  }
 type DirectChildNotice = {
 	readonly context: string
@@ -1520,6 +1537,41 @@ export function App({
 	 */
 	const [narration, setNarration] = useState<readonly SubagentNarrationLine[]>([])
 	const [agentSurface, setAgentSurfaceState] = useState<AgentSurface | null>(null)
+	/**
+	 * The agents rail's keyboard focus: `main`, a row's view id, or null when the
+	 * composer owns the keys. The ref is what the key handler reads, because a
+	 * burst of keys arrives before React commits the state.
+	 */
+	const [railFocus, setRailFocusState] = useState<string | null>(null)
+	const railFocusRef = useRef<string | null>(null)
+	const setRailFocus = useCallback((next: string | null) => {
+		railFocusRef.current = next
+		setRailFocusState(next)
+	}, [])
+	/** Agents the operator cleared with `x` after they finished. */
+	const [dismissedAgents, setDismissedAgents] = useState<ReadonlySet<string>>(() => new Set())
+	/** Clock for the rail's 30 s finished-agent lifetime; moved only when a row is due to leave. */
+	const [railNow, setRailNow] = useState(() => Date.now())
+	const railRowsRef = useRef<readonly SubagentActivity[]>([])
+	const railWorkflowsRef = useRef<readonly RailWorkflow[]>([])
+	const railJustFocusedRef = useRef(false)
+	// A finished agent leaves the rail 30 s after it ended: sleep until the next
+	// one is due instead of ticking, so a quiet session renders nothing.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: `railNow` is not read here; moving it is what re-arms the timer for the next agent due to leave.
+	useEffect(() => {
+		const wait = railNextEviction(subagents, Date.now())
+		if (wait === undefined) return
+		const timer = setTimeout(() => setRailNow(Date.now()), wait + 20)
+		timer.unref?.()
+		return () => clearTimeout(timer)
+	}, [subagents, railNow])
+	// The rail cannot keep the keyboard once it has nothing to show.
+	const railHasRows =
+		railAgents(subagents, railNow, dismissedAgents).length > 0 ||
+		railWorkflows(subagents, railNow, dismissedAgents).length > 0
+	useEffect(() => {
+		if (!railHasRows && railFocus !== null) setRailFocus(null)
+	}, [railHasRows, railFocus, setRailFocus])
 	const [jobSurfaceState, setJobSurfaceState] = useState<JobSurface | null>(null)
 	const jobSurface = jobSurfaceState?.ownerSession === session ? jobSurfaceState : null
 	const jobSurfaceRef = useRef<JobSurface | null>(null)
@@ -1697,6 +1749,30 @@ export function App({
 		})
 		return true
 	}, [setAgentSurface])
+	/**
+	 * Enter on a workflow row: the cockpit, opened on that workflow's phases
+	 * (or its agents when it has one phase), on the phase still moving. Esc
+	 * walks back to the row.
+	 */
+	const openWorkflowFromRail = useCallback(
+		(groupId: string, railReturn: string): boolean => {
+			const workflow = agentWorkflows(subagentsRef.current).find((item) => item.id === groupId)
+			const live = (agent: SubagentActivity): boolean =>
+				agent.status === 'starting' || agent.status === 'queued' || agent.status === 'working'
+			const phase = workflow?.phases.find((item) => item.agents.some(live)) ?? workflow?.phases[0]
+			const agent = phase?.agents.find(live) ?? phase?.agents[0]
+			if (!workflow || !phase || !agent) return false
+			setAgentSurface({
+				kind: 'cockpit',
+				selectedPhaseId: phase.id,
+				selectedId: agent.viewId,
+				focus: workflow.phases.length > 1 ? 'phases' : 'agents',
+				railReturn,
+			})
+			return true
+		},
+		[setAgentSurface],
+	)
 	/** The most recent cockpit request, so an older one cannot report on its behalf. */
 	const cockpitOpenTokenRef = useRef(0)
 	/**
@@ -1723,6 +1799,24 @@ export function App({
 		if (token !== cockpitOpenTokenRef.current) return true
 		return openCockpitFromCurrentRows()
 	}, [hydrateSavedChildren, openCockpitFromCurrentRows])
+	/**
+	 * Empty-composer ↓: move into the agents rail when it has rows, otherwise
+	 * open the cockpit for the saved children it can still show.
+	 */
+	const focusAgentRail = useCallback(() => {
+		const first = railRowsRef.current[0]?.viewId ?? railWorkflowsRef.current[0]?.focusId
+		if (first && agentSurfaceRef.current === null) {
+			// The ↓ that gets here is also dispatched to App's own key handler in
+			// the same tick, which must not read it as the first step inside the rail.
+			railJustFocusedRef.current = true
+			setTimeout(() => {
+				railJustFocusedRef.current = false
+			}, 0)
+			setRailFocus(first)
+			return
+		}
+		void openAgentCockpit()
+	}, [openAgentCockpit, setRailFocus])
 	/** One git-backed review choice may be resolving while its visible picker remains authoritative. */
 	const reviewChoiceInFlightRef = useRef<object | null>(null)
 	const exitArmedRef = useRef<boolean>(false)
@@ -2736,6 +2830,51 @@ export function App({
 		const timer = setTimeout(() => setReceiptTick((tick) => tick + 1), retryIn)
 		return () => clearTimeout(timer)
 	}, [subagents, activeTools, pushMessage, session, receiptTick])
+
+	/**
+	 * A workflow leaves one closing line in the conversation, written once, when
+	 * it is really over: the parent turn that ran it has ended and every member
+	 * has settled. A phase that starts long after the previous one settled is
+	 * the same workflow, so nothing is written between phases. A workflow is a
+	 * label within one parent turn (its group id carries the turn), so a later
+	 * turn's agents under the same label are a new run with their own line.
+	 * Saved children never count; they ended in another process.
+	 */
+	const reportedWorkflowsRef = useRef(new Set<string>())
+	/** Parent turns that have ended, by the id their agents carry as `workflowId`. */
+	const endedWorkflowTurnsRef = useRef(new Set<string>())
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
+	useEffect(() => {
+		reportedWorkflowsRef.current.clear()
+		endedWorkflowTurnsRef.current.clear()
+	}, [session])
+	const flushWorkflowNotices = useCallback((): void => {
+		for (const workflow of settledWorkflows(subagentsRef.current)) {
+			if (reportedWorkflowsRef.current.has(workflow.id)) continue
+			if (!workflow.agents.some((agent) => endedWorkflowTurnsRef.current.has(agent.workflowId))) {
+				continue
+			}
+			reportedWorkflowsRef.current.add(workflow.id)
+			const notice = workflowNotice(workflow)
+			pushMessage(
+				'tool',
+				notice.content,
+				false,
+				notice.glyph,
+				undefined,
+				notice.tone === 'error'
+					? theme.status.error
+					: notice.tone === 'warn'
+						? theme.status.warn
+						: theme.text.muted,
+			)
+		}
+	}, [pushMessage])
+	// A member that settles after its turn ended (it was not waited for) closes the workflow then.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: `subagents` is what moves; the flush reads the ref it mirrors.
+	useEffect(() => {
+		flushWorkflowNotices()
+	}, [subagents, flushWorkflowNotices])
 
 	/**
 	 * An accepted `send_message` correction already lands its own queue row inside
@@ -6965,6 +7104,9 @@ export function App({
 							delegated.length > 0 || st.completed
 								? settleLine(Date.now() - since, delegated)
 								: undefined
+						// The workflows this turn ran are over: each says how it ended once.
+						for (const agent of delegated) endedWorkflowTurnsRef.current.add(agent.workflowId)
+						flushWorkflowNotices()
 						if (closing) pushMessage('system', closing, false, '✻', undefined, theme.text.muted)
 					}
 					// A save the operator asked for in words takes the place of
@@ -10548,6 +10690,72 @@ export function App({
 			// Open the same retained cockpit as `/agent`; Enter then drills into a
 			// child's transcript. Keep the shortcut below consent so it can never
 			// hide an approval that owns the keyboard.
+			// The agents rail owns the arrows, Enter, x and Esc while it is focused.
+			// Any other key hands the keyboard back to the composer.
+			const railTarget = railFocusRef.current
+			if (railTarget !== null && railJustFocusedRef.current) return
+			if (railTarget !== null) {
+				const rows = railRowsRef.current
+				const flows = railWorkflowsRef.current
+				// `main`, then the agents, then the workflows: the order they are drawn in.
+				const ids = ['main', ...rows.map((agent) => agent.viewId), ...flows.map((f) => f.focusId)]
+				const at = Math.max(0, ids.indexOf(railTarget))
+				const selected = rows.find((agent) => agent.viewId === railTarget)
+				const selectedWorkflow = flows.find((flow) => flow.focusId === railTarget)
+				if (ids.length === 1 || agentSurfaceRef.current) {
+					setRailFocus(null)
+				} else if (key.escape) {
+					setRailFocus(null)
+					return
+				} else if (key.upArrow || key.downArrow) {
+					const index = at + (key.downArrow ? 1 : -1)
+					setRailFocus(ids[Math.max(0, Math.min(ids.length - 1, index))] ?? 'main')
+					return
+				} else if (key.return) {
+					setRailFocus(null)
+					if (selectedWorkflow) {
+						openWorkflowFromRail(selectedWorkflow.id, selectedWorkflow.focusId)
+					} else if (selected) {
+						setAgentSurface({
+							kind: 'transcript',
+							selectedPhaseId: selected.phaseId,
+							selectedId: selected.viewId,
+							returnFocus: 'agents',
+							tailOffset: 0,
+							fromRail: true,
+						})
+					}
+					return
+				} else if (input === 'x' && !key.ctrl && !key.meta) {
+					if (selectedWorkflow) {
+						if (railWorkflowActionFor(selectedWorkflow) === 'stop') {
+							// Every member still going is stopped the way `x` on its own
+							// row would; the row settles by itself as they report their end.
+							for (const member of selectedWorkflow.agents) {
+								if (!['completed', 'failed', 'cancelled'].includes(member.status)) {
+									session?.stopSubagent?.(member.viewId)
+								}
+							}
+						} else {
+							setDismissedAgents((current) => new Set(current).add(selectedWorkflow.focusId))
+							setRailFocus(ids[at + 1] ?? ids[at - 1] ?? 'main')
+						}
+						return
+					}
+					if (!selected) return
+					if (railActionFor(selected) === 'stop') {
+						// The row turns into a finished one by itself once the child
+						// reports its end; nothing else to update here.
+						session?.stopSubagent?.(selected.viewId)
+					} else {
+						setDismissedAgents((current) => new Set(current).add(selected.viewId))
+						setRailFocus(ids[at + 1] ?? ids[at - 1] ?? 'main')
+					}
+					return
+				} else {
+					setRailFocus(null)
+				}
+			}
 			if (key.ctrl && input === 't') {
 				if (agentSurfaceRef.current) {
 					setAgentSurface(null)
@@ -10600,6 +10808,17 @@ export function App({
 						return
 					}
 					if (key.escape) {
+						if (agentView.railReturn !== undefined) {
+							// Opened from a workflow row: one step up inside the workflow,
+							// then back to the row — never out to the list of workflows.
+							if (agentView.focus === 'agents' && phases.length > 1) {
+								setAgentSurface({ ...agentView, focus: 'phases' })
+								return
+							}
+							setAgentSurface(null)
+							setRailFocus(agentView.railReturn)
+							return
+						}
 						setAgentSurface(
 							workflows.length > 1 && agentView.focus !== 'workflows'
 								? { ...agentView, focus: 'workflows' }
@@ -10643,6 +10862,7 @@ export function App({
 							selectedId: selected.viewId,
 							returnFocus: agentView.focus,
 							tailOffset: 0,
+							...(agentView.railReturn !== undefined ? { railReturn: agentView.railReturn } : {}),
 						})
 						return
 					}
@@ -10714,12 +10934,18 @@ export function App({
 					setAgentSurface(null)
 					return
 				}
+				if (key.escape && agentView.fromRail) {
+					setAgentSurface(null)
+					setRailFocus(selected.viewId)
+					return
+				}
 				if (key.escape) {
 					setAgentSurface({
 						kind: 'cockpit',
 						selectedPhaseId: agentView.selectedPhaseId,
 						selectedId: selected.viewId,
 						focus: agentView.returnFocus,
+						...(agentView.railReturn !== undefined ? { railReturn: agentView.railReturn } : {}),
 					})
 					return
 				}
@@ -11004,7 +11230,10 @@ export function App({
 	// Background is left natural — we inherit the terminal's own background
 	// and only theme the foreground. Forcing
 	// a filled bg left mismatched patches around bordered areas, so we don't.
-	const liveSubagents = activeSubagentCohorts(subagents)
+	const liveSubagents = railAgents(subagents, railNow, dismissedAgents)
+	railRowsRef.current = liveSubagents
+	const liveWorkflows = railWorkflows(subagents, railNow, dismissedAgents)
+	railWorkflowsRef.current = liveWorkflows
 	const representedSubagentTools = new Set(
 		subagents
 			.filter((agent) => agent.toolUseId !== undefined)
@@ -11443,6 +11672,7 @@ export function App({
 									compacting ||
 									conversationMutation !== null ||
 									externalEditorRequest !== null ||
+									railFocus !== null ||
 									childSurfaceOpen
 								}
 								hidden={
@@ -11473,7 +11703,7 @@ export function App({
 									setComposerDraft((draft) => (draft?.token === token ? null : draft))
 								}
 								onDraftPresenceChange={setComposerHasDraft}
-								onOpenAgentPanel={openAgentCockpit}
+								onOpenAgentPanel={focusAgentRail}
 								onScrollTranscript={() => setScrollOpen(true)}
 								onRecallQueued={recallQueuedPrompt}
 								queuedEdit={{
@@ -11548,14 +11778,30 @@ export function App({
 				!scrollOpen &&
 				jobSurface === null &&
 				scheduleReviewPrompt === null &&
-				liveSubagents.length > 0 ? (
+				(liveSubagents.length > 0 || liveWorkflows.length > 0) ? (
 					// The active agents remain in memory while the schedule review
 					// owns the available rows; the panel returns after the decision.
 					<AgentTaskPanel
 						agents={liveSubagents}
+						workflows={liveWorkflows}
 						terminalRows={terminal.rows}
 						terminalColumns={terminal.columns}
 						compact={permission !== null}
+						{...(railFocus !== null
+							? {
+									selectedIndex:
+										railFocus === 'main'
+											? 0
+											: railFocus.startsWith('workflow:')
+												? liveSubagents.length +
+													1 +
+													Math.max(
+														0,
+														liveWorkflows.findIndex((flow) => flow.focusId === railFocus),
+													)
+												: liveSubagents.findIndex((agent) => agent.viewId === railFocus) + 1,
+								}
+							: {})}
 					/>
 				) : showComposerSurface &&
 					permission === null &&
@@ -11582,13 +11828,16 @@ export function App({
 						}
 						terminalColumns={terminal.columns}
 						compact={childComposerAvailable && terminal.rows < 24}
+						escapeTo={agentSurface.fromRail ? 'back' : 'agents'}
 						navigationHint={
 							childComposerAvailable
 								? fitHints(
 										[
 											{ text: 'PgUp/PgDn scroll', short: 'PgUp/PgDn', rank: 2 },
 											{ text: 'tab message', rank: 4 },
-											{ text: 'esc agents', short: 'esc list', rank: 5 },
+											agentSurface.fromRail
+												? { text: 'esc back', rank: 5 }
+												: { text: 'esc agents', short: 'esc list', rank: 5 },
 											{ text: 'q parent', rank: 5 },
 										],
 										Math.max(1, terminal.columns - 4),

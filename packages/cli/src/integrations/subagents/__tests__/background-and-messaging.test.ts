@@ -431,3 +431,20 @@ it('cancels a background child with its parent after the launch call has already
 		await turn.close()
 	}
 }, 30_000)
+
+it('stops one running child from the agents rail with the operator as the cause, and refuses a row it does not own', async () => {
+	const turn = await backgroundTurn()
+	try {
+		await turn.fourthRequestOrStop
+		const signal = await turn.childStarted.promise
+		const [row] = turn.runtime.activity.getSnapshot()
+		if (!row) throw new Error('the launched child never reached the monitor')
+		expect(turn.runtime.stopChild('not-a-row')).toBe(false)
+		expect(signal.aborted).toBe(false)
+		expect(turn.runtime.stopChild(row.viewId)).toBe(true)
+		expect(signal.aborted).toBe(true)
+		expect(cancelCauseOf(signal.reason)).toBe('user')
+	} finally {
+		await turn.close()
+	}
+}, 30_000)

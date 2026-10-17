@@ -1,6 +1,6 @@
 /**
  * The delegated-work surfaces aligned with the reference terminal: the
- * borderless rail tree, the rows delegated work leaves in the conversation,
+ * phased cockpit, the rows delegated work leaves in the conversation,
  * the folded waiting line, the effort slider and the hypermode rule on the
  * message box. Each is checked at a comfortable width, at 40 columns, and
  * with Turkish text, whose dotted/dotless i and cedilla letters are the
@@ -14,7 +14,7 @@ import stringWidth from 'string-width'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 
 import type { SubagentActivity } from '../../integrations/subagents/activity.js'
-import { AgentCockpit, AgentTaskPanel, activeSubagentCohorts } from '../AgentExplorer.js'
+import { AgentCockpit } from '../AgentExplorer.js'
 import { ComposerFrame } from '../ComposerFrame.js'
 import { EffortSlider, effortSliderLayout } from '../EffortSlider.js'
 import { LiveActivity, waitingLine } from '../LiveActivity.js'
@@ -188,7 +188,7 @@ describe('settle line', () => {
 	})
 })
 
-describe('the rail tree', () => {
+describe('the cockpit of a phased workflow', () => {
 	const phase = [
 		agent({
 			viewId: 'one',
@@ -206,47 +206,6 @@ describe('the rail tree', () => {
 			status: 'queued',
 		}),
 	]
-
-	it('draws a header and one branch per agent with its activity beneath, and no box', async () => {
-		mounted = await renderToScreen(
-			<AgentTaskPanel agents={phase} terminalRows={40} terminalColumns={120} />,
-			{ cols: 120, rows: 12 },
-		)
-		const rows = mounted.viewport().filter((row) => row.trim().length > 0)
-		// Elapsed since the first start and the tokens spent so far, as the
-		// reference's rail row carries them.
-		expect(rows[0]).toMatch(
-			/^● İki aşamalı cümle · 1 running · 1 queued · \S+ · 4\.1k tokens · ↓ \/ ctrl\+t$/u,
-		)
-		expect(rows[1]).toMatch(/^ {2}├ ● Birinci rengi seç\s+\S+\s+3 tools · 4\.1k · gpt-5\.6-luna$/u)
-		expect(rows[2]).toBe('  │   ⎿ Paleti okuyor')
-		expect(rows[3]).toMatch(/^ {2}└ ◌ İkinci rengi seç\s+queued$/u)
-		expect(rows[4]).toBe('      ⎿ Waiting for a slot')
-		expect(rows.join('\n')).not.toMatch(/[┌┐┘]/u)
-		expect(rows.join('\n')).not.toContain('Delegated work')
-	})
-
-	it('keeps activity inline on a short terminal, one row per agent', async () => {
-		mounted = await renderToScreen(
-			<AgentTaskPanel agents={phase} terminalRows={20} terminalColumns={100} />,
-			{ cols: 100, rows: 8 },
-		)
-		const text = mounted.viewport().join('\n')
-		expect(text).not.toContain('⎿')
-		expect(text).toContain('· Paleti okuyor')
-	})
-
-	it('fits 40 columns without wrapping a row', async () => {
-		mounted = await renderToScreen(
-			<AgentTaskPanel agents={phase} terminalRows={30} terminalColumns={40} />,
-			{ cols: 40, rows: 10 },
-		)
-		const rows = mounted.viewport().filter((row) => row.trim().length > 0)
-		expect(rows[0]).toContain('● İki aşamalı cümle · 0/2 done')
-		expect(rows).toHaveLength(5)
-		expect(rows.join('\n')).toContain('Birinci rengi seç')
-		expect(rows.join('\n')).not.toContain('gpt-5.6-luna')
-	})
 
 	describe('a workflow of several phases', () => {
 		const at = Date.now()
@@ -290,60 +249,6 @@ describe('the rail tree', () => {
 				latestActivity: 'Writing the sentence',
 			}),
 		]
-
-		it('draws a settled phase as one line and a live one with its agents beneath it', async () => {
-			mounted = await renderToScreen(
-				<AgentTaskPanel agents={phased} terminalRows={40} terminalColumns={120} />,
-				{ cols: 120, rows: 10 },
-			)
-			const rows = mounted.viewport().filter((row) => row.trim().length > 0)
-			expect(rows[0]).toMatch(
-				/^● Two-phase colour sentence · 1 running · 2\/3 done · \S+ · 18\.0k tokens · ↓ \/ ctrl\+t$/u,
-			)
-			expect(rows[1]).toBe('  ✓ Phase 1 · 2/2 · 3.9s')
-			expect(rows[2]).toBe('  ● Phase 2 · 0/1')
-			expect(rows[3]).toMatch(/^ {4}└ ● Join the two colours\s+\S+$/u)
-			expect(rows[4]).toBe('        ⎿ Writing the sentence')
-			expect(rows).toHaveLength(5)
-			// The settled phase's agents are not drawn again: their rows are in
-			// the conversation already, and Ctrl+T has them.
-			expect(rows.join('\n')).not.toContain('Choose first colour')
-		})
-
-		it('leaves a settled phase out on a short terminal and at 40 columns keeps one row each', async () => {
-			mounted = await renderToScreen(
-				<AgentTaskPanel agents={phased} terminalRows={20} terminalColumns={40} />,
-				{ cols: 40, rows: 8 },
-			)
-			const rows = mounted.viewport().filter((row) => row.trim().length > 0)
-			// done/total, as the cockpit header says at the same moment, never
-			// the one agent still running out of three.
-			expect(rows[0]).toContain('● Two-phase colour sentence · 2/3 done')
-			expect(rows[0]).not.toContain('1/3')
-			expect(rows.join('\n')).not.toContain('Phase 1')
-			expect(rows[1]).toBe('  ● Phase 2 · 0/1')
-			for (const row of rows) expect(stringWidth(row)).toBeLessThanOrEqual(40)
-		})
-
-		it('keeps a labelled workflow on the rail across its batches, and an unlabelled batch alone', () => {
-			const grouped = phased.map((member) => ({ ...member, workflowGroupId: 'turn-1:workflow' }))
-			expect(activeSubagentCohorts(grouped).map((member) => member.viewId)).toEqual([
-				'first',
-				'second',
-				'join',
-			])
-			const unlabelled = [
-				agent({
-					viewId: 'old',
-					batchId: 'b1',
-					workflowGroupId: 'b1',
-					status: 'completed',
-					completedAt: 2,
-				}),
-				agent({ viewId: 'new', batchId: 'b2', workflowGroupId: 'b2' }),
-			]
-			expect(activeSubagentCohorts(unlabelled).map((member) => member.viewId)).toEqual(['new'])
-		})
 
 		it('fills the cockpit the reference way: done count, time and spend, the pane named by its phase', async () => {
 			const join = phased.find((member) => member.viewId === 'join')
@@ -401,16 +306,6 @@ describe('the rail tree', () => {
 			expect(narrow.join('\n')).toMatch(/Two-phase colour sentence\s+2\/3 done │/u)
 			for (const row of narrow) expect(stringWidth(row)).toBeLessThanOrEqual(40)
 		})
-	})
-
-	it('reduces to its header line while a review is open, naming no key the review holds', async () => {
-		mounted = await renderToScreen(
-			<AgentTaskPanel agents={phase} terminalRows={40} terminalColumns={100} compact />,
-			{ cols: 100, rows: 6 },
-		)
-		const rows = mounted.viewport().filter((row) => row.trim().length > 0)
-		expect(rows).toHaveLength(1)
-		expect(rows[0]).toMatch(/^● İki aşamalı cümle · 1 running · 1 queued · \S+ · 4\.1k tokens$/u)
 	})
 })
 
