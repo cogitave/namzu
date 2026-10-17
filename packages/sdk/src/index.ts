@@ -19,6 +19,10 @@ export {
 	UnknownBackgroundJobError,
 	bindOwner,
 } from './runtime/jobs/registry.js'
+export {
+	createBackgroundJobId,
+	isBackgroundJobId,
+} from './runtime/jobs/job-id.js'
 export type {
 	BackgroundJob,
 	BackgroundJobOutput,

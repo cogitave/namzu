@@ -97,14 +97,14 @@ vi.mock('../agent.js', async (importOriginal) => {
 			send: async function* (_messages, opts?: SendOptions): AsyncIterable<AgentEvent> {
 				sends.push(opts)
 				if (sends.length === 1) {
-					if (acknowledgeBeforeListener) opts?.onJobNoticeDelivered?.(['job_1'])
-					announce?.(exited('job_1', 'pnpm build'))
+					if (acknowledgeBeforeListener) opts?.onJobNoticeDelivered?.(['b00000001'])
+					announce?.(exited('b00000001', 'pnpm build'))
 					if (acknowledgeFirstExit && !acknowledgeBeforeListener)
-						opts?.onJobNoticeDelivered?.(['job_1'])
+						opts?.onJobNoticeDelivered?.(['b00000001'])
 					if (failFirstSend) throw new Error('provider failed before accepting context')
 					yield {
 						kind: 'job',
-						jobId: 'job_1',
+						jobId: 'b00000001',
 						command: 'pnpm build',
 						status: 'exited',
 						exitCode: 0,
@@ -157,21 +157,23 @@ it('does not re-announce a job exit that landed while a turn was open', async ()
 
 	// The exit landed while the first turn was running, so the kernel had it.
 	// The next turn must not open by announcing it a second time.
-	expect(contextAt(1)).not.toContain('job_1')
+	expect(contextAt(1)).not.toContain('b00000001')
 	expect(contextAt(1)).not.toContain('Background jobs that ended')
 	expect(
-		screen.scrollback().filter((line) => line.includes('background job job_1 (pnpm build) exited')),
+		screen
+			.scrollback()
+			.filter((line) => line.includes('Background command "pnpm build" completed (exit code 0)')),
 	).toHaveLength(1)
 
 	// The control, and the reason the guard is not simply "never announce": an
 	// exit with no turn open reaches nobody else, so the session carries it.
-	announce?.(exited('job_2', 'pnpm test'))
+	announce?.(exited('b00000002', 'pnpm test'))
 	await say(screen, 'third', 3)
 
 	expect(contextAt(2)).toContain('Background jobs that ended since your last turn')
-	expect(contextAt(2)).toContain('job_2')
-	expect(contextAt(2)).not.toContain('job_1')
-	expect(sends[2]?.extraSystem ?? '').not.toContain('job_2')
+	expect(contextAt(2)).toContain('b00000002')
+	expect(contextAt(2)).not.toContain('b00000001')
+	expect(sends[2]?.extraSystem ?? '').not.toContain('b00000002')
 })
 
 it('carries an exit after the final tool result into the next model turn', async () => {
@@ -184,9 +186,9 @@ it('carries an exit after the final tool result into the next model turn', async
 	await say(screen, 'second', 2)
 
 	expect(contextAt(1)).toContain('Background jobs that ended since your last turn')
-	expect(contextAt(1)).toContain('job_1')
+	expect(contextAt(1)).toContain('b00000001')
 	await say(screen, 'third', 3)
-	expect(contextAt(2)).not.toContain('job_1')
+	expect(contextAt(2)).not.toContain('b00000001')
 })
 
 it('keeps an exit pending when the next send fails before accepting context', async () => {
@@ -198,9 +200,9 @@ it('keeps an exit pending when the next send fails before accepting context', as
 
 	await say(screen, 'first', 1)
 	await say(screen, 'retry', 2)
-	expect(contextAt(1)).toContain('job_1')
+	expect(contextAt(1)).toContain('b00000001')
 	await say(screen, 'later', 3)
-	expect(contextAt(2)).not.toContain('job_1')
+	expect(contextAt(2)).not.toContain('b00000001')
 })
 
 it('does not requeue an exit acknowledged before the CLI exit listener runs', async () => {
@@ -211,9 +213,11 @@ it('does not requeue an exit acknowledged before the CLI exit listener runs', as
 
 	await say(screen, 'first', 1)
 	await say(screen, 'second', 2)
-	expect(contextAt(1)).not.toContain('job_1')
+	expect(contextAt(1)).not.toContain('b00000001')
 	expect(
-		screen.scrollback().filter((line) => line.includes('background job job_1 (pnpm build) exited')),
+		screen
+			.scrollback()
+			.filter((line) => line.includes('Background command "pnpm build" completed (exit code 0)')),
 	).toHaveLength(1)
 })
 

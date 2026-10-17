@@ -21,6 +21,19 @@ import {
 import { BackgroundJobRegistry, type StartJobParams } from '../../jobs/registry.js'
 import { drainQuery } from '../index.js'
 
+// These scripts name the first job's id before the call that creates it
+// returns, which a random id cannot allow: hand out b00000001, b00000002, …
+// per registry instead. Shape and uniqueness are tested in job-id.test.ts.
+vi.mock('../../jobs/job-id.js', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../../jobs/job-id.js')>()),
+	createBackgroundJobId: (isTaken: (id: string) => boolean = () => false) => {
+		for (let n = 1; ; n += 1) {
+			const id = `b${String(n).padStart(8, '0')}`
+			if (!isTaken(id)) return id
+		}
+	},
+}))
+
 const StartTool = defineTool({
 	name: 'start',
 	description: 'starts a controlled server',
@@ -83,7 +96,7 @@ describe('output readiness expresses observation, not wait-until-exit intent', (
 							{
 								id: 'observe',
 								name: 'wait_for_job',
-								args: { id: 'job_1', output_contains: 'READY', timeout_ms: 10 },
+								args: { id: 'b00000001', output_contains: 'READY', timeout_ms: 10 },
 							},
 						],
 					},
@@ -122,7 +135,7 @@ describe('output readiness expresses observation, not wait-until-exit intent', (
 			const result = await running
 			expect(result.status).toBe('completed')
 			expect(provider.requests).toHaveLength(3)
-			expect(registry.get('job_1').status).toBe('running')
+			expect(registry.get('b00000001').status).toBe('running')
 			expect(JSON.stringify(provider.requests[2])).toContain(
 				expected === 'matched' ? 'Output marker observed' : 'wall timeout',
 			)

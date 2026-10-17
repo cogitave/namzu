@@ -1593,10 +1593,10 @@ export function renderJobs(jobs: ReturnType<SlashContext['jobs']>): string {
 				: job.status === 'killed'
 					? 'stopped'
 					: `exited ${job.exitCode ?? '?'}`
-		return `${job.id}  ${state.padEnd(16)}  ${job.command}`
+		return `${state.padEnd(16)}  ${job.command}`
 	})
 	return [
-		`${jobs.length} background job${jobs.length === 1 ? '' : 's'} in this conversation:`,
+		`${jobs.length} background shell${jobs.length === 1 ? '' : 's'} in this conversation:`,
 		...lines,
 		'',
 		'Use /jobs to inspect output or stop a running shell; /exit stops them all.',

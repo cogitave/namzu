@@ -10,6 +10,7 @@ import type {
 	BackgroundJobOutputWaitResult,
 } from '../../types/job/index.js'
 import { subscribeToAbort } from '../../utils/abort.js'
+import { createBackgroundJobId } from './job-id.js'
 
 /**
  * Work that outlives a tool call, owned by whoever started it.
@@ -213,7 +214,6 @@ const GROUP_POLL_MS = 250
 
 export class BackgroundJobRegistry {
 	private readonly jobs = new Map<string, JobEntry>()
-	private counter = 0
 	private readonly exitListeners = new Set<(job: BackgroundJob) => void>()
 	private outputWaiters = 0
 	private readonly outputWaitersByOwner = new Map<string, number>()
@@ -303,8 +303,7 @@ export class BackgroundJobRegistry {
 			throw new BackgroundJobLimitError({ owner: params.owner, limit: this.maxJobs })
 		}
 
-		this.counter += 1
-		const id = `job_${this.counter}`
+		const id = createBackgroundJobId((candidate) => this.jobs.has(candidate))
 		// Same scrub as the foreground path: inheritance is implicit, so the
 		// operator's provider credentials do not travel into a command nobody
 		// decided should see them. A background job outlives the call that

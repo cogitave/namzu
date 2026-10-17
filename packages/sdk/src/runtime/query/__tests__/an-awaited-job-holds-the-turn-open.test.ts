@@ -28,6 +28,19 @@ import {
 } from '../../jobs/registry.js'
 import { drainQuery } from '../index.js'
 
+// These scripts name the first job's id before the call that creates it
+// returns, which a random id cannot allow: hand out b00000001, b00000002, …
+// per registry instead. Shape and uniqueness are tested in job-id.test.ts.
+vi.mock('../../jobs/job-id.js', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../../jobs/job-id.js')>()),
+	createBackgroundJobId: (isTaken: (id: string) => boolean = () => false) => {
+		for (let n = 1; ; n += 1) {
+			const id = `b${String(n).padStart(8, '0')}`
+			if (!isTaken(id)) return id
+		}
+	},
+}))
+
 /**
  * What a turn does when the model stops calling tools while a job it said it
  * was waiting on is still running.
@@ -76,7 +89,7 @@ const ids = () => ({
 
 /** Waits far less than the job needs, so the turn ends with it still running. */
 const WAIT_BRIEFLY = {
-	toolCalls: [{ id: 'c2', name: 'wait_for_job', args: { id: 'job_1', timeout_ms: 50 } }],
+	toolCalls: [{ id: 'c2', name: 'wait_for_job', args: { id: 'b00000001', timeout_ms: 50 } }],
 } satisfies MockTurn
 
 const leftRunning: { registry: BackgroundJobRegistry; owner: string }[] = []
@@ -147,7 +160,7 @@ describe('a turn suspends for a job the model awaited, and pays no tokens for it
 						{
 							id: 'c2',
 							name: 'wait_for_job',
-							args: { id: 'job_1', timeout_ms: 1 },
+							args: { id: 'b00000001', timeout_ms: 1 },
 						},
 					],
 				},
@@ -156,7 +169,7 @@ describe('a turn suspends for a job the model awaited, and pays no tokens for it
 						{
 							id: 'c3',
 							name: 'wait_for_job',
-							args: { id: 'job_1', from_offset: 0 },
+							args: { id: 'b00000001', from_offset: 0 },
 						},
 					],
 				},
@@ -188,7 +201,7 @@ describe('a turn suspends for a job the model awaited, and pays no tokens for it
 		})
 
 		expect(run.status).toBe('completed')
-		expect(backgroundJobs.get('job_1').status).toBe('exited')
+		expect(backgroundJobs.get('b00000001').status).toBe('exited')
 		expect(provider.requests).toHaveLength(4)
 		expect(provider.requests[2]?.messages).toContainEqual(
 			expect.objectContaining({
@@ -243,15 +256,15 @@ describe('a turn suspends for a job the model awaited, and pays no tokens for it
 			waitForInbound: (signal) => {
 				holds += 1
 				expect(provider.requests.length).toBe(3)
-				expect(backgroundJobs.get('job_1').status).toBe('running')
-				backgroundJobs.finish('job_1')
+				expect(backgroundJobs.get('b00000001').status).toBe('running')
+				backgroundJobs.finish('b00000001')
 				return waitUntilAborted(signal)
 			},
 		})
 
 		expect(run.status).toBe('completed')
 		expect(holds).toBe(1)
-		expect(backgroundJobs.get('job_1').status).toBe('exited')
+		expect(backgroundJobs.get('b00000001').status).toBe('exited')
 		expect(run.abandonedJobIds).toBeUndefined()
 		// Three turns had been asked for when the job ended: start, wait,
 		// "still waiting". The hold spent real time and no tokens.
@@ -269,14 +282,14 @@ describe('a turn suspends for a job the model awaited, and pays no tokens for it
 				typeof message.content === 'string' && message.content.includes('[Background job update]'),
 		)
 		expect(notices.length).toBe(1)
-		expect(notices[0]?.content).toContain('job_1')
+		expect(notices[0]?.content).toContain('b00000001')
 	}, 60_000)
 
 	it('goes on waiting for a second job after the first one’s exit was read', async () => {
 		// An exit reaches the model on the next tool result whenever there is
 		// one, which is most of the time — and what the hold must not do is
-		// treat the record of that delivery as news. It did: with `job_1`’s
-		// exit already read and `job_2` still running, the wait returned
+		// treat the record of that delivery as news. It did: with `b00000001`’s
+		// exit already read and `b00000002` still running, the wait returned
 		// before it began, the drain found no notice to deliver, and the turn
 		// settled over a job it was supposed to be waiting for. The same
 		// instant return ends the delegated-task leg of this race, which is
@@ -289,7 +302,7 @@ describe('a turn suspends for a job the model awaited, and pays no tokens for it
 				opts: { signal?: AbortSignal } = {},
 			): Promise<BackgroundJob> {
 				const waiting = super.waitForExit(id, opts)
-				if (id === 'job_1' && !this.firstExitQueued) {
+				if (id === 'b00000001' && !this.firstExitQueued) {
 					this.firstExitQueued = true
 					queueMicrotask(() => this.finish(id))
 				}
@@ -306,14 +319,14 @@ describe('a turn suspends for a job the model awaited, and pays no tokens for it
 				{
 					toolCalls: [{ id: 'c2', name: 'start', args: { command: 'second job' } }],
 				},
-				// `job_1` closes after waitForExit attaches, while this tool
+				// `b00000001` closes after waitForExit attaches, while this tool
 				// result is still assembling; its notice rides on that batch.
 				{
 					toolCalls: [
 						{
 							id: 'c3',
 							name: 'wait_for_job',
-							args: { id: 'job_1', timeout_ms: 5_000 },
+							args: { id: 'b00000001', timeout_ms: 5_000 },
 						},
 					],
 				},
@@ -322,12 +335,12 @@ describe('a turn suspends for a job the model awaited, and pays no tokens for it
 						{
 							id: 'c4',
 							name: 'wait_for_job',
-							args: { id: 'job_2', timeout_ms: 50 },
+							args: { id: 'b00000002', timeout_ms: 50 },
 						},
 					],
 				},
-				{ text: 'job_2 is still going' },
-				{ text: 'job_2 finished too' },
+				{ text: 'b00000002 is still going' },
+				{ text: 'b00000002 finished too' },
 			],
 		})
 
@@ -349,16 +362,16 @@ describe('a turn suspends for a job the model awaited, and pays no tokens for it
 			waitForInbound: (signal) => {
 				holds += 1
 				expect(provider.requests.length).toBe(5)
-				expect(backgroundJobs.get('job_1').status).toBe('exited')
-				expect(backgroundJobs.get('job_2').status).toBe('running')
-				backgroundJobs.finish('job_2')
+				expect(backgroundJobs.get('b00000001').status).toBe('exited')
+				expect(backgroundJobs.get('b00000002').status).toBe('running')
+				backgroundJobs.finish('b00000002')
 				return waitUntilAborted(signal)
 			},
 		})
 
 		expect(run.status).toBe('completed')
 		expect(holds).toBe(1)
-		expect(backgroundJobs.get('job_2').status).toBe('exited')
+		expect(backgroundJobs.get('b00000002').status).toBe('exited')
 		// Six scripted turns, the last of them the one the hold bought. Five
 		// would mean the turn settled at the text turn instead of waiting.
 		expect(provider.requests.length).toBe(6)
@@ -371,10 +384,10 @@ describe('a turn suspends for a job the model awaited, and pays no tokens for it
 		const notices = (lastRequest?.messages ?? [])
 			.map((message) => (typeof message.content === 'string' ? message.content : ''))
 			.filter((content) => content.includes('[Background job update]'))
-		// One per job, each on its own channel: `job_1` on the tool result it
-		// exited during, `job_2` on the message the hold delivered.
-		expect(notices.filter((content) => content.includes('job_1')).length).toBe(1)
-		expect(notices.filter((content) => content.includes('job_2')).length).toBe(1)
+		// One per job, each on its own channel: `b00000001` on the tool result it
+		// exited during, `b00000002` on the message the hold delivered.
+		expect(notices.filter((content) => content.includes('b00000001')).length).toBe(1)
+		expect(notices.filter((content) => content.includes('b00000002')).length).toBe(1)
 	}, 60_000)
 
 	it('delivers an exit that lands in the moment the turn is settling', async () => {
@@ -430,7 +443,7 @@ describe('a turn suspends for a job the model awaited, and pays no tokens for it
 				// settles.
 				if (ended || event.type !== 'iteration_completed' || event.hasToolCalls) return
 				ended = true
-				await backgroundJobs.kill('job_1')
+				await backgroundJobs.kill('b00000001')
 			},
 		)
 
@@ -447,7 +460,7 @@ describe('a turn suspends for a job the model awaited, and pays no tokens for it
 			.map((message) => (typeof message.content === 'string' ? message.content : ''))
 			.filter((content) => content.includes('[Background job update]'))
 		expect(notices.length).toBe(1)
-		expect(notices[0]).toContain('job_1')
+		expect(notices[0]).toContain('b00000001')
 		// Appended after the final assistant turn, so the turn's own answer has
 		// to have been fixed before it went on.
 		expect(run.result).toContain('it is still going')
@@ -564,7 +577,7 @@ describe('a turn suspends for a job the model awaited, and pays no tokens for it
 			5_000,
 		)
 		// Untouched: released the waiter, not the work.
-		expect(backgroundJobs.get('job_1').status).toBe('running')
+		expect(backgroundJobs.get('b00000001').status).toBe('running')
 		const delivered = (run.messages as { role: string; content: unknown }[]).filter(
 			(message) => message.role === 'user' && String(message.content).startsWith('operator note'),
 		)

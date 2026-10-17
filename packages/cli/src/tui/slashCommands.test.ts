@@ -1356,9 +1356,14 @@ describe('/jobs', () => {
 			'/jobs list',
 			context({
 				jobs: () => [
-					{ id: 'job_1', command: 'npm run dev', status: 'running', startedAt: Date.now() - 5_000 },
 					{
-						id: 'job_2',
+						id: 'b0000000a',
+						command: 'npm run dev',
+						status: 'running',
+						startedAt: Date.now() - 5_000,
+					},
+					{
+						id: 'b0000000b',
 						command: 'npm test',
 						status: 'exited',
 						exitCode: 0,
@@ -1369,9 +1374,11 @@ describe('/jobs', () => {
 		)
 		expect(r?.kind).toBe('message')
 		if (r?.kind !== 'message') return
-		expect(r.content).toContain('2 background jobs in this conversation')
-		expect(r.content).toMatch(/job_1\s+running for \d+s\s+npm run dev/)
-		expect(r.content).toMatch(/job_2\s+exited 0\s+npm test/)
+		expect(r.content).toContain('2 background shells in this conversation')
+		expect(r.content).toMatch(/running for \d+s\s+npm run dev/)
+		expect(r.content).toMatch(/exited 0\s+npm test/)
+		// The person never sees the model-facing id.
+		expect(r.content).not.toMatch(/b0000000[ab]/)
 	})
 })
 
