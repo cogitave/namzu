@@ -373,6 +373,8 @@ export type AgentEvent =
 			readonly detail?: readonly string[]
 			/** A web search or fetch: what it is for, so its row can name it. */
 			readonly web?: WebActivity
+			/** A shell call's full command line, kept with its line breaks for the cell header. */
+			readonly command?: string
 			/**
 			 * The tool declares this call read-only. Absent means it changes
 			 * something, or the tool did not say. Read by the TUI's skill
@@ -466,6 +468,8 @@ export type AgentEvent =
 			readonly cancelled?: boolean
 			/** A web search or fetch, with whatever its result told us (query, result count). */
 			readonly web?: WebActivity
+			/** A shell call's output split into streams, for the command cell. */
+			readonly shell?: import('./shell-cell.js').ShellOutput
 	  }
 	/**
 	 * The model thinking, for the live region only. `text` is a delta;
@@ -6143,6 +6147,15 @@ export function toAgentEvent(
 					if (view.kind === 'diff') rememberCallDiff(event.toolUseId, view)
 					return {
 						summary: viewToSummary(view),
+						...(() => {
+							const command =
+								view.kind === 'terminal'
+									? view.command
+									: view.kind === 'generic' && view.facts?.kind === 'command'
+										? view.facts.command
+										: undefined
+							return command ? { command } : {}
+						})(),
 						...(view.kind === 'generic' && view.activity ? { activity: view.activity } : {}),
 						detail: viewToLines(view),
 						...(view.kind === 'generic' && view.presentation === 'activity'
@@ -6253,6 +6266,7 @@ export function toAgentEvent(
 				summary: headline ?? summary,
 				...(headline ? { headline } : {}),
 				...(plainFailure ? { plainFailure } : {}),
+				...(tidy?.shell ? { shell: tidy.shell } : {}),
 				...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),
 				...(view.kind === 'generic' && view.visibility === 'hidden' ? { hidden: true } : {}),
 				...(event.isError && view.kind === 'generic' && view.outcome === 'cancelled'

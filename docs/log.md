@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-10-18
+
+- **Update** [Terminal design](cli/terminal-design.md): a shell call is a command cell like Claude Code's. The `✓ Bash(cmd) · 0.0s` header with a `▏` gutter and head/tail elision becomes `● Bash(cmd)` (a green or red dot, no per-command duration, the command's line breaks kept to 2 lines and 160 characters) over a `⎿` result of the first 3 lines and a dim `… +N lines (ctrl+o to expand)`; stderr shows in red after stdout and a failure leads with `Exit code N` instead of repeating the command; `(No output)`, `Running in the background (↓ to manage)` and, while running, `⎿  Running… (12s)` replace the bare or model-facing text (`shell-cell.ts`, `Transcript.tsx`, `LiveActivity.tsx`, `tidy-tool-output.ts`). `.changeset/tui-shell-command-cell.md`, **patch** for `@namzu/cli`.
+
 ## 2026-10-17
 
 - **Update** [Zen and Zen Go](sdk/zen.md) and [The model catalogue refresh](cli/model-catalogue.md): the derivation now reads the per-wire endpoint families upstream moved its pages to (`/inference/openai/…`, `anthropic/…`, `google/…`, and their `go` variants). A page row whose package and endpoint pair names a wire the driver does not implement is listed in `report.undecided` instead of stopping the whole run, so a new upstream wire becomes a per-row to-do rather than a catalogue-wide outage until the next release. The tamper guard is unchanged: a pair whose endpoint names a host other than the service's still rejects the run whole. The bundled snapshot is refreshed with the same rules: it adds `glm-5.3-flash-free` and the rest of the current pages, and drops thirteen ids upstream no longer documents or serves. The served-but-no-longer-routed ids (`zen/deepseek-v4-flash`, `go/kimi-k2.6`, `go/minimax-m2.7`, `go/grok-4.6`) are recorded in `models.review.json`, and the expired `go/deepseek-flash` omission is retired. `.changeset/zen-per-wire-endpoints.md`, **major** for `@namzu/zen`.

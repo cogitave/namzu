@@ -226,7 +226,7 @@ import {
 import { StatusBar } from './StatusBar.js'
 import { TaskList, type TaskListItem, taskListRows } from './TaskList.js'
 import { TextPrompt } from './TextPrompt.js'
-import { Transcript, willCollapse } from './Transcript.js'
+import { Transcript, messageCollapses } from './Transcript.js'
 import { TranscriptScrollView } from './TranscriptScrollView.js'
 import { TrustPrompt } from './TrustPrompt.js'
 import { ViewportBound } from './ViewportBound.js'
@@ -310,6 +310,12 @@ import {
 	sourceDeliveryLine,
 	sourceDeliveryReadError,
 } from './schedule/source-deliveries.js'
+import {
+	SHELL_LIVE_LINES,
+	type ShellOutput,
+	shellCommandFull,
+	shellCommandHeader,
+} from './shell-cell.js'
 import {
 	SUGGESTIONS_STOPPED_NOTICE,
 	type TurnActivity,
@@ -830,6 +836,10 @@ type RunningTool = ActiveTool & {
 	readonly detail?: readonly string[]
 	/** A web search or fetch, named by its query or address. */
 	readonly web?: WebActivity
+	/** A shell call's full command; its presence is what draws the call as a command cell. */
+	readonly command?: string
+	/** The last few output lines the call has reported, oldest first. */
+	readonly tail?: readonly string[]
 }
 
 /**
@@ -2244,6 +2254,7 @@ export function App({
 			meta?: string,
 			activity?: TranscriptMessage['activity'],
 			sourceDelivery?: true,
+			shell?: ShellOutput,
 		) => {
 			const id = nextId()
 			const candidate = { role, content, pending, glyph, detail, activity }
@@ -2264,6 +2275,7 @@ export function App({
 								glyphColor,
 								meta,
 								activity,
+								...(shell ? { shell } : {}),
 								...(sourceDelivery ? { sourceDelivery } : {}),
 								// Numbered only if this body will actually be COLLAPSED — the
 								// number exists to be read off a hint, and a body that fits
@@ -2275,7 +2287,7 @@ export function App({
 								//
 								// Derived from `prev` rather than a counter, so the number is a
 								// fact about the transcript rather than a second record of it.
-								...((activity && detail?.length) || willCollapse(detail)
+								...((activity && detail?.length) || messageCollapses({ detail, shell })
 									? {
 											detailRef: prev.filter((m) => m.detailRef !== undefined).length + 1,
 										}
@@ -6371,6 +6383,7 @@ export function App({
 								: formatToolCall(event.toolName, event.summary, event.standalone),
 						startedAt: Date.now(),
 						detail: event.detail,
+						...(event.command ? { command: event.command } : {}),
 						...(event.web ? { web: event.web, progress: webLiveStatus(event.web) } : {}),
 					}
 					activeToolsRef.current = [...activeToolsRef.current, tool]
@@ -6392,6 +6405,9 @@ export function App({
 					const updated: RunningTool = {
 						...withoutFraction,
 						progress: event.message,
+						...(current.command !== undefined
+							? { tail: [...(current.tail ?? []), event.message].slice(-SHELL_LIVE_LINES) }
+							: {}),
 						...(event.fraction !== undefined ? { fraction: event.fraction } : {}),
 					}
 					activeToolsRef.current = [
@@ -6624,6 +6640,38 @@ export function App({
 							theme.status.ok,
 							'ctrl+o details',
 							'evidence',
+						)
+						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
+						break
+					}
+					if (event.shell && done?.command !== undefined) {
+						// One row: the header, and the `⎿` result hung under it. The dot says
+						// how it ended; the elapsed time is not repeated per command.
+						const failed = event.isError || event.shell.failed
+						const command = done?.command
+						const header = command
+							? formatToolCall(event.toolName, shellCommandHeader(command))
+							: (done?.label ?? formatToolCall(event.toolName, event.summary))
+						const full = command
+							? formatToolCall(event.toolName, shellCommandFull(command))
+							: undefined
+						// A tool that failed without an exit status (blocked, refused) has its
+						// words in stdout; they read as the error they are.
+						const settled: ShellOutput =
+							event.isError && event.shell.stderr.length === 0
+								? { ...event.shell, stdout: [], stderr: event.shell.stdout, failed: true }
+								: { ...event.shell, failed }
+						pushMessage(
+							'tool',
+							header,
+							false,
+							'●',
+							[...settled.stdout, ...settled.stderr],
+							failed ? theme.status.error : theme.status.ok,
+							undefined,
+							undefined,
+							undefined,
+							full !== undefined && full !== header ? { ...settled, fullHeader: full } : settled,
 						)
 						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
 						break
@@ -10737,7 +10785,7 @@ export function App({
 				const shown = messages.filter((m) => !m.pending)
 				const live = shown.slice(settledRef.current)
 				const collapsible = live.filter(
-					(m) => (m.activity && (m.detail?.length ?? 0) > 0) || willCollapse(m.detail),
+					(m) => (m.activity && (m.detail?.length ?? 0) > 0) || messageCollapses(m),
 				)
 				const hasBody = (m: TranscriptMessage) =>
 					m.detailRef !== undefined && (m.detail?.length ?? 0) > 0
