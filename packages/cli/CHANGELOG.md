@@ -1,5 +1,12 @@
 # @namzu/cli
 
+## 36.1.2
+
+### Patch Changes
+
+- Updated dependencies [66eadb3]
+  - @namzu/zen@5.0.0
+
 ## 36.1.1
 
 ### Patch Changes
