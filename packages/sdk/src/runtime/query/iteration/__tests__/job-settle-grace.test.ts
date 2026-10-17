@@ -18,6 +18,19 @@ import { BackgroundJobRegistry } from '../../../jobs/registry.js'
 import { drainQuery } from '../../index.js'
 import { awaitedJobGraceMs, settleGraceMs } from '../index.js'
 
+// These scripts name the first job's id before the call that creates it
+// returns, which a random id cannot allow: hand out b00000001, b00000002, …
+// per registry instead. Shape and uniqueness are tested in job-id.test.ts.
+vi.mock('../../../jobs/job-id.js', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../../../jobs/job-id.js')>()),
+	createBackgroundJobId: (isTaken: (id: string) => boolean = () => false) => {
+		for (let n = 1; ; n += 1) {
+			const id = `b${String(n).padStart(8, '0')}`
+			if (!isTaken(id)) return id
+		}
+	},
+}))
+
 /**
  * The job half of `settle-grace.test.ts`.
  *
@@ -58,13 +71,13 @@ afterEach(() => {
 	vi.unstubAllEnvs()
 })
 
-/** A fresh registry always hands out `job_1` first, so the script can name it. */
+/** A fresh registry always hands out `b00000001` first, so the script can name it. */
 const START_LONG = {
 	toolCalls: [{ id: 'c1', name: 'start', args: { command: 'sleep 30' } }],
 } satisfies MockTurn
 /** Gives up long before the job does, which is the case the hold backs up. */
 const WAIT_BRIEFLY = {
-	toolCalls: [{ id: 'c2', name: 'wait_for_job', args: { id: 'job_1', timeout_ms: 50 } }],
+	toolCalls: [{ id: 'c2', name: 'wait_for_job', args: { id: 'b00000001', timeout_ms: 50 } }],
 } satisfies MockTurn
 
 async function run(options: {
@@ -142,7 +155,7 @@ describe('a turn holds itself open only for a job the model awaited', () => {
 			maxIterations: 3,
 		})
 
-		expect(result.abandonedJobIds).toEqual(['job_1'])
+		expect(result.abandonedJobIds).toEqual(['b00000001'])
 		expect(result.abandonedTaskIds, 'a job is not a delegated task').toBeUndefined()
 	}, 60_000)
 
@@ -173,7 +186,7 @@ describe('a turn holds itself open only for a job the model awaited', () => {
 		expect(result.status).toBe('completed')
 		expect(elapsedMs, 'an unlimited run held itself open past the job ceiling').toBeLessThan(5_000)
 		// And it is the same statement a bounded run makes when it gives up.
-		expect(result.abandonedJobIds).toEqual(['job_1'])
+		expect(result.abandonedJobIds).toEqual(['b00000001'])
 	}, 60_000)
 })
 

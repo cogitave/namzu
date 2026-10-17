@@ -38,8 +38,8 @@ function context(permissionMode: PermissionMode): ToolContext {
 			start: vi.fn(),
 			get: vi.fn(),
 			read: vi.fn(() => ({ chunk: 'ready', nextOffset: 5, droppedBytes: 0, status: 'running' })),
-			list: vi.fn(() => [{ id: 'owned-job', status: 'running', command: 'owned command' }]),
-			kill: vi.fn(async () => ({ id: 'owned-job', status: 'killed' })),
+			list: vi.fn(() => [{ id: 'b0owned01', status: 'running', command: 'owned command' }]),
+			kill: vi.fn(async () => ({ id: 'b0owned01', status: 'killed' })),
 		} satisfies BackgroundJobRegistryRef,
 	}
 }
@@ -50,9 +50,9 @@ describe('background observation authority', () => {
 		async (action) => {
 			const ctx = context('plan')
 			const tools = registry()
-			const read = await tools.execute('job', { action, id: 'owned-job' }, ctx)
+			const read = await tools.execute('job', { action, id: 'b0owned01' }, ctx)
 			expect(read.success).toBe(true)
-			const stopped = await tools.execute('job', { action: 'kill', id: 'owned-job' }, ctx)
+			const stopped = await tools.execute('job', { action: 'kill', id: 'b0owned01' }, ctx)
 			expect(stopped.success).toBe(false)
 			expect(ctx.backgroundJobs?.kill).not.toHaveBeenCalled()
 		},
@@ -78,7 +78,7 @@ async function run(
 	}))
 	const provider = new MockLLMProvider({
 		turns: [
-			{ toolCalls: [{ id: 'job-call', name: 'job', args: { action, id: 'unknown-job' } }] },
+			{ toolCalls: [{ id: 'job-call', name: 'job', args: { action, id: 'b0unknown' } }] },
 			{ text: 'finished' },
 		],
 	})

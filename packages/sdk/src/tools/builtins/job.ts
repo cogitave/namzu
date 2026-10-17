@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import { invalidBackgroundJobIdInput } from '../../runtime/jobs/job-id.js'
 import { defineTool } from '../defineTool.js'
 
 /**
@@ -89,6 +90,9 @@ export const JobTool = defineTool({
 				error: `action "${input.action}" needs an id. Use action "list" to see the jobs this turn has started.`,
 			}
 		}
+
+		const badId = invalidBackgroundJobIdInput(input.id)
+		if (badId) return { success: false, output: '', error: badId }
 
 		try {
 			if (input.action === 'kill') {

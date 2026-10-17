@@ -45,11 +45,11 @@ afterEach(async () => {
 
 describe('the shell jobs child screen', () => {
 	it('shows a persistent job as a selectable row at 40 columns without overflowing', async () => {
-		const jobs = [job('job_1', 'npm run dev'), job('job_2', 'pnpm build', 'exited')]
+		const jobs = [job('b00000001', 'npm run dev'), job('b00000002', 'pnpm build', 'exited')]
 		screen = await renderToScreen(
 			<BackgroundJobsPanel
 				jobs={jobs}
-				selectedJobId="job_1"
+				selectedJobId="b00000001"
 				detailJobId={null}
 				tailOffset={0}
 				readJob={() => undefined}
@@ -60,21 +60,23 @@ describe('the shell jobs child screen', () => {
 			{ cols: 40, rows: 20 },
 		)
 		const visible = screen.viewport().join('\n')
-		expect(visible).toContain('Shell jobs · 1 running')
-		expect(visible).toContain('> job_1 · running · npm run dev')
-		expect(visible).toContain('job_2 · exited · pnpm build')
+		expect(visible).toContain('Background')
+		expect(visible).toContain('1 active shell')
+		expect(visible).toContain('❯ ● npm run dev  running')
+		expect(visible).toContain('✓ pnpm build  done')
+		expect(visible).not.toContain('b0000000')
 		expect(visible).toContain('x stop')
 		for (const row of screen.viewport()) expect(stringWidth(row)).toBeLessThanOrEqual(40)
 	})
 
 	it('shows detail status and bounded terminal-safe output, then follows the latest rows', async () => {
-		const jobs = [job('job_1', 'npm run dev\x1b[2J')]
+		const jobs = [job('b00000001', 'npm run dev\x1b[2J')]
 		const readJob = () => output('ready\n\x1b[31munsafe\x1b[0m\nlast line\n', 12)
 		screen = await renderToScreen(
 			<BackgroundJobsPanel
 				jobs={jobs}
-				selectedJobId="job_1"
-				detailJobId="job_1"
+				selectedJobId="b00000001"
+				detailJobId="b00000001"
 				tailOffset={0}
 				readJob={readJob}
 				rows={24}
@@ -84,8 +86,12 @@ describe('the shell jobs child screen', () => {
 			{ cols: 80, rows: 24 },
 		)
 		const visible = screen.viewport().join('\n')
-		expect(visible).toContain('Shell details · job_1')
-		expect(visible).toContain('running · 30s')
+		expect(visible).toContain('Shell details')
+		expect(visible).not.toContain('b0000000')
+		expect(visible).toContain('Status: running')
+		expect(visible).toContain('Runtime: 30s')
+		expect(visible).toContain('Command:')
+		expect(visible).toContain('Output:')
 		expect(visible).toContain('npm run dev\\u{001b}[2J')
 		expect(visible).toContain('Earlier output discarded by the job buffer')
 		expect(visible).toContain('\\u{001b}[31munsafe')
@@ -95,12 +101,12 @@ describe('the shell jobs child screen', () => {
 	})
 
 	it('keeps the narrow detail panel on screen and drops stop when the job has ended', async () => {
-		const jobs = [job('job_1', 'npm run dev', 'exited')]
+		const jobs = [job('b00000001', 'npm run dev', 'exited')]
 		screen = await renderToScreen(
 			<BackgroundJobsPanel
 				jobs={jobs}
-				selectedJobId="job_1"
-				detailJobId="job_1"
+				selectedJobId="b00000001"
+				detailJobId="b00000001"
 				tailOffset={0}
 				readJob={() => output('Server ready\n')}
 				rows={20}
@@ -110,19 +116,20 @@ describe('the shell jobs child screen', () => {
 			{ cols: 40, rows: 20 },
 		)
 		const visible = screen.viewport().join('\n')
-		expect(visible).toContain('exited 0 · 30s')
+		expect(visible).toContain('Status: completed (exit code 0)')
+		expect(visible).toContain('Runtime: 30s')
 		expect(visible).toContain('Server ready')
-		expect(visible).toContain('esc jobs')
+		expect(visible).toContain('esc back')
 		expect(visible).not.toContain('x stop')
 		for (const row of screen.viewport()) expect(stringWidth(row)).toBeLessThanOrEqual(40)
 	})
 
 	it('keeps the exit key visible in the list and detail at 28 and 40 columns', async () => {
-		const jobs = [job('job_1', 'npm run dev')]
+		const jobs = [job('b00000001', 'npm run dev')]
 		for (const columns of [28, 40]) {
 			const base = {
 				jobs,
-				selectedJobId: 'job_1',
+				selectedJobId: 'b00000001',
 				tailOffset: 0,
 				readJob: () => output('ready\n'),
 				rows: 20,
@@ -135,13 +142,13 @@ describe('the shell jobs child screen', () => {
 			})
 			expect(screen.viewport().join('\n')).toContain('esc')
 			await screen.unmount()
-			screen = await renderToScreen(<BackgroundJobsPanel {...base} detailJobId="job_1" />, {
+			screen = await renderToScreen(<BackgroundJobsPanel {...base} detailJobId="b00000001" />, {
 				cols: columns,
 				rows: 20,
 			})
 			const detail = screen.viewport().join('\n')
-			expect(detail).toContain('x stop · esc jobs')
-			expect(detail).not.toContain('esc jo…')
+			expect(detail).toContain('x stop · esc back')
+			expect(detail).not.toContain('esc ba…')
 			for (const row of screen.viewport()) expect(stringWidth(row)).toBeLessThanOrEqual(columns)
 			await screen.unmount()
 			screen = null
@@ -149,16 +156,16 @@ describe('the shell jobs child screen', () => {
 	})
 
 	it('does not offer stop for a second job while a stop request is in flight', async () => {
-		const jobs = [job('job_1', 'npm run dev'), job('job_2', 'pnpm build')]
+		const jobs = [job('b00000001', 'npm run dev'), job('b00000002', 'pnpm build')]
 		const base = {
 			jobs,
-			selectedJobId: 'job_2',
+			selectedJobId: 'b00000002',
 			tailOffset: 0,
 			readJob: () => output('ready\n'),
 			rows: 24,
 			columns: 80,
 			now: NOW,
-			busyJobId: 'job_1',
+			busyJobId: 'b00000001',
 		}
 		screen = await renderToScreen(<BackgroundJobsPanel {...base} detailJobId={null} />, {
 			cols: 80,
@@ -166,7 +173,7 @@ describe('the shell jobs child screen', () => {
 		})
 		expect(screen.viewport().join('\n')).not.toContain('x stop')
 		await screen.unmount()
-		screen = await renderToScreen(<BackgroundJobsPanel {...base} detailJobId="job_2" />, {
+		screen = await renderToScreen(<BackgroundJobsPanel {...base} detailJobId="b00000002" />, {
 			cols: 80,
 			rows: 24,
 		})

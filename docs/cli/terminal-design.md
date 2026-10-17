@@ -71,7 +71,7 @@ terminal.
 When a background shell is running, a separate single-line status appears
 below the composer footer with its count and `/jobs` entry point. It yields
 while a permission or child view owns the screen, and a short label fits narrow
-terminals. The `/jobs` child view keeps the input draft mounted, lets the
+terminals. The `/jobs` child view is the `Background` panel (no job ids on screen; rows read `<icon> <command>  running|done|error|stopped`, details are `Shell details`); a finished job also leaves a `● Background command "…" completed (exit code N)` row in the transcript. It keeps the input draft mounted, lets the
 operator inspect bounded, escaped shell output, and stops a selected running
 job on `x`. A new question from a tool closes the shell view so the question
 is visible and answerable.

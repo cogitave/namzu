@@ -45,7 +45,7 @@ const exitListeners = new Set<(job: BackgroundJob) => void>()
 const nextExitListeners = new Set<(job: BackgroundJob) => void>()
 let mounted: Screen | null = null
 
-function runningJob(id = 'job_1'): BackgroundJob {
+function runningJob(id = 'b00000001'): BackgroundJob {
 	return { id, owner: 'session', command: 'npm run dev', status: 'running', startedAt: Date.now() }
 }
 
@@ -165,12 +165,12 @@ vi.mock('../agent.js', async (importOriginal) => {
 							summary: 'npm run dev',
 						}
 						jobs = [runningJob()]
-						outputs.set('job_1', outputFor('server ready on port 3000\n'))
+						outputs.set('b00000001', outputFor('server ready on port 3000\n'))
 						yield {
 							kind: 'tool-end',
 							toolUseId: 'bash-start',
 							toolName: 'bash',
-							summary: 'job_1 started',
+							summary: 'b00000001 started',
 							isError: false,
 						}
 					} else if (scenario === 'question') {
@@ -204,7 +204,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 						jobs = [exited]
 						announceExit(exited)
 						// This fake's turn represents a kernel that put the exit in model context.
-						opts?.onJobNoticeDelivered?.(['job_1'])
+						opts?.onJobNoticeDelivered?.(['b00000001'])
 						yield { kind: 'delta', text: 'finished' }
 					}
 					yield { kind: 'done', stopReason: 'end_turn' }
@@ -288,19 +288,20 @@ it('shows a lasting shell count, opens /jobs details, and stops only once across
 	expect(screen.viewport().join('\n')).toContain('Type a message')
 
 	await submit(screen, '/jobs')
-	expect(screen.viewport().join('\n')).toContain('Shell jobs · 1 running')
-	expect(screen.viewport().join('\n')).toContain('job_1')
+	expect(screen.viewport().join('\n')).toContain('Background')
+	expect(screen.viewport().join('\n')).toContain('1 active shell')
+	expect(screen.viewport().join('\n')).not.toContain('b00000001')
 	expect(screen.viewport().join('\n')).toContain('npm run dev')
 	expect(screen.viewport().join('\n')).not.toContain('Shell details')
 
 	screen.press('\r')
 	await screen.waitForRender()
-	expect(screen.viewport().join('\n')).toContain('Shell details · job_1')
+	expect(screen.viewport().join('\n')).toContain('Shell details')
 	expect(screen.viewport().join('\n')).toContain('server ready on port 3000')
 
 	await screen.resize(40, 14)
 	const narrow = screen.viewport()
-	expect(narrow.join('\n')).toContain('Shell details · job_1')
+	expect(narrow.join('\n')).toContain('Shell details')
 	expect(narrow.join('\n')).toContain('server ready on port 3000')
 	for (const row of narrow) expect(stringWidth(row)).toBeLessThanOrEqual(40)
 
@@ -308,7 +309,7 @@ it('shows a lasting shell count, opens /jobs details, and stops only once across
 	await screen.waitForRender()
 	screen.press('x')
 	await screen.waitForRender()
-	expect(stopCalls).toEqual(['job_1'])
+	expect(stopCalls).toEqual(['b00000001'])
 	finishStop()
 	await screen.waitForRender()
 	expect(screen.viewport().join('\n')).toContain('stopped')
@@ -320,7 +321,7 @@ it('shows a lasting shell count, opens /jobs details, and stops only once across
 it('clears the shell count and shows one exit row when the kernel delivered the notice', async () => {
 	scenario = 'exit'
 	jobs = [runningJob()]
-	outputs.set('job_1', outputFor('build output\n'))
+	outputs.set('b00000001', outputFor('build output\n'))
 	const screen = await mount(100, 28)
 	expect(screen.viewport().join('\n')).toContain('1 shell running · /jobs to manage')
 
@@ -331,18 +332,18 @@ it('clears the shell count and shows one exit row when the kernel delivered the 
 	expect(
 		screen
 			.scrollback()
-			.filter((line) => line.includes('background job job_1 (npm run dev) exited')),
+			.filter((line) => line.includes('Background command "npm run dev" completed (exit code 0)')),
 	).toHaveLength(1)
 
 	await submit(screen, 'next turn')
 	expect(sendOptions).toHaveLength(2)
 	expect(sendOptions[1]?.extraSystem ?? '').not.toContain('Background jobs that ended')
-	expect(sendOptions[1]?.extraSystem ?? '').not.toContain('job_1')
+	expect(sendOptions[1]?.extraSystem ?? '').not.toContain('b00000001')
 })
 
 it('keeps a live CLI session shell visible after /new changes the conversation', async () => {
 	jobs = [runningJob()]
-	outputs.set('job_1', outputFor('still serving\n'))
+	outputs.set('b00000001', outputFor('still serving\n'))
 	const screen = await mount(100, 28)
 	await submit(screen, '/new')
 	await screen.waitForRender()
@@ -357,15 +358,15 @@ it('keeps a live CLI session shell visible after /new changes the conversation',
 
 it('drops the old job panel when a new session reuses the same job id', async () => {
 	jobs = [{ ...runningJob(), status: 'exited', exitedAt: Date.now(), exitCode: 0 }]
-	outputs.set('job_1', outputFor('OLD SESSION OUTPUT\n'))
+	outputs.set('b00000001', outputFor('OLD SESSION OUTPUT\n'))
 	nextJobs = [{ ...runningJob(), owner: 'next-session', command: 'npm run preview' }]
-	nextOutputs.set('job_1', outputFor('NEW SESSION OUTPUT\n'))
+	nextOutputs.set('b00000001', outputFor('NEW SESSION OUTPUT\n'))
 	const screen = await mount(100, 28)
 
 	// Resolve the model choice only after /jobs is open on the old session.
 	await submit(screen, '/model new-model')
 	await submit(screen, '/jobs')
-	expect(screen.viewport().join('\n')).toContain('Shell jobs · 0 running')
+	expect(screen.viewport().join('\n')).toContain('0 active shells')
 	screen.press('\r')
 	await screen.waitForRender()
 	expect(screen.viewport().join('\n')).toContain('OLD SESSION OUTPUT')
@@ -374,10 +375,10 @@ it('drops the old job panel when a new session reuses the same job id', async ()
 	await nextSessionReady
 	await screen.waitForRender()
 	await screen.waitForRender()
-	expect(screen.viewport().join('\n')).not.toContain('Shell details · job_1')
+	expect(screen.viewport().join('\n')).not.toContain('Shell details')
 	expect(screen.viewport().join('\n')).not.toContain('OLD SESSION OUTPUT')
 
-	// An old panel's x key must never be able to target the new job_1.
+	// An old panel's x key must never be able to target the new b00000001.
 	screen.press('x')
 	await screen.waitForRender()
 	expect(nextStopCalls).toEqual([])
@@ -395,18 +396,18 @@ it('drops the old job panel when a new session reuses the same job id', async ()
 it('lets a model question replace an open shell panel and accept its answer', async () => {
 	scenario = 'question'
 	jobs = [runningJob()]
-	outputs.set('job_1', outputFor('server ready\n'))
+	outputs.set('b00000001', outputFor('server ready\n'))
 	const screen = await mount(100, 28)
 
 	await submit(screen, 'ask me about the server')
 	await turnStarted
 	await submit(screen, '/jobs')
-	expect(screen.viewport().join('\n')).toContain('Shell jobs · 1 running')
+	expect(screen.viewport().join('\n')).toContain('1 active shell')
 
 	releaseQuestion()
 	await questionStarted
 	await screen.waitForRender()
-	expect(screen.viewport().join('\n')).not.toContain('Shell jobs · 1 running')
+	expect(screen.viewport().join('\n')).not.toContain('1 active shell')
 	expect(screen.viewport().join('\n')).toContain('Keep this server running?')
 	expect(screen.viewport().join('\n')).toContain('Keep it')
 
@@ -418,19 +419,19 @@ it('lets a model question replace an open shell panel and accept its answer', as
 
 it('reports that a job exited while its stop request was in flight', async () => {
 	jobs = [runningJob()]
-	outputs.set('job_1', outputFor('server ready\n'))
+	outputs.set('b00000001', outputFor('server ready\n'))
 	const screen = await mount(100, 28)
 	await submit(screen, '/jobs')
 	screen.press('\r')
 	await screen.waitForRender()
 	screen.press('x')
 	await screen.waitForRender()
-	expect(stopCalls).toEqual(['job_1'])
+	expect(stopCalls).toEqual(['b00000001'])
 
 	stopOutcome = 'exited'
 	finishStop()
 	await screen.waitForRender()
-	expect(screen.viewport().join('\n')).toContain('job_1 had already exited (0)')
-	expect(screen.viewport().join('\n')).not.toContain('Stopped job_1.')
+	expect(screen.viewport().join('\n')).toContain('Already finished (exit code 0)')
+	expect(screen.viewport().join('\n')).not.toContain('Stopped.')
 	expect(screen.viewport().join('\n')).not.toContain('1 shell running · /jobs to manage')
 })

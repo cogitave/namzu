@@ -271,6 +271,7 @@ import {
 	hypermodeEffort,
 	hypermodeStopLabel,
 } from './hypermode.js'
+import { jobExitRow } from './job-exit-row.js'
 import { fitHints } from './key-hints.js'
 import { choosesModel, launchPreferences } from './launch-settings.js'
 import { checklistInView, liveWindow, settledBeforeStreaming } from './live-window.js'
@@ -1274,7 +1275,14 @@ export function App({
 			if (!notices.delivered.has(job.id)) notices.pending.set(job.id, text)
 			if (!notices.shown.has(job.id)) {
 				notices.shown.add(job.id)
-				pushMessage('system', text, false, 'J')
+				const row = jobExitRow({
+					command: job.command,
+					status: job.status === 'killed' ? 'killed' : 'exited',
+					...(job.exitCode !== undefined ? { exitCode: job.exitCode } : {}),
+					...(job.signal ? { signal: job.signal } : {}),
+					...(job.exitedAt !== undefined ? { runtimeMs: job.exitedAt - job.startedAt } : {}),
+				})
+				pushMessage('system', row.text, false, '●', undefined, row.color, row.meta)
 			}
 		})
 	}, [session])
@@ -6752,7 +6760,8 @@ export function App({
 					// without that listener still gets the kernel event; never paint twice.
 					if (!idleJobNoticesRef.current.shown.has(event.jobId)) {
 						idleJobNoticesRef.current.shown.add(event.jobId)
-						pushMessage('system', describeJobExit(event), false, 'J')
+						const row = jobExitRow(event)
+						pushMessage('system', row.text, false, '●', undefined, row.color, row.meta)
 					}
 					break
 				case 'context':
@@ -10346,10 +10355,10 @@ export function App({
 									busyJobId: undefined,
 									notice:
 										result.status === 'killed'
-											? `Stopped ${selectedJob.id}.`
+											? 'Stopped.'
 											: result.status === 'exited'
-												? `${selectedJob.id} had already exited (${result.exitCode ?? '?'}).`
-												: `Stop request for ${selectedJob.id} did not finish.`,
+												? `Already finished (exit code ${result.exitCode ?? '?'}).`
+												: 'The stop request did not finish.',
 								})
 						},
 						(error) => {
@@ -10359,7 +10368,7 @@ export function App({
 								setJobSurface({
 									...current,
 									busyJobId: undefined,
-									notice: explainFailure(error, `Could not stop ${selectedJob.id}.`),
+									notice: explainFailure(error, 'Could not stop the command.'),
 								})
 						},
 					)

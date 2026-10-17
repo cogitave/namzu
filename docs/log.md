@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-10-18
+
+- **Update** [Background jobs in the CLI](cli/background-jobs.md): job ids are `b` plus eight random base36 characters instead of a per-registry `job_N` counter, so a resumed conversation can no longer name a dead job with an id a new job reuses; `job` and `wait_for_job` refuse only input that cannot be an id (empty, over 128 characters, whitespace or control characters) and leave every other id to the registry; `/jobs` is the `Background` panel with `Shell details`, without ids, and a finished job leaves a `● Background command "…" completed (exit code 0)` row. `.changeset/background-job-ids.md`, **minor** for `@namzu/sdk`, patch for `@namzu/cli`.
+
 ## 2026-10-17
 
 - **Update** [Auto model routing](cli/auto-model-routing.md): under Auto, web search goes through the common `web_search` tool instead of the session provider's hosted search, as a fallback chain does, and a turn routed to a provider that cannot run hosted search no longer carries it. Before, a session that started on a provider with hosted search (Anthropic) sent it on every turn Auto routed elsewhere, and that provider (Zen) refused the whole request. Unreleased, so no changeset of its own: `.changeset/auto-model-routing.md` covers it.

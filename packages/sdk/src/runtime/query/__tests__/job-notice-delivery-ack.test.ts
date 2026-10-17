@@ -50,7 +50,7 @@ async function run(exitAt: 'tool-result' | 'final-answer') {
 		turns: [{ toolCalls: [{ id: 'call_1', name: 'finish_step', args: {} }] }, { text: 'finished' }],
 		onRequest: () => {
 			requests += 1
-			if (requests === 2 && exitAt === 'final-answer') registry.announce(owner, 'job_1')
+			if (requests === 2 && exitAt === 'final-answer') registry.announce(owner, 'b00000001')
 		},
 	})
 	const tool = defineTool({
@@ -63,7 +63,7 @@ async function run(exitAt: 'tool-result' | 'final-answer') {
 		destructive: false,
 		concurrencySafe: true,
 		execute: async () => {
-			if (exitAt === 'tool-result') registry.announce(owner, 'job_1')
+			if (exitAt === 'tool-result') registry.announce(owner, 'b00000001')
 			return { success: true, output: 'step complete' }
 		},
 	})
@@ -91,7 +91,7 @@ describe('background job notice acknowledgement', () => {
 	it('acknowledges an exit only after its notice enters a tool result', async () => {
 		const { result, acknowledgements } = await run('tool-result')
 		expect(result.status).toBe('completed')
-		expect(acknowledgements).toEqual([['job_1']])
+		expect(acknowledgements).toEqual([['b00000001']])
 		expect(
 			result.messages.some(
 				(message) =>
@@ -121,11 +121,11 @@ describe('background job notice acknowledgement', () => {
 		['final settlement', deliverArrivedJobExits],
 	] as const)('acknowledges %s only after recording the job-exit context', (_, deliver) => {
 		const notices = new SteeringBinding()
-		notices.steer('job_1 exited with code 0')
+		notices.steer('b00000001 exited with code 0')
 		const messages: Message[] = []
 		const acknowledgedAfter: string[] = []
 		const exit: BackgroundJob = {
-			id: 'job_1',
+			id: 'b00000001',
 			owner: 'session',
 			command: 'build',
 			status: 'exited',
@@ -160,6 +160,6 @@ describe('background job notice acknowledgement', () => {
 		if (delivered?.role !== 'user') throw new Error('job exit context was not recorded')
 		expect(delivered.source).toEqual({ type: 'runtime-context', kind: 'job-exit' })
 		expect(acknowledgedAfter).toEqual([delivered.content])
-		expect(acknowledgedAfter[0]).toContain('job_1 exited with code 0')
+		expect(acknowledgedAfter[0]).toContain('b00000001 exited with code 0')
 	})
 })

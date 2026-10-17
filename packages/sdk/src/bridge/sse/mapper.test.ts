@@ -549,12 +549,12 @@ describe('mapSessionEventToStreamEvent — session and turn ids', () => {
 		const r = mapSessionEventToStreamEvent({
 			type: 'background_job_exited',
 			sessionId: SID,
-			jobId: 'job_1',
+			jobId: 'b00000001',
 			command: 'sleep 1',
 			status: 'exited',
 			exitCode: 0,
 		})
-		expect(r?.data).toMatchObject({ session_id: SID, job_id: 'job_1' })
+		expect(r?.data).toMatchObject({ session_id: SID, job_id: 'b00000001' })
 		expect(r?.data).not.toHaveProperty('turn_id')
 	})
 
