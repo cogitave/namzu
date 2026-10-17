@@ -1,24 +1,26 @@
 /**
  * One-line composer footer, directly below the input box.
  *
- * Left to right: the active permission mode (colored by mode, with its
- * cycle key) or, when no special mode is active, a quiet reminder that the
- * key exists; the reasoning effort beside it when the operator has set one;
- * the working directory. Right-aligned: an interaction hint or a durable
- * goal when either is active, else the model identity. The right side owns
- * its columns first so a deep path or a long mode label cannot erase the key
- * that exits a prompt.
+ * Left to right, items joined by a dim ` · `: the permission mode (`⏵⏵ bypass
+ * permissions on`, colored by mode, with its cycle key while it fits), the
+ * background-shell pill (`2 shells`), the pull request for the branch
+ * (`PR #592`, underlined, colored by review state), and the reasoning effort
+ * when the operator has set one. While a turn runs the cycle key gives way to
+ * `esc to interrupt`. Right-aligned: an interaction hint or a durable goal
+ * when either is active, else the model identity. The right side owns its
+ * columns first so a long mode label cannot erase the key that exits a
+ * prompt. The folder is not here; the header names it.
  */
 
 import { Text, useWindowSize } from 'ink'
 
-import { type PermissionMode, permissionModeLabel } from '../permissions/mode.js'
+import type { PermissionMode } from '../permissions/mode.js'
 import { fitHintText } from './key-hints.js'
-import { homePath } from './person-terms.js'
+import type { PrFooterState, PrReview } from './pr-status.js'
+import { terminalWebHyperlink } from './terminal-hyperlinks.js'
 import { theme } from './theme.js'
 
 export interface StatusBarProps {
-	readonly cwd: string
 	readonly provider: string | null
 	readonly model: string | null
 	/** An explicit reasoning-effort override; omitted/undefined means the model's own default, which this footer does not name. */
@@ -34,37 +36,59 @@ export interface StatusBarProps {
 	/**
 	 * Whether a composer is on screen. Shift+Tab is the composer's key, so with
 	 * none mounted (a picker, the trust prompt, a stopped start) the footer
-	 * names no cycle key; the active mode and the folder are still facts.
+	 * names no cycle key; the active mode is still a fact.
 	 */
 	readonly composerMounted?: boolean
+	/** Background shells that are running now; 0 or omitted hides the pill. */
+	readonly shellCount?: number
+	/** The pull request for the current branch, from `pr-status.ts`. */
+	readonly pr?: PrFooterState
+	/** Whether the terminal understands OSC 8 links; the PR number is plain text without it. */
+	readonly hyperlinks?: boolean
 }
 
 /**
- * The mode marks. `⏵⏵` is the reference terminal's own and is outside the
- * emoji set; the pause mark it pairs with, `⏸` (U+23F8), is an emoji code
- * point that Windows Terminal draws as a blue two-cell tile. `‖` (U+2016,
- * DOUBLE VERTICAL LINE) says "held" in one text cell with no emoji form.
+ * The mode marks. `⏵⏵` is outside the emoji set; the pause mark a plan mode
+ * would pair with, `⏸` (U+23F8), is an emoji code point that Windows Terminal
+ * draws as a blue two-cell tile. `‖` (U+2016, DOUBLE VERTICAL LINE) says "held"
+ * in one text cell with no emoji form.
  */
 export const MODE_MARK = { moving: '⏵⏵', held: '‖' } as const
 
-/** Icon, color and label for an active (non-default) permission mode. */
+/** Icon, color and words for an active (non-default) permission mode; the footer adds ` on`. */
 function modeGlyph(mode: PermissionMode): {
 	readonly icon: string
 	readonly color: string
 	readonly label: string
 } {
-	return {
-		icon: mode === 'accept-edits' || mode === 'auto' ? MODE_MARK.moving : MODE_MARK.held,
-		color: mode === 'strict' ? theme.status.warn : theme.accent.user,
-		label: permissionModeLabel(mode),
+	switch (mode) {
+		case 'auto':
+			return { icon: MODE_MARK.moving, color: theme.status.error, label: 'bypass permissions' }
+		case 'accept-edits':
+			return { icon: MODE_MARK.moving, color: theme.accent.user, label: 'accept edits' }
+		case 'plan':
+			return { icon: MODE_MARK.held, color: theme.accent.plan, label: 'plan mode' }
+		case 'strict':
+			return { icon: MODE_MARK.held, color: theme.status.warn, label: 'preapproved only' }
+		case 'prompt':
+			return { icon: MODE_MARK.held, color: theme.text.muted, label: 'ask first' }
 	}
 }
 
 const QUIET_MODE_HINT = 'shift+tab to cycle'
 const CYCLE_SUFFIX = ' (shift+tab to cycle)'
+const INTERRUPT_HINT = 'esc to interrupt'
+const SHELLS_HINT = '/jobs to manage'
+
+const PR_COLOR: Readonly<Record<PrReview, string | null>> = {
+	approved: theme.status.ok,
+	changes: theme.status.error,
+	pending: theme.status.warn,
+	merged: theme.status.merged,
+	draft: null,
+}
 
 export function StatusBar({
-	cwd,
 	provider,
 	model,
 	effort,
@@ -74,46 +98,94 @@ export function StatusBar({
 	permissionMode,
 	canCycleMode,
 	composerMounted = true,
+	shellCount = 0,
+	pr,
+	hyperlinks = false,
 }: StatusBarProps) {
 	const terminal = useWindowSize()
 	const activeMode =
 		permissionMode !== undefined && permissionMode !== 'prompt' ? modeGlyph(permissionMode) : null
+	const working = state !== 'idle'
+	const hasPr = pr !== undefined && pr.kind !== 'none'
+	// Nothing else on the row: only then is the quiet reminder worth a column.
+	const nothingElse = !activeMode && shellCount === 0 && !hasPr
 	const layout = fitStatusLine({
 		// App gives the footer one cell of horizontal padding on each side. Ink's
 		// stdout width is the whole terminal, so reserve those cells here rather
 		// than letting its final two characters be clipped after fitting succeeds.
 		columns: Math.max(0, terminal.columns - 2),
-		cwd: shortenCwd(cwd),
 		model,
 		provider,
 		effort: effort ?? null,
 		hint,
 		goal,
 		modeLabel: activeMode
-			? `${activeMode.icon} ${activeMode.label}`
-			: composerMounted
+			? `${activeMode.icon} ${activeMode.label} on`
+			: composerMounted && !working && nothingElse
 				? QUIET_MODE_HINT
 				: '',
-		cycleSuffix: activeMode && canCycleMode && composerMounted ? CYCLE_SUFFIX : null,
+		cycleSuffix: activeMode && canCycleMode && composerMounted && !working ? CYCLE_SUFFIX : null,
+		interrupt: working && !hint ? INTERRUPT_HINT : null,
+		shells: shellCount > 0 ? `${shellCount} ${shellCount === 1 ? 'shell' : 'shells'}` : null,
+		shellsHint: shellCount > 0 ? SHELLS_HINT : null,
+		pr:
+			pr === undefined || pr.kind === 'none'
+				? null
+				: pr.kind === 'pr'
+					? { prefix: 'PR', label: `#${pr.number}` }
+					: { prefix: null, label: pr.text },
 	})
+	const sep = <Text color={theme.text.muted}> · </Text>
+	const parts: React.ReactElement[] = []
+	if (layout.mode) {
+		parts.push(
+			<Text key="mode">
+				<Text color={activeMode ? activeMode.color : theme.text.muted}>{layout.mode}</Text>
+				{layout.cycleSuffix ? <Text color={theme.text.muted}>{layout.cycleSuffix}</Text> : null}
+			</Text>,
+		)
+	}
+	if (layout.interrupt) {
+		parts.push(
+			<Text key="interrupt" color={theme.text.muted}>
+				{layout.interrupt}
+			</Text>,
+		)
+	}
+	if (layout.shells) {
+		parts.push(
+			<Text key="shells">
+				<Text color={theme.accent.shells}>{layout.shells}</Text>
+				{layout.shellsHint ? <Text color={theme.text.muted}> {layout.shellsHint}</Text> : null}
+			</Text>,
+		)
+	}
+	if (layout.pr) {
+		parts.push(
+			<Text key="pr">
+				{pr?.kind === 'pr' && layout.pr.prefix ? (
+					<>
+						<Text color={theme.text.muted}>{layout.pr.prefix} </Text>
+						<PrLabel pr={pr} label={layout.pr.label} hyperlinks={hyperlinks} />
+					</>
+				) : (
+					<Text color={theme.text.muted}>{layout.pr.label}</Text>
+				)}
+			</Text>,
+		)
+	}
+	if (layout.effort) {
+		parts.push(
+			<Text key="effort" color={theme.text.secondary}>
+				{layout.effort}
+			</Text>,
+		)
+	}
 	return (
 		<Text wrap="truncate-end">
-			{layout.mode ? (
-				<Text color={activeMode ? activeMode.color : theme.text.muted}>{layout.mode}</Text>
-			) : null}
-			{layout.cycleSuffix ? <Text color={theme.text.muted}>{layout.cycleSuffix}</Text> : null}
-			{layout.effort ? (
-				<>
-					{layout.mode ? <Text color={theme.text.muted}> · </Text> : null}
-					<Text color={theme.text.secondary}>{layout.effort}</Text>
-				</>
-			) : null}
-			{layout.cwd ? (
-				<>
-					{layout.mode || layout.effort ? <Text color={theme.text.muted}> · </Text> : null}
-					<Text color={theme.text.secondary}>{layout.cwd}</Text>
-				</>
-			) : null}
+			{parts.flatMap((part, index) =>
+				index === 0 ? [part] : [<Text key={`sep-${part.key}`}>{sep}</Text>, part],
+			)}
 			<Text>{layout.gap}</Text>
 			{layout.right.kind === 'text' ? (
 				<Text color={layout.right.isGoal ? theme.accent.system : colorForState(state)}>
@@ -124,6 +196,23 @@ export function StatusBar({
 					{layout.right.model}
 				</Text>
 			) : null}
+		</Text>
+	)
+}
+
+function PrLabel({
+	pr,
+	label,
+	hyperlinks,
+}: {
+	readonly pr: Extract<PrFooterState, { kind: 'pr' }>
+	readonly label: string
+	readonly hyperlinks: boolean
+}) {
+	const linked = hyperlinks ? terminalWebHyperlink(label, pr.url) : null
+	return (
+		<Text underline color={PR_COLOR[pr.review] ?? theme.text.muted}>
+			{linked ?? label}
 		</Text>
 	)
 }
@@ -140,37 +229,14 @@ function colorForState(state: StatusBarProps['state']): string {
 	}
 }
 
-function shortenCwd(cwd: string): string {
-	const home = process.env.HOME ?? process.env.USERPROFILE
-	return home ? homePath(cwd, home) : cwd
-}
-
-/**
- * A path shortened from the LEFT, keeping the leaf.
- *
- * The end of a path is the informative end: `core` says which package you are
- * in, `/home` says nothing you did not know. Cutting resumes at a separator
- * when one is near the cut, so the result still reads as a path rather than as
- * a word broken in half.
- */
-export function shortenPathToFit(path: string, max: number): string {
-	if (max <= 0) return ''
-	if (path.length <= max) return path
-	if (max === 1) return '…'
-	const tail = path.slice(-(max - 1))
-	// A Windows path separates with a backslash.
-	const slash = tail.search(/[\\/]/)
-	// Only snap to a separator if one is close, or a long leading segment would
-	// cost more than it explains.
-	const snapped = slash >= 0 && slash <= 12 ? tail.slice(slash) : tail
-	return `…${snapped}`
-}
-
 export interface StatusLineLayout {
 	readonly mode: string | null
 	readonly cycleSuffix: string | null
+	readonly interrupt: string | null
+	readonly shells: string | null
+	readonly shellsHint: string | null
+	readonly pr: { readonly prefix: string | null; readonly label: string } | null
 	readonly effort: string | null
-	readonly cwd: string | null
 	readonly gap: string
 	readonly right:
 		| { readonly kind: 'text'; readonly text: string; readonly isGoal: boolean }
@@ -178,22 +244,20 @@ export interface StatusLineLayout {
 }
 
 /**
- * Fit the mode identity around an authoritative right-side indicator.
+ * Fit the footer's items around an authoritative right-side indicator.
  *
  * A hint can be the only on-screen explanation of how to leave a prompt, and
- * a goal label is the durable work state the screenshot is meant to expose.
- * Both therefore reserve their width before the model identity does, exactly
- * as they did before the model moved to this side. On the left, the mode
- * badge is the whole point of this line and yields last: the working
- * directory shrinks and drops first — a path is recoverable from `/status`
- * and a deep worktree checkout should not be what costs the operator their
- * only advertisement of Shift+Tab — then the effort label, then the cycle
- * key reminder, then the model on the right is dropped entirely, then the
- * badge itself truncates.
+ * a goal label is the durable work state, so both reserve their width before
+ * the model identity does. On the left the mode is the point of the line and
+ * yields last. Under pressure the left loses, in this order: the shell
+ * pill's `/jobs to manage`, `esc to interrupt`, the cycle key, the effort
+ * label, the pull request item, then the model on the right, then the quiet
+ * reminder; after that the mode truncates, and only then does the shell pill
+ * go. A line too wide for its room loses whole items, never half of one,
+ * except the mode, which is the state itself.
  */
 export function fitStatusLine(input: {
 	readonly columns: number
-	readonly cwd: string
 	readonly provider: string | null
 	readonly model: string | null
 	readonly effort?: string | null
@@ -201,6 +265,10 @@ export function fitStatusLine(input: {
 	readonly goal?: string | null | undefined
 	readonly modeLabel: string
 	readonly cycleSuffix?: string | null
+	readonly interrupt?: string | null
+	readonly shells?: string | null
+	readonly shellsHint?: string | null
+	readonly pr?: { readonly prefix: string | null; readonly label: string } | null
 }): StatusLineLayout {
 	const columns = Math.max(0, input.columns)
 	const isGoal = Boolean(input.goal) && !input.hint
@@ -219,36 +287,45 @@ export function fitStatusLine(input: {
 
 	let mode: string | null = input.modeLabel.length > 0 ? input.modeLabel : null
 	let cycleSuffix: string | null = input.cycleSuffix ?? null
+	let interrupt: string | null = input.interrupt ?? null
+	let shells: string | null = input.shells ?? null
+	let shellsHint: string | null = input.shellsHint ?? null
+	let pr = input.pr ?? null
 	let effort: string | null = input.effort ? `effort ${input.effort}` : null
-	let cwd: string | null = input.cwd.length > 0 ? input.cwd : null
 
-	const left = (): string => {
-		const withMode = `${mode ?? ''}${cycleSuffix ?? ''}`
-		return [withMode, effort, cwd].filter((value): value is string => Boolean(value)).join(' · ')
-	}
+	const parts = (): string[] =>
+		[
+			mode ? `${mode}${cycleSuffix ?? ''}` : null,
+			interrupt,
+			shells ? `${shells}${shellsHint ? ` ${shellsHint}` : ''}` : null,
+			pr ? `${pr.prefix ? `${pr.prefix} ` : ''}${pr.label}` : null,
+			effort,
+		].filter((value): value is string => Boolean(value))
+	const left = (): string => parts().join(' · ')
+	const over = (): boolean => left().length > leftBudget
 
-	if (left().length > leftBudget && cwd) {
-		const identityWidth = left().length - (cwd.length + 3)
-		const room = leftBudget - identityWidth - 3
-		cwd = room >= 8 ? shortenPathToFit(cwd, room) : null
-	}
-	if (left().length > leftBudget) cwd = null
-	if (left().length > leftBudget) effort = null
-	if (left().length > leftBudget) cycleSuffix = null
-	if (left().length > leftBudget && rightText === null && modelLabel !== null) {
-		// The model is the least essential fact once the mode line needs the
-		// room: it is recoverable from `/status`, and the mode is not.
+	if (over()) shellsHint = null
+	if (over()) interrupt = null
+	if (over()) cycleSuffix = null
+	if (over()) effort = null
+	if (over()) pr = null
+	if (over() && rightText === null && modelLabel !== null) {
+		// The model is recoverable from `/status`; the mode is not.
 		modelLabel = null
 		gapWidth = 0
 		leftBudget = columns
 	}
 	// The quiet reminder is only a reminder: cut in half it reads as "shift…cycle".
-	// A real mode badge still truncates, because it is the state itself.
-	if (left().length > leftBudget && mode === QUIET_MODE_HINT) mode = null
-	if (left().length > leftBudget && mode) {
-		mode = shortenRightToFit(mode, leftBudget)
+	if (over() && mode === QUIET_MODE_HINT) mode = null
+	if (over() && mode) {
+		const whole: string = mode
+		mode = null
+		const rest = left().length
+		const room = leftBudget - rest - (rest > 0 ? 3 : 0)
+		mode = room >= 4 ? shortenRightToFit(whole, room) : null
 	}
-	if (left().length > leftBudget) mode = null
+	if (over()) shells = null
+	if (over()) mode = null
 
 	const leftWidth = left().length
 	const rightWidth = right().length
@@ -258,8 +335,11 @@ export function fitStatusLine(input: {
 	return {
 		mode,
 		cycleSuffix: mode ? cycleSuffix : null,
-		effort: mode ? effort : null,
-		cwd,
+		interrupt,
+		shells,
+		shellsHint,
+		pr,
+		effort,
 		gap,
 		right:
 			rightText !== null

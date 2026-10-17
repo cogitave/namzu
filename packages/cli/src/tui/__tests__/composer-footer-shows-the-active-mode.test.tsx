@@ -12,11 +12,11 @@
  * below it — that adjacency to the frame, not distance from the bottom of
  * the viewport, is what the footer actually guarantees.
  *
- * Width-pressure drop order (`StatusBar.tsx`'s `fitStatusLine`), left to
- * right in survival priority — earliest dropped first: the working
- * directory (shrinks, then drops), the effort label, the cycle-key
- * reminder, the model on the right, and only as a last resort the mode
- * badge itself (truncates, then drops). Hypermode is shown in the message
+ * Width-pressure drop order (`StatusBar.tsx`'s `fitStatusLine`), earliest
+ * dropped first: the shells hint, `esc to interrupt`, the cycle-key
+ * reminder, the effort label, the pull request item, the model on the
+ * right, and only as a last resort the mode badge itself (truncates, then
+ * drops). Hypermode is shown in the message
  * frame, so the footer has no second copy of its label.
  */
 
@@ -28,8 +28,6 @@ import { ComposerFrame } from '../ComposerFrame.js'
 import { StatusBar } from '../StatusBar.js'
 import { type Screen, renderToScreen } from './support/screen.js'
 
-const CWD = '/home/dev/work/namzu'
-const LONG_CWD = '/home/dev/workspaces/really/quite/deeply/nested/project/namzu'
 const ROWS = 24
 
 /**
@@ -69,12 +67,9 @@ function rowAfterFooter(screen: Screen): string {
 	return viewport[border + 2] ?? ''
 }
 
-const noSpecialMode = (
-	<StatusBar cwd={CWD} provider="a-provider" model="gpt-5.6-terra" state="idle" />
-)
+const noSpecialMode = <StatusBar provider="a-provider" model="gpt-5.6-terra" state="idle" />
 const autoMode = (
 	<StatusBar
-		cwd={CWD}
 		provider="a-provider"
 		model="gpt-5.6-terra"
 		state="idle"
@@ -84,18 +79,6 @@ const autoMode = (
 )
 const planWithEffort = (
 	<StatusBar
-		cwd={CWD}
-		provider="a-provider"
-		model="gpt-5.6-terra"
-		effort="high"
-		state="idle"
-		permissionMode="plan"
-		canCycleMode
-	/>
-)
-const planWithLongCwd = (
-	<StatusBar
-		cwd={LONG_CWD}
 		provider="a-provider"
 		model="gpt-5.6-terra"
 		effort="high"
@@ -106,7 +89,6 @@ const planWithLongCwd = (
 )
 const planNoEffort = (
 	<StatusBar
-		cwd={CWD}
 		provider="a-provider"
 		model="gpt-5.6-terra"
 		state="idle"
@@ -116,12 +98,11 @@ const planNoEffort = (
 )
 
 describe('the composer footer at 80 columns', () => {
-	it('shows the quiet cycle reminder, the cwd and the model when no special mode is active', async () => {
+	it('shows the quiet cycle reminder and the model when no special mode is active', async () => {
 		const screen = await renderToScreen(belowMessageFrame(noSpecialMode), { cols: 80, rows: ROWS })
 		try {
 			const row = footerRow(screen)
 			expect(row).toContain('shift+tab to cycle')
-			expect(row).toContain(CWD)
 			expect(row.trimEnd()).toMatch(/gpt-5\.6-terra$/)
 			expect(row).not.toContain('⏵⏵')
 			expect(row).not.toContain('‖')
@@ -131,12 +112,11 @@ describe('the composer footer at 80 columns', () => {
 		}
 	})
 
-	it('shows the auto badge with its cycle key, the cwd and the model', async () => {
+	it('shows the bypass badge with its cycle key and the model', async () => {
 		const screen = await renderToScreen(belowMessageFrame(autoMode), { cols: 80, rows: ROWS })
 		try {
 			const row = footerRow(screen)
-			expect(row).toContain('⏵⏵ Auto-approve tools (shift+tab to cycle)')
-			expect(row).toContain('work/namzu')
+			expect(row).toContain('⏵⏵ bypass permissions on (shift+tab to cycle)')
 			expect(row.trimEnd()).toMatch(/gpt-5\.6-terra$/)
 		} finally {
 			await screen.unmount()
@@ -147,7 +127,7 @@ describe('the composer footer at 80 columns', () => {
 		const screen = await renderToScreen(belowMessageFrame(planWithEffort), { cols: 80, rows: ROWS })
 		try {
 			const row = footerRow(screen)
-			expect(row).toContain('‖ Plan (read-only) (shift+tab to cycle) · effort high')
+			expect(row).toContain('‖ plan mode on (shift+tab to cycle) · effort high')
 			expect(row.trimEnd()).toMatch(/gpt-5\.6-terra$/)
 		} finally {
 			await screen.unmount()
@@ -172,7 +152,7 @@ describe('the composer footer at 40 columns', () => {
 		try {
 			const row = footerRow(screen)
 			expect(row, 'the badge was truncated before its cheaper neighbors were dropped').toContain(
-				'⏵⏵ Auto-approve tools',
+				'⏵⏵ bypass permissions on',
 			)
 			expect(row).not.toContain('shift+tab to cycle')
 		} finally {
@@ -184,7 +164,7 @@ describe('the composer footer at 40 columns', () => {
 		const screen = await renderToScreen(belowMessageFrame(planWithEffort), { cols: 40, rows: ROWS })
 		try {
 			const row = footerRow(screen)
-			expect(row).toContain('‖ Plan (read-only)')
+			expect(row).toContain('‖ plan mode on')
 		} finally {
 			await screen.unmount()
 		}
@@ -199,22 +179,22 @@ describe('the composer footer under width pressure', () => {
 		})
 		try {
 			const row = footerRow(screen)
-			expect(row).toContain(`‖ Plan (read-only) (shift+tab to cycle) · effort high · ${CWD}`)
+			expect(row).toContain('‖ plan mode on (shift+tab to cycle) · effort high')
 			expect(row.trimEnd()).toMatch(/gpt-5\.6-terra$/)
 		} finally {
 			await screen.unmount()
 		}
 	})
 
-	it('drops a long working directory before the mode badge', async () => {
-		const screen = await renderToScreen(belowMessageFrame(planWithLongCwd), {
+	it('drops the effort label before the mode badge', async () => {
+		const screen = await renderToScreen(belowMessageFrame(planWithEffort), {
 			cols: 40,
 			rows: ROWS,
 		})
 		try {
 			const row = footerRow(screen)
-			expect(row).toContain('‖ Plan (read-only)')
-			expect(row).not.toContain('nested')
+			expect(row).toContain('‖ plan mode on')
+			expect(row).not.toContain('effort')
 		} finally {
 			await screen.unmount()
 		}
@@ -224,7 +204,7 @@ describe('the composer footer under width pressure', () => {
 		const screen = await renderToScreen(belowMessageFrame(planNoEffort), { cols: 24, rows: ROWS })
 		try {
 			const row = footerRow(screen)
-			expect(row.trimEnd()).toBe('‖ Plan (read-only)')
+			expect(row.trimEnd()).toBe('‖ plan mode on')
 		} finally {
 			await screen.unmount()
 		}
@@ -253,7 +233,7 @@ describe('the footer sits directly under the frame, not at a fixed screen row', 
 		// footer must still be found immediately under the frame's border.
 		const screen = await renderToScreen(belowMessageFrame(autoMode), { cols: 80, rows: 40 })
 		try {
-			expect(footerRow(screen)).toContain('⏵⏵ Auto-approve tools')
+			expect(footerRow(screen)).toContain('⏵⏵ bypass permissions on')
 		} finally {
 			await screen.unmount()
 		}

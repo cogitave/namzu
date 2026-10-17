@@ -308,3 +308,7 @@ delete process.env.NAMZU_DEBUG
 		removeTempDir(ownedUserHome)
 	})
 }
+
+// The footer's pull request item shells out to `git` and `gh`. No suite may do
+// that by accident; the ones about it inject their own runner.
+process.env.NAMZU_PR_STATUS = 'off'

@@ -138,10 +138,10 @@ describe.skipIf(!binding || process.platform === 'win32')(
 				(text) =>
 					text.includes('MESSAGE') &&
 					text.includes('gpt-5') &&
-					text.includes('Plan (read-only)') &&
+					text.includes('plan mode on') &&
 					text.includes('effort high'),
 			)
-			expect(screen).toContain('Plan (read-only)')
+			expect(screen).toContain('plan mode on')
 			expect(screen).toContain('effort high')
 			expect(() => readFileSync(join(home, 'preferences.json'))).toThrow(/ENOENT/)
 		}, 60_000)

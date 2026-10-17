@@ -571,7 +571,7 @@ describe('/permissions after approve-all', () => {
 		// so this test used to pass BECAUSE the draft was being destroyed.
 		await tick(120)
 		expect(lastFrame(), 'the composer must show effective automatic approval').toContain(
-			'⏵⏵ Auto-approve tools',
+			'⏵⏵ bypass permissions on',
 		)
 		stdin.write('\x1B')
 		await tick(60)
@@ -589,7 +589,7 @@ describe('/permissions after approve-all', () => {
 		await tick(120)
 		expect(lastFrame()).toContain('Permissions: Ask before changes for this conversation.')
 		expect(lastFrame()).toContain('Type a message')
-		expect(lastFrame()).not.toContain('⏵⏵ Auto-approve tools')
+		expect(lastFrame()).not.toContain('⏵⏵ bypass permissions on')
 		expect(permissionModes).toEqual(['prompt'])
 	})
 })
