@@ -8,6 +8,7 @@
 import { Box, Text, useAnimation, useIsScreenReaderEnabled, useStdout } from 'ink'
 import { useRef } from 'react'
 
+import { shellRunningRows, shellToneColor } from './shell-cell.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
 import { formatCompactCount, formatElapsed } from './units.js'
@@ -29,6 +30,10 @@ export interface ActiveTool {
 	readonly waitingOn?: string
 	/** A web search or fetch: its `progress` line is drawn as the call's `⎿` status. */
 	readonly web?: WebActivity
+	/** A shell call's command; set, the call is drawn as a command cell (`● Bash(…)` over `⎿ Running…`). */
+	readonly command?: string
+	/** The last few output lines the shell call has reported, oldest first. */
+	readonly tail?: readonly string[]
 }
 
 export interface LiveActivityProps {
@@ -220,6 +225,37 @@ export function LiveActivity({
 			{waitingRow}
 			{noticeRow}
 			{visibleTools.map((t, index) => {
+				if (t.command !== undefined) {
+					// A shell call reads like its settled row: a dim dot that blinks while
+					// it runs, and `⎿ Running… (12s)` until it prints something.
+					const blink = motion ? Math.floor(tick / 5) % 2 === 0 : true
+					const rows = shellRunningRows(t.tail ?? [], formatElapsed(now - t.startedAt))
+					return (
+						<Box key={t.id} flexDirection="column">
+							<Box flexDirection="row">
+								<Box width={2} flexShrink={0}>
+									<Text color={theme.text.muted}>{blink ? '●' : ' '}</Text>
+								</Box>
+								<Text color={theme.text.secondary} wrap="truncate-end">
+									{terminalDisplayText(t.label)}
+								</Text>
+							</Box>
+							<Box flexDirection="column" paddingLeft={2}>
+								{rows.map((row, i) => (
+									// biome-ignore lint/suspicious/noArrayIndexKey: these rows hold no state of their own.
+									<Box key={`r-${i}`} flexDirection="row">
+										<Box width={3} flexShrink={0}>
+											<Text color={theme.text.muted}>{i === 0 ? '⎿' : ' '}</Text>
+										</Box>
+										<Text color={shellToneColor(row.tone)} wrap="truncate-end">
+											{terminalDisplayText(row.text)}
+										</Text>
+									</Box>
+								))}
+							</Box>
+						</Box>
+					)
+				}
 				const percent = t.fraction === undefined ? '' : `${Math.round(t.fraction * 100)}% · `
 				return (
 					<Box key={t.id} flexDirection="column" paddingLeft={2}>

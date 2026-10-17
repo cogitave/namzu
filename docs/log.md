@@ -3,6 +3,7 @@
 ## 2026-10-18
 
 - **Update** [Background jobs in the CLI](cli/background-jobs.md): job ids are `b` plus eight random base36 characters instead of a per-registry `job_N` counter, so a resumed conversation can no longer name a dead job with an id a new job reuses; `job` and `wait_for_job` refuse only input that cannot be an id (empty, over 128 characters, whitespace or control characters) and leave every other id to the registry; `/jobs` is the `Background` panel with `Shell details`, without ids, and a finished job leaves a `● Background command "…" completed (exit code 0)` row. `.changeset/background-job-ids.md`, **minor** for `@namzu/sdk`, patch for `@namzu/cli`.
+- **Update** [Terminal design](cli/terminal-design.md): a shell call is a command cell like Claude Code's. The `✓ Bash(cmd) · 0.0s` header with a `▏` gutter and head/tail elision becomes `● Bash(cmd)` (a green or red dot, no per-command duration, the command's line breaks kept to 2 lines and 160 characters) over a `⎿` result of the first 3 lines and a dim `… +N lines (ctrl+o to expand)`; stderr shows in red after stdout and a failure leads with `Exit code N` instead of repeating the command; `(No output)`, `Running in the background (↓ to manage)` and, while running, `⎿  Running… (12s)` replace the bare or model-facing text (`shell-cell.ts`, `Transcript.tsx`, `LiveActivity.tsx`, `tidy-tool-output.ts`). `.changeset/tui-shell-command-cell.md`, **patch** for `@namzu/cli`.
 
 ## 2026-10-17
 

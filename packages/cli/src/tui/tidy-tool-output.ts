@@ -3,13 +3,19 @@ import { stripVTControlCharacters } from 'node:util'
 import type { ToolFacts, ToolTextWindow } from '@namzu/sdk'
 
 import { formatSize, homePath, plural } from './person-terms.js'
+import type { ShellOutput } from './shell-cell.js'
 
 export interface TidyOutput {
 	/** What the transcript shows under the step. The retained raw output is untouched. */
 	readonly output: string
 	/** A plain headline for a failed command, when its output carried the exit status. */
 	readonly failure?: string
+	/** The same output split into streams for the shell cell; see `shell-cell.ts`. */
+	readonly shell?: ShellOutput
 }
+
+/** The sentence under a command that was handed to a background job. */
+export const BACKGROUND_NOTE = 'Running in the background (↓ to manage)'
 
 /** Output that is not text: a NUL byte, or a large share of control characters. */
 export function looksBinary(text: string): boolean {
@@ -40,7 +46,8 @@ export function looksBinary(text: string): boolean {
  */
 export function tidyTerminalOutput(raw: string): TidyOutput {
 	if (looksBinary(raw)) {
-		return { output: 'The command printed binary data, which is not shown.' }
+		const output = 'The command printed binary data, which is not shown.'
+		return { output, shell: { stdout: [], stderr: [], failed: false, note: output } }
 	}
 	let failure: string | undefined
 	const kept: string[] = []
@@ -54,7 +61,20 @@ export function tidyTerminalOutput(raw: string): TidyOutput {
 		kept.push(line)
 	}
 	while (kept.length > 0 && kept[kept.length - 1]?.trim() === '') kept.pop()
-	return { output: kept.join('\n'), ...(failure ? { failure } : {}) }
+	const output = kept.join('\n')
+	const background = /^Started background job /.test(output)
+	const code = failure ? /\d+/.exec(failure)?.[0] : undefined
+	const shell: ShellOutput = {
+		stdout: background || output.length === 0 ? [] : kept,
+		stderr: [],
+		failed: failure !== undefined,
+		...(background ? { note: BACKGROUND_NOTE } : {}),
+		...(failure ? { note: code ? `Exit code ${code}` : failure } : {}),
+		...(failure && output.length > 0 && !background
+			? { status: code ? `Exit code ${code}` : failure }
+			: {}),
+	}
+	return { output, ...(failure ? { failure } : {}), shell }
 }
 
 type CommandFacts = Extract<ToolFacts, { kind: 'command' }>
@@ -114,26 +134,49 @@ export function tidyCommandOutput(facts: CommandFacts, raw: string): TidyOutput 
 			? `Ran ${label} · ${how}`
 			: `${how.charAt(0).toUpperCase()}${how.slice(1)}`
 		: undefined
-	const withFailure = (output: string): TidyOutput => ({ output, ...(failure ? { failure } : {}) })
+	// The cell says how it ended in a few words and never repeats the command.
+	const status = !how
+		? undefined
+		: facts.timedOut
+			? 'Timed out'
+			: facts.signal
+				? 'Stopped before it finished'
+				: `Exit code ${facts.exitCode}`
+	const cell = (
+		stdout: readonly string[],
+		stderr: readonly string[],
+		note?: string,
+	): ShellOutput => ({
+		stdout,
+		stderr,
+		failed: how !== undefined,
+		...(status && (stdout.length > 0 || stderr.length > 0) ? { status } : {}),
+		...(status ? { note: status } : note ? { note } : {}),
+	})
+	const withFailure = (output: string, shell: ShellOutput): TidyOutput => ({
+		output,
+		...(failure ? { failure } : {}),
+		shell,
+	})
 	if (facts.binary) {
-		return withFailure(
-			`The command printed binary data (${formatSize(facts.binary.bytes)}), which is not shown.`,
-		)
+		const sentence = `The command printed binary data (${formatSize(facts.binary.bytes)}), which is not shown.`
+		return withFailure(sentence, cell([], [], sentence))
 	}
-	const streams = [facts.stdout, facts.stderr].filter(
-		(w): w is ToolTextWindow => w !== undefined && w.totalBytes > 0,
-	)
-	if (streams.length > 0) {
-		return withFailure(
-			streams
-				.flatMap(windowLines)
-				.map((line) => stripVTControlCharacters(line))
-				.join('\n'),
-		)
+	const clean = (window: ToolTextWindow | undefined): string[] =>
+		window && window.totalBytes > 0
+			? windowLines(window).map((line) => stripVTControlCharacters(line))
+			: []
+	const stdout = clean(facts.stdout)
+	const stderr = clean(facts.stderr)
+	if (stdout.length > 0 || stderr.length > 0) {
+		return withFailure([...stdout, ...stderr].join('\n'), cell(stdout, stderr))
 	}
 	// Nothing was printed, or the call was handed to a background job: the
 	// kernel's own sentence is the answer. Only its bookkeeping is removed.
-	return withFailure(tidyTerminalOutput(raw).output)
+	return withFailure(
+		tidyTerminalOutput(raw).output,
+		cell([], [], facts.background ? BACKGROUND_NOTE : undefined),
+	)
 }
 
 /**

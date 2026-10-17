@@ -97,6 +97,7 @@ describe('toAgentEvent', () => {
 			toolUseId,
 			toolName: 'bash',
 			summary: 'ls -la /tmp',
+			command: 'ls -la /tmp',
 		})
 	})
 
@@ -171,6 +172,7 @@ describe('toAgentEvent', () => {
 			summary: 'multi',
 			durationMs: 3_041,
 			detail: ['  line'],
+			shell: { stdout: ['multi', '  line  '], stderr: [], failed: false },
 		})
 	})
 
