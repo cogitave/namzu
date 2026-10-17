@@ -56,17 +56,31 @@ frame. Pending input and transient notices stay inside the message frame,
 above the input.
 
 While a turn runs, Enter steers a submitted message to that turn's next model
-boundary; Tab holds it for the next turn. A bounded preview above the composer
-shows the first pending steer and queued message, plus attachment counts and
-overflow counts. On terminals below 24 rows, it uses at most three lines: the
-steer, the queue, and an Alt+Up hint with the most recent operator-composed
-message that can be recalled. Taller terminals show separate delivery headings
-and two messages per group. Control characters in a submitted message are
-escaped before display. Alt+Up restores a queued message into an empty draft
-without losing attachments or armed triggers. A held queue is labeled as such;
-after Esc, a new Enter message runs before that queue. The preview's rows are
-counted in the transcript's live-window budget so it does not overdraw a short
-terminal.
+boundary; Tab holds it for the next turn. Messages typed while Namzu is working
+are rows at the end of the transcript, directly above the input frame and below
+the working line, not inside the frame: each is `❯ <text>` in the grey of a
+message not yet read, one row per message in the order it will be used. A
+Tab-queued row ends with a dim `· after this reply`, so it reads apart from a
+steer. Under the last row a dim `ctrl+x ctrl+s to send now` appears while a
+reply runs. Rows are bounded by the terminal height (five, three or one; the
+rest fold into a dim `+N more messages` row) and counted in the transcript's
+live-window budget so they do not overdraw a short terminal. Control
+characters in a submitted message are escaped before display. When a steer is
+delivered it becomes an ordinary user row carrying a dim `· sent while
+working`.
+
+With nothing typed, Up chooses the newest queued message the operator wrote
+(automatic goal and peer items cannot be edited); the chosen row takes the
+accent colour and the others lose their pointer. Up and Down move, Enter loads
+the chosen message into the input with its attachments and armed triggers,
+and Esc only leaves the choice. Typing anything else leaves it too. While
+messages can be edited the input's placeholder reads `Press up to edit queued
+messages`. Alt+Up still restores the newest one at once. A held queue says why
+under its rows: after a failed reply `Paused after the failed reply · send a
+message to run them`; after Esc, a new Enter message runs before the queue.
+`ctrl+x ctrl+s` is a two-key chord (any key in between drops it) that does what
+Esc does with a pending steer, interrupting the reply so the steer starts the
+next one, and also releases a queue that Esc had held.
 
 When a background shell is running, a separate single-line status appears
 below the composer footer with its count and `/jobs` entry point. It yields
