@@ -134,6 +134,26 @@ describe('the Worked block draws no clocks of its own', () => {
 		expect(html).toContain('turn-clock')
 		expect(html.lastIndexOf('class="message-time"')).toBeGreaterThan(html.indexOf('turn-clock'))
 	})
+	it('leaves the clock to the stop row when the reply stopped and that row is drawn below', () => {
+		const stopped = finish(worked())
+		const html = renderToStaticMarkup(
+			createElement(Transcript, { thread: stopped, stopShownBelow: true }),
+		)
+		// Only the person's own message keeps a clock; no empty time row opens a gap above the stop.
+		expect(clocks(html)).toBe(1)
+		expect(html).not.toContain('turn-clock')
+		expect(html).toContain('data-activity-turn')
+	})
+	it('keeps the clock of an earlier turn that ended without answer text', () => {
+		let thread = applyEvent(
+			applyEvent(finish(worked()), { kind: 'prompt', sessionId: 's', prompt: 'Again', at: 10000 }),
+			{ kind: 'state', sessionId: 's', running: true, queued: [] },
+		)
+		thread = finish(answer(thread, 'Done now.', 12000), 13000)
+		const html = renderToStaticMarkup(createElement(Transcript, { thread, stopShownBelow: true }))
+		// The first turn's clock stays; the stop row only ever speaks for the latest reply.
+		expect(html).toContain('turn-clock')
+	})
 	it('shows no clock and an open block while the work is going', () => {
 		const html = render(worked())
 		expect(clocks(html)).toBe(1)

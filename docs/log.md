@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-10-17
+
+- **Update** [Desktop](cli/desktop.md#what-a-failed-reply-says): a reply that stopped puts its sentence directly under its work. The row under the transcript carries the reply's clock: the time the work ended, where it used to show the person's message time. Before, the turn also drew its own clock row, hidden until hover, which left an empty line and a second time between the work and the stop. Covered by `e2e/ux-failed-reply-row.test.mjs` (`.changeset/desktop-failed-turn-clock.md`, patch).
+
 ## 2026-10-16
 
 - **Creation** [Decision models](sdk/decision.md): new `@namzu/decision` leaf package — a provider-agnostic System-1 decision interface (yes/no, choice, score) with an Azure AI Foundry Microsoft-Decision-1 driver. `.changeset/decision-package.md`, **minor** for `@namzu/decision`.
