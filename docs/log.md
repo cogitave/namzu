@@ -1,6 +1,16 @@
 # Documentation update log
 
+## 2026-10-17
+
+- **Update** [Auto model routing](cli/auto-model-routing.md): under Auto, web search goes through the common `web_search` tool instead of the session provider's hosted search, as a fallback chain does, and a turn routed to a provider that cannot run hosted search no longer carries it. Before, a session that started on a provider with hosted search (Anthropic) sent it on every turn Auto routed elsewhere, and that provider (Zen) refused the whole request. Unreleased, so no changeset of its own: `.changeset/auto-model-routing.md` covers it.
+
+- **Update** [Auto model routing](cli/auto-model-routing.md): the default `routing.timeoutMs` is 1500 ms (was 400, measured too tight for a hosted decision deployment on a cold connection); a decision call that fails on its own is asked once more; a fallback logs the error class; only a conversation that has called the computer-use tool keeps the `fast` tier out (the tool being mounted no longer does); and the terminal status line shows the tier and model each turn went to. Unreleased, so no changeset of its own: `.changeset/auto-model-routing.md` and `.changeset/auto-model-choice.md` cover it.
+
 ## 2026-10-16
+
+- **Update** [Auto model routing](cli/auto-model-routing.md): Auto is now a visible choice. A `routing` block makes it available and `model: auto` the default; the terminal `/model` picker and `/model auto`, and the Desktop composer model picker, turn it on per conversation, and picking a model by hand turns it off. Desktop sessions now route when Auto is on, and the ACP runtime reports `auto` in the provider status and accepts `namzu/providers/select_auto`. `.changeset/auto-model-choice.md`, **minor** for `@namzu/cli`.
+
+- **Creation** [Auto model routing](cli/auto-model-routing.md): new `model: auto` and `routing` config keys (user and managed layers only). The CLI sizes each turn with the configured decision model and runs it on a fast, default or big model, always failing open to `routing.default`. `.changeset/auto-model-routing.md`, **minor** for `@namzu/cli`.
 
 - **Update** [Decision models](sdk/decision.md): `@namzu/decision` gains an HTTP driver, a `createDecisionModel` provider factory and the fail-open `decide` tool; the CLI mounts it on the host and Pal agents when a `decision` provider (`azure` or `http`) is configured. `.changeset/decision-integration.md`, **minor** for `@namzu/cli` and `@namzu/decision`.
 

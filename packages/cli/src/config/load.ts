@@ -55,6 +55,8 @@ import type {
 	PluginConfig,
 	ProfileConfig,
 	ProfilesConfig,
+	RoutingConfig,
+	RoutingTarget,
 	SessionExportRedactorName,
 	TerminalNotificationEvent,
 	TurnLimitsConfig,
@@ -221,11 +223,13 @@ function resolveConfigWithProvenance(
 	// provider, exfiltrate the operator's Entra token to that endpoint. So it is
 	// dropped from the project layer before validation — accepted only from the
 	// user and managed layers, where where-to-send and which-credential-to-spend
-	// is the operator's call, not the workspace's. (A project profile still
+	// is the operator's call, not the workspace's. `model: auto` and `routing`
+	// get the same treatment: they choose which provider and model receive the
+	// conversation, and a repo must not redirect that. (A project profile still
 	// carries it only when the operator selects that profile by name, an explicit
 	// choice, not a drive-by.)
 	const projectCfg = mode.includeProject
-		? readJsonIfExists(projectPath, PROJECT_FILE_LABEL, ['decision'])
+		? readJsonIfExists(projectPath, PROJECT_FILE_LABEL, ['decision', 'model', 'routing'])
 		: {}
 	const managedCfg = readJsonIfExists(managedPath, shortHomePath(managedPath))
 	const { config: envCfg, variables: envVariables } = readEnv(env)
@@ -244,7 +248,7 @@ function resolveConfigWithProvenance(
 		mode.deferUnknownProfile,
 	)
 
-	return mergeConfigs(
+	const merged = mergeConfigs(
 		constantLayer(DEFAULT_CONFIG, { kind: 'default' }),
 		constantLayer(userCfg, { kind: 'user-file', path: userPath }),
 		constantLayer(projectCfg, { kind: 'project-file', path: projectPath }),
@@ -271,6 +275,27 @@ function resolveConfigWithProvenance(
 		// Last, so it beats the project file and the environment both. That
 		// ordering is the whole of what a managed layer is.
 		constantLayer(managedCfg, { kind: 'managed', path: managedPath }),
+	)
+	assertAutoModelHasDefault(merged.config, merged.provenance)
+	return merged
+}
+
+/**
+ * `model: auto` falls back to `routing.default` whenever it cannot decide, so
+ * a config that asks for auto without one is refused here, at load, rather
+ * than surfacing as a surprise on the first turn.
+ */
+function assertAutoModelHasDefault(config: NamzuCliConfig, provenance: ConfigProvenance): void {
+	if (config.model !== 'auto' || config.routing !== undefined) return
+	const source = provenance.model
+	const valueSource: ConfigValueSource =
+		source?.kind === 'env'
+			? { kind: 'environment', variable: source.variable }
+			: { kind: 'file', path: source && 'path' in source ? source.path : '(config)' }
+	throw new ConfigValueError(
+		valueSource,
+		'model',
+		'is "auto", which needs routing.default: the model auto falls back to',
 	)
 }
 
@@ -1295,6 +1320,15 @@ const CONFIG_READERS: ConfigReaders = {
 		}
 		return invalidConfigValue(context, ['provider'], 'must be "azure" or "http"')
 	},
+	model: (v, context) => {
+		if (v === 'auto') return 'auto' as const
+		return invalidConfigValue(
+			context,
+			[],
+			'must be "auto" (pin a specific model with --model or /model instead)',
+		)
+	},
+	routing: (v, context) => readRoutingConfig(v, context),
 	schedule: (v, context) => {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
 		for (const key of Object.keys(v)) {
@@ -1493,6 +1527,9 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	schedule: undefined,
 	// Names an endpoint conversation context is sent to; a file declares it, never a shell profile.
 	decision: undefined,
+	// Chooses which provider and model receive the conversation; a file declares it.
+	model: undefined,
+	routing: undefined,
 	// A list of names and a switch that decide what reaches the model's prompt;
 	// declared in a file, where a project's runs are reviewed.
 	skills: undefined,
@@ -1687,6 +1724,123 @@ function mergeConfigs(...layers: readonly ConfigLayer[]): {
 		}
 	}
 	return { config: out, provenance }
+}
+
+// ---------------------------------------------------------------------------
+// routing
+// ---------------------------------------------------------------------------
+
+const ROUTING_KEYS: readonly string[] = ['default', 'tiers', 'strategy', 'thresholds', 'timeoutMs']
+
+function readRoutingConfig(v: unknown, context: ConfigReaderContext): RoutingConfig {
+	if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
+	const raw = v as Record<string, unknown>
+	for (const key of Object.keys(raw)) {
+		if (!ROUTING_KEYS.includes(key)) {
+			return invalidConfigValue(
+				context,
+				[key],
+				`is not a routing setting (${ROUTING_KEYS.join(', ')})`,
+			)
+		}
+	}
+	const target = (value: unknown, path: readonly SettingPathSegment[]): RoutingTarget => {
+		if (!isConfigMapping(value)) {
+			return invalidConfigValue(context, path, 'must be a mapping with provider and model')
+		}
+		const entry = value as Record<string, unknown>
+		for (const key of Object.keys(entry)) {
+			if (key !== 'provider' && key !== 'model') {
+				return invalidConfigValue(
+					context,
+					[...path, key],
+					'is not a routing target setting (provider, model)',
+				)
+			}
+		}
+		for (const key of ['provider', 'model'] as const) {
+			const field = entry[key]
+			if (typeof field !== 'string' || field.trim() === '') {
+				return invalidConfigValue(context, [...path, key], 'must be a non-empty string')
+			}
+		}
+		return { provider: (entry.provider as string).trim(), model: (entry.model as string).trim() }
+	}
+	if (raw.default === undefined) {
+		return invalidConfigValue(context, ['default'], 'is required: the model auto falls back to')
+	}
+	const defaultTarget = target(raw.default, ['default'])
+
+	let tiers: RoutingConfig['tiers']
+	if (raw.tiers !== undefined) {
+		if (!isConfigMapping(raw.tiers))
+			return invalidConfigValue(context, ['tiers'], 'must be a mapping')
+		const tierRaw = raw.tiers as Record<string, unknown>
+		for (const key of Object.keys(tierRaw)) {
+			if (key !== 'fast' && key !== 'big') {
+				return invalidConfigValue(
+					context,
+					['tiers', key],
+					'is not a routing tier (fast, big); the default tier is routing.default',
+				)
+			}
+		}
+		tiers = {
+			...(tierRaw.fast !== undefined ? { fast: target(tierRaw.fast, ['tiers', 'fast']) } : {}),
+			...(tierRaw.big !== undefined ? { big: target(tierRaw.big, ['tiers', 'big']) } : {}),
+		}
+	}
+
+	if (raw.strategy !== undefined && raw.strategy !== 'yesno' && raw.strategy !== 'score') {
+		return invalidConfigValue(context, ['strategy'], 'must be "yesno" or "score"')
+	}
+
+	let thresholds: RoutingConfig['thresholds']
+	if (raw.thresholds !== undefined) {
+		if (!isConfigMapping(raw.thresholds)) {
+			return invalidConfigValue(context, ['thresholds'], 'must be a mapping')
+		}
+		const thresholdRaw = raw.thresholds as Record<string, unknown>
+		for (const key of Object.keys(thresholdRaw)) {
+			if (key !== 'fast' && key !== 'big') {
+				return invalidConfigValue(
+					context,
+					['thresholds', key],
+					'is not a routing threshold (fast, big)',
+				)
+			}
+			const value = thresholdRaw[key]
+			if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0 || value > 1) {
+				return invalidConfigValue(
+					context,
+					['thresholds', key],
+					'must be a number above 0 and at most 1',
+				)
+			}
+		}
+		thresholds = {
+			...(thresholdRaw.fast !== undefined ? { fast: thresholdRaw.fast as number } : {}),
+			...(thresholdRaw.big !== undefined ? { big: thresholdRaw.big as number } : {}),
+		}
+	}
+
+	if (
+		raw.timeoutMs !== undefined &&
+		(typeof raw.timeoutMs !== 'number' ||
+			!Number.isSafeInteger(raw.timeoutMs) ||
+			raw.timeoutMs < 1 ||
+			raw.timeoutMs > 10_000)
+	) {
+		return invalidConfigValue(context, ['timeoutMs'], 'must be a whole number from 1 to 10000')
+	}
+
+	return {
+		default: defaultTarget,
+		...(tiers ? { tiers } : {}),
+		...(raw.strategy !== undefined ? { strategy: raw.strategy as 'yesno' | 'score' } : {}),
+		...(thresholds ? { thresholds } : {}),
+		...(raw.timeoutMs !== undefined ? { timeoutMs: raw.timeoutMs as number } : {}),
+	}
 }
 
 // ---------------------------------------------------------------------------

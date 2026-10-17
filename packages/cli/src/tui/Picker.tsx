@@ -40,11 +40,14 @@ import {
 } from './credential-entry.js'
 import { fitHints } from './key-hints.js'
 import {
+	AUTO_CHOICE_ID,
 	type ModelStep,
 	hasBothGroups,
+	isAutoChoice,
 	modelStep,
 	rowSection,
 	sectionHeading,
+	withAutoChoice,
 } from './model-choices.js'
 import { filterModelChoices } from './model-search.js'
 import {
@@ -88,6 +91,14 @@ export interface PickerProps {
 	readonly initialView?: 'providers' | 'subscriptions' | 'models'
 	/** The model in force, so re-opening starts on it rather than the default. */
 	readonly currentModel?: string | null
+	/**
+	 * Present when Auto is an available choice (the config has a `routing`
+	 * block). `active` is whether Auto is what runs now: the model step then
+	 * opens on the Auto row and marks it current instead of the model.
+	 */
+	readonly auto?: { readonly active: boolean }
+	/** Choose Auto. Absent with `auto` absent; never saved as a provider pick. */
+	readonly onAuto?: (signal: AbortSignal) => void
 	readonly onSubmit: (selection: { provider: string; model?: string }, signal: AbortSignal) => void
 	readonly onCancel: () => void
 	readonly onSetup?: () => void
@@ -390,6 +401,8 @@ export function Picker({
 	currentProvider,
 	selectionKind = 'provider-and-model',
 	currentModel,
+	auto,
+	onAuto,
 	initialView = 'providers',
 	onSubmit,
 	onCancel,
@@ -548,6 +561,7 @@ export function Picker({
 					keyEntryReachable:
 						keyEntryOffered && returnToProviders && current.entry.acceptsTypedCredential === true,
 				})
+				const withAuto = auto && onAuto ? withAutoChoice(step, auto.active) : step
 				const experimentalNotice =
 					current.entry.id === 'zen' && !hasApiCredential(current.entry, current.apiKey)
 						? 'Zen’s free models are experimental, and Zen may refuse them. If it does, add a Zen API key.'
@@ -555,11 +569,14 @@ export function Picker({
 				setModelPhase({
 					provider: current,
 					step: experimentalNotice
-						? { ...step, notice: [experimentalNotice, step.notice].filter(Boolean).join(' ') }
-						: step,
+						? {
+								...withAuto,
+								notice: [experimentalNotice, withAuto.notice].filter(Boolean).join(' '),
+							}
+						: withAuto,
 					returnToProviders,
 				})
-				setCursor(step.initialIndex)
+				setCursor(withAuto.initialIndex)
 			}
 			void describeModels(current.entry.id, current, operation.controller.signal)
 				.then(showListing)
@@ -572,10 +589,12 @@ export function Picker({
 				)
 		},
 		[
+			auto,
 			beginOperation,
 			currentModel,
 			currentProvider,
 			describeModels,
+			onAuto,
 			finishOperation,
 			keyEntryOffered,
 			ownsOperation,
@@ -1031,6 +1050,10 @@ export function Picker({
 					return
 				}
 				const operation = beginOperation()
+				if (isAutoChoice(chosen)) {
+					onAuto?.(operation.controller.signal)
+					return
+				}
 				onSubmit(
 					{ provider: modelPhase.provider.entry.id, model: chosen.id },
 					operation.controller.signal,
@@ -1245,9 +1268,11 @@ export function Picker({
 					step={modelPhase.step}
 					query={modelQuery}
 					currentModel={
-						currentProvider == null || currentProvider === modelPhase.provider.entry.id
-							? currentModel
-							: undefined
+						auto?.active
+							? AUTO_CHOICE_ID
+							: currentProvider == null || currentProvider === modelPhase.provider.entry.id
+								? currentModel
+								: undefined
 					}
 					cursor={cursor}
 					errorHint={errorHint}
