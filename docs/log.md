@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-10-17
+
+- **Update** [Desktop voice input](cli/desktop-listening.md): the listening download continues a dropped or refused file from the bytes it already has (`Range`), waits 1/2/4/8 s between attempts, and gives up after five attempts in a row that receive nothing; a host that ignores the range starts the file over. `.changeset/desktop-local-listening-engine.md`, **patch** for `@namzu/desktop`.
+
 ## 2026-10-16
 
 - **Update** [Desktop voice input](cli/desktop-listening.md): microphone capture (16 kHz mono through an `AudioWorklet` file), the composer microphone, the in-app agreement and a microphone-only Electron permission handler, the Settings "Voice input" card, and the main-process loop that turns speech into a normal message (800/1600 ms endpointing, stop words, held while a question is waiting, read-aloud of voice replies with 300 ms barge-in). `.changeset/desktop-voice-input.md`, **patch** for `@namzu/desktop`.

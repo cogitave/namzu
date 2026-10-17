@@ -169,14 +169,171 @@ it('says the connection failed in plain words when the host errors or drops', as
 	const dropped = (async () =>
 		new Response(streamOf(bodies['encoder.bin'] as Uint8Array, 100, 300))) as typeof fetch
 	const other = await directory()
-	await expect(installLocalListening({ directory: other, assets, fetch: dropped })).rejects.toThrow(
-		/Check the connection/,
-	)
+	await expect(
+		installLocalListening({ directory: other, assets, fetch: dropped, retryDelayMs: () => 0 }),
+	).rejects.toThrow(/Check the connection/)
 	expect(await readdir(join(other, 'models'))).toEqual([])
-	const missing = (async () => new Response(null, { status: 404 })) as typeof fetch
+	let asked = 0
+	const missing = (async () => {
+		asked++
+		return new Response(null, { status: 404 })
+	}) as typeof fetch
 	await expect(
 		installLocalListening({ directory: await directory(), assets, fetch: missing }),
 	).rejects.toThrow(/Check the connection/)
+	// A file that is not there is not retried.
+	expect(asked).toBe(1)
+})
+
+/** Serves `bytes=N-` as 206 with the rest; the first answer for `drop` breaks after `dropAt` bytes. */
+function resumingFetch(
+	drop: string,
+	dropAt: number,
+	honourRange = true,
+): typeof fetch & { ranges: (string | null)[] } {
+	const ranges: (string | null)[] = []
+	let dropped = false
+	const impl = async (input: RequestInfo | URL, init?: RequestInit) => {
+		const name = String(input).split('/').pop() as string
+		const body = bodies[name] as Uint8Array
+		const range = new Headers(init?.headers).get('range')
+		if (name === drop) ranges.push(range)
+		if (name === drop && !dropped) {
+			dropped = true
+			return new Response(streamOf(body, 100, dropAt))
+		}
+		const from = honourRange && range ? Number(/^bytes=(\d+)-$/.exec(range)?.[1]) : 0
+		if (!from) return new Response(streamOf(body))
+		return new Response(streamOf(body.slice(from)), {
+			status: 206,
+			headers: { 'content-range': `bytes ${from}-${body.byteLength - 1}/${body.byteLength}` },
+		})
+	}
+	return Object.assign(impl, { ranges }) as typeof fetch & { ranges: (string | null)[] }
+}
+
+it('resumes a dropped download where it stopped instead of starting over', async () => {
+	const root = await directory()
+	const fetcher = resumingFetch('encoder.bin', 600)
+	const waits: number[] = []
+	const progress: number[] = []
+	await installLocalListening({
+		directory: root,
+		assets,
+		fetch: fetcher,
+		retryDelayMs: (failure) => {
+			waits.push(failure)
+			return 0
+		},
+		onProgress: (p) => {
+			if (p.downloadedBytes !== undefined) progress.push(p.downloadedBytes)
+		},
+	})
+	expect(fetcher.ranges).toEqual([null, 'bytes=600-'])
+	expect(waits).toEqual([1])
+	// Nothing already received is counted twice.
+	expect([...progress].sort((a, b) => a - b)).toEqual(progress)
+	expect(await readFile(join(root, 'models', 'encoder.bin'))).toEqual(
+		Buffer.from(bodies['encoder.bin'] as Uint8Array),
+	)
+	expect((await readdir(join(root, 'models'))).some((name) => name.endsWith('.part'))).toBe(false)
+	expect(await readLocalListeningInstallation(root, assets)).toMatchObject({ v: 1 })
+})
+
+it('starts the file over when the host ignores the Range request', async () => {
+	const root = await directory()
+	const fetcher = resumingFetch('encoder.bin', 600, false)
+	await installLocalListening({ directory: root, assets, fetch: fetcher, retryDelayMs: () => 0 })
+	expect(fetcher.ranges).toEqual([null, 'bytes=600-'])
+	expect(await readFile(join(root, 'models', 'encoder.bin'))).toEqual(
+		Buffer.from(bodies['encoder.bin'] as Uint8Array),
+	)
+})
+
+it('starts the file over when a partial answer does not begin where it stopped', async () => {
+	const root = await directory()
+	const body = bodies['encoder.bin'] as Uint8Array
+	const ranges: (string | null)[] = []
+	let call = 0
+	const shifted = (async (input: RequestInfo | URL, init?: RequestInit) => {
+		const name = String(input).split('/').pop() as string
+		if (name !== 'encoder.bin') return new Response(streamOf(bodies[name] as Uint8Array))
+		ranges.push(new Headers(init?.headers).get('range'))
+		call++
+		if (call === 1) return new Response(streamOf(body, 100, 600))
+		if (call === 2)
+			return new Response(streamOf(body.slice(500)), {
+				status: 206,
+				headers: { 'content-range': 'bytes 500-999/1000' },
+			})
+		return new Response(streamOf(body))
+	}) as typeof fetch
+	await installLocalListening({ directory: root, assets, fetch: shifted, retryDelayMs: () => 0 })
+	expect(ranges).toEqual([null, 'bytes=600-', null])
+	expect(await readFile(join(root, 'models', 'encoder.bin'))).toEqual(Buffer.from(body))
+})
+
+it('waits out a busy host and gives up on one that never answers', async () => {
+	let busy = 1
+	const once = (async (input: RequestInfo | URL) => {
+		const name = String(input).split('/').pop() as string
+		if (name === 'decoder.bin' && busy-- > 0) return new Response(null, { status: 503 })
+		return new Response(streamOf(bodies[name] as Uint8Array))
+	}) as typeof fetch
+	const waits: number[] = []
+	await installLocalListening({
+		directory: await directory(),
+		assets,
+		fetch: once,
+		retryDelayMs: (failure) => {
+			waits.push(failure)
+			return 0
+		},
+	})
+	expect(waits).toEqual([1])
+
+	let asked = 0
+	const never = (async () => {
+		asked++
+		throw new TypeError('fetch failed')
+	}) as typeof fetch
+	const giveUp: number[] = []
+	const root = await directory()
+	await expect(
+		installLocalListening({
+			directory: root,
+			assets,
+			fetch: never,
+			retryDelayMs: (failure) => {
+				giveUp.push(failure)
+				return 0
+			},
+		}),
+	).rejects.toThrow(/Check the connection/)
+	expect(asked).toBe(5)
+	expect(giveUp).toEqual([1, 2, 3, 4])
+	expect(await readdir(join(root, 'models'))).toEqual([])
+})
+
+it('cancels while waiting to retry, at once and leaving nothing behind', async () => {
+	const root = await directory()
+	const controller = new AbortController()
+	const never = (async () => {
+		throw new TypeError('fetch failed')
+	}) as typeof fetch
+	// The pause is a minute; cancelling must end it without waiting for the timer.
+	const cancelled = installLocalListening({
+		directory: root,
+		assets,
+		fetch: never,
+		signal: controller.signal,
+		retryDelayMs: () => {
+			controller.abort()
+			return 60_000
+		},
+	})
+	await expect(cancelled).rejects.toBeInstanceOf(LocalListeningInstallCancelled)
+	expect(await readdir(join(root, 'models'))).toEqual([])
 })
 
 it('removes stale partial files and re-downloads only what is missing or damaged', async () => {

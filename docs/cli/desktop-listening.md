@@ -36,6 +36,17 @@ renamed into place. A partial, oversized or mismatched file is deleted and never
 interrupted install resumes at file granularity: finished files that still hash correctly are
 kept. Removing listening deletes only the files the installer wrote.
 
+Within one download, a dropped connection, a failed request or a busy host (408, 425, 429, 500,
+502, 503, 504) does not lose the bytes already received. The next attempt asks for the rest
+with `Range: bytes=<received>-` and keeps hashing where the last one stopped. A host that sends
+the whole file again, or a partial answer that does not start at the requested byte, starts that
+file over. Attempts wait 1, 2, 4 and 8 seconds; five attempts in a row that receive nothing end
+the download with "Listening couldn't be downloaded". An attempt that receives data resets that
+count. Cancel ends a wait at once. Any other answer, such as 404, fails without retrying. A
+Windows Sandbox trial is why this exists: there, Chromium's connection to the model host was
+reset a few megabytes into the 674 MB encoder, every time, and the download failed in three
+seconds.
+
 ## Where it is stored
 
 `<userData>/local-listening/models/` holds the four files, and `installation.json` beside it

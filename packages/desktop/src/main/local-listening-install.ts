@@ -34,6 +34,8 @@ export interface LocalListeningInstallOptions {
 	onProgress?: (progress: LocalListeningInstallProgress) => void
 	/** Test seam, never accepted from a renderer: the files to fetch. */
 	assets?: readonly ListeningAsset[]
+	/** Test seam, never accepted from a renderer: the pause before retry number `failure` (1-based). */
+	retryDelayMs?: (failure: number) => number
 }
 export interface LocalListeningModelPaths {
 	encoder: string
@@ -46,6 +48,27 @@ const DAMAGED = 'The downloaded listening files are damaged. Download them again
 const UNREACHABLE = 'Listening couldn’t be downloaded. Check the connection and try again.'
 const INCOMPLETE = 'The saved listening files are incomplete. Download them again.'
 const PART_SUFFIX = '.part'
+/** Attempts in a row that may fail without receiving a byte before the download gives up. */
+const RETRIES = 4
+/** Answers that mean "busy or briefly broken", not "this file is not here". */
+const RETRYABLE_STATUS = new Set([408, 425, 429, 500, 502, 503, 504])
+const retryDelayMs = (failure: number) => 1_000 * 2 ** (failure - 1)
+
+/** A dropped connection or a busy host: the next attempt continues from the bytes already kept. */
+class TransientDownloadFailure extends Error {}
+
+function pause(ms: number, signal?: AbortSignal): Promise<void> {
+	return new Promise((resolve) => {
+		if (signal?.aborted) return resolve()
+		const done = () => {
+			clearTimeout(timer)
+			signal?.removeEventListener('abort', done)
+			resolve()
+		}
+		const timer = setTimeout(done, ms)
+		signal?.addEventListener('abort', done, { once: true })
+	})
+}
 
 export class LocalListeningInstallCancelled extends Error {
 	constructor() {
@@ -148,6 +171,11 @@ async function removeStaleParts(models: string): Promise<void> {
 /**
  * Streams one file to a private temporary name, checks its size and digest, and only then
  * renames it into place. A partial or mismatched file is deleted and never used.
+ *
+ * A dropped connection or a busy host does not throw the bytes away: the next attempt asks for
+ * the rest with a Range request and keeps hashing where the last one stopped. A host that sends
+ * the whole file again instead is read from the start. RETRIES attempts in a row that receive
+ * nothing end the download.
  */
 async function downloadAsset(
 	asset: ListeningAsset,
@@ -158,31 +186,82 @@ async function downloadAsset(
 ): Promise<void> {
 	const part = `${target}.${randomUUID()}${PART_SUFFIX}`
 	const cancelled = () => options.signal?.aborted === true
-	let response: Response
-	try {
-		response = await (options.fetch ?? fetch)(asset.url, { signal: options.signal })
-	} catch {
-		if (cancelled()) throw new LocalListeningInstallCancelled()
-		throw new Error(UNREACHABLE)
-	}
-	if (!response.ok || !response.body) throw new Error(UNREACHABLE)
 	const file = await open(part, 'wx', 0o600)
-	const hash = createHash('sha256')
-	const reader = response.body.getReader()
+	let hash = createHash('sha256')
 	let bytes = 0
-	try {
-		for (;;) {
-			const { done, value } = await reader.read()
-			if (done) break
-			bytes += value.byteLength
-			if (bytes > asset.bytes) throw new Error(DAMAGED)
-			hash.update(value)
-			await file.writeFile(value)
-			options.onProgress?.({
-				step: 'downloading',
-				downloadedBytes: before + bytes,
-				totalBytes: total,
+	const restart = async () => {
+		await file.truncate(0)
+		hash = createHash('sha256')
+		bytes = 0
+	}
+	const receive = async () => {
+		let response: Response
+		try {
+			response = await (options.fetch ?? fetch)(asset.url, {
+				signal: options.signal,
+				...(bytes > 0 ? { headers: { Range: `bytes=${bytes}-` } } : {}),
 			})
+		} catch {
+			throw new TransientDownloadFailure()
+		}
+		if (response.status === 206) {
+			if (!response.headers.get('content-range')?.startsWith(`bytes ${bytes}-`)) {
+				await response.body?.cancel().catch(() => undefined)
+				await restart()
+				throw new TransientDownloadFailure()
+			}
+		} else if (response.ok) {
+			if (bytes > 0) await restart()
+		} else {
+			await response.body?.cancel().catch(() => undefined)
+			if (RETRYABLE_STATUS.has(response.status)) throw new TransientDownloadFailure()
+			if (response.status === 416) {
+				await restart()
+				throw new TransientDownloadFailure()
+			}
+			throw new Error(UNREACHABLE)
+		}
+		if (!response.body) throw new Error(UNREACHABLE)
+		const reader = response.body.getReader()
+		try {
+			for (;;) {
+				let chunk: ReadableStreamReadResult<Uint8Array>
+				try {
+					chunk = await reader.read()
+				} catch {
+					throw new TransientDownloadFailure()
+				}
+				if (chunk.done) break
+				const value = chunk.value
+				if (bytes + value.byteLength > asset.bytes) throw new Error(DAMAGED)
+				hash.update(value)
+				await file.write(value, 0, value.byteLength, bytes)
+				bytes += value.byteLength
+				options.onProgress?.({
+					step: 'downloading',
+					downloadedBytes: before + bytes,
+					totalBytes: total,
+				})
+			}
+		} finally {
+			await reader.cancel().catch(() => undefined)
+		}
+	}
+	try {
+		let failures = 0
+		for (;;) {
+			const start = bytes
+			try {
+				await receive()
+				break
+			} catch (error) {
+				if (cancelled()) throw new LocalListeningInstallCancelled()
+				if (!(error instanceof TransientDownloadFailure)) throw error
+				failures = bytes > start ? 1 : failures + 1
+				if (failures > RETRIES) throw new Error(UNREACHABLE)
+				await pause((options.retryDelayMs ?? retryDelayMs)(failures), options.signal)
+				if (cancelled()) throw new LocalListeningInstallCancelled()
+			}
 		}
 		if (bytes !== asset.bytes || hash.digest('hex') !== asset.sha256) throw new Error(DAMAGED)
 		await file.close()
@@ -193,8 +272,6 @@ async function downloadAsset(
 		if (cancelled()) throw new LocalListeningInstallCancelled()
 		if (error instanceof Error && error.message === DAMAGED) throw error
 		throw new Error(UNREACHABLE)
-	} finally {
-		await reader.cancel().catch(() => undefined)
 	}
 }
 
