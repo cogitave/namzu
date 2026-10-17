@@ -33,27 +33,58 @@ conversation lists and notices without rewriting stored sessions.
 
 ## The composer footer
 
-One dim line sits directly below the message frame, with no blank row between
-them. On the left: the active permission mode, colored by mode (`accept-edits`
-and `auto` in the user accent, `strict` in the warn color, `plan` read-only)
-with its `⏵⏵`/`‖` glyph and, when Shift+Tab actually cycles it here, the
-`(shift+tab to cycle)` reminder; a reasoning-effort override, when the operator
-has set one, beside it as `· effort <level>`; then the working directory. When
-the mode is the unremarkable default (`prompt`), the left side shows a quiet
-`shift+tab to cycle` in place of a badge, rather than a line that is present in
-every state and therefore read in none. On the right: an interaction hint or a
-durable goal when either is active, else the model identity — the same
-precedence the path used to defer to, now extended to the model. The footer is
-always exactly one row: on narrow screens the working directory shrinks and
-drops first (as it already did on the old status line — a path is recoverable,
-the mode is not), then the effort label, then the cycle-key reminder, then the
-model on the right is dropped entirely, and only as a last resort does the
-mode badge itself truncate. Where no composer is on screen (a picker, the trust prompt, a stopped start) the footer leaves out the cycle reminder, since Shift+Tab is the composer's key; the active mode and the folder stay. This single line replaces two things that used to be drawn
-separately: the permission-mode row that used to appear inside the message
-frame above the input, and the separate status line — model, effort, working
-directory left, goal or hint right — that used to sit one blank row below the
-frame. Pending input and transient notices stay inside the message frame,
-above the input.
+One line sits directly below the message frame, with no blank row between
+them. Its items are joined by a dim ` · `, left to right:
+
+- **The mode**, as `<mark> <words> on` in the mode's color, then a dim
+  `(shift+tab to cycle)` when Shift+Tab actually cycles it here. `auto`
+  reads `⏵⏵ bypass permissions on` in the error color, `accept-edits` reads
+  `⏵⏵ accept edits on` in the user accent, `plan` reads `‖ plan mode on` in
+  teal, `strict` reads `‖ preapproved only on` in the warn color. The default
+  mode (`prompt`) has no item: the row shows a quiet `shift+tab to cycle` only
+  when nothing else would be on it. While a turn runs, the cycle reminder gives
+  way to a dim `esc to interrupt` (omitted when the right side already carries a
+  hint that names Esc).
+- **Background shells**, a cyan pill `1 shell` / `N shells` with a dim
+  `/jobs to manage` after it. `/jobs` opens the shell list; the Down arrow is
+  not wired to it because the agent rail owns that key. It replaces the
+  separate `N shells running` line that used to sit under the footer, and it
+  hides with the composer surface (a permission or child view owning the
+  screen).
+- **The pull request** for the current branch, `PR #592`: a dim `PR` and the
+  number underlined, as an OSC 8 link to the pull request where the terminal
+  supports links (plain text elsewhere), colored by review state: approved
+  green, changes requested red, awaiting review yellow, merged purple, draft
+  dim. It is hidden on `main`, `master`, the repository's default branch, and
+  outside a git repository. A missing `gh` shows a dim `install gh for PR
+  status`; a signed-out `gh` shows `gh auth login for PR status`; any other
+  failure, and a branch with no pull request, show nothing.
+- **The reasoning effort**, when the operator has set one, as `effort <level>`.
+
+On the right: an interaction hint or a durable goal when either is active, else
+the model identity. The working directory is no longer on this row.
+
+The footer is always exactly one row. On narrow screens it drops, in order: the
+`/jobs to manage` hint, `esc to interrupt`, the cycle reminder, the effort
+label, the pull request item, the model on the right, the quiet reminder, and
+only then does the mode truncate; the shell pill goes after that. Where no
+composer is on screen (a picker, the trust prompt, a stopped start) the footer
+leaves out the cycle reminder, since Shift+Tab is the composer's key; the
+active mode stays. This single line replaces the permission-mode row that used
+to appear inside the message frame, the separate status line below it, and the
+shells line under that. Pending input and transient notices stay inside the
+message frame, above the input.
+
+The pull request item is read off the render path by `tui/pr-status.ts`: `git
+symbolic-ref` for the branch, then `gh pr view --json
+number,url,state,isDraft,reviewDecision` for it, each with a 5 second timeout and
+no prompt allowed. It first runs about half a second after the screen mounts,
+again each time a turn ends (an agent may have switched branches), and then on a
+slow ladder: 90 seconds while the operator is active, up to 30 minutes when
+idle, stretched further for an answer that keeps coming back the same and for
+repeated failures. It never runs while a turn is running, never in print or
+exec mode (they do not mount this screen), and not at all when
+`NAMZU_PR_STATUS=off` or the output is not a terminal.
 
 While a turn runs, Enter steers a submitted message to that turn's next model
 boundary; Tab holds it for the next turn. A bounded preview above the composer
@@ -68,10 +99,7 @@ after Esc, a new Enter message runs before that queue. The preview's rows are
 counted in the transcript's live-window budget so it does not overdraw a short
 terminal.
 
-When a background shell is running, a separate single-line status appears
-below the composer footer with its count and `/jobs` entry point. It yields
-while a permission or child view owns the screen, and a short label fits narrow
-terminals. The `/jobs` child view keeps the input draft mounted, lets the
+A running background shell shows as the footer's shell pill (above). The `/jobs` child view keeps the input draft mounted, lets the
 operator inspect bounded, escaped shell output, and stops a selected running
 job on `x`. A new question from a tool closes the shell view so the question
 is visible and answerable.

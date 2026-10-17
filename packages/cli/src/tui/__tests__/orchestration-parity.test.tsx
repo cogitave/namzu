@@ -567,7 +567,7 @@ describe('hypermode on the message box', () => {
 					<ComposerFrame focus mode="hypermode">
 						{null}
 					</ComposerFrame>
-					<StatusBar cwd="/x" provider={null} model={null} state="idle" />
+					<StatusBar provider={null} model={null} state="idle" />
 				</Box>,
 				{ cols, rows: 7 },
 			)

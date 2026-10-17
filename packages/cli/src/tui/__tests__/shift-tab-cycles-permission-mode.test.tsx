@@ -145,19 +145,19 @@ describe('Shift+Tab in the composer', () => {
 		await frameShows(harness.lastFrame, 'Type a message')
 		await tick(60)
 		expect(harness.lastFrame() ?? '', 'the default mode draws no line').not.toContain(
-			'⏵⏵ Auto-approve edits',
+			'⏵⏵ accept edits on',
 		)
 
 		harness.stdin.write(SHIFT_TAB)
-		await frameShows(harness.lastFrame, '⏵⏵ Auto-approve edits')
+		await frameShows(harness.lastFrame, '⏵⏵ accept edits on')
 		expect(harness.lastFrame() ?? '').toContain('shift+tab to cycle')
 
 		harness.stdin.write(SHIFT_TAB)
-		await frameShows(harness.lastFrame, '‖ Plan (read-only)')
+		await frameShows(harness.lastFrame, '‖ plan mode on')
 
 		harness.stdin.write(SHIFT_TAB)
-		await frameStopsShowing(harness.lastFrame, '‖ Plan (read-only)')
-		expect(harness.lastFrame() ?? '').not.toContain('⏵⏵ Auto-approve edits')
+		await frameStopsShowing(harness.lastFrame, '‖ plan mode on')
+		expect(harness.lastFrame() ?? '').not.toContain('⏵⏵ accept edits on')
 	})
 
 	it('writes nothing to the transcript, however many times it is pressed', async () => {
@@ -170,7 +170,7 @@ describe('Shift+Tab in the composer', () => {
 			harness.stdin.write(SHIFT_TAB)
 			await tick(40)
 		}
-		await frameShows(harness.lastFrame, '‖ Plan (read-only)')
+		await frameShows(harness.lastFrame, '‖ plan mode on')
 		const seen = harness.frames.slice(before).join('\n')
 		expect(seen).not.toContain('Permissions:')
 		expect(seen).not.toContain('for this conversation')
@@ -193,10 +193,10 @@ describe('Shift+Tab in the composer', () => {
 		expect(readMode?.(), 'the turn starts under the mode it was sent with').toBe('prompt')
 
 		harness.stdin.write(SHIFT_TAB)
-		await frameShows(harness.lastFrame, '⏵⏵ Auto-approve edits')
+		await frameShows(harness.lastFrame, '⏵⏵ accept edits on')
 		expect(readMode?.(), 'the next decision of this same turn sees the change').toBe('accept-edits')
 		harness.stdin.write(SHIFT_TAB)
-		await frameShows(harness.lastFrame, '‖ Plan (read-only)')
+		await frameShows(harness.lastFrame, '‖ plan mode on')
 		expect(readMode?.()).toBe('plan')
 		expect(recorded, 'each change is recorded for the running turn').toEqual([
 			'accept-edits',
@@ -208,7 +208,7 @@ describe('Shift+Tab in the composer', () => {
 		releaseTurn?.()
 		await tick(200)
 		expect(harness.lastFrame() ?? '', 'the mode outlives the turn it was changed in').toContain(
-			'‖ Plan (read-only)',
+			'‖ plan mode on',
 		)
 	})
 
@@ -221,7 +221,7 @@ describe('Shift+Tab in the composer', () => {
 		harness.stdin.write('half a thought')
 		await tick(20)
 		harness.stdin.write(SHIFT_TAB)
-		await frameShows(harness.lastFrame, '⏵⏵ Auto-approve edits')
+		await frameShows(harness.lastFrame, '⏵⏵ accept edits on')
 
 		expect(harness.lastFrame() ?? '', 'the draft is still in the composer').toContain(
 			'half a thought',

@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-10-18
+
+- **Update** [Terminal design](cli/terminal-design.md#the-composer-footer): the composer footer is one row of items joined by dim dots: the mode in its own words (`⏵⏵ bypass permissions on`, `⏵⏵ accept edits on`, `‖ plan mode on`), a cyan `N shells` pill with `/jobs to manage` (the separate shells line is gone), and the branch's pull request (`PR #592`, underlined, colored by review state, read in the background with `gh`). The working directory leaves this row. While a turn runs the cycle reminder becomes `esc to interrupt`. `.changeset/footer-mode-shells-pr.md`, **patch** for `@namzu/cli`.
+
 ## 2026-10-17
 
 - **Update** [Zen and Zen Go](sdk/zen.md) and [The model catalogue refresh](cli/model-catalogue.md): the derivation now reads the per-wire endpoint families upstream moved its pages to (`/inference/openai/…`, `anthropic/…`, `google/…`, and their `go` variants). A page row whose package and endpoint pair names a wire the driver does not implement is listed in `report.undecided` instead of stopping the whole run, so a new upstream wire becomes a per-row to-do rather than a catalogue-wide outage until the next release. The tamper guard is unchanged: a pair whose endpoint names a host other than the service's still rejects the run whole. The bundled snapshot is refreshed with the same rules: it adds `glm-5.3-flash-free` and the rest of the current pages, and drops thirteen ids upstream no longer documents or serves. The served-but-no-longer-routed ids (`zen/deepseek-v4-flash`, `go/kimi-k2.6`, `go/minimax-m2.7`, `go/grok-4.6`) are recorded in `models.review.json`, and the expired `go/deepseek-flash` omission is retired. `.changeset/zen-per-wire-endpoints.md`, **major** for `@namzu/zen`.

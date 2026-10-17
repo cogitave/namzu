@@ -279,12 +279,12 @@ async function submit(screen: Screen, text: string): Promise<void> {
 
 it('shows a lasting shell count, opens /jobs details, and stops only once across resize', async () => {
 	const screen = await mount(100, 28)
-	expect(screen.viewport().join('\n')).not.toContain('shell running · /jobs')
+	expect(screen.viewport().join('\n')).not.toContain('shell /jobs')
 
 	await submit(screen, 'launch server')
 	await turnSettled
 	await screen.waitForRender()
-	expect(screen.viewport().join('\n')).toContain('1 shell running · /jobs to manage')
+	expect(screen.viewport().join('\n')).toContain('1 shell /jobs to manage')
 	expect(screen.viewport().join('\n')).toContain('Type a message')
 
 	await submit(screen, '/jobs')
@@ -314,7 +314,7 @@ it('shows a lasting shell count, opens /jobs details, and stops only once across
 	expect(screen.viewport().join('\n')).toContain('stopped')
 	screen.press('q')
 	await screen.waitForRender()
-	expect(screen.viewport().join('\n')).not.toContain('1 shell running · /jobs to manage')
+	expect(screen.viewport().join('\n')).not.toContain('1 shell /jobs to manage')
 })
 
 it('clears the shell count and shows one exit row when the kernel delivered the notice', async () => {
@@ -322,12 +322,12 @@ it('clears the shell count and shows one exit row when the kernel delivered the 
 	jobs = [runningJob()]
 	outputs.set('job_1', outputFor('build output\n'))
 	const screen = await mount(100, 28)
-	expect(screen.viewport().join('\n')).toContain('1 shell running · /jobs to manage')
+	expect(screen.viewport().join('\n')).toContain('1 shell /jobs to manage')
 
 	await submit(screen, 'finish the job')
 	await turnSettled
 	await screen.waitForRender()
-	expect(screen.viewport().join('\n')).not.toContain('1 shell running · /jobs to manage')
+	expect(screen.viewport().join('\n')).not.toContain('1 shell /jobs to manage')
 	expect(
 		screen
 			.scrollback()
@@ -347,7 +347,7 @@ it('keeps a live CLI session shell visible after /new changes the conversation',
 	await submit(screen, '/new')
 	await screen.waitForRender()
 	expect(sessionCreations).toBe(1)
-	expect(screen.viewport().join('\n')).toContain('1 shell running · /jobs to manage')
+	expect(screen.viewport().join('\n')).toContain('1 shell /jobs to manage')
 	await submit(screen, '/jobs')
 	expect(screen.viewport().join('\n')).toContain('npm run dev')
 	screen.press('\r')
@@ -432,5 +432,5 @@ it('reports that a job exited while its stop request was in flight', async () =>
 	await screen.waitForRender()
 	expect(screen.viewport().join('\n')).toContain('job_1 had already exited (0)')
 	expect(screen.viewport().join('\n')).not.toContain('Stopped job_1.')
-	expect(screen.viewport().join('\n')).not.toContain('1 shell running · /jobs to manage')
+	expect(screen.viewport().join('\n')).not.toContain('1 shell /jobs to manage')
 })

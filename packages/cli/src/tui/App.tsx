@@ -384,6 +384,7 @@ import {
 import { splitCompleteBlocks, splitSafeCut } from './stream-blocks.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { terminalSupportsHyperlinks } from './terminal-hyperlinks.js'
+import { usePrStatus } from './use-pr-status.js'
 import { theme } from './theme.js'
 import {
 	PAUSED_TURN_LINES,
@@ -4627,7 +4628,13 @@ export function App({
 
 	const finalized = messages.filter((m) => !m.pending)
 	const runningShellCount = backgroundJobs.filter((job) => job.status === 'running').length
-	const shellFurniture = runningShellCount > 0 ? 1 : 0
+	// The footer's pull request item: looked up in the background, paused while
+	// a turn runs, and only on a real terminal.
+	const prStatus = usePrStatus({
+		cwd: ctx.cwd,
+		enabled: stdout.isTTY === true && phase !== 'trust',
+		turnActive: state === 'thinking' || state === 'tool' || state === 'awaiting-permission',
+	})
 	const pendingInputItems = pendingSteers.map((input) => ({
 		text: input.prompt.recallText ?? input.prompt.text,
 		attachmentCount: (input.prompt.attachments?.length ?? 0) + input.attachedFiles,
@@ -4682,17 +4689,13 @@ export function App({
 		messages,
 		rows: terminal.rows,
 		columns: terminal.columns,
-		furnitureRows: LIVE_FURNITURE_ROWS + fullToolFurniture + shellFurniture + pendingInputFurniture,
+		furnitureRows: LIVE_FURNITURE_ROWS + fullToolFurniture + pendingInputFurniture,
 		raw: rawOutput,
 	})
 	const liveTasks = checklistShown ? [] : tasks
 	const fullTaskFurniture = taskListRows(liveTasks)
 	const compactWork =
-		LIVE_FURNITURE_ROWS +
-			fullTaskFurniture +
-			fullToolFurniture +
-			shellFurniture +
-			pendingInputFurniture >=
+		LIVE_FURNITURE_ROWS + fullTaskFurniture + fullToolFurniture + pendingInputFurniture >=
 		terminal.rows
 	const taskFurniture = fullTaskFurniture
 	const toolFurniture = compactWork && fullToolFurniture > 0 ? 2 : fullToolFurniture
@@ -4717,8 +4720,7 @@ export function App({
 		messages: finalized,
 		rows: terminal.rows,
 		columns: terminal.columns,
-		furnitureRows:
-			LIVE_FURNITURE_ROWS + taskFurniture + toolFurniture + shellFurniture + pendingInputFurniture,
+		furnitureRows: LIVE_FURNITURE_ROWS + taskFurniture + toolFurniture + pendingInputFurniture,
 		settled: settledRef.current,
 		raw: rawOutput,
 	})
@@ -10766,11 +10768,7 @@ export function App({
 					rows: terminal.rows,
 					columns: terminal.columns,
 					furnitureRows:
-						LIVE_FURNITURE_ROWS +
-						taskFurniture +
-						toolFurniture +
-						shellFurniture +
-						pendingInputFurniture,
+						LIVE_FURNITURE_ROWS + taskFurniture + toolFurniture + pendingInputFurniture,
 					settled: settledRef.current,
 					raw: rawOutput,
 				})
@@ -11308,7 +11306,6 @@ export function App({
 				    does nothing before the folder is trusted. */}
 				{phase === 'trust' ? null : (
 					<StatusBar
-						cwd={ctx.cwd}
 						provider={session?.providerSummary ?? null}
 						model={session?.modelSummary ?? null}
 						effort={reasoningEffort}
@@ -11318,21 +11315,11 @@ export function App({
 						permissionMode={displayedPermissionMode}
 						canCycleMode
 						composerMounted={showComposerSurface}
+						shellCount={showComposerSurface && !childSurfaceOpen ? runningShellCount : 0}
+						pr={prStatus}
+						hyperlinks={hyperlinks}
 					/>
 				)}
-				{showComposerSurface &&
-				!childSurfaceOpen &&
-				permission === null &&
-				scheduleReviewPrompt === null &&
-				runningShellCount > 0 ? (
-					<Box>
-						<Text color={theme.text.secondary} wrap="truncate-end">
-							{terminal.columns < 38
-								? `${runningShellCount} shell${runningShellCount === 1 ? '' : 's'} · /jobs`
-								: `${runningShellCount} shell${runningShellCount === 1 ? '' : 's'} running · /jobs to manage`}
-						</Text>
-					</Box>
-				) : null}
 				{/* The parent's commentary, between the footer line and the rail:
 				    below the footer like every other panel, and above the rail's
 				    border so it reads as the turn talking rather than as chrome the
