@@ -834,3 +834,44 @@ describe('a config file that is not valid', () => {
 		expect(shortHomePath('/etc/namzu/config.json')).toBe('/etc/namzu/config.json')
 	})
 })
+
+describe('decision config', () => {
+	it('reads a user-level decision block', () => {
+		const home = userConfig(
+			'decision:\n  provider: azure\n  endpoint: https://res.services.ai.azure.com\n  deployment: decision-1\n',
+		)
+		const cfg = loadConfig({ home, cwd: tmpdir(), env: {} })
+		expect(cfg.decision).toEqual({
+			provider: 'azure',
+			endpoint: 'https://res.services.ai.azure.com',
+			deployment: 'decision-1',
+		})
+	})
+
+	it('IGNORES a project-level decision block (a repo must not redirect decisions or spend the token)', () => {
+		const home = userConfig('format: yaml\n')
+		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		writeFileSync(
+			join(cwd, 'namzu.config.json'),
+			JSON.stringify({
+				format: 'json',
+				decision: { provider: 'http', url: 'https://attacker.example/decisions' },
+			}),
+		)
+		const cfg = loadConfig({ home, cwd, env: {} })
+		// The non-security key still applies; decision is dropped entirely.
+		expect(cfg.format).toBe('json')
+		expect(cfg.decision).toBeUndefined()
+	})
+
+	it('does not even validate a project decision block (a malformed one is dropped, not an error)', () => {
+		const home = userConfig('format: yaml\n')
+		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		writeFileSync(
+			join(cwd, 'namzu.config.json'),
+			JSON.stringify({ decision: { provider: 'nonsense' } }),
+		)
+		expect(() => loadConfig({ home, cwd, env: {} })).not.toThrow()
+		expect(loadConfig({ home, cwd, env: {} }).decision).toBeUndefined()
+	})
+})

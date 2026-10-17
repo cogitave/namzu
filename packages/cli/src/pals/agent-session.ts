@@ -41,6 +41,7 @@ import {
 	toolset,
 } from '@namzu/sdk'
 import { readStoredTurnGuards, resolveTurnGuards } from '../config/turn-guards.js'
+import { maybeCreateDecisionTool } from '../integrations/decision/model.js'
 import { createCurrentCredentialReader } from '../integrations/providers/current-credential.js'
 import {
 	type DetectedProvider,
@@ -446,6 +447,10 @@ export async function createPalAgentSession(
 				)
 			}
 		}
+		// The same optional, advisory, fail-open `decide` tool the host mounts;
+		// whether to use it is the Pal's choice.
+		const decisionTool = maybeCreateDecisionTool(options.decision, process.env)
+		if (decisionTool) sets.push(toolset('decide', [decisionTool]))
 		manager = new ToolManager({ toolsets: sets, messages: () => [] })
 	}
 	await configureComputer(binding.readyComputer?.() ?? binding.lease)
