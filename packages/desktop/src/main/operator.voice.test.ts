@@ -21,7 +21,7 @@ afterEach(async () => {
 	}
 })
 
-function harness() {
+function harness(env: Record<string, string> = {}) {
 	const directory = mkdtempSync(join(tmpdir(), 'namzu-voice-'))
 	directories.push(directory)
 	const events = new EventEmitter()
@@ -35,6 +35,7 @@ function harness() {
 				FIXTURE_LIVE_INPUT: '1',
 				FIXTURE_LIVE_INPUT_DELIVERY_FILE: join(directory, 'delivery'),
 				FIXTURE_LIVE_INPUT_MODE_FILE: join(directory, 'mode'),
+				...env,
 			},
 		},
 		(event) => {
@@ -78,6 +79,40 @@ it('starts a new turn when idle, as the composer does, using the saved model cho
 		recorded.filter((event) => event.kind === 'prompt' && event.sessionId === session.id),
 	).toHaveLength(1)
 	expect(owner.voiceActivity(session.id).running).toBe(true)
+})
+
+it('keeps a conversation on Auto when it is spoken to, as a typed send does', async () => {
+	const { owner } = harness({ FIXTURE_AUTO: '1', FIXTURE_LIST_PROVIDER: 'Fixture' })
+	const project = await owner.openProject(process.cwd())
+	const session = await owner.newConversation(project.id)
+	// The person turned Auto on; the saved model is only what the picker showed before.
+	owner.saveDraftSettings(session.id, {
+		choice: { provider: 'namzu', model: 'fixture-model' },
+		autoRouting: true,
+	})
+	expect((await owner.providers(project.id, session.id)).auto).toEqual({ active: false })
+	const select = vi.spyOn(owner, 'selectProvider')
+	const auto = vi.spyOn(owner, 'selectAuto')
+	await owner.sendSpoken(session.id, 'Merhaba')
+	expect(auto).toHaveBeenCalledWith(session.id)
+	expect(select).not.toHaveBeenCalled()
+	expect((await owner.providers(project.id, session.id)).auto).toEqual({ active: true })
+})
+
+it('picks the saved model when the person chose a model by hand over Auto', async () => {
+	const { owner } = harness({ FIXTURE_AUTO: '1', FIXTURE_LIST_PROVIDER: 'Fixture' })
+	const project = await owner.openProject(process.cwd())
+	const session = await owner.newConversation(project.id)
+	owner.saveDraftSettings(session.id, {
+		choice: { provider: 'namzu', model: 'fixture-model' },
+		autoRouting: false,
+	})
+	await owner.providers(project.id, session.id)
+	const select = vi.spyOn(owner, 'selectProvider').mockResolvedValue(undefined)
+	const auto = vi.spyOn(owner, 'selectAuto')
+	await owner.sendSpoken(session.id, 'Merhaba')
+	expect(select).toHaveBeenCalledWith(session.id, 'namzu', 'fixture-model')
+	expect(auto).not.toHaveBeenCalled()
 })
 
 it('goes to current-turn input while a reply runs and never reselects the model', async () => {

@@ -151,9 +151,10 @@ Then, in order:
    the window says plainly that the question must be answered on screen. **Voice never answers a
    permission or decision prompt.**
 3. Otherwise it is sent as the composer sends typed text with nothing attached (`Operator.sendSpoken`):
-   the conversation's saved model choice and message settings, a new turn when idle, and
-   current-turn input (or the queue) while a reply runs. Permissions, Pals and model routing
-   apply unchanged. No field marks the message as spoken.
+   the conversation's saved model choice (or [Auto](auto-model-routing.md), when the conversation
+   runs on it) and message settings, a new turn when idle, and current-turn input (or the queue)
+   while a reply runs. Speaking never turns Auto off: only a model picked by hand does.
+   Permissions, Pals and model routing apply unchanged. No field marks the message as spoken.
 
 ## Speaking back
 
