@@ -102,8 +102,12 @@ function array(value: unknown, maximum: number): unknown[] {
 	return value
 }
 function settings(input: unknown): DraftSettings {
-	const value = record(input, ['choice', 'options'])
+	const value = record(input, ['choice', 'options', 'autoRouting'])
 	const result: DraftSettings = {}
+	if (value.autoRouting !== undefined) {
+		if (typeof value.autoRouting !== 'boolean') throw new Error('Invalid saved Auto choice.')
+		result.autoRouting = value.autoRouting
+	}
 	if (value.choice !== undefined) {
 		const choice = record(value.choice, ['provider', 'model', 'label', 'preset'])
 		result.choice = {

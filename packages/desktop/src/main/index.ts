@@ -608,6 +608,7 @@ function register(): void {
 		['disablePalSubscription', 0],
 		['selectHarness', 0],
 		['selectProvider', 0],
+		['selectAuto', 0],
 		['setPluginEnabled', 0],
 		['pickAttachments', 0],
 		['addAttachments', 0],
@@ -1259,6 +1260,14 @@ function register(): void {
 	handle('selectProvider', async (id: string, provider: string, model?: string) => {
 		try {
 			await operator.selectProvider(id, provider, model)
+		} catch (error) {
+			// A newer choice replaced this one; that choice is the one in force.
+			if (!(error instanceof SupersededConversationSettingsError)) throw error
+		}
+	})
+	handle('selectAuto', async (id: string) => {
+		try {
+			await operator.selectAuto(id)
 		} catch (error) {
 			// A newer choice replaced this one; that choice is the one in force.
 			if (!(error instanceof SupersededConversationSettingsError)) throw error

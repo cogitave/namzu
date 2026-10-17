@@ -57,6 +57,7 @@ async function fixture(engine: 'codex-cli' | 'claude-code' = 'codex-cli') {
 		models: vi.fn(async () => ({ models: [], notice: null })),
 		modelSettings: vi.fn(async () => ({})),
 		selectProvider: vi.fn(async () => {}),
+		selectAuto: vi.fn(async () => {}),
 		plugins: vi.fn(async () => ({
 			plugins: [],
 			canChange: false,
@@ -894,4 +895,14 @@ describe('engine start cost', () => {
 		await f.runtime.close()
 		expect(f.dependencies.close).toHaveBeenCalledOnce()
 	})
+})
+
+it('hands Auto to the Namzu runtime, but never to a conversation on an external engine', async () => {
+	const f = await fixture()
+	await f.runtime.selectAuto?.(f.sessionId)
+	expect(f.base.selectAuto).toHaveBeenCalledWith(f.sessionId)
+	await f.runtime.selectHarness(f.sessionId, 'codex-cli')
+	vi.mocked(f.base.selectAuto as NonNullable<typeof f.base.selectAuto>).mockClear()
+	await expect(f.runtime.selectAuto?.(f.sessionId)).rejects.toThrow('own engine')
+	expect(f.base.selectAuto).not.toHaveBeenCalled()
 })

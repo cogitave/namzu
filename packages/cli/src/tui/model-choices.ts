@@ -34,6 +34,36 @@ export interface ModelChoice {
 	readonly group?: ModelGroup
 }
 
+/**
+ * The id of the "Auto" row. Not a model id: it can never collide with one a
+ * provider lists, and the picker hands it to the Auto path instead of saving
+ * it as a provider/model pick.
+ */
+export const AUTO_CHOICE_ID = '\u0000namzu:auto'
+
+/** What the Auto row says about itself. */
+export const AUTO_CHOICE_NOTE = '(picks a model for each task)'
+
+/** Whether a row is the Auto row. */
+export function isAutoChoice(choice: { readonly id: string } | undefined): boolean {
+	return choice?.id === AUTO_CHOICE_ID
+}
+
+/**
+ * Put the Auto row first. Auto is a way of choosing, not a model of this
+ * provider, so it sits above the list and the provider's own default and
+ * current rows keep their place below it.
+ *
+ * When Auto is the active choice it is the row the picker opens on.
+ */
+export function withAutoChoice(step: ModelStep, active: boolean): ModelStep {
+	return {
+		...step,
+		choices: [{ id: AUTO_CHOICE_ID, label: 'Auto', note: AUTO_CHOICE_NOTE }, ...step.choices],
+		initialIndex: active ? 0 : step.initialIndex + 1,
+	}
+}
+
 export interface ModelStep {
 	readonly choices: readonly ModelChoice[]
 	/**

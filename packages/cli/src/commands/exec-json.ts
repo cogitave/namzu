@@ -347,6 +347,7 @@ export async function execJson(
 			: {}),
 		...(ctx.config.sandbox ? { sandbox: ctx.config.sandbox } : {}),
 		...(ctx.config.decision ? { decision: ctx.config.decision } : {}),
+		...(ctx.config.model === 'auto' && ctx.config.routing ? { routing: ctx.config.routing } : {}),
 		// `!== undefined`, not truthiness: an empty list is the operator
 		// turning the default screen OFF, and a falsy check would drop it.
 		...(ctx.config.toolResultScreens !== undefined

@@ -190,6 +190,7 @@ const OPERATIONS = new Set([
 	'plugins',
 	'setPluginEnabled',
 	'selectProvider',
+	'selectAuto',
 	'pickAttachments',
 	'addAttachments',
 	'attachments',

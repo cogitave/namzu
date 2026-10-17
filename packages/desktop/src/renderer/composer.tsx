@@ -81,6 +81,7 @@ export function Composer({
 	startFailed,
 	choice,
 	onChoiceChange,
+	auto,
 	choiceUnchosen,
 	running,
 	liveInputSupported = false,
@@ -167,7 +168,9 @@ export function Composer({
 	choice: ModelChoice
 	/** Nothing was ever chosen for this pane; the picker settles on the recommended model. */
 	choiceUnchosen?: boolean
-	onChoiceChange: (choice: ModelChoice) => void
+	onChoiceChange: (choice: ModelChoice, source?: 'person') => void
+	/** Auto (the model side decides per task) is offered for this conversation. */
+	auto?: { active: boolean; onSelect: () => void }
 	running: boolean
 	liveInputSupported?: boolean
 	liveInputs?: readonly {
@@ -269,6 +272,7 @@ export function Composer({
 			choice={choice}
 			unchosen={choiceUnchosen}
 			onChange={onChoiceChange}
+			auto={auto}
 			catalogueEnabled={
 				// An explicit `catalogueReady` already answers for the engine switch; `harnessBusy` here also
 				// counts tab restore and loading, which must not hold the read back.

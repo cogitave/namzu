@@ -49,6 +49,8 @@ import {
 	modelCatalogueDisplayCacheForApi,
 } from './model-catalogue-display-cache.js'
 import {
+	AUTO_LABEL,
+	AUTO_NOTE,
 	type ModelChoice,
 	SECTION_HEADINGS,
 	chipUnavailableReason,
@@ -95,6 +97,8 @@ export type EngineControl = {
 /** A list longer than this gets a search icon; a shorter one is read at a glance. */
 const SEARCH_FROM = 7
 const LOAD_FAILED = 'Couldn’t load the model list. Check your connection, then try again.'
+/** The Auto row's radio value; a model's is a two-item array, so the two never collide. */
+const AUTO_KEY = JSON.stringify(['auto'])
 
 function ProviderMark({ provider }: { provider: Provider }) {
 	const Icon =
@@ -117,6 +121,7 @@ export function ModelPicker({
 	choice,
 	disabled,
 	onChange,
+	auto,
 	projectId,
 	sessionId,
 	loadCatalogue,
@@ -136,7 +141,13 @@ export function ModelPicker({
 	providers: ProviderView
 	choice: ModelChoice
 	disabled: boolean
-	onChange: (choice: ModelChoice) => void
+	/** `source: 'person'` marks a model picked by hand, as opposed to the picker settling or refreshing a label. */
+	onChange: (choice: ModelChoice, source?: 'person') => void
+	/**
+	 * Present when Auto is offered. It sits first in the list; choosing a model by hand turns it
+	 * off, choosing it turns it on. `active` makes the trigger read "Auto".
+	 */
+	auto?: { active: boolean; onSelect: () => void }
 	projectId: string
 	sessionId?: string
 	loadCatalogue?: (provider: string) => Promise<ModelCatalogueView>
@@ -219,7 +230,9 @@ export function ModelPicker({
 	const shown = useRef<{ scope: string; text: string }>(null)
 	if (trigger.text && trigger.named) shown.current = { scope: shownScope, text: trigger.text }
 	const kept = shown.current?.scope === shownScope ? shown.current.text : ''
-	const label = trigger.text || (trigger.pending ? kept : '')
+	// Auto is a name in itself: it never waits on the catalogue to be read.
+	const autoShown = auto?.active === true
+	const label = autoShown ? AUTO_LABEL : trigger.text || (trigger.pending ? kept : '')
 	const triggerPending = trigger.pending && !label
 	// The engine never answered: the trigger says so instead of a skeleton that never resolves.
 	const engineUnavailable = triggerPending && Boolean(startFailed) && startsAProcess(engine)
@@ -309,9 +322,16 @@ export function ModelPicker({
 						: triggerPending
 							? 'Model, loading'
 							: 'Select model'
+	const chooseAuto = () => {
+		if (disabled) return
+		auto?.onSelect()
+		setFromEffort(false)
+		setAwaiting(null)
+		setOpen(false)
+	}
 	const choose = (next: ModelChoice) => {
 		if (disabled) return
-		onChange(next)
+		onChange(next, 'person')
 		if (fromEffort) {
 			setFromEffort(false)
 			setAwaiting(next)
@@ -470,6 +490,7 @@ export function ModelPicker({
 										: undefined
 								}
 								onChoose={choose}
+								auto={auto && { active: auto.active, onSelect: chooseAuto }}
 								engine={engineOf('models')}
 							/>
 						)}
@@ -590,6 +611,7 @@ function ModelBrowser({
 	onBack,
 	settingsNotice,
 	engine,
+	auto,
 }: {
 	providers: ProviderView
 	choice: ModelChoice
@@ -602,6 +624,8 @@ function ModelBrowser({
 	/** Present when the list was opened from the effort panel. */
 	onBack?: () => void
 	settingsNotice?: string
+	/** The Auto row, first in the list, when Auto is offered. */
+	auto?: { active: boolean; onSelect: () => void }
 	/** The engine chip for the heading, when engines are offered. */
 	engine?: {
 		id: HarnessView['selected']
@@ -931,10 +955,39 @@ function ModelBrowser({
 			<div ref={results} className="model-picker-list">
 				<RadioGroup
 					aria-label={searching ? 'Search results' : `${active?.label ?? ''} models`}
-					value={selectedKey}
+					value={auto?.active ? AUTO_KEY : selectedKey}
 					// Arrow keys only move the highlight; a choice is made by click, Enter or Space.
 					onValueChange={() => {}}
 				>
+					{auto && foldedIncludes(`${AUTO_LABEL} ${AUTO_NOTE}`, query.trim()) && (
+						<Radio.Root
+							value={AUTO_KEY}
+							nativeButton
+							render={<button type="button" />}
+							className="model-picker-row"
+							aria-label={`${AUTO_LABEL}, ${AUTO_NOTE.toLowerCase()}`}
+							onClick={(event) => {
+								event.preventDefault()
+								auto.onSelect()
+							}}
+							onKeyDown={(event) => {
+								if (commitsOnKey(event.key)) {
+									event.preventDefault()
+									auto.onSelect()
+								}
+							}}
+						>
+							<span className="model-picker-name">
+								<span>{AUTO_LABEL}</span>
+								<small>{AUTO_NOTE}</small>
+							</span>
+							<span className="model-picker-selection" aria-hidden="true">
+								<Radio.Indicator className="model-picker-checked">
+									<CheckIcon aria-hidden="true" />
+								</Radio.Indicator>
+							</span>
+						</Radio.Root>
+					)}
 					{groups.map(({ provider, top, rest, sections }) => {
 						const display = showOlder ? [...top, ...rest] : top
 						const renderRow = (model: (typeof models)[number]) => {
