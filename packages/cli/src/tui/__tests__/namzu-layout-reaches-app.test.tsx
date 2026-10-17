@@ -219,8 +219,16 @@ function expectIdleLayout(screen: Screen): void {
 	const viewport = screen.viewport().join('\n')
 	const output = screen.scrollback().join('\n')
 	expect.soft(viewport.match(/fixture-model/g)).toHaveLength(1)
-	// The footer row no longer names the folder; nothing else on the idle screen does either.
-	expect.soft(viewport).not.toContain('/workspace/namzu')
+	// The folder is named once, under the version in the startup header; the footer row does not.
+	expect.soft(output.match(/\/workspace\/namzu/g)).toHaveLength(1)
+	expect
+		.soft(
+			screen
+				.viewport()
+				.filter((line) => line.trim())
+				.at(-1),
+		)
+		.not.toContain('/workspace/namzu')
 	expect.soft(output).not.toContain('Connected to')
 	expect.soft(output).not.toContain('fixture-provider')
 	expect.soft(output).not.toContain('Type a message to begin')

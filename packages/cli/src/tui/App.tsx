@@ -11405,7 +11405,11 @@ export function App({
 						staticIndent={1}
 						header={
 							transcriptOwned ? (
-								<BrandHeader version={ctx.version} permissionMode={displayedPermissionMode} />
+								<BrandHeader
+									version={ctx.version}
+									permissionMode={displayedPermissionMode}
+									cwd={ctx.cwd}
+								/>
 							) : undefined
 						}
 					/>
