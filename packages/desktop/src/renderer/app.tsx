@@ -243,6 +243,7 @@ import { openTerminalFind, terminalApi, terminalSessions } from './terminal-regi
 import { engineTerminalRequest, shellTerminalRequest } from './terminal-request.js'
 import type { ThreadRowActions } from './thread-card.js'
 import { PaneToasts } from './toast.js'
+import { turnEndTime } from './transcript-layout.js'
 import { Transcript } from './transcript.js'
 import { TurnRecovery, recoveryKey } from './turn-recovery.js'
 import { Button } from './ui/button.js'
@@ -4845,6 +4846,10 @@ export function App({
 			thread.retry.original.model !== selectedModelId)
 			? selectedModelId
 			: undefined
+	// The stop row below the transcript draws whenever it has a failure to say or a retry to offer, and
+	// carries the time the reply stopped; the reply's own turn then draws no second clock above it.
+	const stopShownBelow = replyFailures.length > 0 || Boolean(api.retryTurn && thread.retry)
+	const stopTime = turnEndTime(thread, thread.turn) ?? thread.messages.at(-1)?.time
 	const putMessageBack = (text: string) => {
 		draftsRef.current[sessionId] = text
 		setDrafts((all) => ({ ...all, [sessionId]: text }))
@@ -6856,6 +6861,7 @@ export function App({
 														undoKept={undoKept}
 														projectRoot={project?.path}
 														closedWhileRunning={conversation?.closedWhileRunning === true}
+														stopShownBelow={stopShownBelow}
 														renderMessageAction={(message, key) => (
 															<MessageActions
 																text={message.text}
@@ -6882,7 +6888,7 @@ export function App({
 										retry={thread.retry}
 										model={retryModel}
 										failures={replyFailures}
-										time={thread.messages.at(-1)?.time}
+										time={stopTime}
 										onAction={(action) => {
 											if (action === 'settings') openSettings('models', 'models')
 											else if (action === 'continue') void act(continueWithoutReply)
