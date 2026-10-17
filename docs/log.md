@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-10-18
+
+- **Update** [Terminal design](cli/terminal-design.md) and [Slash commands and keys](cli/slash-commands.md): messages typed while Namzu is working are grey `❯` rows above the input frame instead of a list inside it, a Tab-queued one ends `· after this reply`, and a dim `ctrl+x ctrl+s to send now` sits under them. Up on an empty input chooses a queued message (Up/Down move, Enter loads it for editing, Esc leaves the choice; Alt+Up unchanged); `ctrl+x ctrl+s` sends pending messages now like Esc; the input's placeholder reads `Press up to edit queued messages`; a delivered steer is marked `· sent while working`. Delivery to the model is unchanged. `.changeset/cli-pending-input-rows.md`, **patch** for `@namzu/cli`.
+
 ## 2026-10-17
 
 - **Update** [Zen and Zen Go](sdk/zen.md) and [The model catalogue refresh](cli/model-catalogue.md): the derivation now reads the per-wire endpoint families upstream moved its pages to (`/inference/openai/…`, `anthropic/…`, `google/…`, and their `go` variants). A page row whose package and endpoint pair names a wire the driver does not implement is listed in `report.undecided` instead of stopping the whole run, so a new upstream wire becomes a per-row to-do rather than a catalogue-wide outage until the next release. The tamper guard is unchanged: a pair whose endpoint names a host other than the service's still rejects the run whole. The bundled snapshot is refreshed with the same rules: it adds `glm-5.3-flash-free` and the rest of the current pages, and drops thirteen ids upstream no longer documents or serves. The served-but-no-longer-routed ids (`zen/deepseek-v4-flash`, `go/kimi-k2.6`, `go/minimax-m2.7`, `go/grok-4.6`) are recorded in `models.review.json`, and the expired `go/deepseek-flash` omission is retired. `.changeset/zen-per-wire-endpoints.md`, **major** for `@namzu/zen`.

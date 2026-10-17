@@ -920,7 +920,7 @@ function humanPromptMeta(
 	if (attachments && attachments.length > 0) {
 		parts.push(`${attachments.length} attachment${attachments.length > 1 ? 's' : ''}`)
 	}
-	if (live) parts.push('steered the current reply')
+	if (live) parts.push('sent while working')
 	return parts.length > 0 ? parts.join(' · ') : undefined
 }
 type QueuePauseOutcome = 'failed' | 'stopped' | 'paused'
@@ -2306,6 +2306,30 @@ export function App({
 			}),
 		[pushMessage, session],
 	)
+	/** The queue row chosen for editing with Up; null when no row is chosen. */
+	const [queueSelection, setQueueSelectionState] = useState<number | null>(null)
+	const queueSelectionRef = useRef<number | null>(null)
+	const setQueueSelection = useCallback((next: number | null) => {
+		queueSelectionRef.current = next
+		setQueueSelectionState(next)
+	}, [])
+	const takeQueuedPrompt = useCallback(
+		(index: number) => {
+			const pending = queuedRef.current
+			const prompt = pending[index]
+			if (!isRecallableHumanPrompt(prompt)) return null
+			const remaining = [...pending.slice(0, index), ...pending.slice(index + 1)]
+			replaceQueued(remaining)
+			if (remaining.length === 0) setQueuePause(null)
+			setQueueSelection(null)
+			return {
+				text: prompt.recallText ?? prompt.text,
+				...(prompt.attachments ? { attachments: prompt.attachments } : {}),
+				...(prompt.triggers ? { triggers: prompt.triggers } : {}),
+			}
+		},
+		[replaceQueued, setQueuePause, setQueueSelection],
+	)
 	const recallQueuedPrompt = useCallback(() => {
 		const pending = queuedRef.current
 		let index = pending.length - 1
@@ -2314,17 +2338,40 @@ export function App({
 			pushMessage('system', 'No queued message to edit.')
 			return null
 		}
-		const prompt = pending[index]
-		if (!isRecallableHumanPrompt(prompt)) return null
-		const remaining = [...pending.slice(0, index), ...pending.slice(index + 1)]
-		replaceQueued(remaining)
-		if (remaining.length === 0) setQueuePause(null)
-		return {
-			text: prompt.recallText ?? prompt.text,
-			...(prompt.attachments ? { attachments: prompt.attachments } : {}),
-			...(prompt.triggers ? { triggers: prompt.triggers } : {}),
-		}
-	}, [pushMessage, replaceQueued, setQueuePause])
+		return takeQueuedPrompt(index)
+	}, [pushMessage, takeQueuedPrompt])
+	/**
+	 * Up/Down on an empty composer walks the queued messages the operator can
+	 * still edit. Returns whether the key was used, so Up falls through to the
+	 * prompt history when there is nothing to select.
+	 */
+	const moveQueueSelection = useCallback(
+		(direction: 'up' | 'down'): boolean => {
+			const editable = queuedRef.current.flatMap((prompt, index) =>
+				isRecallableHumanPrompt(prompt) ? [index] : [],
+			)
+			const current = queueSelectionRef.current
+			if (direction === 'up') {
+				if (editable.length === 0) return false
+				const older = current === null ? undefined : editable.filter((i) => i < current).at(-1)
+				setQueueSelection(current === null ? (editable.at(-1) ?? null) : (older ?? current))
+				return true
+			}
+			if (current === null) return false
+			setQueueSelection(editable.find((i) => i > current) ?? null)
+			return true
+		},
+		[setQueueSelection],
+	)
+	const loadSelectedQueued = useCallback(() => {
+		const index = queueSelectionRef.current
+		return index === null ? null : takeQueuedPrompt(index)
+	}, [takeQueuedPrompt])
+	// A chosen queue row goes with the message it pointed at (sent, recalled, dropped).
+	useEffect(() => {
+		const index = queueSelectionRef.current
+		if (index !== null && !isRecallableHumanPrompt(queued[index])) setQueueSelection(null)
+	}, [queued, setQueueSelection])
 
 	/**
 	 * The skill proposal's per-conversation facts: whether this conversation
@@ -4641,8 +4688,6 @@ export function App({
 					: (prompt.recallText ?? prompt.text),
 		attachmentCount: prompt.kind === 'human' ? prompt.attachments?.length : undefined,
 	}))
-	const recallableQueued = queued.filter(isRecallableHumanPrompt).at(-1)
-	const canRecallQueued = recallableQueued !== undefined
 	const pendingInputVisible =
 		phase === 'ready' &&
 		agentSurface === null &&
@@ -4660,7 +4705,8 @@ export function App({
 				pendingSteers: pendingInputItems,
 				queued: queuedInputItems,
 				rows: terminal.rows,
-				canRecall: canRecallQueued,
+				working: abortRef.current !== null,
+				held: queuePause,
 			})
 		: 0
 	// Where the streaming reply stands among the finalized rows: a row written
@@ -5232,6 +5278,17 @@ export function App({
 			wakeGoalDriver,
 		],
 	)
+	/**
+	 * ctrl+x ctrl+s: send what is waiting now. Same effect as Esc with a
+	 * pending steer (the reply stops, the steer starts the next one); a queue
+	 * that was only held by that interruption is released so it runs too.
+	 */
+	const sendPendingNow = useCallback(() => {
+		if (!abortRef.current) return
+		interruptTurn(true)
+		if (queuePauseRef.current?.source === 'operator-interrupt') setQueuePause(null)
+		pushMessage('system', 'Interrupted.')
+	}, [interruptTurn, pushMessage, setQueuePause])
 
 	// A termination signal leaves like `/exit`, after stopping the turn: the
 	// session still owns tool servers, jobs and the `session_end` hook, and
@@ -10717,6 +10774,11 @@ export function App({
 				else void abandonActiveTurn('The operator stopped the turn a tool paused for them.')
 				return
 			}
+			// A queued message chosen for editing: Esc only leaves the choice.
+			if (key.escape && queueSelectionRef.current !== null) {
+				setQueueSelection(null)
+				return
+			}
 			// Esc interrupts the running turn. Its pending steer can start a fresh
 			// turn, while a next-turn queue remains visible for the operator.
 			if (key.escape && (abortRef.current || pendingModelSwitchRef.current)) {
@@ -11190,6 +11252,17 @@ export function App({
 								onClose={() => setScrollOpen(false)}
 							/>
 						) : null}
+						{pendingInputVisible ? (
+							<PendingInputPanel
+								pendingSteers={pendingInputItems}
+								queued={queuedInputItems}
+								columns={Math.max(2, (terminal.columns ?? 80) - 2)}
+								rows={terminal.rows}
+								working={abortRef.current !== null}
+								selectedQueued={queueSelection}
+								held={queuePause}
+							/>
+						) : null}
 						<ComposerFrame
 							columns={Math.max(2, (terminal.columns ?? 80) - 2)}
 							working={state === 'thinking' || state === 'tool' || visibleActiveTools.length > 0}
@@ -11220,25 +11293,6 @@ export function App({
 								childSurfaceOpen
 							}
 						>
-							{pendingInputVisible ? (
-								<PendingInputPanel
-									pendingSteers={pendingInputItems}
-									queued={queuedInputItems}
-									columns={Math.max(2, (terminal.columns ?? 80) - 2)}
-									rows={terminal.rows}
-									canRecall={canRecallQueued}
-									{...(recallableQueued
-										? {
-												recallItem: {
-													text: recallableQueued.recallText ?? recallableQueued.text,
-													attachmentCount: recallableQueued.attachments?.length,
-												},
-											}
-										: {})}
-									queuedTags={queuedTriggerLabels(queued)}
-									held={queuePause}
-								/>
-							) : null}
 							<Composer
 								reasoningEffortLevels={session?.reasoningEffortLevels}
 								onCycleMode={cyclePermissionMode}
@@ -11284,6 +11338,14 @@ export function App({
 								onOpenAgentPanel={openAgentCockpit}
 								onScrollTranscript={() => setScrollOpen(true)}
 								onRecallQueued={recallQueuedPrompt}
+								queuedEdit={{
+									available: queued.some(isRecallableHumanPrompt),
+									selected: queueSelection !== null,
+									onMove: moveQueueSelection,
+									onLoad: loadSelectedQueued,
+									onLeave: () => setQueueSelection(null),
+								}}
+								onSendNow={sendPendingNow}
 								userCommands={userCommands}
 								builtins={hostCommands.map((command) => ({
 									...command,

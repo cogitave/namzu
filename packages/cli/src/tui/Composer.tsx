@@ -124,6 +124,23 @@ export interface ComposerProps {
 	readonly onScrollTranscript?: () => void
 	/** Recall the latest operator-authored next-turn message into an empty draft. */
 	readonly onRecallQueued?: () => Omit<ComposerDraft, 'token'> | null
+	/**
+	 * Messages typed while a reply runs and still waiting. Up on an empty
+	 * draft chooses the newest editable one, Up/Down move, Enter loads the
+	 * chosen one into the draft, Esc (handled by the host) leaves the choice.
+	 */
+	readonly queuedEdit?: {
+		/** At least one waiting message can be loaded back for editing. */
+		readonly available: boolean
+		/** A waiting message is chosen right now. */
+		readonly selected: boolean
+		/** Returns whether the key was used; false lets Up fall through to prompt history. */
+		readonly onMove: (direction: 'up' | 'down') => boolean
+		readonly onLoad: () => Omit<ComposerDraft, 'token'> | null
+		readonly onLeave: () => void
+	}
+	/** ctrl+x ctrl+s: deliver the waiting messages now instead of at the next boundary. */
+	readonly onSendNow?: () => void
 	/** Shift+Tab. Absent means the key does nothing, which the composer footer then does not advertise. */
 	readonly onCycleMode?: () => void
 	/**
@@ -550,6 +567,8 @@ export function Composer({
 	onOpenAgentPanel,
 	onScrollTranscript,
 	onRecallQueued,
+	queuedEdit,
+	onSendNow,
 	onCycleMode,
 	triggers,
 	turnActive = false,
@@ -776,6 +795,7 @@ export function Composer({
 		setSelectedIndex,
 	])
 
+	const sendNowChordRef = useRef(false)
 	/** Restore synchronously when Alt+Up is pressed, before the next typed key. */
 	const restoreDraft = useCallback(
 		(draft: Omit<ComposerDraft, 'token'>) => {
@@ -845,6 +865,47 @@ export function Composer({
 			// Hidden means the screen belongs to something else, so a keypress
 			// aimed at that must not also land here.
 			if (disabled || hidden) return
+			// ctrl+x ctrl+s, a two-key chord: any other key in between drops it.
+			const chordArmed = sendNowChordRef.current
+			sendNowChordRef.current = false
+			if (key.ctrl && input === 'x') {
+				sendNowChordRef.current = true
+				return
+			}
+			if (chordArmed && key.ctrl && input === 's' && onSendNow) {
+				onSendNow()
+				return
+			}
+			if (queuedEdit) {
+				const empty =
+					valueRef.current.length === 0 &&
+					pastesRef.current.length === 0 &&
+					attachmentsRef.current.length === 0
+				// Read from the host's ref, not the last render: Up then Enter can arrive together.
+				if (empty && key.return && !key.shift && !key.meta) {
+					const loaded = queuedEdit.onLoad()
+					if (loaded) {
+						restoreDraft(loaded)
+						return
+					}
+				}
+				if (queuedEdit.selected) {
+					if (key.upArrow && !key.meta && !key.shift) {
+						queuedEdit.onMove('up')
+						return
+					}
+					if (key.downArrow && !key.shift) {
+						queuedEdit.onMove('down')
+						return
+					}
+					// Esc is the host's: it clears the choice on the same keypress.
+					if (key.escape) return
+					// Anything else is the operator going back to typing.
+					queuedEdit.onLeave()
+				} else if (empty && key.upArrow && !key.meta && !key.shift && queuedEdit.onMove('up')) {
+					return
+				}
+			}
 			const liveCommandSuggestions = plainText
 				? []
 				: matchSlashCommands(valueRef.current, userCommands, builtins)
@@ -1435,7 +1496,9 @@ export function Composer({
 				</Box>
 				<Box flexGrow={1}>
 					{showPlaceholder ? (
-						<Text color={theme.text.muted}>{placeholder}</Text>
+						<Text color={theme.text.muted}>
+							{queuedEdit?.available ? 'Press up to edit queued messages' : placeholder}
+						</Text>
 					) : editPreviousArmed ? (
 						<Text color={theme.text.muted}>Press Esc again to edit a previous prompt</Text>
 					) : (

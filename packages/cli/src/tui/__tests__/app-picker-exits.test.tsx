@@ -1131,7 +1131,7 @@ describe('publishing a picker selection', () => {
 		expect(aEfforts).toEqual(['max'])
 		await submit(harness, 'dependent queue')
 		releaseFailure.resolve()
-		await frameShows(harness.lastFrame, 'paused after a failed reply')
+		await frameShows(harness.lastFrame, 'Paused after the failed reply')
 		expect(bHistories).toEqual([])
 
 		await submit(harness, '/model')
@@ -1181,7 +1181,7 @@ describe('publishing a picker selection', () => {
 		await vi.waitFor(() => expect(aSends).toBe(1))
 		await submit(harness, 'must remain paused')
 		releaseFailure.resolve()
-		await frameShows(harness.lastFrame, 'paused after a failed reply')
+		await frameShows(harness.lastFrame, 'Paused after the failed reply')
 
 		await submit(harness, '/model')
 		await frameShows(harness.lastFrame, 'Choose a model')
@@ -1197,7 +1197,7 @@ describe('publishing a picker selection', () => {
 		harness.stdin.write('\x1B')
 		await frameShows(harness.lastFrame, 'Choose a provider')
 		harness.stdin.write('\x1B')
-		await frameShows(harness.lastFrame, 'paused after a failed reply')
+		await frameShows(harness.lastFrame, 'Paused after the failed reply')
 		await tick(100)
 
 		expect(aSends).toBe(1)

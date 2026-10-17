@@ -229,7 +229,6 @@ describe('Ctrl+V with an image', () => {
 		harness.stdin.write('\x16')
 		await frameShows(harness.lastFrame, 'Image #1')
 		await submit(harness, 'queued first')
-		await frameShows(harness.lastFrame, 'Steering · next model boundary')
 		await frameShows(harness.lastFrame, 'queued first [1 attachment]')
 
 		clipboard = { kind: 'image', image: secondImage }

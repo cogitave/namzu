@@ -1,7 +1,9 @@
 /**
- * A small, read-only account of input the operator has already submitted.
- * A steer belongs to the active turn; a queued prompt starts a later turn.
- * Neither should disappear into a count-only status line while work continues.
+ * Messages the operator sent while Namzu is still working, drawn as rows at
+ * the end of the transcript, above the input box, in the passive grey of a
+ * message that has not been read yet. A steer belongs to the active reply; a
+ * Tab-queued message starts a later one and says so. Read-only: the keys that
+ * act on these rows live in the composer.
  */
 
 import { Box, Text } from 'ink'
@@ -27,12 +29,10 @@ export interface PendingInputPanelProps {
 	/** Available cells, including the panel's one-cell side padding. */
 	readonly columns: number
 	readonly rows: number
-	/** Only an operator-authored queued prompt can be recalled for editing. */
-	readonly canRecall?: boolean
-	/** The exact operator-authored item that Alt+Up restores. */
-	readonly recallItem?: PendingInputItem
-	/** One-line summary of armed queued composer triggers. */
-	readonly queuedTags?: string
+	/** A reply is running, so "send now" has something to interrupt. */
+	readonly working?: boolean
+	/** Index into `queued` of the row chosen for editing; it is drawn in the accent colour. */
+	readonly selectedQueued?: number | null
 	/** A stopped or failed turn keeps the next-turn queue until the operator continues. */
 	readonly held?: {
 		readonly outcome: 'failed' | 'stopped' | 'paused'
@@ -40,8 +40,12 @@ export interface PendingInputPanelProps {
 	} | null
 }
 
+/** The pointer every pending row carries, as in the reference transcript. */
+export const PENDING_POINTER = '❯'
+export const SEND_NOW_HINT = 'ctrl+x ctrl+s to send now'
+
 const MAX_PREVIEW_CODEPOINTS = 400
-const COMPACT_BELOW_ROWS = 24
+const QUEUED_SUFFIX = ' · after this reply'
 
 /** Read at most one short line per prompt, without walking a huge paste on every repaint. */
 function previewText(source: string): string {
@@ -67,40 +71,56 @@ function attachmentSuffix(item: PendingInputItem): string {
 	return ` [${count} ${label}${count === 1 ? '' : 's'}]`
 }
 
-function fit(source: string, columns: number): string {
-	return truncateChoiceText(source, Math.max(1, columns - 2))
+interface Row {
+	readonly key: string
+	readonly item: PendingInputItem
+	readonly queued: boolean
+	readonly queuedIndex: number
 }
 
-function itemRow(item: PendingInputItem, width: number): string {
-	const prefix = width >= 5 ? '  ↳ ' : ''
-	const suffix = attachmentSuffix(item)
-	const available = Math.max(0, width - choiceDisplayWidth(prefix))
-	const shownSuffix = truncateChoiceText(suffix, available)
-	const text =
-		previewText(item.text) || (item.attachmentCount ? '(attachment only)' : '(empty message)')
-	const textWidth = Math.max(0, available - choiceDisplayWidth(shownSuffix))
-	return `${prefix}${truncateChoiceText(text, textWidth)}${shownSuffix}`
+function allRows(
+	pendingSteers: readonly PendingInputItem[],
+	queued: readonly PendingInputItem[],
+): readonly Row[] {
+	return [
+		...pendingSteers.map((item, index) => ({
+			key: `s${index}`,
+			item,
+			queued: false,
+			queuedIndex: -1,
+		})),
+		...queued.map((item, index) => ({ key: `q${index}`, item, queued: true, queuedIndex: index })),
+	]
 }
 
-function overflowRow(
-	section: 'steering' | 'queued',
-	items: readonly PendingInputItem[],
-	limit: number,
-	canRecall: boolean,
-	width: number,
-): string {
-	const hidden = items.length - limit
-	const count = `  +${hidden} more ${section}`
-	const latest = items.at(-1)
-	if (section !== 'queued' || !canRecall || !latest) return truncateChoiceText(count, width)
-	const preview =
-		previewText(latest.text) || (latest.attachmentCount ? '(attachment only)' : '(empty message)')
-	return truncateChoiceText(`${count} · last: ${preview}`, width)
+/** Rows shown at a given height; the rest collapse into one "earlier" row. */
+function rowLimit(rows: number): number {
+	return rows >= 30 ? 5 : rows >= 20 ? 3 : 1
 }
 
-/** At short viewport heights, leave room for the transcript and composer. */
-function previewLimit(rows: number): number {
-	return rows >= 20 ? 2 : 1
+/** The newest `limit` rows, moved back only far enough to keep the selection in view. */
+function windowStart(rows: readonly Row[], limit: number, selectedQueued: number | null): number {
+	let start = Math.max(0, rows.length - limit)
+	if (selectedQueued === null) return start
+	const at = rows.findIndex((row) => row.queued && row.queuedIndex === selectedQueued)
+	if (at >= 0 && at < start) start = at
+	return start
+}
+
+function holdText(held: NonNullable<PendingInputPanelProps['held']>): string {
+	if (held.source === 'operator-interrupt') {
+		return 'Held after you stopped the reply · your next message runs first, then these'
+	}
+	if (held.outcome === 'paused') return 'Held while the reply is paused'
+	return `Paused after the ${held.outcome === 'failed' ? 'failed' : 'stopped'} reply · send a message to run them`
+}
+
+function hintRows({
+	working,
+	held,
+	rows,
+}: Pick<PendingInputPanelProps, 'working' | 'held' | 'rows'>): number {
+	return Number(Boolean(held) || (working === true && rows >= 16))
 }
 
 /** Reserve the actual panel height in App's live transcript calculation. */
@@ -108,42 +128,13 @@ export function pendingInputPanelRows({
 	pendingSteers,
 	queued,
 	rows,
-	canRecall = false,
-}: Pick<PendingInputPanelProps, 'pendingSteers' | 'queued' | 'rows' | 'canRecall'>): number {
-	if (rows < COMPACT_BELOW_ROWS) {
-		return (
-			Number(pendingSteers.length > 0) +
-			Number(queued.length > 0) +
-			Number(canRecall && queued.length > 0)
-		)
-	}
-	const limit = previewLimit(rows)
-	const sectionRows = (count: number) =>
-		count === 0 ? 0 : 1 + Math.min(limit, count) + Number(count > limit)
-	return (
-		sectionRows(pendingSteers.length) +
-		sectionRows(queued.length) +
-		Number(canRecall && queued.length > 0)
-	)
-}
-
-function compactRow(label: string, items: readonly PendingInputItem[], width: number): string {
-	const prefix = `${label}${items.length > 1 ? ` ${items.length}` : ''} `
-	const first = items[0]
-	if (!first) return ''
-	const suffix = `${attachmentSuffix(first)}${items.length > 1 ? ` (+${items.length - 1})` : ''}`
-	const available = Math.max(0, width - choiceDisplayWidth(prefix))
-	const shownSuffix = truncateChoiceText(suffix, available)
-	const shownText =
-		previewText(first.text) || (first.attachmentCount ? '(attachment only)' : '(empty message)')
-	return `${prefix}${truncateChoiceText(shownText, Math.max(0, available - choiceDisplayWidth(shownSuffix)))}${shownSuffix}`
-}
-
-function queuedHeading(held: PendingInputPanelProps['held']): string {
-	if (!held) return 'Queued · next reply'
-	if (held.source === 'operator-interrupt') return 'Queued · held after interruption'
-	if (held.outcome === 'paused') return 'Queued · held after a reply paused'
-	return `Queued · paused after a ${held.outcome} reply`
+	working = false,
+	held = null,
+}: Pick<PendingInputPanelProps, 'pendingSteers' | 'queued' | 'rows' | 'working' | 'held'>): number {
+	const total = pendingSteers.length + queued.length
+	if (total === 0) return 0
+	const limit = rowLimit(rows)
+	return Math.min(limit, total) + Number(total > limit) + hintRows({ working, held, rows })
 }
 
 export function PendingInputPanel({
@@ -151,76 +142,60 @@ export function PendingInputPanel({
 	queued,
 	columns,
 	rows,
-	canRecall = false,
-	recallItem,
-	queuedTags = '',
+	working = false,
+	selectedQueued = null,
 	held = null,
 }: PendingInputPanelProps) {
-	if (pendingSteers.length === 0 && queued.length === 0) return null
+	const list = allRows(pendingSteers, queued)
+	if (list.length === 0) return null
 
-	const limit = previewLimit(rows)
+	const limit = rowLimit(rows)
+	const start = windowStart(list, limit, selectedQueued)
+	const shown = list.slice(start, start + limit)
 	const width = Math.max(1, columns - 2)
-	const recalled = recallItem ?? queued.at(-1)
-	if (rows < COMPACT_BELOW_ROWS) {
-		return (
-			<Box flexDirection="column" paddingX={1}>
-				{pendingSteers.length > 0 ? (
-					<Text color={theme.accent.user} wrap="truncate-end">
-						{fit(compactRow('Steer→turn', pendingSteers, width), columns)}
-					</Text>
-				) : null}
-				{queued.length > 0 ? (
-					<Text color={theme.text.secondary} wrap="truncate-end">
-						{fit(compactRow(held ? 'Queue held' : 'Queue→next', queued, width), columns)}
-					</Text>
-				) : null}
-				{canRecall && recalled ? (
-					<Text color={theme.text.muted} wrap="truncate-end">
-						{fit(
-							`Alt+Up edit last message: ${previewText(recalled.text) || '(attachment only)'}`,
-							columns,
-						)}
-					</Text>
-				) : null}
-			</Box>
-		)
-	}
-	const sections = [
-		{ id: 'steering', label: 'Steering · next model boundary', items: pendingSteers },
-		{ id: 'queued', label: `${queuedHeading(held)}${queuedTags}`, items: queued },
-	] as const
-
+	const selecting = selectedQueued !== null
+	const hint = held ? holdText(held) : working && rows >= 16 ? SEND_NOW_HINT : null
 	return (
 		<Box flexDirection="column" paddingX={1}>
-			{sections.map((section) =>
-				section.items.length === 0 ? null : (
-					<Box key={section.id} flexDirection="column">
-						<Text
-							color={section.id === 'steering' ? theme.accent.user : theme.text.secondary}
-							wrap="truncate-end"
-						>
-							{fit(section.label, columns)}
-						</Text>
-						{section.items.slice(0, limit).map((item, index) => (
-							// biome-ignore lint/suspicious/noArrayIndexKey: these text-only preview rows hold no state.
-							<Text key={index} color={theme.text.muted} wrap="truncate-end">
-								{itemRow(item, width)}
-							</Text>
-						))}
-						{section.items.length > limit ? (
-							<Text color={theme.text.muted} wrap="truncate-end">
-								{overflowRow(section.id, section.items, limit, canRecall, width)}
-							</Text>
-						) : null}
-					</Box>
-				),
-			)}
-			{canRecall && recalled ? (
-				<Text color={theme.text.muted} wrap="truncate-end">
-					{fit(
-						`Alt+Up edit last message: ${previewText(recalled.text) || '(attachment only)'}`,
-						columns,
+			{shown.map((row) => {
+				const chosen = row.queued && row.queuedIndex === selectedQueued
+				const lead = chosen || !selecting ? `${PENDING_POINTER} ` : '  '
+				const files = attachmentSuffix(row.item)
+				const text =
+					previewText(row.item.text) ||
+					(row.item.attachmentCount ? '(attachment only)' : '(empty message)')
+				const room = Math.max(0, width - choiceDisplayWidth(lead))
+				// The "after this reply" note yields before the message does.
+				const keep = Math.min(choiceDisplayWidth(text), 12) + choiceDisplayWidth(files)
+				const tail =
+					row.queued && room - keep >= choiceDisplayWidth(QUEUED_SUFFIX) ? QUEUED_SUFFIX : ''
+				const shownFiles = truncateChoiceText(files, Math.max(0, room - choiceDisplayWidth(tail)))
+				const shownText = truncateChoiceText(
+					text,
+					Math.max(0, room - choiceDisplayWidth(tail) - choiceDisplayWidth(shownFiles)),
+				)
+				const shownTail = tail
+				const colour = chosen ? theme.accent.system : theme.text.muted
+				return (
+					<Text key={row.key} color={colour} wrap="truncate-end">
+						{lead}
+						{shownText}
+						{shownFiles}
+						{shownTail ? <Text dimColor>{shownTail}</Text> : null}
+					</Text>
+				)
+			})}
+			{list.length > shown.length ? (
+				<Text color={theme.text.muted} dimColor wrap="truncate-end">
+					{truncateChoiceText(
+						`  +${list.length - shown.length} more ${list.length - shown.length === 1 ? 'message' : 'messages'}`,
+						width,
 					)}
+				</Text>
+			) : null}
+			{hint ? (
+				<Text color={theme.text.muted} dimColor wrap="truncate-end">
+					{truncateChoiceText(`  ${hint}`, width)}
 				</Text>
 			) : null}
 		</Box>
