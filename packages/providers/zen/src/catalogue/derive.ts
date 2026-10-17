@@ -114,10 +114,30 @@ export const ROUTES: readonly {
 	readonly protocol: ZenProtocol
 	readonly kind: 'path' | 'model'
 }[] = Object.freeze([
-	{ npm: '@ai-sdk/openai-compatible', path: '/chat/completions', protocol: 'chat', kind: 'path' },
-	{ npm: '@ai-sdk/openai', path: '/responses', protocol: 'responses', kind: 'path' },
-	{ npm: '@ai-sdk/anthropic', path: '/messages', protocol: 'messages', kind: 'path' },
-	{ npm: '@ai-sdk/google', path: '/models/', protocol: 'google', kind: 'model' },
+	{
+		npm: '@ai-sdk/openai-compatible',
+		path: '/chat/completions',
+		protocol: 'chat',
+		kind: 'path',
+	},
+	{
+		npm: '@ai-sdk/openai',
+		path: '/responses',
+		protocol: 'responses',
+		kind: 'path',
+	},
+	{
+		npm: '@ai-sdk/anthropic',
+		path: '/messages',
+		protocol: 'messages',
+		kind: 'path',
+	},
+	{
+		npm: '@ai-sdk/google',
+		path: '/models/',
+		protocol: 'google',
+		kind: 'model',
+	},
 ])
 
 /** The Google route's tail: `models/<id>`, and nothing else. */
@@ -141,14 +161,28 @@ export const SERVICE_PREFIX: Readonly<Record<ZenService, string>> = Object.freez
 
 /**
  * The path prefixes a documentation page may state an endpoint on, per
- * service. The gateway answers on both: `/zen/v1/…` is what the client and
- * this package call, and `/inference/v1/…` is the alias the documentation
- * pages now publish. Both resolve to the same service, so a row on either is
- * a route on that service.
+ * service. The gateway answers on all of these: `/zen/v1/…` is what the client
+ * and this package call, and the pages have published aliases across the
+ * gateway's history — a flat `/inference/v1/…`, then per-wire
+ * `/inference/<wire>/…` paths, where each wire's documentation names its own
+ * version segment (`openai/v1`, `google/v1beta`). Every one resolves to the
+ * same service, so a row on any of them is a route on that service.
  */
 export const DOCUMENTED_PREFIXES: Readonly<Record<ZenService, readonly string[]>> = Object.freeze({
-	zen: Object.freeze(['/zen/v1/', '/inference/v1/']),
-	go: Object.freeze(['/zen/go/v1/', '/inference/go/v1/']),
+	zen: Object.freeze([
+		'/zen/v1/',
+		'/inference/v1/',
+		'/inference/openai/v1/',
+		'/inference/anthropic/v1/',
+		'/inference/google/v1beta/',
+	]),
+	go: Object.freeze([
+		'/zen/go/v1/',
+		'/inference/go/v1/',
+		'/inference/go/openai/v1/',
+		'/inference/go/anthropic/v1/',
+		'/inference/go/google/v1beta/',
+	]),
 })
 
 /** One route-table row. `npm` is undefined when the page states no wire. */
@@ -389,47 +423,101 @@ export function priceRowFor(rows: readonly ZenPriceRow[], name: string): ZenPric
 }
 
 /**
- * The protocol a (package, endpoint) pair is, refusing anything unrecognised.
+ * The verdict on one route row's (package, endpoint) pair: the protocol to
+ * route it with, or the reason no wire follows from it, and whether the
+ * refusal indicts the run or merely the row.
+ *
+ * A pair that names an endpoint OUTSIDE the service's host is tamper-shaped —
+ * the whole point of the per-part checks — so its refusal is fatal and must
+ * stop the run no matter how derivable the rest of the page is. Everything
+ * else this classifier cannot read is upstream having grown a wire this
+ * driver does not speak (a new endpoint family on the service's own host, an
+ * AI SDK package not implemented yet): the refusal is per-row, and the
+ * derivation decides what to do with it.
  *
  * The pair is checked against the URL's own parts rather than by substring: a
  * cell reading `https://evil.example/messages` contains the path a Messages
  * route has, and a routing decision that accepts it is a routing decision made
  * on the wrong string. Host, service prefix, path and package must all agree.
  */
-export function protocolFor(
-	{ id, endpoint, npm }: Pick<ZenRouteRow, 'id' | 'endpoint' | 'npm'>,
+export function routeFor(
+	{ endpoint, npm }: Pick<ZenRouteRow, 'id' | 'endpoint' | 'npm'>,
 	service: string,
-): ZenProtocol {
-	const refuse = (why: string): never =>
-		unusable(
-			`"${id}" is documented as ${npm} on ${endpoint}, ${why}. A model whose wire is not\n  known cannot be routed, so the run stops rather than picking one.`,
-		)
+): { readonly protocol: ZenProtocol } | { readonly refusal: string; readonly fatal: boolean } {
 	if (npm === undefined) {
-		unusable(
-			`"${id}" is documented on ${endpoint} with no AI SDK package stated, so no wire is\n  known. A model whose wire is not known cannot be routed, so the run stops\n  rather than picking one.`,
-		)
+		return {
+			refusal: 'the page states no AI SDK package for it, so no wire is known',
+			fatal: false,
+		}
 	}
 	let url: URL
 	try {
 		url = new URL(endpoint)
 	} catch {
-		return refuse('which is not a URL')
+		return {
+			refusal: 'the endpoint cell is not a URL, so no wire can be read',
+			fatal: true,
+		}
 	}
-	if (url.host !== 'opencode.ai') refuse("whose host is not the service's")
+	if (url.host !== 'opencode.ai') {
+		return { refusal: "whose host is not the service's", fatal: true }
+	}
 	const prefixes = (DOCUMENTED_PREFIXES as Record<string, readonly string[] | undefined>)[service]
-	if (prefixes === undefined) return refuse('on a service this script does not know')
+	if (prefixes === undefined) {
+		return { refusal: 'on a service this script does not know', fatal: true }
+	}
 	const prefix = prefixes.find((candidate) => url.pathname.startsWith(candidate))
-	if (prefix === undefined) return refuse(`which is not on the ${service} service's own path`)
+	if (prefix === undefined) {
+		return {
+			refusal: `which is not on the ${service} service's own path`,
+			fatal: false,
+		}
+	}
 	const route = ROUTES.find((candidate) => candidate.npm === npm)
 	if (!route) {
-		return refuse(
-			`with a package that is not one of the ${ROUTES.length} routes this driver implements`,
-		)
+		return {
+			refusal: `with a package that is not one of the ${ROUTES.length} routes this driver implements`,
+			fatal: false,
+		}
 	}
 	const tail = url.pathname.slice(prefix.length)
 	const matches = route.kind === 'path' ? tail === route.path.slice(1) : MODEL_PATH.test(tail)
-	if (!matches) refuse(`which does not address ${route.path} on the ${service} service`)
-	return route.protocol
+	if (!matches) {
+		return {
+			refusal: `which does not address ${route.path} on the ${service} service`,
+			fatal: false,
+		}
+	}
+	return { protocol: route.protocol }
+}
+
+/** The message the run-wide refusal of a pair carries, in both surfaces. */
+function refusalMessage(
+	{ id, npm }: Pick<ZenRouteRow, 'id' | 'npm'>,
+	{ endpoint }: Pick<ZenRouteRow, 'endpoint'>,
+	refusal: string,
+): string {
+	return `"${id}" is documented as ${npm} on ${endpoint}, ${refusal}. A model whose wire is not\n  known cannot be routed, so the run stops rather than picking one.`
+}
+
+/**
+ * The protocol a (package, endpoint) pair is, refusing anything unrecognised.
+ *
+ * The derivation goes through `routeFor` instead, where an unrouteable row
+ * splits off into the undecided count and the rest of the roster carries on;
+ * here a caller that asks for the pair's protocol gets stopped immediately.
+ * Either way nothing is guessed: a model whose wire is unknown is never routed
+ * by picking a protocol for it.
+ */
+export function protocolFor(
+	{ id, endpoint, npm }: Pick<ZenRouteRow, 'id' | 'endpoint' | 'npm'>,
+	service: string,
+): ZenProtocol {
+	const verdict = routeFor({ id, endpoint, npm }, service)
+	if ('refusal' in verdict) {
+		unusable(refusalMessage({ id, npm }, { endpoint }, verdict.refusal))
+	}
+	return verdict.protocol
 }
 
 /**
@@ -465,18 +553,27 @@ export function pinnedProtocolForGo(id: string): ZenProtocol | undefined {
 	return GO_REFERENCE_ROUTES[id]?.gateway
 }
 
-function pinnedProtocolFor(row: ZenRouteRow, service: string): ZenProtocol {
-	const documented = protocolFor(row, service)
-	if (service !== 'go') return documented
+/**
+ * The row's routed protocol, or its refusal — the Go pinning decides the same
+ * way `routeFor` does, then names the reference client's wire for the ids the
+ * published page and the reference client disagree on.
+ */
+function pinnedRouteFor(
+	row: ZenRouteRow,
+	service: string,
+): { readonly protocol: ZenProtocol } | { readonly refusal: string; readonly fatal: boolean } {
+	const verdict = routeFor(row, service)
+	if ('refusal' in verdict) return verdict
+	if (service !== 'go') return verdict
 	const exception = GO_REFERENCE_ROUTES[row.id]
-	if (!exception) return documented
-	if (documented === exception.gateway) return documented
-	if (documented !== exception.documented) {
+	if (!exception) return verdict
+	if (verdict.protocol === exception.gateway) return verdict
+	if (verdict.protocol !== exception.documented) {
 		unusable(
-			`go.mdx changed the route for "${row.id}" to ${documented}; its reference-client route exception must be reviewed.`,
+			`go.mdx changed the route for "${row.id}" to ${verdict.protocol}; its reference-client route exception must be reviewed.`,
 		)
 	}
-	return exception.gateway
+	return { protocol: exception.gateway }
 }
 
 /** A models.dev model entry, as far as these rules read it. */
@@ -484,7 +581,10 @@ interface ModelsDevEntry {
 	readonly limit?: { readonly context?: number; readonly output?: number }
 	readonly modalities?: { readonly input?: readonly string[] }
 	readonly tool_call?: boolean
-	readonly reasoning_options?: readonly { readonly type?: string; readonly values?: unknown }[]
+	readonly reasoning_options?: readonly {
+		readonly type?: string
+		readonly values?: unknown
+	}[]
 }
 
 /** A models.dev provider entry: its models, keyed by id. */
@@ -602,6 +702,22 @@ export function derive(
 			continue
 		}
 		considered += 1
+		// The wire a row names is decided before anything else is asked about
+		// it, because every carried form needs it. A pair no routing follows
+		// from — upstream naming a model on a wire this driver does not speak
+		// — splits off into the undecided count here instead of stopping the
+		// run: the rest of the roster is exactly as derivable as it was before
+		// the row arrived, and one new wire upstream should not hold every
+		// other model back either. Nothing is guessed for the row.
+		const routed = pinnedRouteFor(row, service)
+		if ('refusal' in routed) {
+			if (routed.fatal) {
+				unusable(refusalMessage(row, row, routed.refusal))
+			}
+			undecided.push([`${service}/${row.id}`, routed.refusal])
+			continue
+		}
+		const protocol = routed.protocol
 		const metadata = provider.models[row.id] as ModelsDevEntry | undefined
 		if (!metadata || typeof metadata !== 'object') {
 			// The route and the price are stated and the limits are not, yet: carry it
@@ -613,7 +729,7 @@ export function derive(
 				unverified.push({
 					id: row.id,
 					name: row.name,
-					protocol: pinnedProtocolFor(row, service),
+					protocol,
 					...CONSERVATIVE_LIMITS,
 					inputModalities: ['text'],
 					inputPrice: statedPrice ? statedPrice.input : 0,
@@ -668,7 +784,7 @@ export function derive(
 		models.push({
 			id: row.id,
 			name: row.name,
-			protocol: pinnedProtocolFor(row, service),
+			protocol,
 			contextWindow,
 			maxOutputTokens,
 			inputModalities,

@@ -1,5 +1,13 @@
 # @namzu/zen
 
+## 5.0.0
+
+### Major Changes
+
+- 66eadb3: **Breaking: thirteen ids leave the bundled catalogue, because upstream stopped documenting or serving them.** `findZenModel` and `getZenModels` no longer return, on Zen, `deepseek-v4-flash`, `deepseek-v4-flash-vision-exp`, `cat-jam-free`, `step-5-preview-free`, `ling-3.1-flash-free` and `ling-3.0-flash-fin-free`, and on Go, `grok-4.6`, `kimi-k2.6`, `deepseek-v4-flash`, `deepseek-v4-flash-vision-exp`, `minimax-m2.7`, `step-5-preview-free` and `cat-jam-free`. A request naming one fails as an unknown model. Pick a current id instead — for a free Zen model, `glm-5.3-flash-free`, `deepseek-v4.1-flash-free` or `mimo-v2.6-flash-free`; on Go, `kimi-k3`, `minimax-m3` or `grok-4.7`. A host that has verified a wire for one of them can still pass `protocol` to the provider explicitly. The snapshot adds `glm-5.3-flash-free`, `deepseek-v4.1-flash-free`, `beam-free`, `ll-alpha-free` and `nemotron-3.5-super-vl-free` on Zen, and `gemini-4-argon-contributor`, `step-5-preview` and `beam-free` on Go.
+
+  The runtime catalogue refresh works again. The Zen and Go documentation pages moved their endpoints to per-wire paths (`/inference/openai/…`, `/inference/anthropic/…`, `/inference/google/…` and their `go` variants), and `fetchZenCatalogue` rejected the whole run on the first such row, so every host fell back to its last saved or bundled list. It now reads those paths. A page row whose wire this driver does not implement is listed in `report.undecided` with its reason instead of failing the refresh. A row whose endpoint names a host other than the service's still rejects the run whole.
+
 ## 4.0.2
 
 ### Patch Changes
