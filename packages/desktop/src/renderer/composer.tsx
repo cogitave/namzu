@@ -133,9 +133,12 @@ export function Composer({
 	onOpenPlugins,
 	onSetPluginEnabled,
 	speechControl,
+	speechStatus,
 	surface,
 }: {
 	speechControl?: ReactNode
+	/** Voice lines (the one-time agreement, "Listening…", what just happened), drawn right above the box. */
+	speechStatus?: ReactNode
 	/** "Desktop | CLI": CLI sends open the engine's own command line in a terminal tab. */
 	surface?: EngineSurfaceControl
 	/** Why sending is blocked right now, in words, shown above the text the person may still type. */
@@ -473,6 +476,7 @@ export function Composer({
 							</h1>
 						</div>
 					)}
+					{speechStatus}
 					{shownLiveInputs.length > 0 && (
 						<div className="queue px-3 pb-2 text-xs text-muted-foreground" aria-live="polite">
 							{[

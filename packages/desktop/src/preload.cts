@@ -1,10 +1,12 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { EngineUpdateNotice, EngineUpdatesState } from './shared/engine-update-protocol.js'
+import type { LocalListeningEvent } from './shared/local-listening-protocol.js'
 import type { LocalSpeechEvent } from './shared/local-speech-protocol.js'
 import type { PalComputerSetupState } from './shared/pal-computer-setup.js'
 import type { DesktopApi, DesktopBoot, DesktopEvent } from './shared/protocol.js'
 import type { TerminalEvent } from './shared/terminal-view.js'
 import type { UpdateState } from './shared/update-protocol.js'
+import type { VoiceInputEvent } from './shared/voice-input-protocol.js'
 /** Electron prefixes a rejected invoke with its own words; only the cause is for the person. */
 const clean = (error: unknown): Error => {
 	const raw = error instanceof Error ? error.message : String(error)
@@ -43,6 +45,23 @@ const api: DesktopApi = {
 		const handler = (_event: unknown, data: LocalSpeechEvent) => listener(data)
 		ipcRenderer.on('namzu:local-speech-event', handler)
 		return () => ipcRenderer.removeListener('namzu:local-speech-event', handler)
+	},
+	localListeningState: () => invoke('localListeningState'),
+	localListeningInstall: () => invoke('localListeningInstall'),
+	localListeningCancelInstall: () => invoke('localListeningCancelInstall'),
+	localListeningUninstall: () => invoke('localListeningUninstall'),
+	onLocalListeningEvent: (listener) => {
+		const handler = (_event: unknown, data: LocalListeningEvent) => listener(data)
+		ipcRenderer.on('namzu:local-listening-event', handler)
+		return () => ipcRenderer.removeListener('namzu:local-listening-event', handler)
+	},
+	voiceInputStart: (sessionId) => invoke('voiceInputStart', sessionId),
+	voiceInputAudio: (sessionId, samples) => invoke('voiceInputAudio', sessionId, samples),
+	voiceInputStop: () => invoke('voiceInputStop'),
+	onVoiceInputEvent: (listener) => {
+		const handler = (_event: unknown, data: VoiceInputEvent) => listener(data)
+		ipcRenderer.on('namzu:voice-input-event', handler)
+		return () => ipcRenderer.removeListener('namzu:voice-input-event', handler)
 	},
 	workspace: () => invoke('workspace'),
 	workspaceAction: (action) => invoke('workspaceAction', action),
