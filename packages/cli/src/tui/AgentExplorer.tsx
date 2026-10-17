@@ -97,9 +97,9 @@ export interface AgentNarrationBandProps {
 export function AgentNarrationBand({ lines }: AgentNarrationBandProps) {
 	if (lines.length === 0) return null
 	return (
-		// paddingX 2 lands the text where the rail's title starts — past its
-		// two-cell header glyph — so the two columns line up.
-		<Box flexDirection="column" paddingX={2}>
+		// paddingX 4 lands the text where the rail's `main` label starts — past
+		// its pointer and bullet cells — so the two columns line up.
+		<Box flexDirection="column" paddingX={4}>
 			{lines.map((line) => (
 				<Box key={line.id}>
 					<Text color={theme.text.muted} wrap="truncate-end">
@@ -111,303 +111,253 @@ export function AgentNarrationBand({ lines }: AgentNarrationBandProps) {
 	)
 }
 
+/** Rows of agents the rail shows at once; the rest sit behind `↓ N more`. */
+export const AGENT_RAIL_WINDOW = 5
+/** How long a finished agent stays on the rail before it leaves. */
+export const AGENT_RAIL_FINISHED_LINGER_MS = 30_000
+/** Widest the agent-type column grows before it is cut with `…`. */
+const AGENT_RAIL_NAME_WIDTH = 28
+
+/**
+ * The agents the rail lists: everything running, plus whatever finished less
+ * than {@link AGENT_RAIL_FINISHED_LINGER_MS} ago, oldest launch first.
+ *
+ * Saved children (`replayed`) never appear — they ended in another process,
+ * and the rail says what is moving now; the cockpit still lists them. An
+ * agent the operator already cleared with `x` stays off the rail.
+ */
+export function railAgents(
+	agents: readonly SubagentActivity[],
+	now: number,
+	dismissed: ReadonlySet<string> = new Set(),
+): readonly SubagentActivity[] {
+	return agents
+		.filter((agent) => {
+			if (agent.replayed === true || dismissed.has(agent.viewId)) return false
+			if (!isTerminalStatus(agent.status)) return true
+			return (
+				agent.completedAt !== undefined && now - agent.completedAt < AGENT_RAIL_FINISHED_LINGER_MS
+			)
+		})
+		.sort((a, b) => a.startedAt - b.startedAt)
+}
+
+/**
+ * Milliseconds until the next finished agent leaves the rail, or undefined
+ * when none is waiting to leave. App sleeps exactly this long instead of
+ * ticking, so an idle session re-renders nothing.
+ */
+export function railNextEviction(
+	agents: readonly SubagentActivity[],
+	now: number,
+): number | undefined {
+	let soonest: number | undefined
+	for (const agent of agents) {
+		if (agent.replayed === true || !isTerminalStatus(agent.status)) continue
+		if (agent.completedAt === undefined) continue
+		const left = agent.completedAt + AGENT_RAIL_FINISHED_LINGER_MS - now
+		if (left > 0 && (soonest === undefined || left < soonest)) soonest = left
+	}
+	return soonest
+}
+
+/** Whether `x` stops this agent (it is running) or only clears it (it has finished). */
+export function railActionFor(agent: SubagentActivity): 'stop' | 'clear' {
+	return isTerminalStatus(agent.status) ? 'clear' : 'stop'
+}
+
+/** `1.2k tokens` once the agent has reported usage, nothing before that. */
+function railTokens(agent: SubagentActivity): string | undefined {
+	return agent.tokens === undefined ? undefined : `↓ ${formatCompactCount(agent.tokens)} tokens`
+}
+
+/**
+ * The right-hand block of an agent row: how long it has run and what it has
+ * spent. A queued agent says so instead of showing a clock that has not
+ * started.
+ */
+export function railStatusText(agent: SubagentActivity, now: number): string {
+	const clock =
+		agent.status === 'queued'
+			? 'waiting'
+			: formatElapsed(Math.max(0, (agent.completedAt ?? now) - agent.startedAt))
+	const tokens = railTokens(agent)
+	return tokens ? `${clock} · ${tokens}` : clock
+}
+
+function railBulletColor(status: SubagentActivityStatus): string | undefined {
+	if (status === 'completed') return theme.status.ok
+	if (status === 'failed' || status === 'cancelled') return theme.status.error
+	return undefined
+}
+
 export interface AgentTaskPanelProps {
+	/** Already filtered to what the rail shows — see {@link railAgents}. */
 	readonly agents: readonly SubagentActivity[]
 	readonly terminalRows: number
 	readonly terminalColumns: number
 	/**
-	 * Draw the header line only. Used while a review owns the screen: the
-	 * operator still sees that the work they already approved is moving,
+	 * One row only (`main` and a count). Used while a review owns the screen:
+	 * the operator still sees that the work they already approved is moving,
 	 * without the rows competing with the question being asked.
 	 */
 	readonly compact?: boolean
+	/**
+	 * The highlighted row while the rail has the keyboard: 0 is `main`, 1 the
+	 * first agent. Undefined means the rail is not focused.
+	 */
+	readonly selectedIndex?: number
+	/** The agent whose transcript is on screen; undefined or null means `main`. */
+	readonly viewingId?: string | null
+	/** Clock for tests; the panel otherwise ticks once a second. */
+	readonly now?: number
 }
 
 /**
- * Compact, automatic view of every cohort that still owns live work.
+ * The agents rail: a `main` row, then one row per running or recently
+ * finished sub-agent, drawn under the footer line.
  *
- * This is intentionally not a modal: the composer remains mounted directly
- * above it and the operator can keep typing while children run. Completed
- * siblings remain until their last live sibling settles, then the whole
- * cohort leaves this projection together.
+ * ```
+ *   ● main                                                    ↓ to manage
+ *   ○ general-purpose  Mine the UI reference            12s · ↓ 3.2k tokens
+ * ```
  *
- * Drawn as a borderless tree aligned with the transcript's own gutter — a
- * header line, then one `├`/`└` branch per agent with its latest activity on
- * a `⎿` line beneath it — rather than as a boxed panel: the rows are the
- * turn's live work, not chrome around it.
+ * `●` marks the transcript on screen, `○` the others; an agent's bullet turns
+ * green or red only once it has finished. Not a modal: the composer stays
+ * mounted above and keeps taking input until the operator presses ↓ on an
+ * empty composer to move into the rail.
  */
 export function AgentTaskPanel({
 	agents,
-	terminalRows,
 	terminalColumns,
 	compact = false,
+	selectedIndex,
+	viewingId,
+	now: nowOverride,
 }: AgentTaskPanelProps) {
-	const now = useLiveNow(true)
-	const activityLines = agentTaskPanelShowsActivity(terminalRows)
-	const pageSize = agentTaskPanelPageSize(terminalRows)
-	const active = agents.filter((agent) => !isTerminalStatus(agent.status)).length
-	const workflows = [...new Set(agents.map((agent) => agent.workflow))]
-	const workflowLabel = workflows.length === 1 ? workflows[0] : undefined
-	// A shared, explicitly supplied workflow label earns the title slot; an
-	// absent one (every agent still carries the unlabelled default) or a mix
-	// of several distinct labels falls back to a neutral count instead of the
-	// generic default name, which named nothing about THESE agents.
-	const labelled = workflowLabel !== undefined && workflowLabel !== DEFAULT_AGENT_WORKFLOW
-	const title = labelled ? workflowLabel : `${agents.length} agent${agents.length === 1 ? '' : 's'}`
+	const ticked = useLiveNow(nowOverride === undefined)
+	const now = nowOverride ?? ticked
+	const focused = selectedIndex !== undefined
+	const mainViewed = viewingId === undefined || viewingId === null
 	const narrow = terminalColumns < 64
-	const showModel = !narrow && terminalColumns >= 76
-	const showCounters = !narrow && terminalColumns >= 96
-	// A workflow the model split into several phases is drawn the way its
-	// phases went: a settled phase is one line (`✓ Phase 1 · 2/2 · 3.9s`), a
-	// live one is its line with its agents beneath it. One phase is drawn as
-	// before, the agents straight under the header.
-	const phases = agentPhases(agents)
-	const phased = phases.length > 1
-	const groups = (phased ? phases : [{ id: 'all', agents } as const]).map((phase) => ({
-		phase: phased ? (phase as AgentPhase) : undefined,
-		agents: [...phase.agents],
-	}))
-	// The page budget is spent on agents of live phases only; a settled
-	// phase costs its one line, and on a short screen not even that.
-	let budget = compact ? 0 : pageSize
-	const drawn = groups.map((group) => {
-		const settled = group.phase !== undefined && isTerminalStatus(group.phase.status)
-		if (settled) return { ...group, settled, visible: [] as SubagentActivity[] }
-		const visible = group.agents.slice(0, Math.max(0, budget))
-		budget -= visible.length
-		return { ...group, settled, visible }
-	})
-	const hidden = compact
-		? 0
-		: drawn.reduce(
-				(sum, group) => sum + (group.settled ? 0 : group.agents.length - group.visible.length),
-				0,
-			)
-	const showSettledPhases = !compact && activityLines
-	const running = agents.filter(
-		(agent) => agent.status === 'working' || agent.status === 'starting',
-	).length
-	const queued = agents.filter((agent) => agent.status === 'queued').length
-	const done = agents.length - active
-	const startedAt = Math.min(...agents.map((agent) => agent.startedAt))
-	const spent = agents.reduce<number | undefined>(
-		(sum, agent) => (agent.tokens === undefined ? sum : (sum ?? 0) + agent.tokens),
-		undefined,
+	const selectedAgent = focused ? selectedIndex - 1 : 0
+	const { start, items } = selectionWindow(
+		agents,
+		Math.max(0, selectedAgent),
+		compact ? 0 : AGENT_RAIL_WINDOW,
 	)
-	// Narrow or wide, the count is the reference's `done/total`, the same
-	// figure the cockpit header and each phase line carry, so one moment
-	// never reads as two different numbers.
-	const counts = narrow
-		? `${done}/${agents.length} done${hidden > 0 ? ` +${hidden}` : ''}`
-		: [
-				`${running} running`,
-				...(queued > 0 ? [`${queued} queued`] : []),
-				// The reference's own counter: how much of this workflow is done.
-				...(done > 0 ? [`${done}/${agents.length} done`] : []),
-				...(showCounters
-					? [
-							formatElapsed(Math.max(0, now - startedAt)),
-							...(spent !== undefined ? [`${formatCompactCount(spent)} tokens`] : []),
-						]
-					: []),
-				// A review owns the keyboard, so neither key reaches the rail while
-				// the panel is reduced for one: it names no key it cannot keep.
-				...(compact ? [] : ['↓ / ctrl+t']),
-			].join(' · ')
+	const above = start
+	const below = compact ? agents.length : Math.max(0, agents.length - start - items.length)
+	// The type column is as wide as the longest type on screen (never past the
+	// cap), so the description starts right after it instead of at a fixed tab.
+	const nameWidth = Math.min(
+		narrow ? 14 : AGENT_RAIL_NAME_WIDTH,
+		Math.max(4, ...agents.map((agent) => stringWidth(oneLine(agent.agentId)))),
+	)
+	const mainRight = compact
+		? `${agents.length} agent${agents.length === 1 ? '' : 's'}`
+		: [above > 0 ? `↑ ${above} more` : undefined, focused ? undefined : '↓ to manage']
+				.filter((part): part is string => part !== undefined)
+				.join(' · ')
 
 	return (
 		<Box flexDirection="column">
 			<Box>
 				<Box width={2} flexShrink={0}>
-					<Text color={active > 0 ? theme.accent.assistant : theme.status.ok}>
-						{active > 0 ? '●' : '✓'}
+					<Text color={theme.accent.assistant}>{focused && selectedIndex === 0 ? '❯' : ' '}</Text>
+				</Box>
+				<Box width={2} flexShrink={0}>
+					<Text bold={mainViewed} color={mainViewed ? theme.accent.assistant : theme.text.muted}>
+						{mainViewed ? '●' : '○'}
 					</Text>
 				</Box>
-				<Box flexShrink={1} minWidth={0}>
-					<Text color={theme.text.primary} bold wrap="truncate-end">
-						{terminalDisplayText(title)}
+				<Box flexGrow={1} flexShrink={1} minWidth={0}>
+					<Text
+						bold={mainViewed || (focused && selectedIndex === 0)}
+						dimColor={!mainViewed && !(focused && selectedIndex === 0)}
+						color={theme.text.primary}
+					>
+						main
 					</Text>
 				</Box>
-				<Box flexShrink={0}>
-					<Text color={theme.text.muted}> · {counts}</Text>
-				</Box>
+				{mainRight ? (
+					<Box flexShrink={0} marginLeft={1}>
+						<Text color={theme.text.muted}>{mainRight}</Text>
+					</Box>
+				) : null}
 			</Box>
-			{drawn.map((group) => {
-				const phase = group.phase
-				if (phase && group.settled && !showSettledPhases) return null
-				const indent = phase ? 4 : 2
-				return (
-					<Box key={phase?.id ?? 'all'} flexDirection="column">
-						{phase ? (
-							<Box paddingLeft={2}>
+			{compact
+				? null
+				: items.map((agent, offset) => {
+						const index = start + offset + 1
+						const selected = focused && selectedIndex === index
+						const viewed = viewingId === agent.viewId
+						const finished = isTerminalStatus(agent.status)
+						const status = railStatusText(agent, now)
+						return (
+							<Box key={agent.viewId}>
 								<Box width={2} flexShrink={0}>
-									<Text color={statusColor(phase.status)}>{statusGlyph(phase.status)}</Text>
+									<Text color={theme.accent.assistant}>{selected ? '❯' : ' '}</Text>
 								</Box>
-								<Box flexShrink={1} minWidth={0}>
+								<Box width={2} flexShrink={0}>
+									<Text bold={viewed} color={railBulletColor(agent.status)} dimColor={!viewed}>
+										{viewed ? '●' : '○'}
+									</Text>
+								</Box>
+								<Box width={nameWidth} flexShrink={0}>
 									<Text
-										color={group.settled ? theme.text.secondary : theme.text.primary}
+										bold={viewed || selected}
+										dimColor={!viewed && !selected}
+										color={theme.text.primary}
 										wrap="truncate-end"
 									>
-										{oneLine(phase.name)}
+										{terminalDisplayText(oneLine(agent.agentId))}
 									</Text>
 								</Box>
-								<Box flexShrink={0}>
-									<Text color={theme.text.muted}>
-										{' · '}
-										{phaseProgress(phase)}
-										{group.settled ? ` · ${formatElapsed(phaseElapsed(phase, now))}` : ''}
+								<Box flexGrow={1} flexShrink={1} minWidth={0} paddingLeft={2}>
+									<Text
+										bold={viewed || selected}
+										dimColor={!viewed && !selected}
+										color={theme.text.primary}
+										wrap="truncate-end"
+									>
+										{terminalDisplayText(oneLine(agent.description || agent.agentId))}
 									</Text>
+								</Box>
+								<Box flexShrink={0} marginLeft={1}>
+									<Text color={finished ? theme.text.muted : theme.text.secondary}>{status}</Text>
 								</Box>
 							</Box>
-						) : null}
-						{group.visible.map((agent, index) => {
-							const last =
-								index === group.visible.length - 1 &&
-								group.agents.length === group.visible.length &&
-								(phase !== undefined || hidden === 0)
-							// Clamped: a child begun after this panel's last clock tick would
-							// otherwise read `-0.0s` until the next one.
-							const elapsed = formatElapsed(
-								Math.max(0, (agent.completedAt ?? now) - agent.startedAt),
-							)
-							const meta = agentRailMetaParts(agent, { showModel, showCounters })
-							const agentRunning = !isTerminalStatus(agent.status)
-							const activity = agentRunning ? railActivity(agent) : undefined
-							return (
-								<Box key={agent.viewId} flexDirection="column">
-									<Box paddingLeft={indent}>
-										<Box width={2} flexShrink={0}>
-											<Text color={theme.text.muted}>{last ? '└' : '├'}</Text>
-										</Box>
-										<Box width={2} flexShrink={0}>
-											<Text color={statusColor(agent.status)}>{statusGlyph(agent.status)}</Text>
-										</Box>
-										<Box
-											width={narrow ? undefined : 28 - (indent - 2)}
-											flexGrow={narrow ? 1 : 0}
-											flexShrink={1}
-										>
-											<Text color={theme.text.primary} wrap="truncate-end">
-												{oneLine(agent.description || agent.agentId)}
-											</Text>
-										</Box>
-										<Box flexGrow={narrow ? 0 : 1} flexShrink={1} marginLeft={1}>
-											<Text color={theme.text.secondary} wrap="truncate-end">
-												{agent.status === 'queued' ? 'queued' : elapsed}
-												{!narrow && !activityLines && activity ? ` · ${activity}` : ''}
-											</Text>
-										</Box>
-										{meta.length > 0 ? (
-											<Box flexShrink={0} marginLeft={1}>
-												<Text color={theme.text.muted} wrap="truncate-end">
-													{meta.join(' · ')}
-												</Text>
-											</Box>
-										) : null}
-									</Box>
-									{activityLines && activity ? (
-										<Box paddingLeft={indent}>
-											<Box width={4} flexShrink={0}>
-												<Text color={theme.text.muted}>{last ? ' ' : '│'}</Text>
-											</Box>
-											<Box flexShrink={1} minWidth={0}>
-												<Text color={theme.text.secondary} wrap="truncate-end">
-													⎿ {activity}
-												</Text>
-											</Box>
-										</Box>
-									) : null}
-								</Box>
-							)
-						})}
-					</Box>
-				)
-			})}
-			{hidden > 0 ? (
+						)
+					})}
+			{!compact && below > 0 ? (
+				<Box paddingLeft={4}>
+					<Text color={theme.text.muted}>↓ {below} more</Text>
+				</Box>
+			) : null}
+			{focused && !compact ? (
 				<Box paddingLeft={2}>
-					<Text color={theme.text.muted}>└ +{hidden} more · ctrl+t</Text>
+					<Text color={theme.text.muted} wrap="truncate-end">
+						{railHint(selectedIndex === 0 ? undefined : agents[selectedIndex - 1], terminalColumns)}
+					</Text>
 				</Box>
 			) : null}
 		</Box>
 	)
 }
 
-/**
- * Whether each running agent gets its own `⎿ activity` line. On a short
- * terminal the activity stays inline after the elapsed time instead, so the
- * rail keeps one row per agent where rows are scarcest.
- */
-export function agentTaskPanelShowsActivity(terminalRows: number | undefined): boolean {
-	return terminalRows !== undefined && Number.isFinite(terminalRows) && terminalRows >= 24
-}
-
-/**
- * Agents the compact panel may show without crowding the composer/footer.
- * An agent costs two rows where activity lines are drawn and one elsewhere,
- * so the budget in ROWS stays what it was when every agent took one.
- */
-export function agentTaskPanelPageSize(terminalRows: number | undefined): number {
-	if (terminalRows === undefined || !Number.isFinite(terminalRows)) return 2
-	const rowsPerAgent = agentTaskPanelShowsActivity(terminalRows) ? 2 : 1
-	return Math.max(1, Math.min(4, Math.floor((terminalRows - 12) / (3 * rowsPerAgent))))
-}
-
-/** What the running agent is doing now, or its status when it has said nothing yet. */
-function railActivity(agent: SubagentActivity): string {
-	if (agent.status === 'queued') return 'Waiting for a slot'
-	return distinctActivity(agent) ?? statusLabel(agent.status)
-}
-
-/**
- * The rail's own ordering: tool uses and spend first, then the model, with
- * counters dropped first on a narrow screen. The saved marker, when present,
- * leads for the reason `agentMetaParts` gives.
- */
-function agentRailMetaParts(
-	agent: SubagentActivity,
-	options: { readonly showModel: boolean; readonly showCounters: boolean },
-): readonly string[] {
-	const parts: string[] = []
-	if (agent.replayed) parts.push('saved')
-	if (options.showCounters) {
-		if (agent.toolCalls !== undefined) {
-			parts.push(`${agent.toolCalls} ${agent.toolCalls === 1 ? 'tool' : 'tools'}`)
-		}
-		if (agent.tokens !== undefined) parts.push(formatCompactCount(agent.tokens))
-	}
-	if (options.showModel && agent.model) {
-		parts.push(truncateChoiceText(agent.model, MAX_MODEL_LABEL_WIDTH))
-	}
-	return parts
-}
-
-/**
- * Live cohorts plus their already-settled siblings. Terminal cohorts are
- * retained by the monitor for explicit history but never reappear here.
- */
-export function activeSubagentCohorts(
-	agents: readonly SubagentActivity[],
-): readonly SubagentActivity[] {
-	// Replayed rows are excluded before anything else, in BOTH directions:
-	// they never appear in this panel, and a replayed row whose saved status
-	// never reached a terminal value never makes a cohort look live. Saved
-	// evidence describes work that ended in another process, and this panel
-	// exists to say what is running now.
-	const live = agents.filter((agent) => agent.replayed !== true)
-	const activeCohorts = new Set(
-		live.filter((agent) => !isTerminalStatus(agent.status)).map(agentCohortKey),
+/** The key line shown under the rail while it has the keyboard. */
+export function railHint(selected: SubagentActivity | undefined, columns: number): string {
+	const action = selected ? railActionFor(selected) : undefined
+	return fitHints(
+		[
+			{ text: '↑/↓ select', short: '↑/↓', rank: 4 },
+			{ text: 'enter view', short: 'enter', rank: 5 },
+			...(action ? [{ text: `x ${action}`, rank: 3 }] : []),
+			{ text: 'esc back', rank: 2 },
+		],
+		Math.max(1, columns - 2),
 	)
-	return live.filter((agent) => activeCohorts.has(agentCohortKey(agent)))
-}
-
-/**
- * What stays on the rail together. A labelled workflow is one cohort across
- * every batch of its parent turn, so a settled Phase 1 is still drawn while
- * Phase 2 runs; an unlabelled batch is its own cohort, as it always was
- * (`workflowGroupId` is exactly that split, made by the monitor).
- */
-function agentCohortKey(agent: SubagentActivity): string {
-	return agent.workflowGroupId
 }
 
 export type AgentCockpitFocus = 'workflows' | 'phases' | 'agents'
@@ -962,6 +912,8 @@ export interface AgentTranscriptProps {
 	/** Reserve more of a short terminal for the child's message editor. */
 	readonly compact?: boolean
 	readonly navigationHint?: string
+	/** What Esc does here: `agents` returns to the cockpit list, `back` to the rail. */
+	readonly escapeTo?: 'agents' | 'back'
 }
 
 /** Child screen; leave two parent footer rows and one terminal cursor row free. */
@@ -972,6 +924,7 @@ export function AgentTranscript({
 	terminalColumns,
 	compact = false,
 	navigationHint,
+	escapeTo = 'agents',
 }: AgentTranscriptProps) {
 	const page = agentTranscriptPage(
 		agent,
@@ -995,7 +948,9 @@ export function AgentTranscript({
 				{ text: 'PgUp/PgDn', short: '↑↓ scroll', rank: 2 },
 				{ text: 'Home oldest', rank: 1 },
 				{ text: `End ${tailLabel.toLowerCase()}`, rank: 1 },
-				{ text: 'esc agents', short: 'esc list', rank: 5 },
+				escapeTo === 'back'
+					? { text: 'esc back', rank: 5 }
+					: { text: 'esc agents', short: 'esc list', rank: 5 },
 				{ text: 'q parent', rank: 5 },
 			],
 			Math.max(1, terminalColumns - 4),

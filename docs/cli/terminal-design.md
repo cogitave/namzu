@@ -134,69 +134,62 @@ rail, the agent cockpit, a child transcript, or the tool-output viewer, each
 in the same relative order they already had among themselves. The footer's
 own row is fixed relative to the frame above it, never to whichever of those
 panels follows, so it always reads immediately under the input regardless of
-how much the rail or a full-screen surface below it is showing. The rail's
-own title is the workflow label every one of its agents shares; when they
-carry none, or carry more than one, the title is a neutral count instead
-(`2 agents · 1 running`) rather than a generic name that described none of
-them in particular. The agent cockpit's per-workflow header follows the same
-rule. So does each row of the cockpit's own workflow picker (`Ctrl+T` with two
-or more groups live or retained at once): a group whose agents never set an
-explicit label is named after its own lead agent instead of the generic
-default — that agent's title, plus a `+N` count when the group holds more
-than one — so two unlabelled groups still read as distinct entries rather
-than two identical rows.
+how much the rail or a full-screen surface below it is showing.
+The agent cockpit's per-workflow header names its workflow by the label every
+one of its agents shares; when they carry none, or carry more than one, it
+shows a neutral count (`2 agents · 1 running`) rather than a generic name that
+described none of them in particular. So does each row of the cockpit's own
+workflow picker (`Ctrl+T` with two or more groups live or retained at once): a
+group whose agents never set an explicit label is named after its own lead
+agent instead of the generic default — that agent's title, plus a `+N` count
+when the group holds more than one — so two unlabelled groups still read as
+distinct entries rather than two identical rows.
 
-The rail is a borderless tree aligned with the transcript's own gutter, not a
-boxed panel:
-
-```text
-● Two-phase colour sentence · 1 running · 1 queued · 2.1s · 4.1k tokens · ↓ / ctrl+t
-  ├ ● Choose first colour     2.1s   3 tools · 4.1k · gpt-5.6-luna
-  │   ⎿ Reading src/index.ts
-  └ ◌ Choose second colour    queued
-      ⎿ Waiting for a slot
-```
-
-The header's `●` is green while anything runs and becomes `✓` once all have
-settled; the counts separate running from queued, then say how many are done
-(`2/3 done`, once one is) and, from 96 columns, how long the work has run
-since its first agent started and what it has spent so far. Below 64 columns
-the counts shrink to that one figure, `2/3 done` (with `+N` for agents the
-rail has no room to draw), the same count the cockpit's header gives at that
-width. Each agent is one `├`/`└`
-branch with its status glyph (`◌ ● ✓ ✗ ○`), name, elapsed time and, as width
-allows, tool uses, spend and model — tool uses and spend drop first, then the
-model. A running agent's latest activity sits beneath it on a `⎿` line; on a
-terminal under 24 rows it stays inline after the elapsed time instead, so each
-agent costs one row where rows are scarcest, and the rail shows half as many
-agents where each costs two. The rail stays on screen while an approval dialog
-is open, reduced to its header line, so the work already approved can be seen
-moving while the next launch is being decided. That header names no key: the
-dialog owns the keyboard, so neither ↓ nor Ctrl+T reaches the rail until it
-closes.
-
-A workflow the model split into several phases (agents sharing a `workflow`
-label with different `phase` labels) stays on the rail as one piece for the
-whole turn, and is drawn by phase:
+The rail is a `main` row followed by one row per running or recently
+finished sub-agent, drawn right under the footer with no title and no box:
 
 ```text
-● Two-phase colour sentence · 1 running · 2/3 done · 6.5s · 18.0k tokens · ↓ / ctrl+t
-  ✓ Phase 1 · 2/2 · 4.0s
-  ● Phase 2 · 0/1
-    └ ● Join the two colours       1.0s                    gpt-5.6-luna
-        ⎿ Working
+  ● main                                                         ↓ to manage
+  ○ general-purpose  Mine the Claude Code UI reference     2m10s · ↓ 12.3k tokens
+  ○ explore          Find where the footer is drawn                 8s · ↓ 1.4k tokens
+  ○ general-purpose  Check the changelog                          waiting
 ```
 
-A settled phase is one line, its count and how long it took; its agents'
-rows are already in the conversation and in Ctrl+T. A live phase is its line
-with its agents beneath it. Under 24 rows a settled phase gives its line up.
-Agents without a workflow label stay grouped by the response that launched
-them, one batch at a time, as before. The rail is empty, and not drawn,
-between phases while no agent is live.
+`●` marks the transcript on screen and `○` every other row; `main` is `●`
+until an agent's transcript is open. An agent's bullet is coloured only once it
+has finished — green when it succeeded, red when it failed or was stopped.
+Each agent row is its type, its description (cut with `…` when the line is
+short) and, right-aligned, how long it has run and what it has spent so far
+(`↓ 12.3k tokens`, left out until the agent has reported usage); an agent
+still waiting for a slot reads `waiting` instead of a clock. Rows follow
+launch order. Workflow and phase labels, the latest activity line, model and
+tool counts are not on the rail; the cockpit (`Ctrl+T`, `/agents`) and the
+agent's own transcript carry them.
+
+At most five agents are drawn. A longer list scrolls with the selection:
+`↑ N more` appears on the right of the `main` row when agents are scrolled
+above, and a dim `↓ N more` row sits under the last one when more are below.
+A finished agent stays 30 seconds, then leaves; saved agents from earlier
+sessions never appear on the rail (the cockpit lists them).
+
+Press ↓ in an empty composer to move into the rail (with no rows on screen it
+still opens the cockpit for saved agents). The composer is dimmed while the
+rail has the keys, and a key line appears under the rows:
+`↑/↓ select · enter view · x stop · esc back`. ↑/↓ moves between `main` and
+the agents (a `❯` marks the row), Enter opens that agent's transcript and
+Esc from it comes back to the same row, `x` stops a running agent (the parent
+turn and the other agents keep going) or, on a finished one, clears its row,
+and Esc hands the keyboard back to the composer. Any other key does the same.
+`Ctrl+T` still opens the cockpit from anywhere. While an approval dialog is
+open the rail shrinks to the `main` row with a count (`2 agents`) and names no
+key, since the dialog owns the keyboard.
+
+A workflow the model split into several phases keeps its phase lines in the
+cockpit; the rail lists the same agents flat.
 
 Between the footer and the rail sits the parent's own narration, when it has
 written any: up to three dim lines, one row each, unboxed and indented to the
-column the rail's title starts in, so they read as the parent talking rather
+column the rail's `main` label starts in, so they read as the parent talking rather
 than as chrome the panel drew. They are commentary and carry no status —
 status is on the rail below them, in counts and glyphs as everywhere else.
 They never take a row from the rail: its height budget is computed from the
@@ -612,11 +605,12 @@ and live rows are hidden while their state remains mounted. The child view
 uses the available terminal height, identifies the task and its live status,
 and supports line and page scrolling. File-output tabs are expanded before
 pagination, and wrapping uses terminal cell widths for Unicode graphemes. Each
-body row stays within its frame, with room for navigation and the cursor. Esc returns to the agent list; `q` or
+body row stays within its frame, with room for navigation and the cursor. Esc returns to the agent list (or, when the view was opened from the rail, to
+that agent's row on the rail); `q` or
 Ctrl+T returns to the main conversation and restores the draft. A child that
 finishes remains readable in the open view and can be reopened from `/agents`
-while retained by the current session. The automatic activity rail shows only
-cohorts with work still running.
+while retained by the current session. The agents rail shows the running agents and
+those that finished in the last 30 seconds.
 
 Messages submitted with Enter while an `Agent` call waits for a child release
 that wait so the parent can respond while children continue. Results arrive in

@@ -137,7 +137,8 @@ message becomes visible on both sides of the exchange. The child's transcript
 calls and answers. The main conversation gets a matching row, `<description> ·
 correction sent`, with the message text beneath it, so the operator can see
 what was said without opening the child's screen. Each side shows the message
-exactly once, however many times the surface re-renders.
+exactly once, however many times the surface re-renders. The rail row keeps to the clock and
+the spend (`↓ 42.1k tokens`).
 These rows record acceptance; they do not acknowledge that the child model
 read the message or completed the requested change.
 
@@ -204,19 +205,18 @@ a second report to the transcript. Unknown waits and tool errors remain
 visible. Press Ctrl+T to inspect agent transcripts and results. Failed, cancelled
 and incomplete work keeps its reported status rather than appearing completed.
 
-The automatic rail stays on screen while an approval dialog is open, reduced to
-its header line, so agents already approved can be seen working while the next
-launch is decided. The reduced header names no key, since the dialog holds ↓
-and Ctrl+T until it closes. Read-only launches start without a review; see
+The agents rail stays on screen while an approval dialog is open, reduced to
+its `main` row and a count, so agents already approved can be seen working
+while the next launch is decided. That row names no key, since the dialog holds
+↓ and Ctrl+T until it closes. Read-only launches start without a review; see
 [Which launches are asked about](#which-launches-are-asked-about).
 
-A workflow split into phases (one `workflow` label, several `phase` labels)
-stays on the rail as one piece for the whole parent turn and is drawn by
-phase: a settled phase as one line with its count and time, a live one with
-its agents beneath it. The rail's header counts done agents across every
-phase (`2/3 done`), with the time since the first started and the spend so
-far. The agent cockpit opens on the phase that is still working. See
-[Terminal design](terminal-design.md) for both.
+The rail lists running agents and those finished within the last 30 seconds,
+five at a time, one row each (type, description, time and spend); ↓ in an empty
+composer moves into it, where Enter opens an agent's transcript and `x` stops
+it. A workflow split into phases (one `workflow` label, several `phase`
+labels) is drawn by phase in the agent cockpit, which opens on the phase that
+is still working. See [Terminal design](terminal-design.md) for both.
 
 Completion reaches the parent as a task notification. `wait_for_task` retrieves
 the result without launching duplicate work. Background work keeps the same
@@ -287,11 +287,10 @@ pane's height never depends on how long the detail is. On a short terminal
 (the cockpit's compact layout) the detail stays hidden entirely, the same way
 the cockpit already drops its other secondary text there.
 
-Each row in the automatic rail, the agent cockpit and the child transcript
-header shows the child's status, elapsed time, description and — when the
-host reported them — its resolved model and live counters: cumulative spend
-compacted to `42.1k`/`1.38M` and a `N tools` tool-call count (the rail puts the
-tool count and spend before the model, the cockpit after it), both drawn
+Each row in the agent cockpit and the child transcript header shows the
+child's status, elapsed time, description and — when the host reported them —
+its resolved model and live counters: cumulative spend compacted to
+`42.1k`/`1.38M` and a `N tools` tool-call count, both drawn
 from the same session events the transcript itself renders and never a percentage
 or fill bar. Spend is the child's cumulative usage, not its current context
 size, which is a different number that falls on compaction. A child that has

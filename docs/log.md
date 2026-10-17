@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-10-18
+
+- **Update** [Terminal design](cli/terminal-design.md) and [Delegated work](cli/delegated-work.md): the agents rail under the footer is now a `main` row plus one row per running or recently finished agent (type, description, time, spend), five at a time with `↓ N more`, finished agents leaving after 30 seconds. ↓ from an empty composer moves into the rail (`↑/↓ select · enter view · x stop · esc back`); the old titled tree with workflow and phase lines, per-agent activity lines and the `↓ / ctrl+t` counter is gone from the rail (the cockpit keeps them). `.changeset/agents-rail.md`, **patch** for `@namzu/cli`.
+
 ## 2026-10-17
 
 - **Update** [Zen and Zen Go](sdk/zen.md) and [The model catalogue refresh](cli/model-catalogue.md): the derivation now reads the per-wire endpoint families upstream moved its pages to (`/inference/openai/…`, `anthropic/…`, `google/…`, and their `go` variants). A page row whose package and endpoint pair names a wire the driver does not implement is listed in `report.undecided` instead of stopping the whole run, so a new upstream wire becomes a per-row to-do rather than a catalogue-wide outage until the next release. The tamper guard is unchanged: a pair whose endpoint names a host other than the service's still rejects the run whole. The bundled snapshot is refreshed with the same rules: it adds `glm-5.3-flash-free` and the rest of the current pages, and drops thirteen ids upstream no longer documents or serves. The served-but-no-longer-routed ids (`zen/deepseek-v4-flash`, `go/kimi-k2.6`, `go/minimax-m2.7`, `go/grok-4.6`) are recorded in `models.review.json`, and the expired `go/deepseek-flash` omission is retired. `.changeset/zen-per-wire-endpoints.md`, **major** for `@namzu/zen`.

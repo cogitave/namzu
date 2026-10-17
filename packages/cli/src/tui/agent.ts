@@ -1119,6 +1119,8 @@ export interface AgentSession {
 		message: string,
 		opts?: SendOptions,
 	) => Promise<SubagentMessageReceipt>
+	/** Stop one running child from the agents rail; false when it is not ours or already ended. */
+	readonly stopSubagent?: (viewId: string) => boolean
 	readonly subagents?: SubagentActivitySource
 	/**
 	 * Children of this conversation's earlier turns, rebuilt from their own
@@ -4132,6 +4134,7 @@ export async function createAgentSession(
 							directChildReports.delete(listener)
 						}
 					},
+					stopSubagent: (viewId: string) => subagentRuntime?.stopChild(viewId) ?? false,
 					messageSubagent: (viewId: string, message: string, opts?: SendOptions) =>
 						operations.promise(opts?.signal, async (signal) => {
 							const runtime = subagentRuntime

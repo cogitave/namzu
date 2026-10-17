@@ -320,6 +320,12 @@ export interface SubagentRuntime {
 		turnId: TurnId,
 		signal: AbortSignal,
 	): Promise<SubagentMessageReceipt>
+	/**
+	 * Operator route: stop one running child from the agents rail. False when
+	 * the row is not owned by this host or has already ended; the parent turn
+	 * and the other children are untouched.
+	 */
+	stopChild(viewId: string): boolean
 	readonly modelCatalogueTool?: ToolDefinition
 	readonly agentTool: ToolDefinition
 	/** Retrieve a child result without starting another task. */
@@ -1647,10 +1653,22 @@ export async function createSubagentRuntime(
 			})
 		: undefined
 
+	const stopChild = (viewId: string): boolean => {
+		if (closed) return false
+		const owned = conversations.get(viewId)
+		const shown = activity.getSnapshot().find((value) => value.viewId === viewId)
+		if (!owned || !shown || shown.replayed) return false
+		const current = owned.gateway.getTask(owned.task.taskId) ?? owned.task
+		if (isTerminalAgentTaskState(current.state)) return false
+		owned.gateway.cancelTask(owned.task.taskId, 'user')
+		return true
+	}
+
 	return {
 		cancelAgentTool,
 		modelCatalogueTool,
 		messageChild,
+		stopChild,
 		gatewayForTurn,
 		completionInboxForTurn,
 		releaseTurn,

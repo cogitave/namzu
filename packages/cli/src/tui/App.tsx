@@ -186,7 +186,6 @@ import {
 	AgentNarrationBand,
 	AgentTaskPanel,
 	AgentTranscript,
-	activeSubagentCohorts,
 	agentCockpitIsWide,
 	agentPhasePageSize,
 	agentPhases,
@@ -195,6 +194,9 @@ import {
 	agentWorkflowPageSize,
 	agentWorkflows,
 	maxAgentTranscriptTailOffset,
+	railActionFor,
+	railAgents,
+	railNextEviction,
 } from './AgentExplorer.js'
 import { BrandHeader } from './BrandHeader.js'
 import { checklistProgress } from './Checklist.js'
@@ -463,6 +465,8 @@ type AgentSurface =
 			readonly returnFocus: AgentCockpitFocus
 			readonly tailOffset: number
 			readonly composing?: boolean
+			/** Opened from the agents rail: Esc goes back to the rail, not the cockpit. */
+			readonly fromRail?: boolean
 	  }
 type DirectChildNotice = {
 	readonly context: string
@@ -1484,6 +1488,38 @@ export function App({
 	 */
 	const [narration, setNarration] = useState<readonly SubagentNarrationLine[]>([])
 	const [agentSurface, setAgentSurfaceState] = useState<AgentSurface | null>(null)
+	/**
+	 * The agents rail's keyboard focus: `main`, a row's view id, or null when the
+	 * composer owns the keys. The ref is what the key handler reads, because a
+	 * burst of keys arrives before React commits the state.
+	 */
+	const [railFocus, setRailFocusState] = useState<string | null>(null)
+	const railFocusRef = useRef<string | null>(null)
+	const setRailFocus = useCallback((next: string | null) => {
+		railFocusRef.current = next
+		setRailFocusState(next)
+	}, [])
+	/** Agents the operator cleared with `x` after they finished. */
+	const [dismissedAgents, setDismissedAgents] = useState<ReadonlySet<string>>(() => new Set())
+	/** Clock for the rail's 30 s finished-agent lifetime; moved only when a row is due to leave. */
+	const [railNow, setRailNow] = useState(() => Date.now())
+	const railRowsRef = useRef<readonly SubagentActivity[]>([])
+	const railJustFocusedRef = useRef(false)
+	// A finished agent leaves the rail 30 s after it ended: sleep until the next
+	// one is due instead of ticking, so a quiet session renders nothing.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: `railNow` is not read here; moving it is what re-arms the timer for the next agent due to leave.
+	useEffect(() => {
+		const wait = railNextEviction(subagents, Date.now())
+		if (wait === undefined) return
+		const timer = setTimeout(() => setRailNow(Date.now()), wait + 20)
+		timer.unref?.()
+		return () => clearTimeout(timer)
+	}, [subagents, railNow])
+	// The rail cannot keep the keyboard once it has nothing to show.
+	const railHasRows = railAgents(subagents, railNow, dismissedAgents).length > 0
+	useEffect(() => {
+		if (!railHasRows && railFocus !== null) setRailFocus(null)
+	}, [railHasRows, railFocus, setRailFocus])
 	const [jobSurfaceState, setJobSurfaceState] = useState<JobSurface | null>(null)
 	const jobSurface = jobSurfaceState?.ownerSession === session ? jobSurfaceState : null
 	const jobSurfaceRef = useRef<JobSurface | null>(null)
@@ -1687,6 +1723,24 @@ export function App({
 		if (token !== cockpitOpenTokenRef.current) return true
 		return openCockpitFromCurrentRows()
 	}, [hydrateSavedChildren, openCockpitFromCurrentRows])
+	/**
+	 * Empty-composer ↓: move into the agents rail when it has rows, otherwise
+	 * open the cockpit for the saved children it can still show.
+	 */
+	const focusAgentRail = useCallback(() => {
+		const first = railRowsRef.current[0]
+		if (first && agentSurfaceRef.current === null) {
+			// The ↓ that gets here is also dispatched to App's own key handler in
+			// the same tick, which must not read it as the first step inside the rail.
+			railJustFocusedRef.current = true
+			setTimeout(() => {
+				railJustFocusedRef.current = false
+			}, 0)
+			setRailFocus(first.viewId)
+			return
+		}
+		void openAgentCockpit()
+	}, [openAgentCockpit, setRailFocus])
 	/** One git-backed review choice may be resolving while its visible picker remains authoritative. */
 	const reviewChoiceInFlightRef = useRef<object | null>(null)
 	const exitArmedRef = useRef<boolean>(false)
@@ -10352,6 +10406,53 @@ export function App({
 			// Open the same retained cockpit as `/agent`; Enter then drills into a
 			// child's transcript. Keep the shortcut below consent so it can never
 			// hide an approval that owns the keyboard.
+			// The agents rail owns the arrows, Enter, x and Esc while it is focused.
+			// Any other key hands the keyboard back to the composer.
+			const railTarget = railFocusRef.current
+			if (railTarget !== null && railJustFocusedRef.current) return
+			if (railTarget !== null) {
+				const rows = railRowsRef.current
+				const at = rows.findIndex((agent) => agent.viewId === railTarget)
+				const selected = at < 0 ? undefined : rows[at]
+				if (rows.length === 0 || agentSurfaceRef.current) {
+					setRailFocus(null)
+				} else if (key.escape) {
+					setRailFocus(null)
+					return
+				} else if (key.upArrow || key.downArrow) {
+					const index = at + 1 + (key.downArrow ? 1 : -1)
+					const clamped = Math.max(0, Math.min(rows.length, index))
+					setRailFocus(clamped === 0 ? 'main' : rows[clamped - 1]!.viewId)
+					return
+				} else if (key.return) {
+					setRailFocus(null)
+					if (selected) {
+						setAgentSurface({
+							kind: 'transcript',
+							selectedPhaseId: selected.phaseId,
+							selectedId: selected.viewId,
+							returnFocus: 'agents',
+							tailOffset: 0,
+							fromRail: true,
+						})
+					}
+					return
+				} else if (input === 'x' && !key.ctrl && !key.meta) {
+					if (!selected) return
+					if (railActionFor(selected) === 'stop') {
+						// The row turns into a finished one by itself once the child
+						// reports its end; nothing else to update here.
+						session?.stopSubagent?.(selected.viewId)
+					} else {
+						setDismissedAgents((current) => new Set(current).add(selected.viewId))
+						const neighbour = rows[at + 1] ?? rows[at - 1]
+						setRailFocus(neighbour ? neighbour.viewId : 'main')
+					}
+					return
+				} else {
+					setRailFocus(null)
+				}
+			}
 			if (key.ctrl && input === 't') {
 				if (agentSurfaceRef.current) {
 					setAgentSurface(null)
@@ -10516,6 +10617,11 @@ export function App({
 
 				if ((!agentView.composing && input.toLowerCase() === 'q') || (key.ctrl && input === 'c')) {
 					setAgentSurface(null)
+					return
+				}
+				if (key.escape && agentView.fromRail) {
+					setAgentSurface(null)
+					setRailFocus(selected.viewId)
 					return
 				}
 				if (key.escape) {
@@ -10807,7 +10913,8 @@ export function App({
 	// Background is left natural — we inherit the terminal's own background
 	// and only theme the foreground. Forcing
 	// a filled bg left mismatched patches around bordered areas, so we don't.
-	const liveSubagents = activeSubagentCohorts(subagents)
+	const liveSubagents = railAgents(subagents, railNow, dismissedAgents)
+	railRowsRef.current = liveSubagents
 	const representedSubagentTools = new Set(
 		subagents
 			.filter((agent) => agent.toolUseId !== undefined)
@@ -11251,6 +11358,7 @@ export function App({
 									compacting ||
 									conversationMutation !== null ||
 									externalEditorRequest !== null ||
+									railFocus !== null ||
 									childSurfaceOpen
 								}
 								hidden={
@@ -11281,7 +11389,7 @@ export function App({
 									setComposerDraft((draft) => (draft?.token === token ? null : draft))
 								}
 								onDraftPresenceChange={setComposerHasDraft}
-								onOpenAgentPanel={openAgentCockpit}
+								onOpenAgentPanel={focusAgentRail}
 								onScrollTranscript={() => setScrollOpen(true)}
 								onRecallQueued={recallQueuedPrompt}
 								userCommands={userCommands}
@@ -11363,6 +11471,14 @@ export function App({
 						terminalRows={terminal.rows}
 						terminalColumns={terminal.columns}
 						compact={permission !== null}
+						{...(railFocus !== null
+							? {
+									selectedIndex:
+										railFocus === 'main'
+											? 0
+											: liveSubagents.findIndex((agent) => agent.viewId === railFocus) + 1,
+								}
+							: {})}
 					/>
 				) : showComposerSurface &&
 					permission === null &&
@@ -11389,13 +11505,16 @@ export function App({
 						}
 						terminalColumns={terminal.columns}
 						compact={childComposerAvailable && terminal.rows < 24}
+						escapeTo={agentSurface.fromRail ? 'back' : 'agents'}
 						navigationHint={
 							childComposerAvailable
 								? fitHints(
 										[
 											{ text: 'PgUp/PgDn scroll', short: 'PgUp/PgDn', rank: 2 },
 											{ text: 'tab message', rank: 4 },
-											{ text: 'esc agents', short: 'esc list', rank: 5 },
+											agentSurface.fromRail
+												? { text: 'esc back', rank: 5 }
+												: { text: 'esc agents', short: 'esc list', rank: 5 },
 											{ text: 'q parent', rank: 5 },
 										],
 										Math.max(1, terminal.columns - 4),
