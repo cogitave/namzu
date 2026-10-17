@@ -65,6 +65,10 @@ after an idle gap, so a 400 ms budget sent ordinary turns to the default.
 - **Top-level turns** in the terminal and `exec --json` are routed on the
   user's latest message. A routed turn has no fallback provider chain.
 - **Delegated children** inherit the model the current turn was routed to.
+- **Web search** goes through the common `web_search` tool under Auto, never a
+  provider's hosted search, because each turn may run on a different provider
+  (a fallback chain does the same). With `web.search: cached`, which requires
+  hosted search, a turn routed to a provider that cannot run it has no search.
 - **Pals** resolve `auto` once, when the session starts, to `routing.default`
   (there is no task to size yet), and keep that model; a Pal never re-routes.
 - An explicit choice wins: `--model` at launch turns Auto off for that launch,

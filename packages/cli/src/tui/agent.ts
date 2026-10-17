@@ -2873,6 +2873,7 @@ export async function createAgentSession(
 	// and bounds redirects and body; every fetch is reviewed like a shell
 	// command (see `isPromptExempt`).
 	// Mixed fallback chains use a common tool, so provider fallback cannot silently lose search.
+	// Auto is the same case: each turn may run on another provider, so it uses the common tool too.
 	const nativeSearchAvailable =
 		provider.capabilities?.supportsHostedWebSearch === true &&
 		!options.structuredOutput &&
@@ -2881,11 +2882,22 @@ export async function createAgentSession(
 			options.web?.search === 'cached' ? 'cached' : 'live',
 		) ??
 			true) &&
-		prefs.providers.length === 1
+		prefs.providers.length === 1 &&
+		!options.routing
 	const webSearch = resolveWebSearch(options.web, nativeSearchAvailable)
 	const nativeWebSearch =
 		webSearch.mode !== 'off' && webSearch.backend === 'native'
 			? { mode: webSearch.mode }
+			: undefined
+	/**
+	 * The hosted search request for a turn Auto sent elsewhere: only where that provider can run
+	 * it (`web.search: cached` keeps the hosted backend under Auto), or the request is refused.
+	 */
+	const routedWebSearch = (routed: { readonly provider: LLMProvider; readonly model: string }) =>
+		nativeWebSearch &&
+		routed.provider.capabilities?.supportsHostedWebSearch === true &&
+		(routed.provider.supportsHostedWebSearchFor?.(routed.model, nativeWebSearch.mode) ?? true)
+			? nativeWebSearch
 			: undefined
 	// Kept aside (not just pushed) so a sub-agent can share this exact tool
 	// object rather than opening a second connection — see `buildTools` below.
@@ -3831,6 +3843,7 @@ export async function createAgentSession(
 			// hold a client the refresh just replaced.
 			await prepareProviderCredential(ownedSignal)
 			const route = await pinnedResumeRoute(pinned, entry.sessionId, ownedSignal)
+			const resumeWebSearch = route ? routedWebSearch(route) : nativeWebSearch
 			const turnSkills = await turnSkillsFor(route?.model ?? model)
 			const curatedMemory = readMemory(undefined, cwd)
 			for (const notice of formatMemoryDiagnostics(curatedMemory)) cliLogger().warn(notice)
@@ -3978,7 +3991,7 @@ export async function createAgentSession(
 					turnConfig: {
 						model: route?.model ?? model,
 						...(route?.effort ? { effort: route.effort } : {}),
-						...(nativeWebSearch ? { webSearch: nativeWebSearch } : {}),
+						...(resumeWebSearch ? { webSearch: resumeWebSearch } : {}),
 						...(sandbox.provider ? { sandbox: { workspace: sandboxWorkspace } } : {}),
 						...resumedLimits,
 						maxResponseTokens: 8192,
@@ -4559,6 +4572,7 @@ export async function createAgentSession(
 						// Its text only changes when a fact changes, so it costs a prompt-cache
 						// miss exactly when a hit would have been a stale claim.
 						const autoRoute = await autoRouteFor(messages, turnScope.sessionId, signal)
+						const turnWebSearch = autoRoute ? routedWebSearch(autoRoute) : nativeWebSearch
 						const turnSkills = await turnSkillsFor(autoRoute?.model ?? model)
 						// `options.toolLoading === 'deferred'` is already baked into
 						// `sessionToolsets` (see its construction above) — availability
@@ -4857,7 +4871,7 @@ export async function createAgentSession(
 								completionInbox: await subagentRuntime?.completionInboxForTurn(turnId),
 								promptContributions,
 								...(webCapability ? { web: webCapability } : {}),
-								...(nativeWebSearch ? { webSearch: nativeWebSearch } : {}),
+								...(turnWebSearch ? { webSearch: turnWebSearch } : {}),
 								// Tasks join this turn's registry inside query, after the fork.
 								// Keep the existing eager path unless deferral was requested.
 								runtimeToolOverrides: {

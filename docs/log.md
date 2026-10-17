@@ -2,6 +2,8 @@
 
 ## 2026-10-17
 
+- **Update** [Auto model routing](cli/auto-model-routing.md): under Auto, web search goes through the common `web_search` tool instead of the session provider's hosted search, as a fallback chain does, and a turn routed to a provider that cannot run hosted search no longer carries it. Before, a session that started on a provider with hosted search (Anthropic) sent it on every turn Auto routed elsewhere, and that provider (Zen) refused the whole request. Unreleased, so no changeset of its own: `.changeset/auto-model-routing.md` covers it.
+
 - **Update** [Auto model routing](cli/auto-model-routing.md): the default `routing.timeoutMs` is 1500 ms (was 400, measured too tight for a hosted decision deployment on a cold connection); a decision call that fails on its own is asked once more; a fallback logs the error class; only a conversation that has called the computer-use tool keeps the `fast` tier out (the tool being mounted no longer does); and the terminal status line shows the tier and model each turn went to. Unreleased, so no changeset of its own: `.changeset/auto-model-routing.md` and `.changeset/auto-model-choice.md` cover it.
 
 ## 2026-10-16
