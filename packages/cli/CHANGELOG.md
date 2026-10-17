@@ -1,5 +1,13 @@
 # @namzu/cli
 
+## 36.2.0
+
+### Minor Changes
+
+- 1c48447: Make Auto a visible model choice in the terminal and in Desktop. With a `routing` block in your user config, the `/model` picker lists "Auto (picks a model for each task)" first, `/model auto` (or "switch model to auto", "auto'ya geç") turns it on, and Desktop's composer model picker offers the same row; `model: auto` stays the way to make Auto the default every time. Choosing a model by hand turns Auto off for that conversation and choosing Auto turns it back on; a launch `--model` still wins for that launch. Auto chosen in the terminal lasts for the launch, and Desktop remembers it per conversation. Nothing changes for configs without `routing`: asking for Auto there now says in plain words that it needs a `routing` block. The ACP runtime gains an optional `auto` field on the provider status and a `namzu/providers/select_auto` method; Pals and external engines are never offered Auto.
+- 1c48447: Add opt-in automatic model selection. Set `model: auto` and a `routing` block (`default`, optional `tiers.fast` and `tiers.big`, `strategy`, `thresholds`, `timeoutMs`) in your user or managed config, and the CLI asks your configured `decision` model how big each task is and runs it on the matching model, so short chat can use a small local model and large changes a bigger one. Any failure to decide, a timeout, or an unavailable tier runs `routing.default`; it never falls to the small or big model. `model: auto` without `routing.default` is a config error at load. Nothing changes unless you set these keys: the default behaviour is untouched, project config and the environment cannot set them, and `--model` or picking a model by hand turns auto off. Pals resolve `auto` once, to `routing.default`, when a session starts.
+- 90c911e: Add an optional `decision` config block that gives the host and Pal agents a `decide` tool backed by a System-1 decision model (yes/no, choice or score). Two providers are supported: `provider: azure` (`endpoint`, `deployment`, optional `tokenEnv`, default `AZURE_FOUNDRY_TOKEN`) and `provider: http` (`url`, optional `model`, optional `apiKeyEnv`). The config names the environment variable that holds a credential, never the credential itself. The tool is advisory and fail-open: if the model is unreachable or errors, the tool tells the agent to proceed and the turn does not fail. Without the block nothing changes. Nothing needs to be done to upgrade.
+
 ## 36.1.2
 
 ### Patch Changes
