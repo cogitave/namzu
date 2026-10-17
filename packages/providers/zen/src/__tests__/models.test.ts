@@ -6,7 +6,8 @@ describe('Zen model catalogue', () => {
 		expect(findZenModel('zen', 'minimax-m3')?.protocol).toBe('chat')
 		expect(findZenModel('go', 'minimax-m3')?.protocol).toBe('chat')
 		expect(findZenModel('zen', 'minimax-m2.7')?.protocol).toBe('chat')
-		expect(findZenModel('go', 'minimax-m2.7')?.protocol).toBe('chat')
+		// Go stopped routing MiniMax M2.7 on its page, so the omission drops it.
+		expect(findZenModel('go', 'minimax-m2.7')).toBeUndefined()
 		expect(findZenModel('zen', 'qwen3.6-plus')?.protocol).toBe('messages')
 		expect(findZenModel('go', 'qwen3.6-plus')).toBeUndefined()
 	})
@@ -80,7 +81,7 @@ describe('Zen model catalogue', () => {
 		for (const id of [
 			'big-pickle',
 			'mimo-v2.5-free',
-			'ling-3.0-flash-fin-free',
+			'deepseek-v4.1-flash-free',
 			'nemotron-3-ultra-free',
 			'nemotron-3.5-lightning-free',
 		]) {
