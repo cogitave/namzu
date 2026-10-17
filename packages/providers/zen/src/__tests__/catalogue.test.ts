@@ -110,6 +110,99 @@ afterEach(() => {
 const NAME_REFUSED = /control,\n {2}format or separator character/
 
 describe('buildZenCatalogue', () => {
+	it('carries on past a row whose wire the driver does not speak, and reports it undecided', () => {
+		// A page that grew a row pairing a package the driver does not implement
+		// with a path on the service's own host: the model is not carried, its
+		// reason is reported, and every other row is derived as before. This is
+		// what lets a refresh land when upstream adds a new endpoint family
+		// before the driver supports it.
+		const page = [
+			row(
+				'https://opencode.ai/inference/openai/v1',
+				'Alpha Chat',
+				'alpha-chat',
+				'/chat/completions',
+				CHAT,
+			),
+			row(
+				'https://opencode.ai/inference/openai/v1',
+				'Gamma Free',
+				'gamma-free',
+				'/chat/completions',
+				CHAT,
+			),
+			row(
+				'https://opencode.ai/inference/openai/v1',
+				'Delta New Wire',
+				'delta-new-wire',
+				'/chat/completions',
+				'@ai-sdk/newwire',
+			),
+			'',
+			'| Model | Input | Output | Cached Read |',
+			'| --- | --- | --- | --- |',
+			'| Alpha Chat | $1.50 | $6.00 | $0.15 |',
+			'| Gamma Free | $1.50 | $6.00 | $0.15 |',
+			'| Delta New Wire | $1.50 | $6.00 | $0.15 |',
+			'',
+			'The free models:',
+			'',
+			'- Alpha Chat is available on OpenCode for a limited time.',
+			'',
+		].join('\n')
+		const modelsDev = {
+			...MODELS_DEV,
+			opencode: {
+				models: {
+					...MODELS_DEV.opencode.models,
+					'gamma-free': entry(262_144, 131_072, ['text']),
+					'delta-new-wire': entry(262_144, 131_072, ['text']),
+				},
+			},
+		}
+		const { catalogue, report } = build(
+			sources({
+				docs: { zen: page, go: GO_PAGE },
+				modelsDev: JSON.stringify(modelsDev),
+				served: { zen: served(['alpha-chat', 'gamma-free']), go: served(['go-chat']) },
+			}),
+		)
+		expect(catalogue.zen.map((model) => model.id)).toEqual(['alpha-chat', 'gamma-free'])
+		expect(report.undecided).toEqual([
+			[
+				'zen/delta-new-wire',
+				'with a package that is not one of the 4 routes this driver implements',
+			],
+		])
+		expect(catalogue.go.map((model) => model.id)).toEqual(['go-chat'])
+	})
+
+	it('rejects the whole result when a row settles a model on a foreign host', () => {
+		const page = [
+			row(ZEN_HOST, 'Alpha Chat', 'alpha-chat', '/chat/completions', CHAT),
+			row(ZEN_HOST, 'Beta Messages', 'beta-messages', '/messages', MESSAGES),
+			row(ZEN_HOST, 'Gamma Free', 'gamma-free', '/chat/completions', CHAT),
+			'| Sabotaged | saboteur | `https://evil.example/chat/completions` | `@ai-sdk/openai-compatible` |',
+			'',
+			'| Model | Input | Output | Cached Read |',
+			'| --- | --- | --- | --- |',
+			'| Alpha Chat | $1.50 | $6.00 | $0.15 |',
+			'| Beta Messages | $3.00 | $15.00 | $0.30 |',
+			'| Sabotaged | $1.50 | $6.00 | $0.15 |',
+			'',
+			'The free models:',
+			'',
+			'- Alpha Chat is available on OpenCode for a limited time.',
+			'',
+		].join('\n')
+		expect(() => build(sources({ docs: { zen: page, go: GO_PAGE } }))).toThrow(
+			ZenCatalogueSourceError,
+		)
+		expect(() => build(sources({ docs: { zen: page, go: GO_PAGE } }))).toThrow(
+			/host is not the service/,
+		)
+	})
+
 	it('derives models in exactly the shape the bundled snapshot carries', () => {
 		const { catalogue } = build()
 		expect(catalogue.zen).toEqual([

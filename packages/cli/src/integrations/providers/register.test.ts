@@ -49,7 +49,7 @@ it.each(['zen', 'zen-go'] as const)(
 			expect(url).toBe(`${entry.defaultBaseUrl}/models`)
 			expect(init?.method ?? 'GET').toBe('GET')
 			return Response.json({
-				data: [{ id: 'glm-5.3-flash' }, { id: 'kimi-k2.6' }, { id: 'unrecognized-model-route' }],
+				data: [{ id: 'glm-5.3-flash' }, { id: 'kimi-k3' }, { id: 'unrecognized-model-route' }],
 			})
 		})
 		try {
@@ -63,7 +63,7 @@ it.each(['zen', 'zen-go'] as const)(
 			expect(listing.kind).toBe('ok')
 			const step = modelStep(entry.defaultModel, listing)
 			expect(step.notice).toBeNull()
-			expect(step.choices.map((choice) => choice.id)).toContain('kimi-k2.6')
+			expect(step.choices.map((choice) => choice.id)).toContain('kimi-k3')
 			expect(step.choices.map((choice) => choice.id)).not.toContain('unrecognized-model-route')
 			expect(step.choices.filter((choice) => choice.id === entry.defaultModel)).toHaveLength(1)
 			expect(fetch).toHaveBeenCalledTimes(1)
@@ -89,7 +89,7 @@ it('leaves out of the picker a Zen id served with no known wire, which the CLI c
 		const { parseZenCatalogue } = await import('@namzu/zen/catalogue')
 		const { findZenModel } = await import('@namzu/zen/models')
 		const glm = findZenModel('zen', 'glm-5.3-flash')
-		const go = findZenModel('go', 'kimi-k2.6') ?? glm
+		const go = findZenModel('go', 'kimi-k3') ?? glm
 		const catalogue = parseZenCatalogue(
 			JSON.parse(
 				JSON.stringify({

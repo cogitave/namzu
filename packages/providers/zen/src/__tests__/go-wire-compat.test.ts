@@ -124,7 +124,7 @@ describe('Zen Go gateway wire compatibility', () => {
 		})
 	})
 
-	it.each(['deepseek-v4-pro', 'deepseek-v4.1-flash', 'deepseek-v4-flash', 'mimo-v2.5-pro'])(
+	it.each(['deepseek-v4-pro', 'deepseek-v4.1-flash', 'mimo-v2.5-pro'])(
 		'%s omits unsupported automatic choice and preserves no-tools finalization',
 		async (model) => {
 			const { requests } = capture()
@@ -140,21 +140,17 @@ describe('Zen Go gateway wire compatibility', () => {
 			const second = capture()
 			await send({
 				model,
-				messages:
-					model === 'deepseek-v4-flash'
-						? [user]
-						: [
-								user,
-								{ role: 'assistant', content: '', toolCalls: [call] },
-								{ role: 'tool', toolCallId: call.id, content: 'Sunny.' },
-							],
+				messages: [
+					user,
+					{ role: 'assistant', content: '', toolCalls: [call] },
+					{ role: 'tool', toolCallId: call.id, content: 'Sunny.' },
+				],
 				tools: [tool],
 				toolChoice: 'none',
 			})
 			expect(second.requests[0]).not.toHaveProperty('tools')
 			expect(second.requests[0]).not.toHaveProperty('tool_choice')
-			if (model !== 'deepseek-v4-flash')
-				expect(JSON.stringify(second.requests[0])).toContain(call.id)
+			expect(JSON.stringify(second.requests[0])).toContain(call.id)
 		},
 	)
 
@@ -178,14 +174,17 @@ describe('Zen Go gateway wire compatibility', () => {
 		expect(transport).not.toHaveBeenCalled()
 	})
 
-	it('keeps the documented vision-exp tool-choice exception', async () => {
+	it('keeps the documented vision-exp tool-choice exception through an explicit protocol', async () => {
 		const { requests } = capture()
-		await send({
-			model: 'deepseek-v4-flash-vision-exp',
-			messages: [user],
-			tools: [tool],
-			toolChoice: 'required',
-		})
+		await send(
+			{
+				model: 'deepseek-v4-flash-vision-exp',
+				messages: [user],
+				tools: [tool],
+				toolChoice: 'required',
+			},
+			'chat',
+		)
 		expect(requests[0]?.tool_choice).toBe('required')
 	})
 
@@ -193,7 +192,7 @@ describe('Zen Go gateway wire compatibility', () => {
 		const { transport } = capture()
 		await expect(
 			collectChatCompletion(
-				new ZenGoProvider({ apiKey }).chatStream({
+				new ZenGoProvider({ apiKey, protocol: 'responses' }).chatStream({
 					model: 'deepseek-v4-flash',
 					messages: [
 						user,
@@ -252,10 +251,13 @@ describe('Zen Go gateway wire compatibility', () => {
 		expect(JSON.stringify(preview)).toContain('"type":"reasoning"')
 		expect(JSON.stringify(preview)).toContain('"itemId":"reasoning-1"')
 		const { requests } = capture()
-		await send({
-			model,
-			messages: [user, assistant, { role: 'tool', toolCallId: call.id, content: 'Sunny.' }],
-		})
+		await send(
+			{
+				model,
+				messages: [user, assistant, { role: 'tool', toolCallId: call.id, content: 'Sunny.' }],
+			},
+			'responses',
+		)
 		const input = requests[0]?.input as Record<string, unknown>[]
 		expect(input.map((item) => item.type ?? item.role)).toEqual([
 			'user',
