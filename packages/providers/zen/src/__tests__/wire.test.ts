@@ -30,6 +30,13 @@ interface WireCase {
 	replayMarker: string
 	dropsReasoning?: boolean
 	deepseekReasoningText?: boolean
+	/**
+	 * A model the bundle no longer carries — upstream retired it from its page —
+	 * can still be reached through the config's explicit protocol, which is the
+	 * only way a caller names a wire for such an id. The fixture's tests then
+	 * run the whole wire lane without the catalogue lookup admitting the id.
+	 */
+	configProtocol?: ZenProtocol
 }
 
 const cases: WireCase[] = [
@@ -57,6 +64,7 @@ const cases: WireCase[] = [
 		authHeader: 'authorization',
 		replayMarker: 'Check the weather.',
 		deepseekReasoningText: true,
+		configProtocol: 'responses',
 	},
 	{
 		protocol: 'responses',
@@ -466,7 +474,14 @@ describe('Zen real protocol clients over HTTP fixtures', () => {
 					})
 				}),
 			)
-			const provider = new ZenProvider({ apiKey, sessionId }, fixture.service)
+			const provider = new ZenProvider(
+				{
+					apiKey,
+					sessionId,
+					...(fixture.configProtocol ? { protocol: fixture.configProtocol } : {}),
+				},
+				fixture.service,
+			)
 			const messages: Message[] = [{ role: 'user', content: 'What is the weather in Istanbul?' }]
 			const first = await collectChatCompletion(
 				provider.chatStream({
@@ -514,7 +529,14 @@ describe('Zen real protocol clients over HTTP fixtures', () => {
 			})
 			// Persistence must not depend on object identity or an in-memory provider cache.
 			const restoredMessages: Message[] = JSON.parse(JSON.stringify(messages))
-			const restoredProvider = new ZenProvider({ apiKey, sessionId }, fixture.service)
+			const restoredProvider = new ZenProvider(
+				{
+					apiKey,
+					sessionId,
+					...(fixture.configProtocol ? { protocol: fixture.configProtocol } : {}),
+				},
+				fixture.service,
+			)
 			const second = await collectChatCompletion(
 				restoredProvider.chatStream({
 					model: fixture.model,
@@ -641,7 +663,14 @@ describe('Zen real protocol clients over HTTP fixtures', () => {
 						),
 				),
 			)
-			const provider = new ZenProvider({ apiKey, sessionId }, fixture.service)
+			const provider = new ZenProvider(
+				{
+					apiKey,
+					sessionId,
+					...(fixture.configProtocol ? { protocol: fixture.configProtocol } : {}),
+				},
+				fixture.service,
+			)
 			let caught: unknown
 			try {
 				await collectChatCompletion(
@@ -705,7 +734,14 @@ describe('Zen real protocol clients over HTTP fixtures', () => {
 				}),
 			)
 			const controller = new AbortController()
-			const provider = new ZenProvider({ apiKey, sessionId }, fixture.service)
+			const provider = new ZenProvider(
+				{
+					apiKey,
+					sessionId,
+					...(fixture.configProtocol ? { protocol: fixture.configProtocol } : {}),
+				},
+				fixture.service,
+			)
 			const iterator = provider
 				.chatStream({
 					model: fixture.model,

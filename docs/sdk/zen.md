@@ -321,13 +321,13 @@ all. The rules that read them live in `src/catalogue/derive.ts`, and the same
 code produces two things: the bundled snapshot in `src/models.ts`, and a
 catalogue derived at run time when a host asks for one.
 
-For Go, reference-client route overrides send `deepseek-v4-flash` through Responses
-and `minimax-m2.7` and `minimax-m3` through Chat Completions, even while the
-current page's endpoint cells disagree. The current Go page omits route and
-price rows for `glm-5.1`, `qwen3.6-plus` and `qwen3.7-max` although `/models`
-still serves them. The refreshed bundled snapshot therefore removes these IDs
-and runtime discovery treats them as reviewed omissions. A host that has
-separately verified a wire can still supply
+For Go, the reference-client route override still sends `minimax-m3` through Chat
+Completions even while its page row states Anthropic Messages. The current Page
+also omits route and price rows for `glm-5.1`, `qwen3.6-plus`, `qwen3.7-max`,
+`kimi-k2.6`, `minimax-m2.7` and `grok-4.6` although `/models` still serves them,
+and no longer routes `deepseek-v4-flash` at all. The refreshed bundled snapshot
+therefore removes these IDs and runtime discovery treats them as reviewed
+omissions. A host that has separately verified a wire can still supply
 `ZenGoProvider({ apiKey, model, protocol })` for one of them; the CLI does not
 offer these IDs.
 
@@ -358,7 +358,14 @@ read, a page whose route table no longer parses, a hostile endpoint cell, a
 model name carrying a control, format or line-separator character (an escape
 sequence would reach every terminal that lists the model), a models.dev entry that lost its fields, an effort level the SDK has no
 `ReasoningEffort` for, or a roster that fell below 80% of the bundled one on
-either service all reject the whole result, so there is no partial list. It
+either service all reject the whole result, so there is no partial list. One
+class of oddness degrades row by row: a page row whose package and endpoint
+pair names a wire the driver does not speak — a new endpoint family on the
+service's own host, an AI SDK package not implemented yet — is split off into
+`report.undecided` with the reason, and the rest of the roster is derived as
+before, so one new upstream wire does not hold every other model back. A row
+whose endpoint names a host other than the service's is still a whole-result
+refusal: that shape is tampering, not growth. It
 applies the review decisions the snapshot was generated under
 (`ZEN_OMITTED_MODELS`, exported from `@namzu/zen/models`) unless given
 `omissions`. `buildZenCatalogue(sources)` does the same derivation from texts a
@@ -434,7 +441,11 @@ The guard is unchanged around that shape, which is what makes reading it
 safe: a row that has LOST that column, or carries a marker the page does not
 use, is still a page that moved and still stops the derivation. What separates
 the two is that one is a statement the page makes and the other is a row the
-rules no longer read.
+rules no longer read. The same split covers a row the page states on a wire
+this driver does not implement: the pair is named and repeated in
+`report.undecided` rather than guessed, the row is not carried, and the
+derivation finishes for the rest of the page — a new wire arriving upstream is
+a to-do for the next release, not a catalog-wide outage until then.
 
 A snapshot refresh carries the changeset that releases it, its bump read from
 the generator's added, removed and changed report: a removal is `major`,
