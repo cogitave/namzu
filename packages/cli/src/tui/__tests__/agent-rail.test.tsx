@@ -230,12 +230,12 @@ describe('window and overflow', () => {
 describe('the key line', () => {
 	it('says stop for a running agent and clear for a finished one', () => {
 		expect(railHint(agent({ viewId: 'a' }), 100)).toBe(
-			'↑/↓ select · enter view · x stop · esc back',
+			'↑/↓ to select · enter to view · x to stop · esc to go back',
 		)
 		expect(railHint(agent({ viewId: 'a', status: 'completed', completedAt: NOW }), 100)).toBe(
-			'↑/↓ select · enter view · x clear · esc back',
+			'↑/↓ to select · enter to view · x to clear · esc to go back',
 		)
-		expect(railHint(undefined, 100)).toBe('↑/↓ select · enter view · esc back')
+		expect(railHint(undefined, 100)).toBe('↑/↓ to select · enter to view · esc to go back')
 	})
 
 	it('drops hints before it wraps', () => {
@@ -246,9 +246,9 @@ describe('the key line', () => {
 
 	it('appears under the rows only while the rail is focused', async () => {
 		const unfocused = await show([agent({ viewId: 'a' })])
-		expect(unfocused.join('\n')).not.toContain('x stop')
+		expect(unfocused.join('\n')).not.toContain('x to stop')
 		await mounted?.unmount()
 		const focused = await show([agent({ viewId: 'a' })], { selectedIndex: 1 })
-		expect(focused.at(-1)).toContain('x stop')
+		expect(focused.at(-1)).toContain('x to stop')
 	})
 })

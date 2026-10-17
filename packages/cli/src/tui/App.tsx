@@ -200,6 +200,7 @@ import {
 	railNextEviction,
 	railWorkflowActionFor,
 	railWorkflows,
+	settledWorkflows,
 } from './AgentExplorer.js'
 import { BrandHeader } from './BrandHeader.js'
 import { checklistProgress } from './Checklist.js'
@@ -679,8 +680,6 @@ const STREAM_RELEASE_MS = 250
  * one another; this is the margin that keeps them on one receipt.
  */
 const RECEIPT_SETTLE_MS = 250
-/** How long a workflow stays settled before its closing line is written. */
-const WORKFLOW_NOTICE_SETTLE_MS = 3_000
 
 /** How a turn ended, as the transcript and notifications describe it. */
 type ConversationTurnOutcome = 'completed' | 'stopped' | 'failed' | 'cancelled'
@@ -2748,36 +2747,29 @@ export function App({
 	}, [subagents, activeTools, pushMessage, session, receiptTick])
 
 	/**
-	 * A workflow that has settled leaves one line below its last agent's row:
-	 * `Workflow <name> completed · 1m05s · 3 agents · 4.2k tokens`. Written
-	 * once per size of the workflow, and only after it has stayed settled for
-	 * {@link WORKFLOW_NOTICE_SETTLE_MS}, so a parent that launches the next
-	 * phase a moment after the last one finished does not close the workflow
-	 * early. Saved children never count; they ended in another process.
+	 * A workflow leaves one closing line in the conversation, written once, when
+	 * it is really over: the parent turn that ran it has ended and every member
+	 * has settled. A phase that starts long after the previous one settled is
+	 * the same workflow, so nothing is written between phases. A workflow is a
+	 * label within one parent turn (its group id carries the turn), so a later
+	 * turn's agents under the same label are a new run with their own line.
+	 * Saved children never count; they ended in another process.
 	 */
 	const reportedWorkflowsRef = useRef(new Set<string>())
-	const [workflowNoticeTick, setWorkflowNoticeTick] = useState(0)
+	/** Parent turns that have ended, by the id their agents carry as `workflowId`. */
+	const endedWorkflowTurnsRef = useRef(new Set<string>())
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
 	useEffect(() => {
 		reportedWorkflowsRef.current.clear()
+		endedWorkflowTurnsRef.current.clear()
 	}, [session])
-	useEffect(() => {
-		void workflowNoticeTick
-		const now = Date.now()
-		let retryIn: number | undefined
-		for (const workflow of railWorkflows(subagents, now)) {
-			if (workflow.status === 'running' || workflow.endedAt === undefined) continue
-			const key = `${workflow.id}:${workflow.total}`
-			if (reportedWorkflowsRef.current.has(key)) continue
-			const waited = now - workflow.endedAt
-			if (waited < WORKFLOW_NOTICE_SETTLE_MS) {
-				retryIn = Math.min(
-					retryIn ?? WORKFLOW_NOTICE_SETTLE_MS,
-					WORKFLOW_NOTICE_SETTLE_MS - waited + 20,
-				)
+	const flushWorkflowNotices = useCallback((): void => {
+		for (const workflow of settledWorkflows(subagentsRef.current)) {
+			if (reportedWorkflowsRef.current.has(workflow.id)) continue
+			if (!workflow.agents.some((agent) => endedWorkflowTurnsRef.current.has(agent.workflowId))) {
 				continue
 			}
-			reportedWorkflowsRef.current.add(key)
+			reportedWorkflowsRef.current.add(workflow.id)
 			const notice = workflowNotice(workflow)
 			pushMessage(
 				'tool',
@@ -2792,11 +2784,12 @@ export function App({
 						: theme.text.muted,
 			)
 		}
-		if (retryIn === undefined) return
-		const timer = setTimeout(() => setWorkflowNoticeTick((tick) => tick + 1), retryIn)
-		timer.unref?.()
-		return () => clearTimeout(timer)
-	}, [subagents, pushMessage, workflowNoticeTick])
+	}, [pushMessage])
+	// A member that settles after its turn ended (it was not waited for) closes the workflow then.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: `subagents` is what moves; the flush reads the ref it mirrors.
+	useEffect(() => {
+		flushWorkflowNotices()
+	}, [subagents, flushWorkflowNotices])
 
 	/**
 	 * An accepted `send_message` correction already lands its own queue row inside
@@ -6964,6 +6957,9 @@ export function App({
 							delegated.length > 0 || st.completed
 								? settleLine(Date.now() - since, delegated)
 								: undefined
+						// The workflows this turn ran are over: each says how it ended once.
+						for (const agent of delegated) endedWorkflowTurnsRef.current.add(agent.workflowId)
+						flushWorkflowNotices()
 						if (closing) pushMessage('system', closing, false, '✻', undefined, theme.text.muted)
 					}
 					// A save the operator asked for in words takes the place of

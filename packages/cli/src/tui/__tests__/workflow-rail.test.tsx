@@ -279,13 +279,13 @@ describe('the rows on screen', () => {
 	it('shows the hint for the selected workflow: stop while running, clear once done', async () => {
 		const row = workflowOf(sevenAgents())
 		const running = await show([row], { selectedIndex: 1 })
-		expect(running.at(-1)).toContain('enter view · x stop')
+		expect(running.at(-1)).toContain('enter to view · x to stop')
 		await mounted?.unmount()
 		mounted = undefined
 		const done = workflowOf([agent({ viewId: 'a', status: 'completed', completedAt: NOW })])
 		const finished = await show([done], { selectedIndex: 1 })
-		expect(finished.at(-1)).toContain('enter view · x clear')
-		expect(railHint(done, 100)).toBe('↑/↓ select · enter view · x clear · esc back')
+		expect(finished.at(-1)).toContain('enter to view · x to clear')
+		expect(railHint(done, 100)).toBe('↑/↓ to select · enter to view · x to clear · esc to go back')
 	})
 
 	it('folds into the main row count while a review owns the screen', async () => {

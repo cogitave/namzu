@@ -175,7 +175,7 @@ sessions never appear on the rail (the cockpit lists them).
 Press ↓ in an empty composer to move into the rail (with no rows on screen it
 still opens the cockpit for saved agents). The composer is dimmed while the
 rail has the keys, and a key line appears under the rows:
-`↑/↓ select · enter view · x stop · esc back`. ↑/↓ moves between `main` and
+`↑/↓ to select · enter to view · x to stop · esc to go back`. ↑/↓ moves between `main` and
 the agents (a `❯` marks the row), Enter opens that agent's transcript and
 Esc from it comes back to the same row, `x` stops a running agent (the parent
 turn and the other agents keep going) or, on a finished one, clears its row,
@@ -209,18 +209,21 @@ agents' name column. As the line narrows it gives up, in order, the
 20 to 12 to 8 cells; the name is squeezed last, never below eight cells.
 
 ↓ walks `main`, the agents, then the workflows. On a workflow row the key line
-reads `↑/↓ select · enter view · x stop · esc back` (`x clear` once it has
+reads `↑/↓ to select · enter to view · x to stop · esc to go back` (`x to clear` once it has
 finished). Enter opens the cockpit on that workflow — its phases, or its
 agents when it has one phase, on the phase still moving — and Enter again
 drills through the phase's agents to an agent's transcript; Esc walks back up
 and finally to the same row. `x` stops every agent of the workflow that is
 still going (each one as its own `x` would), or clears a finished row.
 
-When a workflow has stayed settled for three seconds it leaves one line in the
-conversation, below its last agent's row: `✓ Workflow Release audit completed ·
-4m02s · 7 agents · 112.0k tokens` (dim), `✗ … failed · … · 1 failed …` (red) or
-`■ … stopped …` (yellow). A parent that launches the next phase within those
-three seconds does not close the workflow early. Namzu has no workflow pause,
+When a workflow is over it leaves one line in the conversation, above the
+turn's `✻ Worked for …` line: `✓ Workflow Release audit completed · 4m02s · 7
+agents · 112.0k tokens` (dim), `✗ … failed · … · 1 failed …` (red) or `■ …
+stopped …` (yellow). "Over" means the parent turn that ran it has ended and
+every member has settled, so a later phase that starts long after the previous
+one finished does not produce a second line; the line is written once per
+workflow label within a turn. Agents under the same label in a later turn are a
+new run with their own row and their own line. Namzu has no workflow pause,
 and the parent turn does not end while its agents still run, so there is no
 paused bullet and no "waiting for N workflows" line.
 

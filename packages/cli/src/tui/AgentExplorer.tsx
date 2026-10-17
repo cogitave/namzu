@@ -235,6 +235,25 @@ export function railWorkflows(
 	now: number,
 	dismissed: ReadonlySet<string> = new Set(),
 ): readonly RailWorkflow[] {
+	return groupWorkflows(agents, now, dismissed, true)
+}
+
+/**
+ * Every labelled workflow whose members have all settled, however long ago:
+ * what a closing line reports. The rail's 30 second lifetime does not apply.
+ */
+export function settledWorkflows(agents: readonly SubagentActivity[]): readonly RailWorkflow[] {
+	return groupWorkflows(agents, 0, new Set(), false).filter(
+		(workflow) => workflow.status !== 'running',
+	)
+}
+
+function groupWorkflows(
+	agents: readonly SubagentActivity[],
+	now: number,
+	dismissed: ReadonlySet<string>,
+	expire: boolean,
+): readonly RailWorkflow[] {
 	const groups = new Map<string, SubagentActivity[]>()
 	for (const agent of agents) {
 		if (agent.replayed === true || agent.workflow === DEFAULT_AGENT_WORKFLOW) continue
@@ -252,7 +271,7 @@ export function railWorkflows(
 		const endedAt = running
 			? undefined
 			: Math.max(...members.map((agent) => agent.completedAt ?? agent.startedAt))
-		if (endedAt !== undefined && now - endedAt >= AGENT_RAIL_FINISHED_LINGER_MS) continue
+		if (expire && endedAt !== undefined && now - endedAt >= AGENT_RAIL_FINISHED_LINGER_MS) continue
 		const spent = members.reduce<number | undefined>(
 			(sum, agent) => (agent.tokens === undefined ? sum : (sum ?? 0) + agent.tokens),
 			undefined,
@@ -596,10 +615,10 @@ export function railHint(
 		: undefined
 	return fitHints(
 		[
-			{ text: '↑/↓ select', short: '↑/↓', rank: 4 },
-			{ text: 'enter view', short: 'enter', rank: 5 },
-			...(action ? [{ text: `x ${action}`, rank: 3 }] : []),
-			{ text: 'esc back', rank: 2 },
+			{ text: '↑/↓ to select', short: '↑/↓', rank: 4 },
+			{ text: 'enter to view', short: 'enter', rank: 5 },
+			...(action ? [{ text: `x to ${action}`, rank: 3 }] : []),
+			{ text: 'esc to go back', rank: 2 },
 		],
 		Math.max(1, columns - 2),
 	)

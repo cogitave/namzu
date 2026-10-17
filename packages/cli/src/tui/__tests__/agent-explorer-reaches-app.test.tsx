@@ -1124,7 +1124,7 @@ describe('Ctrl+T', () => {
 		})
 		mounted = screen
 		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
-		expect(screen.viewport().join('\n')).not.toContain('esc back')
+		expect(screen.viewport().join('\n')).not.toContain('esc to go back')
 		screen.press('\x1b[B')
 		await waitUntil(
 			screen,
@@ -1133,7 +1133,9 @@ describe('Ctrl+T', () => {
 		)
 		// The same press must not also step to the second row.
 		expect(screen.viewport().join('\n')).not.toMatch(/^ *❯ ○ \S+ +Second child/mu)
-		expect(screen.viewport().join('\n')).toContain('↑/↓ select · enter view · x stop · esc back')
+		expect(screen.viewport().join('\n')).toContain(
+			'↑/↓ to select · enter to view · x to stop · esc to go back',
+		)
 		screen.press('\x1b[B')
 		await waitUntil(
 			screen,
@@ -1150,7 +1152,7 @@ describe('Ctrl+T', () => {
 		screen.press('\x1b')
 		await waitUntil(
 			screen,
-			() => !screen.viewport().join('\n').includes('esc back'),
+			() => !screen.viewport().join('\n').includes('esc to go back'),
 			'escape did not hand the keyboard back',
 		)
 		expect(screen.viewport().join('\n')).toContain('Type a message')
@@ -1168,7 +1170,7 @@ describe('Ctrl+T', () => {
 		screen.press('\x1b[B')
 		await waitUntil(
 			screen,
-			() => screen.viewport().join('\n').includes('x stop'),
+			() => screen.viewport().join('\n').includes('x to stop'),
 			'rail not focused',
 		)
 		screen.press('\x1b[B')
@@ -1180,7 +1182,7 @@ describe('Ctrl+T', () => {
 		screen.press('x')
 		await waitUntil(screen, () => stoppedChildren.length === 1, 'x did not stop the agent')
 		expect(stoppedChildren).toEqual(['agent-stop-2'])
-		expect(screen.viewport().join('\n')).toContain('x stop')
+		expect(screen.viewport().join('\n')).toContain('x to stop')
 	})
 
 	it('clears a finished agent with x instead of stopping it', async () => {
@@ -1201,13 +1203,13 @@ describe('Ctrl+T', () => {
 		screen.press('\x1b[B')
 		await waitUntil(
 			screen,
-			() => screen.viewport().join('\n').includes('x stop'),
+			() => screen.viewport().join('\n').includes('x to stop'),
 			'rail not focused',
 		)
 		screen.press('\x1b[B')
 		await waitUntil(
 			screen,
-			() => screen.viewport().join('\n').includes('x clear'),
+			() => screen.viewport().join('\n').includes('x to clear'),
 			'finished row not selected',
 		)
 		screen.press('x')
@@ -1235,7 +1237,7 @@ describe('Ctrl+T', () => {
 		screen.press('\x1b[B')
 		await waitUntil(
 			screen,
-			() => screen.viewport().join('\n').includes('x stop'),
+			() => screen.viewport().join('\n').includes('x to stop'),
 			'rail not focused',
 		)
 		screen.press('\x1b[B')
@@ -1303,7 +1305,7 @@ describe('Ctrl+T', () => {
 			)
 			// main, three agents, then the workflow: four downs from the composer.
 			await focusWorkflow(screen, 1 + 3)
-			expect(screen.viewport().join('\n')).toContain('enter view · x stop')
+			expect(screen.viewport().join('\n')).toContain('enter to view · x to stop')
 			screen.press('x')
 			await waitUntil(screen, () => stoppedChildren.length === 2, 'x did not stop the workflow')
 			expect([...stoppedChildren].sort()).toEqual(['wf-a', 'wf-c'])
@@ -1335,6 +1337,53 @@ describe('Ctrl+T', () => {
 			)
 		})
 
+		it('writes one closing line, at turn end, even when the next phase starts 10 s after the last settled', async () => {
+			let turnRunning!: () => void
+			const running = new Promise<void>((resolve) => {
+				turnRunning = resolve
+			})
+			let endTurn!: () => void
+			const gate = new Promise<void>((resolve) => {
+				endTurn = resolve
+			})
+			sendOverride.current = async function* () {
+				turnRunning()
+				yield { kind: 'delta', text: 'Coordinating the audit.' }
+				await gate
+				yield { kind: 'done', stopReason: 'end_turn' }
+			}
+			const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 30 })
+			mounted = screen
+			await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+			await submit(screen, 'run the audit')
+			await running
+			const t0 = Date.now()
+			const closing = (): number =>
+				(painted(screen).match(/Workflow Release audit (completed|failed|stopped)/gu) ?? []).length
+			// Phase one settles.
+			activity.set([flow('wf-a', { startedAt: t0, status: 'completed', completedAt: t0 + 1 })])
+			await screen.waitForRender()
+			// Phase two starts 10 s later and settles too.
+			activity.set([
+				flow('wf-a', { startedAt: t0, status: 'completed', completedAt: t0 + 1 }),
+				flow('wf-c', { startedAt: t0 + 10_000, status: 'completed', completedAt: t0 + 12_000 }),
+			])
+			await waitUntil(
+				screen,
+				() => painted(screen).includes('Step wf-c'),
+				'the second phase was not reported',
+			)
+			// Both phases have settled, but the turn that ran them has not ended.
+			expect(closing()).toBe(0)
+			endTurn()
+			await waitUntil(screen, () => closing() === 1, 'no closing line at turn end')
+			await screen.waitForRender()
+			await screen.waitForRender()
+			expect(closing()).toBe(1)
+			expect(painted(screen)).toContain('Workflow Release audit completed')
+			expect(painted(screen)).toMatch(/Workflow Release audit completed · .*2 agents/u)
+		})
+
 		it('clears a finished workflow with x without stopping anything', async () => {
 			stoppedChildren.length = 0
 			activity.set([
@@ -1348,7 +1397,7 @@ describe('Ctrl+T', () => {
 			mounted = screen
 			await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
 			await focusWorkflow(screen, 1 + 1)
-			expect(screen.viewport().join('\n')).toContain('enter view · x clear')
+			expect(screen.viewport().join('\n')).toContain('enter to view · x to clear')
 			screen.press('x')
 			await waitUntil(
 				screen,
