@@ -216,7 +216,12 @@ five at a time, one row each (type, description, time and spend); ↓ in an empt
 composer moves into it, where Enter opens an agent's transcript and `x` stops
 it. A workflow split into phases (one `workflow` label, several `phase`
 labels) is drawn by phase in the agent cockpit, which opens on the phase that
-is still working. See [Terminal design](terminal-design.md) for both.
+is still working. A group of agents sharing an explicit `workflow` label also
+gets one rail row after the agent rows (`◯ name  ▰▱ bar  3/7 · 2m14s · ↓ 48.2k
+tokens`): Enter on it opens the cockpit on that workflow, `x` stops all of its
+running agents or clears the row once it has finished, and a one-line notice
+(`Workflow <name> completed · 4m02s · 7 agents`) closes it in the conversation.
+See [Terminal design](terminal-design.md) for both.
 
 Completion reaches the parent as a task notification. `wait_for_task` retrieves
 the result without launching duplicate work. Background work keeps the same

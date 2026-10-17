@@ -20,7 +20,7 @@ import {
 	DEFAULT_AGENT_WORKFLOW,
 	type SubagentActivity,
 } from '../integrations/subagents/activity.js'
-import { formatCompactCount } from './AgentExplorer.js'
+import { type RailWorkflow, formatCompactCount } from './AgentExplorer.js'
 import { formatElapsed } from './LiveActivity.js'
 import { terminalDisplayText } from './terminal-display.js'
 
@@ -91,6 +91,40 @@ export function completionRow(agent: SubagentActivity, now = Date.now()): Comple
 	}
 	const reason = agent.latestActivity ? oneLine(agent.latestActivity) : 'Failed'
 	return { ok: false, content: `${name} · failed after ${elapsed} · ${reason}`, detail, hint }
+}
+
+export interface WorkflowNotice {
+	readonly content: string
+	/** Completed reads quiet, failed is red, stopped is yellow. */
+	readonly tone: 'ok' | 'error' | 'warn'
+	readonly glyph: string
+}
+
+/**
+ * The one line a workflow leaves in the conversation when its last agent
+ * settles: `Workflow Release audit completed · 4m02s · 7 agents · 112k tokens`.
+ * Written once per settled workflow, below the last agent's own row.
+ */
+export function workflowNotice(workflow: RailWorkflow, now = Date.now()): WorkflowNotice {
+	const word =
+		workflow.status === 'failed'
+			? 'failed'
+			: workflow.status === 'stopped'
+				? 'stopped'
+				: 'completed'
+	const elapsed = formatElapsed(Math.max(0, (workflow.endedAt ?? now) - workflow.startedAt))
+	const parts = [
+		`Workflow ${oneLine(workflow.name)} ${word}`,
+		elapsed,
+		`${workflow.total} agent${workflow.total === 1 ? '' : 's'}`,
+		...(workflow.failed > 0 ? [`${workflow.failed} failed`] : []),
+		...(workflow.tokens !== undefined ? [`${formatCompactCount(workflow.tokens)} tokens`] : []),
+	]
+	return {
+		content: parts.join(' · '),
+		tone: workflow.status === 'failed' ? 'error' : workflow.status === 'stopped' ? 'warn' : 'ok',
+		glyph: workflow.status === 'failed' ? '✗' : workflow.status === 'stopped' ? '■' : '✓',
+	}
 }
 
 /**

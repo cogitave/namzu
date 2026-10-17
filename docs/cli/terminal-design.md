@@ -185,7 +185,44 @@ open the rail shrinks to the `main` row with a count (`2 agents`) and names no
 key, since the dialog owns the keyboard.
 
 A workflow the model split into several phases keeps its phase lines in the
-cockpit; the rail lists the same agents flat.
+cockpit; the rail lists its agents flat, and adds one row for the workflow
+itself after the agent rows:
+
+```text
+  ● main                                                         ↓ to manage
+  ○ general-purpose  Gorev a                                                1m05s
+  ○ general-purpose  Gorev d                                       0.3s · ↓ 15 tokens
+  ◯ Release audit    ▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱  3/7 · 2m14s · ↓ 48.2k tokens
+```
+
+A workflow here is the agents the model gave one explicit `workflow` label
+(the kernel has no workflow object; unlabelled batches are only agents).
+The row is `◯`, the label, a `▰▱` bar of settled agents out of all of them,
+then `3/7 · elapsed · ↓ tokens` (the token segment waits for the first usage
+report). It is dim until selected, and the bullet is coloured only by the
+outcome: green when every agent completed, red when one failed or the
+workflow was stopped — and already red while it runs once a member has failed.
+The elapsed time ticks each second and freezes when the last agent settles; the
+row leaves 30 seconds after that. Workflow rows are not windowed and share the
+agents' name column. As the line narrows it gives up, in order, the
+`n/m` counter, the elapsed time, the word `tokens`, then the bar shrinks from
+20 to 12 to 8 cells; the name is squeezed last, never below eight cells.
+
+↓ walks `main`, the agents, then the workflows. On a workflow row the key line
+reads `↑/↓ select · enter view · x stop · esc back` (`x clear` once it has
+finished). Enter opens the cockpit on that workflow — its phases, or its
+agents when it has one phase, on the phase still moving — and Enter again
+drills through the phase's agents to an agent's transcript; Esc walks back up
+and finally to the same row. `x` stops every agent of the workflow that is
+still going (each one as its own `x` would), or clears a finished row.
+
+When a workflow has stayed settled for three seconds it leaves one line in the
+conversation, below its last agent's row: `✓ Workflow Release audit completed ·
+4m02s · 7 agents · 112.0k tokens` (dim), `✗ … failed · … · 1 failed …` (red) or
+`■ … stopped …` (yellow). A parent that launches the next phase within those
+three seconds does not close the workflow early. Namzu has no workflow pause,
+and the parent turn does not end while its agents still run, so there is no
+paused bullet and no "waiting for N workflows" line.
 
 Between the footer and the rail sits the parent's own narration, when it has
 written any: up to three dim lines, one row each, unboxed and indented to the

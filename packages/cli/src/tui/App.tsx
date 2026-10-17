@@ -186,6 +186,7 @@ import {
 	AgentNarrationBand,
 	AgentTaskPanel,
 	AgentTranscript,
+	type RailWorkflow,
 	agentCockpitIsWide,
 	agentPhasePageSize,
 	agentPhases,
@@ -197,6 +198,8 @@ import {
 	railActionFor,
 	railAgents,
 	railNextEviction,
+	railWorkflowActionFor,
+	railWorkflows,
 } from './AgentExplorer.js'
 import { BrandHeader } from './BrandHeader.js'
 import { checklistProgress } from './Checklist.js'
@@ -232,7 +235,12 @@ import { Transcript, willCollapse } from './Transcript.js'
 import { TranscriptScrollView } from './TranscriptScrollView.js'
 import { TrustPrompt } from './TrustPrompt.js'
 import { ViewportBound } from './ViewportBound.js'
-import { completionRow, launchReceipt, settleLine } from './agent-transcript-rows.js'
+import {
+	completionRow,
+	launchReceipt,
+	settleLine,
+	workflowNotice,
+} from './agent-transcript-rows.js'
 import {
 	type AgentEvent,
 	type AgentSession,
@@ -457,6 +465,8 @@ type AgentSurface =
 			readonly selectedPhaseId: string
 			readonly selectedId: string
 			readonly focus: AgentCockpitFocus
+			/** Opened from a workflow row on the rail: Esc goes back to that row. */
+			readonly railReturn?: string
 	  }
 	| {
 			readonly kind: 'transcript'
@@ -467,6 +477,8 @@ type AgentSurface =
 			readonly composing?: boolean
 			/** Opened from the agents rail: Esc goes back to the rail, not the cockpit. */
 			readonly fromRail?: boolean
+			/** The workflow row the cockpit this came from was opened from. */
+			readonly railReturn?: string
 	  }
 type DirectChildNotice = {
 	readonly context: string
@@ -667,6 +679,8 @@ const STREAM_RELEASE_MS = 250
  * one another; this is the margin that keeps them on one receipt.
  */
 const RECEIPT_SETTLE_MS = 250
+/** How long a workflow stays settled before its closing line is written. */
+const WORKFLOW_NOTICE_SETTLE_MS = 3_000
 
 /** How a turn ended, as the transcript and notifications describe it. */
 type ConversationTurnOutcome = 'completed' | 'stopped' | 'failed' | 'cancelled'
@@ -1504,6 +1518,7 @@ export function App({
 	/** Clock for the rail's 30 s finished-agent lifetime; moved only when a row is due to leave. */
 	const [railNow, setRailNow] = useState(() => Date.now())
 	const railRowsRef = useRef<readonly SubagentActivity[]>([])
+	const railWorkflowsRef = useRef<readonly RailWorkflow[]>([])
 	const railJustFocusedRef = useRef(false)
 	// A finished agent leaves the rail 30 s after it ended: sleep until the next
 	// one is due instead of ticking, so a quiet session renders nothing.
@@ -1516,7 +1531,9 @@ export function App({
 		return () => clearTimeout(timer)
 	}, [subagents, railNow])
 	// The rail cannot keep the keyboard once it has nothing to show.
-	const railHasRows = railAgents(subagents, railNow, dismissedAgents).length > 0
+	const railHasRows =
+		railAgents(subagents, railNow, dismissedAgents).length > 0 ||
+		railWorkflows(subagents, railNow, dismissedAgents).length > 0
 	useEffect(() => {
 		if (!railHasRows && railFocus !== null) setRailFocus(null)
 	}, [railHasRows, railFocus, setRailFocus])
@@ -1697,6 +1714,30 @@ export function App({
 		})
 		return true
 	}, [setAgentSurface])
+	/**
+	 * Enter on a workflow row: the cockpit, opened on that workflow's phases
+	 * (or its agents when it has one phase), on the phase still moving. Esc
+	 * walks back to the row.
+	 */
+	const openWorkflowFromRail = useCallback(
+		(groupId: string, railReturn: string): boolean => {
+			const workflow = agentWorkflows(subagentsRef.current).find((item) => item.id === groupId)
+			const live = (agent: SubagentActivity): boolean =>
+				agent.status === 'starting' || agent.status === 'queued' || agent.status === 'working'
+			const phase = workflow?.phases.find((item) => item.agents.some(live)) ?? workflow?.phases[0]
+			const agent = phase?.agents.find(live) ?? phase?.agents[0]
+			if (!workflow || !phase || !agent) return false
+			setAgentSurface({
+				kind: 'cockpit',
+				selectedPhaseId: phase.id,
+				selectedId: agent.viewId,
+				focus: workflow.phases.length > 1 ? 'phases' : 'agents',
+				railReturn,
+			})
+			return true
+		},
+		[setAgentSurface],
+	)
 	/** The most recent cockpit request, so an older one cannot report on its behalf. */
 	const cockpitOpenTokenRef = useRef(0)
 	/**
@@ -1728,7 +1769,7 @@ export function App({
 	 * open the cockpit for the saved children it can still show.
 	 */
 	const focusAgentRail = useCallback(() => {
-		const first = railRowsRef.current[0]
+		const first = railRowsRef.current[0]?.viewId ?? railWorkflowsRef.current[0]?.focusId
 		if (first && agentSurfaceRef.current === null) {
 			// The ↓ that gets here is also dispatched to App's own key handler in
 			// the same tick, which must not read it as the first step inside the rail.
@@ -1736,7 +1777,7 @@ export function App({
 			setTimeout(() => {
 				railJustFocusedRef.current = false
 			}, 0)
-			setRailFocus(first.viewId)
+			setRailFocus(first)
 			return
 		}
 		void openAgentCockpit()
@@ -2705,6 +2746,57 @@ export function App({
 		const timer = setTimeout(() => setReceiptTick((tick) => tick + 1), retryIn)
 		return () => clearTimeout(timer)
 	}, [subagents, activeTools, pushMessage, session, receiptTick])
+
+	/**
+	 * A workflow that has settled leaves one line below its last agent's row:
+	 * `Workflow <name> completed · 1m05s · 3 agents · 4.2k tokens`. Written
+	 * once per size of the workflow, and only after it has stayed settled for
+	 * {@link WORKFLOW_NOTICE_SETTLE_MS}, so a parent that launches the next
+	 * phase a moment after the last one finished does not close the workflow
+	 * early. Saved children never count; they ended in another process.
+	 */
+	const reportedWorkflowsRef = useRef(new Set<string>())
+	const [workflowNoticeTick, setWorkflowNoticeTick] = useState(0)
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
+	useEffect(() => {
+		reportedWorkflowsRef.current.clear()
+	}, [session])
+	useEffect(() => {
+		void workflowNoticeTick
+		const now = Date.now()
+		let retryIn: number | undefined
+		for (const workflow of railWorkflows(subagents, now)) {
+			if (workflow.status === 'running' || workflow.endedAt === undefined) continue
+			const key = `${workflow.id}:${workflow.total}`
+			if (reportedWorkflowsRef.current.has(key)) continue
+			const waited = now - workflow.endedAt
+			if (waited < WORKFLOW_NOTICE_SETTLE_MS) {
+				retryIn = Math.min(
+					retryIn ?? WORKFLOW_NOTICE_SETTLE_MS,
+					WORKFLOW_NOTICE_SETTLE_MS - waited + 20,
+				)
+				continue
+			}
+			reportedWorkflowsRef.current.add(key)
+			const notice = workflowNotice(workflow)
+			pushMessage(
+				'tool',
+				notice.content,
+				false,
+				notice.glyph,
+				undefined,
+				notice.tone === 'error'
+					? theme.status.error
+					: notice.tone === 'warn'
+						? theme.status.warn
+						: theme.text.muted,
+			)
+		}
+		if (retryIn === undefined) return
+		const timer = setTimeout(() => setWorkflowNoticeTick((tick) => tick + 1), retryIn)
+		timer.unref?.()
+		return () => clearTimeout(timer)
+	}, [subagents, pushMessage, workflowNoticeTick])
 
 	/**
 	 * An accepted `send_message` correction already lands its own queue row inside
@@ -10412,21 +10504,26 @@ export function App({
 			if (railTarget !== null && railJustFocusedRef.current) return
 			if (railTarget !== null) {
 				const rows = railRowsRef.current
-				const at = rows.findIndex((agent) => agent.viewId === railTarget)
-				const selected = at < 0 ? undefined : rows[at]
-				if (rows.length === 0 || agentSurfaceRef.current) {
+				const flows = railWorkflowsRef.current
+				// `main`, then the agents, then the workflows: the order they are drawn in.
+				const ids = ['main', ...rows.map((agent) => agent.viewId), ...flows.map((f) => f.focusId)]
+				const at = Math.max(0, ids.indexOf(railTarget))
+				const selected = rows.find((agent) => agent.viewId === railTarget)
+				const selectedWorkflow = flows.find((flow) => flow.focusId === railTarget)
+				if (ids.length === 1 || agentSurfaceRef.current) {
 					setRailFocus(null)
 				} else if (key.escape) {
 					setRailFocus(null)
 					return
 				} else if (key.upArrow || key.downArrow) {
-					const index = at + 1 + (key.downArrow ? 1 : -1)
-					const clamped = Math.max(0, Math.min(rows.length, index))
-					setRailFocus(clamped === 0 ? 'main' : rows[clamped - 1]!.viewId)
+					const index = at + (key.downArrow ? 1 : -1)
+					setRailFocus(ids[Math.max(0, Math.min(ids.length - 1, index))] ?? 'main')
 					return
 				} else if (key.return) {
 					setRailFocus(null)
-					if (selected) {
+					if (selectedWorkflow) {
+						openWorkflowFromRail(selectedWorkflow.id, selectedWorkflow.focusId)
+					} else if (selected) {
 						setAgentSurface({
 							kind: 'transcript',
 							selectedPhaseId: selected.phaseId,
@@ -10438,6 +10535,21 @@ export function App({
 					}
 					return
 				} else if (input === 'x' && !key.ctrl && !key.meta) {
+					if (selectedWorkflow) {
+						if (railWorkflowActionFor(selectedWorkflow) === 'stop') {
+							// Every member still going is stopped the way `x` on its own
+							// row would; the row settles by itself as they report their end.
+							for (const member of selectedWorkflow.agents) {
+								if (!['completed', 'failed', 'cancelled'].includes(member.status)) {
+									session?.stopSubagent?.(member.viewId)
+								}
+							}
+						} else {
+							setDismissedAgents((current) => new Set(current).add(selectedWorkflow.focusId))
+							setRailFocus(ids[at + 1] ?? ids[at - 1] ?? 'main')
+						}
+						return
+					}
 					if (!selected) return
 					if (railActionFor(selected) === 'stop') {
 						// The row turns into a finished one by itself once the child
@@ -10445,8 +10557,7 @@ export function App({
 						session?.stopSubagent?.(selected.viewId)
 					} else {
 						setDismissedAgents((current) => new Set(current).add(selected.viewId))
-						const neighbour = rows[at + 1] ?? rows[at - 1]
-						setRailFocus(neighbour ? neighbour.viewId : 'main')
+						setRailFocus(ids[at + 1] ?? ids[at - 1] ?? 'main')
 					}
 					return
 				} else {
@@ -10505,6 +10616,17 @@ export function App({
 						return
 					}
 					if (key.escape) {
+						if (agentView.railReturn !== undefined) {
+							// Opened from a workflow row: one step up inside the workflow,
+							// then back to the row — never out to the list of workflows.
+							if (agentView.focus === 'agents' && phases.length > 1) {
+								setAgentSurface({ ...agentView, focus: 'phases' })
+								return
+							}
+							setAgentSurface(null)
+							setRailFocus(agentView.railReturn)
+							return
+						}
 						setAgentSurface(
 							workflows.length > 1 && agentView.focus !== 'workflows'
 								? { ...agentView, focus: 'workflows' }
@@ -10548,6 +10670,7 @@ export function App({
 							selectedId: selected.viewId,
 							returnFocus: agentView.focus,
 							tailOffset: 0,
+							...(agentView.railReturn !== undefined ? { railReturn: agentView.railReturn } : {}),
 						})
 						return
 					}
@@ -10630,6 +10753,7 @@ export function App({
 						selectedPhaseId: agentView.selectedPhaseId,
 						selectedId: selected.viewId,
 						focus: agentView.returnFocus,
+						...(agentView.railReturn !== undefined ? { railReturn: agentView.railReturn } : {}),
 					})
 					return
 				}
@@ -10915,6 +11039,8 @@ export function App({
 	// a filled bg left mismatched patches around bordered areas, so we don't.
 	const liveSubagents = railAgents(subagents, railNow, dismissedAgents)
 	railRowsRef.current = liveSubagents
+	const liveWorkflows = railWorkflows(subagents, railNow, dismissedAgents)
+	railWorkflowsRef.current = liveWorkflows
 	const representedSubagentTools = new Set(
 		subagents
 			.filter((agent) => agent.toolUseId !== undefined)
@@ -11463,11 +11589,12 @@ export function App({
 				!scrollOpen &&
 				jobSurface === null &&
 				scheduleReviewPrompt === null &&
-				liveSubagents.length > 0 ? (
+				(liveSubagents.length > 0 || liveWorkflows.length > 0) ? (
 					// The active agents remain in memory while the schedule review
 					// owns the available rows; the panel returns after the decision.
 					<AgentTaskPanel
 						agents={liveSubagents}
+						workflows={liveWorkflows}
 						terminalRows={terminal.rows}
 						terminalColumns={terminal.columns}
 						compact={permission !== null}
@@ -11476,7 +11603,14 @@ export function App({
 									selectedIndex:
 										railFocus === 'main'
 											? 0
-											: liveSubagents.findIndex((agent) => agent.viewId === railFocus) + 1,
+											: railFocus.startsWith('workflow:')
+												? liveSubagents.length +
+													1 +
+													Math.max(
+														0,
+														liveWorkflows.findIndex((flow) => flow.focusId === railFocus),
+													)
+												: liveSubagents.findIndex((agent) => agent.viewId === railFocus) + 1,
 								}
 							: {})}
 					/>

@@ -1259,6 +1259,106 @@ describe('Ctrl+T', () => {
 		)
 	})
 
+	describe('workflow rows', () => {
+		const flow = (viewId: string, extra: Partial<SubagentActivity> = {}): SubagentActivity =>
+			agent({
+				viewId,
+				description: `Step ${viewId}`,
+				workflow: 'Release audit',
+				phase: viewId === 'wf-c' ? 'Verify' : 'Survey',
+				phaseSequence: viewId === 'wf-c' ? 2 : 1,
+				...extra,
+			})
+
+		async function focusWorkflow(screen: Screen, downs: number): Promise<void> {
+			for (let i = 0; i < downs; i += 1) {
+				screen.press('\x1b[B')
+				await screen.waitForRender()
+			}
+			await waitUntil(
+				screen,
+				() => /^ *❯ ◯ Release audit/mu.test(screen.viewport().join('\n')),
+				'the workflow row did not take the pointer',
+			)
+		}
+
+		it('draws the row after the agents and stops every running member with x', async () => {
+			stoppedChildren.length = 0
+			activity.set([
+				flow('wf-a', { startedAt: Date.now() - 9_000 }),
+				flow('wf-b', {
+					status: 'completed',
+					startedAt: Date.now() - 9_000,
+					completedAt: Date.now() - 2_000,
+				}),
+				flow('wf-c', { startedAt: Date.now() - 8_000 }),
+			])
+			const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 30 })
+			mounted = screen
+			await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+			await waitUntil(
+				screen,
+				() => /◯ Release audit +▰+▱+ +1\/3 · \d+s/u.test(screen.viewport().join('\n')),
+				'the workflow row never appeared',
+			)
+			// main, three agents, then the workflow: four downs from the composer.
+			await focusWorkflow(screen, 1 + 3)
+			expect(screen.viewport().join('\n')).toContain('enter view · x stop')
+			screen.press('x')
+			await waitUntil(screen, () => stoppedChildren.length === 2, 'x did not stop the workflow')
+			expect([...stoppedChildren].sort()).toEqual(['wf-a', 'wf-c'])
+		})
+
+		it('opens the workflow on its phases with enter and returns to the row with escape', async () => {
+			activity.set([
+				flow('wf-a', { startedAt: Date.now() - 9_000 }),
+				flow('wf-c', { startedAt: Date.now() - 8_000 }),
+			])
+			const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 30 })
+			mounted = screen
+			await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+			await focusWorkflow(screen, 1 + 2)
+			screen.press('\r')
+			await waitUntil(
+				screen,
+				() =>
+					/Survey/u.test(screen.viewport().join('\n')) &&
+					/Verify/u.test(screen.viewport().join('\n')),
+				'enter did not open the workflow phases',
+			)
+			expect(screen.viewport().join('\n')).not.toContain('Select a workflow')
+			screen.press('\x1b')
+			await waitUntil(
+				screen,
+				() => /^ *❯ ◯ Release audit/mu.test(screen.viewport().join('\n')),
+				'escape did not return to the workflow row',
+			)
+		})
+
+		it('clears a finished workflow with x without stopping anything', async () => {
+			stoppedChildren.length = 0
+			activity.set([
+				flow('wf-a', {
+					status: 'completed',
+					startedAt: Date.now() - 9_000,
+					completedAt: Date.now() - 2_000,
+				}),
+			])
+			const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 30 })
+			mounted = screen
+			await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+			await focusWorkflow(screen, 1 + 1)
+			expect(screen.viewport().join('\n')).toContain('enter view · x clear')
+			screen.press('x')
+			await waitUntil(
+				screen,
+				() => !/◯ Release audit/u.test(screen.viewport().join('\n')),
+				'the finished workflow stayed on the rail',
+			)
+			expect(stoppedChildren).toEqual([])
+		})
+	})
+
 	it('keeps the composer and footer reachable while a short viewport bounds the roster', async () => {
 		activity.set(
 			Array.from({ length: 6 }, (_, index) =>
@@ -3081,7 +3181,7 @@ describe('render order below the message frame', () => {
 		expect(viewport[border + 2] ?? '').toBe('')
 	})
 
-	it('puts the agent rail directly under the footer once agents are live, titled by neutral count when only one of two carries a label', async () => {
+	it('puts the agent rail directly under the footer once agents are live, with a workflow row only for the agent that carries a label', async () => {
 		activity.set([
 			agent({ viewId: 'alpha', description: 'Alpha audit' }),
 			agent({ viewId: 'beta', description: 'Beta build', workflow: 'Nightly regression sweep' }),
@@ -3102,9 +3202,10 @@ describe('render order below the message frame', () => {
 		const railTop = viewport[border + 2] ?? ''
 		expect(railTop).toMatch(/^ *● main\b/u)
 		const frame = screen.viewport().join('\n')
-		// No workflow label is shown on the rail, whatever the agents carry.
+		// An explicit workflow label earns its own `◯` row after the agent rows;
+		// the unlabelled default never names anything.
 		expect(railRows(screen)).toHaveLength(2)
-		expect(frame).not.toContain('Nightly regression sweep')
+		expect(frame).toMatch(/^ *◯ Nightly regression sweep +▱+ +0\/1 · /mu)
 		expect(frame).not.toContain('Delegated work')
 	})
 

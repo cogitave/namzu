@@ -191,9 +191,194 @@ function railBulletColor(status: SubagentActivityStatus): string | undefined {
 	return undefined
 }
 
+/** What a workflow row shows about how the group ended; `running` until every member has settled. */
+export type RailWorkflowStatus = 'running' | 'completed' | 'failed' | 'stopped'
+
+/**
+ * One row of the rail: the agents that share an explicit `workflow` label,
+ * seen as a single piece of work. Derived from the agents alone — the kernel
+ * has no workflow object, only the display label each child carries.
+ */
+export interface RailWorkflow {
+	/** The group id the cockpit also uses, so a row opens its own workflow. */
+	readonly id: string
+	/** Keyboard-focus id of the row; never collides with an agent's view id. */
+	readonly focusId: string
+	readonly name: string
+	readonly startedAt: number
+	/** When the last member settled; undefined while any member is still going. */
+	readonly endedAt?: number
+	readonly done: number
+	readonly total: number
+	/** Summed spend of the members that reported usage; undefined when none has. */
+	readonly tokens?: number
+	readonly failed: number
+	readonly status: RailWorkflowStatus
+	readonly agents: readonly SubagentActivity[]
+}
+
+const WORKFLOW_FOCUS_PREFIX = 'workflow:'
+
+function isSettled(agent: SubagentActivity): boolean {
+	return agent.status === 'completed' || agent.status === 'failed' || agent.status === 'cancelled'
+}
+
+/**
+ * The workflows the rail lists: a group of agents the model gave one explicit
+ * `workflow` label, running or finished less than
+ * {@link AGENT_RAIL_FINISHED_LINGER_MS} ago, oldest first. Unlabelled batches
+ * are only agents, and saved (`replayed`) children belong to another process.
+ * A workflow the operator already cleared with `x` stays off the rail.
+ */
+export function railWorkflows(
+	agents: readonly SubagentActivity[],
+	now: number,
+	dismissed: ReadonlySet<string> = new Set(),
+): readonly RailWorkflow[] {
+	const groups = new Map<string, SubagentActivity[]>()
+	for (const agent of agents) {
+		if (agent.replayed === true || agent.workflow === DEFAULT_AGENT_WORKFLOW) continue
+		const group = groups.get(agent.workflowGroupId)
+		if (group) group.push(agent)
+		else groups.set(agent.workflowGroupId, [agent])
+	}
+	const rows: RailWorkflow[] = []
+	for (const [id, members] of groups) {
+		const focusId = `${WORKFLOW_FOCUS_PREFIX}${id}`
+		if (dismissed.has(focusId)) continue
+		const settled = members.filter(isSettled)
+		const running = settled.length < members.length
+		const failed = members.filter((agent) => agent.status === 'failed').length
+		const endedAt = running
+			? undefined
+			: Math.max(...members.map((agent) => agent.completedAt ?? agent.startedAt))
+		if (endedAt !== undefined && now - endedAt >= AGENT_RAIL_FINISHED_LINGER_MS) continue
+		const spent = members.reduce<number | undefined>(
+			(sum, agent) => (agent.tokens === undefined ? sum : (sum ?? 0) + agent.tokens),
+			undefined,
+		)
+		rows.push({
+			id,
+			focusId,
+			name: members[0]?.workflow ?? DEFAULT_AGENT_WORKFLOW,
+			startedAt: Math.min(...members.map((agent) => agent.startedAt)),
+			...(endedAt !== undefined ? { endedAt } : {}),
+			done: settled.length,
+			total: members.length,
+			...(spent !== undefined ? { tokens: spent } : {}),
+			failed,
+			status: running
+				? 'running'
+				: failed > 0
+					? 'failed'
+					: members.some((agent) => agent.status === 'cancelled')
+						? 'stopped'
+						: 'completed',
+			agents: members,
+		})
+	}
+	return rows.sort((a, b) => a.startedAt - b.startedAt || a.id.localeCompare(b.id))
+}
+
+/** Whether `x` stops this workflow (something is still going) or only clears the finished row. */
+export function railWorkflowActionFor(workflow: RailWorkflow): 'stop' | 'clear' {
+	return workflow.status === 'running' ? 'stop' : 'clear'
+}
+
+/**
+ * Only the outcome colours the bullet: green when it completed, red when it
+ * failed or was stopped — and already red while it runs once a member has
+ * failed. A running workflow with nothing wrong keeps the dim default.
+ */
+function railWorkflowBulletColor(workflow: RailWorkflow): string | undefined {
+	if (workflow.status === 'completed') return theme.status.ok
+	if (workflow.status === 'failed' || workflow.status === 'stopped') return theme.status.error
+	return workflow.failed > 0 ? theme.status.error : undefined
+}
+
+/** Widths the progress bar tries, widest first. */
+const WORKFLOW_BAR_WIDTHS = [20, 12, 8] as const
+
+/** `▰▰▰▱▱▱`: filled cells are the share of agents settled, rounded down. */
+export function railProgressBar(done: number, total: number, width: number): [string, string] {
+	const filled = total <= 0 ? 0 : Math.max(0, Math.min(width, Math.floor((done * width) / total)))
+	return ['▰'.repeat(filled), '▱'.repeat(width - filled)]
+}
+
+/** One way to draw a row's right-hand block: a bar width and the text after it. */
+export interface WorkflowRowVariant {
+	readonly barWidth: number
+	readonly text: string
+}
+
+/**
+ * The right-hand block of a workflow row, widest first. Words go before
+ * numbers as the row narrows: the counter, then the elapsed time, then the
+ * word `tokens`, then the bar shrinks from 20 to 12 to 8 cells and finally
+ * stands alone. The caller takes the first one that fits.
+ */
+export function workflowRowVariants(
+	workflow: RailWorkflow,
+	now: number,
+): readonly WorkflowRowVariant[] {
+	const count = `${workflow.done}/${workflow.total}`
+	const elapsed = formatElapsed(Math.max(0, (workflow.endedAt ?? now) - workflow.startedAt))
+	const spent = workflow.tokens === undefined ? undefined : formatCompactCount(workflow.tokens)
+	const join = (parts: readonly (string | undefined)[]): string =>
+		parts.filter((part): part is string => part !== undefined).join(' · ')
+	const [wide, mid, narrow] = WORKFLOW_BAR_WIDTHS
+	const variants: WorkflowRowVariant[] = [
+		{ barWidth: wide, text: join([count, elapsed, spent && `↓ ${spent} tokens`]) },
+		{ barWidth: wide, text: join([elapsed, spent && `↓ ${spent} tokens`]) },
+		{ barWidth: wide, text: join([elapsed, spent && `↓ ${spent}`]) },
+		{ barWidth: wide, text: join([spent && `↓ ${spent}`]) },
+		{ barWidth: mid, text: join([spent && `↓ ${spent}`]) },
+		{ barWidth: narrow, text: join([spent && `↓ ${spent}`]) },
+		{ barWidth: narrow, text: '' },
+	]
+	return variants.filter(
+		(variant, index) =>
+			variants.findIndex(
+				(other) => other.barWidth === variant.barWidth && other.text === variant.text,
+			) === index,
+	)
+}
+
+/** Cells of the pointer and bullet columns in front of every rail row. */
+const RAIL_PREFIX_CELLS = 4
+/** Gap between the name and the bar. */
+const WORKFLOW_ROW_GAP = 2
+
+/**
+ * Picks how a workflow row is laid out in `columns` cells: the first variant
+ * of {@link workflowRowVariants} that leaves the name at least
+ * `min(8, nameWidth)` cells, with the name squeezed into whatever is left.
+ */
+export function layoutWorkflowRow(
+	workflow: RailWorkflow,
+	now: number,
+	columns: number,
+	nameWidth: number,
+): { readonly variant: WorkflowRowVariant; readonly nameWidth: number } {
+	const variants = workflowRowVariants(workflow, now)
+	const room = Math.max(1, columns - RAIL_PREFIX_CELLS - 2)
+	const wanted = Math.min(8, nameWidth)
+	const widthOf = (variant: WorkflowRowVariant): number =>
+		WORKFLOW_ROW_GAP + variant.barWidth + (variant.text ? 2 + stringWidth(variant.text) : 0)
+	for (const variant of variants) {
+		if (room - widthOf(variant) >= wanted) {
+			return { variant, nameWidth: Math.min(nameWidth, room - widthOf(variant)) }
+		}
+	}
+	const last = variants[variants.length - 1] as WorkflowRowVariant
+	return { variant: last, nameWidth: Math.max(1, room - widthOf(last)) }
+}
+
 export interface AgentTaskPanelProps {
 	/** Already filtered to what the rail shows — see {@link railAgents}. */
 	readonly agents: readonly SubagentActivity[]
+	/** One row each below the agents — see {@link railWorkflows}. */
+	readonly workflows?: readonly RailWorkflow[]
 	readonly terminalRows: number
 	readonly terminalColumns: number
 	/**
@@ -204,7 +389,8 @@ export interface AgentTaskPanelProps {
 	readonly compact?: boolean
 	/**
 	 * The highlighted row while the rail has the keyboard: 0 is `main`, 1 the
-	 * first agent. Undefined means the rail is not focused.
+	 * first agent, then the workflow rows after the last agent. Undefined
+	 * means the rail is not focused.
 	 */
 	readonly selectedIndex?: number
 	/** The agent whose transcript is on screen; undefined or null means `main`. */
@@ -229,6 +415,7 @@ export interface AgentTaskPanelProps {
  */
 export function AgentTaskPanel({
 	agents,
+	workflows = [],
 	terminalColumns,
 	compact = false,
 	selectedIndex,
@@ -240,7 +427,7 @@ export function AgentTaskPanel({
 	const focused = selectedIndex !== undefined
 	const mainViewed = viewingId === undefined || viewingId === null
 	const narrow = terminalColumns < 64
-	const selectedAgent = focused ? selectedIndex - 1 : 0
+	const selectedAgent = focused ? Math.min(agents.length, selectedIndex) - 1 : 0
 	const { start, items } = selectionWindow(
 		agents,
 		Math.max(0, selectedAgent),
@@ -252,10 +439,18 @@ export function AgentTaskPanel({
 	// cap), so the description starts right after it instead of at a fixed tab.
 	const nameWidth = Math.min(
 		narrow ? 14 : AGENT_RAIL_NAME_WIDTH,
-		Math.max(4, ...agents.map((agent) => stringWidth(oneLine(agent.agentId)))),
+		Math.max(
+			4,
+			...agents.map((agent) => stringWidth(oneLine(agent.agentId))),
+			...workflows.map((workflow) => stringWidth(oneLine(workflow.name))),
+		),
 	)
 	const mainRight = compact
-		? `${agents.length} agent${agents.length === 1 ? '' : 's'}`
+		? `${agents.length} agent${agents.length === 1 ? '' : 's'}${
+				workflows.length > 0
+					? ` · ${workflows.length} workflow${workflows.length === 1 ? '' : 's'}`
+					: ''
+			}`
 		: [above > 0 ? `↑ ${above} more` : undefined, focused ? undefined : '↓ to manage']
 				.filter((part): part is string => part !== undefined)
 				.join(' · ')
@@ -335,10 +530,53 @@ export function AgentTaskPanel({
 					<Text color={theme.text.muted}>↓ {below} more</Text>
 				</Box>
 			) : null}
+			{compact
+				? null
+				: workflows.map((workflow, offset) => {
+						const selected = focused && selectedIndex === agents.length + 1 + offset
+						const { variant, nameWidth: workflowNameWidth } = layoutWorkflowRow(
+							workflow,
+							now,
+							terminalColumns,
+							nameWidth,
+						)
+						const [filled, empty] = railProgressBar(workflow.done, workflow.total, variant.barWidth)
+						return (
+							<Box key={workflow.focusId}>
+								<Box width={2} flexShrink={0}>
+									<Text color={theme.accent.assistant}>{selected ? '❯' : ' '}</Text>
+								</Box>
+								<Box width={2} flexShrink={0}>
+									<Text color={railWorkflowBulletColor(workflow)} dimColor={!selected}>
+										◯
+									</Text>
+								</Box>
+								<Box width={workflowNameWidth} flexShrink={0}>
+									<Text color={theme.text.primary} dimColor={!selected} wrap="truncate-end">
+										{terminalDisplayText(oneLine(workflow.name))}
+									</Text>
+								</Box>
+								<Box flexShrink={0} paddingLeft={WORKFLOW_ROW_GAP}>
+									<Text color={theme.text.primary} dimColor={!selected}>
+										{filled}
+										<Text dimColor>{empty}</Text>
+										{variant.text ? `  ${variant.text}` : ''}
+									</Text>
+								</Box>
+							</Box>
+						)
+					})}
 			{focused && !compact ? (
 				<Box paddingLeft={2}>
 					<Text color={theme.text.muted} wrap="truncate-end">
-						{railHint(selectedIndex === 0 ? undefined : agents[selectedIndex - 1], terminalColumns)}
+						{railHint(
+							selectedIndex === 0
+								? undefined
+								: selectedIndex <= agents.length
+									? agents[selectedIndex - 1]
+									: workflows[selectedIndex - agents.length - 1],
+							terminalColumns,
+						)}
 					</Text>
 				</Box>
 			) : null}
@@ -347,8 +585,15 @@ export function AgentTaskPanel({
 }
 
 /** The key line shown under the rail while it has the keyboard. */
-export function railHint(selected: SubagentActivity | undefined, columns: number): string {
-	const action = selected ? railActionFor(selected) : undefined
+export function railHint(
+	selected: SubagentActivity | RailWorkflow | undefined,
+	columns: number,
+): string {
+	const action = selected
+		? 'focusId' in selected
+			? railWorkflowActionFor(selected)
+			: railActionFor(selected)
+		: undefined
 	return fitHints(
 		[
 			{ text: '↑/↓ select', short: '↑/↓', rank: 4 },

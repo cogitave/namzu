@@ -2,6 +2,8 @@
 
 ## 2026-10-18
 
+- **Update** [Terminal design](cli/terminal-design.md) and [Delegated work](cli/delegated-work.md): a group of agents sharing an explicit `workflow` label gets one row on the agents rail after the agent rows — `◯ name`, a `▰▱` bar of settled agents, `3/7 · elapsed · ↓ tokens` — dim until selected, bullet coloured only by outcome, narrowing as the line does, leaving 30 seconds after it finishes. ↓ reaches it; Enter opens the cockpit on that workflow (Esc returns to the row), `x` stops its running agents or clears the row. A settled workflow writes one closing line in the conversation (completed dim, failed red, stopped yellow). `.changeset/workflow-rows.md`, **patch** for `@namzu/cli`.
+
 - **Update** [Terminal design](cli/terminal-design.md) and [Delegated work](cli/delegated-work.md): the agents rail under the footer is now a `main` row plus one row per running or recently finished agent (type, description, time, spend), five at a time with `↓ N more`, finished agents leaving after 30 seconds. ↓ from an empty composer moves into the rail (`↑/↓ select · enter view · x stop · esc back`); the old titled tree with workflow and phase lines, per-agent activity lines and the `↓ / ctrl+t` counter is gone from the rail (the cockpit keeps them). `.changeset/agents-rail.md`, **patch** for `@namzu/cli`.
 
 ## 2026-10-17
