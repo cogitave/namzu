@@ -8,7 +8,10 @@ describe('shortenPathToFit', () => {
 	})
 
 	it('shortens a Windows path from the left and starts at a folder, not mid-name', () => {
-		const shortened = shortenPathToFit('C:\\Users\\arda\\Documents\\Claude\\Projects\\New project 3', 30)
+		const shortened = shortenPathToFit(
+			'C:\\Users\\arda\\Documents\\Claude\\Projects\\New project 3',
+			30,
+		)
 		expect(shortened.length).toBeLessThanOrEqual(30)
 		expect(shortened).toMatch(/^…\\/)
 		expect(shortened.endsWith('New project 3')).toBe(true)

@@ -16,8 +16,8 @@
 import { render } from 'ink-testing-library'
 import { describe, expect, it } from 'vitest'
 
-import type { PrFooterState } from '../pr-status.js'
 import { StatusBar } from '../StatusBar.js'
+import type { PrFooterState } from '../pr-status.js'
 
 /** The picker's first-run hint: the only place its exits are named. */
 const HINT = '↑↓ select · enter accept · esc or Ctrl+C exit'

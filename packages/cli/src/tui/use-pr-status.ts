@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
-import { PR_NONE, PrPoller, type PrFooterState, type RunCommand } from './pr-status.js'
+import { PR_NONE, type PrFooterState, PrPoller, type RunCommand } from './pr-status.js'
 
 /**
  * The footer's pull request item. Starts a background poller for the folder,

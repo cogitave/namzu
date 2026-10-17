@@ -7,8 +7,8 @@
 import { render } from 'ink-testing-library'
 import { describe, expect, it } from 'vitest'
 
-import type { PrFooterState } from '../pr-status.js'
 import { StatusBar, type StatusBarProps } from '../StatusBar.js'
+import type { PrFooterState } from '../pr-status.js'
 import { renderToScreen } from './support/screen.js'
 
 const PR = (review: 'approved' | 'changes' | 'pending' | 'merged' | 'draft'): PrFooterState => ({

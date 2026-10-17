@@ -412,7 +412,6 @@ import {
 import { splitCompleteBlocks, splitSafeCut } from './stream-blocks.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { terminalSupportsHyperlinks } from './terminal-hyperlinks.js'
-import { usePrStatus } from './use-pr-status.js'
 import { theme } from './theme.js'
 import {
 	PAUSED_TURN_LINES,
@@ -420,6 +419,7 @@ import {
 	handoffContinuationNote,
 } from './turn-interruption.js'
 import type { TranscriptMessage, TuiContext } from './types.js'
+import { usePrStatus } from './use-pr-status.js'
 import { useSelectionIndex } from './use-selection-index.js'
 import { renderWorkspaceDiff, workspaceDiff } from './workspace-diff.js'
 import {
