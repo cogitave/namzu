@@ -9,7 +9,12 @@ import { Box } from 'ink'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import type { SubagentActivity } from '../../integrations/subagents/activity.js'
-import { AgentCockpit, type AgentCockpitFocus, workflowDetailPageSize } from '../AgentExplorer.js'
+import {
+	AgentCockpit,
+	type AgentCockpitFocus,
+	windowTag,
+	workflowDetailPageSize,
+} from '../AgentExplorer.js'
 import { launchLabel, launchReceipt } from '../agent-transcript-rows.js'
 import { type Screen, renderToScreen } from './support/screen.js'
 
@@ -122,6 +127,44 @@ describe('at 140 columns', () => {
 		expect(workflowDetailPageSize(45)).toBe(14)
 		expect(workflowDetailPageSize(30)).toBe(10)
 		expect(workflowDetailPageSize(14)).toBe(4)
+	})
+})
+
+// Reference (REA fns vt, Bo and Zt, chunk-t32eta2x.js): a list longer than the
+// rows its pane holds says which of them it shows, in the box's bottom border.
+describe('the window tag on the box border', () => {
+	it('writes the arrows on the sides that have more, and a space on the side that has not', () => {
+		const rows = (start: number, count: number) => ({
+			start,
+			items: Array.from({ length: count }),
+		})
+		expect(windowTag(rows(0, 8), 14)).toBe('  1–8 of 14 ↓')
+		expect(windowTag(rows(3, 8), 14)).toBe('↑ 4–11 of 14 ↓')
+		expect(windowTag(rows(6, 8), 14)).toBe('↑ 7–14 of 14  ')
+	})
+
+	it('shows on the agents pane only when the agents do not all fit', async () => {
+		await mounted?.unmount()
+		const many = Array.from({ length: 20 }, (_, index) => member(`m${index}`, 'Read', 0))
+		mounted = await renderToScreen(
+			<Box flexDirection="column" paddingX={1}>
+				<AgentCockpit
+					agents={many}
+					selectedPhaseId={(many[0] as SubagentActivity).phaseId}
+					selectedId="m0"
+					focus="agents"
+					terminalRows={45}
+					terminalColumns={140}
+				/>
+			</Box>,
+			{ cols: 140, rows: 45 },
+		)
+		const border = mounted.viewport().find((row) => row.includes('╰')) ?? ''
+		expect(border).toMatch(/╰─+┴─+ {3}1–14 of 20 ↓ ╯/u)
+		// The phases list has one phase: no tag on its side of the border.
+		expect(border.split('┴')[0]).not.toContain('of')
+		const few = (await open('agents', 140, 45)).find((row) => row.includes('╰')) ?? ''
+		expect(few).not.toContain(' of ')
 	})
 })
 

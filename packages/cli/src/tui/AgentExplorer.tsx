@@ -1059,6 +1059,40 @@ function padStartCells(text: string, cells: number): string {
 	return ' '.repeat(Math.max(0, cells - stringWidth(text))) + text
 }
 
+/**
+ * `↑ 1–8 of 14 ↓`: which rows of a longer list the box shows. An arrow is
+ * drawn on the side that has more, a space on the side that does not. Set in
+ * the box's bottom border, one per list (REA fns vt/Bo/Zt, chunk-t32eta2x.js).
+ */
+export function windowTag(
+	window: { readonly start: number; readonly items: readonly unknown[] },
+	total: number,
+): string {
+	const end = window.start + window.items.length
+	return `${window.start > 0 ? '↑' : ' '} ${window.start + 1}–${end} of ${total} ${end < total ? '↓' : ' '}`
+}
+
+/** A stretch of a box border: dashes, with an optional dim tag ending it. */
+function BorderSegment({
+	width,
+	tag,
+	color,
+}: {
+	readonly width: number
+	readonly tag?: string | undefined
+	readonly color: string
+}) {
+	const text = tag ? ` ${tag} ` : ''
+	const shown = text !== '' && stringWidth(text) <= width ? text : ''
+	const dashes = Math.max(0, width - stringWidth(shown))
+	return (
+		<>
+			<Text color={color}>{'─'.repeat(dashes)}</Text>
+			{shown ? <Text color={theme.text.muted}>{shown}</Text> : null}
+		</>
+	)
+}
+
 /** What an agent row says after its label: model, spend, and how it ended. */
 function agentDetailMeta(agent: SubagentActivity, columns: number): string {
 	return [
@@ -1431,8 +1465,20 @@ export function WorkflowDetail({
 				)
 			})}
 			<Box paddingX={1}>
-				<Text color={border} wrap="truncate-end">
-					╰{'─'.repeat(leftInner)}┴{'─'.repeat(rightInner)}╯
+				<Text wrap="truncate-end">
+					<Text color={border}>╰</Text>
+					<BorderSegment
+						width={leftInner}
+						tag={phases.length > pageSize ? windowTag(phaseWindow, phases.length) : undefined}
+						color={border}
+					/>
+					<Text color={border}>┴</Text>
+					<BorderSegment
+						width={rightInner}
+						tag={agents.length > pageSize ? windowTag(agentWindow, agents.length) : undefined}
+						color={border}
+					/>
+					<Text color={border}>╯</Text>
 				</Text>
 			</Box>
 			{footer}
