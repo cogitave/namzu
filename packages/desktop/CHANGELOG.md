@@ -1,5 +1,16 @@
 # @namzu/desktop
 
+## 0.2.4
+
+### Patch Changes
+
+- 02fe2ce: A reply that stopped now shows its sentence directly under its work, with one time: when the work ended. Before, an empty hover-only time row sat between the work and the sentence, and the sentence's row showed the time of the person's message instead.
+- 692466e: The message box in Namzu Desktop now shows, beside the mode, how many background shells are running ("2 shells", which opens the list) and the pull request of the conversation's branch ("PR #607", coloured by review state, which opens it in the browser). The pull request comes from the GitHub command line tool the terminal already uses; with `gh` missing, signed out, or no pull request, nothing is shown. The CLI host gains a read-only `namzu/project/pr` request for it.
+- f1c4fcf: Namzu Desktop gains the engine for on-device voice commands: a Turkish speech-to-text model and a voice-activity detector that run in worker threads and download only when the person asks. Nothing in the interface uses it yet, so there is nothing to do on upgrade. The installer now carries the Windows x64 speech runtime (`sherpa-onnx-node`), unpacked from the app archive. The roughly 1 GB download survives a dropped connection or a busy host: it continues from the bytes it already has (an HTTP Range request) and gives up only after five attempts in a row receive nothing.
+- 692466e: Messages typed while Namzu is replying now wait in a tray joined to the top of the message box, one row per message in the order they will be used, instead of a "queued" list above the box. A row sent into the running reply says "Sending to this reply" and leaves the tray the moment the model receives it; one held back says "After this reply". Each row has Send now (stops the reply and runs it at once), Edit and Remove. Edit opens the message in place and keeps its position: Enter saves, Shift+Enter adds a line, Esc cancels. Press the up arrow in an empty box to edit the newest waiting message, and Tab to hold what you typed for after the reply. The "Queue message" text button is now an icon.
+- 692466e: A shell command now reads as one row with its output under it: the first three lines, then "+N lines" to open the rest, errors in the error colour, "Exit code N" said once instead of beside the command as well, and "(No output)" for a command that printed nothing. A command that was handed to a background job says "Running in the background" with a "See it" action, and the run's header counts it ("Ran 4 commands, 1 failed, 1 in the background").
+- f1c4fcf: Namzu Desktop gains voice input in Turkish: a microphone button in the composer, an in-app agreement the first time you use it, and a Voice input card in Settings, Speech where the one-time download (about 1 GB) lives. What you say is turned into text on this computer and sent as a normal message; saying "dur" stops a running reply, a question waiting on screen is never answered by voice, and a reply you started by voice is read aloud when the Turkish voice is installed. Desktop now answers microphone permission requests itself: only its own windows, audio only, after you agree; every other permission is unchanged. A spoken message keeps a conversation on Auto, as a typed one does. Nothing to do on upgrade: voice input stays off until you download it.
+
 ## 0.2.3
 
 ### Patch Changes
