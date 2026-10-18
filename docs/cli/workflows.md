@@ -84,7 +84,7 @@ under `d`. A script whose `meta` cannot be read is still shown, with the reason.
 | `prompt` or `accept-edits` mode with a person at the terminal | the review above |
 | `auto` mode (`--dangerously-skip-permissions`, "bypass permissions on") | it starts without asking, like any other call |
 | `plan` or `strict` mode | refused by the mode, as any change is |
-| no one to ask (`exec`, `drain`) and not `auto` | refused, in words the model can pass on, naming `--permission-mode auto` |
+| no one to ask (`exec`, `exec --json`) and not `auto` | refused, in words the model can pass on, naming `--permission-mode auto` |
 
 Answering `Do not start` is the person's own No: the model is told it was
 declined and the transcript shows `○ Workflow(…)` and `You declined this, so it
@@ -128,8 +128,10 @@ The agents rail gets **one row** for the run, after any subagent rows:
   ◯ denetim  ▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱  3/6 · 12s · ↓ 30 tokens
 ```
 
-The count is settled agents over every agent the script has asked for so far,
-queued ones included. Phases are not on the row. The bullet is coloured only
+The count is the agents that **completed** over every agent the script has asked
+for so far, queued ones included; a skipped, failed or stopped agent does not
+fill the bar. A stopped run's bar stays where it was, and only the bullet and the
+detail header (`· stopped`) say how it ended. Phases are not on the row. The bullet is coloured only
 by outcome. The row leaves 30 seconds after the run ends. A workflow's agents
 are never subagent rows, are not counted in the turn's `✻ Worked for …` line,
 and write no launch or completion rows of their own.
@@ -147,8 +149,9 @@ the detail, which shows one list at a time:
    nothing has started in says `Not started yet`. `x` skips the selected agent:
    a queued one never starts, a running one is cancelled, and its `agent()`
    gives the script `null`.
-3. **The agent's transcript**: its own, like any child's. Workflow agents cannot
-   be messaged from here.
+3. **The agent's transcript**: its own, like any child's, headed by the workflow
+   and the phase (`denetim · Tarama`) and the agent's label rather than
+   "Subagent". Workflow agents cannot be messaged from here.
 
 A skipped agent does not fail its phase. The header reads `denetim  <purpose>
 3/6 agents · 12s` and, once the run has ended, ends with `· completed`,
@@ -165,14 +168,29 @@ doing, not when a turn ends:
 ■ Workflow denetim stopped · 8s · 5 agents
 ```
 
-The model gets one message about it, delivered like a background job's exit:
-inside a turn that is running (when it next asks for input), otherwise with the
-next turn as "Workflows that ended since your last turn". It carries the status
-or the failure reason, the agents that failed and why, the usage, and the
-script's return value capped at 8000 characters, wrapped as untrusted material
-because it was assembled from subagents' answers. It does not wake an idle
-model: when the run ends between turns, the model reports on it at the person's
-next message.
+The model gets one message about it. Inside a turn that is running, it arrives
+when the turn next asks for input. When the session is idle, it **wakes the
+model**: a turn starts at once, carrying that message, and the model reports on
+the run without the person typing anything (two runs that end together share one
+turn). The message carries the status or the failure reason, the agents that
+failed and why, the usage, and the script's return value capped at 8000
+characters, wrapped as untrusted material because it was assembled from
+subagents' answers. Each is delivered once. A background command that ends on
+its own wakes the model the same way (see [Background jobs](background-jobs.md));
+one you stopped yourself does not.
+
+## `namzu exec`
+
+A headless run does not end with the model's first turn while a workflow it
+started is going. `exec` (and `exec --json`) waits for the run, bounded by the
+run's own limits and by the turn limit (`limits.timeoutMs`) when one is set, at
+which point whatever is still going is stopped and reported as stopped. It then
+gives the model the one message above, lets it take a reporting turn, and only
+then closes the session. The text printed (or the final `done`) is the report
+turn's. A first turn that failed or paused is not waited on. Nobody is there to
+review the script, so a headless run may start a workflow only in `auto` mode
+(`--dangerously-skip-permissions`, the headless default); in `prompt`,
+`accept-edits`, `strict` and `plan` the model is told why it was refused.
 
 ## `/workflows`
 
@@ -208,6 +226,12 @@ in force ("Agents: up to 4 at a time, 300 in all"). The turn's token budget
 ## Skipping and stopping under a token budget
 
 Stopping a run or skipping an agent cancels a model request that may not have reported its usage. That request is closed on an estimate (the prompt plus what had streamed) instead of being left as unknown spend, so the rest of the turn's budget stays available to the other agents; the estimate can undercount what the provider billed for the unreported part. A request that failed for any other reason keeps its unknown-spend marker as before.
+
+## Three choices worth knowing
+
+- In `auto` mode ("bypass permissions on") a workflow starts without a review, like any other call.
+- A run has its own token ledger, apart from the turn's: its agents share the turn's budget limit but are counted on the run.
+- An agent's `schema` option is carried as an instruction in its prompt, and the reply is parsed and validated against the schema; a reply that does not match makes that agent's `agent()` give `null`.
 
 ## Not in this version
 
