@@ -231,7 +231,8 @@ export function runShellHook(
 				// its own — the hook's deadline becomes the grandchild's.
 				detached: process.platform !== 'win32',
 				// A hook has always run under `sh`, whatever shell the `bash` tool
-				// chose. Windows has no `sh`, so there the host's own shell runs it.
+				// chose. Windows has no `sh`, so there the host's own shell runs it: Git Bash
+				// when installed, cmd.exe when not.
 				...(process.platform === 'win32'
 					? {}
 					: { shell: { path: 'sh', dialect: 'sh', source: 'sh' } as const }),

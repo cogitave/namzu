@@ -16,11 +16,13 @@ generated: { by: process:claude-code, at: 2026-09-23T00:00:00Z }
 
 On the host the shell is resolved once per process (`hostCommandShell`, `packages/sdk/src/tools/command-shell.ts`):
 
-1. `NAMZU_BASH_SHELL`, when set, names the shell outright. `NAMZU_BASH_SHELL=/bin/sh` restores the shell the tool used before it ran bash.
+1. `NAMZU_BASH_SHELL`, when set, names the shell outright. `NAMZU_BASH_SHELL=/bin/sh` restores the shell the tool used before it ran bash. On Windows, `NAMZU_BASH_SHELL=cmd` (or a path to `cmd.exe`, so `%ComSpec%` works) keeps cmd.exe.
 2. Otherwise the first `bash` in an absolute `PATH` directory, then `/bin/bash`, then `/usr/bin/bash`.
 3. With no bash, `/bin/sh`.
 
-The command runs as `<shell> -c <command>`: non-interactive, not a login shell, no startup files. bash in its default mode, not POSIX mode. On Windows the tool keeps Node's platform shell (normally CMD), and now reports the explicit `cmd` dialect. Its executable default has not changed. The CMD reading is conservatively opaque: command-specific allow rules and skill patterns decline it, and the existing unknown-program escalation requests exact-call review. A whole-tool gate allowance does not bypass this escalation. SDK query prompts disclose each active command tool's execution dialect, including minimal and cached prompts; sandboxed tools describe the guest's `sh` dialect instead of the Windows host.
+On Windows the order is different, because the `bash` on a Windows `PATH` can be WSL's launcher, which runs the command in another system. Git for Windows' bash is looked up in a fixed order (`findGitBash`): `NAMZU_BASH_SHELL`, then `%ProgramFiles%\Git\bin\bash.exe`, then `%ProgramFiles(x86)%\Git\bin\bash.exe`, then the install that holds the first `git` that `%SystemRoot%\System32\where.exe git` lists (its `bin\bash.exe`, one or two directories above the `git.exe`). A `git.exe` found inside the working directory is skipped, so a repository cannot plant the program that runs. Nothing is read from the registry and `where bash` is never asked. Without Git for Windows the tool falls back to cmd.exe and `windowsShellNotice()` carries the one-time notice shown in the session (`Git for Windows not found — shell commands run in cmd.exe and each one asks for approval. Install Git for Windows for full support.`).
+
+The command runs as `<shell> -c <command>`: non-interactive, not a login shell, no startup files. bash in its default mode, not POSIX mode. On Windows with Git Bash the command runs as `bash.exe -c <command>` and is read in the `bash` dialect; the Windows-only details are below. Without Git Bash the tool keeps Node's platform shell (normally CMD) and reports the explicit `cmd` dialect. The CMD reading is conservatively opaque: command-specific allow rules and skill patterns decline it, and the existing unknown-program escalation requests exact-call review. A whole-tool gate allowance does not bypass this escalation. SDK query prompts disclose each active command tool's execution dialect, including minimal and cached prompts; sandboxed tools describe the guest's `sh` dialect instead of the Windows host.
 
 An application running a confirmed script can select an installed interpreter
 explicitly with `installedCommandShellForDialect('bash' | 'sh')`. The matching
@@ -77,6 +79,8 @@ A sandbox runs the guest's own binaries, and a microVM or Kubernetes image may h
 | Where it runs | Shell | Dialect |
 |---|---|---|
 | Host with bash | `bash -c` | `bash` |
+| Windows host with Git for Windows | Git Bash `bash.exe -c` | `bash` |
+| Windows host without it, or `NAMZU_BASH_SHELL=cmd` | `cmd.exe /d /s /c` | `cmd` |
 | Host without bash, or `NAMZU_BASH_SHELL` naming a shell that is not bash | `/bin/sh -c` | `sh` |
 | Sandbox, including a call approved to leave it | bash if the guest has it, else `/bin/sh` | `sh` |
 
@@ -88,15 +92,23 @@ The query executor asks the tool for its dialect on every call it authorizes, wi
 
 `NAMZU_BASH_TIMEOUT_MS` sets the default timeout (two minutes) and `NAMZU_BASH_MAX_TIMEOUT_MS` the most a call may ask for (ten minutes). `NAMZU_BASH_MAX_BUFFER_BYTES` caps captured output on the host (100 MiB). Inherited credential-shaped variables are withheld from the host command (`packages/sdk/src/tools/env-scrub.ts`); a failed command names the ones it did not get.
 
+## Git Bash on Windows
+
+Reading cmd.exe lines is not possible for the permission rules, so with cmd every command line was "a program decided at runtime" and needed a person in every mode, and a model's POSIX syntax did not run. With Git Bash both go away. What differs from a POSIX host:
+
+- The spawn is hidden (`windowsHide`), not detached, with stdin on the null device, so a command that reads input sees end-of-file instead of waiting for its timeout. The environment gains `GIT_EDITOR=true`, and a unique `NAMZU_SHELL_TAG`.
+- A redirect to the Windows null device (`>nul`, `2>NUL`, `&>nul`, `>>nul`) is rewritten to `/dev/null` in the tool's input, before the permission rules read the line and before it runs. In bash `nul` is an ordinary file name, which Windows then cannot delete. A line with `<`, `$` or a backtick is left alone.
+- Killing a command ends the whole tree. `taskkill /T /F` alone misses what Git Bash forked, because the process that forked has already exited and the command's Windows parent no longer exists (`sleep 60; echo done` leaves `sleep`). So the kill first finds every process whose environment carries the shell's tag, from inside the msys runtime, and ends them, then runs `taskkill /T /F`.
+- The model is told. The system context reads `Execution shell for bash: bash (Git Bash on Windows, host).` and the tool description gains `WINDOWS_BASH_GUIDANCE`: Git Bash (POSIX sh), not cmd.exe or PowerShell; `/dev/null` not `NUL`, forward slashes, `$VAR` not `%VAR%` or `$env:VAR`; to run PowerShell, call `powershell -NoProfile -Command "…"`.
+- Paths are the host's: `cwd` is the Windows path and Git Bash shows it as `/c/…` or `/tmp/…`. `!command` in the composer is the operator's own shell and stays on cmd.exe.
+
 ## Native Windows metadata migration
 
-`ShellDialect` now includes `cmd`. The default native Windows
-`hostCommandShell().dialect` and unsandboxed `BashTool.commandDialect()` changed
-from `sh` to `cmd`. Consumers must handle this third value in exhaustive
+`ShellDialect` now includes `cmd`. The native Windows `hostCommandShell().dialect` and unsandboxed `BashTool.commandDialect()` changed from `sh` to `cmd`, and with Git for Windows installed they are now `bash`. To keep cmd.exe on such a machine set `NAMZU_BASH_SHELL=cmd`. Consumers must handle this third value in exhaustive
 switches and pass it into authorization reads. Do not relabel CMD as `sh` to
 retain previous command-pattern allowances: POSIX single quotes and escaping
 can hide commands that CMD executes. Use an exact-call review or an explicitly
 selected POSIX interpreter. `NAMZU_BASH_SHELL` remains an explicit POSIX
 interpreter override; Windows `bash.exe` and `sh.exe` paths are recognized.
-There is no automatic PowerShell or WSL selection. Sandboxed Linux guest
+There is no automatic PowerShell or WSL selection (a `powershell` tool for machines without Git Bash is not built). Sandboxed Linux guest
 commands continue to be read as `sh` even on a Windows operator device.

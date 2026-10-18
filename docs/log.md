@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-10-18
+
+- **Update** [The bash tool](sdk/bash-tool.md#git-bash-on-windows), [How command lines are read](sdk/command-lines.md) and [Background jobs](cli/background-jobs.md): on Windows the `bash` tool now runs Git for Windows' bash (found in a fixed order) and the permission rules read the line as `bash`, instead of running cmd.exe, whose lines the rules could not read (every command needed a person, in every mode). Windows-only: hidden spawn with stdin on the null device and `GIT_EDITOR=true`, `>nul` rewritten to `/dev/null`, the process tree ended by a tag in the environment as well as by `taskkill`, and the model told it is Git Bash. Without Git for Windows the tool keeps cmd.exe and the session says so once; `NAMZU_BASH_SHELL=cmd` keeps cmd.exe on a machine that has Git Bash. `.changeset/windows-git-bash.md`, **major** for `@namzu/sdk`, **patch** for `@namzu/cli`.
+
 ## 2026-10-17
 
 - **Update** [Auto model routing](cli/auto-model-routing.md): under Auto, web search goes through the common `web_search` tool instead of the session provider's hosted search, as a fallback chain does, and a turn routed to a provider that cannot run hosted search no longer carries it. Before, a session that started on a provider with hosted search (Anthropic) sent it on every turn Auto routed elsewhere, and that provider (Zen) refused the whole request. Unreleased, so no changeset of its own: `.changeset/auto-model-routing.md` covers it.
