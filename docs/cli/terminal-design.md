@@ -217,6 +217,9 @@ above, and a dim `↓ N more` row sits under the last one when more are below.
 A finished agent stays 30 seconds, then leaves; saved agents from earlier
 sessions never appear on the rail (the cockpit lists them).
 
+The `main` row appears only beside at least one agent row (or while an agent's
+transcript is open). A rail with nothing but a workflow row has no `main` row.
+
 Press ↓ in an empty composer to move into the rail (with no rows on screen it
 still opens the cockpit for saved agents). The composer is dimmed while the
 rail has the keys, and a key line appears under the rows:
@@ -229,9 +232,9 @@ and Esc hands the keyboard back to the composer. Any other key does the same.
 open the rail shrinks to the `main` row with a count (`2 agents`) and names no
 key, since the dialog owns the keyboard.
 
-A workflow the model split into several phases keeps its phase lines in the
-cockpit; the rail lists its agents flat, and adds one row for the workflow
-itself after the agent rows:
+Agents and workflows are separate. An agent the model gave a `workflow` label
+is never an agent row: it exists only inside its workflow, which gets one row
+after the agent rows (the rail lists only the unlabelled subagents above it):
 
 ```text
   ● main                                                         ↓ to manage
@@ -253,15 +256,38 @@ agents' name column. As the line narrows it gives up, in order, the
 `n/m` counter, the elapsed time, the word `tokens`, then the bar shrinks from
 20 to 12 to 8 cells; the name is squeezed last, never below eight cells.
 
-↓ walks `main`, the agents, then the workflows. On a workflow row the key line
-reads `↑/↓ to select · enter to view · x to stop · esc to go back` (`x to clear` once it has
-finished). Enter opens the cockpit on that workflow — its phases, or its
-agents when it has one phase, on the phase still moving — and Enter again
-drills through the phase's agents to an agent's transcript; Esc walks back up
-and finally to the same row. `x` stops every agent of the workflow that is
-still going (each one as its own `x` would), or clears a finished row.
+↓ walks `main` (when drawn), the agents, then the workflows. On a workflow row
+the key line reads `↑/↓ to select · enter to view · x to stop · esc to go back`
+(`x to clear` once it has finished). Enter opens the workflow's detail view and
+`x` stops every agent of the workflow that is still going (each one as its own
+`x` would), or clears a finished row.
 
-When a workflow is over it leaves one line in the conversation, above the
+The detail view shows one list at a time, in a frame headed by the workflow's
+name and `<done>/<total> agents · <elapsed>`. Level 1 is `Phases`, one row per
+phase in `phase_order` then first seen: the phase's number, which becomes a
+green `✔` once all its agents are done or a red `✘` once it has settled with a
+failure or a stop; the model's `phase` label verbatim; and right-aligned
+`done/total` (total grows as agents are started, since Namzu cannot know a phase
+before it has an agent). The selected phase's `phase_detail` sits under the
+list. Enter or → opens level 2, `<phase> · N agents`: each agent as `✔` done,
+`✘` failed, `●` running or `◌` queued, its description, type, model, tokens and
+time. Enter or → opens that agent's transcript. Esc or ← goes up a level, and
+from level 1 back to the rail row; `x` stops the whole workflow at level 1 and
+the one agent at level 2:
+
+```text
+ Surum denetimi                                          1/5 agents · 2m11s
+ Phases
+ ❯ 1  Tarama                                                            1/3
+   2  Duzeltme                                                          0/2
+ Butun paketlerin surum notlarini tara
+ ↑/↓ to select · enter to view · x to stop · esc to go back
+```
+
+When the model launches labelled agents the conversation gets one group line,
+`● Workflow Release audit` over `⎿ Running in background · ↓ to manage`,
+instead of a launch row per agent, and no completion rows for them. When a
+workflow is over it leaves one line in the conversation, above the
 turn's `✻ Worked for …` line: `✓ Workflow Release audit completed · 4m02s · 7
 agents · 112.0k tokens` (dim), `✗ … failed · … · 1 failed …` (red) or `■ …
 stopped …` (yellow). "Over" means the parent turn that ran it has ended and
@@ -297,17 +323,18 @@ Delegated work leaves three kinds of row in the conversation, each written once
 and never redrawn; the live state belongs to the rail.
 
 ```text
-● Launched 2 agents · Two-phase colour sentence / Phase 1 (ctrl+t to manage)
+● Launched 2 agents (ctrl+t to manage)
   ├ Choose first colour
   └ Choose second colour
 ✓ Choose first colour · 1.7s · 9.0k tokens · ctrl+o result · ctrl+t details
 ✗ Choose second colour · failed after 2.9s · Provider refused the request · ctrl+t details
-✻ Worked for 38s · 3 agents in 2 phases · 27.0k tokens
+✻ Worked for 38s · 3 agents · 27.0k tokens
 ```
 
 - **A launch receipt** per batch: the agents one model response launched
-  together, named under one line, with the workflow and phase labels when the
-  model supplied them. A single agent is named inline. The receipt waits until
+  together, named under one line. A single agent is named inline. Agents the
+  model gave a `workflow` label are one workflow and get one `● Workflow <name>`
+  line instead (see the rail section), once per workflow. The receipt waits until
   the batch is whole, so agents launched in the same response share one
   receipt, and it is always written before any of its agents' completions.
   It is drawn below the reply that launched it even while that reply is still
@@ -321,8 +348,8 @@ and never redrawn; the live state belongs to the rail.
   reach the others. Ctrl+T opens the agent's whole transcript. The answer is the child's text and is shown as text — terminal
   controls in it are displayed, never obeyed.
 - **A closing line** when a turn that launched agents settles: how long the
-  turn took and how many agents it launched, in how many phases when the model
-  named two or more, what they spent when any reported it, and how many failed
+  turn took and how many agents it launched (phases are never counted here),
+  what they spent when any reported it, and how many failed
   when one did. A turn that delegated nothing closes with its time alone,
   `✻ Worked for 46s`, when it finished normally and took three seconds or more;
   a quicker answer, or a turn that was stopped or cancelled (which already says
@@ -663,27 +690,21 @@ explicit phase do not create new phases. These annotations describe grouping,
 not execution dependencies or barriers.
 
 With multiple workflows, the workflow picker opens first. Selecting a workflow
-shows only its phases and agents; Esc returns to workflows and `q` or Ctrl+T
+shows its phases, then one phase's agents; Esc returns to workflows and `q` or Ctrl+T
 returns to the conversation. Older completed or cancelled work stays available.
 Pending admissions show `Queued` until the child session starts. Completed Agent
 and `wait_for_task` outputs name the actual `task_id` and terminal status before
 the child result, so identifiers inside that result remain clearly separate.
 
-The delegated-work view separates phases and agents with a column divider on
-wide terminals and stacked panes on narrow terminals. Task labels, status and
-elapsed time occupy separate cells; activity text does not repeat the status.
-
-The agent cockpit (Ctrl+T, `/agents`) opens on the phase whose agents are
-still working, and on its first working agent; with nothing live, on the first
-phase. Its header says how far the workflow has got, in the reference
-terminal's terms: `2/3 agents done · 1 running · 7.7s · 18.0k tokens` while it
-runs, `3/3 agents · 9.5s · 27.0k tokens · done` (or `failed`, `cancelled`)
-after. Time drops below 70 columns and spend below 100; under 60 only
-`2/3 done` is left, so the workflow's name keeps its room. Each phase row adds
-how long that phase took, and the agent pane is titled by the phase it lists
-(`Phase 2 · 1 agent`) rather than `Agents`. The phase pane's own title is just
-`Phases`: every `N/M` beside it reads done out of total, so it carries no
-cursor position.
+The agent cockpit (Ctrl+T, `/agents`) is the workflow detail view described
+under the rail: a header with the workflow's name and
+`<done>/<total> agents · <elapsed>`, then `Phases` or one phase's agents, one
+list at a time. It opens on the phase whose agents are still working, and on
+its first working agent; with nothing live, on the first phase. Unlabelled
+delegated work (no `workflow` label) opens straight on its agents, headed by a
+neutral count, since it has no phases to choose between. The phase list's own
+title is just `Phases`: every `N/M` beside it reads done out of total, so it
+carries no cursor position.
 
 Selecting an agent opens its own framed transcript screen. The parent composer
 and live rows are hidden while their state remains mounted. The child view

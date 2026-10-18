@@ -142,7 +142,11 @@ import {
 	writeConversationExport,
 } from '../integrations/sessions/transcript-export.js'
 import { resolveNamzuHome } from '../integrations/state/home.js'
-import type { SubagentActivity, SubagentNarrationLine } from '../integrations/subagents/activity.js'
+import {
+	DEFAULT_AGENT_WORKFLOW,
+	type SubagentActivity,
+	type SubagentNarrationLine,
+} from '../integrations/subagents/activity.js'
 import type { Batch } from '../integrations/subagents/batches.js'
 import { NARRATION_TOOL_NAME } from '../integrations/subagents/runtime.js'
 import { agentsSlashCommand } from '../integrations/subagents/slash.js'
@@ -194,10 +198,12 @@ import {
 	agentTranscriptPageSize,
 	agentWorkflowPageSize,
 	agentWorkflows,
+	cockpitEntryFocus,
 	maxAgentTranscriptTailOffset,
 	railActionFor,
 	railAgents,
 	railNextEviction,
+	railShowsMain,
 	railWorkflowActionFor,
 	railWorkflows,
 	settledWorkflows,
@@ -1745,7 +1751,12 @@ export function App({
 			kind: 'cockpit',
 			selectedPhaseId: firstPhase.id,
 			selectedId: firstAgent.viewId,
-			focus: workflows.length > 1 ? 'workflows' : 'agents',
+			focus:
+				workflows.length > 1
+					? 'workflows'
+					: currentWorkflow
+						? cockpitEntryFocus(currentWorkflow)
+						: 'agents',
 		})
 		return true
 	}, [setAgentSurface])
@@ -1766,7 +1777,7 @@ export function App({
 				kind: 'cockpit',
 				selectedPhaseId: phase.id,
 				selectedId: agent.viewId,
-				focus: workflow.phases.length > 1 ? 'phases' : 'agents',
+				focus: cockpitEntryFocus(workflow),
 				railReturn,
 			})
 			return true
@@ -2733,12 +2744,15 @@ export function App({
 	 */
 	const reportedAgentsRef = useRef(new Set<string>())
 	const reportedBatchesRef = useRef(new Set<string>())
+	/** Workflows whose single group line is already in the conversation, by group id. */
+	const reportedWorkflowLinesRef = useRef(new Set<string>())
 	const batchSeenAtRef = useRef(new Map<string, { readonly at: number; readonly count: number }>())
 	const [receiptTick, setReceiptTick] = useState(0)
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
 	useEffect(() => {
 		reportedAgentsRef.current.clear()
 		reportedBatchesRef.current.clear()
+		reportedWorkflowLinesRef.current.clear()
 		batchSeenAtRef.current.clear()
 	}, [session])
 	useEffect(() => {
@@ -2764,6 +2778,14 @@ export function App({
 				),
 		)
 		let retryIn: number | undefined
+		// A labelled workflow gets one group line however many batches it spans.
+		const claimReceipt = (members: readonly SubagentActivity[]): boolean => {
+			const first = members[0]
+			if (!first || first.workflow === DEFAULT_AGENT_WORKFLOW) return true
+			if (reportedWorkflowLinesRef.current.has(first.workflowGroupId)) return false
+			reportedWorkflowLinesRef.current.add(first.workflowGroupId)
+			return true
+		}
 		for (const [key, members] of batches) {
 			if (reportedBatchesRef.current.has(key)) continue
 			// Re-stamped when the batch grows: the settle window runs from its newest member.
@@ -2779,6 +2801,7 @@ export function App({
 				continue
 			}
 			reportedBatchesRef.current.add(key)
+			if (!claimReceipt(members)) continue
 			pushMessage(
 				'tool',
 				launchReceipt(members).content,
@@ -2804,16 +2827,21 @@ export function App({
 			const key = JSON.stringify([agent.workflowId, agent.batchId])
 			if (!agent.replayed && !reportedBatchesRef.current.has(key)) {
 				reportedBatchesRef.current.add(key)
-				pushMessage(
-					'tool',
-					launchReceipt(batches.get(key) ?? [agent]).content,
-					false,
-					'●',
-					undefined,
-					theme.accent.assistant,
-				)
+				if (claimReceipt(batches.get(key) ?? [agent])) {
+					pushMessage(
+						'tool',
+						launchReceipt(batches.get(key) ?? [agent]).content,
+						false,
+						'●',
+						undefined,
+						theme.accent.assistant,
+					)
+				}
 			}
 			reportedAgentsRef.current.add(agent.viewId)
+			// A workflow's agents are read in its detail view; the workflow closes
+			// with one line of its own.
+			if (agent.workflow !== DEFAULT_AGENT_WORKFLOW) continue
 			const row = completionRow(agent)
 			pushMessage(
 				'tool',
@@ -10697,19 +10725,28 @@ export function App({
 			if (railTarget !== null) {
 				const rows = railRowsRef.current
 				const flows = railWorkflowsRef.current
-				// `main`, then the agents, then the workflows: the order they are drawn in.
-				const ids = ['main', ...rows.map((agent) => agent.viewId), ...flows.map((f) => f.focusId)]
+				// `main` (only beside agent rows), then the agents, then the workflows:
+				// the order they are drawn in.
+				const ids = [
+					...(railShowsMain(rows.length) ? ['main'] : []),
+					...rows.map((agent) => agent.viewId),
+					...flows.map((f) => f.focusId),
+				]
 				const at = Math.max(0, ids.indexOf(railTarget))
 				const selected = rows.find((agent) => agent.viewId === railTarget)
 				const selectedWorkflow = flows.find((flow) => flow.focusId === railTarget)
-				if (ids.length === 1 || agentSurfaceRef.current) {
+				if (
+					ids.length === 0 ||
+					(ids.length === 1 && ids[0] === 'main') ||
+					agentSurfaceRef.current
+				) {
 					setRailFocus(null)
 				} else if (key.escape) {
 					setRailFocus(null)
 					return
 				} else if (key.upArrow || key.downArrow) {
 					const index = at + (key.downArrow ? 1 : -1)
-					setRailFocus(ids[Math.max(0, Math.min(ids.length - 1, index))] ?? 'main')
+					setRailFocus(ids[Math.max(0, Math.min(ids.length - 1, index))] ?? ids[0] ?? null)
 					return
 				} else if (key.return) {
 					setRailFocus(null)
@@ -10738,7 +10775,7 @@ export function App({
 							}
 						} else {
 							setDismissedAgents((current) => new Set(current).add(selectedWorkflow.focusId))
-							setRailFocus(ids[at + 1] ?? ids[at - 1] ?? 'main')
+							setRailFocus(ids[at + 1] ?? ids[at - 1] ?? null)
 						}
 						return
 					}
@@ -10749,7 +10786,7 @@ export function App({
 						session?.stopSubagent?.(selected.viewId)
 					} else {
 						setDismissedAgents((current) => new Set(current).add(selected.viewId))
-						setRailFocus(ids[at + 1] ?? ids[at - 1] ?? 'main')
+						setRailFocus(ids[at + 1] ?? ids[at - 1] ?? null)
 					}
 					return
 				} else {
@@ -10803,6 +10840,7 @@ export function App({
 						setAgentSurface(null)
 						return
 					}
+					const hasPhaseLevel = workflow ? cockpitEntryFocus(workflow) === 'phases' : false
 					if ((key.ctrl && input === 'c') || input.toLowerCase() === 'q') {
 						setAgentSurface(null)
 						return
@@ -10811,12 +10849,16 @@ export function App({
 						if (agentView.railReturn !== undefined) {
 							// Opened from a workflow row: one step up inside the workflow,
 							// then back to the row — never out to the list of workflows.
-							if (agentView.focus === 'agents' && phases.length > 1) {
+							if (agentView.focus === 'agents' && hasPhaseLevel) {
 								setAgentSurface({ ...agentView, focus: 'phases' })
 								return
 							}
 							setAgentSurface(null)
 							setRailFocus(agentView.railReturn)
+							return
+						}
+						if (agentView.focus === 'agents' && hasPhaseLevel) {
+							setAgentSurface({ ...agentView, focus: 'phases' })
 							return
 						}
 						setAgentSurface(
@@ -10826,30 +10868,37 @@ export function App({
 						)
 						return
 					}
-					if (key.leftArrow || key.rightArrow || key.tab) {
-						if (agentView.focus === 'workflows') {
-							if (!key.leftArrow) {
-								setAgentSurface({ ...agentView, focus: phases.length > 1 ? 'phases' : 'agents' })
+					// Left walks one level up, as Esc does.
+					if (key.leftArrow) {
+						if (agentView.focus === 'agents' && hasPhaseLevel) {
+							setAgentSurface({ ...agentView, focus: 'phases' })
+						} else if (agentView.focus !== 'workflows') {
+							if (agentView.railReturn !== undefined) {
+								setAgentSurface(null)
+								setRailFocus(agentView.railReturn)
+							} else if (workflows.length > 1) {
+								setAgentSurface({ ...agentView, focus: 'workflows' })
 							}
-							return
 						}
-						if (key.leftArrow && agentView.focus === 'phases' && workflows.length > 1) {
-							setAgentSurface({ ...agentView, focus: 'workflows' })
-							return
-						}
-						const focus = key.leftArrow
-							? 'phases'
-							: key.rightArrow
-								? 'agents'
-								: agentView.focus === 'phases'
-									? 'agents'
-									: 'phases'
-						setAgentSurface({ ...agentView, focus })
 						return
 					}
-					if (key.return) {
+					// `x` stops what the level lists: the whole workflow on the phases,
+					// the one agent on its agents.
+					if (input === 'x' && !key.ctrl && !key.meta && agentView.focus !== 'workflows') {
+						const targets = agentView.focus === 'phases' ? (workflow?.agents ?? []) : [selected]
+						for (const member of targets) {
+							if (!['completed', 'failed', 'cancelled'].includes(member.status)) {
+								session?.stopSubagent?.(member.viewId)
+							}
+						}
+						return
+					}
+					if (key.rightArrow || key.return) {
 						if (agentView.focus === 'workflows') {
-							setAgentSurface({ ...agentView, focus: phases.length > 1 ? 'phases' : 'agents' })
+							setAgentSurface({
+								...agentView,
+								focus: workflow ? cockpitEntryFocus(workflow) : 'agents',
+							})
 							return
 						}
 						if (agentView.focus === 'phases') {
@@ -11800,12 +11849,13 @@ export function App({
 											? 0
 											: railFocus.startsWith('workflow:')
 												? liveSubagents.length +
-													1 +
+													(railShowsMain(liveSubagents.length) ? 1 : 0) +
 													Math.max(
 														0,
 														liveWorkflows.findIndex((flow) => flow.focusId === railFocus),
 													)
-												: liveSubagents.findIndex((agent) => agent.viewId === railFocus) + 1,
+												: liveSubagents.findIndex((agent) => agent.viewId === railFocus) +
+													(railShowsMain(liveSubagents.length) ? 1 : 0),
 								}
 							: {})}
 					/>

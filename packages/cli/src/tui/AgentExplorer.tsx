@@ -134,6 +134,9 @@ export function railAgents(
 	return agents
 		.filter((agent) => {
 			if (agent.replayed === true || dismissed.has(agent.viewId)) return false
+			// An agent the model gave a `workflow` label lives only inside that
+			// workflow's row and detail view, never as an agent row of its own.
+			if (agent.workflow !== DEFAULT_AGENT_WORKFLOW) return false
 			if (!isTerminalStatus(agent.status)) return true
 			return (
 				agent.completedAt !== undefined && now - agent.completedAt < AGENT_RAIL_FINISHED_LINGER_MS
@@ -446,7 +449,10 @@ export function AgentTaskPanel({
 	const focused = selectedIndex !== undefined
 	const mainViewed = viewingId === undefined || viewingId === null
 	const narrow = terminalColumns < 64
-	const selectedAgent = focused ? Math.min(agents.length, selectedIndex) - 1 : 0
+	const hasMain = railShowsMain(agents.length, viewingId, compact)
+	// Rows before the first agent: 1 with `main` drawn, else 0.
+	const lead = hasMain ? 1 : 0
+	const selectedAgent = focused ? Math.min(agents.length, selectedIndex - lead + 1) - 1 : 0
 	const { start, items } = selectionWindow(
 		agents,
 		Math.max(0, selectedAgent),
@@ -465,45 +471,50 @@ export function AgentTaskPanel({
 		),
 	)
 	const mainRight = compact
-		? `${agents.length} agent${agents.length === 1 ? '' : 's'}${
-				workflows.length > 0
-					? ` · ${workflows.length} workflow${workflows.length === 1 ? '' : 's'}`
-					: ''
-			}`
+		? [
+				...(agents.length > 0 || workflows.length === 0
+					? [`${agents.length} agent${agents.length === 1 ? '' : 's'}`]
+					: []),
+				...(workflows.length > 0
+					? [`${workflows.length} workflow${workflows.length === 1 ? '' : 's'}`]
+					: []),
+			].join(' · ')
 		: [above > 0 ? `↑ ${above} more` : undefined, focused ? undefined : '↓ to manage']
 				.filter((part): part is string => part !== undefined)
 				.join(' · ')
 
 	return (
 		<Box flexDirection="column">
-			<Box>
-				<Box width={2} flexShrink={0}>
-					<Text color={theme.accent.assistant}>{focused && selectedIndex === 0 ? '❯' : ' '}</Text>
-				</Box>
-				<Box width={2} flexShrink={0}>
-					<Text bold={mainViewed} color={mainViewed ? theme.accent.assistant : theme.text.muted}>
-						{mainViewed ? '●' : '○'}
-					</Text>
-				</Box>
-				<Box flexGrow={1} flexShrink={1} minWidth={0}>
-					<Text
-						bold={mainViewed || (focused && selectedIndex === 0)}
-						dimColor={!mainViewed && !(focused && selectedIndex === 0)}
-						color={theme.text.primary}
-					>
-						main
-					</Text>
-				</Box>
-				{mainRight ? (
-					<Box flexShrink={0} marginLeft={1}>
-						<Text color={theme.text.muted}>{mainRight}</Text>
+			{hasMain ? (
+				<Box>
+					<Box width={2} flexShrink={0}>
+						<Text color={theme.accent.assistant}>{focused && selectedIndex === 0 ? '❯' : ' '}</Text>
 					</Box>
-				) : null}
-			</Box>
+					<Box width={2} flexShrink={0}>
+						<Text bold={mainViewed} color={mainViewed ? theme.accent.assistant : theme.text.muted}>
+							{mainViewed ? '●' : '○'}
+						</Text>
+					</Box>
+					<Box flexGrow={1} flexShrink={1} minWidth={0}>
+						<Text
+							bold={mainViewed || (focused && selectedIndex === 0)}
+							dimColor={!mainViewed && !(focused && selectedIndex === 0)}
+							color={theme.text.primary}
+						>
+							main
+						</Text>
+					</Box>
+					{mainRight ? (
+						<Box flexShrink={0} marginLeft={1}>
+							<Text color={theme.text.muted}>{mainRight}</Text>
+						</Box>
+					) : null}
+				</Box>
+			) : null}
 			{compact
 				? null
 				: items.map((agent, offset) => {
-						const index = start + offset + 1
+						const index = start + offset + lead
 						const selected = focused && selectedIndex === index
 						const viewed = viewingId === agent.viewId
 						const finished = isTerminalStatus(agent.status)
@@ -552,7 +563,7 @@ export function AgentTaskPanel({
 			{compact
 				? null
 				: workflows.map((workflow, offset) => {
-						const selected = focused && selectedIndex === agents.length + 1 + offset
+						const selected = focused && selectedIndex === agents.length + lead + offset
 						const { variant, nameWidth: workflowNameWidth } = layoutWorkflowRow(
 							workflow,
 							now,
@@ -589,11 +600,11 @@ export function AgentTaskPanel({
 				<Box paddingLeft={2}>
 					<Text color={theme.text.muted} wrap="truncate-end">
 						{railHint(
-							selectedIndex === 0
+							hasMain && selectedIndex === 0
 								? undefined
-								: selectedIndex <= agents.length
-									? agents[selectedIndex - 1]
-									: workflows[selectedIndex - agents.length - 1],
+								: selectedIndex - lead < agents.length
+									? agents[selectedIndex - lead]
+									: workflows[selectedIndex - lead - agents.length],
 							terminalColumns,
 						)}
 					</Text>
@@ -601,6 +612,20 @@ export function AgentTaskPanel({
 			) : null}
 		</Box>
 	)
+}
+
+/**
+ * Whether the rail draws its `main` row: only beside at least one agent row,
+ * or while an agent's transcript is the one on screen (so the way back to the
+ * conversation is visible). A rail with nothing but workflow rows has no
+ * `main`; `compact` is the one-row form and always keeps it.
+ */
+export function railShowsMain(
+	agentCount: number,
+	viewingId?: string | null,
+	compact = false,
+): boolean {
+	return compact || agentCount > 0 || (viewingId !== undefined && viewingId !== null)
 }
 
 /** The key line shown under the rail while it has the keyboard. */
@@ -690,13 +715,7 @@ export function AgentCockpit({
 		phaseAgents.findIndex((agent) => agent.viewId === selectedId),
 	)
 	const now = useLiveNow(agents.some((agent) => agent.completedAt === undefined))
-	const active = workflow?.agents.filter((agent) => !isTerminalStatus(agent.status)).length ?? 0
-	const wide = agentCockpitIsWide(terminalColumns)
 	const compact = terminalRows < 20
-	const sideBySide = wide
-	const phasePaneWidth = sideBySide
-		? Math.max(24, Math.min(36, Math.floor(terminalColumns * 0.3)))
-		: undefined
 	if (focus === 'workflows') {
 		const { items } = selectionWindow(workflows, workflowIndex, agentWorkflowPageSize(terminalRows))
 		return (
@@ -759,25 +778,140 @@ export function AgentCockpit({
 			</Box>
 		)
 	}
-	const navigation = fitHints(
-		[
-			{ text: '←→ pane', rank: 3 },
-			{ text: '↑↓ select', short: '↑↓', rank: 4 },
-			{ text: 'PgUp/PgDn jump', rank: 1 },
-			{ text: 'enter select', short: 'enter', rank: 5 },
-			{ text: 'esc return', rank: 5 },
-		],
-		Math.max(1, terminalColumns - 4),
+	if (!workflow || !selectedPhase) return null
+	return (
+		<WorkflowDetail
+			workflow={workflow}
+			phases={phases}
+			selectedPhaseIndex={selectedPhaseIndex}
+			selectedAgentIndex={selectedAgentIndex}
+			level={focus === 'agents' ? 2 : 1}
+			terminalRows={terminalRows}
+			terminalColumns={terminalColumns}
+			now={now}
+		/>
 	)
-	const totalWorkflowAgents = workflow?.agents.length ?? 0
-	// Same rule as the automatic rail's title: an explicit label names this
-	// workflow, an absent one (the unlabelled default) gets a neutral count
-	// instead of the generic default name.
-	const workflowTitle =
-		selectedPhase?.workflow !== undefined && selectedPhase.workflow !== DEFAULT_AGENT_WORKFLOW
-			? oneLine(selectedPhase.workflow)
-			: `${totalWorkflowAgents} agent${totalWorkflowAgents === 1 ? '' : 's'} · ${active} running`
+}
 
+/** Title of a group the model gave no `phase` label: one group, named for what it holds. */
+export const UNLABELLED_PHASE_TITLE = 'Agents'
+
+/** The words a phase is listed under: the model's label verbatim, `Agents` when it gave none. */
+export function phaseTitle(phase: Pick<AgentPhase, 'name'>): string {
+	return phase.name === DEFAULT_AGENT_PHASE ? UNLABELLED_PHASE_TITLE : phase.name
+}
+
+export type PhaseOutcome = 'running' | 'done' | 'failed'
+
+/**
+ * How a phase stands, from its agents alone: `done` once every agent has
+ * settled cleanly, `failed` once every agent has settled and any failed or
+ * was stopped, `running` otherwise. Namzu cannot know a phase that has no
+ * agent yet, so there is no "not started" outcome.
+ */
+export function phaseOutcome(phase: Pick<AgentPhase, 'agents'>): PhaseOutcome {
+	if (phase.agents.some((agent) => !isTerminalStatus(agent.status))) return 'running'
+	return phase.agents.some((agent) => agent.status !== 'completed') ? 'failed' : 'done'
+}
+
+/** The phase list's `done/total`: settled agents over every agent seen in it. */
+export function phaseCount(phase: Pick<AgentPhase, 'agents'>): string {
+	return `${phase.agents.filter((agent) => isTerminalStatus(agent.status)).length}/${phase.agents.length}`
+}
+
+/**
+ * Whether opening a workflow starts at its list of phases. A workflow the
+ * model labelled always does (its agents are only reachable through it); the
+ * unlabelled default group keeps jumping straight to its agents when it has
+ * a single group.
+ */
+export function cockpitEntryFocus(workflow: AgentWorkflow): 'phases' | 'agents' {
+	const labelled = workflow.agents.some((agent) => agent.workflow !== DEFAULT_AGENT_WORKFLOW)
+	return labelled || workflow.phases.length > 1 ? 'phases' : 'agents'
+}
+
+/** Rows one list level can show; shared with the key handler so paging matches the screen. */
+export function workflowDetailPageSize(terminalRows: number): number {
+	return Math.max(1, Math.min(MAX_PICKER_ROWS, terminalRows - 14))
+}
+
+function agentDetailGlyph(status: SubagentActivityStatus): {
+	text: string
+	color: string | undefined
+} {
+	switch (status) {
+		case 'completed':
+			return { text: '✔', color: theme.status.ok }
+		case 'failed':
+		case 'cancelled':
+			return { text: '✘', color: theme.status.error }
+		case 'working':
+			return { text: '●', color: theme.accent.assistant }
+		default:
+			return { text: '◌', color: theme.text.muted }
+	}
+}
+
+interface WorkflowDetailProps {
+	readonly workflow: AgentWorkflow
+	readonly phases: readonly AgentPhase[]
+	readonly selectedPhaseIndex: number
+	readonly selectedAgentIndex: number
+	readonly level: 1 | 2
+	readonly terminalRows: number
+	readonly terminalColumns: number
+	readonly now: number
+}
+
+/**
+ * The detail of one workflow, as the reference's dialog shows it: a header
+ * with the workflow's name and totals, then ONE list at a time. Level 1 is
+ * the phases, in order; level 2 is the agents of the selected phase.
+ */
+export function WorkflowDetail({
+	workflow,
+	phases,
+	selectedPhaseIndex,
+	selectedAgentIndex,
+	level,
+	terminalRows,
+	terminalColumns,
+	now,
+}: WorkflowDetailProps) {
+	const innerWidth = Math.max(1, terminalColumns - COCKPIT_FRAME_COLUMNS)
+	const compact = terminalRows < 20
+	const pageSize = compact ? 1 : workflowDetailPageSize(terminalRows)
+	const phase = phases[selectedPhaseIndex]
+	const settled = workflow.agents.filter((agent) => isTerminalStatus(agent.status)).length
+	const ends = workflow.agents.map((agent) => agent.completedAt ?? now)
+	const elapsed = formatElapsed(Math.max(0, Math.max(...ends) - workflow.startedAt))
+	const named = workflow.agents.some((agent) => agent.workflow !== DEFAULT_AGENT_WORKFLOW)
+	const running = workflow.agents.some((agent) => !isTerminalStatus(agent.status))
+	// Same rule as the rail: an explicit label names the workflow, an absent
+	// one gets a neutral count instead of the generic default name.
+	const live = workflow.agents.filter((agent) => !isTerminalStatus(agent.status)).length
+	const total = workflow.agents.length
+	const title = named
+		? oneLine(workflow.name)
+		: `${total} agent${total === 1 ? '' : 's'} · ${live} running`
+	const selectedAgent = phase?.agents[selectedAgentIndex]
+	const canStop =
+		level === 1 ? running : selectedAgent !== undefined && !isTerminalStatus(selectedAgent.status)
+	const hint = fitHints(
+		[
+			{ text: '↑/↓ to select', short: '↑/↓', rank: 4 },
+			{ text: 'enter to view', short: 'enter', rank: 5 },
+			...(canStop ? [{ text: 'x to stop', rank: 2 }] : []),
+			{ text: 'esc to go back', short: 'esc', rank: 3 },
+		],
+		innerWidth,
+	)
+	const phaseWindow = selectionWindow(phases, selectedPhaseIndex, pageSize)
+	const agentWindow = selectionWindow(phase?.agents ?? [], selectedAgentIndex, pageSize)
+	const detailLines =
+		level === 1 && !compact && phase?.detail
+			? wrapPhaseDetailLines(phase.detail, innerWidth).slice(0, PHASE_DETAIL_LINE_BUDGET)
+			: []
 	return (
 		<Box
 			flexDirection="column"
@@ -789,259 +923,114 @@ export function AgentCockpit({
 			<Box height={1} flexShrink={0}>
 				<Box flexGrow={1} minWidth={0}>
 					<Text color={theme.text.primary} bold wrap="truncate-end">
-						{workflowTitle}
+						{title}
 					</Text>
 				</Box>
 				<Box flexShrink={0} marginLeft={1}>
 					<Text color={theme.text.muted} wrap="truncate-end">
-						{workflow ? workflowProgress(workflow, now, terminalColumns) : ''}
+						{settled}/{workflow.agents.length} {workflow.agents.length === 1 ? 'agent' : 'agents'} ·{' '}
+						{elapsed}
 					</Text>
 				</Box>
 			</Box>
-			{compact ? null : (
-				<Text color={theme.text.muted} wrap="truncate-end">
-					{workflows.length > 1
-						? 'Select a phase, then inspect a child. Esc returns to workflows.'
-						: 'Select a phase, then inspect a child.'}
+			<Box paddingTop={compact ? 0 : 1} flexShrink={0}>
+				<Text color={theme.accent.assistant} bold wrap="truncate-end">
+					{level === 1 || !phase
+						? 'Phases'
+						: `${oneLine(phaseTitle(phase))} · ${phase.agents.length} ${phase.agents.length === 1 ? 'agent' : 'agents'}`}
 				</Text>
-			)}
-			<Box flexDirection={sideBySide ? 'row' : 'column'} flexGrow={1} paddingTop={compact ? 0 : 1}>
-				<Box flexDirection="column" width={phasePaneWidth} flexShrink={0}>
-					<PhasePane
-						phases={phases}
-						selected={selectedPhaseIndex}
-						focused={focus === 'phases'}
-						pageSize={compact ? 1 : agentPhasePageSize(terminalRows, wide)}
-						paneWidth={phasePaneWidth ?? Math.max(1, terminalColumns - COCKPIT_FRAME_COLUMNS)}
-						showDetail={!compact}
-						now={now}
-					/>
-				</Box>
-				{sideBySide ? (
+			</Box>
+			<Box flexDirection="column" flexGrow={1}>
+				{level === 1
+					? phaseWindow.items.map((item, offset) => {
+							const index = phaseWindow.start + offset
+							const active = index === selectedPhaseIndex
+							const outcome = phaseOutcome(item)
+							const color =
+								outcome === 'done'
+									? theme.status.ok
+									: outcome === 'failed'
+										? theme.status.error
+										: undefined
+							return (
+								<Box key={item.id}>
+									<Box width={2} flexShrink={0}>
+										<Text color={theme.accent.assistant}>{active ? '❯' : ' '}</Text>
+									</Box>
+									<Box width={3} flexShrink={0}>
+										<Text color={color ?? theme.text.muted}>
+											{outcome === 'done' ? '✔' : outcome === 'failed' ? '✘' : String(index + 1)}
+										</Text>
+									</Box>
+									<Box flexGrow={1} flexShrink={1} minWidth={0}>
+										<Text color={color ?? theme.text.primary} bold={active} wrap="truncate-end">
+											{oneLine(phaseTitle(item))}
+										</Text>
+									</Box>
+									<Box flexShrink={0} marginLeft={1}>
+										<Text color={theme.text.muted}>{phaseCount(item)}</Text>
+									</Box>
+								</Box>
+							)
+						})
+					: agentWindow.items.map((agent, offset) => {
+							const active = agentWindow.start + offset === selectedAgentIndex
+							const glyph = agentDetailGlyph(agent.status)
+							const queued = agent.status === 'queued' || agent.status === 'starting'
+							const right = [
+								...(terminalColumns >= 90 ? [oneLine(agent.agentId)] : []),
+								...(terminalColumns >= 70 && agent.model
+									? [truncateChoiceText(agent.model, MAX_MODEL_LABEL_WIDTH)]
+									: []),
+								...(agent.tokens !== undefined
+									? [`${formatCompactCount(agent.tokens)} tokens`]
+									: []),
+								queued
+									? 'queued'
+									: formatElapsed(Math.max(0, (agent.completedAt ?? now) - agent.startedAt)),
+							].join(' · ')
+							return (
+								<Box key={agent.viewId}>
+									<Box width={2} flexShrink={0}>
+										<Text color={theme.accent.assistant}>{active ? '❯' : ' '}</Text>
+									</Box>
+									<Box width={2} flexShrink={0}>
+										<Text color={glyph.color}>{glyph.text}</Text>
+									</Box>
+									<Box flexGrow={1} flexShrink={1} minWidth={0}>
+										<Text color={theme.text.primary} bold={active} wrap="truncate-end">
+											{terminalDisplayText(oneLine(agent.description || agent.agentId))}
+										</Text>
+									</Box>
+									<Box flexShrink={0} marginLeft={1}>
+										<Text color={theme.text.muted}>{right}</Text>
+									</Box>
+								</Box>
+							)
+						})}
+				{detailLines.length > 0 ? (
 					<Box
-						width={1}
-						marginX={1}
+						flexDirection="column"
+						height={PHASE_DETAIL_LINE_BUDGET}
 						flexShrink={0}
-						borderStyle="single"
-						borderColor={theme.border.default}
-						borderTop={false}
-						borderBottom={false}
-						borderRight={false}
-					/>
+						overflow="hidden"
+						marginTop={1}
+					>
+						{detailLines.map((line, index) => (
+							// biome-ignore lint/suspicious/noArrayIndexKey: fixed-budget, order-stable lines of one wrap pass
+							<Text key={index} color={theme.text.muted} wrap="truncate-end">
+								{line}
+							</Text>
+						))}
+					</Box>
 				) : null}
-				<Box
-					flexDirection="column"
-					flexGrow={1}
-					minWidth={0}
-					paddingTop={sideBySide || compact ? 0 : 1}
-				>
-					<AgentPane
-						agents={phaseAgents}
-						{...(selectedPhase && selectedPhase.name !== DEFAULT_AGENT_PHASE
-							? { phaseName: selectedPhase.name }
-							: {})}
-						selected={selectedAgentIndex}
-						focused={focus === 'agents'}
-						pageSize={compact ? 1 : agentPickerPageSize(terminalRows, wide)}
-						now={now}
-						wide={wide}
-						terminalColumns={terminalColumns}
-						detailWidth={Math.floor(
-							Math.max(
-								2,
-								terminalColumns -
-									COCKPIT_FRAME_COLUMNS -
-									(phasePaneWidth ?? 0) -
-									(sideBySide ? 3 : 0),
-							) / 2,
-						)}
-					/>
-				</Box>
 			</Box>
 			<Box paddingTop={compact ? 0 : 1}>
 				<Text color={theme.text.muted} wrap="truncate-end">
-					{navigation}
+					{hint}
 				</Text>
 			</Box>
 		</Box>
-	)
-}
-
-function PhasePane({
-	phases,
-	selected,
-	focused,
-	pageSize,
-	paneWidth,
-	showDetail,
-	now,
-}: {
-	readonly phases: readonly AgentPhase[]
-	/** The cockpit's clock, for each phase's first-start-to-last-finish time. */
-	readonly now: number
-	readonly selected: number
-	readonly focused: boolean
-	readonly pageSize: number
-	/** Wrap width for the focused phase's detail text; never affects row layout above it. */
-	readonly paneWidth: number
-	/**
-	 * False in the compact (terminalRows < 20) cockpit layout, where the
-	 * phase and agent panes already share a tight, stacked vertical budget
-	 * that the detail band's rows were never accounted for — showing it
-	 * there starves the agent pane of height and corrupts the frame. Compact
-	 * mode already drops every other non-essential line (the subtitle text,
-	 * the pane paddings); the detail band is dropped the same way, for the
-	 * same reason.
-	 */
-	readonly showDetail: boolean
-}) {
-	const { start, items } = selectionWindow(phases, selected, pageSize)
-	// A narrow pane keeps the count and gives the time up first.
-	const showElapsed = paneWidth >= 28
-	// "Focused" here is the phase carrying the `›` cursor, not which sub-pane
-	// currently holds keyboard focus — the detail stays visible while the
-	// operator drills into that phase's agents.
-	const focusedPhase = phases[selected]
-	const detailLines =
-		showDetail && focusedPhase?.detail
-			? wrapPhaseDetailLines(focusedPhase.detail, paneWidth).slice(0, PHASE_DETAIL_LINE_BUDGET)
-			: []
-	return (
-		<>
-			<Text color={focused ? theme.accent.assistant : theme.text.secondary} bold>
-				{/* No count: every `N/M` beside a phase or a workflow reads done out
-				    of total, so a cursor position here would read as progress. */}
-				Phases
-			</Text>
-			{items.map((phase, visibleIndex) => {
-				const active = start + visibleIndex === selected
-				return (
-					<Box key={phase.id}>
-						<Box width={4} flexShrink={0}>
-							<Text color={active && focused ? theme.accent.assistant : theme.text.muted}>
-								{active ? '›' : ' '} {statusGlyph(phase.status)}
-							</Text>
-						</Box>
-						<Box flexGrow={1} flexShrink={1}>
-							<Text
-								color={active ? theme.text.primary : theme.text.secondary}
-								bold={active && focused}
-								wrap="truncate-end"
-							>
-								{phase.order !== undefined ? `${phase.order + 1} ` : ''}
-								{oneLine(phase.name)}
-							</Text>
-						</Box>
-						<Box flexShrink={0} marginLeft={1}>
-							<Text color={statusColor(phase.status)}>
-								{phaseProgress(phase)}
-								{showElapsed ? ` · ${formatElapsed(phaseElapsed(phase, now))}` : ''}
-							</Text>
-						</Box>
-					</Box>
-				)
-			})}
-			{detailLines.length > 0 ? (
-				<Box
-					flexDirection="column"
-					height={PHASE_DETAIL_LINE_BUDGET}
-					flexShrink={0}
-					overflow="hidden"
-					marginTop={1}
-				>
-					{detailLines.map((line, index) => (
-						// biome-ignore lint/suspicious/noArrayIndexKey: fixed-budget, order-stable lines of one wrap pass
-						<Text key={index} color={theme.text.muted} wrap="truncate-end">
-							{line}
-						</Text>
-					))}
-				</Box>
-			) : null}
-		</>
-	)
-}
-
-function AgentPane({
-	agents,
-	phaseName,
-	selected,
-	focused,
-	pageSize,
-	now,
-	wide,
-	terminalColumns,
-	detailWidth,
-}: {
-	readonly agents: readonly SubagentActivity[]
-	readonly phaseName?: string
-	/**
-	 * Cells for the status and meta half of a wide row, worked out from the
-	 * pane's width. As `50%` the row came out one cell wider than its pane,
-	 * and its last character sat on the frame's padding, touching the border.
-	 */
-	readonly detailWidth?: number
-	readonly selected: number
-	readonly focused: boolean
-	readonly pageSize: number
-	readonly now: number
-	readonly wide: boolean
-	readonly terminalColumns: number
-}) {
-	const { start, items } = selectionWindow(agents, selected, pageSize)
-	const showModel = wide
-	const showCounters = wide && terminalColumns >= 120
-	return (
-		<>
-			<Text
-				color={focused ? theme.accent.assistant : theme.text.secondary}
-				bold
-				wrap="truncate-end"
-			>
-				{/* Titled by the phase it lists, as the reference's panel is: the
-				    operator reads which phase these are without looking left. */}
-				{phaseName !== undefined ? `${oneLine(phaseName)} · ` : ''}
-				{agents.length} {agents.length === 1 ? 'agent' : 'agents'}
-				{agents.length > pageSize ? ` · ${selected + 1}/${agents.length}` : ''}
-			</Text>
-			{items.map((agent, visibleIndex) => {
-				const active = start + visibleIndex === selected
-				const elapsed = formatElapsed((agent.completedAt ?? now) - agent.startedAt)
-				const meta = agentMetaParts(agent, { showModel, showCounters })
-				return (
-					<Box key={agent.viewId}>
-						<Box width={4} flexShrink={0}>
-							<Text color={active && focused ? theme.accent.assistant : theme.text.muted}>
-								{active ? '›' : ' '} {statusGlyph(agent.status)}
-							</Text>
-						</Box>
-						<Box flexGrow={1} flexShrink={1} minWidth={0}>
-							<Text
-								color={active ? theme.text.primary : theme.text.secondary}
-								bold={active && focused}
-								wrap="truncate-end"
-							>
-								{oneLine(agent.description || agent.agentId)}
-							</Text>
-						</Box>
-						<Box marginLeft={1} flexShrink={0} width={wide ? detailWidth : undefined}>
-							<Box flexGrow={1} flexShrink={1} minWidth={0}>
-								<Text color={theme.text.secondary} wrap="truncate-end">
-									{statusLabel(agent.status)} · {elapsed}
-									{wide && distinctActivity(agent) ? ` · ${distinctActivity(agent)}` : ''}
-								</Text>
-							</Box>
-							{meta.length > 0 ? (
-								<Box flexShrink={0} marginLeft={1}>
-									<Text color={theme.text.muted} wrap="truncate-end">
-										{meta.join(' · ')}
-									</Text>
-								</Box>
-							) : null}
-						</Box>
-					</Box>
-				)
-			})}
-		</>
 	)
 }
 
@@ -1160,11 +1149,8 @@ export function agentPhases(agents: readonly SubagentActivity[]): readonly Agent
 		})
 }
 
-export function agentPhasePageSize(terminalRows: number, wide = true): number {
-	const available = Math.max(2, terminalRows - (wide ? 10 : 12))
-	return wide
-		? Math.max(1, Math.min(MAX_PICKER_ROWS, available))
-		: Math.max(1, Math.min(4, Math.floor(available * 0.4)))
+export function agentPhasePageSize(terminalRows: number, _wide = true): number {
+	return workflowDetailPageSize(terminalRows)
 }
 
 export interface AgentTranscriptProps {
@@ -1309,11 +1295,8 @@ export function AgentTranscript({
 	)
 }
 
-export function agentPickerPageSize(terminalRows: number, wide = true): number {
-	const available = Math.max(2, terminalRows - (wide ? 10 : 12))
-	return wide
-		? Math.max(1, Math.min(MAX_PICKER_ROWS, available))
-		: Math.max(1, Math.min(MAX_PICKER_ROWS, available - agentPhasePageSize(terminalRows, false)))
+export function agentPickerPageSize(terminalRows: number, _wide = true): number {
+	return workflowDetailPageSize(terminalRows)
 }
 
 /**
@@ -1497,13 +1480,6 @@ function agentMetaParts(
 	return parts
 }
 
-function distinctActivity(agent: SubagentActivity): string | undefined {
-	const activity = agent.latestActivity ? oneLine(agent.latestActivity) : undefined
-	if (!activity || activity.toLowerCase() === agent.status) return undefined
-	const prefix = `${statusLabel(agent.status)} · `
-	return activity.startsWith(prefix) ? activity.slice(prefix.length) : activity
-}
-
 function phaseStatus(agents: readonly SubagentActivity[]): SubagentActivityStatus {
 	if (agents.some((agent) => agent.status === 'failed')) return 'failed'
 	if (agents.some((agent) => agent.status === 'working')) return 'working'
@@ -1511,55 +1487,6 @@ function phaseStatus(agents: readonly SubagentActivity[]): SubagentActivityStatu
 	if (agents.some((agent) => agent.status === 'starting')) return 'starting'
 	if (agents.some((agent) => agent.status === 'cancelled')) return 'cancelled'
 	return 'completed'
-}
-
-/**
- * The cockpit's summary of one workflow, in the reference's terms: how many
- * agents are done, how long it has run, what it has spent, and how it ended
- * once nothing is left running: `1/3 agents done · 2 running · 5.2s · 18.0k
- * tokens`, then `3/3 agents · 12s · 27.0k tokens · done` (or `failed`).
- */
-function workflowProgress(workflow: AgentWorkflow, now: number, columns: number): string {
-	const agents = workflow.agents
-	const running = agents.filter((agent) => !isTerminalStatus(agent.status)).length
-	const done = agents.length - running
-	const ending = workflow.status === 'completed' ? 'done' : workflow.status
-	// The title beside this keeps its room: below 60 columns only the count
-	// and the ending, then the time from 70, the spend from 100.
-	if (columns < 60)
-		return running > 0 ? `${done}/${agents.length} done` : `${done}/${agents.length} · ${ending}`
-	const ends = agents.map((agent) => agent.completedAt ?? now)
-	const elapsed = formatElapsed(Math.max(0, Math.max(...ends) - workflow.startedAt))
-	const spent = agents.reduce<number | undefined>(
-		(sum, agent) => (agent.tokens === undefined ? sum : (sum ?? 0) + agent.tokens),
-		undefined,
-	)
-	const counters = [
-		...(columns >= 70 ? [elapsed] : []),
-		...(columns >= 100 && spent !== undefined ? [`${formatCompactCount(spent)} tokens`] : []),
-	]
-	return (
-		running > 0
-			? [`${done}/${agents.length} agents done`, `${running} running`, ...counters]
-			: [`${done}/${agents.length} agents`, ...counters, ending]
-	).join(' · ')
-}
-
-/** First start to last finish; a phase still running counts to `now`. */
-function phaseElapsed(phase: AgentPhase, now: number): number {
-	const ends = phase.agents.map((agent) => agent.completedAt ?? now)
-	return Math.max(0, Math.max(...ends) - phase.startedAt)
-}
-
-function phaseProgress(phase: AgentPhase): string {
-	const completed = phase.agents.filter((agent) => isTerminalStatus(agent.status)).length
-	const failed = phase.agents.filter((agent) => agent.status === 'failed').length
-	const cancelled = phase.agents.filter((agent) => agent.status === 'cancelled').length
-	return [
-		`${completed}/${phase.agents.length}`,
-		...(failed > 0 ? [`failed ${failed}`] : []),
-		...(cancelled > 0 ? [`cancelled ${cancelled}`] : []),
-	].join(' · ')
 }
 
 /**

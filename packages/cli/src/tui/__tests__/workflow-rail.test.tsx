@@ -243,7 +243,7 @@ describe('the rows on screen', () => {
 		expect(idle.at(-1)).not.toContain('❯')
 		await mounted?.unmount()
 		mounted = undefined
-		const selected = await show([row], { selectedIndex: 1 })
+		const selected = await show([row], { selectedIndex: 0 })
 		expect(selected.at(-2)).toMatch(/^❯ ◯ Release audit/u)
 	})
 
@@ -278,12 +278,12 @@ describe('the rows on screen', () => {
 
 	it('shows the hint for the selected workflow: stop while running, clear once done', async () => {
 		const row = workflowOf(sevenAgents())
-		const running = await show([row], { selectedIndex: 1 })
+		const running = await show([row], { selectedIndex: 0 })
 		expect(running.at(-1)).toContain('enter to view · x to stop')
 		await mounted?.unmount()
 		mounted = undefined
 		const done = workflowOf([agent({ viewId: 'a', status: 'completed', completedAt: NOW })])
-		const finished = await show([done], { selectedIndex: 1 })
+		const finished = await show([done], { selectedIndex: 0 })
 		expect(finished.at(-1)).toContain('enter to view · x to clear')
 		expect(railHint(done, 100)).toBe('↑/↓ to select · enter to view · x to clear · esc to go back')
 	})

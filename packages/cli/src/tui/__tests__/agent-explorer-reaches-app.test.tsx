@@ -1030,7 +1030,7 @@ describe('Ctrl+T', () => {
 			await submit(screen, 'production executor fan-out')
 			await waitUntil(
 				screen,
-				() => railRows(screen).length === 4,
+				() => /◯ Production fan-out/u.test(screen.viewport().join('\n')),
 				'real query fan-out did not reach the automatic panel',
 			)
 			await expect(allChildrenStarted).resolves.toBeUndefined()
@@ -1049,7 +1049,10 @@ describe('Ctrl+T', () => {
 			expect(screen.writes().join('')).not.toContain('Agent(Production child')
 			// The finished agents linger on the rail for 30 s; the launch receipt
 			// names the batch once in settled history.
-			expect(painted(screen).match(/Launched 4 agents · Production fan-out/g)).toHaveLength(1)
+			expect(
+				painted(screen).match(/Workflow Production fan-out[\s\S]{0,40}Running in background/g),
+			).toHaveLength(1)
+			expect(painted(screen)).not.toMatch(/Launched 4 agents/u)
 			// The turn delegated, so it closes with one line saying so.
 			expect(painted(screen)).toMatch(/✻ Worked for \S+ · 4 agents/u)
 		} finally {
@@ -1084,14 +1087,14 @@ describe('Ctrl+T', () => {
 		screen.press('\x14')
 		await waitUntil(
 			screen,
-			() => screen.viewport().join('\n').includes('Phases'),
+			() => screen.viewport().join('\n').includes('Agents · 2 agents'),
 			'cockpit missing',
 		)
 		expect(screen.viewport().join('\n')).not.toContain('draft survives')
 		screen.press('\x14')
 		await waitUntil(
 			screen,
-			() => !screen.viewport().join('\n').includes('Phases'),
+			() => !screen.viewport().join('\n').includes('Agents · 2 agents'),
 			'cockpit did not close',
 		)
 		expect(screen.viewport().join('\n')).toContain('draft survives')
@@ -1303,8 +1306,10 @@ describe('Ctrl+T', () => {
 				() => /◯ Release audit +▰+▱+ +1\/3 · \d+s/u.test(screen.viewport().join('\n')),
 				'the workflow row never appeared',
 			)
-			// main, three agents, then the workflow: four downs from the composer.
-			await focusWorkflow(screen, 1 + 3)
+			// Its agents are not rows, and with no agent row there is no main: the
+			// workflow is the only row, one down from the composer.
+			await focusWorkflow(screen, 1)
+			expect(screen.viewport().join('\n')).not.toMatch(/Step wf-|main/u)
 			expect(screen.viewport().join('\n')).toContain('enter to view · x to stop')
 			screen.press('x')
 			await waitUntil(screen, () => stoppedChildren.length === 2, 'x did not stop the workflow')
@@ -1319,7 +1324,7 @@ describe('Ctrl+T', () => {
 			const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 30 })
 			mounted = screen
 			await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
-			await focusWorkflow(screen, 1 + 2)
+			await focusWorkflow(screen, 1)
 			screen.press('\r')
 			await waitUntil(
 				screen,
@@ -1335,6 +1340,36 @@ describe('Ctrl+T', () => {
 				() => /^ *❯ ◯ Release audit/mu.test(screen.viewport().join('\n')),
 				'escape did not return to the workflow row',
 			)
+		})
+
+		it('stops the whole workflow with x on its phases and one agent with x on its agents', async () => {
+			stoppedChildren.length = 0
+			activity.set([
+				flow('wf-a', { startedAt: Date.now() - 9_000 }),
+				flow('wf-c', { startedAt: Date.now() - 8_000 }),
+			])
+			const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 30 })
+			mounted = screen
+			await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+			await focusWorkflow(screen, 1)
+			screen.press('\r')
+			await waitUntil(screen, () => screen.viewport().join('\n').includes('Phases'), 'no phases')
+			screen.press('\r')
+			await waitUntil(
+				screen,
+				() => screen.viewport().join('\n').includes('Survey · 1 agent'),
+				'no agents of the phase',
+			)
+			// Level 2: only the selected agent.
+			screen.press('x')
+			await waitUntil(screen, () => stoppedChildren.length === 1, 'x did not stop the agent')
+			expect(stoppedChildren).toEqual(['wf-a'])
+			// Left walks back up; level 1: every agent still going.
+			screen.press('\x1b[D')
+			await waitUntil(screen, () => screen.viewport().join('\n').includes('Phases'), 'no way up')
+			screen.press('x')
+			await waitUntil(screen, () => stoppedChildren.length === 3, 'x did not stop the workflow')
+			expect([...stoppedChildren].sort()).toEqual(['wf-a', 'wf-a', 'wf-c'])
 		})
 
 		it('writes one closing line, at turn end, even when the next phase starts 10 s after the last settled', async () => {
@@ -1368,11 +1403,15 @@ describe('Ctrl+T', () => {
 				flow('wf-a', { startedAt: t0, status: 'completed', completedAt: t0 + 1 }),
 				flow('wf-c', { startedAt: t0 + 10_000, status: 'completed', completedAt: t0 + 12_000 }),
 			])
+			// A workflow's agents leave no rows of their own; the group line is
+			// the one thing its launch writes.
 			await waitUntil(
 				screen,
-				() => painted(screen).includes('Step wf-c'),
-				'the second phase was not reported',
+				() => painted(screen).includes('Running in background'),
+				'the workflow launch line was not written',
 			)
+			await screen.waitForRender()
+			await screen.waitForRender()
 			// Both phases have settled, but the turn that ran them has not ended.
 			expect(closing()).toBe(0)
 			endTurn()
@@ -1396,7 +1435,7 @@ describe('Ctrl+T', () => {
 			const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 30 })
 			mounted = screen
 			await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
-			await focusWorkflow(screen, 1 + 1)
+			await focusWorkflow(screen, 1)
 			expect(screen.viewport().join('\n')).toContain('enter to view · x to clear')
 			screen.press('x')
 			await waitUntil(
@@ -1441,7 +1480,9 @@ describe('Ctrl+T', () => {
 		const frame = screen.viewport().join('\n')
 		expect(frame).toContain('Type a message')
 		expect(frame).toContain('model')
-		expect(frame).toContain('● main')
+		// A labelled agent is only inside its workflow: one workflow row, no main.
+		expect(frame).toContain('◯ A deliberat')
+		expect(frame).not.toContain('main')
 		expect(frame).not.toContain('public preview')
 		expect(screen.viewport()).toHaveLength(14)
 	})
@@ -1482,13 +1523,21 @@ describe('Ctrl+T', () => {
 		screen.press('\x14')
 		await waitUntil(
 			screen,
-			() => screen.viewport().join('\n').includes('Phase 2 · 1 agent'),
-			'the cockpit did not open on the live phase',
+			() => screen.viewport().join('\n').includes('Phases'),
+			'the cockpit did not open on the phases',
 		)
 		const frame = screen.viewport().join('\n')
-		expect(frame).toMatch(/› ● 2 Phase 2/u)
-		expect(frame).toMatch(/› ● Join the two colours/u)
-		expect(frame).toContain('2/3 agents done · 1 running')
+		// Opened on the phase still moving, one list at a time.
+		expect(frame).toMatch(/✔\s+Phase 1\s+2\/2/u)
+		expect(frame).toMatch(/❯ 2\s+Phase 2\s+0\/1/u)
+		expect(frame).toContain('2/3 agents')
+		screen.press('\r')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('Phase 2 · 1 agent'),
+			'enter did not open the live phase',
+		)
+		expect(screen.viewport().join('\n')).toMatch(/❯ ● Join the two colours/u)
 	})
 
 	it('gives the inspector its own short viewport and restores the composer draft', async () => {
@@ -1500,12 +1549,11 @@ describe('Ctrl+T', () => {
 		screen.press('\x14')
 		await waitUntil(
 			screen,
-			() => screen.viewport().join('\n').includes('Phases'),
+			() => screen.viewport().join('\n').includes('Agents · 1 agent'),
 			'short inspector did not open',
 		)
 		const frame = screen.viewport().join('\n')
-		expect(frame).toContain('Phases')
-		expect(frame).toContain('1 agent')
+		expect(frame).toContain('Agents · 1 agent')
 		expect(frame).not.toContain('draft remains visible')
 		screen.press('\x14')
 		await waitUntil(
@@ -1873,15 +1921,22 @@ describe('Ctrl+T', () => {
 			screen.press('\r')
 			await waitUntil(
 				screen,
-				() => screen.viewport().join('\n').includes('Second agent 1'),
+				() => screen.viewport().join('\n').includes('Phases'),
 				'latest workflow missing',
 			)
 			let frame = screen.viewport().join('\n')
-			expect(frame).toContain('Phases')
-			// The header names the pane; a count here would read as phases done.
+			// The header names the list; a count here would read as phases done.
 			expect(frame).not.toMatch(/Phases · \d/)
 			expect(frame).toContain('8/8 agents')
+			expect(frame).toMatch(/✘\s+Inspect\s+8\/8/)
 			expect(frame).not.toContain('First agent')
+			screen.press('\r')
+			await waitUntil(
+				screen,
+				() => screen.viewport().join('\n').includes('Second agent 1'),
+				'agents of the phase missing',
+			)
+			expect(screen.viewport().join('\n')).toContain('Inspect · 8 agents')
 			screen.press('\r')
 			await waitUntil(
 				screen,
@@ -1891,8 +1946,14 @@ describe('Ctrl+T', () => {
 			screen.press('\x1b')
 			await waitUntil(
 				screen,
-				() => screen.viewport().join('\n').includes('Phases'),
+				() => screen.viewport().join('\n').includes('Inspect · 8 agents'),
 				'did not return to agents',
+			)
+			screen.press('\x1b')
+			await waitUntil(
+				screen,
+				() => screen.viewport().join('\n').includes('Phases'),
+				'did not return to phases',
 			)
 			screen.press('\x1b')
 			await waitUntil(
@@ -1904,8 +1965,14 @@ describe('Ctrl+T', () => {
 			screen.press('\r')
 			await waitUntil(
 				screen,
-				() => screen.viewport().join('\n').includes('First agent 1'),
+				() => screen.viewport().join('\n').includes('Phases'),
 				'previous workflow missing',
+			)
+			screen.press('\r')
+			await waitUntil(
+				screen,
+				() => screen.viewport().join('\n').includes('First agent 1'),
+				'previous workflow agents missing',
 			)
 			frame = screen.viewport().join('\n')
 			expect(frame).toContain('8/8 agents')
@@ -1946,7 +2013,7 @@ describe('Ctrl+T', () => {
 
 		screen.press('\x1b[B')
 		await screen.resize(60, 28)
-		expect(screen.viewport().join('\n')).toContain('Phases')
+		expect(screen.viewport().join('\n')).toContain('Agents · 2 agents')
 		expect(screen.viewport().join('\n')).toContain('Beta')
 		await screen.resize(110, 28)
 		screen.press('\r')
@@ -2124,7 +2191,7 @@ describe('Ctrl+T', () => {
 		screen.press('\x1b')
 		await waitUntil(
 			screen,
-			() => screen.viewport().join('\n').includes('Phases'),
+			() => /Agents · \d+ agents?/u.test(screen.viewport().join('\n')),
 			'escape did not return to the agent list',
 		)
 		screen.press('\r')
@@ -2458,9 +2525,11 @@ describe('agent explorer projection', () => {
 		mounted = screen
 		await screen.waitForRender()
 		const frame = screen.viewport().join('\n')
-		expect(frame).toContain('0/2 agents done · 2 running')
-		expect(frame).toMatch(/Ninth review\s+Queued/)
-		expect(frame).not.toMatch(/Queued.*Queued/)
+		expect(frame).toContain('0/2 agents')
+		expect(frame).toContain('Agents · 2 agents')
+		expect(frame).toMatch(/◌\s+Ninth review.*queued/)
+		expect(frame).toMatch(/●\s+Running review/)
+		expect(frame).not.toMatch(/queued.*queued/)
 	})
 
 	it.each([
@@ -2468,7 +2537,7 @@ describe('agent explorer projection', () => {
 		{ cols: 60, rows: 20 },
 		{ cols: 40, rows: 14 },
 	])(
-		'separates cockpit panes and names a settled status once at $cols×$rows',
+		'lists phases, then the agents of one phase, one list at a time at $cols×$rows',
 		async ({ cols, rows }) => {
 			const research = agent({
 				viewId: 'research',
@@ -2481,33 +2550,33 @@ describe('agent explorer projection', () => {
 				completedAt: 59_000,
 				latestActivity: 'Completed',
 			})
-			const screen = await renderToScreen(
-				<AgentCockpit
-					agents={[research]}
-					selectedPhaseId={research.phaseId}
-					selectedId={research.viewId}
-					focus="phases"
-					terminalRows={rows}
-					terminalColumns={cols}
-				/>,
-				{ cols, rows },
-			)
-			mounted = screen
-			const viewport = screen.viewport()
-			const phaseHeading = viewport.findIndex((line) => line.includes('Phases'))
-			const agentHeading = viewport.findIndex((line) => line.includes('Research · 1 agent'))
-			const worker = viewport.find((line) => line.includes('Research worker')) ?? ''
-			expect(phaseHeading).toBeGreaterThanOrEqual(0)
-			expect(agentHeading).toBeGreaterThanOrEqual(0)
-			expect(worker).toMatch(/Research worker\s+Completed · 58s/)
-			expect(worker.match(/Completed/g)).toHaveLength(1)
-			if (cols >= 88) {
-				expect(agentHeading).toBe(phaseHeading)
-				expect(viewport[phaseHeading]).toMatch(/Phases.*│\s+Research · 1 agent/)
-			} else {
-				expect(agentHeading).toBeGreaterThan(phaseHeading)
+			const show = async (focus: 'phases' | 'agents') => {
+				const screen = await renderToScreen(
+					<AgentCockpit
+						agents={[research]}
+						selectedPhaseId={research.phaseId}
+						selectedId={research.viewId}
+						focus={focus}
+						terminalRows={rows}
+						terminalColumns={cols}
+					/>,
+					{ cols, rows },
+				)
+				mounted = screen
+				return screen.viewport()
 			}
-			expect(viewport.join('\n')).toContain('esc return')
+			const levelOne = await show('phases')
+			expect(levelOne.some((line) => /^│ Phases/.test(line))).toBe(true)
+			expect(levelOne.find((line) => line.includes('Research'))).toMatch(/❯ ✔\s+Research\s+1\/1/)
+			expect(levelOne.join('\n')).not.toContain('Research worker')
+			await mounted?.unmount()
+			mounted = null
+			const levelTwo = await show('agents')
+			expect(levelTwo.join('\n')).toContain('Research · 1 agent')
+			expect(levelTwo.join('\n')).not.toContain('Phases')
+			const worker = levelTwo.find((line) => line.includes('Research worker')) ?? ''
+			expect(worker).toMatch(/❯ ✔\s+Research worker.*58s/)
+			expect(levelTwo.join('\n')).toContain('esc')
 		},
 	)
 
@@ -2542,8 +2611,8 @@ describe('agent explorer projection', () => {
 	})
 
 	it('a long phase detail does not change the pane height', async () => {
-		// Narrow enough to stack Phases above Agents, so a detail box that grew
-		// with its text would visibly push the agent list down.
+		// The detail band is a fixed budget, so a long sentence cannot push the
+		// phase list or the hint line to another row.
 		const size = { cols: 60, rows: 30 }
 		const short = agent({ viewId: 'short', phase: 'Verify', phaseDetail: 'Short note.' })
 		const long = agent({
@@ -2551,41 +2620,38 @@ describe('agent explorer projection', () => {
 			phase: 'Verify',
 			phaseDetail: `A ${'very '.repeat(60)}long detail that wraps many times over.`,
 		})
-
-		const shortScreen = await renderToScreen(
-			<AgentCockpit
-				agents={[short]}
-				selectedPhaseId={short.phaseId}
-				selectedId={short.viewId}
-				focus="phases"
-				terminalRows={size.rows}
-				terminalColumns={size.cols}
-			/>,
-			size,
-		)
-		const shortViewport = shortScreen.viewport()
-		const shortAgentsRow = shortViewport.findIndex((line) => line.includes('Verify · 1 agent'))
-		expect(shortViewport.join('\n')).toContain('Short note.')
-		await shortScreen.unmount()
-
-		const longScreen = await renderToScreen(
-			<AgentCockpit
-				agents={[long]}
-				selectedPhaseId={long.phaseId}
-				selectedId={long.viewId}
-				focus="phases"
-				terminalRows={size.rows}
-				terminalColumns={size.cols}
-			/>,
-			size,
-		)
-		mounted = longScreen
-		const longViewport = longScreen.viewport()
-		const longAgentsRow = longViewport.findIndex((line) => line.includes('Verify · 1 agent'))
-		expect(longViewport.join('\n')).toContain('very very very')
-
-		expect(shortAgentsRow).toBeGreaterThanOrEqual(0)
-		expect(longAgentsRow).toBe(shortAgentsRow)
+		const rowsOf = async (member: SubagentActivity) => {
+			const screen = await renderToScreen(
+				<AgentCockpit
+					agents={[member]}
+					selectedPhaseId={member.phaseId}
+					selectedId={member.viewId}
+					focus="phases"
+					terminalRows={size.rows}
+					terminalColumns={size.cols}
+				/>,
+				size,
+			)
+			mounted = screen
+			const viewport = screen.viewport()
+			const found = {
+				phase: viewport.findIndex((line) => line.includes('Verify')),
+				hint: viewport.findIndex((line) => line.includes('esc to go back')),
+				detail: viewport.filter((line) => /very|Short note/.test(line)).length,
+				text: viewport.join('\n'),
+			}
+			await screen.unmount()
+			mounted = null
+			return found
+		}
+		const shortRows = await rowsOf(short)
+		const longRows = await rowsOf(long)
+		expect(shortRows.text).toContain('Short note.')
+		expect(longRows.text).toContain('very very very')
+		expect(shortRows.phase).toBeGreaterThanOrEqual(0)
+		expect(longRows.phase).toBe(shortRows.phase)
+		expect(longRows.hint).toBe(shortRows.hint)
+		expect(longRows.detail).toBeLessThanOrEqual(3)
 	})
 
 	it('does not corrupt the compact cockpit frame when a phase carries a detail', async () => {
@@ -2619,19 +2685,15 @@ describe('agent explorer projection', () => {
 		)
 		mounted = screen
 		const viewport = screen.viewport()
-		const worker = viewport.find((line) => line.includes('Research worker')) ?? ''
-		expect(worker).toMatch(/Research worker\s+Completed · 58s/)
-		const footer = viewport.find((line) => line.includes('esc return')) ?? ''
-		expect(footer).toMatch(/esc return[ │]*$/)
+		const phaseRow = viewport.find((line) => line.includes('Research')) ?? ''
+		expect(phaseRow).toMatch(/✔\s+Research\s+1\/1/)
+		const footer = viewport.find((line) => line.includes('esc')) ?? ''
+		expect(footer).toMatch(/esc[ a-z│]*$/)
 		expect(viewport.join('\n')).not.toContain('Confirm the rollback plan')
 	})
 
-	it('surfaces failed and cancelled children in phase summaries', () => {
-		const failed = agent({
-			viewId: 'failed',
-			status: 'failed',
-			completedAt: 2,
-		})
+	it('marks a phase failed once it has settled with a failure or a stop', () => {
+		const failed = agent({ viewId: 'failed', status: 'failed', completedAt: 2 })
 		const working = agent({ viewId: 'working' })
 		const cancelled = agent({
 			viewId: 'cancelled',
@@ -2658,8 +2720,9 @@ describe('agent explorer projection', () => {
 			/>,
 		)
 		try {
-			expect(cockpit.lastFrame()).toContain('failed 1')
-			expect(cockpit.lastFrame()).toContain('cancelled 1')
+			// Still working: the phase keeps its number. Settled with a stop: ✘.
+			expect(cockpit.lastFrame()).toMatch(/❯ 1\s+Agents\s+1\/2/)
+			expect(cockpit.lastFrame()).toMatch(/✘\s+Agents\s+2\/2/)
 		} finally {
 			cockpit.unmount()
 		}
@@ -2980,7 +3043,6 @@ describe('the rail while a review is open', () => {
 			agent({
 				viewId: 'approved',
 				description: 'Choose first colour',
-				workflow: 'Two-phase colour sentence',
 				latestActivity: 'Reading the palette',
 			}),
 		])
@@ -3253,7 +3315,7 @@ describe('render order below the message frame', () => {
 		const frame = screen.viewport().join('\n')
 		// An explicit workflow label earns its own `◯` row after the agent rows;
 		// the unlabelled default never names anything.
-		expect(railRows(screen)).toHaveLength(2)
+		expect(railRows(screen)).toHaveLength(1)
 		expect(frame).toMatch(/^ *◯ Nightly regression sweep +▱+ +0\/1 · /mu)
 		expect(frame).not.toContain('Delegated work')
 	})

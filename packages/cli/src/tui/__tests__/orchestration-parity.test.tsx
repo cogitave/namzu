@@ -62,27 +62,26 @@ function agent(
 }
 
 describe('launch receipt', () => {
-	it('names every agent of one batch under one line, in start order', () => {
+	it('names every unlabelled agent of one batch under one line, in start order', () => {
 		const receipt = launchReceipt([
-			agent({
-				viewId: 'b',
-				description: 'İkinci rengi seç',
-				startedAt: 2_000,
-				workflow: 'İki aşamalı cümle',
-				phase: 'Aşama 1',
-			}),
-			agent({
-				viewId: 'a',
-				description: 'Birinci rengi seç',
-				startedAt: 1_000,
-				workflow: 'İki aşamalı cümle',
-				phase: 'Aşama 1',
-			}),
+			agent({ viewId: 'b', description: 'İkinci rengi seç', startedAt: 2_000 }),
+			agent({ viewId: 'a', description: 'Birinci rengi seç', startedAt: 1_000 }),
 		])
 		expect(receipt.content.split('\n')).toEqual([
-			'Launched 2 agents · İki aşamalı cümle / Aşama 1 (ctrl+t to manage)',
+			'Launched 2 agents (ctrl+t to manage)',
 			'├ Birinci rengi seç',
 			'└ İkinci rengi seç',
+		])
+	})
+
+	it('gives a labelled workflow one group line instead of its agents', () => {
+		const receipt = launchReceipt([
+			agent({ viewId: 'b', startedAt: 2_000, workflow: 'İki aşamalı cümle', phase: 'Aşama 1' }),
+			agent({ viewId: 'a', startedAt: 1_000, workflow: 'İki aşamalı cümle', phase: 'Aşama 1' }),
+		])
+		expect(receipt.content.split('\n')).toEqual([
+			'Workflow İki aşamalı cümle',
+			'⎿ Running in background · ↓ to manage',
 		])
 	})
 
@@ -172,16 +171,13 @@ describe('settle line', () => {
 		expect(settleLine(2_999, [])).toBeUndefined()
 	})
 
-	it('closes a phased workflow with its phases, spend and failures', () => {
+	it('closes a phased workflow with spend and failures, never its phases', () => {
 		const phased = [
 			agent({ viewId: 'a', phase: 'Phase 1', phaseId: 'p1', tokens: 9_000, status: 'completed' }),
 			agent({ viewId: 'b', phase: 'Phase 1', phaseId: 'p1', tokens: 9_000, status: 'completed' }),
 			agent({ viewId: 'c', phase: 'Phase 2', phaseId: 'p2', tokens: 9_050, status: 'failed' }),
 		]
-		expect(settleLine(12_000, phased)).toBe(
-			'Worked for 12s · 3 agents in 2 phases · 27.1k tokens · 1 failed',
-		)
-		// One named phase is not a structure worth a count.
+		expect(settleLine(12_000, phased)).toBe('Worked for 12s · 3 agents · 27.1k tokens · 1 failed')
 		expect(settleLine(2_000, [agent({ viewId: 'x', phase: 'Only', phaseId: 'p' })])).toBe(
 			'Worked for 2.0s · 1 agent',
 		)
@@ -265,11 +261,9 @@ describe('the cockpit of a phased workflow', () => {
 				{ cols: 120, rows: 24 },
 			)
 			const frame = mounted.viewport().join('\n')
-			expect(frame).toMatch(
-				/Two-phase colour sentence\s+2\/3 agents done · 1 running · \S+ · 18\.0k tokens │/u,
-			)
-			expect(frame).toMatch(/✓ 1 Phase 1\s+2\/2 · 3\.9s\s/u)
+			expect(frame).toMatch(/Two-phase colour sentence\s+2\/3 agents · \S+ │/u)
 			expect(frame).toMatch(/│ Phase 2 · 1 agent\s/u)
+			expect(frame).toMatch(/● Join the two colours/u)
 			await mounted.unmount()
 
 			const finished = phased.map((member) =>
@@ -283,12 +277,15 @@ describe('the cockpit of a phased workflow', () => {
 					selectedPhaseId="p1"
 					selectedId="first"
 					focus="phases"
-					terminalRows={16}
+					terminalRows={24}
 					terminalColumns={120}
 				/>,
-				{ cols: 120, rows: 16 },
+				{ cols: 120, rows: 24 },
 			)
-			expect(mounted.viewport().join('\n')).toMatch(/3\/3 agents · 9\.0s · 27\.0k tokens · done │/u)
+			const levelOne = mounted.viewport().join('\n')
+			expect(levelOne).toMatch(/3\/3 agents · 9\.0s │/u)
+			expect(levelOne).toMatch(/❯ ✔\s+Phase 1\s+2\/2/u)
+			expect(levelOne).toMatch(/✔\s+Phase 2\s+1\/1/u)
 			await mounted.unmount()
 
 			mounted = await renderToScreen(
@@ -303,7 +300,7 @@ describe('the cockpit of a phased workflow', () => {
 				{ cols: 40, rows: 16 },
 			)
 			const narrow = mounted.viewport()
-			expect(narrow.join('\n')).toMatch(/Two-phase colour sentence\s+2\/3 done │/u)
+			expect(narrow.join('\n')).toMatch(/Two-phase colour.*2\/3 agents/u)
 			for (const row of narrow) expect(stringWidth(row)).toBeLessThanOrEqual(40)
 		})
 	})

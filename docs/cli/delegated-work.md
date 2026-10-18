@@ -188,15 +188,21 @@ untrusted exists to prevent. If child narration is ever offered, it goes
 through that same wrapping and is attributed to the child by name.
 
 Each batch of agents one response launched adds one launch receipt to the main
-transcript, `● Launched 2 agents · <workflow> / <phase>` with the agents named
-beneath it, always below the text of the response that launched them, and each observed agent completion adds one named row, whether or
-not the model calls `wait_for_task`: `✓ <name> · 1.7s · 9.0k tokens`, or
+transcript, `● Launched 2 agents` with the agents named beneath it, always
+below the text of the response that launched them, and each observed agent
+completion adds one named row, whether or not the model calls `wait_for_task`:
+`✓ <name> · 1.7s · 9.0k tokens`, or
 `✗ <name> · failed after 2.9s · <reason>`. A completed agent's final answer is
 attached to its row, collapsed; Ctrl+O opens it, in place while the row is
-live and in the output viewer once it has settled into history. A turn that launched agents
-ends with `✻ Worked for <time> · <N> agents`, adding `in <N> phases` when the
-model named two or more, the tokens the agents spent when any reported them,
-and `<N> failed` when one failed. See
+live and in the output viewer once it has settled into history. Agents the model
+gave a `workflow` label are the exception: they are one workflow, not agents.
+Their launch writes a single `● Workflow <name>` line with
+`⎿ Running in background · ↓ to manage` beneath it, they leave no per-agent
+receipt or completion row, and the workflow closes with one line
+(`✓ Workflow <name> completed · 4m02s · 7 agents · 112.0k tokens`). A turn that
+launched agents ends with `✻ Worked for <time> · <N> agents`, adding the tokens
+the agents spent when any reported them and `<N> failed` when one failed; it
+never counts phases, which appear only in a workflow's detail view. See
 [Terminal design](terminal-design.md#delegated-work-in-the-conversation) for
 the layout. When every running call is a correlated wait, the rows fold into
 one `✻ Waiting for N agents to finish` line; a wait beside other work keeps its
@@ -214,13 +220,17 @@ while the next launch is decided. That row names no key, since the dialog holds
 The rail lists running agents and those finished within the last 30 seconds,
 five at a time, one row each (type, description, time and spend); ↓ in an empty
 composer moves into it, where Enter opens an agent's transcript and `x` stops
-it. A workflow split into phases (one `workflow` label, several `phase`
-labels) is drawn by phase in the agent cockpit, which opens on the phase that
-is still working. A group of agents sharing an explicit `workflow` label also
-gets one rail row after the agent rows (`◯ name  ▰▱ bar  3/7 · 2m14s · ↓ 48.2k
-tokens`): Enter on it opens the cockpit on that workflow, `x` stops all of its
-running agents or clears the row once it has finished, and a one-line notice
-(`Workflow <name> completed · 4m02s · 7 agents`) closes it in the conversation.
+it. Workflows and subagents are kept apart, as in the reference terminal. A
+subagent is an agent the model started without a `workflow` label: it has an
+agent row. A workflow is the set of agents started with the same `workflow`
+label: it has no agent rows at all, only one row after the agent rows (`◯ name
+▰▱ bar  3/7 · 2m14s · ↓ 48.2k tokens`, no phase text). Enter on that row opens
+the workflow's detail view: its phases first (`phase`, `phase_order` and
+`phase_detail` are display labels, the title is the model's `phase` verbatim and
+agents with the same title are one phase), then the agents of the phase you
+open, then one agent's transcript. `x` stops the whole workflow on the phases
+and a single agent on the agents; Esc or ← goes back up a level. A workflow
+whose agents carry no `phase` label shows one group titled `Agents`.
 See [Terminal design](terminal-design.md) for both.
 
 Completion reaches the parent as a task notification. `wait_for_task` retrieves

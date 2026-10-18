@@ -5,12 +5,16 @@
  * place (settled rows cannot be repainted; the live state belongs to the
  * rail under the footer):
  *
- * - a launch receipt per batch of agents: `● Launched 2 agents · <workflow> / <phase>`
- *   with the agents' names beneath it as a `├`/`└` tree;
- * - a completion row per agent: `✓ <name> · 1.7s · 9.0k tokens`, carrying the
- *   agent's final answer as a collapsed body Ctrl+O opens;
+ * - a launch receipt per batch of unlabelled agents: `● Launched 2 agents`
+ *   with the agents' names beneath it as a `├`/`└` tree; agents the model
+ *   gave a `workflow` label get ONE group line instead,
+ *   `● Workflow <name>` / `⎿ Running in background · ↓ to manage`;
+ * - a completion row per unlabelled agent: `✓ <name> · 1.7s · 9.0k tokens`,
+ *   carrying the agent's final answer as a collapsed body Ctrl+O opens (a
+ *   workflow's agents are read in its detail view, and the workflow closes
+ *   with one line);
  * - a closing line when a turn that delegated settles:
- *   `✻ Worked for 38s · 3 agents in 2 phases · 27.0k tokens`.
+ *   `✻ Worked for 38s · 3 agents · 27.0k tokens`.
  *
  * Pure so the wording is tested without an App.
  */
@@ -26,6 +30,9 @@ import { terminalDisplayText } from './terminal-display.js'
 
 /** The key that opens the agent browser from anywhere the composer is. Never a key that may be dead. */
 export const AGENT_MANAGE_HINT = 'ctrl+t to manage'
+
+/** The key that opens the rail's workflow row from the composer. */
+export const WORKFLOW_MANAGE_HINT = '↓ to manage'
 
 export interface LaunchReceipt {
 	/** First line, then one tree line per agent when there are several. */
@@ -45,6 +52,13 @@ export function launchReceipt(unordered: readonly SubagentActivity[]): LaunchRec
 	// in the order they started.
 	const members = [...unordered].sort((left, right) => left.startedAt - right.startedAt)
 	const first = members[0]
+	// Agents the model gave a `workflow` label are one piece of work, however
+	// many of them there are: one group line, no per-agent rows.
+	if (first && first.workflow !== DEFAULT_AGENT_WORKFLOW) {
+		return {
+			content: `Workflow ${oneLine(first.workflow)}\n⎿ Running in background · ${WORKFLOW_MANAGE_HINT}`,
+		}
+	}
 	const labels = first
 		? [
 				...(first.workflow !== DEFAULT_AGENT_WORKFLOW ? [first.workflow] : []),
@@ -134,15 +148,14 @@ export function workflowNotice(workflow: RailWorkflow, now = Date.now()): Workfl
 export const SETTLE_LINE_MIN_MS = 3_000
 
 /**
- * `Worked for 38s · 3 agents in 2 phases · 27.0k tokens`, or `Worked for 46s`
+ * `Worked for 38s · 3 agents · 27.0k tokens`, or `Worked for 46s`
  * for a turn that delegated nothing — a finished turn closes with how long it
  * took, as the reference terminal's do — or `undefined` for a turn that
  * delegated nothing and finished within {@link SETTLE_LINE_MIN_MS}.
  *
- * The phase count appears only when the model named two or more phases, the
- * tokens only when a child reported spend, and `· 1 failed` only when one
- * did: the reference closes a workflow with its agent count and spend, and a
- * failure is worth the words.
+ * Phases never appear here: the reference shows them only inside a
+ * workflow's detail view. The tokens appear only when a child reported
+ * spend, and `· 1 failed` only when one did.
  */
 export function settleLine(
 	elapsedMs: number,
@@ -150,9 +163,6 @@ export function settleLine(
 ): string | undefined {
 	if (agents.length <= 0)
 		return elapsedMs >= SETTLE_LINE_MIN_MS ? `Worked for ${formatElapsed(elapsedMs)}` : undefined
-	const phases = new Set(
-		agents.filter((agent) => agent.phase !== DEFAULT_AGENT_PHASE).map((agent) => agent.phaseId),
-	).size
 	const spent = agents.reduce<number | undefined>(
 		(sum, agent) => (agent.tokens === undefined ? sum : (sum ?? 0) + agent.tokens),
 		undefined,
@@ -160,7 +170,7 @@ export function settleLine(
 	const failed = agents.filter((agent) => agent.status === 'failed').length
 	return [
 		`Worked for ${formatElapsed(Math.max(0, elapsedMs))}`,
-		`${agents.length} agent${agents.length === 1 ? '' : 's'}${phases >= 2 ? ` in ${phases} phases` : ''}`,
+		`${agents.length} agent${agents.length === 1 ? '' : 's'}`,
 		...(spent !== undefined ? [`${formatCompactCount(spent)} tokens`] : []),
 		...(failed > 0 ? [`${failed} failed`] : []),
 	].join(' · ')
