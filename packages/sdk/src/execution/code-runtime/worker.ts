@@ -3,12 +3,34 @@ import { Worker } from 'node:worker_threads'
 
 import { encodeCodeValue } from './json-value.js'
 import {
+	type CodeFrame,
 	type CodeRunResult,
 	type CodeRuntime,
 	HostCallDeniedError,
 	type RunCodeOptions,
 } from './types.js'
 import { QUICKJS_WORKER_SOURCE } from './worker-program.js'
+
+/** The worker wraps the program in `(async () => {` plus a newline: one line. */
+const WRAPPER_LINES = 1
+const FRAME_PATTERN = /model-program\.js:(\d+):(\d+)/g
+
+function failureLocation(
+	name: unknown,
+	stack: unknown,
+): { errorName?: string; frames?: readonly CodeFrame[] } {
+	const frames: CodeFrame[] = []
+	if (typeof stack === 'string') {
+		for (const match of stack.matchAll(FRAME_PATTERN)) {
+			const line = Number(match[1]) - WRAPPER_LINES
+			if (line >= 1) frames.push({ line, column: Number(match[2]) })
+		}
+	}
+	return {
+		...(typeof name === 'string' && name !== '' ? { errorName: name } : {}),
+		...(frames.length > 0 ? { frames } : {}),
+	}
+}
 
 const requireFromSdk = createRequire(import.meta.url)
 
@@ -354,7 +376,11 @@ export class WorkerCodeRuntime implements CodeRuntime {
 
 				if (message.kind === 'error') {
 					finish({
-						outcome: { status: 'failed', error: String(message.error) },
+						outcome: {
+							status: 'failed',
+							error: String(message.error),
+							...failureLocation(message.name, message.stack),
+						},
 						output,
 						outputTruncated: truncated,
 						calls,

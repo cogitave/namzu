@@ -35,12 +35,23 @@ const PRELUDE_SOURCE = String.raw`(function (config) {
 	function log(message) {
 		emit({ k: 'log', message: String(message).slice(0, 2000) });
 	}
+	function kind(value) {
+		if (value === null) return 'null';
+		if (value === '') return 'an empty string';
+		if (Array.isArray(value)) return 'an array';
+		var t = typeof value;
+		if (t === 'undefined') return 'undefined';
+		if (t === 'object') return typeof value.then === 'function' ? 'a promise' : 'an object';
+		return 'a ' + t;
+	}
 	async function agent(prompt, opts) {
 		if (typeof prompt !== 'string' || prompt.length === 0) {
-			throw new TypeError('agent() needs a prompt string.');
+			throw new TypeError('agent(prompt, options?): the prompt must be a non-empty string, got ' + kind(prompt));
 		}
 		var o = opts == null ? {} : opts;
-		if (typeof o !== 'object') throw new TypeError('agent() options must be an object.');
+		if (typeof o !== 'object' || Array.isArray(o)) {
+			throw new TypeError('agent(prompt, options?): options must be an object, got ' + kind(o));
+		}
 		var request = { prompt: prompt, cursor: cursor };
 		if (o.label != null) request.label = clean(o.label, 120);
 		if (o.phase != null) request.phase = clean(o.phase, 120);
@@ -53,14 +64,25 @@ const PRELUDE_SOURCE = String.raw`(function (config) {
 		return reply.v;
 	}
 	async function parallel(thunks) {
-		if (!Array.isArray(thunks)) throw new TypeError('parallel() needs an array of functions.');
-		return Promise.all(thunks.map(function (t) { return typeof t === 'function' ? t() : t; }));
+		if (!Array.isArray(thunks)) {
+			throw new TypeError('parallel(thunks): the argument must be an array of functions, got ' + kind(thunks));
+		}
+		for (var p = 0; p < thunks.length; p++) {
+			if (typeof thunks[p] !== 'function') {
+				throw new TypeError('parallel(thunks): item ' + (p + 1) + ' must be a function (wrap the work as () => agent(...)), got ' + kind(thunks[p]));
+			}
+		}
+		return Promise.all(thunks.map(function (t) { return t(); }));
 	}
 	async function pipeline(items) {
-		if (!Array.isArray(items)) throw new TypeError('pipeline() needs an array of items.');
+		if (!Array.isArray(items)) {
+			throw new TypeError('pipeline(items, ...stages): the first argument must be an array, got ' + kind(items));
+		}
 		var stages = Array.prototype.slice.call(arguments, 1);
 		for (var s = 0; s < stages.length; s++) {
-			if (typeof stages[s] !== 'function') throw new TypeError('pipeline() stages must be functions.');
+			if (typeof stages[s] !== 'function') {
+				throw new TypeError('pipeline(items, ...stages): stage ' + (s + 1) + ' must be a function, got ' + kind(stages[s]));
+			}
 		}
 		return Promise.all(items.map(async function (item, index) {
 			var value = item;
@@ -87,8 +109,23 @@ const PRELUDE_SOURCE = String.raw`(function (config) {
 	install('args', config.args);
 })`
 
+/**
+ * Lines the prelude occupies in the interpreter source, plus the newline that
+ * joins it to the script body: subtract this from an interpreter line number
+ * to get the line in the script the author wrote.
+ */
+export function preludeLineCount(config: {
+	args: unknown
+	tokenLimit: number | null
+}): number {
+	return buildPrelude(config).split('\n').length
+}
+
 /** Source that installs the workflow globals, ready to prepend to a script body. */
-export function buildPrelude(config: { args: unknown; tokenLimit: number | null }): string {
+export function buildPrelude(config: {
+	args: unknown
+	tokenLimit: number | null
+}): string {
 	const literal = JSON.stringify(config)
 		.split(String.fromCharCode(0x2028))
 		.join('\\u2028')

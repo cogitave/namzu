@@ -94,9 +94,37 @@ substitution, so an operator can review it before anything runs.
 | `budget` | `{ tokensUsed, tokenLimit? }`, a snapshot refreshed on each `agent()` result. |
 
 `return` supplies the result. There is no `require`, `process`, `fetch`, timer
-or `import()`. A script that throws fails the run with its message. This version
-leaves out nested `workflow()`, worktree isolation, resume from a journal and
+or `import()`. This version leaves out nested `workflow()`, worktree isolation, resume from a journal and
 saved workflows.
+
+### When a script fails
+
+A script that throws, or does not parse, fails the run. `WorkflowRunResult.error`
+(also the `error` of `workflow_finished`) is written for the model that
+authored the script, so it can repair it instead of guessing:
+
+```
+TypeError: not a function — line 7, column 13: const out = await fn(items)
+Before it failed: 3 agents started, 2 finished, 1 failed. A rerun starts the whole script again, so finished agents run again. Last phase: "Fix".
+```
+
+- The first line is the error's name and message, then the script line (and
+  column) the interpreter reports and that line's text, trimmed to 200
+  characters. Line numbers count the author's script, with the `meta` statement
+  and the interpreter's own helper code accounted for. When the error comes from
+  inside `parallel`, `pipeline` or `agent`, the line is the call in the script,
+  not the helper.
+- Where the interpreter gives no location (a script that throws a bare string,
+  say) the message says `the interpreter gave no line number for this error`
+  instead of guessing.
+- The second line says how far the run got: agents started, finished and failed,
+  and the last `phase()` title. With no agent started it reads
+  `No agent had started.`
+
+The helpers reject obviously wrong argument shapes with a plain error naming the
+signature, for example `pipeline(items, ...stages): the first argument must be
+an array, got a function`. That is a convenience inside the interpreter, not
+enforcement; the host still validates every `agent()` request.
 
 Schema validation covers `type`, `enum`, `const`, `properties`, `required`,
 `additionalProperties`, `items`, `minItems`/`maxItems`, `minLength`/`maxLength`,

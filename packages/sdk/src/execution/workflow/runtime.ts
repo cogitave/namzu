@@ -2,13 +2,13 @@ import { randomBytes } from 'node:crypto'
 import { cpus } from 'node:os'
 
 import { encodeCodeValue } from '../code-runtime/json-value.js'
-import type { CodeRuntime, HostCallResult } from '../code-runtime/types.js'
+import type { CodeFrame, CodeRuntime, HostCallResult } from '../code-runtime/types.js'
 import { WorkerCodeRuntime } from '../code-runtime/worker.js'
 import { WorkflowScriptError } from './errors.js'
 import { preview, sha256 } from './journal.js'
 import { splitWorkflowScript } from './meta.js'
 import { type PhaseAgentView, PhaseRegistry, summarizeWorkflowPhases } from './phases.js'
-import { buildPrelude } from './prelude.js'
+import { buildPrelude, preludeLineCount } from './prelude.js'
 import { parseJsonText, validateAgainstSchema } from './schema.js'
 import type {
 	WorkflowAgentEvent,
@@ -208,6 +208,38 @@ export interface WorkflowRuntimeOptions {
 	readonly settleGraceMs?: number
 }
 
+const MAX_SOURCE_LINE_CHARS = 200
+
+/**
+ * The failure text a model reads: the error, then where in ITS script it
+ * happened and the line itself. Interpreter lines count the prelude and the
+ * worker's wrapper, so the first frame that falls in the author's text is the
+ * one reported (the innermost frame may be a prelude helper that rejected a
+ * bad argument; the call site is the next one out).
+ */
+function describeScriptFailure(
+	outcome: {
+		readonly error: string
+		readonly errorName?: string
+		readonly frames?: readonly CodeFrame[]
+	},
+	body: string,
+	preludeLines: number,
+): string {
+	const what =
+		outcome.errorName !== undefined && outcome.errorName !== ''
+			? `${outcome.errorName}: ${outcome.error}`
+			: outcome.error
+	const frame = outcome.frames
+		?.map((f) => ({ line: f.line - preludeLines, column: f.column }))
+		.find((f) => f.line >= 1)
+	if (frame === undefined) {
+		return `${what} — the interpreter gave no line number for this error.`
+	}
+	const text = (body.split('\n')[frame.line - 1] ?? '').trim().slice(0, MAX_SOURCE_LINE_CHARS)
+	return `${what} — line ${frame.line}, column ${frame.column}: ${text}`
+}
+
 /**
  * Runs a workflow script: a program the MODEL wrote once that decides how
  * many subagents run and in which order.
@@ -255,6 +287,7 @@ export class WorkflowRuntime {
 		let fatal: string | undefined
 		let closed = false
 		let journalError: string | undefined
+		let scriptPhase: string | undefined
 		let journalChain: Promise<void> = Promise.resolve()
 
 		const journal = (record: WorkflowJournalRecord): void => {
@@ -580,6 +613,7 @@ export class WorkflowRuntime {
 			const { k, title, message } = record as Record<string, unknown>
 			if (k === 'phase' && typeof title === 'string' && title.trim()) {
 				announce(title, false)
+				scriptPhase = title.trim()
 			} else if (k === 'log' && typeof message === 'string') {
 				const at = now()
 				emit({ type: 'workflow_log', runId, message, at })
@@ -625,8 +659,9 @@ export class WorkflowRuntime {
 				maxPendingHostCalls: limits.maxAgents + 100,
 			})
 
+		const preludeConfig = { args, tokenLimit: limits.tokenBudget ?? null }
 		const runResult = await codeRuntime.run({
-			source: `${buildPrelude({ args, tokenLimit: limits.tokenBudget ?? null })}\n${body}`,
+			source: `${buildPrelude(preludeConfig)}\n${body}`,
 			allowedCalls: [WORKFLOW_HOST_CALL],
 			timeoutMs: limits.maxDurationMs,
 			maxOutputBytes: MAX_LOG_OUTPUT_BYTES,
@@ -691,7 +726,14 @@ export class WorkflowRuntime {
 			error = `The script was stopped. It spent more than ${limits.cpuSliceMs} ms in one synchronous stretch, more than ${limits.cpuTotalMs} ms in all, or ran past the ${limits.maxDurationMs} ms limit for one run.`
 		} else {
 			status = 'failed'
-			error = outcome.error
+			const begun = [...agents.values()].filter((a) => a.startedAt !== undefined)
+			const finished = begun.filter((a) => a.state === 'done' && !a.skipped).length
+			const failedAgents = begun.filter((a) => a.state === 'error').length
+			const progress =
+				begun.length === 0
+					? 'No agent had started.'
+					: `Before it failed: ${begun.length} agent${begun.length === 1 ? '' : 's'} started, ${finished} finished, ${failedAgents} failed. A rerun starts the whole script again, so finished agents run again.`
+			error = `${describeScriptFailure(outcome, body, preludeLineCount(preludeConfig))}\n${progress}${scriptPhase !== undefined ? ` Last phase: "${scriptPhase}".` : ''}`
 		}
 
 		const all = [...agents.values()]

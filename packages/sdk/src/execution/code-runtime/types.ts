@@ -104,9 +104,26 @@ export interface RunCodeOptions {
 	readonly onOutput?: (line: string) => void
 }
 
+export interface CodeFrame {
+	readonly line: number
+	readonly column: number
+}
+
 export type CodeRunOutcome =
 	| { readonly status: 'completed'; readonly result: unknown }
-	| { readonly status: 'failed'; readonly error: string }
+	| {
+			readonly status: 'failed'
+			readonly error: string
+			/** The thrown value's `name`, when it was an error object. */
+			readonly errorName?: string
+			/**
+			 * Where the interpreter says the program failed: innermost first, line and
+			 * column counted in the submitted `source` (1-based). Absent when the
+			 * interpreter gave no location (a non-error was thrown, or the failure was
+			 * not in the program).
+			 */
+			readonly frames?: readonly CodeFrame[]
+	  }
 	| { readonly status: 'timed-out' }
 	| { readonly status: 'cancelled' }
 

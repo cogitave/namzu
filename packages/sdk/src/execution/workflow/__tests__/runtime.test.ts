@@ -107,7 +107,9 @@ describe('agent()', () => {
 		const { result } = await runScript(
 			`${META}try { await agent(''); return 'no' } catch (e) { return e.message }`,
 		)
-		expect(result.result).toBe('agent() needs a prompt string.')
+		expect(result.result).toBe(
+			'agent(prompt, options?): the prompt must be a non-empty string, got an empty string',
+		)
 	})
 })
 
@@ -216,9 +218,9 @@ describe('parallel and pipeline', () => {
 			return out`,
 		)
 		expect(result.result).toEqual([
-			'parallel() needs an array of functions.',
-			'pipeline() needs an array of items.',
-			'pipeline() stages must be functions.',
+			'parallel(thunks): the argument must be an array of functions, got a number',
+			'pipeline(items, ...stages): the first argument must be an array, got a number',
+			'pipeline(items, ...stages): stage 1 must be a function, got a number',
 		])
 	})
 })
@@ -519,7 +521,9 @@ describe('events', () => {
 	it('reports a script that throws as failed with its message', async () => {
 		const { result, events } = await runScript(`${META}throw new Error('script broke')`)
 		expect(result.status).toBe('failed')
-		expect(result.error).toBe('script broke')
+		expect(result.error).toMatch(
+			/^Error: script broke — line 2, column \d+: throw new Error\('script broke'\)/,
+		)
 		expect(events.at(-1)).toMatchObject({ type: 'workflow_finished', status: 'failed' })
 	})
 
