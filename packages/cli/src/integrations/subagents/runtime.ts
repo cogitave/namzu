@@ -96,6 +96,7 @@ import {
 	SubagentActivityMonitor,
 	type SubagentActivitySource,
 } from './activity.js'
+import { MAX_AGENT_NAME_LENGTH } from './names.js'
 import { CLI_INTERACTIVE_TURN_TIMEOUT_MS } from './policy.js'
 import { SAVED_AGENTS_GUIDANCE, type SavedAgentHistory } from './saved-agents.js'
 import { DelegatedWorktreeDriver } from './worktree-driver.js'
@@ -190,6 +191,7 @@ export interface DelegatedModel {
 /** The fields the `Agent` tool accepts, as the runtime reads them. */
 interface AgentCallInput {
 	description: string
+	name?: string
 	model?: string
 	provider?: string
 	effort?: string
@@ -860,9 +862,11 @@ export async function createSubagentRuntime(
 	): Promise<{
 		readonly outcome: Awaited<ReturnType<typeof runBlockingAgentTask>>
 		readonly agentId: string
+		readonly name?: string
 	}> => {
 		const {
 			description,
+			name: requestedName,
 			prompt,
 			subagent_type,
 			role,
@@ -916,6 +920,15 @@ export async function createSubagentRuntime(
 				? inherited
 				: undefined
 		let agentId = fileAgent?.name ?? (explore ? EXPLORE_SUBAGENT : GENERAL_PURPOSE_SUBAGENT)
+		// The agent's name by purpose. Taken here, before anything is registered,
+		// so a refused name leaves nothing behind; the row that holds it is
+		// opened below with no await in between, so two launches of one response
+		// never pick the same one. A workflow run's agents are labelled by the
+		// script and need no name.
+		const name =
+			hooks.workflowId === undefined
+				? activity.reserveName({ requested: requestedName, description, type: agentId })
+				: undefined
 		const persona = typeof role === 'string' ? role.trim() : ''
 		const dynamic = persona.length > 0 || selection !== undefined
 		if (dynamic) {
@@ -954,6 +967,8 @@ export async function createSubagentRuntime(
 			agentId,
 			model: selection?.model ?? fileAgent?.model ?? parentModel,
 			description,
+			...(name ? { name } : {}),
+			...(run_in_background === true ? { background: true } : {}),
 			prompt,
 			batchId: context.toolBatchId,
 			toolUseId: context.toolUseId,
@@ -1087,7 +1102,7 @@ export async function createSubagentRuntime(
 						: tracker.onEvent,
 				},
 			})
-			return { outcome, agentId }
+			return { outcome, agentId, ...(name ? { name } : {}) }
 		} catch (error) {
 			tracker.fail(error)
 			throw error
@@ -1101,7 +1116,7 @@ export async function createSubagentRuntime(
 	const agentTool = defineTool({
 		name: 'Agent',
 		description: [
-			'Delegate a self-contained task to a sub-agent. Set run_in_background: true to receive its task ID immediately and continue independent work; completion arrives as a task notification. Otherwise wait for its result. Operator input can also release a blocking wait while the child keeps working. Use agent_task_list for current agent status (task_list is only the planning list), send_message to correct a running task, cancel_agent to stop only one owned task, and wait_for_task to retrieve its result; never launch duplicate work.',
+			'Delegate a self-contained task to a sub-agent. Give every agent a short `name` for its job (e.g. `count-words`) so the operator can tell them apart. Set run_in_background: true to receive its task ID immediately and continue independent work; completion arrives as a task notification. Otherwise wait for its result. Operator input can also release a blocking wait while the child keeps working. Use agent_task_list for current agent status (task_list is only the planning list), send_message to correct a running task, cancel_agent to stop only one owned task, and wait_for_task to retrieve its result; never launch duplicate work.',
 			'For a request to run multiple independent tasks in parallel, issue all Agent calls together in one response, or set run_in_background: true on each launch before waiting. A single blocking Agent call followed by another call runs them sequentially.',
 			'Pick `subagent_type: "explore"` for anything that only needs to look — where is X defined, which files reference Y, how does Z work — it has reading and searching tools only and never asks for permission.',
 			'Use the default "general-purpose" when the task must change files or run commands.',
@@ -1123,6 +1138,10 @@ export async function createSubagentRuntime(
 				description: {
 					type: 'string',
 					description: 'Short label for tracking (shown to the user).',
+				},
+				name: {
+					type: 'string',
+					description: `Give each agent a short name for its job, lowercase words joined by hyphens, at most ${MAX_AGENT_NAME_LENGTH} characters, e.g. "count-words". Shown on the agents rail and usable as task_id in send_message, cancel_agent and wait_for_task while it runs. Must differ from every running agent's name; omit it and one is made from the description.`,
 				},
 				prompt: {
 					type: 'string',
@@ -1214,15 +1233,16 @@ export async function createSubagentRuntime(
 		timeoutMs: opts.resolveLimits ? 0 : (opts.timeoutMs ?? CLI_INTERACTIVE_TURN_TIMEOUT_MS),
 		async execute(input, context) {
 			const { description, run_in_background } = input as AgentCallInput
-			const { outcome, agentId } = await launchChild(input as AgentCallInput, context)
+			const { outcome, agentId, name } = await launchChild(input as AgentCallInput, context)
 			if (outcome.kind === 'yielded') {
 				const progress =
 					outcome.handle.state === 'pending' ? 'queued for an available slot' : 'still running'
 				return {
 					success: true,
-					output: `Sub-agent ${agentId} for task ${JSON.stringify(description)} is ${progress} as task ${outcome.handle.taskId}; it has not completed.${workspaceNote(outcome.handle)} ${run_in_background ? 'Continue independent work while this task runs in the background.' : 'Waiting was released because the operator sent a message. Answer their question or status request before making further tool calls; preserve existing work unless they ask to cancel or change it.'} Its actual result will arrive as a task notification; do not launch the same work again.`,
+					output: `Sub-agent ${name ?? agentId} for task ${JSON.stringify(description)} is ${progress} as task ${outcome.handle.taskId}; it has not completed.${name ? ` Name: "${name}" (usable as task_id in send_message, cancel_agent and wait_for_task).` : ''}${workspaceNote(outcome.handle)} ${run_in_background ? 'Continue independent work while this task runs in the background.' : 'Waiting was released because the operator sent a message. Answer their question or status request before making further tool calls; preserve existing work unless they ask to cancel or change it.'} Its actual result will arrive as a task notification; do not launch the same work again.`,
 					data: {
 						task_id: outcome.handle.taskId,
+						...(name ? { name } : {}),
 						state: outcome.handle.state,
 						...workspaceData(outcome.handle),
 						wait_released: run_in_background ? 'background' : 'operator_input',
@@ -1369,11 +1389,12 @@ export async function createSubagentRuntime(
 			}
 			const gateway = await gatewayForTurn(context.turnId)
 			const tasks = gateway.listTasks()
-			const labels = new Map(
-				activity.getSnapshot().map((entry) => [entry.taskId, entry.description]),
-			)
+			const snapshot = activity.getSnapshot()
+			const labels = new Map(snapshot.map((entry) => [entry.taskId, entry.description]))
+			const names = new Map(snapshot.map((entry) => [entry.taskId, entry.name]))
 			const shown = tasks.slice(-40).map((task) => ({
 				description: labels.get(task.taskId) ?? task.agentId,
+				...(names.get(task.taskId) ? { name: names.get(task.taskId) } : {}),
 				task_id: task.taskId,
 				agent: task.agentId,
 				state: task.state,
@@ -1397,6 +1418,23 @@ export async function createSubagentRuntime(
 		},
 	})
 
+	/**
+	 * A task reference as the model may write it: the task UUID, or the name an
+	 * agent was launched under (`count-words`, `@count-words`). Names resolve
+	 * through the activity monitor; anything else is returned for the caller's
+	 * own id check.
+	 */
+	const resolveTaskRef = (ref: string): string => {
+		const trimmed = typeof ref === 'string' ? ref.trim() : ref
+		if (typeof trimmed !== 'string' || trimmed === '') return ref
+		if (/^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(trimmed)) return trimmed
+		const found = activity.resolveName(trimmed)
+		if (found?.taskId) return found.taskId
+		if (found)
+			throw new Error(`The agent "${trimmed}" has not been assigned a task yet; try again shortly.`)
+		return trimmed
+	}
+
 	const waitForTaskTool = defineTool({
 		name: 'wait_for_task',
 		description:
@@ -1407,7 +1445,7 @@ export async function createSubagentRuntime(
 				task_id: {
 					type: 'string',
 					description:
-						'The task_id from the Agent launch receipt or task notification metadata. A workflow run id is not a task id.',
+						'The task_id from the Agent launch receipt or task notification metadata, or the name of the agent. A workflow run id is not a task id.',
 				},
 			},
 			required: ['task_id'],
@@ -1421,7 +1459,7 @@ export async function createSubagentRuntime(
 		async execute(input, context) {
 			const gateway = await gatewayForTurn(context.turnId)
 			let taskId: TaskId
-			const asked = (input as { task_id: string }).task_id
+			const asked = resolveTaskRef((input as { task_id: string }).task_id)
 			if (typeof asked === 'string' && /^w[0-9a-z]{8}$/.test(asked.trim())) {
 				// A workflow run is not a task. Its end arrives as one message of its
 				// own, so there is nothing to wait for here; say so in words the model
@@ -1438,7 +1476,8 @@ export async function createSubagentRuntime(
 				return {
 					success: false,
 					output: '',
-					error: 'task_id must be a task UUID returned by Agent or a task notification.',
+					error:
+						'task_id must be a task UUID returned by Agent or a task notification, or the name of an agent you launched.',
 				}
 			}
 			const task = gateway.getTask(taskId)
@@ -1484,7 +1523,7 @@ export async function createSubagentRuntime(
 			properties: {
 				task_id: {
 					type: 'string',
-					description: 'Task UUID returned by Agent.',
+					description: 'Task UUID returned by Agent, or the name of the agent.',
 				},
 				message: {
 					type: 'string',
@@ -1513,7 +1552,7 @@ export async function createSubagentRuntime(
 					output: '',
 					error: 'Message must not be blank.',
 				}
-			const taskId = asTaskId(task_id)
+			const taskId = asTaskId(resolveTaskRef(task_id))
 			const gateway = await gatewayForTurn(context.turnId)
 			const task = gateway.getTask(taskId)
 			if (!task)
@@ -1551,7 +1590,8 @@ export async function createSubagentRuntime(
 			properties: {
 				task_id: {
 					type: 'string',
-					description: 'Exact task UUID returned by Agent or agent_task_list.',
+					description:
+						'Exact task UUID returned by Agent or agent_task_list, or the name of the agent.',
 				},
 			},
 			required: ['task_id'],
@@ -1564,7 +1604,7 @@ export async function createSubagentRuntime(
 		concurrencySafe: false,
 		async execute(input, context) {
 			context.abortSignal.throwIfAborted()
-			const taskId = asTaskId((input as { task_id: string }).task_id)
+			const taskId = asTaskId(resolveTaskRef((input as { task_id: string }).task_id))
 			const gateway = await gatewayForTurn(context.turnId)
 			const task = gateway.getTask(taskId)
 			if (!task)

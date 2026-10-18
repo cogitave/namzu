@@ -448,3 +448,39 @@ it('stops one running child from the agents rail with the operator as the cause,
 		await turn.close()
 	}
 }, 30_000)
+
+it('names the agent from its description and answers to that name in send_message, wait_for_task and cancel_agent', async () => {
+	const turn = await backgroundTurn()
+	try {
+		await turn.fourthRequestOrStop
+		const taskId = turn.taskId()
+		const shown = turn.runtime.activity.getSnapshot().find((entry) => entry.taskId === taskId)
+		expect(shown?.name).toBe('background-investigation')
+		expect(shown?.background).toBe(true)
+		const receipt = turn.parentRequests[1]?.messages.find(
+			(message) => message.role === 'tool' && message.toolCallId === 'launch',
+		)
+		// The receipt keeps its "as task <id>;" shape and adds the name.
+		expect(String(receipt?.content)).toContain('Name: "background-investigation"')
+
+		const byName = await turn.runtime.sendMessageTool.execute(
+			{ task_id: '@background-investigation', message: 'Use the second branch.' },
+			turn.context,
+		)
+		expect(byName.success).toBe(true)
+		const unknown = await turn.runtime.sendMessageTool.execute(
+			{ task_id: 'nobody-here', message: 'hello' },
+			turn.context,
+		)
+		expect(unknown.success).toBe(false)
+
+		const cancel = await turn.runtime.cancelAgentTool.execute(
+			{ task_id: 'background-investigation' },
+			turn.context,
+		)
+		expect(cancel.success).toBe(true)
+		expect(cancel.output).toContain(String(taskId))
+	} finally {
+		await turn.close()
+	}
+}, 30_000)
