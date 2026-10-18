@@ -243,7 +243,7 @@ describe('the shell cell data', () => {
 			stdout: [],
 			stderr: [],
 			failed: false,
-			note: 'Running in the background (/jobs to manage)',
+			note: 'Running in the background (↓ to manage)',
 		})
 	})
 
@@ -256,6 +256,6 @@ describe('the shell cell data', () => {
 		})
 		expect(
 			tidyTerminalOutput('Started background job job_2. For finite work, wait.').shell?.note,
-		).toBe('Running in the background (/jobs to manage)')
+		).toBe('Running in the background (↓ to manage)')
 	})
 })

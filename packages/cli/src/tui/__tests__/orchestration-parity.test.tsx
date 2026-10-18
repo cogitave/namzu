@@ -68,7 +68,7 @@ describe('launch receipt', () => {
 			agent({ viewId: 'a', description: 'Birinci rengi seç', startedAt: 1_000 }),
 		])
 		expect(receipt.content.split('\n')).toEqual([
-			'Launched 2 agents (ctrl+t to manage)',
+			'Launched 2 agents (↓ to manage)',
 			'├ Birinci rengi seç',
 			'└ İkinci rengi seç',
 		])
@@ -88,7 +88,7 @@ describe('launch receipt', () => {
 	it('names one agent inline, and leaves the unlabelled defaults out', () => {
 		expect(
 			launchReceipt([agent({ viewId: 'solo', description: 'Join the colours' })]).content,
-		).toBe('Launched Join the colours (ctrl+t to manage)')
+		).toBe('Launched Join the colours (↓ to manage)')
 	})
 
 	it('never carries a line break or tab a model put in a label', () => {

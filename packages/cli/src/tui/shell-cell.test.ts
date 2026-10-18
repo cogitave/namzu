@@ -87,11 +87,8 @@ describe('the shell cell result rows', () => {
 			shellResultRows({ stdout: [], stderr: [], failed: true, note: 'Exit code 3' }, collapsed),
 		).toEqual([{ text: 'Exit code 3', tone: 'err' }])
 		expect(
-			shellResultRows(
-				{ ...ok([]), note: 'Running in the background (/jobs to manage)' },
-				collapsed,
-			),
-		).toEqual([{ text: 'Running in the background (/jobs to manage)', tone: 'dim' }])
+			shellResultRows({ ...ok([]), note: 'Running in the background (↓ to manage)' }, collapsed),
+		).toEqual([{ text: 'Running in the background (↓ to manage)', tone: 'dim' }])
 	})
 
 	it('counts a kernel gap line as the lines it stands for', () => {

@@ -28,8 +28,12 @@ import { type RailWorkflow, formatCompactCount } from './AgentExplorer.js'
 import { formatElapsed } from './LiveActivity.js'
 import { terminalDisplayText } from './terminal-display.js'
 
-/** The key that opens the agent browser from anywhere the composer is. Never a key that may be dead. */
-export const AGENT_MANAGE_HINT = 'ctrl+t to manage'
+/**
+ * The key that reaches the agents from an empty composer: `↓` focuses the
+ * footer (the shells pill, then the rail rows). The same words the shell cell
+ * and the workflow launch use, so one key is named for all background work.
+ */
+export const AGENT_MANAGE_HINT = '↓ to manage'
 
 /** The key that opens the rail's workflow row from the composer. */
 export const WORKFLOW_MANAGE_HINT = '↓ to manage'

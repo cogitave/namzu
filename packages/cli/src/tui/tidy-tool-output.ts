@@ -15,7 +15,7 @@ export interface TidyOutput {
 }
 
 /** The sentence under a command that was handed to a background job. */
-export const BACKGROUND_NOTE = 'Running in the background (/jobs to manage)'
+export const BACKGROUND_NOTE = 'Running in the background (↓ to manage)'
 
 /** Output that is not text: a NUL byte, or a large share of control characters. */
 export function looksBinary(text: string): boolean {
