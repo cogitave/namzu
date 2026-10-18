@@ -186,3 +186,18 @@ it.each(['full', 'minimal'] as const)(
 		}
 	},
 )
+
+it('names Git Bash on a Windows host and keeps the CMD guidance out of the prompt', () => {
+	setHostCommandShellForTesting({
+		path: 'C:\\Program Files\\Git\\bin\\bash.exe',
+		dialect: 'bash',
+		source: 'bash',
+		windows: true,
+	})
+	const prompt = new PromptBuilder({ tools: manager([testToolset(BashTool)]) }).build(
+		'full',
+		'/workspace',
+	)
+	expect(prompt).toContain('Execution shell for bash: bash (Git Bash on Windows, host).')
+	expect(prompt).not.toContain('Use native Windows CMD')
+})

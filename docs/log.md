@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-10-18
+
+- **Update** [The bash tool](sdk/bash-tool.md#git-bash-on-windows), [How command lines are read](sdk/command-lines.md) and [Background jobs](cli/background-jobs.md): on Windows the `bash` tool now runs Git for Windows' bash (found in a fixed order) and the permission rules read the line as `bash`, instead of running cmd.exe, whose lines the rules could not read (every command needed a person, in every mode). Windows-only: hidden spawn with stdin on the null device and `GIT_EDITOR=true`, `>nul` rewritten to `/dev/null`, the process tree ended by a tag in the environment as well as by `taskkill`, and the model told it is Git Bash. Without Git for Windows the tool keeps cmd.exe and the session says so once; `NAMZU_BASH_SHELL=cmd` keeps cmd.exe on a machine that has Git Bash. `.changeset/windows-git-bash.md`, **major** for `@namzu/sdk`, **patch** for `@namzu/cli`.
+
 ## 2026-10-17
 
 - **Update** [Desktop voice input](cli/desktop-listening.md): the listening download continues a dropped or refused file from the bytes it already has (`Range`), waits 1/2/4/8 s between attempts, and gives up after five attempts in a row that receive nothing; a host that ignores the range starts the file over. `.changeset/desktop-local-listening-engine.md`, **patch** for `@namzu/desktop`.
