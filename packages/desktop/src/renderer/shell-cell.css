@@ -1,0 +1,45 @@
+/* The shell cell: what a command printed, under its row. Quiet by default; only an error is coloured. */
+.shell-cell {
+	margin: 0 0 4px 26px;
+	font-size: 12px;
+	line-height: 18px;
+}
+.shell-cell-output {
+	margin: 2px 0 0;
+	max-height: 24rem;
+	overflow: auto;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	font-family: var(--font-mono);
+	color: var(--muted-foreground);
+}
+.shell-cell-line.shell-cell-err {
+	color: var(--destructive-foreground, var(--ansi-red));
+}
+.shell-cell-line.shell-cell-gap {
+	opacity: 0.7;
+}
+.shell-cell-foot {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px;
+	margin: 0;
+	color: var(--muted-foreground);
+}
+.shell-cell-note.shell-cell-err {
+	color: var(--destructive-foreground, var(--ansi-red));
+}
+.shell-cell-more {
+	padding: 0;
+	background: none;
+	border: 0;
+	color: var(--muted-foreground);
+	font: inherit;
+	cursor: pointer;
+}
+.shell-cell-more:hover,
+.shell-cell-more:focus-visible {
+	color: var(--foreground);
+	text-decoration: underline;
+}

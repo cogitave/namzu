@@ -568,7 +568,7 @@ flow(
 		await expect(toolRow(w, "Ran printf")).toBeVisible();
 		await expect(toolRow(w, "Ran head -c 3000 /dev/urandom")).toBeVisible();
 		await expect(toolRow(w, "Ran seq 1 600")).toBeVisible();
-		await expect(toolRow(w, `Ran ${FAILING}`)).toContainText("failed (exit 3)");
+		await expect(toolRow(w, `Ran ${FAILING}`)).toContainText("Exit code 3");
 		const transcript = await page.locator(".normal-transcript").innerText();
 		for (const forbidden of [
 			"STDOUT",
@@ -598,45 +598,36 @@ flow(
 		);
 		await shootTool(w, "tour-collapsed", group);
 
-		// Output: colour drawn, bytes never dumped, a long one folded, an error under its own label.
-		await toolRow(w, "Ran printf").locator(".tool-trigger").click();
-		await expect(toolRow(w, "Ran printf").locator(".ansi-red")).toHaveText(
-			"red",
-		);
-		await expect(
-			toolRow(w, "Ran printf").locator(".ansi-green.ansi-bold"),
-		).toHaveText("green");
-		await expect(
-			toolRow(w, "Ran printf").locator(".ansi-underline"),
-		).toHaveText("und");
+		// Output sits under its row: colour drawn, bytes never dumped, a long one folded, an error in the error tone.
+		const printf = toolRow(w, "Ran printf");
+		await expect(printf.locator(".ansi-red")).toHaveText("red");
+		await expect(printf.locator(".ansi-green.ansi-bold")).toHaveText("green");
+		await expect(printf.locator(".ansi-underline")).toHaveText("und");
 		assert.equal(
-			await toolRow(w, "Ran printf").locator(".tool-output").innerText(),
+			(await printf.locator(".shell-cell-output").innerText()).trim(),
 			"red green und",
 			"the output is the words, with no escape text left",
 		);
-		await toolRow(w, "Ran head -c 3000").locator(".tool-trigger").click();
-		await expect(toolRow(w, "Ran head -c 3000")).toContainText(
-			"Binary output, 3 KB",
-		);
-		await toolRow(w, "Ran seq 1 600").locator(".tool-trigger").click();
+		await expect(toolRow(w, "Ran head -c 3000")).toContainText("Binary output, 3 KB");
 		const seq = toolRow(w, "Ran seq 1 600");
-		await expect(seq.getByRole("button", { name: "Show more" })).toBeVisible();
-		await expect(seq).toContainText("588 lines not shown");
+		await expect(seq.locator(".shell-cell-line")).toHaveCount(3);
+		const more = seq.getByRole("button", { name: /^\+\d+ lines$/ });
+		await expect(more).toBeVisible();
 		assert.ok(
 			!(await seq.innerText()).includes("\n300\n"),
 			"the middle of a long output is folded away",
 		);
-		await toolRow(w, "failed (exit 3)").locator(".tool-trigger").click();
-		const failing = toolRow(w, "failed (exit 3)");
-		// Both streams exist, so the errors sit under their own quiet label.
-		await expect(failing.locator(".tool-output-label")).toHaveText("Errors");
+		const failing = toolRow(w, `Ran ${FAILING}`);
+		// Output first, then how it ended: said once, in the error colour, never beside the headline.
 		await expect(failing).toContainText("partial");
-		await expect(failing).toContainText("oops");
+		await expect(failing.locator(".shell-cell-err").first()).toContainText("oops");
+		assert.equal((await failing.innerText()).match(/Exit code 3/g)?.length, 1);
+		await expect(failing).not.toContainText("failed (exit 3)");
 		await shootTool(w, "tour-open", failing);
 
-		await seq.getByRole("button", { name: "Show more" }).click();
+		await more.click();
 		await expect(seq.getByRole("button", { name: "Show less" })).toBeVisible();
-		await expect(seq).toContainText("480 lines not shown");
+		await expect(seq).toContainText("lines not shown");
 		// No row scrolls sideways: output wraps.
 		const wide = await page.evaluate(
 			() =>

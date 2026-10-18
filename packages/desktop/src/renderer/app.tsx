@@ -39,6 +39,7 @@ import type { DataFolderKind, SettingsSection } from '../shared/settings-protoco
 import type { SidebarSnapshot } from '../shared/sidebar-snapshot.js'
 import { PROMPT_NOT_PASSED, TERMINAL_ENGINE_LABELS } from '../shared/terminal-tabs.js'
 import type { UpdateState } from '../shared/update-protocol.js'
+import { BackgroundWorkContext } from './activity-actions.js'
 import {
 	ADD_PROJECT_LABEL,
 	AddProjectMenu,
@@ -1132,6 +1133,10 @@ export function App({
 			),
 		[updatePanelTabs],
 	)
+	const openBackgroundWork = useCallback(() => {
+		showPanelTab('activity')
+		setJobsOpen(true)
+	}, [showPanelTab])
 	const openProjectFile = useCallback(
 		(path: string, line?: number) => {
 			updatePanelTabs((state) => openFileTab(state, path, line))
@@ -6851,56 +6856,58 @@ export function App({
 											value={providerName(choice.provider, failedProviderLabel)}
 										>
 											<ProjectFilesContext.Provider value={projectFiles}>
-												<PalStartContext.Provider value={palStartControls}>
-													<Transcript
-														key={sessionId || 'blank'}
-														thread={thread}
-														animate={!historyPending && !restoringTabs}
-														workDisclosures={
-															workDisclosureView.sessionId === sessionId
-																? workDisclosureView.choices
-																: undefined
-														}
-														onWorkDisclosureChange={(key, open) =>
-															onWorkDisclosureChange(sessionId, key, open)
-														}
-														onOpenTurnChanges={(receiptIds, path) => {
-															setChangesFilter(receiptIds, path)
-															showPanelTab('changes')
-															setJobsOpen(true)
-														}}
-														onOpenChangedFile={projectFiles ? openChangedFile : undefined}
-														onOpenPalInbox={openPalInbox}
-														onOpenTasks={() => {
-															showPanelTab('activity')
-															setJobsOpen(true)
-														}}
-														onUndoTurn={
-															api.undoPreview && api.undoTurn
-																? (turnId) => setUndoingTurn({ sessionId, turnId })
-																: undefined
-														}
-														undoKept={undoKept}
-														projectRoot={project?.path}
-														closedWhileRunning={conversation?.closedWhileRunning === true}
-														renderMessageAction={(message, key) => (
-															<MessageActions
-																text={message.text}
-																onRetry={
-																	retryable && retryable.reply === message
-																		? () => void act(() => retryReply(retryable.prompt))
-																		: undefined
-																}
-															>
-																<LocalSpeechReadAloud
-																	speech={speech}
-																	messageId={key}
+												<BackgroundWorkContext.Provider value={openBackgroundWork}>
+													<PalStartContext.Provider value={palStartControls}>
+														<Transcript
+															key={sessionId || 'blank'}
+															thread={thread}
+															animate={!historyPending && !restoringTabs}
+															workDisclosures={
+																workDisclosureView.sessionId === sessionId
+																	? workDisclosureView.choices
+																	: undefined
+															}
+															onWorkDisclosureChange={(key, open) =>
+																onWorkDisclosureChange(sessionId, key, open)
+															}
+															onOpenTurnChanges={(receiptIds, path) => {
+																setChangesFilter(receiptIds, path)
+																showPanelTab('changes')
+																setJobsOpen(true)
+															}}
+															onOpenChangedFile={projectFiles ? openChangedFile : undefined}
+															onOpenPalInbox={openPalInbox}
+															onOpenTasks={() => {
+																showPanelTab('activity')
+																setJobsOpen(true)
+															}}
+															onUndoTurn={
+																api.undoPreview && api.undoTurn
+																	? (turnId) => setUndoingTurn({ sessionId, turnId })
+																	: undefined
+															}
+															undoKept={undoKept}
+															projectRoot={project?.path}
+															closedWhileRunning={conversation?.closedWhileRunning === true}
+															renderMessageAction={(message, key) => (
+																<MessageActions
 																	text={message.text}
-																/>
-															</MessageActions>
-														)}
-													/>
-												</PalStartContext.Provider>
+																	onRetry={
+																		retryable && retryable.reply === message
+																			? () => void act(() => retryReply(retryable.prompt))
+																			: undefined
+																	}
+																>
+																	<LocalSpeechReadAloud
+																		speech={speech}
+																		messageId={key}
+																		text={message.text}
+																	/>
+																</MessageActions>
+															)}
+														/>
+													</PalStartContext.Provider>
+												</BackgroundWorkContext.Provider>
 											</ProjectFilesContext.Provider>
 										</ProviderNameContext.Provider>
 									)}

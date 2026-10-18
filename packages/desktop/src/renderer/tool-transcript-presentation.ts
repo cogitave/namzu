@@ -1,6 +1,7 @@
 import type { ToolCallView, ToolFacts, ToolFailureReason } from '@namzu/sdk'
 import type { ProjectedToolCall, ThreadState } from '../shared/projection.js'
 import { changeTotals } from './changes-totals.js'
+import type { ShellCellData } from './shell-cell.js'
 import { humanBytes } from './tool-output.js'
 import { baseName } from './turn-changes.js'
 
@@ -60,6 +61,8 @@ export interface ToolTranscriptPresentation {
 	stats?: { added: number; removed: number }
 	/** What the row opens to, instead of `detailView`, when the tool reported typed facts. */
 	body?: ToolBody
+	/** A finished command's preview, drawn under its headline instead of behind a disclosure. */
+	shell?: ShellCellData
 	operation?: 'created' | 'edited' | 'deleted'
 	/** One line shown on hover or focus: the command, or the full search text. */
 	tooltip?: string
@@ -326,14 +329,6 @@ function plural(count: number, one: string, many: string): string {
 
 type CommandFacts = Extract<ToolFacts, { kind: 'command' }>
 
-/** How a command that did not succeed ended, from its exit code and never from its text. */
-function commandOutcome(facts: CommandFacts): string {
-	if (facts.timedOut) return 'timed out'
-	if (facts.exitCode !== undefined && facts.exitCode !== 0) return `failed (exit ${facts.exitCode})`
-	if (facts.signal) return 'stopped'
-	return 'failed'
-}
-
 function streamText(window: {
 	head: string
 	tail?: string
@@ -369,6 +364,29 @@ function commandBody(
 		...(cut && whole ? { command: whole } : {}),
 		...(stdout ? { stdout } : {}),
 		...(stderr ? { stderr } : {}),
+	}
+}
+
+/** How a command that did not succeed ended, in the cell's words. */
+function commandStatus(facts: CommandFacts): string | undefined {
+	if (facts.background) return undefined
+	if (facts.timedOut) return 'Timed out'
+	if (facts.signal) return 'Stopped before it finished'
+	if (facts.exitCode !== undefined && facts.exitCode !== 0) return `Exit code ${facts.exitCode}`
+	return undefined
+}
+
+function commandShell(facts: CommandFacts): ShellCellData {
+	const status = commandStatus(facts)
+	const stdout = facts.stdout && facts.stdout.totalLines > 0 ? streamText(facts.stdout) : undefined
+	const stderr = facts.stderr && facts.stderr.totalLines > 0 ? streamText(facts.stderr) : undefined
+	return {
+		failed: status !== undefined,
+		...(stdout ? { stdout } : {}),
+		...(stderr ? { stderr } : {}),
+		...(status ? { status } : {}),
+		...(facts.background ? { background: true as const } : {}),
+		...(facts.binary ? { notice: `Binary output, ${humanBytes(facts.binary.bytes)}` } : {}),
 	}
 }
 
@@ -414,6 +432,7 @@ function folderName(path: string | undefined): string | undefined {
 }
 
 export interface FactsRow {
+	shell?: ShellCellData
 	label: string
 	kind: ActionKind
 	lead?: string
@@ -435,11 +454,14 @@ function commandRow(
 	const shown = command ? shortCommand(command) : ''
 	const main = shown ? `${commandVerb(state)} ${shown}` : commandLabel(state)
 	// A command that ran and failed says so beside its name; a refused or stopped one is its own state.
-	const tail = state === 'failed' ? ` · ${facts ? commandOutcome(facts) : 'failed'}` : ''
+	// With typed facts the cell under the row says how it ended, once; the headline does not repeat it.
+	const tail = state === 'failed' && !facts ? ' · failed' : ''
+	const finished = state === 'completed' || state === 'failed'
 	const body =
 		facts && state !== 'running' && state !== 'waiting'
 			? commandBody(facts, command, shown)
 			: undefined
+	const shell = facts && finished ? commandShell(facts) : undefined
 	return {
 		label: `${main}${tail}`,
 		main,
@@ -447,6 +469,7 @@ function commandRow(
 		...(tail ? { tail } : {}),
 		...(command?.trim() ? { tooltip: clip(command.trim(), 1000) } : {}),
 		...(body ? { body } : {}),
+		...(shell ? { shell } : {}),
 	}
 }
 
@@ -734,6 +757,7 @@ export function toolTranscriptPresentation(
 	let main: string | undefined
 	let tail: string | undefined
 	let body: ToolBody | undefined
+	let shell: ShellCellData | undefined
 	let stats: { added: number; removed: number } | undefined
 	const observed = observedActionLabel(tool, state)
 	const explored = exploration(tool)
@@ -777,6 +801,7 @@ export function toolTranscriptPresentation(
 		tail = typed.tail
 		tooltip = typed.tooltip
 		body = typed.body
+		shell = typed.shell
 		stats = typed.stats
 		operation = typed.operation
 		detailView = undefined
@@ -845,6 +870,7 @@ export function toolTranscriptPresentation(
 		...(tail ? { tail } : {}),
 		...(stats ? { stats } : {}),
 		...(body ? { body } : {}),
+		...(shell ? { shell } : {}),
 		...(operation ? { operation } : {}),
 		...(tooltip ? { tooltip } : {}),
 		state,

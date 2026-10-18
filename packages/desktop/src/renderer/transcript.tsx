@@ -237,6 +237,7 @@ function ToolRun({
 		subject: item.file?.path,
 		state: item.state,
 		created: item.operation === 'created',
+		background: item.shell?.background === true,
 	}))
 	const lookups = presentations.length > 0 && presentations.every((item) => item.kind === 'lookup')
 	const label = lookups

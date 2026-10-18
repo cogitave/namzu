@@ -469,7 +469,7 @@ it('restores what a call did as fields, drops extra fields, and never keeps a co
 	})
 	expect(restored.tools['2:bad']?.facts).toBeUndefined()
 	expect(toolTranscriptPresentation(restored, '1:run')).toMatchObject({
-		label: 'Ran npm test · failed (exit 3)',
+		label: 'Ran npm test',
 		state: 'failed',
 	})
 })

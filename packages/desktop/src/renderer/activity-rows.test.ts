@@ -103,6 +103,11 @@ describe('run summary labels', () => {
 			),
 		).toBe('Edited a file, ran 2 commands, 2 failed')
 	})
+	it('says how many commands went to the background, in a run that is still live or done', () => {
+		const actions = [a('command'), a('command'), { ...a('command'), background: true }]
+		expect(actionRunLabel(actions, true)).toBe('Running 3 commands, 1 in the background')
+		expect(actionRunLabel(actions, false)).toBe('Ran 3 commands, 1 in the background')
+	})
 	it('does not count a declined action as work that happened', () => {
 		const declined = (
 			kind: Parameters<typeof actionRunKind>[0][number]['kind'],

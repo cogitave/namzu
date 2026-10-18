@@ -10,6 +10,7 @@ import {
 	WrenchIcon,
 } from './icons.js'
 import { MessageTime, timeDescription } from './message.js'
+import { ShellCell } from './shell-cell-view.js'
 import { ToolBodyView } from './tool-output-view.js'
 import { type ActionKind, toolTranscriptPresentation } from './tool-transcript-presentation.js'
 import { ToolView } from './tool-view.js'
@@ -97,10 +98,11 @@ export function ToolTranscriptRow({
 		tail,
 		stats,
 		body,
+		shell,
 	} = presentation
 	const Icon = actionIcon(kind)
 	const active = state === 'running' || state === 'waiting'
-	const expandable = Boolean(callDetail || detailView || body || tool.progress)
+	const expandable = !shell && Boolean(callDetail || detailView || body || tool.progress)
 	// A declined change never happened, so there is no file to open; its note is what the row opens to.
 	// A call that failed for want of the file has nothing to open.
 	const opens =
@@ -177,7 +179,8 @@ export function ToolTranscriptRow({
 		)
 	// A failed command already says how it ended after its headline ("· failed (exit 3)"): the
 	// separate badge would say it twice, so it stays for screen readers only.
-	const quietStatus = quietCompleted || (state === 'failed' && kind === 'command' && Boolean(tail))
+	const quietStatus =
+		quietCompleted || (state === 'failed' && kind === 'command' && Boolean(tail || shell))
 	const trailing = (
 		<>
 			<span className={quietStatus ? 'tool-status transcript-visually-hidden' : 'tool-status'}>
@@ -226,6 +229,7 @@ export function ToolTranscriptRow({
 					{text}
 					{trailing}
 				</div>
+				{shell && <ShellCell cell={shell} />}
 			</div>
 		)
 	return (
