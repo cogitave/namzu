@@ -2646,7 +2646,9 @@ export function App({
 				'agent-result',
 			)
 			childMessagesRef.current.set(++childMessageIdRef.current, childMessageNotice(message))
-			activeTurnInboxRef.current?.notify()
+			// No `notify()`: a message queued for the next turn does not release a wait the
+			// running turn is in (the reference queues it at `next` priority); the turn
+			// takes it at its next request boundary, an idle session wakes for it below.
 			setNoticeVersion((version) => version + 1)
 		})
 	}, [session, pushMessage])
