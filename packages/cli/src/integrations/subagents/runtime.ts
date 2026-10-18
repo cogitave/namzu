@@ -2357,7 +2357,9 @@ function buildDefinition(
 				? await opts.resolveParent(asTurnId(options.parentTurnId))
 				: undefined
 			const provider = await opts.buildProvider(parent?.sessionId, selection)
-			const toolsets = [...tools(), ...(opts.childExtraTools?.() ?? [])]
+			const roster = tools()
+			const extra = opts.childExtraTools?.() ?? []
+			const toolsets = extra.length > 0 ? [...roster, ...extra] : roster
 			const webSearch = opts.configureWebSearch?.(provider, options.model ?? model, toolsets)
 			// The one tool `configureWebSearch` ever asks to have removed: once
 			// native mode is confirmed usable, the tool-based path is redundant.

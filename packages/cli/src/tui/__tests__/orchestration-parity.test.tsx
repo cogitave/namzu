@@ -167,10 +167,9 @@ describe('what a finished agent leaves in the conversation', () => {
 		})
 	})
 
-	// Reference wording (REA fn Qxt): `was stopped by user`, `was stopped by
-	// Claude` (the main agent stopped it; Namzu's is `Namzu`), plain `was stopped`
-	// when nobody recorded it, and `failed: <error>` with `Unknown error` as the
-	// fallback.
+	// Reference wording (REA fn Qxt): `was stopped by user`, `was stopped by <the
+	// main agent>` (Namzu's is `Namzu`), plain `was stopped` when nobody recorded
+	// it, and `failed: <error>` with `Unknown error` as the fallback.
 	it('says who stopped an agent, and why one failed', () => {
 		const base = { viewId: 'a', description: 'Count words', startedAt: 0, completedAt: 4_000 }
 		const stopped = (extra: Partial<SubagentActivity>) =>
