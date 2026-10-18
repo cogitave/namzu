@@ -263,6 +263,14 @@ export interface ReplaySubagentInput {
 	readonly partial?: boolean
 }
 
+/** What {@link SubagentActivityMonitor.progressOf} reports about one child. */
+export interface SubagentProgress {
+	readonly tokens?: number
+	readonly toolCalls?: number
+	/** The label of the last tool row, e.g. `Read(file.ts)`. */
+	readonly lastTool?: string
+}
+
 export interface SubagentActivityTracker {
 	readonly viewId: string
 	readonly onEvent: (event: SessionEvent) => void
@@ -597,6 +605,28 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 
 	getNarration(): readonly SubagentNarrationLine[] {
 		return [...this.narration]
+	}
+
+	/**
+	 * The cheap facts a progress line needs about one child, without copying
+	 * its transcript: spend, tool executions and the tool it ran last.
+	 */
+	progressOf(viewId: string): SubagentProgress | undefined {
+		const record = this.records.get(viewId)
+		if (!record) return undefined
+		let lastTool: string | undefined
+		for (let index = record.rows.length - 1; index >= 0; index -= 1) {
+			const row = record.rows[index]
+			if (row?.kind === 'tool') {
+				lastTool = row.text
+				break
+			}
+		}
+		return {
+			...(record.tokens !== undefined ? { tokens: record.tokens } : {}),
+			...(record.toolCalls !== undefined ? { toolCalls: record.toolCalls } : {}),
+			...(lastTool !== undefined ? { lastTool } : {}),
+		}
 	}
 
 	getSnapshot(): readonly SubagentActivity[] {

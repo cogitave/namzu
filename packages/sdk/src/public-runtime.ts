@@ -25,6 +25,7 @@ export { WorkerCodeRuntime } from './execution/code-runtime/worker.js'
 export {
 	FileWorkflowJournal,
 	parseWorkflowMeta,
+	resolveWorkflowLimits,
 	summarizeWorkflowPhases,
 	WorkflowRuntime,
 	WorkflowScriptError,
