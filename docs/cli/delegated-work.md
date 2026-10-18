@@ -138,20 +138,29 @@ what the rules leave to review, as `auto` does, except a sandbox escape or a
 path outside the roots, which is refused; `plan` and `strict` refuse. `namzu
 exec` resumes under the mode the session was started with.
 
-`send_message` takes `task_id` and `message` and queues a correction for a running
-or queued child owned by the current parent session. The child reads it at its next
-request boundary. Acceptance confirms queuing, not delivery or execution.
-Messages are bounded to 16,000 characters. Finished tasks cannot be restarted
-through this tool, and another parent's task cannot receive the message.
+`send_message` takes `task_id` and `message`. A running or queued child owned by
+the current parent session is sent the message for its next tool round
+("Message queued for delivery … at its next tool round"); acceptance confirms
+queuing, not delivery or execution. A **finished** child is resumed from its own
+transcript with the message ("Resuming agent …") and notifies again when it
+ends. A child the user stopped is refused: "Agent … was stopped by the user and
+was not resumed. Treat its work as cancelled; only start a new agent for it if
+the user explicitly asks." Messages are bounded to 16,000 characters, and
+another parent's task cannot receive the message. The operator does the same by
+viewing the agent and typing (see
+[Terminal design](terminal-design.md)): queued for a running agent, resumed for
+a finished one, refused for a stopped one.
 
 Once queue acceptance is confirmed — never for a refused or unowned attempt — the
 message becomes visible on both sides of the exchange. The child's transcript
-(Ctrl+T, Enter to drill in) gets a `← queued from parent: …` row alongside its tool
-calls and answers. The main conversation gets a matching row, `<description> ·
+(rail Enter, or Ctrl+T then Enter) gets a `← queued from parent: …` row alongside its tool
+calls and answers (what the operator typed to it reads as their own `❯ …` row).
+The main conversation gets a matching row, `<description> ·
 correction sent`, with the message text beneath it, so the operator can see
 what was said without opening the child's screen. Each side shows the message
-exactly once, however many times the surface re-renders. The rail row keeps to the clock and
-the spend (`↓ 42.1k tokens`).
+exactly once, however many times the surface re-renders. While the child has
+not taken a message in, its rail row says `N queued` after the clock and the
+spend (`↓ 42.1k tokens`).
 These rows record acceptance; they do not acknowledge that the child model
 read the message or completed the requested change.
 
@@ -201,13 +210,14 @@ untrusted exists to prevent. If child narration is ever offered, it goes
 through that same wrapping and is attributed to the child by name.
 
 Each batch of agents one response launched adds one launch receipt to the main
-transcript, `● Launched 2 agents` with the agents named beneath it, always
-below the text of the response that launched them, and each observed agent
-completion adds one named row, whether or not the model calls `wait_for_task`:
-`✓ <name> · 1.7s · 9.0k tokens`, or
-`✗ <name> · failed after 2.9s · <reason>`. A completed agent's final answer is
-attached to its row, collapsed; Ctrl+O opens it, in place while the row is
-live and in the output viewer once it has settled into history. Agents the model
+transcript, `● 2 background agents launched (↓ to manage)` (or `Launched 2
+agents` for a batch the turn waits on) with each agent's description beneath it,
+always below the text of the response that launched them, and each observed
+agent completion adds two rows, whether or not the model calls `wait_for_task`:
+`› Message from @<type>` with its answer collapsed (Ctrl+O opens it, in place
+while the row is live and in the output viewer once it has settled into history),
+then `● Agent "<description>" finished · 1m 4s` (or `failed: <reason> · 3s`, or
+`was stopped · 1s`) with no token count and no repeat of the result. Agents the model
 gave a `workflow` label are the exception: they are one workflow, not agents.
 Their launch writes a single `● Workflow <name>` line with
 `⎿ Running in background · ↓ to manage` beneath it, they leave no per-agent
@@ -230,10 +240,17 @@ while the next launch is decided. That row names no key, since the dialog holds
 ↓ and Ctrl+T until it closes. Read-only launches start without a review; see
 [Which launches are asked about](#which-launches-are-asked-about).
 
-The rail lists running agents and those finished within the last 30 seconds,
-five at a time, one row each (type, description, time and spend); ↓ in an empty
-composer moves into it, where Enter opens an agent's transcript and `x` stops
-it. Workflows and subagents are kept apart, as in the reference terminal. A
+The rail lists running agents, plus a failed or stopped one for 30 seconds (a
+background agent that completed leaves at once), five at a time, one row each
+(type, description, time and spend). The description is the agent's live label
+while a background agent runs: every 30 seconds, when it has done something new
+and has at least three messages, it is asked once on its own model, with no
+tools, for a three-to-five-word present-tense label naming the file or function,
+in the language of its task; one line of at most 100 characters is kept, anything
+else is dropped, and the label goes when the agent ends. Agents inside a
+`workflow` run keep their `label`. ↓ in an empty
+composer moves into it, where Enter views an agent on the main screen (the one
+composer stays live and talks to it) and `x` stops it. Workflows and subagents are kept apart, as in the reference terminal. A
 subagent is an agent the model started without a `workflow` label: it has an
 agent row. A workflow is the set of agents started with the same `workflow`
 label: it has no agent rows at all, only one row after the agent rows (`◯ name

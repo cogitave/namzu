@@ -82,7 +82,9 @@ describe('at 140 columns', () => {
 		expect(screen[header - 1]).toMatch(/^─+$/u)
 		expect(screen[header + 1]).toMatch(/2\/3 agents · \S+\s*$/u)
 		expect(text).toMatch(/╭ Phases ─+┬ Read · 2 agents ─+╮/u)
-		expect(text).toMatch(/│ ❯ ✔ Read\s+2\/2 │ ✔ label a1\s+general-purpose · gpt-x · 35\.6k tok\s+23s │/u)
+		expect(text).toMatch(
+			/│ ❯ ✔ Read\s+2\/2 │ ✔ label a1\s+general-purpose · gpt-x · 35\.6k tok\s+23s │/u,
+		)
 		expect(text).toMatch(/│\s+2 Summarize\s+0\/1 │/u)
 		expect(text).toMatch(/╰─+┴─+╯/u)
 		expect(screen.at(-1)?.trim()).toBe('')

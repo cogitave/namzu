@@ -161,8 +161,8 @@ by outcome. The row leaves 30 seconds after the run ends; a run that ended witho
 are never subagent rows, are not counted in the turn's `✻ Worked for …` line,
 and write no launch or completion rows of their own.
 
-↓ from the composer reaches the row (`enter to view · x to stop`). Enter opens
-the detail, which shows one list at a time:
+↓ from the composer reaches the row (`Enter to view · x to stop`, shown in place of the footer's mode line). Enter opens
+the detail, a frameless dialog (side by side from 64 columns, one list at a time below):
 
 1. **Phases**: the number (turning `✔` or `✘`), the title, and `done/total`.
    Phases the script declared in `meta.phases` are listed from the start in the

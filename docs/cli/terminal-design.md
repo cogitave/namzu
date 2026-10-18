@@ -225,47 +225,85 @@ agent instead of the generic default — that agent's title, plus a `+N` count
 when the group holds more than one — so two unlabelled groups still read as
 distinct entries rather than two identical rows.
 
-The rail is a `main` row followed by one row per running or recently
-finished sub-agent, drawn right under the footer with no title and no box:
+The rail is a blank row, a `main` row, then one row per running agent (and a
+failed or stopped one for 30 seconds), drawn right under the footer with no
+title and no box:
 
 ```text
+
   ● main
-  ○ general-purpose  Mine the Claude Code UI reference     2m10s · ↓ 12.3k tokens
-  ○ explore          Find where the footer is drawn                 8s · ↓ 1.4k tokens
-  ○ general-purpose  Check the changelog                          waiting
+  ◯ general-purpose  Reading the README                      2m10s · ↓ 12.3k tokens
+  ◯ explore          Find where the footer is drawn  8s · ↓ 1.4k tokens · 2 queued
+  ◯ general-purpose  Check the changelog                          waiting
 ```
 
-`●` marks the transcript on screen and `○` every other row; `main` is `●`
-until an agent's transcript is open. An agent's bullet is coloured only once it
-has finished — green when it succeeded, red when it failed or was stopped.
-Each agent row is its type, its description (cut with `…` when the line is
-short) and, right-aligned, how long it has run and what it has spent so far
+The first cell of a row is the pointer slot (`❯` on the selected row) and the
+bullet sits two cells in, directly under the first glyph of the footer line
+above it; rows stop two cells short of the right edge. `●` marks the transcript
+on screen and `◯` every other row; `main` is `●` until an agent is viewed. No
+accent colour is used: the pointer and the bullets take the row's own colour,
+and only a finished row's bullet is coloured — green when it succeeded, red
+when it failed or was stopped. Each agent row is its type, a description and,
+right-aligned, how long it has run and what it has spent so far
 (`↓ 12.3k tokens`, left out until the agent has reported usage); an agent
-still waiting for a slot reads `waiting` instead of a clock. Rows follow
-launch order. Workflow and phase labels, the latest activity line, model and
+still waiting for a slot reads `waiting` instead of a clock, and messages sent
+to it that it has not taken in yet read `N queued` in the warning colour. The
+name column is as wide as the longest type or workflow name on screen, up to 28
+cells, shared by agent and workflow rows. The description is the agent's
+**live label** while one exists, else the sentence it was launched with:
+every 30 seconds, while a background agent runs and has done something new
+since the last time (and at least three messages' worth), it is asked once, on
+its own model with no tools, to say in three to five words what it is doing
+now, in the language of its task. Only one plain line of at most 100
+characters is accepted; anything else is dropped and the old label stays. The
+label goes when the agent ends, and agents inside a `workflow` run keep their
+own labels. The cost of that request is not charged to the run's token
+ledger (see the open questions). Rows follow launch order. Workflow and phase labels, model and
 tool counts are not on the rail; the cockpit (`Ctrl+T`, `/agents`) and the
 agent's own transcript carry them.
 
 At most five agents are drawn. A longer list scrolls with the selection:
 `↑ N more` appears on the right of the `main` row when agents are scrolled
-above, and a dim `↓ N more` row sits under the last one when more are below.
-A finished agent stays 30 seconds, then leaves; saved agents from earlier
-sessions never appear on the rail (the cockpit lists them).
+above, and a dim `  ↓ N more` row sits under the last one when more are below;
+with more than five agents and nothing below, an empty row keeps its place so
+the block never changes height. A background agent that **completed** leaves
+the rail at once (its answer is already in the conversation); one that failed or
+was stopped stays 30 seconds, then leaves; saved agents from earlier sessions
+never appear (the cockpit lists them). The agent on screen stays on the rail
+however it ended.
 
-The `main` row appears only beside at least one agent row (or while an agent's
-transcript is open). A rail with nothing but a workflow row has no `main` row.
+The `main` row appears only beside at least one agent row (or while an agent
+is viewed). A rail with nothing but a workflow row has no `main` row.
 
 Press ↓ in an empty composer to move into the rail (with no rows on screen it
-still opens the cockpit for saved agents). The composer is dimmed while the
-rail has the keys, and a key line appears under the rows:
-`↑/↓ to select · enter to view · x to stop · esc to go back`. ↑/↓ moves between `main` and
-the agents (a `❯` marks the row), Enter opens that agent's transcript and
-Esc from it comes back to the same row, `x` stops a running agent (the parent
-turn and the other agents keep going) or, on a finished one, clears its row,
-and Esc hands the keyboard back to the composer. Any other key does the same.
-`Ctrl+T` still opens the cockpit from anywhere. While an approval dialog is
-open the rail shrinks to the `main` row with a count (`2 agents`) and names no
-key, since the dialog owns the keyboard.
+still opens the cockpit for saved agents). While the rail has the keys the
+footer's mode line is **replaced** by a key line for the selected row, and the
+rows stay where they are. An agent or workflow row reads
+`Enter to view · x to stop` (`x to clear` once it has finished), plus
+`ctrl+x ctrl+k to stop all agents` when more than one agent runs and the line
+is at least 90 columns wide; `main` reads `↑/↓ to select · Enter to view`, and
+the row already on screen reads `↑/↓ to select`. Esc is not advertised but
+still hands the keyboard back to the composer, as does any other key. ↑/↓
+moves between `main`, the agents and the workflows (a `❯` marks the row), Enter
+on an agent views it (see below) and on `main` goes back to the conversation,
+`x` stops a running agent (the parent turn and the other agents keep going) or,
+on a finished one, clears its row, and `ctrl+x` then `ctrl+k` stops every
+running agent. `Ctrl+T` still opens the cockpit from anywhere. While an
+approval dialog is open the rail shrinks to the `main` row with a count
+(`2 agents`) and names no key, since the dialog owns the keyboard.
+
+**Viewing an agent** is not a separate screen. Enter on its row replaces the
+live region of the conversation with that agent's transcript (its prompt and
+what you sent it as `❯` rows, what it said as `●`, its tools folded) while the
+one composer stays live, with the placeholder `Message @<type>…` (the type cut
+at 20 cells). What you type is sent to that agent: a running agent queues it
+for its next tool round (`N queued` on its row), a finished one is resumed from
+its transcript, and one you stopped is refused in a plain sentence; your words
+show at once in its transcript as `❯ text`. PgUp/PgDn/Home/End scroll it. Esc
+or Enter on the `main` row goes back to the conversation; the draft stays in
+the composer, and Esc does not stop the agent. An agent that cannot take
+messages (a saved child, a workflow run's agent) keeps the read-only boxed
+screen described under the cockpit.
 
 Agents and workflows are separate. An agent the model gave a `workflow` label
 is never an agent row: it exists only inside its workflow, which gets one row
@@ -292,31 +330,43 @@ agents' name column. As the line narrows it gives up, in order, the
 20 to 12 to 8 cells; the name is squeezed last, never below eight cells.
 
 ↓ walks `main` (when drawn), the agents, then the workflows. On a workflow row
-the key line reads `↑/↓ to select · enter to view · x to stop · esc to go back`
-(`x to clear` once it has finished). Enter opens the workflow's detail view and
+the key line is `Enter to view · x to stop` (`x to clear` once it has
+finished). Enter opens the workflow's detail view and
 `x` stops every agent of the workflow that is still going (each one as its own
 `x` would), or clears a finished row.
 
-The detail view shows one list at a time, in a frame headed by the workflow's
-name and `<done>/<total> agents · <elapsed>`. Level 1 is `Phases`, one row per
+The detail view is a frameless dialog: a rule across the top, the workflow's
+name, then its description on the left and
+`<done>/<total> agents · <elapsed>` on the right (with ` · done`, ` · stopped`
+or ` · failed` once it has ended), then the lists. From 64 columns they sit side
+by side in one box titled `Phases` (left) and `<phase> · N agents` (right);
+below 64 columns one list is shown at a time. The left pane has one row per
 phase in `phase_order` then first seen: the phase's number, which becomes a
 green `✔` once all its agents are done or a red `✘` once it has settled with a
 failure or a stop; the model's `phase` label verbatim; and right-aligned
 `done/total` (total grows as agents are started, since Namzu cannot know a phase
-before it has an agent). The selected phase's `phase_detail` sits under the
-list. Enter or → opens level 2, `<phase> · N agents`: each agent as `✔` done,
-`✘` failed, `●` running or `◌` queued, its description, type, model, tokens and
-time. Enter or → opens that agent's transcript. Esc or ← goes up a level, and
-from level 1 back to the rail row; `x` stops the whole workflow at level 1 and
-the one agent at level 2:
+before it has an agent). The right pane lists the selected phase's agents:
+`✔` done, `✘` failed or skipped, `●` running or `◌` queued, the label, then
+`model · tokens` and the elapsed time flush right. The selected phase's
+`phase_detail` fills free rows of the right pane. The pointer is on the phases
+until Enter or → moves it to the agents; Enter on an agent opens its
+transcript. Esc or ← goes up a level, and from the phases back to the rail
+row; `x` stops the whole workflow on the phases and skips or stops the one
+agent on the agents. The box is 14 list rows tall on a tall terminal (fewer on
+a short one, never under 4), whatever it holds. Footer: phases
+`↑↓ select · x stop workflow · esc back`; agents
+`↑↓ select · enter view · x skip · esc back`.
 
 ```text
- Surum denetimi                                          1/5 agents · 2m11s
- Phases
- ❯ 1  Tarama                                                            1/3
-   2  Duzeltme                                                          0/2
- Butun paketlerin surum notlarini tara
- ↑/↓ to select · enter to view · x to stop · esc to go back
+──────────────────────────────────────────────────────────────────────────────
+ Surum denetimi
+ Butun paketlerin surum notlarini tara               1/5 agents · 2m11s
+
+ ╭ Phases ──────────────┬ Tarama · 3 agents ───────────────────────────────────╮
+ │ ❯ ✔ Tarama       1/3 │ ✔ tara:cekirdek   gpt-5 · 9.0k tok             2.7s │
+ │   2 Duzeltme     0/2 │ ● tara:arayuz     gpt-5 · 4.1k tok              11s │
+ ╰──────────────────────┴──────────────────────────────────────────────────────╯
+ ↑↓ select · x stop workflow · esc back
 ```
 
 The `workflow` tool's runs use the same row and the same three levels, but are
@@ -372,16 +422,22 @@ Delegated work leaves three kinds of row in the conversation, each written once
 and never redrawn; the live state belongs to the rail.
 
 ```text
-● Launched 2 agents (↓ to manage)
+● 2 background agents launched (↓ to manage)
   ├ Choose first colour
   └ Choose second colour
-✓ Choose first colour · 1.7s · 9.0k tokens · ctrl+o result · ctrl+t details
-✗ Choose second colour · failed after 2.9s · Provider refused the request · ctrl+t details
+› Message from @general-purpose · ctrl+o to expand
+● Agent "Choose first colour" finished · 1m 4s
+● Agent "Choose second colour" failed: Provider refused the request · 3s
 ✻ Worked for 38s · 3 agents · 27.0k tokens
 ```
 
+Delegated work leaves these rows, each written once and never redrawn; the
+live state belongs to the rail.
+
 - **A launch receipt** per batch: the agents one model response launched
-  together, named under one line. A single agent is named inline. Agents the
+  together, each by its description under one line (`N background agents
+  launched` when they all run in the background, else `Launched N agents`). A
+  single agent is named inline. Agents the
   model gave a `workflow` label are one workflow and get one `● Workflow <name>`
   line instead (see the rail section), once per workflow. The receipt waits until
   the batch is whole, so agents launched in the same response share one
@@ -389,13 +445,19 @@ and never redrawn; the live state belongs to the rail.
   It is drawn below the reply that launched it even while that reply is still
   open: a reviewed batch's events reach the terminal only when the batch
   finishes, so the reply stays open for the whole of a foreground agent's run.
-- **A completion row** per agent: `✓` or `✗` (so failure reads without colour),
-  the elapsed time and, when reported, the spend. The agent's final answer is
-  attached collapsed. Ctrl+O opens it in place while the row is still in the
-  live region; once it has settled into history, the press after the live
-  bodies are open shows the newest settled body in the output viewer, where ←/→
-  reach the others. Ctrl+T opens the agent's whole transcript. The answer is the child's text and is shown as text — terminal
-  controls in it are displayed, never obeyed.
+  An agent resumed by a later message gets no second receipt.
+- **Two rows per agent that finishes.** First what it said, collapsed:
+  `› Message from @<type>` with `ctrl+o to expand` (the sender is the agent
+  type, so two general agents both read `@general-purpose`). Ctrl+O opens the
+  answer in place while the row is still in the live region; once it has
+  settled into history, the press after the live bodies are open shows the
+  newest settled body in the output viewer, where ←/→ reach the others. The
+  answer is the child's text and is shown as text — terminal controls in it are
+  displayed, never obeyed. Then one line that says it is over:
+  `● Agent "<description>" finished · 1m 4s` (green), `failed: <reason> · 3s`
+  (red) or `was stopped · 1s` (warning). The result is not repeated in that line
+  and it carries no token count; an agent resumed by a later message writes the
+  pair again when it ends again.
 - **A closing line** when a turn that launched agents settles: how long the
   turn took and how many agents it launched (phases are never counted here),
   what they spent when any reported it, and how many failed
@@ -759,17 +821,18 @@ neutral count, since it has no phases to choose between. The phase list's own
 title is just `Phases`: every `N/M` beside it reads done out of total, so it
 carries no cursor position.
 
-Selecting an agent opens its own framed transcript screen. The parent composer
-and live rows are hidden while their state remains mounted. The child view
+Selecting an agent that can take messages views it on the main screen (see
+the rail section). Selecting a saved child, or an agent a workflow run
+launched, opens a read-only boxed transcript screen instead: the parent
+composer and live rows are hidden while their state remains mounted. That view
 uses the available terminal height, identifies the task and its live status,
 and supports line and page scrolling. File-output tabs are expanded before
 pagination, and wrapping uses terminal cell widths for Unicode graphemes. Each
-body row stays within its frame, with room for navigation and the cursor. Esc returns to the agent list (or, when the view was opened from the rail, to
-that agent's row on the rail); `q` or
-Ctrl+T returns to the main conversation and restores the draft. A child that
-finishes remains readable in the open view and can be reopened from `/agents`
-while retained by the current session. The agents rail shows the running agents and
-those that finished in the last 30 seconds.
+body row stays within its frame, with room for navigation and the cursor. Esc
+returns to the agent list (or, when the view was opened from the rail, to that
+agent's row on the rail); `q` or Ctrl+T returns to the main conversation and
+restores the draft. A child that finishes remains readable in the open view and
+can be reopened from `/agents` while retained by the current session.
 
 Messages submitted with Enter while an `Agent` call waits for a child release
 that wait so the parent can respond while children continue. Results arrive in
