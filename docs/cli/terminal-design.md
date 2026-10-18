@@ -12,8 +12,8 @@ status: stable
 Namzu uses neutral text with phosphor-green accents on the terminal's own
 background. A two-row block-letter wordmark carries the opening identity, with a muted
 version beside it and, on the row under the version, the working folder
-(home written as `~`, cut from the left to fit, as Claude Code's welcome header
-does; the footer no longer names it). Terminals narrower than 48 columns or shorter than 20 rows
+(home written as `~`, cut from the left to fit, as a coding agent's welcome
+header does; the footer no longer names it). Terminals narrower than 48 columns or shorter than 20 rows
 use the compact `∴ namzu` signature. The header is printed once
 into native scrollback. Provider and tool details remain available through
 `/status` and `/status tools`. A normal startup does not add a redundant

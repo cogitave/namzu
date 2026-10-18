@@ -45,7 +45,7 @@ function elapsed(job: BackgroundJob, now: number): string {
 	return `${Math.floor(minutes / 60)}h ${minutes % 60}m`
 }
 
-/** Claude Code's row words: running, done, error, stopped. */
+/** The row words: running, done, error, stopped. */
 function jobMeta(job: BackgroundJob): 'running' | 'done' | 'error' | 'stopped' {
 	if (job.status === 'running') return 'running'
 	if (job.status === 'killed') return 'stopped'

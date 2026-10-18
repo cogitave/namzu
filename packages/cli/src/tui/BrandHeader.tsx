@@ -15,7 +15,7 @@ import { theme } from './theme.js'
 interface BrandHeaderProps {
 	readonly version: string
 	readonly permissionMode: PermissionMode
-	/** The folder Namzu works in, shown under the version like Claude Code's welcome header. */
+	/** The folder Namzu works in, shown under the version, as a welcome header does. */
 	readonly cwd?: string
 }
 

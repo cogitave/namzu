@@ -1,8 +1,8 @@
 import { theme } from './theme.js'
 
 /**
- * The transcript row for a background command that ended, in the words Claude
- * Code uses: `Background command "<command>" completed (exit code 0)`. The
+ * The transcript row for a background command that ended, in the plain words
+ * of a shell: `Background command "<command>" completed (exit code 0)`. The
  * model's own notice (which carries the job id it needs) is a separate string;
  * the person never sees the id.
  */

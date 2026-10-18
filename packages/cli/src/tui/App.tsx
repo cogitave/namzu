@@ -11484,7 +11484,7 @@ export function App({
 						    A viewport-height blank box here creates dead space and makes resize
 						    depend on an estimate of rows Ink has already rendered. */}
 						{/* Messages typed while a reply runs sit directly above the working row,
-						    as in Claude Code: pending rows, the send-now hint, then `Working`. */}
+						    as in other terminal agents: pending rows, the send-now hint, then `Working`. */}
 						{pendingInputVisible ? (
 							<PendingInputPanel
 								pendingSteers={pendingInputItems}

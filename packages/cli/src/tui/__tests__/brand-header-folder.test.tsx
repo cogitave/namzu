@@ -1,4 +1,4 @@
-/** The startup header names the working folder under the version, like Claude Code's welcome header. */
+/** The startup header names the working folder under the version, like a welcome header. */
 
 import { afterEach, expect, it } from 'vitest'
 
