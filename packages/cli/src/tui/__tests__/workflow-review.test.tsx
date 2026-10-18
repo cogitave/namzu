@@ -169,3 +169,62 @@ describe('the descriptions of the other tools are untouched', () => {
 		expect(permissionChoices(calls)[0]).toBe('Start this agent')
 	})
 })
+
+describe('a large script', () => {
+	const big = [
+		META,
+		...Array.from({ length: 6000 }, (_, i) => `// step ${i} ${'x'.repeat(30)}`),
+		'return 1',
+	].join('\n')
+
+	it('is reviewed, not refused for its size, collapsed to its first lines', () => {
+		expect(Buffer.byteLength(big)).toBeGreaterThan(200_000)
+		const { summary, review } = summaryOf({ script: big })
+		expect(review.length).toBeGreaterThan(200_000)
+		expect(summary.complete).toBe(true)
+		expect(summary.text).toContain('Script · 6002 lines')
+		expect(summary.text).toContain('… 5994 more lines')
+		expect(summary.expandedText).toContain('// step 5999')
+	})
+
+	it('still refuses an oversized batch of ordinary calls', () => {
+		const result = buildPermissionReview([
+			{ id: 'b', name: 'bash', input: { command: 'x'.repeat(9000) }, isDestructive: true },
+		])
+		expect(result).toEqual({ ok: false, reason: 'too_large' })
+	})
+
+	it('pages the whole script in the expanded view', async () => {
+		const toolCalls = call({ script: big })
+		const { review, summary } = summaryOf({ script: big })
+		const screen = await renderToScreen(
+			<PermissionOverlay
+				toolCalls={toolCalls}
+				review={review}
+				summary={summary}
+				detailsOpen
+				reviewOffset={5000}
+				columns={110}
+				rows={40}
+			/>,
+			{ cols: 110, rows: 40 },
+		)
+		try {
+			await screen.waitForRender()
+			const text = screen.viewport().join('\n')
+			expect(text).toContain('Workflow script')
+			expect(text).toMatch(/rows 5001-\d+\/\d+ · PgUp\/PgDn page · Home\/End/)
+			expect(text).toMatch(/\/\/ step \d{4}/)
+		} finally {
+			await screen.unmount()
+		}
+	})
+
+	it('clips long arguments when collapsed and keeps them whole under d', () => {
+		const args = { list: Array.from({ length: 400 }, (_, i) => `item-${i}`) }
+		const { summary } = summaryOf({ script: SHORT, args })
+		expect(summary.text).toContain('more characters (d shows all of it)')
+		expect(summary.text).not.toContain('item-399')
+		expect(summary.expandedText).toContain('item-399')
+	})
+})

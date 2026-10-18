@@ -13,6 +13,22 @@ import { terminalDisplayText } from './terminal-display.js'
  */
 export const MAX_PERMISSION_REVIEW_BYTES = 8_000
 
+/**
+ * What a batch of workflow starts may weigh: the script's 256 KiB source limit
+ * (the SDK runtime's), its 64 KiB of arguments, and the room JSON escaping
+ * takes. The 8 000-byte boundary above exists so many small calls cannot add up
+ * to an unbounded prompt; a workflow's script is one value the runtime already
+ * bounds, and it is read in a pager, so the review is not what limits it.
+ */
+export const MAX_WORKFLOW_REVIEW_BYTES = 640 * 1024
+
+/** The limit that applies to this batch: workflow starts alone get the larger one. */
+export function permissionReviewLimit(calls: readonly { readonly name: string }[]): number {
+	return calls.length > 0 && calls.every((call) => call.name === 'workflow')
+		? MAX_WORKFLOW_REVIEW_BYTES
+		: MAX_PERMISSION_REVIEW_BYTES
+}
+
 /** Physical rows kept visible without crowding a 24-row terminal. */
 export const PERMISSION_REVIEW_PAGE_ROWS = 6
 
@@ -117,7 +133,7 @@ class ReviewShapeError extends Error {}
  */
 export function buildPermissionReview(
 	calls: readonly PermissionReviewCall[],
-	maxBytes = MAX_PERMISSION_REVIEW_BYTES,
+	maxBytes = permissionReviewLimit(calls),
 ): PermissionReviewResult {
 	if (!Number.isSafeInteger(maxBytes) || maxBytes < 1) {
 		return { ok: false, reason: 'unrepresentable' }
@@ -600,6 +616,8 @@ function summarizeKnownCall(
 
 /** Script lines shown before the rest is counted; `d` opens the whole script. */
 const WORKFLOW_SCRIPT_PREVIEW_LINES = 8
+/** Argument text shown before the rest is counted. */
+const WORKFLOW_ARGS_PREVIEW_CHARS = 240
 
 /**
  * A workflow start, as the operator decides on it: the script's own name,
@@ -642,26 +660,39 @@ function summarizeWorkflow(input: Record<string, unknown>): ReadableCallSummary 
 		`Agents: up to ${limits.maxConcurrency} at a time, ${limits.maxAgents} in all, each with the same tools and approval rules as an Agent call`,
 		'Runs in the background; you can stop it from the rail or /workflows',
 	)
-	if (input.args !== undefined) head.push(...readableField('Arguments', JSON.stringify(input.args)))
+	const argsText = input.args === undefined ? undefined : JSON.stringify(input.args)
+	const argsClipped = argsText !== undefined && argsText.length > WORKFLOW_ARGS_PREVIEW_CHARS
+	const argsFor = (whole: boolean): string[] =>
+		argsText === undefined
+			? []
+			: [
+					...readableField(
+						'Arguments',
+						whole ? argsText : argsText.slice(0, WORKFLOW_ARGS_PREVIEW_CHARS),
+					),
+					...(!whole && argsClipped
+						? [
+								`  … ${argsText.length - WORKFLOW_ARGS_PREVIEW_CHARS} more characters (d shows all of it)`,
+							]
+						: []),
+				]
 	const scriptLines = script.split('\n')
 	const shown = scriptLines.slice(0, WORKFLOW_SCRIPT_PREVIEW_LINES)
 	const hidden = scriptLines.length - shown.length
 	const body = (lines: readonly string[]): string[] => lines.map((line) => `  ${line}`)
+	const count = `Script · ${scriptLines.length} line${scriptLines.length === 1 ? '' : 's'}`
 	return {
 		lines: [
 			...head,
-			`Script · ${scriptLines.length} line${scriptLines.length === 1 ? '' : 's'}`,
+			...argsFor(false),
+			count,
 			...body(shown),
-			...(hidden > 0 ? [`  … ${hidden} more line${hidden === 1 ? '' : 's'}`] : []),
+			...(hidden > 0
+				? [`  … ${hidden} more line${hidden === 1 ? '' : 's'} (d shows all of it)`]
+				: []),
 		],
-		...(hidden > 0
-			? {
-					expandedLines: [
-						...head,
-						`Script · ${scriptLines.length} line${scriptLines.length === 1 ? '' : 's'}`,
-						...body(scriptLines),
-					],
-				}
+		...(hidden > 0 || argsClipped
+			? { expandedLines: [...head, ...argsFor(true), count, ...body(scriptLines)] }
 			: {}),
 		complete: true,
 		label: oneLine(typeof input.description === 'string' ? input.description : 'workflow'),

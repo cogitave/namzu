@@ -29,9 +29,9 @@ import { WORKFLOW_TOOL_DESCRIPTION, WORKFLOW_TOOL_NAME } from './offering.js'
 import { type WorkflowRunEnd, WorkflowRunRegistry } from './registry.js'
 
 /** Longest script the tool takes, in characters. The review shows all of it. */
-export const MAX_WORKFLOW_SCRIPT_CHARS = 5000
+export const MAX_WORKFLOW_SCRIPT_CHARS = 262_144
 /** Longest `args` JSON the tool takes, in characters. */
-export const MAX_WORKFLOW_ARGS_CHARS = 1500
+export const MAX_WORKFLOW_ARGS_CHARS = 65_536
 
 const ALPHABET = '0123456789abcdefghijklmnopqrstuvwxyz'
 
@@ -145,8 +145,8 @@ export function createWorkflowHost(options: WorkflowHostOptions): WorkflowHost {
 			required: ['script'],
 			additionalProperties: false,
 		}),
-		largeStringArguments: { script: MAX_WORKFLOW_SCRIPT_CHARS },
-		truncatedInputHint: `Write a shorter script (under ${MAX_WORKFLOW_SCRIPT_CHARS} characters): fewer agents per line, shared helpers, and prompts built from args.`,
+		largeStringArguments: { script: 20_000 },
+		truncatedInputHint: `Write a shorter script: shared helpers, loops instead of repeated lines, and prompts built from args.`,
 		malformedInputHint:
 			'Every character of "script" goes inside a JSON string: write a newline as \\n, a tab as \\t, a double quote as \\" and a backslash as \\\\.',
 		// The person reads `Workflow(<what it is for>)`, never the script.

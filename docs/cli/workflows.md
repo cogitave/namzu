@@ -72,9 +72,12 @@ The screen shows, in order:
 
 The name, purpose and phases are read from the script's `meta` literal
 without running anything. `d` shows the whole script, every line verbatim;
-`d` again collapses it. The script is limited to 5000 characters and `args` to
-1500, so that the review always shows all of it. A script whose `meta` cannot be
-read is still shown, with the reason.
+`d` again collapses it; the full view scrolls with PgUp, PgDn, Home and End.
+The script may be as large as the runtime accepts (256 KiB, with `args` up to
+64 KiB): the 8 000-byte limit that refuses an oversized batch of ordinary tool
+calls does not apply to a workflow review, because the script is one bounded
+value read in a pager. Long `args` are clipped in the collapsed view and whole
+under `d`. A script whose `meta` cannot be read is still shown, with the reason.
 
 | Situation | What happens |
 |---|---|
