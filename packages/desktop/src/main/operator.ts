@@ -3361,6 +3361,22 @@ export class Operator {
 						model: choice.model,
 					}
 				}
+				// Auto the person chose before the runtime restarted. A runtime that can no longer
+				// route (the routing block was removed) leaves the conversation on its model; the next
+				// send asks for Auto again and says why it cannot.
+				if (
+					(!engine || engine === 'namzu') &&
+					!session.view.palId &&
+					session.draftSettings?.autoRouting === true
+				) {
+					try {
+						await client.request('namzu/providers/select_auto', {
+							sessionId: session.runtimeSessionId,
+						})
+					} catch {
+						stillOwned()
+					}
+				}
 			}
 			stillOwned()
 			session.needsLoad = false
@@ -3784,6 +3800,37 @@ export class Operator {
 				provider,
 				...(model?.trim() ? { model: model.trim() } : {}),
 			}
+			session.providerSetupFailure = undefined
+			this.persistDesktop()
+		} finally {
+			session.selectionPending = false
+			settleSelection()
+			this.changingPlugins.delete(sessionId)
+		}
+	}
+	/**
+	 * Make Auto what this conversation runs on. The CLI refuses it in plain words when no `routing`
+	 * block is configured; a Pal and an external engine keep their own model and are refused here.
+	 */
+	async selectAuto(sessionId: string): Promise<void> {
+		const session = this.session(sessionId)
+		if (session.running || session.admitting || this.changingPlugins.has(sessionId))
+			throw new Error('Stop this conversation before changing its model.')
+		if (session.view.palId)
+			throw new Error('Auto is not available in a Pal conversation. A Pal keeps its own model.')
+		if (session.view.harness !== undefined && session.view.harness !== 'namzu')
+			throw new Error('Auto is only available with the Namzu engine.')
+		this.changingPlugins.add(sessionId)
+		session.selectionRevision = (session.selectionRevision ?? 0) + 1
+		session.selectionPending = true
+		const settleSelection = this.beginSelection(session)
+		try {
+			if (session.needsLoad) await this.reattach(session)
+			const assertCurrent = this.metadataRead(this.project(session.view.projectId), session, true)
+			await session.client.request('namzu/providers/select_auto', {
+				sessionId: session.runtimeSessionId,
+			})
+			assertCurrent()
 			session.providerSetupFailure = undefined
 			this.persistDesktop()
 		} finally {
@@ -4839,6 +4886,7 @@ export class Operator {
 			? {
 					...(choice ? { choice: { ...choice } } : {}),
 					...(value?.options ? { options: { ...value.options } } : {}),
+					...(value?.autoRouting !== undefined ? { autoRouting: value.autoRouting } : {}),
 				}
 			: {}
 	}
@@ -4848,10 +4896,16 @@ export class Operator {
 			!value ||
 			typeof value !== 'object' ||
 			Array.isArray(value) ||
-			Object.keys(value).some((key) => key !== 'choice' && key !== 'options')
+			Object.keys(value).some(
+				(key) => key !== 'choice' && key !== 'options' && key !== 'autoRouting',
+			)
 		)
 			throw new Error('Invalid draft settings.')
 		const next: DraftSettings = {}
+		if (value.autoRouting !== undefined) {
+			if (typeof value.autoRouting !== 'boolean') throw new Error('Invalid draft Auto choice.')
+			next.autoRouting = value.autoRouting
+		}
 		if (value.choice !== undefined) {
 			const choice = value.choice
 			if (
@@ -5218,6 +5272,35 @@ export class Operator {
 				}
 			}
 		}
+	}
+	/** What a spoken message must know first: is a reply running, and is a question waiting on the person. */
+	voiceActivity(sessionId: string): { running: boolean; waitingOnPerson: boolean } {
+		const session = this.session(sessionId)
+		return { running: session.running, waitingOnPerson: session.permissions.size > 0 }
+	}
+	/**
+	 * Sends spoken text exactly as the composer sends typed text with nothing attached: the saved
+	 * model choice (or Auto, when this conversation runs on it) and message settings, a new turn
+	 * when idle, and current-turn input (or the queue) while a reply runs.
+	 */
+	async sendSpoken(sessionId: string, text: string): Promise<'accepted' | 'queued'> {
+		const session = this.session(sessionId)
+		const saved = this.draftSettings(sessionId)
+		if (!session.running) {
+			// The composer's rule: Auto is on only where the CLI offers it, never for a Pal or an
+			// external engine, and the person's saved choice wins over what the conversation started
+			// with. Selecting the saved model instead would be a hand pick, which turns Auto off.
+			const reported = session.providers?.auto
+			const onAuto =
+				reported !== undefined &&
+				!session.view.palId &&
+				(session.view.harness === undefined || session.view.harness === 'namzu') &&
+				(saved.autoRouting ?? reported.active)
+			if (onAuto) await this.selectAuto(sessionId)
+			else if (saved.choice)
+				await this.selectProvider(sessionId, saved.choice.provider, saved.choice.model)
+		}
+		return this.sendCurrent(sessionId, text, saved.options ? { ...saved.options } : undefined)
 	}
 	async cancel(sessionId: string): Promise<void> {
 		const session = this.session(sessionId)

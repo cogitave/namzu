@@ -17,6 +17,7 @@
 		{ "path": "../computer-use" },
 		{ "path": "../browser" },
 		{ "path": "../telemetry" },
+		{ "path": "../decision" },
 		{
 			"path": "../files"
 		},

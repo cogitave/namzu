@@ -12,7 +12,7 @@ import type { ZenGoConfig, ZenGoProviderConfig } from '../types.js'
 const freeMuse = 'muse-spark-1.3-contributor-free'
 const defaultFree = 'space-bunny-free'
 // Dynamic system: any model with zero input and output price is available anonymously
-const anonymousIds = [defaultFree, freeMuse, 'big-pickle', 'cat-jam-free']
+const anonymousIds = [defaultFree, freeMuse, 'big-pickle', 'll-alpha-free']
 const experimentalAgent = () => experimentalOpenCodeUserAgent()
 const params = {
 	model: '',
@@ -137,7 +137,7 @@ function expectNamzuIdentity(init: RequestInit | undefined, sessionId: string) {
 function expectGateIdentity(init: RequestInit | undefined) {
 	const headers = new Headers(init?.headers)
 	expect(headers.get('user-agent')).toBe(experimentalAgent())
-	expect(headers.get('user-agent')).toMatch(/^opencode\/1\.(?:1[8-9]|[2-9]\d)\./)
+	expect(headers.get('user-agent')).toMatch(/^opencode\/(?:1\.(?:1[8-9]|[2-9]\d)|[2-9]\d*\.\d+)\./)
 	expect(headers.get('x-opencode-client')).toBe('cli')
 	expect(headers.get('x-opencode-project')).toBe('global')
 	expect(headers.get('x-opencode-session')).toMatch(/^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/)
@@ -226,13 +226,19 @@ describe('anonymous Zen access', () => {
 	it('sends the free-tier gate identity for any 0-price model on the official Zen host', async () => {
 		const transport = mockNativeFetch()
 		// Any model with zero input/output price goes through the gate
-		const provider = new ZenProvider({ model: 'big-pickle', sessionId: 'free-model-test' })
+		const provider = new ZenProvider({
+			model: 'big-pickle',
+			sessionId: 'free-model-test',
+		})
 		const result = await collectChatCompletion(provider.chatStream(params))
 		expect(result.message.content).toBe('Ready.')
 		expect(transport).toHaveBeenCalledTimes(1)
 		const request = transport.mock.calls[0]
 		if (!request) throw new Error('Expected a model request')
-		const body = JSON.parse(String(request[1]?.body)) as { model: string; tools?: WireTool[] }
+		const body = JSON.parse(String(request[1]?.body)) as {
+			model: string
+			tools?: WireTool[]
+		}
 		expect(body.model).toBe('big-pickle')
 		expect(new Headers(request[1]?.headers).get('authorization')).toBe('Bearer public')
 		expectGateIdentity(request[1])
@@ -241,7 +247,10 @@ describe('anonymous Zen access', () => {
 
 	it('does not duplicate a fingerprint tool the caller already registered', async () => {
 		const transport = mockNativeFetch()
-		const provider = new ZenProvider({ model: 'big-pickle', sessionId: 'has-tools' })
+		const provider = new ZenProvider({
+			model: 'big-pickle',
+			sessionId: 'has-tools',
+		})
 		const own = {
 			type: 'function' as const,
 			function: {
@@ -272,12 +281,21 @@ describe('anonymous Zen access', () => {
 
 	it('keeps the experimental session stable across provider constructions and changes each request ID', async () => {
 		const transport = mockNativeFetch()
-		const first = new ZenProvider({ model: 'big-pickle', sessionId: 'same-conversation' })
+		const first = new ZenProvider({
+			model: 'big-pickle',
+			sessionId: 'same-conversation',
+		})
 		await collectChatCompletion(first.chatStream(params))
 		await collectChatCompletion(first.chatStream(params))
-		const restored = new ZenProvider({ model: freeMuse, sessionId: 'same-conversation' })
+		const restored = new ZenProvider({
+			model: freeMuse,
+			sessionId: 'same-conversation',
+		})
 		await collectChatCompletion(restored.chatStream(params))
-		const other = new ZenProvider({ model: freeMuse, sessionId: 'different-conversation' })
+		const other = new ZenProvider({
+			model: freeMuse,
+			sessionId: 'different-conversation',
+		})
 		await collectChatCompletion(other.chatStream(params))
 		const requests = transport.mock.calls.map(([, init]) => new Headers(init?.headers))
 		expect(requests).toHaveLength(4)
@@ -296,9 +314,17 @@ describe('anonymous Zen access', () => {
 				: nativeResponse(String(input), JSON.parse(String(init?.body)).model),
 		)
 		vi.stubGlobal('fetch', transport)
-		const keyed = new ZenProvider({ apiKey: 'fixture', model: freeMuse, sessionId: 'keyed' })
+		const keyed = new ZenProvider({
+			apiKey: 'fixture',
+			model: freeMuse,
+			sessionId: 'keyed',
+		})
 		await collectChatCompletion(keyed.chatStream(params))
-		const go = new ZenGoProvider({ apiKey: 'fixture', model: 'glm-5.3-flash', sessionId: 'go' })
+		const go = new ZenGoProvider({
+			apiKey: 'fixture',
+			model: 'glm-5.3-flash',
+			sessionId: 'go',
+		})
 		await collectChatCompletion(go.chatStream(params))
 		const anonymous = new ZenProvider({ sessionId: 'discovery' })
 		expect((await anonymous.listModels()).map(({ id }) => id)).toEqual([defaultFree, freeMuse])
@@ -332,7 +358,7 @@ describe('anonymous Zen access', () => {
 		},
 	)
 
-	it('lists only the eight curated models that are still served', async () => {
+	it('lists only the curated models that are still served', async () => {
 		const transport = vi.fn<typeof fetch>(async () =>
 			Response.json({
 				data: [

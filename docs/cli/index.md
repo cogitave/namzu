@@ -5,6 +5,7 @@
 * [Local authenticated Pal channel adapters](pal-channels.md) - Private local fixture verification, shared SDK inboxes and native recorded reply/review-action routing.
 
 * [Installing and reopening Namzu](installation.md) - Correct shell commands, installer diagnostics and portable conversation resume handoffs.
+* [Auto model routing](auto-model-routing.md) - `model: auto` and the `routing` block: per-task fast, default or big model, sized by the decision model, failing open to `routing.default`.
 * [Scheduled tasks](scheduled-tasks.md) - Prompts that run later in a folder while namzu is closed: jobs, the required permission set, approvals, missed runs, notifications and history.
 * [Session loops](session-loops.md) - `/loop` and the session_loop tool: a prompt the open conversation re-sends to itself on an interval, between turns.
 * [The scheduler service](scheduler-service.md) - Installing the scheduler under systemd, launchd, Windows Task Scheduler and WSL; single owner, upgrades, status, uninstall.
@@ -58,4 +59,5 @@ The operator application.
 * [Tool-result screens](tool-result-screens.md) - The toolResultScreens config key: which screens judge a tool result before the model reads it, the empty list that turns the default off, and the per-tool `passthroughTools` exception.
 
 * [Desktop application](desktop.md) - Native operator workspace using the existing CLI runtime and conversation logs, with terminal tabs and an engine's own command line beside the conversations.
+* [Desktop voice input](desktop-listening.md) - Talking to Namzu Desktop in Turkish: the on-device recognition engine, microphone capture and consent, endpointing and stop words, read-aloud and barge-in, and what stays on the computer.
 * [CLI ACP live input](acp.md) - Owned live operator messages, bounded receipt reconciliation and safe delegation wait release.

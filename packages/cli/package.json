@@ -1,6 +1,6 @@
 {
 	"name": "@namzu/cli",
-	"version": "36.1.1",
+	"version": "36.2.0",
 	"description": "Interactive and headless terminal agent for Namzu, with provider discovery, durable sessions, tools and diagnostics.",
 	"keywords": [
 		"namzu",
@@ -77,6 +77,7 @@
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^1.9.4",
+		"@namzu/decision": "workspace:*",
 		"@namzu/telemetry": "workspace:*",
 		"@types/react": "^19.2.15",
 		"esbuild": "0.28.1",

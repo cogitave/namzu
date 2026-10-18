@@ -1,12 +1,15 @@
 {
 	"omissions": {
-		"go/deepseek-flash": "Served by the Go service and named by no route row on either page; models.dev carries no entry for it either, so neither a wire nor its limits can be derived.",
 		"go/glm-5.1": "Still served by Go, but the current Go page states neither a route nor a price for it. The /models answer states no wire, so the old bundled route is not carried without current evidence.",
+		"go/kimi-k2.6": "Still served by Go, but the current Go page states neither a route nor a price for it. The /models answer states no wire, so the old bundled route is not carried without current evidence.",
+		"go/minimax-m2.7": "Still served by Go, but the current Go page states neither a route nor a price for it. The /models answer states no wire, so the old bundled route is not carried without current evidence.",
+		"go/grok-4.6": "Still served by Go, but the current Go page states neither a route nor a price for it. The /models answer states no wire, so the old bundled route is not carried without current evidence.",
 		"go/minimax-m2.5": "Superseded on Go by MiniMax M2.7 and M3, which are both carried. The page still lists it.",
 		"go/omen-alpha": "Served by Go and no longer routed by the Go page, which is why this release dropped it from the catalogue. No source states a wire for it any more, so a caller that needs it must name the protocol itself.",
 		"go/qwen3.6-plus": "Still served by Go, but the current Go page states neither a route nor a price for it. The /models answer states no wire, and the old bundled Messages route conflicts with the reference client's Chat route, so it is not carried by guessing.",
 		"go/qwen3.7-max": "Still served by Go, but the current Go page states neither a route nor a price for it. The /models answer states no wire, so the old bundled route is not carried without current evidence.",
 		"zen/claude-opus-5-5-backup": "Served by the Zen /models answer as a failover twin of a routed model and named by no route row on either page. A backup id carries no route of its own, so no wire can be derived and a caller that needs it must name the protocol explicitly.",
+		"zen/deepseek-v4-flash": "Still served by Zen, but the current Zen page states no route for it. The /models answer states no wire, so the old bundled route is not carried without current evidence.",
 		"zen/gemini-4-argon": "Routed by the Zen page, which states neither a price row nor a free-list entry for it. A price that cannot be read is never defaulted to zero, so it is not carried — least of all anonymously.",
 		"zen/glm-5": "Superseded by GLM 5.1, 5.2 and 5.3, which are all carried. The page still lists it.",
 		"zen/gpt-5-codex": "Superseded Codex generation; gpt-5.3-codex and gpt-5.3-codex-spark are carried.",

@@ -27,6 +27,7 @@ import type {
 	PalComputerView as ComputerState,
 	ConversationView,
 	DesktopEvent,
+	DraftSettings,
 	HarnessView,
 	HumanComputerView,
 	JobView,
@@ -159,6 +160,7 @@ import {
 	effortToSend,
 	followsPalModel,
 	isUnchosen,
+	resolveAutoRouting,
 	resolveComposerModelChoice,
 	staleEffort,
 } from './model-choice.js'
@@ -255,12 +257,15 @@ import { useAttachments } from './use-attachments.js'
 import { useDesktopInfo, useDesktopSettings, useUpdateInfo } from './use-desktop-settings.js'
 import { useDraftSettings } from './use-draft-settings.js'
 import { useEngineUpdates } from './use-engine-updates.js'
+import { useLocalListening } from './use-local-listening.js'
 import { useLocalSpeech } from './use-local-speech.js'
 import { usePalComputerSetup } from './use-pal-computer-setup.js'
 import { usePalOperatorMessages } from './use-pal-operator-messages.js'
 import { usePalStarts } from './use-pal-starts.js'
 import { useTranscriptScroll } from './use-transcript-scroll.js'
 import { useUndoKept } from './use-undo-kept.js'
+import { useBargeIn, useSpokenReplies, useVoiceInput } from './use-voice-input.js'
+import { VoiceInputStatus, VoiceMicButton } from './voice-input-ui.js'
 import { WindowTitlebar } from './window-titlebar.js'
 import {
 	WorkspaceBreadcrumb,
@@ -965,6 +970,19 @@ export function App({
 	const speech = useLocalSpeech(api, sessionId || undefined)
 	const historyPending = historyDisplay?.sessionId === sessionId && !!historyDisplay.pending
 	const thread = historyPending ? emptyThread() : (threads[sessionId] ?? emptyThread())
+	const listening = useLocalListening(api)
+	// Conversations whose running reply was started by voice: its answer is read aloud when it ends.
+	const voiceStarted = useRef(new Set<string>())
+	const voice = useVoiceInput(api, sessionId || undefined, {
+		sent: (id) => voiceStarted.current.add(id),
+		replyStopped: (id) => voiceStarted.current.delete(id),
+	})
+	useSpokenReplies({ sessionId, thread, speech, started: voiceStarted })
+	useBargeIn(
+		voice.phase,
+		speech.playingMessageId !== undefined && speech.playingMessageId !== 'preview',
+		speech.stop,
+	)
 	const pal = pals.find((item) => item.id === project?.palId)
 	// A Pal row shows a marker from the moment the person messages it until they open it.
 	const { collapsed: collapsedSections, setSectionCollapsed } = useSidebarSections(api)
@@ -1423,6 +1441,26 @@ export function App({
 	})
 	const composerModel =
 		choice.provider && choice.model ? { provider: choice.provider, model: choice.model } : undefined
+	const autoRouting = resolveAutoRouting({
+		providers: activeProviders,
+		saved: savedSettings.value.autoRouting,
+		palConversation: Boolean(pal),
+		engine: permissionEngine,
+	})
+	/** The settings to save with a change: the person's Auto choice rides along unless it is being set. */
+	const keepAuto = (value: DraftSettings): DraftSettings =>
+		value.autoRouting === undefined && savedSettings.value.autoRouting !== undefined
+			? { ...value, autoRouting: savedSettings.value.autoRouting }
+			: value
+	/** Applies the conversation's model the way a send does: Auto when it is on, else the picked model. */
+	const applyRoute = (
+		target: string,
+		route: { provider: string; model: string },
+		auto: boolean,
+	): Promise<void> =>
+		auto && api.selectAuto
+			? api.selectAuto(target)
+			: api.selectProvider(target, route.provider, route.model)
 	const choiceUnchosen =
 		!pal &&
 		isUnchosen({
@@ -1737,7 +1775,10 @@ export function App({
 	useEffect(() => {
 		if (!effortIsStale || modelSettingsBusy || !providerReady) return
 		void act(() =>
-			savedSettings.save(draftOwner, { choice, options: { ...settings, effort: undefined } }),
+			savedSettings.save(
+				draftOwner,
+				keepAuto({ choice, options: { ...settings, effort: undefined } }),
+			),
 		)
 	}, [effortIsStale, modelSettingsBusy, providerReady, draftOwner])
 	// A project stays where it is whatever its connection does; only a new one is added, at the end.
@@ -4930,6 +4971,7 @@ export function App({
 		}
 		const originalSettings = savedSettings.get(owner)
 		const route = { ...choice }
+		const autoNow = autoRouting.active
 		const generation = navigation.current
 		let target = sessionId
 		let targetEditRevision = draftEditRevisions.current.get(owner) ?? 0
@@ -4949,10 +4991,13 @@ export function App({
 					generation === navigation.current ? (draftsRef.current[owner] ?? prompt) : prompt
 				draftsRef.current[target] = latest
 				setDrafts((all) => ({ ...all, [target]: latest }))
-				const promotedSettings = savedSettings.save(target, {
-					choice: route,
-					options: settings,
-				})
+				const promotedSettings = savedSettings.save(
+					target,
+					keepAuto({
+						choice: route,
+						options: settings,
+					}),
+				)
 				sendingRef.current.add(target)
 				setSending((all) => ({ ...all, [target]: true }))
 				const draftWrites: Promise<void>[] = []
@@ -4977,10 +5022,13 @@ export function App({
 			// Preserve the actual route even when it came from a provider default.
 			// A Pal's conversation follows the Pal's model; only a route the person picked by hand
 			// in the composer is pinned.
-			await savedSettings.save(target, {
-				...(followsPalModel(pal?.model, route) ? {} : { choice: route }),
-				options: settings,
-			})
+			await savedSettings.save(
+				target,
+				keepAuto({
+					...(followsPalModel(pal?.model, route) ? {} : { choice: route }),
+					options: settings,
+				}),
+			)
 			const admission = {
 				prompt,
 				editRevision: targetEditRevision,
@@ -4996,7 +5044,7 @@ export function App({
 				!palConversation &&
 				!!currentSender
 			if (!thread.running || usingCurrent) draftAdmissions.current.set(target, admission)
-			if (!thread.running) await api.selectProvider(target, route.provider, route.model)
+			if (!thread.running) await applyRoute(target, route, autoNow)
 			if (usingCurrent && currentSender) {
 				const result = await currentSender(target, prompt, options)
 				if (result === 'queued') draftAdmissions.current.delete(target)
@@ -5046,7 +5094,7 @@ export function App({
 		)
 			return
 		const route = { ...choice }
-		await api.selectProvider(sessionId, route.provider, route.model)
+		await applyRoute(sessionId, route, autoRouting.active)
 		await api.send(sessionId, prompt, {
 			...settings,
 			effort: effortToSend(capabilities, settings.effort),
@@ -6501,6 +6549,7 @@ export function App({
 								: undefined
 						}
 						speech={speech}
+						listening={listening}
 						info={desktopInfo.info}
 						infoError={desktopInfo.error}
 						onOpenFolder={
@@ -6910,10 +6959,10 @@ export function App({
 														// Retry runs on the model chosen now. The choice is applied the way a
 														// send applies it, so a switch made after the stop is not lost.
 														const route = { ...choice }
+														const autoNow = autoRouting.active
 														if (retry && retryTurn)
 															void act(async () => {
-																if (route.provider)
-																	await api.selectProvider(sessionId, route.provider, route.model)
+																if (route.provider) await applyRoute(sessionId, route, autoNow)
 																await retryTurn(sessionId, retry.turnId, retry.checkpointId)
 															})
 													}
@@ -7028,16 +7077,37 @@ export function App({
 								}
 								choice={choice}
 								choiceUnchosen={choiceUnchosen}
-								onChoiceChange={(value) => {
+								onChoiceChange={(value, source) => {
 									void act(() =>
 										savedSettings.save(draftOwner, {
 											choice: value,
 											// The saved effort stays while the new model offers it; the effect below
 											// clears it once that model's levels are known and it does not.
 											options: settings,
+											// A model picked by hand ends Auto; the picker settling or refreshing a label does not.
+											...(source === 'person' && autoRouting.available
+												? { autoRouting: false }
+												: savedSettings.value.autoRouting !== undefined
+													? { autoRouting: savedSettings.value.autoRouting }
+													: {}),
 										}),
 									)
 								}}
+								auto={
+									autoRouting.available
+										? {
+												active: autoRouting.active,
+												onSelect: () =>
+													void act(() =>
+														savedSettings.save(draftOwner, {
+															choice,
+															options: settings,
+															autoRouting: true,
+														}),
+													),
+											}
+										: undefined
+								}
 								attachments={attached.files}
 								attachmentsBusy={attached.busy}
 								onAttach={() => void act(attached.pick)}
@@ -7046,12 +7116,23 @@ export function App({
 								settings={settings}
 								capabilities={capabilities}
 								onSettingsChange={(value) =>
-									void act(() => savedSettings.save(draftOwner, { choice, options: value }))
+									void act(() =>
+										savedSettings.save(draftOwner, keepAuto({ choice, options: value })),
+									)
 								}
 								plugins={pluginStates[pluginsKey]?.value}
 								pluginsLoading={pluginStates[pluginsKey]?.loading ?? false}
 								onOpenPlugins={() => void loadPlugins()}
 								onSetPluginEnabled={setPluginEnabled}
+								speechControl={
+									<VoiceMicButton
+										voice={voice}
+										engine={listening}
+										hasConversation={Boolean(sessionId)}
+										onOpenSettings={() => openSettings('speech', 'voice-input')}
+									/>
+								}
+								speechStatus={<VoiceInputStatus voice={voice} />}
 								running={thread.running}
 								liveInputSupported={thread.liveInputSupported && !palConversation}
 								liveInputs={thread.liveInputs}

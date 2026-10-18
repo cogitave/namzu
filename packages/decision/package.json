@@ -1,6 +1,6 @@
 {
   "name": "@namzu/decision",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "description": "Provider-agnostic System-1 decision models: fast, non-generative yes/no, choice and score decisions with typed probabilities. First driver: Azure AI Foundry Microsoft-Decision-1.",
   "license": "FSL-1.1-MIT",
   "private": true,
@@ -52,8 +52,15 @@
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "pnpm lint && pnpm typecheck && pnpm build"
   },
+  "dependencies": {
+    "zod": "^3.23.0"
+  },
+  "peerDependencies": {
+    "@namzu/sdk": ">=36.0.0"
+  },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
+    "@namzu/sdk": "workspace:^",
     "@types/node": "^22.19.17",
     "typescript": "^5.5.0",
     "vitest": "^4.1.11"

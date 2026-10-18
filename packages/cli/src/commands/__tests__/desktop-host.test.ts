@@ -548,6 +548,11 @@ it('prepares the selected provider on a real fresh ACP slot before its first jou
 		expect(await request('namzu/providers/status', { sessionId })).toMatchObject({
 			result: { selected: { id: 'zen', model: 'space-bunny-free' } },
 		})
+		// No routing block here, so Auto is neither offered nor selectable, and it says why plainly.
+		expect(await request('namzu/providers/status', { sessionId })).not.toHaveProperty('result.auto')
+		expect(await request('namzu/providers/select_auto', { sessionId })).toMatchObject({
+			error: { message: expect.stringContaining('routing block') },
+		})
 		expect(createSession).not.toHaveBeenCalled()
 		expect(
 			await request('session/prompt', {

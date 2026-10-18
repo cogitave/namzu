@@ -81,6 +81,7 @@ export function Composer({
 	startFailed,
 	choice,
 	onChoiceChange,
+	auto,
 	choiceUnchosen,
 	running,
 	liveInputSupported = false,
@@ -133,9 +134,12 @@ export function Composer({
 	onOpenPlugins,
 	onSetPluginEnabled,
 	speechControl,
+	speechStatus,
 	surface,
 }: {
 	speechControl?: ReactNode
+	/** Voice lines (the one-time agreement, "Listening…", what just happened), drawn right above the box. */
+	speechStatus?: ReactNode
 	/** "Desktop | CLI": CLI sends open the engine's own command line in a terminal tab. */
 	surface?: EngineSurfaceControl
 	/** Why sending is blocked right now, in words, shown above the text the person may still type. */
@@ -167,7 +171,9 @@ export function Composer({
 	choice: ModelChoice
 	/** Nothing was ever chosen for this pane; the picker settles on the recommended model. */
 	choiceUnchosen?: boolean
-	onChoiceChange: (choice: ModelChoice) => void
+	onChoiceChange: (choice: ModelChoice, source?: 'person') => void
+	/** Auto (the model side decides per task) is offered for this conversation. */
+	auto?: { active: boolean; onSelect: () => void }
 	running: boolean
 	liveInputSupported?: boolean
 	liveInputs?: readonly {
@@ -269,6 +275,7 @@ export function Composer({
 			choice={choice}
 			unchosen={choiceUnchosen}
 			onChange={onChoiceChange}
+			auto={auto}
 			catalogueEnabled={
 				// An explicit `catalogueReady` already answers for the engine switch; `harnessBusy` here also
 				// counts tab restore and loading, which must not hold the read back.
@@ -473,6 +480,7 @@ export function Composer({
 							</h1>
 						</div>
 					)}
+					{speechStatus}
 					{shownLiveInputs.length > 0 && (
 						<div className="queue px-3 pb-2 text-xs text-muted-foreground" aria-live="polite">
 							{[

@@ -164,12 +164,13 @@
 .local-speech-resource-details [data-slot="collapsible-panel"] dl {
 	padding-top: 6px;
 }
-.local-speech-memory span {
+/* A switch with a note under its label, in either speech card. */
+.local-speech-toggle > span:has(> small) {
 	display: flex;
 	flex-direction: column;
 	gap: 2px;
 }
-.local-speech-memory small {
+.local-speech-toggle small {
 	color: var(--muted-foreground);
 	font-size: 10px;
 }

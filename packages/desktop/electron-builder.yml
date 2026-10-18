@@ -12,6 +12,12 @@ directories:
 # app.getPath('userData') from the same name, so an installed build uses %APPDATA%\Namzu exactly
 # like the development app does. Do not rename productName without migrating that folder.
 asar: true
+# The speech engine is a native addon plus the DLLs beside it, and a worker thread cannot be started
+# from inside the archive, so the worker script and both packages are unpacked next to it.
+asarUnpack:
+  - dist/main/local-listening-worker.mjs
+  - node_modules/sherpa-onnx-node/**
+  - node_modules/sherpa-onnx-win-x64/**
 files:
   - package.json
   - dist/**

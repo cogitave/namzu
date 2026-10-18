@@ -348,6 +348,12 @@ export function createWorkspacePaneApi(
 			invoke(() => base.setPluginEnabled(owner, name, enabled), [owner]),
 		selectProvider: (owner, provider, model) =>
 			invoke(() => base.selectProvider(owner, provider, model), [owner]),
+		...(base.selectAuto
+			? {
+					selectAuto: (owner: string) =>
+						invoke(() => (base.selectAuto as (owner: string) => Promise<void>)(owner), [owner]),
+				}
+			: {}),
 		pickAttachments: (owner) => invoke(() => base.pickAttachments(owner), [owner]),
 		addAttachments: (owner, files) => invoke(() => base.addAttachments(owner, files), [owner]),
 		removeAttachment: (owner, id) => invoke(() => base.removeAttachment(owner, id), [owner]),

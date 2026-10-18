@@ -1,6 +1,6 @@
 {
 	"name": "@namzu/desktop",
-	"version": "0.2.1",
+	"version": "0.2.3",
 	"private": true,
 	"description": "Native Namzu operator application backed by the installed CLI runtime.",
 	"type": "module",
@@ -44,6 +44,7 @@
 		"react-markdown": "10.1.0",
 		"remark-frontmatter": "5.0.0",
 		"remark-gfm": "4.0.1",
+		"sherpa-onnx-node": "1.13.8",
 		"tailwind-merge": "3.4.0",
 		"three": "0.186.1",
 		"ws": "8.21.3",

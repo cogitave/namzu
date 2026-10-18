@@ -439,3 +439,22 @@ describe('computer use session reachability', () => {
 		expect(session.toolNames()).not.toContain('computer_use')
 	})
 })
+
+describe('decision tool reachability', () => {
+	it('mounts `decide` when a decision provider is configured, and omits it otherwise', async () => {
+		const { createAgentSession } = await import('../agent.js')
+		const withDecision = await createAgentSession(prefs, detected, {
+			cwd: workDir,
+			decision: {
+				provider: 'azure',
+				endpoint: 'https://res.services.ai.azure.com',
+				deployment: 'decision-1',
+			},
+		})
+		open.push(withDecision)
+		expect(withDecision.toolNames()).toContain('decide')
+
+		const without = await createSession()
+		expect(without.toolNames()).not.toContain('decide')
+	})
+})

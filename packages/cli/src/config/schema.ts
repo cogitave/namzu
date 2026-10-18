@@ -256,6 +256,38 @@ export interface NamzuCliConfig {
 	 */
 	readonly browser?: BrowserConfig
 	/**
+	 * A System-1 decision model. When set, the host and Pal agents get an
+	 * optional, advisory `decide` tool (yes/no, choice or score). A failing
+	 * model never fails a turn: the tool reports it unavailable and the
+	 * agent proceeds. Absent means the tool is not mounted.
+	 *
+	 * Accepted only from the user and managed config layers, never a project's
+	 * `namzu.config.json` or the environment: it names a network endpoint and
+	 * the env var holding a bearer token, so where decisions go and which
+	 * credential pays for them is the operator's call, not the workspace's.
+	 */
+	readonly decision?: DecisionConfig
+	/**
+	 * `auto` lets the host pick, per task, which configured model runs it (see
+	 * `routing`). Absent keeps today's behaviour: the saved provider and model
+	 * run every turn. A model pinned for the launch (`--model`) or the session
+	 * (`/model`) always wins over `auto`.
+	 *
+	 * `auto` needs `routing.default`, checked when the config loads. Accepted
+	 * only from the user and managed config layers, like `routing`.
+	 */
+	readonly model?: 'auto'
+	/**
+	 * Tiers and thresholds for `model: auto`. A task is sized by the `decision`
+	 * model and run on the `fast`, `default` or `big` tier; any failure to
+	 * decide runs it on `routing.default`, never on `fast` or `big`.
+	 *
+	 * Accepted only from the user and managed config layers, never a project's
+	 * `namzu.config.json` or the environment: it chooses which provider and
+	 * model receive the conversation, which is the operator's call.
+	 */
+	readonly routing?: RoutingConfig
+	/**
 	 * Shell commands to run at points in the agent's loop: before or after a
 	 * tool call, when a turn starts or ends. File-only, never from the
 	 * environment — a hook runs a command with the operator's authority, and
@@ -412,6 +444,62 @@ export interface ScheduleConfig {
 	readonly maxConcurrentRuns?: number
 	/** Desktop notifications for scheduled runs. Default true. */
 	readonly notifications?: boolean
+}
+
+/**
+ * See `NamzuCliConfig.decision`. Auth is declarative: the config names the
+ * environment variable that holds a credential, never the credential itself.
+ */
+export type DecisionConfig =
+	| {
+			readonly provider: 'azure'
+			/** Resource endpoint of the Azure AI Foundry deployment. */
+			readonly endpoint: string
+			/** Foundry deployment name. */
+			readonly deployment: string
+			/** Environment variable holding the Entra bearer token. Default `AZURE_FOUNDRY_TOKEN`. */
+			readonly tokenEnv?: string
+	  }
+	| {
+			readonly provider: 'http'
+			/** Endpoint of an HTTP decision service. */
+			readonly url: string
+			/** Model name sent to the service, when it takes one. */
+			readonly model?: string
+			/** Environment variable holding a bearer token. Keyless when unset. */
+			readonly apiKeyEnv?: string
+	  }
+
+/** A concrete model to run on: the provider that serves it and its exact id. */
+export interface RoutingTarget {
+	/** Provider id, matching one of your configured providers. */
+	readonly provider: string
+	/** Exact model id at that provider. */
+	readonly model: string
+}
+
+/** See `NamzuCliConfig.routing`. */
+export interface RoutingConfig {
+	/** The model `auto` falls back to whenever it cannot or should not decide. Required. */
+	readonly default: RoutingTarget
+	readonly tiers?: {
+		/** Small, quick model for short chat and one-step tasks. */
+		readonly fast?: RoutingTarget
+		/** Larger model for deep multi-step reasoning and wide code changes. */
+		readonly big?: RoutingTarget
+	}
+	/**
+	 * How tasks are sized. `yesno` (default) asks two calibrated yes/no
+	 * questions; `score` asks for one four-level rating.
+	 */
+	readonly strategy?: 'yesno' | 'score'
+	/** Minimum probability (0 to 1) to leave the default tier. Default 0.7 each. */
+	readonly thresholds?: {
+		readonly fast?: number
+		readonly big?: number
+	}
+	/** Milliseconds the sizing call may take before the default runs. Default 1500. */
+	readonly timeoutMs?: number
 }
 
 export interface TelemetryConfig {

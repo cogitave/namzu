@@ -3,7 +3,15 @@ import { canSelectModel } from '../integrations/providers/access.js'
 import { PROVIDER_REGISTRY } from '../integrations/providers/registry.js'
 
 import { type ModelListingCause, modelListingCause } from './agent.js'
-import { hasBothGroups, modelStep, rowSection, sectionHeading } from './model-choices.js'
+import {
+	AUTO_CHOICE_NOTE,
+	hasBothGroups,
+	isAutoChoice,
+	modelStep,
+	rowSection,
+	sectionHeading,
+	withAutoChoice,
+} from './model-choices.js'
 
 const DEFAULT = 'claude-sonnet-4-5'
 
@@ -611,5 +619,47 @@ describe('a failed model list is said in plain words', () => {
 		expect(modelListingCause(new Error('Request timed out.'))).toBe('network')
 		expect(modelListingCause(new Error('Connection error.'))).toBe('network')
 		expect(modelListingCause(new Error('boom'))).toBe('unknown')
+	})
+})
+
+describe('the Auto row', () => {
+	const listing = {
+		kind: 'ok',
+		models: [
+			{ id: DEFAULT, name: 'Sonnet' },
+			{ id: 'other', name: 'Other' },
+		],
+	} as const
+
+	it('comes first with a short note and keeps the provider rows after it', () => {
+		const base = modelStep(DEFAULT, listing, 'other')
+		const step = withAutoChoice(base, false)
+		expect(step.choices[0]).toMatchObject({
+			label: 'Auto',
+			note: AUTO_CHOICE_NOTE,
+		})
+		expect(isAutoChoice(step.choices[0])).toBe(true)
+		expect(step.choices.slice(1)).toEqual(base.choices)
+		// Still opens on the model in force, one row lower now.
+		expect(step.choices[step.initialIndex]?.id).toBe('other')
+	})
+
+	it('is the opening row when Auto is what runs', () => {
+		const step = withAutoChoice(modelStep(DEFAULT, listing, 'other'), true)
+		expect(step.initialIndex).toBe(0)
+		expect(isAutoChoice(step.choices[step.initialIndex])).toBe(true)
+	})
+
+	it('never collides with a model id a provider lists', () => {
+		const step = withAutoChoice(
+			modelStep(DEFAULT, { kind: 'ok', models: [{ id: 'auto', name: 'auto' }] }),
+			false,
+		)
+		expect(step.choices.filter((c) => isAutoChoice(c))).toHaveLength(1)
+		expect(step.choices.find((c) => c.id === 'auto')).toBeDefined()
+	})
+
+	it('stays out of a list that was not given it', () => {
+		expect(modelStep(DEFAULT, listing).choices.some((c) => isAutoChoice(c))).toBe(false)
 	})
 })

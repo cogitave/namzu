@@ -410,6 +410,12 @@ export interface CliAcpRuntime {
 		notice: string | null
 	}>
 	selectProvider(sessionId: string, provider: string, model?: string): Promise<void>
+	/**
+	 * Make Auto (per-task model routing) what this conversation runs on. Refused with a plain
+	 * sentence when no `routing` block is configured, for a Pal, and while the conversation has
+	 * active work. Absent on a runtime that cannot route.
+	 */
+	selectAuto?(sessionId: string): Promise<void>
 	jobs(sessionId: string): readonly import('@namzu/sdk').BackgroundJob[]
 	readJob(sessionId: string, jobId: string): unknown
 	stopJob(sessionId: string, jobId: string): Promise<unknown>
@@ -569,6 +575,19 @@ export function createCliAcpRuntime(
 	const liveInputs = new Map<string, LivePromptInbox>()
 	const constructing = new Map<string, string>()
 	const selections = new Map<string, Preferences>()
+	// Auto is available when the user config has a `routing` block and the default when it also says
+	// `model: auto`. This holds the person's choice per conversation: true after choosing Auto, false
+	// after hand-picking a model. Never persisted into startup config.
+	const autoChoices = new Map<string, boolean>()
+	const autoAvailable = (config: { readonly routing?: unknown }, pal: boolean) =>
+		config.routing !== undefined && !pal
+	const autoIsActive = (
+		sessionId: string | undefined,
+		config: { readonly routing?: unknown; readonly model?: string },
+		pal: boolean,
+	) =>
+		autoAvailable(config, pal) &&
+		((sessionId ? autoChoices.get(sessionId) : undefined) ?? config.model === 'auto')
 	// Explicit changes belong to the wire conversation, including when a model
 	// change reconstructs its runtime. Never persist these into startup config.
 	const pluginOverrides = new Map<string, Map<string, boolean>>()
@@ -802,6 +821,13 @@ export function createCliAcpRuntime(
 					...(projectCtx.config.compaction ? { compaction: projectCtx.config.compaction } : {}),
 					...(projectCtx.config.memory ? { memory: projectCtx.config.memory } : {}),
 					...(projectCtx.config.sandbox ? { sandbox: projectCtx.config.sandbox } : {}),
+					...(projectCtx.config.decision ? { decision: projectCtx.config.decision } : {}),
+					// Routed turns only where Auto is what runs: never for a Pal, and not after the
+					// person hand-picked a model for this conversation.
+					...(projectCtx.config.routing &&
+					autoIsActive(sessionId, projectCtx.config, palBinding != null)
+						? { routing: projectCtx.config.routing }
+						: {}),
 					// `!== undefined`, not truthiness: an empty list is the
 					// operator turning the default screen OFF.
 					...(projectCtx.config.toolResultScreens !== undefined
@@ -1606,7 +1632,14 @@ export function createCliAcpRuntime(
 			// own, best first (a sign-in, a key, a local server, then the free Zen models).
 			const automatic =
 				!probe.preferences && !(sessionId && selections.has(sessionId)) && !choice?.model
+			const pal = sessionId
+				? (await deps.palBinding?.(records.get(sessionId)?.cwd ?? process.cwd(), sessionId)) != null
+				: false
+			const auto = autoAvailable(bootstrapCtx.config, pal)
+				? { active: autoIsActive(sessionId, bootstrapCtx.config, pal) }
+				: undefined
 			return {
+				...(auto ? { auto } : {}),
 				available: probe.detected.map((found) => ({
 					id: found.entry.id,
 					label: found.entry.label,
@@ -1679,7 +1712,13 @@ export function createCliAcpRuntime(
 				// A running conversation compares against what it actually runs on, which can be
 				// behind its Pal's model after the Pal was changed.
 				const previous = live ? { id: live.provider, model: live.model } : preferences?.providers[0]
+				const palBinding = await deps.palBinding?.(live?.cwd ?? process.cwd(), sessionId)
+				const palModel = palBinding?.definition.model
+				// A Pal never runs on Auto, so its picks neither end Auto nor force a rebuild for it.
+				const wasAuto = autoIsActive(sessionId, bootstrapCtx.config, palBinding != null)
+				// Hand-picking the model that happens to be running still ends Auto, which needs a rebuild.
 				if (
+					!wasAuto &&
 					previous?.id === provider &&
 					(previous.model ?? detected.entry.defaultModel) === (model ?? detected.entry.defaultModel)
 				)
@@ -1697,8 +1736,8 @@ export function createCliAcpRuntime(
 					}
 				}
 				if (closed) throw new Error('The connection is closed.')
-				const palModel = (await deps.palBinding?.(live?.cwd ?? process.cwd(), sessionId))
-					?.definition.model
+				// A model picked by hand turns Auto off for this conversation until Auto is chosen again.
+				if (wasAuto) autoChoices.set(sessionId, false)
 				// Choosing what the Pal already uses is following the Pal, not a hand pick.
 				if (palModel && palModel.provider === provider && palModel.model === selectedModel) {
 					selections.delete(sessionId)
@@ -1712,6 +1751,38 @@ export function createCliAcpRuntime(
 							[]),
 					],
 				})
+			} finally {
+				selecting.delete(sessionId)
+			}
+		},
+		selectAuto: async (sessionId) => {
+			if (!isEntityId(sessionId, 'session')) throw new Error('Invalid conversation id.')
+			if (constructing.has(sessionId) || selecting.has(sessionId))
+				throw new Error('Wait for this conversation to finish connecting.')
+			selecting.add(sessionId)
+			try {
+				if (closed) throw new Error('The connection is closed.')
+				const existing = records.get(sessionId)
+				const pal = (await deps.palBinding?.(existing?.cwd ?? process.cwd(), sessionId)) != null
+				if (pal)
+					throw new Error('Auto is not available in a Pal conversation. A Pal keeps its own model.')
+				if (!autoAvailable(bootstrapCtx.config, false))
+					throw new Error(
+						'Auto is not set up. It needs a routing block in your user config (~/.namzu/config.yaml) that says which models to pick from. See docs/cli/auto-model-routing.md.',
+					)
+				if (autoIsActive(sessionId, bootstrapCtx.config, false)) return
+				if (existing?.route || existing?.session.jobs?.().some((job) => job.status === 'running'))
+					throw new Error('Stop this conversation’s active work before changing its model.')
+				if (existing) {
+					if (existing.retrySettings) retryCarry.set(sessionId, existing.retrySettings)
+					records.delete(sessionId)
+					try {
+						await existing.session.close()
+					} finally {
+						if (existing.conversations) closeSessions(existing.conversations)
+					}
+				}
+				autoChoices.set(sessionId, true)
 			} finally {
 				selecting.delete(sessionId)
 			}

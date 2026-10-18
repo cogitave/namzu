@@ -72,7 +72,11 @@ read in part. A saved catalogue carrying a now-reviewed omitted model, one
 of the superseded Go routes, or a direct-anonymous flag on a model the
 gateway currently refuses is also rejected. An offline launch then uses the
 corrected bundle. A derivation that
-meets any source it cannot read in full produces no catalogue.
+meets any source it cannot read in full produces no catalogue. A derivation
+whose page names a new wire the driver does not implement yet still produces
+one: that odd row splits off into the derivation's report and the rest of the
+roster lands, while a row that settles a model on a host outside the
+service's own is tamper-shaped and stops the run whole.
 
 An id a service serves that no source gives a wire format for is not offered:
 the model picker, `/model` and the model tool leave it out, even when the

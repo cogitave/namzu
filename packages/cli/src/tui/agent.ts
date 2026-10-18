@@ -51,6 +51,7 @@ import {
 	type BackgroundJob,
 	type BackgroundJobOutput,
 	BackgroundJobRegistry,
+	COMPUTER_USE_TOOL_NAME,
 	type CheckpointId,
 	type CompactionConfig,
 	type CompactionResult,
@@ -165,6 +166,7 @@ import {
 	seedObservationLedger,
 	toolset,
 	webGuidanceContribution,
+	windowsShellNotice,
 	wrapUntrusted,
 } from '@namzu/sdk'
 
@@ -187,9 +189,11 @@ import {
 } from '../checkpoints/wrap.js'
 import type {
 	CompactionCliConfig,
+	DecisionConfig,
 	HooksConfig,
 	MemoryCliConfig,
 	PluginConfig,
+	RoutingConfig,
 	SandboxConfig,
 	SkillsConfig,
 	TurnLimitsConfig,
@@ -224,6 +228,11 @@ import {
 	sandboxResolvedSeverity,
 } from '../context/sandbox.js'
 import { composeTurnSnapshot, readTurnSnapshot } from '../context/turn-snapshot.js'
+import {
+	maybeCreateDecisionModel,
+	maybeCreateDecisionTool,
+} from '../integrations/decision/model.js'
+import { type RouteTier, routeModel } from '../integrations/decision/routing.js'
 import {
 	type ConnectedMcpServer,
 	type FailedMcpServer,
@@ -929,6 +938,12 @@ export interface ResumePausedParams {
 	readonly systemNote?: string
 }
 
+/** Where `model: auto` sent a turn: shown beside "Auto" so the choice is visible. */
+export interface AutoRouteSummary {
+	readonly tier: RouteTier
+	readonly model: string
+}
+
 export interface AgentSession {
 	/**
 	 * The browser the `browser` and `browser_act` tools drive, when this
@@ -949,6 +964,8 @@ export interface AgentSession {
 	readonly sandbox: SandboxSummary
 	readonly providerSummary: string | null
 	readonly modelSummary: string | null
+	/** Under `model: auto`, the tier and model the latest top-level turn was routed to. */
+	readonly autoRoute?: AutoRouteSummary
 	/** Exact primary route declarations; absent means support has not been declared. */
 	readonly imageAttachmentsSupported?: boolean
 	readonly documentAttachmentsSupported?: boolean
@@ -1969,6 +1986,18 @@ export interface AgentSessionOptions {
 	 */
 	readonly enableComputerUse?: boolean
 	/**
+	 * See `NamzuCliConfig.decision`. When set, the optional, advisory
+	 * fail-open `decide` tool is mounted. Absent mounts nothing.
+	 */
+	readonly decision?: DecisionConfig
+	/**
+	 * See `NamzuCliConfig.routing`. When set, `model: auto` is in force: each
+	 * top-level turn, and each delegated child that inherits the session's
+	 * model, is routed to a tier by `routeModel`. A Pal resolves it once, to
+	 * `routing.default`. Absent means the saved provider and model run as today.
+	 */
+	readonly routing?: RoutingConfig
+	/**
 	 * Mount the browser tools (`browser`, `browser_act`) over
 	 * `@namzu/browser`, with this profile, engine and site policy. Only the
 	 * TUI passes it: `exec`, `exec --json`, `drain` and `acp` have nobody at
@@ -2434,6 +2463,12 @@ export async function createAgentSession(
 	// The TUI can replace its conversation without replacing this session object.
 	// Bind each admitted run to its captured conversation, including durable resumes;
 	// a Zen client must never generate a fresh Go session for each model call.
+	// The model `model: auto` routed the current top-level turn to, for the
+	// children that turn delegates to. Undefined when auto is off or fell back
+	// to the session's own provider.
+	let turnRouteTarget: { readonly provider: string; readonly model: string } | undefined
+	// What `model: auto` decided for the latest top-level turn, for the status line.
+	let lastAutoRoute: AutoRouteSummary | undefined
 	const providerForSession = (sessionId: SessionId): LLMProvider =>
 		primary.id === 'zen' || primary.id === 'zen-go'
 			? constructProvider(primary.id, det, model, { sessionId })
@@ -2839,6 +2874,7 @@ export async function createAgentSession(
 	// and bounds redirects and body; every fetch is reviewed like a shell
 	// command (see `isPromptExempt`).
 	// Mixed fallback chains use a common tool, so provider fallback cannot silently lose search.
+	// Auto is the same case: each turn may run on another provider, so it uses the common tool too.
 	const nativeSearchAvailable =
 		provider.capabilities?.supportsHostedWebSearch === true &&
 		!options.structuredOutput &&
@@ -2847,11 +2883,22 @@ export async function createAgentSession(
 			options.web?.search === 'cached' ? 'cached' : 'live',
 		) ??
 			true) &&
-		prefs.providers.length === 1
+		prefs.providers.length === 1 &&
+		!options.routing
 	const webSearch = resolveWebSearch(options.web, nativeSearchAvailable)
 	const nativeWebSearch =
 		webSearch.mode !== 'off' && webSearch.backend === 'native'
 			? { mode: webSearch.mode }
+			: undefined
+	/**
+	 * The hosted search request for a turn Auto sent elsewhere: only where that provider can run
+	 * it (`web.search: cached` keeps the hosted backend under Auto), or the request is refused.
+	 */
+	const routedWebSearch = (routed: { readonly provider: LLMProvider; readonly model: string }) =>
+		nativeWebSearch &&
+		routed.provider.capabilities?.supportsHostedWebSearch === true &&
+		(routed.provider.supportsHostedWebSearchFor?.(routed.model, nativeWebSearch.mode) ?? true)
+			? nativeWebSearch
 			: undefined
 	// Kept aside (not just pushed) so a sub-agent can share this exact tool
 	// object rather than opening a second connection — see `buildTools` below.
@@ -3129,8 +3176,12 @@ export async function createAgentSession(
 				})
 			},
 			buildProvider: async (invokingSessionId, selection) => {
-				const providerId = selection ? (selection.provider as ProviderId) : primary.id
-				const selectedModel = selection?.model ?? model
+				// Without an explicit choice a child inherits the model the current
+				// turn was routed to (`model: auto`), else the session's own.
+				const providerId = selection
+					? (selection.provider as ProviderId)
+					: ((turnRouteTarget?.provider as ProviderId | undefined) ?? primary.id)
+				const selectedModel = selection?.model ?? turnRouteTarget?.model ?? model
 				if (!invokingSessionId && (providerId === 'zen' || providerId === 'zen-go'))
 					throw new Error('A delegated provider requires its invoking conversation.')
 				await ensureRegistered(providerId)
@@ -3301,6 +3352,10 @@ export async function createAgentSession(
 		toolsets.push(toolset('extra', options.extraTools))
 	}
 	if (options.openUrl) toolsets.push(toolset('open-url', [createOpenUrlTool()]))
+	// Optional System-1 decision model. Always ready once configured: a model
+	// failure is absorbed inside the tool (fail-open), never a thrown error.
+	const decisionTool = maybeCreateDecisionTool(options.decision, process.env)
+	if (decisionTool) toolsets.push(toolset('decide', [decisionTool]))
 	// The owner's Pals, reachable from an ordinary conversation of the Namzu engine.
 	// Mounted whether or not any Pal exists yet so one created mid-conversation is
 	// usable at once (the roster never changes, so the cached prefix does not); the
@@ -3677,6 +3732,73 @@ export async function createAgentSession(
 			...(effort ? { effort } : {}),
 		}
 	}
+	// `model: auto`: the decision model that sizes a task, built once. Absent
+	// without a `decision` block, in which case every turn runs `routing.default`.
+	const routingDecisionModel = options.routing
+		? maybeCreateDecisionModel(options.decision, process.env)
+		: undefined
+	/**
+	 * Where a top-level turn runs under `model: auto`, or `undefined` to run on
+	 * the session's own provider (auto off, the route is the session's model, or
+	 * the routed provider could not be built). Never throws into the turn.
+	 */
+	const autoRouteFor = async (
+		messages: readonly Message[],
+		sessionId: SessionId,
+		signal: AbortSignal,
+	): Promise<{ readonly provider: LLMProvider; readonly model: string } | undefined> => {
+		const routing = options.routing
+		if (!routing) return undefined
+		try {
+			const routed = await routeModel(
+				{
+					task: lastUserText(messages),
+					config: routing,
+					features: {
+						conversationLength: messages.length,
+						// Mounted is not used: the tool is on in every interactive session,
+						// so only a conversation that has driven the desktop keeps the small
+						// tier out.
+						usesComputerUse: options.enableComputerUse === true && conversationDrovePc(messages),
+						usesPal: false,
+					},
+					signal,
+				},
+				{
+					...(routingDecisionModel ? { model: routingDecisionModel } : {}),
+					isAvailable: (target) => {
+						const found = findDetected(detected, target.provider as ProviderId)
+						if (!found) return false
+						return (
+							found.entry.constructible && canSelectModel(found.entry, found.apiKey, target.model)
+						)
+					},
+					logger: cliLogger(),
+				},
+			)
+			lastAutoRoute = { tier: routed.tier, model: routed.model }
+			if (routed.provider === primary.id && routed.model === model) {
+				turnRouteTarget = undefined
+				return undefined
+			}
+			const route = await pinnedResumeRoute(
+				{ provider: routed.provider, model: routed.model },
+				sessionId,
+				signal,
+			)
+			turnRouteTarget = route ? { provider: routed.provider, model: route.model } : undefined
+			return route
+		} catch (err) {
+			signal.throwIfAborted()
+			turnRouteTarget = undefined
+			lastAutoRoute = undefined
+			cliLogger().warn(
+				'auto model routing failed, using the session model',
+				exceptionAttributes(err),
+			)
+			return undefined
+		}
+	}
 	/**
 	 * The kernel's resume with this session's half of the turn attached: the
 	 * provider, the tools, the working directory, the doctrine — the part a
@@ -3722,6 +3844,7 @@ export async function createAgentSession(
 			// hold a client the refresh just replaced.
 			await prepareProviderCredential(ownedSignal)
 			const route = await pinnedResumeRoute(pinned, entry.sessionId, ownedSignal)
+			const resumeWebSearch = route ? routedWebSearch(route) : nativeWebSearch
 			const turnSkills = await turnSkillsFor(route?.model ?? model)
 			const curatedMemory = readMemory(undefined, cwd)
 			for (const notice of formatMemoryDiagnostics(curatedMemory)) cliLogger().warn(notice)
@@ -3869,7 +3992,7 @@ export async function createAgentSession(
 					turnConfig: {
 						model: route?.model ?? model,
 						...(route?.effort ? { effort: route.effort } : {}),
-						...(nativeWebSearch ? { webSearch: nativeWebSearch } : {}),
+						...(resumeWebSearch ? { webSearch: resumeWebSearch } : {}),
 						...(sandbox.provider ? { sandbox: { workspace: sandboxWorkspace } } : {}),
 						...resumedLimits,
 						maxResponseTokens: 8192,
@@ -4034,6 +4157,9 @@ export async function createAgentSession(
 		},
 		providerSummary: entry.label,
 		modelSummary: model,
+		get autoRoute() {
+			return lastAutoRoute
+		},
 		get imageAttachmentsSupported() {
 			return providerForSession(scope.sessionId).capabilities?.supportsVision
 		},
@@ -4289,6 +4415,10 @@ export async function createAgentSession(
 		mcpStatus: () => mcp.current(),
 		...(browserControl ? { browser: browserControl } : {}),
 		configNotices: [
+			// Git for Windows is missing and the shell tool runs cmd.exe: said once, here.
+			...(sandbox.provider === undefined && windowsShellNotice() !== undefined
+				? [windowsShellNotice() as string]
+				: []),
 			...(capabilityNotice ? [capabilityNotice] : []),
 			...(effortNotice ? [effortNotice] : []),
 			...(passthroughNotice ? [passthroughNotice] : []),
@@ -4446,7 +4576,9 @@ export async function createAgentSession(
 						// runs — midnight passes, and the agent checks out a branch itself.
 						// Its text only changes when a fact changes, so it costs a prompt-cache
 						// miss exactly when a hit would have been a stale claim.
-						const turnSkills = await turnSkillsFor(model)
+						const autoRoute = await autoRouteFor(messages, turnScope.sessionId, signal)
+						const turnWebSearch = autoRoute ? routedWebSearch(autoRoute) : nativeWebSearch
+						const turnSkills = await turnSkillsFor(autoRoute?.model ?? model)
 						// `options.toolLoading === 'deferred'` is already baked into
 						// `sessionToolsets` (see its construction above) — availability
 						// is derived from the turn's own revealed-tool history now, not
@@ -4666,7 +4798,7 @@ export async function createAgentSession(
 						}
 						try {
 							for await (const event of runTurn({
-								provider: providerForSession(turnScope.sessionId),
+								provider: autoRoute?.provider ?? providerForSession(turnScope.sessionId),
 								fileReadTracker: await observationsFor(turnScope.sessionId, messages),
 								compactionConfig: compactionConfigFor(options.compaction),
 								retainedToolPreviewChars: options.conversationSessions
@@ -4686,8 +4818,11 @@ export async function createAgentSession(
 								// that expired hours ago — and a chain whose own members are stale
 								// is a fallback that fails for the reason the fallback exists to
 								// survive. Building a driver is a client object, not a request.
-								fallbackProviders: fallbackPlan.build(currentToken, turnScope.sessionId),
-								model,
+								// A routed turn has no fallback chain, like a pinned resume.
+								fallbackProviders: autoRoute
+									? []
+									: fallbackPlan.build(currentToken, turnScope.sessionId),
+								model: autoRoute?.model ?? model,
 								toolsets: runToolsets,
 								...(screensConfig !== undefined ? { toolResultGuardrails: screensConfig } : {}),
 								pluginManager: pluginRuntime?.manager,
@@ -4741,7 +4876,7 @@ export async function createAgentSession(
 								completionInbox: await subagentRuntime?.completionInboxForTurn(turnId),
 								promptContributions,
 								...(webCapability ? { web: webCapability } : {}),
-								...(nativeWebSearch ? { webSearch: nativeWebSearch } : {}),
+								...(turnWebSearch ? { webSearch: turnWebSearch } : {}),
 								// Tasks join this turn's registry inside query, after the fork.
 								// Keep the existing eager path unless deferral was requested.
 								runtimeToolOverrides: {
@@ -5402,6 +5537,22 @@ export interface SessionScope {
 export type { SessionDirectories } from '../context/directories.js'
 
 /** The newest user turn's text, for labels. */
+/** How far back `conversationDrovePc` looks: the current stretch of work, not the whole history. */
+const DESKTOP_USE_LOOKBACK = 20
+
+/** Whether the recent conversation called the computer-use tool, i.e. is driving the desktop. */
+export function conversationDrovePc(messages: readonly Message[]): boolean {
+	for (let i = messages.length - 1; i >= 0 && i >= messages.length - DESKTOP_USE_LOOKBACK; i--) {
+		const m = messages[i]
+		if (
+			m?.role === 'assistant' &&
+			m.toolCalls?.some((call) => call.function.name === COMPUTER_USE_TOOL_NAME)
+		)
+			return true
+	}
+	return false
+}
+
 function lastUserText(messages: readonly Message[]): string {
 	for (let i = messages.length - 1; i >= 0; i--) {
 		const m = messages[i]

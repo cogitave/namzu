@@ -52,7 +52,7 @@
 		}
 	},
 	"files": {
-		"include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.cts", "src/**/*.css"]
+		"include": ["src/**/*.ts", "src/**/*.mts", "src/**/*.tsx", "src/**/*.cts", "src/**/*.css"]
 	},
 	"overrides": [
 		{

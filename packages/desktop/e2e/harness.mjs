@@ -99,6 +99,7 @@ export async function createWorld(opts = {}) {
 		pathPrefix: opts.pathPrefix,
 		env: opts.env,
 		noKey: opts.noKey === true,
+		electronArgs: opts.electronArgs,
 	};
 	await opts.seed?.(world);
 	return world;
@@ -137,7 +138,7 @@ export async function launch(world) {
 	delete env.WSL_INTEROP;
 	const app = await _electron.launch({
 		executablePath: require("electron"),
-		args: [appDir, `--user-data-dir=${world.userData}`, "--no-sandbox"],
+		args: [appDir, `--user-data-dir=${world.userData}`, "--no-sandbox", ...(world.electronArgs ?? [])],
 		env,
 	});
 	world.app = app;
