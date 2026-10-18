@@ -984,6 +984,8 @@ export interface SessionWorkflows {
 	readonly history: () => Promise<readonly WorkflowRunView[]>
 	/** Be told once when a run ends, whether or not a turn is running. */
 	readonly onEnd: (listener: (end: WorkflowRunEnd) => void) => () => void
+	/** Resolves once no run is going, or when the signal aborts. */
+	readonly idle: (signal?: AbortSignal) => Promise<void>
 	/** Forget ended runs and stop running ones (a new conversation). */
 	readonly reset: () => void
 }
@@ -4408,6 +4410,7 @@ export async function createAgentSession(
 							workflowEndListeners.add(listener)
 							return () => workflowEndListeners.delete(listener)
 						},
+						idle: (signal) => host.registry.whenIdle(signal),
 						reset: () => host.registry.reset(),
 					}))(workflowHost),
 				}

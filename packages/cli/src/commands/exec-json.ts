@@ -99,6 +99,7 @@ import {
 	resolveWorkingDirectory,
 	unknownOptionMessage,
 } from './exec-flags.js'
+import { MAX_REPORT_TURNS, reportMessage, watchWorkflows } from './exec-workflows.js'
 import { parsePriorMessages } from './prior-messages.js'
 import { readStdin } from './stdin.js'
 import type { CommandHandlerArgs } from './types.js'
@@ -470,12 +471,23 @@ export async function execJson(
 		closeSessions(cli)
 	})
 	let paused: Extract<AgentEvent, { kind: 'paused' }> | undefined
-	try {
-		for await (const event of session.send(messages, {
-			signal: turnAbort.signal,
-			...(extraSystem ? { extraSystem } : {}),
-			...(flags.effort !== null ? { effort: flags.effort } : {}),
-		})) {
+	// The settled conversation, for the reporting turns after the first: a
+	// workflow the model started is waited for and reported on before exit.
+	let history: readonly Message[] | undefined
+	const watch = watchWorkflows(session.workflows)
+	const turnOptions = {
+		signal: turnAbort.signal,
+		...(extraSystem ? { extraSystem } : {}),
+		...(flags.effort !== null ? { effort: flags.effort } : {}),
+		// This host can wait for a background run, so it says so. Nobody is here
+		// to review a script: only a session set to run without asking may start one.
+		workflowReview: { currentPermissionMode: () => modeResult.mode },
+		onConversationMessages: (settled: readonly Message[]) => {
+			history = settled
+		},
+	}
+	const stream = async (turn: readonly Message[]): Promise<void> => {
+		for await (const event of session.send(turn, turnOptions)) {
 			if (stopped) continue
 			if ('budget' in event && event.budget) budget = event.budget
 			if (event.kind === 'paused') paused = event
@@ -485,7 +497,24 @@ export async function execJson(
 			} else if (event.kind === 'done') terminalEvent = event
 			else write(event)
 		}
+	}
+	try {
+		await stream(messages)
+		for (
+			let rounds = 0;
+			watch && !stopped && !paused && !busy && rounds < MAX_REPORT_TURNS;
+			rounds += 1
+		) {
+			const report = await watch.report({
+				signal: turnAbort.signal,
+				...(ctx.config.limits?.timeoutMs ? { timeoutMs: ctx.config.limits.timeoutMs } : {}),
+			})
+			if (report === undefined || stopped) break
+			await stream([...(history ?? messages), reportMessage(report)])
+		}
+		watch?.dispose()
 	} catch (err) {
+		watch?.dispose()
 		// The signal handler closes the session and ends the process.
 		if (stopped) return EXIT_OK
 		reportMcpDiscoveries()

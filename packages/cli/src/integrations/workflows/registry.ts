@@ -162,6 +162,25 @@ export class WorkflowRunRegistry {
 		return run.view
 	}
 
+	/**
+	 * Resolves once no run is going, or when `signal` aborts (whichever is first).
+	 * A run's own limits bound the wait: the runtime stops one at its duration cap.
+	 */
+	whenIdle(signal?: AbortSignal): Promise<void> {
+		if (this.running().length === 0 || signal?.aborted) return Promise.resolve()
+		return new Promise<void>((resolve) => {
+			const done = (): void => {
+				off()
+				signal?.removeEventListener('abort', done)
+				resolve()
+			}
+			const off = this.subscribe(() => {
+				if (this.running().length === 0) done()
+			})
+			signal?.addEventListener('abort', done, { once: true })
+		})
+	}
+
 	/** Stop a run: queued agents never start, running ones are aborted. False when it is not running. */
 	stop(runId: string): boolean {
 		const run = this.runs.get(runId)
