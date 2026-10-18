@@ -399,6 +399,7 @@ import { withWorkflowRuns } from './workflow-runs.js'
 
 import type { BrowserControl } from '../browser/control.js'
 import { renderCheckpoints, renderRestore, renderRestoreNote } from '../checkpoints/store.js'
+import { agentViewCommandClass } from './agent-view-commands.js'
 import { browserSiteNotes, describeBrowserHandoff, runBrowserSlash } from './browser-notices.js'
 import { expandFileMentions, listMentionableFiles } from './mentions.js'
 import { openInBrowser } from './open-browser.js'
@@ -425,6 +426,7 @@ import {
 	hostCommandNames,
 	kernelCommandDescriptors,
 	mergeHostCommands,
+	parseSlash,
 	renderAgents,
 	renderOutcome,
 	reviewPrompt,
@@ -656,6 +658,18 @@ type ChoicePickerState = { readonly back?: ChoicePickerState; readonly request?:
 			readonly selectedSession?: AgentSession
 			/** The last entry is the hypermode row, below a rule; never a `ReasoningEffort`. */
 			readonly values: readonly (ReasoningEffort | undefined | 'hypermode')[]
+			readonly options: readonly ChoicePickerOption[]
+	  }
+	| {
+			/**
+			 * A command that acts on the conversation, typed while an agent is
+			 * viewed: asks once, then runs it against the conversation.
+			 */
+			readonly kind: 'agent-view-command'
+			readonly title: string
+			readonly notice?: string
+			readonly line: string
+			readonly values: readonly ('cancel' | 'run')[]
 			readonly options: readonly ChoicePickerOption[]
 	  }
 	| {
@@ -1556,6 +1570,8 @@ export function App({
 	 */
 	const choicePickerCommittedRef = useRef<ChoicePickerState | null>(null)
 	const commandPickerSubmitRef = useRef<(command: string) => void>(() => {})
+	/** A command line the person confirmed to run against the conversation while an agent was viewed. */
+	const mainCommandConfirmedRef = useRef<string | null>(null)
 	const {
 		selection: selectedChoice,
 		selectionRef: selectedChoiceRef,
@@ -4009,6 +4025,16 @@ export function App({
 					return
 				}
 				applyPermissionMode(value as PermissionMode)
+				return
+			}
+			if (picker.kind === 'agent-view-command') {
+				if (value !== 'run') return
+				// The draft held the line while the question was open; the command
+				// takes it now.
+				composerDraftTokenRef.current += 1
+				setComposerDraft({ token: composerDraftTokenRef.current, text: '' })
+				mainCommandConfirmedRef.current = picker.line
+				commandPickerSubmitRef.current(picker.line)
 				return
 			}
 			if (picker.kind === 'feedback-rating') {
@@ -8531,19 +8557,50 @@ export function App({
 					})
 				}
 				const text = value.trim()
-				if (attachments && attachments.length > 0) {
-					restore('Messages to an agent take text only.')
+				// A command the host answers itself is never the agent's: it runs
+				// against the conversation, after asking where it changes history, and
+				// `/model` is refused. Other `/` text is for the agent. REA fn p3e/Ece.
+				const confirmed = mainCommandConfirmedRef.current === value
+				if (confirmed) mainCommandConfirmedRef.current = null
+				const parsed = confirmed ? null : parseSlash(text)
+				const builtin = parsed ? hostCommands.find((c) => c.name === parsed.name) : undefined
+				const handling = builtin ? agentViewCommandClass(builtin.name) : undefined
+				if (handling?.kind === 'block') {
+					restore(handling.notice)
 					return
 				}
-				if (text.length === 0 || text.length > 16_000) {
-					restore('Enter a message of 1–16000 characters.')
+				if (handling?.kind === 'confirm') {
+					restore('')
+					setViewNotice(undefined)
+					setSelectedChoice(0)
+					setChoicePicker({
+						kind: 'agent-view-command',
+						title: handling.title,
+						line: value,
+						values: ['cancel', 'run'],
+						options: [
+							{ label: 'Cancel', description: '' },
+							{ label: handling.confirmLabel, description: '' },
+						],
+					})
+					return
+				}
+				if (!confirmed && !builtin) {
+					if (attachments && attachments.length > 0) {
+						restore('Messages to an agent take text only.')
+						return
+					}
+					if (text.length === 0 || text.length > 16_000) {
+						restore('Enter a message of 1–16000 characters.')
+						return
+					}
+					setViewNotice(undefined)
+					void submitChildMessage(viewedId, text).catch((error: unknown) =>
+						restore(error instanceof Error ? error.message : String(error)),
+					)
 					return
 				}
 				setViewNotice(undefined)
-				void submitChildMessage(viewedId, text).catch((error: unknown) =>
-					restore(error instanceof Error ? error.message : String(error)),
-				)
-				return
 			}
 			// The operator moved on; a parked turn is still there for /resume.
 			setHandoffPark(null)
@@ -12186,7 +12243,10 @@ export function App({
 								onClose={() => setScrollOpen(false)}
 							/>
 						) : null}
-						{viewingAgent && agentSurface?.kind === 'transcript' && permission === null ? (
+						{viewingAgent &&
+						agentSurface?.kind === 'transcript' &&
+						permission === null &&
+						choicePicker === null ? (
 							<AgentView
 								agent={viewingAgent}
 								tailOffset={agentSurface.tailOffset}

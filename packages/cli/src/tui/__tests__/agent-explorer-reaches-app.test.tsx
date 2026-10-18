@@ -3704,6 +3704,102 @@ describe('viewing an agent', () => {
 		expect(send).toHaveBeenCalledWith('v2', 'please also count lines', expect.any(Object))
 	})
 
+	// Reference: a built-in command is never the agent's. `/model` is refused,
+	// the history commands ask first, the rest run against the conversation, and
+	// other `/` text is for the agent (REA fns p3e and Ece).
+	describe('slash commands typed in the view', () => {
+		async function type(screen: Awaited<ReturnType<typeof viewSecond>>, line: string) {
+			screen.press(line)
+			await screen.waitForRender()
+			screen.press('\r')
+		}
+
+		it('refuses /model with a plain notice, keeps the text and sends nothing', async () => {
+			const send = allowMessages()
+			const screen = await viewSecond()
+			await type(screen, '/model')
+			await waitUntil(
+				screen,
+				() =>
+					screen
+						.viewport()
+						.join('\n')
+						.includes("/model changes the main conversation's model, not this agent's"),
+				'no notice',
+			)
+			expect(send).not.toHaveBeenCalled()
+		})
+
+		it('asks before /compact and sends nothing to the agent', async () => {
+			const send = allowMessages()
+			const screen = await viewSecond()
+			await type(screen, '/compact')
+			await waitUntil(
+				screen,
+				() =>
+					screen
+						.viewport()
+						.join('\n')
+						.includes('/compact acts on the main conversation, not this agent'),
+				'no question',
+			)
+			const frame = screen.viewport().join('\n')
+			expect(frame).toContain('Cancel')
+			expect(frame).toContain('Run /compact on the main conversation')
+			// Cancel is the row the question opens on.
+			screen.press('\r')
+			await waitUntil(
+				screen,
+				() => !screen.viewport().join('\n').includes('acts on the main conversation'),
+				'the question stayed open',
+			)
+			expect(send).not.toHaveBeenCalled()
+		})
+
+		it('runs the history command against the conversation once it is confirmed', async () => {
+			const send = allowMessages()
+			const screen = await viewSecond()
+			await type(screen, '/new')
+			await waitUntil(
+				screen,
+				() => screen.viewport().join('\n').includes('/new acts on the main conversation'),
+				'no question',
+			)
+			screen.press('\x1b[B')
+			await screen.waitForRender()
+			screen.press('\r')
+			await waitUntil(
+				screen,
+				() => !screen.viewport().join('\n').includes('acts on the main conversation'),
+				'the question stayed open',
+			)
+			await screen.waitForRender()
+			expect(send).not.toHaveBeenCalled()
+			// The confirmed line was the command, not text left in the composer.
+			expect(screen.viewport().join('\n')).not.toMatch(/❯ \/new/u)
+		})
+
+		it('runs another built-in against the conversation, not the agent', async () => {
+			const send = allowMessages()
+			const screen = await viewSecond()
+			await type(screen, '/help')
+			await waitUntil(
+				screen,
+				() => screen.viewport().join('\n').includes('Choose a command'),
+				'help did not run',
+			)
+			expect(send).not.toHaveBeenCalled()
+		})
+
+		it('sends other slash text to the agent as typed', async () => {
+			const send = allowMessages()
+			const screen = await viewSecond()
+			await type(screen, '/no-such-skill please')
+			await waitUntil(screen, () => send.mock.calls.length === 1, 'the line did not go')
+			expect(send).toHaveBeenCalledWith('v2', '/no-such-skill please', expect.any(Object))
+		})
+	})
+
 	it('says plainly when the message cannot go, and keeps the text', async () => {
 		const send = allowMessages()
 		send.mockRejectedValueOnce(new Error('Agent was stopped, so it cannot take a message.'))
