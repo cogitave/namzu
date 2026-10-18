@@ -7459,9 +7459,7 @@ export function App({
 				text = [
 					...ended,
 					...(jobLines.length > 0
-						? [
-								`Background jobs that ended:\n${jobLines.map(([, line]) => `- ${line}`).join('\n')}`,
-							]
+						? [`Background jobs that ended:\n${jobLines.map(([, line]) => `- ${line}`).join('\n')}`]
 						: []),
 				].join('\n\n')
 			}

@@ -1,10 +1,10 @@
 import { estimateMessagesTokens } from '../compaction/token-estimate.js'
 import { EMPTY_TOKEN_USAGE } from '../constants/limits.js'
-import { cancelCauseOf } from '../types/session/cancel-cause.js'
 import type { SessionTokenBudget } from '../store/budget/ledger.js'
 import { type TokenUsage, mergeTokenUsage } from '../types/common/index.js'
 import { ProviderError, classifyProviderError } from '../types/provider/errors.js'
 import type { LLMProvider, StreamChunk } from '../types/provider/index.js'
+import { cancelCauseOf } from '../types/session/cancel-cause.js'
 import { isProviderRequestError } from './errors.js'
 
 export class TokenBudgetAdmissionError extends ProviderError {

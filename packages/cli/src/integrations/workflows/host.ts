@@ -146,7 +146,8 @@ export function createWorkflowHost(options: WorkflowHostOptions): WorkflowHost {
 			additionalProperties: false,
 		}),
 		largeStringArguments: { script: 20_000 },
-		truncatedInputHint: `Write a shorter script: shared helpers, loops instead of repeated lines, and prompts built from args.`,
+		truncatedInputHint:
+			'Write a shorter script: shared helpers, loops instead of repeated lines, and prompts built from args.',
 		malformedInputHint:
 			'Every character of "script" goes inside a JSON string: write a newline as \\n, a tab as \\t, a double quote as \\" and a backslash as \\\\.',
 		// The person reads `Workflow(<what it is for>)`, never the script.

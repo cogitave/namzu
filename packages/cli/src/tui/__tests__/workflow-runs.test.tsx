@@ -17,8 +17,8 @@ import {
 import {
 	AGENT_RAIL_FINISHED_LINGER_MS,
 	AgentCockpit,
-	AgentTranscript,
 	AgentTaskPanel,
+	AgentTranscript,
 	agentWorkflows,
 	cockpitEntryFocus,
 	phaseCount,
