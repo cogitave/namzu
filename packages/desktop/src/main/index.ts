@@ -13,6 +13,7 @@ import {
 	dialog,
 	ipcMain,
 	nativeTheme,
+	powerMonitor,
 	screen,
 	session,
 	shell,
@@ -67,8 +68,14 @@ import { FolderAccess } from './folder-access.js'
 import { humanComputer } from './host-computer.js'
 import { electronLinkPreviewNetwork } from './link-preview-electron.js'
 import { createLinkPreviewService } from './link-preview.js'
+import {
+	LocalListeningService,
+	LocalSpeechRecognizer,
+	LocalVoiceActivityDetector,
+} from './local-listening.js'
 import { LocalSpeechRouting } from './local-speech-routing.js'
 import { LocalSpeechService } from './local-speech.js'
+import { installMediaPermissions } from './media-permissions.js'
 import { createNewProject } from './new-project.js'
 import { OpenIn, systemOpenInHost } from './open-in.js'
 import { Operator } from './operator.js'
@@ -112,6 +119,7 @@ import {
 	bakedFeedDeclared,
 	updateFeedFromEnv,
 } from './updater.js'
+import { VoiceInputManager } from './voice-input.js'
 import {
 	readWindowMenu,
 	readWindowMenuAnchor,
@@ -225,14 +233,16 @@ const localSpeech = new LocalSpeechService({
 	// Chromium uses the native trust store and proxy policy; never disable TLS verification.
 	fetch: (input, init) => net.fetch(input instanceof URL ? input.href : input, init),
 })
+/** The window is open, writable, not closing, and (when named) owns the conversation. */
+function assertWindowOwner(windowId: string, sessionId?: string): void {
+	const window = windows.entries().find(([id]) => id === windowId)?.[1]
+	if (!window || window.isDestroyed()) throw new Error('This speech window has closed.')
+	workspace.assertWindowWritable(windowId)
+	if (workspace.view(windowId).closingWindow) throw new Error('This speech window is closing.')
+	if (sessionId !== undefined) workspace.assertOwner(windowId, sessionId)
+}
 const localSpeechRouting = new LocalSpeechRouting(localSpeech, {
-	assertOwner: (windowId, sessionId) => {
-		const window = windows.entries().find(([id]) => id === windowId)?.[1]
-		if (!window || window.isDestroyed()) throw new Error('This speech window has closed.')
-		workspace.assertWindowWritable(windowId)
-		if (workspace.view(windowId).closingWindow) throw new Error('This speech window is closing.')
-		if (sessionId !== undefined) workspace.assertOwner(windowId, sessionId)
-	},
+	assertOwner: assertWindowOwner,
 	deliver: (windowId, event) => {
 		const window = windows.entries().find(([id]) => id === windowId)?.[1]
 		if (window && !window.isDestroyed()) window.webContents.send('namzu:local-speech-event', event)
@@ -258,11 +268,24 @@ localSpeech.subscribe((event) => {
 		localSpeechRouting.event(event)
 	}
 })
+const localListening = new LocalListeningService({
+	directory: join(app.getPath('userData'), 'local-listening'),
+	// Chromium uses the native trust store and proxy policy; never disable TLS verification.
+	fetch: (input, init) => net.fetch(input instanceof URL ? input.href : input, init),
+})
+let observedListeningFailure: string | undefined
+function observeListeningFailure(message: string | undefined, operation: string): void {
+	// Compare private fixed failure messages for deduplication; never write their text or audio.
+	if (message && observedListeningFailure !== message)
+		diagnostics.record('local_listening_failed', { operation })
+	observedListeningFailure = message
+}
 function discardAbortedWindows(): void {
 	const current = new Set(workspace.snapshot().windows.map((item) => item.id))
 	for (const [id, window] of windows.entries())
 		if (!current.has(id)) {
 			localSpeechRouting.cancelWindow(id)
+			voiceInput.stopWindow(id)
 			windows.remove(id)
 			if (!window.isDestroyed()) window.destroy()
 		}
@@ -483,6 +506,37 @@ const settingsStore = new DesktopSettingsStore({
 			error,
 		}),
 })
+const voiceInput = new VoiceInputManager({
+	conversation: {
+		activity: (sessionId) => operator.voiceActivity(sessionId),
+		cancel: (sessionId) => operator.cancel(sessionId),
+		sendSpoken: async (sessionId, text) => {
+			await operator.sendSpoken(sessionId, text)
+		},
+	},
+	createAdapters: () => ({
+		detector: new LocalVoiceActivityDetector(localListening),
+		recognizer: new LocalSpeechRecognizer(localListening),
+	}),
+	assertOwner: assertWindowOwner,
+	deliver: (windowId, event) => {
+		const window = windows.entries().find(([id]) => id === windowId)?.[1]
+		if (window && !window.isDestroyed() && !window.webContents.isDestroyed())
+			window.webContents.send('namzu:voice-input-event', event)
+	},
+	consentAccepted: () => settingsStore.get().voiceInputAccepted,
+	engineState: () => localListening.state(),
+	record: (operation, error) => diagnostics.record('ipc_failed', { operation, error }),
+})
+localListening.subscribe((event) => {
+	observeListeningFailure(
+		event.state.error,
+		event.state.installation === 'failed' ? 'localListeningInstall' : 'localListeningState',
+	)
+	for (const [, window] of windows.entries())
+		if (!window.isDestroyed()) window.webContents.send('namzu:local-listening-event', event)
+	voiceInput.noteEngine(event.state)
+})
 /** `NAMZU_HOME`, default `~/.namzu`: where the command line keeps conversations and its trust list. */
 function namzuHome(): string {
 	const configured = process.env.NAMZU_HOME
@@ -622,6 +676,8 @@ function register(): void {
 		['undoTurn', 0],
 		['saveDraft', 0],
 		['saveDraftSettings', 0],
+		['voiceInputStart', 0],
+		['voiceInputAudio', 0],
 		['cancel', 0],
 		['takeQueued', 0],
 		['removeQueued', 0],
@@ -648,6 +704,8 @@ function register(): void {
 		'localSpeechUninstall',
 		'localSpeechConfigure',
 		'localSpeechInstall',
+		'localListeningUninstall',
+		'localListeningInstall',
 		'createPal',
 		'updatePal',
 		'deletePal',
@@ -920,6 +978,17 @@ function register(): void {
 	registerHandler('localSpeechAcknowledge', ({ id }, args) =>
 		localSpeechRouting.acknowledge(id, args[0], args[1]),
 	)
+	handle('localListeningState', async () => {
+		const state = await localListening.state()
+		observeListeningFailure(state.error, 'localListeningState')
+		return state
+	})
+	handle('localListeningInstall', () => localListening.install())
+	handle('localListeningCancelInstall', () => localListening.cancelInstall())
+	handle('localListeningUninstall', () => localListening.uninstall())
+	registerHandler('voiceInputStart', ({ id }, args) => voiceInput.start(id, args[0]))
+	registerHandler('voiceInputAudio', ({ id }, args) => voiceInput.audio(id, args[0], args[1]))
+	registerHandler('voiceInputStop', ({ id }) => voiceInput.stop(id))
 	handleWindow('setComputerKeyboardCapture', ({ window }, enabled: boolean) => {
 		if (typeof enabled !== 'boolean') throw new Error('Invalid computer keyboard focus.')
 		window.webContents.setIgnoreMenuShortcuts(enabled)
@@ -1425,6 +1494,7 @@ async function createWindow(
 	window.webContents.on('will-attach-webview', (event) => event.preventDefault())
 	const abortTransfers = () => {
 		localSpeechRouting.cancelWindow(windowId)
+		voiceInput.stopWindow(windowId)
 		workspace.abortTransfers(windowId)
 		discardAbortedWindows()
 	}
@@ -1455,6 +1525,7 @@ async function createWindow(
 		// A new document cannot acknowledge the old document's queued audio.
 		if (details.isMainFrame && !details.isSameDocument) {
 			localSpeechRouting.cancelWindow(windowId)
+			voiceInput.stopWindow(windowId)
 			// The old document's views are gone; the new one attaches afresh and may take the keyboard.
 			terminals.releaseWindow(windowId)
 		}
@@ -1503,6 +1574,7 @@ async function createWindow(
 	})
 	window.on('closed', () => {
 		localSpeechRouting.cancelWindow(windowId)
+		voiceInput.stopWindow(windowId)
 		terminals.releaseWindow(windowId)
 		windows.remove(windowId)
 		const timer = closeTimers.get(windowId)
@@ -1695,10 +1767,11 @@ function shutdown(): Promise<void> {
 	quitting = true
 	sidebarSnapshot.flush()
 	// The terminals' last screens are read from their hosts, so they go before the hosts do.
-	shutdownRun = terminals
-		.shutdown()
+	shutdownRun = voiceInput
+		.stopAll('quit')
+		.then(() => terminals.shutdown())
 		.catch((error: unknown) => diagnostics.record('shutdown_failed', { error }))
-		.then(() => Promise.all([operator.close(), localSpeech.dispose()]))
+		.then(() => Promise.all([operator.close(), localSpeech.dispose(), localListening.dispose()]))
 		.then(() =>
 			palComputerIdle
 				.stopForQuit()
@@ -1745,6 +1818,18 @@ void app
 		const streamPort = await streamProxy.start()
 		page = withStreamRendererPort(page, streamPort)
 		streamProxy.allowRenderer(page)
+		// Changes the answer for the microphone only; every other permission stays granted as before.
+		installMediaPermissions(session.defaultSession, {
+			isOwnWindow: (webContents) =>
+				windows
+					.entries()
+					.some(([, window]) => !window.isDestroyed() && window.webContents === webContents),
+			page: () => page,
+			accepted: () => settingsStore.get().voiceInputAccepted,
+		})
+		// Listening never survives the computer going to sleep or being locked.
+		powerMonitor.on('suspend', () => void voiceInput.stopAll('sleep'))
+		powerMonitor.on('lock-screen', () => void voiceInput.stopAll('sleep'))
 		installStreamRendererPolicy({
 			protocol: session.defaultSession.protocol,
 			fetch: (request, options) => net.fetch(request, options),

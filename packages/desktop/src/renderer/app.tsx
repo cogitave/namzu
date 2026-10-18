@@ -256,12 +256,15 @@ import { useAttachments } from './use-attachments.js'
 import { useDesktopInfo, useDesktopSettings, useUpdateInfo } from './use-desktop-settings.js'
 import { useDraftSettings } from './use-draft-settings.js'
 import { useEngineUpdates } from './use-engine-updates.js'
+import { useLocalListening } from './use-local-listening.js'
 import { useLocalSpeech } from './use-local-speech.js'
 import { usePalComputerSetup } from './use-pal-computer-setup.js'
 import { usePalOperatorMessages } from './use-pal-operator-messages.js'
 import { usePalStarts } from './use-pal-starts.js'
 import { useTranscriptScroll } from './use-transcript-scroll.js'
 import { useUndoKept } from './use-undo-kept.js'
+import { useBargeIn, useSpokenReplies, useVoiceInput } from './use-voice-input.js'
+import { VoiceInputStatus, VoiceMicButton } from './voice-input-ui.js'
 import { WindowTitlebar } from './window-titlebar.js'
 import {
 	WorkspaceBreadcrumb,
@@ -966,6 +969,19 @@ export function App({
 	const speech = useLocalSpeech(api, sessionId || undefined)
 	const historyPending = historyDisplay?.sessionId === sessionId && !!historyDisplay.pending
 	const thread = historyPending ? emptyThread() : (threads[sessionId] ?? emptyThread())
+	const listening = useLocalListening(api)
+	// Conversations whose running reply was started by voice: its answer is read aloud when it ends.
+	const voiceStarted = useRef(new Set<string>())
+	const voice = useVoiceInput(api, sessionId || undefined, {
+		sent: (id) => voiceStarted.current.add(id),
+		replyStopped: (id) => voiceStarted.current.delete(id),
+	})
+	useSpokenReplies({ sessionId, thread, speech, started: voiceStarted })
+	useBargeIn(
+		voice.phase,
+		speech.playingMessageId !== undefined && speech.playingMessageId !== 'preview',
+		speech.stop,
+	)
 	const pal = pals.find((item) => item.id === project?.palId)
 	// A Pal row shows a marker from the moment the person messages it until they open it.
 	const { collapsed: collapsedSections, setSectionCollapsed } = useSidebarSections(api)
@@ -6528,6 +6544,7 @@ export function App({
 								: undefined
 						}
 						speech={speech}
+						listening={listening}
 						info={desktopInfo.info}
 						infoError={desktopInfo.error}
 						onOpenFolder={
@@ -7101,6 +7118,15 @@ export function App({
 								pluginsLoading={pluginStates[pluginsKey]?.loading ?? false}
 								onOpenPlugins={() => void loadPlugins()}
 								onSetPluginEnabled={setPluginEnabled}
+								speechControl={
+									<VoiceMicButton
+										voice={voice}
+										engine={listening}
+										hasConversation={Boolean(sessionId)}
+										onOpenSettings={() => openSettings('speech', 'voice-input')}
+									/>
+								}
+								speechStatus={<VoiceInputStatus voice={voice} />}
 								running={thread.running}
 								liveInputSupported={thread.liveInputSupported && !palConversation}
 								liveInputs={thread.liveInputs}

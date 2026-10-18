@@ -778,6 +778,24 @@ export interface DesktopApi {
 	onLocalSpeechEvent?(
 		listener: (event: import('./local-speech-protocol.js').LocalSpeechEvent) => void,
 	): () => void
+	localListeningState?(): Promise<import('./local-listening-protocol.js').LocalListeningState>
+	localListeningInstall?(): Promise<import('./local-listening-protocol.js').LocalListeningState>
+	localListeningCancelInstall?(): Promise<
+		import('./local-listening-protocol.js').LocalListeningState
+	>
+	/** Delete the downloaded voice input files; the agreement to use the microphone stays. */
+	localListeningUninstall?(): Promise<import('./local-listening-protocol.js').LocalListeningState>
+	onLocalListeningEvent?(
+		listener: (event: import('./local-listening-protocol.js').LocalListeningEvent) => void,
+	): () => void
+	/** Start listening for this window's conversation. Rejects with a plain sentence. */
+	voiceInputStart?(sessionId: string): Promise<void>
+	/** About 100 ms of 16 kHz mono audio. Rejects once main has stopped listening. */
+	voiceInputAudio?(sessionId: string, samples: Float32Array): Promise<void>
+	voiceInputStop?(): Promise<void>
+	onVoiceInputEvent?(
+		listener: (event: import('./voice-input-protocol.js').VoiceInputEvent) => void,
+	): () => void
 	workspace?(): Promise<WorkspaceView>
 	workspaceAction?(action: WorkspaceAction): Promise<WorkspaceView>
 	workspaceReady?(transferId: string): Promise<WorkspaceView>

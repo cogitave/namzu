@@ -1,6 +1,47 @@
 import { execFileSync } from 'node:child_process'
 import type { spawn } from 'node:child_process'
 
+/**
+ * Git Bash children that the Windows process tree cannot reach.
+ *
+ * Git for Windows' msys runtime starts a command that is not the last of its
+ * line by `fork`, and the process that forked is gone by the time the command
+ * runs: the command's Windows parent no longer exists, so `taskkill /T` walks
+ * from the shell to its child and never finds the grandchild (`sleep 60; echo`,
+ * `cd app && npm start & wait`). Each such shell is started with a unique tag
+ * in its environment, which every descendant inherits however it was started;
+ * the tag is how the tree is found again.
+ */
+const MSYS_SHELLS = new WeakMap<object, { readonly bash: string; readonly tag: string }>()
+
+/** Remember how to find every process a Git Bash child started. Called by the spawn. */
+export function registerMsysShell(child: object, shell: { bash: string; tag: string }): void {
+	MSYS_SHELLS.set(child, shell)
+}
+
+/** The environment variable that carries the tag. */
+export const MSYS_TAG_VARIABLE = 'NAMZU_SHELL_TAG'
+
+/** Kill every process whose environment carries the tag, from inside the msys runtime. */
+function killMsysTagged(shell: { readonly bash: string; readonly tag: string }): void {
+	// `$$` is skipped so the killer cannot end itself. Parameter expansion keeps
+	// the script to the two programs (grep, kill) the launcher puts on PATH.
+	const script = [
+		`for f in $(grep -laF "${MSYS_TAG_VARIABLE}=${shell.tag}" /proc/[0-9]*/environ 2>/dev/null); do`,
+		'p=${f#/proc/}; p=${p%/environ}; [ "$p" != "$$" ] && kill -9 $p;',
+		'done',
+	].join(' ')
+	try {
+		execFileSync(shell.bash, ['-c', script], {
+			stdio: 'ignore',
+			windowsHide: true,
+			timeout: 5000,
+		})
+	} catch {
+		// Nothing tagged was left, or the runtime could not start: taskkill still runs.
+	}
+}
+
 /** The system's own taskkill, so a PATH entry cannot stand in for it. */
 function taskkillPath(): string {
 	const root = process.env.SystemRoot ?? process.env.windir
@@ -46,6 +87,8 @@ export function killTree(child: ReturnType<typeof spawn>, signal: NodeJS.Signals
 	if (!child.pid) return
 	try {
 		if (process.platform === 'win32') {
+			const msys = MSYS_SHELLS.get(child)
+			if (msys !== undefined) killMsysTagged(msys)
 			execFileSync(taskkillPath(), ['/pid', String(child.pid), '/t', '/f'], {
 				stdio: 'ignore',
 				windowsHide: true,
