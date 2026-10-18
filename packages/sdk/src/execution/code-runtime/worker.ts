@@ -18,12 +18,15 @@ const FRAME_PATTERN = /model-program\.js:(\d+):(\d+)/g
 function failureLocation(
 	name: unknown,
 	stack: unknown,
+	sourceLines: number,
 ): { errorName?: string; frames?: readonly CodeFrame[] } {
 	const frames: CodeFrame[] = []
 	if (typeof stack === 'string') {
 		for (const match of stack.matchAll(FRAME_PATTERN)) {
 			const line = Number(match[1]) - WRAPPER_LINES
-			if (line >= 1) frames.push({ line, column: Number(match[2]) })
+			// The wrapper's own lines (its opening, and the closing after the source)
+			// are not in what the caller submitted.
+			if (line >= 1 && line <= sourceLines) frames.push({ line, column: Number(match[2]) })
 		}
 	}
 	return {
@@ -379,7 +382,7 @@ export class WorkerCodeRuntime implements CodeRuntime {
 						outcome: {
 							status: 'failed',
 							error: String(message.error),
-							...failureLocation(message.name, message.stack),
+							...failureLocation(message.name, message.stack, options.source.split('\n').length),
 						},
 						output,
 						outputTruncated: truncated,
