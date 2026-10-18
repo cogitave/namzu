@@ -241,6 +241,8 @@ describe('the configured caps', () => {
 			expect(result.success).toBe(true)
 			expect(result.output).toContain('completed.')
 			expect(result.output).toContain('"sum": 42')
+			expect(result.output).toContain('without starting a subagent')
+			expect(result.output).not.toContain('after its subagents ran')
 			expect(result.output).not.toContain('started in the background')
 			expect(h.host.registry.list()).toEqual([])
 			await h.host.registry.whenIdle()
