@@ -47,7 +47,7 @@ which kept control flow developer-authored). The earlier text named the bar a
 reopen had to clear: a written trust model before any code, a second
 execution surface worth its own maintenance, a measured gap. This section is
 the first; the second is the code under `execution/workflow/`; the third is
-the table below, still to be measured.
+the table below, measured on 2026-10-18 and not met (see its reading).
 
 A model may choose *what* to do, and it may also author a **workflow script**:
 a program run once in the background that decides how many subagents run, with
@@ -95,20 +95,82 @@ stays the way a model starts one subagent.
 Not in v1, each a later and separate decision: nested `workflow()`, worktree
 isolation, resume from a journal, saved or named workflows.
 
-### The measured gap (to be filled by WF3)
+### The measured gap (WF3, 2026-10-18)
 
-Same tasks three ways with a real model: (a) one parent fanning out with
-labelled `Agent` calls, (b) concurrent `create_task`, (c) the workflow tool.
-Recorded per task: parent model requests, parent tokens, wall time, correctness.
+Same two tasks three ways on small fixture repos (a fresh git repo per run, a
+checker script for correctness): **2 phases x 3 agents** (scan three packages
+for a seeded defect, then fix each; the checker runs the three self-tests and
+requires that nothing but the three `index.js` files changed) and a **10-item
+pipeline** (extract, then write a derived file per item; the checker verifies
+all ten JSON files). Ways: (a) one CLI parent fanning out with labelled `Agent`
+calls (the prompt never says "workflow"), (b) concurrent `create_task` through
+`SupervisorAgent` and `AgentManager` from the SDK, (c) the `workflow` tool
+(`namzu exec --permission-mode auto`, prompt says "use a workflow").
 
-| Task | Way | Parent requests | Parent tokens | Wall time | Correct |
-| --- | --- | --- | --- | --- | --- |
-| 2 phases x 3 agents | (a) `Agent` fan-out | to measure | to measure | to measure | to measure |
-| 2 phases x 3 agents | (b) `create_task` | to measure | to measure | to measure | to measure |
-| 2 phases x 3 agents | (c) workflow | to measure | to measure | to measure | to measure |
-| 10-item pipeline | (a) `Agent` fan-out | to measure | to measure | to measure | to measure |
-| 10-item pipeline | (b) `create_task` | to measure | to measure | to measure | to measure |
-| 10-item pipeline | (c) workflow | to measure | to measure | to measure | to measure |
+**Real model**, `space-bunny-free` on the keyless Zen free route (every request
+went to `opencode.ai/inference/v1/chat/completions` from an `env -i` process
+with no credential, and none returned a non-200 in the rows below). Frozen
+build `d8a7e2f23`. Median (min-max) over the reps that finished:
+
+| Task | Way | Reps | Parent requests | Parent tokens | Child requests | Child tokens | Wall time | Correct |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 2 phases x 3 agents | (a) `Agent` fan-out | 2 | 7 (7-7) | 117,761 (116,263-119,259) | 23 (23-23) | 181,040 (174,347-187,732) | 60 s (57-62) | 2/2 |
+| 2 phases x 3 agents | (b) `create_task` | 2 | 6 (5-6) | 34,428 (28,171-40,685) | 31 (29-32) | 153,850 (142,475-165,224) | 46 s (43-49) | 2/2 |
+| 2 phases x 3 agents | (c) workflow | 2 | 9 (7-11) | 150,984 (111,614-190,354) | 20 (19-21) | 152,263 (147,307-157,219) | 51 s (45-56) | 2/2 |
+| 10-item pipeline | (a) `Agent` fan-out | 2 | 9 (7-11) | 188,078 (150,833-225,323) | 56 (46-65) | 426,912 (352,653-501,170) | 62 s (56-67) | 2/2 |
+| 10-item pipeline | (b) `create_task` | 2 | 8 (7-9) | 69,678 (62,780-76,575) | 76 (70-82) | 356,317 (322,126-390,507) | 83 s (77-88) | 2/2 |
+| 10-item pipeline | (c) workflow | 1 | 26 | 604,756 | 291 | 2,348,135 | 213 s | 1/1 |
+
+Not measured: a second (c) rep of the 10-item pipeline. It was rate limited
+mid-run (Zen answered 429 with "retry delay at least 20 hours" for every free
+model, so no further real-model run was possible that day) and is excluded, not
+counted as a failure.
+
+**Scripted model**, same rows, deterministic (the model emits every call of a
+stage in one response; tokens are request bytes / 4, so compare ways, not
+absolutes): the parent takes **3 requests in every way** for both tasks, and
+the fan-out is the same (6 children, 15 child requests; 20 children, 40 child
+requests). `Agent` and `create_task` parents spend 41.8k and 44.7k estimated
+tokens (CLI parent: a 27-tool prefix of about 12k tokens per request); the workflow
+parent 43.7k and 43.9k; the `SupervisorAgent` harness parent 9.1k and 14.7k
+because it carries no CLI system prompt or builtin tools, which is a property of
+the harness and not of `create_task`.
+
+Sources: parent and child request counts and tokens are summed from the
+`message_completed` records of the root session JSONL and of
+`<session>/subagents/*.jsonl` (cross-checked against a fetch-recording
+`--require` hook: parent + child requests equalled the hook's count of chat
+requests in every CLI run); for (b) from the `SupervisorAgent` result and the
+same hook (parent = requests offering `create_task`). Wall time is the process's
+own, start to exit.
+
+**Reading.** There is no measured gap in the workflow's favour, and on this
+model it lost the larger task.
+
+- The two-phase task is a tie. Parent requests (7, 6, 9) and wall time (60, 46,
+  51 s) are within each other's range, every run was correct, and the workflow
+  parent spent as many or more tokens than the `Agent` parent. The parent's cost
+  is the request prefix times the number of requests, and a model offered
+  `workflow` still explored first, kept a task list and verified afterwards, as
+  the `Agent` parent did.
+- With a model that batches the calls of a stage into one response, a fan-out
+  needs no more parent requests than a workflow (3 and 3), so the workflow does
+  not save requests on a fixed two-stage shape. What a workflow could still
+  buy is not exercised here: children returned one line each, so the parent
+  context never grew, and there was no failure to repair mid-run. Concurrency
+  does not separate them either: the `Agent` parent also ran at most 8 children
+  at once (measured from the child sessions' timestamps).
+- The 10-item pipeline run took 5 workflow runs. The model's script misused
+  `pipeline` (first argument not an array, though the tool description gives the
+  signature), asked children for schema-validated JSON that 4 of 10 did not
+  produce, and passed `args.ids` as numbers while believing they were strings, so
+  its padded file names came out wrong. Each repair re-ran the work, which is why
+  child requests and tokens are 5x and 6x the `Agent` way. Whether a stronger
+  model scripts it in one run is not measured.
+- Caveat on (b): the harness parent has no CLI prompt, so its parent-token
+  column is not comparable to (a) and (c).
+- Caveat on scale: two reps, one model, two fixtures. The ranges overlap for
+  every comparison except the pipeline's workflow row.
 
 If a later change reverses this again, replace this section rather than
 adding to it: two stances in one file is how the first one got lost.
