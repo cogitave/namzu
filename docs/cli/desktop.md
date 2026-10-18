@@ -886,8 +886,8 @@ removed, key-shaped text hidden, at most 500 characters): `src/renderer/friendly
 | Context window | This conversation is too long for the model… | Start a new conversation |
 | No key | There is no API key for Anthropic. Add one in Settings, then send again. | Open model settings |
 
-The sentence is followed by the same quiet row a settled reply ends with
-(`MessageActions`, `turn-recovery.tsx`): the time first, as a settled reply shows it, then **Retry** and **Copy** as icon buttons (Retry reads "Retry
+The sentence sits directly under the reply's work and is followed by the same quiet row a settled reply ends with
+(`MessageActions`, `turn-recovery.tsx`): the time first (when the reply stopped; the turn above draws no second clock), then **Retry** and **Copy** as icon buttons (Retry reads "Retry
 with *model*" when the model selected now is not the one that stopped), then any other way on as small muted text (**Open
 model settings**, **Continue without this reply**, **Copy to a new conversation**, **Start a new
 conversation**), then **Details** as a text toggle with no leading symbol (`aria-expanded`). Details start closed for every failure
@@ -2594,7 +2594,9 @@ nothing inside it draws a clock: not the narration, thoughts, action rows, run
 summaries or the heading. Each row keeps its full time in its tooltip and accessible
 description ("Received at ...", or "Sent at ..." on the person's own message). A reply shows one clock, under its answer in the
 footer row, or, when it ends without answer text (stopped, failed, only actions), at
-the bottom of the turn; none while it is still being written. The answer appears below that group only when it is
+the bottom of the turn; none while it is still being written. When the latest reply stopped
+and the row under the transcript says so, that row carries the clock (the time the work
+ended) and the turn draws none of its own, so the stop sits directly under the work. The answer appears below that group only when it is
 a trailing answer; grouping never moves text across a later tool or reasoning event.
 Message and text-part identities preserve distinct responses. Providers without
 phase metadata retain their admitted order without invented commentary labels.

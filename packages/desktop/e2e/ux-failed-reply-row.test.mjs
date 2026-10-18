@@ -151,6 +151,7 @@ flow(
 		const details = region.getByRole("button", { name: "Details", exact: true });
 		await expect(details).toHaveAttribute("aria-expanded", "false");
 		await expect(region.locator("time")).toHaveCount(1);
+		await expect(w.page.locator(".turn-clock")).toHaveCount(0);
 		await shots(w, "502");
 
 		// Keyboard: Tab reaches the controls with a ring; Enter and Space open and close Details.
@@ -248,5 +249,40 @@ flow(
 		const details = (await region.locator(".turn-recovery-details-text").innerText()).trim();
 		assert.doesNotMatch(details, /[<{]|\b502 502\b/, "Details carry no markup or raw JSON");
 		await shots(w, "limited");
+	},
+);
+
+flow(
+	"a reply that worked and then failed puts its stop right under the work, with one clock",
+	{
+		rules: [
+			{
+				match: /work then go wrong/i,
+				steps: [{ tool: "glob", args: { pattern: "*" } }, BAD_GATEWAY],
+			},
+		],
+	},
+	async (w) => {
+		await openProject(w);
+		await sendText(w, "do some work then go wrong");
+		const region = w.page.locator(".turn-recovery");
+		await expect(region.getByRole("button", { name: "Retry", exact: true })).toBeVisible({
+			timeout: T,
+		});
+		const work = w.page.locator(".turn-activity").last();
+		await expect(work).toBeVisible();
+		// The stop row carries the reply's time; the turn draws no second, hover-only clock row above it.
+		await expect(w.page.locator(".turn-clock")).toHaveCount(0);
+		await expect(region.locator("time")).toHaveCount(1);
+		const workBottom = await work.evaluate((node) => node.getBoundingClientRect().bottom);
+		const textTop = await region
+			.locator(".turn-recovery-text")
+			.first()
+			.evaluate((node) => node.getBoundingClientRect().top);
+		assert.ok(
+			textTop - workBottom <= 28,
+			`the stop sits right under the work row (gap ${textTop - workBottom}px)`,
+		);
+		await shots(w, "worked-then-failed");
 	},
 );

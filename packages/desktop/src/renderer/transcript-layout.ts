@@ -412,6 +412,18 @@ function knownTime(time: ChatMessage['time']): time is NonNullable<ChatMessage['
 	return !!time && Number.isFinite(time.at) && time.at >= 0
 }
 
+/** When a turn's work ended, as the host recorded it; undefined while it runs or when unrecorded. */
+export function turnEndTime(
+	thread: ThreadState,
+	turn: number,
+): NonNullable<ChatMessage['time']> | undefined {
+	const timing = thread.turns[turn]
+	if (knownTime(timing?.endedTime)) return timing.endedTime
+	if (timing?.endedAt !== undefined && knownTime({ at: timing.endedAt, source: 'host' }))
+		return { at: timing.endedAt, source: 'host' }
+	return undefined
+}
+
 /**
  * The one clock a reply shows, at its bottom: the last answer message's time, or, when the reply
  * ends without answer text (stopped, failed, only actions), the time its work ended. Nothing while
@@ -433,10 +445,8 @@ export function replyClock(
 		if (knownTime(message.time)) return { at: 'answer', entry, time: message.time }
 		break
 	}
-	const timing = thread.turns[group.turn]
-	if (knownTime(timing?.endedTime)) return { at: 'turn', time: timing.endedTime }
-	if (timing?.endedAt !== undefined && knownTime({ at: timing.endedAt, source: 'host' }))
-		return { at: 'turn', time: { at: timing.endedAt, source: 'host' } }
+	const ended = turnEndTime(thread, group.turn)
+	if (ended) return { at: 'turn', time: ended }
 	let last: NonNullable<ChatMessage['time']> | undefined
 	for (const entry of group.activity) {
 		const time =

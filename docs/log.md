@@ -28,6 +28,7 @@
 
 ## 2026-10-17
 
+- **Update** [Desktop](cli/desktop.md#what-a-failed-reply-says): a reply that stopped puts its sentence directly under its work. The row under the transcript carries the reply's clock: the time the work ended, where it used to show the person's message time. Before, the turn also drew its own clock row, hidden until hover, which left an empty line and a second time between the work and the stop. Covered by `e2e/ux-failed-reply-row.test.mjs` (`.changeset/desktop-failed-turn-clock.md`, patch).
 - **Update** [Desktop voice input](cli/desktop-listening.md): the listening download continues a dropped or refused file from the bytes it already has (`Range`), waits 1/2/4/8 s between attempts, and gives up after five attempts in a row that receive nothing; a host that ignores the range starts the file over. `.changeset/desktop-local-listening-engine.md`, **patch** for `@namzu/desktop`.
 - **Update** [Desktop voice input](cli/desktop-listening.md): a spoken message keeps a conversation on Auto, as a typed send does; before, it selected the saved model, which counted as a hand pick and turned Auto off. Unreleased, so no changeset of its own: `.changeset/desktop-voice-input.md` and `.changeset/auto-model-choice.md` cover it.
 
