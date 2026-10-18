@@ -245,7 +245,8 @@ accent colour is used: the pointer and the bullets take the row's own colour,
 and only a finished row's bullet is coloured — green when it succeeded, red
 when it failed or was stopped. Each agent row is its type, a description and,
 right-aligned, how long it has run and what it has spent so far
-(`↓ 12.3k tokens`, left out until the agent has reported usage); an agent
+(`↑ 12.3k tokens` while it has only read its task, `↓ 12.3k tokens` from its
+first tool call on, and nothing until it has reported usage); an agent
 still waiting for a slot reads `waiting` instead of a clock, and messages sent
 to it that it has not taken in yet read `N queued` in the warning colour. The
 name column is as wide as the longest type or workflow name on screen, up to 28
@@ -299,11 +300,28 @@ one composer stays live, with the placeholder `Message @<type>…` (the type cut
 at 20 cells). What you type is sent to that agent: a running agent queues it
 for its next tool round (`N queued` on its row), a finished one is resumed from
 its transcript, and one you stopped is refused in a plain sentence; your words
-show at once in its transcript as `❯ text`. PgUp/PgDn/Home/End scroll it. Esc
-or Enter on the `main` row goes back to the conversation; the draft stays in
-the composer, and Esc does not stop the agent. An agent that cannot take
-messages (a saved child, a workflow run's agent) keeps the read-only boxed
-screen described under the cockpit.
+show at once in its transcript as `❯ text`. PgUp/PgDn/Home/End scroll it.
+
+Keys while an agent is viewed follow the reference. **Esc** on a running agent
+stops it and stays in the view (the row turns into a finished one; the footer
+says `esc to interrupt`); on an agent that has ended it goes back to the
+conversation, the draft stays in the composer, and the agent's row lingers 30
+seconds. **Ctrl+C** stops a running agent and goes back either way, and also
+interrupts the conversation's own turn if one is running. Enter on the `main`
+row goes back without stopping anything.
+
+**Slash commands typed in the view** are never the agent's when the host
+answers them itself (every built-in). `/model` is refused with a notice
+(`/model changes the main conversation's model, not this agent's`) and the text
+stays in the composer; `/compact`, `/clear` and `/new` ask first
+(`/compact acts on the main conversation, not this agent`, with `Cancel`
+listed first and focused, and `Run /compact on the main conversation`); every
+other built-in runs against the conversation as it does with no agent open.
+Other text that starts with `/` (a skill, a custom command, a typo) is sent to
+the agent as typed. An agent that cannot take messages (a saved child, a
+workflow run's agent) keeps the read-only boxed screen described under the
+cockpit; the reference does not view a workflow's agents in place either, only
+in the workflow's detail.
 
 Agents and workflows are separate. An agent the model gave a `workflow` label
 is never an agent row: it exists only inside its workflow, which gets one row
@@ -353,7 +371,10 @@ until Enter or → moves it to the agents; Enter on an agent opens its
 transcript. Esc or ← goes up a level, and from the phases back to the rail
 row; `x` stops the whole workflow on the phases and skips or stops the one
 agent on the agents. The box is 14 list rows tall on a tall terminal (fewer on
-a short one, never under 4), whatever it holds. Footer: phases
+a short one, never under 4), whatever it holds. A list longer than its pane
+says which rows it shows in the box's bottom border, dim and ending the pane's
+segment: `↑ 3–16 of 16  ` on the agents pane (an arrow on the side that has
+more, a space on the side that has not), likewise on the phases pane. Footer: phases
 `↑↓ select · x stop workflow · esc back`; agents
 `↑↓ select · enter view · x skip · esc back`.
 
@@ -425,7 +446,7 @@ and never redrawn; the live state belongs to the rail.
 ● 2 background agents launched (↓ to manage)
   ├ Choose first colour
   └ Choose second colour
-› Message from @general-purpose · ctrl+o to expand
+› Message from @general-purpose (ctrl+o to expand)
 ● Agent "Choose first colour" finished · 1m 4s
 ● Agent "Choose second colour" failed: Provider refused the request · 3s
 ✻ Worked for 38s · 3 agents · 27.0k tokens
@@ -446,8 +467,9 @@ live state belongs to the rail.
   open: a reviewed batch's events reach the terminal only when the batch
   finishes, so the reply stays open for the whole of a foreground agent's run.
   An agent resumed by a later message gets no second receipt.
-- **Two rows per agent that finishes.** First what it said, collapsed:
-  `› Message from @<type>` with `ctrl+o to expand` (the sender is the agent
+- **Two rows per agent that reports on its own.** First what it said, collapsed:
+  `› Message from @<type> (ctrl+o to expand)` (the hint follows the sender in
+  parentheses, after a space; the sender is the agent
   type, so two general agents both read `@general-purpose`). Ctrl+O opens the
   answer in place while the row is still in the live region; once it has
   settled into history, the press after the live bodies are open shows the
@@ -455,9 +477,25 @@ live state belongs to the rail.
   answer is the child's text and is shown as text — terminal controls in it are
   displayed, never obeyed. Then one line that says it is over:
   `● Agent "<description>" finished · 1m 4s` (green), `failed: <reason> · 3s`
-  (red) or `was stopped · 1s` (warning). The result is not repeated in that line
-  and it carries no token count; an agent resumed by a later message writes the
-  pair again when it ends again.
+  (red; `Unknown error` when nothing says why) or `was stopped by user · 1s`,
+  `was stopped by Namzu · 1s` (the conversation's own agent stopped it with
+  `cancel_agent`), or plain `was stopped · 1s` when nobody recorded who
+  (warning). The result is not repeated in that line and it carries no token
+  count; an agent resumed by a later message writes the pair again when it ends
+  again. Only an agent that runs on its own writes the pair: a background
+  launch, one whose wait was released (the operator wrote while the parent
+  waited) and one a later message resumed.
+- **A waited-on agent writes the tool's own result instead.** An agent the
+  parent waited on hands its result back inline, so there is no notification:
+  the row is `● <type> (<description>)` over
+  `⎿ Done (3 tool uses · 12.1k tokens · 8s)`. A failed or stopped one keeps the
+  closing line above.
+- **A message a running agent sent.** An agent can say something to the
+  conversation while it works, with its own `send_message` tool (`to: "main"`);
+  it is drawn as the same collapsed `› Message from @<type> (ctrl+o to expand)`
+  row, and the model gets the text, framed as the agent's own words, with its
+  next turn (an idle conversation wakes for it). It does not interrupt a wait
+  the running turn is in.
 - **A closing line** when a turn that launched agents settles: how long the
   turn took and how many agents it launched (phases are never counted here),
   what they spent when any reported it, and how many failed

@@ -146,7 +146,18 @@ transcript with the message ("Resuming agent …") and notifies again when it
 ends. A child the user stopped is refused: "Agent … was stopped by the user and
 was not resumed. Treat its work as cancelled; only start a new agent for it if
 the user explicitly asks." Messages are bounded to 16,000 characters, and
-another parent's task cannot receive the message. The operator does the same by
+another parent's task cannot receive the message.
+
+A running child has a `send_message` of its own with `to: "main"` and a
+`message`, offered only while the host can show the message (the interactive
+terminal). The text is queued for the conversation's next turn ("Message queued
+for the main conversation's next turn."), shown as `› Message from @<type>
+(ctrl+o to expand)`, and handed to the model framed as the child's own words,
+not the operator's and not proof of any permission. It wakes an idle
+conversation and never releases a wait the running turn is in. Another
+recipient, or a blank message, is refused in plain words; a child that was
+stopped is told it cannot send and to put what it needs in its final response.
+The operator does the same by
 viewing the agent and typing (see
 [Terminal design](terminal-design.md)): queued for a running agent, resumed for
 a finished one, refused for a stopped one.
@@ -214,10 +225,16 @@ transcript, `● 2 background agents launched (↓ to manage)` (or `Launched 2
 agents` for a batch the turn waits on) with each agent's description beneath it,
 always below the text of the response that launched them, and each observed
 agent completion adds two rows, whether or not the model calls `wait_for_task`:
-`› Message from @<type>` with its answer collapsed (Ctrl+O opens it, in place
-while the row is live and in the output viewer once it has settled into history),
-then `● Agent "<description>" finished · 1m 4s` (or `failed: <reason> · 3s`, or
-`was stopped · 1s`) with no token count and no repeat of the result. Agents the model
+`› Message from @<type> (ctrl+o to expand)` with its answer collapsed (Ctrl+O
+opens it, in place while the row is live and in the output viewer once it has
+settled into history), then `● Agent "<description>" finished · 1m 4s` (or
+`failed: <reason> · 3s`, or `was stopped by user · 1s`, `was stopped by Namzu ·
+1s` when the conversation's own agent cancelled it, or `was stopped · 1s`) with
+no token count and no repeat of the result. Only an agent that runs on its own
+(a background launch, one whose wait was released, one a later message resumed)
+reports this way; an agent the parent waited on hands its result back inline
+and leaves the tool's own result instead, `● <type> (<description>)` over
+`⎿ Done (3 tool uses · 12.1k tokens · 8s)`. Agents the model
 gave a `workflow` label are the exception: they are one workflow, not agents.
 Their launch writes a single `● Workflow <name>` line with
 `⎿ Running in background · ↓ to manage` beneath it, they leave no per-agent
@@ -246,8 +263,12 @@ background agent that completed leaves at once), five at a time, one row each
 while a background agent runs: every 30 seconds, when it has done something new
 and has at least three messages, it is asked once on its own model, with no
 tools, for a three-to-five-word present-tense label naming the file or function,
-in the language of its task; one line of at most 100 characters is kept, anything
-else is dropped, and the label goes when the agent ends. Agents inside a
+in the predominant language of what the agent has been doing (there is no
+language setting to read); one line of at most 100 characters is kept, anything
+else is dropped, and the label goes when the agent ends. The request is counted
+on the turn's token ledger, on a small account reserved for it and settled
+afterwards (at most 8,000 tokens from a limited turn), and is skipped when the
+turn has no room or its own request is in flight. Agents inside a
 `workflow` run keep their `label`. ↓ in an empty
 composer moves into it, where Enter views an agent on the main screen (the one
 composer stays live and talks to it) and `x` stops it. Workflows and subagents are kept apart, as in the reference terminal. A
@@ -523,7 +544,10 @@ code still wrap at grapheme boundaries, preserving all retained characters.
 
 In the agent cockpit, open a child transcript and press **Enter** or **m** to
 write directly to that child. **Tab** switches between writing and scrolling;
-**Esc** returns to the agent list. The parent's draft is kept separately.
+**Esc** returns to the agent list. The parent's draft is kept separately. An
+agent opened from the rail is viewed on the main screen instead, where Esc
+stops a running agent and goes back from an ended one, and Ctrl+C stops it and
+goes back (see [Terminal design](terminal-design.md)).
 Messages must be nonblank and at most 16,000 characters. A queued receipt means
 acceptance, not proof that the child has read the instruction. A running tool
 finishes before the instruction enters the next provider request.
