@@ -1,5 +1,14 @@
 # @namzu/cli
 
+## 36.5.0
+
+### Minor Changes
+
+- b620273: Shift+Tab and the permission prompt now follow the reference terminal. What changes for you:
+
+  - Shift+Tab goes `prompt`, `accept-edits`, `plan`, then `auto` ("bypass permissions on") when the session may use it, then back to `prompt`; from `auto` or `strict` it returns to `prompt`. Starting with `--yolo`, `--dangerously-skip-permissions` or `--permission-mode auto` allows the stop, so one press no longer loses bypass for good. The new `--allow-dangerously-skip-permissions` allows it without starting in `auto`, and choosing `auto` by name in `/permissions` allows it for the rest of the session. Without any of these the key behaves as before (`plan` returns to `prompt`).
+  - "Yes, allow all tools for this conversation" is gone from the terminal's prompts, along with the `a` key and the "Start and allow all tools" answer for agents and workflows. It turned every later tool call into an approval while the mode still read `prompt`, then showed `bypass permissions on`. Prompts now offer Yes and No, and at most one more answer that holds for the whole prompt: for an edit, "Yes, and switch to accept edits for this session" (the same switch Shift+Tab makes); for a plain shell command, a fetch of one host or an MCP tool, "Yes, and don't ask again for <it> this session". The remembered answer covers exactly the command line, host or tool shown, is consulted after your `[permissions]` table, and is never offered for a sandbox escape, a path outside the working directory, a call a rule asks about, or a destructive command; it ends with the session. If you relied on the old answer to stop being asked, start with `--permission-mode accept-edits`, press Shift+Tab to the mode you want, or add `allow` rules to `[permissions]`. Agent and workflow starts keep asking, with Yes and No only. The Desktop app and ACP clients keep their own approve-all answer.
+
 ## 36.4.0
 
 ### Minor Changes
