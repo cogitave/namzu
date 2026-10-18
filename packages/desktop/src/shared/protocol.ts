@@ -981,6 +981,10 @@ export interface DesktopApi {
 	cancel(sessionId: string): Promise<void>
 	takeQueued(sessionId: string, itemId?: string): Promise<string | null>
 	removeQueued(sessionId: string, itemId: string): Promise<void>
+	/** Run a waiting message now: stop the reply and start it in its place. Absent in an older shell. */
+	sendNow?(sessionId: string, itemId?: string): Promise<void>
+	/** Change the text of a waiting message in place. It cannot change one that has gone out. */
+	updateQueued?(sessionId: string, itemId: string, prompt: string): Promise<void>
 	respondPermission(
 		sessionId: string,
 		requestId: string,

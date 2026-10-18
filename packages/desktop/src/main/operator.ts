@@ -187,6 +187,8 @@ interface Conversation {
 	executionRevision?: number
 	runSettled?: Promise<void>
 	queue: PendingMessage[]
+	/** "Send now" stopped this reply on purpose, so its settlement hands the next message on at once. */
+	sendNowRelease?: boolean
 	liveInputs?: Map<string, LiveInputReceipt>
 	liveInputCalls?: Set<Promise<unknown>>
 	liveInputRead?: Promise<LiveInputStatus | undefined>
@@ -5195,6 +5197,7 @@ export class Operator {
 				}
 				if (receipt.unknown || !finalLiveStatus || !observed) liveStatusUnknown = true
 				if (
+					!session.sendNowRelease &&
 					(!session.draft || session.draft === receipt.prompt) &&
 					session.draftRevision === receipt.draftRevision
 				) {
@@ -5233,6 +5236,9 @@ export class Operator {
 			// An unreadable status cannot prove non-delivery; retain the authored
 			// queue for review and never start it automatically on this settlement.
 			if (liveStatusUnknown) completed = false
+			// "Send now" stopped the reply to run what was waiting: keep its steers as queued rows, not as a draft.
+			const released = session.sendNowRelease === true && !liveStatusUnknown && !this.closing
+			session.sendNowRelease = undefined
 			session.liveInputs?.clear()
 			const settlement = Symbol('prompt settlement')
 			session.admitting = settlement
@@ -5263,7 +5269,7 @@ export class Operator {
 				// race the previous run's status read or consume its authored queue.
 				session.admitting = undefined
 				if (
-					completed &&
+					(completed || released) &&
 					!this.closing &&
 					(!session.view.palId || !this.changingPals.has(session.view.palId))
 				) {
@@ -5278,6 +5284,42 @@ export class Operator {
 		await session.client.request('session/cancel', {
 			sessionId: session.runtimeSessionId,
 		})
+	}
+	/**
+	 * Runs a waiting message now. While a reply runs it is stopped and the message starts in its place;
+	 * a message sent into the reply that had not arrived yet starts the same way. After a stopped or
+	 * failed reply it simply starts. Without an id the oldest waiting message goes first.
+	 */
+	async sendNow(sessionId: string, itemId?: string): Promise<void> {
+		const session = this.session(sessionId)
+		if (session.admitting) throw new Error('Wait for this conversation’s admission to finish.')
+		if (itemId !== undefined) {
+			const index = session.queue.findIndex((item) => item.id === itemId)
+			if (index < 0 && !session.liveInputs?.has(itemId))
+				throw new Error('This message has already started or was removed.')
+			if (index > 0) {
+				const [item] = session.queue.splice(index, 1)
+				if (item) session.queue.unshift(item)
+			}
+		}
+		if (!session.running) {
+			const next = session.queue[0]
+			if (!next || next.uncertainLiveInput)
+				throw new Error('This message has already started or was removed.')
+			this.assertPalAdmission(session.view.palId)
+			session.queue.shift()
+			this.startRun(session, next)
+			return
+		}
+		if (!session.queue.length && !session.liveInputs?.size) return
+		session.sendNowRelease = true
+		this.state(session)
+		try {
+			await this.cancel(sessionId)
+		} catch (error) {
+			session.sendNowRelease = undefined
+			throw error
+		}
 	}
 	takeQueued(sessionId: string, itemId?: string): string | null {
 		const session = this.session(sessionId)
@@ -5380,6 +5422,17 @@ export class Operator {
 			this.continuing.delete(sessionId)
 			if (session.admitting === admission) session.admitting = undefined
 		}
+	}
+	/** Rewrites the text of a message that has not gone out yet; it keeps its place and its files. */
+	updateQueued(sessionId: string, itemId: string, prompt: string): void {
+		const session = this.session(sessionId)
+		if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 50_000)
+			throw new Error('Enter a message under 50,000 characters.')
+		const item = session.queue.find((entry) => entry.id === itemId)
+		if (!item || item.uncertainLiveInput)
+			throw new Error('This message has already started or was removed.')
+		item.prompt = prompt
+		this.state(session)
 	}
 	removeQueued(sessionId: string, itemId: string): void {
 		const session = this.session(sessionId)

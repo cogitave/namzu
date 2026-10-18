@@ -211,6 +211,8 @@ const OPERATIONS = new Set([
 	'cancel',
 	'takeQueued',
 	'removeQueued',
+	'sendNow',
+	'updateQueued',
 	'approve',
 	'jobs',
 	'backgroundWorkStatuses',

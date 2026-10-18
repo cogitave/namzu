@@ -15,13 +15,7 @@ import {
 } from '../shared/background-work-protocol.js'
 import { resolveComposerSendOptions } from '../shared/composer-send-options.js'
 import { duplicatePalNameMessage, isDuplicatePalName } from '../shared/pal-name.js'
-import {
-	type ThreadState,
-	applyEvent,
-	emptyThread,
-	queueParked,
-	restoreMessages,
-} from '../shared/projection.js'
+import { type ThreadState, applyEvent, emptyThread, restoreMessages } from '../shared/projection.js'
 import type {
 	ComposerModelSettings,
 	PalComputerView as ComputerState,
@@ -199,6 +193,7 @@ import { palMarker, palStartCard, palWaitingLine } from './pal-start-model.js'
 import { closableStaleTabs, stalePalTabs } from './pal-tab-siblings.js'
 import { unreadAfterOpen, unreadAfterSends } from './pal-unread.js'
 import { PalCustomizeDialog, type PalOpening, PalSidebarSection, PalsPage } from './pals-page.js'
+import { pendingMessages } from './pending-messages.js'
 import { plainError, plainErrorText } from './plain-error.js'
 import { PluginsPage, PluginsSidebar } from './plugins-page.js'
 import {
@@ -698,7 +693,7 @@ export function App({
 	const activeProjectId = useRef('')
 	activeProjectId.current = projectId
 	const editingQueue = useRef(new Set<string>())
-	const [queueEditing, setQueueEditing] = useState<Record<string, boolean>>({})
+	const [, setQueueEditing] = useState<Record<string, boolean>>({})
 	const [providers, setProviders] = useState<ProviderView>({
 		available: [],
 		selected: null,
@@ -7103,17 +7098,20 @@ export function App({
 								onSetPluginEnabled={setPluginEnabled}
 								running={thread.running}
 								liveInputSupported={thread.liveInputSupported && !palConversation}
-								liveInputs={thread.liveInputs}
 								sending={sending[draftOwner] ?? false}
-								queued={thread.queued}
-								queuedItems={thread.queuedItems}
-								queueParked={queueParked(thread)}
-								editingQueued={queueEditing[sessionId] ?? false}
+								pending={pendingMessages(thread)}
+								trayActions={{
+									canSendNow: Boolean(api.sendNow),
+									disabled: loading || restoringTabs || frozen,
+									onSendNow: (id) =>
+										void act(() => api.sendNow?.(sessionId, id) ?? Promise.resolve()),
+									onSave: (id, text) =>
+										act(() => api.updateQueued?.(sessionId, id, text) ?? Promise.resolve()),
+									onRemove: (id) => void act(() => api.removeQueued(sessionId, id)),
+								}}
 								onSend={() => void act(send)}
 								onQueue={() => void act(() => send('queue'))}
 								onStop={() => void act(() => api.cancel(sessionId))}
-								onEditQueued={(itemId) => void act(() => editQueued(itemId))}
-								onRemoveQueued={(itemId) => void act(() => api.removeQueued(sessionId, itemId))}
 							/>
 							{speech.error && (
 								<p className="inline-error" role="alert">
