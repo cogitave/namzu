@@ -494,7 +494,7 @@ describe('a workflow agent that asks after the turn is over', () => {
 		screen.press('\r')
 		await waitUntil(screen, () => review !== undefined && text(screen).includes('Type a message'))
 		expect(review?.currentPermissionMode()).toBe('prompt')
-		const answer = review?.onPermission({
+		const answer = review?.onPermission?.({
 			toolCalls: [
 				{ id: 'c1', name: 'write', input: { path: 'a.txt', content: 'b' }, isDestructive: true },
 			],

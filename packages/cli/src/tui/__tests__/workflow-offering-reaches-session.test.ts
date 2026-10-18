@@ -69,14 +69,20 @@ afterEach(() => {
 	removeTempDir(cwd)
 })
 
+/** A host that runs workflows says so, and says who answers for them. */
+const REVIEWER: NonNullable<SendOptions['workflowReview']> = {
+	onPermission: async () => ({ kind: 'approve' }),
+	currentPermissionMode: () => 'prompt',
+}
+
 async function sendWith(text: string, options: SendOptions = {}) {
 	const { createAgentSession } = await import('../agent.js')
 	const session = await createAgentSession(preferences, detectedAnthropic(), { cwd })
 	try {
-		for await (const _event of session.send(
-			[{ role: 'user', content: text, timestamp: 0 }],
-			options,
-		)) {
+		for await (const _event of session.send([{ role: 'user', content: text, timestamp: 0 }], {
+			workflowReview: REVIEWER,
+			...options,
+		})) {
 			// drain the real AgentSession boundary
 		}
 	} finally {
@@ -113,6 +119,30 @@ describe('when the model is offered the workflow tool', () => {
 		expect(call.systemPrompt ?? '').toContain(WORKFLOW_DOCTRINE)
 	})
 
+	it.each([
+		['the message asks for one', 'use a workflow to audit', {}],
+		['hypermode is on', 'audit the packages', { hypermode: true }],
+	])(
+		'does not offer it to a host that passes no workflow reviewer, even when %s',
+		async (_why, text, extra) => {
+			const { createAgentSession } = await import('../agent.js')
+			const session = await createAgentSession(preferences, detectedAnthropic(), { cwd })
+			try {
+				for await (const _event of session.send(
+					[{ role: 'user', content: text, timestamp: 0 }],
+					extra,
+				)) {
+					// drain
+				}
+			} finally {
+				await session.close()
+			}
+			const [call] = queryCalls as { toolsets: readonly Toolset[]; systemPrompt?: string }[]
+			expect(call && offered(call)).toBeUndefined()
+			expect(call?.systemPrompt ?? '').not.toContain(WORKFLOW_DOCTRINE)
+		},
+	)
+
 	it('offers it on the turn that asked, not on the next one', async () => {
 		const { createAgentSession } = await import('../agent.js')
 		const session = await createAgentSession(preferences, detectedAnthropic(), { cwd })
@@ -120,7 +150,7 @@ describe('when the model is offered the workflow tool', () => {
 			for (const text of ['use a workflow', 'thanks, now rename the file']) {
 				for await (const _event of session.send(
 					[{ role: 'user', content: text, timestamp: 0 }],
-					{},
+					{ workflowReview: REVIEWER },
 				)) {
 					// drain
 				}
@@ -152,24 +182,27 @@ describe('who may start one', () => {
 	}
 
 	it('refuses, in plain words, a headless turn that is not set to run without asking', async () => {
-		const result = await attempt({ permissionMode: 'prompt' })
+		const result = await attempt({
+			permissionMode: 'prompt',
+			workflowReview: { currentPermissionMode: () => 'prompt' },
+		})
 		expect(result?.success).toBe(false)
 		expect(result?.error).toContain('nobody to ask')
 		expect(result?.error).toContain('--permission-mode auto')
 	})
 
 	it('lets a turn with a reviewer past the gate (the script is then judged on its own)', async () => {
-		const result = await attempt({
-			permissionMode: 'prompt',
-			onPermission: async () => ({ kind: 'approve' }),
-		})
+		const result = await attempt({ permissionMode: 'prompt' })
 		expect(result?.success).toBe(false)
 		expect(result?.error).not.toContain('nobody to ask')
 		expect(result?.error).toMatch(/meta/i)
 	})
 
 	it('lets a bypass session past the gate with nobody there', async () => {
-		const result = await attempt({ permissionMode: 'auto' })
+		const result = await attempt({
+			permissionMode: 'auto',
+			workflowReview: { currentPermissionMode: () => 'auto' },
+		})
 		expect(result?.error).not.toContain('nobody to ask')
 		expect(result?.error).toMatch(/meta/i)
 	})

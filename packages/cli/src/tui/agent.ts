@@ -797,14 +797,16 @@ export interface SendOptions {
 	 */
 	readonly currentPermissionMode?: () => PermissionMode
 	/**
-	 * Who answers the review of a workflow this turn starts, for as long as the
-	 * workflow runs. A workflow outlives the turn that started it, so it cannot
-	 * borrow `onPermission`, which belongs to the turn. Absent, the workflow
-	 * falls back to `onPermission` and `currentPermissionMode`, and its agents
-	 * are refused once the turn has ended.
+	 * A host that can run workflows says so by passing this, and says who
+	 * answers their reviews for as long as they run. A workflow outlives the
+	 * turn that started it, so it cannot borrow `onPermission`, which belongs to
+	 * the turn. Absent, the `workflow` tool is not offered at all: a host that
+	 * has not built the screens for a background run (the desktop app today)
+	 * must not hand the model a tool whose agents it cannot ask about.
 	 */
 	readonly workflowReview?: {
-		readonly onPermission: PermissionFn
+		/** Absent: nobody to ask (a headless host), so only a session set to run without asking may start one. */
+		readonly onPermission?: PermissionFn
 		readonly currentPermissionMode: () => PermissionMode
 	}
 	/**
@@ -4709,16 +4711,9 @@ export async function createAgentSession(
 						delegationScopes.set(turnId, turnScope)
 						delegationLimits.set(turnId, turnLimits)
 						delegatedWorkflowAuth.set(turnId, {
-							interactive: opts?.onPermission !== undefined,
+							interactive: opts?.workflowReview?.onPermission !== undefined,
 							mode: () => modeControl.current(),
-							reviewer:
-								opts?.workflowReview ??
-								(opts?.onPermission
-									? {
-											onPermission: opts.onPermission,
-											currentPermissionMode: () => modeControl.current(),
-										}
-									: undefined),
+							reviewer: opts?.workflowReview,
 						})
 						if (capturedAuthority) {
 							if (goalAuthorities.has(turnId)) {
@@ -4886,6 +4881,7 @@ export async function createAgentSession(
 						// orchestration, so an ordinary turn never carries its schema.
 						const workflowOffer =
 							workflowHost !== undefined &&
+							opts?.workflowReview !== undefined &&
 							!residentContext &&
 							workflowOffered({
 								hypermode: opts?.hypermode === true,
