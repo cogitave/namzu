@@ -46,6 +46,26 @@ describe('the footer row', () => {
 		expect(noTask).toContain('⏵⏵ bypass permissions on (shift+tab to cycle) · PR #592')
 	})
 
+	// Reference (REA fn bGe, chunk-2rs9vjmc.js, with Fye in chunk-fdh2jsht.js): the
+	// cycle key leaves the row only while a background task is counted, and the
+	// count (`Bwt`) leaves agents and workflows out when the agents panel is on —
+	// they are rows of their own. Shells are counted.
+	it('keeps the cycle key beside running agents and drops it only for a running shell', async () => {
+		const withAgents = await row(
+			{ permissionMode: 'auto', canCycleMode: true, agentCount: 2, canManage: true },
+			140,
+		)
+		expect(withAgents).toContain(
+			'⏵⏵ bypass permissions on (shift+tab to cycle) · ← 2 agents · ↓ to manage',
+		)
+		const withShell = await row(
+			{ permissionMode: 'auto', canCycleMode: true, agentCount: 2, shellCount: 1 },
+			140,
+		)
+		expect(withShell).not.toContain('shift+tab to cycle')
+		expect(withShell).toContain('1 shell')
+	})
+
 	it('puts esc to interrupt, the agents hint and the manage hint last, in the reference order', async () => {
 		const text = await row(
 			{
