@@ -630,6 +630,8 @@ interface TurnGroupProps {
 	planTurn?: number
 	/** Opens the full task list; the same function for the life of the transcript. */
 	onOpenTasks?: () => void
+	/** The stop row under the transcript carries this turn's time, so the turn draws no clock of its own. */
+	clockShownBelow: boolean
 }
 
 function shallowEqual(a: object | undefined, b: object | undefined): boolean {
@@ -669,6 +671,7 @@ const TurnGroupView = memo(function TurnGroupView({
 	projectRoot,
 	planTurn,
 	onOpenTasks,
+	clockShownBelow,
 }: TurnGroupProps) {
 	const actionsValue = useMemo<ActivityActions>(
 		() => ({ changes, projectRoot, onOpenTurnChanges, onOpenChangedFile }),
@@ -747,7 +750,7 @@ const TurnGroupView = memo(function TurnGroupView({
 						))}
 					</Fragment>
 				))}
-				{clock?.at === 'turn' && (
+				{clock?.at === 'turn' && !clockShownBelow && (
 					<Message from="assistant" className="message assistant turn-clock">
 						<MessageFooter time={clock.time} focusable />
 					</Message>
@@ -785,6 +788,7 @@ function turnGroupPropsEqual(previous: TurnGroupProps, next: TurnGroupProps): bo
 		previous.onUndoTurn !== next.onUndoTurn ||
 		previous.planTurn !== next.planTurn ||
 		previous.onOpenTasks !== next.onOpenTasks ||
+		previous.clockShownBelow !== next.clockShownBelow ||
 		!shallowEqual(previous.separators, next.separators)
 	)
 		return false
@@ -811,6 +815,7 @@ export function Transcript({
 	undoKept,
 	projectRoot,
 	closedWhileRunning = false,
+	stopShownBelow = false,
 	dateSeparators = true,
 }: {
 	thread: ThreadState
@@ -834,6 +839,11 @@ export function Transcript({
 	projectRoot?: string
 	/** The window was closed while the latest reply ran, which is why it stopped. */
 	closedWhileRunning?: boolean
+	/**
+	 * The latest reply's stop is drawn under the transcript with its own time and actions. Its turn
+	 * then draws no clock of its own: a second time row would only open a gap above the stop.
+	 */
+	stopShownBelow?: boolean
 	dateSeparators?: boolean
 }) {
 	const ref = useRef<HTMLDivElement>(null)
@@ -953,6 +963,7 @@ export function Transcript({
 						onUndoTurn={onUndoTurn ? stable.onUndoTurn : undefined}
 						planTurn={planTurn}
 						onOpenTasks={onOpenTasks ? stable.onOpenTasks : undefined}
+						clockShownBelow={stopShownBelow && !live && group.turn === thread.turn}
 					/>
 				)
 			})}
