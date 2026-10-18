@@ -7112,8 +7112,9 @@ export function App({
 								liveInputSupported={thread.liveInputSupported && !palConversation}
 								sending={sending[draftOwner] ?? false}
 								shells={
-									sessionWork.state === 'known' && sessionWork.runningCount > 0
-										? { count: sessionWork.runningCount, onOpen: openBackgroundWork }
+									// The open Activity panel's own list is the freshest count; otherwise the observer's.
+									detailsWork.state === 'known' && detailsWork.running > 0
+										? { count: detailsWork.running, onOpen: openBackgroundWork }
 										: undefined
 								}
 								pullRequest={

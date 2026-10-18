@@ -14,10 +14,27 @@ import { createWorld, dispose, expect, launch, openProject, send } from "./harne
 
 const T = 60000;
 const SHOTS = process.env.NAMZU_E2E_SHOTS;
+/** Every finite animation and transition has run to its end: the real final state, never a fixed wait. */
+const settled = (w) =>
+	w.page.evaluate(() =>
+		Promise.all(
+			document
+				.getAnimations()
+				.filter((a) => a.effect?.getComputedTiming().iterations !== Number.POSITIVE_INFINITY)
+				.map((a) => a.finished.catch(() => undefined)),
+		),
+	);
 const shot = async (w, name) => {
 	if (!SHOTS) return;
 	mkdirSync(SHOTS, { recursive: true });
-	await w.page.screenshot({ path: join(SHOTS, `${name}.png`), clip: { x: 336, y: 600, width: 944, height: 220 } });
+	await settled(w);
+	// The composer wherever it stands (centred in an empty conversation, docked once there are messages).
+	const box = await w.page.locator("[data-chat-composer-stack]").boundingBox();
+	assert.ok(box, "the composer is on screen");
+	const pad = 16;
+	const x = Math.max(0, box.x - pad);
+	const y = Math.max(0, box.y - pad);
+	await w.page.screenshot({ path: join(SHOTS, `${name}.png`), clip: { x, y, width: box.width + 2 * pad, height: box.height + 2 * pad } });
 };
 
 test("the footer shows background shells and the branch pull request", { timeout: 280000 }, async () => {
@@ -75,6 +92,11 @@ test("the footer shows background shells and the branch pull request", { timeout
 		writeFileSync(answer, pr({ isDraft: true }));
 		await sendAndWait("tamam uc", "Tamam.");
 		await expect(chip).toHaveAttribute("data-review", "draft", { timeout: T });
+		await shot(w, "footer-pr-draft");
+		writeFileSync(answer, pr({ state: "MERGED" }));
+		await sendAndWait("tamam uc buçuk", "Tamam.");
+		await expect(chip).toHaveAttribute("data-review", "merged", { timeout: T });
+		await shot(w, "footer-pr-merged");
 		// gh failing, or no pull request: nothing at all, not a hint.
 		writeFileSync(answer, "FAIL:To get started with GitHub CLI, please run:  gh auth login");
 		await sendAndWait("tamam dort", "Tamam.");

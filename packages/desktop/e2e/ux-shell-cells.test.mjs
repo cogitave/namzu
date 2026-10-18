@@ -11,9 +11,20 @@ import { createWorld, dispose, expect, launch, openProject, send } from "./harne
 
 const T = 60000;
 const SHOTS = process.env.NAMZU_E2E_SHOTS;
+/** Every finite animation and transition has run to its end: the real final state, never a fixed wait. */
+const settled = (w) =>
+	w.page.evaluate(() =>
+		Promise.all(
+			document
+				.getAnimations()
+				.filter((a) => a.effect?.getComputedTiming().iterations !== Number.POSITIVE_INFINITY)
+				.map((a) => a.finished.catch(() => undefined)),
+		),
+	);
 const shot = async (w, name) => {
 	if (!SHOTS) return;
 	mkdirSync(SHOTS, { recursive: true });
+	await settled(w);
 	await w.page.screenshot({ path: join(SHOTS, `${name}.png`) });
 };
 const row = (w, text) => w.page.locator(".tool[data-tool-call-id]", { hasText: text }).first();
@@ -69,6 +80,7 @@ test("commands show their output, how they ended once, and background ones say s
 		await expect(seq.getByRole("button", { name: "Show less" })).toBeVisible();
 		w.model.release("slow");
 		await expect(w.page.getByText("Bitti.")).toBeVisible({ timeout: T });
+		await expect(w.page.locator("[data-composer-shells]")).toHaveText("1 shell", { timeout: 20000 });
 		await shot(w, "shell-finished");
 		failed = false;
 	} finally {
