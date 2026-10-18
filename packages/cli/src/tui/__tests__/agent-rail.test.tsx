@@ -242,6 +242,7 @@ describe('rail rows', () => {
 				agentId: 'general-purpose',
 				description: 'Mine the UI reference',
 				tokens: 3_210,
+				toolCalls: 2,
 			}),
 			agent({
 				viewId: 'b',
@@ -378,7 +379,17 @@ describe('rail rows', () => {
 				}),
 				NOW,
 			),
-		).toBe('10s · ↓ 950 tokens')
+		).toBe('10s · ↑ 950 tokens')
+	})
+
+	// Reference (REA fn p0e): the arrow is up until the agent has done its first
+	// thing, down after; no figure at all for zero.
+	it('points the token arrow up until the first tool call and down after it', () => {
+		const spent = { viewId: 'a', tokens: 1_200 }
+		expect(railStatusText(agent({ ...spent }), NOW)).toBe('12s · ↑ 1.2k tokens')
+		expect(railStatusText(agent({ ...spent, toolCalls: 0 }), NOW)).toBe('12s · ↑ 1.2k tokens')
+		expect(railStatusText(agent({ ...spent, toolCalls: 1 }), NOW)).toBe('12s · ↓ 1.2k tokens')
+		expect(railStatusText(agent({ viewId: 'a', tokens: 0, toolCalls: 3 }), NOW)).toBe('12s')
 	})
 
 	it('points at the selected row and moves the open circle to the agent being viewed', async () => {

@@ -201,9 +201,16 @@ export function railActionFor(agent: SubagentActivity): 'stop' | 'clear' {
 	return isTerminalStatus(agent.status) ? 'clear' : 'stop'
 }
 
-/** `1.2k tokens` once the agent has reported usage, nothing before that. */
+/**
+ * `↑ 1.2k tokens` while the agent has done nothing but read its task, `↓ 1.2k
+ * tokens` once it has acted (its first tool call). Nothing until it has
+ * reported some usage. REA fn p0e, chunk-2rs9vjmc.js: the arrow follows
+ * `progress.lastActivity`.
+ */
 function railTokens(agent: SubagentActivity): string | undefined {
-	return agent.tokens === undefined ? undefined : `↓ ${formatCompactCount(agent.tokens)} tokens`
+	if (agent.tokens === undefined || agent.tokens <= 0) return undefined
+	const arrow = agent.toolCalls !== undefined && agent.toolCalls > 0 ? '↓' : '↑'
+	return `${arrow} ${formatCompactCount(agent.tokens)} tokens`
 }
 
 /**
