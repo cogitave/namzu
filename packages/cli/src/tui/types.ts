@@ -106,6 +106,8 @@ export interface TuiContext {
 	readonly configDebug?: ConfigDebugSnapshot
 	/** Initial TUI mode is auto (--dangerously-skip-permissions / --yolo); /permissions may narrow it. */
 	readonly skipPermissions?: boolean
+	/** --allow-dangerously-skip-permissions: Shift+Tab may reach auto without starting in it. */
+	readonly allowDangerouslySkipPermissions?: boolean
 	/**
 	 * `--provider`, `--model`, `--effort` and `--permission-mode` for this launch.
 	 * Session-only: none of them is saved, and `/model`, `/effort` and

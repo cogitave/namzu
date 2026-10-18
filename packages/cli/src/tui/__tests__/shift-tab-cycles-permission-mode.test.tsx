@@ -229,3 +229,59 @@ describe('Shift+Tab in the composer', () => {
 		expect(harness.lastFrame() ?? '').not.toContain('queued')
 	})
 })
+
+describe('Shift+Tab and the auto-approve stop', () => {
+	async function press(harness: ReturnType<typeof render>, count: number): Promise<void> {
+		for (let i = 0; i < count; i++) {
+			const before = recorded.length
+			harness.stdin.write(SHIFT_TAB)
+			await vi.waitFor(() => expect(recorded).toHaveLength(before + 1))
+		}
+	}
+
+	it('never reaches auto from an ordinary launch', async () => {
+		const harness = render(<App ctx={ctx} />)
+		mounted.push(harness)
+		await vi.waitFor(() => expect(harness.lastFrame() ?? '').toContain('Type a message'))
+		await press(harness, 4)
+		expect(recorded).toEqual(['accept-edits', 'plan', 'prompt', 'accept-edits'])
+		expect(harness.frames.join('\n')).not.toContain('bypass permissions on')
+	})
+
+	it.each([['--allow-dangerously-skip-permissions', { allowDangerouslySkipPermissions: true }]])(
+		'reaches auto after plan with %s, and falls back to prompt',
+		async (_flag, extra) => {
+			const harness = render(<App ctx={{ ...ctx, ...extra }} />)
+			mounted.push(harness)
+			await vi.waitFor(() => expect(harness.lastFrame() ?? '').toContain('Type a message'))
+			await press(harness, 4)
+			expect(recorded).toEqual(['accept-edits', 'plan', 'auto', 'prompt'])
+			await vi.waitFor(() =>
+				expect(harness.frames.join('\n')).toContain('⏵⏵ bypass permissions on'),
+			)
+		},
+	)
+
+	it('keeps auto in the cycle after --yolo once the key has left it', async () => {
+		const harness = render(<App ctx={{ ...ctx, skipPermissions: true }} />)
+		mounted.push(harness)
+		await vi.waitFor(() => expect(harness.lastFrame() ?? '').toContain('bypass permissions on'))
+		await tick(60)
+		await press(harness, 5)
+		// auto -> prompt -> accept-edits -> plan -> auto -> prompt
+		expect(recorded).toEqual(['prompt', 'accept-edits', 'plan', 'auto', 'prompt'])
+	})
+
+	it('treats choosing auto by name as the same consent', async () => {
+		const harness = render(<App ctx={ctx} />)
+		mounted.push(harness)
+		await vi.waitFor(() => expect(harness.lastFrame() ?? '').toContain('Type a message'))
+		harness.stdin.write('/permissions auto')
+		await tick(30)
+		harness.stdin.write('\r')
+		await vi.waitFor(() => expect(recorded).toEqual(['auto']))
+		await tick(60)
+		await press(harness, 4)
+		expect(recorded).toEqual(['auto', 'prompt', 'accept-edits', 'plan', 'auto'])
+	})
+})

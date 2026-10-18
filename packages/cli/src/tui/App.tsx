@@ -171,7 +171,9 @@ import {
 import { appendMemoryWithStatus, readMemory } from '../memory/store.js'
 import {
 	type PermissionMode,
+	bypassAvailableAtLaunch,
 	effectivePermissionMode,
+	nextCycleMode,
 	permissionModeDescription,
 	permissionModeLabel,
 } from '../permissions/mode.js'
@@ -1259,6 +1261,15 @@ export function App({
 		launchPermissionMode ?? (ctx.skipPermissions === true || ctx.palId ? 'auto' : 'prompt'),
 	)
 	const permissionModeRef = useRef<PermissionMode>(permissionMode)
+	// Whether Shift+Tab may land on `auto`. Fixed at launch by the launch
+	// mode or --allow-dangerously-skip-permissions; naming `auto` in
+	// /permissions grants it for the rest of the session.
+	const bypassAvailableRef = useRef(
+		bypassAvailableAtLaunch({
+			launchMode: permissionMode,
+			allowDangerouslySkipPermissions: ctx.allowDangerouslySkipPermissions === true,
+		}),
+	)
 	const permissionModeSourceRef = useRef<'default' | 'launch-bypass' | 'launch-flag' | 'session'>(
 		launchPermissionMode
 			? 'launch-flag'
@@ -3202,6 +3213,8 @@ export function App({
 			// The ref first: a running turn reads it at its next decision, and the
 			// record below makes the change durable before that decision is made.
 			permissionModeRef.current = mode
+			// Asking for `auto` by name is the same consent as the launch flag.
+			if (mode === 'auto' && announce) bypassAvailableRef.current = true
 			permissionModeSourceRef.current = 'session'
 			setPermissionModeState(mode)
 			void session.setPermissionMode?.(mode)
@@ -3635,19 +3648,17 @@ export function App({
 	}, [hasUnsettledTurn, pushMessage, state])
 
 	/**
-	 * Shift+Tab: `prompt` → `accept-edits` → `plan` → `prompt`. Three stops
-	 * only — `auto` and `strict` are deliberate choices made by name in
-	 * `/permissions`, not stops on a key an operator presses on reflex. From
-	 * either of those the key returns to `prompt`, which is the direction a
-	 * reflex should fall. The change goes through the same path `/permissions`
+	 * Shift+Tab: `prompt` → `accept-edits` → `plan` → `auto` → `prompt`, the
+	 * reference's cycle. `auto` is a stop only when the session may use it
+	 * (launched in it, or `--allow-dangerously-skip-permissions`); otherwise
+	 * plan returns to `prompt`. `strict` is a deliberate choice made by name
+	 * in `/permissions` and the key returns it to `prompt`. The change goes through the same path `/permissions`
 	 * uses and takes effect at once, mid-turn included; the footer is its only
 	 * on-screen reply (see `applyPermissionMode`).
 	 */
 	const cyclePermissionMode = useCallback((): void => {
 		const current = permissionModeRef.current
-		const next: PermissionMode =
-			current === 'prompt' ? 'accept-edits' : current === 'accept-edits' ? 'plan' : 'prompt'
-		applyPermissionMode(next, false)
+		applyPermissionMode(nextCycleMode(current, bypassAvailableRef.current), false)
 	}, [applyPermissionMode])
 
 	const runConversationExport = useCallback(

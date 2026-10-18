@@ -58,6 +58,39 @@ export function effectivePermissionMode(
 	return approvedAll && (mode === 'prompt' || mode === 'accept-edits') ? 'auto' : mode
 }
 
+/**
+ * The mode Shift+Tab moves to. The reference's cycle (`c4t`) runs default,
+ * accept edits, plan, then bypass when the session may use it, then back to
+ * default; `auto` is that bypass stop here and is reached only when
+ * `bypassAvailable`. `auto` and `strict` go back to `prompt`.
+ */
+export function nextCycleMode(current: PermissionMode, bypassAvailable: boolean): PermissionMode {
+	switch (current) {
+		case 'prompt':
+			return 'accept-edits'
+		case 'accept-edits':
+			return 'plan'
+		case 'plan':
+			return bypassAvailable ? 'auto' : 'prompt'
+		case 'auto':
+		case 'strict':
+			return 'prompt'
+	}
+}
+
+/**
+ * Whether Shift+Tab may land on `auto`: the session was launched in it
+ * (`--dangerously-skip-permissions`, `--yolo`, `--permission-mode auto`),
+ * or asked for it with `--allow-dangerously-skip-permissions`. Choosing
+ * `auto` by name in `/permissions` grants it for the rest of the session.
+ */
+export function bypassAvailableAtLaunch(opts: {
+	readonly launchMode: PermissionMode
+	readonly allowDangerouslySkipPermissions?: boolean
+}): boolean {
+	return opts.launchMode === 'auto' || opts.allowDangerouslySkipPermissions === true
+}
+
 /** The behavior shown by both the permission selector and the session report. */
 export function permissionModeDescription(mode: PermissionMode): string {
 	switch (mode) {
