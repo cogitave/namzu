@@ -31,6 +31,11 @@ function resultText(result: unknown): string {
 	return typeof result === 'string' ? result : JSON.stringify(result, null, 2)
 }
 
+/** Whether a `workflow` tool result is the launch receipt of a run going on in the background. */
+export function isBackgroundLaunch(output: string): boolean {
+	return /^Workflow ".*" started in the background as w[0-9a-z]{8}\./.test(output)
+}
+
 /** What the model reads right after it started a run. Never shown to the person. */
 export function launchedText(view: Pick<WorkflowRunView, 'runId' | 'name'>): string {
 	return [

@@ -125,13 +125,14 @@ describe('the workflow tool, over the real subagent runtime', () => {
 
 	it('fails the run, not the session, when the script throws', async () => {
 		const h = await make()
-		await h.start({
+		const result = await h.start({
 			script:
 				"export const meta = { name: 'boom', description: 'throws' }\nthrow new Error('no luck')",
 		})
-		await h.untilEnded()
-		expect(h.ended[0]?.view.status).toBe('failed')
-		expect(h.ended[0]?.view.error).toContain('no luck')
+		// It failed before any agent: the call reports it, no background run exists.
+		expect(result.success).toBe(false)
+		expect(result.error).toContain('no luck')
+		expect(h.host.registry.list()).toEqual([])
 	})
 })
 
@@ -175,6 +176,12 @@ describe('the configured caps', () => {
 		}
 	})
 
+	const make = async (options?: Parameters<typeof workflowHarness>[0]) => {
+		const h = await workflowHarness(options)
+		open.push(h)
+		return h
+	}
+
 	it('hold the run to workflow.maxConcurrency', async () => {
 		const h = await workflowHarness({ held: true, limits: { maxConcurrency: 1 } })
 		open.push(h)
@@ -199,5 +206,69 @@ describe('the configured caps', () => {
 		const view = h.ended[0]?.view
 		expect(view?.status).toBe('failed')
 		expect(view?.error).toContain('more than 4 agents')
+	})
+
+	describe('a script that ends before it asks for an agent', () => {
+		const META = "export const meta = { name: 'typo-fix', description: 'Fix typos', phases: [] }\n"
+
+		it('is an error of the call that names the line, with no run left behind and no notice after', async () => {
+			const h = await make()
+			const result = await h.start({
+				script: `${META}const names = args.files.map((f) => f)\nreturn names`,
+			})
+			expect(result.success).toBe(false)
+			expect(result.error).toContain('No agent had started.')
+			expect(result.error).toMatch(/line \d+/i)
+			expect(result.error).toContain('passed no "args"')
+			expect(result.output).toBe('')
+			expect(h.host.registry.list()).toEqual([])
+			expect(h.released).toHaveLength(1)
+			// No completion notice is sent for it; nothing is left to wait for.
+			await h.host.registry.whenIdle()
+			expect(h.ended).toEqual([])
+		})
+
+		it('does not blame the missing args when the call passed them', async () => {
+			const h = await make()
+			const result = await h.start({ script: `${META}return args.files.map((f) => f)`, args: {} })
+			expect(result.success).toBe(false)
+			expect(result.error).not.toContain('passed no "args"')
+		})
+
+		it('returns a script that finishes without an agent inline, as the completion message', async () => {
+			const h = await make()
+			const result = await h.start({ script: `${META}return { sum: 1 + 41 }`, args: {} })
+			expect(result.success).toBe(true)
+			expect(result.output).toContain('completed.')
+			expect(result.output).toContain('"sum": 42')
+			expect(result.output).not.toContain('started in the background')
+			expect(h.host.registry.list()).toEqual([])
+			await h.host.registry.whenIdle()
+			expect(h.ended).toEqual([])
+		})
+
+		it('still backgrounds a run that asks for an agent, and tells the end as before', async () => {
+			const h = await make({ held: true })
+			const result = await h.start({ script: `${META}return await agent('hi')` })
+			expect(result.success).toBe(true)
+			expect(result.output).toContain('started in the background')
+			expect(h.host.registry.running()).toHaveLength(1)
+			h.gate.open()
+			await h.untilEnded()
+			expect(h.ended[0]?.view.status).toBe('completed')
+		})
+
+		it('lets go of the wait when the turn is aborted, leaving the run going', async () => {
+			const h = await make()
+			const controller = new AbortController()
+			const context = { ...h.context, abortSignal: controller.signal } as typeof h.context
+			controller.abort()
+			const result = await h.host.tool.execute(
+				{ script: `${META}return await agent('hi')` },
+				context,
+			)
+			expect(result.success).toBe(true)
+			await h.untilEnded()
+		})
 	})
 })

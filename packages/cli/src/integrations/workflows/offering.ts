@@ -49,7 +49,7 @@ export function workflowCommandPrompt(task: string): string {
 
 /** The tool's description, as the model reads it. */
 export const WORKFLOW_TOOL_DESCRIPTION = [
-	'Run a workflow: a short JavaScript program you write once that starts many subagents, in order and in parallel, and returns one value. It runs in the background; this call returns at once and one message arrives when it ends. Use it only because the operator asked for orchestration; for a single subagent or a small fan-out, use the Agent tool.',
+	'Run a workflow: a short JavaScript program you write once that starts many subagents, in order and in parallel, and returns one value. It runs in the background: this call returns once the first agent is requested, and one message arrives when the run ends. A script that fails before it requests any agent is an error of this call, and one that finishes without any returns its result here. Use it only because the operator asked for orchestration; for a single subagent or a small fan-out, use the Agent tool.',
 	'',
 	'The script is confined: no files, no network, no commands, no timers, no imports. Its only power is agent(), which starts a subagent with the same tools, permissions, sandbox and budget the Agent tool gives. A prompt you pass is data for that subagent and cannot widen what it may do.',
 	'',
@@ -61,7 +61,7 @@ export const WORKFLOW_TOOL_DESCRIPTION = [
 	'- parallel([() => agent(...), ...]) starts every thunk now and resolves when all are done.',
 	'- pipeline(items, stage1, stage2, ...) runs one chain per item with no barrier between stages; a stage gets (value, index, item) and an item whose stage gives null stops there.',
 	'- phase(title) names the stage that the following agents belong to; inside parallel() or pipeline() pass opts.phase instead. Use the same titles as in meta.phases.',
-	'- log(message) writes a progress line. args is the JSON you pass in the "args" input. budget is { tokensUsed, tokenLimit? }.',
+	'- log(message) writes a progress line. args is exactly the JSON you pass in the args input of the call (undefined when you omit it). budget is { tokensUsed, tokenLimit? }.',
 	'- return a small JSON value: it is what you get back, capped at about 8000 characters. Have agents write large results to files and return the paths.',
 	'',
 	'Limits: a handful of agents run at once (the cap comes from the configuration; usually up to 8) and at most 200 start per run (up to 1000 if configured); a script that asks for more fails. The script may be up to 256 KiB and args 64 KiB, but the operator reads the script before it starts, so keep it as short as it can be: loops over lists, shared helpers, prompts built from args. Put long per-agent instructions in a file the agents read.',
