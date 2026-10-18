@@ -17,6 +17,8 @@ export interface DesktopSettings {
 	terminalShell: ShellChoice
 	/** Bring terminal tabs back after a restart, as ended terminals showing their last screen. */
 	restoreTerminals: boolean
+	/** The person agreed to voice input once: the microphone may be opened by Namzu's own windows. */
+	voiceInputAccepted: boolean
 }
 
 export const DEFAULT_DESKTOP_SETTINGS: Readonly<DesktopSettings> = {
@@ -25,6 +27,7 @@ export const DEFAULT_DESKTOP_SETTINGS: Readonly<DesktopSettings> = {
 	autoDownloadUpdates: true,
 	terminalShell: 'auto',
 	restoreTerminals: true,
+	voiceInputAccepted: false,
 }
 
 const KEYS = Object.keys(DEFAULT_DESKTOP_SETTINGS) as (keyof DesktopSettings)[]

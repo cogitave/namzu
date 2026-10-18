@@ -1,6 +1,7 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
+import type { LocalListeningState } from '../shared/local-listening-protocol.js'
 import type { LocalSpeechState } from '../shared/local-speech-protocol.js'
 import type { ProjectView } from '../shared/protocol.js'
 import {
@@ -16,6 +17,7 @@ import {
 	SettingsSidebar,
 	TerminalSettings,
 } from './settings-page.js'
+import type { LocalListeningControls } from './use-local-listening.js'
 import type { LocalSpeechControls } from './use-local-speech.js'
 
 const speechState = (
@@ -47,6 +49,23 @@ const speech = (installation?: LocalSpeechState['installation']): LocalSpeechCon
 	preview: vi.fn(),
 	readAloud: vi.fn(),
 	stop: vi.fn(),
+})
+const listeningControls = (
+	installation: LocalListeningState['installation'] = 'ready',
+): LocalListeningControls => ({
+	state: {
+		installation,
+		engine: 'unloaded',
+		device: 'cpu',
+		downloadBytes: 1_037_257_645,
+		diskBytes: installation === 'ready' ? 1_037_257_645 : null,
+	},
+	supported: true,
+	loading: false,
+	busy: false,
+	install: vi.fn(),
+	cancelInstall: vi.fn(),
+	uninstall: vi.fn(),
 })
 const project = (over: Partial<ProjectView>): ProjectView => ({
 	id: 'p1',
@@ -104,6 +123,7 @@ function page(section: SettingsSection, over: Partial<SettingsPageProps> = {}) {
 				onCheck: () => {},
 			},
 			speech: speech(),
+			listening: listeningControls(),
 			info,
 			onOpenFolder: () => {},
 			now: 1_000 + 5 * 60_000,
@@ -276,6 +296,18 @@ describe('the settings page', () => {
 		const missing = page('speech', { speech: speech('missing') })
 		expect(missing).toContain('Download voice')
 		expect(missing).not.toContain('Remove voice…')
+	})
+
+	it('Speech also holds the Voice input card beside the read-aloud voice', () => {
+		const ready = page('speech')
+		expect(ready).toContain('id="setting-voice"')
+		expect(ready).toContain('id="setting-voice-input"')
+		expect(ready).toContain('Voice input')
+		expect(ready).toContain('Remove voice input…')
+		const missing = page('speech', { listening: listeningControls('missing') })
+		expect(missing).toContain('Download voice input')
+		expect(missing).toContain('about 1 GB')
+		expect(missing).not.toContain('Remove voice input…')
 	})
 
 	it('About shows the versions, and the folders with Open buttons', () => {
