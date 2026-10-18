@@ -180,6 +180,41 @@ describe('automatic memory recall config', () => {
 	)
 })
 
+describe('workflow config', () => {
+	it('reads the two caps from a file', () => {
+		const home = userConfig('workflow:\n  maxConcurrency: 4\n  maxAgents: 600\n')
+		expect(loadConfig({ home, cwd: tmpdir(), env: {} }).workflow).toEqual({
+			maxConcurrency: 4,
+			maxAgents: 600,
+		})
+	})
+	it('accepts the limits themselves and leaves absent keys to the defaults', () => {
+		const home = userConfig('workflow:\n  maxConcurrency: 16\n')
+		expect(loadConfig({ home, cwd: tmpdir(), env: {} }).workflow).toEqual({ maxConcurrency: 16 })
+		const top = userConfig('workflow:\n  maxAgents: 1000\n')
+		expect(loadConfig({ home: top, cwd: tmpdir(), env: {} }).workflow).toEqual({ maxAgents: 1000 })
+		expect(loadConfig({ home: userConfig(''), cwd: tmpdir(), env: {} }).workflow).toBeUndefined()
+	})
+	it.each([
+		'workflow: 4\n',
+		'workflow:\n  maxConcurrency: 17\n',
+		'workflow:\n  maxConcurrency: 0\n',
+		'workflow:\n  maxAgents: 1001\n',
+		'workflow:\n  maxAgents: 2.5\n',
+		'workflow:\n  maxAgents: many\n',
+		'workflow:\n  turbo: true\n',
+	])('rejects %s', (contents) => {
+		const home = userConfig(contents)
+		expect(() => loadConfig({ home, cwd: tmpdir(), env: {} })).toThrow(ConfigValueError)
+	})
+	it('is never set from the environment', () => {
+		const home = userConfig('')
+		expect(
+			loadConfig({ home, cwd: tmpdir(), env: { NAMZU_WORKFLOW: '{"maxAgents":5}' } }).workflow,
+		).toBeUndefined()
+	})
+})
+
 describe('skills config', () => {
 	it('reads builtin and disabled from a file', () => {
 		const home = userConfig(

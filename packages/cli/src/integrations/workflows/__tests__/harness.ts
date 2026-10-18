@@ -48,6 +48,7 @@ export async function workflowHarness(
 		readonly held?: boolean
 		readonly refusal?: string
 		readonly tokenBudget?: number
+		readonly limits?: { maxConcurrency?: number; maxAgents?: number }
 	} = {},
 ) {
 	const cwd = mkdtempSync(join(tmpdir(), 'namzu-workflow-'))
@@ -119,6 +120,7 @@ export async function workflowHarness(
 		subagents: runtime,
 		runsDirectory: () => runs,
 		refusal: () => options.refusal,
+		...(options.limits ? { limitsFor: () => options.limits } : {}),
 		openRunTurn: (_origin, _runId) => {
 			const turnId = generateTurnId()
 			known.add(turnId)

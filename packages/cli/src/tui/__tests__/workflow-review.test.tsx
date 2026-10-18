@@ -38,10 +38,13 @@ function call(input: Record<string, unknown>) {
 	return [{ id: 'w1', name: 'workflow', input, isDestructive: false }]
 }
 
-function summaryOf(input: Record<string, unknown>) {
+function summaryOf(
+	input: Record<string, unknown>,
+	context: Parameters<typeof buildPermissionSummary>[1] = {},
+) {
 	const review = buildPermissionReview(call(input))
 	if (!review.ok) throw new Error('fixture must fit the approval envelope')
-	return { review: review.text, summary: buildPermissionSummary(review.text) }
+	return { review: review.text, summary: buildPermissionSummary(review.text, context) }
 }
 
 describe('the review of a workflow start', () => {
@@ -98,6 +101,16 @@ describe('the review of a workflow start', () => {
 		const { summary } = summaryOf({ script: SHORT, sneaky: true })
 		expect(summary.complete).toBe(false)
 		expect(summary.text).toContain('sneaky')
+	})
+})
+
+describe('the limits in force', () => {
+	it('are the configured ones, not the defaults', () => {
+		const { summary } = summaryOf(
+			{ script: SHORT },
+			{ workflowLimits: { maxConcurrency: 3, maxAgents: 40 } },
+		)
+		expect(summary.text).toContain('Agents: up to 3 at a time, 40 in all')
 	})
 })
 

@@ -21,6 +21,7 @@ import type {
 	TuiConfig,
 	TurnLimitsConfig,
 	WebConfig,
+	WorkflowCliConfig,
 } from '../config/schema.js'
 import type { ToolResultScreenConfig } from '../config/tool-result-screens.js'
 import type { McpServersConfig } from '../integrations/mcp/servers.js'
@@ -148,6 +149,8 @@ export interface TuiContext {
 	readonly memory?: MemoryCliConfig
 	/** Configured per-turn limits, also applied when rebuilding a session. */
 	readonly limits?: TurnLimitsConfig
+	/** See `NamzuCliConfig.workflow`. */
+	readonly workflow?: WorkflowCliConfig
 	/** See `NamzuCliConfig.decision`. */
 	readonly decision?: DecisionConfig
 	/**

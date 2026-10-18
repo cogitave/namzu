@@ -197,6 +197,7 @@ import type {
 	SkillsConfig,
 	TurnLimitsConfig,
 	WebConfig,
+	WorkflowCliConfig,
 } from '../config/schema.js'
 import {
 	type ToolResultScreenConfig,
@@ -2014,6 +2015,8 @@ export interface AgentSessionOptions {
 	readonly memory?: MemoryCliConfig
 	/** See `NamzuCliConfig.limits`: how many model calls and tokens one turn may spend. */
 	readonly limits?: TurnLimitsConfig
+	/** See `NamzuCliConfig.workflow`: the caps a workflow run is held to. */
+	readonly workflow?: WorkflowCliConfig
 	/**
 	 * Where this session's events are recorded, if anywhere.
 	 *
@@ -3384,7 +3387,10 @@ export async function createAgentSession(
 			},
 			limitsFor: (turnId) => {
 				const budget = delegationLimits.get(turnId)?.tokenBudget
-				return budget !== undefined && budget > 0 ? { tokenBudget: budget } : undefined
+				return {
+					...(budget !== undefined && budget > 0 ? { tokenBudget: budget } : {}),
+					...options.workflow,
+				}
 			},
 			onEnd: (end) => {
 				for (const listener of [...workflowEndListeners]) listener(end)

@@ -307,6 +307,14 @@ export interface PermissionSummaryContext {
 	 * ref alone is shown.
 	 */
 	readonly describeUiRef?: (ref: string) => string | undefined
+	/**
+	 * The caps a workflow would run under (`workflow.maxConcurrency` and
+	 * `workflow.maxAgents`, defaults filled in). Absent: the runtime defaults.
+	 */
+	readonly workflowLimits?: {
+		readonly maxConcurrency: number
+		readonly maxAgents: number
+	}
 }
 
 export function buildPermissionSummary(
@@ -572,7 +580,7 @@ function summarizeKnownCall(
 	}
 
 	if (name === 'workflow' && isRecord(input)) {
-		const summary = summarizeWorkflow(input)
+		const summary = summarizeWorkflow(input, context)
 		if (summary) return summary
 	}
 
@@ -626,7 +634,10 @@ const WORKFLOW_ARGS_PREVIEW_CHARS = 240
  * rest one key away. The script is shown whole in the expanded view, every
  * line verbatim, so approving it is approving exactly that text.
  */
-function summarizeWorkflow(input: Record<string, unknown>): ReadableCallSummary | null {
+function summarizeWorkflow(
+	input: Record<string, unknown>,
+	context: PermissionSummaryContext,
+): ReadableCallSummary | null {
 	const allowed = new Set(['script', 'args', 'description'])
 	if (!Object.keys(input).every((key) => allowed.has(key))) return null
 	if (typeof input.script !== 'string') return null
@@ -655,7 +666,7 @@ function summarizeWorkflow(input: Record<string, unknown>): ReadableCallSummary 
 	if (typeof input.description === 'string' && input.description.length > 0) {
 		head.push(...readableField('Shown as', input.description))
 	}
-	const limits = resolveWorkflowLimits()
+	const limits = context.workflowLimits ?? resolveWorkflowLimits()
 	head.push(
 		`Agents: up to ${limits.maxConcurrency} at a time, ${limits.maxAgents} in all, each with the same tools and approval rules as an Agent call`,
 		'Runs in the background; you can stop it from the rail or /workflows',

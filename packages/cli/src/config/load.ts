@@ -60,6 +60,7 @@ import type {
 	SessionExportRedactorName,
 	TerminalNotificationEvent,
 	TurnLimitsConfig,
+	WorkflowCliConfig,
 } from './schema.js'
 import {
 	DEFAULT_CONFIG,
@@ -1011,6 +1012,27 @@ const CONFIG_READERS: ConfigReaders = {
 		}
 		return v as TurnLimitsConfig
 	},
+	workflow: (v, context) => {
+		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
+		const caps = { maxConcurrency: 16, maxAgents: 1000 } as const
+		for (const key of Object.keys(v)) {
+			if (key !== 'maxConcurrency' && key !== 'maxAgents')
+				return invalidConfigValue(
+					context,
+					[key],
+					'is not a workflow setting (maxConcurrency, maxAgents)',
+				)
+			const value = (v as Record<string, unknown>)[key]
+			if (
+				typeof value !== 'number' ||
+				!Number.isSafeInteger(value) ||
+				value < 1 ||
+				value > caps[key]
+			)
+				return invalidConfigValue(context, [key], `must be a whole number from 1 to ${caps[key]}`)
+		}
+		return v as WorkflowCliConfig
+	},
 	plugins: (v, context) => {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
 		const known = new Set(['enabled', 'autoDiscovery', 'allowedScopes', 'hookTimeoutMs'])
@@ -1498,6 +1520,8 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	plugins: undefined,
 	sandbox: undefined,
 	limits: undefined,
+	// The cost of a run is decided in the file, not by a variable in a shell profile.
+	workflow: undefined,
 	// Outbound reach is opted into in the file, never from the environment.
 	web: undefined,
 	// A browser signed in to the operator's sites, and which of them it may

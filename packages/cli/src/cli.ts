@@ -528,6 +528,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					...(resolvedCtx.config.compaction ? { compaction: resolvedCtx.config.compaction } : {}),
 					...(resolvedCtx.config.memory ? { memory: resolvedCtx.config.memory } : {}),
 					...(resolvedCtx.config.limits ? { limits: resolvedCtx.config.limits } : {}),
+					...(resolvedCtx.config.workflow ? { workflow: resolvedCtx.config.workflow } : {}),
 					...(resolvedCtx.config.sandbox ? { sandbox: resolvedCtx.config.sandbox } : {}),
 					...(resolvedCtx.config.decision ? { decision: resolvedCtx.config.decision } : {}),
 					// A configured `routing` block makes Auto an available choice;

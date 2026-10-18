@@ -165,3 +165,39 @@ describe('a token budget and a skipped agent', () => {
 		expect(view?.agents.filter((a) => a.status === 'done')).toHaveLength(5)
 	})
 })
+
+describe('the configured caps', () => {
+	const open: Awaited<ReturnType<typeof workflowHarness>>[] = []
+	afterEach(async () => {
+		for (const h of open.splice(0)) {
+			await h.close()
+			removeTempDir(h.cwd)
+		}
+	})
+
+	it('hold the run to workflow.maxConcurrency', async () => {
+		const h = await workflowHarness({ held: true, limits: { maxConcurrency: 1 } })
+		open.push(h)
+		await h.start({ script: TWO_PHASE_SCRIPT })
+		await h.until(() => h.gate.waiting() === 1)
+		// Three were asked for, one goes: the others queue.
+		const runId = h.host.registry.list()[0]?.runId ?? ''
+		await h.until(() => (h.host.registry.get(runId)?.agents.length ?? 0) === 3)
+		expect(h.host.registry.get(runId)?.agents.map((a) => a.status)).toEqual([
+			'running',
+			'queued',
+			'queued',
+		])
+		expect(h.gate.waiting()).toBe(1)
+	})
+
+	it('fail a run that asks for more agents than workflow.maxAgents', async () => {
+		const h = await workflowHarness({ limits: { maxAgents: 4 } })
+		open.push(h)
+		await h.start({ script: TWO_PHASE_SCRIPT })
+		await h.untilEnded()
+		const view = h.ended[0]?.view
+		expect(view?.status).toBe('failed')
+		expect(view?.error).toContain('more than 4 agents')
+	})
+})

@@ -64,7 +64,7 @@ export const WORKFLOW_TOOL_DESCRIPTION = [
 	'- log(message) writes a progress line. args is the JSON you pass in the "args" input. budget is { tokensUsed, tokenLimit? }.',
 	'- return a small JSON value: it is what you get back, capped at about 8000 characters. Have agents write large results to files and return the paths.',
 	'',
-	'Limits: at most 8 agents run at once and 200 start per run; a script that asks for more fails. The script may be up to 256 KiB and args 64 KiB, but the operator reads the script before it starts, so keep it as short as it can be: loops over lists, shared helpers, prompts built from args. Put long per-agent instructions in a file the agents read.',
+	'Limits: a handful of agents run at once (the cap comes from the configuration; usually up to 8) and at most 200 start per run (up to 1000 if configured); a script that asks for more fails. The script may be up to 256 KiB and args 64 KiB, but the operator reads the script before it starts, so keep it as short as it can be: loops over lists, shared helpers, prompts built from args. Put long per-agent instructions in a file the agents read.',
 	'',
 	'Before it starts the operator sees the name, description, phases, limits and the script, and approves or declines. If they decline, do not retry with the same script; ask what to change.',
 ].join('\n')

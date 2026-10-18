@@ -73,6 +73,14 @@ export interface TurnLimitsConfig {
 	readonly waitForProviderMs?: number
 }
 
+/** See `NamzuCliConfig.workflow`. */
+export interface WorkflowCliConfig {
+	/** Agents one workflow runs at once. Default `min(8, CPUs - 2)`, at least 1; at most 16. */
+	readonly maxConcurrency?: number
+	/** Agents one workflow run may start. Default 200; at most 1000. */
+	readonly maxAgents?: number
+}
+
 /** See `NamzuCliConfig.compaction`. */
 export interface CompactionCliConfig {
 	/** Bounded historical evidence recall in recorded conversations. Default true; false disables it. */
@@ -221,6 +229,12 @@ export interface NamzuCliConfig {
 	 * Explicit token budgets cover descendants.
 	 */
 	readonly limits?: TurnLimitsConfig
+	/**
+	 * Caps for the `workflow` tool's runs: how many of a run's agents go at once
+	 * and how many it may start in all. Absent keeps the defaults. The review
+	 * shows the values in force.
+	 */
+	readonly workflow?: WorkflowCliConfig
 	/**
 	 * Isolation for the commands this CLI runs.
 	 *

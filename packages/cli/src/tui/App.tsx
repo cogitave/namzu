@@ -45,6 +45,7 @@ import {
 	generateTurnId,
 	isCompactionMessage,
 	kernelHostCommands,
+	resolveWorkflowLimits,
 } from '@namzu/sdk'
 import { Box, Text, useApp, useInput, useStdout, useWindowSize } from 'ink'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -4311,6 +4312,7 @@ export function App({
 							...(activeCtx.hooks ? { hooks: activeCtx.hooks } : {}),
 							...(activeCtx.compaction ? { compaction: activeCtx.compaction } : {}),
 							...(activeCtx.memory ? { memory: activeCtx.memory } : {}),
+							...(activeCtx.workflow ? { workflow: activeCtx.workflow } : {}),
 							...(activeCtx.limits ? { limits: activeCtx.limits } : {}),
 							...(activeCtx.sandbox ? { sandbox: activeCtx.sandbox } : {}),
 							...(activeCtx.decision ? { decision: activeCtx.decision } : {}),
@@ -6380,6 +6382,7 @@ export function App({
 			}
 			const summary = buildPermissionSummary(review.text, {
 				describeUiRef: (ref) => reviewSessionRef.current?.describeComputerUseRef?.(ref),
+				workflowLimits: resolveWorkflowLimits(ctxRef.current.workflow),
 			})
 			const siteNotes = browserSiteNotes(req.toolCalls, browserControlRef.current?.status())
 			return new Promise<PermissionDecision>((resolve) => {

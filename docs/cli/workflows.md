@@ -107,7 +107,7 @@ when the model's turn is over, under the permission mode the operator has chosen
 at that moment. Leaving the conversation (`/resume`, `/new`) stops running
 workflows.
 
-Limits come from the SDK defaults: at most `min(8, CPUs − 2)` agents run at
+Limits come from the configuration below, or the SDK defaults: at most `min(8, CPUs − 2)` agents run at
 once, 200 start per run, one value crossing the bridge is at most 1 MiB, and the
 turn's token budget (when one is set) stops new agents once it is spent. A script
 that asks for more fails with a plain reason.
@@ -191,6 +191,20 @@ prompt preview and hash, every outcome, phases, `log()` lines and the result).
 Run ids are `w` and eight base-36 characters. Each agent also keeps its normal
 child transcript under `<session>/subagents/`.
 
+## Configuration
+
+```json
+{ "workflow": { "maxConcurrency": 4, "maxAgents": 300 } }
+```
+
+in `namzu.config.json` or `~/.namzu/config.yaml`. `maxConcurrency` is how many of a
+run's agents go at once: a whole number from 1 to 16, default `min(8, CPUs − 2)` and
+at least 1. `maxAgents` is how many agents one run may start: 1 to 1000, default 200.
+Both are optional, are refused with the file and key named when out of range or not
+whole numbers, and are never read from the environment. The review shows the values
+in force ("Agents: up to 4 at a time, 300 in all"). The turn's token budget
+([Turn limits](turn-limits.md)) also stops a run from starting agents once it is spent.
+
 ## Skipping and stopping under a token budget
 
 Stopping a run or skipping an agent cancels a model request that may not have reported its usage. That request is closed on an estimate (the prompt plus what had streamed) instead of being left as unknown spend, so the rest of the turn's budget stays available to the other agents; the estimate can undercount what the provider billed for the unreported part. A request that failed for any other reason keeps its unknown-spend marker as before.
@@ -198,5 +212,4 @@ Stopping a run or skipping an agent cancels a model request that may not have re
 ## Not in this version
 
 Named or saved workflows, resuming a run from its journal, nested `workflow()`,
-worktree isolation per agent, a pause key, and the `workflow.*` config keys for
-the concurrency and agent caps.
+worktree isolation per agent, and a pause key.

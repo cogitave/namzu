@@ -371,6 +371,7 @@ async function execPrint(
 		...(Object.keys({ ...ctx.config.limits, ...limitsFromFlags }).length > 0
 			? { limits: { ...ctx.config.limits, ...limitsFromFlags } }
 			: {}),
+		...(ctx.config.workflow ? { workflow: ctx.config.workflow } : {}),
 		...(ctx.config.sandbox ? { sandbox: ctx.config.sandbox } : {}),
 		...(ctx.config.decision ? { decision: ctx.config.decision } : {}),
 		// `!== undefined`, not truthiness: an empty list is the operator
