@@ -382,36 +382,56 @@ describe('the conversation', () => {
 })
 
 describe('what the model is told when a run ends', () => {
-	it('puts it in the next turn when nothing is running', async () => {
+	it('wakes an idle session: the model gets a turn that carries it, with no typing', async () => {
+		const turns: { text: string; source: unknown; hostContext: readonly string[] }[] = []
+		sendOverride.current = async function* (messages, opts) {
+			const last = messages.at(-1)
+			turns.push({
+				text: String(last?.content),
+				source: (last as { source?: unknown } | undefined)?.source,
+				hostContext: opts?.hostContext?.() ?? [],
+			})
+			yield { kind: 'delta', text: 'The audit is done.\n\n' }
+			yield { kind: 'done', stopReason: 'end_turn' }
+		}
 		const screen = await start()
 		flows.end(run({ status: 'completed', endedAt: NOW, result: { fixed: 3 } }))
-		await waitUntil(screen, () => everything(screen).includes('Workflow audit completed'))
-		let hostContext: readonly string[] = []
-		sendOverride.current = async function* (_messages, opts) {
-			hostContext = opts?.hostContext?.() ?? []
-			yield { kind: 'done', stopReason: 'end_turn' }
-		}
-		screen.press('what happened?')
-		await screen.waitForRender()
-		screen.press('\r')
-		await waitUntil(screen, () => hostContext.length > 0)
-		const joined = hostContext.join('\n')
-		expect(joined).toContain('Workflows that ended since your last turn')
-		expect(joined).toContain('Workflow "audit" (wrun00001) completed.')
-		expect(joined).toContain('"fixed": 3')
-		// Told once: the next turn does not repeat it.
-		hostContext = []
-		sendOverride.current = async function* (_messages, opts) {
-			hostContext = opts?.hostContext?.() ?? []
-			yield { kind: 'delta', text: 'second\n\n' }
-			yield { kind: 'done', stopReason: 'end_turn' }
-		}
+		await waitUntil(screen, () => everything(screen).includes('The audit is done.'))
+		expect(turns).toHaveLength(1)
+		expect(turns[0]?.text).toContain('Workflow "audit" (wrun00001) completed.')
+		expect(turns[0]?.text).toContain('"fixed": 3')
+		expect(turns[0]?.source).toEqual({ type: 'runtime-context', kind: 'task-completion' })
+		// The same message is not also handed over as context.
+		expect(turns[0]?.hostContext.join('\n')).not.toContain('Workflows that ended')
+		// The person typed nothing, and no user row was invented for it.
+		expect(everything(screen)).not.toMatch(/› .*Workflow "audit"/)
+		// Told once: the next thing the person types does not repeat it.
+		turns.length = 0
 		await waitUntil(screen, () => text(screen).includes('Type a message'))
-		screen.press('and now?')
+		screen.press('thanks')
 		await screen.waitForRender()
 		screen.press('\r')
-		await waitUntil(screen, () => everything(screen).includes('second'))
-		expect(hostContext.join('\n')).not.toContain('Workflows that ended')
+		await waitUntil(screen, () => turns.length === 1)
+		expect(turns[0]?.text).toBe('thanks')
+		expect(turns[0]?.hostContext.join('\n')).not.toContain('Workflows that ended')
+	})
+
+	it('tells two runs that ended together in one turn', async () => {
+		const turns: string[] = []
+		sendOverride.current = async function* (messages) {
+			turns.push(String(messages.at(-1)?.content))
+			yield { kind: 'done', stopReason: 'end_turn' }
+		}
+		const screen = await start()
+		flows.end(run({ status: 'completed', endedAt: NOW }))
+		flows.end(
+			run({ runId: 'wrun00002', name: 'build', status: 'failed', endedAt: NOW, error: 'it threw' }),
+		)
+		await waitUntil(screen, () => turns.length >= 1)
+		await waitUntil(screen, () => text(screen).includes('Type a message'))
+		const joined = turns.join('\n')
+		expect(joined).toContain('Workflow "audit" (wrun00001) completed.')
+		expect(joined).toContain('Workflow "build" (wrun00002) failed: it threw')
 	})
 
 	it('hands it to a turn that is already running, as the turn asks for input', async () => {

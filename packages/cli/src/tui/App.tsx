@@ -928,6 +928,17 @@ type QueuedPrompt =
 			readonly generation: number
 	  }
 	| {
+			/**
+			 * What ended while nobody was talking to the model: a workflow run, a
+			 * background command. The text is built when the turn is admitted,
+			 * from what is still undelivered then, so it never repeats a notice a
+			 * running turn already took.
+			 */
+			readonly kind: 'notice'
+			readonly text: string
+			readonly generation: number
+	  }
+	| {
 			readonly kind: 'goal'
 			readonly text: string
 			readonly goalRound: GoalRoundAuthority
@@ -1343,6 +1354,8 @@ export function App({
 	// inside a running turn when there is one and with the next turn otherwise,
 	// the way a background job's exit is.
 	const workflowNoticesRef = useRef(new Map<string, string>())
+	/** Moves when something ended that the model has not been told, so an idle session can wake. */
+	const [noticeVersion, setNoticeVersion] = useState(0)
 	useEffect(() => {
 		workflowNoticesRef.current = new Map()
 		const source = session?.workflows
@@ -1365,6 +1378,7 @@ export function App({
 			)
 			workflowNoticesRef.current.set(view.runId, completionNotice(view))
 			activeTurnInboxRef.current?.notify()
+			setNoticeVersion((version) => version + 1)
 		})
 	}, [session])
 	const [usage, setUsage] = useState<{
@@ -5009,9 +5023,11 @@ export function App({
 		text:
 			prompt.kind === 'goal'
 				? 'Automatic goal continuation'
-				: prompt.kind === 'peer'
-					? peerMailLabel(prompt.mail)
-					: (prompt.recallText ?? prompt.text),
+				: prompt.kind === 'notice'
+					? 'Reporting what finished'
+					: prompt.kind === 'peer'
+						? peerMailLabel(prompt.mail)
+						: (prompt.recallText ?? prompt.text),
 		attachmentCount: prompt.kind === 'human' ? prompt.attachments?.length : undefined,
 	}))
 	const pendingInputVisible =
@@ -7339,7 +7355,9 @@ export function App({
 				pushMessage('system', 'Peer message was not delivered because the conversation changed.')
 				return
 			}
-			const { text } = prompt
+			if (prompt.kind === 'notice' && prompt.generation !== conversationGenRef.current) return
+			const { text: promptText } = prompt
+			let text = promptText
 			const attachments = prompt.kind === 'human' ? prompt.attachments : undefined
 			const goalRound = prompt.kind === 'goal' ? prompt.goalRound : undefined
 			if (
@@ -7411,6 +7429,17 @@ export function App({
 				setState('idle')
 				return
 			}
+			// What ended is taken now, at admission, so a turn that was already
+			// running has had its chance to take it first and nothing is said twice.
+			if (prompt.kind === 'notice') {
+				const ended = [...workflowNoticesRef.current.values()]
+				workflowNoticesRef.current.clear()
+				if (ended.length === 0) {
+					setState('idle')
+					return
+				}
+				text = ended.join('\n\n')
+			}
 			// `@path` mentions: the visible human message keeps the readable token,
 			// but the model receives the file contents inlined. An automatic goal
 			// prompt is already host-authored context and is never reinterpreted as
@@ -7435,7 +7464,9 @@ export function App({
 						}
 					: prompt.kind === 'peer'
 						? { type: 'runtime-context', kind: 'peer-message' }
-						: undefined,
+						: prompt.kind === 'notice'
+							? { type: 'runtime-context', kind: 'task-completion' }
+							: undefined,
 			)
 			const priorForSdk: Message[] = [...historyBeforeTurn, userMessage]
 			// Reserved before the turn begins, so everything that refers to this
@@ -7453,6 +7484,9 @@ export function App({
 
 			if (prompt.kind === 'peer') {
 				pushMessage('system', peerMailLabel(prompt.mail), false, '↳')
+			} else if (prompt.kind === 'notice') {
+				// The closing line for what ended is already in the conversation; the
+				// model's report is what follows it. Nothing is added here.
 			} else if (goalRound) {
 				pushMessage(
 					'system',
@@ -10409,6 +10443,52 @@ export function App({
 		copyPicker,
 		enqueueQueued,
 		hasUnsettledTurn,
+	])
+
+	// What ended while nobody was talking to the model (a workflow run, a
+	// background command) wakes it: an idle session starts a turn that carries the
+	// one message, so the model reports without the person typing. A running turn
+	// takes it at its next request boundary instead (`inboundMessages`).
+	// biome-ignore lint/correctness/useExhaustiveDependencies: `noticeVersion` is what moves; the effect reads the refs it mirrors.
+	useEffect(() => {
+		if (
+			phase !== 'ready' ||
+			state !== 'idle' ||
+			abortRef.current ||
+			hasUnsettledTurn() ||
+			queuePauseRef.current ||
+			pendingModelSwitchRef.current ||
+			conversationMutationRef.current ||
+			textPromptRef.current ||
+			choicePickerRef.current ||
+			copyPickerRef.current ||
+			exportingRef.current ||
+			compactingRef.current ||
+			goalCommandInFlightRef.current ||
+			queuedRef.current.some((prompt) => prompt.kind === 'notice')
+		)
+			return
+		if (workflowNoticesRef.current.size === 0) return
+		enqueueQueued({
+			kind: 'notice',
+			text: 'Something finished while you were idle.',
+			generation: conversationGenRef.current,
+		})
+	}, [
+		phase,
+		state,
+		noticeVersion,
+		permissionMode,
+		conversationMutation,
+		queueSettleVersion,
+		modelSwitchVersion,
+		queuePause,
+		textPrompt,
+		choicePicker,
+		copyPicker,
+		enqueueQueued,
+		hasUnsettledTurn,
+		session,
 	])
 
 	// One-shot update check on launch.
