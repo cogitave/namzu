@@ -22,6 +22,8 @@ const PREFS: Preferences = {
 }
 
 const sends: (SendOptions | undefined)[] = []
+/** The last message of each send, as the model received it. */
+const lastMessages: { text: string; source: unknown }[] = []
 const contextAt = (index: number) => sends[index]?.hostContext?.().join('\n\n') ?? ''
 let announce: ((job: BackgroundJob) => void) | undefined
 let acknowledgeFirstExit = true
@@ -94,8 +96,13 @@ vi.mock('../agent.js', async (importOriginal) => {
 					announce = undefined
 				}
 			},
-			send: async function* (_messages, opts?: SendOptions): AsyncIterable<AgentEvent> {
+			send: async function* (messages, opts?: SendOptions): AsyncIterable<AgentEvent> {
 				sends.push(opts)
+				const last = messages.at(-1)
+				lastMessages.push({
+					text: String(last?.content),
+					source: (last as { source?: unknown } | undefined)?.source,
+				})
 				if (sends.length === 1) {
 					if (acknowledgeBeforeListener) opts?.onJobNoticeDelivered?.(['b00000001'])
 					announce?.(exited('b00000001', 'pnpm build'))
@@ -125,6 +132,7 @@ afterEach(async () => {
 	await mounted?.unmount()
 	mounted = null
 	sends.length = 0
+	lastMessages.length = 0
 	announce = undefined
 	acknowledgeFirstExit = true
 	acknowledgeBeforeListener = false
@@ -166,28 +174,45 @@ it('does not re-announce a job exit that landed while a turn was open', async ()
 	).toHaveLength(1)
 
 	// The control, and the reason the guard is not simply "never announce": an
-	// exit with no turn open reaches nobody else, so the session carries it.
+	// exit with no turn open reaches nobody else, so the session wakes the model
+	// with it, and the person types nothing.
 	announce?.(exited('b00000002', 'pnpm test'))
-	await say(screen, 'third', 3)
-
-	expect(contextAt(2)).toContain('Background jobs that ended since your last turn')
-	expect(contextAt(2)).toContain('b00000002')
-	expect(contextAt(2)).not.toContain('b00000001')
-	expect(sends[2]?.extraSystem ?? '').not.toContain('b00000002')
+	await waitUntil(screen, () => sends.length >= 3)
+	expect(lastMessages[2]?.text).toContain('Background jobs that ended')
+	expect(lastMessages[2]?.text).toContain('b00000002')
+	expect(lastMessages[2]?.text).not.toContain('b00000001')
+	expect(lastMessages[2]?.source).toEqual({ type: 'runtime-context', kind: 'job-exit' })
+	// Said once: it is not in the context of the wake turn as well.
+	expect(contextAt(2)).not.toContain('b00000002')
+	await say(screen, 'third', 4)
+	expect(contextAt(3)).not.toContain('b00000002')
 })
 
-it('carries an exit after the final tool result into the next model turn', async () => {
+it('does not wake the model for a command the operator stopped', async () => {
+	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 120, rows: 40, scrollback: 200 })
+	mounted = screen
+	await waitUntil(screen, () => screen.scrollback().join('\n').includes('a-model'))
+	await say(screen, 'first', 1)
+	announce?.({ ...exited('b00000003', 'sleep 300'), status: 'killed' })
+	await screen.waitForRender()
+	await say(screen, 'second', 2)
+	expect(sends).toHaveLength(2)
+	// The next message still carries it, as it always did.
+	expect(contextAt(1)).toContain('b00000003')
+})
+
+it('wakes the model with an exit that landed after the final tool result', async () => {
 	acknowledgeFirstExit = false
 	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 120, rows: 40, scrollback: 200 })
 	mounted = screen
 	await waitUntil(screen, () => screen.scrollback().join('\n').includes('a-model'))
 
 	await say(screen, 'first', 1)
-	await say(screen, 'second', 2)
-
-	expect(contextAt(1)).toContain('Background jobs that ended since your last turn')
-	expect(contextAt(1)).toContain('b00000001')
-	await say(screen, 'third', 3)
+	// The turn ended with the exit unacknowledged: the session starts the next one itself.
+	await waitUntil(screen, () => sends.length >= 2)
+	expect(lastMessages[1]?.text).toContain('b00000001')
+	expect(lastMessages[1]?.source).toEqual({ type: 'runtime-context', kind: 'job-exit' })
+	await say(screen, 'second', 3)
 	expect(contextAt(2)).not.toContain('b00000001')
 })
 

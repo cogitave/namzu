@@ -1336,7 +1336,11 @@ export function App({
 			// SDK delivery can run before this listener on a host with different
 			// subscription order. The tombstone keeps that acknowledged exit out of
 			// the next turn even when its UI event arrives later.
-			if (!notices.delivered.has(job.id)) notices.pending.set(job.id, text)
+			if (!notices.delivered.has(job.id)) {
+				notices.pending.set(job.id, text)
+				if (job.status !== 'killed') wakeJobIdsRef.current.add(job.id)
+				setNoticeVersion((version) => version + 1)
+			}
 			if (!notices.shown.has(job.id)) {
 				notices.shown.add(job.id)
 				const row = jobExitRow({
@@ -1356,6 +1360,8 @@ export function App({
 	const workflowNoticesRef = useRef(new Map<string, string>())
 	/** Moves when something ended that the model has not been told, so an idle session can wake. */
 	const [noticeVersion, setNoticeVersion] = useState(0)
+	/** Background commands that ended on their own (a stop the operator asked for does not wake the model). */
+	const wakeJobIdsRef = useRef(new Set<string>())
 	useEffect(() => {
 		workflowNoticesRef.current = new Map()
 		const source = session?.workflows
@@ -7431,14 +7437,33 @@ export function App({
 			}
 			// What ended is taken now, at admission, so a turn that was already
 			// running has had its chance to take it first and nothing is said twice.
+			let noticeKind: RuntimeContextMessageKind = 'task-completion'
 			if (prompt.kind === 'notice') {
 				const ended = [...workflowNoticesRef.current.values()]
 				workflowNoticesRef.current.clear()
-				if (ended.length === 0) {
+				const jobs = idleJobNoticesRef.current
+				const jobLines =
+					jobs.ownerSession === session
+						? [...jobs.pending].filter(([id]) => wakeJobIdsRef.current.has(id))
+						: []
+				for (const [id] of jobLines) {
+					jobs.delivered.add(id)
+					jobs.pending.delete(id)
+					wakeJobIdsRef.current.delete(id)
+				}
+				if (ended.length === 0 && jobLines.length === 0) {
 					setState('idle')
 					return
 				}
-				text = ended.join('\n\n')
+				if (ended.length === 0) noticeKind = 'job-exit'
+				text = [
+					...ended,
+					...(jobLines.length > 0
+						? [
+								`Background jobs that ended:\n${jobLines.map(([, line]) => `- ${line}`).join('\n')}`,
+							]
+						: []),
+				].join('\n\n')
 			}
 			// `@path` mentions: the visible human message keeps the readable token,
 			// but the model receives the file contents inlined. An automatic goal
@@ -7465,7 +7490,7 @@ export function App({
 					: prompt.kind === 'peer'
 						? { type: 'runtime-context', kind: 'peer-message' }
 						: prompt.kind === 'notice'
-							? { type: 'runtime-context', kind: 'task-completion' }
+							? { type: 'runtime-context', kind: noticeKind }
 							: undefined,
 			)
 			const priorForSdk: Message[] = [...historyBeforeTurn, userMessage]
@@ -10468,7 +10493,12 @@ export function App({
 			queuedRef.current.some((prompt) => prompt.kind === 'notice')
 		)
 			return
-		if (workflowNoticesRef.current.size === 0) return
+		const jobs = idleJobNoticesRef.current
+		const waiting =
+			workflowNoticesRef.current.size > 0 ||
+			(jobs.ownerSession === session &&
+				[...jobs.pending.keys()].some((id) => wakeJobIdsRef.current.has(id)))
+		if (!waiting) return
 		enqueueQueued({
 			kind: 'notice',
 			text: 'Something finished while you were idle.',
