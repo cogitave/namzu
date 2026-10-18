@@ -6171,7 +6171,7 @@ async function* runTurn({
 			// a paused turn is resumed or abandoned, a running one is waited for.
 			yield {
 				kind: 'error',
-				message: `This conversation already has a ${err.state} turn (${err.activeTurnId}). ${
+				message: `This conversation already has a ${err.state} turn. ${
 					err.state === 'running'
 						? 'Wait for it to finish.'
 						: 'Resume it with /resume, or close it with /abandon.'

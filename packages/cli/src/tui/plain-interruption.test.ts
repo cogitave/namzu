@@ -305,3 +305,27 @@ describe('Zen declining a free model that carried no key', () => {
 		expect(goKey).not.toContain('free model')
 	})
 })
+
+describe('a message refused because the conversation still holds a turn', () => {
+	const refused = (state: 'running' | 'paused' | 'interrupted'): Interruption =>
+		failed({
+			message: 'This conversation already has a turn.',
+			turnInProgress: { sessionId: 's', activeTurnId: '', state },
+		})
+
+	it.each(['running', 'paused', 'interrupted'] as const)(
+		'says what to do about a %s turn in one sentence, with no id and no generic advice',
+		(state) => {
+			const text = describePlainInterruption(refused(state))
+			expectPlain(text)
+			expect(text).not.toContain('()')
+			expect(text).not.toContain('--debug')
+			expect(text).not.toContain('Send your message again')
+			expect(text.split('\n')).toHaveLength(1)
+		},
+	)
+
+	it('tells a paused one to be continued or closed', () => {
+		expect(describePlainInterruption(refused('paused'))).toMatch(/Enter.*\/abandon/)
+	})
+})

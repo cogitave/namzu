@@ -125,6 +125,7 @@ import {
 	type RecentConversation,
 	activeConversationTurn,
 	archiveConversation,
+	closableProviderPause,
 	forkConversation,
 	forkConversationBeforeUser,
 	listArchived,
@@ -7619,6 +7620,21 @@ export function App({
 							: undefined,
 			)
 			const priorForSdk: Message[] = [...historyBeforeTurn, userMessage]
+			const closeStoppedReply = async (): Promise<void> => {
+				const sessions = sessionsRef.current
+				const scope = scopeRef.current
+				if (!sessions || !scope || !conversationMaterializedRef.current || !session?.abandonTurn)
+					return
+				const stopped = await closableProviderPause(sessions, scope.sessionId)
+				if (!stopped) return
+				// Its unknown usage stays on the ledger; the failed message stays in
+				// what the provider is shown, as in the desktop app.
+				await session.abandonTurn(
+					stopped.turnId as TurnId,
+					'The operator went on with a new message instead of retrying.',
+				)
+				setHandoffPark(null)
+			}
 			// Reserved before the turn begins, so everything that refers to this
 			// turn — its goal-round authority above all — names it from the start.
 			const turnId = generateTurnId()
@@ -7975,6 +7991,12 @@ export function App({
 					workflowNoticeSnapshot = new Map(workflowNoticesRef.current)
 					childMessageSnapshot = new Map(childMessagesRef.current)
 					const operatorShellSnapshot = drainOperatorShell()
+					// "Press Enter to try again, or type a new message": a reply that
+					// stopped on a provider failure waits for no person, so the new
+					// message closes it and runs on the model chosen now, whichever
+					// model began it. A pause that waits for a decision or a handoff
+					// is left alone and still refuses the message.
+					await closeStoppedReply()
 					for await (const event of session.send(priorForSdk, {
 						signal: ac.signal,
 						turnId,

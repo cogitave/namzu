@@ -25,6 +25,7 @@ vi.mock('../../integrations/updates.js', () => ({ checkUpdates: async () => [] }
 vi.mock('../../user-commands/store.js', () => ({ discoverUserCommands: () => [] }))
 vi.mock('../../integrations/sessions/store.js', () => ({
 	activeConversationTurn: async () => (facts.paused ? { turnId: PARKED, paused: true } : undefined),
+	closableProviderPause: async () => undefined,
 	openSessions: async () => ({
 		tenantId: 'tenant',
 		projectId: '08c9b09c-4412-478c-878b-dc94927c760f',

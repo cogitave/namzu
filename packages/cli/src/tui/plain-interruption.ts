@@ -259,6 +259,17 @@ export function describePlainInterruption(
 		}
 		return rows.join('\n')
 	}
+	if (event.kind === 'error' && event.turnInProgress) {
+		// The conversation still holds an open turn. In words, never its id.
+		switch (event.turnInProgress.state) {
+			case 'running':
+				return 'A reply is still running in this conversation. Wait for it to finish, or press Esc to stop it.'
+			case 'paused':
+				return 'The last reply is paused and waiting for you. Press Enter to continue it, or run /abandon to close it and send your message.'
+			case 'interrupted':
+				return 'The last reply was cut off when Namzu closed. Run /resume to continue it, or /abandon to close it.'
+		}
+	}
 	const kind = classifyInterruption(event)
 	const name = providerOf(event) ?? 'The provider'
 	let copy = copyFor(

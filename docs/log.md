@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-10-19
+
+- **Update** [Terminal design](cli/terminal-design.md): a new message typed after a reply paused on a provider failure closes that reply and is sent on the model chosen now, instead of being refused with "This conversation already has a paused turn ()"; a pause that waits for a person is still refused, in one plain sentence with no turn id. `.changeset/paused-turn-model-switch.md`.
+
 ## 2026-10-18
 
 - **Update** [Slash commands](cli/slash-commands.md), [Launch flags](cli/launch-flags.md), [Tool boundary](cli/tool-boundary.md), [Workflows in the CLI](cli/workflows.md) and [Browser](cli/browser.md): the permission prompt and Shift+Tab follow the reference, read from its code. The cycle is `prompt`, `accept-edits`, `plan`, `auto` (only when the launch allowed it: `--yolo`, `--dangerously-skip-permissions`, `--permission-mode auto`, the new `--allow-dangerously-skip-permissions`, or `auto` chosen by name), `prompt`. "Yes, allow all tools for this conversation" is removed from the terminal's prompts, together with the `a` key and the footer reading `bypass permissions on` without a mode change; the prompt now offers Yes, No and at most one answer valid for the whole prompt: switch to accept edits for an edit, or remember a plain command, a host or an MCP tool for the session. Desktop and ACP keep `approve-all`. `.changeset/permission-answers.md`.
