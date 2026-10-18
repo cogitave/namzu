@@ -225,7 +225,7 @@ in force ("Agents: up to 4 at a time, 300 in all"). The turn's token budget
 
 ## Skipping and stopping under a token budget
 
-Stopping a run or skipping an agent cancels a model request that may not have reported its usage. That request is closed on an estimate (the prompt plus what had streamed) instead of being left as unknown spend, so the rest of the turn's budget stays available to the other agents; the estimate can undercount what the provider billed for the unreported part. A request that failed for any other reason keeps its unknown-spend marker as before.
+Stopping a run or skipping an agent cancels a model request that may not have reported its usage. That request is closed on an estimate (the prompt plus what had streamed) instead of being left as unknown spend, so the rest of the turn's budget stays available to the other agents; the estimate can undercount what the provider billed for the unreported part. A request that failed for any other reason, or whose delegation runtime was closed under it, keeps its unknown-spend marker as before.
 
 ## Three choices worth knowing
 

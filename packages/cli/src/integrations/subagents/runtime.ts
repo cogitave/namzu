@@ -224,6 +224,8 @@ interface ChildLaunchHooks {
 	readonly onView?: (viewId: string) => void
 	/** Every session event of the child, after the monitor has projected it. */
 	readonly onEvent?: (event: SessionEvent) => void
+	/** What a cancelled child is recorded as: a workflow's agents are stopped by the operator. */
+	readonly cancelCause?: CancelCause
 }
 
 export interface SubagentRuntimeOptions {
@@ -1007,6 +1009,7 @@ export async function createSubagentRuntime(
 				signal: context.abortSignal,
 				waitForInbound: opts.resolveWaitForInbound?.(context.turnId),
 				background: run_in_background === true,
+				...(hooks.cancelCause ? { cancelCause: hooks.cancelCause } : {}),
 				completionInbox,
 				onCreated: (task) => {
 					taskOwnsCleanup = true
@@ -1278,6 +1281,7 @@ export async function createSubagentRuntime(
 				} as ChildLaunchContext,
 				{
 					workflowId: `${WORKFLOW_RUN_GROUP_PREFIX}${launch.runId}`,
+					cancelCause: 'user',
 					onView: (id) => {
 						viewId = id
 						launch.onView?.(id)
@@ -1892,6 +1896,8 @@ type BlockingAgentTaskInput = {
 	readonly onSettled: (handle: TaskHandle) => void
 	readonly onFailed: (error: unknown) => void
 	readonly onFinished: () => void
+	/** Why the task is cancelled when the caller's signal aborts. A workflow's agents are stopped by the operator, so `user`. */
+	readonly cancelCause?: CancelCause
 } & (
 	| { readonly create: CreateTaskOptions; readonly task?: never }
 	| { readonly task: TaskHandle; readonly create?: never }
@@ -1916,7 +1922,7 @@ async function runBlockingAgentTask(
 		if (taskCancellationAttempted) return
 		taskCancellationAttempted = true
 		try {
-			gateway.cancelTask(task.taskId, 'parent')
+			gateway.cancelTask(task.taskId, input.cancelCause ?? 'parent')
 		} catch {
 			// The parent cancellation remains the caller-visible authority. A
 			// scheduler's secondary cancellation refusal must not replace it.

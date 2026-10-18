@@ -1,5 +1,6 @@
 import { estimateMessagesTokens } from '../compaction/token-estimate.js'
 import { EMPTY_TOKEN_USAGE } from '../constants/limits.js'
+import { cancelCauseOf } from '../types/session/cancel-cause.js'
 import type { SessionTokenBudget } from '../store/budget/ledger.js'
 import { type TokenUsage, mergeTokenUsage } from '../types/common/index.js'
 import { ProviderError, classifyProviderError } from '../types/provider/errors.js'
@@ -146,14 +147,20 @@ export function withTokenBudget(provider: LLMProvider, budget: SessionTokenBudge
 				// Cleanup cannot replace the provider outcome.
 			}
 			if (!completed) {
-				// A request the caller deliberately cancelled before any usage frame
+				// A request the operator deliberately cancelled (a `user` cancel cause,
+				// not a parent or a runtime tearing the tree down) before any usage frame
 				// arrived is closed on an estimate (the prompt and what streamed), not
 				// left as unknown spend. Left open it poisons the whole tree: every
 				// sibling and every later child is refused for the rest of the turn,
 				// because of work somebody chose to stop. The estimate can under-count
 				// what the provider billed for the part it never reported; a failure
 				// that was not a cancellation keeps its marker as before.
-				if (usage === undefined && signal?.aborted === true && !uncertainRetry) {
+				if (
+					usage === undefined &&
+					signal?.aborted === true &&
+					cancelCauseOf(signal.reason) === 'user' &&
+					!uncertainRetry
+				) {
 					const prompt = estimateMessagesTokens(params.messages)
 					const completion = Math.ceil(streamedChars / 4)
 					await budget.finishRequest(requestId, {
