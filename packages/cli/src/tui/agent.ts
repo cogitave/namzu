@@ -314,6 +314,7 @@ import { resolveSubagentParent } from '../integrations/subagents/parent.js'
 import { replaySavedChildrenFor } from '../integrations/subagents/replay.js'
 import {
 	type DelegatedModel,
+	type SubagentMessage,
 	type SubagentMessageReceipt,
 	type SubagentRuntime,
 	createSubagentRuntime,
@@ -1178,6 +1179,12 @@ export interface AgentSession {
 	readonly onSubagentReport?: (
 		listener: (report: { readonly parentSessionId: string; readonly text: string }) => void,
 	) => () => void
+	/**
+	 * Hear what a running sub-agent tells the main conversation with its own
+	 * `send_message` tool. Absent when the host has no sub-agents or cannot show
+	 * the message; a child has that tool only while somebody listens.
+	 */
+	readonly onSubagentMessage?: (listener: (message: SubagentMessage) => void) => () => void
 	readonly messageSubagent?: (
 		viewId: string,
 		message: string,
@@ -4427,6 +4434,8 @@ export async function createAgentSession(
 							directChildReports.delete(listener)
 						}
 					},
+					onSubagentMessage: (listener: (message: SubagentMessage) => void) =>
+						subagentRuntime?.onChildMessage(listener) ?? (() => {}),
 					stopSubagent: (viewId: string) => subagentRuntime?.stopChild(viewId) ?? false,
 					messageSubagent: (viewId: string, message: string, opts?: SendOptions) =>
 						operations.promise(opts?.signal, async (signal) => {

@@ -84,6 +84,7 @@ import {
 	openSessionTokenBudget,
 	requireOpenProject,
 	toToolSourceRef,
+	toolset,
 } from '@namzu/sdk'
 
 import type { TurnLimitsConfig } from '../../config/schema.js'
@@ -236,6 +237,13 @@ interface ChildLaunchHooks {
 }
 
 export interface SubagentRuntimeOptions {
+	/**
+	 * Tools every child gets beside its roster, whatever that roster was
+	 * narrowed to. Set by the runtime itself, never by a host: a file's
+	 * allowlist or the read-only roster must not take away the one way a child
+	 * can say something to the conversation.
+	 */
+	readonly childExtraTools?: () => readonly Toolset[]
 	/** Resolve the actual invoking turn; reject calls whose parent no longer exists. */
 	readonly resolveParent: (turnId: TurnId) => Promise<SubagentParent>
 	readonly cwd: string
@@ -398,7 +406,23 @@ export interface SubagentMessageReceipt {
 	readonly auditWarning?: string
 }
 
+/** A message a running child sent to the main conversation. */
+export interface SubagentMessage {
+	readonly parentSessionId: string
+	readonly viewId: string
+	readonly agentId: string
+	readonly description: string
+	readonly taskId?: string
+	readonly text: string
+}
+
 export interface SubagentRuntime {
+	/**
+	 * Hear the messages running children send to the main conversation. A child
+	 * has the tool to send one only while somebody listens, so a host that
+	 * cannot show or deliver it never promises a child it will.
+	 */
+	onChildMessage(listener: (message: SubagentMessage) => void): () => void
 	/** One immutable scheduler context per actual parent turn. */
 	gatewayForTurn(turnId: TurnId): Promise<TaskScheduler>
 	/** The same inbox the parent query drains after a delegation yields. */
@@ -526,8 +550,14 @@ const refuseUnownedChildReview: ResumeHandler = async () => ({
  * register on the parent and the gateway to pass to `query({ taskScheduler })`.
  */
 export async function createSubagentRuntime(
-	opts: SubagentRuntimeOptions,
+	input: SubagentRuntimeOptions,
 ): Promise<SubagentRuntime> {
+	const childMessageListeners = new Set<(message: SubagentMessage) => void>()
+	const opts: SubagentRuntimeOptions = {
+		...input,
+		childExtraTools: () =>
+			childMessageListeners.size > 0 ? [toolset('agents:message-main', [messageMainTool])] : [],
+	}
 	const registry = new AgentRegistry()
 	registry.register(
 		buildDefinition(
@@ -1663,6 +1693,89 @@ export async function createSubagentRuntime(
 		},
 	})
 
+	// The child's way to say something to the main conversation while it keeps
+	// working. The reference's `SendMessage` with `to: "main"` (REA, chunk
+	// 3dt2kg6m.js `deliver`, case `main`): the text is queued for the main
+	// conversation's next turn, framed as coming from the agent; a name other
+	// than `main` is not addressable. Only the conversation, never another child.
+	const messageMainTool = defineTool({
+		name: 'send_message',
+		description:
+			'Send a message to the main conversation while you keep working. Your plain text output is not visible to the main conversation; to tell it something before you finish, you must call this tool with to "main". It is delivered with its next turn. Your final response goes to whoever launched you without this. Do not send routine progress: send what the main conversation needs to know or decide now.',
+		inputSchema: mcpJsonSchemaToZod({
+			type: 'object',
+			properties: {
+				to: {
+					type: 'string',
+					description: 'Recipient: "main", the main conversation.',
+				},
+				message: {
+					type: 'string',
+					minLength: 1,
+					maxLength: 16000,
+					description: 'What to tell the main conversation.',
+				},
+			},
+			required: ['to', 'message'],
+			additionalProperties: false,
+		}),
+		category: 'custom',
+		permissions: [],
+		// Reads and writes nothing in the world; the text lands in the main
+		// conversation's context, framed as the child's own words.
+		readOnly: true,
+		destructive: false,
+		concurrencySafe: true,
+		async execute(input, context) {
+			context.abortSignal.throwIfAborted()
+			const { to, message } = input as { to: string; message: string }
+			if (to !== 'main')
+				return {
+					success: false,
+					output: '',
+					error: `No agent named '${to}' is currently addressable. Only "main" can be messaged from here.`,
+				}
+			if (!message.trim())
+				return { success: false, output: '', error: 'Message must not be blank.' }
+			const shown = activity
+				.getSnapshot()
+				.find((entry) => entry.sessionId === String(context.sessionId))
+			const owned = shown ? conversations.get(shown.viewId) : undefined
+			if (
+				!shown ||
+				!owned ||
+				closed ||
+				childMessageListeners.size === 0 ||
+				shown.stoppedBy !== undefined
+			)
+				return {
+					success: false,
+					output: '',
+					error:
+						'Not sent. You cannot use send_message in this session: it is switched off for sub-agents, or you were stopped. Put what you need to pass on in your final response, which goes to whoever launched or resumed you.',
+				}
+			const parent = await resolveParent(owned.turnId)
+			for (const listener of [...childMessageListeners]) {
+				try {
+					listener({
+						parentSessionId: String(parent.sessionId),
+						viewId: shown.viewId,
+						agentId: shown.agentId,
+						description: shown.description,
+						...(shown.taskId ? { taskId: shown.taskId } : {}),
+						text: message,
+					})
+				} catch {
+					// One listener failing must not hide the message from the rest.
+				}
+			}
+			return {
+				success: true,
+				output: "Message queued for the main conversation's next turn.",
+			}
+		},
+	})
+
 	const narrationTool = defineTool({
 		name: NARRATION_TOOL_NAME,
 		description: [
@@ -1956,6 +2069,12 @@ export async function createSubagentRuntime(
 	}
 
 	return {
+		onChildMessage(listener) {
+			childMessageListeners.add(listener)
+			return () => {
+				childMessageListeners.delete(listener)
+			}
+		},
 		cancelAgentTool,
 		modelCatalogueTool,
 		messageChild,
@@ -2238,7 +2357,7 @@ function buildDefinition(
 				? await opts.resolveParent(asTurnId(options.parentTurnId))
 				: undefined
 			const provider = await opts.buildProvider(parent?.sessionId, selection)
-			const toolsets = tools()
+			const toolsets = [...tools(), ...(opts.childExtraTools?.() ?? [])]
 			const webSearch = opts.configureWebSearch?.(provider, options.model ?? model, toolsets)
 			// The one tool `configureWebSearch` ever asks to have removed: once
 			// native mode is confirmed usable, the tool-based path is redundant.

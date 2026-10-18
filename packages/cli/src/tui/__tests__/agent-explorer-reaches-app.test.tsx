@@ -115,6 +115,12 @@ function prepareChildMessageBridge(scope?: SessionScope): Partial<AgentSession> 
 				if (childMessageBridge.onReport === listener) delete childMessageBridge.onReport
 			}
 		},
+		onSubagentMessage: (listener) => {
+			childMessageBridge.onMessage = listener
+			return () => {
+				if (childMessageBridge.onMessage === listener) childMessageBridge.onMessage = undefined
+			}
+		},
 	}
 }
 const childMessageBridge: {
@@ -122,6 +128,7 @@ const childMessageBridge: {
 	onCreated?: () => void
 	scope?: SessionScope
 	onReport?: Parameters<NonNullable<AgentSession['onSubagentReport']>>[0]
+	onMessage?: Parameters<NonNullable<AgentSession['onSubagentMessage']>>[0] | undefined
 } = vi.hoisted(() => ({}))
 /**
  * What this session's finished children left on disk, as the replay reads it.
@@ -369,6 +376,7 @@ beforeEach(() => {
 	delete childMessageBridge.current
 	delete childMessageBridge.onCreated
 	delete childMessageBridge.onReport
+	childMessageBridge.onMessage = undefined
 	delete childMessageBridge.scope
 	savedChildren.current = []
 	savedChildren.reads = 0
@@ -3636,6 +3644,106 @@ describe('parent narration', () => {
 			'narration stayed on screen',
 		)
 		expect(screen.viewport()).toEqual(before)
+	})
+})
+
+// Reference (REA chunk-3dt2kg6m.js `deliver`, case `main`; chunk-qqxerxtw.js
+// helper Pre): a running sub-agent that sends to `main` leaves the collapsed
+// row `› Message from @name (ctrl+o to expand)`, and the text is queued for the
+// main conversation's next turn, starting one when it is idle.
+describe('a running agent that messages the conversation', () => {
+	const said = (parentSessionId: string) => ({
+		parentSessionId,
+		viewId: 'v1',
+		agentId: 'count-words',
+		description: 'Count words in a.txt',
+		taskId: 'task-1',
+		text: 'Found 6 words so far.\nThe sleep is still running.',
+	})
+
+	it('shows one collapsed row, and wakes an idle conversation with the text as the agent’s own words', async () => {
+		childMessageBridge.current = vi.fn()
+		activity.set([agent({ viewId: 'v1', agentId: 'count-words', background: true })])
+		const turns: Message[][] = []
+		sendOverride.current = async function* (messages) {
+			turns.push([...messages])
+			yield { kind: 'delta', text: 'noted\n\n' }
+			yield { kind: 'done', stopReason: 'end_turn' }
+		}
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+		childMessageBridge.onMessage?.(said(childMessageBridge.scope!.sessionId))
+		await waitUntil(
+			screen,
+			() => /› Message from @count-words \(ctrl\+o to expand\)/u.test(painted(screen)),
+			'no message row',
+		)
+		expect(painted(screen)).not.toContain('Found 6 words so far.')
+		await waitUntil(screen, () => turns.length === 1, 'the idle conversation did not wake')
+		const sent = JSON.stringify(turns[0]?.at(-1)?.content)
+		expect(sent).toContain('count-words')
+		expect(sent).toContain('Found 6 words so far.')
+		expect(sent).toContain('not operator instructions')
+		// Ctrl+O opens it.
+		screen.press('\x0f')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('The sleep is still running.'),
+			'Ctrl+O did not open the message',
+		)
+	})
+
+	it('hands the text to a turn that is running at its next request boundary', async () => {
+		childMessageBridge.current = vi.fn()
+		activity.set([agent({ viewId: 'v1', agentId: 'count-words', background: true })])
+		let advance!: () => void
+		const boundary = new Promise<void>((resolve) => {
+			advance = resolve
+		})
+		let started!: () => void
+		const running = new Promise<void>((resolve) => {
+			started = resolve
+		})
+		let drained!: () => void
+		const delivered = new Promise<void>((resolve) => {
+			drained = resolve
+		})
+		let context: readonly Message[] = []
+		sendOverride.current = async function* (_messages, opts) {
+			started()
+			yield { kind: 'delta', text: 'Working.' }
+			await boundary
+			context = opts?.inboundMessages?.() ?? []
+			drained()
+			yield { kind: 'done', stopReason: 'end_turn' }
+		}
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+		await submit(screen, 'start')
+		await running
+		childMessageBridge.onMessage?.(said(childMessageBridge.scope!.sessionId))
+		advance()
+		await delivered
+		expect(context).toHaveLength(1)
+		expect(context[0]).toMatchObject({
+			role: 'user',
+			source: { type: 'runtime-context', kind: 'task-completion' },
+		})
+		expect(JSON.stringify(context[0]?.content)).toContain('Found 6 words so far.')
+		// Told once: a second turn boundary has nothing more.
+	})
+
+	it('ignores a message that belongs to another conversation', async () => {
+		childMessageBridge.current = vi.fn()
+		activity.set([agent({ viewId: 'v1', agentId: 'count-words', background: true })])
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+		childMessageBridge.onMessage?.(said('some-other-conversation'))
+		await screen.waitForRender()
+		expect(painted(screen)).not.toContain('Message from @')
 	})
 })
 

@@ -259,6 +259,8 @@ import {
 	agentDoneRows,
 	agentMessageRow,
 	agentNotice,
+	childMessageNotice,
+	childMessageRow,
 	launchReceipt,
 	reportsAsNotification,
 	settleLine,
@@ -1384,6 +1386,9 @@ export function App({
 	// inside a running turn when there is one and with the next turn otherwise,
 	// the way a background job's exit is.
 	const workflowNoticesRef = useRef(new Map<string, string>())
+	/** What running agents sent to the conversation, for the model: told once, like a workflow's end. */
+	const childMessagesRef = useRef(new Map<number, string>())
+	const childMessageIdRef = useRef(0)
 	/** Moves when something ended that the model has not been told, so an idle session can wake. */
 	const [noticeVersion, setNoticeVersion] = useState(0)
 	/** Background commands that ended on their own (a stop the operator asked for does not wake the model). */
@@ -2618,6 +2623,33 @@ export function App({
 			}),
 		[session],
 	)
+	// A running agent can say something to the conversation with its own
+	// `send_message`. The person sees a collapsed `› Message from @name` row; the
+	// model gets the text with its next turn, or an idle session wakes for it.
+	useEffect(() => {
+		childMessagesRef.current = new Map()
+		return session?.onSubagentMessage?.((message) => {
+			if (
+				previousSessionRef.current !== session ||
+				scopeRef.current?.sessionId !== message.parentSessionId
+			)
+				return
+			const row = childMessageRow(message)
+			pushMessage(
+				'tool',
+				row.content,
+				false,
+				'›',
+				row.detail,
+				theme.text.muted,
+				row.hint,
+				'agent-result',
+			)
+			childMessagesRef.current.set(++childMessageIdRef.current, childMessageNotice(message))
+			activeTurnInboxRef.current?.notify()
+			setNoticeVersion((version) => version + 1)
+		})
+	}, [session, pushMessage])
 	/** The queue row chosen for editing with Up; null when no row is chosen. */
 	const [queueSelection, setQueueSelectionState] = useState<number | null>(null)
 	const queueSelectionRef = useRef<number | null>(null)
@@ -7541,8 +7573,9 @@ export function App({
 			// running has had its chance to take it first and nothing is said twice.
 			let noticeKind: RuntimeContextMessageKind = 'task-completion'
 			if (prompt.kind === 'notice') {
-				const ended = [...workflowNoticesRef.current.values()]
+				const ended = [...workflowNoticesRef.current.values(), ...childMessagesRef.current.values()]
 				workflowNoticesRef.current.clear()
+				childMessagesRef.current.clear()
 				const jobs = idleJobNoticesRef.current
 				const jobLines =
 					jobs.ownerSession === session
@@ -7927,6 +7960,7 @@ export function App({
 			}
 			let childNoticeSnapshot = new Map<number, DirectChildNotice>()
 			let workflowNoticeSnapshot = new Map<string, string>()
+			let childMessageSnapshot = new Map<number, string>()
 			try {
 				// Setup above awaited. A conversation switch can happen meanwhile and
 				// move the mutable SessionScope captured by `createAgentSession`. Re-admit
@@ -7947,6 +7981,7 @@ export function App({
 					idleNoticeSnapshot = snapshotIdleJobNotices()
 					childNoticeSnapshot = new Map(directChildNoticesRef.current)
 					workflowNoticeSnapshot = new Map(workflowNoticesRef.current)
+					childMessageSnapshot = new Map(childMessagesRef.current)
 					const operatorShellSnapshot = drainOperatorShell()
 					for await (const event of session.send(priorForSdk, {
 						signal: ac.signal,
@@ -7977,6 +8012,7 @@ export function App({
 									: undefined,
 								operatorShellSnapshot,
 								...[...childNoticeSnapshot.values()].map((notice) => notice.context),
+								...childMessageSnapshot.values(),
 							].filter((part): part is string => Boolean(part)),
 						...(goalRound ? { goalRound } : {}),
 						// The mode above decides whether this callback is consulted.
@@ -8013,6 +8049,11 @@ export function App({
 								([id]) => !workflowNoticeSnapshot.has(id),
 							)
 							for (const [id] of workflowEnds) workflowNoticesRef.current.delete(id)
+							// What a running agent said to the conversation: told to the model once.
+							const childMessages = [...childMessagesRef.current].filter(
+								([id]) => !childMessageSnapshot.has(id),
+							)
+							for (const [id] of childMessages) childMessagesRef.current.delete(id)
 							if (childNotices.length) {
 								flushStream(st)
 								if (st.assistantId) {
@@ -8046,6 +8087,9 @@ export function App({
 									createRuntimeContextMessage(notice.context, notice.kind),
 								),
 								...workflowEnds.map(([, text]) =>
+									createRuntimeContextMessage(text, 'task-completion'),
+								),
+								...childMessages.map(([, text]) =>
 									createRuntimeContextMessage(text, 'task-completion'),
 								),
 							]
@@ -8109,6 +8153,7 @@ export function App({
 				if (st.completed && stillHere()) {
 					for (const id of childNoticeSnapshot.keys()) directChildNoticesRef.current.delete(id)
 					for (const id of workflowNoticeSnapshot.keys()) workflowNoticesRef.current.delete(id)
+					for (const id of childMessageSnapshot.keys()) childMessagesRef.current.delete(id)
 				}
 				if (st.completed && idleJobNoticesRef.current.ownerSession === session) {
 					for (const id of idleNoticeSnapshot.ids) idleJobNoticesRef.current.pending.delete(id)
@@ -10644,6 +10689,7 @@ export function App({
 		const jobs = idleJobNoticesRef.current
 		const waiting =
 			workflowNoticesRef.current.size > 0 ||
+			childMessagesRef.current.size > 0 ||
 			(jobs.ownerSession === session &&
 				[...jobs.pending.keys()].some((id) => wakeJobIdsRef.current.has(id)))
 		if (!waiting) return
