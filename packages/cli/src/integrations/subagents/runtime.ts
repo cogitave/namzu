@@ -55,6 +55,7 @@ import {
 	type SessionId,
 	type SessionPaths,
 	SessionSummaryMaterializer,
+	type SessionTokenBudget,
 	type SessionTokenBudgetStore,
 	type TaskHandle,
 	type TaskId,
@@ -100,6 +101,7 @@ import {
 	SubagentActivityMonitor,
 	type SubagentActivitySource,
 } from './activity.js'
+import { chargeLabelRequest } from './label-ledger.js'
 import { CLI_INTERACTIVE_TURN_TIMEOUT_MS } from './policy.js'
 import { SAVED_AGENTS_GUIDANCE, type SavedAgentHistory } from './saved-agents.js'
 import { DelegatedWorktreeDriver } from './worktree-driver.js'
@@ -580,6 +582,8 @@ export async function createSubagentRuntime(
 	interface ParentRuntime {
 		readonly gateway: TaskScheduler
 		readonly completionInbox: CompletionInbox
+		/** The turn's token ledger: what its children, and their labels, spend from. */
+		readonly budget: SessionTokenBudget
 		close(): void
 	}
 	interface SessionRuntime {
@@ -805,6 +809,7 @@ export async function createSubagentRuntime(
 				const runtime: ParentRuntime = {
 					gateway,
 					completionInbox,
+					budget,
 					close() {
 						if (released) return
 						released = true
@@ -862,17 +867,30 @@ export async function createSubagentRuntime(
 			const owned = conversations.get(agent.viewId)
 			if (!owned || closed || owned.config.model !== undefined) return undefined
 			const parent = await resolveParent(owned.turnId)
+			// The label is spend of this turn, so it is counted on the turn's ledger;
+			// a turn whose ledger is gone has nothing to count it on and goes without.
+			const turn = await parents.get(owned.turnId)?.catch(() => undefined)
+			if (!turn) return undefined
 			const provider = await opts.buildProvider(parent.sessionId)
 			const model = owned.seed.model ?? opts.model
-			const response = await collectChatCompletion(
-				provider.chatStream({
-					model,
-					messages: [createSystemMessage(instruction), createUserMessage(body)],
-					maxTokens: 60,
-					signal,
-				}),
-			)
-			return { text: response.message.content ?? '' }
+			const text = await chargeLabelRequest({
+				budget: turn.budget,
+				sessionId: parent.sessionId,
+				estimatedPromptTokens: Math.ceil((instruction.length + body.length) / 4),
+				signal,
+				request: async () => {
+					const response = await collectChatCompletion(
+						provider.chatStream({
+							model,
+							messages: [createSystemMessage(instruction), createUserMessage(body)],
+							maxTokens: 60,
+							signal,
+						}),
+					)
+					return { value: response.message.content ?? '', usage: response.usage }
+				},
+			})
+			return text === undefined ? undefined : { text }
 		},
 	})
 

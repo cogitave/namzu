@@ -2,12 +2,25 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
 	type AskForLabel,
+	LABEL_INSTRUCTION,
 	LABEL_INTERVAL_MS,
 	LABEL_MAX_CHARS,
 	startActivityLabeler,
 	validateLabel,
 } from '../activity-label.js'
 import { SubagentActivityMonitor } from '../activity.js'
+
+// Reference (REA fn Vd, chunk-nre510sa.js): the label is written in the
+// configured language, else the notes' predominant language. Namzu has no
+// language setting, so the notes decide.
+describe('the language of a label', () => {
+	it('asks for the predominant language of the notes, not of the instructions or of stray words', () => {
+		expect(LABEL_INSTRUCTION).toContain('predominant language of the notes')
+		expect(LABEL_INSTRUCTION).toContain('stray word or code token')
+		expect(LABEL_INSTRUCTION).toContain('language of these instructions')
+		expect(LABEL_INSTRUCTION).not.toContain('language of the task')
+	})
+})
 
 describe('validating a label', () => {
 	it('keeps one plain line and drops everything else', () => {

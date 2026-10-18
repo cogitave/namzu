@@ -29,7 +29,7 @@ const LABEL_ROW_CHARS = 600
 export const LABEL_INSTRUCTION = [
 	'Say what this agent is doing right now, as a short status label for a list.',
 	'Rules: three to five words; present tense (for example "Reading config loader"); name the file or function it is working on rather than a branch or a goal; one line, no quotes, no punctuation at the end, no markdown.',
-	'Write the label in the language of the task the agent was given.',
+	'Write the label in the predominant language of the notes below. A stray word or code token in another language does not change it, and neither does the language of these instructions.',
 	'If a previous label is shown and the agent is still doing that, repeat it; otherwise say what is new.',
 	'Use no tools. Reply with the label only.',
 ].join('\n')
