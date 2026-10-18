@@ -1198,7 +1198,7 @@ it('approves one recorded batch and parks the next batch with a distinct checkpo
 				toolCalls: [expect.objectContaining({ id: 'next_write' })],
 			}),
 		)
-		expect(f.agent.approvalLatched()).toBe(false)
+		expect(f.agent.approvalLatched?.()).toBe(false)
 		await expect(
 			(async () => {
 				for await (const _event of f.agent.resumePaused({

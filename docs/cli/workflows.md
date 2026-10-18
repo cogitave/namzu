@@ -64,9 +64,8 @@ The screen shows, in order:
 │                                                                              │
 │ Do you want to start this workflow?                                          │
 │ ❯ 1. Start this workflow                                                     │
-│   2. Start and allow all tools for this conversation                         │
-│   3. Do not start                                                            │
-│ ↑↓ select · enter confirm · y / a / n answer · esc decline · d script        │
+│   2. Do not start                                                            │
+│ ↑↓ select · enter confirm · y / n answer · esc decline · d script            │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 

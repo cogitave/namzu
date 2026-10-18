@@ -80,7 +80,6 @@ vi.mock('../agent.js', async (importOriginal) => {
 					throw new Error('not used here')
 				},
 				close: async () => {},
-				approvalLatched: () => false,
 				promptExemptTools: () => [],
 				send: async function* (_messages, opts?: SendOptions): AsyncIterable<AgentEvent> {
 					// The reply streamed with the call, cut mid-sentence as a stream is.

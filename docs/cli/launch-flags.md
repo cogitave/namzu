@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Launch flags for the interactive session
-description: --provider, --model, --effort, --permission-mode and --message on the interactive namzu and namzu resume, what each chooses for that launch only, how they combine with the saved choice and --yolo, and what happens when one cannot be honoured.
+description: --provider, --model, --effort, --permission-mode and --message on the interactive namzu and namzu resume, what each chooses for that launch only, how they combine with the saved choice and --yolo, the switch that lets Shift+Tab reach auto, and what happens when one cannot be honoured.
 resource: packages/cli/src/tui/launch-settings.ts
 tags: [cli, tui, providers, permissions]
 status: stable
@@ -24,6 +24,8 @@ Four options choose how one interactive session starts. They are written **befor
 | `--model <id>` | the model for this launch | a model id the provider offers |
 | `--effort <level>` | the reasoning effort | `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra` |
 | `--permission-mode <mode>` | the permission mode | `prompt`, `accept-edits`, `auto`, `strict`, `plan` |
+
+Two switches change what Shift+Tab may reach rather than where the session starts. `--dangerously-skip-permissions` (alias `--yolo`) starts in `auto`, and `--allow-dangerously-skip-permissions` keeps the launch mode but lets Shift+Tab reach `auto`; the cycle is `prompt`, `accept-edits`, `plan`, then `auto` (only when the launch allowed it), then `prompt`. Without either switch, `plan` goes straight back to `prompt`, and `--permission-mode auto` counts as launching in `auto`. Choosing `auto` by name in `/permissions` allows it for the rest of the session. `--allow-dangerously-skip-permissions` is for the interactive session only; `namzu exec` does not take it.
 
 A fifth, `--message <text>`, is the first message of the launch: the session sends it once, as a plain prompt (a leading `/`, `!` or `#` is text, not a command), as soon as the composer is ready, and the turn runs with the provider, model, effort and mode chosen above. It is shown as the first user message, is kept in the composer's history, and is never sent again by a later `/resume`, reload or re-login. Pass it as `--message=<text>` when the text may begin with a dash. It is refused before a subcommand like the others, and before `resume` (exit 64): a resumed conversation never gets a first message.
 

@@ -34,7 +34,6 @@ function context(over: Partial<SlashContext> = {}): SlashContext {
 		permissions: {
 			currentMode: () => ({ mode: 'prompt', source: 'default' }),
 			rules: [],
-			approvalLatched: () => false,
 			neverPrompted: () => ['read'],
 		},
 		instructionFiles: [],
@@ -124,22 +123,6 @@ describe('permission reports match all selectable modes', () => {
 		expect(runSlash(`/permissions ${mode}`, ctx)).toEqual({ kind: 'permission-mode', mode })
 		expect(report('/permissions invalid', ctx)).toContain('/permissions opens the permission menu')
 		expect(report('/permissions invalid', ctx)).not.toContain('prompt|accept-edits')
-	})
-
-	it('plan and strict ignore an old approve-all choice while accept-edits honors it', () => {
-		for (const mode of ['plan', 'strict', 'accept-edits'] as const) {
-			const permissions = {
-				...context().permissions,
-				currentMode: () => ({ mode, source: 'session' as const }),
-				approvalLatched: () => true,
-			}
-			const text = renderPermissions(permissions)
-			if (mode === 'accept-edits') expect(text).toContain('approved automatically')
-			else {
-				expect(text).toContain(permissionModeDescription(mode))
-				expect(text).not.toContain('approved automatically')
-			}
-		}
 	})
 
 	it('keeps raw rule and exemption lists behind details', () => {

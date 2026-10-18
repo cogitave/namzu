@@ -844,7 +844,7 @@ runs on **the job's model**: the provider and model the job pins (or, for a job
 that names only a provider, the model its run started on), with no fallback
 chain, whatever model the TUI session is on. Agents it starts inherit that
 model too, unless they name another or their agent file pins one. There is
-no "approve all" for a scheduled run: its prompt offers only **Yes** and **No**
+no session-wide answer for a scheduled run: its prompt offers only **Yes** and **No**
 (`y`, `n`, `1`, `2`), and its later batches are asked one at a time.
 
 The resumed turn runs in the TUI session you answer from, so that session must

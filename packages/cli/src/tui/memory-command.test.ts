@@ -16,7 +16,6 @@ const context: SlashContext = {
 	permissions: {
 		currentMode: () => ({ mode: 'prompt', source: 'default' }),
 		rules: [],
-		approvalLatched: () => false,
 		neverPrompted: () => [],
 	},
 	instructionFiles: [],

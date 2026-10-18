@@ -175,6 +175,10 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		)
 		.option('--yolo', 'Alias of --dangerously-skip-permissions.')
 		.option(
+			'--allow-dangerously-skip-permissions',
+			'Let Shift+Tab reach the auto-approve mode, without starting in it.',
+		)
+		.option(
 			'--provider <id>',
 			'Start the interactive session on this provider for this launch only; the saved choice is untouched.',
 		)
@@ -451,6 +455,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			const launchOpts = program.opts<{
 				dangerouslySkipPermissions?: boolean
 				yolo?: boolean
+				allowDangerouslySkipPermissions?: boolean
 				outputSchema?: string
 				addDir?: string[]
 				provider?: string
@@ -509,6 +514,9 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					version: CLI_VERSION,
 					configDebug: resolvedCtx.configDebug,
 					skipPermissions,
+					...(launchOpts.allowDangerouslySkipPermissions
+						? { allowDangerouslySkipPermissions: true }
+						: {}),
 					...(Object.keys(launchSettings).length > 0 ? { launchSettings } : {}),
 					...(additionalDirectories.length > 0 ? { additionalDirectories } : {}),
 					rules: browserSites

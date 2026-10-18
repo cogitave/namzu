@@ -80,8 +80,6 @@ vi.mock('../agent.js', async (importOriginal) => {
 				})()
 			},
 			close: async () => {},
-			approvalLatched: () => false,
-			resetApprovalLatch: () => {},
 			setPermissionMode: async () => {},
 			promptExemptTools: () => [],
 			send: async function* (): AsyncIterable<AgentEvent> {

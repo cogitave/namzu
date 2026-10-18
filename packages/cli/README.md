@@ -124,7 +124,7 @@ Type a request and press Enter. While a turn is running, you can keep typing:
 - **Enter** sends a message that steers the running turn at its next safe point.
 - **Tab** queues a message to run after the current turn.
 - **Esc** interrupts the running turn. **Ctrl+C** exits.
-- **Shift+Tab** cycles the permission mode between asking before changes, accepting edits, and plan (read-only).
+- **Shift+Tab** cycles the permission mode between asking before changes, accepting edits, and plan (read-only), and on to auto-approve when the session was launched with `--dangerously-skip-permissions` or `--allow-dangerously-skip-permissions`.
 - **Ctrl+T** opens or closes the view of delegated agents. **Ctrl+O** expands a tool's output, and opens a viewer for long output.
 - **Ctrl+V** and **Alt+V** attach a clipboard image to the prompt.
 - **Alt+W** drops, restores or arms the composer trigger nearest the cursor.

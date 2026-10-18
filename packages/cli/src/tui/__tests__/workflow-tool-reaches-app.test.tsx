@@ -149,7 +149,6 @@ vi.mock('../agent.js', async (importOriginal) => {
 			subagents: monitor as AgentSession['subagents'],
 			workflows: flows.source as unknown as AgentSession['workflows'],
 			configNotices: [],
-			approvalLatched: () => false,
 			promptExemptTools: () => [],
 			compact: async () => null,
 			resumeDurable: async () => {

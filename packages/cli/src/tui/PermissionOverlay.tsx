@@ -16,6 +16,8 @@ import { basename } from 'node:path'
 
 import { Box, Text } from 'ink'
 
+import { ACCEPT_EDITS_TOOLS, type PermissionMode } from '../permissions/mode.js'
+import { type SessionAllow, allowsForBatch, describeAllows } from '../permissions/session-allow.js'
 import type { PermissionToolCall } from './agent.js'
 import { boxedHintWidth, fitHints } from './key-hints.js'
 import {
@@ -48,8 +50,12 @@ export interface PermissionOverlayProps {
 	readonly columns?: number
 	/** Live terminal height; the pager shows as much as the screen has room for. */
 	readonly rows?: number
-	/** Answers this batch only: no "allow all" is offered (a scheduled run). */
+	/** Answers this batch only: no session-wide answer is offered (a scheduled run). */
 	readonly batchOnly?: boolean
+	/** The session's mode now; the accept-edits answer is offered only from `prompt`. */
+	readonly mode?: PermissionMode
+	/** Present when the session can remember allows; see `permissionAnswers`. */
+	readonly commandArguments?: ReadonlyMap<string, string>
 	/** Which browser site rule decided each browser call, with the profile and engine. */
 	readonly siteNotes?: readonly string[]
 	/**
@@ -220,33 +226,57 @@ export function permissionEscalationNotes(toolCalls: readonly PermissionToolCall
 	const notes: string[] = []
 	if (toolCalls.some((call) => call.escalation?.sandboxEscape === true)) {
 		notes.push(
-			'Runs OUTSIDE the sandbox, on this machine. Asked every time; "allow all" never covers it.',
+			'Runs OUTSIDE the sandbox, on this machine. Asked every time; no earlier answer covers it.',
 		)
 	}
 	const outside = toolCalls.flatMap((call) => call.escalation?.outsidePaths ?? [])
 	if (outside.length > 0) {
 		notes.push(
-			`Outside the working directory: ${outside.join(', ')}. Asked every time; "allow all" never covers it.`,
+			`Outside the working directory: ${outside.join(', ')}. Asked every time; no earlier answer covers it.`,
 		)
 	}
 	return notes
 }
 
-/** What an answer on the screen does. */
-export type PermissionAnswerKind = 'approve' | 'approve-all' | 'reject'
+/**
+ * What an answer on the screen does. `approve-edits` switches the session to
+ * accept-edits and `approve-rule` remembers the allows it carries, both for
+ * the rest of the session; each also approves this batch. There is no
+ * "allow every tool" answer: the reference has none.
+ */
+export type PermissionAnswerKind = 'approve' | 'approve-edits' | 'approve-rule' | 'reject'
+
+export interface PermissionAnswer {
+	readonly label: string
+	readonly kind: PermissionAnswerKind
+	/** What `approve-rule` remembers. */
+	readonly allows?: readonly SessionAllow[]
+}
+
+export interface PermissionAnswerOptions {
+	readonly batchOnly?: boolean
+	readonly screenConsent?: boolean
+	/** The session's mode now; the edit answer is offered only from `prompt`. */
+	readonly mode?: PermissionMode
+	/** Tools whose command line is one argument, when this session can remember allows. */
+	readonly commandArguments?: ReadonlyMap<string, string>
+}
 
 /**
  * The answers, in the order they are shown and numbered, with what each
- * does. Session approval applies to all tools. A `batchOnly` prompt (a
- * scheduled run's) has no session approval, so it offers none: the screen
- * never offers an answer it would not honour.
+ * does. Yes and No always; between them, at most one that is valid for every
+ * call in the batch: switch to accept edits (every call a plain edit or
+ * write, from `prompt`), or remember an allow for the rest of the session
+ * (every call a plain command, fetch or MCP call). A call that crosses the
+ * turn's boundary, asks by rule, or must always be asked, gets neither. A
+ * `batchOnly` prompt (a scheduled run's) offers neither.
  */
 export function permissionAnswers(
 	toolCalls: readonly PermissionToolCall[],
-	options: { readonly batchOnly?: boolean; readonly screenConsent?: boolean } = {},
-): readonly { readonly label: string; readonly kind: PermissionAnswerKind }[] {
-	// A yes to sharing the screen is its own answer; "allow all tools" on the
-	// same box would be a second, wider one given in passing.
+	options: PermissionAnswerOptions = {},
+): readonly PermissionAnswer[] {
+	// A yes to sharing the screen is its own answer, never a wider one given
+	// in passing.
 	if (options.screenConsent)
 		return [
 			{ label: 'Yes, share my screen for this conversation', kind: 'approve' },
@@ -263,30 +293,45 @@ export function permissionAnswers(
 				: `Start these ${toolCalls.length} agents`
 			: 'Yes'
 	const reject = agents ? 'Do not start' : 'No, and tell namzu what to do differently (esc)'
-	if (options.batchOnly) {
-		return [
-			{ label: approve, kind: 'approve' },
-			{ label: reject, kind: 'reject' },
-		]
-	}
-	const approveAll = agents
-		? 'Start and allow all tools for this conversation'
-		: toolCalls.some((call) => call.escalation?.sandboxEscape === true)
-			? 'Yes, and allow other tools for this conversation (not sandbox escapes)'
-			: toolCalls.some((call) => (call.escalation?.outsidePaths?.length ?? 0) > 0)
-				? 'Yes, and allow other tools for this conversation (not paths outside it)'
-				: 'Yes, allow all tools for this conversation'
+	const extra = options.batchOnly ? undefined : extraAnswer(toolCalls, options)
 	return [
 		{ label: approve, kind: 'approve' },
-		{ label: approveAll, kind: 'approve-all' },
+		...(extra ? [extra] : []),
 		{ label: reject, kind: 'reject' },
 	]
+}
+
+function extraAnswer(
+	toolCalls: readonly PermissionToolCall[],
+	options: PermissionAnswerOptions,
+): PermissionAnswer | undefined {
+	if (
+		options.mode === 'prompt' &&
+		toolCalls.length > 0 &&
+		toolCalls.every(
+			(call) =>
+				ACCEPT_EDITS_TOOLS.has(call.name) &&
+				call.escalation === undefined &&
+				call.isDestructive !== true &&
+				call.requiresApproval !== true &&
+				call.authorization?.explicitReview !== true,
+		)
+	)
+		return { label: 'Yes, and switch to accept edits for this session', kind: 'approve-edits' }
+	if (options.commandArguments === undefined) return undefined
+	const allows = allowsForBatch(toolCalls, options.commandArguments)
+	if (!allows) return undefined
+	return {
+		label: `Yes, and don't ask again for ${describeAllows(allows)} this session`,
+		kind: 'approve-rule',
+		allows,
+	}
 }
 
 /** The answers' labels, in order. */
 export function permissionChoices(
 	toolCalls: readonly PermissionToolCall[],
-	options: { readonly batchOnly?: boolean; readonly screenConsent?: boolean } = {},
+	options: PermissionAnswerOptions = {},
 ): readonly string[] {
 	return permissionAnswers(toolCalls, options).map((answer) => answer.label)
 }
@@ -328,6 +373,8 @@ export function PermissionOverlay({
 	columns,
 	rows: terminalRows,
 	batchOnly = false,
+	mode,
+	commandArguments,
 	siteNotes = [],
 	screenConsent,
 }: PermissionOverlayProps) {
@@ -349,7 +396,12 @@ export function PermissionOverlay({
 	const last = Math.min(rows.length, offset + pageRows)
 	const destructive = toolCalls.some((call) => call.isDestructive)
 	const sharing = screenConsent !== undefined
-	const choices = permissionChoices(toolCalls, { batchOnly, screenConsent: sharing })
+	const choices = permissionChoices(toolCalls, {
+		batchOnly,
+		screenConsent: sharing,
+		...(mode ? { mode } : {}),
+		...(commandArguments ? { commandArguments } : {}),
+	})
 	const escalationNotes = permissionEscalationNotes(toolCalls)
 	const sharingNotes = sharing ? screenConsentNotes(screenConsent.provider) : []
 
@@ -448,8 +500,8 @@ export function PermissionOverlay({
 							{ text: '↑↓ select', rank: 5 },
 							{ text: 'enter confirm', short: 'enter ok', rank: 5 },
 							{
-								text: `${batchOnly || sharing ? 'y / n' : 'y / a / n'} answer`,
-								short: batchOnly || sharing ? 'y / n' : 'y / a / n',
+								text: 'y / n answer',
+								short: 'y / n',
 								rank: 5,
 							},
 							{ text: 'esc decline', short: 'esc no', rank: 5 },

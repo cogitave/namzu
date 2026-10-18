@@ -48,7 +48,6 @@ import type { SandboxSummary } from '../context/sandbox.js'
 import { workflowCommandPrompt } from '../integrations/workflows/offering.js'
 import {
 	type PermissionMode,
-	effectivePermissionMode,
 	isPermissionMode,
 	permissionModeDescription,
 	permissionModeLabel,
@@ -377,19 +376,6 @@ export interface SlashContext {
 			readonly source: 'default' | 'launch-bypass' | 'launch-flag' | 'session'
 		}
 		readonly rules: readonly AuthorizationRule[]
-		/**
-		 * Whether "approve all" is in force, read at render time.
-		 *
-		 * A function because this field changes while namzu runs. The selected
-		 * mode above also moves, but only at an idle command boundary; this one
-		 * flips on a keystroke mid-turn. Since
-		 * this context object is assembled during a render and read later from
-		 * a callback that captured it, a boolean would report whatever was true
-		 * when the object was built — which is precisely the staleness that let
-		 * `/permissions` claim tools were still being reviewed after they were
-		 * not.
-		 */
-		readonly approvalLatched: () => boolean
 		/**
 		 * Tools that never reach the prompt, named so the readout can say so.
 		 *
@@ -1880,7 +1866,7 @@ export function renderMcp(mcp: ReturnType<SlashContext['mcp']>, details = false)
 
 export function statusRows(ctx: SlashContext): [string, string][] {
 	const current = ctx.permissions.currentMode()
-	const permissions = effectivePermissionMode(current.mode, ctx.permissions.approvalLatched())
+	const permissions = current.mode
 	const rows: [string, string][] = [
 		['Version', CLI_VERSION],
 		['Model', ctx.modelSummary ?? 'Not selected'],
@@ -1971,12 +1957,10 @@ export function renderPermissions(
 	details = false,
 ): string {
 	const current = permissions.currentMode()
-	const effective = effectivePermissionMode(current.mode, permissions.approvalLatched())
-	const approvedAll = effective !== current.mode
+	const effective = current.mode
 	const lines = [
-		`Permissions: ${permissionModeLabel(effective)}. ${approvedAll ? 'Tools are approved automatically for this conversation.' : permissionModeDescription(effective)}`,
+		`Permissions: ${permissionModeLabel(effective)}. ${permissionModeDescription(effective)}`,
 	]
-	if (approvedAll) lines.push('Choose a preset in /permissions to change this.')
 	if (!details) return lines.join('\n')
 	if (current.source === 'launch-bypass')
 		lines.push('Selected at launch with --dangerously-skip-permissions.')

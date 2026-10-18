@@ -120,11 +120,7 @@ describe('the box around it', () => {
 	it('is titled and asked as a workflow, with its own answers', () => {
 		expect(permissionTitle(toolCalls)).toBe('Start a workflow')
 		expect(permissionQuestion(toolCalls)).toBe('Do you want to start this workflow?')
-		expect(permissionChoices(toolCalls)).toEqual([
-			'Start this workflow',
-			'Start and allow all tools for this conversation',
-			'Do not start',
-		])
+		expect(permissionChoices(toolCalls)).toEqual(['Start this workflow', 'Do not start'])
 		expect(permissionAnswers(toolCalls, { batchOnly: true }).map((a) => a.kind)).toEqual([
 			'approve',
 			'reject',

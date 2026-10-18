@@ -164,7 +164,6 @@ vi.mock('../agent.js', async (importOriginal) => {
 				mcpFailed: [],
 				agentIds: [],
 				configNotices: [],
-				approvalLatched: () => false,
 				promptExemptTools: () => [],
 				resumeDurable: async () => {
 					throw new Error('not used')

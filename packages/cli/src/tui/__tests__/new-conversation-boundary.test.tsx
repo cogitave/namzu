@@ -138,7 +138,6 @@ vi.mock('../agent.js', async (importOriginal) => {
 					throw new Error('resumePaused is not part of this test')
 				},
 				close: async () => {},
-				approvalLatched: () => false,
 				promptExemptTools: () => [],
 				send: async function* (messages, sendOptions): AsyncIterable<AgentEvent> {
 					// Captured at the start, as the real session copies its scope

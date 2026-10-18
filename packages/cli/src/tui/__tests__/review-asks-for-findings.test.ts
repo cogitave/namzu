@@ -110,7 +110,6 @@ function context(): Parameters<typeof runSlash>[1] {
 		permissions: {
 			currentMode: () => ({ mode: 'prompt', source: 'default' }),
 			rules: [],
-			approvalLatched: () => false,
 			neverPrompted: () => [],
 		},
 		instructionFiles: [],

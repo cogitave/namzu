@@ -35,6 +35,9 @@ const PREFS: Preferences = { version: 3, providers: [{ id: 'openai' }], subagent
 /** Decisions the fake session was given, in order. */
 const decisions: PermissionDecision[] = []
 
+/** What the fake session was told to remember, in order. */
+const remembered: unknown[] = []
+
 /** Per-turn modes and executions observed beyond the App boundary. */
 const permissionModes: unknown[] = []
 const turnSignals: Array<AbortSignal | undefined> = []
@@ -106,12 +109,6 @@ vi.mock('../agent.js', async (importOriginal) => {
 			detected: [],
 		}),
 		createAgentSession: async (): Promise<AgentSession> => {
-			// Stands in for the `approval` object the real session closes over
-			// (`agent.ts`), which `makeResumeHandler` flips on approve-all and
-			// which `approvalLatched` reads. Emulated rather than imported
-			// because this mock replaces the handler that owns it; that the real
-			// handler sets the flag is pinned separately in `agent.test.ts`.
-			let latched = false
 			return {
 				hasProvider: true,
 				sandbox: { unconfined: true, enforced: [], required: [] },
@@ -137,10 +134,10 @@ vi.mock('../agent.js', async (importOriginal) => {
 					throw new Error('resumePaused is not part of this test')
 				},
 				close: async () => {},
-				approvalLatched: () => latched,
-				resetApprovalLatch: () => {
-					latched = false
+				allowForSession: (allows) => {
+					remembered.push(allows)
 				},
+				commandArguments: new Map([['bash', 'command']]),
 				// A representative exempt roster: one declared read-only, one
 				// named override. Enough for the readout assertions below.
 				promptExemptTools: () => ['glob', 'read', 'task_create'],
@@ -154,7 +151,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 					turnSignals.push(opts?.signal)
 					yield { kind: 'delta', text: 'working' } as AgentEvent
 					await new Promise((r) => setTimeout(r, permissionDelayMs))
-					if (opts?.permissionMode === 'auto' || latched) {
+					if (opts?.permissionMode === 'auto') {
 						toolExecutions += 1
 						return
 					}
@@ -189,10 +186,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 					const decision = await opts?.onPermission?.(req)
 					if (decision) {
 						decisions.push(decision)
-						if (decision.kind === 'approve-all') latched = true
-						if (decision.kind === 'approve' || decision.kind === 'approve-all') {
-							toolExecutions += 1
-						}
+						if (decision.kind === 'approve') toolExecutions += 1
 						if (holdAfterPermissionDecision) await permissionHandoff
 					}
 				},
@@ -272,6 +266,7 @@ const mounted: { unmount: () => void }[] = []
 
 beforeEach(() => {
 	decisions.length = 0
+	remembered.length = 0
 	permissionModes.length = 0
 	turnSignals.length = 0
 	parallelApprovals = false
@@ -332,18 +327,18 @@ describe('the permission prompt', () => {
 
 		stdin.write('\x1b[B')
 		await tick(50)
-		expect(lastFrame()).toContain('❯ 2. Yes, allow all tools for this conversation')
+		expect(lastFrame()).toContain('❯ 2. No, and tell namzu what to do differently')
 
 		settle()
 		stdin.write('\r')
 		await tick(400)
-		expect(decisions).toEqual([{ kind: 'approve-all' }])
+		expect(decisions).toEqual([{ kind: 'reject', declined: {} }])
 	})
 
 	it('answers by number once the prompt has settled', async () => {
 		const { stdin } = await promptOpenWithDraftInFlight()
 		settle()
-		stdin.write('3')
+		stdin.write('2')
 		await tick(400)
 		expect(decisions).toEqual([{ kind: 'reject', declined: {} }])
 	})
@@ -410,8 +405,7 @@ describe('the permission prompt', () => {
 		expect(approval).toContain('1. API research · files + commands')
 		expect(approval).toContain('4. Delivery plan · files + commands')
 		expect(approval).toContain('❯ 1. Start these 4 agents')
-		expect(approval).toContain('2. Start and allow all tools for this conversation')
-		expect(approval).toContain('3. Do not start')
+		expect(approval).toContain('2. Do not start')
 		expect(approval).not.toContain('"calls"')
 		expect(approval).not.toContain('agent-call-0')
 
@@ -449,7 +443,7 @@ describe('the permission prompt', () => {
 		// status bar's own hint satisfies from the other side of the screen. Two
 		// assertions that could not fail, guarding the advertisement that four
 		// separate fixes tonight were about.
-		expect(frame).toContain('Yes, allow all tools for this conversation')
+		expect(frame).not.toContain('allow all tools')
 		expect(frame).toContain('tell namzu what to do differently')
 		// The advertisement is the contract the handler is held to: Enter
 		// confirms the highlighted answer, and the box says so.
@@ -540,57 +534,60 @@ describe('the permission prompt', () => {
 	})
 })
 
-/**
- * That `/permissions` reports the posture actually in force.
- *
- * Here rather than in `slashCommands.test.ts` because the unit test there can
- * only prove that `renderPermissions` calls the reader it is handed. Whether
- * `App` hands it a LIVE reader or a value snapshotted during some earlier
- * render is a different property, invisible from that level, and it is the one
- * that was broken: the latch lives in a closure inside the agent session, and
- * the context object carrying it is assembled on one render and read from a
- * callback captured on another.
- *
- * So this drives the whole path — press `a` at a real prompt, then ask.
- */
-describe('/permissions after approve-all', () => {
-	it('opens a finite chooser without hiding the active approval latch', async () => {
+describe('the answers beyond yes and no', () => {
+	it('has no key that approves every tool: a is not an answer', async () => {
 		const { stdin, lastFrame } = await promptOpenWithDraftInFlight()
-
 		settle()
 		stdin.write('a')
-		await decisionSettles()
-		expect(decisions, 'a did not approve-all').toEqual([{ kind: 'approve-all' }])
-
-		// The turn is over and the composer is back — still holding the draft
-		// that was typed while it ran, which is the point of the fix in
-		// `app-draft-survives.test.tsx`. Clear it before typing a command, or
-		// the command is appended to the draft and submitted as prose.
-		//
-		// Worth naming: this step was not needed while the composer unmounted,
-		// so this test used to pass BECAUSE the draft was being destroyed.
-		await tick(120)
-		expect(lastFrame(), 'the composer must show effective automatic approval').toContain(
-			'⏵⏵ bypass permissions on',
-		)
-		stdin.write('\x1B')
-		await tick(60)
-		stdin.write('/permissions')
-		await tick(60)
-		stdin.write('\r')
 		await tick(200)
+		expect(decisions).toEqual([])
+		expect(lastFrame()).toContain('enter confirm')
+		expect(lastFrame()).not.toContain('bypass permissions on')
+	})
 
-		const frame = lastFrame() ?? ''
-		expect(frame, 'the chooser never rendered').toContain('More options')
-		expect(frame).toContain('Current: Auto-approve tools')
-		expect(frame).toContain('this conversation')
-		expect(frame).not.toContain('Never prompted')
-		stdin.write('1')
-		await tick(120)
-		expect(lastFrame()).toContain('Permissions: Ask before changes for this conversation.')
-		expect(lastFrame()).toContain('Type a message')
-		expect(lastFrame()).not.toContain('⏵⏵ bypass permissions on')
-		expect(permissionModes).toEqual(['prompt'])
+	it('switches an edit prompt to accept edits through the mode path, and says so in the footer', async () => {
+		requestedToolCalls = [
+			{
+				id: 'call-1',
+				name: 'edit',
+				input: { path: 'a.txt', old_string: 'a', new_string: 'b' },
+				isDestructive: false,
+			},
+		]
+		const { stdin, lastFrame } = await promptOpenWithDraftInFlight()
+		expect(lastFrame()).toContain('2. Yes, and switch to accept edits for this session')
+
+		settle()
+		stdin.write('2')
+		await decisionSettles()
+		expect(decisions).toEqual([{ kind: 'approve' }])
+		await tick(150)
+		expect(lastFrame()).toContain('accept edits on')
+		expect(remembered).toEqual([])
+	})
+
+	it('remembers a plain command for the session when asked to', async () => {
+		requestedToolCalls = [
+			{ id: 'call-1', name: 'bash', input: { command: 'npm test' }, isDestructive: false },
+		]
+		const { stdin, lastFrame } = await promptOpenWithDraftInFlight()
+		expect(lastFrame()).toContain("2. Yes, and don't ask again for npm test commands this session")
+
+		settle()
+		stdin.write('2')
+		await decisionSettles()
+		expect(decisions).toEqual([{ kind: 'approve' }])
+		expect(remembered).toEqual([[{ kind: 'command', tool: 'bash', command: 'npm test' }]])
+	})
+
+	it('does not settle a queued request on an answer given to another prompt', async () => {
+		parallelApprovals = true
+		const { stdin, lastFrame } = await promptOpenWithDraftInFlight()
+		settle()
+		stdin.write('y')
+		await tick(100)
+		expect(decisions).toEqual([{ kind: 'approve' }])
+		expect(lastFrame()).toContain('enter confirm')
 	})
 })
 
@@ -660,35 +657,6 @@ describe('/permissions session mode', () => {
 		expect(frame).toMatch(/Ask before changes\s+\[current\]/)
 		expect(frame).not.toContain('approved automatically (--dangerously-skip-permissions)')
 	})
-
-	it('revokes an approve-all latch before the next prompt turn', async () => {
-		const { stdin, lastFrame } = await promptOpenWithDraftInFlight()
-
-		settle()
-		stdin.write('a')
-		await decisionSettles()
-		expect(decisions).toEqual([{ kind: 'approve-all' }])
-		expect(toolExecutions).toBe(1)
-
-		// The draft typed while the first turn ran is still present by design.
-		await tick(120)
-		stdin.write('\x1B')
-		await tick(60)
-		stdin.write('/permissions prompt')
-		await tick(60)
-		stdin.write('\r')
-		await tick(160)
-		expect(lastFrame()).toContain('Permissions: Ask before changes for this conversation.')
-
-		stdin.write('ask again')
-		await tick(60)
-		stdin.write('\r')
-		await vi.waitFor(() => expect(lastFrame() ?? '').toContain('enter confirm'))
-
-		expect(permissionModes.at(-1)).toBe('prompt')
-		expect(toolExecutions, 'approve-all survived an explicit prompt-mode reset').toBe(1)
-		expect(lastFrame()).toContain('enter confirm')
-	})
 })
 
 describe('concurrent permission requests', () => {
@@ -722,15 +690,6 @@ describe('concurrent permission requests', () => {
 		expect(decisions).toHaveLength(2)
 		expect(decisions.every((decision) => decision.kind === 'reject')).toBe(true)
 		expect(turnSignals[0]?.aborted).toBe(true)
-	})
-	it('applies explicit session-wide approval to queued requests', async () => {
-		parallelApprovals = true
-		const { stdin, lastFrame } = await promptOpenWithDraftInFlight()
-		settle()
-		stdin.write('a')
-		await tick(100)
-		expect(decisions).toEqual([{ kind: 'approve-all' }, { kind: 'approve-all' }])
-		expect(lastFrame()).not.toContain('enter confirm')
 	})
 	it('settles every pending request when the application unmounts', async () => {
 		parallelApprovals = true

@@ -120,7 +120,11 @@ describe('a permissions rule written in a config file', () => {
 
 		expect(queryCalls.length, 'the turn must have reached query()').toBe(1)
 		const gate = queryCalls[0]?.authorizationGate as { rules?: unknown[] } | undefined
-		expect(gate?.rules).toEqual([{ type: 'deny_by_name', toolNames: ['bash'] }])
+		// The operator's rule first; behind it only the session's own remembered-allows rule.
+		expect(gate?.rules).toEqual([
+			{ type: 'deny_by_name', toolNames: ['bash'] },
+			expect.objectContaining({ type: 'predicate' }),
+		])
 	})
 
 	it('is not silently replaced by the empty default when handed in directly', async () => {
@@ -149,6 +153,10 @@ describe('a permissions rule written in a config file', () => {
 		}
 
 		const gate = queryCalls[0]?.authorizationGate as { rules?: unknown[] } | undefined
-		expect(gate?.rules).toEqual([{ type: 'deny_by_name', toolNames: ['bash'] }])
+		// The operator's rule first; behind it only the session's own remembered-allows rule.
+		expect(gate?.rules).toEqual([
+			{ type: 'deny_by_name', toolNames: ['bash'] },
+			expect.objectContaining({ type: 'predicate' }),
+		])
 	})
 })

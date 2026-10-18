@@ -251,23 +251,29 @@ included), and leaving `plan` approves nothing
 it already refused. Each change is recorded as `approval_policy_changed` in the
 session log before it takes effect.
 The effort choices depend on the selected model and usable fallback models.
-Changing any permission mode clears a previous “approve all” choice. Explicit
-deny rules and built-in safety checks still apply; `plan` additionally blocks
-writes even when a rule would allow them.
+Explicit deny rules and built-in safety checks still apply in every mode;
+`plan` additionally blocks writes even when a rule would allow them.
 
-The permission menu shows the effective current behavior, including any earlier
-approval of all tools. More options keeps automatic approval and preapproved-only
-execution available without placing their internal mode names in the main menu.
-Esc returns from More options without applying a change. The approval prompt's
-second choice explicitly allows **all tools for this session**, not just the
-displayed operation. Configured rules and sandbox restrictions still apply.
+The permission menu shows the current mode. More options keeps automatic approval
+and preapproved-only execution available without placing their internal mode
+names in the main menu. Esc returns from More options without applying a change.
+The approval prompt has no answer that allows every tool. After Yes it can offer
+one more answer, scoped to what was asked, and only when it holds for every call
+in the prompt: for an edit, "Yes, and switch to accept edits for this session"
+(the same change Shift+Tab makes, so the footer says `accept edits on`); for a
+plain shell command, a fetch of one host or an MCP tool, "Yes, and don't ask
+again for <that> this session". A remembered answer is consulted after your
+`[permissions]` table and the safety gate, covers exactly the command line, host
+or tool shown, and never covers a sandbox escape, a path outside the working
+directory, a call a rule asks about, or a destructive one. It is kept in memory
+for the session and is gone when it ends.
 For typed shortcuts, `/permissions prompt`, `accept-edits`, `auto`, `strict`
 and `plan` remain accepted. `/permissions details` opens the rule report directly.
 
 An explicit `ask` in the configured permissions table is retained as a review
 rule, including when it precedes a broader wildcard `allow`. It also prevents
 automatic read-only exemptions in prompt modes. Omitting a rule keeps the normal
-read-only default. Auto mode and already granted approvals retain their meaning.
+read-only default. Auto mode retains its meaning.
 
 `/permissions details` also says, in `prompt`, `accept-edits` and `plan`, that
 a read-only agent (`explore`, or an agent file with `readOnly: true`) on the
@@ -349,7 +355,7 @@ terminals place descriptions below labels.
 - **Up** on an empty composer chooses the newest queued message, **Up/Down** move, **Enter** loads it into the composer for editing and **Esc** leaves the choice. **Alt+Up** recalls the latest operator-composed queued message for editing, with its attachments and armed triggers. A queued slash command returns as the command the operator typed; its expanded model prompt remains queued until recalled. It leaves a nonempty draft alone; automatic goal and skill prompts cannot be recalled this way.
 - **Esc** while a turn runs interrupts it. An undelivered steer starts a fresh turn before Tab-queued messages after the old turn settles. Without a pending steer, queued messages remain held; a new Enter message runs before them, while Tab adds to the held queue. **Ctrl+X Ctrl+S** does the same as Esc with a pending steer and also releases queued messages Esc had held. **Ctrl+C** is reserved for exit.
 - **Left** on an empty composer (nothing typed, pasted or attached) opens the agents cockpit, as `/agent` does; the footer's `← N agents` names it. **Down** on an empty composer focuses the footer: the shell pill first (Enter opens the `/jobs` screen), then the agents rail; the footer's `↓ to manage` names it. With anything in the composer both keys move the cursor.
-- **Shift+Tab** cycles the permission mode: `prompt`, `accept-edits`, `plan`. It works mid-turn, and the footer is its only reply: nothing is added to the transcript.
+- **Shift+Tab** cycles the permission mode: `prompt`, `accept-edits`, `plan`, then `auto` when the session may use it (launched in `auto`, started with `--allow-dangerously-skip-permissions`, or `auto` chosen by name in `/permissions`; see [Launch flags](launch-flags.md)), then `prompt`. `auto` and `strict` go back to `prompt`. It works mid-turn, and the footer is its only reply: nothing is added to the transcript.
 - **Ctrl+O** expands small tool output in place. Older or oversized output opens a bounded viewer without appending transcript copies; with the live output already open, the next press opens the newest output that has settled into history. Use ↑↓ or PgUp/PgDn to scroll, ←→ to switch retained outputs, g/G for the beginning/end, and Esc, q or Ctrl+O to close.
 - **Ctrl+T** opens or closes delegated activity, also reachable with `/agents`.
 - **`!command`** runs on the host without the model; **`#note`** remembers. See [The composer prefixes](composer-prefixes.md).

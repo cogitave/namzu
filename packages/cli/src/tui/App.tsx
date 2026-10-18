@@ -171,7 +171,8 @@ import {
 import { appendMemoryWithStatus, readMemory } from '../memory/store.js'
 import {
 	type PermissionMode,
-	effectivePermissionMode,
+	bypassAvailableAtLaunch,
+	nextCycleMode,
 	permissionModeDescription,
 	permissionModeLabel,
 } from '../permissions/mode.js'
@@ -413,7 +414,6 @@ import {
 	permissionReviewPageRows,
 	permissionReviewRefusal,
 	permissionReviewRows,
-	releasedByApproveAll,
 } from './permission-review.js'
 import { moveSelection } from './selection-window.js'
 import {
@@ -1259,6 +1259,15 @@ export function App({
 		launchPermissionMode ?? (ctx.skipPermissions === true || ctx.palId ? 'auto' : 'prompt'),
 	)
 	const permissionModeRef = useRef<PermissionMode>(permissionMode)
+	// Whether Shift+Tab may land on `auto`. Fixed at launch by the launch
+	// mode or --allow-dangerously-skip-permissions; naming `auto` in
+	// /permissions grants it for the rest of the session.
+	const bypassAvailableRef = useRef(
+		bypassAvailableAtLaunch({
+			launchMode: permissionMode,
+			allowDangerouslySkipPermissions: ctx.allowDangerouslySkipPermissions === true,
+		}),
+	)
 	const permissionModeSourceRef = useRef<'default' | 'launch-bypass' | 'launch-flag' | 'session'>(
 		launchPermissionMode
 			? 'launch-flag'
@@ -3191,17 +3200,11 @@ export function App({
 				pushMessage('system', 'Choose a model before changing permissions.')
 				return
 			}
-			if (!session.resetApprovalLatch) {
-				pushMessage(
-					'system',
-					'Permissions cannot be changed in this conversation. Start a new conversation and try again.',
-				)
-				return
-			}
-			session.resetApprovalLatch()
 			// The ref first: a running turn reads it at its next decision, and the
 			// record below makes the change durable before that decision is made.
 			permissionModeRef.current = mode
+			// Asking for `auto` by name is the same consent as the launch flag.
+			if (mode === 'auto' && announce) bypassAvailableRef.current = true
 			permissionModeSourceRef.current = 'session'
 			setPermissionModeState(mode)
 			void session.setPermissionMode?.(mode)
@@ -3635,19 +3638,17 @@ export function App({
 	}, [hasUnsettledTurn, pushMessage, state])
 
 	/**
-	 * Shift+Tab: `prompt` → `accept-edits` → `plan` → `prompt`. Three stops
-	 * only — `auto` and `strict` are deliberate choices made by name in
-	 * `/permissions`, not stops on a key an operator presses on reflex. From
-	 * either of those the key returns to `prompt`, which is the direction a
-	 * reflex should fall. The change goes through the same path `/permissions`
+	 * Shift+Tab: `prompt` → `accept-edits` → `plan` → `auto` → `prompt`, the
+	 * reference's cycle. `auto` is a stop only when the session may use it
+	 * (launched in it, or `--allow-dangerously-skip-permissions`); otherwise
+	 * plan returns to `prompt`. `strict` is a deliberate choice made by name
+	 * in `/permissions` and the key returns it to `prompt`. The change goes through the same path `/permissions`
 	 * uses and takes effect at once, mid-turn included; the footer is its only
 	 * on-screen reply (see `applyPermissionMode`).
 	 */
 	const cyclePermissionMode = useCallback((): void => {
 		const current = permissionModeRef.current
-		const next: PermissionMode =
-			current === 'prompt' ? 'accept-edits' : current === 'accept-edits' ? 'plan' : 'prompt'
-		applyPermissionMode(next, false)
+		applyPermissionMode(nextCycleMode(current, bypassAvailableRef.current), false)
 	}, [applyPermissionMode])
 
 	const runConversationExport = useCallback(
@@ -4050,11 +4051,7 @@ export function App({
 			}
 			if (picker.kind === 'permission-mode') {
 				if (value === 'more') {
-					const child = permissionPicker(
-						permissionModeRef.current,
-						session?.approvalLatched() ?? false,
-						true,
-					)
+					const child = permissionPicker(permissionModeRef.current, true)
 					setSelectedChoice(
 						Math.max(
 							0,
@@ -5325,7 +5322,6 @@ export function App({
 			// reporting a posture the operator has already changed. The
 			// function keeps that impossible by construction rather than by a
 			// coincidence three lines away.
-			approvalLatched: () => session?.approvalLatched() ?? false,
 			neverPrompted: () => session?.promptExemptTools() ?? [],
 		},
 		instructionFiles: session?.instructionFiles ?? [],
@@ -5613,6 +5609,17 @@ export function App({
 		}
 	}, [ensureSessions, hasUnsettledTurn, pushMessage, state])
 
+	// The options `permissionAnswers` needs for the prompt on screen, so the
+	// keys and the box number the same answers.
+	const permissionAnswerOptions = (pending: PendingPermission) => ({
+		batchOnly: pending.batchOnly === true,
+		screenConsent: pending.screenConsent === true,
+		mode: permissionModeRef.current,
+		...(session?.allowForSession && session.commandArguments
+			? { commandArguments: session.commandArguments }
+			: {}),
+	})
+
 	// Resolve a pending permission prompt with the user's decision and tear
 	// down the overlay. No-op if nothing is pending.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
@@ -5634,23 +5641,6 @@ export function App({
 				// `tool`, and the ordinary turn finalizer owns the transition to idle.
 				setState('thinking')
 				resolve(decision)
-			}
-			if (decision.kind === 'approve-all') {
-				// A queued sandbox escape or outside path stays queued: "allow
-				// all" was answered on another prompt, and a crossing is approved
-				// only on its own.
-				const kept: typeof permissionQueueRef.current = []
-				for (const pending of permissionQueueRef.current.splice(0)) {
-					// Nor a question about sharing the screen, which only its own
-					// answer settles.
-					if (
-						pending.permission.screenConsent !== true &&
-						releasedByApproveAll(pending.permission.toolCalls)
-					)
-						pending.resolve(decision)
-					else kept.push(pending)
-				}
-				permissionQueueRef.current.push(...kept)
 			}
 			const next = permissionQueueRef.current.shift()
 			setQueuedPermissionCount(permissionQueueRef.current.length)
@@ -8992,7 +8982,7 @@ export function App({
 							{
 								name: 'permissions',
 								label: 'Permissions',
-								description: `${permissionModeLabel(effectivePermissionMode(permissionModeRef.current, session?.approvalLatched() ?? false))} · this conversation.`,
+								description: `${permissionModeLabel(permissionModeRef.current)} · this conversation.`,
 							},
 							{
 								name: 'config limits',
@@ -9258,18 +9248,12 @@ export function App({
 							hasUnsettledTurn() ||
 							queuedRef.current.length > 0 ||
 							permissionResolveRef.current !== null ||
-							compactingRef.current ||
-							!session.resetApprovalLatch
+							compactingRef.current
 						) {
-							pushMessage(
-								'system',
-								!session.resetApprovalLatch
-									? 'Permissions cannot be changed in this conversation. Start a new conversation and try again.'
-									: 'Finish or stop the current work before changing permissions.',
-							)
+							pushMessage('system', 'Finish or stop the current work before changing permissions.')
 							return
 						}
-						const picker = permissionPicker(permissionModeRef.current, session.approvalLatched())
+						const picker = permissionPicker(permissionModeRef.current)
 						setSelectedChoice(
 							Math.max(
 								0,
@@ -11015,10 +10999,7 @@ export function App({
 				if (permission && (key.upArrow || key.downArrow)) {
 					const current = permissionChoiceRef.current
 					const last =
-						permissionAnswers(permission.toolCalls, {
-							batchOnly: permission.batchOnly === true,
-							screenConsent: permission.screenConsent === true,
-						}).length - 1
+						permissionAnswers(permission.toolCalls, permissionAnswerOptions(permission)).length - 1
 					const next = key.upArrow ? Math.max(0, current - 1) : Math.min(last, current + 1)
 					setPermissionChoice(next as PermissionChoice)
 					return
@@ -11066,23 +11047,23 @@ export function App({
 				// The answers on screen, so a digit or Enter means what it is next
 				// to: a batch-only prompt (a scheduled run) has no "allow all", and
 				// neither its `a` nor a `3` answers it.
-				const answers = permissionAnswers(permission?.toolCalls ?? [], {
-					batchOnly: permission?.batchOnly === true,
-					screenConsent: permission?.screenConsent === true,
-				})
+				const answers = permission
+					? permissionAnswers(permission.toolCalls, permissionAnswerOptions(permission))
+					: []
 				const numbered = /^[1-9]$/.test(ch) ? Number(ch) - 1 : null
 				const chosen = key.return ? permissionChoiceRef.current : numbered
-				const kind =
-					ch === 'y'
-						? 'approve'
-						: ch === 'a'
-							? answers.some((answer) => answer.kind === 'approve-all')
-								? 'approve-all'
-								: undefined
-							: chosen !== null
-								? answers[chosen]?.kind
-								: undefined
-				if (kind) resolvePermission(kind === 'reject' ? { kind, declined: {} } : { kind })
+				const answer = ch === 'y' ? answers[0] : chosen !== null ? answers[chosen] : undefined
+				if (!answer) return
+				if (answer.kind === 'reject') {
+					resolvePermission({ kind: 'reject', declined: {} })
+					return
+				}
+				// The extra answers are session settings applied the way their own
+				// commands apply them, then this batch is approved like any yes.
+				if (answer.kind === 'approve-edits') applyPermissionMode('accept-edits', false)
+				else if (answer.kind === 'approve-rule' && answer.allows)
+					session?.allowForSession?.(answer.allows)
+				resolvePermission({ kind: 'approve' })
 				return
 			}
 			// The shell view observes only this AgentSession's jobs. Consent always
@@ -11971,10 +11952,7 @@ export function App({
 			? `Agent: ${permissionOwner.description}`
 			: 'Agent: another agent'
 		: undefined
-	const displayedPermissionMode = effectivePermissionMode(
-		permissionMode,
-		session?.approvalLatched() ?? false,
-	)
+	const displayedPermissionMode = permissionMode
 	const highestEffort = highestReasoningEffort(session?.reasoningEffortLevels)
 	const hypermodeLevel = hypermodeEffort(session?.reasoningEffortLevels)
 	const composerTriggers: ComposerTriggerSettings | undefined = composerTriggersOn
@@ -12221,6 +12199,10 @@ export function App({
 								columns={terminal.columns}
 								rows={terminal.rows}
 								batchOnly={permission.batchOnly === true}
+								mode={permissionMode}
+								{...(session?.allowForSession && session.commandArguments
+									? { commandArguments: session.commandArguments }
+									: {})}
 								siteNotes={permission.siteNotes}
 								{...(permission.screenConsent === true
 									? { screenConsent: { provider: session?.providerSummary ?? null } }
@@ -12763,10 +12745,9 @@ function pluginActionPicker(owner: AgentSession, name: string): ChoicePickerStat
 
 function permissionPicker(
 	mode: PermissionMode,
-	approvedAll: boolean,
 	more = false,
 ): Extract<ChoicePickerState, { kind: 'permission-mode' }> {
-	const current = effectivePermissionMode(mode, approvedAll)
+	const current = mode
 	const values = more
 		? (['auto', 'strict', 'rules'] as const)
 		: (['prompt', 'accept-edits', 'plan', 'more'] as const)

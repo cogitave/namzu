@@ -119,8 +119,6 @@ vi.mock('../agent.js', async (importOriginal) => {
 				throw new Error('not used')
 			},
 			close: async () => {},
-			approvalLatched: () => false,
-			resetApprovalLatch: () => {},
 			setPermissionMode: async () => {},
 			promptExemptTools: () => [],
 			send: async function* (messages, opts): AsyncIterable<AgentEvent> {

@@ -108,7 +108,6 @@ function prepareChildMessageBridge(scope?: SessionScope): Partial<AgentSession> 
 	if (!childMessageBridge.current) return {}
 	return {
 		messageSubagent: childMessageBridge.current,
-		resetApprovalLatch: () => {},
 		onSubagentReport: (listener) => {
 			childMessageBridge.onReport = listener
 			return () => {
@@ -229,7 +228,6 @@ vi.mock('../agent.js', async (importOriginal) => {
 				return orchestrationBatches.current
 			},
 			configNotices: [],
-			approvalLatched: () => false,
 			promptExemptTools: () => [],
 			compact: async () => null,
 			resumeDurable: async () => {

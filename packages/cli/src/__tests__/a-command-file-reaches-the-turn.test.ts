@@ -76,7 +76,6 @@ function context(userCommands: SlashContext['userCommands']): SlashContext {
 		permissions: {
 			currentMode: () => ({ mode: 'prompt', source: 'default' }),
 			rules: [],
-			approvalLatched: () => false,
 			neverPrompted: () => [],
 		},
 		instructionFiles: [],

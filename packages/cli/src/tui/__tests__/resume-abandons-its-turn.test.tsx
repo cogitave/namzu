@@ -195,7 +195,6 @@ vi.mock('../agent.js', async (importOriginal) => {
 					throw new Error('resumePaused is not part of this test')
 				},
 				close: async () => {},
-				approvalLatched: () => false,
 				promptExemptTools: () => [],
 				// One row before the operator can act, then the wait, then the events
 				// that must land in the right place — or nowhere.
