@@ -13,6 +13,7 @@ import { memo } from 'react'
 import { Checklist, checklistLine } from './Checklist.js'
 import { ContentWidth, Markdown, WrappedSpans, useContentWidth } from './Markdown.js'
 import { StatusPanel } from './StatusPanel.js'
+import { type ShellOutput, shellCollapses, shellResultRows, shellToneColor } from './shell-cell.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
 import { NOT_SHOWN_LINE } from './tidy-tool-output.js'
@@ -210,10 +211,16 @@ function RawMessageRow({
 }) {
 	const content =
 		message.content.length > 0 ? terminalDisplayText(message.content) : message.pending ? '…' : ''
+	const fullHeader = message.shell?.fullHeader
 	const text = [
-		`${content}${message.meta ? ` · ${terminalDisplayText(message.meta)}` : ''}`,
+		`${fullHeader !== undefined ? terminalDisplayText(fullHeader) : content}${message.meta ? ` · ${terminalDisplayText(message.meta)}` : ''}`,
+		...(message.shell
+			? shellResultRows(message.shell, { expanded: true }).map((row) =>
+					terminalDisplayText(row.text),
+				)
+			: []),
 		...(message.checklist ?? []).map(checklistLine),
-		...(message.detail && message.detail.length > 0
+		...(message.detail && message.detail.length > 0 && !message.shell
 			? ['', ...message.detail.map(terminalDisplayText)]
 			: []),
 	].join('\n')
@@ -242,8 +249,11 @@ function MessageRow({
 	}
 	// Assistant content is projected inside <Markdown>, its actual renderer.
 	// The other roles flow straight into Ink here and need the projection now.
-	const content =
-		message.role === 'assistant' ? message.content : terminalDisplayText(message.content)
+	const shellHeader =
+		message.shell?.fullHeader !== undefined && message.detailExpanded
+			? message.shell.fullHeader
+			: message.content
+	const content = message.role === 'assistant' ? message.content : terminalDisplayText(shellHeader)
 	const width = useContentWidth()
 	const glyph = message.glyph ?? glyphForRole(message.role)
 	// The `⎿` tool-result gutter is rendered dim so the call line leads.
@@ -314,8 +324,16 @@ function MessageRow({
 					<Checklist items={message.checklist} />
 				</Box>
 			) : null}
+			{message.shell ? (
+				<ShellBlock
+					shell={message.shell}
+					expanded={message.detailExpanded === true}
+					canExpand={message.detailRef !== undefined}
+				/>
+			) : null}
 			{message.detail &&
 			message.detail.length > 0 &&
+			!message.shell &&
 			(!message.activity || message.detailExpanded) ? (
 				<DetailBlock
 					lines={message.detail}
@@ -325,6 +343,52 @@ function MessageRow({
 			) : null}
 		</Box>
 	)
+}
+
+/** Columns the `⎿` prefix and its indent take from a result row. */
+export const SHELL_RESULT_INDENT = 5
+
+/**
+ * The `⎿` result of a shell call: output rows hung under one dim `⎿`, the
+ * first rows of each stream, then a dim count of what is folded away.
+ */
+export function ShellBlock({
+	shell,
+	expanded,
+	canExpand,
+}: {
+	readonly shell: ShellOutput
+	readonly expanded: boolean
+	readonly canExpand: boolean
+}) {
+	const width = useContentWidth()
+	const rows = shellResultRows(shell, {
+		expanded,
+		width: Math.max(10, width - (SHELL_RESULT_INDENT - 2)),
+		canExpand,
+	})
+	return (
+		<Box flexDirection="column" paddingLeft={2}>
+			{rows.map((row, i) => (
+				// biome-ignore lint/suspicious/noArrayIndexKey: these rows have no local state; expansion replaces their text in place.
+				<Box key={`s-${i}`} flexDirection="row">
+					<Box width={3} flexShrink={0}>
+						<Text color={theme.text.muted}>{i === 0 ? '⎿' : ' '}</Text>
+					</Box>
+					<Box flexGrow={1}>
+						<Text color={shellToneColor(row.tone)} wrap="wrap">
+							{row.text.length > 0 ? terminalDisplayText(row.text) : ' '}
+						</Text>
+					</Box>
+				</Box>
+			))}
+		</Box>
+	)
+}
+
+/** Whether a row hides something Ctrl+O would show (a folded body or a cut command). */
+export function messageCollapses(message: Pick<TranscriptMessage, 'detail' | 'shell'>): boolean {
+	return message.shell ? shellCollapses(message.shell) : willCollapse(message.detail)
 }
 
 /**
@@ -426,6 +490,12 @@ export function renderedDetailLines(message: TranscriptMessage): readonly string
 }
 
 function renderedBodyLines(message: TranscriptMessage): readonly string[] {
+	if (message.shell) {
+		// Hung under the `⎿` prefix: three columns of it plus the two of indent.
+		return shellResultRows(message.shell, { expanded: message.detailExpanded === true }).map(
+			(row) => ' '.repeat(SHELL_RESULT_INDENT) + terminalDisplayText(row.text),
+		)
+	}
 	const lines = message.detail
 	if (!lines || lines.length === 0 || (message.activity !== undefined && !message.detailExpanded))
 		return []

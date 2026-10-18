@@ -22,13 +22,17 @@ When the process cannot be created at all (no such shell, a missing working dire
 
 On Windows a command's descendants that detach from the shell are not tracked after the shell exits; `taskkill /T` stops the tree while it is still linked.
 
+# Job ids
+
+A job's id is `b` followed by eight characters of `0-9a-z`, drawn from `crypto.randomBytes` (for example `b1k3x9q2z`). It is the model's handle: `bash` returns it, `job` and `wait_for_job` take it, and the person never sees it. It is random rather than counted, so an id from an earlier session or a resumed conversation can never name a different, newer job; the registry also never hands out an id it already holds. Ids are opaque: nothing may parse them or rely on their shape. `job` and `wait_for_job` refuse only input that cannot be an id (empty, over 128 characters, or containing whitespace or control characters) with a plain error; any other id, whatever its shape, goes to the registry, and an unknown one answers `No background job <id>.` The SDK exports `createBackgroundJobId()` for a host that supplies its own registry and `isBackgroundJobId(id)`, a helper that answers whether an id looks like one the SDK minted; the tools do not use it as a gate.
+
 # Watching and managing shells in the TUI
 
 While a shell job runs, a line below the composer footer shows the number of running shells and points to `/jobs`. The line stays visible after the model's reply and updates when a job starts or ends, including during a turn. It does not take the Down key from the delegated-agent panel.
 
-`/jobs` opens a session-scoped list of running and finished shell jobs. Move with Up/Down and press Enter for a job's status, command and retained output. The detail view follows new output while the job runs; Up/Down or Page Up/Page Down scroll, `g` goes to the oldest retained output, and `G` returns to the live tail. Press `x` on a running job in either view to stop it, Esc to return to the list or composer, and `q` to close the view. While a stop is pending, the stop hint disappears until that action settles. A stop is the operator's direct action on that session's process group; it does not ask the model to call a tool.
+`/jobs` opens the `Background` panel (subtitle `N active shells`), a session-scoped list of running and finished shell jobs. Each row is a status icon, the command and one word: `running`, `done`, `error` or `stopped`; the job's id is never shown. Move with Up/Down and press Enter for `Shell details`: `Status:` (`running`, `completed (exit code 0)`, `failed (exit code N)`, `stopped`), `Runtime:`, `Command:` and the retained `Output:`. The detail view follows new output while the job runs; Up/Down or Page Up/Page Down scroll, `g` goes to the oldest retained output, and `G` returns to the live tail. Press `x` on a running job in either view to stop it, Esc to go back to the list or close it, and `q` to close the view. While a stop is pending, the stop hint disappears until that action settles. A stop is the operator's direct action on that session's process group; it does not ask the model to call a tool.
 
-The output view is bounded and shows when earlier bytes were dropped by the job buffer or omitted from the screen. Terminal control characters are displayed as text, so job output cannot move the cursor or alter the view. `/jobs list` prints a plain text summary into the transcript when that is more useful than opening the view.
+The output view is bounded and shows when earlier bytes were dropped by the job buffer or omitted from the screen. Terminal control characters are displayed as text, so job output cannot move the cursor or alter the view. `/jobs list` prints a plain text summary (state and command, no ids) into the transcript when that is more useful than opening the view.
 
 An exit that arrives while no model turn is open appears in the transcript and is included in the next request as an observation. Its command and status are request context, not system instructions. Once the kernel acknowledges an exit, the CLI does not announce it again.
 
@@ -46,7 +50,7 @@ Either timeout is a successful observation, with `data.timedOut` naming `idle` o
 # Waiting for output
 
 For a server that should stay running, use one condition wait:
-`wait_for_job({ id: "job_1", output_contains: "Server ready", output_stream: "stdout" })`.
+`wait_for_job({ id: "b1k3x9q2z", output_contains: "Server ready", output_stream: "stdout" })`.
 The exact literal is limited to 4096 UTF-8 bytes. `output_stream` defaults to
 `either`; stdout and stderr are searched separately, including across chunks.
 `from_offset` excludes earlier bytes and cannot be ahead of the produced output.
@@ -79,12 +83,12 @@ permission policy.
 
 `wait_for_job` is the model asking; the notices below tell it without being asked, for a job nothing is blocked on:
 
-- **During a turn**, the kernel attaches a `[Background job update]` line to the model's next tool result — no polling — and emits `background_job_exited`. The session listener shows a job row marked `J` as soon as the exit occurs.
+- **During a turn**, the kernel attaches a `[Background job update]` line to the model's next tool result — no polling — and emits `background_job_exited`. The session listener shows a transcript row as soon as the exit occurs: `● Background command "npm test" completed (exit code 0) · 12s` (green dot), `… failed with exit code 2` (red) or `… was stopped` (yellow).
 - **At the end of a turn**, for a job the model awaited, the turn suspends rather than settling over it; the same line arrives as a `runtime-context` message (`{ type: 'runtime-context', kind: 'job-exit' }`) when the wait releases. See *Waiting at the end of a turn* below.
 - **On the way out**, for an awaited job whose exit lands after that hold's grace has already run out — so the job was about to be named abandoned — but before the turn finishes settling, `deliverArrivedJobExits` still catches it: the same `runtime-context` message reaches `Turn.messages` instead of the job landing on `abandonedJobIds`.
-- **Between turns, or after the turn's last delivery point**, the session hears the exit itself: the `J` job row appears at once, and the next message to the model opens with the jobs that ended since its last turn.
+- **Between turns, or after the turn's last delivery point**, the session hears the exit itself: the transcript row appears at once, and the interactive terminal starts a turn at once that carries the exit, so the model reports on it without the person typing (as it does for a finished [workflow](workflows.md)). A command the operator stopped does not wake the model; its exit rides with the next message as before. A host with no one to take that turn (a failed turn waiting for the operator, a prompt open) carries the exit with the next message.
 
-The session keeps each exit until the kernel acknowledges that its notice entered a tool result or recorded `job-exit` context, or a later completed turn carries it in its opening context. An exit after the last tool result may still occur before the turn settles; that exit is carried to the next turn. An early failed or aborted send does not consume a pending exit. The transcript shows one `J` row per exit, whether the kernel also emits its event or the session first observes the process closing. The exception below is about what the model reads, not duplicate transcript rows.
+The session keeps each exit until the kernel acknowledges that its notice entered a tool result or recorded `job-exit` context, or a later completed turn carries it in its opening context. An exit after the last tool result may still occur before the turn settles; that exit wakes the next turn itself (or rides with the next message when the exit was a stop the operator asked for). An early failed or aborted send does not consume a pending exit. The transcript shows one row per exit, whether the kernel also emits its event or the session first observes the process closing. The exception below is about what the model reads, not duplicate transcript rows.
 
 If the process cannot start, its job still finishes and announces one exit when the child closes. It has no process exit code: the spawn error is not a command's exit status. An error from a process that already started does not by itself end the job; the registry waits for that process to close.
 

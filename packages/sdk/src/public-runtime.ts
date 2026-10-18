@@ -20,6 +20,17 @@ export { BackgroundJobOutputWaitLimitError } from './runtime/jobs/registry.js'
 export { HostCallDeniedError } from './execution/code-runtime/types.js'
 export { WorkerCodeRuntime } from './execution/code-runtime/worker.js'
 
+// The workflow runtime: runs a model-authored orchestration script on the
+// interpreter above, with `agent()` as its only host call.
+export {
+	FileWorkflowJournal,
+	parseWorkflowMeta,
+	resolveWorkflowLimits,
+	summarizeWorkflowPhases,
+	WorkflowRuntime,
+	WorkflowScriptError,
+} from './execution/workflow/index.js'
+
 export {
 	CompactionConfigSchema,
 	PluginRuntimeConfigSchema,

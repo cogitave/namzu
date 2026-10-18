@@ -45,6 +45,7 @@ import {
 import { type ConfigDebugSnapshot, renderConfigDebug } from '../config/debug.js'
 import type { HooksConfig } from '../config/schema.js'
 import type { SandboxSummary } from '../context/sandbox.js'
+import { workflowCommandPrompt } from '../integrations/workflows/offering.js'
 import {
 	type PermissionMode,
 	effectivePermissionMode,
@@ -80,6 +81,8 @@ export type SlashAction =
 	 */
 	| { kind: 'agents'; args: readonly string[] }
 	| { kind: 'peers'; args: readonly string[] }
+	/** Open the list of this conversation's workflow runs. */
+	| { kind: 'workflows' }
 	/** Open the session's interactive background shell list. */
 	| { kind: 'jobs' }
 	| { kind: 'settings-picker' }
@@ -775,6 +778,24 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		// The subcommands are the delegation UI's (`agentsSlashCommand`): App hands
 		// it the arguments and renders what it answers, usage line included.
 		action: (_ctx, args) => ({ kind: 'agents', args }),
+	},
+	{
+		name: 'workflow',
+		description:
+			'Ask for a workflow: the model writes a script that runs many agents in phases, after you approve it.',
+		help: {
+			usage: ['/workflow <what to do>'],
+			details: [
+				'Offers the model the workflow tool for this message. You see the script, its phases and its limits before anything starts.',
+			],
+		},
+		action: (_ctx, args) => ({ kind: 'prompt', text: workflowCommandPrompt(args.join(' ')) }),
+	},
+	{
+		name: 'workflows',
+		description: 'List this conversation’s workflows, running and finished, and open one.',
+		help: { usage: ['/workflows'] },
+		action: () => ({ kind: 'workflows' }),
 	},
 	{
 		name: 'goal',
@@ -1593,10 +1614,10 @@ export function renderJobs(jobs: ReturnType<SlashContext['jobs']>): string {
 				: job.status === 'killed'
 					? 'stopped'
 					: `exited ${job.exitCode ?? '?'}`
-		return `${job.id}  ${state.padEnd(16)}  ${job.command}`
+		return `${state.padEnd(16)}  ${job.command}`
 	})
 	return [
-		`${jobs.length} background job${jobs.length === 1 ? '' : 's'} in this conversation:`,
+		`${jobs.length} background shell${jobs.length === 1 ? '' : 's'} in this conversation:`,
 		...lines,
 		'',
 		'Use /jobs to inspect output or stop a running shell; /exit stops them all.',

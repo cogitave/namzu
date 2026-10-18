@@ -199,3 +199,63 @@ describe('the headline of a read, search, write or edit', () => {
 		expect(factsHeadline({ kind: 'command' })).toBeUndefined()
 	})
 })
+
+describe('the shell cell data', () => {
+	const facts = (more: object) => ({ kind: 'command' as const, command: 'x', ...more })
+
+	it('keeps stdout and stderr apart and leads a failure with its exit status', () => {
+		const { shell } = tidyCommandOutput(
+			facts({
+				exitCode: 3,
+				stdout: { head: 'a\nb', totalLines: 2, totalBytes: 3 },
+				stderr: { head: 'boom', totalLines: 1, totalBytes: 4 },
+			}),
+			'',
+		)
+		expect(shell).toEqual({
+			stdout: ['a', 'b'],
+			stderr: ['boom'],
+			failed: true,
+			status: 'Exit code 3',
+			note: 'Exit code 3',
+		})
+	})
+
+	it('says a failed command with no output only by its exit code', () => {
+		const { shell } = tidyCommandOutput(facts({ exitCode: 3 }), '')
+		expect(shell).toMatchObject({ stdout: [], stderr: [], failed: true, note: 'Exit code 3' })
+		expect(shell?.status).toBeUndefined()
+	})
+
+	it('names a timeout and a signal in a few words, not the command', () => {
+		expect(tidyCommandOutput(facts({ timedOut: true }), '').shell?.note).toBe('Timed out')
+		expect(tidyCommandOutput(facts({ signal: 'SIGKILL' }), '').shell?.note).toBe(
+			'Stopped before it finished',
+		)
+	})
+
+	it('replaces the model-facing background text with one plain line', () => {
+		const { shell } = tidyCommandOutput(
+			facts({ background: true }),
+			'Started background job job_1. For finite work, await completion with wait_for_job: {"id":"job_1"}.',
+		)
+		expect(shell).toEqual({
+			stdout: [],
+			stderr: [],
+			failed: false,
+			note: 'Running in the background (↓ to manage)',
+		})
+	})
+
+	it('reads a conversation saved before facts the same way', () => {
+		const failed = tidyTerminalOutput('partial\nError: Command exited with code 2').shell
+		expect(failed).toMatchObject({
+			stdout: ['partial'],
+			failed: true,
+			status: 'Exit code 2',
+		})
+		expect(
+			tidyTerminalOutput('Started background job job_2. For finite work, wait.').shell?.note,
+		).toBe('Running in the background (↓ to manage)')
+	})
+})

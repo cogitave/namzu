@@ -3,6 +3,7 @@ import { SessionTokenBudget } from '../../store/budget/ledger.js'
 import type { TokenUsage } from '../../types/common/index.js'
 import { ProviderError } from '../../types/provider/errors.js'
 import type { ChatCompletionParams, LLMProvider, StreamChunk } from '../../types/provider/index.js'
+import { TurnCancelled } from '../../types/session/cancel-cause.js'
 import { generateSessionId, generateTurnId } from '../../utils/id.js'
 import { collectChatCompletion } from '../collect-chat-completion.js'
 import { withTokenBudget } from '../token-budget.js'
@@ -190,5 +191,70 @@ describe('provider calls use the shared token account', () => {
 		)
 		expect(budget.remaining).toBe(0)
 		expect(budget.summary().inFlightRequests).toBe(1)
+	})
+
+	it('closes a deliberately cancelled request on an estimate instead of poisoning the account', async () => {
+		const budget = SessionTokenBudget.create(1_000, rootScope(), { save: async () => {} })
+		const caller = new AbortController()
+		let enter!: () => void
+		const entered = new Promise<void>((resolve) => {
+			enter = resolve
+		})
+		const wrapped = withTokenBudget(
+			provider(async function* () {
+				yield { id: 'a', delta: { content: 'abcdefgh' } }
+				enter()
+				await new Promise<never>(() => {})
+			}),
+			budget,
+		)
+		const iterator = wrapped
+			.chatStream({
+				model: 'mock',
+				messages: [{ role: 'user', content: 'x'.repeat(40), timestamp: 0 }],
+				signal: caller.signal,
+			})
+			[Symbol.asyncIterator]()
+		await iterator.next()
+		const pending = iterator.next().catch((error: unknown) => error)
+		await entered
+		caller.abort(new TurnCancelled('user'))
+		await pending
+		// Not unknown spend: siblings and later requests are still admitted.
+		expect(budget.summary()).toMatchObject({
+			poisoned: false,
+			inFlightRequests: 0,
+			unresolvedRequests: 0,
+		})
+		// The prompt (40 characters) and what had streamed (8) are counted.
+		expect(budget.summary().treeTokens).toBeGreaterThan(0)
+		expect(budget.remaining).toBeLessThan(1_000)
+		expect(budget.remaining).toBeGreaterThan(900)
+	})
+
+	it('keeps the unknown-spend marker when the tree was torn down rather than stopped by the operator', async () => {
+		const budget = SessionTokenBudget.create(1_000, rootScope(), { save: async () => {} })
+		const caller = new AbortController()
+		let enter!: () => void
+		const entered = new Promise<void>((resolve) => {
+			enter = resolve
+		})
+		const wrapped = withTokenBudget(
+			provider(async function* () {
+				yield { id: 'a', delta: { content: 'abcdefgh' } }
+				enter()
+				await new Promise<never>(() => {})
+			}),
+			budget,
+		)
+		const iterator = wrapped
+			.chatStream({ model: 'mock', messages: [], signal: caller.signal })
+			[Symbol.asyncIterator]()
+		await iterator.next()
+		const pending = iterator.next().catch((error: unknown) => error)
+		await entered
+		caller.abort(new TurnCancelled('parent'))
+		await pending
+		expect(budget.summary()).toMatchObject({ poisoned: true, inFlightRequests: 1 })
 	})
 })

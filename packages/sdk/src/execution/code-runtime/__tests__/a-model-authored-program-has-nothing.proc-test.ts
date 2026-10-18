@@ -345,7 +345,12 @@ describe('a program that throws is a failure, not a crash', () => {
 	it('reports the message', async () => {
 		const result = await run('throw new Error("nope")')
 
-		expect(result.outcome).toEqual({ status: 'failed', error: 'nope' })
+		expect(result.outcome).toEqual({
+			status: 'failed',
+			error: 'nope',
+			errorName: 'Error',
+			frames: [{ line: 1, column: 16 }],
+		})
 	})
 
 	it('reports a syntax error rather than hanging', async () => {

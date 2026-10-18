@@ -255,7 +255,7 @@ it('moves the slider with ←/→, clamps at both ends, and applies hypermode as
 	await press(screen, '\r')
 	await shows(screen, 'Type a message')
 	const viewport = screen.viewport()
-	expect(viewport.find((row) => row.includes('┌─ MESSAGE'))).toContain(' hypermode ─┐')
+	expect(viewport.find((row) => /^\s*─+ hypermode ─\s*$/u.test(row))).toBeDefined()
 	expect(viewport.find((row) => row.includes('shift+tab'))).not.toContain('hypermode')
 })
 
@@ -350,7 +350,7 @@ it.each([
 		await until(screen, () => sent.length === 1, 'Old turn did not start')
 		await submit(screen, 'Dependent queued task')
 		releaseFailure.resolve()
-		await shows(screen, 'paused after a failed reply')
+		await shows(screen, 'Paused after the failed reply')
 		await chooseNextModel(screen)
 		await shows(screen, `Select Reasoning Level for ${NEXT}`)
 		await screen.waitForRender()

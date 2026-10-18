@@ -298,7 +298,8 @@ it('shows effective settings without sending a turn or changing them on cancel',
 	harness.stdin.write('\x1B')
 	await until(
 		() =>
-			harness.lastFrame().includes('MESSAGE') && !harness.lastFrame().includes('Select a setting'),
+			harness.lastFrame().includes('Type a message') &&
+			!harness.lastFrame().includes('Select a setting'),
 		'Escape did not return from settings to the composer',
 	)
 	expect(harness.lastFrame()).not.toContain('Select a setting')

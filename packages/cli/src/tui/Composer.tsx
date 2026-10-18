@@ -120,10 +120,32 @@ export interface ComposerProps {
 	 * is the host's answer to give, not a value this key press can hold.
 	 */
 	readonly onOpenAgentPanel?: () => void
+	/**
+	 * `←` on an empty composer: open the agents. Anything typed, pasted or
+	 * attached keeps `←` as cursor movement, so editing is never taken over.
+	 */
+	readonly onOpenAgents?: () => void
 	/** Page up at the composer: open the scrollable transcript. */
 	readonly onScrollTranscript?: () => void
 	/** Recall the latest operator-authored next-turn message into an empty draft. */
 	readonly onRecallQueued?: () => Omit<ComposerDraft, 'token'> | null
+	/**
+	 * Messages typed while a reply runs and still waiting. Up on an empty
+	 * draft chooses the newest editable one, Up/Down move, Enter loads the
+	 * chosen one into the draft, Esc (handled by the host) leaves the choice.
+	 */
+	readonly queuedEdit?: {
+		/** At least one waiting message can be loaded back for editing. */
+		readonly available: boolean
+		/** A waiting message is chosen right now. */
+		readonly selected: boolean
+		/** Returns whether the key was used; false lets Up fall through to prompt history. */
+		readonly onMove: (direction: 'up' | 'down') => boolean
+		readonly onLoad: () => Omit<ComposerDraft, 'token'> | null
+		readonly onLeave: () => void
+	}
+	/** ctrl+x ctrl+s: deliver the waiting messages now instead of at the next boundary. */
+	readonly onSendNow?: () => void
 	/** Shift+Tab. Absent means the key does nothing, which the composer footer then does not advertise. */
 	readonly onCycleMode?: () => void
 	/**
@@ -548,8 +570,11 @@ export function Composer({
 	onDraftRestored,
 	onDraftPresenceChange,
 	onOpenAgentPanel,
+	onOpenAgents,
 	onScrollTranscript,
 	onRecallQueued,
+	queuedEdit,
+	onSendNow,
 	onCycleMode,
 	triggers,
 	turnActive = false,
@@ -776,6 +801,7 @@ export function Composer({
 		setSelectedIndex,
 	])
 
+	const sendNowChordRef = useRef(false)
 	/** Restore synchronously when Alt+Up is pressed, before the next typed key. */
 	const restoreDraft = useCallback(
 		(draft: Omit<ComposerDraft, 'token'>) => {
@@ -845,6 +871,47 @@ export function Composer({
 			// Hidden means the screen belongs to something else, so a keypress
 			// aimed at that must not also land here.
 			if (disabled || hidden) return
+			// ctrl+x ctrl+s, a two-key chord: any other key in between drops it.
+			const chordArmed = sendNowChordRef.current
+			sendNowChordRef.current = false
+			if (key.ctrl && input === 'x') {
+				sendNowChordRef.current = true
+				return
+			}
+			if (chordArmed && key.ctrl && input === 's' && onSendNow) {
+				onSendNow()
+				return
+			}
+			if (queuedEdit) {
+				const empty =
+					valueRef.current.length === 0 &&
+					pastesRef.current.length === 0 &&
+					attachmentsRef.current.length === 0
+				// Read from the host's ref, not the last render: Up then Enter can arrive together.
+				if (empty && key.return && !key.shift && !key.meta) {
+					const loaded = queuedEdit.onLoad()
+					if (loaded) {
+						restoreDraft(loaded)
+						return
+					}
+				}
+				if (queuedEdit.selected) {
+					if (key.upArrow && !key.meta && !key.shift) {
+						queuedEdit.onMove('up')
+						return
+					}
+					if (key.downArrow && !key.shift) {
+						queuedEdit.onMove('down')
+						return
+					}
+					// Esc is the host's: it clears the choice on the same keypress.
+					if (key.escape) return
+					// Anything else is the operator going back to typing.
+					queuedEdit.onLeave()
+				} else if (empty && key.upArrow && !key.meta && !key.shift && queuedEdit.onMove('up')) {
+					return
+				}
+			}
 			const liveCommandSuggestions = plainText
 				? []
 				: matchSlashCommands(valueRef.current, userCommands, builtins)
@@ -1091,6 +1158,17 @@ export function Composer({
 				const next = nextWordBoundary(valueRef.current, cursorRef.current)
 				cursorRef.current = next
 				setCursorState(next)
+				return
+			}
+			if (
+				key.leftArrow &&
+				!key.shift &&
+				onOpenAgents &&
+				valueRef.current.length === 0 &&
+				pastesRef.current.length === 0 &&
+				attachmentsRef.current.length === 0
+			) {
+				onOpenAgents()
 				return
 			}
 			if (key.leftArrow || (key.ctrl && input === 'b')) {
@@ -1374,7 +1452,7 @@ export function Composer({
 	)
 	const beforeSegments = displaySegments(value, displayValue.start, cursor, styledSpans)
 	const afterSegments = displaySegments(value, cursor, displayValue.end, styledSpans)
-	const promptGlyph = disabled ? '…' : '›'
+	const promptGlyph = disabled ? '…' : '❯'
 	const showPlaceholder = !disabled && value.length === 0 && !editPreviousArmed
 	const historySearchQuery = historySearch
 		? composerDisplayValue(historySearch.query, historySearch.query.length)
@@ -1382,19 +1460,19 @@ export function Composer({
 	return (
 		<Box flexDirection="column">
 			{effortIntent ? (
-				<Box paddingX={1}>
+				<Box>
 					<Text color={effortAvailable ? theme.accent.tool : theme.status.warn}>
 						Effort: {effortIntent} · {effortAvailable ? 'requested' : 'unavailable for this model'}
 					</Text>
 				</Box>
 			) : null}
 			{modelIntent ? (
-				<Box paddingX={1}>
+				<Box>
 					<Text color={theme.accent.tool}>Model: {modelIntent.query} · requested</Text>
 				</Box>
 			) : null}
 			{triggerRow ? (
-				<Box paddingX={1}>
+				<Box>
 					<Text
 						color={
 							detection.hits.some((hit) => hit.state === 'armed')
@@ -1412,7 +1490,7 @@ export function Composer({
 					{pastes.length} text paste{pastes.length === 1 ? '' : 's'} attached
 				</Text>
 			) : pastes.length > 0 || attachments.length > 0 ? (
-				<Box flexDirection="column" paddingX={1} paddingBottom={1}>
+				<Box flexDirection="column" paddingBottom={1}>
 					{attachments.map((attachment, i) => (
 						// biome-ignore lint/suspicious/noArrayIndexKey: these rows have no identity of their own and hold no state, so the index is the key.
 						<Text key={`attachment-${i}`} color={theme.accent.tool}>
@@ -1427,15 +1505,15 @@ export function Composer({
 					))}
 				</Box>
 			) : null}
-			<Box paddingX={1}>
+			<Box>
 				<Box width={2} flexShrink={0}>
-					<Text color={disabled ? theme.text.muted : theme.accent.user} bold>
-						{promptGlyph}
-					</Text>
+					<Text color={theme.text.muted}>{promptGlyph}</Text>
 				</Box>
 				<Box flexGrow={1}>
 					{showPlaceholder ? (
-						<Text color={theme.text.muted}>{placeholder}</Text>
+						<Text color={theme.text.muted}>
+							{queuedEdit?.available ? 'Press up to edit queued messages' : placeholder}
+						</Text>
 					) : editPreviousArmed ? (
 						<Text color={theme.text.muted}>Press Esc again to edit a previous prompt</Text>
 					) : (
@@ -1450,7 +1528,7 @@ export function Composer({
 				</Box>
 			</Box>
 			{historySearch && historySearchQuery ? (
-				<Box paddingX={1} paddingTop={1}>
+				<Box paddingTop={1}>
 					<Text color={theme.text.muted}>
 						history “{historySearchQuery.leadingEllipsis ? '… ' : ''}
 						{historySearchQuery.before}” ·{' '}
@@ -1462,7 +1540,7 @@ export function Composer({
 				</Box>
 			) : null}
 			{suggestionKind === 'command' ? (
-				<Box flexDirection="column" paddingX={1} paddingTop={1} width="100%">
+				<Box flexDirection="column" paddingTop={1} width="100%">
 					{visibleCommandSuggestions.map((cmd, i) => {
 						const absoluteIndex = suggestionStart + i
 						return (
@@ -1499,7 +1577,7 @@ export function Composer({
 					</Text>
 				</Box>
 			) : suggestionKind === 'file' ? (
-				<Box flexDirection="column" paddingX={1} paddingTop={1} width="100%">
+				<Box flexDirection="column" paddingTop={1} width="100%">
 					{visibleFileSuggestions.map((path, i) => {
 						const absoluteIndex = suggestionStart + i
 						return (

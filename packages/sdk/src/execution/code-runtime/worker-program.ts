@@ -18,7 +18,33 @@ async function main() {
 	const runtime = module.newRuntime()
 	runtime.setMemoryLimit(limits.memoryLimitBytes)
 	runtime.setMaxStackSize(512 * 1024)
-	runtime.setInterruptHandler(() => Date.now() >= workerData.deadline)
+	// Two ways to bound a program's synchronous execution. Default: one wall
+	// deadline for the whole run. With \`cpu\`: a budget per synchronous slice
+	// (each entry into the interpreter) and a total across slices, so a program
+	// that spends hours AWAITING the host is not stopped, but a busy loop is.
+	const cpu = workerData.cpu
+	let sliceDepth = 0
+	let sliceStart = 0
+	let cpuUsed = 0
+	let interrupted = false
+	function inSlice(fn) {
+		if (!cpu) return fn()
+		if (sliceDepth === 0) sliceStart = Date.now()
+		sliceDepth++
+		try { return fn() }
+		finally {
+			sliceDepth--
+			if (sliceDepth === 0) cpuUsed += Date.now() - sliceStart
+		}
+	}
+	runtime.setInterruptHandler(() => {
+		const now = Date.now()
+		const stop = cpu
+			? sliceDepth > 0 && (now - sliceStart >= cpu.sliceMs || cpuUsed + (now - sliceStart) >= cpu.totalMs)
+			: now >= workerData.deadline
+		if (stop) interrupted = true
+		return stop
+	})
 	const vm = runtime.newContext()
 	const pending = new Map()
 	let nextId = 0
@@ -68,6 +94,8 @@ async function main() {
 	const decode = keep(vm.evalCode('(function () { const parse = JSON.parse; return function(value) { return parse(value); }; })()'))
 	const errorText = keep(vm.evalCode('(function () { const string = String; return function(error) { try { return typeof error.message === "string" ? error.message : string(error); } catch { return "The program failed."; } }; })()'))
 
+	const errorMeta = keep(vm.evalCode('(function () { const string = String; const stringify = JSON.stringify; return function(error) { try { return stringify({ name: typeof error.name === "string" ? error.name : "", stack: typeof error.stack === "string" ? error.stack : "" }); } catch { return "{}"; } }; })()'))
+
 	function textValue(handle, maximum) {
 		const length = vm.getProp(handle, 'length')
 		try {
@@ -97,6 +125,24 @@ async function main() {
 		catch { return 'The program failed with an oversized error.' }
 		finally { result.value.dispose() }
 	}
+	// The guest error's message plus its name and stack, so the host can say
+	// where in the program it failed. Stack text is untrusted and only parsed
+	// for line and column numbers.
+	function failureError(handle) {
+		const error = new Error(failureText(handle))
+		try {
+			const result = vm.callFunction(errorMeta, vm.undefined, handle)
+			if (result.error) result.error.dispose()
+			else {
+				try {
+					const meta = JSON.parse(textValue(result.value, 4096))
+					error.guestName = String(meta.name || '').slice(0, 64)
+					error.guestStack = String(meta.stack || '').slice(0, 3072)
+				} finally { result.value.dispose() }
+			}
+		} catch {}
+		return error
+	}
 	function dispose() {
 		for (const deferred of pending.values()) deferred.dispose()
 		pending.clear()
@@ -114,9 +160,9 @@ async function main() {
 		parentPort.postMessage(message)
 	}
 	function fail(error) {
-		finish(Date.now() >= workerData.deadline
+		finish(interrupted || Date.now() >= workerData.deadline
 			? { kind: 'timed-out' }
-			: { kind: 'error', error: String(error && error.message || error).slice(0, 4096) })
+			: { kind: 'error', error: String(error && error.message || error).slice(0, 4096), name: error && error.guestName, stack: error && error.guestStack })
 	}
 	function schedule() {
 		if (ended || scheduled) return
@@ -125,13 +171,22 @@ async function main() {
 	}
 	function pump() {
 		if (ended || pumping) return
+		inSlice(pumpOnce)
+	}
+	function pumpOnce() {
 		pumping = true
 		try {
+			// A program that never lets one slice run long (a loop of awaited
+			// microtasks) is still bounded by the total CPU budget.
+			if (cpu && cpuUsed >= cpu.totalMs) {
+				interrupted = true
+				throw new Error('The program used its CPU budget.')
+			}
 			const jobs = runtime.executePendingJobs(32)
 			if (jobs.error) {
-				const error = failureText(jobs.error)
+				const error = failureError(jobs.error)
 				jobs.error.dispose()
-				throw new Error(error)
+				throw error
 			}
 			const state = vm.getPromiseState(program)
 			if (state.type === 'fulfilled') {
@@ -141,9 +196,9 @@ async function main() {
 				finish({ kind: 'done', json })
 			} else if (state.type === 'rejected') {
 				let error
-				try { error = failureText(state.error) }
+				try { error = failureError(state.error) }
 				finally { state.error.dispose() }
-				fail(new Error(error))
+				fail(error)
 			} else if (runtime.hasPendingJob()) schedule()
 		} catch (error) { fail(error) }
 		finally { pumping = false }
@@ -207,6 +262,7 @@ async function main() {
 		if (!deferred) return
 		pending.delete(message.id)
 		try {
+			inSlice(() => {
 			if (message.ok) {
 				let value = vm.undefined
 				if (message.json !== undefined) {
@@ -223,16 +279,19 @@ async function main() {
 				error.dispose()
 			}
 			deferred.dispose()
+			})
 			schedule()
 		} catch (error) { deferred.dispose(); fail(error) }
 	})
 	try {
-		const result = vm.evalCode('(async () => {\\n' + workerData.source + '\\n})()', 'model-program.js')
-		if (result.error) {
-			const error = failureText(result.error)
-			result.error.dispose()
-			fail(new Error(error))
-		} else { program = result.value; pump() }
+		inSlice(() => {
+			const result = vm.evalCode('(async () => {\\n' + workerData.source + '\\n})()', 'model-program.js')
+			if (result.error) {
+				const error = failureError(result.error)
+				result.error.dispose()
+				fail(error)
+			} else { program = result.value; pump() }
+		})
 	} catch (error) { fail(error) }
 }
 main().catch((error) => parentPort.postMessage({ kind: 'error', error: String(error && error.message || error).slice(0, 4096) }))

@@ -1,7 +1,7 @@
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
@@ -15,6 +15,19 @@ import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import type { SessionEvent } from '../../../types/session/index.js'
 import { BackgroundJobRegistry } from '../../jobs/registry.js'
 import { query } from '../index.js'
+
+// These scripts name the first job's id before the call that creates it
+// returns, which a random id cannot allow: hand out b00000001, b00000002, …
+// per registry instead. Shape and uniqueness are tested in job-id.test.ts.
+vi.mock('../../jobs/job-id.js', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../../jobs/job-id.js')>()),
+	createBackgroundJobId: (isTaken: (id: string) => boolean = () => false) => {
+		for (let n = 1; ; n += 1) {
+			const id = `b${String(n).padStart(8, '0')}`
+			if (!isTaken(id)) return id
+		}
+	},
+}))
 
 /**
  * A job outlives the call that started it, and the model used to learn
@@ -110,7 +123,7 @@ describe('a finished background job is not polled for', () => {
 		const { events, messages } = await run(registry)
 		const exited = events.find((e) => e.type === 'background_job_exited')
 		expect(exited).toMatchObject({
-			jobId: 'job_1',
+			jobId: 'b00000001',
 			command: 'exit 3',
 			status: 'exited',
 			exitCode: 3,

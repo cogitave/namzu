@@ -167,3 +167,5 @@ A stopped TUI turn distinguishes a depleted token allowance from missing request
 usage or an accounting failure. The latter can also stop an unlimited turn; the
 notice reports uncertainty rather than claiming the configured allowance ran out.
 `/cost` shows the available measurements, not a fabricated complete total.
+
+A workflow's own caps (`workflow.maxConcurrency`, `workflow.maxAgents`) are separate keys; see [Workflows in the CLI](workflows.md#configuration).

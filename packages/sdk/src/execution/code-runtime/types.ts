@@ -83,11 +83,47 @@ export interface RunCodeOptions {
 	 */
 	readonly maxOutputBytes: number
 	readonly signal?: AbortSignal
+	/**
+	 * Replace the single wall-clock interrupt with a CPU budget.
+	 *
+	 * By default `timeoutMs` bounds synchronous interpreter execution as well
+	 * as the whole run, so a program waiting on slow host calls is stopped at
+	 * the same deadline as one spinning in a loop. A host that legitimately
+	 * awaits long host operations (a workflow awaiting subagents) sets this:
+	 * the interpreter is then interrupted when ONE synchronous slice (the time
+	 * between entering the interpreter and handing control back) exceeds
+	 * `sliceMs`, or all slices together exceed `totalMs`. Time spent awaiting
+	 * the host is not counted. `timeoutMs` still bounds the run's wall clock.
+	 */
+	readonly cpuLimits?: { readonly sliceMs: number; readonly totalMs: number }
+	/**
+	 * Called with each line the program prints, in order, as it is printed and
+	 * within `maxOutputBytes`. A line is data, not a capability: the callback
+	 * must treat it as untrusted text.
+	 */
+	readonly onOutput?: (line: string) => void
+}
+
+export interface CodeFrame {
+	readonly line: number
+	readonly column: number
 }
 
 export type CodeRunOutcome =
 	| { readonly status: 'completed'; readonly result: unknown }
-	| { readonly status: 'failed'; readonly error: string }
+	| {
+			readonly status: 'failed'
+			readonly error: string
+			/** The thrown value's `name`, when it was an error object. */
+			readonly errorName?: string
+			/**
+			 * Where the interpreter says the program failed: innermost first, line and
+			 * column counted in the submitted `source` (1-based). Absent when the
+			 * interpreter gave no location (a non-error was thrown, or the failure was
+			 * not in the program).
+			 */
+			readonly frames?: readonly CodeFrame[]
+	  }
 	| { readonly status: 'timed-out' }
 	| { readonly status: 'cancelled' }
 

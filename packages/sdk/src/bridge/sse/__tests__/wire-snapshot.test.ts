@@ -53,7 +53,7 @@ describe('every SessionEvent has a decided place on the SSE wire', () => {
 			type: 'background_job_exited' as const,
 			sessionId: SID,
 			turnId: TID,
-			jobId: 'job_1',
+			jobId: 'b00000001',
 			command: 'sleep 30',
 		}
 

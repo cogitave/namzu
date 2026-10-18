@@ -202,7 +202,7 @@ async function submit(harness: { stdin: { write: (value: string) => void } }, te
 async function mountSource() {
 	const harness = render(<App ctx={ctx} />)
 	mounted.push(harness)
-	await frameShows(harness, '› Type a message… (/help for commands)')
+	await frameShows(harness, '❯ Type a message… (/help for commands)')
 	await submit(harness, '/resume')
 	await frameShows(harness, 'Source conversation')
 	harness.stdin.write('\r')
@@ -277,7 +277,7 @@ it('cancels with Esc without creating a branch or changing the composer', async 
 	await openEditor(harness)
 
 	harness.stdin.write('\x1B')
-	await frameShows(harness, '› Type a message… (/help for commands)')
+	await frameShows(harness, '❯ Type a message… (/help for commands)')
 
 	expect(forkCalls).toEqual([])
 	expect(durable.get(FORK)).toBeUndefined()

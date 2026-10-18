@@ -28,11 +28,8 @@ import { createSubagentRuntime } from '../../integrations/subagents/runtime.js'
 import { testToolset } from '../../test-support/toolset.js'
 import {
 	AgentCockpit,
-	AgentTaskPanel,
 	AgentTranscript,
-	activeSubagentCohorts,
 	agentPhases,
-	agentTaskPanelPageSize,
 	agentTranscriptPage,
 	agentTranscriptRows,
 	agentWorkflows,
@@ -41,6 +38,7 @@ import {
 import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 import { type AgentEvent, type AgentSession, type SessionScope, toAgentEvent } from '../agent.js'
 import type { TuiContext } from '../types.js'
+import { lowerRuleRow } from './support/composer-rules.js'
 import { type Screen, renderToScreen } from './support/screen.js'
 
 const PREFS: Preferences = {
@@ -131,6 +129,8 @@ const childMessageBridge: {
  * looks again, and `gate` holds one open so a test can put a read in flight
  * underneath the key press that asks for the cockpit.
  */
+/** The rows `x` stopped on the rail, in order. */
+const stoppedChildren: string[] = vi.hoisted(() => [])
 const savedChildren: {
 	current: readonly SubagentActivity[]
 	reads: number
@@ -192,6 +192,10 @@ vi.mock('../agent.js', async (importOriginal) => {
 			options?: { scope?: SessionScope },
 		): Promise<AgentSession> => ({
 			...prepareChildMessageBridge(options?.scope),
+			stopSubagent: (viewId: string) => {
+				stoppedChildren.push(viewId)
+				return true
+			},
 			hasProvider: true,
 			sandbox: { unconfined: true, enforced: [], required: [] },
 			providerSummary: 'provider',
@@ -890,8 +894,8 @@ describe('Ctrl+T', () => {
 			await new Promise<void>((resolve) => setTimeout(resolve, 120))
 			await waitUntil(
 				screen,
-				() => screen.viewport().join('\n').includes('public live finding'),
-				'interim child answer did not reach the automatic panel',
+				() => railRows(screen).length === 4,
+				'children did not reach the automatic panel',
 			)
 			completions.get('task-0')?.({
 				taskId: 'task-0',
@@ -904,11 +908,12 @@ describe('Ctrl+T', () => {
 
 			await waitUntil(
 				screen,
-				() => screen.viewport().join('\n').includes('3 running · 1/4 done · '),
-				'completed sibling did not remain beside its live cohort',
+				() => painted(screen).includes('✓ Runtime child 1 · '),
+				'first completion missing',
 			)
+			// The finished sibling stays on the rail beside the three still running.
+			expect(railRows(screen)).toHaveLength(4)
 			const liveFrame = screen.viewport().join('\n')
-			expect(liveFrame).toMatch(/3 running · 1\/4 done · \S+ · ↓ \/ ctrl\+t/u)
 			expect(liveFrame).not.toContain('private reasoning must stay hidden')
 
 			for (let index = 1; index < 4; index += 1) {
@@ -922,11 +927,6 @@ describe('Ctrl+T', () => {
 				} as unknown as TaskHandle)
 			}
 			await Promise.all(executions)
-			await waitUntil(
-				screen,
-				() => !/running · .*↓ \/ ctrl\+t/u.test(screen.viewport().join('\n')),
-				'settled runtime cohort remained visible',
-			)
 			await waitUntil(
 				screen,
 				() => painted(screen).includes('✓ Runtime child 4 · '),
@@ -1031,7 +1031,7 @@ describe('Ctrl+T', () => {
 			await submit(screen, 'production executor fan-out')
 			await waitUntil(
 				screen,
-				() => /4 running · \S+ · ↓ \/ ctrl\+t/u.test(screen.viewport().join('\n')),
+				() => /◯ Production fan-out/u.test(screen.viewport().join('\n')),
 				'real query fan-out did not reach the automatic panel',
 			)
 			await expect(allChildrenStarted).resolves.toBeUndefined()
@@ -1048,10 +1048,12 @@ describe('Ctrl+T', () => {
 			// scheduler can never reach this assertion; no wall-clock threshold is
 			// involved.
 			expect(screen.writes().join('')).not.toContain('Agent(Production child')
-			// The live rail has left with its settled cohort; what stays is the
-			// launch receipt, which names the batch once in settled history.
-			expect(screen.viewport().join('\n')).not.toMatch(/running · .*↓ \/ ctrl\+t/u)
-			expect(painted(screen).match(/Launched 4 agents · Production fan-out/g)).toHaveLength(1)
+			// The finished agents linger on the rail for 30 s; the launch receipt
+			// names the batch once in settled history.
+			expect(
+				painted(screen).match(/Workflow Production fan-out[\s\S]{0,40}Running in background/g),
+			).toHaveLength(1)
+			expect(painted(screen)).not.toMatch(/Launched 4 agents/u)
 			// The turn delegated, so it closes with one line saying so.
 			expect(painted(screen)).toMatch(/✻ Worked for \S+ · 4 agents/u)
 		} finally {
@@ -1078,7 +1080,7 @@ describe('Ctrl+T', () => {
 		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
 		await waitUntil(
 			screen,
-			() => screen.viewport().join('\n').includes('interim evidence'),
+			() => screen.viewport().join('\n').includes('Alpha audit'),
 			'automatic agent panel missing',
 		)
 
@@ -1086,14 +1088,14 @@ describe('Ctrl+T', () => {
 		screen.press('\x14')
 		await waitUntil(
 			screen,
-			() => screen.viewport().join('\n').includes('Phases'),
+			() => screen.viewport().join('\n').includes('Agents · 2 agents'),
 			'cockpit missing',
 		)
 		expect(screen.viewport().join('\n')).not.toContain('draft survives')
 		screen.press('\x14')
 		await waitUntil(
 			screen,
-			() => !screen.viewport().join('\n').includes('Phases'),
+			() => !screen.viewport().join('\n').includes('Agents · 2 agents'),
 			'cockpit did not close',
 		)
 		expect(screen.viewport().join('\n')).toContain('draft survives')
@@ -1112,28 +1114,376 @@ describe('Ctrl+T', () => {
 				latestActivity: 'Completed',
 			},
 		])
-		await waitUntil(
-			screen,
-			() => !/running · .*↓ \/ ctrl\+t/u.test(screen.viewport().join('\n')),
-			'settled cohort remained docked',
-		)
 		expect(screen.viewport().join('\n')).toContain('draft survives')
 	})
 
-	it('opens the active roster with down from a truly empty composer', async () => {
-		activity.set([agent({ viewId: 'agent-down', description: 'Down-select child' })])
+	it('moves into the agents rail with down from a truly empty composer', async () => {
+		activity.set([
+			agent({ viewId: 'agent-down', description: 'Down-select child' }),
+			agent({ viewId: 'agent-down-2', description: 'Second child' }),
+		])
 		const screen = await renderToScreen(<App ctx={ctx} />, {
 			cols: 110,
 			rows: 28,
 		})
 		mounted = screen
 		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+		expect(screen.viewport().join('\n')).not.toContain('esc to go back')
 		screen.press('\x1b[B')
 		await waitUntil(
 			screen,
-			() => screen.viewport().join('\n').includes('Phases'),
-			'down did not focus delegated work',
+			() => /^ *❯ ○ \S+ +Down-select child/mu.test(screen.viewport().join('\n')),
+			'down did not focus the first agent',
 		)
+		// The same press must not also step to the second row.
+		expect(screen.viewport().join('\n')).not.toMatch(/^ *❯ ○ \S+ +Second child/mu)
+		expect(screen.viewport().join('\n')).toContain(
+			'↑/↓ to select · enter to view · x to stop · esc to go back',
+		)
+		screen.press('\x1b[B')
+		await waitUntil(
+			screen,
+			() => /^ *❯ ○ \S+ +Second child/mu.test(screen.viewport().join('\n')),
+			'down did not move to the second agent',
+		)
+		screen.press('\x1b[A')
+		screen.press('\x1b[A')
+		await waitUntil(
+			screen,
+			() => /^ *❯ ● main/mu.test(screen.viewport().join('\n')),
+			'up did not reach the main row',
+		)
+		screen.press('\x1b')
+		await waitUntil(
+			screen,
+			() => !screen.viewport().join('\n').includes('esc to go back'),
+			'escape did not hand the keyboard back',
+		)
+		expect(screen.viewport().join('\n')).toContain('Type a message')
+	})
+
+	it('offers the running agents on the footer and opens them with left from an empty composer', async () => {
+		activity.set([
+			agent({ viewId: 'agent-left-1', description: 'First child' }),
+			agent({ viewId: 'agent-left-2', description: 'Second child' }),
+		])
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+		expect(screen.viewport().join('\n')).toContain('← 2 agents · ↓ to manage')
+		screen.press('\x1b[D')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('Agents · 2 agents'),
+			'left did not open the agents',
+		)
+	})
+
+	it('keeps left as cursor movement once anything is typed, and stops advertising it', async () => {
+		activity.set([agent({ viewId: 'agent-typed', description: 'Typed child' })])
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+		expect(screen.viewport().join('\n')).toContain('← 1 agent · ↓ to manage')
+		screen.press('hi')
+		await screen.waitForRender()
+		expect(screen.viewport().join('\n')).not.toContain('← 1 agent')
+		expect(screen.viewport().join('\n')).not.toContain('↓ to manage')
+		screen.press('\x1b[D')
+		await screen.waitForRender()
+		screen.press('X')
+		await waitUntil(
+			screen,
+			() => /hX.?i/u.test(screen.viewport().join('\n')),
+			'cursor did not move',
+		)
+		expect(screen.viewport().join('\n')).not.toContain('Agents · 1 agent')
+	})
+
+	it('stops a running agent with x and leaves the rail focused', async () => {
+		stoppedChildren.length = 0
+		activity.set([
+			agent({ viewId: 'agent-stop-1', description: 'First child' }),
+			agent({ viewId: 'agent-stop-2', description: 'Second child' }),
+		])
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+		screen.press('\x1b[B')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('x to stop'),
+			'rail not focused',
+		)
+		screen.press('\x1b[B')
+		await waitUntil(
+			screen,
+			() => /^ *❯ ○ \S+ +Second child/mu.test(screen.viewport().join('\n')),
+			'second row not selected',
+		)
+		screen.press('x')
+		await waitUntil(screen, () => stoppedChildren.length === 1, 'x did not stop the agent')
+		expect(stoppedChildren).toEqual(['agent-stop-2'])
+		expect(screen.viewport().join('\n')).toContain('x to stop')
+	})
+
+	it('clears a finished agent with x instead of stopping it', async () => {
+		stoppedChildren.length = 0
+		activity.set([
+			agent({ viewId: 'agent-live', description: 'Live child' }),
+			agent({
+				viewId: 'agent-done',
+				description: 'Done child',
+				status: 'completed',
+				startedAt: Date.now() - 5_000,
+				completedAt: Date.now() - 1_000,
+			}),
+		])
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+		screen.press('\x1b[B')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('x to stop'),
+			'rail not focused',
+		)
+		screen.press('\x1b[B')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('x to clear'),
+			'finished row not selected',
+		)
+		screen.press('x')
+		await waitUntil(
+			screen,
+			() => railRows(screen).length === 1,
+			'the finished agent stayed on the rail',
+		)
+		expect(stoppedChildren).toEqual([])
+		expect(railRows(screen).join('\n')).toContain('Live child')
+	})
+
+	it('opens the selected agent with enter and returns to the same row with escape', async () => {
+		activity.set([
+			agent({ viewId: 'agent-view-1', description: 'First child' }),
+			agent({
+				viewId: 'agent-view-2',
+				description: 'Second child',
+				prompt: 'Look at the second thing',
+			}),
+		])
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+		screen.press('\x1b[B')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('x to stop'),
+			'rail not focused',
+		)
+		screen.press('\x1b[B')
+		await waitUntil(
+			screen,
+			() => /^ *❯ ○ \S+ +Second child/mu.test(screen.viewport().join('\n')),
+			'second row not selected',
+		)
+		screen.press('\r')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('Look at the second thing'),
+			'enter did not open the agent transcript',
+		)
+		expect(screen.viewport().join('\n')).toContain('esc back')
+		screen.press('\x1b')
+		await waitUntil(
+			screen,
+			() => /^ *❯ ○ \S+ +Second child/mu.test(screen.viewport().join('\n')),
+			'escape did not return to the rail row',
+		)
+	})
+
+	describe('workflow rows', () => {
+		const flow = (viewId: string, extra: Partial<SubagentActivity> = {}): SubagentActivity =>
+			agent({
+				viewId,
+				description: `Step ${viewId}`,
+				workflow: 'Release audit',
+				phase: viewId === 'wf-c' ? 'Verify' : 'Survey',
+				phaseSequence: viewId === 'wf-c' ? 2 : 1,
+				...extra,
+			})
+
+		async function focusWorkflow(screen: Screen, downs: number): Promise<void> {
+			for (let i = 0; i < downs; i += 1) {
+				screen.press('\x1b[B')
+				await screen.waitForRender()
+			}
+			await waitUntil(
+				screen,
+				() => /^ *❯ ◯ Release audit/mu.test(screen.viewport().join('\n')),
+				'the workflow row did not take the pointer',
+			)
+		}
+
+		it('draws the row after the agents and stops every running member with x', async () => {
+			stoppedChildren.length = 0
+			activity.set([
+				flow('wf-a', { startedAt: Date.now() - 9_000 }),
+				flow('wf-b', {
+					status: 'completed',
+					startedAt: Date.now() - 9_000,
+					completedAt: Date.now() - 2_000,
+				}),
+				flow('wf-c', { startedAt: Date.now() - 8_000 }),
+			])
+			const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 30 })
+			mounted = screen
+			await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+			await waitUntil(
+				screen,
+				() => /◯ Release audit +▰+▱+ +1\/3 · \d+s/u.test(screen.viewport().join('\n')),
+				'the workflow row never appeared',
+			)
+			// Its agents are not rows, and with no agent row there is no main: the
+			// workflow is the only row, one down from the composer.
+			await focusWorkflow(screen, 1)
+			expect(screen.viewport().join('\n')).not.toMatch(/Step wf-|main/u)
+			expect(screen.viewport().join('\n')).toContain('enter to view · x to stop')
+			screen.press('x')
+			await waitUntil(screen, () => stoppedChildren.length === 2, 'x did not stop the workflow')
+			expect([...stoppedChildren].sort()).toEqual(['wf-a', 'wf-c'])
+		})
+
+		it('opens the workflow on its phases with enter and returns to the row with escape', async () => {
+			activity.set([
+				flow('wf-a', { startedAt: Date.now() - 9_000 }),
+				flow('wf-c', { startedAt: Date.now() - 8_000 }),
+			])
+			const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 30 })
+			mounted = screen
+			await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+			await focusWorkflow(screen, 1)
+			screen.press('\r')
+			await waitUntil(
+				screen,
+				() =>
+					/Survey/u.test(screen.viewport().join('\n')) &&
+					/Verify/u.test(screen.viewport().join('\n')),
+				'enter did not open the workflow phases',
+			)
+			expect(screen.viewport().join('\n')).not.toContain('Select a workflow')
+			screen.press('\x1b')
+			await waitUntil(
+				screen,
+				() => /^ *❯ ◯ Release audit/mu.test(screen.viewport().join('\n')),
+				'escape did not return to the workflow row',
+			)
+		})
+
+		it('stops the whole workflow with x on its phases and one agent with x on its agents', async () => {
+			stoppedChildren.length = 0
+			activity.set([
+				flow('wf-a', { startedAt: Date.now() - 9_000 }),
+				flow('wf-c', { startedAt: Date.now() - 8_000 }),
+			])
+			const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 30 })
+			mounted = screen
+			await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+			await focusWorkflow(screen, 1)
+			screen.press('\r')
+			await waitUntil(screen, () => screen.viewport().join('\n').includes('Phases'), 'no phases')
+			screen.press('\r')
+			await waitUntil(
+				screen,
+				() => screen.viewport().join('\n').includes('Survey · 1 agent'),
+				'no agents of the phase',
+			)
+			// Level 2: only the selected agent.
+			screen.press('x')
+			await waitUntil(screen, () => stoppedChildren.length === 1, 'x did not stop the agent')
+			expect(stoppedChildren).toEqual(['wf-a'])
+			// Left walks back up; level 1: every agent still going.
+			screen.press('\x1b[D')
+			await waitUntil(screen, () => screen.viewport().join('\n').includes('Phases'), 'no way up')
+			screen.press('x')
+			await waitUntil(screen, () => stoppedChildren.length === 3, 'x did not stop the workflow')
+			expect([...stoppedChildren].sort()).toEqual(['wf-a', 'wf-a', 'wf-c'])
+		})
+
+		it('writes one closing line, at turn end, even when the next phase starts 10 s after the last settled', async () => {
+			let turnRunning!: () => void
+			const running = new Promise<void>((resolve) => {
+				turnRunning = resolve
+			})
+			let endTurn!: () => void
+			const gate = new Promise<void>((resolve) => {
+				endTurn = resolve
+			})
+			sendOverride.current = async function* () {
+				turnRunning()
+				yield { kind: 'delta', text: 'Coordinating the audit.' }
+				await gate
+				yield { kind: 'done', stopReason: 'end_turn' }
+			}
+			const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 30 })
+			mounted = screen
+			await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+			await submit(screen, 'run the audit')
+			await running
+			const t0 = Date.now()
+			const closing = (): number =>
+				(painted(screen).match(/Workflow Release audit (completed|failed|stopped)/gu) ?? []).length
+			// Phase one settles.
+			activity.set([flow('wf-a', { startedAt: t0, status: 'completed', completedAt: t0 + 1 })])
+			await screen.waitForRender()
+			// Phase two starts 10 s later and settles too.
+			activity.set([
+				flow('wf-a', { startedAt: t0, status: 'completed', completedAt: t0 + 1 }),
+				flow('wf-c', { startedAt: t0 + 10_000, status: 'completed', completedAt: t0 + 12_000 }),
+			])
+			// A workflow's agents leave no rows of their own; the group line is
+			// the one thing its launch writes.
+			await waitUntil(
+				screen,
+				() => painted(screen).includes('Running in background'),
+				'the workflow launch line was not written',
+			)
+			await screen.waitForRender()
+			await screen.waitForRender()
+			// Both phases have settled, but the turn that ran them has not ended.
+			expect(closing()).toBe(0)
+			endTurn()
+			await waitUntil(screen, () => closing() === 1, 'no closing line at turn end')
+			await screen.waitForRender()
+			await screen.waitForRender()
+			expect(closing()).toBe(1)
+			expect(painted(screen)).toContain('Workflow Release audit completed')
+			expect(painted(screen)).toMatch(/Workflow Release audit completed · .*2 agents/u)
+		})
+
+		it('clears a finished workflow with x without stopping anything', async () => {
+			stoppedChildren.length = 0
+			activity.set([
+				flow('wf-a', {
+					status: 'completed',
+					startedAt: Date.now() - 9_000,
+					completedAt: Date.now() - 2_000,
+				}),
+			])
+			const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 30 })
+			mounted = screen
+			await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+			await focusWorkflow(screen, 1)
+			expect(screen.viewport().join('\n')).toContain('enter to view · x to clear')
+			screen.press('x')
+			await waitUntil(
+				screen,
+				() => !/◯ Release audit/u.test(screen.viewport().join('\n')),
+				'the finished workflow stayed on the rail',
+			)
+			expect(stoppedChildren).toEqual([])
+		})
 	})
 
 	it('keeps the composer and footer reachable while a short viewport bounds the roster', async () => {
@@ -1149,8 +1499,9 @@ describe('Ctrl+T', () => {
 		expect(frame).toContain('Type a message')
 		expect(frame).toContain('model')
 		expect(frame).toContain('Short worker 0')
-		expect(frame).not.toContain('Short worker 1')
-		expect(frame).toContain('+5 more')
+		expect(frame).toContain('Short worker 4')
+		expect(frame).not.toContain('Short worker 5')
+		expect(frame).toContain('↓ 1 more')
 	})
 
 	it('keeps a narrow viewport single-line even with long workflow activity', async () => {
@@ -1168,7 +1519,9 @@ describe('Ctrl+T', () => {
 		const frame = screen.viewport().join('\n')
 		expect(frame).toContain('Type a message')
 		expect(frame).toContain('model')
-		expect(frame).toContain('0/1 done')
+		// A labelled agent is only inside its workflow: one workflow row, no main.
+		expect(frame).toContain('◯ A deliberat')
+		expect(frame).not.toContain('main')
 		expect(frame).not.toContain('public preview')
 		expect(screen.viewport()).toHaveLength(14)
 	})
@@ -1209,13 +1562,21 @@ describe('Ctrl+T', () => {
 		screen.press('\x14')
 		await waitUntil(
 			screen,
-			() => screen.viewport().join('\n').includes('Phase 2 · 1 agent'),
-			'the cockpit did not open on the live phase',
+			() => screen.viewport().join('\n').includes('Phases'),
+			'the cockpit did not open on the phases',
 		)
 		const frame = screen.viewport().join('\n')
-		expect(frame).toMatch(/› ● 2 Phase 2/u)
-		expect(frame).toMatch(/› ● Join the two colours/u)
-		expect(frame).toContain('2/3 agents done · 1 running')
+		// Opened on the phase still moving, one list at a time.
+		expect(frame).toMatch(/✔\s+Phase 1\s+2\/2/u)
+		expect(frame).toMatch(/❯ 2\s+Phase 2\s+0\/1/u)
+		expect(frame).toContain('2/3 agents')
+		screen.press('\r')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('Phase 2 · 1 agent'),
+			'enter did not open the live phase',
+		)
+		expect(screen.viewport().join('\n')).toMatch(/❯ ● Join the two colours/u)
 	})
 
 	it('gives the inspector its own short viewport and restores the composer draft', async () => {
@@ -1227,12 +1588,11 @@ describe('Ctrl+T', () => {
 		screen.press('\x14')
 		await waitUntil(
 			screen,
-			() => screen.viewport().join('\n').includes('Phases'),
+			() => screen.viewport().join('\n').includes('Agents · 1 agent'),
 			'short inspector did not open',
 		)
 		const frame = screen.viewport().join('\n')
-		expect(frame).toContain('Phases')
-		expect(frame).toContain('1 agent')
+		expect(frame).toContain('Agents · 1 agent')
 		expect(frame).not.toContain('draft remains visible')
 		screen.press('\x14')
 		await waitUntil(
@@ -1260,11 +1620,7 @@ describe('Ctrl+T', () => {
 		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
 
 		await submit(screen, 'start parent')
-		await waitUntil(
-			screen,
-			() => screen.viewport().join('\n').includes('↓ / ctrl+t'),
-			'live child shortcut missing',
-		)
+		await waitUntil(screen, () => railRows(screen).length === 2, 'live child rows missing')
 		screen.press('\x14')
 		await waitUntil(
 			screen,
@@ -1604,15 +1960,22 @@ describe('Ctrl+T', () => {
 			screen.press('\r')
 			await waitUntil(
 				screen,
-				() => screen.viewport().join('\n').includes('Second agent 1'),
+				() => screen.viewport().join('\n').includes('Phases'),
 				'latest workflow missing',
 			)
 			let frame = screen.viewport().join('\n')
-			expect(frame).toContain('Phases')
-			// The header names the pane; a count here would read as phases done.
+			// The header names the list; a count here would read as phases done.
 			expect(frame).not.toMatch(/Phases · \d/)
 			expect(frame).toContain('8/8 agents')
+			expect(frame).toMatch(/✘\s+Inspect\s+8\/8/)
 			expect(frame).not.toContain('First agent')
+			screen.press('\r')
+			await waitUntil(
+				screen,
+				() => screen.viewport().join('\n').includes('Second agent 1'),
+				'agents of the phase missing',
+			)
+			expect(screen.viewport().join('\n')).toContain('Inspect · 8 agents')
 			screen.press('\r')
 			await waitUntil(
 				screen,
@@ -1622,8 +1985,14 @@ describe('Ctrl+T', () => {
 			screen.press('\x1b')
 			await waitUntil(
 				screen,
-				() => screen.viewport().join('\n').includes('Phases'),
+				() => screen.viewport().join('\n').includes('Inspect · 8 agents'),
 				'did not return to agents',
+			)
+			screen.press('\x1b')
+			await waitUntil(
+				screen,
+				() => screen.viewport().join('\n').includes('Phases'),
+				'did not return to phases',
 			)
 			screen.press('\x1b')
 			await waitUntil(
@@ -1635,8 +2004,14 @@ describe('Ctrl+T', () => {
 			screen.press('\r')
 			await waitUntil(
 				screen,
-				() => screen.viewport().join('\n').includes('First agent 1'),
+				() => screen.viewport().join('\n').includes('Phases'),
 				'previous workflow missing',
+			)
+			screen.press('\r')
+			await waitUntil(
+				screen,
+				() => screen.viewport().join('\n').includes('First agent 1'),
+				'previous workflow agents missing',
 			)
 			frame = screen.viewport().join('\n')
 			expect(frame).toContain('8/8 agents')
@@ -1677,7 +2052,7 @@ describe('Ctrl+T', () => {
 
 		screen.press('\x1b[B')
 		await screen.resize(60, 28)
-		expect(screen.viewport().join('\n')).toContain('Phases')
+		expect(screen.viewport().join('\n')).toContain('Agents · 2 agents')
 		expect(screen.viewport().join('\n')).toContain('Beta')
 		await screen.resize(110, 28)
 		screen.press('\r')
@@ -1855,7 +2230,7 @@ describe('Ctrl+T', () => {
 		screen.press('\x1b')
 		await waitUntil(
 			screen,
-			() => screen.viewport().join('\n').includes('Phases'),
+			() => /Agents · \d+ agents?/u.test(screen.viewport().join('\n')),
 			'escape did not return to the agent list',
 		)
 		screen.press('\r')
@@ -1865,7 +2240,7 @@ describe('Ctrl+T', () => {
 		await screen.waitForRender()
 		frame = screen.viewport().join('\n')
 		expect(frame).toContain('PARENT_DRAFT_RESTORED')
-		expect(frame).toContain('MESSAGE')
+		expect(lowerRuleRow(screen.viewport())).toBeGreaterThanOrEqual(0)
 		expect(frame).not.toContain('CHILD_LIVE_UPDATE')
 		expect(painted(screen)).not.toContain('parent finished')
 	}, 60_000)
@@ -2046,102 +2421,6 @@ describe('/agents batches', () => {
 })
 
 describe('agent explorer projection', () => {
-	it('keeps completed siblings only while their own batch still has live work', () => {
-		const old = agent({
-			viewId: 'old',
-			batchId: 'wave-one',
-			status: 'completed',
-			completedAt: 2,
-		})
-		const doneSibling = agent({
-			viewId: 'done-sibling',
-			batchId: 'wave-two',
-			status: 'completed',
-			completedAt: 3,
-		})
-		const liveSibling = agent({ viewId: 'live-sibling', batchId: 'wave-two' })
-		expect(
-			activeSubagentCohorts([old, doneSibling, liveSibling]).map((entry) => entry.viewId),
-		).toEqual(['done-sibling', 'live-sibling'])
-	})
-
-	it('does not revive a terminal cohort when another turn reuses its provider batch id', () => {
-		const old = agent({
-			viewId: 'old-run',
-			workflowId: 'run-old',
-			batchId: 'provider-call-1',
-			status: 'completed',
-			completedAt: 2,
-		})
-		const current = agent({
-			viewId: 'current-run',
-			workflowId: 'run-current',
-			batchId: 'provider-call-1',
-		})
-
-		expect(activeSubagentCohorts([old, current]).map((entry) => entry.viewId)).toEqual([
-			'current-run',
-		])
-	})
-
-	it('bounds automatic agent rows from the terminal height', () => {
-		expect(agentTaskPanelPageSize(15)).toBe(1)
-		// One row per agent below 24 rows; two (the row and its `⎿` activity
-		// line) from 24 up, so the same row budget buys half as many agents.
-		expect(agentTaskPanelPageSize(20)).toBe(2)
-		expect(agentTaskPanelPageSize(30)).toBe(3)
-		const agents = Array.from({ length: 6 }, (_, index) =>
-			agent({ viewId: `agent-${index}`, description: `Worker ${index}` }),
-		)
-		const panel = render(<AgentTaskPanel agents={agents} terminalRows={15} terminalColumns={90} />)
-		try {
-			expect(panel.lastFrame()).toContain('Worker 0')
-			expect(panel.lastFrame()).not.toContain('Worker 1')
-			expect(panel.lastFrame()).toContain('+5 more')
-		} finally {
-			panel.unmount()
-		}
-	})
-
-	it('an agent row shows its model and counters', async () => {
-		const busy = agent({
-			viewId: 'agent-busy',
-			description: 'Audit dependencies',
-			model: 'test-model-large',
-			tokens: 42_123,
-			toolCalls: 18,
-		})
-		const screen = await renderToScreen(
-			<AgentTaskPanel agents={[busy]} terminalRows={10} terminalColumns={100} />,
-			{ cols: 100, rows: 10 },
-		)
-		mounted = screen
-		const frame = screen.viewport().join('\n')
-		expect(frame).toContain('Audit dependencies')
-		expect(frame).toContain('test-model-large')
-		expect(frame).toContain('18 tools · 42.1k')
-	})
-
-	it('a narrow viewport drops counters before the description', async () => {
-		const busy = agent({
-			viewId: 'agent-narrow',
-			description: 'Audit dependencies',
-			model: 'test-model-large',
-			tokens: 42_123,
-			toolCalls: 18,
-		})
-		const screen = await renderToScreen(
-			<AgentTaskPanel agents={[busy]} terminalRows={10} terminalColumns={40} />,
-			{ cols: 40, rows: 10 },
-		)
-		mounted = screen
-		const frame = screen.viewport().join('\n')
-		expect(frame).toContain('Audit dependencies')
-		expect(frame).not.toContain('test-model-large')
-		expect(frame).not.toContain('42.1k')
-		expect(frame).not.toContain('tools')
-	})
-
 	// A resolved model id is host-reported, unbounded text: a self-hosted or
 	// gateway-style id routinely runs 60-90+ cells, well past anything a
 	// short fixture like 'test-model-large' exercises. The meta box carrying
@@ -2152,24 +2431,6 @@ describe('agent explorer projection', () => {
 	// sites and assert the description survives rather than vanishing.
 	const REALISTIC_LONG_MODEL =
 		'gateway/production/anthropic/claude-opus-4-1-20250805-experimental-v3'
-
-	it('a long model id never erases the description in the automatic rail', async () => {
-		const busy = agent({
-			viewId: 'agent-long-model',
-			description: 'Audit dependencies',
-			model: REALISTIC_LONG_MODEL,
-			tokens: 42_123,
-			toolCalls: 18,
-		})
-		const screen = await renderToScreen(
-			<AgentTaskPanel agents={[busy]} terminalRows={10} terminalColumns={96} />,
-			{ cols: 96, rows: 10 },
-		)
-		mounted = screen
-		const frame = screen.viewport().join('\n')
-		expect(frame).toContain('Audit dependencies')
-		expect(frame).toContain('18 tools · 42.1k')
-	})
 
 	it('a long model id never erases the description in the agent cockpit', async () => {
 		const busy = agent({
@@ -2303,9 +2564,11 @@ describe('agent explorer projection', () => {
 		mounted = screen
 		await screen.waitForRender()
 		const frame = screen.viewport().join('\n')
-		expect(frame).toContain('0/2 agents done · 2 running')
-		expect(frame).toMatch(/Ninth review\s+Queued/)
-		expect(frame).not.toMatch(/Queued.*Queued/)
+		expect(frame).toContain('0/2 agents')
+		expect(frame).toContain('Agents · 2 agents')
+		expect(frame).toMatch(/◌\s+Ninth review.*queued/)
+		expect(frame).toMatch(/●\s+Running review/)
+		expect(frame).not.toMatch(/queued.*queued/)
 	})
 
 	it.each([
@@ -2313,7 +2576,7 @@ describe('agent explorer projection', () => {
 		{ cols: 60, rows: 20 },
 		{ cols: 40, rows: 14 },
 	])(
-		'separates cockpit panes and names a settled status once at $cols×$rows',
+		'lists phases, then the agents of one phase, one list at a time at $cols×$rows',
 		async ({ cols, rows }) => {
 			const research = agent({
 				viewId: 'research',
@@ -2326,33 +2589,33 @@ describe('agent explorer projection', () => {
 				completedAt: 59_000,
 				latestActivity: 'Completed',
 			})
-			const screen = await renderToScreen(
-				<AgentCockpit
-					agents={[research]}
-					selectedPhaseId={research.phaseId}
-					selectedId={research.viewId}
-					focus="phases"
-					terminalRows={rows}
-					terminalColumns={cols}
-				/>,
-				{ cols, rows },
-			)
-			mounted = screen
-			const viewport = screen.viewport()
-			const phaseHeading = viewport.findIndex((line) => line.includes('Phases'))
-			const agentHeading = viewport.findIndex((line) => line.includes('Research · 1 agent'))
-			const worker = viewport.find((line) => line.includes('Research worker')) ?? ''
-			expect(phaseHeading).toBeGreaterThanOrEqual(0)
-			expect(agentHeading).toBeGreaterThanOrEqual(0)
-			expect(worker).toMatch(/Research worker\s+Completed · 58s/)
-			expect(worker.match(/Completed/g)).toHaveLength(1)
-			if (cols >= 88) {
-				expect(agentHeading).toBe(phaseHeading)
-				expect(viewport[phaseHeading]).toMatch(/Phases.*│\s+Research · 1 agent/)
-			} else {
-				expect(agentHeading).toBeGreaterThan(phaseHeading)
+			const show = async (focus: 'phases' | 'agents') => {
+				const screen = await renderToScreen(
+					<AgentCockpit
+						agents={[research]}
+						selectedPhaseId={research.phaseId}
+						selectedId={research.viewId}
+						focus={focus}
+						terminalRows={rows}
+						terminalColumns={cols}
+					/>,
+					{ cols, rows },
+				)
+				mounted = screen
+				return screen.viewport()
 			}
-			expect(viewport.join('\n')).toContain('esc return')
+			const levelOne = await show('phases')
+			expect(levelOne.some((line) => /^│ Phases/.test(line))).toBe(true)
+			expect(levelOne.find((line) => line.includes('Research'))).toMatch(/❯ ✔\s+Research\s+1\/1/)
+			expect(levelOne.join('\n')).not.toContain('Research worker')
+			await mounted?.unmount()
+			mounted = null
+			const levelTwo = await show('agents')
+			expect(levelTwo.join('\n')).toContain('Research · 1 agent')
+			expect(levelTwo.join('\n')).not.toContain('Phases')
+			const worker = levelTwo.find((line) => line.includes('Research worker')) ?? ''
+			expect(worker).toMatch(/❯ ✔\s+Research worker.*58s/)
+			expect(levelTwo.join('\n')).toContain('esc')
 		},
 	)
 
@@ -2387,8 +2650,8 @@ describe('agent explorer projection', () => {
 	})
 
 	it('a long phase detail does not change the pane height', async () => {
-		// Narrow enough to stack Phases above Agents, so a detail box that grew
-		// with its text would visibly push the agent list down.
+		// The detail band is a fixed budget, so a long sentence cannot push the
+		// phase list or the hint line to another row.
 		const size = { cols: 60, rows: 30 }
 		const short = agent({ viewId: 'short', phase: 'Verify', phaseDetail: 'Short note.' })
 		const long = agent({
@@ -2396,41 +2659,38 @@ describe('agent explorer projection', () => {
 			phase: 'Verify',
 			phaseDetail: `A ${'very '.repeat(60)}long detail that wraps many times over.`,
 		})
-
-		const shortScreen = await renderToScreen(
-			<AgentCockpit
-				agents={[short]}
-				selectedPhaseId={short.phaseId}
-				selectedId={short.viewId}
-				focus="phases"
-				terminalRows={size.rows}
-				terminalColumns={size.cols}
-			/>,
-			size,
-		)
-		const shortViewport = shortScreen.viewport()
-		const shortAgentsRow = shortViewport.findIndex((line) => line.includes('Verify · 1 agent'))
-		expect(shortViewport.join('\n')).toContain('Short note.')
-		await shortScreen.unmount()
-
-		const longScreen = await renderToScreen(
-			<AgentCockpit
-				agents={[long]}
-				selectedPhaseId={long.phaseId}
-				selectedId={long.viewId}
-				focus="phases"
-				terminalRows={size.rows}
-				terminalColumns={size.cols}
-			/>,
-			size,
-		)
-		mounted = longScreen
-		const longViewport = longScreen.viewport()
-		const longAgentsRow = longViewport.findIndex((line) => line.includes('Verify · 1 agent'))
-		expect(longViewport.join('\n')).toContain('very very very')
-
-		expect(shortAgentsRow).toBeGreaterThanOrEqual(0)
-		expect(longAgentsRow).toBe(shortAgentsRow)
+		const rowsOf = async (member: SubagentActivity) => {
+			const screen = await renderToScreen(
+				<AgentCockpit
+					agents={[member]}
+					selectedPhaseId={member.phaseId}
+					selectedId={member.viewId}
+					focus="phases"
+					terminalRows={size.rows}
+					terminalColumns={size.cols}
+				/>,
+				size,
+			)
+			mounted = screen
+			const viewport = screen.viewport()
+			const found = {
+				phase: viewport.findIndex((line) => line.includes('Verify')),
+				hint: viewport.findIndex((line) => line.includes('esc to go back')),
+				detail: viewport.filter((line) => /very|Short note/.test(line)).length,
+				text: viewport.join('\n'),
+			}
+			await screen.unmount()
+			mounted = null
+			return found
+		}
+		const shortRows = await rowsOf(short)
+		const longRows = await rowsOf(long)
+		expect(shortRows.text).toContain('Short note.')
+		expect(longRows.text).toContain('very very very')
+		expect(shortRows.phase).toBeGreaterThanOrEqual(0)
+		expect(longRows.phase).toBe(shortRows.phase)
+		expect(longRows.hint).toBe(shortRows.hint)
+		expect(longRows.detail).toBeLessThanOrEqual(3)
 	})
 
 	it('does not corrupt the compact cockpit frame when a phase carries a detail', async () => {
@@ -2464,19 +2724,15 @@ describe('agent explorer projection', () => {
 		)
 		mounted = screen
 		const viewport = screen.viewport()
-		const worker = viewport.find((line) => line.includes('Research worker')) ?? ''
-		expect(worker).toMatch(/Research worker\s+Completed · 58s/)
-		const footer = viewport.find((line) => line.includes('esc return')) ?? ''
-		expect(footer).toMatch(/esc return[ │]*$/)
+		const phaseRow = viewport.find((line) => line.includes('Research')) ?? ''
+		expect(phaseRow).toMatch(/✔\s+Research\s+1\/1/)
+		const footer = viewport.find((line) => line.includes('esc')) ?? ''
+		expect(footer).toMatch(/esc[ a-z│]*$/)
 		expect(viewport.join('\n')).not.toContain('Confirm the rollback plan')
 	})
 
-	it('surfaces failed and cancelled children in phase summaries', () => {
-		const failed = agent({
-			viewId: 'failed',
-			status: 'failed',
-			completedAt: 2,
-		})
+	it('marks a phase failed once it has settled with a failure or a stop', () => {
+		const failed = agent({ viewId: 'failed', status: 'failed', completedAt: 2 })
 		const working = agent({ viewId: 'working' })
 		const cancelled = agent({
 			viewId: 'cancelled',
@@ -2503,8 +2759,9 @@ describe('agent explorer projection', () => {
 			/>,
 		)
 		try {
-			expect(cockpit.lastFrame()).toContain('failed 1')
-			expect(cockpit.lastFrame()).toContain('cancelled 1')
+			// Still working: the phase keeps its number. Settled with a stop: ✘.
+			expect(cockpit.lastFrame()).toMatch(/❯ 1\s+Agents\s+1\/2/)
+			expect(cockpit.lastFrame()).toMatch(/✘\s+Agents\s+2\/2/)
 		} finally {
 			cockpit.unmount()
 		}
@@ -2825,7 +3082,6 @@ describe('the rail while a review is open', () => {
 			agent({
 				viewId: 'approved',
 				description: 'Choose first colour',
-				workflow: 'Two-phase colour sentence',
 				latestActivity: 'Reading the palette',
 			}),
 		])
@@ -2853,7 +3109,7 @@ describe('the rail while a review is open', () => {
 		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
 		await waitUntil(
 			screen,
-			() => screen.viewport().join('\n').includes('⎿ Reading the palette'),
+			() => railRows(screen).length === 1,
 			'full rail missing before the review',
 		)
 		await submit(screen, 'start both')
@@ -2864,19 +3120,18 @@ describe('the rail while a review is open', () => {
 		)
 		const during = screen.viewport().join('\n')
 		// The review owns the keyboard: ↓ and Ctrl+T do not reach the rail
-		// while it is open, so the reduced header names neither.
-		expect(during).toContain('● Two-phase colour sentence · 1 running')
-		expect(during).not.toContain('↓ / ctrl+t')
+		// while it is open, so the reduced row names neither and draws no agent.
+		expect(during).toMatch(/● main\s+1 agent\b/u)
+		expect(during).not.toContain('↓ to manage')
 		expect(during).not.toContain('Choose first colour')
-		expect(during).not.toContain('⎿ Reading the palette')
 		screen.press('\x1b')
 		await decided
 		await waitUntil(
 			screen,
-			() => screen.viewport().join('\n').includes('⎿ Reading the palette'),
+			() => railRows(screen).length === 1,
 			'full rail did not come back after the review',
 		)
-		expect(screen.viewport().join('\n')).toMatch(/· 1 running · \S+ · ↓ \/ ctrl\+t/u)
+		expect(screen.viewport().join('\n')).toContain('↓ to manage')
 	})
 })
 
@@ -2920,61 +3175,6 @@ describe('correction delivery presentation', () => {
 })
 
 describe('rail and cockpit titles', () => {
-	it('titles the rail by the workflow label every agent shares', async () => {
-		const screen = await renderToScreen(
-			<AgentTaskPanel
-				agents={[
-					agent({ viewId: 'a', workflow: 'Nightly regression sweep' }),
-					agent({ viewId: 'b', workflow: 'Nightly regression sweep' }),
-				]}
-				terminalRows={20}
-				terminalColumns={100}
-			/>,
-			{ cols: 100, rows: 20 },
-		)
-		mounted = screen
-		const frame = screen.viewport().join('\n')
-		expect(frame).toContain('Nightly regression sweep')
-		expect(frame).not.toContain('Delegated work')
-	})
-
-	it('titles the rail with a neutral count when no agent carries an explicit workflow label', async () => {
-		// Neither agent below sets `workflow`, so the fixture defaults it to the
-		// unlabelled placeholder — the exact case the title must not name.
-		const screen = await renderToScreen(
-			<AgentTaskPanel
-				agents={[agent({ viewId: 'a' }), agent({ viewId: 'b' })]}
-				terminalRows={20}
-				terminalColumns={100}
-			/>,
-			{ cols: 100, rows: 20 },
-		)
-		mounted = screen
-		const frame = screen.viewport().join('\n')
-		expect(frame).toContain('2 agents · 2 running')
-		expect(frame).not.toContain('Delegated work')
-	})
-
-	it('titles the rail with a neutral count when agents carry different workflow labels', async () => {
-		const screen = await renderToScreen(
-			<AgentTaskPanel
-				agents={[
-					agent({ viewId: 'a', workflow: 'Alpha rollout' }),
-					agent({ viewId: 'b', workflow: 'Beta rollout' }),
-				]}
-				terminalRows={20}
-				terminalColumns={100}
-			/>,
-			{ cols: 100, rows: 20 },
-		)
-		mounted = screen
-		const frame = screen.viewport().join('\n')
-		expect(frame).toContain('2 agents · 2 running')
-		expect(frame).not.toContain('Alpha rollout')
-		expect(frame).not.toContain('Beta rollout')
-		expect(frame).not.toContain('Delegated work')
-	})
-
 	it('titles the cockpit header by the workflow label when the selected workflow carries one', async () => {
 		const busy = agent({ viewId: 'solo', workflow: 'Release readiness' })
 		const screen = await renderToScreen(
@@ -3115,7 +3315,7 @@ describe('render order below the message frame', () => {
 		// border row this padding touches carries a one-space left margin —
 		// the same anchor `expectChildFrame` and friends already rely on
 		// elsewhere in this file.
-		const border = viewport.findIndex((line) => line.startsWith(' └'))
+		const border = lowerRuleRow(viewport)
 		expect(border, 'message frame bottom border not found on screen').toBeGreaterThanOrEqual(0)
 		return border
 	}
@@ -3131,7 +3331,7 @@ describe('render order below the message frame', () => {
 		expect(viewport[border + 2] ?? '').toBe('')
 	})
 
-	it('puts the agent rail directly under the footer once agents are live, titled by neutral count when only one of two carries a label', async () => {
+	it('puts the agent rail directly under the footer once agents are live, with a workflow row only for the agent that carries a label', async () => {
 		activity.set([
 			agent({ viewId: 'alpha', description: 'Alpha audit' }),
 			agent({ viewId: 'beta', description: 'Beta build', workflow: 'Nightly regression sweep' }),
@@ -3146,17 +3346,16 @@ describe('render order below the message frame', () => {
 		)
 		const viewport = screen.viewport()
 		const border = frameBottomBorder(screen)
-		expect(viewport[border + 1]).toContain('shift+tab to cycle')
-		// Directly under the footer, not the transcript/composer: the rail's
-		// header line, one row below where the footer landed. The rail has no
-		// box any more; its header starts with the live `●`.
+		expect(viewport[border + 1]).toContain('← 2 agents · ↓ to manage')
+		// Directly under the footer, not the transcript/composer: the `main`
+		// row, one row below where the footer landed, then one row per agent.
 		const railTop = viewport[border + 2] ?? ''
-		expect(railTop.trimStart().charAt(0)).toBe('●')
+		expect(railTop).toMatch(/^ *● main\b/u)
 		const frame = screen.viewport().join('\n')
-		// One agent carries a label and the other does not, so the rail is not
-		// entitled to either agent's label — it gets the neutral count.
-		expect(frame).toContain('2 agents · 2 running')
-		expect(frame).not.toContain('Nightly regression sweep')
+		// An explicit workflow label earns its own `◯` row after the agent rows;
+		// the unlabelled default never names anything.
+		expect(railRows(screen)).toHaveLength(1)
+		expect(frame).toMatch(/^ *◯ Nightly regression sweep +▱+ +0\/1 · /mu)
 		expect(frame).not.toContain('Delegated work')
 	})
 
@@ -3178,10 +3377,15 @@ describe('render order below the message frame', () => {
 	})
 })
 
+/** Rows of the agents rail on screen, `main` excluded. */
+function railRows(screen: Screen): string[] {
+	return screen.viewport().filter((row) => /^(❯| ) [●○] (?!main)\S/u.test(row.replace(/^ /u, '')))
+}
+
 describe('parent narration', () => {
 	/** The message frame's bottom border row, the anchor every row below is read from. */
 	function frameBottom(screen: Screen): number {
-		const border = screen.viewport().findIndex((line) => line.startsWith(' └'))
+		const border = lowerRuleRow(screen.viewport())
 		expect(border, 'message frame bottom border not found on screen').toBeGreaterThanOrEqual(0)
 		return border
 	}
@@ -3200,14 +3404,15 @@ describe('parent narration', () => {
 	function railBlock(screen: Screen): string[] {
 		const rows = screen.viewport()
 		const below = frameBottom(screen)
-		const top = rows.findIndex((row, index) => index > below && row.trimStart().startsWith('●'))
+		const top = rows.findIndex((row, index) => index > below && /^ *● main\b/u.test(row))
 		expect(top, 'rail header not on screen').toBeGreaterThan(below)
-		// The last agent's branch is `└`; everything from the header through it
-		// (and its activity line, when one is drawn) is the rail.
-		const last = rows.findIndex((row, index) => index > top && row.trimStart().startsWith('└'))
-		expect(last, 'rail last branch not on screen').toBeGreaterThan(top)
-		let bottom = last
-		while (bottom + 1 < rows.length && (rows[bottom + 1] ?? '').trim().startsWith('⎿')) bottom += 1
+		// The `main` row, then every agent row and the `↓ N more` line, if any.
+		let bottom = top
+		while (
+			bottom + 1 < rows.length &&
+			/^( *[❯ ] )?[●○] \S|^ +↓ \d+ more$/u.test(rows[bottom + 1] ?? '')
+		)
+			bottom += 1
 		return rows.slice(top, bottom + 1)
 	}
 
@@ -3246,14 +3451,14 @@ describe('parent narration', () => {
 		// The footer stays directly under the frame; narration follows it, and
 		// the rail's header follows the narration — commentary above the tree,
 		// never inside it and never between the frame and its footer.
-		expect(viewport[border + 1]).toContain('shift+tab to cycle')
+		expect(viewport[border + 1]).toContain('← 2 agents · ↓ to manage')
 		expect(viewport[border + 2]).toContain('map returned five lenses')
 		expect(viewport[border + 3]).toContain('verifying the storage claim')
 		expect((viewport[border + 4] ?? '').trimStart().charAt(0)).toBe('●')
 		// The rail itself is untouched: same rows, same order, same count. An
 		// agent row is never spent on commentary.
 		expect(railBlock(screen)).toEqual(railRows)
-		// Aligned with the rail's title, past its two-cell header glyph.
+		// Aligned with the rail's `main` label, past its pointer and bullet cells.
 		const header = viewport[border + 4] ?? ''
 		const title = header.indexOf('●') + 2
 		const narrationRow = viewport[border + 2] ?? ''
@@ -3347,7 +3552,7 @@ describe('parent narration', () => {
 		expect(railBlock(screen)).toEqual(quiet)
 		const viewport = screen.viewport()
 		const border = frameBottom(screen)
-		expect(viewport[border + 1]).toContain('shift+tab to cycle')
+		expect(viewport[border + 1]).toContain('← 2 agents · ↓ to manage')
 		expect(viewport[border + 2]).toContain('map returned five lenses')
 		expect(viewport[border + 3]).toContain('verifying the storage claim')
 		expect((viewport[border + 4] ?? '').trimStart().charAt(0)).toBe('●')

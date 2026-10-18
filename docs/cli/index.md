@@ -16,6 +16,7 @@
 
 * [Conversation evidence](conversation-evidence.md) - Bounded recovery of retained original tool and assistant output after compaction.
 * [Delegated work](delegated-work.md) - Background child sessions, queued corrections, completion, ownership and replay from child logs.
+* [Workflows in the CLI](workflows.md) - The workflow tool: when the model is offered it, the review before it starts, how its agents run and appear, how to stop or skip, and what the model is told when it ends.
 
 The operator application.
 

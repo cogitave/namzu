@@ -28,13 +28,13 @@ import { describe, expect, it } from 'vitest'
 
 import { ComposerFrame } from '../ComposerFrame.js'
 import { StatusBar } from '../StatusBar.js'
+import { lowerRuleRow } from './support/composer-rules.js'
 import { type Screen, renderToScreen } from './support/screen.js'
 
 /** The picker's first-run hint: the only place its exits are named. */
 const HINT = '↑↓ select · enter accept · esc or Ctrl+C exit'
 
 /** Deep but unremarkable — a service inside a monorepo inside a work folder. */
-const DEEP_CWD = '/home/dev/work/acme-platform/services/payments-api/packages/core'
 
 const COLS = 100
 const ROWS = 24
@@ -46,16 +46,16 @@ const ROWS = 24
  * what is under test is what the footer does relative to the frame above it,
  * not relative to a viewport edge that a live rail can now sit past.
  */
-function belowMessageFrame(cwd: string) {
+function belowMessageFrame(effort: string) {
 	return (
 		<Box flexDirection="column">
 			<ComposerFrame focus={false}>
 				<Box height={1} />
 			</ComposerFrame>
 			<StatusBar
-				cwd={cwd}
 				provider="acme-personal (acme)"
 				model="model-of-the-day"
+				effort={effort}
 				state="idle"
 				hint={HINT}
 			/>
@@ -66,8 +66,8 @@ function belowMessageFrame(cwd: string) {
 /** The message frame's bottom border row, found wherever the layout put it. */
 function frameBottomBorder(screen: Screen): number {
 	const viewport = screen.viewport()
-	const border = viewport.findIndex((line) => line.includes('└') && line.includes('┘'))
-	expect(border, 'message frame bottom border not found on screen').toBeGreaterThanOrEqual(0)
+	const border = lowerRuleRow(viewport)
+	expect(border, 'lower rule of the composer not found on screen').toBeGreaterThanOrEqual(0)
 	return border
 }
 
@@ -79,7 +79,6 @@ describe('the status bar directly under the message frame', () => {
 					<Box height={1} />
 				</ComposerFrame>
 				<StatusBar
-					cwd="/home/dev/work/namzu"
 					provider="OpenAI (Codex subscription)"
 					model="gpt-5.6-sol"
 					effort="xhigh"
@@ -94,8 +93,7 @@ describe('the status bar directly under the message frame', () => {
 		try {
 			const viewport = screen.viewport()
 			const row = viewport[frameBottomBorder(screen) + 1] ?? ''
-			expect(row).toContain('‖ Plan (read-only) (shift+tab to cycle) · effort xhigh · ')
-			expect(row).toContain('work/namzu')
+			expect(row).toContain('‖ plan mode on (shift+tab to cycle) · effort xhigh')
 			expect(row.trimEnd()).toMatch(/Goal stalled \(\/goal resume\)$/)
 			expect(row).not.toContain('Codex subscription')
 			// The goal wins the right-hand slot over the model, exactly as it won
@@ -107,7 +105,7 @@ describe('the status bar directly under the message frame', () => {
 	})
 
 	it('draws directly under the frame, whatever room the viewport leaves below it', async () => {
-		const screen = await renderToScreen(belowMessageFrame(DEEP_CWD), {
+		const screen = await renderToScreen(belowMessageFrame('model-of-the-day'), {
 			cols: COLS,
 			rows: ROWS,
 		})
@@ -122,7 +120,7 @@ describe('the status bar directly under the message frame', () => {
 	})
 
 	it('occupies one row, so the row after it stays empty here', async () => {
-		const screen = await renderToScreen(belowMessageFrame(DEEP_CWD), {
+		const screen = await renderToScreen(belowMessageFrame('model-of-the-day'), {
 			cols: COLS,
 			rows: ROWS,
 		})
@@ -144,7 +142,7 @@ describe('the status bar directly under the message frame', () => {
 	})
 
 	it('leaves the transcript in the operator’s scrollback', async () => {
-		const screen = await renderToScreen(belowMessageFrame('/w'), {
+		const screen = await renderToScreen(belowMessageFrame('model-w'), {
 			cols: COLS,
 			rows: ROWS,
 		})
@@ -162,7 +160,7 @@ describe('the status bar directly under the message frame', () => {
 		// The assertion above is worth nothing unless this reader can return
 		// the other answer, and nothing shipped here drives it to. So it is
 		// driven from the harness — the point is the reader, not the app.
-		const screen = await renderToScreen(belowMessageFrame('/w'), {
+		const screen = await renderToScreen(belowMessageFrame('model-w'), {
 			cols: COLS,
 			rows: ROWS,
 			alternateScreen: true,
@@ -207,7 +205,7 @@ describe('the viewport and the scrollback are not the same read', () => {
 
 describe('counting what was written', () => {
 	it('writes nothing more when a rerender changes nothing', async () => {
-		const screen = await renderToScreen(belowMessageFrame(DEEP_CWD), {
+		const screen = await renderToScreen(belowMessageFrame('model-of-the-day'), {
 			cols: COLS,
 			rows: ROWS,
 		})
@@ -215,7 +213,7 @@ describe('counting what was written', () => {
 			const afterFirstPaint = screen.bytesWritten()
 			expect(afterFirstPaint).toBeGreaterThan(0)
 
-			screen.rerender(belowMessageFrame(DEEP_CWD))
+			screen.rerender(belowMessageFrame('model-of-the-day'))
 			await screen.waitForRender()
 
 			// "It repainted in place" is a description until something counts
@@ -226,7 +224,7 @@ describe('counting what was written', () => {
 
 			// The other half, or the assertion above passes against a counter
 			// that is simply stuck.
-			screen.rerender(belowMessageFrame('/somewhere/else/entirely'))
+			screen.rerender(belowMessageFrame('xhigh'))
 			await screen.waitForRender()
 			expect(screen.bytesWritten()).toBeGreaterThan(afterFirstPaint)
 		} finally {
@@ -235,12 +233,12 @@ describe('counting what was written', () => {
 	})
 
 	it('repaints in place rather than printing the bar again', async () => {
-		const screen = await renderToScreen(belowMessageFrame('/a'), {
+		const screen = await renderToScreen(belowMessageFrame('low'), {
 			cols: COLS,
 			rows: ROWS,
 		})
 		try {
-			screen.rerender(belowMessageFrame('/b'))
+			screen.rerender(belowMessageFrame('high'))
 			await screen.waitForRender()
 
 			// One bar on the screen, not two. A renderer that printed the new
@@ -249,7 +247,7 @@ describe('counting what was written', () => {
 			const drawn = screen.scrollback().filter((line) => line.includes('Ctrl+C'))
 			expect(drawn.length).toBe(1)
 			const viewport = screen.viewport()
-			expect(viewport[frameBottomBorder(screen) + 1]).toContain('/b')
+			expect(viewport[frameBottomBorder(screen) + 1]).toContain('high')
 		} finally {
 			await screen.unmount()
 		}

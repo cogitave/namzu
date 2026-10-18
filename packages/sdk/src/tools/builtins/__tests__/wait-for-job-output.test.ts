@@ -100,11 +100,12 @@ describe('wait_for_job output mode', () => {
 	it('validates literal bounds and requires a condition when selecting a pipe', () => {
 		const schema = WaitForJobTool.inputSchema
 		for (const output_contains of ['', '\ud800', '準'.repeat(1366)]) {
-			expect(schema.safeParse({ id: 'job_1', output_contains }).success).toBe(false)
+			expect(schema.safeParse({ id: 'b00000001', output_contains }).success).toBe(false)
 		}
-		expect(schema.safeParse({ id: 'job_1', output_stream: 'stderr' }).success).toBe(false)
+		expect(schema.safeParse({ id: 'b00000001', output_stream: 'stderr' }).success).toBe(false)
 		expect(
-			schema.safeParse({ id: 'job_1', output_contains: 'R.*Y', output_stream: 'either' }).success,
+			schema.safeParse({ id: 'b00000001', output_contains: 'R.*Y', output_stream: 'either' })
+				.success,
 		).toBe(true)
 	})
 })

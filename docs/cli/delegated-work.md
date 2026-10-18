@@ -60,6 +60,19 @@ like `workflow`, `phase` and `phase_order`: it creates no dependencies,
 barriers or serial execution. The first agent to declare a phase's detail
 sets it; a later sibling in the same phase cannot change it.
 
+## Workflows are not subagents
+
+The model can also start a **workflow**: a script, written once and approved by
+the operator, that starts many agents under phase titles it chooses. A
+workflow's agents are real children, with their normal transcripts, under the
+same permission mode, rules, sandbox and token budget as `Agent` calls; but
+they are the script's agents, not the model's, so they are never rows of the
+agents rail, never get launch or completion rows, and are not counted in the
+turn's summary line. The run is one rail row and one detail view. See
+[Workflows in the CLI](workflows.md). Agents the model gives a `workflow` label
+through the `Agent` tool stay as described here; the two share the rail row and
+the detail view's shape, not their code path.
+
 ## Which launches are asked about
 
 In `prompt` mode (the default with a person at the terminal) an `Agent` call
@@ -137,7 +150,8 @@ message becomes visible on both sides of the exchange. The child's transcript
 calls and answers. The main conversation gets a matching row, `<description> ·
 correction sent`, with the message text beneath it, so the operator can see
 what was said without opening the child's screen. Each side shows the message
-exactly once, however many times the surface re-renders.
+exactly once, however many times the surface re-renders. The rail row keeps to the clock and
+the spend (`↓ 42.1k tokens`).
 These rows record acceptance; they do not acknowledge that the child model
 read the message or completed the requested change.
 
@@ -187,15 +201,21 @@ untrusted exists to prevent. If child narration is ever offered, it goes
 through that same wrapping and is attributed to the child by name.
 
 Each batch of agents one response launched adds one launch receipt to the main
-transcript, `● Launched 2 agents · <workflow> / <phase>` with the agents named
-beneath it, always below the text of the response that launched them, and each observed agent completion adds one named row, whether or
-not the model calls `wait_for_task`: `✓ <name> · 1.7s · 9.0k tokens`, or
+transcript, `● Launched 2 agents` with the agents named beneath it, always
+below the text of the response that launched them, and each observed agent
+completion adds one named row, whether or not the model calls `wait_for_task`:
+`✓ <name> · 1.7s · 9.0k tokens`, or
 `✗ <name> · failed after 2.9s · <reason>`. A completed agent's final answer is
 attached to its row, collapsed; Ctrl+O opens it, in place while the row is
-live and in the output viewer once it has settled into history. A turn that launched agents
-ends with `✻ Worked for <time> · <N> agents`, adding `in <N> phases` when the
-model named two or more, the tokens the agents spent when any reported them,
-and `<N> failed` when one failed. See
+live and in the output viewer once it has settled into history. Agents the model
+gave a `workflow` label are the exception: they are one workflow, not agents.
+Their launch writes a single `● Workflow <name>` line with
+`⎿ Running in background · ↓ to manage` beneath it, they leave no per-agent
+receipt or completion row, and the workflow closes with one line
+(`✓ Workflow <name> completed · 4m02s · 7 agents · 112.0k tokens`). A turn that
+launched agents ends with `✻ Worked for <time> · <N> agents`, adding the tokens
+the agents spent when any reported them and `<N> failed` when one failed; it
+never counts phases, which appear only in a workflow's detail view. See
 [Terminal design](terminal-design.md#delegated-work-in-the-conversation) for
 the layout. When every running call is a correlated wait, the rows fold into
 one `✻ Waiting for N agents to finish` line; a wait beside other work keeps its
@@ -204,19 +224,27 @@ a second report to the transcript. Unknown waits and tool errors remain
 visible. Press Ctrl+T to inspect agent transcripts and results. Failed, cancelled
 and incomplete work keeps its reported status rather than appearing completed.
 
-The automatic rail stays on screen while an approval dialog is open, reduced to
-its header line, so agents already approved can be seen working while the next
-launch is decided. The reduced header names no key, since the dialog holds ↓
-and Ctrl+T until it closes. Read-only launches start without a review; see
+The agents rail stays on screen while an approval dialog is open, reduced to
+its `main` row and a count, so agents already approved can be seen working
+while the next launch is decided. That row names no key, since the dialog holds
+↓ and Ctrl+T until it closes. Read-only launches start without a review; see
 [Which launches are asked about](#which-launches-are-asked-about).
 
-A workflow split into phases (one `workflow` label, several `phase` labels)
-stays on the rail as one piece for the whole parent turn and is drawn by
-phase: a settled phase as one line with its count and time, a live one with
-its agents beneath it. The rail's header counts done agents across every
-phase (`2/3 done`), with the time since the first started and the spend so
-far. The agent cockpit opens on the phase that is still working. See
-[Terminal design](terminal-design.md) for both.
+The rail lists running agents and those finished within the last 30 seconds,
+five at a time, one row each (type, description, time and spend); ↓ in an empty
+composer moves into it, where Enter opens an agent's transcript and `x` stops
+it. Workflows and subagents are kept apart, as in the reference terminal. A
+subagent is an agent the model started without a `workflow` label: it has an
+agent row. A workflow is the set of agents started with the same `workflow`
+label: it has no agent rows at all, only one row after the agent rows (`◯ name
+▰▱ bar  3/7 · 2m14s · ↓ 48.2k tokens`, no phase text). Enter on that row opens
+the workflow's detail view: its phases first (`phase`, `phase_order` and
+`phase_detail` are display labels, the title is the model's `phase` verbatim and
+agents with the same title are one phase), then the agents of the phase you
+open, then one agent's transcript. `x` stops the whole workflow on the phases
+and a single agent on the agents; Esc or ← goes back up a level. A workflow
+whose agents carry no `phase` label shows one group titled `Agents`.
+See [Terminal design](terminal-design.md) for both.
 
 Completion reaches the parent as a task notification. `wait_for_task` retrieves
 the result without launching duplicate work. Background work keeps the same
@@ -287,11 +315,10 @@ pane's height never depends on how long the detail is. On a short terminal
 (the cockpit's compact layout) the detail stays hidden entirely, the same way
 the cockpit already drops its other secondary text there.
 
-Each row in the automatic rail, the agent cockpit and the child transcript
-header shows the child's status, elapsed time, description and — when the
-host reported them — its resolved model and live counters: cumulative spend
-compacted to `42.1k`/`1.38M` and a `N tools` tool-call count (the rail puts the
-tool count and spend before the model, the cockpit after it), both drawn
+Each row in the agent cockpit and the child transcript header shows the
+child's status, elapsed time, description and — when the host reported them —
+its resolved model and live counters: cumulative spend compacted to
+`42.1k`/`1.38M` and a `N tools` tool-call count, both drawn
 from the same session events the transcript itself renders and never a percentage
 or fill bar. Spend is the child's cumulative usage, not its current context
 size, which is a different number that falls on compaction. A child that has

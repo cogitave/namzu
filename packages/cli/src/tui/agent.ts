@@ -173,7 +173,7 @@ import {
 import { SubprocessComputerUseHost } from '@namzu/computer-use'
 
 import { realpath, stat } from 'node:fs/promises'
-import { parse, resolve } from 'node:path'
+import { join, parse, resolve } from 'node:path'
 import {
 	type BrowserControl,
 	type BrowserSessionOptions,
@@ -198,6 +198,7 @@ import type {
 	SkillsConfig,
 	TurnLimitsConfig,
 	WebConfig,
+	WorkflowCliConfig,
 } from '../config/schema.js'
 import {
 	type ToolResultScreenConfig,
@@ -321,6 +322,12 @@ import {
 	createSavedAgentHistory,
 	createSavedAgentsStep,
 } from '../integrations/subagents/saved-agents.js'
+import { WORKFLOW_DOCTRINE } from '../integrations/workflows/doctrine.js'
+import { listWorkflowRuns } from '../integrations/workflows/history.js'
+import { type WorkflowHost, createWorkflowHost } from '../integrations/workflows/host.js'
+import { workflowOffered, workflowRefusal } from '../integrations/workflows/offering.js'
+import type { WorkflowRunEnd } from '../integrations/workflows/registry.js'
+import type { WorkflowRunView } from '../integrations/workflows/view.js'
 import { cliLogger } from '../logging.js'
 import { formatMemoryDiagnostics } from '../memory/presentation.js'
 import { composeMemoryPrompt, readMemory } from '../memory/store.js'
@@ -382,6 +389,8 @@ export type AgentEvent =
 			readonly detail?: readonly string[]
 			/** A web search or fetch: what it is for, so its row can name it. */
 			readonly web?: WebActivity
+			/** A shell call's full command line, kept with its line breaks for the cell header. */
+			readonly command?: string
 			/**
 			 * The tool declares this call read-only. Absent means it changes
 			 * something, or the tool did not say. Read by the TUI's skill
@@ -475,6 +484,8 @@ export type AgentEvent =
 			readonly cancelled?: boolean
 			/** A web search or fetch, with whatever its result told us (query, result count). */
 			readonly web?: WebActivity
+			/** A shell call's output split into streams, for the command cell. */
+			readonly shell?: import('./shell-cell.js').ShellOutput
 	  }
 	/**
 	 * The model thinking, for the live region only. `text` is a delta;
@@ -788,6 +799,19 @@ export interface SendOptions {
 	 */
 	readonly currentPermissionMode?: () => PermissionMode
 	/**
+	 * A host that can run workflows says so by passing this, and says who
+	 * answers their reviews for as long as they run. A workflow outlives the
+	 * turn that started it, so it cannot borrow `onPermission`, which belongs to
+	 * the turn. Absent, the `workflow` tool is not offered at all: a host that
+	 * has not built the screens for a background run (the desktop app today)
+	 * must not hand the model a tool whose agents it cannot ask about.
+	 */
+	readonly workflowReview?: {
+		/** Absent: nobody to ask (a headless host), so only a session set to run without asking may start one. */
+		readonly onPermission?: PermissionFn
+		readonly currentPermissionMode: () => PermissionMode
+	}
+	/**
 	 * Caller-reserved identity for this new turn, for a host that has to name
 	 * the turn before it starts (a resident step's verifier). Absent: the
 	 * kernel mints one, and the session learns it from the turn's first event.
@@ -942,6 +966,29 @@ export interface ResumePausedParams {
 export interface AutoRouteSummary {
 	readonly tier: RouteTier
 	readonly model: string
+}
+
+/** The workflow runs of one session, as the terminal reads and steers them. */
+export interface SessionWorkflows {
+	/** Runs this process started, running and ended, oldest first. */
+	readonly runs: () => readonly WorkflowRunView[]
+	readonly subscribe: (listener: () => void) => () => void
+	/** Stop one run; false when it is not running. */
+	readonly stop: (runId: string) => boolean
+	/** Skip one agent of a run; false when it is not running. */
+	readonly skipAgent: (runId: string, index: number) => boolean
+	/** Which run and agent a monitor row is, if it is a workflow agent. */
+	readonly agentOf: (
+		viewId: string,
+	) => { readonly runId: string; readonly index: number } | undefined
+	/** Every run of this conversation, newest first: the live ones, then the journaled rest. */
+	readonly history: () => Promise<readonly WorkflowRunView[]>
+	/** Be told once when a run ends, whether or not a turn is running. */
+	readonly onEnd: (listener: (end: WorkflowRunEnd) => void) => () => void
+	/** Resolves once no run is going, or when the signal aborts. */
+	readonly idle: (signal?: AbortSignal) => Promise<void>
+	/** Forget ended runs and stop running ones (a new conversation). */
+	readonly reset: () => void
 }
 
 export interface AgentSession {
@@ -1136,7 +1183,11 @@ export interface AgentSession {
 		message: string,
 		opts?: SendOptions,
 	) => Promise<SubagentMessageReceipt>
+	/** Stop one running child from the agents rail; false when it is not ours or already ended. */
+	readonly stopSubagent?: (viewId: string) => boolean
 	readonly subagents?: SubagentActivitySource
+	/** Workflow runs of this conversation: the `workflow` tool's background runs. */
+	readonly workflows?: SessionWorkflows
 	/**
 	 * Children of this conversation's earlier turns, rebuilt from their own
 	 * session logs.
@@ -1967,6 +2018,8 @@ export interface AgentSessionOptions {
 	readonly memory?: MemoryCliConfig
 	/** See `NamzuCliConfig.limits`: how many model calls and tokens one turn may spend. */
 	readonly limits?: TurnLimitsConfig
+	/** See `NamzuCliConfig.workflow`: the caps a workflow run is held to. */
+	readonly workflow?: WorkflowCliConfig
 	/**
 	 * Where this session's events are recorded, if anywhere.
 	 *
@@ -2814,6 +2867,19 @@ export async function createAgentSession(
 	// would otherwise never see (`reviewAllowedCalls`): without it a child's
 	// rule-allowed or already-approved call ran past a handler in plan mode.
 	const delegatedReviewAllowedCalls = new Map<TurnId, () => boolean>()
+	// What a turn may do about starting a workflow: whether anyone can review
+	// it, the mode it runs under, and who answers for the run once the turn is
+	// over. Keyed by the turn, like the review channel it sits beside.
+	const delegatedWorkflowAuth = new Map<
+		TurnId,
+		{
+			readonly interactive: boolean
+			readonly mode: () => PermissionMode
+			readonly reviewer: NonNullable<SendOptions['workflowReview']> | undefined
+		}
+	>()
+	let workflowHost: WorkflowHost | undefined
+	const workflowEndListeners = new Set<(end: WorkflowRunEnd) => void>()
 	const goalToolNames = new Set<string>(SESSION_GOAL_TOOL_NAMES)
 	if (options.sessionGoals) {
 		toolsets.push(
@@ -3262,6 +3328,77 @@ export async function createAgentSession(
 		new ToolManager({ toolsets: agentToolsets, messages: () => [] }).dispose()
 		toolsets.push(...agentToolsets)
 		allowedAgentIds = sub.allowedAgentIds
+		// The `workflow` tool is not part of the session's own roster: a turn
+		// mounts it only when the operator asked for orchestration (see `send`).
+		workflowHost = createWorkflowHost({
+			subagents: sub,
+			runsDirectory: (turnId) => {
+				// An ephemeral session keeps nothing on disk, a journal included.
+				if (options.ephemeral) return undefined
+				const owner = delegationScopes.get(turnId) ?? scope
+				return join(paths.sessionDir({ sessionId: owner.sessionId }), 'runs')
+			},
+			refusal: (turnId) => {
+				const auth = delegatedWorkflowAuth.get(turnId)
+				if (!auth) return 'This turn cannot start a workflow.'
+				return workflowRefusal({ interactive: auth.interactive, mode: auth.mode() })
+			},
+			openRunTurn: (originTurnId, runId) => {
+				const runTurnId = generateTurnId()
+				const origin = delegatedWorkflowAuth.get(originTurnId)
+				const ownerScope = delegationScopes.get(originTurnId) ?? { ...scope }
+				const control = createLiveModeControl({
+					initial: origin?.mode() ?? 'prompt',
+					...(origin ? { read: origin.mode } : {}),
+					handlerFor: (mode) =>
+						makeResumeHandler(
+							approval,
+							origin?.reviewer?.onPermission,
+							mode,
+							reviewExemptionFor(mode, manager, (input) => sub.launchesReadOnlyAgent(input)),
+							{ unattendedSandboxEscape },
+							screenPolicyFor(() => manager),
+						),
+				})
+				liveModeControls.add(control)
+				delegationScopes.set(runTurnId, ownerScope)
+				delegationLimits.set(
+					runTurnId,
+					delegationLimits.get(originTurnId) ?? resolveTurnGuards(options.limits, undefined),
+				)
+				delegatedResumeHandlers.set(runTurnId, control.handler)
+				delegatedReviewAllowedCalls.set(runTurnId, control.reviewAllowedCalls)
+				const model = delegationModels.get(originTurnId)
+				if (model) delegationModels.set(runTurnId, model)
+				void runId
+				let released: Promise<void> | undefined
+				return {
+					turnId: runTurnId,
+					release: () => {
+						released ??= (async () => {
+							liveModeControls.delete(control)
+							delegationScopes.delete(runTurnId)
+							delegationLimits.delete(runTurnId)
+							delegatedResumeHandlers.delete(runTurnId)
+							delegatedReviewAllowedCalls.delete(runTurnId)
+							delegationModels.delete(runTurnId)
+							await sub.releaseTurn(runTurnId)
+						})()
+						return released
+					},
+				}
+			},
+			limitsFor: (turnId) => {
+				const budget = delegationLimits.get(turnId)?.tokenBudget
+				return {
+					...(budget !== undefined && budget > 0 ? { tokenBudget: budget } : {}),
+					...options.workflow,
+				}
+			},
+			onEnd: (end) => {
+				for (const listener of [...workflowEndListeners]) listener(end)
+			},
+		})
 	} catch (err) {
 		try {
 			await subagentRuntime?.close()
@@ -3642,6 +3779,8 @@ export async function createAgentSession(
 	const reasoningLookup = new AbortController()
 	const operations = new SessionOperationOwner(async () => {
 		reasoningLookup.abort()
+		// Runs stop before the delegation runtime closes under them.
+		workflowHost?.registry.close()
 		const results = await Promise.allSettled([
 			Promise.resolve().then(() => manager.dispose()),
 			options.conversationSessions
@@ -4247,6 +4386,36 @@ export async function createAgentSession(
 			jobRegistry?.onExit((job) => {
 				if (job.owner === jobOwner) listener(job)
 			}) ?? (() => {}),
+		...(workflowHost
+			? {
+					workflows: ((host: WorkflowHost): SessionWorkflows => ({
+						runs: () => host.registry.list(),
+						subscribe: (listener) => host.registry.subscribe(listener),
+						stop: (runId) => host.registry.stop(runId),
+						skipAgent: (runId, index) => host.registry.skipAgent(runId, index),
+						agentOf: (viewId) => host.registry.agentOf(viewId),
+						history: async () => {
+							const live = host.registry.list()
+							const known = new Set(live.map((view) => view.runId))
+							const saved = options.ephemeral
+								? []
+								: await listWorkflowRuns(
+										join(paths.sessionDir({ sessionId: scope.sessionId }), 'runs'),
+									).catch(() => [])
+							return [
+								...[...live].sort((a, b) => b.startedAt - a.startedAt),
+								...saved.filter((view) => !known.has(view.runId)),
+							]
+						},
+						onEnd: (listener) => {
+							workflowEndListeners.add(listener)
+							return () => workflowEndListeners.delete(listener)
+						},
+						idle: (signal) => host.registry.whenIdle(signal),
+						reset: () => host.registry.reset(),
+					}))(workflowHost),
+				}
+			: {}),
 		...(subagentRuntime
 			? {
 					subagents: subagentRuntime.activity,
@@ -4258,6 +4427,7 @@ export async function createAgentSession(
 							directChildReports.delete(listener)
 						}
 					},
+					stopSubagent: (viewId: string) => subagentRuntime?.stopChild(viewId) ?? false,
 					messageSubagent: (viewId: string, message: string, opts?: SendOptions) =>
 						operations.promise(opts?.signal, async (signal) => {
 							const runtime = subagentRuntime
@@ -4554,6 +4724,11 @@ export async function createAgentSession(
 						if (opts?.waitForInbound) delegatedInputWaiters.set(turnId, opts.waitForInbound)
 						delegationScopes.set(turnId, turnScope)
 						delegationLimits.set(turnId, turnLimits)
+						delegatedWorkflowAuth.set(turnId, {
+							interactive: opts?.workflowReview?.onPermission !== undefined,
+							mode: () => modeControl.current(),
+							reviewer: opts?.workflowReview,
+						})
 						if (capturedAuthority) {
 							if (goalAuthorities.has(turnId)) {
 								throw new Error(`Turn ${turnId} already owns goal-round authority.`)
@@ -4716,6 +4891,25 @@ export async function createAgentSession(
 								render: () => invocationContext,
 							})
 						}
+						// The `workflow` tool is offered only when the operator asked for
+						// orchestration, so an ordinary turn never carries its schema.
+						const workflowOffer =
+							workflowHost !== undefined &&
+							opts?.workflowReview !== undefined &&
+							!residentContext &&
+							workflowOffered({
+								hypermode: opts?.hypermode === true,
+								userText: lastUserText(messages),
+							})
+						if (workflowOffer && workflowHost) {
+							runToolsets = [...runToolsets, toolset('workflow', [workflowHost.tool])]
+							if (runManager !== manager) runManager.dispose()
+							runManager = new ToolManager({
+								toolsets: runToolsets,
+								...(screensConfig !== undefined ? { resultGuardrails: screensConfig } : {}),
+								messages: () => [],
+							})
+						}
 						const systemPrompt =
 							[
 								NAMZU_IDENTITY,
@@ -4728,6 +4922,7 @@ export async function createAgentSession(
 									? undefined
 									: NAMZU_DELEGATION_DOCTRINE,
 								!residentContext && opts?.hypermode ? NAMZU_HYPERMODE_DOCTRINE : undefined,
+								workflowOffer ? WORKFLOW_DOCTRINE : undefined,
 								residentContext ? undefined : palPromptBlock(),
 								options.conversationSessions ? CONVERSATION_EVIDENCE_GUIDANCE : undefined,
 								options.toolLoading === 'deferred' ? DEFERRED_TOOL_GUIDANCE : undefined,
@@ -4928,6 +5123,7 @@ export async function createAgentSession(
 							delegatedInputWaiters.delete(turnId)
 							delegationScopes.delete(turnId)
 							delegationLimits.delete(turnId)
+							delegatedWorkflowAuth.delete(turnId)
 							await subagentRuntime?.releaseTurn(turnId)
 						}
 					}
@@ -6294,6 +6490,15 @@ export function toAgentEvent(
 					if (view.kind === 'diff') rememberCallDiff(event.toolUseId, view)
 					return {
 						summary: viewToSummary(view),
+						...(() => {
+							const command =
+								view.kind === 'terminal'
+									? view.command
+									: view.kind === 'generic' && view.facts?.kind === 'command'
+										? view.facts.command
+										: undefined
+							return command ? { command } : {}
+						})(),
 						...(view.kind === 'generic' && view.activity ? { activity: view.activity } : {}),
 						detail: viewToLines(view),
 						...(view.kind === 'generic' && view.presentation === 'activity'
@@ -6404,6 +6609,7 @@ export function toAgentEvent(
 				summary: headline ?? summary,
 				...(headline ? { headline } : {}),
 				...(plainFailure ? { plainFailure } : {}),
+				...(tidy?.shell ? { shell: tidy.shell } : {}),
 				...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),
 				...(view.kind === 'generic' && view.visibility === 'hidden' ? { hidden: true } : {}),
 				...(event.isError && view.kind === 'generic' && view.outcome === 'cancelled'

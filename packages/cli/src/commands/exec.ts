@@ -21,7 +21,13 @@
 
 import { relative, resolve } from 'node:path'
 
-import { BOOT_EVENT_NAMES, EVENT_NAME_ATTRIBUTE, TurnCancelled, asSessionId } from '@namzu/sdk'
+import {
+	BOOT_EVENT_NAMES,
+	EVENT_NAME_ATTRIBUTE,
+	TurnCancelled,
+	asSessionId,
+	createAssistantMessage,
+} from '@namzu/sdk'
 import type { Message, StopReason, StructuredOutputConfig } from '@namzu/sdk'
 import type { AgentEvent } from '../tui/agent.js'
 
@@ -56,6 +62,7 @@ import {
 	unknownOptionMessage,
 } from './exec-flags.js'
 import { execJson } from './exec-json.js'
+import { MAX_REPORT_TURNS, commandSpend, reportMessage, watchWorkflows } from './exec-workflows.js'
 import { duration, pauseWait } from './provider-wait.js'
 import { resolveResume } from './resume.js'
 import { readStdin } from './stdin.js'
@@ -371,6 +378,7 @@ async function execPrint(
 		...(Object.keys({ ...ctx.config.limits, ...limitsFromFlags }).length > 0
 			? { limits: { ...ctx.config.limits, ...limitsFromFlags } }
 			: {}),
+		...(ctx.config.workflow ? { workflow: ctx.config.workflow } : {}),
 		...(ctx.config.sandbox ? { sandbox: ctx.config.sandbox } : {}),
 		...(ctx.config.decision ? { decision: ctx.config.decision } : {}),
 		// `!== undefined`, not truthiness: an empty list is the operator
@@ -447,6 +455,10 @@ async function execPrint(
 		usage?: Extract<AgentEvent, { kind: 'usage' }>
 		budget?: Extract<AgentEvent, { kind: 'done' }>['budget']
 	} = {}
+	// The budgets of the turns before the last one: a workflow the model started
+	// is reported on in a turn of its own, and the command spent both.
+	const earlierBudgets: NonNullable<typeof measured.budget>[] = []
+	const spend = () => commandSpend(earlierBudgets, measured.budget, session.workflows)
 	const jsonResult = (value: string) => ({
 		text: value,
 		...(measured.usage
@@ -457,7 +469,7 @@ async function execPrint(
 					},
 				}
 			: {}),
-		...(measured.budget ? { budget: measured.budget } : {}),
+		...(spend() ? { budget: spend() } : {}),
 	})
 	let stopReason: StopReason | undefined
 	// Written from inside `consume`, so held on an object: a `let` assigned
@@ -530,13 +542,24 @@ async function execPrint(
 	const finalPrompt = pipedAfterStartup
 		? composePrompt(fromArgs, await pipedRead)
 		: promptUntilPiped
-	await consume(
-		session.send([...prior, { role: 'user', content: finalPrompt, timestamp: Date.now() }], {
-			signal: turnAbort.signal,
-			...(extraSystem ? { extraSystem } : {}),
-			...(flags.effort !== null ? { effort: flags.effort } : {}),
-		}),
-	)
+	const firstMessage: Message = { role: 'user', content: finalPrompt, timestamp: Date.now() }
+	// The settled conversation, for the turns that follow the first: a workflow
+	// the model started is reported on in a turn of its own.
+	let history: readonly Message[] | undefined
+	const watch = watchWorkflows(session.workflows)
+	const turnOptions = {
+		signal: turnAbort.signal,
+		...(extraSystem ? { extraSystem } : {}),
+		...(flags.effort !== null ? { effort: flags.effort } : {}),
+		// This host can wait for a background run, so it says so: without it the
+		// model is not offered the tool. Nobody is here to review a script, so
+		// only a session set to run without asking may start one.
+		workflowReview: { currentPermissionMode: () => modeResult.mode },
+		onConversationMessages: (messages: readonly Message[]) => {
+			history = messages
+		},
+	}
+	await consume(session.send([...prior, firstMessage], turnOptions))
 	afterPhase()
 
 	// A provider pause is answered by waiting, when the caller gave time to
@@ -584,6 +607,39 @@ async function execPrint(
 		)
 		afterPhase()
 	}
+	// Workflows the model started: wait for them (their own limits bound the
+	// wait, and the turn limit when one is set), hand the model the one message
+	// about how they ended, and let it report before the process exits. The
+	// printed answer is then the report's.
+	for (
+		let rounds = 0;
+		watch && !stopped && !stop.failed && !stop.paused && !stop.busy && rounds < MAX_REPORT_TURNS;
+		rounds += 1
+	) {
+		const message = await watch.report({
+			signal: turnAbort.signal,
+			...(ctx.config.limits?.timeoutMs ? { timeoutMs: ctx.config.limits.timeoutMs } : {}),
+		})
+		if (message === undefined || stopped) break
+		ctx.formatter.info('workflow finished: the model is reporting on it')
+		phase = 'running'
+		const before = text
+		text = ''
+		if (measured.budget) earlierBudgets.push(measured.budget)
+		measured.budget = undefined
+		await consume(
+			session.send(
+				[
+					...(history ?? [...prior, firstMessage, createAssistantMessage(before)]),
+					reportMessage(message),
+				],
+				turnOptions,
+			),
+		)
+		if (text.trim().length === 0) text = before
+		afterPhase()
+	}
+	watch?.dispose()
 	// The signal handler closes the session and ends the process.
 	if (stopped) return 1
 	const failed = stop.failed
@@ -602,10 +658,9 @@ async function execPrint(
 	// interrupted, which is exactly the turn somebody wanted the record of.
 	await sessionExport?.shutdown()
 
-	if (measured.budget) {
-		ctx.formatter.info(
-			`Tokens: ${measured.budget.ownTokens} own · ${measured.budget.treeTokens} including descendants`,
-		)
+	const spent = spend()
+	if (spent) {
+		ctx.formatter.info(`Tokens: ${spent.ownTokens} own · ${spent.treeTokens} including descendants`)
 	}
 
 	if (failed) {

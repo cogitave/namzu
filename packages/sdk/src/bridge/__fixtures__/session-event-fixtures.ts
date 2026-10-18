@@ -159,7 +159,7 @@ export const SESSION_EVENT_FIXTURES: Record<SessionEvent['type'], () => SessionE
 		type: 'background_job_exited',
 		sessionId: FIXTURE_SESSION_ID,
 		turnId: FIXTURE_TURN_ID,
-		jobId: 'job_1',
+		jobId: 'b00000001',
 		command: 'npm test',
 		status: 'exited',
 		exitCode: 0,

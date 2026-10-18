@@ -5,11 +5,15 @@ import { theme } from './theme.js'
 
 const HYPERMODE_GLOW_MS = 880
 const HYPERMODE_GLOW_COLORS = ['ansi256(183)', theme.accent.hypermode, 'ansi256(97)'] as const
-const MESSAGE_CAPTION_COLUMNS = 10
 
-/** A bounded command frame; its content stays mounted while another prompt owns focus. */
+/**
+ * The composer's frame: a plain horizontal rule above and below the input and
+ * nothing at the sides, no corners and no title, as the reference draws it.
+ * Its content stays mounted while another prompt owns focus. The one thing
+ * written on a rule is the session mode (today only `hypermode`), at the right
+ * end of the upper one.
+ */
 export function ComposerFrame({
-	focus,
 	hidden = false,
 	mode,
 	columns,
@@ -17,7 +21,8 @@ export function ComposerFrame({
 	animate = true,
 	children,
 }: {
-	readonly focus: boolean
+	/** Kept for the callers that say whether the input owns the keyboard; the rules look the same either way. */
+	readonly focus?: boolean
 	readonly hidden?: boolean
 	readonly working?: boolean
 	readonly animate?: boolean
@@ -34,23 +39,12 @@ export function ComposerFrame({
 	const terminal = useWindowSize()
 	const { stdout } = useStdout()
 	const screenReader = useIsScreenReaderEnabled()
-	const accent = focus ? theme.border.focus : theme.text.muted
 	const frameColumns = Math.max(2, columns ?? terminal.columns ?? 80)
-	// Keep the mode visible on small screens by giving its label the caption's
-	// space. Only a frame too narrow to hold the complete word omits it.
-	const showMode = mode !== undefined && frameColumns >= mode.length + 7
-	const showCaption = !showMode || frameColumns >= 28
-	const ruleColumns = Math.max(
-		1,
-		frameColumns -
-			2 -
-			(showCaption ? MESSAGE_CAPTION_COLUMNS : 0) -
-			(showMode ? mode.length + 3 : 0),
-	)
-	// Below this width the caption yields its space to the label, leaving the
-	// rule on the left of the input center. A pulse there would appear off-center.
-	const motion =
-		animate && stdout.isTTY === true && !screenReader && showMode && showCaption && colourAllowed()
+	// Only a frame too narrow to hold the complete word omits it.
+	const showMode = mode !== undefined && frameColumns >= mode.length + 5
+	const ruleColumns = Math.max(1, frameColumns - (showMode ? mode.length + 3 : 0))
+	// A pulse needs a rule long enough to have a visible center.
+	const motion = animate && stdout.isTTY === true && !screenReader && showMode && colourAllowed()
 	const [igniting, setIgniting] = useState(false)
 	const previousActivation = useRef(activation)
 	const { time, reset } = useAnimation({
@@ -70,18 +64,8 @@ export function ComposerFrame({
 	}, [hidden, igniting, motion, time])
 	const glowTime = igniting && motion && !hidden && time < HYPERMODE_GLOW_MS ? time : undefined
 	return (
-		<Box position="relative" flexDirection="column" width={frameColumns} marginTop={hidden ? 0 : 1}>
+		<Box flexDirection="column" width={frameColumns} marginTop={hidden ? 0 : 1}>
 			<Box display={hidden ? 'none' : 'flex'} height={1} flexShrink={0}>
-				<Box flexShrink={0}>
-					<Text color={accent}>┌</Text>
-				</Box>
-				{showCaption ? (
-					<Box minWidth={0}>
-						<Text color={accent} wrap="truncate-end">
-							─ <Text bold>MESSAGE</Text>{' '}
-						</Text>
-					</Box>
-				) : null}
 				{glowTime !== undefined ? <GlowRule columns={ruleColumns} time={glowTime} /> : <Rule />}
 				{showMode ? (
 					<Box flexShrink={0}>
@@ -92,34 +76,10 @@ export function ComposerFrame({
 						<Text color={theme.border.default}>─</Text>
 					</Box>
 				) : null}
-				<Box flexShrink={0}>
-					<Text color={accent}>┐</Text>
-				</Box>
 			</Box>
-			<Box
-				flexDirection="column"
-				{...(hidden ? {} : { borderStyle: 'single' as const })}
-				borderTop={false}
-				borderBottom={false}
-				borderLeft={!hidden}
-				borderRight={!hidden}
-				borderColor={theme.border.default}
-			>
-				{children}
-			</Box>
+			<Box flexDirection="column">{children}</Box>
 			<Box display={hidden ? 'none' : 'flex'} height={1} flexShrink={0}>
-				<Box flexShrink={0}>
-					<Text color={accent}>└</Text>
-				</Box>
-				<Box minWidth={0}>
-					<Text color={accent} wrap="truncate-end">
-						─
-					</Text>
-				</Box>
 				<Rule />
-				<Box flexShrink={0}>
-					<Text color={accent}>┘</Text>
-				</Box>
 			</Box>
 		</Box>
 	)

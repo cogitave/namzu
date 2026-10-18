@@ -284,7 +284,7 @@ async function mountReady(tui?: TuiContext['tui']) {
 	}
 	const harness = render(<App ctx={ctx} />)
 	mounted.push(harness)
-	await frameShows(harness, '› Type a message… (/help for commands)')
+	await frameShows(harness, '❯ Type a message… (/help for commands)')
 	return harness
 }
 
@@ -368,7 +368,7 @@ it.each([
 		await waitUntil(() => gates.length === 1)
 		await submit(harness, 'depends on first')
 		gates[0]?.release()
-		await frameShows(harness, `paused after a ${label} reply`)
+		await frameShows(harness, `Paused after the ${label} reply`)
 		await tick(100)
 
 		expect(sendCalls, 'the dependent prompt ran after its premise failed').toBe(1)
@@ -390,7 +390,7 @@ it('explains a resumable pause and holds dependent queued work', async () => {
 	await frameShows(harness, 'OpenAI said: organization window exhausted')
 	expect(harness.lastFrame()).not.toContain('[provider.rate_limit]')
 	expect(harness.lastFrame()).not.toContain('7f6bf1c5-d9f6-4443-be52-d4c01f4f405b')
-	await frameShows(harness, 'held after a reply paused')
+	await frameShows(harness, 'Held while the reply is paused')
 	await tick(100)
 
 	expect(sendCalls, 'the dependent prompt ran after a resumable stop').toBe(1)
@@ -426,7 +426,7 @@ it('lets a post-error human continuation release the earlier FIFO before finally
 		'queued before failure',
 		'continue after seeing failure',
 	])
-	expect(harness.lastFrame()).not.toContain('paused after a failed reply')
+	expect(harness.lastFrame()).not.toContain('Paused after the failed reply')
 })
 
 // The durable half of a failed turn is the kernel's: a turn that began records
@@ -449,7 +449,7 @@ it('pauses a pre-event throw, keeps its attachment in the history, and resumes F
 	await waitUntil(() => gates.length === 1)
 	await submit(harness, 'queued before throw')
 	gates[0]?.release()
-	await frameShows(harness, 'paused after a failed reply')
+	await frameShows(harness, 'Paused after the failed reply')
 
 	expect(sendCalls).toBe(1)
 	expect(requests).toEqual([

@@ -11,7 +11,9 @@ status: stable
 
 Namzu uses neutral text with phosphor-green accents on the terminal's own
 background. A two-row block-letter wordmark carries the opening identity, with a muted
-version beside it. Terminals narrower than 48 columns or shorter than 20 rows
+version beside it and, on the row under the version, the working folder
+(home written as `~`, cut from the left to fit, as a coding agent's welcome
+header does; the footer no longer names it). Terminals narrower than 48 columns or shorter than 20 rows
 use the compact `∴ namzu` signature. The header is printed once
 into native scrollback. Provider and tool details remain available through
 `/status` and `/status tools`. A normal startup does not add a redundant
@@ -33,63 +35,141 @@ conversation lists and notices without rewriting stored sessions.
 
 ## The composer footer
 
-One dim line sits directly below the message frame, with no blank row between
-them. On the left: the active permission mode, colored by mode (`accept-edits`
-and `auto` in the user accent, `strict` in the warn color, `plan` read-only)
-with its `⏵⏵`/`‖` glyph and, when Shift+Tab actually cycles it here, the
-`(shift+tab to cycle)` reminder; a reasoning-effort override, when the operator
-has set one, beside it as `· effort <level>`; then the working directory. When
-the mode is the unremarkable default (`prompt`), the left side shows a quiet
-`shift+tab to cycle` in place of a badge, rather than a line that is present in
-every state and therefore read in none. On the right: an interaction hint or a
-durable goal when either is active, else the model identity — the same
-precedence the path used to defer to, now extended to the model. The footer is
-always exactly one row: on narrow screens the working directory shrinks and
-drops first (as it already did on the old status line — a path is recoverable,
-the mode is not), then the effort label, then the cycle-key reminder, then the
-model on the right is dropped entirely, and only as a last resort does the
-mode badge itself truncate. Where no composer is on screen (a picker, the trust prompt, a stopped start) the footer leaves out the cycle reminder, since Shift+Tab is the composer's key; the active mode and the folder stay. This single line replaces two things that used to be drawn
-separately: the permission-mode row that used to appear inside the message
-frame above the input, and the separate status line — model, effort, working
-directory left, goal or hint right — that used to sit one blank row below the
-frame. Pending input and transient notices stay inside the message frame,
-above the input.
+One line sits directly below the composer's lower rule, with no blank row between
+them. It follows the reference terminal agent's item order and wording; its
+items are joined by a dim ` · `, left to right:
+
+```text
+⏵⏵ bypass permissions on · PR #607 · 3 shells · esc to interrupt · ← 1 agent · ↓ to manage   model
+```
+
+- **The mode**, as `<mark> <words> on` in the mode's color, then a dim
+  `(shift+tab to cycle)` when Shift+Tab actually cycles it here and no
+  background shell is running (as in the reference, a running task takes the
+  reminder off the row). `auto` reads `⏵⏵ bypass permissions on` in the error
+  color, `accept-edits` reads `⏵⏵ accept edits on` in the user accent, `plan`
+  reads `‖ plan mode on` in teal, `strict` reads `‖ preapproved only on` in the
+  warn color. The default mode (`prompt`) has no item: the row shows a quiet
+  `shift+tab to cycle` only when nothing else would be on it.
+- **The pull request** for the current branch, `PR #592`: a dim `PR` and the
+  number underlined, as an OSC 8 link to the pull request where the terminal
+  supports links (plain text elsewhere), colored by review state: approved
+  green, changes requested red, awaiting review yellow, merged purple, draft
+  dim. It is hidden on `main`, `master`, the repository's default branch, and
+  outside a git repository. A missing `gh` shows a dim `install gh for PR
+  status`; a signed-out `gh` shows `gh auth login for PR status`; any other
+  failure, and a branch with no pull request, show nothing.
+- **Background shells**, a cyan pill `1 shell` / `N shells`. It replaces the
+  separate `N shells running` line that used to sit under the footer, and it
+  hides with the composer surface (a permission or child view owning the
+  screen).
+- **The reasoning effort**, when the operator has set one, as `effort <level>`
+  (Namzu's own item; the reference has none).
+- **`esc to interrupt`**, dim, while a turn runs (omitted when the right side
+  already carries a hint that names Esc).
+- **`← N agent(s)`**, dim, when `←` from an empty composer would open the agents
+  and N of them are running (agents plus workflow runs; capped at `99+`). It
+  shows while a turn runs and while idle, and only with nothing typed, pasted
+  or attached, no panel open and the rail not focused, so the row never names
+  a key that does nothing.
+- **`↓ to manage`**, dim, when `↓` from an empty composer reaches something: a
+  running shell or a row on the agents rail. Same conditions as the agents
+  hint.
+
+On the right: an interaction hint or a durable goal when either is active, else
+the model identity. The working directory is no longer on this row.
+
+The keys the hints name:
+
+- **`↓`** from an empty composer focuses the footer. The shell pill comes
+  first (drawn inverted, with `↓ to manage` turning into `enter to view
+  shells`); Enter opens the same
+  `Background` screen `/jobs` opens. `↓` again moves into the agents rail (`main`,
+  then the agents, then the workflows) and `↑` from its first row moves back
+  to the pill. With no shells the first `↓` lands on the rail, and with no
+  rows either it opens the agents cockpit, as before. Esc or any other key
+  hands the keyboard back to the composer.
+- **`←`** from an empty composer opens the agents cockpit (`/agent`). With
+  anything typed, pasted or attached, or with Shift/Ctrl/Alt held, it is cursor
+  movement as always.
+
+The footer is always exactly one row. On narrow screens it drops, in order: the
+model on the right, `↓ to manage`, `← N agents`, `esc to interrupt`, the cycle
+reminder, the effort label, the shell pill, the pull request item, the quiet
+reminder, and only then does the mode truncate. Whole items go, never half of
+one (the reference clips its row at the edge, which can show half a word).
+Where no composer is on screen (a picker, the trust prompt, a stopped start) the
+footer leaves out the cycle reminder, since Shift+Tab is the composer's key; the
+active mode stays. This single line replaces the permission-mode row that used
+to appear inside the writing area, the separate status line below it, and the
+shells line under that. Pending input and transient notices stay inside the
+composer's rules, above the input.
+
+Deliberate differences from the reference: the model identity (`Auto · fast ·
+model` while Auto routing is on) stays on the right while it fits; `← N agents`
+counts this session's running agents and workflows and `←` opens them, where the
+reference counts other background sessions that wait for the person and `←`
+sends the session itself to the background (a confirmation press and all);
+there is no resting `← for agents` hint; and `↓ to manage` is not offered
+with text typed, because `↓` is cursor movement then.
+
+The pull request item is read off the render path by `tui/pr-status.ts`: `git
+symbolic-ref` for the branch, then `gh pr view --json
+number,url,state,isDraft,reviewDecision` for it, each with a 5 second timeout and
+no prompt allowed. It first runs about half a second after the screen mounts,
+again each time a turn ends (an agent may have switched branches), and then on a
+slow ladder: 90 seconds while the operator is active, up to 30 minutes when
+idle, stretched further for an answer that keeps coming back the same and for
+repeated failures. It never runs while a turn is running, never in print or
+exec mode (they do not mount this screen), and not at all when
+`NAMZU_PR_STATUS=off` or the output is not a terminal.
 
 While a turn runs, Enter steers a submitted message to that turn's next model
-boundary; Tab holds it for the next turn. A bounded preview above the composer
-shows the first pending steer and queued message, plus attachment counts and
-overflow counts. On terminals below 24 rows, it uses at most three lines: the
-steer, the queue, and an Alt+Up hint with the most recent operator-composed
-message that can be recalled. Taller terminals show separate delivery headings
-and two messages per group. Control characters in a submitted message are
-escaped before display. Alt+Up restores a queued message into an empty draft
-without losing attachments or armed triggers. A held queue is labeled as such;
-after Esc, a new Enter message runs before that queue. The preview's rows are
-counted in the transcript's live-window budget so it does not overdraw a short
-terminal.
+boundary; Tab holds it for the next turn. Messages typed while Namzu is working
+are rows at the end of the transcript, directly above the working line (and
+so above the input frame), not inside the frame: pending rows, then the send-now
+hint, then `Working (…)`, then the input. Each is `❯ <text>` in the grey of a
+message not yet read, one row per message in the order it will be used. A
+Tab-queued row ends with a dim `· after this reply`, so it reads apart from a
+steer. Under the last row a dim `ctrl+x ctrl+s to send now` appears while a
+reply runs. Rows are bounded by the terminal height (five, three or one; the
+rest fold into a dim `+N more messages` row) and counted in the transcript's
+live-window budget so they do not overdraw a short terminal. Control
+characters in a submitted message are escaped before display. When a steer is
+delivered it becomes an ordinary user row carrying a dim `· sent while
+working`.
 
-When a background shell is running, a separate single-line status appears
-below the composer footer with its count and `/jobs` entry point. It yields
-while a permission or child view owns the screen, and a short label fits narrow
-terminals. The `/jobs` child view keeps the input draft mounted, lets the
+With nothing typed, Up chooses the newest queued message the operator wrote
+(automatic goal and peer items cannot be edited); the chosen row takes the
+accent colour and the others lose their pointer. Up and Down move, Enter loads
+the chosen message into the input with its attachments and armed triggers,
+and Esc only leaves the choice. Typing anything else leaves it too. While
+messages can be edited the input's placeholder reads `Press up to edit queued
+messages`. Alt+Up still restores the newest one at once. A held queue says why
+under its rows: after a failed reply `Paused after the failed reply · send a
+message to run them`; after Esc, a new Enter message runs before the queue.
+`ctrl+x ctrl+s` is a two-key chord (any key in between drops it) that does what
+Esc does with a pending steer, interrupting the reply so the steer starts the
+next one, and also releases a queue that Esc had held.
+
+A running background shell shows as the footer's shell pill (above). The `/jobs` child view is the `Background` panel (no job ids on screen; rows read `<icon> <command>  running|done|error|stopped`, details are `Shell details`); a finished job also leaves a `● Background command "…" completed (exit code N)` row in the transcript. It keeps the input draft mounted, lets the
 operator inspect bounded, escaped shell output, and stops a selected running
 job on `x`. A new question from a tool closes the shell view so the question
 is visible and answerable.
 
 [Hypermode](slash-commands.md#hypermode), while on for the session, is named
-once at the message frame's upper right in violet. The top rule rests in plain
-graphite. Turning the mode on sends one short lavender glow from the visible
+once at the right end of the composer's upper rule in violet. The rule rests in
+plain graphite. Turning the mode on sends one short lavender glow from the visible
 rule's center toward both ends, then the rule becomes still again. Repeating
 the selection does not replay it. Motion is skipped in non-interactive terminals,
 for screen readers, and when colour is refused (`NO_COLOR`, `FORCE_COLOR=0`,
-`TERM=dumb`); the label remains readable without colour. Below 28 columns,
-the label takes the `MESSAGE` caption's space and the pulse is skipped. A frame too narrow for the
+`TERM=dumb`); the label remains readable without colour. A frame too narrow for the
 complete mode name omits the label rather than clipping it.
 
 ### Composer triggers
 
 A [composer trigger](composer-triggers.md) — `hypermode`, "bunu skill olarak
-kaydet" — gets one row inside the message frame, above the input, where the
+kaydet" — gets one row inside the composer's rules, above the input, where the
 `Effort:`/`Model:` previews go:
 `✦ hypermode · this turn: effort xhigh, delegate to parallel agents · alt+w drop`.
 The armed words in the draft are bold and underlined in sky (ANSI 117), the
@@ -134,69 +214,142 @@ rail, the agent cockpit, a child transcript, or the tool-output viewer, each
 in the same relative order they already had among themselves. The footer's
 own row is fixed relative to the frame above it, never to whichever of those
 panels follows, so it always reads immediately under the input regardless of
-how much the rail or a full-screen surface below it is showing. The rail's
-own title is the workflow label every one of its agents shares; when they
-carry none, or carry more than one, the title is a neutral count instead
-(`2 agents · 1 running`) rather than a generic name that described none of
-them in particular. The agent cockpit's per-workflow header follows the same
-rule. So does each row of the cockpit's own workflow picker (`Ctrl+T` with two
-or more groups live or retained at once): a group whose agents never set an
-explicit label is named after its own lead agent instead of the generic
-default — that agent's title, plus a `+N` count when the group holds more
-than one — so two unlabelled groups still read as distinct entries rather
-than two identical rows.
+how much the rail or a full-screen surface below it is showing.
+The agent cockpit's per-workflow header names its workflow by the label every
+one of its agents shares; when they carry none, or carry more than one, it
+shows a neutral count (`2 agents · 1 running`) rather than a generic name that
+described none of them in particular. So does each row of the cockpit's own
+workflow picker (`Ctrl+T` with two or more groups live or retained at once): a
+group whose agents never set an explicit label is named after its own lead
+agent instead of the generic default — that agent's title, plus a `+N` count
+when the group holds more than one — so two unlabelled groups still read as
+distinct entries rather than two identical rows.
 
-The rail is a borderless tree aligned with the transcript's own gutter, not a
-boxed panel:
-
-```text
-● Two-phase colour sentence · 1 running · 1 queued · 2.1s · 4.1k tokens · ↓ / ctrl+t
-  ├ ● Choose first colour     2.1s   3 tools · 4.1k · gpt-5.6-luna
-  │   ⎿ Reading src/index.ts
-  └ ◌ Choose second colour    queued
-      ⎿ Waiting for a slot
-```
-
-The header's `●` is green while anything runs and becomes `✓` once all have
-settled; the counts separate running from queued, then say how many are done
-(`2/3 done`, once one is) and, from 96 columns, how long the work has run
-since its first agent started and what it has spent so far. Below 64 columns
-the counts shrink to that one figure, `2/3 done` (with `+N` for agents the
-rail has no room to draw), the same count the cockpit's header gives at that
-width. Each agent is one `├`/`└`
-branch with its status glyph (`◌ ● ✓ ✗ ○`), name, elapsed time and, as width
-allows, tool uses, spend and model — tool uses and spend drop first, then the
-model. A running agent's latest activity sits beneath it on a `⎿` line; on a
-terminal under 24 rows it stays inline after the elapsed time instead, so each
-agent costs one row where rows are scarcest, and the rail shows half as many
-agents where each costs two. The rail stays on screen while an approval dialog
-is open, reduced to its header line, so the work already approved can be seen
-moving while the next launch is being decided. That header names no key: the
-dialog owns the keyboard, so neither ↓ nor Ctrl+T reaches the rail until it
-closes.
-
-A workflow the model split into several phases (agents sharing a `workflow`
-label with different `phase` labels) stays on the rail as one piece for the
-whole turn, and is drawn by phase:
+The rail is a `main` row followed by one row per running or recently
+finished sub-agent, drawn right under the footer with no title and no box:
 
 ```text
-● Two-phase colour sentence · 1 running · 2/3 done · 6.5s · 18.0k tokens · ↓ / ctrl+t
-  ✓ Phase 1 · 2/2 · 4.0s
-  ● Phase 2 · 0/1
-    └ ● Join the two colours       1.0s                    gpt-5.6-luna
-        ⎿ Working
+  ● main
+  ○ general-purpose  Mine the Claude Code UI reference     2m10s · ↓ 12.3k tokens
+  ○ explore          Find where the footer is drawn                 8s · ↓ 1.4k tokens
+  ○ general-purpose  Check the changelog                          waiting
 ```
 
-A settled phase is one line, its count and how long it took; its agents'
-rows are already in the conversation and in Ctrl+T. A live phase is its line
-with its agents beneath it. Under 24 rows a settled phase gives its line up.
-Agents without a workflow label stay grouped by the response that launched
-them, one batch at a time, as before. The rail is empty, and not drawn,
-between phases while no agent is live.
+`●` marks the transcript on screen and `○` every other row; `main` is `●`
+until an agent's transcript is open. An agent's bullet is coloured only once it
+has finished — green when it succeeded, red when it failed or was stopped.
+Each agent row is its type, its description (cut with `…` when the line is
+short) and, right-aligned, how long it has run and what it has spent so far
+(`↓ 12.3k tokens`, left out until the agent has reported usage); an agent
+still waiting for a slot reads `waiting` instead of a clock. Rows follow
+launch order. Workflow and phase labels, the latest activity line, model and
+tool counts are not on the rail; the cockpit (`Ctrl+T`, `/agents`) and the
+agent's own transcript carry them.
+
+At most five agents are drawn. A longer list scrolls with the selection:
+`↑ N more` appears on the right of the `main` row when agents are scrolled
+above, and a dim `↓ N more` row sits under the last one when more are below.
+A finished agent stays 30 seconds, then leaves; saved agents from earlier
+sessions never appear on the rail (the cockpit lists them).
+
+The `main` row appears only beside at least one agent row (or while an agent's
+transcript is open). A rail with nothing but a workflow row has no `main` row.
+
+Press ↓ in an empty composer to move into the rail (with no rows on screen it
+still opens the cockpit for saved agents). The composer is dimmed while the
+rail has the keys, and a key line appears under the rows:
+`↑/↓ to select · enter to view · x to stop · esc to go back`. ↑/↓ moves between `main` and
+the agents (a `❯` marks the row), Enter opens that agent's transcript and
+Esc from it comes back to the same row, `x` stops a running agent (the parent
+turn and the other agents keep going) or, on a finished one, clears its row,
+and Esc hands the keyboard back to the composer. Any other key does the same.
+`Ctrl+T` still opens the cockpit from anywhere. While an approval dialog is
+open the rail shrinks to the `main` row with a count (`2 agents`) and names no
+key, since the dialog owns the keyboard.
+
+Agents and workflows are separate. An agent the model gave a `workflow` label
+is never an agent row: it exists only inside its workflow, which gets one row
+after the agent rows (the rail lists only the unlabelled subagents above it):
+
+```text
+  ● main
+  ○ general-purpose  Gorev a                                                1m05s
+  ○ general-purpose  Gorev d                                       0.3s · ↓ 15 tokens
+  ◯ Release audit    ▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱  3/7 · 2m14s · ↓ 48.2k tokens
+```
+
+A workflow here is the agents the model gave one explicit `workflow` label
+(the kernel has no workflow object; unlabelled batches are only agents).
+The row is `◯`, the label, a `▰▱` bar of settled agents out of all of them,
+then `3/7 · elapsed · ↓ tokens` (the token segment waits for the first usage
+report). It is dim until selected, and the bullet is coloured only by the
+outcome: green when every agent completed, red when one failed or the
+workflow was stopped — and already red while it runs once a member has failed.
+The elapsed time ticks each second and freezes when the last agent settles; the
+row leaves 30 seconds after that. Workflow rows are not windowed and share the
+agents' name column. As the line narrows it gives up, in order, the
+`n/m` counter, the elapsed time, the word `tokens`, then the bar shrinks from
+20 to 12 to 8 cells; the name is squeezed last, never below eight cells.
+
+↓ walks `main` (when drawn), the agents, then the workflows. On a workflow row
+the key line reads `↑/↓ to select · enter to view · x to stop · esc to go back`
+(`x to clear` once it has finished). Enter opens the workflow's detail view and
+`x` stops every agent of the workflow that is still going (each one as its own
+`x` would), or clears a finished row.
+
+The detail view shows one list at a time, in a frame headed by the workflow's
+name and `<done>/<total> agents · <elapsed>`. Level 1 is `Phases`, one row per
+phase in `phase_order` then first seen: the phase's number, which becomes a
+green `✔` once all its agents are done or a red `✘` once it has settled with a
+failure or a stop; the model's `phase` label verbatim; and right-aligned
+`done/total` (total grows as agents are started, since Namzu cannot know a phase
+before it has an agent). The selected phase's `phase_detail` sits under the
+list. Enter or → opens level 2, `<phase> · N agents`: each agent as `✔` done,
+`✘` failed, `●` running or `◌` queued, its description, type, model, tokens and
+time. Enter or → opens that agent's transcript. Esc or ← goes up a level, and
+from level 1 back to the rail row; `x` stops the whole workflow at level 1 and
+the one agent at level 2:
+
+```text
+ Surum denetimi                                          1/5 agents · 2m11s
+ Phases
+ ❯ 1  Tarama                                                            1/3
+   2  Duzeltme                                                          0/2
+ Butun paketlerin surum notlarini tara
+ ↑/↓ to select · enter to view · x to stop · esc to go back
+```
+
+The `workflow` tool's runs use the same row and the same three levels, but are
+driven by the run's own events rather than by the agents that happen to exist:
+the count includes queued agents, a run with no agent yet already has its row,
+and the phases the script declared in `meta.phases` are listed from the start in
+the declared order, a phase nothing has started in shown dim with no count and
+`Not started yet` on level 2. On a run `x` at level 1 stops the whole run and at
+level 2 skips the one agent (`x to skip`), and a skipped agent does not fail its
+phase. The header adds the run's purpose after its name and, once it has ended,
+`· completed`, `· failed` or `· stopped`. At launch the conversation shows
+`● Workflow(<purpose>)` over `⎿ Running in the background (↓ to manage)`, and
+when the run ends, whatever the model is doing, `✓ Workflow <name> completed ·
+<time> · <N> agents · <tokens>` (`✗ … failed`, `■ … stopped`). See
+[Workflows in the CLI](workflows.md).
+
+When the model launches labelled agents the conversation gets one group line,
+`● Workflow Release audit` over `⎿ Running in background · ↓ to manage`,
+instead of a launch row per agent, and no completion rows for them. When a
+workflow is over it leaves one line in the conversation, above the
+turn's `✻ Worked for …` line: `✓ Workflow Release audit completed · 4m02s · 7
+agents · 112.0k tokens` (dim), `✗ … failed · … · 1 failed …` (red) or `■ …
+stopped …` (yellow). "Over" means the parent turn that ran it has ended and
+every member has settled, so a later phase that starts long after the previous
+one finished does not produce a second line; the line is written once per
+workflow label within a turn. Agents under the same label in a later turn are a
+new run with their own row and their own line. Namzu has no workflow pause,
+and the parent turn does not end while its agents still run, so there is no
+paused bullet and no "waiting for N workflows" line.
 
 Between the footer and the rail sits the parent's own narration, when it has
 written any: up to three dim lines, one row each, unboxed and indented to the
-column the rail's title starts in, so they read as the parent talking rather
+column the rail's `main` label starts in, so they read as the parent talking rather
 than as chrome the panel drew. They are commentary and carry no status —
 status is on the rail below them, in counts and glyphs as everywhere else.
 They never take a row from the rail: its height budget is computed from the
@@ -219,17 +372,18 @@ Delegated work leaves three kinds of row in the conversation, each written once
 and never redrawn; the live state belongs to the rail.
 
 ```text
-● Launched 2 agents · Two-phase colour sentence / Phase 1 (ctrl+t to manage)
+● Launched 2 agents (↓ to manage)
   ├ Choose first colour
   └ Choose second colour
 ✓ Choose first colour · 1.7s · 9.0k tokens · ctrl+o result · ctrl+t details
 ✗ Choose second colour · failed after 2.9s · Provider refused the request · ctrl+t details
-✻ Worked for 38s · 3 agents in 2 phases · 27.0k tokens
+✻ Worked for 38s · 3 agents · 27.0k tokens
 ```
 
 - **A launch receipt** per batch: the agents one model response launched
-  together, named under one line, with the workflow and phase labels when the
-  model supplied them. A single agent is named inline. The receipt waits until
+  together, named under one line. A single agent is named inline. Agents the
+  model gave a `workflow` label are one workflow and get one `● Workflow <name>`
+  line instead (see the rail section), once per workflow. The receipt waits until
   the batch is whole, so agents launched in the same response share one
   receipt, and it is always written before any of its agents' completions.
   It is drawn below the reply that launched it even while that reply is still
@@ -243,8 +397,8 @@ and never redrawn; the live state belongs to the rail.
   reach the others. Ctrl+T opens the agent's whole transcript. The answer is the child's text and is shown as text — terminal
   controls in it are displayed, never obeyed.
 - **A closing line** when a turn that launched agents settles: how long the
-  turn took and how many agents it launched, in how many phases when the model
-  named two or more, what they spent when any reported it, and how many failed
+  turn took and how many agents it launched (phases are never counted here),
+  what they spent when any reported it, and how many failed
   when one did. A turn that delegated nothing closes with its time alone,
   `✻ Worked for 46s`, when it finished normally and took three seconds or more;
   a quicker answer, or a turn that was stopped or cancelled (which already says
@@ -414,17 +568,21 @@ File-discovery calls name both the glob pattern and its directory. A shallow
 limits add an explicit incomplete-search notice. See
 [Bounded file discovery](../sdk/file-discovery.md).
 
-A square message frame marks the writing area. Green corners and the `MESSAGE`
-label identify the active input; its long edges stay quiet. The two frame rows
-take the place of vertical padding, so the frame adds no height to the previous
-input layout. The frame is a constant three rows regardless of the active
-permission mode — see [The composer footer](#the-composer-footer) for where
-the mode itself is drawn. The frame stays static while working. Opening a
-permission prompt or text/command picker hides it while keeping the composer
-mounted, so drafts and attachments survive the transition. A text prompt also leaves the
-composer’s keyboard listener attached while the composer is hidden; its input
-guard ignores keys until the prompt closes, so the first key typed when the
-writing area returns is accepted.
+The writing area is two plain horizontal rules, `─` in graphite, with the input
+between them: no side borders, no corners and no title, as in the reference.
+The input line starts with a dim `❯ ` (`…` while the composer is paused), and
+the placeholder, pasted-text and attachment rows, the effort, model and trigger
+rows and the suggestion menus sit between the rules, left-aligned with the
+prompt. The only text ever written on a rule is the session mode, `hypermode`,
+at the upper rule's right end. The frame is a constant three rows plus the blank
+row above it, regardless of the active permission mode — see
+[The composer footer](#the-composer-footer) for where the mode itself is drawn.
+The frame stays static while working. Opening a permission prompt or text/command
+picker hides it while keeping the composer mounted, so drafts and attachments
+survive the transition. A text prompt also leaves the composer’s keyboard
+listener attached while the composer is hidden; its input guard ignores keys
+until the prompt closes, so the first key typed when the writing area returns is
+accepted.
 
 The Working label itself has a repeating green fill and pale leading edge,
 alongside elapsed time and the turn's output so far, `Working (46s · ↓ 1.1k
@@ -585,38 +743,33 @@ explicit phase do not create new phases. These annotations describe grouping,
 not execution dependencies or barriers.
 
 With multiple workflows, the workflow picker opens first. Selecting a workflow
-shows only its phases and agents; Esc returns to workflows and `q` or Ctrl+T
+shows its phases, then one phase's agents; Esc returns to workflows and `q` or Ctrl+T
 returns to the conversation. Older completed or cancelled work stays available.
 Pending admissions show `Queued` until the child session starts. Completed Agent
 and `wait_for_task` outputs name the actual `task_id` and terminal status before
 the child result, so identifiers inside that result remain clearly separate.
 
-The delegated-work view separates phases and agents with a column divider on
-wide terminals and stacked panes on narrow terminals. Task labels, status and
-elapsed time occupy separate cells; activity text does not repeat the status.
-
-The agent cockpit (Ctrl+T, `/agents`) opens on the phase whose agents are
-still working, and on its first working agent; with nothing live, on the first
-phase. Its header says how far the workflow has got, in the reference
-terminal's terms: `2/3 agents done · 1 running · 7.7s · 18.0k tokens` while it
-runs, `3/3 agents · 9.5s · 27.0k tokens · done` (or `failed`, `cancelled`)
-after. Time drops below 70 columns and spend below 100; under 60 only
-`2/3 done` is left, so the workflow's name keeps its room. Each phase row adds
-how long that phase took, and the agent pane is titled by the phase it lists
-(`Phase 2 · 1 agent`) rather than `Agents`. The phase pane's own title is just
-`Phases`: every `N/M` beside it reads done out of total, so it carries no
-cursor position.
+The agent cockpit (Ctrl+T, `/agents`) is the workflow detail view described
+under the rail: a header with the workflow's name and
+`<done>/<total> agents · <elapsed>`, then `Phases` or one phase's agents, one
+list at a time. It opens on the phase whose agents are still working, and on
+its first working agent; with nothing live, on the first phase. Unlabelled
+delegated work (no `workflow` label) opens straight on its agents, headed by a
+neutral count, since it has no phases to choose between. The phase list's own
+title is just `Phases`: every `N/M` beside it reads done out of total, so it
+carries no cursor position.
 
 Selecting an agent opens its own framed transcript screen. The parent composer
 and live rows are hidden while their state remains mounted. The child view
 uses the available terminal height, identifies the task and its live status,
 and supports line and page scrolling. File-output tabs are expanded before
 pagination, and wrapping uses terminal cell widths for Unicode graphemes. Each
-body row stays within its frame, with room for navigation and the cursor. Esc returns to the agent list; `q` or
+body row stays within its frame, with room for navigation and the cursor. Esc returns to the agent list (or, when the view was opened from the rail, to
+that agent's row on the rail); `q` or
 Ctrl+T returns to the main conversation and restores the draft. A child that
 finishes remains readable in the open view and can be reopened from `/agents`
-while retained by the current session. The automatic activity rail shows only
-cohorts with work still running.
+while retained by the current session. The agents rail shows the running agents and
+those that finished in the last 30 seconds.
 
 Messages submitted with Enter while an `Agent` call waits for a child release
 that wait so the parent can respond while children continue. Results arrive in
@@ -633,7 +786,17 @@ The terminal app speaks in the person's terms. `--json`, `namzu exec`, scheduled
 - **Failures the app hit itself** (saving a name, forking, archiving) say what could not be done and, for known causes such as a permission or disk error, why; an unknown cause points at `--debug`. `plain-failure.ts` maps them; the raw message is appended only with `NAMZU_DEBUG=1` or `--debug`.
 - **A crash** prints "Namzu stopped because of an unexpected problem. Details were saved to ~/.namzu/logs/crash-<time>.log." The stack and the buffered diagnostics go to that file (the newest ten are kept); they print too only with `NAMZU_DEBUG=1` or `--debug`.
 - **`/status`** shows the conversation by a short id, the folder with `~`, the sandbox in plain words, and "latest reply" where it used to say "current/latest turn". The version build hash, the executable path and the full conversation id are in `/status details`.
-- **Command output in a step** is read from the typed facts the kernel reports with the result (`ToolResult.facts`, see [Tool execution](../sdk/tool-execution.md#what-a-call-did-as-fields)), not from its text. A failed command reads "Ran npm test · exited with code 2" (a timeout reads "timed out"); the body is the command's own first and last lines, with no `STDOUT:` labels and no note about withheld credentials; binary output is named with its size ("The command printed binary data (2 KB), which is not shown."). A stream longer than the kernel's window shows its first 80 and last 40 lines with a "… 80 lines not shown" line between them, and the collapsed step folds that into the count it prints ("… 194 lines not shown · ctrl+o"). Ctrl+O opens everything the host holds, which for a long stream is those two windows. A conversation saved before facts existed keeps the older reading, which strips ANSI, drops the credential note and the exit trailer and reads "Exited with code 2" from the text. The retained raw output is untouched. A call the person answered No to reads "You declined this, so it did not run." with their words when they gave any, never the refusal text the model was given; a call to a tool that does not exist reads as one sentence.
+- **Command output in a step** is read from the typed facts the kernel reports with the result (`ToolResult.facts`, see [Tool execution](../sdk/tool-execution.md#what-a-call-did-as-fields)), not from its text, and drawn as a shell command cell (`shell-cell.ts`): a header `● Bash(<command>)` whose dot is green when the command exited 0 and red when it failed (dim and blinking while it runs), with no per-command duration, then the result hung under a dim `⎿`.
+
+  ```text
+  ● Bash(for i in $(seq 1 40); do echo satir $i; done)
+    ⎿  satir 1
+       satir 2
+       satir 3
+       … +37 lines (ctrl+o to expand)
+  ```
+
+  The header keeps the command's real line breaks, at most 2 lines and 160 characters, then a single `…`; Ctrl+O shows the whole command. stdout comes first, then stderr in the error colour; each stream shows its first 3 visual lines (10 when the command failed) and then a dim `… +N lines (ctrl+o to expand)`; a stream with exactly one line to hide shows it instead. A failed command that printed something leads with `Exit code N`; one that printed nothing is only `Exit code N` (a timeout reads `Timed out`, a signal `Stopped before it finished`); a command that printed nothing and succeeded reads `(No output)`; one handed to a background job reads `Running in the background (↓ to manage)`, never the model-facing instructions. Binary output is named with its size. While the command runs the live region shows the same header with `⎿  Running… (12s)`, and, once it reports output, the last 5 lines it reported (the kernel coalesces progress to the latest line, so these are the lines seen, not all of them) above the elapsed time. A stream longer than the kernel's window still has its "… 80 lines not shown" gap counted into the `+N`. Ctrl+O opens everything the host holds, which for a long stream is the kernel's first 80 and last 40 lines. A conversation saved before facts existed keeps the older reading, which strips ANSI, drops the credential note and the exit trailer and reads the status from the text. The retained raw output is untouched. A call the person answered No to reads "You declined this, so it did not run." with their words when they gave any, never the refusal text the model was given; a call to a tool that does not exist reads as one sentence.
 - **Key hints appear once per screen.** A picker or prompt draws its hint line inside its own box ("↑↓ select · enter apply · esc back"), and the footer stays quiet while a box is open; it keeps the mode, the folder and the model. The words are the same everywhere: `↑↓ select`, `enter apply`, `esc back` where the key returns to the previous screen, `esc cancel` where it drops what was being done, `esc close` for a viewer. A line wider than its room is one row at every width: each hint has a rank and, where it helps, a short form (`↑↓ or 1–9 select` becomes `↑↓ select`, `esc or ctrl+c exit` becomes `esc exit`, `k enter an API key` becomes `k API key`); the lowest-ranked hint is said short and then dropped (`PgUp/PgDn jump`, `Home/End`, `s provider setup`, `l create a Namzu sign-in` go first), a hint is never cut in the middle, and `↑↓ select`, `enter apply` and the key that leaves are the last to go. Every picker and dialog key line (the provider list and its sub-screens, the sign-in and key screens, the model, resume, copy and edit pickers, the text prompt, the effort slider, the permission prompt, the schedule and save-skill reviews, the agent cockpit, the tool-output viewer, the slash and file menus) is built this way, and the provider list counts that one row in its height budget (a bordered box in the app's padded root has `columns - 6` columns of text, which `boxedHintWidth` in `key-hints.ts` gives; the slash menu's descriptions are held to two lines ending in `…`); the footer's own hint (for example "enter steer · tab queue · esc interrupt" while a reply runs) writes `enter` as `↵` before it drops a hint, and keeps the key that leaves. The folder trust screen has no footer at all: it names the folder and its keys once. `key-hints.ts` holds the vocabulary and the fitting.
 - **A list that does not fit says so.** When the provider list is cut to the terminal's height it draws a quiet `↓ 3 more` under the last row it shows and `↑ 2 more` above the first, counted in rows; the lines come out of the height budget, so the box is still no taller than the screen, and the row under the cursor stays in view as it moves.
 - **A startup that stopped on a file the person can fix** is the sentence alone, with no dot in front of it and no second block. "Startup stopped / Resolve the error above, then restart Namzu." appears only under an error that does not say what to do itself (a `ConfigLoadError` with `complete` set already ends with "Fix it, then start Namzu again."). The footer under a screen with no composer (this one, the pickers, the trust prompt) names the folder and any active mode but not `shift+tab to cycle`, which is the composer's key.

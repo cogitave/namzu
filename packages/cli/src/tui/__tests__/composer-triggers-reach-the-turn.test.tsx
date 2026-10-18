@@ -286,7 +286,7 @@ it('saves the work as a skill after a turn that did it, ahead of a Tab-queued pr
 	await typeKeys('second task')
 	harness.stdin.write('\t')
 	await until(
-		() => /(?:Queue→next|Queued · next reply).*second task/u.test(plain(harness.lastFrame() ?? '')),
+		() => /❯ second task/u.test(plain(harness.lastFrame() ?? '')),
 		'Tab did not put the authored task in the next-turn queue',
 	)
 

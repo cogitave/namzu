@@ -45,10 +45,33 @@ function elapsed(job: BackgroundJob, now: number): string {
 	return `${Math.floor(minutes / 60)}h ${minutes % 60}m`
 }
 
-function jobState(job: BackgroundJob, now: number): string {
-	if (job.status === 'running') return `running · ${elapsed(job, now)}`
-	if (job.status === 'killed') return `stopped · ${elapsed(job, now)}`
-	return `exited ${job.exitCode ?? '?'} · ${elapsed(job, now)}`
+/** The row words: running, done, error, stopped. */
+function jobMeta(job: BackgroundJob): 'running' | 'done' | 'error' | 'stopped' {
+	if (job.status === 'running') return 'running'
+	if (job.status === 'killed') return 'stopped'
+	return job.exitCode === 0 ? 'done' : 'error'
+}
+
+const META_ICON = { running: '●', done: '✓', error: '✗', stopped: '■' } as const
+
+function metaColor(meta: ReturnType<typeof jobMeta>): string {
+	switch (meta) {
+		case 'running':
+			return theme.accent.system
+		case 'done':
+			return theme.status.ok
+		case 'error':
+			return theme.status.error
+		default:
+			return theme.status.warn
+	}
+}
+
+function statusText(job: BackgroundJob): string {
+	if (job.status === 'running') return 'running'
+	if (job.status === 'killed') return 'stopped'
+	if (job.exitCode === undefined) return 'ended'
+	return `${job.exitCode === 0 ? 'completed' : 'failed'} (exit code ${job.exitCode})`
 }
 
 /** The exact physical lines the output pager uses; App uses the same count for keys. */
@@ -84,6 +107,10 @@ export function maxBackgroundJobTailOffset(
 		0,
 		backgroundJobOutputRows(output, columns).length - backgroundJobOutputPageSize(rows),
 	)
+}
+
+function oneLine(command: string): string {
+	return terminalDisplayText(command).replace(/\s+/gu, ' ').trim()
 }
 
 function readOutput(
@@ -139,8 +166,8 @@ export function BackgroundJobsPanel({
 				? 'esc close'
 				: fitClosingHint(
 						[
-							`↑↓ select · enter details${stop} · esc close`,
-							`↑↓ move · enter${stop} · esc`,
+							`↑/↓ select · enter view${stop} · esc close`,
+							`↑/↓ select · enter${stop} · esc`,
 							`enter${stop} · esc`,
 							`${stop ? 'x stop · ' : ''}esc`,
 							'esc',
@@ -155,23 +182,27 @@ export function BackgroundJobsPanel({
 				paddingX={1}
 			>
 				<Text bold color={theme.accent.system} wrap="truncate-end">
-					{truncateChoiceText(`Shell jobs · ${running} running`, innerColumns)}
+					Background
+				</Text>
+				<Text color={theme.text.muted} wrap="truncate-end">
+					{`${running} active ${running === 1 ? 'shell' : 'shells'}`}
 				</Text>
 				{jobs.length === 0 ? (
-					<Text color={theme.text.secondary}>No shell jobs in this conversation.</Text>
+					<Text color={theme.text.secondary}>No tasks currently running</Text>
 				) : (
 					shown.map((job) => {
 						const focused = job.id === selected?.id
-						const label = narrow
-							? `${focused ? '>' : ' '} ${job.id} · ${job.status} · ${job.command}`
-							: `${focused ? '>' : ' '} ${job.id} · ${jobState(job, now)} · ${job.command}`
+						const meta = jobMeta(job)
+						const tail = `  ${meta}`
+						const room = Math.max(1, innerColumns - 4 - tail.length)
 						return (
-							<Text
-								key={job.id}
-								color={focused ? theme.accent.user : theme.text.secondary}
-								wrap="truncate-end"
-							>
-								{truncateChoiceText(label, innerColumns)}
+							<Text key={job.id} wrap="truncate-end">
+								<Text color={theme.accent.user}>{focused ? '❯ ' : '  '}</Text>
+								<Text color={metaColor(meta)}>{META_ICON[meta]} </Text>
+								<Text color={focused ? theme.accent.user : theme.text.secondary}>
+									{truncateChoiceText(oneLine(job.command), room)}
+								</Text>
+								<Text color={theme.text.muted}>{tail}</Text>
 							</Text>
 						)
 					})
@@ -215,12 +246,12 @@ export function BackgroundJobsPanel({
 	const stopHint = canStop ? ' · x stop' : ''
 	const footer = fitClosingHint(
 		[
-			`${pageLabel} · ↑↓ scroll · PgUp/PgDn · g/G${stopHint} · esc jobs · q close`,
-			`${pageLabel} · ↑↓ scroll${stopHint} · esc jobs`,
-			`↑↓ scroll${stopHint} · esc jobs`,
-			`↑↓${stopHint} · esc jobs`,
-			`${canStop ? 'x stop · ' : ''}esc jobs`,
-			'esc jobs',
+			`${pageLabel} · ↑↓ scroll · PgUp/PgDn · g/G${stopHint} · esc back · q close`,
+			`${pageLabel} · ↑↓ scroll${stopHint} · esc back`,
+			`↑↓ scroll${stopHint} · esc back`,
+			`↑↓${stopHint} · esc back`,
+			`${canStop ? 'x stop · ' : ''}esc back`,
+			'esc back',
 			'esc',
 		],
 		innerColumns,
@@ -229,27 +260,31 @@ export function BackgroundJobsPanel({
 	return (
 		<Box flexDirection="column" borderStyle="single" borderColor={theme.border.focus} paddingX={1}>
 			<Text bold color={theme.accent.system} wrap="truncate-end">
-				{truncateChoiceText(`Shell details · ${detailed.id}`, innerColumns)}
+				Shell details
 			</Text>
-			<Text
-				color={detailed.status === 'running' ? theme.status.ok : theme.text.secondary}
-				wrap="truncate-end"
-			>
-				{truncateChoiceText(
-					busyJobId === detailed.id ? 'Stopping…' : jobState(detailed, now),
-					innerColumns,
-				)}
+			<Text wrap="truncate-end">
+				<Text bold>Status: </Text>
+				<Text color={metaColor(jobMeta(detailed))}>
+					{truncateChoiceText(
+						busyJobId === detailed.id ? 'Stopping…' : statusText(detailed),
+						innerColumns - 8,
+					)}
+				</Text>
 			</Text>
-			<Text color={theme.text.muted}>Command</Text>
+			<Text wrap="truncate-end">
+				<Text bold>Runtime: </Text>
+				<Text>{elapsed(detailed, now)}</Text>
+			</Text>
+			<Text bold>Command:</Text>
 			{commandRows.map((row) => (
 				<Text key={row.index} color={theme.text.primary} wrap="truncate-end">
 					{row.text || ' '}
 				</Text>
 			))}
 			{commandMore ? <Text color={theme.text.muted}>… command continues</Text> : null}
-			<Text color={theme.text.muted} wrap="truncate-end">
+			<Text bold wrap="truncate-end">
 				{truncateChoiceText(
-					earlierOutputOmitted ? 'Output · earlier output not shown' : 'Output',
+					earlierOutputOmitted ? 'Output: (earlier output not shown)' : 'Output:',
 					innerColumns,
 				)}
 			</Text>

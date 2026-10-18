@@ -3,12 +3,37 @@ import { Worker } from 'node:worker_threads'
 
 import { encodeCodeValue } from './json-value.js'
 import {
+	type CodeFrame,
 	type CodeRunResult,
 	type CodeRuntime,
 	HostCallDeniedError,
 	type RunCodeOptions,
 } from './types.js'
 import { QUICKJS_WORKER_SOURCE } from './worker-program.js'
+
+/** The worker wraps the program in `(async () => {` plus a newline: one line. */
+const WRAPPER_LINES = 1
+const FRAME_PATTERN = /model-program\.js:(\d+):(\d+)/g
+
+function failureLocation(
+	name: unknown,
+	stack: unknown,
+	sourceLines: number,
+): { errorName?: string; frames?: readonly CodeFrame[] } {
+	const frames: CodeFrame[] = []
+	if (typeof stack === 'string') {
+		for (const match of stack.matchAll(FRAME_PATTERN)) {
+			const line = Number(match[1]) - WRAPPER_LINES
+			// The wrapper's own lines (its opening, and the closing after the source)
+			// are not in what the caller submitted.
+			if (line >= 1 && line <= sourceLines) frames.push({ line, column: Number(match[2]) })
+		}
+	}
+	return {
+		...(typeof name === 'string' && name !== '' ? { errorName: name } : {}),
+		...(frames.length > 0 ? { frames } : {}),
+	}
+}
 
 const requireFromSdk = createRequire(import.meta.url)
 
@@ -74,6 +99,10 @@ export class WorkerCodeRuntime implements CodeRuntime {
 	async run(options: RunCodeOptions): Promise<CodeRunResult> {
 		validateInteger('timeoutMs', options.timeoutMs, 1, 2_147_483_647)
 		validateInteger('maxOutputBytes', options.maxOutputBytes, 0, 16 * 1024 * 1024)
+		if (options.cpuLimits) {
+			validateInteger('cpuLimits.sliceMs', options.cpuLimits.sliceMs, 1, 2_147_483_647)
+			validateInteger('cpuLimits.totalMs', options.cpuLimits.totalMs, 1, 2_147_483_647)
+		}
 		const allowed = new Set(options.allowedCalls)
 		const calls: { name: string; ok: boolean }[] = []
 		let output = ''
@@ -120,6 +149,11 @@ export class WorkerCodeRuntime implements CodeRuntime {
 				}
 				output = next
 				printCount++
+				try {
+					options.onOutput?.(line)
+				} catch {
+					// A listener bug must not decide the program's outcome.
+				}
 			}
 		}
 
@@ -131,6 +165,7 @@ export class WorkerCodeRuntime implements CodeRuntime {
 				variantPath: requireFromSdk.resolve('@jitl/quickjs-wasmfile-release-sync'),
 				limits: this.limits,
 				maxOutputBytes: options.maxOutputBytes,
+				cpu: options.cpuLimits,
 				deadline: Date.now() + options.timeoutMs,
 			},
 			// Trusted bootstrap requires Node; guest code runs only inside QuickJS.
@@ -344,7 +379,11 @@ export class WorkerCodeRuntime implements CodeRuntime {
 
 				if (message.kind === 'error') {
 					finish({
-						outcome: { status: 'failed', error: String(message.error) },
+						outcome: {
+							status: 'failed',
+							error: String(message.error),
+							...failureLocation(message.name, message.stack, options.source.split('\n').length),
+						},
 						output,
 						outputTruncated: truncated,
 						calls,

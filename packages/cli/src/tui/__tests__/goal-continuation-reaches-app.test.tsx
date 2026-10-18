@@ -241,13 +241,13 @@ async function submit(
 ): Promise<void> {
 	// Durable scope/goal updates can precede the render that enables input.
 	await until(
-		() => harness.lastFrame()?.includes('› Type a message') === true,
+		() => harness.lastFrame()?.includes('❯ Type a message') === true,
 		'the composer is not ready for input',
 	)
 	harness.stdin.write(text)
 	// Ink can process Enter before the preceding text event under full-suite load.
 	await until(
-		() => harness.lastFrame()?.includes(`› ${text}`) === true,
+		() => harness.lastFrame()?.includes(`❯ ${text}`) === true,
 		'the composer did not render the input before submit',
 	)
 	harness.stdin.write('\r')
@@ -549,7 +549,7 @@ it('does not let an abnormal automatic goal round pause queued human work', asyn
 	await until(() => order.length === 2, 'the failed goal round paused independent human work')
 
 	expect(order).toEqual(['goal', 'human'])
-	expect(harness.frames.join('\n')).not.toContain('paused after a failed reply')
+	expect(harness.frames.join('\n')).not.toContain('Paused after the failed reply')
 }, 30_000)
 
 it('durably blocks at the configured cap instead of starting an unbounded turn', async () => {

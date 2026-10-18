@@ -46,7 +46,7 @@ function jobFor(): JobFixture {
 	const kill = vi.fn()
 
 	const record = () => ({
-		id: 'job_1',
+		id: 'b00000001',
 		status,
 		...(exitCode === undefined ? {} : { exitCode }),
 	})
@@ -96,7 +96,7 @@ function contextFor(jobs: JobFixture['jobs']): ToolContext {
 	return {
 		backgroundJobs: {
 			...jobs,
-			get: () => ({ id: 'job_1', status: 'running' }),
+			get: () => ({ id: 'b00000001', status: 'running' }),
 			markAwaited: vi.fn(),
 		},
 		abortSignal: new AbortController().signal,
@@ -123,7 +123,7 @@ describe('a job that is still producing output is not cut off for being slow', (
 
 			const waiting = waitForJobWithBounds(
 				jobs,
-				'job_1',
+				'b00000001',
 				{ wallMs: 60_000, idleMs: 5_000 },
 				clock.now,
 			)
@@ -166,7 +166,7 @@ describe('a job that has gone quiet is reported as quiet', () => {
 
 			const waiting = waitForJobWithBounds(
 				jobs,
-				'job_1',
+				'b00000001',
 				{ wallMs: 600_000, idleMs: 5_000 },
 				clock.now,
 			)
@@ -187,7 +187,7 @@ describe('a job that has gone quiet is reported as quiet', () => {
 	})
 
 	it('says it went quiet, and that the job was not stopped', () => {
-		const text = describeJobWaitTimeout('job_1', {
+		const text = describeJobWaitTimeout('b00000001', {
 			kind: 'timeout',
 			cause: 'idle',
 			elapsedMs: 30_000,
@@ -210,7 +210,7 @@ describe('a bounded wait is an observation that can be resumed', () => {
 			const context = contextFor(jobs)
 			write('BEGIN\n')
 			const firstWait = WaitForJobTool.execute(
-				{ id: 'job_1', timeout_ms: 15_000, idle_timeout_ms: 1_000 },
+				{ id: 'b00000001', timeout_ms: 15_000, idle_timeout_ms: 1_000 },
 				context,
 			)
 			await vi.advanceTimersByTimeAsync(2_000)
@@ -224,7 +224,7 @@ describe('a bounded wait is an observation that can be resumed', () => {
 			write('END\n')
 			finish('exited', 0)
 			const second = await WaitForJobTool.execute(
-				{ id: 'job_1', from_offset: 6, timeout_ms: 15_000 },
+				{ id: 'b00000001', from_offset: 6, timeout_ms: 15_000 },
 				context,
 			)
 			expect(second.success).toBe(true)
@@ -253,17 +253,17 @@ describe('a bounded wait is an observation that can be resumed', () => {
 		})
 		const context = contextFor({
 			read,
-			waitForExit: async () => ({ id: 'job_1', status: 'exited', exitCode: 0 }),
+			waitForExit: async () => ({ id: 'b00000001', status: 'exited', exitCode: 0 }),
 			kill: vi.fn(),
 		})
-		const first = await WaitForJobTool.execute({ id: 'job_1' }, context)
+		const first = await WaitForJobTool.execute({ id: 'b00000001' }, context)
 		expect(first.output).toContain('100 bytes were dropped')
 		expect(first.output).toContain('TAIL')
 		expect(first.data).toMatchObject({ droppedBytes: 100, nextOffset: 104 })
 
 		produced += 'NEXT'
-		const second = await WaitForJobTool.execute({ id: 'job_1', from_offset: 104 }, context)
-		expect(read).toHaveBeenLastCalledWith('job_1', { fromOffset: 104 })
+		const second = await WaitForJobTool.execute({ id: 'b00000001', from_offset: 104 }, context)
+		expect(read).toHaveBeenLastCalledWith('b00000001', { fromOffset: 104 })
 		expect(second.output).toContain('NEXT')
 		expect(second.output).not.toContain('TAIL')
 		expect(second.data).toMatchObject({ droppedBytes: 0, nextOffset: 108 })
@@ -273,7 +273,7 @@ describe('a bounded wait is an observation that can be resumed', () => {
 		const { jobs, write, finish } = jobFor()
 		write('😀'.repeat(10_000))
 		finish()
-		const outcome = await waitForJobWithBounds(jobs, 'job_1', {
+		const outcome = await waitForJobWithBounds(jobs, 'b00000001', {
 			wallMs: 60_000,
 		})
 		expect(outcome.kind).toBe('exited')
@@ -281,7 +281,7 @@ describe('a bounded wait is an observation that can be resumed', () => {
 		expect(outcome.output).not.toContain('�')
 		expect(outcome.omittedOutputBytes).toBe(40_000 - 32 * 1024)
 		expect(outcome.nextOffset).toBe(40_000)
-		const result = await WaitForJobTool.execute({ id: 'job_1' }, contextFor(jobs))
+		const result = await WaitForJobTool.execute({ id: 'b00000001' }, contextFor(jobs))
 		expect(result.output).toContain('[7232 earlier bytes omitted from this bounded wait result]')
 		expect(result.data).toMatchObject({
 			omittedOutputBytes: 7232,
@@ -299,7 +299,7 @@ describe('the turn bound still catches a job that never stops', () => {
 
 			const waiting = waitForJobWithBounds(
 				jobs,
-				'job_1',
+				'b00000001',
 				{ wallMs: 10_000, idleMs: 5_000 },
 				clock.now,
 			)
@@ -333,7 +333,7 @@ describe('an already-exited job', () => {
 			// No `advanceTimersByTimeAsync` anywhere in this test: if the
 			// result depended on a poll tick firing, this would hang against
 			// a fake clock that never moves.
-			const outcome = await waitForJobWithBounds(jobs, 'job_1', {
+			const outcome = await waitForJobWithBounds(jobs, 'b00000001', {
 				wallMs: 60_000,
 				idleMs: 5_000,
 			})
@@ -362,7 +362,7 @@ describe('an abandoned wait', () => {
 				return originalWaitForExit(id, opts)
 			}
 
-			const waiting = waitForJobWithBounds(jobs, 'job_1', {
+			const waiting = waitForJobWithBounds(jobs, 'b00000001', {
 				wallMs: 60_000,
 				idleMs: 30_000,
 				signal: controller.signal,
@@ -387,7 +387,7 @@ describe('an abandoned wait', () => {
 		const { jobs } = jobFor()
 
 		await expect(
-			waitForJobWithBounds(jobs, 'job_1', {
+			waitForJobWithBounds(jobs, 'b00000001', {
 				wallMs: 60_000,
 				signal: controller.signal,
 			}),

@@ -32,11 +32,17 @@ export interface SemanticColors {
 		 * for the session; a trigger lasts one message.
 		 */
 		readonly trigger: string
+		/** Plan mode in the footer's mode item (teal). */
+		readonly plan: string
+		/** Background shells in the footer pill (cyan). */
+		readonly shells: string
 	}
 	readonly status: {
 		readonly ok: string
 		readonly warn: string
 		readonly error: string
+		/** A merged pull request (purple). */
+		readonly merged: string
 	}
 	readonly border: {
 		readonly default: string
@@ -58,11 +64,14 @@ export const theme: SemanticColors = {
 		tool: 'ansi256(248)',
 		hypermode: 'ansi256(141)',
 		trigger: 'ansi256(117)',
+		plan: 'ansi256(73)',
+		shells: 'ansi256(37)',
 	},
 	status: {
 		ok: 'ansi256(77)',
 		warn: 'ansi256(221)',
 		error: 'ansi256(203)',
+		merged: 'ansi256(135)',
 	},
 	border: {
 		default: 'ansi256(239)',

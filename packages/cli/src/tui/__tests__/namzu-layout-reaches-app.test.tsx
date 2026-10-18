@@ -10,6 +10,7 @@ import type { Preferences } from '../../integrations/providers/index.js'
 import { fakeAgentSession } from '../__fixtures__/agent-session.js'
 import type { AgentEvent } from '../agent.js'
 import type { TuiContext } from '../types.js'
+import { lowerRuleRow } from './support/composer-rules.js'
 import { type Screen, renderToScreen } from './support/screen.js'
 
 const preferences: Preferences = {
@@ -219,7 +220,16 @@ function expectIdleLayout(screen: Screen): void {
 	const viewport = screen.viewport().join('\n')
 	const output = screen.scrollback().join('\n')
 	expect.soft(viewport.match(/fixture-model/g)).toHaveLength(1)
-	expect.soft(viewport.match(/\/workspace\/namzu/g)).toHaveLength(1)
+	// The folder is named once, under the version in the startup header; the footer row does not.
+	expect.soft(output.match(/\/workspace\/namzu/g)).toHaveLength(1)
+	expect
+		.soft(
+			screen
+				.viewport()
+				.filter((line) => line.trim())
+				.at(-1),
+		)
+		.not.toContain('/workspace/namzu')
 	expect.soft(output).not.toContain('Connected to')
 	expect.soft(output).not.toContain('fixture-provider')
 	expect.soft(output).not.toContain('Type a message to begin')
@@ -326,12 +336,9 @@ it('rewraps settled prose on expansion while keeping the draft and one history c
 		)
 		const viewport = screen.viewport().join('\n')
 		expect(viewport).toContain('draft survives resize')
-		expect(
-			screen
-				.viewport()
-				.find((line) => line.includes('MESSAGE'))
-				?.lastIndexOf('┐'),
-		).toBe(158)
+		// The composer's rules span the padded width: columns 1 through 158.
+		const rules = screen.viewport()
+		expect(rules[lowerRuleRow(rules)]?.trimEnd().length).toBe(159)
 		expect(screen.scrollback().join('\n').split(historyMarker)).toHaveLength(2)
 	} finally {
 		await screen.unmount()

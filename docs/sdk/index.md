@@ -11,6 +11,7 @@
 
 The kernel.
 
+* [Workflows](workflows.md) - Run a model-authored orchestration script in the code interpreter with `agent()` as its only capability, bounded scheduling, phases, events and a journal.
 * [Task tracking and execution](task-tracking.md) - Existing planning tasks, delegated invocation handles, resident pursuits and the host wiring that exposes their state.
 
 * [Query input and durable delivery](query.md) - Optional host input recorded and acknowledged before inference, complete tool boundaries and cancellable settle waits.

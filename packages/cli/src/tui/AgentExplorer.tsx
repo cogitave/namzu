@@ -9,6 +9,11 @@ import {
 	type SubagentActivityStatus,
 	type SubagentNarrationLine,
 } from '../integrations/subagents/activity.js'
+import {
+	type WorkflowRunStatus,
+	type WorkflowRunView,
+	isWorkflowRunAgent,
+} from '../integrations/workflows/view.js'
 import { formatElapsed } from './LiveActivity.js'
 import { fitHints } from './key-hints.js'
 import { selectionWindow } from './selection-window.js'
@@ -16,6 +21,7 @@ import { truncateChoiceText } from './terminal-choice-text.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
 import { formatCompactCount } from './units.js'
+import { nextRunEviction, runPhaseId, runRailFacts, visibleRuns } from './workflow-runs.js'
 
 const MAX_PICKER_ROWS = 9
 const COCKPIT_FRAME_COLUMNS = 4
@@ -97,9 +103,9 @@ export interface AgentNarrationBandProps {
 export function AgentNarrationBand({ lines }: AgentNarrationBandProps) {
 	if (lines.length === 0) return null
 	return (
-		// paddingX 2 lands the text where the rail's title starts — past its
-		// two-cell header glyph — so the two columns line up.
-		<Box flexDirection="column" paddingX={2}>
+		// paddingX 4 lands the text where the rail's `main` label starts — past
+		// its pointer and bullet cells — so the two columns line up.
+		<Box flexDirection="column" paddingX={4}>
 			{lines.map((line) => (
 				<Box key={line.id}>
 					<Text color={theme.text.muted} wrap="truncate-end">
@@ -111,221 +117,542 @@ export function AgentNarrationBand({ lines }: AgentNarrationBandProps) {
 	)
 }
 
-export interface AgentTaskPanelProps {
-	readonly agents: readonly SubagentActivity[]
-	readonly terminalRows: number
-	readonly terminalColumns: number
-	/**
-	 * Draw the header line only. Used while a review owns the screen: the
-	 * operator still sees that the work they already approved is moving,
-	 * without the rows competing with the question being asked.
-	 */
-	readonly compact?: boolean
+/** Rows of agents the rail shows at once; the rest sit behind `↓ N more`. */
+export const AGENT_RAIL_WINDOW = 5
+/** How long a finished agent stays on the rail before it leaves. */
+export const AGENT_RAIL_FINISHED_LINGER_MS = 30_000
+/** Widest the agent-type column grows before it is cut with `…`. */
+const AGENT_RAIL_NAME_WIDTH = 28
+
+/**
+ * The agents the rail lists: everything running, plus whatever finished less
+ * than {@link AGENT_RAIL_FINISHED_LINGER_MS} ago, oldest launch first.
+ *
+ * Saved children (`replayed`) never appear — they ended in another process,
+ * and the rail says what is moving now; the cockpit still lists them. An
+ * agent the operator already cleared with `x` stays off the rail.
+ */
+export function railAgents(
+	agents: readonly SubagentActivity[],
+	now: number,
+	dismissed: ReadonlySet<string> = new Set(),
+): readonly SubagentActivity[] {
+	return agents
+		.filter((agent) => {
+			if (agent.replayed === true || dismissed.has(agent.viewId)) return false
+			// A workflow run's agents are listed by the run, never as rows of their own.
+			if (isWorkflowRunAgent(agent)) return false
+			// An agent the model gave a `workflow` label lives only inside that
+			// workflow's row and detail view, never as an agent row of its own.
+			if (agent.workflow !== DEFAULT_AGENT_WORKFLOW) return false
+			if (!isTerminalStatus(agent.status)) return true
+			return (
+				agent.completedAt !== undefined && now - agent.completedAt < AGENT_RAIL_FINISHED_LINGER_MS
+			)
+		})
+		.sort((a, b) => a.startedAt - b.startedAt)
 }
 
 /**
- * Compact, automatic view of every cohort that still owns live work.
+ * Milliseconds until the next finished agent leaves the rail, or undefined
+ * when none is waiting to leave. App sleeps exactly this long instead of
+ * ticking, so an idle session re-renders nothing.
+ */
+export function railNextEviction(
+	agents: readonly SubagentActivity[],
+	now: number,
+	runs: readonly WorkflowRunView[] = [],
+): number | undefined {
+	let soonest = nextRunEviction(runs, now, AGENT_RAIL_FINISHED_LINGER_MS)
+	for (const agent of agents) {
+		if (agent.replayed === true || isWorkflowRunAgent(agent) || !isTerminalStatus(agent.status))
+			continue
+		if (agent.completedAt === undefined) continue
+		const left = agent.completedAt + AGENT_RAIL_FINISHED_LINGER_MS - now
+		if (left > 0 && (soonest === undefined || left < soonest)) soonest = left
+	}
+	return soonest
+}
+
+/** Whether `x` stops this agent (it is running) or only clears it (it has finished). */
+export function railActionFor(agent: SubagentActivity): 'stop' | 'clear' {
+	return isTerminalStatus(agent.status) ? 'clear' : 'stop'
+}
+
+/** `1.2k tokens` once the agent has reported usage, nothing before that. */
+function railTokens(agent: SubagentActivity): string | undefined {
+	return agent.tokens === undefined ? undefined : `↓ ${formatCompactCount(agent.tokens)} tokens`
+}
+
+/**
+ * The right-hand block of an agent row: how long it has run and what it has
+ * spent. A queued agent says so instead of showing a clock that has not
+ * started.
+ */
+export function railStatusText(agent: SubagentActivity, now: number): string {
+	const clock =
+		agent.status === 'queued'
+			? 'waiting'
+			: formatElapsed(Math.max(0, (agent.completedAt ?? now) - agent.startedAt))
+	const tokens = railTokens(agent)
+	return tokens ? `${clock} · ${tokens}` : clock
+}
+
+function railBulletColor(status: SubagentActivityStatus): string | undefined {
+	if (status === 'completed') return theme.status.ok
+	if (status === 'failed' || status === 'cancelled') return theme.status.error
+	return undefined
+}
+
+/** What a workflow row shows about how the group ended; `running` until every member has settled. */
+export type RailWorkflowStatus = 'running' | 'completed' | 'failed' | 'stopped'
+
+/**
+ * One row of the rail: the agents that share an explicit `workflow` label,
+ * seen as a single piece of work. Derived from the agents alone — the kernel
+ * has no workflow object, only the display label each child carries.
+ */
+export interface RailWorkflow {
+	/** The group id the cockpit also uses, so a row opens its own workflow. */
+	readonly id: string
+	/** Keyboard-focus id of the row; never collides with an agent's view id. */
+	readonly focusId: string
+	readonly name: string
+	readonly startedAt: number
+	/** When the last member settled; undefined while any member is still going. */
+	readonly endedAt?: number
+	readonly done: number
+	readonly total: number
+	/** Summed spend of the members that reported usage; undefined when none has. */
+	readonly tokens?: number
+	readonly failed: number
+	readonly status: RailWorkflowStatus
+	readonly agents: readonly SubagentActivity[]
+	/** The `workflow` tool's run this row stands for; absent for a group of labelled `Agent` calls. */
+	readonly runId?: string
+}
+
+const WORKFLOW_FOCUS_PREFIX = 'workflow:'
+
+function isSettled(agent: SubagentActivity): boolean {
+	return agent.status === 'completed' || agent.status === 'failed' || agent.status === 'cancelled'
+}
+
+/**
+ * The workflows the rail lists: a group of agents the model gave one explicit
+ * `workflow` label, running or finished less than
+ * {@link AGENT_RAIL_FINISHED_LINGER_MS} ago, oldest first. Unlabelled batches
+ * are only agents, and saved (`replayed`) children belong to another process.
+ * A workflow the operator already cleared with `x` stays off the rail.
+ */
+export function railWorkflows(
+	agents: readonly SubagentActivity[],
+	now: number,
+	dismissed: ReadonlySet<string> = new Set(),
+	runs: readonly WorkflowRunView[] = [],
+): readonly RailWorkflow[] {
+	return [
+		...groupWorkflows(agents, now, dismissed, true),
+		...visibleRuns(runs, now, AGENT_RAIL_FINISHED_LINGER_MS, dismissed).map((run) =>
+			runRailWorkflow(run, agents),
+		),
+	].sort((a, b) => a.startedAt - b.startedAt || a.id.localeCompare(b.id))
+}
+
+/** One run's rail row, from the run itself: queued agents count, and a run with no agent yet still has a row. */
+export function runRailWorkflow(
+	run: WorkflowRunView,
+	agents: readonly SubagentActivity[],
+): RailWorkflow {
+	const facts = runRailFacts(run)
+	return {
+		id: run.groupId,
+		focusId: `${WORKFLOW_FOCUS_PREFIX}${run.groupId}`,
+		name: run.name,
+		startedAt: run.startedAt,
+		...(run.endedAt !== undefined ? { endedAt: run.endedAt } : {}),
+		done: facts.done,
+		total: facts.total,
+		...(facts.tokens !== undefined ? { tokens: facts.tokens } : {}),
+		failed: facts.failed,
+		status: run.status,
+		agents: agents.filter((agent) => agent.workflowRunId === run.runId),
+		runId: run.runId,
+	}
+}
+
+/**
+ * Every labelled workflow whose members have all settled, however long ago:
+ * what a closing line reports. The rail's 30 second lifetime does not apply.
+ */
+export function settledWorkflows(agents: readonly SubagentActivity[]): readonly RailWorkflow[] {
+	return groupWorkflows(agents, 0, new Set(), false).filter(
+		(workflow) => workflow.status !== 'running',
+	)
+}
+
+function groupWorkflows(
+	agents: readonly SubagentActivity[],
+	now: number,
+	dismissed: ReadonlySet<string>,
+	expire: boolean,
+): readonly RailWorkflow[] {
+	const groups = new Map<string, SubagentActivity[]>()
+	for (const agent of agents) {
+		if (
+			agent.replayed === true ||
+			isWorkflowRunAgent(agent) ||
+			agent.workflow === DEFAULT_AGENT_WORKFLOW
+		)
+			continue
+		const group = groups.get(agent.workflowGroupId)
+		if (group) group.push(agent)
+		else groups.set(agent.workflowGroupId, [agent])
+	}
+	const rows: RailWorkflow[] = []
+	for (const [id, members] of groups) {
+		const focusId = `${WORKFLOW_FOCUS_PREFIX}${id}`
+		if (dismissed.has(focusId)) continue
+		const settled = members.filter(isSettled)
+		const running = settled.length < members.length
+		const failed = members.filter((agent) => agent.status === 'failed').length
+		const endedAt = running
+			? undefined
+			: Math.max(...members.map((agent) => agent.completedAt ?? agent.startedAt))
+		if (expire && endedAt !== undefined && now - endedAt >= AGENT_RAIL_FINISHED_LINGER_MS) continue
+		const spent = members.reduce<number | undefined>(
+			(sum, agent) => (agent.tokens === undefined ? sum : (sum ?? 0) + agent.tokens),
+			undefined,
+		)
+		rows.push({
+			id,
+			focusId,
+			name: members[0]?.workflow ?? DEFAULT_AGENT_WORKFLOW,
+			startedAt: Math.min(...members.map((agent) => agent.startedAt)),
+			...(endedAt !== undefined ? { endedAt } : {}),
+			done: settled.length,
+			total: members.length,
+			...(spent !== undefined ? { tokens: spent } : {}),
+			failed,
+			status: running
+				? 'running'
+				: failed > 0
+					? 'failed'
+					: members.some((agent) => agent.status === 'cancelled')
+						? 'stopped'
+						: 'completed',
+			agents: members,
+		})
+	}
+	return rows.sort((a, b) => a.startedAt - b.startedAt || a.id.localeCompare(b.id))
+}
+
+/** Whether `x` stops this workflow (something is still going) or only clears the finished row. */
+export function railWorkflowActionFor(workflow: RailWorkflow): 'stop' | 'clear' {
+	return workflow.status === 'running' ? 'stop' : 'clear'
+}
+
+/**
+ * Only the outcome colours the bullet: green when it completed, red when it
+ * failed or was stopped — and already red while it runs once a member has
+ * failed. A running workflow with nothing wrong keeps the dim default.
+ */
+function railWorkflowBulletColor(workflow: RailWorkflow): string | undefined {
+	if (workflow.status === 'completed') return theme.status.ok
+	if (workflow.status === 'failed' || workflow.status === 'stopped') return theme.status.error
+	return workflow.failed > 0 ? theme.status.error : undefined
+}
+
+/** Widths the progress bar tries, widest first. */
+const WORKFLOW_BAR_WIDTHS = [20, 12, 8] as const
+
+/** `▰▰▰▱▱▱`: filled cells are the share of agents settled, rounded down. */
+export function railProgressBar(done: number, total: number, width: number): [string, string] {
+	const filled = total <= 0 ? 0 : Math.max(0, Math.min(width, Math.floor((done * width) / total)))
+	return ['▰'.repeat(filled), '▱'.repeat(width - filled)]
+}
+
+/** One way to draw a row's right-hand block: a bar width and the text after it. */
+export interface WorkflowRowVariant {
+	readonly barWidth: number
+	readonly text: string
+}
+
+/**
+ * The right-hand block of a workflow row, widest first. Words go before
+ * numbers as the row narrows: the counter, then the elapsed time, then the
+ * word `tokens`, then the bar shrinks from 20 to 12 to 8 cells and finally
+ * stands alone. The caller takes the first one that fits.
+ */
+export function workflowRowVariants(
+	workflow: RailWorkflow,
+	now: number,
+): readonly WorkflowRowVariant[] {
+	const count = `${workflow.done}/${workflow.total}`
+	const elapsed = formatElapsed(Math.max(0, (workflow.endedAt ?? now) - workflow.startedAt))
+	const spent = workflow.tokens === undefined ? undefined : formatCompactCount(workflow.tokens)
+	const join = (parts: readonly (string | undefined)[]): string =>
+		parts.filter((part): part is string => part !== undefined).join(' · ')
+	const [wide, mid, narrow] = WORKFLOW_BAR_WIDTHS
+	const variants: WorkflowRowVariant[] = [
+		{ barWidth: wide, text: join([count, elapsed, spent && `↓ ${spent} tokens`]) },
+		{ barWidth: wide, text: join([elapsed, spent && `↓ ${spent} tokens`]) },
+		{ barWidth: wide, text: join([elapsed, spent && `↓ ${spent}`]) },
+		{ barWidth: wide, text: join([spent && `↓ ${spent}`]) },
+		{ barWidth: mid, text: join([spent && `↓ ${spent}`]) },
+		{ barWidth: narrow, text: join([spent && `↓ ${spent}`]) },
+		{ barWidth: narrow, text: '' },
+	]
+	return variants.filter(
+		(variant, index) =>
+			variants.findIndex(
+				(other) => other.barWidth === variant.barWidth && other.text === variant.text,
+			) === index,
+	)
+}
+
+/** Cells of the pointer and bullet columns in front of every rail row. */
+const RAIL_PREFIX_CELLS = 4
+/** Gap between the name and the bar. */
+const WORKFLOW_ROW_GAP = 2
+
+/**
+ * Picks how a workflow row is laid out in `columns` cells: the first variant
+ * of {@link workflowRowVariants} that leaves the name at least
+ * `min(8, nameWidth)` cells, with the name squeezed into whatever is left.
+ */
+export function layoutWorkflowRow(
+	workflow: RailWorkflow,
+	now: number,
+	columns: number,
+	nameWidth: number,
+): { readonly variant: WorkflowRowVariant; readonly nameWidth: number } {
+	const variants = workflowRowVariants(workflow, now)
+	const room = Math.max(1, columns - RAIL_PREFIX_CELLS - 2)
+	const wanted = Math.min(8, nameWidth)
+	const widthOf = (variant: WorkflowRowVariant): number =>
+		WORKFLOW_ROW_GAP + variant.barWidth + (variant.text ? 2 + stringWidth(variant.text) : 0)
+	for (const variant of variants) {
+		if (room - widthOf(variant) >= wanted) {
+			return { variant, nameWidth: Math.min(nameWidth, room - widthOf(variant)) }
+		}
+	}
+	const last = variants[variants.length - 1] as WorkflowRowVariant
+	return { variant: last, nameWidth: Math.max(1, room - widthOf(last)) }
+}
+
+export interface AgentTaskPanelProps {
+	/** Already filtered to what the rail shows — see {@link railAgents}. */
+	readonly agents: readonly SubagentActivity[]
+	/** One row each below the agents — see {@link railWorkflows}. */
+	readonly workflows?: readonly RailWorkflow[]
+	readonly terminalRows: number
+	readonly terminalColumns: number
+	/**
+	 * One row only (`main` and a count). Used while a review owns the screen:
+	 * the operator still sees that the work they already approved is moving,
+	 * without the rows competing with the question being asked.
+	 */
+	readonly compact?: boolean
+	/**
+	 * The highlighted row while the rail has the keyboard: 0 is `main`, 1 the
+	 * first agent, then the workflow rows after the last agent. Undefined
+	 * means the rail is not focused.
+	 */
+	readonly selectedIndex?: number
+	/** The agent whose transcript is on screen; undefined or null means `main`. */
+	readonly viewingId?: string | null
+	/** Clock for tests; the panel otherwise ticks once a second. */
+	readonly now?: number
+}
+
+/**
+ * The agents rail: a `main` row, then one row per running or recently
+ * finished sub-agent, drawn under the footer line.
  *
- * This is intentionally not a modal: the composer remains mounted directly
- * above it and the operator can keep typing while children run. Completed
- * siblings remain until their last live sibling settles, then the whole
- * cohort leaves this projection together.
+ * ```
+ *   ● main
+ *   ○ general-purpose  Mine the UI reference            12s · ↓ 3.2k tokens
+ * ```
  *
- * Drawn as a borderless tree aligned with the transcript's own gutter — a
- * header line, then one `├`/`└` branch per agent with its latest activity on
- * a `⎿` line beneath it — rather than as a boxed panel: the rows are the
- * turn's live work, not chrome around it.
+ * `●` marks the transcript on screen, `○` the others; an agent's bullet turns
+ * green or red only once it has finished. Not a modal: the composer stays
+ * mounted above and keeps taking input until the operator presses ↓ on an
+ * empty composer to move into the rail.
  */
 export function AgentTaskPanel({
 	agents,
-	terminalRows,
+	workflows = [],
 	terminalColumns,
 	compact = false,
+	selectedIndex,
+	viewingId,
+	now: nowOverride,
 }: AgentTaskPanelProps) {
-	const now = useLiveNow(true)
-	const activityLines = agentTaskPanelShowsActivity(terminalRows)
-	const pageSize = agentTaskPanelPageSize(terminalRows)
-	const active = agents.filter((agent) => !isTerminalStatus(agent.status)).length
-	const workflows = [...new Set(agents.map((agent) => agent.workflow))]
-	const workflowLabel = workflows.length === 1 ? workflows[0] : undefined
-	// A shared, explicitly supplied workflow label earns the title slot; an
-	// absent one (every agent still carries the unlabelled default) or a mix
-	// of several distinct labels falls back to a neutral count instead of the
-	// generic default name, which named nothing about THESE agents.
-	const labelled = workflowLabel !== undefined && workflowLabel !== DEFAULT_AGENT_WORKFLOW
-	const title = labelled ? workflowLabel : `${agents.length} agent${agents.length === 1 ? '' : 's'}`
+	const ticked = useLiveNow(nowOverride === undefined)
+	const now = nowOverride ?? ticked
+	const focused = selectedIndex !== undefined
+	const mainViewed = viewingId === undefined || viewingId === null
 	const narrow = terminalColumns < 64
-	const showModel = !narrow && terminalColumns >= 76
-	const showCounters = !narrow && terminalColumns >= 96
-	// A workflow the model split into several phases is drawn the way its
-	// phases went: a settled phase is one line (`✓ Phase 1 · 2/2 · 3.9s`), a
-	// live one is its line with its agents beneath it. One phase is drawn as
-	// before, the agents straight under the header.
-	const phases = agentPhases(agents)
-	const phased = phases.length > 1
-	const groups = (phased ? phases : [{ id: 'all', agents } as const]).map((phase) => ({
-		phase: phased ? (phase as AgentPhase) : undefined,
-		agents: [...phase.agents],
-	}))
-	// The page budget is spent on agents of live phases only; a settled
-	// phase costs its one line, and on a short screen not even that.
-	let budget = compact ? 0 : pageSize
-	const drawn = groups.map((group) => {
-		const settled = group.phase !== undefined && isTerminalStatus(group.phase.status)
-		if (settled) return { ...group, settled, visible: [] as SubagentActivity[] }
-		const visible = group.agents.slice(0, Math.max(0, budget))
-		budget -= visible.length
-		return { ...group, settled, visible }
-	})
-	const hidden = compact
-		? 0
-		: drawn.reduce(
-				(sum, group) => sum + (group.settled ? 0 : group.agents.length - group.visible.length),
-				0,
-			)
-	const showSettledPhases = !compact && activityLines
-	const running = agents.filter(
-		(agent) => agent.status === 'working' || agent.status === 'starting',
-	).length
-	const queued = agents.filter((agent) => agent.status === 'queued').length
-	const done = agents.length - active
-	const startedAt = Math.min(...agents.map((agent) => agent.startedAt))
-	const spent = agents.reduce<number | undefined>(
-		(sum, agent) => (agent.tokens === undefined ? sum : (sum ?? 0) + agent.tokens),
-		undefined,
+	const hasMain = railShowsMain(agents.length, viewingId, compact)
+	// Rows before the first agent: 1 with `main` drawn, else 0.
+	const lead = hasMain ? 1 : 0
+	const selectedAgent = focused ? Math.min(agents.length, selectedIndex - lead + 1) - 1 : 0
+	const { start, items } = selectionWindow(
+		agents,
+		Math.max(0, selectedAgent),
+		compact ? 0 : AGENT_RAIL_WINDOW,
 	)
-	// Narrow or wide, the count is the reference's `done/total`, the same
-	// figure the cockpit header and each phase line carry, so one moment
-	// never reads as two different numbers.
-	const counts = narrow
-		? `${done}/${agents.length} done${hidden > 0 ? ` +${hidden}` : ''}`
-		: [
-				`${running} running`,
-				...(queued > 0 ? [`${queued} queued`] : []),
-				// The reference's own counter: how much of this workflow is done.
-				...(done > 0 ? [`${done}/${agents.length} done`] : []),
-				...(showCounters
-					? [
-							formatElapsed(Math.max(0, now - startedAt)),
-							...(spent !== undefined ? [`${formatCompactCount(spent)} tokens`] : []),
-						]
+	const above = start
+	const below = compact ? agents.length : Math.max(0, agents.length - start - items.length)
+	// The type column is as wide as the longest type on screen (never past the
+	// cap), so the description starts right after it instead of at a fixed tab.
+	const nameWidth = Math.min(
+		narrow ? 14 : AGENT_RAIL_NAME_WIDTH,
+		Math.max(
+			4,
+			...agents.map((agent) => stringWidth(oneLine(agent.agentId))),
+			...workflows.map((workflow) => stringWidth(oneLine(workflow.name))),
+		),
+	)
+	const mainRight = compact
+		? [
+				...(agents.length > 0 || workflows.length === 0
+					? [`${agents.length} agent${agents.length === 1 ? '' : 's'}`]
 					: []),
-				// A review owns the keyboard, so neither key reaches the rail while
-				// the panel is reduced for one: it names no key it cannot keep.
-				...(compact ? [] : ['↓ / ctrl+t']),
+				...(workflows.length > 0
+					? [`${workflows.length} workflow${workflows.length === 1 ? '' : 's'}`]
+					: []),
 			].join(' · ')
+		: above > 0
+			? `↑ ${above} more`
+			: ''
 
 	return (
 		<Box flexDirection="column">
-			<Box>
-				<Box width={2} flexShrink={0}>
-					<Text color={active > 0 ? theme.accent.assistant : theme.status.ok}>
-						{active > 0 ? '●' : '✓'}
-					</Text>
+			{hasMain ? (
+				<Box>
+					<Box width={2} flexShrink={0}>
+						<Text color={theme.accent.assistant}>{focused && selectedIndex === 0 ? '❯' : ' '}</Text>
+					</Box>
+					<Box width={2} flexShrink={0}>
+						<Text bold={mainViewed} color={mainViewed ? theme.accent.assistant : theme.text.muted}>
+							{mainViewed ? '●' : '○'}
+						</Text>
+					</Box>
+					<Box flexGrow={1} flexShrink={1} minWidth={0}>
+						<Text
+							bold={mainViewed || (focused && selectedIndex === 0)}
+							dimColor={!mainViewed && !(focused && selectedIndex === 0)}
+							color={theme.text.primary}
+						>
+							main
+						</Text>
+					</Box>
+					{mainRight ? (
+						<Box flexShrink={0} marginLeft={1}>
+							<Text color={theme.text.muted}>{mainRight}</Text>
+						</Box>
+					) : null}
 				</Box>
-				<Box flexShrink={1} minWidth={0}>
-					<Text color={theme.text.primary} bold wrap="truncate-end">
-						{terminalDisplayText(title)}
-					</Text>
-				</Box>
-				<Box flexShrink={0}>
-					<Text color={theme.text.muted}> · {counts}</Text>
-				</Box>
-			</Box>
-			{drawn.map((group) => {
-				const phase = group.phase
-				if (phase && group.settled && !showSettledPhases) return null
-				const indent = phase ? 4 : 2
-				return (
-					<Box key={phase?.id ?? 'all'} flexDirection="column">
-						{phase ? (
-							<Box paddingLeft={2}>
+			) : null}
+			{compact
+				? null
+				: items.map((agent, offset) => {
+						const index = start + offset + lead
+						const selected = focused && selectedIndex === index
+						const viewed = viewingId === agent.viewId
+						const finished = isTerminalStatus(agent.status)
+						const status = railStatusText(agent, now)
+						return (
+							<Box key={agent.viewId}>
 								<Box width={2} flexShrink={0}>
-									<Text color={statusColor(phase.status)}>{statusGlyph(phase.status)}</Text>
+									<Text color={theme.accent.assistant}>{selected ? '❯' : ' '}</Text>
 								</Box>
-								<Box flexShrink={1} minWidth={0}>
-									<Text
-										color={group.settled ? theme.text.secondary : theme.text.primary}
-										wrap="truncate-end"
-									>
-										{oneLine(phase.name)}
+								<Box width={2} flexShrink={0}>
+									<Text bold={viewed} color={railBulletColor(agent.status)} dimColor={!viewed}>
+										{viewed ? '●' : '○'}
 									</Text>
 								</Box>
-								<Box flexShrink={0}>
-									<Text color={theme.text.muted}>
-										{' · '}
-										{phaseProgress(phase)}
-										{group.settled ? ` · ${formatElapsed(phaseElapsed(phase, now))}` : ''}
+								<Box width={nameWidth} flexShrink={0}>
+									<Text
+										bold={viewed || selected}
+										dimColor={!viewed && !selected}
+										color={theme.text.primary}
+										wrap="truncate-end"
+									>
+										{terminalDisplayText(oneLine(agent.agentId))}
+									</Text>
+								</Box>
+								<Box flexGrow={1} flexShrink={1} minWidth={0} paddingLeft={2}>
+									<Text
+										bold={viewed || selected}
+										dimColor={!viewed && !selected}
+										color={theme.text.primary}
+										wrap="truncate-end"
+									>
+										{terminalDisplayText(oneLine(agent.description || agent.agentId))}
+									</Text>
+								</Box>
+								<Box flexShrink={0} marginLeft={1}>
+									<Text color={finished ? theme.text.muted : theme.text.secondary}>{status}</Text>
+								</Box>
+							</Box>
+						)
+					})}
+			{!compact && below > 0 ? (
+				<Box paddingLeft={4}>
+					<Text color={theme.text.muted}>↓ {below} more</Text>
+				</Box>
+			) : null}
+			{compact
+				? null
+				: workflows.map((workflow, offset) => {
+						const selected = focused && selectedIndex === agents.length + lead + offset
+						const { variant, nameWidth: workflowNameWidth } = layoutWorkflowRow(
+							workflow,
+							now,
+							terminalColumns,
+							nameWidth,
+						)
+						const [filled, empty] = railProgressBar(workflow.done, workflow.total, variant.barWidth)
+						return (
+							<Box key={workflow.focusId}>
+								<Box width={2} flexShrink={0}>
+									<Text color={theme.accent.assistant}>{selected ? '❯' : ' '}</Text>
+								</Box>
+								<Box width={2} flexShrink={0}>
+									<Text color={railWorkflowBulletColor(workflow)} dimColor={!selected}>
+										◯
+									</Text>
+								</Box>
+								<Box width={workflowNameWidth} flexShrink={0}>
+									<Text color={theme.text.primary} dimColor={!selected} wrap="truncate-end">
+										{terminalDisplayText(oneLine(workflow.name))}
+									</Text>
+								</Box>
+								<Box flexShrink={0} paddingLeft={WORKFLOW_ROW_GAP}>
+									<Text color={theme.text.primary} dimColor={!selected}>
+										{filled}
+										<Text dimColor>{empty}</Text>
+										{variant.text ? `  ${variant.text}` : ''}
 									</Text>
 								</Box>
 							</Box>
-						) : null}
-						{group.visible.map((agent, index) => {
-							const last =
-								index === group.visible.length - 1 &&
-								group.agents.length === group.visible.length &&
-								(phase !== undefined || hidden === 0)
-							// Clamped: a child begun after this panel's last clock tick would
-							// otherwise read `-0.0s` until the next one.
-							const elapsed = formatElapsed(
-								Math.max(0, (agent.completedAt ?? now) - agent.startedAt),
-							)
-							const meta = agentRailMetaParts(agent, { showModel, showCounters })
-							const agentRunning = !isTerminalStatus(agent.status)
-							const activity = agentRunning ? railActivity(agent) : undefined
-							return (
-								<Box key={agent.viewId} flexDirection="column">
-									<Box paddingLeft={indent}>
-										<Box width={2} flexShrink={0}>
-											<Text color={theme.text.muted}>{last ? '└' : '├'}</Text>
-										</Box>
-										<Box width={2} flexShrink={0}>
-											<Text color={statusColor(agent.status)}>{statusGlyph(agent.status)}</Text>
-										</Box>
-										<Box
-											width={narrow ? undefined : 28 - (indent - 2)}
-											flexGrow={narrow ? 1 : 0}
-											flexShrink={1}
-										>
-											<Text color={theme.text.primary} wrap="truncate-end">
-												{oneLine(agent.description || agent.agentId)}
-											</Text>
-										</Box>
-										<Box flexGrow={narrow ? 0 : 1} flexShrink={1} marginLeft={1}>
-											<Text color={theme.text.secondary} wrap="truncate-end">
-												{agent.status === 'queued' ? 'queued' : elapsed}
-												{!narrow && !activityLines && activity ? ` · ${activity}` : ''}
-											</Text>
-										</Box>
-										{meta.length > 0 ? (
-											<Box flexShrink={0} marginLeft={1}>
-												<Text color={theme.text.muted} wrap="truncate-end">
-													{meta.join(' · ')}
-												</Text>
-											</Box>
-										) : null}
-									</Box>
-									{activityLines && activity ? (
-										<Box paddingLeft={indent}>
-											<Box width={4} flexShrink={0}>
-												<Text color={theme.text.muted}>{last ? ' ' : '│'}</Text>
-											</Box>
-											<Box flexShrink={1} minWidth={0}>
-												<Text color={theme.text.secondary} wrap="truncate-end">
-													⎿ {activity}
-												</Text>
-											</Box>
-										</Box>
-									) : null}
-								</Box>
-							)
-						})}
-					</Box>
-				)
-			})}
-			{hidden > 0 ? (
+						)
+					})}
+			{focused && !compact ? (
 				<Box paddingLeft={2}>
-					<Text color={theme.text.muted}>└ +{hidden} more · ctrl+t</Text>
+					<Text color={theme.text.muted} wrap="truncate-end">
+						{railHint(
+							hasMain && selectedIndex === 0
+								? undefined
+								: selectedIndex - lead < agents.length
+									? agents[selectedIndex - lead]
+									: workflows[selectedIndex - lead - agents.length],
+							terminalColumns,
+						)}
+					</Text>
 				</Box>
 			) : null}
 		</Box>
@@ -333,81 +660,38 @@ export function AgentTaskPanel({
 }
 
 /**
- * Whether each running agent gets its own `⎿ activity` line. On a short
- * terminal the activity stays inline after the elapsed time instead, so the
- * rail keeps one row per agent where rows are scarcest.
+ * Whether the rail draws its `main` row: only beside at least one agent row,
+ * or while an agent's transcript is the one on screen (so the way back to the
+ * conversation is visible). A rail with nothing but workflow rows has no
+ * `main`; `compact` is the one-row form and always keeps it.
  */
-export function agentTaskPanelShowsActivity(terminalRows: number | undefined): boolean {
-	return terminalRows !== undefined && Number.isFinite(terminalRows) && terminalRows >= 24
+export function railShowsMain(
+	agentCount: number,
+	viewingId?: string | null,
+	compact = false,
+): boolean {
+	return compact || agentCount > 0 || (viewingId !== undefined && viewingId !== null)
 }
 
-/**
- * Agents the compact panel may show without crowding the composer/footer.
- * An agent costs two rows where activity lines are drawn and one elsewhere,
- * so the budget in ROWS stays what it was when every agent took one.
- */
-export function agentTaskPanelPageSize(terminalRows: number | undefined): number {
-	if (terminalRows === undefined || !Number.isFinite(terminalRows)) return 2
-	const rowsPerAgent = agentTaskPanelShowsActivity(terminalRows) ? 2 : 1
-	return Math.max(1, Math.min(4, Math.floor((terminalRows - 12) / (3 * rowsPerAgent))))
-}
-
-/** What the running agent is doing now, or its status when it has said nothing yet. */
-function railActivity(agent: SubagentActivity): string {
-	if (agent.status === 'queued') return 'Waiting for a slot'
-	return distinctActivity(agent) ?? statusLabel(agent.status)
-}
-
-/**
- * The rail's own ordering: tool uses and spend first, then the model, with
- * counters dropped first on a narrow screen. The saved marker, when present,
- * leads for the reason `agentMetaParts` gives.
- */
-function agentRailMetaParts(
-	agent: SubagentActivity,
-	options: { readonly showModel: boolean; readonly showCounters: boolean },
-): readonly string[] {
-	const parts: string[] = []
-	if (agent.replayed) parts.push('saved')
-	if (options.showCounters) {
-		if (agent.toolCalls !== undefined) {
-			parts.push(`${agent.toolCalls} ${agent.toolCalls === 1 ? 'tool' : 'tools'}`)
-		}
-		if (agent.tokens !== undefined) parts.push(formatCompactCount(agent.tokens))
-	}
-	if (options.showModel && agent.model) {
-		parts.push(truncateChoiceText(agent.model, MAX_MODEL_LABEL_WIDTH))
-	}
-	return parts
-}
-
-/**
- * Live cohorts plus their already-settled siblings. Terminal cohorts are
- * retained by the monitor for explicit history but never reappear here.
- */
-export function activeSubagentCohorts(
-	agents: readonly SubagentActivity[],
-): readonly SubagentActivity[] {
-	// Replayed rows are excluded before anything else, in BOTH directions:
-	// they never appear in this panel, and a replayed row whose saved status
-	// never reached a terminal value never makes a cohort look live. Saved
-	// evidence describes work that ended in another process, and this panel
-	// exists to say what is running now.
-	const live = agents.filter((agent) => agent.replayed !== true)
-	const activeCohorts = new Set(
-		live.filter((agent) => !isTerminalStatus(agent.status)).map(agentCohortKey),
+/** The key line shown under the rail while it has the keyboard. */
+export function railHint(
+	selected: SubagentActivity | RailWorkflow | undefined,
+	columns: number,
+): string {
+	const action = selected
+		? 'focusId' in selected
+			? railWorkflowActionFor(selected)
+			: railActionFor(selected)
+		: undefined
+	return fitHints(
+		[
+			{ text: '↑/↓ to select', short: '↑/↓', rank: 4 },
+			{ text: 'enter to view', short: 'enter', rank: 5 },
+			...(action ? [{ text: `x to ${action}`, rank: 3 }] : []),
+			{ text: 'esc to go back', rank: 2 },
+		],
+		Math.max(1, columns - 2),
 	)
-	return live.filter((agent) => activeCohorts.has(agentCohortKey(agent)))
-}
-
-/**
- * What stays on the rail together. A labelled workflow is one cohort across
- * every batch of its parent turn, so a settled Phase 1 is still drawn while
- * Phase 2 runs; an unlabelled batch is its own cohort, as it always was
- * (`workflowGroupId` is exactly that split, made by the monitor).
- */
-function agentCohortKey(agent: SubagentActivity): string {
-	return agent.workflowGroupId
 }
 
 export type AgentCockpitFocus = 'workflows' | 'phases' | 'agents'
@@ -419,6 +703,10 @@ export interface AgentWorkflow {
 	readonly status: SubagentActivityStatus
 	readonly phases: readonly AgentPhase[]
 	readonly agents: readonly SubagentActivity[]
+	/** The `workflow` tool's run, when this is one: its agents are scripted, not model-launched. */
+	readonly runId?: string
+	readonly description?: string
+	readonly runStatus?: WorkflowRunStatus
 }
 
 export interface AgentPhase {
@@ -437,6 +725,8 @@ export interface AgentPhase {
 
 export interface AgentCockpitProps {
 	readonly agents: readonly SubagentActivity[]
+	/** The `workflow` tool's runs, for the phases they declared that nothing has started in yet. */
+	readonly runs?: readonly WorkflowRunView[]
 	readonly selectedPhaseId: string
 	readonly selectedId: string
 	readonly focus: AgentCockpitFocus
@@ -450,13 +740,14 @@ export interface AgentCockpitProps {
  */
 export function AgentCockpit({
 	agents,
+	runs = [],
 	selectedPhaseId,
 	selectedId,
 	focus,
 	terminalRows,
 	terminalColumns,
 }: AgentCockpitProps) {
-	const workflows = agentWorkflows(agents)
+	const workflows = agentWorkflows(agents, runs)
 	const workflowIndex = Math.max(
 		0,
 		workflows.findIndex((workflow) =>
@@ -476,13 +767,7 @@ export function AgentCockpit({
 		phaseAgents.findIndex((agent) => agent.viewId === selectedId),
 	)
 	const now = useLiveNow(agents.some((agent) => agent.completedAt === undefined))
-	const active = workflow?.agents.filter((agent) => !isTerminalStatus(agent.status)).length ?? 0
-	const wide = agentCockpitIsWide(terminalColumns)
 	const compact = terminalRows < 20
-	const sideBySide = wide
-	const phasePaneWidth = sideBySide
-		? Math.max(24, Math.min(36, Math.floor(terminalColumns * 0.3)))
-		: undefined
 	if (focus === 'workflows') {
 		const { items } = selectionWindow(workflows, workflowIndex, agentWorkflowPageSize(terminalRows))
 		return (
@@ -545,25 +830,173 @@ export function AgentCockpit({
 			</Box>
 		)
 	}
-	const navigation = fitHints(
-		[
-			{ text: '←→ pane', rank: 3 },
-			{ text: '↑↓ select', short: '↑↓', rank: 4 },
-			{ text: 'PgUp/PgDn jump', rank: 1 },
-			{ text: 'enter select', short: 'enter', rank: 5 },
-			{ text: 'esc return', rank: 5 },
-		],
-		Math.max(1, terminalColumns - 4),
+	if (!workflow || !selectedPhase) return null
+	return (
+		<WorkflowDetail
+			workflow={workflow}
+			phases={phases}
+			selectedPhaseIndex={selectedPhaseIndex}
+			selectedAgentIndex={selectedAgentIndex}
+			level={focus === 'agents' ? 2 : 1}
+			terminalRows={terminalRows}
+			terminalColumns={terminalColumns}
+			now={now}
+		/>
 	)
-	const totalWorkflowAgents = workflow?.agents.length ?? 0
-	// Same rule as the automatic rail's title: an explicit label names this
-	// workflow, an absent one (the unlabelled default) gets a neutral count
-	// instead of the generic default name.
-	const workflowTitle =
-		selectedPhase?.workflow !== undefined && selectedPhase.workflow !== DEFAULT_AGENT_WORKFLOW
-			? oneLine(selectedPhase.workflow)
-			: `${totalWorkflowAgents} agent${totalWorkflowAgents === 1 ? '' : 's'} · ${active} running`
+}
 
+/** Title of a group the model gave no `phase` label: one group, named for what it holds. */
+export const UNLABELLED_PHASE_TITLE = 'Agents'
+
+/** The words a phase is listed under: the model's label verbatim, `Agents` when it gave none. */
+export function phaseTitle(phase: Pick<AgentPhase, 'name'>): string {
+	return phase.name === DEFAULT_AGENT_PHASE ? UNLABELLED_PHASE_TITLE : phase.name
+}
+
+export type PhaseOutcome = 'not-started' | 'running' | 'done' | 'failed'
+
+/**
+ * How a phase stands, from its agents alone: `done` once every agent has
+ * settled cleanly, `failed` once every agent has settled and any failed or
+ * was stopped, `running` otherwise. Only a workflow run declares phases ahead
+ * of their agents, so only a run's phase is ever `not-started`.
+ */
+export function phaseOutcome(phase: Pick<AgentPhase, 'agents'>): PhaseOutcome {
+	// A phase a script declared and nothing has started in.
+	if (phase.agents.length === 0) return 'not-started'
+	if (phase.agents.some((agent) => !isTerminalStatus(agent.status))) return 'running'
+	// An agent the operator skipped in a workflow run is not a failure of its phase.
+	return phase.agents.some(
+		(agent) =>
+			agent.status !== 'completed' &&
+			!(agent.workflowRunId !== undefined && agent.status === 'cancelled'),
+	)
+		? 'failed'
+		: 'done'
+}
+
+/** The phase list's `done/total`: settled agents over every agent seen in it. */
+export function phaseCount(phase: Pick<AgentPhase, 'agents'>): string {
+	if (phase.agents.length === 0) return ''
+	// In a workflow run only an agent that completed counts; one that was skipped,
+	// failed or stopped has not done its work.
+	const counted = phase.agents.filter((agent) =>
+		agent.workflowRunId !== undefined
+			? agent.status === 'completed'
+			: isTerminalStatus(agent.status),
+	).length
+	return `${counted}/${phase.agents.length}`
+}
+
+/**
+ * Whether opening a workflow starts at its list of phases. A workflow the
+ * model labelled always does (its agents are only reachable through it); the
+ * unlabelled default group keeps jumping straight to its agents when it has
+ * a single group.
+ */
+export function cockpitEntryFocus(workflow: AgentWorkflow): 'phases' | 'agents' {
+	const labelled =
+		workflow.runId !== undefined ||
+		workflow.agents.some((agent) => agent.workflow !== DEFAULT_AGENT_WORKFLOW)
+	return labelled || workflow.phases.length > 1 ? 'phases' : 'agents'
+}
+
+/** Rows one list level can show; shared with the key handler so paging matches the screen. */
+export function workflowDetailPageSize(terminalRows: number): number {
+	return Math.max(1, Math.min(MAX_PICKER_ROWS, terminalRows - 14))
+}
+
+function agentDetailGlyph(status: SubagentActivityStatus): {
+	text: string
+	color: string | undefined
+} {
+	switch (status) {
+		case 'completed':
+			return { text: '✔', color: theme.status.ok }
+		case 'failed':
+		case 'cancelled':
+			return { text: '✘', color: theme.status.error }
+		case 'working':
+			return { text: '●', color: theme.accent.assistant }
+		default:
+			return { text: '◌', color: theme.text.muted }
+	}
+}
+
+interface WorkflowDetailProps {
+	readonly workflow: AgentWorkflow
+	readonly phases: readonly AgentPhase[]
+	readonly selectedPhaseIndex: number
+	readonly selectedAgentIndex: number
+	readonly level: 1 | 2
+	readonly terminalRows: number
+	readonly terminalColumns: number
+	readonly now: number
+}
+
+/**
+ * The detail of one workflow, as the reference's dialog shows it: a header
+ * with the workflow's name and totals, then ONE list at a time. Level 1 is
+ * the phases, in order; level 2 is the agents of the selected phase.
+ */
+export function WorkflowDetail({
+	workflow,
+	phases,
+	selectedPhaseIndex,
+	selectedAgentIndex,
+	level,
+	terminalRows,
+	terminalColumns,
+	now,
+}: WorkflowDetailProps) {
+	const innerWidth = Math.max(1, terminalColumns - COCKPIT_FRAME_COLUMNS)
+	const compact = terminalRows < 20
+	const pageSize = compact ? 1 : workflowDetailPageSize(terminalRows)
+	const phase = phases[selectedPhaseIndex]
+	const isRun = workflow.runId !== undefined
+	const settled = workflow.agents.filter((agent) =>
+		isRun ? agent.status === 'completed' : isTerminalStatus(agent.status),
+	).length
+	const ended = isRun ? workflow.runStatus !== 'running' : undefined
+	const ends = workflow.agents.map((agent) => agent.completedAt ?? now)
+	const elapsed = formatElapsed(
+		Math.max(0, Math.max(isRun && !ended ? now : 0, ...ends) - workflow.startedAt),
+	)
+	const named = isRun || workflow.agents.some((agent) => agent.workflow !== DEFAULT_AGENT_WORKFLOW)
+	const running = isRun
+		? workflow.runStatus === 'running'
+		: workflow.agents.some((agent) => !isTerminalStatus(agent.status))
+	// Same rule as the rail: an explicit label names the workflow, an absent
+	// one gets a neutral count instead of the generic default name.
+	const live = workflow.agents.filter((agent) => !isTerminalStatus(agent.status)).length
+	const total = workflow.agents.length
+	const title = named
+		? oneLine(workflow.name)
+		: `${total} agent${total === 1 ? '' : 's'} · ${live} running`
+	const selectedAgent = phase?.agents[selectedAgentIndex]
+	const canStop =
+		level === 1
+			? running
+			: selectedAgent !== undefined &&
+				!isTerminalStatus(selectedAgent.status) &&
+				(!isRun || workflow.runStatus === 'running')
+	// On a run's agents `x` skips that one agent; the run goes on without it.
+	const stopWord = level === 2 && isRun ? 'skip' : 'stop'
+	const hint = fitHints(
+		[
+			{ text: '↑/↓ to select', short: '↑/↓', rank: 4 },
+			{ text: 'enter to view', short: 'enter', rank: 5 },
+			...(canStop ? [{ text: `x to ${stopWord}`, rank: 2 }] : []),
+			{ text: 'esc to go back', short: 'esc', rank: 3 },
+		],
+		innerWidth,
+	)
+	const phaseWindow = selectionWindow(phases, selectedPhaseIndex, pageSize)
+	const agentWindow = selectionWindow(phase?.agents ?? [], selectedAgentIndex, pageSize)
+	const detailLines =
+		level === 1 && !compact && phase?.detail
+			? wrapPhaseDetailLines(phase.detail, innerWidth).slice(0, PHASE_DETAIL_LINE_BUDGET)
+			: []
 	return (
 		<Box
 			flexDirection="column"
@@ -575,259 +1008,133 @@ export function AgentCockpit({
 			<Box height={1} flexShrink={0}>
 				<Box flexGrow={1} minWidth={0}>
 					<Text color={theme.text.primary} bold wrap="truncate-end">
-						{workflowTitle}
+						{title}
+						{workflow.description ? (
+							<Text color={theme.text.muted} bold={false}>
+								{'  '}
+								{terminalDisplayText(oneLine(workflow.description))}
+							</Text>
+						) : null}
 					</Text>
 				</Box>
 				<Box flexShrink={0} marginLeft={1}>
 					<Text color={theme.text.muted} wrap="truncate-end">
-						{workflow ? workflowProgress(workflow, now, terminalColumns) : ''}
+						{settled}/{workflow.agents.length} {workflow.agents.length === 1 ? 'agent' : 'agents'} ·{' '}
+						{elapsed}
+						{ended && workflow.runStatus ? ` · ${workflow.runStatus}` : ''}
 					</Text>
 				</Box>
 			</Box>
-			{compact ? null : (
-				<Text color={theme.text.muted} wrap="truncate-end">
-					{workflows.length > 1
-						? 'Select a phase, then inspect a child. Esc returns to workflows.'
-						: 'Select a phase, then inspect a child.'}
+			<Box paddingTop={compact ? 0 : 1} flexShrink={0}>
+				<Text color={theme.accent.assistant} bold wrap="truncate-end">
+					{level === 1 || !phase
+						? 'Phases'
+						: `${oneLine(phaseTitle(phase))} · ${phase.agents.length} ${phase.agents.length === 1 ? 'agent' : 'agents'}`}
 				</Text>
-			)}
-			<Box flexDirection={sideBySide ? 'row' : 'column'} flexGrow={1} paddingTop={compact ? 0 : 1}>
-				<Box flexDirection="column" width={phasePaneWidth} flexShrink={0}>
-					<PhasePane
-						phases={phases}
-						selected={selectedPhaseIndex}
-						focused={focus === 'phases'}
-						pageSize={compact ? 1 : agentPhasePageSize(terminalRows, wide)}
-						paneWidth={phasePaneWidth ?? Math.max(1, terminalColumns - COCKPIT_FRAME_COLUMNS)}
-						showDetail={!compact}
-						now={now}
-					/>
-				</Box>
-				{sideBySide ? (
-					<Box
-						width={1}
-						marginX={1}
-						flexShrink={0}
-						borderStyle="single"
-						borderColor={theme.border.default}
-						borderTop={false}
-						borderBottom={false}
-						borderRight={false}
-					/>
+			</Box>
+			<Box flexDirection="column" flexGrow={1}>
+				{level === 1
+					? phaseWindow.items.map((item, offset) => {
+							const index = phaseWindow.start + offset
+							const active = index === selectedPhaseIndex
+							const outcome = phaseOutcome(item)
+							const color =
+								outcome === 'done'
+									? theme.status.ok
+									: outcome === 'failed'
+										? theme.status.error
+										: outcome === 'not-started'
+											? theme.text.muted
+											: undefined
+							return (
+								<Box key={item.id}>
+									<Box width={2} flexShrink={0}>
+										<Text color={theme.accent.assistant}>{active ? '❯' : ' '}</Text>
+									</Box>
+									<Box width={3} flexShrink={0}>
+										<Text color={color ?? theme.text.muted}>
+											{outcome === 'done' ? '✔' : outcome === 'failed' ? '✘' : String(index + 1)}
+										</Text>
+									</Box>
+									<Box flexGrow={1} flexShrink={1} minWidth={0}>
+										<Text
+											color={color ?? theme.text.primary}
+											bold={active}
+											dimColor={outcome === 'not-started'}
+											wrap="truncate-end"
+										>
+											{oneLine(phaseTitle(item))}
+										</Text>
+									</Box>
+									<Box flexShrink={0} marginLeft={1}>
+										<Text color={theme.text.muted}>{phaseCount(item)}</Text>
+									</Box>
+								</Box>
+							)
+						})
+					: agentWindow.items.map((agent, offset) => {
+							const active = agentWindow.start + offset === selectedAgentIndex
+							const glyph = agentDetailGlyph(agent.status)
+							const queued = agent.status === 'queued' || agent.status === 'starting'
+							const right = [
+								...(terminalColumns >= 90 ? [oneLine(agent.agentId)] : []),
+								...(terminalColumns >= 70 && agent.model
+									? [truncateChoiceText(agent.model, MAX_MODEL_LABEL_WIDTH)]
+									: []),
+								...(agent.tokens !== undefined
+									? [`${formatCompactCount(agent.tokens)} tokens`]
+									: []),
+								queued
+									? 'queued'
+									: formatElapsed(Math.max(0, (agent.completedAt ?? now) - agent.startedAt)),
+							].join(' · ')
+							return (
+								<Box key={agent.viewId}>
+									<Box width={2} flexShrink={0}>
+										<Text color={theme.accent.assistant}>{active ? '❯' : ' '}</Text>
+									</Box>
+									<Box width={2} flexShrink={0}>
+										<Text color={glyph.color}>{glyph.text}</Text>
+									</Box>
+									<Box flexGrow={1} flexShrink={1} minWidth={0}>
+										<Text color={theme.text.primary} bold={active} wrap="truncate-end">
+											{terminalDisplayText(oneLine(agent.description || agent.agentId))}
+										</Text>
+									</Box>
+									<Box flexShrink={0} marginLeft={1}>
+										<Text color={theme.text.muted}>{right}</Text>
+									</Box>
+								</Box>
+							)
+						})}
+				{level === 2 && phase && phase.agents.length === 0 ? (
+					<Text color={theme.text.muted} dimColor>
+						{isRun && !running ? 'No agents' : 'Not started yet'}
+					</Text>
 				) : null}
-				<Box
-					flexDirection="column"
-					flexGrow={1}
-					minWidth={0}
-					paddingTop={sideBySide || compact ? 0 : 1}
-				>
-					<AgentPane
-						agents={phaseAgents}
-						{...(selectedPhase && selectedPhase.name !== DEFAULT_AGENT_PHASE
-							? { phaseName: selectedPhase.name }
-							: {})}
-						selected={selectedAgentIndex}
-						focused={focus === 'agents'}
-						pageSize={compact ? 1 : agentPickerPageSize(terminalRows, wide)}
-						now={now}
-						wide={wide}
-						terminalColumns={terminalColumns}
-						detailWidth={Math.floor(
-							Math.max(
-								2,
-								terminalColumns -
-									COCKPIT_FRAME_COLUMNS -
-									(phasePaneWidth ?? 0) -
-									(sideBySide ? 3 : 0),
-							) / 2,
-						)}
-					/>
-				</Box>
+				{detailLines.length > 0 ? (
+					<Box
+						flexDirection="column"
+						height={PHASE_DETAIL_LINE_BUDGET}
+						flexShrink={0}
+						overflow="hidden"
+						marginTop={1}
+					>
+						{detailLines.map((line, index) => (
+							// biome-ignore lint/suspicious/noArrayIndexKey: fixed-budget, order-stable lines of one wrap pass
+							<Text key={index} color={theme.text.muted} wrap="truncate-end">
+								{line}
+							</Text>
+						))}
+					</Box>
+				) : null}
 			</Box>
 			<Box paddingTop={compact ? 0 : 1}>
 				<Text color={theme.text.muted} wrap="truncate-end">
-					{navigation}
+					{hint}
 				</Text>
 			</Box>
 		</Box>
-	)
-}
-
-function PhasePane({
-	phases,
-	selected,
-	focused,
-	pageSize,
-	paneWidth,
-	showDetail,
-	now,
-}: {
-	readonly phases: readonly AgentPhase[]
-	/** The cockpit's clock, for each phase's first-start-to-last-finish time. */
-	readonly now: number
-	readonly selected: number
-	readonly focused: boolean
-	readonly pageSize: number
-	/** Wrap width for the focused phase's detail text; never affects row layout above it. */
-	readonly paneWidth: number
-	/**
-	 * False in the compact (terminalRows < 20) cockpit layout, where the
-	 * phase and agent panes already share a tight, stacked vertical budget
-	 * that the detail band's rows were never accounted for — showing it
-	 * there starves the agent pane of height and corrupts the frame. Compact
-	 * mode already drops every other non-essential line (the subtitle text,
-	 * the pane paddings); the detail band is dropped the same way, for the
-	 * same reason.
-	 */
-	readonly showDetail: boolean
-}) {
-	const { start, items } = selectionWindow(phases, selected, pageSize)
-	// A narrow pane keeps the count and gives the time up first.
-	const showElapsed = paneWidth >= 28
-	// "Focused" here is the phase carrying the `›` cursor, not which sub-pane
-	// currently holds keyboard focus — the detail stays visible while the
-	// operator drills into that phase's agents.
-	const focusedPhase = phases[selected]
-	const detailLines =
-		showDetail && focusedPhase?.detail
-			? wrapPhaseDetailLines(focusedPhase.detail, paneWidth).slice(0, PHASE_DETAIL_LINE_BUDGET)
-			: []
-	return (
-		<>
-			<Text color={focused ? theme.accent.assistant : theme.text.secondary} bold>
-				{/* No count: every `N/M` beside a phase or a workflow reads done out
-				    of total, so a cursor position here would read as progress. */}
-				Phases
-			</Text>
-			{items.map((phase, visibleIndex) => {
-				const active = start + visibleIndex === selected
-				return (
-					<Box key={phase.id}>
-						<Box width={4} flexShrink={0}>
-							<Text color={active && focused ? theme.accent.assistant : theme.text.muted}>
-								{active ? '›' : ' '} {statusGlyph(phase.status)}
-							</Text>
-						</Box>
-						<Box flexGrow={1} flexShrink={1}>
-							<Text
-								color={active ? theme.text.primary : theme.text.secondary}
-								bold={active && focused}
-								wrap="truncate-end"
-							>
-								{phase.order !== undefined ? `${phase.order + 1} ` : ''}
-								{oneLine(phase.name)}
-							</Text>
-						</Box>
-						<Box flexShrink={0} marginLeft={1}>
-							<Text color={statusColor(phase.status)}>
-								{phaseProgress(phase)}
-								{showElapsed ? ` · ${formatElapsed(phaseElapsed(phase, now))}` : ''}
-							</Text>
-						</Box>
-					</Box>
-				)
-			})}
-			{detailLines.length > 0 ? (
-				<Box
-					flexDirection="column"
-					height={PHASE_DETAIL_LINE_BUDGET}
-					flexShrink={0}
-					overflow="hidden"
-					marginTop={1}
-				>
-					{detailLines.map((line, index) => (
-						// biome-ignore lint/suspicious/noArrayIndexKey: fixed-budget, order-stable lines of one wrap pass
-						<Text key={index} color={theme.text.muted} wrap="truncate-end">
-							{line}
-						</Text>
-					))}
-				</Box>
-			) : null}
-		</>
-	)
-}
-
-function AgentPane({
-	agents,
-	phaseName,
-	selected,
-	focused,
-	pageSize,
-	now,
-	wide,
-	terminalColumns,
-	detailWidth,
-}: {
-	readonly agents: readonly SubagentActivity[]
-	readonly phaseName?: string
-	/**
-	 * Cells for the status and meta half of a wide row, worked out from the
-	 * pane's width. As `50%` the row came out one cell wider than its pane,
-	 * and its last character sat on the frame's padding, touching the border.
-	 */
-	readonly detailWidth?: number
-	readonly selected: number
-	readonly focused: boolean
-	readonly pageSize: number
-	readonly now: number
-	readonly wide: boolean
-	readonly terminalColumns: number
-}) {
-	const { start, items } = selectionWindow(agents, selected, pageSize)
-	const showModel = wide
-	const showCounters = wide && terminalColumns >= 120
-	return (
-		<>
-			<Text
-				color={focused ? theme.accent.assistant : theme.text.secondary}
-				bold
-				wrap="truncate-end"
-			>
-				{/* Titled by the phase it lists, as the reference's panel is: the
-				    operator reads which phase these are without looking left. */}
-				{phaseName !== undefined ? `${oneLine(phaseName)} · ` : ''}
-				{agents.length} {agents.length === 1 ? 'agent' : 'agents'}
-				{agents.length > pageSize ? ` · ${selected + 1}/${agents.length}` : ''}
-			</Text>
-			{items.map((agent, visibleIndex) => {
-				const active = start + visibleIndex === selected
-				const elapsed = formatElapsed((agent.completedAt ?? now) - agent.startedAt)
-				const meta = agentMetaParts(agent, { showModel, showCounters })
-				return (
-					<Box key={agent.viewId}>
-						<Box width={4} flexShrink={0}>
-							<Text color={active && focused ? theme.accent.assistant : theme.text.muted}>
-								{active ? '›' : ' '} {statusGlyph(agent.status)}
-							</Text>
-						</Box>
-						<Box flexGrow={1} flexShrink={1} minWidth={0}>
-							<Text
-								color={active ? theme.text.primary : theme.text.secondary}
-								bold={active && focused}
-								wrap="truncate-end"
-							>
-								{oneLine(agent.description || agent.agentId)}
-							</Text>
-						</Box>
-						<Box marginLeft={1} flexShrink={0} width={wide ? detailWidth : undefined}>
-							<Box flexGrow={1} flexShrink={1} minWidth={0}>
-								<Text color={theme.text.secondary} wrap="truncate-end">
-									{statusLabel(agent.status)} · {elapsed}
-									{wide && distinctActivity(agent) ? ` · ${distinctActivity(agent)}` : ''}
-								</Text>
-							</Box>
-							{meta.length > 0 ? (
-								<Box flexShrink={0} marginLeft={1}>
-									<Text color={theme.text.muted} wrap="truncate-end">
-										{meta.join(' · ')}
-									</Text>
-								</Box>
-							) : null}
-						</Box>
-					</Box>
-				)
-			})}
-		</>
 	)
 }
 
@@ -836,23 +1143,67 @@ export function agentCockpitIsWide(terminalColumns: number): boolean {
 }
 
 /** Group retained work before exposing phases. Labels do not create execution dependencies. */
-export function agentWorkflows(agents: readonly SubagentActivity[]): readonly AgentWorkflow[] {
+export function agentWorkflows(
+	agents: readonly SubagentActivity[],
+	runs: readonly WorkflowRunView[] = [],
+): readonly AgentWorkflow[] {
 	const groups = new Map<string, SubagentActivity[]>()
 	for (const agent of agents) {
 		const group = groups.get(agent.workflowGroupId)
 		if (group) group.push(agent)
 		else groups.set(agent.workflowGroupId, [agent])
 	}
+	const byRun = new Map(runs.map((run) => [run.groupId, run]))
+	for (const run of runs) if (!groups.has(run.groupId)) groups.set(run.groupId, [])
 	return [...groups]
-		.map(([id, members]) => ({
-			id,
-			name: workflowGroupName(members),
-			startedAt: Math.min(...members.map((agent) => agent.startedAt)),
-			status: phaseStatus(members),
-			phases: agentPhases(members),
-			agents: members,
-		}))
+		.map(([id, members]) => {
+			const run = byRun.get(id)
+			return {
+				id,
+				name: run?.name ?? workflowGroupName(members),
+				startedAt: run
+					? Math.min(run.startedAt, ...members.map((agent) => agent.startedAt))
+					: Math.min(...members.map((agent) => agent.startedAt)),
+				status: members.length > 0 ? phaseStatus(members) : 'working',
+				phases: run ? runPhases(run, members) : agentPhases(members),
+				agents: members,
+				...(run ? { runId: run.runId, description: run.description, runStatus: run.status } : {}),
+			} satisfies AgentWorkflow
+		})
 		.sort((left, right) => left.startedAt - right.startedAt || left.id.localeCompare(right.id))
+}
+
+/**
+ * A run's phases: the ones its agents are in, plus every phase the script
+ * declared or announced that has no agent yet, in the script's order.
+ */
+function runPhases(
+	run: WorkflowRunView,
+	members: readonly SubagentActivity[],
+): readonly AgentPhase[] {
+	const started = new Map(agentPhases(members).map((phase) => [phase.id, phase]))
+	const ordered: AgentPhase[] = []
+	for (const phase of [...run.phases].sort((a, b) => a.index - b.index)) {
+		const id = runPhaseId(run, phase.index)
+		const existing = started.get(id)
+		started.delete(id)
+		ordered.push(
+			existing ?? {
+				id,
+				workflowId: run.workflowId,
+				workflow: run.name,
+				name: phase.title,
+				order: phase.index,
+				...(phase.detail !== undefined ? { detail: phase.detail } : {}),
+				sequence: phase.index,
+				startedAt: run.startedAt,
+				status: 'queued',
+				agents: [],
+			},
+		)
+	}
+	// Agents the script never gave a phase come last, as one group.
+	return [...ordered, ...started.values()]
 }
 
 /**
@@ -946,11 +1297,8 @@ export function agentPhases(agents: readonly SubagentActivity[]): readonly Agent
 		})
 }
 
-export function agentPhasePageSize(terminalRows: number, wide = true): number {
-	const available = Math.max(2, terminalRows - (wide ? 10 : 12))
-	return wide
-		? Math.max(1, Math.min(MAX_PICKER_ROWS, available))
-		: Math.max(1, Math.min(4, Math.floor(available * 0.4)))
+export function agentPhasePageSize(terminalRows: number, _wide = true): number {
+	return workflowDetailPageSize(terminalRows)
 }
 
 export interface AgentTranscriptProps {
@@ -962,6 +1310,8 @@ export interface AgentTranscriptProps {
 	/** Reserve more of a short terminal for the child's message editor. */
 	readonly compact?: boolean
 	readonly navigationHint?: string
+	/** What Esc does here: `agents` returns to the cockpit list, `back` to the rail. */
+	readonly escapeTo?: 'agents' | 'back'
 }
 
 /** Child screen; leave two parent footer rows and one terminal cursor row free. */
@@ -972,6 +1322,7 @@ export function AgentTranscript({
 	terminalColumns,
 	compact = false,
 	navigationHint,
+	escapeTo = 'agents',
 }: AgentTranscriptProps) {
 	const page = agentTranscriptPage(
 		agent,
@@ -995,7 +1346,9 @@ export function AgentTranscript({
 				{ text: 'PgUp/PgDn', short: '↑↓ scroll', rank: 2 },
 				{ text: 'Home oldest', rank: 1 },
 				{ text: `End ${tailLabel.toLowerCase()}`, rank: 1 },
-				{ text: 'esc agents', short: 'esc list', rank: 5 },
+				escapeTo === 'back'
+					? { text: 'esc back', rank: 5 }
+					: { text: 'esc agents', short: 'esc list', rank: 5 },
 				{ text: 'q parent', rank: 5 },
 			],
 			Math.max(1, terminalColumns - 4),
@@ -1014,7 +1367,13 @@ export function AgentTranscript({
 			<Box justifyContent="space-between" height={1} flexShrink={0}>
 				<Box flexGrow={1} minWidth={0}>
 					<Text color={theme.accent.assistant} bold wrap="truncate-end">
-						{compact ? oneLine(agent.description || agent.agentId) : 'Subagent'}
+						{compact
+							? oneLine(agent.description || agent.agentId)
+							: agent.workflowRunId !== undefined
+								? terminalDisplayText(
+										`${oneLine(agent.workflow)} · ${oneLine(phaseTitle({ name: agent.phase }))}`,
+									)
+								: 'Subagent'}
 					</Text>
 				</Box>
 				<Box flexShrink={0}>
@@ -1090,11 +1449,8 @@ export function AgentTranscript({
 	)
 }
 
-export function agentPickerPageSize(terminalRows: number, wide = true): number {
-	const available = Math.max(2, terminalRows - (wide ? 10 : 12))
-	return wide
-		? Math.max(1, Math.min(MAX_PICKER_ROWS, available))
-		: Math.max(1, Math.min(MAX_PICKER_ROWS, available - agentPhasePageSize(terminalRows, false)))
+export function agentPickerPageSize(terminalRows: number, _wide = true): number {
+	return workflowDetailPageSize(terminalRows)
 }
 
 /**
@@ -1278,13 +1634,6 @@ function agentMetaParts(
 	return parts
 }
 
-function distinctActivity(agent: SubagentActivity): string | undefined {
-	const activity = agent.latestActivity ? oneLine(agent.latestActivity) : undefined
-	if (!activity || activity.toLowerCase() === agent.status) return undefined
-	const prefix = `${statusLabel(agent.status)} · `
-	return activity.startsWith(prefix) ? activity.slice(prefix.length) : activity
-}
-
 function phaseStatus(agents: readonly SubagentActivity[]): SubagentActivityStatus {
 	if (agents.some((agent) => agent.status === 'failed')) return 'failed'
 	if (agents.some((agent) => agent.status === 'working')) return 'working'
@@ -1292,55 +1641,6 @@ function phaseStatus(agents: readonly SubagentActivity[]): SubagentActivityStatu
 	if (agents.some((agent) => agent.status === 'starting')) return 'starting'
 	if (agents.some((agent) => agent.status === 'cancelled')) return 'cancelled'
 	return 'completed'
-}
-
-/**
- * The cockpit's summary of one workflow, in the reference's terms: how many
- * agents are done, how long it has run, what it has spent, and how it ended
- * once nothing is left running: `1/3 agents done · 2 running · 5.2s · 18.0k
- * tokens`, then `3/3 agents · 12s · 27.0k tokens · done` (or `failed`).
- */
-function workflowProgress(workflow: AgentWorkflow, now: number, columns: number): string {
-	const agents = workflow.agents
-	const running = agents.filter((agent) => !isTerminalStatus(agent.status)).length
-	const done = agents.length - running
-	const ending = workflow.status === 'completed' ? 'done' : workflow.status
-	// The title beside this keeps its room: below 60 columns only the count
-	// and the ending, then the time from 70, the spend from 100.
-	if (columns < 60)
-		return running > 0 ? `${done}/${agents.length} done` : `${done}/${agents.length} · ${ending}`
-	const ends = agents.map((agent) => agent.completedAt ?? now)
-	const elapsed = formatElapsed(Math.max(0, Math.max(...ends) - workflow.startedAt))
-	const spent = agents.reduce<number | undefined>(
-		(sum, agent) => (agent.tokens === undefined ? sum : (sum ?? 0) + agent.tokens),
-		undefined,
-	)
-	const counters = [
-		...(columns >= 70 ? [elapsed] : []),
-		...(columns >= 100 && spent !== undefined ? [`${formatCompactCount(spent)} tokens`] : []),
-	]
-	return (
-		running > 0
-			? [`${done}/${agents.length} agents done`, `${running} running`, ...counters]
-			: [`${done}/${agents.length} agents`, ...counters, ending]
-	).join(' · ')
-}
-
-/** First start to last finish; a phase still running counts to `now`. */
-function phaseElapsed(phase: AgentPhase, now: number): number {
-	const ends = phase.agents.map((agent) => agent.completedAt ?? now)
-	return Math.max(0, Math.max(...ends) - phase.startedAt)
-}
-
-function phaseProgress(phase: AgentPhase): string {
-	const completed = phase.agents.filter((agent) => isTerminalStatus(agent.status)).length
-	const failed = phase.agents.filter((agent) => agent.status === 'failed').length
-	const cancelled = phase.agents.filter((agent) => agent.status === 'cancelled').length
-	return [
-		`${completed}/${phase.agents.length}`,
-		...(failed > 0 ? [`failed ${failed}`] : []),
-		...(cancelled > 0 ? [`cancelled ${cancelled}`] : []),
-	].join(' · ')
 }
 
 /**

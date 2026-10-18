@@ -122,23 +122,26 @@ await import(${JSON.stringify(`file://${BIN}`)})
 	return { screenHas, resize }
 }
 
+/** The composer's two rules: the first and the last row made only of `─`. */
+function composerRules(lines: string[]): { top?: string; bottom?: string } {
+	const rules = lines.filter((line) => /^\s*─{3,}\s*$/u.test(line))
+	return rules.length >= 2 ? { top: rules[0], bottom: rules.at(-1) } : {}
+}
+
 /**
- * The composer's frame has been drawn whole for exactly this pane width: the top and
- * bottom borders both span it and close with their corners, nothing on screen is wider
- * than the pane, and the footer is under it. The redraw arrives in several chunks, so a
- * screen can show the new bottom border and footer while the top border is still the old
- * width's; that frame is not yet the answer, and the wait goes on to the next output.
+ * The composer's frame has been drawn whole for exactly this pane width: the upper and
+ * lower rules both span it, nothing on screen is wider than the pane, and the footer is
+ * under it. The redraw arrives in several chunks, so a screen can show the new lower rule
+ * and footer while the upper rule is still the old width's; that frame is not yet the
+ * answer, and the wait goes on to the next output.
  */
 function drawnFor(cols: number) {
 	return (lines: string[]): boolean => {
-		const top = lines.find((line) => line.trimStart().startsWith('┌'))
-		const bottom = lines.find((line) => line.trimStart().startsWith('└'))
+		const { top, bottom } = composerRules(lines)
 		const footer = lines.find((line) => line.includes('shift+tab'))
 		return (
 			top !== undefined &&
 			bottom !== undefined &&
-			top.endsWith('┐') &&
-			bottom.endsWith('┘') &&
 			[...top].length >= cols - 4 &&
 			[...top].length === [...bottom].length &&
 			lines.every((line) => [...line].length <= cols) &&
@@ -159,9 +162,8 @@ describe.skipIf(!binding || process.platform === 'win32')(
 				const lines = await screenHas(drawnFor(cols))
 				const longest = Math.max(...lines.map((line) => [...line].length))
 				expect(longest, `${cols} columns`).toBeLessThanOrEqual(cols)
-				const top = lines.find((line) => line.trimStart().startsWith('┌'))
-				const bottom = lines.find((line) => line.trimStart().startsWith('└'))
-				expect(top?.endsWith('┐'), `${cols} columns: the top-right corner`).toBe(true)
+				const { top, bottom } = composerRules(lines)
+				expect(top, `${cols} columns: the upper rule`).toBeDefined()
 				expect([...(top ?? '')].length).toBe([...(bottom ?? '')].length)
 			}
 		}, 90_000)

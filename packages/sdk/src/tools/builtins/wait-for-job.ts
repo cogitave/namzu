@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import { invalidBackgroundJobIdInput } from '../../runtime/jobs/job-id.js'
 import { readPositiveIntEnv } from '../../utils/env.js'
 import { defineTool } from '../defineTool.js'
 import { describeJobWaitTimeout, waitForJobWithBounds } from './wait-for-job-bounds.js'
@@ -130,6 +131,9 @@ export const WaitForJobTool = defineTool({
 			}
 		}
 		const jobs = context.backgroundJobs
+
+		const badId = invalidBackgroundJobIdInput(input.id)
+		if (badId) return { success: false, output: '', error: badId }
 
 		try {
 			jobs.get(input.id)

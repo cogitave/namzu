@@ -12,7 +12,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
-import { activeSubagentCohorts } from '../../../tui/AgentExplorer.js'
+import { railAgents } from '../../../tui/AgentExplorer.js'
 import {
 	type LogHome,
 	type LogWriter,
@@ -328,7 +328,7 @@ describe('a finished delegated child, reopened from its log', () => {
 
 		expect(replayed.replayed).toBe(true)
 		// Never in the live panel, whatever its saved status says.
-		expect(activeSubagentCohorts([replayed])).toEqual([])
+		expect(railAgents([replayed], Date.now())).toEqual([])
 		// And the correction path cannot reach it: the live monitor has never
 		// heard of this child.
 		const live = new SubagentActivityMonitor()

@@ -291,9 +291,7 @@ it('holds a dependent queued prompt through provider switch until the paused tur
 	await press(screen, '\t')
 	await until(
 		screen,
-		() =>
-			screen.viewport().join('\n').includes('Queued · next reply') &&
-			screen.viewport().join('\n').includes('↳ Dependent queued work'),
+		() => screen.viewport().join('\n').includes('❯ Dependent queued work · after this reply'),
 		'Dependent prompt was not queued',
 	)
 	releaseFirstSend()
@@ -301,8 +299,8 @@ it('holds a dependent queued prompt through provider switch until the paused tur
 		screen,
 		() =>
 			world.parked &&
-			screen.viewport().join('\n').includes('Queued · held after a reply paused') &&
-			screen.viewport().join('\n').includes('↳ Dependent queued work'),
+			screen.viewport().join('\n').includes('Held while the reply is paused') &&
+			screen.viewport().join('\n').includes('❯ Dependent queued work'),
 		'Rate limit did not hold the dependent queue',
 	)
 	expect(world.requests).toEqual([{ providerId: 'openai', operation: 'send' }])
@@ -341,7 +339,7 @@ it('holds a dependent queued prompt through provider switch until the paused tur
 	)
 	await until(
 		screen,
-		() => screen.viewport().join('\n').includes('held after a reply paused'),
+		() => screen.viewport().join('\n').includes('Held while the reply is paused'),
 		'Queue was released before the checkpoint resumed',
 	)
 	expect(world.requests).toEqual([{ providerId: 'openai', operation: 'send' }])

@@ -88,6 +88,7 @@ import { NAMZU_WORKING_DOCTRINE } from '../../context/doctrine.js'
 import { CLI_CHECKPOINT_RETENTION } from '../state/retention.js'
 import { NamzuCliAgent, type NamzuCliAgentConfig } from './NamzuCliAgent.js'
 import {
+	DEFAULT_AGENT_WORKFLOW,
 	MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS,
 	MAX_AGENT_PHASE_ORDER,
 	MAX_NARRATION_CODE_UNITS,
@@ -184,6 +185,47 @@ export interface DelegatedModel {
 	readonly provider: string
 	readonly model: string
 	readonly effort?: ReasoningEffort
+}
+
+/** The fields the `Agent` tool accepts, as the runtime reads them. */
+interface AgentCallInput {
+	description: string
+	model?: string
+	provider?: string
+	effort?: string
+	prompt: string
+	subagent_type?: string
+	role?: string
+	workflow?: string
+	phase?: string
+	phase_order?: number
+	phase_detail?: string
+	run_in_background?: boolean
+	workspace?: 'shared' | 'worktree'
+}
+
+/** What a launch needs from the call that asked for it: the `Agent` tool's context, or a workflow run's. */
+type ChildLaunchContext = Pick<
+	ToolContext,
+	| 'turnId'
+	| 'abortSignal'
+	| 'toolBatchId'
+	| 'toolUseId'
+	| 'parentSpan'
+	| 'env'
+	| 'toolResultGuardrails'
+>
+
+/** Extra wiring a workflow run adds to a launch; the `Agent` tool passes none. */
+interface ChildLaunchHooks {
+	/** The display group the child belongs to, instead of its parent turn's id. */
+	readonly workflowId?: string
+	/** The child's row id in the monitor, as soon as the row exists. */
+	readonly onView?: (viewId: string) => void
+	/** Every session event of the child, after the monitor has projected it. */
+	readonly onEvent?: (event: SessionEvent) => void
+	/** What a cancelled child is recorded as: a workflow's agents are stopped by the operator. */
+	readonly cancelCause?: CancelCause
 }
 
 export interface SubagentRuntimeOptions {
@@ -296,6 +338,49 @@ export interface SubagentRuntimeOptions {
 	readonly definitions?: readonly AgentFileDefinition[]
 }
 
+/** One agent a workflow script asked for, handed to the same delegation path the `Agent` tool uses. */
+export interface WorkflowAgentLaunch {
+	/** A turn id the host registered for the whole run (scope, limits, review channel). */
+	readonly turnId: TurnId
+	readonly runId: string
+	/** The workflow's `meta.name`: the label that keeps its agents out of the subagent rows. */
+	readonly workflowName: string
+	readonly label: string
+	readonly prompt: string
+	readonly phaseTitle?: string
+	readonly phaseIndex?: number
+	readonly phaseDetail?: string
+	readonly agentType?: string
+	readonly model?: string
+	readonly effort?: string
+	readonly schema?: Readonly<Record<string, unknown>>
+	readonly signal: AbortSignal
+	/** What the invoking tool call carried that every child must keep: its environment and result screens. */
+	readonly inherit?: {
+		readonly env?: ToolContext['env']
+		readonly toolResultGuardrails?: ToolContext['toolResultGuardrails']
+	}
+	/** The child's row id, as soon as it exists. */
+	readonly onView?: (viewId: string) => void
+	/** Spend and the last tool, at most a few times a second. */
+	readonly onProgress?: (progress: {
+		readonly tokens?: number
+		readonly toolCalls?: number
+		readonly lastTool?: string
+	}) => void
+}
+
+export interface WorkflowAgentResult {
+	readonly state: 'done' | 'error'
+	readonly text?: string
+	readonly tokens: number
+	readonly toolCalls: number
+	readonly error?: string
+}
+
+/** The id prefix of the display group a workflow run's agents are filed under. */
+export const WORKFLOW_RUN_GROUP_PREFIX = 'wf:'
+
 export interface SubagentMessageReceipt {
 	readonly kind: 'queued' | 'started'
 	readonly taskId: string
@@ -320,6 +405,12 @@ export interface SubagentRuntime {
 		turnId: TurnId,
 		signal: AbortSignal,
 	): Promise<SubagentMessageReceipt>
+	/**
+	 * Operator route: stop one running child from the agents rail. False when
+	 * the row is not owned by this host or has already ended; the parent turn
+	 * and the other children are untouched.
+	 */
+	stopChild(viewId: string): boolean
 	readonly modelCatalogueTool?: ToolDefinition
 	readonly agentTool: ToolDefinition
 	/** Retrieve a child result without starting another task. */
@@ -357,6 +448,12 @@ export interface SubagentRuntime {
 	launchesReadOnlyAgent(input: unknown): boolean
 	/** Live, bounded observation of children created by this CLI session. */
 	readonly activity: SubagentActivitySource
+	/**
+	 * Start one agent a workflow script asked for, through the same path, review
+	 * channel, tool roster, sandbox, budget ledger and cancellation as the `Agent`
+	 * tool, and wait for it. The child keeps its normal transcript.
+	 */
+	launchWorkflowAgent(launch: WorkflowAgentLaunch): Promise<WorkflowAgentResult>
 	/** Stop every child still owned by this parent session. Idempotent. */
 	close(): Promise<void>
 }
@@ -756,6 +853,251 @@ export async function createSubagentRuntime(
 	// system prompt) and we register + spawn a fresh specialist for it at call
 	// time — no pre-defined agent file needed. Omit `role` → general-purpose.
 	let dynCounter = 0
+	const launchChild = async (
+		input: AgentCallInput,
+		context: ChildLaunchContext,
+		hooks: ChildLaunchHooks = {},
+	): Promise<{
+		readonly outcome: Awaited<ReturnType<typeof runBlockingAgentTask>>
+		readonly agentId: string
+	}> => {
+		const {
+			description,
+			prompt,
+			subagent_type,
+			role,
+			workflow,
+			phase,
+			phase_order,
+			phase_detail,
+			run_in_background,
+			workspace,
+			model: requestedModel,
+			provider: requestedProvider,
+			effort: requestedEffort,
+		} = input
+		if (!requestedModel && (requestedProvider || requestedEffort))
+			throw new Error('Supply model when selecting a child provider or effort.')
+		const explore = subagent_type === EXPLORE_SUBAGENT
+		const fileAgent = subagent_type !== undefined ? fileAgents.get(subagent_type) : undefined
+		// The model the invoking turn runs on: the session's, unless the turn
+		// was resumed on another (a scheduled job's), whose children inherit
+		// that one exactly as other children inherit the session's.
+		const inherited = opts.resolveTurnModel?.(context.turnId)
+		const parentModel = inherited?.model ?? opts.model
+		// Naming the session's own model, with no provider or effort, is
+		// inheriting it: the child runs where the parent runs. Resolving it
+		// would let the model catalogue pick any other provider that lists
+		// the same id when the session's own listing fails or omits it, and
+		// `launchesReadOnlyAgent` starts such a launch without review on the
+		// promise that it stays on the session's provider. Over a file that
+		// pins another model, naming the session's model is still a choice
+		// and is resolved as before.
+		const selects =
+			requestedModel !== undefined &&
+			(requestedModel !== parentModel ||
+				requestedProvider !== undefined ||
+				requestedEffort !== undefined ||
+				(fileAgent?.model !== undefined && fileAgent.model !== parentModel))
+		if (selects && !opts.resolveModel)
+			throw new Error('Child model selection is unavailable in this host.')
+		const selection = selects
+			? await opts.resolveModel?.(
+					{
+						model: requestedModel,
+						provider: requestedProvider,
+						effort: requestedEffort,
+					},
+					context.abortSignal,
+				)
+			: // A file agent that pins its own model keeps it; any other child
+				// of a turn on another model than the session's runs on that one.
+				fileAgent?.model === undefined
+				? inherited
+				: undefined
+		let agentId = fileAgent?.name ?? (explore ? EXPLORE_SUBAGENT : GENERAL_PURPOSE_SUBAGENT)
+		const persona = typeof role === 'string' ? role.trim() : ''
+		const dynamic = persona.length > 0 || selection !== undefined
+		if (dynamic) {
+			// A role on top of a type keeps that type's roster and model: the
+			// persona says who the child is, the type says what it may touch,
+			// and a role must not be a way to hand a read-only child a `write`
+			// tool. Over a file-defined agent the role is appended to the
+			// file's prompt rather than replacing it.
+			agentId = `dyn-${++dynCounter}`
+			registry.register(
+				buildDefinition(
+					agentId,
+					`Dynamic specialist: ${agentId}`,
+					fileAgent
+						? `${fileAgent.prompt}\n\n${persona}`
+						: persona || (explore ? EXPLORE_PROMPT : SUBAGENT_PROMPT),
+					opts,
+					fileAgent
+						? fileAgentTools(fileAgent, opts)
+						: explore
+							? () =>
+									opts
+										.buildTools()
+										.map((ts) =>
+											filtered(ts, (tool) =>
+												isTrustedReadOnly(tool, undefined, toToolSourceRef(ts.source)),
+											),
+										)
+							: opts.buildTools,
+					selection?.model ?? fileAgent?.model ?? parentModel,
+					selection,
+				),
+			)
+		}
+		const seed = {
+			agentId,
+			model: selection?.model ?? fileAgent?.model ?? parentModel,
+			description,
+			prompt,
+			batchId: context.toolBatchId,
+			toolUseId: context.toolUseId,
+			workflowId: hooks.workflowId ?? String(context.turnId),
+			workflow,
+			phase,
+			phaseOrder: phase_order,
+			phaseDetail: phase_detail,
+		}
+		const tracker = activity.begin(seed)
+		hooks.onView?.(tracker.viewId)
+		// The child is a separate session, but its human authority belongs to the
+		// parent turn that invoked Agent. `drainQuery` deliberately auto-approves
+		// when a handler is omitted for headless SDK callers; omission here would
+		// therefore turn a missing/stale parent mapping into permission to mutate
+		// the real project. Always install a handler, and abort if ownership can no
+		// longer be proved.
+		const resumeHandler = opts.resolveResumeHandler?.(context.turnId) ?? refuseUnownedChildReview
+		const configOverrides = {
+			...resolveTurnGuards(opts, opts.resolveLimits?.(context.turnId)),
+			...(selection ? { model: selection.model, effort: selection.effort } : {}),
+			...(Object.keys(context.env ?? {}).length > 0 ? { env: context.env } : {}),
+			// The parent turn's tool-result screens, so a sub-agent judges a
+			// connected answer the way the turn that asked for the work
+			// does. Without it the child's executor installs the shipped
+			// default, and `toolResultScreens: []` — the operator's off
+			// switch — would hold for the parent and not for anything it
+			// delegated to, which is the half an operator does not watch.
+			//
+			// `[]` is carried rather than skipped: empty is a decision, and
+			// a `length` test — which is the shape that gets this wrong,
+			// since `[]` is truthy — would turn it back into absent.
+			...(context.toolResultGuardrails
+				? { toolResultGuardrails: context.toolResultGuardrails }
+				: {}),
+			resumeHandler,
+		}
+		let taskOwnsCleanup = false
+		let retained: OwnedConversation | undefined
+		const cleanupDefinition = (): void => {
+			if (dynamic && !retained) registry.unregister(agentId)
+		}
+		try {
+			const parentKey = sessionKey(await resolveParent(context.turnId))
+			const gateway = await gatewayForTurn(context.turnId)
+			const completionInbox = await completionInboxForTurn(context.turnId)
+			const subdirectory =
+				workspace === 'worktree' ? await worktreeDriver.selectedSubdirectory() : undefined
+			// Nothing is saved here: the SDK records the child's spawn and its
+			// ending in the parent's log, and the child's own log beside it.
+			const outcome = await runBlockingAgentTask({
+				gateway: await gatewayForTurn(context.turnId),
+				signal: context.abortSignal,
+				waitForInbound: opts.resolveWaitForInbound?.(context.turnId),
+				background: run_in_background === true,
+				...(hooks.cancelCause ? { cancelCause: hooks.cancelCause } : {}),
+				completionInbox,
+				onCreated: (task) => {
+					taskOwnsCleanup = true
+					retained = {
+						parentKey,
+						agentId,
+						dynamic,
+						seed,
+						config: {
+							...(selection ? { model: selection.model, effort: selection.effort } : {}),
+							...(configOverrides.env ? { env: configOverrides.env } : {}),
+							...(configOverrides.toolResultGuardrails
+								? {
+										toolResultGuardrails: configOverrides.toolResultGuardrails,
+									}
+								: {}),
+						},
+						workspace: workspace ?? 'shared',
+						gateway,
+						task,
+						turnId: context.turnId,
+						busy: false,
+					}
+					conversations.set(tracker.viewId, retained)
+					const visible = new Set(activity.getSnapshot().map((value) => value.viewId))
+					for (const [id, previous] of conversations) {
+						if (visible.has(id) || previous.busy || !isTerminalAgentTaskState(previous.task.state))
+							continue
+						conversations.delete(id)
+						if (previous.dynamic) registry.unregister(previous.agentId)
+					}
+					tracker.settle(task)
+				},
+				onSettled: (completed) => {
+					if (retained) retained.task = completed
+					tracker.settle(completed)
+				},
+				onFailed: (error) => tracker.fail(error),
+				onFinished: cleanupDefinition,
+				create: {
+					agentId,
+					prompt,
+					workingDirectory: opts.cwd,
+					workspace:
+						workspace === 'worktree'
+							? {
+									mode: 'isolated',
+									backend: 'git-worktree',
+									retention: 'retain',
+									...(subdirectory ? { subdirectory } : {}),
+								}
+							: { mode: 'shared' },
+					// The same labels the monitor was seeded with, sent down so the
+					// child's `agent_pending` carries them: a listener or SSE
+					// consumer outside this process then groups the child the way
+					// the operator sees it here, instead of the grouping living
+					// only in the closure above. Display-only on both paths — no
+					// dependency, barrier or serial execution follows from any.
+					...(workflow ? { workflow } : {}),
+					...(phase ? { phase } : {}),
+					...(phase_detail ? { phaseDetail: phase_detail } : {}),
+					...(phase_order !== undefined ? { phaseOrder: phase_order } : {}),
+					// Hang the child session off THIS tool's span, so the delegation
+					// shows up inside the turn that asked for it. Without it a
+					// sub-agent opens its OWN root trace, and the one structure
+					// a delegation trace exists to record — who dispatched whom
+					// — is the thing that goes missing.
+					...(context.parentSpan ? { parentSpan: context.parentSpan } : {}),
+					configOverrides,
+					onEvent: hooks.onEvent
+						? (event) => {
+								tracker.onEvent(event)
+								hooks.onEvent?.(event)
+							}
+						: tracker.onEvent,
+				},
+			})
+			return { outcome, agentId }
+		} catch (error) {
+			tracker.fail(error)
+			throw error
+		} finally {
+			// A yielded task retains its definition until its actual completion.
+			// Before creation succeeds, this invocation owns that cleanup.
+			if (!taskOwnsCleanup) cleanupDefinition()
+		}
+	}
+
 	const agentTool = defineTool({
 		name: 'Agent',
 		description: [
@@ -769,7 +1111,7 @@ export async function createSubagentRuntime(
 			'Omit `role` for the plain sub-agent.',
 			'The sub-agent runs in its own context with its own tools and cannot see this conversation — put everything it needs in `prompt`.',
 			"Call this multiple times in one response to run specialists in parallel. Tasks beyond the project's live-agent capacity wait in a queue and start as slots become available. Queued tasks have not started execution; do not relaunch them.",
-			'When coordinating several specialists, give them the same `workflow` label and an explicit `phase` plus `phase_order` so the operator can follow the work in the agent cockpit.',
+			'When coordinating several specialists, give them the same `workflow` label and an explicit `phase` plus `phase_order` so the operator can follow the work in the agent cockpit. For work with several phases or many agents, use the `workflow` tool instead when it is in your tool list, and keep these labels for a small fan-out.',
 			'These fields are display annotations only; they do not create dependencies, barriers, or serial execution.',
 			fileAgentSummary.length > 0 ? `Project-defined types: ${fileAgentSummary}.` : '',
 		]
@@ -871,268 +1213,121 @@ export async function createSubagentRuntime(
 		concurrencySafe: true,
 		timeoutMs: opts.resolveLimits ? 0 : (opts.timeoutMs ?? CLI_INTERACTIVE_TURN_TIMEOUT_MS),
 		async execute(input, context) {
-			const {
-				description,
-				prompt,
-				subagent_type,
-				role,
-				workflow,
-				phase,
-				phase_order,
-				phase_detail,
-				run_in_background,
-				workspace,
-				model: requestedModel,
-				provider: requestedProvider,
-				effort: requestedEffort,
-			} = input as {
-				description: string
-				model?: string
-				provider?: string
-				effort?: string
-				prompt: string
-				subagent_type?: string
-				role?: string
-				workflow?: string
-				phase?: string
-				phase_order?: number
-				phase_detail?: string
-				run_in_background?: boolean
-				workspace?: 'shared' | 'worktree'
-			}
-			if (!requestedModel && (requestedProvider || requestedEffort))
-				throw new Error('Supply model when selecting a child provider or effort.')
-			const explore = subagent_type === EXPLORE_SUBAGENT
-			const fileAgent = subagent_type !== undefined ? fileAgents.get(subagent_type) : undefined
-			// The model the invoking turn runs on: the session's, unless the turn
-			// was resumed on another (a scheduled job's), whose children inherit
-			// that one exactly as other children inherit the session's.
-			const inherited = opts.resolveTurnModel?.(context.turnId)
-			const parentModel = inherited?.model ?? opts.model
-			// Naming the session's own model, with no provider or effort, is
-			// inheriting it: the child runs where the parent runs. Resolving it
-			// would let the model catalogue pick any other provider that lists
-			// the same id when the session's own listing fails or omits it, and
-			// `launchesReadOnlyAgent` starts such a launch without review on the
-			// promise that it stays on the session's provider. Over a file that
-			// pins another model, naming the session's model is still a choice
-			// and is resolved as before.
-			const selects =
-				requestedModel !== undefined &&
-				(requestedModel !== parentModel ||
-					requestedProvider !== undefined ||
-					requestedEffort !== undefined ||
-					(fileAgent?.model !== undefined && fileAgent.model !== parentModel))
-			if (selects && !opts.resolveModel)
-				throw new Error('Child model selection is unavailable in this host.')
-			const selection = selects
-				? await opts.resolveModel?.(
-						{
-							model: requestedModel,
-							provider: requestedProvider,
-							effort: requestedEffort,
-						},
-						context.abortSignal,
-					)
-				: // A file agent that pins its own model keeps it; any other child
-					// of a turn on another model than the session's runs on that one.
-					fileAgent?.model === undefined
-					? inherited
-					: undefined
-			let agentId = fileAgent?.name ?? (explore ? EXPLORE_SUBAGENT : GENERAL_PURPOSE_SUBAGENT)
-			const persona = typeof role === 'string' ? role.trim() : ''
-			const dynamic = persona.length > 0 || selection !== undefined
-			if (dynamic) {
-				// A role on top of a type keeps that type's roster and model: the
-				// persona says who the child is, the type says what it may touch,
-				// and a role must not be a way to hand a read-only child a `write`
-				// tool. Over a file-defined agent the role is appended to the
-				// file's prompt rather than replacing it.
-				agentId = `dyn-${++dynCounter}`
-				registry.register(
-					buildDefinition(
-						agentId,
-						`Dynamic specialist: ${agentId}`,
-						fileAgent
-							? `${fileAgent.prompt}\n\n${persona}`
-							: persona || (explore ? EXPLORE_PROMPT : SUBAGENT_PROMPT),
-						opts,
-						fileAgent
-							? fileAgentTools(fileAgent, opts)
-							: explore
-								? () =>
-										opts
-											.buildTools()
-											.map((ts) =>
-												filtered(ts, (tool) =>
-													isTrustedReadOnly(tool, undefined, toToolSourceRef(ts.source)),
-												),
-											)
-								: opts.buildTools,
-						selection?.model ?? fileAgent?.model ?? parentModel,
-						selection,
-					),
-				)
-			}
-			const seed = {
-				agentId,
-				model: selection?.model ?? fileAgent?.model ?? parentModel,
-				description,
-				prompt,
-				batchId: context.toolBatchId,
-				toolUseId: context.toolUseId,
-				workflowId: String(context.turnId),
-				workflow,
-				phase,
-				phaseOrder: phase_order,
-				phaseDetail: phase_detail,
-			}
-			const tracker = activity.begin(seed)
-			// The child is a separate session, but its human authority belongs to the
-			// parent turn that invoked Agent. `drainQuery` deliberately auto-approves
-			// when a handler is omitted for headless SDK callers; omission here would
-			// therefore turn a missing/stale parent mapping into permission to mutate
-			// the real project. Always install a handler, and abort if ownership can no
-			// longer be proved.
-			const resumeHandler = opts.resolveResumeHandler?.(context.turnId) ?? refuseUnownedChildReview
-			const configOverrides = {
-				...resolveTurnGuards(opts, opts.resolveLimits?.(context.turnId)),
-				...(selection ? { model: selection.model, effort: selection.effort } : {}),
-				...(Object.keys(context.env ?? {}).length > 0 ? { env: context.env } : {}),
-				// The parent turn's tool-result screens, so a sub-agent judges a
-				// connected answer the way the turn that asked for the work
-				// does. Without it the child's executor installs the shipped
-				// default, and `toolResultScreens: []` — the operator's off
-				// switch — would hold for the parent and not for anything it
-				// delegated to, which is the half an operator does not watch.
-				//
-				// `[]` is carried rather than skipped: empty is a decision, and
-				// a `length` test — which is the shape that gets this wrong,
-				// since `[]` is truthy — would turn it back into absent.
-				...(context.toolResultGuardrails
-					? { toolResultGuardrails: context.toolResultGuardrails }
-					: {}),
-				resumeHandler,
-			}
-			let taskOwnsCleanup = false
-			let retained: OwnedConversation | undefined
-			const cleanupDefinition = (): void => {
-				if (dynamic && !retained) registry.unregister(agentId)
-			}
-			try {
-				const parentKey = sessionKey(await resolveParent(context.turnId))
-				const gateway = await gatewayForTurn(context.turnId)
-				const completionInbox = await completionInboxForTurn(context.turnId)
-				const subdirectory =
-					workspace === 'worktree' ? await worktreeDriver.selectedSubdirectory() : undefined
-				// Nothing is saved here: the SDK records the child's spawn and its
-				// ending in the parent's log, and the child's own log beside it.
-				const outcome = await runBlockingAgentTask({
-					gateway: await gatewayForTurn(context.turnId),
-					signal: context.abortSignal,
-					waitForInbound: opts.resolveWaitForInbound?.(context.turnId),
-					background: run_in_background === true,
-					completionInbox,
-					onCreated: (task) => {
-						taskOwnsCleanup = true
-						retained = {
-							parentKey,
-							agentId,
-							dynamic,
-							seed,
-							config: {
-								...(selection ? { model: selection.model, effort: selection.effort } : {}),
-								...(configOverrides.env ? { env: configOverrides.env } : {}),
-								...(configOverrides.toolResultGuardrails
-									? {
-											toolResultGuardrails: configOverrides.toolResultGuardrails,
-										}
-									: {}),
-							},
-							workspace: workspace ?? 'shared',
-							gateway,
-							task,
-							turnId: context.turnId,
-							busy: false,
-						}
-						conversations.set(tracker.viewId, retained)
-						const visible = new Set(activity.getSnapshot().map((value) => value.viewId))
-						for (const [id, previous] of conversations) {
-							if (
-								visible.has(id) ||
-								previous.busy ||
-								!isTerminalAgentTaskState(previous.task.state)
-							)
-								continue
-							conversations.delete(id)
-							if (previous.dynamic) registry.unregister(previous.agentId)
-						}
-						tracker.settle(task)
+			const { description, run_in_background } = input as AgentCallInput
+			const { outcome, agentId } = await launchChild(input as AgentCallInput, context)
+			if (outcome.kind === 'yielded') {
+				const progress =
+					outcome.handle.state === 'pending' ? 'queued for an available slot' : 'still running'
+				return {
+					success: true,
+					output: `Sub-agent ${agentId} for task ${JSON.stringify(description)} is ${progress} as task ${outcome.handle.taskId}; it has not completed.${workspaceNote(outcome.handle)} ${run_in_background ? 'Continue independent work while this task runs in the background.' : 'Waiting was released because the operator sent a message. Answer their question or status request before making further tool calls; preserve existing work unless they ask to cancel or change it.'} Its actual result will arrive as a task notification; do not launch the same work again.`,
+					data: {
+						task_id: outcome.handle.taskId,
+						state: outcome.handle.state,
+						...workspaceData(outcome.handle),
+						wait_released: run_in_background ? 'background' : 'operator_input',
 					},
-					onSettled: (completed) => {
-						if (retained) retained.task = completed
-						tracker.settle(completed)
-					},
-					onFailed: (error) => tracker.fail(error),
-					onFinished: cleanupDefinition,
-					create: {
-						agentId,
-						prompt,
-						workingDirectory: opts.cwd,
-						workspace:
-							workspace === 'worktree'
-								? {
-										mode: 'isolated',
-										backend: 'git-worktree',
-										retention: 'retain',
-										...(subdirectory ? { subdirectory } : {}),
-									}
-								: { mode: 'shared' },
-						// The same labels the monitor was seeded with, sent down so the
-						// child's `agent_pending` carries them: a listener or SSE
-						// consumer outside this process then groups the child the way
-						// the operator sees it here, instead of the grouping living
-						// only in the closure above. Display-only on both paths — no
-						// dependency, barrier or serial execution follows from any.
-						...(workflow ? { workflow } : {}),
-						...(phase ? { phase } : {}),
-						...(phase_detail ? { phaseDetail: phase_detail } : {}),
-						...(phase_order !== undefined ? { phaseOrder: phase_order } : {}),
-						// Hang the child session off THIS tool's span, so the delegation
-						// shows up inside the turn that asked for it. Without it a
-						// sub-agent opens its OWN root trace, and the one structure
-						// a delegation trace exists to record — who dispatched whom
-						// — is the thing that goes missing.
-						...(context.parentSpan ? { parentSpan: context.parentSpan } : {}),
-						configOverrides,
-						onEvent: tracker.onEvent,
-					},
-				})
-				if (outcome.kind === 'yielded') {
-					const progress =
-						outcome.handle.state === 'pending' ? 'queued for an available slot' : 'still running'
-					return {
-						success: true,
-						output: `Sub-agent ${agentId} for task ${JSON.stringify(description)} is ${progress} as task ${outcome.handle.taskId}; it has not completed.${workspaceNote(outcome.handle)} ${run_in_background ? 'Continue independent work while this task runs in the background.' : 'Waiting was released because the operator sent a message. Answer their question or status request before making further tool calls; preserve existing work unless they ask to cancel or change it.'} Its actual result will arrive as a task notification; do not launch the same work again.`,
-						data: {
-							task_id: outcome.handle.taskId,
-							state: outcome.handle.state,
-							...workspaceData(outcome.handle),
-							wait_released: run_in_background ? 'background' : 'operator_input',
-						},
-					}
 				}
-				return completedAgentResult(outcome.handle)
-			} catch (error) {
-				tracker.fail(error)
-				throw error
-			} finally {
-				// A yielded task retains its definition until its actual completion.
-				// Before creation succeeds, this invocation owns that cleanup.
-				if (!taskOwnsCleanup) cleanupDefinition()
 			}
+			return completedAgentResult(outcome.handle)
 		},
 	})
+	const launchWorkflowAgent = async (launch: WorkflowAgentLaunch): Promise<WorkflowAgentResult> => {
+		if (launch.agentType !== undefined && !agentTypeIds.includes(launch.agentType)) {
+			throw new Error(
+				`Unknown agent type "${launch.agentType}". Available: ${agentTypeIds.join(', ')}.`,
+			)
+		}
+		if (launch.effort !== undefined && launch.model === undefined) {
+			throw new Error('Supply model when selecting an agent effort.')
+		}
+		const prompt =
+			launch.schema === undefined
+				? launch.prompt
+				: `${launch.prompt}\n\nAnswer with one JSON value that satisfies this JSON Schema and nothing else:\n${JSON.stringify(launch.schema)}`
+		const label = launch.workflowName === DEFAULT_AGENT_WORKFLOW ? 'Workflow' : launch.workflowName
+		let viewId: string | undefined
+		let lastReport = 0
+		const report = (force: boolean): void => {
+			if (!viewId || !launch.onProgress) return
+			const at = Date.now()
+			if (!force && at - lastReport < 250) return
+			lastReport = at
+			const progress = activity.progressOf(viewId)
+			if (progress) launch.onProgress(progress)
+		}
+		try {
+			const { outcome } = await launchChild(
+				{
+					description: launch.label,
+					prompt,
+					run_in_background: false,
+					...(launch.agentType !== undefined ? { subagent_type: launch.agentType } : {}),
+					...(launch.model !== undefined ? { model: launch.model } : {}),
+					...(launch.effort !== undefined ? { effort: launch.effort } : {}),
+					workflow: label,
+					...(launch.phaseTitle !== undefined ? { phase: launch.phaseTitle } : {}),
+					...(launch.phaseIndex !== undefined ? { phase_order: launch.phaseIndex } : {}),
+					...(launch.phaseDetail !== undefined ? { phase_detail: launch.phaseDetail } : {}),
+				},
+				{
+					turnId: launch.turnId,
+					abortSignal: launch.signal,
+					toolBatchId: launch.runId,
+					...(launch.inherit?.env ? { env: launch.inherit.env } : {}),
+					...(launch.inherit?.toolResultGuardrails
+						? { toolResultGuardrails: launch.inherit.toolResultGuardrails }
+						: {}),
+				} as ChildLaunchContext,
+				{
+					workflowId: `${WORKFLOW_RUN_GROUP_PREFIX}${launch.runId}`,
+					cancelCause: 'user',
+					onView: (id) => {
+						viewId = id
+						launch.onView?.(id)
+					},
+					onEvent: () => report(false),
+				},
+			)
+			report(true)
+			const stats = viewId ? activity.progressOf(viewId) : undefined
+			const tokens = stats?.tokens ?? 0
+			const toolCalls = stats?.toolCalls ?? 0
+			if (outcome.kind !== 'completed') {
+				return {
+					state: 'error',
+					tokens,
+					toolCalls,
+					error: 'The agent did not finish.',
+				}
+			}
+			const handle = outcome.handle
+			const status = agentTaskOutcome(handle)
+			const turn = handle.result
+			const value = turn?.structuredOutput ?? turn?.result
+			const text =
+				typeof value === 'string' ? value : value === undefined ? '' : JSON.stringify(value)
+			if (status !== 'completed') {
+				return {
+					state: 'error',
+					tokens,
+					toolCalls,
+					error: `The agent ended as ${status}${turn?.lastError ? `: ${turn.lastError}` : '.'}`,
+				}
+			}
+			return { state: 'done', text, tokens, toolCalls }
+		} catch (error) {
+			if (launch.signal.aborted) throw error
+			const stats = viewId ? activity.progressOf(viewId) : undefined
+			return {
+				state: 'error',
+				tokens: stats?.tokens ?? 0,
+				toolCalls: stats?.toolCalls ?? 0,
+				error: error instanceof Error ? error.message : String(error),
+			}
+		}
+	}
+
 	const agentTaskListTool = defineTool({
 		name: 'agent_task_list',
 		description:
@@ -1647,10 +1842,22 @@ export async function createSubagentRuntime(
 			})
 		: undefined
 
+	const stopChild = (viewId: string): boolean => {
+		if (closed) return false
+		const owned = conversations.get(viewId)
+		const shown = activity.getSnapshot().find((value) => value.viewId === viewId)
+		if (!owned || !shown || shown.replayed) return false
+		const current = owned.gateway.getTask(owned.task.taskId) ?? owned.task
+		if (isTerminalAgentTaskState(current.state)) return false
+		owned.gateway.cancelTask(owned.task.taskId, 'user')
+		return true
+	}
+
 	return {
 		cancelAgentTool,
 		modelCatalogueTool,
 		messageChild,
+		stopChild,
 		gatewayForTurn,
 		completionInboxForTurn,
 		releaseTurn,
@@ -1674,6 +1881,7 @@ export async function createSubagentRuntime(
 			return type === EXPLORE_SUBAGENT
 		},
 		activity,
+		launchWorkflowAgent,
 		close,
 	}
 }
@@ -1688,6 +1896,8 @@ type BlockingAgentTaskInput = {
 	readonly onSettled: (handle: TaskHandle) => void
 	readonly onFailed: (error: unknown) => void
 	readonly onFinished: () => void
+	/** Why the task is cancelled when the caller's signal aborts. A workflow's agents are stopped by the operator, so `user`. */
+	readonly cancelCause?: CancelCause
 } & (
 	| { readonly create: CreateTaskOptions; readonly task?: never }
 	| { readonly task: TaskHandle; readonly create?: never }
@@ -1712,7 +1922,7 @@ async function runBlockingAgentTask(
 		if (taskCancellationAttempted) return
 		taskCancellationAttempted = true
 		try {
-			gateway.cancelTask(task.taskId, 'parent')
+			gateway.cancelTask(task.taskId, input.cancelCause ?? 'parent')
 		} catch {
 			// The parent cancellation remains the caller-visible authority. A
 			// scheduler's secondary cancellation refusal must not replace it.

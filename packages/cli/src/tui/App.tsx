@@ -45,6 +45,7 @@ import {
 	generateTurnId,
 	isCompactionMessage,
 	kernelHostCommands,
+	resolveWorkflowLimits,
 } from '@namzu/sdk'
 import { Box, Text, useApp, useInput, useStdout, useWindowSize } from 'ink'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -142,12 +143,24 @@ import {
 	writeConversationExport,
 } from '../integrations/sessions/transcript-export.js'
 import { resolveNamzuHome } from '../integrations/state/home.js'
-import type { SubagentActivity, SubagentNarrationLine } from '../integrations/subagents/activity.js'
+import {
+	DEFAULT_AGENT_WORKFLOW,
+	type SubagentActivity,
+	type SubagentNarrationLine,
+} from '../integrations/subagents/activity.js'
 import type { Batch } from '../integrations/subagents/batches.js'
 import { NARRATION_TOOL_NAME } from '../integrations/subagents/runtime.js'
 import { agentsSlashCommand } from '../integrations/subagents/slash.js'
 import { isTrusted, trustDir } from '../integrations/trust/store.js'
 import { checkUpdates } from '../integrations/updates.js'
+import { completionNotice } from '../integrations/workflows/notice.js'
+import { WORKFLOW_BACKGROUND_NOTE, WORKFLOW_TOOL_NAME } from '../integrations/workflows/offering.js'
+import {
+	type WorkflowRunView,
+	countAgents,
+	isWorkflowRunAgent,
+	runTokens,
+} from '../integrations/workflows/view.js'
 import { openManagedWorktrees, worktreeOpenHint } from '../integrations/worktrees/managed.js'
 import {
 	renderMemoryReport,
@@ -186,15 +199,23 @@ import {
 	AgentNarrationBand,
 	AgentTaskPanel,
 	AgentTranscript,
-	activeSubagentCohorts,
+	type RailWorkflow,
 	agentCockpitIsWide,
 	agentPhasePageSize,
-	agentPhases,
 	agentPickerPageSize,
 	agentTranscriptPageSize,
 	agentWorkflowPageSize,
 	agentWorkflows,
+	cockpitEntryFocus,
 	maxAgentTranscriptTailOffset,
+	railActionFor,
+	railAgents,
+	railNextEviction,
+	railShowsMain,
+	railWorkflowActionFor,
+	railWorkflows,
+	runRailWorkflow,
+	settledWorkflows,
 } from './AgentExplorer.js'
 import { BrandHeader } from './BrandHeader.js'
 import { checklistProgress } from './Checklist.js'
@@ -226,11 +247,16 @@ import {
 import { StatusBar } from './StatusBar.js'
 import { TaskList, type TaskListItem, taskListRows } from './TaskList.js'
 import { TextPrompt } from './TextPrompt.js'
-import { Transcript, willCollapse } from './Transcript.js'
+import { Transcript, messageCollapses } from './Transcript.js'
 import { TranscriptScrollView } from './TranscriptScrollView.js'
 import { TrustPrompt } from './TrustPrompt.js'
 import { ViewportBound } from './ViewportBound.js'
-import { completionRow, launchReceipt, settleLine } from './agent-transcript-rows.js'
+import {
+	completionRow,
+	launchReceipt,
+	settleLine,
+	workflowNotice,
+} from './agent-transcript-rows.js'
 import {
 	type AgentEvent,
 	type AgentSession,
@@ -271,6 +297,7 @@ import {
 	hypermodeEffort,
 	hypermodeStopLabel,
 } from './hypermode.js'
+import { jobExitRow } from './job-exit-row.js'
 import { fitHints } from './key-hints.js'
 import { choosesModel, launchPreferences } from './launch-settings.js'
 import { checklistInView, liveWindow, settledBeforeStreaming } from './live-window.js'
@@ -321,6 +348,12 @@ import {
 	sourceDeliveryReadError,
 } from './schedule/source-deliveries.js'
 import {
+	SHELL_LIVE_LINES,
+	type ShellOutput,
+	shellCommandFull,
+	shellCommandHeader,
+} from './shell-cell.js'
+import {
 	SUGGESTIONS_STOPPED_NOTICE,
 	type TurnActivity,
 	createTurnActivity,
@@ -356,7 +389,9 @@ import {
 	triggerDefinition,
 } from './triggers/registry.js'
 import { describeComposerTriggers, setComposerTriggers } from './triggers/setting.js'
+import { formatCompactCount } from './units.js'
 import { type WebActivity, webCallTitle, webLiveStatus, webSettledLine } from './web-activity.js'
+import { withWorkflowRuns } from './workflow-runs.js'
 
 import type { BrowserControl } from '../browser/control.js'
 import { renderCheckpoints, renderRestore, renderRestoreNote } from '../checkpoints/store.js'
@@ -401,6 +436,7 @@ import {
 	handoffContinuationNote,
 } from './turn-interruption.js'
 import type { TranscriptMessage, TuiContext } from './types.js'
+import { usePrStatus } from './use-pr-status.js'
 import { useSelectionIndex } from './use-selection-index.js'
 import { renderWorkspaceDiff, workspaceDiff } from './workspace-diff.js'
 import {
@@ -465,6 +501,8 @@ type AgentSurface =
 			readonly selectedPhaseId: string
 			readonly selectedId: string
 			readonly focus: AgentCockpitFocus
+			/** Opened from a workflow row on the rail: Esc goes back to that row. */
+			readonly railReturn?: string
 	  }
 	| {
 			readonly kind: 'transcript'
@@ -473,6 +511,10 @@ type AgentSurface =
 			readonly returnFocus: AgentCockpitFocus
 			readonly tailOffset: number
 			readonly composing?: boolean
+			/** Opened from the agents rail: Esc goes back to the rail, not the cockpit. */
+			readonly fromRail?: boolean
+			/** The workflow row the cockpit this came from was opened from. */
+			readonly railReturn?: string
 	  }
 type DirectChildNotice = {
 	readonly context: string
@@ -512,6 +554,12 @@ type ConversationExportDestination =
 	| { readonly kind: 'file'; readonly path: string }
 /** The value a question row carries: an option id, or the free-text escape. */
 const FREE_TEXT_ANSWER = '__free_text__'
+/**
+ * The footer's shell pill as a stop in the rail's focus order: before `main`
+ * and the agents, as the shells pill comes before the agents in the reference.
+ * It cannot collide with a view id or a `workflow:` focus id.
+ */
+const SHELLS_FOCUS = 'shells'
 
 type PluginChoiceState = ({ readonly kind: 'plugin' } | { readonly kind: 'plugin-action' }) & {
 	readonly title: string
@@ -565,6 +613,14 @@ type ChoicePickerState = { readonly back?: ChoicePickerState; readonly request?:
 			readonly title: string
 			readonly notice?: string
 			readonly values: readonly (Batch | 'loading')[]
+			readonly options: readonly ChoicePickerOption[]
+	  }
+	| {
+			/** `/workflows`: the runs of this conversation; `values` are their run ids. */
+			readonly kind: 'workflow-runs'
+			readonly title: string
+			readonly notice?: string
+			readonly values: readonly string[]
 			readonly options: readonly ChoicePickerOption[]
 	  }
 	| {
@@ -840,6 +896,10 @@ type RunningTool = ActiveTool & {
 	readonly detail?: readonly string[]
 	/** A web search or fetch, named by its query or address. */
 	readonly web?: WebActivity
+	/** A shell call's full command; its presence is what draws the call as a command cell. */
+	readonly command?: string
+	/** The last few output lines the call has reported, oldest first. */
+	readonly tail?: readonly string[]
 }
 
 /**
@@ -871,6 +931,17 @@ type QueuedPrompt =
 			readonly kind: 'peer'
 			readonly text: string
 			readonly mail: PeerMail
+			readonly generation: number
+	  }
+	| {
+			/**
+			 * What ended while nobody was talking to the model: a workflow run, a
+			 * background command. The text is built when the turn is admitted,
+			 * from what is still undelivered then, so it never repeats a notice a
+			 * running turn already took.
+			 */
+			readonly kind: 'notice'
+			readonly text: string
 			readonly generation: number
 	  }
 	| {
@@ -930,7 +1001,7 @@ function humanPromptMeta(
 	if (attachments && attachments.length > 0) {
 		parts.push(`${attachments.length} attachment${attachments.length > 1 ? 's' : ''}`)
 	}
-	if (live) parts.push('steered the current reply')
+	if (live) parts.push('sent while working')
 	return parts.length > 0 ? parts.join(' · ') : undefined
 }
 type QueuePauseOutcome = 'failed' | 'stopped' | 'paused'
@@ -1271,11 +1342,55 @@ export function App({
 			// SDK delivery can run before this listener on a host with different
 			// subscription order. The tombstone keeps that acknowledged exit out of
 			// the next turn even when its UI event arrives later.
-			if (!notices.delivered.has(job.id)) notices.pending.set(job.id, text)
+			if (!notices.delivered.has(job.id)) {
+				notices.pending.set(job.id, text)
+				if (job.status !== 'killed') wakeJobIdsRef.current.add(job.id)
+				setNoticeVersion((version) => version + 1)
+			}
 			if (!notices.shown.has(job.id)) {
 				notices.shown.add(job.id)
-				pushMessage('system', text, false, 'J')
+				const row = jobExitRow({
+					command: job.command,
+					status: job.status === 'killed' ? 'killed' : 'exited',
+					...(job.exitCode !== undefined ? { exitCode: job.exitCode } : {}),
+					...(job.signal ? { signal: job.signal } : {}),
+					...(job.exitedAt !== undefined ? { runtimeMs: job.exitedAt - job.startedAt } : {}),
+				})
+				pushMessage('system', row.text, false, '●', undefined, row.color, row.meta)
 			}
+		})
+	}, [session])
+	// What ended in a workflow, for the model: one message per run, delivered
+	// inside a running turn when there is one and with the next turn otherwise,
+	// the way a background job's exit is.
+	const workflowNoticesRef = useRef(new Map<string, string>())
+	/** Moves when something ended that the model has not been told, so an idle session can wake. */
+	const [noticeVersion, setNoticeVersion] = useState(0)
+	/** Background commands that ended on their own (a stop the operator asked for does not wake the model). */
+	const wakeJobIdsRef = useRef(new Set<string>())
+	useEffect(() => {
+		workflowNoticesRef.current = new Map()
+		const source = session?.workflows
+		if (!source) return
+		return source.onEnd(({ view }) => {
+			if (previousSessionRef.current !== session) return
+			// One line in the conversation, written when the run ends, not when a turn does.
+			const notice = workflowNotice(runRailWorkflow(view, []))
+			pushMessage(
+				'tool',
+				notice.content,
+				false,
+				notice.glyph,
+				undefined,
+				notice.tone === 'error'
+					? theme.status.error
+					: notice.tone === 'warn'
+						? theme.status.warn
+						: theme.status.ok,
+			)
+			workflowNoticesRef.current.set(view.runId, completionNotice(view))
+			activeTurnInboxRef.current?.notify()
+			setNoticeVersion((version) => version + 1)
 		})
 	}, [session])
 	const [usage, setUsage] = useState<{
@@ -1493,6 +1608,9 @@ export function App({
 	/** Bounded child session projection published by the current AgentSession. */
 	const [subagents, setSubagentsState] = useState<readonly SubagentActivity[]>([])
 	const subagentsRef = useRef<readonly SubagentActivity[]>([])
+	/** The `workflow` tool's runs; their agents reach `subagents` as projected rows. */
+	const [workflowRuns, setWorkflowRuns] = useState<readonly WorkflowRunView[]>([])
+	const workflowRunsRef = useRef<readonly WorkflowRunView[]>([])
 	/**
 	 * The parent's own commentary on the work it is coordinating, from the same
 	 * monitor and the same subscription as the rows below it. Read through the
@@ -1501,6 +1619,46 @@ export function App({
 	 */
 	const [narration, setNarration] = useState<readonly SubagentNarrationLine[]>([])
 	const [agentSurface, setAgentSurfaceState] = useState<AgentSurface | null>(null)
+	/**
+	 * The agents rail's keyboard focus: `main`, a row's view id, or null when the
+	 * composer owns the keys. The ref is what the key handler reads, because a
+	 * burst of keys arrives before React commits the state.
+	 */
+	const [railFocus, setRailFocusState] = useState<string | null>(null)
+	const railFocusRef = useRef<string | null>(null)
+	/** Running background shells, read by key handlers that run before the render that counts them. */
+	const shellCountRef = useRef(0)
+	const setRailFocus = useCallback((next: string | null) => {
+		railFocusRef.current = next
+		setRailFocusState(next)
+	}, [])
+	/** Agents the operator cleared with `x` after they finished. */
+	const [dismissedAgents, setDismissedAgents] = useState<ReadonlySet<string>>(() => new Set())
+	/** Clock for the rail's 30 s finished-agent lifetime; moved only when a row is due to leave. */
+	const [railNow, setRailNow] = useState(() => Date.now())
+	const railRowsRef = useRef<readonly SubagentActivity[]>([])
+	const railWorkflowsRef = useRef<readonly RailWorkflow[]>([])
+	const railJustFocusedRef = useRef(false)
+	// A finished agent leaves the rail 30 s after it ended: sleep until the next
+	// one is due instead of ticking, so a quiet session renders nothing.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: `railNow` is not read here; moving it is what re-arms the timer for the next agent due to leave.
+	useEffect(() => {
+		const wait = railNextEviction(subagents, Date.now(), workflowRuns)
+		if (wait === undefined) return
+		const timer = setTimeout(() => setRailNow(Date.now()), wait + 20)
+		timer.unref?.()
+		return () => clearTimeout(timer)
+	}, [subagents, workflowRuns, railNow])
+	// The rail cannot keep the keyboard once it has nothing to show.
+	const railHasRows =
+		railAgents(subagents, railNow, dismissedAgents).length > 0 ||
+		railWorkflows(subagents, railNow, dismissedAgents, workflowRuns).length > 0
+	// The footer's shell pill is the rail's first stop, so shells keep it focused too.
+	const footerHasShells = backgroundJobs.some((job) => job.status === 'running')
+	useEffect(() => {
+		if (!railHasRows && !footerHasShells && railFocus !== null) setRailFocus(null)
+		else if (!footerHasShells && railFocus === SHELLS_FOCUS) setRailFocus(null)
+	}, [railHasRows, footerHasShells, railFocus, setRailFocus])
 	const [jobSurfaceState, setJobSurfaceState] = useState<JobSurface | null>(null)
 	const jobSurface = jobSurfaceState?.ownerSession === session ? jobSurfaceState : null
 	const jobSurfaceRef = useRef<JobSurface | null>(null)
@@ -1578,16 +1736,25 @@ export function App({
 	)
 	const replaceSubagents = useCallback(
 		(incoming: readonly SubagentActivity[]) => {
-			const next = withSavedSubagents(incoming)
+			const next = withWorkflowRuns(withSavedSubagents(incoming), workflowRunsRef.current)
 			const previous = subagentsRef.current
 			subagentsRef.current = next
 			setSubagentsState(next)
 			const surface = agentSurfaceRef.current
 			if (!surface) return
-			if (next.length === 0) {
+			if (next.length === 0 && workflowRunsRef.current.length === 0) {
 				setAgentSurface(null)
 				return
 			}
+			// A phase of a workflow run that nothing has started in has no agent
+			// to select; the surface stays on the phase until one does.
+			if (
+				surface.selectedId === '' &&
+				agentWorkflows(next, workflowRunsRef.current).some((workflow) =>
+					workflow.phases.some((phase) => phase.id === surface.selectedPhaseId),
+				)
+			)
+				return
 			const retained = next.find((agent) => agent.viewId === surface.selectedId)
 			if (retained) {
 				if (retained.phaseId !== surface.selectedPhaseId) {
@@ -1595,11 +1762,15 @@ export function App({
 				}
 				return
 			}
-			const phases = agentPhases(next)
+			const phases = agentWorkflows(next, workflowRunsRef.current).flatMap(
+				(workflow) => workflow.phases,
+			)
 			const previousGroupId = previous.find(
 				(agent) => agent.viewId === surface.selectedId,
 			)?.workflowGroupId
-			const sameWorkflow = agentWorkflows(next).find((workflow) => workflow.id === previousGroupId)
+			const sameWorkflow = agentWorkflows(next, workflowRunsRef.current).find(
+				(workflow) => workflow.id === previousGroupId,
+			)
 			const fallbackPhase =
 				phases.find((phase) => phase.id === surface.selectedPhaseId) ??
 				sameWorkflow?.phases[0] ??
@@ -1649,7 +1820,7 @@ export function App({
 	/** Opens the cockpit on the rows already on screen; false when there are none. */
 	const openCockpitFromCurrentRows = useCallback((): boolean => {
 		const agents = subagentsRef.current
-		const workflows = agentWorkflows(agents)
+		const workflows = agentWorkflows(agents, workflowRunsRef.current)
 		const currentWorkflow =
 			[...workflows]
 				.reverse()
@@ -1669,15 +1840,46 @@ export function App({
 		const firstPhase =
 			currentWorkflow?.phases.find((phase) => phase.agents.some(live)) ?? currentWorkflow?.phases[0]
 		const firstAgent = firstPhase?.agents.find(live) ?? firstPhase?.agents[0]
-		if (!firstPhase || !firstAgent) return false
+		if (!firstPhase || (!firstAgent && currentWorkflow?.runId === undefined)) return false
 		setAgentSurface({
 			kind: 'cockpit',
 			selectedPhaseId: firstPhase.id,
-			selectedId: firstAgent.viewId,
-			focus: workflows.length > 1 ? 'workflows' : 'agents',
+			selectedId: firstAgent?.viewId ?? '',
+			focus:
+				workflows.length > 1
+					? 'workflows'
+					: currentWorkflow
+						? cockpitEntryFocus(currentWorkflow)
+						: 'agents',
 		})
 		return true
 	}, [setAgentSurface])
+	/**
+	 * Enter on a workflow row: the cockpit, opened on that workflow's phases
+	 * (or its agents when it has one phase), on the phase still moving. Esc
+	 * walks back to the row.
+	 */
+	const openWorkflowFromRail = useCallback(
+		(groupId: string, railReturn?: string): boolean => {
+			const workflow = agentWorkflows(subagentsRef.current, workflowRunsRef.current).find(
+				(item) => item.id === groupId,
+			)
+			const live = (agent: SubagentActivity): boolean =>
+				agent.status === 'starting' || agent.status === 'queued' || agent.status === 'working'
+			const phase = workflow?.phases.find((item) => item.agents.some(live)) ?? workflow?.phases[0]
+			const agent = phase?.agents.find(live) ?? phase?.agents[0]
+			if (!workflow || !phase || (!agent && workflow.runId === undefined)) return false
+			setAgentSurface({
+				kind: 'cockpit',
+				selectedPhaseId: phase.id,
+				selectedId: agent?.viewId ?? '',
+				focus: cockpitEntryFocus(workflow),
+				...(railReturn !== undefined ? { railReturn } : {}),
+			})
+			return true
+		},
+		[setAgentSurface],
+	)
 	/** The most recent cockpit request, so an older one cannot report on its behalf. */
 	const cockpitOpenTokenRef = useRef(0)
 	/**
@@ -1704,6 +1906,40 @@ export function App({
 		if (token !== cockpitOpenTokenRef.current) return true
 		return openCockpitFromCurrentRows()
 	}, [hydrateSavedChildren, openCockpitFromCurrentRows])
+	/**
+	 * Empty-composer ↓: move into the agents rail when it has rows, otherwise
+	 * open the cockpit for the saved children it can still show.
+	 */
+	const focusAgentRail = useCallback(() => {
+		const first =
+			(shellCountRef.current > 0 ? SHELLS_FOCUS : undefined) ??
+			railRowsRef.current[0]?.viewId ??
+			railWorkflowsRef.current[0]?.focusId
+		if (first && agentSurfaceRef.current === null) {
+			// The ↓ that gets here is also dispatched to App's own key handler in
+			// the same tick, which must not read it as the first step inside the rail.
+			railJustFocusedRef.current = true
+			setTimeout(() => {
+				railJustFocusedRef.current = false
+			}, 0)
+			setRailFocus(first)
+			return
+		}
+		void openAgentCockpit()
+	}, [openAgentCockpit, setRailFocus])
+	/** The shells screen `/jobs` opens; the footer's pill reaches the same one. */
+	const openShellJobs = useCallback(() => {
+		if (!session) return
+		setJobSnapshot({ ownerSession: session, jobs: session.jobs?.() ?? [] })
+		setJobClock(Date.now())
+		const current = session.jobs?.() ?? []
+		setJobSurface({
+			ownerSession: session,
+			selectedJobId: current.find((job) => job.status === 'running')?.id ?? current[0]?.id ?? null,
+			detailJobId: null,
+			tailOffset: 0,
+		})
+	}, [session, setJobSurface])
 	/** One git-backed review choice may be resolving while its visible picker remains authoritative. */
 	const reviewChoiceInFlightRef = useRef<object | null>(null)
 	const exitArmedRef = useRef<boolean>(false)
@@ -1796,12 +2032,39 @@ export function App({
 		refresh()
 		return source.subscribe(refresh)
 	}, [hydrateSavedChildren, replaceSubagents, session, setAgentSurface])
+	// The `workflow` tool's runs: their rows are projected into `subagents`, so a
+	// change to a run re-reads the monitor through the same path. Runs from the
+	// journals (opened by `/workflows`) ride along, read-only.
+	const historicalWorkflowRunsRef = useRef<readonly WorkflowRunView[]>([])
+	const publishWorkflowRuns = useCallback(() => {
+		const live = session?.workflows?.runs() ?? []
+		const known = new Set(live.map((run) => run.runId))
+		const runs = [
+			...live,
+			...historicalWorkflowRunsRef.current.filter((run) => !known.has(run.runId)),
+		]
+		workflowRunsRef.current = runs
+		setWorkflowRuns(runs)
+		replaceSubagents(session?.subagents?.getSnapshot() ?? [])
+	}, [replaceSubagents, session])
+	useEffect(() => {
+		historicalWorkflowRunsRef.current = []
+		const source = session?.workflows
+		if (!source) {
+			workflowRunsRef.current = []
+			setWorkflowRuns([])
+			return
+		}
+		publishWorkflowRuns()
+		return source.subscribe(publishWorkflowRuns)
+	}, [publishWorkflowRuns, session])
 	const resetSubagentActivity = useCallback(() => {
 		childMessageLifetimeRef.current.abort(new Error('The owning conversation changed.'))
 		childMessageLifetimeRef.current = new AbortController()
 		childDraftsRef.current.clear()
 		directChildNoticesRef.current.clear()
 		session?.subagents?.reset()
+		session?.workflows?.reset()
 		setAgentSurface(null)
 		// The monitor clears its own commentary on reset; this drops the copy
 		// already on screen in the same pass as the rows, so the band cannot
@@ -2261,6 +2524,7 @@ export function App({
 			meta?: string,
 			activity?: TranscriptMessage['activity'],
 			sourceDelivery?: true,
+			shell?: ShellOutput,
 		) => {
 			const id = nextId()
 			const candidate = { role, content, pending, glyph, detail, activity }
@@ -2281,6 +2545,7 @@ export function App({
 								glyphColor,
 								meta,
 								activity,
+								...(shell ? { shell } : {}),
 								...(sourceDelivery ? { sourceDelivery } : {}),
 								// Numbered only if this body will actually be COLLAPSED — the
 								// number exists to be read off a hint, and a body that fits
@@ -2292,7 +2557,7 @@ export function App({
 								//
 								// Derived from `prev` rather than a counter, so the number is a
 								// fact about the transcript rather than a second record of it.
-								...((activity && detail?.length) || willCollapse(detail)
+								...((activity && detail?.length) || messageCollapses({ detail, shell })
 									? {
 											detailRef: prev.filter((m) => m.detailRef !== undefined).length + 1,
 										}
@@ -2323,6 +2588,30 @@ export function App({
 			}),
 		[pushMessage, session],
 	)
+	/** The queue row chosen for editing with Up; null when no row is chosen. */
+	const [queueSelection, setQueueSelectionState] = useState<number | null>(null)
+	const queueSelectionRef = useRef<number | null>(null)
+	const setQueueSelection = useCallback((next: number | null) => {
+		queueSelectionRef.current = next
+		setQueueSelectionState(next)
+	}, [])
+	const takeQueuedPrompt = useCallback(
+		(index: number) => {
+			const pending = queuedRef.current
+			const prompt = pending[index]
+			if (!isRecallableHumanPrompt(prompt)) return null
+			const remaining = [...pending.slice(0, index), ...pending.slice(index + 1)]
+			replaceQueued(remaining)
+			if (remaining.length === 0) setQueuePause(null)
+			setQueueSelection(null)
+			return {
+				text: prompt.recallText ?? prompt.text,
+				...(prompt.attachments ? { attachments: prompt.attachments } : {}),
+				...(prompt.triggers ? { triggers: prompt.triggers } : {}),
+			}
+		},
+		[replaceQueued, setQueuePause, setQueueSelection],
+	)
 	const recallQueuedPrompt = useCallback(() => {
 		const pending = queuedRef.current
 		let index = pending.length - 1
@@ -2331,17 +2620,40 @@ export function App({
 			pushMessage('system', 'No queued message to edit.')
 			return null
 		}
-		const prompt = pending[index]
-		if (!isRecallableHumanPrompt(prompt)) return null
-		const remaining = [...pending.slice(0, index), ...pending.slice(index + 1)]
-		replaceQueued(remaining)
-		if (remaining.length === 0) setQueuePause(null)
-		return {
-			text: prompt.recallText ?? prompt.text,
-			...(prompt.attachments ? { attachments: prompt.attachments } : {}),
-			...(prompt.triggers ? { triggers: prompt.triggers } : {}),
-		}
-	}, [pushMessage, replaceQueued, setQueuePause])
+		return takeQueuedPrompt(index)
+	}, [pushMessage, takeQueuedPrompt])
+	/**
+	 * Up/Down on an empty composer walks the queued messages the operator can
+	 * still edit. Returns whether the key was used, so Up falls through to the
+	 * prompt history when there is nothing to select.
+	 */
+	const moveQueueSelection = useCallback(
+		(direction: 'up' | 'down'): boolean => {
+			const editable = queuedRef.current.flatMap((prompt, index) =>
+				isRecallableHumanPrompt(prompt) ? [index] : [],
+			)
+			const current = queueSelectionRef.current
+			if (direction === 'up') {
+				if (editable.length === 0) return false
+				const older = current === null ? undefined : editable.filter((i) => i < current).at(-1)
+				setQueueSelection(current === null ? (editable.at(-1) ?? null) : (older ?? current))
+				return true
+			}
+			if (current === null) return false
+			setQueueSelection(editable.find((i) => i > current) ?? null)
+			return true
+		},
+		[setQueueSelection],
+	)
+	const loadSelectedQueued = useCallback(() => {
+		const index = queueSelectionRef.current
+		return index === null ? null : takeQueuedPrompt(index)
+	}, [takeQueuedPrompt])
+	// A chosen queue row goes with the message it pointed at (sent, recalled, dropped).
+	useEffect(() => {
+		const index = queueSelectionRef.current
+		if (index !== null && !isRecallableHumanPrompt(queued[index])) setQueueSelection(null)
+	}, [queued, setQueueSelection])
 
 	/**
 	 * The skill proposal's per-conversation facts: whether this conversation
@@ -2534,8 +2846,8 @@ export function App({
 	const openBatch = useCallback(
 		async (batch: Batch): Promise<void> => {
 			if (!batch.live) await hydrateSavedChildren()
-			const workflow = agentWorkflows(subagentsRef.current).find((candidate) =>
-				candidate.agents.some((agent) => agent.workflowId === batch.id),
+			const workflow = agentWorkflows(subagentsRef.current, workflowRunsRef.current).find(
+				(candidate) => candidate.agents.some((agent) => agent.workflowId === batch.id),
 			)
 			const firstPhase = workflow?.phases[0]
 			const firstAgent = firstPhase?.agents[0]
@@ -2571,12 +2883,15 @@ export function App({
 	 */
 	const reportedAgentsRef = useRef(new Set<string>())
 	const reportedBatchesRef = useRef(new Set<string>())
+	/** Workflows whose single group line is already in the conversation, by group id. */
+	const reportedWorkflowLinesRef = useRef(new Set<string>())
 	const batchSeenAtRef = useRef(new Map<string, { readonly at: number; readonly count: number }>())
 	const [receiptTick, setReceiptTick] = useState(0)
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
 	useEffect(() => {
 		reportedAgentsRef.current.clear()
 		reportedBatchesRef.current.clear()
+		reportedWorkflowLinesRef.current.clear()
 		batchSeenAtRef.current.clear()
 	}, [session])
 	useEffect(() => {
@@ -2585,7 +2900,7 @@ export function App({
 		const now = Date.now()
 		const batches = new Map<string, SubagentActivity[]>()
 		for (const agent of subagents) {
-			if (agent.replayed) continue
+			if (agent.replayed || isWorkflowRunAgent(agent)) continue
 			if (!current.some((item) => item.viewId === agent.viewId)) continue
 			const key = JSON.stringify([agent.workflowId, agent.batchId])
 			const members = batches.get(key) ?? []
@@ -2602,6 +2917,14 @@ export function App({
 				),
 		)
 		let retryIn: number | undefined
+		// A labelled workflow gets one group line however many batches it spans.
+		const claimReceipt = (members: readonly SubagentActivity[]): boolean => {
+			const first = members[0]
+			if (!first || first.workflow === DEFAULT_AGENT_WORKFLOW) return true
+			if (reportedWorkflowLinesRef.current.has(first.workflowGroupId)) return false
+			reportedWorkflowLinesRef.current.add(first.workflowGroupId)
+			return true
+		}
 		for (const [key, members] of batches) {
 			if (reportedBatchesRef.current.has(key)) continue
 			// Re-stamped when the batch grows: the settle window runs from its newest member.
@@ -2617,6 +2940,7 @@ export function App({
 				continue
 			}
 			reportedBatchesRef.current.add(key)
+			if (!claimReceipt(members)) continue
 			pushMessage(
 				'tool',
 				launchReceipt(members).content,
@@ -2627,6 +2951,7 @@ export function App({
 			)
 		}
 		for (const agent of subagents) {
+			if (isWorkflowRunAgent(agent)) continue
 			if (
 				!current.some(
 					(item) =>
@@ -2642,16 +2967,21 @@ export function App({
 			const key = JSON.stringify([agent.workflowId, agent.batchId])
 			if (!agent.replayed && !reportedBatchesRef.current.has(key)) {
 				reportedBatchesRef.current.add(key)
-				pushMessage(
-					'tool',
-					launchReceipt(batches.get(key) ?? [agent]).content,
-					false,
-					'●',
-					undefined,
-					theme.accent.assistant,
-				)
+				if (claimReceipt(batches.get(key) ?? [agent])) {
+					pushMessage(
+						'tool',
+						launchReceipt(batches.get(key) ?? [agent]).content,
+						false,
+						'●',
+						undefined,
+						theme.accent.assistant,
+					)
+				}
 			}
 			reportedAgentsRef.current.add(agent.viewId)
+			// A workflow's agents are read in its detail view; the workflow closes
+			// with one line of its own.
+			if (agent.workflow !== DEFAULT_AGENT_WORKFLOW) continue
 			const row = completionRow(agent)
 			pushMessage(
 				'tool',
@@ -2668,6 +2998,51 @@ export function App({
 		const timer = setTimeout(() => setReceiptTick((tick) => tick + 1), retryIn)
 		return () => clearTimeout(timer)
 	}, [subagents, activeTools, pushMessage, session, receiptTick])
+
+	/**
+	 * A workflow leaves one closing line in the conversation, written once, when
+	 * it is really over: the parent turn that ran it has ended and every member
+	 * has settled. A phase that starts long after the previous one settled is
+	 * the same workflow, so nothing is written between phases. A workflow is a
+	 * label within one parent turn (its group id carries the turn), so a later
+	 * turn's agents under the same label are a new run with their own line.
+	 * Saved children never count; they ended in another process.
+	 */
+	const reportedWorkflowsRef = useRef(new Set<string>())
+	/** Parent turns that have ended, by the id their agents carry as `workflowId`. */
+	const endedWorkflowTurnsRef = useRef(new Set<string>())
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
+	useEffect(() => {
+		reportedWorkflowsRef.current.clear()
+		endedWorkflowTurnsRef.current.clear()
+	}, [session])
+	const flushWorkflowNotices = useCallback((): void => {
+		for (const workflow of settledWorkflows(subagentsRef.current)) {
+			if (reportedWorkflowsRef.current.has(workflow.id)) continue
+			if (!workflow.agents.some((agent) => endedWorkflowTurnsRef.current.has(agent.workflowId))) {
+				continue
+			}
+			reportedWorkflowsRef.current.add(workflow.id)
+			const notice = workflowNotice(workflow)
+			pushMessage(
+				'tool',
+				notice.content,
+				false,
+				notice.glyph,
+				undefined,
+				notice.tone === 'error'
+					? theme.status.error
+					: notice.tone === 'warn'
+						? theme.status.warn
+						: theme.text.muted,
+			)
+		}
+	}, [pushMessage])
+	// A member that settles after its turn ended (it was not waited for) closes the workflow then.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: `subagents` is what moves; the flush reads the ref it mirrors.
+	useEffect(() => {
+		flushWorkflowNotices()
+	}, [subagents, flushWorkflowNotices])
 
 	/**
 	 * An accepted `send_message` correction already lands its own queue row inside
@@ -3547,6 +3922,13 @@ export function App({
 				void openBatch(value as Batch)
 				return
 			}
+			if (picker.kind === 'workflow-runs') {
+				const run = workflowRunsRef.current.find((item) => item.runId === value)
+				if (run && !openWorkflowFromRail(run.groupId)) {
+					pushMessage('system', 'That workflow has nothing to show yet.')
+				}
+				return
+			}
 			if (picker.kind === 'archive-conversation') {
 				if (value === 'archive') archiveCurrentConversation()
 				return
@@ -3977,6 +4359,7 @@ export function App({
 							...(activeCtx.hooks ? { hooks: activeCtx.hooks } : {}),
 							...(activeCtx.compaction ? { compaction: activeCtx.compaction } : {}),
 							...(activeCtx.memory ? { memory: activeCtx.memory } : {}),
+							...(activeCtx.workflow ? { workflow: activeCtx.workflow } : {}),
 							...(activeCtx.limits ? { limits: activeCtx.limits } : {}),
 							...(activeCtx.sandbox ? { sandbox: activeCtx.sandbox } : {}),
 							...(activeCtx.decision ? { decision: activeCtx.decision } : {}),
@@ -4658,7 +5041,14 @@ export function App({
 
 	const finalized = messages.filter((m) => !m.pending)
 	const runningShellCount = backgroundJobs.filter((job) => job.status === 'running').length
-	const shellFurniture = runningShellCount > 0 ? 1 : 0
+	shellCountRef.current = runningShellCount
+	// The footer's pull request item: looked up in the background, paused while
+	// a turn runs, and only on a real terminal.
+	const prStatus = usePrStatus({
+		cwd: ctx.cwd,
+		enabled: stdout.isTTY === true && phase !== 'trust',
+		turnActive: state === 'thinking' || state === 'tool' || state === 'awaiting-permission',
+	})
 	const pendingInputItems = pendingSteers.map((input) => ({
 		text: input.prompt.recallText ?? input.prompt.text,
 		attachmentCount: (input.prompt.attachments?.length ?? 0) + input.attachedFiles,
@@ -4667,13 +5057,13 @@ export function App({
 		text:
 			prompt.kind === 'goal'
 				? 'Automatic goal continuation'
-				: prompt.kind === 'peer'
-					? peerMailLabel(prompt.mail)
-					: (prompt.recallText ?? prompt.text),
+				: prompt.kind === 'notice'
+					? 'Reporting what finished'
+					: prompt.kind === 'peer'
+						? peerMailLabel(prompt.mail)
+						: (prompt.recallText ?? prompt.text),
 		attachmentCount: prompt.kind === 'human' ? prompt.attachments?.length : undefined,
 	}))
-	const recallableQueued = queued.filter(isRecallableHumanPrompt).at(-1)
-	const canRecallQueued = recallableQueued !== undefined
 	const pendingInputVisible =
 		phase === 'ready' &&
 		agentSurface === null &&
@@ -4691,7 +5081,8 @@ export function App({
 				pendingSteers: pendingInputItems,
 				queued: queuedInputItems,
 				rows: terminal.rows,
-				canRecall: canRecallQueued,
+				working: abortRef.current !== null,
+				held: queuePause,
 			})
 		: 0
 	// Where the streaming reply stands among the finalized rows: a row written
@@ -4713,17 +5104,13 @@ export function App({
 		messages,
 		rows: terminal.rows,
 		columns: terminal.columns,
-		furnitureRows: LIVE_FURNITURE_ROWS + fullToolFurniture + shellFurniture + pendingInputFurniture,
+		furnitureRows: LIVE_FURNITURE_ROWS + fullToolFurniture + pendingInputFurniture,
 		raw: rawOutput,
 	})
 	const liveTasks = checklistShown ? [] : tasks
 	const fullTaskFurniture = taskListRows(liveTasks)
 	const compactWork =
-		LIVE_FURNITURE_ROWS +
-			fullTaskFurniture +
-			fullToolFurniture +
-			shellFurniture +
-			pendingInputFurniture >=
+		LIVE_FURNITURE_ROWS + fullTaskFurniture + fullToolFurniture + pendingInputFurniture >=
 		terminal.rows
 	const taskFurniture = fullTaskFurniture
 	const toolFurniture = compactWork && fullToolFurniture > 0 ? 2 : fullToolFurniture
@@ -4748,8 +5135,7 @@ export function App({
 		messages: finalized,
 		rows: terminal.rows,
 		columns: terminal.columns,
-		furnitureRows:
-			LIVE_FURNITURE_ROWS + taskFurniture + toolFurniture + shellFurniture + pendingInputFurniture,
+		furnitureRows: LIVE_FURNITURE_ROWS + taskFurniture + toolFurniture + pendingInputFurniture,
 		settled: settledRef.current,
 		raw: rawOutput,
 	})
@@ -5263,6 +5649,17 @@ export function App({
 			wakeGoalDriver,
 		],
 	)
+	/**
+	 * ctrl+x ctrl+s: send what is waiting now. Same effect as Esc with a
+	 * pending steer (the reply stops, the steer starts the next one); a queue
+	 * that was only held by that interruption is released so it runs too.
+	 */
+	const sendPendingNow = useCallback(() => {
+		if (!abortRef.current) return
+		interruptTurn(true)
+		if (queuePauseRef.current?.source === 'operator-interrupt') setQueuePause(null)
+		pushMessage('system', 'Interrupted.')
+	}, [interruptTurn, pushMessage, setQueuePause])
 
 	// A termination signal leaves like `/exit`, after stopping the turn: the
 	// session still owns tool servers, jobs and the `session_end` hook, and
@@ -6035,6 +6432,7 @@ export function App({
 			}
 			const summary = buildPermissionSummary(review.text, {
 				describeUiRef: (ref) => reviewSessionRef.current?.describeComputerUseRef?.(ref),
+				workflowLimits: resolveWorkflowLimits(ctxRef.current.workflow),
 			})
 			const siteNotes = browserSiteNotes(req.toolCalls, browserControlRef.current?.status())
 			return new Promise<PermissionDecision>((resolve) => {
@@ -6402,6 +6800,7 @@ export function App({
 								: formatToolCall(event.toolName, event.summary, event.standalone),
 						startedAt: Date.now(),
 						detail: event.detail,
+						...(event.command ? { command: event.command } : {}),
 						...(event.web ? { web: event.web, progress: webLiveStatus(event.web) } : {}),
 					}
 					activeToolsRef.current = [...activeToolsRef.current, tool]
@@ -6423,6 +6822,9 @@ export function App({
 					const updated: RunningTool = {
 						...withoutFraction,
 						progress: event.message,
+						...(current.command !== undefined
+							? { tail: [...(current.tail ?? []), event.message].slice(-SHELL_LIVE_LINES) }
+							: {}),
 						...(event.fraction !== undefined ? { fraction: event.fraction } : {}),
 					}
 					activeToolsRef.current = [
@@ -6623,6 +7025,22 @@ export function App({
 						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
 						break
 					}
+					if (!event.isError && event.toolName === WORKFLOW_TOOL_NAME) {
+						// The call returned at once and the run goes on in the background.
+						// What the model was told (the run's id, how it will hear back) is
+						// for the model; the person gets the name and where to manage it.
+						pushMessage(
+							'tool',
+							done?.label ?? formatToolCall(event.toolName, event.summary),
+							false,
+							'●',
+							undefined,
+							theme.accent.assistant,
+						)
+						pushMessage('tool', WORKFLOW_BACKGROUND_NOTE, false, '⎿')
+						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
+						break
+					}
 					const catalogue =
 						!event.isError && event.toolName === 'agent_models' && event.output !== undefined
 							? modelCatalogueView(event.output)
@@ -6655,6 +7073,38 @@ export function App({
 							theme.status.ok,
 							'ctrl+o details',
 							'evidence',
+						)
+						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
+						break
+					}
+					if (event.shell && done?.command !== undefined) {
+						// One row: the header, and the `⎿` result hung under it. The dot says
+						// how it ended; the elapsed time is not repeated per command.
+						const failed = event.isError || event.shell.failed
+						const command = done?.command
+						const header = command
+							? formatToolCall(event.toolName, shellCommandHeader(command))
+							: (done?.label ?? formatToolCall(event.toolName, event.summary))
+						const full = command
+							? formatToolCall(event.toolName, shellCommandFull(command))
+							: undefined
+						// A tool that failed without an exit status (blocked, refused) has its
+						// words in stdout; they read as the error they are.
+						const settled: ShellOutput =
+							event.isError && event.shell.stderr.length === 0
+								? { ...event.shell, stdout: [], stderr: event.shell.stdout, failed: true }
+								: { ...event.shell, failed }
+						pushMessage(
+							'tool',
+							header,
+							false,
+							'●',
+							[...settled.stdout, ...settled.stderr],
+							failed ? theme.status.error : theme.status.ok,
+							undefined,
+							undefined,
+							undefined,
+							full !== undefined && full !== header ? { ...settled, fullHeader: full } : settled,
 						)
 						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
 						break
@@ -6752,7 +7202,8 @@ export function App({
 					// without that listener still gets the kernel event; never paint twice.
 					if (!idleJobNoticesRef.current.shown.has(event.jobId)) {
 						idleJobNoticesRef.current.shown.add(event.jobId)
-						pushMessage('system', describeJobExit(event), false, 'J')
+						const row = jobExitRow(event)
+						pushMessage('system', row.text, false, '●', undefined, row.color, row.meta)
 					}
 					break
 				case 'context':
@@ -6840,7 +7291,8 @@ export function App({
 					if (st.startedAt !== undefined) {
 						const since = st.startedAt
 						const delegated = subagentsRef.current.filter(
-							(agent) => agent.replayed !== true && agent.startedAt >= since,
+							(agent) =>
+								agent.replayed !== true && !isWorkflowRunAgent(agent) && agent.startedAt >= since,
 						)
 						// A turn that delegated always says what its agents came to; one
 						// that did not closes with its time only when it finished, since
@@ -6849,6 +7301,9 @@ export function App({
 							delegated.length > 0 || st.completed
 								? settleLine(Date.now() - since, delegated)
 								: undefined
+						// The workflows this turn ran are over: each says how it ended once.
+						for (const agent of delegated) endedWorkflowTurnsRef.current.add(agent.workflowId)
+						flushWorkflowNotices()
 						if (closing) pushMessage('system', closing, false, '✻', undefined, theme.text.muted)
 					}
 					// A save the operator asked for in words takes the place of
@@ -6934,7 +7389,9 @@ export function App({
 				pushMessage('system', 'Peer message was not delivered because the conversation changed.')
 				return
 			}
-			const { text } = prompt
+			if (prompt.kind === 'notice' && prompt.generation !== conversationGenRef.current) return
+			const { text: promptText } = prompt
+			let text = promptText
 			const attachments = prompt.kind === 'human' ? prompt.attachments : undefined
 			const goalRound = prompt.kind === 'goal' ? prompt.goalRound : undefined
 			if (
@@ -7006,6 +7463,34 @@ export function App({
 				setState('idle')
 				return
 			}
+			// What ended is taken now, at admission, so a turn that was already
+			// running has had its chance to take it first and nothing is said twice.
+			let noticeKind: RuntimeContextMessageKind = 'task-completion'
+			if (prompt.kind === 'notice') {
+				const ended = [...workflowNoticesRef.current.values()]
+				workflowNoticesRef.current.clear()
+				const jobs = idleJobNoticesRef.current
+				const jobLines =
+					jobs.ownerSession === session
+						? [...jobs.pending].filter(([id]) => wakeJobIdsRef.current.has(id))
+						: []
+				for (const [id] of jobLines) {
+					jobs.delivered.add(id)
+					jobs.pending.delete(id)
+					wakeJobIdsRef.current.delete(id)
+				}
+				if (ended.length === 0 && jobLines.length === 0) {
+					setState('idle')
+					return
+				}
+				if (ended.length === 0) noticeKind = 'job-exit'
+				text = [
+					...ended,
+					...(jobLines.length > 0
+						? [`Background jobs that ended:\n${jobLines.map(([, line]) => `- ${line}`).join('\n')}`]
+						: []),
+				].join('\n\n')
+			}
 			// `@path` mentions: the visible human message keeps the readable token,
 			// but the model receives the file contents inlined. An automatic goal
 			// prompt is already host-authored context and is never reinterpreted as
@@ -7030,7 +7515,9 @@ export function App({
 						}
 					: prompt.kind === 'peer'
 						? { type: 'runtime-context', kind: 'peer-message' }
-						: undefined,
+						: prompt.kind === 'notice'
+							? { type: 'runtime-context', kind: noticeKind }
+							: undefined,
 			)
 			const priorForSdk: Message[] = [...historyBeforeTurn, userMessage]
 			// Reserved before the turn begins, so everything that refers to this
@@ -7048,6 +7535,9 @@ export function App({
 
 			if (prompt.kind === 'peer') {
 				pushMessage('system', peerMailLabel(prompt.mail), false, '↳')
+			} else if (prompt.kind === 'notice') {
+				// The closing line for what ended is already in the conversation; the
+				// model's report is what follows it. Nothing is added here.
 			} else if (goalRound) {
 				pushMessage(
 					'system',
@@ -7324,6 +7814,13 @@ export function App({
 			// admission barrier so discovery cannot retain the transient refusal.
 			peersRef.current?.publish()
 			const turnPermissionMode = permissionModeRef.current
+			const workflowGeneration = conversationGenRef.current
+			const workflowSessionId = scopeRef.current?.sessionId
+			const workflowOwns = (): boolean =>
+				!appLifetime.signal.aborted &&
+				previousSessionRef.current === session &&
+				conversationGenRef.current === workflowGeneration &&
+				scopeRef.current?.sessionId === workflowSessionId
 			const turnReasoningEffort = reasoningEffortRef.current
 			const turnHypermode = hypermodeRef.current
 			const turnLimits = resolveTurnGuards(ctxRef.current.limits, turnLimitsOverrideRef.current)
@@ -7355,6 +7852,7 @@ export function App({
 				ids: [],
 			}
 			let childNoticeSnapshot = new Map<number, DirectChildNotice>()
+			let workflowNoticeSnapshot = new Map<string, string>()
 			try {
 				// Setup above awaited. A conversation switch can happen meanwhile and
 				// move the mutable SessionScope captured by `createAgentSession`. Re-admit
@@ -7374,6 +7872,7 @@ export function App({
 					// An early throw or abort never proves the model received context.
 					idleNoticeSnapshot = snapshotIdleJobNotices()
 					childNoticeSnapshot = new Map(directChildNoticesRef.current)
+					workflowNoticeSnapshot = new Map(workflowNoticesRef.current)
 					const operatorShellSnapshot = drainOperatorShell()
 					for await (const event of session.send(priorForSdk, {
 						signal: ac.signal,
@@ -7399,12 +7898,33 @@ export function App({
 							[
 								...(st.contextTexts ?? []),
 								idleNoticeSnapshot.text,
+								workflowNoticeSnapshot.size > 0
+									? `Workflows that ended since your last turn:\n\n${[...workflowNoticeSnapshot.values()].join('\n\n')}`
+									: undefined,
 								operatorShellSnapshot,
 								...[...childNoticeSnapshot.values()].map((notice) => notice.context),
 							].filter((part): part is string => Boolean(part)),
 						...(goalRound ? { goalRound } : {}),
 						// The mode above decides whether this callback is consulted.
 						onPermission: askPermission,
+						// A workflow this turn starts outlives it, so its agents cannot borrow
+						// `askPermission`, which belongs to this turn. They ask through the
+						// conversation instead, for as long as it is the one on screen.
+						workflowReview: {
+							onPermission: async (request) => {
+								if (!workflowOwns()) {
+									return { kind: 'reject', feedback: 'The owning conversation changed.' }
+								}
+								const decision = await onPermission(request)
+								// An agent can ask while no turn runs; nothing else would put the
+								// input back once the operator has answered.
+								if (workflowOwns() && !abortRef.current && !permissionResolveRef.current) {
+									setState('idle')
+								}
+								return decision
+							},
+							currentPermissionMode: () => permissionModeRef.current,
+						},
 						onQuestion: askQuestion,
 						onModelSwitch: requestModelSwitch,
 						inboundMessages: () => {
@@ -7414,6 +7934,11 @@ export function App({
 							const childNotices = [...directChildNoticesRef.current].filter(
 								([id]) => !childNoticeSnapshot.has(id),
 							)
+							// A workflow that ended while this turn runs: told to the model once.
+							const workflowEnds = [...workflowNoticesRef.current].filter(
+								([id]) => !workflowNoticeSnapshot.has(id),
+							)
+							for (const [id] of workflowEnds) workflowNoticesRef.current.delete(id)
 							if (childNotices.length) {
 								flushStream(st)
 								if (st.assistantId) {
@@ -7446,6 +7971,9 @@ export function App({
 								...mail.map(peerMailMessage),
 								...childNotices.map(([, notice]) =>
 									createRuntimeContextMessage(notice.context, notice.kind),
+								),
+								...workflowEnds.map(([, text]) =>
+									createRuntimeContextMessage(text, 'task-completion'),
 								),
 							]
 						},
@@ -7507,6 +8035,7 @@ export function App({
 			} finally {
 				if (st.completed && stillHere()) {
 					for (const id of childNoticeSnapshot.keys()) directChildNoticesRef.current.delete(id)
+					for (const id of workflowNoticeSnapshot.keys()) workflowNoticesRef.current.delete(id)
 				}
 				if (st.completed && idleJobNoticesRef.current.ownerSession === session) {
 					for (const id of idleNoticeSnapshot.ids) idleJobNoticesRef.current.pending.delete(id)
@@ -8165,21 +8694,45 @@ export function App({
 						)
 						return
 					}
+					case 'workflows': {
+						const source = session?.workflows
+						if (!source) {
+							pushMessage('system', 'Workflows are available once the conversation starts.')
+							return
+						}
+						void source
+							.history()
+							.then((runs) => {
+								if (appLifetime.signal.aborted) return
+								const live = new Set(source.runs().map((run) => run.runId))
+								historicalWorkflowRunsRef.current = runs.filter((run) => !live.has(run.runId))
+								publishWorkflowRuns()
+								if (runs.length === 0) {
+									pushMessage(
+										'system',
+										'No workflows in this conversation. Ask for one with /workflow <what to do>.',
+									)
+									return
+								}
+								setSelectedChoice(0)
+								setChoicePicker({
+									kind: 'workflow-runs',
+									title: 'Workflows',
+									values: runs.map((run) => run.runId),
+									options: runs.map(workflowRunOption),
+								})
+							})
+							.catch((error) =>
+								pushMessage('system', explainFailure(error, 'Could not read the workflows.')),
+							)
+						return
+					}
 					case 'jobs': {
-						const current = session?.jobs?.() ?? []
 						if (!session) {
 							pushMessage('system', 'Shell jobs are available once the conversation starts.')
 							return
 						}
-						setJobSnapshot({ ownerSession: session, jobs: current })
-						setJobClock(Date.now())
-						setJobSurface({
-							ownerSession: session,
-							selectedJobId:
-								current.find((job) => job.status === 'running')?.id ?? current[0]?.id ?? null,
-							detailJobId: null,
-							tailOffset: 0,
-						})
+						openShellJobs()
 						return
 					}
 					case 'abandon': {
@@ -9934,6 +10487,57 @@ export function App({
 		hasUnsettledTurn,
 	])
 
+	// What ended while nobody was talking to the model (a workflow run, a
+	// background command) wakes it: an idle session starts a turn that carries the
+	// one message, so the model reports without the person typing. A running turn
+	// takes it at its next request boundary instead (`inboundMessages`).
+	// biome-ignore lint/correctness/useExhaustiveDependencies: `noticeVersion` is what moves; the effect reads the refs it mirrors.
+	useEffect(() => {
+		if (
+			phase !== 'ready' ||
+			state !== 'idle' ||
+			abortRef.current ||
+			hasUnsettledTurn() ||
+			queuePauseRef.current ||
+			pendingModelSwitchRef.current ||
+			conversationMutationRef.current ||
+			textPromptRef.current ||
+			choicePickerRef.current ||
+			copyPickerRef.current ||
+			exportingRef.current ||
+			compactingRef.current ||
+			goalCommandInFlightRef.current ||
+			queuedRef.current.some((prompt) => prompt.kind === 'notice')
+		)
+			return
+		const jobs = idleJobNoticesRef.current
+		const waiting =
+			workflowNoticesRef.current.size > 0 ||
+			(jobs.ownerSession === session &&
+				[...jobs.pending.keys()].some((id) => wakeJobIdsRef.current.has(id)))
+		if (!waiting) return
+		enqueueQueued({
+			kind: 'notice',
+			text: 'Something finished while you were idle.',
+			generation: conversationGenRef.current,
+		})
+	}, [
+		phase,
+		state,
+		noticeVersion,
+		permissionMode,
+		conversationMutation,
+		queueSettleVersion,
+		modelSwitchVersion,
+		queuePause,
+		textPrompt,
+		choicePicker,
+		copyPicker,
+		enqueueQueued,
+		hasUnsettledTurn,
+		session,
+	])
+
 	// One-shot update check on launch.
 	// Best-effort; surfaces a single notice when something newer is out.
 	const updateCheckedRef = useRef(false)
@@ -10346,10 +10950,10 @@ export function App({
 									busyJobId: undefined,
 									notice:
 										result.status === 'killed'
-											? `Stopped ${selectedJob.id}.`
+											? 'Stopped.'
 											: result.status === 'exited'
-												? `${selectedJob.id} had already exited (${result.exitCode ?? '?'}).`
-												: `Stop request for ${selectedJob.id} did not finish.`,
+												? `Already finished (exit code ${result.exitCode ?? '?'}).`
+												: 'The stop request did not finish.',
 								})
 						},
 						(error) => {
@@ -10359,7 +10963,7 @@ export function App({
 								setJobSurface({
 									...current,
 									busyJobId: undefined,
-									notice: explainFailure(error, `Could not stop ${selectedJob.id}.`),
+									notice: explainFailure(error, 'Could not stop the command.'),
 								})
 						},
 					)
@@ -10432,6 +11036,89 @@ export function App({
 			// Open the same retained cockpit as `/agent`; Enter then drills into a
 			// child's transcript. Keep the shortcut below consent so it can never
 			// hide an approval that owns the keyboard.
+			// The agents rail owns the arrows, Enter, x and Esc while it is focused.
+			// Any other key hands the keyboard back to the composer.
+			const railTarget = railFocusRef.current
+			if (railTarget !== null && railJustFocusedRef.current) return
+			if (railTarget !== null) {
+				const rows = railRowsRef.current
+				const flows = railWorkflowsRef.current
+				// `main` (only beside agent rows), then the agents, then the workflows:
+				// the order they are drawn in.
+				const ids = [
+					...(shellCountRef.current > 0 ? [SHELLS_FOCUS] : []),
+					...(railShowsMain(rows.length) ? ['main'] : []),
+					...rows.map((agent) => agent.viewId),
+					...flows.map((f) => f.focusId),
+				]
+				const at = Math.max(0, ids.indexOf(railTarget))
+				const selected = rows.find((agent) => agent.viewId === railTarget)
+				const selectedWorkflow = flows.find((flow) => flow.focusId === railTarget)
+				if (
+					ids.length === 0 ||
+					(ids.length === 1 && ids[0] === 'main') ||
+					agentSurfaceRef.current
+				) {
+					setRailFocus(null)
+				} else if (key.escape) {
+					setRailFocus(null)
+					return
+				} else if (key.upArrow || key.downArrow) {
+					const index = at + (key.downArrow ? 1 : -1)
+					setRailFocus(ids[Math.max(0, Math.min(ids.length - 1, index))] ?? ids[0] ?? null)
+					return
+				} else if (key.return) {
+					setRailFocus(null)
+					if (railTarget === SHELLS_FOCUS) {
+						openShellJobs()
+					} else if (selectedWorkflow) {
+						openWorkflowFromRail(selectedWorkflow.id, selectedWorkflow.focusId)
+					} else if (selected) {
+						setAgentSurface({
+							kind: 'transcript',
+							selectedPhaseId: selected.phaseId,
+							selectedId: selected.viewId,
+							returnFocus: 'agents',
+							tailOffset: 0,
+							fromRail: true,
+						})
+					}
+					return
+				} else if (input === 'x' && !key.ctrl && !key.meta) {
+					if (selectedWorkflow) {
+						if (railWorkflowActionFor(selectedWorkflow) === 'stop') {
+							if (selectedWorkflow.runId !== undefined) {
+								// A run is stopped as a whole: queued agents never start.
+								session?.workflows?.stop(selectedWorkflow.runId)
+								return
+							}
+							// Every member still going is stopped the way `x` on its own
+							// row would; the row settles by itself as they report their end.
+							for (const member of selectedWorkflow.agents) {
+								if (!['completed', 'failed', 'cancelled'].includes(member.status)) {
+									session?.stopSubagent?.(member.viewId)
+								}
+							}
+						} else {
+							setDismissedAgents((current) => new Set(current).add(selectedWorkflow.focusId))
+							setRailFocus(ids[at + 1] ?? ids[at - 1] ?? null)
+						}
+						return
+					}
+					if (!selected) return
+					if (railActionFor(selected) === 'stop') {
+						// The row turns into a finished one by itself once the child
+						// reports its end; nothing else to update here.
+						session?.stopSubagent?.(selected.viewId)
+					} else {
+						setDismissedAgents((current) => new Set(current).add(selected.viewId))
+						setRailFocus(ids[at + 1] ?? ids[at - 1] ?? null)
+					}
+					return
+				} else {
+					setRailFocus(null)
+				}
+			}
 			if (key.ctrl && input === 't') {
 				if (agentSurfaceRef.current) {
 					setAgentSurface(null)
@@ -10455,7 +11142,7 @@ export function App({
 				if (agentSurfaceCommittedRef.current !== agentView) return
 				const agents = subagentsRef.current
 				if (agentView.kind === 'cockpit') {
-					const workflows = agentWorkflows(agents)
+					const workflows = agentWorkflows(agents, workflowRunsRef.current)
 					const workflowIndex = Math.max(
 						0,
 						workflows.findIndex((workflow) =>
@@ -10475,15 +11162,33 @@ export function App({
 						phaseAgents.findIndex((agent) => agent.viewId === agentView.selectedId),
 					)
 					const selected = phaseAgents[agentIndex]
-					if (!phase || !selected) {
+					// A phase a workflow declared that nothing has started in has no
+					// agent: it can be looked at, not drilled into.
+					if (!phase || (!selected && workflow?.runId === undefined)) {
 						setAgentSurface(null)
 						return
 					}
+					const hasPhaseLevel = workflow ? cockpitEntryFocus(workflow) === 'phases' : false
 					if ((key.ctrl && input === 'c') || input.toLowerCase() === 'q') {
 						setAgentSurface(null)
 						return
 					}
 					if (key.escape) {
+						if (agentView.railReturn !== undefined) {
+							// Opened from a workflow row: one step up inside the workflow,
+							// then back to the row — never out to the list of workflows.
+							if (agentView.focus === 'agents' && hasPhaseLevel) {
+								setAgentSurface({ ...agentView, focus: 'phases' })
+								return
+							}
+							setAgentSurface(null)
+							setRailFocus(agentView.railReturn)
+							return
+						}
+						if (agentView.focus === 'agents' && hasPhaseLevel) {
+							setAgentSurface({ ...agentView, focus: 'phases' })
+							return
+						}
 						setAgentSurface(
 							workflows.length > 1 && agentView.focus !== 'workflows'
 								? { ...agentView, focus: 'workflows' }
@@ -10491,42 +11196,60 @@ export function App({
 						)
 						return
 					}
-					if (key.leftArrow || key.rightArrow || key.tab) {
-						if (agentView.focus === 'workflows') {
-							if (!key.leftArrow) {
-								setAgentSurface({ ...agentView, focus: phases.length > 1 ? 'phases' : 'agents' })
+					// Left walks one level up, as Esc does.
+					if (key.leftArrow) {
+						if (agentView.focus === 'agents' && hasPhaseLevel) {
+							setAgentSurface({ ...agentView, focus: 'phases' })
+						} else if (agentView.focus !== 'workflows') {
+							if (agentView.railReturn !== undefined) {
+								setAgentSurface(null)
+								setRailFocus(agentView.railReturn)
+							} else if (workflows.length > 1) {
+								setAgentSurface({ ...agentView, focus: 'workflows' })
 							}
-							return
 						}
-						if (key.leftArrow && agentView.focus === 'phases' && workflows.length > 1) {
-							setAgentSurface({ ...agentView, focus: 'workflows' })
-							return
-						}
-						const focus = key.leftArrow
-							? 'phases'
-							: key.rightArrow
-								? 'agents'
-								: agentView.focus === 'phases'
-									? 'agents'
-									: 'phases'
-						setAgentSurface({ ...agentView, focus })
 						return
 					}
-					if (key.return) {
+					// `x` stops what the level lists: the whole workflow on the phases,
+					// the one agent on its agents.
+					if (input === 'x' && !key.ctrl && !key.meta && agentView.focus !== 'workflows') {
+						if (workflow?.runId !== undefined) {
+							// A run: the phases level stops the whole run, an agent's level
+							// skips that one agent and the script goes on without it.
+							if (agentView.focus === 'phases') session?.workflows?.stop(workflow.runId)
+							else if (selected?.workflowAgentIndex !== undefined)
+								session?.workflows?.skipAgent(workflow.runId, selected.workflowAgentIndex)
+							return
+						}
+						const targets = agentView.focus === 'phases' ? (workflow?.agents ?? []) : [selected]
+						for (const member of targets) {
+							if (!member) continue
+							if (!['completed', 'failed', 'cancelled'].includes(member.status)) {
+								session?.stopSubagent?.(member.viewId)
+							}
+						}
+						return
+					}
+					if (key.rightArrow || key.return) {
 						if (agentView.focus === 'workflows') {
-							setAgentSurface({ ...agentView, focus: phases.length > 1 ? 'phases' : 'agents' })
+							setAgentSurface({
+								...agentView,
+								focus: workflow ? cockpitEntryFocus(workflow) : 'agents',
+							})
 							return
 						}
 						if (agentView.focus === 'phases') {
 							setAgentSurface({ ...agentView, focus: 'agents' })
 							return
 						}
+						if (!selected) return
 						setAgentSurface({
 							kind: 'transcript',
 							selectedPhaseId: phase.id,
 							selectedId: selected.viewId,
 							returnFocus: agentView.focus,
 							tailOffset: 0,
+							...(agentView.railReturn !== undefined ? { railReturn: agentView.railReturn } : {}),
 						})
 						return
 					}
@@ -10551,11 +11274,11 @@ export function App({
 							)
 							const targetPhase = workflows[next]?.phases[0]
 							const targetAgent = targetPhase?.agents[0]
-							if (targetPhase && targetAgent) {
+							if (targetPhase && (targetAgent || workflows[next]?.runId !== undefined)) {
 								setAgentSurface({
 									...agentView,
 									selectedPhaseId: targetPhase.id,
-									selectedId: targetAgent.viewId,
+									selectedId: targetAgent?.viewId ?? '',
 								})
 							}
 						} else if (agentView.focus === 'phases') {
@@ -10567,11 +11290,11 @@ export function App({
 							)
 							const targetPhase = phases[next]
 							const targetAgent = targetPhase?.agents[0]
-							if (targetPhase && targetAgent) {
+							if (targetPhase && (targetAgent || workflow?.runId !== undefined)) {
 								setAgentSurface({
 									...agentView,
 									selectedPhaseId: targetPhase.id,
-									selectedId: targetAgent.viewId,
+									selectedId: targetAgent?.viewId ?? '',
 								})
 							}
 						} else {
@@ -10598,12 +11321,18 @@ export function App({
 					setAgentSurface(null)
 					return
 				}
+				if (key.escape && agentView.fromRail) {
+					setAgentSurface(null)
+					setRailFocus(selected.viewId)
+					return
+				}
 				if (key.escape) {
 					setAgentSurface({
 						kind: 'cockpit',
 						selectedPhaseId: agentView.selectedPhaseId,
 						selectedId: selected.viewId,
 						focus: agentView.returnFocus,
+						...(agentView.railReturn !== undefined ? { railReturn: agentView.railReturn } : {}),
 					})
 					return
 				}
@@ -10611,7 +11340,9 @@ export function App({
 					cyclePermissionMode()
 					return
 				}
-				const canMessage = Boolean(session?.messageSubagent && !selected.replayed)
+				const canMessage = Boolean(
+					session?.messageSubagent && !selected.replayed && selected.workflowRunId === undefined,
+				)
 				if (canMessage && (key.tab || (!agentView.composing && (key.return || input === 'm')))) {
 					setAgentSurface({ ...agentView, composing: !agentView.composing })
 					return
@@ -10797,6 +11528,11 @@ export function App({
 				else void abandonActiveTurn('The operator stopped the turn a tool paused for them.')
 				return
 			}
+			// A queued message chosen for editing: Esc only leaves the choice.
+			if (key.escape && queueSelectionRef.current !== null) {
+				setQueueSelection(null)
+				return
+			}
 			// Esc interrupts the running turn. Its pending steer can start a fresh
 			// turn, while a next-turn queue remains visible for the operator.
 			if (key.escape && (abortRef.current || pendingModelSwitchRef.current)) {
@@ -10817,7 +11553,7 @@ export function App({
 				const shown = messages.filter((m) => !m.pending)
 				const live = shown.slice(settledRef.current)
 				const collapsible = live.filter(
-					(m) => (m.activity && (m.detail?.length ?? 0) > 0) || willCollapse(m.detail),
+					(m) => (m.activity && (m.detail?.length ?? 0) > 0) || messageCollapses(m),
 				)
 				const hasBody = (m: TranscriptMessage) =>
 					m.detailRef !== undefined && (m.detail?.length ?? 0) > 0
@@ -10846,11 +11582,7 @@ export function App({
 					rows: terminal.rows,
 					columns: terminal.columns,
 					furnitureRows:
-						LIVE_FURNITURE_ROWS +
-						taskFurniture +
-						toolFurniture +
-						shellFurniture +
-						pendingInputFurniture,
+						LIVE_FURNITURE_ROWS + taskFurniture + toolFurniture + pendingInputFurniture,
 					settled: settledRef.current,
 					raw: rawOutput,
 				})
@@ -10887,7 +11619,10 @@ export function App({
 	// Background is left natural — we inherit the terminal's own background
 	// and only theme the foreground. Forcing
 	// a filled bg left mismatched patches around bordered areas, so we don't.
-	const liveSubagents = activeSubagentCohorts(subagents)
+	const liveSubagents = railAgents(subagents, railNow, dismissedAgents)
+	railRowsRef.current = liveSubagents
+	const liveWorkflows = railWorkflows(subagents, railNow, dismissedAgents, workflowRuns)
+	railWorkflowsRef.current = liveWorkflows
 	const representedSubagentTools = new Set(
 		subagents
 			.filter((agent) => agent.toolUseId !== undefined)
@@ -10919,6 +11654,7 @@ export function App({
 		session?.messageSubagent &&
 			selectedSubagent &&
 			!selectedSubagent.replayed &&
+			selectedSubagent.workflowRunId === undefined &&
 			agentSurface?.kind === 'transcript',
 	)
 	const lifecycleOwnsViewport =
@@ -11037,6 +11773,17 @@ export function App({
 		phase !== 'edit' &&
 		phase !== 'picker'
 	const childSurfaceOpen = agentSurface !== null || outputViewer !== null || jobSurface !== null
+	// `←` and `↓` act only from an empty composer with the keyboard in it, so
+	// the footer names them under the same conditions and never advertises a dead key.
+	const footerKeysLive =
+		showComposerSurface &&
+		!childSurfaceOpen &&
+		!composerHasDraft &&
+		permission === null &&
+		railFocus === null
+	const runningAgentCount =
+		liveSubagents.filter((agent) => railActionFor(agent) === 'stop').length +
+		liveWorkflows.filter((flow) => flow.status === 'running').length
 	return (
 		// One row short of the terminal, always: see ViewportBound.tsx for the
 		// renderer path a taller frame takes and the scrollback row it costs.
@@ -11059,7 +11806,11 @@ export function App({
 						staticIndent={1}
 						header={
 							transcriptOwned ? (
-								<BrandHeader version={ctx.version} permissionMode={displayedPermissionMode} />
+								<BrandHeader
+									version={ctx.version}
+									permissionMode={displayedPermissionMode}
+									cwd={ctx.cwd}
+								/>
 							) : undefined
 						}
 					/>
@@ -11133,6 +11884,19 @@ export function App({
 						    scrollback, while activity and input follow the visible tail directly.
 						    A viewport-height blank box here creates dead space and makes resize
 						    depend on an estimate of rows Ink has already rendered. */}
+						{/* Messages typed while a reply runs sit directly above the working row,
+						    as in other terminal agents: pending rows, the send-now hint, then `Working`. */}
+						{pendingInputVisible ? (
+							<PendingInputPanel
+								pendingSteers={pendingInputItems}
+								queued={queuedInputItems}
+								columns={Math.max(2, (terminal.columns ?? 80) - 2)}
+								rows={terminal.rows}
+								working={abortRef.current !== null}
+								selectedQueued={queueSelection}
+								held={queuePause}
+							/>
+						) : null}
 						{agentSurface === null &&
 						outputViewer === null &&
 						!scrollOpen &&
@@ -11303,25 +12067,6 @@ export function App({
 								childSurfaceOpen
 							}
 						>
-							{pendingInputVisible ? (
-								<PendingInputPanel
-									pendingSteers={pendingInputItems}
-									queued={queuedInputItems}
-									columns={Math.max(2, (terminal.columns ?? 80) - 2)}
-									rows={terminal.rows}
-									canRecall={canRecallQueued}
-									{...(recallableQueued
-										? {
-												recallItem: {
-													text: recallableQueued.recallText ?? recallableQueued.text,
-													attachmentCount: recallableQueued.attachments?.length,
-												},
-											}
-										: {})}
-									queuedTags={queuedTriggerLabels(queued)}
-									held={queuePause}
-								/>
-							) : null}
 							<Composer
 								reasoningEffortLevels={session?.reasoningEffortLevels}
 								onCycleMode={cyclePermissionMode}
@@ -11334,6 +12079,7 @@ export function App({
 									compacting ||
 									conversationMutation !== null ||
 									externalEditorRequest !== null ||
+									railFocus !== null ||
 									childSurfaceOpen
 								}
 								hidden={
@@ -11364,9 +12110,18 @@ export function App({
 									setComposerDraft((draft) => (draft?.token === token ? null : draft))
 								}
 								onDraftPresenceChange={setComposerHasDraft}
-								onOpenAgentPanel={openAgentCockpit}
+								onOpenAgentPanel={focusAgentRail}
+								onOpenAgents={() => void openAgentCockpit()}
 								onScrollTranscript={() => setScrollOpen(true)}
 								onRecallQueued={recallQueuedPrompt}
+								queuedEdit={{
+									available: queued.some(isRecallableHumanPrompt),
+									selected: queueSelection !== null,
+									onMove: moveQueueSelection,
+									onLoad: loadSelectedQueued,
+									onLeave: () => setQueueSelection(null),
+								}}
+								onSendNow={sendPendingNow}
 								userCommands={userCommands}
 								builtins={hostCommands.map((command) => ({
 									...command,
@@ -11391,7 +12146,6 @@ export function App({
 				    does nothing before the folder is trusted. */}
 				{phase === 'trust' ? null : (
 					<StatusBar
-						cwd={ctx.cwd}
 						provider={session?.providerSummary ?? null}
 						model={
 							autoActive && ctx.routing && !palDefinitionRef.current
@@ -11405,21 +12159,16 @@ export function App({
 						permissionMode={displayedPermissionMode}
 						canCycleMode
 						composerMounted={showComposerSurface}
+						shellCount={showComposerSurface && !childSurfaceOpen ? runningShellCount : 0}
+						pr={prStatus}
+						hyperlinks={hyperlinks}
+						agentCount={footerKeysLive ? runningAgentCount : 0}
+						canManage={
+							footerKeysLive && railFocus === null && (runningShellCount > 0 || railHasRows)
+						}
+						shellsSelected={railFocus === SHELLS_FOCUS}
 					/>
 				)}
-				{showComposerSurface &&
-				!childSurfaceOpen &&
-				permission === null &&
-				scheduleReviewPrompt === null &&
-				runningShellCount > 0 ? (
-					<Box>
-						<Text color={theme.text.secondary} wrap="truncate-end">
-							{terminal.columns < 38
-								? `${runningShellCount} shell${runningShellCount === 1 ? '' : 's'} · /jobs`
-								: `${runningShellCount} shell${runningShellCount === 1 ? '' : 's'} running · /jobs to manage`}
-						</Text>
-					</Box>
-				) : null}
 				{/* The parent's commentary, between the footer line and the rail:
 				    below the footer like every other panel, and above the rail's
 				    border so it reads as the turn talking rather than as chrome the
@@ -11442,14 +12191,31 @@ export function App({
 				!scrollOpen &&
 				jobSurface === null &&
 				scheduleReviewPrompt === null &&
-				liveSubagents.length > 0 ? (
+				(liveSubagents.length > 0 || liveWorkflows.length > 0) ? (
 					// The active agents remain in memory while the schedule review
 					// owns the available rows; the panel returns after the decision.
 					<AgentTaskPanel
 						agents={liveSubagents}
+						workflows={liveWorkflows}
 						terminalRows={terminal.rows}
 						terminalColumns={terminal.columns}
 						compact={permission !== null}
+						{...(railFocus !== null && railFocus !== SHELLS_FOCUS
+							? {
+									selectedIndex:
+										railFocus === 'main'
+											? 0
+											: railFocus.startsWith('workflow:')
+												? liveSubagents.length +
+													(railShowsMain(liveSubagents.length) ? 1 : 0) +
+													Math.max(
+														0,
+														liveWorkflows.findIndex((flow) => flow.focusId === railFocus),
+													)
+												: liveSubagents.findIndex((agent) => agent.viewId === railFocus) +
+													(railShowsMain(liveSubagents.length) ? 1 : 0),
+								}
+							: {})}
 					/>
 				) : showComposerSurface &&
 					permission === null &&
@@ -11457,6 +12223,7 @@ export function App({
 					agentSurface?.kind === 'cockpit' ? (
 					<AgentCockpit
 						agents={subagents}
+						runs={workflowRuns}
 						selectedPhaseId={agentSurface.selectedPhaseId}
 						selectedId={agentSurface.selectedId}
 						focus={agentSurface.focus}
@@ -11476,13 +12243,16 @@ export function App({
 						}
 						terminalColumns={terminal.columns}
 						compact={childComposerAvailable && terminal.rows < 24}
+						escapeTo={agentSurface.fromRail ? 'back' : 'agents'}
 						navigationHint={
 							childComposerAvailable
 								? fitHints(
 										[
 											{ text: 'PgUp/PgDn scroll', short: 'PgUp/PgDn', rank: 2 },
 											{ text: 'tab message', rank: 4 },
-											{ text: 'esc agents', short: 'esc list', rank: 5 },
+											agentSurface.fromRail
+												? { text: 'esc back', rank: 5 }
+												: { text: 'esc agents', short: 'esc list', rank: 5 },
 											{ text: 'q parent', rank: 5 },
 										],
 										Math.max(1, terminal.columns - 4),
@@ -11681,6 +12451,20 @@ function batchOption(batch: Batch): ChoicePickerOption {
 	]
 	if (batch.live) columns.push('live')
 	return { label: batch.name, description: columns.join(' · ') }
+}
+
+/** One `/workflows` row: the name, then how it stands, how many agents, when it began and how long it took. */
+function workflowRunOption(run: WorkflowRunView): ChoicePickerOption {
+	const counts = countAgents(run)
+	const tokens = runTokens(run)
+	const columns = [
+		run.status,
+		`${counts.done}/${counts.total} agent${counts.total === 1 ? '' : 's'}`,
+		...(tokens > 0 ? [`${formatCompactCount(tokens)} tokens`] : []),
+		relativeStart(run.startedAt),
+		formatElapsed((run.endedAt ?? Date.now()) - run.startedAt),
+	]
+	return { label: run.name, description: columns.join(' · ') }
 }
 
 /** `just now` / `12m ago` / `3h ago` / `2d ago` — the same buckets a conversation's own resume picker shows. */

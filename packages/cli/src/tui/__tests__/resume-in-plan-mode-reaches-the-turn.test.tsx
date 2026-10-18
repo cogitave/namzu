@@ -128,9 +128,9 @@ describe('/resume on a parked turn', () => {
 
 		// prompt → accept-edits → plan
 		harness.stdin.write(SHIFT_TAB)
-		await until(() => (harness.lastFrame() ?? '').includes('Auto-approve edits'), 'accept-edits')
+		await until(() => (harness.lastFrame() ?? '').includes('accept edits on'), 'accept-edits')
 		harness.stdin.write(SHIFT_TAB)
-		await until(() => (harness.lastFrame() ?? '').includes('Plan (read-only)'), 'plan mode')
+		await until(() => (harness.lastFrame() ?? '').includes('plan mode on'), 'plan mode')
 
 		for (const ch of '/resume') {
 			harness.stdin.write(ch)
@@ -147,10 +147,7 @@ describe('/resume on a parked turn', () => {
 
 		// Leaving plan mode later is what the running turn reads next.
 		harness.stdin.write(SHIFT_TAB)
-		await until(
-			() => !(harness.lastFrame() ?? '').includes('Plan (read-only)'),
-			'leaving plan mode',
-		)
+		await until(() => !(harness.lastFrame() ?? '').includes('plan mode on'), 'leaving plan mode')
 		expect(params?.currentPermissionMode?.()).toBe('prompt')
 	})
 })

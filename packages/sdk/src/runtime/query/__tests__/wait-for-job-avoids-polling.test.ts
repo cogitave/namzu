@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
 import { MockLLMProvider } from '../../../provider/mock.js'
@@ -16,6 +16,19 @@ import {
 } from '../../../utils/id.js'
 import { BackgroundJobRegistry } from '../../jobs/registry.js'
 import { drainQuery } from '../index.js'
+
+// These scripts name the first job's id before the call that creates it
+// returns, which a random id cannot allow: hand out b00000001, b00000002, …
+// per registry instead. Shape and uniqueness are tested in job-id.test.ts.
+vi.mock('../../jobs/job-id.js', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../../jobs/job-id.js')>()),
+	createBackgroundJobId: (isTaken: (id: string) => boolean = () => false) => {
+		for (let n = 1; ; n += 1) {
+			const id = `b${String(n).padStart(8, '0')}`
+			if (!isTaken(id)) return id
+		}
+	},
+}))
 
 /**
  * The same finished job, answered two ways: one `wait_for_job` call, or a
@@ -75,7 +88,7 @@ async function run(turns: MockTurn[]) {
 	return { result, provider }
 }
 
-// A fresh registry per turn always hands out `job_1` first, so the scripted
+// A fresh registry per turn always hands out `b00000001` first, so the scripted
 // model can name the id before the tool call that creates it returns.
 const START = { toolCalls: [{ id: 'c1', name: 'start', args: { command: 'true' } }] }
 const DONE = { text: 'done' }
@@ -84,7 +97,7 @@ describe('wait_for_job costs fewer provider requests than polling for the same j
 	it('resolves a finished job in one wait_for_job call', async () => {
 		const { result, provider } = await run([
 			START,
-			{ toolCalls: [{ id: 'c2', name: 'wait_for_job', args: { id: 'job_1' } }] },
+			{ toolCalls: [{ id: 'c2', name: 'wait_for_job', args: { id: 'b00000001' } }] },
 			DONE,
 		])
 		expect(result.status).toBe('completed')
@@ -94,8 +107,8 @@ describe('wait_for_job costs fewer provider requests than polling for the same j
 	it('costs one provider request per check when the model polls instead', async () => {
 		const { result, provider } = await run([
 			START,
-			{ toolCalls: [{ id: 'c2', name: 'job', args: { action: 'read', id: 'job_1' } }] },
-			{ toolCalls: [{ id: 'c3', name: 'job', args: { action: 'read', id: 'job_1' } }] },
+			{ toolCalls: [{ id: 'c2', name: 'job', args: { action: 'read', id: 'b00000001' } }] },
+			{ toolCalls: [{ id: 'c3', name: 'job', args: { action: 'read', id: 'b00000001' } }] },
 			{ toolCalls: [{ id: 'c4', name: 'job', args: { action: 'list' } }] },
 			DONE,
 		])
@@ -106,13 +119,13 @@ describe('wait_for_job costs fewer provider requests than polling for the same j
 	it('spends strictly fewer provider requests waiting than polling for the same job', async () => {
 		const waiting = await run([
 			START,
-			{ toolCalls: [{ id: 'c2', name: 'wait_for_job', args: { id: 'job_1' } }] },
+			{ toolCalls: [{ id: 'c2', name: 'wait_for_job', args: { id: 'b00000001' } }] },
 			DONE,
 		])
 		const polling = await run([
 			START,
-			{ toolCalls: [{ id: 'c2', name: 'job', args: { action: 'read', id: 'job_1' } }] },
-			{ toolCalls: [{ id: 'c3', name: 'job', args: { action: 'read', id: 'job_1' } }] },
+			{ toolCalls: [{ id: 'c2', name: 'job', args: { action: 'read', id: 'b00000001' } }] },
+			{ toolCalls: [{ id: 'c3', name: 'job', args: { action: 'read', id: 'b00000001' } }] },
 			{ toolCalls: [{ id: 'c4', name: 'job', args: { action: 'list' } }] },
 			DONE,
 		])

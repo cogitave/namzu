@@ -186,17 +186,20 @@ function borderProbe(screen: Screen, initialCols: number, initialRows: number) {
 			const buffer = terminal.buffer.active
 			const lines = Array.from({ length: rows }, (_, index) => buffer.getLine(buffer.baseY + index))
 			// Terminal reflow can leave an older frame fragment in native history.
-			// The last caption belongs to the current composer.
-			const top = lines.reduce(
-				(last, line, index) => (line?.translateToString(true).includes('MESSAGE') ? index : last),
-				-1,
-			)
-			if (top < 0) return null
-			const left = lines[top]?.translateToString(true).indexOf('┌') ?? -1
-			const bottom = lines.findIndex(
-				(line, index) => index > top && line?.getCell(left)?.getChars() === '└',
-			)
-			if (left < 0 || bottom < 0) throw new Error('Composer frame is incomplete')
+			// The last pair of rules belongs to the current composer.
+			const text = lines.map((line) => line?.translateToString(true) ?? '')
+			const isRule = (line: string) => /^\s*─{3,}/u.test(line)
+			let bottom = -1
+			for (let at = text.length - 1; at >= 0 && bottom < 0; at--) {
+				if (/^\s*─{3,}\s*$/u.test(text[at] ?? '')) bottom = at
+			}
+			if (bottom < 0) return null
+			let top = -1
+			for (let at = bottom - 1; at >= 0 && top < 0; at--) {
+				if (isRule(text[at] ?? '')) top = at
+			}
+			if (top < 0) throw new Error('Composer frame is incomplete')
+			const left = Math.max(0, text[top]?.indexOf('─') ?? 0)
 			const cells: {
 				x: number
 				y: number
@@ -208,7 +211,7 @@ function borderProbe(screen: Screen, initialCols: number, initialRows: number) {
 				for (let x = left; x < cols; x += 1) {
 					const cell = lines[y]?.getCell(x)
 					const glyph = cell?.getChars() ?? ''
-					if (cell && '─│┌┐└┘'.includes(glyph) && glyph !== '') {
+					if (cell && glyph === '─') {
 						cells.push({
 							x: x - left,
 							y: y - top,
@@ -412,9 +415,7 @@ it('glows symmetrically from the composer center once, then settles without movi
 	const border = borderProbe(screen, 80, 12)
 	try {
 		const rule = async () =>
-			(await border.read())?.filter(
-				({ x, y, glyph }) => y === 0 && glyph === '─' && x >= 11 && x <= 66,
-			) ?? []
+			(await border.read())?.filter(({ x, y, glyph }) => y === 0 && glyph === '─' && x <= 67) ?? []
 		expect(new Set((await rule()).map(({ color }) => color))).toEqual(new Set([239]))
 		const baseline = screen.bytesWritten()
 		await vi.advanceTimersByTimeAsync(1_600)
@@ -426,7 +427,7 @@ it('glows symmetrically from the composer center once, then settles without movi
 		await screen.waitForRender()
 		const near = (await rule()).filter(({ color }) => color === 183).map(({ x }) => x)
 		expect(near.length).toBeGreaterThan(0)
-		expect(near.every((x) => Math.abs(x - 38.5) < 8)).toBe(true)
+		expect(near.every((x) => Math.abs(x - 33.5) < 8)).toBe(true)
 		const beforeGlow = screen.bytesWritten()
 		await vi.advanceTimersByTimeAsync(320)
 		await screen.waitForRender()
@@ -436,11 +437,11 @@ it('glows symmetrically from the composer center once, then settles without movi
 		expect(bright.length).toBeGreaterThan(0)
 		expect(Math.min(...bright)).toBeLessThan(Math.min(...near))
 		expect(Math.max(...bright)).toBeGreaterThan(Math.max(...near))
-		expect(bright).toEqual(bright.map((x) => 77 - x).reverse())
+		expect(bright).toEqual(bright.map((x) => 67 - x).reverse())
 		expect(active.every(({ color }) => [239, 97, 141, 183].includes(color))).toBe(true)
-		const top = screen.viewport().find((line) => line.includes('MESSAGE')) ?? ''
+		const top = screen.viewport().find((line) => line.includes('hypermode')) ?? ''
 		expect([...top]).toHaveLength(80)
-		expect(top).toMatch(/^┌─ MESSAGE ─+ hypermode ─┐$/u)
+		expect(top).toMatch(/^─+ hypermode ─$/u)
 		expect(screen.viewport().join('\n')).toContain('Retained draft')
 		await vi.advanceTimersByTimeAsync(1_600)
 		await screen.waitForRender()
@@ -495,7 +496,7 @@ it('cancels the hypermode glow while another surface owns the terminal', async (
 	}
 })
 
-it('keeps the mode label but skips an off-center pulse when the caption yields at 24 columns', async () => {
+it('keeps the mode label and settles after one pulse on a 24 column rule', async () => {
 	const restoreClock = controlAnimationClock()
 	const view = (activation: number) => (
 		<ComposerFrame focus mode="hypermode" activation={activation}>
@@ -507,37 +508,37 @@ it('keeps the mode label but skips an off-center pulse when the caption yields a
 		expect(screen.viewport().join('\n')).toContain('hypermode')
 		screen.rerender(view(1))
 		await screen.waitForRender()
+		await vi.advanceTimersByTimeAsync(1_600)
+		await screen.waitForRender()
 		const settled = screen.bytesWritten()
 		await vi.advanceTimersByTimeAsync(1_200)
 		await screen.waitForRender()
 		expect(screen.bytesWritten()).toBe(settled)
 		expect(vi.getTimerCount()).toBe(0)
+		expect(screen.viewport().join('\n')).toContain('hypermode')
 	} finally {
 		await screen.unmount()
 		restoreClock()
 	}
 })
 
-it.each([2, 8, 11, 12, 40])('keeps both frame corners on one row at %i columns', async (cols) => {
-	const screen = await renderToScreen(
-		<ComposerFrame focus animate={false}>
-			<Box height={1} />
-		</ComposerFrame>,
-		{ cols, rows: 12 },
-	)
-	try {
-		const lines = screen.viewport().filter((line) => line.trim())
-		expect(lines).toHaveLength(3)
-		expect(lines[0]?.at(0)).toBe('┌')
-		expect(lines[0]?.at(-1)).toBe('┐')
-		expect(lines[0]?.length).toBe(cols)
-		expect(lines[2]?.at(0)).toBe('└')
-		expect(lines[2]?.at(-1)).toBe('┘')
-		expect(lines[2]?.length).toBe(cols)
-	} finally {
-		await screen.unmount()
-	}
-})
+it.each([2, 8, 11, 12, 40])(
+	'draws two full-width rules and nothing else at %i columns',
+	async (cols) => {
+		const screen = await renderToScreen(
+			<ComposerFrame focus animate={false}>
+				<Box height={1} />
+			</ComposerFrame>,
+			{ cols, rows: 12 },
+		)
+		try {
+			const lines = screen.viewport().filter((line) => line.trim())
+			expect(lines).toEqual(['─'.repeat(cols), '─'.repeat(cols)])
+		} finally {
+			await screen.unmount()
+		}
+	},
+)
 
 it.each([
 	['INK_SCREEN_READER', 'true'],
