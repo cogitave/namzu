@@ -147,6 +147,7 @@ import {
 	DEFAULT_AGENT_WORKFLOW,
 	type SubagentActivity,
 	type SubagentNarrationLine,
+	agentDisplayName,
 } from '../integrations/subagents/activity.js'
 import type { Batch } from '../integrations/subagents/batches.js'
 import { NARRATION_TOOL_NAME } from '../integrations/subagents/runtime.js'
@@ -210,6 +211,7 @@ import {
 	maxAgentTranscriptTailOffset,
 	railActionFor,
 	railAgents,
+	railHint,
 	railNextEviction,
 	railShowsMain,
 	railWorkflowActionFor,
@@ -1639,6 +1641,8 @@ export function App({
 	const railRowsRef = useRef<readonly SubagentActivity[]>([])
 	const railWorkflowsRef = useRef<readonly RailWorkflow[]>([])
 	const railJustFocusedRef = useRef(false)
+	/** ctrl+x was the last key on the rail: ctrl+k next stops every running agent. */
+	const railChordRef = useRef(false)
 	// A finished agent leaves the rail 30 s after it ended: sleep until the next
 	// one is due instead of ticking, so a quiet session renders nothing.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: `railNow` is not read here; moving it is what re-arms the timer for the next agent due to leave.
@@ -6566,7 +6570,7 @@ export function App({
 				},
 			})
 			if (!owns()) return receipt
-			const label = `You ${receipt.kind === 'queued' ? 'queued a message' : 'started a follow-up'} for ${child.description || child.agentId}.${receipt.auditWarning ? ` ${receipt.auditWarning}` : ''}`
+			const label = `You ${receipt.kind === 'queued' ? 'queued a message' : 'started a follow-up'} for ${agentDisplayName(child)}.${receipt.auditWarning ? ` ${receipt.auditWarning}` : ''}`
 			directChildNoticesRef.current.set(++directChildNoticeIdRef.current, {
 				context: receipt.parentNotice,
 				label,
@@ -11047,6 +11051,8 @@ export function App({
 			if (railTarget !== null) {
 				const rows = railRowsRef.current
 				const flows = railWorkflowsRef.current
+				const chordPending = railChordRef.current
+				railChordRef.current = false
 				// `main` (only beside agent rows), then the agents, then the workflows:
 				// the order they are drawn in.
 				const ids = [
@@ -11066,6 +11072,15 @@ export function App({
 					setRailFocus(null)
 				} else if (key.escape) {
 					setRailFocus(null)
+					return
+				} else if (key.ctrl && input === 'x') {
+					railChordRef.current = true
+					return
+				} else if (key.ctrl && input === 'k' && chordPending) {
+					// Every agent still going; workflows are stopped one at a time with `x`.
+					for (const agent of rows) {
+						if (railActionFor(agent) === 'stop') session?.stopSubagent?.(agent.viewId)
+					}
 					return
 				} else if (key.upArrow || key.downArrow) {
 					const index = at + (key.downArrow ? 1 : -1)
@@ -11788,6 +11803,23 @@ export function App({
 	const runningAgentCount =
 		liveSubagents.filter((agent) => railActionFor(agent) === 'stop').length +
 		liveWorkflows.filter((flow) => flow.status === 'running').length
+	// While the rail has the keyboard its key line replaces the footer's mode line.
+	const railHintText =
+		railFocus !== null &&
+		railFocus !== SHELLS_FOCUS &&
+		showComposerSurface &&
+		permission === null &&
+		agentSurface === null &&
+		(liveSubagents.length > 0 || liveWorkflows.length > 0)
+			? railHint(
+					railFocus === 'main'
+						? undefined
+						: (liveSubagents.find((agent) => agent.viewId === railFocus) ??
+								liveWorkflows.find((flow) => flow.focusId === railFocus)),
+					terminal.columns,
+					liveSubagents.filter((agent) => railActionFor(agent) === 'stop').length,
+				)
+			: undefined
 	return (
 		// One row short of the terminal, always: see ViewportBound.tsx for the
 		// renderer path a taller frame takes and the scrollback row it costs.
@@ -12171,6 +12203,7 @@ export function App({
 							footerKeysLive && railFocus === null && (runningShellCount > 0 || railHasRows)
 						}
 						shellsSelected={railFocus === SHELLS_FOCUS}
+						{...(railHintText !== undefined ? { railHint: railHintText } : {})}
 					/>
 				)}
 				{/* The parent's commentary, between the footer line and the rail:
@@ -12271,7 +12304,7 @@ export function App({
 				childComposerAvailable ? (
 					<ChildComposer
 						key={`${conversationGenRef.current}:${selectedSubagent.viewId}`}
-						title={selectedSubagent.description || selectedSubagent.agentId}
+						title={agentDisplayName(selectedSubagent)}
 						focused={agentSurface.composing === true}
 						hidden={
 							permission !== null ||

@@ -8,6 +8,8 @@
 
 import { createRequire } from 'node:module'
 
+import { Box } from 'ink'
+
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 
 import type { SubagentActivity } from '../../integrations/subagents/activity.js'
@@ -30,7 +32,9 @@ const NOW = 1_000_000
 const ESC = String.fromCharCode(27)
 
 const inkRequire = createRequire(createRequire(import.meta.url).resolve('ink'))
-const chalk = (await import(inkRequire.resolve('chalk'))).default as { level: number }
+const chalk = (await import(inkRequire.resolve('chalk'))).default as {
+	level: number
+}
 const originalColorLevel = chalk.level
 beforeAll(() => {
 	chalk.level = 3
@@ -85,18 +89,24 @@ afterEach(async () => {
 
 async function show(
 	workflows: readonly RailWorkflow[],
-	props: { selectedIndex?: number; cols?: number; agents?: readonly SubagentActivity[] } = {},
+	props: {
+		selectedIndex?: number
+		cols?: number
+		agents?: readonly SubagentActivity[]
+	} = {},
 ) {
 	const cols = props.cols ?? 100
 	mounted = await renderToScreen(
-		<AgentTaskPanel
-			agents={props.agents ?? []}
-			workflows={workflows}
-			terminalRows={40}
-			terminalColumns={cols}
-			now={NOW}
-			{...(props.selectedIndex !== undefined ? { selectedIndex: props.selectedIndex } : {})}
-		/>,
+		<Box flexDirection="column" paddingX={1}>
+			<AgentTaskPanel
+				agents={props.agents ?? []}
+				workflows={workflows}
+				terminalRows={40}
+				terminalColumns={cols}
+				now={NOW}
+				{...(props.selectedIndex !== undefined ? { selectedIndex: props.selectedIndex } : {})}
+			/>
+		</Box>,
 		{ cols, rows: 14 },
 	)
 	return mounted.viewport().filter((row) => row.trim().length > 0)
@@ -111,7 +121,12 @@ describe('a workflow run that ended with no agent', () => {
 		at: NOW - 100,
 	})
 	it('leaves the rail at once instead of lingering as 0/0, while a running one keeps its row', () => {
-		const ended = { ...base, status: 'failed' as const, endedAt: NOW, error: 'boom' }
+		const ended = {
+			...base,
+			status: 'failed' as const,
+			endedAt: NOW,
+			error: 'boom',
+		}
 		expect(railWorkflows([], NOW, new Set(), [ended])).toEqual([])
 		expect(railWorkflows([], NOW, new Set(), [base]).map((row) => row.runId)).toEqual(['wrun00009'])
 	})
@@ -141,8 +156,18 @@ describe('which workflows the rail lists', () => {
 	it('orders workflows oldest first', () => {
 		const rows = railWorkflows(
 			[
-				agent({ viewId: 'b', workflow: 'Second', workflowGroupId: 'g2', startedAt: 9 }),
-				agent({ viewId: 'a', workflow: 'First', workflowGroupId: 'g1', startedAt: 3 }),
+				agent({
+					viewId: 'b',
+					workflow: 'Second',
+					workflowGroupId: 'g2',
+					startedAt: 9,
+				}),
+				agent({
+					viewId: 'a',
+					workflow: 'First',
+					workflowGroupId: 'g1',
+					startedAt: 3,
+				}),
 			],
 			NOW,
 		)
@@ -244,7 +269,13 @@ describe('narrowing a row', () => {
 
 describe('the rows on screen', () => {
 	it('draws the row under the agent rows, sharing their name column', async () => {
-		const agents = [agent({ viewId: 'solo', workflow: 'Delegated work', workflowGroupId: 'g0' })]
+		const agents = [
+			agent({
+				viewId: 'solo',
+				workflow: 'Delegated work',
+				workflowGroupId: 'g0',
+			}),
+		]
 		const rows = await show([workflowOf(sevenAgents())], { agents })
 		expect(rows[0]).toMatch(/● main/u)
 		expect(rows[1]).toMatch(/solo/u)
@@ -260,19 +291,29 @@ describe('the rows on screen', () => {
 		await mounted?.unmount()
 		mounted = undefined
 		const selected = await show([row], { selectedIndex: 0 })
-		expect(selected.at(-2)).toMatch(/^❯ ◯ Release audit/u)
+		expect(selected.at(-1)).toMatch(/^❯ ◯ Release audit/u)
 	})
 
 	it('colours the bullet only for an outcome, and the whole row stays dim until selected', async () => {
 		const settled = (id: string, status: SubagentActivity['status']) =>
-			agent({ viewId: id, status, workflow: id, workflowGroupId: id, completedAt: NOW - 1_000 })
+			agent({
+				viewId: id,
+				status,
+				workflow: id,
+				workflowGroupId: id,
+				completedAt: NOW - 1_000,
+			})
 		const rows = railWorkflows(
 			[
 				settled('ok', 'completed'),
 				settled('bad', 'failed'),
 				settled('halt', 'cancelled'),
 				agent({ viewId: 'run', workflow: 'run', workflowGroupId: 'run' }),
-				agent({ viewId: 'bad-run', workflow: 'bad-run', workflowGroupId: 'bad-run' }),
+				agent({
+					viewId: 'bad-run',
+					workflow: 'bad-run',
+					workflowGroupId: 'bad-run',
+				}),
 				agent({
 					viewId: 'bad-run-2',
 					workflow: 'bad-run',
@@ -286,8 +327,8 @@ describe('the rows on screen', () => {
 		await show(rows)
 		const painted = mounted?.writes().join('') ?? ''
 		// theme.status.ok once; theme.status.error for failed, stopped and a running workflow with a failed member.
-		expect(painted.match(new RegExp(`${ESC}\\[38;5;77m${ESC}\\[2m◯`, 'gu'))).toHaveLength(1)
-		expect(painted.match(new RegExp(`${ESC}\\[38;5;203m${ESC}\\[2m◯`, 'gu'))).toHaveLength(3)
+		expect(painted.match(new RegExp(`${ESC}\\[38;5;77m◯`, 'gu'))).toHaveLength(1)
+		expect(painted.match(new RegExp(`${ESC}\\[38;5;203m◯`, 'gu'))).toHaveLength(3)
 		// The one with nothing to report keeps the dim default.
 		expect(painted.match(new RegExp(`${ESC}\\[2m◯`, 'gu'))?.length ?? 0).toBeGreaterThanOrEqual(1)
 	})
@@ -295,25 +336,29 @@ describe('the rows on screen', () => {
 	it('shows the hint for the selected workflow: stop while running, clear once done', async () => {
 		const row = workflowOf(sevenAgents())
 		const running = await show([row], { selectedIndex: 0 })
-		expect(running.at(-1)).toContain('enter to view · x to stop')
+		// The key line is the footer's now (see StatusBar); the rail draws the row only.
+		expect(running.join('\n')).not.toContain('to view')
+		expect(railHint(row, 100)).toBe('Enter to view · x to stop')
 		await mounted?.unmount()
 		mounted = undefined
 		const done = workflowOf([agent({ viewId: 'a', status: 'completed', completedAt: NOW })])
 		const finished = await show([done], { selectedIndex: 0 })
-		expect(finished.at(-1)).toContain('enter to view · x to clear')
-		expect(railHint(done, 100)).toBe('↑/↓ to select · enter to view · x to clear · esc to go back')
+		expect(finished.at(-1)).toMatch(/^❯ ◯ Release audit/u)
+		expect(railHint(done, 100)).toBe('Enter to view · x to clear')
 	})
 
 	it('folds into the main row count while a review owns the screen', async () => {
 		mounted = await renderToScreen(
-			<AgentTaskPanel
-				agents={[agent({ viewId: 'a' })]}
-				workflows={[workflowOf(sevenAgents())]}
-				terminalRows={40}
-				terminalColumns={100}
-				now={NOW}
-				compact
-			/>,
+			<Box flexDirection="column" paddingX={1}>
+				<AgentTaskPanel
+					agents={[agent({ viewId: 'a' })]}
+					workflows={[workflowOf(sevenAgents())]}
+					terminalRows={40}
+					terminalColumns={100}
+					now={NOW}
+					compact
+				/>
+			</Box>,
 			{ cols: 100, rows: 14 },
 		)
 		const rows = mounted.viewport().filter((row) => row.trim().length > 0)

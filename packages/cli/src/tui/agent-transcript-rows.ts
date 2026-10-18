@@ -38,6 +38,19 @@ export const AGENT_MANAGE_HINT = '↓ to manage'
 /** The key that opens the rail's workflow row from the composer. */
 export const WORKFLOW_MANAGE_HINT = '↓ to manage'
 
+/**
+ * How a launch names an agent: `name: description`, or just the name when the
+ * description is the same words, or the description alone for an agent with no
+ * name (a saved one).
+ */
+export function launchLabel(agent: SubagentActivity): string {
+	const description = oneLine(agent.description)
+	if (agent.name === undefined) return description || oneLine(agent.agentId)
+	return description && description !== agent.name
+		? `${oneLine(agent.name)}: ${description}`
+		: oneLine(agent.name)
+}
+
 export interface LaunchReceipt {
 	/** First line, then one tree line per agent when there are several. */
 	readonly content: string
@@ -72,18 +85,17 @@ export function launchReceipt(unordered: readonly SubagentActivity[]): LaunchRec
 	const where = labels.length > 0 ? ` · ${labels.join(' / ')}` : ''
 	if (members.length === 1 && first) {
 		return {
-			content: `Launched ${oneLine(first.description || first.agentId)}${where} (${AGENT_MANAGE_HINT})`,
+			content: `Launched ${launchLabel(first)}${where} (${AGENT_MANAGE_HINT})`,
 		}
 	}
 	const tree = members.map(
-		(agent, index) =>
-			`${index === members.length - 1 ? '└' : '├'} ${oneLine(agent.description || agent.agentId)}`,
+		(agent, index) => `${index === members.length - 1 ? '└' : '├'} ${launchLabel(agent)}`,
 	)
-	return {
-		content: [`Launched ${members.length} agents${where} (${AGENT_MANAGE_HINT})`, ...tree].join(
-			'\n',
-		),
-	}
+	// Agents started in the background say so; a batch the turn waits on does not.
+	const headline = members.every((agent) => agent.background === true)
+		? `${members.length} background agents launched${where} (${AGENT_MANAGE_HINT})`
+		: `Launched ${members.length} agents${where} (${AGENT_MANAGE_HINT})`
+	return { content: [headline, ...tree].join('\n') }
 }
 
 export interface CompletionRow {
@@ -96,7 +108,7 @@ export interface CompletionRow {
 
 /** The row for one agent that reached a terminal state. */
 export function completionRow(agent: SubagentActivity, now = Date.now()): CompletionRow {
-	const name = oneLine(agent.description || agent.agentId)
+	const name = oneLine(agent.name ?? (agent.description || agent.agentId))
 	const elapsed = formatElapsed(Math.max(0, (agent.completedAt ?? now) - agent.startedAt))
 	const detail = finalAnswer(agent)
 	const hint = detail.length > 0 ? 'ctrl+o result · ctrl+t details' : 'ctrl+t details'

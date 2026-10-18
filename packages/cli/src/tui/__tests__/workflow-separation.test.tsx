@@ -7,6 +7,8 @@
 
 import { createRequire } from 'node:module'
 
+import { Box } from 'ink'
+
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 
 import type { SubagentActivity } from '../../integrations/subagents/activity.js'
@@ -125,14 +127,16 @@ describe('the rail', () => {
 
 	async function rail(agents: readonly SubagentActivity[], selectedIndex?: number) {
 		mounted = await renderToScreen(
-			<AgentTaskPanel
-				agents={railAgents(agents, NOW)}
-				workflows={railWorkflows(agents, NOW)}
-				terminalRows={40}
-				terminalColumns={100}
-				now={NOW}
-				{...(selectedIndex !== undefined ? { selectedIndex } : {})}
-			/>,
+			<Box flexDirection="column" paddingX={1}>
+				<AgentTaskPanel
+					agents={railAgents(agents, NOW)}
+					workflows={railWorkflows(agents, NOW)}
+					terminalRows={40}
+					terminalColumns={100}
+					now={NOW}
+					{...(selectedIndex !== undefined ? { selectedIndex } : {})}
+				/>
+			</Box>,
 			{ cols: 100, rows: 14 },
 		)
 		return mounted.viewport().filter((row) => row.trim().length > 0)
@@ -210,14 +214,16 @@ describe('the detail view', () => {
 	const flowAgents = mixed().filter((a) => a.workflow !== 'Delegated work')
 	async function detail(focus: 'phases' | 'agents', phase: string, id: string) {
 		mounted = await renderToScreen(
-			<AgentCockpit
-				agents={flowAgents}
-				selectedPhaseId={`phase-${phase}`}
-				selectedId={id}
-				focus={focus}
-				terminalRows={40}
-				terminalColumns={100}
-			/>,
+			<Box flexDirection="column" paddingX={1}>
+				<AgentCockpit
+					agents={flowAgents}
+					selectedPhaseId={`phase-${phase}`}
+					selectedId={id}
+					focus={focus}
+					terminalRows={40}
+					terminalColumns={100}
+				/>
+			</Box>,
 			{ cols: 100, rows: 40 },
 		)
 		return mounted.viewport().join('\n')
@@ -230,8 +236,8 @@ describe('the detail view', () => {
 		expect(text).toContain('Phases')
 		expect(text).toMatch(/❯ 1\s+Tarama\s+1\/3/)
 		expect(text).toMatch(/2\s+Duzeltme\s+0\/2/)
-		expect(text).toContain('esc to go back')
-		expect(text).toContain('x to stop')
+		expect(text).toContain('esc back')
+		expect(text).toContain('x stop workflow')
 		expect(text).not.toContain('Not started yet')
 	})
 

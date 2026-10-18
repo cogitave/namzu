@@ -250,20 +250,22 @@ describe('the cockpit of a phased workflow', () => {
 			const join = phased.find((member) => member.viewId === 'join')
 			if (!join) throw new Error('fixture')
 			mounted = await renderToScreen(
-				<AgentCockpit
-					agents={phased}
-					selectedPhaseId="p2"
-					selectedId="join"
-					focus="agents"
-					terminalRows={24}
-					terminalColumns={120}
-				/>,
+				<Box flexDirection="column" paddingX={1}>
+					<AgentCockpit
+						agents={phased}
+						selectedPhaseId="p2"
+						selectedId="join"
+						focus="agents"
+						terminalRows={24}
+						terminalColumns={120}
+					/>
+				</Box>,
 				{ cols: 120, rows: 24 },
 			)
 			const frame = mounted.viewport().join('\n')
-			expect(frame).toMatch(/Two-phase colour sentence\s+2\/3 agents · \S+ │/u)
-			expect(frame).toMatch(/│ Phase 2 · 1 agent\s/u)
-			expect(frame).toMatch(/● Join the two colours/u)
+			expect(frame).toMatch(/Two-phase colour sentence\s+2\/3 agents · \S+/u)
+			expect(frame).toMatch(/┬ Phase 2 · 1 agent\s/u)
+			expect(frame).toMatch(/❯● Join the two colours/u)
 			await mounted.unmount()
 
 			const finished = phased.map((member) =>
@@ -272,35 +274,39 @@ describe('the cockpit of a phased workflow', () => {
 					: member,
 			)
 			mounted = await renderToScreen(
-				<AgentCockpit
-					agents={finished}
-					selectedPhaseId="p1"
-					selectedId="first"
-					focus="phases"
-					terminalRows={24}
-					terminalColumns={120}
-				/>,
+				<Box flexDirection="column" paddingX={1}>
+					<AgentCockpit
+						agents={finished}
+						selectedPhaseId="p1"
+						selectedId="first"
+						focus="phases"
+						terminalRows={24}
+						terminalColumns={120}
+					/>
+				</Box>,
 				{ cols: 120, rows: 24 },
 			)
 			const levelOne = mounted.viewport().join('\n')
-			expect(levelOne).toMatch(/3\/3 agents · 9\.0s │/u)
+			expect(levelOne).toMatch(/3\/3 agents · 9\.0s · done/u)
 			expect(levelOne).toMatch(/❯ ✔\s+Phase 1\s+2\/2/u)
 			expect(levelOne).toMatch(/✔\s+Phase 2\s+1\/1/u)
 			await mounted.unmount()
 
 			mounted = await renderToScreen(
-				<AgentCockpit
-					agents={phased}
-					selectedPhaseId="p2"
-					selectedId="join"
-					focus="agents"
-					terminalRows={16}
-					terminalColumns={40}
-				/>,
+				<Box flexDirection="column" paddingX={1}>
+					<AgentCockpit
+						agents={phased}
+						selectedPhaseId="p2"
+						selectedId="join"
+						focus="agents"
+						terminalRows={16}
+						terminalColumns={40}
+					/>
+				</Box>,
 				{ cols: 40, rows: 16 },
 			)
 			const narrow = mounted.viewport()
-			expect(narrow.join('\n')).toMatch(/Two-phase colour.*2\/3 agents/u)
+			expect(narrow.join('\n')).toMatch(/Two-phase colour[\s\S]*2\/3 agents/u)
 			for (const row of narrow) expect(stringWidth(row)).toBeLessThanOrEqual(40)
 		})
 	})

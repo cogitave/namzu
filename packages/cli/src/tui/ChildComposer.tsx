@@ -114,7 +114,7 @@ export function ChildComposer({
 			<Text color={theme.accent.user} bold wrap="truncate-end">
 				{rows < CHILD_COMPOSER_ROWS && notice
 					? truncateChoiceText(notice, Math.max(1, columns - 6))
-					: `Message · ${truncateChoiceText(title, Math.max(1, columns - 14))}`}
+					: `Message @${truncateChoiceText(title, Math.max(1, columns - 14))}`}
 			</Text>
 			<Composer
 				plainText
