@@ -170,3 +170,35 @@ describe('the launch tree', () => {
 		)
 	})
 })
+
+describe('the agent view', () => {
+	it('draws the prompt and what the person sent as their own rows, bottom aligned', async () => {
+		const { AgentView } = await import('../AgentExplorer.js')
+		const viewed = member('v', 'Work', 0, {
+			prompt: 'List the files',
+			status: 'working',
+			transcript: [
+				{ id: 'a', kind: 'assistant', text: 'Looking now.' },
+				{ id: 'm', kind: 'system', text: 'also count lines', direction: 'operator-to-child' },
+			],
+		})
+		mounted = await renderToScreen(
+			<Box flexDirection="column" paddingX={1}>
+				<AgentView agent={viewed} tailOffset={0} pageRows={6} terminalColumns={60} />
+			</Box>,
+			{ cols: 62, rows: 8 },
+		)
+		const rows = mounted.viewport().filter((row) => row.trim())
+		expect(rows.map((row) => row.trim())).toEqual([
+			'❯ List the files',
+			'● Looking now.',
+			'❯ also count lines',
+		])
+		expect(
+			mounted
+				.viewport()
+				.slice(-3)
+				.some((row) => row.includes('also count lines')),
+		).toBe(true)
+	})
+})

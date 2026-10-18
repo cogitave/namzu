@@ -153,10 +153,15 @@ export function railAgents(
 	agents: readonly SubagentActivity[],
 	now: number,
 	dismissed: ReadonlySet<string> = new Set(),
+	pinned: string | null = null,
 ): readonly SubagentActivity[] {
 	return agents
 		.filter((agent) => {
-			if (agent.replayed === true || dismissed.has(agent.viewId)) return false
+			if (agent.replayed === true) return false
+			// The agent on screen stays listed, however it ended, so the way back
+			// to the conversation is never a row that has just vanished.
+			if (agent.viewId === pinned && !isWorkflowRunAgent(agent)) return true
+			if (dismissed.has(agent.viewId)) return false
 			// A workflow run's agents are listed by the run, never as rows of their own.
 			if (isWorkflowRunAgent(agent)) return false
 			// An agent the model gave a `workflow` label lives only inside that
@@ -214,6 +219,13 @@ export function railStatusText(agent: SubagentActivity, now: number): string {
 			: formatElapsed(Math.max(0, (agent.completedAt ?? now) - agent.startedAt))
 	const tokens = railTokens(agent)
 	return tokens ? `${clock} · ${tokens}` : clock
+}
+
+/** `2 queued`: messages sent to the agent that it has not taken in yet. */
+export function railQueuedText(agent: SubagentActivity): string | undefined {
+	return agent.queued !== undefined && agent.queued > 0 && !isTerminalStatus(agent.status)
+		? `${agent.queued} queued`
+		: undefined
 }
 
 function railBulletColor(status: SubagentActivityStatus): string | undefined {
@@ -553,7 +565,13 @@ export function AgentTaskPanel({
 	)
 	// The right-hand blocks of the agent rows share one width, so they end in
 	// the same column however long each one's clock and spend are.
-	const statusWidth = Math.max(0, ...items.map((agent) => stringWidth(railStatusText(agent, now))))
+	const statusWidth = Math.max(
+		0,
+		...items.map((agent) => {
+			const queued = railQueuedText(agent)
+			return stringWidth(railStatusText(agent, now)) + (queued ? 3 + stringWidth(queued) : 0)
+		}),
+	)
 	const mainRight = compact
 		? [
 				...(agents.length > 0 || workflows.length === 0
@@ -650,7 +668,12 @@ export function AgentTaskPanel({
 									</Text>
 								</Box>
 								<Box flexShrink={0} marginLeft={1} minWidth={statusWidth} justifyContent="flex-end">
-									<Text color={finished ? theme.text.muted : theme.text.secondary}>{status}</Text>
+									<Text color={finished ? theme.text.muted : theme.text.secondary}>
+										{status}
+										{railQueuedText(agent) ? (
+											<Text color={theme.status.warn}> · {railQueuedText(agent)}</Text>
+										) : null}
+									</Text>
 								</Box>
 							</Box>
 						)
@@ -749,8 +772,12 @@ export function railHint(
 	selected: SubagentActivity | RailWorkflow | undefined,
 	columns: number,
 	runningAgents = 0,
+	viewedId?: string,
 ): string {
 	if (!selected) return '↑/↓ to select · Enter to view'
+	// The row on screen already is the view: only moving off it is left to say.
+	if (viewedId !== undefined && !('focusId' in selected) && selected.viewId === viewedId)
+		return '↑/↓ to select'
 	const action = 'focusId' in selected ? railWorkflowActionFor(selected) : railActionFor(selected)
 	const items = ['Enter to view', `x to ${action}`]
 	if (runningAgents > 1 && columns >= RAIL_HINT_CHORD_COLUMNS)
@@ -1722,6 +1749,93 @@ export function AgentTranscript({
 	)
 }
 
+/** Rows the viewed agent's transcript gets: what is left once the composer, footer line and rail are drawn. */
+export function agentViewPageRows(terminalRows: number, railRows: number): number {
+	// Composer frame (rule, one input row, rule), the footer line, the rail's rows.
+	return Math.max(3, terminalRows - 4 - railRows - 1)
+}
+
+/** How far a viewed transcript can be scrolled back from its tail. */
+export function maxAgentViewTailOffset(
+	agent: SubagentActivity,
+	pageRows: number,
+	terminalColumns: number,
+): number {
+	return Math.max(0, agentTranscriptRows(agent, terminalColumns + 5).length - pageRows)
+}
+
+export interface AgentViewProps {
+	readonly agent: SubagentActivity
+	/** Display rows skipped back from the live tail. */
+	readonly tailOffset: number
+	readonly pageRows: number
+	readonly terminalColumns: number
+	/** One plain sentence about the last message that could not be sent. */
+	readonly notice?: string | undefined
+}
+
+/**
+ * The transcript of the agent being viewed, drawn as part of the main screen:
+ * no box, no header, no tail counter. The agent's own prompt and what you sent
+ * it read as your rows (`❯`), what it said as `●`; its state is on the rail row
+ * below, and the one main composer under this stays live. Bottom-aligned, so the
+ * newest row sits against the composer.
+ */
+export function AgentView({
+	agent,
+	tailOffset,
+	pageRows,
+	terminalColumns,
+	notice,
+}: AgentViewProps) {
+	const lines = agentTranscriptRows(agent, terminalColumns + 5)
+	const room = Math.max(1, pageRows - (notice ? 1 : 0))
+	const offset = Math.min(Math.max(0, tailOffset), Math.max(0, lines.length - room))
+	const end = lines.length - offset
+	const shown = lines.slice(Math.max(0, end - room), end)
+	return (
+		<Box flexDirection="column" height={pageRows} flexShrink={0} justifyContent="flex-end">
+			{shown.length === 0 ? (
+				<Text color={theme.text.muted}>Waiting for output…</Text>
+			) : (
+				shown.map((line) => (
+					<Box key={line.id} height={1} flexShrink={0} overflow="hidden">
+						<Box width={2} flexShrink={0}>
+							<Text
+								color={
+									line.source !== 'prompt' && line.source.kind === 'tool'
+										? statusColor(line.source.status)
+										: lineColor(line)
+								}
+								bold={isOperatorLine(line)}
+							>
+								{line.continuation ? ' ' : lineGlyph(line)}
+							</Text>
+						</Box>
+						<Box flexGrow={1} minWidth={0}>
+							<Text color={lineColor(line)} bold={isOperatorLine(line)} wrap="truncate-end">
+								{line.text}
+							</Text>
+						</Box>
+					</Box>
+				))
+			)}
+			{notice ? (
+				<Text color={theme.status.warn} wrap="truncate-end">
+					{notice}
+				</Text>
+			) : null}
+		</Box>
+	)
+}
+
+function isOperatorLine(line: AgentTranscriptLine): boolean {
+	return (
+		line.source === 'prompt' ||
+		(line.source.kind === 'system' && line.source.direction === 'operator-to-child')
+	)
+}
+
 export function agentPickerPageSize(terminalRows: number, _wide = true): number {
 	return workflowDetailPageSize(terminalRows)
 }
@@ -1985,14 +2099,14 @@ function statusColor(status: SubagentActivityStatus): string {
 }
 
 function lineGlyph(line: AgentTranscriptLine): string {
-	if (line.source === 'prompt') return '›'
+	if (line.source === 'prompt') return '❯'
 	return rowGlyph(line.source)
 }
 
 function rowGlyph(row: SubagentActivity['transcript'][number]): string {
-	if (row.kind === 'assistant') return '∴'
+	if (row.kind === 'assistant') return '●'
 	if (row.kind === 'system')
-		return row.direction === 'to-child' || row.direction === 'operator-to-child' ? '←' : '·'
+		return row.direction === 'operator-to-child' ? '❯' : row.direction === 'to-child' ? '←' : '·'
 	return row.status === 'working' ? '◌' : row.status === 'failed' ? '✗' : '✓'
 }
 
@@ -2005,7 +2119,8 @@ function transcriptRowText(row: SubagentActivity['transcript'][number]): string 
 	if (row.kind === 'tool' && row.detail) return `${row.text}\n${row.detail}`
 	if (row.kind === 'system' && row.direction === 'to-child')
 		return `queued from parent: ${row.text}`
-	if (row.kind === 'system' && row.direction === 'operator-to-child') return `from you: ${row.text}`
+	// What you typed to the agent reads as your own row.
+	if (row.kind === 'system' && row.direction === 'operator-to-child') return row.text
 	return row.text
 }
 

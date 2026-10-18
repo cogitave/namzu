@@ -19,7 +19,12 @@ import { ComposerFrame } from '../ComposerFrame.js'
 import { EffortSlider, effortSliderLayout } from '../EffortSlider.js'
 import { LiveActivity, waitingLine } from '../LiveActivity.js'
 import { StatusBar } from '../StatusBar.js'
-import { completionRow, launchReceipt, settleLine } from '../agent-transcript-rows.js'
+import {
+	agentMessageRow,
+	agentNotice,
+	launchReceipt,
+	settleLine,
+} from '../agent-transcript-rows.js'
 import { type Screen, renderToScreen } from './support/screen.js'
 
 // The test terminal is a colour TTY; the Vitest process itself usually is not.
@@ -101,54 +106,63 @@ describe('launch receipt', () => {
 	})
 })
 
-describe('completion row', () => {
-	it('says time and spend, and attaches the answer as its collapsed body', () => {
-		const row = completionRow(
-			agent({
-				viewId: 'done',
-				description: 'Choose first colour',
-				status: 'completed',
-				startedAt: 1_000,
-				completedAt: 2_700,
-				tokens: 9_000,
-				transcript: [
-					{ id: '1', kind: 'assistant', text: 'thinking aloud' },
-					{ id: '2', kind: 'assistant', text: 'Mavi\nçünkü gökyüzü' },
-				],
-			}),
-		)
-		expect(row).toEqual({
-			ok: true,
-			content: 'Choose first colour · 1.7s · 9.0k tokens',
+describe('what a finished agent leaves in the conversation', () => {
+	it('says what it answered as one collapsed message row, and nothing about tokens', () => {
+		const done = agent({
+			viewId: 'done',
+			name: 'choose-colour',
+			description: 'Choose first colour',
+			status: 'completed',
+			startedAt: 1_000,
+			completedAt: 2_700,
+			tokens: 9_000,
+			transcript: [
+				{ id: '1', kind: 'assistant', text: 'thinking aloud' },
+				{ id: '2', kind: 'assistant', text: 'Mavi\nçünkü gökyüzü' },
+			],
+		})
+		expect(agentMessageRow(done)).toEqual({
+			content: 'Message from @choose-colour',
 			detail: ['Mavi', 'çünkü gökyüzü'],
-			hint: 'ctrl+o result · ctrl+t details',
+			hint: 'ctrl+o to expand',
+		})
+		// No name: the sender is the agent's type, as two such agents are told apart by the line below.
+		expect(agentMessageRow({ ...done, name: undefined })?.content).toBe(
+			'Message from @general-purpose',
+		)
+		expect(agentMessageRow(agent({ viewId: 'quiet', status: 'completed' }))).toBeUndefined()
+	})
+
+	it('closes the run with one line that names the task, never the result', () => {
+		const base = { viewId: 'a', description: 'Count words in a.txt', startedAt: 0 }
+		expect(agentNotice(agent({ ...base, status: 'completed', completedAt: 8_000 }))).toEqual({
+			content: 'Agent "Count words in a.txt" finished · 8s',
+			tone: 'ok',
+		})
+		expect(agentNotice(agent({ ...base, status: 'completed', completedAt: 64_000 })).content).toBe(
+			'Agent "Count words in a.txt" finished · 1m 4s',
+		)
+		expect(
+			agentNotice(
+				agent({
+					...base,
+					status: 'failed',
+					completedAt: 2_900,
+					latestActivity: 'Provider refused the request',
+				}),
+			),
+		).toEqual({
+			content: 'Agent "Count words in a.txt" failed: Provider refused the request · 3s',
+			tone: 'error',
+		})
+		expect(agentNotice(agent({ ...base, status: 'cancelled', completedAt: 500 }))).toEqual({
+			content: 'Agent "Count words in a.txt" was stopped · 1s',
+			tone: 'warn',
 		})
 	})
 
-	it('names a failure without colour, and offers no result it does not have', () => {
-		const failed = completionRow(
-			agent({
-				viewId: 'f',
-				description: 'Choose second colour',
-				status: 'failed',
-				startedAt: 0,
-				completedAt: 2_900,
-				latestActivity: 'Provider refused the request',
-			}),
-		)
-		expect(failed.ok).toBe(false)
-		expect(failed.content).toBe(
-			'Choose second colour · failed after 2.9s · Provider refused the request',
-		)
-		expect(failed.hint).toBe('ctrl+t details')
-		const cancelled = completionRow(
-			agent({ viewId: 'c', description: 'x', status: 'cancelled', startedAt: 0, completedAt: 500 }),
-		)
-		expect(cancelled.content).toBe('x · cancelled after 0.5s')
-	})
-
 	it('shows control characters in a child answer as text, never as terminal authority', () => {
-		const row = completionRow(
+		const row = agentMessageRow(
 			agent({
 				viewId: 'evil',
 				status: 'completed',
@@ -156,7 +170,7 @@ describe('completion row', () => {
 				transcript: [{ id: '1', kind: 'assistant', text: 'ok\u001b]0;pwned\u0007' }],
 			}),
 		)
-		expect(row.detail.join('')).not.toContain('\u001b')
+		expect(row?.detail.join('')).not.toContain('\u001b')
 	})
 })
 

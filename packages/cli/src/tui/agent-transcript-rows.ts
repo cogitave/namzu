@@ -98,29 +98,54 @@ export function launchReceipt(unordered: readonly SubagentActivity[]): LaunchRec
 	return { content: [headline, ...tree].join('\n') }
 }
 
-export interface CompletionRow {
-	readonly ok: boolean
+/** `8s`, `1m 4s`, `1h 2m`: the spaced form the notification lines use. */
+export function spacedElapsed(ms: number): string {
+	const seconds = Math.max(0, Math.round(ms / 1000))
+	if (seconds < 60) return `${seconds}s`
+	const minutes = Math.floor(seconds / 60)
+	if (minutes < 60) return `${minutes}m ${seconds % 60}s`
+	return `${Math.floor(minutes / 60)}h ${minutes % 60}m`
+}
+
+export interface AgentMessageRow {
+	/** `Message from @count-words`, the sender being the agent's name (else its type). */
 	readonly content: string
-	/** The agent's final answer, one entry per line; empty when it gave none. */
+	/** The agent's final answer, one entry per line; the row is collapsed and ctrl+o opens it. */
 	readonly detail: readonly string[]
 	readonly hint: string
 }
 
-/** The row for one agent that reached a terminal state. */
-export function completionRow(agent: SubagentActivity, now = Date.now()): CompletionRow {
-	const name = oneLine(agent.name ?? (agent.description || agent.agentId))
-	const elapsed = formatElapsed(Math.max(0, (agent.completedAt ?? now) - agent.startedAt))
+/**
+ * What an agent that finished says to the conversation: its answer, as one
+ * collapsed row `› Message from @name (ctrl+o to expand)`. Undefined when it
+ * gave no answer, so there is nothing to expand.
+ */
+export function agentMessageRow(agent: SubagentActivity): AgentMessageRow | undefined {
 	const detail = finalAnswer(agent)
-	const hint = detail.length > 0 ? 'ctrl+o result · ctrl+t details' : 'ctrl+t details'
-	if (agent.status === 'completed') {
-		const tokens = agent.tokens !== undefined ? ` · ${formatCompactCount(agent.tokens)} tokens` : ''
-		return { ok: true, content: `${name} · ${elapsed}${tokens}`, detail, hint }
+	if (detail.length === 0) return undefined
+	return {
+		content: `Message from @${oneLine(agent.name ?? agent.agentId)}`,
+		detail,
+		hint: 'ctrl+o to expand',
 	}
-	if (agent.status === 'cancelled') {
-		return { ok: false, content: `${name} · cancelled after ${elapsed}`, detail, hint }
-	}
+}
+
+export interface AgentNotice {
+	/** `Agent "Count words in a.txt" finished · 8s`: the result is not repeated here. */
+	readonly content: string
+	readonly tone: 'ok' | 'error' | 'warn'
+}
+
+/** The one line that closes an agent's run in the conversation. */
+export function agentNotice(agent: SubagentActivity, now = Date.now()): AgentNotice {
+	const label = oneLine(agent.description || agent.name || agent.agentId)
+	const took = spacedElapsed(Math.max(0, (agent.completedAt ?? now) - agent.startedAt))
+	if (agent.status === 'completed')
+		return { content: `Agent "${label}" finished · ${took}`, tone: 'ok' }
+	if (agent.status === 'cancelled')
+		return { content: `Agent "${label}" was stopped · ${took}`, tone: 'warn' }
 	const reason = agent.latestActivity ? oneLine(agent.latestActivity) : 'Failed'
-	return { ok: false, content: `${name} · failed after ${elapsed} · ${reason}`, detail, hint }
+	return { content: `Agent "${label}" failed: ${reason} · ${took}`, tone: 'error' }
 }
 
 export interface WorkflowNotice {

@@ -302,6 +302,7 @@ function agent(
 		description: input.description ?? input.viewId,
 		...(input.name ? { name: input.name } : {}),
 		...(input.summary ? { summary: input.summary } : {}),
+		...(input.queued ? { queued: input.queued } : {}),
 		...(input.background ? { background: true } : {}),
 		prompt: input.prompt ?? `prompt for ${input.viewId}`,
 		batchId: input.batchId ?? 'batch-live',
@@ -428,20 +429,17 @@ describe('Ctrl+T', () => {
 		mounted = screen
 		await ready
 		await screen.waitForRender()
-		screen.press('parent draft')
-		await screen.waitForRender()
 		screen.press('\x14')
 		await screen.waitForRender()
 		screen.press('\r')
 		await screen.waitForRender()
-		expect(screen.viewport().join('\n')).toContain('Message @selected-reviewer')
-		screen.press('\r')
-		await screen.waitForRender()
+		// Viewing: the one composer is live and addressed to the agent.
+		expect(screen.viewport().join('\n')).toContain('Message @selected-reviewer…')
 		screen.press('q stays inside this child')
 		await screen.waitForRender()
-		expect(screen.viewport().join('\n')).toContain('Message @selected-reviewer')
 		screen.press('\r')
 		await screen.waitForRender()
+		// What was typed is the agent's, not the parent's: it shows in the agent's transcript.
 		expect(messageSubagent).toHaveBeenCalledTimes(1)
 		expect(messageSubagent).toHaveBeenCalledWith(
 			'selected-child',
@@ -466,12 +464,13 @@ describe('Ctrl+T', () => {
 			parentSessionId: childMessageBridge.scope!.sessionId,
 			text: 'Host follow-up result: untrusted child output is quoted.',
 		})
-		// A complete enhanced-keyboard Escape has no ambiguity timeout to race.
+		// A complete enhanced-keyboard Escape has no ambiguity timeout to race:
+		// it goes back to the conversation, whose composer takes the parent's words.
 		screen.press('\x1b[27u')
 		await screen.waitForRender()
-		screen.press('q')
+		expect(screen.viewport().join('\n')).not.toContain('Message @selected-reviewer')
+		screen.press('parent draft')
 		await screen.waitForRender()
-		expect(screen.viewport().join('\n')).toContain('parent draft')
 		screen.press('\r')
 		await parentTurn
 		expect(hostContext).toContain(
@@ -598,8 +597,6 @@ describe('Ctrl+T', () => {
 		)
 		screen.press('\x1b[27u')
 		await screen.waitForRender()
-		screen.press('q')
-		await screen.waitForRender()
 		await submit(screen, '/new')
 		await revoked
 		admit({
@@ -654,10 +651,9 @@ describe('Ctrl+T', () => {
 		expect(frame).toContain('Message @reviewer')
 		expect(frame).toContain('prompt for visible-child')
 		expect(screen.row(-1).trim()).toBe('')
-		const bottom =
-			rows - 1 - [...screen.viewport()].reverse().findIndex((line) => line.trim().length > 0)
-		expect(bottom).toBeLessThan(rows - 1)
-		expect(screen.row(bottom)).toContain('┘')
+		// The composer, the footer and the rail all fit under the transcript.
+		expect(frame).toContain('◯ main')
+		expect(frame).toMatch(/● reviewer/u)
 	})
 
 	it('keeps replayed children read only even when direct messaging is available', async () => {
@@ -724,8 +720,6 @@ describe('Ctrl+T', () => {
 		await screen.waitForRender()
 		screen.press('\r')
 		await screen.waitForRender()
-		screen.press('\r')
-		await screen.waitForRender()
 		screen.press('draft for the retained child')
 		await screen.waitForRender()
 		activity.set([
@@ -745,14 +739,12 @@ describe('Ctrl+T', () => {
 			}),
 		])
 		await screen.waitForRender()
-		screen.press('\x1b[27u')
-		await screen.waitForRender()
-		expect(screen.viewport().join('\n')).toContain('Follow-up')
-		screen.press('\r')
-		await screen.waitForRender()
-		screen.press('\r')
-		await screen.waitForRender()
-		expect(screen.viewport().join('\n')).toContain('draft for the retained child')
+		// The agent stays the one on screen through a change of its run and phase,
+		// with the draft still in the composer.
+		const frame = screen.viewport().join('\n')
+		expect(frame).toContain('draft for the retained child')
+		expect(frame).toMatch(/● general-purpose\s+Retained reviewer/u)
+		expect(frame).not.toContain('Archived other task  ')
 	})
 
 	it('suppresses only the generic Agent row correlated to a visible child', async () => {
@@ -918,7 +910,7 @@ describe('Ctrl+T', () => {
 
 			await waitUntil(
 				screen,
-				() => painted(screen).includes('✓ runtime-child-1 · '),
+				() => painted(screen).includes('Agent "Runtime child 1" finished'),
 				'first completion missing',
 			)
 			// The finished sibling stays on the rail beside the three still running.
@@ -939,7 +931,7 @@ describe('Ctrl+T', () => {
 			await Promise.all(executions)
 			await waitUntil(
 				screen,
-				() => painted(screen).includes('✓ runtime-child-4 · '),
+				() => painted(screen).includes('Agent "Runtime child 4" finished'),
 				'runtime completion missing',
 			)
 			expect(screen.viewport().join('\n')).toContain('Type a message')
@@ -2311,7 +2303,7 @@ describe('Ctrl+T', () => {
 			() => painted(screen).includes('parent finished'),
 			'parent result missing after returning from the child',
 		)
-		expect(screen.viewport().join('\n')).toContain('✓ Child session · ')
+		expect(screen.viewport().join('\n')).toContain('Agent "Child session" finished')
 		expect(painted(screen).match(/parent finished/g)).toHaveLength(1)
 
 		await submit(screen, '/agents')
@@ -2961,13 +2953,13 @@ describe('agent completion presentation', () => {
 			yield { kind: 'delta', text: 'noted\n\n' }
 			yield { kind: 'done', stopReason: 'end_turn' }
 		}
-		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 100, rows: 24 })
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 100, rows: 30 })
 		mounted = screen
 		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
 		activity.set([done(first, 'FIRST_ANSWER'), second])
 		await waitUntil(
 			screen,
-			() => painted(screen).includes('✓ Choose first colour · '),
+			() => painted(screen).includes('Agent "Choose first colour" finished'),
 			'first row missing',
 		)
 		// Enough later rows that the first completion leaves the live region.
@@ -2984,7 +2976,7 @@ describe('agent completion presentation', () => {
 		activity.set([done(first, 'FIRST_ANSWER'), done(second, 'SECOND_ANSWER')])
 		await waitUntil(
 			screen,
-			() => painted(screen).includes('✓ Join the two colours · '),
+			() => painted(screen).includes('Agent "Join the two colours" finished'),
 			'second row missing',
 		)
 		await screen.waitForRender()
@@ -3078,20 +3070,20 @@ describe('agent completion presentation', () => {
 				finishWaits()
 				await waitUntil(
 					screen,
-					() => painted(screen).includes('✓ Package review · '),
+					() => painted(screen).includes('Agent "Package review" finished'),
 					'unwaited child completion missing',
 				)
 				activity.set([...finished])
 				await screen.waitForRender()
 				const output = painted(screen)
 				for (const child of children)
-					expect(output.split(`✓ ${child.description} · `)).toHaveLength(2)
+					expect(output.split(`Agent "${child.description}" finished`)).toHaveLength(2)
 				if (inspectable) {
 					expect(output).not.toContain('task_id:')
 					expect(output).not.toContain('Agent result:')
 					// The answer rides on the completion row, collapsed; Ctrl+O opens it.
 					expect(output).not.toContain('full report from child')
-					expect(output).toContain('ctrl+o result · ctrl+t details')
+					expect(output).toContain('ctrl+o to expand')
 					screen.press('\x0f')
 					await waitUntil(
 						screen,
@@ -3102,7 +3094,6 @@ describe('agent completion presentation', () => {
 					expect(output).toContain('task_id:')
 					expect(output).toContain('full report from child')
 				}
-				expect(output).toContain('ctrl+t details')
 			} finally {
 				finishWaits()
 			}
@@ -3638,5 +3629,157 @@ describe('parent narration', () => {
 			'narration stayed on screen',
 		)
 		expect(screen.viewport()).toEqual(before)
+	})
+})
+
+describe('viewing an agent', () => {
+	/** A host that takes messages for children, the way the real session does. */
+	function allowMessages(
+		kind: 'queued' | 'started' = 'queued',
+	): ReturnType<typeof vi.fn<NonNullable<AgentSession['messageSubagent']>>> {
+		const send = vi.fn<NonNullable<AgentSession['messageSubagent']>>(async () => ({
+			kind,
+			taskId: 'task',
+			state: 'running',
+			parentNotice: 'admitted',
+		}))
+		childMessageBridge.current = send
+		return send
+	}
+
+	async function viewSecond(cols = 110, rows = 28) {
+		activity.set([
+			agent({ viewId: 'v1', name: 'count-words', description: 'Count words in a.txt' }),
+			agent({
+				viewId: 'v2',
+				name: 'a-very-long-agent-name-here',
+				description: 'List files',
+				prompt: 'List the files please',
+			}),
+		])
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols, rows })
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+		screen.press('\x1b[B')
+		await waitUntil(screen, () => screen.viewport().join('\n').includes('Enter to view'), 'no rail')
+		screen.press('\x1b[B')
+		await waitUntil(
+			screen,
+			() => /^ *❯ ◯ a-very-long-agent-name/mu.test(screen.viewport().join('\n')),
+			'second row not selected',
+		)
+		screen.press('\r')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('List the files please'),
+			'the agent was not shown',
+		)
+		return screen
+	}
+
+	it('shows the agent on the main screen with the one composer live and addressed to it', async () => {
+		allowMessages()
+		const screen = await viewSecond()
+		const frame = screen.viewport().join('\n')
+		// Not a modal: no box, no header, no second composer.
+		expect(frame).not.toContain('Subagent')
+		expect(frame).not.toContain('┌')
+		expect(frame).not.toContain('Message this child')
+		// The prompt reads as a row of its own, the placeholder names the agent (20 cells and …).
+		expect(frame).toMatch(/❯ List the files please/u)
+		expect(frame).toContain('Message @a-very-long-agent-na…')
+		// The viewed row carries the filled bullet and the hint is just the selection.
+		expect(frame).toMatch(/^ *◯ main/mu)
+		expect(frame).toMatch(/^ *● a-very-long-agent-name/mu)
+	})
+
+	it('sends what is typed to the agent and shows it at once as the person’s own row', async () => {
+		const send = allowMessages()
+		const screen = await viewSecond()
+		screen.press('please also count lines')
+		await screen.waitForRender()
+		screen.press('\r')
+		await waitUntil(screen, () => send.mock.calls.length === 1, 'the message did not go')
+		expect(send).toHaveBeenCalledWith('v2', 'please also count lines', expect.any(Object))
+	})
+
+	it('does not send a slash command to the agent: it keeps the words and says why', async () => {
+		const send = allowMessages()
+		const screen = await viewSecond()
+		screen.press('/help')
+		await screen.waitForRender()
+		screen.press('\r')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('Commands run on the main conversation'),
+			'no notice',
+		)
+		expect(send).not.toHaveBeenCalled()
+		expect(screen.viewport().join('\n')).toContain('/help')
+	})
+
+	it('says plainly when the message cannot go, and keeps the text', async () => {
+		const send = allowMessages()
+		send.mockRejectedValueOnce(new Error('Agent was stopped, so it cannot take a message.'))
+		const screen = await viewSecond()
+		screen.press('hello again')
+		await screen.waitForRender()
+		screen.press('\r')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('cannot take a message'),
+			'no refusal shown',
+		)
+		expect(screen.viewport().join('\n')).toContain('hello again')
+	})
+
+	it('goes back to the conversation with Esc, and never stops the running agent', async () => {
+		allowMessages()
+		stoppedChildren.length = 0
+		const screen = await viewSecond()
+		screen.press('\x1b[27u')
+		await waitUntil(
+			screen,
+			() => /^ *● main/mu.test(screen.viewport().join('\n')),
+			'Esc did not go back to the conversation',
+		)
+		expect(screen.viewport().join('\n')).not.toContain('Message @')
+		expect(stoppedChildren).toEqual([])
+	})
+
+	it('goes back with Enter on the main row of the rail', async () => {
+		allowMessages()
+		const screen = await viewSecond()
+		screen.press('\x1b[B')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('↑/↓ to select'),
+			'rail not focused from the view',
+		)
+		screen.press('\x1b[A')
+		screen.press('\x1b[A')
+		await waitUntil(
+			screen,
+			() => /^ *❯ ◯ main/mu.test(screen.viewport().join('\n')),
+			'main row not selected',
+		)
+		screen.press('\r')
+		await waitUntil(
+			screen,
+			() => /^ *● main/mu.test(screen.viewport().join('\n')),
+			'Enter on main did not go back',
+		)
+	})
+
+	it('shows N queued in the warning colour on the row of an agent with messages waiting', async () => {
+		activity.set([agent({ viewId: 'q1', name: 'busy', description: 'Busy one', queued: 2 })])
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+		await waitUntil(
+			screen,
+			() => /◯ busy\s+Busy one\s+\S+ · 2 queued/u.test(screen.viewport().join('\n')),
+			'no queued count',
+		)
 	})
 })
