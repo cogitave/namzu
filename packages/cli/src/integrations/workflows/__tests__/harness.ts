@@ -47,7 +47,7 @@ export async function workflowHarness(
 	options: {
 		readonly held?: boolean
 		readonly refusal?: string
-		readonly maxChildren?: number
+		readonly tokenBudget?: number
 	} = {},
 ) {
 	const cwd = mkdtempSync(join(tmpdir(), 'namzu-workflow-'))
@@ -76,7 +76,7 @@ export async function workflowHarness(
 			parent.resolveParent(known.has(turnId) ? parent.scope.turnId : turnId),
 		cwd,
 		model: 'mock-model',
-		tokenBudget: 0,
+		tokenBudget: options.tokenBudget ?? 0,
 		buildTools: () => [],
 		buildProvider: () => {
 			const script = new MockLLMProvider({

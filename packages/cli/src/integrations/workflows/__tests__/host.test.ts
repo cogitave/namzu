@@ -134,3 +134,34 @@ describe('the workflow tool, over the real subagent runtime', () => {
 		expect(h.ended[0]?.view.error).toContain('no luck')
 	})
 })
+
+describe('a token budget and a skipped agent', () => {
+	const open: Awaited<ReturnType<typeof workflowHarness>>[] = []
+	afterEach(async () => {
+		for (const h of open.splice(0)) {
+			await h.close()
+			removeTempDir(h.cwd)
+		}
+	})
+
+	it('does not starve the agents that come after it', async () => {
+		const h = await workflowHarness({ held: true, tokenBudget: 200_000 })
+		open.push(h)
+		const result = await h.start({ script: TWO_PHASE_SCRIPT })
+		const runId = (result.data as { run_id: string }).run_id
+		const agents = () => h.host.registry.get(runId)?.agents ?? []
+		await h.until(() => h.gate.waiting() === 3)
+		expect(h.host.registry.skipAgent(runId, 1)).toBe(true)
+		await h.until(() => agents()[0]?.status === 'skipped')
+		h.gate.release()
+		h.gate.release()
+		// The second phase starts and every one of its agents is admitted.
+		await h.until(() => agents().length === 6 && h.gate.waiting() === 3)
+		h.gate.open()
+		await h.untilEnded()
+		const view = h.ended[0]?.view
+		expect(view?.status).toBe('completed')
+		expect(view?.agents.filter((a) => a.status === 'failed')).toEqual([])
+		expect(view?.agents.filter((a) => a.status === 'done')).toHaveLength(5)
+	})
+})

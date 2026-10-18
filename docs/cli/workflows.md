@@ -188,9 +188,12 @@ prompt preview and hash, every outcome, phases, `log()` lines and the result).
 Run ids are `w` and eight base-36 characters. Each agent also keeps its normal
 child transcript under `<session>/subagents/`.
 
+## Skipping and stopping under a token budget
+
+Stopping a run or skipping an agent cancels a model request that may not have reported its usage. That request is closed on an estimate (the prompt plus what had streamed) instead of being left as unknown spend, so the rest of the turn's budget stays available to the other agents; the estimate can undercount what the provider billed for the unreported part. A request that failed for any other reason keeps its unknown-spend marker as before.
+
 ## Not in this version
 
 Named or saved workflows, resuming a run from its journal, nested `workflow()`,
 worktree isolation per agent, a pause key, and the `workflow.*` config keys for
-the concurrency and agent caps. A skipped or cancelled agent keeps its token
-reservation for the rest of the turn's budget, as a cancelled `Agent` child does.
+the concurrency and agent caps.

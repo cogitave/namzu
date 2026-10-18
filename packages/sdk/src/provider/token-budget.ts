@@ -1,3 +1,4 @@
+import { estimateMessagesTokens } from '../compaction/token-estimate.js'
 import { EMPTY_TOKEN_USAGE } from '../constants/limits.js'
 import type { SessionTokenBudget } from '../store/budget/ledger.js'
 import { type TokenUsage, mergeTokenUsage } from '../types/common/index.js'
@@ -49,6 +50,7 @@ export function withTokenBudget(provider: LLMProvider, budget: SessionTokenBudge
 		let completed = false
 		let outputObserved = false
 		let uncertainRetry = false
+		let streamedChars = 0
 		let contacted = false
 		let abandoned = false
 		let iterator: AsyncIterator<StreamChunk> | undefined
@@ -107,6 +109,7 @@ export function withTokenBudget(provider: LLMProvider, budget: SessionTokenBudge
 					})
 				}
 				if (Object.keys(chunk.delta).length > 0) outputObserved = true
+				if (typeof chunk.delta.content === 'string') streamedChars += chunk.delta.content.length
 				if (chunk.error) throw new Error(chunk.error)
 				yield chunk
 			}
@@ -142,7 +145,27 @@ export function withTokenBudget(provider: LLMProvider, budget: SessionTokenBudge
 			} catch {
 				// Cleanup cannot replace the provider outcome.
 			}
-			if (!completed) await budget.failRequest(requestId, usage)
+			if (!completed) {
+				// A request the caller deliberately cancelled before any usage frame
+				// arrived is closed on an estimate (the prompt and what streamed), not
+				// left as unknown spend. Left open it poisons the whole tree: every
+				// sibling and every later child is refused for the rest of the turn,
+				// because of work somebody chose to stop. The estimate can under-count
+				// what the provider billed for the part it never reported; a failure
+				// that was not a cancellation keeps its marker as before.
+				if (usage === undefined && signal?.aborted === true && !uncertainRetry) {
+					const prompt = estimateMessagesTokens(params.messages)
+					const completion = Math.ceil(streamedChars / 4)
+					await budget.finishRequest(requestId, {
+						...EMPTY_TOKEN_USAGE,
+						promptTokens: prompt,
+						completionTokens: completion,
+						totalTokens: prompt + completion,
+					})
+				} else {
+					await budget.failRequest(requestId, usage)
+				}
+			}
 		}
 	}
 
