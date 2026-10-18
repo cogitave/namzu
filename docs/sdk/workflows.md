@@ -119,6 +119,8 @@ failed with that reason.
 
 ## Scheduling and limits
 
+`resolveWorkflowLimits(limits?)` returns the limits a run would use, defaults filled in; a host reads it to show an operator the caps before a run starts.
+
 Agents start in the order the script asked, at most `maxConcurrency` at a time
 (a first-in, first-out queue). Exceeding a cap fails the run with a plain
 reason; running agents are aborted.

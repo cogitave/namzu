@@ -61,8 +61,11 @@ export interface WorkflowRunTurn {
 
 export interface WorkflowHostOptions {
 	readonly subagents: Pick<SubagentRuntime, 'launchWorkflowAgent'>
-	/** `<session>/runs`: each run keeps its journal in `<runId>/workflow/`. */
-	readonly runsDirectory: (turnId: TurnId) => string
+	/**
+	 * `<session>/runs`: each run keeps its journal in `<runId>/workflow/`.
+	 * Absent for a session that keeps nothing on disk (an ephemeral one).
+	 */
+	readonly runsDirectory: (turnId: TurnId) => string | undefined
 	/**
 	 * Whether the turn may start a workflow, as a plain reason when it may not.
 	 * Reviewed like a destructive call; with nobody to review, only a session
@@ -98,6 +101,22 @@ function toolName(label: string | undefined): {
 	return open > 0 ? { name: label.slice(0, open), summary: label } : { name: label, summary: label }
 }
 
+/** What a call to the tool is for, in one line: the model's own summary, else the script's `meta.description`. */
+export function describeWorkflowCall(input: Partial<WorkflowToolInput>): string {
+	if (typeof input.description === 'string' && input.description.trim().length > 0) {
+		return input.description.trim().replace(/\s+/g, ' ')
+	}
+	if (typeof input.script === 'string') {
+		try {
+			return parseWorkflowMeta(input.script).description.replace(/\s+/g, ' ')
+		} catch {
+			const first = input.script.split('\n').find((line) => line.trim().length > 0)
+			if (first) return first.trim().slice(0, 80)
+		}
+	}
+	return 'workflow'
+}
+
 export function createWorkflowHost(options: WorkflowHostOptions): WorkflowHost {
 	const registry = options.registry ?? new WorkflowRunRegistry()
 	const tool = defineTool({
@@ -130,6 +149,12 @@ export function createWorkflowHost(options: WorkflowHostOptions): WorkflowHost {
 		truncatedInputHint: `Write a shorter script (under ${MAX_WORKFLOW_SCRIPT_CHARS} characters): fewer agents per line, shared helpers, and prompts built from args.`,
 		malformedInputHint:
 			'Every character of "script" goes inside a JSON string: write a newline as \\n, a tab as \\t, a double quote as \\" and a backslash as \\\\.',
+		// The person reads `Workflow(<what it is for>)`, never the script.
+		presentCall: (input: unknown) => ({
+			kind: 'generic' as const,
+			label: `Workflow(${describeWorkflowCall(input as Partial<WorkflowToolInput>)})`,
+			presentation: 'activity' as const,
+		}),
 		category: 'custom',
 		permissions: [],
 		readOnly: false,
@@ -157,9 +182,10 @@ export function createWorkflowHost(options: WorkflowHostOptions): WorkflowHost {
 			}
 			const runId = createWorkflowRunId((id) => registry.get(id) !== undefined)
 			const turn = options.openRunTurn(context.turnId, runId)
-			const journal = new FileWorkflowJournal(
-				join(options.runsDirectory(context.turnId), runId, 'workflow'),
-			)
+			const runs = options.runsDirectory(context.turnId)
+			const limits = options.limitsFor?.(context.turnId)
+			const journal =
+				runs === undefined ? undefined : new FileWorkflowJournal(join(runs, runId, 'workflow'))
 			const phaseDetail = (title: string | undefined): string | undefined =>
 				title === undefined
 					? undefined
@@ -170,10 +196,8 @@ export function createWorkflowHost(options: WorkflowHostOptions): WorkflowHost {
 					meta,
 					script,
 					...(args !== undefined ? { args } : {}),
-					...(options.limitsFor?.(context.turnId)
-						? { limits: options.limitsFor(context.turnId) }
-						: {}),
-					journal,
+					...(limits ? { limits } : {}),
+					...(journal ? { journal } : {}),
 					spawn: async (request, signal, viewed) => {
 						const detail = phaseDetail(request.phaseTitle)
 						const outcome = await options.subagents.launchWorkflowAgent({

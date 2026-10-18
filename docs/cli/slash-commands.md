@@ -63,6 +63,8 @@ explain why they cannot run and are checked again when selected.
 | `/loop` | Re-send a prompt to this conversation on an interval, between turns: `/loop 10m <prompt>`, `/loop list`, `/loop stop <id>|all`. See [Session loops](session-loops.md). |
 | `/tasks` | Read this conversation's tasks: every open task, and those closed in the current turn. Changing conversations clears the previous selection. |
 | `/agents` | Inspect delegated activity in this conversation; `/agents running` opens the same view. `/agents available` lists configured agents. `/agents batches` lists past and running batches of delegated agents. |
+| `/workflows` | List this conversation's workflows, running and finished, and open one: its phases, then a phase's agents, then an agent's transcript. See [Workflows in the CLI](workflows.md). |
+| `/workflow <what to do>` | Ask for a workflow: the model is offered the `workflow` tool for this message, writes a script that runs many agents in phases, and you approve it before anything starts. |
 
 ## Command-specific help
 

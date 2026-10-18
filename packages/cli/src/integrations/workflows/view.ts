@@ -137,6 +137,18 @@ function toolSummary(name: string | undefined, summary: string | undefined): str
 	return name
 }
 
+/**
+ * An agent the runtime closed because the run was stopped is an agent that did
+ * not get to run, not one that failed: the operator's Stop must not read as
+ * errors. The runtime words these two cases the same way every time.
+ */
+function stoppedWithTheRun(error: string | undefined): boolean {
+	return (
+		error !== undefined &&
+		/^The workflow was stopped before this agent (started|finished)\./.test(error)
+	)
+}
+
 /** Fold one SDK event into the run. Events of another run are ignored. */
 export function reduceRunView(view: WorkflowRunView, event: WorkflowEvent): WorkflowRunView {
 	if (event.runId !== view.runId) return view
@@ -156,7 +168,9 @@ export function reduceRunView(view: WorkflowRunView, event: WorkflowEvent): Work
 			const previous = view.agents.find((agent) => agent.index === event.index)
 			const status: WorkflowAgentStatus =
 				event.state === 'error'
-					? 'failed'
+					? stoppedWithTheRun(event.error)
+						? 'skipped'
+						: 'failed'
 					: event.state === 'done'
 						? event.skipped
 							? 'skipped'
@@ -304,7 +318,13 @@ export function viewFromJournal(
 				view = withAgent(view, {
 					...agent,
 					status:
-						record.state === 'error' ? 'failed' : record.state === 'skipped' ? 'skipped' : 'done',
+						record.state === 'error'
+							? stoppedWithTheRun(record.error)
+								? 'skipped'
+								: 'failed'
+							: record.state === 'skipped'
+								? 'skipped'
+								: 'done',
 					...(record.startedAt !== undefined ? { startedAt: record.startedAt } : {}),
 					finishedAt: record.finishedAt,
 					tokens: record.tokens,

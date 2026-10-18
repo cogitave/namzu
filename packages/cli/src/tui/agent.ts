@@ -323,7 +323,7 @@ import {
 import { WORKFLOW_DOCTRINE } from '../integrations/workflows/doctrine.js'
 import { listWorkflowRuns } from '../integrations/workflows/history.js'
 import { type WorkflowHost, createWorkflowHost } from '../integrations/workflows/host.js'
-import { workflowOffered } from '../integrations/workflows/offering.js'
+import { workflowOffered, workflowRefusal } from '../integrations/workflows/offering.js'
 import type { WorkflowRunEnd } from '../integrations/workflows/registry.js'
 import type { WorkflowRunView } from '../integrations/workflows/view.js'
 import { cliLogger } from '../logging.js'
@@ -3325,16 +3325,15 @@ export async function createAgentSession(
 		workflowHost = createWorkflowHost({
 			subagents: sub,
 			runsDirectory: (turnId) => {
+				// An ephemeral session keeps nothing on disk, a journal included.
+				if (options.ephemeral) return undefined
 				const owner = delegationScopes.get(turnId) ?? scope
 				return join(paths.sessionDir({ sessionId: owner.sessionId }), 'runs')
 			},
 			refusal: (turnId) => {
 				const auth = delegatedWorkflowAuth.get(turnId)
 				if (!auth) return 'This turn cannot start a workflow.'
-				// "Bypass" is the mode that runs tools without asking.
-				if (auth.mode() === 'auto') return undefined
-				if (auth.interactive) return undefined
-				return 'A workflow starts many agents on one decision, so a person has to approve it first. This session has nobody to ask and is not set to run without asking, so no workflow was started. Run it from the terminal, or start the session with --permission-mode auto.'
+				return workflowRefusal({ interactive: auth.interactive, mode: auth.mode() })
 			},
 			openRunTurn: (originTurnId, runId) => {
 				const runTurnId = generateTurnId()

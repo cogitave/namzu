@@ -135,6 +135,13 @@ export interface SubagentActivity {
 	 * on a child reads this first, and the transcript says so on screen.
 	 */
 	readonly replayed?: boolean
+	/**
+	 * Set on the rows a workflow run projects for the screens: the run this row
+	 * belongs to and which of its agents it is (1-based). Absent on every real
+	 * child of the monitor.
+	 */
+	readonly workflowRunId?: string
+	readonly workflowAgentIndex?: number
 }
 
 /**

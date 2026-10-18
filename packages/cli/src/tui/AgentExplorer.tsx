@@ -9,6 +9,11 @@ import {
 	type SubagentActivityStatus,
 	type SubagentNarrationLine,
 } from '../integrations/subagents/activity.js'
+import {
+	type WorkflowRunStatus,
+	type WorkflowRunView,
+	isWorkflowRunAgent,
+} from '../integrations/workflows/view.js'
 import { formatElapsed } from './LiveActivity.js'
 import { fitHints } from './key-hints.js'
 import { selectionWindow } from './selection-window.js'
@@ -16,6 +21,7 @@ import { truncateChoiceText } from './terminal-choice-text.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
 import { formatCompactCount } from './units.js'
+import { nextRunEviction, runPhaseId, runRailFacts, visibleRuns } from './workflow-runs.js'
 
 const MAX_PICKER_ROWS = 9
 const COCKPIT_FRAME_COLUMNS = 4
@@ -134,6 +140,8 @@ export function railAgents(
 	return agents
 		.filter((agent) => {
 			if (agent.replayed === true || dismissed.has(agent.viewId)) return false
+			// A workflow run's agents are listed by the run, never as rows of their own.
+			if (isWorkflowRunAgent(agent)) return false
 			// An agent the model gave a `workflow` label lives only inside that
 			// workflow's row and detail view, never as an agent row of its own.
 			if (agent.workflow !== DEFAULT_AGENT_WORKFLOW) return false
@@ -153,10 +161,12 @@ export function railAgents(
 export function railNextEviction(
 	agents: readonly SubagentActivity[],
 	now: number,
+	runs: readonly WorkflowRunView[] = [],
 ): number | undefined {
-	let soonest: number | undefined
+	let soonest = nextRunEviction(runs, now, AGENT_RAIL_FINISHED_LINGER_MS)
 	for (const agent of agents) {
-		if (agent.replayed === true || !isTerminalStatus(agent.status)) continue
+		if (agent.replayed === true || isWorkflowRunAgent(agent) || !isTerminalStatus(agent.status))
+			continue
 		if (agent.completedAt === undefined) continue
 		const left = agent.completedAt + AGENT_RAIL_FINISHED_LINGER_MS - now
 		if (left > 0 && (soonest === undefined || left < soonest)) soonest = left
@@ -218,6 +228,8 @@ export interface RailWorkflow {
 	readonly failed: number
 	readonly status: RailWorkflowStatus
 	readonly agents: readonly SubagentActivity[]
+	/** The `workflow` tool's run this row stands for; absent for a group of labelled `Agent` calls. */
+	readonly runId?: string
 }
 
 const WORKFLOW_FOCUS_PREFIX = 'workflow:'
@@ -237,8 +249,36 @@ export function railWorkflows(
 	agents: readonly SubagentActivity[],
 	now: number,
 	dismissed: ReadonlySet<string> = new Set(),
+	runs: readonly WorkflowRunView[] = [],
 ): readonly RailWorkflow[] {
-	return groupWorkflows(agents, now, dismissed, true)
+	return [
+		...groupWorkflows(agents, now, dismissed, true),
+		...visibleRuns(runs, now, AGENT_RAIL_FINISHED_LINGER_MS, dismissed).map((run) =>
+			runRailWorkflow(run, agents),
+		),
+	].sort((a, b) => a.startedAt - b.startedAt || a.id.localeCompare(b.id))
+}
+
+/** One run's rail row, from the run itself: queued agents count, and a run with no agent yet still has a row. */
+export function runRailWorkflow(
+	run: WorkflowRunView,
+	agents: readonly SubagentActivity[],
+): RailWorkflow {
+	const facts = runRailFacts(run)
+	return {
+		id: run.groupId,
+		focusId: `${WORKFLOW_FOCUS_PREFIX}${run.groupId}`,
+		name: run.name,
+		startedAt: run.startedAt,
+		...(run.endedAt !== undefined ? { endedAt: run.endedAt } : {}),
+		done: facts.done,
+		total: facts.total,
+		...(facts.tokens !== undefined ? { tokens: facts.tokens } : {}),
+		failed: facts.failed,
+		status: run.status,
+		agents: agents.filter((agent) => agent.workflowRunId === run.runId),
+		runId: run.runId,
+	}
 }
 
 /**
@@ -259,7 +299,12 @@ function groupWorkflows(
 ): readonly RailWorkflow[] {
 	const groups = new Map<string, SubagentActivity[]>()
 	for (const agent of agents) {
-		if (agent.replayed === true || agent.workflow === DEFAULT_AGENT_WORKFLOW) continue
+		if (
+			agent.replayed === true ||
+			isWorkflowRunAgent(agent) ||
+			agent.workflow === DEFAULT_AGENT_WORKFLOW
+		)
+			continue
 		const group = groups.get(agent.workflowGroupId)
 		if (group) group.push(agent)
 		else groups.set(agent.workflowGroupId, [agent])
@@ -658,6 +703,10 @@ export interface AgentWorkflow {
 	readonly status: SubagentActivityStatus
 	readonly phases: readonly AgentPhase[]
 	readonly agents: readonly SubagentActivity[]
+	/** The `workflow` tool's run, when this is one: its agents are scripted, not model-launched. */
+	readonly runId?: string
+	readonly description?: string
+	readonly runStatus?: WorkflowRunStatus
 }
 
 export interface AgentPhase {
@@ -676,6 +725,8 @@ export interface AgentPhase {
 
 export interface AgentCockpitProps {
 	readonly agents: readonly SubagentActivity[]
+	/** The `workflow` tool's runs, for the phases they declared that nothing has started in yet. */
+	readonly runs?: readonly WorkflowRunView[]
 	readonly selectedPhaseId: string
 	readonly selectedId: string
 	readonly focus: AgentCockpitFocus
@@ -689,13 +740,14 @@ export interface AgentCockpitProps {
  */
 export function AgentCockpit({
 	agents,
+	runs = [],
 	selectedPhaseId,
 	selectedId,
 	focus,
 	terminalRows,
 	terminalColumns,
 }: AgentCockpitProps) {
-	const workflows = agentWorkflows(agents)
+	const workflows = agentWorkflows(agents, runs)
 	const workflowIndex = Math.max(
 		0,
 		workflows.findIndex((workflow) =>
@@ -801,21 +853,31 @@ export function phaseTitle(phase: Pick<AgentPhase, 'name'>): string {
 	return phase.name === DEFAULT_AGENT_PHASE ? UNLABELLED_PHASE_TITLE : phase.name
 }
 
-export type PhaseOutcome = 'running' | 'done' | 'failed'
+export type PhaseOutcome = 'not-started' | 'running' | 'done' | 'failed'
 
 /**
  * How a phase stands, from its agents alone: `done` once every agent has
  * settled cleanly, `failed` once every agent has settled and any failed or
- * was stopped, `running` otherwise. Namzu cannot know a phase that has no
- * agent yet, so there is no "not started" outcome.
+ * was stopped, `running` otherwise. Only a workflow run declares phases ahead
+ * of their agents, so only a run's phase is ever `not-started`.
  */
 export function phaseOutcome(phase: Pick<AgentPhase, 'agents'>): PhaseOutcome {
+	// A phase a script declared and nothing has started in.
+	if (phase.agents.length === 0) return 'not-started'
 	if (phase.agents.some((agent) => !isTerminalStatus(agent.status))) return 'running'
-	return phase.agents.some((agent) => agent.status !== 'completed') ? 'failed' : 'done'
+	// An agent the operator skipped in a workflow run is not a failure of its phase.
+	return phase.agents.some(
+		(agent) =>
+			agent.status !== 'completed' &&
+			!(agent.workflowRunId !== undefined && agent.status === 'cancelled'),
+	)
+		? 'failed'
+		: 'done'
 }
 
 /** The phase list's `done/total`: settled agents over every agent seen in it. */
 export function phaseCount(phase: Pick<AgentPhase, 'agents'>): string {
+	if (phase.agents.length === 0) return ''
 	return `${phase.agents.filter((agent) => isTerminalStatus(agent.status)).length}/${phase.agents.length}`
 }
 
@@ -826,7 +888,9 @@ export function phaseCount(phase: Pick<AgentPhase, 'agents'>): string {
  * a single group.
  */
 export function cockpitEntryFocus(workflow: AgentWorkflow): 'phases' | 'agents' {
-	const labelled = workflow.agents.some((agent) => agent.workflow !== DEFAULT_AGENT_WORKFLOW)
+	const labelled =
+		workflow.runId !== undefined ||
+		workflow.agents.some((agent) => agent.workflow !== DEFAULT_AGENT_WORKFLOW)
 	return labelled || workflow.phases.length > 1 ? 'phases' : 'agents'
 }
 
@@ -883,10 +947,16 @@ export function WorkflowDetail({
 	const pageSize = compact ? 1 : workflowDetailPageSize(terminalRows)
 	const phase = phases[selectedPhaseIndex]
 	const settled = workflow.agents.filter((agent) => isTerminalStatus(agent.status)).length
+	const isRun = workflow.runId !== undefined
+	const ended = isRun ? workflow.runStatus !== 'running' : undefined
 	const ends = workflow.agents.map((agent) => agent.completedAt ?? now)
-	const elapsed = formatElapsed(Math.max(0, Math.max(...ends) - workflow.startedAt))
-	const named = workflow.agents.some((agent) => agent.workflow !== DEFAULT_AGENT_WORKFLOW)
-	const running = workflow.agents.some((agent) => !isTerminalStatus(agent.status))
+	const elapsed = formatElapsed(
+		Math.max(0, Math.max(isRun && !ended ? now : 0, ...ends) - workflow.startedAt),
+	)
+	const named = isRun || workflow.agents.some((agent) => agent.workflow !== DEFAULT_AGENT_WORKFLOW)
+	const running = isRun
+		? workflow.runStatus === 'running'
+		: workflow.agents.some((agent) => !isTerminalStatus(agent.status))
 	// Same rule as the rail: an explicit label names the workflow, an absent
 	// one gets a neutral count instead of the generic default name.
 	const live = workflow.agents.filter((agent) => !isTerminalStatus(agent.status)).length
@@ -896,12 +966,18 @@ export function WorkflowDetail({
 		: `${total} agent${total === 1 ? '' : 's'} · ${live} running`
 	const selectedAgent = phase?.agents[selectedAgentIndex]
 	const canStop =
-		level === 1 ? running : selectedAgent !== undefined && !isTerminalStatus(selectedAgent.status)
+		level === 1
+			? running
+			: selectedAgent !== undefined &&
+				!isTerminalStatus(selectedAgent.status) &&
+				(!isRun || workflow.runStatus === 'running')
+	// On a run's agents `x` skips that one agent; the run goes on without it.
+	const stopWord = level === 2 && isRun ? 'skip' : 'stop'
 	const hint = fitHints(
 		[
 			{ text: '↑/↓ to select', short: '↑/↓', rank: 4 },
 			{ text: 'enter to view', short: 'enter', rank: 5 },
-			...(canStop ? [{ text: 'x to stop', rank: 2 }] : []),
+			...(canStop ? [{ text: `x to ${stopWord}`, rank: 2 }] : []),
 			{ text: 'esc to go back', short: 'esc', rank: 3 },
 		],
 		innerWidth,
@@ -924,12 +1000,19 @@ export function WorkflowDetail({
 				<Box flexGrow={1} minWidth={0}>
 					<Text color={theme.text.primary} bold wrap="truncate-end">
 						{title}
+						{workflow.description ? (
+							<Text color={theme.text.muted} bold={false}>
+								{'  '}
+								{terminalDisplayText(oneLine(workflow.description))}
+							</Text>
+						) : null}
 					</Text>
 				</Box>
 				<Box flexShrink={0} marginLeft={1}>
 					<Text color={theme.text.muted} wrap="truncate-end">
 						{settled}/{workflow.agents.length} {workflow.agents.length === 1 ? 'agent' : 'agents'} ·{' '}
 						{elapsed}
+						{ended && workflow.runStatus ? ` · ${workflow.runStatus}` : ''}
 					</Text>
 				</Box>
 			</Box>
@@ -951,7 +1034,9 @@ export function WorkflowDetail({
 									? theme.status.ok
 									: outcome === 'failed'
 										? theme.status.error
-										: undefined
+										: outcome === 'not-started'
+											? theme.text.muted
+											: undefined
 							return (
 								<Box key={item.id}>
 									<Box width={2} flexShrink={0}>
@@ -963,7 +1048,12 @@ export function WorkflowDetail({
 										</Text>
 									</Box>
 									<Box flexGrow={1} flexShrink={1} minWidth={0}>
-										<Text color={color ?? theme.text.primary} bold={active} wrap="truncate-end">
+										<Text
+											color={color ?? theme.text.primary}
+											bold={active}
+											dimColor={outcome === 'not-started'}
+											wrap="truncate-end"
+										>
 											{oneLine(phaseTitle(item))}
 										</Text>
 									</Box>
@@ -1008,6 +1098,11 @@ export function WorkflowDetail({
 								</Box>
 							)
 						})}
+				{level === 2 && phase && phase.agents.length === 0 ? (
+					<Text color={theme.text.muted} dimColor>
+						{isRun && !running ? 'No agents' : 'Not started yet'}
+					</Text>
+				) : null}
 				{detailLines.length > 0 ? (
 					<Box
 						flexDirection="column"
@@ -1039,23 +1134,67 @@ export function agentCockpitIsWide(terminalColumns: number): boolean {
 }
 
 /** Group retained work before exposing phases. Labels do not create execution dependencies. */
-export function agentWorkflows(agents: readonly SubagentActivity[]): readonly AgentWorkflow[] {
+export function agentWorkflows(
+	agents: readonly SubagentActivity[],
+	runs: readonly WorkflowRunView[] = [],
+): readonly AgentWorkflow[] {
 	const groups = new Map<string, SubagentActivity[]>()
 	for (const agent of agents) {
 		const group = groups.get(agent.workflowGroupId)
 		if (group) group.push(agent)
 		else groups.set(agent.workflowGroupId, [agent])
 	}
+	const byRun = new Map(runs.map((run) => [run.groupId, run]))
+	for (const run of runs) if (!groups.has(run.groupId)) groups.set(run.groupId, [])
 	return [...groups]
-		.map(([id, members]) => ({
-			id,
-			name: workflowGroupName(members),
-			startedAt: Math.min(...members.map((agent) => agent.startedAt)),
-			status: phaseStatus(members),
-			phases: agentPhases(members),
-			agents: members,
-		}))
+		.map(([id, members]) => {
+			const run = byRun.get(id)
+			return {
+				id,
+				name: run?.name ?? workflowGroupName(members),
+				startedAt: run
+					? Math.min(run.startedAt, ...members.map((agent) => agent.startedAt))
+					: Math.min(...members.map((agent) => agent.startedAt)),
+				status: members.length > 0 ? phaseStatus(members) : 'working',
+				phases: run ? runPhases(run, members) : agentPhases(members),
+				agents: members,
+				...(run ? { runId: run.runId, description: run.description, runStatus: run.status } : {}),
+			} satisfies AgentWorkflow
+		})
 		.sort((left, right) => left.startedAt - right.startedAt || left.id.localeCompare(right.id))
+}
+
+/**
+ * A run's phases: the ones its agents are in, plus every phase the script
+ * declared or announced that has no agent yet, in the script's order.
+ */
+function runPhases(
+	run: WorkflowRunView,
+	members: readonly SubagentActivity[],
+): readonly AgentPhase[] {
+	const started = new Map(agentPhases(members).map((phase) => [phase.id, phase]))
+	const ordered: AgentPhase[] = []
+	for (const phase of [...run.phases].sort((a, b) => a.index - b.index)) {
+		const id = runPhaseId(run, phase.index)
+		const existing = started.get(id)
+		started.delete(id)
+		ordered.push(
+			existing ?? {
+				id,
+				workflowId: run.workflowId,
+				workflow: run.name,
+				name: phase.title,
+				order: phase.index,
+				...(phase.detail !== undefined ? { detail: phase.detail } : {}),
+				sequence: phase.index,
+				startedAt: run.startedAt,
+				status: 'queued',
+				agents: [],
+			},
+		)
+	}
+	// Agents the script never gave a phase come last, as one group.
+	return [...ordered, ...started.values()]
 }
 
 /**

@@ -167,6 +167,8 @@ export function permissionTitle(toolCalls: readonly PermissionToolCall[]): strin
 				return path ? `Write file ${path}` : 'Write file'
 			case 'Agent':
 				return 'Start an agent'
+			case 'workflow':
+				return 'Start a workflow'
 			default:
 				return first.name
 		}
@@ -195,6 +197,8 @@ export function permissionQuestion(toolCalls: readonly PermissionToolCall[]): st
 				return path ? `Do you want to write ${basename(path)}?` : 'Do you want to write this file?'
 			case 'Agent':
 				return 'Do you want to start this agent?'
+			case 'workflow':
+				return 'Do you want to start this workflow?'
 			default:
 				return `Do you want to run ${first.name}?`
 		}
@@ -248,12 +252,16 @@ export function permissionAnswers(
 			{ label: 'Yes, share my screen for this conversation', kind: 'approve' },
 			{ label: 'No, and tell namzu what to do differently (esc)', kind: 'reject' },
 		]
-	const agents = toolCalls.length > 0 && toolCalls.every((call) => call.name === 'Agent')
-	const approve = agents
-		? toolCalls.length === 1
-			? 'Start this agent'
-			: `Start these ${toolCalls.length} agents`
-		: 'Yes'
+	const workflow = toolCalls.length === 1 && toolCalls[0]?.name === 'workflow'
+	const agents =
+		workflow || (toolCalls.length > 0 && toolCalls.every((call) => call.name === 'Agent'))
+	const approve = workflow
+		? 'Start this workflow'
+		: agents
+			? toolCalls.length === 1
+				? 'Start this agent'
+				: `Start these ${toolCalls.length} agents`
+			: 'Yes'
 	const reject = agents ? 'Do not start' : 'No, and tell namzu what to do differently (esc)'
 	if (options.batchOnly) {
 		return [
@@ -326,7 +334,12 @@ export function PermissionOverlay({
 	const pageRows = Math.max(1, permissionReviewPageRows(terminalRows) - (sourceLabel ? 1 : 0))
 	const single = toolCalls.length === 1
 	const compact = !detailsOpen && summary.compactText !== undefined
-	const source = detailsOpen ? review : (summary.compactText ?? readableBody(summary.text, single))
+	const source = detailsOpen
+		? summary.expandedText !== undefined
+			? readableBody(summary.expandedText, single)
+			: review
+		: (summary.compactText ?? readableBody(summary.text, single))
+	const scriptView = summary.expandedText !== undefined
 	const rows = permissionReviewRows(source, columns)
 	const maxOffset = Math.max(0, rows.length - pageRows)
 	const offset = Math.min(Math.max(0, reviewOffset), maxOffset)
@@ -351,7 +364,9 @@ export function PermissionOverlay({
 			<Text>
 				<Text color={theme.status.warn} bold>
 					{detailsOpen
-						? 'Exact prepared input'
+						? scriptView
+							? 'Workflow script'
+							: 'Exact prepared input'
 						: sharing
 							? 'Share your screen'
 							: terminalDisplayText(permissionTitle(toolCalls))}
@@ -440,8 +455,18 @@ export function PermissionOverlay({
 							{ text: 'esc decline', short: 'esc no', rank: 5 },
 							{ text: 'ctrl+c stop the reply', short: 'ctrl+c stop', rank: 4 },
 							{
-								text: `d ${detailsOpen ? 'readable view' : compact ? 'full instructions' : 'exact input'}`,
-								short: `d ${detailsOpen ? 'readable' : compact ? 'full' : 'input'}`,
+								text: `d ${
+									scriptView
+										? detailsOpen
+											? 'collapse script'
+											: 'read the whole script'
+										: detailsOpen
+											? 'readable view'
+											: compact
+												? 'full instructions'
+												: 'exact input'
+								}`,
+								short: `d ${scriptView ? (detailsOpen ? 'collapse' : 'script') : detailsOpen ? 'readable' : compact ? 'full' : 'input'}`,
 								rank: 3,
 							},
 						],

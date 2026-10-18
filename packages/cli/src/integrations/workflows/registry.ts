@@ -125,12 +125,13 @@ export class WorkflowRunRegistry {
 				}
 			}
 			run.view = closeOpenAgents(run.view, at)
-			this.notifySoon(true)
 			try {
 				input.onEnd?.({ view: run.view, ...(result ? { result } : {}) })
 			} catch {
 				// A listener bug must not leave the run looking alive.
 			}
+			// After the end is announced, so a reader woken by this sees both.
+			this.notifySoon(true)
 		}
 		void this.runtime
 			.run({

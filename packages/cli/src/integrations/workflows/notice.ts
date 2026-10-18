@@ -22,13 +22,6 @@ export function formatDuration(ms: number): string {
 	return `${Math.floor(minutes / 60)}h ${minutes % 60}m`
 }
 
-export function formatTokenCount(tokens: number): string {
-	if (tokens < 1000) return String(tokens)
-	if (tokens < 10_000) return `${(tokens / 1000).toFixed(1)}k`
-	if (tokens < 1_000_000) return `${Math.round(tokens / 1000)}k`
-	return `${(tokens / 1_000_000).toFixed(1)}M`
-}
-
 function clip(text: string, max: number): string {
 	return text.length <= max ? text : `${text.slice(0, max)}… (${text.length - max} more characters)`
 }
@@ -96,32 +89,4 @@ export function completionNotice(view: WorkflowRunView): string {
 		'Report the outcome to the person in your own words. Name what failed, if anything, and what you would do about it.',
 	)
 	return lines.join('\n')
-}
-
-export type WorkflowClosingTone = 'ok' | 'error' | 'warn'
-
-/**
- * The line the conversation keeps when a run ends:
- * `✓ Workflow audit completed · 4m 2s · 6 agents · 112k tokens`.
- */
-export function closingLine(view: WorkflowRunView): {
-	readonly glyph: '✓' | '✗' | '■'
-	readonly text: string
-	readonly tone: WorkflowClosingTone
-} {
-	const counts = countAgents(view)
-	const elapsed = formatDuration((view.endedAt ?? view.startedAt) - view.startedAt)
-	const tokens = runTokens(view)
-	const parts = [
-		elapsed,
-		`${counts.total} ${counts.total === 1 ? 'agent' : 'agents'}`,
-		...(tokens > 0 ? [`${formatTokenCount(tokens)} tokens`] : []),
-	]
-	const verb =
-		view.status === 'completed' ? 'completed' : view.status === 'failed' ? 'failed' : 'stopped'
-	return {
-		glyph: view.status === 'completed' ? '✓' : view.status === 'failed' ? '✗' : '■',
-		text: `Workflow ${view.name} ${verb} · ${parts.join(' · ')}`,
-		tone: view.status === 'completed' ? 'ok' : view.status === 'failed' ? 'error' : 'warn',
-	}
 }

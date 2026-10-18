@@ -9,9 +9,12 @@
 
 export const WORKFLOW_TOOL_NAME = 'workflow'
 
+/** The line under a workflow's launch row in the conversation. */
+export const WORKFLOW_BACKGROUND_NOTE = 'Running in the background (↓ to manage)'
+
 /** `workflow`, `workflows`, `Workflow`; and `iş akışı` in any case, with or without the diacritics. */
 const WORKFLOW_WORD = /(?:^|[^\p{L}\p{N}])workflows?(?![\p{L}\p{N}])/u
-const TURKISH_WORKFLOW = /(?:^|[^\p{L}\p{N}])i[sş]\s+ak[ıi][sş][ıi]\p{L}*/u
+const TURKISH_WORKFLOW = /(?:^|[^\p{L}\p{N}])i[sş]\s+ak[ıi][sş]\p{L}*/u
 
 /** Whether a message asks for a workflow in words. */
 export function messageAsksForWorkflow(text: string): boolean {
@@ -65,3 +68,19 @@ export const WORKFLOW_TOOL_DESCRIPTION = [
 	'',
 	'Before it starts the operator sees the name, description, phases, limits and the script, and approves or declines. If they decline, do not retry with the same script; ask what to change.',
 ].join('\n')
+
+/**
+ * Why a turn may not start a workflow, or `undefined` when it may.
+ *
+ * A workflow is reviewed before it starts, like a destructive call: someone
+ * has to approve the script. A session set to run tools without asking
+ * (`auto`, which is what "bypass permissions" is) has already decided that.
+ * Anything else with nobody to ask refuses, in words the model can pass on.
+ */
+export function workflowRefusal(turn: {
+	readonly interactive: boolean
+	readonly mode: string
+}): string | undefined {
+	if (turn.mode === 'auto' || turn.interactive) return undefined
+	return 'A workflow starts many agents on one decision, so a person has to approve it first. This session has nobody to ask and is not set to run without asking, so no workflow was started. Run it from the terminal, or start the session with --permission-mode auto.'
+}

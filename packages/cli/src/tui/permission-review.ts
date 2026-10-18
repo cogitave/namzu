@@ -1,3 +1,5 @@
+import { WorkflowScriptError, parseWorkflowMeta, resolveWorkflowLimits } from '@namzu/sdk'
+
 import { formatSpan } from './person-terms.js'
 import { terminalDisplayText } from './terminal-display.js'
 
@@ -64,12 +66,20 @@ export interface PermissionReviewSummary {
 	readonly compactText?: string
 	/** Complete, terminal-safe source for the readable pager. */
 	readonly text: string
+	/**
+	 * The whole readable call where `text` is only a collapsed view of it: a
+	 * workflow shows its first lines of script, and the full script is one key
+	 * away. Shown instead of the raw JSON envelope when details are open.
+	 */
+	readonly expandedText?: string
 	/** True only when the formatter knows every executable input field. */
 	readonly complete: boolean
 }
 
 interface ReadableCallSummary {
 	readonly lines: readonly string[]
+	/** The same call with nothing collapsed; present when `lines` abridges. */
+	readonly expandedLines?: readonly string[]
 	readonly complete: boolean
 	/** Short batch-row label; the full value remains in `lines`. */
 	readonly label?: string
@@ -353,6 +363,7 @@ export function buildPermissionSummary(
 		}
 	}
 
+	const expanded = calls.some((call) => call.readable.expandedLines !== undefined)
 	return {
 		...(compactText !== undefined ? { compactText } : {}),
 		text: calls
@@ -363,6 +374,18 @@ export function buildPermissionSummary(
 				].join('\n'),
 			)
 			.join('\n\n'),
+		...(complete && expanded
+			? {
+					expandedText: calls
+						.map((call, index) =>
+							[
+								`${index + 1}. ${call.name}${call.isDestructive ? ' · destructive' : ''}`,
+								...(call.readable.expandedLines ?? call.readable.lines).map((line) => `   ${line}`),
+							].join('\n'),
+						)
+						.join('\n\n'),
+				}
+			: {}),
 		complete,
 	}
 }
@@ -532,6 +555,11 @@ function summarizeKnownCall(
 		}
 	}
 
+	if (name === 'workflow' && isRecord(input)) {
+		const summary = summarizeWorkflow(input)
+		if (summary) return summary
+	}
+
 	if (name === 'browser' && isRecord(input)) {
 		const summary = summarizeBrowserOpen(input)
 		if (summary) return summary
@@ -568,6 +596,76 @@ function summarizeKnownCall(
 		}
 	}
 	return { lines: [`input: ${JSON.stringify(input)}`], complete: true }
+}
+
+/** Script lines shown before the rest is counted; `d` opens the whole script. */
+const WORKFLOW_SCRIPT_PREVIEW_LINES = 8
+
+/**
+ * A workflow start, as the operator decides on it: the script's own name,
+ * description and phases (read without running anything), what it may start
+ * and how many at once, then the script itself — the first lines, with the
+ * rest one key away. The script is shown whole in the expanded view, every
+ * line verbatim, so approving it is approving exactly that text.
+ */
+function summarizeWorkflow(input: Record<string, unknown>): ReadableCallSummary | null {
+	const allowed = new Set(['script', 'args', 'description'])
+	if (!Object.keys(input).every((key) => allowed.has(key))) return null
+	if (typeof input.script !== 'string') return null
+	if (input.description !== undefined && typeof input.description !== 'string') return null
+	const script = input.script
+	const head: string[] = []
+	try {
+		const meta = parseWorkflowMeta(script)
+		head.push(...readableField('Workflow', meta.name))
+		head.push(...readableField('Purpose', meta.description))
+		if (meta.phases.length > 0) {
+			head.push('Phases:')
+			for (const [index, phase] of meta.phases.entries()) {
+				head.push(
+					`  ${index + 1}. ${oneLine(phase.title)}${phase.detail ? ` — ${oneLine(phase.detail)}` : ''}`,
+				)
+			}
+		} else {
+			head.push('Phases: none declared')
+		}
+	} catch (error) {
+		head.push(
+			`Workflow: its name could not be read (${error instanceof WorkflowScriptError ? error.message : 'unreadable'})`,
+		)
+	}
+	if (typeof input.description === 'string' && input.description.length > 0) {
+		head.push(...readableField('Shown as', input.description))
+	}
+	const limits = resolveWorkflowLimits()
+	head.push(
+		`Agents: up to ${limits.maxConcurrency} at a time, ${limits.maxAgents} in all, each with the same tools and approval rules as an Agent call`,
+		'Runs in the background; you can stop it from the rail or /workflows',
+	)
+	if (input.args !== undefined) head.push(...readableField('Arguments', JSON.stringify(input.args)))
+	const scriptLines = script.split('\n')
+	const shown = scriptLines.slice(0, WORKFLOW_SCRIPT_PREVIEW_LINES)
+	const hidden = scriptLines.length - shown.length
+	const body = (lines: readonly string[]): string[] => lines.map((line) => `  ${line}`)
+	return {
+		lines: [
+			...head,
+			`Script · ${scriptLines.length} line${scriptLines.length === 1 ? '' : 's'}`,
+			...body(shown),
+			...(hidden > 0 ? [`  … ${hidden} more line${hidden === 1 ? '' : 's'}`] : []),
+		],
+		...(hidden > 0
+			? {
+					expandedLines: [
+						...head,
+						`Script · ${scriptLines.length} line${scriptLines.length === 1 ? '' : 's'}`,
+						...body(scriptLines),
+					],
+				}
+			: {}),
+		complete: true,
+		label: oneLine(typeof input.description === 'string' ? input.description : 'workflow'),
+	}
 }
 
 /**
@@ -798,6 +896,7 @@ const FORMATTED_TOOLS: ReadonlySet<string> = new Set([
 	'write',
 	'Agent',
 	'computer_use',
+	'workflow',
 ])
 
 /** Labels group only the calls in this approval; they never invent execution phases. */

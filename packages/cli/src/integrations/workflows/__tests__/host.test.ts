@@ -98,6 +98,9 @@ describe('the workflow tool, over the real subagent runtime', () => {
 		expect(view?.status).toBe('stopped')
 		expect(view?.agents.every((a) => a.status !== 'queued' && a.status !== 'running')).toBe(true)
 		expect(view?.agents[0]?.status).toBe('skipped')
+		// Stopping is not failing: the agents it cut short are skipped, none failed.
+		expect(view?.agents.some((a) => a.status === 'failed')).toBe(false)
+		expect(view?.agents.filter((a) => a.status === 'skipped').length).toBeGreaterThan(1)
 		expect(h.host.registry.stop(runId)).toBe(false)
 		expect(completionNotice(view as never)).toContain('was stopped')
 	})

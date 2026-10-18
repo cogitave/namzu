@@ -1108,7 +1108,7 @@ export async function createSubagentRuntime(
 			'Omit `role` for the plain sub-agent.',
 			'The sub-agent runs in its own context with its own tools and cannot see this conversation — put everything it needs in `prompt`.',
 			"Call this multiple times in one response to run specialists in parallel. Tasks beyond the project's live-agent capacity wait in a queue and start as slots become available. Queued tasks have not started execution; do not relaunch them.",
-			'When coordinating several specialists, give them the same `workflow` label and an explicit `phase` plus `phase_order` so the operator can follow the work in the agent cockpit.',
+			'When coordinating several specialists, give them the same `workflow` label and an explicit `phase` plus `phase_order` so the operator can follow the work in the agent cockpit. For work with several phases or many agents, use the `workflow` tool instead when it is in your tool list, and keep these labels for a small fan-out.',
 			'These fields are display annotations only; they do not create dependencies, barriers, or serial execution.',
 			fileAgentSummary.length > 0 ? `Project-defined types: ${fileAgentSummary}.` : '',
 		]

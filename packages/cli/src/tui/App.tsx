@@ -152,6 +152,14 @@ import { NARRATION_TOOL_NAME } from '../integrations/subagents/runtime.js'
 import { agentsSlashCommand } from '../integrations/subagents/slash.js'
 import { isTrusted, trustDir } from '../integrations/trust/store.js'
 import { checkUpdates } from '../integrations/updates.js'
+import { completionNotice } from '../integrations/workflows/notice.js'
+import { WORKFLOW_BACKGROUND_NOTE, WORKFLOW_TOOL_NAME } from '../integrations/workflows/offering.js'
+import {
+	type WorkflowRunView,
+	countAgents,
+	isWorkflowRunAgent,
+	runTokens,
+} from '../integrations/workflows/view.js'
 import { openManagedWorktrees, worktreeOpenHint } from '../integrations/worktrees/managed.js'
 import {
 	renderMemoryReport,
@@ -193,7 +201,6 @@ import {
 	type RailWorkflow,
 	agentCockpitIsWide,
 	agentPhasePageSize,
-	agentPhases,
 	agentPickerPageSize,
 	agentTranscriptPageSize,
 	agentWorkflowPageSize,
@@ -206,6 +213,7 @@ import {
 	railShowsMain,
 	railWorkflowActionFor,
 	railWorkflows,
+	runRailWorkflow,
 	settledWorkflows,
 } from './AgentExplorer.js'
 import { BrandHeader } from './BrandHeader.js'
@@ -380,7 +388,9 @@ import {
 	triggerDefinition,
 } from './triggers/registry.js'
 import { describeComposerTriggers, setComposerTriggers } from './triggers/setting.js'
+import { formatCompactCount } from './units.js'
 import { type WebActivity, webCallTitle, webLiveStatus, webSettledLine } from './web-activity.js'
+import { withWorkflowRuns } from './workflow-runs.js'
 
 import type { BrowserControl } from '../browser/control.js'
 import { renderCheckpoints, renderRestore, renderRestoreNote } from '../checkpoints/store.js'
@@ -596,6 +606,14 @@ type ChoicePickerState = { readonly back?: ChoicePickerState; readonly request?:
 			readonly title: string
 			readonly notice?: string
 			readonly values: readonly (Batch | 'loading')[]
+			readonly options: readonly ChoicePickerOption[]
+	  }
+	| {
+			/** `/workflows`: the runs of this conversation; `values` are their run ids. */
+			readonly kind: 'workflow-runs'
+			readonly title: string
+			readonly notice?: string
+			readonly values: readonly string[]
 			readonly options: readonly ChoicePickerOption[]
 	  }
 	| {
@@ -1320,6 +1338,34 @@ export function App({
 			}
 		})
 	}, [session])
+	// What ended in a workflow, for the model: one message per run, delivered
+	// inside a running turn when there is one and with the next turn otherwise,
+	// the way a background job's exit is.
+	const workflowNoticesRef = useRef(new Map<string, string>())
+	useEffect(() => {
+		workflowNoticesRef.current = new Map()
+		const source = session?.workflows
+		if (!source) return
+		return source.onEnd(({ view }) => {
+			if (previousSessionRef.current !== session) return
+			// One line in the conversation, written when the run ends, not when a turn does.
+			const notice = workflowNotice(runRailWorkflow(view, []))
+			pushMessage(
+				'tool',
+				notice.content,
+				false,
+				notice.glyph,
+				undefined,
+				notice.tone === 'error'
+					? theme.status.error
+					: notice.tone === 'warn'
+						? theme.status.warn
+						: theme.status.ok,
+			)
+			workflowNoticesRef.current.set(view.runId, completionNotice(view))
+			activeTurnInboxRef.current?.notify()
+		})
+	}, [session])
 	const [usage, setUsage] = useState<{
 		budget?: Extract<AgentEvent, { kind: 'usage' }>['budget']
 		totalTokens: number
@@ -1535,6 +1581,9 @@ export function App({
 	/** Bounded child session projection published by the current AgentSession. */
 	const [subagents, setSubagentsState] = useState<readonly SubagentActivity[]>([])
 	const subagentsRef = useRef<readonly SubagentActivity[]>([])
+	/** The `workflow` tool's runs; their agents reach `subagents` as projected rows. */
+	const [workflowRuns, setWorkflowRuns] = useState<readonly WorkflowRunView[]>([])
+	const workflowRunsRef = useRef<readonly WorkflowRunView[]>([])
 	/**
 	 * The parent's own commentary on the work it is coordinating, from the same
 	 * monitor and the same subscription as the rows below it. Read through the
@@ -1565,16 +1614,16 @@ export function App({
 	// one is due instead of ticking, so a quiet session renders nothing.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: `railNow` is not read here; moving it is what re-arms the timer for the next agent due to leave.
 	useEffect(() => {
-		const wait = railNextEviction(subagents, Date.now())
+		const wait = railNextEviction(subagents, Date.now(), workflowRuns)
 		if (wait === undefined) return
 		const timer = setTimeout(() => setRailNow(Date.now()), wait + 20)
 		timer.unref?.()
 		return () => clearTimeout(timer)
-	}, [subagents, railNow])
+	}, [subagents, workflowRuns, railNow])
 	// The rail cannot keep the keyboard once it has nothing to show.
 	const railHasRows =
 		railAgents(subagents, railNow, dismissedAgents).length > 0 ||
-		railWorkflows(subagents, railNow, dismissedAgents).length > 0
+		railWorkflows(subagents, railNow, dismissedAgents, workflowRuns).length > 0
 	useEffect(() => {
 		if (!railHasRows && railFocus !== null) setRailFocus(null)
 	}, [railHasRows, railFocus, setRailFocus])
@@ -1655,16 +1704,25 @@ export function App({
 	)
 	const replaceSubagents = useCallback(
 		(incoming: readonly SubagentActivity[]) => {
-			const next = withSavedSubagents(incoming)
+			const next = withWorkflowRuns(withSavedSubagents(incoming), workflowRunsRef.current)
 			const previous = subagentsRef.current
 			subagentsRef.current = next
 			setSubagentsState(next)
 			const surface = agentSurfaceRef.current
 			if (!surface) return
-			if (next.length === 0) {
+			if (next.length === 0 && workflowRunsRef.current.length === 0) {
 				setAgentSurface(null)
 				return
 			}
+			// A phase of a workflow run that nothing has started in has no agent
+			// to select; the surface stays on the phase until one does.
+			if (
+				surface.selectedId === '' &&
+				agentWorkflows(next, workflowRunsRef.current).some((workflow) =>
+					workflow.phases.some((phase) => phase.id === surface.selectedPhaseId),
+				)
+			)
+				return
 			const retained = next.find((agent) => agent.viewId === surface.selectedId)
 			if (retained) {
 				if (retained.phaseId !== surface.selectedPhaseId) {
@@ -1672,11 +1730,15 @@ export function App({
 				}
 				return
 			}
-			const phases = agentPhases(next)
+			const phases = agentWorkflows(next, workflowRunsRef.current).flatMap(
+				(workflow) => workflow.phases,
+			)
 			const previousGroupId = previous.find(
 				(agent) => agent.viewId === surface.selectedId,
 			)?.workflowGroupId
-			const sameWorkflow = agentWorkflows(next).find((workflow) => workflow.id === previousGroupId)
+			const sameWorkflow = agentWorkflows(next, workflowRunsRef.current).find(
+				(workflow) => workflow.id === previousGroupId,
+			)
 			const fallbackPhase =
 				phases.find((phase) => phase.id === surface.selectedPhaseId) ??
 				sameWorkflow?.phases[0] ??
@@ -1726,7 +1788,7 @@ export function App({
 	/** Opens the cockpit on the rows already on screen; false when there are none. */
 	const openCockpitFromCurrentRows = useCallback((): boolean => {
 		const agents = subagentsRef.current
-		const workflows = agentWorkflows(agents)
+		const workflows = agentWorkflows(agents, workflowRunsRef.current)
 		const currentWorkflow =
 			[...workflows]
 				.reverse()
@@ -1746,11 +1808,11 @@ export function App({
 		const firstPhase =
 			currentWorkflow?.phases.find((phase) => phase.agents.some(live)) ?? currentWorkflow?.phases[0]
 		const firstAgent = firstPhase?.agents.find(live) ?? firstPhase?.agents[0]
-		if (!firstPhase || !firstAgent) return false
+		if (!firstPhase || (!firstAgent && currentWorkflow?.runId === undefined)) return false
 		setAgentSurface({
 			kind: 'cockpit',
 			selectedPhaseId: firstPhase.id,
-			selectedId: firstAgent.viewId,
+			selectedId: firstAgent?.viewId ?? '',
 			focus:
 				workflows.length > 1
 					? 'workflows'
@@ -1766,19 +1828,21 @@ export function App({
 	 * walks back to the row.
 	 */
 	const openWorkflowFromRail = useCallback(
-		(groupId: string, railReturn: string): boolean => {
-			const workflow = agentWorkflows(subagentsRef.current).find((item) => item.id === groupId)
+		(groupId: string, railReturn?: string): boolean => {
+			const workflow = agentWorkflows(subagentsRef.current, workflowRunsRef.current).find(
+				(item) => item.id === groupId,
+			)
 			const live = (agent: SubagentActivity): boolean =>
 				agent.status === 'starting' || agent.status === 'queued' || agent.status === 'working'
 			const phase = workflow?.phases.find((item) => item.agents.some(live)) ?? workflow?.phases[0]
 			const agent = phase?.agents.find(live) ?? phase?.agents[0]
-			if (!workflow || !phase || !agent) return false
+			if (!workflow || !phase || (!agent && workflow.runId === undefined)) return false
 			setAgentSurface({
 				kind: 'cockpit',
 				selectedPhaseId: phase.id,
-				selectedId: agent.viewId,
+				selectedId: agent?.viewId ?? '',
 				focus: cockpitEntryFocus(workflow),
-				railReturn,
+				...(railReturn !== undefined ? { railReturn } : {}),
 			})
 			return true
 		},
@@ -1920,12 +1984,39 @@ export function App({
 		refresh()
 		return source.subscribe(refresh)
 	}, [hydrateSavedChildren, replaceSubagents, session, setAgentSurface])
+	// The `workflow` tool's runs: their rows are projected into `subagents`, so a
+	// change to a run re-reads the monitor through the same path. Runs from the
+	// journals (opened by `/workflows`) ride along, read-only.
+	const historicalWorkflowRunsRef = useRef<readonly WorkflowRunView[]>([])
+	const publishWorkflowRuns = useCallback(() => {
+		const live = session?.workflows?.runs() ?? []
+		const known = new Set(live.map((run) => run.runId))
+		const runs = [
+			...live,
+			...historicalWorkflowRunsRef.current.filter((run) => !known.has(run.runId)),
+		]
+		workflowRunsRef.current = runs
+		setWorkflowRuns(runs)
+		replaceSubagents(session?.subagents?.getSnapshot() ?? [])
+	}, [replaceSubagents, session])
+	useEffect(() => {
+		historicalWorkflowRunsRef.current = []
+		const source = session?.workflows
+		if (!source) {
+			workflowRunsRef.current = []
+			setWorkflowRuns([])
+			return
+		}
+		publishWorkflowRuns()
+		return source.subscribe(publishWorkflowRuns)
+	}, [publishWorkflowRuns, session])
 	const resetSubagentActivity = useCallback(() => {
 		childMessageLifetimeRef.current.abort(new Error('The owning conversation changed.'))
 		childMessageLifetimeRef.current = new AbortController()
 		childDraftsRef.current.clear()
 		directChildNoticesRef.current.clear()
 		session?.subagents?.reset()
+		session?.workflows?.reset()
 		setAgentSurface(null)
 		// The monitor clears its own commentary on reset; this drops the copy
 		// already on screen in the same pass as the rows, so the band cannot
@@ -2707,8 +2798,8 @@ export function App({
 	const openBatch = useCallback(
 		async (batch: Batch): Promise<void> => {
 			if (!batch.live) await hydrateSavedChildren()
-			const workflow = agentWorkflows(subagentsRef.current).find((candidate) =>
-				candidate.agents.some((agent) => agent.workflowId === batch.id),
+			const workflow = agentWorkflows(subagentsRef.current, workflowRunsRef.current).find(
+				(candidate) => candidate.agents.some((agent) => agent.workflowId === batch.id),
 			)
 			const firstPhase = workflow?.phases[0]
 			const firstAgent = firstPhase?.agents[0]
@@ -2761,7 +2852,7 @@ export function App({
 		const now = Date.now()
 		const batches = new Map<string, SubagentActivity[]>()
 		for (const agent of subagents) {
-			if (agent.replayed) continue
+			if (agent.replayed || isWorkflowRunAgent(agent)) continue
 			if (!current.some((item) => item.viewId === agent.viewId)) continue
 			const key = JSON.stringify([agent.workflowId, agent.batchId])
 			const members = batches.get(key) ?? []
@@ -2812,6 +2903,7 @@ export function App({
 			)
 		}
 		for (const agent of subagents) {
+			if (isWorkflowRunAgent(agent)) continue
 			if (
 				!current.some(
 					(item) =>
@@ -3780,6 +3872,13 @@ export function App({
 			if (picker.kind === 'agent-batches') {
 				if (value === 'loading') return
 				void openBatch(value as Batch)
+				return
+			}
+			if (picker.kind === 'workflow-runs') {
+				const run = workflowRunsRef.current.find((item) => item.runId === value)
+				if (run && !openWorkflowFromRail(run.groupId)) {
+					pushMessage('system', 'That workflow has nothing to show yet.')
+				}
 				return
 			}
 			if (picker.kind === 'archive-conversation') {
@@ -6873,6 +6972,22 @@ export function App({
 						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
 						break
 					}
+					if (!event.isError && event.toolName === WORKFLOW_TOOL_NAME) {
+						// The call returned at once and the run goes on in the background.
+						// What the model was told (the run's id, how it will hear back) is
+						// for the model; the person gets the name and where to manage it.
+						pushMessage(
+							'tool',
+							done?.label ?? formatToolCall(event.toolName, event.summary),
+							false,
+							'●',
+							undefined,
+							theme.accent.assistant,
+						)
+						pushMessage('tool', WORKFLOW_BACKGROUND_NOTE, false, '⎿')
+						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
+						break
+					}
 					const catalogue =
 						!event.isError && event.toolName === 'agent_models' && event.output !== undefined
 							? modelCatalogueView(event.output)
@@ -7123,7 +7238,8 @@ export function App({
 					if (st.startedAt !== undefined) {
 						const since = st.startedAt
 						const delegated = subagentsRef.current.filter(
-							(agent) => agent.replayed !== true && agent.startedAt >= since,
+							(agent) =>
+								agent.replayed !== true && !isWorkflowRunAgent(agent) && agent.startedAt >= since,
 						)
 						// A turn that delegated always says what its agents came to; one
 						// that did not closes with its time only when it finished, since
@@ -7610,6 +7726,13 @@ export function App({
 			// admission barrier so discovery cannot retain the transient refusal.
 			peersRef.current?.publish()
 			const turnPermissionMode = permissionModeRef.current
+			const workflowGeneration = conversationGenRef.current
+			const workflowSessionId = scopeRef.current?.sessionId
+			const workflowOwns = (): boolean =>
+				!appLifetime.signal.aborted &&
+				previousSessionRef.current === session &&
+				conversationGenRef.current === workflowGeneration &&
+				scopeRef.current?.sessionId === workflowSessionId
 			const turnReasoningEffort = reasoningEffortRef.current
 			const turnHypermode = hypermodeRef.current
 			const turnLimits = resolveTurnGuards(ctxRef.current.limits, turnLimitsOverrideRef.current)
@@ -7641,6 +7764,7 @@ export function App({
 				ids: [],
 			}
 			let childNoticeSnapshot = new Map<number, DirectChildNotice>()
+			let workflowNoticeSnapshot = new Map<string, string>()
 			try {
 				// Setup above awaited. A conversation switch can happen meanwhile and
 				// move the mutable SessionScope captured by `createAgentSession`. Re-admit
@@ -7660,6 +7784,7 @@ export function App({
 					// An early throw or abort never proves the model received context.
 					idleNoticeSnapshot = snapshotIdleJobNotices()
 					childNoticeSnapshot = new Map(directChildNoticesRef.current)
+					workflowNoticeSnapshot = new Map(workflowNoticesRef.current)
 					const operatorShellSnapshot = drainOperatorShell()
 					for await (const event of session.send(priorForSdk, {
 						signal: ac.signal,
@@ -7685,12 +7810,33 @@ export function App({
 							[
 								...(st.contextTexts ?? []),
 								idleNoticeSnapshot.text,
+								workflowNoticeSnapshot.size > 0
+									? `Workflows that ended since your last turn:\n\n${[...workflowNoticeSnapshot.values()].join('\n\n')}`
+									: undefined,
 								operatorShellSnapshot,
 								...[...childNoticeSnapshot.values()].map((notice) => notice.context),
 							].filter((part): part is string => Boolean(part)),
 						...(goalRound ? { goalRound } : {}),
 						// The mode above decides whether this callback is consulted.
 						onPermission: askPermission,
+						// A workflow this turn starts outlives it, so its agents cannot borrow
+						// `askPermission`, which belongs to this turn. They ask through the
+						// conversation instead, for as long as it is the one on screen.
+						workflowReview: {
+							onPermission: async (request) => {
+								if (!workflowOwns()) {
+									return { kind: 'reject', feedback: 'The owning conversation changed.' }
+								}
+								const decision = await onPermission(request)
+								// An agent can ask while no turn runs; nothing else would put the
+								// input back once the operator has answered.
+								if (workflowOwns() && !abortRef.current && !permissionResolveRef.current) {
+									setState('idle')
+								}
+								return decision
+							},
+							currentPermissionMode: () => permissionModeRef.current,
+						},
 						onQuestion: askQuestion,
 						onModelSwitch: requestModelSwitch,
 						inboundMessages: () => {
@@ -7700,6 +7846,11 @@ export function App({
 							const childNotices = [...directChildNoticesRef.current].filter(
 								([id]) => !childNoticeSnapshot.has(id),
 							)
+							// A workflow that ended while this turn runs: told to the model once.
+							const workflowEnds = [...workflowNoticesRef.current].filter(
+								([id]) => !workflowNoticeSnapshot.has(id),
+							)
+							for (const [id] of workflowEnds) workflowNoticesRef.current.delete(id)
 							if (childNotices.length) {
 								flushStream(st)
 								if (st.assistantId) {
@@ -7732,6 +7883,9 @@ export function App({
 								...mail.map(peerMailMessage),
 								...childNotices.map(([, notice]) =>
 									createRuntimeContextMessage(notice.context, notice.kind),
+								),
+								...workflowEnds.map(([, text]) =>
+									createRuntimeContextMessage(text, 'task-completion'),
 								),
 							]
 						},
@@ -7793,6 +7947,7 @@ export function App({
 			} finally {
 				if (st.completed && stillHere()) {
 					for (const id of childNoticeSnapshot.keys()) directChildNoticesRef.current.delete(id)
+					for (const id of workflowNoticeSnapshot.keys()) workflowNoticesRef.current.delete(id)
 				}
 				if (st.completed && idleJobNoticesRef.current.ownerSession === session) {
 					for (const id of idleNoticeSnapshot.ids) idleJobNoticesRef.current.pending.delete(id)
@@ -8449,6 +8604,39 @@ export function App({
 							},
 							() => pushMessage('system', renderAgents(agentIds)),
 						)
+						return
+					}
+					case 'workflows': {
+						const source = session?.workflows
+						if (!source) {
+							pushMessage('system', 'Workflows are available once the conversation starts.')
+							return
+						}
+						void source
+							.history()
+							.then((runs) => {
+								if (appLifetime.signal.aborted) return
+								const live = new Set(source.runs().map((run) => run.runId))
+								historicalWorkflowRunsRef.current = runs.filter((run) => !live.has(run.runId))
+								publishWorkflowRuns()
+								if (runs.length === 0) {
+									pushMessage(
+										'system',
+										'No workflows in this conversation. Ask for one with /workflow <what to do>.',
+									)
+									return
+								}
+								setSelectedChoice(0)
+								setChoicePicker({
+									kind: 'workflow-runs',
+									title: 'Workflows',
+									values: runs.map((run) => run.runId),
+									options: runs.map(workflowRunOption),
+								})
+							})
+							.catch((error) =>
+								pushMessage('system', explainFailure(error, 'Could not read the workflows.')),
+							)
 						return
 					}
 					case 'jobs': {
@@ -10766,6 +10954,11 @@ export function App({
 				} else if (input === 'x' && !key.ctrl && !key.meta) {
 					if (selectedWorkflow) {
 						if (railWorkflowActionFor(selectedWorkflow) === 'stop') {
+							if (selectedWorkflow.runId !== undefined) {
+								// A run is stopped as a whole: queued agents never start.
+								session?.workflows?.stop(selectedWorkflow.runId)
+								return
+							}
 							// Every member still going is stopped the way `x` on its own
 							// row would; the row settles by itself as they report their end.
 							for (const member of selectedWorkflow.agents) {
@@ -10816,7 +11009,7 @@ export function App({
 				if (agentSurfaceCommittedRef.current !== agentView) return
 				const agents = subagentsRef.current
 				if (agentView.kind === 'cockpit') {
-					const workflows = agentWorkflows(agents)
+					const workflows = agentWorkflows(agents, workflowRunsRef.current)
 					const workflowIndex = Math.max(
 						0,
 						workflows.findIndex((workflow) =>
@@ -10836,7 +11029,9 @@ export function App({
 						phaseAgents.findIndex((agent) => agent.viewId === agentView.selectedId),
 					)
 					const selected = phaseAgents[agentIndex]
-					if (!phase || !selected) {
+					// A phase a workflow declared that nothing has started in has no
+					// agent: it can be looked at, not drilled into.
+					if (!phase || (!selected && workflow?.runId === undefined)) {
 						setAgentSurface(null)
 						return
 					}
@@ -10885,8 +11080,17 @@ export function App({
 					// `x` stops what the level lists: the whole workflow on the phases,
 					// the one agent on its agents.
 					if (input === 'x' && !key.ctrl && !key.meta && agentView.focus !== 'workflows') {
+						if (workflow?.runId !== undefined) {
+							// A run: the phases level stops the whole run, an agent's level
+							// skips that one agent and the script goes on without it.
+							if (agentView.focus === 'phases') session?.workflows?.stop(workflow.runId)
+							else if (selected?.workflowAgentIndex !== undefined)
+								session?.workflows?.skipAgent(workflow.runId, selected.workflowAgentIndex)
+							return
+						}
 						const targets = agentView.focus === 'phases' ? (workflow?.agents ?? []) : [selected]
 						for (const member of targets) {
+							if (!member) continue
 							if (!['completed', 'failed', 'cancelled'].includes(member.status)) {
 								session?.stopSubagent?.(member.viewId)
 							}
@@ -10905,6 +11109,7 @@ export function App({
 							setAgentSurface({ ...agentView, focus: 'agents' })
 							return
 						}
+						if (!selected) return
 						setAgentSurface({
 							kind: 'transcript',
 							selectedPhaseId: phase.id,
@@ -10936,11 +11141,11 @@ export function App({
 							)
 							const targetPhase = workflows[next]?.phases[0]
 							const targetAgent = targetPhase?.agents[0]
-							if (targetPhase && targetAgent) {
+							if (targetPhase && (targetAgent || workflows[next]?.runId !== undefined)) {
 								setAgentSurface({
 									...agentView,
 									selectedPhaseId: targetPhase.id,
-									selectedId: targetAgent.viewId,
+									selectedId: targetAgent?.viewId ?? '',
 								})
 							}
 						} else if (agentView.focus === 'phases') {
@@ -10952,11 +11157,11 @@ export function App({
 							)
 							const targetPhase = phases[next]
 							const targetAgent = targetPhase?.agents[0]
-							if (targetPhase && targetAgent) {
+							if (targetPhase && (targetAgent || workflow?.runId !== undefined)) {
 								setAgentSurface({
 									...agentView,
 									selectedPhaseId: targetPhase.id,
-									selectedId: targetAgent.viewId,
+									selectedId: targetAgent?.viewId ?? '',
 								})
 							}
 						} else {
@@ -11002,7 +11207,9 @@ export function App({
 					cyclePermissionMode()
 					return
 				}
-				const canMessage = Boolean(session?.messageSubagent && !selected.replayed)
+				const canMessage = Boolean(
+					session?.messageSubagent && !selected.replayed && selected.workflowRunId === undefined,
+				)
 				if (canMessage && (key.tab || (!agentView.composing && (key.return || input === 'm')))) {
 					setAgentSurface({ ...agentView, composing: !agentView.composing })
 					return
@@ -11281,7 +11488,7 @@ export function App({
 	// a filled bg left mismatched patches around bordered areas, so we don't.
 	const liveSubagents = railAgents(subagents, railNow, dismissedAgents)
 	railRowsRef.current = liveSubagents
-	const liveWorkflows = railWorkflows(subagents, railNow, dismissedAgents)
+	const liveWorkflows = railWorkflows(subagents, railNow, dismissedAgents, workflowRuns)
 	railWorkflowsRef.current = liveWorkflows
 	const representedSubagentTools = new Set(
 		subagents
@@ -11314,6 +11521,7 @@ export function App({
 		session?.messageSubagent &&
 			selectedSubagent &&
 			!selectedSubagent.replayed &&
+			selectedSubagent.workflowRunId === undefined &&
 			agentSurface?.kind === 'transcript',
 	)
 	const lifecycleOwnsViewport =
@@ -11865,6 +12073,7 @@ export function App({
 					agentSurface?.kind === 'cockpit' ? (
 					<AgentCockpit
 						agents={subagents}
+						runs={workflowRuns}
 						selectedPhaseId={agentSurface.selectedPhaseId}
 						selectedId={agentSurface.selectedId}
 						focus={agentSurface.focus}
@@ -12092,6 +12301,20 @@ function batchOption(batch: Batch): ChoicePickerOption {
 	]
 	if (batch.live) columns.push('live')
 	return { label: batch.name, description: columns.join(' · ') }
+}
+
+/** One `/workflows` row: the name, then how it stands, how many agents, when it began and how long it took. */
+function workflowRunOption(run: WorkflowRunView): ChoicePickerOption {
+	const counts = countAgents(run)
+	const tokens = runTokens(run)
+	const columns = [
+		run.status,
+		`${counts.settled}/${counts.total} agent${counts.total === 1 ? '' : 's'}`,
+		...(tokens > 0 ? [`${formatCompactCount(tokens)} tokens`] : []),
+		relativeStart(run.startedAt),
+		formatElapsed((run.endedAt ?? Date.now()) - run.startedAt),
+	]
+	return { label: run.name, description: columns.join(' · ') }
 }
 
 /** `just now` / `12m ago` / `3h ago` / `2d ago` — the same buckets a conversation's own resume picker shows. */

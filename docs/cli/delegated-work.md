@@ -60,6 +60,19 @@ like `workflow`, `phase` and `phase_order`: it creates no dependencies,
 barriers or serial execution. The first agent to declare a phase's detail
 sets it; a later sibling in the same phase cannot change it.
 
+## Workflows are not subagents
+
+The model can also start a **workflow**: a script, written once and approved by
+the operator, that starts many agents under phase titles it chooses. A
+workflow's agents are real children, with their normal transcripts, under the
+same permission mode, rules, sandbox and token budget as `Agent` calls; but
+they are the script's agents, not the model's, so they are never rows of the
+agents rail, never get launch or completion rows, and are not counted in the
+turn's summary line. The run is one rail row and one detail view. See
+[Workflows in the CLI](workflows.md). Agents the model gives a `workflow` label
+through the `Agent` tool stay as described here; the two share the rail row and
+the detail view's shape, not their code path.
+
 ## Which launches are asked about
 
 In `prompt` mode (the default with a person at the terminal) an `Agent` call

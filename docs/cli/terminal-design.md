@@ -284,6 +284,20 @@ the one agent at level 2:
  ↑/↓ to select · enter to view · x to stop · esc to go back
 ```
 
+The `workflow` tool's runs use the same row and the same three levels, but are
+driven by the run's own events rather than by the agents that happen to exist:
+the count includes queued agents, a run with no agent yet already has its row,
+and the phases the script declared in `meta.phases` are listed from the start in
+the declared order, a phase nothing has started in shown dim with no count and
+`Not started yet` on level 2. On a run `x` at level 1 stops the whole run and at
+level 2 skips the one agent (`x to skip`), and a skipped agent does not fail its
+phase. The header adds the run's purpose after its name and, once it has ended,
+`· completed`, `· failed` or `· stopped`. At launch the conversation shows
+`● Workflow(<purpose>)` over `⎿ Running in the background (↓ to manage)`, and
+when the run ends, whatever the model is doing, `✓ Workflow <name> completed ·
+<time> · <N> agents · <tokens>` (`✗ … failed`, `■ … stopped`). See
+[Workflows in the CLI](workflows.md).
+
 When the model launches labelled agents the conversation gets one group line,
 `● Workflow Release audit` over `⎿ Running in background · ↓ to manage`,
 instead of a launch row per agent, and no completion rows for them. When a
