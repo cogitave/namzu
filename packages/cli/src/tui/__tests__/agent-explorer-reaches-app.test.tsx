@@ -3735,6 +3735,41 @@ describe('a running agent that messages the conversation', () => {
 		// Told once: a second turn boundary has nothing more.
 	})
 
+	it('does not release a wait the running turn is in', async () => {
+		childMessageBridge.current = vi.fn()
+		activity.set([agent({ viewId: 'v1', agentId: 'count-words', background: true })])
+		let waiting!: Promise<void>
+		let waitStarted!: () => void
+		const waitIsOpen = new Promise<void>((resolve) => {
+			waitStarted = resolve
+		})
+		let released = false
+		const ended = new AbortController()
+		sendOverride.current = async function* (_messages, opts) {
+			waiting = (opts?.waitForInbound?.(ended.signal) ?? Promise.resolve()).then(() => {
+				released = true
+			})
+			waitStarted()
+			await waiting.catch(() => undefined)
+			yield { kind: 'done', stopReason: 'end_turn' }
+		}
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+		await submit(screen, 'start')
+		await waitIsOpen
+		childMessageBridge.onMessage?.(said(childMessageBridge.scope!.sessionId))
+		await waitUntil(
+			screen,
+			() => /› Message from @count-words/u.test(painted(screen)),
+			'no message row',
+		)
+		await screen.waitForRender()
+		// The message is queued for the next request boundary; the wait goes on.
+		expect(released).toBe(false)
+		ended.abort()
+	})
+
 	it('ignores a message that belongs to another conversation', async () => {
 		childMessageBridge.current = vi.fn()
 		activity.set([agent({ viewId: 'v1', agentId: 'count-words', background: true })])
