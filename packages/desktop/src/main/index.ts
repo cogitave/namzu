@@ -1050,6 +1050,7 @@ function register(): void {
 	handle('forkConversation', (id: string) => operator.forkConversation(id))
 	handle('conversationMarkdown', (id: string) => operator.conversationMarkdown(id))
 	handle('projectGit', (id: string) => operator.projectGit(id))
+	handle('projectPr', (id: string) => operator.projectPr(id))
 	handle('projectChanges', (id: string) => operator.projectChanges(id))
 	handle('projectDiff', (id: string, path: string) => operator.projectDiff(id, path))
 	handle('listProjectDirectory', (id: string, dir: string) =>

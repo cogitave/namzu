@@ -255,6 +255,12 @@ export interface ConversationView {
 	closedWhileRunning?: true
 }
 /** Repository facts for a trusted project; `branch` is null on a detached head. */
+/** The pull request of a project's branch, when the machine can say; otherwise there is nothing to show. */
+export interface ProjectPrView {
+	number: number
+	url: string
+	review: 'approved' | 'changes' | 'pending' | 'merged' | 'draft'
+}
 export interface ProjectGitView {
 	branch: string | null
 	subject: string | null
@@ -919,6 +925,8 @@ export interface DesktopApi {
 	conversationMarkdown?(sessionId: string): Promise<{ markdown: string; truncated: boolean }>
 	/** Branch and last commit subject, or null when not a repository, untrusted or unavailable. */
 	projectGit?(projectId: string): Promise<ProjectGitView | null>
+	/** The pull request of the project's branch through `gh`; null without one, or without `gh`. */
+	projectPr?(projectId: string): Promise<ProjectPrView | null>
 	/** Remove a conversation from active lists; its durable journal remains readable. */
 	removeConversation?(
 		sessionId: string,

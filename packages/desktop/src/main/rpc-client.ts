@@ -76,6 +76,10 @@ export class RuntimeClient extends EventEmitter {
 	supportsProjectUntrust(): boolean {
 		return this.projectUntrust
 	}
+	private projectPr = false
+	supportsProjectPr(): boolean {
+		return this.projectPr
+	}
 	private projectGit = false
 	supportsProjectGit(): boolean {
 		return this.projectGit
@@ -246,6 +250,7 @@ export class RuntimeClient extends EventEmitter {
 			'namzu/providers/refresh',
 		].every((method) => result.extensions?.includes(method))
 		this.projectGit = result.extensions?.includes('namzu/project/git') === true
+		this.projectPr = result.extensions?.includes('namzu/project/pr') === true
 		this.projectUntrust = result.extensions?.includes('namzu/project/untrust') === true
 		this.projectChanges = ['namzu/project/changes', 'namzu/project/diff'].every((method) =>
 			result.extensions?.includes(method),

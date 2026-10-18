@@ -54,6 +54,7 @@ import type {
 	ProjectFileEntry,
 	ProjectGitView,
 	ProjectLinkResolution,
+	ProjectPrView,
 	ProjectRemovalResult,
 	ProjectUntrust,
 	ProjectView,
@@ -2659,6 +2660,35 @@ export class Operator {
 		const checkedSubject = text(subject, 500)
 		if (checkedBranch === undefined || checkedSubject === undefined) return null
 		return { branch: checkedBranch, subject: checkedSubject }
+	}
+	/** The branch's pull request through `gh`; every failure is silence, never an error to show. */
+	async projectPr(projectId: string): Promise<ProjectPrView | null> {
+		const project = this.project(projectId)
+		if (!project.view.trusted || project.view.palId || !project.client.supportsProjectPr())
+			return null
+		const client = project.client
+		let result: unknown
+		try {
+			result = await client.request('namzu/project/pr', {})
+		} catch {
+			return null
+		}
+		if (this.projects.get(projectId) !== project || project.client !== client) return null
+		const pr = (result as { pr?: unknown } | null)?.pr
+		if (!pr || typeof pr !== 'object') return null
+		const { number, url, review } = pr as Record<string, unknown>
+		if (
+			typeof number !== 'number' ||
+			!Number.isSafeInteger(number) ||
+			number <= 0 ||
+			typeof url !== 'string' ||
+			url.length > 2048 ||
+			!/^https:\/\/[^\s]+$/.test(url) ||
+			typeof review !== 'string' ||
+			!['approved', 'changes', 'pending', 'merged', 'draft'].includes(review)
+		)
+			return null
+		return { number, url, review: review as ProjectPrView['review'] }
 	}
 	/** Working-tree changes from the host's git reader; null when there is nothing to review. */
 	async projectChanges(projectId: string): Promise<ProjectChangesView | null> {

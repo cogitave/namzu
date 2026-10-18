@@ -9,6 +9,7 @@ import type {
 	ProjectView,
 	ProviderView,
 } from '../shared/protocol.js'
+import type { ProjectPrView } from '../shared/protocol.js'
 import { usableProviders } from '../shared/provider-connections.js'
 import { AttachmentList } from './attachment-list.js'
 import { ComposerApproval } from './composer-approval.js'
@@ -55,6 +56,15 @@ import './composer.css'
 const PROVIDER_EMPTY_HELP =
 	'Namzu needs a model provider to answer. Paste an API key, or sign in with Claude Code or Codex and Namzu will find that sign-in.'
 
+/** The review state in plain words, for the pull request chip's tooltip and name. */
+const REVIEW_WORDS: Record<ProjectPrView['review'], string> = {
+	approved: 'approved',
+	changes: 'changes requested',
+	pending: 'waiting for review',
+	merged: 'merged',
+	draft: 'draft',
+}
+
 const DEFAULT_STARTERS = ['Explore this project', 'Review a change', 'Plan a task'] as const
 
 export function Composer({
@@ -84,6 +94,8 @@ export function Composer({
 	sending,
 	pending,
 	trayActions,
+	shells,
+	pullRequest,
 	onSend,
 	onQueue,
 	onStop,
@@ -168,6 +180,10 @@ export function Composer({
 	/** Messages typed while a reply runs, shown in the tray fused to the composer. */
 	pending: PendingMessages
 	trayActions: ComposerTrayActions
+	/** Background shell commands running for this conversation; absent when there are none. */
+	shells?: { count: number; onOpen: () => void }
+	/** The branch's pull request; absent when there is none to show. */
+	pullRequest?: { pr: ProjectPrView; onOpen: () => void }
 	onSend: () => void
 	onQueue?: () => void
 	onStop: () => void
@@ -678,6 +694,32 @@ export function Composer({
 													onSettingsChange({ ...settings, permissionMode })
 												}
 											/>
+											{shells && shells.count > 0 && (
+												<Button
+													variant="ghost-muted"
+													size="xs"
+													className="composer-footer-chip"
+													data-composer-shells={shells.count}
+													aria-label={`${shells.count} background ${shells.count === 1 ? 'shell' : 'shells'} running. Show`}
+													onClick={shells.onOpen}
+												>
+													{shells.count} {shells.count === 1 ? 'shell' : 'shells'}
+												</Button>
+											)}
+											{pullRequest && (
+												<Button
+													variant="ghost-muted"
+													size="xs"
+													className="composer-footer-chip composer-pr"
+													data-composer-pr={pullRequest.pr.number}
+													data-review={pullRequest.pr.review}
+													aria-label={`Pull request ${pullRequest.pr.number}, ${REVIEW_WORDS[pullRequest.pr.review]}. Open in browser`}
+													title={REVIEW_WORDS[pullRequest.pr.review]}
+													onClick={pullRequest.onOpen}
+												>
+													PR #{pullRequest.pr.number}
+												</Button>
+											)}
 										</div>
 									)}
 									<div className="pal-composer-send-actions flex shrink-0 flex-nowrap items-center justify-end gap-2">

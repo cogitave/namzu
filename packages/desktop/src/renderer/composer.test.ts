@@ -628,3 +628,22 @@ it('draws the waiting messages in a tray joined to the composer, with their acti
 	expect(button(html, 'Remove: Second')).not.toMatch(/\bdisabled=/)
 	expect(render({ pending: { rows: [] } })).not.toContain('data-composer-tray')
 })
+
+it('shows how many shells run and the branch pull request, quietly, beside the mode', () => {
+	const none = render({})
+	expect(none).not.toContain('data-composer-shells')
+	expect(none).not.toContain('data-composer-pr')
+	const html = render({
+		shells: { count: 2, onOpen: () => {} },
+		pullRequest: {
+			pr: { number: 607, url: 'https://github.com/o/r/pull/607', review: 'changes' },
+			onOpen: () => {},
+		},
+	})
+	expect(html).toContain('>2 shells<')
+	expect(html).toContain('2 background shells running. Show')
+	expect(html).toContain('>PR #607<')
+	expect(html).toContain('data-review="changes"')
+	expect(html).toContain('Pull request 607, changes requested. Open in browser')
+	expect(render({ shells: { count: 1, onOpen: () => {} } })).toContain('>1 shell<')
+})

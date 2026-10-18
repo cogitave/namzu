@@ -256,6 +256,7 @@ import { useLocalSpeech } from './use-local-speech.js'
 import { usePalComputerSetup } from './use-pal-computer-setup.js'
 import { usePalOperatorMessages } from './use-pal-operator-messages.js'
 import { usePalStarts } from './use-pal-starts.js'
+import { usePullRequest } from './use-pull-request.js'
 import { useTranscriptScroll } from './use-transcript-scroll.js'
 import { useUndoKept } from './use-undo-kept.js'
 import { WindowTitlebar } from './window-titlebar.js'
@@ -1341,6 +1342,10 @@ export function App({
 		? ({ state: 'unavailable' } as const)
 		: freshBackgroundWorkStatus(backgroundWork[sessionId])
 	const needsAttention = sessionWork.state === 'known' && sessionWork.needsAttention
+	const pullRequest = usePullRequest(api, !pal && !externalHarness ? project?.id : undefined, {
+		enabled: Boolean(project?.trusted) && project?.status === 'ready',
+		running: thread.running,
+	})
 	const detailsWork: DetailsWork = externalHarness
 		? { state: 'unavailable' }
 		: jobsSessionId === sessionId && !jobsLoading && !jobsError
@@ -7106,6 +7111,20 @@ export function App({
 								running={thread.running}
 								liveInputSupported={thread.liveInputSupported && !palConversation}
 								sending={sending[draftOwner] ?? false}
+								shells={
+									sessionWork.state === 'known' && sessionWork.runningCount > 0
+										? { count: sessionWork.runningCount, onOpen: openBackgroundWork }
+										: undefined
+								}
+								pullRequest={
+									pullRequest
+										? {
+												pr: pullRequest,
+												onOpen: () =>
+													void act(() => api.openExternal?.(pullRequest.url) ?? Promise.resolve()),
+											}
+										: undefined
+								}
 								pending={pendingMessages(thread)}
 								trayActions={{
 									canSendNow: Boolean(api.sendNow),

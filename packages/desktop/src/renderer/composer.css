@@ -477,3 +477,24 @@
 	line-height: 18px;
 	text-align: center;
 }
+
+/* Quiet footer indicators beside the mode: how many shells run, and the branch's pull request. */
+.composer-footer-chip {
+	font-size: var(--text-ui-sm, 12px);
+	font-variant-numeric: tabular-nums;
+}
+.composer-pr[data-review="approved"] {
+	color: var(--ansi-green);
+}
+.composer-pr[data-review="changes"] {
+	color: var(--ansi-red);
+}
+.composer-pr[data-review="pending"] {
+	color: var(--ansi-yellow);
+}
+.composer-pr[data-review="merged"] {
+	color: var(--ansi-magenta);
+}
+.composer-pr[data-review="draft"] {
+	color: var(--muted-foreground);
+}

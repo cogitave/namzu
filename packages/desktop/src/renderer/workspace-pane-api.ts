@@ -60,6 +60,7 @@ export function createWorkspacePaneApi(
 		forkConversation,
 		conversationMarkdown,
 		projectGit,
+		projectPr,
 		projectChanges,
 		projectDiff,
 		listProjectDirectory,
@@ -439,6 +440,7 @@ export function createWorkspacePaneApi(
 				}
 			: {}),
 		...(projectGit ? { projectGit: (id) => invoke(() => projectGit(id), []) } : {}),
+		...(projectPr ? { projectPr: (id) => invoke(() => projectPr(id), []) } : {}),
 		...(projectChanges ? { projectChanges: (id) => invoke(() => projectChanges(id), []) } : {}),
 		...(projectDiff ? { projectDiff: (id, path) => invoke(() => projectDiff(id, path), []) } : {}),
 		...(listProjectDirectory

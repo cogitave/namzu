@@ -127,6 +127,7 @@ const api: DesktopApi = {
 	forkConversation: (id) => invoke('forkConversation', id),
 	conversationMarkdown: (id) => invoke('conversationMarkdown', id),
 	projectGit: (id) => invoke('projectGit', id),
+	projectPr: (id) => invoke('projectPr', id),
 	projectChanges: (id) => invoke('projectChanges', id),
 	projectDiff: (id, path) => invoke('projectDiff', id, path),
 	listProjectDirectory: (id, dir) => invoke('listProjectDirectory', id, dir),
