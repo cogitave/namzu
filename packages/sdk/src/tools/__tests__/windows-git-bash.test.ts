@@ -60,6 +60,25 @@ describe('finding Git Bash on Windows', () => {
 		})
 	})
 
+	it('finds a per-user install after the Program Files ones, and skips it without LOCALAPPDATA', () => {
+		const user = 'C:\\Users\\Ada\\AppData\\Local\\Programs\\Git\\bin\\bash.exe'
+		const env = { localappdata: 'C:\\Users\\Ada\\AppData\\Local' }
+		expect(findGitBash(windows({ files: [user], env }))).toBe(user)
+		expect(
+			findGitBash(
+				windows({
+					files: [user, PF86_BASH],
+					env: {
+						...env,
+						ProgramFiles: 'C:\\Program Files',
+						'ProgramFiles(x86)': 'C:\\Program Files (x86)',
+					},
+				}),
+			),
+		).toBe(PF86_BASH)
+		expect(findGitBash(windows({ files: [user] }))).toBeUndefined()
+	})
+
 	it('reads the install directories from the environment, not only the usual ones', () => {
 		const probe = windows({
 			files: ['E:\\Apps\\Git\\bin\\bash.exe'],

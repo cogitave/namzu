@@ -106,7 +106,8 @@ function insideDirectory(path: string, directory: string): boolean {
  * Git for Windows' bash.exe, found in this order:
  *
  * 1. `%ProgramFiles%\Git\bin\bash.exe`, then `%ProgramFiles(x86)%\Git\bin\bash.exe`;
- * 2. the install that holds the first `git` that `where.exe git` lists: its
+ * 2. `%LOCALAPPDATA%\\Programs\\Git\\bin\\bash.exe`, a per-user install;
+ * 3. the install that holds the first `git` that `where.exe git` lists: its
  *    `bin\bash.exe`, one or two directories up from the `git.exe` it printed.
  *    A hit inside the working directory is skipped, because a repository can
  *    carry a `git.exe` of its own and the search must not run it.
@@ -119,6 +120,12 @@ export function findGitBash(probe: CommandShellProbe): string | undefined {
 	const programFilesX86 = windowsEnv(probe.env, 'ProgramFiles(x86)') ?? 'C:\\Program Files (x86)'
 	for (const root of [programFiles, programFilesX86]) {
 		const candidate = win32.join(root, 'Git', 'bin', 'bash.exe')
+		if (probe.isExecutable(candidate)) return candidate
+	}
+	// A per-user install (the installer's "just me" choice) lives under LOCALAPPDATA.
+	const localAppData = windowsEnv(probe.env, 'LOCALAPPDATA')
+	if (localAppData !== undefined && localAppData !== '') {
+		const candidate = win32.join(localAppData, 'Programs', 'Git', 'bin', 'bash.exe')
 		if (probe.isExecutable(candidate)) return candidate
 	}
 	let listed: readonly string[] = []
