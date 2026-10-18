@@ -112,6 +112,31 @@ once, 200 start per run, one value crossing the bridge is at most 1 MiB, and the
 turn's token budget (when one is set) stops new agents once it is spent. A script
 that asks for more fails with a plain reason.
 
+## When the call answers
+
+The `workflow` call does not return the moment the run is created. It waits for
+one of three events of the run itself (never a timer), and answers on the first:
+
+- **The script asks for its first `agent()`.** The run is real work now; the call
+  returns the launch receipt and the run goes on in the background, as below.
+- **The script fails before that.** The call is a **failed tool call** carrying the
+  located message (error, line and column, the line's text, "No agent had
+  started."). There is no rail row, no launch line and no completion message
+  afterwards; the person sees the call as failed, like any other. When the call
+  passed no `args`, the error says so, because `args` is exactly the object given
+  in the call's `args` field and is `undefined` when it is omitted.
+- **The script finishes without asking for an agent.** The call returns the same
+  summary the completion message carries, inline, and no message follows.
+
+If the person interrupts the turn while the call waits, it lets go and the run
+(if any) continues in the background.
+
+`wait_for_task` is for tasks that `Agent` launched. Given a workflow run id (`w`
+and eight letters or digits) it answers in words that a workflow run is not a task
+and that its end arrives as one message, so the model ends its turn or does other
+work. It does not wait for the run: the completion message is the only delivery,
+and it is never delivered twice.
+
 ## What the person sees
 
 At launch the transcript gets two lines, and the model's own receipt (the run
@@ -132,7 +157,7 @@ The count is the agents that **completed** over every agent the script has asked
 for so far, queued ones included; a skipped, failed or stopped agent does not
 fill the bar. A stopped run's bar stays where it was, and only the bullet and the
 detail header (`· stopped`) say how it ended. Phases are not on the row. The bullet is coloured only
-by outcome. The row leaves 30 seconds after the run ends. A workflow's agents
+by outcome. The row leaves 30 seconds after the run ends; a run that ended without ever asking for an agent has no bar to show and leaves at once. A workflow's agents
 are never subagent rows, are not counted in the turn's `✻ Worked for …` line,
 and write no launch or completion rows of their own.
 
