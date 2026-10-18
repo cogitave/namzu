@@ -74,6 +74,10 @@ export class WorkerCodeRuntime implements CodeRuntime {
 	async run(options: RunCodeOptions): Promise<CodeRunResult> {
 		validateInteger('timeoutMs', options.timeoutMs, 1, 2_147_483_647)
 		validateInteger('maxOutputBytes', options.maxOutputBytes, 0, 16 * 1024 * 1024)
+		if (options.cpuLimits) {
+			validateInteger('cpuLimits.sliceMs', options.cpuLimits.sliceMs, 1, 2_147_483_647)
+			validateInteger('cpuLimits.totalMs', options.cpuLimits.totalMs, 1, 2_147_483_647)
+		}
 		const allowed = new Set(options.allowedCalls)
 		const calls: { name: string; ok: boolean }[] = []
 		let output = ''
@@ -120,6 +124,11 @@ export class WorkerCodeRuntime implements CodeRuntime {
 				}
 				output = next
 				printCount++
+				try {
+					options.onOutput?.(line)
+				} catch {
+					// A listener bug must not decide the program's outcome.
+				}
 			}
 		}
 
@@ -131,6 +140,7 @@ export class WorkerCodeRuntime implements CodeRuntime {
 				variantPath: requireFromSdk.resolve('@jitl/quickjs-wasmfile-release-sync'),
 				limits: this.limits,
 				maxOutputBytes: options.maxOutputBytes,
+				cpu: options.cpuLimits,
 				deadline: Date.now() + options.timeoutMs,
 			},
 			// Trusted bootstrap requires Node; guest code runs only inside QuickJS.
