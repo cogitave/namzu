@@ -62,7 +62,7 @@ import {
 	unknownOptionMessage,
 } from './exec-flags.js'
 import { execJson } from './exec-json.js'
-import { MAX_REPORT_TURNS, reportMessage, watchWorkflows } from './exec-workflows.js'
+import { MAX_REPORT_TURNS, commandSpend, reportMessage, watchWorkflows } from './exec-workflows.js'
 import { duration, pauseWait } from './provider-wait.js'
 import { resolveResume } from './resume.js'
 import { readStdin } from './stdin.js'
@@ -455,6 +455,10 @@ async function execPrint(
 		usage?: Extract<AgentEvent, { kind: 'usage' }>
 		budget?: Extract<AgentEvent, { kind: 'done' }>['budget']
 	} = {}
+	// The budgets of the turns before the last one: a workflow the model started
+	// is reported on in a turn of its own, and the command spent both.
+	const earlierBudgets: NonNullable<typeof measured.budget>[] = []
+	const spend = () => commandSpend(earlierBudgets, measured.budget, session.workflows)
 	const jsonResult = (value: string) => ({
 		text: value,
 		...(measured.usage
@@ -465,7 +469,7 @@ async function execPrint(
 					},
 				}
 			: {}),
-		...(measured.budget ? { budget: measured.budget } : {}),
+		...(spend() ? { budget: spend() } : {}),
 	})
 	let stopReason: StopReason | undefined
 	// Written from inside `consume`, so held on an object: a `let` assigned
@@ -621,6 +625,8 @@ async function execPrint(
 		phase = 'running'
 		const before = text
 		text = ''
+		if (measured.budget) earlierBudgets.push(measured.budget)
+		measured.budget = undefined
 		await consume(
 			session.send(
 				[
@@ -652,10 +658,9 @@ async function execPrint(
 	// interrupted, which is exactly the turn somebody wanted the record of.
 	await sessionExport?.shutdown()
 
-	if (measured.budget) {
-		ctx.formatter.info(
-			`Tokens: ${measured.budget.ownTokens} own · ${measured.budget.treeTokens} including descendants`,
-		)
+	const spent = spend()
+	if (spent) {
+		ctx.formatter.info(`Tokens: ${spent.ownTokens} own · ${spent.treeTokens} including descendants`)
 	}
 
 	if (failed) {

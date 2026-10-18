@@ -187,7 +187,7 @@ run's own limits and by the turn limit (`limits.timeoutMs`) when one is set, at
 which point whatever is still going is stopped and reported as stopped. It then
 gives the model the one message above, lets it take a reporting turn, and only
 then closes the session. The text printed (or the final `done`) is the report
-turn's. A first turn that failed or paused is not waited on. Nobody is there to
+turn's. The `Tokens:` line on stderr (and `budget` in `exec --json`) is what the whole command spent: the first turn plus the reporting turn for `own`, and for `including descendants` also the workflow's agents, which are counted on the run and not on the turn. A first turn that failed or paused is not waited on. Nobody is there to
 review the script, so a headless run may start a workflow only in `auto` mode
 (`--dangerously-skip-permissions`, the headless default); in `prompt`,
 `accept-edits`, `strict` and `plan` the model is told why it was refused.

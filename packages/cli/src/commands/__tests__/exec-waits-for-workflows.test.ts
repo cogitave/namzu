@@ -68,7 +68,9 @@ function turn(events: unknown[]): AsyncIterable<AgentEvent> {
 }
 
 /** A workflows source whose single run ends when the test, or `idle()`, says so. */
-function fakeWorkflows(options: { readonly endsOnIdle?: boolean } = {}) {
+function fakeWorkflows(
+	options: { readonly endsOnIdle?: boolean; readonly agentTokens?: number } = {},
+) {
 	const endListeners = new Set<(end: { view: ReturnType<typeof endedView> }) => void>()
 	let running = false
 	const stops: string[] = []
@@ -84,7 +86,23 @@ function fakeWorkflows(options: { readonly endsOnIdle?: boolean } = {}) {
 	}
 	let signalWaiting: (() => void) | undefined
 	const source = {
-		runs: () => (running ? [{ ...endedView('completed'), status: 'running' as const }] : []),
+		runs: () => {
+			const agents =
+				options.agentTokens === undefined
+					? []
+					: [
+							{
+								index: 1,
+								label: 'a',
+								status: 'done' as const,
+								queuedAt: 0,
+								tokens: options.agentTokens,
+								toolCalls: 0,
+							},
+						]
+			if (running) return [{ ...endedView('completed'), status: 'running' as const, agents }]
+			return options.agentTokens === undefined ? [] : [{ ...endedView('completed'), agents }]
+		},
 		subscribe: () => () => {},
 		stop: (runId: string) => {
 			stops.push(runId)
@@ -226,5 +244,38 @@ describe('a headless run whose model starts a workflow', () => {
 		const { code } = await run(['go'])
 		expect(code).toBe(1)
 		expect(sends).toBe(1)
+	})
+
+	it('prints what the whole command spent, the reporting turn and the workflow agents included', async () => {
+		const flow = fakeWorkflows({ endsOnIdle: true, agentTokens: 40_000 })
+		let sends = 0
+		withWorkflows(flow.source)
+		const budget = (own: number) => ({
+			limit: 0,
+			ownTokens: own,
+			treeTokens: own,
+			reservedTokens: 0,
+			remainingTokens: null,
+			inFlightRequests: 0,
+			unsettledChildren: 0,
+			poisoned: false,
+			unresolvedRequests: 0,
+		})
+		sessionStub.send = ((_messages: readonly Message[], opts?: SendOptions) => {
+			sends += 1
+			if (sends === 1) {
+				flow.start()
+				opts?.onConversationMessages?.([])
+				return turn([{ kind: 'done', stopReason: 'end_turn', budget: budget(90_000) }])
+			}
+			return turn([
+				{ kind: 'delta', text: 'reported.' },
+				{ kind: 'done', stopReason: 'end_turn', budget: budget(7_000) },
+			])
+		}) as AgentSession['send']
+		const { code, infos } = await run(['audit everything'])
+		expect(code).toBe(0)
+		// 90 000 + 7 000 over the two turns; the run's 40 000 joins the descendants only.
+		expect(infos).toContain('Tokens: 97000 own · 137000 including descendants')
 	})
 })

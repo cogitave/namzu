@@ -99,7 +99,7 @@ import {
 	resolveWorkingDirectory,
 	unknownOptionMessage,
 } from './exec-flags.js'
-import { MAX_REPORT_TURNS, reportMessage, watchWorkflows } from './exec-workflows.js'
+import { MAX_REPORT_TURNS, commandSpend, reportMessage, watchWorkflows } from './exec-workflows.js'
 import { parsePriorMessages } from './prior-messages.js'
 import { readStdin } from './stdin.js'
 import type { CommandHandlerArgs } from './types.js'
@@ -486,7 +486,12 @@ export async function execJson(
 			history = settled
 		},
 	}
+	// The budgets of the turns before the last one (a workflow's reporting turn
+	// comes after the first); the command's total is all of them.
+	const earlierBudgets: NonNullable<typeof budget>[] = []
 	const stream = async (turn: readonly Message[]): Promise<void> => {
+		if (budget) earlierBudgets.push(budget)
+		budget = undefined
 		for await (const event of session.send(turn, turnOptions)) {
 			if (stopped) continue
 			if ('budget' in event && event.budget) budget = event.budget
@@ -547,7 +552,9 @@ export async function execJson(
 						kind: 'done' as const,
 						...(conversationId ? { sessionId: conversationId } : {}),
 					}),
-					...(budget ? { budget } : {}),
+					...(commandSpend(earlierBudgets, budget, session.workflows)
+						? { budget: commandSpend(earlierBudgets, budget, session.workflows) }
+						: {}),
 				},
 				state: paused
 					? `while the turn was paused: it keeps checkpoint ${paused.checkpointId}${inConversation}. Continue it with /resume or \`namzu drain\`, or close it with /abandon in the TUI.`
