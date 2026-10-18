@@ -147,7 +147,7 @@ describe('rail rows', () => {
 			}),
 			agent({ viewId: 'b', agentId: 'explore', description: 'Find the footer', status: 'queued' }),
 		])
-		expect(rows[0]).toMatch(/^ {2}● main\s+↓ to manage$/u)
+		expect(rows[0]).toMatch(/^ {2}● main$/u)
 		expect(rows[1]).toMatch(
 			/^ {2}○ general-purpose {2,}Mine the UI reference\s+12s · ↓ 3\.2k tokens$/u,
 		)

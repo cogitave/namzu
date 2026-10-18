@@ -554,6 +554,12 @@ type ConversationExportDestination =
 	| { readonly kind: 'file'; readonly path: string }
 /** The value a question row carries: an option id, or the free-text escape. */
 const FREE_TEXT_ANSWER = '__free_text__'
+/**
+ * The footer's shell pill as a stop in the rail's focus order: before `main`
+ * and the agents, as the shells pill comes before the agents in the reference.
+ * It cannot collide with a view id or a `workflow:` focus id.
+ */
+const SHELLS_FOCUS = 'shells'
 
 type PluginChoiceState = ({ readonly kind: 'plugin' } | { readonly kind: 'plugin-action' }) & {
 	readonly title: string
@@ -1620,6 +1626,8 @@ export function App({
 	 */
 	const [railFocus, setRailFocusState] = useState<string | null>(null)
 	const railFocusRef = useRef<string | null>(null)
+	/** Running background shells, read by key handlers that run before the render that counts them. */
+	const shellCountRef = useRef(0)
 	const setRailFocus = useCallback((next: string | null) => {
 		railFocusRef.current = next
 		setRailFocusState(next)
@@ -1645,9 +1653,12 @@ export function App({
 	const railHasRows =
 		railAgents(subagents, railNow, dismissedAgents).length > 0 ||
 		railWorkflows(subagents, railNow, dismissedAgents, workflowRuns).length > 0
+	// The footer's shell pill is the rail's first stop, so shells keep it focused too.
+	const footerHasShells = backgroundJobs.some((job) => job.status === 'running')
 	useEffect(() => {
-		if (!railHasRows && railFocus !== null) setRailFocus(null)
-	}, [railHasRows, railFocus, setRailFocus])
+		if (!railHasRows && !footerHasShells && railFocus !== null) setRailFocus(null)
+		else if (!footerHasShells && railFocus === SHELLS_FOCUS) setRailFocus(null)
+	}, [railHasRows, footerHasShells, railFocus, setRailFocus])
 	const [jobSurfaceState, setJobSurfaceState] = useState<JobSurface | null>(null)
 	const jobSurface = jobSurfaceState?.ownerSession === session ? jobSurfaceState : null
 	const jobSurfaceRef = useRef<JobSurface | null>(null)
@@ -1900,7 +1911,10 @@ export function App({
 	 * open the cockpit for the saved children it can still show.
 	 */
 	const focusAgentRail = useCallback(() => {
-		const first = railRowsRef.current[0]?.viewId ?? railWorkflowsRef.current[0]?.focusId
+		const first =
+			(shellCountRef.current > 0 ? SHELLS_FOCUS : undefined) ??
+			railRowsRef.current[0]?.viewId ??
+			railWorkflowsRef.current[0]?.focusId
 		if (first && agentSurfaceRef.current === null) {
 			// The ↓ that gets here is also dispatched to App's own key handler in
 			// the same tick, which must not read it as the first step inside the rail.
@@ -1913,6 +1927,19 @@ export function App({
 		}
 		void openAgentCockpit()
 	}, [openAgentCockpit, setRailFocus])
+	/** The shells screen `/jobs` opens; the footer's pill reaches the same one. */
+	const openShellJobs = useCallback(() => {
+		if (!session) return
+		setJobSnapshot({ ownerSession: session, jobs: session.jobs?.() ?? [] })
+		setJobClock(Date.now())
+		const current = session.jobs?.() ?? []
+		setJobSurface({
+			ownerSession: session,
+			selectedJobId: current.find((job) => job.status === 'running')?.id ?? current[0]?.id ?? null,
+			detailJobId: null,
+			tailOffset: 0,
+		})
+	}, [session, setJobSurface])
 	/** One git-backed review choice may be resolving while its visible picker remains authoritative. */
 	const reviewChoiceInFlightRef = useRef<object | null>(null)
 	const exitArmedRef = useRef<boolean>(false)
@@ -5014,6 +5041,7 @@ export function App({
 
 	const finalized = messages.filter((m) => !m.pending)
 	const runningShellCount = backgroundJobs.filter((job) => job.status === 'running').length
+	shellCountRef.current = runningShellCount
 	// The footer's pull request item: looked up in the background, paused while
 	// a turn runs, and only on a real terminal.
 	const prStatus = usePrStatus({
@@ -8700,20 +8728,11 @@ export function App({
 						return
 					}
 					case 'jobs': {
-						const current = session?.jobs?.() ?? []
 						if (!session) {
 							pushMessage('system', 'Shell jobs are available once the conversation starts.')
 							return
 						}
-						setJobSnapshot({ ownerSession: session, jobs: current })
-						setJobClock(Date.now())
-						setJobSurface({
-							ownerSession: session,
-							selectedJobId:
-								current.find((job) => job.status === 'running')?.id ?? current[0]?.id ?? null,
-							detailJobId: null,
-							tailOffset: 0,
-						})
+						openShellJobs()
 						return
 					}
 					case 'abandon': {
@@ -11027,6 +11046,7 @@ export function App({
 				// `main` (only beside agent rows), then the agents, then the workflows:
 				// the order they are drawn in.
 				const ids = [
+					...(shellCountRef.current > 0 ? [SHELLS_FOCUS] : []),
 					...(railShowsMain(rows.length) ? ['main'] : []),
 					...rows.map((agent) => agent.viewId),
 					...flows.map((f) => f.focusId),
@@ -11049,7 +11069,9 @@ export function App({
 					return
 				} else if (key.return) {
 					setRailFocus(null)
-					if (selectedWorkflow) {
+					if (railTarget === SHELLS_FOCUS) {
+						openShellJobs()
+					} else if (selectedWorkflow) {
 						openWorkflowFromRail(selectedWorkflow.id, selectedWorkflow.focusId)
 					} else if (selected) {
 						setAgentSurface({
@@ -11751,6 +11773,17 @@ export function App({
 		phase !== 'edit' &&
 		phase !== 'picker'
 	const childSurfaceOpen = agentSurface !== null || outputViewer !== null || jobSurface !== null
+	// `←` and `↓` act only from an empty composer with the keyboard in it, so
+	// the footer names them under the same conditions and never advertises a dead key.
+	const footerKeysLive =
+		showComposerSurface &&
+		!childSurfaceOpen &&
+		!composerHasDraft &&
+		permission === null &&
+		railFocus === null
+	const runningAgentCount =
+		liveSubagents.filter((agent) => railActionFor(agent) === 'stop').length +
+		liveWorkflows.filter((flow) => flow.status === 'running').length
 	return (
 		// One row short of the terminal, always: see ViewportBound.tsx for the
 		// renderer path a taller frame takes and the scrollback row it costs.
@@ -12078,6 +12111,7 @@ export function App({
 								}
 								onDraftPresenceChange={setComposerHasDraft}
 								onOpenAgentPanel={focusAgentRail}
+								onOpenAgents={() => void openAgentCockpit()}
 								onScrollTranscript={() => setScrollOpen(true)}
 								onRecallQueued={recallQueuedPrompt}
 								queuedEdit={{
@@ -12128,6 +12162,11 @@ export function App({
 						shellCount={showComposerSurface && !childSurfaceOpen ? runningShellCount : 0}
 						pr={prStatus}
 						hyperlinks={hyperlinks}
+						agentCount={footerKeysLive ? runningAgentCount : 0}
+						canManage={
+							footerKeysLive && railFocus === null && (runningShellCount > 0 || railHasRows)
+						}
+						shellsSelected={railFocus === SHELLS_FOCUS}
 					/>
 				)}
 				{/* The parent's commentary, between the footer line and the rail:
@@ -12161,7 +12200,7 @@ export function App({
 						terminalRows={terminal.rows}
 						terminalColumns={terminal.columns}
 						compact={permission !== null}
-						{...(railFocus !== null
+						{...(railFocus !== null && railFocus !== SHELLS_FOCUS
 							? {
 									selectedIndex:
 										railFocus === 'main'

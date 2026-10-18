@@ -120,6 +120,11 @@ export interface ComposerProps {
 	 * is the host's answer to give, not a value this key press can hold.
 	 */
 	readonly onOpenAgentPanel?: () => void
+	/**
+	 * `←` on an empty composer: open the agents. Anything typed, pasted or
+	 * attached keeps `←` as cursor movement, so editing is never taken over.
+	 */
+	readonly onOpenAgents?: () => void
 	/** Page up at the composer: open the scrollable transcript. */
 	readonly onScrollTranscript?: () => void
 	/** Recall the latest operator-authored next-turn message into an empty draft. */
@@ -565,6 +570,7 @@ export function Composer({
 	onDraftRestored,
 	onDraftPresenceChange,
 	onOpenAgentPanel,
+	onOpenAgents,
 	onScrollTranscript,
 	onRecallQueued,
 	queuedEdit,
@@ -1152,6 +1158,17 @@ export function Composer({
 				const next = nextWordBoundary(valueRef.current, cursorRef.current)
 				cursorRef.current = next
 				setCursorState(next)
+				return
+			}
+			if (
+				key.leftArrow &&
+				!key.shift &&
+				onOpenAgents &&
+				valueRef.current.length === 0 &&
+				pastesRef.current.length === 0 &&
+				attachmentsRef.current.length === 0
+			) {
+				onOpenAgents()
 				return
 			}
 			if (key.leftArrow || (key.ctrl && input === 'b')) {

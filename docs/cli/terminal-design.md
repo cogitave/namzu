@@ -36,23 +36,21 @@ conversation lists and notices without rewriting stored sessions.
 ## The composer footer
 
 One line sits directly below the message frame, with no blank row between
-them. Its items are joined by a dim ` · `, left to right:
+them. It follows the reference terminal agent's item order and wording; its
+items are joined by a dim ` · `, left to right:
+
+```text
+⏵⏵ bypass permissions on · PR #607 · 3 shells · esc to interrupt · ← 1 agent · ↓ to manage   model
+```
 
 - **The mode**, as `<mark> <words> on` in the mode's color, then a dim
-  `(shift+tab to cycle)` when Shift+Tab actually cycles it here. `auto`
-  reads `⏵⏵ bypass permissions on` in the error color, `accept-edits` reads
-  `⏵⏵ accept edits on` in the user accent, `plan` reads `‖ plan mode on` in
-  teal, `strict` reads `‖ preapproved only on` in the warn color. The default
-  mode (`prompt`) has no item: the row shows a quiet `shift+tab to cycle` only
-  when nothing else would be on it. While a turn runs, the cycle reminder gives
-  way to a dim `esc to interrupt` (omitted when the right side already carries a
-  hint that names Esc).
-- **Background shells**, a cyan pill `1 shell` / `N shells` with a dim
-  `/jobs to manage` after it. `/jobs` opens the shell list; the Down arrow is
-  not wired to it because the agent rail owns that key. It replaces the
-  separate `N shells running` line that used to sit under the footer, and it
-  hides with the composer surface (a permission or child view owning the
-  screen).
+  `(shift+tab to cycle)` when Shift+Tab actually cycles it here and no
+  background shell is running (as in the reference, a running task takes the
+  reminder off the row). `auto` reads `⏵⏵ bypass permissions on` in the error
+  color, `accept-edits` reads `⏵⏵ accept edits on` in the user accent, `plan`
+  reads `‖ plan mode on` in teal, `strict` reads `‖ preapproved only on` in the
+  warn color. The default mode (`prompt`) has no item: the row shows a quiet
+  `shift+tab to cycle` only when nothing else would be on it.
 - **The pull request** for the current branch, `PR #592`: a dim `PR` and the
   number underlined, as an OSC 8 link to the pull request where the terminal
   supports links (plain text elsewhere), colored by review state: approved
@@ -61,21 +59,59 @@ them. Its items are joined by a dim ` · `, left to right:
   outside a git repository. A missing `gh` shows a dim `install gh for PR
   status`; a signed-out `gh` shows `gh auth login for PR status`; any other
   failure, and a branch with no pull request, show nothing.
-- **The reasoning effort**, when the operator has set one, as `effort <level>`.
+- **Background shells**, a cyan pill `1 shell` / `N shells`. It replaces the
+  separate `N shells running` line that used to sit under the footer, and it
+  hides with the composer surface (a permission or child view owning the
+  screen).
+- **The reasoning effort**, when the operator has set one, as `effort <level>`
+  (Namzu's own item; the reference has none).
+- **`esc to interrupt`**, dim, while a turn runs (omitted when the right side
+  already carries a hint that names Esc).
+- **`← N agent(s)`**, dim, when `←` from an empty composer would open the agents
+  and N of them are running (agents plus workflow runs; capped at `99+`). It
+  shows while a turn runs and while idle, and only with nothing typed, pasted
+  or attached, no panel open and the rail not focused, so the row never names
+  a key that does nothing.
+- **`↓ to manage`**, dim, when `↓` from an empty composer reaches something: a
+  running shell or a row on the agents rail. Same conditions as the agents
+  hint.
 
 On the right: an interaction hint or a durable goal when either is active, else
 the model identity. The working directory is no longer on this row.
 
+The keys the hints name:
+
+- **`↓`** from an empty composer focuses the footer. The shell pill comes
+  first (drawn inverted, with `↓ to manage` turning into `enter to view
+  shells`); Enter opens the same
+  `Background` screen `/jobs` opens. `↓` again moves into the agents rail (`main`,
+  then the agents, then the workflows) and `↑` from its first row moves back
+  to the pill. With no shells the first `↓` lands on the rail, and with no
+  rows either it opens the agents cockpit, as before. Esc or any other key
+  hands the keyboard back to the composer.
+- **`←`** from an empty composer opens the agents cockpit (`/agent`). With
+  anything typed, pasted or attached, or with Shift/Ctrl/Alt held, it is cursor
+  movement as always.
+
 The footer is always exactly one row. On narrow screens it drops, in order: the
-`/jobs to manage` hint, `esc to interrupt`, the cycle reminder, the effort
-label, the pull request item, the model on the right, the quiet reminder, and
-only then does the mode truncate; the shell pill goes after that. Where no
-composer is on screen (a picker, the trust prompt, a stopped start) the footer
-leaves out the cycle reminder, since Shift+Tab is the composer's key; the
+model on the right, `↓ to manage`, `← N agents`, `esc to interrupt`, the cycle
+reminder, the effort label, the shell pill, the pull request item, the quiet
+reminder, and only then does the mode truncate. Whole items go, never half of
+one (the reference clips its row at the edge, which can show half a word).
+Where no composer is on screen (a picker, the trust prompt, a stopped start) the
+footer leaves out the cycle reminder, since Shift+Tab is the composer's key; the
 active mode stays. This single line replaces the permission-mode row that used
 to appear inside the message frame, the separate status line below it, and the
 shells line under that. Pending input and transient notices stay inside the
 message frame, above the input.
+
+Deliberate differences from the reference: the model identity (`Auto · fast ·
+model` while Auto routing is on) stays on the right while it fits; `← N agents`
+counts this session's running agents and workflows and `←` opens them, where the
+reference counts other background sessions that wait for the person and `←`
+sends the session itself to the background (a confirmation press and all);
+there is no resting `← for agents` hint; and `↓ to manage` is not offered
+with text typed, because `↓` is cursor movement then.
 
 The pull request item is read off the render path by `tui/pr-status.ts`: `git
 symbolic-ref` for the branch, then `gh pr view --json
@@ -194,7 +230,7 @@ The rail is a `main` row followed by one row per running or recently
 finished sub-agent, drawn right under the footer with no title and no box:
 
 ```text
-  ● main                                                         ↓ to manage
+  ● main
   ○ general-purpose  Mine the Claude Code UI reference     2m10s · ↓ 12.3k tokens
   ○ explore          Find where the footer is drawn                 8s · ↓ 1.4k tokens
   ○ general-purpose  Check the changelog                          waiting
@@ -237,7 +273,7 @@ is never an agent row: it exists only inside its workflow, which gets one row
 after the agent rows (the rail lists only the unlabelled subagents above it):
 
 ```text
-  ● main                                                         ↓ to manage
+  ● main
   ○ general-purpose  Gorev a                                                1m05s
   ○ general-purpose  Gorev d                                       0.3s · ↓ 15 tokens
   ◯ Release audit    ▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱  3/7 · 2m14s · ↓ 48.2k tokens

@@ -471,7 +471,7 @@ export interface AgentTaskPanelProps {
  * finished sub-agent, drawn under the footer line.
  *
  * ```
- *   ● main                                                    ↓ to manage
+ *   ● main
  *   ○ general-purpose  Mine the UI reference            12s · ↓ 3.2k tokens
  * ```
  *
@@ -524,9 +524,9 @@ export function AgentTaskPanel({
 					? [`${workflows.length} workflow${workflows.length === 1 ? '' : 's'}`]
 					: []),
 			].join(' · ')
-		: [above > 0 ? `↑ ${above} more` : undefined, focused ? undefined : '↓ to manage']
-				.filter((part): part is string => part !== undefined)
-				.join(' · ')
+		: above > 0
+			? `↑ ${above} more`
+			: ''
 
 	return (
 		<Box flexDirection="column">

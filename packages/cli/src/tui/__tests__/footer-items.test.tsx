@@ -31,17 +31,68 @@ async function row(props: Partial<StatusBarProps>, cols = 100): Promise<string> 
 }
 
 describe('the footer row', () => {
-	it('reads like the reference: mode, shells, pull request, joined by dots', async () => {
+	it('reads like the reference: mode, pull request, shells, joined by dots', async () => {
 		const text = await row({
 			permissionMode: 'auto',
 			canCycleMode: true,
-			shellCount: 1,
 			pr: PR('approved'),
+			shellCount: 1,
 		})
+		// A running background task takes the cycle key off the row, as in the reference.
+		expect(text).toContain('⏵⏵ bypass permissions on · PR #592 · 1 shell')
+		expect(text).not.toContain('/jobs')
+		expect(text.trimEnd()).toMatch(/gpt-5\.6-terra$/)
+		const noTask = await row({ permissionMode: 'auto', canCycleMode: true, pr: PR('approved') })
+		expect(noTask).toContain('⏵⏵ bypass permissions on (shift+tab to cycle) · PR #592')
+	})
+
+	it('puts esc to interrupt, the agents hint and the manage hint last, in the reference order', async () => {
+		const text = await row(
+			{
+				permissionMode: 'auto',
+				canCycleMode: true,
+				state: 'thinking',
+				pr: PR('pending'),
+				shellCount: 3,
+				agentCount: 1,
+				canManage: true,
+			},
+			140,
+		)
 		expect(text).toContain(
-			'⏵⏵ bypass permissions on (shift+tab to cycle) · 1 shell /jobs to manage · PR #592',
+			'⏵⏵ bypass permissions on · PR #592 · 3 shells · esc to interrupt · ← 1 agent · ↓ to manage',
 		)
 		expect(text.trimEnd()).toMatch(/gpt-5\.6-terra$/)
+	})
+
+	it('names the agents hint with a plural and a cap, and only when there are agents', async () => {
+		expect(await row({ agentCount: 1 })).toContain('← 1 agent')
+		expect(await row({ agentCount: 2 })).toContain('← 2 agents')
+		expect(await row({ agentCount: 120 })).toContain('← 99+ agents')
+		expect(await row({ agentCount: 0 })).not.toContain('←')
+	})
+
+	it('offers ↓ to manage only when told ↓ reaches something, and swaps it for enter while the pill is selected', async () => {
+		expect(await row({ shellCount: 2 })).not.toContain('↓')
+		expect(await row({ shellCount: 2, canManage: true })).toContain('2 shells · ↓ to manage')
+		const selected = await row({ shellCount: 2, canManage: true, shellsSelected: true })
+		expect(selected).toContain('2 shells · enter to view shells')
+		expect(selected).not.toContain('↓ to manage')
+	})
+
+	it('shows no model name beside the hints when they leave no room', async () => {
+		const props: Partial<StatusBarProps> = {
+			permissionMode: 'auto',
+			canCycleMode: true,
+			state: 'thinking',
+			pr: PR('pending'),
+			shellCount: 3,
+			agentCount: 1,
+			canManage: true,
+		}
+		const tight = await row(props, 96)
+		expect(tight).toContain('↓ to manage')
+		expect(tight).not.toContain('gpt-5.6-terra')
 	})
 
 	it.each([
@@ -63,15 +114,14 @@ describe('the footer row', () => {
 	})
 
 	it('pluralises the shell pill and leaves it out at zero', async () => {
-		expect(await row({ shellCount: 1 })).toContain('1 shell /jobs')
-		expect(await row({ shellCount: 3 })).toContain('3 shells /jobs')
+		expect(await row({ shellCount: 1 })).toContain('1 shell')
+		expect(await row({ shellCount: 3 })).toContain('3 shells')
 		expect(await row({ shellCount: 0 })).not.toContain('shell')
 	})
 
-	it('swaps the cycle key for "esc to interrupt" while a turn runs', async () => {
+	it('adds "esc to interrupt" after the mode while a turn runs', async () => {
 		const text = await row({ permissionMode: 'auto', canCycleMode: true, state: 'thinking' })
-		expect(text).toContain('⏵⏵ bypass permissions on · esc to interrupt')
-		expect(text).not.toContain('shift+tab')
+		expect(text).toContain('⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt')
 		const quiet = await row({ state: 'tool' })
 		expect(quiet).toContain('esc to interrupt')
 	})
@@ -113,23 +163,34 @@ describe('the footer row', () => {
 		expect(await row({ pr: { kind: 'none' } })).not.toContain('PR')
 	})
 
-	it('drops the shells hint, then the cycle key, then the PR item, and never wraps', async () => {
+	it('drops the manage hint, the agents hint, the interrupt hint, then the pill, and never wraps', async () => {
 		const props: Partial<StatusBarProps> = {
 			permissionMode: 'auto',
 			canCycleMode: true,
+			state: 'thinking',
 			shellCount: 2,
 			pr: PR('approved'),
+			agentCount: 1,
+			canManage: true,
 		}
 		for (const cols of [140, 100, 80, 64, 50, 40, 30]) {
 			const text = await row(props, cols)
 			expect(text.length).toBeLessThanOrEqual(cols)
 		}
-		const mid = await row(props, 62)
-		expect(mid).toContain('2 shells')
-		expect(mid).not.toContain('/jobs to manage')
+		const wide = await row(props, 110)
+		expect(wide).toContain('↓ to manage')
+		const noManage = await row(props, 78)
+		expect(noManage).toContain('← 1 agent')
+		expect(noManage).not.toContain('↓ to manage')
+		const noAgents = await row(props, 68)
+		expect(noAgents).toContain('esc to interrupt')
+		expect(noAgents).not.toContain('← 1 agent')
+		const noInterrupt = await row(props, 50)
+		expect(noInterrupt).toContain('2 shells')
+		expect(noInterrupt).not.toContain('esc to interrupt')
 		const narrow = await row(props, 44)
 		expect(narrow).toContain('⏵⏵ bypass permissions on')
-		expect(narrow).toContain('2 shells')
+		expect(narrow).toContain('PR #592')
 		expect(narrow).not.toContain('shift+tab')
 	})
 })

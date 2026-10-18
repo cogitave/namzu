@@ -284,7 +284,7 @@ it('shows a lasting shell count, opens /jobs details, and stops only once across
 	await submit(screen, 'launch server')
 	await turnSettled
 	await screen.waitForRender()
-	expect(screen.viewport().join('\n')).toContain('1 shell /jobs to manage')
+	expect(screen.viewport().join('\n')).toContain('1 shell · ↓ to manage')
 	expect(screen.viewport().join('\n')).toContain('Type a message')
 
 	await submit(screen, '/jobs')
@@ -315,7 +315,36 @@ it('shows a lasting shell count, opens /jobs details, and stops only once across
 	expect(screen.viewport().join('\n')).toContain('stopped')
 	screen.press('q')
 	await screen.waitForRender()
-	expect(screen.viewport().join('\n')).not.toContain('1 shell /jobs to manage')
+	expect(screen.viewport().join('\n')).not.toContain('1 shell · ↓ to manage')
+})
+
+it('reaches the shells from the footer with down and opens them with enter', async () => {
+	scenario = 'exit'
+	jobs = [runningJob()]
+	outputs.set('b00000001', outputFor('build output\n'))
+	const screen = await mount(100, 28)
+	expect(screen.viewport().join('\n')).toContain('1 shell · ↓ to manage')
+
+	screen.press('\x1b[B')
+	await screen.waitForRender()
+	expect(screen.viewport().join('\n')).toContain('1 shell · enter to view shells')
+	expect(screen.viewport().join('\n')).not.toContain('↓ to manage')
+
+	screen.press('\x1b')
+	// The lone Esc is held back by the key parser until it is known not to start
+	// a sequence, so wait for the repaint it causes; Vitest's own timeout catches a real hang.
+	while (!screen.viewport().join('\n').includes('↓ to manage')) {
+		await screen.waitForRender()
+		await new Promise<void>((resolve) => setImmediate(resolve))
+	}
+	expect(screen.viewport().join('\n')).toContain('1 shell · ↓ to manage')
+
+	screen.press('\x1b[B')
+	await screen.waitForRender()
+	screen.press('\r')
+	await screen.waitForRender()
+	expect(screen.viewport().join('\n')).toContain('1 active shell')
+	expect(screen.viewport().join('\n')).toContain('npm run dev')
 })
 
 it('clears the shell count and shows one exit row when the kernel delivered the notice', async () => {
@@ -323,12 +352,12 @@ it('clears the shell count and shows one exit row when the kernel delivered the 
 	jobs = [runningJob()]
 	outputs.set('b00000001', outputFor('build output\n'))
 	const screen = await mount(100, 28)
-	expect(screen.viewport().join('\n')).toContain('1 shell /jobs to manage')
+	expect(screen.viewport().join('\n')).toContain('1 shell · ↓ to manage')
 
 	await submit(screen, 'finish the job')
 	await turnSettled
 	await screen.waitForRender()
-	expect(screen.viewport().join('\n')).not.toContain('1 shell /jobs to manage')
+	expect(screen.viewport().join('\n')).not.toContain('1 shell · ↓ to manage')
 	expect(
 		screen
 			.scrollback()
@@ -348,7 +377,7 @@ it('keeps a live CLI session shell visible after /new changes the conversation',
 	await submit(screen, '/new')
 	await screen.waitForRender()
 	expect(sessionCreations).toBe(1)
-	expect(screen.viewport().join('\n')).toContain('1 shell /jobs to manage')
+	expect(screen.viewport().join('\n')).toContain('1 shell · ↓ to manage')
 	await submit(screen, '/jobs')
 	expect(screen.viewport().join('\n')).toContain('npm run dev')
 	screen.press('\r')
@@ -433,5 +462,5 @@ it('reports that a job exited while its stop request was in flight', async () =>
 	await screen.waitForRender()
 	expect(screen.viewport().join('\n')).toContain('Already finished (exit code 0)')
 	expect(screen.viewport().join('\n')).not.toContain('Stopped.')
-	expect(screen.viewport().join('\n')).not.toContain('1 shell /jobs to manage')
+	expect(screen.viewport().join('\n')).not.toContain('1 shell · ↓ to manage')
 })

@@ -3,11 +3,14 @@
  *
  * Left to right, items joined by a dim ` · `: the permission mode (`⏵⏵ bypass
  * permissions on`, colored by mode, with its cycle key while it fits), the
- * background-shell pill (`2 shells`), the pull request for the branch
- * (`PR #592`, underlined, colored by review state), and the reasoning effort
- * when the operator has set one. While a turn runs the cycle key gives way to
- * `esc to interrupt`. Right-aligned: an interaction hint or a durable goal
- * when either is active, else the model identity. The right side owns its
+ * pull request for the branch (`PR #592`, underlined, colored by review
+ * state), the background-shell pill (`2 shells`), the reasoning effort when
+ * the operator has set one, then the hints: `esc to interrupt` while a turn
+ * runs, `← 2 agents` when the empty composer's left arrow opens them, and
+ * `↓ to manage` when the empty composer's down arrow reaches the shells or
+ * the agents rail. Right-aligned: an interaction hint or a durable goal when
+ * either is active, else the model identity, which is Namzu's own addition
+ * and the first thing to go when the row is narrow. The right side owns its
  * columns first so a long mode label cannot erase the key that exits a
  * prompt. The folder is not here; the header names it.
  */
@@ -45,6 +48,15 @@ export interface StatusBarProps {
 	readonly pr?: PrFooterState
 	/** Whether the terminal understands OSC 8 links; the PR number is plain text without it. */
 	readonly hyperlinks?: boolean
+	/**
+	 * Agents that are running now, offered as `← N agents`. Pass 0 (or omit it)
+	 * whenever `←` would not open them: input typed, a panel open, the rail focused.
+	 */
+	readonly agentCount?: number
+	/** Whether `↓` from the empty composer reaches the shells or the agents rail; adds `↓ to manage`. */
+	readonly canManage?: boolean
+	/** The shell pill holds the keyboard: it is drawn inverted and `enter to view shells` replaces `↓ to manage`. */
+	readonly shellsSelected?: boolean
 }
 
 /**
@@ -78,7 +90,8 @@ function modeGlyph(mode: PermissionMode): {
 const QUIET_MODE_HINT = 'shift+tab to cycle'
 const CYCLE_SUFFIX = ' (shift+tab to cycle)'
 const INTERRUPT_HINT = 'esc to interrupt'
-const SHELLS_HINT = '/jobs to manage'
+const MANAGE_HINT = '↓ to manage'
+const VIEW_SHELLS_HINT = 'enter to view shells'
 
 const PR_COLOR: Readonly<Record<PrReview, string | null>> = {
 	approved: theme.status.ok,
@@ -101,6 +114,9 @@ export function StatusBar({
 	shellCount = 0,
 	pr,
 	hyperlinks = false,
+	agentCount = 0,
+	canManage = false,
+	shellsSelected = false,
 }: StatusBarProps) {
 	const terminal = useWindowSize()
 	const activeMode =
@@ -108,7 +124,8 @@ export function StatusBar({
 	const working = state !== 'idle'
 	const hasPr = pr !== undefined && pr.kind !== 'none'
 	// Nothing else on the row: only then is the quiet reminder worth a column.
-	const nothingElse = !activeMode && shellCount === 0 && !hasPr
+	const nothingElse =
+		!activeMode && shellCount === 0 && !hasPr && agentCount === 0 && !canManage && !shellsSelected
 	const layout = fitStatusLine({
 		// App gives the footer one cell of horizontal padding on each side. Ink's
 		// stdout width is the whole terminal, so reserve those cells here rather
@@ -124,10 +141,17 @@ export function StatusBar({
 			: composerMounted && !working && nothingElse
 				? QUIET_MODE_HINT
 				: '',
-		cycleSuffix: activeMode && canCycleMode && composerMounted && !working ? CYCLE_SUFFIX : null,
+		// The reference drops the cycle key as soon as a background task is on
+		// the row: the pill is what the row is about then.
+		cycleSuffix:
+			activeMode && canCycleMode && composerMounted && shellCount === 0 ? CYCLE_SUFFIX : null,
 		interrupt: working && !hint ? INTERRUPT_HINT : null,
 		shells: shellCount > 0 ? `${shellCount} ${shellCount === 1 ? 'shell' : 'shells'}` : null,
-		shellsHint: shellCount > 0 ? SHELLS_HINT : null,
+		agents:
+			agentCount > 0
+				? `← ${agentCount > 99 ? '99+' : agentCount} ${agentCount === 1 ? 'agent' : 'agents'}`
+				: null,
+		manage: shellsSelected && shellCount > 0 ? VIEW_SHELLS_HINT : canManage ? MANAGE_HINT : null,
 		pr:
 			pr === undefined || pr.kind === 'none'
 				? null
@@ -145,21 +169,6 @@ export function StatusBar({
 			</Text>,
 		)
 	}
-	if (layout.interrupt) {
-		parts.push(
-			<Text key="interrupt" color={theme.text.muted}>
-				{layout.interrupt}
-			</Text>,
-		)
-	}
-	if (layout.shells) {
-		parts.push(
-			<Text key="shells">
-				<Text color={theme.accent.shells}>{layout.shells}</Text>
-				{layout.shellsHint ? <Text color={theme.text.muted}> {layout.shellsHint}</Text> : null}
-			</Text>,
-		)
-	}
 	if (layout.pr) {
 		parts.push(
 			<Text key="pr">
@@ -174,10 +183,38 @@ export function StatusBar({
 			</Text>,
 		)
 	}
+	if (layout.shells) {
+		parts.push(
+			<Text key="shells" color={theme.accent.shells} inverse={shellsSelected}>
+				{layout.shells}
+			</Text>,
+		)
+	}
 	if (layout.effort) {
 		parts.push(
 			<Text key="effort" color={theme.text.secondary}>
 				{layout.effort}
+			</Text>,
+		)
+	}
+	if (layout.interrupt) {
+		parts.push(
+			<Text key="interrupt" color={theme.text.muted}>
+				{layout.interrupt}
+			</Text>,
+		)
+	}
+	if (layout.agents) {
+		parts.push(
+			<Text key="agents" color={theme.text.muted}>
+				{layout.agents}
+			</Text>,
+		)
+	}
+	if (layout.manage) {
+		parts.push(
+			<Text key="manage" color={theme.text.muted}>
+				{layout.manage}
 			</Text>,
 		)
 	}
@@ -234,9 +271,10 @@ export interface StatusLineLayout {
 	readonly cycleSuffix: string | null
 	readonly interrupt: string | null
 	readonly shells: string | null
-	readonly shellsHint: string | null
 	readonly pr: { readonly prefix: string | null; readonly label: string } | null
 	readonly effort: string | null
+	readonly agents: string | null
+	readonly manage: string | null
 	readonly gap: string
 	readonly right:
 		| { readonly kind: 'text'; readonly text: string; readonly isGoal: boolean }
@@ -248,13 +286,14 @@ export interface StatusLineLayout {
  *
  * A hint can be the only on-screen explanation of how to leave a prompt, and
  * a goal label is the durable work state, so both reserve their width before
- * the model identity does. On the left the mode is the point of the line and
- * yields last. Under pressure the left loses, in this order: the shell
- * pill's `/jobs to manage`, `esc to interrupt`, the cycle key, the effort
- * label, the pull request item, then the model on the right, then the quiet
- * reminder; after that the mode truncates, and only then does the shell pill
- * go. A line too wide for its room loses whole items, never half of one,
- * except the mode, which is the state itself.
+ * the model identity does. The model is Namzu's own addition and shows only
+ * while the whole row fits beside it. Past that the row loses items from its
+ * right end, the way the reference's clipped row does: `↓ to manage`,
+ * `← N agents`, `esc to interrupt`, then the cycle key (the reference hides
+ * it first once a task is running), the effort label, the shell pill, the
+ * pull request item; after that the quiet reminder goes, then the mode
+ * truncates, and last of all it goes. A line too wide for its room loses
+ * whole items, never half of one, except the mode, which is the state itself.
  */
 export function fitStatusLine(input: {
 	readonly columns: number
@@ -267,7 +306,8 @@ export function fitStatusLine(input: {
 	readonly cycleSuffix?: string | null
 	readonly interrupt?: string | null
 	readonly shells?: string | null
-	readonly shellsHint?: string | null
+	readonly agents?: string | null
+	readonly manage?: string | null
 	readonly pr?: { readonly prefix: string | null; readonly label: string } | null
 }): StatusLineLayout {
 	const columns = Math.max(0, input.columns)
@@ -289,32 +329,37 @@ export function fitStatusLine(input: {
 	let cycleSuffix: string | null = input.cycleSuffix ?? null
 	let interrupt: string | null = input.interrupt ?? null
 	let shells: string | null = input.shells ?? null
-	let shellsHint: string | null = input.shellsHint ?? null
+	let agents: string | null = input.agents ?? null
+	let manage: string | null = input.manage ?? null
 	let pr = input.pr ?? null
 	let effort: string | null = input.effort ? `effort ${input.effort}` : null
 
 	const parts = (): string[] =>
 		[
 			mode ? `${mode}${cycleSuffix ?? ''}` : null,
-			interrupt,
-			shells ? `${shells}${shellsHint ? ` ${shellsHint}` : ''}` : null,
 			pr ? `${pr.prefix ? `${pr.prefix} ` : ''}${pr.label}` : null,
+			shells,
 			effort,
+			interrupt,
+			agents,
+			manage,
 		].filter((value): value is string => Boolean(value))
 	const left = (): string => parts().join(' · ')
 	const over = (): boolean => left().length > leftBudget
 
-	if (over()) shellsHint = null
-	if (over()) interrupt = null
-	if (over()) cycleSuffix = null
-	if (over()) effort = null
-	if (over()) pr = null
 	if (over() && rightText === null && modelLabel !== null) {
-		// The model is recoverable from `/status`; the mode is not.
+		// The model is recoverable from `/status`; nothing on the left is.
 		modelLabel = null
 		gapWidth = 0
 		leftBudget = columns
 	}
+	if (over()) manage = null
+	if (over()) agents = null
+	if (over()) interrupt = null
+	if (over()) cycleSuffix = null
+	if (over()) effort = null
+	if (over()) shells = null
+	if (over()) pr = null
 	// The quiet reminder is only a reminder: cut in half it reads as "shift…cycle".
 	if (over() && mode === QUIET_MODE_HINT) mode = null
 	if (over() && mode) {
@@ -324,7 +369,6 @@ export function fitStatusLine(input: {
 		const room = leftBudget - rest - (rest > 0 ? 3 : 0)
 		mode = room >= 4 ? shortenRightToFit(whole, room) : null
 	}
-	if (over()) shells = null
 	if (over()) mode = null
 
 	const leftWidth = left().length
@@ -337,9 +381,10 @@ export function fitStatusLine(input: {
 		cycleSuffix: mode ? cycleSuffix : null,
 		interrupt,
 		shells,
-		shellsHint,
 		pr,
 		effort,
+		agents,
+		manage,
 		gap,
 		right:
 			rightText !== null

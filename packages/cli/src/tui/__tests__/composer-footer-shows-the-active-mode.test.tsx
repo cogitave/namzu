@@ -187,8 +187,10 @@ describe('the composer footer under width pressure', () => {
 	})
 
 	it('drops the effort label before the mode badge', async () => {
+		// The model identity is the first thing to go, so the effort label only
+		// has to give way once the mode and it no longer fit together.
 		const screen = await renderToScreen(belowMessageFrame(planWithEffort), {
-			cols: 40,
+			cols: 28,
 			rows: ROWS,
 		})
 		try {

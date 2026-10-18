@@ -1161,6 +1161,44 @@ describe('Ctrl+T', () => {
 		expect(screen.viewport().join('\n')).toContain('Type a message')
 	})
 
+	it('offers the running agents on the footer and opens them with left from an empty composer', async () => {
+		activity.set([
+			agent({ viewId: 'agent-left-1', description: 'First child' }),
+			agent({ viewId: 'agent-left-2', description: 'Second child' }),
+		])
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+		expect(screen.viewport().join('\n')).toContain('← 2 agents · ↓ to manage')
+		screen.press('\x1b[D')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('Agents · 2 agents'),
+			'left did not open the agents',
+		)
+	})
+
+	it('keeps left as cursor movement once anything is typed, and stops advertising it', async () => {
+		activity.set([agent({ viewId: 'agent-typed', description: 'Typed child' })])
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+		expect(screen.viewport().join('\n')).toContain('← 1 agent · ↓ to manage')
+		screen.press('hi')
+		await screen.waitForRender()
+		expect(screen.viewport().join('\n')).not.toContain('← 1 agent')
+		expect(screen.viewport().join('\n')).not.toContain('↓ to manage')
+		screen.press('\x1b[D')
+		await screen.waitForRender()
+		screen.press('X')
+		await waitUntil(
+			screen,
+			() => /hX.?i/u.test(screen.viewport().join('\n')),
+			'cursor did not move',
+		)
+		expect(screen.viewport().join('\n')).not.toContain('Agents · 1 agent')
+	})
+
 	it('stops a running agent with x and leaves the rail focused', async () => {
 		stoppedChildren.length = 0
 		activity.set([
@@ -3307,7 +3345,7 @@ describe('render order below the message frame', () => {
 		)
 		const viewport = screen.viewport()
 		const border = frameBottomBorder(screen)
-		expect(viewport[border + 1]).toContain('shift+tab to cycle')
+		expect(viewport[border + 1]).toContain('← 2 agents · ↓ to manage')
 		// Directly under the footer, not the transcript/composer: the `main`
 		// row, one row below where the footer landed, then one row per agent.
 		const railTop = viewport[border + 2] ?? ''
@@ -3412,7 +3450,7 @@ describe('parent narration', () => {
 		// The footer stays directly under the frame; narration follows it, and
 		// the rail's header follows the narration — commentary above the tree,
 		// never inside it and never between the frame and its footer.
-		expect(viewport[border + 1]).toContain('shift+tab to cycle')
+		expect(viewport[border + 1]).toContain('← 2 agents · ↓ to manage')
 		expect(viewport[border + 2]).toContain('map returned five lenses')
 		expect(viewport[border + 3]).toContain('verifying the storage claim')
 		expect((viewport[border + 4] ?? '').trimStart().charAt(0)).toBe('●')
@@ -3513,7 +3551,7 @@ describe('parent narration', () => {
 		expect(railBlock(screen)).toEqual(quiet)
 		const viewport = screen.viewport()
 		const border = frameBottom(screen)
-		expect(viewport[border + 1]).toContain('shift+tab to cycle')
+		expect(viewport[border + 1]).toContain('← 2 agents · ↓ to manage')
 		expect(viewport[border + 2]).toContain('map returned five lenses')
 		expect(viewport[border + 3]).toContain('verifying the storage claim')
 		expect((viewport[border + 4] ?? '').trimStart().charAt(0)).toBe('●')
