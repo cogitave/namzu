@@ -1115,6 +1115,11 @@ export async function createSubagentRuntime(
 						: tracker.onEvent,
 				},
 			})
+			// A wait that ended before the agent did leaves it running on its own: it
+			// reports when it ends like a background agent. One that finished inside
+			// the wait has already handed its result back to the parent.
+			if (outcome.kind === 'yielded' && run_in_background !== true)
+				activity.markReleased(tracker.viewId)
 			return { outcome, agentId }
 		} catch (error) {
 			tracker.fail(error)
@@ -1626,6 +1631,11 @@ export async function createSubagentRuntime(
 					output: `Task ${taskId} already ended: ${agentTaskOutcome(task)}. No cancellation sent.`,
 				}
 			context.abortSignal.throwIfAborted()
+			// The cause stays `user`: it is what closes the request in flight on an
+			// estimate rather than as unknown spend. Who asked is the display's.
+			for (const [shownId, owned] of conversations) {
+				if (owned.task.taskId === taskId) activity.markStopped(shownId, 'parent')
+			}
 			gateway.cancelTask(taskId, 'user')
 			return {
 				success: true,
@@ -1922,6 +1932,7 @@ export async function createSubagentRuntime(
 		if (!owned || !shown || shown.replayed) return false
 		const current = owned.gateway.getTask(owned.task.taskId) ?? owned.task
 		if (isTerminalAgentTaskState(current.state)) return false
+		activity.markStopped(viewId, 'user')
 		owned.gateway.cancelTask(owned.task.taskId, 'user')
 		return true
 	}

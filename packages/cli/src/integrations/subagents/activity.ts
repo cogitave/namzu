@@ -118,6 +118,20 @@ export interface SubagentActivity {
 	readonly resumed?: boolean
 	/** Launched with `run_in_background`: the rail drops it the moment it completes. */
 	readonly background?: boolean
+	/**
+	 * A launch the parent waited on whose wait ended before the agent did (the
+	 * operator sent a message). It finishes on its own afterwards, so it
+	 * reports when it ends the way a background agent does; one that finished
+	 * inside the wait handed its result back to the parent inline and says
+	 * nothing more.
+	 */
+	readonly released?: boolean
+	/**
+	 * Who stopped it, when it ended as `cancelled`: the operator (rail, Esc,
+	 * Ctrl+C), or the conversation's own agent (`cancel_agent`). Absent when
+	 * nobody recorded it.
+	 */
+	readonly stoppedBy?: 'user' | 'parent'
 	readonly prompt: string
 	/** Direct tool batch that launched this concurrent sibling cohort. */
 	readonly batchId: string
@@ -318,6 +332,8 @@ interface MutableActivity {
 	queued?: number
 	resumed?: boolean
 	background?: boolean
+	released?: boolean
+	stoppedBy?: 'user' | 'parent'
 	prompt: string
 	batchId: string
 	toolUseId?: string
@@ -614,6 +630,25 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 	}
 
 	/**
+	 * Records who is stopping a running agent, so the line that closes it can
+	 * say. The first answer stands; an agent that has ended is left alone.
+	 */
+	markStopped(viewId: string, by: 'user' | 'parent'): void {
+		const record = this.records.get(viewId)
+		if (!record || this.closed || isTerminal(record.status) || record.stoppedBy) return
+		record.stoppedBy = by
+		this.scheduleNotify()
+	}
+
+	/** The parent's wait on this agent ended before it did; see {@link SubagentActivity.released}. */
+	markReleased(viewId: string): void {
+		const record = this.records.get(viewId)
+		if (!record || this.closed || isTerminal(record.status) || record.released) return
+		record.released = true
+		this.scheduleNotify()
+	}
+
+	/**
 	 * Sets the live label of a running agent (see `activity-label.ts`). Ignored
 	 * once the agent has ended, and for an unknown row.
 	 */
@@ -704,6 +739,8 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 			...(record.queued ? { queued: record.queued } : {}),
 			...(record.resumed ? { resumed: true } : {}),
 			...(record.background ? { background: true } : {}),
+			...(record.released ? { released: true } : {}),
+			...(record.stoppedBy ? { stoppedBy: record.stoppedBy } : {}),
 			prompt: record.prompt,
 			batchId: record.batchId,
 			...(record.toolUseId ? { toolUseId: record.toolUseId } : {}),

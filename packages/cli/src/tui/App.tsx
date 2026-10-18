@@ -256,9 +256,11 @@ import { TranscriptScrollView } from './TranscriptScrollView.js'
 import { TrustPrompt } from './TrustPrompt.js'
 import { ViewportBound } from './ViewportBound.js'
 import {
+	agentDoneRows,
 	agentMessageRow,
 	agentNotice,
 	launchReceipt,
+	reportsAsNotification,
 	settleLine,
 	workflowNotice,
 } from './agent-transcript-rows.js'
@@ -3014,6 +3016,14 @@ export function App({
 			// A workflow's agents are read in its detail view; the workflow closes
 			// with one line of its own.
 			if (agent.workflow !== DEFAULT_AGENT_WORKFLOW) continue
+			// An agent the parent waited on handed its result back inline: the line
+			// is the tool's own result, not a notification.
+			if (agent.status === 'completed' && !reportsAsNotification(agent)) {
+				const done = agentDoneRows(agent)
+				pushMessage('tool', done.header, false, '●', undefined, theme.accent.assistant)
+				pushMessage('tool', done.result, false, '⎿', undefined, theme.text.muted)
+				continue
+			}
 			// What the agent said (collapsed, ctrl+o opens it), then one line that
 			// says it is over. The answer is not repeated in that line.
 			const said = agentMessageRow(agent)

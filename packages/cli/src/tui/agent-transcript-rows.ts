@@ -128,16 +128,74 @@ export interface AgentNotice {
 	readonly tone: 'ok' | 'error' | 'warn'
 }
 
-/** The one line that closes an agent's run in the conversation. */
+/**
+ * Whether an agent reports its end to the conversation as a notification
+ * (`Message from @name`, then `Agent "…" finished`). Only an agent that runs
+ * on its own does: a background launch, one whose wait was released, or one a
+ * later message resumed. One the parent waited on handed its result back
+ * inline, and the reference draws that as the tool's own result line
+ * (`Done (3 tool uses · 12.1k tokens · 8s)`), not as a notification
+ * (REA fn Qxt, chunk-8242685m.js: every caller is the background path).
+ */
+export function reportsAsNotification(agent: SubagentActivity): boolean {
+	return agent.background === true || agent.released === true || agent.resumed === true
+}
+
+/**
+ * What a waited-on agent leaves in place of a notification: the tool's own
+ * header and result, `general-purpose (Count words in a.txt)` over
+ * `Done (3 tool uses · 12.1k tokens · 8s)`. The header is there because the
+ * reference prints the result under the call that made it, and here the call is
+ * a launch line shared by the whole batch.
+ */
+export function agentDoneRows(
+	agent: SubagentActivity,
+	now = Date.now(),
+): { readonly header: string; readonly result: string } {
+	const uses = agent.toolCalls ?? 0
+	const took = spacedElapsed(Math.max(0, (agent.completedAt ?? now) - agent.startedAt))
+	return {
+		header: `${oneLine(agent.agentId)} (${oneLine(agent.description || agent.agentId)})`,
+		result: `Done (${[
+			uses === 1 ? '1 tool use' : `${uses} tool uses`,
+			`${formatCompactCount(agent.tokens ?? 0)} tokens`,
+			took,
+		].join(' · ')})`,
+	}
+}
+
+/** Why an agent failed, from the row the monitor wrote for it. */
+function failureReason(agent: SubagentActivity): string {
+	const row = [...agent.transcript]
+		.reverse()
+		.find(
+			(item) =>
+				item.kind === 'system' &&
+				/:(failure|agent-failed|turn-failed)$/u.test(item.id) &&
+				item.text.trim().length > 0,
+		)
+	if (row) return oneLine(row.text)
+	const latest = agent.latestActivity ? oneLine(agent.latestActivity) : ''
+	return latest.length > 0 && latest !== 'Failed' ? latest : 'Unknown error'
+}
+
+/**
+ * The one line that closes an agent's run in the conversation, worded as the
+ * reference's notification: `finished`, `failed: <reason>`, and for a stop
+ * `was stopped by user`, `was stopped by Namzu` (the conversation's own agent
+ * asked), or plain `was stopped` when nobody recorded who (REA fn Qxt).
+ */
 export function agentNotice(agent: SubagentActivity, now = Date.now()): AgentNotice {
 	const label = oneLine(agent.description || agent.agentId)
 	const took = spacedElapsed(Math.max(0, (agent.completedAt ?? now) - agent.startedAt))
 	if (agent.status === 'completed')
 		return { content: `Agent "${label}" finished · ${took}`, tone: 'ok' }
-	if (agent.status === 'cancelled')
-		return { content: `Agent "${label}" was stopped · ${took}`, tone: 'warn' }
-	const reason = agent.latestActivity ? oneLine(agent.latestActivity) : 'Failed'
-	return { content: `Agent "${label}" failed: ${reason} · ${took}`, tone: 'error' }
+	if (agent.status === 'cancelled') {
+		const by =
+			agent.stoppedBy === 'user' ? ' by user' : agent.stoppedBy === 'parent' ? ' by Namzu' : ''
+		return { content: `Agent "${label}" was stopped${by} · ${took}`, tone: 'warn' }
+	}
+	return { content: `Agent "${label}" failed: ${failureReason(agent)} · ${took}`, tone: 'error' }
 }
 
 export interface WorkflowNotice {

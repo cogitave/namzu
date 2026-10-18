@@ -446,6 +446,10 @@ it('stops one running child from the agents rail with the operator as the cause,
 		expect(turn.runtime.stopChild(row.viewId)).toBe(true)
 		expect(signal.aborted).toBe(true)
 		expect(cancelCauseOf(signal.reason)).toBe('user')
+		// The line that closes the row can say it was the operator who stopped it.
+		expect(
+			turn.runtime.activity.getSnapshot().find((e) => e.viewId === row.viewId)?.stoppedBy,
+		).toBe('user')
 	} finally {
 		await turn.close()
 	}

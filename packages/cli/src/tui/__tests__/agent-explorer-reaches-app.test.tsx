@@ -463,9 +463,9 @@ describe('Ctrl+T', () => {
 			parentSessionId: childMessageBridge.scope!.sessionId,
 			text: 'Host follow-up result: untrusted child output is quoted.',
 		})
-		// A complete enhanced-keyboard Escape has no ambiguity timeout to race:
-		// it goes back to the conversation, whose composer takes the parent's words.
-		screen.press('\x1b[27u')
+		// Ctrl+C stops the running agent and goes back to the conversation,
+		// whose composer takes the parent's words.
+		screen.press('\x03')
 		await screen.waitForRender()
 		expect(screen.viewport().join('\n')).not.toContain('Message @selected-reviewer')
 		screen.press('parent draft')
@@ -594,7 +594,7 @@ describe('Ctrl+T', () => {
 		const revoked = new Promise<void>((resolve) =>
 			signal!.addEventListener('abort', () => resolve(), { once: true }),
 		)
-		screen.press('\x1b[27u')
+		screen.press('\x03')
 		await screen.waitForRender()
 		await submit(screen, '/new')
 		await revoked
@@ -909,7 +909,7 @@ describe('Ctrl+T', () => {
 
 			await waitUntil(
 				screen,
-				() => painted(screen).includes('Agent "Runtime child 1" finished'),
+				() => /general-purpose \(Runtime child 1\)\n\s*⎿ +Done \(/u.test(painted(screen)),
 				'first completion missing',
 			)
 			// The finished sibling stays on the rail beside the three still running.
@@ -930,9 +930,12 @@ describe('Ctrl+T', () => {
 			await Promise.all(executions)
 			await waitUntil(
 				screen,
-				() => painted(screen).includes('Agent "Runtime child 4" finished'),
+				() => painted(screen).includes('general-purpose (Runtime child 4)'),
 				'runtime completion missing',
 			)
+			// An agent the parent waited on hands its result back inline: no notification.
+			expect(painted(screen)).not.toContain('Message from @')
+			expect(painted(screen)).not.toContain('finished ·')
 			expect(screen.viewport().join('\n')).toContain('Type a message')
 		} finally {
 			await runtime.close()
@@ -2252,6 +2255,7 @@ describe('Ctrl+T', () => {
 		const child = agent({
 			viewId: 'agent-child',
 			description: 'Child session',
+			background: true,
 			transcript: [{ id: 'child-row', kind: 'assistant', text: 'child is working' }],
 		})
 		activity.set([child])
@@ -2935,11 +2939,13 @@ describe('agent completion presentation', () => {
 			viewId: 'child-first',
 			taskId: 'task-first',
 			description: 'Choose first colour',
+			background: true,
 		})
 		const second = agent({
 			viewId: 'child-second',
 			taskId: 'task-second',
 			description: 'Join the two colours',
+			background: true,
 		})
 		const done = (child: SubagentActivity, text: string): SubagentActivity => ({
 			...child,
@@ -3016,7 +3022,7 @@ describe('agent completion presentation', () => {
 		'shows all three outcomes, retaining wait evidence when inspection is unavailable (inspectable=%s)',
 		async (inspectable) => {
 			const children = ['CLI review', 'SDK review', 'Package review'].map((description, i) =>
-				agent({ viewId: `child-${i}`, taskId: `task-${i}`, description }),
+				agent({ viewId: `child-${i}`, taskId: `task-${i}`, description, background: true }),
 			)
 			activity.set(children)
 			let finishWaits!: () => void

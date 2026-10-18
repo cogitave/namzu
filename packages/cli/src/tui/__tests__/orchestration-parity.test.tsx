@@ -21,9 +21,11 @@ import { LiveActivity, waitingLine } from '../LiveActivity.js'
 import { StatusBar } from '../StatusBar.js'
 import { metaSeparator } from '../Transcript.js'
 import {
+	agentDoneRows,
 	agentMessageRow,
 	agentNotice,
 	launchReceipt,
+	reportsAsNotification,
 	settleLine,
 } from '../agent-transcript-rows.js'
 import { type Screen, renderToScreen } from './support/screen.js'
@@ -161,6 +163,57 @@ describe('what a finished agent leaves in the conversation', () => {
 			content: 'Agent "Count words in a.txt" was stopped · 1s',
 			tone: 'warn',
 		})
+	})
+
+	// Reference wording (REA fn Qxt): `was stopped by user`, `was stopped by
+	// Claude` (the main agent stopped it; Namzu's is `Namzu`), plain `was stopped`
+	// when nobody recorded it, and `failed: <error>` with `Unknown error` as the
+	// fallback.
+	it('says who stopped an agent, and why one failed', () => {
+		const base = { viewId: 'a', description: 'Count words', startedAt: 0, completedAt: 4_000 }
+		const stopped = (extra: Partial<SubagentActivity>) =>
+			agentNotice(agent({ ...base, status: 'cancelled', ...extra })).content
+		expect(stopped({ stoppedBy: 'user' })).toBe('Agent "Count words" was stopped by user · 4s')
+		expect(stopped({ stoppedBy: 'parent' })).toBe('Agent "Count words" was stopped by Namzu · 4s')
+		expect(stopped({})).toBe('Agent "Count words" was stopped · 4s')
+		const failed = (extra: Partial<SubagentActivity>) =>
+			agentNotice(agent({ ...base, status: 'failed', ...extra })).content
+		expect(failed({})).toBe('Agent "Count words" failed: Unknown error · 4s')
+		expect(failed({ latestActivity: 'Failed' })).toBe(
+			'Agent "Count words" failed: Unknown error · 4s',
+		)
+		expect(
+			failed({
+				latestActivity: 'Failed',
+				transcript: [{ id: 'a:failure', kind: 'system', text: 'Provider refused the request' }],
+			}),
+		).toBe('Agent "Count words" failed: Provider refused the request · 4s')
+	})
+
+	// Reference (REA fn Qxt: every caller is the background path): an agent the
+	// parent waited on leaves the tool's own result, never a notification.
+	it('leaves a waited-on agent as a Done line and a background one as a notification', () => {
+		const waited = agent({
+			viewId: 'w',
+			agentId: 'general-purpose',
+			description: 'Count words in a.txt',
+			status: 'completed',
+			startedAt: 0,
+			completedAt: 8_000,
+			toolCalls: 3,
+			tokens: 12_100,
+		})
+		expect(reportsAsNotification(waited)).toBe(false)
+		expect(agentDoneRows(waited)).toEqual({
+			header: 'general-purpose (Count words in a.txt)',
+			result: 'Done (3 tool uses · 12.1k tokens · 8s)',
+		})
+		expect(
+			agentDoneRows(agent({ viewId: 'one', toolCalls: 1, completedAt: 1_000, startedAt: 0 }))
+				.result,
+		).toBe('Done (1 tool use · 0 tokens · 1s)')
+		for (const kind of [{ background: true }, { released: true }, { resumed: true }] as const)
+			expect(reportsAsNotification(agent({ viewId: 'n', ...kind }))).toBe(true)
 	})
 
 	it('shows control characters in a child answer as text, never as terminal authority', () => {
