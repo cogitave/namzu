@@ -75,6 +75,16 @@ async function fixture(engine: 'codex-cli' | 'claude-code' = 'codex-cli') {
 			presentCall: () => ({ kind: 'generic', label: '' }),
 			presentResult: () => ({ kind: 'generic', label: '' }),
 		},
+		liveInputStatus: vi.fn(async () => ({
+			available: true,
+			scopeId: 'native-scope',
+			inputs: [],
+		})),
+		liveInput: vi.fn(async (_id: string, input: { scopeId: string; inputId: string }) => ({
+			accepted: true as const,
+			scopeId: input.scopeId,
+			inputId: input.inputId,
+		})),
 		close: vi.fn(async () => {}),
 	}
 	let reviewed = false
@@ -654,6 +664,34 @@ it('retains the reservation until the original Namzu prompt has actually complet
 	await sending
 	expect((await f.runtime.selectHarness(f.sessionId, 'codex-cli')).selected).toBe('codex-cli')
 	expect(f.adapter.open).not.toHaveBeenCalled()
+})
+
+it('lets a message typed while a Namzu turn runs reach that turn, but not an engine conversation', async () => {
+	const f = await fixture()
+	const completion = deferred<{ stopReason: 'end_turn' }>()
+	const entered = deferred<void>()
+	vi.mocked(f.base.gateway.prompt).mockImplementationOnce(async () => {
+		entered.resolve()
+		return completion.promise
+	})
+	const sending = f.prompt()
+	await entered.promise
+	// The turn holds its reservation, yet live input must be asked of the turn itself.
+	expect(await f.runtime.liveInputStatus?.(f.sessionId)).toMatchObject({
+		available: true,
+		scopeId: 'native-scope',
+	})
+	await expect(
+		f.runtime.liveInput?.(f.sessionId, { scopeId: 'native-scope', inputId: 'one', prompt: 'Hi' }),
+	).resolves.toMatchObject({ accepted: true })
+	completion.resolve({ stopReason: 'end_turn' })
+	await sending
+	// A conversation that chose an engine never offers it.
+	await f.runtime.selectHarness(f.sessionId, 'codex-cli')
+	expect(await f.runtime.liveInputStatus?.(f.sessionId)).toEqual({ available: false, inputs: [] })
+	await expect(
+		f.runtime.liveInput?.(f.sessionId, { scopeId: 'x', inputId: 'two', prompt: 'Hi' }),
+	).rejects.toThrow('unavailable in this engine')
 })
 
 it('does not cache a failed read, and refreshes model metadata before allowing a removed model', async () => {
