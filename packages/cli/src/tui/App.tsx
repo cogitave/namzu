@@ -11397,12 +11397,28 @@ export function App({
 
 				if (viewingAgentRef.current === selected.viewId) {
 					// Viewing: the main composer is live and owns the typing, so only
-					// the keys it does not use are read here. Esc goes back to the
-					// conversation (the draft stays in the composer); it never stops the
-					// agent, which is `x` on its rail row.
-					if ((key.ctrl && input === 'c') || key.escape) {
+					// the keys it does not use are read here.
+					//
+					// Esc on a running agent stops it and stays in the view; on one that
+					// has ended it goes back to the conversation (its row lingers, the
+					// draft stays in the composer). Ctrl+C stops a running agent and goes
+					// back either way, and interrupts the conversation's own turn too if
+					// one is running. The reference does exactly this (REA fn Y_e and
+					// ese in chunk-2rs9vjmc.js).
+					if (key.escape) {
+						if (railActionFor(selected) === 'stop') {
+							session?.stopSubagent?.(selected.viewId)
+							return
+						}
 						setAgentSurface(null)
 						setViewNotice(undefined)
+						return
+					}
+					if (key.ctrl && input === 'c') {
+						if (railActionFor(selected) === 'stop') session?.stopSubagent?.(selected.viewId)
+						setAgentSurface(null)
+						setViewNotice(undefined)
+						if (abortRef.current && interruptTurn()) pushMessage('system', 'Interrupted.')
 						return
 					}
 					if (key.pageUp || key.pageDown || key.home || key.end) {

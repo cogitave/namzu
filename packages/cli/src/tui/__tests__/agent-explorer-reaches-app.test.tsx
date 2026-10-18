@@ -3646,7 +3646,7 @@ describe('viewing an agent', () => {
 		return send
 	}
 
-	async function viewSecond(cols = 110, rows = 28) {
+	async function viewSecond(cols = 110, rows = 28, status: SubagentActivity['status'] = 'working') {
 		activity.set([
 			agent({ viewId: 'v1', agentId: 'count-words', description: 'Count words in a.txt' }),
 			agent({
@@ -3654,6 +3654,8 @@ describe('viewing an agent', () => {
 				agentId: 'a-very-long-agent-name-here',
 				description: 'List files',
 				prompt: 'List the files please',
+				status,
+				...(status === 'working' ? {} : { completedAt: Date.now() }),
 			}),
 		])
 		const screen = await renderToScreen(<App ctx={ctx} />, { cols, rows })
@@ -3717,10 +3719,25 @@ describe('viewing an agent', () => {
 		expect(screen.viewport().join('\n')).toContain('hello again')
 	})
 
-	it('goes back to the conversation with Esc, and never stops the running agent', async () => {
+	// Reference: Esc on a running agent stops it and does not leave the view;
+	// on one that has ended it leaves the view (REA fn Y_e, chunk-2rs9vjmc.js).
+	it('stops a running agent with Esc and stays in its view', async () => {
 		allowMessages()
 		stoppedChildren.length = 0
 		const screen = await viewSecond()
+		screen.press('\x1b[27u')
+		await waitUntil(screen, () => stoppedChildren.length === 1, 'Esc did not stop the agent')
+		expect(stoppedChildren).toEqual(['v2'])
+		await screen.waitForRender()
+		// Still the agent's view: its prompt row and the filled bullet on its rail row.
+		expect(screen.viewport().join('\n')).toMatch(/❯ List the files please/u)
+		expect(screen.viewport().join('\n')).toMatch(/^ *● a-very-long-agent-name/mu)
+	})
+
+	it('goes back to the conversation with Esc once the agent has ended, and stops nothing', async () => {
+		allowMessages()
+		stoppedChildren.length = 0
+		const screen = await viewSecond(110, 28, 'completed')
 		screen.press('\x1b[27u')
 		await waitUntil(
 			screen,
@@ -3728,6 +3745,33 @@ describe('viewing an agent', () => {
 			'Esc did not go back to the conversation',
 		)
 		expect(screen.viewport().join('\n')).not.toContain('Message @')
+		expect(stoppedChildren).toEqual([])
+	})
+
+	// Reference: Ctrl+C stops a running agent and always leaves the view (REA fn ese).
+	it('stops a running agent with Ctrl+C and goes back to the conversation', async () => {
+		allowMessages()
+		stoppedChildren.length = 0
+		const screen = await viewSecond()
+		screen.press('\x03')
+		await waitUntil(
+			screen,
+			() => /^ *● main/mu.test(screen.viewport().join('\n')),
+			'Ctrl+C did not go back to the conversation',
+		)
+		expect(stoppedChildren).toEqual(['v2'])
+	})
+
+	it('goes back with Ctrl+C from an ended agent without stopping anything', async () => {
+		allowMessages()
+		stoppedChildren.length = 0
+		const screen = await viewSecond(110, 28, 'failed')
+		screen.press('\x03')
+		await waitUntil(
+			screen,
+			() => /^ *● main/mu.test(screen.viewport().join('\n')),
+			'Ctrl+C did not go back to the conversation',
+		)
 		expect(stoppedChildren).toEqual([])
 	})
 
