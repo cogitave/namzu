@@ -148,10 +148,9 @@ describe('when the model is offered the workflow tool', () => {
 		const session = await createAgentSession(preferences, detectedAnthropic(), { cwd })
 		try {
 			for (const text of ['use a workflow', 'thanks, now rename the file']) {
-				for await (const _event of session.send(
-					[{ role: 'user', content: text, timestamp: 0 }],
-					{ workflowReview: REVIEWER },
-				)) {
+				for await (const _event of session.send([{ role: 'user', content: text, timestamp: 0 }], {
+					workflowReview: REVIEWER,
+				})) {
 					// drain
 				}
 			}

@@ -17,6 +17,7 @@ import {
 import {
 	AGENT_RAIL_FINISHED_LINGER_MS,
 	AgentCockpit,
+	AgentTranscript,
 	AgentTaskPanel,
 	agentWorkflows,
 	cockpitEntryFocus,
@@ -359,5 +360,37 @@ describe('the counters', () => {
 		const text = mounted.viewport().join('\n')
 		expect(text).toContain('1/4 agents')
 		expect(text).toContain('· stopped')
+	})
+})
+
+describe('the transcript of a workflow agent', () => {
+	async function transcript(agent: SubagentActivity) {
+		mounted = await renderToScreen(
+			<AgentTranscript
+				agent={agent}
+				tailOffset={0}
+				terminalRows={30}
+				terminalColumns={100}
+				compact={false}
+				escapeTo="agents"
+				navigationHint="esc agents"
+			/>,
+			{ cols: 100, rows: 30 },
+		)
+		return mounted.viewport().join('\n')
+	}
+
+	it('is headed by the workflow and the phase, then the agent label, not "Subagent"', async () => {
+		const [row] = projectRunAgents(run(), new Map(children().map((c) => [c.viewId, c])))
+		const text = await transcript(row as SubagentActivity)
+		expect(text).toContain('audit · Scan')
+		expect(text).toContain('agent:1')
+		expect(text).not.toContain('Subagent')
+	})
+
+	it('keeps the Subagent header for a child of the Agent tool', async () => {
+		const [plain] = children()
+		const text = await transcript({ ...(plain as SubagentActivity), workflow: 'Delegated work' })
+		expect(text).toContain('Subagent')
 	})
 })

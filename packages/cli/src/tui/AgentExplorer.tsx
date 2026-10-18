@@ -1367,7 +1367,13 @@ export function AgentTranscript({
 			<Box justifyContent="space-between" height={1} flexShrink={0}>
 				<Box flexGrow={1} minWidth={0}>
 					<Text color={theme.accent.assistant} bold wrap="truncate-end">
-						{compact ? oneLine(agent.description || agent.agentId) : 'Subagent'}
+						{compact
+							? oneLine(agent.description || agent.agentId)
+							: agent.workflowRunId !== undefined
+								? terminalDisplayText(
+										`${oneLine(agent.workflow)} · ${oneLine(phaseTitle({ name: agent.phase }))}`,
+									)
+								: 'Subagent'}
 					</Text>
 				</Box>
 				<Box flexShrink={0}>
