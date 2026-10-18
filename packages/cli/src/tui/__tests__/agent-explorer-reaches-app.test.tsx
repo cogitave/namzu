@@ -3082,7 +3082,9 @@ describe('agent completion presentation', () => {
 					expect(output).not.toContain('Agent result:')
 					// The answer rides on the completion row, collapsed; Ctrl+O opens it.
 					expect(output).not.toContain('full report from child')
-					expect(output).toContain('ctrl+o to expand')
+					// The hint follows the sender in parentheses, after a space.
+					expect(output).toMatch(/› Message from @\S+ \(ctrl\+o to expand\)/u)
+					expect(output).not.toContain('· (ctrl+o')
 					screen.press('\x0f')
 					await waitUntil(
 						screen,

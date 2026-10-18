@@ -118,7 +118,7 @@ export function agentMessageRow(agent: SubagentActivity): AgentMessageRow | unde
 	return {
 		content: `Message from @${oneLine(agent.agentId)}`,
 		detail,
-		hint: 'ctrl+o to expand',
+		hint: '(ctrl+o to expand)',
 	}
 }
 

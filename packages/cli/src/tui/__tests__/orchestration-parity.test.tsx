@@ -19,6 +19,7 @@ import { ComposerFrame } from '../ComposerFrame.js'
 import { EffortSlider, effortSliderLayout } from '../EffortSlider.js'
 import { LiveActivity, waitingLine } from '../LiveActivity.js'
 import { StatusBar } from '../StatusBar.js'
+import { metaSeparator } from '../Transcript.js'
 import {
 	agentMessageRow,
 	agentNotice,
@@ -107,6 +108,11 @@ describe('launch receipt', () => {
 })
 
 describe('what a finished agent leaves in the conversation', () => {
+	it('joins a parenthesised hint with a space and any other hint with a middle dot', () => {
+		expect(metaSeparator('(ctrl+o to expand)')).toBe(' ')
+		expect(metaSeparator('correction sent')).toBe(' · ')
+	})
+
 	it('says what it answered as one collapsed message row, and nothing about tokens', () => {
 		const done = agent({
 			viewId: 'done',
@@ -124,7 +130,7 @@ describe('what a finished agent leaves in the conversation', () => {
 		expect(agentMessageRow(done)).toEqual({
 			content: 'Message from @choose-colour',
 			detail: ['Mavi', 'çünkü gökyüzü'],
-			hint: 'ctrl+o to expand',
+			hint: '(ctrl+o to expand)',
 		})
 		expect(agentMessageRow(agent({ viewId: 'quiet', status: 'completed' }))).toBeUndefined()
 	})
