@@ -41,8 +41,8 @@ it('shows the default capability before approving one apparently read-only task'
 		expect(visible).toMatch(/d full( instructions)?/)
 		expect(visible).not.toContain('Instructions: Only inspect src/index.ts.')
 		expect(visible).toContain('❯ 1. Start this agent')
-		expect(visible).toContain('2. Start and allow all tools for this conversation')
-		expect(visible).toContain('3. Do not start')
+		expect(visible).toContain('2. Do not start')
+		expect(visible).not.toContain('allow all tools')
 		expect(visible).not.toContain('read-only tools')
 	} finally {
 		await screen.unmount()
@@ -78,12 +78,12 @@ it.each([60, 100])(
 			expect(initial).toContain('read-only')
 			expect(initial).toContain('files + commands')
 			expect(initial).toContain('❯ 1. Start these 10 agents')
-			expect(initial).toContain('2. Start and allow all tools for this conversation')
-			expect(initial).toContain('3. Do not start')
+			expect(initial).toContain('2. Do not start')
+			expect(initial).not.toContain('allow all tools')
 			expect(initial).toContain('PgUp/PgDn')
 			// One row of keys: the answer keys always, the stop key's own words only
 			// where there is room for them.
-			expect(initial).toContain('y / a / n')
+			expect(initial).toContain('y / n')
 			expect(initial).toMatch(/esc (decline|no)/)
 			if (cols >= 100) expect(initial).toContain('ctrl+c stop')
 			expect(initial).not.toContain('"calls"')
@@ -96,7 +96,7 @@ it.each([60, 100])(
 				await screen.waitForRender()
 				const visible = screen.viewport().join('\n')
 				collected.push(visible)
-				expect(visible).toContain('3. Do not start')
+				expect(visible).toContain('2. Do not start')
 				expect(visible).toMatch(/esc (decline|no)/)
 			}
 			for (let index = 1; index <= 10; index += 1) {
@@ -110,7 +110,7 @@ it.each([60, 100])(
 			expect(exact).toContain('Exact prepared input')
 			expect(exact).toContain('"calls"')
 			expect(exact).toContain('"id": "agent-1"')
-			expect(exact).toContain('3. Do not start')
+			expect(exact).toContain('2. Do not start')
 			const exactPages: string[] = []
 			for (
 				let offset = 0;
@@ -170,7 +170,7 @@ it('shows only actual workflow labels and keeps two long prompts compact on a 24
 		expect(visible).not.toContain('Long private task detail')
 		expect(visible).not.toContain('Synthesize')
 		expect(visible).not.toContain('PgUp/PgDn')
-		expect(visible).toContain('3. Do not start')
+		expect(visible).toContain('2. Do not start')
 		expect(review.text).toContain('Long private task detail')
 	} finally {
 		await screen.unmount()

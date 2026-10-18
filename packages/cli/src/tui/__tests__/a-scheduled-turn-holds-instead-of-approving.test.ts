@@ -178,7 +178,9 @@ describe('answering a parked scheduled turn', () => {
 		}
 		const call = resumeCalls[0] as Call
 		expect(call.pendingDecision).toBeUndefined()
-		expect(call.authorizationGate.rules).toEqual(sessionRules)
+		// The session rules, then the one rule that consults the session's remembered allows.
+		expect(call.authorizationGate.rules.slice(0, sessionRules.length)).toEqual(sessionRules)
+		expect(call.authorizationGate.rules.at(-1)).toMatchObject({ type: 'predicate' })
 		expect(decisions).toEqual(['approve_tools'])
 	})
 

@@ -148,8 +148,6 @@ function sessionFixture(providerSummary = 'a-provider', close = vi.fn()): AgentS
 			throw new Error('resumePaused is not part of this test')
 		},
 		close,
-		approvalLatched: () => false,
-		resetApprovalLatch: () => {},
 		promptExemptTools: () => [],
 		send: async function* (): AsyncIterable<AgentEvent> {
 			yield { kind: 'done', stopReason: 'end_turn' } as AgentEvent
@@ -752,12 +750,9 @@ describe('publishing a picker selection', () => {
 			memory: null,
 			project: 'Saved project guidance',
 		})
-		const resetApprovals = vi.fn()
 		const send = vi.fn(sessionFixture().send)
 		createSession = async () => ({
 			...sessionFixture(),
-			approvalLatched: () => true,
-			resetApprovalLatch: resetApprovals,
 			send,
 		})
 		const harness = render(<App ctx={ctx} />)
@@ -779,7 +774,6 @@ describe('publishing a picker selection', () => {
 			expect(frame).toContain(custom.path)
 			if (!custom.template.includes('$ARGUMENTS')) expect(frame).not.toContain('[arguments]')
 		}
-		expect(resetApprovals).not.toHaveBeenCalled()
 		expect(remember).not.toHaveBeenCalled()
 		expect(read).not.toHaveBeenCalled()
 		expect(expand).not.toHaveBeenCalled()
@@ -907,23 +901,17 @@ describe('publishing a picker selection', () => {
 		},
 	)
 
-	it('shows effective session approval in Settings and clears it only when a preset is applied', async () => {
-		let approvedAll = true
-		const resetApprovals = vi.fn(() => {
-			approvedAll = false
-		})
+	it('shows the selected mode in Settings and applies a preset only when one is chosen', async () => {
 		const modes: unknown[] = []
 		createSession = async () => ({
 			...sessionFixture(),
-			approvalLatched: () => approvedAll,
-			resetApprovalLatch: resetApprovals,
 			promptExemptTools: () => ['glob', 'read'],
 			send: async function* (_messages, opts): AsyncIterable<AgentEvent> {
-				modes.push({ mode: opts?.permissionMode, approvedAll })
+				modes.push(opts?.permissionMode)
 				yield { kind: 'done', stopReason: 'end_turn' }
 			},
 		})
-		const harness = render(<App ctx={ctx} />)
+		const harness = render(<App ctx={{ ...ctx, skipPermissions: true }} />)
 		mounted.push(harness)
 		await frameShows(harness.lastFrame, 'Type a message')
 		await tick(80)
@@ -931,7 +919,6 @@ describe('publishing a picker selection', () => {
 		await submit(harness, '/settings')
 		await frameShows(harness.lastFrame, 'Configuration')
 		expect(harness.lastFrame()).toContain('Reasoning effort')
-		expect(harness.lastFrame()).toContain('Configuration')
 		expect(harness.lastFrame()).toContain('Auto-approve tools')
 		expect(harness.lastFrame()).not.toContain('/status config')
 		harness.stdin.write('Permissions')
@@ -946,8 +933,6 @@ describe('publishing a picker selection', () => {
 		await frameShows(harness.lastFrame, 'Plan (read-only)')
 		harness.stdin.write('\x1b')
 		await frameShows(harness.lastFrame, 'Configuration')
-		expect(resetApprovals).not.toHaveBeenCalled()
-		expect(approvedAll).toBe(true)
 
 		harness.stdin.write('Permissions')
 		await tick(40)
@@ -955,9 +940,8 @@ describe('publishing a picker selection', () => {
 		await frameShows(harness.lastFrame, 'Ask before changes')
 		harness.stdin.write('1')
 		await frameShows(harness.lastFrame, 'Permissions: Ask before changes for this conversation.')
-		expect(resetApprovals).toHaveBeenCalledTimes(1)
 		await submit(harness, 'continue with approvals')
-		await vi.waitFor(() => expect(modes).toEqual([{ mode: 'prompt', approvedAll: false }]))
+		await vi.waitFor(() => expect(modes).toEqual(['prompt']))
 	})
 
 	it.each([
@@ -967,10 +951,8 @@ describe('publishing a picker selection', () => {
 		'keeps %s visible while browsing and cancelling permission options',
 		async (mode, label) => {
 			const sent: unknown[] = []
-			const resetApprovals = vi.fn()
 			createSession = async () => ({
 				...sessionFixture(),
-				resetApprovalLatch: resetApprovals,
 				send: async function* (_messages, opts): AsyncIterable<AgentEvent> {
 					sent.push(opts?.permissionMode)
 					yield { kind: 'done', stopReason: 'end_turn' }
@@ -991,7 +973,6 @@ describe('publishing a picker selection', () => {
 			await frameShows(harness.lastFrame, 'Plan (read-only)')
 			harness.stdin.write('\x1b')
 			await vi.waitFor(() => expect(harness.lastFrame()).not.toContain('More options'))
-			expect(resetApprovals).toHaveBeenCalledTimes(1)
 			await submit(harness, 'keep this mode')
 			await vi.waitFor(() => expect(sent).toEqual([mode]))
 		},

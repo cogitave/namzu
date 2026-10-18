@@ -130,7 +130,6 @@ vi.mock('../agent.js', async (importOriginal) => {
 				throw new Error('resumePaused is not part of this test')
 			},
 			close: async () => {},
-			approvalLatched: () => false,
 			promptExemptTools: () => [],
 			compact: async (messages) => {
 				if (archiveShouldFail) throw new Error('ORIGINALS_COULD_NOT_BE_RETAINED')

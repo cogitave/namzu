@@ -136,6 +136,7 @@ import {
 	buildResidentHistoryTools,
 	buildResidentToolEvidenceTools,
 	buildSessionGoalTools,
+	builtinCommandArguments,
 	compactNow,
 	compactSession,
 	computerUseUnavailableReason,
@@ -347,6 +348,7 @@ import {
 	permissionChangeReason,
 } from '../permissions/live-mode.js'
 import type { PermissionMode } from '../permissions/mode.js'
+import { type SessionAllow, createSessionAllows } from '../permissions/session-allow.js'
 import { createSessionSkillCatalog } from '../skills/catalog.js'
 import { createSkillDirectoryResolver } from '../skills/directory.js'
 import { SAVE_SKILL_TOOL_NAME } from '../skills/save.js'
@@ -688,6 +690,10 @@ export interface PermissionToolCall {
 	readonly isDestructive: boolean
 	/** What the call reaches past the turn's boundary; see `ToolCallSummary.escalation`. */
 	readonly escalation?: ToolCallEscalation
+	/** Present when a rule asked for this call; no remembered answer may skip it. */
+	readonly authorization?: { readonly explicitReview?: true }
+	/** The tool needs a person's yes on every call. */
+	readonly requiresApproval?: true
 }
 
 /** The batch a person is asked about — the kernel's `ToolReviewRequest`. */
@@ -1255,27 +1261,22 @@ export interface AgentSession {
 		readonly derived: RenderedMemoryIndex
 	}>
 	/**
-	 * Whether "approve all" has been chosen at a prompt during this session.
-	 *
-	 * A FUNCTION, not a boolean, and that is the whole point of it. The latch
-	 * lives in a mutable object the permission handler closes over, and it flips
-	 * mid-turn on a single keystroke. A surface handed a boolean would be handed
-	 * whatever the value was when the surface was built — and `/permissions` is
-	 * rendered from a context object assembled on an earlier render, so a
-	 * snapshot would reintroduce the staleness one layer up from where it was
-	 * fixed.
-	 *
-	 * It exists because `/permissions` reported the approval posture from the
-	 * operator's flags alone and could not see this, so it kept printing "you
-	 * are asked before they run" after the operator had turned that off.
+	 * Whether "approve all" has been answered through a host prompt (ACP,
+	 * Desktop). The terminal no longer offers that answer and does not read
+	 * this; it stays for the hosts that do.
 	 */
-	readonly approvalLatched: () => boolean
-	/**
-	 * Revoke a prior "approve all" choice before a later turn starts. Optional
-	 * only for older embedded AgentSession implementations; App refuses a mode
-	 * change when this capability is absent rather than pretending it revoked.
-	 */
+	readonly approvalLatched?: () => boolean
+	/** Revoke a host's "approve all". The terminal does not call it. */
 	readonly resetApprovalLatch?: () => void
+	/**
+	 * Remember "don't ask again" answers for the rest of the session. They
+	 * apply behind the operator's rules and never cover an escape or a path
+	 * outside the roots. Absent where the host has no such store, in which
+	 * case the prompt offers no such answer.
+	 */
+	readonly allowForSession?: (allows: readonly SessionAllow[]) => void
+	/** Tools whose command line is one argument, for naming a command to remember. */
+	readonly commandArguments?: ReadonlyMap<string, string>
 	/**
 	 * Record a permission-mode change on every turn running now: written to
 	 * the session log as `approval_policy_changed` before it takes effect,
@@ -2117,6 +2118,11 @@ export async function createAgentSession(
 	const { palAtWorkspace } = await import('../pals/store.js')
 	if (palAtWorkspace(options.cwd ?? process.cwd()))
 		throw new Error('This Pal requires its owned virtual computer. Open it with namzu pal chat.')
+	// "Don't ask again" answers given at a prompt this session, consulted as
+	// one rule behind the operator's table (see permissions/session-allow.ts).
+	const commandArguments = builtinCommandArguments()
+	const sessionAllows = createSessionAllows(commandArguments)
+	const sessionRules: readonly AuthorizationRule[] = [...(options.rules ?? []), sessionAllows.rule]
 	const fileObservations = new Map<SessionId, Promise<ReturnType<typeof createFileReadTracker>>>()
 	/**
 	 * This process's observation ledger for one conversation, seeded from that
@@ -3305,7 +3311,7 @@ export async function createAgentSession(
 					childToolsets.push(toolset('web-search', [createWebSearchTool()]))
 				return childToolsets
 			},
-			authorizationGate: gateFor(options.rules),
+			authorizationGate: gateFor(sessionRules),
 		})
 		subagentRuntime = sub
 		// The parent's own toolsets, and only ever these — and only where
@@ -3577,8 +3583,9 @@ export async function createAgentSession(
 			return store
 		}
 	}
-	// Persists across turns: once the user picks "approve all", later tool
-	// batches in this session run without prompting.
+	// The kernel's own session latch. This terminal never sets it (it has no
+	// "allow all" answer); a host that answers `approve-all` through the
+	// prompt, such as ACP, still can.
 	const approval = { all: false }
 	// The sessions whose operator let the model see the screen, asked once per
 	// session before the first screenshot. Kept across mode switches and
@@ -4105,7 +4112,7 @@ export async function createAgentSession(
 								taskScheduler: await subagentRuntime.gatewayForTurn(entry.turnId),
 							}
 						: {}),
-					authorizationGate: gateFor(rules ?? options.rules),
+					authorizationGate: gateFor(rules ?? sessionRules),
 					...(pendingDecision ? { pendingDecision } : {}),
 					compactionConfig: compactionConfigFor(options.compaction),
 					retainedToolPreviewChars: options.conversationSessions
@@ -4645,10 +4652,8 @@ export async function createAgentSession(
 		errorHint: null,
 		errorKind: null,
 		// Reads the same object the handler mutates, at call time.
-		approvalLatched: () => approval.all,
-		resetApprovalLatch: () => {
-			approval.all = false
-		},
+		allowForSession: (allows) => sessionAllows.add(allows),
+		commandArguments,
 		setPermissionMode: async (mode, reason) => {
 			await Promise.all(
 				[...liveModeControls].map((control) =>
@@ -5042,7 +5047,7 @@ export async function createAgentSession(
 								escalation,
 								limits: turnLimits,
 								sandboxWorkspace,
-								rules: options.rules,
+								rules: sessionRules,
 								structuredOutput: options.structuredOutput,
 								reviewAnswer: options.reviewAnswer,
 								maxAnswerReviews: options.maxAnswerReviews,
@@ -7223,8 +7228,6 @@ function emptySession(
 		configNotices: [],
 		errorHint,
 		// No turn can run here, so no prompt can have been answered.
-		approvalLatched: () => false,
-		resetApprovalLatch: () => {},
 		// No registry was built, so there is no roster to report on.
 		promptExemptTools: () => [],
 		send: async function* () {

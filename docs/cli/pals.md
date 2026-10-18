@@ -707,7 +707,7 @@ of an owner without Pals creates no Pal files.
   conversation is not visible, so `idle` is not proof the Pal is free).
 - `send_pal_message { palId, body }` asks you first, every time: the tool declares
   that a person must approve it, so `auto`, `accept-edits`, a rule and a remembered
-  "approve all" do not cover it, `strict` refuses it, and a session with nobody to
+  "don't ask again" do not cover it, `strict` refuses it, and a session with nobody to
   ask refuses it rather than sending. On approval the message is accepted into the
   Pal's durable inbox and the tool answers "Sent to *name*'s inbox. This is durable
   acceptance, not delivery, a reply or finished work." A paused or removed Pal is

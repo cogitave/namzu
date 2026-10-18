@@ -1,19 +1,14 @@
 /**
  * The prompt a person answers for a boundary crossing: it says what the call
- * crosses, and an "allow all" answered on one prompt never settles a queued
- * sandbox escape, or a queued path outside the working directory, that was
- * not on screen.
+ * crosses, and offers no remembered answer for it: a sandbox escape, or a path
+ * outside the working directory, is asked about every time.
  */
 
 import { describe, expect, it } from 'vitest'
 
 import { permissionChoices, permissionEscalationNotes } from '../PermissionOverlay.js'
 import type { PermissionToolCall } from '../agent.js'
-import {
-	buildPermissionReview,
-	buildPermissionSummary,
-	releasedByApproveAll,
-} from '../permission-review.js'
+import { buildPermissionReview, buildPermissionSummary } from '../permission-review.js'
 
 const escapeCall: PermissionToolCall = {
 	id: 'b1',
@@ -41,22 +36,26 @@ const ordinary: PermissionToolCall = {
 describe('the prompt for a boundary crossing', () => {
 	it('says a command runs outside the sandbox, and a path is outside the working directory', () => {
 		expect(permissionEscalationNotes([escapeCall])).toEqual([
-			'Runs OUTSIDE the sandbox, on this machine. Asked every time; "allow all" never covers it.',
+			'Runs OUTSIDE the sandbox, on this machine. Asked every time; no earlier answer covers it.',
 		])
 		expect(permissionEscalationNotes([outsideRead])).toEqual([
-			'Outside the working directory: /mnt/c/Users/me/notes.txt. Asked every time; "allow all" never covers it.',
+			'Outside the working directory: /mnt/c/Users/me/notes.txt. Asked every time; no earlier answer covers it.',
 		])
 		expect(permissionEscalationNotes([ordinary])).toEqual([])
 	})
 
-	it('does not offer "allow all tools" as if it covered the escape', () => {
-		expect(permissionChoices([escapeCall])[1]).toBe(
-			'Yes, and allow other tools for this conversation (not sandbox escapes)',
-		)
-		expect(permissionChoices([outsideRead])[1]).toBe(
-			'Yes, and allow other tools for this conversation (not paths outside it)',
-		)
-		expect(permissionChoices([ordinary])[1]).toBe('Yes, allow all tools for this conversation')
+	it('offers no remembered answer for an escape or an outside path', () => {
+		const commands = new Map([['bash', 'command']])
+		for (const call of [escapeCall, outsideRead]) {
+			expect(permissionChoices([call], { mode: 'prompt', commandArguments: commands })).toEqual([
+				'Yes',
+				'No, and tell namzu what to do differently (esc)',
+			])
+		}
+		// Not even beside a call that would otherwise carry one.
+		expect(
+			permissionChoices([ordinary, escapeCall], { mode: 'prompt', commandArguments: commands }),
+		).toHaveLength(2)
 	})
 
 	it('shows the escape in the readable view instead of dropping to the exact one', () => {
@@ -65,14 +64,5 @@ describe('the prompt for a boundary crossing', () => {
 		const summary = buildPermissionSummary(review.ok ? review.text : '')
 		expect(summary.complete).toBe(true)
 		expect(summary.text).toContain('sandbox: OFF for this command (runs on the host)')
-	})
-})
-
-describe('an "allow all" answered on another prompt', () => {
-	it('settles queued ordinary calls but never a queued escape or outside path', () => {
-		expect(releasedByApproveAll([ordinary])).toBe(true)
-		expect(releasedByApproveAll([outsideRead])).toBe(false)
-		expect(releasedByApproveAll([ordinary, outsideRead])).toBe(false)
-		expect(releasedByApproveAll([ordinary, escapeCall])).toBe(false)
 	})
 })

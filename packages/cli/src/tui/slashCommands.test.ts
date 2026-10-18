@@ -35,7 +35,6 @@ function permissions(over: Partial<SlashContext['permissions']> = {}): SlashCont
 	return {
 		currentMode: () => ({ mode: 'prompt', source: 'default' }),
 		rules: [],
-		approvalLatched: () => false,
 		neverPrompted: () => [],
 		...over,
 	}
@@ -668,59 +667,6 @@ describe('/permissions', () => {
 			expect(r.content).toContain('bash')
 			expect(r.content).toContain('allow')
 			expect(r.content).toContain('read, glob')
-		}
-	})
-
-	it('reports approve-all as automatic approval, not as "you are asked"', () => {
-		// The defect this readout was rewritten for. One `a` at a prompt turns
-		// every later tool call into an automatic approval, and the page whose
-		// job is to report that posture kept reporting the opposite.
-		const r = permissionsReadout(
-			context({ permissions: permissions({ approvalLatched: () => true }) }),
-		)
-		if (r?.kind === 'message') {
-			expect(r.content).toContain('approved automatically')
-			expect(r.content).toContain('for this conversation')
-			expect(r.content, 'still claims calls are reviewed').not.toContain('Ask before changes')
-		}
-	})
-
-	it('reports strict as rejection even if an older approve-all latch exists', () => {
-		const r = permissionsReadout(
-			context({
-				permissions: permissions({
-					currentMode: () => ({ mode: 'strict', source: 'session' }),
-					approvalLatched: () => true,
-				}),
-			}),
-		)
-		if (r?.kind === 'message') {
-			expect(r.content).toContain('Permissions: Preapproved tools only')
-			expect(r.content).toContain('refuse other calls without asking')
-			expect(r.content).not.toContain('approve all" was chosen')
-		}
-	})
-
-	it('reads the latch when it renders, not when the context was built', () => {
-		// The staleness this is really guarding against. The context object is
-		// assembled during a render and read later from a callback that captured
-		// it, so a boolean field would report whatever was true at build time.
-		// Here the latch flips AFTER the context exists — which is exactly what
-		// happens when the operator presses `a` mid-turn.
-		let latched = false
-		const ctxLive = context({
-			permissions: permissions({ approvalLatched: () => latched }),
-		})
-
-		const before = permissionsReadout(ctxLive)
-		if (before?.kind === 'message') expect(before.content).toContain('Ask before changes')
-
-		latched = true
-
-		const after = permissionsReadout(ctxLive)
-		if (after?.kind === 'message') {
-			expect(after.content).toContain('approved automatically')
-			expect(after.content).not.toContain('Ask before changes')
 		}
 	})
 

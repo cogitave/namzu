@@ -87,7 +87,6 @@ vi.mock('../agent.js', async (importOriginal) => {
 				throw new Error('resumePaused is not part of this test')
 			},
 			close: async () => {},
-			approvalLatched: () => false,
 			promptExemptTools: () => [],
 			send: async function* (): AsyncIterable<AgentEvent> {
 				if (separateMessages) {

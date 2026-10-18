@@ -1,7 +1,7 @@
 /**
  * A scheduled run has no session-wide approval, so its permission screen
  * offers only Yes and No: no "allow all" line, and no `a` in the key hint.
- * A live prompt keeps its three answers.
+ * A live prompt has none either; it can add one answer scoped to what it asks.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -34,9 +34,9 @@ describe('the answers a prompt offers', () => {
 		])
 	})
 
-	it('keep "allow all" on a live prompt', () => {
-		expect(permissionAnswers(bash).map((a) => a.kind)).toEqual(['approve', 'approve-all', 'reject'])
-		expect(permissionChoices(bash)[1]).toBe('Yes, allow all tools for this conversation')
+	it('have no "allow all" on a live prompt either', () => {
+		expect(permissionAnswers(bash).map((a) => a.kind)).toEqual(['approve', 'reject'])
+		expect(permissionChoices(bash).join('\n')).not.toContain('allow all')
 	})
 })
 

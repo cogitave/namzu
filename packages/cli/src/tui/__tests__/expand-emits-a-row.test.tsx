@@ -78,7 +78,6 @@ vi.mock('../agent.js', async (importOriginal) => {
 				throw new Error('resumePaused is not part of this test')
 			},
 			close: async () => {},
-			approvalLatched: () => false,
 			promptExemptTools: () => [],
 			// One tool call producing TWO collapsible bodies — the `⏺` call line
 			// and the `⎿` result. Two is the minimum that can tell a working

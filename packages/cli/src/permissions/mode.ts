@@ -50,14 +50,6 @@ export function permissionModeLabel(mode: PermissionMode): string {
 	}
 }
 
-/** Session-wide approval overrides prompting, but never plan or strict mode. */
-export function effectivePermissionMode(
-	mode: PermissionMode,
-	approvedAll: boolean,
-): PermissionMode {
-	return approvedAll && (mode === 'prompt' || mode === 'accept-edits') ? 'auto' : mode
-}
-
 /**
  * The mode Shift+Tab moves to. The reference's cycle (`c4t`) runs default,
  * accept edits, plan, then bypass when the session may use it, then back to

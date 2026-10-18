@@ -77,8 +77,6 @@ vi.mock('../agent.js', async (importOriginal) => {
 				throw new Error('resumePaused is not part of this test')
 			},
 			close: async () => {},
-			approvalLatched: () => false,
-			resetApprovalLatch: () => {},
 			setPermissionMode: async (mode: string) => {
 				recorded.push(mode)
 			},

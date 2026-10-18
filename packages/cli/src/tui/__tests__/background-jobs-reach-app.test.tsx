@@ -120,7 +120,6 @@ vi.mock('../agent.js', async (importOriginal) => {
 					throw new Error('not used by this test')
 				},
 				close: async () => {},
-				approvalLatched: () => false,
 				promptExemptTools: () => [],
 				jobs: forThisSession,
 				readJob: (id) => {

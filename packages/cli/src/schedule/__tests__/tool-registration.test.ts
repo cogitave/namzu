@@ -48,7 +48,7 @@ describe('where the schedule tools are registered', () => {
 		expect(extraAt).toBeGreaterThan(buildToolsAt)
 		const buildToolsBody = agent.slice(
 			buildToolsAt,
-			agent.indexOf('authorizationGate: gateFor(options.rules),', buildToolsAt),
+			agent.indexOf('authorizationGate: gateFor(sessionRules),', buildToolsAt),
 		)
 		expect(buildToolsBody).not.toContain('extraTools')
 	})

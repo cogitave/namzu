@@ -80,8 +80,6 @@ vi.mock('../agent.js', async (importOriginal) => {
 						},
 			agentIds: [],
 			configNotices: [],
-			approvalLatched: () => false,
-			resetApprovalLatch: () => {},
 			promptExemptTools: () => [],
 			resumeDurable: async () => {
 				throw new Error('not used')
