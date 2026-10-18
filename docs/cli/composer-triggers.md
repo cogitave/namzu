@@ -17,10 +17,10 @@ what will happen, and **Alt+W** drops it. Nothing is hidden from you: the row
 is there before you press Enter.
 
 ```text
-┌─ MESSAGE ───────────────────────────────────────────────────────────────────────┐
-│ ✦ hypermode · this turn: effort xhigh, delegate to parallel agents · alt+w drop │
-│ › hypermode ile şu repodaki TODO'ları iki agent'a bölerek say▏                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
+────────────────────────────────────────────────────────────────────────────────
+✦ hypermode · this turn: effort xhigh, delegate to parallel agents · alt+w drop
+❯ hypermode ile şu repodaki TODO'ları iki agent'a bölerek say▏
+────────────────────────────────────────────────────────────────────────────────
 ```
 
 Three rules hold for every trigger:
@@ -99,7 +99,7 @@ are one word; the highlight still lands on the characters you typed.
 
 ## The tag row
 
-One row inside the message frame, above the input, in the place of the
+One row between the composer's rules, above the input, in the place of the
 `Effort:` and `Model:` previews. `✦` marks an armed trigger and `✧` anything
 else, and the state is always also a word or a mark, never only the glyph:
 

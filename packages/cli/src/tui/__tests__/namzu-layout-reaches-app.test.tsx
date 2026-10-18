@@ -10,6 +10,7 @@ import type { Preferences } from '../../integrations/providers/index.js'
 import { fakeAgentSession } from '../__fixtures__/agent-session.js'
 import type { AgentEvent } from '../agent.js'
 import type { TuiContext } from '../types.js'
+import { lowerRuleRow } from './support/composer-rules.js'
 import { type Screen, renderToScreen } from './support/screen.js'
 
 const preferences: Preferences = {
@@ -335,12 +336,9 @@ it('rewraps settled prose on expansion while keeping the draft and one history c
 		)
 		const viewport = screen.viewport().join('\n')
 		expect(viewport).toContain('draft survives resize')
-		expect(
-			screen
-				.viewport()
-				.find((line) => line.includes('MESSAGE'))
-				?.lastIndexOf('┐'),
-		).toBe(158)
+		// The composer's rules span the padded width: columns 1 through 158.
+		const rules = screen.viewport()
+		expect(rules[lowerRuleRow(rules)]?.trimEnd().length).toBe(159)
 		expect(screen.scrollback().join('\n').split(historyMarker)).toHaveLength(2)
 	} finally {
 		await screen.unmount()

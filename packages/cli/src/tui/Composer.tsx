@@ -1452,7 +1452,7 @@ export function Composer({
 	)
 	const beforeSegments = displaySegments(value, displayValue.start, cursor, styledSpans)
 	const afterSegments = displaySegments(value, cursor, displayValue.end, styledSpans)
-	const promptGlyph = disabled ? '…' : '›'
+	const promptGlyph = disabled ? '…' : '❯'
 	const showPlaceholder = !disabled && value.length === 0 && !editPreviousArmed
 	const historySearchQuery = historySearch
 		? composerDisplayValue(historySearch.query, historySearch.query.length)
@@ -1460,19 +1460,19 @@ export function Composer({
 	return (
 		<Box flexDirection="column">
 			{effortIntent ? (
-				<Box paddingX={1}>
+				<Box>
 					<Text color={effortAvailable ? theme.accent.tool : theme.status.warn}>
 						Effort: {effortIntent} · {effortAvailable ? 'requested' : 'unavailable for this model'}
 					</Text>
 				</Box>
 			) : null}
 			{modelIntent ? (
-				<Box paddingX={1}>
+				<Box>
 					<Text color={theme.accent.tool}>Model: {modelIntent.query} · requested</Text>
 				</Box>
 			) : null}
 			{triggerRow ? (
-				<Box paddingX={1}>
+				<Box>
 					<Text
 						color={
 							detection.hits.some((hit) => hit.state === 'armed')
@@ -1490,7 +1490,7 @@ export function Composer({
 					{pastes.length} text paste{pastes.length === 1 ? '' : 's'} attached
 				</Text>
 			) : pastes.length > 0 || attachments.length > 0 ? (
-				<Box flexDirection="column" paddingX={1} paddingBottom={1}>
+				<Box flexDirection="column" paddingBottom={1}>
 					{attachments.map((attachment, i) => (
 						// biome-ignore lint/suspicious/noArrayIndexKey: these rows have no identity of their own and hold no state, so the index is the key.
 						<Text key={`attachment-${i}`} color={theme.accent.tool}>
@@ -1505,11 +1505,9 @@ export function Composer({
 					))}
 				</Box>
 			) : null}
-			<Box paddingX={1}>
+			<Box>
 				<Box width={2} flexShrink={0}>
-					<Text color={disabled ? theme.text.muted : theme.accent.user} bold>
-						{promptGlyph}
-					</Text>
+					<Text color={theme.text.muted}>{promptGlyph}</Text>
 				</Box>
 				<Box flexGrow={1}>
 					{showPlaceholder ? (
@@ -1530,7 +1528,7 @@ export function Composer({
 				</Box>
 			</Box>
 			{historySearch && historySearchQuery ? (
-				<Box paddingX={1} paddingTop={1}>
+				<Box paddingTop={1}>
 					<Text color={theme.text.muted}>
 						history “{historySearchQuery.leadingEllipsis ? '… ' : ''}
 						{historySearchQuery.before}” ·{' '}
@@ -1542,7 +1540,7 @@ export function Composer({
 				</Box>
 			) : null}
 			{suggestionKind === 'command' ? (
-				<Box flexDirection="column" paddingX={1} paddingTop={1} width="100%">
+				<Box flexDirection="column" paddingTop={1} width="100%">
 					{visibleCommandSuggestions.map((cmd, i) => {
 						const absoluteIndex = suggestionStart + i
 						return (
@@ -1579,7 +1577,7 @@ export function Composer({
 					</Text>
 				</Box>
 			) : suggestionKind === 'file' ? (
-				<Box flexDirection="column" paddingX={1} paddingTop={1} width="100%">
+				<Box flexDirection="column" paddingTop={1} width="100%">
 					{visibleFileSuggestions.map((path, i) => {
 						const absoluteIndex = suggestionStart + i
 						return (

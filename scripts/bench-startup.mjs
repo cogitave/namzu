@@ -296,7 +296,7 @@ async function tuiRun({ loadLog }) {
 		const now = performance.now() - t0
 		buf += d
 		if (seen.firstByte === undefined) seen.firstByte = now
-		if (seen.firstFrame === undefined && buf.includes('MESSAGE')) {
+		if (seen.firstFrame === undefined && buf.includes('❯')) {
 			seen.firstFrame = now
 			if (loadLog) modulesAt.firstFrame = countLines(loadLog)
 		}

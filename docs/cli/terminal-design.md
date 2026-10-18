@@ -35,7 +35,7 @@ conversation lists and notices without rewriting stored sessions.
 
 ## The composer footer
 
-One line sits directly below the message frame, with no blank row between
+One line sits directly below the composer's lower rule, with no blank row between
 them. It follows the reference terminal agent's item order and wording; its
 items are joined by a dim ` · `, left to right:
 
@@ -101,9 +101,9 @@ one (the reference clips its row at the edge, which can show half a word).
 Where no composer is on screen (a picker, the trust prompt, a stopped start) the
 footer leaves out the cycle reminder, since Shift+Tab is the composer's key; the
 active mode stays. This single line replaces the permission-mode row that used
-to appear inside the message frame, the separate status line below it, and the
+to appear inside the writing area, the separate status line below it, and the
 shells line under that. Pending input and transient notices stay inside the
-message frame, above the input.
+composer's rules, above the input.
 
 Deliberate differences from the reference: the model identity (`Auto · fast ·
 model` while Auto routing is on) stays on the right while it fits; `← N agents`
@@ -158,19 +158,18 @@ job on `x`. A new question from a tool closes the shell view so the question
 is visible and answerable.
 
 [Hypermode](slash-commands.md#hypermode), while on for the session, is named
-once at the message frame's upper right in violet. The top rule rests in plain
-graphite. Turning the mode on sends one short lavender glow from the visible
+once at the right end of the composer's upper rule in violet. The rule rests in
+plain graphite. Turning the mode on sends one short lavender glow from the visible
 rule's center toward both ends, then the rule becomes still again. Repeating
 the selection does not replay it. Motion is skipped in non-interactive terminals,
 for screen readers, and when colour is refused (`NO_COLOR`, `FORCE_COLOR=0`,
-`TERM=dumb`); the label remains readable without colour. Below 28 columns,
-the label takes the `MESSAGE` caption's space and the pulse is skipped. A frame too narrow for the
+`TERM=dumb`); the label remains readable without colour. A frame too narrow for the
 complete mode name omits the label rather than clipping it.
 
 ### Composer triggers
 
 A [composer trigger](composer-triggers.md) — `hypermode`, "bunu skill olarak
-kaydet" — gets one row inside the message frame, above the input, where the
+kaydet" — gets one row inside the composer's rules, above the input, where the
 `Effort:`/`Model:` previews go:
 `✦ hypermode · this turn: effort xhigh, delegate to parallel agents · alt+w drop`.
 The armed words in the draft are bold and underlined in sky (ANSI 117), the
@@ -569,17 +568,21 @@ File-discovery calls name both the glob pattern and its directory. A shallow
 limits add an explicit incomplete-search notice. See
 [Bounded file discovery](../sdk/file-discovery.md).
 
-A square message frame marks the writing area. Green corners and the `MESSAGE`
-label identify the active input; its long edges stay quiet. The two frame rows
-take the place of vertical padding, so the frame adds no height to the previous
-input layout. The frame is a constant three rows regardless of the active
-permission mode — see [The composer footer](#the-composer-footer) for where
-the mode itself is drawn. The frame stays static while working. Opening a
-permission prompt or text/command picker hides it while keeping the composer
-mounted, so drafts and attachments survive the transition. A text prompt also leaves the
-composer’s keyboard listener attached while the composer is hidden; its input
-guard ignores keys until the prompt closes, so the first key typed when the
-writing area returns is accepted.
+The writing area is two plain horizontal rules, `─` in graphite, with the input
+between them: no side borders, no corners and no title, as in the reference.
+The input line starts with a dim `❯ ` (`…` while the composer is paused), and
+the placeholder, pasted-text and attachment rows, the effort, model and trigger
+rows and the suggestion menus sit between the rules, left-aligned with the
+prompt. The only text ever written on a rule is the session mode, `hypermode`,
+at the upper rule's right end. The frame is a constant three rows plus the blank
+row above it, regardless of the active permission mode — see
+[The composer footer](#the-composer-footer) for where the mode itself is drawn.
+The frame stays static while working. Opening a permission prompt or text/command
+picker hides it while keeping the composer mounted, so drafts and attachments
+survive the transition. A text prompt also leaves the composer’s keyboard
+listener attached while the composer is hidden; its input guard ignores keys
+until the prompt closes, so the first key typed when the writing area returns is
+accepted.
 
 The Working label itself has a repeating green fill and pale leading edge,
 alongside elapsed time and the turn's output so far, `Working (46s · ↓ 1.1k

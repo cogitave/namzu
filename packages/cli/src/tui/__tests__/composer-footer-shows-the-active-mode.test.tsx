@@ -26,6 +26,7 @@ import { describe, expect, it } from 'vitest'
 
 import { ComposerFrame } from '../ComposerFrame.js'
 import { StatusBar } from '../StatusBar.js'
+import { lowerRuleRow } from './support/composer-rules.js'
 import { type Screen, renderToScreen } from './support/screen.js'
 
 const ROWS = 24
@@ -55,15 +56,15 @@ function belowMessageFrame(footer: ReactElement) {
  */
 function footerRow(screen: Screen): string {
 	const viewport = screen.viewport()
-	const border = viewport.findIndex((line) => line.includes('└') && line.includes('┘'))
-	expect(border, 'message frame bottom border not found on screen').toBeGreaterThanOrEqual(0)
+	const border = lowerRuleRow(viewport)
+	expect(border, 'lower rule of the composer not found on screen').toBeGreaterThanOrEqual(0)
 	return viewport[border + 1] ?? ''
 }
 
 /** The row after the footer's own — blank unless something else follows it. */
 function rowAfterFooter(screen: Screen): string {
 	const viewport = screen.viewport()
-	const border = viewport.findIndex((line) => line.includes('└') && line.includes('┘'))
+	const border = lowerRuleRow(viewport)
 	return viewport[border + 2] ?? ''
 }
 

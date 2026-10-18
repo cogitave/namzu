@@ -136,7 +136,7 @@ describe.skipIf(!binding || process.platform === 'win32')(
 			])
 			const screen = await screenHas(
 				(text) =>
-					text.includes('MESSAGE') &&
+					text.includes('Type a message') &&
 					text.includes('gpt-5') &&
 					text.includes('plan mode on') &&
 					text.includes('effort high'),
@@ -154,7 +154,7 @@ describe.skipIf(!binding || process.platform === 'win32')(
 			}
 			const { screenHas, home } = await launch(['--model', 'gpt-launch-0'], saved)
 			const screen = await screenHas(
-				(text) => text.includes('MESSAGE') && text.includes('gpt-launch-0'),
+				(text) => text.includes('Type a message') && text.includes('gpt-launch-0'),
 			)
 			expect(screen).not.toContain('gpt-launch-1')
 			expect(JSON.parse(readFileSync(join(home, 'preferences.json'), 'utf8'))).toEqual(saved)

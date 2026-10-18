@@ -241,13 +241,13 @@ async function submit(
 ): Promise<void> {
 	// Durable scope/goal updates can precede the render that enables input.
 	await until(
-		() => harness.lastFrame()?.includes('› Type a message') === true,
+		() => harness.lastFrame()?.includes('❯ Type a message') === true,
 		'the composer is not ready for input',
 	)
 	harness.stdin.write(text)
 	// Ink can process Enter before the preceding text event under full-suite load.
 	await until(
-		() => harness.lastFrame()?.includes(`› ${text}`) === true,
+		() => harness.lastFrame()?.includes(`❯ ${text}`) === true,
 		'the composer did not render the input before submit',
 	)
 	harness.stdin.write('\r')

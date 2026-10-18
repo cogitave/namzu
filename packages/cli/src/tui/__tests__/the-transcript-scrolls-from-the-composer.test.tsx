@@ -157,7 +157,7 @@ it('opens on Page Up, hints the way back, and End returns to the composer', asyn
 	// top of a stale screen, and the history is printed once.
 	const rows = screen.viewport()
 	const last = rows.findIndex((r) => r.includes('reply row 59'))
-	const box = rows.findIndex((r) => r.includes('MESSAGE'))
+	const box = rows.findIndex((r, at) => at > last && /^\s*─{3,}\s*$/u.test(r))
 	expect(last).toBeGreaterThanOrEqual(0)
 	expect(box - last).toBeLessThanOrEqual(2)
 	expect(screen.scrollback().join('\n').split('reply row 59').length - 1).toBe(1)

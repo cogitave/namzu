@@ -179,7 +179,7 @@ async function mountReady() {
 	mounted.push(harness)
 	// Wait for the live composer, because the probing screen drops every key
 	// before the feature is reachable and would report that as a command failure.
-	await frameShows(harness, '› Type a message… (/help for commands)')
+	await frameShows(harness, '❯ Type a message… (/help for commands)')
 	return harness
 }
 

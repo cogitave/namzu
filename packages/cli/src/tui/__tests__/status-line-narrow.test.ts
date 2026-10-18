@@ -49,8 +49,8 @@ describe('the footer on a narrow pane', () => {
 	})
 
 	it('orders the items as the reference does: mode, PR, shells, then the hints', () => {
-		const { text } = line(200)
-		expect(text.replace(/\s+claude-haiku-4-5$/, '')).toBe(
+		const { text, right } = line(200)
+		expect(text.slice(0, -right.length).trimEnd()).toBe(
 			'⏵⏵ bypass permissions on (shift+tab to cycle) · PR #592 · 2 shells · effort high · esc to interrupt · ← 1 agent · ↓ to manage',
 		)
 	})
@@ -94,7 +94,7 @@ describe('the footer on a narrow pane', () => {
 		const wide = line(200).layout
 		expect(wide.right).toEqual({ kind: 'model', model: 'claude-haiku-4-5' })
 		const full = line(200)
-		const leftWidth = full.text.replace(/\s+claude-haiku-4-5$/, '').length
+		const leftWidth = full.text.slice(0, -full.right.length).trimEnd().length
 		const needed = leftWidth + 1 + 'claude-haiku-4-5'.length
 		expect(line(needed).layout.right).toEqual({ kind: 'model', model: 'claude-haiku-4-5' })
 		const justShort = line(needed - 1).layout

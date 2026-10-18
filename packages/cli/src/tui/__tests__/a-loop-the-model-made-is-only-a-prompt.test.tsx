@@ -173,7 +173,7 @@ it('sends every line a model loop fires as a plain prompt, and keeps it out of h
 
 	// Up brings back what the operator typed, not the last line a loop sent.
 	harness.stdin.write('\u001b[A')
-	await until(() => now().includes('│ › operator line▏'), 'Up did not recall the typed line')
+	await until(() => now().includes('❯ operator line▏'), 'Up did not recall the typed line')
 })
 
 it("runs an operator loop's slash command, as /loop documents", async () => {

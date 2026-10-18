@@ -465,7 +465,7 @@ describe('hypermode on the message box', () => {
 			)
 			const visible = mounted.viewport().join('\n')
 			expect(visible.match(/hypermode/gu)).toHaveLength(1)
-			expect(visible.split('\n').find((row) => row.startsWith('┌'))).toContain('hypermode')
+			expect(visible.split('\n').find((row) => row.startsWith('─'))).toContain('hypermode')
 			expect(visible.split('\n').find((row) => row.includes('shift+tab'))).not.toContain(
 				'hypermode',
 			)
@@ -474,16 +474,15 @@ describe('hypermode on the message box', () => {
 		}
 	})
 
-	it('keeps both corners and prioritizes the mode label on narrow screens', async () => {
+	it('ends the upper rule with the mode label, full width, on narrow screens', async () => {
 		mounted = await renderToScreen(
 			<ComposerFrame focus mode="hypermode">
 				{null}
 			</ComposerFrame>,
 			{ cols: 60, rows: 6 },
 		)
-		const top =
-			mounted.viewport().find((row) => row.includes('MESSAGE')) ?? mounted.viewport().join('\n')
-		expect(top).toMatch(/^┌─ MESSAGE ─+ hypermode ─┐$/u)
+		const top = mounted.viewport().find((row) => row.includes('hypermode')) ?? ''
+		expect(top).toMatch(/^─+ hypermode ─$/u)
 		expect([...top]).toHaveLength(60)
 		await mounted.unmount()
 		mounted = await renderToScreen(
@@ -492,8 +491,8 @@ describe('hypermode on the message box', () => {
 			</ComposerFrame>,
 			{ cols: 24, rows: 6 },
 		)
-		const narrow = mounted.viewport().find((row) => row.startsWith('┌')) ?? ''
-		expect(narrow).toMatch(/^┌─+ hypermode ─┐$/u)
+		const narrow = mounted.viewport().find((row) => row.includes('hypermode')) ?? ''
+		expect(narrow).toMatch(/^─+ hypermode ─$/u)
 		expect([...narrow]).toHaveLength(24)
 	})
 
@@ -521,7 +520,7 @@ describe('hypermode on the message box', () => {
 			)
 			const plain = mounted.writes().join('')
 			expect(plain).not.toContain('38;5;183m')
-			expect(mounted.viewport().join('\n')).toMatch(/┌─ MESSAGE ─+ hypermode ─┐/u)
+			expect(mounted.viewport().join('\n')).toMatch(/─+ hypermode ─/u)
 		} finally {
 			vi.unstubAllEnvs()
 		}

@@ -28,6 +28,7 @@ import { describe, expect, it } from 'vitest'
 
 import { ComposerFrame } from '../ComposerFrame.js'
 import { StatusBar } from '../StatusBar.js'
+import { lowerRuleRow } from './support/composer-rules.js'
 import { type Screen, renderToScreen } from './support/screen.js'
 
 /** The picker's first-run hint: the only place its exits are named. */
@@ -65,8 +66,8 @@ function belowMessageFrame(effort: string) {
 /** The message frame's bottom border row, found wherever the layout put it. */
 function frameBottomBorder(screen: Screen): number {
 	const viewport = screen.viewport()
-	const border = viewport.findIndex((line) => line.includes('└') && line.includes('┘'))
-	expect(border, 'message frame bottom border not found on screen').toBeGreaterThanOrEqual(0)
+	const border = lowerRuleRow(viewport)
+	expect(border, 'lower rule of the composer not found on screen').toBeGreaterThanOrEqual(0)
 	return border
 }
 

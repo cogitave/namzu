@@ -20,6 +20,7 @@ import type {
 	SendOptions,
 } from '../agent.js'
 import type { ModelSwitchOutcome } from '../model-switch.js'
+import { lowerRuleRow } from './support/composer-rules.js'
 import { type Screen, renderToScreen } from './support/screen.js'
 
 const OLD = 'gpt-5.6-sol'
@@ -531,8 +532,8 @@ it('turning hypermode on pins the highest level not above xhigh on a menu withou
 	)
 	expect(screen.viewport().join('\n')).toContain('effort pinned to high')
 	const viewport = screen.viewport()
-	const frameTop = viewport.find((row) => row.includes('┌─ MESSAGE')) ?? ''
-	const frameBottom = viewport.findIndex((row) => row.includes('└') && row.includes('┘'))
+	const frameTop = viewport.find((row) => /^\s*─+ hypermode ─\s*$/u.test(row)) ?? ''
+	const frameBottom = lowerRuleRow(viewport)
 	expect(frameTop).toContain('hypermode')
 	expect(frameBottom).toBeGreaterThanOrEqual(0)
 	expect(viewport[frameBottom + 1]).not.toContain('hypermode')

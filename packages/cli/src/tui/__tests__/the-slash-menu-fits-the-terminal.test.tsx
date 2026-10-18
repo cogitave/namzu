@@ -50,16 +50,16 @@ it.each([
 			const text = view.join('\n')
 			const keyAt = view.findIndex((line) => /\d+\/20 · /.test(line))
 			expect(keyAt, text).toBeGreaterThan(-1)
-			// The row after the key row is the bottom border: the line did not wrap.
-			expect(view[keyAt + 1], text).toMatch(/^\s*└─*┘/)
+			// The row after the key row is the lower rule: the line did not wrap.
+			expect(view[keyAt + 1], text).toMatch(/^\s*─+\s*$/)
 			const key = (view[keyAt] ?? '').replace(/[│\s]+$/, '').replace(/^\s*│\s*/, '')
 			for (const hint of key.split(' · ').slice(1)) {
 				expect(hint).toMatch(/^(↑↓ select|PgUp\/PgDn( jump)?|enter run|tab complete)$/)
 			}
 			expect(key).toContain('↑↓ select')
 			expect(key).toContain('enter run')
-			// Nothing was pushed off the top: the message frame is still on screen.
-			expect(text).toContain('MESSAGE')
+			// Nothing was pushed off the top: the prompt is still on screen.
+			expect(text).toContain('❯')
 		} finally {
 			await screen.unmount()
 		}

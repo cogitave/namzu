@@ -38,6 +38,7 @@ import {
 import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 import { type AgentEvent, type AgentSession, type SessionScope, toAgentEvent } from '../agent.js'
 import type { TuiContext } from '../types.js'
+import { lowerRuleRow } from './support/composer-rules.js'
 import { type Screen, renderToScreen } from './support/screen.js'
 
 const PREFS: Preferences = {
@@ -2239,7 +2240,7 @@ describe('Ctrl+T', () => {
 		await screen.waitForRender()
 		frame = screen.viewport().join('\n')
 		expect(frame).toContain('PARENT_DRAFT_RESTORED')
-		expect(frame).toContain('MESSAGE')
+		expect(lowerRuleRow(screen.viewport())).toBeGreaterThanOrEqual(0)
 		expect(frame).not.toContain('CHILD_LIVE_UPDATE')
 		expect(painted(screen)).not.toContain('parent finished')
 	}, 60_000)
@@ -3314,7 +3315,7 @@ describe('render order below the message frame', () => {
 		// border row this padding touches carries a one-space left margin —
 		// the same anchor `expectChildFrame` and friends already rely on
 		// elsewhere in this file.
-		const border = viewport.findIndex((line) => line.startsWith(' └'))
+		const border = lowerRuleRow(viewport)
 		expect(border, 'message frame bottom border not found on screen').toBeGreaterThanOrEqual(0)
 		return border
 	}
@@ -3384,7 +3385,7 @@ function railRows(screen: Screen): string[] {
 describe('parent narration', () => {
 	/** The message frame's bottom border row, the anchor every row below is read from. */
 	function frameBottom(screen: Screen): number {
-		const border = screen.viewport().findIndex((line) => line.startsWith(' └'))
+		const border = lowerRuleRow(screen.viewport())
 		expect(border, 'message frame bottom border not found on screen').toBeGreaterThanOrEqual(0)
 		return border
 	}

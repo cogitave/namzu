@@ -255,7 +255,7 @@ it('moves the slider with ←/→, clamps at both ends, and applies hypermode as
 	await press(screen, '\r')
 	await shows(screen, 'Type a message')
 	const viewport = screen.viewport()
-	expect(viewport.find((row) => row.includes('┌─ MESSAGE'))).toContain(' hypermode ─┐')
+	expect(viewport.find((row) => /^\s*─+ hypermode ─\s*$/u.test(row))).toBeDefined()
 	expect(viewport.find((row) => row.includes('shift+tab'))).not.toContain('hypermode')
 })
 

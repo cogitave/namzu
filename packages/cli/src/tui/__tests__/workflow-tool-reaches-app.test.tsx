@@ -404,7 +404,7 @@ describe('what the model is told when a run ends', () => {
 		// The same message is not also handed over as context.
 		expect(turns[0]?.hostContext.join('\n')).not.toContain('Workflows that ended')
 		// The person typed nothing, and no user row was invented for it.
-		expect(everything(screen)).not.toMatch(/› .*Workflow "audit"/)
+		expect(everything(screen)).not.toMatch(/❯ .*Workflow "audit"/)
 		// Told once: the next thing the person types does not repeat it.
 		turns.length = 0
 		await waitUntil(screen, () => text(screen).includes('Type a message'))

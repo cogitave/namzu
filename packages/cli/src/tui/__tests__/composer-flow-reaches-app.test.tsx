@@ -687,7 +687,7 @@ describe('the two composer destinations', () => {
 			screen.press('\x1b[1;3A')
 			await waitUntil(
 				screen,
-				() => screen.viewport().join('\n').includes('› queued A'),
+				() => screen.viewport().join('\n').includes('❯ queued A'),
 				'earlier queued item was not recalled',
 			)
 			screen.press('\x15') // Ctrl+U clears the recalled draft.
@@ -874,7 +874,7 @@ describe('the two composer destinations', () => {
 			screen.press('\x1b[1;3A')
 			await waitUntil(
 				screen,
-				() => screen.viewport().join('\n').includes('› /init'),
+				() => screen.viewport().join('\n').includes('❯ /init'),
 				'the authored command was not recalled',
 			)
 			screen.press(' ')
@@ -978,7 +978,7 @@ describe('the two composer destinations', () => {
 			screen.press('\r')
 			await waitUntil(
 				screen,
-				() => screen.viewport().some((line) => line.includes('› second queued')),
+				() => screen.viewport().some((line) => line.includes('❯ second queued')),
 				'Enter did not load the chosen message',
 			)
 			expect(screen.viewport().join('\n')).not.toContain('second queued · after')
@@ -1066,7 +1066,7 @@ describe('the two composer destinations', () => {
 			screen.press('\x1b[1;3A')
 			await waitUntil(
 				screen,
-				() => screen.viewport().some((line) => line.includes('› keep after stop')),
+				() => screen.viewport().some((line) => line.includes('❯ keep after stop')),
 				'queued input was not recalled',
 			)
 			expect(screen.viewport().join('\n')).not.toContain('after this reply')
@@ -1134,7 +1134,7 @@ describe('the two composer destinations', () => {
 			screen.press('\x1b[1;3A')
 			await waitUntil(
 				screen,
-				() => screen.viewport().join('\n').includes('› revise after stop'),
+				() => screen.viewport().join('\n').includes('❯ revise after stop'),
 				'recall did not restore the draft',
 			)
 			screen.press('\t')
