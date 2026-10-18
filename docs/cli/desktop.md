@@ -3819,3 +3819,40 @@ Until the first list of projects has arrived the sidebar shows a quiet placehold
 "Loading…", so a hint about an empty list never sits beside a list that is still loading. The
 welcome page, which has no project, Pal or conversation, draws no "Workspace / Start a conversation"
 breadcrumb above its heading.
+
+## While a reply is running
+
+Desktop follows the terminal's working surface (see [Terminal design](terminal-design.md)).
+
+**Messages typed while Namzu replies.** Enter sends the text into the running reply: the CLI host
+(`namzu/conversations/input`) hands it to the turn at its next model request. Tab, or the queue icon beside
+the model, holds it for after the reply instead. Both wait in a **tray fused to the top of the composer**
+(`composer-tray.tsx`): same width and glass as the message box, one row per message in the order it will be
+used, the messages sent into the reply first ("Sending to this reply") and then the held ones ("After this
+reply"), under a "N waiting" line, four rows high before it scrolls. Each row has quiet **Send now**, **Edit**
+and **Remove**, shown on hover and focus. Send now stops the reply and runs that message at once
+(`operator.sendNow`; a message sent into the reply that had not arrived becomes the next one). Edit turns the
+row's text into an inline editor (`operator.updateQueued`): Enter saves, Shift+Enter adds a line, Esc
+cancels, and the message keeps its place. Up in an empty message box opens the newest held message the same
+way (Alt+Up still pulls it into the box). A message the model has received leaves the tray on the
+`live-input` event and appears as an ordinary message in the conversation; it is never editable, and a row
+sent into the reply offers only Send now. After a stopped or failed reply the tray says "Paused after the
+stopped reply · send a message to run them".
+
+The host reported live input as unavailable for the whole of every Namzu turn (the engine wrapper kept the
+conversation reserved), so before this change every message typed while working silently waited for the
+reply to end. `withCliHarnesses` now asks the turn itself.
+
+**Shell commands.** A command is one row with its output under it (`shell-cell.ts`, `shell-cell-view.tsx`):
+the first three lines (ten for a failed command), then "+N lines" to open the rest, stderr in the error
+colour, how it ended once ("Exit code 3", "Timed out", "Stopped before it finished") instead of repeating it
+beside the command, and "(No output)". A command handed to a background job reads "Running in the background"
+with **See it**, which opens the activity panel. The run's header counts it: "Ran 4 commands, 1 failed, 1 in
+the background".
+
+**Footer.** Beside the mode, a quiet "N shells" (from the background-work status events; it opens the activity
+panel) and "PR #n" for the conversation's branch, coloured by review state: approved green, changes requested
+red, waiting for review amber, merged purple, draft muted. The pull request is read by the CLI host
+(`namzu/project/pr`, the same `lookupPr` the terminal's footer uses) when the project opens, when a reply ends
+and every 90 seconds while the window is visible; `gh` missing, signed out, no pull request or a folder that
+is not a repository show nothing. Clicking it opens the pull request in the browser.

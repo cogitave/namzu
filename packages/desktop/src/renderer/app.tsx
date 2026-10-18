@@ -15,13 +15,7 @@ import {
 } from '../shared/background-work-protocol.js'
 import { resolveComposerSendOptions } from '../shared/composer-send-options.js'
 import { duplicatePalNameMessage, isDuplicatePalName } from '../shared/pal-name.js'
-import {
-	type ThreadState,
-	applyEvent,
-	emptyThread,
-	queueParked,
-	restoreMessages,
-} from '../shared/projection.js'
+import { type ThreadState, applyEvent, emptyThread, restoreMessages } from '../shared/projection.js'
 import type {
 	ComposerModelSettings,
 	PalComputerView as ComputerState,
@@ -45,6 +39,7 @@ import type { DataFolderKind, SettingsSection } from '../shared/settings-protoco
 import type { SidebarSnapshot } from '../shared/sidebar-snapshot.js'
 import { PROMPT_NOT_PASSED, TERMINAL_ENGINE_LABELS } from '../shared/terminal-tabs.js'
 import type { UpdateState } from '../shared/update-protocol.js'
+import { BackgroundWorkContext } from './activity-actions.js'
 import {
 	ADD_PROJECT_LABEL,
 	AddProjectMenu,
@@ -199,6 +194,7 @@ import { palMarker, palStartCard, palWaitingLine } from './pal-start-model.js'
 import { closableStaleTabs, stalePalTabs } from './pal-tab-siblings.js'
 import { unreadAfterOpen, unreadAfterSends } from './pal-unread.js'
 import { PalCustomizeDialog, type PalOpening, PalSidebarSection, PalsPage } from './pals-page.js'
+import { pendingMessages } from './pending-messages.js'
 import { plainError, plainErrorText } from './plain-error.js'
 import { PluginsPage, PluginsSidebar } from './plugins-page.js'
 import {
@@ -262,6 +258,7 @@ import { useLocalSpeech } from './use-local-speech.js'
 import { usePalComputerSetup } from './use-pal-computer-setup.js'
 import { usePalOperatorMessages } from './use-pal-operator-messages.js'
 import { usePalStarts } from './use-pal-starts.js'
+import { usePullRequest } from './use-pull-request.js'
 import { useTranscriptScroll } from './use-transcript-scroll.js'
 import { useUndoKept } from './use-undo-kept.js'
 import { useBargeIn, useSpokenReplies, useVoiceInput } from './use-voice-input.js'
@@ -702,7 +699,7 @@ export function App({
 	const activeProjectId = useRef('')
 	activeProjectId.current = projectId
 	const editingQueue = useRef(new Set<string>())
-	const [queueEditing, setQueueEditing] = useState<Record<string, boolean>>({})
+	const [, setQueueEditing] = useState<Record<string, boolean>>({})
 	const [providers, setProviders] = useState<ProviderView>({
 		available: [],
 		selected: null,
@@ -1154,6 +1151,10 @@ export function App({
 			),
 		[updatePanelTabs],
 	)
+	const openBackgroundWork = useCallback(() => {
+		showPanelTab('activity')
+		setJobsOpen(true)
+	}, [showPanelTab])
 	const openProjectFile = useCallback(
 		(path: string, line?: number) => {
 			updatePanelTabs((state) => openFileTab(state, path, line))
@@ -1358,6 +1359,10 @@ export function App({
 		? ({ state: 'unavailable' } as const)
 		: freshBackgroundWorkStatus(backgroundWork[sessionId])
 	const needsAttention = sessionWork.state === 'known' && sessionWork.needsAttention
+	const pullRequest = usePullRequest(api, !pal && !externalHarness ? project?.id : undefined, {
+		enabled: Boolean(project?.trusted) && project?.status === 'ready',
+		running: thread.running,
+	})
 	const detailsWork: DetailsWork = externalHarness
 		? { state: 'unavailable' }
 		: jobsSessionId === sessionId && !jobsLoading && !jobsError
@@ -6878,57 +6883,59 @@ export function App({
 											value={providerName(choice.provider, failedProviderLabel)}
 										>
 											<ProjectFilesContext.Provider value={projectFiles}>
-												<PalStartContext.Provider value={palStartControls}>
-													<Transcript
-														key={sessionId || 'blank'}
-														thread={thread}
-														animate={!historyPending && !restoringTabs}
-														workDisclosures={
-															workDisclosureView.sessionId === sessionId
-																? workDisclosureView.choices
-																: undefined
-														}
-														onWorkDisclosureChange={(key, open) =>
-															onWorkDisclosureChange(sessionId, key, open)
-														}
-														onOpenTurnChanges={(receiptIds, path) => {
-															setChangesFilter(receiptIds, path)
-															showPanelTab('changes')
-															setJobsOpen(true)
-														}}
-														onOpenChangedFile={projectFiles ? openChangedFile : undefined}
-														onOpenPalInbox={openPalInbox}
-														onOpenTasks={() => {
-															showPanelTab('activity')
-															setJobsOpen(true)
-														}}
-														onUndoTurn={
-															api.undoPreview && api.undoTurn
-																? (turnId) => setUndoingTurn({ sessionId, turnId })
-																: undefined
-														}
-														undoKept={undoKept}
-														projectRoot={project?.path}
-														closedWhileRunning={conversation?.closedWhileRunning === true}
-														stopShownBelow={stopShownBelow}
-														renderMessageAction={(message, key) => (
-															<MessageActions
-																text={message.text}
-																onRetry={
-																	retryable && retryable.reply === message
-																		? () => void act(() => retryReply(retryable.prompt))
-																		: undefined
-																}
-															>
-																<LocalSpeechReadAloud
-																	speech={speech}
-																	messageId={key}
+												<BackgroundWorkContext.Provider value={openBackgroundWork}>
+													<PalStartContext.Provider value={palStartControls}>
+														<Transcript
+															key={sessionId || 'blank'}
+															thread={thread}
+															animate={!historyPending && !restoringTabs}
+															workDisclosures={
+																workDisclosureView.sessionId === sessionId
+																	? workDisclosureView.choices
+																	: undefined
+															}
+															onWorkDisclosureChange={(key, open) =>
+																onWorkDisclosureChange(sessionId, key, open)
+															}
+															onOpenTurnChanges={(receiptIds, path) => {
+																setChangesFilter(receiptIds, path)
+																showPanelTab('changes')
+																setJobsOpen(true)
+															}}
+															onOpenChangedFile={projectFiles ? openChangedFile : undefined}
+															onOpenPalInbox={openPalInbox}
+															onOpenTasks={() => {
+																showPanelTab('activity')
+																setJobsOpen(true)
+															}}
+															onUndoTurn={
+																api.undoPreview && api.undoTurn
+																	? (turnId) => setUndoingTurn({ sessionId, turnId })
+																	: undefined
+															}
+															undoKept={undoKept}
+															projectRoot={project?.path}
+															closedWhileRunning={conversation?.closedWhileRunning === true}
+															stopShownBelow={stopShownBelow}
+															renderMessageAction={(message, key) => (
+																<MessageActions
 																	text={message.text}
-																/>
-															</MessageActions>
-														)}
-													/>
-												</PalStartContext.Provider>
+																	onRetry={
+																		retryable && retryable.reply === message
+																			? () => void act(() => retryReply(retryable.prompt))
+																			: undefined
+																	}
+																>
+																	<LocalSpeechReadAloud
+																		speech={speech}
+																		messageId={key}
+																		text={message.text}
+																	/>
+																</MessageActions>
+															)}
+														/>
+													</PalStartContext.Provider>
+												</BackgroundWorkContext.Provider>
 											</ProjectFilesContext.Provider>
 										</ProviderNameContext.Provider>
 									)}
@@ -7135,17 +7142,35 @@ export function App({
 								speechStatus={<VoiceInputStatus voice={voice} />}
 								running={thread.running}
 								liveInputSupported={thread.liveInputSupported && !palConversation}
-								liveInputs={thread.liveInputs}
 								sending={sending[draftOwner] ?? false}
-								queued={thread.queued}
-								queuedItems={thread.queuedItems}
-								queueParked={queueParked(thread)}
-								editingQueued={queueEditing[sessionId] ?? false}
+								shells={
+									// The open Activity panel's own list is the freshest count; otherwise the observer's.
+									detailsWork.state === 'known' && detailsWork.running > 0
+										? { count: detailsWork.running, onOpen: openBackgroundWork }
+										: undefined
+								}
+								pullRequest={
+									pullRequest
+										? {
+												pr: pullRequest,
+												onOpen: () =>
+													void act(() => api.openExternal?.(pullRequest.url) ?? Promise.resolve()),
+											}
+										: undefined
+								}
+								pending={pendingMessages(thread)}
+								trayActions={{
+									canSendNow: Boolean(api.sendNow),
+									disabled: loading || restoringTabs || frozen,
+									onSendNow: (id) =>
+										void act(() => api.sendNow?.(sessionId, id) ?? Promise.resolve()),
+									onSave: (id, text) =>
+										act(() => api.updateQueued?.(sessionId, id, text) ?? Promise.resolve()),
+									onRemove: (id) => void act(() => api.removeQueued(sessionId, id)),
+								}}
 								onSend={() => void act(send)}
 								onQueue={() => void act(() => send('queue'))}
 								onStop={() => void act(() => api.cancel(sessionId))}
-								onEditQueued={(itemId) => void act(() => editQueued(itemId))}
-								onRemoveQueued={(itemId) => void act(() => api.removeQueued(sessionId, itemId))}
 							/>
 							{speech.error && (
 								<p className="inline-error" role="alert">

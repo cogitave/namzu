@@ -1,0 +1,119 @@
+/* The tray is the top of the composer: same width, the composer's glass behind it (the shell paints it),
+   and the composer's own outline continues around it. Actions are ghost text, shown on hover and focus. */
+.composer-tray {
+	position: relative;
+	z-index: 10;
+	border: 1px solid var(--chat-composer-outline);
+	border-bottom: 0;
+	border-radius: 24px 24px 0 0;
+	padding: 6px 4px 2px;
+	font-size: 13px;
+	line-height: 18px;
+}
+.composer-tray-head {
+	display: flex;
+	gap: 10px;
+	margin: 0;
+	padding: 2px 12px 4px;
+	font-size: 12px;
+	color: var(--muted-foreground);
+}
+.composer-tray-hold {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.composer-tray-list {
+	--row-height: 46px;
+	display: block;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+	max-height: calc(var(--tray-rows, 4) * var(--row-height));
+	overflow-y: auto;
+	overscroll-behavior: contain;
+}
+.composer-tray-row {
+	display: grid;
+	grid-template-columns: 20px minmax(0, 1fr) auto;
+	align-items: start;
+	column-gap: 8px;
+	min-height: var(--row-height);
+	padding: 4px 8px 4px 12px;
+	border-radius: 10px;
+}
+.composer-tray-row:is(:hover, :focus-within) {
+	background: color-mix(in srgb, var(--foreground) 5%, transparent);
+}
+.composer-tray-order {
+	padding-top: 1px;
+	text-align: right;
+	font-size: 12px;
+	color: var(--muted-foreground);
+	font-variant-numeric: tabular-nums;
+}
+.composer-tray-body {
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+}
+.composer-tray-text {
+	margin: 0;
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	color: color-mix(in srgb, var(--foreground) 72%, transparent);
+}
+.composer-tray-note {
+	font-size: 11px;
+	line-height: 16px;
+	color: var(--muted-foreground);
+}
+.composer-tray-actions {
+	display: inline-flex;
+	align-items: center;
+	gap: 2px;
+	opacity: 0;
+	transition: opacity 140ms var(--motion-ease);
+}
+.composer-tray-row:is(:hover, :focus-within) .composer-tray-actions,
+.composer-tray-actions:focus-within {
+	opacity: 1;
+}
+@media (hover: none) {
+	.composer-tray-actions {
+		opacity: 1;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.composer-tray-actions {
+		transition: none;
+	}
+}
+.composer-tray-editor {
+	display: block;
+	width: 100%;
+	resize: none;
+	margin: 0;
+	padding: 2px 6px;
+	border-radius: 6px;
+	background: color-mix(in srgb, var(--foreground) 6%, transparent);
+	color: var(--foreground);
+	font: inherit;
+	outline: none;
+}
+.composer-tray-editor:focus-visible {
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--foreground) 30%, transparent);
+}
+/* The composer's top edge meets the tray square, so the two read as one unit. */
+.composer-with-tray [data-slot="composer-host"],
+.composer-with-tray [data-chat-composer-main-surface],
+.composer-with-tray [data-slot="composer-host"]::after,
+.composer-with-tray [data-chat-composer-main-surface]::after {
+	border-top-left-radius: 0;
+	border-top-right-radius: 0;
+}

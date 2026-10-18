@@ -8,17 +8,12 @@ import type {
 	PermissionView,
 	ProjectView,
 	ProviderView,
-	QueuedMessageView,
 } from '../shared/protocol.js'
+import type { ProjectPrView } from '../shared/protocol.js'
 import { usableProviders } from '../shared/provider-connections.js'
 import { AttachmentList } from './attachment-list.js'
 import { ComposerApproval } from './composer-approval.js'
-import {
-	PARKED_QUEUE_COPY,
-	UNSUPPORTED_ATTACHMENTS_HINT,
-	decidePaste,
-	stopTooltip,
-} from './composer-input.js'
+import { UNSUPPORTED_ATTACHMENTS_HINT, decidePaste, stopTooltip } from './composer-input.js'
 import {
 	type ComposerPlugin,
 	type ComposerPluginInventory,
@@ -31,11 +26,11 @@ import {
 	ComposerSettings,
 } from './composer-settings.js'
 import { ComposerSurface } from './composer-surface.js'
+import { ComposerTray, type ComposerTrayActions } from './composer-tray.js'
 import { automaticChoiceNote } from './first-open-note.js'
 import { type EngineSurfaceControl, engineLabel } from './harness-picker.js'
 import {
 	ArrowUpIcon,
-	ChevronDownIcon,
 	FileDiffIcon,
 	ListPlusIcon,
 	ListTodoIcon,
@@ -47,7 +42,9 @@ import {
 	SquareIcon,
 	TerminalIcon,
 } from './icons.js'
+import { cn } from './lib/utils.js'
 import { type ModelChoice, ModelPicker } from './model-picker.js'
+import type { PendingMessages } from './pending-messages.js'
 import { usePresence } from './presence.js'
 import { DEFAULT_HOME_HEADING } from './project-home.js'
 import { Button } from './ui/button.js'
@@ -58,6 +55,15 @@ import './composer.css'
 
 const PROVIDER_EMPTY_HELP =
 	'Namzu needs a model provider to answer. Paste an API key, or sign in with Claude Code or Codex and Namzu will find that sign-in.'
+
+/** The review state in plain words, for the pull request chip's tooltip and name. */
+const REVIEW_WORDS: Record<ProjectPrView['review'], string> = {
+	approved: 'approved',
+	changes: 'changes requested',
+	pending: 'waiting for review',
+	merged: 'merged',
+	draft: 'draft',
+}
 
 const DEFAULT_STARTERS = ['Explore this project', 'Review a change', 'Plan a task'] as const
 
@@ -85,17 +91,14 @@ export function Composer({
 	choiceUnchosen,
 	running,
 	liveInputSupported = false,
-	liveInputs = [],
 	sending,
-	queued,
-	queuedItems,
-	queueParked = false,
-	editingQueued,
+	pending,
+	trayActions,
+	shells,
+	pullRequest,
 	onSend,
 	onQueue,
 	onStop,
-	onEditQueued,
-	onRemoveQueued,
 	projectName,
 	starters = DEFAULT_STARTERS,
 	projectId,
@@ -176,22 +179,17 @@ export function Composer({
 	auto?: { active: boolean; onSelect: () => void }
 	running: boolean
 	liveInputSupported?: boolean
-	liveInputs?: readonly {
-		id: string
-		prompt: string
-		status: 'pending' | 'delivered' | 'unknown'
-	}[]
 	sending: boolean
-	queued: string[]
-	queuedItems: QueuedMessageView[]
-	/** Queued messages wait because the last turn stopped or failed. */
-	queueParked?: boolean
-	editingQueued: boolean
+	/** Messages typed while a reply runs, shown in the tray fused to the composer. */
+	pending: PendingMessages
+	trayActions: ComposerTrayActions
+	/** Background shell commands running for this conversation; absent when there are none. */
+	shells?: { count: number; onOpen: () => void }
+	/** The branch's pull request; absent when there is none to show. */
+	pullRequest?: { pr: ProjectPrView; onOpen: () => void }
 	onSend: () => void
 	onQueue?: () => void
 	onStop: () => void
-	onEditQueued: (itemId?: string) => void
-	onRemoveQueued: (itemId: string) => void
 	projectName: string
 	/** The ideas under an empty conversation; a chat without a project gets ones that need no files. */
 	starters?: readonly [string, string, string]
@@ -244,14 +242,9 @@ export function Composer({
 	const [dragging, setDragging] = useState(false)
 	const dragDepth = useRef(0)
 	const importDisabled =
-		sending ||
-		attachmentsBusy ||
-		editingQueued ||
-		draftDisabled ||
-		!connected ||
-		!attachmentsSupported
+		sending || attachmentsBusy || draftDisabled || !connected || !attachmentsSupported
 	// Removal stays possible on engines that cannot take attachments, so a draft is never stranded.
-	const removeDisabled = sending || attachmentsBusy || editingQueued || draftDisabled || !connected
+	const removeDisabled = sending || attachmentsBusy || draftDisabled || !connected
 	const attachmentsStranded = attachments.length > 0 && !attachmentsSupported
 	const hasDraft = draft.length > 0 || attachments.length > 0
 	const [pasteNotice, setPasteNotice] = useState<string>()
@@ -336,13 +329,14 @@ export function Composer({
 	// Namzu is only waiting on the person, so stopping is not an emergency.
 	const waitingOnPerson = permissions.length > 0
 	const [plusOpen, setPlusOpen] = useState(false)
+	const [trayEditing, setTrayEditing] = useState<string | null>(null)
+	const editableRows = pending.rows.filter((row) => row.editable)
 	const plusControl = (
 		<Popover open={plusOpen} onOpenChange={setPlusOpen}>
 			<PopoverTrigger
 				render={<Button variant="ghost-muted" size="icon-sm" />}
 				className={compact ? 'pal-composer-add' : 'composer-add'}
 				aria-label="Attachments and message settings"
-				disabled={editingQueued}
 			>
 				<PlusIcon />
 			</PopoverTrigger>
@@ -391,10 +385,6 @@ export function Composer({
 			</PopoverPopup>
 		</Popover>
 	)
-	// A settled turn has nothing in flight; only unconfirmed receipts are worth showing.
-	const shownLiveInputs = running
-		? liveInputs
-		: liveInputs.filter((item) => item.status !== 'delivered')
 	const overlay = useRef<HTMLDivElement>(null)
 	const previous = useRef<{ top: number; empty: boolean } | null>(null)
 	useLayoutEffect(() => {
@@ -481,113 +471,13 @@ export function Composer({
 						</div>
 					)}
 					{speechStatus}
-					{shownLiveInputs.length > 0 && (
-						<div className="queue px-3 pb-2 text-xs text-muted-foreground" aria-live="polite">
-							{[
-								shownLiveInputs.some((item) => item.status === 'unknown')
-									? 'Delivery unconfirmed'
-									: undefined,
-								shownLiveInputs.filter((item) => item.status === 'pending').length
-									? `${shownLiveInputs.filter((item) => item.status === 'pending').length} sending to this reply`
-									: undefined,
-								shownLiveInputs.filter((item) => item.status === 'delivered').length
-									? `${shownLiveInputs.filter((item) => item.status === 'delivered').length} delivered`
-									: undefined,
-							]
-								.filter(Boolean)
-								.join(' · ')}
-						</div>
-					)}
-					{queued.length > 0 && (
-						<div className="queue flex items-center gap-2 px-3 pb-2 text-xs text-muted-foreground">
-							<ListPlusIcon className="size-3.5" />
-							<Popover>
-								<PopoverTrigger
-									render={<Button variant="ghost-muted" size="xs" />}
-									aria-label="Show queued messages"
-								>
-									{queued.length} {queueParked ? 'paused' : 'queued'}
-									<ChevronDownIcon className="size-3" />
-								</PopoverTrigger>
-								<PopoverPopup
-									aria-label="Queued messages"
-									align="start"
-									side="top"
-									width="lg"
-									padding="compact"
-									className="max-h-[min(24rem,var(--available-height))]"
-								>
-									<h2 className="text-sm font-medium">Next messages</h2>
-									<p className="mt-1 text-xs text-muted-foreground">
-										{queueParked
-											? PARKED_QUEUE_COPY
-											: 'These messages start in order after the current reply finishes.'}
-									</p>
-									<ol className="mt-3 space-y-2">
-										{queuedItems.map((item, index) => (
-											<li
-												key={item.id}
-												data-queued-message-id={item.id}
-												className="rounded-2xl border border-dashed border-border p-3"
-											>
-												<p className="whitespace-pre-wrap wrap-anywhere text-sm text-message-foreground">
-													{item.prompt}
-												</p>
-												{item.attachments && (
-													<div className="mt-2">
-														<AttachmentList attachments={item.attachments} />
-													</div>
-												)}
-												<div className="mt-2 flex items-center justify-end gap-1">
-													<Button
-														variant="ghost-muted"
-														size="xs"
-														aria-label={`Edit queued message ${index + 1}`}
-														disabled={draftDisabled || hasDraft || editingQueued}
-														title={hasDraft ? 'Send or clear your draft first' : undefined}
-														onClick={() => onEditQueued(item.id)}
-													>
-														Edit
-													</Button>
-													<Button
-														variant="ghost-muted"
-														size="xs"
-														aria-label={`Remove queued message ${index + 1}`}
-														disabled={draftDisabled}
-														onClick={() => onRemoveQueued(item.id)}
-													>
-														Remove
-													</Button>
-												</div>
-											</li>
-										))}
-									</ol>
-									{hasDraft && (
-										<p className="mt-2 text-xs text-muted-foreground">
-											Send or clear your draft before editing a queued message.
-										</p>
-									)}
-								</PopoverPopup>
-							</Popover>
-							<span className="min-w-0 flex-1 truncate">
-								{queued[0]?.slice(0, 100) ||
-									queuedItems[0]?.attachments?.map((file) => file.name).join(', ')}
-							</span>
-							<Button
-								variant="ghost-muted"
-								size="xs"
-								disabled={draftDisabled || hasDraft || editingQueued}
-								title={hasDraft ? 'Send or clear your draft first' : undefined}
-								onClick={() => onEditQueued()}
-							>
-								Edit latest
-							</Button>
-						</div>
-					)}
 					<ComposerSurface.Shell
 						contextStrip={trayPresent}
 						contextPlacement="top"
-						className={compact ? 'pal-composer-shell' : 'normal-composer-shell'}
+						className={cn(
+							compact ? 'pal-composer-shell' : 'normal-composer-shell',
+							pending.rows.length > 0 && 'composer-with-tray',
+						)}
 						onDragEnter={(event) => {
 							if (!event.dataTransfer.types.includes('Files')) return
 							event.preventDefault()
@@ -653,6 +543,12 @@ export function Composer({
 								/>
 							</fieldset>
 						)}
+						<ComposerTray
+							pending={pending}
+							actions={trayActions}
+							editing={trayEditing}
+							onEditingChange={setTrayEditing}
+						/>
 						<ComposerSurface.Host>
 							<ComposerSurface.Main>
 								{compact && plusControl}
@@ -703,13 +599,15 @@ export function Composer({
 										ref={inputRef}
 										value={draft}
 										maxLength={50000}
-										disabled={editingQueued || draftDisabled}
+										disabled={draftDisabled}
 										placeholder={
 											compact
 												? 'Send a message'
 												: cliMode
 													? `Optional first message for ${cliLabel} in a terminal`
-													: 'Ask Namzu anything'
+													: editableRows.length > 0 && !hasDraft
+														? 'Press ↑ to edit queued messages'
+														: 'Ask Namzu anything'
 										}
 										onChange={(event) => {
 											setPasteNotice(undefined)
@@ -734,6 +632,43 @@ export function Composer({
 											} else setPasteNotice(decision.notice)
 										}}
 										onKeyDown={(event) => {
+											// Up in an empty box takes the newest waiting message back to edit.
+											if (
+												event.key === 'ArrowUp' &&
+												!event.shiftKey &&
+												!event.altKey &&
+												!event.ctrlKey &&
+												!event.metaKey &&
+												!event.nativeEvent.isComposing &&
+												!hasDraft &&
+												editableRows.length > 0 &&
+												trayEditing === null
+											) {
+												event.preventDefault()
+												setTrayEditing(editableRows[editableRows.length - 1]?.id ?? null)
+												return
+											}
+											// Tab holds what is typed for after this reply, as in the terminal. Without
+											// anything typed it still moves focus.
+											if (
+												event.key === 'Tab' &&
+												!event.shiftKey &&
+												!event.altKey &&
+												!event.ctrlKey &&
+												!event.metaKey &&
+												!event.nativeEvent.isComposing &&
+												running &&
+												liveInputSupported &&
+												onQueue &&
+												draft.trim() &&
+												attachments.length === 0 &&
+												!sending &&
+												!attachmentsStranded
+											) {
+												event.preventDefault()
+												onQueue()
+												return
+											}
 											if (
 												event.key === 'Enter' &&
 												!event.shiftKey &&
@@ -763,6 +698,32 @@ export function Composer({
 													onSettingsChange({ ...settings, permissionMode })
 												}
 											/>
+											{shells && shells.count > 0 && (
+												<Button
+													variant="ghost-muted"
+													size="xs"
+													className="composer-footer-chip"
+													data-composer-shells={shells.count}
+													aria-label={`${shells.count} background ${shells.count === 1 ? 'shell' : 'shells'} running. Show`}
+													onClick={shells.onOpen}
+												>
+													{shells.count} {shells.count === 1 ? 'shell' : 'shells'}
+												</Button>
+											)}
+											{pullRequest && (
+												<Button
+													variant="ghost-muted"
+													size="xs"
+													className="composer-footer-chip composer-pr"
+													data-composer-pr={pullRequest.pr.number}
+													data-review={pullRequest.pr.review}
+													aria-label={`Pull request ${pullRequest.pr.number}, ${REVIEW_WORDS[pullRequest.pr.review]}. Open in browser`}
+													title={REVIEW_WORDS[pullRequest.pr.review]}
+													onClick={pullRequest.onOpen}
+												>
+													PR #{pullRequest.pr.number}
+												</Button>
+											)}
 										</div>
 									)}
 									<div className="pal-composer-send-actions flex shrink-0 flex-nowrap items-center justify-end gap-2">
@@ -772,7 +733,7 @@ export function Composer({
 													render={
 														<Button
 															variant="ghost-muted"
-															size="xs"
+															size="icon-xs"
 															aria-label="Queue message for the next reply"
 															disabled={
 																sending ||
@@ -784,10 +745,10 @@ export function Composer({
 														/>
 													}
 												>
-													Queue message
+													<ListPlusIcon className="size-3.5" aria-hidden="true" />
 												</TooltipTrigger>
 												<TooltipPopup>
-													Hold this message and send it when the current reply is done
+													Hold this message and send it when the current reply is done · Tab
 												</TooltipPopup>
 											</Tooltip>
 										)}

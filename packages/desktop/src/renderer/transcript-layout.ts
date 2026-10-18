@@ -72,6 +72,8 @@ export interface RunAction {
 	state: ToolTranscriptState
 	/** The action made a file that did not exist. */
 	created?: boolean
+	/** A command handed to a background job: it ended its turn's wait, not its own work. */
+	background?: boolean
 }
 
 type RunCategory = ActionKind | 'create'
@@ -154,6 +156,8 @@ export function actionRunLabel(actions: RunAction[], live: boolean, full = false
 	if (declined) phrases.push(declined === 1 ? 'declined an action' : `declined ${declined} actions`)
 	const failed = actions.filter((action) => action.state === 'failed').length
 	if (failed) phrases.push(`${failed} failed`)
+	const background = actions.filter((action) => action.background).length
+	if (background) phrases.push(`${background} in the background`)
 	const text = phrases.join(', ')
 	return text.charAt(0).toUpperCase() + text.slice(1)
 }

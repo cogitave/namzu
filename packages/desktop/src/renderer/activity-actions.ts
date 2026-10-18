@@ -15,6 +15,9 @@ export interface ActivityActions {
 	onOpenChangedFile?: (path: string) => void
 }
 
+/** Opens where this conversation's background commands are listed; absent where there is no such place. */
+export const BackgroundWorkContext = createContext<(() => void) | null>(null)
+
 export const ActivityActionsContext = createContext<ActivityActions | null>(null)
 
 const absolute = /^(?:[\\/]|[A-Za-z]:[\\/]|\\\\)/

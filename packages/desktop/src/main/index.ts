@@ -681,6 +681,8 @@ function register(): void {
 		['cancel', 0],
 		['takeQueued', 0],
 		['removeQueued', 0],
+		['updateQueued', 0],
+		['sendNow', 0],
 		['respondPermission', 0],
 		['stopJob', 0],
 		['renameConversation', 0],
@@ -1117,6 +1119,7 @@ function register(): void {
 	handle('forkConversation', (id: string) => operator.forkConversation(id))
 	handle('conversationMarkdown', (id: string) => operator.conversationMarkdown(id))
 	handle('projectGit', (id: string) => operator.projectGit(id))
+	handle('projectPr', (id: string) => operator.projectPr(id))
 	handle('projectChanges', (id: string) => operator.projectChanges(id))
 	handle('projectDiff', (id: string, path: string) => operator.projectDiff(id, path))
 	handle('listProjectDirectory', (id: string, dir: string) =>
@@ -1436,6 +1439,10 @@ function register(): void {
 	)
 	handle('cancel', (id: string) => operator.cancel(id))
 	handle('takeQueued', (id: string, itemId?: string) => operator.takeQueued(id, itemId))
+	handle('updateQueued', (id: string, itemId: string, prompt: string) =>
+		operator.updateQueued(id, itemId, prompt),
+	)
+	handle('sendNow', (id: string, itemId?: string) => operator.sendNow(id, itemId))
 	handle('removeQueued', (id: string, itemId: string) => operator.removeQueued(id, itemId))
 	handle('respondPermission', (id: string, request: string, response: PermissionResponse) =>
 		operator.respondPermission(id, request, response),

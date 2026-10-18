@@ -64,6 +64,7 @@ import type { CliHarnessRuntime } from './acp-harness.js'
 import type { CliAcpRuntime } from './acp.js'
 import { createProjectChanges } from './desktop-host-changes.js'
 import { type ProjectGitState, capMarkdown, createProjectGit } from './desktop-host-header.js'
+import { projectPr } from './desktop-host-pr.js'
 
 function text(params: Record<string, unknown>, key: string, max = 400): string {
 	const value = params[key]
@@ -1538,6 +1539,18 @@ export function createDesktopHostExtensions(
 			// Never run git in a folder the person has not trusted: repository config can execute code.
 			if (!isTrusted(cwd)) return null
 			return projectGit(cwd)
+		},
+		'namzu/project/pr': async (params: Record<string, unknown> = {}) => {
+			if (
+				!params ||
+				typeof params !== 'object' ||
+				Array.isArray(params) ||
+				Object.keys(params).length > 0
+			)
+				throw new Error('Invalid project pull request request.')
+			// gh runs git, and repository config can execute code in a folder nobody trusted.
+			if (!isTrusted(cwd)) return { pr: null }
+			return { pr: await projectPr(cwd) }
 		},
 		'namzu/project/changes': async (params: Record<string, unknown> = {}) => {
 			if (

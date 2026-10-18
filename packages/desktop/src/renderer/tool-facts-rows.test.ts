@@ -376,10 +376,12 @@ describe('commands', () => {
 		)
 		const failed = row(thread)
 		expect(failed).toMatchObject({
-			label: 'Ran echo oops >&2; ls /nonexistent; exit 3 · failed (exit 3)',
-			tail: ' · failed (exit 3)',
+			// The headline never repeats the failure: the cell under it says "Exit code 3", once.
+			label: 'Ran echo oops >&2; ls /nonexistent; exit 3',
 			state: 'failed',
+			shell: { failed: true, status: 'Exit code 3', stderr: { head: 'oops\nls: cannot access' } },
 		})
+		expect(failed?.tail).toBeUndefined()
 		expect(failed?.body).toMatchObject({
 			kind: 'streams',
 			stderr: { head: 'oops\nls: cannot access' },
@@ -389,11 +391,11 @@ describe('commands', () => {
 	it('names a timeout and a command that was stopped', () => {
 		expect(
 			row(done('sleep 999', { kind: 'command', command: 'sleep 999', timedOut: true }, 'failed'))
-				?.tail,
-		).toBe(' · timed out')
+				?.shell?.status,
+		).toBe('Timed out')
 		expect(
-			row(done('x', { kind: 'command', command: 'x', signal: 'SIGKILL' }, 'failed'))?.tail,
-		).toBe(' · stopped')
+			row(done('x', { kind: 'command', command: 'x', signal: 'SIGKILL' }, 'failed'))?.shell?.status,
+		).toBe('Stopped before it finished')
 	})
 
 	it('never dumps binary output, only its size', () => {
@@ -618,8 +620,9 @@ describe('the rendered row', () => {
 		)
 		const html = renderToStaticMarkup(createElement(ToolTranscriptRow, { thread, id: key() }))
 		expect(html).toContain('Ran exit 3')
-		expect(html).toContain('failed (exit 3)')
-		// The failure is said once, beside the headline: the separate badge is for screen readers only.
+		// The failure is said once, under the headline, in the cell; the separate badge is for screen readers only.
+		expect(html.match(/Exit code 3/g)).toHaveLength(1)
+		expect(html).not.toContain('failed (exit 3)')
 		expect(html).toMatch(/class="tool-status transcript-visually-hidden">Failed</)
 		expect(html).not.toMatch(/class="tool-status">Failed</)
 		for (const hidden of ['STDERR', 'NOTE:', 'withheld', 'Error:', 'credential']) {

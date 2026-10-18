@@ -1,7 +1,6 @@
 import { type ComponentProps, createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, it, vi } from 'vitest'
-import type { QueuedMessageView } from '../shared/protocol.js'
 import { Composer } from './composer.js'
 
 // Materialize portal content for these rendering/admission assertions. Native tests
@@ -30,13 +29,10 @@ function render(overrides: Partial<ComponentProps<typeof Composer>> = {}): strin
 			onChoiceChange: () => {},
 			running: false,
 			sending: false,
-			queued: [],
-			queuedItems: [],
-			editingQueued: false,
+			pending: { rows: [] },
+			trayActions: { onSendNow() {}, onSave: async () => {}, onRemove() {}, canSendNow: true },
 			onSend: () => {},
 			onStop: () => {},
-			onEditQueued: () => {},
-			onRemoveQueued: () => {},
 			projectName: 'An owned Pal',
 			projectId: 'pal-control',
 			projectPath: '/owned/pal-control',
@@ -59,6 +55,14 @@ function render(overrides: Partial<ComponentProps<typeof Composer>> = {}): strin
 		}),
 	)
 }
+
+const waiting = (text: string) => ({
+	id: text,
+	kind: 'queued' as const,
+	text,
+	note: 'After this reply',
+	editable: true,
+})
 
 function button(html: string, label: string): string {
 	// The permission chip's name carries the current mode, so it is matched by prefix.
@@ -218,8 +222,7 @@ it('retains Pal attachments, queue editing and complete approval while composing
 				mediaType: 'text/plain',
 			},
 		],
-		queued: ['Later request'],
-		queuedItems: [{ id: 'queued', prompt: 'Later request' }],
+		pending: { rows: [waiting('Later request')] },
 		permissions: [
 			{
 				id: 'approval',
@@ -238,9 +241,6 @@ it('retains Pal attachments, queue editing and complete approval while composing
 	})
 	expect(html).toContain('notes.txt')
 	expect(button(html, 'Remove notes.txt')).not.toMatch(/\bdisabled=/)
-	expect(html).toContain('Later request')
-	expect(button(html, 'Edit queued message 1')).toMatch(/\bdisabled=/)
-	expect(button(html, 'Remove queued message 1')).not.toMatch(/\bdisabled=/)
 	expect(html).toContain('aria-label="Tool approval"')
 	expect(html).toContain('pwd')
 	expect(html).toContain('Accept')
@@ -254,21 +254,16 @@ it('keeps restored work readable without admitting queue or turn mutations durin
 		connected: true,
 		draft: '',
 		running: true,
-		queued: ['Retained queued request'],
-		queuedItems: [{ id: 'queued', prompt: 'Retained queued request' }],
+		pending: { rows: [waiting('Retained queued request')] },
 		attachments: [
 			{ id: 'file', name: 'notes.txt', kind: 'text' as const, size: 20, mediaType: 'text/plain' },
 		],
 	}
 	const pending = render({ ...work, draftDisabled: true })
-	expect(pending).toContain('Retained queued request')
-	for (const label of ['Remove queued message 1', 'Stop reply', 'Remove notes.txt']) {
+	for (const label of ['Stop reply', 'Remove notes.txt']) {
 		expect(button(pending, label)).toMatch(/\bdisabled=/)
 		expect(button(render(work), label)).not.toMatch(/\bdisabled=/)
 	}
-	// The attached file is itself a draft, so editing a queued message waits for it.
-	expect(button(pending, 'Edit queued message 1')).toMatch(/\bdisabled=/)
-	expect(button(render(work), 'Edit queued message 1')).toMatch(/\bdisabled=/)
 })
 
 it('keeps real context above the normal editor and permissions beside Plus below it', () => {
@@ -350,8 +345,7 @@ it('retains functional normal attachment, plugin, effort, queue and approval con
 		running: true,
 		settings: { permissionMode: 'auto', effort: 'high' },
 		capabilities: { effortLevels: ['low', 'high'], effortDefault: 'low' },
-		queued: ['Next request'],
-		queuedItems: [{ id: 'next', prompt: 'Next request' }],
+		pending: { rows: [waiting('Next request')] },
 		attachments: [
 			{
 				id: 'notes',
@@ -382,7 +376,6 @@ it('retains functional normal attachment, plugin, effort, queue and approval con
 	expect(button(html, 'Plugins')).not.toMatch(/\bdisabled=/)
 	expect(button(html, 'Model: space-bunny-free, effort: High')).toMatch(/\bdisabled=/)
 	expect(button(html, 'Remove notes.txt')).not.toMatch(/\bdisabled=/)
-	expect(button(html, 'Remove queued message 1')).not.toMatch(/\bdisabled=/)
 	expect(html).toContain('aria-label="Tool approval"')
 	expect(html).toContain('Accept')
 	expect(html).toContain('data-composer-permission="auto"')
@@ -511,34 +504,6 @@ const file = {
 	size: 10,
 	mediaType: 'text/plain',
 }
-const queuedItem = { id: 'q1', prompt: 'Later' } as QueuedMessageView
-
-it('treats an attachment-only draft as a draft when editing a queued message', () => {
-	const html = render({
-		draft: '',
-		attachments: [file],
-		queued: ['Later'],
-		queuedItems: [queuedItem],
-	})
-	expect(button(html, 'Edit queued message 1')).toMatch(/\bdisabled=/)
-	expect(html).toContain('Send or clear your draft before editing a queued message.')
-	const free = render({ draft: '', queued: ['Later'], queuedItems: [queuedItem] })
-	expect(button(free, 'Edit queued message 1')).not.toMatch(/\bdisabled=/)
-})
-
-it('hides delivered live inputs once the turn is no longer running', () => {
-	const liveInputs = [
-		{ id: 'a', prompt: 'x', status: 'delivered' as const },
-		{ id: 'b', prompt: 'y', status: 'unknown' as const },
-	]
-	expect(render({ running: true, liveInputs })).toContain('1 delivered')
-	const settled = render({ running: false, liveInputs })
-	expect(settled).not.toContain('delivered')
-	expect(settled).toContain('Delivery unconfirmed')
-	expect(
-		render({ running: false, liveInputs: [liveInputs[0] as (typeof liveInputs)[0]] }),
-	).not.toContain('delivered')
-})
 
 it('keeps attachments removable but blocks Send on an engine without attachments', () => {
 	const html = render({
@@ -552,16 +517,6 @@ it('keeps attachments removable but blocks Send on an engine without attachments
 	const supported = render({ connected: true, attachments: [file] })
 	expect(supported).not.toContain('Remove attachments to send')
 	expect(button(supported, 'Send message')).not.toMatch(/\bdisabled=/)
-})
-
-it('says parked queued messages are paused', () => {
-	const props = { queued: ['Later'], queuedItems: [queuedItem] }
-	const parked = render({ ...props, queueParked: true })
-	expect(parked).toContain('1 paused')
-	expect(parked).toContain('Paused — these start after your next message finishes.')
-	const normal = render(props)
-	expect(normal).toContain('1 queued')
-	expect(normal).not.toContain('Paused')
 })
 
 it('shows the tray only while the conversation is empty', () => {
@@ -642,4 +597,53 @@ it('keeps the empty state away once a provider is connected, and while providers
 		empty: true,
 	})
 	expect(loading).not.toContain('Add an API key or sign in to start')
+})
+
+it('names the shortcut that takes the newest waiting message back, only while one waits', () => {
+	expect(render({ pending: { rows: [waiting('Later')] }, draft: '' })).toContain(
+		'Press ↑ to edit queued messages',
+	)
+	expect(render({ pending: { rows: [] }, draft: '' })).not.toContain(
+		'Press ↑ to edit queued messages',
+	)
+	expect(render({ pending: { rows: [waiting('Later')] }, draft: 'typing' })).not.toContain(
+		'Press ↑ to edit queued messages',
+	)
+})
+
+it('queues with an icon, not a text button, while a reply takes live input', () => {
+	const html = render({ running: true, liveInputSupported: true, onQueue: () => {}, draft: 'x' })
+	const tag = button(html, 'Queue message for the next reply')
+	expect(tag).not.toMatch(/\bdisabled=/)
+	expect(html).not.toMatch(/>\s*Queue message\s*</)
+})
+
+it('draws the waiting messages in a tray joined to the composer, with their actions', () => {
+	const html = render({ running: true, pending: { rows: [waiting('First'), waiting('Second')] } })
+	expect(html).toContain('data-composer-tray')
+	expect(html).toContain('2 waiting')
+	expect(html).toContain('composer-with-tray')
+	expect(button(html, 'Send now: First')).not.toMatch(/\bdisabled=/)
+	expect(button(html, 'Edit: Second')).not.toMatch(/\bdisabled=/)
+	expect(button(html, 'Remove: Second')).not.toMatch(/\bdisabled=/)
+	expect(render({ pending: { rows: [] } })).not.toContain('data-composer-tray')
+})
+
+it('shows how many shells run and the branch pull request, quietly, beside the mode', () => {
+	const none = render({})
+	expect(none).not.toContain('data-composer-shells')
+	expect(none).not.toContain('data-composer-pr')
+	const html = render({
+		shells: { count: 2, onOpen: () => {} },
+		pullRequest: {
+			pr: { number: 607, url: 'https://github.com/o/r/pull/607', review: 'changes' },
+			onOpen: () => {},
+		},
+	})
+	expect(html).toContain('>2 shells<')
+	expect(html).toContain('2 background shells running. Show')
+	expect(html).toContain('>PR #607<')
+	expect(html).toContain('data-review="changes"')
+	expect(html).toContain('Pull request 607, changes requested. Open in browser')
+	expect(render({ shells: { count: 1, onOpen: () => {} } })).toContain('>1 shell<')
 })

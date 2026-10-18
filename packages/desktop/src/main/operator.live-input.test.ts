@@ -219,3 +219,106 @@ it('keeps explicit and unsupported submissions in the normal next-turn queue', a
 		await settled
 	}
 })
+
+it('send now stops the reply and starts the waiting message at once', async () => {
+	const { owner, recorded, permission } = harness()
+	const project = await owner.openProject(process.cwd())
+	const session = await owner.newConversation(project.id)
+	const first = permission()
+	owner.send(session.id, 'Original request')
+	await first
+	owner.send(session.id, 'Wait for the reply')
+	owner.send(session.id, 'Then this one')
+	const queued = (await owner.openConversation(project.id, session.id)).thread?.queuedItems ?? []
+	expect(queued.map((item) => item.prompt)).toEqual(['Wait for the reply', 'Then this one'])
+	// The later message jumps the line: it is the one asked for.
+	const next = permission()
+	await owner.sendNow(session.id, queued[1]?.id)
+	await next
+	expect(
+		recorded
+			.filter((event) => event.kind === 'prompt' && event.sessionId === session.id)
+			.map((event) => (event.kind === 'prompt' ? event.prompt : '')),
+	).toEqual(['Original request', 'Then this one'])
+	const after = (await owner.openConversation(project.id, session.id)).thread
+	expect(after?.queued).toEqual(['Wait for the reply'])
+})
+
+it('send now on a message sent into the reply starts it as the next one instead of a draft', async () => {
+	const { owner, recorded, permission } = harness()
+	const project = await owner.openProject(process.cwd())
+	const session = await owner.newConversation(project.id)
+	const first = permission()
+	owner.send(session.id, 'Original request')
+	await first
+	owner.saveDraft(session.id, 'Take this now')
+	expect(await owner.sendCurrent(session.id, 'Take this now')).toBe('accepted')
+	const receipt = (await owner.openConversation(project.id, session.id)).thread?.liveInputs[0]
+	expect(receipt?.status).toBe('pending')
+	const next = permission()
+	await owner.sendNow(session.id, receipt?.id)
+	await next
+	expect(
+		recorded
+			.filter((event) => event.kind === 'prompt' && event.sessionId === session.id)
+			.map((event) => (event.kind === 'prompt' ? event.prompt : '')),
+	).toEqual(['Original request', 'Take this now'])
+	expect(owner.draft(session.id)).toBe('')
+})
+
+it('send now after a stopped reply starts the waiting message without a new turn first', async () => {
+	const { owner, recorded, wait, permission } = harness()
+	const project = await owner.openProject(process.cwd())
+	const session = await owner.newConversation(project.id)
+	const first = permission()
+	owner.send(session.id, 'Original request')
+	await first
+	owner.send(session.id, 'Held message')
+	const settled = wait(
+		(event) => event.kind === 'state' && event.sessionId === session.id && !event.running,
+	)
+	await owner.cancel(session.id)
+	await settled
+	// A stopped reply parks what waited; nothing started on its own.
+	expect(
+		recorded.filter((event) => event.kind === 'prompt' && event.sessionId === session.id),
+	).toHaveLength(1)
+	const next = permission()
+	await owner.sendNow(session.id)
+	await next
+	expect(
+		recorded.filter((event) => event.kind === 'prompt' && event.sessionId === session.id),
+	).toHaveLength(2)
+})
+
+it('send now refuses a message that already started or was removed', async () => {
+	const { owner, permission } = harness()
+	const project = await owner.openProject(process.cwd())
+	const session = await owner.newConversation(project.id)
+	const first = permission()
+	owner.send(session.id, 'Original request')
+	await first
+	await expect(owner.sendNow(session.id, 'gone')).rejects.toThrow('already started or was removed')
+})
+
+it('rewrites a waiting message in place, and refuses one that already started', async () => {
+	const { owner, permission } = harness()
+	const project = await owner.openProject(process.cwd())
+	const session = await owner.newConversation(project.id)
+	const first = permission()
+	owner.send(session.id, 'Original request')
+	await first
+	owner.send(session.id, 'One')
+	owner.send(session.id, 'Two')
+	const before = (await owner.openConversation(project.id, session.id)).thread?.queuedItems ?? []
+	owner.updateQueued(session.id, before[0]?.id ?? '', 'One, changed')
+	const after = (await owner.openConversation(project.id, session.id)).thread?.queuedItems ?? []
+	expect(after.map((item) => [item.id, item.prompt])).toEqual([
+		[before[0]?.id, 'One, changed'],
+		[before[1]?.id, 'Two'],
+	])
+	expect(() => owner.updateQueued(session.id, before[0]?.id ?? '', '  ')).toThrow('Enter a message')
+	expect(() => owner.updateQueued(session.id, 'gone', 'x')).toThrow(
+		'already started or was removed',
+	)
+})

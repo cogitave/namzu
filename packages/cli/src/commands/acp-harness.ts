@@ -203,6 +203,12 @@ export function withCliHarnesses(
 		}
 	>()
 	const reserving = new Set<string>()
+	/**
+	 * Conversations whose prompt is a plain Namzu turn. They stay in `reserving` for the whole turn, so no
+	 * engine or model change slips in, but a message typed while the turn runs must still reach it: that
+	 * reservation says "not an external engine", which is exactly what live input asks about.
+	 */
+	const nativeTurns = new Set<string>()
 	// One entry per engine, folder and installed build; an upgrade is a different key.
 	interface Catalogue {
 		promise: Promise<readonly HarnessCatalogueModel[]>
@@ -440,7 +446,14 @@ export function withCliHarnesses(
 			let record = records.get(request.sessionId)
 			try {
 				const choice = await selectionFor(request.sessionId, cwd)
-				if (!choice) return await base.gateway.prompt(request)
+				if (!choice) {
+					nativeTurns.add(request.sessionId)
+					try {
+						return await base.gateway.prompt(request)
+					} finally {
+						nativeTurns.delete(request.sessionId)
+					}
+				}
 				if (request.attachments?.length)
 					throw new Error(
 						'This engine connection does not support attachments yet. Your draft is retained.',
@@ -575,7 +588,11 @@ export function withCliHarnesses(
 			? {
 					liveInputStatus: async (id: string, scopeId?: string, scope?: CliSessionScope) => {
 						if (closed) throw new Error('The connection is closed.')
-						if (records.has(id) || selections.has(id) || reserving.has(id)) {
+						if (
+							records.has(id) ||
+							selections.has(id) ||
+							(reserving.has(id) && !nativeTurns.has(id))
+						) {
 							if (scopeId !== undefined)
 								throw new Error('This live prompt scope is unavailable in this engine.')
 							return { available: false, inputs: [] }
@@ -587,7 +604,12 @@ export function withCliHarnesses(
 						input: { scopeId: string; inputId: string; prompt: string },
 						scope?: CliSessionScope,
 					) => {
-						if (closed || records.has(id) || selections.has(id) || reserving.has(id))
+						if (
+							closed ||
+							records.has(id) ||
+							selections.has(id) ||
+							(reserving.has(id) && !nativeTurns.has(id))
+						)
 							throw new Error('Live input is unavailable in this engine.')
 						return liveInput(id, input, scope)
 					},

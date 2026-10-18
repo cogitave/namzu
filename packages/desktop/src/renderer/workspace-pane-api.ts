@@ -60,6 +60,7 @@ export function createWorkspacePaneApi(
 		forkConversation,
 		conversationMarkdown,
 		projectGit,
+		projectPr,
 		projectChanges,
 		projectDiff,
 		listProjectDirectory,
@@ -368,6 +369,18 @@ export function createWorkspacePaneApi(
 		cancel: (owner) => invoke(() => base.cancel(owner), [owner]),
 		takeQueued: (owner, itemId) => invoke(() => base.takeQueued(owner, itemId), [owner]),
 		removeQueued: (owner, itemId) => invoke(() => base.removeQueued(owner, itemId), [owner]),
+		...(base.updateQueued
+			? {
+					updateQueued: (owner: string, itemId: string, prompt: string) =>
+						invoke(() => base.updateQueued?.(owner, itemId, prompt) ?? Promise.resolve(), [owner]),
+				}
+			: {}),
+		...(base.sendNow
+			? {
+					sendNow: (owner: string, itemId?: string) =>
+						invoke(() => base.sendNow?.(owner, itemId) ?? Promise.resolve(), [owner]),
+				}
+			: {}),
 		respondPermission: (owner, request, response) =>
 			invoke(() => base.respondPermission(owner, request, response), [owner]),
 		stopJob: (owner, jobId) => invoke(() => base.stopJob(owner, jobId), [owner]),
@@ -427,6 +440,7 @@ export function createWorkspacePaneApi(
 				}
 			: {}),
 		...(projectGit ? { projectGit: (id) => invoke(() => projectGit(id), []) } : {}),
+		...(projectPr ? { projectPr: (id) => invoke(() => projectPr(id), []) } : {}),
 		...(projectChanges ? { projectChanges: (id) => invoke(() => projectChanges(id), []) } : {}),
 		...(projectDiff ? { projectDiff: (id, path) => invoke(() => projectDiff(id, path), []) } : {}),
 		...(listProjectDirectory
