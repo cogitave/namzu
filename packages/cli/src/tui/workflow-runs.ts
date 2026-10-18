@@ -149,7 +149,7 @@ export function runRailFacts(run: WorkflowRunView): RunRailFacts {
 	const counts = countAgents(run)
 	const tokens = runTokens(run)
 	return {
-		done: counts.settled,
+		done: counts.done,
 		total: counts.total,
 		failed: counts.failed,
 		tokens: tokens > 0 ? tokens : undefined,

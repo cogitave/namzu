@@ -58,7 +58,7 @@ export function completionNotice(view: WorkflowRunView): string {
 				: `Workflow "${view.name}" (${view.runId}) was stopped${view.error ? `: ${view.error}` : '.'}`
 	const lines = [head]
 	lines.push(
-		`<usage>agents: ${usage?.agents ?? counts.total}, done: ${usage?.agentsDone ?? counts.settled - counts.failed}, failed: ${usage?.agentsFailed ?? counts.failed}, skipped: ${usage?.agentsSkipped ?? 0}, tokens: ${usage?.tokens ?? runTokens(view)}, tool_calls: ${usage?.toolCalls ?? 0}, duration: ${formatDuration(usage?.elapsedMs ?? elapsed)}</usage>`,
+		`<usage>agents: ${usage?.agents ?? counts.total}, done: ${usage?.agentsDone ?? counts.done}, failed: ${usage?.agentsFailed ?? counts.failed}, skipped: ${usage?.agentsSkipped ?? 0}, tokens: ${usage?.tokens ?? runTokens(view)}, tool_calls: ${usage?.toolCalls ?? 0}, duration: ${formatDuration(usage?.elapsedMs ?? elapsed)}</usage>`,
 	)
 	const failed = view.agents.filter((agent) => agent.status === 'failed')
 	if (failed.length > 0) {

@@ -12309,7 +12309,7 @@ function workflowRunOption(run: WorkflowRunView): ChoicePickerOption {
 	const tokens = runTokens(run)
 	const columns = [
 		run.status,
-		`${counts.settled}/${counts.total} agent${counts.total === 1 ? '' : 's'}`,
+		`${counts.done}/${counts.total} agent${counts.total === 1 ? '' : 's'}`,
 		...(tokens > 0 ? [`${formatCompactCount(tokens)} tokens`] : []),
 		relativeStart(run.startedAt),
 		formatElapsed((run.endedAt ?? Date.now()) - run.startedAt),

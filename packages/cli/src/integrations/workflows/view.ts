@@ -244,6 +244,9 @@ export function closeOpenAgents(view: WorkflowRunView, at: number): WorkflowRunV
 
 export interface WorkflowAgentCounts {
 	readonly total: number
+	/** Agents that completed. Skipped, failed and stopped ones are not counted here. */
+	readonly done: number
+	/** Agents that are no longer going, however they ended. */
 	readonly settled: number
 	readonly failed: number
 	readonly running: number
@@ -252,6 +255,7 @@ export interface WorkflowAgentCounts {
 
 export function countAgents(view: Pick<WorkflowRunView, 'agents'>): WorkflowAgentCounts {
 	let settled = 0
+	let done = 0
 	let failed = 0
 	let running = 0
 	let queued = 0
@@ -260,10 +264,11 @@ export function countAgents(view: Pick<WorkflowRunView, 'agents'>): WorkflowAgen
 		else if (agent.status === 'running') running += 1
 		else {
 			settled += 1
+			if (agent.status === 'done') done += 1
 			if (agent.status === 'failed') failed += 1
 		}
 	}
-	return { total: view.agents.length, settled, failed, running, queued }
+	return { total: view.agents.length, done, settled, failed, running, queued }
 }
 
 export function runTokens(view: Pick<WorkflowRunView, 'agents'>): number {

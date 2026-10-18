@@ -96,7 +96,7 @@ describe('a run folded from events', () => {
 			}),
 		)
 		expect(view.agents[0]).toMatchObject({ status: 'done', viewId: 'agent-7', tokens: 80 })
-		expect(countAgents(view)).toEqual({ total: 1, settled: 1, failed: 0, running: 0, queued: 0 })
+		expect(countAgents(view)).toEqual({ total: 1, done: 1, settled: 1, failed: 0, running: 0, queued: 0 })
 	})
 
 	it('tells a skipped agent from a failed one', () => {
@@ -110,7 +110,7 @@ describe('a run folded from events', () => {
 			agentEvent({ index: 2, label: 'b', state: 'error', error: 'boom', finishedAt: 1200 }),
 		)
 		expect(view.agents.map((a) => a.status)).toEqual(['skipped', 'failed'])
-		expect(countAgents(view)).toMatchObject({ settled: 2, failed: 1 })
+		expect(countAgents(view)).toMatchObject({ done: 0, settled: 2, failed: 1 })
 	})
 
 	it('learns a phase the script announced, and ignores another run', () => {

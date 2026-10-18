@@ -878,7 +878,14 @@ export function phaseOutcome(phase: Pick<AgentPhase, 'agents'>): PhaseOutcome {
 /** The phase list's `done/total`: settled agents over every agent seen in it. */
 export function phaseCount(phase: Pick<AgentPhase, 'agents'>): string {
 	if (phase.agents.length === 0) return ''
-	return `${phase.agents.filter((agent) => isTerminalStatus(agent.status)).length}/${phase.agents.length}`
+	// In a workflow run only an agent that completed counts; one that was skipped,
+	// failed or stopped has not done its work.
+	const counted = phase.agents.filter((agent) =>
+		agent.workflowRunId !== undefined
+			? agent.status === 'completed'
+			: isTerminalStatus(agent.status),
+	).length
+	return `${counted}/${phase.agents.length}`
 }
 
 /**
@@ -946,8 +953,10 @@ export function WorkflowDetail({
 	const compact = terminalRows < 20
 	const pageSize = compact ? 1 : workflowDetailPageSize(terminalRows)
 	const phase = phases[selectedPhaseIndex]
-	const settled = workflow.agents.filter((agent) => isTerminalStatus(agent.status)).length
 	const isRun = workflow.runId !== undefined
+	const settled = workflow.agents.filter((agent) =>
+		isRun ? agent.status === 'completed' : isTerminalStatus(agent.status),
+	).length
 	const ended = isRun ? workflow.runStatus !== 'running' : undefined
 	const ends = workflow.agents.map((agent) => agent.completedAt ?? now)
 	const elapsed = formatElapsed(

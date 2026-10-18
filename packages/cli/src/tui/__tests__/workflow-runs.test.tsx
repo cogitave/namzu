@@ -315,3 +315,49 @@ describe('the detail view of a run', () => {
 		expect(text).not.toContain('x to stop')
 	})
 })
+
+describe('the counters', () => {
+	const mixedRun = (status: WorkflowRunView['status']) =>
+		run({
+			status,
+			endedAt: status === 'running' ? undefined : NOW,
+			agents: [
+				agentView(1, 'done', { phaseIndex: 1, phaseTitle: 'Scan' }),
+				agentView(2, 'skipped', { phaseIndex: 1, phaseTitle: 'Scan', finishedAt: NOW }),
+				agentView(3, 'failed', { phaseIndex: 1, phaseTitle: 'Scan', finishedAt: NOW }),
+				agentView(4, 'queued', { phaseIndex: 2, phaseTitle: 'Fix' }),
+			],
+		})
+
+	it('counts only agents that completed: skipped and failed ones do not fill the bar', () => {
+		const [row] = railWorkflows([], NOW, new Set(), [mixedRun('running')])
+		expect(row).toMatchObject({ done: 1, total: 4, failed: 1 })
+	})
+
+	it('leaves a stopped run where it was, and says the outcome with the bullet only', () => {
+		const stopped = mixedRun('stopped')
+		const [row] = railWorkflows([], NOW, new Set(), [stopped])
+		expect(row).toMatchObject({ done: 1, total: 4, status: 'stopped' })
+		const [flow] = agentWorkflows(withWorkflowRuns([], [stopped]), [stopped])
+		expect(flow?.phases[0] && phaseCount(flow.phases[0])).toBe('1/3')
+	})
+
+	it('puts the same count in the detail header, with the status suffix', async () => {
+		const stopped = mixedRun('stopped')
+		mounted = await renderToScreen(
+			<AgentCockpit
+				agents={withWorkflowRuns([], [stopped])}
+				runs={[stopped]}
+				selectedPhaseId={`wfrun:${stopped.runId}:p:1`}
+				selectedId=""
+				focus="phases"
+				terminalRows={30}
+				terminalColumns={100}
+			/>,
+			{ cols: 100, rows: 30 },
+		)
+		const text = mounted.viewport().join('\n')
+		expect(text).toContain('1/4 agents')
+		expect(text).toContain('· stopped')
+	})
+})
