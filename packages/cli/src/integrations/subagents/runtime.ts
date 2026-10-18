@@ -1424,6 +1424,11 @@ export async function createSubagentRuntime(
 	 * through the activity monitor; anything else is returned for the caller's
 	 * own id check.
 	 */
+	const missingTaskMessage = (taskId: string): string =>
+		/^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(String(taskId))
+			? `Task ${taskId} does not belong to this parent turn.`
+			: `No agent named '${taskId}' is currently addressable. Spawn a new one or use the task ID.`
+
 	const resolveTaskRef = (ref: string): string => {
 		const trimmed = typeof ref === 'string' ? ref.trim() : ref
 		if (typeof trimmed !== 'string' || trimmed === '') return ref
@@ -1485,7 +1490,7 @@ export async function createSubagentRuntime(
 				return {
 					success: false,
 					output: '',
-					error: `Task ${taskId} does not belong to this parent turn.`,
+					error: missingTaskMessage(taskId),
 				}
 			const outcome = await runBlockingAgentTask({
 				gateway,
@@ -1517,7 +1522,7 @@ export async function createSubagentRuntime(
 	const sendMessageTool = defineTool({
 		name: 'send_message',
 		description:
-			'Queue a correction or additional context for a running or queued sub-agent task owned by this turn. The child receives it at its next request boundary; acceptance is not delivery. This does not start new work or restart finished tasks.',
+			'Send a correction or additional context to a sub-agent owned by this turn, addressed by its name or task id. A running or queued agent receives it at its next tool round; acceptance is not delivery. A finished agent is resumed from its own transcript with the message. An agent the user stopped is not resumed.',
 		inputSchema: mcpJsonSchemaToZod({
 			type: 'object',
 			properties: {
@@ -1559,14 +1564,34 @@ export async function createSubagentRuntime(
 				return {
 					success: false,
 					output: '',
-					error: `Task ${taskId} does not belong to this parent turn.`,
+					error: missingTaskMessage(taskId),
 				}
-			if (isTerminalAgentTaskState(task.state))
+			if (isTerminalAgentTaskState(task.state)) {
+				// A finished agent is resumed from its own transcript with the message;
+				// one the user stopped is not.
+				const shown = activity.getSnapshot().find((entry) => entry.taskId === String(taskId))
+				const label = shown?.name ?? shown?.agentId ?? String(taskId)
+				if (!shown)
+					return {
+						success: false,
+						output: '',
+						error: `Task ${taskId} has finished and cannot be resumed from here.`,
+					}
+				try {
+					await messageChild(shown.viewId, message, context.turnId, context.abortSignal, 'parent')
+				} catch (error) {
+					return {
+						success: false,
+						output: '',
+						error: error instanceof Error ? error.message : String(error),
+					}
+				}
 				return {
-					success: false,
-					output: '',
-					error: 'This task has finished; send_message cannot restart it.',
+					success: true,
+					output: `Resuming agent ${label}. It will notify you again when it finishes.`,
+					data: { task_id: taskId, status: 'resumed' },
 				}
+			}
 			context.abortSignal.throwIfAborted()
 			await gateway.continueTask(taskId, message)
 			// Only after delivery is accepted: a row claiming a correction was
@@ -1575,7 +1600,7 @@ export async function createSubagentRuntime(
 			activity.recordMessage(String(taskId), message, 'to-child')
 			return {
 				success: true,
-				output: `Message queued for task ${taskId}; it will be available at the child's next request boundary.`,
+				output: `Message queued for delivery to ${activity.getSnapshot().find((entry) => entry.taskId === String(taskId))?.name ?? `task ${taskId}`} at its next tool round (task ${taskId}). If it finishes first, it is resumed with the message and notifies again, so wait for that notification before resending.`,
 				data: { task_id: taskId, status: 'queued' },
 			}
 		},
@@ -1611,7 +1636,7 @@ export async function createSubagentRuntime(
 				return {
 					success: false,
 					output: '',
-					error: `Task ${taskId} does not belong to this parent turn.`,
+					error: missingTaskMessage(taskId),
 				}
 			if (isTerminalAgentTaskState(task.state))
 				return {
@@ -1716,6 +1741,7 @@ export async function createSubagentRuntime(
 		message: string,
 		turnId: TurnId,
 		signal: AbortSignal,
+		source: 'operator' | 'parent' = 'operator',
 	): Promise<SubagentMessageReceipt> => {
 		if (closed) throw new Error('Sub-agent runtime is closed.')
 		if (!message.trim() || message.length > 16_000)
@@ -1724,6 +1750,13 @@ export async function createSubagentRuntime(
 		const shown = activity.getSnapshot().find((value) => value.viewId === viewId)
 		if (!owned || !shown || shown.replayed)
 			throw new Error('This child is saved evidence or is no longer owned by this host.')
+		// Stopped on purpose: not resumed by a message from either side.
+		if (shown.status === 'cancelled')
+			throw new Error(
+				source === 'operator'
+					? `${shown.name ?? shown.agentId} was stopped, so it cannot take a message. Start a new agent for that work.`
+					: `Agent "${shown.name ?? shown.agentId}" was stopped by the user and was not resumed. Treat its work as cancelled; only start a new agent for it if the user explicitly asks.`,
+			)
 		if (owned.busy) throw new Error('A message to this child is already being admitted.')
 		owned.busy = true
 		const id = randomUUID()
@@ -1753,7 +1786,7 @@ export async function createSubagentRuntime(
 			const parent = await resolveParent(turnId)
 			if (owned.parentKey !== sessionKey(parent))
 				throw new Error('This child belongs to a different parent conversation.')
-			if (opts.paths) {
+			if (opts.paths && source === 'operator') {
 				const directory = opts.paths.sessionDir({
 					sessionId: parent.sessionId,
 				})
@@ -1814,7 +1847,12 @@ export async function createSubagentRuntime(
 				kind = 'started'
 			}
 			admitted = true
-			activity.recordMessage(String(task.taskId), message, 'operator-to-child')
+			activity.recordMessage(
+				String(task.taskId),
+				message,
+				source === 'operator' ? 'operator-to-child' : 'to-child',
+				kind === 'started' ? 'started' : 'queued',
+			)
 			let auditWarning: string | undefined
 			try {
 				await audit('accepted', String(task.taskId))

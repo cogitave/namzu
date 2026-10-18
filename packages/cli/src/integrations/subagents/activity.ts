@@ -122,6 +122,12 @@ export interface SubagentActivity {
 	 * prefers it to `description` while the agent runs.
 	 */
 	readonly summary?: string
+	/**
+	 * Messages sent to this running agent that it has not yet taken in: they
+	 * are delivered at its next tool round, and the rail shows `N queued`
+	 * until one completes. Absent when none are waiting.
+	 */
+	readonly queued?: number
 	/** Launched with `run_in_background`: the rail drops it the moment it completes. */
 	readonly background?: boolean
 	readonly prompt: string
@@ -324,6 +330,7 @@ interface MutableActivity {
 	description: string
 	name?: string
 	summary?: string
+	queued?: number
 	background?: boolean
 	prompt: string
 	batchId: string
@@ -504,6 +511,7 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 					return
 				}
 				owned.completedAt = handle.completedAt ?? Date.now()
+				owned.queued = 0
 				owned.latestActivity =
 					handle.result?.stopReason && handle.result.stopReason !== 'end_turn'
 						? `Stopped · ${handle.result.stopReason}`
@@ -608,7 +616,12 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 	 * matching record (already pruned, or never tracked) is a silent no-op:
 	 * there is no row left to explain what was sent.
 	 */
-	recordMessage(taskId: string, text: string, direction: SubagentMessageDirection): void {
+	recordMessage(
+		taskId: string,
+		text: string,
+		direction: SubagentMessageDirection,
+		kind: 'queued' | 'started' = 'queued',
+	): void {
 		if (this.closed) return
 		const record = [...this.records.values()].find((entry) => entry.taskId === taskId)
 		if (!record) return
@@ -618,6 +631,9 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 			text: bounded(text, MAX_ROW_CODE_UNITS),
 			direction,
 		})
+		// A running agent takes a message in at its next tool round; until then
+		// it counts as queued. A finished one is resumed with it instead.
+		if (kind === 'queued' && !isTerminal(record.status)) record.queued = (record.queued ?? 0) + 1
 		this.notifyNow()
 	}
 
@@ -763,6 +779,7 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 			description: record.description,
 			...(record.name ? { name: record.name } : {}),
 			...(record.summary ? { summary: record.summary } : {}),
+			...(record.queued ? { queued: record.queued } : {}),
 			...(record.background ? { background: true } : {}),
 			prompt: record.prompt,
 			batchId: record.batchId,
@@ -1102,6 +1119,8 @@ function projectEvent(record: MutableActivity, event: SessionEvent): void {
 					}
 				}
 			}
+			// A tool round ended: the next request takes in what was queued.
+			record.queued = 0
 			record.latestActivity = event.isError ? `${event.toolName} failed` : `${event.toolName} done`
 			return
 		}

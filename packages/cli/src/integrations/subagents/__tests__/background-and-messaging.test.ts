@@ -321,12 +321,21 @@ it('does independent work, delivers one correction at the next child boundary, a
 		expect(turn.gateway.listTasks()).toHaveLength(1)
 		expect(turn.gateway.listTasks()[0]?.state).toBe('completed')
 		const finished = await turn.runtime.sendMessageTool.execute(
-			{ task_id: taskId, message: 'Do not restart the finished child.' },
+			{ task_id: taskId, message: 'Now check the second branch too.' },
 			turn.context,
 		)
-		expect(finished.success).toBe(false)
-		expect(finished.error).toContain('finished')
-		expect(turn.childCount()).toBe(1)
+		// A finished agent is resumed from its own transcript with the message.
+		expect(finished.success).toBe(true)
+		expect(finished.output).toContain('Resuming agent background-investigation')
+		expect(
+			turn.runtime.activity
+				.getSnapshot()
+				.some((entry) =>
+					entry.transcript.some(
+						(row) => row.kind === 'system' && row.text === 'Now check the second branch too.',
+					),
+				),
+		).toBe(true)
 	} finally {
 		await turn.close()
 	}
@@ -362,19 +371,12 @@ it('a refused send leaves no transcript row', async () => {
 		const result = await turn.pending
 		expect(result.status).toBe('completed')
 
+		// A finished agent takes the message and is resumed; it is not refused.
 		const terminal = await turn.runtime.sendMessageTool.execute(
-			{ task_id: taskId, message: 'TERMINAL_REFUSAL_MUST_NOT_RENDER' },
+			{ task_id: taskId, message: 'RESUME_ME' },
 			turn.context,
 		)
-		expect(terminal.success).toBe(false)
-		const afterTerminal = turn.runtime.activity
-			.getSnapshot()
-			.find((entry) => entry.taskId === taskId)?.transcript
-		expect(
-			afterTerminal?.some(
-				(row) => row.kind === 'system' && row.text.includes('TERMINAL_REFUSAL_MUST_NOT_RENDER'),
-			),
-		).toBe(false)
+		expect(terminal.success).toBe(true)
 	} finally {
 		await turn.close()
 	}
@@ -480,6 +482,50 @@ it('names the agent from its description and answers to that name in send_messag
 		)
 		expect(cancel.success).toBe(true)
 		expect(cancel.output).toContain(String(taskId))
+	} finally {
+		await turn.close()
+	}
+}, 30_000)
+
+it('refuses a message to an agent the user stopped, in plain words, and writes no row', async () => {
+	const turn = await backgroundTurn()
+	try {
+		await turn.fourthRequestOrStop
+		const shown = turn.runtime.activity
+			.getSnapshot()
+			.find((entry) => entry.taskId === turn.taskId())
+		expect(shown).toBeDefined()
+		expect(turn.runtime.stopChild(String(shown?.viewId))).toBe(true)
+		turn.release()
+		await turn.pending
+		for (let attempt = 0; attempt < 200; attempt += 1) {
+			if (
+				turn.runtime.activity.getSnapshot().find((entry) => entry.viewId === shown?.viewId)
+					?.status === 'cancelled'
+			)
+				break
+			await new Promise<void>((resolve) => setImmediate(resolve))
+		}
+		const refused = await turn.runtime.sendMessageTool.execute(
+			{ task_id: 'background-investigation', message: 'STOPPED_MUST_NOT_RENDER' },
+			turn.context,
+		)
+		expect(refused.success).toBe(false)
+		expect(refused.error).toBe(
+			'Agent "background-investigation" was stopped by the user and was not resumed. Treat its work as cancelled; only start a new agent for it if the user explicitly asks.',
+		)
+		await expect(
+			turn.runtime.messageChild(
+				String(shown?.viewId),
+				'typed by the user',
+				turn.parent.scope.turnId,
+				turn.caller.signal,
+			),
+		).rejects.toThrow('was stopped, so it cannot take a message')
+		const rows = turn.runtime.activity
+			.getSnapshot()
+			.find((entry) => entry.viewId === shown?.viewId)?.transcript
+		expect(rows?.some((row) => row.kind === 'system' && row.text.includes('MUST_NOT'))).toBe(false)
 	} finally {
 		await turn.close()
 	}
