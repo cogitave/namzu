@@ -88,7 +88,7 @@ export async function runScript(
 ): Promise<{ result: WorkflowRunResult; events: WorkflowEvent[] }> {
 	const events: WorkflowEvent[] = []
 	const host = options.host ?? makeHost()
-	const { host: _ignored, onEvent, ...rest } = options
+	const { host: _ignored, onEvent, limits, ...rest } = options
 	const result = await new WorkflowRuntime().run({
 		script,
 		spawnAgent: host.spawnAgent,
@@ -96,6 +96,10 @@ export async function runScript(
 			events.push(event)
 			onEvent?.(event)
 		},
+		// The default concurrency follows this machine's CPU count, so a test that
+		// holds several agents at once would hang on a small CI runner. Tests get a
+		// fixed cap unless they set their own.
+		limits: { maxConcurrency: 8, ...limits },
 		...rest,
 	})
 	return { result, events }

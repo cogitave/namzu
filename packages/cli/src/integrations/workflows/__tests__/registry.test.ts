@@ -9,6 +9,12 @@ import { listWorkflowRuns, readWorkflowRun } from '../history.js'
 import { type StartWorkflowRun, type WorkflowRunEnd, WorkflowRunRegistry } from '../registry.js'
 import { TWO_PHASE_SCRIPT } from './harness.js'
 
+/**
+ * The default concurrency follows this machine's CPU count; these tests hold
+ * three agents at once, which would hang on a small CI runner.
+ */
+const TEST_LIMITS = { maxConcurrency: 8 } as const
+
 /** A spawn that answers `ok:<prompt>` once the test lets it, and reports the row it "created". */
 function fakeSpawn() {
 	const waiting: Array<{ prompt: string; finish: () => void; signal: AbortSignal }> = []
@@ -44,6 +50,7 @@ describe('a run in the registry, with a spawn the test controls', () => {
 	function start(registry: WorkflowRunRegistry, spawn: StartWorkflowRun['spawn'], dir?: string) {
 		const ended: WorkflowRunEnd[] = []
 		const view = registry.start({
+			limits: TEST_LIMITS,
 			runId: 'wtest0001',
 			meta: parseWorkflowMeta(TWO_PHASE_SCRIPT),
 			script: TWO_PHASE_SCRIPT,
@@ -163,6 +170,7 @@ describe('a run in the registry, with a spawn the test controls', () => {
 			releaseAnnouncement = resolve
 		})
 		registry.start({
+			limits: TEST_LIMITS,
 			runId: 'wtest0001',
 			meta: parseWorkflowMeta(TWO_PHASE_SCRIPT),
 			script: TWO_PHASE_SCRIPT,
@@ -192,6 +200,7 @@ describe('a run in the registry, with a spawn the test controls', () => {
 		const registry = new WorkflowRunRegistry()
 		const { spawn, waiting } = fakeSpawn()
 		registry.start({
+			limits: TEST_LIMITS,
 			runId: 'wtest0001',
 			meta: parseWorkflowMeta(TWO_PHASE_SCRIPT),
 			script: TWO_PHASE_SCRIPT,

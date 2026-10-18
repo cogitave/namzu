@@ -120,7 +120,9 @@ export async function workflowHarness(
 		subagents: runtime,
 		runsDirectory: () => runs,
 		refusal: () => options.refusal,
-		...(options.limits ? { limitsFor: () => options.limits } : {}),
+		// The default concurrency follows this machine's CPU count; a test that
+		// holds several agents at once would hang on a small CI runner.
+		limitsFor: () => ({ maxConcurrency: 8, ...options.limits }),
 		openRunTurn: (_origin, _runId) => {
 			const turnId = generateTurnId()
 			known.add(turnId)
