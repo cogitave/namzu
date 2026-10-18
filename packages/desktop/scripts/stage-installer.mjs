@@ -38,7 +38,7 @@ export const PYTHON = {
 	url: 'https://github.com/astral-sh/python-build-standalone/releases/download/20261003/cpython-3.14.8%2B20261003-x86_64-pc-windows-msvc-install_only_stripped.tar.gz',
 	sha256: '10e5705e44938ee78de35c62b30fdfe2945b53438343d04c0f53548cdd8e91b6',
 }
-const RUNTIME_DEPENDENCIES = ['electron-updater', 'ignore', 'ws', 'yaml']
+const RUNTIME_DEPENDENCIES = ['electron-updater', 'ignore', 'sherpa-onnx-node', 'ws', 'yaml']
 
 const run = (program, args, options = {}) =>
 	execFileSync(program, args, { stdio: 'inherit', ...options })
@@ -198,9 +198,24 @@ async function main() {
 	cpSync(join(pkgRoot, 'build'), join(out, 'build'), { recursive: true })
 	cpSync(join(pkgRoot, 'electron-builder.yml'), join(out, 'electron-builder.yml'))
 	cpSync(join(pkgRoot, 'scripts/installer-after-pack.cjs'), join(out, 'installer-after-pack.cjs'))
-	run('npm', ['install', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund', '--no-package-lock'], {
-		cwd: out,
-	})
+	// The installer is Windows x64 whatever machine stages it, so the platform-specific optional
+	// packages (the speech engine's native addon) are chosen for it, not for this host.
+	run(
+		'npm',
+		[
+			'install',
+			'--omit=dev',
+			'--ignore-scripts',
+			'--no-audit',
+			'--no-fund',
+			'--no-package-lock',
+			'--os=win32',
+			'--cpu=x64',
+		],
+		{ cwd: out },
+	)
+	if (!existsSync(join(out, 'node_modules/sherpa-onnx-win-x64/sherpa-onnx.node')))
+		throw new Error('The staged app has no sherpa-onnx win-x64 addon; local listening would not work.')
 
 	prune(join(out, 'node_modules'), (entry) => entry.name === '.bin')
 

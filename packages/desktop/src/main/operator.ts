@@ -5309,6 +5309,35 @@ export class Operator {
 			}
 		}
 	}
+	/** What a spoken message must know first: is a reply running, and is a question waiting on the person. */
+	voiceActivity(sessionId: string): { running: boolean; waitingOnPerson: boolean } {
+		const session = this.session(sessionId)
+		return { running: session.running, waitingOnPerson: session.permissions.size > 0 }
+	}
+	/**
+	 * Sends spoken text exactly as the composer sends typed text with nothing attached: the saved
+	 * model choice (or Auto, when this conversation runs on it) and message settings, a new turn
+	 * when idle, and current-turn input (or the queue) while a reply runs.
+	 */
+	async sendSpoken(sessionId: string, text: string): Promise<'accepted' | 'queued'> {
+		const session = this.session(sessionId)
+		const saved = this.draftSettings(sessionId)
+		if (!session.running) {
+			// The composer's rule: Auto is on only where the CLI offers it, never for a Pal or an
+			// external engine, and the person's saved choice wins over what the conversation started
+			// with. Selecting the saved model instead would be a hand pick, which turns Auto off.
+			const reported = session.providers?.auto
+			const onAuto =
+				reported !== undefined &&
+				!session.view.palId &&
+				(session.view.harness === undefined || session.view.harness === 'namzu') &&
+				(saved.autoRouting ?? reported.active)
+			if (onAuto) await this.selectAuto(sessionId)
+			else if (saved.choice)
+				await this.selectProvider(sessionId, saved.choice.provider, saved.choice.model)
+		}
+		return this.sendCurrent(sessionId, text, saved.options ? { ...saved.options } : undefined)
+	}
 	async cancel(sessionId: string): Promise<void> {
 		const session = this.session(sessionId)
 		await session.client.request('session/cancel', {

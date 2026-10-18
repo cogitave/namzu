@@ -33,6 +33,7 @@ const EVENTS = {
 	cli_closed: 'Desktop CLI connection closed',
 	computer_stream_failed: 'Desktop live computer connection failed',
 	local_speech_failed: 'Desktop local speech failed',
+	local_listening_failed: 'Desktop local listening failed',
 	renderer_failed: 'Desktop renderer reported an error',
 	renderer_load_failed: 'Desktop renderer could not load',
 	renderer_process_gone: 'Desktop renderer process ended',

@@ -22,6 +22,7 @@ it('accepts only known keys with valid values in a change', () => {
 		{ autoDownloadUpdates: 'true' },
 		{ terminalShell: 'zsh' },
 		{ restoreTerminals: 'yes' },
+		{ voiceInputAccepted: 'yes' },
 		{ unknown: 1 },
 		{ __proto__: { startup: 'home' }, constructor: 1 },
 	])
@@ -45,6 +46,7 @@ it('reads a stored file entry by entry and ignores what it does not know', () =>
 		autoDownloadUpdates: false,
 		terminalShell: 'auto',
 		restoreTerminals: true,
+		voiceInputAccepted: false,
 	})
 })
 
@@ -55,6 +57,7 @@ it('documents the defaults the spec names', () => {
 		autoDownloadUpdates: true,
 		terminalShell: 'auto',
 		restoreTerminals: true,
+		voiceInputAccepted: false,
 	})
 })
 
@@ -63,4 +66,11 @@ it('knows the six sections', () => {
 		expect(isSettingsSection(section)).toBe(true)
 	expect(isSettingsSection('plugins')).toBe(false)
 	expect(isSettingsSection(undefined)).toBe(false)
+})
+
+it('voice input is not agreed to until the person says so, and only a boolean says it', () => {
+	expect(DEFAULT_DESKTOP_SETTINGS.voiceInputAccepted).toBe(false)
+	expect(desktopSettingsPatch({ voiceInputAccepted: true })).toEqual({ voiceInputAccepted: true })
+	expect(storedDesktopSettings({ voiceInputAccepted: true }).voiceInputAccepted).toBe(true)
+	expect(storedDesktopSettings({ voiceInputAccepted: 'true' }).voiceInputAccepted).toBe(false)
 })

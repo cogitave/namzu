@@ -5,6 +5,7 @@ import {
 	type PromptContributionRegistry,
 	SKILLS_CONTRIBUTION_ID,
 } from '../../prompt/contributions.js'
+import { isWindowsBash } from '../../tools/command-shell.js'
 import type { ToolManager } from '../../toolsets/manager.js'
 import type { AgentRuntimeContext } from '../../types/agent/base.js'
 import type { AgentContextLevel } from '../../types/agent/factory.js'
@@ -135,8 +136,11 @@ function buildShellContext(config: PromptBuilderConfig): string | undefined {
 		)
 			continue
 		const dialect = tool.commandDialect({ sandboxed: config.sandboxed === true })
+		// Git Bash on a Windows host is named, so the line does not read as the
+		// Linux shell it is not. The syntax rules are in the tool's description.
+		const gitBash = !config.sandboxed && dialect === 'bash' && isWindowsBash()
 		lines.push(
-			`Execution shell for ${name}: ${dialect}${config.sandboxed ? ' (sandbox guest)' : ' (host)'}.`,
+			`Execution shell for ${name}: ${dialect}${config.sandboxed ? ' (sandbox guest)' : gitBash ? ' (Git Bash on Windows, host)' : ' (host)'}.`,
 		)
 		if (dialect === 'cmd')
 			lines.push(

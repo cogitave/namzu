@@ -8,8 +8,12 @@ import { subscribeToAbort } from '../../utils/abort.js'
 import { readPositiveIntEnv } from '../../utils/env.js'
 import {
 	type CommandShell,
+	WINDOWS_BASH_GUIDANCE,
 	bashToolDialect,
 	describeSpawnFailure,
+	hostCommandShell,
+	isWindowsBash,
+	rewriteWindowsNullRedirect,
 	sandboxShellSpawn,
 	spawnHostShell,
 	withoutBashStartup,
@@ -57,6 +61,12 @@ const inputSchema = z.object({
 	command: z
 		.string()
 		.min(1)
+		// Git Bash on Windows: a model that writes `>nul` meant the null device.
+		// Rewritten here, before the permission rules read the line and before
+		// it runs, so the two see the same text.
+		.transform((command) =>
+			isWindowsBash(hostCommandShell()) ? rewriteWindowsNullRedirect(command) : command,
+		)
 		.describe(
 			'The bash command to execute. Required, non-empty. Single command per call (use `&&` / `;` chaining for compound commands). Avoid heredocs that span more than a few hundred bytes — large content should be created with `write`, then extended with `edit` insertLine: "end", not piped into bash.',
 		),
@@ -336,10 +346,12 @@ export const SANDBOX_CANNOT_DETACH =
 export const SANDBOX_ESCAPE_NOT_APPROVED =
 	'dangerously_disable_sandbox was not approved for this call, so the command did not run. Leaving the sandbox needs the user to confirm it each time, and this turn either cannot ask or does not allow it. Run the command inside the sandbox, or tell the user what it needs and let them run it.'
 
-export const BashTool = defineTool({
+const BASH_DESCRIPTION =
+	'Executes a command line using the execution shell disclosed in the system context and returns stdout/stderr output. Command timeout is configurable. The `command` parameter is required — never call this tool with empty arguments. For very long content (e.g. building a large file), prefer `write` for the opening and `edit` with insertLine: "end" for follow-up chunks over a heredoc to avoid hitting the output token limit mid-stream.'
+
+const BashToolBase = defineTool({
 	name: 'bash',
-	description:
-		'Executes a command line using the execution shell disclosed in the system context and returns stdout/stderr output. Command timeout is configurable. The `command` parameter is required — never call this tool with empty arguments. For very long content (e.g. building a large file), prefer `write` for the opening and `edit` with insertLine: "end" for follow-up chunks over a heredoc to avoid hitting the output token limit mid-stream.',
+	description: BASH_DESCRIPTION,
 	inputSchema,
 	// A command carries quotes and backslashes of its own, and a heredoc
 	// carries newlines: copied into the JSON string raw, they end it.
@@ -721,3 +733,21 @@ function describeWithheldEnv(dropped: readonly string[]): string {
 	const names = rest > 0 ? `${shown}, and ${rest} more` : shown
 	return `NOTE: ${dropped.length} credential-shaped environment variable(s) were withheld from this command and are unset rather than empty: ${names}. A host that means this command to have one passes it explicitly.`
 }
+
+/**
+ * The same tool, whose description gains the Windows guidance when the host
+ * shell is Git Bash. Resolved on first read, not at import: finding Git Bash
+ * runs `where.exe`, which a program that only imports the SDK must not pay.
+ */
+export const BashTool: typeof BashToolBase = Object.defineProperty(
+	{ ...BashToolBase },
+	'description',
+	{
+		enumerable: true,
+		configurable: true,
+		get: () =>
+			isWindowsBash(hostCommandShell())
+				? `${BASH_DESCRIPTION} ${WINDOWS_BASH_GUIDANCE}`
+				: BASH_DESCRIPTION,
+	},
+)

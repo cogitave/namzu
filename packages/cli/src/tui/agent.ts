@@ -166,6 +166,7 @@ import {
 	seedObservationLedger,
 	toolset,
 	webGuidanceContribution,
+	windowsShellNotice,
 	wrapUntrusted,
 } from '@namzu/sdk'
 
@@ -4584,6 +4585,10 @@ export async function createAgentSession(
 		mcpStatus: () => mcp.current(),
 		...(browserControl ? { browser: browserControl } : {}),
 		configNotices: [
+			// Git for Windows is missing and the shell tool runs cmd.exe: said once, here.
+			...(sandbox.provider === undefined && windowsShellNotice() !== undefined
+				? [windowsShellNotice() as string]
+				: []),
 			...(capabilityNotice ? [capabilityNotice] : []),
 			...(effortNotice ? [effortNotice] : []),
 			...(passthroughNotice ? [passthroughNotice] : []),
