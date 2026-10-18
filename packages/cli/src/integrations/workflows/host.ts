@@ -24,7 +24,7 @@ import {
 } from '@namzu/sdk'
 
 import type { SubagentRuntime } from '../subagents/runtime.js'
-import { launchedText } from './notice.js'
+import { completionNotice, launchedText } from './notice.js'
 import { WORKFLOW_TOOL_DESCRIPTION, WORKFLOW_TOOL_NAME } from './offering.js'
 import { type WorkflowRunEnd, WorkflowRunRegistry } from './registry.js'
 
@@ -92,6 +92,35 @@ interface WorkflowToolInput {
 	description?: string
 }
 
+type LaunchOutcome =
+	| { readonly kind: 'background' }
+	| { readonly kind: 'ended'; readonly end: WorkflowRunEnd }
+
+/** The tool's answer for a run that ended before it asked for any agent. */
+function endedBeforeAgents(end: WorkflowRunEnd, noArgs: boolean) {
+	const { view } = end
+	if (view.status === 'completed') {
+		return {
+			success: true,
+			output: completionNotice(view),
+			data: { run_id: view.runId, name: view.name, status: 'completed', inline: true },
+		}
+	}
+	const reason = view.error ?? 'no reason was given'
+	const hint =
+		view.status === 'failed' && noArgs
+			? '\nThis call passed no "args", so `args` was undefined in the script.'
+			: ''
+	return {
+		success: false,
+		output: '',
+		error:
+			view.status === 'stopped'
+				? `Workflow "${view.name}" was stopped before it started any agent${view.error ? `: ${reason}` : '.'}`
+				: `${reason}${hint}`,
+	}
+}
+
 function toolName(label: string | undefined): {
 	name: string
 	summary?: string
@@ -133,7 +162,7 @@ export function createWorkflowHost(options: WorkflowHostOptions): WorkflowHost {
 				},
 				args: {
 					description:
-						'JSON the script reads as `args`. Keep it small; the operator reads it before the run starts.',
+						'JSON the script reads as `args`; undefined when omitted, so pass it or hard-code the values. Keep it small; the operator reads it before the run starts.',
 				},
 				description: {
 					type: 'string',
@@ -191,6 +220,22 @@ export function createWorkflowHost(options: WorkflowHostOptions): WorkflowHost {
 				title === undefined
 					? undefined
 					: meta.phases.find((phase) => phase.title.trim() === title.trim())?.detail
+			// The call answers once the run has reached its first agent(), or ended
+			// without one. Both are events of the run itself; nothing here races a
+			// clock. Until then the run's end is the tool's to report, not a
+			// background notice.
+			let launching = true
+			let settleLaunch: (outcome: LaunchOutcome) => void = () => {}
+			const launch = new Promise<LaunchOutcome>((resolve) => {
+				settleLaunch = resolve
+			})
+			const detach = (): void => {
+				if (!launching) return
+				launching = false
+				settleLaunch({ kind: 'background' })
+			}
+			const onAbort = (): void => detach()
+			context.abortSignal.addEventListener('abort', onAbort, { once: true })
 			try {
 				const view = registry.start({
 					runId,
@@ -244,13 +289,28 @@ export function createWorkflowHost(options: WorkflowHostOptions): WorkflowHost {
 							...(outcome.error !== undefined ? { error: outcome.error } : {}),
 						}
 					},
+					onFirstAgent: detach,
 					onEnd: async (end) => {
 						// The run's registrations are given back first, so whoever hears of
 						// the end finds the delegation path free.
 						await turn.release().catch(() => undefined)
+						if (launching) {
+							// It ended before any agent was asked for: the tool call reports
+							// it, so there is no background notice to follow.
+							launching = false
+							settleLaunch({ kind: 'ended', end })
+							return
+						}
 						options.onEnd?.(end)
 					},
 				})
+				void view
+				const outcome = await launch
+				context.abortSignal.removeEventListener('abort', onAbort)
+				if (outcome.kind === 'ended') {
+					registry.discard(runId)
+					return endedBeforeAgents(outcome.end, args === undefined)
+				}
 				return {
 					success: true,
 					output: launchedText(view),
@@ -265,6 +325,7 @@ export function createWorkflowHost(options: WorkflowHostOptions): WorkflowHost {
 					},
 				}
 			} catch (error) {
+				context.abortSignal.removeEventListener('abort', onAbort)
 				await turn.release()
 				throw error
 			}

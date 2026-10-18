@@ -335,6 +335,8 @@ describe('the conversation', () => {
 				toolName: 'workflow',
 				isError: false,
 				summary: 'Workflow "audit" started in the background as wrun00001.',
+				output:
+					'Workflow "audit" started in the background as wrun00001.\nIts agents are running now.',
 			}
 			yield { kind: 'done', stopReason: 'end_turn' }
 		}
@@ -348,6 +350,62 @@ describe('the conversation', () => {
 		expect(all).toMatch(/⎿ Running in the background \(↓ to manage\)/)
 		expect(all).not.toContain('wrun00001')
 		expect(all).not.toContain('started in the background as')
+	})
+
+	it('shows a script that failed before any agent as a failed call, with no launch row', async () => {
+		sendOverride.current = async function* () {
+			yield {
+				kind: 'tool-start',
+				toolUseId: 'call-1',
+				toolName: 'workflow',
+				summary: 'Workflow(Scan, then fix)',
+				standalone: true,
+			}
+			yield {
+				kind: 'tool-end',
+				toolUseId: 'call-1',
+				toolName: 'workflow',
+				isError: true,
+				summary: 'TypeError: cannot read property map of undefined',
+				output: 'TypeError: cannot read property map of undefined\nNo agent had started.',
+			}
+			yield { kind: 'done', stopReason: 'end_turn' }
+		}
+		const screen = await start()
+		screen.press('use a workflow')
+		await screen.waitForRender()
+		screen.press('\r')
+		await waitUntil(screen, () => everything(screen).includes('cannot read property map'))
+		const all = everything(screen)
+		expect(all).not.toContain('Running in the background')
+		expect(text(screen)).not.toContain('0/0')
+	})
+
+	it('shows a run that finished without any agent as a plain finished call, not a background run', async () => {
+		sendOverride.current = async function* () {
+			yield {
+				kind: 'tool-start',
+				toolUseId: 'call-1',
+				toolName: 'workflow',
+				summary: 'Workflow(Add up)',
+				standalone: true,
+			}
+			yield {
+				kind: 'tool-end',
+				toolUseId: 'call-1',
+				toolName: 'workflow',
+				isError: false,
+				summary: 'Workflow "sum" (wrun00002) completed.',
+				output: 'Workflow "sum" (wrun00002) completed.\n<result>42</result>',
+			}
+			yield { kind: 'done', stopReason: 'end_turn' }
+		}
+		const screen = await start()
+		screen.press('use a workflow')
+		await screen.waitForRender()
+		screen.press('\r')
+		await waitUntil(screen, () => everything(screen).includes('completed'))
+		expect(everything(screen)).not.toContain('Running in the background')
 	})
 
 	it('writes the closing line when the run ends, with no turn running', async () => {

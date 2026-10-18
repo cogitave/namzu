@@ -153,7 +153,7 @@ import { NARRATION_TOOL_NAME } from '../integrations/subagents/runtime.js'
 import { agentsSlashCommand } from '../integrations/subagents/slash.js'
 import { isTrusted, trustDir } from '../integrations/trust/store.js'
 import { checkUpdates } from '../integrations/updates.js'
-import { completionNotice } from '../integrations/workflows/notice.js'
+import { completionNotice, isBackgroundLaunch } from '../integrations/workflows/notice.js'
 import { WORKFLOW_BACKGROUND_NOTE, WORKFLOW_TOOL_NAME } from '../integrations/workflows/offering.js'
 import {
 	type WorkflowRunView,
@@ -7025,7 +7025,11 @@ export function App({
 						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
 						break
 					}
-					if (!event.isError && event.toolName === WORKFLOW_TOOL_NAME) {
+					if (
+						!event.isError &&
+						event.toolName === WORKFLOW_TOOL_NAME &&
+						isBackgroundLaunch(event.output ?? '')
+					) {
 						// The call returned at once and the run goes on in the background.
 						// What the model was told (the run's id, how it will hear back) is
 						// for the model; the person gets the name and where to manage it.

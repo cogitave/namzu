@@ -107,7 +107,11 @@ export function withWorkflowRuns(
 	]
 }
 
-/** Runs that are still going or ended less than `lingerMs` ago, oldest first. */
+/**
+ * Runs that are still going or ended less than `lingerMs` ago, oldest first.
+ * A run that ended without ever starting an agent has nothing to show (no bar,
+ * no agents) and leaves at once; its outcome is the line in the conversation.
+ */
 export function visibleRuns(
 	runs: readonly WorkflowRunView[],
 	now: number,
@@ -118,7 +122,8 @@ export function visibleRuns(
 		.filter(
 			(run) =>
 				!dismissed.has(`workflow:${run.groupId}`) &&
-				(run.status === 'running' || (run.endedAt !== undefined && now - run.endedAt < lingerMs)),
+				(run.status === 'running' ||
+					(run.agents.length > 0 && run.endedAt !== undefined && now - run.endedAt < lingerMs)),
 		)
 		.sort((a, b) => a.startedAt - b.startedAt || a.runId.localeCompare(b.runId))
 }

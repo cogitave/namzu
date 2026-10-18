@@ -53,6 +53,12 @@ export interface StartWorkflowRun {
 		signal: AbortSignal,
 		viewed: (viewId: string) => void,
 	) => ReturnType<WorkflowSpawnAgent>
+	/**
+	 * Called once, the first time the script asks for an agent (before it has
+	 * started). A run that ends without this ever being called never started
+	 * any work: the `workflow` tool answers for it inline.
+	 */
+	readonly onFirstAgent?: () => void
 	/** Called once, after the run has ended and its last view is stored. */
 	readonly onEnd?: (end: WorkflowRunEnd) => void | Promise<void>
 }
@@ -117,6 +123,7 @@ export class WorkflowRunRegistry {
 		}
 		this.runs.set(input.runId, run)
 		this.notifySoon(true)
+		let firstAgentSeen = false
 		const settle = async (result: WorkflowRunResult | undefined, error?: string): Promise<void> => {
 			const at = this.now()
 			if (run.view.status === 'running') {
@@ -150,6 +157,10 @@ export class WorkflowRunRegistry {
 				},
 				onEvent: (event: WorkflowEvent) => {
 					run.view = reduceRunView(run.view, event)
+					if (event.type === 'workflow_agent' && !firstAgentSeen) {
+						firstAgentSeen = true
+						input.onFirstAgent?.()
+					}
 					this.notifySoon(event.type !== 'workflow_agent' || event.state !== 'progress')
 				},
 				spawnAgent: (request, signal) =>
@@ -210,6 +221,19 @@ export class WorkflowRunRegistry {
 			if (agent) return { runId: run.view.runId, index: agent.index }
 		}
 		return undefined
+	}
+
+	/**
+	 * Forget one run that has ended, so nothing lists it. For a run the tool
+	 * answered inline: it never became background work. False when the run is
+	 * unknown or still going.
+	 */
+	discard(runId: string): boolean {
+		const run = this.runs.get(runId)
+		if (!run || run.view.status === 'running') return false
+		this.runs.delete(runId)
+		this.notifySoon(true)
+		return true
 	}
 
 	/** Forget runs that have ended (a new conversation). Running ones are stopped first. */

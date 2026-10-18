@@ -11,6 +11,7 @@ import { createRequire } from 'node:module'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 
 import type { SubagentActivity } from '../../integrations/subagents/activity.js'
+import { initialRunView } from '../../integrations/workflows/view.js'
 import {
 	AGENT_RAIL_FINISHED_LINGER_MS,
 	AgentTaskPanel,
@@ -100,6 +101,21 @@ async function show(
 	)
 	return mounted.viewport().filter((row) => row.trim().length > 0)
 }
+
+describe('a workflow run that ended with no agent', () => {
+	const base = initialRunView({
+		runId: 'wrun00009',
+		name: 'typo-fix',
+		description: 'd',
+		phases: [],
+		at: NOW - 100,
+	})
+	it('leaves the rail at once instead of lingering as 0/0, while a running one keeps its row', () => {
+		const ended = { ...base, status: 'failed' as const, endedAt: NOW, error: 'boom' }
+		expect(railWorkflows([], NOW, new Set(), [ended])).toEqual([])
+		expect(railWorkflows([], NOW, new Set(), [base]).map((row) => row.runId)).toEqual(['wrun00009'])
+	})
+})
 
 describe('which workflows the rail lists', () => {
 	it('lists a group with an explicit workflow label, counting settled agents', () => {

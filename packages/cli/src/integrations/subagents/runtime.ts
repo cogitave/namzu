@@ -1406,7 +1406,8 @@ export async function createSubagentRuntime(
 			properties: {
 				task_id: {
 					type: 'string',
-					description: 'The task_id from the Agent launch receipt or task notification metadata.',
+					description:
+						'The task_id from the Agent launch receipt or task notification metadata. A workflow run id is not a task id.',
 				},
 			},
 			required: ['task_id'],
@@ -1420,8 +1421,19 @@ export async function createSubagentRuntime(
 		async execute(input, context) {
 			const gateway = await gatewayForTurn(context.turnId)
 			let taskId: TaskId
+			const asked = (input as { task_id: string }).task_id
+			if (typeof asked === 'string' && /^w[0-9a-z]{8}$/.test(asked.trim())) {
+				// A workflow run is not a task. Its end arrives as one message of its
+				// own, so there is nothing to wait for here; say so in words the model
+				// can act on, rather than a format error it takes for a broken tool.
+				return {
+					success: true,
+					output: `${asked.trim()} is a workflow run, not a task, so there is nothing to wait for here. You get one message when it ends, with what it returned. End your turn or do other work; do not call wait_for_task for it.`,
+					data: { run_id: asked.trim(), waited: false },
+				}
+			}
 			try {
-				taskId = asTaskId((input as { task_id: string }).task_id)
+				taskId = asTaskId(asked)
 			} catch {
 				return {
 					success: false,
