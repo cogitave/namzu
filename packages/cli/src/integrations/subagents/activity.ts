@@ -5,14 +5,6 @@ import {
 	isTerminalAgentTaskState,
 } from '@namzu/sdk'
 
-import {
-	MAX_AGENT_NAME_LENGTH,
-	agentNameProblem,
-	nameFromDescription,
-	nameFromType,
-	uniqueAgentName,
-} from './names.js'
-
 const MAX_RETAINED_AGENTS = 80
 const MAX_TRANSCRIPT_ROWS = 120
 const MAX_ROW_CODE_UNITS = 2_048
@@ -110,16 +102,10 @@ export interface SubagentActivity {
 	readonly toolCalls?: number
 	readonly description: string
 	/**
-	 * What this agent is called, by its job: the name the model gave the
-	 * `Agent` call, else a slug of its description. Unique among the agents
-	 * still running. Absent on saved (`replayed`) children and on the agents a
-	 * workflow run launches, whose `description` is already their label.
-	 */
-	readonly name?: string
-	/**
-	 * What the agent is doing now, in the child's own terms: its last tool call
-	 * or the start of its answer. Absent until it has done either; the rail
-	 * prefers it to `description` while the agent runs.
+	 * A short live label of what the agent is doing now (3-5 words), written by
+	 * a periodic one-turn query on the agent's own context. Absent until the
+	 * first one is accepted; the rail prefers it to `description` while the
+	 * agent runs.
 	 */
 	readonly summary?: string
 	/**
@@ -128,6 +114,8 @@ export interface SubagentActivity {
 	 * until one completes. Absent when none are waiting.
 	 */
 	readonly queued?: number
+	/** Continued from its own transcript by a later message; it was launched earlier. */
+	readonly resumed?: boolean
 	/** Launched with `run_in_background`: the rail drops it the moment it completes. */
 	readonly background?: boolean
 	readonly prompt: string
@@ -252,8 +240,6 @@ export interface BeginSubagentInput {
 	readonly agentId: string
 	readonly model?: string
 	readonly description: string
-	/** From {@link SubagentActivityMonitor.reserveName}; absent for a row that needs none. */
-	readonly name?: string
 	readonly background?: boolean
 	readonly prompt: string
 	readonly batchId?: string
@@ -328,9 +314,9 @@ interface MutableActivity {
 	tokens?: number
 	toolCalls?: number
 	description: string
-	name?: string
 	summary?: string
 	queued?: number
+	resumed?: boolean
 	background?: boolean
 	prompt: string
 	batchId: string
@@ -410,6 +396,7 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 		if (!prior || !prior.closed || this.options.replay)
 			throw new Error('This child conversation is not available for continuation.')
 		const opened = this.open(input, viewId)
+		opened.record.resumed = true
 		opened.record.rows = [...prior.rows]
 		opened.record.sessionId = prior.sessionId
 		pushRow(opened.record, {
@@ -456,17 +443,6 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 					}
 				: {}),
 			description: bounded(input.description, MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS),
-			...(input.name
-				? {
-						// A continued child keeps its name unless another running agent
-						// took it while this one was finished.
-						name: suppliedViewId
-							? uniqueAgentName(input.name, (candidate) =>
-									this.nameTaken(candidate, suppliedViewId),
-								)
-							: input.name,
-					}
-				: {}),
 			...(input.background ? { background: true } : {}),
 			prompt: bounded(input.prompt, MAX_PROMPT_CODE_UNITS),
 			batchId,
@@ -638,6 +614,17 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 	}
 
 	/**
+	 * Sets the live label of a running agent (see `activity-label.ts`). Ignored
+	 * once the agent has ended, and for an unknown row.
+	 */
+	setSummary(viewId: string, label: string): void {
+		const record = this.records.get(viewId)
+		if (!record || this.closed || isTerminal(record.status)) return
+		record.summary = bounded(label, MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS)
+		this.scheduleNotify()
+	}
+
+	/**
 	 * Retains one line of PARENT-authored commentary for the rail to show.
 	 *
 	 * Callers are the parent's own tool call and nothing else — see
@@ -665,70 +652,6 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 			this.narration.splice(0, this.narration.length - MAX_RETAINED_NARRATION)
 		this.notifyNow()
 		return { kind: 'shown', line: entry }
-	}
-
-	/** Whether a running agent other than `exceptViewId` already answers to `name`. */
-	private nameTaken(name: string, exceptViewId?: string): boolean {
-		for (const record of this.records.values()) {
-			if (record.name === name && record.viewId !== exceptViewId && !isTerminal(record.status))
-				return true
-		}
-		return false
-	}
-
-	/**
-	 * The name a new agent will answer to.
-	 *
-	 * A name the caller asked for is used exactly, or refused with a plain
-	 * error when it is malformed or already held by a running agent; the model
-	 * can correct it and call again. With no name, one is derived from the
-	 * description (its first meaningful words), then from the type when there
-	 * is no description, and `-2`, `-3` ... settle collisions. A name frees
-	 * the moment its agent ends.
-	 *
-	 * Reserves nothing by itself: the caller passes the result to
-	 * {@link SubagentActivityMonitor.begin} with no await in between.
-	 */
-	reserveName(request: {
-		readonly requested?: string | undefined
-		readonly description: string
-		readonly type: string
-	}): string {
-		const requested = request.requested?.trim()
-		if (requested) {
-			const problem = agentNameProblem(requested)
-			if (problem) throw new Error(problem)
-			if (this.nameTaken(requested))
-				throw new Error(
-					`An agent named "${requested}" is already running. Pick another name, or address that agent with send_message.`,
-				)
-			return requested
-		}
-		const base = nameFromDescription(request.description) ?? nameFromType(request.type)
-		return uniqueAgentName(base.slice(0, MAX_AGENT_NAME_LENGTH), (candidate) =>
-			this.nameTaken(candidate),
-		)
-	}
-
-	/**
-	 * The agent a name (or `@name`) refers to: a running one first, else the
-	 * most recent one that ended. Undefined when no agent ever had it.
-	 */
-	resolveName(name: string): { readonly taskId?: string; readonly viewId: string } | undefined {
-		const wanted = name.trim().replace(/^@/, '')
-		if (!wanted) return undefined
-		let best: MutableActivity | undefined
-		for (const record of this.records.values()) {
-			if (record.name !== wanted) continue
-			const better =
-				!best ||
-				(isTerminal(best.status) && !isTerminal(record.status)) ||
-				(isTerminal(best.status) === isTerminal(record.status) && record.order > best.order)
-			if (better) best = record
-		}
-		return best
-			? { viewId: best.viewId, ...(best.taskId ? { taskId: best.taskId } : {}) }
-			: undefined
 	}
 
 	getNarration(): readonly SubagentNarrationLine[] {
@@ -777,9 +700,9 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 			...(record.tokens !== undefined ? { tokens: record.tokens } : {}),
 			...(record.toolCalls !== undefined ? { toolCalls: record.toolCalls } : {}),
 			description: record.description,
-			...(record.name ? { name: record.name } : {}),
-			...(record.summary ? { summary: record.summary } : {}),
+			...(record.summary && !isTerminal(record.status) ? { summary: record.summary } : {}),
 			...(record.queued ? { queued: record.queued } : {}),
+			...(record.resumed ? { resumed: true } : {}),
 			...(record.background ? { background: true } : {}),
 			prompt: record.prompt,
 			batchId: record.batchId,
@@ -1072,7 +995,6 @@ function projectEvent(record: MutableActivity, event: SessionEvent): void {
 			}
 			const assistant = record.rows.at(-1)
 			const preview = assistant?.kind === 'assistant' ? oneLine(assistant.text) : ''
-			if (preview) record.summary = bounded(preview, MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS)
 			record.latestActivity = bounded(
 				preview ? `Answering · ${preview}` : 'Answering',
 				MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS,
@@ -1084,7 +1006,6 @@ function projectEvent(record: MutableActivity, event: SessionEvent): void {
 			record.toolCalls = (record.toolCalls ?? 0) + 1
 			const label = `${event.toolName}(${genericLabel(event.input)})`
 			record.latestActivity = bounded(label, MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS)
-			record.summary = record.latestActivity
 			pushRow(record, {
 				id: `${record.viewId}:tool:${event.toolUseId}`,
 				kind: 'tool',
@@ -1257,9 +1178,4 @@ function errorMessage(error: unknown): string {
 
 function cancellationLike(error: unknown): boolean {
 	return error instanceof Error && (error.name === 'AbortError' || error.name === 'TurnCancelled')
-}
-
-/** What a row is called on screen: its name by purpose, else the agent type. */
-export function agentDisplayName(agent: Pick<SubagentActivity, 'name' | 'agentId'>): string {
-	return agent.name ?? agent.agentId
 }

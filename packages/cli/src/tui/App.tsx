@@ -147,7 +147,6 @@ import {
 	DEFAULT_AGENT_WORKFLOW,
 	type SubagentActivity,
 	type SubagentNarrationLine,
-	agentDisplayName,
 } from '../integrations/subagents/activity.js'
 import type { Batch } from '../integrations/subagents/batches.js'
 import { NARRATION_TOOL_NAME } from '../integrations/subagents/runtime.js'
@@ -2597,9 +2596,9 @@ export function App({
 					kind: 'task-completion',
 				})
 				activeTurnInboxRef.current?.notify()
-				if (!activeTurnInboxRef.current) pushMessage('system', label)
+				// The model hears it; the person sees the agent's own notice line.
 			}),
-		[pushMessage, session],
+		[session],
 	)
 	/** The queue row chosen for editing with Up; null when no row is chosen. */
 	const [queueSelection, setQueueSelectionState] = useState<number | null>(null)
@@ -2913,7 +2912,7 @@ export function App({
 		const now = Date.now()
 		const batches = new Map<string, SubagentActivity[]>()
 		for (const agent of subagents) {
-			if (agent.replayed || isWorkflowRunAgent(agent)) continue
+			if (agent.replayed || agent.resumed || isWorkflowRunAgent(agent)) continue
 			if (!current.some((item) => item.viewId === agent.viewId)) continue
 			const key = JSON.stringify([agent.workflowId, agent.batchId])
 			const members = batches.get(key) ?? []
@@ -2974,11 +2973,15 @@ export function App({
 				)
 			)
 				continue
-			if (!['completed', 'failed', 'cancelled'].includes(agent.status)) continue
+			// A resumed agent that is running again reports again when it ends.
+			if (!['completed', 'failed', 'cancelled'].includes(agent.status)) {
+				if (agent.resumed) reportedAgentsRef.current.delete(agent.viewId)
+				continue
+			}
 			if (reportedAgentsRef.current.has(agent.viewId)) continue
 			// Its receipt first, even if that means writing it alone.
 			const key = JSON.stringify([agent.workflowId, agent.batchId])
-			if (!agent.replayed && !reportedBatchesRef.current.has(key)) {
+			if (!agent.replayed && !agent.resumed && !reportedBatchesRef.current.has(key)) {
 				reportedBatchesRef.current.add(key)
 				if (claimReceipt(batches.get(key) ?? [agent])) {
 					pushMessage(
@@ -6596,7 +6599,7 @@ export function App({
 				},
 			})
 			if (!owns()) return receipt
-			const label = `You ${receipt.kind === 'queued' ? 'queued a message' : 'started a follow-up'} for ${agentDisplayName(child)}.${receipt.auditWarning ? ` ${receipt.auditWarning}` : ''}`
+			const label = `You ${receipt.kind === 'queued' ? 'queued a message' : 'started a follow-up'} for ${child.agentId}.${receipt.auditWarning ? ` ${receipt.auditWarning}` : ''}`
 			directChildNoticesRef.current.set(++directChildNoticeIdRef.current, {
 				context: receipt.parentNotice,
 				label,
@@ -7980,10 +7983,9 @@ export function App({
 									finalizeMessage(st.assistantId)
 									st.assistantId = null
 								}
-								for (const [id, notice] of childNotices) {
-									pushMessage('system', notice.label)
-									directChildNoticesRef.current.delete(id)
-								}
+								// What the person typed to an agent is in that agent's transcript, so
+								// main prints nothing for it; the model still gets the note.
+								for (const [id] of childNotices) directChildNoticesRef.current.delete(id)
 							}
 							if (mail.length) {
 								// An idle wake may already be queued behind operator admission.
@@ -8517,7 +8519,6 @@ export function App({
 				return
 			}
 			// An agent is on screen: what is typed goes to it, not to the conversation.
-			// Slash commands act on the conversation, so they wait until you are back.
 			const viewedId = viewingAgentRef.current
 			if (viewedId !== null && meta.source !== 'model-loop' && meta.source !== 'launch-message') {
 				const restore = (notice: string) => {
@@ -8530,10 +8531,6 @@ export function App({
 					})
 				}
 				const text = value.trim()
-				if (text.startsWith('/')) {
-					restore('Commands run on the main conversation. Press Esc to go back to it first.')
-					return
-				}
 				if (attachments && attachments.length > 0) {
 					restore('Messages to an agent take text only.')
 					return
@@ -12215,11 +12212,7 @@ export function App({
 							<Composer
 								{...(viewingAgent
 									? {
-											placeholder: `Message @${
-												[...agentDisplayName(viewingAgent)].length > 20
-													? `${[...agentDisplayName(viewingAgent)].slice(0, 20).join('')}`
-													: agentDisplayName(viewingAgent)
-											}…`,
+											placeholder: `Message @${[...viewingAgent.agentId].slice(0, 20).join('')}…`,
 										}
 									: {})}
 								reasoningEffortLevels={session?.reasoningEffortLevels}

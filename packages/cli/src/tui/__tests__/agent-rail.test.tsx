@@ -263,12 +263,12 @@ describe('rail rows', () => {
 		const rows = await show([
 			agent({
 				viewId: 'a',
-				name: 'count-words',
+				agentId: 'count-words',
 				description: 'Count words in a.txt',
 			}),
 			agent({
 				viewId: 'b',
-				name: 'list-files',
+				agentId: 'list-files',
 				description: 'List files in project directory',
 			}),
 			agent({ viewId: 'c', description: 'Saved one' }),
@@ -283,7 +283,7 @@ describe('rail rows', () => {
 		const live = await show([
 			agent({
 				viewId: 'a',
-				name: 'count-words',
+				agentId: 'count-words',
 				description: 'Count words',
 				summary: 'Read(a.txt)',
 			}),
@@ -293,7 +293,7 @@ describe('rail rows', () => {
 		const done = await show([
 			agent({
 				viewId: 'a',
-				name: 'count-words',
+				agentId: 'count-words',
 				description: 'Count words',
 				summary: 'Read(a.txt)',
 				status: 'failed',
@@ -304,7 +304,7 @@ describe('rail rows', () => {
 	})
 
 	it('puts a blank row above the rail, the bullet two cells in, and ends rows two cells short of the edge', async () => {
-		await show([agent({ viewId: 'a', name: 'count-words', description: 'Count words' })], {
+		await show([agent({ viewId: 'a', agentId: 'count-words', description: 'Count words' })], {
 			cols: 100,
 		})
 		expect(lastScreen[0]?.trim()).toBe('')
@@ -322,7 +322,7 @@ describe('rail rows', () => {
 					agents={[
 						agent({
 							viewId: 'a',
-							name: 'count-words',
+							agentId: 'count-words',
 							description: 'Count words',
 						}),
 					]}
@@ -354,7 +354,10 @@ describe('rail rows', () => {
 
 	it('draws no accent colour: the pointer and bullets use the row colour', async () => {
 		await show(
-			[agent({ viewId: 'a', name: 'count-words' }), agent({ viewId: 'b', name: 'list-files' })],
+			[
+				agent({ viewId: 'a', agentId: 'count-words' }),
+				agent({ viewId: 'b', agentId: 'list-files' }),
+			],
 			{ selectedIndex: 1 },
 		)
 		const painted = mounted?.writes().join('') ?? ''

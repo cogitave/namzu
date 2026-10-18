@@ -300,7 +300,6 @@ function agent(
 		...(input.tokens !== undefined ? { tokens: input.tokens } : {}),
 		...(input.toolCalls !== undefined ? { toolCalls: input.toolCalls } : {}),
 		description: input.description ?? input.viewId,
-		...(input.name ? { name: input.name } : {}),
 		...(input.summary ? { summary: input.summary } : {}),
 		...(input.queued ? { queued: input.queued } : {}),
 		...(input.background ? { background: true } : {}),
@@ -409,7 +408,7 @@ describe('Ctrl+T', () => {
 		activity.set([
 			agent({
 				viewId: 'selected-child',
-				name: 'selected-reviewer',
+				agentId: 'selected-reviewer',
 				description: 'Selected reviewer',
 			}),
 		])
@@ -638,7 +637,7 @@ describe('Ctrl+T', () => {
 			state: 'running',
 			parentNotice: 'admitted',
 		})
-		activity.set([agent({ viewId: 'visible-child', name: 'reviewer', description: 'Reviewer' })])
+		activity.set([agent({ viewId: 'visible-child', agentId: 'reviewer', description: 'Reviewer' })])
 		const screen = await renderToScreen(<App ctx={ctx} />, { cols, rows })
 		mounted = screen
 		await ready
@@ -3649,10 +3648,10 @@ describe('viewing an agent', () => {
 
 	async function viewSecond(cols = 110, rows = 28) {
 		activity.set([
-			agent({ viewId: 'v1', name: 'count-words', description: 'Count words in a.txt' }),
+			agent({ viewId: 'v1', agentId: 'count-words', description: 'Count words in a.txt' }),
 			agent({
 				viewId: 'v2',
-				name: 'a-very-long-agent-name-here',
+				agentId: 'a-very-long-agent-name-here',
 				description: 'List files',
 				prompt: 'List the files please',
 			}),
@@ -3701,21 +3700,6 @@ describe('viewing an agent', () => {
 		screen.press('\r')
 		await waitUntil(screen, () => send.mock.calls.length === 1, 'the message did not go')
 		expect(send).toHaveBeenCalledWith('v2', 'please also count lines', expect.any(Object))
-	})
-
-	it('does not send a slash command to the agent: it keeps the words and says why', async () => {
-		const send = allowMessages()
-		const screen = await viewSecond()
-		screen.press('/help')
-		await screen.waitForRender()
-		screen.press('\r')
-		await waitUntil(
-			screen,
-			() => screen.viewport().join('\n').includes('Commands run on the main conversation'),
-			'no notice',
-		)
-		expect(send).not.toHaveBeenCalled()
-		expect(screen.viewport().join('\n')).toContain('/help')
 	})
 
 	it('says plainly when the message cannot go, and keeps the text', async () => {
@@ -3772,7 +3756,7 @@ describe('viewing an agent', () => {
 	})
 
 	it('shows N queued in the warning colour on the row of an agent with messages waiting', async () => {
-		activity.set([agent({ viewId: 'q1', name: 'busy', description: 'Busy one', queued: 2 })])
+		activity.set([agent({ viewId: 'q1', agentId: 'busy', description: 'Busy one', queued: 2 })])
 		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
 		mounted = screen
 		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')

@@ -110,7 +110,7 @@ describe('what a finished agent leaves in the conversation', () => {
 	it('says what it answered as one collapsed message row, and nothing about tokens', () => {
 		const done = agent({
 			viewId: 'done',
-			name: 'choose-colour',
+			agentId: 'choose-colour',
 			description: 'Choose first colour',
 			status: 'completed',
 			startedAt: 1_000,
@@ -126,10 +126,6 @@ describe('what a finished agent leaves in the conversation', () => {
 			detail: ['Mavi', 'çünkü gökyüzü'],
 			hint: 'ctrl+o to expand',
 		})
-		// No name: the sender is the agent's type, as two such agents are told apart by the line below.
-		expect(agentMessageRow({ ...done, name: undefined })?.content).toBe(
-			'Message from @general-purpose',
-		)
 		expect(agentMessageRow(agent({ viewId: 'quiet', status: 'completed' }))).toBeUndefined()
 	})
 

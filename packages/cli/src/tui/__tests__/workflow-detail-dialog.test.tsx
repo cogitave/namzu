@@ -82,7 +82,7 @@ describe('at 140 columns', () => {
 		expect(screen[header - 1]).toMatch(/^─+$/u)
 		expect(screen[header + 1]).toMatch(/2\/3 agents · \S+\s*$/u)
 		expect(text).toMatch(/╭ Phases ─+┬ Read · 2 agents ─+╮/u)
-		expect(text).toMatch(/│ ❯ ✔ Read\s+2\/2 │ ✔ label a1\s+gpt-x · 35\.6k tok\s+23s │/u)
+		expect(text).toMatch(/│ ❯ ✔ Read\s+2\/2 │ ✔ label a1\s+general-purpose · gpt-x · 35\.6k tok\s+23s │/u)
 		expect(text).toMatch(/│\s+2 Summarize\s+0\/1 │/u)
 		expect(text).toMatch(/╰─+┴─+╯/u)
 		expect(screen.at(-1)?.trim()).toBe('')
@@ -145,28 +145,22 @@ describe('below 64 columns', () => {
 })
 
 describe('the launch tree', () => {
-	const agent = (viewId: string, name: string | undefined, description: string) =>
-		member(viewId, 'Work', 0, { name, description, background: true, status: 'working' })
+	const agent = (viewId: string, description: string) =>
+		member(viewId, 'Work', 0, { description, background: true, status: 'working' })
 
-	it('labels a launch name: description, or the name alone when they match', () => {
-		expect(launchLabel(agent('a', 'count-words', 'Count words in a.txt'))).toBe(
-			'count-words: Count words in a.txt',
-		)
-		expect(launchLabel(agent('a', 'tidy', 'tidy'))).toBe('tidy')
-		expect(launchLabel(agent('a', undefined, 'Saved'))).toBe('Saved')
+	it('labels a launch with what the agent was asked to do', () => {
+		expect(launchLabel(agent('a', 'Count words in a.txt'))).toBe('Count words in a.txt')
 	})
 
 	it('says N background agents launched, as a tree', () => {
 		const receipt = launchReceipt([
-			{ ...agent('a', 'count-words', 'Count words in a.txt'), workflow: 'Delegated work' },
-			{ ...agent('b', 'list-files', 'List files'), workflow: 'Delegated work' },
+			{ ...agent('a', 'Count words in a.txt'), workflow: 'Delegated work' },
+			{ ...agent('b', 'List files'), workflow: 'Delegated work' },
 		])
 		expect(receipt.content).toBe(
-			[
-				'2 background agents launched (↓ to manage)',
-				'├ count-words: Count words in a.txt',
-				'└ list-files: List files',
-			].join('\n'),
+			['2 background agents launched (↓ to manage)', '├ Count words in a.txt', '└ List files'].join(
+				'\n',
+			),
 		)
 	})
 })

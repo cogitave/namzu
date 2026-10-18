@@ -8,7 +8,6 @@ import {
 	type SubagentActivity,
 	type SubagentActivityStatus,
 	type SubagentNarrationLine,
-	agentDisplayName,
 } from '../integrations/subagents/activity.js'
 import {
 	type WorkflowRunStatus,
@@ -499,7 +498,7 @@ export interface AgentTaskPanelProps {
 /** What an agent row says in its description column: what it is doing now, else what it was asked to do. */
 export function railDescription(agent: SubagentActivity): string {
 	const live = !isTerminalStatus(agent.status) && agent.summary ? agent.summary : undefined
-	return live ?? (agent.description || agentDisplayName(agent))
+	return live ?? (agent.description || agent.agentId)
 }
 
 /** Cells the `↓ N more` row and the pointer share with a row's first slot. */
@@ -559,7 +558,7 @@ export function AgentTaskPanel({
 		narrow ? 14 : AGENT_RAIL_NAME_WIDTH,
 		Math.max(
 			4,
-			...agents.map((agent) => stringWidth(oneLine(agentDisplayName(agent)))),
+			...agents.map((agent) => stringWidth(oneLine(agent.agentId))),
 			...workflows.map((workflow) => stringWidth(oneLine(workflow.name))),
 		),
 	)
@@ -654,7 +653,7 @@ export function AgentTaskPanel({
 										color={theme.text.primary}
 										wrap="truncate-end"
 									>
-										{terminalDisplayText(oneLine(agentDisplayName(agent)))}
+										{terminalDisplayText(oneLine(agent.agentId))}
 									</Text>
 								</Box>
 								<Box flexGrow={1} flexShrink={1} minWidth={0} paddingLeft={2}>
@@ -1056,9 +1055,7 @@ function padStartCells(text: string, cells: number): string {
 /** What an agent row says after its label: model, spend, and how it ended. */
 function agentDetailMeta(agent: SubagentActivity, columns: number): string {
 	return [
-		...(columns >= 90 && agent.workflowRunId === undefined && agent.name !== undefined
-			? [oneLine(agent.agentId)]
-			: []),
+		...(columns >= 90 && agent.workflowRunId === undefined ? [oneLine(agent.agentId)] : []),
 		...(columns >= 70 && agent.model
 			? [truncateChoiceText(agent.model, MAX_MODEL_LABEL_WIDTH)]
 			: []),
@@ -1071,7 +1068,7 @@ function agentDetailMeta(agent: SubagentActivity, columns: number): string {
 }
 
 function agentDetailLabel(agent: SubagentActivity): string {
-	return terminalDisplayText(oneLine(agent.name ?? (agent.description || agent.agentId)))
+	return terminalDisplayText(oneLine(agent.description || agent.agentId))
 }
 
 /**
@@ -1666,14 +1663,12 @@ export function AgentTranscript({
 				<Box flexGrow={1} minWidth={0}>
 					<Text color={theme.accent.assistant} bold wrap="truncate-end">
 						{compact
-							? oneLine(agentDisplayName(agent))
+							? oneLine(agent.agentId)
 							: agent.workflowRunId !== undefined
 								? terminalDisplayText(
 										`${oneLine(agent.workflow)} · ${oneLine(phaseTitle({ name: agent.phase }))}`,
 									)
-								: agent.name !== undefined
-									? `@${oneLine(agent.name)}`
-									: 'Subagent'}
+								: 'Subagent'}
 					</Text>
 				</Box>
 				<Box flexShrink={0}>
@@ -2013,9 +2008,6 @@ function agentMetaParts(
 	// a child that finished in some other process. Five cells is a price worth
 	// paying at every width to keep a past turn from reading as a present one.
 	if (agent.replayed) parts.push('saved')
-	// A named agent shows its name in the header, so the type moves here and is
-	// not lost.
-	if (agent.name !== undefined) parts.push(oneLine(agent.agentId))
 	if (options.showModel && agent.model) {
 		parts.push(truncateChoiceText(agent.model, MAX_MODEL_LABEL_WIDTH))
 	}

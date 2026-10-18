@@ -38,17 +38,9 @@ export const AGENT_MANAGE_HINT = '↓ to manage'
 /** The key that opens the rail's workflow row from the composer. */
 export const WORKFLOW_MANAGE_HINT = '↓ to manage'
 
-/**
- * How a launch names an agent: `name: description`, or just the name when the
- * description is the same words, or the description alone for an agent with no
- * name (a saved one).
- */
+/** How a launch names an agent: what it was asked to do (its description). */
 export function launchLabel(agent: SubagentActivity): string {
-	const description = oneLine(agent.description)
-	if (agent.name === undefined) return description || oneLine(agent.agentId)
-	return description && description !== agent.name
-		? `${oneLine(agent.name)}: ${description}`
-		: oneLine(agent.name)
+	return oneLine(agent.description) || oneLine(agent.agentId)
 }
 
 export interface LaunchReceipt {
@@ -124,7 +116,7 @@ export function agentMessageRow(agent: SubagentActivity): AgentMessageRow | unde
 	const detail = finalAnswer(agent)
 	if (detail.length === 0) return undefined
 	return {
-		content: `Message from @${oneLine(agent.name ?? agent.agentId)}`,
+		content: `Message from @${oneLine(agent.agentId)}`,
 		detail,
 		hint: 'ctrl+o to expand',
 	}
@@ -138,7 +130,7 @@ export interface AgentNotice {
 
 /** The one line that closes an agent's run in the conversation. */
 export function agentNotice(agent: SubagentActivity, now = Date.now()): AgentNotice {
-	const label = oneLine(agent.description || agent.name || agent.agentId)
+	const label = oneLine(agent.description || agent.agentId)
 	const took = spacedElapsed(Math.max(0, (agent.completedAt ?? now) - agent.startedAt))
 	if (agent.status === 'completed')
 		return { content: `Agent "${label}" finished · ${took}`, tone: 'ok' }

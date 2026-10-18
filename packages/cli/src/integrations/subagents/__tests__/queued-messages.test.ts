@@ -6,7 +6,6 @@ function running() {
 	const monitor = new SubagentActivityMonitor()
 	const tracker = monitor.begin({
 		agentId: 'general-purpose',
-		name: 'count-words',
 		description: 'Count words',
 		prompt: 'p',
 	})
@@ -46,7 +45,7 @@ describe('messages waiting for a running agent', () => {
 		monitor.close()
 	})
 
-	it('shows the typed words as the person’s own row, and the last tool as the live summary', () => {
+	it('shows the typed words as the person’s own row', () => {
 		const { monitor, tracker } = running()
 		tracker.onEvent({
 			type: 'tool_executing',
@@ -56,7 +55,6 @@ describe('messages waiting for a running agent', () => {
 		} as never)
 		monitor.recordMessage('task-1', 'please also count lines', 'operator-to-child')
 		const shown = snapshot(monitor)
-		expect(shown?.summary).toContain('Read(')
 		expect(
 			shown?.transcript.some(
 				(row) =>
