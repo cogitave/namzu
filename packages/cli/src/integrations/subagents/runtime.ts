@@ -55,6 +55,7 @@ import {
 	type SessionId,
 	type SessionPaths,
 	SessionSummaryMaterializer,
+	type SessionTokenBudget,
 	type SessionTokenBudgetStore,
 	type TaskHandle,
 	type TaskId,
@@ -71,6 +72,9 @@ import {
 	WorkspaceBackendRegistry,
 	asTaskId,
 	asTurnId,
+	collectChatCompletion,
+	createSystemMessage,
+	createUserMessage,
 	defineTool,
 	filtered,
 	generateSummaryId,
@@ -80,6 +84,7 @@ import {
 	openSessionTokenBudget,
 	requireOpenProject,
 	toToolSourceRef,
+	toolset,
 } from '@namzu/sdk'
 
 import type { TurnLimitsConfig } from '../../config/schema.js'
@@ -87,6 +92,7 @@ import { resolveTurnGuards } from '../../config/turn-guards.js'
 import { NAMZU_WORKING_DOCTRINE } from '../../context/doctrine.js'
 import { CLI_CHECKPOINT_RETENTION } from '../state/retention.js'
 import { NamzuCliAgent, type NamzuCliAgentConfig } from './NamzuCliAgent.js'
+import { startActivityLabeler } from './activity-label.js'
 import {
 	DEFAULT_AGENT_WORKFLOW,
 	MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS,
@@ -96,6 +102,7 @@ import {
 	SubagentActivityMonitor,
 	type SubagentActivitySource,
 } from './activity.js'
+import { chargeLabelRequest } from './label-ledger.js'
 import { CLI_INTERACTIVE_TURN_TIMEOUT_MS } from './policy.js'
 import { SAVED_AGENTS_GUIDANCE, type SavedAgentHistory } from './saved-agents.js'
 import { DelegatedWorktreeDriver } from './worktree-driver.js'
@@ -190,6 +197,7 @@ export interface DelegatedModel {
 /** The fields the `Agent` tool accepts, as the runtime reads them. */
 interface AgentCallInput {
 	description: string
+	name?: string
 	model?: string
 	provider?: string
 	effort?: string
@@ -229,6 +237,13 @@ interface ChildLaunchHooks {
 }
 
 export interface SubagentRuntimeOptions {
+	/**
+	 * Tools every child gets beside its roster, whatever that roster was
+	 * narrowed to. Set by the runtime itself, never by a host: a file's
+	 * allowlist or the read-only roster must not take away the one way a child
+	 * can say something to the conversation.
+	 */
+	readonly childExtraTools?: () => readonly Toolset[]
 	/** Resolve the actual invoking turn; reject calls whose parent no longer exists. */
 	readonly resolveParent: (turnId: TurnId) => Promise<SubagentParent>
 	readonly cwd: string
@@ -391,7 +406,23 @@ export interface SubagentMessageReceipt {
 	readonly auditWarning?: string
 }
 
+/** A message a running child sent to the main conversation. */
+export interface SubagentMessage {
+	readonly parentSessionId: string
+	readonly viewId: string
+	readonly agentId: string
+	readonly description: string
+	readonly taskId?: string
+	readonly text: string
+}
+
 export interface SubagentRuntime {
+	/**
+	 * Hear the messages running children send to the main conversation. A child
+	 * has the tool to send one only while somebody listens, so a host that
+	 * cannot show or deliver it never promises a child it will.
+	 */
+	onChildMessage(listener: (message: SubagentMessage) => void): () => void
 	/** One immutable scheduler context per actual parent turn. */
 	gatewayForTurn(turnId: TurnId): Promise<TaskScheduler>
 	/** The same inbox the parent query drains after a delegation yields. */
@@ -519,8 +550,14 @@ const refuseUnownedChildReview: ResumeHandler = async () => ({
  * register on the parent and the gateway to pass to `query({ taskScheduler })`.
  */
 export async function createSubagentRuntime(
-	opts: SubagentRuntimeOptions,
+	input: SubagentRuntimeOptions,
 ): Promise<SubagentRuntime> {
+	const childMessageListeners = new Set<(message: SubagentMessage) => void>()
+	const opts: SubagentRuntimeOptions = {
+		...input,
+		childExtraTools: () =>
+			childMessageListeners.size > 0 ? [toolset('agents:message-main', [messageMainTool])] : [],
+	}
 	const registry = new AgentRegistry()
 	registry.register(
 		buildDefinition(
@@ -575,6 +612,8 @@ export async function createSubagentRuntime(
 	interface ParentRuntime {
 		readonly gateway: TaskScheduler
 		readonly completionInbox: CompletionInbox
+		/** The turn's token ledger: what its children, and their labels, spend from. */
+		readonly budget: SessionTokenBudget
 		close(): void
 	}
 	interface SessionRuntime {
@@ -800,6 +839,7 @@ export async function createSubagentRuntime(
 				const runtime: ParentRuntime = {
 					gateway,
 					completionInbox,
+					budget,
 					close() {
 						if (released) return
 						released = true
@@ -848,6 +888,41 @@ export async function createSubagentRuntime(
 	}
 
 	const activity = new SubagentActivityMonitor()
+	// A live label for each running background agent, asked of the agent's own
+	// model in one request with no tools. Skipped for a child that was given its
+	// own provider or model, whose route is not rebuilt here.
+	const labeler = startActivityLabeler({
+		activity,
+		ask: async (agent, instruction, body, signal) => {
+			const owned = conversations.get(agent.viewId)
+			if (!owned || closed || owned.config.model !== undefined) return undefined
+			const parent = await resolveParent(owned.turnId)
+			// The label is spend of this turn, so it is counted on the turn's ledger;
+			// a turn whose ledger is gone has nothing to count it on and goes without.
+			const turn = await parents.get(owned.turnId)?.catch(() => undefined)
+			if (!turn) return undefined
+			const provider = await opts.buildProvider(parent.sessionId)
+			const model = owned.seed.model ?? opts.model
+			const text = await chargeLabelRequest({
+				budget: turn.budget,
+				sessionId: parent.sessionId,
+				estimatedPromptTokens: Math.ceil((instruction.length + body.length) / 4),
+				signal,
+				request: async () => {
+					const response = await collectChatCompletion(
+						provider.chatStream({
+							model,
+							messages: [createSystemMessage(instruction), createUserMessage(body)],
+							maxTokens: 60,
+							signal,
+						}),
+					)
+					return { value: response.message.content ?? '', usage: response.usage }
+				},
+			})
+			return text === undefined ? undefined : { text }
+		},
+	})
 
 	// Dynamic `Agent` tool: the model passes an optional `role` (the persona /
 	// system prompt) and we register + spawn a fresh specialist for it at call
@@ -954,6 +1029,7 @@ export async function createSubagentRuntime(
 			agentId,
 			model: selection?.model ?? fileAgent?.model ?? parentModel,
 			description,
+			...(run_in_background === true ? { background: true } : {}),
 			prompt,
 			batchId: context.toolBatchId,
 			toolUseId: context.toolUseId,
@@ -1087,6 +1163,11 @@ export async function createSubagentRuntime(
 						: tracker.onEvent,
 				},
 			})
+			// A wait that ended before the agent did leaves it running on its own: it
+			// reports when it ends like a background agent. One that finished inside
+			// the wait has already handed its result back to the parent.
+			if (outcome.kind === 'yielded' && run_in_background !== true)
+				activity.markReleased(tracker.viewId)
 			return { outcome, agentId }
 		} catch (error) {
 			tracker.fail(error)
@@ -1122,7 +1203,7 @@ export async function createSubagentRuntime(
 			properties: {
 				description: {
 					type: 'string',
-					description: 'Short label for tracking (shown to the user).',
+					description: 'A short (3-5 word) description of the task.',
 				},
 				prompt: {
 					type: 'string',
@@ -1369,9 +1450,8 @@ export async function createSubagentRuntime(
 			}
 			const gateway = await gatewayForTurn(context.turnId)
 			const tasks = gateway.listTasks()
-			const labels = new Map(
-				activity.getSnapshot().map((entry) => [entry.taskId, entry.description]),
-			)
+			const snapshot = activity.getSnapshot()
+			const labels = new Map(snapshot.map((entry) => [entry.taskId, entry.description]))
 			const shown = tasks.slice(-40).map((task) => ({
 				description: labels.get(task.taskId) ?? task.agentId,
 				task_id: task.taskId,
@@ -1478,7 +1558,7 @@ export async function createSubagentRuntime(
 	const sendMessageTool = defineTool({
 		name: 'send_message',
 		description:
-			'Queue a correction or additional context for a running or queued sub-agent task owned by this turn. The child receives it at its next request boundary; acceptance is not delivery. This does not start new work or restart finished tasks.',
+			'Send a correction or additional context to a sub-agent owned by this turn, addressed by its task id. A running or queued agent receives it at its next tool round; acceptance is not delivery. A finished agent is resumed from its own transcript with the message. An agent the user stopped is not resumed.',
 		inputSchema: mcpJsonSchemaToZod({
 			type: 'object',
 			properties: {
@@ -1522,12 +1602,32 @@ export async function createSubagentRuntime(
 					output: '',
 					error: `Task ${taskId} does not belong to this parent turn.`,
 				}
-			if (isTerminalAgentTaskState(task.state))
-				return {
-					success: false,
-					output: '',
-					error: 'This task has finished; send_message cannot restart it.',
+			if (isTerminalAgentTaskState(task.state)) {
+				// A finished agent is resumed from its own transcript with the message;
+				// one the user stopped is not.
+				const shown = activity.getSnapshot().find((entry) => entry.taskId === String(taskId))
+				const label = shown?.agentId ?? String(taskId)
+				if (!shown)
+					return {
+						success: false,
+						output: '',
+						error: `Task ${taskId} has finished and cannot be resumed from here.`,
+					}
+				try {
+					await messageChild(shown.viewId, message, context.turnId, context.abortSignal, 'parent')
+				} catch (error) {
+					return {
+						success: false,
+						output: '',
+						error: error instanceof Error ? error.message : String(error),
+					}
 				}
+				return {
+					success: true,
+					output: `Resuming agent ${label}. It will notify you again when it finishes.`,
+					data: { task_id: taskId, status: 'resumed' },
+				}
+			}
 			context.abortSignal.throwIfAborted()
 			await gateway.continueTask(taskId, message)
 			// Only after delivery is accepted: a row claiming a correction was
@@ -1536,7 +1636,7 @@ export async function createSubagentRuntime(
 			activity.recordMessage(String(taskId), message, 'to-child')
 			return {
 				success: true,
-				output: `Message queued for task ${taskId}; it will be available at the child's next request boundary.`,
+				output: `Message queued for delivery to task ${taskId} at its next tool round. If it finishes first, it is resumed with the message and notifies again, so wait for that notification before resending.`,
 				data: { task_id: taskId, status: 'queued' },
 			}
 		},
@@ -1579,11 +1679,99 @@ export async function createSubagentRuntime(
 					output: `Task ${taskId} already ended: ${agentTaskOutcome(task)}. No cancellation sent.`,
 				}
 			context.abortSignal.throwIfAborted()
+			// The cause stays `user`: it is what closes the request in flight on an
+			// estimate rather than as unknown spend. Who asked is the display's.
+			for (const [shownId, owned] of conversations) {
+				if (owned.task.taskId === taskId) activity.markStopped(shownId, 'parent')
+			}
 			gateway.cancelTask(taskId, 'user')
 			return {
 				success: true,
 				output: `Cancellation requested for task ${taskId}. Other tasks continue. Use agent_task_list or wait_for_task to confirm its terminal outcome.`,
 				data: { task_id: taskId, status: 'cancellation_requested' },
+			}
+		},
+	})
+
+	// The child's way to say something to the main conversation while it keeps
+	// working. The reference's `SendMessage` with `to: "main"` (REA, chunk
+	// 3dt2kg6m.js `deliver`, case `main`): the text is queued for the main
+	// conversation's next turn, framed as coming from the agent; a name other
+	// than `main` is not addressable. Only the conversation, never another child.
+	const messageMainTool = defineTool({
+		name: 'send_message',
+		description:
+			'Send a message to the main conversation while you keep working. Your plain text output is not visible to the main conversation; to tell it something before you finish, you must call this tool with to "main". It is delivered with its next turn. Your final response goes to whoever launched you without this. Do not send routine progress: send what the main conversation needs to know or decide now.',
+		inputSchema: mcpJsonSchemaToZod({
+			type: 'object',
+			properties: {
+				to: {
+					type: 'string',
+					description: 'Recipient: "main", the main conversation.',
+				},
+				message: {
+					type: 'string',
+					minLength: 1,
+					maxLength: 16000,
+					description: 'What to tell the main conversation.',
+				},
+			},
+			required: ['to', 'message'],
+			additionalProperties: false,
+		}),
+		category: 'custom',
+		permissions: [],
+		// Reads and writes nothing in the world; the text lands in the main
+		// conversation's context, framed as the child's own words.
+		readOnly: true,
+		destructive: false,
+		concurrencySafe: true,
+		async execute(input, context) {
+			context.abortSignal.throwIfAborted()
+			const { to, message } = input as { to: string; message: string }
+			if (to !== 'main')
+				return {
+					success: false,
+					output: '',
+					error: `No agent named '${to}' is currently addressable. Only "main" can be messaged from here.`,
+				}
+			if (!message.trim())
+				return { success: false, output: '', error: 'Message must not be blank.' }
+			const shown = activity
+				.getSnapshot()
+				.find((entry) => entry.sessionId === String(context.sessionId))
+			const owned = shown ? conversations.get(shown.viewId) : undefined
+			if (
+				!shown ||
+				!owned ||
+				closed ||
+				childMessageListeners.size === 0 ||
+				shown.stoppedBy !== undefined
+			)
+				return {
+					success: false,
+					output: '',
+					error:
+						'Not sent. You cannot use send_message in this session: it is switched off for sub-agents, or you were stopped. Put what you need to pass on in your final response, which goes to whoever launched or resumed you.',
+				}
+			const parent = await resolveParent(owned.turnId)
+			for (const listener of [...childMessageListeners]) {
+				try {
+					listener({
+						parentSessionId: String(parent.sessionId),
+						viewId: shown.viewId,
+						agentId: shown.agentId,
+						description: shown.description,
+						...(shown.taskId ? { taskId: shown.taskId } : {}),
+						text: message,
+					})
+				} catch {
+					// One listener failing must not hide the message from the rest.
+				}
+			}
+			return {
+				success: true,
+				output: "Message queued for the main conversation's next turn.",
 			}
 		},
 	})
@@ -1676,6 +1864,7 @@ export async function createSubagentRuntime(
 		message: string,
 		turnId: TurnId,
 		signal: AbortSignal,
+		source: 'operator' | 'parent' = 'operator',
 	): Promise<SubagentMessageReceipt> => {
 		if (closed) throw new Error('Sub-agent runtime is closed.')
 		if (!message.trim() || message.length > 16_000)
@@ -1684,6 +1873,13 @@ export async function createSubagentRuntime(
 		const shown = activity.getSnapshot().find((value) => value.viewId === viewId)
 		if (!owned || !shown || shown.replayed)
 			throw new Error('This child is saved evidence or is no longer owned by this host.')
+		// Stopped on purpose: not resumed by a message from either side.
+		if (shown.status === 'cancelled')
+			throw new Error(
+				source === 'operator'
+					? `${shown.agentId} was stopped, so it cannot take a message. Start a new agent for that work.`
+					: `Agent "${shown.agentId}" was stopped by the user and was not resumed. Treat its work as cancelled; only start a new agent for it if the user explicitly asks.`,
+			)
 		if (owned.busy) throw new Error('A message to this child is already being admitted.')
 		owned.busy = true
 		const id = randomUUID()
@@ -1713,7 +1909,7 @@ export async function createSubagentRuntime(
 			const parent = await resolveParent(turnId)
 			if (owned.parentKey !== sessionKey(parent))
 				throw new Error('This child belongs to a different parent conversation.')
-			if (opts.paths) {
+			if (opts.paths && source === 'operator') {
 				const directory = opts.paths.sessionDir({
 					sessionId: parent.sessionId,
 				})
@@ -1774,7 +1970,12 @@ export async function createSubagentRuntime(
 				kind = 'started'
 			}
 			admitted = true
-			activity.recordMessage(String(task.taskId), message, 'operator-to-child')
+			activity.recordMessage(
+				String(task.taskId),
+				message,
+				source === 'operator' ? 'operator-to-child' : 'to-child',
+				kind === 'started' ? 'started' : 'queued',
+			)
 			let auditWarning: string | undefined
 			try {
 				await audit('accepted', String(task.taskId))
@@ -1808,6 +2009,7 @@ export async function createSubagentRuntime(
 		if (closePromise) return closePromise
 		closed = true
 		closePromise = (async () => {
+			labeler.stop()
 			await Promise.all([...parents.keys()].map(releaseTurn))
 			await Promise.all(
 				[...sessions.values()].map(async (entry) => (await entry.ready).manager.dispose()),
@@ -1861,11 +2063,18 @@ export async function createSubagentRuntime(
 		if (!owned || !shown || shown.replayed) return false
 		const current = owned.gateway.getTask(owned.task.taskId) ?? owned.task
 		if (isTerminalAgentTaskState(current.state)) return false
+		activity.markStopped(viewId, 'user')
 		owned.gateway.cancelTask(owned.task.taskId, 'user')
 		return true
 	}
 
 	return {
+		onChildMessage(listener) {
+			childMessageListeners.add(listener)
+			return () => {
+				childMessageListeners.delete(listener)
+			}
+		},
 		cancelAgentTool,
 		modelCatalogueTool,
 		messageChild,
@@ -2148,7 +2357,9 @@ function buildDefinition(
 				? await opts.resolveParent(asTurnId(options.parentTurnId))
 				: undefined
 			const provider = await opts.buildProvider(parent?.sessionId, selection)
-			const toolsets = tools()
+			const roster = tools()
+			const extra = opts.childExtraTools?.() ?? []
+			const toolsets = extra.length > 0 ? [...roster, ...extra] : roster
 			const webSearch = opts.configureWebSearch?.(provider, options.model ?? model, toolsets)
 			// The one tool `configureWebSearch` ever asks to have removed: once
 			// native mode is confirmed usable, the tool-based path is redundant.

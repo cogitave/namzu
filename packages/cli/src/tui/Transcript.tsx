@@ -213,7 +213,7 @@ function RawMessageRow({
 		message.content.length > 0 ? terminalDisplayText(message.content) : message.pending ? '…' : ''
 	const fullHeader = message.shell?.fullHeader
 	const text = [
-		`${fullHeader !== undefined ? terminalDisplayText(fullHeader) : content}${message.meta ? ` · ${terminalDisplayText(message.meta)}` : ''}`,
+		`${fullHeader !== undefined ? terminalDisplayText(fullHeader) : content}${message.meta ? `${metaSeparator(message.meta)}${terminalDisplayText(message.meta)}` : ''}`,
 		...(message.shell
 			? shellResultRows(message.shell, { expanded: true }).map((row) =>
 					terminalDisplayText(row.text),
@@ -299,7 +299,12 @@ function MessageRow({
 								spans={[
 									{ text: content },
 									...(message.meta
-										? [{ text: ` · ${terminalDisplayText(message.meta)}`, muted: true }]
+										? [
+												{
+													text: `${metaSeparator(message.meta)}${terminalDisplayText(message.meta)}`,
+													muted: true,
+												},
+											]
 										: []),
 								]}
 								width={width}
@@ -310,7 +315,10 @@ function MessageRow({
 						<Text color={contentColorForRole(message.role)} wrap={web ? 'truncate-end' : 'wrap'}>
 							{content}
 							{message.meta ? (
-								<Text color={theme.text.muted}> · {terminalDisplayText(message.meta)}</Text>
+								<Text color={theme.text.muted}>
+									{metaSeparator(message.meta)}
+									{terminalDisplayText(message.meta)}
+								</Text>
 							) : null}
 							{message.pending && content.length === 0 ? (
 								<Text color={theme.text.muted}>…</Text>
@@ -557,4 +565,13 @@ export function contentColorForRole(role: TranscriptMessage['role']): string {
 		case 'tool':
 			return theme.text.secondary
 	}
+}
+
+/**
+ * What joins a row's hint to its text. A hint written in parentheses, like
+ * `(ctrl+o to expand)` after `› Message from @name`, follows the text after a
+ * space as the reference draws it; any other hint is set off with a middle dot.
+ */
+export function metaSeparator(meta: string): string {
+	return meta.startsWith('(') ? ' ' : ' · '
 }

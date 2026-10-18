@@ -194,22 +194,27 @@ import {
 } from '../skills/store.js'
 import { type UserCommand, discoverUserCommands } from '../user-commands/store.js'
 import {
+	AGENT_RAIL_WINDOW,
 	AgentCockpit,
 	type AgentCockpitFocus,
 	AgentNarrationBand,
 	AgentTaskPanel,
 	AgentTranscript,
+	AgentView,
 	type RailWorkflow,
 	agentCockpitIsWide,
 	agentPhasePageSize,
 	agentPickerPageSize,
 	agentTranscriptPageSize,
+	agentViewPageRows,
 	agentWorkflowPageSize,
 	agentWorkflows,
 	cockpitEntryFocus,
 	maxAgentTranscriptTailOffset,
+	maxAgentViewTailOffset,
 	railActionFor,
 	railAgents,
+	railHint,
 	railNextEviction,
 	railShowsMain,
 	railWorkflowActionFor,
@@ -219,7 +224,6 @@ import {
 } from './AgentExplorer.js'
 import { BrandHeader } from './BrandHeader.js'
 import { checklistProgress } from './Checklist.js'
-import { ChildComposer, childComposerRows } from './ChildComposer.js'
 import { ChoicePicker, type ChoicePickerOption } from './ChoicePicker.js'
 import {
 	Composer,
@@ -252,8 +256,13 @@ import { TranscriptScrollView } from './TranscriptScrollView.js'
 import { TrustPrompt } from './TrustPrompt.js'
 import { ViewportBound } from './ViewportBound.js'
 import {
-	completionRow,
+	agentDoneRows,
+	agentMessageRow,
+	agentNotice,
+	childMessageNotice,
+	childMessageRow,
 	launchReceipt,
+	reportsAsNotification,
 	settleLine,
 	workflowNotice,
 } from './agent-transcript-rows.js'
@@ -298,7 +307,6 @@ import {
 	hypermodeStopLabel,
 } from './hypermode.js'
 import { jobExitRow } from './job-exit-row.js'
-import { fitHints } from './key-hints.js'
 import { choosesModel, launchPreferences } from './launch-settings.js'
 import { checklistInView, liveWindow, settledBeforeStreaming } from './live-window.js'
 import {
@@ -395,6 +403,7 @@ import { withWorkflowRuns } from './workflow-runs.js'
 
 import type { BrowserControl } from '../browser/control.js'
 import { renderCheckpoints, renderRestore, renderRestoreNote } from '../checkpoints/store.js'
+import { agentViewCommandClass } from './agent-view-commands.js'
 import { browserSiteNotes, describeBrowserHandoff, runBrowserSlash } from './browser-notices.js'
 import { expandFileMentions, listMentionableFiles } from './mentions.js'
 import { openInBrowser } from './open-browser.js'
@@ -421,6 +430,7 @@ import {
 	hostCommandNames,
 	kernelCommandDescriptors,
 	mergeHostCommands,
+	parseSlash,
 	renderAgents,
 	renderOutcome,
 	reviewPrompt,
@@ -652,6 +662,18 @@ type ChoicePickerState = { readonly back?: ChoicePickerState; readonly request?:
 			readonly selectedSession?: AgentSession
 			/** The last entry is the hypermode row, below a rule; never a `ReasoningEffort`. */
 			readonly values: readonly (ReasoningEffort | undefined | 'hypermode')[]
+			readonly options: readonly ChoicePickerOption[]
+	  }
+	| {
+			/**
+			 * A command that acts on the conversation, typed while an agent is
+			 * viewed: asks once, then runs it against the conversation.
+			 */
+			readonly kind: 'agent-view-command'
+			readonly title: string
+			readonly notice?: string
+			readonly line: string
+			readonly values: readonly ('cancel' | 'run')[]
 			readonly options: readonly ChoicePickerOption[]
 	  }
 	| {
@@ -1364,6 +1386,9 @@ export function App({
 	// inside a running turn when there is one and with the next turn otherwise,
 	// the way a background job's exit is.
 	const workflowNoticesRef = useRef(new Map<string, string>())
+	/** What running agents sent to the conversation, for the model: told once, like a workflow's end. */
+	const childMessagesRef = useRef(new Map<number, string>())
+	const childMessageIdRef = useRef(0)
 	/** Moves when something ended that the model has not been told, so an idle session can wake. */
 	const [noticeVersion, setNoticeVersion] = useState(0)
 	/** Background commands that ended on their own (a stop the operator asked for does not wake the model). */
@@ -1552,6 +1577,8 @@ export function App({
 	 */
 	const choicePickerCommittedRef = useRef<ChoicePickerState | null>(null)
 	const commandPickerSubmitRef = useRef<(command: string) => void>(() => {})
+	/** A command line the person confirmed to run against the conversation while an agent was viewed. */
+	const mainCommandConfirmedRef = useRef<string | null>(null)
 	const {
 		selection: selectedChoice,
 		selectionRef: selectedChoiceRef,
@@ -1636,9 +1663,18 @@ export function App({
 	const [dismissedAgents, setDismissedAgents] = useState<ReadonlySet<string>>(() => new Set())
 	/** Clock for the rail's 30 s finished-agent lifetime; moved only when a row is due to leave. */
 	const [railNow, setRailNow] = useState(() => Date.now())
+	/** The agent on screen, kept on the rail however it ended. */
+	const pinnedViewId = agentSurface?.kind === 'transcript' ? agentSurface.selectedId : null
 	const railRowsRef = useRef<readonly SubagentActivity[]>([])
 	const railWorkflowsRef = useRef<readonly RailWorkflow[]>([])
 	const railJustFocusedRef = useRef(false)
+	/** ctrl+x was the last key on the rail: ctrl+k next stops every running agent. */
+	const railChordRef = useRef(false)
+	/** The agent whose transcript the main screen shows, or null when it shows the conversation. */
+	const viewingAgentRef = useRef<string | null>(null)
+	const viewRailRowsRef = useRef(0)
+	/** One plain sentence about the last message to the viewed agent that could not go. */
+	const [viewNotice, setViewNotice] = useState<string | undefined>(undefined)
 	// A finished agent leaves the rail 30 s after it ended: sleep until the next
 	// one is due instead of ticking, so a quiet session renders nothing.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: `railNow` is not read here; moving it is what re-arms the timer for the next agent due to leave.
@@ -1651,7 +1687,7 @@ export function App({
 	}, [subagents, workflowRuns, railNow])
 	// The rail cannot keep the keyboard once it has nothing to show.
 	const railHasRows =
-		railAgents(subagents, railNow, dismissedAgents).length > 0 ||
+		railAgents(subagents, railNow, dismissedAgents, pinnedViewId).length > 0 ||
 		railWorkflows(subagents, railNow, dismissedAgents, workflowRuns).length > 0
 	// The footer's shell pill is the rail's first stop, so shells keep it focused too.
 	const footerHasShells = backgroundJobs.some((job) => job.status === 'running')
@@ -1688,7 +1724,6 @@ export function App({
 	}, [jobSurfaceOpen, hasRunningBackgroundJob, session])
 	const agentSurfaceRef = useRef<AgentSurface | null>(null)
 	const agentSurfaceCommittedRef = useRef<AgentSurface | null>(null)
-	const childDraftsRef = useRef(new Map<string, Omit<ComposerDraft, 'token'>>())
 	const childMessageLifetimeRef = useRef(new AbortController())
 	const directChildNoticesRef = useRef(new Map<number, DirectChildNotice>())
 	const directChildNoticeIdRef = useRef(0)
@@ -1912,10 +1947,12 @@ export function App({
 	 */
 	const focusAgentRail = useCallback(() => {
 		const first =
+			// Viewing an agent, ↓ lands on its own row: one more ↑ reaches `main`.
+			viewingAgentRef.current ??
 			(shellCountRef.current > 0 ? SHELLS_FOCUS : undefined) ??
 			railRowsRef.current[0]?.viewId ??
 			railWorkflowsRef.current[0]?.focusId
-		if (first && agentSurfaceRef.current === null) {
+		if (first && (agentSurfaceRef.current === null || viewingAgentRef.current !== null)) {
 			// The ↓ that gets here is also dispatched to App's own key handler in
 			// the same tick, which must not read it as the first step inside the rail.
 			railJustFocusedRef.current = true
@@ -2015,7 +2052,6 @@ export function App({
 		const source = session?.subagents
 		childMessageLifetimeRef.current.abort(new Error('The conversation changed.'))
 		childMessageLifetimeRef.current = new AbortController()
-		childDraftsRef.current.clear()
 		directChildNoticesRef.current.clear()
 		setAgentSurface(null)
 		savedSubagentsRef.current = []
@@ -2061,7 +2097,6 @@ export function App({
 	const resetSubagentActivity = useCallback(() => {
 		childMessageLifetimeRef.current.abort(new Error('The owning conversation changed.'))
 		childMessageLifetimeRef.current = new AbortController()
-		childDraftsRef.current.clear()
 		directChildNoticesRef.current.clear()
 		session?.subagents?.reset()
 		session?.workflows?.reset()
@@ -2584,10 +2619,39 @@ export function App({
 					kind: 'task-completion',
 				})
 				activeTurnInboxRef.current?.notify()
-				if (!activeTurnInboxRef.current) pushMessage('system', label)
+				// The model hears it; the person sees the agent's own notice line.
 			}),
-		[pushMessage, session],
+		[session],
 	)
+	// A running agent can say something to the conversation with its own
+	// `send_message`. The person sees a collapsed `› Message from @name` row; the
+	// model gets the text with its next turn, or an idle session wakes for it.
+	useEffect(() => {
+		childMessagesRef.current = new Map()
+		return session?.onSubagentMessage?.((message) => {
+			if (
+				previousSessionRef.current !== session ||
+				scopeRef.current?.sessionId !== message.parentSessionId
+			)
+				return
+			const row = childMessageRow(message)
+			pushMessage(
+				'tool',
+				row.content,
+				false,
+				'›',
+				row.detail,
+				theme.text.muted,
+				row.hint,
+				'agent-result',
+			)
+			childMessagesRef.current.set(++childMessageIdRef.current, childMessageNotice(message))
+			// No `notify()`: a message queued for the next turn does not release a wait the
+			// running turn is in (the reference queues it at `next` priority); the turn
+			// takes it at its next request boundary, an idle session wakes for it below.
+			setNoticeVersion((version) => version + 1)
+		})
+	}, [session, pushMessage])
 	/** The queue row chosen for editing with Up; null when no row is chosen. */
 	const [queueSelection, setQueueSelectionState] = useState<number | null>(null)
 	const queueSelectionRef = useRef<number | null>(null)
@@ -2900,7 +2964,7 @@ export function App({
 		const now = Date.now()
 		const batches = new Map<string, SubagentActivity[]>()
 		for (const agent of subagents) {
-			if (agent.replayed || isWorkflowRunAgent(agent)) continue
+			if (agent.replayed || agent.resumed || isWorkflowRunAgent(agent)) continue
 			if (!current.some((item) => item.viewId === agent.viewId)) continue
 			const key = JSON.stringify([agent.workflowId, agent.batchId])
 			const members = batches.get(key) ?? []
@@ -2961,11 +3025,15 @@ export function App({
 				)
 			)
 				continue
-			if (!['completed', 'failed', 'cancelled'].includes(agent.status)) continue
+			// A resumed agent that is running again reports again when it ends.
+			if (!['completed', 'failed', 'cancelled'].includes(agent.status)) {
+				if (agent.resumed) reportedAgentsRef.current.delete(agent.viewId)
+				continue
+			}
 			if (reportedAgentsRef.current.has(agent.viewId)) continue
 			// Its receipt first, even if that means writing it alone.
 			const key = JSON.stringify([agent.workflowId, agent.batchId])
-			if (!agent.replayed && !reportedBatchesRef.current.has(key)) {
+			if (!agent.replayed && !agent.resumed && !reportedBatchesRef.current.has(key)) {
 				reportedBatchesRef.current.add(key)
 				if (claimReceipt(batches.get(key) ?? [agent])) {
 					pushMessage(
@@ -2982,16 +3050,41 @@ export function App({
 			// A workflow's agents are read in its detail view; the workflow closes
 			// with one line of its own.
 			if (agent.workflow !== DEFAULT_AGENT_WORKFLOW) continue
-			const row = completionRow(agent)
+			// An agent the parent waited on handed its result back inline: the line
+			// is the tool's own result, not a notification.
+			if (agent.status === 'completed' && !reportsAsNotification(agent)) {
+				const done = agentDoneRows(agent)
+				pushMessage('tool', done.header, false, '●', undefined, theme.accent.assistant)
+				pushMessage('tool', done.result, false, '⎿', undefined, theme.text.muted)
+				continue
+			}
+			// What the agent said (collapsed, ctrl+o opens it), then one line that
+			// says it is over. The answer is not repeated in that line.
+			const said = agentMessageRow(agent)
+			if (said) {
+				pushMessage(
+					'tool',
+					said.content,
+					false,
+					'›',
+					said.detail,
+					theme.text.muted,
+					said.hint,
+					'agent-result',
+				)
+			}
+			const notice = agentNotice(agent)
 			pushMessage(
 				'tool',
-				row.content,
+				notice.content,
 				false,
-				row.ok ? '✓' : '✗',
-				row.detail.length > 0 ? row.detail : undefined,
-				row.ok ? theme.status.ok : theme.status.error,
-				row.hint,
-				row.detail.length > 0 ? 'agent-result' : undefined,
+				'●',
+				undefined,
+				notice.tone === 'ok'
+					? theme.status.ok
+					: notice.tone === 'error'
+						? theme.status.error
+						: theme.status.warn,
 			)
 		}
 		if (retryIn === undefined) return
@@ -3976,6 +4069,16 @@ export function App({
 					return
 				}
 				applyPermissionMode(value as PermissionMode)
+				return
+			}
+			if (picker.kind === 'agent-view-command') {
+				if (value !== 'run') return
+				// The draft held the line while the question was open; the command
+				// takes it now.
+				composerDraftTokenRef.current += 1
+				setComposerDraft({ token: composerDraftTokenRef.current, text: '' })
+				mainCommandConfirmedRef.current = picker.line
+				commandPickerSubmitRef.current(picker.line)
 				return
 			}
 			if (picker.kind === 'feedback-rating') {
@@ -6566,17 +6669,18 @@ export function App({
 				},
 			})
 			if (!owns()) return receipt
-			const label = `You ${receipt.kind === 'queued' ? 'queued a message' : 'started a follow-up'} for ${child.description || child.agentId}.${receipt.auditWarning ? ` ${receipt.auditWarning}` : ''}`
+			const label = `You ${receipt.kind === 'queued' ? 'queued a message' : 'started a follow-up'} for ${child.agentId}.${receipt.auditWarning ? ` ${receipt.auditWarning}` : ''}`
 			directChildNoticesRef.current.set(++directChildNoticeIdRef.current, {
 				context: receipt.parentNotice,
 				label,
 				kind: 'advisory',
 			})
+			// The model is told (above); the person sees their words in the agent's
+			// own transcript and `N queued` on its rail row, so main says nothing.
 			activeTurnInboxRef.current?.notify()
-			if (!activeTurnInboxRef.current) pushMessage('system', label)
 			return receipt
 		},
-		[activeSkills, appLifetime.signal, onPermission, pushMessage, session],
+		[activeSkills, appLifetime.signal, onPermission, session],
 	)
 	const reviewSchedule = useCallback(
 		(request: ScheduleReviewRequest, signal?: AbortSignal) =>
@@ -7471,8 +7575,9 @@ export function App({
 			// running has had its chance to take it first and nothing is said twice.
 			let noticeKind: RuntimeContextMessageKind = 'task-completion'
 			if (prompt.kind === 'notice') {
-				const ended = [...workflowNoticesRef.current.values()]
+				const ended = [...workflowNoticesRef.current.values(), ...childMessagesRef.current.values()]
 				workflowNoticesRef.current.clear()
+				childMessagesRef.current.clear()
 				const jobs = idleJobNoticesRef.current
 				const jobLines =
 					jobs.ownerSession === session
@@ -7857,6 +7962,7 @@ export function App({
 			}
 			let childNoticeSnapshot = new Map<number, DirectChildNotice>()
 			let workflowNoticeSnapshot = new Map<string, string>()
+			let childMessageSnapshot = new Map<number, string>()
 			try {
 				// Setup above awaited. A conversation switch can happen meanwhile and
 				// move the mutable SessionScope captured by `createAgentSession`. Re-admit
@@ -7877,6 +7983,7 @@ export function App({
 					idleNoticeSnapshot = snapshotIdleJobNotices()
 					childNoticeSnapshot = new Map(directChildNoticesRef.current)
 					workflowNoticeSnapshot = new Map(workflowNoticesRef.current)
+					childMessageSnapshot = new Map(childMessagesRef.current)
 					const operatorShellSnapshot = drainOperatorShell()
 					for await (const event of session.send(priorForSdk, {
 						signal: ac.signal,
@@ -7907,6 +8014,7 @@ export function App({
 									: undefined,
 								operatorShellSnapshot,
 								...[...childNoticeSnapshot.values()].map((notice) => notice.context),
+								...childMessageSnapshot.values(),
 							].filter((part): part is string => Boolean(part)),
 						...(goalRound ? { goalRound } : {}),
 						// The mode above decides whether this callback is consulted.
@@ -7943,16 +8051,20 @@ export function App({
 								([id]) => !workflowNoticeSnapshot.has(id),
 							)
 							for (const [id] of workflowEnds) workflowNoticesRef.current.delete(id)
+							// What a running agent said to the conversation: told to the model once.
+							const childMessages = [...childMessagesRef.current].filter(
+								([id]) => !childMessageSnapshot.has(id),
+							)
+							for (const [id] of childMessages) childMessagesRef.current.delete(id)
 							if (childNotices.length) {
 								flushStream(st)
 								if (st.assistantId) {
 									finalizeMessage(st.assistantId)
 									st.assistantId = null
 								}
-								for (const [id, notice] of childNotices) {
-									pushMessage('system', notice.label)
-									directChildNoticesRef.current.delete(id)
-								}
+								// What the person typed to an agent is in that agent's transcript, so
+								// main prints nothing for it; the model still gets the note.
+								for (const [id] of childNotices) directChildNoticesRef.current.delete(id)
 							}
 							if (mail.length) {
 								// An idle wake may already be queued behind operator admission.
@@ -7977,6 +8089,9 @@ export function App({
 									createRuntimeContextMessage(notice.context, notice.kind),
 								),
 								...workflowEnds.map(([, text]) =>
+									createRuntimeContextMessage(text, 'task-completion'),
+								),
+								...childMessages.map(([, text]) =>
 									createRuntimeContextMessage(text, 'task-completion'),
 								),
 							]
@@ -8040,6 +8155,7 @@ export function App({
 				if (st.completed && stillHere()) {
 					for (const id of childNoticeSnapshot.keys()) directChildNoticesRef.current.delete(id)
 					for (const id of workflowNoticeSnapshot.keys()) workflowNoticesRef.current.delete(id)
+					for (const id of childMessageSnapshot.keys()) childMessagesRef.current.delete(id)
 				}
 				if (st.completed && idleJobNoticesRef.current.ownerSession === session) {
 					for (const id of idleNoticeSnapshot.ids) idleJobNoticesRef.current.pending.delete(id)
@@ -8484,6 +8600,64 @@ export function App({
 					`Conversation history is being ${operation}. Wait for it to finish before sending another command or prompt.`,
 				)
 				return
+			}
+			// An agent is on screen: what is typed goes to it, not to the conversation.
+			const viewedId = viewingAgentRef.current
+			if (viewedId !== null && meta.source !== 'model-loop' && meta.source !== 'launch-message') {
+				const restore = (notice: string) => {
+					setViewNotice(notice)
+					composerDraftTokenRef.current += 1
+					setComposerDraft({
+						token: composerDraftTokenRef.current,
+						text: value,
+						...(attachments && attachments.length > 0 ? { attachments: [...attachments] } : {}),
+					})
+				}
+				const text = value.trim()
+				// A command the host answers itself is never the agent's: it runs
+				// against the conversation, after asking where it changes history, and
+				// `/model` is refused. Other `/` text is for the agent. REA fn p3e/Ece.
+				const confirmed = mainCommandConfirmedRef.current === value
+				if (confirmed) mainCommandConfirmedRef.current = null
+				const parsed = confirmed ? null : parseSlash(text)
+				const builtin = parsed ? hostCommands.find((c) => c.name === parsed.name) : undefined
+				const handling = builtin ? agentViewCommandClass(builtin.name) : undefined
+				if (handling?.kind === 'block') {
+					restore(handling.notice)
+					return
+				}
+				if (handling?.kind === 'confirm') {
+					restore('')
+					setViewNotice(undefined)
+					setSelectedChoice(0)
+					setChoicePicker({
+						kind: 'agent-view-command',
+						title: handling.title,
+						line: value,
+						values: ['cancel', 'run'],
+						options: [
+							{ label: 'Cancel', description: '' },
+							{ label: handling.confirmLabel, description: '' },
+						],
+					})
+					return
+				}
+				if (!confirmed && !builtin) {
+					if (attachments && attachments.length > 0) {
+						restore('Messages to an agent take text only.')
+						return
+					}
+					if (text.length === 0 || text.length > 16_000) {
+						restore('Enter a message of 1–16000 characters.')
+						return
+					}
+					setViewNotice(undefined)
+					void submitChildMessage(viewedId, text).catch((error: unknown) =>
+						restore(error instanceof Error ? error.message : String(error)),
+					)
+					return
+				}
+				setViewNotice(undefined)
 			}
 			// The operator moved on; a parked turn is still there for /resume.
 			setHandoffPark(null)
@@ -10517,6 +10691,7 @@ export function App({
 		const jobs = idleJobNoticesRef.current
 		const waiting =
 			workflowNoticesRef.current.size > 0 ||
+			childMessagesRef.current.size > 0 ||
 			(jobs.ownerSession === session &&
 				[...jobs.pending.keys()].some((id) => wakeJobIdsRef.current.has(id)))
 		if (!waiting) return
@@ -11047,11 +11222,13 @@ export function App({
 			if (railTarget !== null) {
 				const rows = railRowsRef.current
 				const flows = railWorkflowsRef.current
+				const chordPending = railChordRef.current
+				railChordRef.current = false
 				// `main` (only beside agent rows), then the agents, then the workflows:
 				// the order they are drawn in.
 				const ids = [
 					...(shellCountRef.current > 0 ? [SHELLS_FOCUS] : []),
-					...(railShowsMain(rows.length) ? ['main'] : []),
+					...(railShowsMain(rows.length, viewingAgentRef.current) ? ['main'] : []),
 					...rows.map((agent) => agent.viewId),
 					...flows.map((f) => f.focusId),
 				]
@@ -11060,12 +11237,21 @@ export function App({
 				const selectedWorkflow = flows.find((flow) => flow.focusId === railTarget)
 				if (
 					ids.length === 0 ||
-					(ids.length === 1 && ids[0] === 'main') ||
-					agentSurfaceRef.current
+					(ids.length === 1 && ids[0] === 'main' && viewingAgentRef.current === null) ||
+					(agentSurfaceRef.current && viewingAgentRef.current === null)
 				) {
 					setRailFocus(null)
 				} else if (key.escape) {
 					setRailFocus(null)
+					return
+				} else if (key.ctrl && input === 'x') {
+					railChordRef.current = true
+					return
+				} else if (key.ctrl && input === 'k' && chordPending) {
+					// Every agent still going; workflows are stopped one at a time with `x`.
+					for (const agent of rows) {
+						if (railActionFor(agent) === 'stop') session?.stopSubagent?.(agent.viewId)
+					}
 					return
 				} else if (key.upArrow || key.downArrow) {
 					const index = at + (key.downArrow ? 1 : -1)
@@ -11073,7 +11259,10 @@ export function App({
 					return
 				} else if (key.return) {
 					setRailFocus(null)
-					if (railTarget === SHELLS_FOCUS) {
+					if (railTarget === 'main') {
+						// `main` is the way back from a viewed agent to the conversation.
+						if (viewingAgentRef.current !== null) setAgentSurface(null)
+					} else if (railTarget === SHELLS_FOCUS) {
 						openShellJobs()
 					} else if (selectedWorkflow) {
 						openWorkflowFromRail(selectedWorkflow.id, selectedWorkflow.focusId)
@@ -11321,61 +11510,96 @@ export function App({
 					return
 				}
 
-				if ((!agentView.composing && input.toLowerCase() === 'q') || (key.ctrl && input === 'c')) {
-					setAgentSurface(null)
+				if (viewingAgentRef.current === selected.viewId) {
+					// Viewing: the main composer is live and owns the typing, so only
+					// the keys it does not use are read here.
+					//
+					// Esc on a running agent stops it and stays in the view; on one that
+					// has ended it goes back to the conversation (its row lingers, the
+					// draft stays in the composer). Ctrl+C stops a running agent and goes
+					// back either way, and interrupts the conversation's own turn too if
+					// one is running. The reference does exactly this (REA fn Y_e and
+					// ese in chunk-2rs9vjmc.js).
+					if (key.escape) {
+						if (railActionFor(selected) === 'stop') {
+							session?.stopSubagent?.(selected.viewId)
+							return
+						}
+						setAgentSurface(null)
+						setViewNotice(undefined)
+						return
+					}
+					if (key.ctrl && input === 'c') {
+						if (railActionFor(selected) === 'stop') session?.stopSubagent?.(selected.viewId)
+						setAgentSurface(null)
+						setViewNotice(undefined)
+						if (abortRef.current && interruptTurn()) pushMessage('system', 'Interrupted.')
+						return
+					}
+					if (key.pageUp || key.pageDown || key.home || key.end) {
+						const rows = agentViewPageRows(terminal.rows, viewRailRowsRef.current)
+						const max = maxAgentViewTailOffset(selected, rows, Math.max(1, terminal.columns - 2))
+						const offset = Math.min(agentView.tailOffset, max)
+						const next = key.home
+							? max
+							: key.end
+								? 0
+								: key.pageUp
+									? Math.min(max, offset + rows)
+									: Math.max(0, offset - rows)
+						setAgentSurface({ ...agentView, tailOffset: next })
+						return
+					}
+					// Everything else belongs to the composer and the rail below.
+				} else {
+					if (
+						(!agentView.composing && input.toLowerCase() === 'q') ||
+						(key.ctrl && input === 'c')
+					) {
+						setAgentSurface(null)
+						return
+					}
+					if (key.escape && agentView.fromRail) {
+						setAgentSurface(null)
+						setRailFocus(selected.viewId)
+						return
+					}
+					if (key.escape) {
+						setAgentSurface({
+							kind: 'cockpit',
+							selectedPhaseId: agentView.selectedPhaseId,
+							selectedId: selected.viewId,
+							focus: agentView.returnFocus,
+							...(agentView.railReturn !== undefined ? { railReturn: agentView.railReturn } : {}),
+						})
+						return
+					}
+					if (key.tab && key.shift) {
+						cyclePermissionMode()
+						return
+					}
+					if (key.home || key.end || key.pageUp || key.pageDown || key.upArrow || key.downArrow) {
+						// Reserving the replayed banner's row here too keeps one PgDn a
+						// screenful of what is actually visible.
+						const historyRows = terminal.rows
+						const page = agentTranscriptPageSize(historyRows, selected.replayed ? 1 : 0)
+						const max = maxAgentTranscriptTailOffset(selected, historyRows, terminal.columns)
+						const offset = Math.min(agentView.tailOffset, max)
+						const next = key.home
+							? max
+							: key.end
+								? 0
+								: key.pageUp
+									? Math.min(max, offset + page)
+									: key.pageDown
+										? Math.max(0, offset - page)
+										: key.upArrow
+											? Math.min(max, offset + 1)
+											: Math.max(0, offset - 1)
+						setAgentSurface({ ...agentView, tailOffset: next })
+					}
 					return
 				}
-				if (key.escape && agentView.fromRail) {
-					setAgentSurface(null)
-					setRailFocus(selected.viewId)
-					return
-				}
-				if (key.escape) {
-					setAgentSurface({
-						kind: 'cockpit',
-						selectedPhaseId: agentView.selectedPhaseId,
-						selectedId: selected.viewId,
-						focus: agentView.returnFocus,
-						...(agentView.railReturn !== undefined ? { railReturn: agentView.railReturn } : {}),
-					})
-					return
-				}
-				if (key.tab && key.shift) {
-					cyclePermissionMode()
-					return
-				}
-				const canMessage = Boolean(
-					session?.messageSubagent && !selected.replayed && selected.workflowRunId === undefined,
-				)
-				if (canMessage && (key.tab || (!agentView.composing && (key.return || input === 'm')))) {
-					setAgentSurface({ ...agentView, composing: !agentView.composing })
-					return
-				}
-				if (agentView.composing) return
-				if (key.home || key.end || key.pageUp || key.pageDown || key.upArrow || key.downArrow) {
-					// Reserving the replayed banner's row here too keeps one PgDn a
-					// screenful of what is actually visible.
-					const historyRows =
-						terminal.rows -
-						(canMessage ? childComposerRows(terminal.rows) : 0) +
-						(canMessage && terminal.rows < 24 ? 3 : 0)
-					const page = agentTranscriptPageSize(historyRows, selected.replayed ? 1 : 0)
-					const max = maxAgentTranscriptTailOffset(selected, historyRows, terminal.columns)
-					const offset = Math.min(agentView.tailOffset, max)
-					const next = key.home
-						? max
-						: key.end
-							? 0
-							: key.pageUp
-								? Math.min(max, offset + page)
-								: key.pageDown
-									? Math.max(0, offset - page)
-									: key.upArrow
-										? Math.min(max, offset + 1)
-										: Math.max(0, offset - 1)
-					setAgentSurface({ ...agentView, tailOffset: next })
-				}
-				return
 			}
 			// A host-owned text prompt has its own input hook. This synchronous ref
 			// claims the interval before React paints it too, so App cannot read a
@@ -11623,7 +11847,7 @@ export function App({
 	// Background is left natural — we inherit the terminal's own background
 	// and only theme the foreground. Forcing
 	// a filled bg left mismatched patches around bordered areas, so we don't.
-	const liveSubagents = railAgents(subagents, railNow, dismissedAgents)
+	const liveSubagents = railAgents(subagents, railNow, dismissedAgents, pinnedViewId)
 	railRowsRef.current = liveSubagents
 	const liveWorkflows = railWorkflows(subagents, railNow, dismissedAgents, workflowRuns)
 	railWorkflowsRef.current = liveWorkflows
@@ -11653,7 +11877,6 @@ export function App({
 	const selectedSubagent = agentSurface
 		? subagents.find((agent) => agent.viewId === agentSurface.selectedId)
 		: undefined
-	const childComposerGeneration = conversationGenRef.current
 	const childComposerAvailable = Boolean(
 		session?.messageSubagent &&
 			selectedSubagent &&
@@ -11661,6 +11884,12 @@ export function App({
 			selectedSubagent.workflowRunId === undefined &&
 			agentSurface?.kind === 'transcript',
 	)
+	// An agent that can take messages is VIEWED, not browsed: its transcript
+	// shows on the main screen and the one composer stays live and talks to it.
+	// Saved children and a workflow run's agents cannot be messaged and keep the
+	// read-only screen.
+	const viewingAgent = childComposerAvailable ? selectedSubagent : undefined
+	viewingAgentRef.current = viewingAgent?.viewId ?? null
 	const lifecycleOwnsViewport =
 		outputViewer !== null ||
 		scrollOpen ||
@@ -11776,7 +12005,20 @@ export function App({
 		phase !== 'resume' &&
 		phase !== 'edit' &&
 		phase !== 'picker'
-	const childSurfaceOpen = agentSurface !== null || outputViewer !== null || jobSurface !== null
+	const childSurfaceOpen =
+		(agentSurface !== null && viewingAgent === undefined) ||
+		outputViewer !== null ||
+		jobSurface !== null
+	const viewRailRows =
+		liveSubagents.length > 0 || liveWorkflows.length > 0
+			? 1 +
+				(railShowsMain(liveSubagents.length, viewingAgent?.viewId) ? 1 : 0) +
+				Math.min(liveSubagents.length, AGENT_RAIL_WINDOW) +
+				(liveSubagents.length > AGENT_RAIL_WINDOW ? 1 : 0) +
+				liveWorkflows.length
+			: 0
+	viewRailRowsRef.current = viewRailRows
+	const viewPageRows = agentViewPageRows(terminal.rows, viewRailRows)
 	// `←` and `↓` act only from an empty composer with the keyboard in it, so
 	// the footer names them under the same conditions and never advertises a dead key.
 	const footerKeysLive =
@@ -11788,6 +12030,24 @@ export function App({
 	const runningAgentCount =
 		liveSubagents.filter((agent) => railActionFor(agent) === 'stop').length +
 		liveWorkflows.filter((flow) => flow.status === 'running').length
+	// While the rail has the keyboard its key line replaces the footer's mode line.
+	const railHintText =
+		railFocus !== null &&
+		railFocus !== SHELLS_FOCUS &&
+		showComposerSurface &&
+		permission === null &&
+		(agentSurface === null || viewingAgent !== undefined) &&
+		(liveSubagents.length > 0 || liveWorkflows.length > 0)
+			? railHint(
+					railFocus === 'main'
+						? undefined
+						: (liveSubagents.find((agent) => agent.viewId === railFocus) ??
+								liveWorkflows.find((flow) => flow.focusId === railFocus)),
+					terminal.columns,
+					liveSubagents.filter((agent) => railActionFor(agent) === 'stop').length,
+					viewingAgent?.viewId,
+				)
+			: undefined
 	return (
 		// One row short of the terminal, always: see ViewportBound.tsx for the
 		// renderer path a taller frame takes and the scrollback row it costs.
@@ -12041,6 +12301,18 @@ export function App({
 								onClose={() => setScrollOpen(false)}
 							/>
 						) : null}
+						{viewingAgent &&
+						agentSurface?.kind === 'transcript' &&
+						permission === null &&
+						choicePicker === null ? (
+							<AgentView
+								agent={viewingAgent}
+								tailOffset={agentSurface.tailOffset}
+								pageRows={viewPageRows}
+								terminalColumns={Math.max(1, terminal.columns - 2)}
+								notice={viewNotice}
+							/>
+						) : null}
 						<ComposerFrame
 							columns={Math.max(2, (terminal.columns ?? 80) - 2)}
 							working={state === 'thinking' || state === 'tool' || visibleActiveTools.length > 0}
@@ -12072,6 +12344,11 @@ export function App({
 							}
 						>
 							<Composer
+								{...(viewingAgent
+									? {
+											placeholder: `Message @${[...viewingAgent.agentId].slice(0, 20).join('')}…`,
+										}
+									: {})}
 								reasoningEffortLevels={session?.reasoningEffortLevels}
 								onCycleMode={cyclePermissionMode}
 								disabled={
@@ -12171,6 +12448,7 @@ export function App({
 							footerKeysLive && railFocus === null && (runningShellCount > 0 || railHasRows)
 						}
 						shellsSelected={railFocus === SHELLS_FOCUS}
+						{...(railHintText !== undefined ? { railHint: railHintText } : {})}
 					/>
 				)}
 				{/* The parent's commentary, between the footer line and the rail:
@@ -12190,12 +12468,12 @@ export function App({
 					<AgentNarrationBand lines={narration} />
 				) : null}
 				{showComposerSurface &&
-				agentSurface === null &&
+				(agentSurface === null || viewingAgent !== undefined) &&
 				outputViewer === null &&
 				!scrollOpen &&
 				jobSurface === null &&
 				scheduleReviewPrompt === null &&
-				(liveSubagents.length > 0 || liveWorkflows.length > 0) ? (
+				(liveSubagents.length > 0 || liveWorkflows.length > 0 || viewingAgent !== undefined) ? (
 					// The active agents remain in memory while the schedule review
 					// owns the available rows; the panel returns after the decision.
 					<AgentTaskPanel
@@ -12204,6 +12482,7 @@ export function App({
 						terminalRows={terminal.rows}
 						terminalColumns={terminal.columns}
 						compact={permission !== null}
+						viewingId={viewingAgent?.viewId ?? null}
 						{...(railFocus !== null && railFocus !== SHELLS_FOCUS
 							? {
 									selectedIndex:
@@ -12211,13 +12490,13 @@ export function App({
 											? 0
 											: railFocus.startsWith('workflow:')
 												? liveSubagents.length +
-													(railShowsMain(liveSubagents.length) ? 1 : 0) +
+													(railShowsMain(liveSubagents.length, viewingAgent?.viewId) ? 1 : 0) +
 													Math.max(
 														0,
 														liveWorkflows.findIndex((flow) => flow.focusId === railFocus),
 													)
 												: liveSubagents.findIndex((agent) => agent.viewId === railFocus) +
-													(railShowsMain(liveSubagents.length) ? 1 : 0),
+													(railShowsMain(liveSubagents.length, viewingAgent?.viewId) ? 1 : 0),
 								}
 							: {})}
 					/>
@@ -12238,68 +12517,14 @@ export function App({
 					permission === null &&
 					scheduleReviewPrompt === null &&
 					agentSurface?.kind === 'transcript' &&
-					selectedSubagent ? (
+					selectedSubagent &&
+					viewingAgent === undefined ? (
 					<AgentTranscript
 						agent={selectedSubagent}
 						tailOffset={agentSurface.tailOffset}
-						terminalRows={
-							terminal.rows - (childComposerAvailable ? childComposerRows(terminal.rows) : 0)
-						}
+						terminalRows={terminal.rows}
 						terminalColumns={terminal.columns}
-						compact={childComposerAvailable && terminal.rows < 24}
 						escapeTo={agentSurface.fromRail ? 'back' : 'agents'}
-						navigationHint={
-							childComposerAvailable
-								? fitHints(
-										[
-											{ text: 'PgUp/PgDn scroll', short: 'PgUp/PgDn', rank: 2 },
-											{ text: 'tab message', rank: 4 },
-											agentSurface.fromRail
-												? { text: 'esc back', rank: 5 }
-												: { text: 'esc agents', short: 'esc list', rank: 5 },
-											{ text: 'q parent', rank: 5 },
-										],
-										Math.max(1, terminal.columns - 4),
-									)
-								: undefined
-						}
-					/>
-				) : null}
-				{showComposerSurface &&
-				agentSurface?.kind === 'transcript' &&
-				selectedSubagent &&
-				childComposerAvailable ? (
-					<ChildComposer
-						key={`${conversationGenRef.current}:${selectedSubagent.viewId}`}
-						title={selectedSubagent.description || selectedSubagent.agentId}
-						focused={agentSurface.composing === true}
-						hidden={
-							permission !== null ||
-							scheduleReviewPrompt !== null ||
-							textPrompt !== null ||
-							choicePicker !== null
-						}
-						columns={Math.max(1, terminal.columns - 2)}
-						rows={childComposerRows(terminal.rows)}
-						draft={childDraftsRef.current.get(selectedSubagent.viewId)}
-						onDraftChange={(draft) => {
-							if (
-								conversationGenRef.current !== childComposerGeneration ||
-								previousSessionRef.current !== session
-							)
-								return
-							childDraftsRef.current.set(selectedSubagent.viewId, draft)
-							if (childDraftsRef.current.size > 80)
-								childDraftsRef.current.delete(childDraftsRef.current.keys().next().value!)
-						}}
-						onSubmit={(text) => {
-							if (
-								conversationGenRef.current !== childComposerGeneration ||
-								previousSessionRef.current !== session
-							)
-								return Promise.reject(new Error('The owning conversation changed.'))
-							return submitChildMessage(selectedSubagent.viewId, text)
-						}}
 					/>
 				) : null}
 				{outputViewer && permission === null && scheduleReviewPrompt === null ? (

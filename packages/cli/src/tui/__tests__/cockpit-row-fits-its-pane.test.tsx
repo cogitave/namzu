@@ -8,6 +8,7 @@
  * cells worked out from the pane's own width.
  */
 
+import { Box } from 'ink'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import type { SubagentActivity } from '../../integrations/subagents/activity.js'
@@ -46,22 +47,28 @@ describe('a wide cockpit agent row', () => {
 		'leaves the padding cell before the border blank at %i columns',
 		async (cols) => {
 			mounted = await renderToScreen(
-				<AgentCockpit
-					agents={[child('first', 'Choose first colour'), child('second', 'Choose second colour')]}
-					selectedPhaseId="phase-1"
-					selectedId="first"
-					focus="agents"
-					terminalRows={16}
-					terminalColumns={cols}
-				/>,
+				<Box flexDirection="column" paddingX={1}>
+					<AgentCockpit
+						agents={[
+							child('first', 'Choose first colour'),
+							child('second', 'Choose second colour'),
+						]}
+						selectedPhaseId="phase-1"
+						selectedId="first"
+						focus="agents"
+						terminalRows={16}
+						terminalColumns={cols}
+					/>
+				</Box>,
 				{ cols, rows: 16 },
 			)
 			const rows = mounted.viewport().filter((row) => row.includes('Choose'))
 			expect(rows.length).toBeGreaterThan(0)
 			for (const row of rows) {
 				const cells = [...row]
-				expect(cells[cols - 1], row).toBe('│')
-				expect(cells[cols - 2], row).toBe(' ')
+				// The dialog reaches into the app's side padding, so its border is the second-to-last cell.
+				expect(cells[cols - 2], row).toBe('│')
+				expect(cells[cols - 3], row).toBe(' ')
 			}
 		},
 	)

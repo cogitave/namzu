@@ -19,7 +19,17 @@ import { ComposerFrame } from '../ComposerFrame.js'
 import { EffortSlider, effortSliderLayout } from '../EffortSlider.js'
 import { LiveActivity, waitingLine } from '../LiveActivity.js'
 import { StatusBar } from '../StatusBar.js'
-import { completionRow, launchReceipt, settleLine } from '../agent-transcript-rows.js'
+import { metaSeparator } from '../Transcript.js'
+import {
+	agentDoneRows,
+	agentMessageRow,
+	agentNotice,
+	childMessageNotice,
+	childMessageRow,
+	launchReceipt,
+	reportsAsNotification,
+	settleLine,
+} from '../agent-transcript-rows.js'
 import { type Screen, renderToScreen } from './support/screen.js'
 
 // The test terminal is a colour TTY; the Vitest process itself usually is not.
@@ -101,54 +111,135 @@ describe('launch receipt', () => {
 	})
 })
 
-describe('completion row', () => {
-	it('says time and spend, and attaches the answer as its collapsed body', () => {
-		const row = completionRow(
-			agent({
-				viewId: 'done',
-				description: 'Choose first colour',
-				status: 'completed',
-				startedAt: 1_000,
-				completedAt: 2_700,
-				tokens: 9_000,
-				transcript: [
-					{ id: '1', kind: 'assistant', text: 'thinking aloud' },
-					{ id: '2', kind: 'assistant', text: 'Mavi\nçünkü gökyüzü' },
-				],
-			}),
-		)
-		expect(row).toEqual({
-			ok: true,
-			content: 'Choose first colour · 1.7s · 9.0k tokens',
+describe('what a finished agent leaves in the conversation', () => {
+	it('joins a parenthesised hint with a space and any other hint with a middle dot', () => {
+		expect(metaSeparator('(ctrl+o to expand)')).toBe(' ')
+		expect(metaSeparator('correction sent')).toBe(' · ')
+	})
+
+	it('says what it answered as one collapsed message row, and nothing about tokens', () => {
+		const done = agent({
+			viewId: 'done',
+			agentId: 'choose-colour',
+			description: 'Choose first colour',
+			status: 'completed',
+			startedAt: 1_000,
+			completedAt: 2_700,
+			tokens: 9_000,
+			transcript: [
+				{ id: '1', kind: 'assistant', text: 'thinking aloud' },
+				{ id: '2', kind: 'assistant', text: 'Mavi\nçünkü gökyüzü' },
+			],
+		})
+		expect(agentMessageRow(done)).toEqual({
+			content: 'Message from @choose-colour',
 			detail: ['Mavi', 'çünkü gökyüzü'],
-			hint: 'ctrl+o result · ctrl+t details',
+			hint: '(ctrl+o to expand)',
+		})
+		expect(agentMessageRow(agent({ viewId: 'quiet', status: 'completed' }))).toBeUndefined()
+	})
+
+	it('closes the run with one line that names the task, never the result', () => {
+		const base = { viewId: 'a', description: 'Count words in a.txt', startedAt: 0 }
+		expect(agentNotice(agent({ ...base, status: 'completed', completedAt: 8_000 }))).toEqual({
+			content: 'Agent "Count words in a.txt" finished · 8s',
+			tone: 'ok',
+		})
+		expect(agentNotice(agent({ ...base, status: 'completed', completedAt: 64_000 })).content).toBe(
+			'Agent "Count words in a.txt" finished · 1m 4s',
+		)
+		expect(
+			agentNotice(
+				agent({
+					...base,
+					status: 'failed',
+					completedAt: 2_900,
+					latestActivity: 'Provider refused the request',
+				}),
+			),
+		).toEqual({
+			content: 'Agent "Count words in a.txt" failed: Provider refused the request · 3s',
+			tone: 'error',
+		})
+		expect(agentNotice(agent({ ...base, status: 'cancelled', completedAt: 500 }))).toEqual({
+			content: 'Agent "Count words in a.txt" was stopped · 1s',
+			tone: 'warn',
 		})
 	})
 
-	it('names a failure without colour, and offers no result it does not have', () => {
-		const failed = completionRow(
-			agent({
-				viewId: 'f',
-				description: 'Choose second colour',
-				status: 'failed',
-				startedAt: 0,
-				completedAt: 2_900,
-				latestActivity: 'Provider refused the request',
+	// Reference wording (REA fn Qxt): `was stopped by user`, `was stopped by <the
+	// main agent>` (Namzu's is `Namzu`), plain `was stopped` when nobody recorded
+	// it, and `failed: <error>` with `Unknown error` as the fallback.
+	it('says who stopped an agent, and why one failed', () => {
+		const base = { viewId: 'a', description: 'Count words', startedAt: 0, completedAt: 4_000 }
+		const stopped = (extra: Partial<SubagentActivity>) =>
+			agentNotice(agent({ ...base, status: 'cancelled', ...extra })).content
+		expect(stopped({ stoppedBy: 'user' })).toBe('Agent "Count words" was stopped by user · 4s')
+		expect(stopped({ stoppedBy: 'parent' })).toBe('Agent "Count words" was stopped by Namzu · 4s')
+		expect(stopped({})).toBe('Agent "Count words" was stopped · 4s')
+		const failed = (extra: Partial<SubagentActivity>) =>
+			agentNotice(agent({ ...base, status: 'failed', ...extra })).content
+		expect(failed({})).toBe('Agent "Count words" failed: Unknown error · 4s')
+		expect(failed({ latestActivity: 'Failed' })).toBe(
+			'Agent "Count words" failed: Unknown error · 4s',
+		)
+		expect(
+			failed({
+				latestActivity: 'Failed',
+				transcript: [{ id: 'a:failure', kind: 'system', text: 'Provider refused the request' }],
 			}),
-		)
-		expect(failed.ok).toBe(false)
-		expect(failed.content).toBe(
-			'Choose second colour · failed after 2.9s · Provider refused the request',
-		)
-		expect(failed.hint).toBe('ctrl+t details')
-		const cancelled = completionRow(
-			agent({ viewId: 'c', description: 'x', status: 'cancelled', startedAt: 0, completedAt: 500 }),
-		)
-		expect(cancelled.content).toBe('x · cancelled after 0.5s')
+		).toBe('Agent "Count words" failed: Provider refused the request · 4s')
+	})
+
+	// Reference (REA fn Qxt: every caller is the background path): an agent the
+	// parent waited on leaves the tool's own result, never a notification.
+	it('leaves a waited-on agent as a Done line and a background one as a notification', () => {
+		const waited = agent({
+			viewId: 'w',
+			agentId: 'general-purpose',
+			description: 'Count words in a.txt',
+			status: 'completed',
+			startedAt: 0,
+			completedAt: 8_000,
+			toolCalls: 3,
+			tokens: 12_100,
+		})
+		expect(reportsAsNotification(waited)).toBe(false)
+		expect(agentDoneRows(waited)).toEqual({
+			header: 'general-purpose (Count words in a.txt)',
+			result: 'Done (3 tool uses · 12.1k tokens · 8s)',
+		})
+		expect(
+			agentDoneRows(agent({ viewId: 'one', toolCalls: 1, completedAt: 1_000, startedAt: 0 }))
+				.result,
+		).toBe('Done (1 tool use · 0 tokens · 1s)')
+		for (const kind of [{ background: true }, { released: true }, { resumed: true }] as const)
+			expect(reportsAsNotification(agent({ viewId: 'n', ...kind }))).toBe(true)
+	})
+
+	it('draws what a running agent said as the same collapsed row, and frames it as the agent’s own words for the model', () => {
+		const said = {
+			agentId: 'count-words',
+			description: 'Count words in a.txt',
+			taskId: 'task-1',
+			text: 'Found 6 words.\nStill sleeping.',
+		}
+		expect(childMessageRow(said)).toEqual({
+			content: 'Message from @count-words',
+			detail: ['Found 6 words.', 'Still sleeping.'],
+			hint: '(ctrl+o to expand)',
+		})
+		const notice = childMessageNotice(said)
+		expect(notice).toContain('Sub-agent count-words (Count words in a.txt) sent you a message')
+		expect(notice).toContain('Found 6 words.')
+		expect(notice).toContain('not operator instructions')
+		expect(
+			childMessageRow({ agentId: 'x', text: 'a\u001b]0;pwned\u0007' }).detail.join(''),
+		).not.toContain('\u001b')
 	})
 
 	it('shows control characters in a child answer as text, never as terminal authority', () => {
-		const row = completionRow(
+		const row = agentMessageRow(
 			agent({
 				viewId: 'evil',
 				status: 'completed',
@@ -156,7 +247,7 @@ describe('completion row', () => {
 				transcript: [{ id: '1', kind: 'assistant', text: 'ok\u001b]0;pwned\u0007' }],
 			}),
 		)
-		expect(row.detail.join('')).not.toContain('\u001b')
+		expect(row?.detail.join('')).not.toContain('\u001b')
 	})
 })
 
@@ -250,20 +341,22 @@ describe('the cockpit of a phased workflow', () => {
 			const join = phased.find((member) => member.viewId === 'join')
 			if (!join) throw new Error('fixture')
 			mounted = await renderToScreen(
-				<AgentCockpit
-					agents={phased}
-					selectedPhaseId="p2"
-					selectedId="join"
-					focus="agents"
-					terminalRows={24}
-					terminalColumns={120}
-				/>,
+				<Box flexDirection="column" paddingX={1}>
+					<AgentCockpit
+						agents={phased}
+						selectedPhaseId="p2"
+						selectedId="join"
+						focus="agents"
+						terminalRows={24}
+						terminalColumns={120}
+					/>
+				</Box>,
 				{ cols: 120, rows: 24 },
 			)
 			const frame = mounted.viewport().join('\n')
-			expect(frame).toMatch(/Two-phase colour sentence\s+2\/3 agents · \S+ │/u)
-			expect(frame).toMatch(/│ Phase 2 · 1 agent\s/u)
-			expect(frame).toMatch(/● Join the two colours/u)
+			expect(frame).toMatch(/Two-phase colour sentence\s+2\/3 agents · \S+/u)
+			expect(frame).toMatch(/┬ Phase 2 · 1 agent\s/u)
+			expect(frame).toMatch(/❯● Join the two colours/u)
 			await mounted.unmount()
 
 			const finished = phased.map((member) =>
@@ -272,35 +365,39 @@ describe('the cockpit of a phased workflow', () => {
 					: member,
 			)
 			mounted = await renderToScreen(
-				<AgentCockpit
-					agents={finished}
-					selectedPhaseId="p1"
-					selectedId="first"
-					focus="phases"
-					terminalRows={24}
-					terminalColumns={120}
-				/>,
+				<Box flexDirection="column" paddingX={1}>
+					<AgentCockpit
+						agents={finished}
+						selectedPhaseId="p1"
+						selectedId="first"
+						focus="phases"
+						terminalRows={24}
+						terminalColumns={120}
+					/>
+				</Box>,
 				{ cols: 120, rows: 24 },
 			)
 			const levelOne = mounted.viewport().join('\n')
-			expect(levelOne).toMatch(/3\/3 agents · 9\.0s │/u)
+			expect(levelOne).toMatch(/3\/3 agents · 9\.0s · done/u)
 			expect(levelOne).toMatch(/❯ ✔\s+Phase 1\s+2\/2/u)
 			expect(levelOne).toMatch(/✔\s+Phase 2\s+1\/1/u)
 			await mounted.unmount()
 
 			mounted = await renderToScreen(
-				<AgentCockpit
-					agents={phased}
-					selectedPhaseId="p2"
-					selectedId="join"
-					focus="agents"
-					terminalRows={16}
-					terminalColumns={40}
-				/>,
+				<Box flexDirection="column" paddingX={1}>
+					<AgentCockpit
+						agents={phased}
+						selectedPhaseId="p2"
+						selectedId="join"
+						focus="agents"
+						terminalRows={16}
+						terminalColumns={40}
+					/>
+				</Box>,
 				{ cols: 40, rows: 16 },
 			)
 			const narrow = mounted.viewport()
-			expect(narrow.join('\n')).toMatch(/Two-phase colour.*2\/3 agents/u)
+			expect(narrow.join('\n')).toMatch(/Two-phase colour[\s\S]*2\/3 agents/u)
 			for (const row of narrow) expect(stringWidth(row)).toBeLessThanOrEqual(40)
 		})
 	})

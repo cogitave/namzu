@@ -24,7 +24,11 @@ import { formatCompactCount } from './units.js'
 import { nextRunEviction, runPhaseId, runRailFacts, visibleRuns } from './workflow-runs.js'
 
 const MAX_PICKER_ROWS = 9
+/** Rows of list the detail dialog shows at most. */
+const DETAIL_LIST_ROWS = 14
 const COCKPIT_FRAME_COLUMNS = 4
+/** Width from which the detail dialog lays its phases and agents side by side. */
+const DETAIL_WIDE_COLUMNS = 64
 const WIDE_COCKPIT_INNER_COLUMNS = 84
 /**
  * A resolved model id is host-reported, unbounded text — a self-hosted or
@@ -103,9 +107,10 @@ export interface AgentNarrationBandProps {
 export function AgentNarrationBand({ lines }: AgentNarrationBandProps) {
 	if (lines.length === 0) return null
 	return (
-		// paddingX 4 lands the text where the rail's `main` label starts — past
-		// its pointer and bullet cells — so the two columns line up.
-		<Box flexDirection="column" paddingX={4}>
+		// paddingLeft 3 lands the text where the rail's `main` label starts —
+		// past its pointer and bullet cells, the rail being drawn one cell out
+		// into the app's own margin — so the two columns line up.
+		<Box flexDirection="column" paddingLeft={3} paddingRight={4}>
 			{lines.map((line) => (
 				<Box key={line.id}>
 					<Text color={theme.text.muted} wrap="truncate-end">
@@ -125,8 +130,19 @@ export const AGENT_RAIL_FINISHED_LINGER_MS = 30_000
 const AGENT_RAIL_NAME_WIDTH = 28
 
 /**
- * The agents the rail lists: everything running, plus whatever finished less
- * than {@link AGENT_RAIL_FINISHED_LINGER_MS} ago, oldest launch first.
+ * Whether a finished agent leaves the rail at once: one that was launched in
+ * the background and completed cleanly has nothing left to manage, and its
+ * result is already in the conversation. One that failed or was stopped
+ * lingers, so the operator sees how it ended.
+ */
+function leavesAtOnce(agent: SubagentActivity): boolean {
+	return agent.background === true && agent.status === 'completed'
+}
+
+/**
+ * The agents the rail lists: everything running, plus a failed or stopped
+ * agent for {@link AGENT_RAIL_FINISHED_LINGER_MS} after it ended, oldest
+ * launch first. A background agent that completed is not listed at all.
  *
  * Saved children (`replayed`) never appear — they ended in another process,
  * and the rail says what is moving now; the cockpit still lists them. An
@@ -136,16 +152,22 @@ export function railAgents(
 	agents: readonly SubagentActivity[],
 	now: number,
 	dismissed: ReadonlySet<string> = new Set(),
+	pinned: string | null = null,
 ): readonly SubagentActivity[] {
 	return agents
 		.filter((agent) => {
-			if (agent.replayed === true || dismissed.has(agent.viewId)) return false
+			if (agent.replayed === true) return false
+			// The agent on screen stays listed, however it ended, so the way back
+			// to the conversation is never a row that has just vanished.
+			if (agent.viewId === pinned && !isWorkflowRunAgent(agent)) return true
+			if (dismissed.has(agent.viewId)) return false
 			// A workflow run's agents are listed by the run, never as rows of their own.
 			if (isWorkflowRunAgent(agent)) return false
 			// An agent the model gave a `workflow` label lives only inside that
 			// workflow's row and detail view, never as an agent row of its own.
 			if (agent.workflow !== DEFAULT_AGENT_WORKFLOW) return false
 			if (!isTerminalStatus(agent.status)) return true
+			if (leavesAtOnce(agent)) return false
 			return (
 				agent.completedAt !== undefined && now - agent.completedAt < AGENT_RAIL_FINISHED_LINGER_MS
 			)
@@ -167,7 +189,7 @@ export function railNextEviction(
 	for (const agent of agents) {
 		if (agent.replayed === true || isWorkflowRunAgent(agent) || !isTerminalStatus(agent.status))
 			continue
-		if (agent.completedAt === undefined) continue
+		if (leavesAtOnce(agent) || agent.completedAt === undefined) continue
 		const left = agent.completedAt + AGENT_RAIL_FINISHED_LINGER_MS - now
 		if (left > 0 && (soonest === undefined || left < soonest)) soonest = left
 	}
@@ -179,9 +201,16 @@ export function railActionFor(agent: SubagentActivity): 'stop' | 'clear' {
 	return isTerminalStatus(agent.status) ? 'clear' : 'stop'
 }
 
-/** `1.2k tokens` once the agent has reported usage, nothing before that. */
+/**
+ * `↑ 1.2k tokens` while the agent has done nothing but read its task, `↓ 1.2k
+ * tokens` once it has acted (its first tool call). Nothing until it has
+ * reported some usage. REA fn p0e, chunk-2rs9vjmc.js: the arrow follows
+ * `progress.lastActivity`.
+ */
 function railTokens(agent: SubagentActivity): string | undefined {
-	return agent.tokens === undefined ? undefined : `↓ ${formatCompactCount(agent.tokens)} tokens`
+	if (agent.tokens === undefined || agent.tokens <= 0) return undefined
+	const arrow = agent.toolCalls !== undefined && agent.toolCalls > 0 ? '↓' : '↑'
+	return `${arrow} ${formatCompactCount(agent.tokens)} tokens`
 }
 
 /**
@@ -196,6 +225,13 @@ export function railStatusText(agent: SubagentActivity, now: number): string {
 			: formatElapsed(Math.max(0, (agent.completedAt ?? now) - agent.startedAt))
 	const tokens = railTokens(agent)
 	return tokens ? `${clock} · ${tokens}` : clock
+}
+
+/** `2 queued`: messages sent to the agent that it has not taken in yet. */
+export function railQueuedText(agent: SubagentActivity): string | undefined {
+	return agent.queued !== undefined && agent.queued > 0 && !isTerminalStatus(agent.status)
+		? `${agent.queued} queued`
+		: undefined
 }
 
 function railBulletColor(status: SubagentActivityStatus): string | undefined {
@@ -466,19 +502,36 @@ export interface AgentTaskPanelProps {
 	readonly now?: number
 }
 
+/** What an agent row says in its description column: what it is doing now, else what it was asked to do. */
+export function railDescription(agent: SubagentActivity): string {
+	const live = !isTerminalStatus(agent.status) && agent.summary ? agent.summary : undefined
+	return live ?? (agent.description || agent.agentId)
+}
+
+/** Cells the `↓ N more` row and the pointer share with a row's first slot. */
+const RAIL_POINTER_CELLS = 2
+
 /**
- * The agents rail: a `main` row, then one row per running or recently
- * finished sub-agent, drawn under the footer line.
+ * The agents rail: a blank row, then a `main` row, one row per running or
+ * recently failed sub-agent, and one per workflow, drawn under the footer
+ * line.
  *
  * ```
+ *
  *   ● main
- *   ○ general-purpose  Mine the UI reference            12s · ↓ 3.2k tokens
+ *   ◯ count-words        Read(a.txt)                       12s · ↓ 3.2k tokens
+ *   ◯ release-audit      ▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱  1/4 · 35s · ↓ 12.5k tokens
  * ```
  *
- * `●` marks the transcript on screen, `○` the others; an agent's bullet turns
- * green or red only once it has finished. Not a modal: the composer stays
+ * The first cell of a row is the pointer slot and the bullet sits two cells in,
+ * directly under the first glyph of the mode line above (the rail reaches one
+ * cell into the app's margin to put it there), and rows stop two cells short
+ * of the right edge. `●` marks the transcript on screen, `◯` the others. No
+ * accent colour: the pointer and bullets take the row's own colour, and only a
+ * finished row's bullet turns green or red. Not a modal: the composer stays
  * mounted above and keeps taking input until the operator presses ↓ on an
- * empty composer to move into the rail.
+ * empty composer to move into the rail. The key line for the focused row is
+ * not drawn here; it takes the place of the mode line (see {@link railHint}).
  */
 export function AgentTaskPanel({
 	agents,
@@ -505,8 +558,9 @@ export function AgentTaskPanel({
 	)
 	const above = start
 	const below = compact ? agents.length : Math.max(0, agents.length - start - items.length)
-	// The type column is as wide as the longest type on screen (never past the
-	// cap), so the description starts right after it instead of at a fixed tab.
+	// One name column for agent and workflow rows alike: as wide as the longest
+	// name on screen (never past the cap), so the second column starts right
+	// after it instead of at a fixed tab.
 	const nameWidth = Math.min(
 		narrow ? 14 : AGENT_RAIL_NAME_WIDTH,
 		Math.max(
@@ -514,6 +568,15 @@ export function AgentTaskPanel({
 			...agents.map((agent) => stringWidth(oneLine(agent.agentId))),
 			...workflows.map((workflow) => stringWidth(oneLine(workflow.name))),
 		),
+	)
+	// The right-hand blocks of the agent rows share one width, so they end in
+	// the same column however long each one's clock and spend are.
+	const statusWidth = Math.max(
+		0,
+		...items.map((agent) => {
+			const queued = railQueuedText(agent)
+			return stringWidth(railStatusText(agent, now)) + (queued ? 3 + stringWidth(queued) : 0)
+		}),
 	)
 	const mainRight = compact
 		? [
@@ -529,15 +592,24 @@ export function AgentTaskPanel({
 			: ''
 
 	return (
-		<Box flexDirection="column">
+		// marginLeft/Right -1 reach into the app's one cell of side padding, so the
+		// pointer slot is the row's first cell and the bullet lands under the mode
+		// line's first glyph; paddingRight 2 keeps rows off the right edge.
+		<Box flexDirection="column" marginTop={1} marginLeft={-1} marginRight={-1} paddingRight={2}>
 			{hasMain ? (
 				<Box>
-					<Box width={2} flexShrink={0}>
-						<Text color={theme.accent.assistant}>{focused && selectedIndex === 0 ? '❯' : ' '}</Text>
+					<Box width={RAIL_POINTER_CELLS} flexShrink={0}>
+						<Text bold color={theme.text.primary}>
+							{focused && selectedIndex === 0 ? '❯' : ' '}
+						</Text>
 					</Box>
 					<Box width={2} flexShrink={0}>
-						<Text bold={mainViewed} color={mainViewed ? theme.accent.assistant : theme.text.muted}>
-							{mainViewed ? '●' : '○'}
+						<Text
+							bold={mainViewed}
+							color={theme.text.primary}
+							dimColor={!mainViewed && !(focused && selectedIndex === 0)}
+						>
+							{mainViewed ? '●' : '◯'}
 						</Text>
 					</Box>
 					<Box flexGrow={1} flexShrink={1} minWidth={0}>
@@ -564,20 +636,27 @@ export function AgentTaskPanel({
 						const viewed = viewingId === agent.viewId
 						const finished = isTerminalStatus(agent.status)
 						const status = railStatusText(agent, now)
+						const bright = viewed || selected
 						return (
 							<Box key={agent.viewId}>
-								<Box width={2} flexShrink={0}>
-									<Text color={theme.accent.assistant}>{selected ? '❯' : ' '}</Text>
+								<Box width={RAIL_POINTER_CELLS} flexShrink={0}>
+									<Text bold color={theme.text.primary}>
+										{selected ? '❯' : ' '}
+									</Text>
 								</Box>
 								<Box width={2} flexShrink={0}>
-									<Text bold={viewed} color={railBulletColor(agent.status)} dimColor={!viewed}>
-										{viewed ? '●' : '○'}
+									<Text
+										bold={viewed}
+										color={railBulletColor(agent.status) ?? theme.text.primary}
+										dimColor={!bright && railBulletColor(agent.status) === undefined}
+									>
+										{viewed ? '●' : '◯'}
 									</Text>
 								</Box>
 								<Box width={nameWidth} flexShrink={0}>
 									<Text
-										bold={viewed || selected}
-										dimColor={!viewed && !selected}
+										bold={bright}
+										dimColor={!bright}
 										color={theme.text.primary}
 										wrap="truncate-end"
 									>
@@ -586,25 +665,34 @@ export function AgentTaskPanel({
 								</Box>
 								<Box flexGrow={1} flexShrink={1} minWidth={0} paddingLeft={2}>
 									<Text
-										bold={viewed || selected}
-										dimColor={!viewed && !selected}
+										bold={bright}
+										dimColor={!bright}
 										color={theme.text.primary}
 										wrap="truncate-end"
 									>
-										{terminalDisplayText(oneLine(agent.description || agent.agentId))}
+										{terminalDisplayText(oneLine(railDescription(agent)))}
 									</Text>
 								</Box>
-								<Box flexShrink={0} marginLeft={1}>
-									<Text color={finished ? theme.text.muted : theme.text.secondary}>{status}</Text>
+								<Box flexShrink={0} marginLeft={1} minWidth={statusWidth} justifyContent="flex-end">
+									<Text color={finished ? theme.text.muted : theme.text.secondary}>
+										{status}
+										{railQueuedText(agent) ? (
+											<Text color={theme.status.warn}> · {railQueuedText(agent)}</Text>
+										) : null}
+									</Text>
 								</Box>
 							</Box>
 						)
 					})}
 			{!compact && below > 0 ? (
-				<Box paddingLeft={4}>
+				<Box paddingLeft={2}>
 					<Text color={theme.text.muted}>↓ {below} more</Text>
 				</Box>
 			) : null}
+			{/* Once there are more agents than the window holds, the row stays (empty
+			    when nothing is below) so the block's height does not change as the
+			    selection scrolls. */}
+			{!compact && below === 0 && agents.length > AGENT_RAIL_WINDOW ? <Text> </Text> : null}
 			{compact
 				? null
 				: workflows.map((workflow, offset) => {
@@ -618,21 +706,31 @@ export function AgentTaskPanel({
 						const [filled, empty] = railProgressBar(workflow.done, workflow.total, variant.barWidth)
 						return (
 							<Box key={workflow.focusId}>
-								<Box width={2} flexShrink={0}>
-									<Text color={theme.accent.assistant}>{selected ? '❯' : ' '}</Text>
+								<Box width={RAIL_POINTER_CELLS} flexShrink={0}>
+									<Text bold color={theme.text.primary}>
+										{selected ? '❯' : ' '}
+									</Text>
 								</Box>
 								<Box width={2} flexShrink={0}>
-									<Text color={railWorkflowBulletColor(workflow)} dimColor={!selected}>
+									<Text
+										color={railWorkflowBulletColor(workflow) ?? theme.text.primary}
+										dimColor={!selected && railWorkflowBulletColor(workflow) === undefined}
+									>
 										◯
 									</Text>
 								</Box>
 								<Box width={workflowNameWidth} flexShrink={0}>
-									<Text color={theme.text.primary} dimColor={!selected} wrap="truncate-end">
+									<Text
+										bold={selected}
+										color={theme.text.primary}
+										dimColor={!selected}
+										wrap="truncate-end"
+									>
 										{terminalDisplayText(oneLine(workflow.name))}
 									</Text>
 								</Box>
 								<Box flexShrink={0} paddingLeft={WORKFLOW_ROW_GAP}>
-									<Text color={theme.text.primary} dimColor={!selected}>
+									<Text bold={selected} color={theme.text.primary} dimColor={!selected}>
 										{filled}
 										<Text dimColor>{empty}</Text>
 										{variant.text ? `  ${variant.text}` : ''}
@@ -641,20 +739,6 @@ export function AgentTaskPanel({
 							</Box>
 						)
 					})}
-			{focused && !compact ? (
-				<Box paddingLeft={2}>
-					<Text color={theme.text.muted} wrap="truncate-end">
-						{railHint(
-							hasMain && selectedIndex === 0
-								? undefined
-								: selectedIndex - lead < agents.length
-									? agents[selectedIndex - lead]
-									: workflows[selectedIndex - lead - agents.length],
-							terminalColumns,
-						)}
-					</Text>
-				</Box>
-			) : null}
 		</Box>
 	)
 }
@@ -673,25 +757,38 @@ export function railShowsMain(
 	return compact || agentCount > 0 || (viewingId !== undefined && viewingId !== null)
 }
 
-/** The key line shown under the rail while it has the keyboard. */
+/** The chord that stops every running agent from the rail. */
+export const RAIL_STOP_ALL_CHORD = 'ctrl+x ctrl+k'
+/** Below this width the key line keeps only the row's own keys, not the stop-all chord. */
+const RAIL_HINT_CHORD_COLUMNS = 90
+
+/**
+ * The key line for the focused rail row. It takes the place of the footer's
+ * mode line while the rail has the keyboard (the rows stay where they are),
+ * and says only what the row can do:
+ *
+ * - an agent or workflow row: `Enter to view · x to stop` (`x to clear` once
+ *   it has finished), plus `ctrl+x ctrl+k to stop all agents` when more than
+ *   one agent runs and the line is at least 90 columns wide;
+ * - `main`, or nothing selected: `↑/↓ to select · Enter to view`.
+ *
+ * Esc leaves the rail but is not advertised here.
+ */
 export function railHint(
 	selected: SubagentActivity | RailWorkflow | undefined,
 	columns: number,
+	runningAgents = 0,
+	viewedId?: string,
 ): string {
-	const action = selected
-		? 'focusId' in selected
-			? railWorkflowActionFor(selected)
-			: railActionFor(selected)
-		: undefined
-	return fitHints(
-		[
-			{ text: '↑/↓ to select', short: '↑/↓', rank: 4 },
-			{ text: 'enter to view', short: 'enter', rank: 5 },
-			...(action ? [{ text: `x to ${action}`, rank: 3 }] : []),
-			{ text: 'esc to go back', rank: 2 },
-		],
-		Math.max(1, columns - 2),
-	)
+	if (!selected) return '↑/↓ to select · Enter to view'
+	// The row on screen already is the view: only moving off it is left to say.
+	if (viewedId !== undefined && !('focusId' in selected) && selected.viewId === viewedId)
+		return '↑/↓ to select'
+	const action = 'focusId' in selected ? railWorkflowActionFor(selected) : railActionFor(selected)
+	const items = ['Enter to view', `x to ${action}`]
+	if (runningAgents > 1 && columns >= RAIL_HINT_CHORD_COLUMNS)
+		items.push(`${RAIL_STOP_ALL_CHORD} to stop all agents`)
+	return items.join(' · ')
 }
 
 export type AgentCockpitFocus = 'workflows' | 'phases' | 'agents'
@@ -901,23 +998,33 @@ export function cockpitEntryFocus(workflow: AgentWorkflow): 'phases' | 'agents' 
 	return labelled || workflow.phases.length > 1 ? 'phases' : 'agents'
 }
 
-/** Rows one list level can show; shared with the key handler so paging matches the screen. */
+/**
+ * Rows of list the detail dialog shows at once: 14 on a tall screen, fewer on
+ * a short one, never fewer than 4. The dialog is this many rows of list
+ * whether it holds two items or none, so it does not change height as agents
+ * come and go. Shared with the key handler so paging matches the screen.
+ */
 export function workflowDetailPageSize(terminalRows: number): number {
-	return Math.max(1, Math.min(MAX_PICKER_ROWS, terminalRows - 14))
+	return Math.max(4, Math.min(DETAIL_LIST_ROWS, terminalRows - 20))
 }
 
-function agentDetailGlyph(status: SubagentActivityStatus): {
+function agentDetailGlyph(agent: Pick<SubagentActivity, 'status' | 'workflowRunId'>): {
 	text: string
 	color: string | undefined
 } {
-	switch (status) {
+	switch (agent.status) {
 		case 'completed':
 			return { text: '✔', color: theme.status.ok }
 		case 'failed':
-		case 'cancelled':
 			return { text: '✘', color: theme.status.error }
+		case 'cancelled':
+			// An agent the operator skipped in a run is not an error of its own.
+			return {
+				text: '✘',
+				color: agent.workflowRunId !== undefined ? theme.text.muted : theme.status.error,
+			}
 		case 'working':
-			return { text: '●', color: theme.accent.assistant }
+			return { text: '●', color: theme.text.secondary }
 		default:
 			return { text: '◌', color: theme.text.muted }
 	}
@@ -934,10 +1041,88 @@ interface WorkflowDetailProps {
 	readonly now: number
 }
 
+/** The word a finished workflow's stats carry: `3/3 agents · 1m05s · done`. */
+function endedWord(workflow: AgentWorkflow): string {
+	if (workflow.runStatus !== undefined)
+		return workflow.runStatus === 'completed' ? 'done' : workflow.runStatus
+	if (workflow.agents.some((agent) => agent.status === 'failed')) return 'failed'
+	if (workflow.agents.some((agent) => agent.status === 'cancelled')) return 'stopped'
+	return 'done'
+}
+
+function padEndCells(text: string, cells: number): string {
+	const clipped = stringWidth(text) > cells ? truncateChoiceText(text, cells) : text
+	return clipped + ' '.repeat(Math.max(0, cells - stringWidth(clipped)))
+}
+
+function padStartCells(text: string, cells: number): string {
+	return ' '.repeat(Math.max(0, cells - stringWidth(text))) + text
+}
+
 /**
- * The detail of one workflow, as the reference's dialog shows it: a header
- * with the workflow's name and totals, then ONE list at a time. Level 1 is
- * the phases, in order; level 2 is the agents of the selected phase.
+ * `↑ 1–8 of 14 ↓`: which rows of a longer list the box shows. An arrow is
+ * drawn on the side that has more, a space on the side that does not. Set in
+ * the box's bottom border, one per list (REA fns vt/Bo/Zt, chunk-t32eta2x.js).
+ */
+export function windowTag(
+	window: { readonly start: number; readonly items: readonly unknown[] },
+	total: number,
+): string {
+	const end = window.start + window.items.length
+	return `${window.start > 0 ? '↑' : ' '} ${window.start + 1}–${end} of ${total} ${end < total ? '↓' : ' '}`
+}
+
+/** A stretch of a box border: dashes, with an optional dim tag ending it. */
+function BorderSegment({
+	width,
+	tag,
+	color,
+}: {
+	readonly width: number
+	readonly tag?: string | undefined
+	readonly color: string
+}) {
+	const text = tag ? ` ${tag} ` : ''
+	const shown = text !== '' && stringWidth(text) <= width ? text : ''
+	const dashes = Math.max(0, width - stringWidth(shown))
+	return (
+		<>
+			<Text color={color}>{'─'.repeat(dashes)}</Text>
+			{shown ? <Text color={theme.text.muted}>{shown}</Text> : null}
+		</>
+	)
+}
+
+/** What an agent row says after its label: model, spend, and how it ended. */
+function agentDetailMeta(agent: SubagentActivity, columns: number): string {
+	return [
+		...(columns >= 90 && agent.workflowRunId === undefined ? [oneLine(agent.agentId)] : []),
+		...(columns >= 70 && agent.model
+			? [truncateChoiceText(agent.model, MAX_MODEL_LABEL_WIDTH)]
+			: []),
+		...(agent.tokens !== undefined ? [`${formatCompactCount(agent.tokens)} tok`] : []),
+		...(agent.status === 'failed' ? ['failed'] : []),
+		...(agent.status === 'cancelled'
+			? [agent.workflowRunId !== undefined ? 'skipped' : 'stopped']
+			: []),
+	].join(' · ')
+}
+
+function agentDetailLabel(agent: SubagentActivity): string {
+	return terminalDisplayText(oneLine(agent.description || agent.agentId))
+}
+
+/**
+ * The detail of one workflow, as a frameless dialog: a rule across the top, the
+ * workflow's name, then its description on the left and `done/total agents ·
+ * elapsed` on the right, then the lists.
+ *
+ * From 64 columns the lists sit side by side in one box: the phases on the left
+ * (`✔`/`✘` or the phase's number, its title, `done/total`), and the agents of the
+ * selected phase on the right (status glyph, label, `model · tokens`, elapsed
+ * flush right). Level 1 puts the pointer on the phases, level 2 on the agents.
+ * Below 64 columns the same two lists are stacked: one at a time, the phases at
+ * level 1 and the selected phase's agents at level 2.
  */
 export function WorkflowDetail({
 	workflow,
@@ -949,23 +1134,22 @@ export function WorkflowDetail({
 	terminalColumns,
 	now,
 }: WorkflowDetailProps) {
-	const innerWidth = Math.max(1, terminalColumns - COCKPIT_FRAME_COLUMNS)
-	const compact = terminalRows < 20
-	const pageSize = compact ? 1 : workflowDetailPageSize(terminalRows)
+	const columns = Math.max(20, terminalColumns)
+	const pageSize = workflowDetailPageSize(terminalRows)
 	const phase = phases[selectedPhaseIndex]
 	const isRun = workflow.runId !== undefined
 	const settled = workflow.agents.filter((agent) =>
 		isRun ? agent.status === 'completed' : isTerminalStatus(agent.status),
 	).length
-	const ended = isRun ? workflow.runStatus !== 'running' : undefined
-	const ends = workflow.agents.map((agent) => agent.completedAt ?? now)
-	const elapsed = formatElapsed(
-		Math.max(0, Math.max(isRun && !ended ? now : 0, ...ends) - workflow.startedAt),
-	)
-	const named = isRun || workflow.agents.some((agent) => agent.workflow !== DEFAULT_AGENT_WORKFLOW)
 	const running = isRun
 		? workflow.runStatus === 'running'
 		: workflow.agents.some((agent) => !isTerminalStatus(agent.status))
+	const ended = !running
+	const ends = workflow.agents.map((agent) => agent.completedAt ?? now)
+	const elapsed = formatElapsed(
+		Math.max(0, Math.max(isRun && running ? now : 0, ...ends) - workflow.startedAt),
+	)
+	const named = isRun || workflow.agents.some((agent) => agent.workflow !== DEFAULT_AGENT_WORKFLOW)
 	// Same rule as the rail: an explicit label names the workflow, an absent
 	// one gets a neutral count instead of the generic default name.
 	const live = workflow.agents.filter((agent) => !isTerminalStatus(agent.status)).length
@@ -973,6 +1157,9 @@ export function WorkflowDetail({
 	const title = named
 		? oneLine(workflow.name)
 		: `${total} agent${total === 1 ? '' : 's'} · ${live} running`
+	const stats = `${settled}/${total} ${total === 1 ? 'agent' : 'agents'} · ${elapsed}${
+		ended && total > 0 ? ` · ${endedWord(workflow)}` : ''
+	}`
 	const selectedAgent = phase?.agents[selectedAgentIndex]
 	const canStop =
 		level === 1
@@ -981,159 +1168,320 @@ export function WorkflowDetail({
 				!isTerminalStatus(selectedAgent.status) &&
 				(!isRun || workflow.runStatus === 'running')
 	// On a run's agents `x` skips that one agent; the run goes on without it.
-	const stopWord = level === 2 && isRun ? 'skip' : 'stop'
 	const hint = fitHints(
-		[
-			{ text: '↑/↓ to select', short: '↑/↓', rank: 4 },
-			{ text: 'enter to view', short: 'enter', rank: 5 },
-			...(canStop ? [{ text: `x to ${stopWord}`, rank: 2 }] : []),
-			{ text: 'esc to go back', short: 'esc', rank: 3 },
-		],
-		innerWidth,
+		level === 1
+			? [
+					{ text: '↑↓ select', rank: 4 },
+					...(canStop ? [{ text: 'x stop workflow', rank: 2 }] : []),
+					{ text: 'esc back', rank: 5 },
+				]
+			: [
+					{ text: '↑↓ select', rank: 4 },
+					{ text: 'enter view', rank: 3 },
+					...(canStop ? [{ text: `x ${isRun ? 'skip' : 'stop'}`, rank: 2 }] : []),
+					{ text: 'esc back', rank: 5 },
+				],
+		Math.max(1, columns - 2),
 	)
+	const agents = phase?.agents ?? []
+	const agentsTitle = phase
+		? `${oneLine(phaseTitle(phase))} · ${agents.length} ${agents.length === 1 ? 'agent' : 'agents'}`
+		: ''
 	const phaseWindow = selectionWindow(phases, selectedPhaseIndex, pageSize)
-	const agentWindow = selectionWindow(phase?.agents ?? [], selectedAgentIndex, pageSize)
-	const detailLines =
-		level === 1 && !compact && phase?.detail
-			? wrapPhaseDetailLines(phase.detail, innerWidth).slice(0, PHASE_DETAIL_LINE_BUDGET)
-			: []
-	return (
-		<Box
-			flexDirection="column"
-			height={Math.max(8, terminalRows - COCKPIT_CHROME_ROWS)}
-			borderStyle="single"
-			borderColor={theme.border.default}
-			paddingX={1}
-		>
-			<Box height={1} flexShrink={0}>
+	const agentWindow = selectionWindow(agents, selectedAgentIndex, pageSize)
+	const emptyNote =
+		phase && agents.length === 0 ? (isRun && !running ? 'No agents' : 'Not started yet') : ''
+
+	const phaseGlyph = (item: AgentPhase, index: number) => {
+		const outcome = phaseOutcome(item)
+		const color =
+			outcome === 'done'
+				? theme.status.ok
+				: outcome === 'failed'
+					? theme.status.error
+					: theme.text.muted
+		return {
+			outcome,
+			color,
+			text: outcome === 'done' ? '✔' : outcome === 'failed' ? '✘' : String(index + 1),
+		}
+	}
+
+	const boxWidth = columns - 2
+	const leftTitleCells = Math.min(
+		22,
+		Math.max(6, ...phases.map((item) => stringWidth(oneLine(phaseTitle(item))))),
+	)
+	const countCells = Math.max(3, ...phases.map((item) => phaseCount(item).length))
+	const leftInner = 5 + leftTitleCells + 1 + countCells + 1
+	const rightInner = boxWidth - 3 - leftInner
+	const sideBySide = columns >= DETAIL_WIDE_COLUMNS && rightInner >= 24
+
+	const header = (
+		<>
+			<Text color={theme.border.default} wrap="truncate-end">
+				{'─'.repeat(columns)}
+			</Text>
+			<Box paddingX={1}>
+				<Text color={theme.text.primary} bold wrap="truncate-end">
+					{title}
+				</Text>
+			</Box>
+			<Box paddingX={1}>
 				<Box flexGrow={1} minWidth={0}>
-					<Text color={theme.text.primary} bold wrap="truncate-end">
-						{title}
-						{workflow.description ? (
-							<Text color={theme.text.muted} bold={false}>
-								{'  '}
-								{terminalDisplayText(oneLine(workflow.description))}
-							</Text>
-						) : null}
+					<Text color={theme.text.muted} wrap="truncate-end">
+						{workflow.description ? terminalDisplayText(oneLine(workflow.description)) : ''}
 					</Text>
 				</Box>
 				<Box flexShrink={0} marginLeft={1}>
-					<Text color={theme.text.muted} wrap="truncate-end">
-						{settled}/{workflow.agents.length} {workflow.agents.length === 1 ? 'agent' : 'agents'} ·{' '}
-						{elapsed}
-						{ended && workflow.runStatus ? ` · ${workflow.runStatus}` : ''}
-					</Text>
+					<Text color={theme.text.muted}>{stats}</Text>
 				</Box>
 			</Box>
-			<Box paddingTop={compact ? 0 : 1} flexShrink={0}>
-				<Text color={theme.accent.assistant} bold wrap="truncate-end">
-					{level === 1 || !phase
-						? 'Phases'
-						: `${oneLine(phaseTitle(phase))} · ${phase.agents.length} ${phase.agents.length === 1 ? 'agent' : 'agents'}`}
+			<Text> </Text>
+		</>
+	)
+	const footer = (
+		<Box paddingX={1}>
+			<Text color={theme.text.muted} wrap="truncate-end">
+				{hint}
+			</Text>
+		</Box>
+	)
+
+	if (!sideBySide) {
+		return (
+			<Box flexDirection="column" marginTop={1} marginLeft={-1} marginRight={-1} width={columns}>
+				{header}
+				<Box paddingX={1}>
+					<Text color={theme.text.primary} bold wrap="truncate-end">
+						{level === 1 || !phase ? 'Phases' : agentsTitle}
+					</Text>
+				</Box>
+				<Box flexDirection="column" height={pageSize} flexShrink={0} paddingX={1}>
+					{level === 1
+						? phaseWindow.items.map((item, offset) => {
+								const index = phaseWindow.start + offset
+								const active = index === selectedPhaseIndex
+								const glyph = phaseGlyph(item, index)
+								return (
+									<Box key={item.id}>
+										<Box width={2} flexShrink={0}>
+											<Text color={theme.accent.assistant}>{active ? '❯' : ' '}</Text>
+										</Box>
+										<Box width={3} flexShrink={0}>
+											<Text color={glyph.color}>{glyph.text}</Text>
+										</Box>
+										<Box flexGrow={1} flexShrink={1} minWidth={0}>
+											<Text
+												color={active ? theme.accent.assistant : theme.text.primary}
+												bold={active}
+												dimColor={glyph.outcome === 'not-started' && !active}
+												wrap="truncate-end"
+											>
+												{oneLine(phaseTitle(item))}
+											</Text>
+										</Box>
+										<Box flexShrink={0} marginLeft={1}>
+											<Text color={theme.text.muted}>{phaseCount(item)}</Text>
+										</Box>
+									</Box>
+								)
+							})
+						: agentWindow.items.map((agent, offset) => {
+								const active = agentWindow.start + offset === selectedAgentIndex
+								const glyph = agentDetailGlyph(agent)
+								const queued = agent.status === 'queued' || agent.status === 'starting'
+								return (
+									<Box key={agent.viewId}>
+										<Box width={2} flexShrink={0}>
+											<Text color={theme.accent.assistant}>{active ? '❯' : ' '}</Text>
+										</Box>
+										<Box width={2} flexShrink={0}>
+											<Text color={glyph.color}>{glyph.text}</Text>
+										</Box>
+										<Box flexGrow={1} flexShrink={1} minWidth={0}>
+											<Text
+												color={active ? theme.accent.assistant : theme.text.primary}
+												bold={active}
+												dimColor={agent.status === 'working' && !active}
+												wrap="truncate-end"
+											>
+												{agentDetailLabel(agent)}
+											</Text>
+										</Box>
+										<Box flexShrink={0} marginLeft={1}>
+											<Text color={theme.text.muted}>
+												{queued
+													? 'queued'
+													: formatElapsed(
+															Math.max(0, (agent.completedAt ?? now) - agent.startedAt),
+														)}
+											</Text>
+										</Box>
+									</Box>
+								)
+							})}
+					{level === 2 && emptyNote ? (
+						<Text color={theme.text.muted} dimColor>
+							{emptyNote}
+						</Text>
+					) : null}
+					{level === 1 &&
+					terminalRows >= 20 &&
+					phase?.detail &&
+					phaseWindow.items.length + 1 + 1 <= pageSize ? (
+						<Box flexDirection="column" marginTop={1}>
+							{wrapPhaseDetailLines(phase.detail, columns - 4)
+								.slice(
+									0,
+									Math.min(PHASE_DETAIL_LINE_BUDGET, pageSize - phaseWindow.items.length - 1),
+								)
+								.map((line, index) => (
+									// biome-ignore lint/suspicious/noArrayIndexKey: order-stable lines of one wrap pass
+									<Text key={index} color={theme.text.muted} wrap="truncate-end">
+										{line}
+									</Text>
+								))}
+						</Box>
+					) : null}
+				</Box>
+				{footer}
+			</Box>
+		)
+	}
+
+	// Side by side. The detail text the phase declared fills the right pane's
+	// free rows once its agents are listed.
+	const detailLines =
+		level === 1 && phase?.detail
+			? wrapPhaseDetailLines(phase.detail, rightInner - 2).slice(0, PHASE_DETAIL_LINE_BUDGET)
+			: []
+	const showDetail =
+		detailLines.length > 0 && agentWindow.items.length + 1 + detailLines.length <= pageSize
+	const border = theme.border.default
+	const leftTitle = ' Phases '
+	const rightTitle = ` ${truncateChoiceText(agentsTitle, Math.max(1, rightInner - 4))} `
+	const rows = Array.from({ length: pageSize }, (_, row) => row)
+	return (
+		<Box flexDirection="column" marginTop={1} marginLeft={-1} marginRight={-1} width={columns}>
+			{header}
+			<Box paddingX={1}>
+				<Text wrap="truncate-end">
+					<Text color={border}>╭</Text>
+					<Text color={theme.text.primary} bold>
+						{leftTitle}
+					</Text>
+					<Text color={border}>{'─'.repeat(Math.max(0, leftInner - stringWidth(leftTitle)))}┬</Text>
+					<Text color={theme.text.primary} bold>
+						{rightTitle}
+					</Text>
+					<Text color={border}>
+						{'─'.repeat(Math.max(0, rightInner - stringWidth(rightTitle)))}╮
+					</Text>
 				</Text>
 			</Box>
-			<Box flexDirection="column" flexGrow={1}>
-				{level === 1
-					? phaseWindow.items.map((item, offset) => {
-							const index = phaseWindow.start + offset
-							const active = index === selectedPhaseIndex
-							const outcome = phaseOutcome(item)
-							const color =
-								outcome === 'done'
-									? theme.status.ok
-									: outcome === 'failed'
-										? theme.status.error
-										: outcome === 'not-started'
-											? theme.text.muted
-											: undefined
-							return (
-								<Box key={item.id}>
-									<Box width={2} flexShrink={0}>
-										<Text color={theme.accent.assistant}>{active ? '❯' : ' '}</Text>
-									</Box>
-									<Box width={3} flexShrink={0}>
-										<Text color={color ?? theme.text.muted}>
-											{outcome === 'done' ? '✔' : outcome === 'failed' ? '✘' : String(index + 1)}
-										</Text>
-									</Box>
-									<Box flexGrow={1} flexShrink={1} minWidth={0}>
+			{rows.map((row) => {
+				const item = phaseWindow.items[row]
+				const index = phaseWindow.start + row
+				const phaseActive = level === 1 && index === selectedPhaseIndex
+				const glyph = item ? phaseGlyph(item, index) : undefined
+				const agent = agentWindow.items[row]
+				const agentActive = level === 2 && agentWindow.start + row === selectedAgentIndex
+				const agentGlyph = agent ? agentDetailGlyph(agent) : undefined
+				const queued = agent?.status === 'queued' || agent?.status === 'starting'
+				const labelCells = Math.min(
+					Math.max(0, ...agentWindow.items.map((value) => stringWidth(agentDetailLabel(value)))),
+					Math.floor(rightInner * 0.45),
+				)
+				const detailRow = !agent && showDetail ? row - agentWindow.items.length - 1 : -1
+				return (
+					<Box key={item?.id ?? `row-${row}`} paddingX={1}>
+						<Text color={border}>│</Text>
+						<Box width={leftInner} flexShrink={0}>
+							{item && glyph ? (
+								<Text wrap="truncate-end">
+									{' '}
+									<Text color={theme.accent.assistant}>{phaseActive ? '❯' : ' '}</Text>{' '}
+									<Text color={glyph.color}>{glyph.text}</Text>{' '}
+									<Text
+										color={phaseActive ? theme.accent.assistant : theme.text.primary}
+										bold={phaseActive}
+										dimColor={glyph.outcome === 'not-started' && !phaseActive}
+									>
+										{padEndCells(oneLine(phaseTitle(item)), leftTitleCells)}
+									</Text>{' '}
+									<Text color={theme.text.muted}>
+										{padStartCells(phaseCount(item), countCells)}
+									</Text>
+								</Text>
+							) : null}
+						</Box>
+						<Text color={border}>│</Text>
+						<Box width={rightInner} flexShrink={0}>
+							{agent && agentGlyph ? (
+								<>
+									<Text color={theme.accent.assistant}>{agentActive ? '❯' : ' '}</Text>
+									<Text color={agentGlyph.color}>{agentGlyph.text}</Text>
+									<Text> </Text>
+									<Box width={labelCells + 3} flexShrink={0}>
 										<Text
-											color={color ?? theme.text.primary}
-											bold={active}
-											dimColor={outcome === 'not-started'}
+											color={agentActive ? theme.accent.assistant : theme.text.primary}
+											bold={agentActive}
+											dimColor={agent.status === 'working' && !agentActive}
 											wrap="truncate-end"
 										>
-											{oneLine(phaseTitle(item))}
+											{agentDetailLabel(agent)}
 										</Text>
-									</Box>
-									<Box flexShrink={0} marginLeft={1}>
-										<Text color={theme.text.muted}>{phaseCount(item)}</Text>
-									</Box>
-								</Box>
-							)
-						})
-					: agentWindow.items.map((agent, offset) => {
-							const active = agentWindow.start + offset === selectedAgentIndex
-							const glyph = agentDetailGlyph(agent.status)
-							const queued = agent.status === 'queued' || agent.status === 'starting'
-							const right = [
-								...(terminalColumns >= 90 ? [oneLine(agent.agentId)] : []),
-								...(terminalColumns >= 70 && agent.model
-									? [truncateChoiceText(agent.model, MAX_MODEL_LABEL_WIDTH)]
-									: []),
-								...(agent.tokens !== undefined
-									? [`${formatCompactCount(agent.tokens)} tokens`]
-									: []),
-								queued
-									? 'queued'
-									: formatElapsed(Math.max(0, (agent.completedAt ?? now) - agent.startedAt)),
-							].join(' · ')
-							return (
-								<Box key={agent.viewId}>
-									<Box width={2} flexShrink={0}>
-										<Text color={theme.accent.assistant}>{active ? '❯' : ' '}</Text>
-									</Box>
-									<Box width={2} flexShrink={0}>
-										<Text color={glyph.color}>{glyph.text}</Text>
 									</Box>
 									<Box flexGrow={1} flexShrink={1} minWidth={0}>
-										<Text color={theme.text.primary} bold={active} wrap="truncate-end">
-											{terminalDisplayText(oneLine(agent.description || agent.agentId))}
+										<Text color={theme.text.muted} wrap="truncate-end">
+											{agentDetailMeta(agent, columns)}
 										</Text>
 									</Box>
 									<Box flexShrink={0} marginLeft={1}>
-										<Text color={theme.text.muted}>{right}</Text>
+										<Text color={theme.text.muted}>
+											{queued
+												? 'queued'
+												: formatElapsed(
+														Math.max(0, (agent.completedAt ?? now) - agent.startedAt),
+													)}{' '}
+										</Text>
 									</Box>
-								</Box>
-							)
-						})}
-				{level === 2 && phase && phase.agents.length === 0 ? (
-					<Text color={theme.text.muted} dimColor>
-						{isRun && !running ? 'No agents' : 'Not started yet'}
-					</Text>
-				) : null}
-				{detailLines.length > 0 ? (
-					<Box
-						flexDirection="column"
-						height={PHASE_DETAIL_LINE_BUDGET}
-						flexShrink={0}
-						overflow="hidden"
-						marginTop={1}
-					>
-						{detailLines.map((line, index) => (
-							// biome-ignore lint/suspicious/noArrayIndexKey: fixed-budget, order-stable lines of one wrap pass
-							<Text key={index} color={theme.text.muted} wrap="truncate-end">
-								{line}
-							</Text>
-						))}
+								</>
+							) : row === 0 && emptyNote ? (
+								<Text color={theme.text.muted} dimColor wrap="truncate-end">
+									{'  '}
+									{emptyNote}
+								</Text>
+							) : detailRow >= 0 && detailLines[detailRow] !== undefined ? (
+								<Text color={theme.text.muted} wrap="truncate-end">
+									{'  '}
+									{detailLines[detailRow]}
+								</Text>
+							) : null}
+						</Box>
+						<Text color={border}>│</Text>
 					</Box>
-				) : null}
-			</Box>
-			<Box paddingTop={compact ? 0 : 1}>
-				<Text color={theme.text.muted} wrap="truncate-end">
-					{hint}
+				)
+			})}
+			<Box paddingX={1}>
+				<Text wrap="truncate-end">
+					<Text color={border}>╰</Text>
+					<BorderSegment
+						width={leftInner}
+						tag={phases.length > pageSize ? windowTag(phaseWindow, phases.length) : undefined}
+						color={border}
+					/>
+					<Text color={border}>┴</Text>
+					<BorderSegment
+						width={rightInner}
+						tag={agents.length > pageSize ? windowTag(agentWindow, agents.length) : undefined}
+						color={border}
+					/>
+					<Text color={border}>╯</Text>
 				</Text>
 			</Box>
+			{footer}
 		</Box>
 	)
 }
@@ -1368,7 +1716,7 @@ export function AgentTranscript({
 				<Box flexGrow={1} minWidth={0}>
 					<Text color={theme.accent.assistant} bold wrap="truncate-end">
 						{compact
-							? oneLine(agent.description || agent.agentId)
+							? oneLine(agent.agentId)
 							: agent.workflowRunId !== undefined
 								? terminalDisplayText(
 										`${oneLine(agent.workflow)} · ${oneLine(phaseTitle({ name: agent.phase }))}`,
@@ -1446,6 +1794,93 @@ export function AgentTranscript({
 				</Text>
 			</Box>
 		</Box>
+	)
+}
+
+/** Rows the viewed agent's transcript gets: what is left once the composer, footer line and rail are drawn. */
+export function agentViewPageRows(terminalRows: number, railRows: number): number {
+	// Composer frame (rule, one input row, rule), the footer line, the rail's rows.
+	return Math.max(3, terminalRows - 4 - railRows - 1)
+}
+
+/** How far a viewed transcript can be scrolled back from its tail. */
+export function maxAgentViewTailOffset(
+	agent: SubagentActivity,
+	pageRows: number,
+	terminalColumns: number,
+): number {
+	return Math.max(0, agentTranscriptRows(agent, terminalColumns + 5).length - pageRows)
+}
+
+export interface AgentViewProps {
+	readonly agent: SubagentActivity
+	/** Display rows skipped back from the live tail. */
+	readonly tailOffset: number
+	readonly pageRows: number
+	readonly terminalColumns: number
+	/** One plain sentence about the last message that could not be sent. */
+	readonly notice?: string | undefined
+}
+
+/**
+ * The transcript of the agent being viewed, drawn as part of the main screen:
+ * no box, no header, no tail counter. The agent's own prompt and what you sent
+ * it read as your rows (`❯`), what it said as `●`; its state is on the rail row
+ * below, and the one main composer under this stays live. Bottom-aligned, so the
+ * newest row sits against the composer.
+ */
+export function AgentView({
+	agent,
+	tailOffset,
+	pageRows,
+	terminalColumns,
+	notice,
+}: AgentViewProps) {
+	const lines = agentTranscriptRows(agent, terminalColumns + 5)
+	const room = Math.max(1, pageRows - (notice ? 1 : 0))
+	const offset = Math.min(Math.max(0, tailOffset), Math.max(0, lines.length - room))
+	const end = lines.length - offset
+	const shown = lines.slice(Math.max(0, end - room), end)
+	return (
+		<Box flexDirection="column" height={pageRows} flexShrink={0} justifyContent="flex-end">
+			{shown.length === 0 ? (
+				<Text color={theme.text.muted}>Waiting for output…</Text>
+			) : (
+				shown.map((line) => (
+					<Box key={line.id} height={1} flexShrink={0} overflow="hidden">
+						<Box width={2} flexShrink={0}>
+							<Text
+								color={
+									line.source !== 'prompt' && line.source.kind === 'tool'
+										? statusColor(line.source.status)
+										: lineColor(line)
+								}
+								bold={isOperatorLine(line)}
+							>
+								{line.continuation ? ' ' : lineGlyph(line)}
+							</Text>
+						</Box>
+						<Box flexGrow={1} minWidth={0}>
+							<Text color={lineColor(line)} bold={isOperatorLine(line)} wrap="truncate-end">
+								{line.text}
+							</Text>
+						</Box>
+					</Box>
+				))
+			)}
+			{notice ? (
+				<Text color={theme.status.warn} wrap="truncate-end">
+					{notice}
+				</Text>
+			) : null}
+		</Box>
+	)
+}
+
+function isOperatorLine(line: AgentTranscriptLine): boolean {
+	return (
+		line.source === 'prompt' ||
+		(line.source.kind === 'system' && line.source.direction === 'operator-to-child')
 	)
 }
 
@@ -1709,14 +2144,14 @@ function statusColor(status: SubagentActivityStatus): string {
 }
 
 function lineGlyph(line: AgentTranscriptLine): string {
-	if (line.source === 'prompt') return '›'
+	if (line.source === 'prompt') return '❯'
 	return rowGlyph(line.source)
 }
 
 function rowGlyph(row: SubagentActivity['transcript'][number]): string {
-	if (row.kind === 'assistant') return '∴'
+	if (row.kind === 'assistant') return '●'
 	if (row.kind === 'system')
-		return row.direction === 'to-child' || row.direction === 'operator-to-child' ? '←' : '·'
+		return row.direction === 'operator-to-child' ? '❯' : row.direction === 'to-child' ? '←' : '·'
 	return row.status === 'working' ? '◌' : row.status === 'failed' ? '✗' : '✓'
 }
 
@@ -1729,7 +2164,8 @@ function transcriptRowText(row: SubagentActivity['transcript'][number]): string 
 	if (row.kind === 'tool' && row.detail) return `${row.text}\n${row.detail}`
 	if (row.kind === 'system' && row.direction === 'to-child')
 		return `queued from parent: ${row.text}`
-	if (row.kind === 'system' && row.direction === 'operator-to-child') return `from you: ${row.text}`
+	// What you typed to the agent reads as your own row.
+	if (row.kind === 'system' && row.direction === 'operator-to-child') return row.text
 	return row.text
 }
 

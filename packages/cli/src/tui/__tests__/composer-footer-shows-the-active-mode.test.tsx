@@ -207,7 +207,7 @@ describe('the composer footer under width pressure', () => {
 		const screen = await renderToScreen(belowMessageFrame(planNoEffort), { cols: 24, rows: ROWS })
 		try {
 			const row = footerRow(screen)
-			expect(row.trimEnd()).toBe('‖ plan mode on')
+			expect(row.trim()).toBe('‖ plan mode on')
 		} finally {
 			await screen.unmount()
 		}

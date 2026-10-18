@@ -46,6 +46,26 @@ describe('the footer row', () => {
 		expect(noTask).toContain('⏵⏵ bypass permissions on (shift+tab to cycle) · PR #592')
 	})
 
+	// Reference (REA fn bGe, chunk-2rs9vjmc.js, with Fye in chunk-fdh2jsht.js): the
+	// cycle key leaves the row only while a background task is counted, and the
+	// count (`Bwt`) leaves agents and workflows out when the agents panel is on —
+	// they are rows of their own. Shells are counted.
+	it('keeps the cycle key beside running agents and drops it only for a running shell', async () => {
+		const withAgents = await row(
+			{ permissionMode: 'auto', canCycleMode: true, agentCount: 2, canManage: true },
+			140,
+		)
+		expect(withAgents).toContain(
+			'⏵⏵ bypass permissions on (shift+tab to cycle) · ← 2 agents · ↓ to manage',
+		)
+		const withShell = await row(
+			{ permissionMode: 'auto', canCycleMode: true, agentCount: 2, shellCount: 1 },
+			140,
+		)
+		expect(withShell).not.toContain('shift+tab to cycle')
+		expect(withShell).toContain('1 shell')
+	})
+
 	it('puts esc to interrupt, the agents hint and the manage hint last, in the reference order', async () => {
 		const text = await row(
 			{
@@ -179,16 +199,16 @@ describe('the footer row', () => {
 		}
 		const wide = await row(props, 110)
 		expect(wide).toContain('↓ to manage')
-		const noManage = await row(props, 78)
+		const noManage = await row(props, 79)
 		expect(noManage).toContain('← 1 agent')
 		expect(noManage).not.toContain('↓ to manage')
-		const noAgents = await row(props, 68)
+		const noAgents = await row(props, 69)
 		expect(noAgents).toContain('esc to interrupt')
 		expect(noAgents).not.toContain('← 1 agent')
-		const noInterrupt = await row(props, 50)
+		const noInterrupt = await row(props, 51)
 		expect(noInterrupt).toContain('2 shells')
 		expect(noInterrupt).not.toContain('esc to interrupt')
-		const narrow = await row(props, 44)
+		const narrow = await row(props, 45)
 		expect(narrow).toContain('⏵⏵ bypass permissions on')
 		expect(narrow).toContain('PR #592')
 		expect(narrow).not.toContain('shift+tab')

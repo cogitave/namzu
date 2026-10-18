@@ -101,6 +101,37 @@ export interface SubagentActivity {
 	/** Tool executions started so far, counted once per execution. */
 	readonly toolCalls?: number
 	readonly description: string
+	/**
+	 * A short live label of what the agent is doing now (3-5 words), written by
+	 * a periodic one-turn query on the agent's own context. Absent until the
+	 * first one is accepted; the rail prefers it to `description` while the
+	 * agent runs.
+	 */
+	readonly summary?: string
+	/**
+	 * Messages sent to this running agent that it has not yet taken in: they
+	 * are delivered at its next tool round, and the rail shows `N queued`
+	 * until one completes. Absent when none are waiting.
+	 */
+	readonly queued?: number
+	/** Continued from its own transcript by a later message; it was launched earlier. */
+	readonly resumed?: boolean
+	/** Launched with `run_in_background`: the rail drops it the moment it completes. */
+	readonly background?: boolean
+	/**
+	 * A launch the parent waited on whose wait ended before the agent did (the
+	 * operator sent a message). It finishes on its own afterwards, so it
+	 * reports when it ends the way a background agent does; one that finished
+	 * inside the wait handed its result back to the parent inline and says
+	 * nothing more.
+	 */
+	readonly released?: boolean
+	/**
+	 * Who stopped it, when it ended as `cancelled`: the operator (rail, Esc,
+	 * Ctrl+C), or the conversation's own agent (`cancel_agent`). Absent when
+	 * nobody recorded it.
+	 */
+	readonly stoppedBy?: 'user' | 'parent'
 	readonly prompt: string
 	/** Direct tool batch that launched this concurrent sibling cohort. */
 	readonly batchId: string
@@ -223,6 +254,7 @@ export interface BeginSubagentInput {
 	readonly agentId: string
 	readonly model?: string
 	readonly description: string
+	readonly background?: boolean
 	readonly prompt: string
 	readonly batchId?: string
 	readonly toolUseId?: string
@@ -296,6 +328,12 @@ interface MutableActivity {
 	tokens?: number
 	toolCalls?: number
 	description: string
+	summary?: string
+	queued?: number
+	resumed?: boolean
+	background?: boolean
+	released?: boolean
+	stoppedBy?: 'user' | 'parent'
 	prompt: string
 	batchId: string
 	toolUseId?: string
@@ -374,6 +412,7 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 		if (!prior || !prior.closed || this.options.replay)
 			throw new Error('This child conversation is not available for continuation.')
 		const opened = this.open(input, viewId)
+		opened.record.resumed = true
 		opened.record.rows = [...prior.rows]
 		opened.record.sessionId = prior.sessionId
 		pushRow(opened.record, {
@@ -420,6 +459,7 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 					}
 				: {}),
 			description: bounded(input.description, MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS),
+			...(input.background ? { background: true } : {}),
 			prompt: bounded(input.prompt, MAX_PROMPT_CODE_UNITS),
 			batchId,
 			...(input.toolUseId
@@ -463,6 +503,7 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 					return
 				}
 				owned.completedAt = handle.completedAt ?? Date.now()
+				owned.queued = 0
 				owned.latestActivity =
 					handle.result?.stopReason && handle.result.stopReason !== 'end_turn'
 						? `Stopped · ${handle.result.stopReason}`
@@ -567,7 +608,12 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 	 * matching record (already pruned, or never tracked) is a silent no-op:
 	 * there is no row left to explain what was sent.
 	 */
-	recordMessage(taskId: string, text: string, direction: SubagentMessageDirection): void {
+	recordMessage(
+		taskId: string,
+		text: string,
+		direction: SubagentMessageDirection,
+		kind: 'queued' | 'started' = 'queued',
+	): void {
 		if (this.closed) return
 		const record = [...this.records.values()].find((entry) => entry.taskId === taskId)
 		if (!record) return
@@ -577,7 +623,40 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 			text: bounded(text, MAX_ROW_CODE_UNITS),
 			direction,
 		})
+		// A running agent takes a message in at its next tool round; until then
+		// it counts as queued. A finished one is resumed with it instead.
+		if (kind === 'queued' && !isTerminal(record.status)) record.queued = (record.queued ?? 0) + 1
 		this.notifyNow()
+	}
+
+	/**
+	 * Records who is stopping a running agent, so the line that closes it can
+	 * say. The first answer stands; an agent that has ended is left alone.
+	 */
+	markStopped(viewId: string, by: 'user' | 'parent'): void {
+		const record = this.records.get(viewId)
+		if (!record || this.closed || isTerminal(record.status) || record.stoppedBy) return
+		record.stoppedBy = by
+		this.scheduleNotify()
+	}
+
+	/** The parent's wait on this agent ended before it did; see {@link SubagentActivity.released}. */
+	markReleased(viewId: string): void {
+		const record = this.records.get(viewId)
+		if (!record || this.closed || isTerminal(record.status) || record.released) return
+		record.released = true
+		this.scheduleNotify()
+	}
+
+	/**
+	 * Sets the live label of a running agent (see `activity-label.ts`). Ignored
+	 * once the agent has ended, and for an unknown row.
+	 */
+	setSummary(viewId: string, label: string): void {
+		const record = this.records.get(viewId)
+		if (!record || this.closed || isTerminal(record.status)) return
+		record.summary = bounded(label, MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS)
+		this.scheduleNotify()
 	}
 
 	/**
@@ -656,6 +735,12 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 			...(record.tokens !== undefined ? { tokens: record.tokens } : {}),
 			...(record.toolCalls !== undefined ? { toolCalls: record.toolCalls } : {}),
 			description: record.description,
+			...(record.summary && !isTerminal(record.status) ? { summary: record.summary } : {}),
+			...(record.queued ? { queued: record.queued } : {}),
+			...(record.resumed ? { resumed: true } : {}),
+			...(record.background ? { background: true } : {}),
+			...(record.released ? { released: true } : {}),
+			...(record.stoppedBy ? { stoppedBy: record.stoppedBy } : {}),
 			prompt: record.prompt,
 			batchId: record.batchId,
 			...(record.toolUseId ? { toolUseId: record.toolUseId } : {}),
@@ -992,6 +1077,8 @@ function projectEvent(record: MutableActivity, event: SessionEvent): void {
 					}
 				}
 			}
+			// A tool round ended: the next request takes in what was queued.
+			record.queued = 0
 			record.latestActivity = event.isError ? `${event.toolName} failed` : `${event.toolName} done`
 			return
 		}

@@ -158,6 +158,8 @@ it.each(['tool', 'provider'])(
 			const activity = runtime.activity.getSnapshot()
 			expect(activity).toHaveLength(3)
 			expect(activity.find((entry) => entry.taskId === cancelled)?.status).toBe('cancelled')
+			// The agent that cancelled it, not the operator, is who stopped it.
+			expect(activity.find((entry) => entry.taskId === cancelled)?.stoppedBy).toBe('parent')
 			expect(activity.find((entry) => entry.taskId === ids[1])?.status).toBe('completed')
 			expect(activity.find((entry) => entry.taskId === ids[2])?.status).toBe('failed')
 		} finally {

@@ -74,6 +74,31 @@ afterEach(() => {
 })
 
 describe('the CLI sub-agent activity monitor', () => {
+	it('records who stopped a running agent once, and ignores one that has ended', () => {
+		const monitor = new SubagentActivityMonitor()
+		const tracker = monitor.begin({ agentId: 'researcher', description: 'Look', prompt: 'p' })
+		tracker.settle(handle('running'))
+		const shown = () => monitor.getSnapshot().find((entry) => entry.viewId === tracker.viewId)
+		expect(shown()?.stoppedBy).toBeUndefined()
+		monitor.markStopped(tracker.viewId, 'user')
+		monitor.markStopped(tracker.viewId, 'parent')
+		expect(shown()?.stoppedBy).toBe('user')
+		const ended = monitor.begin({ agentId: 'researcher', description: 'Done', prompt: 'p' })
+		ended.settle(handle('completed'))
+		monitor.markStopped(ended.viewId, 'user')
+		expect(monitor.getSnapshot().find((entry) => entry.viewId === ended.viewId)?.stoppedBy).toBe(
+			undefined,
+		)
+	})
+
+	it('marks a launch whose wait ended before the agent did as released', () => {
+		const monitor = new SubagentActivityMonitor()
+		const tracker = monitor.begin({ agentId: 'researcher', description: 'Look', prompt: 'p' })
+		tracker.settle(handle('running'))
+		monitor.markReleased(tracker.viewId)
+		expect(monitor.getSnapshot()[0]?.released).toBe(true)
+	})
+
 	it('retains bounded workflow metadata and uses explicit defaults instead of lifecycle guesses', () => {
 		const monitor = new SubagentActivityMonitor()
 		monitor.begin({

@@ -502,6 +502,11 @@ describe('operator input releases delegation waits without cancelling children',
 			const yielded = await launch
 			const taskId = (yielded.data as { task_id: string }).task_id
 			expect(yielded.output).toContain('still running')
+			// The wait ended before the agent did, so it will report its own end
+			// like a background agent; one that finished inside its wait would not.
+			expect(
+				runtime.activity.getSnapshot().find((entry) => entry.taskId === taskId)?.released,
+			).toBe(true)
 			inbox.drain()
 			const waiting = runtime.waitForTaskTool.execute({ task_id: taskId }, context)
 			await inbox.waiting(1)

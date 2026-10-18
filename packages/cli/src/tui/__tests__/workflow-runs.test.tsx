@@ -6,6 +6,8 @@
 
 import { createRequire } from 'node:module'
 
+import { Box } from 'ink'
+
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 
 import type { SubagentActivity } from '../../integrations/subagents/activity.js'
@@ -34,7 +36,9 @@ import { type Screen, renderToScreen } from './support/screen.js'
 const NOW = Date.now()
 
 const inkRequire = createRequire(createRequire(import.meta.url).resolve('ink'))
-const chalk = (await import(inkRequire.resolve('chalk'))).default as { level: number }
+const chalk = (await import(inkRequire.resolve('chalk'))).default as {
+	level: number
+}
 const originalColorLevel = chalk.level
 beforeAll(() => {
 	chalk.level = 0
@@ -78,7 +82,12 @@ function run(overrides: Partial<WorkflowRunView> = {}): WorkflowRunView {
 			at: NOW - 20_000,
 		}),
 		agents: [
-			agentView(1, 'done', { phaseIndex: 1, phaseTitle: 'Scan', tokens: 1200, viewId: 'agent-1' }),
+			agentView(1, 'done', {
+				phaseIndex: 1,
+				phaseTitle: 'Scan',
+				tokens: 1200,
+				viewId: 'agent-1',
+			}),
 			agentView(2, 'running', {
 				phaseIndex: 1,
 				phaseTitle: 'Scan',
@@ -164,7 +173,12 @@ describe('the rail', () => {
 	it('has a row for a run before its first agent exists', () => {
 		const empty = run({ agents: [] })
 		const [row] = railWorkflows([], NOW, new Set(), [empty])
-		expect(row).toMatchObject({ name: 'audit', done: 0, total: 0, status: 'running' })
+		expect(row).toMatchObject({
+			name: 'audit',
+			done: 0,
+			total: 0,
+			status: 'running',
+		})
 	})
 
 	it('leaves 30 seconds after the run ended, and stays off once cleared', () => {
@@ -181,13 +195,15 @@ describe('the rail', () => {
 	it('draws the row as the reference does, after nothing else', async () => {
 		const rows = railWorkflows(shown(), NOW, new Set(), [run()])
 		mounted = await renderToScreen(
-			<AgentTaskPanel
-				agents={railAgents(shown(), NOW)}
-				workflows={rows}
-				terminalRows={40}
-				terminalColumns={100}
-				now={NOW}
-			/>,
+			<Box flexDirection="column" paddingX={1}>
+				<AgentTaskPanel
+					agents={railAgents(shown(), NOW)}
+					workflows={rows}
+					terminalRows={40}
+					terminalColumns={100}
+					now={NOW}
+				/>
+			</Box>,
 			{ cols: 100, rows: 8 },
 		)
 		const text = mounted
@@ -215,7 +231,10 @@ describe('the phases of a run', () => {
 
 	it('lists the declared phases in the script order, the unstarted one empty', () => {
 		const [flow] = agentWorkflows(shown(), [run()])
-		expect(flow).toMatchObject({ runId: 'wrun00001', description: 'Scan, then fix' })
+		expect(flow).toMatchObject({
+			runId: 'wrun00001',
+			description: 'Scan, then fix',
+		})
 		expect(flow?.phases.map((p) => [p.name, p.agents.length])).toEqual([
 			['Scan', 2],
 			['Fix', 1],
@@ -238,7 +257,11 @@ describe('the phases of a run', () => {
 		const skipped = run({
 			agents: [
 				agentView(1, 'done', { phaseIndex: 1, phaseTitle: 'Scan' }),
-				agentView(2, 'skipped', { phaseIndex: 1, phaseTitle: 'Scan', finishedAt: NOW }),
+				agentView(2, 'skipped', {
+					phaseIndex: 1,
+					phaseTitle: 'Scan',
+					finishedAt: NOW,
+				}),
 			],
 		})
 		const [flow] = agentWorkflows(withWorkflowRuns([], [skipped]), [skipped])
@@ -265,15 +288,17 @@ describe('the detail view of a run', () => {
 	) {
 		const agents = withWorkflowRuns(children(), [view])
 		mounted = await renderToScreen(
-			<AgentCockpit
-				agents={agents}
-				runs={[view]}
-				selectedPhaseId={`wfrun:${view.runId}:p:${phaseIndex}`}
-				selectedId={selectedId}
-				focus={focus}
-				terminalRows={30}
-				terminalColumns={100}
-			/>,
+			<Box flexDirection="column" paddingX={1}>
+				<AgentCockpit
+					agents={agents}
+					runs={[view]}
+					selectedPhaseId={`wfrun:${view.runId}:p:${phaseIndex}`}
+					selectedId={selectedId}
+					focus={focus}
+					terminalRows={30}
+					terminalColumns={100}
+				/>
+			</Box>,
 			{ cols: 100, rows: 30 },
 		)
 		return mounted.viewport().join('\n')
@@ -287,7 +312,7 @@ describe('the detail view of a run', () => {
 		expect(text).toMatch(/❯ 1\s+Scan\s+1\/2/)
 		expect(text).toMatch(/2\s+Fix\s+0\/1/)
 		expect(text).toMatch(/3\s+Report\s+│/)
-		expect(text).toContain('x to stop')
+		expect(text).toContain('x stop workflow')
 	})
 
 	it('level 2: the agents of a phase, a queued one included, and x skips', async () => {
@@ -295,14 +320,14 @@ describe('the detail view of a run', () => {
 		expect(text).toContain('Fix · 1 agent')
 		expect(text).toMatch(/◌\s+agent:3/)
 		expect(text).toContain('queued')
-		expect(text).toContain('x to skip')
+		expect(text).toContain('x skip')
 	})
 
 	it('level 2 of a phase nothing has started in says so', async () => {
 		const text = await detail('agents', 3, '')
 		expect(text).toContain('Report · 0 agents')
 		expect(text).toContain('Not started yet')
-		expect(text).not.toContain('x to skip')
+		expect(text).not.toContain('x skip')
 	})
 
 	it('shows how a finished run ended, and offers no stop', async () => {
@@ -313,7 +338,7 @@ describe('the detail view of a run', () => {
 		})
 		const text = await detail('phases', 1, 'agent-1', ended)
 		expect(text).toContain('· stopped')
-		expect(text).not.toContain('x to stop')
+		expect(text).not.toContain('x stop workflow')
 	})
 })
 
@@ -324,8 +349,16 @@ describe('the counters', () => {
 			endedAt: status === 'running' ? undefined : NOW,
 			agents: [
 				agentView(1, 'done', { phaseIndex: 1, phaseTitle: 'Scan' }),
-				agentView(2, 'skipped', { phaseIndex: 1, phaseTitle: 'Scan', finishedAt: NOW }),
-				agentView(3, 'failed', { phaseIndex: 1, phaseTitle: 'Scan', finishedAt: NOW }),
+				agentView(2, 'skipped', {
+					phaseIndex: 1,
+					phaseTitle: 'Scan',
+					finishedAt: NOW,
+				}),
+				agentView(3, 'failed', {
+					phaseIndex: 1,
+					phaseTitle: 'Scan',
+					finishedAt: NOW,
+				}),
 				agentView(4, 'queued', { phaseIndex: 2, phaseTitle: 'Fix' }),
 			],
 		})
@@ -346,15 +379,17 @@ describe('the counters', () => {
 	it('puts the same count in the detail header, with the status suffix', async () => {
 		const stopped = mixedRun('stopped')
 		mounted = await renderToScreen(
-			<AgentCockpit
-				agents={withWorkflowRuns([], [stopped])}
-				runs={[stopped]}
-				selectedPhaseId={`wfrun:${stopped.runId}:p:1`}
-				selectedId=""
-				focus="phases"
-				terminalRows={30}
-				terminalColumns={100}
-			/>,
+			<Box flexDirection="column" paddingX={1}>
+				<AgentCockpit
+					agents={withWorkflowRuns([], [stopped])}
+					runs={[stopped]}
+					selectedPhaseId={`wfrun:${stopped.runId}:p:1`}
+					selectedId=""
+					focus="phases"
+					terminalRows={30}
+					terminalColumns={100}
+				/>
+			</Box>,
 			{ cols: 100, rows: 30 },
 		)
 		const text = mounted.viewport().join('\n')
@@ -390,7 +425,10 @@ describe('the transcript of a workflow agent', () => {
 
 	it('keeps the Subagent header for a child of the Agent tool', async () => {
 		const [plain] = children()
-		const text = await transcript({ ...(plain as SubagentActivity), workflow: 'Delegated work' })
+		const text = await transcript({
+			...(plain as SubagentActivity),
+			workflow: 'Delegated work',
+		})
 		expect(text).toContain('Subagent')
 	})
 })

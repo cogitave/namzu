@@ -15,7 +15,7 @@
  * prompt. The folder is not here; the header names it.
  */
 
-import { Text, useWindowSize } from 'ink'
+import { Box, Text, useWindowSize } from 'ink'
 
 import type { PermissionMode } from '../permissions/mode.js'
 import { fitHintText } from './key-hints.js'
@@ -57,6 +57,12 @@ export interface StatusBarProps {
 	readonly canManage?: boolean
 	/** The shell pill holds the keyboard: it is drawn inverted and `enter to view shells` replaces `↓ to manage`. */
 	readonly shellsSelected?: boolean
+	/**
+	 * The key line of the focused agents-rail row. While set it takes the
+	 * place of the whole line — mode, pills and model — so the keys the row
+	 * answers to are the only thing on it, as the rail's rows stay put below.
+	 */
+	readonly railHint?: string
 }
 
 /**
@@ -117,6 +123,7 @@ export function StatusBar({
 	agentCount = 0,
 	canManage = false,
 	shellsSelected = false,
+	railHint,
 }: StatusBarProps) {
 	const terminal = useWindowSize()
 	const activeMode =
@@ -130,7 +137,9 @@ export function StatusBar({
 		// App gives the footer one cell of horizontal padding on each side. Ink's
 		// stdout width is the whole terminal, so reserve those cells here rather
 		// than letting its final two characters be clipped after fitting succeeds.
-		columns: Math.max(0, terminal.columns - 2),
+		// ...and the line itself starts a cell in (see the return below), so the
+		// rail's bullet sits under its first glyph.
+		columns: Math.max(0, terminal.columns - 3),
 		model,
 		provider,
 		effort: effort ?? null,
@@ -218,22 +227,35 @@ export function StatusBar({
 			</Text>,
 		)
 	}
+	// The line is indented one cell past the app's own padding: the agents rail
+	// below puts its bullet in that column.
+	if (railHint) {
+		return (
+			<Box paddingLeft={1}>
+				<Text color={theme.text.muted} wrap="truncate-end">
+					{railHint}
+				</Text>
+			</Box>
+		)
+	}
 	return (
-		<Text wrap="truncate-end">
-			{parts.flatMap((part, index) =>
-				index === 0 ? [part] : [<Text key={`sep-${part.key}`}>{sep}</Text>, part],
-			)}
-			<Text>{layout.gap}</Text>
-			{layout.right.kind === 'text' ? (
-				<Text color={layout.right.isGoal ? theme.accent.system : colorForState(state)}>
-					{layout.right.text}
-				</Text>
-			) : layout.right.model ? (
-				<Text color={theme.text.primary} bold>
-					{layout.right.model}
-				</Text>
-			) : null}
-		</Text>
+		<Box paddingLeft={1}>
+			<Text wrap="truncate-end">
+				{parts.flatMap((part, index) =>
+					index === 0 ? [part] : [<Text key={`sep-${part.key}`}>{sep}</Text>, part],
+				)}
+				<Text>{layout.gap}</Text>
+				{layout.right.kind === 'text' ? (
+					<Text color={layout.right.isGoal ? theme.accent.system : colorForState(state)}>
+						{layout.right.text}
+					</Text>
+				) : layout.right.model ? (
+					<Text color={theme.text.primary} bold>
+						{layout.right.model}
+					</Text>
+				) : null}
+			</Text>
+		</Box>
 	)
 }
 
