@@ -54,13 +54,15 @@ export interface StartWorkflowRun {
 		viewed: (viewId: string) => void,
 	) => ReturnType<WorkflowSpawnAgent>
 	/** Called once, after the run has ended and its last view is stored. */
-	readonly onEnd?: (end: WorkflowRunEnd) => void
+	readonly onEnd?: (end: WorkflowRunEnd) => void | Promise<void>
 }
 
 interface LiveRun {
 	view: WorkflowRunView
 	readonly abort: AbortController
 	control?: WorkflowControl
+	/** The end has been announced to the host (its `onEnd` has finished). */
+	finalized: boolean
 }
 
 export class WorkflowRunRegistry {
@@ -111,10 +113,11 @@ export class WorkflowRunRegistry {
 				at: this.now(),
 			}),
 			abort: new AbortController(),
+			finalized: false,
 		}
 		this.runs.set(input.runId, run)
 		this.notifySoon(true)
-		const settle = (result: WorkflowRunResult | undefined, error?: string): void => {
+		const settle = async (result: WorkflowRunResult | undefined, error?: string): Promise<void> => {
 			const at = this.now()
 			if (run.view.status === 'running') {
 				run.view = {
@@ -126,10 +129,11 @@ export class WorkflowRunRegistry {
 			}
 			run.view = closeOpenAgents(run.view, at)
 			try {
-				input.onEnd?.({ view: run.view, ...(result ? { result } : {}) })
+				await input.onEnd?.({ view: run.view, ...(result ? { result } : {}) })
 			} catch {
 				// A listener bug must not leave the run looking alive.
 			}
+			run.finalized = true
 			// After the end is announced, so a reader woken by this sees both.
 			this.notifySoon(true)
 		}
@@ -167,7 +171,10 @@ export class WorkflowRunRegistry {
 	 * A run's own limits bound the wait: the runtime stops one at its duration cap.
 	 */
 	whenIdle(signal?: AbortSignal): Promise<void> {
-		if (this.running().length === 0 || signal?.aborted) return Promise.resolve()
+		// A run counts until its end has been announced, not only until it has
+		// ended: a caller woken by this must find the announcement already made.
+		const going = (): boolean => [...this.runs.values()].some((run) => !run.finalized)
+		if (!going() || signal?.aborted) return Promise.resolve()
 		return new Promise<void>((resolve) => {
 			const done = (): void => {
 				off()
@@ -175,7 +182,7 @@ export class WorkflowRunRegistry {
 				resolve()
 			}
 			const off = this.subscribe(() => {
-				if (this.running().length === 0) done()
+				if (!going()) done()
 			})
 			signal?.addEventListener('abort', done, { once: true })
 		})

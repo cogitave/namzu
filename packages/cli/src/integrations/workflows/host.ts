@@ -243,8 +243,11 @@ export function createWorkflowHost(options: WorkflowHostOptions): WorkflowHost {
 							...(outcome.error !== undefined ? { error: outcome.error } : {}),
 						}
 					},
-					onEnd: (end) => {
-						void turn.release().finally(() => options.onEnd?.(end))
+					onEnd: async (end) => {
+						// The run's registrations are given back first, so whoever hears of
+						// the end finds the delegation path free.
+						await turn.release().catch(() => undefined)
+						options.onEnd?.(end)
 					},
 				})
 				return {

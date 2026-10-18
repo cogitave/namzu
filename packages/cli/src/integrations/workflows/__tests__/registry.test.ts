@@ -49,7 +49,9 @@ describe('a run in the registry, with a spawn the test controls', () => {
 			script: TWO_PHASE_SCRIPT,
 			spawn,
 			...(dir ? { journal: new FileWorkflowJournal(dir) } : {}),
-			onEnd: (end) => ended.push(end),
+			onEnd: (end) => {
+				ended.push(end)
+			},
 		})
 		return { view, ended }
 	}
@@ -150,5 +152,57 @@ describe('a run in the registry, with a spawn the test controls', () => {
 		const registry = new WorkflowRunRegistry()
 		registry.close()
 		expect(() => start(registry, fakeSpawn().spawn)).toThrow(/closed/)
+	})
+
+	it('is idle only once the end has been announced, not when the run merely ended', async () => {
+		const registry = new WorkflowRunRegistry()
+		const { spawn, waiting } = fakeSpawn()
+		const announced: string[] = []
+		let releaseAnnouncement!: () => void
+		const slow = new Promise<void>((resolve) => {
+			releaseAnnouncement = resolve
+		})
+		registry.start({
+			runId: 'wtest0001',
+			meta: parseWorkflowMeta(TWO_PHASE_SCRIPT),
+			script: TWO_PHASE_SCRIPT,
+			spawn,
+			onEnd: async () => {
+				await slow
+				announced.push('ended')
+			},
+		})
+		await until(registry, () => waiting.length === 3)
+		registry.stop('wtest0001')
+		let idle = false
+		const waited = registry.whenIdle().then(() => {
+			idle = true
+		})
+		await until(registry, () => registry.get('wtest0001')?.status === 'stopped')
+		// Ended, but the announcement is still being made: not idle yet.
+		await Promise.resolve()
+		expect(idle).toBe(false)
+		releaseAnnouncement()
+		await waited
+		expect(announced).toEqual(['ended'])
+		registry.close()
+	})
+
+	it('stops waiting when its signal aborts', async () => {
+		const registry = new WorkflowRunRegistry()
+		const { spawn, waiting } = fakeSpawn()
+		registry.start({
+			runId: 'wtest0001',
+			meta: parseWorkflowMeta(TWO_PHASE_SCRIPT),
+			script: TWO_PHASE_SCRIPT,
+			spawn,
+		})
+		await until(registry, () => waiting.length === 3)
+		const abort = new AbortController()
+		const waited = registry.whenIdle(abort.signal)
+		abort.abort()
+		await waited
+		expect(registry.get('wtest0001')?.status).toBe('running')
+		registry.close()
 	})
 })
