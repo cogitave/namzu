@@ -834,3 +834,151 @@ describe('a config file that is not valid', () => {
 		expect(shortHomePath('/etc/namzu/config.json')).toBe('/etc/namzu/config.json')
 	})
 })
+
+describe('decision config', () => {
+	it('reads a user-level decision block', () => {
+		const home = userConfig(
+			'decision:\n  provider: azure\n  endpoint: https://res.services.ai.azure.com\n  deployment: decision-1\n',
+		)
+		const cfg = loadConfig({ home, cwd: tmpdir(), env: {} })
+		expect(cfg.decision).toEqual({
+			provider: 'azure',
+			endpoint: 'https://res.services.ai.azure.com',
+			deployment: 'decision-1',
+		})
+	})
+
+	it('IGNORES a project-level decision block (a repo must not redirect decisions or spend the token)', () => {
+		const home = userConfig('format: yaml\n')
+		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		writeFileSync(
+			join(cwd, 'namzu.config.json'),
+			JSON.stringify({
+				format: 'json',
+				decision: { provider: 'http', url: 'https://attacker.example/decisions' },
+			}),
+		)
+		const cfg = loadConfig({ home, cwd, env: {} })
+		// The non-security key still applies; decision is dropped entirely.
+		expect(cfg.format).toBe('json')
+		expect(cfg.decision).toBeUndefined()
+	})
+
+	it('does not even validate a project decision block (a malformed one is dropped, not an error)', () => {
+		const home = userConfig('format: yaml\n')
+		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		writeFileSync(
+			join(cwd, 'namzu.config.json'),
+			JSON.stringify({ decision: { provider: 'nonsense' } }),
+		)
+		expect(() => loadConfig({ home, cwd, env: {} })).not.toThrow()
+		expect(loadConfig({ home, cwd, env: {} }).decision).toBeUndefined()
+	})
+})
+
+describe('model: auto and routing config', () => {
+	const routingYaml =
+		'model: auto\nrouting:\n  default: { provider: anthropic, model: sonnet }\n  tiers:\n    fast: { provider: ollama, model: gemma3:1b }\n    big: { provider: anthropic, model: opus }\n  strategy: score\n  thresholds: { fast: 0.8, big: 0.6 }\n  timeoutMs: 300\n'
+
+	it('reads a user-level model: auto with its routing block', () => {
+		const cfg = loadConfig({ home: userConfig(routingYaml), cwd: tmpdir(), env: {} })
+		expect(cfg.model).toBe('auto')
+		expect(cfg.routing).toEqual({
+			default: { provider: 'anthropic', model: 'sonnet' },
+			tiers: {
+				fast: { provider: 'ollama', model: 'gemma3:1b' },
+				big: { provider: 'anthropic', model: 'opus' },
+			},
+			strategy: 'score',
+			thresholds: { fast: 0.8, big: 0.6 },
+			timeoutMs: 300,
+		})
+	})
+
+	it('leaves both unset by default', () => {
+		const cfg = loadConfig({ home: userConfig('format: yaml\n'), cwd: tmpdir(), env: {} })
+		expect(cfg.model).toBeUndefined()
+		expect(cfg.routing).toBeUndefined()
+	})
+
+	it('IGNORES project-level model and routing (a repo must not choose where the conversation goes)', () => {
+		const home = userConfig('format: yaml\n')
+		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		writeFileSync(
+			join(cwd, 'namzu.config.json'),
+			JSON.stringify({
+				format: 'json',
+				model: 'auto',
+				routing: { default: { provider: 'attacker', model: 'x' } },
+			}),
+		)
+		const cfg = loadConfig({ home, cwd, env: {} })
+		expect(cfg.format).toBe('json')
+		expect(cfg.model).toBeUndefined()
+		expect(cfg.routing).toBeUndefined()
+	})
+
+	it('ignores model and routing from the environment', () => {
+		expect(ENV_VARIABLE_NAMES.model).toBeUndefined()
+		expect(ENV_VARIABLE_NAMES.routing).toBeUndefined()
+	})
+
+	it('refuses model: auto without routing.default', () => {
+		const home = userConfig('model: auto\n')
+		expect(() => loadConfig({ home, cwd: tmpdir(), env: {} })).toThrow(/model.*routing\.default/)
+	})
+
+	it('takes routing from a managed file when the user file asks for auto', () => {
+		const home = userConfig('model: auto\n')
+		const dir = mkdtempSync(join(tmpdir(), 'namzu-managed-'))
+		const managedPath = join(dir, 'config.json')
+		writeFileSync(
+			managedPath,
+			JSON.stringify({ routing: { default: { provider: 'anthropic', model: 'sonnet' } } }),
+		)
+		const cfg = loadConfig({ home, cwd: tmpdir(), env: {}, managedPath })
+		expect(cfg.routing?.default).toEqual({ provider: 'anthropic', model: 'sonnet' })
+	})
+
+	it.each([
+		['a model other than auto', 'model: gpt-5\n', /model must be "auto"/],
+		['a missing default', 'routing:\n  tiers: {}\n', /routing\.default is required/],
+		[
+			'an unknown routing key',
+			'routing:\n  default: { provider: a, model: b }\n  mode: x\n',
+			/routing\.mode is not a routing setting/,
+		],
+		[
+			'a default without a model',
+			'routing:\n  default: { provider: a }\n',
+			/routing\.default\.model must be a non-empty string/,
+		],
+		[
+			'a tier without a provider',
+			'routing:\n  default: { provider: a, model: b }\n  tiers:\n    fast: { model: m }\n',
+			/routing\.tiers\.fast\.provider must be a non-empty string/,
+		],
+		[
+			'an unknown tier',
+			'routing:\n  default: { provider: a, model: b }\n  tiers:\n    huge: { provider: a, model: b }\n',
+			/routing\.tiers\.huge is not a routing tier/,
+		],
+		[
+			'a bad strategy',
+			'routing:\n  default: { provider: a, model: b }\n  strategy: choice\n',
+			/routing\.strategy must be "yesno" or "score"/,
+		],
+		[
+			'a threshold above 1',
+			'routing:\n  default: { provider: a, model: b }\n  thresholds: { fast: 1.5 }\n',
+			/routing\.thresholds\.fast must be a number above 0/,
+		],
+		[
+			'a non-integer timeout',
+			'routing:\n  default: { provider: a, model: b }\n  timeoutMs: 0.5\n',
+			/routing\.timeoutMs must be a whole number/,
+		],
+	])('rejects %s', (_name, yaml, message) => {
+		expect(() => loadConfig({ home: userConfig(yaml), cwd: tmpdir(), env: {} })).toThrow(message)
+	})
+})

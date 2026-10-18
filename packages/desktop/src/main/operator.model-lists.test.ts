@@ -386,3 +386,43 @@ it('is busy for an engine only while a conversation on that engine has work', as
 	expect(owner.engineBusy('codex-cli')).toBe(false)
 	expect(owner.engineBusy('claude-code')).toBe(false)
 })
+
+it('passes Auto through the provider status, selects it for a conversation and ends it on a hand pick', async () => {
+	const f = await setup()
+	await f.list('alpha')
+	const owner = f.open({ FIXTURE_AUTO: '1' })
+	const view = await project(owner)
+	const conversation = await owner.newConversation(view.id)
+	expect((await owner.providers(view.id, conversation.id)).auto).toEqual({ active: false })
+	await owner.selectAuto(conversation.id)
+	expect((await owner.providers(view.id, conversation.id)).auto).toEqual({ active: true })
+	await owner.selectProvider(conversation.id, 'fixture', 'alpha')
+	expect((await owner.providers(view.id, conversation.id)).auto).toEqual({ active: false })
+})
+
+it('says nothing about Auto when the CLI did not offer it, and passes its plain refusal on', async () => {
+	const f = await setup()
+	const bare = f.open()
+	const bareView = await project(bare)
+	const bareConversation = await bare.newConversation(bareView.id)
+	expect(await bare.providers(bareView.id, bareConversation.id)).not.toHaveProperty('auto')
+
+	const refusing = f.open({ FIXTURE_AUTO: 'refuse' })
+	const view = await project(refusing)
+	const conversation = await refusing.newConversation(view.id)
+	await expect(refusing.selectAuto(conversation.id)).rejects.toThrow('routing block')
+})
+
+it('keeps the Auto choice with the draft settings and refuses a malformed one', async () => {
+	const f = await setup()
+	const owner = f.open({ FIXTURE_AUTO: '1' })
+	const view = await project(owner)
+	const conversation = await owner.newConversation(view.id)
+	owner.saveDraftSettings(conversation.id, { autoRouting: true })
+	expect(owner.draftSettings(conversation.id).autoRouting).toBe(true)
+	owner.saveDraftSettings(conversation.id, { autoRouting: false })
+	expect(owner.draftSettings(conversation.id).autoRouting).toBe(false)
+	expect(() => owner.saveDraftSettings(conversation.id, { autoRouting: 'yes' } as never)).toThrow(
+		'Invalid draft Auto choice',
+	)
+})

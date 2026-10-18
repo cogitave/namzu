@@ -21,6 +21,34 @@ export interface ModelChoice {
 
 type Row = ModelCatalogueView['models'][number]
 
+/** What the trigger and the first picker row call Auto. */
+export const AUTO_LABEL = 'Auto'
+/** The one line under the Auto row. */
+export const AUTO_NOTE = 'Picks a model for each task'
+
+/**
+ * Whether Auto is offered for this conversation and whether it is what runs. It is offered only
+ * when the CLI reported it (a `routing` block is configured), never for a Pal (the Pal's model is
+ * the source of truth) and never on an external engine. The person's saved choice wins over what
+ * the conversation started with; with none saved, the CLI's own answer stands.
+ */
+export function resolveAutoRouting({
+	providers,
+	saved,
+	palConversation,
+	engine,
+}: {
+	providers: ProviderView
+	/** `DraftSettings.autoRouting`: true chose Auto, false picked a model by hand. */
+	saved?: boolean
+	palConversation: boolean
+	engine: string
+}): { available: boolean; active: boolean } {
+	const reported = providers.auto
+	if (!reported || palConversation || engine !== 'namzu') return { available: false, active: false }
+	return { available: true, active: saved ?? reported.active }
+}
+
 /**
  * A landing uses today's Pal default; an ordinary conversation owns its pinned route. A Pal's own
  * conversation follows the Pal's current model until the person picks another one there by hand.

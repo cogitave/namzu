@@ -1592,7 +1592,10 @@ export function createDesktopHostExtensions(
 		},
 		'namzu/providers/status': async (params: Record<string, unknown>) => {
 			const id = params.sessionId === undefined ? undefined : await ownedReadSession(params)
-			const status = await runtime.providerStatus(id)
+			const raw = await runtime.providerStatus(id)
+			// A Pal keeps its own model: Auto is never offered inside one.
+			const { auto: _auto, ...withoutAuto } = (raw ?? {}) as Record<string, unknown>
+			const status = pal() ? withoutAuto : raw
 			const model = id ? undefined : pal()?.model
 			if (!model) return status
 			return {
@@ -1643,6 +1646,12 @@ export function createDesktopHostExtensions(
 				text(params, 'provider'),
 				params.model === undefined ? undefined : text(params, 'model'),
 			)
+			return { selected: true }
+		},
+		'namzu/providers/select_auto': async (params: Record<string, unknown>) => {
+			if (!isTrusted(cwd)) throw new Error('Trust this folder first.')
+			if (!runtime.selectAuto) throw new Error('Auto is not available here.')
+			await runtime.selectAuto(await ownedSession(params))
 			return { selected: true }
 		},
 		'namzu/providers/connections': () => runtime.providerConnections(),

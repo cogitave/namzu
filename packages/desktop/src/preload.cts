@@ -163,6 +163,7 @@ const api: DesktopApi = {
 	plugins: (id, sessionId) => invoke('plugins', id, sessionId),
 	setPluginEnabled: (id, name, enabled) => invoke('setPluginEnabled', id, name, enabled),
 	selectProvider: (id, provider, model) => invoke('selectProvider', id, provider, model),
+	selectAuto: (id) => invoke('selectAuto', id),
 	pickAttachments: (owner) => invoke('pickAttachments', owner),
 	addAttachments: (owner, files) => invoke('addAttachments', owner, files),
 	attachments: (owner) => invoke('attachments', owner),

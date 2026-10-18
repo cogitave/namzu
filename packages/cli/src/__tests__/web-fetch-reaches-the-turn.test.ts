@@ -239,3 +239,68 @@ it('preserves an explicit common backend even on a native-capable model', async 
 	expect(turn.turnConfig.webSearch).toBeUndefined()
 	await turn.session.close()
 })
+
+describe('under Auto', () => {
+	async function driveAuto(
+		web: { search?: 'off' | 'cached' | 'live'; backend?: 'exa' | 'native' } | undefined,
+		routeTo: { provider: string; model: string },
+		detected: DetectedProvider[],
+	) {
+		const { createAgentSession } = await import('../tui/agent.js')
+		const session = await createAgentSession(prefs, detected, {
+			cwd: root,
+			...(web ? { web } : {}),
+			routing: { default: routeTo } as never,
+		})
+		for await (const _ of session.send([{ role: 'user', content: 'hi', timestamp: 0 }])) {
+			// drain
+		}
+		expect(queryCalls.length, 'the turn must have reached query()').toBe(1)
+		const call = queryCalls[0] as Record<string, unknown>
+		return {
+			session,
+			turnConfig: call.turnConfig as { model?: string; webSearch?: { mode: string } },
+			toolNames: new ToolManager({
+				toolsets: call.toolsets as readonly Toolset[],
+				messages: () => [],
+			}).listNames(),
+		}
+	}
+
+	// A turn Auto sends to a provider without hosted search must not carry the
+	// session provider's hosted search: the provider refuses the whole request.
+	it('searches through the common tool, since each turn may run on another provider', async () => {
+		const turn = await driveAuto(
+			undefined,
+			{ provider: 'anthropic', model: 'claude-sonnet-4-5' },
+			detectedAnthropic(),
+		)
+		try {
+			expect(turn.toolNames).toContain('web_search')
+			expect(turn.turnConfig.webSearch).toBeUndefined()
+		} finally {
+			await turn.session.close()
+		}
+	})
+
+	it('drops hosted search from a turn routed to a provider that cannot run it', async () => {
+		const { PROVIDER_REGISTRY } = await import('../integrations/providers/index.js')
+		const zen = {
+			entry: PROVIDER_REGISTRY.zen,
+			source: { kind: 'env', envName: 'OPENCODE_API_KEY' },
+			apiKey: 'fixture',
+			alternatives: [],
+		} as unknown as DetectedProvider
+		const turn = await driveAuto(
+			{ search: 'cached', backend: 'native' },
+			{ provider: 'zen', model: 'big-pickle' },
+			[...detectedAnthropic(), zen],
+		)
+		try {
+			expect(turn.turnConfig.model).toBe('big-pickle')
+			expect(turn.turnConfig.webSearch).toBeUndefined()
+		} finally {
+			await turn.session.close()
+		}
+	})
+})

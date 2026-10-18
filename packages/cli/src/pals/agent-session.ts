@@ -41,11 +41,15 @@ import {
 	toolset,
 } from '@namzu/sdk'
 import { readStoredTurnGuards, resolveTurnGuards } from '../config/turn-guards.js'
+import { maybeCreateDecisionTool } from '../integrations/decision/model.js'
+import { resolveAutoDefault } from '../integrations/decision/routing.js'
+import { canSelectModel } from '../integrations/providers/access.js'
 import { createCurrentCredentialReader } from '../integrations/providers/current-credential.js'
 import {
 	type DetectedProvider,
 	PROVIDER_REGISTRY,
 	type Preferences,
+	type ProviderId,
 	ensureFreshStoredCodexCredential,
 	ensureRegistered,
 	findDetected,
@@ -215,7 +219,20 @@ export async function createPalAgentSession(
 		(!binding.admitConversation && !binding.lease)
 	)
 		throw new Error('This Pal does not own the conversation or computer.')
-	const primary = { ...primaryProvider(prefs) }
+	// `model: auto` has no task to size when a Pal starts, so it resolves here,
+	// once, to `routing.default` when this machine can serve it; otherwise the
+	// Pal keeps its saved route. The concrete model is what the pin and the
+	// resume check below see: a Pal never re-routes mid-session.
+	const autoTarget = options.routing
+		? resolveAutoDefault(options.routing, (target) => {
+				const found = findDetected(detected, target.provider as ProviderId)
+				if (!found) return false
+				return found.entry.constructible && canSelectModel(found.entry, found.apiKey, target.model)
+			})
+		: undefined
+	const primary = autoTarget
+		? { id: autoTarget.provider as ProviderId, model: autoTarget.model }
+		: { ...primaryProvider(prefs) }
 	const entry = PROVIDER_REGISTRY[primary.id]
 	if (!entry) throw new Error('Unknown Pal model provider.')
 	await ensureRegistered(primary.id)
@@ -446,6 +463,10 @@ export async function createPalAgentSession(
 				)
 			}
 		}
+		// The same optional, advisory, fail-open `decide` tool the host mounts;
+		// whether to use it is the Pal's choice.
+		const decisionTool = maybeCreateDecisionTool(options.decision, process.env)
+		if (decisionTool) sets.push(toolset('decide', [decisionTool]))
 		manager = new ToolManager({ toolsets: sets, messages: () => [] })
 	}
 	await configureComputer(binding.readyComputer?.() ?? binding.lease)

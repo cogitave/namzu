@@ -11,9 +11,11 @@ import type {
 	BrowserConfig,
 	CompactionCliConfig,
 	ComposerTriggersConfig,
+	DecisionConfig,
 	HooksConfig,
 	MemoryCliConfig,
 	PluginConfig,
+	RoutingConfig,
 	SandboxConfig,
 	SkillsConfig,
 	TuiConfig,
@@ -139,6 +141,19 @@ export interface TuiContext {
 	readonly memory?: MemoryCliConfig
 	/** Configured per-turn limits, also applied when rebuilding a session. */
 	readonly limits?: TurnLimitsConfig
+	/** See `NamzuCliConfig.decision`. */
+	readonly decision?: DecisionConfig
+	/**
+	 * See `NamzuCliConfig.routing`. Present whenever the user config sets it:
+	 * its presence is what makes Auto an available choice in the model picker
+	 * and `/model auto`. Whether Auto is also the default is `autoDefault`.
+	 */
+	readonly routing?: RoutingConfig
+	/**
+	 * Auto is the default for this launch: `model: auto` is set and no model
+	 * was pinned with `--model`. Meaningless without `routing`.
+	 */
+	readonly autoDefault?: boolean
 	/**
 	 * See `NamzuCliConfig.toolResultScreens`.
 	 *
