@@ -40,52 +40,78 @@ list of agent kinds.
   declared, not inferred.
 - **`runAgent.ts`** — the entry a host calls.
 
-## The decided position: control flow is authored by a developer
+## The decided position: a model may author a workflow script, confined
 
-A model may choose *what* to do — which tool, which delegate, in what order
-within a turn. It does not author the *program* that runs those choices.
+Decided by the owner on **2026-10-18**, reversing the earlier refusal (D5,
+which kept control flow developer-authored). The earlier text named the bar a
+reopen had to clear: a written trust model before any code, a second
+execution surface worth its own maintenance, a measured gap. This section is
+the first; the second is the code under `execution/workflow/`; the third is
+the table below, still to be measured.
 
-The proposal this rules on is a model-emitted orchestration SCRIPT —
-`agent()`, `parallel()`, `pipeline()` as globals — executed in an isolate, so
-that logic between steps costs no model turns. It is refused, and the reason
-is the trust boundary rather than the feature's value.
+A model may choose *what* to do, and it may also author a **workflow script**:
+a program run once in the background that decides how many subagents run, with
+which prompts, in which order and under which phase titles. The runtime
+(`WorkflowRuntime`, `docs/sdk/workflows.md`) schedules them. A workflow's
+agents are not subagent rows and not separate notifications; the `Agent` tool
+stays the way a model starts one subagent.
 
-**The argument.** `bash` from a model is mediated by `packages/sandbox`
-because code from a model is untrusted input. A model-authored script is the
-same input through a different door, and a strictly more powerful one: it can
-call back into the agent surface, spawn delegates and spend budget, which a
-shell command reaching only the filesystem cannot. Running it in-process would
-leave the kernel's one clearly-drawn confinement boundary covering the weaker
-case and not the stronger. So an isolate is mandatory rather than an
-optimisation — and once it is mandatory, the capability costs a **second
-mediated execution surface** to secure, audit, version and keep in step with
-the first.
+### Trust model
 
-**What it would buy, measured honestly.** Model turns spent on orchestration
-between steps. That is real, and most of it is already available: `PipelineAgent`
-spends none, and `SupervisorAgent`'s concurrent `create_task` fan-out spends
-one turn for N children. The remaining gap is orchestration a developer did
-not anticipate and a model invents at runtime — which is also the case where a
-wrong program is hardest to review before it runs.
+1. **The script is untrusted model input**, exactly like a `bash` command
+   line. It is never evaluated in the host's Node process.
+2. **Confinement is the `run_code` interpreter**, not a new one. The script
+   runs in a fresh QuickJS WASM interpreter in a worker thread
+   (`execution/code-runtime`, `WorkerCodeRuntime`): no filesystem, network,
+   process, module loading or host timers; JSON-only crossings; a memory
+   ceiling; source and value size limits; a CPU interrupt on synchronous
+   loops. A workflow is a second *bridge* on that surface, not a second
+   interpreter. The workflow bridge differs in one respect: it bounds
+   interpreter CPU time (per synchronous stretch and in total) instead of the
+   run's wall clock while the script awaits its agents, because agents take
+   minutes.
+3. **One capability: `agent()`.** The bridge admits exactly one host call,
+   `agent`. It starts a subagent through the host's own delegation path (the
+   same permission mode and rules, sandbox, tool sets, accounting and
+   cancellation as the `Agent` tool), so a script cannot widen a grant, pick a
+   tool set the `Agent` tool could not, run a command or read a file. Prompts
+   are data. `parallel`, `pipeline`, `phase`, `log`, `args` and `budget` live
+   inside the interpreter. The host re-validates every call; the in-interpreter
+   prelude is convenience, never enforcement.
+4. **Review before it runs.** The host (WF2, the CLI tool) shows the script's
+   `meta`, the agent cap and the script text, and the operator approves once,
+   unless the session is in bypass. Headless sessions with no reviewer refuse
+   it unless in bypass.
+5. **Opt-in offering.** The tool is offered only when the operator asked for
+   orchestration (hypermode, the word "workflow", or a slash command or skill).
+6. **Limits.** Concurrent agents `min(8, cpus - 2)` (at most 16); agents per
+   run 200 (at most 1000); script source 256 KiB; interpreter memory 64 MiB;
+   one bridge value 1 MiB; an optional token budget that stops new agents;
+   all with plain errors.
+7. **Audit.** Every run is journaled: the script and its sha256, `meta`,
+   `args`, one record per `agent()` request and outcome, phase announcements,
+   `log()` lines and the final result. Each agent keeps its own transcript.
 
-## The bar a reopen has to clear
+Not in v1, each a later and separate decision: nested `workflow()`, worktree
+isolation, resume from a journal, saved or named workflows.
 
-Not "someone wants it". Specifically:
+### The measured gap (to be filled by WF3)
 
-1. **A decided trust model**, in writing, before any code: mediated by
-   `packages/sandbox` like `bash`, or not at all. "Decide later" is the
-   answer this refusal rejects.
-2. **A second execution surface worth its own maintenance** — its own
-   confinement, its own audit records, its own version story. If the answer
-   is "reuse the sandbox", show how a script that calls `agent()` is confined
-   by a boundary designed for a subprocess.
-3. **A measured gap**, against `PipelineAgent` and concurrent `create_task`
-   rather than against a single sequential agent. The comparison the original
-   proposal made was to the wrong baseline.
+Same tasks three ways with a real model: (a) one parent fanning out with
+labelled `Agent` calls, (b) concurrent `create_task`, (c) the workflow tool.
+Recorded per task: parent model requests, parent tokens, wall time, correctness.
 
-Recorded in `ses_020`'s decision log as D5. If the owner reverses it, replace
-this section rather than adding to it — two stances in one file is how the
-first one got lost.
+| Task | Way | Parent requests | Parent tokens | Wall time | Correct |
+| --- | --- | --- | --- | --- | --- |
+| 2 phases x 3 agents | (a) `Agent` fan-out | to measure | to measure | to measure | to measure |
+| 2 phases x 3 agents | (b) `create_task` | to measure | to measure | to measure | to measure |
+| 2 phases x 3 agents | (c) workflow | to measure | to measure | to measure | to measure |
+| 10-item pipeline | (a) `Agent` fan-out | to measure | to measure | to measure | to measure |
+| 10-item pipeline | (b) `create_task` | to measure | to measure | to measure | to measure |
+| 10-item pipeline | (c) workflow | to measure | to measure | to measure | to measure |
+
+If a later change reverses this again, replace this section rather than
+adding to it: two stances in one file is how the first one got lost.
 
 ## Working here
 

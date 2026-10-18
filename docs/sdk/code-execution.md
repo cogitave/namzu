@@ -75,6 +75,13 @@ operation may outlive it. Stopping the interpreter does not undo external effect
 Completed programs wait for admitted host operations within the same deadline.
 Interpreter globals never persist into the next program.
 
+A host that awaits long host operations (the [workflow runtime](workflows.md)) passes
+`cpuLimits: { sliceMs, totalMs }` to `run()`. The interpreter is then interrupted when
+one synchronous stretch exceeds `sliceMs` or all stretches together exceed `totalMs`;
+time spent waiting for the host is not counted, and `timeoutMs` still bounds the
+run. `onOutput(line)` receives each printed line as it is printed, within
+`maxOutputBytes`; treat it as untrusted text.
+
 Applications moving from the earlier Node-evaluated backend must use this
 JavaScript/JSON contract and choose explicit limits for larger workloads. A
 custom `CodeRuntime` must still satisfy the no-ambient-capability, cancellation

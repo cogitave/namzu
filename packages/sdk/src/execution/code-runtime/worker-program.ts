@@ -18,7 +18,33 @@ async function main() {
 	const runtime = module.newRuntime()
 	runtime.setMemoryLimit(limits.memoryLimitBytes)
 	runtime.setMaxStackSize(512 * 1024)
-	runtime.setInterruptHandler(() => Date.now() >= workerData.deadline)
+	// Two ways to bound a program's synchronous execution. Default: one wall
+	// deadline for the whole run. With \`cpu\`: a budget per synchronous slice
+	// (each entry into the interpreter) and a total across slices, so a program
+	// that spends hours AWAITING the host is not stopped, but a busy loop is.
+	const cpu = workerData.cpu
+	let sliceDepth = 0
+	let sliceStart = 0
+	let cpuUsed = 0
+	let interrupted = false
+	function inSlice(fn) {
+		if (!cpu) return fn()
+		if (sliceDepth === 0) sliceStart = Date.now()
+		sliceDepth++
+		try { return fn() }
+		finally {
+			sliceDepth--
+			if (sliceDepth === 0) cpuUsed += Date.now() - sliceStart
+		}
+	}
+	runtime.setInterruptHandler(() => {
+		const now = Date.now()
+		const stop = cpu
+			? sliceDepth > 0 && (now - sliceStart >= cpu.sliceMs || cpuUsed + (now - sliceStart) >= cpu.totalMs)
+			: now >= workerData.deadline
+		if (stop) interrupted = true
+		return stop
+	})
 	const vm = runtime.newContext()
 	const pending = new Map()
 	let nextId = 0
@@ -114,7 +140,7 @@ async function main() {
 		parentPort.postMessage(message)
 	}
 	function fail(error) {
-		finish(Date.now() >= workerData.deadline
+		finish(interrupted || Date.now() >= workerData.deadline
 			? { kind: 'timed-out' }
 			: { kind: 'error', error: String(error && error.message || error).slice(0, 4096) })
 	}
@@ -125,8 +151,17 @@ async function main() {
 	}
 	function pump() {
 		if (ended || pumping) return
+		inSlice(pumpOnce)
+	}
+	function pumpOnce() {
 		pumping = true
 		try {
+			// A program that never lets one slice run long (a loop of awaited
+			// microtasks) is still bounded by the total CPU budget.
+			if (cpu && cpuUsed >= cpu.totalMs) {
+				interrupted = true
+				throw new Error('The program used its CPU budget.')
+			}
 			const jobs = runtime.executePendingJobs(32)
 			if (jobs.error) {
 				const error = failureText(jobs.error)
@@ -207,6 +242,7 @@ async function main() {
 		if (!deferred) return
 		pending.delete(message.id)
 		try {
+			inSlice(() => {
 			if (message.ok) {
 				let value = vm.undefined
 				if (message.json !== undefined) {
@@ -223,16 +259,19 @@ async function main() {
 				error.dispose()
 			}
 			deferred.dispose()
+			})
 			schedule()
 		} catch (error) { deferred.dispose(); fail(error) }
 	})
 	try {
-		const result = vm.evalCode('(async () => {\\n' + workerData.source + '\\n})()', 'model-program.js')
-		if (result.error) {
-			const error = failureText(result.error)
-			result.error.dispose()
-			fail(new Error(error))
-		} else { program = result.value; pump() }
+		inSlice(() => {
+			const result = vm.evalCode('(async () => {\\n' + workerData.source + '\\n})()', 'model-program.js')
+			if (result.error) {
+				const error = failureText(result.error)
+				result.error.dispose()
+				fail(new Error(error))
+			} else { program = result.value; pump() }
+		})
 	} catch (error) { fail(error) }
 }
 main().catch((error) => parentPort.postMessage({ kind: 'error', error: String(error && error.message || error).slice(0, 4096) }))
