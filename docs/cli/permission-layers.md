@@ -44,6 +44,10 @@ What the answer remembers, as the reference suggests it:
 
 An answer never covers a call that is asked every time: a sandbox escape, a path outside the roots, a protected path, a catastrophic removal, a rule's `ask`, a destructive call. A `deny` in any layer still beats it.
 
+## Shell commands that run without a prompt
+
+`ls`, `cat`, `git status`, `git diff` and the other commands on the reference's read-only list run without a prompt in `prompt` and `accept-edits`, and in `plan`. The list, the conditions and what is not ported are in [The bash tool](../sdk/bash-tool.md#read-only-lines). The path floor still applies: a read-only command that reads outside the working directory and added directories is asked about.
+
 ## Upgrading
 
 If you relied on a project or managed table replacing a user's rules, move the rule you wanted gone out of the lower file; there is no way for a higher layer to switch a lower layer's deny off, by design. A rule that used to be hidden by a higher layer's table now applies again, which can ask about or refuse calls that used to run.

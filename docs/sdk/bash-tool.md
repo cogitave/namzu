@@ -54,6 +54,20 @@ finishing turn open until exit. It does not establish service health. The
 registry API, byte cursors, independent pipe matching, cancellation and explicit
 retention gaps are described in [Observing background output](tool-execution.md#observing-background-output).
 
+## Read-only lines
+
+`isReadOnly` and `isConcurrencySafe` of the builtin tool are decided per call from the command line (`isReadOnlyCommandLine`, `authorization/readonly-commands.ts`). A line is read-only when every command in it is on the reference terminal's vetted list and nothing in it is decided at run time. A read-only call runs without review in `prompt` and `accept-edits`, is allowed in `plan`, and runs beside other read-only calls instead of alone.
+
+What is vetted, from the reference (2.1.302):
+
+- Commands that read and print, with any arguments: `cat`, `head`, `tail`, `wc`, `stat`, `ls`, `echo`, `diff`, `du`, `df`, `id`, `uname`, `basename`, `dirname`, `realpath`, `readlink`, `cut`, `tr`, `column`, `sort`-free helpers such as `tac`, `rev`, `fold`, `fmt`, `nl`, `od`, `hexdump`, `strings`, `cmp`, `comm`, `paste`, `which`, `type`, `seq`, `sleep`, `true`, `false` and the rest of that list.
+- Commands with fixed shapes: `pwd`, `whoami`, `alias` (no arguments), `cd` (one), `history [N]`, `arch [-h]`, `ifconfig [iface]`, `ip addr`, `node -v`, `python3 --version`, `claude -h`, `docker ps|images` (not pointed at another host or context), `uniq` (flags only), `jq` (not `-f`, `env`, `include`), `find` without `-delete`, `-exec`, `-execdir`, `-ok`, `-okdir`, `-fprint*`, `-fls`, `-files0-from`.
+- Commands whose every flag must be in a table with the kind of value it takes: `git diff`, `status`, `log`, `show`, `shortlog`, `blame`, `branch`, `tag`, `ls-files`, `ls-remote`, `cat-file`, `describe`, `for-each-ref`, `grep`, `merge-base`, `reflog`, `remote`, `remote show`, `rev-list`, `rev-parse`, `stash list`, `stash show`, `worktree list`, `config --get`; `grep`/`egrep`/`fgrep`, `rg`, `file`, `sort`, `tree`, `base64`, `sha256sum`/`sha1sum`/`md5sum`. A flag in no table refuses the line, which is why `git diff --output=f`, `git -c k=v status`, `--exec-path` and `--config-env` are never read-only, and why `git fetch` is not on the list. `git branch` and `git tag` are read-only only when listing; a name that would create one is not.
+
+What refuses a line: a `$` outside single quotes, a substitution, a subshell, a group, a background `&`, a here-document, a redirection other than to `/dev/null` or a descriptor copy or an input from a plain file, a `~user` or UNC path, a glob on a command that is not a plain reader, a leading assignment other than the reference's harmless set (`LANG`, `TZ`, `NO_COLOR`, ...), `cd` next to `git`, a program written with a path or in quotes, and a call that runs in the background or leaves the sandbox.
+
+A read-only line is still subject to the path floor: `cat /etc/hosts` outside the roots is asked about. Not ported from the reference: `sed`, `ps`, `lsof`, `ss`, `date`, `man`, `xargs`, `fd`, `gh`, `docker logs|inspect`, `printf`, `[[`, `test`, and its check of the working directory for a planted bare repository.
+
 ## Job-exit delivery to a host
 
 A host can pass a session-owned `BackgroundJobRegistry` as
