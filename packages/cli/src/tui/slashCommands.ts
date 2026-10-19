@@ -1579,7 +1579,7 @@ function hypermodeAction(args: readonly string[], via?: 'orchestrate'): SlashAct
 export function renderHooks(hooks: HooksConfig | undefined): string {
 	const events = Object.entries(hooks ?? {}).filter(([, entries]) => (entries?.length ?? 0) > 0)
 	if (events.length === 0) {
-		return 'No hooks. Add a `hooks` key to namzu.config.json or ~/.namzu/config.yaml: event → list of { command, matcher?, timeoutMs? }.'
+		return 'No hooks. Add a `hooks` key to namzu.config.json or ~/.namzu/config.yaml: event → list of { command, matcher?, timeoutMs?, if?, once?, statusMessage? }.'
 	}
 	const lines: string[] = []
 	for (const [event, entries] of events) {
@@ -1588,7 +1588,9 @@ export function renderHooks(hooks: HooksConfig | undefined): string {
 			const when = entry.matcher ? ` · matches ${entry.matcher}` : ''
 			const deadline =
 				entry.timeoutMs !== undefined ? ` · ${Math.round(entry.timeoutMs / 1000)}s` : ''
-			lines.push(`  ${entry.command}${when}${deadline}`)
+			const filter = entry.if ? ` · if ${entry.if}` : ''
+			const once = entry.once ? ' · once' : ''
+			lines.push(`  ${entry.command}${when}${filter}${once}${deadline}`)
 		}
 	}
 	return lines.join('\n')

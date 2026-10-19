@@ -4183,6 +4183,30 @@ export function App({
 
 	const sendTerminalNotification = useCallback(
 		(notification: TerminalNotification) => {
+			// The hooks hear about every moment the operator's attention is wanted,
+			// whether or not a terminal notification is configured: a script may be
+			// the only thing that reaches them.
+			if (notification.kind === 'approval-required') {
+				session?.notifyHooks?.({
+					type: 'approval_required',
+					message: 'A tool call is waiting for approval.',
+				})
+			} else if (notification.kind === 'idle-prompt') {
+				session?.notifyHooks?.({
+					type: 'idle_prompt',
+					message: 'Namzu is waiting for your input.',
+				})
+			} else {
+				session?.notifyHooks?.({
+					type: 'turn_settled',
+					message:
+						notification.outcome === 'completed'
+							? 'The turn completed.'
+							: notification.outcome === 'stopped'
+								? 'The turn stopped and needs attention.'
+								: 'The turn failed.',
+				})
+			}
 			if (!terminalNotificationEnabled(ctx.tui?.notifications, notification)) return
 			const result = writeTerminalNotification(
 				notification,
@@ -4199,7 +4223,7 @@ export function App({
 					: `Could not send a terminal notification request: ${result.detail}. No further notification failures will be shown.`,
 			)
 		},
-		[ctx.tui, pushMessage, stdout.isTTY, writeStdout],
+		[ctx.tui, pushMessage, session, stdout.isTTY, writeStdout],
 	)
 
 	const appendToMessage = useCallback((id: string, delta: string) => {
@@ -6831,6 +6855,12 @@ export function App({
 					st.assistantId = null
 					if (abandoned) setMessages((prev) => prev.filter((m) => m.id !== abandoned))
 				}
+			} else if (event.kind === 'hook-status') {
+				// A hook's own words for what it is doing, on the same line and with
+				// the same lifetime: until anything else arrives.
+				const hookNotice: ProviderWaitNotice = { what: event.text }
+				providerWaitNoticeRef.current = hookNotice
+				setProviderWaitNotice(hookNotice)
 			} else if (providerWaitNoticeRef.current !== null) {
 				providerWaitNoticeRef.current = null
 				setProviderWaitNotice(null)
@@ -7408,6 +7438,9 @@ export function App({
 							reclaimedTokens: tally.reclaimedTokens + (event.reclaimedTokens ?? 0),
 						}))
 					}
+					break
+				case 'hook-notice':
+					pushMessage('system', event.text, false, '!')
 					break
 				case 'provider-fallback':
 					// The transcript, for the reason compaction is in the transcript

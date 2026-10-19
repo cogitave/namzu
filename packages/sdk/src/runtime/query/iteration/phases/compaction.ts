@@ -535,9 +535,10 @@ async function recordShed(
 
 /**
  * A pass, once the check decided to run one, is bracketed by the
- * `pre_compact` and `post_compact` hooks. Observational: a hook sees the
- * numbers and cannot stop the pass, because a context the provider will
- * reject is not a thing a hook may insist on.
+ * `pre_compact` and `post_compact` hooks. A hook sees the numbers and may
+ * cancel a pass the threshold asked for (`skip`), and cannot stop one the
+ * provider forced, because a context the provider will reject is not a thing
+ * a hook may insist on.
  */
 interface CompactionPass {
 	attempted: boolean
@@ -655,6 +656,25 @@ async function runCompactionCheckInner(
 			ctx.emitEvent,
 		)
 		applyLifecycleHookResults('pre_compact', results)
+		const refusal = results.find((result) => result.action === 'skip')
+		if (refusal?.action === 'skip') {
+			// A threshold pass is the context's own housekeeping and a hook may
+			// postpone it. A forced pass runs because the provider rejected the
+			// prompt: a context it will reject is not something a hook may insist
+			// on, so the refusal is reported and the pass runs.
+			if (!options?.force) {
+				pass.attempted = false
+				ctx.log.info('A pre_compact hook cancelled the compaction pass', {
+					[NAMZU.TURN_ID]: ctx.recorder.turnId,
+					'namzu.hook.reason': refusal.reason,
+				})
+				return
+			}
+			ctx.log.warn('A pre_compact hook asked to cancel a compaction the provider forced; it ran', {
+				[NAMZU.TURN_ID]: ctx.recorder.turnId,
+				'namzu.hook.reason': refusal.reason,
+			})
+		}
 	}
 
 	// A reducer, when the turn has one, OWNS reduction — the structured pass

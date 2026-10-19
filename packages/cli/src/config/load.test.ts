@@ -738,6 +738,56 @@ describe('hooks', () => {
 		}
 	})
 
+	it('reads the new events and the `if`, `once` and `statusMessage` options', () => {
+		const home = mkdtempSync(join(tmpdir(), 'namzu-hooks-'))
+		mkdirSync(join(home, '.namzu'), { recursive: true })
+		writeFileSync(
+			join(home, '.namzu', 'config.yaml'),
+			[
+				'hooks:',
+				'  post_tool_use_failure:',
+				'    - command: ./why.sh',
+				'  permission_request:',
+				'    - matcher: "^(bash|write)$"',
+				'      command: ./decide.sh',
+				'  notification:',
+				'    - matcher: approval_required',
+				'      command: notify-send waiting',
+				'  pre_tool_use:',
+				'    - if: "Bash(git push *)"',
+				'      once: true',
+				'      statusMessage: Checking the push',
+				'      command: ./guard.sh',
+				'',
+			].join('\n'),
+		)
+		expect(loadConfig({ home, cwd: tmpdir(), env: {} }).hooks).toEqual({
+			post_tool_use_failure: [{ command: './why.sh' }],
+			permission_request: [{ matcher: '^(bash|write)$', command: './decide.sh' }],
+			notification: [{ matcher: 'approval_required', command: 'notify-send waiting' }],
+			pre_tool_use: [
+				{
+					command: './guard.sh',
+					if: 'Bash(git push *)',
+					once: true,
+					statusMessage: 'Checking the push',
+				},
+			],
+		})
+
+		for (const [bad, path] of [
+			['hooks:\n  turn_end:\n    - command: x\n      if: 3\n', 'hooks.turn_end[0].if'],
+			['hooks:\n  turn_end:\n    - command: x\n      once: soon\n', 'hooks.turn_end[0].once'],
+			[
+				'hooks:\n  turn_end:\n    - command: x\n      statusMessage: ""\n',
+				'hooks.turn_end[0].statusMessage',
+			],
+		]) {
+			writeFileSync(join(home, '.namzu', 'config.yaml'), bad)
+			expect(() => loadConfig({ home, cwd: tmpdir(), env: {} }), bad).toThrow(path)
+		}
+	})
+
 	it('is not settable from the environment', () => {
 		const home = mkdtempSync(join(tmpdir(), 'namzu-hooks-'))
 		expect(loadConfig({ home, cwd: tmpdir(), env: { NAMZU_HOOKS: 'x' } }).hooks).toBeUndefined()

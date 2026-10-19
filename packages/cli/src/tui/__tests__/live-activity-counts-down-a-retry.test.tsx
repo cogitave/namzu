@@ -57,3 +57,22 @@ it('says what is wrong in plain words from the third try, or at once for no conn
 	expect(at('network', 1)).toBe('Namzu could not reach OpenAI.')
 	expect(at('rate_limit', 1, 429)).toBe('OpenAI is limiting requests.')
 })
+
+it("shows a hook's own status line without a retry clock", () => {
+	const view = render(
+		<LiveActivity
+			activeTools={[]}
+			working
+			interruptible
+			animate={false}
+			waitNotice={{ what: 'Checking the change' }}
+		/>,
+	)
+	try {
+		const frame = view.lastFrame() ?? ''
+		expect(frame).toContain('Checking the change')
+		expect(frame).not.toContain('Retrying')
+	} finally {
+		view.unmount()
+	}
+})

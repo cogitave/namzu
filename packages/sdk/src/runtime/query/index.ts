@@ -1697,6 +1697,8 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 			agentBus: params.agentBus,
 			verificationGate,
 			pluginManager: params.pluginManager,
+			...(params.parentSessionId !== undefined ? { parentSessionId: params.parentSessionId } : {}),
+			...(params.parentTurnId !== undefined ? { parentTurnId: params.parentTurnId } : {}),
 		})
 
 		const tracer = getTracer()
@@ -2520,6 +2522,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 					params,
 					eventTranslator,
 					takeSteps: () => iterationOrchestrator.getSteps(),
+					turnEndHooksFired: () => iterationOrchestrator.turnEndHooksFired,
 					workingStateManager,
 					resultAssembler,
 					rootSpan,

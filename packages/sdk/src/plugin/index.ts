@@ -12,6 +12,7 @@ export {
 	runShellHook,
 	SHELL_HOOK_EVENTS,
 	SHELL_HOOKS_PLUGIN_ID,
+	shellHookIfMatches,
 	shellHookMatches,
 	shellHookVerdict,
 } from './shell-hook.js'

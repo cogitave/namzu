@@ -55,6 +55,14 @@ export type HITLResumeDecision =
 			 * listed here for an unmarked call is ignored rather than trusted.
 			 */
 			skillGranted?: readonly string[]
+			/**
+			 * Ids of calls approved on the strength of a `pre_tool_use` hook's
+			 * `allow` ({@link ToolCallSummary.hookGrant}), with nobody asked.
+			 *
+			 * Audited like `skillGranted`, and ignored for any id whose call did
+			 * not carry the mark.
+			 */
+			hookGranted?: readonly string[]
 	  }
 	| {
 			action: 'modify_tools'
@@ -176,6 +184,28 @@ export interface ToolCallSummary {
 	 * and `strict`. A host's own handler may ignore it.
 	 */
 	skillGrant?: { readonly skill: string }
+	/**
+	 * What a `pre_tool_use` hook answered about approving this call, as the
+	 * hooks reported it. `ask` is acted on by the kernel (it makes the call an
+	 * explicit review); `allow` is acted on only through {@link hookGrant}.
+	 */
+	hookPermission?: {
+		readonly decision: 'allow' | 'ask'
+		readonly reason?: string
+	}
+	/**
+	 * Present when a `pre_tool_use` hook said `allow` and nothing stronger
+	 * stands in the way.
+	 *
+	 * Marked on the same terms as {@link skillGrant}: only a call the
+	 * operator's policy left to review (no `deny`, no explicit `ask` rule, no
+	 * hook `ask`), that is not destructive, carries no {@link escalation} and
+	 * is not one the tool always asks about. A sandbox escape, a path outside
+	 * the roots, a tool's own `requiresApproval`, a rule's review and the
+	 * dangerous-pattern floor therefore all still reach a person, or refuse.
+	 * `plan` and `strict` refuse a marked call exactly as they refuse any other.
+	 */
+	hookGrant?: { readonly reason?: string }
 }
 
 /** See {@link ToolCallSummary.escalation}. */

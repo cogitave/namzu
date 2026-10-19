@@ -32,7 +32,7 @@ import {
 	createToolMessage,
 } from '../../types/message/index.js'
 import type { PermissionMode } from '../../types/permission/index.js'
-import type { PluginHookResult } from '../../types/plugin/index.js'
+import type { PluginHookPermission, PluginHookResult } from '../../types/plugin/index.js'
 import type { ChatCompletionResponse } from '../../types/provider/index.js'
 import type { Sandbox } from '../../types/sandbox/index.js'
 import type { AuditEventInput } from '../../types/session/audit.js'
@@ -65,6 +65,7 @@ import { type BackgroundJobRegistry, type JobProcess, bindOwner } from '../jobs/
 import {
 	type ToolAdmissionHost,
 	formatFailedToolOutput,
+	hookNote,
 	isUnregistered,
 	prepareDirectCall,
 	runPreToolHook,
@@ -97,6 +98,7 @@ export type PreparedDirectCall =
 			readonly toolName: string
 			readonly input: unknown
 			readonly prepared: PreparedToolExecution
+			readonly hook?: PreToolHookNotes
 	  }
 	| {
 			readonly kind: 'legacy'
@@ -104,6 +106,7 @@ export type PreparedDirectCall =
 			readonly toolName: string
 			readonly input: unknown
 			readonly inputFailure?: CompletedToolRecord['inputFailure']
+			readonly hook?: PreToolHookNotes
 	  }
 	| {
 			readonly kind: 'synthetic'
@@ -132,12 +135,24 @@ export interface PreparedToolBatch {
 		readonly input: unknown
 		/** What the prepared value reaches past the turn's boundary; see `ToolCallSummary.escalation`. */
 		readonly escalation?: ToolCallEscalation
+		/** What a `pre_tool_use` hook asked for this call's approval; see `ToolCallSummary.hookPermission`. */
+		readonly hookPermission?: PluginHookPermission
 	}[]
 }
 
 interface OwnedPreparedToolBatch extends PreparedToolBatch {
 	readonly calls: ReadonlyMap<string, PreparedDirectCall>
 	readonly escalations: ReadonlyMap<string, ToolCallEscalation>
+}
+
+/**
+ * A nested call cannot open a review from inside the tool that issued it, so
+ * a hook that asked for a person to approve it can only be answered with a
+ * refusal. Silence would run the call the hook wanted a person to see.
+ */
+function askedNestedMessage(toolName: string, outcome: PreToolHookOutcome): string | undefined {
+	if (outcome.kind !== 'continue' || outcome.permission?.decision !== 'ask') return undefined
+	return `Blocked: a hook asked that a person approve "${toolName}", and an approval cannot be requested from inside another tool. Call it directly.`
 }
 
 function assertUniqueToolCallIds(toolCalls: readonly ToolCall[]): void {
@@ -498,8 +513,16 @@ interface PostToolOverride {
 	readonly content?: ToolResultContent
 }
 
+/** What `pre_tool_use` hooks said about a call beyond running it or not. */
+export interface PreToolHookNotes {
+	/** The strictest permission answer among the hooks: `ask` outranks `allow`. */
+	readonly permission?: PluginHookPermission
+	/** Hook text for the model, appended to what it reads of this call. */
+	readonly context?: string
+}
+
 export type PreToolHookOutcome =
-	| { kind: 'continue'; input: unknown; modified: boolean }
+	| ({ kind: 'continue'; input: unknown; modified: boolean } & PreToolHookNotes)
 	| { kind: 'skip'; input: unknown; output: string }
 	| { kind: 'error'; input: unknown; output: string }
 
@@ -1146,11 +1169,13 @@ export class ToolExecutor {
 			)
 			.map((call) => {
 				const escalation = escalations.get(call.toolCall.id)
+				const hookPermission = call.hook?.permission
 				return {
 					id: call.toolCall.id,
 					name: call.toolName,
 					input: call.input,
 					...(escalation ? { escalation } : {}),
+					...(hookPermission ? { hookPermission } : {}),
 				}
 			})
 		const batch: OwnedPreparedToolBatch = Object.freeze({
@@ -1926,8 +1951,10 @@ export class ToolExecutor {
 		let input: unknown
 		let prepared: PreparedToolExecution | undefined
 		let inputFailure: ToolCallOutcome['inputFailure']
+		let preparedHookContext: string | undefined
 
 		if (preparedCall?.kind === 'ready' || preparedCall?.kind === 'legacy') {
+			preparedHookContext = preparedCall.hook?.context
 			input = preparedCall.input
 			prepared = preparedCall.kind === 'ready' ? preparedCall.prepared : undefined
 			if (preparedCall.kind === 'legacy') inputFailure = preparedCall.inputFailure
@@ -1948,6 +1975,7 @@ export class ToolExecutor {
 			if (admitted.kind === 'synthetic') return this.recordSyntheticPreparation(admitted)
 			toolName = admitted.toolName
 			input = admitted.input
+			preparedHookContext = admitted.hook?.context
 			prepared = admitted.kind === 'ready' ? admitted.prepared : undefined
 			if (admitted.kind === 'legacy') inputFailure = admitted.inputFailure
 		}
@@ -2213,13 +2241,26 @@ export class ToolExecutor {
 			})
 		}
 		output = budgeted.output
-		const modelContent =
+		let modelContent =
 			selectedContent === undefined
 				? undefined
 				: this.budgetContent(selectedContent, toolName, toolCall.id, {
 						sourceOutput,
 						budgeted,
 					})
+		// What hooks said about this call rides with its result, in the model's
+		// receipt and the host's alike, framed as a hook's words. Added after
+		// the output budget so a bounded result is never trimmed to make room
+		// for it; the note has its own bound (`hookNote`).
+		const hookTexts = [preparedHookContext, post.context].filter(
+			(text): text is string => text !== undefined && text.length > 0,
+		)
+		if (hookTexts.length > 0) {
+			const note = hookNote(hookTexts)
+			output = `${output}\n\n${note}`
+			if (typeof modelContent === 'string') modelContent = `${modelContent}\n\n${note}`
+			else if (modelContent) modelContent = [...modelContent, { type: 'text', text: note }]
+		}
 
 		// A failed call, or an override that says the call failed. A `replace`
 		// says the opposite, and reading it as a failure is what made redaction
@@ -2566,7 +2607,23 @@ export class ToolExecutor {
 			emitEvent: this.emitEvent,
 			log: this.log,
 			allowedTools: this.effectiveAllowedTools(),
+			requestHalt: (reason) => this.requestHalt(reason),
 		}
+	}
+
+	/** Why a hook asked for the turn to stop, until the iteration loop reads it. */
+	private haltReason: string | undefined
+
+	/** The first request wins: a later hook does not rewrite why the turn stopped. */
+	requestHalt(reason: string): void {
+		this.haltReason ??= reason
+	}
+
+	/** Read and clear a hook's request to stop the turn. */
+	takeHalt(): string | undefined {
+		const reason = this.haltReason
+		this.haltReason = undefined
+		return reason
 	}
 
 	private async prepareNestedCall(
@@ -2596,6 +2653,14 @@ export class ToolExecutor {
 					...(preOutcome.kind === 'skip' ? { skipped: true as const } : {}),
 				}
 			}
+			const nestedAsk = askedNestedMessage(toolName, preOutcome)
+			if (nestedAsk)
+				return {
+					kind: 'synthetic',
+					input: preOutcome.input,
+					message: nestedAsk,
+					isError: true,
+				}
 			return { kind: 'legacy', input: preOutcome.input }
 		}
 
@@ -2639,6 +2704,15 @@ export class ToolExecutor {
 				message: preOutcome.output,
 				isError: preOutcome.kind === 'error',
 				...(preOutcome.kind === 'skip' ? { skipped: true as const } : {}),
+			}
+		}
+		const nestedAsk = askedNestedMessage(toolName, preOutcome)
+		if (nestedAsk) {
+			return {
+				kind: 'synthetic',
+				input: preOutcome.input,
+				message: nestedAsk,
+				isError: true,
 			}
 		}
 		if (!preOutcome.modified) {
@@ -2699,12 +2773,17 @@ export class ToolExecutor {
 	/**
 	 * @returns `override` — text replacing the tool's output, or `null`.
 	 *   `retry` — the hook asked for the tool to run again.
+	 *   `context` — what the hooks want the model to read beside the result.
 	 */
 	private async runPostToolHook(
 		toolName: string,
 		input: unknown,
 		toolResult: ToolResult,
-	): Promise<{ override: PostToolOverride | null; retry: boolean }> {
+	): Promise<{
+		override: PostToolOverride | null
+		retry: boolean
+		context?: string
+	}> {
 		if (!this.config.pluginManager) return { override: null, retry: false }
 		let results: PluginHookResult[]
 		try {
@@ -2720,6 +2799,26 @@ export class ToolExecutor {
 				},
 				this.emitEvent,
 			)
+			// A failed call is announced a second time, by name, so a hook that
+			// only cares about failures need not read every result. After
+			// `post_tool_use`, so the existing hooks see exactly what they saw.
+			if (!toolResult.success) {
+				results = [
+					...results,
+					...(await this.config.pluginManager.executeHooks(
+						'post_tool_use_failure',
+						{
+							sessionId: this.config.sessionId,
+							turnId: this.config.turnId,
+							toolName,
+							toolInput: input,
+							toolResult,
+							signal: this.config.abortSignal,
+						},
+						this.emitEvent,
+					)),
+				]
+			}
 		} catch (error) {
 			if (!this.config.abortSignal.aborted) throw error
 			// The tool has already returned. Cancellation of a later redaction
@@ -2736,9 +2835,12 @@ export class ToolExecutor {
 		}
 		let override: PostToolOverride | null = null
 		let retry = false
+		const contexts: string[] = []
 		for (const result of results) {
 			switch (result.action) {
 				case 'continue':
+					if (result.context) contexts.push(result.context)
+					if (result.halt) this.requestHalt(result.halt.reason)
 					continue
 				case 'error':
 					override = { output: `Error: ${result.message}`, isError: true }
@@ -2774,7 +2876,11 @@ export class ToolExecutor {
 				}
 			}
 		}
-		return { override, retry }
+		return {
+			override,
+			retry,
+			...(contexts.length > 0 ? { context: contexts.join('\n') } : {}),
+		}
 	}
 
 	/**

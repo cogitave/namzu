@@ -7,6 +7,7 @@
 
 import {
 	type Message,
+	type PluginNotificationInfo,
 	type StopReason,
 	createAssistantMessage,
 	createUserMessage,
@@ -43,6 +44,7 @@ type NotificationRequest = {
 }
 
 const requests: NotificationRequest[] = []
+const hookNotices: PluginNotificationInfo[] = []
 const results: TerminalNotificationResult[] = []
 const scripts: TurnScript[] = []
 const gates: Array<{
@@ -150,6 +152,9 @@ vi.mock('../agent.js', async (importOriginal) => {
 				throw new Error('resumePaused is not part of this test')
 			},
 			close: async () => {},
+			notifyHooks: (info) => {
+				hookNotices.push(info)
+			},
 			send: async function* (messages, opts): AsyncIterable<AgentEvent> {
 				const turn = sendCalls
 				sendCalls += 1
@@ -233,6 +238,7 @@ const mounted: { unmount: () => void }[] = []
 
 beforeEach(() => {
 	requests.length = 0
+	hookNotices.length = 0
 	results.length = 0
 	scripts.length = 0
 	gates.length = 0
@@ -569,6 +575,20 @@ describe('the idle notice', () => {
 		expect(requests).toEqual([{ notification: { kind: 'idle-prompt' }, method: 'osc9' }])
 		await vi.advanceTimersByTimeAsync(180_000)
 		expect(requests, 'one completion is announced once').toHaveLength(1)
+	})
+
+	it('also reaches the notification hooks, beside the two original events', async () => {
+		vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'], shouldAdvanceTime: true })
+		scripts.push({ outcome: 'completed' })
+		const harness = await mountReady({ notifications: ['idle-prompt'] })
+
+		await submit(harness, 'go')
+		await waitUntil(() => sendCalls === 1)
+		await tick(80)
+		await vi.advanceTimersByTimeAsync(61_000)
+
+		expect(hookNotices.map((notice) => notice.type)).toEqual(['turn_settled', 'idle_prompt'])
+		expect(hookNotices.at(-1)?.message).toBe('Namzu is waiting for your input.')
 	})
 
 	it('is not sent when the person pressed a key in the meantime', async () => {

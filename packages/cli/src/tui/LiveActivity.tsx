@@ -123,7 +123,7 @@ export function LiveActivity({
 		pausedRef.current.total += Date.now() - pausedRef.current.since
 		pausedRef.current.since = null
 	}
-	useSecondTick(waitNotice !== null)
+	useSecondTick(waitNotice?.retryAt !== undefined)
 	const { frame: tick } = useAnimation({
 		isActive: active && motion && !waitingForYou,
 		interval: 120,
@@ -170,8 +170,12 @@ export function LiveActivity({
 	const noticeRow = waitNotice ? (
 		<Box paddingLeft={2}>
 			<Text wrap="truncate-end">
-				<Text color={theme.status.error}>● {terminalDisplayText(waitNotice.what)}</Text>
-				<Text color={theme.text.muted}> · {describeProviderWaitClock(waitNotice, now)}</Text>
+				<Text color={waitNotice.retryAt === undefined ? theme.text.muted : theme.status.error}>
+					● {terminalDisplayText(waitNotice.what)}
+				</Text>
+				{waitNotice.retryAt === undefined ? null : (
+					<Text color={theme.text.muted}> · {describeProviderWaitClock(waitNotice, now)}</Text>
+				)}
 			</Text>
 		</Box>
 	) : null

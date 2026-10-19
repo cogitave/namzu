@@ -998,6 +998,8 @@ type CoreSessionEvent =
 			turnId?: TurnId
 			pluginId: PluginId
 			hookEvent: PluginHookEvent
+			/** The hook's own text for a status line while it runs, when it declared one. */
+			statusMessage?: string
 	  }
 	| {
 			type: 'plugin_hook_completed'

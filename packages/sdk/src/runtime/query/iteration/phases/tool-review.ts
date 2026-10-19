@@ -12,6 +12,7 @@ import {
 	replaceProjectInstructionSnapshot,
 } from '../../project-instructions.js'
 import { attachRepeatNotice } from '../../repeat-call.js'
+import { isReviewExempt } from '../../review-policy.js'
 import { attachNotice, attachSteering, formatJobNote } from '../../steering.js'
 import { type IterationContext, awaitDecisionDurably } from './context.js'
 
@@ -34,6 +35,12 @@ function escalationReason(escalation: ToolCallSummary['escalation']): string {
 	if (escalation?.outsidePaths?.length)
 		return `this call reaches ${escalation.outsidePaths.length === 1 ? 'a path' : 'paths'} outside the turn's boundary`
 	return "this call reaches past the turn's boundary, which a rule cannot approve on its own"
+}
+
+function hookAskedReason(reason: string | undefined): string {
+	return reason
+		? `a hook asked that a person approve this call: ${reason}`
+		: 'a hook asked that a person approve this call'
 }
 
 export type ToolReviewDecision = 'executed' | 'rejected' | 'stop'
@@ -130,15 +137,27 @@ export async function* runToolReview(
 			const isDestructive = tool?.isDestructive ? tool.isDestructive(tc.input) : false
 			const requiresApproval = tool?.requiresApproval ? tool.requiresApproval(tc.input) : false
 			const escalation = 'escalation' in tc ? tc.escalation : undefined
+			const hookPermission = 'hookPermission' in tc ? tc.hookPermission : undefined
 
 			return {
 				id: tc.id,
 				name: tc.name,
 				input: tc.input,
 				isDestructive,
-				authorization: { decision: 'review' },
+				// A hook that asked for a person is an explicit review: a call the
+				// tool declares read-only, or one a rule would allow, is still put
+				// to one.
+				authorization:
+					hookPermission?.decision === 'ask'
+						? {
+								decision: 'review' as const,
+								reason: hookAskedReason(hookPermission.reason),
+								explicitReview: true as const,
+							}
+						: { decision: 'review' as const },
 				...(requiresApproval ? { requiresApproval: true as const } : {}),
 				...(escalation ? { escalation } : {}),
+				...(hookPermission ? { hookPermission } : {}),
 			}
 		})
 	}
@@ -443,11 +462,21 @@ export async function* runToolReview(
 					reason: `${gr.gateResult.reason}; but the tool itself declares this call always needs a person's approval, which a rule cannot waive`,
 				}
 			}
+			// A hook that asked for a person can only ADD a review, like the two
+			// overrides above: a `deny` stays a denial.
+			const hookAsked = gr.toolCall.hookPermission?.decision === 'ask'
+			if (hookAsked && gr.gateResult.decision === 'allow') {
+				gr.gateResult = {
+					decision: 'review',
+					matchedRule: gr.gateResult.matchedRule,
+					reason: `${gr.gateResult.reason}; but ${hookAskedReason(gr.toolCall.hookPermission?.reason)}`,
+				}
+			}
 			const { toolCall, gateResult } = gr
 			toolCall.authorization = {
 				decision: gateResult.decision,
 				...(gateResult.reason ? { reason: gateResult.reason } : {}),
-				...(gateResult.decision === 'review' && gateResult.matchedRule
+				...(gateResult.decision === 'review' && (gateResult.matchedRule || hookAsked)
 					? { explicitReview: true as const }
 					: {}),
 			}
@@ -522,6 +551,27 @@ export async function* runToolReview(
 		}
 	}
 
+	// A `pre_tool_use` hook's `allow`, marked on the calls it covers on the
+	// same terms as a skill's grant above and honoured by the review policy,
+	// never decided here. A deny, an explicit review (a rule's, or a hook's own
+	// `ask`), a destructive call, a path outside the roots, a sandbox escape and
+	// a tool's own `requiresApproval` all leave the call unmarked, so it is
+	// reviewed as though no hook had spoken.
+	/** Whether a hook's `allow` may stand in for a person on this call. */
+	const hookMayAllow = (tc: ToolCallSummary): boolean =>
+		!gateDenied.has(tc.id) &&
+		tc.authorization?.decision !== 'deny' &&
+		!tc.authorization?.explicitReview &&
+		!tc.isDestructive &&
+		tc.escalation === undefined &&
+		!tc.requiresApproval
+	for (const tc of toolCallSummaries) {
+		if (tc.hookPermission?.decision !== 'allow' || !hookMayAllow(tc)) continue
+		tc.hookGrant = {
+			...(tc.hookPermission.reason ? { reason: tc.hookPermission.reason } : {}),
+		}
+	}
+
 	// Already approved, at a scope the approver chose — and nothing the
 	// operator's policy denied, because `gateDenied` is checked first.
 	// Re-asking about a call somebody has already said yes to is how an
@@ -547,6 +597,76 @@ export async function* runToolReview(
 		yield* settle()
 		yield* ctx.drainPending()
 		return finish('executed')
+	}
+
+	// A person is about to be asked. `permission_request` hooks may answer
+	// first, per call: `skip` refuses it (and always wins), `allow` approves it
+	// on the same terms as a `pre_tool_use` allow. A read the review policy
+	// would not have asked about is not a question and is not offered.
+	if (ctx.pluginManager) {
+		const questions = toolCallSummaries.filter(
+			(tc) =>
+				!gateDenied.has(tc.id) &&
+				tc.authorization?.decision !== 'deny' &&
+				tc.authorization?.decision !== 'allow' &&
+				(tc.authorization?.explicitReview === true ||
+					tc.escalation !== undefined ||
+					tc.requiresApproval === true ||
+					tc.isDestructive ||
+					!isReviewExempt(ctx.tools, tc.name, tc.input)),
+		)
+		for (const tc of questions) {
+			const answers = await ctx.pluginManager.executeHooks(
+				'permission_request',
+				{
+					sessionId: ctx.recorder.sessionId,
+					turnId: ctx.recorder.turnId,
+					toolName: tc.name,
+					toolInput: tc.input,
+					signal: ctx.abortController.signal,
+				},
+				ctx.emitEvent,
+			)
+			// The hooks answered side by side: a refusal from any of them stands,
+			// whatever the others allowed.
+			const refusal = answers.find((answer) => answer.action === 'skip')
+			for (const answer of answers) {
+				if ((answer.action === 'continue' || answer.action === 'skip') && answer.halt) {
+					ctx.toolExecutor.requestHalt?.(answer.halt.reason)
+				}
+			}
+			if (refusal?.action === 'skip') {
+				const reason = `Blocked by a permission_request hook: ${refusal.reason}`
+				gateDenied.set(tc.id, reason)
+				tc.authorization = { decision: 'deny', reason }
+				await ctx.recorder.recordAudit({
+					what: { action: 'tool_call', tool: tc.name },
+					outcome: 'refused',
+					reason,
+				})
+				continue
+			}
+			for (const answer of answers) {
+				if (
+					answer.action === 'continue' &&
+					answer.permission?.decision === 'allow' &&
+					hookMayAllow(tc)
+				) {
+					tc.hookGrant = {
+						...(answer.permission.reason ? { reason: answer.permission.reason } : {}),
+					}
+				}
+			}
+		}
+		if (toolCallSummaries.every((tc) => gateDenied.has(tc.id))) {
+			for (const tc of escalated()) {
+				const reason = gateDenied.get(tc.id)
+				if (reason !== undefined) await recordRefusedEscalation(tc, reason)
+			}
+			yield* settle(gateDenied)
+			yield* ctx.drainPending()
+			return finish('rejected')
+		}
 	}
 
 	const reviewCheckpoint = await ctx.checkpointMgr.create(ctx.recorder, iterationNum)
@@ -800,6 +920,19 @@ export async function* runToolReview(
 						what: { action: 'tool_call', tool: tc.name },
 						outcome: 'approved',
 						reason: `pre-approved by the allowed-tools of skill "${tc.skillGrant.skill}" for this turn; nobody was asked`,
+					})
+				}
+			}
+
+			// The same for a call a hook's `allow` approved.
+			if (reviewDecision.action === 'approve_tools' && reviewDecision.hookGranted) {
+				const listed = new Set(reviewDecision.hookGranted)
+				for (const tc of toolCallSummaries) {
+					if (!listed.has(tc.id) || !tc.hookGrant || gateDenied.has(tc.id)) continue
+					await ctx.recorder.recordAudit({
+						what: { action: 'tool_call', tool: tc.name },
+						outcome: 'approved',
+						reason: `pre-approved by a pre_tool_use hook${tc.hookGrant.reason ? ` (${tc.hookGrant.reason})` : ''}; nobody was asked`,
 					})
 				}
 			}
