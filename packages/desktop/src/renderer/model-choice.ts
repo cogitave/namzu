@@ -51,7 +51,7 @@ export function resolveAutoRouting({
 
 /**
  * A landing uses today's Pal default; an ordinary conversation owns its pinned route. A Pal's own
- * conversation follows the Pal's current model until the person picks another one there by hand.
+ * conversation always shows the Pal's current model: picking another one there changes the Pal.
  */
 export function resolveComposerModelChoice({
 	providers,
@@ -67,7 +67,9 @@ export function resolveComposerModelChoice({
 	/** The conversation belongs to a Pal, so the Pal's model applies to it at any time. */
 	palConversation?: boolean
 }): ModelChoice {
-	if (draftChoice) return draftChoice
+	// A Pal's conversation has one model, the Pal's own; a choice saved before that (Desktop 0.2.4
+	// pinned a hand pick to the conversation) no longer applies.
+	if (draftChoice && !palConversation) return draftChoice
 	const profile = sessionId && !palConversation ? undefined : palModel
 	const provider = profile?.provider ?? providers.selected?.id ?? providers.available[0]?.id ?? ''
 	return {

@@ -112,7 +112,7 @@ function GeneralPanel({ settings }: { settings: PalSettingsActions }) {
 					</dd>
 				</div>
 				<div>
-					<dt>Model for new conversations</dt>
+					<dt>Model</dt>
 					<dd>{pal.model ? pal.model.model : 'Your default model'}</dd>
 				</div>
 			</dl>

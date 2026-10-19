@@ -5025,12 +5025,11 @@ export function App({
 				if (savedSettings.get(owner) === originalSettings) await savedSettings.save(owner, {})
 			}
 			// Preserve the actual route even when it came from a provider default.
-			// A Pal's conversation follows the Pal's model; only a route the person picked by hand
-			// in the composer is pinned.
+			// A Pal's conversation runs on the Pal's own model and never pins a copy of it.
 			await savedSettings.save(
 				target,
 				keepAuto({
-					...(followsPalModel(pal?.model, route) ? {} : { choice: route }),
+					...(pal ? {} : { choice: route }),
 					options: settings,
 				}),
 			)
@@ -7085,6 +7084,19 @@ export function App({
 								choice={choice}
 								choiceUnchosen={choiceUnchosen}
 								onChoiceChange={(value, source) => {
+									// A Pal has one model, the Pal's own: choosing here changes the Pal (the same
+									// thing its settings change), never a copy pinned to the conversation.
+									if (pal) {
+										if (source === 'person' && !followsPalModel(pal.model, value))
+											void act(async () => {
+												upsertPal(
+													await api.updatePal(pal.id, pal.revision, {
+														model: { provider: value.provider, model: value.model },
+													}),
+												)
+											})
+										return
+									}
 									void act(() =>
 										savedSettings.save(draftOwner, {
 											choice: value,

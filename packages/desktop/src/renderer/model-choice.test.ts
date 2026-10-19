@@ -47,7 +47,7 @@ it('uses the saved Pal default for a new conversation independently of host pref
 	).toEqual(profile)
 })
 
-it('follows the Pal model in its own conversation, but a hand pick wins', () => {
+it('shows the Pal model in its own conversation, ignoring a choice saved by Desktop 0.2.4', () => {
 	expect(
 		resolveComposerModelChoice({
 			providers: global,
@@ -65,7 +65,7 @@ it('follows the Pal model in its own conversation, but a hand pick wins', () => 
 			sessionId: 'ses_1',
 			palConversation: true,
 		}),
-	).toEqual(picked)
+	).toEqual(profile)
 	expect(followsPalModel(profile, profile)).toBe(true)
 	expect(followsPalModel(profile, picked)).toBe(false)
 	expect(followsPalModel(undefined, picked)).toBe(false)
