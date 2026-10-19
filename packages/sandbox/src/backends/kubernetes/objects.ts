@@ -964,6 +964,15 @@ export function validatingAdmissionPolicyBindingPath(name: string): string {
 }
 
 /**
+ * One core `ConfigMap`. Read by exactly one caller: the per-sandbox fence's
+ * operator-pinned host set (`per-sandbox-fence.ts`), which the backend only
+ * ever GETs.
+ */
+export function configMapPath(namespace: string, name: string): string {
+	return `/api/v1/namespaces/${segment(namespace)}/configmaps/${segment(name)}`
+}
+
+/**
  * An `ownerReferences` entry, as this backend writes it.
  *
  * `controller` and `blockOwnerDeletion` are deliberately ABSENT rather than

@@ -827,9 +827,22 @@ them is refused by design rather than by accident: an applied
 `ValidatingAdmissionPolicy` and its binding, which the backend proves before
 its first write and which bound what the host may write, and a separate RBAC
 file granting the policy-write verbs the default Role deliberately withholds.
-Whether such a policy is ENFORCED is a property of the cluster's CNI and is
-not measured anywhere in this repository. See
-`docs/sdk/kubernetes-sandbox.md`.
+The per-sandbox path is verified as strictly as the `no-network` baseline, side
+by side: the fence is read back by content (the binding attaches this policy
+and includes `Deny`, the policy fails closed and covers every verb, the
+binding's namespace selection covers the sandboxes' namespace, and
+`perSandbox.hostIdentity`, when set, is the identity the policy matches), so an
+`Audit`-only or mis-attached fence is refused with
+`KubernetesAdmissionFenceInertError` naming the field, with nothing written;
+`perSandbox.permittedHostsParam` pins the hosts and ports a host may grant in an
+operator-owned `ConfigMap`, enforced at admission by a companion policy and
+checked locally first; and after every write the union of the policies
+selecting the pod is re-checked against baseline plus the written policy, and
+the written policy is deleted if anything else allows more. Whether any of it is
+ENFORCED is a property of the cluster's CNI and is not measured anywhere in this
+repository: `k8s/scripts/per-sandbox-egress-check.mjs` is the probe for a Cilium
+cluster that enforces FQDN policy, and it reports SNI as unenforced unless asked
+to test it. See `docs/sdk/kubernetes-sandbox.md`.
 
 ## Documentation
 

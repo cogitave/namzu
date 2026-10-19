@@ -126,12 +126,15 @@ import {
 	assertPerSandboxEgressIsUsable,
 	composeAdditionalPodLabels,
 	defaultEgressPolicyName,
+	egressAllowance,
 	egressProfileLabel,
 	egressUnionVerificationEnabled,
 	perSandboxEgressLabelKey,
 	translateEgressPolicy,
+	unionEgressAllowance,
 	verifyEgressPolicyApplied,
 	verifyEgressPolicyUnion,
+	verifyEgressPolicyUnionAgainst,
 } from './egress-policy.js'
 import {
 	type KubernetesIngressConfig,
@@ -430,6 +433,13 @@ export interface KubernetesAcquisition {
 	 * {@link owner}.
 	 */
 	readonly perSandboxLabelValue?: string
+	/**
+	 * The bound pod's own labels, as the API server reported them — what a
+	 * policy's selector actually matches. Present under the same condition as
+	 * {@link owner}; the post-write union check enumerates the policies that
+	 * select THESE labels.
+	 */
+	readonly podLabels?: Readonly<Record<string, string>>
 	/** The TTL acquire stamped, which every renewal re-stamps. */
 	readonly ttlSeconds: number
 	/** DELETE that object. An already-gone object counts as released. */
@@ -628,7 +638,8 @@ export function buildKubernetesBackend(config: KubernetesBackendInternalConfig):
 	// CONFIGURATION and never a runtime probe, so a caller's capability
 	// detection cannot depend on when it asked.
 	const perSandbox = config.egress?.perSandbox
-	const fence = perSandbox === undefined ? undefined : buildAdmissionFence(client, perSandbox)
+	const fence =
+		perSandbox === undefined ? undefined : buildAdmissionFence(client, perSandbox, config.namespace)
 	return {
 		tier: 'microvm',
 		name: 'kubernetes',
@@ -655,6 +666,17 @@ export function buildKubernetesBackend(config: KubernetesBackendInternalConfig):
 							egress: { ...egress, perSandbox: egress.perSandbox },
 							owner: acquisition.owner,
 							selectorValue: acquisition.perSandboxLabelValue,
+							...(egressBoundary !== undefined && acquisition.podLabels !== undefined
+								? {
+										verifyUnion: (written, signal) =>
+											egressBoundary.verifyUnionWith(
+												acquisition.podLabels ?? {},
+												`the per-sandbox policy ${written.name} written for Sandbox ${acquisition.owner?.name} in namespace ${config.namespace}`,
+												written,
+												signal,
+											),
+									}
+								: {}),
 						})
 					: undefined
 			return await admitProbedSandbox(
@@ -698,6 +720,20 @@ export interface KubernetesEgressBoundary {
 	verifyUnion(
 		podLabels: Readonly<Record<string, string>>,
 		subject: string,
+		signal?: AbortSignal,
+	): Promise<void>
+	/**
+	 * The same enumeration after a per-sandbox policy was WRITTEN: refuse when
+	 * any policy selecting this pod allows more than the baseline translation
+	 * plus `added`. Never cached — it runs once per write, against the cluster
+	 * as it is at that moment, because a policy applied between two writes is
+	 * exactly what it exists to notice. A no-op under
+	 * `egress.verify: 'named-object-only'`.
+	 */
+	verifyUnionWith(
+		podLabels: Readonly<Record<string, string>>,
+		subject: string,
+		added: KubernetesTranslatedEgressPolicy,
 		signal?: AbortSignal,
 	): Promise<void>
 }
@@ -807,6 +843,20 @@ export function buildEgressBoundary(
 			})
 			passes.set(key, { at: now(), pending })
 			await pending
+		},
+		async verifyUnionWith(podLabels, subject, added, signal) {
+			if (!egressUnionVerificationEnabled(egress)) return
+			const baseline = await translate()
+			await verifyEgressPolicyUnionAgainst(
+				client,
+				unionEgressAllowance(egressAllowance(baseline), egressAllowance(added)),
+				// 'cilium' whatever `egress.engine` says: the policy just written is
+				// a `CiliumNetworkPolicy`, so the Cilium collection has to be
+				// enumerated for a widening one to be seen at all. Under the
+				// default engine the create path reads core policies only.
+				{ namespace: config.namespace, podLabels, engine: 'cilium', subject },
+				signal,
+			)
 		},
 	}
 }
@@ -1667,7 +1717,9 @@ export async function acquireKubernetesSandbox(
 				? { refreshAgent: buildAgentAddressRefresh(client, namespace, binding, agentPort, mode) }
 				: {}),
 			ownedPath,
-			...(owner !== undefined ? { owner, perSandboxLabelValue: objectName } : {}),
+			...(owner !== undefined
+				? { owner, perSandboxLabelValue: objectName, podLabels: pod.labels ?? podLabels }
+				: {}),
 			ttlSeconds,
 			release,
 			renew,

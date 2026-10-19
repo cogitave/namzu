@@ -3782,7 +3782,8 @@ design rather than by accident:**
    — a `ValidatingAdmissionPolicy` and its binding. The backend `GET`s both
    before its first write and refuses with
    `KubernetesAdmissionFenceMissingError`, having written nothing, if either
-   is absent. An unbound policy is checked separately from the policy itself
+   is absent, and then reads their CONTENT (see
+   [what is verified](#per-sandbox-egress-what-is-verified)). An unbound policy is checked separately from the policy itself
    because a `ValidatingAdmissionPolicy` with no binding validates nothing at
    all and reads, from the object alone, exactly like one that is enforced. A
    read the API server REFUSES — a `403`/`401`, which is what applying the
@@ -3921,10 +3922,10 @@ anything outside the `namzu-sbx-<uid>` names the fence admits — and cannot
 reach a pod other than the one its policy is owned by. What it CAN do, by
 design, is add allowances to its own sandbox's pod: that is what the
 capability is. The [union check](#verify-never-trust) sees such a policy
-because it enumerates every policy selecting the pod's labels, but it runs
-at ACQUIRE — before any `setNetworkPolicy` write for that sandbox exists —
-so it is a check on the boundary a sandbox starts under, not a continuous
-audit of one the host narrows or widens later.
+because it enumerates every policy selecting the pod's labels, and it runs
+at ACQUIRE and again after every `setNetworkPolicy` write, against the
+baseline plus what was just written; see
+[what is verified](#per-sandbox-egress-what-is-verified).
 
 **Workspaces do not carry this capability, and are refused it rather than
 left without it.** A `KubernetesWorkspace` wraps the same handle, built
@@ -3939,6 +3940,124 @@ and before anything is created. A host that wired a workspace deployment with
 narrowed an egress it never touched. Creating task sandboxes with that config
 is unaffected: the method is present there, and a host that wants both passes
 a config without `perSandbox` to `createKubernetesWorkspace`.
+
+### Per-sandbox egress: what is verified
+
+The baseline and the per-sandbox path are held to one standard: the backend
+reads what the cluster stored and compares it to what it relies on, field by
+field, and refuses with a named error before anything is sent. Side by side:
+
+| Property | `no-network` baseline | per-sandbox path |
+|---|---|---|
+| The object exists | `KubernetesEgressPolicyNotAppliedError` | `KubernetesAdmissionFenceMissingError` (policy, binding, and the companion when pinned) |
+| The object is the intended one, by content | the named `NetworkPolicy` is compared to the translation (`KubernetesEgressPolicyMismatchError`) | the fence is compared to what the writer relies on (`KubernetesAdmissionFenceInertError`, carrying `field`, `expected`, `actual`); the written `CiliumNetworkPolicy` is read back and compared to what was sent |
+| The union of every policy selecting the pod | at acquire, against the translation | at acquire against the baseline, and after every write against baseline plus the written policy (`KubernetesEgressPolicyUnionError`) |
+| What the object may reach | the translation | the shipped fence's shape bounds, plus the operator-pinned hosts and ports when `permittedHostsParam` is set |
+| A failed check | no sandbox is handed back; the claim is released | the policy just written is deleted before the error is thrown |
+| Enforcement by a data plane | not proven here; `egress-check.mjs` on an enforcing cluster | not proven here; `per-sandbox-egress-check.mjs` on a Cilium cluster that enforces FQDN policy |
+
+**The fence is checked by content.** Before the first write, and memoized on
+success like the named-object check, the backend reads the
+`ValidatingAdmissionPolicy` and its binding and requires: the binding's
+`policyName` to be `admissionPolicyName`; `validationActions` to include `Deny`
+(`Audit` and `Warn` log and admit; `[Deny, Audit]` passes); the policy's
+`failurePolicy` to be `Fail`; the policy to match `CREATE`, `UPDATE` and
+`DELETE` of `cilium.io/v2` `ciliumnetworkpolicies` and to carry at least one
+validation; the binding not to exclude any of those verbs and to carry no
+`objectSelector` (the host chooses its objects' labels); and the binding's
+namespace selection to cover `config.namespace`. A binding whose
+`namespaceSelector` is decidable only from labels other than the automatic
+`kubernetes.io/metadata.name` is refused as unprovable rather than assumed. The
+error names the field that failed, and nothing is written. With
+`perSandbox.hostIdentity` set (for example
+`system:serviceaccount:namzu-sandboxes:namzu-sandbox-host`), the policy must also
+carry exactly one `matchCondition`, `request.userInfo.username == '<identity>'`:
+a fence that names another user never matches this host, and a host that
+authenticates as something other than the shipped ServiceAccount is the usual
+way to get one. Unset, the identity is not checked.
+
+What this does not prove is that the policy's CEL refuses what it claims: that
+is measured against an API server (see the manifest's header), not derivable
+from the stored object.
+
+**Pinning the hosts and ports a host may grant.** The shipped fence bounds the
+shape of a grant, not its names. Set `perSandbox.permittedHostsParam: { name,
+namespace }` and apply
+`k8s/manifests/validatingadmissionpolicy-cilium-permitted-hosts.yaml`: a
+companion policy (`<admissionPolicyName>-hosts`, binding
+`<admissionPolicyName>-hosts-binding`) bound to a `ConfigMap` whose
+`data.hosts` (exact names), `data.patterns` (`*.domain`) and `data.ports` list
+one entry per line. At admission it refuses a `toFQDNs` entry that is not
+listed, and any `toFQDNs` rule that carries no `toPorts` or a port that is not
+listed. A `.example.com` grant is both `example.com` and `*.example.com`, so the
+domain needs a line in each of `hosts` and `patterns`. With the option set:
+
+- the fence check also proves the companion: its `paramKind`, `variables` and
+  `validations` are compared verbatim to the ones this version ships (an
+  edited expression is a fence the backend cannot vouch for), and the binding
+  must reference this ConfigMap by name (not select it), and deny when it is
+  missing;
+- every `setNetworkPolicy` call with a non-empty list reads the ConfigMap and
+  refuses locally, with `KubernetesPermittedHostsError` and nothing written, a
+  host or port outside it. A `narrowing` that sets no port for a host is a
+  port outside any list, so `narrowing.ports` or `hostPorts` is required;
+- a missing, unreadable or malformed ConfigMap refuses every grant with
+  `KubernetesPermittedHostsParamError`. The grammar is the writer's own
+  (`assertUsableHost`), and an entry with surrounding whitespace is refused
+  because the admission rule compares entries byte for byte;
+- `setNetworkPolicy([])` needs no parameter: the companion matches `CREATE`
+  and `UPDATE` only, because a deletion never widens, and a missing parameter
+  must not make the revoke impossible.
+
+The admission rule is the authority; the local check gives a precise error
+instead of an opaque 403. Unset, none of this runs, the companion is not read,
+and the emitted manifests are unchanged. The host needs `get` on that one
+ConfigMap (the companion file includes the Role).
+
+**The union is re-checked after every write.** After the read-back, the backend
+enumerates every `NetworkPolicy` and `CiliumNetworkPolicy` selecting the pod's
+labels and requires that none allows more than the baseline translation plus
+the policy just written. If one does, for instance a policy applied between the
+sandbox's create and its grant, the backend deletes its own object and throws
+`KubernetesEgressPolicyUnionError`; a failed read-back is handled the same
+way. A policy that held an earlier, verified list is deleted too: falling back
+to the baseline is the narrower of the two wrong answers. If that deletion
+fails as well, `KubernetesPerSandboxPolicyNotRemovedError` says the policy may
+still be in force (the sandbox's destruction collects it). `setNetworkPolicy([])`
+is not re-checked, because a deletion only narrows. `egress.verify:
+'named-object-only'` skips the re-check, as it skips the create-path union.
+
+**What remains unverifiable without a cluster that enforces.** That the allowed
+host resolves and connects on 443, that the same host on another port, an
+ungranted name and a fixed public address are refused, that a host reached
+through a CNAME chain is admitted, that SNI is enforced when
+`narrowing.tlsServerNames` is on, and that revoking restores the baseline are
+all statements about a data plane. `k8s/scripts/per-sandbox-egress-check.mjs`
+asserts them from inside a real task sandbox, behind two positive controls, and
+exits non-zero on a positive that fails or a negative that connects. Without
+`--tls-server-names` it prints SNI as `UNENFORCED` rather than passing it, since
+some managed Cilium distributions enforce `toFQDNs` but document no L7 or SNI
+enforcement and accept a `serverNames` rule they never apply. It has not been
+run against an enforcing cluster, and the local kind cluster enforces no policy,
+so every refusal row fails there by design.
+
+**Deriving `dnsNames.searchSuffixes`.** `narrowing.dnsNames` allows the allowed
+host's lookups under the three cluster suffixes
+(`<namespace>.svc.<clusterDomain>`, `svc.<clusterDomain>`, `<clusterDomain>`).
+Kubelet appends the node's own `search` domains after those, and a query for
+`github.com.<node-domain>` that the narrowed rule does not name is refused by the
+DNS proxy. Read the list from the same place the guest does: the `search` line
+of `/etc/resolv.conf` in a pod from the same template (`kubectl exec` into a
+sandbox, or run `cat /etc/resolv.conf` in a throwaway pod in the namespace),
+and list every domain after the three cluster ones in
+`dnsNames.searchSuffixes`. How a refused search-suffix query is answered
+(`REFUSED` or `NXDOMAIN`) and what that does to a glibc or musl search walk is a
+property of the cluster's resolver and the guest's C library; Cilium's own
+documentation warns that some images (musl, as in Alpine) stop trying the
+search list after the first refusal, which breaks the bare-name lookup too.
+This repository has not measured either; the acceptance probe above is where
+to observe it. A `searchSuffixes: 'from-guest'` option that reads the guest's
+file at acquire is not implemented.
 
 ### Verify, never trust
 
@@ -4098,8 +4217,10 @@ backend's own `createKubernetesClient`, and ran the real
 about whether anything enforced the object afterwards, which the paragraph
 above still governs.
 
-`k8s/scripts/egress-check.mjs` is the live check, and it is the only thing that
-speaks to enforcement: it creates a sandbox under the configured kind and dials
+`k8s/scripts/egress-check.mjs` is the live check for the baseline kinds (the
+per-sandbox path has its own,
+[`per-sandbox-egress-check.mjs`](#per-sandbox-egress-what-is-verified)), and
+they are the only things that speak to enforcement: it creates a sandbox under the configured kind and dials
 from inside the guest — a public address, the instance-metadata address, the
 platform endpoint, a private address, optionally the API server's service IP,
 and another sandbox pod. Two positive controls run first (a TCP dial of the
@@ -4656,7 +4777,7 @@ needs — `validatingadmissionpolicy-cilium.yaml` and
 `rbac-per-sandbox-egress.yaml`, which are applied together or not at all and
 which no other capability reads — plus a `kind-overlay/`
 for local development — explicitly **not** a security boundary, see that
-overlay's own header comment), and six scripts under `k8s/scripts/` that
+overlay's own header comment), and seven scripts under `k8s/scripts/` that
 each measure one acceptance criterion below against a live cluster and print
 a `[PASS]`/`[FAIL]` line plus the measured number
 (`k8s/scripts/capability-check.mjs` additionally prints the guest's
@@ -4684,9 +4805,10 @@ is the right one.
 | 5. The guest is genuinely deprivileged | `k8s/scripts/capability-check.mjs` | pass | — | — | — |
 | 6. The agent port is shut to a pod that is not the host | `k8s/scripts/ingress-check.mjs` | the probe fails to connect | — | — | — |
 | 7. Egress is bounded by the configured kind | `k8s/scripts/egress-check.mjs` | every "must be closed" probe fails to connect, and `public-internet` reaches a public address | — | — | — |
+| 8. A per-sandbox hostname grant is enforced, and revoked | `k8s/scripts/per-sandbox-egress-check.mjs` (needs a Cilium cluster that enforces FQDN policy) | the granted host resolves and connects on 443; another port, an ungranted name and a fixed address are refused; the baseline holds again after `setNetworkPolicy([])`; SNI is reported `UNENFORCED` unless probed | — | — | — |
 
-Rows 6 and 7 need a cluster whose CNI enforces `NetworkPolicy`. On one that
-does not — the stock local `kind` cluster — both scripts report FAIL by
+Rows 6 to 8 need a cluster whose CNI enforces `NetworkPolicy`. On one that
+does not — the stock local `kind` cluster — those scripts report FAIL by
 design; see [Ingress](#what-no-test-here-can-prove) and
 [Egress](#what-no-egress-test-here-can-prove). Row 7 also needs
 `config.egress` set to the kind being probed, and it does not cover the
