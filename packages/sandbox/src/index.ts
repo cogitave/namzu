@@ -243,15 +243,16 @@ export type {
 // `KubernetesOwnerUidMissingError` is the fourth, and the only one raised
 // from an ACQUIRE — the object this backend created reported no uid, so a
 // policy written for it would be an orphan.
-// `KubernetesWorkspacePerSandboxEgressConfigError` is the fifth: the same
-// option reaching `createKubernetesWorkspace`, whose handle never carries
-// `setNetworkPolicy` — refused there rather than accepted and ignored.
+// `KubernetesWorkspacePerSandboxEgressConfigError` is deprecated: it used to
+// refuse the same option on `createKubernetesWorkspace`, whose handle now
+// carries `setNetworkPolicy`, so nothing throws it any more.
 // See `backends/kubernetes/per-sandbox-policy.ts` — and, for
 // `KubernetesNetworkPolicyHostError`, which the config-level translation
 // refuses the same entries with, `backends/kubernetes/egress-policy.ts`.
 export { KubernetesPerSandboxEgressConfigError } from './backends/kubernetes/egress-policy.js'
 export { KubernetesWorkspacePerSandboxEgressConfigError } from './backends/kubernetes/egress-policy.js'
 export { DEFAULT_PER_SANDBOX_EGRESS_LABEL_KEY } from './backends/kubernetes/egress-policy.js'
+export { KUBERNETES_PER_SANDBOX_PROFILE_VARIANT } from './backends/kubernetes/workspace-per-sandbox.js'
 export type { FenceObjectKind } from './backends/kubernetes/per-sandbox-fence.js'
 export {
 	KubernetesAdmissionFenceInertError,
@@ -1808,7 +1809,11 @@ export async function suspendKubernetesWorkspace(
  * Resolve and fingerprint what a workspace created from `config` would run —
  * the pod template with this backend's overlays, the template's disks, the
  * egress policy translated from `config.egress` and the ingress settings —
- * without creating anything. One GET: the SandboxTemplate.
+ * without creating anything. One GET: the SandboxTemplate — plus, when
+ * `config.egress.perSandbox` is configured, the reads that prove its admission
+ * fence (a configuration whose fence does not enforce is refused and yields no
+ * fingerprint), and the result then carries `variant:
+ * 'core/no-network+per-sandbox'`.
  *
  * Persist the result, then pass its `fingerprint` as
  * `allocation.executionProfile` to {@link allocateKubernetesWorkspace}.

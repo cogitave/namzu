@@ -3391,12 +3391,11 @@ woken up to be refused. A missing, drifted or over-wide policy fails the call
 and no workspace is created — the network boundary on a long-lived sandbox is
 the policy, not the agent's bind token.
 
-**One option is refused here rather than run.** `egress.perSandbox` does not
-bound a workspace's egress — it makes `setNetworkPolicy` present on a TASK
-handle, and a workspace never carries one — so a config that sets it is
-refused with `KubernetesWorkspacePerSandboxEgressConfigError` before the first
-request, instead of being accepted and ignored. See
-[per-sandbox egress](#per-sandbox-egress-setnetworkpolicy-on-a-live-sandbox).
+**`egress.perSandbox` is honoured here as on a task handle.** The workspace's
+pod template carries the per-sandbox selector label, the `Sandbox` owns the
+policies, and the handle serves `setNetworkPolicy`. See
+[per-sandbox egress on a workspace](#per-sandbox-egress-on-a-workspace). With
+the option unset nothing on this path changes.
 
 **It is verified against the template the workspace is built from**, which is
 `options.sandboxTemplateName` when given and `config.sandboxTemplateName`
@@ -4338,19 +4337,77 @@ at ACQUIRE and again after every `setNetworkPolicy` write, against the
 baseline plus what was just written; see
 [what is verified](#per-sandbox-egress-what-is-verified).
 
-**Workspaces do not carry this capability, and are refused it rather than
-left without it.** A `KubernetesWorkspace` wraps the same handle, built
-without the setter: nothing in its create path composes a per-sandbox label
-or tracks an owner uid for one, so `setNetworkPolicy` is absent there as it
-was everywhere before this change. That is a fact about the PATH and not
-about the configuration, so `createKubernetesWorkspace` does not simply
-ignore the option — a config carrying `egress.perSandbox` is refused with
-`KubernetesWorkspacePerSandboxEgressConfigError`, before the first request
-and before anything is created. A host that wired a workspace deployment with
-`perSandbox` therefore learns it at the call rather than believing it
-narrowed an egress it never touched. Creating task sandboxes with that config
-is unaffected: the method is present there, and a host that wants both passes
-a config without `perSandbox` to `createKubernetesWorkspace`.
+**Workspaces carry it too.** See
+[per-sandbox egress on a workspace](#per-sandbox-egress-on-a-workspace).
+`KubernetesWorkspacePerSandboxEgressConfigError`, which used to refuse the
+option there, is deprecated and never thrown.
+
+#### Per-sandbox egress on a workspace
+
+`createKubernetesWorkspace` and `allocateKubernetesWorkspace` accept
+`egress.perSandbox`, and a workspace handle then has `setNetworkPolicy`
+(presence follows configuration, as on a task handle).
+
+- **Label.** The per-sandbox label is composed by `composeAdditionalPodLabels`
+  onto the workspace's directly created `Sandbox` pod template. Its value is
+  the Sandbox's name, `namzu-ws-<workspaceId>`, which is known before the POST
+  and does not change when the pod is replaced.
+- **Owner.** The `Sandbox` owns every policy it is given: `ownerReferences`
+  names its uid, and the policy is called `namzu-sbx-<sandbox uid>`.
+  `destroy({ deleteDisk: true })` and `deleteKubernetesWorkspace` delete the
+  Sandbox and the cluster's garbage collector removes the policy; this backend
+  sends no policy DELETE. The default `destroy()` only suspends, so the policy
+  stays.
+- **Write.** `setNetworkPolicy` is the task handle's writer: fence read,
+  optional permitted-hosts check, create or patch, read-back that deep-equals
+  what was sent, then the union of every policy selecting the pod re-checked
+  against the baseline plus the written policy, deleting the written one if it
+  widens. It is serialised with the handle's transitions, re-reads the Sandbox
+  each call, and refuses with `KubernetesWorkspaceReplacedError` when the uid
+  is not the one the handle bound, and with `KubernetesOwnerUidMissingError`
+  when the cluster reports none. It may be called while the workspace is
+  suspended; the policy applies when the pod comes back.
+- **Open.** The fence is proved before the create POST, and before any adopt
+  patch. An adopted workspace whose pod template lacks the label is refused
+  with `KubernetesWorkspaceMismatchError { field: 'perSandboxLabel' }`, patching
+  nothing; `refreshPodTemplate: true` rewrites the template with the label.
+
+**Suspend and resume, deterministically.** Before any patch, on a resume and on
+an open of an existing workspace, the backend:
+
+1. Reads the admission fence from scratch (no memo). A fence that is missing or
+   would not enforce refuses the resume with the workspace still suspended and
+   nothing written.
+2. Deletes every `namzu-sbx-*` policy that selects this workspace's label value
+   and that this Sandbox does not own (no `ownerReferences` entry of kind
+   `Sandbox` with this name and the uid the cluster reports now). Such a
+   policy belongs to a workspace deleted and created again under the same name
+   and not yet garbage-collected. A freshly created workspace gets the same
+   sweep once the create reply's uid is known.
+3. Keeps a policy this Sandbox owns, unchanged. A suspend is not a revocation:
+   call `setNetworkPolicy({ allowedHosts: [] })` before suspending to drop the
+   grant.
+
+The baseline union check on open runs against the pod's labels without the
+per-sandbox label, so a workspace holding a grant under a Cilium baseline can
+be reopened; the grant itself was union-checked when it was written.
+
+**Execution profile.** `resolveKubernetesExecutionProfile` and
+`allocateKubernetesWorkspace` read the fence first, so a configuration whose
+fence is missing or inert yields no fingerprint. With `perSandbox` the content
+gains `perSandbox` (engine, selector key, fence and binding names, host
+identity, permitted-hosts parameter, narrowing), so the fingerprint differs from
+the same configuration without it; over a core `no-network` baseline the profile
+also reports `variant: 'core/no-network+per-sandbox'` (exported as
+`KUBERNETES_PER_SANDBOX_PROFILE_VARIANT`). Without `perSandbox` the content and
+the fingerprint are exactly what they were. The per-sandbox label's value is the
+Sandbox's name, which the profile does not know: the fingerprint is
+independent of it, and `podTemplateHash` is per workspace only when
+`options.workspaceId` is passed.
+
+**Not proven here.** Enforcement. A pod reaching an allowed host and not a
+denied one needs a cluster whose CNI enforces `CiliumNetworkPolicy` FQDN rules;
+this is tested against a fake API server, like the task path.
 
 ### Per-sandbox egress: what is verified
 

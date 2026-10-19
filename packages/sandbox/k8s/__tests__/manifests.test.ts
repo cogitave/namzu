@@ -1339,6 +1339,11 @@ const CLAIM_PATH_SOURCE_EXEMPTIONS: readonly SourceDeclaration[] = [
 			'the WORKSPACE allocation path: `allocateKubernetesWorkspace` POSTs one `Sandbox` a host owns, `recoverKubernetesWorkspaceAllocation` GETs it back, and `resolveKubernetesExecutionProfile` GETs the SandboxTemplate. Workspaces are never pooled (docs/sdk/kubernetes-sandbox.md), so a host whose requests this Role is for never reaches it — the deployment that does needs `rbac.yaml`, whose `sandboxes` create is exactly what this grant withholds. Scanning it here would demand the pool-only constant cover a path that is deliberately not on it.',
 	},
 	{
+		file: 'workspace-per-sandbox.ts',
+		reason:
+			'the WORKSPACE side of per-sandbox egress (#618): it lists the namespace\'s `CiliumNetworkPolicies` and deletes the ones that select a workspace but are not owned by its Sandbox. Reached only from `createKubernetesWorkspace` and a workspace handle whose config carries `egress.perSandbox`, never from a pooled claimant host, and the verbs it uses are exactly the ones `rbac-per-sandbox-egress.yaml` adds (delete) beside the `list` the default Role already grants. Workspaces are never pooled (docs/sdk/kubernetes-sandbox.md), so scanning it here would demand the pool-only constant cover a path that is deliberately not on it.',
+	},
+	{
 		file: 'per-sandbox-fence.ts',
 		reason:
 			'the per-sandbox egress fence check and its operator-pinned host set (#617), reached only from `per-sandbox-policy.ts`, so only through `Sandbox.setNetworkPolicy` on a handle whose config carries `egress.perSandbox`. It reads one `ConfigMap` that an operator names in `permittedHostsParam`; the Role that grants that read is in `validatingadmissionpolicy-cilium-permitted-hosts.yaml`, and a claimant host that holds this Role does not configure the capability and never reaches this file.',

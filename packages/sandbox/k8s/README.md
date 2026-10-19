@@ -306,11 +306,10 @@ kubectl apply -f manifests/validatingadmissionpolicy-cilium.yaml
 kubectl apply -f manifests/rbac-per-sandbox-egress.yaml
 ```
 
-They are prerequisites for the TASK path only: `setNetworkPolicy` is present
-on a task sandbox handle and never on a `KubernetesWorkspace`, whose create
-call refuses a config carrying `egress.perSandbox`
-(`KubernetesWorkspacePerSandboxEgressConfigError`) rather than accepting an
-option it would never use. See `docs/sdk/kubernetes-sandbox.md`.
+They are prerequisites for every handle that serves `setNetworkPolicy`: a
+task sandbox and a `KubernetesWorkspace`, both when `egress.perSandbox` is
+configured. A workspace proves the fence before it is created or opened and
+again on every resume. See `docs/sdk/kubernetes-sandbox.md`.
 
 The first is the admission FENCE: it bounds what the host ServiceAccount may
 write to this namespace's `CiliumNetworkPolicies` — a name of

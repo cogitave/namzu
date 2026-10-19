@@ -53,12 +53,10 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import type { Sandbox } from '@namzu/sdk'
 
-import { createKubernetesWorkspace as createWorkspaceFromPublicConfig } from '../../../index.js'
 import {
 	DEFAULT_PER_SANDBOX_EGRESS_LABEL_KEY,
 	KubernetesEgressPolicyUnionError,
 	KubernetesPerSandboxEgressConfigError,
-	KubernetesWorkspacePerSandboxEgressConfigError,
 	PER_SANDBOX_NARROWING_REFUSAL,
 	buildCiliumEgressManifest,
 	composeAdditionalPodLabels,
@@ -77,7 +75,6 @@ import {
 	perSandboxPolicyName,
 	perSandboxPolicyOwnerReference,
 } from '../per-sandbox-policy.js'
-import { createKubernetesWorkspace } from '../workspace.js'
 import {
 	type FakeApiServer,
 	type RecordedRequest,
@@ -379,75 +376,6 @@ describe('presence follows configuration', () => {
 				}),
 			),
 		).toThrow(KubernetesPerSandboxEgressConfigError)
-	})
-
-	it('refuses the same option on a workspace, which never carries the method at all', async () => {
-		const started = await startCluster()
-		server = started.server
-
-		// A workspace handle is built without the setter, because nothing in
-		// its create path composes a per-sandbox pod label or tracks an owner
-		// uid for one. So a config this path cannot serve is REFUSED by name
-		// rather than accepted with the method omitted: omitted, the caller
-		// would believe it had narrowed a workspace's egress and nothing
-		// anywhere would say otherwise — the "reads as applied, denies what it
-		// names" failure every refusal in `egress-policy.ts` exists to
-		// prevent, one level up.
-		const failure = await createKubernetesWorkspace(config(), {
-			workspaceId: 'refused-workspace',
-			workingDirectory: '/workspace',
-		}).then(
-			() => undefined,
-			(err: unknown) => err as Error,
-		)
-
-		expect(failure).toBeInstanceOf(KubernetesWorkspacePerSandboxEgressConfigError)
-		expect(failure?.message).toContain('config.egress.perSandbox')
-		expect(failure?.message).toContain('KubernetesWorkspace cannot carry the capability')
-		// Before ANY request — not merely before a policy write: the refusal is
-		// decidable from config alone, so it costs no round trip, and nothing
-		// is created, patched or left standing behind it.
-		expect(server.requests).toHaveLength(0)
-	})
-
-	it('refuses it through the PUBLIC verb too, with nothing sent', async () => {
-		const started = await startCluster()
-		server = started.server
-
-		// The entry point a consumer actually calls, and the one the changeset
-		// names: `createKubernetesWorkspace` from the package root. It maps the
-		// public config to this backend's own and forwards `egress` verbatim,
-		// so the case above is what a consumer gets — but "the wrapper forwards
-		// it unchanged" is a claim about the wrapper, and this is the wrapper,
-		// so it is pinned separately rather than inferred.
-		//
-		// No cluster is needed and none is contacted: the refusal is decidable
-		// from config alone, before readiness is resolved and before the client
-		// is built. `access` points at the fake server anyway, so a call that
-		// DID reach the network would be recorded here rather than failing
-		// against an address nothing answers — which would make "no requests"
-		// true for the wrong reason.
-		const failure = await createWorkspaceFromPublicConfig(
-			{
-				tier: 'microvm',
-				service: 'kubernetes',
-				namespace: NAMESPACE,
-				access: { server: server.url, getToken: async () => 'sa-token' },
-				sandboxTemplateName: TEMPLATE,
-				egress: {
-					policy: { kind: 'deny-all' },
-					perSandbox: { engine: 'cilium', admissionPolicyName: ADMISSION_POLICY },
-				},
-			},
-			{ workspaceId: 'refused-public-workspace', workingDirectory: '/workspace' },
-		).then(
-			() => undefined,
-			(err: unknown) => err as Error,
-		)
-
-		expect(failure).toBeInstanceOf(KubernetesWorkspacePerSandboxEgressConfigError)
-		expect(failure?.message).toContain('config.egress.perSandbox')
-		expect(server.requests).toHaveLength(0)
 	})
 })
 

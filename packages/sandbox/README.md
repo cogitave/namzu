@@ -810,10 +810,10 @@ security boundary the host relied on.
 The kubernetes backend serves that contract when — and only when —
 `egress.perSandbox` is configured: the method is PRESENT on a task handle
 then and absent otherwise, which is the same omit-rather-than-ignore rule read
-from the other side. A `KubernetesWorkspace` handle never carries it, and
-`createKubernetesWorkspace` refuses a config that sets the option (with
-`KubernetesWorkspacePerSandboxEgressConfigError`, before the first request)
-rather than omitting a method the config asked for. Configured, each
+from the other side. A `KubernetesWorkspace` handle carries it too when
+`createKubernetesWorkspace` is given the option: the `Sandbox` owns the
+policies and the pod template carries the selector label (see
+`docs/sdk/kubernetes-sandbox.md`). Configured, each
 `setNetworkPolicy` call writes one
 `CiliumNetworkPolicy` for that sandbox alone, named after the claim's uid,
 selecting one per-sandbox pod label, owned by the claim so the cluster

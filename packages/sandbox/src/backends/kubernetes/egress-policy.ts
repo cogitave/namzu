@@ -831,54 +831,27 @@ export function assertPerSandboxEgressIsUsable(egress: KubernetesEgressConfig | 
 }
 
 /**
- * Named refusal for `config.egress.perSandbox` reaching an entry point that
- * can never carry the capability it configures: `createKubernetesWorkspace`.
+ * Formerly the refusal of `config.egress.perSandbox` on
+ * `createKubernetesWorkspace` and `allocateKubernetesWorkspace`, which could
+ * not carry the capability. They carry it now: the workspace's pod template
+ * gets the per-sandbox selector label, the `Sandbox` owns the policies, and
+ * the handle serves `setNetworkPolicy`.
  *
- * `perSandbox` exists to make `Sandbox.setNetworkPolicy` PRESENT on a TASK
- * handle, where the acquire creates the object each policy is named after and
- * owned by and stamps the per-sandbox pod label its selector matches, and
- * where the RBAC and the admission fence are the ones that bound the write.
- * A workspace's create path does none of that — it composes no per-sandbox
- * pod label and tracks no owner uid for one — so on that path the option
- * would be accepted and mean nothing at all: exactly the "declared and
- * silently unused" configuration this module refuses everywhere else. The
- * alternative, omitting the method and saying nothing, is how a host comes to
- * believe it narrowed a workspace's egress.
+ * Nothing throws this any more. It stays exported so an existing
+ * `catch (err) { if (err instanceof KubernetesWorkspacePerSandboxEgressConfigError) … }`
+ * keeps compiling and simply never matches; it will be removed in a later
+ * major.
  *
- * NOT a variant of {@link KubernetesPerSandboxEgressConfigError}, which is
- * about a `perSandbox` value this backend cannot honour ANYWHERE (an engine
- * with no hostname concept, an unnamed fence). This one is about a `perSandbox`
- * value it honours perfectly well on the other entry point, so a caller
- * catching the sibling for a typo'd value does not also catch a correct
- * configuration aimed at the wrong path.
+ * @deprecated No workspace entry point refuses `egress.perSandbox` any more.
  */
 export class KubernetesWorkspacePerSandboxEgressConfigError extends Error {
 	override readonly name = 'KubernetesWorkspacePerSandboxEgressConfigError'
 
 	constructor() {
 		super(
-			`kubernetes: config.egress.perSandbox is set, but a KubernetesWorkspace cannot carry the capability it configures: Sandbox.setNetworkPolicy is implemented on a TASK handle, whose acquire creates the object each per-sandbox policy is named after and owned by and stamps the pod label its selector matches, while a workspace's create path composes no per-sandbox pod label and tracks no owner uid for one. Accepting the option here would declare a capability this path never serves — the silent downgrade this backend refuses on every other entry point — so it is refused before anything is sent. Drop egress.perSandbox from the configuration workspaces are created from (a backend serving task sandboxes can keep it), or create a task sandbox with it, where the method is present.`,
+			'kubernetes: config.egress.perSandbox is set on a workspace entry point. This error is no longer thrown: workspaces serve per-sandbox egress.',
 		)
 	}
-}
-
-/**
- * Refuse `config.egress.perSandbox` on the entry point that cannot carry it —
- * `createKubernetesWorkspace`. See
- * {@link KubernetesWorkspacePerSandboxEgressConfigError}.
- *
- * Deliberately not {@link assertPerSandboxEgressIsUsable}, which validates the
- * same config for the path that DOES honour it: a workspace has nothing to
- * validate the option for, whatever its `engine` or `admissionPolicyName` say,
- * because it serves no `setNetworkPolicy` at all. Calling that validator here
- * instead would be worse than saying nothing — it would report a
- * `perSandbox` this deployment can use as if it were in use.
- */
-export function assertWorkspaceCarriesNoPerSandboxEgress(
-	egress: KubernetesEgressConfig | undefined,
-): void {
-	if (egress?.perSandbox === undefined) return
-	throw new KubernetesWorkspacePerSandboxEgressConfigError()
 }
 
 /**

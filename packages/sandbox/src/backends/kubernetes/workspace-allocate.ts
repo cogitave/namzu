@@ -40,8 +40,9 @@ import {
 import {
 	assertEgressPolicyIsEnforceable,
 	assertEgressProfileIsUsable,
-	assertWorkspaceCarriesNoPerSandboxEgress,
+	assertPerSandboxEgressIsUsable,
 	composeAdditionalPodLabels,
+	perSandboxEgressLabelKey,
 } from './egress-policy.js'
 import {
 	DEFAULT_AGENT_PORT,
@@ -75,6 +76,12 @@ import {
 	sandboxCollectionPath,
 	sandboxPath,
 } from './objects.js'
+import { buildAdmissionFence } from './per-sandbox-policy.js'
+import {
+	KUBERNETES_PER_SANDBOX_PROFILE_VARIANT,
+	perSandboxWorkspaceLabels,
+	withoutPerSandboxLabel,
+} from './workspace-per-sandbox.js'
 import {
 	KubernetesWorkspacePreconditionError,
 	assertBlockModeWorkspaceDisk,
@@ -90,6 +97,15 @@ const EXECUTION_PROFILE_CONTENT_VERSION = 1
 export interface KubernetesExecutionProfileOptions {
 	/** The SandboxTemplate to resolve; defaults to `config.sandboxTemplateName`. */
 	readonly sandboxTemplateName?: string
+	/**
+	 * The workspace the profile is for. Only read when
+	 * `config.egress.perSandbox` is configured: the per-sandbox selector
+	 * label's VALUE is the Sandbox's name, so `podTemplateHash` is per
+	 * workspace there. Without it that hash is taken over the template
+	 * WITHOUT the label, and is not the revision a handle reports. The
+	 * fingerprint never depends on it.
+	 */
+	readonly workspaceId?: string
 	readonly signal?: AbortSignal
 }
 
@@ -101,6 +117,14 @@ export interface KubernetesExecutionProfileOptions {
  *    carries.
  *  - `podTemplateHash` — the revision of the pod template alone, the same
  *    value `templateRevision` reports on a handle.
+ *  - `variant` — `'core/no-network+per-sandbox'` when
+ *    `config.egress.perSandbox` is configured over a core `no-network`
+ *    baseline, and ABSENT otherwise (over another baseline the content still
+ *    changes the fingerprint but claims no name), so the profile of every
+ *    configuration that predates the option keeps its fingerprint byte for
+ *    byte. Present only after the admission fence that
+ *    bounds the host's per-sandbox writes was read and found to enforce:
+ *    resolving the profile is how a host learns it is admitted.
  *  - `content` — what was fingerprinted, so a host can persist exactly it:
  *    the pod template after this backend's overlays, the template's volume
  *    claim templates, the egress policy as translated from `config.egress`
@@ -111,6 +135,7 @@ export interface KubernetesExecutionProfile {
 	readonly fingerprint: string
 	readonly podTemplateHash: string
 	readonly sandboxTemplateName: string
+	readonly variant?: typeof KUBERNETES_PER_SANDBOX_PROFILE_VARIANT
 	readonly content: Readonly<Record<string, unknown>>
 }
 
@@ -128,8 +153,9 @@ async function planProfile(
 	config: KubernetesBackendInternalConfig,
 	sandboxTemplateName: string | undefined,
 	signal: AbortSignal | undefined,
+	workspaceName?: string,
 ): Promise<ProfilePlan> {
-	assertWorkspaceCarriesNoPerSandboxEgress(config.egress)
+	assertPerSandboxEgressIsUsable(config.egress)
 	assertEgressProfileIsUsable(config.egress)
 	if (config.egress) {
 		assertEgressPolicyIsEnforceable(
@@ -147,21 +173,50 @@ async function planProfile(
 		template.podTemplate,
 		template.volumeClaimTemplates,
 	)
-	const podLabels = composeAdditionalPodLabels(config.egress)
-	const refresh = buildPodTemplateRefresh(
+	// Per-sandbox egress: the profile is admitted only when the fence that
+	// bounds the host's writes verifies, read here so a configuration whose
+	// fence is missing or inert never yields a fingerprint to persist.
+	const perSandbox = config.egress?.perSandbox
+	if (perSandbox !== undefined) {
+		await buildAdmissionFence(client, perSandbox, config.namespace).assertApplied(signal)
+	}
+	const perSandboxKey = perSandboxEgressLabelKey(config.egress)
+	// The variant is named for what it is: a core `no-network` baseline plus
+	// per-sandbox widening. Over any other baseline `perSandbox` still
+	// changes the fingerprint (it is in the content) but claims no name, so a
+	// host that admits only the named variant refuses the rest.
+	const carriesVariant =
+		perSandbox !== undefined &&
+		config.egress?.policy.kind === 'no-network' &&
+		(config.egress.engine ?? 'core') === 'core'
+	// The label's value is the Sandbox's name, which the profile does not
+	// know: the fingerprinted template is built without it, and the body and
+	// the revision stamped on the object are built with it.
+	const stableLabels = composeAdditionalPodLabels(config.egress)
+	const podLabels = composeAdditionalPodLabels(
+		config.egress,
+		perSandboxKey !== undefined && workspaceName !== undefined
+			? { [perSandboxKey]: workspaceName }
+			: undefined,
+	)
+	const stableRefresh = buildPodTemplateRefresh(
 		template,
 		templateName,
 		config.runtimeClassName,
-		podLabels,
+		stableLabels,
 	)
+	const refresh =
+		perSandboxKey !== undefined && workspaceName !== undefined
+			? buildPodTemplateRefresh(template, templateName, config.runtimeClassName, podLabels)
+			: stableRefresh
 	const translated = await boundary?.translatedPolicy()
 	const ingressOn = ingressVerificationEnabled(config.ingress)
 	const content: Record<string, unknown> = {
 		version: EXECUTION_PROFILE_CONTENT_VERSION,
 		namespace: config.namespace,
 		sandboxTemplateName: templateName,
-		podTemplate: refresh.podTemplate,
-		volumeClaimTemplates: refresh.volumeClaimTemplates ?? null,
+		podTemplate: stableRefresh.podTemplate,
+		volumeClaimTemplates: stableRefresh.volumeClaimTemplates ?? null,
 		egress:
 			translated === undefined
 				? null
@@ -178,6 +233,27 @@ async function planProfile(
 					agentPort: config.agentPort ?? DEFAULT_AGENT_PORT,
 				}
 			: { verified: false },
+		// Absent without perSandbox, so an existing profile's fingerprint is
+		// unchanged. With it, the variant name and everything the host's
+		// per-sandbox writes depend on: a fence renamed, a different
+		// permitted-hosts ConfigMap or another selector key is another
+		// profile, and a workspace allocated under one is not adopted under
+		// the other.
+		...(perSandbox !== undefined && perSandboxKey !== undefined
+			? {
+					...(carriesVariant ? { variant: KUBERNETES_PER_SANDBOX_PROFILE_VARIANT } : {}),
+					perSandbox: {
+						engine: perSandbox.engine,
+						labelKey: perSandboxKey,
+						admissionPolicyName: perSandbox.admissionPolicyName,
+						admissionPolicyBindingName:
+							perSandbox.admissionPolicyBindingName ?? `${perSandbox.admissionPolicyName}-binding`,
+						hostIdentity: perSandbox.hostIdentity ?? null,
+						permittedHostsParam: perSandbox.permittedHostsParam ?? null,
+						narrowing: perSandbox.narrowing ?? null,
+					},
+				}
+			: {}),
 	}
 	return {
 		client,
@@ -190,6 +266,7 @@ async function planProfile(
 			fingerprint: canonicalFingerprint(content),
 			podTemplateHash: refresh.hash,
 			sandboxTemplateName: templateName,
+			...(carriesVariant ? { variant: KUBERNETES_PER_SANDBOX_PROFILE_VARIANT } : {}),
 			content,
 		},
 	}
@@ -211,7 +288,14 @@ export async function resolveKubernetesExecutionProfile(
 	options: KubernetesExecutionProfileOptions = {},
 ): Promise<KubernetesExecutionProfile> {
 	options.signal?.throwIfAborted()
-	return (await planProfile(config, options.sandboxTemplateName, options.signal)).profile
+	return (
+		await planProfile(
+			config,
+			options.sandboxTemplateName,
+			options.signal,
+			options.workspaceId !== undefined ? workspaceSandboxName(options.workspaceId) : undefined,
+		)
+	).profile
 }
 
 /** {@link allocateKubernetesWorkspace}'s options. */
@@ -320,7 +404,7 @@ export async function allocateKubernetesWorkspace(
 	assertAllocation(options.allocation, 'allocateKubernetesWorkspace')
 	const epoch = assertHolderEpoch(options.epoch, 'allocateKubernetesWorkspace')
 	const name = workspaceSandboxName(workspaceId)
-	const plan = await planProfile(config, options.sandboxTemplateName, signal)
+	const plan = await planProfile(config, options.sandboxTemplateName, signal, name)
 	const { fingerprint } = plan.profile
 	if (
 		options.allocation.executionProfile !== undefined &&
@@ -338,7 +422,13 @@ export async function allocateKubernetesWorkspace(
 	if (config.egress) await plan.boundary?.verifyNamedObject(signal)
 	const verifyIngress = buildIngressVerifier(plan.client, config)
 	if (verifyIngress !== undefined) await verifyIngress(plan.workspacePodLabels, subject, signal)
-	await plan.boundary?.verifyUnion(plan.workspacePodLabels, subject, signal)
+	// Without the per-sandbox label, for the reason `createKubernetesWorkspace`
+	// gives: the only policy selecting by it is this workspace's own.
+	await plan.boundary?.verifyUnion(
+		withoutPerSandboxLabel(plan.workspacePodLabels, perSandboxWorkspaceLabels(config.egress, name)),
+		subject,
+		signal,
+	)
 
 	const stored: Required<KubernetesWorkspaceAllocation> = {
 		id: options.allocation.id,
