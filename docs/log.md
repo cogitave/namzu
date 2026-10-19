@@ -2,6 +2,7 @@
 
 ## 2026-10-19
 
+- **Update** [Delegated work](cli/delegated-work.md): the refusal for a delegation past the depth limit now tells the model to do the task itself with its own tools, as the reference terminal's message does, and keeps `Max task depth N exceeded (current: D)` at its start. Deviation: the reference lets an environment variable raise the limit; Namzu's limit is `AgentManagerConfig.maxDepth` and no env override was added. `.changeset/session-small-depth-message.md`.
 - **Update** [Bash tool](sdk/bash-tool.md): a `timeout` above the maximum is clamped to it instead of refused, as the reference terminal does; the command runs and a timeout message names the applied deadline. Not adopted: the reference's move of an overrunning foreground command to the background, which changes what a timeout does and is left for an owner decision. `.changeset/session-small-bash-timeout-clamp.md`.
 - **Update** [Launch flags](cli/launch-flags.md): interactive `namzu -c` / `--continue` and `-r` / `--resume [value]`, read from the reference terminal. `-c` opens the most recent conversation in the folder; `--resume` opens the picker, resumes by id, or by exact title, and otherwise opens the picker searched by the value. Deviation: a value is searched over the title and opening message of the 100 most recent conversations, and the reference's `--fork-session` has no counterpart. `.changeset/session-small-resume-flags.md`.
 

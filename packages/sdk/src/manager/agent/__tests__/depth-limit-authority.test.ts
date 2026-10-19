@@ -69,6 +69,14 @@ describe('the manager owns the recursion bound', () => {
 		await expect(send(mgr, 4)).rejects.toThrow(/current: 4/)
 	})
 
+	it('tells the model to do the task itself', async () => {
+		const mgr = await manager(2)
+
+		// A bare limit leaves a model retrying the same spawn; the instruction
+		// to do the work directly ends the attempt.
+		await expect(send(mgr, 2)).rejects.toThrow(/Do this task yourself with your own tools/)
+	})
+
 	it('allows a task below the bound to proceed past this check', async () => {
 		const mgr = await manager(5)
 
