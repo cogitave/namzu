@@ -506,7 +506,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					if (sessions) closeSessions(sessions)
 				}
 				if (outcome.kind === 'error') {
-					process.stderr.write(`namzu: ${outcome.message}\n`)
+					getBootstrapContext().formatter.error({ message: outcome.message })
 					setExitCode(EX_USAGE)
 					return
 				}
