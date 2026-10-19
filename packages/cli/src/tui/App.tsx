@@ -5538,34 +5538,50 @@ export function App({
 	}, [phase, resumeActiveTurn, session, state])
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
-	const doResume = useCallback(async () => {
-		const sessions = sessionsRef.current ?? (await ensureSessions().then(() => sessionsRef.current))
-		if (!sessions) {
-			pushMessage('system', 'Conversation history is unavailable in this folder.')
-			return
-		}
-		if (await resumeActiveTurn()) return
-		try {
-			const owner = palDefinitionRef.current
-			const recent = owner
-				? (await listPalConversations(owner.workspace, owner.id)).map((row) => ({
-						...row,
-						id: asSessionId(row.id),
-					}))
-				: await listRecent(sessions)
-			// Don't offer the active (empty/just-started) conversation.
-			const others = recent.filter((c) => c.id !== scopeRef.current?.sessionId)
-			if (others.length === 0) {
-				pushMessage('system', 'No past conversations to resume in this folder yet.')
+	const doResume = useCallback(
+		async (query?: string) => {
+			const sessions =
+				sessionsRef.current ?? (await ensureSessions().then(() => sessionsRef.current))
+			if (!sessions) {
+				pushMessage('system', 'Conversation history is unavailable in this folder.')
 				return
 			}
-			setResumeList(others)
-			setSelectedResume(0)
-			setPhase('resume')
-		} catch (err) {
-			pushMessage('system', explainFailure(err, 'Could not list conversations.'))
-		}
-	}, [ensureSessions, pushMessage, resumeActiveTurn])
+			if (await resumeActiveTurn()) return
+			try {
+				const owner = palDefinitionRef.current
+				const recent = owner
+					? (await listPalConversations(owner.workspace, owner.id)).map((row) => ({
+							...row,
+							id: asSessionId(row.id),
+						}))
+					: await listRecent(sessions)
+				// Don't offer the active (empty/just-started) conversation.
+				const needle = query?.trim().toLowerCase()
+				const others = recent.filter(
+					(c) =>
+						c.id !== scopeRef.current?.sessionId &&
+						(!needle ||
+							c.title.toLowerCase().includes(needle) ||
+							(c.preview?.toLowerCase().includes(needle) ?? false)),
+				)
+				if (others.length === 0) {
+					pushMessage(
+						'system',
+						needle
+							? `No conversation in this folder matches "${query?.trim()}". /resume lists them all.`
+							: 'No past conversations to resume in this folder yet.',
+					)
+					return
+				}
+				setResumeList(others)
+				setSelectedResume(0)
+				setPhase('resume')
+			} catch (err) {
+				pushMessage('system', explainFailure(err, 'Could not list conversations.'))
+			}
+		},
+		[ensureSessions, pushMessage, resumeActiveTurn],
+	)
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
 	const doUnarchive = useCallback(async () => {
@@ -10129,6 +10145,16 @@ export function App({
 			terminal.rows,
 		],
 	)
+	// `--resume` without a title that names one conversation: the picker, opened
+	// once, as if `/resume` had been typed. The ref is spent before the call.
+	const launchResumePickerRef = useRef(initialCtx.openResumePicker)
+	useEffect(() => {
+		const request = launchResumePickerRef.current
+		if (request === undefined) return
+		if (phase !== 'ready' || state !== 'idle' || permission !== null || textPrompt !== null) return
+		launchResumePickerRef.current = undefined
+		void doResume(request.query)
+	}, [phase, state, permission, textPrompt, doResume])
 	// `--message`: the launch's first message, sent once the session can take it. The ref is
 	// spent before the call, so neither a re-render, a resume nor a reload can send it twice.
 	const launchMessageRef = useRef(initialCtx.launchSettings?.message)

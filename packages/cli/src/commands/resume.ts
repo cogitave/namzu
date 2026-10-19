@@ -134,3 +134,65 @@ async function load(sessions: CliSessions, sessionId: string, cwd: string): Prom
 	}
 	return { kind: 'resumed', sessionId, messages }
 }
+
+/** What the interactive launch should do for `--continue` / `--resume [value]`. */
+export type TuiResumeOutcome =
+	| { readonly kind: 'fresh' }
+	| { readonly kind: 'open'; readonly sessionId: string }
+	/** Open the `/resume` picker once the screen is ready; `query` pre-filters it. */
+	| { readonly kind: 'picker'; readonly query?: string }
+	| { readonly kind: 'error'; readonly message: string }
+
+const CONVERSATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * Resolve the interactive `--continue` / `--resume [value]`.
+ *
+ * The reference terminal's rule: no value opens the picker; a value shaped
+ * like a conversation id resumes that conversation or fails; any other value
+ * resumes the one conversation whose title it matches exactly, and otherwise
+ * opens the picker with the value as the search term. `--continue` takes the
+ * most recent conversation in this project and fails when there is none.
+ *
+ * Unlike `exec`, the picker is a legitimate answer here: a person is looking
+ * at the screen and chooses, so nothing is substituted silently.
+ */
+export async function resolveTuiResume(
+	sessions: CliSessions | null,
+	request: { readonly continueLast: boolean; readonly resume: string | true | null },
+	cwd: string,
+): Promise<TuiResumeOutcome> {
+	const { continueLast, resume } = request
+	if (!continueLast && resume === null) return { kind: 'fresh' }
+	if (continueLast && resume !== null) {
+		return {
+			kind: 'error',
+			message:
+				'--continue and --resume ask for different conversations: --continue takes the most recent, --resume takes the one you named. Pass one.',
+		}
+	}
+	if (resume === true) return { kind: 'picker' }
+	if (continueLast || (resume !== null && CONVERSATION_ID.test(resume.trim()))) {
+		const outcome = await resolveResume(
+			sessions,
+			{ continueLast, sessionId: continueLast ? null : (resume as string).trim() },
+			cwd,
+		)
+		if (outcome.kind === 'resumed') return { kind: 'open', sessionId: outcome.sessionId }
+		if (outcome.kind === 'error') return outcome
+		return { kind: 'fresh' }
+	}
+	const term = (resume as string).trim()
+	if (term === '') return { kind: 'picker' }
+	if (!sessions) return { kind: 'picker', query: term }
+	let recent: RecentConversation[] = []
+	try {
+		recent = await listRecent(sessions, 100)
+	} catch {
+		// The picker lists the same conversations and reports its own failure.
+		return { kind: 'picker', query: term }
+	}
+	const named = recent.filter((c) => c.title === term)
+	const only = named.length === 1 ? named[0] : undefined
+	return only ? { kind: 'open', sessionId: only.id } : { kind: 'picker', query: term }
+}

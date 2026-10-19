@@ -95,6 +95,11 @@ export interface TuiContext {
 	readonly version: string
 	/** Exact durable conversation requested by `namzu resume <id>`. */
 	readonly initialConversationId?: string
+	/**
+	 * `namzu --resume` with no title that matches: open the `/resume` picker once
+	 * the screen is ready, pre-filtered by `query` when one was given.
+	 */
+	readonly openResumePicker?: { readonly query?: string }
 	/** Required Pal owner for a Pal CLI launch; the durable log pins its profile revision. */
 	readonly palId?: string
 	/**

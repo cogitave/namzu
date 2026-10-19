@@ -202,6 +202,11 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			'--message <text>',
 			'Send this text as the first message once the interactive session is ready, for this launch only. It runs as a plain prompt, never a slash command, and is not sent again on resume.',
 		)
+		.option('-c, --continue', 'Continue the most recent conversation in this directory.')
+		.option(
+			'-r, --resume [value]',
+			'Resume a conversation by id or exact title; with no value, or a value that matches no title, open the picker (the value pre-filters it).',
+		)
 		.option(
 			'--add-dir <path>',
 			'Let the file tools reach another directory this session; repeatable. /add-dir does the same from inside.',
@@ -217,7 +222,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		.hook('preAction', async (command, action) => {
 			rt ??= await import('./cli-runtime.js')
 			const launchOnly = (
-				['provider', 'model', 'effort', 'permissionMode', 'message'] as const
+				['provider', 'model', 'effort', 'permissionMode', 'message', 'continue', 'resume'] as const
 			).filter((key) => command.opts()[key] !== undefined)
 			if (launchOnly.length > 0 && !['namzu', 'resume'].includes(action.name())) {
 				const flags = launchOnly.map(
@@ -230,6 +235,14 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					{ exitCode: EX_USAGE, code: 'commander.invalidArgument' },
 				)
 			}
+			if (
+				action.name() === 'resume' &&
+				(command.opts().continue !== undefined || command.opts().resume !== undefined)
+			)
+				command.error(
+					'--continue and --resume choose a conversation to open; `namzu resume <conversation-id>` already names one.',
+					{ exitCode: EX_USAGE, code: 'commander.invalidArgument' },
+				)
 			if (action.name() === 'resume' && command.opts().message !== undefined)
 				command.error(
 					'--message is the first message of a new conversation; it is not sent when resuming one.',
@@ -463,7 +476,44 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 				effort?: (typeof REASONING_EFFORT_LEVELS)[number]
 				permissionMode?: (typeof PERMISSION_MODE_NAMES)[number]
 				message?: string
+				continue?: boolean
+				resume?: string | true
 			}>()
+			// `-c` / `-r`: pick the conversation before anything else is built, so a
+			// refusal costs no provider discovery and never falls back to a new one.
+			let conversationId = initialConversationId
+			let openResumePicker: { readonly query?: string } | undefined
+			if (
+				conversationId === undefined &&
+				(launchOpts.continue || launchOpts.resume !== undefined)
+			) {
+				const { resolveTuiResume } = await import('./commands/resume.js')
+				const { openSessions, closeSessions } = await import('./integrations/sessions/store.js')
+				let sessions: Awaited<ReturnType<typeof openSessions>> | null = null
+				try {
+					sessions = await openSessions(process.cwd())
+				} catch {
+					sessions = null
+				}
+				let outcome: Awaited<ReturnType<typeof resolveTuiResume>>
+				try {
+					outcome = await resolveTuiResume(
+						sessions,
+						{ continueLast: launchOpts.continue === true, resume: launchOpts.resume ?? null },
+						process.cwd(),
+					)
+				} finally {
+					if (sessions) closeSessions(sessions)
+				}
+				if (outcome.kind === 'error') {
+					process.stderr.write(`namzu: ${outcome.message}\n`)
+					setExitCode(EX_USAGE)
+					return
+				}
+				if (outcome.kind === 'open') conversationId = outcome.sessionId
+				if (outcome.kind === 'picker')
+					openResumePicker = outcome.query === undefined ? {} : { query: outcome.query }
+			}
 			const structuredOutput = launchOpts.outputSchema
 				? (await import('./output-schema.js')).loadOutputSchema(
 						resolve(process.cwd(), launchOpts.outputSchema),
@@ -524,7 +574,8 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 						: permissions.rules,
 					...(browserSites ? { browser: { ...browserConfig, sites: browserSites.sites } } : {}),
 					logging: resolvedCtx.logging,
-					...(initialConversationId ? { initialConversationId } : {}),
+					...(conversationId ? { initialConversationId: conversationId } : {}),
+					...(openResumePicker ? { openResumePicker } : {}),
 					...(resolvedCtx.config.mcpServers ? { mcpServers: resolvedCtx.config.mcpServers } : {}),
 					...(resolvedCtx.config.plugins ? { plugins: resolvedCtx.config.plugins } : {}),
 					...(resolvedCtx.config.skills ? { skills: resolvedCtx.config.skills } : {}),
