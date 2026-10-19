@@ -57,9 +57,14 @@ call that goes through):
    next one, so a tool result stays with its call.
 
 The overflow is recognised from the provider's wording as well as its code:
-"prompt is too long", "input is too long for requested model", "context
+"prompt is too long", "input is too long for requested model", a sentence that
+says the request is larger than, exceeds or is too long for the "context
 window", and "input length and `max_tokens` exceed context limit" all count
-(the last one first tries a smaller `max_tokens`, below).
+(the last one first tries a smaller `max_tokens`, below). The two newer
+wordings are only believed on a 400, a 413 or a failure with no status: a 429,
+5xx or 401 that mentions the window stays a rate limit, a server fault or an
+auth failure, and a 400 that merely names the window (an unsupported parameter
+with the "1M context window beta") stays an invalid request.
 
 The summary call, when `llmVerification` or `/compact` instructions use one, has
 its own ladder: an overflow of its request is retried with the older half of

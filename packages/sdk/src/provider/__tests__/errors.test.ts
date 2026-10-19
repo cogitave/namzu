@@ -121,6 +121,26 @@ describe('the reference terminal context-overflow wordings', () => {
 		expect(classifyProviderHttpStatus(413, body)).toBe('context_overflow')
 	})
 
+	it.each([
+		'does not support the temperature parameter with the 1M context window beta',
+		'context window information unavailable',
+		'too many requests for long context window usage',
+		'key not enabled for the extended context window',
+		'context window cache miss',
+	])('does not file "%s" as an overflow', (body) => {
+		expect(bodySaysContextOverflow(body)).toBe(false)
+		expect(classifyProviderHttpStatus(400, body)).toBe('bad_request')
+	})
+
+	it.each([
+		'larger than the model context window of 8192 tokens',
+		'the prompt exceeds the context window',
+		'maximum context window is 128000 tokens',
+		'your input is too long for the context window',
+	])('files "%s" as an overflow', (body) => {
+		expect(bodySaysContextOverflow(body)).toBe(true)
+	})
+
 	it('leaves a throttle that mentions the window as a throttle', () => {
 		expect(classifyProviderHttpStatus(429, 'rate limited; context window usage is high')).toBe(
 			'throttle',

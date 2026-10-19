@@ -251,9 +251,17 @@ function roundGroups(messages: readonly Message[]): number {
 	return groups
 }
 
-/** The deeper rung's configuration: the newest group verbatim, no tool result protected. */
-function deepenConfig(config: CompactionConfig, messages: readonly Message[]): CompactionConfig {
-	const { keepRecentTokens: _dropped, ...rest } = config
+/**
+ * The deeper rung's configuration: no tool result protected, and a recent
+ * window no larger than the first rung's. With three or more groups the
+ * window shrinks to the newest group, but never grows past what the
+ * configuration already kept: a newest group bigger than that would make the
+ * "deeper" pass shed less than the first one.
+ */
+export function deepenConfig(
+	config: CompactionConfig,
+	messages: readonly Message[],
+): CompactionConfig {
 	let lastAssistant = -1
 	for (let i = messages.length - 1; i >= 0; i--) {
 		if (messages[i]?.role === 'assistant') {
@@ -261,12 +269,21 @@ function deepenConfig(config: CompactionConfig, messages: readonly Message[]): C
 			break
 		}
 	}
+	const deeper = { ...config, keepRecentToolResults: 0 }
+	if (lastAssistant < 0 || roundGroups(messages) < DEEPER_PASS_MIN_GROUPS) return deeper
+	const newest = messages.slice(lastAssistant)
+	if (config.keepRecentTokens !== undefined) {
+		return {
+			...deeper,
+			keepRecentTokens: Math.max(
+				1,
+				Math.min(config.keepRecentTokens, estimateMessagesTokens(newest)),
+			),
+		}
+	}
 	return {
-		...rest,
-		keepRecentToolResults: 0,
-		...(lastAssistant >= 0 && roundGroups(messages) >= DEEPER_PASS_MIN_GROUPS
-			? { keepRecentMessages: Math.max(1, messages.length - lastAssistant) }
-			: {}),
+		...deeper,
+		keepRecentMessages: Math.max(1, Math.min(config.keepRecentMessages, newest.length)),
 	}
 }
 
@@ -292,6 +309,9 @@ export async function relieveOverflow(
 	ctx: IterationContext,
 	options: OverflowReliefOptions = {},
 ): Promise<boolean> {
+	// The cause belongs to the rung that is about to run: an earlier rung's
+	// summary failure must not be blamed for a later rung that compacted cleanly.
+	clearCompactionErrorNote(ctx)
 	const before = ctx.recorder.messages.length
 	const beforeChars = totalChars(ctx.recorder.messages)
 	const beforeTokens = estimateMessagesTokens(ctx.recorder.messages)
