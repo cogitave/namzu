@@ -173,6 +173,12 @@ export interface ProviderRetryNotice {
 	readonly status?: number
 	/** The delay came from the server's own `Retry-After`, not backoff. */
 	readonly serverDirected: boolean
+	/**
+	 * The failed attempt had already streamed text or reasoning, and the request
+	 * is being sent again from the start. Whatever that attempt produced is void
+	 * and the consumer must drop it before the next chunk.
+	 */
+	readonly restart?: boolean
 }
 
 /**

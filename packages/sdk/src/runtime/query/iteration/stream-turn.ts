@@ -268,7 +268,7 @@ export async function* streamProviderTurn(
 
 	let id = ''
 	const model = ''
-	const text = new StreamTextAccumulator()
+	let text = new StreamTextAccumulator()
 	let finishReason: ChatCompletionResponse['finishReason'] = 'stop'
 	// What the stream itself reported, if anything. `finishReason` above
 	// defaults to 'stop' for the response; classifying unreadable tool input
@@ -413,8 +413,31 @@ export async function* streamProviderTurn(
 					code: chunk.retry.code,
 					...(chunk.retry.status !== undefined ? { status: chunk.retry.status } : {}),
 					serverDirected: chunk.retry.serverDirected,
+					...(chunk.retry.restart ? { restart: true } : {}),
 				})
 				yield* drainPending()
+				if (chunk.retry.restart) {
+					// The failed attempt's text and reasoning are void: the request
+					// starts over under the same message. The decorator never
+					// restarts once a tool call began, so no bucket is left behind.
+					text = new StreamTextAccumulator()
+					reasoningBuckets.clear()
+					citations.length = 0
+					replayState = undefined
+					id = ''
+					finishReason = 'stop'
+					reportedFinishReason = undefined
+					finishDetail = undefined
+					streamedLength = 0
+					lastOutputCall = undefined
+					usage = {
+						promptTokens: 0,
+						completionTokens: 0,
+						totalTokens: 0,
+						cachedTokens: 0,
+						cacheWriteTokens: 0,
+					}
+				}
 				continue
 			}
 

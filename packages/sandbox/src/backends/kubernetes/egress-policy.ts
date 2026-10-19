@@ -470,6 +470,51 @@ export interface KubernetesPerSandboxEgressConfig {
 	 * leave `tlsServerNames` off for a domain list.
 	 */
 	readonly narrowing?: KubernetesCiliumEgressNarrowing
+	/**
+	 * The identity the operator's fence bounds, spelled as the API server
+	 * spells a user: `system:serviceaccount:<namespace>:<name>` for a
+	 * ServiceAccount. When set, the fence check requires the policy's
+	 * `matchConditions` to name exactly this identity
+	 * (`request.userInfo.username == '<identity>'`), and refuses before any
+	 * write when they name another one or none.
+	 *
+	 * Unset (the default), the identity is not checked: the shipped fence
+	 * names `system:serviceaccount:namzu-sandboxes:namzu-sandbox-host`, and a
+	 * host that authenticates as something else would otherwise hold the write
+	 * verbs with a fence that never matches it — which reads exactly like an
+	 * enforced one. Set it whenever you know who the host is.
+	 */
+	readonly hostIdentity?: string
+	/**
+	 * The operator-pinned set of hosts and ports a host may grant. Names the
+	 * `ConfigMap` that holds it; see
+	 * `k8s/manifests/validatingadmissionpolicy-cilium-permitted-hosts.yaml`
+	 * for the companion policy that enforces it at admission and the shape of
+	 * the ConfigMap.
+	 *
+	 * Set, three things change and nothing else does:
+	 *
+	 *  - the fence check additionally proves the companion policy and its
+	 *    binding (the policy name with `-hosts` appended, and its binding),
+	 *    including that the binding's `paramRef` is THIS ConfigMap and denies
+	 *    when it is missing;
+	 *  - every `setNetworkPolicy` call with a non-empty list reads the
+	 *    ConfigMap first and refuses locally, with a named error and nothing
+	 *    written, a host or a port outside it. A narrowing that leaves a
+	 *    host's ports unrestricted is a port outside any list;
+	 *  - a missing or malformed ConfigMap refuses every such call.
+	 *
+	 * Unset (the default), none of that runs and behaviour is what it was.
+	 */
+	readonly permittedHostsParam?: KubernetesPermittedHostsParam
+}
+
+/** Where the operator-pinned permitted hosts and ports live. */
+export interface KubernetesPermittedHostsParam {
+	/** The `ConfigMap`'s name. */
+	readonly name: string
+	/** Its namespace. */
+	readonly namespace: string
 }
 
 /**
@@ -654,7 +699,14 @@ export class KubernetesPerSandboxEgressConfigError extends Error {
 	override readonly name = 'KubernetesPerSandboxEgressConfigError'
 
 	constructor(
-		readonly field: 'engine' | 'admissionPolicyName' | 'admissionPolicyBindingName' | 'labelKey',
+		readonly field:
+			| 'engine'
+			| 'admissionPolicyName'
+			| 'admissionPolicyBindingName'
+			| 'labelKey'
+			| 'hostIdentity'
+			| 'permittedHostsParam.name'
+			| 'permittedHostsParam.namespace',
 		readonly value: string,
 		reason: string,
 	) {
@@ -754,6 +806,26 @@ export function assertPerSandboxEgressIsUsable(egress: KubernetesEgressConfig | 
 	}
 	if (perSandbox.narrowing !== undefined) {
 		assertCiliumNarrowingIsUsable(perSandbox.narrowing, 'perSandbox.narrowing')
+	}
+	const { hostIdentity, permittedHostsParam } = perSandbox
+	if (hostIdentity !== undefined && (hostIdentity === '' || hostIdentity.trim() !== hostIdentity)) {
+		throw new KubernetesPerSandboxEgressConfigError(
+			'hostIdentity',
+			hostIdentity,
+			'is not a user name (an empty or space-padded identity matches nothing, so the fence check would refuse every write)',
+		)
+	}
+	if (permittedHostsParam !== undefined) {
+		for (const field of ['name', 'namespace'] as const) {
+			const value = (permittedHostsParam as Partial<Record<'name' | 'namespace', string>>)[field]
+			if (typeof value !== 'string' || value === '' || value.trim() !== value) {
+				throw new KubernetesPerSandboxEgressConfigError(
+					`permittedHostsParam.${field}`,
+					String(value),
+					'is not an object name (the parameter ConfigMap is named by both fields, and an empty or space-padded one names nothing, so every write would be refused)',
+				)
+			}
+		}
 	}
 	perSandboxEgressLabelKey(egress)
 }
@@ -1686,7 +1758,7 @@ export function assertHostsFitNarrowing(
  * `undefined` means no port restriction: the host's `toFQDNs` rule carries
  * no `toPorts` at all.
  */
-function narrowedHostPorts(
+export function narrowedHostPorts(
 	host: string,
 	narrowing: KubernetesCiliumEgressNarrowing,
 ): readonly number[] | undefined {
@@ -2482,6 +2554,18 @@ export interface EgressAllowance {
 		readonly kind: 'NetworkPolicy' | 'CiliumNetworkPolicy'
 		readonly name: string
 	}
+	/**
+	 * Further objects whose `spec` was compared to its translation by
+	 * {@link verifyEgressPolicyApplied}, and which the union rule therefore
+	 * does not judge rule by rule either. Set only by
+	 * {@link unionEgressAllowance}: the post-write check of a per-sandbox
+	 * policy is a question about TWO named objects, the operator's baseline
+	 * and the policy just written.
+	 */
+	readonly alsoNamed?: readonly {
+		readonly kind: 'NetworkPolicy' | 'CiliumNetworkPolicy'
+		readonly name: string
+	}[]
 }
 
 function readPortRanges(ports: unknown, defaultProtocol: string | undefined): PortSet {
@@ -2649,6 +2733,55 @@ export function egressAllowance(translated: KubernetesTranslatedEgressPolicy): E
 		permitsNothing: rules.length === 0,
 		policyKind: translated.policyKind,
 		namedObject: { kind: translated.kind, name: translated.name },
+	}
+}
+
+/**
+ * What the pod may reach when TWO translated policies both select it: the
+ * operator's baseline and one per-sandbox policy this backend wrote.
+ *
+ * Kubernetes unions every policy that selects a pod, so the boundary a
+ * per-sandbox write is supposed to produce is exactly baseline PLUS the
+ * written policy, and a third policy allowing more than that is what the
+ * post-write check refuses. Each field is the union of the two sides':
+ *
+ *  - destinations and `toFQDNs` names concatenate;
+ *  - `permitsEverything` is either side's, and `permitsNothing` is both
+ *    sides' — a `no-network` baseline permits nothing, and a baseline that
+ *    permits nothing plus a per-sandbox policy that permits one name permits
+ *    that name, not nothing;
+ *  - DNS lookups: a side that permits nothing contributes no names, a side
+ *    that does not narrow DNS contributes every name, and the union of name
+ *    lists is their concatenation. This is the one field where the naive
+ *    union is wrong: a `no-network` baseline reports `'all'` because a core
+ *    policy "cannot narrow DNS", and taking that at face value would let any
+ *    other policy open the resolver to every name beside a narrowed grant.
+ *
+ * Both objects are marked as named: each had its `spec` compared to its own
+ * translation before this check runs, and neither's `.domain` entries (a
+ * `matchName` plus a `matchPattern`) are expressible in an allowance.
+ */
+export function unionEgressAllowance(
+	baseline: EgressAllowance,
+	added: EgressAllowance,
+): EgressAllowance {
+	const dnsOf = (side: EgressAllowance): 'all' | readonly string[] =>
+		side.permitsNothing ? [] : side.dnsNarrowedTo
+	const baselineDns = dnsOf(baseline)
+	const addedDns = dnsOf(added)
+	const dnsNarrowedTo: 'all' | readonly string[] =
+		baselineDns === 'all' || addedDns === 'all'
+			? 'all'
+			: [...new Set([...baselineDns, ...addedDns])]
+	return {
+		destinations: [...baseline.destinations, ...added.destinations],
+		fqdns: [...baseline.fqdns, ...added.fqdns],
+		dnsNarrowedTo,
+		permitsEverything: baseline.permitsEverything || added.permitsEverything,
+		permitsNothing: baseline.permitsNothing && added.permitsNothing,
+		policyKind: baseline.policyKind,
+		namedObject: baseline.namedObject,
+		alsoNamed: [...(baseline.alsoNamed ?? []), added.namedObject, ...(added.alsoNamed ?? [])],
 	}
 }
 
@@ -3311,7 +3444,9 @@ function isNamedObject(
 	kind: EgressPolicyDocument['kind'],
 	name: string,
 ): boolean {
-	return allowance.namedObject.kind === kind && allowance.namedObject.name === name
+	const matches = (entry: { readonly kind: string; readonly name: string }): boolean =>
+		entry.kind === kind && entry.name === name
+	return matches(allowance.namedObject) || (allowance.alsoNamed ?? []).some(matches)
 }
 
 /** Every core `NetworkPolicy` in the list, reduced to {@link EgressPolicyDocument}. */
@@ -3714,7 +3849,22 @@ export async function verifyEgressPolicyUnion(
 	target: EgressVerificationTarget,
 	signal?: AbortSignal,
 ): Promise<void> {
-	const allowance = egressAllowance(translated)
+	await verifyEgressPolicyUnionAgainst(client, egressAllowance(translated), target, signal)
+}
+
+/**
+ * {@link verifyEgressPolicyUnion} against an allowance the caller already
+ * built — the entry point for a question about more than one translation,
+ * which is what the post-write check of a per-sandbox policy is: the pod's
+ * boundary is the baseline's allowance plus the written policy's, see
+ * {@link unionEgressAllowance}.
+ */
+export async function verifyEgressPolicyUnionAgainst(
+	client: KubernetesClient,
+	allowance: EgressAllowance,
+	target: EgressVerificationTarget,
+	signal?: AbortSignal,
+): Promise<void> {
 	const documents: EgressPolicyDocument[] = []
 	try {
 		documents.push(

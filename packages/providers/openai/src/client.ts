@@ -359,6 +359,7 @@ export class OpenAIProvider implements LLMProvider {
 		if (config.organization) clientOptions.organization = config.organization
 		if (config.project) clientOptions.project = config.project
 		if (config.timeout !== undefined) clientOptions.timeout = config.timeout
+		if (config.maxRetries !== undefined) clientOptions.maxRetries = config.maxRetries
 		// Merged rather than replaced. Assigning `config.defaultHeaders`
 		// straight over would drop attribution for exactly the hosts that
 		// customise their transport.

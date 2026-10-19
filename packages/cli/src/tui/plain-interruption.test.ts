@@ -6,6 +6,7 @@ import {
 	debugRequested,
 	describePlainInterruption,
 	describeProviderWait,
+	describeProviderWaitClock,
 } from './plain-interruption.js'
 import type { Interruption } from './turn-interruption.js'
 
@@ -171,12 +172,19 @@ describe('a local server that cannot be reached', () => {
 		expect(text).toBe('Namzu could not reach OpenAI at 127.0.0.1:8080. Start it, then try again.')
 	})
 	it('says so while it retries', () => {
-		expect(
-			describeProviderWait(
-				{ delayMs: 2_000, attempt: 0, maxRetries: 2, code: 'network' },
-				'lmstudio',
-			),
-		).toBe('Namzu could not reach LM Studio at localhost:1234. Retrying in about 2s (try 1 of 3).')
+		const notice = describeProviderWait(
+			{ delayMs: 2_000, attempt: 1, maxRetries: 10, code: 'network' },
+			'lmstudio',
+			undefined,
+			1_000,
+		)
+		expect(notice).toEqual({
+			what: 'Namzu could not reach LM Studio at localhost:1234.',
+			retryAt: 3_000,
+			attempt: 1,
+			maxRetries: 10,
+		})
+		expect(describeProviderWaitClock(notice, 1_000)).toBe('Retrying in 2s · attempt 1/10')
 	})
 })
 
@@ -241,28 +249,39 @@ describe('a paused reply in the terminal app', () => {
 })
 
 describe('the quiet stretch while a request is retried', () => {
-	it('says why, once, with the wait the provider asked for', () => {
-		expect(
-			describeProviderWait(
-				{ delayMs: 20_000, attempt: 1, maxRetries: 4, code: 'rate_limit', status: 429 },
-				'openai',
-			),
-		).toBe('OpenAI is limiting requests. Retrying in about 20s (try 2 of 5).')
-		expect(
-			describeProviderWait(
-				{ delayMs: 2_000, attempt: 2, maxRetries: 4, code: 'network' },
-				'anthropic',
-			),
-		).toBe('Namzu could not reach Anthropic. Retrying in about 2s (try 3 of 5).')
-		expect(
-			describeProviderWait({
+	it('counts down to the next try and names the attempt', () => {
+		const notice = describeProviderWait(
+			{
+				delayMs: 20_000,
+				attempt: 2,
+				maxRetries: 10,
+				code: 'rate_limit',
+				status: 429,
+			},
+			'openai',
+			undefined,
+			0,
+		)
+		expect(notice.what).toBe('OpenAI is limiting requests.')
+		expect(describeProviderWaitClock(notice, 0)).toBe('Retrying in 20s · attempt 2/10')
+		expect(describeProviderWaitClock(notice, 15_500)).toBe('Retrying in 5s · attempt 2/10')
+		expect(describeProviderWaitClock(notice, 65_000)).toBe('Retrying in 1s · attempt 2/10')
+	})
+	it('keeps a long wait readable', () => {
+		const notice = describeProviderWait(
+			{
 				delayMs: 65_000,
-				attempt: 1,
-				maxRetries: 2,
+				attempt: 3,
+				maxRetries: 10,
 				code: 'server_error',
 				status: 502,
-			}),
-		).toBe('The provider is having problems on its side. Retrying in about 1m 05s (try 2 of 3).')
+			},
+			undefined,
+			undefined,
+			0,
+		)
+		expect(notice.what).toBe('The provider is having problems on its side.')
+		expect(describeProviderWaitClock(notice, 0)).toBe('Retrying in 1m 05s · attempt 3/10')
 	})
 })
 
@@ -303,5 +322,29 @@ describe('Zen declining a free model that carried no key', () => {
 			failed({ providerError: { ...refusal.providerError, providerId: 'zen-go' } }),
 		)
 		expect(goKey).not.toContain('free model')
+	})
+})
+
+describe('a message refused because the conversation still holds a turn', () => {
+	const refused = (state: 'running' | 'paused' | 'interrupted'): Interruption =>
+		failed({
+			message: 'This conversation already has a turn.',
+			turnInProgress: { sessionId: 's', activeTurnId: '', state },
+		})
+
+	it.each(['running', 'paused', 'interrupted'] as const)(
+		'says what to do about a %s turn in one sentence, with no id and no generic advice',
+		(state) => {
+			const text = describePlainInterruption(refused(state))
+			expectPlain(text)
+			expect(text).not.toContain('()')
+			expect(text).not.toContain('--debug')
+			expect(text).not.toContain('Send your message again')
+			expect(text.split('\n')).toHaveLength(1)
+		},
+	)
+
+	it('tells a paused one to be continued or closed', () => {
+		expect(describePlainInterruption(refused('paused'))).toMatch(/Enter.*\/abandon/)
 	})
 })

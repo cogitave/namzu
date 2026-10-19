@@ -45,4 +45,10 @@ export interface ProviderRequestErrorInit extends ProviderErrorInfo {
 	 * still welcome; what is not welcome is a raw body passed straight in.
 	 */
 	readonly detail?: string
+	/**
+	 * The provider's own `x-should-retry` verdict, when it sent one. Only `false`
+	 * is acted on: a provider that says the same request must not be sent again
+	 * is believed over the status code, so the retry loop leaves it alone.
+	 */
+	readonly shouldRetry?: boolean
 }

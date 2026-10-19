@@ -219,6 +219,7 @@ const MAPPING: {
 			code: e.code,
 			status: e.status,
 			server_directed: e.serverDirected,
+			...(e.restart ? { restart: true } : {}),
 		}),
 	},
 

@@ -381,6 +381,11 @@ type CoreSessionEvent =
 			status?: number
 			/** The delay came from the server's own `Retry-After`. */
 			serverDirected: boolean
+			/**
+			 * The failed attempt had already streamed text or reasoning and the
+			 * request starts over: drop what this message showed so far.
+			 */
+			restart?: boolean
 	  }
 	/**
 	 * A member of the provider chain could not serve, and a later member has

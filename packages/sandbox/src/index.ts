@@ -229,6 +229,7 @@ export type {
 	KubernetesEgressVerification,
 	KubernetesOnlyEgressPolicy,
 	KubernetesPerSandboxEgressConfig,
+	KubernetesPermittedHostsParam,
 } from './backends/kubernetes/egress-policy.js'
 // Per-sandbox egress — `config.egress.perSandbox`, which makes
 // `Sandbox.setNetworkPolicy` PRESENT on a kubernetes TASK handle instead of
@@ -251,11 +252,16 @@ export type {
 export { KubernetesPerSandboxEgressConfigError } from './backends/kubernetes/egress-policy.js'
 export { KubernetesWorkspacePerSandboxEgressConfigError } from './backends/kubernetes/egress-policy.js'
 export { DEFAULT_PER_SANDBOX_EGRESS_LABEL_KEY } from './backends/kubernetes/egress-policy.js'
+export type { FenceObjectKind } from './backends/kubernetes/per-sandbox-fence.js'
 export {
+	KubernetesAdmissionFenceInertError,
 	KubernetesAdmissionFenceMissingError,
 	KubernetesAdmissionFenceUnreadableError,
 	KubernetesNetworkPolicyHostError,
 	KubernetesOwnerUidMissingError,
+	KubernetesPerSandboxPolicyNotRemovedError,
+	KubernetesPermittedHostsError,
+	KubernetesPermittedHostsParamError,
 	PER_SANDBOX_POLICY_NAME_PREFIX,
 } from './backends/kubernetes/per-sandbox-policy.js'
 // The default label key `KubernetesEgressConfig.profile` is written under.
