@@ -5,7 +5,6 @@ import {
 	resolveWebSearch,
 	webSearchLabel,
 } from '../integrations/web/search.js'
-import { COMPACTION_TRIGGER_THRESHOLD } from './context-meter.js'
 import { homePath } from './person-terms.js'
 import { explainFailure, workingDirectoryProblem } from './plain-failure.js'
 import {
@@ -5848,7 +5847,7 @@ const COMPACTION_CONFIG = {
 	// A session's transcript is the only record of what was compacted away;
 	// the size trade this costs is the operator's to see and turn off.
 	recordShedHistory: true,
-	triggerThreshold: COMPACTION_TRIGGER_THRESHOLD,
+	// No `triggerThreshold`: the kernel derives it from the model's window.
 	resetThreshold: 0.4,
 	keepRecentMessages: 6,
 	// Reclaim from stale tool output before summarizing. A CLI session is

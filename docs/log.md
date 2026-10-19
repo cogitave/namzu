@@ -2,7 +2,8 @@
 
 ## 2026-10-19
 
-- **Creation** [Compaction circuit breaker and output limits](sdk/context-limits.md): opt-in `compactionConfig.circuitBreaker` (three failures switch compaction off; three quick refills stop the turn), opt-in `maxOutputContinuations` (three nudges after an output-limit cut, a different nudge for a cut during reasoning), one retry with a smaller `max_tokens` when prompt plus cap passes the window, and `instructions` for `compactNow`. The CLI turns the first two on. `.changeset/context-rules.md`.
+- **Update** [Compaction trigger, circuit breaker and output limits](sdk/context-limits.md), [Context and compaction in the CLI](cli/context-and-compaction.md): the summary trigger is the reference's, window less up to 20,000 tokens for the reply less 13,000 (167,000 tokens of a 200,000 window), instead of a flat 0.7; `triggerThreshold: 0.7` keeps the old value. `.changeset/compaction-trigger-reference.md`, **major** for `@namzu/sdk`.
+- **Creation** [Compaction trigger, circuit breaker and output limits](sdk/context-limits.md): opt-in `compactionConfig.circuitBreaker` (three failures switch compaction off; three quick refills stop the turn), opt-in `maxOutputContinuations` (three nudges after an output-limit cut, a different nudge for a cut during reasoning), one retry with a smaller `max_tokens` when prompt plus cap passes the window, and `instructions` for `compactNow`. The CLI turns the first two on. `.changeset/context-rules.md`.
 - **Update** [Terminal design](cli/terminal-design.md), [Slash commands and keys](cli/slash-commands.md): the footer shows `N% until auto-compact` within 20,000 tokens of the summary point, and `/compact <text>` steers the summary. `.changeset/context-rules.md`.
 
 ## 2026-10-18

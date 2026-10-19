@@ -41,8 +41,16 @@ export const CompactionConfigSchema = z.object({
 	 * window-pressure instead of being a silent no-op.
 	 */
 	contextWindowTokens: z.number().int().positive().optional(),
-	/** Fraction of the context window at which a compaction pass fires. */
-	triggerThreshold: z.number().min(0).max(1).default(0.7),
+	/**
+	 * Fraction of the context window at which older history is summarised.
+	 *
+	 * Absent, the trigger is derived from the window: the window less room for
+	 * the reply (the model's output cap, at most 20,000 tokens) less a
+	 * 13,000-token buffer, so 83.5% of a 200,000-token window and 96.7% of a
+	 * 1,000,000-token one (see `resolveTriggerThreshold`). It used to default
+	 * to a flat `0.7`; pass that to keep the earlier behaviour.
+	 */
+	triggerThreshold: z.number().min(0).max(1).optional(),
 	/**
 	 * Fraction the pass must get the context BELOW to be worth keeping.
 	 *

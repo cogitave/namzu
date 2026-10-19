@@ -8,15 +8,12 @@
  * compact & continue` (red). The percentage counts down to the threshold the
  * conversation will really be compacted at, not to the end of the window.
  *
- * The threshold here is Namzu's own: the fraction of the window at which the
- * kernel summarises (`COMPACTION_TRIGGER_THRESHOLD`), so the figure never
- * disagrees with when compaction actually happens. The reference also
- * reserves output room and a 13,000-token buffer in its threshold; Namzu's
- * trigger has neither, and the meter does not invent them.
+ * The threshold is the kernel's own, read from the same function the kernel
+ * compares against (`resolveTriggerThreshold`), so the figure never disagrees
+ * with when compaction actually happens.
  */
 
-/** The fraction of the window at which the CLI's sessions are summarised. One value, read by the kernel config and by this meter. */
-export const COMPACTION_TRIGGER_THRESHOLD = 0.7
+import { resolveTriggerThreshold } from '@namzu/sdk'
 
 /** The meter appears this many tokens before the threshold. */
 export const CONTEXT_WARNING_MARGIN_TOKENS = 20_000
@@ -41,7 +38,7 @@ export interface ContextMeterInput {
 export function contextMeter(input: ContextMeterInput): ContextMeter | null {
 	const { tokens, windowTokens, autoCompact } = input
 	if (!Number.isFinite(tokens) || !Number.isFinite(windowTokens) || windowTokens <= 0) return null
-	const threshold = input.triggerThreshold ?? COMPACTION_TRIGGER_THRESHOLD
+	const threshold = resolveTriggerThreshold(input.triggerThreshold, windowTokens)
 	// With auto-compact the end of the road is the threshold; without it, the window.
 	const ceiling = autoCompact ? Math.floor(windowTokens * threshold) : windowTokens
 	if (ceiling <= 0 || tokens < ceiling - CONTEXT_WARNING_MARGIN_TOKENS) return null

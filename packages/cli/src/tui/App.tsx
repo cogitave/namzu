@@ -45,6 +45,7 @@ import {
 	generateTurnId,
 	isCompactionMessage,
 	kernelHostCommands,
+	resolveTriggerThreshold,
 	resolveWorkflowLimits,
 } from '@namzu/sdk'
 import { Box, Text, useApp, useInput, useStdout, useWindowSize } from 'ink'
@@ -294,7 +295,7 @@ import {
 } from './choice-selection.js'
 import { keepRecentRows } from './compact-transcript.js'
 import { approvalIsDeliberate } from './consent-timing.js'
-import { COMPACTION_TRIGGER_THRESHOLD, contextMeter } from './context-meter.js'
+import { contextMeter } from './context-meter.js'
 import { conversationEvidenceView } from './conversation-evidence-view.js'
 import { assistantTranscriptTexts } from './conversation-history.js'
 import { type CopyResponseTarget, copyTargetsForResponse } from './copy-targets.js'
@@ -5279,7 +5280,10 @@ export function App({
 			? {
 					strategy: ctx.compaction?.strategy ?? 'salience',
 					softTarget: 0.5,
-					triggerThreshold: COMPACTION_TRIGGER_THRESHOLD,
+					triggerThreshold: resolveTriggerThreshold(
+						undefined,
+						usage?.context?.windowTokens ?? 200_000,
+					),
 					...compactionTally,
 				}
 			: null,

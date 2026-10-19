@@ -1,7 +1,7 @@
 ---
 type: Reference
-title: Compaction circuit breaker and output limits
-description: When the kernel gives up on compacting, and what it does when a reply is cut at its output limit.
+title: Compaction trigger, circuit breaker and output limits
+description: When the kernel summarises, when it gives up on compacting, and what it does when a reply is cut at its output limit.
 resource: packages/sdk/src/compaction/context-window.ts
 tags: [sdk, compaction, context, output-limit]
 status: stable
@@ -10,9 +10,32 @@ generated:
   at: 2026-10-19
 ---
 
-# Compaction circuit breaker and output limits
+# Compaction trigger, circuit breaker and output limits
 
 These rules follow Claude Code 2.1.302, read from its code.
+
+## The summary trigger
+
+`compactionConfig.triggerThreshold` is optional. Set, it is the fraction of the
+context window at which older history is summarised, exactly as written.
+Absent, `resolveTriggerThreshold(undefined, windowTokens, maxOutputTokens?)`
+derives it:
+
+```text
+trigger = window - min(model output cap, 20,000) - 13,000
+```
+
+so 167,000 tokens (83.5%) of a 200,000-token window and 967,000 (96.7%) of a
+1,000,000-token one. The output cap is the driver's declared `maxOutputTokens`
+for the model; unknown, the full 20,000 is reserved. A derived trigger never
+drops below half the window (0.5): on a window under about 66,000 tokens the
+two subtractions would otherwise leave nothing, and a summary on every
+iteration is not a trigger. Before this the default was a flat `0.7`; pass
+`triggerThreshold: 0.7` to keep it.
+
+The `salience` strategy still starts shortening content at its soft target
+(`softTarget`, default 0.5, never above the trigger) and summarises only at the
+trigger. `resetThreshold` (0.4) is a diagnostic after a pass and is unchanged.
 
 ## The circuit breaker
 

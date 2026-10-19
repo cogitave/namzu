@@ -9,7 +9,7 @@ tags: [sdk, compaction, persistence, evidence]
 # Manual compaction
 
 Both entry points accept `instructions`, the person's words about what the
-summary must keep; see [Compaction circuit breaker and output limits](context-limits.md#compactnow-instructions).
+summary must keep; see [Compaction trigger, circuit breaker and output limits](context-limits.md#compactnow-instructions).
 
 `compactNow` reduces a host-owned history; `compactRegion` reduces a selected
 valid span. Neither mutates the supplied array or owns a running invocation.

@@ -12,7 +12,7 @@ status: stable
 The default `salience` strategy scores messages and edits eligible low-scoring
 content once the estimated prompt exceeds its soft target (0.5 of the context
 window). `structured` retains positional selection and waits for the compaction
-trigger. Context planning is pure; the runtime owns provider calls, persistence,
+trigger (derived from the window unless set; see [the trigger](context-limits.md#the-summary-trigger)). Context planning is pure; the runtime owns provider calls, persistence,
 working-memory updates and publishing a successful edit.
 
 ## One measurement across decisions

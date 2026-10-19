@@ -63,7 +63,8 @@ items are joined by a dim ` · `, left to right:
   and only once the context is within 20,000 tokens of the point where older
   history is summarised (the reference's rule). The percentage counts down to
   that point, not to the end of the window, and the point is the kernel's own
-  trigger, 0.7 of the window (140,000 tokens of a 200,000-token window). With
+  trigger (`resolveTriggerThreshold`: the window less up to 20,000 tokens for
+  the reply less 13,000, so 167,000 tokens of a 200,000-token window). With
   auto-compact off it reads `Context low (N% remaining) · Run /compact to
   compact & continue` in red, counted against the whole window (no CLI
   strategy turns it off today). Nothing shows before that: the always-on gauge

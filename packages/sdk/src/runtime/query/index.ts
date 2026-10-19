@@ -1485,9 +1485,9 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 		// Normalised once, defaults applied. A host that passes a partial
 		// object — a strategy and a window, nothing else — used to reach the
 		// phase with `triggerThreshold` undefined, and `usage < undefined` is
-		// false: the pass ran on every iteration and the salience strategy fell
-		// through to the stale-result clearing it exists to replace. The eval
-		// suite that passed exactly that object found it.
+		// false: the pass ran on every iteration. An absent threshold now means
+		// the derived trigger (`resolveTriggerThreshold`), resolved where it is
+		// compared.
 		const compactionConfig = params.compactionConfig
 			? CompactionConfigSchema.parse(params.compactionConfig)
 			: undefined

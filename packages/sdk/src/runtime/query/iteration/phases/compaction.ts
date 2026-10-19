@@ -1,4 +1,7 @@
-import { resolveContextWindow } from '../../../../compaction/context-window.js'
+import {
+	resolveContextWindow,
+	resolveTriggerThreshold,
+} from '../../../../compaction/context-window.js'
 import { findDanglingMessages } from '../../../../compaction/dangling.js'
 import {
 	type CompactionPlan,
@@ -607,9 +610,9 @@ async function runCompactionCheckInner(
 	// The salience strategy starts holding the context at `softTarget`,
 	// well before the summary trigger; every other strategy waits for it.
 	const salience = config.strategy === 'salience'
-	const startAt = salience
-		? Math.min(config.softTarget ?? DEFAULT_SOFT_TARGET, config.triggerThreshold)
-		: config.triggerThreshold
+	const maxOutputTokens = ctx.providerCapabilities?.maxOutputTokens
+	const trigger = resolveTriggerThreshold(config.triggerThreshold, budget, maxOutputTokens)
+	const startAt = salience ? Math.min(config.softTarget ?? DEFAULT_SOFT_TARGET, trigger) : trigger
 	if (!options?.force && usage < startAt) return
 
 	// Three failed passes in a row: stop trying for the rest of the turn, and
@@ -690,7 +693,7 @@ async function runCompactionCheckInner(
 		'namzu.runtime.window': budget,
 		'namzu.runtime.window_source': window.source,
 		'namzu.runtime.usage': Math.round(usage * 100),
-		'namzu.runtime.trigger_threshold': config.triggerThreshold,
+		'namzu.runtime.trigger_threshold': trigger,
 		'namzu.runtime.slot_count': manager.slotCount(),
 	})
 
@@ -723,6 +726,7 @@ async function runCompactionCheckInner(
 			messages: ctx.recorder.messages,
 			config,
 			contextWindowTokens: budget,
+			...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
 			estimatedTokens,
 			...(openTasks ? { openTasks } : {}),
 		})
@@ -731,7 +735,7 @@ async function runCompactionCheckInner(
 		}
 		// Under the trigger, the working set was the whole pass: the summary
 		// path is for the trigger, not for the soft target.
-		if (!options?.force && (estimatedTokens - working.reclaimedTokens) / budget < config.triggerThreshold) {
+		if (!options?.force && (estimatedTokens - working.reclaimedTokens) / budget < trigger) {
 			return
 		}
 	}
@@ -739,6 +743,7 @@ async function runCompactionCheckInner(
 		messages: ctx.recorder.messages,
 		config,
 		contextWindowTokens: budget,
+		...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
 		estimatedTokens,
 		...(options?.force ? { force: true } : {}),
 	})
@@ -764,6 +769,7 @@ async function runCompactionCheckInner(
 		messages,
 		config,
 		contextWindowTokens: budget,
+		...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
 		estimatedTokens,
 		skipToolResultClear: true,
 		...(options?.force ? { force: true } : {}),
