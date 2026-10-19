@@ -191,7 +191,7 @@ export class IterationOrchestrator {
 	private readonly warnedRichToolResults = new Set<string>()
 	/** What this run has learned about requests its provider rejects as invalid, and how to repair them. */
 	private readonly requestRepair = new RequestRepair({
-		debug: (message, data) => this.ctx.log.debug(message, data),
+		debug: (message) => this.ctx.log.debug(message),
 		onMediaRemoved: (removal) => this.noteMediaRemoved(removal),
 	})
 	/** Models that refused a request for holding an image; they get none for the rest of the run. */

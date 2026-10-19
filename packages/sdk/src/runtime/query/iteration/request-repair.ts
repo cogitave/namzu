@@ -41,7 +41,7 @@ export type MediaRemoval = {
 
 export interface RequestRepairHooks {
 	/** Debug-level record of a silent repair. Never shown to the person. */
-	readonly debug?: (message: string, data?: Record<string, unknown>) => void
+	readonly debug?: (message: string) => void
 	/** Media was taken out of a request that then went through. Called once per removal. */
 	readonly onMediaRemoved?: (removal: MediaRemoval) => void | Promise<void>
 }
@@ -358,14 +358,12 @@ export class RequestRepair {
 		try {
 			const repaired = repairToolMessageHistory(messages)
 			if (!toolHistoryRepairChanged(repaired.report)) return messages
-			this.hooks.debug?.('Repaired tool pairing before sending', {
-				...repaired.report,
-			})
+			this.hooks.debug?.(`Repaired tool pairing before sending: ${JSON.stringify(repaired.report)}`)
 			return repaired.messages
 		} catch (error) {
-			this.hooks.debug?.('Tool pairing could not be repaired before sending', {
-				error: error instanceof Error ? error.message : String(error),
-			})
+			this.hooks.debug?.(
+				`Tool pairing could not be repaired before sending: ${error instanceof Error ? error.message : String(error)}`,
+			)
 			return messages
 		}
 	}
@@ -385,9 +383,7 @@ export class RequestRepair {
 				spent.add('tool-pairing')
 				const repaired = repairOnce(params.messages)
 				if (repaired === null) return null
-				this.hooks.debug?.('Retrying after a tool-history rejection', {
-					route: key,
-				})
+				this.hooks.debug?.(`Retrying after a tool-history rejection (${key})`)
 				return { params: { ...params, messages: repaired } }
 			}
 			case 'reasoning': {
@@ -396,7 +392,7 @@ export class RequestRepair {
 				const messages = stripReasoning(params.messages)
 				if (messages === params.messages) return null
 				this.reasoningOff.add(key)
-				this.hooks.debug?.('Retrying without reasoning blocks', { route: key })
+				this.hooks.debug?.(`Retrying without reasoning blocks (${key})`)
 				return { params: { ...params, messages } }
 			}
 			case 'parameter': {
@@ -406,10 +402,9 @@ export class RequestRepair {
 				const set = this.latched.get(key) ?? new Set<RejectedParameter>()
 				for (const name of fresh) set.add(name)
 				this.latched.set(key, set)
-				this.hooks.debug?.('Retrying without parameters the model refused', {
-					route: key,
-					parameters: fresh,
-				})
+				this.hooks.debug?.(
+					`Retrying without parameters the model refused (${key}): ${fresh.join(', ')}`,
+				)
 				return { params: withoutParameters(params, new Set(fresh)) }
 			}
 			case 'media':
@@ -457,9 +452,7 @@ export class RequestRepair {
 		}
 
 		for (const slot of victims) this.rejectedMedia.add(slot.fingerprint)
-		this.hooks.debug?.('Retrying without media the provider rejected', {
-			count: victims.length,
-		})
+		this.hooks.debug?.(`Retrying without ${victims.length} media the provider rejected`)
 		const kinds = new Set(victims.map((slot) => slot.kind))
 		return {
 			params: { ...params, messages: removeMedia(params.messages, victims) },
