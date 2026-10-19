@@ -10,6 +10,7 @@ import {
 	expandFileMentions,
 	listMentionableFiles,
 	matchMentionableFiles,
+	mentionText,
 } from './mentions.js'
 
 const fake = (files: Record<string, string>) => (rel: string) => files[rel] ?? null
@@ -82,6 +83,81 @@ describe('expandFileMentions', () => {
 	})
 })
 
+describe('richer mentions', () => {
+	const lines = Array.from({ length: 30 }, (_, i) => `line ${i + 1}`).join('\n')
+
+	it('reads a quoted path with spaces', () => {
+		const { attached, sendText } = expandFileMentions(
+			'see @"my docs/a b.ts" now',
+			'/repo',
+			fake({ 'my docs/a b.ts': 'spaced' }),
+		)
+		expect(attached).toEqual(['my docs/a b.ts'])
+		expect(sendText).toContain('<file path="my docs/a b.ts">\nspaced\n</file>')
+	})
+
+	it('reads a unicode path', () => {
+		const { attached } = expandFileMentions(
+			'bak @belgeler/özet.md',
+			'/repo',
+			fake({ 'belgeler/özet.md': 'x' }),
+		)
+		expect(attached).toEqual(['belgeler/özet.md'])
+	})
+
+	it('sends only the lines of an #L10-20 range, inclusive', () => {
+		const { attached, sendText } = expandFileMentions(
+			'@a.ts#L10-12 please',
+			'/repo',
+			fake({ 'a.ts': lines }),
+		)
+		expect(attached).toEqual(['a.ts#L10-12'])
+		expect(sendText).toContain(
+			'<file path="a.ts" lines="10-12">\nline 10\nline 11\nline 12\n</file>',
+		)
+		expect(sendText).not.toContain('line 9')
+		expect(sendText).not.toContain('line 13')
+	})
+
+	it('sends one line for #L7', () => {
+		const { sendText } = expandFileMentions('@a.ts#L7', '/repo', fake({ 'a.ts': lines }))
+		expect(sendText).toContain('<file path="a.ts" lines="7">\nline 7\n</file>')
+	})
+
+	it('reads a range that starts beyond what the old cap could hold', () => {
+		const big = Array.from({ length: 20_000 }, (_, i) => `row ${i + 1}`).join('\n')
+		const { sendText } = expandFileMentions(
+			'@big.ts#L19999-20000',
+			'/repo',
+			fake({ 'big.ts': big }),
+		)
+		expect(sendText).toContain('row 19999\nrow 20000')
+	})
+
+	it('keeps the whole file for a different range of the same path as its own mention', () => {
+		const { attached } = expandFileMentions(
+			'@a.ts#L1-2 @a.ts#L3-4 @a.ts',
+			'/repo',
+			fake({ 'a.ts': lines }),
+		)
+		expect(attached).toEqual(['a.ts#L1-2', 'a.ts#L3-4', 'a.ts'])
+	})
+
+	it('does not take a closing bracket of the sentence into the path', () => {
+		const { attached } = expandFileMentions(
+			'(see @a.ts) and [@b.ts]',
+			'/repo',
+			fake({ 'a.ts': '1', 'b.ts': '2' }),
+		)
+		expect(attached).toEqual(['a.ts', 'b.ts'])
+	})
+
+	it('still caps one file at 60 000 characters', () => {
+		const { sendText } = expandFileMentions('@a.ts', '/repo', fake({ 'a.ts': 'x'.repeat(70_000) }))
+		expect(sendText).toContain('… (truncated)')
+	})
+})
+
 describe('file mention completion', () => {
 	it('finds only the token ending at the cursor and leaves email-like text alone', () => {
 		expect(activeFileMention('fix @src/auth', 13)).toEqual({
@@ -104,6 +180,22 @@ describe('file mention completion', () => {
 		).toEqual(['src/app.ts', 'app/config.ts', 'src/mapped.ts', 'src/api-proxy.ts'])
 	})
 
+	it('completes a quoted token that holds spaces, without the quote in the query', () => {
+		expect(activeFileMention('read @"my fi', 12)).toEqual({ start: 5, end: 12, query: 'my fi' })
+		expect(activeFileMention('read @"done.ts" then', 20)).toBeNull()
+	})
+
+	it('completes names in any script', () => {
+		expect(activeFileMention('bak @belgeler/özet', 18)).toMatchObject({ query: 'belgeler/özet' })
+		expect(activeFileMention('bak a_é@x', 9)).toBeNull()
+	})
+
+	it('writes a quoted mention when the path cannot stand bare', () => {
+		expect(mentionText('src/a.ts')).toBe('@src/a.ts')
+		expect(mentionText('my docs/a b.ts')).toBe('@"my docs/a b.ts"')
+		expect(mentionText('a+b.ts')).toBe('@"a+b.ts"')
+	})
+
 	it('loads tracked and unignored files without offering ignored or unaddressable paths', async () => {
 		const root = mkdtempSync(join(tmpdir(), 'namzu-mention-files-'))
 		tempDirs.push(root)
@@ -112,13 +204,15 @@ describe('file mention completion', () => {
 		mkdirSync(join(root, 'ignored'))
 		writeFileSync(join(root, '.gitignore'), 'ignored/\n')
 		writeFileSync(join(root, 'src', 'app.ts'), 'export {}')
-		writeFileSync(join(root, 'space name.ts'), 'not addressable by the current token grammar')
+		writeFileSync(join(root, 'space name.ts'), 'addressable as a quoted mention')
+		writeFileSync(join(root, 'özet.md'), 'unicode name')
 		writeFileSync(join(root, 'ignored', 'secret.ts'), 'ignored')
 
 		const files = await listMentionableFiles(root)
 
 		expect(files).toContain('src/app.ts')
-		expect(files).not.toContain('space name.ts')
+		expect(files).toContain('space name.ts')
+		expect(files).toContain('özet.md')
 		expect(files).not.toContain('ignored/secret.ts')
 	})
 })

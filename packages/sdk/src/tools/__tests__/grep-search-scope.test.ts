@@ -17,11 +17,16 @@ const args = (extra: object = {}) => ({
 	pattern: 'needle',
 	case_sensitive: true,
 	context_lines: 0,
-	max_results: 100,
+	output_mode: 'content' as const,
+	offset: 0,
 	...extra,
 })
 const context = (sandbox: Sandbox, signal = new AbortController().signal) =>
-	({ sandbox, workingDirectory: '/host/elsewhere', abortSignal: signal }) as ToolContext
+	({
+		sandbox,
+		workingDirectory: '/host/elsewhere',
+		abortSignal: signal,
+	}) as ToolContext
 
 const temporary: string[] = []
 afterEach(() => {
@@ -122,7 +127,11 @@ describe('grep bounds file discovery before reading', () => {
 		})
 		const result = await GrepTool.execute(args(), context(sandbox))
 		expect(result.success).toBe(true)
-		expect(result.data).toMatchObject({ totalMatches: 1, filesSearched: 1, truncated: false })
+		expect(result.data).toMatchObject({
+			totalMatches: 1,
+			filesSearched: 1,
+			truncated: false,
+		})
 		expect(result.output).not.toContain('incomplete')
 	})
 
@@ -228,7 +237,10 @@ describe('grep bounds file discovery before reading', () => {
 		await mkdir(join(root, 'src', 'nested'), { recursive: true })
 		await writeFile(join(root, 'src', 'nested', 'match.ts'), 'before\nNEEDLE\nafter\n')
 		await writeFile(join(root, 'src', 'skip.md'), 'needle excluded')
-		const ctx = { workingDirectory: root, abortSignal: new AbortController().signal } as ToolContext
+		const ctx = {
+			workingDirectory: root,
+			abortSignal: new AbortController().signal,
+		} as ToolContext
 		const result = await GrepTool.execute(
 			args({ include: '*.{ts,js}', case_sensitive: false, context_lines: 1 }),
 			ctx,
@@ -238,7 +250,11 @@ describe('grep bounds file discovery before reading', () => {
 		expect(result.output).toContain('./src/nested/match.ts:2:NEEDLE')
 		expect(result.output).toContain('./src/nested/match.ts-3-after')
 		expect(result.output).not.toContain('excluded')
-		expect(result.data).toMatchObject({ totalMatches: 1, filesSearched: 1, truncated: false })
+		expect(result.data).toMatchObject({
+			totalMatches: 1,
+			filesSearched: 1,
+			truncated: false,
+		})
 	})
 
 	it('preserves sandbox wildcard dotfile searches through the shared walker', async () => {

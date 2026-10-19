@@ -27,17 +27,19 @@ export type ProfileConfig = Omit<NamzuCliConfig, 'profiles' | 'plugins'>
 export type ProfilesConfig = Readonly<Record<string, ProfileConfig>>
 
 /** The two operator-visible moments the TUI can notify about. */
-export type TerminalNotificationEvent = 'turn-settled' | 'approval-required'
+export type TerminalNotificationEvent = 'turn-settled' | 'approval-required' | 'idle-prompt'
 
 /** Escape protocol used for an opted-in terminal notification. */
-export type TerminalNotificationMethod = 'osc9' | 'bel'
+export type TerminalNotificationMethod = 'osc9' | 'bel' | 'kitty' | 'ghostty'
 
 export interface TuiConfig {
 	/**
 	 * Notify for TUI events through the terminal itself.
 	 *
-	 * Absent or `false` means off. `true` enables both events; a list enables
-	 * only the named events, and an empty list explicitly disables all of them.
+	 * Absent or `false` means off. `true` enables `turn-settled` and
+	 * `approval-required`; a list enables only the named events (`idle-prompt`,
+	 * the "waiting for your input" notice after a minute of quiet, is asked for
+	 * by name), and an empty list explicitly disables all of them.
 	 * No command is started and no conversation content is included.
 	 */
 	readonly notifications?: boolean | readonly TerminalNotificationEvent[]
@@ -185,6 +187,14 @@ export interface NamzuCliConfig {
 	 */
 	readonly permissions?: PermissionsConfig
 	/**
+	 * The `permissions` tables of the layers that set one, lowest precedence
+	 * first (user, project, local, profile, managed). Filled in by the loader
+	 * and never read from a file: `permissions` above is their combined view,
+	 * and a call is decided layer by layer, a deny from any layer winning
+	 * (`compilePermissionLayers`).
+	 */
+	readonly permissionLayers?: readonly PermissionsConfig[]
+	/**
 	 * What the operator believes the table above decides, checked at startup.
 	 *
 	 * Each entry names a tool, an input, and the expected `"allow" | "ask" |
@@ -302,6 +312,19 @@ export interface NamzuCliConfig {
 	 */
 	readonly routing?: RoutingConfig
 	/**
+	 * The model for side jobs: a short conversation title, and the answer
+	 * `web_fetch` extracts from a page. `provider/model` names one explicitly
+	 * (for example `acme/small-chat`); a bare model id means that
+	 * model at the provider the conversation runs on.
+	 *
+	 * Absent, a side job uses the cheapest priced text model the active
+	 * provider lists, and the conversation's own model when none can be
+	 * determined. A side job never blocks or fails a turn, and its tokens are
+	 * counted on the turn's ledger. Accepted only from the user and managed
+	 * config layers: it chooses where conversation text is sent.
+	 */
+	readonly smallModel?: string
+	/**
 	 * Shell commands to run at points in the agent's loop: before or after a
 	 * tool call, when a turn starts or ends. File-only, never from the
 	 * environment — a hook runs a command with the operator's authority, and
@@ -399,6 +422,28 @@ export interface NamzuCliConfig {
 	 * scheduled runs never act on composer triggers.
 	 */
 	readonly composerTriggers?: ComposerTriggersConfig
+	/**
+	 * A command whose first output lines replace the footer's resting hints:
+	 * the terminal pipes one JSON object on its stdin (model, workspace,
+	 * context window, cost, effort, pull request, ...) and shows what it
+	 * prints, dimmed, above the footer row. File-only, never from the
+	 * environment, like `hooks`: it runs a command with the operator's
+	 * authority. A project file may set it only once the folder is trusted.
+	 * Only the interactive terminal runs it. See `docs/cli/status-line.md`.
+	 */
+	readonly statusLine?: StatusLineConfig
+}
+
+/** See `NamzuCliConfig.statusLine`. */
+export interface StatusLineConfig {
+	/** The only kind there is; accepted so a reference-terminal block pastes unchanged. */
+	readonly type?: 'command'
+	/** Run by the host shell in the working directory. */
+	readonly command: string
+	/** Columns of space on each side of the line. Default 0. */
+	readonly padding?: number
+	/** Also re-run every N seconds (at least 1), besides the event-driven updates. */
+	readonly refreshInterval?: number
 }
 
 /** A composer trigger's arming: `arm` from typed text, `suggest` only (Alt+W arms), or `off`. */

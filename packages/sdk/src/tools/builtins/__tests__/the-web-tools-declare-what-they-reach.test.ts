@@ -91,9 +91,9 @@ describe('the category is what the presets read', () => {
 })
 
 describe('web_fetch', () => {
-	it('returns the body', async () => {
+	it('returns the page itself when no extractor is wired', async () => {
 		const result = await WebFetchTool.execute(
-			{ url: 'https://example.com/' },
+			{ url: 'https://example.com/', prompt: 'what is on the page' },
 			context({ web: { fetch: { fetch: async () => page() } } }),
 		)
 
@@ -105,7 +105,7 @@ describe('web_fetch', () => {
 		// A model citing the URL it asked for after three redirects is citing
 		// a page it did not read.
 		const result = await WebFetchTool.execute(
-			{ url: 'https://example.com/' },
+			{ url: 'https://example.com/', prompt: 'what is on the page' },
 			context({
 				web: {
 					fetch: {
@@ -125,7 +125,7 @@ describe('web_fetch', () => {
 
 	it('says nothing about redirects when there were none', async () => {
 		const result = await WebFetchTool.execute(
-			{ url: 'https://example.com/' },
+			{ url: 'https://example.com/', prompt: 'what is on the page' },
 			context({ web: { fetch: { fetch: async () => page() } } }),
 		)
 
@@ -136,7 +136,7 @@ describe('web_fetch', () => {
 		// A cut page reading as whole is a model concluding something from a
 		// document whose second half it never saw.
 		const result = await WebFetchTool.execute(
-			{ url: 'https://example.com/' },
+			{ url: 'https://example.com/', prompt: 'what is on the page' },
 			context({ web: { fetch: { fetch: async () => page({ truncated: true }) } } }),
 		)
 
@@ -148,7 +148,7 @@ describe('web_fetch', () => {
 		// The reason is actionable: a wrong scheme is a mistake the model can
 		// fix, and a private address is one it should stop trying.
 		const result = await WebFetchTool.execute(
-			{ url: 'http://127.0.0.1/' },
+			{ url: 'http://127.0.0.1/', prompt: 'what is on the page' },
 			context({
 				web: {
 					fetch: {
@@ -169,7 +169,7 @@ describe('web_fetch', () => {
 
 	it('reports an ordinary transport failure with the URL', async () => {
 		const result = await WebFetchTool.execute(
-			{ url: 'https://example.com/' },
+			{ url: 'https://example.com/', prompt: 'what is on the page' },
 			context({
 				web: {
 					fetch: {
@@ -187,7 +187,10 @@ describe('web_fetch', () => {
 	})
 
 	it('says so when no provider is configured', async () => {
-		const result = await WebFetchTool.execute({ url: 'https://example.com/' }, context())
+		const result = await WebFetchTool.execute(
+			{ url: 'https://example.com/', prompt: 'what is on the page' },
+			context(),
+		)
 
 		expect(result.success).toBe(false)
 		expect(result.error).toMatch(/no web fetch provider/i)
@@ -288,7 +291,7 @@ describe('a refusal reaches the model in the guard’s own words', () => {
 		// trying, and a connection reset is worth retrying. Flattening them
 		// into one sentence tells it none of that.
 		const refused = await WebFetchTool.execute(
-			{ url: 'file:///etc/passwd' },
+			{ url: 'file:///etc/passwd', prompt: 'what is on the page' },
 			context({
 				web: {
 					fetch: {

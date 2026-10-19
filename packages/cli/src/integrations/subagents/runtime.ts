@@ -60,6 +60,7 @@ import {
 	type TaskHandle,
 	type TaskId,
 	type TaskScheduler,
+	type TokenUsage,
 	type ToolContext,
 	type ToolDefinition,
 	type ToolResult,
@@ -90,6 +91,7 @@ import {
 import type { TurnLimitsConfig } from '../../config/schema.js'
 import { resolveTurnGuards } from '../../config/turn-guards.js'
 import { NAMZU_WORKING_DOCTRINE } from '../../context/doctrine.js'
+import type { SideLedger } from '../small-model/side-model.js'
 import { CLI_CHECKPOINT_RETENTION } from '../state/retention.js'
 import { NamzuCliAgent, type NamzuCliAgentConfig } from './NamzuCliAgent.js'
 import { startActivityLabeler } from './activity-label.js'
@@ -429,6 +431,11 @@ export interface SubagentRuntime {
 	completionInboxForTurn(turnId: TurnId): Promise<CompletionInbox>
 	/** Release a settled parent turn's bookkeeping and cancel children it still owns. */
 	releaseTurn(turnId: TurnId): Promise<void>
+	/**
+	 * Where requests beside the conversation (a title, the answer `web_fetch`
+	 * extracts) are counted: the turn's own token ledger, the way a live label is.
+	 */
+	readonly sideLedger: SideLedger
 	/** Operator route: exact live view, with fresh authority for an idle follow-up. */
 	messageChild(
 		viewId: string,
@@ -871,9 +878,85 @@ export async function createSubagentRuntime(
 			throw error
 		}
 	}
+	// Requests made beside a turn's own, waiting for the turn to close its request.
+	interface QueuedSideSpend {
+		readonly sessionId: SessionId
+		readonly estimatedPromptTokens: number
+		readonly usage: TokenUsage
+	}
+	const queuedSideSpend = new Map<TurnId, QueuedSideSpend[]>()
+	const releasedTurns = new Set<TurnId>()
+	const countSideSpend = async (
+		budget: SessionTokenBudget,
+		spend: QueuedSideSpend,
+	): Promise<void> => {
+		const controller = new AbortController()
+		await chargeLabelRequest({
+			budget,
+			sessionId: spend.sessionId,
+			estimatedPromptTokens: spend.estimatedPromptTokens,
+			signal: controller.signal,
+			request: async () => ({ value: true, usage: spend.usage }),
+		}).catch(() => undefined)
+	}
+	const countQueuedSideSpend = async (
+		turnId: TurnId,
+		pending: Promise<ParentRuntime>,
+	): Promise<void> => {
+		const queued = queuedSideSpend.get(turnId)
+		if (queued === undefined) return
+		queuedSideSpend.delete(turnId)
+		const runtime = await pending.catch(() => undefined)
+		if (runtime === undefined) return
+		for (const spend of queued) await countSideSpend(runtime.budget, spend)
+	}
+	const sideLedger: SideLedger = {
+		async chargeNow(input) {
+			const turn = await parents.get(input.turnId)?.catch(() => undefined)
+			if (!turn || closed) return undefined
+			return chargeLabelRequest({
+				budget: turn.budget,
+				sessionId: input.sessionId,
+				estimatedPromptTokens: input.estimatedPromptTokens,
+				signal: input.signal,
+				request: input.request,
+			})
+		},
+		async chargeLater(input) {
+			const spend: QueuedSideSpend = {
+				sessionId: input.sessionId,
+				estimatedPromptTokens: input.estimatedPromptTokens,
+				usage: input.usage,
+			}
+			if (!releasedTurns.has(input.turnId)) {
+				const queue = queuedSideSpend.get(input.turnId) ?? []
+				queue.push(spend)
+				queuedSideSpend.set(input.turnId, queue)
+				return
+			}
+			// The turn has closed: nothing else writes its ledger, so it is
+			// reopened from the store, which holds it after the turn.
+			await openSessionTokenBudget({
+				store: tokenBudgetStore,
+				scope: { rootSessionId: input.sessionId, rootTurnId: input.turnId },
+			}).then(
+				(budget) => countSideSpend(budget, spend),
+				() => undefined,
+			)
+		},
+	}
 	const releaseTurn = async (turnId: TurnId): Promise<void> => {
 		const pending = parents.get(turnId)
 		if (!pending) return
+		// The turn's own request has closed, so the ledger can take what was
+		// spent beside it while that request was open.
+		await countQueuedSideSpend(turnId, pending)
+		releasedTurns.add(turnId)
+		// A request only needs to learn that its turn has closed shortly after it did.
+		if (releasedTurns.size > 256) {
+			const oldest = releasedTurns.values().next().value
+			if (oldest !== undefined) releasedTurns.delete(oldest)
+		}
 		parents.delete(turnId)
 		await pending.then(
 			(runtime) => runtime.close(),
@@ -2082,6 +2165,7 @@ export async function createSubagentRuntime(
 		gatewayForTurn,
 		completionInboxForTurn,
 		releaseTurn,
+		sideLedger,
 		agentTool,
 		waitForTaskTool,
 		agentTaskListTool,

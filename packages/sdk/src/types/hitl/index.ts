@@ -55,6 +55,14 @@ export type HITLResumeDecision =
 			 * listed here for an unmarked call is ignored rather than trusted.
 			 */
 			skillGranted?: readonly string[]
+			/**
+			 * Ids of calls approved on the strength of a `pre_tool_use` hook's
+			 * `allow` ({@link ToolCallSummary.hookGrant}), with nobody asked.
+			 *
+			 * Audited like `skillGranted`, and ignored for any id whose call did
+			 * not carry the mark.
+			 */
+			hookGranted?: readonly string[]
 	  }
 	| {
 			action: 'modify_tools'
@@ -77,6 +85,15 @@ export type HITLResumeDecision =
 			action: 'answer_question'
 			selectedOptionIds: string[]
 			freeText?: string
+			/**
+			 * One answer per question of a batch (`UserQuestionData.questions`).
+			 * When present it is the answer; `selectedOptionIds`/`freeText`
+			 * then carry nothing the tool reads (send `[]`). Absent on a
+			 * single-question park, and on a batch from a host that only
+			 * knows one question — then `selectedOptionIds`/`freeText`
+			 * answer the first question and the rest are unanswered.
+			 */
+			answers?: readonly UserQuestionAnswer[]
 			/**
 			 * Echo of `UserQuestionData.questionId` — the misdirection
 			 * guard. The park/resolve registry on hosts is typically
@@ -176,6 +193,28 @@ export interface ToolCallSummary {
 	 * and `strict`. A host's own handler may ignore it.
 	 */
 	skillGrant?: { readonly skill: string }
+	/**
+	 * What a `pre_tool_use` hook answered about approving this call, as the
+	 * hooks reported it. `ask` is acted on by the kernel (it makes the call an
+	 * explicit review); `allow` is acted on only through {@link hookGrant}.
+	 */
+	hookPermission?: {
+		readonly decision: 'allow' | 'ask'
+		readonly reason?: string
+	}
+	/**
+	 * Present when a `pre_tool_use` hook said `allow` and nothing stronger
+	 * stands in the way.
+	 *
+	 * Marked on the same terms as {@link skillGrant}: only a call the
+	 * operator's policy left to review (no `deny`, no explicit `ask` rule, no
+	 * hook `ask`), that is not destructive, carries no {@link escalation} and
+	 * is not one the tool always asks about. A sandbox escape, a path outside
+	 * the roots, a tool's own `requiresApproval`, a rule's review and the
+	 * dangerous-pattern floor therefore all still reach a person, or refuse.
+	 * `plan` and `strict` refuse a marked call exactly as they refuse any other.
+	 */
+	hookGrant?: { readonly reason?: string }
 }
 
 /** See {@link ToolCallSummary.escalation}. */
@@ -218,6 +257,27 @@ export interface ToolCallEscalation {
 	 * where a program name is actually decided.
 	 */
 	unknownProgram?: string
+	/**
+	 * Absolute paths this call writes that are protected in every mode: git
+	 * hooks and config, shell rc files, editor and tool configuration, the
+	 * project's own `.namzu` directory (see `authorization/protected-paths.ts`
+	 * for the list). A write there plants something that runs later, outside
+	 * the turn, so it is asked about every time and refused when nobody can be
+	 * asked; no rule, mode or remembered approval covers it. Set for the file
+	 * tools' declared path and for the visible write targets of a shell line:
+	 * output redirections, and the operands of `cp`, `mv`, `tee`, `touch`,
+	 * `mkdir`, `rm`, `rmdir` and `sed -i`.
+	 */
+	protectedPaths?: readonly string[]
+	/**
+	 * Why a shell line removes something it must not: the file system root, a
+	 * top-level directory, the home directory, the working directory or one of
+	 * its parents, a glob that crosses directories, or a target a variable or
+	 * substitution may empty. The flags do not matter, only the targets. Asked
+	 * about every time and refused when nobody can be asked. Present only for a
+	 * tool that declares `commandArgument`.
+	 */
+	dangerousRemoval?: string
 }
 
 export interface ToolModification {
@@ -250,6 +310,12 @@ export interface UserQuestionOption {
 	 * Absent, not `false`, on every other option.
 	 */
 	recommended?: boolean
+	/**
+	 * Plain text or markdown a host may show beside the option list while this
+	 * option is focused (a snippet, a mock-up, a side-by-side). Optional and
+	 * never required to answer; a host that has nowhere to show it ignores it.
+	 */
+	preview?: string
 }
 
 /**
@@ -267,6 +333,44 @@ export interface UserQuestionData {
 	options: UserQuestionOption[]
 	multiSelect: boolean
 	allowFreeText: boolean
+	/**
+	 * Present when one `ask_user_question` call carries several related
+	 * questions (two to four; a single question leaves this out). The
+	 * top-level `question`, `header`, `options`, `multiSelect` and
+	 * `allowFreeText` then mirror the FIRST entry, so a host that does not
+	 * know this field still shows a coherent question and answers it; the
+	 * rest read as unanswered.
+	 *
+	 * A host shows all of them together, collects every answer, and returns
+	 * one {@link UserQuestionAnswer} per question it has an answer for through
+	 * `answer_question.answers`.
+	 */
+	questions?: readonly UserQuestionItem[]
+}
+
+/**
+ * One question of a batch. `id` is stable: the asking `tool_use_id`, `#`, and
+ * the question's zero-based position, so an answer names the question it
+ * belongs to even when a host shows them in another order.
+ */
+export interface UserQuestionItem {
+	id: string
+	question: string
+	header?: string
+	options: UserQuestionOption[]
+	multiSelect: boolean
+	allowFreeText: boolean
+}
+
+/**
+ * The answer to one question of a batch. A question with no entry was not
+ * answered; an entry with no selection and no text counts the same.
+ */
+export interface UserQuestionAnswer {
+	/** {@link UserQuestionItem.id}. */
+	questionId: string
+	selectedOptionIds: string[]
+	freeText?: string
 }
 
 export interface PlanApprovalData {

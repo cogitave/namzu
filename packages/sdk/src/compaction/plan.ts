@@ -1,5 +1,6 @@
 import type { CompactionConfig } from '../config/runtime.js'
 import type { Message } from '../types/message/index.js'
+import { resolveTriggerThreshold } from './context-window.js'
 import { findSafeTrimIndex } from './dangling.js'
 import { buildGoal } from './salience/goal.js'
 import { scoreMessages } from './salience/score.js'
@@ -64,6 +65,8 @@ export interface CompactionPlanInput {
 	readonly messages: readonly Message[]
 	readonly config: CompactionConfig
 	readonly contextWindowTokens: number
+	/** The model's output cap, when known; sizes the derived trigger. */
+	readonly maxOutputTokens?: number
 	readonly estimatedTokens: number
 	readonly force?: boolean
 	/**
@@ -137,6 +140,8 @@ export function planSalienceWorkingSet(input: {
 	readonly messages: readonly Message[]
 	readonly config: CompactionConfig
 	readonly contextWindowTokens: number
+	/** The model's output cap, when known; sizes the derived trigger. */
+	readonly maxOutputTokens?: number
 	readonly estimatedTokens: number
 	readonly openTasks?: readonly string[]
 }): Extract<CompactionPlan, { kind: 'cleared' }> & { readonly working: WorkingSetPlan } {
@@ -161,7 +166,9 @@ export function planSalienceWorkingSet(input: {
 		stubbedCount: working.stubbedCount,
 		charsReclaimed: working.charsReclaimed,
 		reclaimedTokens: working.reclaimedTokens,
-		reliefWasEnough: (estimatedTokens - working.reclaimedTokens) / budget < config.triggerThreshold,
+		reliefWasEnough:
+			(estimatedTokens - working.reclaimedTokens) / budget <
+			resolveTriggerThreshold(config.triggerThreshold, budget, input.maxOutputTokens),
 		working,
 	}
 }
@@ -189,7 +196,9 @@ export function planCompaction(input: CompactionPlanInput): CompactionPlan {
 			// would declare success after clearing one result and hand back a
 			// history that overflows again on the retry.
 			const reliefWasEnough =
-				!input.force && (estimatedTokens - reclaimedTokens) / budget < config.triggerThreshold
+				!input.force &&
+				(estimatedTokens - reclaimedTokens) / budget <
+					resolveTriggerThreshold(config.triggerThreshold, budget, input.maxOutputTokens)
 			return {
 				kind: 'cleared',
 				messages: edit.messages,

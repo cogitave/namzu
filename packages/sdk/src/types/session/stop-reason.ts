@@ -39,6 +39,11 @@ export type StopReason =
 	/** The model never produced a valid structured output within its retries. */
 	| 'structured_output_failed'
 	/**
+	 * The model's reply was cut off at its output limit more times in a row
+	 * than `maxOutputContinuations` allows. Only with that option set.
+	 */
+	| 'output_limit'
+	/**
 	 * A host reviewer kept rejecting the answer and the turn ran out of
 	 * attempts.
 	 *

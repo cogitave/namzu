@@ -45,6 +45,7 @@ import {
 	generateTurnId,
 	isCompactionMessage,
 	kernelHostCommands,
+	resolveTriggerThreshold,
 	resolveWorkflowLimits,
 } from '@namzu/sdk'
 import { Box, Text, useApp, useInput, useStdout, useWindowSize } from 'ink'
@@ -81,6 +82,7 @@ import {
 	tuiPalOwner,
 	tuiPalPreferences,
 } from '../pals/tui-session.js'
+import type { PlanApprovalAnswer, PlanApprovalFn, PlanApprovalRequest } from '../plan/approval.js'
 
 import { resolveComposerTriggers } from '../config/composer-triggers.js'
 import { writeClipboardText } from '../integrations/clipboard/text.js'
@@ -118,7 +120,8 @@ import {
 	writePreferences,
 	writeStoredGeminiApiKey as writeStoredGoogleApiKey,
 } from '../integrations/providers/index.js'
-import { displayConversationTitle } from '../integrations/sessions/display-title.js'
+import { generateTitle } from '../integrations/sessions/ai-title.js'
+import { displayConversationTitle, typedTextOf } from '../integrations/sessions/display-title.js'
 import {
 	type CliSessions,
 	ConversationIndexRefreshError,
@@ -133,16 +136,19 @@ import {
 	loadConversation,
 	loadResumableConversation,
 	openSessions,
+	recordGeneratedTitle,
 	requireWritableConversation,
 	setTitle,
 	startConversation,
 	titleOf,
+	titlesOf,
 	unarchiveConversation,
 } from '../integrations/sessions/store.js'
 import {
 	conversationMarkdown,
 	writeConversationExport,
 } from '../integrations/sessions/transcript-export.js'
+import type { SideModel } from '../integrations/small-model/side-model.js'
 import { resolveNamzuHome } from '../integrations/state/home.js'
 import {
 	DEFAULT_AGENT_WORKFLOW,
@@ -243,6 +249,8 @@ import { type ActiveTool, LiveActivity, formatElapsed } from './LiveActivity.js'
 import { PendingInputPanel, pendingInputPanelRows } from './PendingInputPanel.js'
 import { type PermissionChoice, PermissionOverlay, permissionAnswers } from './PermissionOverlay.js'
 import { Picker } from './Picker.js'
+import { PlanApprovalOverlay } from './PlanApprovalOverlay.js'
+import { QuestionDialog } from './QuestionDialog.js'
 import { ResumePicker } from './ResumePicker.js'
 import { SaveSkillOverlay } from './SaveSkillOverlay.js'
 import {
@@ -295,6 +303,7 @@ import {
 } from './choice-selection.js'
 import { keepRecentRows } from './compact-transcript.js'
 import { approvalIsDeliberate } from './consent-timing.js'
+import { contextMeter } from './context-meter.js'
 import { conversationEvidenceView } from './conversation-evidence-view.js'
 import { assistantTranscriptTexts } from './conversation-history.js'
 import { type CopyResponseTarget, copyTargetsForResponse } from './copy-targets.js'
@@ -351,6 +360,7 @@ import {
 	pluginStartupState,
 } from './plugin-view.js'
 import { selectPrimaryProvider } from './provider-selection.js'
+import { needsQuestionDialog } from './question-dialog.js'
 import { type ScheduleIntegration, createScheduleIntegration } from './schedule/integration.js'
 import {
 	SourceDeliveryView,
@@ -406,6 +416,7 @@ import { withWorkflowRuns } from './workflow-runs.js'
 
 import type { BrowserControl } from '../browser/control.js'
 import { renderCheckpoints, renderRestore, renderRestoreNote } from '../checkpoints/store.js'
+import { IdleNotifier } from '../integrations/notifications/idle.js'
 import { agentViewCommandClass } from './agent-view-commands.js'
 import { browserSiteNotes, describeBrowserHandoff, runBrowserSlash } from './browser-notices.js'
 import { expandFileMentions, listMentionableFiles } from './mentions.js'
@@ -438,9 +449,17 @@ import {
 	reviewPrompt,
 	runSlash,
 } from './slashCommands.js'
+import { StatusLineRows } from './status-line/StatusLineRows.js'
+import { useStatusLine } from './status-line/useStatusLine.js'
 import { splitCompleteBlocks, splitSafeCut } from './stream-blocks.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { terminalSupportsHyperlinks } from './terminal-hyperlinks.js'
+import {
+	RESET_TERMINAL_TITLE_SEQUENCE,
+	setTerminalTitleSequence,
+	terminalTitleEnabled,
+	terminalTitleText,
+} from './terminal-title.js'
 import { theme } from './theme.js'
 import {
 	PAUSED_TURN_LINES,
@@ -868,6 +887,10 @@ export function projectConversation(
 						detail: [`Objective: ${message.source.objective}`],
 					},
 				]
+			}
+			// A hidden reminder is for the model; the live transcript never showed it.
+			if (message.source?.type === 'runtime-context' && message.source.kind === 'reminder') {
+				return []
 			}
 			if (message.source?.type === 'runtime-context') {
 				return [
@@ -1437,8 +1460,9 @@ export function App({
 		cost: CostInfo
 		/**
 		 * See the `usage` event: absent when the turn resolved no window. Read
-		 * by `/cost`, not by the footer — the persistent gauge was removed on
-		 * purpose (iteration 168) and the compaction tests pin its absence.
+		 * by `/cost`, and by the footer only once the window is within 20,000
+		 * tokens of the summary point (`context-meter.ts`) — the always-on gauge
+		 * was removed on purpose (iteration 168).
 		 */
 		context?: {
 			tokens: number
@@ -2017,6 +2041,8 @@ export function App({
 	const activeTurnInboxRef = useRef<ActiveTurnInbox | null>(null)
 	/** A broken terminal notification is reported once, not after every turn. */
 	const notificationFailureShownRef = useRef(false)
+	// When a key was last pressed: the idle notice is for a person who walked away.
+	const lastKeyAtRef = useRef(Date.now())
 	/**
 	 * The sign-in attempt awaiting its authorization code, if any.
 	 *
@@ -2175,6 +2201,22 @@ export function App({
 	// turns attribute to the resumed conversation.
 	const sessionsRef = useRef<CliSessions | null>(null)
 	const scopeRef = useRef<SessionScope | null>(null)
+	// What the conversation is called: the name a person gave it, else the title
+	// the small model wrote. They feed the terminal title; `/resume` reads the same
+	// two from the log.
+	const [conversationNames, setConversationNames] = useState<{
+		readonly named?: string
+		readonly generated?: string
+	}>({})
+	const namesSessionRef = useRef<string | undefined>(undefined)
+	// A conversation is titled once per launch: the first message asks, and a
+	// failed ask frees the next message to try again.
+	const generatedTitleAttemptedRef = useRef(new Set<string>())
+	// A title written by the model while a turn held the log; saved when the turn ends.
+	const pendingGeneratedTitleRef = useRef<
+		{ readonly sessionId: SessionId; readonly title: string } | undefined
+	>(undefined)
+	const lastTerminalTitleRef = useRef<string | undefined>(undefined)
 	/**
 	 * Scheduled jobs and session loops (`./schedule/`). Built once; what it
 	 * reads later — the transcript writer, the question and permission
@@ -2251,6 +2293,24 @@ export function App({
 		},
 		[setJobSurface],
 	)
+	/**
+	 * `exit_plan_mode`'s approval box. Like the skill-save box it is this
+	 * terminal's own screen, not the permission gate, so no permission mode
+	 * answers it for the operator.
+	 */
+	const [planPrompt, setPlanPromptState] = useState<{
+		readonly request: PlanApprovalRequest
+		readonly resolve: (answer: PlanApprovalAnswer) => void
+	} | null>(null)
+	const planPromptRef = useRef<typeof planPrompt>(null)
+	const setPlanPrompt = useCallback(
+		(next: typeof planPrompt) => {
+			if (next) setJobSurface(null)
+			planPromptRef.current = next
+			setPlanPromptState(next)
+		},
+		[setJobSurface],
+	)
 	const [scheduleReviewPrompt, setScheduleReviewPromptState] = useState<{
 		readonly token: number
 		readonly request: ScheduleReviewRequest
@@ -2263,6 +2323,24 @@ export function App({
 			if (next) setJobSurface(null)
 			scheduleReviewPromptRef.current = next
 			setScheduleReviewPromptState(next)
+		},
+		[setJobSurface],
+	)
+	/**
+	 * `ask_user_question` as a card: several questions in one call, or one that
+	 * takes several answers. A lone single choice stays the plain chooser.
+	 */
+	const [questionDialog, setQuestionDialogState] = useState<{
+		readonly token: number
+		readonly question: UserQuestion
+	} | null>(null)
+	const questionDialogRef = useRef<typeof questionDialog>(null)
+	const questionDialogTokenRef = useRef(0)
+	const setQuestionDialog = useCallback(
+		(next: typeof questionDialog) => {
+			if (next) setJobSurface(null)
+			questionDialogRef.current = next
+			setQuestionDialogState(next)
 		},
 		[setJobSurface],
 	)
@@ -4175,6 +4253,30 @@ export function App({
 
 	const sendTerminalNotification = useCallback(
 		(notification: TerminalNotification) => {
+			// The hooks hear about every moment the operator's attention is wanted,
+			// whether or not a terminal notification is configured: a script may be
+			// the only thing that reaches them.
+			if (notification.kind === 'approval-required') {
+				session?.notifyHooks?.({
+					type: 'approval_required',
+					message: 'A tool call is waiting for approval.',
+				})
+			} else if (notification.kind === 'idle-prompt') {
+				session?.notifyHooks?.({
+					type: 'idle_prompt',
+					message: 'Namzu is waiting for your input.',
+				})
+			} else {
+				session?.notifyHooks?.({
+					type: 'turn_settled',
+					message:
+						notification.outcome === 'completed'
+							? 'The turn completed.'
+							: notification.outcome === 'stopped'
+								? 'The turn stopped and needs attention.'
+								: 'The turn failed.',
+				})
+			}
 			if (!terminalNotificationEnabled(ctx.tui?.notifications, notification)) return
 			const result = writeTerminalNotification(
 				notification,
@@ -4191,7 +4293,7 @@ export function App({
 					: `Could not send a terminal notification request: ${result.detail}. No further notification failures will be shown.`,
 			)
 		},
-		[ctx.tui, pushMessage, stdout.isTTY, writeStdout],
+		[ctx.tui, pushMessage, session, stdout.isTTY, writeStdout],
 	)
 
 	const appendToMessage = useCallback((id: string, delta: string) => {
@@ -4460,6 +4562,7 @@ export function App({
 							...(activeCtx.plugins ? { plugins: activeCtx.plugins } : {}),
 							...(activeCtx.skills ? { skills: activeCtx.skills } : {}),
 							...(activeCtx.web ? { web: activeCtx.web } : {}),
+							...(activeCtx.smallModel ? { smallModel: activeCtx.smallModel } : {}),
 							...(activeCtx.hooks ? { hooks: activeCtx.hooks } : {}),
 							...(activeCtx.compaction ? { compaction: activeCtx.compaction } : {}),
 							...(activeCtx.memory ? { memory: activeCtx.memory } : {}),
@@ -4479,6 +4582,10 @@ export function App({
 							// Somebody is at this terminal, so the model may ask them one
 							// question when a decision is genuinely theirs.
 							askUser: true,
+							// Plan mode gets its plan file and approval box, and each turn
+							// the hidden reminders (plan mode's, the task-list nudge).
+							planApproval: true,
+							reminders: true,
 							allowModelSwitch: true,
 							// The user is at this desktop, so the model may open a page for them.
 							openUrl: true,
@@ -5153,6 +5260,47 @@ export function App({
 		enabled: stdout.isTTY === true && phase !== 'trust',
 		turnActive: state === 'thinking' || state === 'tool' || state === 'awaiting-permission',
 	})
+	// The operator's status line command (docs/cli/status-line.md). Runs only
+	// on a real terminal and only past the trust screen, which is where a
+	// project-defined command first becomes reachable.
+	const statusLineStartedAt = useRef(Date.now())
+	const statusLineText = useStatusLine({
+		config: ctx.statusLine,
+		enabled: stdout.isTTY === true && phase !== 'trust',
+		cwd: ctx.cwd,
+		columns: terminal.columns,
+		read: () => ({
+			sessionId: scopeRef.current?.sessionId,
+			cwd: ctx.cwd,
+			projectDir: trustedCwdRef.current,
+			addedDirs: ctx.additionalDirectories ?? [],
+			model: session?.modelSummary ?? null,
+			version: ctx.version,
+			permissionMode,
+			...(reasoningEffort ? { effort: reasoningEffort } : {}),
+			...(palDefinitionRef.current ? { agentName: palDefinitionRef.current.name } : {}),
+			pr: prStatus,
+			totalCostUsd: usage?.cost.totalCost ?? 0,
+			sessionStartedAt: statusLineStartedAt.current,
+			...(usage?.context
+				? {
+						context: {
+							tokens: usage.context.tokens,
+							windowTokens: usage.context.windowTokens,
+						},
+					}
+				: {}),
+		}),
+		triggers: [
+			usage?.totalTokens,
+			usage?.context?.tokens,
+			permissionMode,
+			session?.modelSummary,
+			reasoningEffort,
+			prStatus.kind === 'pr' ? `${prStatus.number}:${prStatus.review}` : prStatus.kind,
+			finalized.length,
+		],
+	})
 	const pendingInputItems = pendingSteers.map((input) => ({
 		text: input.prompt.recallText ?? input.prompt.text,
 		attachmentCount: (input.prompt.attachments?.length ?? 0) + input.attachedFiles,
@@ -5176,6 +5324,8 @@ export function App({
 		jobSurface === null &&
 		permission === null &&
 		saveSkillPrompt === null &&
+		planPrompt === null &&
+		questionDialog === null &&
 		scheduleReviewPrompt === null &&
 		textPrompt === null &&
 		choicePicker === null &&
@@ -5229,9 +5379,15 @@ export function App({
 	// it also swallows the main input handler's keys while it is open, so it has to
 	// close: otherwise the request on screen could not be answered.
 	useEffect(() => {
-		if (permission !== null || saveSkillPrompt !== null || scheduleReviewPrompt !== null)
+		if (
+			permission !== null ||
+			saveSkillPrompt !== null ||
+			planPrompt !== null ||
+			questionDialog !== null ||
+			scheduleReviewPrompt !== null
+		)
 			setScrollOpen(false)
-	}, [permission, saveSkillPrompt, scheduleReviewPrompt])
+	}, [permission, saveSkillPrompt, planPrompt, questionDialog, scheduleReviewPrompt])
 	// A ref, and mutated during render, because the split has to be MONOTONIC:
 	// a row that has been printed to scrollback can never come back, and `max`
 	// is idempotent, so a repeated render reaches the same answer.
@@ -5281,7 +5437,10 @@ export function App({
 			? {
 					strategy: ctx.compaction?.strategy ?? 'salience',
 					softTarget: 0.5,
-					triggerThreshold: 0.7,
+					triggerThreshold: resolveTriggerThreshold(
+						undefined,
+						usage?.context?.windowTokens ?? 200_000,
+					),
 					...compactionTally,
 				}
 			: null,
@@ -5542,34 +5701,50 @@ export function App({
 	}, [phase, resumeActiveTurn, session, state])
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
-	const doResume = useCallback(async () => {
-		const sessions = sessionsRef.current ?? (await ensureSessions().then(() => sessionsRef.current))
-		if (!sessions) {
-			pushMessage('system', 'Conversation history is unavailable in this folder.')
-			return
-		}
-		if (await resumeActiveTurn()) return
-		try {
-			const owner = palDefinitionRef.current
-			const recent = owner
-				? (await listPalConversations(owner.workspace, owner.id)).map((row) => ({
-						...row,
-						id: asSessionId(row.id),
-					}))
-				: await listRecent(sessions)
-			// Don't offer the active (empty/just-started) conversation.
-			const others = recent.filter((c) => c.id !== scopeRef.current?.sessionId)
-			if (others.length === 0) {
-				pushMessage('system', 'No past conversations to resume in this folder yet.')
+	const doResume = useCallback(
+		async (query?: string) => {
+			const sessions =
+				sessionsRef.current ?? (await ensureSessions().then(() => sessionsRef.current))
+			if (!sessions) {
+				pushMessage('system', 'Conversation history is unavailable in this folder.')
 				return
 			}
-			setResumeList(others)
-			setSelectedResume(0)
-			setPhase('resume')
-		} catch (err) {
-			pushMessage('system', explainFailure(err, 'Could not list conversations.'))
-		}
-	}, [ensureSessions, pushMessage, resumeActiveTurn])
+			if (await resumeActiveTurn()) return
+			try {
+				const owner = palDefinitionRef.current
+				const recent = owner
+					? (await listPalConversations(owner.workspace, owner.id)).map((row) => ({
+							...row,
+							id: asSessionId(row.id),
+						}))
+					: await listRecent(sessions)
+				// Don't offer the active (empty/just-started) conversation.
+				const needle = query?.trim().toLowerCase()
+				const others = recent.filter(
+					(c) =>
+						c.id !== scopeRef.current?.sessionId &&
+						(!needle ||
+							c.title.toLowerCase().includes(needle) ||
+							(c.preview?.toLowerCase().includes(needle) ?? false)),
+				)
+				if (others.length === 0) {
+					pushMessage(
+						'system',
+						needle
+							? `No conversation in this folder matches "${query?.trim()}". /resume lists them all.`
+							: 'No past conversations to resume in this folder yet.',
+					)
+					return
+				}
+				setResumeList(others)
+				setSelectedResume(0)
+				setPhase('resume')
+			} catch (err) {
+				pushMessage('system', explainFailure(err, 'Could not list conversations.'))
+			}
+		},
+		[ensureSessions, pushMessage, resumeActiveTurn],
+	)
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
 	const doUnarchive = useCallback(async () => {
@@ -5620,7 +5795,7 @@ export function App({
 		screenConsent: pending.screenConsent === true,
 		mode: permissionModeRef.current,
 		...(session?.allowForSession && session.commandArguments
-			? { commandArguments: session.commandArguments }
+			? { commandArguments: session.commandArguments, rememberWhere: homePath(ctx.cwd) }
 			: {}),
 	})
 
@@ -6132,6 +6307,119 @@ export function App({
 		],
 	)
 
+	/** Save a title the model wrote, once no turn holds the log. A busy log is tried again at the next turn's end. */
+	const flushGeneratedTitle = useCallback(async () => {
+		const pending = pendingGeneratedTitleRef.current
+		const sessions = sessionsRef.current
+		if (!pending || !sessions) return
+		try {
+			await recordGeneratedTitle(sessions, pending.sessionId, pending.title)
+			if (pendingGeneratedTitleRef.current === pending) pendingGeneratedTitleRef.current = undefined
+		} catch {
+			// The log is held by a turn; the turn's end calls this again.
+		}
+	}, [])
+
+	/**
+	 * After a conversation's first message, ask the small model for a name.
+	 *
+	 * A side job: it runs beside the turn, never delays or fails it, and a
+	 * conversation that already has a name or a title is left alone. The title
+	 * shows at once in the terminal title and is saved for `/resume` when the log
+	 * is free.
+	 */
+	const startGeneratedTitle = useCallback(
+		(sideModel: SideModel | undefined, sessionId: SessionId, turnId: TurnId, message: string) => {
+			const sessions = sessionsRef.current
+			if (!sideModel || !sessions || generatedTitleAttemptedRef.current.has(sessionId)) return
+			generatedTitleAttemptedRef.current.add(sessionId)
+			const typed = typedTextOf(message)
+			const text = typed.text.trim() ? typed.text : (typed.firstFile ?? '')
+			void (async () => {
+				try {
+					const existing = await titlesOf(sessions, sessionId)
+					if (existing.named !== undefined || existing.generated !== undefined) return
+					const title = await generateTitle({
+						sideModel,
+						sessionId,
+						turnId,
+						message: text,
+						signal: AbortSignal.timeout(30_000),
+					})
+					if (title === undefined) {
+						generatedTitleAttemptedRef.current.delete(sessionId)
+						return
+					}
+					pendingGeneratedTitleRef.current = { sessionId, title }
+					if (scopeRef.current?.sessionId === sessionId) {
+						setConversationNames((names) =>
+							names.named !== undefined ? names : { generated: title },
+						)
+					}
+					// Saved at the end of a turn (or now, if none is running), never
+					// while one starts: the turn's claim on the log does not wait.
+					if (activeTurnTokenRef.current === null && queuedRef.current.length === 0) {
+						await flushGeneratedTitle()
+					}
+				} catch {
+					generatedTitleAttemptedRef.current.delete(sessionId)
+				}
+			})()
+		},
+		[flushGeneratedTitle],
+	)
+
+	// The names of whichever conversation is open, read when it changes: a resume,
+	// a new conversation and a clear all move `scopeRef`, and this follows it.
+	useEffect(() => {
+		const sessionId = scopeRef.current?.sessionId
+		if (sessionId === namesSessionRef.current) return
+		namesSessionRef.current = sessionId
+		setConversationNames({})
+		const sessions = sessionsRef.current
+		if (!sessionId || !sessions || !conversationMaterializedRef.current) return
+		// Read inside an async function so a store that cannot answer is a rejection
+		// here, never an error thrown into the render.
+		void (async () => titlesOf(sessions, sessionId))().then(
+			(titles) => {
+				if (namesSessionRef.current === sessionId) setConversationNames(titles)
+			},
+			() => undefined,
+		)
+	})
+
+	// The terminal's own title: the conversation's name, with a glyph that says
+	// whether a turn is running. Reset on exit so the shell's title comes back.
+	const terminalTitle = terminalTitleText({
+		...conversationNames,
+		busy: state !== 'idle',
+	})
+	// Only the terminal this process is attached to has a title of ours to set; an
+	// embedding that renders to another stream (a test harness, a pane) is left alone.
+	const titledStream = stdout === process.stdout && terminalTitleEnabled(process.env, stdout.isTTY)
+	useEffect(() => {
+		if (!titledStream) return
+		if (lastTerminalTitleRef.current === terminalTitle) return
+		lastTerminalTitleRef.current = terminalTitle
+		stdout.write(setTerminalTitleSequence(terminalTitle))
+	}, [terminalTitle, titledStream, stdout])
+	useEffect(() => {
+		const reset = () => {
+			if (lastTerminalTitleRef.current === undefined) return
+			lastTerminalTitleRef.current = undefined
+			try {
+				stdout.write(RESET_TERMINAL_TITLE_SEQUENCE)
+			} catch {
+				// The terminal is already gone; there is no title to restore.
+			}
+		}
+		process.once('exit', reset)
+		return () => {
+			process.removeListener('exit', reset)
+			reset()
+		}
+	}, [stdout])
+
 	/**
 	 * `/rename` (and the older `/title` alias): edit or set the name this
 	 * conversation appears under.
@@ -6164,6 +6452,7 @@ export function App({
 					return
 				}
 				await setTitle(sessions, scope.sessionId, clear ? '' : title)
+				setConversationNames(clear || title.trim() === '' ? {} : { named: title.trim() })
 				pushMessage(
 					'system',
 					clear
@@ -6229,7 +6518,12 @@ export function App({
 				return
 			}
 			void setTitle(sessions, prompt.sessionId, value).then(
-				() => pushMessage('system', `Named "${value.trim()}".`),
+				() => {
+					if (scopeRef.current?.sessionId === prompt.sessionId) {
+						setConversationNames(value.trim() === '' ? {} : { named: value.trim() })
+					}
+					pushMessage('system', `Named "${value.trim()}".`)
+				},
 				(error: unknown) =>
 					pushMessage('system', explainFailure(error, 'Could not save the name.')),
 			)
@@ -6576,6 +6870,19 @@ export function App({
 				}
 				closeLiveReply()
 				questionRef.current = { question, resolve }
+				if (needsQuestionDialog(question)) {
+					questionDialogTokenRef.current += 1
+					const entry = { token: questionDialogTokenRef.current, question }
+					const onAbort = () => {
+						if (questionDialogRef.current === entry) setQuestionDialog(null)
+						resolveQuestion({ kind: 'abort' })
+					}
+					signal?.addEventListener('abort', onAbort, { once: true })
+					setJobSurface(null)
+					setQuestionDialog(entry)
+					sendTerminalNotification({ kind: 'approval-required' })
+					return
+				}
 				const values = [
 					...question.options.map((option) => option.id),
 					...(question.allowFreeText ? [FREE_TEXT_ANSWER] : []),
@@ -6614,10 +6921,74 @@ export function App({
 			closeLiveReply,
 			sendTerminalNotification,
 			setChoicePicker,
+			setQuestionDialog,
 			setSelectedChoice,
 			setJobSurface,
 			resolveQuestion,
 		],
+	)
+	/**
+	 * `exit_plan_mode`, on screen. The box shows the plan from the file; the
+	 * answer is applied here, before the tool's promise resolves, so the next
+	 * decision of the turn is made under the mode the person picked — through
+	 * the same `applyPermissionMode` Shift+Tab uses. Approving also writes the
+	 * plan into the transcript; "keep planning" with words leaves those words.
+	 */
+	const askPlanApproval = useCallback<PlanApprovalFn>(
+		(request, signal) =>
+			new Promise<PlanApprovalAnswer>((resolve) => {
+				if (signal?.aborted) {
+					resolve({ kind: 'keep-planning' })
+					return
+				}
+				closeLiveReply()
+				const finish = (answer: PlanApprovalAnswer) => {
+					signal?.removeEventListener('abort', onAbort)
+					// The box answers from its own key handler, which Ink calls before
+					// App's; clearing the ref now would hand the same Esc to App as an
+					// interrupt of the turn this answer is for.
+					queueMicrotask(() => {
+						if (planPromptRef.current === entry) setPlanPrompt(null)
+					})
+					if (answer.kind === 'approve') {
+						applyPermissionMode(answer.mode, false)
+						pushMessage(
+							'system',
+							`Plan approved · ${permissionModeLabel(answer.mode)}`,
+							false,
+							'✓',
+							[`Saved to ${request.planPath}`, '', ...request.plan.trimEnd().split('\n')],
+						)
+					} else if (answer.feedback) {
+						// The tool's own row already says the plan was not approved.
+						pushMessage('system', `Changes asked for · ${answer.feedback}`)
+					}
+					resolve(answer)
+				}
+				const entry = { request, resolve: finish }
+				const onAbort = () => finish({ kind: 'keep-planning' })
+				signal?.addEventListener('abort', onAbort, { once: true })
+				setPlanPrompt(entry)
+				sendTerminalNotification({ kind: 'approval-required' })
+			}),
+		[applyPermissionMode, closeLiveReply, pushMessage, sendTerminalNotification, setPlanPrompt],
+	)
+	/**
+	 * The card's answer. It answers from its own key handler, which Ink calls
+	 * before App's, so the card is taken down a tick later: clearing the ref
+	 * now would hand the same Esc or Ctrl+C to App, which reads it as an
+	 * interrupt of the turn this answer is for.
+	 */
+	const finishQuestionDialog = useCallback(
+		(answer: QuestionAnswer, summary: readonly string[]) => {
+			const entry = questionDialogRef.current
+			queueMicrotask(() => {
+				if (questionDialogRef.current === entry) setQuestionDialog(null)
+			})
+			for (const line of summary) pushMessage('system', line, false, '?')
+			resolveQuestion(answer)
+		},
+		[pushMessage, resolveQuestion, setQuestionDialog],
 	)
 	const submitChildMessage = useCallback(
 		async (viewId: string, text: string) => {
@@ -6763,6 +7134,12 @@ export function App({
 					st.assistantId = null
 					if (abandoned) setMessages((prev) => prev.filter((m) => m.id !== abandoned))
 				}
+			} else if (event.kind === 'hook-status') {
+				// A hook's own words for what it is doing, on the same line and with
+				// the same lifetime: until anything else arrives.
+				const hookNotice: ProviderWaitNotice = { what: event.text }
+				providerWaitNoticeRef.current = hookNotice
+				setProviderWaitNotice(hookNotice)
 			} else if (providerWaitNoticeRef.current !== null) {
 				providerWaitNoticeRef.current = null
 				setProviderWaitNotice(null)
@@ -7340,6 +7717,9 @@ export function App({
 							reclaimedTokens: tally.reclaimedTokens + (event.reclaimedTokens ?? 0),
 						}))
 					}
+					break
+				case 'hook-notice':
+					pushMessage('system', event.text, false, '!')
 					break
 				case 'provider-fallback':
 					// The transcript, for the reason compaction is in the transcript
@@ -8016,6 +8396,9 @@ export function App({
 					// model began it. A pause that waits for a decision or a handoff
 					// is left alone and still refuses the message.
 					await closeStoppedReply()
+					if (prompt.kind === 'human' && destination) {
+						startGeneratedTitle(session.sideModel, destination, turnId, promptText)
+					}
 					for await (const event of session.send(priorForSdk, {
 						signal: ac.signal,
 						turnId,
@@ -8071,6 +8454,8 @@ export function App({
 							currentPermissionMode: () => permissionModeRef.current,
 						},
 						onQuestion: askQuestion,
+						onPlanExit: askPlanApproval,
+						bypassAvailable: () => bypassAvailableRef.current,
 						onModelSwitch: requestModelSwitch,
 						inboundMessages: () => {
 							const operatorMessages = inbox.drain()
@@ -8253,6 +8638,9 @@ export function App({
 					setPermission(null)
 					clearActiveTools()
 					setState('idle')
+					// The turn is over whether or not it is announced: from here a minute of
+					// quiet is what the idle notice measures.
+					if (ownsTurn) idleNotifierRef.current?.turnSettled()
 					if (
 						ownsTurn &&
 						!ac.signal.aborted &&
@@ -8266,6 +8654,9 @@ export function App({
 				// The kernel recorded the turn in the session log as it ran; nothing is
 				// left to publish once the loop has unwound.
 				unsettledTurnGenerationsRef.current.delete(turnToken)
+				// Not while a queued message is about to start the next turn: both
+				// would claim the log, and the turn does not wait for the lease.
+				if (queuedRef.current.length === 0) void flushGeneratedTitle()
 				if (queuedRef.current.length > 0) setQueueSettleVersion((version) => version + 1)
 				const pending = pendingModelSwitchRef.current
 				if (pending?.turnToken === turnToken && pending.selection) {
@@ -9920,7 +10311,7 @@ export function App({
 								// The same lossless record `runTurn` reads — including an earlier
 								// compaction summary and attachments. The transcript is only its
 								// rendered view and is never reverse-engineered into history.
-								const result = await session.compact(modelHistoryRef.current)
+								const result = await session.compact(modelHistoryRef.current, slash.instructions)
 								if (!result) {
 									// Not an error, and not silence: a conversation too short
 									// to shed anything is a real answer to a question the
@@ -10172,6 +10563,62 @@ export function App({
 			terminal.rows,
 		],
 	)
+	// The "waiting for your input" notice (`tui.notifications` with `idle-prompt`):
+	// a minute after a turn ends with nobody at the keyboard. The condition lives
+	// in `IdleNotifier`; this only tells it what the screen knows.
+	const idleStateRef = useRef({
+		dialogOpen: false,
+		session: session,
+		sendNotification: sendTerminalNotification,
+	})
+	idleStateRef.current = {
+		dialogOpen:
+			permission !== null || textPrompt !== null || choicePicker !== null || phase !== 'ready',
+		session,
+		sendNotification: sendTerminalNotification,
+	}
+	const idleNotifierRef = useRef<IdleNotifier | null>(null)
+	if (idleNotifierRef.current === null) {
+		idleNotifierRef.current = new IdleNotifier({
+			now: Date.now,
+			setTimer: (run, ms) => setTimeout(run, ms),
+			clearTimer: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+			lastInteractionAt: () => lastKeyAtRef.current,
+			isTurnRunning: () => abortRef.current !== null,
+			isDialogOpen: () => idleStateRef.current.dialogOpen,
+			hasPendingWake: () =>
+				queuedRef.current.length > 0 || (scheduleRef.current?.loops.list().length ?? 0) > 0,
+			hasBackgroundWork: () => {
+				const live = idleStateRef.current.session
+				return (
+					(live?.jobs?.().some((job) => job.status === 'running') ?? false) ||
+					(live?.subagents
+						?.getSnapshot()
+						.some((agent) => ['starting', 'queued', 'working'].includes(agent.status)) ??
+						false)
+				)
+			},
+			send: () => idleStateRef.current.sendNotification({ kind: 'idle-prompt' }),
+		})
+	}
+	useEffect(() => {
+		if (state !== 'idle') idleNotifierRef.current?.turnStarted()
+	}, [state])
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a change in either list is the signal; the notifier reads the live values itself.
+	useEffect(() => {
+		idleNotifierRef.current?.backgroundChanged()
+	}, [backgroundJobs, subagents])
+	useEffect(() => () => idleNotifierRef.current?.dispose(), [])
+	// `--resume` without a title that names one conversation: the picker, opened
+	// once, as if `/resume` had been typed. The ref is spent before the call.
+	const launchResumePickerRef = useRef(initialCtx.openResumePicker)
+	useEffect(() => {
+		const request = launchResumePickerRef.current
+		if (request === undefined) return
+		if (phase !== 'ready' || state !== 'idle' || permission !== null || textPrompt !== null) return
+		launchResumePickerRef.current = undefined
+		void doResume(request.query)
+	}, [phase, state, permission, textPrompt, doResume])
 	// `--message`: the launch's first message, sent once the session can take it. The ref is
 	// spent before the call, so neither a re-render, a resume nor a reload can send it twice.
 	const launchMessageRef = useRef(initialCtx.launchSettings?.message)
@@ -10918,11 +11365,18 @@ export function App({
 
 	useInput(
 		(input, key) => {
+			lastKeyAtRef.current = Date.now()
 			if (outputViewer !== null || (scrollOpen && permission === null)) return
 			// The save-skill screen owns its keys, Esc and Ctrl+C included: neither
 			// may interrupt the turn that is waiting on its answer. A permission
 			// request (an agent's, say) takes the screen over it and gets the keys.
-			if ((saveSkillPromptRef.current || scheduleReviewPromptRef.current) && permission === null)
+			if (
+				(saveSkillPromptRef.current ||
+					planPromptRef.current ||
+					questionDialogRef.current ||
+					scheduleReviewPromptRef.current) &&
+				permission === null
+			)
 				return
 			// Startup has refused admission, so there is no draft or active turn to
 			// protect with the ready screen's two-press exit ladder.
@@ -11104,8 +11558,10 @@ export function App({
 				// The extra answers are session settings applied the way their own
 				// commands apply them, then this batch is approved like any yes.
 				if (answer.kind === 'approve-edits') applyPermissionMode('accept-edits', false)
-				else if (answer.kind === 'approve-rule' && answer.allows)
-					session?.allowForSession?.(answer.allows)
+				else if (answer.kind === 'approve-rule' && answer.allows) {
+					const notice = session?.allowForSession?.(answer.allows)
+					if (notice) pushMessage('system', notice)
+				}
 				resolvePermission({ kind: 'approve' })
 				return
 			}
@@ -11958,6 +12414,8 @@ export function App({
 		permission !== null ||
 		scheduleReviewPrompt !== null ||
 		saveSkillPrompt !== null ||
+		planPrompt !== null ||
+		questionDialog !== null ||
 		agentSurface !== null ||
 		jobSurface !== null ||
 		textPrompt !== null ||
@@ -12197,6 +12655,8 @@ export function App({
 									permission === null &&
 									textPrompt === null &&
 									saveSkillPrompt === null &&
+									planPrompt === null &&
+									questionDialog === null &&
 									scheduleReviewPrompt === null
 								}
 								thinking={thinking}
@@ -12207,6 +12667,8 @@ export function App({
 									permission !== null ||
 									textPrompt !== null ||
 									saveSkillPrompt !== null ||
+									planPrompt !== null ||
+									questionDialog !== null ||
 									scheduleReviewPrompt !== null
 								}
 							/>
@@ -12244,7 +12706,7 @@ export function App({
 								batchOnly={permission.batchOnly === true}
 								mode={permissionMode}
 								{...(session?.allowForSession && session.commandArguments
-									? { commandArguments: session.commandArguments }
+									? { commandArguments: session.commandArguments, rememberWhere: homePath(ctx.cwd) }
 									: {})}
 								siteNotes={permission.siteNotes}
 								{...(permission.screenConsent === true
@@ -12260,6 +12722,24 @@ export function App({
 								columns={Math.max(1, (terminal.columns ?? 80) - 2)}
 								rows={terminal.rows}
 								onAnswer={saveSkillPrompt.resolve}
+							/>
+						) : null}
+						{planPrompt && permission === null && scheduleReviewPrompt === null ? (
+							<PlanApprovalOverlay
+								key={planPrompt.request.plan}
+								request={planPrompt.request}
+								columns={Math.max(1, (terminal.columns ?? 80) - 2)}
+								rows={terminal.rows}
+								onAnswer={planPrompt.resolve}
+								onInterrupt={interruptTurn}
+							/>
+						) : null}
+						{questionDialog && permission === null && scheduleReviewPrompt === null ? (
+							<QuestionDialog
+								key={questionDialog.token}
+								question={questionDialog.question}
+								columns={Math.max(1, (terminal.columns ?? 80) - 2)}
+								onAnswer={finishQuestionDialog}
 							/>
 						) : null}
 						{scheduleReviewPrompt && permission === null ? (
@@ -12354,6 +12834,8 @@ export function App({
 								choicePicker === null &&
 								copyPicker === null &&
 								saveSkillPrompt === null &&
+								planPrompt === null &&
+								questionDialog === null &&
 								scheduleReviewPrompt === null &&
 								!scrollOpen &&
 								!childSurfaceOpen
@@ -12361,6 +12843,8 @@ export function App({
 							hidden={
 								permission !== null ||
 								saveSkillPrompt !== null ||
+								planPrompt !== null ||
+								questionDialog !== null ||
 								scheduleReviewPrompt !== null ||
 								textPrompt !== null ||
 								choicePicker !== null ||
@@ -12391,6 +12875,8 @@ export function App({
 								hidden={
 									permission !== null ||
 									saveSkillPrompt !== null ||
+									planPrompt !== null ||
+									questionDialog !== null ||
 									scheduleReviewPrompt !== null ||
 									textPrompt !== null ||
 									choicePicker !== null ||
@@ -12450,6 +12936,9 @@ export function App({
 				{/* The trust screen already names the folder and its own keys; a footer
 				    under it would print the same path and advertise a cycle key that
 				    does nothing before the folder is trusted. */}
+				{phase === 'trust' || !showComposerSurface || statusLineText === undefined ? null : (
+					<StatusLineRows text={statusLineText} padding={ctx.statusLine?.padding ?? 0} />
+				)}
 				{phase === 'trust' ? null : (
 					<StatusBar
 						provider={session?.providerSummary ?? null}
@@ -12465,6 +12954,7 @@ export function App({
 						permissionMode={displayedPermissionMode}
 						canCycleMode
 						composerMounted={showComposerSurface}
+						restingHint={ctx.statusLine === undefined}
 						shellCount={showComposerSurface && !childSurfaceOpen ? runningShellCount : 0}
 						pr={prStatus}
 						hyperlinks={hyperlinks}
@@ -12474,6 +12964,16 @@ export function App({
 						}
 						shellsSelected={railFocus === SHELLS_FOCUS}
 						{...(railHintText !== undefined ? { railHint: railHintText } : {})}
+						contextMeter={
+							usage?.context
+								? contextMeter({
+										tokens: usage.context.tokens,
+										windowTokens: usage.context.windowTokens,
+										// The CLI's strategies (structured, salience) both summarise on their own.
+										autoCompact: true,
+									})
+								: null
+						}
 					/>
 				)}
 				{/* The parent's commentary, between the footer line and the rail:

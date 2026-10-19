@@ -1,0 +1,106 @@
+/**
+ * Two ways automatic compaction gives up for the rest of a turn.
+ *
+ * - Three failures in a row (a pass that ran and shed nothing): every one of
+ *   them paid for a summary or a reducer call and left the history as it was,
+ *   so a fourth would do the same. Compaction is skipped from then on and the
+ *   turn carries on; a pass the provider forces by rejecting the prompt is not
+ *   gated.
+ * - Three compactions in a row, each followed by the context filling back up
+ *   within three iterations: something in the loop (a huge file read, a tool
+ *   that prints without limit) refills the window faster than any summary can
+ *   empty it. The turn stops, because carrying on only buys the same wall.
+ *
+ * Off unless `compactionConfig.circuitBreaker` is true: stopping compaction,
+ * and above all stopping a turn, is not something a host had before.
+ *
+ * State is per turn, held against the turn's recorder, so two turns never
+ * share a count.
+ */
+
+import type { IterationContext } from './context.js'
+
+/** Consecutive failed passes after which automatic compaction stops. */
+export const COMPACTION_FAILURE_LIMIT = 3
+/** A compaction followed by a trigger sooner than this many iterations is a refill. */
+export const COMPACTION_REFILL_ITERATIONS = 3
+/** Consecutive refills that stop the turn. */
+export const COMPACTION_REFILL_LIMIT = 3
+
+/** One short line, shown once, when the turn stops on refills. */
+export const COMPACTION_REFILL_MESSAGE =
+	'The context filled up again right after being compacted, three times in a row. A file or tool output is probably too big for the window: read it in smaller parts, or start fresh with /clear.'
+/** One short line, shown once, when compaction stops after failures. */
+export const COMPACTION_FAILURE_MESSAGE =
+	'Automatic compaction stopped after three failed attempts. Run /compact yourself, or start fresh with /clear.'
+
+export class CompactionBreaker {
+	private failures = 0
+	private refills = 0
+	private pendingRefills = 0
+	private lastCompactedIteration: number | undefined
+	private failureNoticeSent = false
+	private stopReason: string | undefined
+
+	/** Whether three failures in a row have switched automatic compaction off. */
+	get failuresOpen(): boolean {
+		return this.failures >= COMPACTION_FAILURE_LIMIT
+	}
+
+	/** Mark the failure notice sent; true the first time only. */
+	takeFailureNotice(): boolean {
+		if (this.failureNoticeSent) return false
+		this.failureNoticeSent = true
+		return true
+	}
+
+	recordFailure(): void {
+		this.failures++
+	}
+
+	/** A pass committed an edit; failures start over. */
+	recordRelief(): void {
+		this.failures = 0
+	}
+
+	/**
+	 * A summary or reducer pass is about to run at `iteration`. True when it
+	 * would be the third refill in a row, in which case it must not run.
+	 */
+	wouldTrip(iteration: number): boolean {
+		const quick =
+			this.lastCompactedIteration !== undefined &&
+			iteration - this.lastCompactedIteration < COMPACTION_REFILL_ITERATIONS
+		this.pendingRefills = quick ? this.refills + 1 : 0
+		return this.pendingRefills >= COMPACTION_REFILL_LIMIT
+	}
+
+	/** The pass that `wouldTrip` allowed completed at `iteration`. */
+	recordCompaction(iteration: number): void {
+		this.refills = this.pendingRefills
+		this.lastCompactedIteration = iteration
+		this.recordRelief()
+	}
+
+	stopTurn(message: string): void {
+		this.stopReason ??= message
+	}
+
+	/** The reason the turn must stop, when a breaker has asked for it. */
+	get stop(): string | undefined {
+		return this.stopReason
+	}
+}
+
+const breakers = new WeakMap<object, CompactionBreaker>()
+
+/** The turn's breaker, or `undefined` when the host did not opt in. */
+export function compactionBreaker(ctx: IterationContext): CompactionBreaker | undefined {
+	if (ctx.compactionConfig?.circuitBreaker !== true) return undefined
+	let breaker = breakers.get(ctx.recorder)
+	if (!breaker) {
+		breaker = new CompactionBreaker()
+		breakers.set(ctx.recorder, breaker)
+	}
+	return breaker
+}

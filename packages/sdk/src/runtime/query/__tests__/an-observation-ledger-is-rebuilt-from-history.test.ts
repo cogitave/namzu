@@ -50,7 +50,13 @@ function call(id: string, name: string, args: Record<string, unknown>): Message 
 	return {
 		role: 'assistant',
 		content: null,
-		toolCalls: [{ id, type: 'function', function: { name, arguments: JSON.stringify(args) } }],
+		toolCalls: [
+			{
+				id,
+				type: 'function',
+				function: { name, arguments: JSON.stringify(args) },
+			},
+		],
 	}
 }
 function receipt(id: string, content = 'ok', isError = false): ToolMessage {
@@ -142,7 +148,10 @@ describe('a ledger rebuilt from a conversation it did not run', () => {
 		// withdrawn, which is also what the tools' own refusals then enforce.
 		const rebuilt = rebuild([
 			...wrote(),
-			call('w2', 'write', { path: 'note.txt', content: 'a body nobody can vouch for\n' }),
+			call('w2', 'write', {
+				path: 'note.txt',
+				content: 'a body nobody can vouch for\n',
+			}),
 		])
 		expect(rebuilt.tracker.hasRead(key)).toBe(false)
 		expect(rebuilt.tracker.fingerprint?.(key)).toBeUndefined()
@@ -159,7 +168,10 @@ describe('a ledger rebuilt from a conversation it did not run', () => {
 		// message says. Built through the real repair rather than a copy of it.
 		const { messages } = repairToolMessageHistory([
 			...wrote(),
-			call('w2', 'write', { path: 'note.txt', content: 'a body nobody can vouch for\n' }),
+			call('w2', 'write', {
+				path: 'note.txt',
+				content: 'a body nobody can vouch for\n',
+			}),
 		])
 		expect(messages.at(-1)).toMatchObject({ toolCallId: 'w2', isError: true })
 		const rebuilt = rebuild(messages)
@@ -177,7 +189,11 @@ describe('a ledger rebuilt from a conversation it did not run', () => {
 		const rebuilt = rebuild([
 			...wrote('w1', body, 'note.txt'),
 			...wrote('w2', 'other\n', 'other.txt'),
-			call('e1', 'edit', { path: 'note.txt', old_string: 'alpha', new_string: 'gamma' }),
+			call('e1', 'edit', {
+				path: 'note.txt',
+				old_string: 'alpha',
+				new_string: 'gamma',
+			}),
 			receipt('e1', 'note.txt changed on disk since this conversation last observed it', true),
 		])
 		expect(rebuilt.tracker.hasRead(key)).toBe(false)
@@ -337,7 +353,10 @@ describe('a ledger rebuilt from a conversation it did not run', () => {
 		// file holds what it held before — which this pass cannot say either.
 		const rebuilt = rebuild([
 			...wrote('w1', body),
-			call('w2', 'write', { path: 'note.txt', content: 'never reached the disk\n' }),
+			call('w2', 'write', {
+				path: 'note.txt',
+				content: 'never reached the disk\n',
+			}),
 			receipt('w2', skippedToolResultText('write', 'this session is read-only')),
 		])
 		expect(rebuilt.tracker.hasRead(key)).toBe(false)
@@ -374,7 +393,10 @@ describe('a ledger rebuilt from a conversation it did not run', () => {
 			...wrote('w1', `oversize\n${'x'.repeat(100_000)}\n`, 'big.txt'),
 			...wrote('w2', body),
 		])
-		expect(attributable.report).toMatchObject({ pathsWitnessed: 1, pathsSeen: 1 })
+		expect(attributable.report).toMatchObject({
+			pathsWitnessed: 1,
+			pathsSeen: 1,
+		})
 		expect(attributable.tracker.writeCallId?.(key)).toBe('w2')
 		expect(attributable.tracker.hasRead(resolve(cwd, 'big.txt'))).toBe(false)
 
@@ -382,7 +404,10 @@ describe('a ledger rebuilt from a conversation it did not run', () => {
 			...wrote('w1', 'x'.repeat(1024 * 1024 + 1), 'big.txt'),
 			...wrote('w2', body),
 		])
-		expect(unreadable.report).toMatchObject({ pathsWitnessed: 0, pathsSeen: 0 })
+		expect(unreadable.report).toMatchObject({
+			pathsWitnessed: 0,
+			pathsSeen: 0,
+		})
 		expect(unreadable.tracker.hasRead(key)).toBe(false)
 	})
 
@@ -421,11 +446,15 @@ describe('a ledger rebuilt from a conversation it did not run', () => {
 		const tracker = createFileReadTracker()
 		const keys = lexicalFileKeys(cwd, false)
 		replayObservationLedger(messages, tracker, keys)
-		const once = { chain: tracker.editChain?.(key), fingerprint: tracker.fingerprint?.(key) }
+		const once = {
+			chain: tracker.editChain?.(key),
+			fingerprint: tracker.fingerprint?.(key),
+		}
 		replayObservationLedger(messages, tracker, keys)
-		expect({ chain: tracker.editChain?.(key), fingerprint: tracker.fingerprint?.(key) }).toEqual(
-			once,
-		)
+		expect({
+			chain: tracker.editChain?.(key),
+			fingerprint: tracker.fingerprint?.(key),
+		}).toEqual(once)
 		expect(once.chain).toEqual({ rootWriteCallId: 'w1', editCallIds: ['e1'] })
 	})
 
@@ -445,7 +474,9 @@ describe('a ledger rebuilt from a conversation it did not run', () => {
 			messages: [{ role: 'user', content: 'write doc.md, then read it back' }],
 			provider: new MockLLMProvider({
 				turns: [
-					{ toolCalls: [{ id: 'w', name: 'write', args: { path: file, content: body } }] },
+					{
+						toolCalls: [{ id: 'w', name: 'write', args: { path: file, content: body } }],
+					},
 					{ toolCalls: [{ id: 'r', name: 'read', args: { path: file } }] },
 					{ text: 'done' },
 				],
@@ -453,7 +484,12 @@ describe('a ledger rebuilt from a conversation it did not run', () => {
 			agentId: 'ledger',
 			agentName: 'ledger',
 			workingDirectory: workdir,
-			turnConfig: { model: 'mock', maxIterations: 5, timeoutMs: 10_000, tokenBudget: 100_000 },
+			turnConfig: {
+				model: 'mock',
+				maxIterations: 5,
+				timeoutMs: 10_000,
+				tokenBudget: 100_000,
+			},
 			sessionId: fixtureId.session('ledger-replay'),
 			topicId: fixtureId.topic('ledger-replay'),
 			projectId: fixtureId.project('ledger-replay'),
@@ -461,7 +497,9 @@ describe('a ledger rebuilt from a conversation it did not run', () => {
 		})
 
 		const tracker = createFileReadTracker()
-		await seedObservationLedger(run.messages, tracker, { workingDirectory: workdir })
+		await seedObservationLedger(run.messages, tracker, {
+			workingDirectory: workdir,
+		})
 		expect(tracker.fingerprint?.(file)).toBe(fingerprintContent(body))
 		expect(tracker.writeCallId?.(file)).toBe('w')
 		expect(describeVisibleFileEvidence(run.messages, tracker, workdir, false)).toContain(
@@ -521,7 +559,7 @@ describe('a rebuilt ledger is filed where the tools will look for it', () => {
 		await seedObservationLedger(messages, tracker, { workingDirectory: root })
 
 		// The session was closed and someone else edited the file.
-		await writeFile(join(real, 'note.txt'), 'alpha\nbeta\nsomeone else\n', 'utf-8')
+		await writeFile(join(real, 'note.txt'), 'ALPHA\nbeta\nsomeone else\n', 'utf-8')
 		const refusal = await EditTool.execute(
 			{ path: 'link/note.txt', old_string: 'alpha', new_string: 'gamma' },
 			context(root, tracker),
@@ -537,7 +575,11 @@ describe('a rebuilt ledger is filed where the tools will look for it', () => {
 		const report = await seedObservationLedger(readOf('r1', body, {}, 'link/note.txt'), tracker, {
 			workingDirectory: root,
 		})
-		expect(report).toEqual({ pathsWitnessed: 0, pathsSeen: 0, unitsReplayed: 0 })
+		expect(report).toEqual({
+			pathsWitnessed: 0,
+			pathsSeen: 0,
+			unitsReplayed: 0,
+		})
 	})
 
 	it('concludes nothing at all when one MUTATION call id carries two receipts', async () => {
@@ -551,7 +593,9 @@ describe('a rebuilt ledger is filed where the tools will look for it', () => {
 			...wrote('w2', 'second\n', 'real/b.txt'),
 			receipt('w2', 'Created real/b.txt'),
 		]
-		const report = await seedObservationLedger(messages, tracker, { workingDirectory: root })
+		const report = await seedObservationLedger(messages, tracker, {
+			workingDirectory: root,
+		})
 		// The walk had already paid for the first body when it hit the ambiguity;
 		// what it establishes is nothing, which is the part that matters.
 		expect(report).toMatchObject({ pathsWitnessed: 0, pathsSeen: 0 })
@@ -603,13 +647,18 @@ describe('a rebuilt ledger is filed where the tools will look for it', () => {
 						id: 'w2',
 						type: 'function',
 						function: { name: 'write', arguments: '{}' },
-						metadata: { inputTruncated: true, partialArguments: '{"path":"real/b.tx' },
+						metadata: {
+							inputTruncated: true,
+							partialArguments: '{"path":"real/b.tx',
+						},
 					},
 				],
 			},
 			receipt('w2', 'Created real/b.txt'),
 		]
-		const report = await seedObservationLedger(messages, tracker, { workingDirectory: root })
+		const report = await seedObservationLedger(messages, tracker, {
+			workingDirectory: root,
+		})
 		expect(report).toMatchObject({ pathsWitnessed: 0, pathsSeen: 0 })
 		expect(tracker.hasRead(join(real, 'a.txt'))).toBe(false)
 	})
@@ -627,7 +676,9 @@ describe('a rebuilt ledger is filed where the tools will look for it', () => {
 		const messages = wrote('w1', body, 'real/note.txt')
 		messages[1] = clearToolResult(messages[1] as ToolMessage, 'write').message
 		const tracker = createFileReadTracker()
-		const report = await seedObservationLedger(messages, tracker, { workingDirectory: root })
+		const report = await seedObservationLedger(messages, tracker, {
+			workingDirectory: root,
+		})
 		expect(report).toMatchObject({ pathsWitnessed: 0, pathsSeen: 1 })
 		expect(tracker.hasRead(file)).toBe(false)
 

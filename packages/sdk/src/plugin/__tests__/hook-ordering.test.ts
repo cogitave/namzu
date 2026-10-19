@@ -70,11 +70,10 @@ describe('priority', () => {
 		expect(order).toEqual(['guard', 'observer'])
 	})
 
-	it('lets a guard deny before anything downstream can stop the chain', async () => {
+	it('reads a guard’s answer first, and still lets every other hook run', async () => {
 		const order: string[] = []
 		const manager = makeManager()
-		// Registered first, so under install order it would have run first
-		// and short-circuited before the guard ever saw the call.
+		// Registered first, so under registration order its answer would lead.
 		manager.registerHook('p_other' as PluginId, {
 			event: 'pre_tool_use',
 			handler: record(order, 'other', { action: 'skip', reason: 'unrelated' }),
@@ -89,8 +88,11 @@ describe('priority', () => {
 			sessionId: SESSION_ID,
 			turnId: TURN_ID,
 		})
-		expect(order).toEqual(['guard'])
-		expect(results).toEqual([{ action: 'error', message: 'denied' }])
+		expect(order).toEqual(['guard', 'other'])
+		expect(results).toEqual([
+			{ action: 'error', message: 'denied' },
+			{ action: 'skip', reason: 'unrelated' },
+		])
 	})
 
 	it('keeps registration order for equal priorities', async () => {
@@ -111,12 +113,9 @@ describe('priority', () => {
 		expect(order).toEqual(['a', 'b', 'c'])
 	})
 
-	it('unwinds a post hook in the opposite order, so a guard closes last', async () => {
+	it('starts a post hook in priority order too: nothing unwinds any more', async () => {
 		const order: string[] = []
 		const manager = makeManager()
-		// Registered observer-first on purpose: under plain registration
-		// order the reversal alone would already produce the expected
-		// result, and the assertion would hold with no sorting at all.
 		manager.registerHook('p_observer' as PluginId, {
 			event: 'post_tool_use',
 			priority: 900,
@@ -128,16 +127,14 @@ describe('priority', () => {
 			handler: record(order, 'guard'),
 		})
 
-		// Post hooks unwind, so whichever opened first closes last — the
-		// wrapping order a guard needs.
 		await manager.executeHooks('post_tool_use', {
 			sessionId: SESSION_ID,
 			turnId: TURN_ID,
 		})
-		expect(order).toEqual(['observer', 'guard'])
+		expect(order).toEqual(['guard', 'observer'])
 	})
 
-	it('composes modify in priority order', async () => {
+	it('shows every hook the original input, and the answers keep priority order', async () => {
 		const seen: unknown[] = []
 		const manager = makeManager()
 		manager.registerHook('p_second' as PluginId, {
@@ -145,10 +142,7 @@ describe('priority', () => {
 			priority: 200,
 			handler: async (ctx) => {
 				seen.push(ctx.toolInput)
-				return {
-					action: 'modify',
-					input: { ...(ctx.toolInput as object), second: true },
-				}
+				return { action: 'modify', input: { second: true } }
 			},
 		})
 		manager.registerHook('p_first' as PluginId, {
@@ -156,10 +150,7 @@ describe('priority', () => {
 			priority: 100,
 			handler: async (ctx) => {
 				seen.push(ctx.toolInput)
-				return {
-					action: 'modify',
-					input: { ...(ctx.toolInput as object), first: true },
-				}
+				return { action: 'modify', input: { first: true } }
 			},
 		})
 
@@ -169,14 +160,137 @@ describe('priority', () => {
 			toolInput: { base: true },
 		})
 
-		// What each hook SAW, not just the merged result: the merged object
-		// is identical either way round, so asserting on it alone would hold
-		// with no ordering at all.
-		expect(seen).toEqual([{ base: true }, { base: true, first: true }])
-		expect(results.at(-1)).toEqual({
-			action: 'modify',
-			input: { base: true, first: true, second: true },
+		// Neither hook saw the other's rewrite; the caller takes the last answer.
+		expect(seen).toEqual([{ base: true }, { base: true }])
+		expect(results).toEqual([
+			{ action: 'modify', input: { first: true } },
+			{ action: 'modify', input: { second: true } },
+		])
+	})
+})
+
+describe('parallel execution', () => {
+	it('starts every hook before any finishes: a hook can wait on a sibling', async () => {
+		const manager = makeManager()
+		let release!: () => void
+		const released = new Promise<void>((resolve) => {
+			release = resolve
 		})
+		const order: string[] = []
+		// First in order, and it cannot answer until the second has run. A chain
+		// that ran them one by one would never get to the second.
+		manager.registerHook('p_waiter' as PluginId, {
+			event: 'turn_start',
+			priority: 1,
+			handler: async () => {
+				order.push('waiter started')
+				await released
+				order.push('waiter done')
+				return { action: 'continue' }
+			},
+		})
+		manager.registerHook('p_releaser' as PluginId, {
+			event: 'turn_start',
+			priority: 2,
+			handler: async () => {
+				order.push('releaser started')
+				release()
+				return { action: 'continue' }
+			},
+		})
+
+		const results = await manager.executeHooks('turn_start', {
+			sessionId: SESSION_ID,
+			turnId: TURN_ID,
+		})
+		expect(order).toEqual(['waiter started', 'releaser started', 'waiter done'])
+		expect(results).toHaveLength(2)
+	})
+
+	it('does not stop a sibling that is slow because another refused', async () => {
+		const manager = makeManager()
+		const finished: string[] = []
+		let release!: () => void
+		const released = new Promise<void>((resolve) => {
+			release = resolve
+		})
+		manager.registerHook('p_slow' as PluginId, {
+			event: 'pre_tool_use',
+			priority: 2,
+			handler: async () => {
+				await released
+				finished.push('slow')
+				return { action: 'continue' }
+			},
+		})
+		manager.registerHook('p_deny' as PluginId, {
+			event: 'pre_tool_use',
+			priority: 1,
+			handler: async () => {
+				queueMicrotask(release)
+				return { action: 'skip', reason: 'no' }
+			},
+		})
+		const results = await manager.executeHooks('pre_tool_use', {
+			sessionId: SESSION_ID,
+			turnId: TURN_ID,
+		})
+		expect(finished).toEqual(['slow'])
+		expect(results.map((r) => r.action)).toEqual(['skip', 'continue'])
+	})
+
+	it('one hook timing out does not hold or hide the others', async () => {
+		vi.useFakeTimers()
+		try {
+			const manager = makeManager(1_000)
+			manager.registerHook('p_hangs' as PluginId, {
+				event: 'turn_start',
+				priority: 1,
+				handler: () => new Promise(() => {}),
+			})
+			manager.registerHook('p_ok' as PluginId, {
+				event: 'turn_start',
+				priority: 2,
+				handler: async () => ({ action: 'continue' }),
+			})
+			const pending = manager.executeHooks('turn_start', {
+				sessionId: SESSION_ID,
+				turnId: TURN_ID,
+			})
+			await vi.advanceTimersByTimeAsync(1_000)
+			const results = await pending
+			expect(results).toEqual([
+				{ action: 'error', message: 'Hook timeout' },
+				{ action: 'continue' },
+			])
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+
+	it('has ten minutes for a hook unless told otherwise', async () => {
+		vi.useFakeTimers()
+		try {
+			const manager = makeManager()
+			let answered = false
+			manager.registerHook('p_slow' as PluginId, {
+				event: 'turn_start',
+				handler: async () => {
+					await new Promise((resolve) => setTimeout(resolve, 599_000))
+					answered = true
+					return { action: 'continue' }
+				},
+			})
+			const pending = manager.executeHooks('turn_start', {
+				sessionId: SESSION_ID,
+				turnId: TURN_ID,
+			})
+			await vi.advanceTimersByTimeAsync(599_000)
+			expect(await pending).toEqual([{ action: 'continue' }])
+			expect(answered).toBe(true)
+		} finally {
+			vi.useRealTimers()
+		}
 	})
 })
 

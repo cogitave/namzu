@@ -346,6 +346,16 @@ export class AgentManager {
 		return this.startMessage(options, context, listener)
 	}
 
+	/**
+	 * The refusal for a delegation past the depth limit. It tells the model what
+	 * to do instead (the reference terminal's rule): a bare limit leaves it
+	 * retrying the same spawn, while an instruction to do the work itself ends the
+	 * attempt. The limit is `AgentManagerConfig.maxDepth`; there is no env override.
+	 */
+	private depthLimitMessage(depth: number): string {
+		return `Max task depth ${this.config.maxDepth} exceeded (current: ${depth}). Do this task yourself with your own tools instead of delegating it to another agent.`
+	}
+
 	private async enqueueMessage(
 		options: SendMessageOptions,
 		context: AgentTaskContext,
@@ -353,7 +363,7 @@ export class AgentManager {
 	): Promise<AgentTask> {
 		context.parentAbortController.signal.throwIfAborted()
 		if (context.depth >= this.config.maxDepth)
-			throw new Error(`Max task depth ${this.config.maxDepth} exceeded`)
+			throw new Error(this.depthLimitMessage(context.depth))
 		if (options.tenantId !== context.tenantId)
 			throw new Error('Tenant mismatch: cross-tenant spawn rejected')
 		const definition = this.registry.getOrThrow(options.agentId)
@@ -527,9 +537,7 @@ export class AgentManager {
 		await options.beforeStart?.()
 		queuedTask?.childAbortController.signal.throwIfAborted()
 		if (context.depth >= this.config.maxDepth) {
-			throw new Error(
-				`Max task depth ${this.config.maxDepth} exceeded (current: ${context.depth}). Recursive agent delegation is limited to prevent resource exhaustion.`,
-			)
+			throw new Error(this.depthLimitMessage(context.depth))
 		}
 
 		if (options.tenantId !== context.tenantId) {

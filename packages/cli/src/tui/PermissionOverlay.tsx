@@ -56,6 +56,8 @@ export interface PermissionOverlayProps {
 	readonly mode?: PermissionMode
 	/** Present when the session can remember allows; see `permissionAnswers`. */
 	readonly commandArguments?: ReadonlyMap<string, string>
+	/** The folder the remembered answer is saved for, as the person sees it. */
+	readonly rememberWhere?: string
 	/** Which browser site rule decided each browser call, with the profile and engine. */
 	readonly siteNotes?: readonly string[]
 	/**
@@ -235,6 +237,17 @@ export function permissionEscalationNotes(toolCalls: readonly PermissionToolCall
 			`Outside the working directory: ${outside.join(', ')}. Asked every time; no earlier answer covers it.`,
 		)
 	}
+	const protectedPaths = toolCalls.flatMap((call) => call.escalation?.protectedPaths ?? [])
+	if (protectedPaths.length > 0) {
+		notes.push(
+			`Writes a protected file or folder: ${protectedPaths.join(', ')}. Asked every time, in every mode; no earlier answer covers it.`,
+		)
+	}
+	if (toolCalls.some((call) => call.escalation?.dangerousRemoval !== undefined)) {
+		notes.push(
+			'Removes something that should not be removed by accident (the home folder, the working folder or a parent, or a path a variable could empty). Asked every time; no earlier answer covers it.',
+		)
+	}
 	return notes
 }
 
@@ -260,6 +273,8 @@ export interface PermissionAnswerOptions {
 	readonly mode?: PermissionMode
 	/** Tools whose command line is one argument, when this session can remember allows. */
 	readonly commandArguments?: ReadonlyMap<string, string>
+	/** The folder the answer is saved for (`namzu.config.local.json` there), as the person sees it. */
+	readonly rememberWhere?: string
 }
 
 /**
@@ -322,7 +337,7 @@ function extraAnswer(
 	const allows = allowsForBatch(toolCalls, options.commandArguments)
 	if (!allows) return undefined
 	return {
-		label: `Yes, and don't ask again for ${describeAllows(allows)} this session`,
+		label: `Yes, and don't ask again for ${describeAllows(allows)} ${options.rememberWhere ? `in ${options.rememberWhere}` : 'this session'}`,
 		kind: 'approve-rule',
 		allows,
 	}
@@ -375,6 +390,7 @@ export function PermissionOverlay({
 	batchOnly = false,
 	mode,
 	commandArguments,
+	rememberWhere,
 	siteNotes = [],
 	screenConsent,
 }: PermissionOverlayProps) {
@@ -401,6 +417,7 @@ export function PermissionOverlay({
 		screenConsent: sharing,
 		...(mode ? { mode } : {}),
 		...(commandArguments ? { commandArguments } : {}),
+		...(rememberWhere ? { rememberWhere } : {}),
 	})
 	const escalationNotes = permissionEscalationNotes(toolCalls)
 	const sharingNotes = sharing ? screenConsentNotes(screenConsent.provider) : []

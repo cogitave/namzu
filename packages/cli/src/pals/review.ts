@@ -102,7 +102,20 @@ function validateRequest(request: HITLDecisionRequest): void {
 			typeof question.multiSelect !== 'boolean' ||
 			typeof question.allowFreeText !== 'boolean' ||
 			question.options.some((option) => !option || typeof option.id !== 'string' || !option.id) ||
-			new Set(question.options.map((option) => option.id)).size !== question.options.length
+			new Set(question.options.map((option) => option.id)).size !== question.options.length ||
+			(question.questions !== undefined &&
+				(!Array.isArray(question.questions) ||
+					new Set(question.questions.map((item) => item?.id)).size !== question.questions.length ||
+					question.questions.some(
+						(item) =>
+							!item ||
+							typeof item.id !== 'string' ||
+							!item.id ||
+							!Array.isArray(item.options) ||
+							(item.options as readonly ({ id?: unknown } | null)[]).some(
+								(option) => !option || typeof option.id !== 'string' || !option.id,
+							),
+					)))
 		)
 			throw new Error('Invalid Pal question review.')
 	} else if (request.type !== 'iteration_checkpoint')
@@ -141,6 +154,26 @@ export function assertPalReviewDecision(
 				(!question.allowFreeText || typeof decision.freeText !== 'string'))
 		)
 			throw new Error('Invalid answer to the waiting Pal question.')
+		if (decision.answers !== undefined) {
+			// A batch: one entry per question, each held to what its own question offered.
+			const items = new Map((question.questions ?? []).map((item) => [item.id, item]))
+			const seen = new Set<string>()
+			for (const entry of decision.answers) {
+				const item = items.get(entry.questionId)
+				if (
+					!item ||
+					seen.has(entry.questionId) ||
+					!Array.isArray(entry.selectedOptionIds) ||
+					entry.selectedOptionIds.some((id) => !item.options.some((option) => option.id === id)) ||
+					new Set(entry.selectedOptionIds).size !== entry.selectedOptionIds.length ||
+					(!item.multiSelect && entry.selectedOptionIds.length > 1) ||
+					(entry.freeText !== undefined &&
+						(!item.allowFreeText || typeof entry.freeText !== 'string'))
+				)
+					throw new Error('Invalid answer to the waiting Pal question.')
+				seen.add(entry.questionId)
+			}
+		}
 	} else if (request.type !== 'iteration_checkpoint' || decision.action !== 'continue')
 		throw new Error('This answer does not apply to the waiting Pal review.')
 }

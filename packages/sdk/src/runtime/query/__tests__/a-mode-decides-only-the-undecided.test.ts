@@ -192,3 +192,68 @@ describe('the five modes', () => {
 		).toEqual({ action: 'approve_plan' })
 	})
 })
+
+describe('plan mode and its one file', () => {
+	const planPath = '/home/x/.namzu/projects/p/s/plans/plan.md'
+	const writeTo = (path: string, extra: Partial<ToolCallSummary> = {}): ToolCallSummary =>
+		call('write', { input: { path }, isDestructive: true, ...extra })
+	const isPlanFile = (tc: ToolCallSummary) =>
+		tc.name === 'write' && (tc.input as { path?: string }).path === planPath
+
+	it('refuses every change in plan mode when the host names no plan file', async () => {
+		const handler = createReviewHandler({
+			mode: 'plan',
+			exempt: exemptNames(),
+		})
+		const decision = await handler(review(writeTo(planPath)))
+		expect(decision).toEqual({
+			action: 'reject_tools',
+			feedback: PLAN_MODE_REFUSAL,
+		})
+	})
+
+	it('lets the plan file be written, outside the roots and overwriting, without asking', async () => {
+		const prompt = vi.fn()
+		const handler = createReviewHandler({
+			mode: 'plan',
+			prompt,
+			exempt: exemptNames(),
+			planModeWrite: isPlanFile,
+		})
+		const decision = await handler(
+			review(
+				writeTo(planPath, {
+					escalation: { outsidePaths: [planPath] } as never,
+				}),
+			),
+		)
+		expect(decision).toEqual({ action: 'approve_tools' })
+		expect(prompt).not.toHaveBeenCalled()
+	})
+
+	it('still refuses any other write, alone or beside the plan file', async () => {
+		const handler = createReviewHandler({
+			mode: 'plan',
+			exempt: exemptNames(),
+			planModeWrite: isPlanFile,
+		})
+		const other = writeTo('/work/src/a.ts')
+		expect(await handler(review(other))).toEqual({
+			action: 'reject_tools',
+			feedback: PLAN_MODE_REFUSAL,
+		})
+		expect(await handler(review(writeTo(planPath), other))).toEqual({
+			action: 'reject_tools',
+			feedback: PLAN_MODE_REFUSAL,
+		})
+	})
+
+	it('does not widen any other mode', async () => {
+		const handler = createReviewHandler({
+			mode: 'strict',
+			exempt: exemptNames(),
+			planModeWrite: isPlanFile,
+		})
+		expect((await handler(review(writeTo(planPath)))).action).toBe('reject_tools')
+	})
+})

@@ -198,7 +198,11 @@ export async function compactNow(input: CompactNowInput): Promise<CompactionResu
 			usage = accumulateTokenUsage(usage, reported)
 		},
 		input.model ?? '',
-		{ signal: input.signal, streamIdleTimeoutMs: input.streamIdleTimeoutMs },
+		{
+			signal: input.signal,
+			streamIdleTimeoutMs: input.streamIdleTimeoutMs,
+			instructions: input.instructions,
+		},
 	)
 
 	const { messages, summary } = splice(preservedSystem, body, retainedOlder, plan.recentMessages)
@@ -281,7 +285,11 @@ export async function compactRegion(input: CompactRegionInput): Promise<Compacti
 			usage = accumulateTokenUsage(usage, reported)
 		},
 		input.model ?? '',
-		{ signal: input.signal, streamIdleTimeoutMs: input.streamIdleTimeoutMs },
+		{
+			signal: input.signal,
+			streamIdleTimeoutMs: input.streamIdleTimeoutMs,
+			instructions: input.instructions,
+		},
 	)
 
 	// Same cross-run ownership as compactNow: a selected region has been

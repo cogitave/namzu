@@ -383,6 +383,10 @@ File-defined agents keep their own iteration settings and remain subject to the
 shared token ledger. Disabling a local token cap cannot remove a finite ancestor
 allowance.
 
+## Nesting depth
+
+Agents may delegate to agents up to three levels deep (`AgentManagerConfig.maxDepth`). A launch past that is refused to the model with `Max task depth 3 exceeded (current: 3). Do this task yourself with your own tools instead of delegating it to another agent.`, so it finishes the work directly instead of retrying the launch. There is no environment override; the limit is set by the host that builds the manager.
+
 ## Child model selection
 
 `Agent` accepts optional `model`, `provider` and `effort` fields. With no selection,

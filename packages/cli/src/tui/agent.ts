@@ -74,6 +74,7 @@ import {
 	type ModelInfo,
 	type Origin,
 	type PluginLifecycleManager,
+	type PluginNotificationInfo,
 	type PrepareStep,
 	type PrepareStepChain,
 	type ProjectId,
@@ -83,6 +84,7 @@ import {
 	type ProviderChainMember,
 	ProviderRegistry,
 	type ReasoningEffort,
+	type ReminderSource,
 	type RenderedMemoryIndex,
 	type ResidentHistorySource,
 	type ResidentStepPromptOptions,
@@ -113,6 +115,7 @@ import {
 	type TaskStore,
 	type TenantId,
 	type ToolCallEscalation,
+	type ToolCallSummary,
 	type ToolCallView,
 	type ToolDefinition,
 	ToolManager,
@@ -213,6 +216,7 @@ import { type SessionDirectories, createSessionDirectories } from '../context/di
 import {
 	NAMZU_DELEGATION_DOCTRINE,
 	NAMZU_HYPERMODE_DOCTRINE,
+	NAMZU_PLAN_FILE_DOCTRINE,
 	NAMZU_PLAN_MODE_DOCTRINE,
 	NAMZU_WORKING_DOCTRINE,
 } from '../context/doctrine.js'
@@ -295,6 +299,7 @@ import {
 import { createConversationEvidenceRecall } from '../integrations/sessions/evidence-recall.js'
 import { type ConversationContext, ensureSessionStarted } from '../integrations/sessions/store.js'
 import { createTaskContextStep } from '../integrations/sessions/task-context.js'
+import { type SideModel, createSideModel } from '../integrations/small-model/side-model.js'
 import { resolveNamzuHome } from '../integrations/state/home.js'
 import { ensurePrivateStateDirectory } from '../integrations/state/private-directory.js'
 import { cliProjectRoot } from '../integrations/state/project.js'
@@ -349,7 +354,11 @@ import {
 } from '../permissions/live-mode.js'
 import type { PermissionMode } from '../permissions/mode.js'
 import { type SessionAllow, createSessionAllows } from '../permissions/session-allow.js'
+import { EXIT_PLAN_MODE_TOOL_NAME, type PlanApprovalFn } from '../plan/approval.js'
+import { buildExitPlanModeTool } from '../plan/exit-plan-mode-tool.js'
+import { isPlanFileWrite } from '../plan/plan-file.js'
 import { terminalProviderRetry } from '../provider-retry.js'
+import { createCliReminderSource } from '../reminders/index.js'
 import { createSessionSkillCatalog } from '../skills/catalog.js'
 import { createSkillDirectoryResolver } from '../skills/directory.js'
 import { SAVE_SKILL_TOOL_NAME } from '../skills/save.js'
@@ -595,6 +604,13 @@ export type AgentEvent =
 	 * which is the defect class this package keeps removing.
 	 */
 	| { readonly kind: 'provider-fallback'; readonly text: string }
+	/**
+	 * A configured hook is running and declared a `statusMessage` for it. Shown
+	 * on the live status line until the next event arrives; never a transcript row.
+	 */
+	| { readonly kind: 'hook-status'; readonly text: string }
+	/** A hook stopped the turn or warned the operator; a permanent line in the transcript. */
+	| { readonly kind: 'hook-notice'; readonly text: string }
 	| {
 			readonly kind: 'capability-warning'
 			readonly capability: Extract<SessionEvent, { type: 'capability_warning' }>['capability']
@@ -734,6 +750,16 @@ export type QuestionAnswer =
 			readonly kind: 'answer'
 			readonly selectedOptionIds: readonly string[]
 			readonly freeText?: string
+			/**
+			 * One entry per question of a batch the operator answered, by the
+			 * id the question carried (`UserQuestion.questions[].id`). A
+			 * question with no entry was left alone.
+			 */
+			readonly answers?: readonly {
+				readonly questionId: string
+				readonly selectedOptionIds: readonly string[]
+				readonly freeText?: string
+			}[]
 	  }
 	| { readonly kind: 'skip' }
 	| { readonly kind: 'abort' }
@@ -761,6 +787,13 @@ export interface SendOptions {
 	 * tool itself is mounted per session (`AgentSessionOptions.askUser`).
 	 */
 	readonly onQuestion?: QuestionFn
+	/**
+	 * Who approves a plan this turn (`exit_plan_mode`). Absent means nobody: the
+	 * tool tells the model so and the model ends its reply with the plan.
+	 */
+	readonly onPlanExit?: PlanApprovalFn
+	/** Whether the session may run without asking; changes the dialog's first row. */
+	readonly bypassAvailable?: () => boolean
 	/** Request a model change owned by this turn; the host publishes it after settlement. */
 	readonly onModelSwitch?: (
 		request: ModelSwitchRequest,
@@ -1011,7 +1044,18 @@ export interface SessionWorkflows {
 	readonly reset: () => void
 }
 
+/** Most bytes of a page `web_fetch` reads (the reference reads ten mebibytes). */
+const WEB_FETCH_MAX_BYTES = 10 * 1024 * 1024
+/** Most tokens of answer the small model gives to a question about a page. */
+const WEB_EXTRACT_MAX_TOKENS = 8192
+
 export interface AgentSession {
+	/**
+	 * Requests beside the conversation, on a small model: its title and the
+	 * answer `web_fetch` extracts. Absent where a turn's ledger cannot count
+	 * them, in which case no such request is made.
+	 */
+	readonly sideModel?: SideModel
 	/**
 	 * The browser the `browser` and `browser_act` tools drive, when this
 	 * session mounted them (`AgentSessionOptions.browser`). Absent otherwise.
@@ -1121,7 +1165,11 @@ export interface AgentSession {
 	 * Session close cancels and settles an in-flight pass before releasing the
 	 * provider/tool resources it may still use.
 	 */
-	readonly compact: (messages: readonly Message[]) => Promise<CompactionResult | null>
+	readonly compact: (
+		messages: readonly Message[],
+		/** What the person asked the summary to keep, from `/compact <text>`. */
+		instructions?: string,
+	) => Promise<CompactionResult | null>
 	readonly errorHint: string | null
 	/**
 	 * WHY there is no provider, for a caller that has to act differently on the
@@ -1282,12 +1330,20 @@ export interface AgentSession {
 	/** Revoke a host's "approve all". The terminal does not call it. */
 	readonly resetApprovalLatch?: () => void
 	/**
-	 * Remember "don't ask again" answers for the rest of the session. They
-	 * apply behind the operator's rules and never cover an escape or a path
-	 * outside the roots. Absent where the host has no such store, in which
-	 * case the prompt offers no such answer.
+	 * Remember "don't ask again" answers: for the rest of the session, and in
+	 * the project's `namzu.config.local.json` for the next. They apply behind
+	 * the operator's rules and never cover an escape or a path outside the
+	 * roots. Returns a sentence when the file could not be written. Absent
+	 * where the host has no such store, in which case the prompt offers no
+	 * such answer.
 	 */
-	readonly allowForSession?: (allows: readonly SessionAllow[]) => void
+	readonly allowForSession?: (allows: readonly SessionAllow[]) => string | undefined
+	/**
+	 * Tell the configured `notification` hooks that the operator's attention is
+	 * wanted (a review is waiting, a turn settled). Fire-and-forget: a hook that
+	 * fails or hangs never delays the screen, and the call never rejects.
+	 */
+	readonly notifyHooks?: (info: PluginNotificationInfo) => void
 	/** Tools whose command line is one argument, for naming a command to remember. */
 	readonly commandArguments?: ReadonlyMap<string, string>
 	/**
@@ -2015,12 +2071,28 @@ export interface AgentSessionOptions {
 	readonly sandbox?: SandboxConfig
 	/** See `NamzuCliConfig.web`. Absent means no web tool and no provider. */
 	readonly web?: WebConfig
+	/** See `NamzuCliConfig.smallModel`. Absent: the cheapest priced text model of the active provider. */
+	readonly smallModel?: string
 	/**
 	 * Mount `ask_user_question`. Only where somebody can answer: an
 	 * interactive terminal says `true`; a headless run leaves it absent, so
 	 * the model is never offered a question it would ask into the void.
 	 */
 	readonly askUser?: boolean
+	/**
+	 * Give plan mode its plan file and `exit_plan_mode`: the model may write
+	 * `<session>/plans/plan.md` while the mode is `plan`, and presents the plan
+	 * through the tool, which asks `SendOptions.onPlanExit`. Only where somebody
+	 * can answer, so an interactive terminal says `true`. Absent, plan mode is
+	 * what it always was: read-only, with the reply as the plan.
+	 */
+	readonly planApproval?: boolean
+	/**
+	 * Feed each turn hidden reminders (`QueryParams.reminders`): the plan-mode
+	 * reminders when `planApproval` is on, and the task-list nudge. Absent, a
+	 * turn carries none.
+	 */
+	readonly reminders?: boolean
 	/** Mount the current-chat model selection tool in an interactive host. */
 	readonly allowModelSwitch?: boolean
 	/** See `NamzuCliConfig.hooks`. Attached to the plugin lifecycle manager. */
@@ -2134,7 +2206,8 @@ export async function createAgentSession(
 	// "Don't ask again" answers given at a prompt this session, consulted as
 	// one rule behind the operator's table (see permissions/session-allow.ts).
 	const commandArguments = builtinCommandArguments()
-	const sessionAllows = createSessionAllows(commandArguments)
+	// `cwd` is settled further down; the store reads it when an answer arrives.
+	const sessionAllows = createSessionAllows(commandArguments, { cwd: () => cwd })
 	const sessionRules: readonly AuthorizationRule[] = [...(options.rules ?? []), sessionAllows.rule]
 	const fileObservations = new Map<SessionId, Promise<ReturnType<typeof createFileReadTracker>>>()
 	/**
@@ -2999,7 +3072,37 @@ export async function createAgentSession(
 		webSearchTool = createWebSearchTool()
 		toolsets.push(toolset('web-search', [webSearchTool]))
 	}
-	const webCapability = options.web?.fetch ? { fetch: new GuardedFetchProvider() } : undefined
+	// Requests beside the conversation (its title, the answer `web_fetch` extracts)
+	// on a small model. Present only where a turn's ledger can count them.
+	let sideModel: SideModel | undefined
+	const webCapability = options.web?.fetch
+		? {
+				// A page may be ten mebibytes, as in the reference; the guard's own
+				// default is two.
+				fetch: new GuardedFetchProvider({ maxBytes: WEB_FETCH_MAX_BYTES }),
+				// The answer to a prompt about a page comes from the small model. It is
+				// read at call time: the model exists once the delegation runtime does,
+				// and a page fetched without one is returned as markdown instead.
+				extract: {
+					extract: async (request: {
+						readonly signal?: AbortSignal
+						readonly sessionId: string
+						readonly turnId: string
+						readonly instruction: string
+						readonly body: string
+					}) =>
+						sideModel?.ask({
+							sessionId: request.sessionId as SessionId,
+							turnId: request.turnId as TurnId,
+							instruction: request.instruction,
+							body: request.body,
+							maxTokens: WEB_EXTRACT_MAX_TOKENS,
+							signal: request.signal ?? new AbortController().signal,
+							timing: 'in-turn',
+						}),
+				},
+			}
+		: undefined
 	if (webCapability) toolsets.push(toolset('web-fetch', [WebFetchTool]))
 	// Native sub-agents: register the canonical `Agent` tool so the model can
 	// delegate a self-contained task to a fresh sub-agent (own context window).
@@ -3120,6 +3223,25 @@ export async function createAgentSession(
 	const directChildReports = new Set<
 		(report: { readonly parentSessionId: string; readonly text: string }) => void
 	>()
+	/** A provider client for `providerId` on `selectedModel`, with this machine's credential for it. */
+	const providerForModel = async (
+		invokingSessionId: SessionId | undefined,
+		providerId: ProviderId,
+		selectedModel: string,
+	): Promise<LLMProvider> => {
+		if (!invokingSessionId && (providerId === 'zen' || providerId === 'zen-go'))
+			throw new Error('A delegated provider requires its invoking conversation.')
+		await ensureRegistered(providerId)
+		const credential = await currentCredentialFor(providerId)
+		return constructProvider(
+			providerId,
+			providerId === primary.id && credential
+				? { ...credential, apiKey: currentToken ?? credential.apiKey }
+				: credential,
+			selectedModel,
+			{ sessionId: invokingSessionId },
+		)
+	}
 	let subagentRuntime: SubagentRuntime | undefined
 	// Stays empty when the runtime below throws, which is the honest answer: the
 	// catch is non-fatal and the session then genuinely has no delegate to
@@ -3274,18 +3396,7 @@ export async function createAgentSession(
 					? (selection.provider as ProviderId)
 					: ((turnRouteTarget?.provider as ProviderId | undefined) ?? primary.id)
 				const selectedModel = selection?.model ?? turnRouteTarget?.model ?? model
-				if (!invokingSessionId && (providerId === 'zen' || providerId === 'zen-go'))
-					throw new Error('A delegated provider requires its invoking conversation.')
-				await ensureRegistered(providerId)
-				const credential = await currentCredentialFor(providerId)
-				const childProvider = constructProvider(
-					providerId,
-					providerId === primary.id && credential
-						? { ...credential, apiKey: currentToken ?? credential.apiKey }
-						: credential,
-					selectedModel,
-					{ sessionId: invokingSessionId },
-				)
+				const childProvider = await providerForModel(invokingSessionId, providerId, selectedModel)
 				if (selection?.effort) await prepareDelegatedEffort(childProvider, selectedModel)
 				return childProvider
 			},
@@ -3327,6 +3438,26 @@ export async function createAgentSession(
 			authorizationGate: gateFor(sessionRules),
 		})
 		subagentRuntime = sub
+		sideModel = createSideModel({
+			active: () => ({
+				providerId: turnRouteTarget?.provider ?? primary.id,
+				model: turnRouteTarget?.model ?? model,
+			}),
+			configured: options.smallModel,
+			isKnownProvider: (id) => findDetected(detected, id as ProviderId) != null,
+			buildProvider: (sessionId, target) =>
+				providerForModel(sessionId, target.providerId as ProviderId, target.model),
+			offerable: (providerId, listed) => {
+				const found = findDetected(detected, providerId as ProviderId)
+				return (
+					found != null &&
+					canSelectModel(found.entry, found.apiKey, listed.id) &&
+					isOfferableModel(providerId, listed.id)
+				)
+			},
+			ledger: sub.sideLedger,
+			debug: (message, error) => cliLogger().debug(message, exceptionAttributes(error)),
+		})
 		// The parent's own toolsets, and only ever these — and only where
 		// somebody is there to read it, the same condition `ask_user_question`
 		// mounts under further down. A child's roster is `buildTools` above,
@@ -3451,6 +3582,7 @@ export async function createAgentSession(
 			)
 		}
 		subagentRuntime = undefined
+		sideModel = undefined
 		// Sub-agents unavailable this session — non-fatal: `allowedAgentIds`
 		// stays empty and the chat still works. Silent until now, which was
 		// the wrong kind of non-fatal — an operator who expected delegation
@@ -3494,6 +3626,15 @@ export async function createAgentSession(
 						action: 'answer_question',
 						selectedOptionIds: [...answer.selectedOptionIds],
 						...(answer.freeText !== undefined ? { freeText: answer.freeText } : {}),
+						...(answer.answers
+							? {
+									answers: answer.answers.map((entry) => ({
+										questionId: entry.questionId,
+										selectedOptionIds: [...entry.selectedOptionIds],
+										...(entry.freeText !== undefined ? { freeText: entry.freeText } : {}),
+									})),
+								}
+							: {}),
 						questionId: request.question.questionId,
 					}
 				case 'abort':
@@ -3507,6 +3648,30 @@ export async function createAgentSession(
 		// park recorder is supplied.
 		toolsets.push(
 			toolset('ask-user-question', [buildAskUserQuestionTool({ resumeHandler: parkQuestion })]),
+		)
+	}
+	// `exit_plan_mode`, where somebody can approve. The tool is per session; who
+	// approves, the live mode and the plan file are per turn, so it reads them
+	// through a holder the turn's prelude fills.
+	let currentPlanHost:
+		| {
+				readonly mode: () => PermissionMode
+				readonly planPath: string
+				readonly approval: PlanApprovalFn | undefined
+				readonly bypassAvailable: () => boolean
+		  }
+		| undefined
+	if (options.planApproval && !options.ephemeral) {
+		toolsets.push(
+			toolset('plan-mode', [
+				buildExitPlanModeTool({
+					mode: () => currentPlanHost?.mode() ?? 'prompt',
+					planPath: () =>
+						currentPlanHost?.planPath ?? paths.planFile({ sessionId: scope.sessionId }),
+					bypassAvailable: () => currentPlanHost?.bypassAvailable() ?? false,
+					approval: () => currentPlanHost?.approval,
+				}),
+			]),
 		)
 	}
 	// The host's own additions, to this session only: `buildTools` above
@@ -4083,6 +4248,9 @@ export async function createAgentSession(
 								),
 								{ unattendedSandboxEscape },
 								screenPolicyFor(() => liveManager()),
+								options.planApproval && !options.ephemeral
+									? isPlanFileWrite(paths.planFile({ sessionId: entry.sessionId }), cwd)
+									: undefined,
 							),
 			})
 			const resumeHandler = modeControl.handler
@@ -4339,7 +4507,7 @@ export async function createAgentSession(
 			return reasoningEffortDefault
 		},
 		...(reasoningSettled ? { reasoningSettled } : {}),
-		compact: (messages) =>
+		compact: (messages, instructions) =>
 			operations.promise(undefined, async (signal) => {
 				const sessionId = scope.sessionId
 				const sessions = options.conversationSessions
@@ -4349,6 +4517,7 @@ export async function createAgentSession(
 					provider: providerForSession(sessionId),
 					model,
 					signal,
+					...(instructions ? { instructions } : {}),
 				}
 				// A durable conversation compacts its own log: the kernel folds the
 				// context from it and appends a `compaction{ trigger: 'manual' }`
@@ -4443,6 +4612,7 @@ export async function createAgentSession(
 					}))(workflowHost),
 				}
 			: {}),
+		...(sideModel ? { sideModel } : {}),
 		...(subagentRuntime
 			? {
 					subagents: subagentRuntime.activity,
@@ -4666,6 +4836,15 @@ export async function createAgentSession(
 		errorKind: null,
 		// Reads the same object the handler mutates, at call time.
 		allowForSession: (allows) => sessionAllows.add(allows),
+		notifyHooks: (info) => {
+			if (!sessionPlugins) return
+			void sessionPlugins.manager
+				.executeHooks('notification', {
+					sessionId: scope.sessionId,
+					notification: info,
+				})
+				.catch(() => [])
+		},
 		commandArguments,
 		setPermissionMode: async (mode, reason) => {
 			await Promise.all(
@@ -4691,6 +4870,13 @@ export async function createAgentSession(
 					let runManager: ToolManager = manager
 					lastSendInteractive = opts?.onPermission !== undefined
 					const turnScope = { ...scope }
+					// The plan file, when this session has a plan mode: the one write
+					// `plan` lets through (and the path the reminders and the exit tool name).
+					const planPath =
+						options.planApproval && !options.ephemeral
+							? paths.planFile({ sessionId: turnScope.sessionId })
+							: undefined
+					const planModeWrite = planPath ? isPlanFileWrite(planPath, cwd) : undefined
 					const initialMode: PermissionMode =
 						opts?.permissionMode ??
 						options.permissionMode ??
@@ -4727,6 +4913,7 @@ export async function createAgentSession(
 										),
 										{ unattendedSandboxEscape },
 										screenPolicyFor(() => runManager),
+										planModeWrite,
 									),
 					})
 					const resumeHandler = modeControl.handler
@@ -4799,6 +4986,14 @@ export async function createAgentSession(
 						}
 						const curatedMemoryPrompt = composeMemoryPrompt(curatedMemory)
 						currentOnQuestion = opts?.onQuestion
+						currentPlanHost = planPath
+							? {
+									mode: () => modeControl.current(),
+									planPath,
+									approval: opts?.onPlanExit,
+									bypassAvailable: opts?.bypassAvailable ?? (() => false),
+								}
+							: undefined
 						const [environmentFacts, turnSnapshot] = await Promise.all([
 							readEnvironmentFacts(cwd),
 							readTurnSnapshot(cwd),
@@ -4957,7 +5152,9 @@ export async function createAgentSession(
 								// is rare, so the cached prefix it re-keys is a price paid once
 								// per switch rather than once per turn.
 								!residentContext && opts?.permissionMode === 'plan'
-									? NAMZU_PLAN_MODE_DOCTRINE
+									? planPath
+										? NAMZU_PLAN_FILE_DOCTRINE
+										: NAMZU_PLAN_MODE_DOCTRINE
 									: undefined,
 								residentContext ? undefined : environmentPrompt,
 								residentContext ? undefined : opts?.extraSystem,
@@ -4992,6 +5189,18 @@ export async function createAgentSession(
 						}
 						claimTurn(turnId)
 						const turnTaskStore = selectTaskStore(turnScope)
+						const reminderSource = options.reminders
+							? createCliReminderSource({
+									mode: () => modeControl.current(),
+									...(planPath
+										? {
+												planPath: () => planPath,
+												canAsk: Boolean(options.askUser && subagentRuntime),
+											}
+										: {}),
+									tasks: () => turnTaskStore.list({ sessionId: turnScope.sessionId }),
+								})
+							: undefined
 						// An ephemeral session keeps its whole turn in memory: a fresh
 						// log per send, opened with the `session_started` a turn follows.
 						// A durable one appends to `<session-id>.jsonl`, created first
@@ -5086,6 +5295,7 @@ export async function createAgentSession(
 									...memoryContextSteps(curatedMemoryPrompt, storedMemory.prompt),
 								],
 								taskStore: turnTaskStore,
+								...(reminderSource ? { reminders: reminderSource } : {}),
 								systemPrompt,
 								messages,
 								projectInstructionContext: projectInstructions.createTurnContext(),
@@ -5845,13 +6055,22 @@ function gateFor(rules: readonly AuthorizationRule[] | undefined) {
 // `contextWindowTokens` is deliberately omitted: the SDK resolves the window
 // from `turnConfig.model`, which is the value the user actually chose. Pinning
 // a number here would fix one window across every model the CLI can talk to.
+/**
+ * Nudges allowed in a row after a reply is cut off at its output limit, as in
+ * the reference terminal. The kernel's default is no cap, so the CLI asks.
+ */
+const MAX_OUTPUT_CONTINUATIONS = 3
+
 const COMPACTION_CONFIG = {
 	strategy: 'salience' as const,
+	// Give up on compaction that keeps failing or keeps refilling, and say so
+	// once. The kernel leaves this off, so the CLI asks.
+	circuitBreaker: true,
 	// On, and this is the CLI making a choice rather than taking a default.
 	// A session's transcript is the only record of what was compacted away;
 	// the size trade this costs is the operator's to see and turn off.
 	recordShedHistory: true,
-	triggerThreshold: 0.7,
+	// No `triggerThreshold`: the kernel derives it from the model's window.
 	resetThreshold: 0.4,
 	keepRecentMessages: 6,
 	// Reclaim from stale tool output before summarizing. A CLI session is
@@ -5956,6 +6175,8 @@ interface TurnParams {
 	/** Whether a batch the rules allow still goes to `resumeHandler` (plan mode). */
 	readonly reviewAllowedCalls?: () => boolean
 	readonly taskStore: TaskStore
+	/** Hidden reminders for each model request; see `AgentSessionOptions.reminders`. */
+	readonly reminders?: ReminderSource
 	readonly systemPrompt: string | undefined
 	readonly fileReadTracker?: ReturnType<typeof createFileReadTracker>
 	readonly messages: readonly Message[]
@@ -6022,6 +6243,7 @@ async function* runTurn({
 	onApprovalPolicy,
 	reviewAllowedCalls,
 	taskStore,
+	reminders,
 	systemPrompt,
 	messages,
 	projectInstructionContext,
@@ -6053,6 +6275,7 @@ async function* runTurn({
 	const readsOnly = declaredReadOnly(turnManager)
 	try {
 		const events = query({
+			maxOutputContinuations: MAX_OUTPUT_CONTINUATIONS,
 			...(retainedToolPreviewChars !== undefined ? { retainedToolPreviewChars } : {}),
 			...(fileReadTracker ? { fileReadTracker } : {}),
 			...(structuredOutput ? { structuredOutput } : {}),
@@ -6113,6 +6336,7 @@ async function* runTurn({
 			...(systemPrompt ? { systemPrompt } : {}),
 			projectInstructionContext,
 			messages: [...messages],
+			...(reminders ? { reminders } : {}),
 			...(opts?.inboundMessages ? { inboundMessages: opts.inboundMessages } : {}),
 			...(opts?.waitForInbound ? { waitForInbound: opts.waitForInbound } : {}),
 			...(opts?.durableInbound ? { durableInbound: opts.durableInbound } : {}),
@@ -6226,12 +6450,14 @@ export function makeResumeHandler(
 	exempt: (name: string, input: unknown) => boolean = () => false,
 	escapePolicy: { readonly unattendedSandboxEscape?: 'refuse' | 'allow' } = {},
 	screen?: ScreenPolicy,
+	planModeWrite?: (call: ToolCallSummary) => boolean,
 ): ResumeHandler {
 	return createReviewHandler({
 		mode,
 		prompt: onPermission,
 		exempt,
 		remembered: approval,
+		...(planModeWrite ? { planModeWrite } : {}),
 		...(screen ? { screenConsent: screen.consent, capturesScreen: screen.capturesScreen } : {}),
 		// Refused unless the operator wrote `sandbox.allowUnattendedEscape`: a
 		// session with nobody to ask has nobody to consent to leaving the
@@ -6384,6 +6610,9 @@ export function reviewExemptionFor(
 	const exemptLookup = withRuntimeMountedTools(manager)
 	return (name, input) =>
 		isPromptExempt(exemptLookup, name, input) ||
+		// Presenting a plan asks the person on its own screen and changes nothing;
+		// `plan` is the one mode it is for. Outside it the tool refuses by itself.
+		(name === EXIT_PLAN_MODE_TOOL_NAME && manager.has(EXIT_PLAN_MODE_TOOL_NAME)) ||
 		(mode !== 'strict' && name === AGENT_LAUNCH_TOOL && launchesReadOnlyAgent(input)) ||
 		(mode !== 'strict' && mode !== 'plan' && confirmsItself(name, input)) ||
 		(mode !== 'strict' &&
@@ -6500,6 +6729,21 @@ export function toAgentEvent(
 				...(event.messageId ? { messageId: event.messageId } : {}),
 				...(event.turnId ? { turnId: event.turnId } : {}),
 			}
+		case 'plugin_hook_completed': {
+			const result = event.result
+			if ((result.action === 'continue' || result.action === 'skip') && result.halt) {
+				return {
+					kind: 'hook-notice',
+					text: `A hook stopped this turn: ${result.halt.reason}`,
+				}
+			}
+			if ((result.action === 'continue' || result.action === 'skip') && result.notice) {
+				return { kind: 'hook-notice', text: `A hook says: ${result.notice}` }
+			}
+			return null
+		}
+		case 'plugin_hook_executing':
+			return event.statusMessage ? { kind: 'hook-status', text: event.statusMessage } : null
 		case 'reasoning_started':
 			// A redacted block has no text to show; the empty delta still says
 			// "thinking" so the region does not sit silent for its duration.
@@ -6866,7 +7110,7 @@ function describeCompaction(event: {
  * rather than making them wonder what survived.
  */
 function describeCompactionFailure(event: {
-	cause: 'reducer_threw' | 'shed_nothing' | 'split_tool_pair'
+	cause: 'reducer_threw' | 'shed_nothing' | 'split_tool_pair' | 'breaker_open' | 'refilling'
 	messages: number
 	error?: string
 }): string {
@@ -6883,6 +7127,16 @@ function describeCompactionFailure(event: {
 			// No suggested action, because there is none for the user. Offering
 			// one would be worse than silence.
 			return `context not compacted — the reducer produced a history splitting a tool call from its result, so it was refused. ${held}; this is a bug in the reducer`
+		case 'breaker_open':
+			return (
+				event.error ??
+				'Automatic compaction stopped after three failed attempts. Run /compact yourself, or start fresh with /clear.'
+			)
+		case 'refilling':
+			return (
+				event.error ??
+				'The context filled up again right after being compacted, three times in a row. Read big files in smaller parts, or start fresh with /clear.'
+			)
 	}
 }
 

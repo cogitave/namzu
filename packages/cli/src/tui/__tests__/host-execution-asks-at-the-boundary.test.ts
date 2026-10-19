@@ -133,7 +133,10 @@ const outsideRead: ToolCallSummary = {
 const escapeCall: ToolCallSummary = {
 	id: 'b1',
 	name: 'bash',
-	input: { command: 'curl -sI https://example.com', dangerously_disable_sandbox: true },
+	input: {
+		command: 'curl -sI https://example.com',
+		dangerously_disable_sandbox: true,
+	},
 	isDestructive: false,
 	authorization: { decision: 'review' },
 	escalation: { sandboxEscape: true },
@@ -144,7 +147,10 @@ describe('by default the CLI runs tools on the host', () => {
 		const { params } = await turn({})
 
 		expect(params.sandboxProvider).toBeUndefined()
-		expect(params).toMatchObject({ outsideRootAccess: 'review', sandboxEscape: 'review' })
+		expect(params).toMatchObject({
+			outsideRootAccess: 'review',
+			sandboxEscape: 'review',
+		})
 		// The model is told where it runs and how past the edge, up front —
 		// here with nobody to ask, so the edge is a refusal and `--add-dir`.
 		expect(String(params.systemPrompt)).toMatch(/not in a sandbox/)
@@ -166,24 +172,33 @@ describe('by default the CLI runs tools on the host', () => {
 		const onPermission = vi.fn<PermissionFn>(async () => ({ kind: 'reject' }))
 		const { handler } = await turn({ permissionMode: 'auto', onPermission })
 
-		expect(await handler(review(outsideRead))).toMatchObject({ action: 'reject_tools' })
+		expect(await handler(review(outsideRead))).toMatchObject({
+			action: 'reject_tools',
+		})
 		expect(onPermission).toHaveBeenCalledTimes(1)
 	})
 
 	it('asks about a path outside after "allow all tools for this conversation"', async () => {
-		const onPermission = vi.fn<PermissionFn>(async () => ({ kind: 'approve-all' }))
+		const onPermission = vi.fn<PermissionFn>(async () => ({
+			kind: 'approve-all',
+		}))
 		const { handler } = await turn({ onPermission })
 		const ordinary: ToolCallSummary = {
 			id: 'b0',
 			name: 'bash',
-			input: { command: 'ls' },
+			// Not on the read-only list, so it is a call a person is asked about.
+			input: { command: 'npm test' },
 			isDestructive: false,
 			authorization: { decision: 'review' },
 		}
 
-		expect(await handler(review(ordinary))).toEqual({ action: 'approve_tools' })
+		expect(await handler(review(ordinary))).toEqual({
+			action: 'approve_tools',
+		})
 		expect(onPermission).toHaveBeenCalledTimes(1)
-		expect(await handler(review(outsideRead))).toEqual({ action: 'approve_tools' })
+		expect(await handler(review(outsideRead))).toEqual({
+			action: 'approve_tools',
+		})
 		expect(onPermission).toHaveBeenCalledTimes(2)
 	})
 
@@ -191,7 +206,9 @@ describe('by default the CLI runs tools on the host', () => {
 		const onPermission = vi.fn<PermissionFn>(async () => ({ kind: 'approve' }))
 		const { handler } = await turn({ onPermission })
 
-		expect(await handler(review(outsideRead))).toEqual({ action: 'approve_tools' })
+		expect(await handler(review(outsideRead))).toEqual({
+			action: 'approve_tools',
+		})
 		expect(onPermission).toHaveBeenCalledTimes(1)
 		expect(onPermission.mock.calls[0]?.[0].toolCalls[0]?.escalation).toEqual({
 			outsidePaths: ['/mnt/c/Users/me/notes.txt'],
@@ -216,7 +233,10 @@ describe('a sandbox escape', () => {
 	})
 
 	it('is refused in a headless turn, even under --yolo', async () => {
-		const { handler, params } = await turn({ sandbox: { enabled: true }, permissionMode: 'auto' })
+		const { handler, params } = await turn({
+			sandbox: { enabled: true },
+			permissionMode: 'auto',
+		})
 
 		expect(await handler(review(escapeCall))).toEqual({
 			action: 'reject_tools',
@@ -239,7 +259,9 @@ describe('a sandbox escape', () => {
 	})
 
 	it('is refused outright by the kernel when escapes are turned off', async () => {
-		const { params } = await turn({ sandbox: { enabled: true, allowEscape: false } })
+		const { params } = await turn({
+			sandbox: { enabled: true, allowEscape: false },
+		})
 
 		expect(params.sandboxEscape).toBe('refuse')
 	})

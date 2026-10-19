@@ -15,6 +15,7 @@
 * [Startup time](startup.md) - What loads before the first screen or request, the lazy command list, the compile cache, how `exec` treats piped input, and `scripts/bench-startup.mjs` with reference numbers.
 
 * [Conversation evidence](conversation-evidence.md) - Bounded recovery of retained original tool and assistant output after compaction.
+* [Plan mode](plan-mode.md) - The plan file, the exit_plan_mode tool and its approval box, the mode the approval switches to, and the hidden reminders (plan mode's and the task-list nudge).
 * [Delegated work](delegated-work.md) - Background child sessions, queued corrections, completion, ownership and replay from child logs.
 * [Workflows in the CLI](workflows.md) - The workflow tool: when the model is offered it, the review before it starts, how its agents run and appear, how to stop or skip, and what the model is told when it ends.
 
@@ -33,6 +34,7 @@ The operator application.
 * [Context and compaction in the CLI](context-and-compaction.md) - The file-only compaction key that picks the kernel's strategy or overrides the model's window, and the /context command that shows what compaction has done in a session.
 * [Where the CLI stands against its peers](competitive-gaps.md) - What `Claude Code`, `Codex CLI`, `Gemini CLI` and `OpenCode` offer that namzu does not, what namzu does better, and the backlog that follows.
 * [Where tools run](tool-boundary.md) - Host execution under the permission system by default, a path outside the working directory as an approval request, the opt-in sandbox and its per-command escape, and WSL.
+* [Permission layers and remembered answers](permission-layers.md) - How the permissions tables of the config layers combine (a deny from any layer wins), where "don't ask again" is written, and which shell commands run without a prompt.
 * [Launch flags](launch-flags.md) - `--provider`, `--model`, `--effort` and `--permission-mode` on the interactive session: session-only, how they combine with the saved choice and `--yolo`, and what happens when one cannot be honoured.
 * [Adding a directory](add-dir.md) - How a session lets the file tools reach a directory besides the working directory, and what changes for the tools, the sandbox and the model.
 * [File checkpoints](file-checkpoints.md) - How the session records every file before a tool changes it, per turn, and how /restore puts the tree back to before a turn.
@@ -44,6 +46,7 @@ The operator application.
 * [Skills](skills.md) - Where SKILL.md skills come from and which tier wins a name, how the model is offered them and loads one with the skill tool, which directory it is told a skill's files are in, the manifest budget, tool gating, and the skills config keys.
 * [The composer prefixes](composer-prefixes.md) - What a line starting with `!` or `#` does in the composer: a command run on the host without the model, or a note remembered, and what the model learns of either.
 * [Composer triggers](composer-triggers.md) - Words in a message that name one namzu action for it — the hypermode keyword, save-as-skill phrases in English and Turkish — how they are matched and shown, Alt+W, what they change about the turn, and the composerTriggers key that turns them off.
+* [Custom status line](status-line.md) - The statusLine key: a command whose output is drawn above the footer, the JSON it reads on stdin, when it runs, where it may be set, and what an empty or failed run shows.
 * [Background jobs in the CLI](background-jobs.md) - How a command started with run_in_background outlives its turn, what /jobs shows, and how supported sandboxes own detached processes.
 * [Resident work in the CLI](resident-work.md) - Durable pursuits, bounded foreground execution, pause observation and inspected recovery.
 * [Managed resident runners](resident-runner.md) - Opt-in background hosting, zero-call idle waits, exact-owner status/stop and crash recovery.
@@ -54,6 +57,7 @@ The operator application.
 * [Session task context](task-context.md) - Bounded reminders of a session's open tasks and those closed in the current turn, scope and research boundaries.
 * [Google accounts and model access](google.md) - Existing Gemini CLI Google sign-in, explicit API-key routing and read-only credential refresh.
 * [The model catalogue refresh](model-catalogue.md) - How every launch refreshes the Zen and Zen Go model catalogue in the background, the last-good copy, what a failure keeps, and the modelCatalogueRefresh key that turns it off.
+* [The small model for side jobs](small-model.md) - The smallModel key and how a side job picks its model, conversation titles written by it, the answer web_fetch extracts, and why it never blocks or fails a turn and is counted on the turn's ledger.
 
 * [CLI release validation](release-validation.md) - Live terminal acceptance evidence and boundaries for the pending release.
 

@@ -323,7 +323,7 @@ describe('PluginLifecycleManager', () => {
 				expect(executionOrder).toEqual(['hook1', 'hook2', 'hook3'])
 			})
 
-			it('should execute post_* hooks in reverse registration order (last registered first)', async () => {
+			it('should start post_* hooks in registration order, like every other event', async () => {
 				const executionOrder: string[] = []
 
 				const handler1 = vi.fn(async (): Promise<{ action: 'continue' }> => {
@@ -359,8 +359,7 @@ describe('PluginLifecycleManager', () => {
 					turnId: mockTurnId,
 				})
 
-				// Reverse order: hook3 -> hook2 -> hook1
-				expect(executionOrder).toEqual(['hook3', 'hook2', 'hook1'])
+				expect(executionOrder).toEqual(['hook1', 'hook2', 'hook3'])
 			})
 
 			it('should execute non-pre/post hooks in registration order', async () => {
@@ -395,7 +394,7 @@ describe('PluginLifecycleManager', () => {
 		})
 
 		describe('Flow control: action priority', () => {
-			it('should short-circuit on error action', async () => {
+			it('should let the other hooks run when one answers error', async () => {
 				const handler1 = vi.fn(async (): Promise<{ action: 'error'; message: string }> => {
 					return { action: 'error', message: 'Hook failed' }
 				})
@@ -418,12 +417,11 @@ describe('PluginLifecycleManager', () => {
 					turnId: mockTurnId,
 				})
 
-				expect(results).toHaveLength(1)
-				expect(results[0]?.action).toBe('error')
-				expect(handler2).not.toHaveBeenCalled()
+				expect(results.map((r) => r.action)).toEqual(['error', 'continue'])
+				expect(handler2).toHaveBeenCalledTimes(1)
 			})
 
-			it('should short-circuit on skip action', async () => {
+			it('should let the other hooks run when one answers skip', async () => {
 				const handler1 = vi.fn(async (): Promise<{ action: 'skip'; reason: string }> => {
 					return { action: 'skip', reason: 'Condition not met' }
 				})
@@ -446,12 +444,11 @@ describe('PluginLifecycleManager', () => {
 					turnId: mockTurnId,
 				})
 
-				expect(results).toHaveLength(1)
-				expect(results[0]?.action).toBe('skip')
-				expect(handler2).not.toHaveBeenCalled()
+				expect(results.map((r) => r.action)).toEqual(['skip', 'continue'])
+				expect(handler2).toHaveBeenCalledTimes(1)
 			})
 
-			it('should short-circuit and return retry action', async () => {
+			it('should return a retry action beside the other hooks answers', async () => {
 				const handler1 = vi.fn(async (): Promise<{ action: 'retry' }> => {
 					return { action: 'retry' }
 				})
@@ -460,14 +457,13 @@ describe('PluginLifecycleManager', () => {
 					return { action: 'continue' }
 				})
 
-				// Post hooks unwind, so register the observer first and the retrying hook last.
-				manager.registerHook('plugin_2' as PluginId, {
-					event: 'post_tool_use',
-					handler: handler2,
-				})
 				manager.registerHook('plugin_1' as PluginId, {
 					event: 'post_tool_use',
 					handler: handler1,
+				})
+				manager.registerHook('plugin_2' as PluginId, {
+					event: 'post_tool_use',
+					handler: handler2,
 				})
 
 				const results = await manager.executeHooks('post_tool_use', {
@@ -475,9 +471,8 @@ describe('PluginLifecycleManager', () => {
 					turnId: mockTurnId,
 				})
 
-				expect(results).toHaveLength(1)
-				expect(results[0]?.action).toBe('retry')
-				expect(handler2).not.toHaveBeenCalled()
+				expect(results.map((r) => r.action)).toEqual(['retry', 'continue'])
+				expect(handler2).toHaveBeenCalledTimes(1)
 			})
 
 			it('should continue executing on modify action', async () => {

@@ -229,7 +229,7 @@ export async function resolveWithinReal(
  * existing ancestor with its links resolved, and the rest appended as
  * written. A path of which nothing exists is returned as it stands.
  */
-async function canonicalize(absolute: string): Promise<string> {
+export async function canonicalize(absolute: string): Promise<string> {
 	// Walk up to the deepest existing ancestor. Terminates at the filesystem
 	// root, where `dirname` becomes a fixed point.
 	let existing = absolute

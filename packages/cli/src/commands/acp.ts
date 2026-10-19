@@ -66,7 +66,11 @@ import { createPalInboxStarter } from '../pals/inbox-start.js'
 import { palAtWorkspace } from '../pals/store.js'
 import { canonicalProjectPath } from '../permissions/canonical-project.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
-import { compilePermissions, warnLegacyMcpPermissionNames } from '../permissions/rules.js'
+import {
+	compilePermissionLayers,
+	permissionLayersOf,
+	warnLegacyMcpPermissionNames,
+} from '../permissions/rules.js'
 import { type TerminalHost, createTerminalHost } from '../terminal/host.js'
 import {
 	type AgentSession,
@@ -756,8 +760,8 @@ export function createCliAcpRuntime(
 			try {
 				const projectCtx = deps.resolveProjectContext(bootstrapCtx, cwd)
 				warnLegacyMcpPermissionNames(projectCtx.config.permissions)
-				const permissions = compilePermissions(
-					projectCtx.config.permissions,
+				const permissions = compilePermissionLayers(
+					permissionLayersOf(projectCtx.config),
 					projectCtx.config.permissionChecks,
 				)
 				if (permissions.diagnostics.length > 0) {
@@ -817,6 +821,7 @@ export function createCliAcpRuntime(
 					...(projectCtx.config.plugins ? { plugins: projectCtx.config.plugins } : {}),
 					...(projectCtx.config.skills ? { skills: projectCtx.config.skills } : {}),
 					...(projectCtx.config.web ? { web: projectCtx.config.web } : {}),
+					...(projectCtx.config.smallModel ? { smallModel: projectCtx.config.smallModel } : {}),
 					...(projectCtx.config.hooks ? { hooks: projectCtx.config.hooks } : {}),
 					...(projectCtx.config.compaction ? { compaction: projectCtx.config.compaction } : {}),
 					...(projectCtx.config.memory ? { memory: projectCtx.config.memory } : {}),

@@ -12,6 +12,12 @@ generated: { by: human:bahadirarda, at: 2026-09-02T00:00:00Z }
 
 # `/compact` and original history
 
+`/compact` takes optional text, `/compact keep the failing test names`. The text
+is given to the model step of the summary as part of what to keep, and that step
+runs even where the project has `llmVerification` off, because it is the only
+step that can act on free text. Without text, `/compact` makes no model call, as
+before. The text is cut to 2,000 characters.
+
 In a recorded conversation, `/compact` retains removed original messages before
 installing or saving the summary. This includes user-provided details omitted
 from the summary. They remain searchable through `search_conversation` and
@@ -62,6 +68,7 @@ In `namzu.config.json` (project) or `~/.namzu/config.yaml` (user), never from th
 | --- | --- |
 | `strategy` | `salience` (the default), the scored working set described in [The salience-scored working set](../sdk/salience-working-set.md), or `structured`, the previous behaviour: positional retention and a pass only at the trigger. |
 | `contextWindowTokens` | The window the kernel measures fullness against, when the model's table entry is wrong or a project wants compaction earlier. Absent, the kernel resolves it from the model. |
+| `triggerThreshold` | The fraction of the window at which older history is summarised. Absent, the kernel derives it as the reference terminal does: the window less room for the reply (the model's output cap, at most 20,000 tokens) less a 13,000-token buffer, so about 83.5% of a 200,000-token window (167,000 tokens) and 96.7% of a 1,000,000-token one. It never drops below half the window. It was a flat 0.7 before; set `0.7` to keep that. |
 | `deduplicateObservations` | Enabled by default. Repeated identical read-only text observations share one full result in each model request. Set `false` to preserve the previous representation. Tool execution and canonical history are unchanged; see the [SDK policy and limits](../sdk/salience-working-set.md#exact-repeated-observations-in-the-active-request). |
 | `retainedToolPreviewChars` | Nonnegative safe integer; default 4,000 in recorded conversations. Limits the preview of overflow text only after full text and its integrity manifest are saved. Set `0` to keep the previous 40,000-character preview budget. The spill threshold, smaller results and independently supplied model text are unchanged. |
 | `recallEvidence` | Optional boolean, default `true` in recorded conversations. Retrieve bounded historical passages from this conversation before each model request; see the limits below. Set `false` to disable automatic archive recall and its query-planning inference. Independent of project-memory recall. |
@@ -167,6 +174,9 @@ session. It labels whether the token count was measured by the provider or
 estimated by Namzu, and whether the window was declared or assumed. An
 approximate percentage is marked with `~`; missing measurements are reported
 as unavailable rather than zero.
+
+The footer also shows `N% until auto-compact` once the context is within
+20,000 tokens of the summary point; see [the composer footer](terminal-design.md#the-composer-footer).
 
 `/context details` adds the strategy and thresholds, the number of tool results
 cleared, messages shortened and summaries written. `salience` starts reducing

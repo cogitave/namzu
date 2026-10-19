@@ -12,7 +12,7 @@ generated: { by: human:bahadirarda, at: 2026-09-02T00:00:00Z }
 
 # Starting one
 
-The model passes `run_in_background: true` to `bash` for work that legitimately outlasts a tool call: a dev server, a watcher, a long build. The call returns the job's id at once and the turn goes on. The `job` tool reads a job's output (`action: read`, with the previous call's `next_offset` to see only what is new), lists them, or stops one. To find out whether a job has finished, use `wait_for_job` (below) rather than calling `job` with `action: read` in a loop — `job`'s own description says so.
+The model passes `run_in_background: true` to `bash` for work that legitimately outlasts a tool call: a dev server, a watcher, a long build. The call returns the job's id at once and the turn goes on. The `job` tool reads a job's output (`action: read`, with the previous call's `next_offset` to see only what is new), lists them, or stops one. A foreground command that runs past its `timeout` becomes such a job too instead of being killed (see [Timeouts and output](../sdk/bash-tool.md#timeouts-and-output)); `/jobs` and the shells count show it like any other. To find out whether a job has finished, use `wait_for_job` (below) rather than calling `job` with `action: read` in a loop — `job`'s own description says so.
 
 # A job that cannot start
 

@@ -1,3 +1,4 @@
+import type { ChildProcess } from 'node:child_process'
 import type { z } from 'zod'
 import type { CodeNavigationProvider } from '../code-navigation/index.js'
 // Type-only, and circular by design: a tool-result guardrail is described in
@@ -118,7 +119,24 @@ export interface BackgroundJobRegistryRef {
 		id: string
 		status: string
 	}
-	get(id: string): { id: string; status: string; exitCode?: number; error?: string }
+	get(id: string): {
+		id: string
+		status: string
+		exitCode?: number
+		error?: string
+	}
+	/**
+	 * Take over a process the caller already started and is waiting on, so a
+	 * foreground command that outran its timeout can keep running as a job
+	 * instead of being killed. Optional: a host without it (or a sandboxed
+	 * turn) keeps the kill. Throws when the owner is at its job cap.
+	 */
+	adopt?(params: {
+		command: string
+		child: ChildProcess
+		workingDirectory?: string
+		initialOutput?: readonly { readonly stream: 'stdout' | 'stderr'; readonly text: string }[]
+	}): { id: string; status: string }
 	/**
 	 * Resolves once the process exists or failed to start (`error` says why).
 	 * Optional: a host that cannot tell may omit it, and `bash` then replies
@@ -483,14 +501,38 @@ export interface ToolContext {
 	 */
 	web?: {
 		readonly fetch?: {
-			fetch(request: { url: string; signal?: AbortSignal }): Promise<{
+			fetch(request: {
+				url: string
+				signal?: AbortSignal
+				/** `same-host` asks for a redirect to another site to be handed back, not followed. */
+				redirects?: 'follow' | 'same-host'
+				headers?: Readonly<Record<string, string>>
+			}): Promise<{
 				url: string
 				status: number
 				contentType?: string
 				body: string
 				truncated: boolean
 				redirects: readonly string[]
+				/** A redirect that was not followed; `body` is then empty. */
+				redirect?: { url: string; status: number }
 			}>
+		}
+		/**
+		 * Answers a prompt from a page with a small model. Optional: without
+		 * it `web_fetch` returns the page as markdown instead of an answer.
+		 */
+		readonly extract?: {
+			extract(request: {
+				url: string
+				prompt: string
+				content: string
+				instruction: string
+				body: string
+				signal?: AbortSignal
+				sessionId: string
+				turnId: string
+			}): Promise<string | undefined>
 		}
 		readonly search?: {
 			search(request: {
@@ -1103,6 +1145,15 @@ export interface ToolDefinition<TInput = unknown> extends ToolPresentation<TInpu
 	 * their external effects have stopped, and does not imply success.
 	 */
 	executionBarrier?: boolean
+	/**
+	 * The tool bounds its own output (a paged read, say), so the turn's default
+	 * per-result cap does not apply to it and its result is never replaced to
+	 * fit the per-message budget.
+	 *
+	 * Only the DEFAULT is lifted. A host that sets `maxToolOutputChars`
+	 * explicitly still bounds this tool's result by it.
+	 */
+	selfLimitingOutput?: boolean
 }
 
 /**

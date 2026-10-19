@@ -47,7 +47,7 @@ explain why they cannot run and are checked again when selected.
 | `/review` | Choose a review target, or provide custom instructions: /review [instructions]. |
 | `/mcp` | Show connection state, tool counts and failures; `/mcp tools` lists tool names. `/mcp details` is equivalent. |
 | `/diff` | Show what is uncommitted in this working tree. |
-| `/compact` | Summarise the older half of this conversation to free up context. |
+| `/compact` | Summarise the older half of this conversation to free up context. `/compact <what to keep>` says what the summary must keep. |
 | `/copy` | Choose the whole latest answer, a code block, or a quote to copy. |
 | `/raw` | Toggle copy-friendly plain transcript rendering: /raw [on\|off]. |
 | `/export` | Export this verified conversation to the clipboard or a Markdown file. |
@@ -252,7 +252,7 @@ it already refused. Each change is recorded as `approval_policy_changed` in the
 session log before it takes effect.
 The effort choices depend on the selected model and usable fallback models.
 Explicit deny rules and built-in safety checks still apply in every mode;
-`plan` additionally blocks writes even when a rule would allow them.
+`plan` additionally blocks writes even when a rule would allow them, except the one plan file ([Plan mode](plan-mode.md)).
 
 The permission menu shows the current mode. More options keeps automatic approval
 and preapproved-only execution available without placing their internal mode
@@ -355,7 +355,7 @@ terminals place descriptions below labels.
 - **Up** on an empty composer chooses the newest queued message, **Up/Down** move, **Enter** loads it into the composer for editing and **Esc** leaves the choice. **Alt+Up** recalls the latest operator-composed queued message for editing, with its attachments and armed triggers. A queued slash command returns as the command the operator typed; its expanded model prompt remains queued until recalled. It leaves a nonempty draft alone; automatic goal and skill prompts cannot be recalled this way.
 - **Esc** while a turn runs interrupts it. An undelivered steer starts a fresh turn before Tab-queued messages after the old turn settles. Without a pending steer, queued messages remain held; a new Enter message runs before them, while Tab adds to the held queue. **Ctrl+X Ctrl+S** does the same as Esc with a pending steer and also releases queued messages Esc had held. **Ctrl+C** is reserved for exit.
 - **Left** on an empty composer (nothing typed, pasted or attached) opens the agents cockpit, as `/agent` does; the footer's `← N agents` names it. **Down** on an empty composer focuses the footer: the shell pill first (Enter opens the `/jobs` screen), then the agents rail; the footer's `↓ to manage` names it. With anything in the composer both keys move the cursor.
-- **Shift+Tab** cycles the permission mode: `prompt`, `accept-edits`, `plan`, then `auto` when the session may use it (launched in `auto`, started with `--allow-dangerously-skip-permissions`, or `auto` chosen by name in `/permissions`; see [Launch flags](launch-flags.md)), then `prompt`. `auto` and `strict` go back to `prompt`. It works mid-turn, and the footer is its only reply: nothing is added to the transcript.
+- **Shift+Tab** cycles the permission mode: `prompt`, `accept-edits`, `plan`, then `auto` when the session may use it (launched in `auto`, started with `--allow-dangerously-skip-permissions`, or `auto` chosen by name in `/permissions`; see [Launch flags](launch-flags.md)), then `prompt`. `auto` and `strict` go back to `prompt`. It works mid-turn, and the footer is its only reply: nothing is added to the transcript. Plan mode has its own way out: the model presents its plan and you approve it, which switches the mode to the one you choose ([Plan mode](plan-mode.md)).
 - **Ctrl+O** expands small tool output in place. Older or oversized output opens a bounded viewer without appending transcript copies; with the live output already open, the next press opens the newest output that has settled into history. Use ↑↓ or PgUp/PgDn to scroll, ←→ to switch retained outputs, g/G for the beginning/end, and Esc, q or Ctrl+O to close.
 - **Ctrl+T** opens or closes delegated activity, also reachable with `/agents`.
 - **`!command`** runs on the host without the model; **`#note`** remembers. See [The composer prefixes](composer-prefixes.md).
@@ -363,10 +363,13 @@ terminals place descriptions below labels.
 
 ### Resuming a conversation
 
-`/resume` derives unnamed conversation titles from the first authored prompt,
-not project instructions. Old derived `Conversation` placeholders are replaced
-in the list when the original prompt is still available; deliberately chosen
-names are preserved. On terminals at least 20 rows high, the selected row shows
+`/resume` shows a conversation under the name a person gave it with `/rename`;
+failing that, under a two-to-five-word title the
+[small model](small-model.md#conversation-titles) wrote after the conversation's
+first message; failing that, under the first authored prompt (not project
+instructions). Old derived `Conversation` placeholders are replaced in the list
+when the original prompt is still available; deliberately chosen names are
+preserved and are never replaced by a generated title. On terminals at least 20 rows high, the selected row shows
 the last authored prompt, saved message count and full conversation UUID. Short
 terminals retain the compact list so navigation remains visible.
 

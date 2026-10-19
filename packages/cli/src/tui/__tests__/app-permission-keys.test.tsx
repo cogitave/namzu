@@ -136,6 +136,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 				close: async () => {},
 				allowForSession: (allows) => {
 					remembered.push(allows)
+					return undefined
 				},
 				commandArguments: new Map([['bash', 'command']]),
 				// A representative exempt roster: one declared read-only, one
@@ -566,18 +567,18 @@ describe('the answers beyond yes and no', () => {
 		expect(remembered).toEqual([])
 	})
 
-	it('remembers a plain command for the session when asked to', async () => {
+	it('remembers a command by its two-word prefix when asked to', async () => {
 		requestedToolCalls = [
 			{ id: 'call-1', name: 'bash', input: { command: 'npm test' }, isDestructive: false },
 		]
 		const { stdin, lastFrame } = await promptOpenWithDraftInFlight()
-		expect(lastFrame()).toContain("2. Yes, and don't ask again for npm test commands this session")
+		expect(lastFrame()).toMatch(/2\. Yes, and don't ask again for npm test \* commands in /)
 
 		settle()
 		stdin.write('2')
 		await decisionSettles()
 		expect(decisions).toEqual([{ kind: 'approve' }])
-		expect(remembered).toEqual([[{ kind: 'command', tool: 'bash', command: 'npm test' }]])
+		expect(remembered).toEqual([[{ kind: 'prefix', tool: 'bash', prefix: 'npm test' }]])
 	})
 
 	it('does not settle a queued request on an answer given to another prompt', async () => {

@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises'
+import { readFile, stat } from 'node:fs/promises'
 import { extname } from 'node:path'
 import { z } from 'zod'
 import type { ToolContext } from '../../types/tool/index.js'
@@ -7,7 +7,7 @@ import { defineTool } from '../defineTool.js'
 import { resolveWithinAnyReal, toolRoots } from '../paths.js'
 import { looksBinary } from '../text-window.js'
 import { fingerprintContent } from './content-fingerprint.js'
-import { type RenderedRead, renderNumberedRead } from './read-render.js'
+import { type RenderedRead, renderCappedRead } from './read-render.js'
 
 const inputSchema = z.object({
 	path: z.string().describe('Path to the file to read (absolute or relative)'),
@@ -34,12 +34,18 @@ const inputSchema = z.object({
 		.optional()
 		.describe('Starting line number (0-indexed). Defaults to 0 (beginning of file).'),
 	limit: z.coerce.number().optional().describe('Maximum number of lines to read'),
+	allow_large: z
+		.boolean()
+		.optional()
+		.describe(
+			'Raise the size and token caps for this one read. Set it only after a read was refused as too large and you genuinely need all of the file.',
+		),
 })
 
 export const ReadFileTool = defineTool({
 	name: 'read',
 	description:
-		'Reads a file and returns its contents with line numbers. Supports readRange ([start,end], 1-indexed inclusive) or offset/limit for large files. Without a window it returns the first 2000 lines and says so — pass offset/limit to continue.',
+		'Reads a file and returns its contents with line numbers. Supports readRange ([start,end], 1-indexed inclusive) or offset/limit for large files. Without a window it returns the first 2000 lines and says so — pass offset/limit to continue. A file over 256 KiB is refused unless a window is named, and a result over about 25,000 tokens is cut to a first page that names the next call; pass allow_large only when you need all of it.',
 	inputSchema,
 	category: 'filesystem',
 	// Declared so a path outside the turn's roots can be reviewed before the
@@ -49,6 +55,9 @@ export const ReadFileTool = defineTool({
 	readOnly: true,
 	destructive: false,
 	concurrencySafe: true,
+	// Bounded by the size and token caps in `renderCappedRead`, so the turn's
+	// default per-result cap and the per-message budget leave it alone.
+	selfLimitingOutput: true,
 
 	presentCall(input) {
 		if (typeof input.path !== 'string') return undefined
@@ -84,7 +93,9 @@ export const ReadFileTool = defineTool({
 				}
 			}
 			const content = buffer.toString('utf-8')
-			const rendered = renderNumberedRead(content, input)
+			const capped = renderCappedRead(content, buffer.length, input, capOptions(input, context))
+			if (!capped.ok) return refusedRead(input.path, buffer.length, capped.message, true)
+			const rendered = capped.rendered
 			recordObservedRead(context, input.path, content, rendered)
 
 			return {
@@ -102,6 +113,13 @@ export const ReadFileTool = defineTool({
 		}
 
 		const filePath = await resolveWithinAnyReal(toolRoots(context), input.path)
+		// Refused on the size alone, before the file is in memory, when no window
+		// was named: the cap exists so a huge file is never loaded to be refused.
+		if (input.readRange === undefined && input.limit === undefined) {
+			const { size } = await stat(filePath)
+			const early = renderCappedRead('', size, input, capOptions(input, context))
+			if (!early.ok) return refusedRead(filePath, size, early.message, false)
+		}
 		const buffer = await readFile(filePath)
 		const binaryGuidance = describeStructuredBinaryRead(filePath, buffer)
 		if (binaryGuidance) {
@@ -121,7 +139,9 @@ export const ReadFileTool = defineTool({
 			}
 		}
 		const content = buffer.toString('utf-8')
-		const rendered = renderNumberedRead(content, input)
+		const capped = renderCappedRead(content, buffer.length, input, capOptions(input, context))
+		if (!capped.ok) return refusedRead(filePath, buffer.length, capped.message, false)
+		const rendered = capped.rendered
 		recordObservedRead(context, filePath, content, rendered)
 
 		return {
@@ -137,6 +157,29 @@ export const ReadFileTool = defineTool({
 		}
 	},
 })
+
+function capOptions(
+	input: { path: string; allow_large?: boolean | undefined },
+	context: ToolContext,
+): Parameters<typeof renderCappedRead>[3] {
+	const tokens = Number(context.env?.NAMZU_FILE_READ_MAX_OUTPUT_TOKENS)
+	return {
+		path: input.path,
+		ext: extname(input.path).toLowerCase(),
+		...(input.allow_large === true ? { allowLarge: true } : {}),
+		...(Number.isFinite(tokens) && tokens > 0 ? { caps: { maxTokens: tokens } } : {}),
+	}
+}
+
+function refusedRead(path: string, bytes: number, message: string, sandboxed: boolean) {
+	return {
+		success: false as const,
+		output: '',
+		error: message,
+		data: { path, tooLarge: true, ...(sandboxed ? { sandboxed: true } : {}) },
+		facts: { kind: 'read' as const, path, bytes },
+	}
+}
 
 /**
  * What a read returned, as fields. A file that is not text is named as such,

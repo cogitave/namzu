@@ -41,7 +41,12 @@ it('carries a whole-file read into the next turn, and withdraws it when the file
 			agentId: 'test',
 			agentName: 'test',
 			workingDirectory: cwd,
-			turnConfig: { model: 'mock', maxIterations: 5, timeoutMs: 10000, tokenBudget: 100000 },
+			turnConfig: {
+				model: 'mock',
+				maxIterations: 5,
+				timeoutMs: 10000,
+				tokenBudget: 100000,
+			},
 			sessionId: fixtureId.session('read-evidence'),
 			topicId: fixtureId.topic('read-evidence'),
 			projectId: fixtureId.project('read-evidence'),
@@ -58,7 +63,12 @@ it('carries a whole-file read into the next turn, and withdraws it when the file
 		})
 		expect(entriesIn(requests[0])).toBeUndefined()
 		expect(entriesIn(requests[1])).toEqual([
-			{ path, kind: 'read', bodyInCall: 'r', observedFingerprint: expect.any(String) },
+			{
+				path,
+				kind: 'read',
+				bodyInCall: 'r',
+				observedFingerprint: expect.any(String),
+			},
 		])
 		// The body is referenced, not copied: it is already in the request, in
 		// the receipt the entry names.
@@ -77,7 +87,7 @@ it('carries a whole-file read into the next turn, and withdraws it when the file
 
 		// Someone else writes between the turns. The ledger does not know yet,
 		// and the projection is not going to find out by reading the disk.
-		await writeFile(path, 'ALPHA\nbeta\n')
+		await writeFile(path, 'alpha\nBETA\n')
 		const afterDrift: Message[][] = []
 		const second = await drainQuery({
 			...base,
@@ -87,7 +97,11 @@ it('carries a whole-file read into the next turn, and withdraws it when the file
 				turns: [
 					{
 						toolCalls: [
-							{ id: 'e', name: 'edit', args: { path, old_string: 'beta', new_string: 'gamma' } },
+							{
+								id: 'e',
+								name: 'edit',
+								args: { path, old_string: 'beta', new_string: 'gamma' },
+							},
 						],
 					},
 					{ toolCalls: [{ id: 'r2', name: 'read', args: { path } }] },
@@ -96,17 +110,27 @@ it('carries a whole-file read into the next turn, and withdraws it when the file
 			}),
 		})
 		expect(entriesIn(afterDrift[0])).toEqual([
-			{ path, kind: 'read', bodyInCall: 'r', observedFingerprint: expect.any(String) },
+			{
+				path,
+				kind: 'read',
+				bodyInCall: 'r',
+				observedFingerprint: expect.any(String),
+			},
 		])
 		// Admission is what finds out, and its refusal is what tells the ledger.
 		const refusal = second.messages.find((m) => m.role === 'tool' && m.toolCallId === 'e')
 		expect(refusal?.content).toContain('changed on disk')
-		expect(await readFile(path, 'utf8')).toBe('ALPHA\nbeta\n')
+		expect(await readFile(path, 'utf8')).toBe('alpha\nBETA\n')
 		expect(entriesIn(afterDrift[1])).toBeUndefined()
 		// Reading again re-baselines the ledger, and the entry comes back naming
 		// the call whose receipt shows what is there now.
 		expect(entriesIn(afterDrift[2])).toEqual([
-			{ path, kind: 'read', bodyInCall: 'r2', observedFingerprint: expect.any(String) },
+			{
+				path,
+				kind: 'read',
+				bodyInCall: 'r2',
+				observedFingerprint: expect.any(String),
+			},
 		])
 	} finally {
 		await removeTempDirs([cwd])
@@ -126,7 +150,12 @@ it('withholds a windowed read, which shows a fragment however large the window i
 			agentId: 'test',
 			agentName: 'test',
 			workingDirectory: cwd,
-			turnConfig: { model: 'mock', maxIterations: 5, timeoutMs: 10000, tokenBudget: 100000 },
+			turnConfig: {
+				model: 'mock',
+				maxIterations: 5,
+				timeoutMs: 10000,
+				tokenBudget: 100000,
+			},
 			sessionId: fixtureId.session('read-window'),
 			topicId: fixtureId.topic('read-window'),
 			projectId: fixtureId.project('read-window'),
@@ -135,7 +164,9 @@ it('withholds a windowed read, which shows a fragment however large the window i
 			provider: new MockLLMProvider({
 				onRequest: ({ messages }) => requests.push([...messages]),
 				turns: [
-					{ toolCalls: [{ id: 'r', name: 'read', args: { path, readRange: [1, 2] } }] },
+					{
+						toolCalls: [{ id: 'r', name: 'read', args: { path, readRange: [1, 2] } }],
+					},
 					{ text: 'read it' },
 				],
 			}),

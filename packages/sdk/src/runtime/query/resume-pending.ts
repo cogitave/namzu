@@ -517,6 +517,24 @@ export async function applyPendingResume(
 				reason: "the turn's review approved this call, answered across a restart",
 			})
 		}
+		for (const path of call.escalation?.protectedPaths ?? []) {
+			await recorder.recordAudit({
+				what: { action: 'protected_path_write', tool: call.name, resource: path },
+				outcome: 'approved',
+				reason: "the turn's review approved this call, answered across a restart",
+			})
+		}
+		if (call.escalation?.dangerousRemoval !== undefined) {
+			await recorder.recordAudit({
+				what: {
+					action: 'dangerous_removal',
+					tool: call.name,
+					resource: call.escalation.dangerousRemoval,
+				},
+				outcome: 'approved',
+				reason: "the turn's review approved this call, answered across a restart",
+			})
+		}
 	}
 
 	// The parked assistant message is already in the log: it goes back into
@@ -561,6 +579,15 @@ export function escalationRefusal(
 	const shown = reviewed.escalation
 	for (const path of escalation.outsidePaths ?? []) {
 		if (!shown?.outsidePaths?.includes(path)) return refusal
+	}
+	for (const path of escalation.protectedPaths ?? []) {
+		if (!shown?.protectedPaths?.includes(path)) return refusal
+	}
+	if (
+		escalation.dangerousRemoval !== undefined &&
+		shown?.dangerousRemoval !== escalation.dangerousRemoval
+	) {
+		return refusal
 	}
 	if (escalation.sandboxEscape && (!shown?.sandboxEscape || !confirmed?.includes(id))) {
 		return 'Refused after resume: running this command outside the sandbox needs a person to confirm it for this call, and the durable approval did not.'

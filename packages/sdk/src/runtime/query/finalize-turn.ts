@@ -53,6 +53,12 @@ export interface TurnFinalization {
 	 * immediately before the record is written.
 	 */
 	readonly takeSteps: () => readonly StepResult[]
+	/**
+	 * Whether the loop already fired `turn_end` (and `subagent_stop`) when the
+	 * model finished, so a hook could keep the turn going. Fired there, it is
+	 * not fired again here.
+	 */
+	readonly turnEndHooksFired?: () => boolean
 	readonly workingStateManager: WorkingStateManager | undefined
 	readonly resultAssembler: ResultAssembler
 	readonly rootSpan: Span
@@ -71,7 +77,7 @@ export async function* finalizeTurn(
 		rootSpan,
 	} = finalization
 
-	if (params.pluginManager) {
+	if (params.pluginManager && finalization.turnEndHooksFired?.() !== true) {
 		const hookResults = await params.pluginManager.executeHooks(
 			'turn_end',
 			{ sessionId: ctx.sessionId, turnId: ctx.turnId, signal: ctx.abortController.signal },

@@ -49,6 +49,7 @@ const STOP_REASONS: Readonly<Record<string, AcpStopReason>> = {
 	plan_rejected: 'refused',
 	answer_rejected: 'refused',
 	structured_output_failed: 'error',
+	output_limit: 'error',
 	error: 'error',
 	provider_error: 'error',
 }

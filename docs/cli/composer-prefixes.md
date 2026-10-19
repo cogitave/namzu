@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: The composer prefixes
-description: What a line starting with `!` or `#` does in the CLI's composer — a command run on the host without the model, or a note remembered — and what the model learns of either.
+description: What a line starting with `!` or `#` does in the CLI's composer — a command run on the host without the model, or a note remembered — what `@path` attaches (quoted paths, any script, line ranges), and what the model learns of either.
 resource: packages/cli/src/tui/shell-escape.ts
 tags: [cli, composer, shell, memory]
 status: stable
@@ -30,6 +30,16 @@ Bounds: a command that has not ended after 60 seconds is stopped with its owned 
 ## `#note` — remember
 
 `#always run tests with pnpm` saves the note as a typed `project` memory — one Markdown file in this project's stored memory — exactly as `/memory add <text>` does, and the row names the file. The next turn's prompt lists it in the stored-memory index. `/memory --user add <text>` remembers something for every project. See [Memory](memory.md). A `#` with nothing after it is sent as a prompt.
+
+## `@path` — attach a file
+
+`@src/auth.ts` anywhere in a message sends that file's text with it as a `<file>` block; the message you see keeps the readable `@path`. Only files inside the working directory are read, a file is cut at 60,000 characters, and a mention that does not name a readable file stays plain text.
+
+- **Names.** Letters, digits and combining marks of any script, and `_ - . / \ ( ) [ ] ~ :` may stand bare. A path with anything else, a space included, is written in quotes: `@"my docs/notes v2.md"`. Completion offers the files git lists (tracked and not ignored) and writes the quotes for you when the name needs them.
+- **Lines.** `@file.ts#L10-20` sends lines 10 to 20 inclusive and `#L7` sends line 7; the block says `lines="10-20"`. The 60,000-character cap applies to the lines sent, so a range deep in a large file is reachable. A range written backwards sends the whole file.
+- **Trailing punctuation.** A sentence's `,` `.` `;` `:` `!` `?`, and a `)` or `]` with no opener in the token, are not part of the name: `(see @a.ts)` mentions `a.ts`.
+
+Not carried over from the reference terminal: `@agent-<type>` to name a subagent (the list of agent types lives inside the delegation runtime and is not offered to the composer), a configurable file-suggestion command, and a setting to include ignored files.
 
 ## Neither is read for composer triggers
 

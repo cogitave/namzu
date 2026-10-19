@@ -32,15 +32,18 @@ describe('the two clocks agree', () => {
 		expect(BashTool.timeoutMs as number).toBeGreaterThan(10 * 60 * 1000)
 	})
 
-	it('refuses an over-long request rather than silently shortening it', () => {
-		// Refuse, do not degrade. A number the model was not told had changed
-		// is how it learns to distrust its own arguments.
-		const overCeiling = BashTool.inputSchema.safeParse({
+	it('clamps an over-long request to the ceiling instead of refusing it', () => {
+		const clamped = BashTool.inputSchema.safeParse({
 			command: 'true',
 			timeout: 60 * 60 * 1000,
 		})
 
-		expect(overCeiling.success, 'the ceiling is not enforced').toBe(false)
+		expect(clamped.success).toBe(true)
+		expect(clamped.success && clamped.data.timeout).toBe(10 * 60 * 1000)
+	})
+
+	it('leaves a request under the ceiling alone', () => {
+		expect(BashTool.inputSchema.parse({ command: 'true', timeout: 5000 }).timeout).toBe(5000)
 	})
 
 	it('refuses a nonsensical deadline', () => {

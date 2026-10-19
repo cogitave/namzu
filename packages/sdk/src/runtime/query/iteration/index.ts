@@ -4,7 +4,10 @@ import {
 	extractFromUserMessage,
 } from '../../../compaction/extractor.js'
 import { estimateMessageTokens } from '../../../compaction/token-estimate.js'
-import { AUTO_CONTINUATION_USER_MESSAGE } from '../../../constants/continuation.js'
+import {
+	AUTO_CONTINUATION_USER_MESSAGE,
+	REASONING_CUT_USER_MESSAGE,
+} from '../../../constants/continuation.js'
 import { CHARS_PER_TOKEN } from '../../../constants/limits.js'
 import {
 	DEFAULT_STRUCTURED_OUTPUT_RETRIES,
@@ -27,7 +30,7 @@ import { STRUCTURED_OUTPUT_TOOL_NAME } from '../../../tools/builtins/structuredO
 import type { ToolManager } from '../../../toolsets/manager.js'
 import type { CostInfo, TokenUsage } from '../../../types/common/index.js'
 import { NamzuError } from '../../../types/errors/index.js'
-import type { MessageId } from '../../../types/ids/index.js'
+import type { MessageId, SessionId, TurnId } from '../../../types/ids/index.js'
 import {
 	type Message,
 	type UserMessage,
@@ -35,7 +38,7 @@ import {
 	createRuntimeContextMessage,
 	createSystemMessage,
 } from '../../../types/message/index.js'
-import { classifyProviderError } from '../../../types/provider/errors.js'
+import { classifyProviderError, readOutputOverflow } from '../../../types/provider/errors.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
 import type { AnswerReview, AnswerReviewContext } from '../../../types/session/answer-review.js'
 import type {
@@ -75,6 +78,7 @@ import {
 } from './outstanding-work.js'
 import { runAdvisoryPhase } from './phases/advisory.js'
 import { runIterationCheckpoint } from './phases/checkpoint.js'
+import { compactionBreaker } from './phases/compaction-breaker.js'
 import {
 	activeContextWindow,
 	measureContext,
@@ -124,6 +128,11 @@ export type { ToolReviewOutcome } from './phases/index.js'
  * on the thing that actually went wrong.
  */
 const DEFAULT_ANSWER_REVIEW_LIMIT = 3
+
+/** Left unused when an output cap is shrunk to fit the window (reference: 1000). */
+const OUTPUT_CAP_MARGIN_TOKENS = 1000
+/** A shrunk output cap below this is not worth a call (reference floor: 3000). */
+const MIN_OUTPUT_CAP_TOKENS = 3000
 
 // Ending a turn changes the available actions, not the strength of its evidence.
 // Use the same standard for warning closure and empty-completion recovery.
@@ -194,6 +203,74 @@ export class IterationOrchestrator {
 	 * sets it.
 	 */
 	private stopDeferredForOutstandingWork = false
+	/** Nudges sent since the model last finished a call without hitting its output cap. */
+	private outputContinuations = 0
+	/**
+	 * `turn_end` (and, for a child, `subagent_stop`) fired when the model
+	 * finished and no hook asked for more. `finalizeTurn` then does not fire
+	 * them a second time.
+	 */
+	private turnEndFired = false
+	/** A hook already kept this turn going once: it is asked again with `stop_hook_active`. */
+	private stopHookActive = false
+	get turnEndHooksFired(): boolean {
+		return this.turnEndFired
+	}
+
+	/**
+	 * Fire `turn_end` (and `subagent_stop` for a child) at the point the model
+	 * has finished, and read the answer.
+	 *
+	 * A hook that answers `skip` is refusing to let the turn end: its reasons
+	 * are returned, joined, as feedback for the model. A hook that asks for the
+	 * turn to halt wins over any such feedback (`takeHalt`). With nothing asked,
+	 * the events have fired for this turn and the finalizer does not repeat them.
+	 */
+	private async *askStopHooks(): AsyncGenerator<SessionEvent, string | undefined> {
+		const manager = this.ctx.pluginManager
+		if (!manager) return undefined
+		const recorder = this.ctx.recorder
+		const feedback: string[] = []
+		const ask = async (
+			event: 'turn_end' | 'subagent_stop',
+			extra: { parentSessionId?: SessionId; parentTurnId?: TurnId },
+		): Promise<void> => {
+			const results = await manager.executeHooks(
+				event,
+				{
+					sessionId: recorder.sessionId,
+					turnId: recorder.turnId,
+					...extra,
+					...(this.stopHookActive ? { stopHookActive: true } : {}),
+					signal: this.ctx.abortController.signal,
+				},
+				this.ctx.emitEvent,
+			)
+			applyLifecycleHookResults(event, results)
+			for (const result of results) {
+				if (result.action === 'skip') feedback.push(result.reason)
+				if ((result.action === 'continue' || result.action === 'skip') && result.halt) {
+					this.ctx.toolExecutor.requestHalt?.(result.halt.reason)
+				}
+			}
+		}
+		await ask('turn_end', {})
+		yield* this.ctx.drainPending()
+		if (this.ctx.parentSessionId !== undefined) {
+			await ask('subagent_stop', {
+				parentSessionId: this.ctx.parentSessionId,
+				...(this.ctx.parentTurnId !== undefined ? { parentTurnId: this.ctx.parentTurnId } : {}),
+			})
+			yield* this.ctx.drainPending()
+		}
+		if (feedback.length === 0) {
+			this.turnEndFired = true
+			return undefined
+		}
+		this.stopHookActive = true
+		return feedback.join('\n')
+	}
+
 	/** One current input, independent of the compactable history array. */
 	private latestUserMessage: UserMessage | undefined
 	private initialDurableDelivered = false
@@ -375,6 +452,9 @@ export class IterationOrchestrator {
 		// obvious moves left. It is cleared by a turn that actually
 		// succeeded, which is the evidence that the turn is no longer stuck.
 		let overflowRelieved = false
+		// The output cap a provider told us fits beside this prompt. One request's
+		// worth: it is cleared by a call that went through.
+		let outputCapOverride: number | undefined
 
 		// A `finally` rather than a line at each exit, for the reason written
 		// beside `iterSpan.end()` below: this loop leaves by eight `break`s,
@@ -573,12 +653,15 @@ export class IterationOrchestrator {
 						yield* this.ctx.drainPending()
 					}
 
+					if (!forceFinalize) await this.deliverReminders(iterationNum)
+
 					// Re-pin the working-memory block from ground truth at the primacy
 					// edge BEFORE compaction runs (so the refreshed slot is what
 					// compaction preserves). No-op when no provider is configured.
 					await refreshWorkingMemory(this.ctx)
 					await runCompactionCheck(this.ctx)
 					yield* this.ctx.drainPending()
+					if (this.stopForCompactionBreaker()) break
 
 					// Cache discipline: keep the tools param byte-stable even on the
 					// forced-final iteration and forbid tool use via tool_choice
@@ -630,6 +713,7 @@ export class IterationOrchestrator {
 					if (stepModel !== contextModelBeforePreparation) await runCompactionCheck(this.ctx)
 					// Publish context edits before entering a possibly slow provider.
 					yield* this.ctx.drainPending()
+					if (this.stopForCompactionBreaker()) break
 
 					const stepAllowedTools = step.allowedTools ?? this.ctx.allowedTools
 					const deferredMcpContext = deferredMcpHints?.forNames(stepAllowedTools) ?? ''
@@ -808,7 +892,8 @@ export class IterationOrchestrator {
 									messages: Object.freeze(messages.map((m) => Object.freeze({ ...m }))),
 									toolNames: Object.freeze(llmTools.map((t) => t.function.name)),
 									temperature: step.temperature ?? turnConfig.temperature,
-									maxTokens: step.maxResponseTokens ?? turnConfig.maxResponseTokens,
+									maxTokens:
+										outputCapOverride ?? step.maxResponseTokens ?? turnConfig.maxResponseTokens,
 								}),
 							},
 							this.ctx.emitEvent,
@@ -881,7 +966,8 @@ export class IterationOrchestrator {
 										? step.toolChoice
 										: undefined,
 							temperature: step.temperature ?? turnConfig.temperature,
-							maxTokens: step.maxResponseTokens ?? turnConfig.maxResponseTokens,
+							maxTokens:
+								outputCapOverride ?? step.maxResponseTokens ?? turnConfig.maxResponseTokens,
 							cacheControl: { type: 'auto' },
 							...(turnConfig.thinking ? { thinking: turnConfig.thinking } : {}),
 							...(turnConfig.effort ? { effort: turnConfig.effort } : {}),
@@ -957,6 +1043,8 @@ export class IterationOrchestrator {
 					// The turn went through, so the turn is not sitting on an
 					// irreducible prompt any more. Re-arm relief for the next one.
 					overflowRelieved = false
+					outputCapOverride = undefined
+					if (response.finishReason !== 'length') this.outputContinuations = 0
 
 					if (this.ctx.pluginManager) {
 						const hookResults = await this.ctx.pluginManager.executeHooks(
@@ -1283,19 +1371,55 @@ export class IterationOrchestrator {
 						//     it has no room left to continue into, and the
 						//     continuation would only send a longer prompt into
 						//     the same full window. The reply stands as it is.
+						const cutDuringReasoning =
+							!hasContent &&
+							(response.message.toolCalls?.length ?? 0) === 0 &&
+							(response.message.reasoning?.length ?? 0) > 0
 						if (
 							!forceFinalize &&
 							response.finishReason === 'length' &&
 							response.finishDetail !== 'context_window' &&
-							hasContent
+							(hasContent || cutDuringReasoning)
 						) {
-							this.ctx.log.info('LLM hit max_tokens mid-text — auto-continuing', {
-								[NAMZU.TURN_ID]: recorder.turnId,
-								[NAMZU.ITERATION]: iterationNum,
-								[GENAI.USAGE_OUTPUT_TOKENS]: response.usage.completionTokens,
-							})
+							// A host that opted in gets a cap on the nudges: a model that
+							// overruns its output limit every time would otherwise spend the
+							// whole turn on it. Past the cap the turn stops, and says why.
+							const cap = this.ctx.maxOutputContinuations
+							if (cap !== undefined && this.outputContinuations >= cap) {
+								this.ctx.log.warn('LLM kept hitting max_tokens — stopping the turn', {
+									[NAMZU.TURN_ID]: recorder.turnId,
+									[NAMZU.ITERATION]: iterationNum,
+									'namzu.runtime.output_continuations': this.outputContinuations,
+								})
+								recorder.setLastError(
+									`The reply was cut off at the output limit ${cap + 1} times in a row. Ask for a smaller piece of the work, or raise the output limit.`,
+								)
+								recorder.setStopReason('output_limit')
+								await this.ctx.emitEvent({
+									type: 'iteration_completed',
+									turnId: recorder.turnId,
+									iteration: iterationNum,
+									hasToolCalls: false,
+								})
+								yield* this.ctx.drainPending()
+								break
+							}
+							this.outputContinuations++
+							this.ctx.log.info(
+								cutDuringReasoning
+									? 'LLM hit max_tokens while reasoning — nudging to answer briefly'
+									: 'LLM hit max_tokens mid-text — auto-continuing',
+								{
+									[NAMZU.TURN_ID]: recorder.turnId,
+									[NAMZU.ITERATION]: iterationNum,
+									[GENAI.USAGE_OUTPUT_TOKENS]: response.usage.completionTokens,
+								},
+							)
 							recorder.pushMessage(
-								createRuntimeContextMessage(AUTO_CONTINUATION_USER_MESSAGE, 'auto-continuation'),
+								createRuntimeContextMessage(
+									cutDuringReasoning ? REASONING_CUT_USER_MESSAGE : AUTO_CONTINUATION_USER_MESSAGE,
+									'auto-continuation',
+								),
 							)
 							await this.ctx.emitEvent({
 								type: 'iteration_completed',
@@ -1451,6 +1575,27 @@ export class IterationOrchestrator {
 						// also settle as `end_turn`, and there the deferred predicate
 						// is not why the turn ended: those decided the answer
 						// themselves.
+						// The model is done and has no tool calls. A `turn_end` (or
+						// `subagent_stop`) hook may refuse to let it be: its reason goes
+						// back to the model and the turn goes on.
+						if (!forceFinalize && closingStopReason === undefined) {
+							const feedback = yield* this.askStopHooks()
+							const stoppedByHook = this.ctx.toolExecutor.takeHalt?.()
+							if (stoppedByHook !== undefined) {
+								recorder.setLastError(`Stopped by a hook: ${stoppedByHook}`)
+								recorder.setStopReason('stop_condition')
+								break
+							}
+							if (feedback !== undefined) {
+								recorder.pushMessage(
+									createRuntimeContextMessage(
+										`A hook asked for more before this turn ends:\n${feedback}`,
+										'hook-feedback',
+									),
+								)
+								continue
+							}
+						}
 						recorder.setStopReason(
 							closingStopReason ??
 								(stopWasDeferredForOutstandingWork ? 'stop_condition' : 'end_turn'),
@@ -1493,6 +1638,28 @@ export class IterationOrchestrator {
 					// something only the operator can do.
 					if ((yield* runHandoffPause(this.ctx, iterationNum, reviewOutcome.results)) === 'stop') {
 						return
+					}
+
+					// A hook asked for the turn to stop once this step's calls were
+					// answered. Every `tool_use` has its `tool_result` by now, so the
+					// transcript is whole; what is left is to end the turn and say why.
+					const hookHalt = this.ctx.toolExecutor.takeHalt?.()
+					if (hookHalt !== undefined) {
+						this.ctx.log.info('A hook stopped the turn', {
+							[NAMZU.TURN_ID]: recorder.turnId,
+							[NAMZU.ITERATION]: iterationNum,
+							'namzu.hook.reason': hookHalt,
+						})
+						recorder.setLastError(`Stopped by a hook: ${hookHalt}`)
+						recorder.setStopReason('stop_condition')
+						await this.ctx.emitEvent({
+							type: 'iteration_completed',
+							turnId: recorder.turnId,
+							iteration: iterationNum,
+							hasToolCalls: true,
+						})
+						yield* this.ctx.drainPending()
+						break
 					}
 
 					if (reviewOutcome.decision === 'rejected') {
@@ -1822,6 +1989,36 @@ export class IterationOrchestrator {
 					// actually shed something. A second overflow after a successful
 					// compaction means the prompt is irreducible, and looping on it
 					// would burn the budget to arrive at the same error.
+					// The prompt fit and only the requested output did not: ask for what
+					// room is left (less a margin) and send it again, once. A reply that
+					// would be too small to be useful, or a cap that is not smaller than
+					// the one already tried, is not retried: the same failure would follow.
+					const outputOverflow =
+						err instanceof AnswerReviewFailure ? undefined : readOutputOverflow(err)
+					if (outputOverflow) {
+						const room = Math.max(
+							0,
+							outputOverflow.contextLimit - outputOverflow.inputTokens - OUTPUT_CAP_MARGIN_TOKENS,
+						)
+						if (
+							room >= MIN_OUTPUT_CAP_TOKENS &&
+							(outputCapOverride === undefined || room < outputCapOverride)
+						) {
+							outputCapOverride = room
+							this.ctx.log.info('Output cap does not fit beside the prompt — retrying with less', {
+								[NAMZU.TURN_ID]: recorder.turnId,
+								[NAMZU.ITERATION]: iterationNum,
+								'namzu.runtime.input_tokens': outputOverflow.inputTokens,
+								'namzu.runtime.context_limit': outputOverflow.contextLimit,
+								'namzu.runtime.adjusted_max_tokens': room,
+							})
+							if (iterationActivity) {
+								this.ctx.activityStore.complete(iterationActivity.id)
+							}
+							continue
+						}
+					}
+
 					if (
 						!overflowRelieved &&
 						!(err instanceof AnswerReviewFailure) &&
@@ -1922,6 +2119,39 @@ export class IterationOrchestrator {
 		const manager = this.ctx.workingStateManager
 		if (arriving && manager) {
 			extractFromUserMessage(manager, message.content, !manager.getState().task)
+		}
+	}
+
+	/**
+	 * Ask the host's reminder source (`QueryParams.reminders`) what the model
+	 * should be told before this request, and append each text as a hidden
+	 * user-role message. The start of a request is a provider-valid boundary:
+	 * the history ends in the operator's message or in a finished tool batch.
+	 * A source that throws has nothing to say; it never fails the turn.
+	 */
+	private async deliverReminders(iteration: number): Promise<void> {
+		const source = this.ctx.reminders
+		if (!source) return
+		const { recorder } = this.ctx
+		let texts: readonly string[] | undefined
+		try {
+			texts = await source({
+				sessionId: recorder.sessionId,
+				turnId: recorder.turnId,
+				iteration,
+				messages: recorder.messages,
+			})
+		} catch (error) {
+			this.ctx.log.warn('A reminder source threw; the request goes without its reminders', {
+				[NAMZU.TURN_ID]: recorder.turnId,
+				[NAMZU.ITERATION]: iteration,
+				'exception.message': error instanceof Error ? error.message : String(error),
+			})
+			return
+		}
+		for (const text of texts ?? []) {
+			if (text.trim().length === 0) continue
+			recorder.pushMessage(createRuntimeContextMessage(text, 'reminder'))
 		}
 	}
 
@@ -2075,6 +2305,15 @@ export class IterationOrchestrator {
 				: this.toolStructuredAttempts
 		if (attempts === 0 || !(attempts > this.structuredOutputRetryLimit())) return false
 		recorder.setStopReason('structured_output_failed')
+		return true
+	}
+
+	/** The compaction circuit breaker asked for the turn to stop (opt-in; see `compactionConfig.circuitBreaker`). */
+	private stopForCompactionBreaker(): boolean {
+		const reason = compactionBreaker(this.ctx)?.stop
+		if (reason === undefined) return false
+		this.ctx.recorder.setLastError(reason)
+		this.ctx.recorder.setStopReason('error')
 		return true
 	}
 

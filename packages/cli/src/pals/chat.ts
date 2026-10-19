@@ -53,6 +53,7 @@ export async function runPalChat(
 			...(ctx.config.limits ? { limits: ctx.config.limits } : {}),
 			...(ctx.config.tui ? { tui: ctx.config.tui } : {}),
 			...(ctx.config.composerTriggers ? { composerTriggers: ctx.config.composerTriggers } : {}),
+			...(ctx.config.statusLine ? { statusLine: ctx.config.statusLine } : {}),
 		}
 		const { launchTui } = await import('../tui/index.js')
 		await launchTui(tui, options)

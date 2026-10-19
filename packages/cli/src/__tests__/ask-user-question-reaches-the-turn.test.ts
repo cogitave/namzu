@@ -190,6 +190,55 @@ describe('ask_user_question', () => {
 		expect(result.output).toContain('did not answer')
 	})
 
+	it('puts several questions to the answerer at once and returns one answer per question', async () => {
+		const session = await openSession(true)
+		let asked: UserQuestion | undefined
+		const tool = await sendOnce(session, async (question) => {
+			asked = question
+			const [first, second, third] = question.questions ?? []
+			return {
+				kind: 'answer',
+				selectedOptionIds: [],
+				answers: [
+					{ questionId: first?.id ?? '', selectedOptionIds: [first?.options[1]?.id ?? ''] },
+					{
+						questionId: second?.id ?? '',
+						selectedOptionIds: (second?.options ?? []).map((o) => o.id),
+					},
+					{ questionId: third?.id ?? '', selectedOptionIds: [], freeText: 'monthly cost report' },
+				],
+			}
+		})
+		if (!tool) throw new Error('the question tool was not in the registry the turn ran with')
+
+		const result = await tool.execute(
+			{
+				questions: [
+					askInput,
+					{
+						question: 'Which environments?',
+						header: 'Environment',
+						multiSelect: true,
+						options: [{ label: 'Staging' }, { label: 'Production' }],
+					},
+					{
+						question: 'What is it for?',
+						header: 'Purpose',
+						options: [{ label: 'Report' }, { label: 'Audit' }],
+					},
+				],
+			},
+			toolContext(),
+		)
+
+		expect(asked?.questions?.map((q) => q.header)).toEqual(['Audience', 'Environment', 'Purpose'])
+		expect(asked?.question).toBe('Which audience is this for?')
+		expect(result.output).toContain('The user answered 3 of 3 questions:')
+		expect(result.output).toContain('Audience: "Engineers"')
+		expect(result.output).toContain('Environment: "Staging", "Production"')
+		expect(result.output).toContain('Purpose (own words): "monthly cost report"')
+	})
+
 	it('reports no answer when the turn brought nobody to ask', async () => {
 		const session = await openSession(true)
 		const tool = await sendOnce(session)

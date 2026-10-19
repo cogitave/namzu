@@ -5,7 +5,8 @@
  * permissions on`, colored by mode, with its cycle key while it fits), the
  * pull request for the branch (`PR #592`, underlined, colored by review
  * state), the background-shell pill (`2 shells`), the reasoning effort when
- * the operator has set one, then the hints: `esc to interrupt` while a turn
+ * the operator has set one, the context meter (`12% until auto-compact`) once
+ * the window is within 20,000 tokens of its summary point, then the hints: `esc to interrupt` while a turn
  * runs, `← 2 agents` when the empty composer's left arrow opens them, and
  * `↓ to manage` when the empty composer's down arrow reaches the shells or
  * the agents rail. Right-aligned: an interaction hint or a durable goal when
@@ -18,6 +19,7 @@
 import { Box, Text, useWindowSize } from 'ink'
 
 import type { PermissionMode } from '../permissions/mode.js'
+import type { ContextMeter } from './context-meter.js'
 import { fitHintText } from './key-hints.js'
 import type { PrFooterState, PrReview } from './pr-status.js'
 import { terminalWebHyperlink } from './terminal-hyperlinks.js'
@@ -42,8 +44,17 @@ export interface StatusBarProps {
 	 * names no cycle key; the active mode is still a fact.
 	 */
 	readonly composerMounted?: boolean
+	/**
+	 * Whether the quiet `shift+tab to cycle` reminder may fill an otherwise
+	 * empty row. Off while a custom status line is configured: the reference
+	 * suppresses its resting hint then, and the operator's line owns the
+	 * quiet moments.
+	 */
+	readonly restingHint?: boolean
 	/** Background shells that are running now; 0 or omitted hides the pill. */
 	readonly shellCount?: number
+	/** The context meter from `context-meter.ts`; omitted or null while there is room to spare. */
+	readonly contextMeter?: ContextMeter | null
 	/** The pull request for the current branch, from `pr-status.ts`. */
 	readonly pr?: PrFooterState
 	/** Whether the terminal understands OSC 8 links; the PR number is plain text without it. */
@@ -117,6 +128,7 @@ export function StatusBar({
 	permissionMode,
 	canCycleMode,
 	composerMounted = true,
+	restingHint = true,
 	shellCount = 0,
 	pr,
 	hyperlinks = false,
@@ -124,6 +136,7 @@ export function StatusBar({
 	canManage = false,
 	shellsSelected = false,
 	railHint,
+	contextMeter,
 }: StatusBarProps) {
 	const terminal = useWindowSize()
 	const activeMode =
@@ -147,7 +160,7 @@ export function StatusBar({
 		goal,
 		modeLabel: activeMode
 			? `${activeMode.icon} ${activeMode.label} on`
-			: composerMounted && !working && nothingElse
+			: composerMounted && restingHint && !working && nothingElse
 				? QUIET_MODE_HINT
 				: '',
 		// The reference drops the cycle key as soon as a background task is on
@@ -155,6 +168,7 @@ export function StatusBar({
 		cycleSuffix:
 			activeMode && canCycleMode && composerMounted && shellCount === 0 ? CYCLE_SUFFIX : null,
 		interrupt: working && !hint ? INTERRUPT_HINT : null,
+		context: contextMeter?.text ?? null,
 		shells: shellCount > 0 ? `${shellCount} ${shellCount === 1 ? 'shell' : 'shells'}` : null,
 		agents:
 			agentCount > 0
@@ -203,6 +217,16 @@ export function StatusBar({
 		parts.push(
 			<Text key="effort" color={theme.text.secondary}>
 				{layout.effort}
+			</Text>,
+		)
+	}
+	if (layout.context) {
+		parts.push(
+			<Text
+				key="context"
+				color={contextMeter?.tone === 'error' ? theme.status.error : theme.text.muted}
+			>
+				{layout.context}
 			</Text>,
 		)
 	}
@@ -295,6 +319,7 @@ export interface StatusLineLayout {
 	readonly shells: string | null
 	readonly pr: { readonly prefix: string | null; readonly label: string } | null
 	readonly effort: string | null
+	readonly context: string | null
 	readonly agents: string | null
 	readonly manage: string | null
 	readonly gap: string
@@ -312,7 +337,7 @@ export interface StatusLineLayout {
  * while the whole row fits beside it. Past that the row loses items from its
  * right end, the way the reference's clipped row does: `↓ to manage`,
  * `← N agents`, `esc to interrupt`, then the cycle key (the reference hides
- * it first once a task is running), the effort label, the shell pill, the
+ * it first once a task is running), the context meter, the effort label, the shell pill, the
  * pull request item; after that the quiet reminder goes, then the mode
  * truncates, and last of all it goes. A line too wide for its room loses
  * whole items, never half of one, except the mode, which is the state itself.
@@ -327,6 +352,7 @@ export function fitStatusLine(input: {
 	readonly modeLabel: string
 	readonly cycleSuffix?: string | null
 	readonly interrupt?: string | null
+	readonly context?: string | null
 	readonly shells?: string | null
 	readonly agents?: string | null
 	readonly manage?: string | null
@@ -355,6 +381,7 @@ export function fitStatusLine(input: {
 	let manage: string | null = input.manage ?? null
 	let pr = input.pr ?? null
 	let effort: string | null = input.effort ? `effort ${input.effort}` : null
+	let context: string | null = input.context ?? null
 
 	const parts = (): string[] =>
 		[
@@ -362,6 +389,7 @@ export function fitStatusLine(input: {
 			pr ? `${pr.prefix ? `${pr.prefix} ` : ''}${pr.label}` : null,
 			shells,
 			effort,
+			context,
 			interrupt,
 			agents,
 			manage,
@@ -379,6 +407,7 @@ export function fitStatusLine(input: {
 	if (over()) agents = null
 	if (over()) interrupt = null
 	if (over()) cycleSuffix = null
+	if (over()) context = null
 	if (over()) effort = null
 	if (over()) shells = null
 	if (over()) pr = null
@@ -405,6 +434,7 @@ export function fitStatusLine(input: {
 		shells,
 		pr,
 		effort,
+		context,
 		agents,
 		manage,
 		gap,

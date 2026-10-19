@@ -62,6 +62,14 @@ describe('runCli', () => {
 		expect(flat(stderr)).toContain('not sent when resuming')
 	})
 
+	it('refuses -c and -r on a subcommand or on resume instead of ignoring them', async () => {
+		expect(await invoke(['-c', 'providers-json'])).toBe(64)
+		expect(stderr).toContain('--continue apply to the interactive TUI, not this subcommand')
+		stderr = ''
+		expect(await invoke(['-c', 'resume', 'abc'])).toBe(64)
+		expect(flat(stderr)).toContain('already names one')
+	})
+
 	it('points the launch flags at their place after exec', async () => {
 		expect(await invoke(['--provider', 'zen', 'exec', 'hello'])).toBe(64)
 		expect(stderr).toContain('namzu exec --provider <value> "<prompt>"')
@@ -83,6 +91,8 @@ describe('runCli', () => {
 			'--effort <level>',
 			'--permission-mode <mode>',
 			'--message <text>',
+			'-c, --continue',
+			'-r, --resume [value]',
 		])
 			expect(stdout).toContain(flag)
 	})

@@ -18,7 +18,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { readClipboardImage } from '../integrations/clipboard/image.js'
 import type { UserCommand } from '../user-commands/store.js'
 import { fitHints } from './key-hints.js'
-import { activeFileMention, matchMentionableFiles } from './mentions.js'
+import { activeFileMention, matchMentionableFiles, mentionText } from './mentions.js'
 import { parseModelSelectionIntent } from './model-selection-intent.js'
 import { formatSize } from './person-terms.js'
 import { explainFailure } from './plain-failure.js'
@@ -941,11 +941,18 @@ export function Composer({
 				if (liveSuggestionKind === 'file' && liveMention) {
 					const path = liveFileSuggestions[liveSelection]
 					if (!path) return false
-					const replacement = `@${path} `
+					const replacement = `${mentionText(path)} `
+					// A quoted token the person closed already: the closing quote
+					// belongs to the mention being replaced, not to the text after it.
+					const isQuoted = valueRef.current[liveMention.start + 1] === '"'
+					const end =
+						isQuoted && valueRef.current[liveMention.end] === '"'
+							? liveMention.end + 1
+							: liveMention.end
 					editBuffer(
 						valueRef.current.slice(0, liveMention.start) +
 							replacement +
-							valueRef.current.slice(liveMention.end),
+							valueRef.current.slice(end),
 						liveMention.start + replacement.length,
 						'completion',
 					)

@@ -318,6 +318,12 @@ export {
 	formatSteeringNote,
 } from './runtime/query/steering.js'
 export type { SteeringChannel } from './runtime/query/steering.js'
+// Hidden mid-conversation reminders a host feeds per model request (opt-in).
+export { isReminderMessage } from './runtime/query/reminders.js'
+export type {
+	ReminderContext,
+	ReminderSource,
+} from './runtime/query/reminders.js'
 export {
 	BidiSessionCloseTimeoutError,
 	createMockBidiProvider,
@@ -628,6 +634,7 @@ export {
 	runShellHook,
 	SHELL_HOOK_EVENTS,
 	SHELL_HOOKS_PLUGIN_ID,
+	shellHookIfMatches,
 	shellHookMatches,
 	shellHookVerdict,
 } from './plugin/index.js'
@@ -1505,6 +1512,7 @@ export {
 // consumer (`SpanProcessorLike`, then `CompactNowInput` and `CompactionResult`).
 // The gate is the reason this is a list rather than a fourth accident.
 export type { ResolvedContextWindow } from './compaction/context-window.js'
+export { resolveTriggerThreshold } from './compaction/context-window.js'
 export type { CompactRegionInput } from './compaction/manual.js'
 export type {
 	CompactionVerificationOptions,
