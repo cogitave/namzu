@@ -218,6 +218,27 @@ export interface ToolCallEscalation {
 	 * where a program name is actually decided.
 	 */
 	unknownProgram?: string
+	/**
+	 * Absolute paths this call writes that are protected in every mode: git
+	 * hooks and config, shell rc files, editor and tool configuration, the
+	 * project's own `.namzu` directory (see `authorization/protected-paths.ts`
+	 * for the list). A write there plants something that runs later, outside
+	 * the turn, so it is asked about every time and refused when nobody can be
+	 * asked; no rule, mode or remembered approval covers it. Set for the file
+	 * tools' declared path and for the visible write targets of a shell line:
+	 * output redirections, and the operands of `cp`, `mv`, `tee`, `touch`,
+	 * `mkdir`, `rm`, `rmdir` and `sed -i`.
+	 */
+	protectedPaths?: readonly string[]
+	/**
+	 * Why a shell line removes something it must not: the file system root, a
+	 * top-level directory, the home directory, the working directory or one of
+	 * its parents, a glob that crosses directories, or a target a variable or
+	 * substitution may empty. The flags do not matter, only the targets. Asked
+	 * about every time and refused when nobody can be asked. Present only for a
+	 * tool that declares `commandArgument`.
+	 */
+	dangerousRemoval?: string
 }
 
 export interface ToolModification {

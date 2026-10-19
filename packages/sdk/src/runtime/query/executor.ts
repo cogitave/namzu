@@ -73,6 +73,7 @@ import {
 import { describeVisibleFileEvidence } from './file-evidence-context.js'
 import { seedObservationLedger } from './file-evidence-seed.js'
 import { DEFAULT_TOOL_RESULT_GUARDRAILS } from './guardrail-presets.js'
+import { declaredWriteEscalation, shellEscalations } from './path-escalation.js'
 import type { ToolResultObservation } from './project-instructions.js'
 import { savedPresentation } from './saved-presentation.js'
 import { ToolCallBudget, assertMaxToolCalls } from './tool-call-budget.js'
@@ -1003,11 +1004,80 @@ export class ToolExecutor {
 			tool.sandboxEscapeArgument !== undefined &&
 			input[tool.sandboxEscapeArgument] === true
 		const unknownProgram = this.unknownProgramOf(tool, input, sandboxed)
-		if (!outsidePaths && !sandboxEscape && unknownProgram === undefined) return undefined
+		const reaches = await this.pathEscalationsOf(tool, input, sandboxed)
+		if (reaches.outsidePaths.length > 0) {
+			outsidePaths = [...new Set([...(outsidePaths ?? []), ...reaches.outsidePaths])]
+		}
+		const protectedPaths = reaches.protectedPaths
+		const removal = reaches.dangerousRemoval
+		if (
+			!outsidePaths &&
+			!sandboxEscape &&
+			unknownProgram === undefined &&
+			protectedPaths.length === 0 &&
+			removal === undefined
+		) {
+			return undefined
+		}
 		return {
 			...(outsidePaths ? { outsidePaths } : {}),
 			...(sandboxEscape ? { sandboxEscape: true as const } : {}),
 			...(unknownProgram !== undefined ? { unknownProgram } : {}),
+			...(protectedPaths.length > 0 ? { protectedPaths } : {}),
+			...(removal !== undefined ? { dangerousRemoval: removal } : {}),
+		}
+	}
+
+	/**
+	 * What the call's own arguments write or remove that no mode may approve in
+	 * advance, and, for a shell line, the paths outside the roots it names.
+	 *
+	 * The protected-path and removal floors hold whether or not the turn reviews
+	 * outside paths and whether or not it is sandboxed: they are about what the
+	 * write plants and what the removal destroys, not about where the turn is
+	 * allowed to look. The outside-path half follows `outsideRootAccess`, as the
+	 * file tools' own does.
+	 */
+	private async pathEscalationsOf(
+		tool: Pick<
+			ToolDefinition,
+			'pathArgument' | 'commandArgument' | 'commandDialect' | 'isReadOnly'
+		>,
+		input: Record<string, unknown>,
+		sandboxed: boolean,
+	): Promise<{
+		outsidePaths: readonly string[]
+		protectedPaths: readonly string[]
+		dangerousRemoval?: string
+	}> {
+		const roots = toolRoots(this.config)
+		const protectedPaths: string[] = []
+		let outsidePaths: readonly string[] = []
+		let removal: string | undefined
+		if (tool.pathArgument !== undefined && tool.isReadOnly?.(input) !== true) {
+			const value = input[tool.pathArgument]
+			if (typeof value === 'string') {
+				const hit = await declaredWriteEscalation(roots, value)
+				if (hit !== undefined) protectedPaths.push(hit)
+			}
+		}
+		if (tool.commandArgument !== undefined) {
+			const line = input[tool.commandArgument]
+			if (typeof line === 'string') {
+				const dialect = tool.commandDialect?.({ sandboxed }) ?? 'sh'
+				const found = await shellEscalations(line, dialect, {
+					roots,
+					reviewOutside: this.config.outsideRootAccess === 'review' && !sandboxed,
+				})
+				protectedPaths.push(...found.protectedPaths)
+				outsidePaths = found.outsidePaths
+				removal = found.dangerousRemoval
+			}
+		}
+		return {
+			outsidePaths,
+			protectedPaths: [...new Set(protectedPaths)],
+			...(removal !== undefined ? { dangerousRemoval: removal } : {}),
 		}
 	}
 
