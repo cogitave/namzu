@@ -688,7 +688,10 @@ it('refreshes stored memory and tasks as user context on a real paused-turn resu
 	const projectPath = join(cwd, '.namzu', 'MEMORY.md')
 	writeFileSync(projectPath, 'PROJECT_MEMORY_BEFORE_RESUME')
 	const scripted = new MockLLMProvider({
-		turns: [{ toolCalls: [{ name: 'bash', args: { command: 'pwd' } }] }, { text: 'Resumed.' }],
+		turns: [
+			{ toolCalls: [{ name: 'bash', args: { command: 'printf marker' } }] },
+			{ text: 'Resumed.' },
+		],
 		onRequest: (params) => requests.push({ ...params, messages: structuredClone(params.messages) }),
 	})
 	vi.mocked(ProviderRegistry.createProvider).mockImplementation(() => scripted)
@@ -762,7 +765,10 @@ it('refreshes stored memory and tasks as user context on a real paused-turn resu
 it('keeps one stored-index snapshot across model steps and refreshes it on the next send', async () => {
 	let memoryPath = ''
 	const scripted = new MockLLMProvider({
-		turns: [{ toolCalls: [{ name: 'bash', args: { command: 'pwd' } }] }, { text: 'Checked.' }],
+		turns: [
+			{ toolCalls: [{ name: 'bash', args: { command: 'printf marker' } }] },
+			{ text: 'Checked.' },
+		],
 		onRequest: (params) => {
 			requests.push({ ...params, messages: structuredClone(params.messages) })
 			if (requests.length === 1) {
