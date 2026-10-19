@@ -12,7 +12,7 @@ generated:
 
 # Compaction trigger, circuit breaker and output limits
 
-These rules follow Claude Code 2.1.302, read from its code.
+These rules follow the reference terminal agent (version 2.1.302), read from its code.
 
 ## The summary trigger
 
