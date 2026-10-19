@@ -1,5 +1,143 @@
 # @namzu/cli
 
+## 37.0.0
+
+### Major Changes
+
+- 5258c05: Shell hooks can answer with JSON, and hooks gain three events and three options.
+
+  New: a hook that exits `0` with a JSON object on stdout can refuse (`decision: "block"`), stop the turn (`continue: false`), approve or ask about a tool call (`hookSpecificOutput.permissionDecision`), rewrite a tool call's input (`updatedInput`, validated like any model-supplied input) and give the model context (`additionalContext`). New events `post_tool_use_failure`, `permission_request` and `notification`; new entry options `if` (a permission-rule filter such as `Bash(git push *)`), `once` and `statusMessage`; `matcher` accepts a regular expression. A hook's `allow` never covers a sandbox escape, a path outside the roots, a call a tool always asks about, an explicit review or a destructive call, and a `deny` always wins. `@namzu/sdk` adds `shellHookIfMatches`, the `PluginHookPermission`, `PluginHookNotes` and `PluginNotificationInfo` types, optional `context`/`halt`/`notice`/`permission` fields on the `continue`, `skip` and `modify` hook results, `hookGranted` on an `approve_tools` decision, `ToolCallSummary.hookPermission`/`hookGrant`, `PluginHookDefinition.statusMessage`, a `statusMessage` on `plugin_hook_executing`, and the runtime-context kind `hook-feedback` (a host that switches exhaustively over `PluginHookEvent` or `RuntimeContextMessageKind` needs a case for the new members).
+
+  Breaking, in the order a hook author meets them:
+
+  - **Hooks of one event now run in parallel.** They used to run one after another (`post_*` in reverse registration order), each seeing the previous hook's `modify`, and a refusal stopped the chain. Now all of an event's hooks start together on the same original context and nothing short-circuits. Their answers combine as the reference terminal's do: a refusal beats `ask`, which beats `allow`; of several rewrites (`modify`, `replace`) the last in priority/registration order wins and no hook sees another's rewrite; every `context` is kept and every `halt` honoured. A hook that relied on running after another (a formatter before a linter) must be one script or one hook. Plugins that registered with `priority` still get the first refusal quoted in priority order, but priority no longer sets who starts first.
+  - **The default hook deadline is ten minutes, not 30 s** (`DEFAULT_SHELL_HOOK_TIMEOUT_MS`, and `HOOK_TIMEOUT_MS` for the lifecycle manager's own per-hook limit, which was 5 s). To keep the old limit set `timeoutMs: 30000` on the hook (shell hooks), or `hookTimeoutMs` on the plugin manager or in the CLI's `plugins` config.
+  - **Exit code `2` now acts** where it used to be logged and ignored: on `turn_end` and `subagent_stop` it keeps the model working, with stderr as its next message (the turn's iteration limit still ends a hook that never relents); on `pre_compact` it cancels a compaction the context threshold asked for (never one the provider forced); on `post_tool_use` the stderr is shown to the model beside that call's result. A hook that exits `2` on these events by habit and meant "ignore" should exit `1`, which is still logged and ignored.
+  - **JSON on stdout is now read.** A hook that exits `0` and prints a JSON object starting with `{` is taken as an answer. A hook that printed such text on purpose and wants it left alone should not start its output with `{`.
+
+  `@namzu/cli` is major for the same reasons: its `hooks:` config key is where these behaviours are reached, and a configured hook behaves differently for the same input.
+
+- 5258c05: The `permissions` tables of your config files are now combined instead of replaced, and a deny in any of them wins. This is a changed default, so it is a major.
+
+  What changed: a `permissions` table in `namzu.config.json` used to replace every key of the user's `~/.namzu/config.yaml` table, and the managed file replaced the table of everything below it, so a project could erase your `bash = { "git push*" = "deny" }`. Now the user, project, selected-profile and managed tables all apply. Each layer decides on its own by the rules it always had (most specific pattern first inside one table); then a layer that denies the call denies it, else a layer that asks asks, else a layer that allows allows. Which layer is higher no longer changes the outcome.
+
+  What breaks: a rule that was hidden because a higher file wrote its own table applies again. A call a lower file denied or asked about, and a project or managed table used to allow by overwriting it, is now denied or asked. There is no way to switch a lower layer's deny off from a higher layer; delete the rule from the lower file. The old behaviour (the highest table alone) cannot be kept by a setting; put every rule you want in the one file that should decide.
+
+  Loaded configs carry a new `permissionLayers` list beside `permissions` (now the combined view); a file that writes `permissionLayers` is refused. Hosts that compile `config.permissions` themselves should call `compilePermissionLayers(permissionLayersOf(config), config.permissionChecks)` instead.
+
+- 5258c05: Conversations are now named by a small model, as in the reference terminal. After the first message of a conversation, one extra request (no tools, 60 tokens) asks a small model for a two-to-five-word, sentence-case noun phrase in the message's language, and `/resume` lists the conversation under it instead of under your first sentence. A name you chose with `/rename` is never replaced, and removing it falls back to the first message. If the request fails nothing is shown and the first message stays the title.
+
+  What changes for you:
+
+  - The request runs on `smallModel` when it is set in your user or managed config (`provider/model`, or a model id at the active provider; never read from a project's `namzu.config.json` or the environment), otherwise on the cheapest priced text model the active provider lists, otherwise on the conversation's own model. Its tokens are counted on the turn's token ledger. To choose where the text goes, set `smallModel`. There is no setting that turns the title request off; set `smallModel` to a model you are happy to spend on.
+  - A conversation started in Desktop is not named by the model yet; Desktop lists the stored title of one started in the terminal.
+
+  To keep a name of your own, rename the conversation with `/rename`; there is no switch to turn the model-written title off.
+
+- 5258c05: The terminal's title now says what the conversation is, as in the reference terminal. It reads `✳ <name>` while Namzu waits (`◐` while a turn runs), where the name is the one you gave with `/rename`, else the title the small model wrote, else `Namzu`, and it is reset when Namzu exits so your shell's title comes back. Before, Namzu never touched the title. Set `NAMZU_DISABLE_TERMINAL_TITLE=1` to keep the title as your shell had it.
+
+  To keep the terminal title as it was, set `NAMZU_DISABLE_TERMINAL_TITLE=1`.
+
+- 5258c05: `web_fetch` now works like the reference terminal's WebFetch, which changes its input and its default output.
+
+  What breaks, and what to do:
+
+  - `prompt` is required. A caller that sent only `url` now gets an input error; send the question you want answered from the page. `offset` (optional) reads on through a page too long for one call.
+  - The default output changed. It used to be the response body as text. It is now the answer to `prompt` when the host supplies `context.web.extract` (a `WebContentExtractor`, a new optional member of `ToolContext.web`), and otherwise the page as markdown, in both cases cut at 100 000 characters per call; a non-2xx status reports the status instead of its body, and an HTML page is converted to markdown with `turndown` (a new dependency, loaded on first use). A host that needs the raw body can fetch through `context.web.fetch` itself.
+  - A redirect to another host is no longer followed. `web_fetch` asks the provider for `redirects: 'same-host'` (new optional `WebFetchRequest.redirects`, default `'follow'` as before), and the tool returns a notice with the target for the model to fetch deliberately. A custom provider that ignores the field still follows every redirect.
+  - Fetched pages are cached for 15 minutes per URL, per fetch provider. URLs longer than 2000 characters, with credentials, or with a host that has no dot are refused before any request.
+
+  In the CLI, `web_fetch` (with `web.fetch: true`) answers the prompt with the small model (see `smallModel`), reads up to 10 MiB per page, and counts that request on the turn's token ledger; if the small model cannot answer, the model gets the page as markdown.
+
+  There is no switch in the CLI for the old output of `web_fetch`; a caller that needs the raw body fetches it another way (for example `bash` with `curl`).
+
+### Minor Changes
+
+- 5258c05: When the model asks several questions in one call, the terminal shows them as one card instead of one card after another: a tab for each question with a mark on the answered ones, a review tab that submits them together, multiple choice with Space, `Something else…` typed in place, and an option's preview beside the list. Esc or Cancel skips the whole call and the model is told nothing was answered; a question you leave alone is reported to it as not answered. A lone single-choice question looks and works as before, and a multiple-choice question now gets the card too (it was shown as a single choice). A Pal's answer to a batch of questions is checked question by question.
+- 5258c05: Plan mode in the terminal now ends in an approval, as it does in the reference terminal. While the mode is `plan` the model may write exactly one file, its plan (`plans/plan.md` in the session's directory under `~/.namzu`), and every other change is still refused. It presents the plan with a new `exit_plan_mode` tool, which opens a box showing the plan with three rows: "Yes, and auto-approve edits", "Yes, and ask before each edit" and a text row, "No, keep planning", whose typed words go back to the model (Esc keeps planning without words, Shift+Tab approves the first row with what is typed). A session launched in `auto`, or allowed to reach it, is offered "approve every tool without asking" in place of the first row. Approving switches the permission mode through the same change Shift+Tab makes, so the footer follows; the approved plan is written into the transcript and the file stays. Hidden reminders restate the rules on the reference's cadence: one when plan mode is on and none was sent in the last 5 operator turns, the full text on the first and every 5th, one line between, and one note when the mode is left. A model that used to end a plan-mode reply with its plan as text now calls `exit_plan_mode`; you can still leave plan mode with Shift+Tab or `/permissions` at any time. Desktop and `namzu exec` are unchanged.
+- 5258c05: The model is now reminded of its task list when it has let it go stale. After 10 model turns without `task_create` or `task_update`, and at most once per 10 model turns, it gets a hidden note that the task tools exist, with the list as it stands (`#<id>. [<status>] <subject>`), and is told to ignore it when the work does not call for a list. The counts are read from the conversation, so they survive a resume and start again after compaction. It appears in the interactive terminal only; `namzu exec` and Desktop are unchanged.
+- 5258c05: Context limits follow Claude Code, and every new rule that stops something is opt-in in the SDK. Nothing a host gets without asking changes in this entry.
+
+  SDK, all additive:
+
+  - `query({ maxOutputContinuations })` caps the nudges after a reply is cut at its output limit; past the cap the turn stops with the new stop reason `output_limit` (a host that switches exhaustively on `StopReason` should handle it; it only occurs with the option set). Unset keeps today's behaviour (no cap beyond `maxIterations`). A cut during reasoning, before any text or tool call, now gets its own "think more briefly" nudge instead of being treated as a finished reply.
+  - `compactionConfig.circuitBreaker: true` switches automatic compaction off for the turn after three failed passes, and stops the turn after three compactions each followed by a refill within three iterations. `compaction_failed` gains the causes `breaker_open` and `refilling`; a host that switches exhaustively on `cause` should handle them (they only occur with the option on).
+  - A provider failure saying "input length and `max_tokens` exceed context limit: A + B > C" is retried once with `max_tokens = C - A - 1000` (not below 3,000, and only when smaller than the cap just tried). This is on for everyone: it turns a failure into a retry and changes no successful call.
+  - `compactNow`, `compactRegion` and `compactSession` accept `instructions`, the person's words about what the summary must keep; they run the verifier model step even when `llmVerification` is off.
+
+  CLI:
+
+  - The footer shows `N% until auto-compact` once the context is within 20,000 tokens of the summary point, with the read-out counted against the real trigger.
+  - `/compact <text>` steers the summary.
+  - The CLI turns on `maxOutputContinuations: 3` and `circuitBreaker`, so a looping model or a window that refills stops the turn with a one-line explanation.
+
+- 5258c05: Read-only shell commands no longer ask. `ls`, `cat`, `head`, `wc`, `git status`, `git diff`, `git log`, `git show` and the rest of the reference terminal's vetted list run without a prompt in `prompt` and `accept-edits`, are allowed in `plan`, and run beside other read-only tool calls instead of one at a time. Anything the list does not vouch for still asks: a write redirection, a `$variable`, a substitution, a subshell, a here-document, a glob on a command that is not a plain reader, `cd` next to `git`, and any git flag outside the vetted table (`--output`, `-c`, `--exec-path`, `--config-env`, `fetch`, `commit`, branch or tag creation).
+
+  What changes for you: a turn that used to stop at `git status` now runs it. A read-only command that reads outside the working directory and added directories is still asked about, and so are protected paths and catastrophic removals. If you embed the SDK and rely on `bash` never being exempt from review, a host that wants the old behaviour passes its own `isReviewExempt` that returns false for `bash`.
+
+  New in the SDK: the builtin `bash` tool answers `isReadOnly` and `isConcurrencySafe` per call from the command line, and `DefineToolOptions.concurrencySafe` may be a function of the input, as `readOnly` already was.
+
+- 5258c05: "Yes, and don't ask again" now lasts. The answer used to hold for the session only; it is now saved in `namzu.config.local.json` next to the project's `namzu.config.json`, and the next session starts with it. The file is a new config layer over the project file, git-ignored (Namzu adds `**/namzu.config.local.json` to your global git ignore file the first time, unless git already ignores it), and read only where the project file is.
+
+  A command is remembered as its first two words and a star when the second word is a plain subcommand (`git commit *`, `npm run *`), and as the exact command otherwise. Shells, `env`, `xargs`, `sudo`, `timeout` and the other wrappers are never remembered as a prefix. A compound line gets one rule per command, up to five. The answer still never covers a sandbox escape, a path outside the roots, a protected path, a catastrophic removal, a rule's `ask` or a destructive call, and a deny in any layer beats it. To forget an answer, delete its line from `namzu.config.local.json`.
+
+  `namzu.config.local.json` is added to the SDK's protected paths, so a model write to it is asked about in every mode.
+
+- 5258c05: Three safety floors follow the reference terminal, so a turn in `auto` (`--yolo`) now stops and asks where it used to run silently. No exported name, option or default value changes; `ToolCallEscalation` gains two optional fields (`protectedPaths`, `dangerousRemoval`).
+
+  What changes for you:
+
+  - **Writes to protected paths are asked every time, in every mode.** `write`, `edit`, a shell redirection (`>`, `>>`, `tee`) and the operands of `cp`, `mv`, `touch`, `mkdir`, `rm`, `rmdir` and `sed -i` are asked about when they land in `.git`, `.vscode`, `.idea`, `.husky`, `.cargo`, `.devcontainer`, `.yarn`, `.mvn`, `.config/git`, `.namzu`, or on a shell startup file, `.gitconfig`, `.envrc`, `.npmrc`, `namzu.config.json` and the other names in `authorization/protected-paths.ts`. A rule that allows the tool, `auto`, and an earlier "approve all" do not cover it. With nobody to ask (`namzu exec`, a drained turn, a scheduled run) the batch is refused. To make a change there, make it yourself, or answer the prompt.
+  - **A catastrophic `rm` or `rmdir` is asked every time.** The check reads the targets whatever the flags (`-fr`, `-r -f`, `--recursive --force`): `/`, a top-level directory, `~`, `$HOME`, `..`, the working directory or a parent of it, a glob across directories, `"$VAR/"` (empty means `/`). The old `rm -rf /` pattern in the dangerous-command floor is kept, so that spelling is still denied outright rather than asked.
+  - **A shell command's own paths are checked against the working directory.** On a turn that reviews outside paths (the CLI does), `cat /etc/passwd`, `ls ~/.ssh` and `echo x > ~/.profile` are now the same approval request a `read` outside the project is, instead of passing because `bash` declares no path argument.
+
+  If you embed the SDK with your own resume handler, read `ToolCallSummary.escalation.protectedPaths` and `.dangerousRemoval` the way you read `outsidePaths`; `createReviewHandler` does it for you. If your turn runs `bash` with no one to ask and relies on `auto`, expect those calls to be refused with a reason the model can act on.
+
+- 5258c05: Terminal notifications gain an "idle" notice and two more channels. Add `"idle-prompt"` to `tui.notifications` to be told, once, when a finished turn has sat for a minute with nobody at the keyboard (no key pressed, no prompt or picker open, nothing queued or looping, background work done). `tui.notificationMethod` now also accepts `"kitty"` and `"ghostty"`. Nothing changes unless you opt in: `notifications: true` still means a settled reply and an approval prompt only, and `osc9` stays the default method.
+- 5258c05: `@` file mentions in the composer now follow the reference terminal. A path with spaces or other characters outside the bare set is written `@"my docs/a b.ts"` (completion offers such files and writes the quotes), names in any script work, and `@file.ts#L10-20` sends only lines 10 to 20 (`#L7` sends one line). A closing `)` or `]` after a mention is no longer read as part of the name. Existing mentions keep working; the file size cap (60,000 characters) now applies to the lines sent.
+- 5258c05: `namzu` now takes `-c` / `--continue` and `-r` / `--resume [value]` for the interactive session. `-c` opens the most recent conversation in this folder; `--resume` with no value opens the `/resume` picker; with a conversation id it resumes that conversation; with any other value it resumes the conversation of that exact title, or opens the picker searched by the value. Nothing changes for existing use: the flags are new, `namzu exec` keeps its own `--continue` / `--resume`, and `namzu resume <id>` is unchanged. Written before a subcommand or before `resume` they are refused (exit 64), like the other launch flags.
+- 5258c05: A new `statusLine` config key runs your command and draws its output, dimmed, above the interactive footer. Set `statusLine: { command, padding?, refreshInterval? }` in `~/.namzu/config.yaml` or a trusted project's `namzu.config.json`; the command receives the session as JSON on stdin (model, workspace, cost, context window, effort, pull request, and more, under the reference terminal's field names) and re-runs 300 ms after the session changes. A failed or empty run shows nothing. Nothing changes for anyone who does not set the key, except that the type `StatusLineConfig` is exported.
+
+### Patch Changes
+
+- 5258c05: The default point at which older history is summarised changes. `compactionConfig.triggerThreshold` no longer defaults to `0.7`; it is optional, and when absent the kernel derives the trigger as the reference terminal does: the window, less room for the reply (the model's output cap, at most 20,000 tokens), less a 13,000-token buffer. That is 167,000 tokens (83.5%) of a 200,000-token window and 967,000 (96.7%) of a 1,000,000-token one, and never less than half the window. A host with long contexts compacts later than before, so a conversation keeps more of its history and runs closer to the provider's limit.
+
+  The type of `triggerThreshold` is now `number | undefined` (it was `number` after parsing), so code that reads it from a parsed `CompactionConfig` must handle `undefined`; `resolveTriggerThreshold(configured, windowTokens, maxOutputTokens?)` is exported and returns the fraction actually used.
+
+  To keep the earlier behaviour, pass `triggerThreshold: 0.7` in `compactionConfig`. An explicit value is used exactly as before.
+
+  The CLI no longer sets 0.7 and takes the derived trigger; its footer meter and `/context details` read the same function.
+
+- Updated dependencies [5258c05]
+- Updated dependencies [5258c05]
+- Updated dependencies [5258c05]
+- Updated dependencies [5258c05]
+- Updated dependencies [5258c05]
+- Updated dependencies [5258c05]
+- Updated dependencies [5258c05]
+- Updated dependencies [5258c05]
+- Updated dependencies [5258c05]
+- Updated dependencies [5258c05]
+- Updated dependencies [90fbb95]
+- Updated dependencies [90fbb95]
+- Updated dependencies [90fbb95]
+- Updated dependencies [90fbb95]
+- Updated dependencies [90fbb95]
+- Updated dependencies [90fbb95]
+- Updated dependencies [5258c05]
+- Updated dependencies [5258c05]
+- Updated dependencies [5258c05]
+- Updated dependencies [5258c05]
+- Updated dependencies [5258c05]
+  - @namzu/sdk@52.0.0
+  - @namzu/sandbox@27.0.0
+  - @namzu/browser@2.0.1
+  - @namzu/computer-use@3.1.0
+  - @namzu/anthropic@6.3.0
+  - @namzu/ollama@2.2.5
+  - @namzu/openai@4.2.0
+  - @namzu/openrouter@3.0.4
+
 ## 36.6.0
 
 ### Minor Changes

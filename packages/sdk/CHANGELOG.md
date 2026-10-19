@@ -1,5 +1,105 @@
 # Changelog
 
+## 52.0.0
+
+### Major Changes
+
+- 5258c05: The `bash` tool no longer kills a foreground command that outruns its `timeout` when the turn has a background job registry (the CLI session, and any host that passes `QueryParams.backgroundJobs`). Before, the command was stopped and the call failed with `timedOut`. Now the same process is moved to a background job: the call succeeds, returns the output so far and a line naming the job, and the command keeps running until it ends or is stopped. The model awaits it with `wait_for_job`, reads it with `job` and stops it with `job` action `kill`, and is told when it ends. A host that relied on the timeout to stop a runaway command must now set `NAMZU_DISABLE_BACKGROUND_TASKS=1` (also refuses `run_in_background`) to keep the old kill, or stop the job itself. Unchanged: no registry, a sandboxed turn, a sandbox escape, a command that only runs `sleep`, and an owner at its job limit all still kill at the timeout. New and optional: `BackgroundJobRegistryRef.adopt`, `StartJobParams.initialOutput` and `hostOutput`, and the `onTimeout` option and `backgroundedJobId` result of `execHostShell`.
+- 5258c05: The default point at which older history is summarised changes. `compactionConfig.triggerThreshold` no longer defaults to `0.7`; it is optional, and when absent the kernel derives the trigger as the reference terminal does: the window, less room for the reply (the model's output cap, at most 20,000 tokens), less a 13,000-token buffer. That is 167,000 tokens (83.5%) of a 200,000-token window and 967,000 (96.7%) of a 1,000,000-token one, and never less than half the window. A host with long contexts compacts later than before, so a conversation keeps more of its history and runs closer to the provider's limit.
+
+  The type of `triggerThreshold` is now `number | undefined` (it was `number` after parsing), so code that reads it from a parsed `CompactionConfig` must handle `undefined`; `resolveTriggerThreshold(configured, windowTokens, maxOutputTokens?)` is exported and returns the fraction actually used.
+
+  To keep the earlier behaviour, pass `triggerThreshold: 0.7` in `compactionConfig`. An explicit value is used exactly as before.
+
+  The CLI no longer sets 0.7 and takes the derived trigger; its footer meter and `/context details` read the same function.
+
+- 5258c05: The file tools follow the reference terminal's rules, and four defaults change.
+
+  **What breaks, and what to do:**
+
+  - `edit` now refuses a file the session has not read (`<path> has not been read yet`). A host or test that edits without reading first gets a failed result and nothing is written. Read the file with `read` first. There is no opt-out. A host that supplies no `fileReadTracker` on the tool context is not affected, because there is nothing to ask. `write` already refused an unread existing file.
+  - `edit` no longer refuses every file that changed since the read. When the content changed, an edit made only of text replacements is applied if `old_string` still matches the current content uniquely (or, with `replace_all`, still matches); only then is it refused as stale. An insertion by line number is still refused after any change. Code that relied on a still-matching edit being refused after an unrelated change must now check the file itself.
+  - `grep` defaults to `output_mode: "files_with_matches"`: a list of paths, newest first, not matching lines. Pass `output_mode: "content"` to get the old lines back. `max_results` (was 100 matching lines) is deprecated in favour of `head_limit`, whose default is 250 entries and which counts output lines in `content` mode; `max_results` still sets it when `head_limit` is absent. `grep` also gains `count` mode, `offset`, and replaces a line over 500 characters with a notice.
+  - `read` refuses a file over 256 KiB when no `readRange` or `limit` is given, and cuts a result over about 25,000 tokens to a first page (or refuses, for a windowed read), where it used to return up to 2000 lines of any size. Read part of the file, or pass `allow_large: true` (four times the caps) for one call. `NAMZU_FILE_READ_MAX_OUTPUT_TOKENS` in the turn environment changes the token cap. `read` is exempt from the default 40,000-character per-result cap, because these caps bound it; a host that sets `maxToolOutputChars` explicitly still bounds it.
+  - The combined text of one assistant message's tool results is capped at 200,000 characters (`maxToolOutputCharsPerMessage` on `QueryParams` and `QueryAgentConfig`). Past it, the largest results are replaced, largest first, by a 2,000-character preview that names where the full text was kept. Set `maxToolOutputCharsPerMessage: 0` to keep the old behaviour of no combined bound.
+
+  New, not breaking: `ToolDefinition.selfLimitingOutput` and the matching `defineTool` option mark a tool that bounds its own output.
+
+- 5258c05: Shell hooks can answer with JSON, and hooks gain three events and three options.
+
+  New: a hook that exits `0` with a JSON object on stdout can refuse (`decision: "block"`), stop the turn (`continue: false`), approve or ask about a tool call (`hookSpecificOutput.permissionDecision`), rewrite a tool call's input (`updatedInput`, validated like any model-supplied input) and give the model context (`additionalContext`). New events `post_tool_use_failure`, `permission_request` and `notification`; new entry options `if` (a permission-rule filter such as `Bash(git push *)`), `once` and `statusMessage`; `matcher` accepts a regular expression. A hook's `allow` never covers a sandbox escape, a path outside the roots, a call a tool always asks about, an explicit review or a destructive call, and a `deny` always wins. `@namzu/sdk` adds `shellHookIfMatches`, the `PluginHookPermission`, `PluginHookNotes` and `PluginNotificationInfo` types, optional `context`/`halt`/`notice`/`permission` fields on the `continue`, `skip` and `modify` hook results, `hookGranted` on an `approve_tools` decision, `ToolCallSummary.hookPermission`/`hookGrant`, `PluginHookDefinition.statusMessage`, a `statusMessage` on `plugin_hook_executing`, and the runtime-context kind `hook-feedback` (a host that switches exhaustively over `PluginHookEvent` or `RuntimeContextMessageKind` needs a case for the new members).
+
+  Breaking, in the order a hook author meets them:
+
+  - **Hooks of one event now run in parallel.** They used to run one after another (`post_*` in reverse registration order), each seeing the previous hook's `modify`, and a refusal stopped the chain. Now all of an event's hooks start together on the same original context and nothing short-circuits. Their answers combine as the reference terminal's do: a refusal beats `ask`, which beats `allow`; of several rewrites (`modify`, `replace`) the last in priority/registration order wins and no hook sees another's rewrite; every `context` is kept and every `halt` honoured. A hook that relied on running after another (a formatter before a linter) must be one script or one hook. Plugins that registered with `priority` still get the first refusal quoted in priority order, but priority no longer sets who starts first.
+  - **The default hook deadline is ten minutes, not 30 s** (`DEFAULT_SHELL_HOOK_TIMEOUT_MS`, and `HOOK_TIMEOUT_MS` for the lifecycle manager's own per-hook limit, which was 5 s). To keep the old limit set `timeoutMs: 30000` on the hook (shell hooks), or `hookTimeoutMs` on the plugin manager or in the CLI's `plugins` config.
+  - **Exit code `2` now acts** where it used to be logged and ignored: on `turn_end` and `subagent_stop` it keeps the model working, with stderr as its next message (the turn's iteration limit still ends a hook that never relents); on `pre_compact` it cancels a compaction the context threshold asked for (never one the provider forced); on `post_tool_use` the stderr is shown to the model beside that call's result. A hook that exits `2` on these events by habit and meant "ignore" should exit `1`, which is still logged and ignored.
+  - **JSON on stdout is now read.** A hook that exits `0` and prints a JSON object starting with `{` is taken as an answer. A hook that printed such text on purpose and wants it left alone should not start its output with `{`.
+
+  `@namzu/cli` is major for the same reasons: its `hooks:` config key is where these behaviours are reached, and a configured hook behaves differently for the same input.
+
+- 5258c05: `web_fetch` now works like the reference terminal's WebFetch, which changes its input and its default output.
+
+  What breaks, and what to do:
+
+  - `prompt` is required. A caller that sent only `url` now gets an input error; send the question you want answered from the page. `offset` (optional) reads on through a page too long for one call.
+  - The default output changed. It used to be the response body as text. It is now the answer to `prompt` when the host supplies `context.web.extract` (a `WebContentExtractor`, a new optional member of `ToolContext.web`), and otherwise the page as markdown, in both cases cut at 100 000 characters per call; a non-2xx status reports the status instead of its body, and an HTML page is converted to markdown with `turndown` (a new dependency, loaded on first use). A host that needs the raw body can fetch through `context.web.fetch` itself.
+  - A redirect to another host is no longer followed. `web_fetch` asks the provider for `redirects: 'same-host'` (new optional `WebFetchRequest.redirects`, default `'follow'` as before), and the tool returns a notice with the target for the model to fetch deliberately. A custom provider that ignores the field still follows every redirect.
+  - Fetched pages are cached for 15 minutes per URL, per fetch provider. URLs longer than 2000 characters, with credentials, or with a host that has no dot are refused before any request.
+
+  In the CLI, `web_fetch` (with `web.fetch: true`) answers the prompt with the small model (see `smallModel`), reads up to 10 MiB per page, and counts that request on the turn's token ledger; if the small model cannot answer, the model gets the page as markdown.
+
+  There is no switch in the CLI for the old output of `web_fetch`; a caller that needs the raw body fetches it another way (for example `bash` with `curl`).
+
+### Minor Changes
+
+- 5258c05: `ask_user_question` can ask up to four related questions in one call and returns one answer per question. The model-facing input is now `{ questions: [...] }`; the older single-question input (`question`, `options`, … at the top level) is still accepted as a batch of one, so nothing that sends it needs to change. A host that does not know about batches keeps working: `UserQuestionData` gains an optional `questions` list whose first entry its existing fields mirror, so it shows and answers the first question and the rest read as not answered. A host that does know sends `answer_question.answers` with one `{ questionId, selectedOptionIds, freeText? }` per question it has an answer for (a missing entry means not answered); the question ids are `<tool_use_id>#<index>`. An option can carry an optional `preview` for a host to show beside the list. Question texts and headers must be unique within one call.
+- 5258c05: A host can now feed a turn hidden reminders, and give plan mode one writable file. Everything is opt-in; a host that passes none of it sees no change. `QueryParams.reminders` takes a `ReminderSource`, which the kernel calls before every model request of the turn (except the closing one a limit forces) with the session, turn, iteration and the conversation so far; each text it returns is appended as a user-role runtime message of the new kind `'reminder'` (`isReminderMessage` recognises it), kept in the durable history and never counted as operator input, so a source can read the history to set its own cadence. `ReviewPolicyOptions.planModeWrite` names the one call `plan` mode lets through (outside the roots, overwriting, and without a question); left out, plan mode refuses every change as before, and the option does nothing in any other mode. `SessionPaths.plans()` and `planFile()` give a session's plan directory and its `plans/plan.md`. `RUNTIME_CONTEXT_MESSAGE_KINDS` gains `'reminder'`, so a `switch` over `RuntimeContextMessageKind` with no default branch now needs a case for it.
+- 5258c05: Context limits follow Claude Code, and every new rule that stops something is opt-in in the SDK. Nothing a host gets without asking changes in this entry.
+
+  SDK, all additive:
+
+  - `query({ maxOutputContinuations })` caps the nudges after a reply is cut at its output limit; past the cap the turn stops with the new stop reason `output_limit` (a host that switches exhaustively on `StopReason` should handle it; it only occurs with the option set). Unset keeps today's behaviour (no cap beyond `maxIterations`). A cut during reasoning, before any text or tool call, now gets its own "think more briefly" nudge instead of being treated as a finished reply.
+  - `compactionConfig.circuitBreaker: true` switches automatic compaction off for the turn after three failed passes, and stops the turn after three compactions each followed by a refill within three iterations. `compaction_failed` gains the causes `breaker_open` and `refilling`; a host that switches exhaustively on `cause` should handle them (they only occur with the option on).
+  - A provider failure saying "input length and `max_tokens` exceed context limit: A + B > C" is retried once with `max_tokens = C - A - 1000` (not below 3,000, and only when smaller than the cap just tried). This is on for everyone: it turns a failure into a retry and changes no successful call.
+  - `compactNow`, `compactRegion` and `compactSession` accept `instructions`, the person's words about what the summary must keep; they run the verifier model step even when `llmVerification` is off.
+
+  CLI:
+
+  - The footer shows `N% until auto-compact` once the context is within 20,000 tokens of the summary point, with the read-out counted against the real trigger.
+  - `/compact <text>` steers the summary.
+  - The CLI turns on `maxOutputContinuations: 3` and `circuitBreaker`, so a looping model or a window that refills stops the turn with a one-line explanation.
+
+- 5258c05: Read-only shell commands no longer ask. `ls`, `cat`, `head`, `wc`, `git status`, `git diff`, `git log`, `git show` and the rest of the reference terminal's vetted list run without a prompt in `prompt` and `accept-edits`, are allowed in `plan`, and run beside other read-only tool calls instead of one at a time. Anything the list does not vouch for still asks: a write redirection, a `$variable`, a substitution, a subshell, a here-document, a glob on a command that is not a plain reader, `cd` next to `git`, and any git flag outside the vetted table (`--output`, `-c`, `--exec-path`, `--config-env`, `fetch`, `commit`, branch or tag creation).
+
+  What changes for you: a turn that used to stop at `git status` now runs it. A read-only command that reads outside the working directory and added directories is still asked about, and so are protected paths and catastrophic removals. If you embed the SDK and rely on `bash` never being exempt from review, a host that wants the old behaviour passes its own `isReviewExempt` that returns false for `bash`.
+
+  New in the SDK: the builtin `bash` tool answers `isReadOnly` and `isConcurrencySafe` per call from the command line, and `DefineToolOptions.concurrencySafe` may be a function of the input, as `readOnly` already was.
+
+- 5258c05: "Yes, and don't ask again" now lasts. The answer used to hold for the session only; it is now saved in `namzu.config.local.json` next to the project's `namzu.config.json`, and the next session starts with it. The file is a new config layer over the project file, git-ignored (Namzu adds `**/namzu.config.local.json` to your global git ignore file the first time, unless git already ignores it), and read only where the project file is.
+
+  A command is remembered as its first two words and a star when the second word is a plain subcommand (`git commit *`, `npm run *`), and as the exact command otherwise. Shells, `env`, `xargs`, `sudo`, `timeout` and the other wrappers are never remembered as a prefix. A compound line gets one rule per command, up to five. The answer still never covers a sandbox escape, a path outside the roots, a protected path, a catastrophic removal, a rule's `ask` or a destructive call, and a deny in any layer beats it. To forget an answer, delete its line from `namzu.config.local.json`.
+
+  `namzu.config.local.json` is added to the SDK's protected paths, so a model write to it is asked about in every mode.
+
+- 5258c05: Three safety floors follow the reference terminal, so a turn in `auto` (`--yolo`) now stops and asks where it used to run silently. No exported name, option or default value changes; `ToolCallEscalation` gains two optional fields (`protectedPaths`, `dangerousRemoval`).
+
+  What changes for you:
+
+  - **Writes to protected paths are asked every time, in every mode.** `write`, `edit`, a shell redirection (`>`, `>>`, `tee`) and the operands of `cp`, `mv`, `touch`, `mkdir`, `rm`, `rmdir` and `sed -i` are asked about when they land in `.git`, `.vscode`, `.idea`, `.husky`, `.cargo`, `.devcontainer`, `.yarn`, `.mvn`, `.config/git`, `.namzu`, or on a shell startup file, `.gitconfig`, `.envrc`, `.npmrc`, `namzu.config.json` and the other names in `authorization/protected-paths.ts`. A rule that allows the tool, `auto`, and an earlier "approve all" do not cover it. With nobody to ask (`namzu exec`, a drained turn, a scheduled run) the batch is refused. To make a change there, make it yourself, or answer the prompt.
+  - **A catastrophic `rm` or `rmdir` is asked every time.** The check reads the targets whatever the flags (`-fr`, `-r -f`, `--recursive --force`): `/`, a top-level directory, `~`, `$HOME`, `..`, the working directory or a parent of it, a glob across directories, `"$VAR/"` (empty means `/`). The old `rm -rf /` pattern in the dangerous-command floor is kept, so that spelling is still denied outright rather than asked.
+  - **A shell command's own paths are checked against the working directory.** On a turn that reviews outside paths (the CLI does), `cat /etc/passwd`, `ls ~/.ssh` and `echo x > ~/.profile` are now the same approval request a `read` outside the project is, instead of passing because `bash` declares no path argument.
+
+  If you embed the SDK with your own resume handler, read `ToolCallSummary.escalation.protectedPaths` and `.dangerousRemoval` the way you read `outsidePaths`; `createReviewHandler` does it for you. If your turn runs `bash` with no one to ask and relies on `auto`, expect those calls to be refused with a reason the model can act on.
+
+- 5258c05: The `bash` tool now clamps a `timeout` above its maximum (`NAMZU_BASH_MAX_TIMEOUT_MS`, ten minutes by default) to that maximum instead of refusing the call. The command runs, and a timeout message reports the deadline that was applied. Nothing breaks for a caller that stayed under the maximum; a host that relied on the refusal to detect an over-long request should check `timeout` itself before calling.
+- 5258c05: `SupervisorAgent.resume(input, config, { turnId, checkpointId? }, listener?)` continues a turn that ended in `turn_paused`: the same turn id, from the chosen checkpoint (default the newest), with the context folded from the session log. Tool calls that already ran are not repeated. It rebuilds the delegation, budget and scheduler wiring the way `run` does and emits the same `turn_paused` and terminal events, so a host can bound how often it resumes. Pass the `sessionLog` (and `checkpointStore`, if it is not the one beside the log) the turn was written to. It rejects with an `invalid_config` `NamzuError` when the turn already ended, has no such checkpoint or waits on a decision (pass `pendingDecision`). `SupervisorResumeTarget` is exported. Nothing changes for existing callers.
+
+### Patch Changes
+
+- 5258c05: Static file tracers (`@vercel/nft`, which Next.js standalone output uses) no longer list the repository's `.json` and `.md` files as runtime assets of the SDK. The two memory stores built entry paths in a form the tracer read as a wildcard; they now build them so it has nothing to expand. The files the stores read and write are unchanged, so nothing needs doing on upgrade, and a host that added `research/**` or `docs/**` tracer ignores for this can remove them.
+- 5258c05: The error returned when an agent delegates past the depth limit now ends with an instruction to do the task directly with the agent's own tools instead of delegating it again. The text still begins `Max task depth N exceeded (current: D).`; the trailing sentence about resource exhaustion is replaced. A host that matches on the old trailing sentence should match on the prefix.
+
 ## 51.1.0
 
 ### Minor Changes

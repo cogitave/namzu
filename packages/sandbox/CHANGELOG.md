@@ -1,5 +1,52 @@
 # @namzu/sandbox
 
+## 27.0.0
+
+### Minor Changes
+
+- 90fbb95: A host can now create a Kubernetes workspace without adopting or waking anything, and prove later that what it finds is what it created. `allocateKubernetesWorkspace` sends one create and never retries it: a same-name object is a `KubernetesWorkspaceAllocationConflictError` and is left untouched, the pod is never resumed, and the result carries the new Sandbox's uid as an acknowledgement, not as readiness. The allocation id, a scope fingerprint and an execution-profile fingerprint are stored in the create request as the annotations `sandbox.namzu.ai/allocation-id`, `sandbox.namzu.ai/allocation-scope` and `sandbox.namzu.ai/execution-profile`. `resolveKubernetesExecutionProfile` computes the profile fingerprint (pod template with this backend's overlays, disks, translated egress policy, ingress settings) from one read, so the host can persist it before the create. A create that gets no usable reply returns `{ outcome: 'unknown' }`; `recoverKubernetesWorkspaceAllocation` settles it by reading (`created`, `absent` or `different`).
+
+  `inspectKubernetesWorkspace`, `openKubernetesWorkspace` and `reconcileKubernetesWorkspace` accept `expectedAllocation` and refuse a Sandbox whose annotations or copied pod template differ with `KubernetesWorkspaceAllocationMismatchError`. A call that does not pass it behaves as before; `inspectKubernetesWorkspace` results gain an `allocation` field. Nothing to change for existing callers.
+
+- 90fbb95: `config.egress.perSandbox` now verifies the per-sandbox path as strictly as the `no-network` baseline, and refuses in cases it used to admit. Most hosts need no change; a host whose fence is wrong now finds out at the first `setNetworkPolicy` call instead of holding policy-write access behind a fence that enforces nothing.
+
+  What now refuses, with the new `KubernetesAdmissionFenceInertError` (it carries `field`, `expected` and `actual`) and nothing written: a `ValidatingAdmissionPolicyBinding` whose `validationActions` lacks `Deny` (an `Audit` or `Warn` binding logs and admits), that names another policy, that excludes `CREATE`, `UPDATE` or `DELETE` of `ciliumnetworkpolicies`, that carries an `objectSelector`, or whose `namespaceSelector` does not cover `config.namespace` (a selector on labels other than `kubernetes.io/metadata.name` cannot be proved and is refused); and a policy whose `failurePolicy` is not `Fail`, that does not match those verbs, or that has no validations. If you applied a fence that did one of those, fix the object. If your binding selects namespaces by a label other than `kubernetes.io/metadata.name`, select by that one instead.
+
+  After every successful `setNetworkPolicy` write the union of all policies selecting the pod is re-checked against the baseline plus the policy just written. If any other policy allows more, the backend deletes its own object and throws `KubernetesEgressPolicyUnionError`; a failed read-back now deletes the object too, and if that deletion fails `KubernetesPerSandboxPolicyNotRemovedError` says the policy may still be in force. `egress.verify: 'named-object-only'` skips the re-check, as it skips the create-path union.
+
+  New, optional, off by default: `perSandbox.hostIdentity` (the user the policy's `matchConditions` must name), and `perSandbox.permittedHostsParam: { name, namespace }`, which pins the hostnames and ports a host may grant in an operator-owned ConfigMap, enforced at admission by the new companion manifest `k8s/manifests/validatingadmissionpolicy-cilium-permitted-hosts.yaml` and checked locally first (`KubernetesPermittedHostsError`, `KubernetesPermittedHostsParamError`). Left unset, nothing is read, no manifest changes, and the shipped fence is untouched. New acceptance probe `k8s/scripts/per-sandbox-egress-check.mjs`, which needs a Cilium cluster that enforces FQDN policy.
+
+- 90fbb95: `createKubernetesWorkspace` and `allocateKubernetesWorkspace` now accept `egress.perSandbox` and give the workspace handle `setNetworkPolicy`, with the same write, read-back and union check a task handle has. The workspace's `Sandbox` pod template carries the per-sandbox selector label (its value is the Sandbox name) and the `Sandbox` owns the policy, so deleting the workspace with `destroy({ deleteDisk: true })` lets the cluster remove it; the default `destroy()` only suspends and keeps it. The admission fence is proved before the workspace is created or opened and again on every resume, and a resume deletes any per-sandbox policy that selects the workspace but whose owner is not the current Sandbox; a policy the Sandbox owns is kept. A workspace created before the option was set has no label, and adopting it with `perSandbox` configured throws `KubernetesWorkspaceMismatchError` (`field: 'perSandboxLabel'`) until you reopen it with `refreshPodTemplate: true`.
+
+  `resolveKubernetesExecutionProfile` and `allocateKubernetesWorkspace` read the fence first, and with `perSandbox` configured the fingerprint changes and, over a core `no-network` baseline, `profile.variant` is `'core/no-network+per-sandbox'` (exported as `KUBERNETES_PER_SANDBOX_PROFILE_VARIANT`). A configuration without `perSandbox` keeps its fingerprint and its request log exactly. `KubernetesExecutionProfileOptions` gains an optional `workspaceId`.
+
+  Behaviour change to know about: a configuration that set `egress.perSandbox` on a backend used for workspaces used to throw `KubernetesWorkspacePerSandboxEgressConfigError` before any request; it now creates workspaces, and needs the fence and the `rbac-per-sandbox-egress.yaml` RBAC to exist. `KubernetesWorkspacePerSandboxEgressConfigError` stays exported and is marked `@deprecated`; nothing throws it. `KubernetesWorkspaceMismatchError.field` gains the member `'perSandboxLabel'`. Enforcement needs a Cilium cluster and is not tested here.
+
+- 90fbb95: `workspace.pinGuest({ sandboxUid, podUid, guestBootId })` returns a view of a Kubernetes workspace (`exec`, `readFile`, `writeFile`, `listFiles`, `openTerminal`, `openTcpConnection`, `quiesce`) that talks only to the guest you authenticated. It never follows a replaced pod: if the workspace's identity changed it rejects with the new `KubernetesGuestPinRefusedError` before dialing, and otherwise each request goes in a new `pinned` guest-agent op that the agent checks against its own boot id before dispatching anything, so a replaced or restarted guest runs nothing and the error carries the id of the agent that answered (`freshGuestBootId`). A fenced guest you pinned rejects with `KubernetesAgentRetiringError`, which now carries `guestBootId`. An identity with a missing or empty `sandboxUid`, `podUid` or `guestBootId` throws `KubernetesPinIncompleteError`. It needs the new `pinned-guest` guest feature: against an older workspace image every call on the view rejects with reason `guest-unsupported` and sends nothing, so rebuild the image from this release to use it. Calls on the workspace itself are unchanged. `PINNED_GUEST_FEATURE` is exported alongside the new errors.
+- 90fbb95: `workspace.quiesce({ onlyIfIdle: true })` asks whether a Kubernetes workspace is idle without stopping anything. It never signals or marks a process: it resolves with a report (`rounds: 0`, `stopped: []`) only when the guest's whole PID namespace holds nothing but init and the agent, and otherwise rejects with the new `KubernetesQuiesceBusyError`, which lists what it saw so you can retry later. A guest image that cannot tell reliably (an unreadable `/proc` entry, or an agent that cannot see its whole namespace) rejects with `KubernetesQuiesceUnconfirmedError` instead of reporting idle. It needs the new `quiesce-idle` guest feature: against an older workspace image the call rejects with `KubernetesQuiesceUnsupportedError` and sends nothing, so rebuild the image from this release to use it. Existing `quiesce()` and `suspend({ quiesce })` calls are unchanged. `QUIESCE_IDLE_FEATURE` is exported alongside the new error.
+- 90fbb95: A Kubernetes workspace's writes are now pinned to the Sandbox they were meant for. A handle's `suspend()`, `resume()` and `destroy({ deleteDisk: true })` carry the Sandbox uid the handle bound: a different Sandbox under the same workspace id is refused with `KubernetesWorkspaceReplacedError` and nothing is written, where before the write went to whatever stood under the name. This needs no change to a call; the only visible difference is that a handle that knows its uid now sends a JSON patch (with an extra read) in place of the merge patch it used to send without an epoch. `suspendKubernetesWorkspace` and `deleteKubernetesWorkspace` accept `expectedIdentity: { sandboxUid }` for a host holding no handle.
+
+  New, read-only and GET-only: `inspectKubernetesWorkspace` (uids, mode, epoch, readiness), `openKubernetesWorkspace` (authenticate a retained identity, optionally `waitForReady` under one deadline; moves of `resourceVersion` or `Ready` are not a conflict, a real Sandbox or claim replacement is `KubernetesWorkspaceIdentityMismatchError`, running out of time is `KubernetesWorkspaceReadyTimeoutError`) and `reconcileKubernetesWorkspace` (`live`, `suspended`, `absent` or `replaced`). They need `get` on `persistentvolumeclaims` and `pods` as well as `sandboxes`.
+
+### Patch Changes
+
+- Updated dependencies [5258c05]
+- Updated dependencies [5258c05]
+- Updated dependencies [5258c05]
+- Updated dependencies [5258c05]
+- Updated dependencies [5258c05]
+- Updated dependencies [5258c05]
+- Updated dependencies [5258c05]
+- Updated dependencies [5258c05]
+- Updated dependencies [5258c05]
+- Updated dependencies [5258c05]
+- Updated dependencies [5258c05]
+- Updated dependencies [5258c05]
+- Updated dependencies [5258c05]
+- Updated dependencies [5258c05]
+- Updated dependencies [5258c05]
+  - @namzu/sdk@52.0.0
+
 ## 26.0.0
 
 ### Patch Changes

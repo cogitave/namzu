@@ -1,5 +1,0 @@
----
-"@namzu/sdk": major
----
-
-The `bash` tool no longer kills a foreground command that outruns its `timeout` when the turn has a background job registry (the CLI session, and any host that passes `QueryParams.backgroundJobs`). Before, the command was stopped and the call failed with `timedOut`. Now the same process is moved to a background job: the call succeeds, returns the output so far and a line naming the job, and the command keeps running until it ends or is stopped. The model awaits it with `wait_for_job`, reads it with `job` and stops it with `job` action `kill`, and is told when it ends. A host that relied on the timeout to stop a runaway command must now set `NAMZU_DISABLE_BACKGROUND_TASKS=1` (also refuses `run_in_background`) to keep the old kill, or stop the job itself. Unchanged: no registry, a sandboxed turn, a sandbox escape, a command that only runs `sleep`, and an owner at its job limit all still kill at the timeout. New and optional: `BackgroundJobRegistryRef.adopt`, `StartJobParams.initialOutput` and `hostOutput`, and the `onTimeout` option and `backgroundedJobId` result of `execHostShell`.
