@@ -653,6 +653,7 @@ export class ToolExecutor {
 	/** Set per turn by the orchestrator; see {@link setStepAllowedTools}. */
 	private stepAllowedTools?: readonly string[]
 	private readonly fileReadTracker: FileReadTracker
+	private sandboxGate?: () => Promise<void>
 	/** A ledger is rebuilt from history at most once; a second pass would re-append its chains. */
 	private fileObservationsSeeded = false
 
@@ -686,6 +687,25 @@ export class ToolExecutor {
 
 	setSandbox(sandbox: Sandbox): void {
 		this.config = { ...this.config, sandbox }
+		this.sandboxGate = undefined
+	}
+
+	/**
+	 * Hold tool admission until a sandbox that is still being acquired exists.
+	 * The gate rejects when none will, and the turn settles that rejection. It
+	 * is cleared by {@link setSandbox}, so a turn pays the check once.
+	 */
+	setSandboxGate(gate: () => Promise<void>): void {
+		this.sandboxGate = gate
+	}
+
+	private async awaitSandbox(): Promise<void> {
+		await this.sandboxGate?.()
+	}
+
+	/** True once the turn has a sandbox, or is certain to get one before a tool runs. */
+	private get sandboxed(): boolean {
+		return this.config.sandbox !== undefined || this.sandboxGate !== undefined
 	}
 
 	/** Classify only the exact successful result executed by this executor. */
@@ -771,7 +791,7 @@ export class ToolExecutor {
 			messages,
 			this.fileReadTracker,
 			this.config.workingDirectory,
-			this.config.sandbox !== undefined,
+			this.sandboxed,
 		)
 	}
 
@@ -953,7 +973,7 @@ export class ToolExecutor {
 		const tool = this.config.tools.get(toolName)
 		return (
 			tool?.commandDialect?.({
-				sandboxed: this.config.sandbox !== undefined,
+				sandboxed: this.sandboxed,
 			}) ?? 'sh'
 		)
 	}
@@ -979,6 +999,7 @@ export class ToolExecutor {
 		hostModifiedCallIds?: ReadonlySet<string>,
 	): Promise<PreparedToolBatch> {
 		assertUniqueToolCallIds(response.message.toolCalls ?? [])
+		if ((response.message.toolCalls ?? []).length > 0) await this.awaitSandbox()
 		const calls = new Map<string, PreparedDirectCall>()
 		const escalations = new Map<string, ToolCallEscalation>()
 		for (const toolCall of response.message.toolCalls ?? []) {
@@ -1012,7 +1033,7 @@ export class ToolExecutor {
 		const tool = this.config.tools.get(call.toolName)
 		if (!tool || call.input === null || typeof call.input !== 'object') return undefined
 		const input = call.input as Record<string, unknown>
-		const sandboxed = this.config.sandbox !== undefined
+		const sandboxed = this.sandboxed
 		let outsidePaths: string[] | undefined
 		if (
 			this.config.outsideRootAccess === 'review' &&
@@ -1199,6 +1220,7 @@ export class ToolExecutor {
 			return { messages: [], results: [], observations: [] }
 		}
 		assertUniqueToolCallIds(toolCalls)
+		if (toolCalls.length > 0) await this.awaitSandbox()
 
 		// Sampled here, once, and held for every call below. See the note on
 		// `permissionMode` in the config type.
