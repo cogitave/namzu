@@ -173,6 +173,7 @@ describe('a text-only model inside a conversation that holds images', () => {
 
 	it('does not loop when the retry without images is refused too', async () => {
 		const provider = new ModelAwareProvider(new Set(), new Set(['beam']))
+		// biome-ignore lint/correctness/useYield: it fails before producing anything
 		provider.chatStream = async function* (this: ModelAwareProvider, params) {
 			this.requests.push(params)
 			throw new ProviderRequestError({
@@ -181,7 +182,6 @@ describe('a text-only model inside a conversation that holds images', () => {
 				status: 400,
 				detail: 'Beam supports text input only. This conversation contains an image.',
 			})
-			yield { id: 'x', delta: {} }
 		}
 		const { result } = await run(provider, 'beam')
 		expect(result.status).not.toBe('completed')

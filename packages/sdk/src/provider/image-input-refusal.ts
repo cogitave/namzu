@@ -16,7 +16,7 @@ const IMAGE_INPUT_REFUSAL_PATTERNS: readonly RegExp[] = [
 	/\b(?:does\s?n[o']t|do\s+not|cannot|can['’]t|not)\s+(?:support|accept|handle|process|read|understand)\w*\s+(?:image|vision|multimodal|visual|picture)/i,
 	/\b(?:image|vision|multimodal|visual)\s+(?:input|content|inputs|understanding|modality)\b.{0,60}\b(?:not\s+(?:supported|enabled|available|allowed)|unsupported)/i,
 	/\bimages?\s+(?:are|is)\s+(?:not\s+supported|unsupported|not\s+allowed)\b/i,
-	// OpenAI-compatible servers that only know text parts.
+	// Chat-completions servers that only know text parts.
 	/\bimage_url\b.{0,60}\b(?:only\s+supported\s+by|not\s+supported|unsupported)/i,
 	/\bunknown\s+variant\b.{0,10}\bimage_url\b/i,
 	/\binvalid\s+content\s+type\b.{0,60}\bimage/i,

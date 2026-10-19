@@ -27,10 +27,14 @@ describe('TextOnlyModels', () => {
 
 	it('answers for learned models through the provider it wraps, without losing the rest of it', async () => {
 		const known = new TextOnlyModels()
-		const wrapped = known.informing(new Fixture())
-		expect(wrapped.supportsImageInputFor?.('seer')).toBe(true)
+		const original = new Fixture()
+		// Nothing learned: the provider itself, so identity-keyed code still finds it.
+		expect(known.informing(original)).toBe(original)
 		known.add('zen', 'seer')
+		const wrapped = known.informing(original)
+		expect(wrapped).not.toBe(original)
 		expect(wrapped.supportsImageInputFor?.('seer')).toBe(false)
+		expect(wrapped.supportsImageInputFor?.('other')).toBe(true)
 		expect(wrapped.id).toBe('zen')
 		const chunks = []
 		for await (const chunk of wrapped.chatStream({} as never)) chunks.push(chunk)

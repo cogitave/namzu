@@ -32,6 +32,11 @@ export class TextOnlyModels {
 	 * stays the provider's own.
 	 */
 	informing(provider: LLMProvider): LLMProvider {
+		// Untouched until this conversation has learned something about the
+		// provider: other code holds providers by identity, and the kernel finds
+		// out for itself within the run that learns it.
+		const prefix = `${provider.id}/`
+		if (![...this.known].some((entry) => entry.startsWith(prefix))) return provider
 		const known = this
 		return new Proxy(provider, {
 			get(target, property) {
