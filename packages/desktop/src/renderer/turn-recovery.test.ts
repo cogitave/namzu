@@ -52,16 +52,6 @@ it('does not offer Retry when nothing can be repeated, but offers a way on in th
 	expect(sentenceOf(html)).not.toMatch(/receipt|unresolved|retained/i)
 })
 
-it('offers to copy the message to a new conversation only when asked to', () => {
-	const blocked = describeBlockedRetry('The paused turn’s checkpoint is unavailable.')
-	const html = render({
-		failures: [{ ...blocked, actions: [...blocked.actions, 'copy-to-new'] }],
-		onAction: () => {},
-	})
-	expect(html).toContain('Continue without this reply')
-	expect(html).toContain('Copy to a new conversation')
-})
-
 it('lists each action once, as quiet text after the icons', () => {
 	const rejected = describeFailure(
 		'anthropic (HTTP 401) — the provider rejected the request credentials',

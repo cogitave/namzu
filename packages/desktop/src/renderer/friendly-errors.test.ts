@@ -107,8 +107,8 @@ describe('describeFailure', () => {
 		[
 			'google (HTTP 400) — the request exceeded the model context window',
 			'too-long',
-			'This conversation is too long for the model. Start a new conversation, or choose a model with more room.',
-			['new-conversation'],
+			'This conversation is too long for the model. Try again, or choose a model with more room.',
+			['try-again', 'settings'],
 		],
 	])('puts %j in plain words', (raw, kind, text, actions) => {
 		const failure = describeFailure(raw)
