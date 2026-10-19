@@ -82,6 +82,7 @@ import {
 	tuiPalOwner,
 	tuiPalPreferences,
 } from '../pals/tui-session.js'
+import type { PlanApprovalAnswer, PlanApprovalFn, PlanApprovalRequest } from '../plan/approval.js'
 
 import { resolveComposerTriggers } from '../config/composer-triggers.js'
 import { writeClipboardText } from '../integrations/clipboard/text.js'
@@ -244,6 +245,7 @@ import { type ActiveTool, LiveActivity, formatElapsed } from './LiveActivity.js'
 import { PendingInputPanel, pendingInputPanelRows } from './PendingInputPanel.js'
 import { type PermissionChoice, PermissionOverlay, permissionAnswers } from './PermissionOverlay.js'
 import { Picker } from './Picker.js'
+import { PlanApprovalOverlay } from './PlanApprovalOverlay.js'
 import { ResumePicker } from './ResumePicker.js'
 import { SaveSkillOverlay } from './SaveSkillOverlay.js'
 import {
@@ -873,6 +875,10 @@ export function projectConversation(
 						detail: [`Objective: ${message.source.objective}`],
 					},
 				]
+			}
+			// A hidden reminder is for the model; the live transcript never showed it.
+			if (message.source?.type === 'runtime-context' && message.source.kind === 'reminder') {
+				return []
 			}
 			if (message.source?.type === 'runtime-context') {
 				return [
@@ -2256,6 +2262,24 @@ export function App({
 			if (next) setJobSurface(null)
 			saveSkillPromptRef.current = next
 			setSaveSkillPromptState(next)
+		},
+		[setJobSurface],
+	)
+	/**
+	 * `exit_plan_mode`'s approval box. Like the skill-save box it is this
+	 * terminal's own screen, not the permission gate, so no permission mode
+	 * answers it for the operator.
+	 */
+	const [planPrompt, setPlanPromptState] = useState<{
+		readonly request: PlanApprovalRequest
+		readonly resolve: (answer: PlanApprovalAnswer) => void
+	} | null>(null)
+	const planPromptRef = useRef<typeof planPrompt>(null)
+	const setPlanPrompt = useCallback(
+		(next: typeof planPrompt) => {
+			if (next) setJobSurface(null)
+			planPromptRef.current = next
+			setPlanPromptState(next)
 		},
 		[setJobSurface],
 	)
@@ -4511,6 +4535,10 @@ export function App({
 							// Somebody is at this terminal, so the model may ask them one
 							// question when a decision is genuinely theirs.
 							askUser: true,
+							// Plan mode gets its plan file and approval box, and each turn
+							// the hidden reminders (plan mode's, the task-list nudge).
+							planApproval: true,
+							reminders: true,
 							allowModelSwitch: true,
 							// The user is at this desktop, so the model may open a page for them.
 							openUrl: true,
@@ -5249,6 +5277,7 @@ export function App({
 		jobSurface === null &&
 		permission === null &&
 		saveSkillPrompt === null &&
+		planPrompt === null &&
 		scheduleReviewPrompt === null &&
 		textPrompt === null &&
 		choicePicker === null &&
@@ -5302,9 +5331,14 @@ export function App({
 	// it also swallows the main input handler's keys while it is open, so it has to
 	// close: otherwise the request on screen could not be answered.
 	useEffect(() => {
-		if (permission !== null || saveSkillPrompt !== null || scheduleReviewPrompt !== null)
+		if (
+			permission !== null ||
+			saveSkillPrompt !== null ||
+			planPrompt !== null ||
+			scheduleReviewPrompt !== null
+		)
 			setScrollOpen(false)
-	}, [permission, saveSkillPrompt, scheduleReviewPrompt])
+	}, [permission, saveSkillPrompt, planPrompt, scheduleReviewPrompt])
 	// A ref, and mutated during render, because the split has to be MONOTONIC:
 	// a row that has been printed to scrollback can never come back, and `max`
 	// is idempotent, so a repeated render reaches the same answer.
@@ -6710,6 +6744,52 @@ export function App({
 			setJobSurface,
 			resolveQuestion,
 		],
+	)
+	/**
+	 * `exit_plan_mode`, on screen. The box shows the plan from the file; the
+	 * answer is applied here, before the tool's promise resolves, so the next
+	 * decision of the turn is made under the mode the person picked — through
+	 * the same `applyPermissionMode` Shift+Tab uses. Approving also writes the
+	 * plan into the transcript; "keep planning" with words leaves those words.
+	 */
+	const askPlanApproval = useCallback<PlanApprovalFn>(
+		(request, signal) =>
+			new Promise<PlanApprovalAnswer>((resolve) => {
+				if (signal?.aborted) {
+					resolve({ kind: 'keep-planning' })
+					return
+				}
+				closeLiveReply()
+				const finish = (answer: PlanApprovalAnswer) => {
+					signal?.removeEventListener('abort', onAbort)
+					// The box answers from its own key handler, which Ink calls before
+					// App's; clearing the ref now would hand the same Esc to App as an
+					// interrupt of the turn this answer is for.
+					queueMicrotask(() => {
+						if (planPromptRef.current === entry) setPlanPrompt(null)
+					})
+					if (answer.kind === 'approve') {
+						applyPermissionMode(answer.mode, false)
+						pushMessage(
+							'system',
+							`Plan approved · ${permissionModeLabel(answer.mode)}`,
+							false,
+							'✓',
+							[`Saved to ${request.planPath}`, '', ...request.plan.trimEnd().split('\n')],
+						)
+					} else if (answer.feedback) {
+						// The tool's own row already says the plan was not approved.
+						pushMessage('system', `Changes asked for · ${answer.feedback}`)
+					}
+					resolve(answer)
+				}
+				const entry = { request, resolve: finish }
+				const onAbort = () => finish({ kind: 'keep-planning' })
+				signal?.addEventListener('abort', onAbort, { once: true })
+				setPlanPrompt(entry)
+				sendTerminalNotification({ kind: 'approval-required' })
+			}),
+		[applyPermissionMode, closeLiveReply, pushMessage, sendTerminalNotification, setPlanPrompt],
 	)
 	const submitChildMessage = useCallback(
 		async (viewId: string, text: string) => {
@@ -8172,6 +8252,8 @@ export function App({
 							currentPermissionMode: () => permissionModeRef.current,
 						},
 						onQuestion: askQuestion,
+						onPlanExit: askPlanApproval,
+						bypassAvailable: () => bypassAvailableRef.current,
 						onModelSwitch: requestModelSwitch,
 						inboundMessages: () => {
 							const operatorMessages = inbox.drain()
@@ -11083,7 +11165,10 @@ export function App({
 			// The save-skill screen owns its keys, Esc and Ctrl+C included: neither
 			// may interrupt the turn that is waiting on its answer. A permission
 			// request (an agent's, say) takes the screen over it and gets the keys.
-			if ((saveSkillPromptRef.current || scheduleReviewPromptRef.current) && permission === null)
+			if (
+				(saveSkillPromptRef.current || planPromptRef.current || scheduleReviewPromptRef.current) &&
+				permission === null
+			)
 				return
 			// Startup has refused admission, so there is no draft or active turn to
 			// protect with the ready screen's two-press exit ladder.
@@ -12119,6 +12204,7 @@ export function App({
 		permission !== null ||
 		scheduleReviewPrompt !== null ||
 		saveSkillPrompt !== null ||
+		planPrompt !== null ||
 		agentSurface !== null ||
 		jobSurface !== null ||
 		textPrompt !== null ||
@@ -12358,6 +12444,7 @@ export function App({
 									permission === null &&
 									textPrompt === null &&
 									saveSkillPrompt === null &&
+									planPrompt === null &&
 									scheduleReviewPrompt === null
 								}
 								thinking={thinking}
@@ -12368,6 +12455,7 @@ export function App({
 									permission !== null ||
 									textPrompt !== null ||
 									saveSkillPrompt !== null ||
+									planPrompt !== null ||
 									scheduleReviewPrompt !== null
 								}
 							/>
@@ -12421,6 +12509,16 @@ export function App({
 								columns={Math.max(1, (terminal.columns ?? 80) - 2)}
 								rows={terminal.rows}
 								onAnswer={saveSkillPrompt.resolve}
+							/>
+						) : null}
+						{planPrompt && permission === null && scheduleReviewPrompt === null ? (
+							<PlanApprovalOverlay
+								key={planPrompt.request.plan}
+								request={planPrompt.request}
+								columns={Math.max(1, (terminal.columns ?? 80) - 2)}
+								rows={terminal.rows}
+								onAnswer={planPrompt.resolve}
+								onInterrupt={interruptTurn}
 							/>
 						) : null}
 						{scheduleReviewPrompt && permission === null ? (
@@ -12515,6 +12613,7 @@ export function App({
 								choicePicker === null &&
 								copyPicker === null &&
 								saveSkillPrompt === null &&
+								planPrompt === null &&
 								scheduleReviewPrompt === null &&
 								!scrollOpen &&
 								!childSurfaceOpen
@@ -12522,6 +12621,7 @@ export function App({
 							hidden={
 								permission !== null ||
 								saveSkillPrompt !== null ||
+								planPrompt !== null ||
 								scheduleReviewPrompt !== null ||
 								textPrompt !== null ||
 								choicePicker !== null ||
@@ -12552,6 +12652,7 @@ export function App({
 								hidden={
 									permission !== null ||
 									saveSkillPrompt !== null ||
+									planPrompt !== null ||
 									scheduleReviewPrompt !== null ||
 									textPrompt !== null ||
 									choicePicker !== null ||

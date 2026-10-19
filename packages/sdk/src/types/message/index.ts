@@ -358,6 +358,7 @@ export const RUNTIME_CONTEXT_MESSAGE_KINDS = [
 	'limit-finalization',
 	'peer-message',
 	'peer-notice',
+	'reminder',
 	'repeat-call',
 	'steering',
 	'step-context',

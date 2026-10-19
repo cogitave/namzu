@@ -653,6 +653,8 @@ export class IterationOrchestrator {
 						yield* this.ctx.drainPending()
 					}
 
+					if (!forceFinalize) await this.deliverReminders(iterationNum)
+
 					// Re-pin the working-memory block from ground truth at the primacy
 					// edge BEFORE compaction runs (so the refreshed slot is what
 					// compaction preserves). No-op when no provider is configured.
@@ -2117,6 +2119,39 @@ export class IterationOrchestrator {
 		const manager = this.ctx.workingStateManager
 		if (arriving && manager) {
 			extractFromUserMessage(manager, message.content, !manager.getState().task)
+		}
+	}
+
+	/**
+	 * Ask the host's reminder source (`QueryParams.reminders`) what the model
+	 * should be told before this request, and append each text as a hidden
+	 * user-role message. The start of a request is a provider-valid boundary:
+	 * the history ends in the operator's message or in a finished tool batch.
+	 * A source that throws has nothing to say; it never fails the turn.
+	 */
+	private async deliverReminders(iteration: number): Promise<void> {
+		const source = this.ctx.reminders
+		if (!source) return
+		const { recorder } = this.ctx
+		let texts: readonly string[] | undefined
+		try {
+			texts = await source({
+				sessionId: recorder.sessionId,
+				turnId: recorder.turnId,
+				iteration,
+				messages: recorder.messages,
+			})
+		} catch (error) {
+			this.ctx.log.warn('A reminder source threw; the request goes without its reminders', {
+				[NAMZU.TURN_ID]: recorder.turnId,
+				[NAMZU.ITERATION]: iteration,
+				'exception.message': error instanceof Error ? error.message : String(error),
+			})
+			return
+		}
+		for (const text of texts ?? []) {
+			if (text.trim().length === 0) continue
+			recorder.pushMessage(createRuntimeContextMessage(text, 'reminder'))
 		}
 	}
 

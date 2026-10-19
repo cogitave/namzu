@@ -374,6 +374,16 @@ export interface ReviewPolicyOptions {
 	 * `capturesScreen` declaration, read from `registry`; nothing without one.
 	 */
 	readonly capturesScreen?: (name: string, input: unknown) => boolean
+	/**
+	 * The one write `plan` mode lets through: a host that gives plan mode a plan
+	 * file says here which call writes it. In `plan`, a call this accepts is not
+	 * a change — it is neither refused nor asked about — unless a rule asked to
+	 * review it, in which case it is put to the person like a read outside the
+	 * roots. Every other write stays refused. Omitted (the default), `plan`
+	 * refuses every change, as it always has; the option does nothing in any
+	 * other mode.
+	 */
+	readonly planModeWrite?: (call: ToolCallSummary) => boolean
 }
 
 /**
@@ -474,7 +484,16 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 			if (answer.kind === 'approve-all') remembered.all = true
 			answered = answer
 		}
-		if (!batchNeedsReview(request.toolCalls, exempt)) {
+		// The plan file, in `plan`: the one write that is not a change. A rule
+		// that asked for review keeps the call in the batch, so it is asked.
+		const isPlanFileWrite = (tc: ToolCallSummary): boolean =>
+			mode === 'plan' &&
+			options.planModeWrite?.(tc) === true &&
+			tc.authorization?.decision !== 'deny'
+		const reviewable = request.toolCalls.filter(
+			(tc) => !(isPlanFileWrite(tc) && !tc.authorization?.explicitReview),
+		)
+		if (!batchNeedsReview(reviewable, exempt)) {
 			return { action: 'approve_tools' }
 		}
 		// A batch of nothing but non-destructive file edits is the case
@@ -502,7 +521,13 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 		// to do, and the question such a path gets is the same in every mode that
 		// lets reads run. It goes on to that question below; `strict` still
 		// refuses it, since no rule can approve a path outside the roots.
-		if (mode === 'plan' && !onlyReadsOutsideRoots(request.toolCalls, exempt)) {
+		if (
+			mode === 'plan' &&
+			!onlyReadsOutsideRoots(
+				reviewable.filter((tc) => !isPlanFileWrite(tc)),
+				exempt,
+			)
+		) {
 			return { action: 'reject_tools', feedback: PLAN_MODE_REFUSAL }
 		}
 		if (mode === 'strict') return { action: 'reject_tools', feedback: STRICT_MODE_REFUSAL }

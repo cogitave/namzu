@@ -27,3 +27,15 @@ export {
 	CODING_AGENT_WORKING_DOCTRINE as NAMZU_WORKING_DOCTRINE,
 	PLAN_MODE_DOCTRINE as NAMZU_PLAN_MODE_DOCTRINE,
 } from '@namzu/sdk'
+
+/**
+ * Plan mode in a session that has the plan file and `exit_plan_mode` (the
+ * interactive terminal). The kernel's `PLAN_MODE_DOCTRINE` tells a host with
+ * neither to reply with the plan and stop; this one tells the model the plan
+ * goes in a file and is put up with the tool. The detail — the path, the
+ * steps — rides in the plan-mode reminder, which is also what covers a switch
+ * made while a reply is already running.
+ */
+export const NAMZU_PLAN_FILE_DOCTRINE = `## Plan mode
+
+You are in plan mode. Read, search and think; the only file you may change is the plan file named in the plan-mode reminder. Any other \`edit\`, \`write\` or shell command that changes state will be refused. Write the plan into the plan file, then call \`exit_plan_mode\` so the user can approve it; do not ask for approval in plain text. If the user sends you back with feedback, revise the plan file and call it again.`

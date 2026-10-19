@@ -57,6 +57,7 @@ rewritten.
             ├── checkpoints/          <checkpoint-id>.json
             ├── budgets/              <root-turn-id>.json (root sessions only)
             ├── tasks/                <task-id>.json
+            ├── plans/                plan.md, the one file plan mode may write
             ├── feedback/             <message-id>.json and .revisions/
             ├── goals/                <goal-id>.json
             ├── file-history/         /restore snapshots
@@ -79,6 +80,7 @@ It is not a session or a filesystem sandbox.
 | `<session-id>/checkpoints/` | Resume points, each committed by a record in the log. The CLI keeps each turn's newest 10. | Deleting one makes that point unresumable; the log is unaffected. |
 | `<session-id>/budgets/` | The token ledger of each root turn and the child sessions it spawned. | Only for a turn that will not be resumed. |
 | `<session-id>/tool-results/` | Bodies too large for one log record, each with a manifest; the record names the file and its hash. | No: the record that points at it becomes unreadable. |
+| `<session-id>/plans/plan.md` | The plan the model wrote in plan mode, kept after it is approved. See [Plan mode](plan-mode.md). | Deleting loses the plan; the conversation shows it as approved. |
 | `<session-id>/tasks/`, `goals/`, `feedback/` | Durable task list, goals and message feedback for the session. | Deleting loses them. |
 | `<session-id>/file-history/` | Copies of files taken before a tool changed them, for `/restore`. | Deleting disables `/restore` for that session. |
 | `<session-id>/lease.json` | The current writer's claim and fencing token. A process stopped by SIGTERM, SIGHUP or SIGINT releases it before it exits; one killed outright (SIGKILL, a crash) holds it until it expires, at most five minutes, and then it is taken over, so a session is never locked for good. | Not while a process is using the session. |
